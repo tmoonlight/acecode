@@ -43,4 +43,15 @@ ResolvedQuestionPolicy resolve_question_policy(
     bool policy_explicit,
     int configured_timeout_seconds);
 
+// P2-08 自 cli/interactive_options 拆入:TUI 入口与 daemon CLI 共用的 --question-policy 取值解析,
+// daemon 不该为它依赖 cli 模块;会话注册表里同名的重复实现由 split-agent-loop 的 A-02 删除。
+// 解析 "--question-policy" 的取值("ask" / "deny" / "timeout" /
+// "timeout:N",N ∈ [5, 3600])。成功返回 true 并填 policy / timeout_seconds
+// (无冒号秒数时 timeout_seconds 置 0);失败返回 false 并填 error。
+// 抽成独立函数供 TUI 与 daemon CLI 共用 + 单测直接覆盖。
+bool parse_question_policy_value(const std::string& value,
+                                 std::string& policy,
+                                 int& timeout_seconds,
+                                 std::string& error);
+
 } // namespace acecode

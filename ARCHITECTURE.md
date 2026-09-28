@@ -122,12 +122,12 @@ flowchart TB
 | Area | Ownership |
 | --- | --- |
 | [main.cpp](main.cpp) | TUI entry point, CLI option parsing for interactive mode, provider/tool setup, FTXUI event loop, and terminal-specific UI wiring. |
-| [src/agent_loop.cpp](src/agent_loop.cpp) and [src/agent_loop.hpp](src/agent_loop.hpp) | Multi-turn agent state machine, streaming callbacks, tool-call loop, cancellation, max-iteration handling, and completion semantics. |
+| [src/agent/agent_loop.cpp](src/agent/agent_loop.cpp) and [src/agent/agent_loop.hpp](src/agent/agent_loop.hpp) | Multi-turn agent state machine, streaming callbacks, tool-call loop, cancellation, max-iteration handling, and completion semantics. |
 | [src/provider/](src/provider) | `LlmProvider` implementations, provider factory/swap logic, Copilot auth integration, OpenAI-compatible streaming, model profiles, and context-window resolution. |
 | [src/tool/](src/tool) | Tool registry, built-in tools, tool result metadata, summaries, MCP bridge, skills tools, memory tools, and optional web-search tool. |
 | [src/permissions/permissions.hpp](src/permissions/permissions.hpp) | Permission modes and glob-style tool/path allow rules. |
 | [src/session/](src/session) | Session JSONL persistence, metadata sidecars, replay, resume restore, rewind checkpoints, daemon session registry, and event dispatch. |
-| [src/commands/](src/commands) | Slash command registry and built-in command implementations. |
+| [src/tui/commands/](src/tui/commands) | Slash command registry and built-in command implementations. |
 | [src/config/](src/config) | Config load/save/validation, saved model profiles, and default schema behavior. |
 | [src/skills/](src/skills) | Skill discovery, command registration, lazy skill body loading, default skill seeding, and skill invocation hints. |
 | [src/memory/](src/memory) | Persistent user memory registry and memory file lifecycle. |
@@ -136,7 +136,7 @@ flowchart TB
 | [src/daemon/](src/daemon) | Foreground/detached/service daemon launch, runtime files, heartbeat, process supervision, and worker lifecycle. |
 | [src/web/](src/web) | HTTP routes, WebSocket envelopes, payload codecs, auth, static assets, and web-specific handlers. |
 | [src/desktop/](src/desktop) | Workspace registry, daemon pool, native webview host, tray, notifications, and desktop bridge. |
-| [src/tui/](src/tui) and [src/markdown/](src/markdown) | Reusable TUI helpers, markdown rendering, overlays, progress rendering, scroll helpers, and terminal render mode helpers. |
+| [src/tui/](src/tui) and [src/tui/markdown/](src/tui/markdown) | Reusable TUI helpers, markdown rendering, overlays, progress rendering, scroll helpers, and terminal render mode helpers. |
 | [src/network/](src/network) | Proxy resolution, proxy probing, and shared networking configuration. |
 | [src/utils/](src/utils) | Shared filesystem, encoding, logging, state, token, UUID, hashing, stream, and terminal helpers. |
 | [tests/](tests) | GoogleTest coverage for headless logic through `acecode_testable`. |
@@ -208,7 +208,7 @@ Memory writes are path-locked to the memory directory even when broader permissi
 
 ## Extension Points
 
-- Add a slash command under [src/commands/](src/commands), then register it in the command registry.
+- Add a slash command under [src/tui/commands/](src/tui/commands), then register it in the command registry.
 - Add a tool under [src/tool/](src/tool), return structured `ToolResult` metadata when useful, and register it where TUI/daemon tools are initialized.
 - Add provider behavior under [src/provider/](src/provider), keeping model profile and context-resolution rules centralized.
 - Add daemon routes under [src/web/handlers/](src/web/handlers) and register them in [src/web/server.cpp](src/web/server.cpp).

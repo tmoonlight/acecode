@@ -72,7 +72,7 @@ endif()
 
 # Generate version header from CMake project version
 configure_file(
-    ${CMAKE_SOURCE_DIR}/src/version.hpp.in
+    ${CMAKE_SOURCE_DIR}/cmake/version.hpp.in
     ${CMAKE_BINARY_DIR}/generated/version.hpp
     @ONLY
 )
@@ -178,8 +178,7 @@ acecode_assert_known_roots(ALLOW_LEGACY SOURCES
 # 目录集合与 testable 子集分开登记。P2 将模块移进 tui/ 时沿用这些边界，
 # P3 只修改目录根；不要让正则失配把整套 TUI 静默送进 acecode_testable。
 set(ACECODE_TUI_DIRS
-    ${CMAKE_SOURCE_DIR}/src/tui
-    ${CMAKE_SOURCE_DIR}/src/markdown)
+    ${CMAKE_SOURCE_DIR}/src/tui)
 set(ACECODE_TUI_TESTABLE_SUBSETS
     commands/ resume/ path_reference/ markdown/
     drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp)
@@ -308,11 +307,11 @@ endforeach()
 # sidebar renderer are used by main.cpp plus unit tests, so compile them once in
 # acecode_testable and remove them from the TUI-only source group.
 set(ACECODE_TESTABLE_TUI_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/markdown/markdown_formatter.cpp
-    ${CMAKE_SOURCE_DIR}/src/markdown/markdown_lexer.cpp
-    ${CMAKE_SOURCE_DIR}/src/markdown/mermaid_renderer.cpp
-    ${CMAKE_SOURCE_DIR}/src/markdown/link_safety.cpp
-    ${CMAKE_SOURCE_DIR}/src/markdown/syntax_highlight.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/markdown/markdown_formatter.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/markdown/markdown_lexer.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/markdown/mermaid_renderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/markdown/link_safety.cpp
+    ${CMAKE_SOURCE_DIR}/src/tui/markdown/syntax_highlight.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/ask_question_controller.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/ask_question_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/tui/ask_question_layout.cpp
@@ -593,7 +592,7 @@ source_group(TREE ${CMAKE_SOURCE_DIR} FILES
     ${ACECODE_MAIN_SOURCE}
     ${ACECODE_ALL_SOURCES}
     ${ACECODE_HEADER_FILES}
-    ${CMAKE_SOURCE_DIR}/src/version.hpp.in
+    ${CMAKE_SOURCE_DIR}/cmake/version.hpp.in
 )
 
 source_group("generated" FILES

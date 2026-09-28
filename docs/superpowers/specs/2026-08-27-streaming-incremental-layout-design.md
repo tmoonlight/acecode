@@ -108,8 +108,8 @@ on_delta(token)
 | 层 | 测试点 | 位置 |
 |---|---|---|
 | L1 | 缓存命中/未命中(键=revision+content+宽度+主题);宽度/主题/expanded 切换失效;链接区域重放坐标正确 | `tests/tui/` 新增 |
-| L2 | 行级冻结(单段长段落按行拆分);代码围栏闭合前整体保留尾部;reset 时机;宽度/主题键 | `tests/markdown/` 新增 |
-| L3 | 可续 lexer 属性测试 `append(d1)+append(d2)==lex(full)`;围栏/列表/标题/表格/引用/超长行边界 | `tests/markdown/` 新增 |
+| L2 | 行级冻结(单段长段落按行拆分);代码围栏闭合前整体保留尾部;reset 时机;宽度/主题键 | `tests/tui/markdown/` 新增 |
+| L3 | 可续 lexer 属性测试 `append(d1)+append(d2)==lex(full)`;围栏/列表/标题/表格/引用/超长行边界 | `tests/tui/markdown/` 新增 |
 
 ### 基准脚本(验收依据)
 - **C++ 侧基准(实际测量)**:新增一个可重复的 C++ 基准(单测式 harness,可在 `tests/` 下用 `--benchmark` 或独立二进制运行),直接测量 `format_markdown`(全量)与增量路径(`LexerState.append` + StreamingFormatter)的**单帧 lex+构建耗时 vs 累计内容长度**曲线。

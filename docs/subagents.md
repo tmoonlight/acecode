@@ -200,7 +200,7 @@ TuiState overlay,工具线程 wait ask_cv 天然带回结果)。只需两点:入
 | 文件 | 覆盖 |
 |---|---|
 | `tests/session_host/spawn_subagent_tool_test.cpp` | deps 缺失 / 空 prompt / fire-and-forget / 深度拒绝 / wait 全链路 / parent 持久化(ChildRecordsParentSessionId)/ resume 恢复身份(ResumeRestoresSubagentIdentityFromMeta)/ wait_subagent / worktree 与写边界继承(ChildSharesParentWorktreeWithWriteBoundary)/ LOOP 策略继承 / ChildFailed / 主 checkout 监视(WaitReportsMainCheckoutChangesMadeWhileChildRan)|
-| `tests/agent_loop/agent_loop_tool_lifecycle_events_test.cpp` | Yolo worktree 会话写边界(文件工具 / 继承 write_root / shell 写守卫) |
+| `tests/agent/agent_loop_tool_lifecycle_events_test.cpp` | Yolo worktree 会话写边界(文件工具 / 继承 write_root / shell 写守卫) |
 | `tests/worktree/worktree_tool_test.cpp` + `worktree_meta_roundtrip_test.cpp` | 继承 worktree 拒绝 Enter/Exit;meta `inherited` 往返与省略 |
 | `tests/loop/loop_scheduler_test.cpp` + `loop_store_test.cpp` | `detect_workspace_touched` 真实 git;`workspace_touched` 持久化与 v3 迁移 |
 | `tests/project_instructions/instructions_loader_test.cpp` | linked worktree 根止步(主 checkout 的 AGENTS.md 不再重复加载) |

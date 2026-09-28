@@ -7,7 +7,7 @@
 
 #include "management_center.hpp"
 
-#include "commands/command_registry.hpp"
+#include "tui/commands/command_registry.hpp"
 #include "config/config_mutation.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_registry.hpp"

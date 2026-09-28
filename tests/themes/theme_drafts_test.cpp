@@ -2,7 +2,7 @@
 #include "themes/theme_drafts.hpp"
 #include "image/image_processor.hpp"
 #include "tui/tui_ask_channel.hpp"
-#include "tui_state.hpp"
+#include "tui/tui_state.hpp"
 #include "utils/sha256.hpp"
 #include "utils/utf8_path.hpp"
 

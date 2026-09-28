@@ -29,7 +29,7 @@ Files:
 
 - `src/hooks/hook_runtime.hpp`
 - `src/hooks/hook_runtime.cpp`
-- `src/agent_loop.cpp`
+- `src/agent/agent_loop.cpp`
 
 `PermissionResolved` is emitted exactly once after a previously dispatched
 `PermissionRequest` is finalized. It runs before the approved tool starts or

@@ -2,9 +2,9 @@
 
 #include "skills/skill_activation.hpp"
 #include "skills/skill_registry.hpp"
-#include "agent_loop.hpp"
-#include "commands/command_registry.hpp"
-#include "tui_state.hpp"
+#include "agent/agent_loop.hpp"
+#include "tui/commands/command_registry.hpp"
+#include "tui/tui_state.hpp"
 #include "utils/logger.hpp"
 
 #include <mutex>

@@ -2,7 +2,7 @@
 #include "apply_model_to_session.hpp"
 
 #include "config/saved_models_revision.hpp"
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "session/session_manager.hpp"
 
 #include <memory>

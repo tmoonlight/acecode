@@ -63,7 +63,7 @@
 #include "web/handlers/side_chat_handler.hpp"
 #include "web/handlers/skills_handler.hpp"
 #include "skills/skill_init.hpp"
-#include "message_payload.hpp"
+#include "agent/event_payload/message_payload.hpp"
 #include "pty/pty_session_registry.hpp"
 #include "version.hpp"
 

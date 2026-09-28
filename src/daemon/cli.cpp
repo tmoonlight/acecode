@@ -5,7 +5,7 @@
 #include "ipc/runtime_files.hpp"
 #include "startup_diagnostics.hpp"
 #include "worker.hpp"
-#include "cli/interactive_options.hpp"
+#include "tool/question_policy.hpp"
 #include "config/config.hpp"
 #include "hooks/hook_manager.hpp"
 #include "skills/default_skill_seeder.hpp"

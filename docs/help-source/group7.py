@@ -25,14 +25,14 @@ PAGES = {
 
 "architecture": page("ACECode 由共享智能体核心和多个使用入口组成。理解状态归属，有助于把修改放在正确模块。", [
     section("surfaces", "入口与核心职责",
-        table(["模块", "当前源码位置", "职责"], [["终端 TUI", "<code>src/main.cpp</code>、<code>src/tui/</code>", "终端输入、渲染、交互确认和本地会话。"], ["无界面 CLI", "<code>src/headless/</code>", "参数、单轮执行、输出与退出状态。"], ["后台", "<code>src/daemon/</code>", "进程生命周期、会话托管与运行身份。"], ["HTTP / WebSocket", "<code>src/web/</code>", "路由、请求解析、响应与事件传输。"], ["Web 前端", "<code>web/src/</code>", "任务界面、设置、消息与面板状态。"], ["桌面壳", "<code>src/desktop/</code>", "原生 WebView、后台托管和平台桥接。"], ["智能体循环", "<code>src/agent_loop.cpp</code>", "模型请求、工具回合、进度与终态。"], ["共享能力", "<code>src/session/</code>、<code>src/provider/</code>、<code>src/tool/</code>", "会话持久化、模型适配和工具执行。"]]),
+        table(["模块", "当前源码位置", "职责"], [["终端 TUI", "<code>src/cli/main.cpp</code>、<code>src/tui/</code>", "终端输入、渲染、交互确认和本地会话。"], ["无界面 CLI", "<code>src/headless/</code>", "参数、单轮执行、输出与退出状态。"], ["后台", "<code>src/daemon/</code>", "进程生命周期、会话托管与运行身份。"], ["HTTP / WebSocket", "<code>src/web/</code>", "路由、请求解析、响应与事件传输。"], ["Web 前端", "<code>web/src/</code>", "任务界面、设置、消息与面板状态。"], ["桌面壳", "<code>src/desktop/</code>", "原生 WebView、后台托管和平台桥接。"], ["智能体循环", "<code>src/agent/agent_loop.cpp</code>", "模型请求、工具回合、进度与终态。"], ["共享能力", "<code>src/session/</code>、<code>src/provider/</code>、<code>src/tool/</code>", "会话持久化、模型适配和工具执行。"]]),
         '''<p>TUI 可以直接使用共享核心；桌面与 Web 通过后台管理会话。桌面原生浏览器和文件窗口通过桥接接入，不意味着所有浏览器客户端都具备同样能力。</p>''',
         figure("DV-01", "ACECode 运行架构图", "后续绘制真实架构图：TUI 与 CLI 连接共享核心，桌面/Web 连接 daemon，daemon 连接 SessionRegistry、AgentLoop、Provider、Tools 与持久化；标出桌面原生桥接。")),
     section("turn", "一次任务如何流转",
         '''<ol><li>入口接收用户输入与上下文，并定位目标会话和工作目录。</li><li>保存用户消息，按当前模型绑定构造请求。</li><li>Provider 将统一消息转换为对应服务协议，并返回文本、推理或工具调用。</li><li>工具经过权限与运行条件检查后执行，结果追加到会话。</li><li>智能体根据结果继续下一次模型调用，或生成最终回复。</li><li>终态、用量与消息通过事件更新前端，持久记录用于后续恢复。</li></ol><p>用户界面中的“排队成功”只是输入被接受，任务完成还需要观察对应回合的终态。模型重试和上下文压缩也会产生状态变化，不能把每一次 busy 变化都视为成功完成。</p>'''),
     section("boundaries", "修改时保持的边界",
         '''<p>可复用的解析、校验和状态机放在对应共享模块，不把终端渲染对象带入后台接口。HTTP 处理应复用路由解析与错误响应辅助函数，模型变更应经过当前会话模型绑定路径。</p><p>Web 源码在 web/src，构建结果由工具生成。后台会话状态与前端临时草稿分开维护；文件修改又有独立的磁盘副作用，不能只更新界面就视作状态持久化。</p><p>新增行为需要检查 TUI、CLI、Web 和桌面是否使用了不同入口。协议变化同步维护 API 说明，关键持久字段补兼容性验证。</p>''')
-], ["ARCHITECTURE.md", "CMakeLists.txt", "src/main.cpp", "src/agent_loop.cpp", "src/session_host/session_registry.cpp", "src/tool/tool_executor.hpp", "src/provider/session_model_binding.hpp"]),
+], ["ARCHITECTURE.md", "CMakeLists.txt", "src/cli/main.cpp", "src/agent/agent_loop.cpp", "src/session_host/session_registry.cpp", "src/tool/tool_executor.hpp", "src/provider/session_model_binding.hpp"]),
 
 "daemon": page("独立 daemon 提供 HTTP 与 WebSocket 服务。根据个人后台、调试或系统服务场景选择生命周期。", [
     section("lifecycle", "启动、查看与停止",
@@ -82,7 +82,7 @@ PAGES = {
         '''<p>激活消息 channel.activate 包含 protocol_version、session_id、入站 URL、认证头与 Token、出站偏好和 settings。插件完成自身准备后返回连接状态及 Webhook 地址：</p>''',
         code('{\n  "type": "channel.status",\n  "state": "connected",\n  "already_running": false,\n  "binding_token": "opaque-current-binding",\n  "outbound": {\n    "mode": "webhook",\n    "url": "http://127.0.0.1:39001/messages"\n  }\n}', "激活结果示例 · 地址必须由插件实际提供"),
         '''<p>激活应当幂等。可选 binding_token 必须为非空字符串，ACECode 会在对应 channel.deactivate 中原样回传。插件解除绑定时同时核对 session_id 与 binding_token，防止延迟清理误断开新连接。</p><p>旧插件可以不返回 binding_token；返回空串或非字符串会被视为非法状态。daemon 正常关闭会保留托管绑定以便恢复，显式 /rc off 才走当前绑定的解除流程。不能把一次辅助进程退出等同于渠道服务已经永久关闭。</p><p>测试至少覆盖重复激活、失败返回、超时、同会话重新绑定、迟到解除和认证错误。协议细节见<a href="https://github.com/tmoonlight/acecode/blob/master/docs/channel-plugin-protocol.md" target="_blank" rel="noopener noreferrer">渠道插件协议</a>；用户配置入口见<a href="channels.html">消息渠道与远程控制</a>。</p>''')
-], ["src/tool/tool_executor.hpp", "src/tool/task_complete_tool.cpp", "src/tool/builtin_tool_registry.hpp", "src/commands/command_registry.hpp", "src/web/handlers/builtin_command_handler.cpp", "web/src/lib/builtinCommandRouting.js", "src/remote_control/channel_plugin.cpp", "docs/channel-plugin-protocol.md"]),
+], ["src/tool/tool_executor.hpp", "src/tool/task_complete_tool.cpp", "src/tool/builtin_tool_registry.hpp", "src/tui/commands/command_registry.hpp", "src/web/handlers/builtin_command_handler.cpp", "web/src/lib/builtinCommandRouting.js", "src/remote_control/channel_plugin.cpp", "docs/channel-plugin-protocol.md"]),
 
 "contributing": page("围绕一个明确问题提交聚焦的改动，保留现有行为边界，并提供能让维护者复现的验证结果。", [
     section("scope", "开始前明确范围",

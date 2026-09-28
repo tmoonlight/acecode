@@ -29,7 +29,7 @@ Canonical root docs are [README.md](README.md), [README_CN.md](README_CN.md), [A
 
 ## Architecture Boundaries
 
-- Keep TUI-specific code in [main.cpp](main.cpp), [src/tui/](src/tui), and [src/markdown/](src/markdown). Put reusable, testable logic in the relevant `src/<subsystem>/` area or a focused top-level `src/*.cpp` helper when that is the existing local pattern.
+- Keep TUI-specific code in [main.cpp](main.cpp), [src/tui/](src/tui), and [src/tui/markdown/](src/tui/markdown). Put reusable, testable logic in the relevant `src/<subsystem>/` area or a focused top-level `src/*.cpp` helper when that is the existing local pattern.
 - `acecode_testable` intentionally excludes the full TUI entry point and desktop WebView shell. Pure helpers can be added there and covered by unit tests.
 - Daemon/API work usually touches [src/daemon/](src/daemon), [src/web/](src/web), and [src/session/](src/session). Update [docs/daemon-api.md](docs/daemon-api.md) when protocol behavior changes.
 - React/Vite/Tailwind frontend work stays under [web/src/](web/src). Do not edit generated build output directly; regenerate it with the web build.
@@ -76,7 +76,7 @@ This is a terminal UI project. Avoid emoji or ambiguous-width glyphs in C++ sour
 
 ## Testing Guidelines
 
-Tests use GoogleTest through the `acecode_unit_tests` target. Add tests for pure logic, serializers, parsers, validators, handler helpers, and headless state machines. Keep TUI-heavy code in [src/tui/](src/tui), [src/markdown/](src/markdown), and [main.cpp](main.cpp) manually validated unless logic can be isolated.
+Tests use GoogleTest through the `acecode_unit_tests` target. Add tests for pure logic, serializers, parsers, validators, handler helpers, and headless state machines. Keep TUI-heavy code in [src/tui/](src/tui), [src/tui/markdown/](src/tui/markdown), and [main.cpp](main.cpp) manually validated unless logic can be isolated.
 
 Use `testing::TempDir()` or `std::filesystem::temp_directory_path()` for file I/O; do not write test artifacts into the repository tree. Prefer `EXPECT_*` unless failure would make later assertions unsafe.
 

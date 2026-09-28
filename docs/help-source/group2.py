@@ -29,7 +29,7 @@ PAGES = {
         '''<p><code>/model</code> 查看保存的模型，<code>/config</code> 打开设置中心。<code>/skills</code>、<code>/mcp</code>、<code>/tools</code>、<code>/hooks</code>、<code>/connectors</code> 打开能力中心对应页签。按底部提示操作，<kbd>Esc</kbd> 返回聊天。</p>''',
         code("acecode -r\nacecode --resume\nacecode --resume SESSION_ID", "终端 · 三种恢复方式，按需选择一条"),
         '''<p><code>-r</code> 打开选择器，裸 <code>--resume</code> 恢复最近会话，带 ID 则恢复指定会话。程序内也可使用 <code>/resume</code>。完整的键位与命令分类见<a href="reference.html">速查手册</a>。</p>''')
-], ["docs/user-manual.md", "src/commands/command_registry.cpp", "src/cli/interactive_options.cpp"]),
+], ["docs/user-manual.md", "src/tui/commands/command_registry.cpp", "src/cli/interactive_options.cpp"]),
 
 "cli": page("使用非交互的 print 模式执行一次任务，把结果交给脚本或流水线，同时保留可继续的会话。", [
     section("print", "执行一次任务",
@@ -112,7 +112,7 @@ PAGES = {
         '''<p>若要把某个受 Git 跟踪的文件恢复到提交版本，先备份仍需保留的修改，再使用 Git 工具恢复该文件。恢复前的 <code>git diff -- path/to/file</code> 能帮助判断会失去哪些未提交内容。恢复后重新检查状态并运行相关验证。</p>''',
         '''<h3>TUI 的检查点回退</h3><p>任务空闲时提交 <code>/rewind</code>（别名 <code>/checkpoint</code>），选择要回到的用户回合，再选择恢复代码、对话或两者。只有存在可用文件检查点的回合才提供代码恢复；旧记录可能只能恢复对话。</p><p>恢复对话会以选中消息之前的上下文创建新会话，并把该条请求放回输入框，原完整会话仍可从 /resume 打开。代码恢复以检查点记录的文件范围和返回结果为准，不能替代所有 Shell 命令或外部系统操作的撤销。恢复后检查实际文件差异，再决定重新发送。</p>''',
         note("区分会话恢复与代码回退", "普通恢复历史任务、桌面消息分叉不会自动撤销后来写入磁盘的内容。TUI 只有明确选择可用的代码恢复才会处理文件。恢复后向智能体说明新的文件状态，必要时让它重新读取。"))
-], ["web/src/components/GitChangesPanel.jsx", "web/src/components/GitChangeReview.jsx", "web/src/components/GitSessionPill.jsx", "web/src/lib/gitSessionPill.js", "docs/daemon-api.md", "src/commands/builtin_commands.cpp"]),
+], ["web/src/components/GitChangesPanel.jsx", "web/src/components/GitChangeReview.jsx", "web/src/components/GitSessionPill.jsx", "web/src/lib/gitSessionPill.js", "docs/daemon-api.md", "src/tui/commands/builtin_commands.cpp"]),
 
 "context-usage": page("查看当前上下文与实际用量，必要时压缩长对话，保留继续工作的关键信息。", [
     section("read", "理解用量数字",

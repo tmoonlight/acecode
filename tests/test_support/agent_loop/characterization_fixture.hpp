@@ -1,6 +1,6 @@
 #pragma once
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "hooks/hook_manager.hpp"

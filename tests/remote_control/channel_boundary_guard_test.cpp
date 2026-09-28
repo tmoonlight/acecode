@@ -52,12 +52,12 @@ TEST(ChannelBoundaryGuard, ProductSpecificIdentifierDoesNotEnterCoreSurfaces) {
     const fs::path root = acecode::test_support::find_repo_root(__FILE__);
     const std::vector<fs::path> scan_roots = {
         root / "src" / "remote_control",
-        root / "src" / "commands" / "remote_control_command.cpp",
-        root / "src" / "commands" / "remote_control_command.hpp",
+        root / "src" / "tui" / "commands" / "remote_control_command.cpp",
+        root / "src" / "tui" / "commands" / "remote_control_command.hpp",
         root / "src" / "config" / "config.cpp",
         root / "src" / "config" / "config.hpp",
         root / "tests" / "remote_control",
-        root / "tests" / "commands" / "remote_control_command_test.cpp",
+        root / "tests" / "tui" / "commands" / "remote_control_command_test.cpp",
         root / "tests" / "config",
         root / "README.md",
         root / "README_CN.md",

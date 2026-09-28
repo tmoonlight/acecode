@@ -1,0 +1,651 @@
+// 覆盖 resume 时把磁盘 OpenAI 规范 role 展开为 TUI 渲染期望的伪角色行的所有场景。
+// 这是 restore-tool-calls-on-resume 的读盘端核心:任何 role 翻译错误都会让
+// resume 后的对话视图与原会话对不上(空白行 / 整条消失 / 顺序错位)。
+//
+// 设计:替换 ToolExecutor 不需要 stub —— 我们只调静态方法 build_tool_call_preview,
+// 但函数签名要求一个 const ToolExecutor& 实例,所以本地构造默认实例即可。
+
+#include <gtest/gtest.h>
+
+#include "tui/resume/session_replay.hpp"
+#include "session/compact_notice.hpp"
+#include "session/file_checkpoint_store.hpp"
+#include "session/tool_metadata_codec.hpp"
+#include "session/turn_net_diff.hpp"
+#include "tool/ask_user_question_tool.hpp"
+#include "tool/tool_executor.hpp"
+#include "utils/diff_utils.hpp"
+#include "llm/llm_provider.hpp"
+#include "tui/tool_row_format.hpp"
+#include "tui/tui_state.hpp"
+
+#include <nlohmann/json.hpp>
+
+using acecode::ChatMessage;
+using acecode::DiffHunk;
+using acecode::DiffLine;
+using acecode::DiffLineKind;
+using acecode::ToolExecutor;
+using acecode::ToolSummary;
+using acecode::TuiState;
+using acecode::build_ask_user_question_result_metadata;
+using acecode::encode_tool_hunks;
+using acecode::encode_tool_summary;
+using acecode::replay_session_messages;
+
+namespace {
+
+// 用于构造规范 assistant + tool_calls 的辅助:返回一个符合 OpenAI schema 的
+// tool_calls JSON 数组(单个 tool call)。
+nlohmann::json one_tool_call(const std::string& id,
+                             const std::string& name,
+                             const std::string& args_json) {
+    nlohmann::json arr = nlohmann::json::array();
+    nlohmann::json tc;
+    tc["id"] = id;
+    tc["type"] = "function";
+    tc["function"]["name"] = name;
+    tc["function"]["arguments"] = args_json;
+    arr.push_back(std::move(tc));
+    return arr;
+}
+
+ToolSummary make_summary() {
+    ToolSummary s;
+    s.verb   = "Edited";
+    s.object = "src/foo.cpp";
+    s.metrics = {{"+", "1"}, {"-", "0"}};
+    s.icon   = "✎";
+    return s;
+}
+
+std::vector<DiffHunk> make_hunks() {
+    DiffHunk h;
+    h.old_start = 1; h.old_count = 1;
+    h.new_start = 1; h.new_count = 2;
+    DiffLine ctx;
+    ctx.kind = DiffLineKind::Context;
+    ctx.text = "ctx";
+    ctx.old_line_no = 1;
+    ctx.new_line_no = 1;
+    h.lines.push_back(ctx);
+    DiffLine add;
+    add.kind = DiffLineKind::Added;
+    add.text = "added";
+    add.new_line_no = 2;
+    h.lines.push_back(add);
+    return {h};
+}
+
+} // namespace
+
+// 用户消息不变换。
+TEST(SessionReplay, UserPassthrough) {
+    ChatMessage m;
+    m.role = "user";
+    m.content = "hi";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[0].content, "hi");
+    EXPECT_FALSE(out[0].is_tool);
+}
+
+// system 消息不变换。
+TEST(SessionReplay, SystemPassthrough) {
+    ChatMessage m;
+    m.role = "system";
+    m.content = "[Auto-compact] ...";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "system");
+    EXPECT_EQ(out[0].content, "[Auto-compact] ...");
+    EXPECT_FALSE(out[0].is_tool);
+}
+
+// A completed compact lifecycle is reconstructed as one collapsed row while
+// preserving every source notice in order for later expansion.
+TEST(SessionReplay, CompletedCompactNoticesRestoreAsOneCollapsedRow) {
+    const std::string notice_id = "019f85aa-3a00-7000-8000-000000000001";
+    auto notice = [&](const std::string& content,
+                      const std::string& stage,
+                      bool complete = false) {
+        ChatMessage message;
+        message.role = "system";
+        message.content = content;
+        message.metadata = acecode::make_compact_notice_metadata(
+            notice_id, stage, complete);
+        return message;
+    };
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({
+        notice("Compacting conversation...", "progress"),
+        notice("--- [Compact Checkpoint] ---", "checkpoint"),
+        notice("[Conversation summary]\nsummary body", "summary"),
+        notice("Heads up", "warning", true),
+    }, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "compact_notice");
+    EXPECT_EQ(out[0].compact_notice_id, notice_id);
+    EXPECT_TRUE(out[0].compact_notice_complete);
+    EXPECT_FALSE(out[0].expanded);
+    EXPECT_EQ(out[0].content,
+              "Compacting conversation...\n\n"
+              "--- [Compact Checkpoint] ---\n\n"
+              "[Conversation summary]\nsummary body\n\n"
+              "Heads up");
+}
+
+// A failed operation has no completion edge, so its progress and error remain
+// expanded instead of being presented as a successful collapsed row.
+TEST(SessionReplay, IncompleteCompactNoticesRemainExpanded) {
+    const std::string notice_id = "019f85aa-3a00-7000-8000-000000000002";
+    ChatMessage progress;
+    progress.role = "system";
+    progress.content = "Compacting conversation...";
+    progress.metadata = acecode::make_compact_notice_metadata(
+        notice_id, "progress");
+    ChatMessage error;
+    error.role = "system";
+    error.content = "provider unavailable";
+    error.metadata = acecode::make_compact_notice_metadata(
+        notice_id, "error");
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({progress, error}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "compact_notice");
+    EXPECT_FALSE(out[0].compact_notice_complete);
+    EXPECT_TRUE(out[0].expanded);
+    EXPECT_NE(out[0].content.find("provider unavailable"), std::string::npos);
+}
+
+// 纯文本 assistant,content 非空 + tool_calls 空 → 1 行 {assistant, content, false}。
+TEST(SessionReplay, AssistantTextOnly) {
+    ChatMessage m;
+    m.role = "assistant";
+    m.content = "hello world";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "assistant");
+    EXPECT_EQ(out[0].content, "hello world");
+    EXPECT_FALSE(out[0].is_tool);
+}
+
+// content 空 + tool_calls=1 → 1 行 tool_call 行,display_override 非空。
+TEST(SessionReplay, AssistantWithSingleToolCall) {
+    ChatMessage m;
+    m.role = "assistant";
+    m.content = "";
+    m.tool_calls = one_tool_call("c1", "bash", R"({"command":"ls"})");
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "tool_call");
+    EXPECT_EQ(out[0].content, R"([Tool: bash] {"command":"ls"})");
+    EXPECT_TRUE(out[0].is_tool);
+    EXPECT_EQ(out[0].display_override, "bash  ls");
+}
+
+// content="先看一下" + tool_calls=1 → 2 行,**文本在前 tool_call 在后**。
+// 验证视觉顺序与运行时 on_delta+on_message 的累积顺序一致。
+TEST(SessionReplay, AssistantWithTextAndToolCall) {
+    ChatMessage m;
+    m.role = "assistant";
+    m.content = "先看一下";
+    m.tool_calls = one_tool_call("c1", "file_read", R"({"file_path":"a.cpp"})");
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_EQ(out[0].role, "assistant");
+    EXPECT_EQ(out[0].content, "先看一下");
+    EXPECT_EQ(out[1].role, "tool_call");
+    EXPECT_TRUE(out[1].is_tool);
+    EXPECT_EQ(out[1].display_override, "file_read  a.cpp");
+}
+
+// tool_calls 长度 3 → 3 行 tool_call,顺序与数组一致,各自有独立 display_override。
+TEST(SessionReplay, AssistantWithParallelToolCalls) {
+    ChatMessage m;
+    m.role = "assistant";
+    m.content = "";
+    nlohmann::json arr = nlohmann::json::array();
+    auto push_tc = [&](const std::string& id, const std::string& name, const std::string& args) {
+        nlohmann::json tc;
+        tc["id"] = id;
+        tc["type"] = "function";
+        tc["function"]["name"] = name;
+        tc["function"]["arguments"] = args;
+        arr.push_back(std::move(tc));
+    };
+    push_tc("c1", "file_read", R"({"file_path":"a.cpp"})");
+    push_tc("c2", "file_read", R"({"file_path":"b.cpp"})");
+    push_tc("c3", "bash",      R"({"command":"echo hi"})");
+    m.tool_calls = arr;
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 3u);
+    EXPECT_EQ(out[0].display_override, "file_read  a.cpp");
+    EXPECT_EQ(out[1].display_override, "file_read  b.cpp");
+    EXPECT_EQ(out[2].display_override, "bash  echo hi");
+}
+
+// metadata.tool_summary 存在 → summary 字段被还原。
+TEST(SessionReplay, ToolMessageWithSummaryMetadata) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "Edited foo";
+    m.tool_call_id = "c1";
+    m.metadata = nlohmann::json::object();
+    m.metadata["tool_summary"] = encode_tool_summary(make_summary());
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "tool_result");
+    EXPECT_TRUE(out[0].is_tool);
+    ASSERT_TRUE(out[0].summary.has_value());
+    EXPECT_EQ(out[0].summary->verb, "Edited");
+    EXPECT_EQ(out[0].summary->object, "src/foo.cpp");
+    EXPECT_FALSE(out[0].hunks.has_value());
+}
+
+// canonical assistant(task_complete) + tool result 恢复后仍须保留精确工具身份，
+// 并从持久化 summary metric 取回 Markdown 原文，供 TUI 永久展开渲染。
+TEST(SessionReplay, TaskCompleteRestoresMarkdownPresentationIdentity) {
+    const std::string markdown =
+        "## Done\n\n- **Changed** TUI\n- Ran `tests`";
+
+    ChatMessage call;
+    call.role = "assistant";
+    call.tool_calls = one_tool_call(
+        "done-1", "task_complete",
+        R"({"summary":"## Done\n\n- **Changed** TUI\n- Ran `tests`"})");
+
+    ChatMessage result;
+    result.role = "tool";
+    result.tool_call_id = "done-1";
+    result.content = markdown;
+    ToolSummary summary;
+    summary.verb = "complete";
+    summary.object = "task";
+    summary.icon = "D";
+    summary.metrics = {{"summary", markdown}};
+    result.metadata["tool_summary"] = encode_tool_summary(summary);
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({call, result}, tools);
+
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_EQ(out[0].role, "tool_call");
+    EXPECT_EQ(out[1].role, "tool_result");
+    const auto names = acecode::tui::compute_tool_result_names(out);
+    ASSERT_EQ(names.size(), 2u);
+    EXPECT_EQ(names[1], "task_complete");
+    EXPECT_TRUE(acecode::tui::is_task_complete_result(out[1], names[1]));
+    EXPECT_EQ(
+        acecode::tui::task_complete_summary_markdown(out[1]),
+        markdown);
+}
+
+// metadata.tool_hunks 存在 → hunks 字段被还原。
+TEST(SessionReplay, ToolMessageWithHunksMetadata) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "Edited foo";
+    m.tool_call_id = "c1";
+    m.metadata = nlohmann::json::object();
+    m.metadata["tool_hunks"] = encode_tool_hunks(make_hunks());
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    ASSERT_TRUE(out[0].hunks.has_value());
+    EXPECT_EQ(out[0].hunks->size(), 1u);
+    EXPECT_FALSE(out[0].summary.has_value());
+}
+
+// 同时有 summary 和 hunks → 都被还原。
+TEST(SessionReplay, ToolMessageWithBothMetadata) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "ok";
+    m.metadata = nlohmann::json::object();
+    m.metadata["tool_summary"] = encode_tool_summary(make_summary());
+    m.metadata["tool_hunks"]   = encode_tool_hunks(make_hunks());
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    ASSERT_TRUE(out[0].summary.has_value());
+    ASSERT_TRUE(out[0].hunks.has_value());
+}
+
+// 老 session 没 metadata → tool_result 行的 summary/hunks 都为空(优雅降级)。
+TEST(SessionReplay, ToolMessageWithoutMetadataFallsBackToFold) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "raw output";
+    // metadata 默认 null
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "tool_result");
+    EXPECT_EQ(out[0].content, "raw output");
+    EXPECT_TRUE(out[0].is_tool);
+    EXPECT_FALSE(out[0].summary.has_value());
+    EXPECT_FALSE(out[0].hunks.has_value());
+}
+
+// AskUserQuestion tool output remains provider-facing English, but TUI resume
+// should restore the compact Q/A display from metadata.
+TEST(SessionReplay, AskUserQuestionMetadataRestoresDisplayText) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "User has answered your questions: \"Q1?\"=\"A1\"";
+    m.tool_call_id = "ask-1";
+    m.metadata = build_ask_user_question_result_metadata(
+        {"Q1?", "Q2?"},
+        {{"Q1?", "直接修改并补测试"}, {"Q2?", "onBeforeUnmount"}});
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "tool_result");
+    EXPECT_EQ(out[0].content,
+              "1. Q1?\xEF\xBC\x9A直接修改并补测试\n"
+              "\n"
+              "2. Q2?\xEF\xBC\x9AonBeforeUnmount");
+    EXPECT_TRUE(out[0].is_tool);
+    EXPECT_TRUE(out[0].ask_result);
+    EXPECT_FALSE(out[0].summary.has_value());
+    EXPECT_FALSE(out[0].hunks.has_value());
+}
+
+// 场景:旧会话把 AskUserQuestion 的通用参数摘要写在磁盘上。该摘要内嵌原始
+// 问题 schema(question/header/options/multiSelect),回放时必须丢弃它,
+// 只展示结构化问答结果,否则参数字段名会重新出现在转录里。
+TEST(SessionReplay, AskUserQuestionDropsLegacyArgumentSummary) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "User has answered your questions: \"Q1?\"=\"A1\"";
+    m.tool_call_id = "ask-1";
+    m.metadata = build_ask_user_question_result_metadata(
+        {"Q1?"}, {{"Q1?", "直接修改并补测试"}});
+    ToolSummary legacy;
+    legacy.verb = "AskUserQuestion";
+    legacy.icon = "*";
+    legacy.object =
+        R"([{"question":"Q1?","header":"方式","multiSelect":false,)"
+        R"("options":[{"label":"A","description":"a"}]}])";
+    m.metadata["tool_summary"] = encode_tool_summary(legacy);
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_TRUE(out[0].ask_result);
+    EXPECT_FALSE(out[0].summary.has_value());
+    EXPECT_EQ(out[0].content.find("multiSelect"), std::string::npos);
+    EXPECT_EQ(out[0].content.find("\"question\""), std::string::npos);
+    EXPECT_NE(out[0].content.find("Q1?"), std::string::npos);
+}
+
+TEST(SessionReplay, ToolMessageWithOutputAttachmentShowsTextFallback) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "generated";
+    m.content_parts = nlohmann::json::array({
+        {
+            {"type", "image"},
+            {"attachment", {
+                {"id", "att_img"},
+                {"session_id", "sid"},
+                {"name", "plot.png"},
+                {"kind", "image"},
+                {"mime_type", "image/png"},
+                {"path", "C:/tmp/plot.png"},
+                {"blob_url", "/api/sessions/sid/attachments/att_img/blob"},
+                {"size_bytes", 3},
+            }},
+        },
+    });
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "tool_result");
+    EXPECT_EQ(out[0].content, "generated\n[image: plot.png]");
+    EXPECT_TRUE(out[0].is_tool);
+}
+
+// metadata.tool_summary 类型错 → decode 返回 nullopt → 该字段为空,
+// **整个 replay 不崩溃**。
+TEST(SessionReplay, ToolMessageWithCorruptMetadataFallsBack) {
+    ChatMessage m;
+    m.role = "tool";
+    m.content = "ok";
+    m.metadata = nlohmann::json::object();
+    m.metadata["tool_summary"] = "not-an-object";    // 类型错
+    m.metadata["tool_hunks"]   = nlohmann::json::array({"not-a-hunk"});
+
+    ToolExecutor tools;
+    EXPECT_NO_THROW({
+        auto out = replay_session_messages({m}, tools);
+        ASSERT_EQ(out.size(), 1u);
+        EXPECT_FALSE(out[0].summary.has_value());
+        EXPECT_FALSE(out[0].hunks.has_value());
+        EXPECT_EQ(out[0].content, "ok"); // content 还在
+    });
+}
+
+// tool_calls[0].arguments 不是合法 JSON → display_override 空,
+// 但 tool_call 行仍 push,显示走 legacy `[Tool: X] ARGS_RAW`。
+TEST(SessionReplay, AssistantInvalidToolArgsFallsBack) {
+    ChatMessage m;
+    m.role = "assistant";
+    m.tool_calls = one_tool_call("c1", "bash", "this is not json");
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "tool_call");
+    EXPECT_TRUE(out[0].display_override.empty());
+    EXPECT_NE(out[0].content.find("[Tool: bash]"), std::string::npos);
+    EXPECT_NE(out[0].content.find("this is not json"), std::string::npos);
+}
+
+// 模拟一次 [user, assistant+tool_calls(2), tool, tool, assistant_text]
+// → 输出 [user, tool_call, tool_result, tool_call, tool_result, assistant]。
+// 调用/结果交错(redesign-tui-tool-rows):调用行攒在 pending 队列,等配对
+// 结果到来成对推出,与运行时 dispatch 顺序一致;不再是先 2 行调用再 2 行结果。
+TEST(SessionReplay, FullTurnSequence) {
+    std::vector<ChatMessage> in;
+
+    ChatMessage u;
+    u.role = "user";
+    u.content = "fix it";
+    in.push_back(u);
+
+    ChatMessage a_tc;
+    a_tc.role = "assistant";
+    nlohmann::json arr = nlohmann::json::array();
+    auto push_tc = [&](const std::string& id, const std::string& name, const std::string& args) {
+        nlohmann::json tc;
+        tc["id"] = id;
+        tc["type"] = "function";
+        tc["function"]["name"] = name;
+        tc["function"]["arguments"] = args;
+        arr.push_back(std::move(tc));
+    };
+    push_tc("c1", "file_read", R"({"file_path":"a.cpp"})");
+    push_tc("c2", "file_read", R"({"file_path":"b.cpp"})");
+    a_tc.tool_calls = arr;
+    in.push_back(a_tc);
+
+    ChatMessage t1;
+    t1.role = "tool";
+    t1.content = "contents of a.cpp";
+    t1.tool_call_id = "c1";
+    in.push_back(t1);
+
+    ChatMessage t2;
+    t2.role = "tool";
+    t2.content = "contents of b.cpp";
+    t2.tool_call_id = "c2";
+    in.push_back(t2);
+
+    ChatMessage a_text;
+    a_text.role = "assistant";
+    a_text.content = "I read both files. They look fine.";
+    in.push_back(a_text);
+
+    ToolExecutor tools;
+    auto out = replay_session_messages(in, tools);
+
+    ASSERT_EQ(out.size(), 6u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[1].role, "tool_call");
+    EXPECT_EQ(out[2].role, "tool_result");
+    EXPECT_EQ(out[3].role, "tool_call");
+    EXPECT_EQ(out[4].role, "tool_result");
+    EXPECT_EQ(out[5].role, "assistant");
+    // 配对正确性:c1 的调用行紧邻 c1 的结果行,c2 同理。
+    EXPECT_NE(out[1].content.find("a.cpp"), std::string::npos);
+    EXPECT_EQ(out[2].content, "contents of a.cpp");
+    EXPECT_NE(out[3].content.find("b.cpp"), std::string::npos);
+    EXPECT_EQ(out[4].content, "contents of b.cpp");
+}
+
+// 场景:回合被 abort,assistant 发起了 2 个 tool_calls 但只有第 1 个有结果,
+// 之后直接是下一条 user 消息。
+// 期望:c1 成对推出;孤儿 c2 的调用行在 user 之前补推(不丢行,渲染端
+// 配对逻辑会给它灰色 Pending 指示灯),绝不吃掉后续轮次的结果。
+TEST(SessionReplay, OrphanToolCallFlushedBeforeNextMessage) {
+    std::vector<ChatMessage> in;
+
+    ChatMessage a_tc;
+    a_tc.role = "assistant";
+    nlohmann::json arr = nlohmann::json::array();
+    auto push_tc = [&](const std::string& id, const std::string& name, const std::string& args) {
+        nlohmann::json tc;
+        tc["id"] = id;
+        tc["type"] = "function";
+        tc["function"]["name"] = name;
+        tc["function"]["arguments"] = args;
+        arr.push_back(std::move(tc));
+    };
+    push_tc("c1", "file_read", R"({"file_path":"a.cpp"})");
+    push_tc("c2", "bash", R"({"command":"ls"})");
+    a_tc.tool_calls = arr;
+    in.push_back(a_tc);
+
+    ChatMessage t1;
+    t1.role = "tool";
+    t1.content = "contents of a.cpp";
+    t1.tool_call_id = "c1";
+    in.push_back(t1);
+
+    ChatMessage u;
+    u.role = "user";
+    u.content = "算了,先别跑";
+    in.push_back(u);
+
+    ToolExecutor tools;
+    auto out = replay_session_messages(in, tools);
+
+    ASSERT_EQ(out.size(), 4u);
+    EXPECT_EQ(out[0].role, "tool_call");
+    EXPECT_NE(out[0].content.find("a.cpp"), std::string::npos);
+    EXPECT_EQ(out[1].role, "tool_result");
+    EXPECT_EQ(out[2].role, "tool_call");   // 孤儿 c2,user 之前补推
+    EXPECT_NE(out[2].content.find("ls"), std::string::npos);
+    EXPECT_EQ(out[3].role, "user");
+}
+
+// 未知 role 原样推入(向前兼容);role=="tool_result"(shell-mode 伪角色)
+// 落进未知分支时仍保 is_tool=true,这样老 session 的 shell 输出依然能渲染。
+TEST(SessionReplay, UnknownRolePassthrough) {
+    ChatMessage m1;
+    m1.role = "future_role";
+    m1.content = "x";
+
+    ChatMessage m2;
+    m2.role = "tool_result";
+    m2.content = "shell output";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({m1, m2}, tools);
+
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_EQ(out[0].role, "future_role");
+    EXPECT_EQ(out[0].content, "x");
+    EXPECT_FALSE(out[0].is_tool);
+
+    EXPECT_EQ(out[1].role, "tool_result");
+    EXPECT_EQ(out[1].content, "shell output");
+    EXPECT_TRUE(out[1].is_tool);
+}
+
+TEST(SessionReplay, FileCheckpointMetaMessagesAreHidden) {
+    acecode::FileCheckpointSnapshot snapshot;
+    snapshot.uuid = "snapshot";
+    snapshot.message_uuid = "user";
+    snapshot.timestamp = "2026-04-26T00:00:00Z";
+    ChatMessage checkpoint = acecode::FileCheckpointStore::encode_snapshot_message(snapshot);
+
+    ChatMessage user;
+    user.role = "user";
+    user.content = "visible";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({checkpoint, user}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[0].content, "visible");
+}
+
+TEST(SessionReplay, TurnNetDiffMetaMessagesAreHidden) {
+    acecode::TurnNetDiffRecord record;
+    record.user_message_uuid = "user";
+    ChatMessage turn_diff = acecode::make_turn_net_diff_message(
+        record, "2026-08-15T00:00:00Z");
+
+    ChatMessage user;
+    user.role = "user";
+    user.content = "visible";
+
+    ToolExecutor tools;
+    auto out = replay_session_messages({turn_diff, user}, tools);
+
+    ASSERT_EQ(out.size(), 1u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[0].content, "visible");
+}

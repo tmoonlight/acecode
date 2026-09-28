@@ -15,7 +15,7 @@
 //   - 全局 cwd
 //   - SkillRegistry / MemoryRegistry / 各种 *Config
 
-#include "agent_loop.hpp"
+#include "agent/agent_loop.hpp"
 #include "config/config.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"

@@ -36,7 +36,7 @@
     "article": "更新与卸载",
     "file": "update-uninstall.html",
     "sources": [
-      "src/main.cpp",
+      "src/cli/main.cpp",
       "npm/cli/README.md",
       "npm/desktop/README.md",
       "docs/macos-release.md",
@@ -60,7 +60,7 @@
     "file": "tui.html",
     "sources": [
       "docs/user-manual.md",
-      "src/commands/command_registry.cpp",
+      "src/tui/commands/command_registry.cpp",
       "src/cli/interactive_options.cpp"
     ]
   },
@@ -115,7 +115,7 @@
       "web/src/components/GitSessionPill.jsx",
       "web/src/lib/gitSessionPill.js",
       "docs/daemon-api.md",
-      "src/commands/builtin_commands.cpp"
+      "src/tui/commands/builtin_commands.cpp"
     ]
   },
   {
@@ -208,7 +208,7 @@
     "sources": [
       "src/config/config.hpp",
       "src/config/config.cpp",
-      "src/commands/proxy_command.cpp",
+      "src/tui/commands/proxy_command.cpp",
       "web/src/components/SettingsPage.jsx",
       "docs/user-manual.md"
     ]
@@ -228,7 +228,7 @@
     "sources": [
       "src/project_instructions/instructions_loader.cpp",
       "src/config/config.hpp",
-      "src/commands/builtin_commands.cpp",
+      "src/tui/commands/builtin_commands.cpp",
       "docs/user-manual.md"
     ]
   },
@@ -238,7 +238,7 @@
     "sources": [
       "web/src/components/SettingsPage.jsx",
       "src/memory/memory_paths.cpp",
-      "src/commands/memory_command.cpp",
+      "src/tui/commands/memory_command.cpp",
       "src/tool/memory_read_tool.cpp",
       "src/tool/memory_write_tool.cpp"
     ]
@@ -268,7 +268,7 @@
     "file": "mcp.html",
     "sources": [
       "web/src/components/SettingsPage.jsx",
-      "src/commands/builtin_commands.cpp",
+      "src/tui/commands/builtin_commands.cpp",
       "src/config/config.hpp",
       "docs/user-manual.md"
     ]
@@ -318,7 +318,7 @@
       "web/src/components/InputBar.jsx",
       "web/src/components/ComposerSessionControls.jsx",
       "web/src/components/SubagentPanel.jsx",
-      "src/commands/builtin_commands.cpp",
+      "src/tui/commands/builtin_commands.cpp",
       "docs/subagents.md"
     ]
   },
@@ -347,7 +347,7 @@
     "file": "channels.html",
     "sources": [
       "src/config/config.hpp",
-      "src/commands/remote_control_command.cpp",
+      "src/tui/commands/remote_control_command.cpp",
       "src/remote_control/session_channel_binder.cpp",
       "docs/channel-plugin-protocol.md"
     ]
@@ -408,7 +408,7 @@
     "sources": [
       "docs/skills.md",
       "docs/hooks.md",
-      "src/commands/builtin_commands.cpp",
+      "src/tui/commands/builtin_commands.cpp",
       "web/src/components/SettingsPage.jsx",
       "src/tool/builtin_tool_registry.hpp"
     ]
@@ -432,7 +432,7 @@
       "src/desktop/main.cpp",
       "src/headless/headless_runner.cpp",
       "src/daemon/worker.cpp",
-      "src/main.cpp"
+      "src/cli/main.cpp"
     ]
   },
   {
@@ -440,7 +440,7 @@
     "file": "reference.html",
     "sources": [
       "docs/user-manual.md",
-      "src/commands/builtin_commands.cpp",
+      "src/tui/commands/builtin_commands.cpp",
       "src/headless/headless_options.cpp",
       "src/utils/paths.cpp",
       "docs/daemon-api.md",
@@ -466,8 +466,8 @@
     "sources": [
       "ARCHITECTURE.md",
       "CMakeLists.txt",
-      "src/main.cpp",
-      "src/agent_loop.cpp",
+      "src/cli/main.cpp",
+      "src/agent/agent_loop.cpp",
       "src/session_host/session_registry.cpp",
       "src/tool/tool_executor.hpp",
       "src/provider/session_model_binding.hpp"
@@ -502,7 +502,7 @@
       "src/tool/tool_executor.hpp",
       "src/tool/task_complete_tool.cpp",
       "src/tool/builtin_tool_registry.hpp",
-      "src/commands/command_registry.hpp",
+      "src/tui/commands/command_registry.hpp",
       "src/web/handlers/builtin_command_handler.cpp",
       "web/src/lib/builtinCommandRouting.js",
       "src/remote_control/channel_plugin.cpp",

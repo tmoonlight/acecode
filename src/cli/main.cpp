@@ -1,0 +1,8101 @@
+#include "config/mcp_config.hpp"
+#include "tool/mcp_scope.hpp"
+#include "environment/bootstrap.hpp"
+#include <iostream>
+#include <string>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <cctype>
+#include <algorithm>
+#include <array>
+#include <sstream>
+#include <string_view>
+#include <random>
+#include <filesystem>
+#include <optional>
+#include <unordered_set>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <utility>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <io.h>
+#include <direct.h>
+#include <shellapi.h> // CommandLineToArgvW(-p 模式的 UTF-8 argv 重建)
+#else
+#include <termios.h>
+#include <unistd.h>
+#endif
+
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/screen/string.hpp>
+#include <ftxui/screen/terminal.hpp>
+
+#include "version.hpp"
+#include "config/config.hpp"
+#include "headless/headless_options.hpp"
+#include "headless/headless_runner.hpp"
+#include "cli/channels_cli.hpp"
+#include "utils/encoding.hpp"
+#include "platform/power_inhibitor.hpp"
+#include "network/proxy_resolver.hpp"
+#include "remote_control/remote_control_service.hpp"
+#include "provider/provider_factory.hpp"
+#include "provider/copilot_provider.hpp"
+#include "provider/model_context_resolver.hpp"
+#include "provider/model_pool_status.hpp"
+#include "provider/models_dev_registry.hpp"
+#include "provider/model_resolver.hpp"
+#include "provider/cwd_model_override.hpp"
+#include "session_host/apply_model_to_session.hpp"
+#include "tool/tool_executor.hpp"
+#include "tool/bash_tool.hpp"
+#include "tool/builtin_tool_registry.hpp"
+#include "tool/tool_rewrites.hpp"
+#include "security/audit_log.hpp"
+#include "tool/file_read_tool.hpp"
+#include "tool/file_write_tool.hpp"
+#include "tool/file_edit_tool.hpp"
+#include "tool/grep_tool.hpp"
+#include "tool/glob_tool.hpp"
+#include "tool/task_complete_tool.hpp"
+#include "tool/goal_tool.hpp"
+#include "tool/mcp_manager.hpp"
+#include "tool/mcp_startup_coordination.hpp"
+#include "session_host/tools/thread_tools.hpp"
+#include "tool/workspace_tools.hpp"
+#include "tool/skills_tool.hpp"
+#include "tool/skill_view_tool.hpp"
+#include "tool/memory_read_tool.hpp"
+#include "tool/memory_write_tool.hpp"
+#include "tool/ask_user_question_tool.hpp"
+#include "tui/confirm_question.hpp"
+#include "session/permission_prompter.hpp"
+#include "skills/skill_init.hpp"
+#include "skills/skill_registry.hpp"
+#include "tui/commands/skill_commands.hpp"
+#include "skills/default_skill_seeder.hpp"
+#include "tui/commands/opencode_command_registry.hpp"
+#include "hooks/hook_config.hpp"
+#include "hooks/hook_manager.hpp"
+#include "agent/hook_bridge/hook_events.hpp"
+#include "hooks/hook_payload.hpp"
+#include "memory/memory_paths.hpp"
+#include "memory/memory_registry.hpp"
+#include "lsp/lsp_service.hpp"
+#include "tool/web_search/runtime.hpp"
+#include "tool/web_search/backend_router.hpp"
+#include "tool/web_search/region_detector.hpp"
+#include "tool/web_search/web_search_tool.hpp"
+#include "utils/logger.hpp"
+#include "utils/paths.hpp"
+#include "permissions/permissions.hpp"
+#include "agent/agent_loop.hpp"
+#include "tui/tui_ask_channel.hpp"
+#include "session_host/thread_service.hpp"
+#include "cli/interactive_options.hpp"
+#include "cli/configure/configure.hpp"
+#include "daemon/cli.hpp"
+#include "web/remote_web_proxy.hpp"
+#ifdef _WIN32
+#  include "daemon/service_win.hpp"
+#endif
+#include "upgrade/apply.hpp"
+#include "upgrade/check.hpp"
+#include "upgrade/manifest.hpp"
+#include "upgrade/upgrade.hpp"
+#include "tui/commands/command_registry.hpp"
+#include "tui/commands/builtin_commands.hpp"
+#include "agent/compaction/compact.hpp"
+#include "tui/commands/resume_state_sync.hpp"
+#include "platform/native_ui/notifications.hpp"
+#include "session/token_tracker.hpp"
+#include "tui/markdown/markdown_formatter.hpp"
+#include "session/session_manager.hpp"
+#include "session_host/session_auto_title.hpp"
+#include "tool_preamble/tool_preamble.hpp"
+#include "session_host/session_registry.hpp"
+#include "tui/resume/session_resume_restore.hpp"
+#include "worktree/worktree_core.hpp"
+#include "worktree/worktree_manager.hpp"
+#include "tui/chat_line_measure.hpp"
+#include "tui/chat_file_link.hpp"
+#include "tui/chat_message_spacing.hpp"
+#include "tui/chat_scroll.hpp"
+#include "tui/chat_render_window.hpp"
+#include "tui/diff_view.hpp"
+#include "tui/unclipped_reflect.hpp"
+#include "tui/paste_handler.hpp"
+#include "tui/pending_attachment_selection.hpp"
+#include "tui/ask_question_layout.hpp"
+#include "tui/ask_question_adapter.hpp"
+#include "tui/ask_question_panel.hpp"
+#include "tui/ask_question_view.hpp"
+#include "tui/picker_scroll.hpp"
+#include "tui/render_mode_factory.hpp"
+#include "platform/terminal/terminal_capability.hpp"
+#include "platform/open_url.hpp"
+#include "utils/state_file.hpp"
+#include "tui/slash_command_usage.hpp"
+#include "tui/slash_dropdown.hpp"
+#include "tui/path_reference_dropdown.hpp"
+#include "tui/path_reference_input.hpp"
+#include "tui/text_truncation.hpp"
+#include "tui/thick_vscroll_bar.hpp"
+#include "tui/redraw_pacer.hpp"
+#include "tui/thinking_animation.hpp"
+#include "tui/compact_animation.hpp"
+#include "tui/compact_notice_row.hpp"
+#include "tui/thinking_heartbeat.hpp"
+#include "tui/model_retry_status.hpp"
+#include "tui/tool_progress.hpp"
+#include "tui/tool_result_fold.hpp"
+#include "tui/tool_row_format.hpp"
+#include "tui/tool_row_presentation.hpp"
+#include "tui/text_style.hpp"
+#include "tui/theme_palette.hpp"
+#include "tui/settings/management_center.hpp"
+#include "tui/settings/settings_center.hpp"
+#include "tui/tui_helpers.hpp"
+#include "tui/vertical_scroll.hpp"
+#include "platform/terminal/terminal_theme_detect.hpp"
+#include "tui/subagent_host.hpp"
+#include "tui/terminal_key_event.hpp"
+#include "session_host/tools/spawn_subagent_tool.hpp"
+#include "tui/todo_checklist_view.hpp"
+#include "tui/input_history_navigation.hpp"
+#include "tui/message_render_cache.hpp"
+#include "tui/ctrl_c_exit.hpp"
+#include "utils/base64.hpp"
+#include "platform/clipboard.hpp"
+#include "tui/drag_scroll.hpp"
+#include "platform/terminal/terminal_title.hpp"
+#include "tui/text_input_ops.hpp"
+#include "session/attachment_store.hpp"
+#include "session/session_storage.hpp"
+#include "session/compact_notice.hpp"
+#include "history/input_history_store.hpp"
+#include "workspace/workspace_registry.hpp"
+
+#include <cstdio>
+#include <limits>
+
+using namespace ftxui;
+using namespace acecode;
+
+namespace acecode { struct TuiState; }
+static std::string clipboard_copy_status_message(
+    acecode::ClipboardTextWriteResult::Status status);
+static void set_transient_status_line_locked(TuiState& state,
+                                             const std::string& message);
+
+namespace {
+
+// Semantic theme colors for the question panel. The panel resolves its own
+// colors instead of inheriting a decorator from the composing container: a
+// container-wide `color(...)` was what turned the whole chat area blue.
+static acecode::tui::AskQuestionPanelColors ask_question_panel_colors() {
+    const auto& palette = acecode::tui::theme();
+    acecode::tui::AskQuestionPanelColors colors;
+    colors.border = palette.ui.border;
+    colors.question = palette.ui.text_primary;
+    colors.answer = palette.ui.text_primary;
+    colors.description = palette.ui.text_muted;
+    colors.placeholder = palette.ui.text_dim;
+    colors.focus_bg = palette.ui.selection_bg;
+    colors.panel_bg = palette.ui.input_bg;
+    colors.secondary = palette.ui.text_secondary;
+    colors.selection_fg = palette.ui.selection_fg;
+    colors.selection_bg = palette.ui.selection_bg;
+    return colors;
+}
+
+static int ask_timeout_remaining_seconds(
+    const tui::AskQuestionSession& session,
+    tui::AskQuestionSession::TimePoint now) {
+    const auto deadline = session.timeout_deadline();
+    if (!deadline.has_value() || *deadline <= now) return 0;
+    const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(
+        *deadline - now).count();
+    return static_cast<int>(std::max<std::int64_t>(1, remaining));
+}
+
+static void project_ask_session_locked(TuiState& state) {
+    if (!state.ask_session) return;
+    const auto snapshot = state.ask_session->snapshot();
+    state.input_text = snapshot.editing_custom ? snapshot.editor.text : std::string{};
+    state.input_cursor = snapshot.editing_custom ? snapshot.editor.cursor : 0;
+    state.input_selection_anchor = snapshot.editing_custom
+        ? snapshot.editor.selection_anchor : std::nullopt;
+    state.input_vertical_goal_column.reset();
+    if (snapshot.completed || snapshot.cancelled) {
+        // AskQuestionCompletion 由 channel 直接从 session 读取；这里仅负责
+        // 释放 overlay 占用并唤醒等待线程，不把结构化答案降级成字符串。
+        state.ask_pending = false;
+        state.ask_cv.notify_all();
+        state.overlay_cv.notify_all();
+    }
+}
+
+static void dispatch_ask_session_effects_locked(
+    TuiState& state, const std::vector<tui::AskQuestionEffect>& effects) {
+    project_ask_session_locked(state);
+    for (const auto& effect : effects) {
+        if (effect.kind == tui::AskQuestionEffectKind::CopyText ||
+            effect.kind == tui::AskQuestionEffectKind::CutText) {
+            const auto clipboard_write =
+                acecode::write_system_clipboard_text(effect.text);
+            const std::string status = clipboard_write
+                ? (effect.kind == tui::AskQuestionEffectKind::CutText
+                       ? "Cut to clipboard"
+                       : "Copied to clipboard")
+                : clipboard_copy_status_message(clipboard_write.status);
+            set_transient_status_line_locked(state, status);
+            if (effect.kind == tui::AskQuestionEffectKind::CutText &&
+                clipboard_write && state.ask_session) {
+                const auto delete_effects = state.ask_session->dispatch({
+                    tui::AskQuestionEventKind::DeleteSelection});
+                project_ask_session_locked(state);
+                for (const auto& delete_effect : delete_effects) {
+                    if (delete_effect.kind == tui::AskQuestionEffectKind::Complete ||
+                        delete_effect.kind == tui::AskQuestionEffectKind::Cancel) {
+                        project_ask_session_locked(state);
+                        break;
+                    }
+                }
+            }
+        }
+        if (effect.kind == tui::AskQuestionEffectKind::Complete ||
+            effect.kind == tui::AskQuestionEffectKind::Cancel) {
+            project_ask_session_locked(state);
+            break;
+        }
+    }
+}
+
+static bool dispatch_ask_session_mouse_locked(
+    TuiState& state,
+    const Mouse& mouse,
+    tui::AskQuestionFrame& ask_question_frame,
+    ScreenInteractive& screen) {
+    if (!state.ask_session) return false;
+    auto& ask_question_layout = ask_question_frame.layout;
+    auto& ask_scrollbar_box = ask_question_frame.scrollbar_box;
+    auto& ask_overlay_box = ask_question_frame.overlay_box;
+    const auto& ask_row_boxes = ask_question_frame.row_boxes;
+    const bool wheel = mouse.button == Mouse::WheelUp ||
+                       mouse.button == Mouse::WheelDown;
+    const bool in_ask = tui::ask_question_box_contains(
+                            ask_overlay_box, mouse.x, mouse.y) ||
+                        tui::ask_question_box_contains(
+                            ask_scrollbar_box, mouse.x, mouse.y);
+    if (wheel) {
+        if (!in_ask || ask_question_frame.terminal_too_narrow) return false;
+        const int delta = mouse.button == Mouse::WheelUp ? -3 : 3;
+        const int max_offset = std::max(
+            0, ask_question_frame.layout.total_rows -
+                ask_question_frame.layout.visible_rows);
+        const auto effects = state.ask_session->dispatch({
+            tui::AskQuestionEventKind::ScrollLines, -1, delta, {}, 0,
+            max_offset});
+        dispatch_ask_session_effects_locked(state, effects);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (mouse.button == Mouse::Right && mouse.motion == Mouse::Pressed && in_ask) {
+        const auto snapshot = state.ask_session->snapshot();
+        if (snapshot.editing_custom && snapshot.editor.has_selection) {
+            const auto effects = state.ask_session->dispatch({
+                tui::AskQuestionEventKind::CopySelection});
+            dispatch_ask_session_effects_locked(state, effects);
+        }
+        return true;
+    }
+    if (mouse.button != Mouse::Left) return in_ask;
+    const bool dragging_scrollbar = ask_question_frame.scrollbar_dragging;
+    if (mouse.motion == Mouse::Moved && dragging_scrollbar) {
+        const int track_height =
+            ask_scrollbar_box.y_max - ask_scrollbar_box.y_min + 1;
+        const int target = tui::ask_question_scroll_offset_for_track_y(
+            mouse.y - ask_question_frame.scrollbar_grab_offset,
+            ask_question_frame.scrollbar_box.y_min, track_height,
+            ask_question_frame.layout.total_rows,
+            ask_question_frame.layout.visible_rows);
+        const int current = state.ask_session->snapshot().scroll_offset;
+        const auto effects = state.ask_session->dispatch({
+            tui::AskQuestionEventKind::ScrollLines, -1, target - current, {}, 0,
+            std::max(0, ask_question_frame.layout.total_rows -
+                            ask_question_frame.layout.visible_rows)});
+        dispatch_ask_session_effects_locked(state, effects);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (mouse.motion == Mouse::Released && dragging_scrollbar) {
+        ask_question_frame.scrollbar_dragging = false;
+        ask_question_frame.scrollbar_grab_offset = 0;
+        return true;
+    }
+    if (mouse.motion == Mouse::Released && ask_question_frame.dragging_text) {
+        ask_question_frame.dragging_text = false;
+        ask_question_frame.press_target = {};
+        return true;
+    }
+    if (mouse.motion == Mouse::Moved && ask_question_frame.dragging_text) {
+        for (std::size_t visible = 0; visible < ask_row_boxes.size(); ++visible) {
+            const auto& box = ask_row_boxes[visible];
+            if (!box.Contain(mouse.x, mouse.y)) continue;
+            const int row = ask_question_layout.scroll_offset +
+                            static_cast<int>(visible);
+            if (row < 0 || row >= static_cast<int>(ask_question_layout.rows.size()) ||
+                ask_question_layout.rows[static_cast<std::size_t>(row)].kind !=
+                    tui::AskQuestionLayoutKind::Custom) break;
+            const auto snapshot = state.ask_session->snapshot();
+            const auto& layout_row = ask_question_layout.rows[
+                static_cast<std::size_t>(row)];
+            if (!snapshot.editing_custom) break;
+            // Custom answer text starts in the title column, not after the
+            // number column: the marker column sits between them.
+            const int text_x = box.x_min + ask_question_layout.title_x;
+            const auto cursor = tui::ask_question_text_byte_offset_for_x(
+                snapshot.editor.text,
+                layout_row.text_byte_begin,
+                layout_row.text_byte_end,
+                mouse.x - text_x);
+            const auto effects = state.ask_session->dispatch({
+                tui::AskQuestionEventKind::MoveCursorTo, -1, 0, {}, cursor, -1,
+                true});
+            dispatch_ask_session_effects_locked(state, effects);
+            screen.PostEvent(Event::Custom);
+            break;
+        }
+        return true;
+    }
+    if (!in_ask || ask_question_frame.terminal_too_narrow) return in_ask;
+    if (mouse.motion == Mouse::Pressed) {
+        ask_question_frame.press_x = mouse.x;
+        ask_question_frame.press_y = mouse.y;
+        ask_question_frame.press_target = {};
+        if (ask_question_frame.layout.total_rows >
+            ask_question_frame.layout.visible_rows &&
+            tui::ask_question_box_contains(ask_scrollbar_box, mouse.x, mouse.y)) {
+            ask_question_frame.scrollbar_dragging = true;
+            ask_question_frame.scrollbar_grab_offset = std::clamp(
+                mouse.y - (ask_scrollbar_box.y_min +
+                           ask_question_layout.scrollbar_thumb.y),
+                0, std::max(0, ask_question_layout.scrollbar_thumb.height - 1));
+            const int track_height =
+                ask_scrollbar_box.y_max - ask_scrollbar_box.y_min + 1;
+            const int target = tui::ask_question_scroll_offset_for_track_y(
+                mouse.y - ask_question_frame.scrollbar_grab_offset,
+                ask_question_frame.scrollbar_box.y_min, track_height,
+                ask_question_frame.layout.total_rows,
+                ask_question_frame.layout.visible_rows);
+            const int current = state.ask_session->snapshot().scroll_offset;
+            const auto effects = state.ask_session->dispatch({
+                tui::AskQuestionEventKind::ScrollLines, -1, target - current, {}, 0,
+                std::max(0, ask_question_frame.layout.total_rows -
+                               ask_question_frame.layout.visible_rows)});
+            dispatch_ask_session_effects_locked(state, effects);
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+        const auto target = tui::hit_test_ask_question_frame(
+            ask_question_frame, mouse.x, mouse.y);
+        ask_question_frame.press_target = target;
+        if (target.kind == tui::AskQuestionHitKind::Custom) {
+            dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+                tui::AskQuestionEventKind::FocusOption, target.option_index}));
+            dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+                tui::AskQuestionEventKind::ToggleFocusedWithoutSubmit}));
+            const auto snapshot = state.ask_session->snapshot();
+            const auto visible_it = std::find_if(
+                ask_row_boxes.begin(), ask_row_boxes.end(), [&](const Box& box) {
+                    return box.Contain(mouse.x, mouse.y);
+                });
+            if (visible_it != ask_row_boxes.end()) {
+                const int row = ask_question_layout.scroll_offset + static_cast<int>(
+                    visible_it - ask_row_boxes.begin());
+                if (row >= 0 && row < static_cast<int>(ask_question_layout.rows.size())) {
+                    const auto& layout_row = ask_question_layout.rows[
+                        static_cast<std::size_t>(row)];
+                    const int text_x = visible_it->x_min +
+                                       ask_question_layout.title_x;
+                    const auto cursor = tui::ask_question_text_byte_offset_for_x(
+                        snapshot.editor.text, layout_row.text_byte_begin,
+                        layout_row.text_byte_end, mouse.x - text_x);
+                    dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+                        tui::AskQuestionEventKind::MoveCursorTo, -1, 0, {}, cursor}));
+                }
+            }
+        ask_question_frame.dragging_text = true;
+        }
+        return true;
+    }
+    if (mouse.motion != Mouse::Released) return false;
+    const auto press_target = ask_question_frame.press_target;
+    const int target_kind = static_cast<int>(press_target.kind);
+    const int question = press_target.question_index;
+    const int option = press_target.option_index;
+    const int dx = mouse.x - ask_question_frame.press_x;
+    const int dy = mouse.y - ask_question_frame.press_y;
+    ask_question_frame.press_target = {};
+    if (target_kind == 0 || dx < -2 || dx > 2 || dy < -2 || dy > 2) return true;
+    const auto kind = static_cast<tui::AskQuestionHitKind>(target_kind);
+    const auto now = std::chrono::steady_clock::now();
+    const bool same_click =
+        ask_question_frame.last_click.kind == static_cast<tui::AskQuestionHitKind>(target_kind) &&
+        ask_question_frame.last_click.question_index == question &&
+        ask_question_frame.last_click.option_index == option &&
+        ask_question_frame.last_click_at != std::chrono::steady_clock::time_point{} &&
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - ask_question_frame.last_click_at).count() <= 500;
+    ask_question_frame.last_click_at = now;
+    ask_question_frame.last_click = press_target;
+    auto dispatch = [&](tui::AskQuestionEventKind kind_to_dispatch,
+                        int event_option = -1) {
+        dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+            kind_to_dispatch, event_option, 0, {}}));
+    };
+    switch (kind) {
+        case tui::AskQuestionHitKind::Option: {
+            const auto before = state.ask_session->snapshot();
+            dispatch(tui::AskQuestionEventKind::FocusOption, option);
+            const bool selected = option >= 0 &&
+                option < static_cast<int>(before.options.size()) &&
+                before.options[static_cast<std::size_t>(option)].selected;
+            if (same_click) {
+                if (!selected) dispatch(tui::AskQuestionEventKind::ToggleFocused);
+                dispatch(tui::AskQuestionEventKind::SubmitCurrentSelection);
+                ask_question_frame.last_click_at = {};
+            } else {
+                dispatch(tui::AskQuestionEventKind::ToggleFocused);
+            }
+            break;
+        }
+        case tui::AskQuestionHitKind::Custom:
+            dispatch(tui::AskQuestionEventKind::FocusOption, option);
+            dispatch(tui::AskQuestionEventKind::ToggleFocusedWithoutSubmit);
+            break;
+        case tui::AskQuestionHitKind::SummaryQuestion:
+            dispatch(tui::AskQuestionEventKind::OpenQuestion, question);
+            break;
+        default: break;
+    }
+    screen.PostEvent(Event::Custom);
+    return true;
+}
+
+static bool dispatch_ask_session_event_locked(
+    TuiState& state,
+    const Event& event,
+    const tui::AskQuestionFrame& ask_question_frame) {
+    if (!state.ask_session || event == Event::Custom ||
+        event.is_mouse() || event.is_cursor_position() ||
+        event.is_cursor_shape()) {
+        return false;
+    }
+
+    if (ask_question_frame.terminal_too_narrow) {
+        if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+            const auto effects = state.ask_session->escape();
+            dispatch_ask_session_effects_locked(state, effects);
+        }
+        return true;
+    }
+
+    const bool editing_custom = state.ask_session->snapshot().editing_custom;
+    const auto ask_snapshot = state.ask_session->snapshot();
+    const bool custom_focused = !editing_custom &&
+        ask_snapshot.focused_option == static_cast<int>(ask_snapshot.options.size());
+    auto dispatch = [&](const tui::AskQuestionEvent& ask_event) {
+        auto event_with_scroll_bound = ask_event;
+        if (event_with_scroll_bound.kind == tui::AskQuestionEventKind::ScrollLines &&
+            ask_question_frame.layout.total_rows >=
+                ask_question_frame.layout.visible_rows) {
+            event_with_scroll_bound.max_scroll_offset =
+                std::max(0, ask_question_frame.layout.total_rows -
+                                ask_question_frame.layout.visible_rows);
+        }
+        const auto effects = state.ask_session->dispatch(event_with_scroll_bound);
+        dispatch_ask_session_effects_locked(state, effects);
+    };
+
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        const auto effects = state.ask_session->escape();
+        dispatch_ask_session_effects_locked(state, effects);
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Enter, tui::kTerminalCtrl)) {
+        dispatch({tui::AskQuestionEventKind::InsertNewline});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowUp, tui::kTerminalShift)) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorUp
+                                 : tui::AskQuestionEventKind::MoveUp});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowDown, tui::kTerminalShift)) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorDown
+                                 : tui::AskQuestionEventKind::MoveDown});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowLeft, tui::kTerminalShift)) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorLeft
+                                 : tui::AskQuestionEventKind::MoveLeft});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowRight, tui::kTerminalShift)) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorRight
+                                 : tui::AskQuestionEventKind::MoveRight});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::PageUp)) {
+        const int page_step = std::max(
+            1, ask_question_frame.layout.visible_rows - 1);
+        dispatch({tui::AskQuestionEventKind::ScrollLines, -1, -page_step});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::PageDown)) {
+        const int page_step = std::max(
+            1, ask_question_frame.layout.visible_rows - 1);
+        dispatch({tui::AskQuestionEventKind::ScrollLines, -1, page_step});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
+                                 : tui::AskQuestionEventKind::PreviousPage,
+                  -1, 0, editing_custom ? "\t" : ""});
+        return true;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Tab)) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
+                                 : tui::AskQuestionEventKind::NextPage,
+                  -1, 0, editing_custom ? "\t" : ""});
+        return true;
+    }
+    if (tui::matches_terminal_codepoint(event, 'x', tui::kTerminalShift)) {
+        dispatch({tui::AskQuestionEventKind::GlobalCancel});
+        return true;
+    }
+    if (tui::matches_terminal_codepoint(event, 'x', tui::kTerminalCtrl)) {
+        dispatch({tui::AskQuestionEventKind::CutSelection});
+        return true;
+    }
+    if (tui::matches_terminal_codepoint(event, 'y')) {
+        if (editing_custom || custom_focused) {
+            dispatch({tui::AskQuestionEventKind::InsertText, -1, 0, "y"});
+        } else {
+            dispatch({tui::AskQuestionEventKind::CopyFocused});
+        }
+        return true;
+    }
+    if (event == Event::ArrowUp) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorUp
+                                 : tui::AskQuestionEventKind::MoveUp});
+        return true;
+    }
+    if (event == Event::ArrowDown) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorDown
+                                 : tui::AskQuestionEventKind::MoveDown});
+        return true;
+    }
+    if (event == Event::ArrowLeft) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorLeft
+                                 : tui::AskQuestionEventKind::MoveLeft});
+        return true;
+    }
+    if (event == Event::ArrowRight) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorRight
+                                 : tui::AskQuestionEventKind::MoveRight});
+        return true;
+    }
+    if (event == Event::Return) {
+        dispatch({tui::AskQuestionEventKind::SubmitFocused});
+        return true;
+    }
+    if (event == Event::Character(' ')) {
+        dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
+                                 : tui::AskQuestionEventKind::ToggleFocused,
+                  -1, 0, editing_custom ? " " : ""});
+        return true;
+    }
+    if (event == Event::Backspace) {
+        dispatch({tui::AskQuestionEventKind::Backspace});
+        return true;
+    }
+    if (event == Event::Delete) {
+        dispatch({tui::AskQuestionEventKind::DeleteForward});
+        return true;
+    }
+    if (event == Event::Home) {
+        dispatch({tui::AskQuestionEventKind::MoveCursorHome});
+        return true;
+    }
+    if (event == Event::End) {
+        dispatch({tui::AskQuestionEventKind::MoveCursorEnd});
+        return true;
+    }
+    if (event == Event::Character('j')) {
+        dispatch({editing_custom || custom_focused
+                      ? tui::AskQuestionEventKind::InsertText
+                      : tui::AskQuestionEventKind::MoveDown,
+                  -1, 0, editing_custom || custom_focused ? "j" : ""});
+        return true;
+    }
+    if (event == Event::Character('k')) {
+        dispatch({editing_custom || custom_focused
+                      ? tui::AskQuestionEventKind::InsertText
+                      : tui::AskQuestionEventKind::MoveUp,
+                  -1, 0, editing_custom || custom_focused ? "k" : ""});
+        return true;
+    }
+    if (event.is_character()) {
+        dispatch(acecode::tui::ask_question_character_event(
+            event.character(), editing_custom));
+        return true;
+    }
+    return false;
+}
+
+static std::int64_t monotonic_milliseconds() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+}  // namespace
+
+// ---- Get current working directory ----
+static std::string get_cwd() {
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    if (_getcwd(buf, sizeof(buf))) return std::string(buf);
+#else
+    char buf[4096];
+    if (getcwd(buf, sizeof(buf))) return std::string(buf);
+#endif
+    return ".";
+}
+
+static std::string get_executable_dir_from_argv(int argc, char* argv[]) {
+    if (argc <= 0 || !argv[0]) return "";
+    std::error_code ec;
+    std::filesystem::path exe(argv[0]);
+    std::filesystem::path abs = std::filesystem::weakly_canonical(exe, ec);
+    if (!ec) return abs.parent_path().string();
+    return exe.parent_path().string();
+}
+
+static void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
+    auto result = acecode::reconcile_default_global_skills_on_startup(
+        std::filesystem::path(acecode::get_acecode_dir()),
+        argv0_dir);
+    if (!result.attempted) return;
+
+    size_t installed = 0;
+    size_t updated = 0;
+    size_t unchanged = 0;
+    size_t preserved = 0;
+    size_t errors = 0;
+    const auto count_outcomes = [&](const auto& outcomes) {
+        for (const auto& outcome : outcomes) {
+            if (outcome.result == "installed") ++installed;
+            else if (outcome.result == "updated") ++updated;
+            else if (outcome.result == "unchanged") ++unchanged;
+            else if (outcome.result == "preserved_user_modified") ++preserved;
+            else ++errors;
+        }
+    };
+    count_outcomes(result.outcomes);
+    count_outcomes(result.expert_outcomes);
+    count_outcomes(result.hook_outcomes);
+    if (!result.error.empty()) {
+        LOG_WARN("[seed] Default resource reconciliation issue: " + result.error);
+    }
+    LOG_INFO("[seed] Default resource reconciliation attempted: version=" +
+             result.bundle_version + " installed=" + std::to_string(installed) +
+             " updated=" + std::to_string(updated) +
+             " unchanged=" + std::to_string(unchanged) +
+             " preserved=" + std::to_string(preserved) +
+             " errors=" + std::to_string(errors));
+}
+
+static void write_terminal_control_sequence(std::string_view seq) {
+#ifdef _WIN32
+    auto stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD out_mode = 0;
+    const bool restore_mode =
+        stdout_handle != INVALID_HANDLE_VALUE &&
+        GetConsoleMode(stdout_handle, &out_mode);
+    if (!restore_mode) {
+        return;
+    }
+    constexpr DWORD enable_virtual_terminal_processing = 0x0004;
+    constexpr DWORD disable_newline_auto_return = 0x0008;
+    SetConsoleMode(stdout_handle,
+                   out_mode | enable_virtual_terminal_processing |
+                       disable_newline_auto_return);
+#endif
+
+    std::cout.write(seq.data(), static_cast<std::streamsize>(seq.size()));
+    std::cout.flush();
+
+#ifdef _WIN32
+    SetConsoleMode(stdout_handle, out_mode);
+#endif
+}
+
+static void set_ftxui_full_repaint_mode(bool enabled) {
+#ifdef _WIN32
+    _putenv_s("ACECODE_FTXUI_FULL_REPAINT", enabled ? "1" : "0");
+#else
+    if (enabled) {
+        setenv("ACECODE_FTXUI_FULL_REPAINT", "1", 1);
+    } else {
+        unsetenv("ACECODE_FTXUI_FULL_REPAINT");
+    }
+#endif
+}
+
+// ---- Reset terminal cursor visibility on exit ----
+static void reset_cursor() {
+    // DECTCEM: show cursor (ESC [ ? 25 h)
+    write_terminal_control_sequence("\033[?25h");
+}
+
+static void flush_terminal_input_buffer() {
+#ifdef _WIN32
+    auto stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+    if (stdin_handle == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    FlushConsoleInputBuffer(stdin_handle);
+#else
+    if (isatty(STDIN_FILENO)) {
+        tcflush(STDIN_FILENO, TCIFLUSH);
+    }
+#endif
+}
+
+#ifndef ACECODE_TUI_INPUT_TRACE
+#define ACECODE_TUI_INPUT_TRACE 0
+#endif
+
+#if ACECODE_TUI_INPUT_TRACE
+static std::string box_for_log(const Box& box) {
+    return "[" + std::to_string(box.x_min) + "," +
+           std::to_string(box.y_min) + "]-[" +
+           std::to_string(box.x_max) + "," +
+           std::to_string(box.y_max) + "]";
+}
+
+static std::string event_for_log(const Event& event) {
+    if (event.is_character()) {
+        return "Event::Character(bytes=" +
+               std::to_string(event.character().size()) + ")";
+    }
+    return event.DebugString();
+}
+
+static std::string drag_phase_for_log(acecode::drag_scroll::Phase phase) {
+    switch (phase) {
+    case acecode::drag_scroll::Phase::Idle:
+        return "Idle";
+    case acecode::drag_scroll::Phase::Dragging:
+        return "Dragging";
+    case acecode::drag_scroll::Phase::ScrollingUp:
+        return "ScrollingUp";
+    case acecode::drag_scroll::Phase::ScrollingDown:
+        return "ScrollingDown";
+    }
+    return "?";
+}
+
+static std::string scrollbar_geometry_for_log(
+    const acecode::tui::ChatScrollbarThumbGeometry& geometry) {
+    return "{max_top=" + std::to_string(geometry.max_top_row) +
+           " range2x=" + std::to_string(geometry.scroll_range_2x) +
+           " thumb_size2x=" + std::to_string(geometry.thumb_size_2x) +
+           " thumb_top2x=" + std::to_string(geometry.thumb_top_2x) + "}";
+}
+#endif
+
+// ---- Session finalization on exit ----
+static SessionManager* g_session_manager = nullptr;
+
+// Active FTXUI screen, used by signal / console-ctrl handlers to trigger a
+// graceful Loop exit. Must be cleared before ScreenInteractive is destroyed
+// so handlers can't dereference a dead object.
+// App::Exit() is thread-safe (posts a task internally — see app.cpp:1063).
+static std::atomic<ftxui::ScreenInteractive*> g_active_screen{nullptr};
+
+static void finalize_session_atexit() {
+    if (g_session_manager) {
+        g_session_manager->finalize();
+        auto sid = g_session_manager->current_session_id();
+        if (!sid.empty()) {
+            std::cerr << "\nacecode: session " << sid
+                      << " saved. Resume with: acecode --resume " << sid << std::endl;
+        }
+    }
+    // Best-effort: hand the window title back to the parent shell. Not
+    // strictly async-signal-safe but consistent with the existing finalize
+    // path which already uses iostreams.
+    clear_terminal_title();
+}
+
+#ifdef _WIN32
+static BOOL WINAPI console_ctrl_handler(DWORD ctrl_type) {
+    // Normal Ctrl+C is handled through stdin once ENABLE_PROCESSED_INPUT is
+    // cleared after FTXUI installs its terminal mode. This handler remains as
+    // a fallback for hosts that still deliver CTRL_C_EVENT, and for
+    // Ctrl+Break/close events where graceful shutdown is more important than
+    // prompting.
+    auto* s = g_active_screen.load(std::memory_order_acquire);
+    if (ctrl_type == CTRL_C_EVENT) {
+        if (s) {
+            s->PostEvent(ftxui::Event::CtrlC);
+            return TRUE;
+        }
+        finalize_session_atexit();
+        return FALSE;
+    }
+    if (ctrl_type == CTRL_BREAK_EVENT || ctrl_type == CTRL_CLOSE_EVENT) {
+        // Break / 关窗:明确退出意图,直接走 FTXUI 优雅退出 —— Loop 返回后
+        // ScreenInteractive 析构跑 on_exit_functions,把 alt-screen /
+        // mouse tracking / Windows console mode 还原回去。返回 FALSE 会让
+        // 默认 handler TerminateProcess(),终端会留在 mouse-tracking 开
+        // 的状态,父 shell 收到鼠标事件原样喷成乱码字节。
+        if (s) {
+            s->Exit();
+            return TRUE;
+        }
+        finalize_session_atexit();
+        return FALSE;
+    }
+    return FALSE;
+}
+
+static void prepare_windows_ctrl_c_handling_after_ftxui_install() {
+    auto stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD in_mode = 0;
+    if (stdin_handle != INVALID_HANDLE_VALUE &&
+        GetConsoleMode(stdin_handle, &in_mode)) {
+        // FTXUI preserves ENABLE_PROCESSED_INPUT from the original console
+        // mode. When it stays enabled, Windows turns Ctrl+C into a console
+        // control event instead of a stdin byte, and FTXUI's SIGINT handler can
+        // exit before our Event::CtrlC branch can handle double-press exit.
+        SetConsoleMode(stdin_handle, in_mode & ~ENABLE_PROCESSED_INPUT);
+    }
+
+    // Re-register after FTXUI's Loop/PreMain installs its own signal handling
+    // so this handler gets first chance at CTRL_BREAK_EVENT / CTRL_CLOSE_EVENT
+    // and any CTRL_C_EVENT fallback.
+    SetConsoleCtrlHandler(console_ctrl_handler, FALSE);
+    SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+}
+#else
+#include <csignal>
+static void signal_handler(int /*sig*/) {
+    // FTXUI overrides SIGINT/SIGTERM during Loop() (app.cpp:575) so this only
+    // fires before Loop starts or after it returns — terminal isn't in the
+    // raw/alt-screen state yet, so _exit is safe.
+    finalize_session_atexit();
+    _exit(1);
+}
+#endif
+
+// ---- Shared TUI state ----
+// TuiState is defined in src/tui/tui_state.hpp, reached through tui/tui_helpers.hpp.
+using acecode::TuiState;
+
+static void set_transient_status_line_locked(TuiState& state,
+                                             const std::string& message) {
+    if (state.status_line_clear_at.time_since_epoch().count() == 0) {
+        state.status_line_saved = state.status_line;
+    }
+    state.status_line = message;
+    state.status_line_clear_at =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+}
+
+static std::string clipboard_paste_status_message(
+    acecode::ClipboardTextReadResult::Status status) {
+    using Status = acecode::ClipboardTextReadResult::Status;
+    switch (status) {
+        case Status::Empty:
+            return "Clipboard is empty";
+        case Status::TooLarge:
+            return "Clipboard text too large (max " +
+                   std::to_string(acecode::kMaxClipboardTextBytes / (1024 * 1024)) +
+                   " MB)";
+        case Status::Unavailable:
+#ifdef _WIN32
+            return "Clipboard paste unavailable";
+#elif defined(__APPLE__)
+            return "Clipboard paste unavailable (pbpaste failed)";
+#else
+            return "Clipboard paste unavailable (install wl-clipboard, xclip, or xsel)";
+#endif
+        case Status::Success:
+        default:
+            return "";
+    }
+}
+
+static std::string clipboard_image_status_message(
+    acecode::ClipboardImageReadResult::Status status) {
+    using Status = acecode::ClipboardImageReadResult::Status;
+    switch (status) {
+        case Status::Empty:
+            return "Clipboard has no image";
+        case Status::TooLarge:
+            return "Clipboard image too large (max " +
+                   std::to_string(acecode::kMaxClipboardImageBytes / (1024 * 1024)) +
+                   " MB)";
+        case Status::Unavailable:
+#ifdef _WIN32
+            return "Clipboard image paste unavailable";
+#elif defined(__APPLE__)
+            return "Clipboard image paste unavailable (install pngpaste)";
+#else
+            return "Clipboard image paste unavailable (install wl-clipboard or xclip)";
+#endif
+        case Status::Success:
+        default:
+            return "";
+    }
+}
+
+static std::string attachment_name_from_json(const nlohmann::json& attachment) {
+    return attachment.value("name", std::string{"attachment"});
+}
+
+static std::string display_prompt_with_attachments(
+    const std::string& prompt,
+    const std::vector<nlohmann::json>& attachments) {
+    std::string display = prompt;
+    for (const auto& attachment : attachments) {
+        if (!display.empty()) display.push_back('\n');
+        const std::string kind = attachment.value("kind", std::string{"file"});
+        display += "[";
+        display += (kind == "image") ? "Image: " : "File: ";
+        display += attachment_name_from_json(attachment);
+        display += "]";
+    }
+    return display;
+}
+
+static UserInput build_user_input_with_attachments(
+    const std::string& prompt,
+    const std::string& display_text,
+    const std::vector<nlohmann::json>& attachments) {
+    UserInput input;
+    input.text = prompt;
+    input.display_text = display_text;
+    input.content_parts = nlohmann::json::array();
+    if (!prompt.empty()) {
+        input.content_parts.push_back({{"type", "text"}, {"text", prompt}});
+    }
+    nlohmann::json attachment_meta = nlohmann::json::array();
+    for (const auto& attachment : attachments) {
+        // 按 MIME + 文件名重新分类(route-attachments-by-capability 1.7),不直接信
+        // 持久化的 kind:SVG 等非视觉媒体会被归为 file,避免误走图片 part。
+        const std::string part_kind = attachment_kind_for_mime(
+            attachment.value("mime_type", std::string{}),
+            attachment.value("name", std::string{}));
+        input.content_parts.push_back({
+            {"type", part_kind == "image" ? "image" : "file"},
+            {"attachment", attachment},
+        });
+        attachment_meta.push_back(attachment);
+    }
+    if (attachment_meta.empty()) {
+        input.content_parts = nlohmann::json::array();
+    } else {
+        input.metadata["attachments"] = std::move(attachment_meta);
+    }
+    return input;
+}
+
+static std::string clipboard_copy_status_message(
+    acecode::ClipboardTextWriteResult::Status status) {
+    using Status = acecode::ClipboardTextWriteResult::Status;
+    switch (status) {
+        case Status::TooLarge:
+            return "Clipboard text too large (max " +
+                   std::to_string(acecode::kMaxClipboardTextBytes / (1024 * 1024)) +
+                   " MB)";
+        case Status::Unavailable:
+#ifdef _WIN32
+            return "Clipboard copy unavailable";
+#elif defined(__APPLE__)
+            return "Clipboard copy unavailable (pbcopy failed)";
+#else
+            return "Clipboard copy unavailable (install wl-clipboard, xclip, or xsel)";
+#endif
+        case Status::Success:
+        default:
+            return "";
+    }
+}
+
+struct ChatScrollRuntime {
+    Box& chat_box;
+    std::vector<Box>& message_layout_boxes;
+    std::vector<char>& message_layout_valid;
+    std::vector<std::size_t>& message_layout_revisions;
+    std::vector<int>& message_layout_widths;
+    std::vector<acecode::tui::ChatLineMeasure>& message_line_measures;
+    std::vector<int>& message_line_counts;
+    std::vector<int>& message_spacer_rows_after;
+    int& message_line_count_width;
+    acecode::tui::MessageRenderCache message_render_cache;
+};
+
+// 聊天视口高度来自上一帧布局；还没布局时按 0 行处理。
+static int chat_viewport_rows_for_box(const Box& chat_box) {
+    return chat_box.y_max >= chat_box.y_min
+        ? chat_box.y_max - chat_box.y_min + 1
+        : 0;
+}
+
+// 合并哈希值，用来判断消息渲染内容有没有变化。
+static std::size_t combine_render_hash(std::size_t seed,
+                                       std::size_t value) {
+    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) +
+                   (seed >> 2));
+}
+
+// 给消息生成渲染版本号；影响高度的字段变了就会重新测量。
+// transcript_expanded(Ctrl+O 全局展开)也参与哈希:开关翻转时所有消息的
+// revision 一起失配,自动触发整批重测量,不需要单独的失效通道。
+static std::size_t message_render_revision(const TuiState::Message& msg,
+                                           bool transcript_expanded) {
+    std::size_t seed = 0;
+    auto add_string = [&seed](const std::string& value) {
+        seed = combine_render_hash(seed, std::hash<std::string>{}(value));
+    };
+    auto add_size = [&seed](std::size_t value) {
+        seed = combine_render_hash(seed, value);
+    };
+
+    add_string(msg.role);
+    add_size(msg.is_tool ? 1u : 0u);
+    add_size(msg.ask_result ? 1u : 0u);
+    add_string(msg.display_override);
+    add_size(msg.expanded ? 1u : 0u);
+    add_string(msg.compact_notice_id);
+    add_size(msg.compact_notice_complete ? 1u : 0u);
+    add_size(transcript_expanded ? 1u : 0u);
+    add_size(msg.summary.has_value() ? 1u : 0u);
+    if (msg.summary.has_value()) {
+        add_string(msg.summary->verb);
+        add_string(msg.summary->object);
+        add_string(msg.summary->icon);
+        add_size(msg.summary->metrics.size());
+        for (const auto& metric : msg.summary->metrics) {
+            add_string(metric.first);
+            add_string(metric.second);
+        }
+    }
+    add_size(msg.hunks.has_value() ? 1u : 0u);
+    if (msg.hunks.has_value()) {
+        add_size(msg.hunks->size());
+        for (const auto& hunk : *msg.hunks) {
+            add_size(static_cast<std::size_t>(std::max(0, hunk.old_start)));
+            add_size(static_cast<std::size_t>(std::max(0, hunk.old_count)));
+            add_size(static_cast<std::size_t>(std::max(0, hunk.new_start)));
+            add_size(static_cast<std::size_t>(std::max(0, hunk.new_count)));
+            add_size(hunk.lines.size());
+            for (const auto& line : hunk.lines) {
+                add_size(static_cast<std::size_t>(line.kind));
+                add_size(line.text.size());
+            }
+        }
+    }
+    return seed;
+}
+
+// 从测量缓存重建行数数组，滚动数学只看这个轻量数组。
+static void rebuild_message_line_counts_runtime(ChatScrollRuntime& scroll,
+                                                 const TuiState& state) {
+    scroll.message_line_counts = acecode::tui::chat_line_counts_from_measures(
+        scroll.message_line_measures,
+        static_cast<int>(state.conversation.size()));
+    scroll.message_spacer_rows_after =
+        acecode::tui::chat_message_spacer_rows_after(state.conversation);
+}
+
+// transcript 被整体替换时，清掉所有旧布局测量。
+static void reset_chat_line_measure_state_runtime(ChatScrollRuntime& scroll,
+                                                  const TuiState& state) {
+    const auto n_msgs = state.conversation.size();
+    scroll.message_layout_boxes.assign(n_msgs, Box{});
+    scroll.message_layout_valid.assign(n_msgs, 0);
+    scroll.message_layout_revisions.assign(n_msgs, 0);
+    scroll.message_layout_widths.assign(n_msgs, 0);
+    acecode::tui::resize_chat_line_measures(
+        scroll.message_line_measures, static_cast<int>(n_msgs));
+    acecode::tui::invalidate_chat_line_measures(scroll.message_line_measures);
+    rebuild_message_line_counts_runtime(scroll, state);
+    scroll.message_render_cache.resize(n_msgs);
+    scroll.message_render_cache.invalidate_all();
+}
+
+// 某一条消息样式变化时，只废掉这一条的高度缓存。
+static void invalidate_chat_line_measure_at_runtime(ChatScrollRuntime& scroll,
+                                                    int index) {
+    acecode::tui::invalidate_chat_line_measure(
+        scroll.message_line_measures, index);
+    if (index >= 0 &&
+        index < static_cast<int>(scroll.message_line_counts.size())) {
+        scroll.message_line_counts[static_cast<std::size_t>(index)] = 1;
+    }
+    if (index >= 0 &&
+        index < static_cast<int>(scroll.message_layout_valid.size())) {
+        scroll.message_layout_valid[static_cast<std::size_t>(index)] = 0;
+    }
+    scroll.message_render_cache.invalidate(static_cast<std::size_t>(index));
+}
+
+// 把上一帧 FTXUI 布局结果同步到聊天行数缓存。
+static void sync_chat_line_counts_from_layout_runtime(ChatScrollRuntime& scroll,
+                                                      const TuiState& state) {
+    const size_t n_msgs = state.conversation.size();
+    const int current_message_width = scroll.chat_box.x_max >= scroll.chat_box.x_min
+        ? scroll.chat_box.x_max - scroll.chat_box.x_min + 1
+        : 0;
+    const bool line_count_width_changed =
+        current_message_width > 0 &&
+        current_message_width != scroll.message_line_count_width;
+    acecode::tui::resize_chat_line_measures(
+        scroll.message_line_measures, static_cast<int>(n_msgs));
+    scroll.message_render_cache.ensure_size(n_msgs);
+    if (line_count_width_changed) {
+        acecode::tui::invalidate_chat_line_measures(
+            scroll.message_line_measures);
+        scroll.message_line_count_width = current_message_width;
+    }
+    for (size_t i = 0; i < n_msgs; ++i) {
+        const std::size_t revision = message_render_revision(
+            state.conversation[i], state.transcript_expanded);
+        const bool has_valid_layout =
+            !line_count_width_changed &&
+            i < scroll.message_layout_boxes.size() &&
+            i < scroll.message_layout_valid.size() &&
+            i < scroll.message_layout_revisions.size() &&
+            i < scroll.message_layout_widths.size() &&
+            scroll.message_layout_valid[i] != 0 &&
+            scroll.message_layout_revisions[i] == revision &&
+            scroll.message_layout_widths[i] == current_message_width &&
+            scroll.message_layout_boxes[i].y_max >=
+                scroll.message_layout_boxes[i].y_min;
+        const int measured_rows = has_valid_layout
+            ? scroll.message_layout_boxes[i].y_max -
+                  scroll.message_layout_boxes[i].y_min + 1
+            : 0;
+        acecode::tui::sync_chat_line_measure(
+            scroll.message_line_measures[i],
+            has_valid_layout,
+            measured_rows,
+            current_message_width,
+            revision);
+    }
+    rebuild_message_line_counts_runtime(scroll, state);
+}
+
+// 修正聊天焦点，确保焦点、顶部行和 tail-follow 状态一致。
+static void clamp_chat_focus_runtime(TuiState& state,
+                                     const std::vector<int>& message_line_counts,
+                                     const std::vector<int>& message_spacer_rows_after,
+                                     int viewport_rows) {
+    if (state.conversation.empty()) {
+        state.chat_focus_index = -1;
+        state.chat_line_offset = 0;
+        state.chat_scroll_top_row = 0;
+        state.chat_follow_tail = true;
+        return;
+    }
+
+    int message_count = static_cast<int>(state.conversation.size());
+    int last = message_count - 1;
+    const int max_scroll_top =
+        acecode::tui::chat_max_scroll_top_row(message_line_counts,
+                                              message_count,
+                                              viewport_rows,
+                                              message_spacer_rows_after);
+    if (state.chat_follow_tail) {
+        state.chat_focus_index = last;
+        state.chat_line_offset =
+            acecode::tui::chat_tail_line_offset(message_line_counts, last);
+        state.chat_scroll_top_row = max_scroll_top;
+        return;
+    }
+
+    state.chat_scroll_top_row =
+        acecode::tui::clamp_chat_scroll_top_row(state.chat_scroll_top_row,
+                                                message_line_counts,
+                                                message_count,
+                                                viewport_rows,
+                                                message_spacer_rows_after);
+    auto [idx, off] = acecode::tui::chat_focus_from_display_row(
+        message_line_counts, message_count, state.chat_scroll_top_row,
+        message_spacer_rows_after);
+    state.chat_focus_index = idx;
+    state.chat_line_offset = off;
+    state.chat_follow_tail = state.chat_scroll_top_row >= max_scroll_top;
+}
+
+// 按显示行滚动聊天区，返回实际移动的行数。
+static int scroll_chat_by_lines_runtime(TuiState& state,
+                                         const std::vector<int>& message_line_counts,
+                                         const std::vector<int>& message_spacer_rows_after,
+                                         int viewport_rows,
+                                        int delta_lines) {
+    if (state.conversation.empty()) return 0;
+    const int message_count = static_cast<int>(state.conversation.size());
+    int last_msg = message_count - 1;
+    const int max_scroll_top =
+        acecode::tui::chat_max_scroll_top_row(message_line_counts,
+                                              message_count,
+                                              viewport_rows,
+                                              message_spacer_rows_after);
+    if (state.chat_follow_tail) {
+        state.chat_focus_index = last_msg;
+        state.chat_line_offset =
+            acecode::tui::chat_tail_line_offset(message_line_counts,
+                                                last_msg);
+        state.chat_scroll_top_row = max_scroll_top;
+    }
+
+    const int before = acecode::tui::clamp_chat_scroll_top_row(
+        state.chat_scroll_top_row, message_line_counts, message_count,
+        viewport_rows, message_spacer_rows_after);
+    const int after = acecode::tui::clamp_chat_scroll_top_row(
+        before + delta_lines, message_line_counts, message_count,
+        viewport_rows, message_spacer_rows_after);
+    state.chat_scroll_top_row = after;
+    const int actual = after - before;
+
+    if (after >= max_scroll_top) {
+        state.chat_focus_index = last_msg;
+        state.chat_line_offset =
+            acecode::tui::chat_tail_line_offset(message_line_counts,
+                                                last_msg);
+        state.chat_follow_tail = true;
+    } else {
+        auto [idx, off] = acecode::tui::chat_focus_from_display_row(
+            message_line_counts, message_count, after,
+            message_spacer_rows_after);
+        state.chat_focus_index = idx;
+        state.chat_line_offset = off;
+        state.chat_follow_tail = false;
+    }
+    return actual;
+}
+
+// 取消二次 Ctrl+C 退出提示，输入变化时都要收回。
+static void cancel_ctrl_c_exit_locked(TuiState& state) {
+    acecode::tui::clear_ctrl_c_exit_state(
+        state.ctrl_c_armed, state.last_ctrl_c_time);
+}
+
+// 把粘贴文本放到光标处；长文本折叠成可展开占位符。
+static void insert_pasted_text_at_cursor_locked(TuiState& state,
+                                                const std::string& normalized) {
+    cancel_ctrl_c_exit_locked(state);
+    acecode::erase_text_selection(
+        state.input_text,
+        state.input_cursor,
+        state.input_selection_anchor);
+    acecode::tui::prune_unreferenced(
+        state.pasted_texts, state.input_text);
+    state.input_cursor = acecode::clamp_utf8_boundary(
+        state.input_text, state.input_cursor);
+    state.input_vertical_goal_column.reset();
+    state.pending_attachment_focus =
+        acecode::tui::kNoPendingAttachmentFocus;
+    std::string to_insert;
+    if (acecode::tui::should_fold_to_placeholder(normalized)) {
+        const int id = state.next_paste_id++;
+        state.pasted_texts[id] = normalized;
+        const int n = acecode::tui::count_newlines(normalized);
+        to_insert = acecode::tui::format_placeholder(id, n);
+    } else {
+        to_insert = normalized;
+    }
+    acecode::insert_at_cursor(
+        state.input_text, state.input_cursor, to_insert);
+    state.history_index = -1;
+}
+
+// 问答自定义编辑状态由 ask_session snapshot() 提供，普通 composer 不参与。
+static bool can_accept_clipboard_paste_locked(const TuiState& state) {
+    if (state.ask_pending) {
+        return state.ask_session && state.ask_session->snapshot().editing_custom;
+    }
+    return !state.confirm_pending &&
+           !state.rewind_picker_active &&
+           !state.resume_picker_active &&
+           !state.model_picker_open &&
+           !state.mode_picker_open;
+}
+
+static void refresh_input_suggestions(TuiState& state,
+                                      CommandRegistry& cmd_registry,
+                                      const std::string& cwd) {
+    acecode::tui::refresh_path_reference_state(state, cwd);
+    refresh_slash_dropdown(state, cmd_registry);
+}
+
+// 从系统剪贴板粘贴文本，并刷新输入建议。
+static bool paste_system_clipboard_text(TuiState& state,
+                                        ScreenInteractive& screen,
+                                        CommandRegistry& cmd_registry,
+                                        const std::string& cwd) {
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!can_accept_clipboard_paste_locked(state)) {
+            return true;
+        }
+    }
+
+    auto clipboard = acecode::read_system_clipboard_text();
+
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!can_accept_clipboard_paste_locked(state)) {
+            return true;
+        }
+        if (!clipboard) {
+            set_transient_status_line_locked(
+                state, clipboard_paste_status_message(clipboard.status));
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+
+        std::string normalized =
+            acecode::tui::normalize_pasted_text(clipboard.text);
+        if (normalized.empty()) {
+            set_transient_status_line_locked(
+                state,
+                clipboard_paste_status_message(
+                    acecode::ClipboardTextReadResult::Status::Empty));
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+
+        if (state.ask_pending && state.ask_session &&
+            state.ask_session->snapshot().editing_custom) {
+            const auto ask_effects = state.ask_session->dispatch({
+                tui::AskQuestionEventKind::PasteText,
+                -1,
+                0,
+                normalized});
+            dispatch_ask_session_effects_locked(state, ask_effects);
+        } else {
+            insert_pasted_text_at_cursor_locked(state, normalized);
+            refresh_input_suggestions(state, cmd_registry, cwd);
+        }
+    }
+    screen.PostEvent(Event::Custom);
+    return true;
+}
+
+// 从系统剪贴板粘贴图片，保存成当前会话附件。
+static bool paste_system_clipboard_image(TuiState& state,
+                                         ScreenInteractive& screen,
+                                         SessionManager& session_manager,
+                                         const std::string& working_dir) {
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!can_accept_clipboard_paste_locked(state) ||
+            state.input_mode != InputMode::Normal) {
+            return true;
+        }
+    }
+
+    auto clipboard = acecode::read_system_clipboard_image();
+
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!can_accept_clipboard_paste_locked(state)) {
+            return true;
+        }
+        if (!clipboard) {
+            set_transient_status_line_locked(
+                state, clipboard_image_status_message(clipboard.status));
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+    }
+
+    const std::string session_id = session_manager.ensure_active_session_id();
+    const std::string project_dir = SessionStorage::get_project_dir(working_dir);
+    std::string error;
+    auto record = save_attachment(
+        project_dir,
+        session_id,
+        "clipboard.png",
+        clipboard.mime_type.empty() ? "image/png" : clipboard.mime_type,
+        clipboard.bytes,
+        &error);
+
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!record.has_value()) {
+            set_transient_status_line_locked(
+                state,
+                error.empty() ? "Clipboard image save failed" : error);
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+        cancel_ctrl_c_exit_locked(state);
+        state.pending_attachments.push_back(attachment_to_json(*record));
+        acecode::tui::clamp_pending_attachment_focus(
+            state.pending_attachment_focus,
+            state.pending_attachments.size());
+        set_transient_status_line_locked(
+            state,
+            "Attached image: " + record->name);
+    }
+    screen.PostEvent(Event::Custom);
+    return true;
+}
+
+// 处理待发送附件列表的聚焦、移动和删除。
+static bool handle_pending_attachment_focus_event(TuiState& state,
+                                                  ScreenInteractive& screen,
+                                                  const Event& event) {
+    std::lock_guard<std::mutex> lk(state.mu);
+
+    const bool unavailable =
+        state.ask_pending ||
+        state.confirm_pending ||
+        state.resume_picker_active ||
+        state.rewind_picker_active ||
+        state.model_picker_open ||
+        state.mode_picker_open;
+
+    if (tui::is_alt_a_event(event)) {
+        if (unavailable) {
+            return true;
+        }
+        if (state.pending_attachments.empty()) {
+            state.pending_attachment_focus =
+                acecode::tui::kNoPendingAttachmentFocus;
+            set_transient_status_line_locked(state, "No pending attachments");
+        } else {
+            acecode::tui::toggle_pending_attachment_focus(
+                state.pending_attachment_focus,
+                state.pending_attachments.size());
+        }
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+
+    if (unavailable ||
+        !acecode::tui::has_pending_attachment_focus(
+            state.pending_attachment_focus,
+            state.pending_attachments.size())) {
+        return false;
+    }
+
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        state.pending_attachment_focus =
+            acecode::tui::kNoPendingAttachmentFocus;
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::ArrowUp || event == Event::ArrowDown) {
+        const int delta = (event == Event::ArrowUp) ? -1 : 1;
+        acecode::tui::move_pending_attachment_focus(
+            state.pending_attachment_focus,
+            state.pending_attachments.size(),
+            delta);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::Backspace || event == Event::Delete) {
+        auto removed_index =
+            acecode::tui::remove_focused_pending_attachment_index(
+                state.pending_attachment_focus,
+                state.pending_attachments.size());
+        if (removed_index.has_value()) {
+            const auto index = *removed_index;
+            const nlohmann::json removed = state.pending_attachments[index];
+            const std::string kind =
+                removed.value("kind", std::string{"attachment"});
+            const std::string label =
+                kind == "image" ? "Removed image: " : "Removed attachment: ";
+            state.pending_attachments.erase(
+                state.pending_attachments.begin() +
+                static_cast<std::ptrdiff_t>(index));
+            set_transient_status_line_locked(
+                state,
+                label + attachment_name_from_json(removed));
+        }
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event.is_character()) {
+        state.pending_attachment_focus =
+            acecode::tui::kNoPendingAttachmentFocus;
+    }
+    return false;
+}
+
+// 权限确认框独占键盘，负责把用户选择唤醒给 agent 线程。
+// respond_remote 非空且当前请求来自子会话(confirm_remote_session_id 非空)
+// 时,用户选择改经它路由回子会话(SubagentHost::respond_permission),
+// 本地 confirm_cv 无等待者,不 notify。
+static bool handle_confirm_overlay_event(
+    TuiState& state,
+    ScreenInteractive& screen,
+    Event& event,
+    const std::function<void(const std::string& session_id,
+                             const std::string& request_id,
+                             PermissionResult r)>& respond_remote = nullptr) {
+    std::unique_lock<std::mutex> lk(state.mu);
+    if (!state.confirm_pending) {
+        return false;
+    }
+
+    auto submit = [&](PermissionResult r) {
+        state.input_text.clear();
+        state.pasted_texts.clear();
+        state.input_cursor = 0;
+        state.clear_input_selection();
+        state.confirm_pending = false;
+        if (!state.confirm_remote_session_id.empty()) {
+            const std::string sid = state.confirm_remote_session_id;
+            const std::string rid = state.confirm_remote_request_id;
+            state.confirm_remote_session_id.clear();
+            state.confirm_remote_request_id.clear();
+            state.confirm_origin_label.clear();
+            if (respond_remote) respond_remote(sid, rid, r);
+        } else {
+            state.confirm_result = r;
+            state.confirm_cv.notify_one();
+        }
+        // overlay 释放:唤醒排队占用者(主会话确认 / 子会话 ask 工具)。
+        state.overlay_cv.notify_all();
+        screen.PostEvent(Event::Custom);
+    };
+
+    // 选项随 payload 变化(bash 的「只放行该目录」/「记住前缀」按需出现),
+    // 数字快捷键 = 选项序号,No 永远最后。
+    const auto options = acecode::tui::build_confirm_options(
+        state.confirm_tool_name, state.confirm_tool_args);
+    const int count = std::max(1, static_cast<int>(options.size()));
+    auto has_result = [&](PermissionResult r) {
+        for (const auto& option : options) if (option.result == r) return true;
+        return false;
+    };
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        submit(PermissionResult::Deny);
+        return true;
+    }
+    if (event == Event::ArrowUp) {
+        state.confirm_focus = (state.confirm_focus + count - 1) % count;
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::ArrowDown) {
+        state.confirm_focus = (state.confirm_focus + 1) % count;
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (tui::matches_terminal_key(
+            event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
+        if (has_result(PermissionResult::AlwaysAllow)) submit(PermissionResult::AlwaysAllow);
+        return true;
+    }
+    if (event == Event::Return) {
+        const int f = std::clamp(state.confirm_focus, 0, count - 1);
+        submit(options.empty() ? PermissionResult::Deny : options[static_cast<std::size_t>(f)].result);
+        return true;
+    }
+    if (event.is_character()) {
+        const std::string& c = event.character();
+        if (c.size() == 1 && c[0] >= '1' && c[0] <= '9') {
+            const std::size_t index = static_cast<std::size_t>(c[0] - '1');
+            if (index < options.size()) submit(options[index].result);
+            return true;
+        }
+        if (c == "y" || c == "Y") {
+            submit(PermissionResult::Allow);
+            return true;
+        }
+        if (c == "n" || c == "N") {
+            submit(PermissionResult::Deny);
+            return true;
+        }
+        if (c == "a" || c == "A") {
+            if (has_result(PermissionResult::AlwaysAllow)) submit(PermissionResult::AlwaysAllow);
+            return true;
+        }
+        return true;
+    }
+    return false;
+}
+
+// 清空 rewind picker 的临时状态，取消和提交后都复用。
+static void clear_rewind_picker_locked(TuiState& state) {
+    state.rewind_picker_active = false;
+    state.rewind_mode_active = false;
+    state.rewind_picker_operation = TuiState::RewindPickerOperation::Rewind;
+    state.rewind_items.clear();
+    state.rewind_selected = 0;
+    state.rewind_view_offset = 0;
+    state.rewind_modes.clear();
+    state.rewind_mode_selected = 0;
+    state.rewind_callback = nullptr;
+}
+
+// 根据目标是否支持代码恢复，生成 rewind 的二级选项。
+static void populate_rewind_modes_locked(TuiState& state,
+                                         const TuiState::RewindItem& item) {
+    state.rewind_modes.clear();
+    if (item.can_restore_code) {
+        state.rewind_modes.push_back({
+            TuiState::RewindRestoreMode::CodeAndConversation,
+            "Code and conversation",
+            "Restore tracked files, fork the conversation, and prefill the selected prompt."
+        });
+        state.rewind_modes.push_back({
+            TuiState::RewindRestoreMode::ConversationOnly,
+            "Conversation only",
+            "Fork the conversation and prefill the selected prompt."
+        });
+        state.rewind_modes.push_back({
+            TuiState::RewindRestoreMode::CodeOnly,
+            "Code only",
+            "Restore tracked files without changing the conversation."
+        });
+    } else {
+        state.rewind_modes.push_back({
+            TuiState::RewindRestoreMode::ConversationOnly,
+            "Conversation only",
+            "Fork the conversation and prefill the selected prompt."
+        });
+    }
+    state.rewind_modes.push_back({
+        TuiState::RewindRestoreMode::NeverMind,
+        "Never mind",
+        "Cancel rewind."
+    });
+    state.rewind_mode_selected = 0;
+}
+
+// 提交 rewind 模式，执行回调并恢复普通输入状态。
+static void commit_rewind_mode_locked(
+    TuiState& state,
+    ScreenInteractive& screen,
+    const std::function<void()>& clamp_chat_focus,
+    TuiState::RewindRestoreMode mode) {
+    if (state.rewind_selected < 0 ||
+        state.rewind_selected >= static_cast<int>(state.rewind_items.size())) {
+        clear_rewind_picker_locked(state);
+        screen.PostEvent(Event::Custom);
+        return;
+    }
+    auto item = state.rewind_items[state.rewind_selected];
+    auto cb = state.rewind_callback;
+    clear_rewind_picker_locked(state);
+    state.input_text.clear();
+    state.pasted_texts.clear();
+    state.input_cursor = 0;
+    state.clear_input_selection();
+    if (cb) cb(std::move(item), mode);
+    clamp_chat_focus();
+    screen.PostEvent(Event::Custom);
+}
+
+// /rewind 是两级菜单；/fork 复用目标页并直接提交 conversation-only。
+static bool handle_rewind_picker_event(
+    TuiState& state,
+    ScreenInteractive& screen,
+    const Event& event,
+    const std::function<void()>& clamp_chat_focus) {
+    std::unique_lock<std::mutex> lk(state.mu);
+    if (!state.rewind_picker_active) {
+        return false;
+    }
+
+    auto activate_current_target = [&]() {
+        if (state.rewind_selected < 0 ||
+            state.rewind_selected >= static_cast<int>(state.rewind_items.size())) {
+            return;
+        }
+        const auto& item = state.rewind_items[state.rewind_selected];
+        if (TuiState::rewind_target_uses_mode_picker(
+                state.rewind_picker_operation, item.can_restore_code)) {
+            populate_rewind_modes_locked(state, item);
+            state.rewind_mode_active = true;
+        } else {
+            commit_rewind_mode_locked(
+                state, screen, clamp_chat_focus,
+                TuiState::RewindRestoreMode::ConversationOnly);
+        }
+    };
+
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        if (state.rewind_mode_active) {
+            state.rewind_mode_active = false;
+            state.rewind_modes.clear();
+            state.rewind_mode_selected = 0;
+        } else {
+            const bool is_fork =
+                state.rewind_picker_operation ==
+                TuiState::RewindPickerOperation::Fork;
+            clear_rewind_picker_locked(state);
+            state.conversation.push_back({
+                "system",
+                is_fork ? "Fork cancelled." : "Rewind cancelled.",
+                false});
+            state.chat_follow_tail = true;
+            clamp_chat_focus();
+        }
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+
+    const bool move_up =
+        event == Event::ArrowUp || event == Event::Character('k');
+    const bool move_down =
+        event == Event::ArrowDown || event == Event::Character('j');
+    if (move_up || move_down) {
+        int* selected = state.rewind_mode_active
+            ? &state.rewind_mode_selected
+            : &state.rewind_selected;
+        int count = state.rewind_mode_active
+            ? static_cast<int>(state.rewind_modes.size())
+            : static_cast<int>(state.rewind_items.size());
+        if (count > 0) {
+            *selected = move_up
+                ? (*selected - 1 + count) % count
+                : (*selected + 1) % count;
+        }
+        if (!state.rewind_mode_active) {
+            state.rewind_view_offset = acecode::tui::scroll_to_keep_visible(
+                state.rewind_selected, state.rewind_view_offset,
+                acecode::tui::kRewindPickerVisibleRows,
+                static_cast<int>(state.rewind_items.size()));
+        }
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+
+    if (!state.rewind_mode_active &&
+        (event == Event::PageUp || event == Event::PageDown ||
+         event == Event::Home || event == Event::End)) {
+        const int total = static_cast<int>(state.rewind_items.size());
+        if (total > 0) {
+            const int step = acecode::tui::kRewindPickerVisibleRows;
+            if (event == Event::PageUp) {
+                state.rewind_selected = std::max(0, state.rewind_selected - step);
+            } else if (event == Event::PageDown) {
+                state.rewind_selected =
+                    std::min(total - 1, state.rewind_selected + step);
+            } else if (event == Event::Home) {
+                state.rewind_selected = 0;
+            } else {
+                state.rewind_selected = total - 1;
+            }
+            state.rewind_view_offset = acecode::tui::scroll_to_keep_visible(
+                state.rewind_selected, state.rewind_view_offset, step, total);
+            screen.PostEvent(Event::Custom);
+        }
+        return true;
+    }
+
+    if (event == Event::Return) {
+        if (state.rewind_mode_active) {
+            if (state.rewind_mode_selected >= 0 &&
+                state.rewind_mode_selected <
+                    static_cast<int>(state.rewind_modes.size())) {
+                auto mode = state.rewind_modes[state.rewind_mode_selected].mode;
+                commit_rewind_mode_locked(
+                    state, screen, clamp_chat_focus, mode);
+            }
+        } else {
+            activate_current_target();
+        }
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+
+    if (event.is_character()) {
+        std::string ch = event.character();
+        if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
+            int idx = ch[0] - '1';
+            if (state.rewind_mode_active) {
+                if (idx < static_cast<int>(state.rewind_modes.size())) {
+                    state.rewind_mode_selected = idx;
+                    auto mode = state.rewind_modes[idx].mode;
+                    commit_rewind_mode_locked(
+                        state, screen, clamp_chat_focus, mode);
+                }
+            } else if (idx < static_cast<int>(state.rewind_items.size())) {
+                state.rewind_selected = idx;
+                activate_current_target();
+            }
+            screen.PostEvent(Event::Custom);
+        }
+        return true;
+    }
+
+    return true;
+}
+
+// slash 下拉只负责补全；Enter 补全后继续交给普通提交逻辑。
+static bool handle_slash_dropdown_event(TuiState& state,
+                                        ScreenInteractive& screen,
+                                        const Event& event) {
+    std::unique_lock<std::mutex> lk(state.mu);
+    if (!state.slash_dropdown_active || state.slash_dropdown_items.empty()) {
+        return false;
+    }
+
+    auto commit_selection = [&]() {
+        const auto& item =
+            state.slash_dropdown_items[state.slash_dropdown_selected];
+        state.input_text = "/" + item.name + " ";
+        state.input_cursor = state.input_text.size();
+        state.clear_input_selection();
+        state.slash_dropdown_active = false;
+        state.slash_dropdown_items.clear();
+        state.slash_dropdown_selected = 0;
+        state.slash_dropdown_view_offset = 0;
+        state.slash_dropdown_total_matches = 0;
+        state.slash_dropdown_dismissed_for_input = false;
+    };
+    const int n = static_cast<int>(state.slash_dropdown_items.size());
+    auto follow_view = [&]() {
+        state.slash_dropdown_view_offset =
+            acecode::tui::scroll_to_keep_visible(
+                state.slash_dropdown_selected,
+                state.slash_dropdown_view_offset,
+                acecode::tui::kSlashDropdownVisibleRows, n);
+    };
+
+    if (event == Event::ArrowUp ||
+        tui::matches_terminal_codepoint(event, 'p', tui::kTerminalCtrl)) {
+        state.slash_dropdown_selected =
+            (state.slash_dropdown_selected - 1 + n) % n;
+        follow_view();
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::ArrowDown ||
+        tui::matches_terminal_codepoint(event, 'n', tui::kTerminalCtrl)) {
+        state.slash_dropdown_selected =
+            (state.slash_dropdown_selected + 1) % n;
+        follow_view();
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::PageUp || event == Event::PageDown ||
+        event == Event::Home || event == Event::End) {
+        const int step = acecode::tui::kSlashDropdownVisibleRows;
+        if (event == Event::PageUp) {
+            state.slash_dropdown_selected =
+                std::max(0, state.slash_dropdown_selected - step);
+        } else if (event == Event::PageDown) {
+            state.slash_dropdown_selected =
+                std::min(n - 1, state.slash_dropdown_selected + step);
+        } else if (event == Event::Home) {
+            state.slash_dropdown_selected = 0;
+        } else {
+            state.slash_dropdown_selected = n - 1;
+        }
+        follow_view();
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::Tab) {
+        commit_selection();
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::Return) {
+        commit_selection();
+        return false;
+    }
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        state.slash_dropdown_active = false;
+        state.slash_dropdown_items.clear();
+        state.slash_dropdown_selected = 0;
+        state.slash_dropdown_view_offset = 0;
+        state.slash_dropdown_total_matches = 0;
+        state.slash_dropdown_dismissed_for_input = true;
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    return false;
+}
+
+static bool handle_path_reference_event(
+    TuiState& state,
+    ScreenInteractive& screen,
+    Event& event,
+    const std::string& cwd,
+    const std::vector<Box>& row_boxes) {
+    std::unique_lock<std::mutex> lk(state.mu);
+    if (!state.path_reference_active) return false;
+
+    const int count = static_cast<int>(state.path_reference_items.size());
+    auto commit = [&](bool enter_directory) {
+        if (!acecode::tui::commit_path_reference_selection(
+                state, enter_directory)) {
+            return false;
+        }
+        if (enter_directory) {
+            acecode::tui::refresh_path_reference_state(state, cwd);
+        }
+        screen.PostEvent(Event::Custom);
+        return true;
+    };
+
+    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+        acecode::tui::dismiss_path_reference_state(state);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (count <= 0) return false;
+    if (event == Event::ArrowUp) {
+        acecode::tui::move_path_reference_selection(state, -1);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::ArrowDown) {
+        acecode::tui::move_path_reference_selection(state, 1);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::PageUp || event == Event::PageDown) {
+        const int delta = event == Event::PageUp
+            ? -acecode::tui::kPathReferenceVisibleRows
+            : acecode::tui::kPathReferenceVisibleRows;
+        acecode::tui::move_path_reference_selection(state, delta);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::Home || event == Event::End) {
+        state.path_reference_selected = event == Event::Home ? 0 : count - 1;
+        state.path_reference_view_offset = acecode::tui::scroll_to_keep_visible(
+            state.path_reference_selected, state.path_reference_view_offset,
+            acecode::tui::kPathReferenceVisibleRows, count);
+        screen.PostEvent(Event::Custom);
+        return true;
+    }
+    if (event == Event::Return) return commit(false);
+    if (event == Event::ArrowRight || event == Event::Tab) {
+        return commit(true);
+    }
+    if (event.is_mouse()) {
+        const auto& mouse = event.mouse();
+        if (mouse.button != Mouse::Left || mouse.motion != Mouse::Pressed) {
+            return false;
+        }
+        for (int i = 0; i < count && i < static_cast<int>(row_boxes.size()); ++i) {
+            const auto& box = row_boxes[static_cast<std::size_t>(i)];
+            if (box.x_min <= box.x_max && box.y_min <= box.y_max &&
+                box.Contain(mouse.x, mouse.y)) {
+                state.path_reference_selected = i;
+                return commit(false);
+            }
+        }
+    }
+    return false;
+}
+
+static int run_interactive_app(const InteractiveCliOptions& cli,
+                               const std::string& argv0_dir);
+
+static void configure_process_environment() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
+    // SECURITY: Prevent Windows from executing commands from current directory.
+    // Without this, a malicious exe placed in cwd could hijack system commands.
+    SetEnvironmentVariableA("NoDefaultCurrentDirectoryInExePath", "1");
+#endif
+}
+
+static std::vector<std::string> argv_tail(int argc, char* argv[], int start) {
+    std::vector<std::string> tokens;
+    for (int i = start; i < argc; ++i) {
+        tokens.emplace_back(argv[i]);
+    }
+    return tokens;
+}
+
+static std::string executable_path_from_argv(int argc, char* argv[]) {
+    return (argc > 0 && argv[0]) ? std::string(argv[0]) : std::string();
+}
+
+static bool is_version_command_arg(const std::string& arg) {
+    return arg == "version" || arg == "-version" || arg == "--version" ||
+           arg == "/version";
+}
+
+static bool is_help_command_arg(const std::string& arg) {
+    return arg == "help" || arg == "-h" || arg == "--help" || arg == "/?";
+}
+
+// 顶层 `acecode --help`。各子命令的完整帮助由子命令自己出
+// (`acecode -p --help` / `acecode daemon help`),这里只给导航级概览。
+static void print_top_level_help() {
+    std::cout <<
+        "ACECode v" ACECODE_VERSION " - terminal coding agent\n"
+        "\n"
+        "Usage:\n"
+        "  acecode [options]                  Start the interactive TUI\n"
+        "  acecode -p [options] \"<prompt>\"    Headless print mode (acecode -p --help)\n"
+        "  acecode configure                  Interactive provider/model setup\n"
+        "  acecode daemon <subcommand>        Background daemon + Web UI (acecode daemon help)\n"
+        "  acecode channels <command>         WhatsApp channel management (acecode channels help)\n"
+#ifdef _WIN32
+        "  acecode service <subcommand>       Windows service management (acecode service help)\n"
+#endif
+        "  acecode upgrade [--force]          Self-update to the latest release\n"
+        "  acecode version                    Print version and exit\n"
+        "\n"
+        "Interactive (TUI) options:\n"
+        "  --resume [id]          Resume a session (no id = most recent)\n"
+        "  -r                     Open the resume picker on startup\n"
+        "  -w, --worktree [name]  Work inside an isolated git worktree\n"
+        "                         (name may also be a PR ref: #123 / GitHub PR URL)\n"
+        "  --yolo, --dangerous    Skip all permission confirmations\n"
+        "  --alt-screen           Force alternate-screen rendering (legacy terminals)\n"
+        "\n"
+        "Headless print mode (full reference: acecode -p --help):\n"
+        "  acecode -p \"prompt\"                Run one turn, print the reply to stdout\n"
+        "  echo \"...\" | acecode -p            Prompt from stdin (pipe-friendly)\n"
+        "  acecode -p -c \"...\"                Continue this directory's latest session\n"
+        "  acecode -p --resume <id> \"...\"     Continue a specific session\n"
+        "  acecode -p --output-format json    Structured result with session_id\n";
+}
+
+static std::optional<int> dispatch_non_tui_command(int argc, char* argv[]) {
+    const std::string exe_path = executable_path_from_argv(argc, argv);
+
+    if (argc >= 2 && std::string(argv[1]) == "--remote-web-proxy") {
+        return acecode::web::run_remote_web_proxy_command(
+            argv_tail(argc, argv, 2), std::cout, std::cerr);
+    }
+
+    if (argc >= 2 && is_version_command_arg(argv[1] ? std::string(argv[1]) : std::string())) {
+        std::cout << "acecode v" ACECODE_VERSION << "\n";
+        return 0;
+    }
+
+    if (argc >= 2 && is_help_command_arg(argv[1] ? std::string(argv[1]) : std::string())) {
+        print_top_level_help();
+        return 0;
+    }
+
+    if (argc >= 2 && (std::string(argv[1]) == "upgrade" ||
+                      std::string(argv[1]) == "update")) {
+        bool force_update = false;
+        std::optional<std::string> server_override;
+        for (int i = 2; i < argc; ++i) {
+            const std::string arg = argv[i] ? std::string(argv[i]) : std::string();
+            if (arg == "--force") {
+                force_update = true;
+                continue;
+            }
+            constexpr const char* kServerPrefix = "--server=";
+            if (arg.rfind(kServerPrefix, 0) == 0) {
+                server_override = arg.substr(std::char_traits<char>::length(kServerPrefix));
+                continue;
+            }
+            if (arg == "--server") {
+                std::cerr << "acecode " << argv[1] << ": missing value for --server\n"
+                          << "usage: acecode " << argv[1]
+                          << " [--force] [--server=<url>]\n";
+                return 64;
+            }
+            std::cerr << "acecode " << argv[1] << ": unknown option: " << arg << "\n"
+                      << "usage: acecode " << argv[1]
+                      << " [--force] [--server=<url>]\n";
+            return 64;
+        }
+        AppConfig config = load_config();
+        if (server_override.has_value()) {
+            std::string server_error;
+            if (!acecode::upgrade::apply_upgrade_server_override(
+                    config, *server_override, &server_error)) {
+                std::cerr << "acecode " << argv[1] << ": " << server_error << "\n"
+                          << "usage: acecode " << argv[1]
+                          << " [--force] [--server=<url>]\n";
+                return 64;
+            }
+            try {
+                save_config(config);
+            } catch (const std::exception& e) {
+                std::cerr << "acecode " << argv[1]
+                          << ": failed to save update server: " << e.what() << "\n";
+                return 1;
+            }
+        }
+        return acecode::upgrade::run_upgrade_command(
+            config, exe_path, ACECODE_VERSION, std::cout, std::cerr,
+            force_update);
+    }
+
+    if (argc >= 2 && std::string(argv[1]) == "--apply-update") {
+        return acecode::upgrade::run_apply_update_command(
+            argv_tail(argc, argv, 2), std::cout, std::cerr,
+            acecode::upgrade::current_target());
+    }
+
+    if (argc >= 2 && std::string(argv[1]) == "daemon") {
+        return acecode::daemon::cli::run(argv_tail(argc, argv, 2), exe_path);
+    }
+
+    if (argc >= 2 && std::string(argv[1]) == "service") {
+#ifdef _WIN32
+        return acecode::daemon::service_win::run_cli(argv_tail(argc, argv, 2),
+                                                     exe_path);
+#else
+        std::cerr << "acecode: native `service` subcommand is Windows-only;\n"
+                     "         on Linux/macOS use `acecode daemon --foreground`\n"
+                     "         under systemd / launchd (see README for sample units).\n";
+        return 65;
+#endif
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--service-main") {
+#ifdef _WIN32
+            return acecode::daemon::service_win::run_service_main_dispatcher();
+#else
+            std::cerr << "--service-main is Windows-only\n";
+            return 64;
+#endif
+        }
+    }
+
+    // ---- -p / --print 无头模式(openspec add-headless-print-mode) ----
+    // Windows 的 char** argv 是 ANSI 代码页,中文 prompt 会乱码;用宽字符
+    // 命令行重建 UTF-8 token。POSIX 直接用 argv(约定 UTF-8 locale)。
+    {
+        std::vector<std::string> tokens;
+#ifdef _WIN32
+        int wargc = 0;
+        LPWSTR* wargv = ::CommandLineToArgvW(::GetCommandLineW(), &wargc);
+        if (wargv) {
+            for (int i = 1; i < wargc; ++i) {
+                tokens.push_back(acecode::wide_to_utf8(wargv[i]));
+            }
+            ::LocalFree(wargv);
+        } else {
+            tokens = argv_tail(argc, argv, 1);
+        }
+#else
+        tokens = argv_tail(argc, argv, 1);
+#endif
+        if (!tokens.empty() && tokens.front() == "channels") {
+            return acecode::channels::run_cli(
+                std::vector<std::string>(tokens.begin() + 1, tokens.end()), std::cout, std::cerr);
+        }
+        if (acecode::headless::should_enter_print_mode(tokens)) {
+            auto opts = acecode::headless::parse_headless_cli_options(tokens);
+            // --help 优先于用法报错:`-p --help` 后面跟什么都先出帮助。
+            if (opts.show_help) {
+                std::cout << acecode::headless::print_mode_help();
+                return 0;
+            }
+            if (!opts.error.empty()) {
+                std::cerr << "acecode -p: " << opts.error << "\n"
+                          << acecode::headless::print_mode_usage_line();
+                return 64;
+            }
+            return acecode::headless::run_print_mode(opts);
+        }
+    }
+
+#ifdef _WIN32
+    if (argc == 1) {
+        AppConfig cfg_probe = load_config();
+        if (cfg_probe.daemon.auto_start_on_double_click) {
+            DWORD procs[2] = {0, 0};
+            DWORD n = ::GetConsoleProcessList(procs, 2);
+            if (n == 1) {
+                std::vector<std::string> tokens = {"start"};
+                return acecode::daemon::cli::run(tokens, exe_path);
+            }
+        }
+    }
+#endif
+
+    return std::nullopt;
+}
+
+static int validate_models_registry_command(const std::string& argv0_dir) {
+    AppConfig config = load_config();
+    reconcile_default_skills_on_startup(argv0_dir);
+    initialize_registry(config, argv0_dir);
+    const auto& src = current_registry_source();
+    auto registry = current_registry();
+    if (!registry || registry->empty()) {
+        std::cerr << "models.dev registry not found or empty\n";
+        return 1;
+    }
+    size_t actual_models = 0;
+    for (auto it = registry->begin(); it != registry->end(); ++it) {
+        if (!it->is_object()) continue;
+        auto m = it->find("models");
+        if (m == it->end()) continue;
+        if (m->is_object()) actual_models += m->size();
+        else if (m->is_array()) actual_models += m->size();
+    }
+    std::cout << "models.dev registry OK: " << registry->size() << " providers, "
+              << actual_models << " models, source=" << src.path_or_url << "\n";
+    if (src.manifest && src.manifest->is_object()) {
+        const auto& m = *src.manifest;
+        if (m.contains("model_count") && m["model_count"].is_number_integer()) {
+            size_t expected = static_cast<size_t>(m["model_count"].get<int>());
+            if (expected != actual_models) {
+                std::cerr << "MANIFEST.json model_count=" << expected
+                          << " disagrees with actual " << actual_models << "\n";
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static std::optional<int> run_pre_tui_command(const InteractiveCliOptions& cli,
+                                              const std::string& argv0_dir) {
+    if (cli.run_configure_cmd) {
+        AppConfig config = load_config();
+        reconcile_default_skills_on_startup(argv0_dir);
+        initialize_registry(config, argv0_dir);
+        return run_configure(config);
+    }
+
+    if (cli.validate_models_registry_cmd) {
+        return validate_models_registry_command(argv0_dir);
+    }
+
+    return std::nullopt;
+}
+
+static bool ensure_interactive_terminal() {
+    std::atexit(reset_cursor);
+
+#ifdef _WIN32
+    bool stdin_is_tty = _isatty(_fileno(stdin));
+    bool stdout_is_tty = _isatty(_fileno(stdout));
+#else
+    bool stdin_is_tty = isatty(fileno(stdin));
+    bool stdout_is_tty = isatty(fileno(stdout));
+#endif
+    if (!stdin_is_tty || !stdout_is_tty) {
+        std::cerr << "Error: acecode requires an interactive terminal (stdin and stdout must be a TTY).\n"
+                  << "If piping input/output, please run acecode directly in a terminal instead.\n";
+        return false;
+    }
+    return true;
+}
+
+static void set_startup_terminal_title() {
+#ifdef _WIN32
+    SetConsoleTitleA("acecode v" ACECODE_VERSION);
+#else
+    // xterm-compatible title escape sequence
+    std::cout << "\033]0;acecode v" ACECODE_VERSION "\007" << std::flush;
+#endif
+}
+
+static void initialize_logger_for_working_dir(const std::string& working_dir) {
+    const std::string logs_dir = get_logs_dir();
+    Logger::instance().init_with_rotation(logs_dir, "tui", /*mirror_stderr=*/false);
+    // 数据目录重定向的解析告警发生在日志初始化之前(被 Logger 丢掉),这里补记。
+    acecode::log_deferred_data_dir_resolution_warning();
+#ifdef _WIN32
+    _putenv_s("ACECODE_FTXUI_INPUT_TRACE_DIR", logs_dir.c_str());
+#else
+    setenv("ACECODE_FTXUI_INPUT_TRACE_DIR", logs_dir.c_str(), 1);
+#endif
+    Logger::instance().set_level(LogLevel::Dbg);
+    LOG_INFO("=== acecode started, cwd=" + working_dir + " ===");
+}
+
+static void initialize_proxy_runtime(const AppConfig& config) {
+    // 必须在任何 cpr 调用之前完成(下面 initialize_registry 可能触发 models.dev
+    // 拉取)。失败也不应阻塞启动 —— ProxyResolver 内部所有探测都是 soft-fail。
+    network::proxy_resolver().init(config.network);
+    // openspec/changes/proxy-fallback-on-unreachable:启动 TCP probe 检测代理
+    // 是否真的在监听,失败时进程级回退直连;所有 cpr 调用站点零变更。
+    network::proxy_resolver().probe_and_maybe_fallback();
+    auto resolved = network::proxy_resolver().effective("https://example.com");
+    std::string banner;
+    if (resolved.source == "auto-fallback") {
+        auto fb = network::proxy_resolver().fallback_info_snapshot();
+        banner = "Proxy: direct (auto-fallback: " + fb.original_url +
+                 " from " + fb.original_source + " unreachable)";
+    } else {
+        std::string url_disp = resolved.url.empty()
+                                  ? std::string("direct")
+                                  : network::redact_credentials(resolved.url);
+        banner = "Proxy: " + url_disp + " (" + resolved.source + ")";
+    }
+    std::cerr << banner << std::endl;
+    LOG_INFO(std::string("[proxy] effective=") +
+             (resolved.url.empty() ? "direct" : network::redact_credentials(resolved.url)) +
+             " source=" + resolved.source +
+             " mode=" + config.network.proxy_mode);
+}
+
+static void initialize_models_registry_runtime(const AppConfig& config,
+                                               const std::string& argv0_dir) {
+    initialize_registry(config, argv0_dir);
+    if (config.models_dev.allow_network && !config.models_dev.refresh_on_command_only) {
+        std::thread([] {
+            refresh_registry_from_network();
+        }).detach();
+    }
+}
+
+static void initialize_web_search_runtime(const AppConfig& config) {
+    // Backend router + region detector 单例,异步探测一次后写缓存。失败 / 已有
+    // 缓存都不阻塞启动。enabled=false 时仍 init,但下面 register 阶段不挂工具。
+    web_search::init(config.web_search);
+    web_search::register_default_backends(web_search::runtime().router(),
+                                           config.web_search);
+
+    // 启动时先用缓存 region(若有)即时 resolve;无缓存先按 Unknown 走悲观,
+    // 再起 detached 线程做实际 HEAD 探测,完成后再 resolve 一次。
+    web_search::Region cached = web_search::runtime().detector().cached_region();
+    web_search::runtime().router().resolve_active(cached);
+    if (cached == web_search::Region::Unknown) {
+        std::thread([]{
+            auto r = web_search::runtime().detector().detect_now();
+            web_search::runtime().router().resolve_active(r);
+        }).detach();
+    }
+}
+
+static std::thread start_tui_update_check(const AppConfig& config,
+                                          TuiState& state,
+                                          ScreenInteractive& screen) {
+    return std::thread([config, &state, &screen] {
+        try {
+            auto result = acecode::upgrade::check_for_update(config, ACECODE_VERSION);
+            if (result.update_available()) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                state.update_notice = "Update available: v" + result.latest_version +
+                                      ". Run acecode update.";
+                screen.PostEvent(Event::Custom);
+            } else if (result.status != acecode::upgrade::UpdateCheckStatus::UpToDate) {
+                LOG_DEBUG(std::string("[upgrade] startup check skipped: ") +
+                          acecode::upgrade::update_check_status_name(result.status) +
+                          (result.error.empty() ? "" : " (" + result.error + ")"));
+            }
+        } catch (const std::exception& e) {
+            LOG_DEBUG(std::string("[upgrade] startup check failed: ") + e.what());
+        } catch (...) {
+            LOG_DEBUG("[upgrade] startup check failed with unknown exception");
+        }
+    });
+}
+
+// 实现已抽到 src/skills/skill_init.{hpp,cpp},供 TUI 与 daemon(src/daemon/worker.cpp)
+// 共用。下方所有 `initialize_skill_registry(...)` 调用站点经 `using namespace acecode`
+// 解析到 `acecode::initialize_skill_registry`。
+
+static MemoryConfig initialize_memory_registry(MemoryRegistry& memory_registry,
+                                               const AppConfig& config) {
+    // Auto-create ~/.acecode/memory/ if missing; failure disables the memory
+    // system for this session without rewriting the user's config.json.
+    MemoryConfig runtime_memory_cfg = config.memory;
+    std::error_code mkec;
+    std::filesystem::create_directories(get_memory_dir(), mkec);
+    if (mkec) {
+        LOG_ERROR("[memory] failed to create " + get_memory_dir().generic_string() +
+                  ": " + mkec.message() + " — memory will be disabled this session");
+        runtime_memory_cfg.enabled = false;
+    } else if (runtime_memory_cfg.enabled) {
+        memory_registry.scan();
+    }
+    return runtime_memory_cfg;
+}
+
+static void initialize_mcp_servers(McpManager& mcp_manager,
+                                   const AppConfig& config) {
+    const size_t configured = config.mcp_servers.size();
+    if (configured == 0) {
+        return;
+    }
+
+    mcp_manager.connect_all(config);
+    LOG_INFO("[mcp] Configured " + std::to_string(configured) +
+             " server(s); startup will run in the background");
+}
+
+static void restore_input_history(TuiState& state,
+                                  const AppConfig& config,
+                                  const std::string& working_dir) {
+    // Restore per-working-directory input history. Independent of session files so
+    // /clear, resume, or deleting a session never blows away the Up/Down queue.
+    // 关闭开关时退化为纯内存历史（旧行为）。
+    if (!config.input_history.enabled) {
+        return;
+    }
+
+    std::string ih_path = InputHistoryStore::file_path(
+        SessionStorage::get_project_dir(working_dir));
+    state.input_history = InputHistoryStore::load(ih_path);
+    // 若历史文件条数超过当前上限（用户把 max_entries 调小），保留最近 N 条。
+    int cap = config.input_history.max_entries;
+    if (cap > 0 && static_cast<int>(state.input_history.size()) > cap) {
+        state.input_history.erase(
+            state.input_history.begin(),
+            state.input_history.begin() +
+                (state.input_history.size() - static_cast<size_t>(cap)));
+    }
+}
+
+static void add_startup_messages(TuiState& state,
+                                 bool dangerous_mode,
+                                 const McpManager& mcp_manager) {
+    // If dangerous YOLO mode is forced from CLI, show startup warning. Note:
+    // this skips permission and path-safety checks but does NOT suppress
+    // AskUserQuestion overlays (those are a legitimate LLM-driven request for
+    // input).
+    if (dangerous_mode) {
+        state.conversation.push_back({"system",
+            "[DANGEROUS YOLO MODE] Permission and path-safety checks are bypassed. Use with caution. "
+            "(AskUserQuestion overlays are still shown when the model needs input.)",
+            false});
+    }
+
+    const size_t configured = mcp_manager.configured_server_count();
+    if (configured > 0) {
+        state.conversation.push_back({"system",
+            acecode::mcp_background_start_message(configured),
+            false});
+    }
+}
+
+static void start_mcp_servers_async(McpManager& mcp_manager,
+                                    ToolExecutor& tools,
+                                    TuiState& state,
+                                    ftxui::ScreenInteractive& screen) {
+    if (mcp_manager.configured_server_count() == 0) {
+        return;
+    }
+
+    mcp_manager.set_status_callback([&mcp_manager, &state, &screen](const McpServerInfo& info) {
+        auto sidebar_servers = tui::build_mcp_sidebar_servers(mcp_manager);
+        auto message = acecode::mcp_status_message(info);
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            tui::set_mcp_sidebar_servers_locked(state, std::move(sidebar_servers));
+            if (message.has_value()) {
+                state.conversation.push_back({"system", *message, false});
+            }
+        }
+        screen.PostEvent(ftxui::Event::Custom);
+    });
+    mcp_manager.start_async(tools);
+}
+
+static void maybe_add_legacy_terminal_hint(
+    TuiState& state,
+    const AppConfig& config,
+    const acecode::TerminalCapabilities& term_caps,
+    acecode::tui::ScreenRenderMode render_mode,
+    bool force_alt_screen) {
+    // 一次性提示:仅在自动探测命中并切换到 alt-screen 时显示一次。
+    // CLI 强制 / config "always" / config "never" / 现代终端都不触发。
+    bool show_legacy_hint =
+        render_mode == acecode::tui::ScreenRenderMode::AltScreen &&
+        !force_alt_screen &&
+        config.tui.alt_screen_mode == "auto" &&
+        !term_caps.source_label.empty() &&
+        !acecode::read_state_flag("legacy_terminal_hint_shown");
+    if (show_legacy_hint) {
+        std::string hint = "提示: 检测到 " + term_caps.source_label +
+            ",已启用全屏渲染避免画面跳动。可在 ~/.acecode/config.json 设置 "
+            "\"tui\": {\"alt_screen_mode\": \"never\"} 关闭。";
+        state.conversation.push_back({"system", hint, false});
+        acecode::write_state_flag("legacy_terminal_hint_shown", true);
+    }
+}
+
+static PermissionMode permission_mode_from_meta_name(std::string mode) {
+    return PermissionManager::parse_mode_name(std::move(mode))
+        .value_or(PermissionMode::Default);
+}
+
+static void configure_permissions(PermissionManager& permissions,
+                                  bool dangerous_mode,
+                                  const std::string& default_permission_mode) {
+    permissions.set_mode(permission_mode_from_meta_name(default_permission_mode));
+    if (dangerous_mode) {
+        permissions.set_dangerous(true);
+        permissions.set_mode(PermissionMode::Yolo);
+    }
+
+    // Register built-in safety rules (deny writes to sensitive files/dirs)
+    permissions.add_rule({"file_write", "*.env", "", RuleAction::Deny, 100});
+    permissions.add_rule({"file_edit", "*.env", "", RuleAction::Deny, 100});
+    permissions.add_rule({"file_write", ".git/**", "", RuleAction::Deny, 100});
+    permissions.add_rule({"file_edit", ".git/**", "", RuleAction::Deny, 100});
+    permissions.add_rule({"apply_patch", "*.env", "", RuleAction::Deny, 100});
+    permissions.add_rule({"apply_patch", ".git/**", "", RuleAction::Deny, 100});
+    permissions.add_rule({"bash", "", "rm -rf /", RuleAction::Deny, 100});
+}
+
+static void register_slash_commands(CommandRegistry& cmd_registry,
+                                    SkillRegistry& skill_registry,
+                                    const AppConfig& config,
+                                    const std::string& working_dir) {
+    register_builtin_commands(cmd_registry);
+    auto command_keys = register_opencode_commands_tracked(
+        cmd_registry, config, working_dir);
+    if (!command_keys.empty()) {
+        LOG_INFO("[commands] Registered " + std::to_string(command_keys.size()) +
+                 " opencode command slash command(s)");
+    }
+    auto keys = register_skill_commands_tracked(cmd_registry, skill_registry);
+    if (!keys.empty()) {
+        LOG_INFO("[skills] Registered " + std::to_string(keys.size()) +
+                 " skill slash command(s)");
+    }
+}
+
+static void run_tui_loop(ftxui::ScreenInteractive& screen,
+                         const ftxui::Component& renderer) {
+#ifdef _WIN32
+    // FTXUI applies its console mode inside Loop()/PreMain, so queue this
+    // adjustment as the first loop task. From then on Ctrl+C arrives as
+    // Event::CtrlC instead of being consumed by the Windows console layer.
+    screen.Post(prepare_windows_ctrl_c_handling_after_ftxui_install);
+#endif
+    // Enable bracketed paste so the terminal frames pasted text with
+    // ESC[200~ … ESC[201~. FTXUI exposes those markers as Event::Special, and
+    // the paste accumulator in the CatchEvent body intercepts them before
+    // normal Return / character handlers run — preventing pasted newlines
+    // from accidentally submitting partial prompts.
+    flush_terminal_input_buffer();
+    write_terminal_control_sequence(acecode::tui::kBracketedPasteEnableSeq);
+    screen.Loop(renderer);
+    write_terminal_control_sequence(acecode::tui::kBracketedPasteDisableSeq);
+    flush_terminal_input_buffer();
+}
+
+static void shutdown_after_tui_loop(TuiState& state,
+                                    AgentLoop& agent_loop,
+                                    McpManager& mcp_manager,
+                                    std::atomic<bool>& running,
+                                    std::atomic<bool>& agent_aborting,
+                                    std::thread& anim_thread,
+                                    std::thread& auth_thread,
+                                    std::thread& update_check_thread,
+                                    SessionManager& session_manager,
+                                    const AppConfig& config) {
+#ifdef _WIN32
+    // Clear notification handlers (and stop the self-drawn toast thread) before
+    // any TUI/session objects captured by the activation callback begin
+    // teardown.
+    acecode::desktop::shutdown_notifications();
+#endif
+    g_active_screen.store(nullptr, std::memory_order_release);
+#ifdef _WIN32
+    SetConsoleCtrlHandler(console_ctrl_handler, FALSE);
+#endif
+
+    running = false;
+
+    // 先停 remote-control listener:teardown 期间不再接受 IM 入站,也避免
+    // 静态析构阶段才停 Crow/asio 的顺序问题。
+    acecode::rc::remote_control_service().stop();
+
+    // Graceful shutdown: abort agent, unblock confirm_cv / ask_cv, then join worker
+    agent_aborting = true;
+    agent_loop.abort();
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (state.confirm_pending) {
+            state.confirm_pending = false;
+            state.confirm_result = PermissionResult::Deny;
+            state.confirm_cv.notify_one();
+        }
+        if (state.ask_pending) {
+            // AskUserQuestion 工具线程也在 wait,通知它醒来走拒绝分支。
+            // agent_loop.abort() 已经置 abort_flag,工具的 wait 谓词因此成立。
+            state.ask_pending = false;
+            state.ask_completion_override.reset();
+            state.ask_cv.notify_one();
+        }
+        // 子代理排队占用者(等 overlay 空闲的工具线程)也要放行:它们的
+        // 等待谓词含各自的 abort_flag,notify 后自行走拒绝分支。
+        state.remote_confirm_queue.clear();
+        state.overlay_cv.notify_all();
+    }
+    agent_loop.shutdown();
+    acecode::release_process_session_power("tui-main");
+
+    // Tear down MCP child processes after the agent worker has stopped, so no
+    // in-flight tool calls can race with the clients being destroyed.
+    mcp_manager.shutdown();
+
+    // LSP server 子进程同理:agent worker 已停,不会再有工具调用打进来。
+    lsp::shutdown();
+
+    // Abort and join any in-progress compact thread
+    state.compact_abort_requested.store(true);
+    if (state.compact_thread.joinable()) {
+        state.compact_thread.join();
+    }
+
+    if (anim_thread.joinable()) {
+        anim_thread.join();
+    }
+
+    if (auth_thread.joinable()) {
+        auth_thread.join();
+    }
+
+    if (update_check_thread.joinable()) {
+        update_check_thread.join();
+    }
+
+    // Worktree 会话收尾(对齐 Claude Code 退出流的静默清理分支):
+    // 无变更 → 直接删掉 worktree + 分支;有变更或状态数不清(fail-closed)
+    // → 保留并提示位置,meta 里的 worktree 状态留着,--resume 会恢复进去。
+    // 交互式 keep/remove 对话框留待后续;保留是零数据损失的安全默认。
+    {
+        const WorktreeSessionInfo exit_worktree = session_manager.active_worktree();
+        if (exit_worktree.active()) {
+            const auto changes = acecode::worktree::count_worktree_changes(
+                exit_worktree.worktree_path, exit_worktree.original_head_commit);
+            if (changes && changes->changed_files == 0 && changes->commits == 0) {
+                // 先把进程 cwd 挪回原目录:Windows 上删除当前所在目录会失败
+                std::error_code wt_ec;
+                std::filesystem::current_path(
+                    path_from_utf8(exit_worktree.original_cwd), wt_ec);
+                std::string repo_root = acecode::worktree::find_canonical_git_root(
+                    exit_worktree.original_cwd);
+                if (repo_root.empty()) repo_root = exit_worktree.original_cwd;
+                if (acecode::worktree::remove_worktree(repo_root,
+                                                       exit_worktree.worktree_path,
+                                                       exit_worktree.worktree_branch)) {
+                    session_manager.clear_active_worktree();
+                    std::cerr << "\nacecode: worktree removed (no changes)." << std::endl;
+                }
+            } else {
+                std::cerr << "\nacecode: worktree kept at " << exit_worktree.worktree_path
+                          << (exit_worktree.worktree_branch.empty()
+                                  ? std::string{}
+                                  : " on branch " + exit_worktree.worktree_branch)
+                          << ". Resume this session to continue working there."
+                          << std::endl;
+            }
+        }
+    }
+
+    // Finalize session before exit
+    session_manager.finalize();
+    session_manager.cleanup_old_sessions(config.max_sessions);
+
+    // Print session ID so user knows how to resume
+    auto exit_sid = session_manager.current_session_id();
+    g_session_manager = nullptr;
+    if (!exit_sid.empty()) {
+        std::cerr << "\nacecode: session " << exit_sid
+                  << " saved. Resume with: acecode --resume " << exit_sid << std::endl;
+    }
+}
+
+// --worktree 启动引导:在主仓 .acecode/worktrees/ 下创建(或复用)worktree,
+// 把进程 cwd 与 working_dir 都切进去。失败打 stderr 并返回 false(直接退出)。
+// 语义对齐 Claude Code setup.ts 的 --worktree 分支:--worktree 意味着
+// worktree 就是本次会话的项目根 —— 日志 / workspace 注册 / 会话存储全部
+// 落在 worktree 里(EnterWorktree 工具中途进入的 throwaway worktree 则
+// 相反,项目身份保持在原目录)。
+static bool bootstrap_startup_worktree(const InteractiveCliOptions& cli,
+                                       std::string& working_dir,
+                                       WorktreeSessionInfo& out_info,
+                                       std::string& out_banner) {
+    namespace wt = acecode::worktree;
+
+    std::string slug = cli.worktree_name;
+    std::optional<int> pr_number;
+    if (!slug.empty()) {
+        // "#123" / GitHub PR URL → 基于 PR head 建 worktree,slug 记为 pr-<N>
+        if (auto pr = wt::parse_pr_reference(slug)) {
+            pr_number = pr;
+            slug = "pr-" + std::to_string(*pr);
+        }
+    } else {
+        slug = wt::generate_worktree_slug(std::random_device{}());
+    }
+    if (std::string err = wt::validate_worktree_slug(slug); !err.empty()) {
+        std::cerr << "acecode: " << err << std::endl;
+        return false;
+    }
+
+    const std::string repo_root = wt::find_canonical_git_root(working_dir);
+    if (repo_root.empty()) {
+        std::cerr << "acecode: --worktree requires a git repository, but "
+                  << working_dir << " is not inside one." << std::endl;
+        return false;
+    }
+
+    // 配置在这里提前读一次(正式加载在 load_tui_config_and_runtime):
+    // worktree 创建需要 worktree.sparse_paths / symlink_directories。
+    AppConfig early_cfg = load_config();
+    wt::WorktreeCreateOptions options;
+    options.pr_number = pr_number;
+    options.sparse_paths = early_cfg.worktree.sparse_paths;
+    auto created = wt::get_or_create_worktree(repo_root, slug, options);
+    if (!created.ok) {
+        std::cerr << "acecode: error creating worktree: " << created.error << std::endl;
+        return false;
+    }
+    if (!created.existed) {
+        wt::PostCreationOptions post;
+        post.symlink_directories = early_cfg.worktree.symlink_directories;
+        wt::perform_post_creation_setup(repo_root, created.worktree_path, post);
+    }
+
+    std::error_code ec;
+    std::filesystem::current_path(path_from_utf8(created.worktree_path), ec);
+    if (ec) {
+        std::cerr << "acecode: cannot enter worktree " << created.worktree_path
+                  << ": " << ec.message() << std::endl;
+        return false;
+    }
+
+    out_info.original_cwd = working_dir;
+    out_info.worktree_path = created.worktree_path;
+    out_info.worktree_name = slug;
+    out_info.worktree_branch = created.worktree_branch;
+    out_info.original_head_commit = created.head_commit;
+    out_banner = (created.existed ? std::string("Resumed existing worktree at ")
+                                  : std::string("Created worktree at ")) +
+                 created.worktree_path + " (branch " + created.worktree_branch + ")";
+    working_dir = created.worktree_path;
+    return true;
+}
+
+// 准备 TUI 启动的最外层环境：终端、标题、cwd、日志和工作区索引。
+// --worktree 时先切进 worktree,再以 worktree 为根初始化其余环境。
+static bool initialize_tui_startup_environment(std::string& working_dir,
+                                               const InteractiveCliOptions& cli,
+                                               WorktreeSessionInfo& startup_worktree,
+                                               std::string& startup_worktree_banner) {
+    if (!ensure_interactive_terminal()) {
+        return false;
+    }
+    set_startup_terminal_title();
+    working_dir = get_cwd();
+    if (cli.worktree_enabled &&
+        !bootstrap_startup_worktree(cli, working_dir, startup_worktree,
+                                    startup_worktree_banner)) {
+        return false;
+    }
+    initialize_logger_for_working_dir(working_dir);
+    acecode::desktop::ensure_workspace_metadata(
+        (std::filesystem::path(get_acecode_dir()) / "projects").string(),
+        working_dir);
+    return true;
+}
+
+// 读取旧版 hook 配置；出错只记日志，不阻塞 TUI 启动。
+static HookConfig load_tui_hook_config() {
+    std::string hook_config_error;
+    HookConfig hook_config = load_hook_config(&hook_config_error);
+    if (!hook_config_error.empty()) {
+        LOG_WARN("[hooks] " + hook_config_error);
+    }
+    return hook_config;
+}
+
+// 加载配置后刷新 hook registry，并初始化启动期全局运行时。
+static AppConfig load_tui_config_and_runtime(HookManager& hook_manager,
+                                             const std::string& working_dir,
+                                             const std::string& argv0_dir) {
+    AppConfig config = load_config();
+    acecode::environment::bootstrap(config, {});
+    reconcile_default_skills_on_startup(argv0_dir);
+    {
+        std::string trust_error;
+        HookTrustStore trust_store =
+            load_hook_trust_store_from_path(default_hook_trust_state_path(),
+                                            &trust_error);
+        if (!trust_error.empty()) {
+            LOG_WARN("[hooks] " + trust_error);
+        }
+        HookLoadOptions hook_load;
+        hook_load.feature_enabled = config.features.hooks;
+        hook_load.cwd = working_dir;
+        hook_load.project_trusted = true;
+        hook_manager.refresh_registry(load_hook_registry(hook_load, &trust_store));
+    }
+    initialize_proxy_runtime(config);
+    initialize_models_registry_runtime(config, argv0_dir);
+    return config;
+}
+
+// 创建当前 provider，并把模型上下文窗口写回运行时配置。
+static ModelProfile initialize_tui_provider_runtime(
+    AppConfig& config,
+    const std::string& working_dir,
+    const std::optional<std::string>& cwd_override,
+    SessionModelBinding& model_binding,
+    HookManager& hook_manager) {
+    ModelProfile effective_entry =
+        resolve_effective_model(config, cwd_override, std::nullopt);
+    auto snapshot = std::make_shared<AppConfig>(config);
+    SessionModelResolvedTarget target;
+    target.revision = current_saved_models_revision();
+    target.profile = effective_entry;
+    target.config = snapshot;
+    target.state = session_model_state_from_profile(*snapshot, effective_entry);
+    auto resolver = [snapshot, revision = target.revision](
+                        const std::string& name) {
+        SessionModelResolvedTarget resolved;
+        resolved.revision = revision;
+        resolved.config = snapshot;
+        const auto found = std::find_if(
+            snapshot->saved_models.begin(), snapshot->saved_models.end(),
+            [&name](const ModelProfile& profile) {
+                return profile.name == name;
+            });
+        if (found != snapshot->saved_models.end()) {
+            resolved.profile = *found;
+            resolved.state = session_model_state_from_profile(*snapshot, *found);
+        }
+        return resolved;
+    };
+    const auto installed = model_binding.install_explicit(
+        std::move(target), resolver);
+    if (!installed.ok) {
+        LOG_WARN("[main] no configured model provider; starting without an active model");
+    }
+    auto provider = model_binding.provider_snapshot();
+    if (provider) {
+        // Startup must use the same profile-aware priority as session create,
+        // switch, and resume. Calling the provider/model-only resolver here
+        // bypassed an explicit saved-model context_window in TUI launches.
+        config.context_window = resolve_model_profile_context_window(
+            config, effective_entry, config.context_window);
+    }
+    auto payload =
+        build_startup_models_loaded_payload(working_dir, effective_entry, provider);
+    hook_manager.dispatch(kHookEventStartupModelsLoaded, payload, working_dir);
+    return effective_entry;
+}
+
+// 注册工具、skills、memory、MCP；这些是 AgentLoop 的工具底座。
+static MemoryConfig initialize_tui_tools_and_registries(
+    ToolExecutor& tools,
+    SkillRegistry& skill_registry,
+    MemoryRegistry& memory_registry,
+    McpManager& mcp_manager,
+    const AppConfig& config,
+    const std::string& working_dir) {
+    initialize_web_search_runtime(config);
+    // LSP runtime(openspec add-lsp-service):惰性子系统,init 不 spawn 进程。
+    lsp::init(config.lsp, working_dir);
+    register_session_builtin_tools(tools, config);
+
+    initialize_skill_registry(skill_registry, config, working_dir);
+    tools.register_tool(create_skills_list_tool(skill_registry, &config));
+    tools.register_tool(create_skill_view_tool(skill_registry, &config));
+
+    MemoryConfig runtime_memory_cfg =
+        initialize_memory_registry(memory_registry, config);
+    tools.register_tool(create_memory_read_tool(memory_registry,
+                                                runtime_memory_cfg.max_index_bytes));
+    tools.register_tool(create_memory_write_tool(memory_registry));
+
+    initialize_mcp_servers(mcp_manager, config);
+    mcp_manager.reconcile_scope(working_dir, load_project_mcp_config(working_dir), tools);
+    return runtime_memory_cfg;
+}
+
+// 填充 TUI 初始状态：侧栏、模型状态、输入历史和启动提示。
+static void initialize_tui_state_before_screen(
+    TuiState& state,
+    const AppConfig& config,
+    const std::string& working_dir,
+    bool dangerous_mode,
+    const McpManager& mcp_manager,
+    const std::shared_ptr<LlmProvider>& provider) {
+    tui::set_mcp_sidebar_servers_locked(state, tui::build_mcp_sidebar_servers(mcp_manager));
+    state.status_line = provider
+        ? "[" + provider->name() + "] model: " + provider->model()
+        : "No model configured";
+    state.ask_config.min_visible_rows = config.tui.question_min_visible_rows;
+    state.ask_config.selection_feedback_ms =
+        config.tui.question_selection_feedback_ms;
+    restore_input_history(state, config, working_dir);
+    add_startup_messages(state, dangerous_mode, mcp_manager);
+}
+
+// 初始化主题并决定 FTXUI 渲染模式。
+static acecode::tui::ScreenRenderMode initialize_tui_render_mode(
+    AppConfig& config,
+    bool force_alt_screen,
+    acecode::TerminalCapabilities& term_caps,
+    bool& conhost_compat_layout) {
+    std::string theme_name = config.tui.theme;
+    if (theme_name == "auto") {
+        auto detected = acecode::detect_terminal_theme();
+        theme_name = (detected == acecode::DetectedTheme::light) ? "light" : "dark";
+    }
+    acecode::tui::init_theme_palette(theme_name);
+
+    term_caps = acecode::detect_terminal_capabilities();
+    if (force_alt_screen) {
+        config.tui.alt_screen_mode = "always";
+    }
+    auto render_mode = acecode::tui::decide_render_mode(config.tui, term_caps);
+    conhost_compat_layout =
+        acecode::should_use_conhost_compat_layout(term_caps);
+    set_ftxui_full_repaint_mode(conhost_compat_layout);
+    if (conhost_compat_layout) {
+        render_mode = acecode::tui::ScreenRenderMode::AltScreen;
+    }
+    return render_mode;
+}
+
+// renderer 需要的共享引用集中放这里，避免 Renderer 捕获一长串变量。
+struct TuiRendererContext {
+    TuiState& state;
+    ScreenInteractive& screen;
+    const std::string& version_str;
+    const std::string& cwd_display;
+    Box& chat_box;
+    Box& scrollbar_box;
+    tui::AskQuestionFrame& ask_question_frame;
+    Box& sidebar_content_box;
+    Box& sidebar_viewport_box;
+    Box& sidebar_scrollbar_box;
+    acecode::tui::InputTextHitLayout& input_hit_layout;
+    std::vector<Box>& message_boxes;
+    std::vector<Box>& path_reference_boxes;
+    acecode::markdown::MarkdownLinkRegionCollector& chat_link_regions;
+    acecode::tui::MessageRenderCache& message_render_cache;
+    std::vector<Box>& message_layout_boxes;
+    std::vector<char>& message_layout_valid;
+    std::vector<std::size_t>& message_layout_revisions;
+    std::vector<int>& message_layout_widths;
+    std::vector<int>& message_line_counts;
+    std::vector<int>& message_spacer_rows_after;
+    std::atomic<int>& anim_tick;
+    Component& input_with_esc;
+    PermissionManager& permissions;
+    bool dangerous_mode = false;
+    bool conhost_compat_layout = false;
+    // link-hover-tooltip (add-tui-hyperlinks 5.3): 悬停移动能力探测结果。
+    // false(conhost 家族/Apple Terminal.app 等)时恒不渲染气泡。
+    bool hover_supported = false;
+    std::function<void()> clamp_chat_focus;
+    std::function<int()> chat_viewport_rows;
+    std::function<void()> sync_chat_line_counts_from_layout;
+};
+
+// link-hover-tooltip (add-tui-hyperlinks 5.3): 构造悬停气泡 Element。
+// 布局技巧:dbox 的每个子元素共享同一区域,气泡元素内部用 size(EQUAL)
+// 占位 + filler() 把浮层推到指针附近 —— 不参与 flex 挤压主布局,也不
+// 捕获输入(DOM 元素而非组件,事件仍由底层组件树处理)。指针右上方优先;
+// 右/下空间不足时翻到指针左/下方;所有坐标 clamp 到终端范围内,保证
+// 气泡需求尺寸恒不撑大 dbox 需求,布局与无气泡时完全一致。
+// 调用方须持有 state.mu(render_tui_frame 入口已持锁)。
+static Element render_link_hover_tooltip(const TuiState& state) {
+    const auto term = Terminal::Size();
+    // 边框至少需要 2 列/3 行;极窄终端直接跳过浮层,避免 dbox 的需求尺寸
+    // 反向撑大主布局。
+    if (term.dimx < 4 || term.dimy < 3) {
+        return emptyElement();
+    }
+    // 显示真实 URL(href 原文,防骗 —— 显示文本可能被 Markdown 伪装)。
+    // 按 cell 而不是 UTF-8 字节截断;宽/高预算含 2 格 border 边框,确保
+    // x + bubble_w <= dimx 恒成立,不会撑大 dbox 需求。
+    const int max_url_cells = term.dimx - 2;
+    const std::string url = tui::truncate_cells_middle_ascii(
+        state.hover_link_href, max_url_cells);
+    const int bubble_w = std::min(
+        term.dimx, std::max(2, ftxui::string_width(url) + 2));
+    const int bubble_h = 3;  // border top + text row + border bottom
+
+    const int px = state.hover_link_x;
+    const int py = state.hover_link_y;
+    int x = px + 2;  // 指针右上方
+    if (x + bubble_w > term.dimx) {
+        x = px - bubble_w - 2;  // 右侧不够 → 指针左侧
+    }
+    x = std::clamp(x, 0, term.dimx - bubble_w);
+    int y = py - bubble_h - 1;  // 指针上方
+    if (y < 0) {
+        y = py + 1;  // 上方不够 → 指针下方
+    }
+    y = std::min(y, std::max(0, term.dimy - bubble_h));
+
+    const bool is_light = acecode::tui::theme().name == "light";
+    const Color bubble_bg =
+        is_light ? Color::RGB(235, 238, 244) : Color::RGB(42, 46, 54);
+    auto bubble =
+        text(url) | color(acecode::tui::theme().ui.text_primary) |
+        bgcolor(bubble_bg) |
+        borderRounded | color(acecode::tui::theme().ui.border);
+    return vbox({
+        emptyElement() | size(HEIGHT, EQUAL, y),
+        hbox({
+            emptyElement() | size(WIDTH, EQUAL, x),
+            bubble,
+        }),
+        filler(),
+    });
+}
+
+// 渲染整屏 TUI；只做画面组装，不处理输入事件。
+static Element render_tui_frame(TuiRendererContext& ctx) {
+    auto& state = ctx.state;
+    auto& screen = ctx.screen;
+    const auto& version_str = ctx.version_str;
+    const auto& cwd_display = ctx.cwd_display;
+    auto& chat_box = ctx.chat_box;
+    auto& scrollbar_box = ctx.scrollbar_box;
+    auto& ask_question_frame = ctx.ask_question_frame;
+    auto& sidebar_content_box = ctx.sidebar_content_box;
+    auto& sidebar_viewport_box = ctx.sidebar_viewport_box;
+    auto& sidebar_scrollbar_box = ctx.sidebar_scrollbar_box;
+    auto& input_hit_layout = ctx.input_hit_layout;
+    auto& message_boxes = ctx.message_boxes;
+    auto& path_reference_boxes = ctx.path_reference_boxes;
+    auto& chat_link_regions = ctx.chat_link_regions;
+    auto& message_render_cache = ctx.message_render_cache;
+    auto& message_layout_boxes = ctx.message_layout_boxes;
+    auto& message_layout_valid = ctx.message_layout_valid;
+    auto& message_layout_revisions = ctx.message_layout_revisions;
+    auto& message_layout_widths = ctx.message_layout_widths;
+    auto& message_line_counts = ctx.message_line_counts;
+    auto& message_spacer_rows_after = ctx.message_spacer_rows_after;
+    auto& anim_tick = ctx.anim_tick;
+    auto& input_with_esc = ctx.input_with_esc;
+    auto& permissions = ctx.permissions;
+    const bool dangerous_mode = ctx.dangerous_mode;
+    const bool conhost_compat_layout = ctx.conhost_compat_layout;
+    const bool hover_supported = ctx.hover_supported;
+    auto& clamp_chat_focus = ctx.clamp_chat_focus;
+    auto& chat_viewport_rows = ctx.chat_viewport_rows;
+    auto& sync_chat_line_counts_from_layout = ctx.sync_chat_line_counts_from_layout;
+
+    std::lock_guard<std::mutex> lk(state.mu);
+    input_hit_layout.box = Box{0, -1, 0, -1};
+    input_hit_layout.regions.clear();
+    input_hit_layout.input_value.clear();
+    auto compat_horizontal_line = [] {
+        const int cols = Terminal::Size().dimx;
+        const int safe_cols = std::max(1, cols > 4 ? cols - 4 : cols);
+        const std::string glyph = "\xE2\x94\x80";
+        std::string line;
+        line.reserve(glyph.size() * static_cast<size_t>(safe_cols));
+        for (int i = 0; i < safe_cols; ++i) {
+            line += glyph;
+        }
+        return text(line);
+    };
+    constexpr int kRegularSidebarThresholdCols = 120;
+    constexpr int kRegularSidebarWidthCols = 43;
+    const int terminal_width =
+        std::max(Terminal::Size().dimx, screen.dimx());
+    const bool show_regular_sidebar =
+        !conhost_compat_layout &&
+        terminal_width > kRegularSidebarThresholdCols;
+    if (!show_regular_sidebar) {
+        sidebar_content_box = Box{1, 0, 1, 0};
+        sidebar_viewport_box = Box{1, 0, 1, 0};
+        sidebar_scrollbar_box = Box{1, 0, 1, 0};
+        state.sidebar_scroll_top_row = 0;
+        state.sidebar_scrollbar_dragging = false;
+        state.sidebar_scrollbar_grab_offset_2x = 0;
+    }
+    const bool hide_regular_sidebar_banner =
+        show_regular_sidebar && !state.conversation.empty();
+
+    // drag-autoscroll: 把上一帧布局分配的未裁剪 box 高度同步到行数表,
+    // 供 scroll_chat_by_lines 做按行滚动. 普通 ftxui::reflect 会在 Render
+    // 阶段和 screen.stencil 取交集,只能拿到可见高度;这里必须用未裁剪高度,
+    // 否则长消息会被误判为只剩当前可见的几行,导致底部滚动范围过短.
+    size_t n_msgs = state.conversation.size();
+    const int current_message_width = chat_box.x_max >= chat_box.x_min
+        ? chat_box.x_max - chat_box.x_min + 1
+        : 0;
+    const int fallback_message_width = terminal_width -
+        (show_regular_sidebar ? kRegularSidebarWidthCols + 9 : 6);
+    const int markdown_render_width =
+        std::max(20, (current_message_width > 0
+            ? current_message_width
+            : fallback_message_width) - 6);
+    sync_chat_line_counts_from_layout();
+    clamp_chat_focus();
+
+    // selection-anchor-compensation: 在清空 boxes 之前,先用上一帧 reflect 的
+    // box.y_min 检测 anchor 漂移。focus_index 和 line_offset 都没变(用户没动
+    // 滚轮 / PgUp / 拖滚动条)而 y_min 变了 —— 这种纯 layout 漂移期间如果用户
+    // 在拖选,FTXUI 的 selection_data_ 钉在物理屏幕坐标会错位,这里调
+    // ShiftSelection 把锚点跟随移到新位置。ShiftSelection 内部会在没有 active
+    // selection 时 early return,这里无条件调用是安全的。
+    {
+        int cur_focus = state.chat_focus_index;
+        int cur_offset = state.chat_line_offset;
+        int cur_y = (cur_focus >= 0 && cur_focus < (int)message_boxes.size())
+            ? message_boxes[cur_focus].y_min : 0;
+        bool focus_unchanged = (cur_focus == state.last_focus_index &&
+                                 cur_offset == state.last_chat_line_offset);
+        // last_focus_box_y 的 sentinel 是 -999999 (从未拍过),用 > -1000000
+        // 判断"已有有效快照"。cur_y 在 reflect 没回填时是 0(default Box),
+        // 也跳过补偿——避免被裁出 viewport 的 anchor 触发假阳性 dy。
+        if (focus_unchanged && cur_y > 0 &&
+            state.last_focus_box_y > -1000000 &&
+            cur_y != state.last_focus_box_y) {
+            int dy = cur_y - state.last_focus_box_y;
+#if ACECODE_TUI_INPUT_TRACE
+            LOG_DEBUG("[drag-select] anchor compensation dy=" +
+                      std::to_string(dy) + " focus=" +
+                      std::to_string(cur_focus) + " offset=" +
+                      std::to_string(cur_offset) + " y=" +
+                      std::to_string(state.last_focus_box_y) + "->" +
+                      std::to_string(cur_y));
+#endif
+            screen.ShiftSelection(0, dy);
+        }
+        // 仅在拿到有效 reflect 数据时更新快照,否则保留上次的;这样 anchor
+        // 短暂被裁出 viewport 再回到可见区时,差值仍是相对最近一次可见位置。
+        if (cur_y > 0) {
+            state.last_focus_box_y = cur_y;
+        }
+        state.last_focus_index = cur_focus;
+        state.last_chat_line_offset = cur_offset;
+    }
+
+    message_boxes.assign(n_msgs, Box{});
+    chat_link_regions.clear();
+    message_layout_boxes.assign(n_msgs, Box{});
+    message_layout_valid.assign(n_msgs, 0);
+    message_layout_revisions.assign(n_msgs, 0);
+    message_layout_widths.assign(n_msgs, 0);
+
+    const bool is_light = acecode::tui::theme().name == "light";
+    Element header;
+    if (conhost_compat_layout) {
+        header = vbox({
+            text(version_str) | color(tui::theme().ui.text_muted) | dim,
+            state.update_notice.empty()
+                ? emptyElement()
+                : paragraph(state.update_notice) | color(tui::theme().semantic.warning),
+            text(state.status_line) | color(tui::status_line_color(state.status_line)),
+            text(cwd_display) | color(tui::theme().ui.accent_alt) | dim,
+        }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
+    } else {
+        // -- Logo --
+        auto logo = vbox({
+            text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
+            text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
+            text("\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2"),
+        }) | color(tui::theme().ui.border) | bold;
+
+        if (show_regular_sidebar && hide_regular_sidebar_banner) {
+            header = emptyElement();
+        } else if (show_regular_sidebar) {
+            header = hbox({
+                text("    "),
+                logo,
+                filler(),
+                text("  "),
+            }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
+        } else {
+            header = hbox({
+                text("    "),
+                logo,
+                filler(),
+                vbox({
+                    text(version_str) | color(tui::theme().ui.text_muted) | dim,
+                    state.update_notice.empty()
+                        ? emptyElement()
+                        : paragraph(state.update_notice) | color(tui::theme().semantic.warning),
+                    text(state.status_line) | color(tui::status_line_color(state.status_line)),
+                    text(cwd_display) | color(tui::theme().ui.accent_alt) | dim,
+                }),
+                text("  "),
+            }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
+        }
+    }
+
+    // -- Messages --
+    // Bottom-anchor short transcripts while following the tail. FTXUI's
+    // yframe only scrolls when the child is taller than the viewport, so a
+    // short chat at tail otherwise remains pinned to the top.
+    Elements message_elements;
+    auto push_spacer_rows = [&message_elements](int rows) {
+        if (rows > 0) {
+            message_elements.push_back(
+                emptyElement() | size(HEIGHT, EQUAL, rows));
+        }
+    };
+    const int chat_viewport_height = chat_box.y_max >= chat_box.y_min
+        ? chat_box.y_max - chat_box.y_min + 1
+        : 0;
+    const int tail_top_padding =
+        acecode::tui::chat_bottom_anchor_top_padding_rows(
+        message_line_counts,
+        static_cast<int>(state.conversation.size()),
+        chat_viewport_height,
+        message_spacer_rows_after);
+    push_spacer_rows(tail_top_padding);
+    const auto render_window = acecode::tui::chat_render_window(
+        message_line_counts,
+        static_cast<int>(state.conversation.size()),
+        state.chat_scroll_top_row,
+        chat_viewport_height,
+        acecode::tui::default_chat_render_overscan_rows(
+            chat_viewport_height),
+        message_spacer_rows_after);
+    push_spacer_rows(render_window.top_spacer_rows);
+
+    // drag-autoscroll: 每条消息同时记录两个 box:
+    //   - message_layout_boxes: 未裁剪高度,用于滚动数学;
+    //   - message_boxes: 裁剪后屏幕位置,用于选区锚点补偿。
+    auto tracked_message = [&](size_t index, Element element) -> Element {
+        if (index < message_layout_valid.size()) {
+            message_layout_valid[index] = 1;
+            message_layout_revisions[index] = message_render_revision(
+                state.conversation[index], state.transcript_expanded);
+            message_layout_widths[index] = current_message_width;
+        }
+        return std::move(element)
+            | acecode::tui::reflect_unclipped(message_layout_boxes[index])
+            | reflect(message_boxes[index]);
+    };
+    auto render_message_markdown =
+        [&](const std::string& content, Color fallback_color) -> Element {
+        try {
+            acecode::markdown::FormatOptions md_opts;
+            md_opts.terminal_width = markdown_render_width;
+            md_opts.syntax_highlight = true;
+            md_opts.hyperlinks = true;
+            // OSC 8 原生超链接(add-tui-hyperlinks 5.2):按终端探测结果开启。
+            // static 缓存避免 Windows 上每帧重复跑 console probe;TUI 渲染
+            // 单线程,magic static 初始化安全。
+            static const bool osc8_supported =
+                acecode::detect_osc8_support();
+            md_opts.osc8_hyperlinks = osc8_supported;
+            md_opts.strip_xml = true;
+            md_opts.link_regions = &chat_link_regions;
+            return acecode::markdown::format_markdown(content, md_opts);
+        } catch (...) {
+            return paragraph(content) | color(fallback_color);
+        }
+    };
+    // L1 消息级 Element 缓存:内容与渲染上下文(宽度/主题/语法)不变时复用
+    // 上帧构建的 Element,跳过 format_markdown。Ruling R6:仅缓存无链接
+    // 消息 —— format_markdown 会给链接元素 bake reflect(region.box),
+    // 其指向每帧 clear() 的 collector 区域,跨帧复用会悬垂;无链接消息无
+    // reflect 装饰器,可安全复用。含链接消息永不缓存,走原全量路径。
+    auto render_cached_message_markdown =
+        [&](size_t index, const std::string& content,
+            Color fallback_color) -> Element {
+        std::size_t rev = message_render_revision(
+            state.conversation[index], state.transcript_expanded);
+        // R5:content 哈希只进渲染缓存键(布局 revision 不含 content)。
+        rev = combine_render_hash(rev, std::hash<std::string>{}(content));
+        const acecode::tui::MessageRenderCacheKey cache_key{
+            rev, current_message_width,
+            acecode::tui::theme_palette_version(), /*syntax=*/true};
+        if (message_render_cache.valid(index, cache_key)) {
+            return *message_render_cache.element(index);
+        }
+        const std::size_t links_before = chat_link_regions.regions().size();
+        Element element = render_message_markdown(content, fallback_color);
+        const bool has_links =
+            chat_link_regions.regions().size() > links_before;
+        if (!has_links) {
+            message_render_cache.store(
+                index, cache_key, element,
+                std::vector<acecode::tui::CachedLinkRegion>{});
+        }
+        return element;
+    };
+    const size_t render_first =
+        static_cast<size_t>(std::max(0, render_window.first_message));
+    const size_t render_last = std::min(
+        state.conversation.size(),
+        static_cast<size_t>(std::max(0,
+            render_window.last_message_exclusive)));
+    // 工具行元数据只扫描可见窗口；若窗口切进并行工具批次，纯函数会扩到
+    // 相邻批次边界，单次 FIFO 同时得到 call 灯态和 result 工具名。
+    const auto tool_metadata =
+        acecode::tui::compute_tool_row_metadata_window(
+            state.conversation, render_first, render_last);
+    for (size_t i = render_first; i < render_last; ++i) {
+        const auto& msg = state.conversation[i];
+        const std::string& paired_tool_name =
+            tool_metadata.result_name_at(i);
+        const bool task_complete_result =
+            acecode::tui::is_task_complete_result(
+                msg, paired_tool_name);
+        bool focused_message = static_cast<int>(i) == state.chat_focus_index;
+        Decorator focus_decorator = nothing;
+
+        if (msg.role == "user") {
+            // 用户消息整块加灰底高亮,把每一轮对话与助手/工具输出区分开。
+            // flex 让内容撑满行宽,背景色铺满整块。
+            const Color user_bg = (tui::theme().name == "light")
+                ? Color::RGB(232, 232, 235)
+                : Color::RGB(48, 48, 54);
+            auto line = hbox({
+                text(" > ") | bold | color(tui::theme().markdown.link),
+                paragraph(msg.content) | color(tui::theme().ui.text_primary) | flex,
+            }) | bgcolor(user_bg);
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "assistant") {
+            // The active streaming message intentionally uses the same full
+            // formatter as a completed message. L1 still skips unchanged
+            // completed messages, while content growth naturally misses the
+            // cache key and preserves full Markdown/XML semantics.
+            Element md_content = render_cached_message_markdown(
+                i, msg.content, tui::theme().semantic.success);
+            auto line = hbox({
+                text(" * ") | bold | color(tui::theme().semantic.success),
+                md_content | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "tool_call") {
+            // 紧凑工具行:` ● ToolName`;Ctrl+O 全局 verbose 开启时才追加
+            // `(args)`。指示灯按配对结果着色(灰=执行中/无结果、绿=成功、
+            // 红=失败),工具名 PascalCase 加粗。content 解析失败时折叠态
+            // 只显示 ToolCall,verbose 态才回退到完整原文。
+            const auto parts = acecode::tui::parse_tool_row(
+                msg.content, msg.display_override);
+            const auto& palette = tui::theme();
+            const bool show_args = acecode::tui::tool_call_arguments_visible(
+                state.transcript_expanded);
+            Color dot_color = tui::theme().ui.text_dim;
+            const auto tool_dot = tool_metadata.call_dot_at(i);
+            if (tool_dot == acecode::tui::ToolCallDot::Ok) {
+                dot_color = tui::theme().semantic.success;
+            } else if (tool_dot == acecode::tui::ToolCallDot::Failed) {
+                dot_color = tui::theme().semantic.error;
+            }
+            Elements segs;
+            segs.push_back(text(" \xE2\x97\x8F ") | color(dot_color)); // "●"
+            if (parts.name.empty()) {
+                if (show_args) {
+                    segs.push_back(paragraph(msg.content)
+                        | color(acecode::tui::tool_call_argument_color(palette))
+                        | flex);
+                } else {
+                    segs.push_back(text("ToolCall") | bold |
+                        color(acecode::tui::tool_call_name_color(palette)));
+                }
+            } else {
+                const std::string display_name =
+                    acecode::tui::pascal_case_tool_name(parts.name);
+                segs.push_back(
+                    text(display_name)
+                    | bold | color(acecode::tui::tool_call_name_color(palette)));
+                if (show_args && !parts.args.empty()) {
+                    segs.push_back(paragraph("(" + parts.args + ")")
+                        | color(acecode::tui::tool_call_argument_color(palette))
+                        | flex);
+                }
+            }
+            auto line = hbox(std::move(segs));
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "user_shell_output") {
+            // 用户主动 `!cmd` 的输出 —— 全量显示,无截断、无摘要、无 fold。
+            // 用户自己输入的命令就是想看完整输出,任何折叠都不符合预期。
+            // 这与 LLM 工具结果(role="tool_result")形成对照:LLM 调用的
+            // 工具结果走摘要/diff/fold 三优先级,有 Ctrl+E/Ctrl+O 展开机制。
+            auto line = hbox({
+                text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
+                tui::render_tool_result_lines_preserving_breaks(msg.content) | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (task_complete_result) {
+            // task_complete 的 summary 是面向用户的最终完成消息，不属于
+            // 普通工具输出。始终以 Markdown 全文呈现，Ctrl+E / Ctrl+O
+            // 都不得把它切回单行 summary 或 raw-output fold。
+            const std::string summary_markdown =
+                acecode::tui::task_complete_summary_markdown(msg);
+            auto line = hbox({
+                text("  \xE2\x94\x94 ") |
+                    color(tui::theme().ui.text_dim), // "└"
+                render_cached_message_markdown(
+                    i, summary_markdown,
+                    tui::theme().ui.text_primary) | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.ask_result) {
+            // AskUserQuestion already rendered its structured Q/A text into
+            // `content`. Show it in full and ignore Ctrl+E / Ctrl+O: folding it
+            // would hide answers, and expanding it would fall back to the raw
+            // tool arguments, which is exactly the parameter-name leak this
+            // branch exists to prevent.
+            auto line = hbox({
+                text("  \xE2\x94\x94 ") |
+                    color(tui::theme().ui.text_dim), // "└"
+                tui::render_tool_result_lines_preserving_breaks(msg.content) | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "tool_result") {
+            // 新优先级:有结构化 hunks → 走彩色 diff 视图(summary + 色带);
+            // 其次 summary(无 hunks)→ 单行摘要;都没有 → 灰色 fold。
+            // row_expanded = 逐行 Ctrl+E 或 全局 Ctrl+O(transcript_expanded)。
+            const bool row_expanded = msg.expanded || state.transcript_expanded;
+            const bool use_diff = msg.hunks.has_value();
+            const bool use_summary = msg.summary.has_value() && !row_expanded && !use_diff;
+            if (use_diff) {
+                // ---- Diff 视图:summary 行 + 彩色 diff 块 ----
+                Elements rows;
+                if (msg.summary.has_value()) {
+                    const auto& s = *msg.summary; 
+                    const Color row_color =
+                        acecode::tui::tool_result_text_color(tui::theme());
+                    std::string metric_str;
+                    for (const auto& kv : s.metrics) {
+                        std::string seg;
+                        if (kv.first == "+") seg = "+" + kv.second;
+                        else if (kv.first == "-") seg = "-" + kv.second;
+                        else seg = kv.first + "=" + kv.second;
+                        if (!metric_str.empty()) metric_str += " \xC2\xB7 ";
+                        metric_str += seg;
+                    }
+                    const int summary_width = std::max(
+                        20, chat_box.x_max - chat_box.x_min - 4);
+                    std::string summary_line = tui::renderable_tool_summary_line(
+                        s, metric_str, summary_width);
+                    rows.push_back(hbox({
+                        text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
+                        text(summary_line) | color(row_color) | dim | flex,
+                    }));
+                } else {
+                    rows.push_back(hbox({
+                        text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
+                        text("diff") |
+                            color(acecode::tui::tool_result_text_color(tui::theme())) |
+                            dim | flex,
+                    }));
+                }
+
+                // 失败态:把前 3 行 stderr dim 显示在 summary 之下(保留既有行为)。
+                if (msg.summary.has_value() && !tui::is_success_summary(*msg.summary) &&
+                    !msg.content.empty()) {
+                    int shown = 0;
+                    size_t pos = 0;
+                    while (pos < msg.content.size() && shown < 3) {
+                        size_t nl = msg.content.find('\n', pos);
+                        std::string line = (nl == std::string::npos)
+                            ? msg.content.substr(pos)
+                            : msg.content.substr(pos, nl - pos);
+                        rows.push_back(hbox({
+                            text("    ") | color(tui::theme().ui.text_dim),
+                            paragraph(line) | color(tui::theme().ui.text_muted) | dim | flex,
+                        }));
+                        if (nl == std::string::npos) break;
+                        pos = nl + 1;
+                        ++shown;
+                    }
+                }
+
+                // Diff 视图:缩进 4 列(与 "  └ " 前缀同宽),宽度由 chat_box 推导。
+                DiffViewOptions opts;
+                opts.width = std::max(20, chat_box.x_max - chat_box.x_min - 4);
+                opts.expanded = row_expanded;
+                opts.max_hunks = 3;
+                opts.max_lines_per_hunk = 20;
+                Element diff_el = render_diff_view(*msg.hunks, opts);
+                rows.push_back(hbox({
+                    text("    ") | color(tui::theme().ui.text_dim),
+                    diff_el | flex,
+                }));
+
+                auto block = vbox(std::move(rows));
+                if (focused_message) {
+                    block = block | focus;
+                }
+                message_elements.push_back(
+                    tracked_message(i, block | focus_decorator));
+            } else if (use_summary) {
+                // ---- Summary row: single line, icon + verb + object + metrics ----
+                const auto& s = *msg.summary;
+                const Color row_color =
+                    acecode::tui::tool_result_text_color(tui::theme());
+
+                // Build metric tail: " · k=v · k=v" but drop k for
+                // "time"/"bytes"/"lines"/"size" since the value is self-describing.
+                std::string metric_str;
+                for (const auto& kv : s.metrics) {
+                    std::string seg;
+                    if (kv.first == "time" || kv.first == "bytes" ||
+                        kv.first == "size" || kv.first == "lines") {
+                        seg = kv.second + (kv.first == "lines" ? " lines" : "");
+                    } else if (kv.first == "+") {
+                        seg = "+" + kv.second;
+                    } else if (kv.first == "-") {
+                        seg = "-" + kv.second;
+                    } else if (kv.first == "exit") {
+                        seg = "exit " + kv.second;
+                    } else if (kv.first == "truncated" && kv.second == "true") {
+                        seg = "truncated";
+                    } else if (kv.first == "aborted" && kv.second == "true") {
+                        seg = "aborted";
+                    } else if (kv.first == "timeout" && kv.second == "true") {
+                        seg = "timeout";
+                    } else if (kv.first == "hint") {
+                        seg = "hint:" + kv.second;
+                    } else {
+                        seg = kv.first + "=" + kv.second;
+                    }
+                    if (!metric_str.empty()) metric_str += " \xC2\xB7 "; // " · "
+                    metric_str += seg;
+                }
+
+                const int summary_width = std::max(
+                    20, chat_box.x_max - chat_box.x_min - 4);
+                std::string summary_line = tui::renderable_tool_summary_line(
+                    s, metric_str, summary_width);
+
+                Elements rows;
+                rows.push_back(hbox({
+                    text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
+                    text(summary_line) | color(row_color) | dim | flex,
+                }));
+
+                // Failed tool: render the first 3 lines of output dimmed
+                // below the summary so the error is visible without expand.
+                if (!tui::is_success_summary(s) && !msg.content.empty()) {
+                    int shown = 0;
+                    size_t pos = 0;
+                    while (pos < msg.content.size() && shown < 3) {
+                        size_t nl = msg.content.find('\n', pos);
+                        std::string line = (nl == std::string::npos)
+                            ? msg.content.substr(pos)
+                            : msg.content.substr(pos, nl - pos);
+                        rows.push_back(hbox({
+                            text("    ") | color(tui::theme().ui.text_dim),
+                            paragraph(line) | color(tui::theme().ui.text_muted) | dim | flex,
+                        }));
+                        if (nl == std::string::npos) break;
+                        pos = nl + 1;
+                        ++shown;
+                    }
+                }
+
+                auto block = vbox(std::move(rows));
+                if (focused_message) {
+                    block = block | focus;
+                }
+                message_elements.push_back(
+                    tracked_message(i, block | focus_decorator));
+            } else {
+                // ---- Legacy fold path(含 Ctrl+E/Ctrl+O 展开后的全文视图)----
+                // 折叠态按终端可视行而不只是硬换行计数。MCP 等工具常返回
+                // 含字面量 "\\n" 的单行 JSON;若只数 '\n',paragraph() 的软
+                // 换行仍会铺满屏幕。展开态保留 2000 个硬行的兜底上限。
+                std::string display_content;
+                if (!row_expanded) {
+                    constexpr std::size_t kMaxPreviewRows = 3;
+                    const int content_width = std::max(
+                        20, chat_box.x_max - chat_box.x_min - 4);
+                    const auto preview = acecode::tui::fold_tool_result_preview(
+                        msg.content, content_width, kMaxPreviewRows);
+                    for (std::size_t line_index = 0;
+                         line_index < preview.lines.size(); ++line_index) {
+                        if (line_index > 0) display_content.push_back('\n');
+                        display_content += preview.lines[line_index];
+                    }
+                    if (preview.folded) {
+                        if (!display_content.empty()) display_content.push_back('\n');
+                        display_content += "\xE2\x80\xA6 folded (ctrl+o)";
+                    }
+                } else {
+                    constexpr int kMaxExpandedHardLines = 2000;
+                    display_content = msg.content;
+                    int line_count = 0;
+                    for (char c : msg.content) if (c == '\n') line_count++;
+                    if (msg.content.empty() || msg.content.back() != '\n') line_count++;
+
+                    if (line_count > kMaxExpandedHardLines) {
+                        size_t cut = 0;
+                        int seen = 0;
+                        while (cut < msg.content.size() &&
+                               seen < kMaxExpandedHardLines) {
+                            if (msg.content[cut] == '\n') seen++;
+                            cut++;
+                        }
+                        display_content = msg.content.substr(0, cut);
+                        if (!display_content.empty() && display_content.back() == '\n') {
+                            display_content.pop_back();
+                        }
+                        const int hidden = line_count - kMaxExpandedHardLines;
+                        display_content += "\n\xE2\x80\xA6 +" +
+                            std::to_string(hidden) + " lines";
+                    }
+                }
+
+                auto line = hbox({
+                    text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
+                    tui::render_tool_result_lines_preserving_breaks(display_content) | flex,
+                });
+                if (focused_message) {
+                    line = line | focus;
+                }
+                message_elements.push_back(
+                    tracked_message(i, line | focus_decorator));
+            }
+        } else if (msg.role == "compact_notice") {
+            const bool row_expanded = tui::compact_notice_row_is_expanded(
+                msg, state.transcript_expanded);
+            Element content = row_expanded
+                ? paragraph(msg.content) | color(tui::theme().ui.accent)
+                : hbox({
+                      text(tui::kCollapsedCompactNoticeLabel) | bold,
+                      text("  (Ctrl+E to expand)") |
+                          color(tui::theme().ui.text_dim),
+                  });
+            auto line = hbox({
+                text(" i ") | bold | color(tui::theme().ui.accent),
+                std::move(content) | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "system") {
+            auto line = hbox({
+                text(" i ") | bold | color(tui::theme().ui.accent),
+                paragraph(msg.content) | color(tui::theme().ui.accent) | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "turn_done") {
+            // inline-thinking-heartbeat:回合收尾伪行 "● Done for Ns"。
+            // 与推理行同款 "●" 前缀同列对齐,使用可读次级色表现推理行
+            // 落定后的余烬。显示端专属 role,不进持久化/LLM context。
+            auto line = hbox({
+                text(" \xE2\x97\x8F ") | tui::readable_secondary(),
+                paragraph(msg.content) | tui::readable_secondary() | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        } else if (msg.role == "error") {
+            auto line = hbox({
+                text(" ! ") | bold | color(tui::theme().semantic.error),
+                paragraph(msg.content) | color(tui::theme().semantic.error) | flex,
+            });
+            if (focused_message) {
+                line = line | focus;
+            }
+            message_elements.push_back(
+                tracked_message(i, line | focus_decorator));
+        }
+        push_spacer_rows(acecode::tui::chat_spacer_rows_after_at(
+            message_spacer_rows_after, static_cast<int>(i)));
+    }
+    push_spacer_rows(render_window.bottom_spacer_rows);
+
+    Element message_body = vbox(std::move(message_elements));
+    if (state.chat_follow_tail) {
+        // /resume replaces the transcript before the next render has
+        // measured the new paragraph heights. Use FTXUI's rendered bottom
+        // anchor while tail-follow is active so the first restored frame
+        // lands at the true tail instead of an underestimated absolute row.
+        message_body = message_body | focusPositionRelative(0.0f, 1.0f);
+    } else {
+        const int frame_focus_y =
+            acecode::tui::chat_frame_focus_y_for_scroll_top(
+                state.chat_scroll_top_row, chat_viewport_rows());
+        message_body = message_body | focusPosition(0, frame_focus_y);
+    }
+
+    // draggable-thick-scrollbar: thumb glyph identical to upstream
+    // vscroll_indicator (┃╹╻),painted only in the rightmost reserved
+    // column. We reserve 3 columns total so the *invisible* hit zone
+    // is wider than 1 cell — the leftmost 2 reserved columns render
+    // as whitespace but scrollbar_box.Contain() still matches them,
+    // making mouse aim much easier without changing the visual rail
+    // position. The decorator also enforces a minimum thumb height
+    // (3 cells) so long sessions don't shrink the click target to a
+    // single half-block.
+    auto message_view = acecode::tui::thick_vscroll_bar(
+                            std::move(message_body),
+                            /*width=*/3,
+                            scrollbar_box,
+                            conhost_compat_layout)
+        | yframe | reflect(chat_box) | flex
+        // mouse-selection-copy: visual feedback for drag-selection. The
+        // decorator lives on the message_view so selection can span
+        // multiple messages.
+        | selectionBackgroundColor(tui::theme().ui.selection_bg)
+        | selectionForegroundColor(tui::theme().ui.selection_fg);
+
+    // -- Thinking indicator / tool progress --
+    // Priority: if a tool is streaming output, show the live tool-progress
+    // element instead of the thinking animation (the tool is the more
+    // specific "in-progress" signal).
+    Element thinking_element = emptyElement();
+    if (!conhost_compat_layout && state.tool_running) {
+        thinking_element = render_tool_progress(state);
+    } else if (!conhost_compat_layout && state.is_waiting) {
+        if (state.is_compacting) {
+            const auto compact_now = std::chrono::steady_clock::now();
+            const auto compact_origin =
+                state.compact_animation_start_time.time_since_epoch().count() != 0
+                    ? state.compact_animation_start_time
+                    : compact_now;
+            const long long compact_elapsed_ms = std::max<long long>(
+                0, std::chrono::duration_cast<std::chrono::milliseconds>(
+                       compact_now - compact_origin).count());
+            const std::vector<std::string> compact_glyphs =
+                ftxui::Utf8ToGlyphs("Compacting conversation...");
+            const auto compact_frame = tui::make_compact_animation_frame(
+                compact_glyphs.size(), compact_elapsed_ms);
+            Elements compact_chars;
+            for (std::size_t i = 0; i < compact_glyphs.size(); ++i) {
+                const bool highlighted =
+                    compact_frame.highlighted_background[i];
+                Element glyph = text(compact_glyphs[i]) |
+                    color(highlighted
+                              ? tui::theme().ui.selection_fg
+                              : tui::theme().ui.text_primary);
+                if (highlighted) {
+                    glyph = glyph | bgcolor(tui::theme().ui.selection_bg);
+                }
+                compact_chars.push_back(std::move(glyph));
+            }
+            thinking_element = hbox({
+                text(" \xE2\x97\x8F ") | color(tui::theme().ui.accent),
+                hbox(std::move(compact_chars)),
+            });
+        } else {
+        const auto thinking_now = std::chrono::steady_clock::now();
+        const auto animation_origin =
+            state.thinking_start_time.time_since_epoch().count() != 0
+                ? state.thinking_start_time
+                : std::chrono::steady_clock::time_point{};
+        const long long animation_elapsed_ms = std::max<long long>(
+            0, std::chrono::duration_cast<std::chrono::milliseconds>(
+                   thinking_now - animation_origin).count());
+
+        // smooth-tui-thinking-animation:短语和固定三个点共用一条基于真实
+        // elapsed time 的方向性流光。黄色尾迹接亮白核心,前沿自然回落到灰色;
+        // 自适应采样只改变帧密度,漏帧时也会直接回到正确 phase。
+        const std::vector<std::string> thinking_glyphs =
+            ftxui::Utf8ToGlyphs(state.current_thinking_phrase + "...");
+        const auto animation_frame = tui::make_thinking_animation_frame(
+            thinking_glyphs.size(), animation_elapsed_ms);
+        Elements chars;
+        for (std::size_t i = 0; i < thinking_glyphs.size(); ++i) {
+            const auto& highlight = animation_frame.glyph_highlights[i];
+            const Color warm_color = Color::Interpolate(
+                highlight.warm,
+                tui::theme().ui.text_dim,
+                tui::theme().ui.accent);
+            const Color glyph_color = Color::Interpolate(
+                highlight.white,
+                warm_color,
+                Color::White);
+            chars.push_back(text(thinking_glyphs[i]) | color(glyph_color));
+        }
+
+        // inline-thinking-heartbeat:动画短语右侧挂 "[Ns · ↓ X tokens]" 数据段。
+        // 秒数/token 的刷新搭 anim_tick 动画循环的便车,零额外重绘成本。
+        // thinking_start_time 停在 time_point{} 原点时跳过(未打点时秒数会是
+        // 天文数字,先例见 on_message 处的同款防御)。
+        Element heartbeat = emptyElement();
+        if (state.thinking_start_time.time_since_epoch().count() != 0) {
+            const long hb_secs = static_cast<long>(animation_elapsed_ms / 1000);
+            const long long hb_ms = animation_elapsed_ms;
+            heartbeat = text("  " + tui::format_thinking_heartbeat(
+                                        hb_secs, hb_ms,
+                                        state.turn_completion_tokens_confirmed,
+                                        state.streaming_output_chars))
+                | dim | color(tui::theme().ui.accent_alt);
+        }
+        thinking_element = hbox({
+            text(" \xE2\x97\x8F ") | color(tui::theme().ui.accent),
+            hbox(std::move(chars)),
+            heartbeat,
+        });
+        }
+    }
+
+    Element mcp_loading_element = emptyElement();
+    if (!show_regular_sidebar && tui::mcp_sidebar_has_loading(state)) {
+        mcp_loading_element = hbox({
+            text(" i ") | bold | color(Color::White),
+            tui::render_white_shimmer_text("MCP loading", anim_tick.load()),
+        });
+    }
+
+    // -- Prompt line --
+    Element prompt_line;
+    // Resume picker overlay above the prompt
+    Element resume_picker_element = emptyElement();
+    if (state.resume_picker_active && !state.resume_items.empty()) {
+        Elements picker_rows;
+        picker_rows.push_back(
+            text(" Resume a session (Up/Down/PgUp/PgDn/Home/End to navigate, Enter to confirm, Esc to cancel, 1-9 jump):")
+            | bold | color(tui::theme().ui.border));
+        picker_rows.push_back(text(""));
+
+        const int total = static_cast<int>(state.resume_items.size());
+        const int visible = std::min(acecode::tui::kResumePickerVisibleRows, total);
+        int offset = std::clamp(state.resume_view_offset, 0,
+                                std::max(0, total - visible));
+        const int items_above = offset;
+        const int items_below = std::max(0, total - offset - visible);
+
+        // Top overflow indicator (always reserves a row to keep height stable).
+        if (items_above > 0) {
+            picker_rows.push_back(
+                text("  \xE2\x86\x91 " + std::to_string(items_above) + " more above")
+                | dim | color(tui::theme().ui.text_muted));
+        } else {
+            picker_rows.push_back(text(""));
+        }
+
+        for (int i = offset; i < offset + visible; ++i) {
+            bool selected = (i == state.resume_selected);
+            auto row = text("  " + state.resume_items[i].display);
+            if (selected) {
+                row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
+            } else {
+                row = row | color(tui::theme().ui.text_muted);
+            }
+            picker_rows.push_back(row);
+        }
+
+        // Bottom overflow indicator (also reserves a row).
+        if (items_below > 0) {
+            picker_rows.push_back(
+                text("  \xE2\x86\x93 " + std::to_string(items_below) + " more below")
+                | dim | color(tui::theme().ui.text_muted));
+        } else {
+            picker_rows.push_back(text(""));
+        }
+
+        picker_rows.push_back(text(""));
+        resume_picker_element = vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
+    }
+    Element rewind_picker_element = emptyElement();
+    if (state.rewind_picker_active && !state.rewind_items.empty()) {
+        Elements picker_rows;
+        if (state.rewind_mode_active) {
+            const int selected =
+                std::clamp(state.rewind_selected, 0,
+                           static_cast<int>(state.rewind_items.size()) - 1);
+            const auto& item = state.rewind_items[selected];
+            picker_rows.push_back(
+                text(" Rewind mode (Up/Down to select, Enter to confirm, Esc to go back, or type 1-9):")
+                | bold | color(tui::theme().ui.border));
+            picker_rows.push_back(text(" Target: " + item.preview) | color(tui::theme().ui.text_muted));
+            picker_rows.push_back(text(" Code rewind only covers ACECode file_edit/file_write changes; manual edits, shell commands, MCP tools, git operations, and external side effects are not tracked.")
+                                  | color(tui::theme().ui.accent));
+            picker_rows.push_back(text(""));
+            for (int i = 0; i < static_cast<int>(state.rewind_modes.size()); ++i) {
+                bool selected_mode = (i == state.rewind_mode_selected);
+                const auto& mode = state.rewind_modes[i];
+                auto row = hbox({
+                    text("  [" + std::to_string(i + 1) + "] " + mode.label + "  "),
+                    text(mode.description) | color(tui::theme().ui.text_muted),
+                });
+                if (selected_mode) {
+                    row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
+                } else {
+                    row = row | color(tui::theme().ui.text_muted);
+                }
+                picker_rows.push_back(row);
+            }
+        } else {
+            const bool is_fork =
+                state.rewind_picker_operation ==
+                TuiState::RewindPickerOperation::Fork;
+            picker_rows.push_back(
+                text(std::string(is_fork
+                    ? " Fork from a user turn"
+                    : " Rewind to a user turn") +
+                    " (Up/Down/PgUp/PgDn/Home/End to navigate, Enter to confirm, Esc to cancel, 1-9 jump):")
+                | bold | color(tui::theme().ui.border));
+            picker_rows.push_back(text(""));
+
+            const int total = static_cast<int>(state.rewind_items.size());
+            const int visible = std::min(acecode::tui::kRewindPickerVisibleRows, total);
+            int offset = std::clamp(state.rewind_view_offset, 0,
+                                    std::max(0, total - visible));
+            const int items_above = offset;
+            const int items_below = std::max(0, total - offset - visible);
+
+            if (items_above > 0) {
+                picker_rows.push_back(
+                    text("  \xE2\x86\x91 " + std::to_string(items_above) + " more above")
+                    | dim | color(tui::theme().ui.text_muted));
+            } else {
+                picker_rows.push_back(text(""));
+            }
+
+            for (int i = offset; i < offset + visible; ++i) {
+                bool selected = (i == state.rewind_selected);
+                auto row = text("  " + state.rewind_items[i].display);
+                if (selected) {
+                    row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
+                } else {
+                    row = row | color(tui::theme().ui.text_muted);
+                }
+                picker_rows.push_back(row);
+            }
+
+            if (items_below > 0) {
+                picker_rows.push_back(
+                    text("  \xE2\x86\x93 " + std::to_string(items_below) + " more below")
+                    | dim | color(tui::theme().ui.text_muted));
+            } else {
+                picker_rows.push_back(text(""));
+            }
+        }
+        picker_rows.push_back(text(""));
+        rewind_picker_element = vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
+    }
+    // /model picker overlay。同 resume_picker_element 的视觉风格(青边、
+    // 滚动指示、选中行高亮)—— 单纯多一列前缀 "*" 标记当前 effective entry。
+    Element model_picker_element = emptyElement();
+    if (state.model_picker_open && !state.model_picker_options.empty()) {
+        Elements picker_rows;
+        picker_rows.push_back(
+            text(" Select a model (Up/Down/PgUp/PgDn/Home/End to navigate, Enter to confirm, Esc to cancel):")
+            | bold | color(tui::theme().ui.border));
+        picker_rows.push_back(text(""));
+
+        const int total = static_cast<int>(state.model_picker_options.size());
+        // 复用 /resume 的视口高度常量 —— picker 行为口径一致,行少时
+        // scroll_to_keep_visible 直接返回 0,不会留空行。
+        const int visible = std::min(acecode::tui::kResumePickerVisibleRows, total);
+        int offset = std::clamp(state.model_picker_view_offset, 0,
+                                std::max(0, total - visible));
+        const int items_above = offset;
+        const int items_below = std::max(0, total - offset - visible);
+
+        if (items_above > 0) {
+            picker_rows.push_back(
+                text("  \xE2\x86\x91 " + std::to_string(items_above) + " more above")
+                | dim | color(tui::theme().ui.text_muted));
+        } else {
+            picker_rows.push_back(text(""));
+        }
+
+        for (int i = offset; i < offset + visible; ++i) {
+            bool selected = (i == state.model_picker_selected);
+            const auto& opt = state.model_picker_options[i];
+            std::string marker = opt.is_current ? "* " : "  ";
+            std::string body =
+                "  " + marker + opt.name + "  (" + opt.provider + "/" + opt.model + ")";
+            auto row = text(body);
+            if (selected) {
+                row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
+            } else if (opt.is_current) {
+                row = row | color(tui::theme().ui.accent);
+            } else {
+                row = row | color(tui::theme().ui.text_muted);
+            }
+            picker_rows.push_back(row);
+        }
+
+        if (items_below > 0) {
+            picker_rows.push_back(
+                text("  \xE2\x86\x93 " + std::to_string(items_below) + " more below")
+                | dim | color(tui::theme().ui.text_muted));
+        } else {
+            picker_rows.push_back(text(""));
+        }
+
+        picker_rows.push_back(text(""));
+        model_picker_element = vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
+    }
+
+    Element mode_picker_element = emptyElement();
+    if (state.mode_picker_open && !state.mode_picker_options.empty()) {
+        Elements picker_rows;
+        picker_rows.push_back(
+            text(" Select a permission mode (Up/Down/Home/End to navigate, Enter to confirm, Esc to cancel):")
+            | bold | color(tui::theme().ui.border));
+        picker_rows.push_back(text(""));
+
+        for (int i = 0; i < static_cast<int>(state.mode_picker_options.size()); ++i) {
+            const bool selected = (i == state.mode_picker_selected);
+            const auto& option = state.mode_picker_options[i];
+            const std::string marker = option.is_current ? "* " : "  ";
+            auto row = hbox({
+                text("  [" + std::to_string(i + 1) + "] " + marker + option.name + "  "),
+                text(option.description) | color(tui::theme().ui.text_muted),
+            });
+            if (selected) {
+                row = row | bold | color(tui::theme().ui.selection_fg) |
+                      bgcolor(tui::theme().ui.selection_bg);
+            } else if (option.is_current) {
+                row = row | color(tui::theme().ui.accent);
+            } else {
+                row = row | color(tui::theme().ui.text_muted);
+            }
+            picker_rows.push_back(row);
+        }
+
+        picker_rows.push_back(text(""));
+        mode_picker_element =
+            vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
+    }
+
+    Element path_reference_element =
+        acecode::tui::render_path_reference_dropdown(
+            state, conhost_compat_layout, path_reference_boxes);
+    Element slash_dropdown_element =
+        render_slash_dropdown(state, conhost_compat_layout);
+
+    // AskUserQuestion overlay —— 和 confirm_pending 互斥,在渲染层面
+    // 显式让 ask 优先(事件层在 confirm 分支之前也已经拦截,这里只是
+    // 作为显式护栏)。
+    Element ask_overlay_element = emptyElement();
+    ask_question_frame.reset_for_render();
+    auto& ask_scrollbar_box = ask_question_frame.scrollbar_box;
+    auto& ask_overlay_box = ask_question_frame.overlay_box;
+    auto& ask_row_boxes = ask_question_frame.row_boxes;
+    const auto ask_render_snapshot = state.ask_session
+        ? std::optional<tui::AskQuestionSnapshot>(state.ask_session->snapshot())
+        : std::nullopt;
+    if (state.ask_pending && ask_render_snapshot.has_value() &&
+        (ask_render_snapshot->page == tui::AskQuestionPage::Summary ||
+         (ask_render_snapshot->current_question >= 0 &&
+          ask_render_snapshot->current_question <
+              ask_render_snapshot->total_questions))) {
+        const int content_width =
+            acecode::tui::ask_question_content_width_for_frame(
+                terminal_width,
+                current_message_width,
+                show_regular_sidebar,
+                kRegularSidebarWidthCols);
+        const int max_visible_rows =
+            std::max(1, chat_viewport_rows() - 2);
+
+        if (state.ask_session) {
+            const auto snapshot = state.ask_session->snapshot();
+            const int layout_width = std::max(1, content_width);
+            const int layout_height = max_visible_rows;
+            tui::AskQuestionLayoutInput question_layout_input;
+            question_layout_input.snapshot = &snapshot;
+            question_layout_input.viewport_width = layout_width;
+            question_layout_input.viewport_height = layout_height;
+            question_layout_input.minimum_visible_rows =
+                state.ask_config.min_visible_rows;
+            question_layout_input.timeout_remaining_seconds =
+                ask_timeout_remaining_seconds(
+                    *state.ask_session, std::chrono::steady_clock::now());
+            // The transient status line is deliberately NOT injected here: it
+            // belongs to the header/bottom status area. Rendering it as a panel
+            // row pushed sibling notices (model switches and similar) inside the
+            // question box and made the panel height change with unrelated
+            // events.
+            auto question_layout = tui::build_ask_question_layout(
+                question_layout_input);
+            ask_question_frame.layout = question_layout;
+            // 布局会为焦点自动修正偏移；把该修正写回会话，避免下一帧
+            // 重新从旧快照计算时出现滚动跳回。
+            if (question_layout.scroll_offset != snapshot.scroll_offset) {
+                const int max_scroll_offset = std::max(
+                    0, question_layout.total_rows - question_layout.visible_rows);
+                const auto scroll_effects = state.ask_session->dispatch({
+                    tui::AskQuestionEventKind::SetScrollOffset,
+                    -1,
+                    question_layout.scroll_offset,
+                    {},
+                    0,
+                    max_scroll_offset});
+                dispatch_ask_session_effects_locked(state, scroll_effects);
+            }
+            ask_question_frame.terminal_too_narrow =
+                question_layout.terminal_too_narrow;
+            ask_question_frame.row_boxes.assign(
+                static_cast<std::size_t>(question_layout.visible_rows),
+                Box{0, -1, 0, -1});
+
+            tui::AskQuestionPanelInput panel_input;
+            panel_input.layout = &question_layout;
+            panel_input.snapshot = &snapshot;
+            panel_input.colors = ask_question_panel_colors();
+            panel_input.terminal_too_narrow =
+                question_layout.terminal_too_narrow;
+            panel_input.row_boxes = &ask_row_boxes;
+            panel_input.scrollbar_box = &ask_scrollbar_box;
+            panel_input.overlay_box = &ask_overlay_box;
+            ask_overlay_element = tui::build_ask_question_panel(panel_input);
+        }
+    }
+
+    // Tool confirmation overlay —— 取代旧的单行 "y/a/n" 提示。
+    // 三个固定选项:
+    //   0  Yes
+    //   1  Yes, allow all edits during this session (shift+tab)
+    //   2  No
+    // ↑↓ 移焦点,Enter 提交焦点项,1/2/3 数字键直选,Shift+Tab 直接选第二项,
+    // Esc → Deny。事件分支在 CatchEvent 中,渲染层只是把状态画出来。
+    Element confirm_overlay_element = emptyElement();
+    if (state.confirm_pending) {
+        Elements rows;
+        if (!state.confirm_origin_label.empty()) {
+            // 子会话的远程权限请求:标注来源,避免用户误以为是主会话工具。
+            rows.push_back(text(" " + state.confirm_origin_label) |
+                           tui::readable_secondary());
+        }
+        std::string title = acecode::tui::build_confirm_question(
+            state.confirm_tool_name, state.confirm_tool_args);
+        // build_confirm_question 可能返回多行(bash 把 command 附在第二行),
+        // 按 \n 拆开逐行 push,首行加粗。
+        bool first = true;
+        size_t pos = 0;
+        while (pos <= title.size()) {
+            size_t nl = title.find('\n', pos);
+            std::string line = (nl == std::string::npos)
+                ? title.substr(pos)
+                : title.substr(pos, nl - pos);
+            if (first) {
+                rows.push_back(text(" " + line) | bold | color(tui::theme().ui.accent));
+                first = false;
+            } else {
+                rows.push_back(text(line) | color(tui::theme().ui.text_muted));
+            }
+            if (nl == std::string::npos) break;
+            pos = nl + 1;
+        }
+        rows.push_back(text(""));
+
+        const auto options = acecode::tui::build_confirm_options(
+            state.confirm_tool_name, state.confirm_tool_args);
+        const int option_count = std::max(1, static_cast<int>(options.size()));
+        const int focus = std::clamp(state.confirm_focus, 0, option_count - 1);
+        for (int i = 0; i < static_cast<int>(options.size()); ++i) {
+            bool focused = (i == focus);
+            std::string prefix = focused ? " \xE2\x9D\xAF " : "   ";
+            auto row = text(prefix + options[static_cast<std::size_t>(i)].label);
+            if (focused) {
+                row = row | bold | color(tui::theme().ui.text_primary) | bgcolor(tui::theme().ui.selection_bg);
+            } else {
+                row = row | color(tui::theme().ui.text_muted);
+            }
+            rows.push_back(row);
+        }
+        rows.push_back(text(""));
+        rows.push_back(
+            text(" \xE2\x86\x91\xE2\x86\x93 move   Enter select   1-" + std::to_string(option_count) +
+                 " jump   Esc deny")
+            | tui::readable_secondary());
+        confirm_overlay_element = vbox(std::move(rows)) | border | color(tui::theme().ui.accent);
+    }
+
+    if (state.ask_pending) {
+        // AskUserQuestion owns the complete inline editor. The ordinary composer
+        // stays hidden even while the custom answer is active; paste and keyboard
+        // events are adapted directly to the active session above.
+        const auto ask_prompt_snapshot = state.ask_session
+            ? state.ask_session->snapshot()
+            : tui::AskQuestionSnapshot{};
+        // Scroll hint applies to the question page only; the summary page
+        // scrolls with the wheel and never needs the shortcut.
+        const bool ask_scrollable =
+            ask_prompt_snapshot.page != tui::AskQuestionPage::Summary &&
+            ask_question_frame.layout.total_rows >
+                ask_question_frame.layout.visible_rows;
+        const auto ask_help_entries = tui::ask_question_help_entries(
+            ask_prompt_snapshot, ask_scrollable);
+
+        Elements ask_prompt_parts;
+        ask_prompt_parts.push_back(
+            text(" ? answering: ") | bold | color(tui::theme().ui.accent));
+        if (!state.ask_origin_label.empty()) {
+            // 子任务来源只在底部状态提示显示一次，避免与题目区域重复。
+            ask_prompt_parts.push_back(
+                text("[" + state.ask_origin_label + "] ") |
+                color(tui::theme().ui.text_muted));
+        }
+        const int ask_help_width = std::max(
+            20, terminal_width - 16 -
+                    (show_regular_sidebar ? kRegularSidebarWidthCols : 0));
+        // Reserve two rows: the footer shares the vertical stack with the chat
+        // viewport, so a footer that changes height on state transitions also
+        // moves the question panel (and with it the panel's visible row count).
+        ask_prompt_parts.push_back(tui::build_ask_question_help_line(
+            ask_help_entries, ask_question_panel_colors(), ask_help_width,
+            /*minimum_rows=*/2));
+        prompt_line = hbox(std::move(ask_prompt_parts));
+    } else if (state.confirm_pending) {
+        // overlay 已经把选项画在 message_view 之上,prompt_line 仅作静态
+        // 提示并吞掉字符输入(CatchEvent 中 confirm overlay handler 拦截非
+        // 导航键,这里的 hbox 不渲染 input_with_esc 是为了让光标不在输入
+        // 框里闪、误导用户去打字)。
+        prompt_line = hbox({
+            text(" [" + state.confirm_tool_name + "] ") | bold | color(tui::theme().syntax.preproc),
+            text("awaiting confirmation \xE2\x80\x94 use \xE2\x86\x91\xE2\x86\x93 + Enter (Esc to deny)")
+                | tui::readable_secondary(),
+        });
+    } else {
+        Elements prompt_parts;
+        if (state.input_mode == InputMode::Shell) {
+            prompt_parts.push_back(text(" ! ") | bold | color(tui::theme().semantic.error));
+        } else {
+            prompt_parts.push_back(text(" > ") | bold | color(tui::theme().ui.border));
+        }
+        prompt_parts.push_back(
+            input_with_esc->Render() | flex |
+                reflect(input_hit_layout.box));
+        if (!state.pending_queue.empty()) {
+            prompt_parts.push_back(
+                text(" QUEUED " + std::to_string(state.pending_queue.size()) + " ") |
+                bold | color(tui::theme().ui.text_primary) | bgcolor(tui::theme().ui.queued_bg));
+        }
+        prompt_line = hbox(std::move(prompt_parts));
+    }
+
+    // -- Bottom status bar --
+    std::string perm_mode_str = std::string("mode: ") + PermissionManager::mode_name(permissions.mode());
+    Element token_el = tui::render_token_usage_chip(state);
+    Element load_el = tui::render_model_load_chip();
+    Element goal_el = state.goal_status.empty()
+        ? text("")
+        : text("  " + state.goal_status + "  ") | dim | color(tui::theme().semantic.success);
+    // 底部计时 chip(○ Thinking / ◑ Tool)已随 inline-thinking-heartbeat
+    // change 删除:主进度元素在固定布局区,"被 overlay 遮挡/滚出视野"的
+    // 前提不成立;等待期耗时+token 心跳改挂在推理指示行内联段。
+    Element bottom_bar;
+    if (conhost_compat_layout) {
+        auto elapsed_secs = [](std::chrono::steady_clock::time_point start) -> long long {
+            if (start.time_since_epoch().count() == 0) return 0;
+            return static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now() - start).count());
+        };
+
+        Elements status_parts;
+        const bool show_ctrl_c_exit_hint =
+            state.ctrl_c_armed && !state.is_waiting && !state.tool_running;
+        if (show_ctrl_c_exit_hint) {
+            status_parts.push_back(
+                text("  Press ctrl+c again to exit  ") |
+                tui::readable_secondary());
+        } else if (dangerous_mode) {
+            status_parts.push_back(
+                text("  [YOLO]  ") | bold | color(tui::theme().ui.accent));
+        } else if (state.is_waiting || state.tool_running) {
+            status_parts.push_back(
+                text("  esc / ctrl+c to interrupt  ") |
+                tui::readable_secondary());
+        } else {
+            status_parts.push_back(
+                text("  shift+tab: cycle permission mode  ") |
+                tui::readable_secondary());
+        }
+        if (state.tool_running) {
+            const long secs = elapsed_secs(state.tool_progress.start_time);
+            status_parts.push_back(
+                text("Tool: " + state.tool_progress.tool_name + " " +
+                     std::to_string(secs) + "s  ") |
+                bold | color(tui::theme().ui.accent));
+        } else if (state.is_waiting) {
+            // conhost 兼容布局不渲染 thinking_element,这行内联文本是该布局
+            // 唯一的活性信号 —— 保留,但取数与主布局心跳段同源:回合累计
+            // 已确认 + 当前请求估算,单调递增,不带 ~ 前缀。
+            const long secs = elapsed_secs(state.thinking_start_time);
+            std::string wait = "Thinking " + std::to_string(secs) + "s";
+            const long long readout = state.turn_completion_tokens_confirmed +
+                static_cast<long long>(state.streaming_output_chars / 4);
+            if (readout > 0) {
+                wait += " " + tui::format_token_count_short(readout) + " tok";
+            }
+            wait += "  ";
+            status_parts.push_back(text(wait) | bold | color(tui::theme().ui.accent));
+        }
+        status_parts.push_back(goal_el);
+        status_parts.push_back(token_el);
+        status_parts.push_back(load_el);
+        status_parts.push_back(text(perm_mode_str) |
+                               tui::readable_secondary());
+        bottom_bar = hbox(std::move(status_parts));
+    } else if (state.ctrl_c_armed && !state.is_waiting && !state.tool_running) {
+        bottom_bar = hbox({
+            text("  Press ctrl+c again to exit") | tui::readable_secondary(),
+            filler(),
+            goal_el,
+            token_el,
+            load_el,
+            text(perm_mode_str + "  ") | tui::readable_secondary(),
+        });
+    } else if (dangerous_mode) {
+        bottom_bar = hbox({
+            text("  [YOLO]") | bold | color(tui::theme().ui.accent),
+            filler(),
+            goal_el,
+            token_el,
+            load_el,
+            text(perm_mode_str + "  ") | tui::readable_secondary(),
+        });
+    } else if (state.is_waiting || state.tool_running) {
+        bottom_bar = hbox({
+            text("  esc / ctrl+c to interrupt") | tui::readable_secondary(),
+            filler(),
+            goal_el,
+            token_el,
+            load_el,
+            text(perm_mode_str + "  ") | tui::readable_secondary(),
+        });
+    } else {
+        bottom_bar = hbox({
+            text("  shift+tab: cycle permission mode") |
+                tui::readable_secondary(),
+            filler(),
+            goal_el,
+            token_el,
+            load_el,
+            text(perm_mode_str + "  ") | tui::readable_secondary(),
+        });
+    }
+
+    // IME composition window positioning is handled by FTXUI's cursor
+    // system (focusCursorBlock) which emits ANSI sequences to place the
+    // terminal cursor at the caret. Windows Terminal/ConPTY uses this
+    // to position the IME window. The Win32 IME APIs (ImmSetComposition
+    // Window) don't work under ConPTY.
+
+    Color outer_border_color = (state.input_mode == InputMode::Shell)
+        ? acecode::tui::theme().semantic.error
+        : acecode::tui::theme().ui.text_muted;
+
+    Element header_separator = hide_regular_sidebar_banner
+        ? emptyElement()
+        : (conhost_compat_layout ? compat_horizontal_line() : separatorHeavy());
+    Element prompt_separator = conhost_compat_layout
+        ? compat_horizontal_line()
+        : separatorLight();
+    const int pending_queue_width = current_message_width > 0
+        ? current_message_width
+        : std::max(20, terminal_width -
+            (show_regular_sidebar ? kRegularSidebarWidthCols + 6 : 4));
+    Element pending_queue_element =
+        tui::render_pending_queue_block(state, pending_queue_width);
+    Element pending_attachment_element =
+        tui::render_pending_attachment_block(state, pending_queue_width);
+    Element todo_checklist_element =
+        acecode::tui::todo_checklist_uses_sidebar(show_regular_sidebar)
+            ? emptyElement()
+            : acecode::tui::render_todo_checklist_block(
+                state.todos, pending_queue_width);
+
+    Element main_root = vbox({
+        header,
+        header_separator | color(acecode::tui::theme().ui.text_dim),
+        acecode::tui::compose_ask_question_message_area(
+            std::move(message_view),
+            std::move(ask_overlay_element),
+            state.ask_pending) | flex,
+        mcp_loading_element,
+        resume_picker_element,
+        rewind_picker_element,
+        model_picker_element,
+        mode_picker_element,
+        confirm_overlay_element,
+        path_reference_element,
+        slash_dropdown_element,
+        thinking_element,
+        todo_checklist_element,
+        pending_queue_element,
+        prompt_separator | color(acecode::tui::theme().ui.text_dim),
+        pending_attachment_element,
+        prompt_line,
+        bottom_bar,
+    });
+
+    Element root;
+    if (conhost_compat_layout) {
+        root = vbox({
+            compat_horizontal_line() | color(outer_border_color),
+            main_root | flex,
+            compat_horizontal_line() | color(outer_border_color),
+        }) | flex;
+    } else if (show_regular_sidebar) {
+        Element sidebar = acecode::tui::render_regular_sidebar(
+            state,
+            version_str,
+            cwd_display,
+            kRegularSidebarWidthCols,
+            anim_tick.load(),
+            sidebar_content_box,
+            sidebar_viewport_box,
+            sidebar_scrollbar_box);
+        root = hbox({
+            main_root | flex,
+            separator() | color(outer_border_color),
+            sidebar,
+        }) | borderRounded | color(outer_border_color) | flex;
+    } else {
+        root = main_root | borderRounded | color(outer_border_color) | flex;
+    }
+
+    // link-hover-tooltip (add-tui-hyperlinks 5.3): 气泡作为浮层叠加在整屏
+    // 之上 —— dbox 共享区域,不参与布局(不挤压任何元素)、不捕获输入。
+    // 仅当终端能力探测通过(会收到无按键 Mouse::Moved 事件)且气泡已显示
+    // 时注入;conhost 家族/Apple Terminal.app 等恒不渲染。state.mu 由本
+    // 函数入口持有,读 hover_link_* 安全。
+    if (hover_supported && state.hover_link_visible &&
+        !state.hover_link_href.empty()) {
+        root = dbox({
+            std::move(root),
+            render_link_hover_tooltip(state),
+        });
+    }
+    return root;
+}
+
+int main(int argc, char* argv[]) try {
+    configure_process_environment();
+
+    if (auto exit_code = dispatch_non_tui_command(argc, argv)) {
+        return *exit_code;
+    }
+
+    std::string argv0_dir = get_executable_dir_from_argv(argc, argv);
+    InteractiveCliOptions cli = parse_interactive_cli_options(argc, argv);
+
+    if (auto exit_code = run_pre_tui_command(cli, argv0_dir)) {
+        return *exit_code;
+    }
+
+    return run_interactive_app(cli, argv0_dir);
+} catch (const McpConfigError& error) {
+    // Startup cannot recover an unvalidated scope without a last-good copy.
+    // Return the same structured diagnostic as managed configuration writes.
+    std::cerr << error.what() << std::endl;
+    return 1;
+}
+
+static int run_interactive_app(const InteractiveCliOptions& cli,
+                               const std::string& argv0_dir) {
+    const bool dangerous_mode = cli.dangerous_mode;
+    const bool resume_latest = cli.resume_latest;
+    const bool resume_picker_on_startup =
+        cli.resume_picker_on_startup && !cli.direct_resume_requested();
+    const bool force_alt_screen = cli.force_alt_screen;
+    const std::string resume_session_id = cli.resume_session_id;
+
+    std::string working_dir;
+    WorktreeSessionInfo startup_worktree;
+    std::string startup_worktree_banner;
+    if (!initialize_tui_startup_environment(working_dir, cli, startup_worktree,
+                                            startup_worktree_banner)) {
+        return 1;
+    }
+    HookConfig hook_config = load_tui_hook_config();
+    HookManager hook_manager(std::move(hook_config));
+    {
+        auto payload = build_startup_before_model_load_payload(working_dir);
+        hook_manager.dispatch(kHookEventStartupBeforeModelLoad, payload, working_dir);
+    }
+
+    AppConfig config =
+        load_tui_config_and_runtime(hook_manager, working_dir, argv0_dir);
+
+    // --question-policy 覆盖(add-ask-question-policy):非法值 fail fast;
+    // 合法值只写运行时 CLI 字段,save_config 永不落盘。
+    if (!cli.question_policy_error.empty()) {
+        std::cerr << "[acecode] " << cli.question_policy_error << std::endl;
+        return 1;
+    }
+    if (!cli.question_policy.empty()) {
+        config.agent_loop.question_policy_cli = cli.question_policy;
+        config.agent_loop.question_timeout_seconds_cli = cli.question_timeout_seconds;
+    }
+
+    auto cwd_override = load_cwd_model_override(working_dir);
+    SessionModelBinding model_binding;
+    ModelProfile initial_model_profile = initialize_tui_provider_runtime(
+        config, working_dir, cwd_override, model_binding, hook_manager);
+    auto provider_accessor = [&model_binding]() {
+        return model_binding.provider_snapshot();
+    };
+
+    // 「工具重写」与 daemon 共用同一份 <data_dir>/tool-rewrites.json,
+    // 必须先于 register_tool 发布(见 src/tool/tool_rewrites.hpp)。
+    tool_rewrites::load_and_apply(get_acecode_dir());
+    // 安全审计存储(openspec add-security-center):TUI 的审批决策同样入账,
+    // 在 Desktop 的安全中心里查看。
+    security::audit_log().configure(get_acecode_dir());
+
+    ToolExecutor tools;
+    SkillRegistry skill_registry;
+    MemoryRegistry memory_registry;
+    McpManager mcp_manager;
+    MemoryConfig runtime_memory_cfg = initialize_tui_tools_and_registries(
+        tools, skill_registry, memory_registry, mcp_manager, config, working_dir);
+    const std::string workspace_projects_dir = path_to_utf8(
+        path_from_utf8(get_acecode_dir()) / "projects");
+    desktop::WorkspaceRegistry workspace_registry;
+    workspace_registry.scan(workspace_projects_dir);
+    auto workspace_tool_deps = std::make_shared<WorkspaceToolDeps>();
+    workspace_tool_deps->registry = &workspace_registry;
+    workspace_tool_deps->projects_dir = workspace_projects_dir;
+    register_workspace_tools(tools, workspace_tool_deps);
+
+    // Skill usage / dormancy state shared by the TUI session and any daemon
+    // surface. Best-effort: a read/write failure never blocks the session.
+    auto skill_usage_store = std::make_shared<SkillUsageStore>(
+        get_acecode_dir() + "/.skill_usage_state.json");
+
+    TuiState state;
+    initialize_tui_state_before_screen(state, config, working_dir, dangerous_mode,
+                                       mcp_manager, provider_accessor());
+    state.skill_usage_store = skill_usage_store;
+    state.slash_command_usage_counts = read_tui_slash_command_usage();
+    if (!startup_worktree_banner.empty()) {
+        state.conversation.push_back({"system", startup_worktree_banner, false});
+    }
+
+    // Version and working directory strings for TUI header
+    std::string version_str = "acecode v" ACECODE_VERSION;
+    std::string cwd_display = working_dir;
+
+    // Animation tick for Thinking... indicator
+    std::atomic<int> anim_tick{0};
+    Box chat_box;
+    // draggable-thick-scrollbar: track box for the thick scroll indicator —
+    // populated by acecode::tui::thick_vscroll_bar each Render so the mouse
+    // handler can hit-test "click on scrollbar" vs "click in chat content".
+    Box scrollbar_box;
+    // AskUserQuestion overlay owns a separate frame-local layout and
+    // reflected geometry while active.
+    tui::AskQuestionFrame ask_question_frame;
+    // Ctrl+O expanded sidebar owns an independent document, viewport, and
+    // scrollbar track. These boxes are refreshed by the sidebar renderer and
+    // consumed only by sidebar mouse routing.
+    Box sidebar_content_box;
+    Box sidebar_viewport_box;
+    Box sidebar_scrollbar_box;
+    // The active prompt and its rendered UTF-8 fragments are reflected each
+    // frame so mouse presses follow the exact flexbox wrapping on screen.
+    acecode::tui::InputTextHitLayout input_hit_layout;
+
+    // drag-autoscroll: 每帧渲染时由 reflect 回填每条消息的屏幕 box,
+    // 下一帧 (事件线程 / anim_thread) 读这里算每条消息的行数,供
+    // scroll_chat_by_lines 做按行粒度的平滑滚动. Renderer 重新构建 element
+    // 树时先把上一帧的高度同步到 message_line_counts, 再把 boxes 清零.
+    // 读写发生在 (a) 事件线程 Renderer callback (b) anim_thread 通过
+    // state.mu 保护下的 scroll_chat_by_lines, 不显式加锁 — 与现有 state
+    // 读取路径保持一致的 "PostEvent happens-before" 模型.
+    std::vector<Box> message_boxes;
+    std::vector<Box> path_reference_boxes;
+    acecode::markdown::MarkdownLinkRegionCollector chat_link_regions;
+    std::vector<Box> message_layout_boxes;
+    std::vector<char> message_layout_valid;
+    std::vector<std::size_t> message_layout_revisions;
+    std::vector<int> message_layout_widths;
+    std::vector<acecode::tui::ChatLineMeasure> message_line_measures;
+    std::vector<int> message_line_counts;
+    std::vector<int> message_spacer_rows_after;
+    int message_line_count_width = 0;
+
+    acecode::TerminalCapabilities term_caps;
+    bool conhost_compat_layout = false;
+    auto render_mode = initialize_tui_render_mode(
+        config, force_alt_screen, term_caps, conhost_compat_layout);
+    maybe_add_legacy_terminal_hint(state, config, term_caps, render_mode,
+                                   force_alt_screen);
+
+    auto screen = acecode::tui::make_screen_interactive(render_mode);
+    screen.EnableKittyKeyboard();
+    // hover-motion(add-tui-hyperlinks 5.2):悬停气泡依赖无按键 Mouse::Moved
+    // 上报(?1003 any-event),仅现代终端开启——conhost 家族强制关闭(重绘抖动,
+    // 见 detect_hover_motion_support),Apple Terminal.app 同样不支持。
+    // 探测结果缓存一次,既给 FTXUI 开 ?1003,也传给渲染层 gate 气泡。
+    const bool hover_supported = acecode::detect_hover_motion_support();
+    screen.EnableMouseHoverMotion(hover_supported);
+    // synchronized-output: 按终端能力探测 + tui.sync_output_mode 决定是否把
+    // 每帧包进 CSI ?2026h/?2026l(整帧原子呈现,消除半帧闪烁)。必须在
+    // Loop() 之前调用;老 conhost / ConEmu / 未知终端默认关闭(输出与未启用
+    // 特性时一致),见 openspec/changes/add-synchronized-output/。
+    screen.EnableSynchronizedOutput(acecode::tui::decide_synchronized_output(
+        config.tui, acecode::detect_synchronized_output_support()));
+    auto redraw_pacer = std::make_shared<acecode::tui::TuiRedrawPacer>();
+    std::atomic<std::int64_t> last_keyboard_input_at_ms{0};
+    auto request_scheduled_redraw =
+        [&screen, redraw_pacer](int minimum_interval_ms) {
+            const std::int64_t now_ms = monotonic_milliseconds();
+            if (!redraw_pacer->try_request_scheduled_redraw(
+                    now_ms, minimum_interval_ms)) {
+                return false;
+            }
+            screen.PostEvent(Event::Custom);
+            return true;
+        };
+    // Publish for the Windows console-ctrl handler so Ctrl+C can trigger a
+    // graceful Loop exit instead of letting the default handler kill us.
+    g_active_screen.store(&screen, std::memory_order_release);
+    screen.ForceHandleCtrlC(false);
+    // mouse-selection-copy: register a no-op SelectionChange callback so
+    // FTXUI enables live selection tracking. The right-click branch in the
+    // CatchEvent handler reads screen.GetSelection() on demand; we don't
+    // need per-change work here yet. Future: hook "auto-clear on new drag".
+    screen.SelectionChange([]{});
+    std::thread update_check_thread = start_tui_update_check(config, state, screen);
+
+    // AskUserQuestion 两端同一个工厂:工具逻辑只有一份,传输由
+    // ToolContext::ask_user_questions 注入(见 agent_loop 里的 set_ask_question_channel
+    // 接线)。无需等 state/screen 就绪,但保留在这里以免和下面的 MCP
+    // 启动顺序拉开。
+    tools.register_tool(create_ask_user_question_tool_async(
+        config.ask.max_questions, config.ask.max_options));
+    start_mcp_servers_async(mcp_manager, tools, state, screen);
+
+    std::atomic<bool> mcp_first_turn_wait_done{false};
+    auto coordinate_mcp_before_first_turn = [&]() {
+        auto result = acecode::coordinate_mcp_before_first_turn(
+            mcp_manager,
+            mcp_first_turn_wait_done,
+            std::chrono::milliseconds(1500));
+        if (result.should_warn) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.conversation.push_back({"system",
+                acecode::mcp_first_turn_still_starting_warning(),
+                false});
+            screen.PostEvent(Event::Custom);
+        }
+    };
+
+    ChatScrollRuntime chat_scroll{
+        chat_box,
+        message_layout_boxes,
+        message_layout_valid,
+        message_layout_revisions,
+        message_layout_widths,
+        message_line_measures,
+        message_line_counts,
+        message_spacer_rows_after,
+        message_line_count_width,
+    };
+    auto chat_viewport_rows = [&chat_box]() -> int {
+        return chat_viewport_rows_for_box(chat_box);
+    };
+    auto sync_chat_line_counts_from_layout = [&chat_scroll, &state]() {
+        sync_chat_line_counts_from_layout_runtime(chat_scroll, state);
+    };
+    auto reset_chat_line_measure_state = [&chat_scroll, &state]() {
+        reset_chat_line_measure_state_runtime(chat_scroll, state);
+    };
+    auto invalidate_chat_line_measure_at = [&chat_scroll](int index) {
+        invalidate_chat_line_measure_at_runtime(chat_scroll, index);
+    };
+    auto clamp_chat_focus = [&state, &message_line_counts,
+                             &message_spacer_rows_after, &chat_viewport_rows]() {
+        clamp_chat_focus_runtime(state, message_line_counts,
+                                 message_spacer_rows_after,
+                                 chat_viewport_rows());
+    };
+    auto scroll_chat_by_lines =
+        [&state, &message_line_counts, &message_spacer_rows_after,
+         &chat_viewport_rows](int delta_lines) -> int {
+            return scroll_chat_by_lines_runtime(
+                state, message_line_counts, message_spacer_rows_after,
+                chat_viewport_rows(), delta_lines);
+        };
+
+    // ---- Copilot auth flow (background thread) ----
+    std::atomic<bool> auth_done{false};
+    std::thread auth_thread;
+    bool auth_thread_started = false;
+
+    {
+        auto provider_snapshot = provider_accessor();
+        auto* copilot = dynamic_cast<CopilotProvider*>(provider_snapshot.get());
+        if (copilot && !copilot->is_authenticated()) {
+            const std::string copilot_model = copilot->model();
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
+                // 新一轮等待：计时/计数字段必须和 is_waiting 一起重置，否则
+                // on_busy_changed 的 `busy && !is_waiting` 护栏会把这段跳过，
+                // thinking_start_time 会停在 time_point{} 原点，底部秒数会巨大。
+                state.thinking_start_time = std::chrono::steady_clock::now();
+                state.streaming_output_chars = 0;
+                state.turn_completion_tokens_confirmed = 0;
+                state.is_waiting = true;
+                state.conversation.push_back({"system", "Authenticating with GitHub Copilot...", false});
+            }
+            screen.PostEvent(Event::Custom);
+
+            auth_thread_started = true;
+            auth_thread = std::thread([copilot, &state, &screen, &auth_done, copilot_model] {
+                // Try silent auth first (saved token)
+                if (copilot->try_silent_auth()) {
+                    {
+                        std::lock_guard<std::mutex> lk(state.mu);
+                        state.conversation.push_back({"system", "Authenticated (saved token).", false});
+                        state.is_waiting = false;
+                    }
+                    auth_done = true;
+                    screen.PostEvent(Event::Custom);
+                    return;
+                }
+
+                // Need interactive device flow
+                auto dc = request_device_code();
+                {
+                    std::lock_guard<std::mutex> lk(state.mu);
+                    state.conversation.push_back({"system",
+                        "Open " + dc.verification_uri + " and enter code: " + dc.user_code, false});
+                }
+                screen.PostEvent(Event::Custom);
+
+                copilot->run_device_flow([&state, &screen](const std::string& status) {
+                    std::lock_guard<std::mutex> lk(state.mu);
+                    state.status_line = status;
+                    screen.PostEvent(Event::Custom);
+                });
+
+                if (copilot->is_authenticated()) {
+                    {
+                        std::lock_guard<std::mutex> lk(state.mu);
+                        state.conversation.push_back({"system", "GitHub Copilot authenticated!", false});
+                        state.is_waiting = false;
+                        state.status_line = "[copilot] model: " + copilot_model;
+                    }
+                } else {
+                    std::lock_guard<std::mutex> lk(state.mu);
+                    state.conversation.push_back({"system", "[Error] Authentication failed.", false});
+                    state.is_waiting = false;
+                }
+                auth_done = true;
+                screen.PostEvent(Event::Custom);
+            });
+        }
+    }
+    if (!auth_thread_started) auth_done = true;
+
+    // ---- Token tracking ----
+    TokenTracker token_tracker;
+    state.token_status = token_tracker.format_status(config.context_window);
+    state.token_percent = token_tracker.context_percent(config.context_window);
+    state.cache_hit_percent = token_tracker.cache_hit_percent();
+
+    // ---- Agent callbacks ----
+    std::atomic<bool> agent_aborting{false};  // shared abort flag for confirm_cv
+    // Set only by the authoritative final assistant on_message callback. Delta
+    // text is intentionally excluded so a failed/aborted partial stream cannot
+    // be mistaken for a completed task notification.
+    std::string tui_turn_assistant_text;
+    std::string tui_turn_outcome;
+    AgentCallbacks callbacks;
+    callbacks.on_message = [&state, &clamp_chat_focus, &screen,
+                            &tui_turn_assistant_text](const std::string& role,
+                                                     const std::string& raw_content,
+                                                     bool is_tool) {
+        // 工具前言(add-tool-preamble):assistant 正文里的 <text_preamble> 标签
+        // 只在实时期间进 loading,不进 transcript;整段都是标签时不建空行。
+        const bool assistant_text = !is_tool && role == "assistant";
+        const std::string content = assistant_text
+            ? acecode::tool_preamble::strip_text_preamble_tags(raw_content)
+            : raw_content;
+        if (assistant_text && content.empty()) return;
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!is_tool && role == "assistant") {
+            tui_turn_assistant_text = content;
+        }
+        if (!is_tool && role == "assistant" &&
+            !state.conversation.empty() &&
+            state.conversation.back().role == "assistant" &&
+            !state.conversation.back().is_tool) {
+            state.conversation.back().content = content;
+        } else {
+            TuiState::Message m{role, content, is_tool};
+            if (role == "tool_call") {
+                // push 时就算好紧凑预览:工具执行期间行内即显示
+                // `● Bash(npm install)` 而非原始 JSON;完成后 on_tool_result
+                // 的补挂对已有值是 no-op。
+                const auto parts =
+                    acecode::tui::parse_tool_row(content, std::string());
+                if (!parts.name.empty()) {
+                    m.display_override = ToolExecutor::build_tool_call_preview(
+                        parts.name, parts.args);
+                }
+            }
+            state.conversation.push_back(std::move(m));
+        }
+        clamp_chat_focus();
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_transcript_message =
+        [&state, &clamp_chat_focus, &screen,
+         &reset_chat_line_measure_state](const ChatMessage& message) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            const auto notice = decode_compact_notice(message);
+            if (notice.has_value() && notice->stage == "progress") {
+                state.is_compacting = true;
+                state.compact_animation_start_time =
+                    std::chrono::steady_clock::now();
+            }
+
+            if (!acecode::tui::append_compact_notice_row(
+                    state.conversation, message)) {
+                state.conversation.push_back(
+                    {message.role, message.content, false});
+            }
+            if (notice.has_value() && notice->complete) {
+                state.is_compacting = false;
+            }
+
+            reset_chat_line_measure_state();
+            state.chat_follow_tail = true;
+            clamp_chat_focus();
+            screen.PostEvent(Event::Custom);
+        };
+    callbacks.on_busy_changed = [&state, &screen](bool busy) {
+        acecode::note_process_session_busy("tui-main", busy);
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (busy && !state.is_waiting) {
+            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
+            state.thinking_start_time = std::chrono::steady_clock::now();
+            state.streaming_output_chars = 0;
+            state.turn_completion_tokens_confirmed = 0;
+        }
+        state.is_waiting = busy;
+        if (!busy) state.is_compacting = false;
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_tool_confirm = [&state, &screen, &agent_aborting](const std::string& tool_name, const std::string& args) -> PermissionResult {
+        {
+            // 子代理并发后 confirm/ask overlay 可能被别的请求占用(子会话的
+            // AskUserQuestion 或远程权限确认)。占用前排队等 overlay 空闲,
+            // 100ms 超时轮询让 agent_aborting 有机会打断。
+            std::unique_lock<std::mutex> lk(state.mu);
+            while (!agent_aborting.load() &&
+                   (state.confirm_pending || state.ask_pending)) {
+                state.overlay_cv.wait_for(lk, std::chrono::milliseconds(100));
+            }
+            if (agent_aborting.load()) return PermissionResult::Deny;
+            state.confirm_pending = true;
+            state.confirm_tool_name = tool_name;
+            state.confirm_tool_args = args;
+            state.confirm_remote_session_id.clear();
+            state.confirm_remote_request_id.clear();
+            state.confirm_origin_label.clear();
+            // 每次新确认都把焦点复位到 "No",避免上一次留下的焦点泄漏到下一次,
+            // 同时安全的默认是 Deny —— 用户随手 Enter 不会误授权。
+            state.confirm_focus = acecode::tui::confirm_default_focus(tool_name, args);
+        }
+        screen.PostEvent(Event::Custom);
+
+        // Block the agent thread until the user responds in the TUI (or abort)
+        std::unique_lock<std::mutex> lk(state.mu);
+        state.confirm_cv.wait(lk, [&state, &agent_aborting] {
+            return !state.confirm_pending || agent_aborting.load();
+        });
+        if (agent_aborting.load()) return PermissionResult::Deny;
+        return state.confirm_result;
+    };
+    callbacks.on_delta = [&state, &clamp_chat_focus,
+                          &last_keyboard_input_at_ms, redraw_pacer,
+                          &request_scheduled_redraw](
+                             const std::string& token) {
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            // Find or create the streaming assistant message
+            if (state.conversation.empty() ||
+                state.conversation.back().role != "assistant" ||
+                state.conversation.back().is_tool) {
+                state.conversation.push_back({"assistant", "", false});
+            }
+            state.conversation.back().content += token;
+            state.streaming_output_chars += token.size();
+            clamp_chat_focus();
+        }
+        const std::int64_t now_ms = monotonic_milliseconds();
+        const bool keyboard_input_recent =
+            acecode::tui::is_keyboard_input_recent(
+                now_ms,
+                last_keyboard_input_at_ms.load(std::memory_order_acquire));
+        request_scheduled_redraw(
+            acecode::tui::select_streaming_redraw_interval_ms(
+                keyboard_input_recent,
+                redraw_pacer->last_frame_latency_ms()));
+    };
+    // Attach summary/display_override to the two most-recent TUI messages
+    // (the trailing tool_call row and tool_result row that on_message just
+    // appended) so the renderer can switch to the single-line summary mode.
+    callbacks.on_tool_result = [&state, &screen, &invalidate_chat_line_measure_at](
+                                                 const ChatMessage& call_msg,
+                                                 const std::string& tool_name,
+                                                 const ToolResult& result) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        // Walk the tail backwards: most recent tool_result gets `summary` +
+        // `hunks`, the nearest preceding tool_call gets `display_override`.
+        // Both were just pushed by `on_message` on the agent worker thread.
+        for (auto it = state.conversation.rbegin(); it != state.conversation.rend(); ++it) {
+            if (it->role == "tool_result" && !it->summary.has_value() &&
+                !it->ask_result) {
+                it->summary = result.summary;
+                it->hunks = result.hunks;
+                it->ask_result = tool_name == "AskUserQuestion";
+                const int index = static_cast<int>(
+                    state.conversation.size() - 1 -
+                    static_cast<std::size_t>(
+                        it - state.conversation.rbegin()));
+                invalidate_chat_line_measure_at(index);
+                break;
+            }
+        }
+        if (!call_msg.display_override.empty()) {
+            for (auto it = state.conversation.rbegin(); it != state.conversation.rend(); ++it) {
+                if (it->role == "tool_call" && it->display_override.empty()) {
+                    it->display_override = call_msg.display_override;
+                    break;
+                }
+            }
+        }
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_usage = [&token_tracker, &state, &config, &screen](const TokenUsage& usage) {
+        token_tracker.record(usage);
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.token_status = token_tracker.format_status(config.context_window);
+        state.token_percent = token_tracker.context_percent(config.context_window);
+        state.cache_hit_percent = token_tracker.cache_hit_percent();
+        // 心跳读数走回合累计:本请求的 completion_tokens 入账,同时清零流式
+        // 估算基数(该请求的 delta 已计入确认值,不清会双重计数)。
+        state.turn_completion_tokens_confirmed += usage.completion_tokens;
+        state.streaming_output_chars = 0;
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_goal_status = [&state, &screen](const std::string& status) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.goal_status = status;
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_todo_updated = [&state, &screen](const nlohmann::json& payload) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (payload.is_object() && payload.contains("todos")) {
+            state.todos = todo_items_from_json(payload["todos"]);
+        } else {
+            state.todos.clear();
+        }
+        screen.PostEvent(Event::Custom);
+    };
+    // 工具前言(add-tool-preamble):当前阶段的前言(<text_preamble> 标签正文 /
+    // 推理加粗标题)替换等待动画短语;只在等待期显示,不进 transcript。
+    callbacks.on_thinking_title = [&state, &screen](const std::string& title) {
+        if (title.empty()) return;
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase = title;
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_transcript_replace = [&state, &clamp_chat_focus, &screen,
+                                       &reset_chat_line_measure_state](
+        const std::vector<ChatMessage>& /*messages*/,
+        const CompactResult& result) {
+        if (!result.performed || result.summary_text.empty()) {
+            return;
+        }
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.conversation.push_back({"system", "--- [Compact Checkpoint] ---", false});
+        state.conversation.push_back({"system", "[Conversation summary]\n" + result.summary_text, false});
+        reset_chat_line_measure_state();
+        state.chat_follow_tail = true;
+        clamp_chat_focus();
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_stream_retry_reset = [&state, &clamp_chat_focus, &screen,
+                                       &tui_turn_assistant_text]() {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!state.conversation.empty() &&
+            state.conversation.back().role == "assistant" &&
+            !state.conversation.back().is_tool) {
+            state.conversation.pop_back();
+        }
+        tui_turn_assistant_text.clear();
+        state.streaming_output_chars = 0;
+        clamp_chat_focus();
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_model_retry = [&state, &screen](
+                                   const ProviderErrorInfo& info) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase =
+            acecode::tui::model_retry_wait_phrase(
+                tui::is_user_chinese(state), info.retry_delay_ms);
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_model_retry_resume = [&state, &screen]() {
+        std::lock_guard<std::mutex> lk(state.mu);
+        state.current_thinking_phrase =
+            acecode::tui::model_retry_resume_phrase(tui::is_user_chinese(state));
+        screen.PostEvent(Event::Custom);
+    };
+    callbacks.on_turn_finished = [&state, &tui_turn_outcome](
+                                     const std::string& status) {
+        std::lock_guard<std::mutex> lk(state.mu);
+        tui_turn_outcome = status;
+    };
+
+    PermissionManager permissions;
+    configure_permissions(permissions, dangerous_mode, config.default_permission_mode);
+
+    AgentLoop agent_loop(provider_accessor, tools, callbacks, working_dir, permissions);
+    agent_loop.set_tool_capability_policy(
+        mcp_scope_policy(&config, working_dir, std::nullopt, &mcp_manager, &tools));
+    // TUI 侧的 AskUserQuestion 传输。接上之后任何工具都能向用户提问
+    // (不只是 AskUserQuestion 工具本身),且行为与 daemon 路径同源。
+    agent_loop.set_ask_question_channel(
+        [&state, &screen](const nlohmann::json& questions_payload,
+                          const std::atomic<bool>* abort_flag,
+                          int timeout_seconds,
+                          const std::string& origin_label) {
+            return acecode::tui::ask_via_tui_overlay(
+                state, screen, questions_payload, abort_flag,
+                timeout_seconds, origin_label);
+        });
+    agent_loop.set_context_window(config.context_window);
+    agent_loop.set_task_suggestion_compact_threshold(
+        config.task_suggestion_compact_threshold);
+    agent_loop.set_no_model_config_prompt(
+        u8"请先配置大模型服务。TUI 可运行 acecode configure 或使用 /model add 添加模型。");
+    agent_loop.set_agent_loop_config(config.agent_loop);
+    agent_loop.set_sandbox_config(config.sandbox);
+    agent_loop.set_hook_manager(&hook_manager);
+    agent_loop.set_skill_registry(&skill_registry);
+    agent_loop.set_skill_usage_store(skill_usage_store.get());
+    agent_loop.set_skill_idle_days(config.skills.idle_days);
+    agent_loop.set_memory_registry(&memory_registry);
+    agent_loop.set_memory_config(&runtime_memory_cfg);
+    agent_loop.set_project_instructions_config(&config.project_instructions);
+    agent_loop.set_custom_instructions_config(&config.custom_instructions);
+    agent_loop.set_git_context_config(&config.git_context);
+
+    agent_loop.set_callbacks(callbacks);
+
+    // ---- Model-pool load monitor ----
+    // 只为 base_url 包含 wizard-ai 的配置启动轮询,避免普通用户访问企业接口。
+    // 负载实时写 acecode::tui::g_model_load_percent 供底栏 chip 展示;maxWindowTokens 稳定,故只需在
+    // 每次成功轮询时把 0.8x 有效窗口回灌到 config + agent_loop(UI 线程 Post,改的是 int,
+    // 安全),token% 下个回合自然重算。service 在 run_tui_loop 返回后 stop(),保证回调
+    // 不晚于这些局部变量析构。
+    {
+        if (acecode::should_start_model_pool_monitor(config.saved_models)) {
+            auto on_pool_update = [&model_binding, &config, &agent_loop]() {
+                std::string model_id;
+                if (auto provider = model_binding.provider_snapshot()) {
+                    model_id = provider->model();
+                }
+                int pct = -1;
+                int eff = 0;
+                if (auto st = acecode::model_pool_status_service().get(model_id)) {
+                    pct = st->usage_rate;
+                    eff = acecode::effective_context_window(st->max_window_tokens);
+                }
+                acecode::tui::g_model_load_percent.store(pct);
+                auto* scr = g_active_screen.load(std::memory_order_acquire);
+                if (!scr) return;
+                if (eff > 0) {
+                    scr->Post([&config, &agent_loop, eff]() {
+                        if (config.context_window != eff) {
+                            config.context_window = eff;
+                            agent_loop.set_context_window(eff);
+                        }
+                    });
+                }
+                scr->PostEvent(ftxui::Event::Custom);
+            };
+            acecode::model_pool_status_service().start(on_pool_update);
+        }
+    }
+
+    // ---- Session manager ----
+    SessionManager session_manager;
+    {
+        auto p = provider_accessor();
+        const std::string provider_name = p ? p->name() : std::string{};
+        const std::string provider_model = p ? p->model() : std::string{};
+        session_manager.start_session(working_dir,
+                                      provider_name,
+                                      provider_model,
+                                      std::string{},
+                                      initial_model_profile.name);
+        session_manager.set_permission_mode(
+            PermissionManager::mode_name(permissions.mode()),
+            /*persist_immediately=*/false);
+        if (permissions.mode() == PermissionMode::Plan) {
+            session_manager.set_pre_plan_permission_mode(
+                PermissionManager::mode_name(permissions.pre_plan_mode()),
+                /*persist_immediately=*/false);
+        }
+        // --worktree 启动:worktree 会话状态挂到 SessionManager 并随 meta
+        // 持久化,ExitWorktree 工具与退出时的收尾逻辑都以它为准。
+        if (startup_worktree.active()) {
+            session_manager.set_active_worktree(startup_worktree);
+        }
+    }
+    agent_loop.set_session_manager(&session_manager);
+
+    std::mutex tui_title_threads_mu;
+    std::vector<std::thread> tui_title_threads;
+    std::atomic<bool> tui_title_shutting_down{false};
+    auto join_tui_title_threads = [&]() {
+        std::vector<std::thread> threads;
+        {
+            std::lock_guard<std::mutex> lk(tui_title_threads_mu);
+            tui_title_shutting_down.store(true);
+            threads.swap(tui_title_threads);
+        }
+        for (auto& thread : threads) {
+            if (thread.joinable()) thread.join();
+        }
+    };
+    std::function<void(const std::string&, std::string)>
+        start_tui_auto_title_attempt;
+    start_tui_auto_title_attempt =
+        [&](const std::string& session_id, std::string text) {
+        if (tui_title_shutting_down.load() ||
+            session_id.empty() ||
+            session_manager.current_session_id() != session_id) {
+            return;
+        }
+
+        auto profile = resolve_auto_title_profile(
+            config,
+            session_manager.current_model_preset(),
+            agent_loop.cwd());
+        if (!profile.has_value()) {
+            auto retry =
+                session_manager.finish_auto_title_generation_for_session(
+                    session_id, false);
+            if (retry.has_value() && !tui_title_shutting_down.load()) {
+                start_tui_auto_title_attempt(session_id, std::move(*retry));
+            }
+            return;
+        }
+
+        std::lock_guard<std::mutex> threads_lk(tui_title_threads_mu);
+        if (tui_title_shutting_down.load()) return;
+        tui_title_threads.emplace_back(
+            [&, cfg = &config, session_id, text = std::move(text),
+             profile = std::move(*profile)]() mutable {
+            bool applied = false;
+            try {
+                auto provider =
+                    create_auto_title_provider(std::move(profile), *cfg);
+                if (provider) {
+                    auto title =
+                        generate_auto_session_title(*provider, text, *cfg);
+                    if (title.has_value() && !title->empty() &&
+                        session_manager
+                            .try_set_generated_session_title_for_session(
+                                session_id, *title)) {
+                        applied = true;
+                        if (session_manager.current_session_id() == session_id) {
+                            {
+                                std::lock_guard<std::mutex> lk(state.mu);
+                                if (session_manager.current_session_id() ==
+                                    session_id) {
+                                    state.current_session_title = *title;
+                                }
+                            }
+                            set_terminal_title(*title);
+                            agent_loop.dispatch_session_title_changed_hook(
+                                *title,
+                                "generated",
+                                session_manager.current_title_source());
+                            screen.PostEvent(Event::Custom);
+                        }
+                    }
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("[tui] auto session title generation failed: " +
+                         std::string(e.what()));
+            } catch (...) {
+                LOG_WARN("[tui] auto session title generation failed");
+            }
+
+            auto retry =
+                session_manager.finish_auto_title_generation_for_session(
+                    session_id, applied);
+            if (retry.has_value() && !tui_title_shutting_down.load()) {
+                start_tui_auto_title_attempt(
+                    session_id, std::move(*retry));
+            }
+        });
+    };
+    auto maybe_start_tui_auto_title = [&](const UserInput& input) {
+        if (!config.session_title.enabled) return;
+        std::string text = visible_auto_title_input(input);
+        if (text.empty()) return;
+
+        const std::string session_id = session_manager.ensure_active_session_id();
+        if (session_id.empty()) return;
+
+        auto attempt_text =
+            session_manager.begin_auto_title_generation(std::move(text));
+        if (!attempt_text.has_value()) return;
+        start_tui_auto_title_attempt(session_id, std::move(*attempt_text));
+    };
+    callbacks.on_turn_finished =
+        [&state, &tui_turn_outcome, &session_manager,
+         &start_tui_auto_title_attempt](const std::string& status) {
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            tui_turn_outcome = status;
+        }
+        const std::string session_id = session_manager.current_session_id();
+        auto retry = session_manager.mark_auto_title_turn_finished(status);
+        if (retry.has_value() && !session_id.empty()) {
+            start_tui_auto_title_attempt(session_id, std::move(*retry));
+        }
+    };
+    agent_loop.set_callbacks(callbacks);
+    auto resolve_tui_model = [&config](const std::string& name) {
+        auto snapshot = std::make_shared<AppConfig>(config);
+        SessionModelResolvedTarget target;
+        target.revision = current_saved_models_revision();
+        target.config = snapshot;
+        const auto found = std::find_if(
+            snapshot->saved_models.begin(), snapshot->saved_models.end(),
+            [&name](const ModelProfile& profile) {
+                return profile.name == name;
+            });
+        if (found != snapshot->saved_models.end()) {
+            target.profile = *found;
+            target.state = session_model_state_from_profile(*snapshot, *found);
+        }
+        return target;
+    };
+    auto apply_tui_model_transition =
+        [&config, &agent_loop, &session_manager](
+            const SessionModelState& model_state,
+            const SessionModelTransition& transition) {
+            if (model_state.context_window > 0) {
+                config.context_window = model_state.context_window;
+                agent_loop.set_context_window(model_state.context_window);
+            }
+            if (!transition.provider_published &&
+                !transition.selection_changed) {
+                return true;
+            }
+            try {
+                return session_manager.set_active_provider(
+                    model_state.provider,
+                    model_state.model,
+                    model_state.name);
+            } catch (...) {
+                return false;
+            }
+        };
+    std::function<void(const UserInput&)> submit_tui_input =
+        [&](const UserInput& input) {
+            const auto reload = model_binding.ensure_current(
+                false,
+                [] { return current_saved_models_revision(); },
+                resolve_tui_model,
+                apply_tui_model_transition);
+            std::string reload_notice;
+            if (!reload.ok) {
+                LOG_WARN("[tui] model profile reload failed; using current provider");
+                reload_notice =
+                    "Warning: model profile reload failed; continuing with the current provider.";
+            } else if (!reload.warning.empty()) {
+                reload_notice = "Warning: " + reload.warning;
+            }
+            if (!reload_notice.empty()) {
+                screen.Post([&state, reload_notice] {
+                    std::lock_guard<std::mutex> lock(state.mu);
+                    state.conversation.push_back(
+                        {"system", reload_notice, false});
+                    state.chat_follow_tail = true;
+                });
+            }
+            maybe_start_tui_auto_title(input);
+            agent_loop.submit(input);
+        };
+    auto submit_tui_text = [&](const std::string& text,
+                               const std::string& display_text = std::string{}) {
+        UserInput input;
+        input.text = text;
+        input.display_text = display_text;
+        submit_tui_input(input);
+    };
+
+    // ---- 子代理宿主(spawn_subagent / wait_subagent)----
+    // SessionRegistry / LocalSessionClient 不依赖 web 层,TUI 进程内直接
+    // 实例化;子会话与主会话共享 ToolExecutor(深度限制阻止孙代理)。
+    acecode::tui::SubagentHost::Deps subagent_host_deps;
+    {
+        SessionRegistryDeps rd;
+        rd.provider_accessor = provider_accessor;
+        rd.tools = &tools;
+        rd.cwd = working_dir;
+        rd.config = &config;
+        rd.mcp_manager = &mcp_manager;
+        rd.skill_registry = &skill_registry;
+        rd.memory_registry = &memory_registry;
+        rd.memory_cfg = &runtime_memory_cfg;
+        rd.project_instructions_cfg = &config.project_instructions;
+        rd.custom_instructions_cfg = &config.custom_instructions;
+        rd.hook_manager = &hook_manager;
+        rd.template_permissions = &permissions;
+        rd.power_guard = &acecode::process_power_guard();
+        subagent_host_deps.registry_deps = std::move(rd);
+    }
+    subagent_host_deps.parent_session_id = [&session_manager]() {
+        return session_manager.current_session_id();
+    };
+    subagent_host_deps.publish_tasks =
+        [&state, &screen](std::vector<acecode::tui::SubagentTaskSnapshot> tasks) {
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                state.subagent_tasks.clear();
+                state.subagent_tasks.reserve(tasks.size());
+                for (auto& t : tasks) {
+                    state.subagent_tasks.push_back(
+                        {t.id, t.title, t.prompt, t.started});
+                }
+            }
+            screen.PostEvent(Event::Custom);
+        };
+    subagent_host_deps.on_permission_request =
+        [&state, &screen](const std::string& session_id,
+                          const std::string& task_title,
+                          nlohmann::json payload) {
+            TuiState::RemoteConfirmRequest req;
+            req.session_id = session_id;
+            req.request_id = payload.value("request_id", std::string{});
+            req.tool = payload.value("tool", std::string{});
+            if (payload.contains("args")) {
+                req.args_preview = payload["args"].is_string()
+                    ? payload["args"].get<std::string>()
+                    : payload["args"].dump(2);
+            }
+            req.origin_label = "[subagent] " +
+                (task_title.empty() ? session_id : task_title);
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                state.remote_confirm_queue.push_back(std::move(req));
+            }
+            // Custom 事件驱动 CatchEvent 入口的泵,在 overlay 空闲时弹出展示。
+            screen.PostEvent(Event::Custom);
+        };
+    acecode::tui::SubagentHost subagent_host(std::move(subagent_host_deps));
+    {
+        auto subagent_deps = std::make_shared<SubagentToolDeps>();
+        subagent_deps->registry = &subagent_host.registry();
+        subagent_deps->client = &subagent_host.client();
+        subagent_deps->config = &config;
+        subagent_deps->fallback_permissions = &permissions;
+        subagent_deps->on_spawn =
+            [&subagent_host](const std::string& child_id,
+                             const std::string& prompt) {
+                subagent_host.on_spawned(child_id, prompt);
+            };
+        tools.register_tool(create_spawn_subagent_tool(subagent_deps));
+        tools.register_tool(create_wait_subagent_tool(subagent_deps));
+        auto thread_deps = std::make_shared<ThreadToolDeps>();
+        thread_deps->service = std::make_shared<ThreadService>(
+            ThreadService::Deps{
+                &subagent_host.registry(), &subagent_host.client()});
+        register_codex_thread_tools(tools, std::move(thread_deps));
+    }
+
+    // Register session finalization for clean shutdown
+    g_session_manager = &session_manager;
+    std::atexit(finalize_session_atexit);
+#ifdef _WIN32
+    SetConsoleCtrlHandler(console_ctrl_handler, TRUE);
+#else
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+#endif
+
+    // ---- Handle --resume ----
+    bool resumed_session_success = false;
+    if (resume_latest || !resume_session_id.empty()) {
+        std::string target_id = resume_session_id;
+        std::string resumed_title;
+        if (resume_latest) {
+            auto sessions = session_manager.list_sessions();
+            if (!sessions.empty()) {
+                target_id = sessions.front().id;
+                resumed_title = sessions.front().title;
+            }
+        } else if (!target_id.empty()) {
+            // 通过 SessionManager 读取 canonical meta,避免在 TUI 启动路径里
+            // 直接拼存储路径。
+            auto meta = session_manager.load_session_meta(target_id);
+            resumed_title = meta.title;
+        }
+        if (!target_id.empty()) {
+            const bool canonical_exists = session_manager.has_session_file(target_id);
+            // 把 session meta 喂给 resolver,让 resume 真正还原 provider+model。
+            // resolve_effective_model 会优先用 (meta.provider, meta.model) 从
+            // saved_models 找匹配 entry;找不到则构造 ad-hoc entry,name 以
+            // "(session:..." 开头,触发我们后面的系统消息提示。
+            SessionMeta resumed_meta = session_manager.load_session_meta(target_id);
+            std::optional<SessionModelState> resumed_model_state;
+            if (auto deleted_state = deleted_model_state_from_meta(config, resumed_meta)) {
+                resumed_model_state = deleted_state;
+            } else if (!resumed_meta.provider.empty() && !resumed_meta.model.empty()) {
+                ModelProfile resumed_entry = resolve_effective_model(
+                    config, cwd_override, std::optional<SessionMeta>{resumed_meta});
+                ApplyModelDeps deps;
+                deps.model_binding = &model_binding;
+                deps.sm = &session_manager;
+                deps.loop = &agent_loop;
+                deps.cfg = &config;
+                try {
+                    auto result = apply_model_to_session(resumed_entry, deps);
+                    config.context_window = result.state.context_window;
+                    resumed_model_state = result.state;
+                } catch (const std::exception& e) {
+                    state.conversation.push_back({"system",
+                        std::string("⚠ Resume model switch failed: ") + e.what(), false});
+                }
+                if (resumed_entry.name.rfind("(session:", 0) == 0) {
+                    state.conversation.push_back({"system",
+                        "⚠ Resumed with ad-hoc model entry (session recorded " +
+                        resumed_meta.provider + "/" + resumed_meta.model +
+                        ", not in saved_models). Use /model --default <name> to pick a permanent one.",
+                        false});
+                }
+            }
+
+            auto messages = session_manager.resume_session(target_id);
+            const std::string resume_error = session_manager.last_error();
+            if (!resume_error.empty()) {
+                state.conversation.push_back({"system", resume_error, false});
+            } else if (!canonical_exists && session_manager.has_incompatible_session_data(target_id)) {
+                state.conversation.push_back({"system",
+                    "Session " + target_id + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
+            } else if (!canonical_exists) {
+                state.conversation.push_back({"system", "Session " + target_id + " not found.", false});
+            } else {
+                acecode::append_resumed_session_messages(messages, state, agent_loop, tools);
+                state.todos = session_manager.current_todos();
+                // worktree 会话恢复:meta 记录的 worktree 还在就把会话 cwd
+                // 切回去;目录已被外部删除则清状态,避免 ExitWorktree 之后
+                // 操作幽灵路径。
+                {
+                    const WorktreeSessionInfo resumed_worktree =
+                        session_manager.active_worktree();
+                    if (resumed_worktree.active()) {
+                        std::error_code wt_ec;
+                        if (std::filesystem::exists(
+                                path_from_utf8(resumed_worktree.worktree_path), wt_ec)) {
+                            agent_loop.set_cwd(resumed_worktree.worktree_path);
+                            std::filesystem::current_path(
+                                path_from_utf8(resumed_worktree.worktree_path), wt_ec);
+                            state.conversation.push_back({"system",
+                                "Resumed inside worktree " +
+                                    resumed_worktree.worktree_path +
+                                    (resumed_worktree.worktree_branch.empty()
+                                         ? std::string{}
+                                         : " (branch " + resumed_worktree.worktree_branch + ")"),
+                                false});
+                        } else {
+                            session_manager.clear_active_worktree();
+                            state.conversation.push_back({"system",
+                                "Worktree " + resumed_worktree.worktree_path +
+                                    " no longer exists; resumed in " + working_dir + ".",
+                                false});
+                        }
+                    }
+                }
+                const PermissionMode resumed_mode =
+                    permission_mode_from_meta_name(resumed_meta.permission_mode);
+                if (resumed_mode == PermissionMode::Plan) {
+                    permissions.set_mode(permission_mode_from_meta_name(
+                        resumed_meta.pre_plan_permission_mode.empty()
+                            ? std::string{"default"}
+                            : resumed_meta.pre_plan_permission_mode));
+                    permissions.set_mode(PermissionMode::Plan);
+                } else {
+                    permissions.set_mode(resumed_mode);
+                }
+                permissions.clear_session_allows();
+                session_manager.set_permission_mode(
+                    PermissionManager::mode_name(permissions.mode()),
+                    /*persist_immediately=*/false);
+                if (permissions.mode() == PermissionMode::Plan) {
+                    session_manager.set_pre_plan_permission_mode(
+                        PermissionManager::mode_name(permissions.pre_plan_mode()),
+                        /*persist_immediately=*/false);
+                }
+                token_tracker.restore(resumed_meta.last_token_usage,
+                                      resumed_meta.session_token_usage);
+                sync_tui_resume_runtime_state(state, config, token_tracker,
+                                              resumed_model_state);
+                state.conversation.push_back({"system",
+                    "Resumed session " + target_id + " (" + std::to_string(messages.size()) + " messages)", false});
+                resumed_session_success = true;
+                agent_loop.publish_current_goal_state();
+                agent_loop.maybe_continue_goal();
+                if (!resumed_title.empty()) {
+                    set_terminal_title(resumed_title);
+                    state.current_session_title = resumed_title;
+                }
+            }
+        } else {
+            if (session_manager.has_incompatible_session_data()) {
+                state.conversation.push_back({"system",
+                    "No canonical sessions found. Old PID-suffixed session data in this project is no longer supported; delete the old project session data under ~/.acecode/projects and start a new session.", false});
+            } else {
+                state.conversation.push_back({"system", "No previous sessions found to resume.", false});
+            }
+        }
+    }
+    agent_loop.dispatch_session_start_hook(
+        resumed_session_success ? std::string{"resume"} : std::string{"startup"});
+    if (resumed_session_success) {
+        agent_loop.dispatch_session_title_changed_hook(
+            session_manager.current_title(),
+            "resume",
+            session_manager.current_title_source());
+    }
+
+    // Slash command registry
+    CommandRegistry cmd_registry;
+    register_slash_commands(cmd_registry, skill_registry, config, working_dir);
+
+    // Windows TUI notification setup. The backend (OS toast or the self-drawn
+    // renderer) is picked inside init_notifications; either way session
+    // mutations stay on the FTXUI thread because activation callbacks only
+    // enqueue a main-loop task.
+    void* tui_notification_window = nullptr;
+    bool tui_notifications_ready = false;
+#ifdef _WIN32
+    if (config.desktop.notifications.enabled &&
+        config.desktop.notifications.on_completion) {
+        tui_notification_window =
+            acecode::desktop::capture_tui_notification_window();
+        acecode::desktop::NotificationInitOptions notification_options;
+        notification_options.app_name = "ACECode TUI";
+        notification_options.application_id = "ACECode.ACECode.TUI.1";
+        notification_options.activation_window = tui_notification_window;
+        tui_notifications_ready =
+            acecode::desktop::init_notifications(notification_options);
+        if (tui_notifications_ready) {
+            acecode::desktop::set_click_handler(
+                [&](const acecode::desktop::NotifyPayload& payload) {
+                    const std::string session_id = payload.session_id;
+                    if (session_id.empty()) return;
+                    screen.Post([&, session_id] {
+                        if (session_manager.current_session_id() != session_id) {
+                            CommandContext ctx{
+                                state,
+                                agent_loop,
+                                &model_binding,
+                                config,
+                                token_tracker,
+                                permissions,
+                            };
+                            ctx.request_exit = [&screen]() { screen.Exit(); };
+                            ctx.session_manager = &session_manager;
+                            ctx.post_event = [&screen]() {
+                                screen.PostEvent(Event::Custom);
+                            };
+                            ctx.mcp_manager = &mcp_manager;
+                            ctx.tools = &tools;
+                            ctx.skills = &skill_registry;
+                            ctx.memory = &memory_registry;
+                            ctx.command_registry = &cmd_registry;
+                            ctx.cwd = working_dir;
+                            ctx.subagent_host = &subagent_host;
+                            ctx.submit_user_input = submit_tui_input;
+                            resume_session_by_id(ctx, session_id);
+                        }
+                        {
+                            std::lock_guard<std::mutex> lk(state.mu);
+                            reset_chat_line_measure_state();
+                            state.chat_follow_tail = true;
+                            clamp_chat_focus();
+                        }
+                        screen.PostEvent(Event::Custom);
+                    });
+                });
+        } else {
+            LOG_WARN("[tui] native notifications unavailable");
+        }
+    }
+#endif
+
+    if (resume_picker_on_startup) {
+        CommandContext cmd_ctx{
+            state, agent_loop, &model_binding,
+            config, token_tracker,
+            permissions,
+            [&screen]() { screen.Exit(); },
+            &session_manager,
+            [&screen]() { screen.PostEvent(Event::Custom); },
+            &mcp_manager,
+            &tools,
+            &skill_registry,
+            &memory_registry,
+            &cmd_registry,
+            working_dir,
+            &subagent_host,
+            submit_tui_input
+        };
+        cmd_registry.dispatch("/resume", cmd_ctx);
+    }
+
+    // --- Tool progress callbacks (streaming-tool-progress change) ---
+    callbacks.on_tool_progress_start = [&state, &screen](
+        const std::string& tool_name, const std::string& cmd_preview,
+        const std::string& preamble) {
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.tool_running = true;
+            state.tool_progress = {};
+            state.tool_progress.tool_name = tool_name;
+            state.tool_progress.command_preview = cmd_preview;
+            state.tool_progress.preamble = preamble;
+            state.tool_progress.start_time = std::chrono::steady_clock::now();
+            state.last_tool_post_event_time = std::chrono::steady_clock::now();
+        }
+        screen.PostEvent(Event::Custom);
+    };
+
+    callbacks.on_tool_progress_update = [&state, &screen](
+        const std::vector<std::string>& tail_snapshot,
+        const std::string& current_partial,
+        size_t total_bytes, int total_lines) {
+        bool should_post = false;
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.tool_progress.tail_lines = tail_snapshot;
+            state.tool_progress.current_partial = current_partial;
+            state.tool_progress.total_bytes = total_bytes;
+            state.tool_progress.total_lines = total_lines;
+            auto now = std::chrono::steady_clock::now();
+            if (now - state.last_tool_post_event_time > std::chrono::milliseconds(150)) {
+                state.last_tool_post_event_time = now;
+                should_post = true;
+            }
+        }
+        if (should_post) screen.PostEvent(Event::Custom);
+    };
+
+    callbacks.on_tool_progress_end = [&state, &screen]() {
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.tool_running = false;
+            state.tool_progress = {};
+        }
+        // Unconditional PostEvent so the live element disappears immediately.
+        screen.PostEvent(Event::Custom);
+    };
+
+    // Now that agent_loop exists, update on_busy_changed to drain pending queue
+    callbacks.on_busy_changed = [&state, &clamp_chat_focus, &screen,
+                                 &coordinate_mcp_before_first_turn,
+                                 &submit_tui_input, &submit_tui_text,
+                                 &tui_turn_assistant_text, &tui_turn_outcome,
+                                 &session_manager,
+                                 &config, tui_notifications_ready,
+                                 tui_notification_window](bool busy) {
+        acecode::note_process_session_busy("tui-main", busy);
+        std::unique_lock<std::mutex> lk(state.mu);
+        if (busy && !state.is_waiting) {
+            tui_turn_assistant_text.clear();
+            tui_turn_outcome.clear();
+            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
+            state.thinking_start_time = std::chrono::steady_clock::now();
+            state.streaming_output_chars = 0;
+            state.turn_completion_tokens_confirmed = 0;
+        }
+        const bool was_waiting = state.is_waiting;
+        state.is_waiting = busy;
+        if (!busy) state.is_compacting = false;
+        std::optional<acecode::desktop::NotifyPayload> completion_notification;
+        // inline-thinking-heartbeat:回合正常收尾时追加显示端伪行
+        // "● Done for Ns"(只进 state.conversation,不进 LLM context、不进
+        // session JSONL,resume 后自然消失)。用户 Esc/Ctrl+C 中断的回合与
+        // <1s 的瞬时回合不追加(前者已有中断反馈,后者纯噪音)。中断标记
+        // 无论是否追加都在此消费复位。
+        if (was_waiting && !busy) {
+            const bool interrupted = state.turn_interrupted_by_user;
+            state.turn_interrupted_by_user = false;
+            if (!interrupted && tui_turn_outcome == "completed" &&
+                tui_notifications_ready &&
+                !tui_turn_assistant_text.empty() &&
+                config.desktop.notifications.enabled &&
+                config.desktop.notifications.on_completion &&
+                !(config.desktop.notifications.suppress_when_focused &&
+                  acecode::desktop::notification_window_is_foreground(
+                      tui_notification_window))) {
+                const std::string session_id =
+                    session_manager.current_session_id();
+                if (!session_id.empty()) {
+                    completion_notification =
+                        acecode::desktop::build_completion_notification(
+                            session_id,
+                            std::string{},
+                            state.current_session_title,
+                            tui_turn_assistant_text);
+                }
+            }
+            tui_turn_assistant_text.clear();
+            tui_turn_outcome.clear();
+            if (!interrupted &&
+                state.thinking_start_time.time_since_epoch().count() != 0) {
+                const long done_secs = static_cast<long>(
+                    std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now() -
+                        state.thinking_start_time).count());
+                if (done_secs >= 1) {
+                    state.conversation.push_back({"turn_done",
+                        "Done for " + std::to_string(done_secs) + "s", false});
+                    if (state.drag_scrollbar_phase ==
+                        TuiState::DragScrollbarPhase::Idle) {
+                        state.chat_follow_tail = true;
+                    }
+                    clamp_chat_focus();
+                }
+            }
+        }
+        // remote-control 出站:回合结束时把游标之后新增的 assistant 文本逐条
+        // 转发给 IM 桥。挂在回合结束而不是 on_message:流式期间 assistant 气泡
+        // 原地增量更新,逐 delta 转发会把半截文本刷给 IM。游标语义见 hub 注释。
+        if (!busy) {
+            auto& rc_hub = acecode::rc::remote_control_service().hub();
+            if (rc_hub.enabled()) {
+                std::size_t cursor = rc_hub.forward_cursor();
+                // /clear 会缩短 conversation,游标越界时收口,避免越界读。
+                if (cursor > state.conversation.size()) {
+                    cursor = state.conversation.size();
+                }
+                for (std::size_t i = cursor; i < state.conversation.size(); ++i) {
+                    const auto& m = state.conversation[i];
+                    if (m.role == "assistant" && !m.is_tool) {
+                        rc_hub.notify_assistant_text(m.content);
+                    }
+                }
+                rc_hub.set_forward_cursor(state.conversation.size());
+            }
+        }
+        if (!busy && !state.pending_queue.empty()) {
+            std::string next_prompt = state.pending_queue.front();
+            state.pending_queue.erase(state.pending_queue.begin());
+            UserInput next_input;
+            bool has_structured_input = false;
+            if (!state.pending_structured_queue.empty() &&
+                state.pending_structured_queue.front().display_text == next_prompt) {
+                next_input = state.pending_structured_queue.front();
+                state.pending_structured_queue.pop_front();
+                has_structured_input = true;
+            }
+            state.conversation.push_back({"user", next_prompt, false});
+            // draggable-thick-scrollbar: 用户主动拖滚动条时不要被 worker 线程
+            // 强行拽回尾巴 —— 让用户看着自己挑的位置,直到他自己释放鼠标。
+            // 拖到底的情况由 clamp_chat_focus 内部 (idx == last) 分支自然恢复。
+            if (state.drag_scrollbar_phase ==
+                TuiState::DragScrollbarPhase::Idle) {
+                state.chat_follow_tail = true;
+            }
+            clamp_chat_focus();
+            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
+            state.thinking_start_time = std::chrono::steady_clock::now();
+            state.streaming_output_chars = 0;
+            state.turn_completion_tokens_confirmed = 0;
+            state.is_waiting = true;
+            lk.unlock();
+            coordinate_mcp_before_first_turn();
+            lk.lock();
+            if (has_structured_input) {
+                submit_tui_input(next_input);
+            } else {
+                submit_tui_text(next_prompt);
+            }
+        }
+        lk.unlock();
+        if (completion_notification.has_value()) {
+            screen.Post([payload = std::move(*completion_notification)] {
+                acecode::desktop::show_notification(payload);
+            });
+        }
+        screen.PostEvent(Event::Custom);
+    };
+    agent_loop.set_callbacks(callbacks);
+
+    // remote-control 入站:IM 桥经 loopback HTTP 送来的文本走输入框同款提交
+    // 路径(busy 排队 / 空闲直接 submit),气泡渲染与会话持久化与手输完全一致。
+    // 该回调由 RC listener 的 Crow worker 线程调用,锁内逻辑与 Enter 提交分支
+    // 保持一字不差。
+    acecode::rc::remote_control_service().hub().set_inbound_submit(
+        [&state, &screen, &clamp_chat_focus, &submit_tui_text,
+         &coordinate_mcp_before_first_turn](const std::string& text) {
+            std::unique_lock<std::mutex> lk(state.mu);
+            if (state.is_waiting) {
+                state.pending_queue.push_back(text);
+            } else {
+                state.conversation.push_back({"user", text, false});
+                state.chat_follow_tail = true;
+                clamp_chat_focus();
+                state.current_thinking_phrase =
+                    tui::get_random_thinking_phrase(tui::is_user_chinese(state));
+                state.thinking_start_time = std::chrono::steady_clock::now();
+                state.streaming_output_chars = 0;
+                state.turn_completion_tokens_confirmed = 0;
+                state.is_waiting = true;
+                lk.unlock();
+                coordinate_mcp_before_first_turn();
+                lk.lock();
+                submit_tui_text(text);
+            }
+            screen.PostEvent(Event::Custom);
+        });
+
+    // ---- Animation ticker thread ----
+    std::atomic<bool> running{true};
+    std::thread anim_thread([
+        &running,
+        &anim_tick,
+        &state,
+        &screen,
+        &scroll_chat_by_lines,
+        &last_keyboard_input_at_ms,
+        &request_scheduled_redraw,
+        redraw_pacer,
+        conhost_compat_layout] {
+        const auto legacy_tick_period = std::chrono::milliseconds(
+            conhost_compat_layout ? tui::kConhostAnimationFrameMs
+                                  : tui::kDefaultAnimationFrameMs);
+        auto last_legacy_tick_at = std::chrono::steady_clock::now();
+        auto current_pacing_context = [&] {
+            tui::ThinkingAnimationPacingContext context;
+            context.conhost_compat_layout = conhost_compat_layout;
+            context.keyboard_input_recent =
+                tui::is_keyboard_input_recent(
+                    monotonic_milliseconds(),
+                    last_keyboard_input_at_ms.load(
+                        std::memory_order_acquire));
+            context.last_frame_latency_ms =
+                redraw_pacer->last_frame_latency_ms();
+            std::lock_guard<std::mutex> lk(state.mu);
+            context.drag_autoscroll_active =
+                state.drag_phase == drag_scroll::Phase::ScrollingUp ||
+                state.drag_phase == drag_scroll::Phase::ScrollingDown;
+            context.thinking_visible =
+                state.is_waiting && !state.tool_running;
+            return context;
+        };
+        while (running) {
+            // Modern thinking frames adapt to recent typing and the measured
+            // completed-frame latency. Drag keeps highest priority; conhost
+            // retains its slower compatibility cadence.
+            const int frame_interval_ms = tui::select_animation_frame_interval_ms(
+                current_pacing_context());
+            std::this_thread::sleep_for(std::chrono::milliseconds(frame_interval_ms));
+
+            // anim_tick 仍服务 MCP 等旧动画。按真实经过时间维持原来的
+            // 300/1000ms phase,避免 thinking 的自适应 redraw 把其他效果加速。
+            const auto tick_now = std::chrono::steady_clock::now();
+            const auto legacy_elapsed = tick_now - last_legacy_tick_at;
+            if (legacy_elapsed >= legacy_tick_period) {
+                const auto legacy_steps =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        legacy_elapsed).count() /
+                    legacy_tick_period.count();
+                anim_tick.fetch_add(static_cast<int>(legacy_steps));
+                last_legacy_tick_at += legacy_tick_period * legacy_steps;
+            }
+            // mouse-selection-copy: clear the "Copied N bytes" confirmation
+            // ~2 s after the copy fired. Run before the post-event gate so we
+            // always get a final render when the deadline passes.
+            bool requires_immediate_post = false;
+            bool background_animation_visible = false;
+            bool should_post = false;
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                const auto now = std::chrono::steady_clock::now();
+                if (state.ask_session) {
+                    const auto ask_effects = state.ask_session->tick(now);
+                    if (!ask_effects.empty()) {
+                        dispatch_ask_session_effects_locked(state, ask_effects);
+                        requires_immediate_post = true;
+                    }
+                }
+                if (state.status_line_clear_at.time_since_epoch().count() != 0 &&
+                    now >= state.status_line_clear_at) {
+                    state.status_line = state.status_line_saved;
+                    state.status_line_saved.clear();
+                    state.status_line_clear_at = {};
+                    requires_immediate_post = true;
+                }
+                if (acecode::tui::expire_ctrl_c_exit_state(
+                        state.ctrl_c_armed, state.last_ctrl_c_time, now)) {
+                    requires_immediate_post = true;
+                }
+                // link-hover-tooltip (add-tui-hyperlinks 5.3): 指针在链接上
+                // 无按键停留 >= 300ms 后显示气泡。悬停状态由事件线程在
+                // Mouse::Moved 时更新,这里只做时间门 —— 到期置位并强制
+                // 下一帧渲染,气泡出现不依赖任何后续输入事件。
+                if (!state.hover_link_href.empty() &&
+                    !state.hover_link_visible) {
+                    const auto hover_elapsed_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now - state.hover_link_since).count();
+                    if (hover_elapsed_ms >=
+                        acecode::tui::kLinkHoverTooltipDelayMs) {
+                        state.hover_link_visible = true;
+                        requires_immediate_post = true;
+                    }
+                }
+                background_animation_visible = tui::mcp_sidebar_has_loading(state);
+
+                // drag-autoscroll: 时间门到点就滚一行, 把 ShiftSelection 的补偿请求
+                // 累加到 pending_shift_dy, 由事件线程 CatchEvent 的入口消费 — 避免
+                // anim_thread 直接改 FTXUI selection_data_ 与 HandleSelection 撞车.
+                if (state.drag_phase == drag_scroll::Phase::ScrollingUp ||
+                    state.drag_phase == drag_scroll::Phase::ScrollingDown) {
+                    if (drag_scroll::should_tick(now, state.last_drag_scroll_at,
+                                                  std::chrono::milliseconds(60))) {
+                        int dy = (state.drag_phase == drag_scroll::Phase::ScrollingUp) ? -1 : 1;
+                        int actual = scroll_chat_by_lines(dy);
+                        if (actual != 0) {
+                            // scroll_chat_by_lines(+1) 让视口顶部下移一行 → 屏幕
+                            // 内容相对上移 actual 行 → 原 anchor 文本屏幕坐标应
+                            // -actual.
+                            state.pending_shift_dy += -actual;
+#if ACECODE_TUI_INPUT_TRACE
+                            LOG_DEBUG("[drag-select] autoscroll tick phase=" +
+                                      drag_phase_for_log(state.drag_phase) +
+                                      " requested_dy=" + std::to_string(dy) +
+                                      " actual=" + std::to_string(actual) +
+                                      " pending_shift_dy=" +
+                                      std::to_string(state.pending_shift_dy) +
+                                      " focus=" +
+                                      std::to_string(state.chat_focus_index) +
+                                      " offset=" +
+                                      std::to_string(state.chat_line_offset) +
+                                      " mouse=(" +
+                                      std::to_string(state.last_mouse_x) +
+                                      "," +
+                                      std::to_string(state.last_mouse_y) +
+                                      ")");
+#endif
+                            requires_immediate_post = true;
+                        }
+                    }
+                }
+
+                // Drive re-render while waiting on the LLM, while live tool/MCP
+                // progress is visible, or when status cleanup reaches its deadline.
+                // Subagent sidebar snapshots publish their own render event on each
+                // lifecycle update and no longer contain a ticking elapsed readout.
+                // 把读取留在同一把锁里,避免 ticker 与回调并发改 busy 字段。
+                should_post = requires_immediate_post ||
+                    background_animation_visible ||
+                    state.is_waiting ||
+                    state.tool_running;
+            }
+            if (requires_immediate_post) {
+                screen.PostEvent(Event::Custom);
+            } else if (should_post) {
+                request_scheduled_redraw(
+                    tui::select_animation_frame_interval_ms(
+                        current_pacing_context()));
+            }
+        }
+    });
+
+    // ---- Input handling ----
+    // Custom input component using paragraph-like flexbox for auto-wrapping.
+    // Uses FTXUI's focusCursorBlock so the terminal cursor tracks the caret,
+    // which lets the terminal emulator position the IME composition window.
+    // NOTE: Renderer must take (bool) to be Focusable. This ensures
+    // component_active=true on the element, so the input's cursor always
+    // wins focus priority over message_view's | focus (which has
+    // component_active=false and cursor_shape=Hidden).
+    auto input_renderer = Renderer([&state, &input_hit_layout](bool) {
+        std::string display_text = state.input_text;
+        size_t cursor = state.input_cursor;
+        if (cursor > display_text.size()) cursor = display_text.size();
+        input_hit_layout.input_value = display_text;
+        input_hit_layout.regions.clear();
+        if (display_text.empty()) {
+            return acecode::tui::render_empty_input_prompt(
+                &input_hit_layout.regions);
+        }
+        return acecode::tui::render_wrapped_input_text(
+            display_text,
+            cursor,
+            &input_hit_layout.regions,
+            state.input_selection_anchor);
+    });
+
+    auto cancel_ctrl_c_exit_locked = [&state]() {
+        ::cancel_ctrl_c_exit_locked(state);
+    };
+    auto insert_pasted_text_at_cursor =
+        [&state](const std::string& normalized) {
+            insert_pasted_text_at_cursor_locked(state, normalized);
+        };
+    auto paste_system_clipboard_text = [&state, &screen, &cmd_registry,
+                                        &agent_loop]() {
+        return ::paste_system_clipboard_text(
+            state, screen, cmd_registry, agent_loop.cwd());
+    };
+    auto paste_system_clipboard_image =
+        [&state, &screen, &session_manager, &working_dir]() {
+            return ::paste_system_clipboard_image(
+                state, screen, session_manager, working_dir);
+        };
+    auto handle_pending_attachment_focus_event =
+        [&state, &screen](const Event& event) {
+            return ::handle_pending_attachment_focus_event(state, screen, event);
+        };
+    // Assigned after the chat input component is built, when the sibling
+    // Settings and Capability Management roots exist. Slash-command dispatch
+    // captures these stable function objects by reference.
+    std::function<bool(const std::string&, std::string&)>
+        open_settings_surface;
+    std::function<bool(const std::string&, std::string&)>
+        open_management_surface;
+
+    // Wrap with CatchEvent to handle all keyboard input
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &clamp_chat_focus, &chat_viewport_rows, &sync_chat_line_counts_from_layout, &reset_chat_line_measure_state, &invalidate_chat_line_measure_at, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &scroll_chat_by_lines, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+        if (event != Event::Custom &&
+            !event.is_mouse() &&
+            !event.is_cursor_position() &&
+            !event.is_cursor_shape()) {
+            last_keyboard_input_at_ms.store(
+                monotonic_milliseconds(), std::memory_order_release);
+        }
+#if ACECODE_TUI_INPUT_TRACE
+        if (event != Event::Custom &&
+            !event.is_cursor_position() &&
+            !event.is_cursor_shape()) {
+            std::string state_snapshot;
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                state_snapshot =
+                    " ask=" + std::string(state.ask_pending ? "1" : "0") +
+                    " confirm=" + std::string(state.confirm_pending ? "1" : "0") +
+                    " ctrl_c_armed=" + std::string(state.ctrl_c_armed ? "1" : "0") +
+                    " resume=" + std::string(state.resume_picker_active ? "1" : "0") +
+                    " model=" + std::string(state.model_picker_open ? "1" : "0") +
+                    " mode=" + std::string(state.mode_picker_open ? "1" : "0") +
+                    " waiting=" + std::string(state.is_waiting ? "1" : "0") +
+                    " tool=" + std::string(state.tool_running ? "1" : "0") +
+                    " focus=" + std::to_string(state.chat_focus_index) +
+                    " line_offset=" + std::to_string(state.chat_line_offset) +
+                    " follow_tail=" + std::string(state.chat_follow_tail ? "1" : "0");
+            }
+            LOG_DEBUG("[input] received " + event_for_log(event) +
+                      " chat_box=" + box_for_log(chat_box) +
+                      " scrollbar_box=" + box_for_log(scrollbar_box) +
+                      " ask_scrollbar_box=" + box_for_log(ask_question_frame.scrollbar_box) +
+                      " ask_overlay_box=" + box_for_log(ask_question_frame.overlay_box) +
+                      state_snapshot);
+        }
+#endif
+
+        // drag-autoscroll: 事件线程入口处消费 anim_thread 攒下的 selection 偏移
+        // 补偿. 所有对 FTXUI selection_data_ 的写都发生在这条路径上, 跟
+        // HandleSelection 串行 — 避免跨线程数据竞争. 不 return, 让事件继续正常处理.
+        {
+            int dy = 0;
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                dy = state.pending_shift_dy;
+                state.pending_shift_dy = 0;
+            }
+            if (dy != 0) {
+#if ACECODE_TUI_INPUT_TRACE
+                LOG_DEBUG("[drag-select] consuming pending ShiftSelection dy=" +
+                          std::to_string(dy));
+#endif
+                screen.ShiftSelection(0, dy);
+            }
+        }
+        const bool ctrl_c_event =
+            tui::matches_terminal_codepoint(event, 'c', tui::kTerminalCtrl);
+        if (!ctrl_c_event &&
+            event != Event::Custom &&
+            !event.is_mouse() &&
+            !event.is_cursor_position() &&
+            !event.is_cursor_shape()) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            cancel_ctrl_c_exit_locked();
+        }
+        // 多行粘贴折叠（fix-multiline-paste-input change）：把所有事件先喂进
+        // bracketed paste 状态机。begin marker 进入 in-paste，期间所有事件
+        // （含 Return / Tab / 字符 / 内嵌 CSI bytes）都聚合到 buffer 而不下发到
+        // 正常 Return / 字符 / 删除 / 方向键 handler；end marker 触发 normalize
+        // 后或 inline 插入或折叠成 [Pasted text #N +M lines]。空 paste 直接返回。
+        {
+            std::unique_lock<std::mutex> lk(state.mu);
+            acecode::tui::PasteFeedResult pr = event.is_character()
+                ? state.paste_accumulator.feed_character(event.character())
+                : state.paste_accumulator.feed_special(event.input());
+            if (pr.just_completed && !pr.completed_text.empty()) {
+                // 题目页吞掉粘贴,避免文本漏进隐藏 composer;Other 输入态
+                // 才把归一化文本插进自定义答案缓冲
+                // (add-tui-ask-overlay-mouse-select)。
+                if (can_accept_clipboard_paste_locked(state)) {
+                    if (state.ask_pending && state.ask_session &&
+                        state.ask_session->snapshot().editing_custom) {
+                        const auto ask_effects = state.ask_session->dispatch({
+                            tui::AskQuestionEventKind::PasteText,
+                            -1,
+                            0,
+                            pr.completed_text});
+                        dispatch_ask_session_effects_locked(state, ask_effects);
+                    } else {
+                        insert_pasted_text_at_cursor(pr.completed_text);
+                        refresh_input_suggestions(
+                            state, cmd_registry, agent_loop.cwd());
+                    }
+                    lk.unlock();
+                    screen.PostEvent(Event::Custom);
+                }
+            }
+            if (pr.consume) {
+                return true;
+            }
+        }
+        if (tui::matches_terminal_codepoint(event, 'v', tui::kTerminalCtrl)) {
+            return paste_system_clipboard_text();
+        }
+        if (tui::is_alt_v_event(event)) {
+            return paste_system_clipboard_image();
+        }
+        if (ctrl_c_event) {
+            // If an operation is active, Ctrl+C behaves like Escape: cancel the
+            // current work instead of arming the double-press exit shortcut.
+            bool should_exit = false;
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (state.is_compacting) {
+                    cancel_ctrl_c_exit_locked();
+                    state.compact_abort_requested.store(true);
+                    state.conversation.push_back({"system", "Cancelling compaction...", false});
+                    state.chat_follow_tail = true;
+                    clamp_chat_focus();
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                if (state.ask_pending || state.confirm_pending ||
+                    state.is_waiting || state.tool_running) {
+                    cancel_ctrl_c_exit_locked();
+                    if (state.ask_pending && state.ask_session) {
+                        const auto ask_effects = state.ask_session->dispatch(
+                            {tui::AskQuestionEventKind::GlobalCancel});
+                        dispatch_ask_session_effects_locked(state, ask_effects);
+                        screen.PostEvent(Event::Custom);
+                    } else {
+                        screen.PostEvent(Event::Escape);
+                    }
+                    return true;
+                }
+                const auto action = acecode::tui::record_ctrl_c_exit_press(
+                    state.ctrl_c_armed,
+                    state.last_ctrl_c_time,
+                    std::chrono::steady_clock::now());
+                if (action == acecode::tui::CtrlCExitAction::Exit) {
+                    should_exit = true;
+                } else {
+                    if (acecode::tui::clear_current_input_for_history_restore(state)) {
+                        refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+                    }
+                }
+            }
+            if (should_exit) {
+                screen.Exit();
+            } else {
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+
+        if (handle_pending_attachment_focus_event(event)) {
+            return true;
+        }
+
+        if (event.is_mouse()) {
+            const auto& mouse = event.mouse();
+            bool ask_session_active = false;
+            {
+                std::lock_guard<std::mutex> lk(state.mu);
+                ask_session_active = state.ask_pending && state.ask_session;
+            }
+            if (!ask_session_active &&
+                mouse.button == Mouse::Left &&
+                mouse.motion == Mouse::Pressed) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                const auto press =
+                    acecode::tui::resolve_input_pointer_press(
+                        state, input_hit_layout, mouse.x, mouse.y);
+                if (press.cursor_placed) {
+                    state.input_cursor = press.cursor_bytes;
+                    state.input_selection_anchor.reset();
+                    state.input_vertical_goal_column.reset();
+                    state.pending_attachment_focus =
+                        acecode::tui::kNoPendingAttachmentFocus;
+                    if (press.target ==
+                        acecode::tui::InputPointerTarget::Composer) {
+                        refresh_input_suggestions(
+                            state, cmd_registry, agent_loop.cwd());
+                    }
+                    screen.PostEvent(Event::Custom);
+                    // FTXUI must see the same Pressed event to establish the
+                    // anchor used by its existing drag-selection state machine.
+                    return press.event_consumed;
+                }
+            }
+        }
+
+        // AskQuestionSession owns all question interaction semantics. The TUI
+        // layer only adapts raw events, performs side effects, and projects
+        // snapshots for rendering. Keep this guard before the shared input
+        // handlers so no session event can reach another input state machine.
+        {
+            std::unique_lock<std::mutex> lk(state.mu);
+            if (state.ask_pending && state.ask_session) {
+                if (event == Event::Custom || event.is_cursor_position()) {
+                    return false;
+                }
+                if (dispatch_ask_session_event_locked(
+                        state, event, ask_question_frame)) {
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                if (event.is_mouse()) {
+                    return dispatch_ask_session_mouse_locked(
+                        state, event.mouse(), ask_question_frame, screen);
+                }
+                return true;
+            }
+        }
+
+
+        // 远程确认泵:confirm/ask overlay 空闲时弹出子会话的权限请求占用
+        // confirm overlay(带来源标注)。入队方 PostEvent(Custom) 保证本泵
+        // 在请求到达后至少跑一次;overlay 释放时的 PostEvent 驱动下一条。
+        {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (!state.confirm_pending && !state.ask_pending &&
+                !state.remote_confirm_queue.empty()) {
+                auto req = std::move(state.remote_confirm_queue.front());
+                state.remote_confirm_queue.pop_front();
+                state.confirm_pending = true;
+                state.confirm_tool_name = req.tool;
+                state.confirm_tool_args = req.args_preview;
+                state.confirm_remote_session_id = req.session_id;
+                state.confirm_remote_request_id = req.request_id;
+                state.confirm_origin_label = req.origin_label;
+                state.confirm_focus = acecode::tui::confirm_default_focus(req.tool, req.args_preview);
+            }
+        }
+
+        if (handle_confirm_overlay_event(
+                state, screen, event,
+                [&subagent_host](const std::string& sid,
+                                 const std::string& rid,
+                                 PermissionResult r) {
+                    subagent_host.respond_permission(
+                        sid, rid, permission_result_choice_name(r));
+                })) {
+            return true;
+        }
+
+        if (handle_rewind_picker_event(state, screen, event, clamp_chat_focus)) {
+            return true;
+        }
+
+        if (handle_path_reference_event(
+                state, screen, event, agent_loop.cwd(), path_reference_boxes)) {
+            return true;
+        }
+
+        if (handle_slash_dropdown_event(state, screen, event)) {
+            return true;
+        }
+
+        // Enter → submit message
+        if (event == Event::Return) {
+            std::unique_lock<std::mutex> lk(state.mu);
+
+            // Handle resume picker: Enter confirms selection
+            if (state.resume_picker_active) {
+                if (state.resume_selected >= 0 &&
+                    state.resume_selected < static_cast<int>(state.resume_items.size())) {
+                    auto sid = state.resume_items[state.resume_selected].id;
+                    auto cb = state.resume_callback;
+                    state.resume_picker_active = false;
+                    state.resume_items.clear();
+                    state.resume_view_offset = 0;
+                    state.resume_callback = nullptr;
+                    state.input_text.clear(); state.pasted_texts.clear();
+                    state.input_cursor = 0;
+                    state.clear_input_selection();
+                    const size_t before_resume_messages =
+                        state.conversation.size();
+                    if (cb) cb(sid);
+                    if (state.conversation.size() != before_resume_messages) {
+                        reset_chat_line_measure_state();
+                    }
+                    clamp_chat_focus();
+                }
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+
+            // /model picker: Enter confirms,callback 在持 state.mu 的同
+            // 一锁内跑(和 /resume 同款约定),完成后清状态 + post 一帧。
+            if (state.model_picker_open) {
+                if (state.model_picker_selected >= 0 &&
+                    state.model_picker_selected <
+                        static_cast<int>(state.model_picker_options.size())) {
+                    auto name = state.model_picker_options[state.model_picker_selected].name;
+                    auto cb = state.model_picker_callback;
+                    state.model_picker_open = false;
+                    state.model_picker_options.clear();
+                    state.model_picker_selected = 0;
+                    state.model_picker_view_offset = 0;
+                    state.model_picker_callback = nullptr;
+                    if (cb) cb(name);
+                    clamp_chat_focus();
+                }
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+
+            if (state.mode_picker_open) {
+                if (state.mode_picker_selected >= 0 &&
+                    state.mode_picker_selected <
+                        static_cast<int>(state.mode_picker_options.size())) {
+                    const PermissionMode mode =
+                        state.mode_picker_options[state.mode_picker_selected].mode;
+                    auto callback = state.mode_picker_callback;
+                    state.mode_picker_open = false;
+                    state.mode_picker_options.clear();
+                    state.mode_picker_selected = 0;
+                    state.mode_picker_callback = nullptr;
+                    if (callback) callback(mode);
+                    clamp_chat_focus();
+                }
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+
+            // confirm_pending 现在由上面的 confirm overlay handler 单独拦截
+            // (Enter 直接走那条路径),这里不会再被 confirm 触发。
+
+            if (state.input_text.empty() && state.pending_attachments.empty()) return true;
+            if (!auth_done) return true;
+
+            // Block message submission during compaction
+            if (state.is_compacting) return true;
+
+            // 多行粘贴折叠（fix-multiline-paste-input change）：把已知 [Pasted text #N]
+            // 占位符替换回 pasted_texts 中存的全文，得到 expanded_prompt 喂给 agent_loop
+            // / 斜杠命令 / pending 队列 / input_history / 对话气泡。提交后清空 input_text
+            // 与 pasted_texts；next_paste_id 不复位（display 用计数，跨提交单调递增
+            // 即可，避免极端情况下与 input_history 中残留占位符同号撞 ID）。
+            //
+            // 用户反馈：提交后对话气泡也显示展开版原文，而非紧凑占位符——所以这里
+            // 没有保留单独的 `visible_prompt`，提交即一并展开上屏。
+            const std::string expanded_prompt = acecode::tui::expand_placeholders(
+                state.input_text, state.pasted_texts);
+            const std::vector<nlohmann::json> attachments = state.pending_attachments;
+            const std::string display_prompt =
+                display_prompt_with_attachments(expanded_prompt, attachments);
+            state.input_text.clear(); state.pasted_texts.clear();
+            state.pending_attachments.clear();
+            state.pending_attachment_focus =
+                acecode::tui::kNoPendingAttachmentFocus;
+            state.input_cursor = 0;
+            state.clear_input_selection();
+            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+
+            // 统一入口：内存 push + 磁盘 append。空白 / 相邻重复被抑制，保持磁盘与内存
+            // 行为一致；磁盘持久化受 config.input_history.enabled 控制。
+            auto record_history = [&state, &config, &working_dir](const std::string& entry) {
+                auto is_all_space = [](const std::string& s) {
+                    for (unsigned char c : s) {
+                        if (!std::isspace(c)) return false;
+                    }
+                    return true;
+                };
+                if (entry.empty() || is_all_space(entry)) return;
+                if (!state.input_history.empty() && state.input_history.back() == entry) return;
+                state.input_history.push_back(entry);
+                if (config.input_history.enabled) {
+                    std::string path = InputHistoryStore::file_path(
+                        SessionStorage::get_project_dir(working_dir));
+                    InputHistoryStore::append(path, entry, config.input_history.max_entries);
+                }
+            };
+
+            // Shell input mode: dispatch directly to BashTool via agent worker.
+            // Skips slash-command parsing and LLM round-trip.
+            if (state.input_mode == InputMode::Shell) {
+                if (!attachments.empty()) {
+                    set_transient_status_line_locked(
+                        state,
+                        "Image attachments are only supported in normal prompt mode");
+                    state.input_text = expanded_prompt;
+                    state.input_cursor = state.input_text.size();
+                    state.clear_input_selection();
+                    state.pending_attachments = attachments;
+                    acecode::tui::clamp_pending_attachment_focus(
+                        state.pending_attachment_focus,
+                        state.pending_attachments.size());
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                const std::string shell_cmd = expanded_prompt;
+                record_history(prepend_mode_prefix(shell_cmd, InputMode::Shell));
+                state.history_index = -1;
+                state.input_mode = InputMode::Normal;
+
+                // 提交后对话气泡显示展开后的原文（用户反馈：上屏不要看到 [] 占位符）。
+                state.conversation.push_back({"user", "!" + shell_cmd, false});
+                state.chat_follow_tail = true;
+                clamp_chat_focus();
+                state.current_thinking_phrase = "Running shell";
+                state.thinking_start_time = std::chrono::steady_clock::now();
+                state.streaming_output_chars = 0;
+                state.turn_completion_tokens_confirmed = 0;
+                state.is_waiting = true;
+                agent_loop.submit_shell(shell_cmd);
+                return true;
+            }
+
+            // Record history（用 expanded_prompt：上箭头取回原文，再次提交不会发出
+            // 字面 [Pasted text #N] —— 因为本会话提交后 store 已经清空，未展开的
+            // 字面占位符在下次 submit 时也会按 unknown id 保留，丢失原文。）
+            record_history(expanded_prompt);
+            state.history_index = -1;
+
+            // Slash command interception（用 expanded_prompt 派发：spec 4.3）。
+            if (attachments.empty() && !expanded_prompt.empty() && expanded_prompt[0] == '/') {
+                CommandContext cmd_ctx{
+                    state, agent_loop, &model_binding,
+                    config, token_tracker,
+                    permissions,
+                    [&screen]() { screen.Exit(); },
+                    &session_manager,
+                    [&screen]() { screen.PostEvent(Event::Custom); },
+                    &mcp_manager,
+                    &tools,
+                    &skill_registry,
+                    &memory_registry,
+                    &cmd_registry,
+                    working_dir,
+                    &subagent_host,
+                    submit_tui_input,
+                    [&state](const std::string& command_name) {
+                        const auto write_result =
+                            record_tui_slash_command_use(command_name);
+                        std::lock_guard<std::mutex> usage_lock(state.mu);
+                        auto& cached =
+                            state.slash_command_usage_counts[command_name];
+                        if (cached <
+                            (std::numeric_limits<std::uint64_t>::max)()) {
+                            ++cached;
+                        }
+                        cached = std::max(cached, write_result.count);
+                    },
+                    open_settings_surface,
+                    open_management_surface
+                };
+                const size_t before_command_messages =
+                    state.conversation.size();
+                lk.unlock();
+                bool handled = cmd_registry.dispatch(expanded_prompt, cmd_ctx);
+                if (handled) {
+                    lk.lock();
+                    if (state.conversation.size() != before_command_messages) {
+                        reset_chat_line_measure_state();
+                    }
+                    clamp_chat_focus();
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                lk.lock();
+                // If not a known command, fall through to send as normal prompt
+            }
+
+            if (state.is_waiting) {
+                // 队列保存展开版（spec 4.5）；提交后气泡显示展开版（用户反馈：
+                // 上屏不要看到 [] 占位符）。
+                state.pending_queue.push_back(display_prompt);
+                if (!attachments.empty()) {
+                    state.pending_structured_queue.push_back(
+                        build_user_input_with_attachments(
+                            expanded_prompt, display_prompt, attachments));
+                }
+            } else {
+                lk.unlock();
+                coordinate_mcp_before_first_turn();
+                lk.lock();
+                state.conversation.push_back({"user", display_prompt, false});
+                state.chat_follow_tail = true;
+                clamp_chat_focus();
+                state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
+                state.thinking_start_time = std::chrono::steady_clock::now();
+                state.streaming_output_chars = 0;
+                state.turn_completion_tokens_confirmed = 0;
+                state.is_waiting = true;
+                if (attachments.empty()) {
+                    submit_tui_text(expanded_prompt);
+                } else {
+                    submit_tui_input(build_user_input_with_attachments(
+                        expanded_prompt, display_prompt, attachments));
+                }
+            }
+            return true;
+        }
+        // /resume picker viewport navigation: PgUp/PgDn jump a full window,
+        // Home/End jump to first/last item. Must short-circuit before chat
+        // scroll handlers so the picker absorbs these keys exclusively.
+        if (event == Event::PageUp || event == Event::PageDown ||
+            event == Event::Home || event == Event::End) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) {
+                const int total = static_cast<int>(state.resume_items.size());
+                if (total > 0) {
+                    const int step = acecode::tui::kResumePickerVisibleRows;
+                    if (event == Event::PageUp) {
+                        state.resume_selected = std::max(0, state.resume_selected - step);
+                    } else if (event == Event::PageDown) {
+                        state.resume_selected = std::min(total - 1, state.resume_selected + step);
+                    } else if (event == Event::Home) {
+                        state.resume_selected = 0;
+                    } else {  // End
+                        state.resume_selected = total - 1;
+                    }
+                    state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
+                        state.resume_selected, state.resume_view_offset, step, total);
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
+            if (state.model_picker_open) {
+                const int total = static_cast<int>(state.model_picker_options.size());
+                if (total > 0) {
+                    const int step = acecode::tui::kResumePickerVisibleRows;
+                    if (event == Event::PageUp) {
+                        state.model_picker_selected =
+                            std::max(0, state.model_picker_selected - step);
+                    } else if (event == Event::PageDown) {
+                        state.model_picker_selected =
+                            std::min(total - 1, state.model_picker_selected + step);
+                    } else if (event == Event::Home) {
+                        state.model_picker_selected = 0;
+                    } else {  // End
+                        state.model_picker_selected = total - 1;
+                    }
+                    state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
+                        state.model_picker_selected, state.model_picker_view_offset,
+                        step, total);
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
+            if (state.mode_picker_open) {
+                const int total = static_cast<int>(state.mode_picker_options.size());
+                if (total > 0) {
+                    if (event == Event::PageUp || event == Event::Home) {
+                        state.mode_picker_selected = 0;
+                    } else {
+                        state.mode_picker_selected = total - 1;
+                    }
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
+        }
+        if (event == Event::PageUp) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            sync_chat_line_counts_from_layout();
+            // page_keys_single_line 默认开启:把 PgUp 当作单行滚动,等同 Alt+↑.
+            // 适用于吞掉 Alt+方向键序列的终端 (老 conhost / Cmder / 部分 SSH 客户端).
+            int step = config.tui.page_keys_single_line
+                ? 1
+                : std::max(1, (chat_box.y_max - chat_box.y_min + 1) - 2);  // 视口高度 -2 留重叠
+            const int before_top = state.chat_scroll_top_row;
+            const int before_focus = state.chat_focus_index;
+            const int before_offset = state.chat_line_offset;
+            const bool before_follow_tail = state.chat_follow_tail;
+            const int actual = scroll_chat_by_lines(-step);
+#if ACECODE_TUI_INPUT_TRACE
+            const int max_top = acecode::tui::chat_max_scroll_top_row(
+                message_line_counts,
+                static_cast<int>(state.conversation.size()),
+                chat_viewport_rows(), message_spacer_rows_after);
+            LOG_DEBUG("[input] chat page up step=" + std::to_string(step) +
+                      " actual=" + std::to_string(actual) +
+                      " top=" + std::to_string(before_top) + "->" +
+                      std::to_string(state.chat_scroll_top_row) +
+                      " max_top=" + std::to_string(max_top) +
+                      " focus=" + std::to_string(before_focus) + "->" +
+                      std::to_string(state.chat_focus_index) +
+                      " offset=" + std::to_string(before_offset) + "->" +
+                      std::to_string(state.chat_line_offset) +
+                      " follow_tail=" +
+                      std::string(before_follow_tail ? "1" : "0") + "->" +
+                      std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+            if (actual != 0) {
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        if (event == Event::PageDown) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            sync_chat_line_counts_from_layout();
+            int step = config.tui.page_keys_single_line
+                ? 1
+                : std::max(1, (chat_box.y_max - chat_box.y_min + 1) - 2);
+            const int before_top = state.chat_scroll_top_row;
+            const int before_focus = state.chat_focus_index;
+            const int before_offset = state.chat_line_offset;
+            const bool before_follow_tail = state.chat_follow_tail;
+            const int actual = scroll_chat_by_lines(step);
+#if ACECODE_TUI_INPUT_TRACE
+            const int max_top = acecode::tui::chat_max_scroll_top_row(
+                message_line_counts,
+                static_cast<int>(state.conversation.size()),
+                chat_viewport_rows(), message_spacer_rows_after);
+            LOG_DEBUG("[input] chat page down step=" + std::to_string(step) +
+                      " actual=" + std::to_string(actual) +
+                      " top=" + std::to_string(before_top) + "->" +
+                      std::to_string(state.chat_scroll_top_row) +
+                      " max_top=" + std::to_string(max_top) +
+                      " focus=" + std::to_string(before_focus) + "->" +
+                      std::to_string(state.chat_focus_index) +
+                      " offset=" + std::to_string(before_offset) + "->" +
+                      std::to_string(state.chat_line_offset) +
+                      " follow_tail=" +
+                      std::string(before_follow_tail ? "1" : "0") + "->" +
+                      std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+            if (actual != 0) {
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        // Alt+Up / Alt+Down: 按单行滚动聊天视图. 与 ArrowUp/Down 的"按消息历史
+        // 导航"区分开 —— 这里走 scroll_chat_by_lines(±1), 跨消息边界时由 lambda
+        // 自行进位 chat_focus_index + chat_line_offset. 序列 `\x1B[1;3A`/`B` 是
+        // xterm modifyOtherKeys 标准, Windows Terminal / Alacritty / iTerm2 /
+        // kitty / Konsole / GNOME Terminal 都走这一编码. 上面 overlay 守卫会
+        // 提前 return, 这里不再重复 ask/confirm/rewind/slash 检查; 仅 resume
+        // picker 没有"全局吞键"逻辑, 单独让位.
+        if (tui::matches_terminal_key(
+                event, acecode::tui::TerminalKey::ArrowUp, tui::kTerminalAlt)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) return true;
+            if (state.model_picker_open) return true;
+            if (state.mode_picker_open) return true;
+            sync_chat_line_counts_from_layout();
+            if (scroll_chat_by_lines(-1) != 0) {
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        if (tui::matches_terminal_key(
+                event, acecode::tui::TerminalKey::ArrowDown, tui::kTerminalAlt)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) return true;
+            if (state.model_picker_open) return true;
+            if (state.mode_picker_open) return true;
+            sync_chat_line_counts_from_layout();
+            if (scroll_chat_by_lines(1) != 0) {
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        if (event == Event::Home) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (!state.conversation.empty()) {
+                state.chat_scroll_top_row = 0;
+                state.chat_focus_index = 0;
+                state.chat_line_offset = 0;
+                state.chat_follow_tail = false;
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        if (event == Event::End) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (!state.conversation.empty()) {
+                state.chat_follow_tail = true;
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            // link-hover-tooltip (add-tui-hyperlinks 5.3): Esc 隐藏悬停气泡,
+            // 与 "移开指针隐藏" 语义一致。
+            if (!state.hover_link_href.empty() || state.hover_link_visible) {
+                state.hover_link_href.clear();
+                state.hover_link_visible = false;
+                screen.PostEvent(Event::Custom);
+            }
+            // drag-autoscroll: Esc 中止任何进行中的拖动自动滚动. 选区本身由
+            // 下游 FTXUI 通过 `handled=true` 情况下的 HandleSelection 清空
+            // (如果之前有选择). 我们只负责把自己的状态机拉回 Idle.
+            if (state.drag_left_pressed ||
+                state.drag_phase != drag_scroll::Phase::Idle) {
+                state.drag_left_pressed = false;
+                state.drag_phase = drag_scroll::Phase::Idle;
+                state.last_drag_scroll_at = {};
+            }
+            // Escape during resume picker → cancel
+            if (state.resume_picker_active) {
+                state.resume_picker_active = false;
+                state.resume_items.clear();
+                state.resume_view_offset = 0;
+                state.resume_callback = nullptr;
+                state.input_text.clear(); state.pasted_texts.clear();
+                state.input_cursor = 0;
+                state.clear_input_selection();
+                state.conversation.push_back({"system", "Resume cancelled.", false});
+                state.chat_follow_tail = true;
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            // Escape during /model picker → cancel(不写气泡 —— 保持安静,
+            // 用户大概率只是看了一眼当前模型就关掉)。
+            if (state.model_picker_open) {
+                state.model_picker_open = false;
+                state.model_picker_options.clear();
+                state.model_picker_selected = 0;
+                state.model_picker_view_offset = 0;
+                state.model_picker_callback = nullptr;
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (state.mode_picker_open) {
+                state.mode_picker_open = false;
+                state.mode_picker_options.clear();
+                state.mode_picker_selected = 0;
+                state.mode_picker_callback = nullptr;
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            // confirm_pending 的 Esc → Deny 已由上面的 confirm overlay handler
+            // 拦截,这里不再重复处理。
+
+            // Shell mode: Escape exits and clears the buffer. Takes precedence
+            // over `is_waiting` abort so typing Esc in shell mode never fires
+            // an unintended cancel on a pending agent turn.
+            if (state.input_mode == InputMode::Shell) {
+                cancel_ctrl_c_exit_locked();
+                state.input_mode = InputMode::Normal;
+                state.input_text.clear(); state.pasted_texts.clear();
+                state.input_cursor = 0;
+                state.clear_input_selection();
+                return true;
+            }
+            if (!state.pending_attachments.empty() && state.input_text.empty()) {
+                cancel_ctrl_c_exit_locked();
+                state.pending_attachments.clear();
+                state.pending_attachment_focus =
+                    acecode::tui::kNoPendingAttachmentFocus;
+                set_transient_status_line_locked(state, "Cleared pending attachments");
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (state.is_waiting || state.tool_running) {
+                // 用户主动中断的回合不追加 "Done for Ns" 行(标记由
+                // on_busy_changed(false) 消费复位)。Ctrl+C 在 busy 时
+                // PostEvent(Event::Escape) 复用本分支,天然覆盖。
+                state.turn_interrupted_by_user = true;
+                agent_loop.cancel();
+                return true;
+            }
+        }
+        if (event == Event::Tab) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.mode_picker_open) return true;
+        }
+        // Shift+Tab: cycle permission mode
+        if (tui::matches_terminal_key(
+                event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.mode_picker_open) return true;
+            if (!state.is_waiting && !state.confirm_pending) {
+                const PermissionMode before = permissions.mode();
+                auto new_mode = permissions.cycle_mode();
+                session_manager.set_permission_mode(PermissionManager::mode_name(new_mode));
+                if (new_mode == PermissionMode::Plan) {
+                    session_manager.set_pre_plan_permission_mode(
+                        PermissionManager::mode_name(
+                            before == PermissionMode::Plan
+                                ? permissions.pre_plan_mode()
+                                : before));
+                    session_manager.ensure_plan_file_path();
+                }
+                state.conversation.push_back({"system",
+                    std::string("Permission mode: ") + PermissionManager::mode_name(new_mode) +
+                    " - " + PermissionManager::mode_description(new_mode), false});
+                clamp_chat_focus();
+                screen.PostEvent(Event::Custom);
+            }
+            return true;
+        }
+        if (event.is_mouse()) {
+            auto& mouse = event.mouse();
+
+            // link-hover-tooltip (add-tui-hyperlinks 5.3): 任何按键按下
+            // (点击/中键/滚轮)立即隐藏气泡 —— 点击即离开,气泡不再有意义。
+            // 不 return,让正常点击流程继续。仅无按键 Moved 才更新悬停状态。
+            if (mouse.motion == Mouse::Pressed) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (!state.hover_link_href.empty() ||
+                    state.hover_link_visible) {
+                    state.hover_link_href.clear();
+                    state.hover_link_visible = false;
+                }
+            }
+
+            // mouse-selection-copy / clipboard-paste: right-click copies the
+            // current FTXUI selection to the system clipboard. With no
+            // selection, terminal mouse tracking prevents the host context menu
+            // on many Linux terminals, so use the click as an explicit
+            // clipboard paste.
+            if (mouse.button == Mouse::Right && mouse.motion == Mouse::Pressed) {
+                std::string sel = screen.GetSelection();
+                if (sel.empty()) {
+                    return paste_system_clipboard_text();
+                }
+                auto clipboard_write = acecode::write_system_clipboard_text(sel);
+                std::string status_msg;
+                if (clipboard_write) {
+                    status_msg = "Copied " + std::to_string(sel.size()) +
+                                 " bytes to clipboard";
+                    LOG_INFO("Copied " + std::to_string(sel.size()) +
+                             " bytes to clipboard via system clipboard");
+                } else if (
+                    clipboard_write.status != ClipboardTextWriteResult::Status::TooLarge) {
+                    std::string seq = "\x1b]52;c;" + base64_encode(sel) + "\x1b\\";
+                    std::fwrite(seq.data(), 1, seq.size(), stdout);
+                    std::fflush(stdout);
+                    status_msg = "Sent OSC 52 copy request";
+                    LOG_INFO("Sent OSC 52 copy request for " +
+                             std::to_string(sel.size()) + " bytes");
+                } else {
+                    status_msg = clipboard_copy_status_message(clipboard_write.status);
+                    LOG_WARN(status_msg);
+                }
+                {
+                    std::lock_guard<std::mutex> lk(state.mu);
+                    set_transient_status_line_locked(state, status_msg);
+                }
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+
+            // TUI chat file links: exact reflected link hits take priority over
+            // scrollbar and drag-selection startup. Non-local links fall
+            // through so the existing selection path remains unchanged.
+            if (mouse.button == Mouse::Left &&
+                mouse.motion == Mouse::Pressed) {
+                if (const auto href =
+                        chat_link_regions.href_at(mouse.x, mouse.y)) {
+                    // add-tui-hyperlinks 5.1: 网页链接(http/https)在浏览器打开,
+                    // 本地文件链接才走 open_tui_chat_file_link(系统文件管理器)。
+                    // 两者语义不同:前者是远程 URL,后者是本地路径,不能混用。
+                    acecode::tui::TuiChatFileLinkResult opened{};
+                    const bool is_http_link =
+                        acecode::is_openable_http_url(*href);
+                    if (is_http_link) {
+                        const auto browser =
+                            acecode::open_url_in_browser(*href);
+                        opened.handled = true;
+                        opened.ok = browser.ok;
+                        opened.error = browser.error;
+                    } else {
+                        opened = acecode::tui::open_tui_chat_file_link(
+                            *href,
+                            agent_loop.cwd());
+                    }
+                    if (opened.handled) {
+                        const std::string status_msg =
+                            opened.ok
+                                ? (is_http_link
+                                       ? "Opened link in browser"
+                                       : "Opened file location in system file manager")
+                                : (is_http_link ? "Unable to open link: "
+                                                : "Unable to open file location: ") +
+                                      (opened.error.empty()
+                                           ? std::string("unknown error")
+                                           : opened.error);
+                        {
+                            std::lock_guard<std::mutex> lk(state.mu);
+                            set_transient_status_line_locked(
+                                state,
+                                status_msg);
+                        }
+                        screen.PostEvent(Event::Custom);
+                        return true;
+                    }
+                }
+            }
+
+            auto reflected_box_rows = [](const Box& box) {
+                return box.IsEmpty() ? 0 : box.y_max - box.y_min + 1;
+            };
+
+            // Ctrl+O expanded sidebar: its scrollbar has priority over the chat
+            // scrollbar and drag-selection state. The panel is non-selectable,
+            // so consuming the press does not suppress a valid text selection.
+            if (mouse.button == Mouse::Left && mouse.motion == Mouse::Pressed &&
+                sidebar_scrollbar_box.Contain(mouse.x, mouse.y)) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                const int content_rows =
+                    reflected_box_rows(sidebar_content_box);
+                const int viewport_rows =
+                    reflected_box_rows(sidebar_viewport_box);
+                if (state.transcript_expanded &&
+                    acecode::tui::vertical_max_scroll_top_row(
+                        content_rows, viewport_rows) > 0) {
+                    const int track_height =
+                        reflected_box_rows(sidebar_scrollbar_box);
+                    const auto geometry =
+                        acecode::tui::vertical_scrollbar_thumb_geometry(
+                            sidebar_scrollbar_box.y_min,
+                            track_height,
+                            content_rows,
+                            viewport_rows,
+                            state.sidebar_scroll_top_row);
+                    state.sidebar_scrollbar_dragging = true;
+                    state.sidebar_scrollbar_grab_offset_2x =
+                        acecode::tui::vertical_scrollbar_grab_offset_2x(
+                            mouse.y, geometry);
+                    state.sidebar_scroll_top_row =
+                        acecode::tui::vertical_scrollbar_y_to_top_row_with_grab(
+                            mouse.y,
+                            sidebar_scrollbar_box.y_min,
+                            geometry,
+                            state.sidebar_scrollbar_grab_offset_2x);
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+            }
+
+            // draggable-thick-scrollbar: 左键 Pressed 落在滚动条列时,优先
+            // 进入"拖滚动条"分支,跳过下面的 drag-select 启动。两态互斥 ——
+            // 一次按下不会同时开始选区拖拽和滚动条拖拽。
+            if (mouse.button == Mouse::Left && mouse.motion == Mouse::Pressed &&
+                scrollbar_box.Contain(mouse.x, mouse.y)) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                sync_chat_line_counts_from_layout();
+                // 快照 message_line_counts —— 流式输出追加新行时,拖动期间的
+                // y → line 映射继续按按下瞬间的几何走,不被指针下扯走。
+                state.drag_scrollbar_snapshot = message_line_counts;
+                state.drag_scrollbar_phase = TuiState::DragScrollbarPhase::Dragging;
+                const bool was_follow_tail = state.chat_follow_tail;
+                // 一旦用户主动操纵滚动条,就视为离开尾巴跟随;松手时不自动恢复。
+                state.chat_follow_tail = false;
+                int track_height = scrollbar_box.y_max - scrollbar_box.y_min + 1;
+                const int snapshot_count =
+                    static_cast<int>(state.drag_scrollbar_snapshot.size());
+                const int viewport_rows = chat_viewport_rows();
+                const int max_top = acecode::tui::chat_max_scroll_top_row(
+                    state.drag_scrollbar_snapshot, snapshot_count,
+                    viewport_rows, message_spacer_rows_after);
+                const int current_top = was_follow_tail
+                    ? max_top
+                    : state.chat_scroll_top_row;
+                const auto geometry =
+                    acecode::tui::chat_scrollbar_thumb_geometry(
+                        scrollbar_box.y_min, track_height,
+                        state.drag_scrollbar_snapshot, snapshot_count,
+                        viewport_rows, current_top,
+                        message_spacer_rows_after);
+                state.drag_scrollbar_grab_offset_2x =
+                    acecode::tui::chat_scrollbar_grab_offset_2x(mouse.y,
+                                                                geometry);
+                const int previous_top = state.chat_scroll_top_row;
+                state.chat_scroll_top_row =
+                    acecode::tui::chat_scrollbar_y_to_top_row_with_grab(
+                        mouse.y, scrollbar_box.y_min, geometry,
+                        state.drag_scrollbar_grab_offset_2x);
+                auto [idx, off] = acecode::tui::chat_focus_from_display_row(
+                    state.drag_scrollbar_snapshot, snapshot_count,
+                    state.chat_scroll_top_row,
+                    message_spacer_rows_after);
+                if (idx >= 0) {
+                    state.chat_focus_index = idx;
+                    state.chat_line_offset = off;
+                    // 拖到底自然恢复 follow_tail;中间位置保持手动滚动。
+                    state.chat_follow_tail = state.chat_scroll_top_row >= max_top;
+                }
+#if ACECODE_TUI_INPUT_TRACE
+                LOG_DEBUG("[scrollbar] pressed mouse=(" +
+                          std::to_string(mouse.x) + "," +
+                          std::to_string(mouse.y) + ") track=" +
+                          box_for_log(scrollbar_box) +
+                          " track_height=" + std::to_string(track_height) +
+                          " viewport_rows=" + std::to_string(viewport_rows) +
+                          " messages=" + std::to_string(snapshot_count) +
+                          " was_follow_tail=" +
+                          std::string(was_follow_tail ? "1" : "0") +
+                          " current_top=" + std::to_string(current_top) +
+                          " previous_top=" + std::to_string(previous_top) +
+                          " new_top=" +
+                          std::to_string(state.chat_scroll_top_row) +
+                          " max_top=" + std::to_string(max_top) +
+                          " grab2x=" +
+                          std::to_string(
+                              state.drag_scrollbar_grab_offset_2x) +
+                          " geometry=" +
+                          scrollbar_geometry_for_log(geometry) +
+                          " focus=" + std::to_string(state.chat_focus_index) +
+                          " offset=" +
+                          std::to_string(state.chat_line_offset) +
+                          " follow_tail=" +
+                          std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+
+            // drag-autoscroll: 跟踪左键按下/拖动/释放, 驱动 anim_thread 在用户
+            // 把鼠标拖到 chat_box 顶部/底部时自动滚动并补偿 selection 坐标.
+            // 不 return true, 让事件继续流向 FTXUI 的 HandleSelection 走原本的
+            // 选区更新. Release/Moved 不做 chat_box.Contain 限制, 因为用户常常
+            // 会把鼠标拖到窗口外松开, 此时我们仍要把状态机拉回 Idle.
+            if (mouse.button == Mouse::Left) {
+                if (mouse.motion == Mouse::Pressed) {
+                    // draggable-thick-scrollbar: 落在滚动条列上的 Pressed 已经
+                    // 在上一个分支被吞掉,这里只剩内容区的左键按下 → 启动选区拖拽。
+                    if (chat_box.Contain(mouse.x, mouse.y) &&
+                        !scrollbar_box.Contain(mouse.x, mouse.y)) {
+                        std::lock_guard<std::mutex> lk(state.mu);
+#if ACECODE_TUI_INPUT_TRACE
+                        LOG_DEBUG("[drag-select] pressed start mouse=(" +
+                                  std::to_string(mouse.x) + "," +
+                                  std::to_string(mouse.y) + ") chat_box=" +
+                                  box_for_log(chat_box) + " scrollbar_box=" +
+                                  box_for_log(scrollbar_box) + " focus=" +
+                                  std::to_string(state.chat_focus_index) +
+                                  " offset=" +
+                                  std::to_string(state.chat_line_offset) +
+                                  " previous_phase=" +
+                                  drag_phase_for_log(state.drag_phase));
+#endif
+                        state.drag_left_pressed = true;
+                        state.last_mouse_x = mouse.x;
+                        state.last_mouse_y = mouse.y;
+                        state.drag_phase = drag_scroll::Phase::Dragging;
+                        state.last_drag_scroll_at = {};
+                    }
+                } else if (mouse.motion == Mouse::Released) {
+                    std::lock_guard<std::mutex> lk(state.mu);
+#if ACECODE_TUI_INPUT_TRACE
+                    if (state.drag_scrollbar_phase ==
+                        TuiState::DragScrollbarPhase::Dragging) {
+                        LOG_DEBUG("[scrollbar] released mouse=(" +
+                                  std::to_string(mouse.x) + "," +
+                                  std::to_string(mouse.y) + ") track=" +
+                                  box_for_log(scrollbar_box) + " top=" +
+                                  std::to_string(state.chat_scroll_top_row) +
+                                  " grab2x=" +
+                                  std::to_string(
+                                      state.drag_scrollbar_grab_offset_2x) +
+                                  " focus=" +
+                                  std::to_string(state.chat_focus_index) +
+                                  " offset=" +
+                                  std::to_string(state.chat_line_offset) +
+                                  " follow_tail=" +
+                                  std::string(state.chat_follow_tail ? "1"
+                                                                      : "0"));
+                    }
+                    LOG_DEBUG("[drag-select] released mouse=(" +
+                              std::to_string(mouse.x) + "," +
+                              std::to_string(mouse.y) + ") phase=" +
+                              drag_phase_for_log(state.drag_phase) +
+                              " left_pressed=" +
+                              std::to_string(state.drag_left_pressed ? 1 : 0) +
+                              " focus=" +
+                              std::to_string(state.chat_focus_index) +
+                              " offset=" +
+                              std::to_string(state.chat_line_offset));
+#endif
+                    state.drag_left_pressed = false;
+                    state.drag_phase = drag_scroll::Phase::Idle;
+                    state.last_drag_scroll_at = {};
+                    // draggable-thick-scrollbar: 任何左键 Released 都把滚动条
+                    // 拖拽态拉回 Idle,即使释放点已经离开滚动条列(用户经常
+                    // 拖出窗口外松开)。chat_follow_tail 不在这里恢复 —— 用户
+                    // 显式滚到了非尾位置,只在拖到底时由 Pressed 分支重新开启。
+                    state.drag_scrollbar_phase = TuiState::DragScrollbarPhase::Idle;
+                    state.drag_scrollbar_snapshot.clear();
+                    state.drag_scrollbar_grab_offset_2x = 0;
+                }
+            }
+            if (mouse.motion == Mouse::Released) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (state.sidebar_scrollbar_dragging) {
+                    state.sidebar_scrollbar_dragging = false;
+                    state.sidebar_scrollbar_grab_offset_2x = 0;
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+            }
+            // 终端在拖动期间发 Moved 事件, button 字段通常是 None 而不是 Left.
+            // 我们靠自己维护的 drag_left_pressed 判断是否处于拖动中.
+            if (mouse.motion == Mouse::Moved) {
+                std::lock_guard<std::mutex> lk(state.mu);
+                if (state.sidebar_scrollbar_dragging) {
+                    const int content_rows =
+                        reflected_box_rows(sidebar_content_box);
+                    const int viewport_rows =
+                        reflected_box_rows(sidebar_viewport_box);
+                    const int track_height =
+                        reflected_box_rows(sidebar_scrollbar_box);
+                    const auto geometry =
+                        acecode::tui::vertical_scrollbar_thumb_geometry(
+                            sidebar_scrollbar_box.y_min,
+                            track_height,
+                            content_rows,
+                            viewport_rows,
+                            state.sidebar_scroll_top_row);
+                    state.sidebar_scroll_top_row =
+                        acecode::tui::vertical_scrollbar_y_to_top_row_with_grab(
+                            mouse.y,
+                            sidebar_scrollbar_box.y_min,
+                            geometry,
+                            state.sidebar_scrollbar_grab_offset_2x);
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                // draggable-thick-scrollbar: 滚动条拖拽优先级高于 drag-select
+                // —— 两态互斥,Pressed 分支保证只可能进一态。直接 early return,
+                // 不让下面的 drag-autoscroll 分类运行,避免拖滚动条时选区被误激活。
+                if (state.drag_scrollbar_phase ==
+                    TuiState::DragScrollbarPhase::Dragging) {
+                    int track_height =
+                        scrollbar_box.y_max - scrollbar_box.y_min + 1;
+                    const int snapshot_count =
+                        static_cast<int>(state.drag_scrollbar_snapshot.size());
+                    const int viewport_rows = chat_viewport_rows();
+                    const int previous_top = state.chat_scroll_top_row;
+                    const auto geometry =
+                        acecode::tui::chat_scrollbar_thumb_geometry(
+                            scrollbar_box.y_min, track_height,
+                            state.drag_scrollbar_snapshot, snapshot_count,
+                            viewport_rows, state.chat_scroll_top_row,
+                            message_spacer_rows_after);
+                    state.chat_scroll_top_row =
+                        acecode::tui::chat_scrollbar_y_to_top_row_with_grab(
+                            mouse.y, scrollbar_box.y_min, geometry,
+                            state.drag_scrollbar_grab_offset_2x);
+                    auto [idx, off] = acecode::tui::chat_focus_from_display_row(
+                        state.drag_scrollbar_snapshot, snapshot_count,
+                        state.chat_scroll_top_row,
+                        message_spacer_rows_after);
+                    if (idx >= 0) {
+                        state.chat_focus_index = idx;
+                        state.chat_line_offset = off;
+                        state.chat_follow_tail =
+                            state.chat_scroll_top_row >= geometry.max_top_row;
+                    }
+#if ACECODE_TUI_INPUT_TRACE
+                    LOG_DEBUG("[scrollbar] moved mouse=(" +
+                              std::to_string(mouse.x) + "," +
+                              std::to_string(mouse.y) + ") track=" +
+                              box_for_log(scrollbar_box) +
+                              " track_height=" +
+                              std::to_string(track_height) +
+                              " viewport_rows=" +
+                              std::to_string(viewport_rows) +
+                              " messages=" +
+                              std::to_string(snapshot_count) +
+                              " top=" + std::to_string(previous_top) +
+                              "->" +
+                              std::to_string(state.chat_scroll_top_row) +
+                              " max_top=" +
+                              std::to_string(geometry.max_top_row) +
+                              " grab2x=" +
+                              std::to_string(
+                                  state.drag_scrollbar_grab_offset_2x) +
+                              " geometry=" +
+                              scrollbar_geometry_for_log(geometry) +
+                              " focus=" +
+                              std::to_string(state.chat_focus_index) +
+                              " offset=" +
+                              std::to_string(state.chat_line_offset) +
+                              " follow_tail=" +
+                              std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                if (state.drag_left_pressed) {
+#if ACECODE_TUI_INPUT_TRACE
+                    const auto previous_phase = state.drag_phase;
+#endif
+                    state.last_mouse_x = mouse.x;
+                    state.last_mouse_y = mouse.y;
+                    auto new_phase = drag_scroll::classify(
+                        mouse.y, chat_box.y_min, chat_box.y_max, true,
+                        drag_scroll::Config{});
+                    bool phase_changed = (new_phase != state.drag_phase);
+                    state.drag_phase = new_phase;
+#if ACECODE_TUI_INPUT_TRACE
+                    LOG_DEBUG("[drag-select] moved mouse=(" +
+                              std::to_string(mouse.x) + "," +
+                              std::to_string(mouse.y) + ") chat_box=" +
+                              box_for_log(chat_box) + " phase=" +
+                              drag_phase_for_log(previous_phase) + "->" +
+                              drag_phase_for_log(new_phase) +
+                              " changed=" +
+                              std::to_string(phase_changed ? 1 : 0) +
+                              " focus=" +
+                              std::to_string(state.chat_focus_index) +
+                              " offset=" +
+                              std::to_string(state.chat_line_offset));
+#endif
+                    // 进入滚动阶段时立即 PostEvent, 让 anim_thread 尽快转到
+                    // 50ms 间隔 + 跑第一次 tick. 不 PostEvent 也会在下个 300ms
+                    // 唤醒读到新 phase, 但那个延迟体感很差.
+                    if (phase_changed &&
+                        (new_phase == drag_scroll::Phase::ScrollingUp ||
+                         new_phase == drag_scroll::Phase::ScrollingDown)) {
+                        screen.PostEvent(Event::Custom);
+                    }
+                }
+                // link-hover-tooltip (add-tui-hyperlinks 5.3): 无按键 Moved
+                // 做链接命中检测。拖动中(选区拖拽/滚动条拖拽)不显示气泡,
+                // 直接清除。命中同一 href 只刷新指针坐标、不重置计时,避免
+                // 指针在链接内微移导致 300ms 永远到不了;命中不同 href 或
+                // 移出链接区域则重置/清除。state.mu 由本 Moved 分支入口持有。
+                if (state.drag_left_pressed ||
+                    state.drag_scrollbar_phase ==
+                        TuiState::DragScrollbarPhase::Dragging ||
+                    state.sidebar_scrollbar_dragging) {
+                    if (!state.hover_link_href.empty() ||
+                        state.hover_link_visible) {
+                        state.hover_link_href.clear();
+                        state.hover_link_visible = false;
+                    }
+                } else {
+                    const auto hit = chat_link_regions.href_at(
+                        mouse.x, mouse.y);
+                    if (hit) {
+                        if (state.hover_link_href != *hit) {
+                            state.hover_link_href = *hit;
+                            state.hover_link_since =
+                                std::chrono::steady_clock::now();
+                            state.hover_link_visible = false;
+                        }
+                        state.hover_link_x = mouse.x;
+                        state.hover_link_y = mouse.y;
+                    } else if (!state.hover_link_href.empty() ||
+                               state.hover_link_visible) {
+                        state.hover_link_href.clear();
+                        state.hover_link_visible = false;
+                    }
+                }
+            }
+
+            std::lock_guard<std::mutex> lk(state.mu);
+            const bool is_wheel_event = mouse.button == Mouse::WheelUp ||
+                                        mouse.button == Mouse::WheelDown;
+            constexpr int WHEEL_LINES = 3;
+            const bool sidebar_mouse_target =
+                state.transcript_expanded &&
+                !sidebar_viewport_box.IsEmpty() &&
+                sidebar_viewport_box.Contain(mouse.x, mouse.y);
+            if (is_wheel_event && sidebar_mouse_target) {
+                const int content_rows =
+                    reflected_box_rows(sidebar_content_box);
+                const int viewport_rows =
+                    reflected_box_rows(sidebar_viewport_box);
+                const int delta =
+                    mouse.button == Mouse::WheelUp
+                        ? -WHEEL_LINES
+                        : WHEEL_LINES;
+                const int before = state.sidebar_scroll_top_row;
+                state.sidebar_scroll_top_row =
+                    acecode::tui::vertical_scroll_top_row_by_lines(
+                        before, delta, content_rows, viewport_rows);
+                if (state.sidebar_scroll_top_row != before) {
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
+            const bool chat_mouse_target = acecode::tui::is_chat_mouse_target(
+                mouse.x, mouse.y, chat_box.x_min, chat_box.y_min,
+                chat_box.x_max, chat_box.y_max, is_wheel_event);
+            if (!chat_mouse_target) {
+#if ACECODE_TUI_INPUT_TRACE
+                if (is_wheel_event) {
+                    LOG_DEBUG("[input] chat wheel ignored outside chat_box " +
+                              event_for_log(event) +
+                              " chat_box=" + box_for_log(chat_box));
+                }
+#endif
+                return false;
+            }
+#if ACECODE_TUI_INPUT_TRACE
+            if (is_wheel_event && !chat_box.Contain(mouse.x, mouse.y)) {
+                LOG_DEBUG("[input] chat wheel accepted above chat_box for "
+                          "terminal origin mismatch " +
+                          event_for_log(event) +
+                          " chat_box=" + box_for_log(chat_box));
+            }
+#endif
+
+            // 鼠标滚轮按行滚动 (3 行/notch, Win 默认值), 长消息不再被一格掠过。
+            if (mouse.button == Mouse::WheelUp) {
+                sync_chat_line_counts_from_layout();
+#if ACECODE_TUI_INPUT_TRACE
+                const int before_focus = state.chat_focus_index;
+                const int before_offset = state.chat_line_offset;
+                const bool before_tail = state.chat_follow_tail;
+#endif
+                const int actual = scroll_chat_by_lines(-WHEEL_LINES);
+#if ACECODE_TUI_INPUT_TRACE
+                LOG_DEBUG("[input] chat wheel up delta=-" +
+                          std::to_string(WHEEL_LINES) +
+                          " actual=" + std::to_string(actual) +
+                          " focus=" + std::to_string(before_focus) +
+                          "->" + std::to_string(state.chat_focus_index) +
+                          " offset=" + std::to_string(before_offset) +
+                          "->" + std::to_string(state.chat_line_offset) +
+                          " follow_tail=" +
+                          std::string(before_tail ? "1" : "0") +
+                          "->" +
+                          std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+                if (actual != 0) {
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
+            if (mouse.button == Mouse::WheelDown) {
+                sync_chat_line_counts_from_layout();
+#if ACECODE_TUI_INPUT_TRACE
+                const int before_focus = state.chat_focus_index;
+                const int before_offset = state.chat_line_offset;
+                const bool before_tail = state.chat_follow_tail;
+#endif
+                const int actual = scroll_chat_by_lines(WHEEL_LINES);
+#if ACECODE_TUI_INPUT_TRACE
+                LOG_DEBUG("[input] chat wheel down delta=" +
+                          std::to_string(WHEEL_LINES) +
+                          " actual=" + std::to_string(actual) +
+                          " focus=" + std::to_string(before_focus) +
+                          "->" + std::to_string(state.chat_focus_index) +
+                          " offset=" + std::to_string(before_offset) +
+                          "->" + std::to_string(state.chat_line_offset) +
+                          " follow_tail=" +
+                          std::string(before_tail ? "1" : "0") +
+                          "->" +
+                          std::string(state.chat_follow_tail ? "1" : "0"));
+#endif
+                if (actual != 0) {
+                    screen.PostEvent(Event::Custom);
+                }
+                return true;
+            }
+        }
+        if (const auto shifted =
+                acecode::tui::shift_arrow_direction(event)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active || state.model_picker_open ||
+                state.mode_picker_open || state.rewind_picker_active ||
+                state.confirm_pending) {
+                return true;
+            }
+
+            std::optional<size_t> target;
+            if (*shifted == acecode::tui::ShiftArrowDirection::Up ||
+                *shifted == acecode::tui::ShiftArrowDirection::Down) {
+                if (input_hit_layout.input_value == state.input_text) {
+                    target = acecode::tui::input_cursor_vertical_target(
+                        state.input_text,
+                        input_hit_layout.box,
+                        input_hit_layout.regions,
+                        state.input_cursor,
+                        *shifted,
+                        &state.input_vertical_goal_column);
+                }
+            } else {
+                size_t next = acecode::clamp_utf8_boundary(
+                    state.input_text, state.input_cursor);
+                if (*shifted == acecode::tui::ShiftArrowDirection::Left) {
+                    if (auto span = acecode::tui::placeholder_ending_at(
+                            state.input_text, state.pasted_texts, next)) {
+                        next = span->begin;
+                    } else {
+                        acecode::move_cursor_left_utf8(
+                            state.input_text, next);
+                    }
+                } else if (auto span =
+                               acecode::tui::placeholder_starting_at(
+                                   state.input_text,
+                                   state.pasted_texts,
+                                   next)) {
+                    next = span->end;
+                } else {
+                    acecode::move_cursor_right_utf8(
+                        state.input_text, next);
+                }
+                state.input_vertical_goal_column.reset();
+                target = next;
+            }
+
+            if (target.has_value()) {
+                acecode::move_cursor_with_selection(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor,
+                    *target,
+                    true);
+                state.pending_attachment_focus =
+                    acecode::tui::kNoPendingAttachmentFocus;
+            }
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+        if (event == Event::ArrowUp) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.input_vertical_goal_column.reset();
+            if (state.resume_picker_active) {
+                if (state.resume_selected > 0) state.resume_selected--;
+                state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
+                    state.resume_selected, state.resume_view_offset,
+                    acecode::tui::kResumePickerVisibleRows,
+                    static_cast<int>(state.resume_items.size()));
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (state.model_picker_open) {
+                if (state.model_picker_selected > 0) state.model_picker_selected--;
+                state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
+                    state.model_picker_selected, state.model_picker_view_offset,
+                    acecode::tui::kResumePickerVisibleRows,
+                    static_cast<int>(state.model_picker_options.size()));
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (state.mode_picker_open) {
+                if (state.mode_picker_selected > 0) state.mode_picker_selected--;
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (acecode::tui::navigate_input_history_up(state)) {
+                // 历史覆盖输入：清掉本会话旧粘贴留下的孤儿 pasted_texts（spec 3.7）。
+                acecode::tui::prune_unreferenced(state.pasted_texts, state.input_text);
+                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+            }
+            return true;
+        }
+        if (event == Event::ArrowDown) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.input_vertical_goal_column.reset();
+            if (state.resume_picker_active) {
+                if (state.resume_selected < static_cast<int>(state.resume_items.size()) - 1)
+                    state.resume_selected++;
+                state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
+                    state.resume_selected, state.resume_view_offset,
+                    acecode::tui::kResumePickerVisibleRows,
+                    static_cast<int>(state.resume_items.size()));
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (state.model_picker_open) {
+                if (state.model_picker_selected <
+                    static_cast<int>(state.model_picker_options.size()) - 1)
+                    state.model_picker_selected++;
+                state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
+                    state.model_picker_selected, state.model_picker_view_offset,
+                    acecode::tui::kResumePickerVisibleRows,
+                    static_cast<int>(state.model_picker_options.size()));
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (state.mode_picker_open) {
+                if (state.mode_picker_selected <
+                    static_cast<int>(state.mode_picker_options.size()) - 1) {
+                    state.mode_picker_selected++;
+                }
+                screen.PostEvent(Event::Custom);
+                return true;
+            }
+            if (acecode::tui::navigate_input_history_down(state)) {
+                // 历史覆盖输入：清掉本会话旧粘贴留下的孤儿 pasted_texts（spec 3.7）。
+                acecode::tui::prune_unreferenced(state.pasted_texts, state.input_text);
+                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+            }
+            return true;
+        }
+        // ArrowLeft / ArrowRight: move caret one UTF-8 glyph.
+        if (event == Event::ArrowLeft) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) return true;
+            if (state.model_picker_open) return true;
+            if (state.mode_picker_open) return true;
+            state.input_vertical_goal_column.reset();
+            if (acecode::collapse_selection_left(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                return true;
+            }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
+            if (state.input_cursor == 0) return true;
+            // 已知 [Pasted text #N] 占位符整体跨越（atomic span）。
+            if (auto span = acecode::tui::placeholder_ending_at(
+                    state.input_text, state.pasted_texts, state.input_cursor)) {
+                state.input_cursor = span->begin;
+                return true;
+            }
+            acecode::move_cursor_left_utf8(
+                state.input_text, state.input_cursor);
+            return true;
+        }
+        if (event == Event::ArrowRight) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) return true;
+            if (state.model_picker_open) return true;
+            if (state.mode_picker_open) return true;
+            state.input_vertical_goal_column.reset();
+            if (acecode::collapse_selection_right(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                return true;
+            }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
+            if (state.input_cursor >= state.input_text.size()) return true;
+            // 已知 [Pasted text #N] 占位符整体跨越（atomic span）。
+            if (auto span = acecode::tui::placeholder_starting_at(
+                    state.input_text, state.pasted_texts, state.input_cursor)) {
+                state.input_cursor = span->end;
+                return true;
+            }
+            acecode::move_cursor_right_utf8(
+                state.input_text, state.input_cursor);
+            return true;
+        }
+        // Home / End: jump caret to start/end of the input buffer.
+        // FTXUI only maps `ESC [ H` and `ESC [ F` (plus the `ESC O H/F` DECCKM
+        // variants) to Event::Home / Event::End. Several terminals emit VT220-
+        // style `ESC [ 1 ~` / `ESC [ 4 ~` or rxvt-style `ESC [ 7 ~` / `ESC [ 8 ~`
+        // instead — those arrive as raw Special events, so match them here.
+        // Ctrl+E is also honoured as the readline-style End fallback. Ctrl+A
+        // follows conventional text fields and selects the complete buffer.
+        auto is_home_event = [](const Event& e) {
+            return tui::matches_terminal_key(
+                e, acecode::tui::TerminalKey::Home);
+        };
+        auto is_end_event = [](const Event& e) {
+            return tui::matches_terminal_key(
+                       e, acecode::tui::TerminalKey::End) ||
+                   tui::matches_terminal_codepoint(e, 'e', tui::kTerminalCtrl);
+        };
+        if (tui::matches_terminal_codepoint(event, 'a', tui::kTerminalCtrl)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active || state.model_picker_open ||
+                state.mode_picker_open) {
+                return true;
+            }
+            acecode::select_all_text(
+                state.input_text,
+                state.input_cursor,
+                state.input_selection_anchor);
+            state.input_vertical_goal_column.reset();
+            state.pending_attachment_focus =
+                acecode::tui::kNoPendingAttachmentFocus;
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+        if (is_home_event(event)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) return true;
+            state.input_cursor = 0;
+            state.input_selection_anchor.reset();
+            state.input_vertical_goal_column.reset();
+            return true;
+        }
+        // Ctrl+O:全局展开/收起所有工具输出(Claude Code 风格 verbose 开关)。
+        // 与 Ctrl+E 的逐行展开正交:render 侧取二者之或。开关位掺在
+        // message_render_revision 里,翻转后所有行高自动重新测量。
+        if (tui::matches_terminal_codepoint(event, 'o', tui::kTerminalCtrl)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            state.transcript_expanded = !state.transcript_expanded;
+            state.sidebar_scroll_top_row = 0;
+            state.sidebar_scrollbar_dragging = false;
+            state.sidebar_scrollbar_grab_offset_2x = 0;
+            screen.PostEvent(Event::Custom);
+            return true;
+        }
+        // Ctrl+E contextual expand: when a summarized tool_result is focused
+        // in the chat view, toggle its expanded state. Falls through to the
+        // readline-style "move to end of line" when no chat message is focused.
+        if (tui::matches_terminal_codepoint(event, 'e', tui::kTerminalCtrl)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.chat_focus_index >= 0 &&
+                state.chat_focus_index < static_cast<int>(state.conversation.size())) {
+                auto& msg = state.conversation[state.chat_focus_index];
+                const auto tool_result_names =
+                    acecode::tui::compute_tool_result_names(
+                        state.conversation);
+                const std::string paired_tool_name =
+                    state.chat_focus_index <
+                        static_cast<int>(tool_result_names.size())
+                    ? tool_result_names[
+                        static_cast<std::size_t>(state.chat_focus_index)]
+                    : std::string();
+                if (acecode::tui::toggle_completed_compact_notice_row(msg)) {
+                    invalidate_chat_line_measure_at(state.chat_focus_index);
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+                if (msg.role == "tool_result" &&
+                    (msg.summary.has_value() || msg.hunks.has_value()) &&
+                    !acecode::tui::is_task_complete_result(
+                        msg, paired_tool_name)) {
+                    msg.expanded = !msg.expanded;
+                    invalidate_chat_line_measure_at(state.chat_focus_index);
+                    screen.PostEvent(Event::Custom);
+                    return true;
+                }
+            }
+            // Fall through to end-of-line if nothing to toggle.
+        }
+        if (is_end_event(event)) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.resume_picker_active) return true;
+            state.input_cursor = state.input_text.size();
+            state.input_selection_anchor.reset();
+            state.input_vertical_goal_column.reset();
+            return true;
+        }
+        // Delete: remove UTF-8 glyph at the caret (to the right)
+        if (event == Event::Delete) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.mode_picker_open) return true;
+            state.input_vertical_goal_column.reset();
+            if (acecode::erase_text_selection(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                acecode::tui::prune_unreferenced(
+                    state.pasted_texts, state.input_text);
+                refresh_input_suggestions(
+                    state, cmd_registry, agent_loop.cwd());
+                return true;
+            }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
+            if (state.input_cursor >= state.input_text.size()) return true;
+            // 已知 [Pasted text #N] 占位符整体删除：连同 store 条目一起回收。
+            if (auto span = acecode::tui::placeholder_starting_at(
+                    state.input_text, state.pasted_texts, state.input_cursor)) {
+                state.pasted_texts.erase(span->paste_id);
+                state.input_text.erase(span->begin, span->end - span->begin);
+                // input_cursor 保持在 span->begin（即 input_cursor 不变）
+                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+                return true;
+            }
+            size_t next = state.input_cursor + 1;
+            while (next < state.input_text.size() &&
+                   (static_cast<unsigned char>(state.input_text[next]) & 0xC0) == 0x80) {
+                next++;
+            }
+            state.input_text.erase(state.input_cursor, next - state.input_cursor);
+            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+            return true;
+        }
+        // Backspace: remove UTF-8 glyph preceding the caret
+        if (event == Event::Backspace) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            if (state.mode_picker_open) return true;
+            state.input_vertical_goal_column.reset();
+            if (acecode::erase_text_selection(
+                    state.input_text,
+                    state.input_cursor,
+                    state.input_selection_anchor)) {
+                acecode::tui::prune_unreferenced(
+                    state.pasted_texts, state.input_text);
+                refresh_input_suggestions(
+                    state, cmd_registry, agent_loop.cwd());
+                return true;
+            }
+            state.input_cursor = acecode::clamp_utf8_boundary(
+                state.input_text, state.input_cursor);
+            if (state.input_text.empty()) {
+                // On empty buffer, Backspace exits Shell mode back to Normal.
+                if (state.input_mode == InputMode::Shell) {
+                    state.input_mode = InputMode::Normal;
+                }
+                state.input_cursor = 0;
+                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+                return true;
+            }
+            if (state.input_cursor == 0) {
+                return true;
+            }
+            // 已知 [Pasted text #N] 占位符整体删除：连同 store 条目一起回收。
+            if (auto span = acecode::tui::placeholder_ending_at(
+                    state.input_text, state.pasted_texts, state.input_cursor)) {
+                state.pasted_texts.erase(span->paste_id);
+                state.input_text.erase(span->begin, span->end - span->begin);
+                state.input_cursor = span->begin;
+                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+                return true;
+            }
+            size_t pos = state.input_cursor - 1;
+            // Walk back over UTF-8 continuation bytes (10xxxxxx)
+            while (pos > 0 && (static_cast<unsigned char>(state.input_text[pos]) & 0xC0) == 0x80) {
+                pos--;
+            }
+            state.input_text.erase(pos, state.input_cursor - pos);
+            state.input_cursor = pos;
+            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+            return true;
+        }
+        // Printable character input
+        if (event.is_character()) {
+            std::lock_guard<std::mutex> lk(state.mu);
+            // During resume picker, digit keys select directly
+            if (state.resume_picker_active) {
+                std::string ch = event.character();
+                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
+                    int idx = ch[0] - '1';
+                    if (idx < static_cast<int>(state.resume_items.size())) {
+                        auto sid = state.resume_items[idx].id;
+                        auto cb = state.resume_callback;
+                        state.resume_picker_active = false;
+                        state.resume_items.clear();
+                        state.resume_view_offset = 0;
+                        state.resume_callback = nullptr;
+                        state.input_text.clear(); state.pasted_texts.clear();
+                        state.input_cursor = 0;
+                        state.clear_input_selection();
+                        if (cb) cb(sid);
+                        clamp_chat_focus();
+                        screen.PostEvent(Event::Custom);
+                    }
+                }
+                return true;
+            }
+            // /model picker:数字键 1-9 直接跳到对应行(选中,不立即提交 ——
+            // 和 /resume 不同,模型切换是有副作用的操作,留 Enter 确认)。
+            // 其它字符 absorb,不写进 input_text。
+            if (state.model_picker_open) {
+                std::string ch = event.character();
+                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
+                    int idx = ch[0] - '1';
+                    if (idx < static_cast<int>(state.model_picker_options.size())) {
+                        state.model_picker_selected = idx;
+                        state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
+                            state.model_picker_selected, state.model_picker_view_offset,
+                            acecode::tui::kResumePickerVisibleRows,
+                            static_cast<int>(state.model_picker_options.size()));
+                        screen.PostEvent(Event::Custom);
+                    }
+                }
+                return true;
+            }
+            // /mode picker: number keys move the highlight but still require
+            // Enter, matching the confirmation behavior of /model.
+            if (state.mode_picker_open) {
+                const std::string ch = event.character();
+                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
+                    const int index = ch[0] - '1';
+                    if (index < static_cast<int>(state.mode_picker_options.size())) {
+                        state.mode_picker_selected = index;
+                        screen.PostEvent(Event::Custom);
+                    }
+                }
+                return true;
+            }
+            const std::string ch = event.character();
+            // Shell-mode trigger on an empty Normal buffer switches mode
+            // without being inserted. Subsequent trigger characters are literal.
+            if (state.input_mode == InputMode::Normal &&
+                state.input_text.empty() &&
+                is_shell_mode_trigger_character(ch)) {
+                state.input_mode = InputMode::Shell;
+                state.history_index = -1;
+                return true;
+            }
+            acecode::insert_replacing_selection(
+                state.input_text,
+                state.input_cursor,
+                state.input_selection_anchor,
+                ch);
+            acecode::tui::prune_unreferenced(
+                state.pasted_texts, state.input_text);
+            state.input_vertical_goal_column.reset();
+            // Reset history browsing on new input
+            state.history_index = -1;
+            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+            return true;
+        }
+        return false;
+    });
+
+    TuiRendererContext renderer_ctx{
+        state,
+        screen,
+        version_str,
+        cwd_display,
+        chat_box,
+        scrollbar_box,
+         ask_question_frame,
+         sidebar_content_box,
+        sidebar_viewport_box,
+        sidebar_scrollbar_box,
+        input_hit_layout,
+        message_boxes,
+        path_reference_boxes,
+        chat_link_regions,
+        chat_scroll.message_render_cache,
+        message_layout_boxes,
+        message_layout_valid,
+        message_layout_revisions,
+        message_layout_widths,
+        message_line_counts,
+        message_spacer_rows_after,
+        anim_tick,
+        input_with_esc,
+        permissions,
+        dangerous_mode,
+        conhost_compat_layout,
+        hover_supported,
+        clamp_chat_focus,
+        chat_viewport_rows,
+        sync_chat_line_counts_from_layout,
+    };
+    auto chat_renderer = Renderer(
+        input_with_esc,
+        [&renderer_ctx, &screen, redraw_pacer] {
+            const auto frame_ticket = redraw_pacer->begin_frame(
+                monotonic_milliseconds());
+            auto frame = render_tui_frame(renderer_ctx);
+            // FTXUI closures do not invalidate the frame. This one runs on the
+            // next loop turn, after the current Draw/TerminalFlush completed,
+            // and therefore measures conservative end-to-end frame latency.
+            screen.Post([redraw_pacer, frame_ticket] {
+                redraw_pacer->complete_frame(
+                    frame_ticket, monotonic_milliseconds());
+            });
+            return frame;
+        });
+
+    int root_surface_index =
+        static_cast<int>(acecode::tui::settings::RootSurface::Chat);
+    auto close_full_screen_surface =
+        [&root_surface_index, &input_with_esc, &screen]() {
+            root_surface_index =
+                static_cast<int>(
+                    acecode::tui::settings::RootSurface::Chat);
+            input_with_esc->TakeFocus();
+            screen.PostEvent(Event::Custom);
+        };
+
+    acecode::tui::settings::SettingsCenter settings_center({
+        &config,
+        working_dir,
+        ACECODE_VERSION,
+        {},
+        close_full_screen_surface,
+        [&screen]() { screen.PostEvent(Event::Custom); },
+        [&screen](std::function<void()> task) {
+            screen.Post(std::move(task));
+        },
+        [&subagent_host](const std::string& model_name) {
+            return subagent_host.registry()
+                .model_profile_used_by_busy_session(model_name);
+        },
+        [&session_manager, &agent_loop, &subagent_host](
+            const std::string& session_id) {
+            if (session_manager.current_session_id() == session_id) {
+                return agent_loop.is_busy();
+            }
+            auto entry = subagent_host.registry().acquire(session_id);
+            return entry && entry->loop && entry->loop->is_busy();
+        },
+    });
+
+    acecode::tui::settings::ManagementCenter management_center({
+        &config,
+        &skill_registry,
+        &cmd_registry,
+        &mcp_manager,
+        &tools,
+        &hook_manager,
+        skill_usage_store.get(),
+        working_dir,
+        close_full_screen_surface,
+        [&screen]() { screen.PostEvent(Event::Custom); },
+        [&screen](std::function<void()> task) {
+            screen.Post(std::move(task));
+        },
+        [&]() {
+            mcp_manager.reconcile_scope("", config.mcp_servers, tools);
+            agent_loop.set_tool_capability_policy(
+                mcp_scope_policy(&config, working_dir, std::nullopt, &mcp_manager, &tools));
+            subagent_host.registry().refresh_mcp_policy(config);
+        },
+    });
+
+    auto foreground_surface_available = [&state](std::string& error) {
+        std::lock_guard<std::mutex> lock(state.mu);
+        if (state.ask_pending || state.confirm_pending) {
+            error =
+                "Answer the active question or permission request before "
+                "opening a full-screen settings view.";
+            return false;
+        }
+        if (state.is_waiting || state.tool_running || state.is_compacting) {
+            error =
+                "Settings can be opened when the foreground turn is idle. "
+                "Background tasks may continue running.";
+            return false;
+        }
+        return true;
+    };
+
+    open_settings_surface =
+        [&settings_center, &root_surface_index, &screen,
+         &foreground_surface_available](
+            const std::string& tab_slug, std::string& error) {
+            if (!foreground_surface_available(error)) return false;
+            if (tab_slug.empty()) {
+                settings_center.open();
+            } else {
+                auto tab =
+                    acecode::tui::settings::parse_settings_tab(tab_slug);
+                if (!tab.has_value()) {
+                    error =
+                        "Unknown /config page '" + tab_slug +
+                        "'. Use general, appearance, configuration, "
+                        "personalization, models, usage, archived, or about.";
+                    return false;
+                }
+                settings_center.open(*tab);
+            }
+            root_surface_index =
+                static_cast<int>(
+                    acecode::tui::settings::RootSurface::Settings);
+            settings_center.component()->TakeFocus();
+            screen.PostEvent(Event::Custom);
+            return true;
+        };
+    open_management_surface =
+        [&management_center, &root_surface_index, &screen,
+         &foreground_surface_available](
+            const std::string& tab_slug, std::string& error) {
+            if (!foreground_surface_available(error)) return false;
+            auto tab =
+                acecode::tui::settings::parse_management_tab(tab_slug);
+            if (!tab.has_value()) {
+                error =
+                    "Unknown capability page '" + tab_slug +
+                    "'. Use skills, mcp, connectors, tools, or hooks.";
+                return false;
+            }
+            management_center.open(*tab);
+            root_surface_index =
+                static_cast<int>(
+                    acecode::tui::settings::RootSurface::Management);
+            management_center.component()->TakeFocus();
+            screen.PostEvent(Event::Custom);
+            return true;
+        };
+
+    auto root_surface = Container::Tab(
+        {
+            chat_renderer,
+            settings_center.component(),
+            management_center.component(),
+        },
+        &root_surface_index);
+    run_tui_loop(screen, root_surface);
+    // 先停 model-pool 轮询线程:它的回调按引用捕获 model_binding/config/agent_loop,
+    // 必须在这些局部变量析构前 join。g_active_screen 此时已被 run_tui_loop 清空,
+    // 回调不会再 Post 到屏幕。stop() 幂等,未 start 也安全。
+    acecode::model_pool_status_service().stop();
+    join_tui_title_threads();
+    shutdown_after_tui_loop(state, agent_loop, mcp_manager, running,
+                            agent_aborting, anim_thread, auth_thread,
+                            update_check_thread,
+                            session_manager, config);
+
+    return 0;
+}

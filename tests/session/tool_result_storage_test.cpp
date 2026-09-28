@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "session/session_manager.hpp"
-#include "session/session_replay.hpp"
+#include "tui/resume/session_replay.hpp"
 #include "session/session_storage.hpp"
 #include "session/tool_result_storage.hpp"
 #include "tool/tool_executor.hpp"

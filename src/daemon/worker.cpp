@@ -16,7 +16,7 @@
 #include "connectors/connector_first_start_auth.hpp"
 #include "ipc/guid.hpp"
 #include "heartbeat.hpp"
-#include "mcp_runtime.hpp"
+#include "tool/mcp_runtime.hpp"
 #include "platform/process/os_process.hpp"
 #include "ipc/runtime_files.hpp"
 #include "provider/cwd_model_override.hpp"

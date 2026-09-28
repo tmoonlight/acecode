@@ -229,6 +229,7 @@ src/provider/auth/acecode.code-workspace	-	P0-08	delete	-
 src/daemon/supervisor.hpp	-	P0-08	delete	-
 src/daemon/supervisor.cpp	-	P0-08	delete	-
 tests/agent_loop/	tests/agent/	P2-08	move	-
+tests/smoke_test.cpp	tests/utils/smoke_test.cpp	P2-08	move	gtest 冒烟用例,不测具体对象,归 base 层的 utils 镜像目录
 tests/channels/command_test.cpp	tests/cli/command_test.cpp	P2-08	move	Mirror the corresponding relocated source
 tests/computer_use/pointer_appearance_test.cpp	tests/config/pointer_appearance_test.cpp	P2-05	move	Mirror the corresponding relocated source
 tests/daemon/mcp_runtime_test.cpp	tests/tool/mcp_runtime_test.cpp	P2-08	move	Mirror the corresponding relocated source

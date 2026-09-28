@@ -1,5 +1,5 @@
 # 被多个 target 或子目录引用的源码只登记一次，搬迁时不会遗漏独立冒烟目标。
-set(ACECODE_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/main.cpp")
+set(ACECODE_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/cli/main.cpp")
 set(ACECODE_UPGRADE_MANIFEST_SOURCE "${CMAKE_SOURCE_DIR}/src/upgrade/manifest.cpp")
 set(ACECODE_CHANNEL_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/channels/bridge.cpp")
 set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/pty/winpty_agent_location.cpp")
@@ -11,7 +11,7 @@ set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/desktop/linux_desktop.
 set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/desktop/agent_browser_host_mac.mm")
 set(ACECODE_BROWSER_CDP_SOURCE "${CMAKE_SOURCE_DIR}/src/tool/agent_browser/cdp_client.cpp")
-set(ACECODE_BROWSER_POINTER_SOURCE "${CMAKE_SOURCE_DIR}/src/tool/agent_browser/pointer_overlay.cpp")
+set(ACECODE_BROWSER_POINTER_SOURCE "${CMAKE_SOURCE_DIR}/src/tool/agent_browser/browser_pointer_overlay.cpp")
 set(ACECODE_COMPUTER_USE_RUNTIME_SOURCE "${CMAKE_SOURCE_DIR}/src/computer_use/runtime.cpp")
 set(ACECODE_COMPUTER_USE_AVAILABILITY_SOURCE "${CMAKE_SOURCE_DIR}/src/computer_use/availability.cpp")
 set(ACECODE_COMPUTER_USE_PROCESS_SOURCE "${CMAKE_SOURCE_DIR}/src/computer_use/helper_process_posix.cpp")

@@ -35,13 +35,4 @@ struct InteractiveCliOptions {
 
 InteractiveCliOptions parse_interactive_cli_options(int argc, char* argv[]);
 
-// 解析 "--question-policy" 的取值("ask" / "deny" / "timeout" /
-// "timeout:N",N ∈ [5, 3600])。成功返回 true 并填 policy / timeout_seconds
-// (无冒号秒数时 timeout_seconds 置 0);失败返回 false 并填 error。
-// 抽成独立函数供 TUI 与 daemon CLI 共用 + 单测直接覆盖。
-bool parse_question_policy_value(const std::string& value,
-                                 std::string& policy,
-                                 int& timeout_seconds,
-                                 std::string& error);
-
 } // namespace acecode

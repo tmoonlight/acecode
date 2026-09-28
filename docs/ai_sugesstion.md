@@ -80,7 +80,7 @@ ACECode 后续会越来越依赖复杂工具链、浏览器、MCP、skills 和�
 
 适配代码方向：
 
-- `src/agent_loop.cpp`：trace 事件源。
+- `src/agent/agent_loop.cpp`：trace 事件源。
 - `src/session/`：trace 存储和 replay。
 - `src/web/`、`web/src/`：trace 查看。
 - `tests/` 或 `scripts/`：eval harness。
@@ -104,8 +104,8 @@ ACECode 已经有 `/goal` 和 plan mode，但长任务仍主要依赖 agent loop
 适配代码方向：
 
 - `src/session/`：持久化 workflow 状态。
-- `src/agent_loop.cpp`：阶段调度。
-- `src/commands/`：扩展 `/goal`、`/plan`、`/workflow`。
+- `src/agent/agent_loop.cpp`：阶段调度。
+- `src/tui/commands/`：扩展 `/goal`、`/plan`、`/workflow`。
 - `web/src/components/StatusBar.jsx`：状态入口。
 
 候选 OpenSpec：`durable-agent-workflow-runtime`

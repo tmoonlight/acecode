@@ -9,7 +9,7 @@
 #include "headless_name_selection.hpp"
 
 #include "config/config.hpp"
-#include "daemon/mcp_runtime.hpp"
+#include "tool/mcp_runtime.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"

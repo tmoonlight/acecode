@@ -1,5 +1,5 @@
 {
-  "agent_loop.cpp": "src/agent_loop.cpp",
+  "agent_loop.cpp": "src/agent/agent_loop.cpp",
   "desktop/agent_browser_host.cpp": "src/desktop/agent_browser_host.cpp",
   "desktop/agent_browser_host.hpp": "src/desktop/agent_browser_host.hpp",
   "desktop/agent_browser_host_mac.mm": "src/desktop/agent_browser_host_mac.mm",
@@ -16,6 +16,6 @@
   "tool/agent_browser/browser_tools.cpp": "src/tool/agent_browser/browser_tools.cpp",
   "tool/agent_browser/browser_tools.hpp": "src/tool/agent_browser/browser_tools.hpp",
   "tool/agent_browser/cdp_client.cpp": "src/tool/agent_browser/cdp_client.cpp",
-  "tool/agent_browser/pointer_overlay.cpp": "src/tool/agent_browser/pointer_overlay.cpp",
+  "tool/agent_browser/pointer_overlay.cpp": "src/tool/agent_browser/browser_pointer_overlay.cpp",
   "tool/tool_executor.hpp": "src/tool/tool_executor.hpp"
 }

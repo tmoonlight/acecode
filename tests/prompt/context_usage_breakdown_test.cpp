@@ -1,5 +1,5 @@
 #include "prompt/context_usage_breakdown.hpp"
-#include "commands/compact.hpp"
+#include "agent/compaction/compact.hpp"
 #include "tool/tool_executor.hpp"
 
 #include <gtest/gtest.h>

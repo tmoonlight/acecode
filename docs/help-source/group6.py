@@ -60,7 +60,7 @@ PAGES = {
         '''<p>先确认 JSON 合法且已经保存，再查看服务器状态和工具清单。stdio 服务检查 command、args、环境变量和解释器；远程服务检查 sse / http 协议、URL 拼接、认证与代理。</p><p>修改服务器配置后使用 Reload 或 <code>/mcp reconnect 服务器名</code> 重连；重新加载编辑区文本与重建连接不是同一个操作。显示“重启 daemon 后生效”时按提示完成重启。</p><p>连接成功但没有工具可能是服务没有提供 tools，或初始化、能力协商失败。模型调用时失败则进一步查看工具参数和服务返回内容。先用一个明确的简单工具验证，不要一次同时新增多个服务器后猜测是哪一个导致问题。</p>'''),
     section("hooks", "Hook 没有执行",
         '''<p>在钩子页刷新并查看来源、信任状态、事件和匹配规则。待审核项、被禁用项、未受信任项目或不支持的处理器会被跳过。脚本的解释器、工作目录和超时同样需要正确。</p><p>修改命令后可能需要重新信任。连接器的首次启动认证另有规则，不会因为重启或切换连接器开关就自动再次执行。参见 <a href="hooks.html">Hooks</a> 与<a href="connectors.html">连接器</a>。</p>''')
-], ["docs/skills.md", "docs/hooks.md", "src/commands/builtin_commands.cpp", "web/src/components/SettingsPage.jsx", "src/tool/builtin_tool_registry.hpp"]),
+], ["docs/skills.md", "docs/hooks.md", "src/tui/commands/builtin_commands.cpp", "web/src/components/SettingsPage.jsx", "src/tool/builtin_tool_registry.hpp"]),
 
 "troubleshoot-desktop": page("把桌面壳、后台服务、浏览器连接和项目工具分开检查，先保留现场再采取重启等操作。", [
     section("desktop", "桌面白屏、连接失败或意外退出",
@@ -84,7 +84,7 @@ PAGES = {
     section("logs", "手动查找日志",
         table(["运行方式", "常见日志位置"], [["TUI", "当前工作目录中的 <code>acecode.log</code>。"], ["独立或桌面后台", "<code>数据目录/logs/daemon-日期.log</code>。"], ["桌面壳", "<code>数据目录/logs/desktop-日期.log</code>。"], ["无界面 CLI", "<code>数据目录/logs/headless-日期.log</code>。"]]),
         '''<p>个人模式的数据目录为 <code>~/.acecode</code>，Windows 服务使用 <code>%PROGRAMDATA%/acecode</code>。尽量截取事件前后连续一小段日志，保留时间、错误类别和相关 ID，遮挡认证头、Token、密钥及不必要的个人信息。</p><p>也可以在项目官方问题页提交经过整理的描述。不要直接上传主配置文件、run/token 或整个用户数据目录；需要补充材料时按实际诊断范围提供。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/feedback/feedback_upload.cpp", "src/desktop/main.cpp", "src/headless/headless_runner.cpp", "src/daemon/worker.cpp", "src/main.cpp"]),
+], ["web/src/components/SettingsPage.jsx", "src/feedback/feedback_upload.cpp", "src/desktop/main.cpp", "src/headless/headless_runner.cpp", "src/daemon/worker.cpp", "src/cli/main.cpp"]),
 }
 
 from group6_reference import PAGES as REFERENCE

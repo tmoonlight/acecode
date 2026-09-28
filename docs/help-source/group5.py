@@ -23,7 +23,7 @@ PAGES = {
         code("/tasks\n/tasks list\n/tasks abort 子任务ID\n/tasks clear", "TUI · 管理后台任务"),
         figure("AD-04", "后台任务与来自子任务的请求", "展示运行中与已完成分组、查看会话和停止入口，以及带来源名称的权限确认。"),
         '''<p>全部子任务完成后，让主任务检查它们之间的冲突、统一差异并运行必要验证。各自报告“完成”不能代替整合后的构建或测试。</p>''')
-], ["web/src/components/InputBar.jsx", "web/src/components/ComposerSessionControls.jsx", "web/src/components/SubagentPanel.jsx", "src/commands/builtin_commands.cpp", "docs/subagents.md"]),
+], ["web/src/components/InputBar.jsx", "web/src/components/ComposerSessionControls.jsx", "web/src/components/SubagentPanel.jsx", "src/tui/commands/builtin_commands.cpp", "docs/subagents.md"]),
 
 "schedules": page("把清晰且可重复的任务保存为循环，按周期、间隔或指定时间执行，并通过记录检查每次结果。", [
     section("create", "创建与设置执行时间",
@@ -63,7 +63,7 @@ PAGES = {
     section("manage", "查看状态、解绑与手动接入",
         code("/rc show\n/rc off", "在 ACECode 会话中查看状态与解除绑定"),
         '''<p>show 展示当前连接、入站与出站状态，内容可能包含认证信息，不要直接公开截图。off 解除当前绑定。daemon 托管模式会保存绑定会话并在后续启动时尝试恢复，单纯关闭桌面窗口不等于主动解绑。</p><p>手动集成使用 <code>/remote-control on</code> 启动本地入站服务，再通过 <code>/remote-control url &lt;webhook-url&gt;</code> 指定出站地址。入站使用 <code>POST /rc/send</code>、<code>X-ACECode-RC-Token</code> 请求头和 <code>{"text":"消息"}</code> 正文；按 show 的实际地址接入。</p><p>远程消息控制与<a href="web.html#remote">远程 Web</a>是两套入口，认证头与端口也不同。需要实现自己的渠道时，参见<a href="extension-development.html#channel">渠道插件协议</a>。</p>''')
-], ["src/config/config.hpp", "src/commands/remote_control_command.cpp", "src/remote_control/session_channel_binder.cpp", "docs/channel-plugin-protocol.md"]),
+], ["src/config/config.hpp", "src/tui/commands/remote_control_command.cpp", "src/remote_control/session_channel_binder.cpp", "docs/channel-plugin-protocol.md"]),
 
 "examples": page("用四个完整流程练习把目标、范围、执行和验证连在一起。示例提示可直接修改后使用。", [
     section("new-project", "新项目实战",
