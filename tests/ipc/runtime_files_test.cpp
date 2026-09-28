@@ -2,6 +2,7 @@
 
 #include "platform/process/os_process.hpp"
 #include "ipc/runtime_files.hpp"
+#include "ipc/runtime_files_guard.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -283,5 +284,37 @@ TEST(DaemonRuntimeFiles, GenerationCleanupCanRemoveStoppedGuidOnlyBundle) {
     EXPECT_FALSE(fs::exists(dir / "token"));
     EXPECT_TRUE(fs::exists(dir / "desktop-owner.json"));
 
+    fs::remove_all(dir);
+}
+
+TEST(DaemonRuntimeFiles, GuardCleansPartialStartupAndMovesOwnership) {
+    const auto dir = unique_temp_dir("runtime_guard_partial");
+    write_text(dir / "daemon.pid", "1234");
+    write_text(dir / "daemon.guid", "guard-generation");
+    write_text(dir / "daemon.port", "43210");
+    {
+        acecode::daemon::RuntimeFilesGuard original(1234, "guard-generation", dir.string(), true);
+        acecode::daemon::RuntimeFilesGuard moved(std::move(original));
+    }
+    EXPECT_FALSE(fs::exists(dir / "daemon.pid"));
+    EXPECT_FALSE(fs::exists(dir / "daemon.port"));
+    EXPECT_FALSE(fs::exists(dir / "daemon.guid"));
+    fs::remove_all(dir);
+}
+
+TEST(DaemonRuntimeFiles, GuardPreservesReplacementGeneration) {
+    const auto dir = unique_temp_dir("runtime_guard_replacement");
+    write_text(dir / "daemon.pid", "1234");
+    write_text(dir / "daemon.guid", "old");
+    {
+        acecode::daemon::RuntimeFilesGuard old(1234, "old", dir.string(), true);
+        write_text(dir / "daemon.pid", "5678");
+        write_text(dir / "daemon.guid", "replacement");
+        write_text(dir / "daemon.port", "43210");
+    }
+    const auto snapshot = acecode::daemon::read_runtime_snapshot(dir.string());
+    EXPECT_EQ(snapshot.pid, 5678);
+    EXPECT_EQ(snapshot.guid, "replacement");
+    EXPECT_EQ(snapshot.port, 43210);
     fs::remove_all(dir);
 }

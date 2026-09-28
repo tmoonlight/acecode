@@ -81,7 +81,7 @@
   - 验证:
     - 新增用例:会话忙时排入 sandbox / exec-rules / MCP 控制项,然后 destroy,`weak_ptr<SessionEntry>` 立即失效。修复前的表现是成环,SessionManager 与 AgentLoop 永不析构;
     - grep 确认所有 `enqueue_control` 的 lambda 都不再强捕获 entry。
-- [ ] 2.4 【O-04】【主】【行为变更 D6】daemon 拆除顺序(`apps/daemon/worker.cpp`)。
+- [ ] 2.4 【O-04】【主】【行为变更 D6】daemon 拆除顺序(`apps/daemon/worker.cpp`)。〔实现完成: Codex-root 2026-09-28;14 步幂等顺序及异常兜底、停止会话后清 on_spawn、JoiningThread 观察线程、TerminationSignal 自管事件/自管道、RuntimeFilesGuard;worker provider 改不可变捕获且 Web 两指针置空;顺序/异常/桥接在途/运行文件身份用例已补,待 Windows 统一验收〕
   - 关停顺序按 design.md §3「D6」逐条执行;
   - watcher 与 owner_monitor 改为 JoiningThread,并把捕获列表写成显式形式;
   - POSIX 信号处理改用 TerminationSignal(self-pipe),`g_term_*` 只保留桥接作用;

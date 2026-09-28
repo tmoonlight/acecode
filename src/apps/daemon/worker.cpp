@@ -1,4 +1,9 @@
 #include "worker.hpp"
+#include "daemon_shutdown_sequence.hpp"
+#include "platform/termination_signal.hpp"
+#include "ipc/runtime_files_guard.hpp"
+#include "utils/lifetime_token.hpp"
+#include "utils/scope_exit.hpp"
 #include "channels/runtime.hpp"
 #include "session/session_serializer.hpp"
 
@@ -100,13 +105,6 @@ namespace acecode::daemon {
 
 namespace {
 
-// 终止信号 → 唤醒主循环退出。POSIX 与 Windows 各有一套。
-// 文件级而非 anon-namespace,因为 ServiceMain 的 SCM 控制 handler 也要触发它
-// (经 worker.hpp 暴露的 request_worker_termination)。
-std::mutex              g_term_mu;
-std::condition_variable g_term_cv;
-std::atomic<bool>       g_term_requested{false};
-
 std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
     const std::string& projects_dir,
     acecode::SessionClient& client,
@@ -150,38 +148,9 @@ std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
     return out;
 }
 
+// Windows service control and owner-monitor requests share the process bridge.
 void request_terminate() {
-    g_term_requested.store(true);
-    g_term_cv.notify_all();
-}
-
-#ifdef _WIN32
-BOOL WINAPI win_console_handler(DWORD ctrl) {
-    switch (ctrl) {
-        case CTRL_C_EVENT:
-        case CTRL_BREAK_EVENT:
-        case CTRL_CLOSE_EVENT:
-        case CTRL_LOGOFF_EVENT:
-        case CTRL_SHUTDOWN_EVENT:
-            request_terminate();
-            return TRUE;
-        default:
-            return FALSE;
-    }
-}
-#else
-extern "C" void posix_term_handler(int /*signo*/) {
-    request_terminate();
-}
-#endif
-
-void install_term_handlers() {
-#ifdef _WIN32
-    ::SetConsoleCtrlHandler(win_console_handler, TRUE);
-#else
-    std::signal(SIGTERM, posix_term_handler);
-    std::signal(SIGINT,  posix_term_handler);
-#endif
+    platform::TerminationSignal::request_process_termination();
 }
 
 bool apply_cwd_override(const std::string& raw, bool foreground) {
@@ -345,6 +314,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         cfg_mut.web.static_dir = opts.static_dir_override;
     }
 
+    RuntimeFilesGuard runtime_files(pid, guid, runtime_dir, opts.desktop_managed);
+
     // 写运行时产物。顺序: guid → pid → port → token,失败立刻退出。
     if (!write_guid_file(guid))                 { std::cerr << "write guid failed\n"; return 4; }
     if (!write_pid_file(pid))                   { std::cerr << "write pid failed\n"; return 4; }
@@ -366,7 +337,6 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         managed.acecode_version = ACECODE_VERSION;
         if (!write_desktop_managed_runtime(managed)) {
             std::cerr << "write desktop managed runtime failed\n";
-            cleanup_runtime_files_if_owned(pid, guid, std::string(), true);
             return 4;
         }
         DesktopOwnerRecord owner;
@@ -384,7 +354,6 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         }
         if (!write_desktop_owner_record(std::string(), owner)) {
             std::cerr << "write desktop owner record failed\n";
-            cleanup_runtime_files_if_owned(pid, guid, std::string(), true);
             return 4;
         }
     }
@@ -403,10 +372,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     HeartbeatWriter heartbeat(pid, guid, cfg.daemon.heartbeat_interval_ms);
     heartbeat.start();
 
-    install_term_handlers();
-
-    std::atomic<bool> desktop_owner_monitor_stop{false};
-    std::thread desktop_owner_monitor;
+    platform::TerminationSignal termination;
+    termination.install_process_handlers();
 
     // ----- 装配 daemon-side 的 Provider / Tools / SessionRegistry -----
     // 这一段重现了 main.cpp 在 TUI 路径下的初始化,但缩到 daemon 必要项:
@@ -461,12 +428,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         auto payload = acecode::build_startup_models_loaded_payload(cwd, effective_entry, provider);
         hook_manager.dispatch(acecode::kHookEventStartupModelsLoaded, payload, cwd);
     }
-    std::mutex provider_mu;
-    auto provider_accessor =
-        [&provider, &provider_mu]() -> std::shared_ptr<acecode::LlmProvider> {
-            std::lock_guard<std::mutex> lk(provider_mu);
-            return provider;
-        };
+    // The root provider is immutable after startup. Sessions publish their own
+    // provider snapshots through SessionModelBinding.
+    auto provider_accessor = [provider] { return provider; };
 
     // ---- Init LSP runtime (daemon path, openspec add-lsp-service) ----
     // 惰性子系统:init 本身不 spawn 任何进程,首个匹配文件的编辑/查询才会。
@@ -676,8 +640,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     }
     web_deps.skill_registry     = &skill_registry;
     web_deps.skill_usage_store  = &skill_usage_store;
-    web_deps.provider           = &provider;
-    web_deps.provider_mu        = &provider_mu;
+    web_deps.provider           = nullptr;
+    web_deps.provider_mu        = nullptr;
     web_deps.dangerous          = opts.dangerous;
     web_deps.pty_registry       = &pty_registry;
     web_deps.loop_store         = loop_store_ready ? &loop_store : nullptr;
@@ -710,6 +674,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     web_deps.remote_web_proxy = &remote_web_proxy;
 
     acecode::web::WebServer server(std::move(web_deps));
+    LifetimeToken server_lifetime;
+    const auto server_ref = server_lifetime.ref(server);
 
     // ---- daemon 托管 remote control(/rc 绑定 Web 会话到 channel 插件)----
     // 声明在 registry/client 之后(析构先于两者,退订时 AgentLoop 仍活着)、
@@ -786,7 +752,41 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // Connector 自动认证只允许在这个 ACECode home 的第一次 daemon 启动
     // 执行。先持久化 at-most-once claim,再启动任何外部进程;落盘失败时宁可
     // 跳过,避免每次启动都反复弹登录器。
-    JoiningThreadGroup connector_first_start_threads;
+    ReapingThreadSet connector_first_start_threads;
+    JoiningThread desktop_owner_monitor;
+    JoiningThread watcher;
+    DaemonShutdownSequence shutdown;
+    const DaemonShutdownSequence::Action shutdown_step = [&](DaemonShutdownStep step) {
+        switch (step) {
+        case DaemonShutdownStep::Channels: channel_runtime.stop(); break;
+        case DaemonShutdownStep::RemoteWeb: remote_web_proxy.stop(); break;
+        case DaemonShutdownStep::RemoteControl:
+            rc_binder.shutdown();
+            registry.set_external_command_handler({});
+            break;
+        case DaemonShutdownStep::ConnectorWorkers:
+            connector_first_start_threads.join_all();
+            break;
+        case DaemonShutdownStep::Watchers:
+            termination.request();
+            watcher.request_stop();
+            watcher.join();
+            desktop_owner_monitor.request_stop();
+            desktop_owner_monitor.join();
+            break;
+        case DaemonShutdownStep::LoopScheduler: loop_scheduler.stop(); break;
+        case DaemonShutdownStep::TaskSuggestions: task_suggestions->shutdown(); break;
+        case DaemonShutdownStep::Sessions: registry.shutdown_all(); break;
+        case DaemonShutdownStep::SpawnListener: subagent_deps->on_spawn = {}; break;
+        case DaemonShutdownStep::Mcp: mcp_runtime.shutdown(); break;
+        case DaemonShutdownStep::Lsp: acecode::lsp::shutdown(); break;
+        case DaemonShutdownStep::ModelPool: acecode::model_pool_status_service().stop(); break;
+        case DaemonShutdownStep::Heartbeat: heartbeat.stop(); break;
+        case DaemonShutdownStep::RuntimeFiles: runtime_files.cleanup(); break;
+        }
+    };
+    // Synchronous cleanup while all referenced stack resources are still alive.
+    ScopeExit shutdown_on_exit([&] { shutdown.run(shutdown_step); });
     const auto first_start_auth =
         acecode::plan_connector_first_start_auth(cfg_mut.connectors);
     if (!first_start_auth.persisted) {
@@ -801,8 +801,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     for (const auto& connector : first_start_auth.connectors) {
         const acecode::ConnectorHookConfig hook = *connector.on_startup;
         const std::string connector_id = connector.id;
-        connector_first_start_threads.threads.emplace_back(
-            [hook, connector_id, &server]() {
+        connector_first_start_threads.spawn(
+            [hook, connector_id, server_ref]() {
                 acecode::platform::ProcessSpec cmd;
                 cmd.command = hook.command;
                 cmd.args = hook.args;
@@ -822,7 +822,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
                     " exit=" + std::to_string(result.exit_code));
                 if (result.started && !result.timed_out &&
                     result.exit_code == 0) {
-                    server.refresh_saved_models_from_disk();
+                    server_ref.with([](acecode::web::WebServer& active) {
+                        active.refresh_saved_models_from_disk();
+                    });
                 }
             });
     }
@@ -830,10 +832,12 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 子会话 spawn 后登记到 WebServer,给它挂常驻状态监听器,使其 busy 能广播
     // session_status(否则未被 WS 订阅的子会话永不广播,父会话前端在 wait=true
     // 阻塞期间发现不了它,子代理的权限请求冒泡不到主会话)。on_spawn 只在 turn
-    // 内(server.run() 之后)被调,捕获 &server 安全。
+    // 内被调;退出时先 join registry,再清除回调,异常路径另有 LifetimeRef 兜底。
     subagent_deps->on_spawn =
-        [&server](const std::string& child_id, const std::string& /*prompt*/) {
-            server.track_subagent(child_id);
+        [server_ref](const std::string& child_id, const std::string& /*prompt*/) {
+            server_ref.with([&](acecode::web::WebServer& active) {
+                active.track_subagent(child_id);
+            });
         };
 
     // 行为①:持久化的 bound_session_id 非空且会话存在(active 或可从磁盘
@@ -848,16 +852,14 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     if (opts.desktop_managed) {
         const bool initial_continue_background =
             cfg.desktop.continue_background_process;
-        desktop_owner_monitor = std::thread(
-            [&, initial_continue_background] {
+        desktop_owner_monitor = JoiningThread(
+            [initial_continue_background, owner_pid = opts.desktop_owner_pid,
+             owner_instance = opts.desktop_owner_instance, &termination](StopToken stop) {
                 DesktopOwnerRecord current{
-                    opts.desktop_owner_pid,
-                    opts.desktop_owner_instance,
-                    now_unix_ms(),
+                    owner_pid, owner_instance, now_unix_ms(),
                 };
                 std::string handled_dead_instance;
-                while (!desktop_owner_monitor_stop.load() &&
-                       !g_term_requested.load()) {
+                while (!stop.stop_requested() && !termination.requested()) {
                     auto disk = read_desktop_owner_record();
                     if (disk && disk->instance_id != handled_dead_instance &&
                         disk->instance_id != current.instance_id &&
@@ -866,13 +868,13 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
                     }
 
                     if (current.pid > 0 && is_pid_alive(current.pid)) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                        if (stop.wait_for(std::chrono::milliseconds(200))) break;
                         continue;
                     }
 
                     // Give a replacement Desktop enough time to acquire the
                     // singleton and publish its new owner generation.
-                    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+                    if (stop.wait_for(std::chrono::milliseconds(600))) break;
                     disk = read_desktop_owner_record();
                     if (disk && disk->instance_id != handled_dead_instance &&
                         disk->instance_id != current.instance_id &&
@@ -898,50 +900,27 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
 
                     handled_dead_instance = current.instance_id;
                     current = {};
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    if (stop.wait_for(std::chrono::milliseconds(200))) break;
                 }
             });
     }
 
     // 信号 / 终止 → 主循环退出。Crow app.run() 阻塞跑;另起个观察线程在
     // term 信号时调 server.stop() 让 Crow 退出。这样我们就在主线程上 join。
-    std::thread watcher([&server] {
-        std::unique_lock<std::mutex> lk(g_term_mu);
-        g_term_cv.wait(lk, [] { return g_term_requested.load(); });
-        server.stop();
+    watcher = JoiningThread([server_ref, &termination](StopToken stop) {
+        while (!stop.stop_requested()) {
+            if (termination.wait_for(std::chrono::milliseconds(100))) {
+                server_ref.with([](acecode::web::WebServer& active) { active.stop(); });
+                return;
+            }
+        }
     });
 
     channel_runtime.start();
-    int rc = server.run();
-    channel_runtime.stop();
-    task_suggestions->shutdown();
-    // Remove the external listener before any daemon-owned service begins
-    // teardown. The controller destructor is a second, idempotent safety net.
-    remote_web_proxy.stop();
-    // 行为⑥:teardown 第一步先停 remote-control(不再接受 channel 入站,
-    // 也避免静态析构阶段才停 rc 监听的顺序问题 —— 镜像 TUI teardown)。
-    // 随后 handler 不会再被 HTTP 调到(server 已停),清空防悬垂。
-    rc_binder.shutdown();
-    registry.set_external_command_handler({});
-    // first-start hook 线程会在成功时刷新 server 内存配置,因此必须在 server
-    // 对象析构前收拢,不能 detach 后留下关停期 UAF。
-    connector_first_start_threads.join_all();
-    request_terminate(); // 唤醒 watcher(防 server 自然退出但信号还没来)
-    if (watcher.joinable()) watcher.join();
-    desktop_owner_monitor_stop.store(true);
-    if (desktop_owner_monitor.joinable()) desktop_owner_monitor.join();
-
+    const int rc = server.run();
     LOG_INFO("[daemon] worker shutting down");
     if (opts.foreground) std::cerr << "[daemon] shutting down\n";
-
-    loop_scheduler.stop();
-    mcp_runtime.shutdown();
-    acecode::lsp::shutdown(); // 逐 client 协议级退出,超时强杀
-    acecode::model_pool_status_service().stop(); // 幂等;未 start 过也安全
-
-    heartbeat.stop();
-    cleanup_runtime_files_if_owned(
-        pid, guid, std::string(), opts.desktop_managed);
+    shutdown.run(shutdown_step);
     return rc;
 }
 
