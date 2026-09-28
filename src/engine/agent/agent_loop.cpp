@@ -1,3 +1,4 @@
+#include "agent/tool_exec/tool_context_factory.hpp"
 #include "agent/agent_loop.hpp"
 #include "agent/recovery/context_overflow_recovery.hpp"
 #include "agent/compaction/compaction_controller.hpp"
@@ -98,16 +99,8 @@ AgentLoop::~AgentLoop() {
 }
 
 void AgentLoop::set_cwd(const std::string& new_cwd) {
-    boundary_->set_cwd(new_cwd);
-    // cwd 变了(EnterWorktree/ExitWorktree),旧 gitStatus 快照作废,
-    // 下一次模型请求按新 cwd 重采(openspec add-git-context)。
-    prompt_cache_->reset_on_cwd_change();
-    permissions_.clear_session_allows();
-    exec_security_->runtime().clear_session_grants();
-    exec_security_->set_feedback(std::nullopt);
-    reload_exec_rules();
-    // 进出 worktree 会改变写边界,可写附加文件夹随之重算。
-    exec_security_->runtime().set_workspace_writable_roots(writable_workspace_folders());
+    agent::ToolContextFactory::switch_cwd(
+        *boundary_, *exec_security_, *prompt_cache_, permissions_, session_manager_, new_cwd);
 }
 
 ResolvedQuestionPolicy AgentLoop::resolved_question_policy() const {

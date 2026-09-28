@@ -1,4 +1,7 @@
-#include "agent/agent_loop.hpp"
+#include "tool_result_presenter.hpp"
+#include "tool_session_host.hpp"
+#include "agent/agent_callbacks.hpp"
+#include "agent/transcript/transcript_writer.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "permissions/interaction_mode.hpp"
@@ -20,9 +23,9 @@
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-void AgentLoop::materialize_result_attachments(ToolResult& result) {
+void ToolResultPresenter::materialize_attachments(ToolResult& result) {
     if (!result.has_attachments()) return;
     if (!session_manager_) {
         result.attachment_warnings.push_back(
@@ -31,17 +34,20 @@ void AgentLoop::materialize_result_attachments(ToolResult& result) {
         return;
     }
     const std::string session_id = session_manager_->ensure_active_session_id();
-    const std::string project_dir = SessionStorage::get_project_dir(boundary_->cwd());
+    const std::string project_dir = SessionStorage::get_project_dir(boundary_.cwd());
     auto materialized = materialize_output_attachments(
         result.attachments,
         project_dir,
         session_id,
-        [this](const std::string& path) {
-            std::string error = boundary_->validate(path);
-            if (!error.empty() && path_in_workspace_folders(path)) error.clear();
+        [ref = lifetime_.ref(*this)](const std::string& path) {
+            std::string error = "attachment validation no longer available";
+            ref.with([&](ToolResultPresenter& presenter) {
+                error = presenter.boundary_.validate(path);
+                if (!error.empty() && presenter.host_.path_in_workspace_folders(path)) error.clear();
+            });
             return error;
         },
-        boundary_->cwd());
+        boundary_.cwd());
     result.attachments = std::move(materialized.attachments);
     result.attachment_warnings.insert(
         result.attachment_warnings.end(),
@@ -49,7 +55,7 @@ void AgentLoop::materialize_result_attachments(ToolResult& result) {
         materialized.warnings.end());
 }
 
-void AgentLoop::dispatch_tool_result_display(const ToolCall& tc, const ToolResult& result) {
+void ToolResultPresenter::display(const ToolCall& tc, const ToolResult& result) {
     std::string display_output = result.output;
     std::string ask_display =
         format_ask_user_question_result_display(result.metadata);
@@ -64,7 +70,7 @@ void AgentLoop::dispatch_tool_result_display(const ToolCall& tc, const ToolResul
         }
         display_output += attachment_fallback;
     }
-    dispatch_message("tool_result", display_output, true);
+    transcript_.dispatch_message("tool_result", display_output, true, nlohmann::json::object(), nlohmann::json::array());
     if (callbacks_.on_tool_result) {
         ChatMessage call_msg;
         call_msg.role = "tool_call";
@@ -75,4 +81,4 @@ void AgentLoop::dispatch_tool_result_display(const ToolCall& tc, const ToolResul
     }
 }
 
-} // namespace acecode
+} // namespace acecode::agent

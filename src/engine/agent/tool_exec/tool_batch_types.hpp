@@ -3,6 +3,7 @@
 #include "agent/turn/turn_types.hpp"
 #include "llm/tool_result.hpp"
 #include "session/tool_result_storage.hpp"
+#include "utils/lifetime_token.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -24,11 +25,6 @@ struct DeferredTaskCompleteEnd {
     std::int64_t duration_ms = 0;
     double elapsed_seconds = 0.0;
 };
-
-using ToolRunner = std::function<ToolResult(const ToolCall&,
-                                             const ToolContext&,
-                                             const std::string&,
-                                             const std::string&)>;
 
 // A call returns all of its data; only the worker publishes it into a slot.
 struct ToolCallOutcome {
@@ -56,6 +52,7 @@ struct ToolBatchState {
     const ProgressEmitter& emit_progress;
     const ToolPreambleTitle& step_preamble;
     std::vector<ToolCallSlot> slots;
+    LifetimeToken lifetime; // Join/drain readers before releasing batch inputs.
 };
 
 } // namespace acecode::agent

@@ -1,4 +1,8 @@
-#include "agent/agent_loop.hpp"
+#include "tool_permission_gate.hpp"
+#include "agent/tool_exec/tool_session_host.hpp"
+#include "agent/goal/goal_runtime.hpp"
+#include "agent/agent_callbacks.hpp"
+#include "utils/abort_signal.hpp"
 #include "agent/hook_bridge/tool_hook_bridge.hpp"
 #include "agent/approval/session_exec_security.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
@@ -24,6 +28,8 @@
 #include "tool/apply_patch_format.hpp"
 #include "tool/text_file_errors.hpp"
 #include "utils/encoding.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
 #include "utils/logger.hpp"
 #include "utils/stream_processing.hpp"
 #include "utils/text.hpp"
@@ -39,96 +45,23 @@
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
 using agent::detail::parse_tool_args_for_permission_payload;
 using agent::detail::build_plan_permission_args;
 using utils::ascii_lower;
 
-ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effective_tc, const ToolContext& tool_ctx, const std::string& ctx_path, const std::string& ctx_command, size_t tool_index) {
-    const auto& emit_progress = batch.emit_progress;
-    const ToolCapabilityPolicy* policy =
-        tool_ctx.capability_policy
-            ? &*tool_ctx.capability_policy
-            : nullptr;
-    if (tools_.is_denied_by_policy(
-            effective_tc.function_name, policy)) {
-        return ToolResult{
-            "[Error] Tool denied by the active expert capability "
-            "policy: " + effective_tc.function_name,
-            false};
-    }
-    if (auto guarded = maybe_guard_tool(batch, effective_tc)) {
-        return *guarded;
-    }
-
+PermissionVerdict ToolPermissionGate::decide(
+    const ToolCall& effective_tc, const ToolContext& tool_ctx,
+    const std::string& ctx_path, const std::string& ctx_command,
+    std::size_t tool_index, const ProgressEmitter& emit_progress) {
     ToolContext execution_context = tool_ctx;
     std::optional<sandbox::ExecPermission> exec_permission;
-    if (effective_tc.function_name == "bash") {
-        auto platform = sandbox::host_command_platform();
-        const auto environment = acecode::environment::prompt_environment();
-        if (environment.terminal_family == "powershell") platform = sandbox::CommandPlatform::PowerShell;
-        else if (environment.terminal_family == "bash" || environment.terminal_family == "posix") {
-            platform = sandbox::CommandPlatform::Posix;
-        }
-        sandbox::ExecPermissionOptions exec_options;
-        exec_options.unattended = goal_unattended_active();
-        exec_options.session_grants = exec_security_->runtime().session_grants();
-        exec_permission = exec_security_->evaluate_exec(
-            effective_tc.function_arguments, platform, exec_options);
-        if (!exec_permission->error.empty()) return ToolResult{"[Error] " + exec_permission->error, false};
-        if (exec_permission->decision.verdict == sandbox::ExecVerdict::Forbidden) {
-            const bool unattended_forbidden =
-                exec_permission->decision.reason == "escalation_unattended";
-            record_audit(security::kAuditCategoryCommand, "bash", ctx_command,
-                security::kAuditDecisionForbidden,
-                unattended_forbidden ? security::kAuditSourceGoal : security::kAuditSourceRule,
-                exec_permission->decision.reason,
-                sandbox::sandbox_mode_name(exec_permission->decision.sandbox),
-                nlohmann::json{{"mode", PermissionManager::mode_name(permissions_.mode())},
-                               {"command_kind", sandbox::command_kind_name(exec_permission->classification.kind)}});
-            if (unattended_forbidden) {
-                // D1:无人值守没有人能批越权;不是拒绝命令本身,只是拒绝加宽。
-                return ToolResult{
-                    "[Sandbox] Escalated or additional permissions cannot be approved while running "
-                    "unattended (active goal), so this call was not executed. Retry the same command "
-                    "without sandbox_permissions / with_escalated_permissions / additional_permissions; "
-                    "it will run inside the sandbox.", false};
-            }
-            return ToolResult{"[Permission denied by configured exec rule]", false};
-        }
-        const std::string sandbox_root = write_root().empty() ? boundary_->cwd() : write_root();
-        // D4:越权确认里附上上一次被拒的路径,并在它不在 deny 名单、且能用
-        // workspace-write 承载时提供「只放行该目录」选项。
-        const auto last_violation = exec_security_->feedback();
-        if (exec_permission->decision.verdict == sandbox::ExecVerdict::Prompt &&
-            exec_permission->input.escalation_requested && last_violation &&
-            permissions_.mode() != PermissionMode::Plan) {
-            if (!last_violation->path.empty()) {
-                exec_permission->arguments["permission"]["denied_path"] = last_violation->path;
-            }
-            if (!exec_security_->session_disabled() && exec_security_->runtime().available()) {
-                const auto baseline = exec_security_->runtime().policy_for(sandbox::SandboxMode::WorkspaceWrite, sandbox_root);
-                const auto suggested = sandbox::suggested_write_root(*last_violation, baseline);
-                if (!suggested.empty()) {
-                    exec_permission->arguments["permission"]["scoped_write_root"] = suggested;
-                }
-            }
-        }
-        if (exec_permission->decision.sandbox != sandbox::SandboxMode::FullAccess) {
-            const sandbox::AdditionalPermissions* extra =
-                exec_permission->additional.empty() ? nullptr : &exec_permission->additional;
-            auto request = exec_security_->runtime().request_for(exec_permission->decision.sandbox,
-                                                        sandbox_root, extra);
-            const auto error = exec_security_->runtime().prepare_request(request);
-            if (!error.empty()) {
-                exec_security_->runtime().mark_unavailable(error);
-                exec_permission->set_availability(false);
-            } else {
-                execution_context.exec_sandbox = std::move(request);
-            }
-        }
+    if (auto denied = exec_.prepare(
+            effective_tc, ctx_command, execution_context, exec_permission)) {
+        return *denied;
     }
+
 
     // apply_patch 一份补丁涉及多条路径(Add / Update / Delete 与 Move
     // 目标),规则 / 写边界 / 危险路径逐条评估,任一路径不过整份补丁
@@ -137,7 +70,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     std::vector<std::string> target_paths;
     if (effective_tc.function_name == "apply_patch") {
         target_paths = apply_patch::extract_target_paths(
-            effective_tc.function_arguments, boundary_->cwd());
+            effective_tc.function_arguments, boundary_.cwd());
     } else if (!ctx_path.empty()) {
         target_paths.push_back(ctx_path);
     }
@@ -152,45 +85,21 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     // 安全审计(openspec add-security-center D1):下面每个「决定已作出」
     // 的分支调一次 record_audit。bash 记命令原文,文件工具记首个路径
     // (多路径进 detail.paths),其它需确认的工具归 tool 类。
-    const std::string audit_category =
-        effective_tc.function_name == "bash" ? security::kAuditCategoryCommand
-        : is_file_mutation_tool ? security::kAuditCategoryFile
-                                : security::kAuditCategoryTool;
-    const std::string audit_target = effective_tc.function_name == "bash"
-        ? ctx_command
-        : (!target_paths.empty() ? target_paths.front() : ctx_path);
-    const std::string audit_sandbox = exec_permission
-        ? std::string(sandbox::sandbox_mode_name(exec_permission->decision.sandbox))
-        : std::string{};
-    const auto audit_detail = [&]() {
-        nlohmann::json detail = nlohmann::json::object();
-        detail["mode"] = PermissionManager::mode_name(permissions_.mode());
-        if (target_paths.size() > 1) detail["paths"] = target_paths;
-        if (exec_permission) {
-            detail["command_kind"] = sandbox::command_kind_name(exec_permission->classification.kind);
-            detail["decision_reason"] = exec_permission->decision.reason;
-            if (exec_permission->input.escalation_requested) detail["escalation_requested"] = true;
-            if (exec_permission->input.additional_requested) detail["additional_requested"] = true;
-        }
-        return detail;
-    };
-    const auto audit_gate = [&](const std::string& decision, const std::string& source,
-                                const std::string& reason) {
-        record_audit(audit_category, effective_tc.function_name, audit_target,
-                     decision, source, reason, audit_sandbox, audit_detail());
-    };
+    PermissionAuditScope audit(
+        security_, permissions_, session_manager_, effective_tc.function_name,
+        ctx_command, ctx_path, target_paths, is_file_mutation_tool, exec_permission);
 
     if (is_file_mutation_tool) {
         for (const auto& target : target_paths) {
             auto path = path_from_utf8(target);
-            if (path.is_relative()) path = path_from_utf8(boundary_->cwd()) / path;
+            if (path.is_relative()) path = path_from_utf8(boundary_.cwd()) / path;
             std::error_code ec;
             const auto normalized = std::filesystem::weakly_canonical(path, ec);
             const auto global_rules = std::filesystem::weakly_canonical(path_from_utf8(get_acecode_dir()) / "rules", ec);
             const auto relative = normalized.lexically_relative(global_rules);
             if (sandbox::is_exec_rules_path(target) || sandbox::is_exec_rules_path(path_to_utf8(normalized)) ||
                 (!relative.empty() && *relative.begin() != "..")) {
-                audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceRule,
+                audit.record(security::kAuditDecisionForbidden, security::kAuditSourceRule,
                            "exec_rules_protected");
                 return ToolResult{"[Permission denied] Exec rules must be edited by the user.", false};
             }
@@ -206,7 +115,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                 effective_tc.function_name, rule_path, ctx_command);
             if (detail && detail->action == RuleAction::Deny &&
                 detail->priority >= PermissionManager::kBuiltinProtectionPriority) {
-                audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceRule,
+                audit.record(security::kAuditDecisionForbidden, security::kAuditSourceRule,
                            "protected_rule");
                 return ToolResult{"[Permission denied by configured rule]", false};
             }
@@ -219,8 +128,8 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         is_file_mutation_tool &&
         !target_paths.empty() &&
         std::all_of(target_paths.begin(), target_paths.end(),
-                    [this](const std::string& target) {
-                        return session_manager_->is_plan_file_path(target);
+                    [session = session_manager_](const std::string& target) {
+                        return session->is_plan_file_path(target);
                     });
     bool auto_allow = true;
     for (const auto& rule_path : rule_paths) {
@@ -244,29 +153,29 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     // explicit Deny rule matched. Preserve that safety rule as a
     // hard rejection, but never turn it into a permission prompt.
     if (!auto_allow && permissions_.mode() == PermissionMode::Yolo) {
-        audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceRule, "deny_rule_yolo");
+        audit.record(security::kAuditDecisionForbidden, security::kAuditSourceRule, "deny_rule_yolo");
         return ToolResult{
             "[Permission denied by configured rule in yolo mode]",
             false};
     }
 
     if (effective_tc.function_name == "bash" && command_looks_like_file_write(ctx_command)) {
-        const std::string boundary_root = write_root();
+        const std::string boundary_root = host_.write_root();
         if (!boundary_root.empty() &&
             permissions_.mode() == PermissionMode::Yolo &&
             !permissions_.is_dangerous()) {
             const std::string boundary_rejection =
                 loop_shell_write_escape_reason(ctx_command, boundary_root,
-                                               writable_workspace_folders());
+                                               host_.writable_workspace_folders());
             if (!boundary_rejection.empty()) {
-                audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceRule, "write_boundary");
+                audit.record(security::kAuditDecisionForbidden, security::kAuditSourceRule, "write_boundary");
                 return ToolResult{"[Error] " + boundary_rejection, false};
             }
         }
-        const auto failed_path = exec_security_->safe_edit_guard().blocked_path(
+        const auto failed_path = security_.safe_edit_guard().blocked_path(
             ctx_command, permissions_.is_dangerous() || permissions_.mode() == PermissionMode::Yolo);
         if (!failed_path.empty()) {
-            audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceAuto, "safe_edit_guard");
+            audit.record(security::kAuditDecisionForbidden, security::kAuditSourceAuto, "safe_edit_guard");
             return ToolResult{
                 "[Error] Shell write blocked for " + failed_path +
                 " because a recent safe file edit failed. "
@@ -280,16 +189,16 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     if (effective_tc.function_name != "bash") {
         for (const auto& target : target_paths) {
             std::string path_error =
-                path_validation_error(effective_tc.function_name, target);
+                paths_.path_validation_error(effective_tc.function_name, target);
             if (!path_error.empty()) {
                 LOG_WARN("Path validation failed: " + path_error);
                 if (is_file_mutation_tool) {
-                    audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceRule, "path_validation");
+                    audit.record(security::kAuditDecisionForbidden, security::kAuditSourceRule, "path_validation");
                 }
                 return ToolResult{"[Error] " + path_error, false};
             }
             if (!targets_active_plan_file &&
-                boundary_->is_dangerous_path(target) && auto_allow &&
+                boundary_.is_dangerous_path(target) && auto_allow &&
                 !permissions_.is_dangerous() &&
                 permissions_.mode() != PermissionMode::Yolo) {
                 LOG_INFO("Dangerous path detected, forcing confirmation: " + target);
@@ -317,19 +226,19 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                 reason == "session_allow" ? security::kAuditSourceSession
                 : (reason == "rule_allow" || reason == "rule_allow_sandboxed") ? security::kAuditSourceRule
                                                                                 : security::kAuditSourceAuto;
-            audit_gate(security::kAuditDecisionAllow, source, reason);
+            audit.record(security::kAuditDecisionAllow, source, reason);
         } else if (is_file_mutation_tool) {
             const bool session = permissions_.has_session_allow(effective_tc.function_name);
-            audit_gate(security::kAuditDecisionAllow,
+            audit.record(security::kAuditDecisionAllow,
                        session ? security::kAuditSourceSession : security::kAuditSourceAuto,
                        session ? "session_allow"
                        : targets_active_plan_file ? "plan_file"
                        : std::string("mode_") + PermissionManager::mode_name(permissions_.mode()));
         }
     }
-    if (!auto_allow && goal_unattended_active()) {
+    if (!auto_allow && goal_.unattended_active(session_manager_)) {
         auto_allow = true;
-        audit_gate(security::kAuditDecisionAllow, security::kAuditSourceGoal, "unattended_goal");
+        audit.record(security::kAuditDecisionAllow, security::kAuditSourceGoal, "unattended_goal");
         LOG_INFO("[goal] unattended auto-approve: " +
                  effective_tc.function_name +
                  (ctx_path.empty() ? std::string{} : " path=" + ctx_path) +
@@ -340,7 +249,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     }
 
     agent::PermissionHookSession permission_session(
-        *tool_hooks_, hook_manager_, session_manager_, effective_tc.function_name);
+        tool_hooks_, hook_manager_, session_manager_, effective_tc.function_name);
 
     if (!auto_allow && hook_manager_) {
         auto outcome = permission_session.request(
@@ -351,13 +260,13 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                 ? "Permission denied by hook."
                 : outcome.reason;
             permission_session.resolve("deny", "hook");
-            audit_gate(security::kAuditDecisionDeny, security::kAuditSourceHook, "hook_denied");
+            audit.record(security::kAuditDecisionDeny, security::kAuditSourceHook, "hook_denied");
             return ToolResult{"[Hook denied permission] " + reason, false};
         }
         if (outcome.allowed) {
             auto_allow = true;
             permission_session.resolve("allow", "hook");
-            audit_gate(security::kAuditDecisionAllow, security::kAuditSourceHook, "hook_allowed");
+            audit.record(security::kAuditDecisionAllow, security::kAuditSourceHook, "hook_allowed");
         }
     }
 
@@ -373,7 +282,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         if (permissions_.is_dangerous()) {
             auto_allow = true;
             permission_session.resolve("allow", "headless");
-            audit_gate(security::kAuditDecisionAllow, security::kAuditSourceHeadless, "headless_yolo");
+            audit.record(security::kAuditDecisionAllow, security::kAuditSourceHeadless, "headless_yolo");
             LOG_INFO("[headless] yolo auto-approve: " +
                      effective_tc.function_name +
                      (ctx_path.empty() ? std::string{} : " path=" + ctx_path));
@@ -381,7 +290,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
             LOG_INFO("[headless] denied (needs confirmation): " +
                      effective_tc.function_name);
             permission_session.resolve("deny", "headless");
-            audit_gate(security::kAuditDecisionDeny, security::kAuditSourceHeadless, "headless_no_channel");
+            audit.record(security::kAuditDecisionDeny, security::kAuditSourceHeadless, "headless_no_channel");
             return ToolResult{
                 "[Headless mode] This tool call requires interactive "
                 "user confirmation, which is unavailable in print (-p) "
@@ -392,116 +301,17 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         }
     }
 
-    if (!auto_allow && (prompter_ || callbacks_.on_tool_confirm)) {
-        emit_progress("permission_waiting", "正在等待权限确认",
-            effective_tc.function_name, effective_tc.function_name, effective_tc.id,
-            static_cast<int>(tool_index), true);
-        const std::string permission_args =
-            build_plan_permission_args(
-                effective_tc.function_name,
-                exec_permission ? exec_permission->arguments.dump() : effective_tc.function_arguments,
-                session_manager_);
-        PermissionResult perm = prompter_
-            ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_signal_.flag_for_legacy_api())
-            : callbacks_.on_tool_confirm(effective_tc.function_name, permission_args);
-        if (perm == PermissionResult::Deny) {
-            permission_session.resolve("deny", "interactive");
-            audit_gate(security::kAuditDecisionDeny, security::kAuditSourceUser,
-                       exec_permission ? exec_permission->decision.reason : "confirmation");
-            return ToolResult{"[User denied tool execution]", false};
-        }
-        // bash 专属决策落到别的工具(或 payload 没提供对应选项)时降级:
-        // allow_scoped → allow,allow_remember → always_allow(D5 向后兼容)。
-        const std::string scoped_root = exec_permission
-            ? exec_permission->arguments["permission"].value("scoped_write_root", std::string{})
-            : std::string{};
-        if (perm == PermissionResult::AllowScoped && scoped_root.empty()) perm = PermissionResult::Allow;
-        if (perm == PermissionResult::AllowRemember &&
-            (!exec_permission || exec_permission->remember_patterns.empty())) {
-            perm = PermissionResult::AlwaysAllow;
-        }
-        permission_session.resolve(
-            perm == PermissionResult::AlwaysAllow   ? "always_allow"
-            : perm == PermissionResult::AllowScoped   ? "allow_scoped"
-            : perm == PermissionResult::AllowRemember ? "allow_remember"
-                                                      : "allow",
-            "interactive");
-        audit_gate(
-            perm == PermissionResult::AlwaysAllow   ? security::kAuditDecisionAllowSession
-            : perm == PermissionResult::AllowScoped   ? security::kAuditDecisionAllowScoped
-            : perm == PermissionResult::AllowRemember ? security::kAuditDecisionAllowRemember
-                                                      : security::kAuditDecisionAllow,
-            security::kAuditSourceUser,
-            exec_permission ? exec_permission->decision.reason : "confirmation");
-        emit_progress("tool_running",
-            "正在调用工具 " + effective_tc.function_name,
-            effective_tc.function_name, effective_tc.function_name, effective_tc.id,
-            static_cast<int>(tool_index), true);
-        if (perm == PermissionResult::AllowScoped) {
-            // D4:只放行建议目录 —— 记进会话授权,命令留在 workspace-write 里带着
-            // 该目录执行,而不是整个出沙盒。
-            sandbox::AdditionalPermissions grant;
-            grant.write.push_back(scoped_root);
-            exec_security_->runtime().grant_for_session(grant);
-            auto request = exec_security_->runtime().request_for(sandbox::SandboxMode::WorkspaceWrite,
-                write_root().empty() ? boundary_->cwd() : write_root());
-            const auto error = exec_security_->runtime().prepare_request(request);
-            if (!error.empty()) {
-                exec_security_->runtime().mark_unavailable(error);
-                return ToolResult{"[Sandbox unavailable] " + error +
-                    ". The scoped grant was recorded but the command was not executed; retry.", false};
-            }
-            execution_context.exec_sandbox = std::move(request);
-            LOG_INFO("[sandbox] scoped grant for session: write " + scoped_root);
-            record_audit(security::kAuditCategoryRule, "bash", scoped_root,
-                         security::kAuditDecisionAllowScoped, security::kAuditSourceUser,
-                         "scoped_grant", sandbox::sandbox_mode_name(sandbox::SandboxMode::WorkspaceWrite),
-                         nlohmann::json{{"command", ctx_command}});
-        }
-        if (perm == PermissionResult::AllowRemember && exec_permission) {
-            // D6:写规则文件失败只记日志,本次仍按「允许一次」执行。
-            const std::string remember_error = remember_exec_rule(*exec_permission);
-            record_audit(security::kAuditCategoryRule, "bash", exec_permission->remember_display(),
-                         security::kAuditDecisionAllowRemember, security::kAuditSourceUser,
-                         remember_error.empty() ? "remember_rule" : "remember_rule_failed",
-                         audit_sandbox,
-                         nlohmann::json{{"command", ctx_command}, {"error", remember_error}});
-        }
-        if ((perm == PermissionResult::AlwaysAllow || perm == PermissionResult::AllowRemember) &&
-            permissions_.mode() != PermissionMode::Plan &&
-            effective_tc.function_name != "EnterPlanMode" &&
-            effective_tc.function_name != "ExitPlanMode") {
-            if (exec_permission) {
-                if (exec_permission->input.additional_requested && !exec_permission->additional.empty()) {
-                    // 额外权限申请的「本次会话允许」记的是权限,不是命令前缀。
-                    exec_security_->runtime().grant_for_session(exec_permission->additional);
-                    nlohmann::json grant_detail{{"command", ctx_command}};
-                    grant_detail["read"] = exec_permission->additional.read;
-                    grant_detail["write"] = exec_permission->additional.write;
-                    grant_detail["network"] = exec_permission->additional.network;
-                    record_audit(security::kAuditCategoryRule, "bash",
-                                 exec_permission->additional.write.empty()
-                                     ? (exec_permission->additional.read.empty() ? std::string("network")
-                                                                                  : exec_permission->additional.read.front())
-                                     : exec_permission->additional.write.front(),
-                                 security::kAuditDecisionAllowSession, security::kAuditSourceUser,
-                                 "session_grant", audit_sandbox, std::move(grant_detail));
-                } else {
-                    for (const auto& prefix : exec_permission->prefixes) {
-                        permissions_.add_session_command_allow(prefix,
-                            exec_permission->decision.sandbox == sandbox::SandboxMode::FullAccess &&
-                            exec_permission->input.escalation_requested);
-                    }
-                }
-            } else {
-                permissions_.add_session_allow(effective_tc.function_name);
-            }
+    if (!auto_allow && confirmation_.available()) {
+        if (auto denied = confirmation_.confirm(
+                effective_tc, ctx_command, tool_index, emit_progress,
+                exec_permission, execution_context, audit, permission_session)) {
+            return *denied;
         }
         auto_allow = true;
     }
 
     if (exec_permission && !auto_allow) {
-        audit_gate(security::kAuditDecisionDeny, security::kAuditSourceNone, "no_confirmation_channel");
+        audit.record(security::kAuditDecisionDeny, security::kAuditSourceNone, "no_confirmation_channel");
         return ToolResult{"[Permission denied] This command requires approval, but no confirmation channel is available.", false};
     }
 
@@ -512,50 +322,23 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         permission_session.resolve("allow", "implicit");
     }
     if (!auto_allow) {
-        audit_gate(security::kAuditDecisionAllow, security::kAuditSourceNone, "implicit");
+        audit.record(security::kAuditDecisionAllow, security::kAuditSourceNone, "implicit");
     }
 
-    ToolResult tool_result = execute_single_tool(effective_tc.function_name, effective_tc.function_arguments,
-                                                 ctx_path, execution_context);
-    if (exec_permission && tool_result.metadata.value("sandbox_unavailable", false)) {
-        // 只记一行原因:它会进 /sandbox 状态与 system prompt 的
-        // `Shell sandbox:` 行,整段工具输出塞进去既难读也浪费上下文。
-        std::string reason = tool_result.metadata.value(
-            "sandbox_unavailable_reason", std::string{});
-        if (reason.empty()) {
-            reason = tool_result.output.substr(0, tool_result.output.find('\n'));
-        }
-        exec_security_->runtime().mark_unavailable(reason);
-    }
-    if (exec_permission) {
-        // D4:记住最近一次沙盒拒绝(含路径),给下一次越权确认提供
-        // 「只放行该目录」;bash 成功一次就作废,别拿陈旧路径误导用户。
-        const auto& meta = tool_result.metadata;
-        if (meta.contains("sandbox_violation") && meta["sandbox_violation"].is_object()) {
-            sandbox::SandboxViolation violation;
-            violation.reason = meta["sandbox_violation"].value("reason", std::string{});
-            violation.path = meta["sandbox_violation"].value("path", std::string{});
-            violation.snippet = meta["sandbox_violation"].value("snippet", std::string{});
-            // 被拒路径单独入账(category=sandbox):文件安全页的「最近被拦路径」
-            // 按 target 聚合,所以 target 只放路径,抽不到就留空、命令进 detail。
-            record_audit(security::kAuditCategorySandbox, "bash", violation.path,
-                         security::kAuditDecisionBlocked, security::kAuditSourceSandbox,
-                         violation.reason, audit_sandbox,
-                         nlohmann::json{{"command", ctx_command}, {"snippet", violation.snippet}});
-            exec_security_->set_feedback(std::move(violation));
-        } else if (tool_result.success) {
-            exec_security_->set_feedback(std::nullopt);
-        }
-    }
+    return PermissionVerdict{
+        std::move(execution_context), std::move(exec_permission), audit.sandbox()};
 
-    exec_security_->safe_edit_guard().record_result(
-        effective_tc.function_name, ctx_path, tool_result);
-    if (effective_tc.function_name == "bash" && tool_result.success &&
-        command_looks_like_file_write(ctx_command)) {
-        exec_security_->safe_edit_guard().check_shell_output(ctx_command, tool_result);
-    }
-
-    return tool_result;
 }
 
-} // namespace acecode
+void ToolPermissionGate::observe_result(
+    const PermissionVerdict& verdict, const ToolCall& call,
+    const std::string& path, const std::string& command, ToolResult& result) {
+    exec_.observe(verdict.exec_permission, verdict.audit_sandbox, command, result);
+    security_.safe_edit_guard().record_result(call.function_name, path, result);
+    if (call.function_name == "bash" && result.success &&
+        command_looks_like_file_write(command)) {
+        security_.safe_edit_guard().check_shell_output(command, result);
+    }
+}
+
+} // namespace acecode::agent

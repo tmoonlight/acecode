@@ -34,3 +34,12 @@
 | PaRescueAdapter / PaRescueHost | 同步恢复调用 | 适配器固定借用服务,不回指门面;纯策略不保存宿主,所有 IO/等待/发布由宿主实施。 |
 
 A-12 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。
+
+| ToolBatchScheduler / ToolCallSlot | worker | 批次独占调用槽;只读线程按值返回 ToolCallOutcome,worker 按原始显示顺序收割。FutureJoinGuard 在显示回调异常、取结果异常和正常离开时等待余下调用;取消检查仍仅在批次边界。 |
+| ToolContextFactory / ToolSessionHost | worker、已 join 的工具线程 | 工具执行作用域固定构造依赖;组合工作区、安全状态和 prompt cache,切 cwd 的清理顺序只有一份实现;工具回调捕获 LifetimeRef,作用域销毁先等待在途回调。 |
+| AskQuestionBinding | 工具线程 | daemon 在调用时检查 Goal;TUI 在装配时固定 timeout/origin;回调只持 LifetimeRef,绑定结束后返回 cancelled。 |
+| ToolLifecycleEvents::Stream | 工具流线程 | 单调用拥有 stream token;callback 在进度叶子锁外,结束后晚到 chunk 被抑制。 |
+| PermissionAuditScope / ToolPermissionGate | 串行工具线程 | 唯一 decide 入口承接能力/doom 校验后的审批,不执行工具;审计 sandbox/category/target 固定,mode 与 exec detail 每次记录读取;Scope 不可复制或跨异步保存。 |
+| ToolResultCommitter | worker | 先 budget、再按原调用顺序落 tool/post-user-prompt、最后 replacement metadata;task_complete 的 End 使用实际落盘 ID,terminal actions 只作为返回值交给回合。 |
+
+A-12 的工具链由组合根独占的批次作用域管理,成员按依赖顺序声明,不会保存 ToolExecutionServices 参数包,也不回指 AgentLoop。批次期间绑定的可空服务指针均为构造借用,FutureJoinGuard 与 LifetimeToken 在作用域销毁前完成等待;A-13/A-14 继续把装配入口交给回合执行器与显式 services。

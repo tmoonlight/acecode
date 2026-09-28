@@ -90,7 +90,7 @@
 
 ### 3. 所有权模型
 
-- **协作对象由 AgentLoop 独占**:以 `std::unique_ptr` 持有,hpp 只做前置声明,析构函数在 .cpp 里定义。协作类之间用构造注入的 `T&` 互连,不回指 AgentLoop。
+- **协作对象由 AgentLoop 独占**:以 `std::unique_ptr` 持有,hpp 只做前置声明,析构函数在 .cpp 里定义。协作类之间用构造注入的 `T&` 互连,不回指 AgentLoop。工具链由组合根以 unique_ptr<ToolBatchScheduler> 独占一个已 join 的批次作用域;内部按依赖顺序直接拥有各协作对象,不共享可变宿主。工具回调只持该作用域的 LifetimeRef,不能延长或逃出批次寿命。
 - **需要 AgentLoop 能力的窄接口,不由 AgentLoop 自己实现**(LR-13):
   - `ModelStepSink`、`PaRescueHost` 由 TurnRunner 或持有 TurnContext 的小 adapter 实现;
   - `ToolSessionHost` 由 ToolContextFactory 组合 WorkspaceBoundary 与 SessionExecSecurity 实现;

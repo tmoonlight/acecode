@@ -1,4 +1,6 @@
-#include "agent/agent_loop.hpp"
+#include "tool_invoker.hpp"
+#include "agent/approval/path_access_policy.hpp"
+#include "agent/approval/tool_permission_gate.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
 #include "computer_use/runtime.hpp"
@@ -17,9 +19,9 @@
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-void AgentLoop::extract_context(const ToolCall& tc, std::string& ctx_path, std::string& ctx_command) {
+void ToolInvoker::extract_context(const ToolCall& tc, std::string& ctx_path, std::string& ctx_command) {
     try {
         auto args_json = nlohmann::json::parse(tc.function_arguments);
         if (args_json.contains("file_path") && args_json["file_path"].is_string()) {
@@ -36,9 +38,9 @@ void AgentLoop::extract_context(const ToolCall& tc, std::string& ctx_path, std::
     } catch (...) {}
 }
 
-ToolResult AgentLoop::execute_single_tool(const std::string& tool_name, const std::string& tool_args, const std::string& ctx_path, const ToolContext& tool_ctx) {
+ToolResult ToolInvoker::execute_single_tool(const std::string& tool_name, const std::string& tool_args, const std::string& ctx_path, const ToolContext& tool_ctx) {
     if (!ctx_path.empty() && tool_name != "bash") {
-        std::string path_error = path_validation_error(tool_name, ctx_path);
+        std::string path_error = paths_.path_validation_error(tool_name, ctx_path);
         if (!path_error.empty()) {
             LOG_WARN("Path validation failed: " + path_error);
             return ToolResult{"[Error] " + path_error, false};
@@ -64,12 +66,24 @@ ToolResult AgentLoop::execute_single_tool(const std::string& tool_name, const st
     }
 }
 
-std::optional<ToolResult> AgentLoop::maybe_guard_tool(ToolBatchState& batch, const ToolCall& tc) {
-    return batch.doom_guard.maybe_guard(tc);
-}
 
-void AgentLoop::record_doom_guard_result(ToolBatchState& batch, const ToolCall& tc, const ToolResult& result) {
-    batch.doom_guard.record_result(tc, result);
+ToolResult ToolInvoker::invoke(ToolBatchState& batch, const ToolCall& call,
+    const ToolContext& context, const std::string& path, const std::string& command,
+    std::size_t index, bool needs_approval) {
+    const auto* policy = context.capability_policy ? &*context.capability_policy : nullptr;
+    if (tools_.is_denied_by_policy(call.function_name, policy)) {
+        return {"[Error] Tool denied by the active expert capability policy: " +
+            call.function_name, false};
+    }
+    if (auto denied = batch.doom_guard.maybe_guard(call)) return *denied;
+    if (!needs_approval) {
+        return execute_single_tool(call.function_name, call.function_arguments, path, context);
+    }
+    auto verdict = gate_.decide(call, context, path, command, index, batch.emit_progress);
+    if (verdict.denial) return std::move(*verdict.denial);
+    auto result = execute_single_tool(
+        call.function_name, call.function_arguments, path, verdict.execution_context);
+    gate_.observe_result(verdict, call, path, command, result);
+    return result;
 }
-
-} // namespace acecode
+} // namespace acecode::agent

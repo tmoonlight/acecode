@@ -1,3 +1,4 @@
+#include "agent/tool_exec/tool_context_factory.hpp"
 #include "agent/agent_loop.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "agent/transcript/conversation_history.hpp"
@@ -97,12 +98,8 @@ void AgentLoop::run_shell(std::string command) {
 
         auto prog = std::make_shared<agent::ToolStreamProgress>();
 
-        ToolContext tool_ctx;
-        tool_ctx.cwd = boundary_->cwd();
-        tool_ctx.write_root = write_root();
-        tool_ctx.abort_flag = &abort_signal_.flag_for_legacy_api();
-        tool_ctx.session_manager = session_manager_;
-        tool_ctx.scratch_dir = build_session_scratch_dir(boundary_->cwd(), session_manager_);
+        ToolContext tool_ctx = agent::ToolContextFactory::for_user_shell(
+            *boundary_, abort_signal_, session_manager_);
         if (callbacks_.on_tool_progress_update) {
             auto update_cb = callbacks_.on_tool_progress_update;
             tool_ctx.stream = [prog, update_cb](const std::string& chunk) {

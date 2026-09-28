@@ -68,7 +68,7 @@ thirdparty					R7	^(winpty\.h|winpty/)			pty
 thirdparty					R7	^(AgentLocation\.h|LibWinptyException\.h)$			pty
 thirdparty					R7	^(stb/|stb_|external/stb/)			image
 symbol	src/*				R11:provider_messages	\bmodel_facing_provider_messages\b			-
-symbol	src/engine/agent/*				R11:approval	\b(?:evaluate_tool_approval|resolve_tool_approval|approve_tool_call|permission_gate)\b|\bexec_permission\s*=			-
+symbol	src/engine/agent/*				R11:approval	\b(?:evaluate_tool_approval|resolve_tool_approval|approve_tool_call|permission_gate)\b|\bToolPermissionGate::decide\b|\bexec_permission\s*=			-
 symbol	src/*				R11:audit	\b(?:audit_gate|record_audit)\b			-
 symbol	src/*				R11:tool_names	\bset_model_tool_name_mappings\s*\(			-
 symbol	src/engine/agent/*				R11:messages_write	\bmessages_\s*(?:\.(?:push_back|emplace_back|emplace|pop_back|clear|insert|erase|swap|resize|assign)\s*\(|(?:\[[^\]\n]+\]|\.(?:back|front|at)\([^)\n]*\))?(?:\.\w+|\[[^\]\n]+\])*\s*(?:=(?!=)|\+=|-=))|\b(?:swap|sort|reverse)\s*\(\s*messages_			-
@@ -77,9 +77,7 @@ symbol	src/engine/agent/*				R11:provider_chat	(?:->|\.)\s*chat(?:_stream)?\s*\(
 allow	src/engine/agent/request/provider_history.*				R11:provider_messages				Single outlet / PA contact table
 allow	src/engine/agent/request/api_request_builder.*				R11:provider_messages				Single outlet / PA contact table
 allow	src/engine/agent/side_question/agent_side_question.cpp				R11:provider_messages				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.cpp				R11:approval				Existing owner; remove after split tasks
-allow	src/engine/agent/approval/tool_approval_gate.*				R11:approval				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.*				R11:audit				Existing owner; remove after split tasks
+allow	src/engine/agent/approval/tool_permission_gate.*				R11:approval				Single outlet / PA contact table
 allow	src/engine/agent/approval/*				R11:audit				Single outlet / PA contact table
 allow	src/adapters/tool/tool_rewrites.cpp				R11:tool_names				Single outlet / PA contact table
 allow	src/domain/llm/tool_protocol_names.*				R11:tool_names				Single outlet / PA contact table
@@ -124,3 +122,4 @@ ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThre
 ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThreadGroup	ownership/P2-01		C8 legacy worker group owner; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:std_thread	abandonable_detail::start_owned_work	ownership/P2-01		C8 owned abandonable worker; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:detach	abandonable_detail::start_owned_work	ownership/P2-01		C8 detached worker owns captured lifetime; P2-01
+allow	src/engine/agent/approval/exec_permission_gate.*				R11:approval				Command evaluation delegated by the single tool approval gate

@@ -1,4 +1,7 @@
-#include "agent/agent_loop.hpp"
+#include "path_access_policy.hpp"
+#include "agent/tool_exec/tool_session_host.hpp"
+#include "tool/tool_executor.hpp"
+#include "permissions/permissions.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "session/session_manager.hpp"
@@ -14,9 +17,9 @@
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-bool AgentLoop::is_cwd_validation_exempt(const std::string& tool_name, const std::string& path, const std::string& boundary_root) {
+bool PathAccessPolicy::is_cwd_validation_exempt(const std::string& tool_name, const std::string& path, const std::string& boundary_root) {
     const bool bounded = !boundary_root.empty();
     if (tool_name == "file_read" || tool_name == "create_workspace" ||
         (bounded &&
@@ -30,9 +33,9 @@ bool AgentLoop::is_cwd_validation_exempt(const std::string& tool_name, const std
     return session_manager_->is_plan_file_path(path);
 }
 
-std::string AgentLoop::path_validation_error(const std::string& tool_name, const std::string& path) {
+std::string PathAccessPolicy::path_validation_error(const std::string& tool_name, const std::string& path) {
     if (path.empty() || tool_name == "bash") return {};
-    const std::string boundary_root = write_root();
+    const std::string boundary_root = host_.write_root();
     if (!boundary_root.empty() &&
         permissions_.mode() == PermissionMode::Yolo &&
         !permissions_.is_dangerous() &&
@@ -40,7 +43,7 @@ std::string AgentLoop::path_validation_error(const std::string& tool_name, const
         tool_name != "create_workspace") {
         const std::string boundary_error =
             PathValidator(boundary_root, false).validate(path);
-        if (!boundary_error.empty() && !path_in_workspace_folders(path)) {
+        if (!boundary_error.empty() && !host_.path_in_workspace_folders(path)) {
             return "Write boundary blocked: " + path +
                    " is outside the session write root " + boundary_root +
                    ". Reads may go anywhere, but every write must stay inside "
@@ -48,10 +51,10 @@ std::string AgentLoop::path_validation_error(const std::string& tool_name, const
         }
     }
     if (is_cwd_validation_exempt(tool_name, path, boundary_root)) return {};
-    std::string cwd_error = boundary_->validate(path);
+    std::string cwd_error = boundary_.validate(path);
     // 「编辑项目」的附加文件夹与工作目录同等对待。
-    if (!cwd_error.empty() && path_in_workspace_folders(path)) return {};
+    if (!cwd_error.empty() && host_.path_in_workspace_folders(path)) return {};
     return cwd_error;
 }
 
-} // namespace acecode
+} // namespace acecode::agent

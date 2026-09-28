@@ -13,16 +13,6 @@ void AgentLoop::set_sandbox_availability_for_tests(std::optional<bool> value) {
 void AgentLoop::set_audit_sink(security::AuditSink sink) { exec_security_->set_audit_sink(std::move(sink)); }
 void AgentLoop::set_sandbox_config(const SandboxConfig& config) { exec_security_->set_sandbox_config(config); }
 void AgentLoop::reload_exec_rules() { exec_security_->reload_exec_rules(); }
-std::string AgentLoop::remember_exec_rule(const sandbox::ExecPermission& permission) {
-    return exec_security_->remember_exec_rule(permission);
-}
-void AgentLoop::record_audit(const std::string& category, const std::string& tool,
-                             const std::string& target, const std::string& decision,
-                             const std::string& source, const std::string& reason,
-                             const std::string& sandbox, nlohmann::json detail) {
-    exec_security_->record_audit(session_manager_, category, tool, target, decision,
-                                  source, reason, sandbox, std::move(detail));
-}
 std::string AgentLoop::sandbox_prompt_description() const {
     return exec_security_->sandbox_prompt_description(session_manager_);
 }

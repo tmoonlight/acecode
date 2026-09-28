@@ -409,19 +409,6 @@ public:
     }
 
 private:
-    using ToolBatchState = agent::ToolBatchState;
-    using DeferredTaskCompleteEnd = agent::DeferredTaskCompleteEnd;
-    using ToolRunner = std::function<ToolResult(const ToolCall&, const ToolContext&, const std::string&, const std::string&)>;
-    void extract_context(const ToolCall& tc, std::string& ctx_path, std::string& ctx_command);
-    bool is_cwd_validation_exempt(const std::string& tool_name, const std::string& path, const std::string& boundary_root);
-    std::string path_validation_error(const std::string& tool_name, const std::string& path);
-    ToolResult execute_single_tool(const std::string& tool_name, const std::string& tool_args, const std::string& ctx_path, const ToolContext& tool_ctx);
-    std::optional<ToolResult> maybe_guard_tool(ToolBatchState& batch, const ToolCall& tc);
-    void record_doom_guard_result(ToolBatchState& batch, const ToolCall& tc, const ToolResult& result);
-    void materialize_result_attachments(ToolResult& result);
-    void dispatch_tool_result_display(const ToolCall& tc, const ToolResult& result);
-    agent::ToolCallOutcome run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc, size_t tool_index, bool emit_tui_progress, const ToolRunner& runner);
-    ToolResult run_write_tool(ToolBatchState& batch, const ToolCall& effective_tc, const ToolContext& tool_ctx, const std::string& ctx_path, const std::string& ctx_command, size_t tool_index);
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
     void run_agent_with_input(const UserInput& input,
@@ -542,7 +529,6 @@ private:
         ToolPreambleTitle& pending_preamble);
 
     // Helper: construct a ToolContext with all callbacks wired up.
-    ToolContext build_tool_context();
 
     using WorkerTask = agent::WorkerTask;
 
@@ -563,16 +549,7 @@ private:
     std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
     std::unique_ptr<agent::WorkspaceBoundary> boundary_;
     std::unique_ptr<agent::SessionExecSecurity> exec_security_;
-    // 「批准并记住」:把前缀写进全局规则文件并重载;返回错误信息,空 = 成功。
-    std::string remember_exec_rule(const sandbox::ExecPermission& permission);
     void reload_exec_rules();
-    // 写一条审计(补 ts / session_id / cwd 后交给 audit_sink_)。异常一律吞掉:
-    // 审计失败不能影响工具执行。
-    void record_audit(const std::string& category, const std::string& tool,
-                      const std::string& target, const std::string& decision,
-                      const std::string& source, const std::string& reason,
-                      const std::string& sandbox = {},
-                      nlohmann::json detail = nlohmann::json::object());
     // P0-11 注入点(见 set_progress_clock_for_tests / set_computer_use_release_for_tests)。
     SteadyClockFn progress_clock_;
     ComputerUseReleaseFn computer_use_release_;

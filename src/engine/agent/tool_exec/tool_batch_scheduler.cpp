@@ -1,122 +1,47 @@
-#include "agent/agent_loop.hpp"
-#include "agent/transcript/conversation_history.hpp"
-#include "agent/event_payload/message_payload.hpp"
+#include "tool_batch_scheduler.hpp"
 #include "agent/guards/doom_guard.hpp"
-#include "agent/tool_exec/tool_batch_types.hpp"
-#include "computer_use/runtime.hpp"
-#include "hooks/hook_manager.hpp"
-#include "hooks/hook_runtime.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "permissions/interaction_mode.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/output_attachments.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
-#include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "session/task_suggestion_store.hpp"
-#include "session/thread_goal_store.hpp"
-#include "session/thread_repair.hpp"
-#include "session/token_tracker.hpp"
-#include "session/tool_metadata_codec.hpp"
-#include "session/tool_result_storage.hpp"
-#include "session/turn_timing.hpp"
-#include "skills/skill_usage_store.hpp"
-#include "tool/mtime_tracker.hpp"
-#include "llm/text_preamble_tags.hpp"
-#include "utils/encoding.hpp"
+#include "agent/goal/goal_runtime.hpp"
+#include "agent/transcript/transcript_writer.hpp"
+#include "utils/abort_signal.hpp"
+#include "utils/future_join_guard.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/text.hpp"
-#include "workspace/workspace_registry.hpp"
 
 #include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
-#include <utility>
-#include "utils/future_join_guard.hpp"
-#include <future>
 #include <thread>
 
-namespace acecode {
+namespace acecode::agent {
 
-agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
-    const ChatResponse& accumulated,
-    const std::shared_ptr<LlmProvider>& provider_snapshot,
-    const ProgressEmitter& emit_progress,
-    agent::SynchronizedDoomGuard& doom_guard,
+ToolBatchScheduler::ToolBatchScheduler(ToolExecutionServices services, ToolExecutionOptions options)
+    : tools_(services.tools), transcript_(services.transcript), goal_(services.goal),
+      abort_signal_(services.abort), session_manager_(services.session),
+      contexts_(services.boundary, services.security, services.prompt_cache,
+          services.permissions, services.goal, services.events, services.abort,
+          services.session, services.skills, services.policy, services.config,
+          std::move(options.provider)),
+      paths_(services.tools, services.permissions, services.boundary, contexts_, services.session),
+      exec_(services.security, services.permissions, services.boundary, contexts_,
+          services.goal, services.session),
+      confirmation_(services.permissions, services.security, contexts_, services.callbacks,
+          services.abort, services.session, services.permission_prompter),
+      gate_(services.tools, services.permissions, services.boundary, services.security,
+          contexts_, services.goal, services.tool_hooks, exec_, paths_, confirmation_,
+          services.session, services.hook_manager),
+      invoker_(services.tools, paths_, gate_, std::move(options.model_tool_names)),
+      presenter_(services.boundary, contexts_, services.transcript, services.callbacks, services.session),
+      lifecycle_events_(services.events, services.session),
+      questions_(services.goal, services.abort, services.config, services.session,
+          services.question_prompter, std::move(options.question_channel)),
+      lifecycle_(services.tool_hooks, contexts_, questions_, invoker_, presenter_,
+          lifecycle_events_, services.events, services.callbacks, services.hook_manager,
+          services.session, std::move(options.clock)),
+      message_(services.history, services.hooks, services.events, services.session, services.hook_manager),
+      committer_(services.history, services.transcript, lifecycle_events_, services.session) {}
+
+ToolBatchOutcome ToolBatchScheduler::execute(
+    const ChatResponse& accumulated, const std::shared_ptr<LlmProvider>& provider_snapshot,
+    const ProgressEmitter& emit_progress, SynchronizedDoomGuard& doom_guard,
     ToolPreambleTitle& pending_preamble) {
-    // Record the assistant message with tool_calls in the history
-    auto tc_msg = ToolExecutor::format_assistant_tool_calls(accumulated);
-    // 文本工具调用恢复成功:消息本体与原生调用字节级同形(不会发给模型的
-    // metadata 只多一个诊断字段),让后续历史里出现原生调用可供模仿。
-    if (accumulated.text_tool_calls.outcome ==
-        TextToolCallDiagnostic::Outcome::Recovered) {
-        if (!tc_msg.metadata.is_object()) tc_msg.metadata = nlohmann::json::object();
-        tc_msg.metadata["text_tool_call_recovery"] = {
-            {"format", accumulated.text_tool_calls.format},
-            {"count", accumulated.text_tool_calls.recovered_count > 0
-                          ? accumulated.text_tool_calls.recovered_count
-                          : static_cast<int>(accumulated.tool_calls.size())},
-        };
-    }
-    // 工具前言(add-tool-preamble):本批次沿用的阶段前言挂在这条
-    // assistant(tool_calls) 消息的 metadata 上落盘(只为记录,不还原任何显示行),
-    // 实时界面经每个调用的 tool_start.preamble 拿到它。
-    const ToolPreambleTitle step_preamble = std::move(pending_preamble);
-    pending_preamble = {};
-    nlohmann::json preamble_metadata;
-    if (!step_preamble.title.empty()) {
-        preamble_metadata = {
-            {"source", step_preamble.source},
-            {"title", step_preamble.title},
-            {"kind", step_preamble.kind},
-        };
-        if (!tc_msg.metadata.is_object()) tc_msg.metadata = nlohmann::json::object();
-        tc_msg.metadata[agent::kToolPreambleMetadataKey] = preamble_metadata;
-    }
-    // 单个调用的前言 = 本批次的阶段前言。
-    history_->append(tc_msg);
-    if (session_manager_) session_manager_->on_message(tc_msg);
-    dispatch_assistant_completed_hook(tc_msg, provider_snapshot);
-
-    // Web: 工具调用回合的 assistant 文本此前只通过 token 流下发,没有一条权威的
-    // Message 帧。文本-only 回合靠末尾那条 assistant Message 事件整体替换流式草稿
-    // 来兜底(见 run_agent 的 text-only 分支),工具回合缺这一步 —— 一旦流式 token
-    // 在传输/竞态中丢了一段,前端草稿就停在半截,且因为没有权威帧,生成结束也无法
-    // 自愈(磁盘已落全量,所以切会话重载才恢复)。这里补发一条 assistant 文本的
-    // Message 事件让前端用完整文本整体替换草稿。仅走 web 的 events_,不经
-    // dispatch_message 的 on_message 回调,避免改变 TUI 的流式渲染行为。
-    // 工具前言:正文里的 <text_preamble> 标签不进界面(id 仍按落盘原文算,与
-    // GET /messages 重读一致);整段都是标签时不发这条帧。
-    const std::string visible_content =
-        llm::strip_text_preamble_tags(accumulated.content);
-    const bool has_content_parts =
-        accumulated.content_parts.is_array() && !accumulated.content_parts.empty();
-    if (!visible_content.empty() || has_content_parts) {
-        ChatMessage id_basis;
-        id_basis.role = "assistant";
-        id_basis.content = accumulated.content;
-        nlohmann::json assistant_event = {
-            {"role", "assistant"},
-            {"content", visible_content},
-            {"is_tool", false},
-            {"id", web::compute_message_id(id_basis)},
-        };
-        if (has_content_parts) {
-            assistant_event["content_parts"] = accumulated.content_parts;
-        }
-        if (preamble_metadata.is_object()) {
-            assistant_event["metadata"] = {
-                {agent::kToolPreambleMetadataKey, preamble_metadata}};
-        }
-        events_.emit(SessionEventKind::Message, std::move(assistant_event));
-    }
-
+    const auto step_preamble = message_.record(accumulated, provider_snapshot, pending_preamble);
     // Partition tool calls into read-only (parallelizable) and write (serial) groups
     LOG_INFO("Processing " + std::to_string(accumulated.tool_calls.size()) + " tool calls");
 
@@ -136,22 +61,6 @@ agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
 
     LOG_INFO("Partitioned: " + std::to_string(read_entries.size()) + " read-only, " +
              std::to_string(write_entries.size()) + " write");
-
-    // Helper: extract context from a tool call
-
-    // boundary_root = write_root():非空即"有写边界"(worktree / LOOP / 从父
-    // 会话继承)。有边界的 Yolo 会话只豁免只读工具,写工具必须过边界校验;
-    // 无边界的 Yolo 会话维持旧行为(全部豁免)。曾经只有 LOOP 主会话有这条
-    // 边界,spawn_subagent 派生的子会话继承 Yolo 却不继承 LOOP 身份,于是在
-    // worktree 里起的子代理可以随手把改动写进主 checkout。
-
-    // Helper: execute a single tool (for both parallel and serial use).
-
-    // 展示层的结果行派发(tool_result 伪行 + on_tool_result 补挂 summary/
-    // hunks)。从 Phase 3 前移到各执行点,让「调用行 → 结果行」成对相邻出现
-    // 而不是先挤一排调用再挤一排结果。单个大结果已在 lifecycle 内落盘并
-    // 替换为文件引用,避免 live 事件与 TUI 再保留全文;结构化 hunks 保留。
-    // canonical 落盘与跨结果的 aggregate budget 仍在 Phase 3 统一进行。
 
     // Phase 1: Execute read-only tools in parallel
     if (!read_entries.empty() && !abort_signal_.raw()) {
@@ -178,33 +87,16 @@ agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
                     original_index,
                     tc_copy,
                     futures.add(std::async(std::launch::async,
-                    [this, &batch, tc_copy, original_index]() {
-                        return run_tool_with_lifecycle(
-                            batch, tc_copy, original_index, false,
-                            [this, &batch](
-                                 const ToolCall& effective_tc,
-                                 const ToolContext& ctx,
-                                 const std::string& ctx_path,
-                                 const std::string&) {
-                                const ToolCapabilityPolicy* policy =
-                                    ctx.capability_policy
-                                        ? &*ctx.capability_policy
-                                        : nullptr;
-                                if (tools_.is_denied_by_policy(
-                                        effective_tc.function_name, policy)) {
-                                    return ToolResult{
-                                        "[Error] Tool denied by the active "
-                                        "expert capability policy: " +
-                                            effective_tc.function_name,
-                                        false};
-                                }
-                                if (auto guarded = maybe_guard_tool(batch, effective_tc)) {
-                                    return *guarded;
-                                }
-                                return execute_single_tool(
-                                    effective_tc.function_name, effective_tc.function_arguments,
-                                    ctx_path, ctx);
+                    [life = lifecycle_.ref(), batch_ref = batch.lifetime.ref(batch),
+                     tc_copy, original_index]() {
+                        ToolCallOutcome outcome{ToolResult{"[Interrupted]", false}, {}, {}};
+                        life.with([&](ToolCallLifecycle& lifecycle) {
+                            batch_ref.with([&](ToolBatchState& joined_batch) {
+                                outcome = lifecycle.run(
+                                    joined_batch, tc_copy, original_index, false);
                             });
+                        });
+                        return outcome;
                     }))
                 });
             }
@@ -215,9 +107,9 @@ agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
                 // 灰色指示灯),结果一到紧跟其后 —— 即使批内并行执行,transcript
                 // 仍按提交顺序呈现「调用 → 结果」相邻的成对行。abort 时未收割
                 // 的调用不再显示伪行,canonical 的 [Interrupted] 由 Phase 3 落盘。
-                dispatch_message("tool_call",
+                transcript_.dispatch_message("tool_call",
                     "[Tool: " + item.call.function_name + "] " +
-                        item.call.function_arguments, true);
+                        item.call.function_arguments, true, nlohmann::json::object(), nlohmann::json::array());
                 try {
                     slots[idx].outcome = futures.get(item.future_index);
                 } catch (const std::exception& e) {
@@ -229,9 +121,9 @@ agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
                         item.call.function_arguments,
                         slots[idx].outcome->result);
                 }
-                record_doom_guard_result(batch, item.call, slots[idx].outcome->result);
-                account_goal_usage(0, false);
-                dispatch_tool_result_display(item.call, slots[idx].outcome->result);
+                batch.doom_guard.record_result(item.call, slots[idx].outcome->result);
+                goal_.account_usage(session_manager_, 0, false);
+                presenter_.display(item.call, slots[idx].outcome->result);
             }
 
             futures.join();
@@ -247,201 +139,22 @@ agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
         const auto& tc = slot.call;
         LOG_INFO("Tool call (write): " + tc.function_name + " id=" + tc.id);
 
-        dispatch_message("tool_call",
-                "[Tool: " + tc.function_name + "] " + tc.function_arguments, true);
+        transcript_.dispatch_message("tool_call",
+                "[Tool: " + tc.function_name + "] " + tc.function_arguments, true, nlohmann::json::object(), nlohmann::json::array());
 
-        slot.outcome = run_tool_with_lifecycle(
-            batch, tc, slot.original_index, true,
-            [this, &batch, tool_index = slot.original_index](
-                const ToolCall& effective_tc,
-                const ToolContext& tool_ctx,
-                const std::string& ctx_path,
-                const std::string& ctx_command) {
-                return run_write_tool(batch, effective_tc, tool_ctx,
-                                      ctx_path, ctx_command, tool_index);
-            });
-        record_doom_guard_result(batch, tc, slot.outcome->result);
-        account_goal_usage(0, false);
+        slot.outcome = lifecycle_.run(batch, tc, slot.original_index, true);
+        batch.doom_guard.record_result(tc, slot.outcome->result);
+        goal_.account_usage(session_manager_, 0, false);
         // 结果行紧跟派发。调用行在执行前已显示(权限确认弹窗需要上下文),
         // 写工具串行执行,顺序天然成对。
-        dispatch_tool_result_display(tc, slot.outcome->result);
+        presenter_.display(tc, slot.outcome->result);
         if (slot.outcome->result.terminate_session_after_turn) {
             LOG_INFO("Stopping remaining write tools after terminal session action");
             break;
         }
     }
 
-    std::vector<ToolResultReplacementRecord> replacement_records;
-    for (auto& slot : slots) {
-        if (slot.outcome && !slot.outcome->delivery_replacement.tool_call_id.empty()) {
-            replacement_records.push_back(
-                std::move(slot.outcome->delivery_replacement));
-        }
-    }
-    if (session_manager_) {
-        const std::string tool_results_dir = session_manager_->ensure_tool_results_dir();
-        if (!tool_results_dir.empty()) {
-            auto replacement_state = reconstruct_tool_result_replacement_state(history_->view());
-            std::vector<ToolResultBudgetEntry> entries;
-            for (auto& slot : slots) {
-                if (slot.outcome) {
-                    entries.push_back({slot.call, slot.outcome->result});
-                }
-            }
-            auto budget_result = enforce_tool_result_budget(
-                entries, tool_results_dir, replacement_state);
-            for (auto& record : budget_result.newly_replaced) {
-                replacement_records.push_back(std::move(record));
-            }
-        }
-    }
-
-    auto record_file_read_result_reference = [](const ToolCall& tc, const ToolResult& result) {
-        if (!result.success || tc.function_name != "file_read") return;
-        if (result.output.rfind("File unchanged since last read.", 0) == 0) return;
-
-        auto args = nlohmann::json::parse(tc.function_arguments, nullptr, false);
-        if (!args.is_object() ||
-            !args.contains("file_path") ||
-            !args["file_path"].is_string()) {
-            return;
-        }
-
-        auto int_arg = [&args](const char* key) -> int {
-            if (!args.contains(key) || !args[key].is_number_integer()) return 0;
-            return args[key].get<int>();
-        };
-        auto uint64_arg = [&args](const char* key) -> uint64_t {
-            if (!args.contains(key)) return 0;
-            if (args[key].is_number_unsigned()) return args[key].get<uint64_t>();
-            if (!args[key].is_number_integer()) return 0;
-            const auto value = args[key].get<int64_t>();
-            return value >= 0 ? static_cast<uint64_t>(value) : 0;
-        };
-        const bool byte_mode = args.contains("byte_offset");
-
-        MtimeTracker::instance().record_read_observation_result(
-            args["file_path"].get<std::string>(),
-            int_arg("start_line"),
-            int_arg("end_line"),
-            tc.id,
-            persisted_output_filepath(result.output),
-            byte_mode,
-            uint64_arg("byte_offset"),
-            static_cast<size_t>(uint64_arg("max_bytes")));
-    };
-
-    for (size_t i = 0; i < slots.size(); ++i) {
-        if (slots[i].outcome) {
-            record_file_read_result_reference(accumulated.tool_calls[i], slots[i].outcome->result);
-        }
-    }
-
-    // Phase 3: Record and dispatch all results in original order
-    for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
-        const auto& tc = accumulated.tool_calls[i];
-        ChatMessage tool_msg;
-        if (slots[i].outcome) {
-            tool_msg = ToolExecutor::format_tool_result(tc.id, slots[i].outcome->result);
-            if (slots[i].outcome->result.summary.has_value()) {
-                tool_msg.metadata["tool_summary"] = encode_tool_summary(*slots[i].outcome->result.summary);
-            }
-            if (slots[i].outcome->result.hunks.has_value()) {
-                tool_msg.metadata["tool_hunks"] = encode_tool_hunks(*slots[i].outcome->result.hunks);
-            }
-        } else {
-            ToolResult interrupted_result{"[Interrupted]", false};
-            ensure_tool_summary(
-                tc.function_name, tc.function_arguments, interrupted_result);
-            tool_msg = ToolExecutor::format_tool_result(
-                tc.id, interrupted_result);
-            // AskUserQuestion deliberately has no synthesized summary, so the
-            // metadata key must stay absent instead of dereferencing nullopt.
-            if (interrupted_result.summary.has_value()) {
-                tool_msg.metadata["tool_summary"] =
-                    encode_tool_summary(*interrupted_result.summary);
-            }
-        }
-        history_->append(tool_msg);
-        if (session_manager_) session_manager_->on_message(tool_msg);
-
-        if (tc.function_name == "task_complete" &&
-            slots[i].outcome && slots[i].outcome->result.success) {
-            const DeferredTaskCompleteEnd deferred =
-                slots[i].outcome->deferred_end;
-            auto end_payload = web::build_tool_end_payload(
-                tc.function_name, slots[i].outcome->result, deferred.elapsed_seconds,
-                slots[i].outcome->result.output, tc.id, static_cast<int>(i),
-                web::compute_message_id(tool_msg));
-            if (session_manager_) {
-                auto trajectory_payload = end_payload;
-                trajectory_payload["started_at_ms"] = deferred.started_at_ms;
-                trajectory_payload["completed_at_ms"] = deferred.completed_at_ms;
-                trajectory_payload["duration_ms"] = deferred.duration_ms;
-                session_manager_->record_trajectory_event(
-                    "tool_end", std::move(trajectory_payload),
-                    deferred.completed_at_ms);
-            }
-            events_.emit(
-                SessionEventKind::ToolEnd, std::move(end_payload));
-        }
-
-        // 展示派发(tool_result 伪行 + on_tool_result)已前移到各执行点
-        // (dispatch_tool_result_display),这里只保留 canonical 相关处理。
-        if (slots[i].outcome) {
-            if (slots[i].outcome->result.post_user_prompt.has_value() &&
-                !slots[i].outcome->result.post_user_prompt->empty()) {
-                append_tool_user_prompt(
-                    *slots[i].outcome->result.post_user_prompt,
-                    slots[i].outcome->result.post_user_prompt_display_text,
-                    tc.function_name);
-            }
-        }
-    }
-
-    if (!replacement_records.empty()) {
-        ChatMessage meta_msg = encode_content_replacement_message(replacement_records);
-        history_->append(meta_msg);
-        if (session_manager_) session_manager_->on_message(meta_msg);
-    }
-
-    agent::ToolBatchOutcome batch_outcome;
-    // A session-terminal action takes precedence over ordinary terminators.
-    // Move its callback only after every canonical result has been recorded.
-    for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
-        if (!slots[i].outcome ||
-            !slots[i].outcome->result.terminate_session_after_turn) {
-            continue;
-        }
-        batch_outcome.terminate_session_after_turn = true;
-        if (slots[i].outcome->result.post_turn_action) {
-            batch_outcome.post_turn_actions.push_back(
-                std::move(slots[i].outcome->result.post_turn_action));
-        }
-        LOG_INFO("Terminal session action queued after turn boundary");
-    }
-    if (batch_outcome.terminate_session_after_turn) {
-        batch_outcome.terminator_fired = true;
-        return batch_outcome;
-    }
-
-    // Terminator detection. A failed ExitPlanMode is a user/runtime boundary:
-    // retrying it in the same turn only replays the approval request while the
-    // session correctly remains in Plan mode.
-    for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
-        const auto& tc = accumulated.tool_calls[i];
-        if (tc.function_name == "task_complete" && slots[i].outcome && slots[i].outcome->result.success) {
-            LOG_INFO("Terminator fired: task_complete");
-            batch_outcome.terminator_fired = true;
-            return batch_outcome;
-        }
-        if (tc.function_name == "ExitPlanMode" && slots[i].outcome && !slots[i].outcome->result.success) {
-            LOG_INFO("Ending turn after failed ExitPlanMode");
-            batch_outcome.terminator_fired = true;
-            return batch_outcome;
-        }
-    }
-    return batch_outcome;
+    return committer_.commit(slots);
 }
 
-} // namespace acecode
+} // namespace acecode::agent

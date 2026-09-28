@@ -157,7 +157,7 @@
   - 验证:
     - `agent_loop_pa_rescue_test` 六条、`tests/pa/*`、`agent_loop_compact_events_test`(溢出恢复、`FailedAutoCompactIsAtomicAndRetriesOnNextTurn`、手动 /compact)、`agent_loop_goal_test`、hook 的 PreCompact/PostCompact 通过;
     - **演练删除 `src/adapters/pa/`,确认只需要改表中列出的位置。**
-- [ ] 3.7 【A-12】【主】工具执行与权限门,分两个提交:先改数据流,再抽类。〔数据流实现完成: Codex-root 2026-09-28;结果与附加信息已收敛为 ToolCallOutcome,worker 独占 ToolCallSlot 发布,FutureJoinGuard 在异常展开时等待余下调用;终止和回合后动作由 ToolBatchOutcome 返回;协作类拆分进行中,用例待统一验收〕
+- [ ] 3.7 【A-12】【主】工具执行与权限门,分两个提交:先改数据流,再抽类。〔实现完成: Codex-root 2026-09-28;数据流与协作类分别保存阶段快照;ToolCallOutcome/ToolCallSlot/FutureJoinGuard、独立工具链、单一 PermissionVerdict 审批门、早绑定沙盒审计/晚读取详情与提问时机已接入;新增边界/审计/提问/晚到回调用例,待统一验收〕
   - 数据流:`ToolBatchState` / `ToolCallSlot` / `ToolCallOutcome` 取代原来的四个平行数组;并行线程只返回值,用 `FutureJoinGuard` 显式 join;`ToolBatchOutcome` 作为返回值交出 terminate 与 post_turn_actions。
   - 抽类:`ToolInvoker`、`ToolCallLifecycle`、`ToolLifecycleEvents`、`AskQuestionBinding`、`ToolResultPresenter`、`ToolResultCommitter`、`ToolCallMessage`、`ToolContextFactory`。其中 ToolContextFactory 组合 WorkspaceBoundary 与 SessionExecSecurity 来实现 `ToolSessionHost`,并提供 `for_user_shell` 变体。
   - 权限门:`ToolPermissionGate::decide` 返回 `PermissionVerdict`,仍是唯一审批入口;另有 `ExecPermissionGate`、`PathAccessPolicy`、`PermissionAuditScope`、`PermissionConfirmation`。
