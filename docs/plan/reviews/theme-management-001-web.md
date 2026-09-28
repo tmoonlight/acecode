@@ -55,10 +55,10 @@ visual: unverified
 
 本次独立执行最终 58 项聚焦检查并通过：
 
-- `node src/lib/themeExports.test.js`：18 项，包含 W2 最终修复回归。
-- `node src/lib/appearancePreferences.test.js`：13 项，包含 W1 修复回归。
-- `node src/lib/themePackages.test.js`：22 项，包含本地删除、离线、迟到选择/创建和资源释放。
-- `node src/lib/themeManagementUi.test.js`：5 项，执行从生产源转换的 React 静态渲染、实际 onClick callback 和 ThemeProvider cache callbacks，覆盖操作按钮语义/传播、真假进度、无图片图标、删除确认层级、迟到加载与刷新失败时资源释放。它没有运行真实浏览器或完整 DOM 事件系统。
+- `node web/src/lib/themeExports.test.js`：18 项，包含 W2 最终修复回归。
+- `node web/src/lib/appearancePreferences.test.js`：13 项，包含 W1 修复回归。
+- `node web/src/lib/themePackages.test.js`：22 项，包含本地删除、离线、迟到选择/创建和资源释放。
+- `node web/src/lib/themeManagementUi.test.js`：5 项，执行从生产源转换的 React 静态渲染、实际 onClick callback 和 ThemeProvider cache callbacks，覆盖操作按钮语义/传播、真假进度、无图片图标、删除确认层级、迟到加载与刷新失败时资源释放。它没有运行真实浏览器或完整 DOM 事件系统。
 - 两个独立真实 controller 故障复现，分别得到 W1 的旧 ID 恢复和 W2 的 cancelled/native_saved 冲突。
 - 本轮 baseline 16 个 SHA-256 校验，0 不一致。
 - 正常仓库配置下 `git diff --check -- web` 退出 0。
@@ -79,11 +79,11 @@ C++ 存储已有独立审查，本报告只读取必要的接口状态依据并�
 
 主代理追加授权的本段仅检查 `routes_themes.cpp`、`routes_misc.cpp` 本轮偏好验证增量和原生保存类型接入，对比 `build/theme-export-baseline-20260912/`，未重审已有存储报告关闭的四项。结论：**pass，限源码及既有执行证据，未新增 blocking**。
 
-- `src/web/routes/routes_themes.cpp:91` 起五条新增管理路由均调用正常鉴权与迁移保护。export body 只接受可选 boolean `native_save`；路径等额外字段、非对象和错误类型会在开启保存前拒绝。缺少原生能力返回 501/THEME_NATIVE_SAVE_UNAVAILABLE；选择器取消返回无 job ID 的 cancelled，主题验证及内置保护由同一 store 入口执行。
+- `src/apps/web/routes/routes_themes.cpp:91` 起五条新增管理路由均调用正常鉴权与迁移保护。export body 只接受可选 boolean `native_save`；路径等额外字段、非对象和错误类型会在开启保存前拒绝。缺少原生能力返回 501/THEME_NATIVE_SAVE_UNAVAILABLE；选择器取消返回无 job ID 的 cancelled，主题验证及内置保护由同一 store 入口执行。
 - ZIP 下载在 `routes_themes.cpp:126` 起复用经过校验的作业资源，添加 `application/zip`、UTF-8 百分号编码 attachment 文件名、`private, no-store` 和 `nosniff`，成功后才响应文件。无任意目标路径参数，也不把鉴权凭据放入下载 URL。
 - 删除在 `routes_themes.cpp:146` 起先持有 `app_config_mu`，确认该时刻当前主题，仅在需要回退时持久化 blue。save_config 抛出时恢复 `before.web_ui`，把失败交回 store 的隔离回滚；返回的 ui_preferences 取自同一锁下的实际配置。删除非当前主题不替换选择。
-- `src/web/routes/routes_misc.cpp:2291` 把 ai/EVA 安装检查放入 config 锁内，再检查 store，和删除采用同样的锁顺序。因此删除后排队到达的旧 ID 写入不能重新持久化已删主题；与 Web 队列的旧快照过滤相互衔接。
-- `src/platform/native_ui/folder_picker_win.cpp:247` 起按建议文件名 `.zip` 切换单一 ZIP filter/default extension；mac `folder_picker_mac.mm:89` 起切换到 zip，且保留 `allowsOtherFileTypes = NO`。两者其它导出保留原有 Markdown 分支。新增中英文类型/标题/错误枚举与 strings catalog 顺序对应，未改变共享保存接口的路径来源。
+- `src/apps/web/routes/routes_misc.cpp:2291` 把 ai/EVA 安装检查放入 config 锁内，再检查 store，和删除采用同样的锁顺序。因此删除后排队到达的旧 ID 写入不能重新持久化已删主题；与 Web 队列的旧快照过滤相互衔接。
+- `src/base/platform/native_ui/folder_picker_win.cpp:247` 起按建议文件名 `.zip` 切换单一 ZIP filter/default extension；mac `folder_picker_mac.mm:89` 起切换到 zip，且保留 `allowsOtherFileTypes = NO`。两者其它导出保留原有 Markdown 分支。新增中英文类型/标题/错误枚举与 strings catalog 顺序对应，未改变共享保存接口的路径来源。
 - `cleanup_pending:true` 和新的 `cleanup_message` 描述提交后的隔离缓存清理延迟。Web 以 deleted 为成功依据并显示本地化待清理提示，不会因该附加字段恢复卡片。
 
 独立读取 `build/theme-export-tests-20260912.xml` 和 `.log`：60 项全部通过，0 failure/error/skipped/disabled；其中 4 个新增真实 HTTP 用例覆盖内置保护、注入 destination 拒绝、原生能力缺失、鉴权 ZIP 头、取消选择不打包、原生保存、删除当前主题持久化 blue、旧偏好写入拒绝、配置写入失败后的文件/偏好回滚。另有 DesktopStrings 的完整 catalog 和 ZIP 文案断言通过。本复核未重复运行这 60 项。

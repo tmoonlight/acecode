@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `/api/git/info` is expensive on Windows because one request starts several Git subprocesses. The existing Web UI can mount `GitSessionPill`, `SidePanel`, and the sidebar hover card for the same directory, so sharing a short-lived result and an in-flight promise is valuable. Claude's proposed singleton achieves that sharing but hardcodes the mutable global API client and keys only by `cwd`, while `ChatView` and `SidePanel` can use session-scoped clients with explicit daemon ports and tokens.

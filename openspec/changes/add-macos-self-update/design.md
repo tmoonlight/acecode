@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode already exposes update-check, background download, progress, completion, and desktop-restart behavior through the daemon and WebUI. The generic installer is designed for flat platform archives: it locates the running executable, treats its parent as the install directory, and copies staged files into that directory. On macOS the WebUI daemon is `ACECode.app/Contents/MacOS/acecode-daemon`, while a release contains a complete signed `ACECode.app`; applying the flat algorithm therefore targets the wrong directory and would invalidate the bundle layout.

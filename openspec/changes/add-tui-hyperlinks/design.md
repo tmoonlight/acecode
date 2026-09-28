@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context（背景）
 
 - 链接元数据在"本地文件"场景已经端到端打通：`src/markdown/markdown_formatter.cpp` 用 `reflect(region.box)` 把每个链接的屏幕矩形记入 `opts.link_regions`，`src/main.cpp` 的鼠标处理器用 `href_at(mouse.x, mouse.y)` 命中检测后调 `open_tui_chat_file_link()`（`src/tui/chat_file_link.cpp`），后者当前用 `has_url_scheme()` 拒绝一切带 scheme 的 URL。

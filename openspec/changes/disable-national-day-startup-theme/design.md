@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 默认配置已经是 `theme: system` 与 `color_theme: blue`。节日主题来自 `App.jsx` 在恢复 daemon 外观后调用 `applyStartupTheme`，而非默认配置值。动机见 proposal.md。

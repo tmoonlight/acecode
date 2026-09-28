@@ -1,0 +1,49 @@
+{
+  "results": [
+    {
+      "host": "conpty",
+      "exit_route": "slash",
+      "passed": true,
+      "child_model_in_flight": true,
+      "exit_seconds": 1.2,
+      "exit_code": 0,
+      "resume_hint_visible": true,
+      "writer_leases_removed": true
+    },
+    {
+      "host": "winpty",
+      "exit_route": "slash",
+      "passed": true,
+      "child_model_in_flight": true,
+      "exit_seconds": 1.1,
+      "exit_code": 0,
+      "resume_hint_visible": true,
+      "writer_leases_removed": true
+    },
+    {
+      "host": "conpty",
+      "exit_route": "double-ctrl-c",
+      "passed": true,
+      "child_model_in_flight": true,
+      "parent_idle_before_exit": true,
+      "first_ctrl_c_kept_process": true,
+      "exit_seconds": 0.95,
+      "exit_code": 0,
+      "resume_hint_visible": true,
+      "writer_leases_removed": true
+    },
+    {
+      "host": "winpty",
+      "exit_route": "double-ctrl-c",
+      "passed": true,
+      "child_model_in_flight": true,
+      "parent_idle_before_exit": true,
+      "first_ctrl_c_kept_process": true,
+      "exit_seconds": 1.35,
+      "exit_code": 0,
+      "resume_hint_visible": true,
+      "writer_leases_removed": true
+    }
+  ],
+  "scope": "Isolated local loopback model; real TUI parent spawns a child whose model call is still blocked at exit."
+}

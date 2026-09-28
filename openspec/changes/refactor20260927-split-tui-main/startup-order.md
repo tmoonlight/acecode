@@ -125,3 +125,81 @@
 已逐节对照 [manual-test-checklist.md](manual-test-checklist.md) 与 design.md 的不变量：第 1 节覆盖启动、四场景及 hook；第 2–3 节覆盖消息、状态 chip、retry/todo/goal 和工具行；第 4 节覆盖浮层吞键；第 5–7 节覆盖 composer、鼠标和中断；第 8 节覆盖全屏界面；第 9 节覆盖子代理/RC/通知/标题；第 10 节覆盖关停、worktree、断网与中文 IME。未发现必须删除或缩减的验证项。
 
 核对清单的覆盖范围不等于已经逐项执行。三类终端的实操、四平台构建/测试及 B-12 的新旧快照比对各自保留独立结果；本表不替代这些验收。
+
+## B-01 至 B-03 实现登记
+
+2026-09-28:入口的原位置仍依次调用进程环境、非 TUI 分派、CLI 解析、预命令和交互启动。环境准备迁入 app/startup_environment,运行时初始化迁入 app/tui_runtime_init;原后台任务的启动位置尚未改变,由 B-12 接续对象化。model/initial_state 负责输入历史、模型状态和启动提示。终端控制函数归 term/terminal_control,终端恢复注册仍在 ensure_interactive_terminal 的原位置,由 B-13 接续改为幂等注册。
+
+TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_default_permissions 提供,没有增加其它宿主的调用。app/startup_worktree 的退出函数只读 SessionManager::active_worktree,仍在工作线程与后台任务结束后、session.finalize 之前执行;无变更先切回 original_cwd 再删除,变更统计失败保留。以上是实现位置登记,尚未执行本轮启动快照与 Windows 运行验证。
+
+## B-04 至 B-05 实现登记
+
+附件构造与输入历史分别归 domain/session、domain/history,纯 TUI 叶子归 model/chat/render/overlays。ChatViewport 持有 chat_box、布局宽高/版本与渲染缓存,FrameGeometry 持有其它反射 box、输入命中与链接区域;原 ChatScrollRuntime 引用包和六个视口 lambda 已删除。帧准备仍先同步上一帧布局、再 clamp 焦点,其它帧内顺序由 B-06/B-07 继续迁移。main 的局部引用只借用这两个对象,由 B-13 继续成员化。所有 TUI 生产接口仍置于 acecode::tui,未增加按目录划分的命名空间。新增用例尚待一期统一验证。
+
+### B-06 实现记录(待统一验收)
+
+- 只读视图维持原帧构建顺序。普通 composer 回调仅在常规分支执行;ask/confirm 清空命中布局且不调用该回调。
+- 根布局阶段才调用 regular_sidebar_view,仍以 TuiState& 接收并将上一帧内容/视口高度用于 sidebar_scroll_top_row clamp。不得将此写回前置到 prepare 或改为 const 强转。
+- tui_helpers 的所有调用与测试改为直接包含职责头,旧聚合头和实现删除。MCP 状态投影与 thinking phrases 不依赖 ftxui API;显示格、输入换行、状态 chip 和侧栏分别拥有实现。
+- 链接气泡的位置算法由原函数直接外提,终端尺寸在原 hover 分支调用时采样;不改变边界或翻转规则。
+
+### B-07 帧内与屏幕宿主记录(待统一验收)
+
+1. 帧持有 state.mu,先清 composer 命中区域,按原时点采样终端/上一帧 chat_box 宽度。
+2. prepare_frame_locked 依次同步测量、clamp 焦点、依据上一帧 message_boxes 补偿选区,再清几何 vectors 与链接收集器。
+3. 横幅 → transcript → 活动提示 → picker → 路径/slash → ask/confirm → prompt/status → 根布局。侧栏 clamp 仍在根布局;ask 布局写回经共享 projection 适配器执行。
+4. transcript 保留 call/result FIFO 可见窗口配对,无链接消息缓存、OSC8 按首次 Markdown 渲染探测;每条消息仍同时 reflect_unclipped 与 reflect。
+5. TuiScreenHost 在原屏幕创建位置启用 Kitty、探测 hover、设置同步输出,再创建 redraw pacer。帧 begin 仍在 render 前,complete 仍经 Post 在 Draw/Flush 后运行。
+6. 补回 B-04 抽取布局时遗漏的 current_message_width 绑定,缓存 content hash 移为 message_render_cache_revision;公式与原实现相同。
+
+### B-08 输入阶段记录(待统一验收)
+
+- 浮层矩阵测试先于抽取写入;依用户 D27 要求,没有在抽取前后运行测试,将在一期全部实现后统一执行。
+- ask 的 Custom/cursor-position 终止链并返回 false,鼠标未消费也终止链。confirm/path/slash 的 false 仍是 Continue;slash Enter 补全后继续提交。rewind 激活时仍吞掉所有其它键。
+- 列表 Enter、分页、Esc、Up、Down、字符各为独立入口,原锁区间保持;Esc 入口仍排在隐藏气泡和拖选复位之后。resume Enter 与数字键在 viewport.reset 上的原有差异保持,未强行合并。
+- Ctrl+E 原位外提,保持列表 picker/confirm 可展开、rewind 遮蔽的差异。其它编辑键的 picker 守卫暂留原位置,在 B-09/B-10 分别搬迁。
+
+### B-09 composer 记录(待统一验收)
+
+- 剪贴板读前/读后的 overlay 判定保留,读取与附件保存仍在原锁外区间;图片读取后仍沿用旧的较窄检查,未借机统一行为。
+- Enter 中命令上下文仍在持锁时构建;dispatch 前 unlock,根据 handled 分支在原位置 lock。首回合 MCP 等待同样先 unlock 后 lock;Shell 提交和普通 turn 提交保留旧锁区间。
+- 逐键编辑独立导出,Ctrl+O/Ctrl+E 仍夹在 Home 和 End fallback 之间。mode/model/resume 对 Delete/Backspace/Home 的既有差异保持。
+- 右键复制/粘贴只在原鼠标分支位置调用,TooLarge 不发 OSC52。SystemClipboard 的平台细节由 app/tui_clipboard 实现,测试注入 fake。
+- 输入组件保留原 Renderer(bool) 的 Focusable、鼠标 CaptureMouse/TakeFocus 与额外 reflect 盒子;帧宿主持锁期间才构建输入 DOM。
+- TuiInputTurnBinding/TuiInputCommandBinding 是 B-09 过渡接线,完整流水线与三处命令上下文统一后在 B-11 删除;不作为最终架构交付。
+
+### B-10 事件所有权与路由记录(待统一验收)
+
+| 入口状态 | 唯一事件所有者 | 保留行为 |
+| --- | --- | --- |
+| Chat | TuiEventRouter 的逐键表 | Consumed/Declined 都立即终止,分别向 FTXUI 返回 true/false |
+| 设置或管理全屏界面激活 | Container::Tab 当前全屏组件 | router 不运行;远程确认泵暂停,返回 Chat 后继续 |
+| 输入光标定位/ask 未消费鼠标 | 当前 handler,随后交还 FTXUI | 不得继续后续 app handler;FTXUI 仍建立/更新选区 |
+| 忙时 Ctrl+C | Ctrl+C 发 Escape,再由同一路由处理 | 原时点取消,不在 Ctrl+C 内直接调用 turn.cancel |
+
+- 38 个入口均带 7942011b:src/main.cpp 原行号,Ctrl+A/Home/Ctrl+O/Ctrl+E/End 的交错未合并。
+- 右键复制仅由 mouse_router 在 Pressed 隐藏悬停之后调用;非聊天鼠标返回 Declined。
+- app 捕获 LifetimeRef;handler 只借用固定的输入上下文与屏幕/提交/剪贴板接口。
+- 完整矩阵、逐键函数指针顺序、确认队列、Ctrl+C 回灌、鼠标定位、悬停复制、全屏事件所有权与撤销用例已编写,未运行。
+
+### B-11 提交与回调记录(待统一验收)
+
+- begin_user_turn_locked 的合并范围与七处差异见 turn-reset-proof.md;busy 回调保留先读旧 waiting 再赋 busy 的顺序,Shell 保留固定短语。
+- TuiSubmitter 保留 ensure_current、告警 Post、标题启动、submit 顺序;MCP 首回合等待仍在调用方原锁外区间。模型 resolver/transition 与告警闭包受 LifetimeRef 保护。
+- TuiAgentBridge 首版回调 → 首次 set_callbacks → 标题完成回调替换后的第二次 set_callbacks → progress/busy 完整接线后的第三次 set_callbacks,时点不变。
+- TuiOverlayGate 的 overlay 排队与 confirm_cv 等待不变;先 attach 后允许调用。回调撤销仍须在停止生产者/唤醒等待之后,由 B-13 的关停顺序固化。
+- TuiCommandContextFactory 统一通知恢复、启动 /resume、用户 Enter 三处构造;只有 Enter 上下文带用量观察与全屏入口。所有会被上下文保存的回调使用 LifetimeRef。
+- SessionManager 仅默认声明前移,原 start_session 步骤未提前;三个两阶段消费者均在 AgentLoop 创建后立即 attach。
+- B-12 继续把标题、通知、全屏的 main-owned 临时接线换成其对象;本阶段未执行构建或测试。
+
+### B-12 后台宿主与注册记录(待统一验收)
+
+- UpdateCheckTask 在 screen 设置后立即创建;AskUserQuestion 工具工厂仍随后注册,再创建 McpStatusBinding 并启动 MCP,未越过首回合。
+- CopilotAuthTask 在原认证步骤创建,消息顺序、silent/device flow 与 auth_done 的写入位置保留。这里仍保留旧 provider 借用,其共享寿命修复归 O-07,没有提前混入机械提取。
+- ModelPoolMonitorSubscription 在首次 set_callbacks 后创建;状态先写底栏原子量,再经 weak_ptr<UiPostTarget> 投递 context-window 更新与 Custom。stop 的位置不变,延迟任务受 LifetimeRef 保护。
+- AutoTitleRunner 在 start_session/set_session_manager 之后创建;原线程集合换为会回收的自持任务集合。profile 解析、session 身份核验、生成结果入账、UI/标题 hook、失败重试的顺序保留。
+- TuiNotificationBinding 在命令注册之后创建;通知点击经屏幕队列恢复会话。TuiTurnLifecycle 每次使用时读取当前 binding 的 ready/window,不再捕获旧值。
+- InboundSubmitRegistration 在最终 set_callbacks 后注册;AnimationTicker 随后启动。停入站、停动画与 join 各任务仍在原关停步骤。
+- FullScreenSurfaces 在 chat/frame 构建之后创建,保持 Settings → Management → Tab root 顺序。命令工厂只在事件期间访问固定的 surface owner slot,内部 /resume 上下文不带全屏入口。
+- animation_tick_locked 在原 state.mu 锁内采样 now 后执行;legacy phase 的时间采样仍在锁前。300ms hover、60ms drag、提示过期和 Ctrl+C 到期保留原边界,ShiftSelection 仍只在输入线程执行。
+- 新增测试均未运行。正常/首次 Copilot/无模型/启动 resume 的消息快照、构建和手工检查留到一期全部实现后的统一验收。

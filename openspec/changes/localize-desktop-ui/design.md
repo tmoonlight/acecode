@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The Desktop product is a native C++ shell around the same React/Vite UI served by the daemon. React currently mounts without a locale provider, the HTML root is permanently tagged `zh-CN`, presentation helpers contain Chinese text and hand-built date/count formatting, and native tray/dialog code owns another set of mixed Chinese/English labels. `acecode.uiPrefs.v1` and theme preferences are browser-local, while the native shell already loads `~/.acecode/config.json` before creating the WebView and can inject startup JavaScript before application modules execute.

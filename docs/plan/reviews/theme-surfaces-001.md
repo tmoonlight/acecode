@@ -25,8 +25,8 @@ visual: unverified
 
 | 契约 | 独立检查依据与结论 |
 | --- | --- |
-| schema 1 与恰好 28 色保持 | `src/themes/theme_store.cpp:271` 增加独立 `valid_theme_appearance`，原颜色集合不变。两个颜色只接受 7 字符的 `#RRGGBB`，通顶只接受 JSON boolean；对象为 null、错误类型、未知键及非法字段值均拒绝；空对象允许。 |
-| 旧草稿确认兼容 | `src/themes/theme_drafts.cpp:48` 仅在原草稿显式包含 appearance 时把它加入 palette digest；未添加默认字段，因此缺省旧草稿的 palette/prototype 摘要算法不变。 |
+| schema 1 与恰好 28 色保持 | `src/adapters/themes/theme_store.cpp:271` 增加独立 `valid_theme_appearance`，原颜色集合不变。两个颜色只接受 7 字符的 `#RRGGBB`，通顶只接受 JSON boolean；对象为 null、错误类型、未知键及非法字段值均拒绝；空对象允许。 |
+| 旧草稿确认兼容 | `src/adapters/themes/theme_drafts.cpp:48` 仅在原草稿显式包含 appearance 时把它加入 palette digest；未添加默认字段，因此缺省旧草稿的 palette/prototype 摘要算法不变。 |
 | 完整方案替换与确认失效 | `theme_drafts.cpp:178` 的 palette 先校验再改草稿；省略 appearance 会删除旧覆盖。修改方案清除两阶段确认及图片摘要。读取损坏的持久化 appearance 返回 `THEME_INVALID_APPEARANCE`。 |
 | status、安装及导出传递 | `theme_drafts.cpp:65` 保留 appearance；`:263` 的安装重试比较同一对象，`:273` 写入完整定义。原有 ThemeStore 继续保存和导出完整 theme.json，ZIP 仍只有三个根文件；新增 round-trip 回归读取实际 ZIP 并重新安装。 |
 | 安装不能追加参数 | `theme_drafts.cpp:118` 只有 palette 允许 appearance；prototype/install/status 不接受追加外观配置。工具 schema、工具描述与这些限制一致。 |
@@ -46,9 +46,9 @@ visual: unverified
 
 独立执行的 31 项轻量回归全部通过：
 
-- `node src/lib/themeSurfaces.test.js`：7 项。覆盖严格校验、旧/显式缺省规则、属性清理、SVG 几何、实际组件 SSR、实际 renderer 控制流及 CSS/入口关联。
-- `node src/lib/themePackages.test.js`：22 项。保留主题切换、加载失败、迟到资源、删除回退、离线和资源释放的既有行为。
-- `node src/lib/topBarWindowDrag.test.js`：2 项。保留标题栏拖拽范围、消费事件排除及面板按钮语义。
+- `node web/src/lib/themeSurfaces.test.js`：7 项。覆盖严格校验、旧/显式缺省规则、属性清理、SVG 几何、实际组件 SSR、实际 renderer 控制流及 CSS/入口关联。
+- `node web/src/lib/themePackages.test.js`：22 项。保留主题切换、加载失败、迟到资源、删除回退、离线和资源释放的既有行为。
+- `node web/src/lib/topBarWindowDrag.test.js`：2 项。保留标题栏拖拽范围、消费事件排除及面板按钮语义。
 
 已独立读取并核验作者完成的证据，未重跑共享构建：
 

@@ -25,14 +25,14 @@
 
 | 文件 | 职责 | 新建/修改 |
 |------|------|:---:|
-| `src/skills/skill_usage_store.hpp` | 数据模型 + 公开接口声明 | 新建 |
-| `src/skills/skill_usage_store.cpp` | store 实现:读/写/判定/并发 | 新建 |
-| `src/agent/agent_loop.cpp` | 注入点记录 + 列表过滤 | 修改 |
-| `src/config/config.hpp` | `SkillsConfig` 新增 `idle_days` | 修改 |
-| `src/tui/tui_state.hpp` | 新增 store 引用 | 修改 |
-| `src/cli/main.cpp` | 初始化 store + 传参 | 修改 |
-| `src/tui/settings/management_center.cpp` | TUI 展示次数/状态/pin | 修改 |
-| `src/web/handlers/skills_handler.cpp` | Web API 返回状态 + pin | 修改 |
+| `src/domain/skills/skill_usage_store.hpp` | 数据模型 + 公开接口声明 | 新建 |
+| `src/domain/skills/skill_usage_store.cpp` | store 实现:读/写/判定/并发 | 新建 |
+| `src/engine/agent/agent_loop.cpp` | 注入点记录 + 列表过滤 | 修改 |
+| `src/base/config/config.hpp` | `SkillsConfig` 新增 `idle_days` | 修改 |
+| `src/apps/tui/tui_state.hpp` | 新增 store 引用 | 修改 |
+| `src/apps/cli/main.cpp` | 初始化 store + 传参 | 修改 |
+| `src/apps/tui/settings/management_center.cpp` | TUI 展示次数/状态/pin | 修改 |
+| `src/apps/web/handlers/skills_handler.cpp` | Web API 返回状态 + pin | 修改 |
 | `tests/skills/skill_usage_store_test.cpp` | store 单元测试 | 新建 |
 | (顶层 CMake GLOB_RECURSE 自动收集 src/*.cpp,无需注册) | - | - |
 | (tests/ GLOB 自动收集 *_test.cpp,无需注册) | - | - |
@@ -42,7 +42,7 @@
 ### Task 1: 数据模型与 store 接口声明
 
 **Files:**
-- Create: `src/skills/skill_usage_store.hpp`
+- Create: `src/domain/skills/skill_usage_store.hpp`
 
 **Interfaces:**
 - Produces: `SkillUsageRecord`, `SkillUsageSummary`, `SkillUsageStore`, `parse_iso8601_to_epoch_ms`
@@ -50,7 +50,7 @@
 - [ ] **Step 1: 编写 header**
 
 ```cpp
-// src/skills/skill_usage_store.hpp
+// src/domain/skills/skill_usage_store.hpp
 #pragma once
 
 #include <cstdint>
@@ -105,7 +105,7 @@ Expected: 编译通过(仅有声明,链接时符号缺失是预期)
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/skills/skill_usage_store.hpp
+git add src/domain/skills/skill_usage_store.hpp
 git commit -m "feat: add SkillUsageStore header with interface declarations"
 ```
 
@@ -114,8 +114,8 @@ git commit -m "feat: add SkillUsageStore header with interface declarations"
 ### Task 2: Store 实现
 
 **Files:**
-- Create: `src/skills/skill_usage_store.cpp`
-- Modify: `src/CMakeLists.txt`
+- Create: `src/domain/skills/skill_usage_store.cpp`
+- Modify: `CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: `SkillUsageStore`, `SkillUsageRecord`, `SkillUsageSummary` from Task 1
@@ -124,7 +124,7 @@ git commit -m "feat: add SkillUsageStore header with interface declarations"
 - [ ] **Step 1: 编写实现**
 
 ```cpp
-// src/skills/skill_usage_store.cpp
+// src/domain/skills/skill_usage_store.cpp
 #include "skills/skill_usage_store.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"
@@ -267,7 +267,7 @@ Expected: 编译通过
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/skills/skill_usage_store.cpp
+git add src/domain/skills/skill_usage_store.cpp
 git commit -m "feat: implement SkillUsageStore with JSON read/write"
 ```
 
@@ -387,14 +387,14 @@ git commit -m "test: add SkillUsageStore unit tests"
 ### Task 4: 配置项 `skills.idleDays`
 
 **Files:**
-- Modify: `src/config/config.hpp`
+- Modify: `src/base/config/config.hpp`
 
 **Interfaces:**
 - Produces: `SkillsConfig::idle_days` (int, default 30)
 
 - [ ] **Step 1: 添加字段**
 
-在 `src/config/config.hpp` 的 `SkillsConfig` struct 中追加:
+在 `src/base/config/config.hpp` 的 `SkillsConfig` struct 中追加:
 
 ```cpp
 struct SkillsConfig {
@@ -414,7 +414,7 @@ Expected: 编译通过
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/config/config.hpp
+git add src/base/config/config.hpp
 git commit -m "feat: add idle_days config to SkillsConfig"
 ```
 
@@ -423,7 +423,7 @@ git commit -m "feat: add idle_days config to SkillsConfig"
 ### Task 5: 注入点记录 + 列表过滤
 
 **Files:**
-- Modify: `src/agent/agent_loop.cpp`
+- Modify: `src/engine/agent/agent_loop.cpp`
 
 **Interfaces:**
 - Consumes: `SkillUsageStore` from Task 2, `SkillsConfig::idle_days` from Task 4
@@ -486,7 +486,7 @@ Expected: 编译通过
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/agent/agent_loop.cpp
+git add src/engine/agent/agent_loop.cpp
 git commit -m "feat: record skill usage on injection and filter dormant skills"
 ```
 
@@ -495,8 +495,8 @@ git commit -m "feat: record skill usage on injection and filter dormant skills"
 ### Task 6: 初始化与状态传递
 
 **Files:**
-- Modify: `src/tui/tui_state.hpp`
-- Modify: `src/cli/main.cpp`
+- Modify: `src/apps/tui/tui_state.hpp`
+- Modify: `src/apps/cli/main.cpp`
 
 **Interfaces:**
 - Consumes: `SkillUsageStore` from Task 2
@@ -505,7 +505,7 @@ git commit -m "feat: record skill usage on injection and filter dormant skills"
 - [ ] **Step 1: 在 tui_state 添加 store 引用**
 
 ```cpp
-// src/tui/tui_state.hpp, 在 slash_command_usage_counts 附近
+// src/apps/tui/tui_state.hpp, 在 slash_command_usage_counts 附近
 #include "skills/skill_usage_store.hpp"
 // ...
 std::shared_ptr<SkillUsageStore> skill_usage_store;
@@ -514,7 +514,7 @@ std::shared_ptr<SkillUsageStore> skill_usage_store;
 - [ ] **Step 2: 在 main.cpp 初始化 store**
 
 ```cpp
-// src/cli/main.cpp, 在 skill_registry 初始化后
+// src/apps/cli/main.cpp, 在 skill_registry 初始化后
 auto home = /* acecode home dir */;
 auto state_path = home + "/.skill_usage_state.json";
 state.skill_usage_store = std::make_shared<SkillUsageStore>(state_path);
@@ -528,7 +528,7 @@ Expected: 编译通过
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/tui/tui_state.hpp src/cli/main.cpp
+git add src/apps/tui/tui_state.hpp src/apps/cli/main.cpp
 git commit -m "feat: wire SkillUsageStore into tui_state and main"
 ```
 
@@ -537,7 +537,7 @@ git commit -m "feat: wire SkillUsageStore into tui_state and main"
 ### Task 7: TUI 展示
 
 **Files:**
-- Modify: `src/tui/settings/management_center.cpp`
+- Modify: `src/apps/tui/settings/management_center.cpp`
 
 - [ ] **Step 1: 在 /skills 面板或管理中心的 skill 列表追加状态列**
 
@@ -566,7 +566,7 @@ Expected: 编译通过
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/tui/settings/management_center.cpp
+git add src/apps/tui/settings/management_center.cpp
 git commit -m "feat: display skill usage stats and dormant status in TUI"
 ```
 
@@ -575,7 +575,7 @@ git commit -m "feat: display skill usage stats and dormant status in TUI"
 ### Task 8: Web 展示
 
 **Files:**
-- Modify: `src/web/handlers/skills_handler.cpp`
+- Modify: `src/apps/web/handlers/skills_handler.cpp`
 
 - [ ] **Step 1: 在现有 GET /skills API 响应中追加 usage 字段**
 
@@ -605,7 +605,7 @@ Expected: 编译通过
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/web/handlers/skills_handler.cpp
+git add src/apps/web/handlers/skills_handler.cpp
 git commit -m "feat: expose skill usage stats via Web API"
 ```
 

@@ -23,7 +23,7 @@ PAGES = {
         code("/tasks\n/tasks list\n/tasks abort 子任务ID\n/tasks clear", "TUI · 管理后台任务"),
         figure("AD-04", "后台任务与来自子任务的请求", "展示运行中与已完成分组、查看会话和停止入口，以及带来源名称的权限确认。"),
         '''<p>全部子任务完成后，让主任务检查它们之间的冲突、统一差异并运行必要验证。各自报告“完成”不能代替整合后的构建或测试。</p>''')
-], ["web/src/components/InputBar.jsx", "web/src/components/ComposerSessionControls.jsx", "web/src/components/SubagentPanel.jsx", "src/tui/commands/builtin_commands.cpp", "docs/subagents.md"]),
+], ["web/src/components/InputBar.jsx", "web/src/components/ComposerSessionControls.jsx", "web/src/components/SubagentPanel.jsx", "src/apps/tui/commands/builtin_commands.cpp", "docs/subagents.md"]),
 
 "schedules": page("把清晰且可重复的任务保存为循环，按周期、间隔或指定时间执行，并通过记录检查每次结果。", [
     section("create", "创建与设置执行时间",
@@ -36,7 +36,7 @@ PAGES = {
     section("manage", "查看记录、暂停与管理",
         '''<p>列表展示下一次执行与最近运行情况。打开运行记录查看等待执行、执行中、等待用户、已完成、失败或已错过等状态，并检查关联任务的输出。失败应结合原因处理，不能只看循环仍为启用状态。</p><p><strong>停用</strong>用于暂停后续计划，重新<strong>启用</strong>后检查新的执行时间；需要停止正在运行的那一轮，应打开对应任务并停止。编辑时可调整提示、模型与时间。删除循环也会移除其运行记录，保留需要的信息后再删除。</p><p>daemon 必须在执行时间保持运行，模型和工作目录也要可用。计算机离线、休眠或后台停止期间错过的执行会记录为已错过，不应期待恢复后把每次历史执行逐一补跑。同一工作空间的时间冲突会在保存或启用时提示，运行时占用也可能导致错过。</p><p>远端后台按其时间配置调度。跨时区或系统时区变化后，重新核对下一次执行时间；不要只按浏览器所在设备的时钟推测。</p>''',
         figure("AD-06", "循环列表与运行记录", "展示下一次执行、启用或停用按钮和一条真实运行记录，标出状态、原因及查看任务入口。"))
-], ["web/src/components/LoopPage.jsx", "web/src/lib/loops.js", "src/loop/loop_types.hpp", "src/loop/loop_scheduler.cpp", "src/loop/loop_store.cpp"]),
+], ["web/src/components/LoopPage.jsx", "web/src/lib/loops.js", "src/host/loop/loop_types.hpp", "src/host/loop/loop_scheduler.cpp", "src/host/loop/loop_store.cpp"]),
 
 "agent-browser": page("在桌面端把需要处理的网页共享给智能体，让浏览、定位和操作发生在你能看到的页面中。", [
     section("open", "打开浏览器面板",
@@ -63,7 +63,7 @@ PAGES = {
     section("manage", "查看状态、解绑与手动接入",
         code("/rc show\n/rc off", "在 ACECode 会话中查看状态与解除绑定"),
         '''<p>show 展示当前连接、入站与出站状态，内容可能包含认证信息，不要直接公开截图。off 解除当前绑定。daemon 托管模式会保存绑定会话并在后续启动时尝试恢复，单纯关闭桌面窗口不等于主动解绑。</p><p>手动集成使用 <code>/remote-control on</code> 启动本地入站服务，再通过 <code>/remote-control url &lt;webhook-url&gt;</code> 指定出站地址。入站使用 <code>POST /rc/send</code>、<code>X-ACECode-RC-Token</code> 请求头和 <code>{"text":"消息"}</code> 正文；按 show 的实际地址接入。</p><p>远程消息控制与<a href="web.html#remote">远程 Web</a>是两套入口，认证头与端口也不同。需要实现自己的渠道时，参见<a href="extension-development.html#channel">渠道插件协议</a>。</p>''')
-], ["src/config/config.hpp", "src/tui/commands/remote_control_command.cpp", "src/remote_control/session_channel_binder.cpp", "docs/channel-plugin-protocol.md"]),
+], ["src/base/config/config.hpp", "src/apps/tui/commands/remote_control_command.cpp", "src/host/remote_control/session_channel_binder.cpp", "docs/channel-plugin-protocol.md"]),
 
 "examples": page("用四个完整流程练习把目标、范围、执行和验证连在一起。示例提示可直接修改后使用。", [
     section("new-project", "新项目实战",

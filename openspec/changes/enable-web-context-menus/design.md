@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景
 
 `DesktopContextMenu` 已经是会话、工作区、文件、预览、变更、消息、工具输出和附件的统一对象菜单。当前组件通过 `isDesktopShell() || isWebappCompat()` 决定是否接管 `contextmenu`；普通浏览器因此完全绕过这套对象识别，只能获得浏览器原生菜单。

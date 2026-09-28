@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The current appearance implementation has three independent React/localStorage owners: `ThemeProvider` stores `ace.theme` and `ace.colorTheme`, while `App` stores `fontSize` inside `acecode.uiPrefs.v1`. This works only while the WebUI keeps the same origin. Desktop-managed daemons are assigned available loopback ports, and the port participates in the browser origin, so a later Desktop process cannot see the previous origin's localStorage.

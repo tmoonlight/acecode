@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 #include "cli/channels_cli.hpp"
 #include "tui/commands/command_registry.hpp"
@@ -35,7 +36,10 @@ TEST(ChannelCommand, MainTuiDoesNotRegisterChannelCommands) {
     TokenTracker tracker;
     PermissionManager permissions;
     ToolExecutor tools;
-    AgentLoop loop([] { return std::shared_ptr<LlmProvider>{}; }, tools, AgentCallbacks{}, "", permissions);
+    AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([] { return std::shared_ptr<LlmProvider>{}; }, tools, AgentCallbacks{}, permissions),
+        acecode_test::AgentLoopFixture::configuration(""));
+    loop.start();
     CommandRegistry registry;
     register_builtin_commands(registry);
     CommandContext context{state, loop, nullptr, config, tracker, permissions};

@@ -33,7 +33,7 @@ ACECode 当前的模型选择实现处在"半成品"状态:
 
 ```
                   ┌─────────────────────────────────────┐
-                  │  src/provider/  (shared lib)        │
+                  │  src/adapters/provider/  (shared lib)        │
                   │  ┌───────────────────────────────┐  │
                   │  │ model_resolver.cpp            │  │  纯函数(已存在)
                   │  │   resolve_effective_model     │  │
@@ -50,7 +50,7 @@ ACECode 当前的模型选择实现处在"半成品"状态:
        ┌───────────────────┘                   └────────────────────┐
        ▼                                                            ▼
 ┌──────────────┐                                       ┌─────────────────────┐
-│ src/cli/main.cpp │                                       │ src/web/handlers/   │
+│ src/apps/cli/main.cpp │                                       │ src/apps/web/handlers/   │
 │ ctx.provider_slot ◀── 升级版                         │   models_handler    │
 │ /model 调 apply_model_to_session                     │   POST /api/models  │
 │ /model add|edit|rm|set-default                       │   PUT/DELETE        │
@@ -72,7 +72,7 @@ ACECode 当前的模型选择实现处在"半成品"状态:
 
 ### 4.1 共享 helper: `apply_model_to_session`
 
-`src/provider/apply_model_to_session.{hpp,cpp}`,进 `acecode_testable`。
+`src/host/session_host/apply_model_to_session.{hpp,cpp}`,进 `acecode_testable`。
 
 ```cpp
 namespace acecode {
@@ -128,7 +128,7 @@ ApplyModelResult apply_model_to_session(const ModelProfile& profile,
 
 ### 4.3 saved_models 编辑模块
 
-`src/config/saved_models_editor.{hpp,cpp}`,纯逻辑(读 cfg → 改 cfg → 校验,落盘交给 caller)。
+`src/base/config/saved_models_editor.{hpp,cpp}`,纯逻辑(读 cfg → 改 cfg → 校验,落盘交给 caller)。
 
 ```cpp
 struct SavedModelDraft {
@@ -301,7 +301,7 @@ WebUI 是单例(同一时间只有一个 WebUI 实例),不存在两 WebUI 并发
 
 ### 7.1 纯逻辑(`acecode_unit_tests`)
 
-`tests/test_apply_model_to_session.cpp`:
+`tests/session_host/apply_model_to_session_test.cpp`:
 
 - OpenAI → OpenAI 切换:slot 替换、context_window 更新、sm 调用。
 - OpenAI → Copilot:silent_auth 失败填 warning 但成功返回。
@@ -309,7 +309,7 @@ WebUI 是单例(同一时间只有一个 WebUI 实例),不存在两 WebUI 并发
 - Provider 工厂抛异常:helper 抛 runtime_error,slot 不动。
 - cfg 为空:抛 runtime_error("config unavailable")。
 
-`tests/test_saved_models_editor.cpp`:
+`tests/config/saved_models_editor_test.cpp`:
 
 - 九个错误码每个一例。
 - 成功路径:add / update 字段值正确;update 改名走 delete+add;remove 后长度 -1。
@@ -331,7 +331,7 @@ WebUI 是单例(同一时间只有一个 WebUI 实例),不存在两 WebUI 并发
 
 ### 7.3 TUI 命令
 
-`tests/test_model_command.cpp` 扩:
+`tests/tui/commands/model_command_test.cpp` 扩:
 
 - `/model` 无参 picker 打开。
 - `/model <name>` 命中:slot 真换、状态行/token 条更新。
@@ -371,28 +371,28 @@ CI 不跑,实现完成时手过:
 
 新增:
 
-- `src/provider/apply_model_to_session.{hpp,cpp}`
-- `src/config/saved_models_editor.{hpp,cpp}`
+- `src/host/session_host/apply_model_to_session.{hpp,cpp}`
+- `src/base/config/saved_models_editor.{hpp,cpp}`
 - `web/src/components/ModelManager.jsx`
 - `web/src/components/Settings.jsx`
 - `web/src/lib/errors.js`
 - `web/src/lib/modelPicker.js`
 - `web/src/lib/modelManager.js`
-- `tests/test_apply_model_to_session.cpp`
-- `tests/test_saved_models_editor.cpp`
+- `tests/session_host/apply_model_to_session_test.cpp`
+- `tests/config/saved_models_editor_test.cpp`
 
 修改:
 
-- `src/cli/main.cpp` — `ProviderSlot slot;` + 调整 ProviderAccessor 闭包。
-- `src/tui/commands/command_registry.hpp` — `CommandContext` 字段从 `provider_handle/provider_mu/provider` 改为 `provider_slot`。
-- `src/tui/commands/model_command.cpp` — picker 改 FTXUI;新增 add/edit/rm/set-default 子命令;切换调 apply_model_to_session。
-- `src/session/session_registry.cpp` — `switch_model` 改成调 helper 的壳子,删重复实现。
-- `src/web/server.cpp` — 注册 POST/PUT/DELETE `/api/models`、`POST /api/config/default-model`。
-- `src/web/handlers/models_handler.{hpp,cpp}` — 加 add/update/remove handler 纯逻辑。
+- `src/apps/cli/main.cpp` — `ProviderSlot slot;` + 调整 ProviderAccessor 闭包。
+- `src/apps/tui/commands/command_registry.hpp` — `CommandContext` 字段从 `provider_handle/provider_mu/provider` 改为 `provider_slot`。
+- `src/apps/tui/commands/model_command.cpp` — picker 改 FTXUI;新增 add/edit/rm/set-default 子命令;切换调 apply_model_to_session。
+- `src/host/session_host/session_registry.cpp` — `switch_model` 改成调 helper 的壳子,删重复实现。
+- `src/apps/web/server.cpp` — 注册 POST/PUT/DELETE `/api/models`、`POST /api/config/default-model`。
+- `src/apps/web/handlers/models_handler.{hpp,cpp}` — 加 add/update/remove handler 纯逻辑。
 - `web/src/components/ModelPicker.jsx` — 接 errors.js + modelPicker.js,失败 toast i18n,orphan value disabled 灰条。
 - `web/src/components/Sidebar.jsx`(或其他设置入口宿主)— 加齿轮 → 弹 Settings 抽屉。
 - `web/src/lib/api.js` — 加 `addModel` / `updateModel` / `removeModel` / `setDefaultModel`。
-- `tests/test_models_handlers.cpp`、`tests/test_model_command.cpp` — 扩。
+- `tests/test_models_handlers.cpp`、`tests/tui/commands/model_command_test.cpp` — 扩。
 
 ## 10. 后续可能的扩展(out of scope)
 

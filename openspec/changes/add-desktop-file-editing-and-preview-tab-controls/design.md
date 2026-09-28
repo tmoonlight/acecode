@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景
 
 当前文件详情由 `FilePreviewContent.jsx` 读取 `/api/files/content` 或 `/api/files/blob` 后只读渲染；`PreviewDetailsPanel.jsx` 只挂载活动标签内容，`ChatView.jsx` 与 `previewTabs.js` 保存标签集合但没有编辑草稿。详情面板右上角叉号调用“关闭全部标签”，浏览器标签还会同步销毁原生页面。

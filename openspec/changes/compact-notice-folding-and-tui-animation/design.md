@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode persists and broadcasts compaction progress, checkpoint, summary, and warning as ordinary transcript-only system messages. That preserves an append-only audit trail, but neither surface knows that the messages belong to one completed operation. The TUI therefore renders the generated summary at full height, while the Web treats each message as an unrelated generic system row. The TUI waiting row also has no compact-specific phase and currently renders the normal thinking shimmer.

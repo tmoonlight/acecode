@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 #include "agent/agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
@@ -58,8 +59,10 @@ public:
             prompts.push_back(nlohmann::json::parse(args));
             return answer;
         };
-        loop = std::make_unique<AgentLoop>([this]() -> std::shared_ptr<LlmProvider> { return provider; },
-            tools, callbacks, path_to_utf8(tree.root), permissions);
+        loop = std::make_unique<AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies([this]() -> std::shared_ptr<LlmProvider> { return provider; }, tools, callbacks, permissions),
+        acecode_test::AgentLoopFixture::configuration(path_to_utf8(tree.root)));
+        loop->start();
         loop->set_exec_rules({});
         loop->set_sandbox_availability_for_tests(available);
         loop->set_audit_sink([this](const security::AuditEntry& entry) { audits.push_back(entry); });

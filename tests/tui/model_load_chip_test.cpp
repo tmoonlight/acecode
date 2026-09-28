@@ -9,7 +9,7 @@
 // 回归时的表现:负载 chip 永不显示,或者永远停在旧值,底栏看不到「▁▃▅▇ NN%」。
 #include <gtest/gtest.h>
 
-#include "tui/tui_helpers.hpp"
+#include "tui/render/status_chips.hpp"
 
 #include <ftxui/dom/elements.hpp>
 #include <ftxui/dom/node.hpp>

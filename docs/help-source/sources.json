@@ -5,7 +5,7 @@
     "sources": [
       "README_CN.md",
       "docs/user-manual.md",
-      "src/headless/headless_options.cpp",
+      "src/apps/headless/headless_options.cpp",
       "docs/agent-browser.md"
     ]
   },
@@ -18,7 +18,7 @@
       "installer/windows/acecode.iss",
       "docs/macos-release.md",
       "docs/linux-self-update.md",
-      "src/daemon/cli.cpp"
+      "src/apps/daemon/cli.cpp"
     ]
   },
   {
@@ -36,7 +36,7 @@
     "article": "更新与卸载",
     "file": "update-uninstall.html",
     "sources": [
-      "src/cli/main.cpp",
+      "src/apps/cli/main.cpp",
       "npm/cli/README.md",
       "npm/desktop/README.md",
       "docs/macos-release.md",
@@ -60,24 +60,24 @@
     "file": "tui.html",
     "sources": [
       "docs/user-manual.md",
-      "src/tui/commands/command_registry.cpp",
-      "src/cli/interactive_options.cpp"
+      "src/apps/tui/commands/command_registry.cpp",
+      "src/apps/cli/interactive_options.cpp"
     ]
   },
   {
     "article": "CLI",
     "file": "cli.html",
     "sources": [
-      "src/headless/headless_options.cpp",
-      "src/headless/headless_options.hpp",
-      "src/headless/headless_runner.cpp"
+      "src/apps/headless/headless_options.cpp",
+      "src/apps/headless/headless_options.hpp",
+      "src/apps/headless/headless_runner.cpp"
     ]
   },
   {
     "article": "Web",
     "file": "web.html",
     "sources": [
-      "src/daemon/cli.cpp",
+      "src/apps/daemon/cli.cpp",
       "docs/user-manual.md",
       "docs/daemon-api.md",
       "web/src/components/SettingsPage.jsx"
@@ -115,7 +115,7 @@
       "web/src/components/GitSessionPill.jsx",
       "web/src/lib/gitSessionPill.js",
       "docs/daemon-api.md",
-      "src/tui/commands/builtin_commands.cpp"
+      "src/apps/tui/commands/builtin_commands.cpp"
     ]
   },
   {
@@ -124,7 +124,7 @@
     "sources": [
       "docs/user-manual.md",
       "web/src/components/SettingsPage.jsx",
-      "src/session/session_manager.cpp",
+      "src/domain/session/session_manager.cpp",
       "docs/daemon-api.md"
     ]
   },
@@ -142,8 +142,8 @@
     "article": "ACEModel",
     "file": "acemodel.html",
     "sources": [
-      "src/config/builtin_model_catalog.cpp",
-      "src/config/saved_models.cpp",
+      "src/base/config/builtin_model_catalog.cpp",
+      "src/base/config/saved_models.cpp",
       "web/src/components/model-settings/ModelProfileDialog.jsx",
       "web/src/components/model-settings/ProviderCatalogPicker.jsx"
     ]
@@ -155,8 +155,8 @@
       "web/src/components/model-settings/ModelProfileDialog.jsx",
       "web/src/components/model-settings/ModelConnectionCard.jsx",
       "web/src/components/model-settings/ModelSettingsSection.jsx",
-      "src/provider/openai_provider.cpp",
-      "src/provider/anthropic_provider.cpp"
+      "src/adapters/provider/openai_provider.cpp",
+      "src/adapters/provider/anthropic_provider.cpp"
     ]
   },
   {
@@ -167,7 +167,7 @@
       "web/src/components/model-settings/ModelSettingsSection.jsx",
       "web/src/components/model-settings/ModelProfileDialog.jsx",
       "web/src/components/ChatView.jsx",
-      "src/config/saved_models.cpp",
+      "src/base/config/saved_models.cpp",
       "docs/user-manual.md"
     ]
   },
@@ -178,15 +178,15 @@
       "web/src/components/model-settings/ModelProfileDialog.jsx",
       "web/src/components/model-settings/ModelProbeDialog.jsx",
       "web/src/components/model-settings/ProviderCatalogPicker.jsx",
-      "src/provider/model_context_resolver.cpp"
+      "src/adapters/provider/model_context_resolver.cpp"
     ]
   },
   {
     "article": "配置文件与生效范围",
     "file": "configuration.html",
     "sources": [
-      "src/config/config.cpp",
-      "src/config/config.hpp",
+      "src/base/config/config.cpp",
+      "src/base/config/config.hpp",
       "docs/user-manual.md",
       "web/src/components/SettingsPage.jsx"
     ]
@@ -197,8 +197,8 @@
     "sources": [
       "web/src/lib/permissionMode.js",
       "web/src/components/SettingsPage.jsx",
-      "src/permissions/permissions.hpp",
-      "src/headless/headless_options.cpp",
+      "src/domain/permissions/permissions.hpp",
+      "src/apps/headless/headless_options.cpp",
       "docs/user-manual.md"
     ]
   },
@@ -206,9 +206,9 @@
     "article": "网络与代理",
     "file": "network.html",
     "sources": [
-      "src/config/config.hpp",
-      "src/config/config.cpp",
-      "src/tui/commands/proxy_command.cpp",
+      "src/base/config/config.hpp",
+      "src/base/config/config.cpp",
+      "src/apps/tui/commands/proxy_command.cpp",
       "web/src/components/SettingsPage.jsx",
       "docs/user-manual.md"
     ]
@@ -226,9 +226,9 @@
     "article": "项目规则与初始化",
     "file": "project-rules.html",
     "sources": [
-      "src/project_instructions/instructions_loader.cpp",
-      "src/config/config.hpp",
-      "src/tui/commands/builtin_commands.cpp",
+      "src/domain/project_instructions/instructions_loader.cpp",
+      "src/base/config/config.hpp",
+      "src/apps/tui/commands/builtin_commands.cpp",
       "docs/user-manual.md"
     ]
   },
@@ -237,18 +237,18 @@
     "file": "memory.html",
     "sources": [
       "web/src/components/SettingsPage.jsx",
-      "src/memory/memory_paths.cpp",
-      "src/tui/commands/memory_command.cpp",
-      "src/tool/memory_read_tool.cpp",
-      "src/tool/memory_write_tool.cpp"
+      "src/domain/memory/memory_paths.cpp",
+      "src/apps/tui/commands/memory_command.cpp",
+      "src/adapters/tool/memory_read_tool.cpp",
+      "src/adapters/tool/memory_write_tool.cpp"
     ]
   },
   {
     "article": "内置工具",
     "file": "tools.html",
     "sources": [
-      "src/tool/builtin_tool_registry.hpp",
-      "src/headless/headless_options.cpp",
+      "src/adapters/tool/builtin_tool_registry.hpp",
+      "src/apps/headless/headless_options.cpp",
       "web/src/components/SettingsPage.jsx",
       "docs/user-manual.md"
     ]
@@ -258,8 +258,8 @@
     "file": "skills.html",
     "sources": [
       "docs/skills.md",
-      "src/skills/skill_init.cpp",
-      "src/config/config.hpp",
+      "src/domain/skills/skill_init.cpp",
+      "src/base/config/config.hpp",
       "web/src/components/SettingsPage.jsx"
     ]
   },
@@ -268,8 +268,8 @@
     "file": "mcp.html",
     "sources": [
       "web/src/components/SettingsPage.jsx",
-      "src/tui/commands/builtin_commands.cpp",
-      "src/config/config.hpp",
+      "src/apps/tui/commands/builtin_commands.cpp",
+      "src/base/config/config.hpp",
       "docs/user-manual.md"
     ]
   },
@@ -277,8 +277,8 @@
     "article": "LSP 与代码诊断",
     "file": "lsp.html",
     "sources": [
-      "src/lsp/lsp_server_registry.cpp",
-      "src/config/config.hpp",
+      "src/adapters/lsp/lsp_server_registry.cpp",
+      "src/base/config/config.hpp",
       "docs/user-manual.md"
     ]
   },
@@ -288,14 +288,14 @@
     "sources": [
       "docs/hooks.md",
       "web/src/components/SettingsPage.jsx",
-      "src/config/config.hpp"
+      "src/base/config/config.hpp"
     ]
   },
   {
     "article": "连接器",
     "file": "connectors.html",
     "sources": [
-      "src/config/config.hpp",
+      "src/base/config/config.hpp",
       "web/src/components/SettingsPage.jsx",
       "docs/user-manual.md"
     ]
@@ -318,7 +318,7 @@
       "web/src/components/InputBar.jsx",
       "web/src/components/ComposerSessionControls.jsx",
       "web/src/components/SubagentPanel.jsx",
-      "src/tui/commands/builtin_commands.cpp",
+      "src/apps/tui/commands/builtin_commands.cpp",
       "docs/subagents.md"
     ]
   },
@@ -328,9 +328,9 @@
     "sources": [
       "web/src/components/LoopPage.jsx",
       "web/src/lib/loops.js",
-      "src/loop/loop_types.hpp",
-      "src/loop/loop_scheduler.cpp",
-      "src/loop/loop_store.cpp"
+      "src/host/loop/loop_types.hpp",
+      "src/host/loop/loop_scheduler.cpp",
+      "src/host/loop/loop_store.cpp"
     ]
   },
   {
@@ -346,9 +346,9 @@
     "article": "消息渠道与远程控制",
     "file": "channels.html",
     "sources": [
-      "src/config/config.hpp",
-      "src/tui/commands/remote_control_command.cpp",
-      "src/remote_control/session_channel_binder.cpp",
+      "src/base/config/config.hpp",
+      "src/apps/tui/commands/remote_control_command.cpp",
+      "src/host/remote_control/session_channel_binder.cpp",
       "docs/channel-plugin-protocol.md"
     ]
   },
@@ -377,10 +377,10 @@
     "article": "安装、启动与更新问题",
     "file": "troubleshoot-install.html",
     "sources": [
-      "src/daemon/cli.cpp",
+      "src/apps/daemon/cli.cpp",
       "docs/daemon-api.md",
       "docs/user-manual.md",
-      "src/platform/native_ui/strings.cpp"
+      "src/base/platform/native_ui/strings.cpp"
     ]
   },
   {
@@ -399,7 +399,7 @@
     "sources": [
       "docs/user-manual.md",
       "docs/daemon-api.md",
-      "src/headless/headless_runner.cpp"
+      "src/apps/headless/headless_runner.cpp"
     ]
   },
   {
@@ -408,9 +408,9 @@
     "sources": [
       "docs/skills.md",
       "docs/hooks.md",
-      "src/tui/commands/builtin_commands.cpp",
+      "src/apps/tui/commands/builtin_commands.cpp",
       "web/src/components/SettingsPage.jsx",
-      "src/tool/builtin_tool_registry.hpp"
+      "src/adapters/tool/builtin_tool_registry.hpp"
     ]
   },
   {
@@ -418,7 +418,7 @@
     "file": "troubleshoot-desktop.html",
     "sources": [
       "docs/daemon-api.md",
-      "src/desktop/main.cpp",
+      "src/apps/desktop/main.cpp",
       "web/src/components/ConsoleDock.jsx",
       "docs/agent-browser.md"
     ]
@@ -428,11 +428,11 @@
     "file": "feedback.html",
     "sources": [
       "web/src/components/SettingsPage.jsx",
-      "src/feedback/feedback_upload.cpp",
-      "src/desktop/main.cpp",
-      "src/headless/headless_runner.cpp",
-      "src/daemon/worker.cpp",
-      "src/cli/main.cpp"
+      "src/adapters/feedback/feedback_upload.cpp",
+      "src/apps/desktop/main.cpp",
+      "src/apps/headless/headless_runner.cpp",
+      "src/apps/daemon/worker.cpp",
+      "src/apps/cli/main.cpp"
     ]
   },
   {
@@ -440,11 +440,11 @@
     "file": "reference.html",
     "sources": [
       "docs/user-manual.md",
-      "src/tui/commands/builtin_commands.cpp",
-      "src/headless/headless_options.cpp",
-      "src/utils/paths.cpp",
+      "src/apps/tui/commands/builtin_commands.cpp",
+      "src/apps/headless/headless_options.cpp",
+      "src/base/utils/paths.cpp",
       "docs/daemon-api.md",
-      "src/memory/memory_paths.cpp"
+      "src/domain/memory/memory_paths.cpp"
     ]
   },
   {
@@ -466,22 +466,22 @@
     "sources": [
       "ARCHITECTURE.md",
       "CMakeLists.txt",
-      "src/cli/main.cpp",
-      "src/agent/agent_loop.cpp",
-      "src/session_host/session_registry.cpp",
-      "src/tool/tool_executor.hpp",
-      "src/provider/session_model_binding.hpp"
+      "src/apps/cli/main.cpp",
+      "src/engine/agent/agent_loop.cpp",
+      "src/host/session_host/session_registry.cpp",
+      "src/adapters/tool/tool_executor.hpp",
+      "src/adapters/provider/session_model_binding.hpp"
     ]
   },
   {
     "article": "Daemon 部署与管理",
     "file": "daemon.html",
     "sources": [
-      "src/daemon/cli.cpp",
-      "src/daemon/service_win.cpp",
-      "src/daemon/worker.cpp",
+      "src/apps/daemon/cli.cpp",
+      "src/apps/daemon/service_win.cpp",
+      "src/apps/daemon/worker.cpp",
       "docs/daemon-api.md",
-      "src/utils/paths.cpp"
+      "src/base/utils/paths.cpp"
     ]
   },
   {
@@ -489,23 +489,23 @@
     "file": "api.html",
     "sources": [
       "docs/daemon-api.md",
-      "src/web/routes/routes_workspaces.cpp",
+      "src/apps/web/routes/routes_workspaces.cpp",
       "web/src/lib/api.js",
       "web/src/lib/connection.js",
-      "src/web/server_helpers.cpp"
+      "src/apps/web/server_helpers.cpp"
     ]
   },
   {
     "article": "扩展开发",
     "file": "extension-development.html",
     "sources": [
-      "src/tool/tool_executor.hpp",
-      "src/tool/task_complete_tool.cpp",
-      "src/tool/builtin_tool_registry.hpp",
-      "src/tui/commands/command_registry.hpp",
-      "src/web/handlers/builtin_command_handler.cpp",
+      "src/adapters/tool/tool_executor.hpp",
+      "src/adapters/tool/task_complete_tool.cpp",
+      "src/adapters/tool/builtin_tool_registry.hpp",
+      "src/apps/tui/commands/command_registry.hpp",
+      "src/apps/web/handlers/builtin_command_handler.cpp",
       "web/src/lib/builtinCommandRouting.js",
-      "src/remote_control/channel_plugin.cpp",
+      "src/host/remote_control/channel_plugin.cpp",
       "docs/channel-plugin-protocol.md"
     ]
   },

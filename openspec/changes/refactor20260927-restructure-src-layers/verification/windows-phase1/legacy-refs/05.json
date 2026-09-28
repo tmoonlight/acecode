@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "mode": "patch",
+  "source_ref": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+  "source_sha": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+  "onto_ref": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "onto_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "base_sha": "926aa620ae2a7da4336b505ada1fc8f2fe8862b0",
+  "map_sha256": "17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459",
+  "layout": "final",
+  "projection": false,
+  "destination": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\05",
+  "original_refs_untouched": true,
+  "build_validation": "not run",
+  "integration_ready": false,
+  "issues": [],
+  "cherry": [
+    "+ b893da6d8da696df2dbb92bc4f0cdeb967791411"
+  ],
+  "target_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "changed_paths": [
+    "src/agent_loop.cpp",
+    "src/agent_loop.hpp"
+  ],
+  "excluded_nested_or_submodule_paths": [],
+  "patch": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\05\\.git\\refactor-migration\\migration.patch",
+  "patch_sha256": "82c9cd61dfd2ef0ca86d6ac82185c56090f6999912abc1303df398460aa49df3",
+  "patch_bytes": 6530,
+  "patch_objects_bundle": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\05\\.git\\refactor-migration\\patch-objects.bundle",
+  "patch_base_sha": "4cfa50e0d5c57029fc7675a144973d0327cfea80",
+  "patch_head_sha": "b3a57f84dfc370020896b304d1bf99a537672669",
+  "git_apply": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.\nU src/engine/agent/agent_loop.cpp\nU src/engine/agent/agent_loop.hpp\n"
+  },
+  "conflicts": [
+    "src/engine/agent/agent_loop.cpp",
+    "src/engine/agent/agent_loop.hpp"
+  ],
+  "success": false,
+  "head_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "status": "UU src/engine/agent/agent_loop.cpp\nUU src/engine/agent/agent_loop.hpp\n",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "reason": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.",
+  "report_file": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\05\\.git\\refactor-migration\\report.json",
+  "inventory_ref": "refs/remotes/origin/claude/fix-desktop-context-compression-tkOxK"
+}

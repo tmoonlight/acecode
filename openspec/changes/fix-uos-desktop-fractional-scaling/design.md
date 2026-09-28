@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The UOS session reports `gtk-xft-dpi=122880` (120 DPI in GTK's 1024 units) and GTK window scale 1. Deepin's `scale-factor` preference was initially 1.25 and later 1.0 while the effective font DPI remained 120. WebKitGTK 2.38.5 enlarges CSS text with font DPI while leaving CSS pixel dimensions at window scale 1. ACECode uses fixed CSS pixel dimensions throughout the Desktop page. Both a local probe and the real Desktop window confirm that normalizing this process's GTK font DPI to 96 and applying a 1.25 whole-page zoom makes text and control geometry scale together.

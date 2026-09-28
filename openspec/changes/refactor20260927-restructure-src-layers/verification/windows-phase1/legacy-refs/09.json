@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "mode": "patch",
+  "source_ref": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+  "source_sha": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+  "onto_ref": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "onto_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "base_sha": "a5131b7e8455de07dd7c2c80b776d09516743c66",
+  "map_sha256": "17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459",
+  "layout": "final",
+  "projection": false,
+  "destination": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\09",
+  "original_refs_untouched": true,
+  "build_validation": "not run",
+  "integration_ready": false,
+  "issues": [
+    {
+      "kind": "semantic_extract",
+      "file": "src/config/config.cpp",
+      "target": "src/base/utils/paths.cpp",
+      "reason": "Extract get_acecode_dir/get_run_dir/get_logs_dir"
+    }
+  ],
+  "cherry": [
+    "+ 6f49c00ef274b7cbbd1f0da50cb9950e0ee3512b",
+    "+ 90f1ebd5fec4c9937de5f6b90d5a67e4f126074f",
+    "+ fd895862840e6557e205fa5e37bd7aa72ead10c9"
+  ],
+  "target_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "changed_paths": [
+    "CMakeLists.txt",
+    "src/agent_loop.cpp",
+    "src/agent_loop.hpp",
+    "src/config/config.cpp",
+    "src/config/config.hpp",
+    "src/prompt/jb_slot.cpp",
+    "src/prompt/jb_slot.hpp",
+    "src/prompt/jb_slot_table.inc",
+    "src/prompt/system_prompt.cpp",
+    "src/prompt/system_prompt.hpp",
+    "src/session/session_registry.cpp",
+    "src/session/session_registry.hpp",
+    "src/web/routes/routes_misc.cpp",
+    "tests/prompt/system_prompt_jb_mode_test.cpp",
+    "web/src/components/DeveloperSettings.jsx",
+    "web/src/components/SettingsPage.jsx",
+    "web/src/i18n/sourceCatalog.generated.js",
+    "web/src/lib/api.js",
+    "web/src/lib/fullscreenHeatWave.js",
+    "web/src/lib/jbMode.js",
+    "web/src/lib/jbMode.test.js",
+    "web/src/lib/runTests.js",
+    "web/src/lib/settingsSearch.js"
+  ],
+  "excluded_nested_or_submodule_paths": [],
+  "patch": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\09\\.git\\refactor-migration\\migration.patch",
+  "patch_sha256": "6f897c1aa4c3e625cf69242e51c031d2c25030b72c422ac409ca2e7f4e89c3ee",
+  "patch_bytes": 69339,
+  "patch_objects_bundle": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\09\\.git\\refactor-migration\\patch-objects.bundle",
+  "patch_base_sha": "03e36aa073c8cf4a2837a47b5fcca71bbb8e3cee",
+  "patch_head_sha": "0478983855e8b3e2b697863dedb8aca87a44136b",
+  "git_apply": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Applied patch to 'CMakeLists.txt' cleanly.\nApplied patch to 'src/apps/web/routes/routes_misc.cpp' cleanly.\nApplied patch to 'src/base/config/config.cpp' cleanly.\nApplied patch to 'src/base/config/config.hpp' cleanly.\nApplied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.\nFalling back to direct application...\nFalling back to direct application...\nFalling back to direct application...\nApplied patch to 'src/engine/prompt/system_prompt.cpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.hpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.cpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.hpp' with conflicts.\nFalling back to direct application...\nApplied patch to 'web/src/components/DeveloperSettings.jsx' cleanly.\nApplied patch to 'web/src/components/SettingsPage.jsx' cleanly.\nApplied patch to 'web/src/i18n/sourceCatalog.generated.js' cleanly.\nApplied patch to 'web/src/lib/api.js' cleanly.\nApplied patch to 'web/src/lib/fullscreenHeatWave.js' cleanly.\nFalling back to direct application...\nFalling back to direct application...\nApplied patch to 'web/src/lib/runTests.js' cleanly.\nApplied patch to 'web/src/lib/settingsSearch.js' with conflicts.\nU src/engine/agent/agent_loop.cpp\nU src/engine/agent/agent_loop.hpp\nU src/engine/prompt/system_prompt.cpp\nU src/engine/prompt/system_prompt.hpp\nU src/host/session_host/session_registry.cpp\nU src/host/session_host/session_registry.hpp\nU web/src/lib/settingsSearch.js\n"
+  },
+  "conflicts": [
+    "src/engine/agent/agent_loop.cpp",
+    "src/engine/agent/agent_loop.hpp",
+    "src/engine/prompt/system_prompt.cpp",
+    "src/engine/prompt/system_prompt.hpp",
+    "src/host/session_host/session_registry.cpp",
+    "src/host/session_host/session_registry.hpp",
+    "web/src/lib/settingsSearch.js"
+  ],
+  "success": false,
+  "head_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "status": "M  CMakeLists.txt\nM  src/apps/web/routes/routes_misc.cpp\nM  src/base/config/config.cpp\nM  src/base/config/config.hpp\nUU src/engine/agent/agent_loop.cpp\nUU src/engine/agent/agent_loop.hpp\nA  src/engine/prompt/jb_slot.cpp\nA  src/engine/prompt/jb_slot.hpp\nA  src/engine/prompt/jb_slot_table.inc\nUU src/engine/prompt/system_prompt.cpp\nUU src/engine/prompt/system_prompt.hpp\nUU src/host/session_host/session_registry.cpp\nUU src/host/session_host/session_registry.hpp\nA  tests/prompt/system_prompt_jb_mode_test.cpp\nM  web/src/components/DeveloperSettings.jsx\nM  web/src/components/SettingsPage.jsx\nM  web/src/i18n/sourceCatalog.generated.js\nM  web/src/lib/api.js\nM  web/src/lib/fullscreenHeatWave.js\nA  web/src/lib/jbMode.js\nA  web/src/lib/jbMode.test.js\nM  web/src/lib/runTests.js\nUU web/src/lib/settingsSearch.js\n",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "reason": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.cpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.hpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.cpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.hpp' with conflicts.\nApplied patch to 'web/src/lib/settingsSearch.js' with conflicts.",
+  "report_file": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\09\\.git\\refactor-migration\\report.json",
+  "inventory_ref": "refs/remotes/origin/jb"
+}

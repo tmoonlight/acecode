@@ -16,7 +16,7 @@ depends-on: []
 - docs/daemon-api.md
 
 # path
-后台：src/themes、src/web/routes/routes_themes.cpp、必要的偏好路由和原生保存类型、对应 C++ 测试。
+后台：src/adapters/themes、src/apps/web/routes/routes_themes.cpp、必要的偏好路由和原生保存类型、对应 C++ 测试。
 前端：web/src/components/ThemeCards.jsx、主题操作控制器、现有偏好队列/ThemeProvider、api、国际化及测试。
 文档由主代理维护。
 

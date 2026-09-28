@@ -11,7 +11,7 @@ PAGES = {
         '''<p>通常直接描述目标即可，模型会选择工具，不必在聊天里手写工具 JSON。读取文件与运行命令是不同动作；默认权限下出现确认时，应核对实际路径、命令及影响范围。</p><p>文件编辑通常要求目标片段与当前文件精确匹配。出现找不到旧文本或匹配不唯一的结果时，让 ACECode 重新读取文件并缩小修改范围。不要用覆盖整个文件来掩盖没有理解原内容的问题。</p>'''),
     section("results", "理解失败与验证结果",
         '''<p>工具执行失败会将错误反馈给模型。可执行文件缺失、路径不正确、权限拒绝和测试失败应分别处理；“工具成功执行”只说明调用完成，不等于功能已经正确。</p><p>内置文件工具支持处理多种常见文本编码并保留适用的编码、BOM 和换行信息。遇到二进制、特殊格式或乱码时，先确认文件类型与编码，不要反复尝试文本替换。</p><p>任务结束后结合<a href="git.html">文件差异</a>和测试结果检查修改。需要为外部系统增加能力时，参见 <a href="mcp.html">MCP 服务器</a>；需要复用操作流程时，参见<a href="skills.html">技能</a>。</p>''')
-], ["src/tool/builtin_tool_registry.hpp", "src/headless/headless_options.cpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
+], ["src/adapters/tool/builtin_tool_registry.hpp", "src/apps/headless/headless_options.cpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
 
 "skills": page("技能把一类任务的说明、流程和辅助资源放在一起。安装后先确认能被发现，再在合适的任务中使用。", [
     section("install", "安装与使用技能",
@@ -26,7 +26,7 @@ PAGES = {
         '''<p>先创建一个用途明确的目录，例如 <code>.acecode/skills/review-checklist/</code>，再编写 SKILL.md。文件开头的 YAML 元数据必须包含名称与描述，正文写清触发场景、操作步骤和验收方式。</p>''',
         code("---\nname: review-checklist\ndescription: 按当前项目约定审查代码变更并报告可复现的问题。\n---\n\n先阅读项目规则和当前差异。\n逐项检查行为、错误处理和已有测试。\n只报告能指出具体文件位置与影响的问题。\n未经要求不要修改代码；说明未能验证的部分。", "SKILL.md"),
         '''<p>复杂流程可以拆到 references 中，脚本放入 scripts，并在正文中明确何时读取或运行。把使用条件写在描述里，把操作细节留给正文。完成后用一个小任务验证它确实被发现、引用路径可用、结果符合预期。</p><p>技能不是独立安装包管理器。需要 Python、Node.js、浏览器或其他命令时，应在说明中列出依赖及验证方法。涉及外部账号时，不把密钥写入 SKILL.md。</p>''')
-], ["docs/skills.md", "src/skills/skill_init.cpp", "src/config/config.hpp", "web/src/components/SettingsPage.jsx"]),
+], ["docs/skills.md", "src/domain/skills/skill_init.cpp", "src/base/config/config.hpp", "web/src/components/SettingsPage.jsx"]),
 
 "mcp": page("通过 MCP 连接外部工具服务。先在 ACECode 所在计算机上准备依赖，再配置连接并检查工具是否真正加载。", [
     section("configure", "添加与配置",
@@ -38,7 +38,7 @@ PAGES = {
         '''<p>在<strong>启用服务器</strong>列表开关目标服务器。支持运行时应用时会立即切换；出现“重启 daemon 后生效”提示时，按提示重启后台。关闭某个服务器会影响依赖它的后续调用。</p><p><strong>重新加载</strong>重新读取配置文本，<strong>Reload</strong>用于提交并重新加载 MCP 运行状态。保存配置与建立连接是两个步骤：JSON 合法并不代表进程已经启动或远端已经完成初始化。</p>''',
         code("/mcp\n/mcp list\n/mcp enable local-tools\n/mcp disable local-tools\n/mcp reconnect local-tools\n/mcp help", "TUI · 使用自己的服务器名称"),
         '''<p>先检查服务器连接状态，再查看它实际暴露的工具。工具通常以带服务器前缀的名称注册，模型才能在合适的任务中调用。修改配置后仍看到旧工具时，重连并再次检查清单。</p><p>stdio 连接失败先验证可执行文件、参数、工作环境和依赖；网络连接失败再检查 URL、协议、认证与代理。无界面 CLI 默认不启用 MCP，需要通过 <code>--enable-mcp</code> 选择服务器。更多处理方法见<a href="troubleshoot-tools.html#mcp">MCP 连接或工具加载失败</a>。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/tui/commands/builtin_commands.cpp", "src/config/config.hpp", "docs/user-manual.md"]),
+], ["web/src/components/SettingsPage.jsx", "src/apps/tui/commands/builtin_commands.cpp", "src/base/config/config.hpp", "docs/user-manual.md"]),
 
 "lsp": page("LSP 为编辑过程补充语言服务器信息。它依赖项目本身的语言环境，帮助尽早发现代码问题。", [
     section("prepare", "准备语言服务器",
@@ -50,7 +50,7 @@ PAGES = {
         figure("CF-09", "LSP 状态与编辑后的错误", "展示 /lsp status 的服务器状态和一次编辑结果中的 ERROR 诊断，标出文件、行号及错误信息。")),
     section("verify", "确认修复真正生效",
         '''<p>先检查报错文件是否属于正确项目、依赖是否完整、语言服务器能否从当前环境启动。修复安装或启动故障后重新运行 ACECode，再处理目标文件并观察状态。</p><p>LSP 诊断用于编辑反馈，不代替编译器、单元测试和实际运行。完成修改后仍应运行项目要求的验证命令。<code>lsp.enabled</code> 控制此能力；关闭后不能依赖自动诊断反馈判断代码正确性。</p>''')
-], ["src/lsp/lsp_server_registry.cpp", "src/config/config.hpp", "docs/user-manual.md"]),
+], ["src/adapters/lsp/lsp_server_registry.cpp", "src/base/config/config.hpp", "docs/user-manual.md"]),
 
 "hooks": page("Hooks 在会话和工具执行的特定时机运行本地命令，适合检查规则或补充上下文。启用前先审查实际执行内容。", [
     section("events", "选择事件与配置位置",
@@ -64,7 +64,7 @@ PAGES = {
         '''<ol><li>进入<strong>设置 &gt; 钩子</strong>并刷新发现结果，TUI 也可用 <code>/hooks</code> 查看。</li><li>检查来源路径、命令、匹配条件和诊断。</li><li>对确认可信的待审核项执行信任操作。</li><li>触发一次对应的小操作，核对实际结果。</li></ol><p>新的非托管 Hook 处于待审核状态时会被跳过。定义改变后需要重新审核；受管理策略控制的 Hook 会显示相应限制。可以禁用或重新启用普通 Hook，但重新启用不能替代尚未完成的信任审核。</p>''',
         figure("CF-10", "Hooks 来源与信任审核", "展示待审核 Hook 的来源、命令和信任入口，以及已启用和已禁用状态；不包含真实凭据。"),
         '''<p>Hook 没有执行时，先看开关、项目是否受信任、事件和 matcher 是否匹配。脚本失败时检查解释器、工作目录、退出码及超时。不要通过反复放宽工具权限来解决脚本本身的错误。</p>''')
-], ["docs/hooks.md", "web/src/components/SettingsPage.jsx", "src/config/config.hpp"]),
+], ["docs/hooks.md", "web/src/components/SettingsPage.jsx", "src/base/config/config.hpp"]),
 
 "connectors": page("连接器用于管理安装环境中已经配置的外部集成。先查看当前列表和集成说明，再处理对应的启用或认证问题。", [
     section("list", "查看已配置连接器",
@@ -75,5 +75,5 @@ PAGES = {
     section("distinguish", "确定应当配置哪种扩展",
         table(["目标", "对应功能"], [["调用远端工具或本地工具服务", "<a href=\"mcp.html\">MCP 服务器</a>"], ["安装可复用的任务流程", "<a href=\"skills.html\">技能</a>"], ["在生命周期事件中运行命令", "<a href=\"hooks.html\">Hooks</a>"], ["通过消息平台收发任务消息", "<a href=\"channels.html\">消息渠道与远程控制</a>"], ["管理安装环境提供的外部集成", "当前连接器列表及该集成的配置说明。"]]),
         '''<p>排错时记录连接器名称、触发动作和错误信息，再检查它依赖的程序或服务。启用状态只能说明本地配置允许使用，不能代替对外部服务连通性和认证的确认。</p>''')
-], ["src/config/config.hpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
+], ["src/base/config/config.hpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
 }

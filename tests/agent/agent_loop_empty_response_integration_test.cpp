@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 空回复兜底的全链路集成测试(fix-glm-empty-response-turn-end)。
 //
 // 与 agent_loop_termination_test.cpp 的 stub 用例不同,这里用真实的
@@ -132,8 +133,9 @@ TEST(AgentLoopEmptyResponseIntegration, GlmLengthTruncationRetriesOverRealHttpAn
     };
 
     acecode::AgentLoop loop(
-        [provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, callbacks, ".", permissions);
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
 
     {
         std::lock_guard<std::mutex> lk(mu);

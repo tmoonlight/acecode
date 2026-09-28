@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 # Design: refactor20260927-split-agent-loop
 
 > **行号基准**:master `7942011b`,文件 `src/agent_loop.{hpp,cpp}`。restructure P2-08 之后,这两个文件先 R100 移到 `src/agent/`,P3 之后位于 `src/engine/agent/`。行号漂移时,按函数名与代码结构重新定位。
@@ -87,7 +90,7 @@
 
 ### 3. 所有权模型
 
-- **协作对象由 AgentLoop 独占**:以 `std::unique_ptr` 持有,hpp 只做前置声明,析构函数在 .cpp 里定义。协作类之间用构造注入的 `T&` 互连,不回指 AgentLoop。
+- **协作对象由 AgentLoop 独占**:以 `std::unique_ptr` 持有,hpp 只做前置声明,析构函数在 .cpp 里定义。协作类之间用构造注入的 `T&` 互连,不回指 AgentLoop。工具链由组合根以 unique_ptr<ToolBatchScheduler> 独占一个已 join 的批次作用域;内部按依赖顺序直接拥有各协作对象,不共享可变宿主。工具回调只持该作用域的 LifetimeRef,不能延长或逃出批次寿命。
 - **需要 AgentLoop 能力的窄接口,不由 AgentLoop 自己实现**(LR-13):
   - `ModelStepSink`、`PaRescueHost` 由 TurnRunner 或持有 TurnContext 的小 adapter 实现;
   - `ToolSessionHost` 由 ToolContextFactory 组合 WorkspaceBoundary 与 SessionExecSecurity 实现;
@@ -192,11 +195,13 @@
 | tool_exec/ask_question_binding、tool_result_presenter | 4691-4761 | 120 / 120 |
 | tool_exec/tool_batch_scheduler、tool_result_commit、tool_context_factory | 4952-5047;5643-5807;4209-4321(同时收编 run_shell 手工拼的残缺 ToolContext) | 200 / 220 / 220 |
 | event_payload/message_payload、tool_event_payload | P2-08 移入 | 原样 |
-| **engine/agent 之外** | `src/adapters/pa/pa_rescue_driver`(4027-4207 的纯逻辑)、`src/adapters/computer_use/session_lease.hpp`(DesktopTurnLease)、`tests/agent/agent_loop_fixture.hpp` | 250 / 70 / 150 |
+| **engine/agent 之外** | `src/adapters/pa/pa_rescue_driver`(4027-4207 的纯逻辑)、`src/adapters/computer_use/session_lease.hpp`(DesktopTurnLease)、`tests/test_support/agent/agent_loop_fixture.hpp` | 250 / 70 / 150 |
 
 子目录名都避开了模块名(R9):用 `hook_bridge` 而不是 hooks,`approval` 而不是 permissions,`boundary` 而不是 workspace。
 
 ### 6. PA 接触点表
+
+A-14 新增 agent_runtime_env 的构造注入接触点:只绑定 ContextBudgetLearner 访问器,算法调用仍在下表模块;R11 白名单已按这一职责登记。
 
 与 restructure R3/R11 共用,**A-11 完成后回填 `layers.tsv`**。
 
@@ -240,7 +245,7 @@
     - 回合前压缩先于用户消息落盘,重试回合不压缩;
     - 之后依次是:ensure identity → push → on_message → checkpoint(非 hidden)→ session_updated{summary} → Message → turn_start/busy 轨迹 → begin_active_turn → on_busy_changed → BusyChanged;
     - hidden_goal_context 跳过 UserPromptSubmit、不计时、不建检查点、不发 Message。
-14. 每次迭代的顺序:begin_model_turn → 代际检查 → 自动压缩 → drain(false) → goal steering → build → publish side question → 刷新模型侧工具名 → provider 快照(为空则在 ModelStepStart 之前 break)→ ModelStepStart → record_model_request → call。
+14. 每次迭代的顺序:begin_model_turn → 代际检查 → 自动压缩 → drain(false) → goal steering → 取本次迭代 provider 快照供 prompt/model view 与 chat 共用(LR-10)→ build → publish side question → 刷新模型侧工具名 → 检查该 provider 快照(为空则在 ModelStepStart 之前 break)→ ModelStepStart → record_model_request → call。
 15. 每个 ModelStepStart 恰好配一个 Finish;BusyChanged / Done 先 `record_terminal_trajectory_events` 再 emit。
 16. 迭代计数:provider 重试、文本调用纠正、空回复重试都不计入 max_iterations,且防下溢;0 表示无限。
 17. 流式输出:
@@ -342,3 +347,7 @@
 | LR-M2 | — | GoalRuntime 的跨线程入口 | §4,A-08 |
 | LR-M3 | — | observer 单槽位 | §4,A-07 |
 | LR-M4 | — | 跨 loop 交接的 AB-BA 无测试 | P0-11 |
+
+### A-14 实现位置补记
+
+公共测试夹具遵守 AGENTS.md,放在 tests/test_support/agent/agent_loop_fixture.hpp。进程访问点由 AgentRuntimeEnv 提供,包括 PA 学习器、MtimeTracker、computer-use 租约、提示环境、headless 标志和数据目录。SandboxConfig 选项为空时保留未配置运行时,避免无配置测试或嵌入调用者在构造时被清空已有权限允许项。所有新增测试待一期末尾统一运行。

@@ -29,7 +29,7 @@ PAGES = {
         '''<p><code>/model</code> 查看保存的模型，<code>/config</code> 打开设置中心。<code>/skills</code>、<code>/mcp</code>、<code>/tools</code>、<code>/hooks</code>、<code>/connectors</code> 打开能力中心对应页签。按底部提示操作，<kbd>Esc</kbd> 返回聊天。</p>''',
         code("acecode -r\nacecode --resume\nacecode --resume SESSION_ID", "终端 · 三种恢复方式，按需选择一条"),
         '''<p><code>-r</code> 打开选择器，裸 <code>--resume</code> 恢复最近会话，带 ID 则恢复指定会话。程序内也可使用 <code>/resume</code>。完整的键位与命令分类见<a href="reference.html">速查手册</a>。</p>''')
-], ["docs/user-manual.md", "src/tui/commands/command_registry.cpp", "src/cli/interactive_options.cpp"]),
+], ["docs/user-manual.md", "src/apps/tui/commands/command_registry.cpp", "src/apps/cli/interactive_options.cpp"]),
 
 "cli": page("使用非交互的 print 模式执行一次任务，把结果交给脚本或流水线，同时保留可继续的会话。", [
     section("print", "执行一次任务",
@@ -47,7 +47,7 @@ PAGES = {
         '''<p>print 模式的 <code>--resume</code> 必须带 ID；继续当前目录最近会话使用 <code>-c</code> 或 <code>--continue</code>。自定义新会话 ID 最多 64 个字符，只包含字母、数字、短横线和下划线。</p>''',
         code("acecode -p --list-tools --list-skills --list-mcp", "终端 · 只列出可用能力，不执行模型任务"),
         '''<p>print 模式默认启用可用的内置工具，技能和 MCP 需用 <code>--enable-skills</code>、<code>--enable-mcp</code> 点名开启；内置工具可用 <code>--disable-tools</code> 点名禁用。名称以列出结果为准，多个名称用逗号分隔。查看完整参数使用 <code>acecode -p --help</code>。</p>''')
-], ["src/headless/headless_options.cpp", "src/headless/headless_options.hpp", "src/headless/headless_runner.cpp"]),
+], ["src/apps/headless/headless_options.cpp", "src/apps/headless/headless_options.hpp", "src/apps/headless/headless_runner.cpp"]),
 
 "web": page("浏览器连接 ACECode 后台服务后，可以继续管理任务和使用智能体。项目文件与命令运行在服务所在的计算机上。", [
     section("local", "在本机打开 Web",
@@ -63,7 +63,7 @@ PAGES = {
     section("differences", "直接 Web 与桌面端的差别",
         '''<p>浏览器上传的是客户端文件的附件快照；桌面端原生文件选择可直接引用本机路径。选择远端工作区时，路径必须存在于后台服务所在的计算机。浏览器自身看到的本地路径不能直接当作服务端路径使用。</p>''',
         '''<p>原生文件窗口、桌面通知授权和可共享的 Agent 浏览器属于桌面集成能力。直接 Web 中缺少相应入口或显示不可用时，使用该页面提供的浏览器流程；需要原生功能则使用支持的平台桌面端。</p><p>连接失败时按<a href=\"troubleshoot-desktop.html\">桌面、终端与远程连接问题</a>依次检查服务、地址、代理和鉴权。</p>''')
-], ["src/daemon/cli.cpp", "docs/user-manual.md", "docs/daemon-api.md", "web/src/components/SettingsPage.jsx"]),
+], ["src/apps/daemon/cli.cpp", "docs/user-manual.md", "docs/daemon-api.md", "web/src/components/SettingsPage.jsx"]),
 
 "conversation": page("给出目标和必要上下文，在同一个任务里补充要求；需要旁支问答时使用独立的侧边聊天。", [
     section("references", "发送消息与引用文件",
@@ -112,7 +112,7 @@ PAGES = {
         '''<p>若要把某个受 Git 跟踪的文件恢复到提交版本，先备份仍需保留的修改，再使用 Git 工具恢复该文件。恢复前的 <code>git diff -- path/to/file</code> 能帮助判断会失去哪些未提交内容。恢复后重新检查状态并运行相关验证。</p>''',
         '''<h3>TUI 的检查点回退</h3><p>任务空闲时提交 <code>/rewind</code>（别名 <code>/checkpoint</code>），选择要回到的用户回合，再选择恢复代码、对话或两者。只有存在可用文件检查点的回合才提供代码恢复；旧记录可能只能恢复对话。</p><p>恢复对话会以选中消息之前的上下文创建新会话，并把该条请求放回输入框，原完整会话仍可从 /resume 打开。代码恢复以检查点记录的文件范围和返回结果为准，不能替代所有 Shell 命令或外部系统操作的撤销。恢复后检查实际文件差异，再决定重新发送。</p>''',
         note("区分会话恢复与代码回退", "普通恢复历史任务、桌面消息分叉不会自动撤销后来写入磁盘的内容。TUI 只有明确选择可用的代码恢复才会处理文件。恢复后向智能体说明新的文件状态，必要时让它重新读取。"))
-], ["web/src/components/GitChangesPanel.jsx", "web/src/components/GitChangeReview.jsx", "web/src/components/GitSessionPill.jsx", "web/src/lib/gitSessionPill.js", "docs/daemon-api.md", "src/tui/commands/builtin_commands.cpp"]),
+], ["web/src/components/GitChangesPanel.jsx", "web/src/components/GitChangeReview.jsx", "web/src/components/GitSessionPill.jsx", "web/src/lib/gitSessionPill.js", "docs/daemon-api.md", "src/apps/tui/commands/builtin_commands.cpp"]),
 
 "context-usage": page("查看当前上下文与实际用量，必要时压缩长对话，保留继续工作的关键信息。", [
     section("read", "理解用量数字",
@@ -122,5 +122,5 @@ PAGES = {
         '''<p>输入并提交 <code>/compact</code> 可主动压缩已有上下文。压缩需要模型生成接续摘要，因此仍会发起模型请求。界面会展示压缩过程，成功后收起为 <code>Context compacted</code> 一类完成记录，可以展开查看。</p><p>当前自动压缩在活动上下文达到模型标称窗口的 90% 时触发。窗口值来自当前模型配置，因此应该按服务商的实际限制设置，不能靠随意增大窗口数字解决服务端超限。</p><p>压缩保留继续工作需要的摘要和最近用户信息，人类可见的聊天记录不会因此被截短。恢复会话时会继续使用有效压缩记录后的上下文。如果压缩失败，阅读错误原因再处理，不要把失败的压缩当作已经完成。</p>'''),
     section("reduce", "让后续请求更清楚",
         '''<ul><li>引用明确的文件和范围，避免反复粘贴整个大型日志。</li><li>保留目标、已经验证的结论、未完成事项和重要约束。</li><li>任务主题已经改变时，考虑新建任务并附上必要交接信息。</li><li>超限时先确认实际模型窗口、输出限制与错误内容，再压缩或拆分输入。</li></ul><p>压缩减少后续上下文负担，不会退回已经消耗的 token。连接中断或服务端限制导致的错误，按<a href="troubleshoot-context.html">上下文超限与请求失败</a>继续排查。</p>''')
-], ["docs/user-manual.md", "web/src/components/SettingsPage.jsx", "src/session/session_manager.cpp", "docs/daemon-api.md"])
+], ["docs/user-manual.md", "web/src/components/SettingsPage.jsx", "src/domain/session/session_manager.cpp", "docs/daemon-api.md"])
 }

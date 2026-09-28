@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+import json
 from fnmatch import fnmatchcase
 from pathlib import Path
 import posixpath
@@ -25,6 +27,17 @@ def inspect(root: Path, files: list[str]) -> dict:
     for path in files:
         known.update(str(parent).replace("\\", "/") for parent in Path(path).parents if str(parent) != ".")
     findings, checked, placeholders = [], 0, []
+    references_path = root / "scripts/refactor/doc_path_references.json"
+    references = {}
+    if references_path.exists():
+        for row in json.loads(references_path.read_text(encoding="utf-8"))["references"]:
+            if row["kind"] not in {"example", "planned", "input-prefix"} or not row["note"] or row["count"] < 1:
+                raise ValueError("invalid non-repository documentation reference")
+            key = (row["file"], row["path"])
+            if key in references:
+                raise ValueError("duplicate documentation reference: " + repr(key))
+            references[key] = row
+    usage, non_repository = Counter(), []
     for path in files:
         if path.startswith("openspec/"):
             continue  # Historical plans and archived specs deliberately retain old paths.
@@ -45,8 +58,14 @@ def inspect(root: Path, files: list[str]) -> dict:
                     target = posixpath.normpath(Path(path).parent.as_posix() + "/" + target)
                 checked += 1
                 if not any(fnmatchcase(candidate, target) for candidate in known):
+                    key = (path, target)
+                    reference = references.get(key)
+                    if reference and usage[key] < reference["count"]:
+                        usage[key] += 1
+                        non_repository.append({**reference, "line": line})
+                        continue
                     findings.append({"file": path, "line": line, "path": target, "message": "documentation path is not tracked"})
-    return {"schema": 1, "checked": checked, "findings": findings, "placeholders": placeholders, "excluded": ["openspec/** (historical paths are retained by the migration design)", "external/** (third-party)"]}
+    return {"schema": 1, "checked": checked, "findings": findings, "placeholders": placeholders, "non_repository_references": non_repository, "excluded": ["openspec/** (historical paths are retained by the migration design)", "external/** (third-party)"]}
 
 
 def main() -> int:

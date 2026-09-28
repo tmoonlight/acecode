@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `projectCollapsedTranscriptItems` 负责工具配对、特殊分组、工具段与完成轮次折叠；子代理通过 `projectSubagentTranscriptItems` 复用。`TranscriptItems` 递归渲染两种会话。外观保存已有顺序写入、回滚和 Desktop 首帧注入机制。

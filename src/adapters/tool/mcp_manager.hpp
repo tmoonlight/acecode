@@ -1,0 +1,220 @@
+#pragma once
+
+#include "config/config.hpp"
+#include "tool_executor.hpp"
+#include "llm/llm_provider.hpp"
+
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+// Forward-declare the cpp-mcp client classes so mcp headers don't leak into
+// wider compilation units. The full definitions are only needed inside the .cpp.
+namespace mcp {
+    class client;
+    class stdio_client;
+    class sse_client;
+}
+
+namespace acecode {
+
+// Runtime state of an MCP server tracked by McpManager.
+enum class McpServerState {
+    Starting  = 0, // background connect/discovery is in progress
+    Connected = 1, // child process running, tools registered
+    Disabled  = 2, // user-stopped via /mcp disable; tools unregistered
+    Failed    = 3, // last connect/reconnect attempt failed
+    Cancelled = 4, // pending attempt was cancelled by shutdown or disable
+    TimedOut  = 5, // last connect/reconnect attempt timed out
+};
+
+// Lightweight summary of one MCP server, returned by list_servers() for the
+// /mcp command.
+struct McpServerInfo {
+    std::string name;
+    McpServerState state;
+    size_t tool_count;
+    // Human-readable transport tag: "stdio", "sse" or "http".
+    std::string transport;
+    // For stdio: joined "command args..." as configured.
+    // For sse/http: "<url><sse_endpoint>".
+    std::string command_line;
+    // Last connection error, empty when state is Connected/Starting/Disabled.
+    std::string error;
+};
+
+// McpManager owns the lifetime of every configured MCP stdio server, discovers
+// the tools they expose, and bridges tool invocations back to the acecode
+// ToolExecutor.
+//
+// The manager takes no ownership of the ToolExecutor; callers are expected to
+// keep the executor alive for synchronous API calls. Background registration
+// uses its lifetime gate and discards results after executor destruction.
+class McpManager {
+public:
+    McpManager();
+    ~McpManager();
+
+    McpManager(const McpManager&) = delete;
+    McpManager& operator=(const McpManager&) = delete;
+
+    using StatusCallback = std::function<void(const McpServerInfo&)>;
+
+    // Called whenever a server changes runtime state. The callback is invoked
+    // after the manager lock is released.
+    void set_status_callback(StatusCallback callback);
+
+    // Connect to every server in cfg.mcp_servers. Failures for individual
+    // servers are logged and skipped. Safe to call when cfg.mcp_servers is
+    // empty — no work is done. Returns true if at least one server connected.
+    bool connect_all(const AppConfig& cfg);
+
+    // Replace one configuration scope without disturbing other projects.
+    // Empty scope means global; project scope is a canonical workspace root.
+    void reconcile_scope(const std::string& scope,
+                         const std::map<std::string, McpServerConfig>& servers,
+                         ToolExecutor& executor,
+                         const std::unordered_set<std::string>& keep_enabled = {});
+    std::string server_scope(const std::string& id) const;
+    std::optional<McpServerConfig> server_config(const std::string& id) const;
+
+    // Discover tools from each connected server and register them into
+    // executor with the `mcp_{server}_{tool}` naming convention. All MCP
+    // tools honor the optional MCP annotations.readOnlyHint metadata.
+    void register_tools(ToolExecutor& executor);
+
+    // Start background connection/discovery for every configured server.
+    // Returns immediately; use status callbacks or list_servers() to observe
+    // progress.
+    void start_async(ToolExecutor& executor);
+
+    // Terminate all child processes. Safe to call multiple times and from
+    // shutdown paths; absorbs errors from already-dead processes.
+    void shutdown();
+
+    // Introspection: definitions of every tool discovered, in registration order.
+    // Useful for diagnostics / tests; the authoritative copy lives in ToolExecutor.
+    std::vector<ToolDef> get_tool_definitions() const;
+
+    // Count of successfully connected servers.
+    size_t connected_server_count() const;
+
+    // Count of configured servers regardless of current state.
+    size_t configured_server_count() const;
+
+    // Count of tools discovered across all servers.
+    size_t discovered_tool_count() const;
+
+    bool has_starting_servers() const;
+
+    // Wait for all currently starting servers to settle. Returns false on
+    // timeout, true when no server is still Starting.
+    bool wait_for_startup_settled(std::chrono::milliseconds timeout) const;
+
+    // Runtime control surface for /mcp slash command. All take a ToolExecutor
+    // ref because changes need to propagate to the registered tool set.
+    // Each returns true on a state-changing success.
+
+    // Stop the named server's child process and unregister its tools.
+    bool disable(const std::string& name, ToolExecutor& executor);
+
+    // Reconnect a previously-disabled or failed server (no-op if Connected).
+    bool enable(const std::string& name, ToolExecutor& executor);
+
+    // Force a teardown + reconnect, regardless of current state.
+    bool reconnect(const std::string& name, ToolExecutor& executor);
+
+    // Snapshot of all known servers in registration order.
+    std::vector<McpServerInfo> list_servers() const;
+
+    // Tools grouped by server (preserves discovery order). Servers without
+    // any registered tools (Disabled / Failed / empty) appear with an empty
+    // vector so callers can render a status line for them.
+    std::vector<std::pair<std::string, std::vector<ToolDef>>> list_tools_by_server() const;
+
+    // Whether the named server is recorded in the manager.
+    bool has_server(const std::string& name) const;
+
+    // Names of every recorded server (for diagnostic output).
+    std::vector<std::string> server_names() const;
+
+private:
+    struct State;
+
+    struct ServerEntry {
+        std::string name;
+        std::string scope;
+        McpServerConfig cfg;                 // remembered so reconnect needs only the name
+        std::string command_line;            // human-readable locator (command line or url)
+        std::shared_ptr<mcp::client> client; // stdio_client or sse_client via base interface
+        McpServerState state = McpServerState::Failed;
+        std::string error;
+        std::uint64_t generation = 0;
+    };
+
+    struct DiscoveredTool {
+        std::string qualified_name;        // e.g. "mcp_github_search_issues"
+        std::string server_name;           // original server key
+        std::string original_tool_name;    // original tool name as returned by MCP
+        ToolDef definition;                // parameters schema + description
+        bool is_read_only = false;         // annotations.readOnlyHint == true
+    };
+
+    struct ConnectionSnapshot {
+        std::string server_name;
+        McpServerConfig cfg;
+        std::string command_line;
+        std::uint64_t generation = 0;
+    };
+
+    struct ConnectionResult {
+        std::string server_name;
+        std::uint64_t generation = 0;
+        McpServerState state = McpServerState::Failed;
+        std::string error;
+        std::shared_ptr<mcp::client> client;
+        std::vector<DiscoveredTool> tools;
+    };
+
+    // Collision-free, stable ASCII encoding for an arbitrary UTF-8 server ID.
+    // Alphanumerics remain readable; every other byte (including underscore)
+    // uses an unambiguous _HH escape, so "foo-bar" and "foo_bar" differ.
+    static std::string encode_server_id(const std::string& s);
+
+    // Invoke a tool via the owning server. Thread-safe with respect to other
+    // invocations of the same server (cpp-mcp handles the pipe locking)。
+    // abort_flag 非空时 100ms 粒度轮询:置位立即返回 [Aborted],阻塞中的
+    // JSON-RPC 调用留给 detached 工作线程收尾(迟到结果整体丢弃)。
+    static ToolResult invoke(const std::weak_ptr<State>& state,
+                             const std::string& server_name,
+                             const std::string& tool_name,
+                             const std::string& arguments_json,
+                             const std::atomic<bool>* abort_flag,
+                             std::uint64_t generation);
+
+    // Locate an entry by name. Returns nullptr if missing. Caller must hold
+    // state_->mu.
+    ServerEntry* find_entry_locked(const std::string& name);
+
+    // Tear down a single server: stop child, drop tools from discovered_tools_,
+    // unregister them from executor. Caller must hold state_->mu.
+    void teardown_locked(ServerEntry& entry, ToolExecutor& executor);
+
+    ConnectionSnapshot snapshot_for_start_locked(ServerEntry& entry);
+    void start_entry_async(ConnectionSnapshot snapshot, ToolExecutor& executor);
+    static ConnectionResult connect_entry(ConnectionSnapshot snapshot);
+    static void publish_connection_result(const std::shared_ptr<State>& state,
+                                          ConnectionResult result,
+                                          ToolExecutor& executor);
+
+    std::shared_ptr<State> state_;
+};
+
+} // namespace acecode

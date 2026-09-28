@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See proposal.md. The normal background-exit policy currently also applies to upgrade restart. Managed-daemon discovery verifies ownership but accepts any application version with protocol 1. The updater applies files in the serving daemon's executable directory, whereas Desktop relaunches its own captured install path. Windows/Linux application verification only checks file existence.

@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "references": [
+    {
+      "file": "docs/daemon-api.md",
+      "path": "src/a.cpp",
+      "count": 1,
+      "kind": "example",
+      "note": "Illustrative JSON response describing the caller workspace."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/notify.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/notify_",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/runtime_json_parser.cpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/runtime_json_parser.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/single_instance_",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/tray.cpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/tray.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "src/apps/desktop/tray_",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/design.md",
+      "path": "tests/desktop/runtime_json_parser_test.cpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "path": "src/apps/desktop/file_picker.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "path": "src/apps/desktop/notify.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "path": "src/apps/desktop/runtime_json_parser.cpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "path": "src/apps/desktop/runtime_json_parser.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/desktop-shell/tasks.md",
+      "path": "src/apps/desktop/tray.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/help-source/captures.json",
+      "path": "src/welcome.js",
+      "count": 1,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/help-source/image-plan.md",
+      "path": "src/welcome.js",
+      "count": 1,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/help-source/images.json",
+      "path": "src/welcome.js",
+      "count": 2,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/help-source/screenshot-map.json",
+      "path": "src/welcome.js",
+      "count": 1,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/help/assets/search-index.js",
+      "path": "src/welcome.js",
+      "count": 2,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/help/conversation.html",
+      "path": "src/welcome.js",
+      "count": 2,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/help/quick-start.html",
+      "path": "src/welcome.js",
+      "count": 1,
+      "kind": "example",
+      "note": "Screenshot/demo project file, not an ACECode source module."
+    },
+    {
+      "file": "docs/string-utilities-refactor.md",
+      "path": "src/base/utils/str",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/string-utilities-refactor.md",
+      "path": "src/base/utils/str/str_encoding.cpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "path": "src/adapters/provider/provider_swap.cpp",
+      "count": 2,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "path": "src/adapters/provider/provider_swap.hpp",
+      "count": 2,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "path": "src/apps/tui/skills_picker.cpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/superpowers/plans/2026-05-09-model-selection.md",
+      "path": "src/apps/tui/skills_picker.hpp",
+      "count": 1,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/superpowers/plans/2026-08-27-streaming-incremental-layout.md",
+      "path": "tests/tui/markdown/incremental_lexer_test.cpp",
+      "count": 4,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/superpowers/specs/2026-05-09-model-selection-design.md",
+      "path": "tests/test_models_handlers.cpp",
+      "count": 2,
+      "kind": "planned",
+      "note": "Historical design proposal filename; not a claim that this proposed file was implemented."
+    },
+    {
+      "file": "docs/user-manual.md",
+      "path": "src/ma",
+      "count": 1,
+      "kind": "input-prefix",
+      "note": "Incomplete file-mention input used to explain completion."
+    }
+  ]
+}

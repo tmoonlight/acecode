@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -116,7 +117,10 @@ public:
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> {
             return provider_;
         };
-        loop_ = std::make_unique<AgentLoop>(accessor, tools_, cb, ".", permissions_);
+        loop_ = std::make_unique<AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, permissions_),
+        acecode_test::AgentLoopFixture::configuration("."));
+        loop_->start();
     }
 
     ~DoomGuardHarness() = default;

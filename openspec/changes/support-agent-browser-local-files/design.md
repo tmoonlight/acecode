@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The React address bar and Browser tools both normalize navigation inputs before the native host receives them. A second policy layer exists in WebView2 `NavigationStarting` and WKWebView's navigation delegate. All of those layers currently reject `file:`. In addition, loading a local URL is not sufficient for local web applications: WKWebView requires an explicit read-access root and Chromium file origins require a browser flag to access other local file resources.

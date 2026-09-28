@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See proposal.md for motivation. RichComposer already uses Slate inline void nodes. External state is currently a string plus an attachment array; attachment synchronization prepends every attachment, and clipboard/drafts discard attachment positions. The daemon already loads explicit skill mentions and persists message metadata.

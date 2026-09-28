@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `ChatView` 持有预览页签和文件 `edit` 状态，现有关闭动作已经使用 `Modal` 与 `saveEditableFileDraftBatch`。文件切换直接更新页签，`App` 更新导航历史，`Sidebar` 还存在直接激活 Desktop 工作区并重定向的入口，单独监听切换后的 sessionId 无法实现“取消不切换”。

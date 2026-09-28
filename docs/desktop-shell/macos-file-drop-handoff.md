@@ -93,13 +93,13 @@ on reload; do not equate packaging isolation with frontend isolation.
 
 ## Current implementation / retained changes
 
-- `src/desktop/web_host.cpp`: baseline class-wide swizzle and legacy callbacks
+- `src/apps/desktop/web_host.cpp`: baseline class-wide swizzle and legacy callbacks
   restored. Only native installation/enter/drop/count logs remain relative to
   HEAD. Entry logging now runs before the file-type branch.
-- `src/desktop/web_host.hpp`: restored to HEAD.
+- `src/apps/desktop/web_host.hpp`: restored to HEAD.
 - Removed the failed object_setClass runtime subclass, instance mapping,
   NativeFileDragHandler API, lifecycle bridge and capability flag.
-- `src/desktop/main.cpp`: legacy dual console/composer callbacks restored;
+- `src/apps/desktop/main.cpp`: legacy dual console/composer callbacks restored;
   added count and receiver-availability diagnostics.
 - `web/src/components/InputBar.jsx`: original native hover gate restored;
   logs rejection/materialization and passive focus/input event presence.
@@ -135,7 +135,7 @@ before implementation, then update the existing OpenSpec change.
    receivers. Preserve legacy/browser/other-platform behavior deliberately.
 5. Add small diagnostic messages for coordinate validity, selected target and
    rejection/result, without private paths or input content.
-6. Add focused pure-helper tests and run full frontend tests/build and native
+6. Add focused pure-helper tests and run full frontend tests and build and native
    build. Test duplicate delivery, stale/no hover, disabled/covered composer,
    wrong target, coordinate boundaries and backward compatibility.
 7. Verify typing first on the real app, then local Finder drops. Drop success

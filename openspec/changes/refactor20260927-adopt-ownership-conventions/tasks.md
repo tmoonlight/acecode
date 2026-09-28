@@ -1,5 +1,9 @@
 # Tasks: refactor20260927-adopt-ownership-conventions
 
+> **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
+
+> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;用户已取消等待原定 06:00 窗口,提交与 push 尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
+
 > **开工前必读**:
 > - `refactor20260927-restructure-src-layers/design.md` 的 §6「提交与协作约定」;
 > - 本变更 design.md 的 §1(约定 C1–C14)和 §3(行为变更语义)。
@@ -21,7 +25,8 @@
 
 ## 1. 基础原语(冻结前完成)
 
-- [x] 1.1 【P2-01】【子】新增 RAII 与并发原语,纯新增文件,放在 `src/utils/`,冻结后随目录进入 `base/utils/`。〔认领: Codex-raii 2026-09-27〕〔验收: Claude-phase0 2026-09-27,三平台通过,见 verification/P2-01-primitives.md〕
+- [x] 1.1 【P2-01】【子】新增 RAII 与并发原语,纯新增文件,放在 `src/utils/`,冻结后随目录进入 `base/utils/`。〔认领: Codex-raii 2026-09-27〕
+〔验收: Claude-phase0 2026-09-27,三平台通过,见 verification/P2-01-primitives.md〕
   - 新增文件:
     - `joining_thread.hpp`:JoiningThread + StopToken、JoiningThreadGroup(从 `worker.cpp:109-120` 原样提升,worker 改为 include 新头)、ReapingThreadSet;在线程自身上析构时 detach 并记日志;
     - `lifetime_token.hpp`:LifetimeToken / LifetimeRef;
@@ -40,7 +45,7 @@
 
 ## 2. 不改 API 的修复
 
-- [ ] 2.1 【O-01】【子】`EventDispatcher::unsubscribe_and_wait` + `ScopedSubscription`。
+- [ ] 2.1 【O-01】【子】`EventDispatcher::unsubscribe_and_wait` + `ScopedSubscription`。〔实现完成: Codex-root 2026-09-28;实时/回放/补发统一在途门,TLS 投递栈支持自身及嵌套退订;LocalSessionClient 绑定原 entry 身份,资源封装 move-only;阻塞/自身/嵌套/移动用例已补,待统一验收;现有调用点未替换〕
   - Subscription 增加在途计数与 cv;`drain_subscription` 在投递前后增减计数;
   - 在投递线程自身上调用时不等待,用 thread_local 记录当前线程;
   - `SessionClient` 增加虚函数 `unsubscribe_and_wait`,默认实现退化为 unsubscribe;`LocalSessionClient` 实现它;
@@ -50,7 +55,7 @@
   - 验证:
     - 新增 `event_dispatcher_test` 用例:listener 阻塞时 `unsubscribe_and_wait` 会等到它返回;在 listener 内对自身退订不死锁;返回之后不再有投递;
     - 既有回放与顺序用例全部通过。
-- [ ] 2.2 【O-02】【主】【行为变更 D7】`SessionRegistry::shutdown_all` + `SessionEntry` 显式析构。
+- [ ] 2.2 【O-02】【主】【行为变更 D7】`SessionRegistry::shutdown_all` + `SessionEntry` 显式析构。〔实现完成: Codex-root 2026-09-28;创建准入与幂等关停、全部取消后逐一 join/释放写者、标题/生命周期任务回收、回调 LifetimeRef;5 项关停用例及同 ID 替换订阅用例已补,待一期末 Windows 统一验收〕
   - `shutdown_all()`:
     - 置 `shutting_down_`,把 `entries_` swap 出来;
     - 对每个 entry 执行与 `destroy()` 相同的 `abort → loop->shutdown() → sm->end_current_session()`;
@@ -72,15 +77,16 @@
     - ASan(Linux)通过;
     - `session_title_test`、`web_server_smoke_test` 通过;
     - spec `session-lifecycle` 中的前三个 scenario 有对应测试。
-- [ ] 2.3 【O-03】【主】control lambda 改为捕获 `weak_ptr<SessionEntry>`。
+- [ ] 2.3 【O-03】【主】control lambda 改为捕获 `weak_ptr<SessionEntry>`。〔实现完成: Codex-root 2026-09-28;统一 enqueue_entry_control 以弱 entry + registry LifetimeRef 验证身份,迁移 sandbox/exec-rules/MCP/expert/repair;忙回合销毁弱引用失效用例已补,待统一验收〕
   - 涉及位置:`session_registry.cpp` 原 1667、1706、1731、1864 行,**以及 `thread_service.cpp:1165`**;
   - lambda 执行时先 lock,再与 `entries_` 中的对象比对身份。
   - 前置:2.2。
   - 验证:
     - 新增用例:会话忙时排入 sandbox / exec-rules / MCP 控制项,然后 destroy,`weak_ptr<SessionEntry>` 立即失效。修复前的表现是成环,SessionManager 与 AgentLoop 永不析构;
     - grep 确认所有 `enqueue_control` 的 lambda 都不再强捕获 entry。
-- [ ] 2.4 【O-04】【主】【行为变更 D6】daemon 拆除顺序(`apps/daemon/worker.cpp`)。
+- [ ] 2.4 【O-04】【主】【行为变更 D6】daemon 拆除顺序(`apps/daemon/worker.cpp`)。〔实现完成: Codex-root 2026-09-28;14 步幂等顺序及异常兜底、停止会话后清 on_spawn、JoiningThread 观察线程、TerminationSignal 自管事件/自管道、RuntimeFilesGuard;worker provider 改不可变捕获且 Web 两指针置空;顺序/异常/桥接在途/运行文件身份用例已补,待 Windows 统一验收〕
   - 关停顺序按 design.md §3「D6」逐条执行;
+  - Windows Desktop 先经进程寿命绑定的停止事件让 worker 完成正常关停,5 秒无响应或旧版本无端点时保留原强制兜底;正常退出、在途请求及端点析构并发补验。〔验证: Codex-root 2026-09-29;56 条定向用例、全量回归与真实 Desktop 慢 MCP 退出通过,待统一交付〕
   - watcher 与 owner_monitor 改为 JoiningThread,并把捕获列表写成显式形式;
   - POSIX 信号处理改用 TerminationSignal(self-pipe),`g_term_*` 只保留桥接作用;
   - 清理运行时文件的逻辑包进 RuntimeFilesGuard;
@@ -91,7 +97,7 @@
     - 实机:Desktop 关闭时,同时存在运行中的回合(含慢 MCP 工具、LSP 诊断)、挂起的提问、运行中的子代理,daemon 正常退出,不出现 0xC0000409,也没有残留的 lease;
     - POSIX 下 `kill -TERM` 响应正常;
     - spec `process-shutdown` 中的前两个 scenario 有对应测试或实机记录。
-- [ ] 2.5 【O-05】【主】【行为变更 D6】TUI 的 `SubagentHost` 析构安全与关停顺序。
+- [ ] 2.5 【O-05】【主】【行为变更 D6】TUI 的 `SubagentHost` 析构安全与关停顺序。〔实现完成: Codex-root 2026-09-28;SubagentHost 显式关停、listener LifetimeRef 与 ScopedSubscription、成员顺序及依赖移动;TUI 增加 Subagents 步骤;model_pool 的 LifetimeRef 已由 B-12 落地;运行中析构/挂起提问用例已补,待 Windows 统一验收〕
   - `~SubagentHost()` 先调用 `registry_.shutdown_all()`;
   - 子会话 listener 改为 LifetimeRef + ScopedSubscription;`deps_` 不再重复保存 registry_deps;
   - `TuiShutdownSequence` 在 `agent_loop.shutdown` 之后、MCP 与 LSP 关闭之前,加一步 `subagent_host.shutdown()`,单独提交;
@@ -100,7 +106,7 @@
   - 验证:
     - 新增 `subagent_host_shutdown_test`:子回合运行中析构 SubagentHost 时,`remove_task` / `publish_tasks` 不再被调用。修复前的表现是回调锁住已析构的 mu_;
     - 实机:子代理运行中、有挂起提问时,`/exit` 与 Ctrl+C 都能正常退出(split-tui-main 手工清单第 10 小节)。
-- [ ] 2.6 【O-06】【子】headless 订阅与回填指针收尾。
+- [ ] 2.6 【O-06】【子】headless 订阅与回填指针收尾。〔实现完成: Codex-root 2026-09-28;ScopedSubscription 覆盖提交失败早退,ScopeExit 在 client 存活时先停 registry 再清回填;外层 IIFE 与 MCP/LSP 顺序保持;拒绝提交及装配异常的资源用例已补,完整 CLI 回归待 Windows 统一验收〕
   - `headless_runner.cpp:642-722` 改用 ScopedSubscription,声明在被捕获的等待状态之后;
   - IIFE 末尾用 ScopeExit 清空 `subagent_deps->registry/client/config` 与 `thread_deps->service`;
   - 保持 IIFE 结构与现有收尾顺序不变。
@@ -110,13 +116,13 @@
     - `--output-format json`、`-c` / `--resume` 的既有测试通过;
     - 退出码 0 / 1 / 64 / 130 的语义不变;
     - spec `process-shutdown` 中「headless 退出顺序保持」这个 scenario 有测试锁定。
-- [ ] 2.7 【O-08】【主】src/web 内两处 UAF 最小点修(D5,各自单独提交)。
-  - `routes_workspaces.cpp:789-804` 的 opencode 导入线程,改为 `shared_ptr<OpencodeImportRuntime>` + `weak_ptr<GlobalSessionSearchService>`,写法仿照 routes_misc 里的升级任务;
-  - WS subscribe listener(`routes_ws.cpp:282-296`)改为捕获 Impl 级令牌;`~Impl` 在 `app.stop()` 之后逐一退订。
+- [ ] 2.7 【O-08】【主】src/web 内两处 UAF 最小点修(D5,各自单独提交)。〔实现完成: Codex-root 2026-09-28;导入与 WS 分别保存提交检查点,前端零改动,待 Windows 统一验收〕
+  - `routes_workspaces.cpp:789-804` 的 opencode 导入线程,改为 `shared_ptr<OpencodeImportRuntime>` + `weak_ptr<GlobalSessionSearchService>`,写法仿照 routes_misc 里的升级任务;〔实现完成: Codex-root 2026-09-28;独立共享任务状态 + 搜索弱引用 + owned detached,真实路由阻塞导入后销毁服务器用例已补,待统一验收〕
+  - WS subscribe listener(`routes_ws.cpp:282-296`)改为捕获 Impl 级令牌;`~Impl` 在 `app.stop()` 之后逐一退订。〔实现完成: Impl 令牌 + 弱连接状态,停 Crow 后撤销令牌并在 ws_mu 外退订等待;真实 WS hello 后销毁服务器及迟到回调快照用例已补〕
   - 除这两处外,不做任何 web 重构。
   - 前置:2.1。
   - 验证:`web_server_smoke_test` 新增两条用例:导入进行中析构 WebServer 不崩溃;WS 已连接时析构 WebServer,之后会话 emit 不访问已释放的 Impl。前端零改动。
-- [ ] 2.8 【O-09】【子】句柄 RAII 化。
+- [ ] 2.8 【O-09】【子】句柄 RAII 化。〔实现完成: Codex-root 2026-09-28;UniqueHandle/Fd/LocalMem/Sid/Process/Sqlite、WriterLease 及目标调用点已迁移;进程失败句柄数、移动/异常/租约替换及沙盒 Job 标志用例已补,待 Windows 统一验收〕
   - `lsp_process` 改用 UniqueHandle / UniqueFd / UniqueProcess;
   - sandbox 后端的 `void*` 改为 UniqueHandle:bash_tool 与 `sandbox_backend_win.cpp` 多出口的释放改由删除器完成;
   - `audit_log` 改用 UniqueSqlite;
@@ -132,7 +138,7 @@
 
 ## 3. 行为变更:有界等待
 
-- [ ] 3.1 【O-07】【主】【行为变更 D9】收口 detached 线程,退出时有界等待。
+- [ ] 3.1 【O-07】【主】【行为变更 D9】收口 detached 线程,退出时有界等待。〔实现完成: Codex-root 2026-09-28;模型缓存/代理输入自有快照、区域探测发布门、MCP 执行器 LifetimeRef、MCP/图像 run_abandonable、Copilot 共享 provider,三入口最多 2s 收尾;owned worker 保留日志租约避免静态析构悬垂;慢连接销毁/迟到探测/本机 HTTP 取消用例已补,待统一验收〕
   - models.dev 刷新与区域探测改为 `spawn_owned_detached`,闭包只持有自有状态;
   - McpManager 的连接线程不再捕获 `&executor`,改为捕获 `shared_ptr<State>`;invoke 改为 `run_abandonable`;
   - `image_generation_client` 改为 `run_abandonable`;
@@ -147,7 +153,7 @@
 
 ## 4. 行为变更:依赖 AgentLoop 构造注入
 
-- [ ] 4.1 【O-10】【主】【行为变更 D8】回合级配置快照(原计划编号 A-15)。
+- [ ] 4.1 【O-10】【主】【行为变更 D8】回合级配置快照(原计划编号 A-15)。〔实现完成: Codex-root 2026-09-28;PromptConfigProvider 回合值快照、daemon 共享锁复制、TUI 原子配置发布及标题自有副本、技能/专家 control 快照;跨工具保存、专家技能切换、空闲记忆设置与侧问 prime 用例已补,待 Windows 统一验收〕
   - 删除 `set_{memory,project_instructions,custom_instructions,git_context}_config` 四个裸指针 setter,改用 `PromptConfigProvider`,在回合开始时捕获一次:
     - daemon 侧:在 `app_config_mu` 的 shared_lock 下拷贝;
     - TUI 侧:由 TuiApp 提供。
@@ -159,7 +165,7 @@
     - 新增用例:「回合进行中修改 custom_instructions,本回合的请求前缀不变,下一回合生效」,中文注释写明这是有意为之的回合级快照语义;
     - Linux 上用 TSan 跑「保存设置」与「回合执行」并发;
     - spec `prompt-config-turn-snapshot` 的三个 scenario 有对应测试。
-- [ ] 4.2 【O-11】【主】【行为变更 D7】跨线程回调守卫与关停清队(原计划编号 A-16)。
+- [ ] 4.2 【O-11】【主】【行为变更 D7】跨线程回调守卫与关停清队(原计划编号 A-16)。〔实现完成: Codex-root 2026-09-28;侧问/回合收尾 LifetimeToken、提问与流回调弱状态及在途门、串行关停后移出双队列并在锁外销毁、取消回执唤醒且 completed=false;终止取消防止启动 clear 覆盖;双队列/最后所有者/运行回合/并发关停/在途回调用例已补,待 Windows 统一验收〕
   - LifetimeToken 守卫 side question 的异步回调与 `post_turn_action`;
   - `ToolStreamProgress` 与 ask 回调改用 weak_ptr;
   - `shutdown` 在 join worker 之后,于调用线程把两条队列 move 到局部变量,在锁外销毁,之后不再访问 this;

@@ -127,7 +127,7 @@ Repeat `--original` to detect complete files accidentally omitted from a map.
 ## G0 comparison (P0-07 / D23)
 
 ```sh
-python scripts/refactor/compare_snapshots.py --before baseline/g0/original/linux-x64/targets.json --after out/targets.json --allowed-addition src/utils/abandonable_call.cpp --gtest-before baseline/g0/original/linux-x64/gtest.json --gtest-after out/gtest.json --output comparison.json
+python scripts/refactor/compare_snapshots.py --before baseline/g0/original/linux-x64/targets.json --after out/targets.json --allowed-addition src/base/utils/abandonable_call.cpp --gtest-before baseline/g0/original/linux-x64/gtest.json --gtest-after out/gtest.json --output comparison.json
 ```
 
 Two target snapshots are compared tuple by tuple with the same normalization
@@ -279,3 +279,15 @@ patches in separate temporary repositories and verifies original refs, index and
 working diff stay unchanged. `--scenario projection-patch` selects only that
 scenario. Git conflicts are recorded outcomes, not a reason to discard a report
 or silently merge a feature branch. All reports retain full diagnostics.
+
+## Final layout gates (P4)
+
+Run check_layers.py --layout final --strict, check_file_size.py --strict,
+check_ownership.py --strict --final and check_doc_paths.py --strict.
+Include normalization remains blocking for src and tests. CTest exposes
+layer_lint; CI retains reports on failure. Never refresh a baseline just to
+hide a violation. Ownership allowances identify exact scopes and counts;
+layering exceptions stay empty. Tool self-tests use isolated repositories
+to prove upward dependencies, oversized files and new detach calls fail.
+
+文档检查只把真实仓库引用作为存在性断言。示例工作区路径、文件补全前缀及历史方案中未实施的文件，逐项登记在 `doc_path_references.json`，按文档、完整路径和出现次数匹配，并在报告中单独列出；没有目录级豁免。新出现的缺失路径仍使 strict 检查失败。所有权的同步回调人工核对项同样限定文件、命名作用域、调用 API 和数量，不能被新增的异步回调占用。

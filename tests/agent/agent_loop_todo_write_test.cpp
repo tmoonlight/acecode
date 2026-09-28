@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -49,9 +50,11 @@ public:
         };
         tools_.register_tool(acecode::create_todo_write_tool());
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
-        loop_ = std::make_unique<acecode::AgentLoop>(accessor, tools_, callbacks_, cwd_, perms_);
+        loop_ = std::make_unique<acecode::AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, callbacks_, perms_, &sm_),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
         sm_.start_session(cwd_, "stub", "stub-model", "20260603-130000-abcd");
-        loop_->set_session_manager(&sm_);
         sub_ = loop_->events().subscribe([this](const acecode::SessionEvent& e) {
             std::lock_guard<std::mutex> lk(events_mu_);
             events_.push_back(e);

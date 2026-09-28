@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `SandboxConfig.enabled` 的结构默认值为 true，普通保存会省略默认值。Desktop、TUI、daemon、headless 均调用 `load_config()`；`load_config_from_path()` 同时用于配置编辑和恢复候选校验。`config_mutation.cpp` 已有进程内锁与跨进程文件锁。

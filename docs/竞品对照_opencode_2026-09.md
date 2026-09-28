@@ -33,7 +33,7 @@ ACECode 侧：master `d603cacb`。所有论断都逐条对照两边源码核实�
 |---|---|---|
 | 语言/栈 | TypeScript + Bun + Effect；TUI 用 opentui(Solid)；Web 用 SolidJS；Desktop 用 **Electron**（已从 Tauri 迁走，`packages/desktop/package.json`） | C++17 + FTXUI；Web 用 React 18 + Vite；Desktop 自研 webview 壳 |
 | 包结构 | 33 个 workspace 包：`opencode`(CLI 主体 678 文件) / `core`(479) / `app`(596) / `tui`(204) / `ui`(247) / `console`(258, 云控制台) / `llm`(105, 原生 provider 协议) / `server` / `plugin` / `sdk` / `codemode` / `enterprise` / `slack` / `stats` … | 单仓：`src/` 40 个子目录 + `web/` + `ace-browser-bridge/` |
-| 运行时 | legacy（`src/session/prompt.ts` 1631 行主循环）与 V2（`core/src/session/*`，durable inbox → runner → projector，见 `CONTEXT.md` 的术语表）双轨过渡 | 单轨：`agent_loop.cpp` 状态机 + `SessionRegistry` 多路复用 |
+| 运行时 | legacy（`packages/opencode/src/session/prompt.ts` 1631 行主循环）与 V2（`core/src/session/*`，durable inbox → runner → projector，见 `CONTEXT.md` 的术语表）双轨过渡 | 单轨：`agent_loop.cpp` 状态机 + `SessionRegistry` 多路复用 |
 | 持久化 | SQLite + drizzle（`core/src/session/sql.ts`：session/message/part 表，带 cost/tokens 列） | JSONL + meta.json 每会话两文件 + writer lease |
 | 客户端 | TUI / `opencode run`(带交互 footer) / Web / Desktop / ACP / GitHub Action / GitLab / VS Code 扩展 / Slack | TUI / `-p` headless / Web / Desktop / Remote Control(IM) |
 | 测试 | 678 单测 + 111 e2e(Playwright) + storybook + perf 基准 | 397 C++ 测试 + 272 前端 Node 测试 |
@@ -50,10 +50,10 @@ ACECode 侧：master `d603cacb`。所有论断都逐条对照两边源码核实�
 
 | # | opencode 做法 | ACECode 现状 | 影响 | 代价 | 优先级 |
 |---|---|---|---|---|---|
-| A1 | **按模型族分发系统提示**：`session/system.ts::provider()` 按 model id 选 `anthropic.txt / gpt.txt / codex.txt / gemini.txt / kimi.txt / beast.txt(gpt-4/o1/o3) / gpt-astra.txt(gpt-6) / meta.txt / trinity.txt / default.txt` 十套；工具面也随模型切：GPT 系用 `apply_patch`，其它用 `edit/write`（`tool/registry.ts:~300`） | `src/prompt/system_prompt.cpp` 单套提示（grep gpt/claude/gemini 无分支）；工具面固定 | 同一套提示在 Claude/GPT/Kimi/GLM 上表现差异很大，这是"同模型跑得好不好"的直接因素；ACECode 用户大量用国产/内网模型，更需要 | M | **P0** |
-| A2 | **Agent 定义**：primary/subagent 两类，Markdown frontmatter（`~/.config/opencode/agents/*.md` / `.opencode/agents/*.md`）定义 description/model/prompt/temperature/top_p/permission/steps/color/hidden；内置 build/plan/general/explore/scout + 隐藏 compaction/title/summary；Tab 循环主 agent，`@name` 提及子 agent；`permission.task` 控制谁能派谁 | Expert 组件（`src/experts/`，Agent/Team + 头像 + 能力范围）方向类似但绑定桌面 UI；`spawn_subagent` 只有 prompt/wait/model 三参数，没有"子代理类型"概念；无 per-agent prompt/permission/temperature | 团队沉淀"审查员/文档员/安全员"这类角色是刚需；Expert 已有壳，缺的是把它接进 spawn 与权限 | M | **P0** |
-| A3 | **嵌套指令按需注入**：`session/instruction.ts::resolve()` 在 `read` 工具读到文件时，向上找该文件祖先目录里的 AGENTS.md/CLAUDE.md，每条 assistant 消息只注入一次（Claude Code 同款） | `src/project_instructions/` 启动时按 cwd 祖先链 outer-first 加载；子目录里的 AGENTS.md 永远不会被看到 | monorepo 里 `packages/x/AGENTS.md` 是主流写法；不支持等于这些规则形同虚设 | S | **P0** |
-| A4 | **结构化输出**：`prompt.ts` 支持 `format:{type:"json_schema"}`，注入 `StructuredOutput` 工具 + `toolChoice:"required"`，失败报 `StructuredOutputError` | 无（`src/headless`、`agent_loop.cpp` 无 json_schema） | 脚本化/流水线调用（almcli4acecode 那类）的基础能力 | S | P1 |
+| A1 | **按模型族分发系统提示**：`session/system.ts::provider()` 按 model id 选 `anthropic.txt / gpt.txt / codex.txt / gemini.txt / kimi.txt / beast.txt(gpt-4/o1/o3) / gpt-astra.txt(gpt-6) / meta.txt / trinity.txt / default.txt` 十套；工具面也随模型切：GPT 系用 `apply_patch`，其它用 `edit/write`（`tool/registry.ts:~300`） | `src/engine/prompt/system_prompt.cpp` 单套提示（grep gpt/claude/gemini 无分支）；工具面固定 | 同一套提示在 Claude/GPT/Kimi/GLM 上表现差异很大，这是"同模型跑得好不好"的直接因素；ACECode 用户大量用国产/内网模型，更需要 | M | **P0** |
+| A2 | **Agent 定义**：primary/subagent 两类，Markdown frontmatter（`~/.config/opencode/agents/*.md` / `.opencode/agents/*.md`）定义 description/model/prompt/temperature/top_p/permission/steps/color/hidden；内置 build/plan/general/explore/scout + 隐藏 compaction/title/summary；Tab 循环主 agent，`@name` 提及子 agent；`permission.task` 控制谁能派谁 | Expert 组件（`src/domain/experts/`，Agent/Team + 头像 + 能力范围）方向类似但绑定桌面 UI；`spawn_subagent` 只有 prompt/wait/model 三参数，没有"子代理类型"概念；无 per-agent prompt/permission/temperature | 团队沉淀"审查员/文档员/安全员"这类角色是刚需；Expert 已有壳，缺的是把它接进 spawn 与权限 | M | **P0** |
+| A3 | **嵌套指令按需注入**：`session/instruction.ts::resolve()` 在 `read` 工具读到文件时，向上找该文件祖先目录里的 AGENTS.md/CLAUDE.md，每条 assistant 消息只注入一次（Claude Code 同款） | `src/domain/project_instructions/` 启动时按 cwd 祖先链 outer-first 加载；子目录里的 AGENTS.md 永远不会被看到 | monorepo 里 `packages/x/AGENTS.md` 是主流写法；不支持等于这些规则形同虚设 | S | **P0** |
+| A4 | **结构化输出**：`prompt.ts` 支持 `format:{type:"json_schema"}`，注入 `StructuredOutput` 工具 + `toolChoice:"required"`，失败报 `StructuredOutputError` | 无（`src/apps/headless`、`agent_loop.cpp` 无 json_schema） | 脚本化/流水线调用（almcli4acecode 那类）的基础能力 | S | P1 |
 | A5 | **每 agent 步数上限** `steps` + `MAX_STEPS_PROMPT`（到上限后让模型总结收尾而不是硬停） | `agent_loop.max_iterations` 全局硬停 | 成本控制 + 优雅收尾 | S | P1 |
 | A6 | **压缩策略**：`compaction.prune`（回合结束后异步清老工具输出，`PRUNE_PROTECT=40k` 保护近期）、`preserve_recent_tokens` 保留最近 2k–15k、可增量更新的结构化摘要模板（Objective/Work State/Next Move/Relevant Files，`core/src/session/compaction.ts`）、插件可改压缩提示 | `/compact` + cold tool archive（`add-compact-cold-tool-archive`）；摘要模板见 `compact_prompt.cpp` | 长会话稳定性；ACECode 已有骨架，缺 prune 与"增量合并旧摘要" | S | P1 |
 | A7 | **task_id 续跑子代理**：`tool/task.ts` 允许传 `task_id` 让子代理在原上下文继续；后台任务完成自动通知父会话（`BACKGROUND_STARTED` 文案明确禁止父轮询） | `spawn_subagent(wait=false)` + `wait_subagent`，子会话结束即从面板移除，无续跑 | 多轮委派（"再改一下"）不用重头来 | S | P1 |
@@ -167,17 +167,17 @@ ACECode 侧：master `d603cacb`。所有论断都逐条对照两边源码核实�
 
 | 能力 | ACECode | opencode 对应物 |
 |---|---|---|
-| Agent Browser（CDP 级点击/填表/截图/evaluate，双宿主，开发宽松策略） | `src/tool/agent_browser/`、`src/desktop/agent_browser_*` | 无 |
+| Agent Browser（CDP 级点击/填表/截图/evaluate，双宿主，开发宽松策略） | `src/adapters/tool/agent_browser/`、`src/apps/desktop/agent_browser_*` | 无 |
 | 图像生成/编辑工具 | `image_generate` | 无 |
-| Remote Control（IM 通道托管会话、提问桥接、出站摘要） | `src/remote_control/` | 只有 Slack 包（云侧） |
-| Loops（本地定时任务 + workspace_touched 审计） | `src/loop/` | 只能借 GitHub Action schedule |
+| Remote Control（IM 通道托管会话、提问桥接、出站摘要） | `src/host/remote_control/` | 只有 Slack 包（云侧） |
+| Loops（本地定时任务 + workspace_touched 审计） | `src/host/loop/` | 只能借 GitHub Action schedule |
 | Thread Goals（自主续跑、budget/usage 状态机、in-turn steering） | `thread_goal_store`、`maybe_continue_goal` | 无 |
 | 子代理写边界继承 + 事后 `workspace_touched` 兜底 | `fix-subagent-write-boundary` | 后台子代理仍是实验 flag |
 | 蜂群/网状多代理（进行中） | `add-mesh-swarm-mode` | 无 |
-| PA 内网适配（错误识别、预算学习、随机拒收救援） | `src/pa/` | 无 |
-| Expert 组件（头像状态、能力范围） | `src/experts/` | agent 无 UI 实体 |
+| PA 内网适配（错误识别、预算学习、随机拒收救援） | `src/adapters/pa/` | 无 |
+| Expert 组件（头像状态、能力范围） | `src/domain/experts/` | agent 无 UI 实体 |
 | Vision 子代理（主模型无视觉时自动路由） | `vision_analyze` | 无（读图直接给模型） |
-| 记忆工具（`memory_read/write` 索引） | `src/memory/` | 无（只有 AGENTS.md） |
+| 记忆工具（`memory_read/write` 索引） | `src/domain/memory/` | 无（只有 AGENTS.md） |
 | Prompt-cache 前缀不变量的测试守卫 | `RequestPrefixIsByteStableAcrossIterationsInATurn` | 无同等测试 |
 | 主题 AI 生成 + 图标/标题配色 + EVA 资源包 | `theme_create` | 33 套静态 JSON |
 | Windows 纵深（ConPTY/winpty、conhost 兼容布局、自绘 toast、junction 坑） | 多处 | 官方建议 Windows 用 WSL |
@@ -234,12 +234,12 @@ E1 OpenAPI ──→ E2 ACP / E4 VS Code / SDK
 
 ## 6. 与 2026-08 报告 Phase 1 的衔接
 
-8 月报告 Phase 1 的五项（`/thinking`、Ctrl+G 外部编辑器、会话元命令、离线开关、`/hotkeys`）截至本次核实 **均未落地**（`src/tui/commands/` 无 thinking/effort/hotkeys 命令，`src/tui` 无 keybind 机制，`$EDITOR` 仍只用于 `/memory edit`）。本报告的 M1、U1、U3 与之重叠，建议直接合并到 P0/P1 排期，不再单独立项。
+8 月报告 Phase 1 的五项（`/thinking`、Ctrl+G 外部编辑器、会话元命令、离线开关、`/hotkeys`）截至本次核实 **均未落地**（`src/apps/tui/commands/` 无 thinking/effort/hotkeys 命令，`src/apps/tui` 无 keybind 机制，`$EDITOR` 仍只用于 `/memory edit`）。本报告的 M1、U1、U3 与之重叠，建议直接合并到 P0/P1 排期，不再单独立项。
 
 ---
 
 ## 7. 核实方法
 
 - opencode：读 `AGENTS.md`、`CONTEXT.md`、`packages/web/src/content/docs/*.mdx`（36 页）建立功能清单，再逐项进 `packages/opencode/src`、`packages/core/src`、`packages/plugin/src`、`packages/tui/src`、`packages/app/src`、`packages/llm/src` 核对实现存在且非 stub。
-- ACECode：对 `src/tool/builtin_tool_registry.hpp`、`src/tui/commands/*.cpp` 的注册点、`src/permissions/permissions.hpp`、`src/config/config.hpp`、`src/prompt/system_prompt.cpp`、`docs/hooks.md` 做 grep 级核实；"无"的结论均来自 grep 零命中 + 目录结构确认。
+- ACECode：对 `src/adapters/tool/builtin_tool_registry.hpp`、`src/apps/tui/commands/*.cpp` 的注册点、`src/domain/permissions/permissions.hpp`、`src/base/config/config.hpp`、`src/engine/prompt/system_prompt.cpp`、`docs/hooks.md` 做 grep 级核实；"无"的结论均来自 grep 零命中 + 目录结构确认。
 - 未核实、只依据文档的项已在表中用"docs"或"需核对"标出。

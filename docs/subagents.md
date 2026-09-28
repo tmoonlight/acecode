@@ -80,15 +80,15 @@
 
 | 文件 | 职责 |
 |---|---|
-| `src/session_host/tools/spawn_subagent_tool.{hpp,cpp}` | 两个工具本体 + `SubagentToolDeps{registry, client, config, fallback_permissions, on_spawn}`。daemon 里 deps 用 shared_ptr 延迟回填(ToolExecutor 先于 SessionRegistry 构造,见 worker.cpp) |
-| `src/session/session_storage.{hpp,cpp}` | `SessionMeta.parent_session_id`(空省略序列化);`purge_session_files(project_dir, id)` 删 jsonl + meta + `<id>/` 目录(web purge 路由与 TUI `/tasks clear` 共用) |
-| `src/session/session_manager.{hpp,cpp}` | `set_parent_session_id` / `current_parent_session_id`;start_session 重置、ensure_created/update_meta 落盘、resume_session 读回 |
-| `src/session_host/session_registry.{hpp,cpp}` | `SessionEntry::{subagent_depth, parent_session_id}`;make_entry_locked 从 opts 写入 / 从 resumed_meta 恢复(恢复时强制 depth≥1);list_active 透出 parent 字段 |
-| `src/session/session_client.hpp` | `SessionOptions::{subagent_depth, parent_session_id}`、`SessionInfo::parent_session_id` |
-| `src/web/server_helpers.cpp` | `sessions_for_workspace(..., parent_filter)`:空 = 常规列表**排除**全部子会话;非空 = 只返回该父会话的子任务(active 部分跳过 workspace 过滤);`session_info_to_json` / `session_meta_to_json` 输出 `parent_session_id` |
-| `src/web/routes/routes_sessions.cpp` | `GET /api/sessions?parent=<id>`;`DELETE /api/sessions/:id?purge=1`(仅子会话,主会话 400,busy 409;destroy 后 purge_session_files) |
-| `src/web/routes/routes_workspaces.cpp` | workspace 路由的 `?parent=` 同语义 |
-| `src/daemon/worker.cpp` | daemon 注册点(registry/client 就绪后回填 deps) |
+| `src/host/session_host/tools/spawn_subagent_tool.{hpp,cpp}` | 两个工具本体 + `SubagentToolDeps{registry, client, config, fallback_permissions, on_spawn}`。daemon 里 deps 用 shared_ptr 延迟回填(ToolExecutor 先于 SessionRegistry 构造,见 worker.cpp) |
+| `src/domain/session/session_storage.{hpp,cpp}` | `SessionMeta.parent_session_id`(空省略序列化);`purge_session_files(project_dir, id)` 删 jsonl + meta + `<id>/` 目录(web purge 路由与 TUI `/tasks clear` 共用) |
+| `src/domain/session/session_manager.{hpp,cpp}` | `set_parent_session_id` / `current_parent_session_id`;start_session 重置、ensure_created/update_meta 落盘、resume_session 读回 |
+| `src/host/session_host/session_registry.{hpp,cpp}` | `SessionEntry::{subagent_depth, parent_session_id}`;make_entry_locked 从 opts 写入 / 从 resumed_meta 恢复(恢复时强制 depth≥1);list_active 透出 parent 字段 |
+| `src/domain/session/session_client.hpp` | `SessionOptions::{subagent_depth, parent_session_id}`、`SessionInfo::parent_session_id` |
+| `src/apps/web/server_helpers.cpp` | `sessions_for_workspace(..., parent_filter)`:空 = 常规列表**排除**全部子会话;非空 = 只返回该父会话的子任务(active 部分跳过 workspace 过滤);`session_info_to_json` / `session_meta_to_json` 输出 `parent_session_id` |
+| `src/apps/web/routes/routes_sessions.cpp` | `GET /api/sessions?parent=<id>`;`DELETE /api/sessions/:id?purge=1`(仅子会话,主会话 400,busy 409;destroy 后 purge_session_files) |
+| `src/apps/web/routes/routes_workspaces.cpp` | workspace 路由的 `?parent=` 同语义 |
+| `src/apps/daemon/worker.cpp` | daemon 注册点(registry/client 就绪后回填 deps) |
 
 ### HTTP / 协议增量(详见 docs/daemon-api.md)
 
@@ -142,7 +142,7 @@ session_status 帧(未知 busy 会话)            → refetch   ← wait=true �
 
 ## 5. TUI 支持
 
-### SubagentHost(src/tui/subagent_host.{hpp,cpp},进 acecode_testable)
+### SubagentHost(src/apps/tui/subagent_host.{hpp,cpp},进 acecode_testable)
 
 SessionRegistry / LocalSessionClient 无 web 依赖 → TUI 进程直接实例化。host 职责:
 

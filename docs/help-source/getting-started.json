@@ -16,7 +16,7 @@
     "sources": [
       "README_CN.md",
       "docs/user-manual.md",
-      "src/headless/headless_options.cpp",
+      "src/apps/headless/headless_options.cpp",
       "docs/agent-browser.md"
     ],
     "intro": ""
@@ -46,7 +46,7 @@
       "installer/windows/acecode.iss",
       "docs/macos-release.md",
       "docs/linux-self-update.md",
-      "src/daemon/cli.cpp"
+      "src/apps/daemon/cli.cpp"
     ],
     "intro": "<h3 id=\"before\">安装前准备</h3><p>先确定你使用的操作系统和处理器架构。Windows、macOS 和 Linux 的安装包不能混用；Apple 芯片与 Intel Mac 也需要选择不同的包。</p>\n        <ul class=\"check-list\"><li><strong>模型访问方式：</strong>准备服务商提供的 API Key，或使用支持的账号登录方式。安装完成后再配置即可。</li><li><strong>开发环境：</strong>若任务需要运行项目，请先准备项目依赖，例如 Git、Node.js、Python 或相应编译工具。</li><li><strong>npm 安装：</strong>需要电脑上已有 Node.js 和 npm。直接下载原生安装包时，不需要为了启动 ACECode 安装 Node.js。</li></ul>\n        <p>所有手动下载入口都指向 <a href=\"https://github.com/tmoonlight/acecode/releases\" target=\"_blank\" rel=\"noopener noreferrer\">ACECode 官方发布页 <svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M14 3h7v7m0-7L10 14M10 5H4v15h15v-6\"/></svg></a>。在 Assets 中选择对应平台的产物，具体可用文件以该版本发布内容为准。</p>\n      <h3 id=\"npm\">通过 npm 安装</h3><p>如果你已经使用 npm，可以直接安装桌面端或终端版。安装时会按系统和处理器选择对应的原生程序。</p>\n        <h3 id=\"npm-desktop\">桌面端</h3><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 安装并启动桌面端</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm install -g @aceagent/desktop\nacecode-desktop</code></pre></div>\n        <h3 id=\"npm-cli\">终端版</h3><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 安装、配置并启动 TUI</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>npm install -g @aceagent/acecode\nacecode configure\nacecode</code></pre></div>\n        <aside class=\"note\"><strong>保留可选依赖</strong><p>安装时请不要添加 <code>--omit=optional</code> 或 <code>--no-optional</code>，平台所需的原生程序通过可选依赖安装。桌面端与 CLI 提供不同的启动命令，需要两个入口时可分别安装。</p></aside>\n      <p>终端版与桌面端分别提供 <code>acecode</code> 与 <code>acecode-desktop</code> 命令。安装后重新打开终端，用 <code>acecode --version</code> 检查终端版是否可用。</p>"
   },
@@ -113,7 +113,7 @@
       }
     ],
     "sources": [
-      "src/cli/main.cpp",
+      "src/apps/cli/main.cpp",
       "npm/cli/README.md",
       "npm/desktop/README.md",
       "docs/macos-release.md",

@@ -55,7 +55,7 @@ def main():
     line(tool_call("Bash", "command=\"npm test\"", dot=DOT_WORKING) + "   " + DIM + "← 执行中(灰)" + RESET)
     time.sleep(0.3)
     line(tool_result("3 passed", ok=True) + "   " + DIM + "← 成功(绿)" + RESET)
-    line(tool_call("FileWrite", "path=src/cli/main.cpp", dot=DOT_WORKING))
+    line(tool_call("FileWrite", "path=src/apps/cli/main.cpp", dot=DOT_WORKING))
     time.sleep(0.3)
     line(tool_result("Error: permission denied", ok=False) + "   " + DIM + "← 失败(红)" + RESET)
     line(tool_call("Grep", "pattern=TODO") + "   " + DIM + "← 孤儿(无结果,保持灰)" + RESET)

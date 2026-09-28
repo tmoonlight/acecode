@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `SessionAttentionIndicator` renders four spans in a 16px slot. CSS owns both the 6.47-second linear orbit and 2.156-second radial breathing. Identical keyframes at 36% and 72% create a 776ms radial hold; 5.5px dots overlap at the 2.35px inner radius. See proposal.md for motivation.

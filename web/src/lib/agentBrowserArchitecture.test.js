@@ -85,7 +85,7 @@ run('Agent Browser pages are owned by sessions across daemon, desktop host and W
   const cdpClient = readCppSource('tool/agent_browser/cdp_client.cpp');
   const tools = readCppSource('tool/agent_browser/browser_tools.cpp');
   const toolContext = readCppSource('tool/tool_executor.hpp');
-  const agentLoop = readCppSource('agent_loop.cpp');
+  const toolFactory = source('src/engine/agent/tool_exec/tool_context_factory.cpp');
   const chatView = source('web/src/components/ChatView.jsx');
   const app = source('web/src/App.jsx');
   const bridge = source('web/src/lib/agentBrowser.js');
@@ -112,7 +112,7 @@ run('Agent Browser pages are owned by sessions across daemon, desktop host and W
   assert.match(toolContext, /std::string session_id;/);
   assert.match(toolContext, /std::string parent_session_id;/);
   assert.match(toolContext, /std::string workspace_hash;/);
-  assert.match(agentLoop, /tool_ctx\.session_id = session_manager_->current_session_id\(\);/);
+  assert.match(toolFactory, /tool_ctx\.session_id = session_manager_->current_session_id\(\);/);
   assert.match(tools, /client\.set_owner\(agent_browser_owner_from_context\(context\)\);/);
   assert.match(cdpClient, /if \(owner\.is_object\(\)\) request\["owner"\] = owner;/);
   // Desktop → Web:状态事件带 owner,ListPages 按会话对账,CreatePage 接 owner。

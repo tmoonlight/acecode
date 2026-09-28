@@ -29,7 +29,7 @@ PAGES = {
 }</code></pre><p>超出有效范围的整数会自动限制到边界，并记录警告；非整数值会被忽略并继续使用默认值。省略字段时使用默认值，配置保存采用稀疏写入，不会强制写出默认值。</p>'''),
     section("recovery", "手动编辑与错误恢复",
         '''<ol><li>先备份当前有效配置，使用支持 UTF-8 的编辑器打开。</li><li>只修改目标字段，保持正确的 JSON 类型，不加入注释或尾随逗号。</li><li>重新加载相关功能，或按该功能要求重启。</li><li>检查界面实际值和一次小操作，确认修改已生效。</li></ol><p>当前版本会保存有效配置快照。配置损坏且存在有效快照时，会备份错误文件并尝试自动恢复；Web/Desktop 会显示一次<strong>配置已自动回滚</strong>提示。没有可用快照时仍会报告配置错误。按提示查看备份位置并修复目标字段，备份可能含密钥，不要直接公开。</p>''')
-], ["src/config/config.cpp", "src/config/config.hpp", "docs/user-manual.md", "web/src/components/SettingsPage.jsx"]),
+], ["src/base/config/config.cpp", "src/base/config/config.hpp", "docs/user-manual.md", "web/src/components/SettingsPage.jsx"]),
 
 "permissions": page("权限模式决定文件修改和工具执行何时需要你确认。发送任务前确认模式，遇到请求时核对实际操作。", [
     section("modes", "选择权限模式",
@@ -42,7 +42,7 @@ PAGES = {
         '''<p>停止任务会阻止后续工作，但已经完成的写入和命令副作用不会自动回滚。拒绝一个工具后，可以说明原因并要求智能体采用更小范围的方案。</p>''',
         note("危险启动模式", "<code>--yolo</code> / <code>--dangerous</code> 启动参数会绕过权限和路径安全检查，适合明确受控的本地环境，不应作为日常排错的通用办法。危险模式不能开启远程 Web 访问。", True),
         '''<p>只想减少文件编辑的确认时，先考虑自动接收编辑。需要了解如何检查已经发生的修改，参见<a href="git.html#restore">回退与恢复</a>。</p>''')
-], ["web/src/lib/permissionMode.js", "web/src/components/SettingsPage.jsx", "src/permissions/permissions.hpp", "src/headless/headless_options.cpp", "docs/user-manual.md"]),
+], ["web/src/lib/permissionMode.js", "web/src/components/SettingsPage.jsx", "src/domain/permissions/permissions.hpp", "src/apps/headless/headless_options.cpp", "docs/user-manual.md"]),
 
 "network": page("分别配置访问模型服务的出站代理，以及让其他设备连接 ACECode 的远程 Web 入口。", [
     section("outbound", "模型请求使用的代理",
@@ -56,7 +56,7 @@ PAGES = {
         '''<p><strong>设置 &gt; 常规 &gt; 远程 Web 模式</strong>用于其他设备访问当前 ACECode。开启后出现连接地址和复制连接入口，本机后台仍监听回环地址。它与上面的模型出站代理是两套配置。</p><p>连接失败时依次检查后台服务、远程模式状态、实际代理端口、主机名解析和防火墙。复制连接包含 Token，服务重启后旧连接可能失效，需要重新复制。</p>''',
         figure("CF-02", "远程 Web 连接设置", "展示远程 Web 开关、主机或网卡选择、实际端口和复制连接按钮；将 Token 完整遮挡。"),
         '''<p>完整连接流程见<a href="web.html#remote">从其他设备连接</a>。跨公网访问使用可信 VPN 或 HTTPS 入口，不直接公开包含 Token 的地址。</p>''')
-], ["src/config/config.hpp", "src/config/config.cpp", "src/tui/commands/proxy_command.cpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
+], ["src/base/config/config.hpp", "src/base/config/config.cpp", "src/apps/tui/commands/proxy_command.cpp", "web/src/components/SettingsPage.jsx", "docs/user-manual.md"]),
 
 "appearance": page("根据阅读习惯调整界面外观，选择语言，并设置任务完成后是否接收系统通知。", [
     section("visual", "外观与工作模式",
@@ -79,7 +79,7 @@ PAGES = {
     section("example", "一份小而明确的规则",
         code("项目使用 Python，业务代码放在 src/，测试放在 tests/。\n修改前先阅读相关模块与测试；不要修改 generated/ 下的生成文件。\n保持现有公开接口，新增行为需要相应测试。\n完成后运行项目 README 中记录的验证命令，并报告未执行的检查。", "AGENT.md 内容示例"),
         '''<p>把示例中的语言、路径和验证命令替换成自己的项目约定。稳定的个人偏好放在个性化或记忆中，可复用的操作流程整理为<a href="skills.html">技能</a>；本项目特有的约束留在项目规则里。</p>''')
-], ["src/project_instructions/instructions_loader.cpp", "src/config/config.hpp", "src/tui/commands/builtin_commands.cpp", "docs/user-manual.md"]),
+], ["src/domain/project_instructions/instructions_loader.cpp", "src/base/config/config.hpp", "src/apps/tui/commands/builtin_commands.cpp", "docs/user-manual.md"]),
 
 "memory": page("个性化指令用于持续表达偏好，记忆用于保存可复用的信息。让保存的内容简短、明确，并随实际情况更新。", [
     section("instructions", "设置个性化指令",
@@ -90,7 +90,7 @@ PAGES = {
         '''<p>需要记住长期信息时，可以在任务中明确提出要求，例如“记住：我希望解释结果时先给结论，再给验证依据”。阅读执行结果，确认实际保存了什么，避免把一次聊天中出现的信息都当作已经持久化。</p><p>默认记忆目录是 <code>~/.acecode/memory/</code>，其中 <code>MEMORY.md</code> 为索引，具体条目分别保存为 Markdown 文件。TUI 的 <code>/memory</code> 用于列出记忆，更多操作可查看 <code>/memory help</code>。</p><p>记忆与聊天记录不同：恢复任务读取该任务的上下文，持久记忆用于后续工作重用信息。不要把整个项目源码或完整对话复制为一条记忆。</p>'''),
     section("maintenance", "更新与删除过时信息",
         '''<p>当工作习惯或项目信息变化时，明确告诉 ACECode 要更新哪条记忆以及新内容。删除时同样指定对象，先查看内容再操作；TUI 的记忆命令提供查看、编辑、忘记和重新加载入口。</p><p>适合长期保存的是稳定偏好、反复需要的项目说明和可复用经验。账号密钥、临时验证码、大段日志和未经确认的推测不适合作为普通记忆保存。分享备份前检查记忆与配置中的私密内容。</p><p>如果某条旧信息反复影响回答，先检查个性化指令、项目规则和记忆三个来源，修正对应来源后再开始新任务验证。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/memory/memory_paths.cpp", "src/tui/commands/memory_command.cpp", "src/tool/memory_read_tool.cpp", "src/tool/memory_write_tool.cpp"])
+], ["web/src/components/SettingsPage.jsx", "src/domain/memory/memory_paths.cpp", "src/apps/tui/commands/memory_command.cpp", "src/adapters/tool/memory_read_tool.cpp", "src/adapters/tool/memory_write_tool.cpp"])
 }
 
 from group4_extensions import PAGES as EXTENSIONS

@@ -1,0 +1,343 @@
+#pragma once
+
+#include "file_checkpoint_store.hpp"
+#include "compact_checkpoint.hpp"
+#include "session_storage.hpp"
+#include "session_trajectory.hpp"
+#include "session_writer_lease.hpp"
+#include "thread_goal_store.hpp"
+#include "llm/llm_provider.hpp"
+
+#include <string>
+#include <vector>
+#include <fstream>
+#include <memory>
+#include <mutex>
+#include <optional>
+
+namespace acecode {
+
+enum class ArchiveCurrentSessionResult {
+    Archived,
+    NoActiveSession,
+    PersistenceFailed,
+};
+
+class SessionManager {
+public:
+    // Prepare a new session (lazy: files created on first message)
+    void start_session(const std::string& cwd,
+                       const std::string& provider,
+                       const std::string& model,
+                       const std::string& preset_session_id = "",
+                       const std::string& model_preset = "",
+                       const std::string& surface = "tui",
+                       bool no_workspace = false);
+
+    // Called for each message produced during conversation.
+    // Appends to JSONL and periodically updates metadata.
+    void on_message(const ChatMessage& msg);
+
+    // Replace the current active JSONL transcript, preserving checkpoint
+    // metadata for user turns that remain in the supplied message list.
+    bool replace_active_messages(const std::vector<ChatMessage>& messages);
+
+    // Append a compact checkpoint to the current JSONL transcript without
+    // rewriting older human-visible rows.
+    bool append_compact_checkpoint(const CompactCheckpoint& checkpoint);
+
+    // File checkpoint integration for /rewind. begin_user_turn_checkpoint()
+    // creates the per-user snapshot; track_file_write_before() updates that
+    // snapshot immediately before a write tool mutates a file.
+    void begin_user_turn_checkpoint(const std::string& user_message_uuid);
+    void track_file_write_before(const std::string& file_path);
+    std::optional<TurnNetDiffRecord> finalize_user_turn_net_diff(
+        const std::string& user_message_uuid);
+    bool file_checkpoint_can_restore(const std::string& user_message_uuid) const;
+    FileCheckpointDiffStats file_checkpoint_diff_stats(const std::string& user_message_uuid) const;
+    FileCheckpointRestoreResult rewind_files_to_checkpoint(const std::string& user_message_uuid) const;
+
+    // Finalize current session: flush and write final metadata. Safe to call multiple times.
+    void finalize();
+
+    // Resume a previous session by ID. Returns loaded messages.
+    // Reopens the JSONL file for continued append.
+    std::vector<ChatMessage> resume_session(const std::string& session_id);
+
+    // Read the active session transcript without mutating session state.
+    // Returns empty when no active JSONL has been created yet.
+    std::vector<ChatMessage> load_active_messages() const;
+
+    // Read the SessionMeta for a previously persisted session by ID, without
+    // mutating any in-memory state. Returns empty SessionMeta (id == "") when
+    // the meta file is missing. Used by main.cpp's resume path so it can apply
+    // the persisted provider/model to the runtime LlmProvider before the
+    // session is re-activated. (openspec model-profiles task 6.1.)
+    SessionMeta load_session_meta(const std::string& session_id) const;
+
+    // True when the current project has a canonical transcript for session_id.
+    bool has_session_file(const std::string& session_id) const;
+
+    // True when the current project contains incompatible old PID-suffixed
+    // session data. Empty session_id checks for any old data in the project.
+    bool has_incompatible_session_data(const std::string& session_id = "") const;
+
+    // Last recoverable session error, such as a writer lease conflict.
+    std::string last_error() const;
+
+    // After main.cpp swaps the provider, call this so subsequent meta updates
+    // record the new provider/model name. Pure setter; thread-safe.
+    bool set_active_provider(const std::string& provider, const std::string& model);
+    bool set_active_provider(const std::string& provider,
+                             const std::string& model,
+                             const std::string& model_preset);
+    // Update model selection and its independent session override together.
+    // persist_immediately also materializes an otherwise empty session.
+    bool set_active_model_state(const std::string& provider,
+                                const std::string& model,
+                                const std::string& model_preset,
+                                const std::optional<std::string>& reasoning_effort,
+                                bool persist_immediately = false);
+    std::string current_model_preset() const;
+
+    // End current session (mark it done) so next on_message starts a new one.
+    void end_current_session();
+
+    // Fork the active session into a fresh session id containing retained_prefix
+    // plus retained checkpoint metadata. The previous full transcript remains
+    // untouched on disk. Used by /rewind (TUI) and POST /api/sessions/:id/fork
+    // (web; with title/forked_from/fork_message_id non-empty).
+    //
+    // 这个版本会把 manager 切到新 session,后续 on_message 写新 jsonl;
+    // 老文件保持只读。
+    std::string fork_active_session(const std::vector<ChatMessage>& retained_prefix);
+
+    // 写一个全新 session 到磁盘(JSONL + meta),不动当前 active session 状态。
+    // 用于 web POST /api/sessions/:id/fork:fork 操作完成后,源 session 仍然
+    // 是 manager 的 active session,新 session 是磁盘上独立文件,后续由调用方
+    // 通过 SessionRegistry 装载 + 注册另一个 SessionManager。
+    //
+    // 失败(IO 异常)时会清理半个文件,返回空字符串。
+    // file_checkpoint 元消息(is_meta + subtype="file_checkpoint")自动过滤,
+    // 新 session 不继承 checkpoint(spec 的明确决定)。
+    std::string fork_session_to_new_id(
+        const std::vector<ChatMessage>& retained_prefix,
+        const std::string& title,
+        const std::string& forked_from_id,
+        const std::string& fork_message_id);
+
+    // Cleanup old sessions beyond max_sessions limit.
+    void cleanup_old_sessions(int max_sessions);
+
+    // List sessions for the current project
+    std::vector<SessionMeta> list_sessions() const;
+
+    // Get current session ID (empty if no active session)
+    std::string current_session_id() const;
+    // Storage remains anchored to the original project when execution enters
+    // a worktree. Callers must not derive this directory from the live cwd.
+    std::string current_project_dir() const;
+
+    bool has_active_session() const;
+
+    // Ensure a canonical session id and metadata file exist, then return the id.
+    // Used by goal commands/tools, which can create state before the first chat
+    // message is written.
+    std::string ensure_active_session_id();
+
+    // Directory for full tool outputs persisted out of the prompt context.
+    // Creates the active session lazily, matching on_message/goal behavior.
+    std::string ensure_tool_results_dir();
+
+    // Narrow allowlist for file_read: persisted tool results live in ACECode's
+    // session store, outside cwd, but the model needs to read them back.
+    bool is_tool_result_artifact_path(const std::string& path) const;
+
+    ThreadGoalStore* goal_store();
+    ThreadGoalStore* existing_goal_store();
+    const ThreadGoalStore* goal_store() const;
+
+    // Set the in-memory title for the current session. Persisted to .meta.json
+    // on the next update_meta() (every 5 messages, or finalize). Pass empty
+    // string to clear. Explicit user titles take precedence over generated
+    // titles.
+    void set_session_title(std::string title);
+    bool try_set_generated_session_title(std::string title);
+    bool try_set_generated_session_title_for_session(const std::string& session_id,
+                                                     std::string title);
+    // Start the initial hidden title request, or consume one pending retry.
+    // The returned text is the original visible input that the worker must use.
+    std::optional<std::string> begin_auto_title_generation(std::string visible_input);
+    // Complete one worker attempt. When the main turn already completed, a
+    // failed initial attempt atomically reserves and returns the single retry.
+    std::optional<std::string> finish_auto_title_generation_for_session(
+        const std::string& session_id,
+        bool succeeded);
+    // Mark the visible turn outcome. A completed turn atomically reserves and
+    // returns a retry when the initial title attempt already failed.
+    std::optional<std::string> mark_auto_title_turn_finished(
+        const std::string& status);
+
+    // Set the in-memory archive state for the current session and persist it
+    // immediately when metadata already exists.
+    void set_session_archived(bool archived);
+
+    // Atomically persist archived=true for the active session. Unlike the
+    // general setter, this reports whether an active session existed and
+    // whether the metadata commit succeeded so callers can gate lifecycle
+    // changes such as clearing the TUI.
+    ArchiveCurrentSessionResult archive_current_session();
+
+    // Mark the current session as a spawn_subagent child of parent_id.
+    // Persisted to .meta.json (immediately when metadata already exists,
+    // otherwise on lazy creation). Pass empty string to clear.
+    void set_parent_session_id(std::string parent_id);
+    std::string current_parent_session_id() const;
+
+    // Persist the current expert identity selected for this session.
+    void set_expert_binding(std::string expert_id, std::string member_id = {});
+    // Mutate and persist the expert binding plus an optional unsubmitted
+    // composer draft with one metadata update. A missing draft leaves it
+    // unchanged; an engaged empty string explicitly clears it.
+    bool set_expert_binding_and_input_draft(
+        std::string expert_id,
+        std::string member_id,
+        std::optional<std::string> input_draft);
+    std::string current_expert_id() const;
+    std::string current_expert_member_id() const;
+
+    // Persist the daemon-owned LOOP/run that directly created this session.
+    // This is provenance only and does not restore LOOP runtime policy.
+    void set_loop_origin(std::string loop_id, std::string loop_run_id);
+
+    // 会话当前的 worktree 状态(enter_worktree / --worktree 写入,
+    // exit_worktree 清空)。持久化到 .meta.json,resume 时恢复。
+    void set_active_worktree(const WorktreeSessionInfo& info);
+    void clear_active_worktree();
+    WorktreeSessionInfo active_worktree() const;
+
+    // Return the current in-memory title (empty when unset).
+    std::string current_title() const;
+    std::string current_title_source() const;
+    // 最近一条可见用户消息的摘要(显示文本截到 80 字节)。没有标题时它就是
+    // 会话在侧栏 / 顶部标题栏里显示的名字,与 meta.summary 同源。
+    std::string current_summary() const;
+
+    // Persisted unsubmitted chat input draft for the active session.
+    void set_input_draft(std::string draft, nlohmann::json composer_content = nullptr);
+    std::string current_input_draft() const;
+    nlohmann::json current_input_draft_content() const;
+
+    // Persisted runtime state for the active session.
+    void set_permission_mode(std::string mode, bool persist_immediately = true);
+    std::string current_permission_mode() const;
+    void set_pre_plan_permission_mode(std::string mode, bool persist_immediately = true);
+    std::string current_pre_plan_permission_mode() const;
+    void set_todos(std::vector<TodoItem> todos, bool persist_immediately = true);
+    std::vector<TodoItem> current_todos() const;
+    std::string ensure_plan_file_path();
+    std::string current_plan_file_path() const;
+    std::string read_plan_file() const;
+    bool write_plan_file(const std::string& content, std::string* error = nullptr);
+    bool is_plan_file_path(const std::string& path) const;
+    void record_token_usage(const TokenUsage& usage);
+    TokenUsage current_last_token_usage() const;
+    TokenUsage current_session_token_usage() const;
+    int current_turn_count() const;
+
+    // Append one model-invisible diagnostic record to the active session's
+    // trajectory sidecar. timestamp_ms <= 0 uses the current system clock.
+    // Failure is non-fatal for the canonical transcript and is reported by
+    // the return value plus a warning log.
+    bool record_trajectory_event(
+        std::string type,
+        nlohmann::json payload = nlohmann::json::object(),
+        std::int64_t timestamp_ms = 0);
+
+    // Resolved sidecar path for the current session. Empty until a session id
+    // has been allocated.
+    std::string current_trajectory_path() const;
+
+private:
+    bool ensure_created();  // Lazy creation of session files on first message
+    // 追加一条不含可搜索用户文本的记录(检查点 / 净差异等),并同步推进用户消息
+    // 搜索索引记下的文件签名,避免下一条消息落盘时整份 JSONL 重读重建。调用方持有 mu_。
+    bool append_non_searchable_locked(const ChatMessage& msg);
+    // Metadata-only writes preserve persisted activity time. Pass the current
+    // timestamp explicitly after successfully changing conversation history.
+    bool update_meta(
+        std::optional<std::string> updated_at_override = std::nullopt);
+    bool try_set_generated_session_title_locked(std::string title);
+    // Adopt a user title that another process persisted while this one held
+    // the session in memory (Desktop's per-workspace daemon pool). Called
+    // before every meta write so the in-memory title never silently
+    // overwrites a rename that landed on disk from elsewhere. An explicit
+    // local title write is the only operation allowed to outrank the disk.
+    void adopt_foreign_user_title_locked(const SessionMeta& persisted);
+    void reset_auto_title_state_locked();
+    std::string extract_summary(const std::string& content) const;
+    bool acquire_writer_lease_locked();
+    void refresh_writer_lease_locked();
+    void release_writer_lease_locked();
+    bool record_trajectory_event_locked(
+        std::string type,
+        nlohmann::json payload,
+        std::int64_t timestamp_ms);
+
+    std::string cwd_;
+    std::string provider_name_;
+    std::string model_name_;
+    std::string model_preset_;
+    std::optional<std::string> reasoning_effort_;
+    std::string surface_ = "tui";
+    bool no_workspace_ = false;
+    std::string project_dir_;
+    std::string session_id_;
+    std::string jsonl_path_;
+    std::string meta_path_str_;
+    std::uint64_t trajectory_sequence_ = 0;
+    bool trajectory_sequence_initialized_ = false;
+
+    bool started_ = false;    // start_session() called
+    bool created_ = false;    // Files actually created (lazy)
+    bool finalized_ = false;  // finalize() called
+
+    int message_count_ = 0;
+    int turn_count_ = 0;
+    std::string last_user_summary_;
+    std::string created_at_;
+    std::string pending_title_;
+    std::string title_source_;
+    std::string auto_title_input_;
+    std::string auto_title_session_id_;
+    int auto_title_generation_attempts_ = 0;
+    int auto_title_cycle_turn_count_ = 0;
+    bool auto_title_generation_in_flight_ = false;
+    bool auto_title_retry_pending_ = false;
+    bool auto_title_first_turn_completed_ = false;
+    bool auto_title_cycle_exhausted_ = false;
+    bool user_title_touched_ = false;
+    bool local_user_title_write_pending_ = false;
+    std::string input_draft_;
+    nlohmann::json input_draft_content_;
+    std::string permission_mode_ = "default";
+    std::string pre_plan_permission_mode_;
+    TokenUsage last_token_usage_;
+    TokenUsage session_token_usage_;
+    std::vector<TodoItem> todos_;
+    std::string last_error_;
+    std::optional<WriterLease> writer_lease_;
+    bool archived_ = false;
+    std::string parent_session_id_;
+    std::string expert_id_;
+    std::string expert_member_id_;
+    std::string loop_id_;
+    std::string loop_run_id_;
+    WorktreeSessionInfo worktree_;
+    FileCheckpointStore checkpoint_store_;
+    std::unique_ptr<ThreadGoalStore> goal_store_;
+
+    mutable std::mutex mu_;
+};
+
+} // namespace acecode

@@ -1,0 +1,70 @@
+#pragma once
+
+// 带 stdio 管道的子进程(原 lsp/lsp_process 的 LspProcess,refactor20260927
+// P2-03 下沉到 platform/process;lsp 侧经 lsp/lsp_platform_aliases.hpp 保留
+// Lsp 前缀的别名)。LSP server 与 WhatsApp bridge 都用它:spawn(stdio 管道
+// 接管 stdin/stdout,stderr 丢弃)、阻塞读 stdout、带锁写 stdin、优雅/强制停止。
+// 架构与 provider/codex/codex_app_server_client 的进程段同源,差异:
+// - argv 向量 + cwd + 追加环境变量(server 定义与 config 都可注入 env)
+// - Windows 上 argv[0] 为 .cmd/.bat 时自动经 cmd.exe /d /c 执行
+//   (CreateProcess 不能直接执行批处理;npm 全局命令都是 .cmd shim)
+
+#include "unique_resources.hpp"
+
+#include <cstddef>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace acecode::platform {
+
+struct SpawnOptions {
+    // argv[0] = 可执行文件(建议为 which() 解析出的完整路径)。
+    std::vector<std::string> argv;
+    std::string cwd; // UTF-8;空 = 继承父进程 cwd
+    std::vector<std::pair<std::string, std::string>> extra_env;
+};
+
+// Windows 命令行参数引用规则(CommandLineToArgvW 逆操作)。
+// 暴露为自由函数以便单测。POSIX 上不使用。
+std::string quote_windows_arg(const std::string& arg);
+
+class PipedProcess {
+public:
+    PipedProcess() = default;
+    ~PipedProcess();
+    PipedProcess(const PipedProcess&) = delete;
+    PipedProcess& operator=(const PipedProcess&) = delete;
+
+    bool start(const SpawnOptions& opts, std::string* error);
+
+    // 阻塞读 stdout。>0 = 读到的字节数;0 = EOF(子进程退出/管道关闭);
+    // <0 = 读错误。只允许单一 reader 线程调用。
+    long read_stdout(char* buf, std::size_t len);
+
+    bool write_stdin(const char* data, std::size_t len, std::string* error);
+    // 关闭 stdin 写端(LSP exit 之后让 server 观察到 EOF)。
+    void close_stdin();
+
+    bool started() const { return started_; }
+    // 等待子进程退出,超时返回 false。
+    bool wait_exit(int timeout_ms);
+    // Kill the child without closing pipe handles. Owners with concurrent I/O
+    // join their pipe threads before terminate() closes the handles.
+    void kill_child();
+    // 强杀 + 关闭全部句柄。可重复调用。
+    void terminate();
+
+private:
+    UniqueProcess process_;
+#ifdef _WIN32
+    UniqueHandle stdin_write_;
+    UniqueHandle stdout_read_;
+#else
+    UniqueFd stdin_write_;
+    UniqueFd stdout_read_;
+#endif
+    bool started_ = false;
+};
+
+} // namespace acecode::platform

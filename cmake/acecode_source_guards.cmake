@@ -26,7 +26,7 @@ function(acecode_set_source_define source)
 endfunction()
 
 # 与 lint 共用 layers.tsv。P0-P2 显式允许映射表中的旧路径；P3 M2 删除
-# ALLOW_LEGACY 后，旧分支重新带回 src/session/ 等路径会在 configure 时失败。
+# ALLOW_LEGACY 后，旧分支重新带回 src/domain/session/ 等路径会在 configure 时失败。
 function(acecode_assert_known_roots)
     cmake_parse_arguments(PARSE_ARGV 0 _guard "ALLOW_LEGACY" "" "SOURCES")
     if(_guard_UNPARSED_ARGUMENTS OR NOT _guard_SOURCES)
@@ -75,5 +75,30 @@ function(acecode_assert_known_roots)
         if(NOT _known)
             message(FATAL_ERROR "source is outside known layout roots: ${_relative}")
         endif()
+    endforeach()
+endfunction()
+
+# Tests must not depend on an implementation compiled only into the executable.
+# Header-only helpers need no entry; matching implementation files do.
+function(acecode_assert_tested_tui_sources)
+    cmake_parse_arguments(PARSE_ARGV 0 _guard "" "" "SOURCES")
+    if(_guard_UNPARSED_ARGUMENTS OR NOT _guard_SOURCES)
+        message(FATAL_ERROR "tested TUI sources: expected a nonempty SOURCES list")
+    endif()
+    file(GLOB_RECURSE _test_files CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/tests/*.cpp" "${CMAKE_SOURCE_DIR}/tests/*.hpp")
+    foreach(_test IN LISTS _test_files)
+        file(STRINGS "${_test}" _includes REGEX "^[ \t]*#[ \t]*include")
+        foreach(_include IN LISTS _includes)
+            if(_include MATCHES "#[ \t]*include[ \t]*[\"<](tui/[^\">]+[.]hpp)[\">]")
+                set(_header "${CMAKE_MATCH_1}")
+                string(REGEX REPLACE "[.]hpp$" ".cpp" _peer "${_header}")
+                set(_source "${CMAKE_SOURCE_DIR}/src/apps/${_peer}")
+                if(EXISTS "${_source}" AND NOT _source IN_LIST _guard_SOURCES)
+                    message(FATAL_ERROR
+                        "${_test} includes ${_header}, but ${_source} is not registered in acecode_testable")
+                endif()
+            endif()
+        endforeach()
     endforeach()
 endfunction()

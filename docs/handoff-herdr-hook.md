@@ -27,9 +27,9 @@ Explicit non-goals:
 
 Files:
 
-- `src/hooks/hook_runtime.hpp`
-- `src/hooks/hook_runtime.cpp`
-- `src/agent/agent_loop.cpp`
+- `src/domain/hooks/hook_runtime.hpp`
+- `src/domain/hooks/hook_runtime.cpp`
+- `src/engine/agent/agent_loop.cpp`
 
 `PermissionResolved` is emitted exactly once after a previously dispatched
 `PermissionRequest` is finalized. It runs before the approved tool starts or

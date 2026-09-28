@@ -1,0 +1,21 @@
+{
+  "coverage": [
+    {
+      "duplicates": [],
+      "file": "src/agent/agent_loop.cpp",
+      "lines": 6943,
+      "mapped": 6943,
+      "missing": []
+    },
+    {
+      "duplicates": [],
+      "file": "src/agent/agent_loop.hpp",
+      "lines": 1006,
+      "mapped": 1006,
+      "missing": []
+    }
+  ],
+  "findings": [],
+  "schema": 1,
+  "source_ref": "c3348df148d51ff799a68b17ce6af0899b5ce2fc"
+}

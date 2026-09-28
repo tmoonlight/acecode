@@ -15,7 +15,6 @@ add_library(acecode_deepin_window_effects STATIC
     ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE})
 target_compile_definitions(acecode_deepin_window_effects PRIVATE
     ACECODE_DEEPIN=1 QT_NO_KEYWORDS)
-target_include_directories(acecode_deepin_window_effects PRIVATE
-    ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/generated)
+target_link_libraries(acecode_deepin_window_effects PRIVATE acecode_include_roots)
 target_link_libraries(acecode_deepin_window_effects PRIVATE
     ${_acecode_dtk_target} Qt5::Widgets X11::X11 webview::core)

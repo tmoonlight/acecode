@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See proposal.md for scope. RC has a single global binding but already supplies a bounded outbound worker and question projection. SessionRegistry owns independent loops and no-workspace persistence. Desktop automatically runs the ordinary daemon worker. TUI's main session is a separate direct AgentLoop.

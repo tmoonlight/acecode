@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode Desktop uses one WebView for the React shell and a second native WebView for Agent Browser content. The Browser must remain a native view so arbitrary sites are not constrained by iframe policy. Because the Browser view is placed above the shell view, React z-index alone cannot put a menu or popover over Browser pixels.

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The package workflow builds six current platform archives, two old-glibc Linux archives, debug symbols, a browser extension, GitHub Release assets, and npm packages. Recent runs show that dependency installation and native compilation dominate the critical path; compression and release upload take only seconds. The workflow currently relies on `run-vcpkg` setting the removed `x-gha` backend, rebuilds the Web UI in every native job, runs the full matrix for pull requests, `master`, and tags, and configures `amd64_arm64` tools on an ARM64 Windows runner.

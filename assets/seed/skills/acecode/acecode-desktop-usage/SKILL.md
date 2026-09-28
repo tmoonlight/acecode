@@ -21,7 +21,7 @@ description: "说明 ACECode Desktop 原生桌面应用的用法，包括工作�
   - `web/src/`：界面控件和快捷键
   - `web/src/lib/settingsNavigation.js`：设置页分类
   - `web/src/lib/permissionMode.js`：权限选项
-  - `src/desktop/`：原生窗口、托盘、更新和 daemon 行为
+  - `src/apps/desktop/`：原生窗口、托盘、更新和 daemon 行为
 
 ## 认识主要对象
 

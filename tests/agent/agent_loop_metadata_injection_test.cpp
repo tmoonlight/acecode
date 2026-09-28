@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 验证 AgentLoop 在 Phase 3 record results 阶段把 ToolResult 的 summary / hunks
 // 编码进 ChatMessage.metadata 的 "tool_summary" / "tool_hunks" 子键。
 // 这是 restore-tool-calls-on-resume 的写盘端核心 —— 一旦不写,resume 后 tool_result
@@ -84,7 +85,9 @@ public:
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
 
         loop_ = std::make_unique<AgentLoop>(
-            provider_accessor, tools_, cb, /*cwd=*/".", perms_);
+        acecode_test::AgentLoopFixture::dependencies(provider_accessor, tools_, cb, perms_),
+        acecode_test::AgentLoopFixture::configuration(/*cwd=*/"."));
+        loop_->start();
 
         tools_.register_tool(acecode::create_task_complete_tool());
     }

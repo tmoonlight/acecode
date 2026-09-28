@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The dump identifies strict JSON serialization inside HookManager::dispatch_codex after a bash result. The original heap text is absent, so its exact source text is unknown. A GBK byte sequence beginning C0 reproduces the exception because the existing bit-pattern-only validator incorrectly accepts it as UTF-8.

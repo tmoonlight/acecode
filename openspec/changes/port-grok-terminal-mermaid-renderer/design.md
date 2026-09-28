@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode has two fundamentally different Markdown presentation environments. The terminal needs deterministic character-cell output, so its completed C++ renderer uses Grok Build's bounded parser, layout, and Unicode canvas. Browser WebUI and Desktop both execute the same React application in a real browser engine and should display the official Mermaid visual language rather than a vector tracing of that terminal canvas.

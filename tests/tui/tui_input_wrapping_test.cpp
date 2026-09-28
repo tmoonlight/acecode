@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "tui/tui_helpers.hpp"
+#include "tui/composer/input_wrap_view.hpp"
 #include "tui/theme_palette.hpp"
 
 #include <ftxui/dom/elements.hpp>

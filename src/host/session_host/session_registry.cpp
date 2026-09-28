@@ -1,0 +1,2456 @@
+#include "session_registry.hpp"
+
+#include "session/compact_checkpoint.hpp"
+#include "session/session_rewind.hpp"
+#include "tool/file_state_restore.hpp"
+#include "session/session_storage.hpp"
+#include "session_auto_title.hpp"
+#include "session/thread_goal_store.hpp"
+#include "session/system_notice.hpp"
+#include "session/tool_result_storage.hpp"
+#include "session/turn_timing.hpp"
+#include "prompt/init_prompt.hpp"
+#include "lsp/lsp_status_text.hpp"
+#include "session_host/apply_model_to_session.hpp"
+#include "provider/cwd_model_override.hpp"
+#include "provider/model_context_resolver.hpp"
+#include "provider/model_pool_status.hpp"
+#include "provider/model_resolver.hpp"
+#include "config/saved_models_revision.hpp"
+#include "skills/skill_init.hpp"
+#include "gitinfo/git_context_core.hpp"
+#include "tool/mcp_manager.hpp"
+#include "tool/mcp_scope.hpp"
+#include "config/mcp_config.hpp"
+#include "tool/question_policy.hpp"
+#include "worktree/worktree_core.hpp"
+#include "worktree/worktree_manager.hpp"
+#include "utils/logger.hpp"
+#include "utils/cwd_hash.hpp"
+#include "platform/power_inhibitor.hpp"
+#include "utils/utf8_path.hpp"
+#include "utils/scope_exit.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <system_error>
+#include <thread>
+#include <unordered_set>
+#include <utility>
+
+namespace acecode {
+
+namespace {
+
+std::string session_dir_name_from_id(const std::string& session_id) {
+    std::string out;
+    out.reserve(session_id.size());
+    for (unsigned char ch : session_id) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_') {
+            out.push_back(static_cast<char>(ch));
+        } else {
+            out.push_back('_');
+        }
+    }
+    return out.empty() ? "session" : out;
+}
+
+bool is_llm_role(const std::string& role) {
+    return role == "user" || role == "assistant" ||
+           role == "system" || role == "tool";
+}
+
+std::string trim_copy(const std::string& value) {
+    std::size_t first = 0;
+    while (first < value.size() &&
+           std::isspace(static_cast<unsigned char>(value[first])) != 0) {
+        ++first;
+    }
+    std::size_t last = value.size();
+    while (last > first &&
+           std::isspace(static_cast<unsigned char>(value[last - 1])) != 0) {
+        --last;
+    }
+    return value.substr(first, last - first);
+}
+
+ToolCapabilityPolicy tool_policy_from_expert_scopes(
+    const ExpertCapabilityScopes& scopes, const AppConfig* config,
+    const std::string& cwd, const SessionRegistryDeps& deps) {
+    auto policy = mcp_scope_policy(config, deps.load_project_mcp ? cwd : "",
+                                   scopes.mcp_servers, deps.mcp_manager, deps.tools);
+    if (scopes.tools) {
+        policy.builtin_tools = std::unordered_set<std::string>(
+            scopes.tools->begin(), scopes.tools->end());
+    }
+    return policy;
+}
+
+ExpertCapabilityScopes fail_closed_expert_scopes() {
+    ExpertCapabilityScopes scopes;
+    scopes.skills = std::vector<std::string>{};
+    scopes.mcp_servers = std::vector<std::string>{};
+    scopes.tools = std::vector<std::string>{};
+    return scopes;
+}
+
+bool is_transcript_only_message(const ChatMessage& msg) {
+    return msg.metadata.is_object() &&
+           msg.metadata.value("transcript_only", false);
+}
+
+std::optional<std::pair<std::size_t, CompactCheckpoint>>
+latest_valid_compact_checkpoint(const std::vector<ChatMessage>& messages) {
+    for (std::size_t i = messages.size(); i > 0; --i) {
+        auto checkpoint = decode_compact_checkpoint(messages[i - 1]);
+        if (checkpoint.has_value()) {
+            return std::make_pair(i - 1, std::move(*checkpoint));
+        }
+    }
+    return std::nullopt;
+}
+
+void append_model_messages_to_loop(AgentLoop& loop,
+                                   const std::vector<ChatMessage>& messages) {
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        const auto& msg = messages[i];
+        if (is_file_checkpoint_message(msg)) continue;
+        if (is_content_replacement_message(msg)) continue;
+        if (is_turn_timing_message(msg)) continue;
+        if (is_compact_checkpoint_message(msg)) continue;
+
+        const bool is_shell_user =
+            (msg.role == "user" && !msg.content.empty() && msg.content[0] == '!');
+        const bool next_is_result =
+            (i + 1 < messages.size() && messages[i + 1].role == "tool_result");
+        if (is_shell_user && next_is_result) {
+            loop.inject_shell_turn(msg.content.substr(1),
+                                   messages[i + 1].content,
+                                   "",
+                                   0);
+            ++i;
+            continue;
+        }
+
+        if (is_llm_role(msg.role) && !is_transcript_only_message(msg)) {
+            loop.push_message(msg);
+        }
+    }
+}
+
+std::pair<std::string, std::string>
+current_provider_model(const SessionRegistryDeps& deps,
+                       const std::string& fallback_model) {
+    (void)fallback_model;
+    if (deps.provider_accessor) {
+        auto provider = deps.provider_accessor();
+        if (provider) {
+            return {provider->name(), provider->model()};
+        }
+    }
+    return {"", ""};
+}
+
+const ModelProfile* find_profile_by_name(const AppConfig& cfg,
+                                          const std::string& name) {
+    if (name.empty()) return nullptr;
+    for (const auto& entry : cfg.saved_models) {
+        if (entry.name == name) return &entry;
+    }
+    return nullptr;
+}
+
+std::optional<ModelProfile> explicit_profile(const AppConfig& cfg,
+                                             const std::string& name) {
+    if (name.empty()) return std::nullopt;
+    if (const auto* entry = find_profile_by_name(cfg, name)) {
+        ModelProfile profile = *entry;
+        if (profile.provider == "openai" && !profile.stream_timeout_ms.has_value()) {
+            profile.stream_timeout_ms = cfg.openai.stream_timeout_ms;
+        }
+        return profile;
+    }
+    return std::nullopt;
+}
+
+SessionModelState state_from_profile(const AppConfig& cfg,
+                                     const ModelProfile& profile) {
+    return session_model_state_from_profile(cfg, profile);
+}
+
+SessionModelState deleted_state_from_name(const std::string& name) {
+    SessionModelState state;
+    state.name = name;
+    state.deleted = true;
+    return state;
+}
+
+void mark_deleted_if_model_name_missing(const AppConfig& cfg, SessionModelState& state) {
+    if (state.name.empty() || state.name.rfind("(session:", 0) == 0) return;
+    if (find_profile_by_name(cfg, state.name) != nullptr) return;
+    state.provider.clear();
+    state.model.clear();
+    state.context_window = 0;
+    state.deleted = true;
+}
+
+struct ResolvedSessionModel {
+    SessionModelState state;
+    std::optional<ModelProfile> profile;
+    std::shared_ptr<const AppConfig> config;
+    std::shared_ptr<LlmProvider> runtime_provider;
+    SavedModelsRevision revision = 0;
+};
+
+struct ModelConfigSnapshot {
+    std::shared_ptr<const AppConfig> config;
+    SavedModelsRevision revision = 0;
+};
+
+ModelConfigSnapshot snapshot_model_config(const SessionRegistryDeps& deps) {
+    if (!deps.config) return {};
+    if (deps.config_mutex) {
+        std::shared_lock<std::shared_mutex> lock(*deps.config_mutex);
+        return {
+            std::make_shared<AppConfig>(*deps.config),
+            current_saved_models_revision(),
+        };
+    }
+    return {
+        std::make_shared<AppConfig>(*deps.config),
+        current_saved_models_revision(),
+    };
+}
+
+// Only explicitly enabled effort-capable HTTP routes accept a session choice.
+bool supports_session_reasoning_effort(const ModelProfile& profile,
+                                       const std::string& effort) {
+    if ((profile.provider != "openai" && profile.provider != "anthropic") ||
+        !profile.reasoning.has_value()) return false;
+    const auto& reasoning = *profile.reasoning;
+    return reasoning.supported &&
+        (reasoning.mandatory || reasoning.enabled.value_or(reasoning.default_enabled)) &&
+        !effort.empty() &&
+        std::find(reasoning.supported_efforts.begin(),
+                  reasoning.supported_efforts.end(), effort) != reasoning.supported_efforts.end();
+}
+
+std::optional<std::string> apply_session_reasoning_effort(
+    ModelProfile& profile, const std::optional<std::string>& effort,
+    bool strict = false) {
+    if (!effort.has_value()) return std::nullopt;
+    if (!supports_session_reasoning_effort(profile, *effort)) {
+        if (strict) throw SessionReasoningValidationError();
+        return std::nullopt;
+    }
+    profile.reasoning->enabled = true;
+    profile.reasoning->effort = *effort;
+    profile.reasoning->max_tokens.reset();
+    return effort;
+}
+
+SessionModelResolvedTarget resolve_target_for_name(
+    const SessionRegistryDeps& deps,
+    const std::string& name,
+    const std::optional<std::string>& effort = std::nullopt,
+    bool strict_effort = false) {
+    auto snapshot = snapshot_model_config(deps);
+    SessionModelResolvedTarget target;
+    target.revision = snapshot.revision;
+    target.config = snapshot.config;
+    if (!snapshot.config) return target;
+    const auto found = std::find_if(
+        snapshot.config->saved_models.begin(),
+        snapshot.config->saved_models.end(),
+        [&name](const ModelProfile& candidate) {
+            return candidate.name == name;
+        });
+    if (found != snapshot.config->saved_models.end()) {
+        target.profile = *found;
+        const auto applied = apply_session_reasoning_effort(
+            *target.profile, effort, strict_effort);
+        target.state = session_model_state_from_profile(*snapshot.config, *target.profile);
+        target.state.reasoning_effort = applied;
+    }
+    return target;
+}
+
+ResolvedSessionModel resolve_from_profile(
+    std::shared_ptr<const AppConfig> config,
+    SavedModelsRevision revision,
+    const ModelProfile& profile) {
+    ResolvedSessionModel resolved;
+    resolved.state = state_from_profile(*config, profile);
+    resolved.profile = profile;
+    resolved.config = std::move(config);
+    resolved.revision = revision;
+    LOG_INFO("[registry] resolve_from_profile name='" + profile.name +
+             "' provider='" + profile.provider + "' model='" + profile.model + "'");
+    return resolved;
+}
+
+ResolvedSessionModel resolve_session_model(const SessionRegistryDeps& deps,
+                                           const SessionOptions& opts,
+                                           const SessionMeta* resumed_meta) {
+    auto snapshot = snapshot_model_config(deps);
+    if (snapshot.config) {
+        const AppConfig& config = *snapshot.config;
+        ModelProfile profile;
+        std::optional<std::string> cwd_override;
+        if (!opts.cwd.empty()) {
+            cwd_override = load_cwd_model_override(opts.cwd);
+        }
+        if (!opts.model_name.empty()) {
+            auto explicit_match = explicit_profile(config, opts.model_name);
+            if (explicit_match.has_value()) {
+                profile = *explicit_match;
+            } else {
+                LOG_WARN("[registry] requested model preset '" + opts.model_name +
+                         "' not found; falling back to default saved model");
+                profile = resolve_effective_model(config, std::nullopt, std::nullopt);
+            }
+        } else if (resumed_meta) {
+            if (!resumed_meta->model_preset.empty() &&
+                find_profile_by_name(config, resumed_meta->model_preset) == nullptr) {
+                LOG_WARN("[registry] session model preset '" + resumed_meta->model_preset +
+                         "' was deleted from saved_models");
+                ResolvedSessionModel deleted;
+                deleted.state = deleted_state_from_name(resumed_meta->model_preset);
+                deleted.config = snapshot.config;
+                deleted.revision = snapshot.revision;
+                return deleted;
+            }
+            profile = resolve_effective_model(
+                config, cwd_override, std::optional<SessionMeta>{*resumed_meta});
+        } else {
+            profile = resolve_effective_model(config, cwd_override, std::nullopt);
+        }
+        return resolve_from_profile(
+            std::move(snapshot.config), snapshot.revision, profile);
+    }
+
+    auto [provider, model] = current_provider_model(deps, opts.model_name);
+    ResolvedSessionModel resolved;
+    resolved.runtime_provider =
+        deps.provider_accessor ? deps.provider_accessor() : nullptr;
+    resolved.state.name = opts.model_name;
+    resolved.state.provider = provider;
+    resolved.state.model = model;
+    resolved.state.context_window = 0;
+    resolved.revision = current_saved_models_revision();
+    return resolved;
+}
+
+SessionModelTransitionCallback transition_for_entry(
+    const std::shared_ptr<SessionEntry>& entry) {
+    return [weak = std::weak_ptr<SessionEntry>(entry)](
+               const SessionModelState& state,
+               const SessionModelTransition&) {
+        auto active = weak.lock();
+        if (!active) return true;
+        if (active->loop && state.context_window > 0) {
+            active->loop->set_context_window(state.context_window);
+        }
+        if (!active->sm) {
+            return true;
+        }
+        try {
+            return active->sm->set_active_model_state(
+                state.provider, state.model, state.name, state.reasoning_effort);
+        } catch (...) {
+            LOG_WARN("[session_model_binding] session metadata persistence failed");
+            return false;
+        }
+    };
+}
+
+SessionOptions with_resolved_workspace(const SessionRegistryDeps& deps,
+                                       const SessionOptions& in,
+                                       const std::string& session_id = {}) {
+    SessionOptions out = in;
+    if (out.no_workspace) {
+        if (out.cwd.empty()) {
+            out.cwd = no_workspace_session_cwd(session_id, deps.no_workspace_cache_root);
+        }
+        out.workspace_hash.clear();
+        return out;
+    }
+    if (out.cwd.empty()) {
+        out.cwd = deps.cwd;
+    }
+    if (out.workspace_hash.empty() && !out.cwd.empty()) {
+        out.workspace_hash = compute_cwd_hash(out.cwd);
+    }
+    return out;
+}
+
+std::string trim_ascii(std::string s) {
+    auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+    while (!s.empty() && is_space(static_cast<unsigned char>(s.front()))) s.erase(s.begin());
+    while (!s.empty() && is_space(static_cast<unsigned char>(s.back()))) s.pop_back();
+    return s;
+}
+
+std::string lower_ascii(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
+}
+
+bool parse_goal_budget_value(const std::string& text, std::int64_t* out) {
+    if (!out || text.empty()) return false;
+    std::string s = lower_ascii(text);
+    std::int64_t multiplier = 1;
+    if (!s.empty() && (s.back() == 'k' || s.back() == 'm')) {
+        multiplier = s.back() == 'k' ? 1000 : 1000000;
+        s.pop_back();
+    }
+    if (s.empty()) return false;
+    std::int64_t value = 0;
+    for (char c : s) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+        value = value * 10 + (c - '0');
+    }
+    *out = value * multiplier;
+    return *out > 0;
+}
+
+PermissionMode permission_mode_from_name(std::string mode) {
+    return PermissionManager::parse_mode_name(std::move(mode))
+        .value_or(PermissionMode::Default);
+}
+
+void emit_session_title_updated(SessionEntry& entry) {
+    if (!entry.loop || !entry.sm) return;
+    entry.loop->events().emit(SessionEventKind::SessionUpdated, nlohmann::json{
+        {"session_id", entry.id},
+        {"workspace_hash", entry.workspace_hash},
+        {"cwd", entry.cwd},
+        {"title", entry.sm->current_title()},
+        {"title_source", entry.sm->current_title_source()},
+    });
+}
+
+struct RegistryGoalArgs {
+    std::optional<std::int64_t> token_budget;
+    std::string remainder;
+    std::string error;
+};
+
+RegistryGoalArgs parse_registry_goal_args(std::string args) {
+    RegistryGoalArgs parsed;
+    args = trim_ascii(std::move(args));
+    if (args.rfind("--tokens", 0) != 0) {
+        parsed.remainder = args;
+        return parsed;
+    }
+    std::string rest = trim_ascii(args.substr(std::string("--tokens").size()));
+    const auto split = rest.find_first_of(" \t\r\n");
+    const std::string budget_text = split == std::string::npos ? rest : rest.substr(0, split);
+    std::int64_t budget = 0;
+    if (!parse_goal_budget_value(budget_text, &budget)) {
+        parsed.error = "Goal token budget must be a positive integer, optionally suffixed with K or M.";
+        return parsed;
+    }
+    parsed.token_budget = budget;
+    parsed.remainder = split == std::string::npos ? std::string{} : trim_ascii(rest.substr(split + 1));
+    return parsed;
+}
+
+std::string format_registry_goal_summary(const ThreadGoal& goal) {
+    std::ostringstream oss;
+    oss << "Goal:\n"
+        << "  objective: " << goal.objective << "\n"
+        << "  status:    " << to_string(goal.status) << "\n"
+        << "  tokens:    " << goal.tokens_used;
+    if (goal.token_budget.has_value()) {
+        oss << " / " << *goal.token_budget
+            << " (" << std::max<std::int64_t>(0, *goal.token_budget - goal.tokens_used)
+            << " remaining)";
+    }
+    oss << "\n  elapsed:   " << goal.time_used_seconds << "s";
+    return oss.str();
+}
+
+void emit_goal_audit_message(SessionEntry& entry,
+                             const ThreadGoal& goal,
+                             const std::string& action,
+                             const std::string& label) {
+    if (!entry.loop) return;
+    entry.loop->emit_transcript_system_message(
+        "[Goal] " + label + ": " + goal.objective + "\n\n" + format_registry_goal_summary(goal),
+        make_system_notice_metadata(
+            action == "create" ? "goal_started" : action == "resume" ? "goal_resumed" : "goal_continuing",
+            {{"goal", thread_goal_to_json(goal)}}, nlohmann::json{
+            {"goal_audit", true},
+            {"goal_action", action},
+            {"goal_id", goal.goal_id},
+            {"thread_id", goal.thread_id},
+        }));
+}
+
+std::optional<ThreadGoal> current_active_goal(SessionEntry& entry) {
+    if (!entry.sm) return std::nullopt;
+    const std::string sid = entry.sm->current_session_id();
+    ThreadGoalStore* store = entry.sm->existing_goal_store();
+    if (!store || sid.empty()) return std::nullopt;
+    std::string error;
+    auto goal = store->get_thread_goal(sid, &error);
+    if (!error.empty() || !goal.has_value() || goal->status != ThreadGoalStatus::Active) {
+        return std::nullopt;
+    }
+    return goal;
+}
+
+BuiltinCommandResult execute_goal_builtin(SessionEntry& entry,
+                                          const BuiltinCommandRequest& request) {
+    if (!entry.sm || !entry.loop) return {BuiltinCommandStatus::Failed, "session unavailable"};
+    auto notice = [&entry](const std::string& code, const std::string& text,
+                           nlohmann::json params = nlohmann::json::object()) {
+        entry.loop->emit_system_message(text, make_system_notice_metadata(code, std::move(params)));
+    };
+    ThreadGoalStore* store = entry.sm->goal_store();
+    if (!store) {
+        notice("goal_unavailable", "Goal storage is not available.");
+        return {BuiltinCommandStatus::Failed, "goal storage unavailable"};
+    }
+
+    const std::string args = trim_ascii(request.args);
+    const std::string lower = lower_ascii(args);
+    std::string sid = entry.sm->current_session_id();
+    std::string error;
+
+    auto emit_updated = [&entry](const ThreadGoal& goal) {
+        entry.loop->events().emit(SessionEventKind::GoalUpdated,
+            nlohmann::json{{"session_id", goal.thread_id}, {"goal", thread_goal_to_json(goal)}});
+        entry.loop->restore_goal_runtime();
+    };
+    auto emit_cleared = [&entry](const std::string& session_id) {
+        entry.loop->events().emit(SessionEventKind::GoalCleared,
+            nlohmann::json{{"session_id", session_id}});
+        entry.loop->restore_goal_runtime();
+    };
+
+    if (args.empty() || lower == "view") {
+        if (sid.empty()) {
+            notice("goal_missing", "No goal set. Use /goal <objective> to create one.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        auto goal = store->get_thread_goal(sid, &error);
+        if (!error.empty()) {
+            notice("goal_error", "Goal error: " + error, {{"error", error}});
+            return {BuiltinCommandStatus::Failed, error};
+        }
+        notice(goal.has_value() ? "goal_overview" : "goal_missing", goal.has_value()
+            ? format_registry_goal_summary(*goal)
+            : "No goal set. Use /goal <objective> to create one.",
+            goal.has_value() ? nlohmann::json{{"goal", thread_goal_to_json(*goal)}} : nlohmann::json::object());
+        return {BuiltinCommandStatus::Accepted, "completed"};
+    }
+
+    const auto first_space = args.find_first_of(" \t\r\n");
+    const std::string sub = lower_ascii(first_space == std::string::npos
+        ? args
+        : args.substr(0, first_space));
+    const std::string tail = first_space == std::string::npos
+        ? std::string{}
+        : trim_ascii(args.substr(first_space + 1));
+
+    const bool state_only = sub == "clear" || sub == "pause" || sub == "resume" || sub == "edit";
+    if (!state_only) sid = entry.sm->ensure_active_session_id();
+    if (sid.empty()) {
+        notice("goal_no_session", "No active session is available for /goal.");
+        return {BuiltinCommandStatus::Failed, "no active session"};
+    }
+    auto current = store->get_thread_goal(sid, &error);
+    if (!error.empty()) {
+        notice("goal_error", "Goal error: " + error, {{"error", error}});
+        return {BuiltinCommandStatus::Failed, error};
+    }
+
+    if (sub == "clear") {
+        if (!current.has_value()) {
+            notice("goal_missing", "No goal to clear.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        if (!store->delete_thread_goal(sid, &error)) {
+            notice("goal_error", "Goal error: " + error, {{"error", error}});
+            return {BuiltinCommandStatus::Failed, error};
+        }
+        emit_cleared(sid);
+        notice("goal_cleared", "Goal cleared.");
+        return {BuiltinCommandStatus::Accepted, "completed"};
+    }
+
+    if (sub == "pause") {
+        if (!current.has_value() || current->status != ThreadGoalStatus::Active) {
+            notice("goal_inactive", "Goal is not active.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        if (!store->update_thread_goal_status(sid, current->goal_id, ThreadGoalStatus::Paused, &error)) {
+            notice("goal_error", "Goal error: " + error, {{"error", error}});
+            return {BuiltinCommandStatus::Failed, error};
+        }
+        auto goal = store->get_thread_goal(sid);
+        if (goal.has_value()) emit_updated(*goal);
+        notice("goal_paused", "Goal paused.");
+        return {BuiltinCommandStatus::Accepted, "completed"};
+    }
+
+    if (sub == "resume") {
+        if (!current.has_value()) {
+            notice("goal_missing", "No goal to resume.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        if (current->status == ThreadGoalStatus::Complete) {
+            notice("goal_complete", "Goal is already complete.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        if (current->token_budget.has_value() && current->tokens_used >= *current->token_budget) {
+            notice("goal_budget_reached", "Goal is over its token budget. Create a replacement goal with a larger budget.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        if (!store->update_thread_goal_status(sid, current->goal_id, ThreadGoalStatus::Active, &error)) {
+            notice("goal_error", "Goal error: " + error, {{"error", error}});
+            return {BuiltinCommandStatus::Failed, error};
+        }
+        auto goal = store->get_thread_goal(sid);
+        if (goal.has_value()) emit_updated(*goal);
+        if (goal.has_value()) {
+            emit_goal_audit_message(entry, *goal, "resume", "Resumed");
+        } else {
+            notice("goal_resumed", "Goal resumed.");
+        }
+        entry.loop->clear_stale_abort_request();
+        entry.loop->maybe_continue_goal();
+        return {BuiltinCommandStatus::Accepted, "completed"};
+    }
+
+    if (sub == "edit") {
+        if (!current.has_value()) {
+            notice("goal_missing", "No goal to edit.");
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+        auto parsed = parse_registry_goal_args(tail);
+        if (!parsed.error.empty()) {
+            notice("goal_invalid_budget", parsed.error);
+            return {BuiltinCommandStatus::Failed, parsed.error};
+        }
+        const std::string objective = trim_goal_objective(parsed.remainder);
+        if (!validate_goal_objective(objective, &error)) {
+            notice("goal_invalid_objective", error, {{"error", error}});
+            return {BuiltinCommandStatus::Failed, error};
+        }
+        auto budget = parsed.token_budget.has_value() ? parsed.token_budget : current->token_budget;
+        if (!store->update_thread_goal_objective(sid, current->goal_id, objective, budget, &error)) {
+            notice("goal_error", "Goal error: " + error, {{"error", error}});
+            return {BuiltinCommandStatus::Failed, error};
+        }
+        auto goal = store->get_thread_goal(sid);
+        if (goal.has_value()) emit_updated(*goal);
+        notice("goal_updated", goal.has_value() ? format_registry_goal_summary(*goal) : "Goal updated.",
+               goal.has_value() ? nlohmann::json{{"goal", thread_goal_to_json(*goal)}} : nlohmann::json::object());
+        // 回合运行中时把新 objective 通知给正在跑的模型(objective_updated
+        // steering);空闲时 no-op,下一次 continuation 自然携带新 objective。
+        entry.loop->notify_goal_objective_updated();
+        return {BuiltinCommandStatus::Accepted, "completed"};
+    }
+
+    auto parsed = parse_registry_goal_args(args);
+    if (!parsed.error.empty()) {
+        notice("goal_invalid_budget", parsed.error);
+        return {BuiltinCommandStatus::Failed, parsed.error};
+    }
+    const std::string objective = trim_goal_objective(parsed.remainder);
+    if (!validate_goal_objective(objective, &error)) {
+        notice("goal_invalid_objective", error, {{"error", error}});
+        return {BuiltinCommandStatus::Failed, error};
+    }
+    if (!store->replace_thread_goal(sid, objective, parsed.token_budget, ThreadGoalStatus::Active, &error)) {
+        notice("goal_error", "Goal error: " + error, {{"error", error}});
+        return {BuiltinCommandStatus::Failed, error};
+    }
+    auto goal = store->get_thread_goal(sid);
+    if (goal.has_value()) emit_updated(*goal);
+    if (goal.has_value()) {
+        emit_goal_audit_message(entry, *goal, "create", "Started");
+    } else {
+        notice("goal_started", "Goal created.", {{"objective", objective}});
+    }
+    entry.loop->maybe_continue_goal();
+    return {BuiltinCommandStatus::Accepted, "completed"};
+}
+
+BuiltinCommandResult execute_plan_builtin(SessionEntry& entry,
+                                          const BuiltinCommandRequest& request) {
+    if (!entry.sm || !entry.loop || !entry.perm) {
+        return {BuiltinCommandStatus::Failed, "session unavailable"};
+    }
+
+    const PermissionMode before = entry.perm->mode();
+    entry.perm->set_mode(PermissionMode::Plan);
+    entry.perm->clear_session_allows();
+    entry.sm->set_permission_mode("plan");
+    entry.sm->set_pre_plan_permission_mode(PermissionManager::mode_name(
+        before == PermissionMode::Plan ? entry.perm->pre_plan_mode() : before));
+    const std::string plan_file = entry.sm->ensure_plan_file_path();
+
+    std::ostringstream oss;
+    oss << "Plan mode enabled.";
+    if (!plan_file.empty()) {
+        oss << "\nPlan file: " << plan_file;
+    }
+    oss << "\nExplore and update only the plan file, then call ExitPlanMode for approval.";
+    entry.loop->emit_system_message(oss.str(),
+        make_system_notice_metadata("plan_enabled", {{"path", plan_file}}));
+
+    const std::string args = trim_ascii(request.args);
+    if (!args.empty()) {
+        const std::string display = request.display_text.empty()
+            ? "/plan " + args
+            : request.display_text;
+        entry.loop->submit(args, display);
+        return {BuiltinCommandStatus::Accepted, "queued"};
+    }
+
+    return {BuiltinCommandStatus::Accepted, "completed"};
+}
+
+} // namespace
+
+std::string default_no_workspace_cache_root() {
+    return path_to_utf8(path_from_utf8(get_acecode_dir()) / "cache" / "no-workspace");
+}
+
+std::string no_workspace_session_cwd(const std::string& session_id,
+                                     const std::string& cache_root) {
+    const std::string root = cache_root.empty() ? default_no_workspace_cache_root() : cache_root;
+    return path_to_utf8(path_from_utf8(root) / session_dir_name_from_id(session_id));
+}
+
+std::vector<std::string> list_no_workspace_session_cwds(const std::string& cache_root) {
+    namespace fs = std::filesystem;
+    std::vector<std::string> out;
+    const fs::path root = path_from_utf8(cache_root.empty()
+        ? default_no_workspace_cache_root()
+        : cache_root);
+    std::error_code ec;
+    if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) return out;
+
+    for (fs::directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+        std::error_code item_ec;
+        if (!it->is_directory(item_ec) || item_ec) continue;
+        out.push_back(path_to_utf8(it->path()));
+    }
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+std::optional<SessionMeta> find_no_workspace_session_meta(const std::string& id,
+                                                          const std::string& cache_root) {
+    if (id.empty()) return std::nullopt;
+    const auto direct_cwd = no_workspace_session_cwd(id, cache_root);
+    auto direct_meta = SessionStorage::read_meta(
+        SessionStorage::meta_path(SessionStorage::get_project_dir(direct_cwd), id));
+    if (!direct_meta.id.empty() && direct_meta.no_workspace) return direct_meta;
+
+    for (const auto& cwd : list_no_workspace_session_cwds(cache_root)) {
+        if (cwd == direct_cwd) continue;
+        auto meta = SessionStorage::read_meta(
+            SessionStorage::meta_path(SessionStorage::get_project_dir(cwd), id));
+        if (!meta.id.empty() && meta.no_workspace) return meta;
+    }
+    return std::nullopt;
+}
+
+SessionEntry::~SessionEntry() {
+    if (loop) loop->shutdown();
+}
+
+SessionRegistry::SessionRegistry(SessionRegistryDeps deps)
+    : deps_(std::move(deps)) {}
+
+SessionRegistry::~SessionRegistry() { shutdown_all(); }
+
+bool SessionRegistry::begin_creation() {
+    std::lock_guard<std::mutex> lock(creation_mu_);
+    if (shutting_down_.load()) return false;
+    ++creations_in_flight_;
+    return true;
+}
+
+void SessionRegistry::end_creation() {
+    {
+        std::lock_guard<std::mutex> lock(creation_mu_);
+        --creations_in_flight_;
+    }
+    creation_cv_.notify_all();
+}
+
+void SessionRegistry::shutdown_all() {
+    // Concurrent external callers wait for the same full shutdown. Business
+    // callbacks never take this mutex, and no registry/queue lock spans a join.
+    std::lock_guard<std::mutex> shutdown_lock(shutdown_mu_);
+    shutting_down_.store(true);
+    {
+        std::unique_lock<std::mutex> lock(creation_mu_);
+        creation_cv_.wait(lock, [this] { return creations_in_flight_ == 0; });
+    }
+    std::unordered_map<std::string, std::shared_ptr<SessionEntry>> retired;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        retired.swap(entries_);
+    }
+    // Cancel every loop before waiting for any one: a parent may await a child.
+    for (const auto& [id, entry] : retired) {
+        if (deps_.power_guard) deps_.power_guard->release_session(id);
+        if (entry && entry->loop) entry->loop->abort();
+    }
+    for (const auto& [id, entry] : retired) {
+        (void)id;
+        if (entry && entry->loop) entry->loop->shutdown();
+        if (entry && entry->sm) entry->sm->end_current_session();
+    }
+    title_threads_.shutdown();
+    lifecycle_threads_.shutdown();
+    lifetime_.revoke();
+}
+
+std::size_t SessionRegistry::background_task_count() {
+    title_threads_.reap();
+    lifecycle_threads_.reap();
+    return title_threads_.size() + lifecycle_threads_.size();
+}
+
+std::string SessionRegistry::create(const SessionOptions& opts) {
+    if (!begin_creation()) throw std::runtime_error("session registry is shutting down");
+    ScopeExit creation_finished([this] { end_creation(); });
+    std::string id = opts.preset_session_id.empty()
+        ? SessionStorage::generate_session_id()
+        : opts.preset_session_id;
+    SessionOptions create_opts = opts;
+    if (create_opts.no_workspace && !create_opts.reuse_no_workspace_cwd) {
+        create_opts.cwd.clear();
+    }
+    SessionOptions resolved = with_resolved_workspace(deps_, create_opts, id);
+
+    auto entry = make_entry_locked(id, resolved, nullptr);
+    if (resolved.reasoning_effort) {
+        const auto state = entry->model_binding->state_snapshot();
+        if (!entry->sm->set_active_model_state(
+                state.provider, state.model, state.name, state.reasoning_effort, true)) {
+            throw std::runtime_error("session reasoning metadata could not be persisted");
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        entries_.emplace(id, std::move(entry));
+    }
+    if (auto active = acquire(id)) {
+        if (active->loop) active->loop->dispatch_session_start_hook("startup");
+    }
+    if (resolved.auto_start && !resolved.initial_user_message.empty()) {
+        UserInput input;
+        input.text = resolved.initial_user_message;
+        maybe_start_auto_title(id, input);
+        if (auto active = acquire(id)) {
+            if (active->loop) active->loop->submit(input);
+        }
+    }
+    LOG_INFO("[registry] created session " + id);
+    return id;
+}
+
+std::shared_ptr<SessionEntry>
+SessionRegistry::make_entry_locked(const std::string& id,
+                                   const SessionOptions& opts,
+                                   const SessionMeta* resumed_meta) {
+    auto resolved_model = resolve_session_model(deps_, opts, resumed_meta);
+    auto requested_effort = opts.reasoning_effort;
+    if (!requested_effort && resumed_meta &&
+        (opts.model_name.empty() || opts.model_name == resumed_meta->model_preset)) {
+        requested_effort = resumed_meta->reasoning_effort;
+    }
+    if (resolved_model.profile && resolved_model.config) {
+        const auto applied = apply_session_reasoning_effort(
+            *resolved_model.profile, requested_effort, opts.reasoning_effort.has_value());
+        resolved_model.state = state_from_profile(*resolved_model.config, *resolved_model.profile);
+        resolved_model.state.reasoning_effort = applied;
+    } else if (opts.reasoning_effort) {
+        throw SessionReasoningValidationError();
+    }
+
+    auto entry = std::make_shared<SessionEntry>();
+    entry->id = id;
+    entry->cwd = opts.cwd.empty() ? deps_.cwd : opts.cwd;
+    entry->subagent_depth = opts.subagent_depth;
+    entry->parent_session_id = opts.parent_session_id;
+    entry->expert_id = opts.expert_id;
+    entry->expert_member_id = opts.expert_member_id;
+    entry->loop_execution = opts.loop_execution;
+    entry->loop_id = opts.loop_id;
+    entry->loop_run_id = opts.loop_run_id;
+    if (resumed_meta && !resumed_meta->parent_session_id.empty()) {
+        // resume 路径:子会话身份从持久化 meta 恢复,深度限制随之生效。
+        entry->parent_session_id = resumed_meta->parent_session_id;
+    }
+    if (resumed_meta) {
+        if (entry->expert_id.empty()) entry->expert_id = resumed_meta->expert_id;
+        if (entry->expert_member_id.empty()) {
+            entry->expert_member_id = resumed_meta->expert_member_id;
+        }
+    }
+    if (!entry->parent_session_id.empty() && entry->subagent_depth < 1) {
+        entry->subagent_depth = 1;
+    }
+    entry->no_workspace = opts.no_workspace || (resumed_meta && resumed_meta->no_workspace);
+    if (entry->no_workspace && !entry->cwd.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(path_from_utf8(entry->cwd), ec);
+        if (ec) {
+            LOG_WARN("[registry] failed to create no-workspace cwd " +
+                     entry->cwd + ": " + ec.message());
+        }
+    }
+    entry->workspace_hash = entry->no_workspace
+        ? std::string{}
+        : (opts.workspace_hash.empty()
+        ? compute_cwd_hash(entry->cwd)
+        : opts.workspace_hash);
+    entry->model_binding = std::make_shared<SessionModelBinding>();
+    if (resolved_model.profile.has_value() && resolved_model.config) {
+        SessionModelResolvedTarget target;
+        target.revision = resolved_model.revision;
+        target.profile = resolved_model.profile;
+        target.config = resolved_model.config;
+        target.state = resolved_model.state;
+        // Saved profiles must revalidate against the live config immediately
+        // before publication, including during initial create/resume. Ad-hoc
+        // `(session:<id>)` profiles stay on the explicit target inside the
+        // binding and never enter this saved-model resolver.
+        auto initial_resolver = [this, effort = resolved_model.state.reasoning_effort,
+                                 strict = opts.reasoning_effort.has_value()](const std::string& name) {
+            return resolve_target_for_name(deps_, name, effort, strict);
+        };
+        const auto installed = entry->model_binding->install_explicit(
+            std::move(target), initial_resolver);
+        if (!installed.ok) {
+            if (opts.reasoning_effort) {
+                throw std::runtime_error("session reasoning provider construction failed");
+            }
+            LOG_WARN("[registry] initial session provider construction failed");
+            entry->model_binding->install_runtime_snapshot(
+                nullptr, resolved_model.state, resolved_model.revision);
+        } else if (!installed.warning.empty()) {
+            LOG_WARN("[registry] " + installed.warning);
+        }
+    } else {
+        entry->model_binding->install_runtime_snapshot(
+            std::move(resolved_model.runtime_provider),
+            resolved_model.state,
+            resolved_model.revision);
+    }
+    const auto initial_model_state = entry->model_binding->state_snapshot();
+    const AppConfig* entry_config = resolved_model.config
+        ? resolved_model.config.get()
+        : deps_.config;
+    if (!entry->expert_id.empty()) {
+        if (deps_.expert_registry) {
+            entry->expert = deps_.expert_registry->find(entry->cwd, entry->expert_id);
+        }
+        if (!entry->expert_member_id.empty() &&
+            (!entry->expert ||
+             !entry->expert->is_declared_member(entry->expert_member_id))) {
+            entry->expert.reset();
+        }
+        if (!entry->expert) {
+            entry->expert_missing = true;
+            if (!resumed_meta) {
+                throw std::invalid_argument("unknown or invalid expert component: " +
+                                            entry->expert_id);
+            }
+        }
+    } else if (!entry->expert_member_id.empty()) {
+        entry->expert_missing = true;
+        if (!resumed_meta) {
+            throw std::invalid_argument(
+                "expert member requires a team expert binding");
+        }
+    }
+    const ExpertCapabilityScopes expert_scopes =
+        entry->expert
+            ? entry->expert->selected_capabilities(entry->expert_member_id)
+            : (entry->expert_missing
+                   ? fail_closed_expert_scopes()
+                   : ExpertCapabilityScopes{});
+    entry->expert_skill_roots =
+        entry->expert
+            ? entry->expert->selected_skill_roots(entry->expert_member_id)
+            : std::vector<std::filesystem::path>{};
+    entry->expert_skill_allowlist = expert_scopes.skills;
+    entry->tool_capability_policy =
+        tool_policy_from_expert_scopes(
+            expert_scopes, entry_config, entry->no_workspace ? "" : entry->cwd, deps_);
+
+    if (entry_config) {
+        entry->skill_registry = std::make_shared<SkillRegistry>();
+        initialize_skill_registry(*entry->skill_registry, *entry_config,
+                                  entry->cwd, entry->expert_skill_roots,
+                                  entry->expert_skill_allowlist);
+    }
+
+    // SessionManager
+    entry->sm = std::make_unique<SessionManager>();
+    entry->sm->start_session(entry->cwd,
+                             initial_model_state.provider,
+                             initial_model_state.model,
+                             id,
+                             initial_model_state.name,
+                             "daemon",
+                             entry->no_workspace);
+    entry->sm->set_active_model_state(
+        initial_model_state.provider, initial_model_state.model,
+        initial_model_state.name, initial_model_state.reasoning_effort);
+    if (!entry->parent_session_id.empty()) {
+        // 子会话身份写进 meta(lazy:首条消息落盘时随初始 meta 一起写)。
+        entry->sm->set_parent_session_id(entry->parent_session_id);
+    }
+    if (opts.inherited_worktree.active()) {
+        // 子会话共享父会话的 worktree:身份进 meta(系统提示 / UI / resume 都
+        // 以它为准),标 inherited 让 ExitWorktree 拒绝、AgentLoop 据此算写边界。
+        WorktreeSessionInfo inherited = opts.inherited_worktree;
+        inherited.inherited = true;
+        entry->sm->set_active_worktree(inherited);
+    }
+    if (!entry->expert_id.empty()) {
+        entry->sm->set_expert_binding(entry->expert_id,
+                                      entry->expert_member_id);
+    }
+    if (opts.loop_execution) {
+        entry->sm->set_loop_origin(opts.loop_id, opts.loop_run_id);
+    }
+
+    // PermissionManager: 复制 mode + dangerous flag,rules 由调用方在初始化
+    // template_permissions 时设好。session_allowed_ 不复制,各 session 独立。
+    entry->perm = std::make_unique<PermissionManager>();
+    if (deps_.template_permissions) {
+        entry->perm->set_mode(deps_.template_permissions->mode());
+        entry->perm->set_dangerous(deps_.template_permissions->is_dangerous());
+        // 注意: rules 当前没有 copy 接口 — v1 暂不复制 rules,daemon 路径
+        // 自己装(后续 Section 9 落 HTTP 时一起补)。TUI 路径不受影响。
+    }
+    // LOOP permission is definition-scoped. A daemon-wide --dangerous flag
+    // must not silently turn a LOOP configured as Default into Yolo.
+    if (opts.loop_execution || !opts.inherit_dangerous_mode) entry->perm->set_dangerous(false);
+    // 显式传入的 permission_mode 优先于 resume meta 恢复值:headless
+    // `-p --resume <id> --permission-mode accept-edits` 若被静默忽略,脚本
+    // 会在 default 模式下被写权限门自动拒绝,极难排查。web resume 不传该
+    // 字段(entry_opts 为空串),仍走 meta 恢复分支。
+    if (!opts.permission_mode.empty()) {
+        const PermissionMode requested_mode =
+            permission_mode_from_name(opts.permission_mode);
+        if (requested_mode == PermissionMode::Plan) {
+            entry->perm->set_mode(PermissionMode::Default);
+            entry->perm->set_mode(PermissionMode::Plan);
+        } else {
+            entry->perm->set_mode(requested_mode);
+        }
+    } else if (resumed_meta) {
+        const PermissionMode restored_mode =
+            permission_mode_from_name(resumed_meta->permission_mode);
+        if (restored_mode == PermissionMode::Plan) {
+            entry->perm->set_mode(permission_mode_from_name(
+                resumed_meta->pre_plan_permission_mode.empty()
+                    ? std::string{"default"}
+                    : resumed_meta->pre_plan_permission_mode));
+            entry->perm->set_mode(PermissionMode::Plan);
+        } else {
+            entry->perm->set_mode(restored_mode);
+        }
+    }
+    entry->sm->set_permission_mode(
+        PermissionManager::mode_name(entry->perm->mode()),
+        /*persist_immediately=*/false);
+    if (entry->perm->mode() == PermissionMode::Plan) {
+        entry->sm->set_pre_plan_permission_mode(
+            PermissionManager::mode_name(entry->perm->pre_plan_mode()),
+            /*persist_immediately=*/false);
+        entry->sm->ensure_plan_file_path();
+    }
+
+    // AgentLoop: daemon 全走 events_,but busy transitions still feed the
+    // process power guard so web/desktop/background sessions keep the host awake.
+    AgentCallbacks empty_cb;
+    if (deps_.power_guard) {
+        auto* power_guard = deps_.power_guard;
+        empty_cb.on_busy_changed = [power_guard, id](bool busy) {
+            power_guard->set_busy(id, busy);
+        };
+    }
+    empty_cb.on_turn_finished = [ref = lifetime_.ref(*this), id](const std::string& status) {
+        ref.with([&](SessionRegistry& registry) {
+            registry.handle_auto_title_turn_finished(id, status);
+        });
+    };
+    auto binding = entry->model_binding;
+    AgentLoop::ProviderAccessor provider_accessor = [binding]() {
+        return binding ? binding->provider_snapshot()
+                       : std::shared_ptr<LlmProvider>{};
+    };
+    AgentLoopServices loop_services{*deps_.tools, *entry->perm};
+    loop_services.provider = std::move(provider_accessor);
+    loop_services.callbacks = std::move(empty_cb);
+    loop_services.session = entry->sm.get();
+    loop_services.hooks = deps_.hook_manager;
+    loop_services.memory = deps_.memory_registry;
+    loop_services.prompt_config = [ref = lifetime_.ref(*this)] {
+        SessionPromptConfig snapshot;
+        ref.with([&](SessionRegistry& registry) { snapshot = registry.prompt_config_snapshot(); });
+        return snapshot;
+    };
+    const auto* skills = entry->skill_registry ? entry->skill_registry.get() : deps_.skill_registry;
+    if (skills) loop_services.skills = skills->snapshot();
+    if (entry->expert) loop_services.expert = std::make_shared<const ExpertDefinition>(*entry->expert);
+    AgentLoopOptions loop_options;
+    loop_options.cwd = entry->cwd;
+    loop_options.no_model_config_prompt =
+        u8"请先配置大模型服务。请打开 设置 > 模型 添加模型。";
+    if (entry_config) {
+        loop_options.context_window = initial_model_state.context_window > 0
+            ? initial_model_state.context_window : entry_config->context_window;
+        loop_options.config = entry_config->agent_loop;
+        loop_options.task_suggestion_compact_threshold = entry_config->task_suggestion_compact_threshold;
+        loop_options.sandbox = entry_config->sandbox;
+    }
+    loop_options.loop_policy = {opts.loop_execution, opts.loop_system_context};
+    loop_options.inherited_write_root = opts.write_root;
+    loop_options.tool_policy = entry->tool_capability_policy;
+    loop_options.expert_member_id = entry->expert_member_id;
+    entry->loop = std::make_unique<AgentLoop>(std::move(loop_services), std::move(loop_options));
+    if (opts.inherited_worktree.active())
+        entry->loop->set_cwd(opts.inherited_worktree.worktree_path);
+    // PermissionPrompter: 异步 — 触发 PermissionRequest 事件,等浏览器 decision
+    auto prompter = std::make_unique<AsyncPrompter>(entry->loop->events());
+    entry->prompter = prompter.get();
+    entry->loop->set_permission_prompter(std::move(prompter));
+
+    // AskUserQuestionPrompter: 异步 — 触发 QuestionRequest 事件,等浏览器
+    // question_answer 回流。AgentLoop 在每次工具执行时把 prompter 包成
+    // ToolContext::ask_user_questions 回调注入(set_ask_question_prompter)。
+    //
+    // add-ask-question-policy:显式 timeout 策略(config 或 CLI)时给
+    // prompter 配默认等待窗口。已知限制:
+    // 会话创建后策略变更不重建 prompter,timeout 秒数以创建时为准。
+    std::chrono::milliseconds ask_timeout{0};
+    if (entry_config) {
+        const auto resolved = resolve_question_policy(entry_config->agent_loop);
+        if (resolved.policy == QuestionPolicy::Timeout) {
+            ask_timeout = std::chrono::seconds(resolved.timeout_seconds);
+        }
+    }
+    auto ask_prompter = std::make_unique<AskUserQuestionPrompter>(
+        entry->loop->events(), ask_timeout);
+    entry->ask_prompter = ask_prompter.get();
+    entry->loop->set_ask_question_prompter(std::move(ask_prompter));
+
+    // A newly created Desktop/Web session must support side chat immediately,
+    // before any main request has caused the worker to publish a prompt. Resume
+    // primes again after persisted history and worktree state are restored.
+    if (!resumed_meta) entry->loop->prime_side_question_context();
+    entry->loop->start();
+
+    return entry;
+}
+
+void SessionRegistry::restore_loop_history(
+    SessionEntry& entry,
+    const std::vector<ChatMessage>& messages) const {
+    if (!entry.loop) return;
+    restore_file_tool_state_from_messages(messages, entry.loop->cwd());
+    entry.loop->clear_messages();
+
+    if (auto checkpoint = latest_valid_compact_checkpoint(messages)) {
+        append_model_messages_to_loop(*entry.loop, checkpoint->second.replacement_history);
+        if (checkpoint->first + 1 < messages.size()) {
+            std::vector<ChatMessage> suffix(
+                messages.begin() + static_cast<std::ptrdiff_t>(checkpoint->first + 1),
+                messages.end());
+            append_model_messages_to_loop(*entry.loop, suffix);
+        }
+    } else {
+        append_model_messages_to_loop(*entry.loop, messages);
+    }
+}
+
+bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) {
+    if (!begin_creation()) return false;
+    ScopeExit creation_finished([this] { end_creation(); });
+    if (id.empty()) return false;
+
+    // 同 id 单飞(声明处有背景):后到者阻塞等待首个 resume 完成,醒来后
+    // 走下面的 entries_ 快速路径直接返回,不重复做磁盘解析。RAII 保证
+    // 任何 return / 异常路径都摘除在途标记并唤醒等待者。
+    struct InflightGuard {
+        SessionRegistry& reg;
+        const std::string& id;
+        InflightGuard(SessionRegistry& r, const std::string& session_id)
+            : reg(r), id(session_id) {
+            std::unique_lock<std::mutex> lk(reg.resume_inflight_mu_);
+            reg.resume_inflight_cv_.wait(lk, [&] {
+                return reg.resume_inflight_.find(id) == reg.resume_inflight_.end();
+            });
+            reg.resume_inflight_.insert(id);
+        }
+        ~InflightGuard() {
+            std::lock_guard<std::mutex> lk(reg.resume_inflight_mu_);
+            reg.resume_inflight_.erase(id);
+            reg.resume_inflight_cv_.notify_all();
+        }
+    } inflight_guard(*this, id);
+
+    SessionOptions resolved = with_resolved_workspace(deps_, opts, id);
+
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (entries_.find(id) != entries_.end()) {
+            return true;
+        }
+    }
+
+    SessionManager meta_reader;
+    auto [provider, model] = current_provider_model(deps_, "");
+    meta_reader.start_session(resolved.cwd, provider, model, "", "", "daemon");
+    SessionMeta meta = meta_reader.load_session_meta(id);
+
+    if (meta.id.empty()) {
+        if (meta_reader.has_incompatible_session_data(id)) {
+            LOG_WARN("[registry] resume " + id +
+                     " rejected incompatible PID-suffixed old data; delete old project session data under ~/.acecode/projects");
+        }
+        return false;
+    }
+
+    SessionOptions entry_opts;
+    entry_opts.cwd = resolved.cwd;
+    entry_opts.no_workspace = meta.no_workspace || resolved.no_workspace;
+    entry_opts.workspace_hash = entry_opts.no_workspace ? std::string{} : resolved.workspace_hash;
+    // headless -p --resume 允许 --model / --permission-mode 覆盖会话保存值
+    //(resolve_session_model 与 make_entry_locked 都是"显式指定优先于 meta");
+    // web resume 不传这两个字段,行为不变。
+    entry_opts.model_name = resolved.model_name;
+    entry_opts.permission_mode = resolved.permission_mode;
+    entry_opts.reasoning_effort = resolved.reasoning_effort;
+
+    entry_opts.inherit_dangerous_mode = resolved.inherit_dangerous_mode;
+    entry_opts.expert_id = meta.expert_id;
+    entry_opts.expert_member_id = meta.expert_member_id;
+    auto entry = make_entry_locked(id, entry_opts, &meta);
+    auto messages = entry->sm->resume_session(id);
+    if (!entry->sm->last_error().empty()) {
+        LOG_WARN("[registry] resume " + id + " failed: " + entry->sm->last_error());
+        return false;
+    }
+    const auto resumed_model = entry->model_binding->state_snapshot();
+    entry->sm->set_active_model_state(resumed_model.provider, resumed_model.model,
+                                     resumed_model.name, resumed_model.reasoning_effort);
+    restore_loop_history(*entry, messages);
+    // worktree 会话恢复:meta 记录的 worktree 目录还在就把 AgentLoop 的
+    // 工作目录切回去(SessionEntry::cwd / 会话存储位置不动 —— worktree
+    // 是同一个项目的临时工作区);目录已被外部删除则清状态,避免
+    // ExitWorktree 操作幽灵路径。
+    {
+        const WorktreeSessionInfo resumed_worktree = entry->sm->active_worktree();
+        if (resumed_worktree.active()) {
+            std::error_code wt_ec;
+            if (std::filesystem::exists(
+                    path_from_utf8(resumed_worktree.worktree_path), wt_ec)) {
+                entry->loop->set_cwd(resumed_worktree.worktree_path);
+            } else {
+                entry->sm->clear_active_worktree();
+                LOG_WARN("[registry] resume " + id + " worktree missing: " +
+                         resumed_worktree.worktree_path + "; cleared worktree state");
+            }
+        }
+    }
+    entry->loop->publish_current_goal_state();
+    if (auto goal = current_active_goal(*entry)) {
+        emit_goal_audit_message(*entry, *goal, "session_resume", "Continuing");
+    }
+    entry->loop->prime_side_question_context();
+    entry->loop->maybe_continue_goal();
+    entry->loop->dispatch_session_start_hook("resume");
+    entry->loop->dispatch_session_title_changed_hook(
+        entry->sm->current_title(),
+        "resume",
+        entry->sm->current_title_source());
+
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        entries_.emplace(id, std::move(entry));
+    }
+    LOG_INFO("[registry] resumed session " + id);
+    return true;
+}
+
+std::shared_ptr<SessionEntry> SessionRegistry::acquire(const std::string& id) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    return it == entries_.end() ? nullptr : it->second;
+}
+
+std::shared_ptr<const SkillRegistry>
+SessionRegistry::skill_registry_snapshot(const std::string& id) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    const auto it = entries_.find(id);
+    if (it == entries_.end()) return nullptr;
+    return it->second->skill_registry;
+}
+
+SessionEntry* SessionRegistry::lookup(const std::string& id) {
+    auto entry = acquire(id);
+    return entry ? entry.get() : nullptr;
+}
+
+void SessionRegistry::set_external_command_handler(ExternalCommandHandler handler) {
+    std::lock_guard<std::mutex> lk(external_handler_mu_);
+    external_command_handler_ = std::move(handler);
+}
+
+BuiltinCommandResult SessionRegistry::execute_builtin_command(
+    const std::string& id,
+    const BuiltinCommandRequest& request) {
+    if (request.name != "init" && request.name != "compact" &&
+        request.name != "goal" && request.name != "plan" &&
+        request.name != "lsp" && request.name != "sandbox") {
+        // 内置名单之外:先给宿主注册的兜底处理器(daemon 托管 /rc 走这里),
+        // 没有兜底或兜底不认时保持原 UnsupportedCommand 语义。锁外调用,
+        // handler 内部可以安全地回头 acquire()/emit。
+        ExternalCommandHandler handler;
+        {
+            std::lock_guard<std::mutex> lk(external_handler_mu_);
+            handler = external_command_handler_;
+        }
+        if (handler) return handler(id, request);
+        return {BuiltinCommandStatus::UnsupportedCommand, "unsupported command"};
+    }
+
+    auto entry = acquire(id);
+    if (!entry || !entry->loop) {
+        return {BuiltinCommandStatus::UnknownSession, "unknown session"};
+    }
+
+    if (request.name == "compact") {
+        entry->loop->submit_compact();
+        return {BuiltinCommandStatus::Accepted, "queued"};
+    }
+
+    if (request.name == "goal") {
+        return execute_goal_builtin(*entry, request);
+    }
+
+    if (request.name == "plan") {
+        return execute_plan_builtin(*entry, request);
+    }
+
+    if (request.name == "lsp") {
+        // 与 TUI /lsp 共用同一份文本(dispatch_lsp_subcommand),经会话
+        // system message 透出到 Web 聊天流。
+        if (!entry->loop) return {BuiltinCommandStatus::Failed, "session unavailable"};
+        entry->loop->emit_system_message(
+            dispatch_lsp_subcommand(trim_ascii(request.args)), make_system_notice_metadata("lsp_status"));
+        return {BuiltinCommandStatus::Accepted, "ok"};
+    }
+
+    if (request.name == "sandbox") {
+        // 与 TUI /sandbox 共用 AgentLoop 的会话状态与开关。
+        if (!entry->loop) return {BuiltinCommandStatus::Failed, "session unavailable"};
+        entry->loop->emit_system_message(
+            entry->loop->sandbox_command(trim_ascii(request.args)), make_system_notice_metadata("sandbox_status"));
+        return {BuiltinCommandStatus::Accepted, "ok"};
+    }
+
+    const std::filesystem::path cwd = path_from_utf8(entry->cwd);
+    const std::filesystem::path target = cwd / "AGENT.md";
+
+    const bool provider_usable = entry->model_binding &&
+        static_cast<bool>(entry->model_binding->provider_snapshot());
+    if (!provider_usable) {
+        std::error_code ec;
+        if (std::filesystem::exists(target, ec)) {
+            entry->loop->emit_system_message(
+                "AGENT.md already exists at " + path_to_utf8_generic(target) +
+                " - no model is configured, so /init cannot propose improvements. "
+                "Edit it by hand, or run /configure first and re-run /init to get "
+                "an LLM-driven improvement pass.",
+                make_system_notice_metadata("init_exists", {{"path", path_to_utf8_generic(target)}}));
+            return {BuiltinCommandStatus::Accepted, "completed"};
+        }
+
+        std::ofstream ofs(target, std::ios::binary);
+        if (!ofs.is_open()) {
+            entry->loop->emit_system_message(
+                "Failed to open " + path_to_utf8_generic(target) + " for writing.",
+                make_system_notice_metadata("init_failed", {{"path", path_to_utf8_generic(target)}}));
+            return {BuiltinCommandStatus::Failed, "failed to open AGENT.md for writing"};
+        }
+        ofs << build_agent_md_skeleton(cwd);
+        entry->loop->emit_system_message(
+            "Created " + path_to_utf8_generic(target) +
+            " (offline skeleton - no model is configured, run /configure to get "
+            "a filled-in version).",
+            make_system_notice_metadata("init_created", {{"path", path_to_utf8_generic(target)}}));
+        return {BuiltinCommandStatus::Accepted, "completed"};
+    }
+
+    entry->loop->emit_system_message(
+        "[Invoking /init - analyzing codebase and authoring AGENT.md...]",
+        make_system_notice_metadata("init_started"));
+    const std::string display = request.display_text.empty()
+        ? std::string{"/init"}
+        : request.display_text;
+    entry->loop->submit(build_init_prompt(cwd), display);
+    return {BuiltinCommandStatus::Accepted, "queued"};
+}
+
+std::optional<SessionModelState>
+SessionRegistry::current_model_state(const std::string& id) const {
+    std::shared_ptr<SessionEntry> entry;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || !it->second) return std::nullopt;
+        entry = it->second;
+    }
+    auto state = entry->model_binding
+        ? entry->model_binding->state_snapshot()
+        : SessionModelState{};
+    const auto config_snapshot = snapshot_model_config(deps_);
+    if (config_snapshot.config) {
+        mark_deleted_if_model_name_missing(*config_snapshot.config, state);
+    }
+    return state;
+}
+
+bool SessionRegistry::model_profile_used_by_busy_session(const std::string& model_name) const {
+    if (model_name.empty()) return false;
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& [id, entry] : entries_) {
+        (void)id;
+        const auto state = entry && entry->model_binding
+            ? entry->model_binding->state_snapshot()
+            : SessionModelState{};
+        if (!entry || state.name != model_name || !entry->loop) continue;
+        if (entry->loop->is_busy()) return true;
+    }
+    return false;
+}
+
+std::size_t SessionRegistry::sync_model_context_window(
+    const std::string& model_name,
+    const ModelProfile& profile) {
+    if (model_name.empty() || profile.name != model_name || !deps_.config) {
+        return 0;
+    }
+
+    const auto config_snapshot = snapshot_model_config(deps_);
+    if (!config_snapshot.config) return 0;
+    const int context_window =
+        state_from_profile(*config_snapshot.config, profile).context_window;
+    if (context_window <= 0) return 0;
+
+    std::vector<std::shared_ptr<SessionEntry>> entries;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        entries.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry) entries.push_back(entry);
+        }
+    }
+    std::size_t updated = 0;
+    for (const auto& entry : entries) {
+        if (!entry->model_binding) continue;
+        if (entry->model_binding->synchronize_context_window(
+                model_name,
+                context_window,
+                transition_for_entry(entry))) {
+            ++updated;
+        }
+    }
+    if (updated > 0) {
+        LOG_INFO("[session_registry] synchronized context_window=" +
+                 std::to_string(context_window) + " for model='" + model_name +
+                 "' active_sessions=" + std::to_string(updated));
+    }
+    return updated;
+}
+
+std::optional<PermissionMode>
+SessionRegistry::permission_mode(const std::string& id) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    if (it == entries_.end() || !it->second || !it->second->perm) return std::nullopt;
+    return it->second->perm->mode();
+}
+
+bool SessionRegistry::set_permission_mode(const std::string& id, PermissionMode mode) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    if (it == entries_.end() || !it->second || !it->second->perm) return false;
+    it->second->perm->set_mode(mode);
+    it->second->perm->clear_session_allows();
+    if (it->second->sm) {
+        it->second->sm->set_permission_mode(PermissionManager::mode_name(mode));
+        if (mode == PermissionMode::Plan) {
+            it->second->sm->set_pre_plan_permission_mode(
+                PermissionManager::mode_name(it->second->perm->pre_plan_mode()));
+            it->second->sm->ensure_plan_file_path();
+        } else {
+            it->second->sm->set_pre_plan_permission_mode(std::string{});
+        }
+    }
+    if (mode == PermissionMode::Yolo && it->second->prompter) {
+        it->second->prompter->resolve_all(PermissionDecisionChoice::Allow);
+    }
+    return true;
+}
+
+void SessionRegistry::maybe_start_auto_title(const std::string& id, const UserInput& input) {
+    const auto cfg = snapshot_model_config(deps_).config;
+    if (shutting_down_.load() ||
+        !cfg || !cfg->session_title.enabled) {
+        return;
+    }
+    std::string text = visible_auto_title_input(input);
+    if (text.empty()) return;
+
+    auto entry = acquire(id);
+    if (!entry || !entry->sm) return;
+    auto attempt_text = entry->sm->begin_auto_title_generation(std::move(text));
+    if (!attempt_text.has_value()) return;
+    start_auto_title_attempt(id, std::move(*attempt_text));
+}
+
+void SessionRegistry::start_auto_title_attempt(const std::string& id,
+                                               std::string text) {
+    if (shutting_down_.load() || !deps_.config) return;
+
+    auto title_generator = deps_.auto_title_generator;
+    std::optional<ModelProfile> profile;
+    const auto cfg = snapshot_model_config(deps_).config;
+    if (!cfg) return;
+    if (!title_generator) {
+        auto entry = acquire(id);
+        if (entry && entry->sm) {
+            const auto model_state = entry->model_binding
+                ? entry->model_binding->state_snapshot()
+                : SessionModelState{};
+            profile = resolve_auto_title_profile(
+                *cfg,
+                model_state.name,
+                entry->cwd);
+        }
+    }
+
+    if (!title_generator && !profile.has_value()) {
+        auto entry = acquire(id);
+        if (!entry || !entry->sm) return;
+        auto retry = entry->sm->finish_auto_title_generation_for_session(
+            id, false);
+        if (retry.has_value() && !shutting_down_.load()) {
+            start_auto_title_attempt(id, std::move(*retry));
+        }
+        return;
+    }
+
+    if (shutting_down_.load()) return;
+    title_threads_.spawn(
+        [ref = lifetime_.ref(*this), cfg, profile = std::move(profile),
+         title_generator = std::move(title_generator),
+         session_id = id, text = std::move(text)]() mutable {
+        std::optional<std::string> title;
+        try {
+            if (title_generator) {
+                title = title_generator(text);
+            } else if (profile.has_value()) {
+                auto provider = create_auto_title_provider(std::move(*profile), *cfg);
+                if (provider) {
+                    title = generate_auto_session_title(*provider, text, *cfg);
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("[registry] auto session title generation failed: " +
+                     std::string(e.what()));
+        } catch (...) {
+            LOG_WARN("[registry] auto session title generation failed");
+        }
+        ref.with([&](SessionRegistry& registry) {
+            registry.finish_auto_title_attempt(session_id, title);
+        });
+    });
+}
+
+void SessionRegistry::finish_auto_title_attempt(
+    const std::string& id, const std::optional<std::string>& title) {
+    if (shutting_down_.load()) return;
+    auto entry = acquire(id);
+    if (!entry || !entry->sm) return;
+    bool applied = false;
+    try {
+        if (title && !title->empty() &&
+            entry->sm->try_set_generated_session_title_for_session(id, *title)) {
+            applied = true;
+            emit_session_title_updated(*entry);
+            entry->loop->dispatch_session_title_changed_hook(
+                entry->sm->current_title(), "generated", entry->sm->current_title_source());
+        }
+    } catch (const std::exception& e) {
+        LOG_WARN("[registry] applying auto session title failed: " + std::string(e.what()));
+    } catch (...) {
+        LOG_WARN("[registry] applying auto session title failed");
+    }
+    auto retry = entry->sm->finish_auto_title_generation_for_session(id, applied);
+    if (retry && !shutting_down_.load()) start_auto_title_attempt(id, std::move(*retry));
+}
+
+void SessionRegistry::handle_auto_title_turn_finished(
+    const std::string& id,
+    const std::string& status) {
+    if (shutting_down_.load()) return;
+    auto entry = acquire(id);
+    if (!entry || !entry->sm) return;
+    auto retry = entry->sm->mark_auto_title_turn_finished(status);
+    if (retry.has_value()) {
+        start_auto_title_attempt(id, std::move(*retry));
+    }
+}
+
+ControlEnqueueReceipt SessionRegistry::enqueue_entry_control(
+    const std::shared_ptr<SessionEntry>& entry,
+    std::function<bool(SessionRegistry&, SessionEntry&)> control) {
+    if (!entry || !entry->loop || !control || shutting_down_.load()) return {};
+    return entry->loop->enqueue_control(
+        [ref = lifetime_.ref(*this), weak = std::weak_ptr<SessionEntry>(entry),
+         control = std::move(control)]() mutable {
+            const auto live = weak.lock();
+            if (!live) return false;
+            bool succeeded = false;
+            ref.with([&](SessionRegistry& registry) {
+                if (registry.shutting_down_.load() || registry.acquire(live->id) != live) return;
+                succeeded = control(registry, *live);
+            });
+            return succeeded;
+        });
+}
+
+std::size_t SessionRegistry::refresh_sandbox_config(const SandboxConfig& sandbox) {
+    auto snapshot = std::make_shared<SandboxConfig>(sandbox);
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+    std::size_t queued = 0;
+    for (const auto& entry : targets) {
+        const auto receipt = enqueue_entry_control(entry,
+            [snapshot](SessionRegistry&, SessionEntry& active) {
+                active.loop->set_sandbox_config(*snapshot);
+                return true;
+            });
+        (void)receipt;
+        ++queued;
+    }
+    return queued;
+}
+
+std::size_t SessionRegistry::refresh_tool_preamble_config(const ToolPreambleConfig& cfg) {
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+    for (const auto& entry : targets) {
+        entry->loop->set_tool_preamble_config(cfg);
+    }
+    return targets.size();
+}
+
+std::size_t SessionRegistry::refresh_exec_rules() {
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+    std::size_t queued = 0;
+    for (const auto& entry : targets) {
+        const auto receipt = enqueue_entry_control(entry,
+            [](SessionRegistry&, SessionEntry& active) {
+                active.loop->refresh_exec_rules();
+                return true;
+            });
+        (void)receipt;
+        ++queued;
+    }
+    return queued;
+}
+
+void SessionRegistry::refresh_mcp_policy(const AppConfig& config) {
+    auto config_snapshot = std::make_shared<AppConfig>(config);
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+
+    for (const auto& entry : targets) {
+        auto receipt = enqueue_entry_control(entry,
+            [config_snapshot](SessionRegistry& registry, SessionEntry& active) {
+                std::lock_guard<std::mutex> lk(registry.mu_);
+                auto it = registry.entries_.find(active.id);
+                if (it == registry.entries_.end() || it->second.get() != &active) {
+                    return false;
+                }
+                ExpertCapabilityScopes scopes;
+                if (!active.expert_id.empty() && active.expert) {
+                    scopes = active.expert->selected_capabilities(
+                        active.expert_member_id);
+                } else if (active.expert_missing) {
+                    scopes = fail_closed_expert_scopes();
+                }
+                const auto refreshed =
+                    tool_policy_from_expert_scopes(
+                        scopes, config_snapshot.get(), active.no_workspace ? "" : active.cwd, registry.deps_);
+                active.tool_capability_policy.mcp_servers =
+                    refreshed.mcp_servers;
+                if (active.loop) {
+                    active.loop->set_tool_capability_policy(
+                        active.tool_capability_policy);
+                }
+                return true;
+            });
+        if (receipt.accepted && !receipt.queued_behind_turn) {
+            (void)receipt.wait_for_completion(
+                std::chrono::milliseconds(250));
+        }
+    }
+}
+
+bool SessionRegistry::expert_requires_mcp_server(
+    const std::string& name, const std::string& scope) const {
+    const auto owner = scope.empty() ? name : mcp_project_server_id(scope, name);
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& [id, entry] : entries_) {
+        (void)id;
+        if (!entry || entry->expert_id.empty() ||
+            entry->expert_missing || !entry->expert) {
+            continue;
+        }
+        const auto scopes =
+            entry->expert->selected_capabilities(entry->expert_member_id);
+        if (!scopes.mcp_servers || !entry->tool_capability_policy.mcp_servers ||
+            !entry->tool_capability_policy.mcp_servers->count(owner)) continue;
+        if (std::find(scopes.mcp_servers->begin(),
+                      scopes.mcp_servers->end(),
+                      name) != scopes.mcp_servers->end()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+ExpertSwitchResult SessionRegistry::switch_expert(
+    const std::string& id,
+    const std::string& expert_id,
+    std::optional<std::string> draft_text) {
+    std::shared_ptr<SessionEntry> entry;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || !it->second || !it->second->loop) {
+            return {
+                ExpertSwitchStatus::UnknownSession,
+                std::nullopt,
+                "unknown session",
+            };
+        }
+        entry = it->second;
+    }
+
+    if (expert_id.empty() || !deps_.expert_registry) {
+        return {
+            ExpertSwitchStatus::UnknownExpert,
+            std::nullopt,
+            "unknown or invalid expert component",
+        };
+    }
+
+    auto resolved = deps_.expert_registry->find(entry->cwd, expert_id);
+    if (!resolved) {
+        return {
+            ExpertSwitchStatus::UnknownExpert,
+            std::nullopt,
+            "unknown or invalid expert component",
+        };
+    }
+
+    auto expert = std::make_shared<ExpertDefinition>(std::move(*resolved));
+    const ExpertCapabilityScopes expert_scopes =
+        expert->selected_capabilities();
+    const ToolCapabilityPolicy tool_policy =
+        tool_policy_from_expert_scopes(
+            expert_scopes, deps_.config, entry->no_workspace ? "" : entry->cwd, deps_);
+    const auto expert_skill_roots = expert->selected_skill_roots();
+    const auto expert_skill_allowlist = expert_scopes.skills;
+    std::shared_ptr<SkillRegistry> skills;
+    try {
+        if (deps_.config) {
+            skills = std::make_shared<SkillRegistry>();
+            initialize_skill_registry(
+                *skills,
+                *deps_.config,
+                entry->cwd,
+                expert_skill_roots,
+                expert_skill_allowlist);
+        }
+    } catch (const std::exception& e) {
+        return {
+            ExpertSwitchStatus::Failed,
+            std::nullopt,
+            std::string("failed to load expert skills: ") + e.what(),
+        };
+    }
+
+    std::uint64_t binding_revision = 0;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || it->second != entry) {
+            return {
+                ExpertSwitchStatus::UnknownSession,
+                std::nullopt,
+                "unknown session",
+            };
+        }
+        binding_revision = ++it->second->expert_binding_revision;
+    }
+
+    auto receipt = enqueue_entry_control(entry,
+        [expert, skills, tool_policy, expert_skill_roots, expert_skill_allowlist,
+         draft_text, binding_revision](SessionRegistry& registry, SessionEntry& active) {
+            std::lock_guard<std::mutex> lk(registry.mu_);
+            auto it = registry.entries_.find(active.id);
+            if (it == registry.entries_.end() || it->second.get() != &active) return false;
+
+            // A later switch or metadata-only detach superseded this queued
+            // intent. Treat it as consumed without touching AgentLoop state.
+            if (active.expert_binding_revision != binding_revision) return true;
+            if (active.sm &&
+                !active.sm->set_expert_binding_and_input_draft(
+                    expert->id, {}, draft_text)) {
+                LOG_ERROR("[registry] failed to persist expert switch for " +
+                          active.id);
+                return false;
+            }
+            active.expert_id = expert->id;
+            active.expert_member_id.clear();
+            active.expert_missing = false;
+            active.expert = *expert;
+            active.skill_registry = skills;
+            active.expert_skill_roots = expert_skill_roots;
+            active.expert_skill_allowlist = expert_skill_allowlist;
+            active.tool_capability_policy = tool_policy;
+            if (active.loop) {
+                const auto* registry_skills = active.skill_registry
+                    ? active.skill_registry.get() : registry.deps_.skill_registry;
+                active.loop->publish_expert_snapshot(
+                    std::make_shared<const ExpertDefinition>(*active.expert),
+                    registry_skills ? registry_skills->snapshot() : nullptr,
+                    active.tool_capability_policy);
+            }
+            return true;
+        });
+    if (!receipt.accepted) {
+        return {
+            ExpertSwitchStatus::Failed,
+            std::nullopt,
+            "failed to enqueue expert switch",
+        };
+    }
+
+    if (!receipt.queued_behind_turn) {
+        (void)receipt.wait_for_completion(std::chrono::milliseconds(250));
+    }
+    if (receipt.completed() && !receipt.succeeded()) {
+        return {
+            ExpertSwitchStatus::Failed,
+            std::nullopt,
+            "failed to apply expert switch",
+        };
+    }
+
+    const bool applied = receipt.applied();
+    ExpertSwitchResult result;
+    result.status = ExpertSwitchStatus::Accepted;
+    result.expert = *expert;
+    result.busy = !applied && receipt.queued_behind_turn;
+    result.pending = !applied;
+    result.applied = applied;
+    result.effective_boundary =
+        applied
+            ? "applied"
+            : (receipt.queued_behind_turn ? "next_turn"
+                                          : "queued_control");
+    result.control_sequence = receipt.sequence;
+    result.draft_text_present = draft_text.has_value();
+    if (draft_text) result.draft_text = std::move(*draft_text);
+    return result;
+}
+
+ExpertDetachResult SessionRegistry::detach_expert(const std::string& id) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = entries_.find(id);
+    if (it == entries_.end() || !it->second || !it->second->sm) {
+        return {
+            ExpertDetachStatus::UnknownSession,
+            "unknown session",
+            true,
+        };
+    }
+
+    auto& active = *it->second;
+    if (!active.sm->set_expert_binding_and_input_draft(
+            "", {}, std::nullopt)) {
+        return {
+            ExpertDetachStatus::Failed,
+            "failed to persist detached expert binding",
+            true,
+        };
+    }
+
+    ++active.expert_binding_revision;
+    active.expert_id.clear();
+    active.expert_member_id.clear();
+    active.expert_missing = false;
+
+    // Do not reset active.expert or any loop-facing capability state here.
+    // AgentLoop may retain a pointer to active.expert, and the product contract
+    // explicitly allows the already-loaded expert prompt/tools to remain until
+    // a later lifecycle boundary. In particular, this path must not enqueue a
+    // control or invalidate provider context/KV cache.
+    return {
+        ExpertDetachStatus::Detached,
+        {},
+        true,
+    };
+}
+
+PermissionMode SessionRegistry::default_permission_mode() const {
+    if (!deps_.template_permissions) return PermissionMode::Default;
+    return deps_.template_permissions->mode();
+}
+
+void SessionRegistry::set_default_permission_mode(PermissionMode mode) {
+    if (!deps_.template_permissions) return;
+    if (mode == PermissionMode::Plan) {
+        deps_.template_permissions->set_mode(PermissionMode::Default);
+    }
+    deps_.template_permissions->set_mode(mode);
+    deps_.template_permissions->clear_session_allows();
+}
+
+bool SessionRegistry::switch_model(const std::string& id,
+                                   const ModelProfile& profile,
+                                   SessionModelState* out,
+                                   std::string* error) {
+    if (!deps_.config) {
+        if (error) *error = "config unavailable";
+        return false;
+    }
+
+    std::shared_ptr<SessionEntry> entry;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end() || !it->second) {
+            if (error) *error = "session not found";
+            return false;
+        }
+        entry = it->second;
+        if (!entry->model_binding) {
+            entry->model_binding = std::make_shared<SessionModelBinding>();
+        }
+    }
+
+    std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
+    const auto before = entry->model_binding->state_snapshot();
+    const auto effort = before.name == profile.name ? before.reasoning_effort : std::nullopt;
+    auto config_snapshot = snapshot_model_config(deps_);
+    if (!config_snapshot.config) {
+        if (error) *error = "config unavailable";
+        return false;
+    }
+    SessionModelResolver resolver = [this, effort](const std::string& name) {
+        return resolve_target_for_name(deps_, name, effort);
+    };
+
+    ApplyModelDeps apply_deps;
+    apply_deps.model_binding = entry->model_binding.get();
+    apply_deps.sm = entry->sm.get();
+    apply_deps.loop = entry->loop.get();
+    apply_deps.cfg = config_snapshot.config.get();
+    apply_deps.resolver = std::move(resolver);
+    apply_deps.on_transition = transition_for_entry(entry);
+
+    ApplyModelResult result;
+    try {
+        result = apply_model_to_session(profile, apply_deps);
+    } catch (const std::exception& e) {
+        if (error) *error = e.what();
+        return false;
+    }
+
+    if (out) *out = result.state;
+    if (!result.warning.empty()) {
+        LOG_WARN("[session_registry] " + result.warning);
+    }
+    return true;
+}
+
+std::optional<SessionModelReloadResult>
+SessionRegistry::reload_model_profile(const std::string& id, bool force) {
+    auto entry = acquire(id);
+    if (!entry) return std::nullopt;
+    if (!entry->model_binding || !deps_.config) {
+        SessionModelReloadResult result;
+        result.ok = false;
+        result.state = entry->model_binding
+            ? entry->model_binding->state_snapshot()
+            : SessionModelState{};
+        result.error = "model reload is unavailable";
+        return result;
+    }
+
+    std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
+    const auto effort = entry->model_binding->state_snapshot().reasoning_effort;
+    SessionModelResolver resolver = [this, effort](const std::string& name) {
+        return resolve_target_for_name(deps_, name, effort);
+    };
+
+    auto result = entry->model_binding->ensure_current(
+        force,
+        [] { return current_saved_models_revision(); },
+        resolver,
+        transition_for_entry(entry));
+    if (!result.ok) {
+        LOG_WARN("[session_registry] model profile reload failed");
+    }
+    return result;
+}
+
+SessionReasoningResult SessionRegistry::set_reasoning_effort(
+    const std::string& id, const std::optional<std::string>& effort) {
+    auto entry = acquire(id);
+    if (!entry) return {SessionReasoningStatus::UnknownSession, {}, "session not found"};
+    SessionReasoningResult result;
+    if (!entry->loop || !entry->model_binding || !deps_.config) {
+        result.status = SessionReasoningStatus::Unavailable;
+        result.error = "session model unavailable";
+        return result;
+    }
+    // The queue gate covers pending submissions as well as running turns.
+    // Lock order: queue gate -> model control -> binding -> session metadata.
+    const bool ran = entry->loop->try_run_idle_control([&] {
+        std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
+        result.state = entry->model_binding->state_snapshot();
+        SessionModelResolver resolver = [this, effort](const std::string& name) {
+            return resolve_target_for_name(deps_, name, effort, true);
+        };
+        SessionModelResolvedTarget target;
+        try {
+            target = resolver(result.state.name);
+        } catch (const SessionReasoningValidationError& ex) {
+            result.status = SessionReasoningStatus::InvalidEffort;
+            result.error = ex.what();
+            return;
+        }
+        if (!target.profile || !target.config) {
+            result.status = SessionReasoningStatus::Unavailable;
+            result.error = "session model unavailable";
+            return;
+        }
+        auto previous = entry->model_binding->runtime_snapshot();
+        const auto installed = entry->model_binding->install_explicit(
+            std::move(target), resolver);
+        result.state = installed.state;
+        if (!installed.ok) {
+            result.error = installed.error;
+            return;
+        }
+        // An empty session must retain an explicit selection across restart.
+        if (!entry->sm->set_active_model_state(
+                result.state.provider, result.state.model, result.state.name,
+                result.state.reasoning_effort, true)) {
+            entry->model_binding->install_cloned_snapshot(std::move(previous));
+            result.state = entry->model_binding->state_snapshot();
+            result.error = "session reasoning metadata could not be persisted";
+            return;
+        }
+        if (result.state.context_window > 0) {
+            entry->loop->set_context_window(result.state.context_window);
+        }
+        result.status = SessionReasoningStatus::Updated;
+    });
+    if (!ran) {
+        result.status = SessionReasoningStatus::Busy;
+        result.state = entry->model_binding->state_snapshot();
+        result.error = "session is busy";
+    }
+    return result;
+}
+
+std::optional<SessionModelState>
+SessionRegistry::model_state_from_meta(const SessionMeta& meta) const {
+    if (meta.id.empty() || !deps_.config) return std::nullopt;
+    const auto config_snapshot = snapshot_model_config(deps_);
+    if (!config_snapshot.config) return std::nullopt;
+    const auto& config = *config_snapshot.config;
+    if (!meta.model_preset.empty() &&
+        find_profile_by_name(config, meta.model_preset) == nullptr) {
+        return deleted_state_from_name(meta.model_preset);
+    }
+    auto profile = resolve_effective_model(
+        config, std::nullopt, std::optional<SessionMeta>{meta});
+    const auto effort = apply_session_reasoning_effort(profile, meta.reasoning_effort);
+    auto state = state_from_profile(config, profile);
+    state.reasoning_effort = effort;
+    mark_deleted_if_model_name_missing(config, state);
+    return state;
+}
+
+SideQuestionResult SessionRegistry::ask_side_question(
+    const std::string& id, const std::string& raw_question) {
+    auto question = trim_copy(raw_question);
+    if (question.empty() || question.size() > kMaxSideQuestionBytes) {
+        SideQuestionResult result;
+        result.question = std::move(question);
+        result.status = SideQuestionStatus::InvalidQuestion;
+        result.error = result.question.empty()
+            ? "question required"
+            : "question too long";
+        return result;
+    }
+
+    auto entry = acquire(id);
+    if (!entry || !entry->loop) {
+        SideQuestionResult result;
+        result.question = std::move(question);
+        result.status = SideQuestionStatus::UnknownSession;
+        result.error = "unknown session";
+        return result;
+    }
+    return entry->loop->ask_side_question(question);
+}
+
+SideChatResult SessionRegistry::stream_side_chat(
+    const std::string& id,
+    const std::string& question,
+    const std::vector<SideChatMessage>& history,
+    SideChatCancellation& cancellation,
+    const SideChatStreamCallback& callback) {
+    // Keep the entry and loop alive until the provider returns, including when
+    // the main session is removed while its detached request is streaming.
+    auto entry = acquire(id);
+    if (!entry || !entry->loop) {
+        SideChatResult result;
+        result.response.status = SideQuestionStatus::UnknownSession;
+        result.response.error = "unknown session";
+        return result;
+    }
+    return entry->loop->stream_side_chat(question, history, cancellation, callback);
+}
+
+bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {
+    if (!task || shutting_down_.load()) return false;
+    try {
+        return lifecycle_threads_.spawn(
+            [task = std::move(task)]() mutable {
+                try {
+                    task();
+                } catch (const std::exception& e) {
+                    LOG_ERROR(std::string("[registry] lifecycle task failed: ") +
+                              e.what());
+                } catch (...) {
+                    LOG_ERROR("[registry] lifecycle task failed with unknown exception");
+                }
+            });
+    } catch (const std::exception& e) {
+        LOG_ERROR(std::string("[registry] failed to start lifecycle task: ") +
+                  e.what());
+        return false;
+    }
+}
+
+void SessionRegistry::destroy(const std::string& id) {
+    std::shared_ptr<SessionEntry> moved;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        auto it = entries_.find(id);
+        if (it == entries_.end()) return;
+        moved = std::move(it->second);
+        entries_.erase(it);
+    }
+    if (deps_.power_guard) deps_.power_guard->release_session(id);
+    // 析构走出锁外: AgentLoop::shutdown 会 join worker,可能耗时(等当前
+    // tool 跑完)。在锁内会阻塞所有别的 create/lookup/destroy。
+    if (moved && moved->loop) {
+        moved->loop->abort();
+        // Do not rely on the last shared_ptr to run AgentLoop's destructor.
+        // A lifecycle caller may still hold an entry snapshot, but persistent
+        // cleanup is safe as soon as this explicit external shutdown returns.
+        moved->loop->shutdown();
+    }
+    if (moved && moved->sm) {
+        // Finalize and invalidate the active writer even when another
+        // subsystem (for example auto-title generation) still holds the
+        // SessionEntry. Any late per-session update then observes an empty
+        // active id instead of recreating files after a purge.
+        moved->sm->end_current_session();
+    }
+    moved.reset();
+    LOG_INFO("[registry] destroyed session " + id);
+}
+
+std::vector<SessionInfo> SessionRegistry::list_active() const {
+    std::vector<SessionInfo> out;
+    const auto config_snapshot = snapshot_model_config(deps_);
+    std::lock_guard<std::mutex> lk(mu_);
+    out.reserve(entries_.size());
+    for (const auto& [id, entry] : entries_) {
+        SessionInfo info;
+        info.id = id;
+        info.cwd = entry->cwd;
+        info.workspace_hash = entry->workspace_hash;
+        info.active = true;
+        info.no_workspace = entry->no_workspace;
+        info.parent_session_id = entry->parent_session_id;
+        info.expert_id = entry->expert_id;
+        info.expert_member_id = entry->expert_member_id;
+        info.expert_missing = entry->expert_missing;
+        if (entry->expert) {
+            info.expert_display_name = entry->expert->display_name;
+            info.expert_type = to_string(entry->expert->type);
+            info.expert_source = entry->expert->source;
+        }
+        if (entry->loop) {
+            info.busy = entry->loop->is_busy();
+            info.active_turn_id = entry->loop->active_turn_id();
+        }
+        if (entry->sm) {
+            // SessionManager 没有公开的 created_at / updated_at 接口,从 meta
+            // 拿:这里**可选**调 load_session_meta 走磁盘读,有 IO 成本。
+            // v1 不读磁盘(list_active 是热路径),只填 id + active + title。
+            info.title = entry->sm->current_title();
+            info.title_source = entry->sm->current_title_source();
+            // 摘要也是内存值(不读磁盘):它是无标题会话的显示名,列表必须与
+            // session_updated{summary} 事件、messages 快照同源。
+            info.summary = entry->sm->current_summary();
+            info.turn_count = entry->sm->current_turn_count();
+            info.last_token_usage = entry->sm->current_last_token_usage();
+            info.session_token_usage = entry->sm->current_session_token_usage();
+            const WorktreeSessionInfo worktree = entry->sm->active_worktree();
+            info.worktree_path = worktree.worktree_path;
+            info.worktree_name = worktree.worktree_name;
+            info.worktree_branch = worktree.worktree_branch;
+        }
+        if (entry->perm) {
+            info.permission_mode = PermissionManager::mode_name(entry->perm->mode());
+        }
+        auto model_state = entry->model_binding
+            ? entry->model_binding->state_snapshot()
+            : SessionModelState{};
+        if (config_snapshot.config) {
+            mark_deleted_if_model_name_missing(*config_snapshot.config, model_state);
+        }
+        info.provider = model_state.provider;
+        info.model = model_state.model;
+        info.model_name = model_state.name;
+        info.context_window = model_state.context_window;
+        info.model_deleted = model_state.deleted;
+        out.push_back(std::move(info));
+    }
+    return out;
+}
+
+std::size_t SessionRegistry::size() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return entries_.size();
+}
+
+namespace {
+
+// workspace cwd 判等:两侧 weakly_canonical 后比较(junction 教训 —— 本机
+// C:\Users\x 与 N:\Users\x 是同一目录的两个形态,字符串直比会漏)。
+bool same_workspace_cwd(const std::string& a, const std::string& b) {
+    if (a.empty() || b.empty()) return a == b;
+    std::error_code ec;
+    auto ca = std::filesystem::weakly_canonical(path_from_utf8(a), ec);
+    if (ec) return a == b;
+    auto cb = std::filesystem::weakly_canonical(path_from_utf8(b), ec);
+    if (ec) return a == b;
+    return ca == cb;
+}
+
+} // namespace
+
+bool SessionRegistry::any_busy_in_cwd(const std::string& cwd) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& [id, entry] : entries_) {
+        if (!entry || !entry->loop) continue;
+        if (entry->loop->is_busy() && same_workspace_cwd(entry->cwd, cwd)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SessionRegistry::any_busy() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& [id, entry] : entries_) {
+        if (!entry || !entry->loop) continue;
+        if (entry->loop->has_pending_work()) return true;
+    }
+    return false;
+}
+
+std::vector<std::string> SessionRegistry::busy_session_ids() const {
+    std::vector<std::string> ids;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        for (const auto& [id, entry] : entries_) {
+            if (!entry || !entry->loop) continue;
+            if (entry->loop->has_pending_work()) ids.push_back(id);
+        }
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+void SessionRegistry::invalidate_git_snapshots_in_cwd(const std::string& cwd) {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& [id, entry] : entries_) {
+        if (!entry || !entry->loop) continue;
+        if (same_workspace_cwd(entry->cwd, cwd)) {
+            entry->loop->invalidate_git_snapshot();
+        }
+    }
+}
+
+SessionRegistry::WebWorktreeResult SessionRegistry::enter_worktree_for_web(
+    const std::string& id, const std::string& base_branch) {
+    WebWorktreeResult result;
+
+    auto entry = acquire(id);
+    if (!entry || !entry->loop || !entry->sm) {
+        result.http_status = 404;
+        result.error = "unknown session";
+        return result;
+    }
+    if (entry->loop->is_busy()) {
+        result.http_status = 409;
+        result.error = "session busy";
+        return result;
+    }
+    // 仅"尚无消息"的新会话允许:该字段是首条消息的伴随意图,已开聊的
+    // 会话中途切 worktree 归 EnterWorktree 工具管,UI 不提供第二条路径。
+    if (!entry->loop->messages().empty()) {
+        result.http_status = 400;
+        result.error = "session already has messages";
+        return result;
+    }
+    if (entry->sm->active_worktree().active()) {
+        result.http_status = 400;
+        result.error = "session is already in a worktree";
+        return result;
+    }
+    if (!base_branch.empty() && !gitinfo::is_safe_ref_name(base_branch)) {
+        result.http_status = 400;
+        result.error = "invalid base branch name";
+        return result;
+    }
+
+    const std::string session_cwd = entry->cwd.empty() ? deps_.cwd : entry->cwd;
+    const std::string repo_root = worktree::find_canonical_git_root(session_cwd);
+    if (repo_root.empty()) {
+        result.http_status = 400;
+        result.error = "workspace is not a git repository";
+        return result;
+    }
+
+    // 命名用完整会话 id(YYYYMMDD-HHMMSS-xxxx,24 字符 < 64 上限):此刻
+    // 会话还没有标题,id 稳定且可反查。不能只取前缀 —— id 前 8 位是日期,
+    // 同一天创建的会话会 slug 撞车,第二个会话 fast-resume 复用第一个的
+    // worktree(集成测试实际踩到)。
+    const std::string slug = "ses-" + id;
+
+    worktree::WorktreeCreateOptions options;
+    options.base_branch = base_branch;
+    if (deps_.config) options.sparse_paths = deps_.config->worktree.sparse_paths;
+    auto created = worktree::get_or_create_worktree(repo_root, slug, options);
+    if (!created.ok) {
+        result.http_status = 500;
+        // 基线分支不存在是 4xx 语义(用户输入问题),其余按 500。
+        if (created.error.find("does not exist") != std::string::npos) {
+            result.http_status = 400;
+        }
+        result.error = created.error;
+        return result;
+    }
+    if (!created.existed) {
+        worktree::PostCreationOptions post;
+        if (deps_.config) {
+            post.symlink_directories = deps_.config->worktree.symlink_directories;
+        }
+        worktree::perform_post_creation_setup(repo_root, created.worktree_path, post);
+    }
+
+    WorktreeSessionInfo info;
+    info.original_cwd = session_cwd;
+    info.worktree_path = created.worktree_path;
+    info.worktree_name = slug;
+    info.worktree_branch = created.worktree_branch;
+    info.original_head_commit = created.head_commit;
+    entry->sm->set_active_worktree(info);
+    // set_cwd 同时失效 gitStatus 快照;entry->cwd(workspace 归属 / 会话
+    // 存储位置)有意不动 —— 与 EnterWorktree 工具同语义。
+    entry->loop->set_cwd(created.worktree_path);
+
+    result.ok = true;
+    result.http_status = 200;
+    result.worktree_path = created.worktree_path;
+    result.worktree_branch = created.worktree_branch;
+    return result;
+}
+
+} // namespace acecode

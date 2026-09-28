@@ -8,7 +8,7 @@
 2026-08-30 线上问题:用户目录含中文时,自升级在解压阶段必定失败,界面报
 `invalid package: failed to open zip package`,重试无效,只能手动覆盖绿色包。
 
-根因是 [src/upgrade/package.cpp](../src/upgrade/package.cpp) 把 `zip_path.string()`
+根因是 [src/adapters/upgrade/package.cpp](../src/adapters/upgrade/package.cpp) 把 `zip_path.string()`
 交给了 `zip_open`。MSVC 的 `path::string()` 返回当前本地代码页(中文系统为 GBK)
 的字节,而 libzip 在 Windows 上把该参数当 UTF-8 严格解析,转换失败即返回 NULL。
 
@@ -71,7 +71,7 @@
 ## 目录设计
 
 ```
-src/utils/str/
+src/base/utils/str/
 ├── str_basic.hpp           纯 header,零依赖  trim/split/join/case/starts_with/replace_all
 ├── str_utf8.hpp            纯 header        码点计数、安全截断、边界、校验
 ├── str_encoding.hpp/.cpp   平台相关         utf8↔wide↔codepage、getenv_utf8、ensure_utf8
@@ -120,14 +120,14 @@ src/utils/str/
 
 ```js
 run('libzip 调用点不得使用本地代码页路径', () => {
-  const pkg = source('src/upgrade/package.cpp');
+  const pkg = source('src/adapters/upgrade/package.cpp');
   assert.match(pkg, /zip_open\(path_to_utf8\(/);
   assert.doesNotMatch(pkg, /zip_open\([^)]*\.string\(\)/);
 });
 
 run('平台编码转换只允许出现在指定文件', () => {
-  const allowed = ['src/utils/str/str_encoding.cpp',
-                   'src/utils/text_file_buffer.cpp'];  // 文件编码探测,合理特例
+  const allowed = ['src/base/utils/str/str_encoding.cpp',
+                   'src/base/utils/text_file_buffer.cpp'];  // 文件编码探测,合理特例
   for (const f of cppSources()) {
     if (allowed.includes(f)) continue;
     assert.doesNotMatch(source(f), /MultiByteToWideChar|WideCharToMultiByte/,
@@ -150,7 +150,7 @@ code review 规则,而不是假装正则能全覆盖。
   业务特例,强行收敛只会让它更难读。
 - **不做 `string_view` 全面改造** —— 改动面大、收益小,不在本次范围内。
 - **不做文案集中 / i18n** —— 那是另一条线:C++ 侧有 750 处硬编码中文,而
-  `src/platform/native_ui/strings.cpp` 已有成熟机制(enum ID + zh-CN/en-US 双目录 +
+  `src/base/platform/native_ui/strings.cpp` 已有成熟机制(enum ID + zh-CN/en-US 双目录 +
   `static_assert` 等长 + locale 解析与运行时切换),覆盖 52 条。若要做,方向是把
   desktop 那套提升为全局 `acecode::strings`,而不是新造。参见
   [localization.md](localization.md)。

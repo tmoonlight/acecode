@@ -33,7 +33,7 @@ def managed(path: str, entry: Entry) -> bool:
 
 
 def source_file(path: str) -> bool:
-    return path.startswith(("src/", "tests/")) and Path(path).suffix in SOURCE_SUFFIXES and "/stb/" not in path
+    return (path == "main.cpp" or path.startswith(("src/", "tests/"))) and Path(path).suffix in SOURCE_SUFFIXES and "/stb/" not in path
 
 
 def build_file(path: str) -> bool:

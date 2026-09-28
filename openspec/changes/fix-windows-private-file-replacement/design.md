@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 现有文件 ACL 只有 GENERIC_READ 和 GENERIC_WRITE。Windows 重命名需要文件自身 DELETE 或父目录 FILE_DELETE_CHILD。发布验证使用仅有修改权限的目录，稳定复现写入返回 false；调试器确认异常来自 MCP 快照保存。

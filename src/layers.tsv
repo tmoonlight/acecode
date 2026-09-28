@@ -68,42 +68,31 @@ thirdparty					R7	^(winpty\.h|winpty/)			pty
 thirdparty					R7	^(AgentLocation\.h|LibWinptyException\.h)$			pty
 thirdparty					R7	^(stb/|stb_|external/stb/)			image
 symbol	src/*				R11:provider_messages	\bmodel_facing_provider_messages\b			-
-symbol	src/engine/agent/*				R11:approval	\b(?:evaluate_tool_approval|resolve_tool_approval|approve_tool_call|permission_gate)\b|\bexec_permission\s*=			-
+symbol	src/engine/agent/*				R11:approval	\b(?:evaluate_tool_approval|resolve_tool_approval|approve_tool_call|permission_gate)\b|\bToolPermissionGate::decide\b|\bexec_permission\s*=			-
 symbol	src/*				R11:audit	\b(?:audit_gate|record_audit)\b			-
 symbol	src/*				R11:tool_names	\bset_model_tool_name_mappings\s*\(			-
 symbol	src/engine/agent/*				R11:messages_write	\bmessages_\s*(?:\.(?:push_back|emplace_back|emplace|pop_back|clear|insert|erase|swap|resize|assign)\s*\(|(?:\[[^\]\n]+\]|\.(?:back|front|at)\([^)\n]*\))?(?:\.\w+|\[[^\]\n]+\])*\s*(?:=(?!=)|\+=|-=))|\b(?:swap|sort|reverse)\s*\(\s*messages_			-
 symbol	src/*				R11:pa	\bpa::|\b(?:note_pa_context_rejection|note_pa_context_accepted|pa_rescue_state_)\b			-
 symbol	src/engine/agent/*				R11:provider_chat	(?:->|\.)\s*chat(?:_stream)?\s*\(			-
-allow	src/engine/agent/agent_loop.cpp				R11:provider_messages				Existing owner; remove after split tasks
-allow	src/engine/agent/request/model_facing_messages.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/request/provider_history.*				R11:provider_messages				Single outlet / PA contact table
 allow	src/engine/agent/request/api_request_builder.*				R11:provider_messages				Single outlet / PA contact table
-allow	src/engine/agent/side_question/side_question_service.*				R11:provider_messages				Single outlet / PA contact table
-allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_messages				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.cpp				R11:approval				Existing owner; remove after split tasks
-allow	src/engine/agent/approval/tool_approval_gate.*				R11:approval				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.*				R11:audit				Existing owner; remove after split tasks
+allow	src/engine/agent/side_question/agent_side_question.cpp				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/approval/tool_permission_gate.*				R11:approval				Single outlet / PA contact table
 allow	src/engine/agent/approval/*				R11:audit				Single outlet / PA contact table
 allow	src/adapters/tool/tool_rewrites.cpp				R11:tool_names				Single outlet / PA contact table
 allow	src/domain/llm/tool_protocol_names.*				R11:tool_names				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.*				R11:messages_write				Existing owner; remove after split tasks
 allow	src/engine/agent/transcript/conversation_history.*				R11:messages_write				Single outlet / PA contact table
 allow	src/adapters/pa/*				R11:pa				Single outlet / PA contact table
 allow	src/adapters/provider/retry_policy.cpp				R11:pa				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.*				R11:pa				Existing owner; remove after split tasks
 allow	src/engine/agent/recovery/context_overflow_recovery.*				R11:pa				Single outlet / PA contact table
 allow	src/engine/agent/recovery/pa_rescue_host.*				R11:pa				Single outlet / PA contact table
 allow	src/engine/agent/model_step/active_model_view.*				R11:pa				Single outlet / PA contact table
 allow	src/engine/agent/compaction/compact.cpp				R11:pa				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.cpp				R11:provider_chat				Existing owner; remove after split tasks
 allow	src/engine/agent/model_step/provider_stream_collector.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/side_question/side_question_service.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/side_question/side_chat.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/compaction/compact.cpp				R11:provider_chat				Single outlet / PA contact table
-allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/progress/*				R3:tool_preamble				-
-allow	src/engine/agent/agent_loop.hpp				R3:tool_preamble				临时放行(2026-09-28):P2-08 之前就存在的 tool_preamble 消费方,split-agent-loop A-09 建 agent/progress 并改经事件 API 后收回;不用 exception 行是因为 migrate_branch --check 的 strict 模式不接受例外表
-allow	src/apps/cli/main.cpp				R3:tool_preamble				临时放行(2026-09-28):P2-08 之前就存在的 tool_preamble 消费方,split-agent-loop A-09 建 agent/progress 并改经事件 API 后收回;不用 exception 行是因为 migrate_branch --check 的 strict 模式不接受例外表
-allow	src/apps/tui/resume/session_replay.cpp				R3:tool_preamble				临时放行(2026-09-28):P2-08 之前就存在的 tool_preamble 消费方,split-agent-loop A-09 建 agent/progress 并改经事件 API 后收回;不用 exception 行是因为 migrate_branch --check 的 strict 模式不接受例外表
 allow	src/adapters/tool/theme_create_tool.*				R3:themes				-
 exempt	src/apps/web/*				R12,R15				D21 user constraint; includes old src/web through mapping
 exempt	external/stb/*				R12,R15				Third-party vendored code
@@ -133,3 +122,66 @@ ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThre
 ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThreadGroup	ownership/P2-01		C8 legacy worker group owner; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:std_thread	abandonable_detail::start_owned_work	ownership/P2-01		C8 owned abandonable worker; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:detach	abandonable_detail::start_owned_work	ownership/P2-01		C8 detached worker owns captured lifetime; P2-01
+allow	src/engine/agent/approval/exec_permission_gate.*				R11:approval				Command evaluation delegated by the single tool approval gate
+allow	src/engine/agent/agent_runtime_env.*				R11:pa				A-14 injected process-service access point; algorithms remain at approved PA contacts
+ownership_allow	src/adapters/lsp/lsp_client.cpp			1	R15:raw_new	LspClient::create	ownership/final-audit		Private constructor factory; new is immediately owned by unique_ptr
+ownership_allow	src/adapters/tool/mcp_manager.cpp			1	R15:unsafe_capture	McpManager::start_entry_async	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/daemon/worker.cpp			1	R15:unsafe_capture	acecode::daemon	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/daemon/worker.cpp			1	R15:unsafe_capture	run_worker	ownership/final-audit		call=shutdown_step; local DaemonShutdownSequence action; run invokes each step inline before stack teardown
+ownership_allow	src/apps/tui/app/animation_ticker.cpp			1	R15:unsafe_capture	acecode::tui	ownership/final-audit		call=worker_; C5 JoiningThread is the last member; destructor requests stop and joins before referenced state
+ownership_allow	src/apps/tui/app/copilot_auth_task.cpp			1	R15:unsafe_capture	CopilotAuthTask::CopilotAuthTask	ownership/final-audit		call=JoiningThread; C5 last-member JoiningThread joins before provider snapshot and lifetime token
+ownership_allow	src/apps/tui/app/copilot_auth_task.cpp			1	R15:unsafe_capture	CopilotAuthTask::authenticate	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/full_screen_surfaces.hpp			2	R15:unsafe_capture	FullScreenSurfaces	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/inbound_submit_registration.cpp			1	R15:unsafe_capture	InboundSubmitRegistration::InboundSubmitRegistration	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/mcp_status_binding.cpp			1	R15:unsafe_capture	McpStatusBinding::McpStatusBinding	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/model_pool_monitor_subscription.cpp			1	R15:unsafe_capture	ModelPoolMonitorSubscription::changed	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_agent_bridge.hpp			1	R15:unsafe_capture	TuiAgentBridge	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_app.cpp			1	R15:unsafe_capture	TuiApp::publish_configuration	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_app.hpp			2	R15:unsafe_capture	TuiApp	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_command_context_factory.cpp			4	R15:unsafe_capture	TuiCommandContextFactory::make	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_event_router.cpp			1	R15:unsafe_capture	TuiEventRouter::wrap	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_notification_binding.cpp			2	R15:unsafe_capture	TuiNotificationBinding::TuiNotificationBinding	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_overlay_gate.cpp			1	R15:unsafe_capture	PermissionResult	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_submitter.cpp			3	R15:unsafe_capture	TuiSubmitter::submit_input	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_submitter.cpp			1	R15:unsafe_capture	acecode::tui	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/tui_turn_lifecycle.cpp			3	R15:unsafe_capture	acecode::tui	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/ui_post_target.cpp			1	R15:unsafe_capture	UiPostTarget::post_event	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/ui_post_target.cpp			1	R15:unsafe_capture	UiPostTarget::post_task	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/apps/tui/app/update_check_task.cpp			1	R15:unsafe_capture	acecode::tui	ownership/final-audit		call=worker_; C5 last-member JoiningThread joins before its owned configuration and borrowed UI dependencies
+ownership_allow	src/apps/tui/commands/builtin_commands.cpp			1	R15:unsafe_capture	register_builtin_commands	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/base/utils/logger.hpp			1	R15:raw_new	lease	ownership/final-audit		Private constructor factory; new is immediately owned by unique_ptr
+ownership_allow	src/engine/agent/control/agent_control.cpp			1	R15:unsafe_capture	AgentLoop::retry_last_user_message	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/control/task_handoff.cpp			1	R15:unsafe_capture	TaskHandoff::complete	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/control/task_handoff.cpp			1	R15:unsafe_capture	TaskHandoff::try_start_side_task	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/goal/goal_runtime.cpp			1	R15:unsafe_capture	GoalRuntime::maybe_continue	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/side_question/side_chat.cpp			1	R15:unsafe_capture	run_side_chat	ownership/final-audit		call=chat_stream; provider chat_stream callback completes before the synchronous provider call returns
+ownership_allow	src/engine/agent/side_question/side_question_service.cpp			1	R15:unsafe_capture	SideQuestionService::ask_async	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/tool_exec/ask_question_binding.cpp			2	R15:unsafe_capture	AskQuestionBinding::bind	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/tool_exec/tool_batch_scheduler.cpp			2	R15:unsafe_capture	ToolBatchScheduler::execute	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/tool_exec/tool_context_factory.cpp			11	R15:unsafe_capture	ToolContextFactory::for_tool	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/tool_exec/tool_lifecycle_events.cpp			1	R15:unsafe_capture	ToolLifecycleEvents::Stream::bind	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/tool_exec/tool_result_presenter.cpp			1	R15:unsafe_capture	ToolResultPresenter::materialize_attachments	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/turn/active_turn_gate.cpp			1	R15:unsafe_capture	ActiveTurnGate::interrupt	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/turn/turn_finalizer.cpp			1	R15:unsafe_capture	TurnFinalizer::step	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/turn/turn_runner_support.cpp			1	R15:unsafe_capture	TurnRunner::execute_tools	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/turn/user_shell_task.cpp			2	R15:unsafe_capture	UserShellTask::run	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/engine/agent/worker/agent_task_queue.cpp			1	R15:unsafe_capture	AgentTaskQueue::enqueue	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/worker/agent_task_queue.cpp			1	R15:unsafe_capture	AgentTaskQueue::enqueue_control	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/worker/agent_task_queue.cpp			1	R15:unsafe_capture	AgentTaskQueue::enqueue_suggestion	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/worker/agent_task_queue.cpp			1	R15:unsafe_capture	AgentTaskQueue::has_pending_work	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/worker/agent_task_queue.cpp			1	R15:unsafe_capture	AgentTaskQueue::has_suggestion	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/engine/agent/worker/agent_task_queue.cpp			1	R15:unsafe_capture	AgentTaskQueue::try_run_idle	ownership/final-audit		call=with_locked; Synchronous borrow; AgentTaskQueue::with_locked invokes its callback inline under the queue gate
+ownership_allow	src/host/session_host/auto_title_runner.cpp			1	R15:unsafe_capture	AutoTitleRunner::start_attempt	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/host/session_host/session_registry.cpp			1	R15:unsafe_capture	SessionRegistry::enqueue_entry_control	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/host/session_host/session_registry.cpp			2	R15:unsafe_capture	SessionRegistry::make_entry_locked	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/host/session_host/session_registry.cpp			1	R15:unsafe_capture	SessionRegistry::reload_model_profile	ownership/final-audit		call=resolver; SessionModelResolver is consumed synchronously by apply_model_to_session or ensure_current; neither stores it
+ownership_allow	src/host/session_host/session_registry.cpp			1	R15:unsafe_capture	SessionRegistry::set_reasoning_effort	ownership/final-audit		call=resolver; SessionModelResolver is consumed synchronously by apply_model_to_session or ensure_current; neither stores it
+ownership_allow	src/host/session_host/session_registry.cpp			1	R15:unsafe_capture	SessionRegistry::set_reasoning_effort	ownership/final-audit		call=try_run_idle_control; AgentTaskQueue idle control runs inline under its queue gate and is never enqueued
+ownership_allow	src/host/session_host/session_registry.cpp			1	R15:unsafe_capture	SessionRegistry::start_auto_title_attempt	ownership/final-audit		call=with; Synchronous borrow; LifetimeRef::with admits and finishes its callback before returning
+ownership_allow	src/host/session_host/session_registry.cpp			1	R15:unsafe_capture	SessionRegistry::switch_model	ownership/final-audit		call=resolver; SessionModelResolver is consumed synchronously by apply_model_to_session or ensure_current; neither stores it
+ownership_allow	src/host/session_host/task_suggestion_service.cpp			2	R15:unsafe_capture	TaskSuggestionService::accept	ownership/final-audit		call=update; TaskSuggestionStore update invokes its mutator inline inside the transaction
+ownership_allow	src/host/session_host/task_suggestion_service.cpp			1	R15:unsafe_capture	fail_job	ownership/final-audit		call=update; TaskSuggestionStore update invokes its mutator inline inside the transaction
+ownership_allow	src/host/session_host/task_suggestion_service.cpp			2	R15:unsafe_capture	launch	ownership/final-audit		call=update; TaskSuggestionStore update invokes its mutator inline inside the transaction
+ownership_allow	src/host/session_host/task_suggestion_service.cpp			1	R15:unsafe_capture	launch	ownership/final-audit		call=dispatch; TaskHandoff complete and try_start_side_task consume dispatch synchronously under the queue gate
+ownership_allow	src/host/session_host/task_suggestion_service.cpp			1	R15:unsafe_capture	start	ownership/final-audit		call=acecode::JoiningThread; C5 coordinator is the last State member; stop joins before State dependencies
+ownership_allow	src/host/session_host/thread_service.cpp			1	R15:unsafe_capture	ThreadService::repair	ownership/final-audit		call=history_on_worker; worker history accessor invokes its visitor immediately without retaining it

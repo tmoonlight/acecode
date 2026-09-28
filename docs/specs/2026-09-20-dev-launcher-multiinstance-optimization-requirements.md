@@ -23,8 +23,8 @@
 | B 固定端口 | 端口由 worktree 身份确定性派生，被占立即换 | `scripts/dev_environment.py` |
 | C 失败可诊断 | daemon worker 输出落盘到 run-dir 内日志 | `scripts/dev_environment.py` |
 | D 死目录清理 | 启动自动清 + 手动全量清理命令 | `scripts/dev_environment.py` |
-| E 实例身份 | desktop 接受外部指定实例身份，dev 脚本注入稳定身份 | `src/desktop/main.cpp`、`scripts/dev_desktop.py` |
-| G 进程级多开 | desktop 支持进程级"允许本实例多开"覆盖，不污染全局配置 | `src/desktop/main.cpp`、`scripts/dev_desktop.py` |
+| E 实例身份 | desktop 接受外部指定实例身份，dev 脚本注入稳定身份 | `src/apps/desktop/main.cpp`、`scripts/dev_desktop.py` |
+| G 进程级多开 | desktop 支持进程级"允许本实例多开"覆盖，不污染全局配置 | `src/apps/desktop/main.cpp`、`scripts/dev_desktop.py` |
 
 每项均需同步更新 `.agents/skills/development-environment/SKILL.md` 与对应 Python 单测（`tests/scripts/`，unittest 风格）。
 

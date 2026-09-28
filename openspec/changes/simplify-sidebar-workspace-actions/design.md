@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `WorkspaceGroup` in `web/src/components/Sidebar.jsx` renders the workspace row, its hover/focus action cluster, and the data attributes consumed by the shared desktop context-menu layer. The row currently renders dedicated new-task, rename, and remove buttons even though `DesktopContextMenu` already derives the full workspace menu from those row attributes and dispatches the selected operation back through `DESKTOP_CONTEXT_ACTION_EVENT`.

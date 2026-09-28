@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode 已经具备多会话 `SessionRegistry`、本地 `SessionClient`、追加式 JSONL、会话 fork/archive/title、Web 端 pin 与 purge，以及 compact checkpoint 和 provider history recovery。缺口不是底层完全没有能力，而是这些能力没有形成模型可调用、名称与 Codex 对齐的 thread 工具；会话损坏与上下文溢出处理也分散在 resume、compact 和 Web 路由中。

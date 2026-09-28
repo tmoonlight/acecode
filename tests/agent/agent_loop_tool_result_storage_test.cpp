@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -127,8 +128,9 @@ public:
             return provider_;
         };
         loop_ = std::make_unique<acecode::AgentLoop>(
-            accessor, tools_, cb, cwd_.string(), perms_);
-        loop_->set_session_manager(&sm_);
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_, &sm_),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string()));
+        loop_->start();
     }
 
     ~Harness() {

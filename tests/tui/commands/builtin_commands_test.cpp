@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "tui/commands/builtin_commands.hpp"
@@ -194,15 +195,14 @@ acecode::ModelProfile model_profile(const std::string& name,
 
 class ResumeCommandHarness {
 public:
-    explicit ResumeCommandHarness(const std::string& hint)
+    explicit ResumeCommandHarness(const std::string& hint, acecode::HookManager* hooks = nullptr)
         : cwd_(temp_cwd(hint))
-        , loop_([this] {
+        , loop_(
+        acecode_test::AgentLoopFixture::dependencies([this] {
                     return model_binding_.provider_snapshot();
-                },
-                tools_,
-                acecode::AgentCallbacks{},
-                cwd_.string(),
-                perms_) {
+                }, tools_, acecode::AgentCallbacks{}, perms_, &sm_, hooks),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string())) {
+        loop_.start();
         config_.context_window = 128000;
         config_.saved_models = {
             model_profile("default", "gpt-default", 128000),
@@ -218,7 +218,6 @@ public:
 
         create_target_session();
         sm_.start_session(cwd_.string(), "openai", "gpt-default");
-        loop_.set_session_manager(&sm_);
         loop_.set_context_window(config_.context_window);
         acecode::register_builtin_commands(registry_);
     }
@@ -314,13 +313,12 @@ class McpCommandHarness {
 public:
     explicit McpCommandHarness(const std::string& hint)
         : cwd_(temp_cwd(hint))
-        , loop_([this] {
+        , loop_(
+        acecode_test::AgentLoopFixture::dependencies([this] {
                     return model_binding_.provider_snapshot();
-                },
-                tools_,
-                acecode::AgentCallbacks{},
-                cwd_.string(),
-                perms_) {
+                }, tools_, acecode::AgentCallbacks{}, perms_),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string())) {
+        loop_.start();
         acecode::register_builtin_commands(registry_);
     }
 
@@ -424,11 +422,9 @@ public:
         : cwd_(temp_cwd("turn"))
         , provider_(std::make_shared<CommandTestProvider>())
         , loop_(
-              [this] { return provider_; },
-              tools_,
-              callbacks(),
-              cwd_.string(),
-              perms_) {
+        acecode_test::AgentLoopFixture::dependencies([this] { return provider_; }, tools_, callbacks(), perms_),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string())) {
+        loop_.start();
         acecode::register_builtin_commands(registry_);
     }
 
@@ -1295,7 +1291,6 @@ TEST(BuiltinCommands, ResumeByNumberRefreshesModelAndTokenState) {
 }
 
 TEST(BuiltinCommands, TitleSetAndClearDispatchChangedButQueryDoesNot) {
-    ResumeCommandHarness h("title_hook");
     acecode::NormalizedHook hook;
     hook.id = "title-capture";
     hook.source_id = "test";
@@ -1321,7 +1316,8 @@ TEST(BuiltinCommands, TitleSetAndClearDispatchChangedButQueryDoesNot) {
             result.exit_code = 0;
             return result;
         });
-    h.loop_.set_hook_manager(&hooks);
+    ResumeCommandHarness h("title_hook", &hooks);
+
 
     EXPECT_TRUE(h.dispatch("/title"));
     EXPECT_TRUE(payloads.empty());
@@ -1339,16 +1335,6 @@ TEST(BuiltinCommands, TitleSetAndClearDispatchChangedButQueryDoesNot) {
 }
 
 TEST(BuiltinCommands, ResumeDispatchesRestoredTitleChangedHook) {
-    ResumeCommandHarness h("resume_title_hook");
-    {
-        acecode::SessionManager editor;
-        editor.start_session(
-            h.cwd_.string(), "openai", "gpt-mini", "", "mini");
-        ASSERT_FALSE(editor.resume_session(h.target_session_id_).empty());
-        editor.set_session_title("部署脚本");
-        editor.finalize();
-    }
-
     acecode::NormalizedHook hook;
     hook.id = "resume-title-capture";
     hook.source_id = "test";
@@ -1374,7 +1360,17 @@ TEST(BuiltinCommands, ResumeDispatchesRestoredTitleChangedHook) {
             result.exit_code = 0;
             return result;
         });
-    h.loop_.set_hook_manager(&hooks);
+    ResumeCommandHarness h("resume_title_hook", &hooks);
+    {
+        acecode::SessionManager editor;
+        editor.start_session(
+            h.cwd_.string(), "openai", "gpt-mini", "", "mini");
+        ASSERT_FALSE(editor.resume_session(h.target_session_id_).empty());
+        editor.set_session_title("部署脚本");
+        editor.finalize();
+    }
+
+
 
     EXPECT_TRUE(h.dispatch("/resume 1"));
     ASSERT_EQ(payloads.size(), 1u);

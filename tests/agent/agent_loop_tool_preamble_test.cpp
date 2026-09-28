@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 具体进度提示(openspec add-tool-preamble,设置 > 常规 > 工作模式 > 适合日常工作)
 // 在 AgentLoop 里的端到端行为,用 StubLlmProvider 喂流式事件,真实 SessionManager
 // 落盘到临时目录。开启时 loading 只说正在做什么、不带参数:
@@ -175,13 +176,15 @@ public:
         };
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
         perms_.set_mode(PermissionMode::Yolo);
-        loop_ = std::make_unique<AgentLoop>(accessor, tools_, cb, cwd_, perms_);
+        loop_ = std::make_unique<AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_, &session_manager_),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
         sub_ = loop_->events().subscribe([this](const SessionEvent& e) {
             std::lock_guard<std::mutex> lk(events_mu_);
             events_.push_back(e);
         });
         session_manager_.start_session(cwd_, "stub", "stub-model");
-        loop_->set_session_manager(&session_manager_);
     }
 
     ~ToolPreambleHarness() {

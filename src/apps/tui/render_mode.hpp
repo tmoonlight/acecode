@@ -1,0 +1,53 @@
+#pragma once
+
+// FTXUI 渲染模式决策 — 给 add-legacy-terminal-fallback 用。
+//
+// 把 main.cpp 里硬编码的 ScreenInteractive::TerminalOutput() / Fullscreen()
+// 二选一抽到一个纯函数 + 一个工厂里:
+//   - decide_render_mode(cfg, caps) — 纯函数,只看配置和能力探测结果,
+//     无 FTXUI 依赖,可被 acecode_testable 直接 include 使用(同
+//     picker_scroll.hpp 的 header-only pattern)。
+//   - make_screen_interactive(mode) — 工厂,会调 FTXUI,实现在
+//     render_mode.cpp,随测试所引用的同名头一起登记到 acecode_testable。
+//
+// 决策表:
+//   alt_screen_mode == "always"  → AltScreen
+//   alt_screen_mode == "never"   → TerminalOutput
+//   alt_screen_mode == "auto"    → AltScreen(默认一开始撑满全屏)
+
+#include "config/config.hpp"
+#include "platform/terminal/terminal_capability.hpp"
+
+namespace acecode::tui {
+
+enum class ScreenRenderMode {
+    TerminalOutput, // 非 alt-screen,FTXUI 默认 — 历史行为
+    AltScreen,      // \033[?1049h,适合 legacy 终端
+};
+
+inline ScreenRenderMode decide_render_mode(const TuiConfig& cfg,
+                                            const TerminalCapabilities& /*caps*/) {
+    // 显式覆盖优先于自动探测。
+    if (cfg.alt_screen_mode == "always") return ScreenRenderMode::AltScreen;
+    if (cfg.alt_screen_mode == "never")  return ScreenRenderMode::TerminalOutput;
+
+    // auto 路径默认走 FTXUI Fullscreen,确保 TUI 启动时直接占满终端。
+    return ScreenRenderMode::AltScreen;
+}
+
+// 同步刷新(DEC mode 2026)启用策略 —— 纯函数,只看配置和探测结果。
+// 配置同步 tui.sync_output_mode:auto(默认,跟随探测)/ always(强制开)/
+// never(强制关)。terminal_supported 由 detect_synchronized_output_support()
+// 提供;两者分离,便于各自独立单测。
+inline bool decide_synchronized_output(const TuiConfig& cfg,
+                                       bool terminal_supported) {
+    if (cfg.sync_output_mode == "always") return true;
+    if (cfg.sync_output_mode == "never")  return false;
+    return terminal_supported;  // auto
+}
+
+} // namespace acecode::tui
+
+// 工厂在 render_mode.cpp 实现,声明放在外层命名空间避免 picker_scroll
+// 这种 header-only 用例误用 FTXUI。需要构造 ScreenInteractive 的调用站点
+// 直接 include "tui/render_mode_factory.hpp"。

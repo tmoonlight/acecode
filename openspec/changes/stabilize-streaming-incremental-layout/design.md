@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 PR #26 combined three optimization layers. The completed-message cache (L1) is conceptually safe, but its storage is only sized during whole-transcript resets, so ordinary message growth bypasses it. The line/token-freezing path (L2/L3) is live for the final streaming assistant message, yet it commits Markdown before later lines can reclassify the block and it renders raw deltas without the full formatter's XML filtering. Existing tests assert that elements exist or measure speed; they do not establish semantic equivalence.

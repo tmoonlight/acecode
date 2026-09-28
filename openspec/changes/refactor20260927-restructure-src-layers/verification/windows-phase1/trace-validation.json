@@ -1,0 +1,22 @@
+[
+  {
+    "name": "trace-on-configure",
+    "exit_code": 0,
+    "seconds": 27.36
+  },
+  {
+    "name": "trace-on-build",
+    "exit_code": 0,
+    "seconds": 35.11
+  },
+  {
+    "name": "trace-off-configure",
+    "exit_code": 0,
+    "seconds": 26.77
+  },
+  {
+    "name": "trace-off-build",
+    "exit_code": 0,
+    "seconds": 30.07
+  }
+]

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode already has a Web-side notification payload and session-focus contract, but the native Windows implementation is a `Shell_NotifyIcon` balloon tied to the Desktop tray message window. It stores only the latest payload, so an older visible alert can route to the wrong session, and `acecode.exe` has no notification path at all. The Web bridge also expects an object even though the current JavaScript helper passes a JSON string.

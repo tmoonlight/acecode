@@ -25,11 +25,11 @@ depends-on: []
 ## path
 
 - `assets/models_dev/`
-- `src/config/`
-- `src/provider/`
-- `src/web/`
-- `src/daemon/`
-- `src/models_dev*.{hpp,cpp}` 及当前目录实现所在的等价路径
+- `src/base/config/`
+- `src/adapters/provider/`
+- `src/apps/web/`
+- `src/apps/daemon/`
+- `src/adapters/provider/models_dev*.{hpp,cpp}` 及当前目录实现所在的等价路径
 - `web/src/components/`
 - `web/src/lib/`
 - `web/src/styles/`

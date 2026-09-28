@@ -20,10 +20,10 @@ are not identical.
 - Warn before suggesting `--dangerous`; it bypasses more safety checks than the
   in-session permission modes.
 - If the repository is available and a mutable detail matters, verify it in:
-  - `src/main.cpp` and `src/cli/interactive_options.cpp` for interactive startup
-  - `src/headless/headless_options.cpp` for `-p`
-  - `src/commands/builtin_commands.cpp` for slash commands
-  - `src/permissions.hpp` for permission behavior
+  - `src/apps/cli/main.cpp` and `src/apps/cli/interactive_options.cpp` for interactive startup
+  - `src/apps/headless/headless_options.cpp` for `-p`
+  - `src/apps/tui/commands/builtin_commands.cpp` for slash commands
+  - `src/domain/permissions/permissions.hpp` for permission behavior
 
 ## Start the Interactive TUI
 

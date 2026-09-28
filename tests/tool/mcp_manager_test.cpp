@@ -5,6 +5,7 @@
 #include "tool/mcp_manager.hpp"
 #include "tool/mcp_scope.hpp"
 #include "tool/tool_executor.hpp"
+#include "utils/abandonable_call.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -551,4 +552,38 @@ TEST(McpManagerAsync, FailedStartupRecordsFailureText) {
     EXPECT_EQ(servers[0].state, acecode::McpServerState::Failed);
     EXPECT_NE(servers[0].error.find("initialization failed"), std::string::npos);
     EXPECT_FALSE(tools.has_tool("mcp_bad_echo"));
+}
+
+TEST(McpManagerAsync, ShutdownAllowsExecutorDestructionBeforeConnectionCompletes) {
+    // 场景:连接仍在发现工具时 shutdown,随后工具执行器先析构。期望连接任务
+    // 只保留自有状态并丢弃迟到结果;原线程捕获 &executor,存在悬垂引用。
+    auto cfg = config_with_stdio_server("slow_release",
+        helper_args({"--delay-ms", "300", "--tool", "echo"}));
+    acecode::McpManager manager;
+    auto tools = std::make_unique<acecode::ToolExecutor>();
+    ASSERT_TRUE(manager.connect_all(cfg));
+    manager.start_async(*tools);
+    ASSERT_TRUE(manager.has_starting_servers());
+    manager.shutdown();
+    tools.reset();
+    EXPECT_TRUE(acecode::wait_for_abandoned_work(std::chrono::seconds(5)));
+    EXPECT_EQ(manager.configured_server_count(), 0u);
+    EXPECT_EQ(manager.discovered_tool_count(), 0u);
+}
+
+TEST(McpManagerAsync, DestroyedExecutorCancelsLatePublicationWithoutHangingStartup) {
+    // 场景:执行器在慢连接返回前被销毁,manager 仍存活。期望拒绝发布并结束
+    // Starting 状态;原引用捕获可能在 register_tool 时访问已释放的 mutex/map。
+    auto cfg = config_with_stdio_server("executor_first",
+        helper_args({"--delay-ms", "300", "--tool", "echo"}));
+    acecode::McpManager manager;
+    auto tools = std::make_unique<acecode::ToolExecutor>();
+    ASSERT_TRUE(manager.connect_all(cfg));
+    manager.start_async(*tools);
+    tools.reset();
+    ASSERT_TRUE(manager.wait_for_startup_settled(std::chrono::seconds(5)));
+    EXPECT_TRUE(has_state(manager.list_servers(), acecode::McpServerState::Cancelled));
+    EXPECT_EQ(manager.discovered_tool_count(), 0u);
+    manager.shutdown();
+    EXPECT_TRUE(acecode::wait_for_abandoned_work(std::chrono::seconds(5)));
 }

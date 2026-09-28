@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 覆盖 AgentLoop::interject_question:AskUserQuestion 挂起时用户没作答而是
 // 直接发了一条文本(Web 输入框 / IM 通道的普通文本)。
 //
@@ -19,6 +20,7 @@
 //   3. 问题已不再挂起(未知 / 已回答 / 重复插话)→ NoPendingQuestion,文本
 //      不会被静默提交成普通 steer,调用方据此退回普通发送路径。
 
+#include "session/session_client.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -86,10 +88,12 @@ public:
             return provider_;
         };
         loop_ = std::make_unique<acecode::AgentLoop>(
-            accessor, tools_, cb, /*cwd=*/".", perms_);
-        prompter_ = std::make_unique<acecode::AskUserQuestionPrompter>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_),
+        acecode_test::AgentLoopFixture::configuration(/*cwd=*/"."));
+        auto owned_prompter = std::make_unique<acecode::AskUserQuestionPrompter>(
             loop_->events());
-        loop_->set_ask_question_prompter(prompter_.get());
+        prompter_ = owned_prompter.get();
+        loop_->set_ask_question_prompter(std::move(owned_prompter));
         sub_ = loop_->events().subscribe([this](const acecode::SessionEvent& e) {
             std::lock_guard<std::mutex> lk(mu_);
             events_.push_back(e);
@@ -99,6 +103,7 @@ public:
             }
             cv_.notify_all();
         });
+        loop_->start();
     }
 
     ~InterjectionHarness() {
@@ -150,7 +155,7 @@ private:
     acecode::ToolExecutor tools_;
     acecode::PermissionManager perms_;
     std::unique_ptr<acecode::AgentLoop> loop_;
-    std::unique_ptr<acecode::AskUserQuestionPrompter> prompter_;
+    acecode::AskUserQuestionPrompter* prompter_ = nullptr; // Borrowed from loop.
     acecode::EventDispatcher::SubscriptionId sub_ = 0;
 
     std::mutex mu_;

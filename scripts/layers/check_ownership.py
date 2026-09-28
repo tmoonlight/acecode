@@ -65,14 +65,22 @@ def synchronous_capture(code: bytes, match, scopes: list[tuple[int, int, str]]) 
         return None
     if re.match(rb"\s*\(", code[closing:]):
         return "immediately invoked lambda"
-    local = re.search(rb"\b(?:const\s+)?auto\s+(\w+)\s*=\s*$", prefix)
+    guard = re.search(rb"\bScopeExit\s+(\w+)\s*\(\s*$", prefix)
+    if guard:
+        ends = [end for start, end, _name in scopes if start < match.start() < end]
+        if ends:
+            following = code[closing:min(ends)]
+            uses = list(re.finditer(rb"\b" + re.escape(guard[1]) + rb"\b", following))
+            if all(re.match(rb"\s*\.\s*release\s*\(", following[use.end():]) for use in uses):
+                return "function-local ScopeExit that is never moved or returned"
+    local = re.search(rb"\b(?:const\s+)?(?:auto|std::function<[^;{}]+>)\s+(\w+)\s*=\s*$", prefix)
     if local:
         # A local closure is provably synchronous only if every subsequent use in
         # its enclosing named scope is a direct call; passing/returning/capturing
         # it keeps it in the conservative escape inventory.
         ends = [end for start, end, _name in scopes if start < match.start() < end]
         if ends:
-            following = code[closing:min(ends)]
+            following = code[opening + 1:min(ends)]
             uses = list(re.finditer(rb"\b" + re.escape(local[1]) + rb"\b", following))
             if all(re.match(rb"\s*\(", following[use.end():]) for use in uses):
                 return "local closure only directly invoked in its owning scope"
@@ -88,6 +96,25 @@ def scan(data: bytes, path: str, synchronous: list[dict] | None = None) -> list[
             before = code[max(0, match.start() - 100):match.start()]
             if metric in ("raw_new", "raw_delete") and re.search(rb"\boperator\s*$", before):
                 continue
+            if metric == "raw_new" and path.endswith(".mm") and re.match(rb"\s*\]", code[match.end():]):
+                # Objective-C message [Class new] is managed by ARC, not C++ new.
+                if re.search(rb"\[\s*\w+\s+$", before):
+                    continue
+            if metric == "raw_handle":
+                prefix = code[:match.start()]
+                boundary = max(prefix.rfind(b";"), prefix.rfind(b"{"), prefix.rfind(b"}"))
+                declaration = prefix[boundary + 1:]
+                # Raw inputs are synchronous borrows. Owners (members/locals)
+                # remain counted, including member initializers calling a factory.
+                if declaration.count(b"(") > declaration.count(b")"):
+                    continue
+                if re.match(rb"\s*\(\s*\)\s*(?:const\s*)?(?:noexcept\s*)?[;{]", code[match.end():]):
+                    continue  # A raw accessor/invalid-value return is not an owner.
+            if metric == "unsafe_capture":
+                capture = match.group().split(b"]", 1)[0]
+                capture = re.sub(rb"\b[\w.]+\.ref\s*\(\s*\*\s*this\s*\)", b"lifetime_ref_value", capture)
+                if not re.search(rb"\bthis\b", capture) and not re.match(rb"\[\s*&\s*(?:,|$)", capture):
+                    continue  # Capturing a LifetimeRef value does not capture this.
             if metric == "raw_delete" and re.search(rb"=\s*$", before):
                 continue  # Deleted special member functions do not own memory.
             if metric == "std_thread" and re.match(rb"\s*[&*]", code[match.end():]):
@@ -96,6 +123,19 @@ def scan(data: bytes, path: str, synchronous: list[dict] | None = None) -> list[
             item = {"file": path, "line": line, "metric": metric, "text": data[match.start():match.end()].decode("utf-8", "replace")}
             item["scopes"] = [name for start, end, name in sorted(scopes) if start < match.start() < end]
             if metric == "unsafe_capture":
+                binding = re.search(rb"\b(\w+)\s*=\s*$", before)
+                call = None
+                depth = 0
+                for pos in range(match.start() - 1, max(-1, match.start() - 2000), -1):
+                    if code[pos:pos + 1] == b")":
+                        depth += 1
+                    elif code[pos:pos + 1] == b"(":
+                        if depth:
+                            depth -= 1
+                        else:
+                            call = re.search(rb"\b([\w:]+)\s*$", code[max(0, pos - 100):pos])
+                            break
+                item["call"] = (binding[1] if binding else call[1] if call else b"").decode()
                 reason = synchronous_capture(code, match, scopes)
                 if reason:
                     if synchronous is not None:
@@ -120,6 +160,9 @@ def apply_allowances(occurrences: list[dict], policy) -> tuple[list[dict], list[
             if rule["kind"] != "ownership_allow" or rule["path"] != canonical or rule["rule"] != "R15:" + occurrence["metric"]:
                 continue
             if not rule["owner"] or not rule["note"] or rule["target"] not in occurrence["scopes"]:
+                continue
+            context = re.match(r"call=([\w:]+);", rule["note"])
+            if context and occurrence.get("call") != context[1]:
                 continue
             maximum = int(rule["rank"])
             if usage[index] >= maximum:

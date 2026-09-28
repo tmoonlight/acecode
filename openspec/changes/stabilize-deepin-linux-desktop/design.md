@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The worktree contains the previous default-off Deepin variant and fractional scaling fix. The user reported unexpected exits both around directory selection and while idle. Those launches had a zero core-file limit, so no dump was available. Subsequent sanitizer and minimal Xlib probes reproduced the initialization-order crash described below.

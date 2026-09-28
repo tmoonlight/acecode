@@ -1,0 +1,237 @@
+#include "skill_registry.hpp"
+
+#include "utils/frontmatter.hpp"
+#include "skill_loader.hpp"
+#include "utils/encoding.hpp"
+#include "utils/logger.hpp"
+#include "utils/utf8_path.hpp"
+
+#include <algorithm>
+#include <array>
+#include <fstream>
+#include <sstream>
+#include <unordered_set>
+
+namespace fs = std::filesystem;
+
+namespace acecode {
+
+namespace {
+
+const std::array<std::string, 3> kExcludedDirs = {".git", ".github", ".hub"};
+
+bool is_excluded_segment(const fs::path& path) {
+    for (const auto& part : path) {
+        std::string s = path_to_utf8(part);
+        for (const auto& ex : kExcludedDirs) {
+            if (s == ex) return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+std::shared_ptr<const SkillRegistry> SkillRegistry::snapshot() const {
+    auto copy = std::make_shared<SkillRegistry>();
+    std::lock_guard<std::mutex> lock(mu_);
+    copy->roots_ = roots_;
+    copy->disabled_ = disabled_;
+    copy->allowed_ = allowed_;
+    copy->skills_ = skills_;
+    return copy;
+}
+
+void SkillRegistry::set_scan_roots(std::vector<fs::path> roots) {
+    std::lock_guard<std::mutex> lk(mu_);
+    roots_ = std::move(roots);
+}
+
+void SkillRegistry::set_disabled(std::unordered_set<std::string> disabled) {
+    std::lock_guard<std::mutex> lk(mu_);
+    disabled_ = std::move(disabled);
+}
+
+void SkillRegistry::set_allowed(
+    std::optional<std::unordered_set<std::string>> allowed) {
+    std::lock_guard<std::mutex> lk(mu_);
+    allowed_ = std::move(allowed);
+}
+
+void SkillRegistry::configure(
+    std::vector<fs::path> roots,
+    std::unordered_set<std::string> disabled,
+    std::optional<std::unordered_set<std::string>> allowed) {
+    std::lock_guard<std::mutex> lk(mu_);
+    roots_ = std::move(roots);
+    disabled_ = std::move(disabled);
+    allowed_ = std::move(allowed);
+}
+
+void SkillRegistry::refresh_from_disk() const {
+    std::vector<fs::path> roots;
+    std::unordered_set<std::string> disabled;
+    std::optional<std::unordered_set<std::string>> allowed;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        roots = roots_;
+        disabled = disabled_;
+        allowed = allowed_;
+    }
+
+    std::vector<SkillMetadata> found;
+    std::unordered_set<std::string> seen_names;
+
+    for (const auto& root : roots) {
+        std::error_code ec;
+        if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) continue;
+
+        for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
+             !ec && it != fs::recursive_directory_iterator();
+             it.increment(ec)) {
+            if (ec) { ec.clear(); continue; }
+            // directory_entry 的无参 status/is_directory/is_regular_file 会在
+            // 目录项刚好被同步器、安装器或杀毒软件替换时抛 filesystem_error。
+            // Skill 扫描是 best-effort；单个瞬时不可读项不能终止 daemon。
+            std::error_code status_ec;
+            const fs::file_status status = it->status(status_ec);
+            if (status_ec) {
+                LOG_DEBUG(
+                    "[skills] skipping transient directory entry '" +
+                    path_to_utf8(it->path()) + "': " + status_ec.message());
+                continue;
+            }
+            if (fs::is_directory(status)) {
+                std::string name = path_to_utf8(it->path().filename());
+                for (const auto& ex : kExcludedDirs) {
+                    if (name == ex) { it.disable_recursion_pending(); break; }
+                }
+                continue;
+            }
+            if (!fs::is_regular_file(status)) continue;
+            if (it->path().filename() != "SKILL.md") continue;
+            if (is_excluded_segment(it->path())) continue;
+
+            auto meta = load_skill_from_dir(it->path().parent_path(), root);
+            if (!meta) continue;
+            if (!skill_matches_platform(meta->platforms)) continue;
+            if (disabled.count(meta->name)) continue;
+            if (allowed && allowed->count(meta->name) == 0) continue;
+            if (seen_names.count(meta->name)) continue;
+
+            seen_names.insert(meta->name);
+            found.push_back(std::move(*meta));
+        }
+    }
+
+    std::sort(found.begin(), found.end(), [](const SkillMetadata& a, const SkillMetadata& b) {
+        if (a.category != b.category) return a.category < b.category;
+        return a.name < b.name;
+    });
+
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        skills_ = std::move(found);
+    }
+}
+
+void SkillRegistry::scan() {
+    refresh_from_disk();
+}
+
+std::vector<SkillMetadata> SkillRegistry::list(const std::string& category) const {
+    refresh_from_disk();
+    std::lock_guard<std::mutex> lk(mu_);
+    if (category.empty()) return skills_;
+    std::vector<SkillMetadata> filtered;
+    for (const auto& s : skills_) {
+        if (s.category == category) filtered.push_back(s);
+    }
+    return filtered;
+}
+
+std::optional<SkillMetadata> SkillRegistry::find(const std::string& name_or_key) const {
+    refresh_from_disk();
+    std::lock_guard<std::mutex> lk(mu_);
+    for (const auto& s : skills_) {
+        if (s.name == name_or_key || s.command_key == name_or_key) return s;
+    }
+    return std::nullopt;
+}
+
+std::string SkillRegistry::read_skill_body(const std::string& name) const {
+    auto text = read_skill_text(name);
+    if (!text) return "";
+    auto [fm, body] = parse_frontmatter(*text);
+    (void)fm;
+    return body;
+}
+
+std::optional<std::string> SkillRegistry::read_skill_text(
+    const std::string& name) const {
+    auto meta = find(name);
+    if (!meta) return std::nullopt;
+    std::ifstream ifs(meta->skill_md_path, std::ios::binary);
+    if (!ifs.is_open()) return std::nullopt;
+    std::ostringstream oss;
+    oss << ifs.rdbuf();
+    if (ifs.bad()) return std::nullopt;
+    return ensure_utf8(oss.str());
+}
+
+std::vector<std::string> SkillRegistry::list_supporting_files(const std::string& name) const {
+    auto meta = find(name);
+    if (!meta) return {};
+    std::vector<std::string> out;
+    const std::array<std::string, 4> subdirs = {"references", "templates", "scripts", "assets"};
+    for (const auto& sub : subdirs) {
+        fs::path dir = meta->skill_dir / sub;
+        std::error_code ec;
+        if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec)) continue;
+        std::vector<std::string> bucket;
+        for (auto it = fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec);
+             !ec && it != fs::recursive_directory_iterator();
+             it.increment(ec)) {
+            if (ec) { ec.clear(); continue; }
+            std::error_code status_ec;
+            const fs::file_status status = it->status(status_ec);
+            if (status_ec || !fs::is_regular_file(status)) continue;
+            std::error_code rec;
+            auto rel = fs::relative(it->path(), meta->skill_dir, rec);
+            if (rec) continue;
+            bucket.push_back(path_to_utf8_generic(rel));
+        }
+        std::sort(bucket.begin(), bucket.end());
+        for (auto& s : bucket) out.push_back(std::move(s));
+    }
+    return out;
+}
+
+std::optional<fs::path> SkillRegistry::resolve_skill_file(
+    const std::string& name, const std::string& relative_path) const {
+    auto meta = find(name);
+    if (!meta) return std::nullopt;
+    if (relative_path.empty()) return std::nullopt;
+
+    // Reject explicit traversal tokens before hitting the filesystem.
+    if (relative_path.find("..") != std::string::npos) return std::nullopt;
+
+    fs::path target = meta->skill_dir / path_from_utf8(relative_path);
+    std::error_code ec;
+    fs::path resolved = fs::weakly_canonical(target, ec);
+    if (ec) resolved = target;
+    fs::path root = fs::weakly_canonical(meta->skill_dir, ec);
+    if (ec) root = meta->skill_dir;
+
+    // Ensure the resolved path stays under the skill directory.
+    auto root_str = path_to_utf8_generic(root);
+    auto res_str = path_to_utf8_generic(resolved);
+    if (res_str.size() < root_str.size()) return std::nullopt;
+    if (res_str.compare(0, root_str.size(), root_str) != 0) return std::nullopt;
+    if (res_str.size() > root_str.size() && res_str[root_str.size()] != '/') {
+        return std::nullopt;
+    }
+    return resolved;
+}
+
+} // namespace acecode

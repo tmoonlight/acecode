@@ -57,6 +57,7 @@ src/agent_loop_shell_guard.hpp	src/domain/permissions/shell_write_guard.hpp	P2-0
 src/permissions.hpp	src/domain/permissions/permissions.hpp	P2-05	move	-
 src/permissions.hpp	src/base/config/vocab/permission_mode.hpp	P2-05	extract	Enum and mode normalization only
 src/tui_state.hpp	src/apps/tui/tui_state.hpp	P2-08	move	-
+main.cpp	src/apps/cli/main.cpp	P2-08	move	Legacy repository-root CLI entry
 src/main.cpp	src/apps/cli/main.cpp	P2-08	move	-
 src/version.hpp.in	cmake/version.hpp.in	P2-08	move	-
 src/utils/file_operations.hpp	src/adapters/tool/file_operations.hpp	P2-05	move	-

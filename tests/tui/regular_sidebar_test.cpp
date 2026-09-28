@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "tui/todo_checklist_view.hpp"
-#include "tui/tui_helpers.hpp"
+#include "tui/render/regular_sidebar_view.hpp"
 #include "utils/stream_processing.hpp"
 
 #include <ftxui/dom/node.hpp>

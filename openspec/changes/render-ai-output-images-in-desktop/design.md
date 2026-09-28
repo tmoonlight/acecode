@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode already has a durable attachment store and a neutral `ChatMessage.content_parts` field. The current path is user-input focused: desktop uploads images, message submission validates attachment ids, session JSONL persists `content_parts`, and OpenAI-compatible providers turn user image parts into `image_url` payloads. Tool results and assistant outputs still flow mainly as `content` strings plus optional tool metadata (`summary`, `hunks`), so a tool that creates or returns an image has no structured way to show that image in the desktop transcript or preserve it after resume.

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 # Design: refactor20260927-restructure-src-layers
 
 > **行号基准**:本系列文档中的 `文件:行号` 都基于 master `7942011b`,即 2026-09-26 的调研快照。开工前请按当时的代码重新核对;行号漂移不影响任务的边界。
@@ -368,6 +371,20 @@ split-agent-loop、split-tui-main、adopt-ownership-conventions 的验收见各�
 
 快速档排除的 20 个套件(本机串行实测,5114 条共 390 秒,它们合计约 300 秒,占 77%):SessionChannelBinderIntegration 139 秒、WebServerHttp 34 秒、OpenAiProviderErrorRecovery 16 秒、McpManagerAsync 15 秒、AgentLoopTermination 10 秒、SpawnSubagentTool 9 秒、HeadlessJsonlProcess 9 秒、AgentLoopGoal 8 秒、AgentLoopTurnSteering 7 秒、OpenAiProviderAbortTest 6 秒、GitOpsTest 6 秒、BuiltinCommands 5 秒、HookAgentLoop 5 秒、WorktreeGitTest 5 秒、GitContextCollectorTest 5 秒、ExpertRegistry 5 秒、WorktreeToolTest 4 秒、RemoteControlService 4 秒、DefaultSkillSeederTest 4 秒、TaskSuggestionServiceTest 4 秒;其余 669 个套件合计约 90 秒。清单在脚本顶部的 `FAST_EXCLUDED_SUITES`;`not_run` 会写进输出 JSON,验证记录里照实写「快速档,未运行 N 条」,不能写成全量通过。
 
+> **2026-09-29 用户补充决定:** P3-03 的九个旧分支保留原状,迁移另行安排。保留原 ref/worktree 和独有改动,不视为弃用;该后续迁移不阻塞本次主线一期 Windows 验收与交付。
+
+> **2026-09-29 验收范围补充(用户确认):** 人工专项后补,本次按 Windows 自动化及已完成实测交付。未执行的人工项继续保留于 verification/windows-phase1-manual-coverage.md,不登记为通过,不阻塞本次主线交付。
+
+> **交付收尾最新指令(2026-09-29):** 2026-09-29 交付收尾最新指令(用户确认):发完后确保 CI/CD 已启动即关机,结果明天查看。正常触发 test,在最终 master 上启动 refactor-matrix(全量及 Deepin)和 package 分支构建验证;此前暂停跨端 CI 的安排由本条覆盖。人工专项与旧分支迁移仍按已批准范围后补。
+
+## 本次实施安排(D27,2026-09-28)
+
+按用户在 Codex 中的最新指令,剩余一期统一在当前 master 检出实施,全部实现后集中执行 Windows 本机全量验收,完成后再一起提交、push。过程中不另建任务分支或工作区,不逐任务提交/推送,不派发或等待跨端 CI;D26 的逐任务构建、快速档和阶段全量档也统一后移。macOS / Linux / Deepin 与 package.yml 暂不纳入本次 Windows 交付,5.4 保留为后续补验事项。
+
+实现内容不缩减:仍完成 P3/P4、P6A、P6B、P7-O,保留 D6–D9 的行为边界;新测试随实现编写,最后统一运行。过程中只做保证编辑和机械迁移正确的必要静态核对,不反复运行整套验证。任务先注明“实现完成,待统一验收提交”,依赖按实现状态推进,待实际验收与交付后再勾选完成,不把未运行的验证登记为通过。
+
+工作区留在 master。为保留机械搬迁和行为改动的可审查边界,中间只保存索引树与文件映射记录,不创建提交;最终验收后统一产生分界清楚的提交并推送。原逐任务分支、先提交认领、立即合入与阶段性 push 规则在本次实施中由本条替代。原安排保留已公告的正式发布窗口;用户于 2026-09-29 最新明确指示“为啥六点,直接发啊”,因此取消等待 06:00,完成约定的 Windows 验收后立即交付。未提交布局不表示 P3-02 已合入,最终按实际状态记录 pre/post 标签。
+
 ## 8. 系列路线图
 
 ### 8.1 阶段与 change 归属
@@ -527,5 +544,7 @@ P0-01 → P0-03 → P0-04 → P1-01 → P2-02 → P2-05 → P2-06 → P2-07 → 
 | D23 | P0 授权增删的编译单元与 G0 的对照规则 | 原始 G0 固定在 `3ddb7d43`(P0-07 采集,存 `baseline/g0/original/`)。P0 之后的目标快照与原始 G0 逐元组比较时只允许两类差异:移除的元组其 source 必须是 `src_layout_map.tsv` 的 `delete` 行(P0-08)或其生成对象;新增的元组必须是 P2-01 新增的原语文件(`src/utils/abandonable_call.{hpp,cpp}`、`abort_signal.hpp`、`joining_thread.hpp`、`lifetime_token.hpp`、`scope_exit.hpp`,File API 会把显式登记的头文件也列进 target 源清单)或 `acecode_unit_tests` 下新增的 `tests/` 源文件;target 集合不得增减。判定工具 `scripts/refactor/compare_snapshots.py`。P0 验收完成时的快照另存为 `baseline/g0/post-p0/`,P1 起的逐元组比较以它为对照,原始 G0 只用于追溯 | **已定(2026-09-27,P0 验收时登记)** | P0-07、P0-08、P1、P3 |
 | D25 | state_file 专用状态的归属 | 五组业务逻辑全部迁回各自模块,底层只保留通用文件读写、锁和原子更新;不按是否存在向上 include 缩减任务,不延期到 P4 / 二期 | **已定(用户 2026-09-28 确认)** | P2-05 |
 | D26 | 一期剩余任务的验证范围 | 逐任务验收只做 Windows 本机,按 §7.4 轻量协议(静态闸门 + 复用目录增量构建 + 用例清单 / target 快照对照;内容改动再跑快速档单测);不 dispatch refactor-matrix,不等待 test.yml;macOS / Linux / Deepin 与 package.yml 推迟到 Windows 工作全部完成后的一次「多平台补验」(tasks.md 5.4)。§7.2 表格里的多平台项按此顺延 | **已定(用户 2026-09-28 确认:验证先只做 Windows,不做 CI 验证,其它平台后续再考虑;用例也要大幅精简)** | P2-08、P3、P4、P6A/B、P7-O |
+
+| D27 | 一期批量实施与最终交付 | 当前 master 完成一期全部实现,最后统一 Windows 全量验收与提交/push;中途不做任务级分支、提交、跨端 CI 或重复阶段验证;跨端补验另候安排。实现范围和 D6–D9 不缩减,中间仅记录实现状态,最终按证据验收 | **已定(用户 2026-09-28 在 Codex 的最新指令)** | 一期剩余全部任务 |
 
 「按推荐执行」的决策可以在对应任务开工前推翻;推翻后需同步修改本表和受影响任务的描述。

@@ -18,10 +18,10 @@
       (Job Object handles it from the desktop side).
 - [ ] **T1.4** Add `--token-only-mode` to `daemon/cli.cpp`. Sets the new
       `web.require_token_on_loopback = true` for this launch only.
-- [ ] **T1.5** Extend `src/web/auth.cpp::require_auth` to honor
+- [ ] **T1.5** Extend `src/apps/web/auth.cpp::require_auth` to honor
       `cfg.web.require_token_on_loopback`. Default `false` preserves current
       behavior.
-- [ ] **T1.6** Update `src/ipc/runtime_files.cpp` to write the same payload
+- [ ] **T1.6** Update `src/base/ipc/runtime_files.cpp` to write the same payload
       that `--emit-runtime-json` emits (no behavior change for service mode).
 - [ ] **T1.7** Tests for `--port 0`, `--emit-runtime-json`, and the new
       `require_auth` branch in `tests/daemon/`.
@@ -48,17 +48,17 @@
 - [ ] **T3.2** Add `cmake/acecode_desktop.cmake` defining the
       `acecode-desktop` target. Gate behind `ACECODE_BUILD_DESKTOP` (default
       OFF).
-- [ ] **T3.3** Create `src/desktop/main.cpp` — minimal: parse argv, log to
+- [ ] **T3.3** Create `src/apps/desktop/main.cpp` — minimal: parse argv, log to
       `<data_dir>/logs/desktop.log`, exit.
-- [ ] **T3.4** Create `src/desktop/runtime_json_parser.{hpp,cpp}` — pure
+- [ ] **T3.4** Create `src/apps/desktop/runtime_json_parser.{hpp,cpp}` — pure
       function: parse `{"port":…,"token":…}` line, return struct or error.
-- [ ] **T3.5** Create `src/desktop/url_builder.{hpp,cpp}` — pure function:
+- [ ] **T3.5** Create `src/apps/desktop/url_builder.{hpp,cpp}` — pure function:
       compose URL with proper percent-encoding of token.
 - [ ] **T3.6** Tests for T3.4 and T3.5 in `tests/desktop/`.
 
 ## Phase 4 — Daemon supervision
 
-- [ ] **T4.1** `src/desktop/daemon_supervisor.{hpp,cpp}` — spawn child
+- [ ] **T4.1** `src/apps/desktop/daemon_supervisor.{hpp,cpp}` — spawn child
       process with stdout pipe. Per-OS process API (`posix_spawn` on POSIX,
       `CreateProcess` on Windows).
 - [ ] **T4.2** Reader thread: line-buffer stdout, parse first JSON line
@@ -74,7 +74,7 @@
 
 ## Phase 5 — WebView host
 
-- [ ] **T5.1** `src/desktop/web_host.{hpp,cpp}` — wrap `webview::webview`.
+- [ ] **T5.1** `src/apps/desktop/web_host.{hpp,cpp}` — wrap `webview::webview`.
       API: `set_url`, `bind(name, fn)`, `run`, `terminate`.
 - [ ] **T5.2** On startup: wait for daemon JSON line → compose URL →
       `set_url` → `run`.
@@ -85,13 +85,13 @@
 
 ## Phase 6 — Native integrations (per-OS)
 
-- [ ] **T6.1** Tray icon abstraction `src/desktop/tray.hpp` + per-OS
+- [ ] **T6.1** Tray icon abstraction `src/apps/desktop/tray.hpp` + per-OS
       implementations (`tray_win.cpp`, `tray_mac.mm`, `tray_linux.cpp`).
 - [ ] **T6.2** Native notification abstraction
-      `src/desktop/notify.hpp` + per-OS implementations.
-- [ ] **T6.3** File picker abstraction `src/desktop/file_picker.hpp` +
+      `src/apps/desktop/notify.hpp` + per-OS implementations.
+- [ ] **T6.3** File picker abstraction `src/apps/desktop/file_picker.hpp` +
       per-OS implementations.
-- [ ] **T6.4** Single-instance lock `src/desktop/single_instance.hpp` +
+- [ ] **T6.4** Single-instance lock `src/apps/desktop/single_instance.hpp` +
       per-OS implementations (named pipe / unix socket).
 - [ ] **T6.5** Drag-drop: WebView's HTML5 drop fires for content; on
       Windows additionally hook `WM_DROPFILES` on the host HWND to recover
@@ -114,7 +114,7 @@
 - [ ] **T8.2** New `docs/desktop-dev.md` — how to develop without
       rebuilding the desktop binary every iteration.
 - [ ] **T8.3** Update `CLAUDE.md` "Architecture" section: add
-      `src/desktop/` description, new daemon CLI flags, the bridge surface.
+      `src/apps/desktop/` description, new daemon CLI flags, the bridge surface.
 - [ ] **T8.4** Update `README.md` and `README_CN.md` with desktop
       install instructions.
 

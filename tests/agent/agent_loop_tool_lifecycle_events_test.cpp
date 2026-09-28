@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 覆盖 AgentLoop daemon 事件流里的工具生命周期事件。
 // 重点锁住 improve-web-agent-progress-feedback:read-only 并行工具、同名工具、
 // 验证失败、权限拒绝都必须发 keyed tool_start/tool_end,避免 Web 上工具卡片卡住。
@@ -114,7 +115,7 @@ class ToolLifecycleHarness {
 public:
     explicit ToolLifecycleHarness(std::string cwd,
                                   PermissionMode mode = PermissionMode::Default,
-                                  PermissionResult confirm_result = PermissionResult::Deny)
+                                  PermissionResult confirm_result = PermissionResult::Deny, bool with_session = false)
         : cwd_(std::move(cwd)) {
         AgentCallbacks cb;
         cb.on_busy_changed = [this](bool busy) {
@@ -128,7 +129,11 @@ public:
         };
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
         perms_.set_mode(mode);
-        loop_ = std::make_unique<AgentLoop>(accessor, tools_, cb, cwd_, perms_);
+        if (with_session) session_manager_.start_session(cwd_, "stub", "stub-model");
+        loop_ = std::make_unique<AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_, with_session ? &session_manager_ : nullptr),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
         sub_ = loop_->events().subscribe([this](const SessionEvent& e) {
             std::lock_guard<std::mutex> lk(events_mu_);
             events_.push_back(e);
@@ -136,6 +141,7 @@ public:
     }
 
     ~ToolLifecycleHarness() {
+        if (loop_) loop_->shutdown();
         if (loop_ && sub_ != 0) loop_->events().unsubscribe(sub_);
         loop_.reset();
     }
@@ -143,10 +149,7 @@ public:
     ToolExecutor& tools() { return tools_; }
     StubLlmProvider& provider() { return *provider_; }
     PermissionManager& permissions() { return perms_; }
-    void enable_session_manager() {
-        session_manager_.start_session(cwd_, "stub", "stub-model");
-        loop_->set_session_manager(&session_manager_);
-    }
+
     // 写边界测试用:把会话置入 worktree(SessionManager 记状态 + AgentLoop 切
     // cwd),与 EnterWorktree / enter_worktree_for_web / spawn 继承同一形态。
     void enter_worktree(const std::string& worktree_path, const std::string& original_cwd) {
@@ -224,9 +227,8 @@ TEST(AgentLoopToolLifecycleEvents,
     fs::remove_all(project_dir);
 
     {
-    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo, PermissionResult::Allow);
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo, PermissionResult::Allow, true);
     h.tools().register_tool(acecode::create_file_write_tool());
-    h.enable_session_manager();
 
     ScriptedResponse create_turn;
     create_turn.tool_calls.push_back({
@@ -382,7 +384,10 @@ public:
             results_.push_back({name, result});
         };
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
-        loop_ = std::make_unique<AgentLoop>(accessor, tools_, cb, cwd_, perms_);
+        loop_ = std::make_unique<AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
     }
 
     ~AllowingToolHarness() {
@@ -512,7 +517,7 @@ TEST(AgentLoopToolLifecycleEvents, LargeResultIsPersistedBeforeEveryLiveOutputEv
     const auto project_dir = acecode::SessionStorage::get_project_dir(cwd.string());
     const std::string original(100000, 'x');
     {
-        ToolLifecycleHarness h(cwd.string());
+        ToolLifecycleHarness h(cwd.string(), PermissionMode::Default, PermissionResult::Deny, true);
         auto tool = make_probe_tool("large_probe", true);
         tool.execute = [&original](const std::string&, const ToolContext&) {
             ToolResult result{original, true};
@@ -527,7 +532,6 @@ TEST(AgentLoopToolLifecycleEvents, LargeResultIsPersistedBeforeEveryLiveOutputEv
             return result;
         };
         h.tools().register_tool(std::move(tool));
-        h.enable_session_manager();
         ScriptedResponse tools_turn;
         tools_turn.tool_calls.push_back({"call-large-live", "large_probe", "{}"});
         h.provider().push_response(std::move(tools_turn));
@@ -1073,8 +1077,7 @@ TEST(AgentLoopToolLifecycleEvents, YoloWorktreeSessionConfinesWritesToWorktree) 
     fs::create_directories(worktree);
     std::atomic<int> write_calls{0};
     std::atomic<int> read_calls{0};
-    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo);
-    h.enable_session_manager();
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo, PermissionResult::Deny, true);
     h.enter_worktree(worktree.string(), cwd.string());
     ASSERT_EQ(h.write_root(), worktree.string());
     h.tools().register_tool(make_probe_tool("write_path_probe", false, &write_calls));
@@ -1149,8 +1152,7 @@ TEST(AgentLoopToolLifecycleEvents, YoloWorktreeSessionBlocksShellWriteOutside) {
     const auto worktree = cwd / ".acecode" / "worktrees" / "wt";
     fs::create_directories(worktree);
     std::atomic<int> bash_calls{0};
-    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo);
-    h.enable_session_manager();
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo, PermissionResult::Deny, true);
     h.enter_worktree(worktree.string(), cwd.string());
     h.tools().register_tool(make_fake_bash_tool(&bash_calls));
 

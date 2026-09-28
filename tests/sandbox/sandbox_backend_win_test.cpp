@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #ifdef _WIN32
 #include <gtest/gtest.h>
 #include "sandbox/sandbox_backend.hpp"
@@ -20,10 +21,7 @@ using namespace acecode::sandbox;
 namespace fs = std::filesystem;
 
 namespace {
-struct Token {
-    HANDLE value = nullptr;
-    ~Token() { if (value) CloseHandle(value); }
-};
+using Token = platform::UniqueHandle;
 
 std::wstring dacl_snapshot(const fs::path& path) {
     PSECURITY_DESCRIPTOR descriptor = nullptr;
@@ -60,11 +58,11 @@ struct ScopedSandboxTemp {
 // 验证普通用户私有路径的隔离,不修改 TEMP 的权限或掩盖公开目录的已知限制。
 bool make_private_test_root(const fs::path& root) {
     Token current;
-    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &current.value)) return false;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, current.put())) return false;
     DWORD size = 0;
-    GetTokenInformation(current.value, TokenUser, nullptr, 0, &size);
+    GetTokenInformation(current.get(), TokenUser, nullptr, 0, &size);
     std::vector<unsigned char> user(size);
-    if (!GetTokenInformation(current.value, TokenUser, user.data(), size, &size)) return false;
+    if (!GetTokenInformation(current.get(), TokenUser, user.data(), size, &size)) return false;
     auto* info = reinterpret_cast<TOKEN_USER*>(user.data());
     EXPLICIT_ACCESS_W entry{};
     entry.grfAccessPermissions = FILE_ALL_ACCESS;
@@ -233,26 +231,26 @@ TEST(SandboxBackendWin, IsolatesWorkspaceDataWritesAndProtectsSensitiveContents)
     ASSERT_TRUE(runtime.prepare_request(request_a).empty());
     ASSERT_TRUE(runtime.prepare_request(request_b).empty());
     std::string error;
-    Token token_a{static_cast<HANDLE>(create_restricted_token(request_a.policy, &error))};
-    Token token_b{static_cast<HANDLE>(create_restricted_token(request_b.policy, &error))};
+    auto token_a = create_restricted_token(request_a.policy, &error);
+    auto token_b = create_restricted_token(request_b.policy, &error);
     auto read_only = make_sandbox_policy(SandboxMode::ReadOnly, path_to_utf8(a), {});
-    Token token_read{static_cast<HANDLE>(create_restricted_token(read_only, &error))};
-    ASSERT_NE(token_a.value, nullptr) << error;
-    ASSERT_NE(token_b.value, nullptr) << error;
-    ASSERT_NE(token_read.value, nullptr) << error;
+    auto token_read = create_restricted_token(read_only, &error);
+    ASSERT_NE(token_a.get(), nullptr) << error;
+    ASSERT_NE(token_b.get(), nullptr) << error;
+    ASSERT_NE(token_read.get(), nullptr) << error;
     EXPECT_NE(synthetic_sid_string(request_a.policy), synthetic_sid_string(request_b.policy));
     EXPECT_NE(synthetic_sid_string(request_a.policy), synthetic_sid_string(read_only));
-    EXPECT_TRUE(token_can_write(token_a.value, a / "allowed.txt"));
-    EXPECT_FALSE(token_can_write(token_a.value, b / "denied.txt"));
-    EXPECT_FALSE(token_can_write(token_a.value, outside / "denied.txt"));
-    EXPECT_FALSE(token_can_write(token_b.value, a / "denied.txt"));
-    EXPECT_FALSE(token_can_write(token_read.value, a / "denied-readonly.txt"));
+    EXPECT_TRUE(token_can_write(token_a.get(), a / "allowed.txt"));
+    EXPECT_FALSE(token_can_write(token_a.get(), b / "denied.txt"));
+    EXPECT_FALSE(token_can_write(token_a.get(), outside / "denied.txt"));
+    EXPECT_FALSE(token_can_write(token_b.get(), a / "denied.txt"));
+    EXPECT_FALSE(token_can_write(token_read.get(), a / "denied-readonly.txt"));
     for (const char* child : {".git/config", ".git/config.worktree", ".git/hooks/pre-commit",
                              ".git/modules/attack", ".acecode/rules/attack.rules"}) {
-        EXPECT_FALSE(token_can_write(token_a.value, a / child)) << child;
+        EXPECT_FALSE(token_can_write(token_a.get(), a / child)) << child;
     }
-    EXPECT_TRUE(token_can_open_access(token_a.value, a / ".git/config", GENERIC_READ));
-    EXPECT_TRUE(token_can_delete(token_a.value, a / "allowed.txt"));
+    EXPECT_TRUE(token_can_open_access(token_a.get(), a / ".git/config", GENERIC_READ));
+    EXPECT_TRUE(token_can_delete(token_a.get(), a / "allowed.txt"));
     // 正常宿主仍可编辑规则,沙盒初始化不应误伤当前用户。
     tree.write(a / ".acecode/rules/user.rules", "# user rule");
     EXPECT_TRUE(fs::exists(a / ".acecode/rules/user.rules"));
@@ -322,12 +320,12 @@ TEST(SandboxBackendWin, DocumentsUnelevatedDeleteAndRenameLimitation) {
     auto request = runtime.request_for(SandboxMode::WorkspaceWrite, path_to_utf8(workspace));
     ASSERT_TRUE(runtime.prepare_request(request).empty());
     std::string error;
-    Token token{static_cast<HANDLE>(create_restricted_token(request.policy, &error))};
-    ASSERT_NE(token.value, nullptr) << error;
-    EXPECT_FALSE(token_can_write(token.value, outside / "new.txt"));
-    EXPECT_TRUE(token_can_delete(token.value, outside / "existing.txt"));
-    EXPECT_TRUE(token_can_delete(token.value, workspace / ".acecode/rules/probe.rules"));
-    EXPECT_TRUE(token_can_rename(token.value, workspace / ".acecode", workspace / ".acecode-old"));
+    auto token = create_restricted_token(request.policy, &error);
+    ASSERT_NE(token.get(), nullptr) << error;
+    EXPECT_FALSE(token_can_write(token.get(), outside / "new.txt"));
+    EXPECT_TRUE(token_can_delete(token.get(), outside / "existing.txt"));
+    EXPECT_TRUE(token_can_delete(token.get(), workspace / ".acecode/rules/probe.rules"));
+    EXPECT_TRUE(token_can_rename(token.get(), workspace / ".acecode", workspace / ".acecode-old"));
     EXPECT_NE(runtime.status_text(PermissionMode::Auto, path_to_utf8(workspace), false)
         .find("delete/rename are not fully restricted"), std::string::npos);
 }
@@ -379,8 +377,8 @@ TEST(SandboxBackendWin, OfflineEnvironmentReachesRestrictedChild) {
 // TerminateJobObject 让整棵树在 2 秒内退出;不设 KILL_ON_JOB_CLOSE,所以只
 // 关闭 Job 句柄不会杀进程。
 TEST(SandboxBackendWin, ProcessTreeJobTerminatesGrandchildren) {
-    void* job = create_process_tree_job();
-    ASSERT_NE(job, nullptr);
+    auto job = create_process_tree_job();
+    ASSERT_TRUE(job);
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
@@ -393,21 +391,21 @@ TEST(SandboxBackendWin, ProcessTreeJobTerminatesGrandchildren) {
     ResumeThread(pi.hThread);
     if (!assigned) {
         TerminateProcess(pi.hProcess, 1);
-        CloseHandle(pi.hThread); CloseHandle(pi.hProcess); close_job(job);
+        CloseHandle(pi.hThread); CloseHandle(pi.hProcess); job.reset();
         GTEST_SKIP() << "nested job assignment refused on this host";
     }
     Sleep(500);
     EXPECT_EQ(WaitForSingleObject(pi.hProcess, 0), WAIT_TIMEOUT) << "命令应仍在跑";
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
-    ASSERT_TRUE(QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), nullptr));
+    ASSERT_TRUE(QueryInformationJobObject(job.get(), JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), nullptr));
     EXPECT_GE(accounting.ActiveProcesses, 2u) << "cmd + ping 都应在 Job 里";
     terminate_job_tree(job);
     EXPECT_EQ(WaitForSingleObject(pi.hProcess, 2000), WAIT_OBJECT_0);
-    ASSERT_TRUE(QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), nullptr));
+    ASSERT_TRUE(QueryInformationJobObject(job.get(), JobObjectBasicAccountingInformation, &accounting, sizeof(accounting), nullptr));
     EXPECT_EQ(accounting.ActiveProcesses, 0u);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    close_job(job);
+    job.reset();
 }
 
 // 真机完整链路:模型调用 -> AgentLoop 审批 -> Bash 受限/完整访问子进程。
@@ -469,8 +467,10 @@ TEST_P(SandboxBackendWinAgentLoop, AutoAgentLoopRunsGitAndRequiresApprovalForEsc
         return answer;
     };
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
-    AgentLoop loop([&]() -> std::shared_ptr<LlmProvider> { return provider; }, tools,
-        callbacks, path_to_utf8(workspace), permissions);
+    AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<LlmProvider> { return provider; }, tools, callbacks, permissions),
+        acecode_test::AgentLoopFixture::configuration(path_to_utf8(workspace)));
+    loop.start();
     SandboxConfig config;
     config.exclude_tmpdir = true;
     loop.set_sandbox_config(config);
@@ -529,4 +529,17 @@ INSTANTIATE_TEST_SUITE_P(SandboxToolNames, SandboxBackendWinAgentLoop,
     testing::Bool(), [](const testing::TestParamInfo<bool>& info) {
         return info.param ? "Rewritten" : "Native";
     });
+
+TEST(SandboxBackendWin, JobRaiiKeepsExistingLifetimeFlags) {
+    // 场景:通过 RAII 工厂创建 Job。期望仍不启用关闭杀树和静默脱离;
+    // 这锁定重构前的沙盒行为,避免复用 Computer Use 的 Job 策略。
+    auto job = create_process_tree_job();
+    ASSERT_TRUE(job);
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+    ASSERT_TRUE(QueryInformationJobObject(job.get(), JobObjectExtendedLimitInformation,
+        &limits, sizeof(limits), nullptr));
+    EXPECT_EQ(limits.BasicLimitInformation.LimitFlags &
+        (JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK), 0u);
+}
+
 #endif

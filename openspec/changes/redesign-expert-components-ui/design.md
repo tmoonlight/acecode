@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode already has an expert package registry, referenced expert teams, session persistence, a shared composer plus menu, a persisted five-item recent list, and worker-serialized in-place expert switching. The existing catalog and editor, however, expose only a small subset of the package model, render `quick_prompts` as if they were expertise, route “more experts” and catalog dispatch through a new-task screen, and have no per-expert MCP or built-in-tool isolation.

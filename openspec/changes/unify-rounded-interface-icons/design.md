@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The current public family contains 86 SVGs on 16, 20, 24 and 48-unit grids; 78 contain literal paint colors. The generator covers only 63 files and disagrees with several committed outputs. Runtime CSS masks inherit color, but direct images and the fallback cannot reliably follow arbitrary theme colors. Functional inline SVGs and typographic substitutes add independent styles. Existing unrelated editor changes are present and must be preserved.

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `ToolBlock` 被主会话与子代理的 `TranscriptItems` 复用。当前仅 `tool === 'bash'` 时把 args.command 放入展开文本，历史结构化结果的 args 为空，配对阶段丢弃工具调用包装导致命令缺失。

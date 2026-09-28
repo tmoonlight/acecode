@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 当前基线把 FTXUI 子模块更新到了包含 `EnableMouseHoverMotion` 的提交，但 overlay port 的版本仍指向旧缓存身份，Windows vcpkg 因而可恢复不含该 API 的历史安装并在 `main.cpp` 编译失败。与此同时，链接 host 提取在切分 authority 前搜索最后一个 `@`，技能使用状态只做进程内串行且按本地时区解析 UTC，两个 Python 工具脚本也缺少危险路径和多配置构建边界。

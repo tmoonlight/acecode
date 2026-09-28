@@ -10,10 +10,9 @@
 //   - 远程 IP(非 loopback)模拟 → 这里用 cpr 走 127.0.0.1 不容易模拟,所以
 //     远程鉴权由 auth_test.cpp 单元覆盖,这里只验路由 wiring 通的部分
 //
-// WebSocket 路径不在自动化覆盖范围 — cpr 不带 WS client。WS 协议的客户端->
-// 服务端 hello/user_input/decision/abort 由后续 add-web-chat-ui change 的端到端
-// 集成测验证。当前 WS 行为依赖 spec 里描述的 hello-binding 协议。
+// WebSocket 关停回归使用本地原始协议探针;其余交互协议仍由端到端测试覆盖。
 
+#include <asio.hpp>
 #include <gtest/gtest.h>
 #include <httplib.h>
 #include <sqlite3.h>
@@ -65,6 +64,8 @@
 #include "upgrade/manifest.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "utils/base64.hpp"
+#include "utils/abandonable_call.hpp"
+#include "utils/scope_exit.hpp"
 #include "utils/encoding.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/state_file.hpp"
@@ -455,6 +456,7 @@ struct WebServerFixture {
     struct TaskSuggestionsTag {};
     struct PtyTag {};
     struct ReasoningSyncTag {};
+    struct OpencodeImportTag {};
 
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
@@ -506,7 +508,8 @@ struct WebServerFixture {
         bool expose_session_registry = true,
         bool enable_task_suggestions = false,
         bool enable_pty = false,
-        std::function<void(acecode::AppConfig&)> initialize_reasoning_models = {}) {
+        std::function<void(acecode::AppConfig&)> initialize_reasoning_models = {},
+        acecode::web::WebServerDeps::OpencodeImportRunner run_opencode_import = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -617,6 +620,7 @@ struct WebServerFixture {
             std::make_unique<FakeRemoteWebProxyController>();
         wdeps.remote_web_proxy = remote_web_proxy.get();
         wdeps.run_update_command = std::move(run_update_command);
+        wdeps.run_opencode_import = std::move(run_opencode_import);
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
         wdeps.dangerous = dangerous;
         wdeps.loop_store = loop_store.get();
@@ -699,6 +703,11 @@ struct WebServerFixture {
         ReasoningSyncTag, std::function<void(acecode::AppConfig&)> initialize)
         : WebServerFixture(true, false, {}, true, {}, {}, false, {}, {},
                            false, {}, {}, true, false, false, std::move(initialize)) {}
+
+    explicit WebServerFixture(OpencodeImportTag,
+        acecode::web::WebServerDeps::OpencodeImportRunner run_import)
+        : WebServerFixture(true, false, {}, true, {}, {}, false, {}, {},
+                           false, {}, {}, true, false, false, {}, std::move(run_import)) {}
 
     explicit WebServerFixture(TaskSuggestionsTag)
         : WebServerFixture(true, false, {}, true, {}, {}, false, {}, {},
@@ -12418,4 +12427,173 @@ TEST(WebServerHttp, SavedModelOrderPersistsAndValidatesRequests) {
         cpr::Body{json{{"name", "reorder"}, {"provider", "copilot"}, {"model", "gpt-4.1"}}.dump()});
     ASSERT_EQ(edited.status_code, 200) << edited.text;
     EXPECT_EQ(json::parse(edited.text)["model"], "gpt-4.1");
+}
+
+// 场景与期望：导入进行中销毁服务器，迟到完成只使用自有任务状态，防止访问已释放 Impl。
+TEST(WebServerHttp, ImportCompletionOutlivesDestroyedServerWithoutBorrowingImpl) {
+    struct Gate {
+        std::mutex mu;
+        std::condition_variable cv;
+        bool entered = false;
+        bool release = false;
+        bool timed_out = false;
+    };
+    auto gate = std::make_shared<Gate>();
+    WebServerFixture fx(WebServerFixture::OpencodeImportTag{},
+        [gate](const acecode::OpencodeImportOptions& options,
+               const acecode::OpencodeImportProgress& progress) {
+            {
+                std::unique_lock<std::mutex> lock(gate->mu);
+                gate->entered = true;
+                gate->cv.notify_all();
+                gate->timed_out = !gate->cv.wait_for(lock, 5s, [gate] { return gate->release; });
+            }
+            acecode::OpencodeImportJobStatus status;
+            status.workspace_hash = options.workspace_hash;
+            status.state = "complete";
+            progress(status);
+            return status;
+        });
+    acecode::ScopeExit release_import([gate] {
+        { std::lock_guard<std::mutex> lock(gate->mu); gate->release = true; }
+        gate->cv.notify_all();
+        (void)acecode::wait_for_abandoned_work(6s);
+    });
+    const auto response = cpr::Get(cpr::Url{fx.url("/api/workspaces")}, cpr::Timeout{2000});
+    ASSERT_EQ(response.status_code, 200);
+    const auto workspaces = json::parse(response.text);
+    ASSERT_FALSE(workspaces.empty());
+    const auto hash = workspaces[0]["hash"].get<std::string>();
+    const auto started = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + url_encode_component(hash) + "/opencode-import")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"}, cpr::Timeout{2000});
+    ASSERT_EQ(started.status_code, 202) << started.text;
+    {
+        std::unique_lock<std::mutex> lock(gate->mu);
+        ASSERT_TRUE(gate->cv.wait_for(lock, 2s, [gate] { return gate->entered; }));
+    }
+    fx.server->stop();
+    fx.server_thread.join();
+    fx.server.reset();
+    {
+        std::lock_guard<std::mutex> lock(gate->mu);
+        EXPECT_FALSE(gate->timed_out);
+        gate->release = true;
+    }
+    gate->cv.notify_all();
+    EXPECT_TRUE(acecode::wait_for_abandoned_work(6s));
+}
+
+namespace {
+class WsSubscriptionProbe final : public acecode::LocalSessionClient {
+public:
+    explicit WsSubscriptionProbe(acecode::SessionRegistry& registry)
+        : acecode::LocalSessionClient(registry) {}
+    SubscriptionId subscribe(const std::string& id, acecode::SessionClient::EventListener listener,
+                             std::uint64_t since = 0) override {
+        const auto subscription = LocalSessionClient::subscribe(id, listener, since);
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            retained = std::move(listener);
+            subscribed = subscription != 0;
+        }
+        changed.notify_all();
+        return subscription;
+    }
+    void unsubscribe_and_wait(const std::string& id, SubscriptionId subscription) override {
+        LocalSessionClient::unsubscribe_and_wait(id, subscription);
+        ++unsubscribed;
+    }
+    acecode::SessionClient::EventListener wait_for_listener() {
+        std::unique_lock<std::mutex> lock(mu);
+        if (!changed.wait_for(lock, 2s, [this] { return subscribed; })) return {};
+        return retained;
+    }
+    std::atomic<int> unsubscribed{0};
+private:
+    std::mutex mu;
+    std::condition_variable changed;
+    bool subscribed = false;
+    acecode::SessionClient::EventListener retained;
+};
+
+bool read_ws_upgrade(asio::ip::tcp::socket& socket) {
+    asio::error_code error;
+    socket.non_blocking(true, error);
+    if (error) return false;
+    std::string response;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline && response.size() < 8192) {
+        char bytes[1024];
+        const auto count = socket.read_some(asio::buffer(bytes), error);
+        if (!error) response.append(bytes, count);
+        else if (error != asio::error::would_block && error != asio::error::try_again) break;
+        if (response.find("\r\n\r\n") != std::string::npos) {
+            socket.non_blocking(false, error);
+            return !error && response.find(" 101 ") != std::string::npos;
+        }
+        std::this_thread::sleep_for(2ms);
+    }
+    return false;
+}
+
+std::string masked_ws_text(const std::string& text) {
+    if (text.size() > 65535) throw std::invalid_argument("test frame too large");
+    std::string frame(1, static_cast<char>(0x81));
+    if (text.size() < 126) frame.push_back(static_cast<char>(0x80 | text.size()));
+    else {
+        frame.push_back(static_cast<char>(0xfe));
+        frame.push_back(static_cast<char>(text.size() >> 8));
+        frame.push_back(static_cast<char>(text.size() & 0xff));
+    }
+    const std::array<char, 4> mask{{1, 2, 3, 4}};
+    frame.append(mask.data(), mask.size());
+    for (std::size_t i = 0; i < text.size(); ++i) frame.push_back(text[i] ^ mask[i % mask.size()]);
+    return frame;
+}
+} // namespace
+
+// 场景与期望：保留连接回调时销毁服务器，迟到事件不得进入旧 Impl；退订必须等待在途投递。
+TEST(WebServerHttp, ConnectedWebSocketCannotDeliverIntoDestroyedImpl) {
+    WebServerFixture fx(WebServerFixture::SessionClientFactory{
+        [](acecode::SessionRegistry& registry) {
+            return std::make_unique<WsSubscriptionProbe>(registry);
+        }});
+    auto* probe = static_cast<WsSubscriptionProbe*>(fx.client.get());
+    acecode::SessionOptions options;
+    options.cwd = fx.cwd;
+    const auto id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    ASSERT_NE(entry, nullptr);
+    asio::io_context io;
+    asio::ip::tcp::socket socket(io);
+    asio::error_code error;
+    socket.connect({asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(fx.port)}, error);
+    ASSERT_FALSE(error) << error.message();
+    const std::string upgrade =
+        "GET /ws/sessions/" + id + "?token=smoke-token HTTP/1.1\r\n"
+        "Host: 127.0.0.1:" + std::to_string(fx.port) + "\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+    asio::write(socket, asio::buffer(upgrade), error);
+    ASSERT_FALSE(error);
+    ASSERT_TRUE(read_ws_upgrade(socket));
+    const auto hello = masked_ws_text(json{{"type", "hello"},
+        {"payload", {{"session_id", id}, {"since", 0}}}}.dump());
+    asio::write(socket, asio::buffer(hello), error);
+    ASSERT_FALSE(error);
+    auto listener = probe->wait_for_listener();
+    ASSERT_TRUE(listener);
+
+    fx.server->stop();
+    fx.server_thread.join();
+    fx.server.reset();
+    EXPECT_GT(probe->unsubscribed.load(), 0);
+    entry->loop->events().emit(acecode::SessionEventKind::Token, {{"text", "late"}});
+    // Simulate a callback snapshot obtained just before unsubscribe.
+    acecode::SessionEvent event;
+    event.kind = acecode::SessionEventKind::Token;
+    event.payload = {{"text", "late retained callback"}};
+    EXPECT_NO_THROW(listener(event));
+    socket.close(error);
 }

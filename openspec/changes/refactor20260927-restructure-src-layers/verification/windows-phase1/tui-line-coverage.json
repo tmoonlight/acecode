@@ -1,0 +1,14 @@
+{
+  "coverage": [
+    {
+      "duplicates": [],
+      "file": "src/cli/main.cpp",
+      "lines": 8101,
+      "mapped": 8101,
+      "missing": []
+    }
+  ],
+  "findings": [],
+  "schema": 1,
+  "source_ref": "c3348df148d51ff799a68b17ce6af0899b5ce2fc"
+}

@@ -63,16 +63,16 @@ daemon slot 已启动,并向 daemon `POST /api/workspaces` 注册 cwd,返回同�
 
 | 路径 | 作用 |
 |---|---|
-| `src/workspace/workspace_registry.{hpp,cpp}` | 扫盘 / 读写 `workspace.json` / 默认命名 |
-| `src/desktop/daemon_pool.{hpp,cpp}` | 通用进程池;Desktop 当前只使用 `__shared_daemon__/default` slot |
-| `src/desktop/daemon_supervisor.{hpp,cpp}` | 单 daemon 子进程托管(spawn / probe / stop / Job Object)。提了 `IDaemonSupervisor` 虚基类便于单测 mock |
-| `src/platform/native_ui/folder_picker_win.cpp` | `IFileOpenDialog` 包装 |
-| `src/desktop/pick_active.{hpp,cpp}` | 启动时挑哪个 workspace 当 active 的纯函数 |
-| `src/desktop/web_host.{hpp,cpp}` | webview/webview wrapper,暴露 `bind` / `eval` / `native_window` |
-| `src/desktop/main.cpp` | wWinMain 入口,串起所有 |
-| `src/utils/cwd_hash.{hpp,cpp}` | desktop 与 SessionStorage 共享的 hash 算法(FNV-1a 64bit) |
-| `src/session_host/session_registry.{hpp,cpp}` | workspace-aware session create/resume/list |
-| `src/web/server.{hpp,cpp}` | `/api/workspaces` 与 workspace-scoped session routes |
+| `src/base/workspace/workspace_registry.{hpp,cpp}` | 扫盘 / 读写 `workspace.json` / 默认命名 |
+| `src/apps/desktop/daemon_pool.{hpp,cpp}` | 通用进程池;Desktop 当前只使用 `__shared_daemon__/default` slot |
+| `src/apps/desktop/daemon_supervisor.{hpp,cpp}` | 单 daemon 子进程托管(spawn / probe / stop / Job Object)。提了 `IDaemonSupervisor` 虚基类便于单测 mock |
+| `src/base/platform/native_ui/folder_picker_win.cpp` | `IFileOpenDialog` 包装 |
+| `src/apps/desktop/pick_active.{hpp,cpp}` | 启动时挑哪个 workspace 当 active 的纯函数 |
+| `src/apps/desktop/web_host.{hpp,cpp}` | webview/webview wrapper,暴露 `bind` / `eval` / `native_window` |
+| `src/apps/desktop/main.cpp` | wWinMain 入口,串起所有 |
+| `src/base/utils/cwd_hash.{hpp,cpp}` | desktop 与 SessionStorage 共享的 hash 算法(FNV-1a 64bit) |
+| `src/host/session_host/session_registry.{hpp,cpp}` | workspace-aware session create/resume/list |
+| `src/apps/web/server.{hpp,cpp}` | `/api/workspaces` 与 workspace-scoped session routes |
 | `web/src/components/Sidebar.jsx` | workspace 分组渲染 + workspace-scoped session 选择 |
 | `web/src/lib/api.js` | workspace-scoped list/create/resume helper |
 

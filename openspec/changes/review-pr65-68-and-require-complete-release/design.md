@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 当前 master 存在用户已完成但未提交的界面和系统提示改动；四个远端 PR 与这些改动部分重叠。先记录原始状态和哈希，审核增量，再在当前分支合并，避免覆盖既有工作。正式版本以 v0.9.22 为基线；v0.9.23 打包检查发现 Linux 编译问题，修正后完整发布 v0.9.24。

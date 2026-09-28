@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `SessionRow` is the shared desktop sidebar renderer for workspace-grouped and pinned sessions, and it is also reused for the separate no-workspace task section. Workspace session normalization already supplies the effective `cwd`; no-workspace normalization deliberately clears it. The sidebar is an overflow-clipped, compact column, so an in-row detail element would either be clipped or change row geometry.

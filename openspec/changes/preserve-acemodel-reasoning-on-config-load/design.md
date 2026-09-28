@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The built-in ACEModel catalog supplies stable vision and tool tags. Upstream `/models` probing can additionally save explicit reasoning options for the same profile. `parse_one_entry` currently overwrites all capability tags from the built-in catalog, while `validate_saved_models` correctly requires a saved reasoning declaration and capability tag to agree. Both the active config and last-good candidate use this parse path.

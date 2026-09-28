@@ -247,18 +247,17 @@ jobs:
               print("FAIL", failure["name"])
           EOF
 
-      - name: Capture lint baselines
+      - name: Enforce refactor guards
         if: runner.os == 'Linux'
-        continue-on-error: true
         shell: bash
         run: |
           mkdir -p out/lint
-          python scripts/layers/check_layers.py --repo source --output out/lint/layers.json
-          python scripts/layers/check_file_size.py --repo source --output out/lint/size.json
-          python scripts/layers/check_ownership.py --repo source --output out/lint/ownership.json
-          python scripts/refactor/check_doc_paths.py --repo source --output out/lint/doc-paths.json
-          python scripts/refactor/normalize_includes.py --repo source --check --scope src --output out/lint/includes-src.json || true
-          python scripts/refactor/normalize_includes.py --repo source --check --scope tests --output out/lint/includes-tests.json || true
+          python scripts/layers/check_layers.py --repo source --layout final --strict --output out/lint/layers.json
+          python scripts/layers/check_file_size.py --repo source --strict --output out/lint/size.json
+          python scripts/layers/check_ownership.py --repo source --strict --final --output out/lint/ownership.json
+          python scripts/refactor/check_doc_paths.py --repo source --strict --output out/lint/doc-paths.json
+          python scripts/refactor/normalize_includes.py --repo source --check --scope src --output out/lint/includes-src.json
+          python scripts/refactor/normalize_includes.py --repo source --check --scope tests --output out/lint/includes-tests.json
 
       - name: Upload snapshot
         if: always()

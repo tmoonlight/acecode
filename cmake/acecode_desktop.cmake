@@ -101,10 +101,7 @@ else()
     add_executable(acecode-desktop ${ACECODE_DESKTOP_SOURCES})
 endif()
 
-target_include_directories(acecode-desktop PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
-)
+target_link_libraries(acecode-desktop PRIVATE acecode_include_roots)
 
 # webview::core_static 提供 WebView2 wrapper(Windows 路径)。
 target_link_libraries(acecode-desktop PRIVATE

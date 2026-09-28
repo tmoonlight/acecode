@@ -1,0 +1,354 @@
+{
+  "base": "c3348df148d51ff799a68b17ce6af0899b5ce2fc",
+  "validated_tree": "c87a1537e99f7fb8148642fc610c7dc0ed2c51d2",
+  "checkpoints": [
+    {
+      "id": "execution-contract",
+      "commit": "e454fcd705af209d08bd2d9dce6ddb169097197c",
+      "tree": "839db38fdd5eb86eb49ac28daf104c7bf8964aa8",
+      "subject": "refactor20260927(layers/D27): 接续演练工具与一期批量实施安排"
+    },
+    {
+      "id": "p3-m1",
+      "commit": "ef3e24b7aab1fc0de2f8c8f3a2a07cbc24cfc4ae",
+      "tree": "5ff54de9f4ce883f7dbc9821b9b7c30ebe85fec6",
+      "subject": "refactor20260927(layers/P3): 搬迁六组目录与 stb [no-build]"
+    },
+    {
+      "id": "p3-m2-paths",
+      "commit": "ca594d73d56415098f48ae7adad18f65f4b71fc2",
+      "tree": "4274cd93091a1d6c5ef24ff43179f134809de9d1",
+      "subject": "refactor20260927(layers/P3): 改写构建与文档路径 [mechanical]"
+    },
+    {
+      "id": "p3-m2-structure",
+      "commit": "7113eb95ac5805356ad36ea2d5fac0fb8f69bca4",
+      "tree": "716444c3137a75670cc78227ec54d9078a892c75",
+      "subject": "refactor20260927(layers/P3): 落实公共 include 接口与第三方边界"
+    },
+    {
+      "id": "p3-m2b-seed",
+      "commit": "fb359c03cb5dd7fe5870be11dea73fc743757c4a",
+      "tree": "b259065769db5a42494b48ced80c2084c8b9019b",
+      "subject": "refactor20260927(layers/P3): 更新种子路径及 bundle 版本"
+    },
+    {
+      "id": "a01-types",
+      "commit": "7ffa0706df1a3931d2b74a76356bb1051a6e0a92",
+      "tree": "dc81479bd0a832229896d0ead48add6f9e6e17a7",
+      "subject": "refactor20260927(agent-loop/A-01): 提取回调、控制回执与回合类型"
+    },
+    {
+      "id": "a01-includes",
+      "commit": "bc9ab6e4be922caaecf8f983122e311348399b0f",
+      "tree": "a3f3d20b27bd7ce42e7cabda297ac71e4422e0d4",
+      "subject": "refactor20260927(agent-loop/A-01): 收窄门面依赖并补齐调用方 include"
+    },
+    {
+      "id": "a02-helpers",
+      "commit": "6c57363dda8a42a45f1d888e0eafc9a28ee1aaad",
+      "tree": "9d38b24bbb7d745ddc988286fa6b569ef0229fd2",
+      "subject": "refactor20260927(agent-loop/A-02): 提取请求与回合辅助逻辑并统一提问策略"
+    },
+    {
+      "id": "a03-a04-structure",
+      "commit": "39fe917f1b9565ac08c53a6ba56224d38b1aa63b",
+      "tree": "5259c6a9447362549fa11742b0a2bd0b56fe4055",
+      "subject": "refactor20260927(agent-loop/A-03,A-04): 按职责拆分成员定义与工具批次捕获"
+    },
+    {
+      "id": "a05-raii",
+      "commit": "d1f5e12f2db662771318efe68279916d9e8f7c76",
+      "tree": "cfe4e2dce26e1408d33ccdbd1d997e56d1097185",
+      "subject": "refactor20260927(agent-loop/A-05): 收口取消唤醒和作用域生命周期"
+    },
+    {
+      "id": "a06-queue-gate",
+      "commit": "120733667f231fbd5c97b7ce2458b3ca198000d1",
+      "tree": "ceecfb97757a396887acf316e223410d8562ef80",
+      "subject": "refactor20260927(agent-loop/A-06): 抽离任务队列回合门与跨会话交接"
+    },
+    {
+      "id": "a07-history-transcript",
+      "commit": "73b4f96a52abc4a823b54234dd8bc4e09b67f660",
+      "tree": "447d20f942e5af7625245c7799b75d6800862489",
+      "subject": "refactor20260927(agent-loop/A-07): 集中历史写入与转录生命周期"
+    },
+    {
+      "id": "a08-collaborators",
+      "commit": "e7ba7808854898462a2b3f788507d9784ec47c07",
+      "tree": "211bc5ced5aef8d55bd5cb8d1de40e69c3e4ad1f",
+      "subject": "refactor20260927(agent-loop/A-08): 分离目录安全Goal和Hook职责"
+    },
+    {
+      "id": "a09-side-progress",
+      "commit": "92868f20165120591726ae4235db2843f2561710",
+      "tree": "be16e7305d6c0dfe7ed4cefeacd83f48863dd7f0",
+      "subject": "refactor20260927(agent-loop/A-09): Extract side questions and progress collaborators"
+    },
+    {
+      "id": "a10-request-model-step",
+      "commit": "c1631e1868c687469a40e29c0a1c5e8248b2b664",
+      "tree": "908dd7f6b3534a75d09d417c7ff30a14e82e2dd1",
+      "subject": "refactor20260927(agent-loop/A-10): Extract request assembly and model steps"
+    },
+    {
+      "id": "a11-compaction-recovery",
+      "commit": "b4123ddc914e9269b442732e6ffe7495b6e557e7",
+      "tree": "6bc900e6378f90988f6537bcb1665f9a208961cd",
+      "subject": "refactor20260927(agent-loop/A-11): Isolate compaction and PA rescue policy"
+    },
+    {
+      "id": "a12-tool-dataflow",
+      "commit": "dda9e0ce64527a777365c103f9b051ff33f1fd91",
+      "tree": "3b2addda891d5a2075d0d64de8af8f8fa9007eb3",
+      "subject": "refactor20260927(agent-loop/A-12): Refactor tool batch results into joined call outcomes"
+    },
+    {
+      "id": "a12-tool-collaborators",
+      "commit": "932cce9e1ed279312d9b6d8edc53a2417df32fdc",
+      "tree": "0e48a1f2de259e579459225832f54362abfb6986",
+      "subject": "refactor20260927(agent-loop/A-12): Extract tool execution collaborators and the ordered permission gate"
+    },
+    {
+      "id": "a13-turn-orchestration",
+      "commit": "071f9f301ce755fb192e414525087237bcf3e688",
+      "tree": "e58df296b864ab078af3b54aee643acea5663fe5",
+      "subject": "refactor20260927(agent-loop/A-13): Extract turn orchestration and preserve terminal recovery ordering"
+    },
+    {
+      "id": "b01-tui-foundations",
+      "commit": "68e87400d9698886500c85f5394ef2b96bd1dc47",
+      "tree": "689c9032bde3409abfd9873fe987ba2401832395",
+      "subject": "refactor20260927(tui-main/B-01): Add screen ports and shared TUI input trace configuration"
+    },
+    {
+      "id": "b02-cli-entry",
+      "commit": "b58ccb66a288fe50f3c346d2506bb158f0e5ed27",
+      "tree": "8786c88a1b2529d7548bf894b69b0398a40593fd",
+      "subject": "refactor20260927(tui-main/B-02): Move CLI dispatch and startup resource reconciliation to their modules"
+    },
+    {
+      "id": "b03-tui-startup",
+      "commit": "10cb89bb48caf51ccc556e909a388a8af1c6456e",
+      "tree": "7416274e252e9b629e3e85a87b3891d547cf54f7",
+      "subject": "refactor20260927(tui-main/B-03): Extract TUI startup steps and session-owned worktree finalization"
+    },
+    {
+      "id": "b04-tui-leaves",
+      "commit": "113eafb6abc26f7bac1b29a1f0d9ea62fe356661",
+      "tree": "7685fc3bbf09dede0281c072aa8c9aa585b3d391",
+      "subject": "refactor20260927(tui-main/B-04): Extract composer data and pure TUI layout and lifecycle rules"
+    },
+    {
+      "id": "b05-chat-geometry",
+      "commit": "980537765989dd4ba66a18fd55a4d701a365985d",
+      "tree": "2d406894f6049954a2e3e85f3dca655404ac685e",
+      "subject": "refactor20260927(tui-main/B-05): Give chat viewport and frame geometry a single owner"
+    },
+    {
+      "id": "b06-readonly-views",
+      "commit": "489627968c86bb07fd1390dd416f1e94cdf48eab",
+      "tree": "b56e981296e599ed448c58b788feecba0631aa78",
+      "subject": "refactor20260927(tui-main/B-06): Extract views and remove helper forwarding header"
+    },
+    {
+      "id": "b07-frame-renderer",
+      "commit": "3a1a168ae6510549dd6c874a9648ac7a2023780d",
+      "tree": "1e394a5b57568a89f1dc908626bb6bc00be79879",
+      "subject": "refactor20260927(tui-main/B-07): Separate frame preparation and rendering"
+    },
+    {
+      "id": "b08-overlay-input",
+      "commit": "4def5b0eb14ce0314f803120a13bb9d928bd00e5",
+      "tree": "288b3c94b1f82c3f92fd890bc38ba8b3034bcf38",
+      "subject": "refactor20260927(tui-main/B-08): Preserve overlay input dispositions and picker ordering"
+    },
+    {
+      "id": "b09-composer-input",
+      "commit": "e716b2564e59200c0e2b31438449b1a5c78fe577",
+      "tree": "149932417022678dd34f1b5c8566fc509d89967a",
+      "subject": "refactor20260927(tui-main/B-09): Split composer editing and submission through input ports"
+    },
+    {
+      "id": "b10-event-router",
+      "commit": "9a4e2f708467e72fa882c54c75956e2c85fe77f2",
+      "tree": "364785a5a3c0553793c1e5f4ec0b8863e1792d22",
+      "subject": "refactor20260927(tui-main/B-10): Extract ordered TUI input router and mouse navigation"
+    },
+    {
+      "id": "b11-submit-and-agent-bridge",
+      "commit": "7fe7bb39a4b935b601f3c97fc34c464cc57bf0cc",
+      "tree": "4b5d32f805982880f30c8fe8fe7b46dacd4bfcee",
+      "subject": "refactor20260927(tui-main/B-11): Extract TUI submission lifecycle and callback owners"
+    },
+    {
+      "id": "b12-background-owners",
+      "commit": "6d2897dd113d2327fe6789c500fde6303f9f4f73",
+      "tree": "ae8d1bc15746d7d685523ac51f999a4cdcaed101",
+      "subject": "refactor20260927(tui-main/B-12): Own TUI background tasks surfaces and external subscriptions"
+    },
+    {
+      "id": "b13-tui-app",
+      "commit": "397ab1fb9361e7b38701c3196942517e3b3b9f95",
+      "tree": "1119992c1a77252159adcc9e17d85b0f07591241",
+      "subject": "refactor20260927(tui-main/B-13): own staged TUI startup and shutdown"
+    },
+    {
+      "id": "a14-construction",
+      "commit": "bc77dadff88ddf20701c365550fd752e21480a06",
+      "tree": "e1c130f9bec50e2f26c95b7a4739450d0d924587",
+      "subject": "refactor20260927(agent-loop/A-14): inject services before starting agent workers"
+    },
+    {
+      "id": "a17-remove-legacy-api",
+      "commit": "cd158252e9c44e5837d773f5080f09b43afc95e1",
+      "tree": "abb6796858c4c8de058472336fc4215439b51b81",
+      "subject": "refactor20260927(agent-loop/A-17): remove legacy assembly and migrate test fixtures"
+    },
+    {
+      "id": "o01-subscription-drain",
+      "commit": "1308bf1a491a16f9310c720b41800fe3c4ac5f92",
+      "tree": "87ea232392a0ce5c92e58b32150a31a5c6a77797",
+      "subject": "refactor20260927(ownership/O-01): drain admitted listeners on scoped unsubscribe"
+    },
+    {
+      "id": "O02",
+      "commit": "6b3221ad5a1dda26d1adc292223649cccbcca1e4",
+      "tree": "b9974d2d6eab8fe0b9c8e6126f7e4c5382596999",
+      "subject": "refactor20260927(ownership/O-02): [行为变更 D7] Make session registry shutdown explicit and reclaim background tasks"
+    },
+    {
+      "id": "O03",
+      "commit": "4595663f512e957711e8d4b57d75b5a732fb5de7",
+      "tree": "ee0589cae36b27a20a6866eed1c1ff2256385679",
+      "subject": "refactor20260927(ownership/O-03): Remove owning session captures from queued controls"
+    },
+    {
+      "id": "O04",
+      "commit": "9946ce955ef6d1cc3cb9eaa3b93e37b9d8953ca2",
+      "tree": "7fa192d8f7921b975511bed0dbfeb63fce393225",
+      "subject": "refactor20260927(ownership/O-04): [行为变更 D6] Shut down daemon sessions before shared services"
+    },
+    {
+      "id": "O05",
+      "commit": "57517455201db29e85a6c11e939d0e54d2b0e727",
+      "tree": "e8316631b9f5bec7dad223fe5283441ca356a57c",
+      "subject": "refactor20260927(ownership/O-05): [行为变更 D6] Stop TUI subagents before shared service teardown"
+    },
+    {
+      "id": "O06",
+      "commit": "2317644131417660b01a20746206665ac3083b0c",
+      "tree": "ca271e8ef264421df7f2aa49a01187d50b036a3d",
+      "subject": "refactor20260927(ownership/O-06): Scope headless subscriptions and clear session tool dependencies"
+    },
+    {
+      "id": "O08I",
+      "commit": "7798fafc7aac0906423e0621f1c6c8f5bb806007",
+      "tree": "74d88277c2176215c500a30fd3dd91910d615874",
+      "subject": "refactor20260927(ownership/O-08): Own web import task state beyond server lifetime"
+    },
+    {
+      "id": "O08W",
+      "commit": "2069fd70831172957245ed59ae15d5da3ad5eaff",
+      "tree": "8943935b0f0efc176152f3284389428f8bd2515d",
+      "subject": "refactor20260927(ownership/O-08): Drain WebSocket session callbacks before destroying server state"
+    },
+    {
+      "id": "O09",
+      "commit": "86e306bdf16dc979e1bf3afa7c840569c1109dee",
+      "tree": "3ade9948405e076e841fedadcba89caa63f9f00a",
+      "subject": "refactor20260927(ownership/O-09): Own handles and writer leases with RAII"
+    },
+    {
+      "id": "O07",
+      "commit": "56bbdec12e389ba07e82c7a92b6c4ceb21b046b5",
+      "tree": "770c86802c564b5f3d24a5701d2d39930016c1f9",
+      "subject": "refactor20260927(ownership/O-07): [行为变更 D9] Bound shutdown waits for owned background work"
+    },
+    {
+      "id": "O10",
+      "commit": "c8fc6d10da79331a3bccb90b03982a08bd53fd0d",
+      "tree": "b89a6e864e93be12f17bff5d88e7cf356660e714",
+      "subject": "refactor20260927(ownership/O-10): [行为变更 D8] Capture immutable prompt configuration per turn"
+    },
+    {
+      "id": "O11",
+      "commit": "6a439fc523a78456022ffc6262e6defc618d691d",
+      "tree": "6618c4e1d091d6285d10d91e760ac1236a54a7aa",
+      "subject": "refactor20260927(ownership/O-11): [行为变更 D7] Drain pending work and guard asynchronous callbacks"
+    },
+    {
+      "id": "P4DOC",
+      "commit": "c8c38db2916b4d5d84cb574bb40b47e71ad8e523",
+      "tree": "815ce3cb97e8b7bc220f082c02f3ffecfa7f836e",
+      "subject": "refactor20260927(layers/P4): Document source ownership and enforce strict architecture gates"
+    },
+    {
+      "id": "O_FINAL",
+      "commit": "0a482bd9b3fce6e4f0f47ca31aa5b749c6ab9750",
+      "tree": "51d1c52bb3c85f073154f6edc2c3da04a1127b90",
+      "subject": "refactor20260927(ownership): Complete regression descriptions and owned-work cleanup"
+    },
+    {
+      "id": "FINAL_STATIC_1",
+      "commit": "1c260087860e19f7b33d6deef287f08d5a23b712",
+      "tree": "daf56cb6f0349778e57d19e1fe26774a932d25de",
+      "subject": "refactor20260927: Complete phase-one resource ownership and layer repairs"
+    },
+    {
+      "id": "FINAL_STATIC_2",
+      "commit": "dc865b449c2d01ebb286c2d9af76a492591a9894",
+      "tree": "9b95ecf968141def90ef6c623a2d7086b9ed37be",
+      "subject": "refactor20260927: Verify ownership lifetimes and resolve final source integration"
+    },
+    {
+      "id": "FINAL_INTEGRATION_1",
+      "commit": "28b36f518931ae1a29d978ef62aa0e1cccb3c15f",
+      "tree": "0e4a1dbcd8e6f11b7200dd688fb654aef9d7f598",
+      "subject": "refactor20260927(validation): Repair Windows integration and preserve characterized behavior"
+    },
+    {
+      "id": "FINAL_VALIDATION_2",
+      "commit": "32bf4fa035f184e508ad517528ff3975e3d25f67",
+      "tree": "ffb272065d5d3dfa0a64fcafb8c1c237739a969d",
+      "subject": "refactor20260927(validation): Complete Windows automated validation and repair trace scopes"
+    },
+    {
+      "id": "FINAL_MIGRATION_GUARD",
+      "commit": "c38ca376aa9dafd77bb263b43afd24a5e42132cf",
+      "tree": "2660ab5756603e08b7b646706670776ea4045397",
+      "subject": "refactor20260927(validation): Map legacy repository-root main and normalize its includes"
+    },
+    {
+      "id": "D6_WINDOWS_STOP",
+      "commit": "f80fe336d41ab2eee1b041e6e59d9c050981166b",
+      "tree": "8654eb15ea2700ac1ee32a5bf4ae254f12681080",
+      "subject": "refactor20260927(ownership/O-04): [行为变更 D6] Request ordered Windows daemon shutdown before forced fallback"
+    },
+    {
+      "id": "FINAL_WINDOWS_EVIDENCE",
+      "commit": "3666f05b22c4496a4f61f8e0ab84bb2fd528cd78",
+      "tree": "f9414c39454aef5f8ebe9cd3fcac6e9bec98014e",
+      "subject": "refactor20260927: Record Windows acceptance and deferred follow-up scope"
+    },
+    {
+      "id": "FINAL_DELIVERY_GATES",
+      "commit": "bb0884a7a5222972b970064d5124cda9cdba84c5",
+      "tree": "12a635a06f4ac383c28f7d21958a9b3cfca3e57e",
+      "subject": "refactor20260927(validation): Record final Windows delivery gates"
+    },
+    {
+      "id": "DELIVERY_NOW",
+      "commit": "7d34ee3e432bc2dfd7ba201bc6d02a25d0278fa7",
+      "tree": "4ca0254594baec8aefa6c233cd65d9996473077b",
+      "subject": "refactor20260927: Publish immediately under the updated delivery instruction"
+    },
+    {
+      "id": "CI_AFTER_DELIVERY",
+      "commit": "9c6fb9cc7274c33774f19cc39133ef0ac3986885",
+      "tree": "c87a1537e99f7fb8148642fc610c7dc0ed2c51d2",
+      "subject": "refactor20260927: Restore cloud validation under the latest delivery instruction"
+    }
+  ]
+}

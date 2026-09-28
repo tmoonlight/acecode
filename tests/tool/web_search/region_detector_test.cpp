@@ -19,6 +19,11 @@
 #include "tool/web_search/region_detector.hpp"
 #include "tool/web_search/region_cache.hpp"
 #include "utils/state_file.hpp"
+#include "utils/abandonable_call.hpp"
+#include "utils/scope_exit.hpp"
+#include "tool/web_search/runtime.hpp"
+#include <condition_variable>
+#include <mutex>
 
 #include <atomic>
 #include <cstdlib>
@@ -195,4 +200,38 @@ TEST_F(RegionDetectorTest, AbortBeforeProbeReturnsUnknown) {
 TEST_F(RegionDetectorTest, CachedRegionWithoutCacheReturnsUnknown) {
     RegionDetector d(2000, make_scripted_probe({}, *new std::vector<ProbeCall>{}));
     EXPECT_EQ(d.cached_region(), Region::Unknown);
+}
+
+TEST_F(RegionDetectorTest, RuntimeDestructionDiscardsLateProbeWithoutWritingCache) {
+    // 场景:HEAD 探测阻塞时搜索 runtime 析构。期望迟到结果不访问 runtime、
+    // 不写 state.json;原启动线程反复访问单例,退出时可能访问已释放对象。
+    struct Gate {
+        std::mutex mu;
+        std::condition_variable cv;
+        bool entered = false, released = false;
+    };
+    auto gate = std::make_shared<Gate>();
+    ScopeExit release([gate] {
+        { std::lock_guard<std::mutex> lock(gate->mu); gate->released = true; }
+        gate->cv.notify_all();
+        wait_for_abandoned_work(std::chrono::seconds(5));
+    });
+    auto runtime = std::make_unique<Runtime>(WebSearchConfig{});
+    runtime->detector().set_probe_for_test([gate](const std::string&, const std::string&, int) {
+        std::unique_lock<std::mutex> lock(gate->mu);
+        gate->entered = true;
+        gate->cv.notify_all();
+        gate->cv.wait_for(lock, std::chrono::seconds(5), [gate] { return gate->released; });
+        return ProbeResult{200, {}};
+    });
+    runtime->detect_region_async();
+    {
+        std::unique_lock<std::mutex> lock(gate->mu);
+        ASSERT_TRUE(gate->cv.wait_for(lock, std::chrono::seconds(2), [gate] { return gate->entered; }));
+    }
+    runtime.reset();
+    { std::lock_guard<std::mutex> lock(gate->mu); gate->released = true; }
+    gate->cv.notify_all();
+    EXPECT_TRUE(wait_for_abandoned_work(std::chrono::seconds(5)));
+    EXPECT_FALSE(read_web_search_region_cache());
 }

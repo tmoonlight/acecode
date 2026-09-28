@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode Desktop renders the React web UI from a daemon served on a dynamically selected loopback port. The embedded shell has native bridges, while Edge compatibility mode is identified by `ace_webapp=1` and does not have those bridges. Existing browser preferences therefore cannot reliably represent a once-per-install guided-tour dismissal: the port changes the origin and Edge fallback uses a clean per-launch profile.

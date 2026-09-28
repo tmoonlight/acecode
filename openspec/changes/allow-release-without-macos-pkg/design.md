@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景
 
 现有 `package` 工作流用一个 `macos-release.enabled` 开关控制应用签名、公证、更新 ZIP 和 PKG。该开关要求 Application 与 Installer 两套证书全部存在，因此只缺 Installer 证书时，正式标签会在 macOS 构建开始阶段失败，无法发布本来可以安全生成的签名应用资产。

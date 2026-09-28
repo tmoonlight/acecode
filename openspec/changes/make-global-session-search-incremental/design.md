@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景
 
 当前 `SearchPalette` 打开后调用 `listAllWorkspaceSessions()`，而 `/api/session-search/sessions` 会在请求线程内执行 `build_global_session_catalog()`：枚举 `projects` 下所有一级目录、读取每个 `*.meta.json`、合并活跃会话，再复用完整 session JSON 序列化。空查询最终只显示 50 条，却必须先等待约 1.6 万条会话全部扫描、序列化和传输。本机该路径稳定需要 43–47 秒，超过通用 30 秒 HTTP 超时。

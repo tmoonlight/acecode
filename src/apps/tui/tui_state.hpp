@@ -1,0 +1,472 @@
+#pragma once
+
+#include "permissions/permissions.hpp"
+#include "llm/llm_provider.hpp"
+#include "tui/path_reference/path_reference.hpp"
+#include "skills/skill_usage_store.hpp"
+#include "tui/paste_handler.hpp"
+#include "tui/model_picker.hpp"
+#include "tui/mode_picker.hpp"
+#include "tui/pending_attachment_selection.hpp"
+#include "tui/ask_question_session.hpp"
+#include "tui/drag_scroll.hpp"
+#include "tool/tool_executor.hpp"
+#include "tool/ask_user_question_tool.hpp"
+#include "session/todo_state.hpp"
+
+#include <string>
+#include <string_view>
+#include <cstdint>
+#include <vector>
+#include <deque>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+#include <functional>
+#include <atomic>
+#include "utils/joining_thread.hpp"
+#include <optional>
+#include <nlohmann/json.hpp>
+
+namespace acecode {
+
+// Input mode for the prompt box. Normal is the default (text sent to the LLM
+// or dispatched as a `/slash` command). Shell is entered by typing `!` on an
+// empty buffer and routes the next Enter directly to BashTool without an LLM
+// round-trip. See openspec/changes/add-shell-input-mode.
+enum class InputMode {
+    Normal,
+    Shell,
+};
+
+inline bool is_shell_mode_trigger_character(std::string_view character) {
+    return character == "!" || character == "\xEF\xBC\x81";
+}
+
+// Add the leading mode character back when persisting an entry to input_history
+// so a single history list can round-trip both modes.
+inline std::string prepend_mode_prefix(const std::string& text, InputMode m) {
+    if (m == InputMode::Shell) return "!" + text;
+    return text;
+}
+
+// Inverse of prepend_mode_prefix: decode a history entry into (mode, text).
+inline std::pair<InputMode, std::string> parse_mode_prefix(const std::string& entry) {
+    if (!entry.empty() && entry[0] == '!') {
+        return {InputMode::Shell, entry.substr(1)};
+    }
+    return {InputMode::Normal, entry};
+}
+
+struct TuiState {
+    struct Message {
+        std::string role;
+        std::string content;
+        bool is_tool = false;
+        // Runtime-only fields for summary-style tool_result rendering. Set by
+        // on_tool_result for new tool executions; absent for legacy/resumed
+        // messages (TUI then falls back to the 10-line fold path).
+        std::optional<ToolSummary> summary;
+        bool expanded = false;            // toggled by Ctrl+E on the focused row
+        // Runtime-only compact preview for tool_call rows (mirrors
+        // ChatMessage::display_override).
+        std::string display_override;
+        // Runtime-only 结构化 diff,由 file_edit/file_write 的 ToolResult 填充。
+        // 非空时 TUI 走彩色 diff 视图;为空(老会话或非编辑类工具)走灰色 fold 路径。
+        // 同样不写入 session JSONL。
+        std::optional<std::vector<DiffHunk>> hunks;
+        // Runtime projection for one persisted compact-notice lifecycle. The
+        // joined source text remains available when a completed row is folded.
+        std::string compact_notice_id;
+        bool compact_notice_complete = false;
+        // AskUserQuestion result rows render their structured Q/A text verbatim:
+        // never folded and never expanded into the raw argument JSON, so tool
+        // parameter names cannot reach the transcript.
+        bool ask_result = false;
+    };
+
+    std::vector<Message> conversation;
+    // Ctrl+O 全局 verbose 开关(Claude Code 风格):true 时所有 tool_result
+    // 展开为全文视图且 tool_call 显示参数,false 回到摘要/折叠并隐藏参数。
+    // 与逐行的 Message::expanded(Ctrl+E)取或。运行期状态,不落盘。
+    bool transcript_expanded = false;
+    // Ctrl+O 展开右栏使用独立的行滚动状态。它不参与 session 持久化,
+    // 也不复用 chat_scroll_top_row,避免右栏滚动改变对话焦点。
+    int sidebar_scroll_top_row = 0;
+    bool sidebar_scrollbar_dragging = false;
+    int sidebar_scrollbar_grab_offset_2x = 0;
+    std::string input_text;
+    // Caret byte offset within input_text. Kept UTF-8-aligned by the event
+    // handler (advance/retreat skips continuation bytes, insert/erase clamp
+    // to valid glyph boundaries). Whenever input_text is replaced wholesale
+    // (history navigation, slash commit, clear on submit) the cursor is
+    // reset to 0 or size() accordingly.
+    size_t input_cursor = 0;
+    // Keyboard selection keeps a stable anchor while input_cursor is the
+    // active edge. Offsets are UTF-8 byte positions and are runtime-only.
+    std::optional<size_t> input_selection_anchor;
+    // Visual column retained across repeated Shift+ArrowUp/Down moves.
+    std::optional<int> input_vertical_goal_column;
+    void clear_input_selection() {
+        input_selection_anchor.reset();
+        input_vertical_goal_column.reset();
+    }
+    InputMode input_mode = InputMode::Normal;
+
+    // 多行粘贴折叠（fix-multiline-paste-input change）。bracketed paste 状态机
+    // 拦截 ESC[200~ … ESC[201~ 之间的所有 prompt 事件（含 Return / Tab），归一化
+    // 后或 inline 插入 input_text，或折叠成 [Pasted text #N +M lines] 占位符。
+    //   pasted_texts      — 占位符 id → 完整原文。submit 时 expand_placeholders
+    //                       把占位符替换回原文喂给 agent；input_text 被清空 /
+    //                       覆盖 / 提交时调用 prune_unreferenced 清孤儿。
+    //   next_paste_id     — 单调自增计数（per-process，提交后复位回 1）。
+    //   paste_accumulator — 状态机本身，in_paste() 期间所有 prompt 事件都不下
+    //                       发到正常 Return / 字符 / Backspace / 方向键 handler。
+    std::map<int, std::string> pasted_texts;
+    int next_paste_id = 1;
+    acecode::tui::PasteAccumulator paste_accumulator;
+
+    bool is_waiting = false;
+    std::string current_thinking_phrase = "Thinking";
+    std::string status_line; // for auth/provider status
+    std::string update_notice; // startup update availability prompt
+    std::string token_status; // for token usage display
+    int token_percent = 0; // current context usage percentage
+    // Session prompt-cache hit rate, -1 when the provider reported no usage.
+    int cache_hit_percent = -1;
+    std::string goal_status; // compact goal status chip
+    std::vector<TodoItem> todos; // visible TodoWrite checklist
+
+    struct McpSidebarServer {
+        std::string name;
+        std::string state;
+        std::string transport;
+        std::string error;
+        size_t tool_count = 0;
+    };
+    std::vector<McpSidebarServer> mcp_sidebar_servers;
+
+    // 子代理(spawn_subagent)右侧栏快照。由 SubagentHost 的 publish 回调
+    // 写入(mu 保护),render_regular_sidebar 渲染成「Background Tasks」行。
+    // 按用户决策只含运行中任务,本轮结束即被 host 移除。
+    struct SubagentSidebarTask {
+        std::string id;
+        std::string title;   // auto-title;为空时退到 prompt 摘要
+        std::string prompt;
+        std::chrono::steady_clock::time_point started{};
+    };
+    std::vector<SubagentSidebarTask> subagent_tasks;
+
+    // 子会话的 permission_request 冒泡队列:host 回调入队(mu 保护),
+    // 事件线程在 confirm/ask overlay 空闲时弹出占用 confirm overlay。
+    struct RemoteConfirmRequest {
+        std::string session_id;
+        std::string request_id;
+        std::string tool;
+        std::string args_preview;
+        std::string origin_label;  // 「来自子任务:<标题>」
+    };
+    std::deque<RemoteConfirmRequest> remote_confirm_queue;
+    // 非空 = 当前 confirm overlay 展示的是子会话的远程请求:用户选择经
+    // SubagentHost::respond_permission 路由回子会话,不 notify confirm_cv
+    // (本地无等待线程)。
+    std::string confirm_remote_session_id;
+    std::string confirm_remote_request_id;
+    std::string confirm_origin_label;
+    // AskUserQuestion overlay 的来源标注(子会话与主会话共享 TUI 版工具,
+    // 子会话占用 overlay 时非空)。
+    std::string ask_origin_label;
+    // confirm / ask overlay 释放时 notify_all:排队占用者(主会话工具确认、
+    // 子会话 ask 工具、远程 confirm 泵)以此感知「overlay 空闲」。
+    std::condition_variable overlay_cv;
+    struct AskQueueTicket {};
+    std::deque<std::shared_ptr<AskQueueTicket>> ask_queue;
+
+    // Input history for up/down navigation
+    std::vector<std::string> input_history;
+    int history_index = -1; // -1 = not browsing history; TUI helpers may use private sentinels
+    std::string saved_input; // saved current input when entering history
+
+    // Pending message queue
+    std::vector<std::string> pending_queue;
+    std::deque<UserInput> pending_structured_queue;
+    std::vector<nlohmann::json> pending_attachments;
+    // -1 means the prompt text is focused. Non-negative values select a
+    // pending attachment row for keyboard navigation/deletion.
+    int pending_attachment_focus = acecode::tui::kNoPendingAttachmentFocus;
+
+    // Tool confirmation state.
+    //   confirm_focus —— overlay 当前焦点的选项下标:
+    //     0 = "Yes"        (Allow,仅本次)
+    //     1 = "Yes, allow all edits during this session (shift+tab)"
+    //                        (AlwaysAllow,本 session 内同名工具自动通过)
+    //     2 = "No"         (Deny,默认聚焦在最安全的拒绝行)
+    //   每次 on_tool_confirm 翻起 confirm_pending 时 main.cpp 把它复位为 2,
+    //   避免上一次的焦点泄漏到下一次确认。
+    bool confirm_pending = false;
+    std::string confirm_tool_name;
+    std::string confirm_tool_args;
+    PermissionResult confirm_result = PermissionResult::Deny;
+    int confirm_focus = 2;
+    std::condition_variable confirm_cv;
+
+    // AskUserQuestion overlay state(add-ask-user-question-tool 能力)。
+    // 与 confirm_pending 互斥:同一时间至多一个阻塞型工具在跑,因此二者
+    // 不可能同时为 true。渲染层的优先级仍然写成 `ask > confirm`,作为
+    // 显式护栏,键盘事件则在 confirm 分支之前先被 ask 分支拦截。
+    //   ask_pending          — 工具线程翻起 true,TUI 完成回答 / Esc 后翻回 false
+    //   ask_cv               — 工具线程 wait,事件线程 notify
+    // 下面是 overlay 内部的渲染适配状态,仅在 ask_pending=true 期间有效。
+    // 问答业务状态统一由 ask_session 持有,渲染/输入层必须读取 snapshot(),
+    // 不在 TuiState 中复制每题的选择、焦点或编辑文本。
+    bool ask_pending = false;
+    std::shared_ptr<tui::AskQuestionSession> ask_session;
+    // 仅用于测试/旧渲染适配器注入的一次性结构化完成结果。正常生产路径
+    // 直接读取 ask_session->completion();禁止使用字符串 map 传递答案。
+    std::optional<tui::AskQuestionCompletion> ask_completion_override;
+    tui::AskQuestionConfig ask_config;
+    std::condition_variable ask_cv;
+    int ask_timeout_hint_seconds = 0;
+
+    // Resume session picker state
+    struct ResumeItem {
+        std::string id;
+        std::string display; // formatted display line
+    };
+    bool resume_picker_active = false;
+    std::vector<ResumeItem> resume_items;
+    int resume_selected = 0; // currently highlighted index
+    int resume_view_offset = 0; // top index of the visible viewport window
+    std::function<void(const std::string& session_id)> resume_callback;
+
+    // /model picker 状态。和 resume_picker_active 同结构 —— main.cpp 在
+    // model_picker_open=true 时画一层 inline overlay,Up/Down 调
+    // model_picker_selected,Enter → callback(name),Esc → 关 picker。
+    // callback 由 cmd_model 在打开 picker 时填(它持有 CommandContext
+    // 引用,可以直接 dispatch "/model <name>")。
+    bool model_picker_open = false;
+    std::vector<ModelPickerOption> model_picker_options;
+    int model_picker_selected = 0;
+    int model_picker_view_offset = 0;
+    std::function<void(const std::string& name)> model_picker_callback;
+
+    // /mode picker state. The callback runs from main.cpp while state.mu is
+    // held, matching the /model picker callback contract.
+    bool mode_picker_open = false;
+    std::vector<ModePickerOption> mode_picker_options;
+    int mode_picker_selected = 0;
+    std::function<void(PermissionMode mode)> mode_picker_callback;
+
+    // Rewind picker state. Target selection and restore-mode selection are
+    // separate phases so Esc can step back from modes before cancelling.
+    enum class RewindPickerOperation {
+        Rewind,
+        Fork,
+    };
+    static bool rewind_target_uses_mode_picker(
+        RewindPickerOperation operation,
+        bool can_restore_code) {
+        return operation == RewindPickerOperation::Rewind &&
+               can_restore_code;
+    }
+    enum class RewindRestoreMode {
+        CodeAndConversation,
+        ConversationOnly,
+        CodeOnly,
+        NeverMind,
+    };
+    struct RewindItem {
+        size_t message_index = 0;
+        std::string message_uuid;
+        std::string preview;
+        bool has_stable_uuid = false;
+        bool can_restore_code = false;
+        int changed_files = 0;
+        int insertions = 0;
+        int deletions = 0;
+        std::string display;
+    };
+    struct RewindModeItem {
+        RewindRestoreMode mode = RewindRestoreMode::ConversationOnly;
+        std::string label;
+        std::string description;
+    };
+    bool rewind_picker_active = false;
+    bool rewind_mode_active = false;
+    RewindPickerOperation rewind_picker_operation = RewindPickerOperation::Rewind;
+    std::vector<RewindItem> rewind_items;
+    int rewind_selected = 0;
+    int rewind_view_offset = 0; // top index of the visible viewport for the items list
+    std::vector<RewindModeItem> rewind_modes;
+    int rewind_mode_selected = 0;
+    std::function<void(RewindItem, RewindRestoreMode)> rewind_callback;
+
+    // Slash-command dropdown state. Set by refresh_slash_dropdown() after every
+    // input_text change. active becomes true when input starts with `/`, has no
+    // whitespace, no other overlay is in the way, and the dismissed flag is
+    // clear. Selection index is preserved across filter updates when the same
+    // command still matches. dismissed_for_input is set on Esc and cleared when
+    // input leaves slash-command position (empty/no-slash/has-space).
+    struct SlashDropdownItem {
+        std::string name;
+        std::string description;
+    };
+    bool slash_dropdown_active = false;
+    std::vector<SlashDropdownItem> slash_dropdown_items;
+    int slash_dropdown_selected = 0;
+    int slash_dropdown_view_offset = 0; // top index of the visible viewport
+    int slash_dropdown_total_matches = 0; // full match count, equals items.size()
+    bool slash_dropdown_dismissed_for_input = false;
+    // Application-owned, cross-launch counters loaded once at TUI startup.
+    // Dropdown refreshes read only this cache and never touch the filesystem.
+    std::map<std::string, std::uint64_t> slash_command_usage_counts;
+    // Skill usage/dormancy state shared with the AgentLoop. Non-owning from
+    // the TUI side; main() owns the shared_ptr. Null in headless modes.
+    std::shared_ptr<SkillUsageStore> skill_usage_store;
+
+    // @ path-reference dropdown. The token offsets are UTF-8 byte offsets so
+    // they can be applied directly to input_text without lossy conversion.
+    bool path_reference_active = false;
+    std::optional<path_reference::Token> path_reference_token;
+    std::vector<path_reference::Candidate> path_reference_items;
+    int path_reference_selected = 0;
+    int path_reference_view_offset = 0;
+    std::string path_reference_error;
+    std::string path_reference_dismissed_token;
+    std::uint64_t path_reference_generation = 0;
+
+    int chat_focus_index = -1;
+    bool chat_follow_tail = true;
+    bool ctrl_c_armed = false;
+    std::chrono::steady_clock::time_point last_ctrl_c_time{};
+
+    // drag-autoscroll: 鼠标拖到 chat_box 顶部/底部时自动滚动并补偿 selection,
+    // 让选区跟着内容走 (而不是被 FTXUI 的屏幕坐标钉死在固定位置)。
+    //   drag_left_pressed       — 自己维护,因为终端在 Moved 事件中通常不带 button
+    //   last_mouse_x/y          — 最近一次 motion 的屏幕坐标,anim_thread 用来分类
+    //   drag_phase              — 当前阶段,由 drag_scroll::classify() 决定
+    //   last_drag_scroll_at     — 时间门,控制按行滚动的节奏 (60ms/行)
+    //   chat_line_offset        — 在 chat_focus_index 这条消息内的额外行偏移
+    //                              用于按行滚动 (现有按消息粒度滚动不动它)
+    //   chat_scroll_top_row     — 聊天 transcript 视口顶部的绝对显示行,
+    //                              包含消息间 spacer;用于驱动 yframe 精确定位
+    //   pending_shift_dy        — anim_thread → 事件线程的请求,
+    //                              事件线程消费时调用 screen.ShiftSelection(0, dy)
+    bool drag_left_pressed = false;
+    int last_mouse_x = -1;
+    int last_mouse_y = -1;
+    drag_scroll::Phase drag_phase = drag_scroll::Phase::Idle;
+    std::chrono::steady_clock::time_point last_drag_scroll_at{};
+    int chat_line_offset = 0;
+    int chat_scroll_top_row = 0;
+    int pending_shift_dy = 0;
+
+    // selection-anchor-compensation:每帧 Renderer 开头比较 chat_focus_index 对应
+    // 消息的 box.y_min 与上一帧快照的差异,若 focus_index/line_offset 都没变(用户
+    // 没主动滚动)而 y 仍然漂移,说明 layout 自身在动 —— 比如 /resume 后第一帧
+    // paragraph width 测不准、第二帧才把 vbox 总高度拉到正确值导致 yframe 滚动;
+    // 流式新 token 把 follow-tail 锚点上推。这种漂移期间用户拖选,FTXUI 的
+    // selection_data_ 仍按屏幕物理坐标钉死,会显示成 "鼠标按下时指 A 字符,松开
+    // 时框住的是 B 字符" 的错位。检测到漂移就 screen.ShiftSelection(0, dy) 把
+    // selection 锚点同方向移走,与 drag-autoscroll 的补偿语义一致。
+    int last_focus_index = -1;
+    int last_focus_box_y = -999999;  // sentinel: 还没拍快照
+    int last_chat_line_offset = 0;
+
+    // draggable-thick-scrollbar:鼠标在加粗滚动条列上按下/拖动时进入此态,
+    // 与上面的 drag_left_pressed (drag-select) 互斥 —— 一次按下要么开始
+    // 选区拖拽要么开始滚动条拖拽,绝不同时。
+    //   drag_scrollbar_phase    — Idle = 未在拖滚动条;Dragging = 正在拖
+    //   drag_scrollbar_snapshot — 按下瞬间快照 message_line_counts,拖动期间
+    //                              的 y → (focus_index, line_offset) 映射全
+    //                              用这份快照,这样流式输出追加新消息时拇指
+    //                              不会被指针下扯走
+    //   drag_scrollbar_grab_offset_2x — 鼠标按在 thumb 内部的 2x 子格偏移,
+    //                                   用于拖动时保持正常滚动条语义
+    enum class DragScrollbarPhase { Idle, Dragging };
+    DragScrollbarPhase drag_scrollbar_phase = DragScrollbarPhase::Idle;
+    std::vector<int> drag_scrollbar_snapshot;
+    int drag_scrollbar_grab_offset_2x = 0;
+
+    // link-hover-tooltip (add-tui-hyperlinks 5.3): 指针无按键悬停在链接上
+    // 约 300ms 后,在指针附近浮层显示该链接的真实 URL(防骗:显示 href 原文
+    // 而非显示文本)。仅在 hover-motion 终端能力探测通过时才会有无按键
+    // Mouse::Moved 事件流入(conhost 家族强制关,Apple Terminal.app 不支持),
+    // 字段本身全部由 `mu` 保护(事件线程写,anim_thread 与渲染线程读)。
+    //   hover_link_href   — 当前指针下的 href;空 = 不在任何链接区域上
+    //   hover_link_since  — 进入当前 href 的时刻(steady_clock),300ms 判定用;
+    //                        指针在同一链接内微移不重置,避免计时永远到不了
+    //   hover_link_visible — 气泡是否已显示(anim_thread 在停留到期时置位)
+    //   hover_link_x/y    — 指针屏幕坐标,渲染层据此把气泡放到指针附近
+    std::string hover_link_href;
+    std::chrono::steady_clock::time_point hover_link_since{};
+    bool hover_link_visible = false;
+    int hover_link_x = -1;
+    int hover_link_y = -1;
+
+    // Async compact state
+    bool is_compacting = false;                       // protected by mu
+    std::chrono::steady_clock::time_point compact_animation_start_time{};
+    std::atomic<bool> compact_abort_requested{false};  // cross-thread abort signal
+    acecode::JoiningThread compact_thread;                        // background compaction thread
+
+    // Tool progress state (streaming-tool-progress change).
+    // Lifecycle:
+    //   on_tool_progress_start → tool_running=true, tool_progress populated, start_time captured
+    //   on_tool_progress_update → tail_snapshot/current_partial/counters updated; PostEvent throttled
+    //   on_tool_progress_end → tool_running=false, tool_progress cleared; unconditional PostEvent
+    struct ToolProgress {
+        std::string tool_name;
+        std::string command_preview;
+        // 工具前言(add-tool-preamble):该次调用的前言,非空时进度头显示
+        // "● 前言 · Tool(args)",让等待期一眼看到「在干什么」。
+        std::string preamble;
+        std::vector<std::string> tail_lines;    // up to last 5 complete lines
+        std::string current_partial;            // current line in progress (no \n yet)
+        int total_lines = 0;
+        size_t total_bytes = 0;
+        std::chrono::steady_clock::time_point start_time;
+    };
+    bool tool_running = false;
+    ToolProgress tool_progress;
+    std::chrono::steady_clock::time_point last_tool_post_event_time{};
+
+    // Waiting-indicator state(inline-thinking-heartbeat change)。三个字段都
+    // 由 `mu` 保护,仅在 is_waiting 期间有意义,busy=true 转换时全部清零。
+    //   thinking_start_time            — 每次 busy=true 转换时打点(回合起点)
+    //   streaming_output_chars         — 自上次 on_usage 以来的 on_delta UTF-8
+    //                                    字节数(on_usage 入账时清零,流重试清零)
+    //   turn_completion_tokens_confirmed — 本回合所有已完成请求的
+    //                                    completion_tokens 之和(on_usage 累加)
+    // 心跳读数 = confirmed + chars/4,整回合单调递增 —— 旧字段
+    // last_completion_tokens_authoritative 是"最近一次请求"语义,多请求回合
+    // 里读数会冻在上一请求终值,已废弃。
+    std::chrono::steady_clock::time_point thinking_start_time{};
+    size_t streaming_output_chars = 0;
+    long long turn_completion_tokens_confirmed = 0;
+
+    // 本回合被用户主动中断(busy 期间 Esc;Ctrl+C 复用 Esc 分支)。
+    // on_busy_changed(false) 消费后复位 —— 置位的回合不追加 "Done for Ns" 行。
+    // 由 `mu` 保护。
+    bool turn_interrupted_by_user = false;
+
+    // mouse-selection-copy: when a right-click clipboard copy fires, we stamp
+    // this with "now() + 2s" and snapshot the text that was written. The
+    // anim_thread polls this and restores status_line to status_line_saved
+    // when the deadline passes. Guarded by `mu`. Empty deadline means no
+    // pending clear.
+    std::chrono::steady_clock::time_point status_line_clear_at{};
+    std::string status_line_saved;
+
+    // /title command (window-title capability). Mirror of SessionManager's
+    // pending_title_ kept here so the TUI can echo the current title without
+    // grabbing the session manager's lock from the render path. Kept in sync
+    // by the /title command handler and the resume restore path.
+    std::string current_session_title;
+
+    std::mutex mu;
+};
+
+} // namespace acecode

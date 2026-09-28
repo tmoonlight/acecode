@@ -18,7 +18,7 @@ depends-on: []
 
 # path
 
-后台：src/themes、src/config、src/tool/theme_create*、原生工具注册、主题路由、对应测试。
+后台：src/adapters/themes、src/base/config、src/adapters/tool/theme_create*、原生工具注册、主题路由、对应测试。
 界面：ThemeCards、SettingsPage、App、ChatView、主题加载与测试、国际化。
 技能：assets/seed/skills/acecode/ai-theme、seed 清单/版本及对应测试。
 

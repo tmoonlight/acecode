@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `ChannelPluginHost` launches a stdio command for each activate or deactivate request. A successful activation currently retains the outbound webhook URL but has no binding-instance identity. `SessionChannelBinder` serializes bind, off, and keepalive process calls with `op_mu_`, while event callbacks are fenced by `(session_id, generation)`. Explicit off snapshots the active channel and invokes a session-only deactivate. Keepalive activation can return a replacement runtime but currently updates only the outbound URL. Shutdown intentionally preserves the external plugin binding for daemon restart and therefore does not deactivate it, but its teardown is not currently serialized with command operations.

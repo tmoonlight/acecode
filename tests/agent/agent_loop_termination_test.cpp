@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 端到端测试 AgentLoop 终止协议(openspec/changes/align-loop-with-hermes):
 //   (a) text-only 响应直接结束 loop,无条件
 //   (b) turn 1 调用 task_complete → 1 轮退出,UI 渲染 Done 摘要
@@ -181,7 +182,8 @@ ToolImpl create_counting_write_tool(
 class AgentLoopHarness {
 public:
     explicit AgentLoopHarness(std::string cwd = ".",
-        std::function<void(const acecode::TokenUsage&)> on_usage = {})
+        std::function<void(const acecode::TokenUsage&)> on_usage = {},
+        const acecode::MemoryRegistry* memory = nullptr, bool with_session = false)
         : cwd_(std::move(cwd)) {
         tools_.register_tool(create_noop_tool());
         tools_.register_tool(acecode::create_task_complete_tool());
@@ -229,8 +231,17 @@ public:
         auto provider_accessor =
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
 
-        loop_ = std::make_unique<AgentLoop>(
-            provider_accessor, tools_, cb, /*cwd=*/cwd_, perms_);
+        if (with_session) session_manager_.start_session(cwd_, "stub", "stub-model");
+        auto services = acecode_test::AgentLoopFixture::dependencies(
+            provider_accessor, tools_, cb, perms_, with_session ? &session_manager_ : nullptr, nullptr, memory);
+        services.prompt_config = [state = prompt_state_] {
+            std::lock_guard<std::mutex> lock(state->mutex);
+            ++state->captures;
+            return state->config;
+        };
+        loop_ = std::make_unique<AgentLoop>(std::move(services),
+            acecode_test::AgentLoopFixture::configuration(/*cwd=*/cwd_));
+        loop_->start();
         event_sub_ = loop_->events().subscribe(
             [this](const acecode::SessionEvent& event) {
                 {
@@ -257,10 +268,7 @@ public:
         loop_->set_agent_loop_config(cfg);
     }
 
-    void enable_session_manager() {
-        session_manager_.start_session(cwd_, "stub", "stub-model");
-        loop_->set_session_manager(&session_manager_);
-    }
+
 
     std::vector<ChatMessage> persisted_session_messages() const {
         return session_manager_.load_active_messages();
@@ -368,14 +376,27 @@ public:
         return loop_->messages();
     }
 
-    void set_memory_context(const acecode::MemoryRegistry* registry,
-                            const acecode::MemoryConfig* cfg) {
-        loop_->set_memory_registry(registry);
-        loop_->set_memory_config(cfg);
+    void set_memory_config(const acecode::MemoryConfig* config) {
+        std::lock_guard<std::mutex> lock(prompt_state_->mutex);
+        prompt_state_->config.memory = config ? std::make_optional(*config) : std::nullopt;
     }
 
     void set_project_instructions_config(const acecode::ProjectInstructionsConfig* cfg) {
-        loop_->set_project_instructions_config(cfg);
+        std::lock_guard<std::mutex> lock(prompt_state_->mutex);
+        prompt_state_->config.project_instructions = cfg ? std::make_optional(*cfg) : std::nullopt;
+    }
+
+    std::function<void()> custom_instruction_update(std::string text) {
+        return [state = prompt_state_, text = std::move(text)] {
+            std::lock_guard<std::mutex> lock(state->mutex);
+            state->config.custom_instructions.emplace();
+            state->config.custom_instructions->set_text(text);
+        };
+    }
+
+    int prompt_captures() const {
+        std::lock_guard<std::mutex> lock(prompt_state_->mutex);
+        return prompt_state_->captures;
     }
 
     struct Msg {
@@ -486,6 +507,13 @@ private:
     ToolExecutor tools_;
     PermissionManager perms_;
     acecode::SessionManager session_manager_;
+    struct PromptState {
+        std::mutex mutex;
+        acecode::SessionPromptConfig config;
+        int captures = 0;
+    };
+    // 测试线程与工具线程共同持有发布状态，回合只拿值快照。
+    std::shared_ptr<PromptState> prompt_state_ = std::make_shared<PromptState>();
     std::unique_ptr<AgentLoop> loop_;
 
     std::mutex msg_mu_;
@@ -636,8 +664,8 @@ TEST(AgentLoopTurnNetDiff, CompletedTurnPersistsAndEmitsBeforeTerminalEvents) {
     TempHomeGuard home("acecode_turn_net_diff_completed");
     const auto cwd = home.root() / "work";
     fs::create_directories(cwd);
-    AgentLoopHarness h(cwd.string());
-    h.enable_session_manager();
+    AgentLoopHarness h(cwd.string(), {}, nullptr, true);
+
     h.push_text("done");
 
     ASSERT_TRUE(h.submit_and_wait("complete"));
@@ -648,8 +676,8 @@ TEST(AgentLoopTurnNetDiff, ErrorTurnPersistsAndEmitsBeforeTerminalEvents) {
     TempHomeGuard home("acecode_turn_net_diff_error");
     const auto cwd = home.root() / "work";
     fs::create_directories(cwd);
-    AgentLoopHarness h(cwd.string());
-    h.enable_session_manager();
+    AgentLoopHarness h(cwd.string(), {}, nullptr, true);
+
     h.push_provider_error(make_stub_provider_error("provider failed"));
 
     ASSERT_TRUE(h.submit_and_wait("fail"));
@@ -660,8 +688,8 @@ TEST(AgentLoopTurnNetDiff, AbortedTurnPersistsAndEmitsBeforeTerminalEvents) {
     TempHomeGuard home("acecode_turn_net_diff_aborted");
     const auto cwd = home.root() / "work";
     fs::create_directories(cwd);
-    AgentLoopHarness h(cwd.string());
-    h.enable_session_manager();
+    AgentLoopHarness h(cwd.string(), {}, nullptr, true);
+
     h.set_stub_latency_ms(200);
     h.push_tool_call("noop", "{}", "c1");
 
@@ -1118,8 +1146,8 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string());
-    h.set_memory_context(&memory, &memory_cfg);
+    AgentLoopHarness h(repo.string(), {}, &memory);
+    h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("ok");
 
@@ -1183,8 +1211,8 @@ TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string());
-    h.set_memory_context(&memory, &memory_cfg);
+    AgentLoopHarness h(repo.string(), {}, &memory);
+    h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("first ok");
     ASSERT_TRUE(h.submit_and_wait("first"));
@@ -1253,8 +1281,8 @@ TEST(AgentLoopTermination, TaskCompleteTerminatesImmediately) {
 }
 
 TEST(AgentLoopTermination, TerminalSessionActionRunsAfterDoneAndStopsLaterWrites) {
-    AgentLoopHarness h;
-    h.enable_session_manager();
+    AgentLoopHarness h(".", {}, nullptr, true);
+
     auto terminal_executions = std::make_shared<std::atomic<int>>(0);
     auto later_write_executions = std::make_shared<std::atomic<int>>(0);
     auto post_turn_actions = std::make_shared<std::atomic<int>>(0);
@@ -1289,8 +1317,8 @@ TEST(AgentLoopTermination, TerminalSessionActionRunsAfterDoneAndStopsLaterWrites
 
 TEST(AgentLoopTermination, TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult) {
     TempHomeGuard temp_home("acecode-task-complete-message-id");
-    AgentLoopHarness h(temp_home.root().string());
-    h.enable_session_manager();
+    AgentLoopHarness h(temp_home.root().string(), {}, nullptr, true);
+
     h.push_task_complete(std::string(
         acecode::TOOL_RESULT_DEFAULT_MAX_BYTES + 1024, 'x'));
 
@@ -2133,8 +2161,8 @@ TEST(AgentLoopTermination, IgnoredTextToolCallAppendsHiddenNoteAfterBatch) {
 // 的首 token 统计与实际不符。
 TEST(AgentLoopTermination, TextToolCallHoldDeltaDoesNotRecordFirstOutputChannel) {
     TempHomeGuard temp_home("acecode-text-tool-call-hold");
-    AgentLoopHarness h(temp_home.root().string());
-    h.enable_session_manager();
+    AgentLoopHarness h(temp_home.root().string(), {}, nullptr, true);
+
     acecode::StreamEvent hold;
     hold.type = acecode::StreamEventType::ToolCallDelta;
     hold.tool_index = -1;
@@ -2230,4 +2258,80 @@ TEST(AgentLoopTermination, LegacyTextToolCallHistoryIsScrubbedInRequest) {
         }
     }
     EXPECT_TRUE(raw_persisted) << "sanitizing must not rewrite persisted history";
+}
+
+// 场景：工具执行中保存自定义指令。期望本回合前缀不变，下一回合生效；
+// 这是 D8 有意采用的回合级快照语义，防止配置替换导致中途串用新值。
+TEST(AgentLoopTermination, CustomInstructionSaveAffectsOnlyTheNextTurn) {
+    TempHomeGuard home("acecode-prompt-snapshot");
+    AgentLoopHarness h(home.root().string());
+    h.custom_instruction_update("SNAPSHOT_BEFORE")();
+    ToolImpl tool = create_noop_tool();
+    tool.definition.name = "save_instructions";
+    tool.execute = [update = h.custom_instruction_update("SNAPSHOT_AFTER")](
+        const std::string&, const acecode::ToolContext&) {
+        update();
+        return ToolResult{"saved", true};
+    };
+    h.register_tool(std::move(tool));
+    h.push_tool_call("save_instructions", "{}");
+    h.push_text("first complete");
+    ASSERT_TRUE(h.submit_and_wait("save instructions"));
+    EXPECT_EQ(h.prompt_captures(), 1);
+    h.push_text("second complete");
+    ASSERT_TRUE(h.submit_and_wait("use new instructions"));
+    EXPECT_EQ(h.prompt_captures(), 2);
+    const auto first = h.request_messages_for_turn(0);
+    const auto continued = h.request_messages_for_turn(1);
+    const auto next = h.request_messages_for_turn(2);
+    ASSERT_FALSE(first.empty());
+    ASSERT_GE(continued.size(), first.size());
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].role, continued[i].role);
+        EXPECT_EQ(first[i].content, continued[i].content);
+    }
+    auto contains = [](const auto& messages, const std::string& text) {
+        return std::any_of(messages.begin(), messages.end(), [&](const auto& message) {
+            return message.content.find(text) != std::string::npos;
+        });
+    };
+    EXPECT_TRUE(contains(first, "SNAPSHOT_BEFORE"));
+    EXPECT_FALSE(contains(continued, "SNAPSHOT_AFTER"));
+    EXPECT_TRUE(contains(next, "SNAPSHOT_AFTER"));
+    EXPECT_FALSE(contains(next, "SNAPSHOT_BEFORE"));
+}
+
+// 场景：会话空闲时从关闭记忆切换为开启。期望下一回合立即采用新值；
+// 不再借用先前传入配置对象的地址，因此调用者配置离开作用域也不影响回合。
+TEST(AgentLoopTermination, IdleMemoryConfigurationSaveAppearsInNextTurn) {
+    TempHomeGuard home("acecode-memory-config-snapshot");
+    fs::create_directories(acecode::get_memory_dir());
+    acecode::MemoryRegistry memory;
+    memory.scan();
+    std::string error;
+    ASSERT_TRUE(memory.upsert("snapshot_memory", acecode::MemoryType::User,
+        "snapshot memory", "MEMORY_SNAPSHOT_CONTENT\n",
+        acecode::MemoryWriteMode::Create, error).has_value()) << error;
+    AgentLoopHarness h(home.root().string(), {}, &memory);
+    {
+        acecode::MemoryConfig config;
+        config.enabled = false;
+        h.set_memory_config(&config);
+    }
+    h.push_text("first");
+    ASSERT_TRUE(h.submit_and_wait("without memory"));
+    {
+        acecode::MemoryConfig config;
+        config.enabled = true;
+        h.set_memory_config(&config);
+    }
+    h.push_text("second");
+    ASSERT_TRUE(h.submit_and_wait("with memory"));
+    auto contains = [](const auto& messages) {
+        return std::any_of(messages.begin(), messages.end(), [](const auto& message) {
+            return message.content.find("snapshot_memory.md") != std::string::npos;
+        });
+    };
+    EXPECT_FALSE(contains(h.request_messages_for_turn(0)));
+    EXPECT_TRUE(contains(h.request_messages_for_turn(1)));
 }
