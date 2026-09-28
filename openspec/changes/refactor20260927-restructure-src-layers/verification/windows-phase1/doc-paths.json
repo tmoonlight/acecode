@@ -1,5 +1,5 @@
 {
-  "checked": 1081,
+  "checked": 1082,
   "excluded": [
     "openspec/** (historical paths are retained by the migration design)",
     "external/** (third-party)"

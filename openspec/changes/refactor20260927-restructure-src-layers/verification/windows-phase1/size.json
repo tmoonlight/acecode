@@ -2274,7 +2274,7 @@
       "allowed": 1000,
       "canonical": "src/apps/desktop/daemon_supervisor.cpp",
       "file": "src/apps/desktop/daemon_supervisor.cpp",
-      "lines": 757
+      "lines": 768
     },
     {
       "allowed": 1000,
@@ -5068,6 +5068,12 @@
     },
     {
       "allowed": 1000,
+      "canonical": "src/base/platform/process/graceful_stop.hpp",
+      "file": "src/base/platform/process/graceful_stop.hpp",
+      "lines": 52
+    },
+    {
+      "allowed": 1000,
       "canonical": "src/base/platform/process/os_process.hpp",
       "file": "src/base/platform/process/os_process.hpp",
       "lines": 42
@@ -5196,13 +5202,13 @@
       "allowed": 1000,
       "canonical": "src/base/platform/termination_signal.cpp",
       "file": "src/base/platform/termination_signal.cpp",
-      "lines": 181
+      "lines": 194
     },
     {
       "allowed": 1000,
       "canonical": "src/base/platform/termination_signal.hpp",
       "file": "src/base/platform/termination_signal.hpp",
-      "lines": 30
+      "lines": 32
     },
     {
       "allowed": 1000,

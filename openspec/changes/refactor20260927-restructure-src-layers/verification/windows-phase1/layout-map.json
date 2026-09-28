@@ -299,6 +299,11 @@
     },
     {
       "kind": "move",
+      "path": "main.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
       "path": "src/main.cpp",
       "phase": "P2-08"
     },

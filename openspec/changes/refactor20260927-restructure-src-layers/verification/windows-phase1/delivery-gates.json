@@ -1,0 +1,52 @@
+[
+  {
+    "name": "layers-delivery",
+    "exit_code": 0,
+    "seconds": 5.94
+  },
+  {
+    "name": "ownership-delivery",
+    "exit_code": 0,
+    "seconds": 4.52
+  },
+  {
+    "name": "size-delivery",
+    "exit_code": 0,
+    "seconds": 4.52
+  },
+  {
+    "name": "map-delivery",
+    "exit_code": 0,
+    "seconds": 0.63
+  },
+  {
+    "name": "docs-delivery",
+    "exit_code": 0,
+    "seconds": 3.66
+  },
+  {
+    "name": "openspec-restructure-src-layers",
+    "exit_code": 0,
+    "seconds": 1.85
+  },
+  {
+    "name": "openspec-split-agent-loop",
+    "exit_code": 0,
+    "seconds": 2.25
+  },
+  {
+    "name": "openspec-split-tui-main",
+    "exit_code": 0,
+    "seconds": 2.24
+  },
+  {
+    "name": "openspec-adopt-ownership-conventions",
+    "exit_code": 0,
+    "seconds": 1.58
+  },
+  {
+    "name": "diff-check",
+    "exit_code": 0,
+    "seconds": 0.49
+  }
+]
