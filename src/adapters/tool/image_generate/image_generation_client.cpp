@@ -1,3 +1,4 @@
+#include "utils/abandonable_call.hpp"
 #include "image_generation_client.hpp"
 
 #include "network/proxy_resolver.hpp"
@@ -158,9 +159,8 @@ struct RawHttpResult {
     std::string transport_error;
 };
 
-RawHttpResult post_generations(const ImageRequest& request) {
+RawHttpResult post_generations(const ImageRequest& request, const network::ProxyOptions& proxy_opts) {
     const std::string url = request.base_url + "/images/generations";
-    auto proxy_opts = network::proxy_options_for(url);
 
     nlohmann::json payload = {
         {"model", request.model},
@@ -186,9 +186,8 @@ RawHttpResult post_generations(const ImageRequest& request) {
     return out;
 }
 
-RawHttpResult post_edits(const ImageRequest& request) {
+RawHttpResult post_edits(const ImageRequest& request, const network::ProxyOptions& proxy_opts) {
     const std::string url = request.base_url + "/images/edits";
-    auto proxy_opts = network::proxy_options_for(url);
 
     cpr::Multipart form{
         {"model", request.model},
@@ -214,10 +213,10 @@ RawHttpResult post_edits(const ImageRequest& request) {
     return out;
 }
 
-ImageResponse run_blocking(const ImageRequest& request) {
+ImageResponse run_blocking(const ImageRequest& request, const network::ProxyOptions& proxy_opts) {
     RawHttpResult raw = request.reference_image_paths.empty()
-                            ? post_generations(request)
-                            : post_edits(request);
+                            ? post_generations(request, proxy_opts)
+                            : post_edits(request, proxy_opts);
     // 尺寸由上游报(实测 data[0] 带 width/height)。报不报都不影响成败 ——
     // 拿不到就在输出里省略尺寸,不为此多解一遍 base64。
     return parse_image_response(raw.status_code, raw.body, raw.transport_error);
@@ -227,41 +226,22 @@ ImageResponse run_blocking(const ImageRequest& request) {
 
 ImageResponse execute_image_request(const ImageRequest& request,
                                     const std::atomic<bool>* abort_flag) {
-    if (!abort_flag) {
-        return run_blocking(request);
+    // Resolve process-level proxy configuration before work can outlive this call.
+    std::optional<ImageResponse> result;
+    if (!abort_flag || !abort_flag->load()) {
+        const auto url = request.base_url +
+            (request.reference_image_paths.empty() ? "/images/generations" : "/images/edits");
+        auto proxy_opts = network::proxy_options_for(url);
+        result = run_abandonable<ImageResponse>(
+            [request, proxy_opts = std::move(proxy_opts)] { return run_blocking(request, proxy_opts); },
+            abort_flag);
     }
-
-    // 单张 20~60 秒,4k 更久。同步执行会让用户的停止在整段调用期间失效
-    // (McpManager::invoke 踩过同一个坑),所以阻塞调用放 detached 线程,
-    // 本线程 100ms 轮询 abort。迟到的响应写进 box 后整体丢弃。
-    struct ResultBox {
-        std::mutex mu;
-        std::condition_variable cv;
-        bool done = false;
-        ImageResponse result;
-    };
-    auto box = std::make_shared<ResultBox>();
-    std::thread([request, box]() {
-        ImageResponse r = run_blocking(request);
-        std::lock_guard<std::mutex> lk(box->mu);
-        box->result = std::move(r);
-        box->done = true;
-        box->cv.notify_all();
-    }).detach();
-
-    std::unique_lock<std::mutex> lk(box->mu);
-    while (!box->done) {
-        box->cv.wait_for(lk, std::chrono::milliseconds(100));
-        if (!box->done && abort_flag->load()) {
-            LOG_INFO("[image_generate] request abandoned by user abort");
-            ImageResponse aborted;
-            aborted.aborted = true;
-            aborted.error =
-                "image generation abandoned because the user aborted the turn";
-            return aborted;
-        }
-    }
-    return std::move(box->result);
+    if (result) return std::move(*result);
+    LOG_INFO("[image_generate] request abandoned by user abort");
+    ImageResponse aborted;
+    aborted.aborted = true;
+    aborted.error = "image generation abandoned because the user aborted the turn";
+    return aborted;
 }
 
 } // namespace acecode::image_generation

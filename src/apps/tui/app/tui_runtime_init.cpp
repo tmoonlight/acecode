@@ -68,9 +68,7 @@ static void initialize_models_registry_runtime(const AppConfig& config,
                                                const std::string& argv0_dir) {
     initialize_registry(config, argv0_dir);
     if (config.models_dev.allow_network && !config.models_dev.refresh_on_command_only) {
-        std::thread([] {
-            refresh_registry_from_network();
-        }).detach();
+        refresh_registry_in_background();
     }
 }
 
@@ -86,10 +84,7 @@ static void initialize_web_search_runtime(const AppConfig& config) {
     web_search::Region cached = web_search::runtime().detector().cached_region();
     web_search::runtime().router().resolve_active(cached);
     if (cached == web_search::Region::Unknown) {
-        std::thread([]{
-            auto r = web_search::runtime().detector().detect_now();
-            web_search::runtime().router().resolve_active(r);
-        }).detach();
+        web_search::runtime().detect_region_async();
     }
 }
 

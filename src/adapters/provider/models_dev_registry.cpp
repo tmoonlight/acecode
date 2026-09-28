@@ -1,5 +1,6 @@
 #include "models_dev_registry.hpp"
 #include "models_dev_paths.hpp"
+#include "utils/abandonable_call.hpp"
 
 #include "network/proxy_resolver.hpp"
 #include "utils/logger.hpp"
@@ -23,26 +24,22 @@ namespace {
 
 constexpr const char* kModelsDevUrl = "https://models.dev/api.json";
 
-std::mutex& registry_mutex() {
-    static std::mutex m;
-    return m;
-}
-
-std::shared_ptr<const nlohmann::json>& registry_storage() {
-    static std::shared_ptr<const nlohmann::json> r =
+struct RegistryState {
+    std::mutex mu;
+    std::shared_ptr<const nlohmann::json> registry =
         std::make_shared<const nlohmann::json>(nlohmann::json::object());
-    return r;
+    RegistrySource source;
+    unsigned long long generation = 0;
+};
+
+std::shared_ptr<RegistryState> registry_state() {
+    // The process and an in-flight network refresh share this data, never a host.
+    static const auto state = std::make_shared<RegistryState>();
+    return state;
 }
 
-RegistrySource& source_storage() {
-    static RegistrySource s;
-    return s;
-}
-
-unsigned long long& generation_storage() {
-    static unsigned long long generation = 0;
-    return generation;
-}
+bool install_candidate(const std::shared_ptr<RegistryState>& state,
+                       nlohmann::json candidate, const std::string& source_url);
 
 std::string lower(std::string v) {
     std::transform(v.begin(), v.end(), v.begin(),
@@ -67,10 +64,11 @@ std::optional<nlohmann::json> read_json_file(const fs::path& path) {
 }
 
 void install(std::shared_ptr<const nlohmann::json> registry, RegistrySource src) {
-    std::lock_guard<std::mutex> lk(registry_mutex());
-    registry_storage() = std::move(registry);
-    source_storage() = std::move(src);
-    ++generation_storage();
+    auto state = registry_state();
+    std::lock_guard<std::mutex> lk(state->mu);
+    state->registry = std::move(registry);
+    state->source = std::move(src);
+    ++state->generation;
 }
 
 } // namespace
@@ -157,8 +155,8 @@ void reload_registry_from_disk(const AppConfig& cfg, const std::string& argv0_di
             RegistrySource{RegistrySource::Kind::Empty, "", std::nullopt, std::nullopt});
 }
 
-bool refresh_registry_from_network() {
-    auto proxy_opts = network::proxy_options_for(kModelsDevUrl);
+static bool refresh_registry_owned(const std::shared_ptr<RegistryState>& state,
+                                   const network::ProxyOptions& proxy_opts) {
     cpr::Response r = cpr::Get(
         cpr::Url{kModelsDevUrl},
         network::build_ssl_options(proxy_opts),
@@ -173,7 +171,7 @@ bool refresh_registry_from_network() {
     }
     try {
         auto parsed = nlohmann::json::parse(r.text);
-        if (!install_registry_refresh_candidate(std::move(parsed), kModelsDevUrl)) {
+        if (!install_candidate(state, std::move(parsed), kModelsDevUrl)) {
             LOG_INFO("models.dev network response failed schema validation; keeping current snapshot");
             return false;
         }
@@ -185,24 +183,41 @@ bool refresh_registry_from_network() {
     }
 }
 
+bool refresh_registry_from_network() {
+    return refresh_registry_owned(registry_state(), network::proxy_options_for(kModelsDevUrl));
+}
+
+void refresh_registry_in_background() {
+    auto state = registry_state();
+    auto proxy_opts = network::proxy_options_for(kModelsDevUrl);
+    spawn_owned_detached("models-dev-refresh",
+        [state = std::move(state), proxy_opts = std::move(proxy_opts)] {
+            refresh_registry_owned(state, proxy_opts);
+        });
+}
+
 std::shared_ptr<const nlohmann::json> current_registry() {
-    std::lock_guard<std::mutex> lk(registry_mutex());
-    return registry_storage();
+    auto state = registry_state();
+    std::lock_guard<std::mutex> lk(state->mu);
+    return state->registry;
 }
 
 RegistrySource current_registry_source() {
-    std::lock_guard<std::mutex> lk(registry_mutex());
-    return source_storage();
+    auto state = registry_state();
+    std::lock_guard<std::mutex> lk(state->mu);
+    return state->source;
 }
 
 RegistrySnapshot current_registry_snapshot() {
-    std::lock_guard<std::mutex> lk(registry_mutex());
+    auto state = registry_state();
+    std::lock_guard<std::mutex> lk(state->mu);
     return RegistrySnapshot{
-        registry_storage(), source_storage(), generation_storage()};
+        state->registry, state->source, state->generation};
 }
 
-bool install_registry_refresh_candidate(nlohmann::json candidate,
-                                        const std::string& source_url) {
+namespace {
+bool install_candidate(const std::shared_ptr<RegistryState>& state,
+                       nlohmann::json candidate, const std::string& source_url) {
     if (!validate_registry_schema(candidate)) return false;
     std::size_t provider_count = 0;
     std::size_t model_count = 0;
@@ -217,13 +232,20 @@ bool install_registry_refresh_candidate(nlohmann::json candidate,
     // Match scripts/sync_models_dev.ps1. This threshold applies only to
     // network candidates; minimal local/user-override registries stay valid.
     if (provider_count < 50 || model_count < 1000) return false;
-    const RegistrySource previous_source = current_registry_source();
-    install(std::make_shared<const nlohmann::json>(std::move(candidate)),
-            RegistrySource{RegistrySource::Kind::Network,
-                           source_url,
-                           previous_source.manifest,
-                           previous_source.seed_dir});
+    auto snapshot = std::make_shared<const nlohmann::json>(std::move(candidate));
+    std::lock_guard<std::mutex> lock(state->mu);
+    state->registry = std::move(snapshot);
+    state->source = RegistrySource{RegistrySource::Kind::Network, source_url,
+                                  state->source.manifest, state->source.seed_dir};
+    ++state->generation;
     return true;
+}
+
+} // namespace
+
+bool install_registry_refresh_candidate(nlohmann::json candidate,
+                                        const std::string& source_url) {
+    return install_candidate(registry_state(), std::move(candidate), source_url);
 }
 
 } // namespace acecode

@@ -55,7 +55,8 @@ struct McpServerInfo {
 // ToolExecutor.
 //
 // The manager takes no ownership of the ToolExecutor; callers are expected to
-// keep the executor alive for at least as long as this manager.
+// keep the executor alive for synchronous API calls. Background registration
+// uses its lifetime gate and discards results after executor destruction.
 class McpManager {
 public:
     McpManager();

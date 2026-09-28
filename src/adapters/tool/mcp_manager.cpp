@@ -1,6 +1,7 @@
 #include "mcp_manager.hpp"
 #include "config/mcp_config.hpp"
 #include "utils/sha256.hpp"
+#include "utils/abandonable_call.hpp"
 
 // cpp-mcp's mcp_logger.h unconditionally defines LOG_DEBUG/LOG_INFO/LOG_ERROR
 // macros that collide with our own acecode logger. Pull in mcp headers first,
@@ -506,10 +507,27 @@ void McpManager::publish_connection_result(const std::shared_ptr<State>& state,
 
 void McpManager::start_entry_async(ConnectionSnapshot snapshot, ToolExecutor& executor) {
     auto state = state_;
-    std::thread([state, snapshot = std::move(snapshot), &executor]() mutable {
-        ConnectionResult result = connect_entry(std::move(snapshot));
-        publish_connection_result(state, std::move(result), executor);
-    }).detach();
+    const auto executor_ref = executor.lifetime_ref();
+    spawn_owned_detached("mcp-connect",
+        [state, snapshot = std::move(snapshot), executor_ref]() mutable {
+            ConnectionResult result = connect_entry(std::move(snapshot));
+            const auto name = result.server_name;
+            const auto generation = result.generation;
+            if (executor_ref.with([&](ToolExecutor& live_executor) {
+                    publish_connection_result(state, std::move(result), live_executor);
+                })) return;
+            // The executor may disappear while connection/discovery is blocked.
+            // Settle introspection without publishing into its destroyed registry.
+            std::lock_guard<std::mutex> lock(state->mu);
+            for (auto& entry : state->servers) {
+                if (entry.name == name && entry.generation == generation &&
+                    entry.state == McpServerState::Starting) {
+                    entry.state = McpServerState::Cancelled;
+                    entry.error = "tool executor no longer available";
+                }
+            }
+            state->cv.notify_all();
+        });
 }
 
 bool McpManager::connect_all(const AppConfig& cfg) {
@@ -952,39 +970,14 @@ ToolResult McpManager::invoke(const std::weak_ptr<State>& weak_state,
         }
     };
 
-    // 无 abort 通道(如启动期内部调用)时保持原地同步执行,零额外线程。
-    if (!abort_flag) {
-        return blocking_call();
-    }
-
-    struct ResultBox {
-        std::mutex mu;
-        std::condition_variable cv;
-        bool done = false;
-        ToolResult result{"", false};
-    };
-    auto box = std::make_shared<ResultBox>();
-    std::thread([blocking_call = std::move(blocking_call), box]() {
-        ToolResult r = blocking_call();
-        std::lock_guard<std::mutex> lk(box->mu);
-        box->result = std::move(r);
-        box->done = true;
-        box->cv.notify_all();
-    }).detach();
-
-    std::unique_lock<std::mutex> lk(box->mu);
-    while (!box->done) {
-        box->cv.wait_for(lk, std::chrono::milliseconds(100));
-        if (!box->done && abort_flag->load()) {
-            LOG_INFO(tag + "call_tool('" + server_name + "', '" + tool_name +
-                     "') abandoned by user abort");
-            return ToolResult{
-                "[Aborted] MCP tool call abandoned because the user aborted the "
-                "turn; the server may still finish it in the background.",
-                false};
-        }
-    }
-    return std::move(box->result);
+    auto result = run_abandonable<ToolResult>(std::move(blocking_call), abort_flag);
+    if (result) return std::move(*result);
+    LOG_INFO(tag + "call_tool('" + server_name + "', '" + tool_name +
+             "') abandoned by user abort");
+    return ToolResult{
+        "[Aborted] MCP tool call abandoned because the user aborted the "
+        "turn; the server may still finish it in the background.",
+        false};
 }
 
 void McpManager::shutdown() {
@@ -992,6 +985,7 @@ void McpManager::shutdown() {
     std::lock_guard<std::mutex> lk(state->mu);
     if (state->shutdown_done) return;
     state->shutdown_done = true;
+    state->status_callback = {};
     for (auto& s : state->servers) {
         const std::string tag = std::string("[mcp:") + transport_tag(s.cfg.transport) + "] ";
         try {

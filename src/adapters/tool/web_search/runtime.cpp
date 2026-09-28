@@ -2,6 +2,7 @@
 
 #include "backend_router.hpp"
 #include "region_detector.hpp"
+#include "utils/abandonable_call.hpp"
 #include "utils/logger.hpp"
 
 #include <memory>
@@ -21,11 +22,25 @@ struct Runtime::Impl {
 Runtime::Runtime(const WebSearchConfig& cfg)
     : impl_(std::make_unique<Impl>(cfg)) {}
 
-Runtime::~Runtime() = default;
+Runtime::~Runtime() { stop_background_publication(); }
 
 BackendRouter& Runtime::router() { return impl_->router_; }
 RegionDetector& Runtime::detector() { return impl_->detector_; }
 const WebSearchConfig& Runtime::cfg() const { return impl_->cfg_; }
+
+void Runtime::stop_background_publication() { publication_lifetime_.revoke(); }
+
+void Runtime::detect_region_async() {
+    auto probe = detector().make_probe_task();
+    auto ref = publication_lifetime_.ref(*this);
+    spawn_owned_detached("web-search-region", [probe = std::move(probe), ref] {
+        const auto region = probe(); // No runtime/cache/process configuration access here.
+        ref.with([region](Runtime& runtime) {
+            runtime.detector().publish_region(region);
+            runtime.router().resolve_active(region);
+        });
+    });
+}
 
 namespace {
 std::mutex g_mu;

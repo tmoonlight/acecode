@@ -7,7 +7,7 @@ CopilotAuthTask::CopilotAuthTask(const AgentLoop::ProviderAccessor& provider_acc
     TuiState& s, IScreenPort& scr, std::atomic<bool>& done)
     : state(s), screen(scr), auth_done(done) {
     auto provider_snapshot = provider_accessor();
-    copilot = dynamic_cast<CopilotProvider*>(provider_snapshot.get());
+    copilot = std::dynamic_pointer_cast<CopilotProvider>(provider_snapshot);
     if (copilot && !copilot->is_authenticated()) {
         copilot_model = copilot->model();
         {

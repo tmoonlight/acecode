@@ -134,7 +134,7 @@
 
 ## 3. 行为变更:有界等待
 
-- [ ] 3.1 【O-07】【主】【行为变更 D9】收口 detached 线程,退出时有界等待。
+- [ ] 3.1 【O-07】【主】【行为变更 D9】收口 detached 线程,退出时有界等待。〔实现完成: Codex-root 2026-09-28;模型缓存/代理输入自有快照、区域探测发布门、MCP 执行器 LifetimeRef、MCP/图像 run_abandonable、Copilot 共享 provider,三入口最多 2s 收尾;owned worker 保留日志租约避免静态析构悬垂;慢连接销毁/迟到探测/本机 HTTP 取消用例已补,待统一验收〕
   - models.dev 刷新与区域探测改为 `spawn_owned_detached`,闭包只持有自有状态;
   - McpManager 的连接线程不再捕获 `&executor`,改为捕获 `shared_ptr<State>`;invoke 改为 `run_abandonable`;
   - `image_generation_client` 改为 `run_abandonable`;

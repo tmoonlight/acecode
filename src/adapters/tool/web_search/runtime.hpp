@@ -12,6 +12,7 @@
 // 接口都允许 nullptr)。
 
 #include "config/config.hpp"
+#include "utils/lifetime_token.hpp"
 #include <memory>
 
 namespace acecode::web_search {
@@ -29,10 +30,13 @@ public:
     BackendRouter& router();
     RegionDetector& detector();
     const WebSearchConfig& cfg() const;
+    void detect_region_async();
+    void stop_background_publication();
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    LifetimeToken publication_lifetime_;
 };
 
 // 进程级初始化。重复调 → LOG_WARN 并保留第一次的。enabled=false 时仍然会
@@ -40,7 +44,7 @@ private:
 // router 不会被 register_default_backends 注入任何 backend。
 void init(const WebSearchConfig& cfg);
 
-// 关闭 runtime 单例;主要给测试 / 干净 shutdown 用。生产代码进程退出时不必调。
+// 关闭 runtime 单例,先等待在途发布;迟到探测只销毁自己的结果。
 void shutdown();
 
 // 是否已 init。/websearch 命令在未初始化时显式提示而不是 crash。

@@ -82,6 +82,7 @@ TEST(TuiShutdownSequence, PreservesEveryShutdownStepAndIsIdempotent) {
         TuiShutdownStep::CleanupSessions,
         TuiShutdownStep::SessionRegistration,
         TuiShutdownStep::ResumeHint,
+        TuiShutdownStep::AbandonedWork,
     };
     LifecycleProbe probe;
     acecode::tui::TuiShutdownSequence shutdown;

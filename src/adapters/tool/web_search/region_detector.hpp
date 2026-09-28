@@ -55,6 +55,11 @@ public:
     // abort 非空时,在请求前后各检查一次,中断返回 Region::Unknown。
     Region detect_now(const std::atomic<bool>* abort = nullptr);
 
+    // Snapshot the network inputs. The task never writes process-level cache.
+    // A startup worker publishes only while its runtime lifetime gate is open.
+    std::function<Region()> make_probe_task() const;
+    void publish_region(Region region);
+
     // 优先读 state.json 缓存;无缓存时调 detect_now。
     Region get_or_detect(const std::atomic<bool>* abort = nullptr);
 

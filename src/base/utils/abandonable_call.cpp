@@ -1,5 +1,6 @@
 #include "utils/abandonable_call.hpp"
 #include "utils/scope_exit.hpp"
+#include "utils/logger.hpp"
 
 #include <cstdio>
 #include <thread>
@@ -32,6 +33,7 @@ void complete_work(const std::shared_ptr<WorkRegistry>& registry) {
 
 void abandonable_detail::start_owned_work(std::string name, std::function<void()> fn) {
     auto registry = work_registry();
+    auto logger = Logger::lease();
     {
         std::lock_guard<std::mutex> lock(registry->mu);
         ++registry->active;
@@ -41,7 +43,8 @@ void abandonable_detail::start_owned_work(std::string name, std::function<void()
     // its entire closure and is counted until that closure has been destroyed.
     // stderr diagnostics remain usable after the application Logger's teardown.
     std::fprintf(stderr, "[abandonable_call] starting owned detached work: %s\n", name.c_str());
-    std::thread worker([registry, name = std::move(name), fn = std::move(fn)]() mutable {
+    std::thread worker([registry, logger = std::move(logger), name = std::move(name), fn = std::move(fn)]() mutable {
+        Logger::ScopedLease logging(std::move(logger));
         try {
             fn();
         } catch (const std::exception& error) {

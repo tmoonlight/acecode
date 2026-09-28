@@ -15,6 +15,8 @@
 #include "session_host/auto_title_runner.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
+#include "tool/web_search/runtime.hpp"
+#include "utils/abandonable_call.hpp"
 #include "platform/power_inhibitor.hpp"
 #include "remote_control/remote_control_service.hpp"
 #include <iostream>
@@ -107,6 +109,10 @@ void TuiApp::shutdown_step(TuiShutdownStep step) {
         if (!exit_session_id_.empty())
             std::cerr << "\nacecode: session " << exit_session_id_
                       << " saved. Resume with: acecode --resume " << exit_session_id_ << std::endl;
+        break;
+    case TuiShutdownStep::AbandonedWork:
+        web_search::shutdown();
+        wait_for_abandoned_work(std::chrono::seconds(2));
         break;
     }
 }

@@ -20,6 +20,8 @@
 #include <functional>
 #include <cstdio>
 #include <thread>
+#include <memory>
+#include <utility>
 
 #include "append_file.hpp"
 
@@ -28,11 +30,30 @@ namespace acecode {
 enum class LogLevel { Dbg = 0, Info = 1, Warn = 2, Err = 3 };
 
 class Logger {
-public:
-    static Logger& instance() {
-        static Logger inst;
-        return inst;
+    static std::shared_ptr<Logger>& thread_lease() {
+        static thread_local std::shared_ptr<Logger> logger;
+        return logger;
     }
+public:
+    // An owned background task keeps the sink alive past process-scope teardown.
+    // Nested tasks inherit that lease without revisiting a destroyed access point.
+    static std::shared_ptr<Logger> lease() {
+        if (thread_lease()) return thread_lease();
+        static const auto logger = std::shared_ptr<Logger>(new Logger());
+        return logger;
+    }
+    static Logger& instance() { return *lease(); }
+
+    class ScopedLease {
+    public:
+        explicit ScopedLease(std::shared_ptr<Logger> logger)
+            : previous_(std::exchange(thread_lease(), std::move(logger))) {}
+        ~ScopedLease() { thread_lease() = std::move(previous_); }
+        ScopedLease(const ScopedLease&) = delete;
+        ScopedLease& operator=(const ScopedLease&) = delete;
+    private:
+        std::shared_ptr<Logger> previous_;
+    };
 
     // 兼容单文件模式:写入指定文件,不滚动,不镜像 stderr。
     void init(const std::string& log_file) {
@@ -133,8 +154,13 @@ public:
             ofs_.append(s);
         }
         if (mirror_stderr_) {
-            std::cerr << s;
-            std::cerr.flush();
+            if (thread_lease()) {
+                std::fwrite(s.data(), 1, s.size(), stderr);
+                std::fflush(stderr);
+            } else {
+                std::cerr << s;
+                std::cerr.flush();
+            }
         }
     }
 

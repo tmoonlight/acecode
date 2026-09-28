@@ -27,11 +27,11 @@ bool is_reachable(long status) {
 
 } // namespace
 
-ProbeResult cpr_region_probe(const std::string& url,
-                             const std::string& method,
-                             int timeout_ms) {
+static ProbeResult cpr_region_probe_owned(const std::string& url,
+                                          const std::string& method,
+                                          int timeout_ms,
+                                          const network::ProxyOptions& opts) {
     ProbeResult r;
-    auto opts = network::proxy_options_for(url);
     cpr::Header headers = {
         {"User-Agent",
          "Mozilla/5.0 (compatible; ACECode-RegionProbe/1.0)"},
@@ -54,19 +54,25 @@ ProbeResult cpr_region_probe(const std::string& url,
     return r;
 }
 
+ProbeResult cpr_region_probe(const std::string& url,
+                             const std::string& method, int timeout_ms) {
+    return cpr_region_probe_owned(url, method, timeout_ms, network::proxy_options_for(url));
+}
+
 RegionDetector::RegionDetector(int timeout_ms, RegionProbeFn probe)
     : timeout_ms_(timeout_ms),
-      probe_(probe ? std::move(probe) : cpr_region_probe) {}
+      probe_(std::move(probe)) {}
 
 Region RegionDetector::detect_now(const std::atomic<bool>* abort) {
     if (abort && abort->load()) return Region::Unknown;
 
-    ProbeResult r = probe_(kProbeUrl, "HEAD", timeout_ms_);
+    const auto probe = probe_ ? probe_ : RegionProbeFn(cpr_region_probe);
+    ProbeResult r = probe(kProbeUrl, "HEAD", timeout_ms_);
     if (abort && abort->load()) return Region::Unknown;
 
     // 405 = 服务器/代理拒绝 HEAD,回退到 GET
     if (r.status_code == 405) {
-        r = probe_(kProbeUrl, "GET", timeout_ms_);
+        r = probe(kProbeUrl, "GET", timeout_ms_);
         if (abort && abort->load()) return Region::Unknown;
     }
 
@@ -80,6 +86,30 @@ Region RegionDetector::detect_now(const std::atomic<bool>* abort) {
     cache.detected_at_ms = now_ms();
     write_web_search_region_cache(cache);
     return region;
+}
+
+std::function<Region()> RegionDetector::make_probe_task() const {
+    auto probe = probe_;
+    if (!probe) {
+        auto opts = network::proxy_options_for(kProbeUrl);
+        probe = [opts = std::move(opts)](const std::string& url,
+                                        const std::string& method, int timeout) {
+            return cpr_region_probe_owned(url, method, timeout, opts);
+        };
+    }
+    return [probe = std::move(probe), timeout = timeout_ms_] {
+        auto result = probe(kProbeUrl, "HEAD", timeout);
+        if (result.status_code == 405) result = probe(kProbeUrl, "GET", timeout);
+        return is_reachable(result.status_code) ? Region::Global : Region::Cn;
+    };
+}
+
+void RegionDetector::publish_region(Region region) {
+    WebSearchRegionCache cache;
+    cache.region = region_str(region);
+    cache.detected_at_ms = now_ms();
+    write_web_search_region_cache(cache);
+    LOG_INFO(std::string("[web_search] region detected: ") + region_str(region));
 }
 
 Region RegionDetector::get_or_detect(const std::atomic<bool>* abort) {

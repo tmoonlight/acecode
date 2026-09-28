@@ -48,6 +48,8 @@ void reload_registry_from_disk(const AppConfig& cfg, const std::string& argv0_di
 // written to disk. Returns true on success (registry updated), false on any
 // failure (registry untouched).
 bool refresh_registry_from_network();
+// Captures the registry and proxy configuration before launching owned work.
+void refresh_registry_in_background();
 
 // Validate and atomically install a refresh candidate. Invalid candidates leave
 // the current registry untouched. The network path uses this same seam so tests

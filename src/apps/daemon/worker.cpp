@@ -1,3 +1,4 @@
+#include "utils/abandonable_call.hpp"
 #include "worker.hpp"
 #include "daemon_shutdown_sequence.hpp"
 #include "platform/termination_signal.hpp"
@@ -235,6 +236,11 @@ std::string validate_can_start(const WorkerOptions& opts,
 }
 
 int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
+    // Declared before all work producers; also covers partial startup failures.
+    ScopeExit wait_background([] {
+        acecode::web_search::shutdown();
+        wait_for_abandoned_work(std::chrono::seconds(2));
+    });
     // daemon 模式日志切换(spec 12.1-12.3): 写到 ~/.acecode/logs/daemon-{date}.log,
     // 跨午夜自动滚动文件;foreground=true 时同时镜像到 stderr。必须放在 preflight
     // 之前,否则启动期校验失败时不会留下任何日志记录。
@@ -285,7 +291,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     initialize_registry(cfg, executable_dir);
     if (cfg.models_dev.allow_network &&
         !cfg.models_dev.refresh_on_command_only) {
-        std::thread([] { refresh_registry_from_network(); }).detach();
+        refresh_registry_in_background();
     }
 
     // 模型池负载监控只服务 wizard-ai 地址,避免普通模型配置访问企业接口。
@@ -445,10 +451,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         auto cached = acecode::web_search::runtime().detector().cached_region();
         acecode::web_search::runtime().router().resolve_active(cached);
         if (cached == acecode::web_search::Region::Unknown) {
-            std::thread([]{
-                auto r = acecode::web_search::runtime().detector().detect_now();
-                acecode::web_search::runtime().router().resolve_active(r);
-            }).detach();
+            acecode::web_search::runtime().detect_region_async();
         }
     }
 

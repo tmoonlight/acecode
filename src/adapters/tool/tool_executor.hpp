@@ -1,5 +1,6 @@
 #pragma once
 
+#include "utils/lifetime_token.hpp"
 #include "llm/llm_provider.hpp"
 #include "llm/tool_result.hpp"
 #include "utils/diff_utils.hpp"
@@ -227,6 +228,9 @@ struct RegisteredToolInfo {
 
 class ToolExecutor {
 public:
+    ToolExecutor() = default;
+    ~ToolExecutor() { lifetime_.revoke(); }
+    LifetimeRef<ToolExecutor> lifetime_ref() { return lifetime_.ref(*this); }
     // Register or refresh a tool only when an existing entry has the same
     // source/owner identity. This prevents one MCP server from overwriting a
     // different server (or a built-in) on a qualified-name collision.
@@ -314,6 +318,7 @@ public:
 private:
     std::map<std::string, ToolImpl> tools_;
     mutable std::mutex tools_mu_;
+    LifetimeToken lifetime_;
 };
 
 } // namespace acecode

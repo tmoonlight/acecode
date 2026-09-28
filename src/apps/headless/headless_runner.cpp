@@ -1,3 +1,4 @@
+#include "utils/abandonable_call.hpp"
 #include "config/mcp_config.hpp"
 #include "environment/bootstrap.hpp"
 #include "headless_runner.hpp"
@@ -289,6 +290,10 @@ int print_available_capabilities(const HeadlessCliOptions& opts) {
 } // namespace
 
 int run_print_mode(const HeadlessCliOptions& opts) {
+    ScopeExit wait_background([] {
+        web_search::shutdown();
+        wait_for_abandoned_work(std::chrono::seconds(2));
+    });
     // Discovery is a terminal local-config action. Keep it before prompt
     // assembly so redirected stdin is neither awaited nor consumed, and before
     // hooks/model/session/MCP initialization so listing has no runtime effects.

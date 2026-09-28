@@ -16,7 +16,8 @@ private:
     TuiState& state;
     IScreenPort& screen;
     std::atomic<bool>& auth_done;
-    CopilotProvider* copilot = nullptr;  // Nullable, borrowed; O-07 replaces legacy borrowing.
+    // Shared with the model binding; authentication retains its provider if the model changes.
+    std::shared_ptr<CopilotProvider> copilot;
     std::string copilot_model;
     LifetimeToken lifetime_;
     JoiningThread worker_;  // Joins before token/dependencies; owns the this capture.
