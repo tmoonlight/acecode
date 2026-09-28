@@ -8,7 +8,7 @@
 //     无 FTXUI 依赖,可被 acecode_testable 直接 include 使用(同
 //     picker_scroll.hpp 的 header-only pattern)。
 //   - make_screen_interactive(mode) — 工厂,会调 FTXUI,实现在
-//     render_mode.cpp,排除在 acecode_testable 外。
+//     render_mode.cpp,随测试所引用的同名头一起登记到 acecode_testable。
 //
 // 决策表:
 //   alt_screen_mode == "always"  → AltScreen

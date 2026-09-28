@@ -157,6 +157,7 @@
 #include "tui/text_truncation.hpp"
 #include "tui/thick_vscroll_bar.hpp"
 #include "tui/redraw_pacer.hpp"
+#include "tui/input/input_trace.hpp"
 #include "tui/thinking_animation.hpp"
 #include "tui/compact_animation.hpp"
 #include "tui/compact_notice_row.hpp"
@@ -671,11 +672,6 @@ static bool dispatch_ask_session_event_locked(
     return false;
 }
 
-static std::int64_t monotonic_milliseconds() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-}
-
 }  // namespace
 
 // ---- Get current working directory ----
@@ -789,49 +785,6 @@ static void flush_terminal_input_buffer() {
     }
 #endif
 }
-
-#ifndef ACECODE_TUI_INPUT_TRACE
-#define ACECODE_TUI_INPUT_TRACE 0
-#endif
-
-#if ACECODE_TUI_INPUT_TRACE
-static std::string box_for_log(const Box& box) {
-    return "[" + std::to_string(box.x_min) + "," +
-           std::to_string(box.y_min) + "]-[" +
-           std::to_string(box.x_max) + "," +
-           std::to_string(box.y_max) + "]";
-}
-
-static std::string event_for_log(const Event& event) {
-    if (event.is_character()) {
-        return "Event::Character(bytes=" +
-               std::to_string(event.character().size()) + ")";
-    }
-    return event.DebugString();
-}
-
-static std::string drag_phase_for_log(acecode::drag_scroll::Phase phase) {
-    switch (phase) {
-    case acecode::drag_scroll::Phase::Idle:
-        return "Idle";
-    case acecode::drag_scroll::Phase::Dragging:
-        return "Dragging";
-    case acecode::drag_scroll::Phase::ScrollingUp:
-        return "ScrollingUp";
-    case acecode::drag_scroll::Phase::ScrollingDown:
-        return "ScrollingDown";
-    }
-    return "?";
-}
-
-static std::string scrollbar_geometry_for_log(
-    const acecode::tui::ChatScrollbarThumbGeometry& geometry) {
-    return "{max_top=" + std::to_string(geometry.max_top_row) +
-           " range2x=" + std::to_string(geometry.scroll_range_2x) +
-           " thumb_size2x=" + std::to_string(geometry.thumb_size_2x) +
-           " thumb_top2x=" + std::to_string(geometry.thumb_top_2x) + "}";
-}
-#endif
 
 // ---- Session finalization on exit ----
 static SessionManager* g_session_manager = nullptr;
@@ -3178,14 +3131,14 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             state.last_focus_box_y > -1000000 &&
             cur_y != state.last_focus_box_y) {
             int dy = cur_y - state.last_focus_box_y;
-#if ACECODE_TUI_INPUT_TRACE
+            ACECODE_INPUT_TRACE(
             LOG_DEBUG("[drag-select] anchor compensation dy=" +
                       std::to_string(dy) + " focus=" +
                       std::to_string(cur_focus) + " offset=" +
                       std::to_string(cur_offset) + " y=" +
                       std::to_string(state.last_focus_box_y) + "->" +
                       std::to_string(cur_y));
-#endif
+            );
             screen.ShiftSelection(0, dy);
         }
         // 仅在拿到有效 reflect 数据时更新快照,否则保留上次的;这样 anchor
@@ -4680,7 +4633,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     std::atomic<std::int64_t> last_keyboard_input_at_ms{0};
     auto request_scheduled_redraw =
         [&screen, redraw_pacer](int minimum_interval_ms) {
-            const std::int64_t now_ms = monotonic_milliseconds();
+            const std::int64_t now_ms = tui::monotonic_milliseconds();
             if (!redraw_pacer->try_request_scheduled_redraw(
                     now_ms, minimum_interval_ms)) {
                 return false;
@@ -4968,7 +4921,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             state.streaming_output_chars += token.size();
             clamp_chat_focus();
         }
-        const std::int64_t now_ms = monotonic_milliseconds();
+        const std::int64_t now_ms = tui::monotonic_milliseconds();
         const bool keyboard_input_recent =
             acecode::tui::is_keyboard_input_recent(
                 now_ms,
@@ -5929,7 +5882,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             context.conhost_compat_layout = conhost_compat_layout;
             context.keyboard_input_recent =
                 tui::is_keyboard_input_recent(
-                    monotonic_milliseconds(),
+                    tui::monotonic_milliseconds(),
                     last_keyboard_input_at_ms.load(
                         std::memory_order_acquire));
             context.last_frame_latency_ms =
@@ -6020,9 +5973,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                             // 内容相对上移 actual 行 → 原 anchor 文本屏幕坐标应
                             // -actual.
                             state.pending_shift_dy += -actual;
-#if ACECODE_TUI_INPUT_TRACE
+                            ACECODE_INPUT_TRACE(
                             LOG_DEBUG("[drag-select] autoscroll tick phase=" +
-                                      drag_phase_for_log(state.drag_phase) +
+                                      tui::input::drag_phase_for_log(state.drag_phase) +
                                       " requested_dy=" + std::to_string(dy) +
                                       " actual=" + std::to_string(actual) +
                                       " pending_shift_dy=" +
@@ -6036,7 +5989,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                       "," +
                                       std::to_string(state.last_mouse_y) +
                                       ")");
-#endif
+                            );
                             requires_immediate_post = true;
                         }
                     }
@@ -6123,9 +6076,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             !event.is_cursor_position() &&
             !event.is_cursor_shape()) {
             last_keyboard_input_at_ms.store(
-                monotonic_milliseconds(), std::memory_order_release);
+                tui::monotonic_milliseconds(), std::memory_order_release);
         }
-#if ACECODE_TUI_INPUT_TRACE
+        ACECODE_INPUT_TRACE(
         if (event != Event::Custom &&
             !event.is_cursor_position() &&
             !event.is_cursor_shape()) {
@@ -6145,14 +6098,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     " line_offset=" + std::to_string(state.chat_line_offset) +
                     " follow_tail=" + std::string(state.chat_follow_tail ? "1" : "0");
             }
-            LOG_DEBUG("[input] received " + event_for_log(event) +
-                      " chat_box=" + box_for_log(chat_box) +
-                      " scrollbar_box=" + box_for_log(scrollbar_box) +
-                      " ask_scrollbar_box=" + box_for_log(ask_question_frame.scrollbar_box) +
-                      " ask_overlay_box=" + box_for_log(ask_question_frame.overlay_box) +
+            LOG_DEBUG("[input] received " + tui::input::event_for_log(event) +
+                      " chat_box=" + tui::input::box_for_log(chat_box) +
+                      " scrollbar_box=" + tui::input::box_for_log(scrollbar_box) +
+                      " ask_scrollbar_box=" + tui::input::box_for_log(ask_question_frame.scrollbar_box) +
+                      " ask_overlay_box=" + tui::input::box_for_log(ask_question_frame.overlay_box) +
                       state_snapshot);
         }
-#endif
+        );
 
         // drag-autoscroll: 事件线程入口处消费 anim_thread 攒下的 selection 偏移
         // 补偿. 所有对 FTXUI selection_data_ 的写都发生在这条路径上, 跟
@@ -6165,10 +6118,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.pending_shift_dy = 0;
             }
             if (dy != 0) {
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 LOG_DEBUG("[drag-select] consuming pending ShiftSelection dy=" +
                           std::to_string(dy));
-#endif
+                );
                 screen.ShiftSelection(0, dy);
             }
         }
@@ -6685,7 +6638,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             const int before_offset = state.chat_line_offset;
             const bool before_follow_tail = state.chat_follow_tail;
             const int actual = scroll_chat_by_lines(-step);
-#if ACECODE_TUI_INPUT_TRACE
+            ACECODE_INPUT_TRACE(
             const int max_top = acecode::tui::chat_max_scroll_top_row(
                 message_line_counts,
                 static_cast<int>(state.conversation.size()),
@@ -6702,7 +6655,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                       " follow_tail=" +
                       std::string(before_follow_tail ? "1" : "0") + "->" +
                       std::string(state.chat_follow_tail ? "1" : "0"));
-#endif
+            );
             if (actual != 0) {
                 screen.PostEvent(Event::Custom);
             }
@@ -6719,7 +6672,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             const int before_offset = state.chat_line_offset;
             const bool before_follow_tail = state.chat_follow_tail;
             const int actual = scroll_chat_by_lines(step);
-#if ACECODE_TUI_INPUT_TRACE
+            ACECODE_INPUT_TRACE(
             const int max_top = acecode::tui::chat_max_scroll_top_row(
                 message_line_counts,
                 static_cast<int>(state.conversation.size()),
@@ -6736,7 +6689,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                       " follow_tail=" +
                       std::string(before_follow_tail ? "1" : "0") + "->" +
                       std::string(state.chat_follow_tail ? "1" : "0"));
-#endif
+            );
             if (actual != 0) {
                 screen.PostEvent(Event::Custom);
             }
@@ -7096,11 +7049,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     // 拖到底自然恢复 follow_tail;中间位置保持手动滚动。
                     state.chat_follow_tail = state.chat_scroll_top_row >= max_top;
                 }
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 LOG_DEBUG("[scrollbar] pressed mouse=(" +
                           std::to_string(mouse.x) + "," +
                           std::to_string(mouse.y) + ") track=" +
-                          box_for_log(scrollbar_box) +
+                          tui::input::box_for_log(scrollbar_box) +
                           " track_height=" + std::to_string(track_height) +
                           " viewport_rows=" + std::to_string(viewport_rows) +
                           " messages=" + std::to_string(snapshot_count) +
@@ -7115,13 +7068,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                           std::to_string(
                               state.drag_scrollbar_grab_offset_2x) +
                           " geometry=" +
-                          scrollbar_geometry_for_log(geometry) +
+                          tui::input::scrollbar_geometry_for_log(geometry) +
                           " focus=" + std::to_string(state.chat_focus_index) +
                           " offset=" +
                           std::to_string(state.chat_line_offset) +
                           " follow_tail=" +
                           std::string(state.chat_follow_tail ? "1" : "0"));
-#endif
+                );
                 screen.PostEvent(Event::Custom);
                 return true;
             }
@@ -7138,18 +7091,18 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     if (chat_box.Contain(mouse.x, mouse.y) &&
                         !scrollbar_box.Contain(mouse.x, mouse.y)) {
                         std::lock_guard<std::mutex> lk(state.mu);
-#if ACECODE_TUI_INPUT_TRACE
+                        ACECODE_INPUT_TRACE(
                         LOG_DEBUG("[drag-select] pressed start mouse=(" +
                                   std::to_string(mouse.x) + "," +
                                   std::to_string(mouse.y) + ") chat_box=" +
-                                  box_for_log(chat_box) + " scrollbar_box=" +
-                                  box_for_log(scrollbar_box) + " focus=" +
+                                  tui::input::box_for_log(chat_box) + " scrollbar_box=" +
+                                  tui::input::box_for_log(scrollbar_box) + " focus=" +
                                   std::to_string(state.chat_focus_index) +
                                   " offset=" +
                                   std::to_string(state.chat_line_offset) +
                                   " previous_phase=" +
-                                  drag_phase_for_log(state.drag_phase));
-#endif
+                                  tui::input::drag_phase_for_log(state.drag_phase));
+                        );
                         state.drag_left_pressed = true;
                         state.last_mouse_x = mouse.x;
                         state.last_mouse_y = mouse.y;
@@ -7158,13 +7111,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     }
                 } else if (mouse.motion == Mouse::Released) {
                     std::lock_guard<std::mutex> lk(state.mu);
-#if ACECODE_TUI_INPUT_TRACE
+                    ACECODE_INPUT_TRACE(
                     if (state.drag_scrollbar_phase ==
                         TuiState::DragScrollbarPhase::Dragging) {
                         LOG_DEBUG("[scrollbar] released mouse=(" +
                                   std::to_string(mouse.x) + "," +
                                   std::to_string(mouse.y) + ") track=" +
-                                  box_for_log(scrollbar_box) + " top=" +
+                                  tui::input::box_for_log(scrollbar_box) + " top=" +
                                   std::to_string(state.chat_scroll_top_row) +
                                   " grab2x=" +
                                   std::to_string(
@@ -7180,14 +7133,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     LOG_DEBUG("[drag-select] released mouse=(" +
                               std::to_string(mouse.x) + "," +
                               std::to_string(mouse.y) + ") phase=" +
-                              drag_phase_for_log(state.drag_phase) +
+                              tui::input::drag_phase_for_log(state.drag_phase) +
                               " left_pressed=" +
                               std::to_string(state.drag_left_pressed ? 1 : 0) +
                               " focus=" +
                               std::to_string(state.chat_focus_index) +
                               " offset=" +
                               std::to_string(state.chat_line_offset));
-#endif
+                    );
                     state.drag_left_pressed = false;
                     state.drag_phase = drag_scroll::Phase::Idle;
                     state.last_drag_scroll_at = {};
@@ -7267,11 +7220,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         state.chat_follow_tail =
                             state.chat_scroll_top_row >= geometry.max_top_row;
                     }
-#if ACECODE_TUI_INPUT_TRACE
+                    ACECODE_INPUT_TRACE(
                     LOG_DEBUG("[scrollbar] moved mouse=(" +
                               std::to_string(mouse.x) + "," +
                               std::to_string(mouse.y) + ") track=" +
-                              box_for_log(scrollbar_box) +
+                              tui::input::box_for_log(scrollbar_box) +
                               " track_height=" +
                               std::to_string(track_height) +
                               " viewport_rows=" +
@@ -7287,21 +7240,21 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                               std::to_string(
                                   state.drag_scrollbar_grab_offset_2x) +
                               " geometry=" +
-                              scrollbar_geometry_for_log(geometry) +
+                              tui::input::scrollbar_geometry_for_log(geometry) +
                               " focus=" +
                               std::to_string(state.chat_focus_index) +
                               " offset=" +
                               std::to_string(state.chat_line_offset) +
                               " follow_tail=" +
                               std::string(state.chat_follow_tail ? "1" : "0"));
-#endif
+                    );
                     screen.PostEvent(Event::Custom);
                     return true;
                 }
                 if (state.drag_left_pressed) {
-#if ACECODE_TUI_INPUT_TRACE
+                    ACECODE_INPUT_TRACE(
                     const auto previous_phase = state.drag_phase;
-#endif
+                    );
                     state.last_mouse_x = mouse.x;
                     state.last_mouse_y = mouse.y;
                     auto new_phase = drag_scroll::classify(
@@ -7309,20 +7262,20 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         drag_scroll::Config{});
                     bool phase_changed = (new_phase != state.drag_phase);
                     state.drag_phase = new_phase;
-#if ACECODE_TUI_INPUT_TRACE
+                    ACECODE_INPUT_TRACE(
                     LOG_DEBUG("[drag-select] moved mouse=(" +
                               std::to_string(mouse.x) + "," +
                               std::to_string(mouse.y) + ") chat_box=" +
-                              box_for_log(chat_box) + " phase=" +
-                              drag_phase_for_log(previous_phase) + "->" +
-                              drag_phase_for_log(new_phase) +
+                              tui::input::box_for_log(chat_box) + " phase=" +
+                              tui::input::drag_phase_for_log(previous_phase) + "->" +
+                              tui::input::drag_phase_for_log(new_phase) +
                               " changed=" +
                               std::to_string(phase_changed ? 1 : 0) +
                               " focus=" +
                               std::to_string(state.chat_focus_index) +
                               " offset=" +
                               std::to_string(state.chat_line_offset));
-#endif
+                    );
                     // 进入滚动阶段时立即 PostEvent, 让 anim_thread 尽快转到
                     // 50ms 间隔 + 跑第一次 tick. 不 PostEvent 也会在下个 300ms
                     // 唤醒读到新 phase, 但那个延迟体感很差.
@@ -7396,34 +7349,34 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 mouse.x, mouse.y, chat_box.x_min, chat_box.y_min,
                 chat_box.x_max, chat_box.y_max, is_wheel_event);
             if (!chat_mouse_target) {
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 if (is_wheel_event) {
                     LOG_DEBUG("[input] chat wheel ignored outside chat_box " +
-                              event_for_log(event) +
-                              " chat_box=" + box_for_log(chat_box));
+                              tui::input::event_for_log(event) +
+                              " chat_box=" + tui::input::box_for_log(chat_box));
                 }
-#endif
+                );
                 return false;
             }
-#if ACECODE_TUI_INPUT_TRACE
+            ACECODE_INPUT_TRACE(
             if (is_wheel_event && !chat_box.Contain(mouse.x, mouse.y)) {
                 LOG_DEBUG("[input] chat wheel accepted above chat_box for "
                           "terminal origin mismatch " +
-                          event_for_log(event) +
-                          " chat_box=" + box_for_log(chat_box));
+                          tui::input::event_for_log(event) +
+                          " chat_box=" + tui::input::box_for_log(chat_box));
             }
-#endif
+            );
 
             // 鼠标滚轮按行滚动 (3 行/notch, Win 默认值), 长消息不再被一格掠过。
             if (mouse.button == Mouse::WheelUp) {
                 sync_chat_line_counts_from_layout();
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 const int before_focus = state.chat_focus_index;
                 const int before_offset = state.chat_line_offset;
                 const bool before_tail = state.chat_follow_tail;
-#endif
+                );
                 const int actual = scroll_chat_by_lines(-WHEEL_LINES);
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 LOG_DEBUG("[input] chat wheel up delta=-" +
                           std::to_string(WHEEL_LINES) +
                           " actual=" + std::to_string(actual) +
@@ -7435,7 +7388,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                           std::string(before_tail ? "1" : "0") +
                           "->" +
                           std::string(state.chat_follow_tail ? "1" : "0"));
-#endif
+                );
                 if (actual != 0) {
                     screen.PostEvent(Event::Custom);
                 }
@@ -7443,13 +7396,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
             if (mouse.button == Mouse::WheelDown) {
                 sync_chat_line_counts_from_layout();
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 const int before_focus = state.chat_focus_index;
                 const int before_offset = state.chat_line_offset;
                 const bool before_tail = state.chat_follow_tail;
-#endif
+                );
                 const int actual = scroll_chat_by_lines(WHEEL_LINES);
-#if ACECODE_TUI_INPUT_TRACE
+                ACECODE_INPUT_TRACE(
                 LOG_DEBUG("[input] chat wheel down delta=" +
                           std::to_string(WHEEL_LINES) +
                           " actual=" + std::to_string(actual) +
@@ -7461,7 +7414,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                           std::string(before_tail ? "1" : "0") +
                           "->" +
                           std::string(state.chat_follow_tail ? "1" : "0"));
-#endif
+                );
                 if (actual != 0) {
                     screen.PostEvent(Event::Custom);
                 }
@@ -7946,14 +7899,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         input_with_esc,
         [&renderer_ctx, &screen, redraw_pacer] {
             const auto frame_ticket = redraw_pacer->begin_frame(
-                monotonic_milliseconds());
+                tui::monotonic_milliseconds());
             auto frame = render_tui_frame(renderer_ctx);
             // FTXUI closures do not invalidate the frame. This one runs on the
             // next loop turn, after the current Draw/TerminalFlush completed,
             // and therefore measures conservative end-to-end frame latency.
             screen.Post([redraw_pacer, frame_ticket] {
                 redraw_pacer->complete_frame(
-                    frame_ticket, monotonic_milliseconds());
+                    frame_ticket, tui::monotonic_milliseconds());
             });
             return frame;
         });

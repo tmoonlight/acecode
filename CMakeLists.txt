@@ -194,6 +194,8 @@ foreach(_root IN LISTS ACECODE_INCLUDE_ROOTS)
 endforeach()
 add_library(acecode_include_roots INTERFACE)
 target_include_directories(acecode_include_roots INTERFACE ${ACECODE_INCLUDE_ROOTS})
+configure_file(cmake/acecode_tui_input_trace_config.hpp.in
+    "${CMAKE_BINARY_DIR}/generated/acecode_tui_input_trace_config.hpp" @ONLY)
 
 # P5 按组建库前,只给 base/image 的实现开放 SYSTEM 第三方头搜索路径。
 # canonical include 保留 stb/...;不能把 external 放进所有目标的公共 include 根。
@@ -211,7 +213,8 @@ set(ACECODE_TUI_DIRS
     ${CMAKE_SOURCE_DIR}/src/apps/tui)
 set(ACECODE_TUI_TESTABLE_SUBSETS
     commands/ resume/ path_reference/ markdown/
-    drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp)
+    drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp
+    input/input_trace.cpp render_mode.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")
@@ -396,6 +399,9 @@ foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     endforeach()
 endforeach()
 list(REMOVE_DUPLICATES ACECODE_TESTABLE_TUI_SOURCES)
+if(BUILD_TESTING)
+    acecode_assert_tested_tui_sources(SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
+endif()
 list(APPEND ACECODE_TESTABLE_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
 list(REMOVE_ITEM ACECODE_TUI_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
 if(NOT ACECODE_TUI_SOURCES)
@@ -607,10 +613,6 @@ install(FILES
     "${CMAKE_SOURCE_DIR}/assets/channels/whatsapp/package.json"
     "${CMAKE_SOURCE_DIR}/assets/channels/whatsapp/package-lock.json"
     DESTINATION channels/whatsapp COMPONENT whatsapp_channel)
-target_compile_definitions(acecode PRIVATE
-    $<$<BOOL:${ACECODE_TUI_INPUT_TRACE}>:ACECODE_TUI_INPUT_TRACE=1>
-)
-
 source_group(TREE ${CMAKE_SOURCE_DIR} FILES
     ${ACECODE_MAIN_SOURCE}
     ${ACECODE_ALL_SOURCES}

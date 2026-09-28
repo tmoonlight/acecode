@@ -1,0 +1,3 @@
+#pragma once
+// One configure-time value for every translation unit that compiles TUI code.
+#cmakedefine01 ACECODE_TUI_INPUT_TRACE

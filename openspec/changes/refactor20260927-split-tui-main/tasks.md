@@ -43,7 +43,7 @@
 
 ## 2. 入口与启动(restructure 的 P3 之后开始)
 
-- [ ] 2.1 【B-01】【子】基础设施。
+- [ ] 2.1 【B-01】【子】基础设施。〔实现完成: Codex-root 2026-09-28;屏幕接口与 fake、统一 trace 配置头/调用宏、单调时钟和 testable 同名实现登记闸门已落地;待一期末尾验证 trace 双配置和缺项失败场景〕
   - 新增 `screen_port.hpp`(IScreenPort,含 `dimx()`)与 `fake_screen_port`;
   - 新增 `input/input_trace.hpp`:trace 函数只在 `#if` 内声明,调用点用宏包裹;`ACECODE_TUI_INPUT_TRACE` 对所有编译 TUI 源的目标生效,或改用 configure_file 生成的配置头;
   - `monotonic_milliseconds` 迁到 `redraw_pacer.hpp` 或 utils;

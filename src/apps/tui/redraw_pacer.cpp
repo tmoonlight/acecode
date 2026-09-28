@@ -1,9 +1,16 @@
 #include "tui/redraw_pacer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 
 namespace acecode { namespace tui {
+
+std::int64_t monotonic_milliseconds() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 
 bool TuiRedrawPacer::try_request_scheduled_redraw(
     std::int64_t now_ms,

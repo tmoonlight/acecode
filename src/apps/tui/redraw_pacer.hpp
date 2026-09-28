@@ -5,6 +5,8 @@
 
 namespace acecode { namespace tui {
 
+std::int64_t monotonic_milliseconds();
+
 inline constexpr int kMaxRecordedFrameLatencyMs = 5000;
 
 struct TuiRedrawFrameTicket {
