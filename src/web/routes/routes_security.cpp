@@ -15,7 +15,7 @@
 #include "sandbox/exec_rules.hpp"
 #include "sandbox/sandbox_backend.hpp"
 #include "security/audit_log.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <filesystem>

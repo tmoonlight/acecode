@@ -2,7 +2,7 @@
 
 #include "config/config.hpp"
 #include "session/session_client.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
 #include "utils/encoding.hpp"

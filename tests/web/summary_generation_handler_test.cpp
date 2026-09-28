@@ -1,5 +1,5 @@
 #include "web/handlers/summary_generation_handler.hpp"
-#include "session/session_auto_title.hpp"
+#include "session_host/session_auto_title.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <gtest/gtest.h>

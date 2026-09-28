@@ -25,7 +25,7 @@
 // tui::SubagentHost 提供进程内 SessionRegistry 后同样注册。TUI 主会话
 // 不在 registry 里,权限模式经 fallback_permissions 继承。
 
-#include "tool_executor.hpp"
+#include "tool/tool_executor.hpp"
 
 #include <functional>
 #include <memory>

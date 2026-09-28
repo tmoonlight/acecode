@@ -1,7 +1,7 @@
 #include "thread_tools.hpp"
 
 #include "session/session_manager.hpp"
-#include "session/thread_service.hpp"
+#include "session_host/thread_service.hpp"
 #include "tool/tool_args_parser.hpp"
 
 #include <algorithm>

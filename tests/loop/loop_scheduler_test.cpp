@@ -2,7 +2,7 @@
 
 #include "config/config.hpp"
 #include "permissions/permissions.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"

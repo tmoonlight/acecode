@@ -13,7 +13,7 @@
 
 #include "permissions/permissions.hpp"
 #include "config/config.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "tool/tool_executor.hpp"
 #include "worktree/worktree_manager.hpp"
 #include "utils/utf8_path.hpp"

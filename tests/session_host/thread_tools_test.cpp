@@ -1,12 +1,12 @@
 #include <gtest/gtest.h>
 
 #include "session/session_manager.hpp"
-#include "session/local_session_client.hpp"
+#include "session_host/local_session_client.hpp"
 #include "session/session_pin_store.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "session/session_storage.hpp"
-#include "session/thread_service.hpp"
-#include "tool/thread_tools.hpp"
+#include "session_host/thread_service.hpp"
+#include "session_host/tools/thread_tools.hpp"
 #include "utils/paths.hpp"
 
 #include <algorithm>

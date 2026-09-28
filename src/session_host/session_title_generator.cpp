@@ -1,6 +1,6 @@
 #include "session_title_generator.hpp"
 
-#include "session_title_text.hpp"
+#include "session/session_title_text.hpp"
 #include "platform/locale.hpp"
 #include "utils/encoding.hpp"
 

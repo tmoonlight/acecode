@@ -1,8 +1,8 @@
 #include "test_support/channels/test_support.hpp"
 #include "channels/bridge.hpp"
 #include "session/attachment_store.hpp"
-#include "session/local_session_client.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/local_session_client.hpp"
+#include "session_host/session_registry.hpp"
 #include <condition_variable>
 #include <fstream>
 #include <thread>

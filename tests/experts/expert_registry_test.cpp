@@ -4,7 +4,7 @@
 #include "test_support/agent/stub_provider.hpp"
 #include "permissions/permissions.hpp"
 #include "prompt/system_prompt.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "session/session_storage.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"

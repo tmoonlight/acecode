@@ -1,6 +1,6 @@
 #include "session_channel_binder.hpp"
 
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 #include "session/system_notice.hpp"
 #include "utils/logger.hpp"
 

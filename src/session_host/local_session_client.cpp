@@ -1,9 +1,9 @@
 #include "local_session_client.hpp"
 #include "environment/data_dir_migration.hpp"
 
-#include "ask_user_question_prompter.hpp"
-#include "session_storage.hpp"
-#include "system_notice.hpp"
+#include "session/ask_user_question_prompter.hpp"
+#include "session/session_storage.hpp"
+#include "session/system_notice.hpp"
 #include "utils/logger.hpp"
 
 namespace acecode {

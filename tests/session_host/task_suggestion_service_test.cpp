@@ -1,9 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "session/compact_checkpoint.hpp"
-#include "session/local_session_client.hpp"
-#include "session/session_registry.hpp"
-#include "session/task_suggestion_service.hpp"
+#include "session_host/local_session_client.hpp"
+#include "session_host/session_registry.hpp"
+#include "session_host/task_suggestion_service.hpp"
 #include "session/task_suggestion_store.hpp"
 #include "session/thread_goal_store.hpp"
 #include "utils/utf8_path.hpp"

@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "provider/apply_model_to_session.hpp"
+#include "session_host/apply_model_to_session.hpp"
 
 #include "config/config.hpp"
 #include "config/saved_models.hpp"

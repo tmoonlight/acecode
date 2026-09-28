@@ -17,7 +17,7 @@
 #include "tui/mode_picker.hpp"
 #include "tui/theme_palette.hpp"
 #include "config/saved_models.hpp"
-#include "provider/apply_model_to_session.hpp"
+#include "session_host/apply_model_to_session.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "provider/model_resolver.hpp"
 #include "feedback/feedback_upload.hpp"
