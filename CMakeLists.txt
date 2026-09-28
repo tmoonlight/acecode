@@ -241,7 +241,10 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     overlays/rewind_picker_input.cpp
     overlays/completion_dropdown_input.cpp
     overlays/list_picker_input.cpp
-    input/chat_keys.cpp)
+    input/chat_keys.cpp
+    composer/paste.cpp composer/suggestions.cpp composer/pending_attachment.cpp
+    composer/input_component.cpp model/input_state.cpp
+    composer/edit_keys.cpp composer/submit.cpp composer/clipboard_keys.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")

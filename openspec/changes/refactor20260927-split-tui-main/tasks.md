@@ -110,7 +110,7 @@
     - 特征测试在改造前后都通过;
     - 新增单测:「ask 挂起时 Custom 事件返回 Declined,且不触达后续 handler」,用计数型 fake 断言;
     - 清单第 4 小节。
-- [ ] 3.6 【B-09】【主】composer。
+- [ ] 3.6 【B-09】【主】composer。〔实现完成: Codex-root 2026-09-28;粘贴/建议/附件/逐键编辑/提交/输入组件/剪贴板键均外提,锁区间原样保留,系统剪贴板经接口注入;FakeScreen/剪贴板/turn 用例已补,待统一验收;临时装配绑定在 B-11 删除〕
   - paste、suggestions、pending_attachment、edit_keys、submit、input_component、clipboard_keys;
   - unlock / lock 的区间逐行保持原样。
   - 前置:3.5。

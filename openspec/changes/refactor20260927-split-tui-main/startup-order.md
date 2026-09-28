@@ -158,3 +158,12 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 - ask 的 Custom/cursor-position 终止链并返回 false,鼠标未消费也终止链。confirm/path/slash 的 false 仍是 Continue;slash Enter 补全后继续提交。rewind 激活时仍吞掉所有其它键。
 - 列表 Enter、分页、Esc、Up、Down、字符各为独立入口,原锁区间保持;Esc 入口仍排在隐藏气泡和拖选复位之后。resume Enter 与数字键在 viewport.reset 上的原有差异保持,未强行合并。
 - Ctrl+E 原位外提,保持列表 picker/confirm 可展开、rewind 遮蔽的差异。其它编辑键的 picker 守卫暂留原位置,在 B-09/B-10 分别搬迁。
+
+### B-09 composer 记录(待统一验收)
+
+- 剪贴板读前/读后的 overlay 判定保留,读取与附件保存仍在原锁外区间;图片读取后仍沿用旧的较窄检查,未借机统一行为。
+- Enter 中命令上下文仍在持锁时构建;dispatch 前 unlock,根据 handled 分支在原位置 lock。首回合 MCP 等待同样先 unlock 后 lock;Shell 提交和普通 turn 提交保留旧锁区间。
+- 逐键编辑独立导出,Ctrl+O/Ctrl+E 仍夹在 Home 和 End fallback 之间。mode/model/resume 对 Delete/Backspace/Home 的既有差异保持。
+- 右键复制/粘贴只在原鼠标分支位置调用,TooLarge 不发 OSC52。SystemClipboard 的平台细节由 app/tui_clipboard 实现,测试注入 fake。
+- 输入组件保留原 Renderer(bool) 的 Focusable、鼠标 CaptureMouse/TakeFocus 与额外 reflect 盒子;帧宿主持锁期间才构建输入 DOM。
+- TuiInputTurnBinding/TuiInputCommandBinding 是 B-09 过渡接线,完整流水线与三处命令上下文统一后在 B-11 删除;不作为最终架构交付。

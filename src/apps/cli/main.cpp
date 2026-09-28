@@ -197,6 +197,17 @@
 #include "tui/overlays/completion_dropdown_input.hpp"
 #include "tui/overlays/list_picker_input.hpp"
 #include "tui/input/chat_keys.hpp"
+#include "tui/input/tui_input_context.hpp"
+#include "tui/composer/paste.hpp"
+#include "tui/composer/suggestions.hpp"
+#include "tui/composer/pending_attachment.hpp"
+#include "tui/composer/input_component.hpp"
+#include "tui/composer/edit_keys.hpp"
+#include "tui/composer/submit.hpp"
+#include "tui/composer/clipboard_keys.hpp"
+#include "tui/model/input_state.hpp"
+#include "tui/app/tui_input_bindings.hpp"
+#include "tui/app/tui_clipboard.hpp"
 #include "tui/render/transcript_view.hpp"
 #include "tui/render/overlay_views.hpp"
 #include "tui/render/frame_renderer.hpp"
@@ -358,255 +369,17 @@ using acecode::TuiState;
 
 
 
-static void cancel_ctrl_c_exit_locked(TuiState& state) {
-    acecode::tui::clear_ctrl_c_exit_state(
-        state.ctrl_c_armed, state.last_ctrl_c_time);
-}
 
 // 把粘贴文本放到光标处；长文本折叠成可展开占位符。
-static void insert_pasted_text_at_cursor_locked(TuiState& state,
-                                                const std::string& normalized) {
-    cancel_ctrl_c_exit_locked(state);
-    acecode::erase_text_selection(
-        state.input_text,
-        state.input_cursor,
-        state.input_selection_anchor);
-    acecode::tui::prune_unreferenced(
-        state.pasted_texts, state.input_text);
-    state.input_cursor = acecode::clamp_utf8_boundary(
-        state.input_text, state.input_cursor);
-    state.input_vertical_goal_column.reset();
-    state.pending_attachment_focus =
-        acecode::tui::kNoPendingAttachmentFocus;
-    std::string to_insert;
-    if (acecode::tui::should_fold_to_placeholder(normalized)) {
-        const int id = state.next_paste_id++;
-        state.pasted_texts[id] = normalized;
-        const int n = acecode::tui::count_newlines(normalized);
-        to_insert = acecode::tui::format_placeholder(id, n);
-    } else {
-        to_insert = normalized;
-    }
-    acecode::insert_at_cursor(
-        state.input_text, state.input_cursor, to_insert);
-    state.history_index = -1;
-}
 
 // 问答自定义编辑状态由 ask_session snapshot() 提供，普通 composer 不参与。
-static bool can_accept_clipboard_paste_locked(const TuiState& state) {
-    if (state.ask_pending) {
-        return state.ask_session && state.ask_session->snapshot().editing_custom;
-    }
-    return !state.confirm_pending &&
-           !state.rewind_picker_active &&
-           !state.resume_picker_active &&
-           !state.model_picker_open &&
-           !state.mode_picker_open;
-}
 
-static void refresh_input_suggestions(TuiState& state,
-                                      CommandRegistry& cmd_registry,
-                                      const std::string& cwd) {
-    acecode::tui::refresh_path_reference_state(state, cwd);
-    refresh_slash_dropdown(state, cmd_registry);
-}
 
 // 从系统剪贴板粘贴文本，并刷新输入建议。
-static bool paste_system_clipboard_text(TuiState& state,
-                                        ScreenInteractive& screen,
-                                        CommandRegistry& cmd_registry,
-                                        const std::string& cwd) {
-    {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!can_accept_clipboard_paste_locked(state)) {
-            return true;
-        }
-    }
-
-    auto clipboard = acecode::read_system_clipboard_text();
-
-    {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!can_accept_clipboard_paste_locked(state)) {
-            return true;
-        }
-        if (!clipboard) {
-            tui::set_transient_status_line_locked(
-                state, tui::clipboard_paste_status_message(clipboard.status));
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-
-        std::string normalized =
-            acecode::tui::normalize_pasted_text(clipboard.text);
-        if (normalized.empty()) {
-            tui::set_transient_status_line_locked(
-                state,
-                tui::clipboard_paste_status_message(
-                    acecode::ClipboardTextReadResult::Status::Empty));
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-
-        if (state.ask_pending && state.ask_session &&
-            state.ask_session->snapshot().editing_custom) {
-            const auto ask_effects = state.ask_session->dispatch({
-                tui::AskQuestionEventKind::PasteText,
-                -1,
-                0,
-                normalized});
-            tui::dispatch_ask_session_effects_locked(state, ask_effects);
-        } else {
-            insert_pasted_text_at_cursor_locked(state, normalized);
-            refresh_input_suggestions(state, cmd_registry, cwd);
-        }
-    }
-    screen.PostEvent(Event::Custom);
-    return true;
-}
 
 // 从系统剪贴板粘贴图片，保存成当前会话附件。
-static bool paste_system_clipboard_image(TuiState& state,
-                                         ScreenInteractive& screen,
-                                         SessionManager& session_manager,
-                                         const std::string& working_dir) {
-    {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!can_accept_clipboard_paste_locked(state) ||
-            state.input_mode != InputMode::Normal) {
-            return true;
-        }
-    }
-
-    auto clipboard = acecode::read_system_clipboard_image();
-
-    {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!can_accept_clipboard_paste_locked(state)) {
-            return true;
-        }
-        if (!clipboard) {
-            tui::set_transient_status_line_locked(
-                state, tui::clipboard_image_status_message(clipboard.status));
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-    }
-
-    const std::string session_id = session_manager.ensure_active_session_id();
-    const std::string project_dir = SessionStorage::get_project_dir(working_dir);
-    std::string error;
-    auto record = save_attachment(
-        project_dir,
-        session_id,
-        "clipboard.png",
-        clipboard.mime_type.empty() ? "image/png" : clipboard.mime_type,
-        clipboard.bytes,
-        &error);
-
-    {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!record.has_value()) {
-            tui::set_transient_status_line_locked(
-                state,
-                error.empty() ? "Clipboard image save failed" : error);
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-        cancel_ctrl_c_exit_locked(state);
-        state.pending_attachments.push_back(attachment_to_json(*record));
-        acecode::tui::clamp_pending_attachment_focus(
-            state.pending_attachment_focus,
-            state.pending_attachments.size());
-        tui::set_transient_status_line_locked(
-            state,
-            "Attached image: " + record->name);
-    }
-    screen.PostEvent(Event::Custom);
-    return true;
-}
 
 // 处理待发送附件列表的聚焦、移动和删除。
-static bool handle_pending_attachment_focus_event(TuiState& state,
-                                                  ScreenInteractive& screen,
-                                                  const Event& event) {
-    std::lock_guard<std::mutex> lk(state.mu);
-
-    const bool unavailable =
-        state.ask_pending ||
-        state.confirm_pending ||
-        state.resume_picker_active ||
-        state.rewind_picker_active ||
-        state.model_picker_open ||
-        state.mode_picker_open;
-
-    if (tui::is_alt_a_event(event)) {
-        if (unavailable) {
-            return true;
-        }
-        if (state.pending_attachments.empty()) {
-            state.pending_attachment_focus =
-                acecode::tui::kNoPendingAttachmentFocus;
-            tui::set_transient_status_line_locked(state, "No pending attachments");
-        } else {
-            acecode::tui::toggle_pending_attachment_focus(
-                state.pending_attachment_focus,
-                state.pending_attachments.size());
-        }
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-
-    if (unavailable ||
-        !acecode::tui::has_pending_attachment_focus(
-            state.pending_attachment_focus,
-            state.pending_attachments.size())) {
-        return false;
-    }
-
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-        state.pending_attachment_focus =
-            acecode::tui::kNoPendingAttachmentFocus;
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::ArrowUp || event == Event::ArrowDown) {
-        const int delta = (event == Event::ArrowUp) ? -1 : 1;
-        acecode::tui::move_pending_attachment_focus(
-            state.pending_attachment_focus,
-            state.pending_attachments.size(),
-            delta);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::Backspace || event == Event::Delete) {
-        auto removed_index =
-            acecode::tui::remove_focused_pending_attachment_index(
-                state.pending_attachment_focus,
-                state.pending_attachments.size());
-        if (removed_index.has_value()) {
-            const auto index = *removed_index;
-            const nlohmann::json removed = state.pending_attachments[index];
-            const std::string kind =
-                removed.value("kind", std::string{"attachment"});
-            const std::string label =
-                kind == "image" ? "Removed image: " : "Removed attachment: ";
-            state.pending_attachments.erase(
-                state.pending_attachments.begin() +
-                static_cast<std::ptrdiff_t>(index));
-            tui::set_transient_status_line_locked(
-                state,
-                label + attachment_name_from_json(removed));
-        }
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event.is_character()) {
-        state.pending_attachment_focus =
-            acecode::tui::kNoPendingAttachmentFocus;
-    }
-    return false;
-}
 
 // 权限确认框独占键盘，负责把用户选择唤醒给 agent 线程。
 // respond_remote 非空且当前请求来自子会话(confirm_remote_session_id 非空)
@@ -2312,44 +2085,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // component_active=true on the element, so the input's cursor always
     // wins focus priority over message_view's | focus (which has
     // component_active=false and cursor_shape=Hidden).
-    auto input_renderer = Renderer([&state, &input_hit_layout](bool) {
-        std::string display_text = state.input_text;
-        size_t cursor = state.input_cursor;
-        if (cursor > display_text.size()) cursor = display_text.size();
-        input_hit_layout.input_value = display_text;
-        input_hit_layout.regions.clear();
-        if (display_text.empty()) {
-            return acecode::tui::render_empty_input_prompt(
-                &input_hit_layout.regions);
-        }
-        return acecode::tui::render_wrapped_input_text(
-            display_text,
-            cursor,
-            &input_hit_layout.regions,
-            state.input_selection_anchor);
-    });
+    auto input_renderer = tui::make_composer_input(state, input_hit_layout);
 
-    auto cancel_ctrl_c_exit_locked = [&state]() {
-        ::cancel_ctrl_c_exit_locked(state);
-    };
-    auto insert_pasted_text_at_cursor =
-        [&state](const std::string& normalized) {
-            insert_pasted_text_at_cursor_locked(state, normalized);
-        };
-    auto paste_system_clipboard_text = [&state, &screen, &cmd_registry,
-                                        &agent_loop]() {
-        return ::paste_system_clipboard_text(
-            state, screen, cmd_registry, agent_loop.cwd());
-    };
-    auto paste_system_clipboard_image =
-        [&state, &screen, &session_manager, &working_dir]() {
-            return ::paste_system_clipboard_image(
-                state, screen, session_manager, working_dir);
-        };
-    auto handle_pending_attachment_focus_event =
-        [&state, &screen](const Event& event) {
-            return ::handle_pending_attachment_focus_event(state, screen, event);
-        };
     // Assigned after the chat input component is built, when the sibling
     // Settings and Capability Management roots exist. Slash-command dispatch
     // captures these stable function objects by reference.
@@ -2358,8 +2095,51 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     std::function<bool(const std::string&, std::string&)>
         open_management_surface;
 
+    tui::TuiInputTurnBinding input_turn(agent_loop, submit_tui_input, coordinate_mcp_before_first_turn);
+    tui::TuiInputCommandBinding input_commands([&](bool) {
+        return CommandContext{
+                    state, agent_loop, &model_binding,
+                    config, token_tracker,
+                    permissions,
+                    [&screen]() { screen.Exit(); },
+                    &session_manager,
+                    [&screen]() { screen.PostEvent(Event::Custom); },
+                    &mcp_manager,
+                    &tools,
+                    &skill_registry,
+                    &memory_registry,
+                    &cmd_registry,
+                    working_dir,
+                    &subagent_host,
+                    submit_tui_input,
+                    [&state](const std::string& command_name) {
+                        const auto write_result =
+                            record_tui_slash_command_use(command_name);
+                        std::lock_guard<std::mutex> usage_lock(state.mu);
+                        auto& cached =
+                            state.slash_command_usage_counts[command_name];
+                        if (cached <
+                            (std::numeric_limits<std::uint64_t>::max)()) {
+                            ++cached;
+                        }
+                        cached = std::max(cached, write_result.count);
+                    },
+                    open_settings_surface,
+                    open_management_surface
+                };
+    });
+    tui::TuiClipboard input_clipboard;
+    tui::TuiInputContext input_context{
+        state, screen_host, viewport, geometry, cmd_registry, input_turn, input_commands,
+        input_clipboard, config, permissions, session_manager, auth_done, working_dir,
+        last_keyboard_input_at_ms,
+        [&subagent_host](const std::string& sid, const std::string& rid, PermissionResult result) {
+            subagent_host.respond_permission(sid, rid, permission_result_choice_name(result));
+        },
+    };
+
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &screen_host, &last_keyboard_input_at_ms, &viewport, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&input_context, &state, &screen, &screen_host, &last_keyboard_input_at_ms, &viewport, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
         if (event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -2422,50 +2202,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             !event.is_cursor_position() &&
             !event.is_cursor_shape()) {
             std::lock_guard<std::mutex> lk(state.mu);
-            cancel_ctrl_c_exit_locked();
+            tui::cancel_ctrl_c_exit_locked(state);
         }
-        // 多行粘贴折叠（fix-multiline-paste-input change）：把所有事件先喂进
-        // bracketed paste 状态机。begin marker 进入 in-paste，期间所有事件
-        // （含 Return / Tab / 字符 / 内嵌 CSI bytes）都聚合到 buffer 而不下发到
-        // 正常 Return / 字符 / 删除 / 方向键 handler；end marker 触发 normalize
-        // 后或 inline 插入或折叠成 [Pasted text #N +M lines]。空 paste 直接返回。
-        {
-            std::unique_lock<std::mutex> lk(state.mu);
-            acecode::tui::PasteFeedResult pr = event.is_character()
-                ? state.paste_accumulator.feed_character(event.character())
-                : state.paste_accumulator.feed_special(event.input());
-            if (pr.just_completed && !pr.completed_text.empty()) {
-                // 题目页吞掉粘贴,避免文本漏进隐藏 composer;Other 输入态
-                // 才把归一化文本插进自定义答案缓冲
-                // (add-tui-ask-overlay-mouse-select)。
-                if (can_accept_clipboard_paste_locked(state)) {
-                    if (state.ask_pending && state.ask_session &&
-                        state.ask_session->snapshot().editing_custom) {
-                        const auto ask_effects = state.ask_session->dispatch({
-                            tui::AskQuestionEventKind::PasteText,
-                            -1,
-                            0,
-                            pr.completed_text});
-                        tui::dispatch_ask_session_effects_locked(state, ask_effects);
-                    } else {
-                        insert_pasted_text_at_cursor(pr.completed_text);
-                        refresh_input_suggestions(
-                            state, cmd_registry, agent_loop.cwd());
-                    }
-                    lk.unlock();
-                    screen.PostEvent(Event::Custom);
-                }
-            }
-            if (pr.consume) {
-                return true;
-            }
-        }
-        if (tui::matches_terminal_codepoint(event, 'v', tui::kTerminalCtrl)) {
-            return paste_system_clipboard_text();
-        }
-        if (tui::is_alt_v_event(event)) {
-            return paste_system_clipboard_image();
-        }
+        if (auto result = tui::input_result(tui::handle_bracketed_paste(input_context, event))) return *result;
+        if (auto result = tui::input_result(tui::handle_clipboard_ctrl_v(input_context, event))) return *result;
+        if (auto result = tui::input_result(tui::handle_clipboard_alt_v(input_context, event))) return *result;
         if (ctrl_c_event) {
             // If an operation is active, Ctrl+C behaves like Escape: cancel the
             // current work instead of arming the double-press exit shortcut.
@@ -2473,7 +2214,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             {
                 std::lock_guard<std::mutex> lk(state.mu);
                 if (state.is_compacting) {
-                    cancel_ctrl_c_exit_locked();
+                    tui::cancel_ctrl_c_exit_locked(state);
                     state.compact_abort_requested.store(true);
                     state.conversation.push_back({"system", "Cancelling compaction...", false});
                     state.chat_follow_tail = true;
@@ -2483,7 +2224,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 }
                 if (state.ask_pending || state.confirm_pending ||
                     state.is_waiting || state.tool_running) {
-                    cancel_ctrl_c_exit_locked();
+                    tui::cancel_ctrl_c_exit_locked(state);
                     if (state.ask_pending && state.ask_session) {
                         const auto ask_effects = state.ask_session->dispatch(
                             {tui::AskQuestionEventKind::GlobalCancel});
@@ -2502,7 +2243,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     should_exit = true;
                 } else {
                     if (acecode::tui::clear_current_input_for_history_restore(state)) {
-                        refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
+                        tui::refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
                     }
                 }
             }
@@ -2514,7 +2255,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             return true;
         }
 
-        if (handle_pending_attachment_focus_event(event)) {
+        if (tui::handle_pending_attachment_input(input_context, event) == tui::InputDisposition::Consumed) {
             return true;
         }
 
@@ -2540,7 +2281,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                         acecode::tui::kNoPendingAttachmentFocus;
                     if (press.target ==
                         acecode::tui::InputPointerTarget::Composer) {
-                        refresh_input_suggestions(
+                        tui::refresh_input_suggestions(
                             state, cmd_registry, agent_loop.cwd());
                     }
                     screen.PostEvent(Event::Custom);
@@ -2592,164 +2333,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state, screen_host, event))) return *result;
 
         // Enter → submit message
-        if (event == Event::Return) {
-            std::unique_lock<std::mutex> lk(state.mu);
-
-            if (auto result = tui::input_result(tui::list_picker_enter_locked(state, screen_host, viewport))) return *result;
-
-            // confirm_pending 现在由上面的 confirm overlay handler 单独拦截
-            // (Enter 直接走那条路径),这里不会再被 confirm 触发。
-
-            if (state.input_text.empty() && state.pending_attachments.empty()) return true;
-            if (!auth_done) return true;
-
-            // Block message submission during compaction
-            if (state.is_compacting) return true;
-
-            // 多行粘贴折叠（fix-multiline-paste-input change）：把已知 [Pasted text #N]
-            // 占位符替换回 pasted_texts 中存的全文，得到 expanded_prompt 喂给 agent_loop
-            // / 斜杠命令 / pending 队列 / input_history / 对话气泡。提交后清空 input_text
-            // 与 pasted_texts；next_paste_id 不复位（display 用计数，跨提交单调递增
-            // 即可，避免极端情况下与 input_history 中残留占位符同号撞 ID）。
-            //
-            // 用户反馈：提交后对话气泡也显示展开版原文，而非紧凑占位符——所以这里
-            // 没有保留单独的 `visible_prompt`，提交即一并展开上屏。
-            const std::string expanded_prompt = acecode::tui::expand_placeholders(
-                state.input_text, state.pasted_texts);
-            const std::vector<nlohmann::json> attachments = state.pending_attachments;
-            const std::string display_prompt =
-                display_prompt_with_attachments(expanded_prompt, attachments);
-            state.input_text.clear(); state.pasted_texts.clear();
-            state.pending_attachments.clear();
-            state.pending_attachment_focus =
-                acecode::tui::kNoPendingAttachmentFocus;
-            state.input_cursor = 0;
-            state.clear_input_selection();
-            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-
-            // 统一入口：内存 push + 磁盘 append。空白 / 相邻重复被抑制，保持磁盘与内存
-            // 行为一致；磁盘持久化受 config.input_history.enabled 控制。
-
-            // Shell input mode: dispatch directly to BashTool via agent worker.
-            // Skips slash-command parsing and LLM round-trip.
-            if (state.input_mode == InputMode::Shell) {
-                if (!attachments.empty()) {
-                    tui::set_transient_status_line_locked(
-                        state,
-                        "Image attachments are only supported in normal prompt mode");
-                    state.input_text = expanded_prompt;
-                    state.input_cursor = state.input_text.size();
-                    state.clear_input_selection();
-                    state.pending_attachments = attachments;
-                    acecode::tui::clamp_pending_attachment_focus(
-                        state.pending_attachment_focus,
-                        state.pending_attachments.size());
-                    screen.PostEvent(Event::Custom);
-                    return true;
-                }
-                const std::string shell_cmd = expanded_prompt;
-                record_input_history(state.input_history, config.input_history, working_dir, prepend_mode_prefix(shell_cmd, InputMode::Shell));
-                state.history_index = -1;
-                state.input_mode = InputMode::Normal;
-
-                // 提交后对话气泡显示展开后的原文（用户反馈：上屏不要看到 [] 占位符）。
-                state.conversation.push_back({"user", "!" + shell_cmd, false});
-                state.chat_follow_tail = true;
-                viewport.clamp_focus(state);
-                state.current_thinking_phrase = "Running shell";
-                state.thinking_start_time = std::chrono::steady_clock::now();
-                state.streaming_output_chars = 0;
-                state.turn_completion_tokens_confirmed = 0;
-                state.is_waiting = true;
-                agent_loop.submit_shell(shell_cmd);
-                return true;
-            }
-
-            // Record history（用 expanded_prompt：上箭头取回原文，再次提交不会发出
-            // 字面 [Pasted text #N] —— 因为本会话提交后 store 已经清空，未展开的
-            // 字面占位符在下次 submit 时也会按 unknown id 保留，丢失原文。）
-            record_input_history(state.input_history, config.input_history, working_dir, expanded_prompt);
-            state.history_index = -1;
-
-            // Slash command interception（用 expanded_prompt 派发：spec 4.3）。
-            if (attachments.empty() && !expanded_prompt.empty() && expanded_prompt[0] == '/') {
-                CommandContext cmd_ctx{
-                    state, agent_loop, &model_binding,
-                    config, token_tracker,
-                    permissions,
-                    [&screen]() { screen.Exit(); },
-                    &session_manager,
-                    [&screen]() { screen.PostEvent(Event::Custom); },
-                    &mcp_manager,
-                    &tools,
-                    &skill_registry,
-                    &memory_registry,
-                    &cmd_registry,
-                    working_dir,
-                    &subagent_host,
-                    submit_tui_input,
-                    [&state](const std::string& command_name) {
-                        const auto write_result =
-                            record_tui_slash_command_use(command_name);
-                        std::lock_guard<std::mutex> usage_lock(state.mu);
-                        auto& cached =
-                            state.slash_command_usage_counts[command_name];
-                        if (cached <
-                            (std::numeric_limits<std::uint64_t>::max)()) {
-                            ++cached;
-                        }
-                        cached = std::max(cached, write_result.count);
-                    },
-                    open_settings_surface,
-                    open_management_surface
-                };
-                const size_t before_command_messages =
-                    state.conversation.size();
-                lk.unlock();
-                bool handled = cmd_registry.dispatch(expanded_prompt, cmd_ctx);
-                if (handled) {
-                    lk.lock();
-                    if (state.conversation.size() != before_command_messages) {
-                        viewport.reset(state);
-                    }
-                    viewport.clamp_focus(state);
-                    screen.PostEvent(Event::Custom);
-                    return true;
-                }
-                lk.lock();
-                // If not a known command, fall through to send as normal prompt
-            }
-
-            if (state.is_waiting) {
-                // 队列保存展开版（spec 4.5）；提交后气泡显示展开版（用户反馈：
-                // 上屏不要看到 [] 占位符）。
-                state.pending_queue.push_back(display_prompt);
-                if (!attachments.empty()) {
-                    state.pending_structured_queue.push_back(
-                        build_user_input_with_attachments(
-                            expanded_prompt, display_prompt, attachments));
-                }
-            } else {
-                lk.unlock();
-                coordinate_mcp_before_first_turn();
-                lk.lock();
-                state.conversation.push_back({"user", display_prompt, false});
-                state.chat_follow_tail = true;
-                viewport.clamp_focus(state);
-                state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-                state.thinking_start_time = std::chrono::steady_clock::now();
-                state.streaming_output_chars = 0;
-                state.turn_completion_tokens_confirmed = 0;
-                state.is_waiting = true;
-                if (attachments.empty()) {
-                    submit_tui_text(expanded_prompt);
-                } else {
-                    submit_tui_input(build_user_input_with_attachments(
-                        expanded_prompt, display_prompt, attachments));
-                }
-            }
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_submit(input_context, event))) return *result;
         // /resume picker viewport navigation: PgUp/PgDn jump a full window,
         // Home/End jump to first/last item. Must short-circuit before chat
         // scroll handlers so the picker absorbs these keys exclusively.
@@ -2903,7 +2487,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             // over `is_waiting` abort so typing Esc in shell mode never fires
             // an unintended cancel on a pending agent turn.
             if (state.input_mode == InputMode::Shell) {
-                cancel_ctrl_c_exit_locked();
+                tui::cancel_ctrl_c_exit_locked(state);
                 state.input_mode = InputMode::Normal;
                 state.input_text.clear(); state.pasted_texts.clear();
                 state.input_cursor = 0;
@@ -2911,7 +2495,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
             if (!state.pending_attachments.empty() && state.input_text.empty()) {
-                cancel_ctrl_c_exit_locked();
+                tui::cancel_ctrl_c_exit_locked(state);
                 state.pending_attachments.clear();
                 state.pending_attachment_focus =
                     acecode::tui::kNoPendingAttachmentFocus;
@@ -2977,37 +2561,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             // selection, terminal mouse tracking prevents the host context menu
             // on many Linux terminals, so use the click as an explicit
             // clipboard paste.
-            if (mouse.button == Mouse::Right && mouse.motion == Mouse::Pressed) {
-                std::string sel = screen.GetSelection();
-                if (sel.empty()) {
-                    return paste_system_clipboard_text();
-                }
-                auto clipboard_write = acecode::write_system_clipboard_text(sel);
-                std::string status_msg;
-                if (clipboard_write) {
-                    status_msg = "Copied " + std::to_string(sel.size()) +
-                                 " bytes to clipboard";
-                    LOG_INFO("Copied " + std::to_string(sel.size()) +
-                             " bytes to clipboard via system clipboard");
-                } else if (
-                    clipboard_write.status != ClipboardTextWriteResult::Status::TooLarge) {
-                    std::string seq = "\x1b]52;c;" + base64_encode(sel) + "\x1b\\";
-                    std::fwrite(seq.data(), 1, seq.size(), stdout);
-                    std::fflush(stdout);
-                    status_msg = "Sent OSC 52 copy request";
-                    LOG_INFO("Sent OSC 52 copy request for " +
-                             std::to_string(sel.size()) + " bytes");
-                } else {
-                    status_msg = tui::clipboard_copy_status_message(clipboard_write.status);
-                    LOG_WARN(status_msg);
-                }
-                {
-                    std::lock_guard<std::mutex> lk(state.mu);
-                    tui::set_transient_status_line_locked(state, status_msg);
-                }
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
+            if (auto result = tui::input_result(tui::handle_clipboard_right_click(input_context, event))) return *result;
 
             // TUI chat file links: exact reflected link hits take priority over
             // scrollbar and drag-selection startup. Non-local links fall
@@ -3517,140 +3071,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 return true;
             }
         }
-        if (const auto shifted =
-                acecode::tui::shift_arrow_direction(event)) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active || state.model_picker_open ||
-                state.mode_picker_open || state.rewind_picker_active ||
-                state.confirm_pending) {
-                return true;
-            }
-
-            std::optional<size_t> target;
-            if (*shifted == acecode::tui::ShiftArrowDirection::Up ||
-                *shifted == acecode::tui::ShiftArrowDirection::Down) {
-                if (input_hit_layout.input_value == state.input_text) {
-                    target = acecode::tui::input_cursor_vertical_target(
-                        state.input_text,
-                        input_hit_layout.box,
-                        input_hit_layout.regions,
-                        state.input_cursor,
-                        *shifted,
-                        &state.input_vertical_goal_column);
-                }
-            } else {
-                size_t next = acecode::clamp_utf8_boundary(
-                    state.input_text, state.input_cursor);
-                if (*shifted == acecode::tui::ShiftArrowDirection::Left) {
-                    if (auto span = acecode::tui::placeholder_ending_at(
-                            state.input_text, state.pasted_texts, next)) {
-                        next = span->begin;
-                    } else {
-                        acecode::move_cursor_left_utf8(
-                            state.input_text, next);
-                    }
-                } else if (auto span =
-                               acecode::tui::placeholder_starting_at(
-                                   state.input_text,
-                                   state.pasted_texts,
-                                   next)) {
-                    next = span->end;
-                } else {
-                    acecode::move_cursor_right_utf8(
-                        state.input_text, next);
-                }
-                state.input_vertical_goal_column.reset();
-                target = next;
-            }
-
-            if (target.has_value()) {
-                acecode::move_cursor_with_selection(
-                    state.input_text,
-                    state.input_cursor,
-                    state.input_selection_anchor,
-                    *target,
-                    true);
-                state.pending_attachment_focus =
-                    acecode::tui::kNoPendingAttachmentFocus;
-            }
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-        if (event == Event::ArrowUp) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            state.input_vertical_goal_column.reset();
-            if (auto result = tui::input_result(tui::list_picker_up_locked(state, screen_host))) return *result;
-
-            if (acecode::tui::navigate_input_history_up(state)) {
-                // 历史覆盖输入：清掉本会话旧粘贴留下的孤儿 pasted_texts（spec 3.7）。
-                acecode::tui::prune_unreferenced(state.pasted_texts, state.input_text);
-                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-            }
-            return true;
-        }
-        if (event == Event::ArrowDown) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            state.input_vertical_goal_column.reset();
-            if (auto result = tui::input_result(tui::list_picker_down_locked(state, screen_host))) return *result;
-
-            if (acecode::tui::navigate_input_history_down(state)) {
-                // 历史覆盖输入：清掉本会话旧粘贴留下的孤儿 pasted_texts（spec 3.7）。
-                acecode::tui::prune_unreferenced(state.pasted_texts, state.input_text);
-                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-            }
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_shift_arrow(input_context, event))) return *result;
+        if (auto result = tui::input_result(tui::handle_composer_up(input_context, event))) return *result;
+        if (auto result = tui::input_result(tui::handle_composer_down(input_context, event))) return *result;
         // ArrowLeft / ArrowRight: move caret one UTF-8 glyph.
-        if (event == Event::ArrowLeft) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active) return true;
-            if (state.model_picker_open) return true;
-            if (state.mode_picker_open) return true;
-            state.input_vertical_goal_column.reset();
-            if (acecode::collapse_selection_left(
-                    state.input_text,
-                    state.input_cursor,
-                    state.input_selection_anchor)) {
-                return true;
-            }
-            state.input_cursor = acecode::clamp_utf8_boundary(
-                state.input_text, state.input_cursor);
-            if (state.input_cursor == 0) return true;
-            // 已知 [Pasted text #N] 占位符整体跨越（atomic span）。
-            if (auto span = acecode::tui::placeholder_ending_at(
-                    state.input_text, state.pasted_texts, state.input_cursor)) {
-                state.input_cursor = span->begin;
-                return true;
-            }
-            acecode::move_cursor_left_utf8(
-                state.input_text, state.input_cursor);
-            return true;
-        }
-        if (event == Event::ArrowRight) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active) return true;
-            if (state.model_picker_open) return true;
-            if (state.mode_picker_open) return true;
-            state.input_vertical_goal_column.reset();
-            if (acecode::collapse_selection_right(
-                    state.input_text,
-                    state.input_cursor,
-                    state.input_selection_anchor)) {
-                return true;
-            }
-            state.input_cursor = acecode::clamp_utf8_boundary(
-                state.input_text, state.input_cursor);
-            if (state.input_cursor >= state.input_text.size()) return true;
-            // 已知 [Pasted text #N] 占位符整体跨越（atomic span）。
-            if (auto span = acecode::tui::placeholder_starting_at(
-                    state.input_text, state.pasted_texts, state.input_cursor)) {
-                state.input_cursor = span->end;
-                return true;
-            }
-            acecode::move_cursor_right_utf8(
-                state.input_text, state.input_cursor);
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_left(input_context, event))) return *result;
+        if (auto result = tui::input_result(tui::handle_composer_right(input_context, event))) return *result;
         // Home / End: jump caret to start/end of the input buffer.
         // FTXUI only maps `ESC [ H` and `ESC [ F` (plus the `ESC O H/F` DECCKM
         // variants) to Event::Home / Event::End. Several terminals emit VT220-
@@ -3658,39 +3084,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // instead — those arrive as raw Special events, so match them here.
         // Ctrl+E is also honoured as the readline-style End fallback. Ctrl+A
         // follows conventional text fields and selects the complete buffer.
-        auto is_home_event = [](const Event& e) {
-            return tui::matches_terminal_key(
-                e, acecode::tui::TerminalKey::Home);
-        };
-        auto is_end_event = [](const Event& e) {
-            return tui::matches_terminal_key(
-                       e, acecode::tui::TerminalKey::End) ||
-                   tui::matches_terminal_codepoint(e, 'e', tui::kTerminalCtrl);
-        };
-        if (tui::matches_terminal_codepoint(event, 'a', tui::kTerminalCtrl)) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active || state.model_picker_open ||
-                state.mode_picker_open) {
-                return true;
-            }
-            acecode::select_all_text(
-                state.input_text,
-                state.input_cursor,
-                state.input_selection_anchor);
-            state.input_vertical_goal_column.reset();
-            state.pending_attachment_focus =
-                acecode::tui::kNoPendingAttachmentFocus;
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-        if (is_home_event(event)) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active) return true;
-            state.input_cursor = 0;
-            state.input_selection_anchor.reset();
-            state.input_vertical_goal_column.reset();
-            return true;
-        }
+
+
+        if (auto result = tui::input_result(tui::handle_composer_ctrl_a(input_context, event))) return *result;
+        if (auto result = tui::input_result(tui::handle_composer_home(input_context, event))) return *result;
         // Ctrl+O:全局展开/收起所有工具输出(Claude Code 风格 verbose 开关)。
         // 与 Ctrl+E 的逐行展开正交:render 侧取二者之或。开关位掺在
         // message_render_revision 里,翻转后所有行高自动重新测量。
@@ -3705,126 +3102,13 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         }
         if (auto result = tui::input_result(tui::handle_chat_ctrl_e(
                 state, screen_host, viewport, event))) return *result;
-        if (is_end_event(event)) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active) return true;
-            state.input_cursor = state.input_text.size();
-            state.input_selection_anchor.reset();
-            state.input_vertical_goal_column.reset();
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_end(input_context, event))) return *result;
         // Delete: remove UTF-8 glyph at the caret (to the right)
-        if (event == Event::Delete) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.mode_picker_open) return true;
-            state.input_vertical_goal_column.reset();
-            if (acecode::erase_text_selection(
-                    state.input_text,
-                    state.input_cursor,
-                    state.input_selection_anchor)) {
-                acecode::tui::prune_unreferenced(
-                    state.pasted_texts, state.input_text);
-                refresh_input_suggestions(
-                    state, cmd_registry, agent_loop.cwd());
-                return true;
-            }
-            state.input_cursor = acecode::clamp_utf8_boundary(
-                state.input_text, state.input_cursor);
-            if (state.input_cursor >= state.input_text.size()) return true;
-            // 已知 [Pasted text #N] 占位符整体删除：连同 store 条目一起回收。
-            if (auto span = acecode::tui::placeholder_starting_at(
-                    state.input_text, state.pasted_texts, state.input_cursor)) {
-                state.pasted_texts.erase(span->paste_id);
-                state.input_text.erase(span->begin, span->end - span->begin);
-                // input_cursor 保持在 span->begin（即 input_cursor 不变）
-                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-                return true;
-            }
-            size_t next = state.input_cursor + 1;
-            while (next < state.input_text.size() &&
-                   (static_cast<unsigned char>(state.input_text[next]) & 0xC0) == 0x80) {
-                next++;
-            }
-            state.input_text.erase(state.input_cursor, next - state.input_cursor);
-            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_delete(input_context, event))) return *result;
         // Backspace: remove UTF-8 glyph preceding the caret
-        if (event == Event::Backspace) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.mode_picker_open) return true;
-            state.input_vertical_goal_column.reset();
-            if (acecode::erase_text_selection(
-                    state.input_text,
-                    state.input_cursor,
-                    state.input_selection_anchor)) {
-                acecode::tui::prune_unreferenced(
-                    state.pasted_texts, state.input_text);
-                refresh_input_suggestions(
-                    state, cmd_registry, agent_loop.cwd());
-                return true;
-            }
-            state.input_cursor = acecode::clamp_utf8_boundary(
-                state.input_text, state.input_cursor);
-            if (state.input_text.empty()) {
-                // On empty buffer, Backspace exits Shell mode back to Normal.
-                if (state.input_mode == InputMode::Shell) {
-                    state.input_mode = InputMode::Normal;
-                }
-                state.input_cursor = 0;
-                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-                return true;
-            }
-            if (state.input_cursor == 0) {
-                return true;
-            }
-            // 已知 [Pasted text #N] 占位符整体删除：连同 store 条目一起回收。
-            if (auto span = acecode::tui::placeholder_ending_at(
-                    state.input_text, state.pasted_texts, state.input_cursor)) {
-                state.pasted_texts.erase(span->paste_id);
-                state.input_text.erase(span->begin, span->end - span->begin);
-                state.input_cursor = span->begin;
-                refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-                return true;
-            }
-            size_t pos = state.input_cursor - 1;
-            // Walk back over UTF-8 continuation bytes (10xxxxxx)
-            while (pos > 0 && (static_cast<unsigned char>(state.input_text[pos]) & 0xC0) == 0x80) {
-                pos--;
-            }
-            state.input_text.erase(pos, state.input_cursor - pos);
-            state.input_cursor = pos;
-            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_backspace(input_context, event))) return *result;
         // Printable character input
-        if (event.is_character()) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (auto result = tui::input_result(tui::list_picker_character_locked(state, screen_host, viewport, event))) return *result;
-
-            const std::string ch = event.character();
-            // Shell-mode trigger on an empty Normal buffer switches mode
-            // without being inserted. Subsequent trigger characters are literal.
-            if (state.input_mode == InputMode::Normal &&
-                state.input_text.empty() &&
-                is_shell_mode_trigger_character(ch)) {
-                state.input_mode = InputMode::Shell;
-                state.history_index = -1;
-                return true;
-            }
-            acecode::insert_replacing_selection(
-                state.input_text,
-                state.input_cursor,
-                state.input_selection_anchor,
-                ch);
-            acecode::tui::prune_unreferenced(
-                state.pasted_texts, state.input_text);
-            state.input_vertical_goal_column.reset();
-            // Reset history browsing on new input
-            state.history_index = -1;
-            refresh_input_suggestions(state, cmd_registry, agent_loop.cwd());
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_composer_character(input_context, event))) return *result;
         return false;
     });
 
