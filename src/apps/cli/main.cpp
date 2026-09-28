@@ -109,6 +109,13 @@
 #include "session_host/thread_service.hpp"
 #include "cli/interactive_options.hpp"
 #include "cli/process_environment.hpp"
+#include "tui/app/startup_environment.hpp"
+#include "tui/app/startup_worktree.hpp"
+#include "tui/app/tui_runtime_init.hpp"
+#include "tui/model/initial_state.hpp"
+#include "tui/term/terminal_control.hpp"
+#include "tui/commands/command_bootstrap.hpp"
+#include "permissions/default_rules.hpp"
 #include "cli/command_dispatch.hpp"
 #include "cli/pre_tui_commands.hpp"
 #include "skills/default_skill_startup.hpp"
@@ -679,73 +686,11 @@ static bool dispatch_ask_session_event_locked(
 }  // namespace
 
 // ---- Get current working directory ----
-static std::string get_cwd() {
-#ifdef _WIN32
-    char buf[MAX_PATH];
-    if (_getcwd(buf, sizeof(buf))) return std::string(buf);
-#else
-    char buf[4096];
-    if (getcwd(buf, sizeof(buf))) return std::string(buf);
-#endif
-    return ".";
-}
 
-static void write_terminal_control_sequence(std::string_view seq) {
-#ifdef _WIN32
-    auto stdout_handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD out_mode = 0;
-    const bool restore_mode =
-        stdout_handle != INVALID_HANDLE_VALUE &&
-        GetConsoleMode(stdout_handle, &out_mode);
-    if (!restore_mode) {
-        return;
-    }
-    constexpr DWORD enable_virtual_terminal_processing = 0x0004;
-    constexpr DWORD disable_newline_auto_return = 0x0008;
-    SetConsoleMode(stdout_handle,
-                   out_mode | enable_virtual_terminal_processing |
-                       disable_newline_auto_return);
-#endif
 
-    std::cout.write(seq.data(), static_cast<std::streamsize>(seq.size()));
-    std::cout.flush();
-
-#ifdef _WIN32
-    SetConsoleMode(stdout_handle, out_mode);
-#endif
-}
-
-static void set_ftxui_full_repaint_mode(bool enabled) {
-#ifdef _WIN32
-    _putenv_s("ACECODE_FTXUI_FULL_REPAINT", enabled ? "1" : "0");
-#else
-    if (enabled) {
-        setenv("ACECODE_FTXUI_FULL_REPAINT", "1", 1);
-    } else {
-        unsetenv("ACECODE_FTXUI_FULL_REPAINT");
-    }
-#endif
-}
 
 // ---- Reset terminal cursor visibility on exit ----
-static void reset_cursor() {
-    // DECTCEM: show cursor (ESC [ ? 25 h)
-    write_terminal_control_sequence("\033[?25h");
-}
 
-static void flush_terminal_input_buffer() {
-#ifdef _WIN32
-    auto stdin_handle = GetStdHandle(STD_INPUT_HANDLE);
-    if (stdin_handle == INVALID_HANDLE_VALUE) {
-        return;
-    }
-    FlushConsoleInputBuffer(stdin_handle);
-#else
-    if (isatty(STDIN_FILENO)) {
-        tcflush(STDIN_FILENO, TCIFLUSH);
-    }
-#endif
-}
 
 // ---- Session finalization on exit ----
 static SessionManager* g_session_manager = nullptr;
@@ -1942,101 +1887,11 @@ static bool handle_path_reference_event(
 static int run_interactive_app(const InteractiveCliOptions& cli,
                                const std::string& argv0_dir);
 
-static bool ensure_interactive_terminal() {
-    std::atexit(reset_cursor);
 
-#ifdef _WIN32
-    bool stdin_is_tty = _isatty(_fileno(stdin));
-    bool stdout_is_tty = _isatty(_fileno(stdout));
-#else
-    bool stdin_is_tty = isatty(fileno(stdin));
-    bool stdout_is_tty = isatty(fileno(stdout));
-#endif
-    if (!stdin_is_tty || !stdout_is_tty) {
-        std::cerr << "Error: acecode requires an interactive terminal (stdin and stdout must be a TTY).\n"
-                  << "If piping input/output, please run acecode directly in a terminal instead.\n";
-        return false;
-    }
-    return true;
-}
 
-static void set_startup_terminal_title() {
-#ifdef _WIN32
-    SetConsoleTitleA("acecode v" ACECODE_VERSION);
-#else
-    // xterm-compatible title escape sequence
-    std::cout << "\033]0;acecode v" ACECODE_VERSION "\007" << std::flush;
-#endif
-}
 
-static void initialize_logger_for_working_dir(const std::string& working_dir) {
-    const std::string logs_dir = get_logs_dir();
-    Logger::instance().init_with_rotation(logs_dir, "tui", /*mirror_stderr=*/false);
-    // 数据目录重定向的解析告警发生在日志初始化之前(被 Logger 丢掉),这里补记。
-    acecode::log_deferred_data_dir_resolution_warning();
-#ifdef _WIN32
-    _putenv_s("ACECODE_FTXUI_INPUT_TRACE_DIR", logs_dir.c_str());
-#else
-    setenv("ACECODE_FTXUI_INPUT_TRACE_DIR", logs_dir.c_str(), 1);
-#endif
-    Logger::instance().set_level(LogLevel::Dbg);
-    LOG_INFO("=== acecode started, cwd=" + working_dir + " ===");
-}
 
-static void initialize_proxy_runtime(const AppConfig& config) {
-    // 必须在任何 cpr 调用之前完成(下面 initialize_registry 可能触发 models.dev
-    // 拉取)。失败也不应阻塞启动 —— ProxyResolver 内部所有探测都是 soft-fail。
-    network::proxy_resolver().init(config.network);
-    // openspec/changes/proxy-fallback-on-unreachable:启动 TCP probe 检测代理
-    // 是否真的在监听,失败时进程级回退直连;所有 cpr 调用站点零变更。
-    network::proxy_resolver().probe_and_maybe_fallback();
-    auto resolved = network::proxy_resolver().effective("https://example.com");
-    std::string banner;
-    if (resolved.source == "auto-fallback") {
-        auto fb = network::proxy_resolver().fallback_info_snapshot();
-        banner = "Proxy: direct (auto-fallback: " + fb.original_url +
-                 " from " + fb.original_source + " unreachable)";
-    } else {
-        std::string url_disp = resolved.url.empty()
-                                  ? std::string("direct")
-                                  : network::redact_credentials(resolved.url);
-        banner = "Proxy: " + url_disp + " (" + resolved.source + ")";
-    }
-    std::cerr << banner << std::endl;
-    LOG_INFO(std::string("[proxy] effective=") +
-             (resolved.url.empty() ? "direct" : network::redact_credentials(resolved.url)) +
-             " source=" + resolved.source +
-             " mode=" + config.network.proxy_mode);
-}
 
-static void initialize_models_registry_runtime(const AppConfig& config,
-                                               const std::string& argv0_dir) {
-    initialize_registry(config, argv0_dir);
-    if (config.models_dev.allow_network && !config.models_dev.refresh_on_command_only) {
-        std::thread([] {
-            refresh_registry_from_network();
-        }).detach();
-    }
-}
-
-static void initialize_web_search_runtime(const AppConfig& config) {
-    // Backend router + region detector 单例,异步探测一次后写缓存。失败 / 已有
-    // 缓存都不阻塞启动。enabled=false 时仍 init,但下面 register 阶段不挂工具。
-    web_search::init(config.web_search);
-    web_search::register_default_backends(web_search::runtime().router(),
-                                           config.web_search);
-
-    // 启动时先用缓存 region(若有)即时 resolve;无缓存先按 Unknown 走悲观,
-    // 再起 detached 线程做实际 HEAD 探测,完成后再 resolve 一次。
-    web_search::Region cached = web_search::runtime().detector().cached_region();
-    web_search::runtime().router().resolve_active(cached);
-    if (cached == web_search::Region::Unknown) {
-        std::thread([]{
-            auto r = web_search::runtime().detector().detect_now();
-            web_search::runtime().router().resolve_active(r);
-        }).detach();
-    }
-}
 
 static std::thread start_tui_update_check(const AppConfig& config,
                                           TuiState& state,
@@ -2066,79 +1921,9 @@ static std::thread start_tui_update_check(const AppConfig& config,
 // 共用。下方所有 `initialize_skill_registry(...)` 调用站点经 `using namespace acecode`
 // 解析到 `acecode::initialize_skill_registry`。
 
-static MemoryConfig initialize_memory_registry(MemoryRegistry& memory_registry,
-                                               const AppConfig& config) {
-    // Auto-create ~/.acecode/memory/ if missing; failure disables the memory
-    // system for this session without rewriting the user's config.json.
-    MemoryConfig runtime_memory_cfg = config.memory;
-    std::error_code mkec;
-    std::filesystem::create_directories(get_memory_dir(), mkec);
-    if (mkec) {
-        LOG_ERROR("[memory] failed to create " + get_memory_dir().generic_string() +
-                  ": " + mkec.message() + " — memory will be disabled this session");
-        runtime_memory_cfg.enabled = false;
-    } else if (runtime_memory_cfg.enabled) {
-        memory_registry.scan();
-    }
-    return runtime_memory_cfg;
-}
 
-static void initialize_mcp_servers(McpManager& mcp_manager,
-                                   const AppConfig& config) {
-    const size_t configured = config.mcp_servers.size();
-    if (configured == 0) {
-        return;
-    }
 
-    mcp_manager.connect_all(config);
-    LOG_INFO("[mcp] Configured " + std::to_string(configured) +
-             " server(s); startup will run in the background");
-}
 
-static void restore_input_history(TuiState& state,
-                                  const AppConfig& config,
-                                  const std::string& working_dir) {
-    // Restore per-working-directory input history. Independent of session files so
-    // /clear, resume, or deleting a session never blows away the Up/Down queue.
-    // 关闭开关时退化为纯内存历史（旧行为）。
-    if (!config.input_history.enabled) {
-        return;
-    }
-
-    std::string ih_path = InputHistoryStore::file_path(
-        SessionStorage::get_project_dir(working_dir));
-    state.input_history = InputHistoryStore::load(ih_path);
-    // 若历史文件条数超过当前上限（用户把 max_entries 调小），保留最近 N 条。
-    int cap = config.input_history.max_entries;
-    if (cap > 0 && static_cast<int>(state.input_history.size()) > cap) {
-        state.input_history.erase(
-            state.input_history.begin(),
-            state.input_history.begin() +
-                (state.input_history.size() - static_cast<size_t>(cap)));
-    }
-}
-
-static void add_startup_messages(TuiState& state,
-                                 bool dangerous_mode,
-                                 const McpManager& mcp_manager) {
-    // If dangerous YOLO mode is forced from CLI, show startup warning. Note:
-    // this skips permission and path-safety checks but does NOT suppress
-    // AskUserQuestion overlays (those are a legitimate LLM-driven request for
-    // input).
-    if (dangerous_mode) {
-        state.conversation.push_back({"system",
-            "[DANGEROUS YOLO MODE] Permission and path-safety checks are bypassed. Use with caution. "
-            "(AskUserQuestion overlays are still shown when the model needs input.)",
-            false});
-    }
-
-    const size_t configured = mcp_manager.configured_server_count();
-    if (configured > 0) {
-        state.conversation.push_back({"system",
-            acecode::mcp_background_start_message(configured),
-            false});
-    }
-}
 
 static void start_mcp_servers_async(McpManager& mcp_manager,
                                     ToolExecutor& tools,
@@ -2163,70 +1948,9 @@ static void start_mcp_servers_async(McpManager& mcp_manager,
     mcp_manager.start_async(tools);
 }
 
-static void maybe_add_legacy_terminal_hint(
-    TuiState& state,
-    const AppConfig& config,
-    const acecode::TerminalCapabilities& term_caps,
-    acecode::tui::ScreenRenderMode render_mode,
-    bool force_alt_screen) {
-    // 一次性提示:仅在自动探测命中并切换到 alt-screen 时显示一次。
-    // CLI 强制 / config "always" / config "never" / 现代终端都不触发。
-    bool show_legacy_hint =
-        render_mode == acecode::tui::ScreenRenderMode::AltScreen &&
-        !force_alt_screen &&
-        config.tui.alt_screen_mode == "auto" &&
-        !term_caps.source_label.empty() &&
-        !acecode::read_state_flag("legacy_terminal_hint_shown");
-    if (show_legacy_hint) {
-        std::string hint = "提示: 检测到 " + term_caps.source_label +
-            ",已启用全屏渲染避免画面跳动。可在 ~/.acecode/config.json 设置 "
-            "\"tui\": {\"alt_screen_mode\": \"never\"} 关闭。";
-        state.conversation.push_back({"system", hint, false});
-        acecode::write_state_flag("legacy_terminal_hint_shown", true);
-    }
-}
 
-static PermissionMode permission_mode_from_meta_name(std::string mode) {
-    return PermissionManager::parse_mode_name(std::move(mode))
-        .value_or(PermissionMode::Default);
-}
 
-static void configure_permissions(PermissionManager& permissions,
-                                  bool dangerous_mode,
-                                  const std::string& default_permission_mode) {
-    permissions.set_mode(permission_mode_from_meta_name(default_permission_mode));
-    if (dangerous_mode) {
-        permissions.set_dangerous(true);
-        permissions.set_mode(PermissionMode::Yolo);
-    }
 
-    // Register built-in safety rules (deny writes to sensitive files/dirs)
-    permissions.add_rule({"file_write", "*.env", "", RuleAction::Deny, 100});
-    permissions.add_rule({"file_edit", "*.env", "", RuleAction::Deny, 100});
-    permissions.add_rule({"file_write", ".git/**", "", RuleAction::Deny, 100});
-    permissions.add_rule({"file_edit", ".git/**", "", RuleAction::Deny, 100});
-    permissions.add_rule({"apply_patch", "*.env", "", RuleAction::Deny, 100});
-    permissions.add_rule({"apply_patch", ".git/**", "", RuleAction::Deny, 100});
-    permissions.add_rule({"bash", "", "rm -rf /", RuleAction::Deny, 100});
-}
-
-static void register_slash_commands(CommandRegistry& cmd_registry,
-                                    SkillRegistry& skill_registry,
-                                    const AppConfig& config,
-                                    const std::string& working_dir) {
-    register_builtin_commands(cmd_registry);
-    auto command_keys = register_opencode_commands_tracked(
-        cmd_registry, config, working_dir);
-    if (!command_keys.empty()) {
-        LOG_INFO("[commands] Registered " + std::to_string(command_keys.size()) +
-                 " opencode command slash command(s)");
-    }
-    auto keys = register_skill_commands_tracked(cmd_registry, skill_registry);
-    if (!keys.empty()) {
-        LOG_INFO("[skills] Registered " + std::to_string(keys.size()) +
-                 " skill slash command(s)");
-    }
-}
 
 static void run_tui_loop(ftxui::ScreenInteractive& screen,
                          const ftxui::Component& renderer) {
@@ -2241,11 +1965,11 @@ static void run_tui_loop(ftxui::ScreenInteractive& screen,
     // the paste accumulator in the CatchEvent body intercepts them before
     // normal Return / character handlers run — preventing pasted newlines
     // from accidentally submitting partial prompts.
-    flush_terminal_input_buffer();
-    write_terminal_control_sequence(acecode::tui::kBracketedPasteEnableSeq);
+    tui::term::flush_terminal_input_buffer();
+    tui::term::write_terminal_control_sequence(acecode::tui::kBracketedPasteEnableSeq);
     screen.Loop(renderer);
-    write_terminal_control_sequence(acecode::tui::kBracketedPasteDisableSeq);
-    flush_terminal_input_buffer();
+    tui::term::write_terminal_control_sequence(acecode::tui::kBracketedPasteDisableSeq);
+    tui::term::flush_terminal_input_buffer();
 }
 
 static void shutdown_after_tui_loop(TuiState& state,
@@ -2325,39 +2049,7 @@ static void shutdown_after_tui_loop(TuiState& state,
         update_check_thread.join();
     }
 
-    // Worktree 会话收尾(对齐 Claude Code 退出流的静默清理分支):
-    // 无变更 → 直接删掉 worktree + 分支;有变更或状态数不清(fail-closed)
-    // → 保留并提示位置,meta 里的 worktree 状态留着,--resume 会恢复进去。
-    // 交互式 keep/remove 对话框留待后续;保留是零数据损失的安全默认。
-    {
-        const WorktreeSessionInfo exit_worktree = session_manager.active_worktree();
-        if (exit_worktree.active()) {
-            const auto changes = acecode::worktree::count_worktree_changes(
-                exit_worktree.worktree_path, exit_worktree.original_head_commit);
-            if (changes && changes->changed_files == 0 && changes->commits == 0) {
-                // 先把进程 cwd 挪回原目录:Windows 上删除当前所在目录会失败
-                std::error_code wt_ec;
-                std::filesystem::current_path(
-                    path_from_utf8(exit_worktree.original_cwd), wt_ec);
-                std::string repo_root = acecode::worktree::find_canonical_git_root(
-                    exit_worktree.original_cwd);
-                if (repo_root.empty()) repo_root = exit_worktree.original_cwd;
-                if (acecode::worktree::remove_worktree(repo_root,
-                                                       exit_worktree.worktree_path,
-                                                       exit_worktree.worktree_branch)) {
-                    session_manager.clear_active_worktree();
-                    std::cerr << "\nacecode: worktree removed (no changes)." << std::endl;
-                }
-            } else {
-                std::cerr << "\nacecode: worktree kept at " << exit_worktree.worktree_path
-                          << (exit_worktree.worktree_branch.empty()
-                                  ? std::string{}
-                                  : " on branch " + exit_worktree.worktree_branch)
-                          << ". Resume this session to continue working there."
-                          << std::endl;
-            }
-        }
-    }
+    tui::finalize_session_worktree_on_exit(session_manager);
 
     // Finalize session before exit
     session_manager.finalize();
@@ -2378,254 +2070,21 @@ static void shutdown_after_tui_loop(TuiState& state,
 // worktree 就是本次会话的项目根 —— 日志 / workspace 注册 / 会话存储全部
 // 落在 worktree 里(EnterWorktree 工具中途进入的 throwaway worktree 则
 // 相反,项目身份保持在原目录)。
-static bool bootstrap_startup_worktree(const InteractiveCliOptions& cli,
-                                       std::string& working_dir,
-                                       WorktreeSessionInfo& out_info,
-                                       std::string& out_banner) {
-    namespace wt = acecode::worktree;
-
-    std::string slug = cli.worktree_name;
-    std::optional<int> pr_number;
-    if (!slug.empty()) {
-        // "#123" / GitHub PR URL → 基于 PR head 建 worktree,slug 记为 pr-<N>
-        if (auto pr = wt::parse_pr_reference(slug)) {
-            pr_number = pr;
-            slug = "pr-" + std::to_string(*pr);
-        }
-    } else {
-        slug = wt::generate_worktree_slug(std::random_device{}());
-    }
-    if (std::string err = wt::validate_worktree_slug(slug); !err.empty()) {
-        std::cerr << "acecode: " << err << std::endl;
-        return false;
-    }
-
-    const std::string repo_root = wt::find_canonical_git_root(working_dir);
-    if (repo_root.empty()) {
-        std::cerr << "acecode: --worktree requires a git repository, but "
-                  << working_dir << " is not inside one." << std::endl;
-        return false;
-    }
-
-    // 配置在这里提前读一次(正式加载在 load_tui_config_and_runtime):
-    // worktree 创建需要 worktree.sparse_paths / symlink_directories。
-    AppConfig early_cfg = load_config();
-    wt::WorktreeCreateOptions options;
-    options.pr_number = pr_number;
-    options.sparse_paths = early_cfg.worktree.sparse_paths;
-    auto created = wt::get_or_create_worktree(repo_root, slug, options);
-    if (!created.ok) {
-        std::cerr << "acecode: error creating worktree: " << created.error << std::endl;
-        return false;
-    }
-    if (!created.existed) {
-        wt::PostCreationOptions post;
-        post.symlink_directories = early_cfg.worktree.symlink_directories;
-        wt::perform_post_creation_setup(repo_root, created.worktree_path, post);
-    }
-
-    std::error_code ec;
-    std::filesystem::current_path(path_from_utf8(created.worktree_path), ec);
-    if (ec) {
-        std::cerr << "acecode: cannot enter worktree " << created.worktree_path
-                  << ": " << ec.message() << std::endl;
-        return false;
-    }
-
-    out_info.original_cwd = working_dir;
-    out_info.worktree_path = created.worktree_path;
-    out_info.worktree_name = slug;
-    out_info.worktree_branch = created.worktree_branch;
-    out_info.original_head_commit = created.head_commit;
-    out_banner = (created.existed ? std::string("Resumed existing worktree at ")
-                                  : std::string("Created worktree at ")) +
-                 created.worktree_path + " (branch " + created.worktree_branch + ")";
-    working_dir = created.worktree_path;
-    return true;
-}
 
 // 准备 TUI 启动的最外层环境：终端、标题、cwd、日志和工作区索引。
 // --worktree 时先切进 worktree,再以 worktree 为根初始化其余环境。
-static bool initialize_tui_startup_environment(std::string& working_dir,
-                                               const InteractiveCliOptions& cli,
-                                               WorktreeSessionInfo& startup_worktree,
-                                               std::string& startup_worktree_banner) {
-    if (!ensure_interactive_terminal()) {
-        return false;
-    }
-    set_startup_terminal_title();
-    working_dir = get_cwd();
-    if (cli.worktree_enabled &&
-        !bootstrap_startup_worktree(cli, working_dir, startup_worktree,
-                                    startup_worktree_banner)) {
-        return false;
-    }
-    initialize_logger_for_working_dir(working_dir);
-    acecode::desktop::ensure_workspace_metadata(
-        (std::filesystem::path(get_acecode_dir()) / "projects").string(),
-        working_dir);
-    return true;
-}
 
 // 读取旧版 hook 配置；出错只记日志，不阻塞 TUI 启动。
-static HookConfig load_tui_hook_config() {
-    std::string hook_config_error;
-    HookConfig hook_config = load_hook_config(&hook_config_error);
-    if (!hook_config_error.empty()) {
-        LOG_WARN("[hooks] " + hook_config_error);
-    }
-    return hook_config;
-}
 
 // 加载配置后刷新 hook registry，并初始化启动期全局运行时。
-static AppConfig load_tui_config_and_runtime(HookManager& hook_manager,
-                                             const std::string& working_dir,
-                                             const std::string& argv0_dir) {
-    AppConfig config = load_config();
-    acecode::environment::bootstrap(config, {});
-    reconcile_default_skills_on_startup(argv0_dir);
-    {
-        std::string trust_error;
-        HookTrustStore trust_store =
-            load_hook_trust_store_from_path(default_hook_trust_state_path(),
-                                            &trust_error);
-        if (!trust_error.empty()) {
-            LOG_WARN("[hooks] " + trust_error);
-        }
-        HookLoadOptions hook_load;
-        hook_load.feature_enabled = config.features.hooks;
-        hook_load.cwd = working_dir;
-        hook_load.project_trusted = true;
-        hook_manager.refresh_registry(load_hook_registry(hook_load, &trust_store));
-    }
-    initialize_proxy_runtime(config);
-    initialize_models_registry_runtime(config, argv0_dir);
-    return config;
-}
 
 // 创建当前 provider，并把模型上下文窗口写回运行时配置。
-static ModelProfile initialize_tui_provider_runtime(
-    AppConfig& config,
-    const std::string& working_dir,
-    const std::optional<std::string>& cwd_override,
-    SessionModelBinding& model_binding,
-    HookManager& hook_manager) {
-    ModelProfile effective_entry =
-        resolve_effective_model(config, cwd_override, std::nullopt);
-    auto snapshot = std::make_shared<AppConfig>(config);
-    SessionModelResolvedTarget target;
-    target.revision = current_saved_models_revision();
-    target.profile = effective_entry;
-    target.config = snapshot;
-    target.state = session_model_state_from_profile(*snapshot, effective_entry);
-    auto resolver = [snapshot, revision = target.revision](
-                        const std::string& name) {
-        SessionModelResolvedTarget resolved;
-        resolved.revision = revision;
-        resolved.config = snapshot;
-        const auto found = std::find_if(
-            snapshot->saved_models.begin(), snapshot->saved_models.end(),
-            [&name](const ModelProfile& profile) {
-                return profile.name == name;
-            });
-        if (found != snapshot->saved_models.end()) {
-            resolved.profile = *found;
-            resolved.state = session_model_state_from_profile(*snapshot, *found);
-        }
-        return resolved;
-    };
-    const auto installed = model_binding.install_explicit(
-        std::move(target), resolver);
-    if (!installed.ok) {
-        LOG_WARN("[main] no configured model provider; starting without an active model");
-    }
-    auto provider = model_binding.provider_snapshot();
-    if (provider) {
-        // Startup must use the same profile-aware priority as session create,
-        // switch, and resume. Calling the provider/model-only resolver here
-        // bypassed an explicit saved-model context_window in TUI launches.
-        config.context_window = resolve_model_profile_context_window(
-            config, effective_entry, config.context_window);
-    }
-    auto payload =
-        build_startup_models_loaded_payload(working_dir, effective_entry, provider);
-    hook_manager.dispatch(kHookEventStartupModelsLoaded, payload, working_dir);
-    return effective_entry;
-}
 
 // 注册工具、skills、memory、MCP；这些是 AgentLoop 的工具底座。
-static MemoryConfig initialize_tui_tools_and_registries(
-    ToolExecutor& tools,
-    SkillRegistry& skill_registry,
-    MemoryRegistry& memory_registry,
-    McpManager& mcp_manager,
-    const AppConfig& config,
-    const std::string& working_dir) {
-    initialize_web_search_runtime(config);
-    // LSP runtime(openspec add-lsp-service):惰性子系统,init 不 spawn 进程。
-    lsp::init(config.lsp, working_dir);
-    register_session_builtin_tools(tools, config);
-
-    initialize_skill_registry(skill_registry, config, working_dir);
-    tools.register_tool(create_skills_list_tool(skill_registry, &config));
-    tools.register_tool(create_skill_view_tool(skill_registry, &config));
-
-    MemoryConfig runtime_memory_cfg =
-        initialize_memory_registry(memory_registry, config);
-    tools.register_tool(create_memory_read_tool(memory_registry,
-                                                runtime_memory_cfg.max_index_bytes));
-    tools.register_tool(create_memory_write_tool(memory_registry));
-
-    initialize_mcp_servers(mcp_manager, config);
-    mcp_manager.reconcile_scope(working_dir, load_project_mcp_config(working_dir), tools);
-    return runtime_memory_cfg;
-}
 
 // 填充 TUI 初始状态：侧栏、模型状态、输入历史和启动提示。
-static void initialize_tui_state_before_screen(
-    TuiState& state,
-    const AppConfig& config,
-    const std::string& working_dir,
-    bool dangerous_mode,
-    const McpManager& mcp_manager,
-    const std::shared_ptr<LlmProvider>& provider) {
-    tui::set_mcp_sidebar_servers_locked(state, tui::build_mcp_sidebar_servers(mcp_manager));
-    state.status_line = provider
-        ? "[" + provider->name() + "] model: " + provider->model()
-        : "No model configured";
-    state.ask_config.min_visible_rows = config.tui.question_min_visible_rows;
-    state.ask_config.selection_feedback_ms =
-        config.tui.question_selection_feedback_ms;
-    restore_input_history(state, config, working_dir);
-    add_startup_messages(state, dangerous_mode, mcp_manager);
-}
 
 // 初始化主题并决定 FTXUI 渲染模式。
-static acecode::tui::ScreenRenderMode initialize_tui_render_mode(
-    AppConfig& config,
-    bool force_alt_screen,
-    acecode::TerminalCapabilities& term_caps,
-    bool& conhost_compat_layout) {
-    std::string theme_name = config.tui.theme;
-    if (theme_name == "auto") {
-        auto detected = acecode::detect_terminal_theme();
-        theme_name = (detected == acecode::DetectedTheme::light) ? "light" : "dark";
-    }
-    acecode::tui::init_theme_palette(theme_name);
-
-    term_caps = acecode::detect_terminal_capabilities();
-    if (force_alt_screen) {
-        config.tui.alt_screen_mode = "always";
-    }
-    auto render_mode = acecode::tui::decide_render_mode(config.tui, term_caps);
-    conhost_compat_layout =
-        acecode::should_use_conhost_compat_layout(term_caps);
-    set_ftxui_full_repaint_mode(conhost_compat_layout);
-    if (conhost_compat_layout) {
-        render_mode = acecode::tui::ScreenRenderMode::AltScreen;
-    }
-    return render_mode;
-}
 
 // renderer 需要的共享引用集中放这里，避免 Renderer 捕获一长串变量。
 struct TuiRendererContext {
@@ -4185,11 +3644,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     std::string working_dir;
     WorktreeSessionInfo startup_worktree;
     std::string startup_worktree_banner;
-    if (!initialize_tui_startup_environment(working_dir, cli, startup_worktree,
+    if (!tui::initialize_tui_startup_environment(working_dir, cli, startup_worktree,
                                             startup_worktree_banner)) {
         return 1;
     }
-    HookConfig hook_config = load_tui_hook_config();
+    HookConfig hook_config = tui::load_tui_hook_config();
     HookManager hook_manager(std::move(hook_config));
     {
         auto payload = build_startup_before_model_load_payload(working_dir);
@@ -4197,7 +3656,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     }
 
     AppConfig config =
-        load_tui_config_and_runtime(hook_manager, working_dir, argv0_dir);
+        tui::load_tui_config_and_runtime(hook_manager, working_dir, argv0_dir);
 
     // --question-policy 覆盖(add-ask-question-policy):非法值 fail fast;
     // 合法值只写运行时 CLI 字段,save_config 永不落盘。
@@ -4212,7 +3671,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     auto cwd_override = load_cwd_model_override(working_dir);
     SessionModelBinding model_binding;
-    ModelProfile initial_model_profile = initialize_tui_provider_runtime(
+    ModelProfile initial_model_profile = tui::initialize_tui_provider_runtime(
         config, working_dir, cwd_override, model_binding, hook_manager);
     auto provider_accessor = [&model_binding]() {
         return model_binding.provider_snapshot();
@@ -4229,7 +3688,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     SkillRegistry skill_registry;
     MemoryRegistry memory_registry;
     McpManager mcp_manager;
-    MemoryConfig runtime_memory_cfg = initialize_tui_tools_and_registries(
+    MemoryConfig runtime_memory_cfg = tui::initialize_tui_tools_and_registries(
         tools, skill_registry, memory_registry, mcp_manager, config, working_dir);
     const std::string workspace_projects_dir = path_to_utf8(
         path_from_utf8(get_acecode_dir()) / "projects");
@@ -4246,7 +3705,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         get_acecode_dir() + "/.skill_usage_state.json");
 
     TuiState state;
-    initialize_tui_state_before_screen(state, config, working_dir, dangerous_mode,
+    tui::initialize_tui_state_before_screen(state, config, working_dir, dangerous_mode,
                                        mcp_manager, provider_accessor());
     state.skill_usage_store = skill_usage_store;
     state.slash_command_usage_counts = read_tui_slash_command_usage();
@@ -4299,9 +3758,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     acecode::TerminalCapabilities term_caps;
     bool conhost_compat_layout = false;
-    auto render_mode = initialize_tui_render_mode(
+    auto render_mode = tui::initialize_tui_render_mode(
         config, force_alt_screen, term_caps, conhost_compat_layout);
-    maybe_add_legacy_terminal_hint(state, config, term_caps, render_mode,
+    tui::maybe_add_legacy_terminal_hint(state, config, term_caps, render_mode,
                                    force_alt_screen);
 
     auto screen = acecode::tui::make_screen_interactive(render_mode);
@@ -4738,7 +4197,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     };
 
     PermissionManager permissions;
-    configure_permissions(permissions, dangerous_mode, config.default_permission_mode);
+    configure_tui_default_permissions(permissions, dangerous_mode, config.default_permission_mode);
 
     AgentLoop agent_loop(provider_accessor, tools, callbacks, working_dir, permissions);
     agent_loop.set_tool_capability_policy(
@@ -5206,9 +4665,9 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     }
                 }
                 const PermissionMode resumed_mode =
-                    permission_mode_from_meta_name(resumed_meta.permission_mode);
+                    parse_tui_permission_mode_name(resumed_meta.permission_mode);
                 if (resumed_mode == PermissionMode::Plan) {
-                    permissions.set_mode(permission_mode_from_meta_name(
+                    permissions.set_mode(parse_tui_permission_mode_name(
                         resumed_meta.pre_plan_permission_mode.empty()
                             ? std::string{"default"}
                             : resumed_meta.pre_plan_permission_mode));
@@ -5259,7 +4718,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     // Slash command registry
     CommandRegistry cmd_registry;
-    register_slash_commands(cmd_registry, skill_registry, config, working_dir);
+    tui::register_slash_commands(cmd_registry, skill_registry, config, working_dir);
 
     // Windows TUI notification setup. The backend (OS toast or the self-drawn
     // renderer) is picked inside init_notifications; either way session

@@ -214,7 +214,8 @@ set(ACECODE_TUI_DIRS
 set(ACECODE_TUI_TESTABLE_SUBSETS
     commands/ resume/ path_reference/ markdown/
     drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp
-    input/input_trace.cpp render_mode.cpp)
+    input/input_trace.cpp render_mode.cpp
+    model/initial_state.cpp app/startup_worktree.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")

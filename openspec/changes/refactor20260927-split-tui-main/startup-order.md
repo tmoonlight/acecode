@@ -125,3 +125,9 @@
 已逐节对照 [manual-test-checklist.md](manual-test-checklist.md) 与 design.md 的不变量：第 1 节覆盖启动、四场景及 hook；第 2–3 节覆盖消息、状态 chip、retry/todo/goal 和工具行；第 4 节覆盖浮层吞键；第 5–7 节覆盖 composer、鼠标和中断；第 8 节覆盖全屏界面；第 9 节覆盖子代理/RC/通知/标题；第 10 节覆盖关停、worktree、断网与中文 IME。未发现必须删除或缩减的验证项。
 
 核对清单的覆盖范围不等于已经逐项执行。三类终端的实操、四平台构建/测试及 B-12 的新旧快照比对各自保留独立结果；本表不替代这些验收。
+
+## B-01 至 B-03 实现登记
+
+2026-09-28:入口的原位置仍依次调用进程环境、非 TUI 分派、CLI 解析、预命令和交互启动。环境准备迁入 app/startup_environment,运行时初始化迁入 app/tui_runtime_init;原后台任务的启动位置尚未改变,由 B-12 接续对象化。model/initial_state 负责输入历史、模型状态和启动提示。终端控制函数归 term/terminal_control,终端恢复注册仍在 ensure_interactive_terminal 的原位置,由 B-13 接续改为幂等注册。
+
+TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_default_permissions 提供,没有增加其它宿主的调用。app/startup_worktree 的退出函数只读 SessionManager::active_worktree,仍在工作线程与后台任务结束后、session.finalize 之前执行;无变更先切回 original_cwd 再删除,变更统计失败保留。以上是实现位置登记,尚未执行本轮启动快照与 Windows 运行验证。

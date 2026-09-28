@@ -58,7 +58,7 @@
     - 新增 `upgrade_cli_args`、`command_dispatch`、`utf8_argv` 单测;
     - `test.yml:118` 的 `--validate-models-registry` 步骤通过;`tests/scripts/verify_package_test.sh` 通过;
     - 手工验证 `--version`、`help`、`-p --help`、退出码 64 / 65、中文 `-p` 参数、Windows 双击启动。
-- [ ] 2.3 【B-03】【主】启动引导外提。
+- [ ] 2.3 【B-03】【主】启动引导外提。〔实现完成: Codex-root 2026-09-28;环境、终端控制、运行时初始化、worktree 收尾、初始 UI 状态和命令注册已外提,TUI 七条默认规则归 permissions;调用顺序原位保留,新增默认规则/初始状态/工具进入后退出清理用例;待统一验收〕
   - 外提 `app/startup_environment`、`app/tui_runtime_init`;
   - `app/startup_worktree`:提供 `bootstrap_startup_worktree` 与 `finalize_session_worktree_on_exit(SessionManager&)` 两个 API,退出收尾只以 `SessionManager::active_worktree()` 为数据源;domain/worktree 只保留纯 git 操作;
   - 外提 `model/initial_state`、`domain/permissions/default_rules`(函数名带 tui)、`commands/command_bootstrap`;
