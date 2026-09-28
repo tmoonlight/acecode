@@ -46,6 +46,7 @@
 #include "upgrade/check.hpp"
 #include "themes/theme_store.hpp"
 #include "utils/logger.hpp"
+#include "utils/lifetime_token.hpp"
 #include "utils/base64.hpp"
 #include "utils/cwd_hash.hpp"
 #include "workspace/files_handler.hpp"
@@ -133,6 +134,8 @@ struct SideChatWorker {
 };
 
 struct WsConnState {
+    // Nullable borrowed connection; access only under Impl::ws_mu while registered.
+    crow::websocket::connection* connection = nullptr;
     std::string session_id;
     std::unordered_map<std::string, SessionClient::SubscriptionId> subscriptions;
     std::unordered_set<std::string> status_workspaces;
@@ -650,6 +653,7 @@ struct WebServer::Impl {
                                   const std::string& type,
                                   const nlohmann::json& payload);
     void stop_side_chat_workers();
+    LifetimeToken ws_listener_lifetime;
 };
 
 } // namespace acecode::web

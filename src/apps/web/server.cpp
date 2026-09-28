@@ -81,6 +81,25 @@ WebServer::Impl::~Impl() {
         std::lock_guard<std::mutex> stop_lock(listener_stop_mu);
         app.stop();
     }
+    // Crow has stopped admission. Revoke and drain session deliveries before
+    // any Impl member can disappear; never wait while holding ws_mu.
+    ws_listener_lifetime.revoke();
+    std::vector<std::pair<std::string, SessionClient::SubscriptionId>> ws_subscriptions;
+    {
+        std::lock_guard<std::mutex> lock(ws_mu);
+        for (auto& [connection, state] : ws_connections) {
+            (void)connection;
+            state->connection = nullptr;
+            for (const auto& subscription : state->subscriptions)
+                ws_subscriptions.push_back(subscription);
+            state->subscriptions.clear();
+        }
+        ws_connections.clear();
+    }
+    if (deps.session_client) {
+        for (const auto& [sid, subscription] : ws_subscriptions)
+            deps.session_client->unsubscribe_and_wait(sid, subscription);
+    }
     // 先阻止 tracked-subagent producer 再停 flusher。若先停 flusher，
     // 尚未解除的订阅仍可能标脏，却再也没有线程负责落盘。
     if (subagent_tracker_state) {

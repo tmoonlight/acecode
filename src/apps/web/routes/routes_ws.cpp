@@ -31,7 +31,9 @@ void WebServer::Impl::register_websocket() {
                 // 客户端 onopen 后立刻发 {type:"hello", payload:{session_id, since}},
                 // handle_ws_message 完成 SessionClient::subscribe 绑定。
                 std::lock_guard<std::mutex> lk(ws_mu);
-                ws_connections.emplace(&conn, std::make_shared<WsConnState>());
+                auto state = std::make_shared<WsConnState>();
+                state->connection = &conn;
+                ws_connections.emplace(&conn, std::move(state));
                 LOG_INFO("[ws] connection opened");
             })
             .onmessage([this](crow::websocket::connection& conn,
@@ -279,19 +281,22 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
             send_pending_interaction_snapshots();
             return;
         }
-        crow::websocket::connection* conn_ptr = &conn;
-        std::string sid_copy = sid;
         auto sub = deps.session_client->subscribe(sid,
-            [this, conn_ptr, sid_copy, workspace_hash, session_cwd](const SessionEvent& evt) {
-                const auto text = session_event_to_json(evt, sid_copy, workspace_hash, session_cwd).dump();
-                try {
-                    std::lock_guard<std::mutex> lk(ws_mu);
-                    if (ws_connections.find(conn_ptr) != ws_connections.end()) {
-                        conn_ptr->send_text(text);
-                    }
-                } catch (...) {
-                }
-                note_session_event_for_attention(sid_copy, workspace_hash, session_cwd, evt);
+            [ref = ws_listener_lifetime.ref(*this), weak_state = std::weak_ptr<WsConnState>(state),
+             sid_copy = sid, workspace_hash, session_cwd](const SessionEvent& evt) {
+                ref.with([&](Impl& owner) {
+                    const auto state = weak_state.lock();
+                    if (!state) return;
+                    const auto text = session_event_to_json(evt, sid_copy, workspace_hash, session_cwd).dump();
+                    try {
+                        std::lock_guard<std::mutex> lock(owner.ws_mu);
+                        const auto found = owner.ws_connections.find(state->connection);
+                        if (found != owner.ws_connections.end() && found->second == state) {
+                            state->connection->send_text(text);
+                        }
+                    } catch (...) {}
+                    owner.note_session_event_for_attention(sid_copy, workspace_hash, session_cwd, evt);
+                });
             },
             since);
         if (sub == 0) {
@@ -318,7 +323,7 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
         }
         auto it = state->subscriptions.find(sid);
         if (it != state->subscriptions.end()) {
-            if (deps.session_client) deps.session_client->unsubscribe(sid, it->second);
+            if (deps.session_client) deps.session_client->unsubscribe_and_wait(sid, it->second);
             state->subscriptions.erase(it);
             {
                 std::lock_guard<std::mutex> lk(ws_mu);
@@ -442,13 +447,14 @@ void WebServer::Impl::handle_ws_close(crow::websocket::connection& conn, const s
         auto it = ws_connections.find(&conn);
         if (it != ws_connections.end()) {
             state = std::move(it->second);
+            state->connection = nullptr;
             ws_connections.erase(it);
         }
     }
     if (state) state->side_chat.close();
     if (state && deps.session_client) {
         for (const auto& [sid, sub] : state->subscriptions) {
-            deps.session_client->unsubscribe(sid, sub);
+            deps.session_client->unsubscribe_and_wait(sid, sub);
         }
     }
     LOG_INFO("[ws] connection closed: " + reason);

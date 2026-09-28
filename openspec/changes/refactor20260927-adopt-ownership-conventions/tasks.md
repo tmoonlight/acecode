@@ -112,9 +112,9 @@
     - `--output-format json`、`-c` / `--resume` 的既有测试通过;
     - 退出码 0 / 1 / 64 / 130 的语义不变;
     - spec `process-shutdown` 中「headless 退出顺序保持」这个 scenario 有测试锁定。
-- [ ] 2.7 【O-08】【主】src/web 内两处 UAF 最小点修(D5,各自单独提交)。
+- [ ] 2.7 【O-08】【主】src/web 内两处 UAF 最小点修(D5,各自单独提交)。〔实现完成: Codex-root 2026-09-28;导入与 WS 分别保存提交检查点,前端零改动,待 Windows 统一验收〕
   - `routes_workspaces.cpp:789-804` 的 opencode 导入线程,改为 `shared_ptr<OpencodeImportRuntime>` + `weak_ptr<GlobalSessionSearchService>`,写法仿照 routes_misc 里的升级任务;〔实现完成: Codex-root 2026-09-28;独立共享任务状态 + 搜索弱引用 + owned detached,真实路由阻塞导入后销毁服务器用例已补,待统一验收〕
-  - WS subscribe listener(`routes_ws.cpp:282-296`)改为捕获 Impl 级令牌;`~Impl` 在 `app.stop()` 之后逐一退订。
+  - WS subscribe listener(`routes_ws.cpp:282-296`)改为捕获 Impl 级令牌;`~Impl` 在 `app.stop()` 之后逐一退订。〔实现完成: Impl 令牌 + 弱连接状态,停 Crow 后撤销令牌并在 ws_mu 外退订等待;真实 WS hello 后销毁服务器及迟到回调快照用例已补〕
   - 除这两处外,不做任何 web 重构。
   - 前置:2.1。
   - 验证:`web_server_smoke_test` 新增两条用例:导入进行中析构 WebServer 不崩溃;WS 已连接时析构 WebServer,之后会话 emit 不访问已释放的 Impl。前端零改动。
