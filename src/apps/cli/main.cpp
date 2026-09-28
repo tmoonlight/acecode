@@ -191,6 +191,12 @@
 #include "tui/render/regular_sidebar_view.hpp"
 #include "tui/render/tool_row_view.hpp"
 #include "tui/overlays/ask_session_projection.hpp"
+#include "tui/overlays/ask_question_input.hpp"
+#include "tui/overlays/confirm_overlay_input.hpp"
+#include "tui/overlays/rewind_picker_input.hpp"
+#include "tui/overlays/completion_dropdown_input.hpp"
+#include "tui/overlays/list_picker_input.hpp"
+#include "tui/input/chat_keys.hpp"
 #include "tui/render/transcript_view.hpp"
 #include "tui/render/overlay_views.hpp"
 #include "tui/render/frame_renderer.hpp"
@@ -245,389 +251,7 @@ namespace {
 
 
 
-static bool dispatch_ask_session_mouse_locked(
-    TuiState& state,
-    const Mouse& mouse,
-    tui::AskQuestionFrame& ask_question_frame,
-    ScreenInteractive& screen) {
-    if (!state.ask_session) return false;
-    auto& ask_question_layout = ask_question_frame.layout;
-    auto& ask_scrollbar_box = ask_question_frame.scrollbar_box;
-    auto& ask_overlay_box = ask_question_frame.overlay_box;
-    const auto& ask_row_boxes = ask_question_frame.row_boxes;
-    const bool wheel = mouse.button == Mouse::WheelUp ||
-                       mouse.button == Mouse::WheelDown;
-    const bool in_ask = tui::ask_question_box_contains(
-                            ask_overlay_box, mouse.x, mouse.y) ||
-                        tui::ask_question_box_contains(
-                            ask_scrollbar_box, mouse.x, mouse.y);
-    if (wheel) {
-        if (!in_ask || ask_question_frame.terminal_too_narrow) return false;
-        const int delta = mouse.button == Mouse::WheelUp ? -3 : 3;
-        const int max_offset = std::max(
-            0, ask_question_frame.layout.total_rows -
-                ask_question_frame.layout.visible_rows);
-        const auto effects = state.ask_session->dispatch({
-            tui::AskQuestionEventKind::ScrollLines, -1, delta, {}, 0,
-            max_offset});
-        tui::dispatch_ask_session_effects_locked(state, effects);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (mouse.button == Mouse::Right && mouse.motion == Mouse::Pressed && in_ask) {
-        const auto snapshot = state.ask_session->snapshot();
-        if (snapshot.editing_custom && snapshot.editor.has_selection) {
-            const auto effects = state.ask_session->dispatch({
-                tui::AskQuestionEventKind::CopySelection});
-            tui::dispatch_ask_session_effects_locked(state, effects);
-        }
-        return true;
-    }
-    if (mouse.button != Mouse::Left) return in_ask;
-    const bool dragging_scrollbar = ask_question_frame.scrollbar_dragging;
-    if (mouse.motion == Mouse::Moved && dragging_scrollbar) {
-        const int track_height =
-            ask_scrollbar_box.y_max - ask_scrollbar_box.y_min + 1;
-        const int target = tui::ask_question_scroll_offset_for_track_y(
-            mouse.y - ask_question_frame.scrollbar_grab_offset,
-            ask_question_frame.scrollbar_box.y_min, track_height,
-            ask_question_frame.layout.total_rows,
-            ask_question_frame.layout.visible_rows);
-        const int current = state.ask_session->snapshot().scroll_offset;
-        const auto effects = state.ask_session->dispatch({
-            tui::AskQuestionEventKind::ScrollLines, -1, target - current, {}, 0,
-            std::max(0, ask_question_frame.layout.total_rows -
-                            ask_question_frame.layout.visible_rows)});
-        tui::dispatch_ask_session_effects_locked(state, effects);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (mouse.motion == Mouse::Released && dragging_scrollbar) {
-        ask_question_frame.scrollbar_dragging = false;
-        ask_question_frame.scrollbar_grab_offset = 0;
-        return true;
-    }
-    if (mouse.motion == Mouse::Released && ask_question_frame.dragging_text) {
-        ask_question_frame.dragging_text = false;
-        ask_question_frame.press_target = {};
-        return true;
-    }
-    if (mouse.motion == Mouse::Moved && ask_question_frame.dragging_text) {
-        for (std::size_t visible = 0; visible < ask_row_boxes.size(); ++visible) {
-            const auto& box = ask_row_boxes[visible];
-            if (!box.Contain(mouse.x, mouse.y)) continue;
-            const int row = ask_question_layout.scroll_offset +
-                            static_cast<int>(visible);
-            if (row < 0 || row >= static_cast<int>(ask_question_layout.rows.size()) ||
-                ask_question_layout.rows[static_cast<std::size_t>(row)].kind !=
-                    tui::AskQuestionLayoutKind::Custom) break;
-            const auto snapshot = state.ask_session->snapshot();
-            const auto& layout_row = ask_question_layout.rows[
-                static_cast<std::size_t>(row)];
-            if (!snapshot.editing_custom) break;
-            // Custom answer text starts in the title column, not after the
-            // number column: the marker column sits between them.
-            const int text_x = box.x_min + ask_question_layout.title_x;
-            const auto cursor = tui::ask_question_text_byte_offset_for_x(
-                snapshot.editor.text,
-                layout_row.text_byte_begin,
-                layout_row.text_byte_end,
-                mouse.x - text_x);
-            const auto effects = state.ask_session->dispatch({
-                tui::AskQuestionEventKind::MoveCursorTo, -1, 0, {}, cursor, -1,
-                true});
-            tui::dispatch_ask_session_effects_locked(state, effects);
-            screen.PostEvent(Event::Custom);
-            break;
-        }
-        return true;
-    }
-    if (!in_ask || ask_question_frame.terminal_too_narrow) return in_ask;
-    if (mouse.motion == Mouse::Pressed) {
-        ask_question_frame.press_x = mouse.x;
-        ask_question_frame.press_y = mouse.y;
-        ask_question_frame.press_target = {};
-        if (ask_question_frame.layout.total_rows >
-            ask_question_frame.layout.visible_rows &&
-            tui::ask_question_box_contains(ask_scrollbar_box, mouse.x, mouse.y)) {
-            ask_question_frame.scrollbar_dragging = true;
-            ask_question_frame.scrollbar_grab_offset = std::clamp(
-                mouse.y - (ask_scrollbar_box.y_min +
-                           ask_question_layout.scrollbar_thumb.y),
-                0, std::max(0, ask_question_layout.scrollbar_thumb.height - 1));
-            const int track_height =
-                ask_scrollbar_box.y_max - ask_scrollbar_box.y_min + 1;
-            const int target = tui::ask_question_scroll_offset_for_track_y(
-                mouse.y - ask_question_frame.scrollbar_grab_offset,
-                ask_question_frame.scrollbar_box.y_min, track_height,
-                ask_question_frame.layout.total_rows,
-                ask_question_frame.layout.visible_rows);
-            const int current = state.ask_session->snapshot().scroll_offset;
-            const auto effects = state.ask_session->dispatch({
-                tui::AskQuestionEventKind::ScrollLines, -1, target - current, {}, 0,
-                std::max(0, ask_question_frame.layout.total_rows -
-                               ask_question_frame.layout.visible_rows)});
-            tui::dispatch_ask_session_effects_locked(state, effects);
-            screen.PostEvent(Event::Custom);
-            return true;
-        }
-        const auto target = tui::hit_test_ask_question_frame(
-            ask_question_frame, mouse.x, mouse.y);
-        ask_question_frame.press_target = target;
-        if (target.kind == tui::AskQuestionHitKind::Custom) {
-            tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
-                tui::AskQuestionEventKind::FocusOption, target.option_index}));
-            tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
-                tui::AskQuestionEventKind::ToggleFocusedWithoutSubmit}));
-            const auto snapshot = state.ask_session->snapshot();
-            const auto visible_it = std::find_if(
-                ask_row_boxes.begin(), ask_row_boxes.end(), [&](const Box& box) {
-                    return box.Contain(mouse.x, mouse.y);
-                });
-            if (visible_it != ask_row_boxes.end()) {
-                const int row = ask_question_layout.scroll_offset + static_cast<int>(
-                    visible_it - ask_row_boxes.begin());
-                if (row >= 0 && row < static_cast<int>(ask_question_layout.rows.size())) {
-                    const auto& layout_row = ask_question_layout.rows[
-                        static_cast<std::size_t>(row)];
-                    const int text_x = visible_it->x_min +
-                                       ask_question_layout.title_x;
-                    const auto cursor = tui::ask_question_text_byte_offset_for_x(
-                        snapshot.editor.text, layout_row.text_byte_begin,
-                        layout_row.text_byte_end, mouse.x - text_x);
-                    tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
-                        tui::AskQuestionEventKind::MoveCursorTo, -1, 0, {}, cursor}));
-                }
-            }
-        ask_question_frame.dragging_text = true;
-        }
-        return true;
-    }
-    if (mouse.motion != Mouse::Released) return false;
-    const auto press_target = ask_question_frame.press_target;
-    const int target_kind = static_cast<int>(press_target.kind);
-    const int question = press_target.question_index;
-    const int option = press_target.option_index;
-    const int dx = mouse.x - ask_question_frame.press_x;
-    const int dy = mouse.y - ask_question_frame.press_y;
-    ask_question_frame.press_target = {};
-    if (target_kind == 0 || dx < -2 || dx > 2 || dy < -2 || dy > 2) return true;
-    const auto kind = static_cast<tui::AskQuestionHitKind>(target_kind);
-    const auto now = std::chrono::steady_clock::now();
-    const bool same_click =
-        ask_question_frame.last_click.kind == static_cast<tui::AskQuestionHitKind>(target_kind) &&
-        ask_question_frame.last_click.question_index == question &&
-        ask_question_frame.last_click.option_index == option &&
-        ask_question_frame.last_click_at != std::chrono::steady_clock::time_point{} &&
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - ask_question_frame.last_click_at).count() <= 500;
-    ask_question_frame.last_click_at = now;
-    ask_question_frame.last_click = press_target;
-    auto dispatch = [&](tui::AskQuestionEventKind kind_to_dispatch,
-                        int event_option = -1) {
-        tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
-            kind_to_dispatch, event_option, 0, {}}));
-    };
-    switch (kind) {
-        case tui::AskQuestionHitKind::Option: {
-            const auto before = state.ask_session->snapshot();
-            dispatch(tui::AskQuestionEventKind::FocusOption, option);
-            const bool selected = option >= 0 &&
-                option < static_cast<int>(before.options.size()) &&
-                before.options[static_cast<std::size_t>(option)].selected;
-            if (same_click) {
-                if (!selected) dispatch(tui::AskQuestionEventKind::ToggleFocused);
-                dispatch(tui::AskQuestionEventKind::SubmitCurrentSelection);
-                ask_question_frame.last_click_at = {};
-            } else {
-                dispatch(tui::AskQuestionEventKind::ToggleFocused);
-            }
-            break;
-        }
-        case tui::AskQuestionHitKind::Custom:
-            dispatch(tui::AskQuestionEventKind::FocusOption, option);
-            dispatch(tui::AskQuestionEventKind::ToggleFocusedWithoutSubmit);
-            break;
-        case tui::AskQuestionHitKind::SummaryQuestion:
-            dispatch(tui::AskQuestionEventKind::OpenQuestion, question);
-            break;
-        default: break;
-    }
-    screen.PostEvent(Event::Custom);
-    return true;
-}
 
-static bool dispatch_ask_session_event_locked(
-    TuiState& state,
-    const Event& event,
-    const tui::AskQuestionFrame& ask_question_frame) {
-    if (!state.ask_session || event == Event::Custom ||
-        event.is_mouse() || event.is_cursor_position() ||
-        event.is_cursor_shape()) {
-        return false;
-    }
-
-    if (ask_question_frame.terminal_too_narrow) {
-        if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-            const auto effects = state.ask_session->escape();
-            tui::dispatch_ask_session_effects_locked(state, effects);
-        }
-        return true;
-    }
-
-    const bool editing_custom = state.ask_session->snapshot().editing_custom;
-    const auto ask_snapshot = state.ask_session->snapshot();
-    const bool custom_focused = !editing_custom &&
-        ask_snapshot.focused_option == static_cast<int>(ask_snapshot.options.size());
-    auto dispatch = [&](const tui::AskQuestionEvent& ask_event) {
-        auto event_with_scroll_bound = ask_event;
-        if (event_with_scroll_bound.kind == tui::AskQuestionEventKind::ScrollLines &&
-            ask_question_frame.layout.total_rows >=
-                ask_question_frame.layout.visible_rows) {
-            event_with_scroll_bound.max_scroll_offset =
-                std::max(0, ask_question_frame.layout.total_rows -
-                                ask_question_frame.layout.visible_rows);
-        }
-        const auto effects = state.ask_session->dispatch(event_with_scroll_bound);
-        tui::dispatch_ask_session_effects_locked(state, effects);
-    };
-
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-        const auto effects = state.ask_session->escape();
-        tui::dispatch_ask_session_effects_locked(state, effects);
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Enter, tui::kTerminalCtrl)) {
-        dispatch({tui::AskQuestionEventKind::InsertNewline});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowUp, tui::kTerminalShift)) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorUp
-                                 : tui::AskQuestionEventKind::MoveUp});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowDown, tui::kTerminalShift)) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorDown
-                                 : tui::AskQuestionEventKind::MoveDown});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowLeft, tui::kTerminalShift)) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorLeft
-                                 : tui::AskQuestionEventKind::MoveLeft});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::ArrowRight, tui::kTerminalShift)) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::SelectCursorRight
-                                 : tui::AskQuestionEventKind::MoveRight});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::PageUp)) {
-        const int page_step = std::max(
-            1, ask_question_frame.layout.visible_rows - 1);
-        dispatch({tui::AskQuestionEventKind::ScrollLines, -1, -page_step});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::PageDown)) {
-        const int page_step = std::max(
-            1, ask_question_frame.layout.visible_rows - 1);
-        dispatch({tui::AskQuestionEventKind::ScrollLines, -1, page_step});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
-                                 : tui::AskQuestionEventKind::PreviousPage,
-                  -1, 0, editing_custom ? "\t" : ""});
-        return true;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Tab)) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
-                                 : tui::AskQuestionEventKind::NextPage,
-                  -1, 0, editing_custom ? "\t" : ""});
-        return true;
-    }
-    if (tui::matches_terminal_codepoint(event, 'x', tui::kTerminalShift)) {
-        dispatch({tui::AskQuestionEventKind::GlobalCancel});
-        return true;
-    }
-    if (tui::matches_terminal_codepoint(event, 'x', tui::kTerminalCtrl)) {
-        dispatch({tui::AskQuestionEventKind::CutSelection});
-        return true;
-    }
-    if (tui::matches_terminal_codepoint(event, 'y')) {
-        if (editing_custom || custom_focused) {
-            dispatch({tui::AskQuestionEventKind::InsertText, -1, 0, "y"});
-        } else {
-            dispatch({tui::AskQuestionEventKind::CopyFocused});
-        }
-        return true;
-    }
-    if (event == Event::ArrowUp) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorUp
-                                 : tui::AskQuestionEventKind::MoveUp});
-        return true;
-    }
-    if (event == Event::ArrowDown) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorDown
-                                 : tui::AskQuestionEventKind::MoveDown});
-        return true;
-    }
-    if (event == Event::ArrowLeft) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorLeft
-                                 : tui::AskQuestionEventKind::MoveLeft});
-        return true;
-    }
-    if (event == Event::ArrowRight) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::MoveCursorRight
-                                 : tui::AskQuestionEventKind::MoveRight});
-        return true;
-    }
-    if (event == Event::Return) {
-        dispatch({tui::AskQuestionEventKind::SubmitFocused});
-        return true;
-    }
-    if (event == Event::Character(' ')) {
-        dispatch({editing_custom ? tui::AskQuestionEventKind::InsertText
-                                 : tui::AskQuestionEventKind::ToggleFocused,
-                  -1, 0, editing_custom ? " " : ""});
-        return true;
-    }
-    if (event == Event::Backspace) {
-        dispatch({tui::AskQuestionEventKind::Backspace});
-        return true;
-    }
-    if (event == Event::Delete) {
-        dispatch({tui::AskQuestionEventKind::DeleteForward});
-        return true;
-    }
-    if (event == Event::Home) {
-        dispatch({tui::AskQuestionEventKind::MoveCursorHome});
-        return true;
-    }
-    if (event == Event::End) {
-        dispatch({tui::AskQuestionEventKind::MoveCursorEnd});
-        return true;
-    }
-    if (event == Event::Character('j')) {
-        dispatch({editing_custom || custom_focused
-                      ? tui::AskQuestionEventKind::InsertText
-                      : tui::AskQuestionEventKind::MoveDown,
-                  -1, 0, editing_custom || custom_focused ? "j" : ""});
-        return true;
-    }
-    if (event == Event::Character('k')) {
-        dispatch({editing_custom || custom_focused
-                      ? tui::AskQuestionEventKind::InsertText
-                      : tui::AskQuestionEventKind::MoveUp,
-                  -1, 0, editing_custom || custom_focused ? "k" : ""});
-        return true;
-    }
-    if (event.is_character()) {
-        dispatch(acecode::tui::ask_question_character_event(
-            event.character(), editing_custom));
-        return true;
-    }
-    return false;
-}
 
 }  // namespace
 
@@ -988,434 +612,17 @@ static bool handle_pending_attachment_focus_event(TuiState& state,
 // respond_remote 非空且当前请求来自子会话(confirm_remote_session_id 非空)
 // 时,用户选择改经它路由回子会话(SubagentHost::respond_permission),
 // 本地 confirm_cv 无等待者,不 notify。
-static bool handle_confirm_overlay_event(
-    TuiState& state,
-    ScreenInteractive& screen,
-    Event& event,
-    const std::function<void(const std::string& session_id,
-                             const std::string& request_id,
-                             PermissionResult r)>& respond_remote = nullptr) {
-    std::unique_lock<std::mutex> lk(state.mu);
-    if (!state.confirm_pending) {
-        return false;
-    }
-
-    auto submit = [&](PermissionResult r) {
-        state.input_text.clear();
-        state.pasted_texts.clear();
-        state.input_cursor = 0;
-        state.clear_input_selection();
-        state.confirm_pending = false;
-        if (!state.confirm_remote_session_id.empty()) {
-            const std::string sid = state.confirm_remote_session_id;
-            const std::string rid = state.confirm_remote_request_id;
-            state.confirm_remote_session_id.clear();
-            state.confirm_remote_request_id.clear();
-            state.confirm_origin_label.clear();
-            if (respond_remote) respond_remote(sid, rid, r);
-        } else {
-            state.confirm_result = r;
-            state.confirm_cv.notify_one();
-        }
-        // overlay 释放:唤醒排队占用者(主会话确认 / 子会话 ask 工具)。
-        state.overlay_cv.notify_all();
-        screen.PostEvent(Event::Custom);
-    };
-
-    // 选项随 payload 变化(bash 的「只放行该目录」/「记住前缀」按需出现),
-    // 数字快捷键 = 选项序号,No 永远最后。
-    const auto options = acecode::tui::build_confirm_options(
-        state.confirm_tool_name, state.confirm_tool_args);
-    const int count = std::max(1, static_cast<int>(options.size()));
-    auto has_result = [&](PermissionResult r) {
-        for (const auto& option : options) if (option.result == r) return true;
-        return false;
-    };
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-        submit(PermissionResult::Deny);
-        return true;
-    }
-    if (event == Event::ArrowUp) {
-        state.confirm_focus = (state.confirm_focus + count - 1) % count;
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::ArrowDown) {
-        state.confirm_focus = (state.confirm_focus + 1) % count;
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (tui::matches_terminal_key(
-            event, acecode::tui::TerminalKey::Tab, tui::kTerminalShift)) {
-        if (has_result(PermissionResult::AlwaysAllow)) submit(PermissionResult::AlwaysAllow);
-        return true;
-    }
-    if (event == Event::Return) {
-        const int f = std::clamp(state.confirm_focus, 0, count - 1);
-        submit(options.empty() ? PermissionResult::Deny : options[static_cast<std::size_t>(f)].result);
-        return true;
-    }
-    if (event.is_character()) {
-        const std::string& c = event.character();
-        if (c.size() == 1 && c[0] >= '1' && c[0] <= '9') {
-            const std::size_t index = static_cast<std::size_t>(c[0] - '1');
-            if (index < options.size()) submit(options[index].result);
-            return true;
-        }
-        if (c == "y" || c == "Y") {
-            submit(PermissionResult::Allow);
-            return true;
-        }
-        if (c == "n" || c == "N") {
-            submit(PermissionResult::Deny);
-            return true;
-        }
-        if (c == "a" || c == "A") {
-            if (has_result(PermissionResult::AlwaysAllow)) submit(PermissionResult::AlwaysAllow);
-            return true;
-        }
-        return true;
-    }
-    return false;
-}
 
 // 清空 rewind picker 的临时状态，取消和提交后都复用。
-static void clear_rewind_picker_locked(TuiState& state) {
-    state.rewind_picker_active = false;
-    state.rewind_mode_active = false;
-    state.rewind_picker_operation = TuiState::RewindPickerOperation::Rewind;
-    state.rewind_items.clear();
-    state.rewind_selected = 0;
-    state.rewind_view_offset = 0;
-    state.rewind_modes.clear();
-    state.rewind_mode_selected = 0;
-    state.rewind_callback = nullptr;
-}
 
 // 根据目标是否支持代码恢复，生成 rewind 的二级选项。
 
 // 提交 rewind 模式，执行回调并恢复普通输入状态。
-static void commit_rewind_mode_locked(
-    TuiState& state,
-    ScreenInteractive& screen,
-    tui::ChatViewport& viewport,
-    TuiState::RewindRestoreMode mode) {
-    if (state.rewind_selected < 0 ||
-        state.rewind_selected >= static_cast<int>(state.rewind_items.size())) {
-        clear_rewind_picker_locked(state);
-        screen.PostEvent(Event::Custom);
-        return;
-    }
-    auto item = state.rewind_items[state.rewind_selected];
-    auto cb = state.rewind_callback;
-    clear_rewind_picker_locked(state);
-    state.input_text.clear();
-    state.pasted_texts.clear();
-    state.input_cursor = 0;
-    state.clear_input_selection();
-    if (cb) cb(std::move(item), mode);
-    viewport.clamp_focus(state);
-    screen.PostEvent(Event::Custom);
-}
 
 // /rewind 是两级菜单；/fork 复用目标页并直接提交 conversation-only。
-static bool handle_rewind_picker_event(
-    TuiState& state,
-    ScreenInteractive& screen,
-    const Event& event,
-    tui::ChatViewport& viewport) {
-    std::unique_lock<std::mutex> lk(state.mu);
-    if (!state.rewind_picker_active) {
-        return false;
-    }
-
-    auto activate_current_target = [&]() {
-        if (state.rewind_selected < 0 ||
-            state.rewind_selected >= static_cast<int>(state.rewind_items.size())) {
-            return;
-        }
-        const auto& item = state.rewind_items[state.rewind_selected];
-        if (TuiState::rewind_target_uses_mode_picker(
-                state.rewind_picker_operation, item.can_restore_code)) {
-            tui::populate_rewind_modes_locked(state, item);
-            state.rewind_mode_active = true;
-        } else {
-            commit_rewind_mode_locked(
-                state, screen, viewport,
-                TuiState::RewindRestoreMode::ConversationOnly);
-        }
-    };
-
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-        if (state.rewind_mode_active) {
-            state.rewind_mode_active = false;
-            state.rewind_modes.clear();
-            state.rewind_mode_selected = 0;
-        } else {
-            const bool is_fork =
-                state.rewind_picker_operation ==
-                TuiState::RewindPickerOperation::Fork;
-            clear_rewind_picker_locked(state);
-            state.conversation.push_back({
-                "system",
-                is_fork ? "Fork cancelled." : "Rewind cancelled.",
-                false});
-            state.chat_follow_tail = true;
-            viewport.clamp_focus(state);
-        }
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-
-    const bool move_up =
-        event == Event::ArrowUp || event == Event::Character('k');
-    const bool move_down =
-        event == Event::ArrowDown || event == Event::Character('j');
-    if (move_up || move_down) {
-        int* selected = state.rewind_mode_active
-            ? &state.rewind_mode_selected
-            : &state.rewind_selected;
-        int count = state.rewind_mode_active
-            ? static_cast<int>(state.rewind_modes.size())
-            : static_cast<int>(state.rewind_items.size());
-        if (count > 0) {
-            *selected = move_up
-                ? (*selected - 1 + count) % count
-                : (*selected + 1) % count;
-        }
-        if (!state.rewind_mode_active) {
-            state.rewind_view_offset = acecode::tui::scroll_to_keep_visible(
-                state.rewind_selected, state.rewind_view_offset,
-                acecode::tui::kRewindPickerVisibleRows,
-                static_cast<int>(state.rewind_items.size()));
-        }
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-
-    if (!state.rewind_mode_active &&
-        (event == Event::PageUp || event == Event::PageDown ||
-         event == Event::Home || event == Event::End)) {
-        const int total = static_cast<int>(state.rewind_items.size());
-        if (total > 0) {
-            const int step = acecode::tui::kRewindPickerVisibleRows;
-            if (event == Event::PageUp) {
-                state.rewind_selected = std::max(0, state.rewind_selected - step);
-            } else if (event == Event::PageDown) {
-                state.rewind_selected =
-                    std::min(total - 1, state.rewind_selected + step);
-            } else if (event == Event::Home) {
-                state.rewind_selected = 0;
-            } else {
-                state.rewind_selected = total - 1;
-            }
-            state.rewind_view_offset = acecode::tui::scroll_to_keep_visible(
-                state.rewind_selected, state.rewind_view_offset, step, total);
-            screen.PostEvent(Event::Custom);
-        }
-        return true;
-    }
-
-    if (event == Event::Return) {
-        if (state.rewind_mode_active) {
-            if (state.rewind_mode_selected >= 0 &&
-                state.rewind_mode_selected <
-                    static_cast<int>(state.rewind_modes.size())) {
-                auto mode = state.rewind_modes[state.rewind_mode_selected].mode;
-                commit_rewind_mode_locked(
-                    state, screen, viewport, mode);
-            }
-        } else {
-            activate_current_target();
-        }
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-
-    if (event.is_character()) {
-        std::string ch = event.character();
-        if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
-            int idx = ch[0] - '1';
-            if (state.rewind_mode_active) {
-                if (idx < static_cast<int>(state.rewind_modes.size())) {
-                    state.rewind_mode_selected = idx;
-                    auto mode = state.rewind_modes[idx].mode;
-                    commit_rewind_mode_locked(
-                        state, screen, viewport, mode);
-                }
-            } else if (idx < static_cast<int>(state.rewind_items.size())) {
-                state.rewind_selected = idx;
-                activate_current_target();
-            }
-            screen.PostEvent(Event::Custom);
-        }
-        return true;
-    }
-
-    return true;
-}
 
 // slash 下拉只负责补全；Enter 补全后继续交给普通提交逻辑。
-static bool handle_slash_dropdown_event(TuiState& state,
-                                        ScreenInteractive& screen,
-                                        const Event& event) {
-    std::unique_lock<std::mutex> lk(state.mu);
-    if (!state.slash_dropdown_active || state.slash_dropdown_items.empty()) {
-        return false;
-    }
 
-    auto commit_selection = [&]() {
-        const auto& item =
-            state.slash_dropdown_items[state.slash_dropdown_selected];
-        state.input_text = "/" + item.name + " ";
-        state.input_cursor = state.input_text.size();
-        state.clear_input_selection();
-        state.slash_dropdown_active = false;
-        state.slash_dropdown_items.clear();
-        state.slash_dropdown_selected = 0;
-        state.slash_dropdown_view_offset = 0;
-        state.slash_dropdown_total_matches = 0;
-        state.slash_dropdown_dismissed_for_input = false;
-    };
-    const int n = static_cast<int>(state.slash_dropdown_items.size());
-    auto follow_view = [&]() {
-        state.slash_dropdown_view_offset =
-            acecode::tui::scroll_to_keep_visible(
-                state.slash_dropdown_selected,
-                state.slash_dropdown_view_offset,
-                acecode::tui::kSlashDropdownVisibleRows, n);
-    };
-
-    if (event == Event::ArrowUp ||
-        tui::matches_terminal_codepoint(event, 'p', tui::kTerminalCtrl)) {
-        state.slash_dropdown_selected =
-            (state.slash_dropdown_selected - 1 + n) % n;
-        follow_view();
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::ArrowDown ||
-        tui::matches_terminal_codepoint(event, 'n', tui::kTerminalCtrl)) {
-        state.slash_dropdown_selected =
-            (state.slash_dropdown_selected + 1) % n;
-        follow_view();
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::PageUp || event == Event::PageDown ||
-        event == Event::Home || event == Event::End) {
-        const int step = acecode::tui::kSlashDropdownVisibleRows;
-        if (event == Event::PageUp) {
-            state.slash_dropdown_selected =
-                std::max(0, state.slash_dropdown_selected - step);
-        } else if (event == Event::PageDown) {
-            state.slash_dropdown_selected =
-                std::min(n - 1, state.slash_dropdown_selected + step);
-        } else if (event == Event::Home) {
-            state.slash_dropdown_selected = 0;
-        } else {
-            state.slash_dropdown_selected = n - 1;
-        }
-        follow_view();
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::Tab) {
-        commit_selection();
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::Return) {
-        commit_selection();
-        return false;
-    }
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-        state.slash_dropdown_active = false;
-        state.slash_dropdown_items.clear();
-        state.slash_dropdown_selected = 0;
-        state.slash_dropdown_view_offset = 0;
-        state.slash_dropdown_total_matches = 0;
-        state.slash_dropdown_dismissed_for_input = true;
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    return false;
-}
-
-static bool handle_path_reference_event(
-    TuiState& state,
-    ScreenInteractive& screen,
-    Event& event,
-    const std::string& cwd,
-    const std::vector<Box>& row_boxes) {
-    std::unique_lock<std::mutex> lk(state.mu);
-    if (!state.path_reference_active) return false;
-
-    const int count = static_cast<int>(state.path_reference_items.size());
-    auto commit = [&](bool enter_directory) {
-        if (!acecode::tui::commit_path_reference_selection(
-                state, enter_directory)) {
-            return false;
-        }
-        if (enter_directory) {
-            acecode::tui::refresh_path_reference_state(state, cwd);
-        }
-        screen.PostEvent(Event::Custom);
-        return true;
-    };
-
-    if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
-        acecode::tui::dismiss_path_reference_state(state);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (count <= 0) return false;
-    if (event == Event::ArrowUp) {
-        acecode::tui::move_path_reference_selection(state, -1);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::ArrowDown) {
-        acecode::tui::move_path_reference_selection(state, 1);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::PageUp || event == Event::PageDown) {
-        const int delta = event == Event::PageUp
-            ? -acecode::tui::kPathReferenceVisibleRows
-            : acecode::tui::kPathReferenceVisibleRows;
-        acecode::tui::move_path_reference_selection(state, delta);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::Home || event == Event::End) {
-        state.path_reference_selected = event == Event::Home ? 0 : count - 1;
-        state.path_reference_view_offset = acecode::tui::scroll_to_keep_visible(
-            state.path_reference_selected, state.path_reference_view_offset,
-            acecode::tui::kPathReferenceVisibleRows, count);
-        screen.PostEvent(Event::Custom);
-        return true;
-    }
-    if (event == Event::Return) return commit(false);
-    if (event == Event::ArrowRight || event == Event::Tab) {
-        return commit(true);
-    }
-    if (event.is_mouse()) {
-        const auto& mouse = event.mouse();
-        if (mouse.button != Mouse::Left || mouse.motion != Mouse::Pressed) {
-            return false;
-        }
-        for (int i = 0; i < count && i < static_cast<int>(row_boxes.size()); ++i) {
-            const auto& box = row_boxes[static_cast<std::size_t>(i)];
-            if (box.x_min <= box.x_max && box.y_min <= box.y_max &&
-                box.Contain(mouse.x, mouse.y)) {
-                state.path_reference_selected = i;
-                return commit(false);
-            }
-        }
-    }
-    return false;
-}
 
 static int run_interactive_app(const InteractiveCliOptions& cli,
                                const std::string& argv0_dir);
@@ -3152,7 +2359,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         open_management_surface;
 
     // Wrap with CatchEvent to handle all keyboard input
-    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &last_keyboard_input_at_ms, &viewport, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
+    auto input_with_esc = CatchEvent(input_renderer, [&state, &screen, &screen_host, &last_keyboard_input_at_ms, &viewport, &auth_done, &cmd_registry, &agent_loop, &model_binding, &provider_accessor, &config, &token_tracker, &permissions, &session_manager, &chat_box, &scrollbar_box, &ask_question_frame, &sidebar_content_box, &sidebar_viewport_box, &sidebar_scrollbar_box, &input_hit_layout, &path_reference_boxes, &chat_link_regions, &message_line_counts, &message_spacer_rows_after, &mcp_manager, &tools, &skill_registry, &memory_registry, &working_dir, &insert_pasted_text_at_cursor, &paste_system_clipboard_text, &paste_system_clipboard_image, &handle_pending_attachment_focus_event, &cancel_ctrl_c_exit_locked, &coordinate_mcp_before_first_turn, &subagent_host, &submit_tui_input, &submit_tui_text, &open_settings_surface, &open_management_surface](Event event) {
         if (event != Event::Custom &&
             !event.is_mouse() &&
             !event.is_cursor_position() &&
@@ -3344,29 +2551,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
         }
 
-        // AskQuestionSession owns all question interaction semantics. The TUI
-        // layer only adapts raw events, performs side effects, and projects
-        // snapshots for rendering. Keep this guard before the shared input
-        // handlers so no session event can reach another input state machine.
-        {
-            std::unique_lock<std::mutex> lk(state.mu);
-            if (state.ask_pending && state.ask_session) {
-                if (event == Event::Custom || event.is_cursor_position()) {
-                    return false;
-                }
-                if (dispatch_ask_session_event_locked(
-                        state, event, ask_question_frame)) {
-                    screen.PostEvent(Event::Custom);
-                    return true;
-                }
-                if (event.is_mouse()) {
-                    return dispatch_ask_session_mouse_locked(
-                        state, event.mouse(), ask_question_frame, screen);
-                }
-                return true;
-            }
-        }
-
+        if (auto result = tui::input_result(tui::handle_ask_question_input(
+                state, screen_host, event, ask_question_frame))) return *result;
 
         // 远程确认泵:confirm/ask overlay 空闲时弹出子会话的权限请求占用
         // confirm overlay(带来源标注)。入队方 PostEvent(Custom) 保证本泵
@@ -3387,96 +2573,29 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
         }
 
-        if (handle_confirm_overlay_event(
-                state, screen, event,
+        if (auto result = tui::input_result(tui::handle_confirm_overlay_input(
+                state, screen_host, event,
                 [&subagent_host](const std::string& sid,
                                  const std::string& rid,
                                  PermissionResult r) {
                     subagent_host.respond_permission(
                         sid, rid, permission_result_choice_name(r));
-                })) {
-            return true;
-        }
+                }))) return *result;
 
-        if (handle_rewind_picker_event(state, screen, event, viewport)) {
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_rewind_picker_input(
+                state, screen_host, event, viewport))) return *result;
 
-        if (handle_path_reference_event(
-                state, screen, event, agent_loop.cwd(), path_reference_boxes)) {
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_path_reference_input(
+                state, screen_host, event, agent_loop.cwd(), path_reference_boxes))) return *result;
 
-        if (handle_slash_dropdown_event(state, screen, event)) {
-            return true;
-        }
+        if (auto result = tui::input_result(tui::handle_slash_dropdown_input(
+                state, screen_host, event))) return *result;
 
         // Enter → submit message
         if (event == Event::Return) {
             std::unique_lock<std::mutex> lk(state.mu);
 
-            // Handle resume picker: Enter confirms selection
-            if (state.resume_picker_active) {
-                if (state.resume_selected >= 0 &&
-                    state.resume_selected < static_cast<int>(state.resume_items.size())) {
-                    auto sid = state.resume_items[state.resume_selected].id;
-                    auto cb = state.resume_callback;
-                    state.resume_picker_active = false;
-                    state.resume_items.clear();
-                    state.resume_view_offset = 0;
-                    state.resume_callback = nullptr;
-                    state.input_text.clear(); state.pasted_texts.clear();
-                    state.input_cursor = 0;
-                    state.clear_input_selection();
-                    const size_t before_resume_messages =
-                        state.conversation.size();
-                    if (cb) cb(sid);
-                    if (state.conversation.size() != before_resume_messages) {
-                        viewport.reset(state);
-                    }
-                    viewport.clamp_focus(state);
-                }
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-
-            // /model picker: Enter confirms,callback 在持 state.mu 的同
-            // 一锁内跑(和 /resume 同款约定),完成后清状态 + post 一帧。
-            if (state.model_picker_open) {
-                if (state.model_picker_selected >= 0 &&
-                    state.model_picker_selected <
-                        static_cast<int>(state.model_picker_options.size())) {
-                    auto name = state.model_picker_options[state.model_picker_selected].name;
-                    auto cb = state.model_picker_callback;
-                    state.model_picker_open = false;
-                    state.model_picker_options.clear();
-                    state.model_picker_selected = 0;
-                    state.model_picker_view_offset = 0;
-                    state.model_picker_callback = nullptr;
-                    if (cb) cb(name);
-                    viewport.clamp_focus(state);
-                }
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-
-            if (state.mode_picker_open) {
-                if (state.mode_picker_selected >= 0 &&
-                    state.mode_picker_selected <
-                        static_cast<int>(state.mode_picker_options.size())) {
-                    const PermissionMode mode =
-                        state.mode_picker_options[state.mode_picker_selected].mode;
-                    auto callback = state.mode_picker_callback;
-                    state.mode_picker_open = false;
-                    state.mode_picker_options.clear();
-                    state.mode_picker_selected = 0;
-                    state.mode_picker_callback = nullptr;
-                    if (callback) callback(mode);
-                    viewport.clamp_focus(state);
-                }
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
+            if (auto result = tui::input_result(tui::list_picker_enter_locked(state, screen_host, viewport))) return *result;
 
             // confirm_pending 现在由上面的 confirm overlay handler 单独拦截
             // (Enter 直接走那条路径),这里不会再被 confirm 触发。
@@ -3634,63 +2753,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // /resume picker viewport navigation: PgUp/PgDn jump a full window,
         // Home/End jump to first/last item. Must short-circuit before chat
         // scroll handlers so the picker absorbs these keys exclusively.
-        if (event == Event::PageUp || event == Event::PageDown ||
-            event == Event::Home || event == Event::End) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.resume_picker_active) {
-                const int total = static_cast<int>(state.resume_items.size());
-                if (total > 0) {
-                    const int step = acecode::tui::kResumePickerVisibleRows;
-                    if (event == Event::PageUp) {
-                        state.resume_selected = std::max(0, state.resume_selected - step);
-                    } else if (event == Event::PageDown) {
-                        state.resume_selected = std::min(total - 1, state.resume_selected + step);
-                    } else if (event == Event::Home) {
-                        state.resume_selected = 0;
-                    } else {  // End
-                        state.resume_selected = total - 1;
-                    }
-                    state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
-                        state.resume_selected, state.resume_view_offset, step, total);
-                    screen.PostEvent(Event::Custom);
-                }
-                return true;
-            }
-            if (state.model_picker_open) {
-                const int total = static_cast<int>(state.model_picker_options.size());
-                if (total > 0) {
-                    const int step = acecode::tui::kResumePickerVisibleRows;
-                    if (event == Event::PageUp) {
-                        state.model_picker_selected =
-                            std::max(0, state.model_picker_selected - step);
-                    } else if (event == Event::PageDown) {
-                        state.model_picker_selected =
-                            std::min(total - 1, state.model_picker_selected + step);
-                    } else if (event == Event::Home) {
-                        state.model_picker_selected = 0;
-                    } else {  // End
-                        state.model_picker_selected = total - 1;
-                    }
-                    state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
-                        state.model_picker_selected, state.model_picker_view_offset,
-                        step, total);
-                    screen.PostEvent(Event::Custom);
-                }
-                return true;
-            }
-            if (state.mode_picker_open) {
-                const int total = static_cast<int>(state.mode_picker_options.size());
-                if (total > 0) {
-                    if (event == Event::PageUp || event == Event::Home) {
-                        state.mode_picker_selected = 0;
-                    } else {
-                        state.mode_picker_selected = total - 1;
-                    }
-                    screen.PostEvent(Event::Custom);
-                }
-                return true;
-            }
-        }
+        if (auto result = tui::input_result(tui::list_picker_page(state, screen_host, event))) return *result;
+
         if (event == Event::PageUp) {
             std::lock_guard<std::mutex> lk(state.mu);
             viewport.sync_from_layout(state);
@@ -3830,42 +2894,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.drag_phase = drag_scroll::Phase::Idle;
                 state.last_drag_scroll_at = {};
             }
-            // Escape during resume picker → cancel
-            if (state.resume_picker_active) {
-                state.resume_picker_active = false;
-                state.resume_items.clear();
-                state.resume_view_offset = 0;
-                state.resume_callback = nullptr;
-                state.input_text.clear(); state.pasted_texts.clear();
-                state.input_cursor = 0;
-                state.clear_input_selection();
-                state.conversation.push_back({"system", "Resume cancelled.", false});
-                state.chat_follow_tail = true;
-                viewport.clamp_focus(state);
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-            // Escape during /model picker → cancel(不写气泡 —— 保持安静,
-            // 用户大概率只是看了一眼当前模型就关掉)。
-            if (state.model_picker_open) {
-                state.model_picker_open = false;
-                state.model_picker_options.clear();
-                state.model_picker_selected = 0;
-                state.model_picker_view_offset = 0;
-                state.model_picker_callback = nullptr;
-                viewport.clamp_focus(state);
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-            if (state.mode_picker_open) {
-                state.mode_picker_open = false;
-                state.mode_picker_options.clear();
-                state.mode_picker_selected = 0;
-                state.mode_picker_callback = nullptr;
-                viewport.clamp_focus(state);
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
+            if (auto result = tui::input_result(tui::list_picker_escape_locked(state, screen_host, viewport))) return *result;
+
             // confirm_pending 的 Esc → Deny 已由上面的 confirm overlay handler
             // 拦截,这里不再重复处理。
 
@@ -4549,29 +3579,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (event == Event::ArrowUp) {
             std::lock_guard<std::mutex> lk(state.mu);
             state.input_vertical_goal_column.reset();
-            if (state.resume_picker_active) {
-                if (state.resume_selected > 0) state.resume_selected--;
-                state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
-                    state.resume_selected, state.resume_view_offset,
-                    acecode::tui::kResumePickerVisibleRows,
-                    static_cast<int>(state.resume_items.size()));
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-            if (state.model_picker_open) {
-                if (state.model_picker_selected > 0) state.model_picker_selected--;
-                state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
-                    state.model_picker_selected, state.model_picker_view_offset,
-                    acecode::tui::kResumePickerVisibleRows,
-                    static_cast<int>(state.model_picker_options.size()));
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-            if (state.mode_picker_open) {
-                if (state.mode_picker_selected > 0) state.mode_picker_selected--;
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
+            if (auto result = tui::input_result(tui::list_picker_up_locked(state, screen_host))) return *result;
+
             if (acecode::tui::navigate_input_history_up(state)) {
                 // 历史覆盖输入：清掉本会话旧粘贴留下的孤儿 pasted_texts（spec 3.7）。
                 acecode::tui::prune_unreferenced(state.pasted_texts, state.input_text);
@@ -4582,35 +3591,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (event == Event::ArrowDown) {
             std::lock_guard<std::mutex> lk(state.mu);
             state.input_vertical_goal_column.reset();
-            if (state.resume_picker_active) {
-                if (state.resume_selected < static_cast<int>(state.resume_items.size()) - 1)
-                    state.resume_selected++;
-                state.resume_view_offset = acecode::tui::scroll_to_keep_visible(
-                    state.resume_selected, state.resume_view_offset,
-                    acecode::tui::kResumePickerVisibleRows,
-                    static_cast<int>(state.resume_items.size()));
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-            if (state.model_picker_open) {
-                if (state.model_picker_selected <
-                    static_cast<int>(state.model_picker_options.size()) - 1)
-                    state.model_picker_selected++;
-                state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
-                    state.model_picker_selected, state.model_picker_view_offset,
-                    acecode::tui::kResumePickerVisibleRows,
-                    static_cast<int>(state.model_picker_options.size()));
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
-            if (state.mode_picker_open) {
-                if (state.mode_picker_selected <
-                    static_cast<int>(state.mode_picker_options.size()) - 1) {
-                    state.mode_picker_selected++;
-                }
-                screen.PostEvent(Event::Custom);
-                return true;
-            }
+            if (auto result = tui::input_result(tui::list_picker_down_locked(state, screen_host))) return *result;
+
             if (acecode::tui::navigate_input_history_down(state)) {
                 // 历史覆盖输入：清掉本会话旧粘贴留下的孤儿 pasted_texts（spec 3.7）。
                 acecode::tui::prune_unreferenced(state.pasted_texts, state.input_text);
@@ -4721,40 +3703,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             screen.PostEvent(Event::Custom);
             return true;
         }
-        // Ctrl+E contextual expand: when a summarized tool_result is focused
-        // in the chat view, toggle its expanded state. Falls through to the
-        // readline-style "move to end of line" when no chat message is focused.
-        if (tui::matches_terminal_codepoint(event, 'e', tui::kTerminalCtrl)) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            if (state.chat_focus_index >= 0 &&
-                state.chat_focus_index < static_cast<int>(state.conversation.size())) {
-                auto& msg = state.conversation[state.chat_focus_index];
-                const auto tool_result_names =
-                    acecode::tui::compute_tool_result_names(
-                        state.conversation);
-                const std::string paired_tool_name =
-                    state.chat_focus_index <
-                        static_cast<int>(tool_result_names.size())
-                    ? tool_result_names[
-                        static_cast<std::size_t>(state.chat_focus_index)]
-                    : std::string();
-                if (acecode::tui::toggle_completed_compact_notice_row(msg)) {
-                    viewport.invalidate(state.chat_focus_index);
-                    screen.PostEvent(Event::Custom);
-                    return true;
-                }
-                if (msg.role == "tool_result" &&
-                    (msg.summary.has_value() || msg.hunks.has_value()) &&
-                    !acecode::tui::is_task_complete_result(
-                        msg, paired_tool_name)) {
-                    msg.expanded = !msg.expanded;
-                    viewport.invalidate(state.chat_focus_index);
-                    screen.PostEvent(Event::Custom);
-                    return true;
-                }
-            }
-            // Fall through to end-of-line if nothing to toggle.
-        }
+        if (auto result = tui::input_result(tui::handle_chat_ctrl_e(
+                state, screen_host, viewport, event))) return *result;
         if (is_end_event(event)) {
             std::lock_guard<std::mutex> lk(state.mu);
             if (state.resume_picker_active) return true;
@@ -4850,59 +3800,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // Printable character input
         if (event.is_character()) {
             std::lock_guard<std::mutex> lk(state.mu);
-            // During resume picker, digit keys select directly
-            if (state.resume_picker_active) {
-                std::string ch = event.character();
-                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
-                    int idx = ch[0] - '1';
-                    if (idx < static_cast<int>(state.resume_items.size())) {
-                        auto sid = state.resume_items[idx].id;
-                        auto cb = state.resume_callback;
-                        state.resume_picker_active = false;
-                        state.resume_items.clear();
-                        state.resume_view_offset = 0;
-                        state.resume_callback = nullptr;
-                        state.input_text.clear(); state.pasted_texts.clear();
-                        state.input_cursor = 0;
-                        state.clear_input_selection();
-                        if (cb) cb(sid);
-                        viewport.clamp_focus(state);
-                        screen.PostEvent(Event::Custom);
-                    }
-                }
-                return true;
-            }
-            // /model picker:数字键 1-9 直接跳到对应行(选中,不立即提交 ——
-            // 和 /resume 不同,模型切换是有副作用的操作,留 Enter 确认)。
-            // 其它字符 absorb,不写进 input_text。
-            if (state.model_picker_open) {
-                std::string ch = event.character();
-                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
-                    int idx = ch[0] - '1';
-                    if (idx < static_cast<int>(state.model_picker_options.size())) {
-                        state.model_picker_selected = idx;
-                        state.model_picker_view_offset = acecode::tui::scroll_to_keep_visible(
-                            state.model_picker_selected, state.model_picker_view_offset,
-                            acecode::tui::kResumePickerVisibleRows,
-                            static_cast<int>(state.model_picker_options.size()));
-                        screen.PostEvent(Event::Custom);
-                    }
-                }
-                return true;
-            }
-            // /mode picker: number keys move the highlight but still require
-            // Enter, matching the confirmation behavior of /model.
-            if (state.mode_picker_open) {
-                const std::string ch = event.character();
-                if (!ch.empty() && ch[0] >= '1' && ch[0] <= '9') {
-                    const int index = ch[0] - '1';
-                    if (index < static_cast<int>(state.mode_picker_options.size())) {
-                        state.mode_picker_selected = index;
-                        screen.PostEvent(Event::Custom);
-                    }
-                }
-                return true;
-            }
+            if (auto result = tui::input_result(tui::list_picker_character_locked(state, screen_host, viewport, event))) return *result;
+
             const std::string ch = event.character();
             // Shell-mode trigger on an empty Normal buffer switches mode
             // without being inserted. Subsequent trigger characters are literal.

@@ -235,7 +235,13 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     tool_progress.cpp slash_dropdown.cpp
     render/message_row_views.cpp render/transcript_view.cpp render/overlay_views.cpp
     overlays/ask_session_projection.cpp
-    render/prepare_frame.cpp render/frame_renderer.cpp)
+    render/prepare_frame.cpp render/frame_renderer.cpp
+    overlays/ask_question_input.cpp
+    overlays/confirm_overlay_input.cpp
+    overlays/rewind_picker_input.cpp
+    overlays/completion_dropdown_input.cpp
+    overlays/list_picker_input.cpp
+    input/chat_keys.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")

@@ -151,3 +151,10 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 4. transcript 保留 call/result FIFO 可见窗口配对,无链接消息缓存、OSC8 按首次 Markdown 渲染探测;每条消息仍同时 reflect_unclipped 与 reflect。
 5. TuiScreenHost 在原屏幕创建位置启用 Kitty、探测 hover、设置同步输出,再创建 redraw pacer。帧 begin 仍在 render 前,complete 仍经 Post 在 Draw/Flush 后运行。
 6. 补回 B-04 抽取布局时遗漏的 current_message_width 绑定,缓存 content hash 移为 message_render_cache_revision;公式与原实现相同。
+
+### B-08 输入阶段记录(待统一验收)
+
+- 浮层矩阵测试先于抽取写入;依用户 D27 要求,没有在抽取前后运行测试,将在一期全部实现后统一执行。
+- ask 的 Custom/cursor-position 终止链并返回 false,鼠标未消费也终止链。confirm/path/slash 的 false 仍是 Continue;slash Enter 补全后继续提交。rewind 激活时仍吞掉所有其它键。
+- 列表 Enter、分页、Esc、Up、Down、字符各为独立入口,原锁区间保持;Esc 入口仍排在隐藏气泡和拖选复位之后。resume Enter 与数字键在 viewport.reset 上的原有差异保持,未强行合并。
+- Ctrl+E 原位外提,保持列表 picker/confirm 可展开、rewind 遮蔽的差异。其它编辑键的 picker 守卫暂留原位置,在 B-09/B-10 分别搬迁。

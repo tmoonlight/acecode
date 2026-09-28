@@ -101,7 +101,7 @@
   - 验证:
     - overlay 与 tool_row 的快照测试,覆盖三种根布局;
     - 手工验证:调用行与结果行成对、diff、长 JSON 折叠、OSC8 链接、选区不漂移(清单第 3、6 小节)。
-- [ ] 3.5 【B-08】【主】浮层输入。
+- [ ] 3.5 【B-08】【主】浮层输入。〔实现完成: Codex-root 2026-09-28;先编写六状态吞键矩阵与 Ctrl+E/ask Custom 特征用例,随后迁移五类浮层输入和逐键列表入口;三态在原路由位置立即分流,handler 依赖屏幕接口;末尾统一验证,B-10 再覆盖完整路由表〕
   - **先**落地表驱动的吞键特征测试:所有键 × {无 picker / resume / model / mode / rewind / confirm},另外单列「Ctrl+E 在 picker 打开时仍会切换 tool_result」(MR-8);
   - handler 返回三态 `InputDisposition`(MR-1),只依赖 `input/ports.hpp`(MR-2);
   - 外提 5 个浮层 handler:ask_question_input、confirm_overlay_input、rewind_picker_input、completion_dropdown_input、list_picker_input;slash 与 @路径下拉进 testable。
