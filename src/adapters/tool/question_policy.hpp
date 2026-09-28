@@ -43,6 +43,10 @@ ResolvedQuestionPolicy resolve_question_policy(
     bool policy_explicit,
     int configured_timeout_seconds);
 
+struct AgentLoopConfig;
+// CLI 覆盖与配置回退在所有入口保持同一优先级。
+ResolvedQuestionPolicy resolve_question_policy(const AgentLoopConfig& config);
+
 // P2-08 自 cli/interactive_options 拆入:TUI 入口与 daemon CLI 共用的 --question-policy 取值解析,
 // daemon 不该为它依赖 cli 模块;会话注册表里同名的重复实现由 split-agent-loop 的 A-02 删除。
 // 解析 "--question-policy" 的取值("ask" / "deny" / "timeout" /

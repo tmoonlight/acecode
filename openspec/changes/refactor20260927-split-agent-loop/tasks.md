@@ -42,7 +42,7 @@
   - (b) 逐个 TU 补齐 IWYU include。门面必须保留的 include 按 design.md §4 列出,其余改为前置声明。
   - 前置:restructure 4.2(P3-02)、1.1。
   - 验证:全新构建目录编译 acecode、acecode_testable、acecode_unit_tests 三个目标加 tests;`AgentLoop::ProviderAccessor` 别名不变。
-- [ ] 2.2 【A-02】【子】抽出纯函数。
+- [ ] 2.2 【A-02】【子】抽出纯函数。〔实现完成: Codex-root 2026-09-28;辅助函数、GoalPromptTools、提问策略统一及 6 组回归测试已落地,待统一验收提交〕
   - 函数体逐字搬迁到以下文件:
     - `detail/agent_payloads`;
     - `request/provider_history`、`request/request_context`;

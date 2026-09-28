@@ -1134,14 +1134,7 @@ SessionRegistry::make_entry_locked(const std::string& id,
     // 会话创建后策略变更不重建 prompter,timeout 秒数以创建时为准。
     std::chrono::milliseconds ask_timeout{0};
     if (entry_config) {
-        const auto& al = entry_config->agent_loop;
-        const bool has_cli = !al.question_policy_cli.empty();
-        const auto resolved = resolve_question_policy(
-            has_cli ? al.question_policy_cli : al.question_policy,
-            has_cli || al.question_policy_explicit,
-            (has_cli && al.question_timeout_seconds_cli > 0)
-                ? al.question_timeout_seconds_cli
-                : al.question_timeout_seconds);
+        const auto resolved = resolve_question_policy(entry_config->agent_loop);
         if (resolved.policy == QuestionPolicy::Timeout) {
             ask_timeout = std::chrono::seconds(resolved.timeout_seconds);
         }

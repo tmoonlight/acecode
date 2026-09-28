@@ -1,4 +1,5 @@
 #include "question_policy.hpp"
+#include "config/config.hpp"
 
 #include <cstdlib>
 
@@ -34,6 +35,18 @@ ResolvedQuestionPolicy resolve_question_policy(
     out.policy = QuestionPolicy::Ask;
     out.origin = "default";
     return out;
+}
+
+ResolvedQuestionPolicy resolve_question_policy(const AgentLoopConfig& config) {
+    const bool has_cli = !config.question_policy_cli.empty();
+    const std::string& configured =
+        has_cli ? config.question_policy_cli : config.question_policy;
+    const bool explicit_choice = has_cli || config.question_policy_explicit;
+    const int timeout_seconds =
+        (has_cli && config.question_timeout_seconds_cli > 0)
+            ? config.question_timeout_seconds_cli
+            : config.question_timeout_seconds;
+    return resolve_question_policy(configured, explicit_choice, timeout_seconds);
 }
 
 bool parse_question_policy_value(const std::string& value,
