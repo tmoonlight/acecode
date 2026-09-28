@@ -44,15 +44,17 @@ void abandonable_detail::start_owned_work(std::string name, std::function<void()
     // stderr diagnostics remain usable after the application Logger's teardown.
     std::fprintf(stderr, "[abandonable_call] starting owned detached work: %s\n", name.c_str());
     std::thread worker([registry, logger = std::move(logger), name = std::move(name), fn = std::move(fn)]() mutable {
-        Logger::ScopedLease logging(std::move(logger));
-        try {
-            fn();
-        } catch (const std::exception& error) {
-            std::fprintf(stderr, "[abandonable_call] %s failed: %s\n", name.c_str(), error.what());
-        } catch (...) {
-            std::fprintf(stderr, "[abandonable_call] %s failed with an unknown exception\n", name.c_str());
+        {
+            Logger::ScopedLease logging(std::move(logger));
+            try {
+                fn();
+            } catch (const std::exception& error) {
+                std::fprintf(stderr, "[abandonable_call] %s failed: %s\n", name.c_str(), error.what());
+            } catch (...) {
+                std::fprintf(stderr, "[abandonable_call] %s failed with an unknown exception\n", name.c_str());
+            }
+            fn = {};
         }
-        fn = {};
         complete_work(registry);
     });
     worker.detach();

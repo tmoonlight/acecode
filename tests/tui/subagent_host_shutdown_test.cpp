@@ -63,6 +63,7 @@ protected:
     std::shared_ptr<std::atomic<int>> permission_events = std::make_shared<std::atomic<int>>(0);
 };
 
+// 场景与期望：子代理运行中退出 TUI 宿主，应先 join 子会话再释放回调状态，防止析构顺序悬垂。
 TEST_F(SubagentHostShutdown, RunningChildStopsBeforeHostCallbackStateIsDestroyed) {
     auto host = make_host();
     const auto id = host->registry().create({});
@@ -90,6 +91,7 @@ TEST_F(SubagentHostShutdown, RunningChildStopsBeforeHostCallbackStateIsDestroyed
     EXPECT_EQ(permission_events->load(), 0);
 }
 
+// 场景与期望：子代理提问挂起时关停，应取消提问再关闭服务，避免 join 等待永远无法回答的问题。
 TEST_F(SubagentHostShutdown, PendingQuestionIsCancelledBeforeServicesCanClose) {
     auto host = make_host();
     const auto id = host->registry().create({});

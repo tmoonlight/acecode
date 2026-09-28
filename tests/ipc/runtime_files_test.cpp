@@ -287,6 +287,7 @@ TEST(DaemonRuntimeFiles, GenerationCleanupCanRemoveStoppedGuidOnlyBundle) {
     fs::remove_all(dir);
 }
 
+// 场景与期望：启动中途失败及 guard 移动后，只有当前所有者清运行文件，避免早退泄漏或重复删除。
 TEST(DaemonRuntimeFiles, GuardCleansPartialStartupAndMovesOwnership) {
     const auto dir = unique_temp_dir("runtime_guard_partial");
     write_text(dir / "daemon.pid", "1234");
@@ -302,6 +303,7 @@ TEST(DaemonRuntimeFiles, GuardCleansPartialStartupAndMovesOwnership) {
     fs::remove_all(dir);
 }
 
+// 场景与期望：运行文件已属于新一代进程时，旧 guard 不得删除，避免退出误伤替换 daemon。
 TEST(DaemonRuntimeFiles, GuardPreservesReplacementGeneration) {
     const auto dir = unique_temp_dir("runtime_guard_replacement");
     write_text(dir / "daemon.pid", "1234");

@@ -10,6 +10,7 @@
 namespace {
 using namespace acecode;
 
+// 场景与期望：headless 提交失败早退仍退订并清回填指针，避免订阅或依赖逃出局部作用域。
 TEST(HeadlessSessionScope, RejectedSubmissionUnsubscribesAndClearsBackfillBeforeServiceShutdown) {
     acecode_test::characterization::Isolation isolation;
     AppConfig config;
@@ -63,6 +64,7 @@ TEST(HeadlessSessionScope, RejectedSubmissionUnsubscribesAndClearsBackfillBefore
     // This point is where run_print_mode closes MCP/LSP, outside its IIFE.
 }
 
+// 场景与期望：装配中途异常也须收回已建立的回填引用，防止后续工具访问已析构 registry。
 TEST(HeadlessSessionScope, SetupExceptionAlsoClearsPartialBackfill) {
     acecode_test::characterization::Isolation isolation;
     ToolExecutor tools;

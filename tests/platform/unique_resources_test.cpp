@@ -89,14 +89,15 @@ TEST(UniqueResources, ProcessOwnerKillsSuspendedChildOnException) {
         CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup, &info));
     UniqueHandle thread(info.hThread);
     UniqueHandle observer;
-    {
+    try {
         UniqueProcess process(info.hProcess);
         ASSERT_TRUE(DuplicateHandle(GetCurrentProcess(), process.get(), GetCurrentProcess(),
             observer.put(), SYNCHRONIZE, FALSE, 0));
         EXPECT_EQ(WaitForSingleObject(observer.get(), 0), WAIT_TIMEOUT);
         UniqueProcess moved(std::move(process));
         EXPECT_EQ(process.get(), nullptr);
-    }
+        throw std::runtime_error("unwind process owner");
+    } catch (const std::runtime_error&) {}
     EXPECT_EQ(WaitForSingleObject(observer.get(), 0), WAIT_OBJECT_0);
 }
 #else

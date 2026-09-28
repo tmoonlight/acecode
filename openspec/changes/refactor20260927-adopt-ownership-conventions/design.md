@@ -115,6 +115,7 @@
   - `SessionRegistry::shutdown_all()` 置 `shutting_down_`,把 `entries_` swap 出来,对每个 entry 执行与 `destroy()`(2225-2253 行)相同的序列:`abort → loop->shutdown() → sm->end_current_session()`;然后 join 标题线程与生命周期线程。该函数幂等。
   - `~SessionRegistry` 改为调用它;`SessionEntry` 显式析构,先停 loop。
   - `end_current_session` 内部的 `update_meta()` 默认保留磁盘上的 `updated_at`(`session_manager.cpp:1195-1197`),所以不改变排序。
+  - O-11 关停使用不可清除的终止取消,避免 worker 的启动 clear 覆盖退出请求;普通 abort/下一回合 clear 的语义保持。
   - O-11:AgentLoop 在 join worker 之后,于调用线程把两条队列 swap 到局部变量,在锁外销毁;`ControlEnqueueReceipt` 的等待方拿到 `completed=false`。**必须先完成 O-03**,把 control lambda 改成 weak_ptr;否则在 shutdown 里释放最后一个 entry 引用,会让 AgentLoop 在自己的成员函数里析构自身。
 - **D8 回合级配置快照**(spec `prompt-config-turn-snapshot`,O-10,原计划编号 A-15):
   - 删除 `set_{memory,project_instructions,custom_instructions,git_context}_config` 这四个裸指针 setter;

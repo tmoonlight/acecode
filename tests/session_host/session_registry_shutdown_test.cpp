@@ -71,6 +71,7 @@ struct QuestionEvents {
     std::string closed;
 };
 
+// 场景与期望：提问挂起时销毁 registry，保留 entry 也必须先取消并停止回合；防止依赖先析构造成悬垂。
 TEST_F(SessionRegistryShutdown, DestructorCancelsPendingQuestionWithRetainedEntry) {
     auto registry = make_registry();
     const auto id = registry->create({});
@@ -120,6 +121,7 @@ public:
     std::atomic<bool> exited{false};
 };
 
+// 场景与期望：运行回合时销毁 registry，必须取消并等待 worker；外部 entry 租约不能推迟宿主关停。
 TEST_F(SessionRegistryShutdown, DestructorJoinsRunningTurnWithRetainedEntry) {
     auto registry = make_registry();
     const auto id = registry->create({});
@@ -138,6 +140,7 @@ TEST_F(SessionRegistryShutdown, DestructorJoinsRunningTurnWithRetainedEntry) {
     EXPECT_TRUE(entry->sm->current_session_id().empty());
 }
 
+// 场景与期望：重复关停后禁止创建、恢复和新任务，避免 shutdown 期间有新 worker 逃逸。
 TEST_F(SessionRegistryShutdown, ShutdownIsIdempotentAndRejectsCreateResumeAndTasks) {
     auto registry = make_registry();
     const auto id = registry->create({});
@@ -151,6 +154,7 @@ TEST_F(SessionRegistryShutdown, ShutdownIsIdempotentAndRejectsCreateResumeAndTas
     EXPECT_TRUE(retained->sm->current_session_id().empty());
 }
 
+// 场景与期望：连续完成标题任务后应回收线程记录，防止任务表随会话无限增长。
 TEST_F(SessionRegistryShutdown, CompletedTitleTasksDoNotAccumulate) {
     config.session_title.enabled = true;
     auto calls = std::make_shared<std::atomic<int>>(0);
@@ -172,6 +176,7 @@ TEST_F(SessionRegistryShutdown, CompletedTitleTasksDoNotAccumulate) {
     EXPECT_EQ(registry->background_task_count(), 0u);
 }
 
+// 场景与期望：析构应释放写者租约并保留原活动时间，避免关停被误记为用户活动。
 TEST_F(SessionRegistryShutdown, DestructorReleasesWriterWithoutChangingActivityTime) {
     auto registry = make_registry();
     const auto id = registry->create({});
@@ -191,6 +196,7 @@ TEST_F(SessionRegistryShutdown, DestructorReleasesWriterWithoutChangingActivityT
     EXPECT_TRUE(retained->sm->current_session_id().empty());
 }
 
+// 场景与期望：同 ID 会话被替换后，旧订阅只能退订原 entry，防止误删新会话监听器。
 TEST_F(SessionRegistryShutdown, OldClientSubscriptionCannotRemoveReplacementListener) {
     auto registry = make_registry();
     LocalSessionClient client(*registry);
@@ -217,6 +223,7 @@ TEST_F(SessionRegistryShutdown, OldClientSubscriptionCannotRemoveReplacementList
     EXPECT_EQ(old_count->load(), 0);
     EXPECT_EQ(new_count->load(), 1);
 }
+// 场景与期望：忙回合中排队策略更新再销毁 entry，弱控制项不得形成自持环或访问替换对象。
 TEST_F(SessionRegistryShutdown, QueuedPolicyControlsDoNotKeepDestroyedEntryAlive) {
     auto registry = make_registry();
     const auto id = registry->create({});

@@ -12429,6 +12429,7 @@ TEST(WebServerHttp, SavedModelOrderPersistsAndValidatesRequests) {
     EXPECT_EQ(json::parse(edited.text)["model"], "gpt-4.1");
 }
 
+// 场景与期望：导入进行中销毁服务器，迟到完成只使用自有任务状态，防止访问已释放 Impl。
 TEST(WebServerHttp, ImportCompletionOutlivesDestroyedServerWithoutBorrowingImpl) {
     struct Gate {
         std::mutex mu;
@@ -12552,6 +12553,7 @@ std::string masked_ws_text(const std::string& text) {
 }
 } // namespace
 
+// 场景与期望：保留连接回调时销毁服务器，迟到事件不得进入旧 Impl；退订必须等待在途投递。
 TEST(WebServerHttp, ConnectedWebSocketCannotDeliverIntoDestroyedImpl) {
     WebServerFixture fx(WebServerFixture::SessionClientFactory{
         [](acecode::SessionRegistry& registry) {

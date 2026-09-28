@@ -8,6 +8,7 @@ namespace {
 using acecode::daemon::DaemonShutdownSequence;
 using acecode::daemon::DaemonShutdownStep;
 
+// 场景与期望：退出时先停生产者和会话，再关依赖服务，防止仍运行的回合使用已关闭的 MCP/LSP。
 TEST(DaemonShutdownSequence, StopsProducersAndSessionsBeforeTheirServices) {
     bool scheduler_running = true;
     bool suggestions_running = true;
@@ -52,6 +53,7 @@ TEST(DaemonShutdownSequence, StopsProducersAndSessionsBeforeTheirServices) {
     for (const auto& [step, count] : calls) { (void)step; EXPECT_EQ(count, 1); }
 }
 
+// 场景与期望：一个收尾步骤抛异常后，后续步骤仍执行且重复调用不重做，避免退出漏清理。
 TEST(DaemonShutdownSequence, ExceptionStillRunsLaterCleanupOnce) {
     int registry_shutdowns = 0;
     int files_cleaned = 0;

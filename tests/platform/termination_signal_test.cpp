@@ -10,6 +10,7 @@ namespace {
 using acecode::platform::TerminationSignal;
 using namespace std::chrono_literals;
 
+// 场景与期望：终止请求应唤醒等待者并保持终止状态，避免一次唤醒被后续等待遗漏。
 TEST(TerminationSignal, RequestWakesWaiterAndRemainsRequested) {
     auto signal = std::make_shared<TerminationSignal>();
     auto result = std::make_shared<std::promise<bool>>();
@@ -23,6 +24,7 @@ TEST(TerminationSignal, RequestWakesWaiterAndRemainsRequested) {
     EXPECT_TRUE(signal->wait_for(0ms));
 }
 
+// 场景与期望：进程信号在桥接安装前后到达都应保留，避免启动窗口丢失退出请求。
 TEST(TerminationSignal, ProcessBridgeDeliversRequestsBeforeAndAfterInstallation) {
     TerminationSignal::request_process_termination();
     {
@@ -42,6 +44,7 @@ TEST(TerminationSignal, ProcessBridgeDeliversRequestsBeforeAndAfterInstallation)
     }
 }
 
+// 场景与期望：并发投递信号时注销桥接必须等待在途调用，避免句柄释放后仍被访问。
 TEST(TerminationSignal, UnregistrationWaitsForConcurrentBridgeCalls) {
     auto signal = std::make_unique<TerminationSignal>();
     signal->install_process_handlers();
