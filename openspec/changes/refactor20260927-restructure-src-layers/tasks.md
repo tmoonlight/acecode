@@ -238,6 +238,7 @@
   - 演练分支不推到 master。
   - 前置:Phase 2 全部完成;adopt-ownership-conventions 的 P2-01 已合入。
   - 验证:全部闸门通过,耗时已记录。
+  - 工具:`scripts/refactor/apply_layout.py`(2026-09-28 新增,`plan / move / rewrite / seed / blame` 五步,只复用 migrate_branch 的改写函数)。预演(2026-09-28,P2-07/P2-08 未完成的 master,临时 worktree,不推送):M1 搬 935 个文件全部 R100、23 秒;M2 改 6 个构建文件 + 54 份文档并重生成 help 站点、18 秒,src/tests 只改 3 行 include(image/stb → external/stb)+ tests/CMakeLists.txt 3 行 + cpp_source_paths.json 18 行,blob 保持 LF;`normalize_includes --check` 0、`validate_map --strict` 0。未做:CMake 的 6 个分组 include 根(`${CMAKE_SOURCE_DIR}/src` 共 18 处 + glob 根 + TUI 目录变量)与构建,留给正式演练。
 - [ ] 4.2 【P3-02】【主】正式搬迁。
   - 提前 1–2 天在 AGENTS.md / CLAUDE.md 公告窗口;打 tag `pre-src-layout`;在**最新 master 上重新生成**以下提交,不 rebase 演练结果:
     - **M1** `[no-build]`:约 44 个模块目录(含 tests 镜像)`git mv` 到 6 个分组下,stb 移到 `external/stb`,全部 R100,include 改动 0 行;
