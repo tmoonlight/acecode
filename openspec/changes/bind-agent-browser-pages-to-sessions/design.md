@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 Desktop 只有一个 `AgentBrowserHost`，服务所有工作区的 daemon；每个页面在 host 里是 `Page`，状态经 `acecode:agent-browser-state` 推给主 WebView。Web UI 的浏览器页签存在 ChatView 的内存 state（`browserTabsBySession`），刷新与切工作区（整页导航）后清零。引入本变更前，页面 ↔ 会话的绑定只存在于 ChatView 的一次瞬时推断里，四种情况下断裂：工具执行时没在看该会话、工具结束后再回来、刷新 / 切工作区、子代理与后台会话。

@@ -23,7 +23,7 @@ PAGES = {
         figure("MD-02", "ACEModel 的模型选择", "展示 ACEModel Provider 和三个内置 Model ID，以及保存后的预设。API Key 必须隐藏，避免截入账号信息。")),
     section("verify", "验证能力与连接状态",
         '''<p>检查已保存模型的视觉、工具等能力标识，然后用真实的小任务验证所需功能。</p><p>认证失败时检查密钥和实际地址；模型不存在时核对 Model ID；有回答但不能完成工具任务时检查工具能力与权限。排查步骤见<a href="troubleshoot-models.html">模型连接与认证问题</a>。</p>''')
-], ["src/config/builtin_model_catalog.cpp", "src/config/saved_models.cpp", "web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ProviderCatalogPicker.jsx"]),
+], ["src/base/config/builtin_model_catalog.cpp", "src/base/config/saved_models.cpp", "web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ProviderCatalogPicker.jsx"]),
 
 "providers": page("按实际接口协议选择 Provider，再填写服务给出的连接信息。不同服务商的认证方式和可选参数分别配置。", [
     section("openai", "OpenAI 兼容接口",
@@ -36,7 +36,7 @@ PAGES = {
     section("copilot", "GitHub Copilot",
         '''<p>GitHub Copilot 使用设备登录流程。模型页的<strong>模型连接</strong>卡片提供<strong>连接 GitHub</strong>，认证由该入口管理，模型弹窗不要求手动填写受管端点和密钥。</p><ol><li>点击连接 GitHub，查看设备验证码。</li><li>在打开的系统浏览器中完成 GitHub 授权。</li><li>回到 ACECode，按需要点击<strong>我已完成授权</strong>，确认状态为已连接。</li><li>新增一个 GitHub Copilot 模型预设并保存。</li><li>在任务中选择预设，验证账号可以访问该模型。</li></ol><p>验证码过期或授权未完成时重新发起登录。已连接只表示认证流程成功，实际模型访问仍由账号权限和服务状态决定。需要切换账号时使用连接卡片中的退出连接。</p>''',
         figure("MD-04", "GitHub 设备登录", "展示模型连接卡片中的连接状态、验证码位置和我已完成授权按钮；验证码使用失效的示例值。"))
-], ["web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ModelConnectionCard.jsx", "web/src/components/model-settings/ModelSettingsSection.jsx", "src/provider/openai_provider.cpp", "src/provider/anthropic_provider.cpp"]),
+], ["web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ModelConnectionCard.jsx", "web/src/components/model-settings/ModelSettingsSection.jsx", "src/adapters/provider/openai_provider.cpp", "src/adapters/provider/anthropic_provider.cpp"]),
 
 "manage-models": page("管理可供任务使用的模型预设，并区分新任务默认值与当前任务的模型选择。", [
     section("crud", "添加、编辑与删除",
@@ -47,7 +47,7 @@ PAGES = {
         '''<p>在已保存模型列表中<strong>设为默认</strong>，决定新任务使用的默认预设。已经打开的任务有自己的模型选择，可在输入框下方切换。不要把修改默认值理解成自动改写每条历史任务选择的预设名称。</p><p>编辑一个预设则是在更新该连接的地址、认证和能力参数。历史任务继续使用这个预设时，应使用更新后的配置；若页面仍显示旧信息，刷新模型列表并检查实际选中的预设。正在执行的请求已发出，不会把新参数倒回已经完成的请求。</p>''',
         table(["TUI 命令", "生效范围"], [["<code>/model NAME</code>", "切换当前会话。"], ["<code>/model --cwd NAME</code>", "切换并保存当前工作目录的模型覆盖。"], ["<code>/model --default NAME</code>", "切换并更新全局默认模型名称。"]]),
         '''<p>这些 NAME 使用<strong>预设名称</strong>。脚本中的 <code>acecode -p --model NAME</code> 同样如此；print 模式恢复会话而没有显式传模型时，会保留会话已保存的模型选择。</p>''')
-], ["web/src/components/model-settings/SavedModelList.jsx", "web/src/components/model-settings/ModelSettingsSection.jsx", "web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/ChatView.jsx", "src/config/saved_models.cpp", "docs/user-manual.md"]),
+], ["web/src/components/model-settings/SavedModelList.jsx", "web/src/components/model-settings/ModelSettingsSection.jsx", "web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/ChatView.jsx", "src/base/config/saved_models.cpp", "docs/user-manual.md"]),
 
 "model-capabilities": page("让模型参数与实际接口相符。能力标识告诉 ACECode 如何组织请求，不会替服务端增加原本没有的能力。", [
     section("limits", "上下文窗口与输出限制",
@@ -60,5 +60,5 @@ PAGES = {
         '''<p>模型表单中的<strong>探测模型</strong>主要获取当前 Provider 返回的模型 ID 与可用元数据。有已保存的本地结果时，<strong>查看探测结果</strong>会打开缓存；需要重新访问服务时点击<strong>重新探测</strong>。</p><ol><li>先填写可用的地址、凭据和必要请求头。</li><li>主动点击探测模型，等待结果。</li><li>用搜索过滤 Model ID；新增时可多选，编辑时选择一个替换当前 ID。</li><li>确认回填后检查参数并保存预设。</li><li>用小请求验证实际需要的文字、视觉或工具功能。</li></ol>''',
         note("探测结果的边界", "能列出模型不等于已经实测每项能力。目录和缓存中的标识可能不包含服务的全部限制；正式任务仍以实际请求结果为准。"),
         figure("MD-07", "查看本地探测结果与重新探测", "展示探测结果搜索框、模型选择、重新探测按钮和添加所选模型按钮，图注区分读取缓存与主动请求服务。"))
-], ["web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ModelProbeDialog.jsx", "web/src/components/model-settings/ProviderCatalogPicker.jsx", "src/provider/model_context_resolver.cpp"])
+], ["web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ModelProbeDialog.jsx", "web/src/components/model-settings/ProviderCatalogPicker.jsx", "src/adapters/provider/model_context_resolver.cpp"])
 }

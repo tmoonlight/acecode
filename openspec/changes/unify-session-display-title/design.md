@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 会话名字有两套推导:侧栏用会话列表里的 `title`(用户改名 / 大模型生成)与 `summary`(`SessionManager::extract_summary` 对最近一条 user 消息 `content` 的 80 字节截断);顶部标题栏由 `useSessionTranscript` 维护,初值抄侧栏对象,但 `loadTranscriptHistory` / `transcript_replace` 随后用 `titleFromMessages`(最后一条 user 消息全文)覆盖,ChatView 发送时还会 `setTranscriptTitle(text)`。侧栏在 `summary` 以 "..." 结尾时另拉整份消息把跑马灯「水合」成全文。

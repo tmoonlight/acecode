@@ -5,8 +5,8 @@ This document describes the HTTP and WebSocket protocol exposed by
 
 Source of truth for this document:
 
-- Route registration: `src/web/routes/routes_*.cpp`
-- Shared response helpers: `src/web/server_helpers.cpp`
+- Route registration: `src/apps/web/routes/routes_*.cpp`
+- Shared response helpers: `src/apps/web/server_helpers.cpp`
 - Frontend callers: `web/src/lib/api.js`, `web/src/lib/connection.js`,
   `web/src/lib/consoleDock.js`
 
@@ -1353,7 +1353,7 @@ of text and references:
   {"type":"text","text":" with "},
   {"type":"attachment","key":"local-1","id":"att-...","name":"notes.txt","kind":"file"},
   {"type":"text","text":" and "},
-  {"type":"path","path":"src/cli/main.cpp","token":"@src/cli/main.cpp","directory":false}
+  {"type":"path","path":"src/apps/cli/main.cpp","token":"@src/apps/cli/main.cpp","directory":false}
 ]}
 ```
 
@@ -3705,7 +3705,7 @@ prefilled and revealed with its eye button. Reusable connections never include
 their credentials. Do not log or cache settings responses.
 
 The default image API URL comes from `constants::ACEMODEL_API_BASE_URL` in
-`src/utils/constants.hpp`, shared with the ACEModel model catalog. The frontend
+`src/base/utils/constants.hpp`, shared with the ACEModel model catalog. The frontend
 uses the returned URL. Saving the default leaves the URL out of the sparse
 config, so later default changes apply together; custom URLs remain explicit.
 

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 会话附件上传后已经由 `AttachmentStore` 保存为独立 blob，并在 `AttachmentRecord` 中持久化 `id`、`name`、`mime_type`、`size_bytes` 与 `path`。Desktop 从本机拖入文件时虽然还能把经过服务端校验的绝对 `source_path` 写入 metadata，但原生 bridge 会先读取整份文件并转成 Base64，前端随后再次解码、读取并上传，`AttachmentStore` 最终再复制一份会话 blob。普通文件因此在引用语义生效前就会命中 25 MiB 限制。浏览器上传没有可信本地来源路径，仍需要会话快照。

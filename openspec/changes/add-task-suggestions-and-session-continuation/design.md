@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See proposal.md. ThreadService already creates persistent sessions and queues first input. Web session routes can attach structured source-session references and create a worktree before the first input. AgentLoop persists summary checkpoints but current window numbers also interact with repair/fork; normal @ references only include a bounded recent visible transcript.

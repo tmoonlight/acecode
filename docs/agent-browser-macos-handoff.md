@@ -53,18 +53,18 @@ macOS 实现复用 Windows 已完成的产品模型：详情栏中可并存多�
 - 保持 Windows 的聊天附件合同：元素结果和控制台快照只添加到 composer、可删除且
   不自动发送，并显示在与 Pin/批注相同的 composer 上方引用区；页面加载错误不显示
   网页内红色提示条。
-- 工具名、参数和结构化结果沿用 `src/tool/agent_browser/browser_tools.cpp`。
+- 工具名、参数和结构化结果沿用 `src/adapters/tool/agent_browser/browser_tools.cpp`。
 - Profile 必须持久化且与 Safari/普通浏览器隔离；任意网页不得获得
   `aceDesktop_*` binding 或 daemon token。
 
 `web/src/components/AgentBrowserPanel.jsx`、`web/src/lib/agentBrowser.js`、
 `web/src/lib/previewTabs.js`、`ChatView.jsx` 和彩虹 CSS 已直接复用。
 `hasNativeAgentBrowser()` 已接受 Windows/macOS Desktop 标记并继续校验完整 native
-bridge；`src/desktop/main.cpp` 也已为 `__APPLE__` 开启相同 bindings。
+bridge；`src/apps/desktop/main.cpp` 也已为 `__APPLE__` 开启相同 bindings。
 
 ## 推荐 native 实现
 
-新增 `src/desktop/agent_browser_host_mac.mm`，让现有
+新增 `src/apps/desktop/agent_browser_host_mac.mm`，让现有
 `AgentBrowserHost` public API 保持不变：
 
 1. 从 `WebHost::native_window()` 取得 `NSWindow*`，维护 `page_id -> WKWebView` 管理器；

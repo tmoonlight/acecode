@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 App 渲染 TopBar，ChatView 持有会话、轨迹和侧边聊天状态。DesktopContextMenu 已统一处理会话、项目和文件菜单。顶栏当前高度 41 px，按钮 24 px，macOS 非全屏左侧预留 80 px。

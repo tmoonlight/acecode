@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `AgentLoop` already emits `on_busy_changed(true)` at the start of model, compact, and shell turns, and `on_busy_changed(false)` when those turns finish. TUI owns one local loop. Daemon owns a `SessionRegistry` containing multiple loops, including web/desktop sessions and subagent sessions.

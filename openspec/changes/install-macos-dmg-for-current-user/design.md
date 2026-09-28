@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 当前 DMG 使用静态符号链接 `Applications -> /Applications`，因此拖放会写入系统级目录。分发型 DMG 无法可靠地创建指向下载用户 `~/Applications` 的静态符号链接：`~` 和环境变量不会在 Finder 解析符号链接时展开，而在打包阶段展开 `$HOME` 又会固化 CI 运行器的主目录。

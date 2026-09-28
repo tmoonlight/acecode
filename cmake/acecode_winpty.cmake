@@ -10,7 +10,7 @@
 #
 # 与上游的两处刻意偏离:
 #   1. 不编译上游 libwinpty/AgentLocation.cc,由
-#      src/pty/winpty_agent_location.cpp 提供同签名 findAgentProgram(),
+#      src/base/pty/winpty_agent_location.cpp 提供同签名 findAgentProgram(),
 #      支持进程级 agent 路径覆盖(上游硬编码"当前模块同目录",静态链接时
 #      即 acecode.exe 同目录 — 安装目录通常不可写,无法释放 agent)。
 #   2. WINPTY_API 静态适配:上游只有 dllexport/dllimport 两态。对库与

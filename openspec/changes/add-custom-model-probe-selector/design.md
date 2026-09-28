@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景（Context）
 
 `ProviderCatalogPicker.jsx` 已为目录型和受管 Provider 提供真实模型探测，并通过 `apiClient.probeModels` 调用 Daemon 的 `POST /api/models/probe`。自定义 OpenAI 兼容 Provider 使用 `model_input=manual` 分支，只显示直接绑定草稿的 `Model ID` 文本框，因此同一条探测能力在截图所示位置不可用。

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The modern TUI currently wakes every 20 ms while the thinking row is visible. A wake posts `Event::Custom`; FTXUI then rebuilds the ACECode element tree, rasterizes the terminal frame, hides the hardware cursor, writes the frame, and restores the cursor. The elapsed-time shimmer is deterministic, but its sampling rate causes up to 50 complete redraw requests per second even when no semantic state changed.

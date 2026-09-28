@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 # Design: refactor20260927-split-agent-loop
 
 > **行号基准**:master `7942011b`,文件 `src/agent_loop.{hpp,cpp}`。restructure P2-08 之后,这两个文件先 R100 移到 `src/agent/`,P3 之后位于 `src/engine/agent/`。行号漂移时,按函数名与代码结构重新定位。

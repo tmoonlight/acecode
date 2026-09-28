@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 TurnFileList currently renders each item as one button with a decorative “打开” span. Its onOpenFile prop receives openSessionChangePreview at both ChatView call sites. ChatView already owns openFilePreview, which resolves workspace paths and opens file-content tabs.

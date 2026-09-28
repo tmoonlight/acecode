@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 动机见 proposal.md。现有 ToolResult 已提供图片附件，但 OpenAI 工具结果丢弃附件，Anthropic 将其转为省略文本。内置工具共享注册器服务于 daemon 和 TUI；现有普通工具审批仍适用。Codex 开源部分负责 MCP 接入，实际 Windows 原生插件为专有发布物。

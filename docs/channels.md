@@ -1,7 +1,7 @@
 # WhatsApp Channels
 
 The first channel is a personal WhatsApp account linked by QR. C++ routing lives
-in `src/channels`; a small, pinned Baileys/Node.js process handles WhatsApp device
+in `src/host/channels`; a small, pinned Baileys/Node.js process handles WhatsApp device
 authentication and encryption. This is an unofficial WhatsApp Web integration,
 not the Business Cloud API. Account-based end-to-end validation requires pairing
 your own device. Never expose the account's auth directory or pairing QR.

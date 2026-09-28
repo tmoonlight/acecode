@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 InputBar 与 ChatView 分别拒绝空输入；普通消息经 SessionClient 入队，由 AgentLoop 追加用户记录。前端存在完整 items、折叠投影、窗口化渲染和本地待发消息，后端模型历史与持久化 transcript 也并不完全相同。

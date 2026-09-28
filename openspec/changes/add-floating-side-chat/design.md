@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `ChatView` currently owns a single result, separate inline `SideQuestionComposer`, and `SideQuestionCard`. `api.askSideQuestion` waits for a complete HTTP response. `AgentLoop::ask_side_question` copies an already primed provider-facing snapshot and performs one tool-free call; providers also expose `chat_stream` with an independent abort flag. Global body portals and `notifyNativeSurfaceOverlayChange` already solve app-shell stacking and native preview occlusion.

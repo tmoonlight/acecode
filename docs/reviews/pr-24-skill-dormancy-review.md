@@ -29,16 +29,16 @@
 
 daemon 创建了 `SkillUsageStore`，并把它交给 `WebServerDeps`，但没有把它放入 `SessionRegistryDeps`：
 
-- [`src/daemon/worker.cpp` L616-L629](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/daemon/worker.cpp#L616-L629)
-- [`src/daemon/worker.cpp` L709-L720](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/daemon/worker.cpp#L709-L720)
+- [`src/apps/daemon/worker.cpp` L616-L629](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/daemon/worker.cpp#L616-L629)
+- [`src/apps/daemon/worker.cpp` L709-L720](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/daemon/worker.cpp#L709-L720)
 
 `SessionRegistry` 创建 Web/Desktop 会话的 `AgentLoop` 时，只设置了 `SkillRegistry`，没有调用 `set_skill_usage_store()` 或 `set_skill_idle_days()`：
 
-- [`src/session/session_registry.cpp` L938-L974](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/session/session_registry.cpp#L938-L974)
+- [`src/host/session_host/session_registry.cpp` L938-L974](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/session/session_registry.cpp#L938-L974)
 
 而 `AgentLoop::dormant_skill_names()` 在 store 为空时直接返回空集合：
 
-- [`src/agent/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
+- [`src/engine/agent/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
 
 #### 影响
 
@@ -61,11 +61,11 @@ Desktop/Web 会话中：
 
 当前唯一的 `record()` 调用位于显式 Skill 展开之后：
 
-- [`src/agent/agent_loop.cpp` L1758-L1769](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L1758-L1769)
+- [`src/engine/agent/agent_loop.cpp` L1758-L1769](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L1758-L1769)
 
 系统提示词要求模型对匹配任务调用 `skill_view`，但 `skill_view` 的成功路径没有接入 usage store：
 
-- [`src/tool/skill_view_tool.cpp` L56-L166](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/tool/skill_view_tool.cpp#L56-L166)
+- [`src/adapters/tool/skill_view_tool.cpp` L56-L166](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/tool/skill_view_tool.cpp#L56-L166)
 
 PR 自己的设计文档要求覆盖“显式注入、path 激活、模型自动”三类路径，实际实现只覆盖了第一类的一部分。
 
@@ -86,7 +86,7 @@ PR 自己的设计文档要求覆盖“显式注入、path 激活、模型自动
 
 没有状态记录时，`is_dormant()` 直接返回 `false`：
 
-- [`src/skills/skill_usage_store.cpp` L79-L88](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L79-L88)
+- [`src/domain/skills/skill_usage_store.cpp` L79-L88](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L79-L88)
 
 记录只会在成功调用 Skill 后创建。现有安装升级后，所有 Skill 初始都没有 usage 记录。
 
@@ -106,8 +106,8 @@ PR 自己的设计文档要求覆盖“显式注入、path 激活、模型自动
 
 `load_state_or_empty()` 只捕获 JSON 语法解析异常。后续代码假定 `skills.<name>` 一定是对象、`useCount` 一定是无符号整数：
 
-- [`src/skills/skill_usage_store.cpp` L20-L47](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L20-L47)
-- [`src/skills/skill_usage_store.cpp` L57-L70](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L57-L70)
+- [`src/domain/skills/skill_usage_store.cpp` L20-L47](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L20-L47)
+- [`src/domain/skills/skill_usage_store.cpp` L57-L70](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L57-L70)
 
 以下内容是语法合法的 JSON，但会让 `record("pdf", ...)` 抛出 `nlohmann::json::type_error`：
 
@@ -146,11 +146,11 @@ cannot use operator[] with a string argument with boolean
 
 代码注释称时间是 UTC，但实际使用 `std::mktime()`：
 
-- [`src/skills/skill_usage_store.cpp` L139-L155](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L139-L155)
+- [`src/domain/skills/skill_usage_store.cpp` L139-L155](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L139-L155)
 
 `std::mktime()` 把 `std::tm` 当作本地时间。存入状态文件的时间则由 `gmtime` 生成并带 `Z`：
 
-- [`src/session/session_storage.cpp` L659-L678](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/session/session_storage.cpp#L659-L678)
+- [`src/domain/session/session_storage.cpp` L659-L678](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/session/session_storage.cpp#L659-L678)
 
 #### 实测
 
@@ -189,7 +189,7 @@ Skill 卡片只展示名称、来源、描述和启停开关：
 
 TUI 只追加一行只读文本，没有 pin、解除 pin或唤醒操作；无记录的 Skill 还会得到空状态和空 last-used 文案：
 
-- [`src/tui/settings/management_center.cpp` L1318-L1349](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/tui/settings/management_center.cpp#L1318-L1349)
+- [`src/apps/tui/settings/management_center.cpp` L1318-L1349](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/tui/settings/management_center.cpp#L1318-L1349)
 
 #### API 与配置
 
@@ -218,8 +218,8 @@ TUI 只追加一行只读文本，没有 pin、解除 pin或唤醒操作；无�
 
 `AgentLoop::dormant_skill_names()` 遍历全部 Skill，并对每个 Skill 调用一次 `is_dormant()`；而每次 `is_dormant()` 都重新打开和解析完整 JSON 文件：
 
-- [`src/agent/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
-- [`src/skills/skill_usage_store.cpp` L74-L90](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L74-L90)
+- [`src/engine/agent/agent_loop.cpp` L430-L446](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/agent_loop.cpp#L430-L446)
+- [`src/domain/skills/skill_usage_store.cpp` L74-L90](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L74-L90)
 
 Skill 数量增加后，这是每次 provider 请求前的同步磁盘 I/O。建议一次读取快照并在内存中完成全部判定，写入成功后更新缓存，必要时通过文件时间检测外部进程更新。
 
@@ -227,8 +227,8 @@ Skill 数量增加后，这是每次 provider 请求前的同步磁盘 I/O。建
 
 设计文档要求状态文件使用 `0600`。底层 helper 已提供 `restrict_permissions` 参数，但本 PR 调用时没有传 `true`：
 
-- [`src/skills/skill_usage_store.cpp` L71](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L71)
-- [`src/skills/skill_usage_store.cpp` L106](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L106)
+- [`src/domain/skills/skill_usage_store.cpp` L71](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L71)
+- [`src/domain/skills/skill_usage_store.cpp` L106](https://github.com/tmoonlight/acecode/blob/4e3928d00a9585d03ed83480587e9f4c61216d1c/src/skills/skill_usage_store.cpp#L106)
 
 在 POSIX 默认 umask 下，文件可能对其他本机用户可读。Skill 名称和使用时间可能暴露用户工作习惯，应按设计启用受限权限。
 
@@ -238,8 +238,8 @@ Skill 数量增加后，这是每次 provider 请求前的同步磁盘 I/O。建
 
 GitHub 报告该 PR 为 `CONFLICTING / DIRTY`。本地 `git merge-tree` 确认冲突涉及：
 
-- `src/agent/agent_loop.cpp`：内容冲突；
-- `src/cli/main.cpp`：内容冲突；
+- `src/engine/agent/agent_loop.cpp`：内容冲突；
+- `src/apps/cli/main.cpp`：内容冲突；
 - `scripts/macos_create_dmg.sh`：`master` 已删除、PR 仍修改。
 
 审核时，该 PR 相对当前 `origin/master`：

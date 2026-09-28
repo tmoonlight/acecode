@@ -17,15 +17,15 @@
 把 `SessionRegistry::switch_model` 内部的"创建 provider + 替换 slot + 更新 loop + 写 meta"逻辑抽成纯函数,放进 `acecode_testable`。本任务只创建 helper + 单测,不修改 daemon 调用方(下一任务做)。
 
 **Files:**
-- Create: `src/provider/apply_model_to_session.hpp`
-- Create: `src/provider/apply_model_to_session.cpp`
-- Create: `tests/provider/apply_model_to_session_test.cpp`
+- Create: `src/host/session_host/apply_model_to_session.hpp`
+- Create: `src/host/session_host/apply_model_to_session.cpp`
+- Create: `tests/session_host/apply_model_to_session_test.cpp`
 - Modify: `src/CMakeLists.txt`(加新 cpp 到 acecode_testable 源列表;若用 GLOB 收集则跳过)
 
 - [ ] **Step 1: 写头文件**
 
 ```cpp
-// src/provider/apply_model_to_session.hpp
+// src/host/session_host/apply_model_to_session.hpp
 // per-session 模型切换的所有副作用集中在这里。daemon 的 SessionRegistry 与
 // TUI 的 /model 命令都调用这个函数,确保两端语义一致。
 #pragma once
@@ -68,9 +68,9 @@ ApplyModelResult apply_model_to_session(const ModelProfile& profile,
 - [ ] **Step 2: 写失败测试**
 
 ```cpp
-// tests/provider/apply_model_to_session_test.cpp
+// tests/session_host/apply_model_to_session_test.cpp
 //
-// 覆盖 src/provider/apply_model_to_session.cpp。两条调用方(daemon 的
+// 覆盖 src/adapters/provider/apply_model_to_session.cpp。两条调用方(daemon 的
 // SessionRegistry::switch_model 与 TUI 的 /model 命令)都靠这一份逻辑,
 // 任一分支退化都会让 per-session 切换语义破裂。
 //
@@ -194,7 +194,7 @@ Expected: 编译失败(`apply_model_to_session.cpp` 还不存在)或链接失败
 - [ ] **Step 4: 写实现**
 
 ```cpp
-// src/provider/apply_model_to_session.cpp
+// src/host/session_host/apply_model_to_session.cpp
 #include "apply_model_to_session.hpp"
 
 #include "copilot_provider.hpp"
@@ -318,9 +318,9 @@ Expected: 全 PASS,新增 4 个 ApplyModelToSession test。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/provider/apply_model_to_session.hpp \
-        src/provider/apply_model_to_session.cpp \
-        tests/provider/apply_model_to_session_test.cpp
+git add src/host/session_host/apply_model_to_session.hpp \
+        src/host/session_host/apply_model_to_session.cpp \
+        tests/session_host/apply_model_to_session_test.cpp
 git commit -m "feat: add apply_model_to_session shared helper
 
 抽出 per-session 模型切换的纯逻辑(创建 provider + 替换 slot + 更新 loop +
@@ -332,14 +332,14 @@ git commit -m "feat: add apply_model_to_session shared helper
 
 ## Task 2: SessionRegistry::switch_model 切换到调 helper
 
-把 `src/session/session_registry.cpp::switch_model` 内部"创建 provider + 替换 slot + ..."那段替换成调 `apply_model_to_session`。验证现有 daemon HTTP 行为零退化。
+把 `src/host/session_host/session_registry.cpp::switch_model` 内部"创建 provider + 替换 slot + ..."那段替换成调 `apply_model_to_session`。验证现有 daemon HTTP 行为零退化。
 
 **Files:**
-- Modify: `src/session/session_registry.cpp:345-395`(switch_model 实现)
+- Modify: `src/host/session_host/session_registry.cpp:345-395`(switch_model 实现)
 
 - [ ] **Step 1: 改 switch_model 实现**
 
-打开 `src/session/session_registry.cpp`,把 345-395 行的 `switch_model` 替换为:
+打开 `src/host/session_host/session_registry.cpp`,把 345-395 行的 `switch_model` 替换为:
 
 ```cpp
 bool SessionRegistry::switch_model(const std::string& id,
@@ -408,7 +408,7 @@ Expected: 全 PASS(handler 路径只调 `registry.switch_model`,内部实现换�
 
 - [ ] **Step 4: 把 resolve_from_profile 标记 deprecated 或删除**
 
-打开 `src/session/session_registry.cpp` 看 `resolve_from_profile`(82-116 行)与 `state_from_profile` / `config_for_profile_context`(54-80 行 namespace 内 helper)是否还被引用。如果只剩 `make_entry_locked` 用 — 保留;如果完全没人用了,删除。本任务不强制删除,留作清理。
+打开 `src/host/session_host/session_registry.cpp` 看 `resolve_from_profile`(82-116 行)与 `state_from_profile` / `config_for_profile_context`(54-80 行 namespace 内 helper)是否还被引用。如果只剩 `make_entry_locked` 用 — 保留;如果完全没人用了,删除。本任务不强制删除,留作清理。
 
 ```bash
 grep -n "resolve_from_profile\|state_from_profile\b\|config_for_profile_context" src/
@@ -418,7 +418,7 @@ Expected: 只剩 `session_registry.cpp` 内部使用。保留即可。
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/session/session_registry.cpp
+git add src/host/session_host/session_registry.cpp
 git commit -m "refactor: SessionRegistry::switch_model delegates to shared helper
 
 把 per-session 切换的副作用统一到 apply_model_to_session,daemon 路径
@@ -432,14 +432,14 @@ git commit -m "refactor: SessionRegistry::switch_model delegates to shared helpe
 纯逻辑 add/update/remove,失败时不修改 cfg(回滚由 caller 负责)。复用 `validate_saved_models` 做最终校验。
 
 **Files:**
-- Create: `src/config/saved_models_editor.hpp`
-- Create: `src/config/saved_models_editor.cpp`
+- Create: `src/base/config/saved_models_editor.hpp`
+- Create: `src/base/config/saved_models_editor.cpp`
 - Create: `tests/config/saved_models_editor_test.cpp`
 
 - [ ] **Step 1: 写头文件**
 
 ```cpp
-// src/config/saved_models_editor.hpp
+// src/base/config/saved_models_editor.hpp
 // saved_models 注册表的 add/update/remove 纯逻辑。HTTP handler / TUI 命令
 // 都调用这里,失败返错误码,不写盘。
 #pragma once
@@ -498,7 +498,7 @@ SavedModelEditError remove_saved_model(AppConfig& cfg, const std::string& name);
 ```cpp
 // tests/config/saved_models_editor_test.cpp
 //
-// 覆盖 src/config/saved_models_editor.cpp。这是 saved_models 增删改的唯一
+// 覆盖 src/base/config/saved_models_editor.cpp。这是 saved_models 增删改的唯一
 // 校验入口(daemon HTTP / TUI 命令都过这里),九个错误码每个都有 UI 文案
 // 依赖,任一被绕过都会让坏数据进 cfg.json。
 //
@@ -682,7 +682,7 @@ Expected: 编译失败(`saved_models_editor.cpp` 不存在)。
 - [ ] **Step 4: 写实现**
 
 ```cpp
-// src/config/saved_models_editor.cpp
+// src/base/config/saved_models_editor.cpp
 #include "saved_models_editor.hpp"
 
 #include <algorithm>
@@ -791,8 +791,8 @@ Expected: 14 个 PASS。
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/config/saved_models_editor.hpp \
-        src/config/saved_models_editor.cpp \
+git add src/base/config/saved_models_editor.hpp \
+        src/base/config/saved_models_editor.cpp \
         tests/config/saved_models_editor_test.cpp
 git commit -m "feat: add saved_models_editor module
 
@@ -807,14 +807,14 @@ git commit -m "feat: add saved_models_editor module
 把 editor 模块包装成 4 个新端点,handler 拆纯逻辑放 `models_handler.{hpp,cpp}` 便于单测。
 
 **Files:**
-- Modify: `src/web/handlers/models_handler.hpp`
-- Modify: `src/web/handlers/models_handler.cpp`
-- Modify: `src/web/server.cpp`(注册新路由)
+- Modify: `src/apps/web/handlers/models_handler.hpp`
+- Modify: `src/apps/web/handlers/models_handler.cpp`
+- Modify: `src/apps/web/server.cpp`(注册新路由)
 - Modify: `tests/web/models_handler_test.cpp`
 
 - [ ] **Step 1: 扩 models_handler.hpp**
 
-在 `src/web/handlers/models_handler.hpp` 末尾(`}` 之前)加:
+在 `src/apps/web/handlers/models_handler.hpp` 末尾(`}` 之前)加:
 
 ```cpp
 // 把 SavedModelEditError 映射到 HTTP 状态码。
@@ -841,7 +841,7 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
 
 - [ ] **Step 2: 实现这三个 helper**
 
-打开 `src/web/handlers/models_handler.cpp`,在 `model_state_to_json` 之后追加:
+打开 `src/apps/web/handlers/models_handler.cpp`,在 `model_state_to_json` 之后追加:
 
 ```cpp
 int http_status_for_edit_error(SavedModelEditError e) {
@@ -900,7 +900,7 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
 
 - [ ] **Step 3: 注册 Crow 路由**
 
-打开 `src/web/server.cpp`,在 `register_models()`(约 1725 行)的 GET /api/models 之后追加 OPTIONS preflight + POST/PUT/DELETE/默认端点。在 `register_models` 体内添加:
+打开 `src/apps/web/server.cpp`,在 `register_models()`(约 1725 行)的 GET /api/models 之后追加 OPTIONS preflight + POST/PUT/DELETE/默认端点。在 `register_models` 体内添加:
 
 ```cpp
         CROW_ROUTE(app, "/api/models").methods(crow::HTTPMethod::Post)
@@ -1014,7 +1014,7 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
 
 `json_error` 是 server.cpp 里现有的 helper(查一下 spelling — 也可能叫 `make_error_response` 之类)。统一用 `{"error": "<code>", "message": "<msg>"}` body 格式。
 
-`save_config` 是 `src/config/config.cpp` 的现有函数,声明在 `config.hpp`。
+`save_config` 是 `src/base/config/config.cpp` 的现有函数,声明在 `config.hpp`。
 
 需要的 include 在 server.cpp 顶部加:
 
@@ -1131,9 +1131,9 @@ curl -X POST http://127.0.0.1:28080/api/config/default-model -H "Content-Type: a
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/web/handlers/models_handler.hpp \
-        src/web/handlers/models_handler.cpp \
-        src/web/server.cpp \
+git add src/apps/web/handlers/models_handler.hpp \
+        src/apps/web/handlers/models_handler.cpp \
+        src/apps/web/server.cpp \
         tests/web/models_handler_test.cpp
 git commit -m "feat: daemon endpoints for saved_models CRUD + default-model
 
@@ -1148,16 +1148,16 @@ POST/PUT/DELETE /api/models 与 POST /api/config/default-model;失败时
 把 `main.cpp` 的 `std::shared_ptr<LlmProvider> provider + std::mutex provider_mu` 改成 `SessionEntry::ProviderSlot`,把 `CommandContext` 的 `provider_handle/provider_mu` 替换为 `provider_slot`。**只改字段类型,不改业务行为** — model_command 与 builtin_commands 仍走旧的 `swap_provider_if_needed`,留在下一任务换成 helper。
 
 **Files:**
-- Modify: `src/tui/commands/command_registry.hpp:33-37`(CommandContext 字段)
+- Modify: `src/apps/tui/commands/command_registry.hpp:33-37`(CommandContext 字段)
 - Modify: `main.cpp:1269-1274`(provider/provider_mu 定义 → ProviderSlot)
 - Modify: `main.cpp:1743`(swap_provider_if_needed 调用,适配新签名 — 见 step 3 的临时桥)
 - Modify: `main.cpp:1948+2607`(CommandContext 构造)
-- Modify: `src/tui/commands/model_command.cpp:158-166`(swap_provider_if_needed 调用)
-- Modify: `src/tui/commands/builtin_commands.cpp:570-577`(swap_provider_if_needed + set_active_provider)
+- Modify: `src/apps/tui/commands/model_command.cpp:158-166`(swap_provider_if_needed 调用)
+- Modify: `src/apps/tui/commands/builtin_commands.cpp:570-577`(swap_provider_if_needed + set_active_provider)
 
 - [ ] **Step 1: 改 CommandContext 字段定义**
 
-`src/tui/commands/command_registry.hpp`,把 32-36 行的:
+`src/apps/tui/commands/command_registry.hpp`,把 32-36 行的:
 
 ```cpp
     LlmProvider& provider;
@@ -1240,7 +1240,7 @@ void swap_provider_if_needed(std::shared_ptr<LlmProvider>& handle,
                                          resumed_entry, config);
 ```
 
-`src/tui/commands/model_command.cpp:160`:
+`src/apps/tui/commands/model_command.cpp:160`:
 
 ```cpp
     if (ctx.provider_slot) {
@@ -1254,7 +1254,7 @@ void swap_provider_if_needed(std::shared_ptr<LlmProvider>& handle,
     }
 ```
 
-`src/tui/commands/builtin_commands.cpp:570-577`:
+`src/apps/tui/commands/builtin_commands.cpp:570-577`:
 
 ```cpp
     if (target && ctx.provider_slot &&
@@ -1291,10 +1291,10 @@ Expected: TUI 正常启动,/info 显示当前 provider/model。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/tui/commands/command_registry.hpp \
+git add src/apps/tui/commands/command_registry.hpp \
         main.cpp \
-        src/tui/commands/model_command.cpp \
-        src/tui/commands/builtin_commands.cpp
+        src/apps/tui/commands/model_command.cpp \
+        src/apps/tui/commands/builtin_commands.cpp
 git commit -m "refactor(tui): replace provider_handle/provider_mu with ProviderSlot
 
 CommandContext 与 main.cpp 升级到 SessionEntry::ProviderSlot。本提交不改
@@ -1309,15 +1309,15 @@ apply_model_to_session。"
 把 model_command.cpp 与 builtin_commands.cpp 的 `swap_provider_if_needed` 调用换成 `apply_model_to_session`。这样 TUI 与 daemon 共用同一份切换逻辑;`provider_swap.{hpp,cpp}` 可以删除。
 
 **Files:**
-- Modify: `src/tui/commands/model_command.cpp`
-- Modify: `src/tui/commands/builtin_commands.cpp`
-- Delete: `src/provider/provider_swap.hpp`
-- Delete: `src/provider/provider_swap.cpp`
+- Modify: `src/apps/tui/commands/model_command.cpp`
+- Modify: `src/apps/tui/commands/builtin_commands.cpp`
+- Delete: `src/adapters/provider/provider_swap.hpp`
+- Delete: `src/adapters/provider/provider_swap.cpp`
 - Modify: `tests/tui/commands/`(若有)的 model_command 测试
 
 - [ ] **Step 1: 改 model_command.cpp 调 helper**
 
-`src/tui/commands/model_command.cpp` 的 `cmd_model` 函数,把 `swap_provider_if_needed` 调用替换为:
+`src/apps/tui/commands/model_command.cpp` 的 `cmd_model` 函数,把 `swap_provider_if_needed` 调用替换为:
 
 ```cpp
     if (ctx.provider_slot) {
@@ -1357,7 +1357,7 @@ apply_model_to_session。"
 
 - [ ] **Step 2: 改 builtin_commands.cpp resume 路径**
 
-打开 `src/tui/commands/builtin_commands.cpp`,找到 568-577 行的 resume swap 段,替换为:
+打开 `src/apps/tui/commands/builtin_commands.cpp`,找到 568-577 行的 resume swap 段,替换为:
 
 ```cpp
     if (target && ctx.provider_slot &&
@@ -1383,7 +1383,7 @@ includes:删 `provider_swap.hpp`,加 `apply_model_to_session.hpp`。
 - [ ] **Step 3: 删 provider_swap.{hpp,cpp}**
 
 ```bash
-git rm src/provider/provider_swap.hpp src/provider/provider_swap.cpp
+git rm src/adapters/provider/provider_swap.hpp src/adapters/provider/provider_swap.cpp
 ```
 
 如果 CMake 用 GLOB 跳过;如果是显式列表,改 `src/CMakeLists.txt` 删两行。
@@ -1418,19 +1418,19 @@ TUI 与 daemon 现在共用同一份切换 helper,provider_swap 模块删除。"
 
 ## Task 7: TUI /model FTXUI picker
 
-把 `render_model_picker`(目前 push 一条 system 文本)替换为 FTXUI Modal 选择器,样式参考已有的 `/skills` picker(`src/tui/skills_picker.{hpp,cpp}` 之类)。
+把 `render_model_picker`(目前 push 一条 system 文本)替换为 FTXUI Modal 选择器,样式参考已有的 `/skills` picker(`src/apps/tui/skills_picker.{hpp,cpp}` 之类)。
 
 **Files:**
-- Create: `src/tui/model_picker.hpp`
-- Create: `src/tui/model_picker.cpp`
-- Modify: `src/tui/commands/model_command.cpp`(`render_model_picker` 改成 open modal)
-- Modify: `src/tui/tui_state.hpp` 或类似(加 `model_picker_open` flag + 选项数据)
+- Create: `src/apps/tui/model_picker.hpp`
+- Create: `src/apps/tui/model_picker.cpp`
+- Modify: `src/apps/tui/commands/model_command.cpp`(`render_model_picker` 改成 open modal)
+- Modify: `src/apps/tui/tui_state.hpp` 或类似(加 `model_picker_open` flag + 选项数据)
 - Modify: `main.cpp`(渲染主循环挂 modal)
 
 - [ ] **Step 1: 找现有 picker 参考实现**
 
 ```bash
-grep -rn "Modal\|picker_open" src/tui/ src/tui/commands/ | head -30
+grep -rn "Modal\|picker_open" src/apps/tui/ src/apps/tui/commands/ | head -30
 ```
 
 记录一个相似的现有 picker(skills 或 configure)的:① state 结构、② Modal 渲染挂载点、③ 选中回调路径。新 model picker 照抄结构。
@@ -1438,7 +1438,7 @@ grep -rn "Modal\|picker_open" src/tui/ src/tui/commands/ | head -30
 - [ ] **Step 2: 写 model_picker.{hpp,cpp}**
 
 ```cpp
-// src/tui/model_picker.hpp
+// src/apps/tui/model_picker.hpp
 #pragma once
 
 #include "../config/config.hpp"
@@ -1477,7 +1477,7 @@ ftxui::Component make_model_picker_component(
 实现:
 
 ```cpp
-// src/tui/model_picker.cpp
+// src/apps/tui/model_picker.cpp
 #include "model_picker.hpp"
 
 #include "../provider/model_resolver.hpp"
@@ -1548,7 +1548,7 @@ ftxui::Component make_model_picker_component(
 
 - [ ] **Step 3: TuiState 加 picker open flag + 选项**
 
-`src/tui/tui_state.hpp` 加(在合适分组):
+`src/apps/tui/tui_state.hpp` 加(在合适分组):
 
 ```cpp
     // /model picker 状态
@@ -1560,7 +1560,7 @@ include `tui/model_picker.hpp`。
 
 - [ ] **Step 4: 改 render_model_picker 改成 open modal**
 
-`src/tui/commands/model_command.cpp:render_model_picker` 替换为:
+`src/apps/tui/commands/model_command.cpp:render_model_picker` 替换为:
 
 ```cpp
 void render_model_picker(CommandContext& ctx) {
@@ -1610,8 +1610,8 @@ cmake --build build
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/tui/model_picker.hpp src/tui/model_picker.cpp \
-        src/tui/tui_state.hpp src/tui/commands/model_command.cpp main.cpp
+git add src/apps/tui/model_picker.hpp src/apps/tui/model_picker.cpp \
+        src/apps/tui/tui_state.hpp src/apps/tui/commands/model_command.cpp main.cpp
 git commit -m "feat(tui): replace /model text list with FTXUI picker
 
 /model 无参时弹出 modal 选择器,↑↓ + Enter 切换,Esc 关闭。当前模型行
@@ -1625,7 +1625,7 @@ git commit -m "feat(tui): replace /model text list with FTXUI picker
 扩 `cmd_model` 的 args 解析,加四个子命令。`add` / `edit` 走最简文本输入(`/model add name=local-lm provider=openai model=llama-3 base_url=http://localhost:1234/v1 api_key=sk-x` 这种 key=val 风格,避免 FTXUI 多步表单的复杂度);`rm` / `set-default` 直接执行。
 
 **Files:**
-- Modify: `src/tui/commands/model_command.cpp`
+- Modify: `src/apps/tui/commands/model_command.cpp`
 - Modify: `tests/tui/commands/`(新增 `tests/tui/commands/model_command_test.cpp` 如果没有)
 
 - [ ] **Step 1: 写 args 解析单测(失败)**
@@ -1633,7 +1633,7 @@ git commit -m "feat(tui): replace /model text list with FTXUI picker
 `tests/tui/commands/model_command_test.cpp`(新建):
 
 ```cpp
-// 覆盖 src/tui/commands/model_command.cpp 的 args 解析子命令分支。
+// 覆盖 src/apps/tui/commands/model_command.cpp 的 args 解析子命令分支。
 // 新加的 add / edit / rm / set-default 每个都有独立的写盘副作用,解析失
 // 败应当不动 cfg。
 
@@ -1702,7 +1702,7 @@ TEST(ModelCommandParse, ParsesCwdFlag) {
 }
 ```
 
-forward declare 放 `src/tui/commands/model_command.hpp`:
+forward declare 放 `src/apps/tui/commands/model_command.hpp`:
 
 ```cpp
 // 暴露给单测的纯解析函数。raw 是 /model 后面的字符串(已 trim)。
@@ -1726,7 +1726,7 @@ Expected: 编译失败(parse_model_subcommand 未实现)。
 
 - [ ] **Step 3: 实现 parse_model_subcommand**
 
-`src/tui/commands/model_command.cpp` 在 unnamed namespace **外**(让 hpp 声明能 link)实现:
+`src/apps/tui/commands/model_command.cpp` 在 unnamed namespace **外**(让 hpp 声明能 link)实现:
 
 ```cpp
 bool parse_model_subcommand(const std::string& raw, ParsedModelSub& out) {
@@ -1967,7 +1967,7 @@ Expected: 全 PASS。
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/tui/commands/model_command.hpp src/tui/commands/model_command.cpp \
+git add src/apps/tui/commands/model_command.hpp src/apps/tui/commands/model_command.cpp \
         tests/tui/commands/model_command_test.cpp
 git commit -m "feat(tui): /model add|edit|rm|set-default subcommands
 
@@ -2611,7 +2611,7 @@ cd .. && cmake --build build --target acecode
 ```bash
 git add web/src/components/Settings.jsx web/src/components/ModelManager.jsx \
         web/src/components/Sidebar.jsx web/src/lib/api.js \
-        src/web/server.cpp
+        src/apps/web/server.cpp
 git commit -m "feat(web): saved_models management drawer
 
 Sidebar 齿轮 → 设置抽屉,左侧列表(默认带 ★),右侧表单。增/删/改/设默

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See proposal.md. The option budget lives in `src/tool/ask_user_question_tool.cpp` as anonymous-namespace constants (`kMinOptions=2`, `kMaxOptions=4`) used by validation, the error message, and the tool-definition schema. The config layer already has the exact pattern we need: `AskConfig.max_questions` (default 10, clamped to [1,50] with a warning on load) flows into `create_ask_user_question_tool_async(max_questions)` at three registration sites.

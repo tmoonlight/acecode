@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `ExpertComponentsPage` 目前把“新建专家”直接绑定到 `ExpertEditor`。项目已经具备另一条可复用链路：`App` 可以把 `initialDraftText` 作为一次性导航载荷带到真实的新任务 composer，`ChatView` 会让该载荷优先于当前工作区 home draft、将它写回对应工作区草稿并消费导航字段；只有用户之后实际发送以 `/expert-manager` 开头的消息时，daemon 才会按现有 Skill 命令机制激活 `expert-manager`。

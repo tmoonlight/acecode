@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 见 proposal.md。现有渲染器仅检查根节点的 data-theme，以 Blob 图片展示经过净化的 SVG。自定义主题可以在深色模式下配置浅色对话背景；现有观察器也不会响应仅改变颜色变量的更新。

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The interactive home logo renders its tile, lighting, shadow, and halo into a transparent WebGL2 canvas. The current implementation requests a non-premultiplied drawing buffer, builds premultiplied intermediate colors, and divides those colors by alpha before output. Windows WebView2 composites that straight-alpha result as intended, while macOS WKWebView visibly exposes the 156 px canvas boundary in both themes. The light theme shows a white plate; the dark theme shows a colored edge and makes the grid appear rectangularly clipped.

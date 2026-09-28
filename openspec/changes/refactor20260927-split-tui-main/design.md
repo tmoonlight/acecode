@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 # Design: refactor20260927-split-tui-main
 
 > **行号基准**:master `7942011b` 的 `src/main.cpp`。restructure P2-08 会先把它 R100 移到 `src/cli/main.cpp`,P3 之后位于 `src/apps/cli/main.cpp`。行号漂移时按函数名定位。

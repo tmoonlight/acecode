@@ -91,7 +91,7 @@ acecode --resume
 
 - `Explain the architecture and point me to the main entry points.`
 - `Find the cause of this failing test and propose a minimal fix.`
-- `Refactor @src/session/ without changing its public behavior, then run the focused tests.`
+- `Refactor @src/domain/session/ without changing its public behavior, then run the focused tests.`
 - `Review my current diff for correctness, regressions, and missing tests.`
 
 The best requests name the desired outcome, relevant files or constraints, and how the result should be verified.

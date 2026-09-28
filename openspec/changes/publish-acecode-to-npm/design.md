@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The existing tag workflow already assembles one small JavaScript launcher package for each user-facing command and native packages selected through `optionalDependencies`. The implementation originally hard-coded the nonexistent `@acecode` scope, omitted the newly supported Windows ARM64 artifact, and treated an absent `NPM_TOKEN` as a successful no-op. The public `aceagent` npm organization and repository `NPM_TOKEN` now exist. The first real backfill published all six platform packages but npm rejected unscoped `acecode` because it is too similar to the active `ace-code` package; the user then selected `@aceagent/acecode`.

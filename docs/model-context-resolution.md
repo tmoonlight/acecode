@@ -45,7 +45,7 @@ For Copilot, this avoids the common under-reporting problem.
 
 acecode now uses a provider-aware runtime resolver implemented in:
 
-- `src/provider/model_context_resolver.cpp`
+- `src/adapters/provider/model_context_resolver.cpp`
 
 Current resolution strategy:
 
@@ -121,7 +121,7 @@ Prefer provider-aware metadata first.
 
 ## Related Files
 
-- `src/provider/model_context_resolver.cpp`
-- `src/provider/model_context_resolver.hpp`
-- `src/tui/commands/builtin_commands.cpp`
+- `src/adapters/provider/model_context_resolver.cpp`
+- `src/adapters/provider/model_context_resolver.hpp`
+- `src/apps/tui/commands/builtin_commands.cpp`
 - `main.cpp`

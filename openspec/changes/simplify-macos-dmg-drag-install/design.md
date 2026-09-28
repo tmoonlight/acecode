@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The current macOS disk image presents `ACECode.app` on the left, a custom `Install ACECode.app` helper on the right, and a visible instructions file below them. That helper installs into `~/Applications` so the existing native updater can rely on a writable per-user destination. The result does not match the macOS convention users expect from a drag-install DMG and makes the right-hand item look like an unexpected second application.

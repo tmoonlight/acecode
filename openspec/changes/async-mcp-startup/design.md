@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode currently wires MCP only in the TUI startup path. `main.cpp` creates a `McpManager`, calls `connect_all(config)`, then immediately calls `register_tools(tools)`. The slow work happens inside `McpManager::register_tools()`: each configured server is connected, initialized, queried for tools, and then registered into `ToolExecutor`. A broken stdio server can hold the startup path for the cpp-mcp request timeout, which makes the terminal UI feel frozen before the user can type.

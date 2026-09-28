@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 见 proposal.md。`SessionContentLoading` 使用绝对定位；恢复遮罩当前位于带 `position: relative` 的输入区内，记录遮罩位于会话主列内。9 月 17 日的旧设计为保留历史可读性而仅遮住输入区，这次按用户反馈统一加载位置。

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode currently has four independent context-reduction mechanisms: a keep-last-four-turns summarizer, destructive micro-compaction of old tool observations, a three-failure circuit breaker, and a summary-free overflow rescue. They make decisions from different estimates and install different history shapes. The result is not equivalent to the current Codex behavior and makes resume/fork behavior difficult to reason about.

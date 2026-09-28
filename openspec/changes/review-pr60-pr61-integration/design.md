@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 当前 PR 检查仅覆盖 Linux。图形安装器使用 `.acecode-install.lock`，更新器使用 `.ACECode.update.lock`；前者打开既有 FIFO 时可能阻塞。顶部导航四个 24px 按钮与三个 4px 间距已占满原来的 108px。

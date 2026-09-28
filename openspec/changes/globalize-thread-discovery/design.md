@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `ThreadService::list` 当前仅扫描调用方项目，公共解析函数也按调用方 cwd 过滤活跃会话和磁盘目标。现有全局会话目录已处理隐藏项目、未注册项目和无工作区会话，但默认排除归档及子代理，会话工具原本允许列出子代理。

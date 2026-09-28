@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 会话 `20260924-072030-b1fe` 的元数据标记为 `no_workspace=true`，工作目录为 `C:/Users/shao/.acecode/cache/no-workspace/20260924-072030-b1fe`。轮次净差异使用 `pelican-bicycle.html` 等相对路径。日志显示该会话结束后被工作区 `f1ee51683484c65b` 的恢复接口两次报告成功，但该工作区存储中没有该会话元数据。`SessionRegistry::resume` 对已运行的 ID 直接返回成功，工作区路由未检查元数据是否存在，响应于是带回错误的工作区目录。`ChatView` 的文件预览使用导航 ref 的工作目录，差异预览只读会话变更记录。

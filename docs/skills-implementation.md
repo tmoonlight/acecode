@@ -42,13 +42,13 @@
 | 4 | 用户全局兼容 | `~/.agent/skills/`（兼容根，缺失时不会自动创建） |
 | 5 | 用户外部配置 | `config.skills.external_dirs` 里每一项（支持 `~` / `${VAR}` 展开） |
 
-项目 walk 的收集由 `get_project_dirs_up_to_home(cwd)` 实现（`src/config/config.cpp`）：以 cwd 为起点逐级向上，遇到 HOME 或文件系统根则停止，HOME 本身**不包含**（用户级根由第 3/4 项覆盖）。
+项目 walk 的收集由 `get_project_dirs_up_to_home(cwd)` 实现（`src/base/config/config.cpp`）：以 cwd 为起点逐级向上，遇到 HOME 或文件系统根则停止，HOME 本身**不包含**（用户级根由第 3/4 项覆盖）。
 
 ---
 
 ## 3. SKILL.md frontmatter
 
-acecode 只识别 YAML frontmatter 的一个子集，解析器位于 `src/utils/frontmatter.{hpp,cpp}`。仅读取文件首 8KB 足以抓到 frontmatter。
+acecode 只识别 YAML frontmatter 的一个子集，解析器位于 `src/base/utils/frontmatter.{hpp,cpp}`。仅读取文件首 8KB 足以抓到 frontmatter。
 
 | 字段 | 类型 | 用途 |
 |------|------|------|
@@ -63,7 +63,7 @@ acecode 只识别 YAML frontmatter 的一个子集，解析器位于 `src/utils/
 
 ## 4. 扫描与内存索引
 
-### SkillMetadata（`src/skills/skill_metadata.hpp`）
+### SkillMetadata（`src/domain/skills/skill_metadata.hpp`）
 
 ```cpp
 struct SkillMetadata {
@@ -108,7 +108,7 @@ struct SkillMetadata {
 
 ## 5. 激活路径 A — 用户输入 `/<skill-name>`
 
-相关代码：`src/tui/commands/skill_commands.{hpp,cpp}`、`src/skills/skill_activation.{hpp,cpp}`、`main.cpp` 对 `CommandRegistry` 的集成。
+相关代码：`src/apps/tui/commands/skill_commands.{hpp,cpp}`、`src/domain/skills/skill_activation.{hpp,cpp}`、`main.cpp` 对 `CommandRegistry` 的集成。
 
 ### 注册流程
 
@@ -156,7 +156,7 @@ struct SkillMetadata {
 
 当模型自己判断某个请求需要 skill 时，走 `skills_list` + `skill_view` 两个工具（都注册为 read-only，`ToolExecutor::register_tool` 在 `main.cpp` 完成）。
 
-### `skills_list`（`src/tool/skills_tool.cpp`）
+### `skills_list`（`src/adapters/tool/skills_tool.cpp`）
 
 - 入参：可选 `category`。
 - 返回：`{success, skills: [{name, description, category?}], count, categories, available_categories, reason, fallback_applied, ...}`。
@@ -166,7 +166,7 @@ struct SkillMetadata {
 - `reason` 用来区分 `registry_empty`、`empty_after_valid_filter`、`fallback_from_invalid_filter`、`ok`，便于模型自修复和日志排障。
 - 该工具由共享 `ToolExecutor` 同时服务 TUI 和 daemon/web 会话，所以这套回退语义天然在两端一致。
 
-### `skill_view`（`src/tool/skill_view_tool.cpp`）
+### `skill_view`（`src/adapters/tool/skill_view_tool.cpp`）
 
 - 入参：`name`（必填）、`file_path`（可选，相对 skill 目录）。
 - 不带 `file_path`：返回 SKILL.md 正文 + `linked_files`（支持文件列表），即 "tier-2" 加载。
@@ -178,7 +178,7 @@ struct SkillMetadata {
 
 ## 7. 系统提示词中的 Skills 段
 
-`build_system_prompt()`（`src/prompt/system_prompt.cpp`）在 skill 列表非空时插入一段 `# Skills`，核心约束：
+`build_system_prompt()`（`src/engine/prompt/system_prompt.cpp`）在 skill 列表非空时插入一段 `# Skills`，核心约束：
 
 - **BLOCKING REQUIREMENT** — 请求匹配某个 skill 时必须先加载再响应；
 - **NEVER mention a skill by name without loading** — 避免"看到名字就脑补"；
@@ -192,7 +192,7 @@ struct SkillMetadata {
 
 ## 8. `/skills reload` 流程
 
-位于 `src/tui/commands/builtin_commands.cpp`，对应 `reload_skill_commands(cmd_registry, skill_registry)`：
+位于 `src/apps/tui/commands/builtin_commands.cpp`，对应 `reload_skill_commands(cmd_registry, skill_registry)`：
 
 1. 取出 `g_tracked_keys` 并清空。
 2. 对每个 key `cmd_registry.unregister_command(k)` — 反注册上一轮的 `/<skill-name>`。
@@ -200,7 +200,7 @@ struct SkillMetadata {
 4. `register_skill_commands(...)` 按新 list 再注册一轮，并写回 `g_tracked_keys`。
 5. 返回新的 skill 数量，由 built-in 命令反馈给用户。
 
-注意：**新增 skill 的 `/<name>` 命令补全**依赖 `CommandRegistry` 的内容，`reload` 后即可在 slash 下拉里看到新命令（`src/tui/slash_dropdown.cpp` 每次输入变化都会重读 registry）。
+注意：**新增 skill 的 `/<name>` 命令补全**依赖 `CommandRegistry` 的内容，`reload` 后即可在 slash 下拉里看到新命令（`src/apps/tui/slash_dropdown.cpp` 每次输入变化都会重读 registry）。
 
 被 `SkillRegistry` 过滤掉（比如平台不符 / `config.skills.disabled` 中 / 与内置命令冲突）的 skill 不会创建 slash 命令，但仍存在于 `SkillRegistry`，模型如果拿到名字仍可通过 `skill_view` 加载 —— 这是有意为之的：禁用只影响 TUI 触达，不影响模型能力。
 
@@ -208,7 +208,7 @@ struct SkillMetadata {
 
 ## 9. 配置项
 
-`~/.acecode/config.json` 的相关字段（`src/config/config.{hpp,cpp}`）：
+`~/.acecode/config.json` 的相关字段（`src/base/config/config.{hpp,cpp}`）：
 
 ```json
 {
@@ -231,16 +231,16 @@ struct SkillMetadata {
 
 | 文件 | 职责 |
 |------|------|
-| `src/skills/skill_metadata.hpp` | `SkillMetadata` 数据结构 |
-| `src/utils/frontmatter.{hpp,cpp}` | 受限 YAML frontmatter 解析 |
-| `src/skills/skill_loader.{hpp,cpp}` | 单个 `SKILL.md` 目录 → `SkillMetadata`；name 归一化；平台匹配 |
-| `src/skills/skill_registry.{hpp,cpp}` | 多根递归扫描、去重、查询、支持文件定位 |
-| `src/skills/skill_activation.{hpp,cpp}` | 用户 `/<name>` 触发时向 agent 投递的消息模板 |
-| `src/tui/commands/skill_commands.{hpp,cpp}` | 把每个 skill 注册/反注册为 slash 命令；`/skills reload` |
-| `src/tool/skills_tool.{hpp,cpp}` | `skills_list` 工具（tier-1） |
-| `src/tool/skill_view_tool.{hpp,cpp}` | `skill_view` 工具（tier-2/3，含路径安全校验） |
-| `src/prompt/system_prompt.cpp` | 系统提示词 Skills 段 |
-| `src/config/config.{hpp,cpp}` | `SkillsConfig`、`expand_path`、`get_project_dirs_up_to_home` |
+| `src/domain/skills/skill_metadata.hpp` | `SkillMetadata` 数据结构 |
+| `src/base/utils/frontmatter.{hpp,cpp}` | 受限 YAML frontmatter 解析 |
+| `src/domain/skills/skill_loader.{hpp,cpp}` | 单个 `SKILL.md` 目录 → `SkillMetadata`；name 归一化；平台匹配 |
+| `src/domain/skills/skill_registry.{hpp,cpp}` | 多根递归扫描、去重、查询、支持文件定位 |
+| `src/domain/skills/skill_activation.{hpp,cpp}` | 用户 `/<name>` 触发时向 agent 投递的消息模板 |
+| `src/apps/tui/commands/skill_commands.{hpp,cpp}` | 把每个 skill 注册/反注册为 slash 命令；`/skills reload` |
+| `src/adapters/tool/skills_tool.{hpp,cpp}` | `skills_list` 工具（tier-1） |
+| `src/adapters/tool/skill_view_tool.{hpp,cpp}` | `skill_view` 工具（tier-2/3，含路径安全校验） |
+| `src/engine/prompt/system_prompt.cpp` | 系统提示词 Skills 段 |
+| `src/base/config/config.{hpp,cpp}` | `SkillsConfig`、`expand_path`、`get_project_dirs_up_to_home` |
 | `main.cpp`（skill 段，行号随代码移动） | 组装扫描根、初始化 `SkillRegistry`、注册工具和 slash 命令 |
 
 ---

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 daemon 会话共享 `McpManager` 与 `ToolExecutor`。现有公共配置支持原子写入和完整文档恢复，但 MCP 的启动、HTTP 和 TUI 解析各自独立。用户提供 https://modelcontextprotocol.io/specification/2026-07-28/schema 并已确认本次使用 ACECode 配置 Schema。

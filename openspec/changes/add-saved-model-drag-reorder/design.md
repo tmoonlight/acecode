@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `SavedModelList` renders `filterSavedModels` in array order. `ModelSettingsSection` loads `/api/models` and notifies `onModelProfileUpdated` after mutations; App uses that revision to refresh pickers. Backend model edits already use `settings_mutations` and `mutate_config` to load the latest config, validate, save, and publish live state. See proposal.md for motivation.

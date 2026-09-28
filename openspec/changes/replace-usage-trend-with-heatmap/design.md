@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 SectionUsage in SettingsPage.jsx owns a 30-day request and inline bars. The existing usage endpoint supports up to 366 daily buckets, including empty dates; normalizeUsageStats retains those buckets and their metadata. Date strings follow the request's fixed timezone offset. Existing tooltips demonstrate body portals with native-overlay coordination.

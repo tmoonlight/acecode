@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 OpenAI-compatible provider 已把 Codex2API 流中的 `usage` 解析为 `TokenUsage`。`AgentLoop::call_provider_and_collect` 在一次成功 model step 后发出逐 step `usage`，而 `run_agent_with_input` 负责一个用户 turn 内的多次 model step 和最终 `busy_changed` / `done` 边界。

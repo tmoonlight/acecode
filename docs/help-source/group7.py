@@ -25,14 +25,14 @@ PAGES = {
 
 "architecture": page("ACECode 由共享智能体核心和多个使用入口组成。理解状态归属，有助于把修改放在正确模块。", [
     section("surfaces", "入口与核心职责",
-        table(["模块", "当前源码位置", "职责"], [["终端 TUI", "<code>src/cli/main.cpp</code>、<code>src/tui/</code>", "终端输入、渲染、交互确认和本地会话。"], ["无界面 CLI", "<code>src/headless/</code>", "参数、单轮执行、输出与退出状态。"], ["后台", "<code>src/daemon/</code>", "进程生命周期、会话托管与运行身份。"], ["HTTP / WebSocket", "<code>src/web/</code>", "路由、请求解析、响应与事件传输。"], ["Web 前端", "<code>web/src/</code>", "任务界面、设置、消息与面板状态。"], ["桌面壳", "<code>src/desktop/</code>", "原生 WebView、后台托管和平台桥接。"], ["智能体循环", "<code>src/agent/agent_loop.cpp</code>", "模型请求、工具回合、进度与终态。"], ["共享能力", "<code>src/session/</code>、<code>src/provider/</code>、<code>src/tool/</code>", "会话持久化、模型适配和工具执行。"]]),
+        table(["模块", "当前源码位置", "职责"], [["终端 TUI", "<code>src/apps/cli/main.cpp</code>、<code>src/apps/tui/</code>", "终端输入、渲染、交互确认和本地会话。"], ["无界面 CLI", "<code>src/apps/headless/</code>", "参数、单轮执行、输出与退出状态。"], ["后台", "<code>src/apps/daemon/</code>", "进程生命周期、会话托管与运行身份。"], ["HTTP / WebSocket", "<code>src/apps/web/</code>", "路由、请求解析、响应与事件传输。"], ["Web 前端", "<code>web/src/</code>", "任务界面、设置、消息与面板状态。"], ["桌面壳", "<code>src/apps/desktop/</code>", "原生 WebView、后台托管和平台桥接。"], ["智能体循环", "<code>src/engine/agent/agent_loop.cpp</code>", "模型请求、工具回合、进度与终态。"], ["共享能力", "<code>src/domain/session/</code>、<code>src/adapters/provider/</code>、<code>src/adapters/tool/</code>", "会话持久化、模型适配和工具执行。"]]),
         '''<p>TUI 可以直接使用共享核心；桌面与 Web 通过后台管理会话。桌面原生浏览器和文件窗口通过桥接接入，不意味着所有浏览器客户端都具备同样能力。</p>''',
         figure("DV-01", "ACECode 运行架构图", "后续绘制真实架构图：TUI 与 CLI 连接共享核心，桌面/Web 连接 daemon，daemon 连接 SessionRegistry、AgentLoop、Provider、Tools 与持久化；标出桌面原生桥接。")),
     section("turn", "一次任务如何流转",
         '''<ol><li>入口接收用户输入与上下文，并定位目标会话和工作目录。</li><li>保存用户消息，按当前模型绑定构造请求。</li><li>Provider 将统一消息转换为对应服务协议，并返回文本、推理或工具调用。</li><li>工具经过权限与运行条件检查后执行，结果追加到会话。</li><li>智能体根据结果继续下一次模型调用，或生成最终回复。</li><li>终态、用量与消息通过事件更新前端，持久记录用于后续恢复。</li></ol><p>用户界面中的“排队成功”只是输入被接受，任务完成还需要观察对应回合的终态。模型重试和上下文压缩也会产生状态变化，不能把每一次 busy 变化都视为成功完成。</p>'''),
     section("boundaries", "修改时保持的边界",
         '''<p>可复用的解析、校验和状态机放在对应共享模块，不把终端渲染对象带入后台接口。HTTP 处理应复用路由解析与错误响应辅助函数，模型变更应经过当前会话模型绑定路径。</p><p>Web 源码在 web/src，构建结果由工具生成。后台会话状态与前端临时草稿分开维护；文件修改又有独立的磁盘副作用，不能只更新界面就视作状态持久化。</p><p>新增行为需要检查 TUI、CLI、Web 和桌面是否使用了不同入口。协议变化同步维护 API 说明，关键持久字段补兼容性验证。</p>''')
-], ["ARCHITECTURE.md", "CMakeLists.txt", "src/cli/main.cpp", "src/agent/agent_loop.cpp", "src/session_host/session_registry.cpp", "src/tool/tool_executor.hpp", "src/provider/session_model_binding.hpp"]),
+], ["ARCHITECTURE.md", "CMakeLists.txt", "src/apps/cli/main.cpp", "src/engine/agent/agent_loop.cpp", "src/host/session_host/session_registry.cpp", "src/adapters/tool/tool_executor.hpp", "src/adapters/provider/session_model_binding.hpp"]),
 
 "daemon": page("独立 daemon 提供 HTTP 与 WebSocket 服务。根据个人后台、调试或系统服务场景选择生命周期。", [
     section("lifecycle", "启动、查看与停止",
@@ -50,7 +50,7 @@ PAGES = {
         '''<p>先为服务身份准备正确配置和可访问目录，再验证健康与模型请求。个人映射盘、环境变量和凭据可能不适用于 LocalSystem。维护时先停止服务，确认不再需要该服务后卸载：</p>''',
         code("acecode service stop\nacecode service uninstall", "管理员 PowerShell · 停止与卸载服务"),
         '''<p>移除服务注册不等于删除所有项目与用户数据。需要清理时按明确的数据目录逐项备份和处理。</p>''')
-], ["src/daemon/cli.cpp", "src/daemon/service_win.cpp", "src/daemon/worker.cpp", "docs/daemon-api.md", "src/utils/paths.cpp"]),
+], ["src/apps/daemon/cli.cpp", "src/apps/daemon/service_win.cpp", "src/apps/daemon/worker.cpp", "docs/daemon-api.md", "src/base/utils/paths.cpp"]),
 
 "api": page("先通过 HTTP 创建会话，再订阅事件并提交消息。响应码、回合终态与重连游标需要分别处理。", [
     section("connect", "连接与鉴权",
@@ -69,11 +69,11 @@ PAGES = {
     section("interactions", "回答问题与取消",
         code('{"type":"decision","payload":{"session_id":"sid","request_id":"request-id","choice":"allow"}}\n{"type":"abort","payload":{"session_id":"sid"}}', "独立消息示例 · 仅在用户作出相应决定时发送"),
         '''<p>权限选择字段是 choice，可为 allow、deny 或 allow_session。提问使用 question_answer，携带 request_id、cancelled 与 answers；每项回答使用 question_id、selected 和 custom_text。多会话连接必须带正确的 session_id。</p><p>收到 permission_closed 或 question_closed 时关闭对应交互。不要为了让集成看起来流畅而默默自动批准。完整路由、消息字段和 PTY 协议见仓库中的<a href="https://github.com/tmoonlight/acecode/blob/master/docs/daemon-api.md" target="_blank" rel="noopener noreferrer">Daemon API 协议说明</a>，接入时对照当前版本源码。</p>''')
-], ["docs/daemon-api.md", "src/web/routes/routes_workspaces.cpp", "web/src/lib/api.js", "web/src/lib/connection.js", "src/web/server_helpers.cpp"]),
+], ["docs/daemon-api.md", "src/apps/web/routes/routes_workspaces.cpp", "web/src/lib/api.js", "web/src/lib/connection.js", "src/apps/web/server_helpers.cpp"]),
 
 "extension-development": page("优先在现有模块边界内扩展能力，复用工具、命令和渠道协议，补齐相应的错误与生命周期处理。", [
     section("tools-commands", "添加工具与命令",
-        '''<p>内置工具通常在 src/tool 下定义工厂函数，返回 ToolImpl：definition 描述名称、用途和 JSON 参数，execute 接收参数文本与 ToolContext，返回 ToolResult。is_read_only 必须符合真实副作用，不能为绕过确认把写操作标为只读。</p><ol><li>参考已有小工具，提取参数校验和核心逻辑。</li><li>复用 ToolArgsParser、错误、路径与会话辅助函数，限制作用范围。</li><li>注册到适用的工具清单；有环境依赖时只在能力可用时暴露。</li><li>提供可读结果与结构化摘要，必要时附带差异和元数据。</li><li>测试合法输入、缺参、错误路径、取消和权限边界。</li></ol>''',
+        '''<p>内置工具通常在 src/adapters/tool 下定义工厂函数，返回 ToolImpl：definition 描述名称、用途和 JSON 参数，execute 接收参数文本与 ToolContext，返回 ToolResult。is_read_only 必须符合真实副作用，不能为绕过确认把写操作标为只读。</p><ol><li>参考已有小工具，提取参数校验和核心逻辑。</li><li>复用 ToolArgsParser、错误、路径与会话辅助函数，限制作用范围。</li><li>注册到适用的工具清单；有环境依赖时只在能力可用时暴露。</li><li>提供可读结果与结构化摘要，必要时附带差异和元数据。</li><li>测试合法输入、缺参、错误路径、取消和权限边界。</li></ol>''',
         code("// 结构示意：具体定义与处理函数需在对应模块实现。\nToolImpl create_example_tool() {\n    ToolImpl impl;\n    impl.definition = make_example_definition();\n    impl.execute = execute_example;\n    impl.is_read_only = true; // 仅适用于确实没有写入副作用的实现\n    impl.source = ToolSource::Builtin;\n    return impl;\n}", "C++ · 工具工厂结构示意，不是可直接编译的完整工具"),
         '''<p>斜杠命令通过 CommandRegistry 注册 SlashCommand，处理函数接收 CommandContext 与参数。需要复用模型输入时使用已有提交辅助函数；界面专属操作通过对应回调进入 TUI 管理面板。</p><p>桌面/Web 的内置命令还经过独立的支持清单、请求解析和前端路由。只在 TUI 注册命令不会自动得到所有前端行为，修改时同时检查 builtin_command_handler、commands_handler 和 builtinCommandRouting。涉及持久数据或 API 的变动应同步协议与兼容性测试。</p>'''),
     section("channel", "渠道插件协议",
@@ -82,7 +82,7 @@ PAGES = {
         '''<p>激活消息 channel.activate 包含 protocol_version、session_id、入站 URL、认证头与 Token、出站偏好和 settings。插件完成自身准备后返回连接状态及 Webhook 地址：</p>''',
         code('{\n  "type": "channel.status",\n  "state": "connected",\n  "already_running": false,\n  "binding_token": "opaque-current-binding",\n  "outbound": {\n    "mode": "webhook",\n    "url": "http://127.0.0.1:39001/messages"\n  }\n}', "激活结果示例 · 地址必须由插件实际提供"),
         '''<p>激活应当幂等。可选 binding_token 必须为非空字符串，ACECode 会在对应 channel.deactivate 中原样回传。插件解除绑定时同时核对 session_id 与 binding_token，防止延迟清理误断开新连接。</p><p>旧插件可以不返回 binding_token；返回空串或非字符串会被视为非法状态。daemon 正常关闭会保留托管绑定以便恢复，显式 /rc off 才走当前绑定的解除流程。不能把一次辅助进程退出等同于渠道服务已经永久关闭。</p><p>测试至少覆盖重复激活、失败返回、超时、同会话重新绑定、迟到解除和认证错误。协议细节见<a href="https://github.com/tmoonlight/acecode/blob/master/docs/channel-plugin-protocol.md" target="_blank" rel="noopener noreferrer">渠道插件协议</a>；用户配置入口见<a href="channels.html">消息渠道与远程控制</a>。</p>''')
-], ["src/tool/tool_executor.hpp", "src/tool/task_complete_tool.cpp", "src/tool/builtin_tool_registry.hpp", "src/tui/commands/command_registry.hpp", "src/web/handlers/builtin_command_handler.cpp", "web/src/lib/builtinCommandRouting.js", "src/remote_control/channel_plugin.cpp", "docs/channel-plugin-protocol.md"]),
+], ["src/adapters/tool/tool_executor.hpp", "src/adapters/tool/task_complete_tool.cpp", "src/adapters/tool/builtin_tool_registry.hpp", "src/apps/tui/commands/command_registry.hpp", "src/apps/web/handlers/builtin_command_handler.cpp", "web/src/lib/builtinCommandRouting.js", "src/host/remote_control/channel_plugin.cpp", "docs/channel-plugin-protocol.md"]),
 
 "contributing": page("围绕一个明确问题提交聚焦的改动，保留现有行为边界，并提供能让维护者复现的验证结果。", [
     section("scope", "开始前明确范围",

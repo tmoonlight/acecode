@@ -3,9 +3,9 @@
 > **Reads**: `proposal.md` (this change), `openspec/changes/add-web-daemon/`,
 > `openspec/changes/add-web-chat-ui/`.
 >
-> **Touches**: new `src/desktop/`, modifies `src/cli.cpp`, `CMakeLists.txt`,
-> `src/utils/paths.{hpp,cpp}` (no new path roots — reuses `User` mode), and
-> a small extension to `src/web/auth.cpp` to support per-launch loopback
+> **Touches**: new `src/apps/desktop/`, modifies `src/cli.cpp`, `CMakeLists.txt`,
+> `src/base/utils/paths.{hpp,cpp}` (no new path roots — reuses `User` mode), and
+> a small extension to `src/apps/web/auth.cpp` to support per-launch loopback
 > tokens.
 
 ---
@@ -65,7 +65,7 @@ macOS — see §4 below).
 
 **Risk**: `webview/webview` is small and could go unmaintained. Mitigation:
 the API surface we use is tiny (~6 entry points), and we wrap it behind
-`src/desktop/web_host.hpp` so the implementation can be swapped without
+`src/apps/desktop/web_host.hpp` so the implementation can be swapped without
 touching the supervision layer.
 
 ---
@@ -96,7 +96,7 @@ one process but loses crash isolation and forces us to fork the
 
 ## 4. Process supervision details
 
-`src/desktop/daemon_supervisor.{hpp,cpp}` owns the daemon child. Lifecycle:
+`src/apps/desktop/daemon_supervisor.{hpp,cpp}` owns the daemon child. Lifecycle:
 
 ### 4.1 Spawn
 - Compute daemon binary path beside the desktop executable: `acecode.exe`
@@ -224,7 +224,7 @@ All four are additive; no existing daemon invocations change behavior.
 
 ### 8.1 System tray
 
-- `src/desktop/tray.{hpp,cpp}` — uses platform APIs:
+- `src/apps/desktop/tray.{hpp,cpp}` — uses platform APIs:
   - Windows: `Shell_NotifyIcon` with custom HWND
   - macOS: `NSStatusItem`
   - Linux: `libappindicator` (Ubuntu) with fallback to no-op (KDE/GNOME
@@ -243,7 +243,7 @@ All four are additive; no existing daemon invocations change behavior.
 
 ### 8.3 Notifications
 
-- `src/desktop/notify.hpp` — single function `notify(title, body)`.
+- `src/apps/desktop/notify.hpp` — single function `notify(title, body)`.
   - Windows: `ToastNotificationManager` (WinRT)
   - macOS: `NSUserNotificationCenter` (or `UNUserNotificationCenter` if we
     drop 10.13)
@@ -285,12 +285,12 @@ Add target in top-level `CMakeLists.txt`:
 ```cmake
 if(ACECODE_BUILD_DESKTOP)
   add_executable(acecode-desktop
-    src/desktop/main.cpp
-    src/desktop/daemon_supervisor.cpp
-    src/desktop/web_host.cpp
-    src/desktop/tray_${PLATFORM}.cpp
-    src/desktop/notify_${PLATFORM}.cpp
-    src/desktop/single_instance_${PLATFORM}.cpp
+    src/apps/desktop/main.cpp
+    src/apps/desktop/daemon_supervisor.cpp
+    src/apps/desktop/web_host.cpp
+    src/apps/desktop/tray_${PLATFORM}.cpp
+    src/apps/desktop/notify_${PLATFORM}.cpp
+    src/apps/desktop/single_instance_${PLATFORM}.cpp
   )
   target_link_libraries(acecode-desktop PRIVATE
     acecode_testable     # path utilities, runtime files, logger
@@ -388,14 +388,14 @@ The components themselves (`ace-app`, `ace-chat`, …) are untouched.
 
 Unit-testable in `acecode_testable` (no FTXUI, no WebView):
 
-- `src/ipc/runtime_files.{hpp,cpp}` — wrappers around
+- `src/base/ipc/runtime_files.{hpp,cpp}` — wrappers around
   `<data_dir>/run/` reads. Already exists for the daemon side; add a
   symmetric `read_runtime_state()` returning a parsed struct.
   → `tests/ipc/runtime_files_test.cpp`
-- `src/desktop/runtime_json_parser.{hpp,cpp}` — parses a single
+- `src/apps/desktop/runtime_json_parser.{hpp,cpp}` — parses a single
   `{"port":…,"token":…}` line. Pure function.
   → `tests/desktop/runtime_json_parser_test.cpp`
-- `src/desktop/url_builder.{hpp,cpp}` — composes
+- `src/apps/desktop/url_builder.{hpp,cpp}` — composes
   `http://127.0.0.1:<port>/?t=<token>` with proper escaping.
   → `tests/desktop/url_builder_test.cpp`
 

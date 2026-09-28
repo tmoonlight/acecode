@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景
 
 `ChatView.handleOpenExistingDirectory` 与 `Sidebar.onAddWorkspace` 都使用 `pickExistingWorkspace`。该函数在存在 `aceDesktop_addWorkspace` 时直接返回或抛错，只有没有 bridge 时才调用 `requestPathPick`。`PathPickerHost` 已在 App 顶层挂载，Desktop 也能复用它。

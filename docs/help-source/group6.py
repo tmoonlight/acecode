@@ -28,7 +28,7 @@ PAGES = {
     section("update", "更新失败或仍显示旧版",
         '''<p>检查更新源是否可访问、磁盘空间是否足够，以及目标程序是否被正在运行的进程锁定。保留错误输出，确认启动路径后按原安装方式重试更新，避免同时维护多个互相覆盖的副本。</p><p>更新命令成功后，重新打开目标应用并核对版本。桌面启动器与配套 daemon 应来自同一套安装包；不要只替换其中一个程序来测试正式安装。</p><p>配置错误触发自动回滚时，先查看回滚提示与备份位置，修复目标字段。卸载通常不等于清除所有个人数据；按<a href="update-uninstall.html">更新与卸载</a>选择是否保留模型和历史。</p>''',
         figure("TS-01", "安装或更新错误的有效截图", "截取完整错误文字、目标安装包或版本信息和发生时间；避免只截一个没有上下文的失败图标。"))
-], ["src/daemon/cli.cpp", "docs/daemon-api.md", "docs/user-manual.md", "src/platform/native_ui/strings.cpp"]),
+], ["src/apps/daemon/cli.cpp", "docs/daemon-api.md", "docs/user-manual.md", "src/base/platform/native_ui/strings.cpp"]),
 
 "troubleshoot-models": page("按服务商、预设、实际端点和错误类别逐项检查，避免把所有失败都归因于模型本身。", [
     section("fields", "先核对连接的四项信息",
@@ -49,7 +49,7 @@ PAGES = {
         figure("TS-03", "自动重试与停止入口", "展示网络重试状态、可见等待信息和当前任务停止入口，用图注明确等待不表示新消息已经发送。")),
     section("partial", "有部分输出但没有完成",
         '''<p>部分文字或部分工具成功不表示整项任务完成。检查最后状态是完成、失败还是中断，查看最后一个错误，并核对文件是否已经变化。继续时说明从哪一步接着做，避免重复已经完成的外部操作。</p><p>压缩失败时保留错误记录，不把进度提示当成成功标记。无界面 CLI 应同时检查退出码与 JSON 中的 is_error；API 客户端应检查终态 outcome，而不只依据收到 done 事件。</p><p>需要提交问题时，记录模型预设、最近成功步骤、失败时间和上下文状态，参见<a href="feedback.html">日志与问题反馈</a>。</p>''')
-], ["docs/user-manual.md", "docs/daemon-api.md", "src/headless/headless_runner.cpp"]),
+], ["docs/user-manual.md", "docs/daemon-api.md", "src/apps/headless/headless_runner.cpp"]),
 
 "troubleshoot-tools": page("先判断是能力没有加载、运行条件不满足，还是调用后的业务结果失败，再处理对应环节。", [
     section("tools", "工具不可用或执行失败",
@@ -60,7 +60,7 @@ PAGES = {
         '''<p>先确认 JSON 合法且已经保存，再查看服务器状态和工具清单。stdio 服务检查 command、args、环境变量和解释器；远程服务检查 sse / http 协议、URL 拼接、认证与代理。</p><p>修改服务器配置后使用 Reload 或 <code>/mcp reconnect 服务器名</code> 重连；重新加载编辑区文本与重建连接不是同一个操作。显示“重启 daemon 后生效”时按提示完成重启。</p><p>连接成功但没有工具可能是服务没有提供 tools，或初始化、能力协商失败。模型调用时失败则进一步查看工具参数和服务返回内容。先用一个明确的简单工具验证，不要一次同时新增多个服务器后猜测是哪一个导致问题。</p>'''),
     section("hooks", "Hook 没有执行",
         '''<p>在钩子页刷新并查看来源、信任状态、事件和匹配规则。待审核项、被禁用项、未受信任项目或不支持的处理器会被跳过。脚本的解释器、工作目录和超时同样需要正确。</p><p>修改命令后可能需要重新信任。连接器的首次启动认证另有规则，不会因为重启或切换连接器开关就自动再次执行。参见 <a href="hooks.html">Hooks</a> 与<a href="connectors.html">连接器</a>。</p>''')
-], ["docs/skills.md", "docs/hooks.md", "src/tui/commands/builtin_commands.cpp", "web/src/components/SettingsPage.jsx", "src/tool/builtin_tool_registry.hpp"]),
+], ["docs/skills.md", "docs/hooks.md", "src/apps/tui/commands/builtin_commands.cpp", "web/src/components/SettingsPage.jsx", "src/adapters/tool/builtin_tool_registry.hpp"]),
 
 "troubleshoot-desktop": page("把桌面壳、后台服务、浏览器连接和项目工具分开检查，先保留现场再采取重启等操作。", [
     section("desktop", "桌面白屏、连接失败或意外退出",
@@ -72,7 +72,7 @@ PAGES = {
         '''<ol><li>先在服务所在机器打开实际本机 Web 地址。</li><li>检查远程 Web 模式已开启，并使用复制连接中的代理地址与端口。</li><li>确认目标设备能解析主机名并到达端口，检查防火墙或网络策略。</li><li>从当前运行服务重新复制连接，排除旧 Token。</li><li>观察是 HTTP 请求失败还是 WebSocket 断开，再查看后台与代理日志。</li></ol><p>daemon 固定监听回环地址，远程接入通过独立代理提供。不要把出站模型代理配置当作远程 Web 配置。服务重启、代理切换或端口配置变化后，先刷新实际连接信息。</p>'''),
     section("browser", "Agent 浏览器或预览功能不可用",
         '''<p>确认使用的是支持原生桥接的平台桌面构建。对于浏览器页面，检查该页签是否共享、是否已加载、是否已关闭。外部浏览器标签页不会自动变成 ACECode 的可控页签。</p><p>文本文件在工作区外只读是预览边界；保存冲突说明磁盘内容可能已改变。先比较当前草稿和磁盘文件再处理，避免覆盖其他程序的新修改。参考<a href="desktop.html">桌面端</a>和<a href="agent-browser.html">Agent 浏览器</a>。</p>''')
-], ["docs/daemon-api.md", "src/desktop/main.cpp", "web/src/components/ConsoleDock.jsx", "docs/agent-browser.md"]),
+], ["docs/daemon-api.md", "src/apps/desktop/main.cpp", "web/src/components/ConsoleDock.jsx", "docs/agent-browser.md"]),
 
 "feedback": page("提供能复现的问题描述和对应时间范围的日志，帮助快速定位到具体会话与运行环节。", [
     section("report", "先整理问题描述",
@@ -84,7 +84,7 @@ PAGES = {
     section("logs", "手动查找日志",
         table(["运行方式", "常见日志位置"], [["TUI", "当前工作目录中的 <code>acecode.log</code>。"], ["独立或桌面后台", "<code>数据目录/logs/daemon-日期.log</code>。"], ["桌面壳", "<code>数据目录/logs/desktop-日期.log</code>。"], ["无界面 CLI", "<code>数据目录/logs/headless-日期.log</code>。"]]),
         '''<p>个人模式的数据目录为 <code>~/.acecode</code>，Windows 服务使用 <code>%PROGRAMDATA%/acecode</code>。尽量截取事件前后连续一小段日志，保留时间、错误类别和相关 ID，遮挡认证头、Token、密钥及不必要的个人信息。</p><p>也可以在项目官方问题页提交经过整理的描述。不要直接上传主配置文件、run/token 或整个用户数据目录；需要补充材料时按实际诊断范围提供。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/feedback/feedback_upload.cpp", "src/desktop/main.cpp", "src/headless/headless_runner.cpp", "src/daemon/worker.cpp", "src/cli/main.cpp"]),
+], ["web/src/components/SettingsPage.jsx", "src/adapters/feedback/feedback_upload.cpp", "src/apps/desktop/main.cpp", "src/apps/headless/headless_runner.cpp", "src/apps/daemon/worker.cpp", "src/apps/cli/main.cpp"]),
 }
 
 from group6_reference import PAGES as REFERENCE

@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 OpenAI-compatible and Anthropic streaming providers currently own small, duplicated retry loops. Most retryable failures stop after three requests, timeout is a special unbounded case in only one provider, delays cap at fifteen seconds, and each loop snapshots proxy routing before its first attempt. Automatic compaction has a third bounded retry implementation. AgentLoop already knows how to discard provisional streamed output after a replay, but only does so for two error kinds.

@@ -39,7 +39,7 @@ generated_from_state_version: 21
 | frontend-tests | -lc export PATH="$HOME/.nvm/versions/node/v22.22.2/bin:$PATH"; corepack pnpm@10.11.0 test | web | passed | 0 | 6000 ms |
 | frontend-build | -lc export PATH="$HOME/.nvm/versions/node/v22.22.2/bin:$PATH"; corepack pnpm@10.11.0 build | web | passed | 0 | 26584 ms |
 | desktop-build | -lc export PATH="/Users/hudy/Desktop/GitHubCode/acecode/.acecode/tmp/session-20260918-145721-6662/build-tools/bin:$PATH"; export VCPKG_FORCE_SYSTEM_BINARIES=1 CMAKE_BUILD_PARALLEL_LEVEL=4 VCPKG_ROOT="$HOME/vcpkg"; cmake --build build/macos-x64-release --target acecode-desktop -j4 | . | passed | 0 | 734 ms |
-| diff-check | -lc git diff --check && ! grep -R "object_setClass" -n src/desktop web/src | . | passed | 0 | 796 ms |
+| diff-check | -lc git diff --check && ! grep -R "object_setClass" -n src/apps/desktop web/src | . | passed | 0 | 796 ms |
 
 ### Builder 报告的证据
 

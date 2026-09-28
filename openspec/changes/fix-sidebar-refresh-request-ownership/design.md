@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 见 proposal.md。现有每工作区代次已能拒绝直接返回的旧请求，但后台刷新在检查后仍等待无工作区列表，且后台摘要请求无条件推进代次。

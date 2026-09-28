@@ -36,8 +36,8 @@ ACECode 已经有不错的 agent 底座：C++17 共享 agent core、TUI/daemon/w
 
 适配代码方向：
 
-- `src/tool/`：工具注册、meta-tool、MCP 调用代理。
-- `src/web/handlers/` 和 `web/src/`：MCP catalog UI。
+- `src/adapters/tool/`：工具注册、meta-tool、MCP 调用代理。
+- `src/apps/web/handlers/` 和 `web/src/`：MCP catalog UI。
 - `docs/user-manual.md`、`docs/daemon-api.md`：更新协议和用户说明。
 
 候选 OpenSpec：`mcp-progressive-tool-discovery`
@@ -58,9 +58,9 @@ ACECode 已经有不错的 agent 底座：C++17 共享 agent core、TUI/daemon/w
 
 适配代码方向：
 
-- `src/tool/`：新增 `code_mode` 工具和 broker。
-- `src/permissions/permissions.hpp`：增加 brokered call 的权限上下文。
-- `src/session/`：记录脚本、子调用、审批和最终结果，便于 replay。
+- `src/adapters/tool/`：新增 `code_mode` 工具和 broker。
+- `src/domain/permissions/permissions.hpp`：增加 brokered call 的权限上下文。
+- `src/domain/session/`：记录脚本、子调用、审批和最终结果，便于 replay。
 
 候选 OpenSpec：`sandboxed-code-mode-tools`
 
@@ -80,9 +80,9 @@ ACECode 后续会越来越依赖复杂工具链、浏览器、MCP、skills 和�
 
 适配代码方向：
 
-- `src/agent/agent_loop.cpp`：trace 事件源。
-- `src/session/`：trace 存储和 replay。
-- `src/web/`、`web/src/`：trace 查看。
+- `src/engine/agent/agent_loop.cpp`：trace 事件源。
+- `src/domain/session/`：trace 存储和 replay。
+- `src/apps/web/`、`web/src/`：trace 查看。
 - `tests/` 或 `scripts/`：eval harness。
 
 候选 OpenSpec：`agent-trace-and-eval-harness`
@@ -103,9 +103,9 @@ ACECode 已经有 `/goal` 和 plan mode，但长任务仍主要依赖 agent loop
 
 适配代码方向：
 
-- `src/session/`：持久化 workflow 状态。
-- `src/agent/agent_loop.cpp`：阶段调度。
-- `src/tui/commands/`：扩展 `/goal`、`/plan`、`/workflow`。
+- `src/domain/session/`：持久化 workflow 状态。
+- `src/engine/agent/agent_loop.cpp`：阶段调度。
+- `src/apps/tui/commands/`：扩展 `/goal`、`/plan`、`/workflow`。
 - `web/src/components/StatusBar.jsx`：状态入口。
 
 候选 OpenSpec：`durable-agent-workflow-runtime`
@@ -126,8 +126,8 @@ AI coding agent 的安全边界不应只停留在“读工具自动、写工具�
 
 适配代码方向：
 
-- `src/permissions/permissions.hpp`：风险模型和 grant scope。
-- `src/tool/`：工具定义附带风险 metadata。
+- `src/domain/permissions/permissions.hpp`：风险模型和 grant scope。
+- `src/adapters/tool/`：工具定义附带风险 metadata。
 - `web/src/components/PermissionModal.jsx`、TUI confirm：展示参数 diff 和风险解释。
 
 候选 OpenSpec：`permission-risk-engine-v2`
@@ -148,8 +148,8 @@ ACECode 已有 skills 系统。趋势上 skills 是 agent 的行为层，风险�
 
 适配代码方向：
 
-- `src/skills/`：manifest、hash、enable policy。
-- `src/tool/skills_tool.cpp`、`skill_view_tool.cpp`：展示权限和来源。
+- `src/domain/skills/`：manifest、hash、enable policy。
+- `src/adapters/tool/skills_tool.cpp`、`skill_view_tool.cpp`：展示权限和来源。
 - `web/src/components/SkillsPanel.jsx`：安装、启用、审计 UI。
 
 候选 OpenSpec：`skills-supply-chain-governance`
@@ -170,8 +170,8 @@ ACECode 的 Windows Agent Browser 已经把独立 WebView2 可见页面、CDP �
 
 适配代码方向：
 
-- `src/desktop/agent_browser_host.*`：原生浏览器生命周期与 Desktop 可见页面。
-- `src/tool/agent_browser/`：CDP 代理、工具包装和权限。
+- `src/apps/desktop/agent_browser_host.*`：原生浏览器生命周期与 Desktop 可见页面。
+- `src/adapters/tool/agent_browser/`：CDP 代理、工具包装和权限。
 - `docs/agent-browser.md`：使用模型、安全边界和平台支持。
 
 候选 OpenSpec：`browser-computer-use-runtime`
@@ -192,8 +192,8 @@ Coding agent 的输入正在从纯文本 issue 变成截图、PDF、Word、Excel
 
 适配代码方向：
 
-- `src/tool/`：document intake 工具。
-- `src/session/`：artifact/cache 元数据。
+- `src/adapters/tool/`：document intake 工具。
+- `src/domain/session/`：artifact/cache 元数据。
 - `web/src/components/AttachmentStrip.jsx`：预览和 provenance。
 
 候选 OpenSpec：`document-intake-pipeline`
@@ -213,9 +213,9 @@ MCP 解决“agent 调工具”，A2A 解决“agent 调 agent”。短期不建
 
 适配代码方向：
 
-- `src/web/handlers/`：agent card 和 task API。
-- `src/tool/`：A2A delegate tool。
-- `src/session/`：remote task state 和 artifact。
+- `src/apps/web/handlers/`：agent card 和 task API。
+- `src/adapters/tool/`：A2A delegate tool。
+- `src/domain/session/`：remote task state 和 artifact。
 
 候选 OpenSpec：`a2a-agent-endpoint-preview`
 
@@ -235,9 +235,9 @@ ACECode 已有 memory、project instructions、skills 和 session compact。下�
 
 适配代码方向：
 
-- `src/memory/`、`src/project_instructions/`：metadata 和作用域。
-- `src/session/`：context snapshot。
-- `src/tool/`：project index 查询工具。
+- `src/domain/memory/`、`src/domain/project_instructions/`：metadata 和作用域。
+- `src/domain/session/`：context snapshot。
+- `src/adapters/tool/`：project index 查询工具。
 
 候选 OpenSpec：`context-broker-and-project-index`
 
@@ -277,9 +277,9 @@ ACECode 当前以 OpenAI-compatible Chat Completions 为主要抽象。长期看
 
 适配代码方向：
 
-- `src/provider/`：item stream adapter。
-- `src/session/`：兼容序列化。
-- `src/tool/`：tool result attachment 和 artifact ref。
+- `src/adapters/provider/`：item stream adapter。
+- `src/domain/session/`：兼容序列化。
+- `src/adapters/tool/`：tool result attachment 和 artifact ref。
 
 候选 OpenSpec：`provider-item-model-upgrade`
 

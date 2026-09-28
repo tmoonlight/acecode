@@ -65,7 +65,7 @@ add_executable(acecode_unit_tests ${ACECODE_TEST_SOURCES})
 
 add_executable(acecode_runtime_log_fixture
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/runtime_log_fixture.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/append_file.cpp)
+    ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
 target_include_directories(acecode_runtime_log_fixture PRIVATE
     ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external/ftxui/src)
 if(MSVC)
@@ -294,7 +294,7 @@ add_executable(concurrent_session_writer
 target_link_libraries(concurrent_session_writer PRIVATE
     acecode_testable
     acecode_native_bridge_support
-    # acecode_testable 里 src/tool/ask_user_question_tool.cpp 等 TU 引用了
+    # acecode_testable 里 src/adapters/tool/ask_user_question_tool.cpp 等 TU 引用了
     # ftxui::Event,所以即使 helper main 自己只调 SessionManager,链接器也要
     # 拉 ftxui 才能 resolve。匹配 acecode_unit_tests 的 link 列表。
     ftxui::screen
@@ -368,7 +368,7 @@ add_dependencies(acecode_unit_tests fake_lsp_server)
 # starting a provider-backed headless session.
 add_executable(headless_jsonl_process_driver
     ${CMAKE_CURRENT_SOURCE_DIR}/headless/headless_jsonl_process_driver.cpp
-    ${CMAKE_SOURCE_DIR}/src/headless/headless_jsonl.cpp
+    ${CMAKE_SOURCE_DIR}/src/apps/headless/headless_jsonl.cpp
 )
 target_include_directories(headless_jsonl_process_driver PRIVATE
     ${CMAKE_SOURCE_DIR}/src

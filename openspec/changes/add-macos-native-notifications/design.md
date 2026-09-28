@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 The current Web UI already emits structured notification payloads for permission requests, questions, and normally completed turns. It also applies the configured focus/session suppression rules before calling the Desktop bridge. On Windows, the bridge delegates to a shared WinToast implementation used by both Desktop and TUI, and each toast owns the payload required to restore its exact session. On macOS the same native API is currently compiled as a no-op.

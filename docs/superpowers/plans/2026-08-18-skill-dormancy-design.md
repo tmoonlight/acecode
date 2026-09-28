@@ -52,7 +52,7 @@ ACECode 的技能库随使用增长,每个技能的名称和描述都会注入�
   └─ injection 成功后 → record_skill_usage(name)
 
      ┌─────────────────────────────────────────────┐
-     │  skill_usage_store  (新模块 src/skills/)      │
+     │  skill_usage_store  (新模块 src/domain/skills/)      │
      │  ~/.acecode/.skill_usage_state.json          │
      │  { version:1, skills{ name: {lastUsedAt,     │
      │    useCount, pinned} } }                     │
@@ -167,13 +167,13 @@ is_dormant(skill) = !pinned && (now - lastUsedAt > idleDays)
 
 | # | 任务 | 涉及文件 | 说明 |
 |---|------|----------|------|
-| 1 | 新增 store | `src/skills/skill_usage_store.{hpp,cpp}` | 读/写状态文件,原子 rename,进程内 mutex |
-| 2 | 记录钩子 | `src/agent/agent_loop.cpp` + `src/skills/skill_activation.cpp` | `record_skill_usage(name)` 插入注入成功处 |
-| 3 | 列表过滤 | `src/agent/agent_loop.cpp`(`build_skills_index_context_prompt`) | 构建自动列表时按 `is_dormant` 跳过 |
-| 4 | 配置项 | `src/config/` | 新增 `skills.idleDays`(默认 30) |
-| 5 | 状态字段 | `src/tui/tui_state.hpp` | 新增 `skill_usage_store` 引用 |
-| 6 | TUI 展示 | `src/tui/`(settings 或 /skills 面板) | 次数/最后使用/状态/pin 操作 |
-| 7 | Web 展示 | `src/web/`(开辟现有 API 或新增) | skill 状态 + pin/唤醒 |
+| 1 | 新增 store | `src/domain/skills/skill_usage_store.{hpp,cpp}` | 读/写状态文件,原子 rename,进程内 mutex |
+| 2 | 记录钩子 | `src/engine/agent/agent_loop.cpp` + `src/domain/skills/skill_activation.cpp` | `record_skill_usage(name)` 插入注入成功处 |
+| 3 | 列表过滤 | `src/engine/agent/agent_loop.cpp`(`build_skills_index_context_prompt`) | 构建自动列表时按 `is_dormant` 跳过 |
+| 4 | 配置项 | `src/base/config/` | 新增 `skills.idleDays`(默认 30) |
+| 5 | 状态字段 | `src/apps/tui/tui_state.hpp` | 新增 `skill_usage_store` 引用 |
+| 6 | TUI 展示 | `src/apps/tui/`(settings 或 /skills 面板) | 次数/最后使用/状态/pin 操作 |
+| 7 | Web 展示 | `src/apps/web/`(开辟现有 API 或新增) | skill 状态 + pin/唤醒 |
 | 8 | 测试 | `tests/skills/skill_usage_store_test.cpp` | 读/写/并发/边界/判定逻辑 |
 
 ---

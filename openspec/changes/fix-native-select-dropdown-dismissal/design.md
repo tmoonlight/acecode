@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See proposal.md. Language and feedback use ordinary HTML selects with independent value handlers. Windows WebView2 152 reproduced transient native popup dismissal in a standalone page. Rendering the same controls with `appearance: base-select` kept all three test pickers open under physical mouse input. The exact internal runtime dismissal trigger remains unproven; changing host position notifications did not reliably resolve it.

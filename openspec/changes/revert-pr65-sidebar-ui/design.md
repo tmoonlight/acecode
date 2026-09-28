@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 See `proposal.md` for motivation and scope. The starting branch is clean `master` at `87ff29ea`. PR #65's net merge diff touches 19 paths. Subsequent work overlaps only `web/src/styles/globals.css` and `web/src/lib/runTests.js` within those paths, adding independent queue styles, a composer font adjustment, and test registrations.

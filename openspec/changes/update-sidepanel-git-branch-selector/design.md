@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `/api/git/info` currently returns the current branch, a verified `default_base`, and local branches. `GitChangesPanel` ignores the local branch array and builds its selector from only `default_base` and `HEAD`; an unused helper argument anticipated remote refs but no backend field supplies them. The existing `/api/git/changes` and `/api/git/diff` endpoints already accept any verified safe ref, so the missing capability is branch discovery and selector construction rather than a new comparison endpoint.

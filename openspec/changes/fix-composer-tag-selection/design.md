@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 参见 proposal.md。现有 RichComposer 使用 Slate inline void 表示命令、技能、路径、会话及附件；附件在纯文本中的长度为零。删除已使用实际 Slate range，但单个 void 的折叠选区和普通文字的折叠光标仍需区分。附件根节点阻止 mousedown，所有 tag 设为 user-select:none。命令同步通过 withoutSaving 替换整棵树，同时保留旧 history，已经用真实 Slate 重现撤销失效。

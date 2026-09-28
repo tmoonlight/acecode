@@ -144,7 +144,7 @@ missing、materialize failure 和固定枚举的 receiver exception。日志只�
 - Web production build；
 - macOS x64 `acecode-desktop` 编译链接；
 - `git diff --check`；
-- `src/desktop` 和 `web/src` 中不存在 `object_setClass`；
+- `src/apps/desktop` 和 `web/src` 中不存在 `object_setClass`；
 - 坐标、边界、overlay、disabled、唯一 receiver、异常结果和 legacy 兼容测试。
 
 用户实机日志确认：四次单文件和一次双文件拖放均得到有效坐标，只路由到
@@ -169,8 +169,8 @@ composer，materialize 最终 `inserted=true`；同一测试期间输入保持�
 
 | 路径 | 作用 |
 |---|---|
-| `src/desktop/web_host.{hpp,cpp}` | macOS drop 坐标采集、平台原生入口和 Windows 空 context 兼容 |
-| `src/desktop/main.cpp` | 结构化 payload、坐标必需语义和 legacy fallback |
+| `src/apps/desktop/web_host.{hpp,cpp}` | macOS drop 坐标采集、平台原生入口和 Windows 空 context 兼容 |
+| `src/apps/desktop/main.cpp` | 结构化 payload、坐标必需语义和 legacy fallback |
 | `web/src/lib/macNativeFileDrag.js` | 坐标还原、DOM hit test、唯一目标路由和安全诊断 |
 | `web/src/lib/macNativeFileDrag.test.js` | 坐标、目标、拒绝和唯一投递测试 |
 | `web/src/components/InputBar.jsx` | composer 坐标授权与 legacy hover 接收路径 |

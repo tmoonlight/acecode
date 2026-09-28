@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 ACECode currently publishes signed and notarized macOS DMGs for x64 and arm64. The image displays `ACECode.app` beside a custom signed `Applications.app` droplet that visually imitates a folder and copies the app to `~/Applications`. Finder does not reliably deliver the real drag operation to that application, so the release can pass its command-line Launch Services test while the advertised installation gesture fails for users.

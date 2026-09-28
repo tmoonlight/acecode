@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 专家包当前用 `expert.json.avatar` 保存一条包内相对路径。`ExpertRegistry` 加载后把它解析为受包根约束的文件路径，Web DTO 只公开 `/api/experts/<id>/avatar` URL；该端点有 8 MiB 上限，允许 PNG、JPEG、GIF、WebP、BMP、ICO，并直接返回文件字节。GIF 因此已经可以作为主头像原样传输，但状态头像没有 schema、模型、URL 或编辑语义。

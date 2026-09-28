@@ -26,7 +26,7 @@ function(acecode_set_source_define source)
 endfunction()
 
 # 与 lint 共用 layers.tsv。P0-P2 显式允许映射表中的旧路径；P3 M2 删除
-# ALLOW_LEGACY 后，旧分支重新带回 src/session/ 等路径会在 configure 时失败。
+# ALLOW_LEGACY 后，旧分支重新带回 src/domain/session/ 等路径会在 configure 时失败。
 function(acecode_assert_known_roots)
     cmake_parse_arguments(PARSE_ARGV 0 _guard "ALLOW_LEGACY" "" "SOURCES")
     if(_guard_UNPARSED_ARGUMENTS OR NOT _guard_SOURCES)

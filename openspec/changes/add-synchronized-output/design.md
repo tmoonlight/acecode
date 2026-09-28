@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 - Every FTXUI frame funnels through a single choke point: sequences accumulate in `App::Internal::output_buffer` via `TerminalSend()` and leave the process in `App::TerminalFlush()` (`external/ftxui/src/ftxui/component/app.cpp`), which does one `std::cout << buffer << std::flush`. Without synchronized output the terminal paints this stream incrementally, exposing half-drawn frames.

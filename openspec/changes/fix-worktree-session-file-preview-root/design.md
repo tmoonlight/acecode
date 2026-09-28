@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 会话元数据的 `cwd` 是项目存储及工作区归属目录；worktree 状态另存于 `worktree_session.worktree_path`。恢复时 AgentLoop 切入 worktree，但多处 Web 响应仍返回主工作区 `cwd`。`ChatView` 已能优先使用 `ref.worktree.path`，问题在于侧栏与跳转构造 ref 时漏传该字段。

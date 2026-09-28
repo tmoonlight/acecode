@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 见 proposal.md。后台请求 ID 由 UUID 生成，同一请求的重放保持身份；原 PR 的 requestId 重置保护与该协议一致。App 的认证分支会提前返回，所有 Hook 必须位于这些分支之前。

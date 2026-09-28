@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## 背景
 
 `run_configure()` 当前用 `read_choice()` 展示四个顶层入口，其中 catalog 入口再调用 `run_provider_picker()`。后者虽然已有 FTXUI picker，但交互仍是命令式过滤：用户必须先按 `/` 才能输入查询。`configure_openai_via_catalog()` 同时承担“选择 Provider”和“应用已选 Provider”两项职责，导致顶层入口无法直接与目录项组成同一个列表。

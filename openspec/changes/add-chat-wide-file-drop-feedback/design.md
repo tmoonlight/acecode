@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `InputBar` 目前同时拥有拖拽深度计数、浏览器 `FileList` 解析、URI 路径物化、Windows WebView2 additional objects 桥接、macOS 原生拖放放行和附件上传入口，但 React 的 `onDrag*` 只绑定在 `.ace-composer-card`。因此处理链路本身完整，命中范围和反馈层级却被限制在输入卡片。

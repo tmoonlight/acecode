@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 顶栏目录徽标当前可收缩且有最大宽度、省略及窄屏隐藏。InputBar 同时渲染图片预览与 RichComposer 附件标签；结构化 composer_content 仍需保留图片记录以供发送和恢复。

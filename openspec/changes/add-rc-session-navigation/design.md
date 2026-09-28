@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 `SessionChannelBinder` owns exactly one active channel binding. Its inbound route currently forwards every accepted text to that session after the hub has queued the immediate acknowledgement. The daemon already persists `remote_control.bound_session_id`, can resume no-workspace sessions, and exposes a one-shot lightning surge when a sidebar row changes from unbound to bound.

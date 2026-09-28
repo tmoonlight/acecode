@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 Desktop uses one shared daemon runtime directory and a `DaemonPool` slot to host all workspaces. Today `activate()` spawns first and only reads the old port/token after the spawn fails. That fallback does not attach the old PID to a supervisor, so the next real app quit cannot stop it. POSIX supervision also assumes every tracked PID is a direct child, while macOS has no Windows Job Object equivalent.

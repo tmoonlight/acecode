@@ -16,9 +16,9 @@ Test files live at `tests/<same path as under src>/<unit>_test.cpp`:
 
 | Production source                    | Test file                                      |
 |--------------------------------------|------------------------------------------------|
-| `src/platform/terminal/terminal_title.cpp` | `tests/platform/terminal_title_test.cpp`  |
-| `src/session/session_storage.cpp`    | `tests/session/session_storage_test.cpp`       |
-| `src/permissions/permissions.hpp`   | `tests/permissions/permissions_test.cpp`        |
+| `src/base/platform/terminal/terminal_title.cpp` | `tests/session/session_title_text_test.cpp`  |
+| `src/domain/session/session_storage.cpp`    | `tests/session/session_storage_test.cpp`       |
+| `src/domain/permissions/permissions.hpp`   | `tests/permissions/permissions_test.cpp`        |
 
 Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
 `*_test.cpp` (note: singular `_test`, not `_tests`).
@@ -31,10 +31,10 @@ Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
 
 ## What's exempt
 
-- The TUI entry point `src/cli/main.cpp` and the full terminal loop are validated
+- The TUI entry point `src/apps/cli/main.cpp` and the full terminal loop are validated
   manually. Pure TUI helpers listed in `ACECODE_TESTABLE_TUI_SOURCES` in the root
   `CMakeLists.txt` are part of `acecode_testable` and covered by unit tests; the
-  remaining `src/tui/` and `src/tui/markdown/` sources stay outside that target.
+  remaining `src/apps/tui/` and `src/apps/tui/markdown/` sources stay outside that target.
 - LLM provider HTTP paths (`CopilotProvider`, `OpenAiCompatProvider`) — need
   mock HTTP server; left to a future integration-tests change.
 - Agent loop end-to-end behavior — same reason.

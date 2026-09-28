@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 动机见 proposal.md。`Sidebar.jsx` 每轮刷新以服务端数组覆盖工作区；现有 `workspaceDragRef` 仅负责工作区内会话。`WorkspaceRegistry::list()` 当前来自无序映射，服务端和 Desktop bridge 共用它。`usePreference` 仅依赖 origin 内 localStorage，而桌面 daemon 使用动态端口，不能满足重启恢复。

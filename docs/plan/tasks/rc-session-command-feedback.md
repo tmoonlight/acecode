@@ -19,8 +19,8 @@ depends-on: []
 
 ## path
 
-- `src/remote_control/rc_session_navigation.*`
-- `src/remote_control/session_channel_binder.*`
+- `src/host/remote_control/rc_session_navigation.*`
+- `src/host/remote_control/session_channel_binder.*`
 - `tests/remote_control/rc_session_navigation_test.cpp`
 - `tests/remote_control/session_channel_binder_test.cpp`
 - 本任务引用的 OpenSpec 与协议文档

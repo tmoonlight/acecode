@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 ## Context
 
 动机见 proposal.md。`WorkspaceGroup` 的行点击根据 `ws.active` 选择折叠或激活，激活会进入首页；会话列表以 Set 表示全部展开。已有手动收起保护、定位当前会话和后台全量缓存逻辑必须保持协作。

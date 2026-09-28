@@ -1,3 +1,6 @@
+<!-- refactor-layout-map sha256:e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965 -->
+源码路径迁移请按 `scripts/refactor/src_layout_map.tsv` 换算；本设计中的历史路径保留。
+
 # Design: refactor20260927-restructure-src-layers
 
 > **行号基准**:本系列文档中的 `文件:行号` 都基于 master `7942011b`,即 2026-09-26 的调研快照。开工前请按当时的代码重新核对;行号漂移不影响任务的边界。

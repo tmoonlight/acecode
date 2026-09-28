@@ -14,14 +14,14 @@
 #define STBI_NO_HDR
 #define STBI_NO_LINEAR
 #define STB_IMAGE_IMPLEMENTATION
-#include "image/stb/stb_image.h"
+#include "stb/stb_image.h"
 
 #define STBI_WRITE_NO_STDIO
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "image/stb/stb_image_write.h"
+#include "stb/stb_image_write.h"
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include "image/stb/stb_image_resize2.h"
+#include "stb/stb_image_resize2.h"
 
 namespace acecode::image {
 
