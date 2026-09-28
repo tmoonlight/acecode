@@ -112,7 +112,8 @@ void ToolHookBridge::permission_resolved(
 }
 
 PermissionHookSession::~PermissionHookSession() noexcept(false) {
-    if (std::uncaught_exceptions() == exceptions_ && pending()) resolve("allow", "implicit");
+    if (auto_resolve_ && std::uncaught_exceptions() == exceptions_ && pending())
+        resolve("allow", "implicit");
 }
 
 HookAggregateOutcome PermissionHookSession::request(nlohmann::json input) {

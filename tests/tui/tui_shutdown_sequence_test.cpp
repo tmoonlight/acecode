@@ -123,7 +123,7 @@ TEST(TuiShutdownSequence, EarlyReturnAndLoopFailureStillReleaseOwners) {
     acecode::tui::TuiShutdownSequence loop_shutdown;
     EXPECT_THROW(acecode::tui::run_tui_application(loop, loop_shutdown), std::runtime_error);
     EXPECT_TRUE(loop.entered_loop);
-    EXPECT_EQ(loop.shutdowns.back(), TuiShutdownStep::ResumeHint);
+    EXPECT_EQ(loop.shutdowns.back(), TuiShutdownStep::AbandonedWork);
     EXPECT_EQ(loop.errors, (std::vector<TuiShutdownStep>{TuiShutdownStep::Notifications}));
     ASSERT_TRUE(loop.worker);
     EXPECT_FALSE(loop.worker->joinable());

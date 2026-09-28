@@ -21,4 +21,14 @@ struct WaitState {
     std::condition_variable cv;
     bool ready = false;
 };
+inline bool wakes_wait(SessionEventKind kind, const nlohmann::json& payload) {
+    if (kind == SessionEventKind::Done || kind == SessionEventKind::Error ||
+        kind == SessionEventKind::PermissionRequest ||
+        kind == SessionEventKind::QuestionRequest) {
+        return true;
+    }
+    return kind == SessionEventKind::BusyChanged &&
+           !payload.value("busy", true);
+}
+
 } // namespace acecode::thread_detail

@@ -213,7 +213,7 @@ TEST(TuiEventRouter, FullScreenSurfaceOwnsInputUntilChatIsSelected) {
     auto composer = acecode::tui::make_composer_input(h.state, h.geometry.input_hit_layout);
     auto chat = router.wrap(composer);
     int active_surface = 1, surface_events = 0;
-    auto surface = ftxui::CatchEvent(ftxui::Renderer([] { return ftxui::text("settings"); }),
+    auto surface = ftxui::CatchEvent(ftxui::Renderer([](bool) { return ftxui::text("settings"); }),
         [&](Event) { ++surface_events; return true; });
     auto root = ftxui::Container::Tab({chat, surface}, &active_surface);
     h.state.remote_confirm_queue.push_back({"child", "request", "file_write", "args", "child"});

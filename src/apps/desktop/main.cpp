@@ -574,7 +574,7 @@ int run_browser_fallback(const std::string& url,
 
 #ifdef _WIN32
     // 1) 启动浏览器:Edge --app 优先(拿到进程句柄),失败退到默认浏览器。
-    platform::UniqueHandle edge_process;
+    acecode::platform::UniqueHandle edge_process;
     unsigned long edge_pid = 0;
     bool opened = false;
     std::string launch_detail;

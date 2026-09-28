@@ -45,6 +45,8 @@ public:
     HookAggregateOutcome request(nlohmann::json input);
     void resolve(const std::string& decision, const std::string& source);
     bool pending() const { return requested_ && !resolved_; }
+    // The legacy exec-without-channel denial emits Request without Resolved.
+    void leave_unresolved() { auto_resolve_ = false; }
 private:
     ToolHookBridge& bridge_;
     HookManager* manager_; // Nullable borrowed constructor dependency.
@@ -52,6 +54,7 @@ private:
     std::string tool_;
     nlohmann::json input_ = nlohmann::json::object();
     int exceptions_;
+    bool auto_resolve_ = true;
     bool requested_ = false;
     bool resolved_ = false;
 };

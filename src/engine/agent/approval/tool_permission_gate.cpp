@@ -311,6 +311,7 @@ PermissionVerdict ToolPermissionGate::decide(
     }
 
     if (exec_permission && !auto_allow) {
+        permission_session.leave_unresolved();
         audit.record(security::kAuditDecisionDeny, security::kAuditSourceNone, "no_confirmation_channel");
         return ToolResult{"[Permission denied] This command requires approval, but no confirmation channel is available.", false};
     }

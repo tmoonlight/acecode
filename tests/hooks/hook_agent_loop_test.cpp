@@ -877,6 +877,14 @@ TEST(HookAgentLoop, PreCompactContinueFalseStopsBeforeProviderCompact) {
         busy = value;
         if (!busy) cv.notify_all();
     };
+    acecode::HookManager hooks(
+        registry_with({make_codex_hook(
+            "pre-compact", acecode::kCodexHookEventPreCompact, "manual")}),
+        acecode::HookProcessRunner{},
+        [](const std::string&, const std::string&, int, const std::string&) {
+            return hook_json(R"({"continue":false,"reason":"skip compact"})");
+        });
+
     acecode::AgentLoop loop(
         acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
         acecode_test::AgentLoopFixture::configuration("."));
@@ -888,13 +896,6 @@ TEST(HookAgentLoop, PreCompactContinueFalseStopsBeforeProviderCompact) {
         loop.push_message(acecode::ChatMessage{"assistant", "kept " + std::to_string(i)});
     }
 
-    acecode::HookManager hooks(
-        registry_with({make_codex_hook(
-            "pre-compact", acecode::kCodexHookEventPreCompact, "manual")}),
-        acecode::HookProcessRunner{},
-        [](const std::string&, const std::string&, int, const std::string&) {
-            return hook_json(R"({"continue":false,"reason":"skip compact"})");
-        });
 
     {
         std::lock_guard<std::mutex> lk(mu);
@@ -919,14 +920,6 @@ TEST(HookAgentLoop, AutoPreCompactContinueFalseStopsBeforeProviderCompact) {
         busy = value;
         if (!busy) cv.notify_all();
     };
-    acecode::AgentLoop loop(
-        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
-        acecode_test::AgentLoopFixture::configuration("."));
-    loop.start();
-    loop.set_context_window(100);
-    loop.push_message(acecode::ChatMessage{"user", std::string(900, 'a')});
-    loop.push_message(acecode::ChatMessage{"assistant", std::string(900, 'b')});
-
     std::atomic<int> pre_calls{0};
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -938,6 +931,15 @@ TEST(HookAgentLoop, AutoPreCompactContinueFalseStopsBeforeProviderCompact) {
             pre_calls.fetch_add(1);
             return hook_json(R"({"continue":false,"reason":"skip auto compact"})");
         });
+
+    acecode::AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
+    loop.set_context_window(100);
+    loop.push_message(acecode::ChatMessage{"user", std::string(900, 'a')});
+    loop.push_message(acecode::ChatMessage{"assistant", std::string(900, 'b')});
+
 
     {
         std::lock_guard<std::mutex> lk(mu);
@@ -963,6 +965,16 @@ TEST(HookAgentLoop, PostCompactRunsAfterManualCompact) {
         busy = value;
         if (!busy) cv.notify_all();
     };
+    std::atomic<int> post_calls{0};
+    acecode::HookManager hooks(
+        registry_with({make_codex_hook(
+            "post-compact", acecode::kCodexHookEventPostCompact, "manual")}),
+        acecode::HookProcessRunner{},
+        [&post_calls](const std::string&, const std::string&, int, const std::string&) {
+            post_calls.fetch_add(1);
+            return hook_json(R"({"continue":false,"reason":"after compact"})");
+        });
+
     acecode::AgentLoop loop(
         acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
         acecode_test::AgentLoopFixture::configuration("."));
@@ -974,15 +986,6 @@ TEST(HookAgentLoop, PostCompactRunsAfterManualCompact) {
         loop.push_message(acecode::ChatMessage{"assistant", "kept " + std::to_string(i)});
     }
 
-    std::atomic<int> post_calls{0};
-    acecode::HookManager hooks(
-        registry_with({make_codex_hook(
-            "post-compact", acecode::kCodexHookEventPostCompact, "manual")}),
-        acecode::HookProcessRunner{},
-        [&post_calls](const std::string&, const std::string&, int, const std::string&) {
-            post_calls.fetch_add(1);
-            return hook_json(R"({"continue":false,"reason":"after compact"})");
-        });
 
     {
         std::lock_guard<std::mutex> lk(mu);
@@ -1008,12 +1011,6 @@ TEST(HookAgentLoop, AutoCompactDoesNotConsumeOneShotHookContext) {
         busy = value;
         if (!busy) cv.notify_all();
     };
-    acecode::AgentLoop loop(
-        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
-        acecode_test::AgentLoopFixture::configuration("."));
-    loop.start();
-    loop.set_context_window(100);
-
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
             "user-context", acecode::kCodexHookEventUserPromptSubmit)}),
@@ -1022,6 +1019,13 @@ TEST(HookAgentLoop, AutoCompactDoesNotConsumeOneShotHookContext) {
             return hook_json(
                 R"({"hookSpecificOutput":{"additionalContext":"one-shot hook context"}})");
         });
+
+    acecode::AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
+    loop.set_context_window(100);
+
 
     {
         std::lock_guard<std::mutex> lock(mu);

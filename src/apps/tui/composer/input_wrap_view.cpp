@@ -430,7 +430,7 @@ std::optional<size_t> input_cursor_from_point(
 }
 
 std::optional<ShiftArrowDirection> shift_arrow_direction(
-    const Event& event) {
+    const ftxui::Event& event) {
     constexpr auto shift = terminal_modifier(TerminalKeyModifier::Shift);
     if (matches_terminal_key(event, TerminalKey::ArrowUp, shift)) {
         return ShiftArrowDirection::Up;

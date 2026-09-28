@@ -232,7 +232,7 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     render/picker_views.cpp
     render/prompt_status_view.cpp
     render/link_hover_tooltip.cpp
-    tool_progress.cpp slash_dropdown.cpp
+    tool_progress.cpp slash_dropdown.cpp diff_view.cpp path_reference_dropdown.cpp
     render/message_row_views.cpp render/transcript_view.cpp render/overlay_views.cpp
     overlays/ask_session_projection.cpp
     render/prepare_frame.cpp render/frame_renderer.cpp
@@ -290,6 +290,8 @@ set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
     ${CMAKE_SOURCE_DIR}/src/base/config/builtin_model_catalog.cpp
     ${CMAKE_SOURCE_DIR}/src/base/platform/process/os_process_posix.cpp
     ${CMAKE_SOURCE_DIR}/src/base/platform/process/os_process_windows.cpp
+    ${CMAKE_SOURCE_DIR}/src/base/platform/process/unique_resources.cpp
+    ${CMAKE_SOURCE_DIR}/src/base/utils/abandonable_call.cpp
     ${CMAKE_SOURCE_DIR}/src/base/ipc/runtime_files.cpp
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/custom_toast.cpp
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/custom_toast_win.cpp

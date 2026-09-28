@@ -107,7 +107,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     request_source_.skill_usage = services.skill_usage;
     request_source_.skill_idle_days = options.skill_idle_days;
     request_source_.tool_policy = std::move(options.tool_policy);
-    request_source_.loop = std::move(options.loop_policy);
+    set_loop_execution_policy(std::move(options.loop_policy));
     if (session_manager_)
         trajectory_ = std::make_unique<agent::TrajectoryRecorder>(events_, *history_, *session_manager_);
     set_tool_preamble_config(options.config.tool_preamble);

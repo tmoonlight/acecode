@@ -369,15 +369,6 @@ std::string event_kind_name(SessionEventKind kind) {
     return to_string(kind);
 }
 
-bool wakes_wait(SessionEventKind kind, const json& payload) {
-    if (kind == SessionEventKind::Done || kind == SessionEventKind::Error ||
-        kind == SessionEventKind::PermissionRequest ||
-        kind == SessionEventKind::QuestionRequest) {
-        return true;
-    }
-    return kind == SessionEventKind::BusyChanged &&
-           !payload.value("busy", true);
-}
 
 json compact_wait_event(const SessionEvent& event) {
     json out{
@@ -690,7 +681,7 @@ ThreadServiceResult ThreadService::wait(
                 if (event.seq > states[i].target.after_cursor) {
                     states[i].event = compact_wait_event(event);
                 }
-                if (wakes_wait(event.kind, event.payload)) {
+                if (thread_detail::wakes_wait(event.kind, event.payload)) {
                     states[i].terminal = true;
                     active->ready = true;
                     active->cv.notify_all();

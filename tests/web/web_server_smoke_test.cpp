@@ -12489,7 +12489,7 @@ class WsSubscriptionProbe final : public acecode::LocalSessionClient {
 public:
     explicit WsSubscriptionProbe(acecode::SessionRegistry& registry)
         : acecode::LocalSessionClient(registry) {}
-    SubscriptionId subscribe(const std::string& id, acecode::EventListener listener,
+    SubscriptionId subscribe(const std::string& id, acecode::SessionClient::EventListener listener,
                              std::uint64_t since = 0) override {
         const auto subscription = LocalSessionClient::subscribe(id, listener, since);
         {
@@ -12504,7 +12504,7 @@ public:
         LocalSessionClient::unsubscribe_and_wait(id, subscription);
         ++unsubscribed;
     }
-    acecode::EventListener wait_for_listener() {
+    acecode::SessionClient::EventListener wait_for_listener() {
         std::unique_lock<std::mutex> lock(mu);
         if (!changed.wait_for(lock, 2s, [this] { return subscribed; })) return {};
         return retained;
@@ -12514,7 +12514,7 @@ private:
     std::mutex mu;
     std::condition_variable changed;
     bool subscribed = false;
-    acecode::EventListener retained;
+    acecode::SessionClient::EventListener retained;
 };
 
 bool read_ws_upgrade(asio::ip::tcp::socket& socket) {
