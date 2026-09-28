@@ -93,7 +93,7 @@
     - Screen 快照测试;tooltip 位置的表驱动测试;
     - ask / confirm 状态下 `input_hit_layout` 保持清空的断言;
     - 清单第 2、4 小节。
-- [ ] 3.4 【B-07】【主】transcript、工具行、浮层与 frame_renderer。
+- [ ] 3.4 【B-07】【主】transcript、工具行、浮层与 frame_renderer。〔实现完成: Codex-root 2026-09-28;主入口中的渲染函数/引用袋删除,prepare/消息/工具/浮层/整帧分离;屏幕宿主原位探测并注入 hover,缓存/双重反射/选区补偿顺序保留;新增三布局/摘要展开/补偿/浮层用例,待统一验收〕
   - prepare_frame_locked 加只读视图;
   - `hover_supported` 由 TuiScreenHost 探测后注入(MR-14);
   - `render_tui_frame` 与 `TuiRendererContext` 从 main.cpp 中消失。

@@ -4,7 +4,19 @@
 #include <algorithm>
 #include <utility>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::Element;
+using ftxui::Elements;
+using ftxui::text;
+using ftxui::hbox;
+using ftxui::filler;
+using ftxui::size;
+using ftxui::flex;
+using ftxui::dim;
+using ftxui::bold;
+using ftxui::color;
+using ftxui::bgcolor;
+using ftxui::border;
+using ftxui::reflect;
 #include "tui/render/status_chips.hpp"
 #include "tui/render/frame_layout.hpp"
 #include "tui/render/ask_question_style.hpp"

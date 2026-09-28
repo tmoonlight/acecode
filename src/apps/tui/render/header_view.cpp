@@ -4,7 +4,19 @@
 #include <algorithm>
 #include <utility>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::Element;
+using ftxui::Color;
+using ftxui::text;
+using ftxui::paragraph;
+using ftxui::hbox;
+using ftxui::vbox;
+using ftxui::emptyElement;
+using ftxui::filler;
+using ftxui::dim;
+using ftxui::bold;
+using ftxui::color;
+using ftxui::bgcolor;
+using ftxui::border;
 #include "tui/render/status_chips.hpp"
 
 namespace acecode::tui {

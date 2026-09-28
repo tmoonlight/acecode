@@ -190,6 +190,11 @@
 #include "tui/render/status_chips.hpp"
 #include "tui/render/regular_sidebar_view.hpp"
 #include "tui/render/tool_row_view.hpp"
+#include "tui/overlays/ask_session_projection.hpp"
+#include "tui/render/transcript_view.hpp"
+#include "tui/render/overlay_views.hpp"
+#include "tui/render/frame_renderer.hpp"
+#include "tui/app/tui_screen_host.hpp"
 #include "tui/render/ask_question_style.hpp"
 #include "tui/render/header_view.hpp"
 #include "tui/render/activity_indicator_view.hpp"
@@ -237,68 +242,8 @@ namespace {
 // colors instead of inheriting a decorator from the composing container: a
 // container-wide `color(...)` was what turned the whole chat area blue.
 
-static int ask_timeout_remaining_seconds(
-    const tui::AskQuestionSession& session,
-    tui::AskQuestionSession::TimePoint now) {
-    const auto deadline = session.timeout_deadline();
-    if (!deadline.has_value() || *deadline <= now) return 0;
-    const auto remaining = std::chrono::duration_cast<std::chrono::seconds>(
-        *deadline - now).count();
-    return static_cast<int>(std::max<std::int64_t>(1, remaining));
-}
 
-static void project_ask_session_locked(TuiState& state) {
-    if (!state.ask_session) return;
-    const auto snapshot = state.ask_session->snapshot();
-    state.input_text = snapshot.editing_custom ? snapshot.editor.text : std::string{};
-    state.input_cursor = snapshot.editing_custom ? snapshot.editor.cursor : 0;
-    state.input_selection_anchor = snapshot.editing_custom
-        ? snapshot.editor.selection_anchor : std::nullopt;
-    state.input_vertical_goal_column.reset();
-    if (snapshot.completed || snapshot.cancelled) {
-        // AskQuestionCompletion 由 channel 直接从 session 读取；这里仅负责
-        // 释放 overlay 占用并唤醒等待线程，不把结构化答案降级成字符串。
-        state.ask_pending = false;
-        state.ask_cv.notify_all();
-        state.overlay_cv.notify_all();
-    }
-}
 
-static void dispatch_ask_session_effects_locked(
-    TuiState& state, const std::vector<tui::AskQuestionEffect>& effects) {
-    project_ask_session_locked(state);
-    for (const auto& effect : effects) {
-        if (effect.kind == tui::AskQuestionEffectKind::CopyText ||
-            effect.kind == tui::AskQuestionEffectKind::CutText) {
-            const auto clipboard_write =
-                acecode::write_system_clipboard_text(effect.text);
-            const std::string status = clipboard_write
-                ? (effect.kind == tui::AskQuestionEffectKind::CutText
-                       ? "Cut to clipboard"
-                       : "Copied to clipboard")
-                : tui::clipboard_copy_status_message(clipboard_write.status);
-            tui::set_transient_status_line_locked(state, status);
-            if (effect.kind == tui::AskQuestionEffectKind::CutText &&
-                clipboard_write && state.ask_session) {
-                const auto delete_effects = state.ask_session->dispatch({
-                    tui::AskQuestionEventKind::DeleteSelection});
-                project_ask_session_locked(state);
-                for (const auto& delete_effect : delete_effects) {
-                    if (delete_effect.kind == tui::AskQuestionEffectKind::Complete ||
-                        delete_effect.kind == tui::AskQuestionEffectKind::Cancel) {
-                        project_ask_session_locked(state);
-                        break;
-                    }
-                }
-            }
-        }
-        if (effect.kind == tui::AskQuestionEffectKind::Complete ||
-            effect.kind == tui::AskQuestionEffectKind::Cancel) {
-            project_ask_session_locked(state);
-            break;
-        }
-    }
-}
 
 static bool dispatch_ask_session_mouse_locked(
     TuiState& state,
@@ -325,7 +270,7 @@ static bool dispatch_ask_session_mouse_locked(
         const auto effects = state.ask_session->dispatch({
             tui::AskQuestionEventKind::ScrollLines, -1, delta, {}, 0,
             max_offset});
-        dispatch_ask_session_effects_locked(state, effects);
+        tui::dispatch_ask_session_effects_locked(state, effects);
         screen.PostEvent(Event::Custom);
         return true;
     }
@@ -334,7 +279,7 @@ static bool dispatch_ask_session_mouse_locked(
         if (snapshot.editing_custom && snapshot.editor.has_selection) {
             const auto effects = state.ask_session->dispatch({
                 tui::AskQuestionEventKind::CopySelection});
-            dispatch_ask_session_effects_locked(state, effects);
+            tui::dispatch_ask_session_effects_locked(state, effects);
         }
         return true;
     }
@@ -353,7 +298,7 @@ static bool dispatch_ask_session_mouse_locked(
             tui::AskQuestionEventKind::ScrollLines, -1, target - current, {}, 0,
             std::max(0, ask_question_frame.layout.total_rows -
                             ask_question_frame.layout.visible_rows)});
-        dispatch_ask_session_effects_locked(state, effects);
+        tui::dispatch_ask_session_effects_locked(state, effects);
         screen.PostEvent(Event::Custom);
         return true;
     }
@@ -391,7 +336,7 @@ static bool dispatch_ask_session_mouse_locked(
             const auto effects = state.ask_session->dispatch({
                 tui::AskQuestionEventKind::MoveCursorTo, -1, 0, {}, cursor, -1,
                 true});
-            dispatch_ask_session_effects_locked(state, effects);
+            tui::dispatch_ask_session_effects_locked(state, effects);
             screen.PostEvent(Event::Custom);
             break;
         }
@@ -422,7 +367,7 @@ static bool dispatch_ask_session_mouse_locked(
                 tui::AskQuestionEventKind::ScrollLines, -1, target - current, {}, 0,
                 std::max(0, ask_question_frame.layout.total_rows -
                                ask_question_frame.layout.visible_rows)});
-            dispatch_ask_session_effects_locked(state, effects);
+            tui::dispatch_ask_session_effects_locked(state, effects);
             screen.PostEvent(Event::Custom);
             return true;
         }
@@ -430,9 +375,9 @@ static bool dispatch_ask_session_mouse_locked(
             ask_question_frame, mouse.x, mouse.y);
         ask_question_frame.press_target = target;
         if (target.kind == tui::AskQuestionHitKind::Custom) {
-            dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+            tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
                 tui::AskQuestionEventKind::FocusOption, target.option_index}));
-            dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+            tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
                 tui::AskQuestionEventKind::ToggleFocusedWithoutSubmit}));
             const auto snapshot = state.ask_session->snapshot();
             const auto visible_it = std::find_if(
@@ -450,7 +395,7 @@ static bool dispatch_ask_session_mouse_locked(
                     const auto cursor = tui::ask_question_text_byte_offset_for_x(
                         snapshot.editor.text, layout_row.text_byte_begin,
                         layout_row.text_byte_end, mouse.x - text_x);
-                    dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+                    tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
                         tui::AskQuestionEventKind::MoveCursorTo, -1, 0, {}, cursor}));
                 }
             }
@@ -480,7 +425,7 @@ static bool dispatch_ask_session_mouse_locked(
     ask_question_frame.last_click = press_target;
     auto dispatch = [&](tui::AskQuestionEventKind kind_to_dispatch,
                         int event_option = -1) {
-        dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
+        tui::dispatch_ask_session_effects_locked(state, state.ask_session->dispatch({
             kind_to_dispatch, event_option, 0, {}}));
     };
     switch (kind) {
@@ -525,7 +470,7 @@ static bool dispatch_ask_session_event_locked(
     if (ask_question_frame.terminal_too_narrow) {
         if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
             const auto effects = state.ask_session->escape();
-            dispatch_ask_session_effects_locked(state, effects);
+            tui::dispatch_ask_session_effects_locked(state, effects);
         }
         return true;
     }
@@ -544,12 +489,12 @@ static bool dispatch_ask_session_event_locked(
                                 ask_question_frame.layout.visible_rows);
         }
         const auto effects = state.ask_session->dispatch(event_with_scroll_bound);
-        dispatch_ask_session_effects_locked(state, effects);
+        tui::dispatch_ask_session_effects_locked(state, effects);
     };
 
     if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Escape)) {
         const auto effects = state.ask_session->escape();
-        dispatch_ask_session_effects_locked(state, effects);
+        tui::dispatch_ask_session_effects_locked(state, effects);
         return true;
     }
     if (tui::matches_terminal_key(event, acecode::tui::TerminalKey::Enter, tui::kTerminalCtrl)) {
@@ -886,7 +831,7 @@ static bool paste_system_clipboard_text(TuiState& state,
                 -1,
                 0,
                 normalized});
-            dispatch_ask_session_effects_locked(state, ask_effects);
+            tui::dispatch_ask_session_effects_locked(state, ask_effects);
         } else {
             insert_pasted_text_at_cursor_locked(state, normalized);
             refresh_input_suggestions(state, cmd_registry, cwd);
@@ -1674,941 +1619,6 @@ static void shutdown_after_tui_loop(TuiState& state,
 
 // 初始化主题并决定 FTXUI 渲染模式。
 
-// renderer 需要的共享引用集中放这里，避免 Renderer 捕获一长串变量。
-struct TuiRendererContext {
-    TuiState& state;
-    ScreenInteractive& screen;
-    const std::string& version_str;
-    const std::string& cwd_display;
-    tui::ChatViewport& viewport;
-    tui::FrameGeometry& geometry;
-    std::atomic<int>& anim_tick;
-    Component& input_with_esc;
-    PermissionManager& permissions;
-    bool dangerous_mode = false;
-    bool conhost_compat_layout = false;
-    // link-hover-tooltip (add-tui-hyperlinks 5.3): 悬停移动能力探测结果。
-    // false(conhost 家族/Apple Terminal.app 等)时恒不渲染气泡。
-    bool hover_supported = false;
-};
-
-// 渲染整屏 TUI；只做画面组装，不处理输入事件。
-static Element render_tui_frame(TuiRendererContext& ctx) {
-    auto& state = ctx.state;
-    auto& screen = ctx.screen;
-    const auto& version_str = ctx.version_str;
-    const auto& cwd_display = ctx.cwd_display;
-    auto& chat_box = ctx.viewport.chat_box;
-    auto& scrollbar_box = ctx.geometry.scrollbar_box;
-    auto& ask_question_frame = ctx.geometry.ask_question_frame;
-    auto& sidebar_content_box = ctx.geometry.sidebar_content_box;
-    auto& sidebar_viewport_box = ctx.geometry.sidebar_viewport_box;
-    auto& sidebar_scrollbar_box = ctx.geometry.sidebar_scrollbar_box;
-    auto& input_hit_layout = ctx.geometry.input_hit_layout;
-    auto& message_boxes = ctx.geometry.message_boxes;
-    auto& path_reference_boxes = ctx.geometry.path_reference_boxes;
-    auto& chat_link_regions = ctx.geometry.chat_link_regions;
-    auto& message_render_cache = ctx.viewport.message_render_cache;
-    auto& message_layout_boxes = ctx.viewport.message_layout_boxes;
-    auto& message_layout_valid = ctx.viewport.message_layout_valid;
-    auto& message_layout_revisions = ctx.viewport.message_layout_revisions;
-    auto& message_layout_widths = ctx.viewport.message_layout_widths;
-    auto& message_line_counts = ctx.viewport.message_line_counts;
-    auto& message_spacer_rows_after = ctx.viewport.message_spacer_rows_after;
-    auto& anim_tick = ctx.anim_tick;
-    auto& input_with_esc = ctx.input_with_esc;
-    auto& permissions = ctx.permissions;
-    const bool dangerous_mode = ctx.dangerous_mode;
-    const bool conhost_compat_layout = ctx.conhost_compat_layout;
-    const bool hover_supported = ctx.hover_supported;
-    auto& viewport = ctx.viewport;
-
-    std::lock_guard<std::mutex> lk(state.mu);
-    input_hit_layout.clear();
-    auto compat_horizontal_line = [] {
-        const int cols = Terminal::Size().dimx;
-        const int safe_cols = std::max(1, cols > 4 ? cols - 4 : cols);
-        const std::string glyph = "\xE2\x94\x80";
-        std::string line;
-        line.reserve(glyph.size() * static_cast<size_t>(safe_cols));
-        for (int i = 0; i < safe_cols; ++i) {
-            line += glyph;
-        }
-        return text(line);
-    };
-    constexpr int kRegularSidebarWidthCols = tui::kRegularSidebarWidthCols;
-    const int terminal_width =
-        std::max(Terminal::Size().dimx, screen.dimx());
-    const auto frame_layout = tui::compute_frame_layout(
-        terminal_width, conhost_compat_layout,
-        chat_box.x_max >= chat_box.x_min ? chat_box.x_max - chat_box.x_min + 1 : 0);
-    const bool show_regular_sidebar = frame_layout.show_regular_sidebar;
-    if (!show_regular_sidebar) {
-        sidebar_content_box = Box{1, 0, 1, 0};
-        sidebar_viewport_box = Box{1, 0, 1, 0};
-        sidebar_scrollbar_box = Box{1, 0, 1, 0};
-        state.sidebar_scroll_top_row = 0;
-        state.sidebar_scrollbar_dragging = false;
-        state.sidebar_scrollbar_grab_offset_2x = 0;
-    }
-    const bool hide_regular_sidebar_banner =
-        show_regular_sidebar && !state.conversation.empty();
-
-    // drag-autoscroll: 把上一帧布局分配的未裁剪 box 高度同步到行数表,
-    // 供 scroll_chat_by_lines 做按行滚动. 普通 ftxui::reflect 会在 Render
-    // 阶段和 screen.stencil 取交集,只能拿到可见高度;这里必须用未裁剪高度,
-    // 否则长消息会被误判为只剩当前可见的几行,导致底部滚动范围过短.
-    size_t n_msgs = state.conversation.size();
-    const int markdown_render_width = frame_layout.markdown_render_width;
-    viewport.sync_from_layout(state);
-    viewport.clamp_focus(state);
-
-    // selection-anchor-compensation: 在清空 boxes 之前,先用上一帧 reflect 的
-    // box.y_min 检测 anchor 漂移。focus_index 和 line_offset 都没变(用户没动
-    // 滚轮 / PgUp / 拖滚动条)而 y_min 变了 —— 这种纯 layout 漂移期间如果用户
-    // 在拖选,FTXUI 的 selection_data_ 钉在物理屏幕坐标会错位,这里调
-    // ShiftSelection 把锚点跟随移到新位置。ShiftSelection 内部会在没有 active
-    // selection 时 early return,这里无条件调用是安全的。
-    {
-        int cur_focus = state.chat_focus_index;
-        int cur_offset = state.chat_line_offset;
-        int cur_y = (cur_focus >= 0 && cur_focus < (int)message_boxes.size())
-            ? message_boxes[cur_focus].y_min : 0;
-        bool focus_unchanged = (cur_focus == state.last_focus_index &&
-                                 cur_offset == state.last_chat_line_offset);
-        // last_focus_box_y 的 sentinel 是 -999999 (从未拍过),用 > -1000000
-        // 判断"已有有效快照"。cur_y 在 reflect 没回填时是 0(default Box),
-        // 也跳过补偿——避免被裁出 viewport 的 anchor 触发假阳性 dy。
-        if (focus_unchanged && cur_y > 0 &&
-            state.last_focus_box_y > -1000000 &&
-            cur_y != state.last_focus_box_y) {
-            int dy = cur_y - state.last_focus_box_y;
-            ACECODE_INPUT_TRACE(
-            LOG_DEBUG("[drag-select] anchor compensation dy=" +
-                      std::to_string(dy) + " focus=" +
-                      std::to_string(cur_focus) + " offset=" +
-                      std::to_string(cur_offset) + " y=" +
-                      std::to_string(state.last_focus_box_y) + "->" +
-                      std::to_string(cur_y));
-            );
-            screen.ShiftSelection(0, dy);
-        }
-        // 仅在拿到有效 reflect 数据时更新快照,否则保留上次的;这样 anchor
-        // 短暂被裁出 viewport 再回到可见区时,差值仍是相对最近一次可见位置。
-        if (cur_y > 0) {
-            state.last_focus_box_y = cur_y;
-        }
-        state.last_focus_index = cur_focus;
-        state.last_chat_line_offset = cur_offset;
-    }
-
-    message_boxes.assign(n_msgs, Box{});
-    chat_link_regions.clear();
-    message_layout_boxes.assign(n_msgs, Box{});
-    message_layout_valid.assign(n_msgs, 0);
-    message_layout_revisions.assign(n_msgs, 0);
-    message_layout_widths.assign(n_msgs, 0);
-
-    Element header = tui::render_header_view(state, version_str, cwd_display,
-        conhost_compat_layout, show_regular_sidebar, hide_regular_sidebar_banner);
-
-    // -- Messages --
-    // Bottom-anchor short transcripts while following the tail. FTXUI's
-    // yframe only scrolls when the child is taller than the viewport, so a
-    // short chat at tail otherwise remains pinned to the top.
-    Elements message_elements;
-    auto push_spacer_rows = [&message_elements](int rows) {
-        if (rows > 0) {
-            message_elements.push_back(
-                emptyElement() | size(HEIGHT, EQUAL, rows));
-        }
-    };
-    const int chat_viewport_height = chat_box.y_max >= chat_box.y_min
-        ? chat_box.y_max - chat_box.y_min + 1
-        : 0;
-    const int tail_top_padding =
-        acecode::tui::chat_bottom_anchor_top_padding_rows(
-        message_line_counts,
-        static_cast<int>(state.conversation.size()),
-        chat_viewport_height,
-        message_spacer_rows_after);
-    push_spacer_rows(tail_top_padding);
-    const auto render_window = acecode::tui::chat_render_window(
-        message_line_counts,
-        static_cast<int>(state.conversation.size()),
-        state.chat_scroll_top_row,
-        chat_viewport_height,
-        acecode::tui::default_chat_render_overscan_rows(
-            chat_viewport_height),
-        message_spacer_rows_after);
-    push_spacer_rows(render_window.top_spacer_rows);
-
-    // drag-autoscroll: 每条消息同时记录两个 box:
-    //   - message_layout_boxes: 未裁剪高度,用于滚动数学;
-    //   - message_boxes: 裁剪后屏幕位置,用于选区锚点补偿。
-    auto tracked_message = [&](size_t index, Element element) -> Element {
-        if (index < message_layout_valid.size()) {
-            message_layout_valid[index] = 1;
-            message_layout_revisions[index] = tui::message_render_revision(
-                state.conversation[index], state.transcript_expanded);
-            message_layout_widths[index] = current_message_width;
-        }
-        return std::move(element)
-            | acecode::tui::reflect_unclipped(message_layout_boxes[index])
-            | reflect(message_boxes[index]);
-    };
-    auto render_message_markdown =
-        [&](const std::string& content, Color fallback_color) -> Element {
-        try {
-            acecode::markdown::FormatOptions md_opts;
-            md_opts.terminal_width = markdown_render_width;
-            md_opts.syntax_highlight = true;
-            md_opts.hyperlinks = true;
-            // OSC 8 原生超链接(add-tui-hyperlinks 5.2):按终端探测结果开启。
-            // static 缓存避免 Windows 上每帧重复跑 console probe;TUI 渲染
-            // 单线程,magic static 初始化安全。
-            static const bool osc8_supported =
-                acecode::detect_osc8_support();
-            md_opts.osc8_hyperlinks = osc8_supported;
-            md_opts.strip_xml = true;
-            md_opts.link_regions = &chat_link_regions;
-            return acecode::markdown::format_markdown(content, md_opts);
-        } catch (...) {
-            return paragraph(content) | color(fallback_color);
-        }
-    };
-    // L1 消息级 Element 缓存:内容与渲染上下文(宽度/主题/语法)不变时复用
-    // 上帧构建的 Element,跳过 format_markdown。Ruling R6:仅缓存无链接
-    // 消息 —— format_markdown 会给链接元素 bake reflect(region.box),
-    // 其指向每帧 clear() 的 collector 区域,跨帧复用会悬垂;无链接消息无
-    // reflect 装饰器,可安全复用。含链接消息永不缓存,走原全量路径。
-    auto render_cached_message_markdown =
-        [&](size_t index, const std::string& content,
-            Color fallback_color) -> Element {
-        std::size_t rev = tui::message_render_revision(
-            state.conversation[index], state.transcript_expanded);
-        // R5:content 哈希只进渲染缓存键(布局 revision 不含 content)。
-        rev = combine_render_hash(rev, std::hash<std::string>{}(content));
-        const acecode::tui::MessageRenderCacheKey cache_key{
-            rev, current_message_width,
-            acecode::tui::theme_palette_version(), /*syntax=*/true};
-        if (message_render_cache.valid(index, cache_key)) {
-            return *message_render_cache.element(index);
-        }
-        const std::size_t links_before = chat_link_regions.regions().size();
-        Element element = render_message_markdown(content, fallback_color);
-        const bool has_links =
-            chat_link_regions.regions().size() > links_before;
-        if (!has_links) {
-            message_render_cache.store(
-                index, cache_key, element,
-                std::vector<acecode::tui::CachedLinkRegion>{});
-        }
-        return element;
-    };
-    const size_t render_first =
-        static_cast<size_t>(std::max(0, render_window.first_message));
-    const size_t render_last = std::min(
-        state.conversation.size(),
-        static_cast<size_t>(std::max(0,
-            render_window.last_message_exclusive)));
-    // 工具行元数据只扫描可见窗口；若窗口切进并行工具批次，纯函数会扩到
-    // 相邻批次边界，单次 FIFO 同时得到 call 灯态和 result 工具名。
-    const auto tool_metadata =
-        acecode::tui::compute_tool_row_metadata_window(
-            state.conversation, render_first, render_last);
-    for (size_t i = render_first; i < render_last; ++i) {
-        const auto& msg = state.conversation[i];
-        const std::string& paired_tool_name =
-            tool_metadata.result_name_at(i);
-        const bool task_complete_result =
-            acecode::tui::is_task_complete_result(
-                msg, paired_tool_name);
-        bool focused_message = static_cast<int>(i) == state.chat_focus_index;
-        Decorator focus_decorator = nothing;
-
-        if (msg.role == "user") {
-            // 用户消息整块加灰底高亮,把每一轮对话与助手/工具输出区分开。
-            // flex 让内容撑满行宽,背景色铺满整块。
-            const Color user_bg = (tui::theme().name == "light")
-                ? Color::RGB(232, 232, 235)
-                : Color::RGB(48, 48, 54);
-            auto line = hbox({
-                text(" > ") | bold | color(tui::theme().markdown.link),
-                paragraph(msg.content) | color(tui::theme().ui.text_primary) | flex,
-            }) | bgcolor(user_bg);
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "assistant") {
-            // The active streaming message intentionally uses the same full
-            // formatter as a completed message. L1 still skips unchanged
-            // completed messages, while content growth naturally misses the
-            // cache key and preserves full Markdown/XML semantics.
-            Element md_content = render_cached_message_markdown(
-                i, msg.content, tui::theme().semantic.success);
-            auto line = hbox({
-                text(" * ") | bold | color(tui::theme().semantic.success),
-                md_content | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "tool_call") {
-            // 紧凑工具行:` ● ToolName`;Ctrl+O 全局 verbose 开启时才追加
-            // `(args)`。指示灯按配对结果着色(灰=执行中/无结果、绿=成功、
-            // 红=失败),工具名 PascalCase 加粗。content 解析失败时折叠态
-            // 只显示 ToolCall,verbose 态才回退到完整原文。
-            const auto parts = acecode::tui::parse_tool_row(
-                msg.content, msg.display_override);
-            const auto& palette = tui::theme();
-            const bool show_args = acecode::tui::tool_call_arguments_visible(
-                state.transcript_expanded);
-            Color dot_color = tui::theme().ui.text_dim;
-            const auto tool_dot = tool_metadata.call_dot_at(i);
-            if (tool_dot == acecode::tui::ToolCallDot::Ok) {
-                dot_color = tui::theme().semantic.success;
-            } else if (tool_dot == acecode::tui::ToolCallDot::Failed) {
-                dot_color = tui::theme().semantic.error;
-            }
-            Elements segs;
-            segs.push_back(text(" \xE2\x97\x8F ") | color(dot_color)); // "●"
-            if (parts.name.empty()) {
-                if (show_args) {
-                    segs.push_back(paragraph(msg.content)
-                        | color(acecode::tui::tool_call_argument_color(palette))
-                        | flex);
-                } else {
-                    segs.push_back(text("ToolCall") | bold |
-                        color(acecode::tui::tool_call_name_color(palette)));
-                }
-            } else {
-                const std::string display_name =
-                    acecode::tui::pascal_case_tool_name(parts.name);
-                segs.push_back(
-                    text(display_name)
-                    | bold | color(acecode::tui::tool_call_name_color(palette)));
-                if (show_args && !parts.args.empty()) {
-                    segs.push_back(paragraph("(" + parts.args + ")")
-                        | color(acecode::tui::tool_call_argument_color(palette))
-                        | flex);
-                }
-            }
-            auto line = hbox(std::move(segs));
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "user_shell_output") {
-            // 用户主动 `!cmd` 的输出 —— 全量显示,无截断、无摘要、无 fold。
-            // 用户自己输入的命令就是想看完整输出,任何折叠都不符合预期。
-            // 这与 LLM 工具结果(role="tool_result")形成对照:LLM 调用的
-            // 工具结果走摘要/diff/fold 三优先级,有 Ctrl+E/Ctrl+O 展开机制。
-            auto line = hbox({
-                text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                tui::render_tool_result_lines_preserving_breaks(msg.content) | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (task_complete_result) {
-            // task_complete 的 summary 是面向用户的最终完成消息，不属于
-            // 普通工具输出。始终以 Markdown 全文呈现，Ctrl+E / Ctrl+O
-            // 都不得把它切回单行 summary 或 raw-output fold。
-            const std::string summary_markdown =
-                acecode::tui::task_complete_summary_markdown(msg);
-            auto line = hbox({
-                text("  \xE2\x94\x94 ") |
-                    color(tui::theme().ui.text_dim), // "└"
-                render_cached_message_markdown(
-                    i, summary_markdown,
-                    tui::theme().ui.text_primary) | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.ask_result) {
-            // AskUserQuestion already rendered its structured Q/A text into
-            // `content`. Show it in full and ignore Ctrl+E / Ctrl+O: folding it
-            // would hide answers, and expanding it would fall back to the raw
-            // tool arguments, which is exactly the parameter-name leak this
-            // branch exists to prevent.
-            auto line = hbox({
-                text("  \xE2\x94\x94 ") |
-                    color(tui::theme().ui.text_dim), // "└"
-                tui::render_tool_result_lines_preserving_breaks(msg.content) | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "tool_result") {
-            // 新优先级:有结构化 hunks → 走彩色 diff 视图(summary + 色带);
-            // 其次 summary(无 hunks)→ 单行摘要;都没有 → 灰色 fold。
-            // row_expanded = 逐行 Ctrl+E 或 全局 Ctrl+O(transcript_expanded)。
-            const bool row_expanded = msg.expanded || state.transcript_expanded;
-            const bool use_diff = msg.hunks.has_value();
-            const bool use_summary = msg.summary.has_value() && !row_expanded && !use_diff;
-            if (use_diff) {
-                // ---- Diff 视图:summary 行 + 彩色 diff 块 ----
-                Elements rows;
-                if (msg.summary.has_value()) {
-                    const auto& s = *msg.summary; 
-                    const Color row_color =
-                        acecode::tui::tool_result_text_color(tui::theme());
-                    std::string metric_str;
-                    for (const auto& kv : s.metrics) {
-                        std::string seg;
-                        if (kv.first == "+") seg = "+" + kv.second;
-                        else if (kv.first == "-") seg = "-" + kv.second;
-                        else seg = kv.first + "=" + kv.second;
-                        if (!metric_str.empty()) metric_str += " \xC2\xB7 ";
-                        metric_str += seg;
-                    }
-                    const int summary_width = std::max(
-                        20, chat_box.x_max - chat_box.x_min - 4);
-                    std::string summary_line = tui::renderable_tool_summary_line(
-                        s, metric_str, summary_width);
-                    rows.push_back(hbox({
-                        text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                        text(summary_line) | color(row_color) | dim | flex,
-                    }));
-                } else {
-                    rows.push_back(hbox({
-                        text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                        text("diff") |
-                            color(acecode::tui::tool_result_text_color(tui::theme())) |
-                            dim | flex,
-                    }));
-                }
-
-                // 失败态:把前 3 行 stderr dim 显示在 summary 之下(保留既有行为)。
-                if (msg.summary.has_value() && !tui::is_success_summary(*msg.summary) &&
-                    !msg.content.empty()) {
-                    int shown = 0;
-                    size_t pos = 0;
-                    while (pos < msg.content.size() && shown < 3) {
-                        size_t nl = msg.content.find('\n', pos);
-                        std::string line = (nl == std::string::npos)
-                            ? msg.content.substr(pos)
-                            : msg.content.substr(pos, nl - pos);
-                        rows.push_back(hbox({
-                            text("    ") | color(tui::theme().ui.text_dim),
-                            paragraph(line) | color(tui::theme().ui.text_muted) | dim | flex,
-                        }));
-                        if (nl == std::string::npos) break;
-                        pos = nl + 1;
-                        ++shown;
-                    }
-                }
-
-                // Diff 视图:缩进 4 列(与 "  └ " 前缀同宽),宽度由 chat_box 推导。
-                DiffViewOptions opts;
-                opts.width = std::max(20, chat_box.x_max - chat_box.x_min - 4);
-                opts.expanded = row_expanded;
-                opts.max_hunks = 3;
-                opts.max_lines_per_hunk = 20;
-                Element diff_el = render_diff_view(*msg.hunks, opts);
-                rows.push_back(hbox({
-                    text("    ") | color(tui::theme().ui.text_dim),
-                    diff_el | flex,
-                }));
-
-                auto block = vbox(std::move(rows));
-                if (focused_message) {
-                    block = block | focus;
-                }
-                message_elements.push_back(
-                    tracked_message(i, block | focus_decorator));
-            } else if (use_summary) {
-                // ---- Summary row: single line, icon + verb + object + metrics ----
-                const auto& s = *msg.summary;
-                const Color row_color =
-                    acecode::tui::tool_result_text_color(tui::theme());
-
-                // Build metric tail: " · k=v · k=v" but drop k for
-                // "time"/"bytes"/"lines"/"size" since the value is self-describing.
-                std::string metric_str;
-                for (const auto& kv : s.metrics) {
-                    std::string seg;
-                    if (kv.first == "time" || kv.first == "bytes" ||
-                        kv.first == "size" || kv.first == "lines") {
-                        seg = kv.second + (kv.first == "lines" ? " lines" : "");
-                    } else if (kv.first == "+") {
-                        seg = "+" + kv.second;
-                    } else if (kv.first == "-") {
-                        seg = "-" + kv.second;
-                    } else if (kv.first == "exit") {
-                        seg = "exit " + kv.second;
-                    } else if (kv.first == "truncated" && kv.second == "true") {
-                        seg = "truncated";
-                    } else if (kv.first == "aborted" && kv.second == "true") {
-                        seg = "aborted";
-                    } else if (kv.first == "timeout" && kv.second == "true") {
-                        seg = "timeout";
-                    } else if (kv.first == "hint") {
-                        seg = "hint:" + kv.second;
-                    } else {
-                        seg = kv.first + "=" + kv.second;
-                    }
-                    if (!metric_str.empty()) metric_str += " \xC2\xB7 "; // " · "
-                    metric_str += seg;
-                }
-
-                const int summary_width = std::max(
-                    20, chat_box.x_max - chat_box.x_min - 4);
-                std::string summary_line = tui::renderable_tool_summary_line(
-                    s, metric_str, summary_width);
-
-                Elements rows;
-                rows.push_back(hbox({
-                    text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                    text(summary_line) | color(row_color) | dim | flex,
-                }));
-
-                // Failed tool: render the first 3 lines of output dimmed
-                // below the summary so the error is visible without expand.
-                if (!tui::is_success_summary(s) && !msg.content.empty()) {
-                    int shown = 0;
-                    size_t pos = 0;
-                    while (pos < msg.content.size() && shown < 3) {
-                        size_t nl = msg.content.find('\n', pos);
-                        std::string line = (nl == std::string::npos)
-                            ? msg.content.substr(pos)
-                            : msg.content.substr(pos, nl - pos);
-                        rows.push_back(hbox({
-                            text("    ") | color(tui::theme().ui.text_dim),
-                            paragraph(line) | color(tui::theme().ui.text_muted) | dim | flex,
-                        }));
-                        if (nl == std::string::npos) break;
-                        pos = nl + 1;
-                        ++shown;
-                    }
-                }
-
-                auto block = vbox(std::move(rows));
-                if (focused_message) {
-                    block = block | focus;
-                }
-                message_elements.push_back(
-                    tracked_message(i, block | focus_decorator));
-            } else {
-                // ---- Legacy fold path(含 Ctrl+E/Ctrl+O 展开后的全文视图)----
-                // 折叠态按终端可视行而不只是硬换行计数。MCP 等工具常返回
-                // 含字面量 "\\n" 的单行 JSON;若只数 '\n',paragraph() 的软
-                // 换行仍会铺满屏幕。展开态保留 2000 个硬行的兜底上限。
-                std::string display_content;
-                if (!row_expanded) {
-                    constexpr std::size_t kMaxPreviewRows = 3;
-                    const int content_width = std::max(
-                        20, chat_box.x_max - chat_box.x_min - 4);
-                    const auto preview = acecode::tui::fold_tool_result_preview(
-                        msg.content, content_width, kMaxPreviewRows);
-                    for (std::size_t line_index = 0;
-                         line_index < preview.lines.size(); ++line_index) {
-                        if (line_index > 0) display_content.push_back('\n');
-                        display_content += preview.lines[line_index];
-                    }
-                    if (preview.folded) {
-                        if (!display_content.empty()) display_content.push_back('\n');
-                        display_content += "\xE2\x80\xA6 folded (ctrl+o)";
-                    }
-                } else {
-                    constexpr int kMaxExpandedHardLines = 2000;
-                    display_content = msg.content;
-                    int line_count = 0;
-                    for (char c : msg.content) if (c == '\n') line_count++;
-                    if (msg.content.empty() || msg.content.back() != '\n') line_count++;
-
-                    if (line_count > kMaxExpandedHardLines) {
-                        size_t cut = 0;
-                        int seen = 0;
-                        while (cut < msg.content.size() &&
-                               seen < kMaxExpandedHardLines) {
-                            if (msg.content[cut] == '\n') seen++;
-                            cut++;
-                        }
-                        display_content = msg.content.substr(0, cut);
-                        if (!display_content.empty() && display_content.back() == '\n') {
-                            display_content.pop_back();
-                        }
-                        const int hidden = line_count - kMaxExpandedHardLines;
-                        display_content += "\n\xE2\x80\xA6 +" +
-                            std::to_string(hidden) + " lines";
-                    }
-                }
-
-                auto line = hbox({
-                    text("  \xE2\x94\x94 ") | color(tui::theme().ui.text_dim), // "└"
-                    tui::render_tool_result_lines_preserving_breaks(display_content) | flex,
-                });
-                if (focused_message) {
-                    line = line | focus;
-                }
-                message_elements.push_back(
-                    tracked_message(i, line | focus_decorator));
-            }
-        } else if (msg.role == "compact_notice") {
-            const bool row_expanded = tui::compact_notice_row_is_expanded(
-                msg, state.transcript_expanded);
-            Element content = row_expanded
-                ? paragraph(msg.content) | color(tui::theme().ui.accent)
-                : hbox({
-                      text(tui::kCollapsedCompactNoticeLabel) | bold,
-                      text("  (Ctrl+E to expand)") |
-                          color(tui::theme().ui.text_dim),
-                  });
-            auto line = hbox({
-                text(" i ") | bold | color(tui::theme().ui.accent),
-                std::move(content) | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "system") {
-            auto line = hbox({
-                text(" i ") | bold | color(tui::theme().ui.accent),
-                paragraph(msg.content) | color(tui::theme().ui.accent) | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "turn_done") {
-            // inline-thinking-heartbeat:回合收尾伪行 "● Done for Ns"。
-            // 与推理行同款 "●" 前缀同列对齐,使用可读次级色表现推理行
-            // 落定后的余烬。显示端专属 role,不进持久化/LLM context。
-            auto line = hbox({
-                text(" \xE2\x97\x8F ") | tui::readable_secondary(),
-                paragraph(msg.content) | tui::readable_secondary() | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        } else if (msg.role == "error") {
-            auto line = hbox({
-                text(" ! ") | bold | color(tui::theme().semantic.error),
-                paragraph(msg.content) | color(tui::theme().semantic.error) | flex,
-            });
-            if (focused_message) {
-                line = line | focus;
-            }
-            message_elements.push_back(
-                tracked_message(i, line | focus_decorator));
-        }
-        push_spacer_rows(acecode::tui::chat_spacer_rows_after_at(
-            message_spacer_rows_after, static_cast<int>(i)));
-    }
-    push_spacer_rows(render_window.bottom_spacer_rows);
-
-    Element message_body = vbox(std::move(message_elements));
-    if (state.chat_follow_tail) {
-        // /resume replaces the transcript before the next render has
-        // measured the new paragraph heights. Use FTXUI's rendered bottom
-        // anchor while tail-follow is active so the first restored frame
-        // lands at the true tail instead of an underestimated absolute row.
-        message_body = message_body | focusPositionRelative(0.0f, 1.0f);
-    } else {
-        const int frame_focus_y =
-            acecode::tui::chat_frame_focus_y_for_scroll_top(
-                state.chat_scroll_top_row, viewport.rows());
-        message_body = message_body | focusPosition(0, frame_focus_y);
-    }
-
-    // draggable-thick-scrollbar: thumb glyph identical to upstream
-    // vscroll_indicator (┃╹╻),painted only in the rightmost reserved
-    // column. We reserve 3 columns total so the *invisible* hit zone
-    // is wider than 1 cell — the leftmost 2 reserved columns render
-    // as whitespace but scrollbar_box.Contain() still matches them,
-    // making mouse aim much easier without changing the visual rail
-    // position. The decorator also enforces a minimum thumb height
-    // (3 cells) so long sessions don't shrink the click target to a
-    // single half-block.
-    auto message_view = acecode::tui::thick_vscroll_bar(
-                            std::move(message_body),
-                            /*width=*/3,
-                            scrollbar_box,
-                            conhost_compat_layout)
-        | yframe | reflect(chat_box) | flex
-        // mouse-selection-copy: visual feedback for drag-selection. The
-        // decorator lives on the message_view so selection can span
-        // multiple messages.
-        | selectionBackgroundColor(tui::theme().ui.selection_bg)
-        | selectionForegroundColor(tui::theme().ui.selection_fg);
-
-    auto activity = tui::render_activity_indicator_view(
-        state, conhost_compat_layout, show_regular_sidebar, anim_tick.load());
-    Element thinking_element = std::move(activity.thinking);
-    Element mcp_loading_element = std::move(activity.mcp_loading);
-
-    auto pickers = tui::render_picker_views(state);
-    Element resume_picker_element = std::move(pickers.resume);
-    Element rewind_picker_element = std::move(pickers.rewind);
-    Element model_picker_element = std::move(pickers.model);
-    Element mode_picker_element = std::move(pickers.mode);
-
-    Element path_reference_element =
-        acecode::tui::render_path_reference_dropdown(
-            state, conhost_compat_layout, path_reference_boxes);
-    Element slash_dropdown_element =
-        render_slash_dropdown(state, conhost_compat_layout);
-
-    // AskUserQuestion overlay —— 和 confirm_pending 互斥,在渲染层面
-    // 显式让 ask 优先(事件层在 confirm 分支之前也已经拦截,这里只是
-    // 作为显式护栏)。
-    Element ask_overlay_element = emptyElement();
-    ask_question_frame.reset_for_render();
-    auto& ask_scrollbar_box = ask_question_frame.scrollbar_box;
-    auto& ask_overlay_box = ask_question_frame.overlay_box;
-    auto& ask_row_boxes = ask_question_frame.row_boxes;
-    const auto ask_render_snapshot = state.ask_session
-        ? std::optional<tui::AskQuestionSnapshot>(state.ask_session->snapshot())
-        : std::nullopt;
-    if (state.ask_pending && ask_render_snapshot.has_value() &&
-        (ask_render_snapshot->page == tui::AskQuestionPage::Summary ||
-         (ask_render_snapshot->current_question >= 0 &&
-          ask_render_snapshot->current_question <
-              ask_render_snapshot->total_questions))) {
-        const int content_width =
-            acecode::tui::ask_question_content_width_for_frame(
-                terminal_width,
-                current_message_width,
-                show_regular_sidebar,
-                kRegularSidebarWidthCols);
-        const int max_visible_rows =
-            std::max(1, viewport.rows() - 2);
-
-        if (state.ask_session) {
-            const auto snapshot = state.ask_session->snapshot();
-            const int layout_width = std::max(1, content_width);
-            const int layout_height = max_visible_rows;
-            tui::AskQuestionLayoutInput question_layout_input;
-            question_layout_input.snapshot = &snapshot;
-            question_layout_input.viewport_width = layout_width;
-            question_layout_input.viewport_height = layout_height;
-            question_layout_input.minimum_visible_rows =
-                state.ask_config.min_visible_rows;
-            question_layout_input.timeout_remaining_seconds =
-                ask_timeout_remaining_seconds(
-                    *state.ask_session, std::chrono::steady_clock::now());
-            // The transient status line is deliberately NOT injected here: it
-            // belongs to the header/bottom status area. Rendering it as a panel
-            // row pushed sibling notices (model switches and similar) inside the
-            // question box and made the panel height change with unrelated
-            // events.
-            auto question_layout = tui::build_ask_question_layout(
-                question_layout_input);
-            ask_question_frame.layout = question_layout;
-            // 布局会为焦点自动修正偏移；把该修正写回会话，避免下一帧
-            // 重新从旧快照计算时出现滚动跳回。
-            if (question_layout.scroll_offset != snapshot.scroll_offset) {
-                const int max_scroll_offset = std::max(
-                    0, question_layout.total_rows - question_layout.visible_rows);
-                const auto scroll_effects = state.ask_session->dispatch({
-                    tui::AskQuestionEventKind::SetScrollOffset,
-                    -1,
-                    question_layout.scroll_offset,
-                    {},
-                    0,
-                    max_scroll_offset});
-                dispatch_ask_session_effects_locked(state, scroll_effects);
-            }
-            ask_question_frame.terminal_too_narrow =
-                question_layout.terminal_too_narrow;
-            ask_question_frame.row_boxes.assign(
-                static_cast<std::size_t>(question_layout.visible_rows),
-                Box{0, -1, 0, -1});
-
-            tui::AskQuestionPanelInput panel_input;
-            panel_input.layout = &question_layout;
-            panel_input.snapshot = &snapshot;
-            panel_input.colors = tui::ask_question_panel_colors();
-            panel_input.terminal_too_narrow =
-                question_layout.terminal_too_narrow;
-            panel_input.row_boxes = &ask_row_boxes;
-            panel_input.scrollbar_box = &ask_scrollbar_box;
-            panel_input.overlay_box = &ask_overlay_box;
-            ask_overlay_element = tui::build_ask_question_panel(panel_input);
-        }
-    }
-
-    // Tool confirmation overlay —— 取代旧的单行 "y/a/n" 提示。
-    // 三个固定选项:
-    //   0  Yes
-    //   1  Yes, allow all edits during this session (shift+tab)
-    //   2  No
-    // ↑↓ 移焦点,Enter 提交焦点项,1/2/3 数字键直选,Shift+Tab 直接选第二项,
-    // Esc → Deny。事件分支在 CatchEvent 中,渲染层只是把状态画出来。
-    Element confirm_overlay_element = emptyElement();
-    if (state.confirm_pending) {
-        Elements rows;
-        if (!state.confirm_origin_label.empty()) {
-            // 子会话的远程权限请求:标注来源,避免用户误以为是主会话工具。
-            rows.push_back(text(" " + state.confirm_origin_label) |
-                           tui::readable_secondary());
-        }
-        std::string title = acecode::tui::build_confirm_question(
-            state.confirm_tool_name, state.confirm_tool_args);
-        // build_confirm_question 可能返回多行(bash 把 command 附在第二行),
-        // 按 \n 拆开逐行 push,首行加粗。
-        bool first = true;
-        size_t pos = 0;
-        while (pos <= title.size()) {
-            size_t nl = title.find('\n', pos);
-            std::string line = (nl == std::string::npos)
-                ? title.substr(pos)
-                : title.substr(pos, nl - pos);
-            if (first) {
-                rows.push_back(text(" " + line) | bold | color(tui::theme().ui.accent));
-                first = false;
-            } else {
-                rows.push_back(text(line) | color(tui::theme().ui.text_muted));
-            }
-            if (nl == std::string::npos) break;
-            pos = nl + 1;
-        }
-        rows.push_back(text(""));
-
-        const auto options = acecode::tui::build_confirm_options(
-            state.confirm_tool_name, state.confirm_tool_args);
-        const int option_count = std::max(1, static_cast<int>(options.size()));
-        const int focus = std::clamp(state.confirm_focus, 0, option_count - 1);
-        for (int i = 0; i < static_cast<int>(options.size()); ++i) {
-            bool focused = (i == focus);
-            std::string prefix = focused ? " \xE2\x9D\xAF " : "   ";
-            auto row = text(prefix + options[static_cast<std::size_t>(i)].label);
-            if (focused) {
-                row = row | bold | color(tui::theme().ui.text_primary) | bgcolor(tui::theme().ui.selection_bg);
-            } else {
-                row = row | color(tui::theme().ui.text_muted);
-            }
-            rows.push_back(row);
-        }
-        rows.push_back(text(""));
-        rows.push_back(
-            text(" \xE2\x86\x91\xE2\x86\x93 move   Enter select   1-" + std::to_string(option_count) +
-                 " jump   Esc deny")
-            | tui::readable_secondary());
-        confirm_overlay_element = vbox(std::move(rows)) | border | color(tui::theme().ui.accent);
-    }
-
-    auto prompt_status = tui::render_prompt_status_view(state, ask_question_frame,
-        input_hit_layout, permissions, terminal_width, show_regular_sidebar,
-        conhost_compat_layout, dangerous_mode,
-        [&input_with_esc] { return input_with_esc->Render(); });
-    Element prompt_line = std::move(prompt_status.prompt);
-    Element bottom_bar = std::move(prompt_status.status);
-
-    // IME composition window positioning is handled by FTXUI's cursor
-    // system (focusCursorBlock) which emits ANSI sequences to place the
-    // terminal cursor at the caret. Windows Terminal/ConPTY uses this
-    // to position the IME window. The Win32 IME APIs (ImmSetComposition
-    // Window) don't work under ConPTY.
-
-    Color outer_border_color = (state.input_mode == InputMode::Shell)
-        ? acecode::tui::theme().semantic.error
-        : acecode::tui::theme().ui.text_muted;
-
-    Element header_separator = hide_regular_sidebar_banner
-        ? emptyElement()
-        : (conhost_compat_layout ? compat_horizontal_line() : separatorHeavy());
-    Element prompt_separator = conhost_compat_layout
-        ? compat_horizontal_line()
-        : separatorLight();
-    const int pending_queue_width = current_message_width > 0
-        ? current_message_width
-        : std::max(20, terminal_width -
-            (show_regular_sidebar ? kRegularSidebarWidthCols + 6 : 4));
-    Element pending_queue_element =
-        tui::render_pending_queue_block(state, pending_queue_width);
-    Element pending_attachment_element =
-        tui::render_pending_attachment_block(state, pending_queue_width);
-    Element todo_checklist_element =
-        acecode::tui::todo_checklist_uses_sidebar(show_regular_sidebar)
-            ? emptyElement()
-            : acecode::tui::render_todo_checklist_block(
-                state.todos, pending_queue_width);
-
-    Element main_root = vbox({
-        header,
-        header_separator | color(acecode::tui::theme().ui.text_dim),
-        acecode::tui::compose_ask_question_message_area(
-            std::move(message_view),
-            std::move(ask_overlay_element),
-            state.ask_pending) | flex,
-        mcp_loading_element,
-        resume_picker_element,
-        rewind_picker_element,
-        model_picker_element,
-        mode_picker_element,
-        confirm_overlay_element,
-        path_reference_element,
-        slash_dropdown_element,
-        thinking_element,
-        todo_checklist_element,
-        pending_queue_element,
-        prompt_separator | color(acecode::tui::theme().ui.text_dim),
-        pending_attachment_element,
-        prompt_line,
-        bottom_bar,
-    });
-
-    Element root;
-    if (conhost_compat_layout) {
-        root = vbox({
-            compat_horizontal_line() | color(outer_border_color),
-            main_root | flex,
-            compat_horizontal_line() | color(outer_border_color),
-        }) | flex;
-    } else if (show_regular_sidebar) {
-        Element sidebar = acecode::tui::render_regular_sidebar(
-            state,
-            version_str,
-            cwd_display,
-            kRegularSidebarWidthCols,
-            anim_tick.load(),
-            sidebar_content_box,
-            sidebar_viewport_box,
-            sidebar_scrollbar_box);
-        root = hbox({
-            main_root | flex,
-            separator() | color(outer_border_color),
-            sidebar,
-        }) | borderRounded | color(outer_border_color) | flex;
-    } else {
-        root = main_root | borderRounded | color(outer_border_color) | flex;
-    }
-
-    // link-hover-tooltip (add-tui-hyperlinks 5.3): 气泡作为浮层叠加在整屏
-    // 之上 —— dbox 共享区域,不参与布局(不挤压任何元素)、不捕获输入。
-    // 仅当终端能力探测通过(会收到无按键 Mouse::Moved 事件)且气泡已显示
-    // 时注入;conhost 家族/Apple Terminal.app 等恒不渲染。state.mu 由本
-    // 函数入口持有,读 hover_link_* 安全。
-    if (hover_supported && state.hover_link_visible &&
-        !state.hover_link_href.empty()) {
-        const auto hover_size = Terminal::Size();
-        root = dbox({
-            std::move(root),
-            tui::render_link_hover_tooltip(state, hover_size.dimx, hover_size.dimy),
-        });
-    }
-    return root;
-}
 
 int main(int argc, char* argv[]) try {
     acecode::cli::configure_process_environment();
@@ -2747,32 +1757,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     tui::maybe_add_legacy_terminal_hint(state, config, term_caps, render_mode,
                                    force_alt_screen);
 
-    auto screen = acecode::tui::make_screen_interactive(render_mode);
-    screen.EnableKittyKeyboard();
-    // hover-motion(add-tui-hyperlinks 5.2):悬停气泡依赖无按键 Mouse::Moved
-    // 上报(?1003 any-event),仅现代终端开启——conhost 家族强制关闭(重绘抖动,
-    // 见 detect_hover_motion_support),Apple Terminal.app 同样不支持。
-    // 探测结果缓存一次,既给 FTXUI 开 ?1003,也传给渲染层 gate 气泡。
-    const bool hover_supported = acecode::detect_hover_motion_support();
-    screen.EnableMouseHoverMotion(hover_supported);
-    // synchronized-output: 按终端能力探测 + tui.sync_output_mode 决定是否把
-    // 每帧包进 CSI ?2026h/?2026l(整帧原子呈现,消除半帧闪烁)。必须在
-    // Loop() 之前调用;老 conhost / ConEmu / 未知终端默认关闭(输出与未启用
-    // 特性时一致),见 openspec/changes/add-synchronized-output/。
-    screen.EnableSynchronizedOutput(acecode::tui::decide_synchronized_output(
-        config.tui, acecode::detect_synchronized_output_support()));
-    auto redraw_pacer = std::make_shared<acecode::tui::TuiRedrawPacer>();
-    std::atomic<std::int64_t> last_keyboard_input_at_ms{0};
-    auto request_scheduled_redraw =
-        [&screen, redraw_pacer](int minimum_interval_ms) {
-            const std::int64_t now_ms = tui::monotonic_milliseconds();
-            if (!redraw_pacer->try_request_scheduled_redraw(
-                    now_ms, minimum_interval_ms)) {
-                return false;
-            }
-            screen.PostEvent(Event::Custom);
-            return true;
-        };
+    tui::TuiScreenHost screen_host(render_mode, config.tui);
+    auto& screen = screen_host.screen();
+    const bool hover_supported = screen_host.hover_supported();
+    auto redraw_pacer = screen_host.redraw_pacer();
+    auto& last_keyboard_input_at_ms = screen_host.last_keyboard_input_at_ms();
+    auto request_scheduled_redraw = [&screen_host](int minimum_interval_ms) {
+        return screen_host.request_scheduled_redraw(minimum_interval_ms);
+    };
     // Publish for the Windows console-ctrl handler so Ctrl+C can trigger a
     // graceful Loop exit instead of letting the default handler kill us.
     g_active_screen.store(&screen, std::memory_order_release);
@@ -4017,7 +3009,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 if (state.ask_session) {
                     const auto ask_effects = state.ask_session->tick(now);
                     if (!ask_effects.empty()) {
-                        dispatch_ask_session_effects_locked(state, ask_effects);
+                        tui::dispatch_ask_session_effects_locked(state, ask_effects);
                         requires_immediate_post = true;
                     }
                 }
@@ -4247,7 +3239,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                             -1,
                             0,
                             pr.completed_text});
-                        dispatch_ask_session_effects_locked(state, ask_effects);
+                        tui::dispatch_ask_session_effects_locked(state, ask_effects);
                     } else {
                         insert_pasted_text_at_cursor(pr.completed_text);
                         refresh_input_suggestions(
@@ -4288,7 +3280,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     if (state.ask_pending && state.ask_session) {
                         const auto ask_effects = state.ask_session->dispatch(
                             {tui::AskQuestionEventKind::GlobalCancel});
-                        dispatch_ask_session_effects_locked(state, ask_effects);
+                        tui::dispatch_ask_session_effects_locked(state, ask_effects);
                         screen.PostEvent(Event::Custom);
                     } else {
                         screen.PostEvent(Event::Escape);
@@ -5937,16 +4929,16 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         return false;
     });
 
-    TuiRendererContext renderer_ctx{
-        state, screen, version_str, cwd_display, viewport, geometry, anim_tick,
+    tui::TuiFrameRenderer frame_renderer{
+        state, screen_host, version_str, cwd_display, viewport, geometry, anim_tick,
         input_with_esc, permissions, dangerous_mode, conhost_compat_layout, hover_supported,
     };
     auto chat_renderer = Renderer(
         input_with_esc,
-        [&renderer_ctx, &screen, redraw_pacer] {
+        [&frame_renderer, &screen, redraw_pacer] {
             const auto frame_ticket = redraw_pacer->begin_frame(
                 tui::monotonic_milliseconds());
-            auto frame = render_tui_frame(renderer_ctx);
+            auto frame = frame_renderer.render();
             // FTXUI closures do not invalidate the frame. This one runs on the
             // next loop turn, after the current Draw/TerminalFlush completed,
             // and therefore measures conservative end-to-end frame latency.

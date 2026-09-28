@@ -29,7 +29,29 @@
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
 
-using namespace ftxui;
+using ftxui::Element;
+using ftxui::Elements;
+using ftxui::Color;
+using ftxui::Box;
+using ftxui::text;
+using ftxui::paragraph;
+using ftxui::hbox;
+using ftxui::vbox;
+using ftxui::emptyElement;
+using ftxui::filler;
+using ftxui::size;
+using ftxui::WIDTH;
+using ftxui::EQUAL;
+using ftxui::flex;
+using ftxui::dim;
+using ftxui::bold;
+using ftxui::color;
+using ftxui::bgcolor;
+using ftxui::reflect;
+using ftxui::focusPosition;
+using ftxui::yframe;
+using ftxui::Utf8ToGlyphs;
+using ftxui::string_width;
 
 #include "tui/render/text_cells.hpp"
 #include "tui/render/status_chips.hpp"

@@ -4,7 +4,18 @@
 #include <algorithm>
 #include <utility>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::Element;
+using ftxui::Elements;
+using ftxui::text;
+using ftxui::hbox;
+using ftxui::vbox;
+using ftxui::emptyElement;
+using ftxui::size;
+using ftxui::dim;
+using ftxui::bold;
+using ftxui::color;
+using ftxui::bgcolor;
+using ftxui::border;
 #include "tui/picker_scroll.hpp"
 
 namespace acecode::tui {

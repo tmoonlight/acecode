@@ -3,7 +3,10 @@
 #include <cctype>
 #include <vector>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::text;
+using ftxui::size;
+using ftxui::Utf8ToGlyphs;
+using ftxui::string_width;
 
 namespace acecode::tui {
 std::string collapse_sidebar_title_whitespace(std::string_view text) {

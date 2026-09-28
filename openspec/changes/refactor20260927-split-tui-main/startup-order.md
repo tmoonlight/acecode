@@ -142,3 +142,12 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 - 根布局阶段才调用 regular_sidebar_view,仍以 TuiState& 接收并将上一帧内容/视口高度用于 sidebar_scroll_top_row clamp。不得将此写回前置到 prepare 或改为 const 强转。
 - tui_helpers 的所有调用与测试改为直接包含职责头,旧聚合头和实现删除。MCP 状态投影与 thinking phrases 不依赖 ftxui API;显示格、输入换行、状态 chip 和侧栏分别拥有实现。
 - 链接气泡的位置算法由原函数直接外提,终端尺寸在原 hover 分支调用时采样;不改变边界或翻转规则。
+
+### B-07 帧内与屏幕宿主记录(待统一验收)
+
+1. 帧持有 state.mu,先清 composer 命中区域,按原时点采样终端/上一帧 chat_box 宽度。
+2. prepare_frame_locked 依次同步测量、clamp 焦点、依据上一帧 message_boxes 补偿选区,再清几何 vectors 与链接收集器。
+3. 横幅 → transcript → 活动提示 → picker → 路径/slash → ask/confirm → prompt/status → 根布局。侧栏 clamp 仍在根布局;ask 布局写回经共享 projection 适配器执行。
+4. transcript 保留 call/result FIFO 可见窗口配对,无链接消息缓存、OSC8 按首次 Markdown 渲染探测;每条消息仍同时 reflect_unclipped 与 reflect。
+5. TuiScreenHost 在原屏幕创建位置启用 Kitty、探测 hover、设置同步输出,再创建 redraw pacer。帧 begin 仍在 render 前,complete 仍经 Post 在 Draw/Flush 后运行。
+6. 补回 B-04 抽取布局时遗漏的 current_message_width 绑定,缓存 content hash 移为 message_render_cache_revision;公式与原实现相同。

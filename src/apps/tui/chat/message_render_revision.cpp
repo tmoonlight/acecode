@@ -58,4 +58,10 @@ std::size_t message_render_revision(const TuiState::Message& msg,
 }
 
 
+std::size_t message_render_cache_revision(const TuiState::Message& message,
+    bool transcript_expanded, const std::string& content) {
+    return combine_render_hash(message_render_revision(message, transcript_expanded),
+        std::hash<std::string>{}(content));
+}
+
 } // namespace acecode::tui

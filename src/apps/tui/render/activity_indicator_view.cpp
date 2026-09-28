@@ -4,7 +4,17 @@
 #include <algorithm>
 #include <utility>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::Element;
+using ftxui::Elements;
+using ftxui::Color;
+using ftxui::text;
+using ftxui::hbox;
+using ftxui::emptyElement;
+using ftxui::size;
+using ftxui::dim;
+using ftxui::bold;
+using ftxui::color;
+using ftxui::bgcolor;
 #include "tui/tool_progress.hpp"
 #include "tui/compact_animation.hpp"
 #include "tui/thinking_animation.hpp"

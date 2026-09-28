@@ -232,7 +232,10 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     render/picker_views.cpp
     render/prompt_status_view.cpp
     render/link_hover_tooltip.cpp
-    tool_progress.cpp)
+    tool_progress.cpp slash_dropdown.cpp
+    render/message_row_views.cpp render/transcript_view.cpp render/overlay_views.cpp
+    overlays/ask_session_projection.cpp
+    render/prepare_frame.cpp render/frame_renderer.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")

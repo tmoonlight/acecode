@@ -4,7 +4,21 @@
 #include <algorithm>
 #include <utility>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::Color;
+using ftxui::text;
+using ftxui::hbox;
+using ftxui::vbox;
+using ftxui::dbox;
+using ftxui::emptyElement;
+using ftxui::filler;
+using ftxui::size;
+using ftxui::WIDTH;
+using ftxui::HEIGHT;
+using ftxui::EQUAL;
+using ftxui::color;
+using ftxui::bgcolor;
+using ftxui::border;
+using ftxui::borderRounded;
 #include "tui/render/text_cells.hpp"
 
 namespace acecode::tui {

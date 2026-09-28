@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <utility>
 #include <ftxui/screen/string.hpp>
-using namespace ftxui;
+using ftxui::border;
 
 namespace acecode::tui {
 AskQuestionPanelColors ask_question_panel_colors() {
