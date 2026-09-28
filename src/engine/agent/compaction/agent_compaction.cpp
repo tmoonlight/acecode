@@ -14,12 +14,6 @@ agent::CompactionInputs AgentLoop::compaction_inputs() const {
     if (trajectory_) inputs.terminal = trajectory_->ref();
     return inputs;
 }
-bool AgentLoop::maybe_run_auto_compact() {
-    return compaction_->run_auto(compaction_inputs());
-}
-bool AgentLoop::active_estimate_exceeds_auto_threshold(const UserInput* pending) const {
-    return compaction_->exceeds_auto_threshold(compaction_inputs(), pending);
-}
 void AgentLoop::run_compact() {
     compaction_->run_manual(compaction_inputs());
 }

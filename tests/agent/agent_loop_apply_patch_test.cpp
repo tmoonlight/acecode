@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 覆盖 AgentLoop 的模型族适配(openspec add-gpt-apply-patch-adaptation):
 //   1. GPT 系模型:请求工具表里有 apply_patch、没有 file_edit / file_write,
 //      系统提示走 apply_patch 指引与模型族段
@@ -65,7 +66,9 @@ public:
             return provider_;
         };
         loop_ = std::make_unique<acecode::AgentLoop>(
-            accessor, tools_, callbacks, cwd_, permissions_);
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, callbacks, permissions_),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
     }
 
     ~ApplyPatchAgentHarness() {

@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // PA 兜底(src/pa/pa_overflow_rescue)的端到端用例:服务端以 PA 特征报文
 // 「请求上下文过大」拒收整个请求时,AgentLoop 原样重发 → 逐档收缩 → 紧急档
 // → 等待重发,绝不因为这条报文终止回合。等待全部按 0 缩放,用例只验证顺序
@@ -175,18 +176,20 @@ struct RescueHarness {
     explicit RescueHarness(const std::string& name)
         : cwd(make_temp_cwd(name)),
           project_dir(acecode::SessionStorage::get_project_dir(cwd.string())),
-          loop([this]() -> std::shared_ptr<acecode::LlmProvider> {
+          loop(
+        acecode_test::AgentLoopFixture::dependencies([this]() -> std::shared_ptr<acecode::LlmProvider> {
                    return provider;
-               },
-               tools, {}, cwd.string(), permissions) {
+               }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string())) {
+        loop.start();
         std::filesystem::remove_all(project_dir);
         session.start_session(cwd.string(), "stub", "model");
-        loop.set_session_manager(&session);
         // 窗口开到足够大,让自动压缩永远不触发,用例只看拒收后的兜底路径。
         loop.set_context_window(1000000);
     }
 
     ~RescueHarness() {
+        loop.shutdown();
         session.finalize();
         std::error_code ec;
         std::filesystem::remove_all(project_dir, ec);

@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -95,7 +96,8 @@ struct LoopHarness {
     explicit LoopHarness(
         std::shared_ptr<acecode_test::StubLlmProvider> p,
         std::optional<acecode::PermissionResult> confirmation =
-            acecode::PermissionResult::Deny)
+            acecode::PermissionResult::Deny,
+        acecode::HookManager* hooks = nullptr)
         : provider(std::move(p)) {
         callbacks.on_busy_changed = [this](bool value) {
             std::lock_guard<std::mutex> lk(mu);
@@ -111,12 +113,12 @@ struct LoopHarness {
                 };
         }
         loop = std::make_unique<acecode::AgentLoop>(
-            [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-            tools,
-            callbacks,
-            ".",
-            permissions);
+        acecode_test::AgentLoopFixture::dependencies([this]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+        loop->start();
     }
+
+    ~LoopHarness() { if (loop) loop->shutdown(); }
 
     bool submit_and_wait(const std::string& text = "hello",
                          std::chrono::milliseconds timeout = 5s) {
@@ -253,12 +255,9 @@ TEST(HookAgentLoop, DispatchesAssistantCompletedAfterTextMessageCommit) {
     };
 
     acecode::AgentLoop loop(
-        [&provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools,
-        callbacks,
-        ".",
-        permissions);
-    loop.set_hook_manager(&hooks);
+        acecode_test::AgentLoopFixture::dependencies([&provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
     loop.submit("hello");
 
     std::unique_lock<std::mutex> lk(mu);
@@ -277,7 +276,7 @@ TEST(HookAgentLoop, DispatchesAssistantCompletedAfterTextMessageCommit) {
 TEST(HookAgentLoop, UserPromptSubmitBlockPreventsPersistenceAndProviderCall) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_text("should not run");
-    LoopHarness h(provider);
+
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -290,7 +289,8 @@ TEST(HookAgentLoop, UserPromptSubmitBlockPreventsPersistenceAndProviderCall) {
             r.stderr_text = "blocked prompt";
             return r;
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+
 
     struct TerminalEvents {
         std::mutex mu;
@@ -333,7 +333,7 @@ TEST(HookAgentLoop, UserPromptSubmitBlockPreventsPersistenceAndProviderCall) {
 TEST(HookAgentLoop, UserPromptSubmitAdditionalContextReachesNextRequestOnly) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_text("done");
-    LoopHarness h(provider);
+
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -342,7 +342,8 @@ TEST(HookAgentLoop, UserPromptSubmitAdditionalContextReachesNextRequestOnly) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"hookSpecificOutput":{"additionalContext":"hook context value"}})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+
 
     ASSERT_TRUE(h.submit_and_wait("hello"));
     ASSERT_EQ(provider->turn_count(), 1);
@@ -362,7 +363,7 @@ TEST(HookAgentLoop, UserPromptSubmitAdditionalContextReachesNextRequestOnly) {
 TEST(HookAgentLoop, SessionStartAdditionalContextReachesNextRequestOnly) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_text("done");
-    LoopHarness h(provider);
+
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -371,7 +372,8 @@ TEST(HookAgentLoop, SessionStartAdditionalContextReachesNextRequestOnly) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"hookSpecificOutput":{"additionalContext":"session hook context"}})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+
     h.loop->dispatch_session_start_hook("startup");
 
     ASSERT_TRUE(h.submit_and_wait("hello"));
@@ -392,9 +394,8 @@ TEST(HookAgentLoop, SessionStartAdditionalContextReachesNextRequestOnly) {
 TEST(HookAgentLoop, PreToolUseDenySkipsToolExecution) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("probe", R"({"value":"x"})", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("probe", true, &calls));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -403,7 +404,9 @@ TEST(HookAgentLoop, PreToolUseDenySkipsToolExecution) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"decision":"block","reason":"no probe"})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("probe", true, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 0);
@@ -420,9 +423,8 @@ TEST(HookAgentLoop, PreToolUseDenySkipsToolExecution) {
 TEST(HookAgentLoop, PreToolUseBashMatcherBlocksShellToolWithVisibleReason) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("bash", R"({"cmd":"echo should-not-run"})", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("bash", false, &calls, "shell ok"));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -433,7 +435,9 @@ TEST(HookAgentLoop, PreToolUseBashMatcherBlocksShellToolWithVisibleReason) {
             EXPECT_EQ(payload.value("tool_name", ""), "bash");
             return hook_json(R"({"decision":"block","reason":"shell blocked by hook"})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("bash", false, &calls, "shell ok"));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 0);
@@ -450,10 +454,9 @@ TEST(HookAgentLoop, PreToolUseBashMatcherBlocksShellToolWithVisibleReason) {
 TEST(HookAgentLoop, PreToolUseUpdatedInputReachesToolExecution) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("probe", R"({"value":"old"})", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
     std::string captured_args;
-    h.tools.register_tool(make_capturing_tool("probe", true, &calls, &captured_args));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -462,7 +465,9 @@ TEST(HookAgentLoop, PreToolUseUpdatedInputReachesToolExecution) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"hookSpecificOutput":{"updatedInput":{"value":"new"}}})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_capturing_tool("probe", true, &calls, &captured_args));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -473,9 +478,8 @@ TEST(HookAgentLoop, PreToolUseUpdatedInputReachesToolExecution) {
 TEST(HookAgentLoop, PermissionRequestAllowSkipsNormalPrompt) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -484,7 +488,9 @@ TEST(HookAgentLoop, PermissionRequestAllowSkipsNormalPrompt) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"hookSpecificOutput":{"permissionDecision":"allow"}})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -494,9 +500,8 @@ TEST(HookAgentLoop, PermissionRequestAllowSkipsNormalPrompt) {
 TEST(HookAgentLoop, PermissionRequestNoDecisionPreservesNormalPrompt) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -505,7 +510,9 @@ TEST(HookAgentLoop, PermissionRequestNoDecisionPreservesNormalPrompt) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 0);
@@ -515,9 +522,8 @@ TEST(HookAgentLoop, PermissionRequestNoDecisionPreservesNormalPrompt) {
 TEST(HookAgentLoop, PermissionResolvedReportsInteractiveDecision) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
     std::mutex payload_mu;
     nlohmann::json captured;
 
@@ -535,7 +541,9 @@ TEST(HookAgentLoop, PermissionResolvedReportsInteractiveDecision) {
             captured = nlohmann::json::parse(stdin_text);
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 0);
@@ -550,7 +558,7 @@ TEST(HookAgentLoop, PermissionResolvedReportsInteractiveDecision) {
 
 TEST(HookAgentLoop, DispatchesSessionTitleChangedAsObservationalEvent) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
-    LoopHarness h(provider);
+
 
     nlohmann::json captured;
     acecode::HookManager hooks(
@@ -565,7 +573,8 @@ TEST(HookAgentLoop, DispatchesSessionTitleChangedAsObservationalEvent) {
             captured = nlohmann::json::parse(stdin_text);
             return hook_json(R"({"continue":false,"reason":"ignored"})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+
 
     h.loop->dispatch_session_title_changed_hook(
         "部署脚本", "resume", "generated");
@@ -579,9 +588,8 @@ TEST(HookAgentLoop, DispatchesSessionTitleChangedAsObservationalEvent) {
 TEST(HookAgentLoop, PermissionResolvedReportsInteractiveAlwaysAllow) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider, acecode::PermissionResult::AlwaysAllow);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
     nlohmann::json captured;
 
     acecode::HookManager hooks(
@@ -597,7 +605,9 @@ TEST(HookAgentLoop, PermissionResolvedReportsInteractiveAlwaysAllow) {
             captured = nlohmann::json::parse(stdin_text);
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::AlwaysAllow, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -611,9 +621,8 @@ TEST(HookAgentLoop, PermissionResolvedReportsHeadlessDenial) {
     ScopedHeadlessMode headless;
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
     nlohmann::json captured;
 
     acecode::HookManager hooks(
@@ -629,7 +638,9 @@ TEST(HookAgentLoop, PermissionResolvedReportsHeadlessDenial) {
             captured = nlohmann::json::parse(stdin_text);
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 0);
@@ -641,9 +652,8 @@ TEST(HookAgentLoop, PermissionResolvedReportsHeadlessDenial) {
 TEST(HookAgentLoop, PermissionResolvedReportsImplicitAllow) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider, std::nullopt);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
     nlohmann::json captured;
 
     acecode::HookManager hooks(
@@ -659,7 +669,9 @@ TEST(HookAgentLoop, PermissionResolvedReportsImplicitAllow) {
             captured = nlohmann::json::parse(stdin_text);
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, std::nullopt, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -671,9 +683,8 @@ TEST(HookAgentLoop, PermissionResolvedReportsImplicitAllow) {
 TEST(HookAgentLoop, PermissionResolvedPairsWithHookApprovalExactlyOnce) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
     std::atomic<int> resolved_count{0};
     nlohmann::json resolved_payload;
 
@@ -708,7 +719,9 @@ TEST(HookAgentLoop, PermissionResolvedPairsWithHookApprovalExactlyOnce) {
             }
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -721,10 +734,8 @@ TEST(HookAgentLoop, PermissionResolvedPairsWithHookApprovalExactlyOnce) {
 TEST(HookAgentLoop, PermissionResolvedDoesNotRunWithoutPermissionRequest) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
-    h.permissions.add_session_allow("write_probe");
     std::atomic<int> resolved_count{0};
 
     acecode::HookManager hooks(
@@ -740,7 +751,10 @@ TEST(HookAgentLoop, PermissionResolvedDoesNotRunWithoutPermissionRequest) {
             resolved_count.fetch_add(1);
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+    h.permissions.add_session_allow("write_probe");
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -751,9 +765,8 @@ TEST(HookAgentLoop, PermissionResolvedDoesNotRunWithoutPermissionRequest) {
 TEST(HookAgentLoop, PermissionRequestDenySkipsNormalPromptAndTool) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("write_probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -762,7 +775,9 @@ TEST(HookAgentLoop, PermissionRequestDenySkipsNormalPromptAndTool) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"deny write"}})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("write_probe", false, &calls));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 0);
@@ -772,9 +787,8 @@ TEST(HookAgentLoop, PermissionRequestDenySkipsNormalPromptAndTool) {
 TEST(HookAgentLoop, PostToolUseCanReplaceModelVisibleToolResult) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_tool_call("probe", "{}", "call-1");
-    LoopHarness h(provider);
+
     std::atomic<int> calls{0};
-    h.tools.register_tool(make_probe_tool("probe", true, &calls, "real output"));
 
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
@@ -783,7 +797,9 @@ TEST(HookAgentLoop, PostToolUseCanReplaceModelVisibleToolResult) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"continue":false,"hookSpecificOutput":{"feedback":"masked output"}})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+    h.tools.register_tool(make_probe_tool("probe", true, &calls, "real output"));
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(calls.load(), 1);
@@ -800,7 +816,7 @@ TEST(HookAgentLoop, StopHookBlockContinuesOneAdditionalTurn) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_text("first");
     provider->push_text("second");
-    LoopHarness h(provider);
+
 
     std::atomic<int> stop_calls{0};
     acecode::HookManager hooks(
@@ -814,7 +830,8 @@ TEST(HookAgentLoop, StopHookBlockContinuesOneAdditionalTurn) {
             }
             return hook_json("{}");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(provider->turn_count(), 2);
@@ -825,7 +842,7 @@ TEST(HookAgentLoop, StopHookContinueFalsePreventsContinuation) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_text("first");
     provider->push_text("second");
-    LoopHarness h(provider);
+
 
     auto block = make_codex_hook("stop-block", acecode::kCodexHookEventStop);
     block.command.command = "block";
@@ -840,7 +857,8 @@ TEST(HookAgentLoop, StopHookContinueFalsePreventsContinuation) {
             }
             return hook_json(R"({"continue":false,"reason":"do not continue"})");
         });
-    h.loop->set_hook_manager(&hooks);
+    LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
+
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(provider->turn_count(), 1);
@@ -860,11 +878,9 @@ TEST(HookAgentLoop, PreCompactContinueFalseStopsBeforeProviderCompact) {
         if (!busy) cv.notify_all();
     };
     acecode::AgentLoop loop(
-        [provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools,
-        callbacks,
-        ".",
-        permissions);
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
     loop.push_message(acecode::ChatMessage{"user", std::string(900, 'a')});
     loop.push_message(acecode::ChatMessage{"assistant", std::string(900, 'b')});
     for (int i = 0; i < 4; ++i) {
@@ -879,7 +895,6 @@ TEST(HookAgentLoop, PreCompactContinueFalseStopsBeforeProviderCompact) {
         [](const std::string&, const std::string&, int, const std::string&) {
             return hook_json(R"({"continue":false,"reason":"skip compact"})");
         });
-    loop.set_hook_manager(&hooks);
 
     {
         std::lock_guard<std::mutex> lk(mu);
@@ -905,11 +920,9 @@ TEST(HookAgentLoop, AutoPreCompactContinueFalseStopsBeforeProviderCompact) {
         if (!busy) cv.notify_all();
     };
     acecode::AgentLoop loop(
-        [provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools,
-        callbacks,
-        ".",
-        permissions);
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
     loop.set_context_window(100);
     loop.push_message(acecode::ChatMessage{"user", std::string(900, 'a')});
     loop.push_message(acecode::ChatMessage{"assistant", std::string(900, 'b')});
@@ -925,7 +938,6 @@ TEST(HookAgentLoop, AutoPreCompactContinueFalseStopsBeforeProviderCompact) {
             pre_calls.fetch_add(1);
             return hook_json(R"({"continue":false,"reason":"skip auto compact"})");
         });
-    loop.set_hook_manager(&hooks);
 
     {
         std::lock_guard<std::mutex> lk(mu);
@@ -952,11 +964,9 @@ TEST(HookAgentLoop, PostCompactRunsAfterManualCompact) {
         if (!busy) cv.notify_all();
     };
     acecode::AgentLoop loop(
-        [provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools,
-        callbacks,
-        ".",
-        permissions);
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
     loop.push_message(acecode::ChatMessage{"user", std::string(900, 'a')});
     loop.push_message(acecode::ChatMessage{"assistant", std::string(900, 'b')});
     for (int i = 0; i < 4; ++i) {
@@ -973,7 +983,6 @@ TEST(HookAgentLoop, PostCompactRunsAfterManualCompact) {
             post_calls.fetch_add(1);
             return hook_json(R"({"continue":false,"reason":"after compact"})");
         });
-    loop.set_hook_manager(&hooks);
 
     {
         std::lock_guard<std::mutex> lk(mu);
@@ -1000,8 +1009,9 @@ TEST(HookAgentLoop, AutoCompactDoesNotConsumeOneShotHookContext) {
         if (!busy) cv.notify_all();
     };
     acecode::AgentLoop loop(
-        [provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, callbacks, ".", permissions);
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions, nullptr, &hooks),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
     loop.set_context_window(100);
 
     acecode::HookManager hooks(
@@ -1012,7 +1022,6 @@ TEST(HookAgentLoop, AutoCompactDoesNotConsumeOneShotHookContext) {
             return hook_json(
                 R"({"hookSpecificOutput":{"additionalContext":"one-shot hook context"}})");
         });
-    loop.set_hook_manager(&hooks);
 
     {
         std::lock_guard<std::mutex> lock(mu);

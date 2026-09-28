@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -39,8 +40,10 @@ TEST(AgentLoopWorkerRecovery, FailingTaskAndErrorCallbacksDoNotPreventNextTurn) 
         callbacks.on_turn_finished = [](const std::string& status) {
             if (status == "error") throw 43;
         };
-        acecode::AgentLoop loop([provider]() { return provider; }, tools,
-                               callbacks, ".", permissions);
+        acecode::AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([provider]() { return provider; }, tools, callbacks, permissions),
+        acecode_test::AgentLoopFixture::configuration("."));
+        loop.start();
         loop.events().subscribe([&](const acecode::SessionEvent& event) {
             if (event.kind != acecode::SessionEventKind::Done) return;
             std::lock_guard<std::mutex> lock(mu);
@@ -74,13 +77,16 @@ TEST(AgentLoopWorkerRecovery, CompactExceptionEmitsTerminalEventsOnlyOnce) {
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     bool fail_compact = true;
-    acecode::AgentLoop loop([&]() -> std::shared_ptr<acecode::LlmProvider> {
+    acecode::AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> {
         if (fail_compact) {
             fail_compact = false;
             throw std::runtime_error("compact provider lookup failed");
         }
         return provider;
-    }, tools, {}, ".", permissions);
+    }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("."));
+    loop.start();
     loop.events().subscribe([&](const acecode::SessionEvent& event) {
         std::lock_guard<std::mutex> lock(mu);
         if (event.kind == acecode::SessionEventKind::BusyChanged &&

@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "session/session_manager.hpp"
@@ -154,8 +155,9 @@ TEST_F(AgentLoopTrajectoryTest,
         return provider;
     };
     auto loop = std::make_unique<acecode::AgentLoop>(
-        accessor, tools, callbacks(), acecode::path_to_utf8(cwd_), permissions);
-    loop->set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools, callbacks(), permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(acecode::path_to_utf8(cwd_)));
+    loop->start();
     ASSERT_TRUE(submit_and_wait(*loop));
     loop.reset();
     const std::string trajectory_path = session.current_trajectory_path();
@@ -231,8 +233,9 @@ TEST_F(AgentLoopTrajectoryTest, AbortedStepAndTurnRemainClosed) {
         return provider;
     };
     auto loop = std::make_unique<acecode::AgentLoop>(
-        accessor, tools, callbacks(), acecode::path_to_utf8(cwd_), permissions);
-    loop->set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools, callbacks(), permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(acecode::path_to_utf8(cwd_)));
+    loop->start();
 
     {
         std::lock_guard<std::mutex> lock(busy_mutex_);

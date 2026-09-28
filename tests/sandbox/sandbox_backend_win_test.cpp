@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #ifdef _WIN32
 #include <gtest/gtest.h>
 #include "sandbox/sandbox_backend.hpp"
@@ -469,8 +470,10 @@ TEST_P(SandboxBackendWinAgentLoop, AutoAgentLoopRunsGitAndRequiresApprovalForEsc
         return answer;
     };
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
-    AgentLoop loop([&]() -> std::shared_ptr<LlmProvider> { return provider; }, tools,
-        callbacks, path_to_utf8(workspace), permissions);
+    AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<LlmProvider> { return provider; }, tools, callbacks, permissions),
+        acecode_test::AgentLoopFixture::configuration(path_to_utf8(workspace)));
+    loop.start();
     SandboxConfig config;
     config.exclude_tmpdir = true;
     loop.set_sandbox_config(config);

@@ -36,30 +36,4 @@ std::string AgentLoop::active_turn_id() const {
     return active_turn_gate_->id();
 }
 
-void AgentLoop::begin_active_turn(const std::string& turn_id) {
-    active_turn_gate_->begin(turn_id);
-}
-
-void AgentLoop::append_interrupted_turn_context(const std::string& turn_id) {
-    transcript_->append_interrupted_turn_context(session_manager_, turn_id);
-}
-
-void AgentLoop::commit_turn_steering_input(
-    UserInput input,
-    const std::string& turn_id) {
-    transcript_->commit_turn_steering_input(session_manager_, std::move(input), turn_id);
-}
-
-bool AgentLoop::drain_active_turn_inputs(bool close_if_empty) {
-    auto drained = active_turn_gate_->drain(close_if_empty);
-    for (auto& input : drained.inputs) {
-        commit_turn_steering_input(std::move(input), drained.turn_id);
-    }
-    return !drained.inputs.empty();
-}
-
-std::size_t AgentLoop::close_active_turn_and_discard() {
-    return active_turn_gate_->close_and_discard();
-}
-
 } // namespace acecode

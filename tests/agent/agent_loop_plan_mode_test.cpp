@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -63,9 +64,11 @@ public:
 
         tools_.register_tool(acecode::create_file_write_tool());
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
-        loop_ = std::make_unique<acecode::AgentLoop>(accessor, tools_, callbacks_, cwd_, perms_);
+        loop_ = std::make_unique<acecode::AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, callbacks_, perms_, &sm_),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
         sm_.start_session(cwd_, "stub", "stub-model", "sid-agent-plan-mode");
-        loop_->set_session_manager(&sm_);
     }
 
     ~PlanModeWriteHarness() {
@@ -142,14 +145,16 @@ public:
         tools_.register_tool(acecode::create_enter_plan_mode_tool());
         tools_.register_tool(acecode::create_exit_plan_mode_tool());
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
-        loop_ = std::make_unique<acecode::AgentLoop>(accessor, tools_, callbacks_, cwd_, perms_);
+        loop_ = std::make_unique<acecode::AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, callbacks_, perms_, &sm_),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
         sm_.start_session(cwd_, "stub", "stub-model", "sid-agent-yolo-plan-mode");
         sm_.set_permission_mode(acecode::PermissionManager::mode_name(perms_.mode()));
         if (perms_.mode() == acecode::PermissionMode::Plan) {
             sm_.set_pre_plan_permission_mode(
                 acecode::PermissionManager::mode_name(perms_.pre_plan_mode()));
         }
-        loop_->set_session_manager(&sm_);
     }
 
     ~PlanToolHarness() {

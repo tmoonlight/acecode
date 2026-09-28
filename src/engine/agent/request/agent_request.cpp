@@ -27,13 +27,6 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
     return request_builder_->initial_context(request_context_options(provider));
 }
 
-AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
-    const std::shared_ptr<LlmProvider>& provider, bool emergency_profile, bool swarm_mode) {
-    agent::RequestContextFactory context(
-        *boundary_, *exec_security_, request_source_, context_window_, session_manager_,
-        tools_, permissions_, *history_, *request_builder_, *hooks_);
-    return context.build(provider, emergency_profile, swarm_mode);
-}
 void AgentLoop::invalidate_git_snapshot() {
     prompt_cache_->invalidate_git();
 }

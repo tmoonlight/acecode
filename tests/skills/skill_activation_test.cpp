@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // Codex-compatible explicit Skill selection:
 // - `$SkillName` and linked `[$SkillName](SKILL.md path)` parsing
 // - common environment-variable exclusion
@@ -251,11 +252,11 @@ TEST_F(SkillActivationTest, AgentLoopInjectsOnlyTheMentioningTurnAndKeepsDisplay
     acecode::PermissionManager permissions;
     acecode::AgentCallbacks callbacks;
     acecode::AgentLoop loop(
-        [provider]() -> std::shared_ptr<acecode::LlmProvider> {
+        acecode_test::AgentLoopFixture::dependencies([provider]() -> std::shared_ptr<acecode::LlmProvider> {
             return provider;
-        },
-        tools, callbacks, acecode::path_to_utf8(root), permissions);
-    loop.set_skill_registry(&registry);
+        }, tools, callbacks, permissions, nullptr, nullptr, nullptr, (&registry)->snapshot()),
+        acecode_test::AgentLoopFixture::configuration(acecode::path_to_utf8(root)));
+    loop.start();
 
     acecode::UserInput input;
     input.text = "$review inspect this attachment";

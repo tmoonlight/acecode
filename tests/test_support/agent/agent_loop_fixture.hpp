@@ -17,6 +17,26 @@ struct AgentLoopFixture {
     std::unique_ptr<acecode::AgentLoop> make() const {
         return std::make_unique<acecode::AgentLoop>(services, options);
     }
+    static acecode::AgentLoopServices dependencies(
+        acecode::AgentProviderAccessor provider, acecode::ToolExecutor& tools,
+        acecode::AgentCallbacks callbacks, acecode::PermissionManager& permissions,
+        acecode::SessionManager* session = nullptr, acecode::HookManager* hooks = nullptr,
+        const acecode::MemoryRegistry* memory = nullptr,
+        std::shared_ptr<const acecode::SkillRegistry> skills = {}) {
+        acecode::AgentLoopServices result{tools, permissions};
+        result.provider = std::move(provider);
+        result.callbacks = std::move(callbacks);
+        result.session = session;
+        result.hooks = hooks;
+        result.memory = memory;
+        result.skills = std::move(skills);
+        return result;
+    }
+    static acecode::AgentLoopOptions configuration(std::string cwd) {
+        acecode::AgentLoopOptions result;
+        result.cwd = std::move(cwd);
+        return result;
+    }
     acecode::AgentLoopServices services;
     acecode::AgentLoopOptions options;
 };

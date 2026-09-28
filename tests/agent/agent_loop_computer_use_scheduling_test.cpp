@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -58,8 +59,9 @@ public:
             if (!busy) busy_cv_.notify_all();
         };
         loop_ = std::make_unique<AgentLoop>(
-            [this]() -> std::shared_ptr<LlmProvider> { return provider_; },
-            tools_, callbacks, path_to_utf8(tree_.root), permissions_);
+        acecode_test::AgentLoopFixture::dependencies([this]() -> std::shared_ptr<LlmProvider> { return provider_; }, tools_, callbacks, permissions_),
+        acecode_test::AgentLoopFixture::configuration(path_to_utf8(tree_.root)));
+        loop_->start();
     }
 
     ~ComputerUseSchedulingHarness() { loop_.reset(); }

@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 覆盖 AgentLoop::interject_question:AskUserQuestion 挂起时用户没作答而是
 // 直接发了一条文本(Web 输入框 / IM 通道的普通文本)。
 //
@@ -87,7 +88,8 @@ public:
             return provider_;
         };
         loop_ = std::make_unique<acecode::AgentLoop>(
-            accessor, tools_, cb, /*cwd=*/".", perms_);
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_),
+        acecode_test::AgentLoopFixture::configuration(/*cwd=*/"."));
         auto owned_prompter = std::make_unique<acecode::AskUserQuestionPrompter>(
             loop_->events());
         prompter_ = owned_prompter.get();
@@ -101,6 +103,7 @@ public:
             }
             cv_.notify_all();
         });
+        loop_->start();
     }
 
     ~InterjectionHarness() {

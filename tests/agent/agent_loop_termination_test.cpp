@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 端到端测试 AgentLoop 终止协议(openspec/changes/align-loop-with-hermes):
 //   (a) text-only 响应直接结束 loop,无条件
 //   (b) turn 1 调用 task_complete → 1 轮退出,UI 渲染 Done 摘要
@@ -181,7 +182,8 @@ ToolImpl create_counting_write_tool(
 class AgentLoopHarness {
 public:
     explicit AgentLoopHarness(std::string cwd = ".",
-        std::function<void(const acecode::TokenUsage&)> on_usage = {})
+        std::function<void(const acecode::TokenUsage&)> on_usage = {},
+        const acecode::MemoryRegistry* memory = nullptr, bool with_session = false)
         : cwd_(std::move(cwd)) {
         tools_.register_tool(create_noop_tool());
         tools_.register_tool(acecode::create_task_complete_tool());
@@ -229,8 +231,11 @@ public:
         auto provider_accessor =
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
 
+        if (with_session) session_manager_.start_session(cwd_, "stub", "stub-model");
         loop_ = std::make_unique<AgentLoop>(
-            provider_accessor, tools_, cb, /*cwd=*/cwd_, perms_);
+        acecode_test::AgentLoopFixture::dependencies(provider_accessor, tools_, cb, perms_, with_session ? &session_manager_ : nullptr, nullptr, memory),
+        acecode_test::AgentLoopFixture::configuration(/*cwd=*/cwd_));
+        loop_->start();
         event_sub_ = loop_->events().subscribe(
             [this](const acecode::SessionEvent& event) {
                 {
@@ -257,10 +262,7 @@ public:
         loop_->set_agent_loop_config(cfg);
     }
 
-    void enable_session_manager() {
-        session_manager_.start_session(cwd_, "stub", "stub-model");
-        loop_->set_session_manager(&session_manager_);
-    }
+
 
     std::vector<ChatMessage> persisted_session_messages() const {
         return session_manager_.load_active_messages();
@@ -368,10 +370,8 @@ public:
         return loop_->messages();
     }
 
-    void set_memory_context(const acecode::MemoryRegistry* registry,
-                            const acecode::MemoryConfig* cfg) {
-        loop_->set_memory_registry(registry);
-        loop_->set_memory_config(cfg);
+    void set_memory_config(const acecode::MemoryConfig* config) {
+        loop_->set_memory_config(config);
     }
 
     void set_project_instructions_config(const acecode::ProjectInstructionsConfig* cfg) {
@@ -636,8 +636,8 @@ TEST(AgentLoopTurnNetDiff, CompletedTurnPersistsAndEmitsBeforeTerminalEvents) {
     TempHomeGuard home("acecode_turn_net_diff_completed");
     const auto cwd = home.root() / "work";
     fs::create_directories(cwd);
-    AgentLoopHarness h(cwd.string());
-    h.enable_session_manager();
+    AgentLoopHarness h(cwd.string(), {}, nullptr, true);
+
     h.push_text("done");
 
     ASSERT_TRUE(h.submit_and_wait("complete"));
@@ -648,8 +648,8 @@ TEST(AgentLoopTurnNetDiff, ErrorTurnPersistsAndEmitsBeforeTerminalEvents) {
     TempHomeGuard home("acecode_turn_net_diff_error");
     const auto cwd = home.root() / "work";
     fs::create_directories(cwd);
-    AgentLoopHarness h(cwd.string());
-    h.enable_session_manager();
+    AgentLoopHarness h(cwd.string(), {}, nullptr, true);
+
     h.push_provider_error(make_stub_provider_error("provider failed"));
 
     ASSERT_TRUE(h.submit_and_wait("fail"));
@@ -660,8 +660,8 @@ TEST(AgentLoopTurnNetDiff, AbortedTurnPersistsAndEmitsBeforeTerminalEvents) {
     TempHomeGuard home("acecode_turn_net_diff_aborted");
     const auto cwd = home.root() / "work";
     fs::create_directories(cwd);
-    AgentLoopHarness h(cwd.string());
-    h.enable_session_manager();
+    AgentLoopHarness h(cwd.string(), {}, nullptr, true);
+
     h.set_stub_latency_ms(200);
     h.push_tool_call("noop", "{}", "c1");
 
@@ -1118,8 +1118,8 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string());
-    h.set_memory_context(&memory, &memory_cfg);
+    AgentLoopHarness h(repo.string(), {}, &memory);
+    h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("ok");
 
@@ -1183,8 +1183,8 @@ TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string());
-    h.set_memory_context(&memory, &memory_cfg);
+    AgentLoopHarness h(repo.string(), {}, &memory);
+    h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("first ok");
     ASSERT_TRUE(h.submit_and_wait("first"));
@@ -1253,8 +1253,8 @@ TEST(AgentLoopTermination, TaskCompleteTerminatesImmediately) {
 }
 
 TEST(AgentLoopTermination, TerminalSessionActionRunsAfterDoneAndStopsLaterWrites) {
-    AgentLoopHarness h;
-    h.enable_session_manager();
+    AgentLoopHarness h(".", {}, nullptr, true);
+
     auto terminal_executions = std::make_shared<std::atomic<int>>(0);
     auto later_write_executions = std::make_shared<std::atomic<int>>(0);
     auto post_turn_actions = std::make_shared<std::atomic<int>>(0);
@@ -1289,8 +1289,8 @@ TEST(AgentLoopTermination, TerminalSessionActionRunsAfterDoneAndStopsLaterWrites
 
 TEST(AgentLoopTermination, TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult) {
     TempHomeGuard temp_home("acecode-task-complete-message-id");
-    AgentLoopHarness h(temp_home.root().string());
-    h.enable_session_manager();
+    AgentLoopHarness h(temp_home.root().string(), {}, nullptr, true);
+
     h.push_task_complete(std::string(
         acecode::TOOL_RESULT_DEFAULT_MAX_BYTES + 1024, 'x'));
 
@@ -2133,8 +2133,8 @@ TEST(AgentLoopTermination, IgnoredTextToolCallAppendsHiddenNoteAfterBatch) {
 // 的首 token 统计与实际不符。
 TEST(AgentLoopTermination, TextToolCallHoldDeltaDoesNotRecordFirstOutputChannel) {
     TempHomeGuard temp_home("acecode-text-tool-call-hold");
-    AgentLoopHarness h(temp_home.root().string());
-    h.enable_session_manager();
+    AgentLoopHarness h(temp_home.root().string(), {}, nullptr, true);
+
     acecode::StreamEvent hold;
     hold.type = acecode::StreamEventType::ToolCallDelta;
     hold.tool_index = -1;

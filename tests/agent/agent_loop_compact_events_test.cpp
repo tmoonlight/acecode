@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include "session/thread_goal_store.hpp"
 #include <gtest/gtest.h>
 
@@ -252,8 +253,9 @@ TEST(AgentLoopCompactEvents, QueuedCompactAppendsCodexMarkerWithoutTranscriptRep
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/compact-events", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/compact-events"));
+    loop.start();
     add_history(loop, 2);
 
     const auto events = wait_for_done(loop, [&] { loop.submit_compact(); });
@@ -297,9 +299,9 @@ TEST(AgentLoopCompactEvents, ThreeSuccessfulCompactionsCreateOneDurableSuggestio
     acecode::SessionManager session;
     session.start_session(cwd.string(), "stub", "stub");
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     acecode::TaskSuggestionStore store(project_dir);
     for (int i = 0; i < 3; ++i) {
         add_history(loop, 2);
@@ -333,9 +335,9 @@ TEST(AgentLoopCompactEvents, ZeroThresholdSuppressesSuggestionAndFailedSummaryDo
     acecode::SessionManager session;
     session.start_session(cwd.string(), "stub", "stub");
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     loop.set_task_suggestion_compact_threshold(0);
     add_history(loop, 2);
     wait_for_done(loop, [&] { loop.submit_compact(); });
@@ -370,9 +372,9 @@ TEST(AgentLoopTaskHandoff, RemovesOnlyAutomaticGoalContinuationAndPersistsPause)
     ASSERT_TRUE(goals->replace_thread_goal(source, "Complete remaining work", std::nullopt,
                                           acecode::ThreadGoalStatus::Active));
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     bool input_accepted = false;
     std::string handoff_error;
     auto receipt = loop.enqueue_control([&] {
@@ -413,9 +415,9 @@ TEST(AgentLoopTaskHandoff, FailedTargetAcceptanceRestoresActiveGoal) {
     ASSERT_TRUE(goals->replace_thread_goal(source, "Keep doing the current work", std::nullopt,
                                           acecode::ThreadGoalStatus::Active));
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     std::string handoff_error;
     auto receipt = loop.enqueue_control([&] {
         return loop.complete_task_handoff("target-session", [] { return false; }, &handoff_error);
@@ -442,9 +444,9 @@ TEST(AgentLoopTaskHandoff, DefersForQueuedUserInputWithoutDroppingIt) {
     acecode::SessionManager session;
     session.start_session(cwd.string(), "stub", "stub");
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     std::promise<void> entered;
     std::promise<void> release;
     auto entered_future = entered.get_future();
@@ -483,8 +485,9 @@ TEST(AgentLoopTaskHandoff, ConcurrentSuggestionInputIsAcceptedOnlyOnceInRuntime)
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/suggestion-runtime-receipt", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/suggestion-runtime-receipt"));
+    loop.start();
     acecode::UserInput input;
     input.text = "Execute this accepted suggestion once.";
     std::atomic<int> accepted{0};
@@ -528,10 +531,9 @@ TEST(AgentLoopSkillContext,
         cwd.string(), "stub", "stub-model",
         acecode::SessionStorage::generate_session_id());
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
-    loop.set_skill_registry(&skill_registry);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session, nullptr, nullptr, (&skill_registry)->snapshot()),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     loop.set_context_window(128000);
 
     wait_for_done(loop, [&] { loop.submit("please review this change"); });
@@ -581,9 +583,9 @@ TEST(AgentLoopCompactEvents, ManualCompactPersistsAppendOnlyTranscriptAndWindowM
         cwd.string(), "stub", "stub-model",
         acecode::SessionStorage::generate_session_id());
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
 
     auto append = [&](acecode::ChatMessage message) {
         loop.push_message(message);
@@ -643,8 +645,9 @@ TEST(AgentLoopCompactEvents, AutoCompactRunsBeforeInitialModelRequest) {
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/auto-compact-events", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/auto-compact-events"));
+    loop.start();
     loop.set_context_window(100);
     add_history(loop);
 
@@ -662,8 +665,9 @@ TEST(AgentLoopCompactEvents, PendingInputTriggersPreTurnCompactButIsNotSummarize
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/pending-input-compact-boundary", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/pending-input-compact-boundary"));
+    loop.start();
     loop.set_context_window(100000);
     add_history(loop, 1);
 
@@ -717,9 +721,9 @@ TEST(AgentLoopCompactEvents, LegacyCheckpointSeedsNextCompactWindow) {
     session.on_message(legacy_message);
 
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     loop.push_message(loop_msg("user", "legacy retained user"));
 
     wait_for_done(loop, [&] { loop.submit_compact(); });
@@ -780,9 +784,9 @@ TEST(AgentLoopCompactEvents, ForkStartsFreshWindowChainAndResumeKeepsIt) {
     EXPECT_NE(inherited->window_id, "source-current-window");
 
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&forked);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &forked),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     for (const auto& message :
          acecode::reconstruct_effective_model_history(fork_raw)) {
         loop.push_message(message);
@@ -818,8 +822,9 @@ TEST(AgentLoopCompactEvents, ToolFollowUpUsesFullCompactWithoutMicroCompaction) 
     tools.register_tool(huge_output_tool());
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/mid-turn-compact", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/mid-turn-compact"));
+    loop.start();
     loop.set_context_window(200000);
 
     const auto events = wait_for_done(
@@ -845,8 +850,9 @@ TEST(AgentLoopCompactEvents, ManySmallMessagesDoNotTriggerStructuralCompaction) 
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/no-structural-compact", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/no-structural-compact"));
+    loop.start();
     loop.set_context_window(1000000);
     for (int i = 0; i < 300; ++i) {
         loop.push_message(loop_msg("user", "u" + std::to_string(i)));
@@ -878,9 +884,9 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactFallsBackToMechanicalPrune) {
     acecode::SessionManager session;
     session.start_session(cwd.string(), "stub", "model");
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, cwd.string(), permissions);
-    loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
     loop.set_context_window(4000);
     // 历史要足够长,机械修剪才有得可丢 —— 这正是与下一个用例的区别:那里只有
     // 两组历史,修剪不动,于是保持「失败即报错」的旧行为。
@@ -912,8 +918,9 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactIsAtomicAndRetriesOnNextTurn) {
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/auto-compact-failure", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/auto-compact-failure"));
+    loop.start();
     loop.set_context_window(100);
     add_history(loop, 2);
     const auto original_provider_size =
@@ -955,9 +962,9 @@ TEST(AgentLoopCompactEvents, ContextOverflowRepairsHistoryAndRetriesSameInputOnc
         acecode::SessionManager session;
         session.start_session(cwd.string(), "stub", "model");
         acecode::AgentLoop loop(
-            [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-            tools, {}, cwd.string(), permissions);
-        loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+        loop.start();
         loop.set_context_window(1000000);
         add_history(loop, 2);
 
@@ -999,8 +1006,9 @@ TEST(AgentLoopCompactEvents, ExhaustedHistoryUsesOneEmergencyProfileRetry) {
     register_test_tool("bash", "core shell");
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/emergency-profile", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/emergency-profile"));
+    loop.start();
     loop.set_context_window(1000000);
 
     wait_for_done(loop, [&] { loop.submit("only current input"); });
@@ -1030,8 +1038,9 @@ TEST(AgentLoopCompactEvents, PartialOutputOverflowIsNotReplayed) {
     acecode::ToolExecutor tools;
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools, {}, "/tmp/partial-overflow", permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        acecode_test::AgentLoopFixture::configuration("/tmp/partial-overflow"));
+    loop.start();
     loop.set_context_window(1000000);
 
     wait_for_done(loop, [&] { loop.submit("request"); });
@@ -1055,9 +1064,9 @@ TEST(AgentLoopCompactEvents, RepeatedOverflowStopsAfterFiniteRecoveryStages) {
         acecode::SessionManager session;
         session.start_session(cwd.string(), "stub", "model");
         acecode::AgentLoop loop(
-            [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-            tools, {}, cwd.string(), permissions);
-        loop.set_session_manager(&session);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+        loop.start();
         loop.set_context_window(1000000);
         add_history(loop, 2);
 

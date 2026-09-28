@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include "session/permission_prompter.hpp"
 #include <gtest/gtest.h>
 
@@ -70,8 +71,9 @@ public:
             return provider_;
         };
         loop_ = std::make_unique<acecode::AgentLoop>(
-            accessor, tools_, cb, cwd_.string(), perms_);
-        loop_->set_session_manager(sm_.get());
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_, sm_.get()),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string()));
+        loop_->start();
         sub_ = loop_->events().subscribe([this](const acecode::SessionEvent& evt) {
             std::lock_guard<std::mutex> lk(events_mu_);
             events_.push_back(evt);

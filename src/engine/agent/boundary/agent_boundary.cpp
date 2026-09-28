@@ -25,12 +25,6 @@ std::vector<std::string> AgentLoop::workspace_extra_folders() const {
 std::vector<std::string> AgentLoop::writable_workspace_folders() const {
     return boundary_->writable_workspace_folders(session_manager_);
 }
-bool AgentLoop::path_in_workspace_folders(const std::string& path) const {
-    return boundary_->path_in_workspace_folders(path, session_manager_);
-}
-SystemPromptWorkspaceFolders AgentLoop::system_prompt_workspace_folders() const {
-    return boundary_->system_prompt_workspace_folders(session_manager_);
-}
 std::string AgentLoop::write_root() const {
     return boundary_->write_root(session_manager_);
 }

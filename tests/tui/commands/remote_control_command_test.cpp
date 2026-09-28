@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -38,13 +39,11 @@ class RemoteControlCommandHarness {
 public:
     explicit RemoteControlCommandHarness(const std::string& hint)
         : cwd_(temp_cwd(hint))
-        , loop_([] { return std::shared_ptr<acecode::LlmProvider>{}; },
-                tools_,
-                acecode::AgentCallbacks{},
-                cwd_.string(),
-                perms_) {
+        , loop_(
+        acecode_test::AgentLoopFixture::dependencies([] { return std::shared_ptr<acecode::LlmProvider>{}; }, tools_, acecode::AgentCallbacks{}, perms_, &sm_),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string())) {
+        loop_.start();
         sm_.start_session(cwd_.string(), "stub", "model", "sid-" + hint);
-        loop_.set_session_manager(&sm_);
         acecode::register_remote_control_command(registry_);
     }
 

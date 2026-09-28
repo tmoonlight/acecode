@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 验证 AgentLoop 在并行 read-only batch 路径下,把 AskUserQuestionPrompter
 // 包成 ToolContext::ask_user_questions 回调正确注入到每个并行任务。
 //
@@ -18,7 +19,7 @@
 // 三个子场景:
 //   1. ParallelAskUserQuestionGetsCallback —— 装了 prompter 后走通完整问答
 //   2. NoPrompterStillFailsFast —— 没装 prompter 时仍然 fail-fast(锁住语义)
-//   3. ParallelCtxHasTrackFileWriteBefore —— sanity: 当 set_session_manager
+//   3. ParallelCtxHasTrackFileWriteBefore —— sanity: 当 构造注入 SessionManager
 //      非空时,并行 ctx 也注入 track_file_write_before(顺手补的字段一致性)
 
 #include <gtest/gtest.h>
@@ -151,19 +152,16 @@ public:
         auto provider_accessor =
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
 
+        if (with_session_manager) session_manager_ = std::make_unique<SessionManager>();
         loop_ = std::make_unique<AgentLoop>(
-            provider_accessor, tools_, cb, /*cwd=*/".", perms_);
+        acecode_test::AgentLoopFixture::dependencies(provider_accessor, tools_, cb, perms_, session_manager_.get()),
+        acecode_test::AgentLoopFixture::configuration(/*cwd=*/"."));
 
-        if (with_session_manager) {
-            // SessionManager 不调 start_session — 仅占位,让 set_session_manager
-            // 注入非空指针,使并行 batch 注入 track_file_write_before。
-            session_manager_ = std::make_unique<SessionManager>();
-            loop_->set_session_manager(session_manager_.get());
-        }
+
 
         if (with_prompter) {
             auto owned_prompter = std::make_unique<AskUserQuestionPrompter>(loop_->events(), 5s);
-        prompter_ = owned_prompter.get();
+            prompter_ = owned_prompter.get();
             // "前端" listener: 看到 QuestionRequest 立即用 canned 答案
             // notify_response。canned = 用户单选了 axios。
             sub_ = loop_->events().subscribe([this](const SessionEvent& e) {
@@ -191,9 +189,11 @@ public:
             });
             loop_->set_ask_question_prompter(std::move(owned_prompter));
         }
+        loop_->start();
     }
 
     ~AskParallelHarness() {
+        if (loop_) loop_->shutdown();
         if (sub_ != 0) loop_->events().unsubscribe(sub_);
     }
 
@@ -322,7 +322,7 @@ TEST(AgentLoopAskUserQuestionParallel, NoPrompterStillFailsFast) {
 // Sanity 子场景: track_file_write_before 在并行 ctx 里也被注入。
 // 让 ctx_probe 与 AskUserQuestion 同一 turn 里被 LLM 一起返回 → 走同一并行
 // batch → 复用并行 ctx 构造段。Probe 工具记录 ctx.track_file_write_before
-// 是否非空。要求 set_session_manager(非空) 才会触发 if 分支。
+// 是否非空。要求 构造注入 SessionManager(非空) 才会触发 if 分支。
 TEST(AgentLoopAskUserQuestionParallel, ParallelCtxHasTrackFileWriteBefore) {
     AskParallelHarness h(/*with_prompter=*/true, /*with_session_manager=*/true);
 

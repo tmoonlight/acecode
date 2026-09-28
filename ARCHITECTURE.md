@@ -121,8 +121,8 @@ flowchart TB
 
 | Area | Ownership |
 | --- | --- |
-| [main.cpp](main.cpp) | TUI entry point, CLI option parsing for interactive mode, provider/tool setup, FTXUI event loop, and terminal-specific UI wiring. |
-| [src/engine/agent/agent_loop.cpp](src/engine/agent/agent_loop.cpp) and [src/engine/agent/agent_loop.hpp](src/engine/agent/agent_loop.hpp) | Multi-turn agent state machine, streaming callbacks, tool-call loop, cancellation, max-iteration handling, and completion semantics. |
+| [src/apps/cli/main.cpp](src/apps/cli/main.cpp) and [TuiApp](src/apps/tui/app/tui_app.hpp) | CLI dispatch followed by staged TUI assembly. TuiApp owns screen, session, tasks and components, with one shutdown sequence for normal and exceptional exits. |
+| [AgentLoop](src/engine/agent/agent_loop.hpp), [TurnRunner](src/engine/agent/turn/turn_runner.cpp) and [TurnFinalizer](src/engine/agent/turn/turn_finalizer.cpp) | Fixed service injection and explicit worker startup; separate request, model, tool, approval, history, control and recovery modules implement the turn. |
 | [src/adapters/provider/](src/adapters/provider) | `LlmProvider` implementations, provider factory/swap logic, Copilot auth integration, OpenAI-compatible streaming, model profiles, and context-window resolution. |
 | [src/adapters/tool/](src/adapters/tool) | Tool registry, built-in tools, tool result metadata, summaries, MCP bridge, skills tools, memory tools, and optional web-search tool. |
 | [src/domain/permissions/permissions.hpp](src/domain/permissions/permissions.hpp) | Permission modes and glob-style tool/path allow rules. |

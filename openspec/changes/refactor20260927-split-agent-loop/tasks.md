@@ -192,7 +192,7 @@
     - acecode、acecode_testable、acecode_unit_tests、desktop 四个目标都能构建;
     - `session_registry_test`、subagent 相关、`web_server_smoke_test`、`headless_ask_result_test` 通过;
     - 手工冒烟:TUI 一轮对话 + `/btw` + `/compact` + `!cmd`;daemon 下 Web 一轮对话 + 权限弹窗 + 提问插话。
-- [ ] 4.2 【A-17】【子】删除过渡接口,测试迁到 fixture,更新文档。
+- [ ] 4.2 【A-17】【子】删除过渡接口,测试迁到 fixture,更新文档。〔实现完成: Codex-root 2026-09-28;64 处测试构造切换公共 fixture 依赖装配,旧五参构造与会话/Hook/记忆服务回填 setter 已删除;删除 A-13 遗留的无调用门面委托,更新 CLAUDE/架构入口说明;四个配置及动态 skill/expert 接口随 O-10 收口,行数/行覆盖/全量测试待统一验收〕
   - 17 个以上的用例改用 `agent_loop_fixture.hpp`;
   - 直接删除旧构造,以及已被 `AgentLoopServices` 取代的 setter(`set_session_manager`、`set_hook_manager`、`set_skill_usage_store`、`set_skill_idle_days`、`set_memory_registry` 等),不留 deprecation 周期;
   - 四个 `set_*_config` 由 ownership 的 O-10 删除;

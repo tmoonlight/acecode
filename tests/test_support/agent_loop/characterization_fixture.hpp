@@ -1,4 +1,6 @@
 #pragma once
+#include "test_support/agent/agent_loop_fixture.hpp"
+
 
 #include "agent/agent_loop.hpp"
 #include "test_support/agent/stub_provider.hpp"
@@ -245,10 +247,27 @@ public:
                 return state->answer;
             };
         }
+        hooks = std::make_unique<acecode::HookManager>(acecode::HookRegistrySnapshot{},
+            acecode::HookProcessRunner{},
+            [state = observed, reply = hook_reply](
+                const std::string&, const std::string& input, int, const std::string&) {
+                const auto payload = Json::parse(input);
+                const auto event = payload.value("hook_event_name", std::string{});
+                {
+                    std::lock_guard<std::mutex> lock(state->mutex);
+                    state->hooks.push_back(payload);
+                    if (event == "PermissionRequest" || event == "PermissionResolved") {
+                        state->decisions.push_back(event == "PermissionRequest"
+                            ? event : event + ":" + payload.value("permission_decision", "") +
+                              ":" + payload.value("permission_source", ""));
+                    }
+                }
+                return hook_output(*reply ? (*reply)(payload) : Json::object());
+            });
         loop = std::make_unique<acecode::AgentLoop>(
-            [snapshot = active_provider] { return snapshot; }, tools, callbacks,
-            acecode::path_to_utf8(cwd), permissions);
-        loop->set_session_manager(session.get());
+        acecode_test::AgentLoopFixture::dependencies([snapshot = active_provider] { return snapshot; }, tools, callbacks, permissions, session.get(), hooks.get()),
+        acecode_test::AgentLoopFixture::configuration(acecode::path_to_utf8(cwd)));
+        loop->start();
         loop->set_exec_rules({});
         loop->set_exec_rules_dir_for_tests(acecode::path_to_utf8(cwd / "rules"));
         loop->set_sandbox_availability_for_tests(true);
@@ -281,24 +300,8 @@ public:
         acecode::HookRegistrySnapshot registry;
         registry.feature_enabled = true;
         for (const auto& event : events) registry.hooks.push_back(hook_for(event));
-        hooks = std::make_unique<acecode::HookManager>(std::move(registry),
-            acecode::HookProcessRunner{},
-            [state = observed, reply = std::move(reply)](
-                const std::string&, const std::string& input, int, const std::string&) {
-                const auto payload = Json::parse(input);
-                const auto event = payload.value("hook_event_name", std::string{});
-                {
-                    std::lock_guard<std::mutex> lock(state->mutex);
-                    state->hooks.push_back(payload);
-                    if (event == "PermissionRequest" || event == "PermissionResolved") {
-                        state->decisions.push_back(event == "PermissionRequest"
-                            ? event : event + ":" + payload.value("permission_decision", "") +
-                              ":" + payload.value("permission_source", ""));
-                    }
-                }
-                return hook_output(reply ? reply(payload) : Json::object());
-            });
-        loop->set_hook_manager(hooks.get());
+        *hook_reply = std::move(reply);
+        hooks->refresh_registry(std::move(registry));
     }
 
     acecode::ToolImpl probe(std::string name, bool read_only, std::string output = "probe ok") {
@@ -364,6 +367,8 @@ public:
     acecode::PermissionManager permissions;
     // goal 用例的收尾回调临时 lock 租约,与 fixture 共同保证数据库仍存活。
     std::shared_ptr<acecode::SessionManager> session = std::make_shared<acecode::SessionManager>();
+    std::shared_ptr<std::function<Json(const Json&)>> hook_reply =
+        std::make_shared<std::function<Json(const Json&)>>();
     std::unique_ptr<acecode::HookManager> hooks;
     std::unique_ptr<acecode::AgentLoop> loop;
 private:

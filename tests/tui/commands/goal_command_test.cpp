@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -32,24 +33,21 @@ class GoalCommandHarness {
 public:
     explicit GoalCommandHarness(const std::string& hint)
         : cwd_(temp_cwd(hint))
-        , loop_([] { return std::shared_ptr<acecode::LlmProvider>{}; },
-                tools_,
-                acecode::AgentCallbacks{},
-                cwd_.string(),
-                perms_) {
+        , loop_(
+        acecode_test::AgentLoopFixture::dependencies([] { return std::shared_ptr<acecode::LlmProvider>{}; }, tools_, acecode::AgentCallbacks{}, perms_, sm_.get()),
+        acecode_test::AgentLoopFixture::configuration(cwd_.string())) {
+        loop_.start();
         // These tests exercise command parsing/state updates, not unattended
         // continuation. Plan mode keeps maybe_continue_goal() idle and avoids
         // racing /goal pause against a background turn on faster CI hosts.
         perms_.set_mode(acecode::PermissionMode::Plan);
         sm_->start_session(cwd_.string(), "stub", "model", "sid-" + hint);
-        loop_.set_session_manager(sm_.get());
         acecode::register_goal_command(registry_);
     }
 
     ~GoalCommandHarness() {
         loop_.shutdown();
-        loop_.set_session_manager(nullptr);
-        sm_.reset();
+        sm_->end_current_session();
         fs::remove_all(cwd_);
         fs::remove_all(acecode::SessionStorage::get_project_dir(cwd_.string()));
     }

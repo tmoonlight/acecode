@@ -41,9 +41,6 @@
 
 namespace acecode {
 
-
-
-
 class SessionManager;
 class SkillUsageStore;
 class PermissionPrompter;
@@ -63,20 +60,13 @@ struct SystemPromptModelState;
 struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
-
 namespace agent { class TurnFinalizer; struct TurnContext; struct ToolCallOutcome; struct ToolBatchOutcome; struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
-    // provider_accessor: 每轮 turn 开始时调用,返回当前有效的 provider 的
-    // shared_ptr 快照。调用方负责在该函数内部加锁保护 main.cpp 的 provider
-    // 替换(见 design D4 / 任务 4.6)。这样 worker 即使跨 turn 持有 snapshot
-    // 也不会悬空,下一轮再拿最新的。
+    // Snapshot the current provider at each turn; accessor synchronizes publication.
     using ProviderAccessor = std::function<std::shared_ptr<LlmProvider>()>;
 
-    AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
-              AgentCallbacks callbacks, const std::string& cwd,
-              PermissionManager& permissions);
     AgentLoop(AgentLoopServices services, AgentLoopOptions options);
     ~AgentLoop();
     // Install both prompters before start; construction never launches work.
@@ -88,11 +78,7 @@ public:
     // The internal worker thread will process it.
     void submit(const std::string& user_message);
 
-    // Submit with separate "LLM prompt" vs "UI display" texts. `prompt` is what
-    // the model sees in `messages_` (and persisted JSONL);`display_text` is
-    // recorded in `user_msg.metadata.display_text` so UI can show the original
-    // user input even though the model sees an expanded form (e.g. daemon-side
-    // skill command expansion). Empty `display_text` falls back to `prompt`.
+    // display_text preserves unexpanded user text; empty falls back to prompt.
     void submit(const std::string& prompt, const std::string& display_text);
 
     // Submit structured user input containing text plus optional attachment or
@@ -104,11 +90,7 @@ public:
     bool retry_last_user_message(const std::string& expected_user_message_id,
                                  std::string& error);
 
-    // Submit a user-initiated shell command triggered by `!` mode. Non-blocking:
-    // enqueues on the same worker so it serialises with LLM turns. The worker
-    // invokes BashTool directly (no LLM round-trip), emits tool_call + tool_result
-    // UI messages via callbacks, and appends a `<bash-input>/<bash-stdout>/...`
-    // user-role entry to messages_ for the next LLM turn.
+    // !cmd runs on the same worker and persists a shell-context user entry.
     void submit_shell(std::string command);
 
     // Queue a manual `/compact` control task on the same worker as chat/tool
@@ -179,14 +161,8 @@ public:
     // provider response to reach its next model boundary.
     TurnSteerResult interrupt_turn(const std::string& expected_turn_id,
                                    const UserInput& input);
-    // 提问挂起时的用户插话(daemon 路径):把 request_id 对应的
-    // AskUserQuestion 以「用户改为直接输入」收掉,并把 input 作为同回合
-    // steering 输入排在该工具结果之后提交 —— 不 abort、不开新回合。
-    // 两步在 ActiveTurnGate 下一起完成:worker 要等工具返回后才会
-    // drain,所以模型看到的顺序恒为 tool_call → tool_result → user 插话。
-    // expected_turn_id 可空;非空时与 steer_input 一样校验。
-    // 问题已被回答 / 超时 / 关闭 → NoPendingQuestion,input 不会被提交,
-    // 调用方应退回普通发送路径。
+    // Under ActiveTurnGate, finish a pending question and append same-turn input.
+    // No abort/new turn; a stale request returns NoPendingQuestion.
     TurnSteerResult interject_question(const std::string& request_id,
                                        const UserInput& input,
                                        const std::string& expected_turn_id = {});
@@ -203,10 +179,7 @@ public:
     const std::vector<ChatMessage>& messages() const;
     void history_on_worker(const std::function<void(agent::ConversationHistory&)>& operation);
 
-    // Copy of the latest complete provider-facing prompt built by the worker.
-    // `/btw` callers use this instead of reading messages_ from an HTTP thread,
-    // which would race the active turn. The snapshot is intentionally detached
-    // from transcript/session persistence.
+    // Safe detached prompt snapshot; callers never read active worker history.
     std::vector<ChatMessage> side_question_context_snapshot() const;
     // Publish a safe baseline snapshot before the first main provider request.
     // SessionRegistry calls this only while the loop is idle, after initial
@@ -226,19 +199,15 @@ public:
 
     std::string cwd() const;
 
-    // 切换会话工作目录(enter_worktree / exit_worktree / worktree resume 恢复)。
-    // 更新 cwd_ 并以新根重建 PathValidator;会话存储位置(SessionManager 的
-    // project dir)不动 —— worktree 是同一个项目会话的临时工作区,不是新项目。
-    // 只应在工具执行线程(turn 内)或会话未运行时调用。
+    // Changes execution cwd and path validation, retaining session storage cwd.
+    // Call from the tool worker or while idle.
     void set_cwd(const std::string& new_cwd);
     // 重读会话所属项目 workspace.json 里的附加文件夹(「编辑项目」保存的
     // extra_folders)。每回合开始调一次,保存后已打开的会话下一轮即生效。
     void refresh_workspace_folders();
     // 系统提示列出的附加文件夹(已过滤掉磁盘上不存在的)。
     std::vector<std::string> workspace_extra_folders() const;
-    // 真正放行写入的附加文件夹:文件工具的路径校验、bash 写边界守卫与沙箱可写
-    // 根都用它。有写边界(worktree / LOOP / 继承)时去掉与主文件夹重叠的项 ——
-    // 否则附加一个主仓的上级目录就能绕开 worktree 隔离。
+    // Extra writable roots exclude overlap with an inherited worktree/LOOP boundary.
     std::vector<std::string> writable_workspace_folders() const;
     void set_sandbox_config(const SandboxConfig& config);
     void set_exec_rules(sandbox::ExecRules rules);
@@ -254,10 +223,7 @@ public:
     // 只应在会话未运行时设置。
     void set_audit_sink(security::AuditSink sink);
 
-    // 测试用(split-agent-loop P0-11):750ms 进度帧 / 500ms 工具输出帧两处节流的
-    // 取时函数,以及 computer-use 会话租约的释放函数,都可以注入。默认与原实现逐字
-    // 相同(steady_clock::now / computer_use::release_session);只应在会话未运行时
-    // 设置 —— 回合开始时按值捕获快照,回合内不再读取这两个成员。
+    // Set only before work; clock/release callbacks are captured for a whole turn.
     using SteadyClockFn = std::function<std::chrono::steady_clock::time_point()>;
     using ComputerUseReleaseFn = std::function<void(const std::string& session_id)>;
     void set_progress_clock_for_tests(SteadyClockFn clock) {
@@ -277,9 +243,7 @@ public:
         no_model_config_prompt_ = std::move(prompt);
     }
 
-    // Install / update the agent-loop termination policy. Called once from
-    // main.cpp at startup (and could be called again if config reloads).
-    // A fresh-default AgentLoopConfig is used when this setter is never called.
+    // Atomically publish policy for the next worker task.
     void set_agent_loop_config(AgentLoopConfig cfg);
 
     // 工具前言(add-tool-preamble)。配置可在设置页动态改,所以单独一把锁、
@@ -300,27 +264,15 @@ public:
         return request_source_.loop;
     }
 
-    // 写边界根目录。非空 = 写工具(以及 bash 中可证明的写目标)必须落在该
-    // 目录内,与权限模式无关 —— Yolo 不再豁免,只有 dangerous 模式整体放行。
-    // 三种来源按优先级取第一个命中:
-    //   1. 会话 worktree(含 spawn_subagent 从父会话继承来的 worktree);
-    //   2. daemon LOOP 执行策略(边界 = 当前 cwd);
-    //   3. spawn_subagent 透传的父会话 write_root(父会话是无 worktree 的
-    //      LOOP 会话时靠这条,否则子会话什么都继承不到)。
-    // 读工具不受限:父会话读别的 worktree 的记录是合理需求。
+    // Write boundary priority: active worktree, LOOP cwd, inherited parent root.
+    // Read tools are unrestricted; dangerous mode explicitly bypasses write checks.
     std::string write_root() const;
     void set_inherited_write_root(std::string root);
 
-    // 上一回合结果:wait_subagent 用它区分"跑完"与"夭折"。回合因 provider
-    // 终止错误 / 上下文压缩失败 / 连续空回复耗尽 / max_iterations / hook 拦截
-    // 而结束时为 failed,last_turn_error() 带最后一条 error 文案。回合开始时
-    // 清零,所以只反映最近一次 submit 的结果。
+    // Latest completed turn outcome, reset at the next turn's start.
     bool last_turn_failed() const;
     std::string last_turn_error() const;
     ResolvedQuestionPolicy resolved_question_policy() const;
-
-    void set_session_manager(SessionManager* sm);
-    void set_hook_manager(HookManager* hm) { hook_manager_ = hm; }
 
     void dispatch_session_start_hook(const std::string& source);
     void dispatch_session_title_changed_hook(const std::string& title,
@@ -335,19 +287,13 @@ public:
     // AskUserQuestion 正常弹 UI，30 秒未回答则自动采纳推荐项。
     bool goal_unattended_active();
 
-    // /goal edit 修改了 active goal 的 objective 时调用。回合运行中则在下一次
-    // 模型请求前注入 objective_updated steering(对齐 Codex ext/goal 的
-    // inject_active_turn_steering);空闲时为 no-op(下一次 continuation 自然
-    // 带新 objective)。
+    // Active turns consume objective changes at the next model boundary.
     void notify_goal_objective_updated();
 
     void set_skill_registry(const SkillRegistry* sr) { request_source_.skills = sr; }
-    void set_skill_usage_store(SkillUsageStore* store) { request_source_.skill_usage = store; }
-    void set_skill_idle_days(int days) { request_source_.skill_idle_days = days; }
     // Names of skills that are dormant (idle past the threshold, not pinned).
     // Returns an empty set when dormancy is disabled or the store is unset.
     std::set<std::string> dormant_skill_names() const;
-    void set_memory_registry(const MemoryRegistry* mr) { request_source_.memory = mr; }
     void set_memory_config(const MemoryConfig* cfg) { request_source_.memory_config = cfg; }
     void set_project_instructions_config(const ProjectInstructionsConfig* cfg) {
         request_source_.project_config = cfg;
@@ -380,21 +326,13 @@ public:
     // 拿事件流。两者并行,不互相影响。
     EventDispatcher& events() { return events_; }
 
-    // 注入异步 PermissionPrompter(daemon 模式)。不调用此 setter 时,AgentLoop
-    // 默认走 callbacks_.on_tool_confirm 同步路径(TUI 模式)。线程安全要求:
-    // 不在 worker 跑工具时调用 — 通常 SessionRegistry 创建 AgentLoop 后立刻
-    // 调,然后才 submit 第一条消息。
+    // Both event-backed prompters must be installed before start().
     void set_permission_prompter(std::unique_ptr<PermissionPrompter> p);
 
     // Owned by this loop; SessionEntry may retain only a borrowed alias.
     void set_ask_question_prompter(std::unique_ptr<AskUserQuestionPrompter> prompter);
 
-    // 注入 TUI 侧的 AskUserQuestion 传输通道。与上面的 prompter 二选一 ——
-    // daemon 用 prompter(WS 往返),TUI 用这个(overlay 阻塞等待)。两者
-    // 最终都被包成同一个 `ToolContext::ask_user_questions`,因此两端注册的
-    // 是同一个 AskUserQuestion 工具工厂,且任何工具都能向用户提问。
-    // 参数:questions_payload / abort_flag / timeout_seconds(0 = 无限期)
-    //         / origin_label(子代理提问的来源标注)。
+    // TUI transport alternative to the daemon prompter. Bind before work starts.
     using AskQuestionChannel = std::function<nlohmann::json(
         const nlohmann::json& questions_payload,
         const std::atomic<bool>* abort_flag,
@@ -408,104 +346,22 @@ private:
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
     std::unique_ptr<agent::TurnFinalizer> make_turn_finalizer();
-    void run_agent_with_input(const UserInput& input,
-                              bool hidden_goal_context = false,
+    void run_agent_with_input(const UserInput& input, bool hidden_goal_context = false,
                               const ChatMessage* retry_message = nullptr);
-    std::optional<ChatMessage> retryable_user_message(
-        const std::string& expected_user_message_id) const;
+    std::optional<ChatMessage> retryable_user_message(const std::string& id) const;
     void run_shell(std::string command);
     void run_compact();
-    void account_goal_usage(std::int64_t token_delta = 0, bool allow_complete = false);
     void emit_goal_updated(const ThreadGoal& goal);
-    void emit_goal_cleared(const std::string& session_id);
-    void emit_todo_updated(const nlohmann::json& payload);
-    std::string build_goal_context_prompt(const ThreadGoal& goal) const;
-    std::string build_goal_budget_limit_prompt(const ThreadGoal& goal) const;
-    std::string build_goal_objective_updated_prompt(const ThreadGoal& goal) const;
-    // 回合失败(provider 终止错误 / 连续空回复 / provider 缺失)时停止 Active
-    // goal:HTTP 429 → usage_limited,其余 → blocked。对齐 Codex ext/goal 的
-    // on_turn_error,防止 maybe_continue_goal 对着同一个错误无限重试烧 token。
-    void stop_active_goal_after_turn_error(const ProviderErrorInfo& info);
     void wake_active_provider_retry();
-    // 在每次模型请求前消费 pending steering 标记,把 budget_limit /
-    // objective_updated 提示以 hidden_goal_context user 消息注入。
-    void maybe_inject_goal_steering();
-    void begin_active_turn(const std::string& turn_id);
-    void commit_turn_steering_input(UserInput input,
-                                    const std::string& turn_id);
-    // Worker-only. Drains pending input and returns true when at least one
-    // message was committed. When close_if_empty is true, an empty queue closes
-    // acceptance under the same lock, eliminating the final-response race.
-    bool drain_active_turn_inputs(bool close_if_empty);
-    void append_interrupted_turn_context(const std::string& turn_id);
-    std::size_t close_active_turn_and_discard();
-    bool maybe_run_auto_compact();
     agent::CompactionInputs compaction_inputs() const;
-    bool active_estimate_exceeds_auto_threshold(
-        const UserInput* pending_input = nullptr) const;
-
     std::vector<ChatMessage> build_compaction_initial_context() const;
-
-    // Section 7: 同时调老 on_message callback(若 TUI 挂了)和新事件流
-    // (events_)。所有 on_message 触发点都该走这个 helper,确保 daemon
-    // 模式下没装 callbacks 也能拿到事件。
-    void dispatch_message(const std::string& role,
-                          const std::string& content,
-                          bool is_tool,
-                          nlohmann::json metadata = nlohmann::json::object(),
-                          nlohmann::json content_parts = nlohmann::json::array());
-    void append_turn_timing_record(const std::string& user_message_uuid,
-                                   std::int64_t started_at_ms,
-                                   std::int64_t completed_at_ms,
-                                   const std::string& status);
-    void append_tool_user_prompt(const std::string& content,
-                                 const std::string& display_text,
-                                 const std::string& source_tool);
-    void dispatch_assistant_completed_hook(const ChatMessage& assistant_msg,
-                                           const std::shared_ptr<LlmProvider>& provider_snapshot);
-    HookCommonPayloadFields build_hook_common_fields(const std::string& event_name) const;
-    void apply_hook_side_effects(const HookAggregateOutcome& outcome,
-                                 bool include_additional_context = true);
-    std::string drain_hook_request_context();
-    HookAggregateOutcome dispatch_codex_hook(const std::string& event_name,
-                                             const std::string& matcher_value,
-                                             const nlohmann::json& payload);
-
-    // Type alias for the progress emission callback used across sub-methods.
-    using ProgressEmitter = agent::ProgressEmitter;
-
-    // Phase 1: Build user message from input, persist, emit events.
-    // Returns turn timing metadata for the orchestrator.
-    using UserTurnInfo = agent::UserTurnInfo;
-    // 用户消息落盘后把新的会话摘要(无标题时的显示标题)以 session_updated
-    // {summary} 推给界面:侧栏与顶部标题栏同源于这一个字段,前端不再各自从
-    // 消息正文现推标题(那正是两处标题不一致、且长度不受限的根因)。
-    void emit_session_summary_updated();
-
-    // Phase 2: Build the full message list for the LLM provider.
-    using ApiRequestBundle = agent::ApiRequestBundle;
-    agent::RequestContextOptions request_context_options(const std::shared_ptr<LlmProvider>& provider, bool swarm_mode = false) const;
-    ApiRequestBundle build_api_request_messages(const std::shared_ptr<LlmProvider>& provider,
-                                                bool emergency_profile = false, bool swarm_mode = false);
-    void publish_side_question_context(
-        const std::vector<ChatMessage>& messages_with_system);
-
-    // 具体进度提示(add-tool-preamble)的一条 loading 文案。
-    using ToolPreambleTitle = agent::ToolPreambleTitle;
-
-    void record_terminal_trajectory_events(
-        nlohmann::json busy_payload,
-        nlohmann::json done_payload);
-
-    using WorkerTask = agent::WorkerTask;
-
+    agent::RequestContextOptions request_context_options(
+        const std::shared_ptr<LlmProvider>& provider, bool swarm_mode = false) const;
+    void publish_side_question_context(const std::vector<ChatMessage>& messages);
     void require_before_start(const char* operation) const;
     void reload_exec_rules();
     void release_computer_use_session(const std::string& session_id) const;
-    std::string sandbox_prompt_description() const;
-    bool path_in_workspace_folders(const std::string& path) const;
-    SystemPromptWorkspaceFolders system_prompt_workspace_folders() const;
-    void record_turn_outcome(const std::string& turn_timing_status);
+    using WorkerTask = agent::WorkerTask;
 
     // Roots outlive all collaborators and prompters. Worker is always last.
     AbortSignal abort_signal_;
@@ -520,15 +376,13 @@ private:
     mutable std::mutex lifecycle_mu_;
     bool started_ = false;
     bool stopped_ = false;
-    bool legacy_auto_started_ = false; // Removed with the old constructor in A-17.
-    std::atomic<bool> processed_task_{false};
 
     // Required references and optional borrowed dependencies are fixed at init.
     ProviderAccessor provider_accessor_;
     ToolExecutor& tools_;
     PermissionManager& permissions_;
-    SessionManager* session_manager_ = nullptr; // Nullable borrowed.
-    HookManager* hook_manager_ = nullptr; // Nullable borrowed.
+    SessionManager* const session_manager_; // Nullable borrowed; fixed at construction.
+    HookManager* const hook_manager_; // Nullable borrowed; fixed at construction.
     AgentRuntimeEnv runtime_;
     std::shared_ptr<const SkillRegistry> skills_snapshot_;
     std::shared_ptr<const ExpertDefinition> expert_snapshot_;

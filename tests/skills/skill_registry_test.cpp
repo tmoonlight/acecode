@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 #include "session/token_tracker.hpp"
 #include "skills/skill_registry.hpp"
 #include "agent/agent_loop.hpp"
@@ -353,11 +354,9 @@ TEST_F(SkillRegistryCompatTest, CommandDispatchInvokesNewSkillWithoutReloadingCo
     acecode::AgentCallbacks callbacks;
     auto provider = std::make_shared<NoopProvider>();
     acecode::AgentLoop loop(
-        [&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; },
-        tools,
-        callbacks,
-        temp_root.string(),
-        permissions);
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, callbacks, permissions),
+        acecode_test::AgentLoopFixture::configuration(temp_root.string()));
+    loop.start();
     acecode::AppConfig config;
     acecode::TokenTracker token_tracker;
 

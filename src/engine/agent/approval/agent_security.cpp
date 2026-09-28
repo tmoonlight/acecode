@@ -13,9 +13,6 @@ void AgentLoop::set_sandbox_availability_for_tests(std::optional<bool> value) {
 void AgentLoop::set_audit_sink(security::AuditSink sink) { exec_security_->set_audit_sink(std::move(sink)); }
 void AgentLoop::set_sandbox_config(const SandboxConfig& config) { exec_security_->set_sandbox_config(config); }
 void AgentLoop::reload_exec_rules() { exec_security_->reload_exec_rules(); }
-std::string AgentLoop::sandbox_prompt_description() const {
-    return exec_security_->sandbox_prompt_description(session_manager_);
-}
 std::string AgentLoop::sandbox_command(const std::string& args) {
     return exec_security_->sandbox_command(session_manager_, args);
 }

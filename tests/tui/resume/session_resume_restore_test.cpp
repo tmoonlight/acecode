@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 覆盖 resume 入口共用的 glue 层:它不仅要调用 replay_session_messages 生成
 // TUI 可见的 tool_call / tool_result 行,还要只把 OpenAI 规范 role 回填给
 // AgentLoop,避免 UI-only pseudo role 发给 provider。
@@ -67,11 +68,10 @@ acecode::ChatMessage tool_result(const std::string& id, const std::string& conte
 class ResumeRestoreHarness {
 public:
     ResumeRestoreHarness()
-        : loop_([this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; },
-                tools_,
-                acecode::AgentCallbacks{},
-                ".",
-                permissions_) {}
+        : loop_(
+        acecode_test::AgentLoopFixture::dependencies([this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; }, tools_, acecode::AgentCallbacks{}, permissions_),
+        acecode_test::AgentLoopFixture::configuration(".")) {
+        loop_.start();}
 
     acecode::TuiState state;
     acecode::ToolExecutor tools_;

@@ -1,3 +1,4 @@
+#include "test_support/agent/agent_loop_fixture.hpp"
 // 覆盖 AgentLoop 对「编辑项目」附加文件夹的消费(多文件夹项目):
 // - 每回合开头从会话 project dir 的 workspace.json 读 extra_folders;
 // - 文件工具的路径校验把附加文件夹当作工作目录放行,之外的路径照旧拒绝;
@@ -98,7 +99,7 @@ void write_workspace_marker(const fs::path& main, const std::vector<fs::path>& e
 
 class Harness {
 public:
-    Harness(std::string cwd, PermissionMode mode)
+    Harness(std::string cwd, PermissionMode mode, bool with_session = false)
         : cwd_(std::move(cwd)) {
         AgentCallbacks cb;
         cb.on_busy_changed = [this](bool busy) {
@@ -111,13 +112,17 @@ public:
         };
         auto accessor = [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
         perms_.set_mode(mode);
-        loop_ = std::make_unique<AgentLoop>(accessor, tools_, cb, cwd_, perms_);
+        loop_ = std::make_unique<AgentLoop>(
+        acecode_test::AgentLoopFixture::dependencies(accessor, tools_, cb, perms_, with_session ? &session_manager_ : nullptr),
+        acecode_test::AgentLoopFixture::configuration(cwd_));
+        loop_->start();
         sub_ = loop_->events().subscribe([this](const SessionEvent& e) {
             std::lock_guard<std::mutex> lk(events_mu_);
             events_.push_back(e);
         });
     }
     ~Harness() {
+        if (loop_) loop_->shutdown();
         if (loop_ && sub_ != 0) loop_->events().unsubscribe(sub_);
         loop_.reset();
     }
@@ -128,7 +133,6 @@ public:
 
     void enter_worktree(const std::string& worktree_path, const std::string& original_cwd) {
         session_manager_.start_session(cwd_, "stub", "stub-model");
-        loop_->set_session_manager(&session_manager_);
         acecode::WorktreeSessionInfo info;
         info.original_cwd = original_cwd;
         info.worktree_path = worktree_path;
@@ -247,7 +251,7 @@ TEST(AgentLoopWorkspaceFolders, WorktreeBoundaryDropsFolderOverlappingMainChecko
 
     {
         std::atomic<int> calls{0};
-        Harness h(path_to_utf8(main), PermissionMode::Yolo);
+        Harness h(path_to_utf8(main), PermissionMode::Yolo, true);
         h.tools().register_tool(make_write_probe(&calls));
         h.enter_worktree(path_to_utf8(worktree), path_to_utf8(main));
 

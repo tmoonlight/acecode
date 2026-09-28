@@ -20,7 +20,6 @@ void AgentLoop::worker_main() {
     while (true) {
         WorkerTask task;
         if (!task_queue_->wait_pop(task)) return;
-        processed_task_.store(true);
         try {
             loop_cfg_ = *std::atomic_load(&published_loop_config_);
             if (task.kind == WorkerTask::Kind::Chat) {

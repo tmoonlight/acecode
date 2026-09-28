@@ -50,28 +50,6 @@ namespace acecode {
 
 using agent::detail::kDefaultNoModelConfiguredPrompt;
 
-namespace {
-AgentLoopServices legacy_services(AgentLoop::ProviderAccessor provider, ToolExecutor& tools,
-    AgentCallbacks callbacks, PermissionManager& permissions) {
-    AgentLoopServices services{tools, permissions};
-    services.provider = std::move(provider);
-    services.callbacks = std::move(callbacks);
-    return services;
-}
-AgentLoopOptions legacy_options(std::string cwd) {
-    AgentLoopOptions options;
-    options.cwd = std::move(cwd);
-    return options;
-}
-}
-AgentLoop::AgentLoop(ProviderAccessor provider, ToolExecutor& tools,
-    AgentCallbacks callbacks, const std::string& cwd, PermissionManager& permissions)
-    : AgentLoop(legacy_services(std::move(provider), tools, std::move(callbacks), permissions),
-                legacy_options(cwd)) {
-    legacy_auto_started_ = true;
-    start();
-}
-
 AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     : callbacks_(std::move(services.callbacks))
     , turn_outcome_(std::make_unique<agent::TurnOutcomeRecord>())
@@ -151,12 +129,9 @@ void AgentLoop::start() {
     started_ = true;
 }
 void AgentLoop::require_before_start(const char* operation) const {
-    std::lock_guard<std::mutex> lock(lifecycle_mu_);
-    if (!started_) return;
-    if (!legacy_auto_started_)
+    // Caller holds lifecycle_mu_ through the ownership transfer.
+    if (started_)
         throw std::logic_error(std::string(operation) + " must precede AgentLoop::start");
-    if (busy_.load() || processed_task_.load())
-        LOG_WARN(std::string(operation) + " changes a legacy loop after work has started");
 }
 void AgentLoop::set_agent_loop_config(AgentLoopConfig config) {
     std::atomic_store(&published_loop_config_,
@@ -222,11 +197,13 @@ void AgentLoop::shutdown() {
 }
 
 void AgentLoop::set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {
+    std::lock_guard<std::mutex> lock(lifecycle_mu_);
     require_before_start("set_permission_prompter");
     prompter_ = std::move(p);
 }
 
 void AgentLoop::set_ask_question_prompter(std::unique_ptr<AskUserQuestionPrompter> p) {
+    std::lock_guard<std::mutex> lock(lifecycle_mu_);
     require_before_start("set_ask_question_prompter");
     ask_prompter_ = std::move(p);
 }
