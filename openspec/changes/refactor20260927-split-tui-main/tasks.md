@@ -83,9 +83,9 @@
   - 验证:
     - 新增 `chat_viewport` 单测;
     - 手工验证:滚动、拖动滚动条、Ctrl+O、调整终端宽度、resume 后停在尾部、流式跟随(清单第 2、6 小节)。
-- [ ] 3.3 【B-06】【主】只读视图。
+- [ ] 3.3 【B-06】【主】只读视图。〔实现完成: Codex-root 2026-09-28;横幅/进度/四类 picker/提示状态/链接气泡已外提,tui_helpers 按职责拆分且旧头和实现删除,调用者直引所属模块;补充气泡位置、屏幕文本和 ask/confirm 命中清空用例,待统一验收〕
   - header、activity、picker、prompt_status、link_hover;
-  - 拆分 `tui_helpers.cpp`:status_chips、regular_sidebar_view、text_cells、thinking_phrases、input_wrap_view;`tui_helpers.hpp` 暂时保留为聚合转发头;
+  - 拆分 `tui_helpers.cpp`:status_chips、regular_sidebar_view、text_cells、thinking_phrases、input_wrap_view;依用户决定不留转发头,所有调用者迁移后删除 `tui_helpers.hpp`;
   - `prompt_status_view` 接收 `render_composer` 回调,只在常规分支调用(MR-6);
   - `regular_sidebar_view` 保持 `TuiState&` 签名;帧内顺序表登记侧栏 clamp 回写(MR-7)。
   - 前置:3.2。

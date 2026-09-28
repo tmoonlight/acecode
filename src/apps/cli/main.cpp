@@ -184,7 +184,19 @@
 #include "tui/theme_palette.hpp"
 #include "tui/settings/management_center.hpp"
 #include "tui/settings/settings_center.hpp"
-#include "tui/tui_helpers.hpp"
+#include "tui/model/thinking_phrases.hpp"
+#include "tui/model/mcp_sidebar_model.hpp"
+#include "tui/render/text_cells.hpp"
+#include "tui/render/status_chips.hpp"
+#include "tui/render/regular_sidebar_view.hpp"
+#include "tui/render/tool_row_view.hpp"
+#include "tui/render/ask_question_style.hpp"
+#include "tui/render/header_view.hpp"
+#include "tui/render/activity_indicator_view.hpp"
+#include "tui/render/picker_views.hpp"
+#include "tui/render/prompt_status_view.hpp"
+#include "tui/render/link_hover_tooltip.hpp"
+#include "tui/composer/input_wrap_view.hpp"
 #include "tui/vertical_scroll.hpp"
 #include "platform/terminal/terminal_theme_detect.hpp"
 #include "tui/subagent_host.hpp"
@@ -224,21 +236,6 @@ namespace {
 // Semantic theme colors for the question panel. The panel resolves its own
 // colors instead of inheriting a decorator from the composing container: a
 // container-wide `color(...)` was what turned the whole chat area blue.
-static acecode::tui::AskQuestionPanelColors ask_question_panel_colors() {
-    const auto& palette = acecode::tui::theme();
-    acecode::tui::AskQuestionPanelColors colors;
-    colors.border = palette.ui.border;
-    colors.question = palette.ui.text_primary;
-    colors.answer = palette.ui.text_primary;
-    colors.description = palette.ui.text_muted;
-    colors.placeholder = palette.ui.text_dim;
-    colors.focus_bg = palette.ui.selection_bg;
-    colors.panel_bg = palette.ui.input_bg;
-    colors.secondary = palette.ui.text_secondary;
-    colors.selection_fg = palette.ui.selection_fg;
-    colors.selection_bg = palette.ui.selection_bg;
-    return colors;
-}
 
 static int ask_timeout_remaining_seconds(
     const tui::AskQuestionSession& session,
@@ -782,7 +779,7 @@ static void signal_handler(int /*sig*/) {
 #endif
 
 // ---- Shared TUI state ----
-// TuiState is defined in src/tui/tui_state.hpp, reached through tui/tui_helpers.hpp.
+// TuiState is shared by the TUI model and its views.
 using acecode::TuiState;
 
 
@@ -1695,60 +1692,6 @@ struct TuiRendererContext {
     bool hover_supported = false;
 };
 
-// link-hover-tooltip (add-tui-hyperlinks 5.3): 构造悬停气泡 Element。
-// 布局技巧:dbox 的每个子元素共享同一区域,气泡元素内部用 size(EQUAL)
-// 占位 + filler() 把浮层推到指针附近 —— 不参与 flex 挤压主布局,也不
-// 捕获输入(DOM 元素而非组件,事件仍由底层组件树处理)。指针右上方优先;
-// 右/下空间不足时翻到指针左/下方;所有坐标 clamp 到终端范围内,保证
-// 气泡需求尺寸恒不撑大 dbox 需求,布局与无气泡时完全一致。
-// 调用方须持有 state.mu(render_tui_frame 入口已持锁)。
-static Element render_link_hover_tooltip(const TuiState& state) {
-    const auto term = Terminal::Size();
-    // 边框至少需要 2 列/3 行;极窄终端直接跳过浮层,避免 dbox 的需求尺寸
-    // 反向撑大主布局。
-    if (term.dimx < 4 || term.dimy < 3) {
-        return emptyElement();
-    }
-    // 显示真实 URL(href 原文,防骗 —— 显示文本可能被 Markdown 伪装)。
-    // 按 cell 而不是 UTF-8 字节截断;宽/高预算含 2 格 border 边框,确保
-    // x + bubble_w <= dimx 恒成立,不会撑大 dbox 需求。
-    const int max_url_cells = term.dimx - 2;
-    const std::string url = tui::truncate_cells_middle_ascii(
-        state.hover_link_href, max_url_cells);
-    const int bubble_w = std::min(
-        term.dimx, std::max(2, ftxui::string_width(url) + 2));
-    const int bubble_h = 3;  // border top + text row + border bottom
-
-    const int px = state.hover_link_x;
-    const int py = state.hover_link_y;
-    int x = px + 2;  // 指针右上方
-    if (x + bubble_w > term.dimx) {
-        x = px - bubble_w - 2;  // 右侧不够 → 指针左侧
-    }
-    x = std::clamp(x, 0, term.dimx - bubble_w);
-    int y = py - bubble_h - 1;  // 指针上方
-    if (y < 0) {
-        y = py + 1;  // 上方不够 → 指针下方
-    }
-    y = std::min(y, std::max(0, term.dimy - bubble_h));
-
-    const bool is_light = acecode::tui::theme().name == "light";
-    const Color bubble_bg =
-        is_light ? Color::RGB(235, 238, 244) : Color::RGB(42, 46, 54);
-    auto bubble =
-        text(url) | color(acecode::tui::theme().ui.text_primary) |
-        bgcolor(bubble_bg) |
-        borderRounded | color(acecode::tui::theme().ui.border);
-    return vbox({
-        emptyElement() | size(HEIGHT, EQUAL, y),
-        hbox({
-            emptyElement() | size(WIDTH, EQUAL, x),
-            bubble,
-        }),
-        filler(),
-    });
-}
-
 // 渲染整屏 TUI；只做画面组装，不处理输入事件。
 static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& state = ctx.state;
@@ -1781,9 +1724,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto& viewport = ctx.viewport;
 
     std::lock_guard<std::mutex> lk(state.mu);
-    input_hit_layout.box = Box{0, -1, 0, -1};
-    input_hit_layout.regions.clear();
-    input_hit_layout.input_value.clear();
+    input_hit_layout.clear();
     auto compat_horizontal_line = [] {
         const int cols = Terminal::Size().dimx;
         const int safe_cols = std::max(1, cols > 4 ? cols - 4 : cols);
@@ -1868,51 +1809,8 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     message_layout_revisions.assign(n_msgs, 0);
     message_layout_widths.assign(n_msgs, 0);
 
-    const bool is_light = acecode::tui::theme().name == "light";
-    Element header;
-    if (conhost_compat_layout) {
-        header = vbox({
-            text(version_str) | color(tui::theme().ui.text_muted) | dim,
-            state.update_notice.empty()
-                ? emptyElement()
-                : paragraph(state.update_notice) | color(tui::theme().semantic.warning),
-            text(state.status_line) | color(tui::status_line_color(state.status_line)),
-            text(cwd_display) | color(tui::theme().ui.accent_alt) | dim,
-        }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
-    } else {
-        // -- Logo --
-        auto logo = vbox({
-            text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
-            text("\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x88\xE2\x96\x91\xE2\x96\x88\xE2\x96\x91\xE2\x96\x91\xE2\x96\x91\xE2\x96\x88\xE2\x96\x80\xE2\x96\x80\xE2"),
-            text("\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2\x96\x91\xE2\x96\x80\xE2\x96\x80\xE2\x96\x80\xE2"),
-        }) | color(tui::theme().ui.border) | bold;
-
-        if (show_regular_sidebar && hide_regular_sidebar_banner) {
-            header = emptyElement();
-        } else if (show_regular_sidebar) {
-            header = hbox({
-                text("    "),
-                logo,
-                filler(),
-                text("  "),
-            }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
-        } else {
-            header = hbox({
-                text("    "),
-                logo,
-                filler(),
-                vbox({
-                    text(version_str) | color(tui::theme().ui.text_muted) | dim,
-                    state.update_notice.empty()
-                        ? emptyElement()
-                        : paragraph(state.update_notice) | color(tui::theme().semantic.warning),
-                    text(state.status_line) | color(tui::status_line_color(state.status_line)),
-                    text(cwd_display) | color(tui::theme().ui.accent_alt) | dim,
-                }),
-                text("  "),
-            }) | bgcolor(is_light ? Color::RGB(225, 235, 245) : Color::RGB(0, 30, 45));
-        }
-    }
+    Element header = tui::render_header_view(state, version_str, cwd_display,
+        conhost_compat_layout, show_regular_sidebar, hide_regular_sidebar_banner);
 
     // -- Messages --
     // Bottom-anchor short transcripts while following the tail. FTXUI's
@@ -2453,320 +2351,16 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         | selectionBackgroundColor(tui::theme().ui.selection_bg)
         | selectionForegroundColor(tui::theme().ui.selection_fg);
 
-    // -- Thinking indicator / tool progress --
-    // Priority: if a tool is streaming output, show the live tool-progress
-    // element instead of the thinking animation (the tool is the more
-    // specific "in-progress" signal).
-    Element thinking_element = emptyElement();
-    if (!conhost_compat_layout && state.tool_running) {
-        thinking_element = render_tool_progress(state);
-    } else if (!conhost_compat_layout && state.is_waiting) {
-        if (state.is_compacting) {
-            const auto compact_now = std::chrono::steady_clock::now();
-            const auto compact_origin =
-                state.compact_animation_start_time.time_since_epoch().count() != 0
-                    ? state.compact_animation_start_time
-                    : compact_now;
-            const long long compact_elapsed_ms = std::max<long long>(
-                0, std::chrono::duration_cast<std::chrono::milliseconds>(
-                       compact_now - compact_origin).count());
-            const std::vector<std::string> compact_glyphs =
-                ftxui::Utf8ToGlyphs("Compacting conversation...");
-            const auto compact_frame = tui::make_compact_animation_frame(
-                compact_glyphs.size(), compact_elapsed_ms);
-            Elements compact_chars;
-            for (std::size_t i = 0; i < compact_glyphs.size(); ++i) {
-                const bool highlighted =
-                    compact_frame.highlighted_background[i];
-                Element glyph = text(compact_glyphs[i]) |
-                    color(highlighted
-                              ? tui::theme().ui.selection_fg
-                              : tui::theme().ui.text_primary);
-                if (highlighted) {
-                    glyph = glyph | bgcolor(tui::theme().ui.selection_bg);
-                }
-                compact_chars.push_back(std::move(glyph));
-            }
-            thinking_element = hbox({
-                text(" \xE2\x97\x8F ") | color(tui::theme().ui.accent),
-                hbox(std::move(compact_chars)),
-            });
-        } else {
-        const auto thinking_now = std::chrono::steady_clock::now();
-        const auto animation_origin =
-            state.thinking_start_time.time_since_epoch().count() != 0
-                ? state.thinking_start_time
-                : std::chrono::steady_clock::time_point{};
-        const long long animation_elapsed_ms = std::max<long long>(
-            0, std::chrono::duration_cast<std::chrono::milliseconds>(
-                   thinking_now - animation_origin).count());
+    auto activity = tui::render_activity_indicator_view(
+        state, conhost_compat_layout, show_regular_sidebar, anim_tick.load());
+    Element thinking_element = std::move(activity.thinking);
+    Element mcp_loading_element = std::move(activity.mcp_loading);
 
-        // smooth-tui-thinking-animation:短语和固定三个点共用一条基于真实
-        // elapsed time 的方向性流光。黄色尾迹接亮白核心,前沿自然回落到灰色;
-        // 自适应采样只改变帧密度,漏帧时也会直接回到正确 phase。
-        const std::vector<std::string> thinking_glyphs =
-            ftxui::Utf8ToGlyphs(state.current_thinking_phrase + "...");
-        const auto animation_frame = tui::make_thinking_animation_frame(
-            thinking_glyphs.size(), animation_elapsed_ms);
-        Elements chars;
-        for (std::size_t i = 0; i < thinking_glyphs.size(); ++i) {
-            const auto& highlight = animation_frame.glyph_highlights[i];
-            const Color warm_color = Color::Interpolate(
-                highlight.warm,
-                tui::theme().ui.text_dim,
-                tui::theme().ui.accent);
-            const Color glyph_color = Color::Interpolate(
-                highlight.white,
-                warm_color,
-                Color::White);
-            chars.push_back(text(thinking_glyphs[i]) | color(glyph_color));
-        }
-
-        // inline-thinking-heartbeat:动画短语右侧挂 "[Ns · ↓ X tokens]" 数据段。
-        // 秒数/token 的刷新搭 anim_tick 动画循环的便车,零额外重绘成本。
-        // thinking_start_time 停在 time_point{} 原点时跳过(未打点时秒数会是
-        // 天文数字,先例见 on_message 处的同款防御)。
-        Element heartbeat = emptyElement();
-        if (state.thinking_start_time.time_since_epoch().count() != 0) {
-            const long hb_secs = static_cast<long>(animation_elapsed_ms / 1000);
-            const long long hb_ms = animation_elapsed_ms;
-            heartbeat = text("  " + tui::format_thinking_heartbeat(
-                                        hb_secs, hb_ms,
-                                        state.turn_completion_tokens_confirmed,
-                                        state.streaming_output_chars))
-                | dim | color(tui::theme().ui.accent_alt);
-        }
-        thinking_element = hbox({
-            text(" \xE2\x97\x8F ") | color(tui::theme().ui.accent),
-            hbox(std::move(chars)),
-            heartbeat,
-        });
-        }
-    }
-
-    Element mcp_loading_element = emptyElement();
-    if (!show_regular_sidebar && tui::mcp_sidebar_has_loading(state)) {
-        mcp_loading_element = hbox({
-            text(" i ") | bold | color(Color::White),
-            tui::render_white_shimmer_text("MCP loading", anim_tick.load()),
-        });
-    }
-
-    // -- Prompt line --
-    Element prompt_line;
-    // Resume picker overlay above the prompt
-    Element resume_picker_element = emptyElement();
-    if (state.resume_picker_active && !state.resume_items.empty()) {
-        Elements picker_rows;
-        picker_rows.push_back(
-            text(" Resume a session (Up/Down/PgUp/PgDn/Home/End to navigate, Enter to confirm, Esc to cancel, 1-9 jump):")
-            | bold | color(tui::theme().ui.border));
-        picker_rows.push_back(text(""));
-
-        const int total = static_cast<int>(state.resume_items.size());
-        const int visible = std::min(acecode::tui::kResumePickerVisibleRows, total);
-        int offset = std::clamp(state.resume_view_offset, 0,
-                                std::max(0, total - visible));
-        const int items_above = offset;
-        const int items_below = std::max(0, total - offset - visible);
-
-        // Top overflow indicator (always reserves a row to keep height stable).
-        if (items_above > 0) {
-            picker_rows.push_back(
-                text("  \xE2\x86\x91 " + std::to_string(items_above) + " more above")
-                | dim | color(tui::theme().ui.text_muted));
-        } else {
-            picker_rows.push_back(text(""));
-        }
-
-        for (int i = offset; i < offset + visible; ++i) {
-            bool selected = (i == state.resume_selected);
-            auto row = text("  " + state.resume_items[i].display);
-            if (selected) {
-                row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
-            } else {
-                row = row | color(tui::theme().ui.text_muted);
-            }
-            picker_rows.push_back(row);
-        }
-
-        // Bottom overflow indicator (also reserves a row).
-        if (items_below > 0) {
-            picker_rows.push_back(
-                text("  \xE2\x86\x93 " + std::to_string(items_below) + " more below")
-                | dim | color(tui::theme().ui.text_muted));
-        } else {
-            picker_rows.push_back(text(""));
-        }
-
-        picker_rows.push_back(text(""));
-        resume_picker_element = vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
-    }
-    Element rewind_picker_element = emptyElement();
-    if (state.rewind_picker_active && !state.rewind_items.empty()) {
-        Elements picker_rows;
-        if (state.rewind_mode_active) {
-            const int selected =
-                std::clamp(state.rewind_selected, 0,
-                           static_cast<int>(state.rewind_items.size()) - 1);
-            const auto& item = state.rewind_items[selected];
-            picker_rows.push_back(
-                text(" Rewind mode (Up/Down to select, Enter to confirm, Esc to go back, or type 1-9):")
-                | bold | color(tui::theme().ui.border));
-            picker_rows.push_back(text(" Target: " + item.preview) | color(tui::theme().ui.text_muted));
-            picker_rows.push_back(text(" Code rewind only covers ACECode file_edit/file_write changes; manual edits, shell commands, MCP tools, git operations, and external side effects are not tracked.")
-                                  | color(tui::theme().ui.accent));
-            picker_rows.push_back(text(""));
-            for (int i = 0; i < static_cast<int>(state.rewind_modes.size()); ++i) {
-                bool selected_mode = (i == state.rewind_mode_selected);
-                const auto& mode = state.rewind_modes[i];
-                auto row = hbox({
-                    text("  [" + std::to_string(i + 1) + "] " + mode.label + "  "),
-                    text(mode.description) | color(tui::theme().ui.text_muted),
-                });
-                if (selected_mode) {
-                    row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
-                } else {
-                    row = row | color(tui::theme().ui.text_muted);
-                }
-                picker_rows.push_back(row);
-            }
-        } else {
-            const bool is_fork =
-                state.rewind_picker_operation ==
-                TuiState::RewindPickerOperation::Fork;
-            picker_rows.push_back(
-                text(std::string(is_fork
-                    ? " Fork from a user turn"
-                    : " Rewind to a user turn") +
-                    " (Up/Down/PgUp/PgDn/Home/End to navigate, Enter to confirm, Esc to cancel, 1-9 jump):")
-                | bold | color(tui::theme().ui.border));
-            picker_rows.push_back(text(""));
-
-            const int total = static_cast<int>(state.rewind_items.size());
-            const int visible = std::min(acecode::tui::kRewindPickerVisibleRows, total);
-            int offset = std::clamp(state.rewind_view_offset, 0,
-                                    std::max(0, total - visible));
-            const int items_above = offset;
-            const int items_below = std::max(0, total - offset - visible);
-
-            if (items_above > 0) {
-                picker_rows.push_back(
-                    text("  \xE2\x86\x91 " + std::to_string(items_above) + " more above")
-                    | dim | color(tui::theme().ui.text_muted));
-            } else {
-                picker_rows.push_back(text(""));
-            }
-
-            for (int i = offset; i < offset + visible; ++i) {
-                bool selected = (i == state.rewind_selected);
-                auto row = text("  " + state.rewind_items[i].display);
-                if (selected) {
-                    row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
-                } else {
-                    row = row | color(tui::theme().ui.text_muted);
-                }
-                picker_rows.push_back(row);
-            }
-
-            if (items_below > 0) {
-                picker_rows.push_back(
-                    text("  \xE2\x86\x93 " + std::to_string(items_below) + " more below")
-                    | dim | color(tui::theme().ui.text_muted));
-            } else {
-                picker_rows.push_back(text(""));
-            }
-        }
-        picker_rows.push_back(text(""));
-        rewind_picker_element = vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
-    }
-    // /model picker overlay。同 resume_picker_element 的视觉风格(青边、
-    // 滚动指示、选中行高亮)—— 单纯多一列前缀 "*" 标记当前 effective entry。
-    Element model_picker_element = emptyElement();
-    if (state.model_picker_open && !state.model_picker_options.empty()) {
-        Elements picker_rows;
-        picker_rows.push_back(
-            text(" Select a model (Up/Down/PgUp/PgDn/Home/End to navigate, Enter to confirm, Esc to cancel):")
-            | bold | color(tui::theme().ui.border));
-        picker_rows.push_back(text(""));
-
-        const int total = static_cast<int>(state.model_picker_options.size());
-        // 复用 /resume 的视口高度常量 —— picker 行为口径一致,行少时
-        // scroll_to_keep_visible 直接返回 0,不会留空行。
-        const int visible = std::min(acecode::tui::kResumePickerVisibleRows, total);
-        int offset = std::clamp(state.model_picker_view_offset, 0,
-                                std::max(0, total - visible));
-        const int items_above = offset;
-        const int items_below = std::max(0, total - offset - visible);
-
-        if (items_above > 0) {
-            picker_rows.push_back(
-                text("  \xE2\x86\x91 " + std::to_string(items_above) + " more above")
-                | dim | color(tui::theme().ui.text_muted));
-        } else {
-            picker_rows.push_back(text(""));
-        }
-
-        for (int i = offset; i < offset + visible; ++i) {
-            bool selected = (i == state.model_picker_selected);
-            const auto& opt = state.model_picker_options[i];
-            std::string marker = opt.is_current ? "* " : "  ";
-            std::string body =
-                "  " + marker + opt.name + "  (" + opt.provider + "/" + opt.model + ")";
-            auto row = text(body);
-            if (selected) {
-                row = row | bold | color(tui::theme().ui.selection_fg) | bgcolor(tui::theme().ui.selection_bg);
-            } else if (opt.is_current) {
-                row = row | color(tui::theme().ui.accent);
-            } else {
-                row = row | color(tui::theme().ui.text_muted);
-            }
-            picker_rows.push_back(row);
-        }
-
-        if (items_below > 0) {
-            picker_rows.push_back(
-                text("  \xE2\x86\x93 " + std::to_string(items_below) + " more below")
-                | dim | color(tui::theme().ui.text_muted));
-        } else {
-            picker_rows.push_back(text(""));
-        }
-
-        picker_rows.push_back(text(""));
-        model_picker_element = vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
-    }
-
-    Element mode_picker_element = emptyElement();
-    if (state.mode_picker_open && !state.mode_picker_options.empty()) {
-        Elements picker_rows;
-        picker_rows.push_back(
-            text(" Select a permission mode (Up/Down/Home/End to navigate, Enter to confirm, Esc to cancel):")
-            | bold | color(tui::theme().ui.border));
-        picker_rows.push_back(text(""));
-
-        for (int i = 0; i < static_cast<int>(state.mode_picker_options.size()); ++i) {
-            const bool selected = (i == state.mode_picker_selected);
-            const auto& option = state.mode_picker_options[i];
-            const std::string marker = option.is_current ? "* " : "  ";
-            auto row = hbox({
-                text("  [" + std::to_string(i + 1) + "] " + marker + option.name + "  "),
-                text(option.description) | color(tui::theme().ui.text_muted),
-            });
-            if (selected) {
-                row = row | bold | color(tui::theme().ui.selection_fg) |
-                      bgcolor(tui::theme().ui.selection_bg);
-            } else if (option.is_current) {
-                row = row | color(tui::theme().ui.accent);
-            } else {
-                row = row | color(tui::theme().ui.text_muted);
-            }
-            picker_rows.push_back(row);
-        }
-
-        picker_rows.push_back(text(""));
-        mode_picker_element =
-            vbox(std::move(picker_rows)) | border | color(tui::theme().ui.border);
-    }
+    auto pickers = tui::render_picker_views(state);
+    Element resume_picker_element = std::move(pickers.resume);
+    Element rewind_picker_element = std::move(pickers.rewind);
+    Element model_picker_element = std::move(pickers.model);
+    Element mode_picker_element = std::move(pickers.mode);
 
     Element path_reference_element =
         acecode::tui::render_path_reference_dropdown(
@@ -2843,7 +2437,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
             tui::AskQuestionPanelInput panel_input;
             panel_input.layout = &question_layout;
             panel_input.snapshot = &snapshot;
-            panel_input.colors = ask_question_panel_colors();
+            panel_input.colors = tui::ask_question_panel_colors();
             panel_input.terminal_too_narrow =
                 question_layout.terminal_too_narrow;
             panel_input.row_boxes = &ask_row_boxes;
@@ -2913,170 +2507,12 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         confirm_overlay_element = vbox(std::move(rows)) | border | color(tui::theme().ui.accent);
     }
 
-    if (state.ask_pending) {
-        // AskUserQuestion owns the complete inline editor. The ordinary composer
-        // stays hidden even while the custom answer is active; paste and keyboard
-        // events are adapted directly to the active session above.
-        const auto ask_prompt_snapshot = state.ask_session
-            ? state.ask_session->snapshot()
-            : tui::AskQuestionSnapshot{};
-        // Scroll hint applies to the question page only; the summary page
-        // scrolls with the wheel and never needs the shortcut.
-        const bool ask_scrollable =
-            ask_prompt_snapshot.page != tui::AskQuestionPage::Summary &&
-            ask_question_frame.layout.total_rows >
-                ask_question_frame.layout.visible_rows;
-        const auto ask_help_entries = tui::ask_question_help_entries(
-            ask_prompt_snapshot, ask_scrollable);
-
-        Elements ask_prompt_parts;
-        ask_prompt_parts.push_back(
-            text(" ? answering: ") | bold | color(tui::theme().ui.accent));
-        if (!state.ask_origin_label.empty()) {
-            // 子任务来源只在底部状态提示显示一次，避免与题目区域重复。
-            ask_prompt_parts.push_back(
-                text("[" + state.ask_origin_label + "] ") |
-                color(tui::theme().ui.text_muted));
-        }
-        const int ask_help_width = std::max(
-            20, terminal_width - 16 -
-                    (show_regular_sidebar ? kRegularSidebarWidthCols : 0));
-        // Reserve two rows: the footer shares the vertical stack with the chat
-        // viewport, so a footer that changes height on state transitions also
-        // moves the question panel (and with it the panel's visible row count).
-        ask_prompt_parts.push_back(tui::build_ask_question_help_line(
-            ask_help_entries, ask_question_panel_colors(), ask_help_width,
-            /*minimum_rows=*/2));
-        prompt_line = hbox(std::move(ask_prompt_parts));
-    } else if (state.confirm_pending) {
-        // overlay 已经把选项画在 message_view 之上,prompt_line 仅作静态
-        // 提示并吞掉字符输入(CatchEvent 中 confirm overlay handler 拦截非
-        // 导航键,这里的 hbox 不渲染 input_with_esc 是为了让光标不在输入
-        // 框里闪、误导用户去打字)。
-        prompt_line = hbox({
-            text(" [" + state.confirm_tool_name + "] ") | bold | color(tui::theme().syntax.preproc),
-            text("awaiting confirmation \xE2\x80\x94 use \xE2\x86\x91\xE2\x86\x93 + Enter (Esc to deny)")
-                | tui::readable_secondary(),
-        });
-    } else {
-        Elements prompt_parts;
-        if (state.input_mode == InputMode::Shell) {
-            prompt_parts.push_back(text(" ! ") | bold | color(tui::theme().semantic.error));
-        } else {
-            prompt_parts.push_back(text(" > ") | bold | color(tui::theme().ui.border));
-        }
-        prompt_parts.push_back(
-            input_with_esc->Render() | flex |
-                reflect(input_hit_layout.box));
-        if (!state.pending_queue.empty()) {
-            prompt_parts.push_back(
-                text(" QUEUED " + std::to_string(state.pending_queue.size()) + " ") |
-                bold | color(tui::theme().ui.text_primary) | bgcolor(tui::theme().ui.queued_bg));
-        }
-        prompt_line = hbox(std::move(prompt_parts));
-    }
-
-    // -- Bottom status bar --
-    std::string perm_mode_str = std::string("mode: ") + PermissionManager::mode_name(permissions.mode());
-    Element token_el = tui::render_token_usage_chip(state);
-    Element load_el = tui::render_model_load_chip();
-    Element goal_el = state.goal_status.empty()
-        ? text("")
-        : text("  " + state.goal_status + "  ") | dim | color(tui::theme().semantic.success);
-    // 底部计时 chip(○ Thinking / ◑ Tool)已随 inline-thinking-heartbeat
-    // change 删除:主进度元素在固定布局区,"被 overlay 遮挡/滚出视野"的
-    // 前提不成立;等待期耗时+token 心跳改挂在推理指示行内联段。
-    Element bottom_bar;
-    if (conhost_compat_layout) {
-        auto elapsed_secs = [](std::chrono::steady_clock::time_point start) -> long long {
-            if (start.time_since_epoch().count() == 0) return 0;
-            return static_cast<long long>(std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::steady_clock::now() - start).count());
-        };
-
-        Elements status_parts;
-        const bool show_ctrl_c_exit_hint =
-            state.ctrl_c_armed && !state.is_waiting && !state.tool_running;
-        if (show_ctrl_c_exit_hint) {
-            status_parts.push_back(
-                text("  Press ctrl+c again to exit  ") |
-                tui::readable_secondary());
-        } else if (dangerous_mode) {
-            status_parts.push_back(
-                text("  [YOLO]  ") | bold | color(tui::theme().ui.accent));
-        } else if (state.is_waiting || state.tool_running) {
-            status_parts.push_back(
-                text("  esc / ctrl+c to interrupt  ") |
-                tui::readable_secondary());
-        } else {
-            status_parts.push_back(
-                text("  shift+tab: cycle permission mode  ") |
-                tui::readable_secondary());
-        }
-        if (state.tool_running) {
-            const long secs = elapsed_secs(state.tool_progress.start_time);
-            status_parts.push_back(
-                text("Tool: " + state.tool_progress.tool_name + " " +
-                     std::to_string(secs) + "s  ") |
-                bold | color(tui::theme().ui.accent));
-        } else if (state.is_waiting) {
-            // conhost 兼容布局不渲染 thinking_element,这行内联文本是该布局
-            // 唯一的活性信号 —— 保留,但取数与主布局心跳段同源:回合累计
-            // 已确认 + 当前请求估算,单调递增,不带 ~ 前缀。
-            const long secs = elapsed_secs(state.thinking_start_time);
-            std::string wait = "Thinking " + std::to_string(secs) + "s";
-            const long long readout = state.turn_completion_tokens_confirmed +
-                static_cast<long long>(state.streaming_output_chars / 4);
-            if (readout > 0) {
-                wait += " " + tui::format_token_count_short(readout) + " tok";
-            }
-            wait += "  ";
-            status_parts.push_back(text(wait) | bold | color(tui::theme().ui.accent));
-        }
-        status_parts.push_back(goal_el);
-        status_parts.push_back(token_el);
-        status_parts.push_back(load_el);
-        status_parts.push_back(text(perm_mode_str) |
-                               tui::readable_secondary());
-        bottom_bar = hbox(std::move(status_parts));
-    } else if (state.ctrl_c_armed && !state.is_waiting && !state.tool_running) {
-        bottom_bar = hbox({
-            text("  Press ctrl+c again to exit") | tui::readable_secondary(),
-            filler(),
-            goal_el,
-            token_el,
-            load_el,
-            text(perm_mode_str + "  ") | tui::readable_secondary(),
-        });
-    } else if (dangerous_mode) {
-        bottom_bar = hbox({
-            text("  [YOLO]") | bold | color(tui::theme().ui.accent),
-            filler(),
-            goal_el,
-            token_el,
-            load_el,
-            text(perm_mode_str + "  ") | tui::readable_secondary(),
-        });
-    } else if (state.is_waiting || state.tool_running) {
-        bottom_bar = hbox({
-            text("  esc / ctrl+c to interrupt") | tui::readable_secondary(),
-            filler(),
-            goal_el,
-            token_el,
-            load_el,
-            text(perm_mode_str + "  ") | tui::readable_secondary(),
-        });
-    } else {
-        bottom_bar = hbox({
-            text("  shift+tab: cycle permission mode") |
-                tui::readable_secondary(),
-            filler(),
-            goal_el,
-            token_el,
-            load_el,
-            text(perm_mode_str + "  ") | tui::readable_secondary(),
-        });
-    }
+    auto prompt_status = tui::render_prompt_status_view(state, ask_question_frame,
+        input_hit_layout, permissions, terminal_width, show_regular_sidebar,
+        conhost_compat_layout, dangerous_mode,
+        [&input_with_esc] { return input_with_esc->Render(); });
+    Element prompt_line = std::move(prompt_status.prompt);
+    Element bottom_bar = std::move(prompt_status.status);
 
     // IME composition window positioning is handled by FTXUI's cursor
     // system (focusCursorBlock) which emits ANSI sequences to place the
@@ -3165,9 +2601,10 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     // 函数入口持有,读 hover_link_* 安全。
     if (hover_supported && state.hover_link_visible &&
         !state.hover_link_href.empty()) {
+        const auto hover_size = Terminal::Size();
         root = dbox({
             std::move(root),
-            render_link_hover_tooltip(state),
+            tui::render_link_hover_tooltip(state, hover_size.dimx, hover_size.dimy),
         });
     }
     return root;

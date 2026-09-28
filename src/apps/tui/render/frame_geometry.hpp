@@ -1,6 +1,6 @@
 #pragma once
 #include "tui/ask_question_adapter.hpp"
-#include "tui/tui_helpers.hpp"
+#include "tui/composer/input_wrap_view.hpp"
 #include "tui/markdown/markdown_formatter.hpp"
 #include <ftxui/screen/box.hpp>
 #include <vector>

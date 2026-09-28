@@ -135,3 +135,10 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 ## B-04 至 B-05 实现登记
 
 附件构造与输入历史分别归 domain/session、domain/history,纯 TUI 叶子归 model/chat/render/overlays。ChatViewport 持有 chat_box、布局宽高/版本与渲染缓存,FrameGeometry 持有其它反射 box、输入命中与链接区域;原 ChatScrollRuntime 引用包和六个视口 lambda 已删除。帧准备仍先同步上一帧布局、再 clamp 焦点,其它帧内顺序由 B-06/B-07 继续迁移。main 的局部引用只借用这两个对象,由 B-13 继续成员化。所有 TUI 生产接口仍置于 acecode::tui,未增加按目录划分的命名空间。新增用例尚待一期统一验证。
+
+### B-06 实现记录(待统一验收)
+
+- 只读视图维持原帧构建顺序。普通 composer 回调仅在常规分支执行;ask/confirm 清空命中布局且不调用该回调。
+- 根布局阶段才调用 regular_sidebar_view,仍以 TuiState& 接收并将上一帧内容/视口高度用于 sidebar_scroll_top_row clamp。不得将此写回前置到 prepare 或改为 const 强转。
+- tui_helpers 的所有调用与测试改为直接包含职责头,旧聚合头和实现删除。MCP 状态投影与 thinking phrases 不依赖 ftxui API;显示格、输入换行、状态 chip 和侧栏分别拥有实现。
+- 链接气泡的位置算法由原函数直接外提,终端尺寸在原 hover 分支调用时采样;不改变边界或翻转规则。

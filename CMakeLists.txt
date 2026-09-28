@@ -218,7 +218,21 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     model/initial_state.cpp app/startup_worktree.cpp
     model/status_line.cpp model/turn_lifecycle_rules.cpp
     chat/message_render_revision.cpp chat/chat_viewport.cpp render/frame_layout.cpp
-    overlays/rewind_picker_model.cpp)
+    overlays/rewind_picker_model.cpp
+    model/thinking_phrases.cpp
+    model/mcp_sidebar_model.cpp
+    render/text_cells.cpp
+    render/status_chips.cpp
+    render/regular_sidebar_view.cpp
+    render/tool_row_view.cpp
+    composer/input_wrap_view.cpp
+    render/ask_question_style.cpp
+    render/header_view.cpp
+    render/activity_indicator_view.cpp
+    render/picker_views.cpp
+    render/prompt_status_view.cpp
+    render/link_hover_tooltip.cpp
+    tool_progress.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")
@@ -384,7 +398,6 @@ set(ACECODE_TESTABLE_TUI_SOURCES
     ${CMAKE_SOURCE_DIR}/src/apps/tui/thinking_heartbeat.cpp
     ${CMAKE_SOURCE_DIR}/src/apps/tui/tool_result_fold.cpp
     ${CMAKE_SOURCE_DIR}/src/apps/tui/tool_row_format.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/tui_helpers.cpp
 )
 acecode_require_sources("testable TUI explicit sources" ${ACECODE_TESTABLE_TUI_SOURCES})
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)

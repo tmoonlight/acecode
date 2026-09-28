@@ -1,7 +1,7 @@
 #include "ask_question_panel.hpp"
 
 #include "ask_question_text.hpp"
-#include "tui_helpers.hpp"
+#include "tui/composer/input_wrap_view.hpp"
 
 #include <algorithm>
 #include <optional>
