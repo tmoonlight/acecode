@@ -1,4 +1,6 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
+#include "agent/agent_runtime_env.hpp"
 
 #include "agent/turn/turn_types.hpp"
 #include "pa/pa_overflow_rescue.hpp"
@@ -27,9 +29,9 @@ class ContextOverflowRecovery {
 public:
     ContextOverflowRecovery(ConversationHistory& history, TranscriptWriter& transcript,
         CompactionController& compaction, RetryProgressReporter& retry, GoalRuntime& goal,
-        AgentCallbacks& callbacks, EventDispatcher& events, AbortSignal& abort)
+        CallbacksSlot& callbacks, EventDispatcher& events, AbortSignal& abort, AgentRuntimeEnv environment = {})
         : history_(history), transcript_(transcript), compaction_(compaction), retry_(retry),
-          goal_(goal), callbacks_(callbacks), events_(events), abort_(abort) {}
+          goal_(goal), callbacks_(callbacks), events_(events), abort_(abort), environment_(std::move(environment)) {}
     RecoveryDecision resolve(const ProviderCallResult& result,
         const std::vector<ChatMessage>& messages, RequestRecoveryState& state,
         int declared_window, SessionManager* session);
@@ -39,8 +41,9 @@ private:
     CompactionController& compaction_;
     RetryProgressReporter& retry_;
     GoalRuntime& goal_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
     AbortSignal& abort_;
+    AgentRuntimeEnv environment_;
 };
 } // namespace acecode::agent

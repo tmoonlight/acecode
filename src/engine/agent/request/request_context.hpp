@@ -9,13 +9,13 @@
 #include <string>
 #include <vector>
 
-namespace acecode { class SessionManager; struct CompactResult; }
+namespace acecode { class SessionManager; struct CompactResult; class MtimeTracker; }
 
 namespace acecode::agent::detail {
 
 std::string build_plan_mode_context_prompt(SessionManager* session_manager,
                                            bool ask_user_allowed,
-                                           bool exit_plan_mode_allowed);
+                                           bool exit_plan_mode_allowed, MtimeTracker& mtime);
 
 void append_plan_mode_context_for_api(std::vector<ChatMessage>& messages,
                                       const std::string& context);

@@ -1,5 +1,6 @@
 #pragma once
 #include "tool/tool_executor.hpp"
+#include "agent/agent_runtime_env.hpp"
 #include <string>
 
 namespace acecode {
@@ -22,6 +23,7 @@ namespace acecode::agent {
 // writers remain unchanged in A-13. O-10 replaces the four borrowed config
 // fields with the explicit per-turn SessionPromptConfig publication contract.
 struct RequestContextSource {
+    AgentRuntimeEnv runtime;
     const SkillRegistry* skills = nullptr; // Nullable borrowed session service.
     SkillUsageStore* skill_usage = nullptr; // Nullable borrowed session service.
     int skill_idle_days = 30;

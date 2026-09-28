@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "tool/tool_executor.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "agent/turn/turn_types.hpp"
@@ -18,7 +19,7 @@ class PermissionHookSession;
 class PermissionConfirmation {
 public:
     PermissionConfirmation(PermissionManager& permissions, SessionExecSecurity& security,
-        ToolSessionHost& host, AgentCallbacks& callbacks, AbortSignal& abort,
+        ToolSessionHost& host, CallbacksSlot& callbacks, AbortSignal& abort,
         SessionManager* session, PermissionPrompter* prompter)
         : permissions_(permissions), security_(security), host_(host), callbacks_(callbacks),
           abort_signal_(abort), session_manager_(session), prompter_(prompter) {}
@@ -31,7 +32,7 @@ private:
     PermissionManager& permissions_;
     SessionExecSecurity& security_;
     ToolSessionHost& host_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     AbortSignal& abort_signal_;
     SessionManager* session_manager_; // Nullable borrowed constructor dependency.
     PermissionPrompter* prompter_; // Nullable borrowed constructor dependency.

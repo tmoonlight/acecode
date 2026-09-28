@@ -11,7 +11,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input, bool hidden_goal_co
             agent::ToolExecutionServices{tools_, callbacks_, permissions_, *history_,
                 *transcript_, *hooks_, *tool_hooks_, *boundary_, *exec_security_, *prompt_cache_,
                 *goal_, events_, abort_signal_, loop_cfg_, request_source_.tool_policy,
-                session_manager_, hook_manager_, request_source_.skills, prompter_.get(), ask_prompter_},
+                session_manager_, hook_manager_, request_source_.skills, prompter_.get(), ask_prompter_.get()},
             *turn_outcome_, *active_turn_gate_, *activity_, *side_questions_, *usage_accountant_,
             *model_steps_, *stream_collector_, *compaction_, *recovery_, *request_builder_,
             request_source_, busy_, turn_interrupt_requested_, context_window_,

@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 #include "pa/pa_rescue_driver.hpp"
 #include "agent/model_step/active_model_view.hpp"
@@ -17,7 +18,7 @@ class PaRescueAdapter final : public pa::PaRescueHost {
 public:
     PaRescueAdapter(ConversationHistory& history, TranscriptWriter& transcript,
         CompactionController& compaction, RetryProgressReporter& retry,
-        AgentCallbacks& callbacks, EventDispatcher& events, AbortSignal& abort,
+        CallbacksSlot& callbacks, EventDispatcher& events, AbortSignal& abort,
         SessionManager* session, ActiveModelView model)
         : history_(history), transcript_(transcript), compaction_(compaction), retry_(retry),
           callbacks_(callbacks), events_(events), abort_(abort), session_(session),
@@ -37,7 +38,7 @@ private:
     TranscriptWriter& transcript_;
     CompactionController& compaction_;
     RetryProgressReporter& retry_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
     AbortSignal& abort_;
     SessionManager* const session_; // nullable, borrowed until run_rescue returns

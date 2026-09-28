@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/agent_runtime_env.hpp"
 
 #include "llm/llm_provider.hpp"
 #include "prompt/system_prompt.hpp"
@@ -16,7 +17,7 @@ struct ContextRejectionNotice {
 // and never snapshots ToolExecutor's process-wide tool name mapping.
 class ActiveModelView {
 public:
-    ActiveModelView(std::shared_ptr<LlmProvider> provider, int declared_window);
+    ActiveModelView(std::shared_ptr<LlmProvider> provider, int declared_window, AgentRuntimeEnv environment = {});
     int effective_window() const;
     bool can_read_images() const;
     SystemPromptModelState prompt_state() const;
@@ -26,6 +27,7 @@ private:
     // Shared with the request/active-provider scope for exactly this model step.
     std::shared_ptr<LlmProvider> provider_;
     int declared_window_;
+    AgentRuntimeEnv environment_;
     std::string provider_name_;
     std::string model_name_;
 };

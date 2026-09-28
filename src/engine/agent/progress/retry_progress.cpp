@@ -1,5 +1,5 @@
 #include "retry_progress.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "session/event_dispatcher.hpp"
 #include "utils/time.hpp"
 #include <sstream>
@@ -43,10 +43,11 @@ void RetryProgressReporter::standard(const ProviderErrorInfo& info, bool waiting
 
 void RetryProgressReporter::emit(const ProviderErrorInfo& info, bool waiting,
                                  RetryProgressText text) {
+    const auto callbacks = callbacks_.snapshot();
     if (waiting) {
-        if (callbacks_.on_model_retry) callbacks_.on_model_retry(info);
-    } else if (callbacks_.on_model_retry_resume) {
-        callbacks_.on_model_retry_resume();
+        if (callbacks.on_model_retry) callbacks.on_model_retry(info);
+    } else if (callbacks.on_model_retry_resume) {
+        callbacks.on_model_retry_resume();
     }
     const std::int64_t now_ms = utils::now_epoch_ms();
     nlohmann::json payload{

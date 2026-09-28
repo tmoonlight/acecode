@@ -88,9 +88,10 @@ public:
         };
         loop_ = std::make_unique<acecode::AgentLoop>(
             accessor, tools_, cb, /*cwd=*/".", perms_);
-        prompter_ = std::make_unique<acecode::AskUserQuestionPrompter>(
+        auto owned_prompter = std::make_unique<acecode::AskUserQuestionPrompter>(
             loop_->events());
-        loop_->set_ask_question_prompter(prompter_.get());
+        prompter_ = owned_prompter.get();
+        loop_->set_ask_question_prompter(std::move(owned_prompter));
         sub_ = loop_->events().subscribe([this](const acecode::SessionEvent& e) {
             std::lock_guard<std::mutex> lk(mu_);
             events_.push_back(e);
@@ -151,7 +152,7 @@ private:
     acecode::ToolExecutor tools_;
     acecode::PermissionManager perms_;
     std::unique_ptr<acecode::AgentLoop> loop_;
-    std::unique_ptr<acecode::AskUserQuestionPrompter> prompter_;
+    acecode::AskUserQuestionPrompter* prompter_ = nullptr; // Borrowed from loop.
     acecode::EventDispatcher::SubscriptionId sub_ = 0;
 
     std::mutex mu_;

@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "utils/lifetime_token.hpp"
 #include <atomic>
 #include <string>
@@ -22,7 +23,7 @@ class AgentHookBridge;
 class UserShellTask {
 public:
     UserShellTask(ToolExecutor& tools, WorkspaceBoundary& boundary, AbortSignal& abort,
-        std::atomic<bool>& busy, AgentCallbacks& callbacks, EventDispatcher& events,
+        std::atomic<bool>& busy, CallbacksSlot& callbacks, EventDispatcher& events,
         TranscriptWriter& transcript, AgentHookBridge& hooks)
         : tools_(tools), boundary_(boundary), abort_signal_(abort), busy_(busy),
           callbacks_(callbacks), events_(events), transcript_(transcript), hooks_(hooks) {}
@@ -34,7 +35,7 @@ private:
     WorkspaceBoundary& boundary_;
     AbortSignal& abort_signal_;
     std::atomic<bool>& busy_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
     TranscriptWriter& transcript_;
     AgentHookBridge& hooks_;

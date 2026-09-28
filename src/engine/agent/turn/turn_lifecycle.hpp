@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "turn_types.hpp"
 
 namespace acecode {
@@ -18,7 +19,7 @@ class ActiveTurnGate;
 class TurnLifecycle {
 public:
     TurnLifecycle(ConversationHistory& history, TranscriptWriter& transcript,
-        ActiveTurnGate& gate, EventDispatcher& events, AgentCallbacks& callbacks,
+        ActiveTurnGate& gate, EventDispatcher& events, CallbacksSlot& callbacks,
         SessionManager* session, const SkillRegistry* skills, SkillUsageStore* usage)
         : history_(history), transcript_(transcript), gate_(gate), events_(events),
           callbacks_(callbacks), session_manager_(session), skill_registry_(skills),
@@ -32,7 +33,7 @@ private:
     TranscriptWriter& transcript_;
     ActiveTurnGate& gate_;
     EventDispatcher& events_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     SessionManager* session_manager_; // Nullable borrowed constructor dependency.
     const SkillRegistry* skill_registry_; // Nullable borrowed constructor dependency.
     SkillUsageStore* skill_usage_store_; // Nullable borrowed constructor dependency.

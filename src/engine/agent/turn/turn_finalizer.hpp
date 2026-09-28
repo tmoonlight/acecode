@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "turn_types.hpp"
 #include "utils/lifetime_token.hpp"
 #include <atomic>
@@ -31,7 +32,7 @@ struct TurnFinalizerServices {
     AgentHookBridge& hooks;
     ActivityNarrator& activity;
     EventDispatcher& events;
-    AgentCallbacks& callbacks;
+    CallbacksSlot& callbacks;
     ToolExecutor& tools;
     const ToolCapabilityPolicy& policy;
     std::atomic<bool>& busy;
@@ -69,7 +70,7 @@ private:
     AgentHookBridge& hooks_;
     ActivityNarrator& activity_;
     EventDispatcher& events_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     ToolExecutor& tools_;
     const ToolCapabilityPolicy& policy_;
     std::atomic<bool>& busy_;

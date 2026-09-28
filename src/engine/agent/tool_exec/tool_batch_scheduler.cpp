@@ -35,7 +35,7 @@ ToolBatchScheduler::ToolBatchScheduler(ToolExecutionServices services, ToolExecu
           lifecycle_events_, services.events, services.callbacks, services.hook_manager,
           services.session, std::move(options.clock)),
       message_(services.history, services.hooks, services.events, services.session, services.hook_manager),
-      committer_(services.history, services.transcript, lifecycle_events_, services.session) {}
+      committer_(services.history, services.transcript, lifecycle_events_, services.session, services.security.environment()) {}
 
 ToolBatchOutcome ToolBatchScheduler::execute(
     const ChatResponse& accumulated, const std::shared_ptr<LlmProvider>& provider_snapshot,

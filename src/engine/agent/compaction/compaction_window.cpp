@@ -49,7 +49,7 @@ bool CompactionController::exceeds_auto_threshold(
     }
     request.insert(request.end(), history.begin(), history.end());
     return should_auto_compact(
-        ActiveModelView(inputs.provider, inputs.request.context_window).effective_window(),
+        ActiveModelView(inputs.provider, inputs.request.context_window, environment_).effective_window(),
         last_api_total_tokens_.load(std::memory_order_relaxed),
         estimate_message_tokens(request));
 }
@@ -131,7 +131,7 @@ void CompactionController::apply_result(
     }
     history_.replace(std::move(replacement_history));
     last_api_total_tokens_.store(post_tokens, std::memory_order_relaxed);
-    MtimeTracker::instance().clear_read_observations();
+    environment_.mtime_tracker().clear_read_observations();
     compact_generation_.fetch_add(1, std::memory_order_relaxed);
 
     const std::string notice_id = compact_notice_id.empty()

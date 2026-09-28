@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 #include "ask_question_binding.hpp"
 #include "tool_context_factory.hpp"
@@ -14,7 +15,7 @@ namespace acecode::agent {
 // Composition input only: no collaborator keeps this bag or calls AgentLoop.
 struct ToolExecutionServices {
     ToolExecutor& tools;
-    AgentCallbacks& callbacks;
+    CallbacksSlot& callbacks;
     PermissionManager& permissions;
     ConversationHistory& history;
     TranscriptWriter& transcript;

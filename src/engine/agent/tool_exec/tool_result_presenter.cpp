@@ -1,6 +1,6 @@
 #include "tool_result_presenter.hpp"
 #include "tool_session_host.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -56,6 +56,7 @@ void ToolResultPresenter::materialize_attachments(ToolResult& result) {
 }
 
 void ToolResultPresenter::display(const ToolCall& tc, const ToolResult& result) {
+    const auto callbacks = callbacks_.snapshot();
     std::string display_output = result.output;
     std::string ask_display =
         format_ask_user_question_result_display(result.metadata);
@@ -71,13 +72,13 @@ void ToolResultPresenter::display(const ToolCall& tc, const ToolResult& result) 
         display_output += attachment_fallback;
     }
     transcript_.dispatch_message("tool_result", display_output, true, nlohmann::json::object(), nlohmann::json::array());
-    if (callbacks_.on_tool_result) {
+    if (callbacks.on_tool_result) {
         ChatMessage call_msg;
         call_msg.role = "tool_call";
         call_msg.content = "[Tool: " + tc.function_name + "] " + tc.function_arguments;
         call_msg.display_override =
             ToolExecutor::build_tool_call_preview(tc.function_name, tc.function_arguments);
-        callbacks_.on_tool_result(call_msg, tc.function_name, result);
+        callbacks.on_tool_result(call_msg, tc.function_name, result);
     }
 }
 

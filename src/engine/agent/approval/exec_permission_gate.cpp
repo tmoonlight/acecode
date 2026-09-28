@@ -54,7 +54,7 @@ std::optional<ToolResult> ExecPermissionGate::prepare(
     ToolContext& execution_context, std::optional<sandbox::ExecPermission>& exec_permission) {
     if (effective_tc.function_name == "bash") {
         auto platform = sandbox::host_command_platform();
-        const auto environment = acecode::environment::prompt_environment();
+        const auto environment = security_.environment().prompt_environment();
         if (environment.terminal_family == "powershell") platform = sandbox::CommandPlatform::PowerShell;
         else if (environment.terminal_family == "bash" || environment.terminal_family == "posix") {
             platform = sandbox::CommandPlatform::Posix;

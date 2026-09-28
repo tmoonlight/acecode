@@ -1,6 +1,6 @@
 #include "goal_runtime.hpp"
 
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/worker/agent_task_queue.hpp"
@@ -51,14 +51,15 @@ void GoalRuntime::restore(SessionManager* session) {
 }
 
 void GoalRuntime::publish(SessionManager* session) {
+    const auto callbacks = callbacks_.snapshot();
     if (!session) {
-        if (callbacks_.on_goal_status) callbacks_.on_goal_status(std::string{});
+        if (callbacks.on_goal_status) callbacks.on_goal_status(std::string{});
         return;
     }
 
     const std::string sid = session->current_session_id();
     if (sid.empty()) {
-        if (callbacks_.on_goal_status) callbacks_.on_goal_status(std::string{});
+        if (callbacks.on_goal_status) callbacks.on_goal_status(std::string{});
         return;
     }
 
@@ -72,7 +73,7 @@ void GoalRuntime::publish(SessionManager* session) {
     auto goal = store->get_thread_goal(sid, &error);
     if (!error.empty()) {
         LOG_WARN("[goal] failed to publish current goal state: " + error);
-        if (callbacks_.on_goal_status) callbacks_.on_goal_status(std::string{});
+        if (callbacks.on_goal_status) callbacks.on_goal_status(std::string{});
         return;
     }
     if (goal.has_value()) {
@@ -83,10 +84,11 @@ void GoalRuntime::publish(SessionManager* session) {
 }
 
 void GoalRuntime::emit_updated(const ThreadGoal& goal) {
+    const auto callbacks = callbacks_.snapshot();
     events_.emit(SessionEventKind::GoalUpdated,
         nlohmann::json{{"session_id", goal.thread_id}, {"goal", thread_goal_to_json(goal)}});
-    if (callbacks_.on_goal_status) {
-        callbacks_.on_goal_status(format_goal_status_chip(goal));
+    if (callbacks.on_goal_status) {
+        callbacks.on_goal_status(format_goal_status_chip(goal));
     }
     std::lock_guard<std::mutex> lock(cursor_mu_);
     if (goal.status == ThreadGoalStatus::Active) {
@@ -101,9 +103,10 @@ void GoalRuntime::emit_updated(const ThreadGoal& goal) {
 }
 
 void GoalRuntime::emit_cleared(const std::string& session_id) {
+    const auto callbacks = callbacks_.snapshot();
     events_.emit(SessionEventKind::GoalCleared,
         nlohmann::json{{"session_id", session_id}});
-    if (callbacks_.on_goal_status) callbacks_.on_goal_status(std::string{});
+    if (callbacks.on_goal_status) callbacks.on_goal_status(std::string{});
     std::lock_guard<std::mutex> lock(cursor_mu_);
     if (session_id == thread_id_) {
         thread_id_.clear();
@@ -113,6 +116,7 @@ void GoalRuntime::emit_cleared(const std::string& session_id) {
 }
 
 void GoalRuntime::emit_todo_updated(SessionManager* session, const nlohmann::json& payload) {
+    const auto callbacks = callbacks_.snapshot();
     nlohmann::json event_payload = payload.is_object()
         ? payload
         : nlohmann::json::object();
@@ -121,8 +125,8 @@ void GoalRuntime::emit_todo_updated(SessionManager* session, const nlohmann::jso
         if (!sid.empty()) event_payload["session_id"] = sid;
     }
     events_.emit(SessionEventKind::TodoUpdated, event_payload);
-    if (callbacks_.on_todo_updated) {
-        callbacks_.on_todo_updated(event_payload);
+    if (callbacks.on_todo_updated) {
+        callbacks.on_todo_updated(event_payload);
     }
 }
 

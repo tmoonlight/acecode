@@ -1,4 +1,6 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
+#include "agent/agent_runtime_env.hpp"
 
 #include "agent/request/api_request_builder.hpp"
 #include "utils/lifetime_token.hpp"
@@ -38,12 +40,12 @@ class CompactionController {
 public:
     CompactionController(ConversationHistory& history, TranscriptWriter& transcript,
         WorkspaceBoundary& boundary, AgentHookBridge& hooks, ApiRequestBuilder& requests,
-        ActiveProviderSlot& provider, RetryProgressReporter& retry, AgentCallbacks& callbacks,
+        ActiveProviderSlot& provider, RetryProgressReporter& retry, CallbacksSlot& callbacks,
         EventDispatcher& events, AbortSignal& abort, std::atomic<bool>& busy,
-        std::atomic<int>& context_tokens)
+        std::atomic<int>& context_tokens, AgentRuntimeEnv environment = {})
         : history_(history), transcript_(transcript), boundary_(boundary), hooks_(hooks),
           requests_(requests), active_provider_(provider), retry_(retry), callbacks_(callbacks),
-          events_(events), abort_(abort), busy_(busy), last_api_total_tokens_(context_tokens) {}
+          events_(events), abort_(abort), busy_(busy), last_api_total_tokens_(context_tokens), environment_(std::move(environment)) {}
     bool run_auto(const CompactionInputs& inputs);
     void run_manual(const CompactionInputs& inputs);
     bool exceeds_auto_threshold(const CompactionInputs& inputs, const UserInput* pending) const;
@@ -65,11 +67,12 @@ private:
     ApiRequestBuilder& requests_;
     ActiveProviderSlot& active_provider_;
     RetryProgressReporter& retry_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
     AbortSignal& abort_;
     std::atomic<bool>& busy_;
     std::atomic<int>& last_api_total_tokens_;
+    AgentRuntimeEnv environment_;
     std::atomic<int> compact_generation_{0};
     bool compact_window_initialized_ = false;
     std::uint64_t compact_window_number_ = 0;

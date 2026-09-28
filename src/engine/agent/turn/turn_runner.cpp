@@ -31,7 +31,7 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
                      const ChatMessage* retry_message, LifetimeRef<TrajectoryRecorder> terminal) {
     // Capture the owner before callbacks can switch/delete the active session.
     // RAII also releases on exceptions and early hook returns.
-    turn.desktop_lease.emplace(
+    turn.desktop_lease = source_.runtime.computer_use_lease(
         session_ ? session_->current_session_id() : std::string{},
         options_.computer_use_release);
     auto& desktop_turn_lease = *turn.desktop_lease;

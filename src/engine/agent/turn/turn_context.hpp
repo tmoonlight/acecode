@@ -39,7 +39,7 @@ struct TurnContext {
     std::shared_ptr<AgentProgressEmitter> progress;
     // Reset before recovery reporting on unwind, and before finishing the task
     // on normal return. Normal release-before-terminal + destructor is retained.
-    std::optional<computer_use::SessionLease> desktop_lease;
+    std::unique_ptr<computer_use::SessionLease> desktop_lease;
 };
 
 } // namespace acecode::agent

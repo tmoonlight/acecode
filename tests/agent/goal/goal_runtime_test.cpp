@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/goal/goal_runtime.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
@@ -20,13 +20,14 @@ TEST(GoalRuntime, ConcurrentStatusObserversCanReenterWithoutHoldingCursorLock) {
     std::atomic<bool> busy{true};
     acecode::AbortSignal abort;
     acecode::AgentCallbacks callbacks;
+    acecode::CallbacksSlot callback_slot;
     acecode::PermissionManager permissions;
     acecode::EventDispatcher events;
     acecode::agent::ConversationHistory history(busy);
     acecode::agent::TurnOutcomeRecord outcome;
-    acecode::agent::TranscriptWriter transcript(history, events, callbacks, outcome);
+    acecode::agent::TranscriptWriter transcript(history, events, callback_slot, outcome);
     acecode::agent::AgentTaskQueue queue(busy);
-    acecode::agent::GoalRuntime runtime(queue, history, transcript, events, callbacks, permissions, busy, abort);
+    acecode::agent::GoalRuntime runtime(queue, history, transcript, events, callback_slot, permissions, busy, abort);
     acecode::LifetimeToken lifetime;
     const auto owner = lifetime.ref(runtime);
     auto calls = std::make_shared<std::atomic<int>>(0);
@@ -34,6 +35,7 @@ TEST(GoalRuntime, ConcurrentStatusObserversCanReenterWithoutHoldingCursorLock) {
         calls->fetch_add(1);
         if (!status.empty()) owner.with([](auto& goal) { goal.emit_cleared("session"); });
     };
+    callback_slot.publish(callbacks);
     acecode::ThreadGoal active;
     active.thread_id = "session";
     active.goal_id = "goal";

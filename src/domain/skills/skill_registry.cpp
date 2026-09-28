@@ -32,6 +32,16 @@ bool is_excluded_segment(const fs::path& path) {
 
 } // namespace
 
+std::shared_ptr<const SkillRegistry> SkillRegistry::snapshot() const {
+    auto copy = std::make_shared<SkillRegistry>();
+    std::lock_guard<std::mutex> lock(mu_);
+    copy->roots_ = roots_;
+    copy->disabled_ = disabled_;
+    copy->allowed_ = allowed_;
+    copy->skills_ = skills_;
+    return copy;
+}
+
 void SkillRegistry::set_scan_roots(std::vector<fs::path> roots) {
     std::lock_guard<std::mutex> lk(mu_);
     roots_ = std::move(roots);

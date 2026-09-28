@@ -3,7 +3,7 @@
 #include "tool_context_factory.hpp"
 #include "tool_invoker.hpp"
 #include "tool_result_presenter.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/hook_bridge/tool_hook_bridge.hpp"
 #include "session/session_manager.hpp"
 #include "utils/logger.hpp"
@@ -16,6 +16,7 @@ using utils::now_epoch_ms;
 
 ToolCallOutcome ToolCallLifecycle::run(
     ToolBatchState& batch, ToolCall tc, std::size_t tool_index, bool emit_tui_progress) {
+    const auto callbacks = callbacks_.snapshot();
     const auto& emit_progress = batch.emit_progress;
     const auto& step_preamble = batch.step_preamble;
     agent::ToolCallOutcome outcome;
@@ -57,9 +58,9 @@ ToolCallOutcome ToolCallLifecycle::run(
         ~ProgressGuard() { if (end_cb) end_cb(); }
     };
     ProgressGuard guard;
-    if (emit_tui_progress && callbacks_.on_tool_progress_start) {
-        callbacks_.on_tool_progress_start(tc.function_name, cmd_preview, std::string{});
-        guard.end_cb = callbacks_.on_tool_progress_end;
+    if (emit_tui_progress && callbacks.on_tool_progress_start) {
+        callbacks.on_tool_progress_start(tc.function_name, cmd_preview, std::string{});
+        guard.end_cb = callbacks.on_tool_progress_end;
     }
 
     ToolResult& result = outcome.result;

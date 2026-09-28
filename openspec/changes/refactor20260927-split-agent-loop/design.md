@@ -195,7 +195,7 @@
 | tool_exec/ask_question_binding、tool_result_presenter | 4691-4761 | 120 / 120 |
 | tool_exec/tool_batch_scheduler、tool_result_commit、tool_context_factory | 4952-5047;5643-5807;4209-4321(同时收编 run_shell 手工拼的残缺 ToolContext) | 200 / 220 / 220 |
 | event_payload/message_payload、tool_event_payload | P2-08 移入 | 原样 |
-| **engine/agent 之外** | `src/adapters/pa/pa_rescue_driver`(4027-4207 的纯逻辑)、`src/adapters/computer_use/session_lease.hpp`(DesktopTurnLease)、`tests/agent/agent_loop_fixture.hpp` | 250 / 70 / 150 |
+| **engine/agent 之外** | `src/adapters/pa/pa_rescue_driver`(4027-4207 的纯逻辑)、`src/adapters/computer_use/session_lease.hpp`(DesktopTurnLease)、`tests/test_support/agent/agent_loop_fixture.hpp` | 250 / 70 / 150 |
 
 子目录名都避开了模块名(R9):用 `hook_bridge` 而不是 hooks,`approval` 而不是 permissions,`boundary` 而不是 workspace。
 
@@ -345,3 +345,7 @@
 | LR-M2 | — | GoalRuntime 的跨线程入口 | §4,A-08 |
 | LR-M3 | — | observer 单槽位 | §4,A-07 |
 | LR-M4 | — | 跨 loop 交接的 AB-BA 无测试 | P0-11 |
+
+### A-14 实现位置补记
+
+公共测试夹具遵守 AGENTS.md,放在 tests/test_support/agent/agent_loop_fixture.hpp。进程访问点由 AgentRuntimeEnv 提供,包括 PA 学习器、MtimeTracker、computer-use 租约、提示环境、headless 标志和数据目录。SandboxConfig 选项为空时保留未配置运行时,避免无配置测试或嵌入调用者在构造时被清空已有权限允许项。所有新增测试待一期末尾统一运行。

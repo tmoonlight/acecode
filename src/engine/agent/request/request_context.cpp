@@ -12,12 +12,12 @@ namespace acecode::agent::detail {
 
 std::string build_plan_mode_context_prompt(SessionManager* session_manager,
                                            bool ask_user_allowed,
-                                           bool exit_plan_mode_allowed) {
+                                           bool exit_plan_mode_allowed, MtimeTracker& mtime) {
     if (!session_manager) return {};
     const std::string plan_file = session_manager->ensure_plan_file_path();
     if (plan_file.empty()) return {};
     const std::string existing_plan = session_manager->read_plan_file();
-    MtimeTracker::instance().record_read(plan_file, existing_plan, false);
+    mtime.record_read(plan_file, existing_plan, false);
 
     std::ostringstream oss;
     oss << "<plan_mode>\n"

@@ -162,7 +162,8 @@ public:
         }
 
         if (with_prompter) {
-            prompter_ = std::make_unique<AskUserQuestionPrompter>(loop_->events(), 5s);
+            auto owned_prompter = std::make_unique<AskUserQuestionPrompter>(loop_->events(), 5s);
+        prompter_ = owned_prompter.get();
             // "前端" listener: 看到 QuestionRequest 立即用 canned 答案
             // notify_response。canned = 用户单选了 axios。
             sub_ = loop_->events().subscribe([this](const SessionEvent& e) {
@@ -188,7 +189,7 @@ public:
                 }
                 if (prompter_) prompter_->notify_response(rid, resp);
             });
-            loop_->set_ask_question_prompter(prompter_.get());
+            loop_->set_ask_question_prompter(std::move(owned_prompter));
         }
     }
 
@@ -247,7 +248,7 @@ private:
     ToolExecutor                              tools_;
     PermissionManager                         perms_;
     std::unique_ptr<SessionManager>           session_manager_;
-    std::unique_ptr<AskUserQuestionPrompter>  prompter_;
+    AskUserQuestionPrompter* prompter_ = nullptr; // Borrowed from loop.
     EventDispatcher::SubscriptionId           sub_ = 0;
     std::unique_ptr<AgentLoop>                loop_;
 

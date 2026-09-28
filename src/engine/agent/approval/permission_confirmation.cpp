@@ -2,7 +2,7 @@
 #include "permission_audit_scope.hpp"
 #include "agent/tool_exec/tool_session_host.hpp"
 #include "agent/goal/goal_runtime.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "utils/abort_signal.hpp"
 #include "agent/hook_bridge/tool_hook_bridge.hpp"
 #include "agent/approval/session_exec_security.hpp"
@@ -51,7 +51,8 @@ using agent::detail::build_plan_permission_args;
 using utils::ascii_lower;
 
 bool PermissionConfirmation::available() const {
-    return prompter_ || static_cast<bool>(callbacks_.on_tool_confirm);
+    const auto callbacks = callbacks_.snapshot();
+    return prompter_ || static_cast<bool>(callbacks.on_tool_confirm);
 }
 
 std::optional<ToolResult> PermissionConfirmation::confirm(
@@ -60,6 +61,7 @@ std::optional<ToolResult> PermissionConfirmation::confirm(
     std::optional<sandbox::ExecPermission>& exec_permission,
     ToolContext& execution_context, PermissionAuditScope& audit,
     PermissionHookSession& permission_session) {
+    const auto callbacks = callbacks_.snapshot();
 
     emit_progress("permission_waiting", "正在等待权限确认",
         effective_tc.function_name, effective_tc.function_name, effective_tc.id,
@@ -71,7 +73,9 @@ std::optional<ToolResult> PermissionConfirmation::confirm(
             session_manager_);
     PermissionResult perm = prompter_
         ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_signal_.flag_for_legacy_api())
-        : callbacks_.on_tool_confirm(effective_tc.function_name, permission_args);
+        : (callbacks.on_tool_confirm
+            ? callbacks.on_tool_confirm(effective_tc.function_name, permission_args)
+            : PermissionResult::Deny);
     if (perm == PermissionResult::Deny) {
         permission_session.resolve("deny", "interactive");
         audit.record(security::kAuditDecisionDeny, security::kAuditSourceUser,

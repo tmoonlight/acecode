@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 #include "agent/turn/turn_types.hpp"
 
@@ -18,7 +19,7 @@ class ModelStepSink;
 
 class ProviderStreamCollector {
 public:
-    ProviderStreamCollector(ToolExecutor& tools, AgentCallbacks& callbacks,
+    ProviderStreamCollector(ToolExecutor& tools, CallbacksSlot& callbacks,
         EventDispatcher& events, ConversationHistory& history, ActiveProviderSlot& provider,
         AbortSignal& abort, ActivityNarrator& activity, RetryProgressReporter& retry)
         : tools_(tools), callbacks_(callbacks), events_(events), history_(history),
@@ -29,7 +30,7 @@ public:
 private:
     struct Call;
     ToolExecutor& tools_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
     ConversationHistory& history_;
     ActiveProviderSlot& active_provider_;

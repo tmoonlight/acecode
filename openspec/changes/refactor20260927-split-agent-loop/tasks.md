@@ -179,14 +179,14 @@
 
 ## 4. 注入与收尾
 
-- [ ] 4.1 【A-14】【主】构造注入与装配。
+- [ ] 4.1 【A-14】【主】构造注入与装配。〔实现完成: Codex-root 2026-09-28;构造/启动分离,两个 prompter 归 loop 独占,成员按依赖排序;CallbacksSlot 与运行期 loop 配置原子发布,TUI/SessionRegistry(含子代理)已接新构造;进程服务可注入,夹具和装配用例已补;旧测试及接口随 A-17 删除,待统一验收〕
   - 新增 `AgentLoop(AgentLoopServices, AgentLoopOptions)` 与 `start()`;
   - 两个 prompter 保留「只能在 `start()` 之前调用」的 setter(D13);AskUserQuestionPrompter 由 AgentLoop 独占,SessionEntry 只持借用别名(D14);
   - 成员声明顺序与装配 DAG 按 design.md §3 执行,写进 hpp 注释;
   - 旧构造仍在构造时立即 start,只有在 busy 或已处理过任务之后调用 setter 才告警;
   - `loop_cfg_` 在运行期只能经 `enqueue_control` 或原子快照修改;
   - `SessionRegistry::make_entry`、`tui/subagent_host` 与 TUI(split-tui-main 的 B-13 已把 SessionManager 的构造移到 AgentLoop 之前)切换到新构造;
-  - 新增 `tests/agent/agent_loop_fixture.hpp`。
+  - 新增 `tests/test_support/agent/agent_loop_fixture.hpp`。
   - 前置:3.8,以及 split-tui-main 的 B-13。
   - 验证:
     - acecode、acecode_testable、acecode_unit_tests、desktop 四个目标都能构建;

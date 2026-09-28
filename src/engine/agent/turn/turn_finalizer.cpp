@@ -2,7 +2,7 @@
 #include "turn_context.hpp"
 #include "active_turn_gate.hpp"
 #include "turn_outcome.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/transcript/transcript_queries.hpp"
@@ -111,6 +111,7 @@ void TurnFinalizer::run(Frame& frame) {
 }
 
 void TurnFinalizer::step(Step selected, Frame& frame) {
+    const auto callbacks = callbacks_.snapshot();
     const std::string status = frame.mode == Mode::Normal ? frame.turn->timing_status : "error";
     switch (selected) {
     case Step::PrepareNormal: prepare_normal(frame); break;
@@ -130,7 +131,7 @@ void TurnFinalizer::step(Step selected, Frame& frame) {
     case Step::ReportError: message("error", frame.error, false); break;
     case Step::AccountHook: goal_.account_usage(session_manager_, 0, false); break;
     case Step::TurnFinished:
-        if (frame.chat && callbacks_.on_turn_finished) callbacks_.on_turn_finished(status);
+        if (frame.chat && callbacks.on_turn_finished) callbacks.on_turn_finished(status);
         break;
     case Step::BuildPayloads: {
         if (frame.mode == Mode::Normal) frame.turn_id = frame.turn->info.active_turn_id;
@@ -152,7 +153,7 @@ void TurnFinalizer::step(Step selected, Frame& frame) {
         });
         break;
     case Step::BusyCallback:
-        if (callbacks_.on_busy_changed) callbacks_.on_busy_changed(false);
+        if (callbacks.on_busy_changed) callbacks.on_busy_changed(false);
         break;
     case Step::CloseNormal: {
         const auto dropped = gate_.close_and_discard();

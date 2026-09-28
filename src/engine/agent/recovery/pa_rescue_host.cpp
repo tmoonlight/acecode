@@ -1,5 +1,5 @@
 #include "pa_rescue_host.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/compaction/compaction_controller.hpp"
 #include "agent/progress/retry_progress.hpp"
 #include "agent/request/provider_history.hpp"
@@ -26,7 +26,8 @@ bool PaRescueAdapter::wait(int milliseconds) {
     return !abort_.wait_for(std::chrono::milliseconds(milliseconds));
 }
 void PaRescueAdapter::reset_stream() {
-    if (callbacks_.on_stream_retry_reset) callbacks_.on_stream_retry_reset();
+    const auto callbacks = callbacks_.snapshot();
+    if (callbacks.on_stream_retry_reset) callbacks.on_stream_retry_reset();
 }
 void PaRescueAdapter::history_repaired() { compaction_.mark_history_repaired(); }
 void PaRescueAdapter::notice(const std::string& text, nlohmann::json metadata) {

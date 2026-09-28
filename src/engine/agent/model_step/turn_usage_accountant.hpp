@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 #include "agent/turn/turn_types.hpp"
 #include <atomic>
@@ -15,7 +16,7 @@ struct TurnUsageRecord {
 // a callback, session writer or event consumer throws.
 class TurnUsageAccountant {
 public:
-    TurnUsageAccountant(GoalRuntime& goal, AgentCallbacks& callbacks,
+    TurnUsageAccountant(GoalRuntime& goal, CallbacksSlot& callbacks,
                         EventDispatcher& events, std::atomic<int>& context_tokens)
         : goal_(goal), callbacks_(callbacks), events_(events), context_tokens_(context_tokens) {}
     void accept(TurnUsageRecord& record, const TokenUsage& usage, SessionManager* session);
@@ -23,7 +24,7 @@ public:
                         const ApiRequestBundle& bundle, SessionManager* session);
 private:
     GoalRuntime& goal_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
     std::atomic<int>& context_tokens_;
 };

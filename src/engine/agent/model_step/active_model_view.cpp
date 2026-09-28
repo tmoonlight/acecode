@@ -8,15 +8,15 @@
 
 namespace acecode::agent {
 
-ActiveModelView::ActiveModelView(std::shared_ptr<LlmProvider> provider, int declared_window)
-    : provider_(std::move(provider)), declared_window_(declared_window) {
+ActiveModelView::ActiveModelView(std::shared_ptr<LlmProvider> provider, int declared_window, AgentRuntimeEnv environment)
+    : provider_(std::move(provider)), declared_window_(declared_window), environment_(std::move(environment)) {
     if (provider_) {
         provider_name_ = provider_->name();
         model_name_ = provider_->model();
     }
 }
 int ActiveModelView::effective_window() const {
-    return pa::context_budget().effective_window(provider_name_, model_name_, declared_window_);
+    return environment_.context_budget().effective_window(provider_name_, model_name_, declared_window_);
 }
 bool ActiveModelView::can_read_images() const {
     return !provider_ || provider_->supports_vision();
@@ -32,7 +32,7 @@ std::optional<ContextRejectionNotice> ActiveModelView::note_rejected(int request
     const std::string& provider = provider_name_;
     const std::string& model = model_name_;
     const int declared = declared_window_;
-    auto& budget = pa::context_budget();
+    auto& budget = environment_.context_budget();
     const int before = budget.effective_window(provider, model, declared);
     budget.note_rejected(provider, model, request_tokens);
     const int after = budget.effective_window(provider, model, declared);
@@ -59,7 +59,7 @@ void ActiveModelView::note_accepted(
     const std::vector<ChatMessage>& messages_with_system) const {
     const std::string& provider = provider_name_;
     const std::string& model = model_name_;
-    auto& budget = pa::context_budget();
+    auto& budget = environment_.context_budget();
     if (!budget.has_observation(provider, model)) return;
     budget.note_accepted(provider, model,
                          estimate_message_tokens(messages_with_system));

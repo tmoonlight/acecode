@@ -41,46 +41,36 @@ void TuiApp::initialize_agent() {
         services_->config, turn_observation_);
     callbacks_ = agent_bridge_->initial_callbacks();
     callbacks_.on_tool_confirm = overlay_gate_->confirm_callback();
-    agent_loop_ = std::make_unique<AgentLoop>(provider_accessor_, *services_->tools, callbacks_,
-        environment_.working_dir, *permissions_);
+    AgentLoopServices loop_services{*services_->tools, *permissions_};
+    loop_services.provider = provider_accessor_;
+    loop_services.callbacks = callbacks_;
+    loop_services.session = &session_manager_;
+    loop_services.hooks = services_->hooks.get();
+    loop_services.skill_usage = services_->skill_usage.get();
+    loop_services.memory = services_->memory.get();
+    loop_services.skills = services_->skills->snapshot();
+    AgentLoopOptions loop_options;
+    loop_options.cwd = environment_.working_dir;
+    loop_options.context_window = services_->config.context_window;
+    loop_options.config = services_->config.agent_loop;
+    loop_options.task_suggestion_compact_threshold = services_->config.task_suggestion_compact_threshold;
+    loop_options.no_model_config_prompt =
+        u8"请先配置大模型服务。TUI 可运行 acecode configure 或使用 /model add 添加模型。";
+    loop_options.sandbox = services_->config.sandbox;
+    loop_options.skill_idle_days = services_->config.skills.idle_days;
+    loop_options.tool_policy = mcp_scope_policy(&services_->config, environment_.working_dir,
+        std::nullopt, services_->mcp.get(), services_->tools.get());
+    agent_loop_ = std::make_unique<AgentLoop>(std::move(loop_services), std::move(loop_options));
     submitter_->attach(*agent_loop_);
     overlay_gate_->attach(*agent_loop_);
     turn_lifecycle_->attach(*agent_loop_);
-    auto& config = services_->config;
-    auto& tools = *services_->tools;
-    auto& skill_registry = *services_->skills;
-    auto& memory_registry = *services_->memory;
-    auto& mcp_manager = *services_->mcp;
-    auto& runtime_memory_cfg = services_->runtime_memory_config;
-    auto& hook_manager = *services_->hooks;
-    auto& skill_usage_store = services_->skill_usage;
-    auto& agent_loop = *agent_loop_;
-    auto& working_dir = environment_.working_dir;
-    auto& callbacks = callbacks_;
-    agent_loop.set_tool_capability_policy(
-        mcp_scope_policy(&config, working_dir, std::nullopt, &mcp_manager, &tools));
-    // TUI 侧的 AskUserQuestion 传输。接上之后任何工具都能向用户提问
-    // (不只是 AskUserQuestion 工具本身),且行为与 daemon 路径同源。
-    agent_loop.set_ask_question_channel(bind(&TuiApp::ask_questions));
-    agent_loop.set_context_window(config.context_window);
-    agent_loop.set_task_suggestion_compact_threshold(
-        config.task_suggestion_compact_threshold);
-    agent_loop.set_no_model_config_prompt(
-        u8"请先配置大模型服务。TUI 可运行 acecode configure 或使用 /model add 添加模型。");
-    agent_loop.set_agent_loop_config(config.agent_loop);
-    agent_loop.set_sandbox_config(config.sandbox);
-    agent_loop.set_hook_manager(&hook_manager);
-    agent_loop.set_skill_registry(&skill_registry);
-    agent_loop.set_skill_usage_store(skill_usage_store.get());
-    agent_loop.set_skill_idle_days(config.skills.idle_days);
-    agent_loop.set_memory_registry(&memory_registry);
-    agent_loop.set_memory_config(&runtime_memory_cfg);
-    agent_loop.set_project_instructions_config(&config.project_instructions);
-    agent_loop.set_custom_instructions_config(&config.custom_instructions);
-    agent_loop.set_git_context_config(&config.git_context);
-
-    agent_loop.set_callbacks(callbacks);
-
+    agent_loop_->set_ask_question_channel(bind(&TuiApp::ask_questions));
+    agent_loop_->set_memory_config(&services_->runtime_memory_config);
+    agent_loop_->set_project_instructions_config(&services_->config.project_instructions);
+    agent_loop_->set_custom_instructions_config(&services_->config.custom_instructions);
+    agent_loop_->set_git_context_config(&services_->config.git_context);
+    agent_loop_->set_callbacks(callbacks_);
+    agent_loop_->start();
 
 }
 void TuiApp::start_main_session() {
@@ -115,7 +105,6 @@ void TuiApp::start_main_session() {
             session_manager.set_active_worktree(startup_worktree);
         }
     }
-    agent_loop.set_session_manager(&session_manager);
 }
 void TuiApp::initialize_subagents() {
     auto& config = services_->config;

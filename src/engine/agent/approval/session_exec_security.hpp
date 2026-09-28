@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/agent_runtime_env.hpp"
 
 #include "agent/approval/safe_edit_guard.hpp"
 #include "sandbox/exec_permission.hpp"
@@ -21,8 +22,9 @@ class WorkspaceBoundary;
 class SessionExecSecurity {
 public:
     SessionExecSecurity(WorkspaceBoundary& boundary, PermissionManager& permissions,
-                        const std::atomic<bool>& busy)
-        : boundary_(boundary), permissions_(permissions), busy_(busy) {}
+                        const std::atomic<bool>& busy, AgentRuntimeEnv environment = {})
+        : boundary_(boundary), permissions_(permissions), busy_(busy), environment_(std::move(environment)) {}
+    const AgentRuntimeEnv& environment() const { return environment_; }
     sandbox::SandboxRuntime& runtime() const { return runtime_; }
     bool session_disabled() const { return session_disabled_.load(); }
     void set_rules(sandbox::ExecRules rules);
@@ -48,6 +50,7 @@ private:
     WorkspaceBoundary& boundary_;
     PermissionManager& permissions_;
     const std::atomic<bool>& busy_;
+    AgentRuntimeEnv environment_;
     mutable sandbox::SandboxRuntime runtime_;
     std::atomic<bool> session_disabled_{false};
     mutable std::mutex state_mu_;

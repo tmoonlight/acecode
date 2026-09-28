@@ -25,13 +25,13 @@ RequestContextOptions RequestContextFactory::options(
     options.expert_member = source_.expert_member;
     options.tool_policy = source_.tool_policy;
     options.context_window = context_window_.load(std::memory_order_relaxed);
-    const agent::ActiveModelView model(provider, options.context_window);
+    const agent::ActiveModelView model(provider, options.context_window, source_.runtime);
     options.model = model.prompt_state();
     options.can_read_images = model.can_read_images();
     options.loop_active = source_.loop.active;
     options.loop_context = source_.loop.system_context;
     options.swarm_mode = swarm_mode;
-    options.environment = environment::prompt_environment();
+    options.environment = source_.runtime.prompt_environment();
     options.sandbox.description = security_.sandbox_prompt_description(session_manager_);
     options.folders = boundary_.system_prompt_workspace_folders(session_manager_);
     if (session_manager_) {
@@ -53,7 +53,7 @@ ApiRequestBundle RequestContextFactory::build(
         if (permissions_.mode() == PermissionMode::Plan) {
             inputs.plan_context = agent::detail::build_plan_mode_context_prompt(
                 session_manager_, tools_.is_allowed("AskUserQuestion", &source_.tool_policy),
-                tools_.is_allowed("ExitPlanMode", &source_.tool_policy));
+                tools_.is_allowed("ExitPlanMode", &source_.tool_policy), source_.runtime.mtime_tracker());
         }
         if (session_manager_) inputs.todos = session_manager_->current_todos();
     }

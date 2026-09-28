@@ -1,7 +1,7 @@
 #include "context_overflow_recovery.hpp"
 #include "pa_rescue_host.hpp"
 #include "provider_error_report.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/compaction/compaction_controller.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/goal/goal_runtime.hpp"
@@ -25,10 +25,11 @@ using detail::provider_error_summary_for_log;
 RecoveryDecision ContextOverflowRecovery::resolve(
     const ProviderCallResult& result, const std::vector<ChatMessage>& messages_with_system,
     RequestRecoveryState& state, int declared_window, SessionManager* session) {
+    const auto callbacks = callbacks_.snapshot();
     std::optional<std::string> turn_timing_status;
     auto& recovery_stage = state.stage;
     auto& emergency_request_profile = state.emergency_profile;
-    const ActiveModelView model(result.provider_snapshot, declared_window);
+    const ActiveModelView model(result.provider_snapshot, declared_window, environment_);
     if (!result.provider_error_seen) {
         model.note_accepted(messages_with_system);
         // 服务端收下了这次请求:PA 兜底的这一轮到此结束,后面再被拒是新一轮。
@@ -105,8 +106,8 @@ RecoveryDecision ContextOverflowRecovery::resolve(
             if (repair.repaired()) {
                 recovery_stage = ContextRecoveryStage::HistoryRepaired;
                 compaction_.mark_history_repaired();
-                if (callbacks_.on_stream_retry_reset) {
-                    callbacks_.on_stream_retry_reset();
+                if (callbacks.on_stream_retry_reset) {
+                    callbacks.on_stream_retry_reset();
                 }
                 events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
                     {"phase", "context_repair"},
@@ -117,8 +118,8 @@ RecoveryDecision ContextOverflowRecovery::resolve(
             }
             recovery_stage = ContextRecoveryStage::EmergencyProfile;
             emergency_request_profile = true;
-            if (callbacks_.on_stream_retry_reset) {
-                callbacks_.on_stream_retry_reset();
+            if (callbacks.on_stream_retry_reset) {
+                callbacks.on_stream_retry_reset();
             }
             LOG_WARN("[thread-repair] history exhausted; retrying once with "
                      "the emergency request profile");
@@ -127,8 +128,8 @@ RecoveryDecision ContextOverflowRecovery::resolve(
         if (recovery_stage == ContextRecoveryStage::HistoryRepaired) {
             recovery_stage = ContextRecoveryStage::EmergencyProfile;
             emergency_request_profile = true;
-            if (callbacks_.on_stream_retry_reset) {
-                callbacks_.on_stream_retry_reset();
+            if (callbacks.on_stream_retry_reset) {
+                callbacks.on_stream_retry_reset();
             }
             LOG_WARN("[thread-repair] repaired history was still rejected; "
                      "retrying once with the emergency request profile");

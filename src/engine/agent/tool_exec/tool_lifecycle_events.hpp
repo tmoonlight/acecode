@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "tool_batch_types.hpp"
 #include "tool_stream_progress.hpp"
 #include "tool/tool_executor.hpp"
@@ -24,7 +25,7 @@ public:
     public:
         using Update = std::function<void(const std::vector<std::string>&,
             const std::string&, std::size_t, int)>;
-        Stream(EventDispatcher& events, AgentCallbacks& callbacks, const ToolCall& call,
+        Stream(EventDispatcher& events, CallbacksSlot& callbacks, const ToolCall& call,
             int index, bool emit_tui, Clock clock, std::chrono::steady_clock::time_point start);
         void bind(ToolContext& context);
     private:

@@ -1,5 +1,5 @@
 #include "turn_usage_accountant.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/goal/goal_runtime.hpp"
 #include "session/event_dispatcher.hpp"
@@ -13,17 +13,19 @@ using detail::model_step_usage_to_json;
 
 void TurnUsageAccountant::accept(TurnUsageRecord& record, const TokenUsage& usage,
                                  SessionManager* session) {
+    const auto callbacks = callbacks_.snapshot();
     accumulate_turn_usage(record.aggregate, record.initialized, usage);
     context_tokens_.store(usage.total_tokens > 0 ? usage.total_tokens : usage.prompt_tokens,
                           std::memory_order_relaxed);
     goal_.account_usage(session, usage.total_tokens, false);
-    if (callbacks_.on_usage) callbacks_.on_usage(usage);
+    if (callbacks.on_usage) callbacks.on_usage(usage);
     if (session) session->record_token_usage(usage);
     events_.emit(SessionEventKind::Usage, model_step_usage_to_json(usage));
 }
 
 TokenUsage TurnUsageAccountant::estimate(TurnUsageRecord& record,
     const ChatResponse& response, const ApiRequestBundle& bundle, SessionManager* session) {
+    const auto callbacks = callbacks_.snapshot();
     TokenUsage estimated_usage;
     estimated_usage.prompt_tokens = estimate_message_tokens(bundle.messages_with_system);
     ChatMessage estimated_response;
@@ -46,7 +48,7 @@ TokenUsage TurnUsageAccountant::estimate(TurnUsageRecord& record,
     accumulate_turn_usage(
         record.aggregate, record.initialized, estimated_usage);
     goal_.account_usage(session, estimated_usage.total_tokens, false);
-    if (callbacks_.on_usage) callbacks_.on_usage(estimated_usage);
+    if (callbacks.on_usage) callbacks.on_usage(estimated_usage);
     if (session) session->record_token_usage(estimated_usage);
     return estimated_usage;
 }

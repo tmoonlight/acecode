@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 
 #include <cstdint>
@@ -27,12 +28,12 @@ struct RetryProgressText {
 
 class RetryProgressReporter {
 public:
-    RetryProgressReporter(AgentCallbacks& callbacks, EventDispatcher& events)
+    RetryProgressReporter(CallbacksSlot& callbacks, EventDispatcher& events)
         : callbacks_(callbacks), events_(events) {}
     void standard(const ProviderErrorInfo& info, bool waiting, bool compaction);
     void emit(const ProviderErrorInfo& info, bool waiting, RetryProgressText text);
 private:
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     EventDispatcher& events_;
 };
 } // namespace agent

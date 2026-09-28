@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/turn/turn_context.hpp"
 #include "agent/turn/turn_model_step_sink.hpp"
 #include "agent/model_step/provider_stream_collector.hpp"
@@ -39,20 +39,21 @@ protected:
     std::atomic<int> context_tokens{0};
     acecode::AbortSignal abort;
     acecode::AgentCallbacks callbacks;
+    acecode::CallbacksSlot callback_slot;
     acecode::PermissionManager permissions;
     acecode::ToolExecutor tools;
     acecode::EventDispatcher events;
     acecode::agent::ConversationHistory history{busy};
     acecode::agent::TurnOutcomeRecord outcome;
-    acecode::agent::TranscriptWriter transcript{history, events, callbacks, outcome};
+    acecode::agent::TranscriptWriter transcript{history, events, callback_slot, outcome};
     acecode::agent::AgentTaskQueue queue{busy};
-    acecode::agent::GoalRuntime goal{queue, history, transcript, events, callbacks, permissions, busy, abort};
+    acecode::agent::GoalRuntime goal{queue, history, transcript, events, callback_slot, permissions, busy, abort};
     acecode::agent::ActiveProviderSlot active_provider;
-    acecode::agent::ActivityNarrator activity{callbacks};
-    acecode::agent::RetryProgressReporter retry{callbacks, events};
-    acecode::agent::TurnUsageAccountant usage{goal, callbacks, events, context_tokens};
+    acecode::agent::ActivityNarrator activity{callback_slot};
+    acecode::agent::RetryProgressReporter retry{callback_slot, events};
+    acecode::agent::TurnUsageAccountant usage{goal, callback_slot, events, context_tokens};
     acecode::agent::ModelStepRecorder recorder{tools, events};
-    acecode::agent::ProviderStreamCollector collector{tools, callbacks, events, history,
+    acecode::agent::ProviderStreamCollector collector{tools, callback_slot, events, history,
         active_provider, abort, activity, retry};
     acecode::agent::TurnContext turn{callbacks};
     acecode::agent::TurnModelStepSink sink{turn, usage, recorder, nullptr};
@@ -65,6 +66,7 @@ TEST_F(StreamCollectorTest, RetainedCallbackCannotAccessCompletedRequest) {
     auto provider = std::make_shared<RetainingProvider>();
     auto deltas = std::make_shared<std::string>();
     callbacks.on_delta = [deltas](const std::string& text) { *deltas += text; };
+    callback_slot.publish(callbacks);
     provider->push_text("first");
     const auto result = collector.collect(provider, {}, progress, 1, sink, nullptr);
     EXPECT_EQ(result.accumulated.content, "first");
@@ -87,6 +89,7 @@ TEST_F(StreamCollectorTest, UsageIsRetainedBeforeAConsumerThrows) {
     event.usage.total_tokens = 11;
     provider->push_events({event});
     callbacks.on_usage = [](const auto&) { throw std::runtime_error("consumer"); };
+    callback_slot.publish(callbacks);
     EXPECT_THROW(collector.collect(provider, {}, progress, 1, sink, nullptr), std::runtime_error);
     EXPECT_TRUE(turn.usage.initialized);
     EXPECT_EQ(turn.usage.aggregate.total_tokens, 11);

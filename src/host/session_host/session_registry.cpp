@@ -1071,51 +1071,36 @@ SessionRegistry::make_entry_locked(const std::string& id,
         return binding ? binding->provider_snapshot()
                        : std::shared_ptr<LlmProvider>{};
     };
-    entry->loop = std::make_unique<AgentLoop>(
-        provider_accessor,
-        *deps_.tools,
-        std::move(empty_cb),
-        entry->cwd,
-        *entry->perm);
-    entry->loop->set_no_model_config_prompt(
-        u8"请先配置大模型服务。请打开 设置 > 模型 添加模型。");
-
+    AgentLoopServices loop_services{*deps_.tools, *entry->perm};
+    loop_services.provider = std::move(provider_accessor);
+    loop_services.callbacks = std::move(empty_cb);
+    loop_services.session = entry->sm.get();
+    loop_services.hooks = deps_.hook_manager;
+    loop_services.memory = deps_.memory_registry;
+    const auto* skills = entry->skill_registry ? entry->skill_registry.get() : deps_.skill_registry;
+    if (skills) loop_services.skills = skills->snapshot();
+    if (entry->expert) loop_services.expert = std::make_shared<const ExpertDefinition>(*entry->expert);
+    AgentLoopOptions loop_options;
+    loop_options.cwd = entry->cwd;
+    loop_options.no_model_config_prompt =
+        u8"请先配置大模型服务。请打开 设置 > 模型 添加模型。";
     if (entry_config) {
-        entry->loop->set_context_window(initial_model_state.context_window > 0
-            ? initial_model_state.context_window
-            : entry_config->context_window);
-        entry->loop->set_agent_loop_config(entry_config->agent_loop);
-        entry->loop->set_task_suggestion_compact_threshold(
-            entry_config->task_suggestion_compact_threshold);
-        entry->loop->set_sandbox_config(entry_config->sandbox);
+        loop_options.context_window = initial_model_state.context_window > 0
+            ? initial_model_state.context_window : entry_config->context_window;
+        loop_options.config = entry_config->agent_loop;
+        loop_options.task_suggestion_compact_threshold = entry_config->task_suggestion_compact_threshold;
+        loop_options.sandbox = entry_config->sandbox;
     }
-    if (opts.loop_execution) {
-        LoopExecutionPolicy policy;
-        policy.active = true;
-        policy.system_context = opts.loop_system_context;
-        entry->loop->set_loop_execution_policy(std::move(policy));
-    }
-    if (!opts.write_root.empty()) {
-        entry->loop->set_inherited_write_root(opts.write_root);
-    }
-    if (opts.inherited_worktree.active()) {
-        // 与 enter_worktree_for_web / resume 同语义:AgentLoop 的工作目录切进
-        // worktree,entry->cwd(workspace 归属 / 会话存储位置)不动。
+    loop_options.loop_policy = {opts.loop_execution, opts.loop_system_context};
+    loop_options.inherited_write_root = opts.write_root;
+    loop_options.tool_policy = entry->tool_capability_policy;
+    loop_options.expert_member_id = entry->expert_member_id;
+    entry->loop = std::make_unique<AgentLoop>(std::move(loop_services), std::move(loop_options));
+    if (opts.inherited_worktree.active())
         entry->loop->set_cwd(opts.inherited_worktree.worktree_path);
-    }
-    entry->loop->set_session_manager(entry->sm.get());
-    entry->loop->set_hook_manager(deps_.hook_manager);
-    entry->loop->set_skill_registry(entry->skill_registry
-        ? entry->skill_registry.get()
-        : deps_.skill_registry);
-    entry->loop->set_memory_registry(deps_.memory_registry);
     entry->loop->set_memory_config(deps_.memory_cfg);
     entry->loop->set_project_instructions_config(deps_.project_instructions_cfg);
     entry->loop->set_custom_instructions_config(deps_.custom_instructions_cfg);
-    entry->loop->set_expert_context(entry->expert ? &*entry->expert : nullptr,
-                                    entry->expert_member_id);
-    entry->loop->set_tool_capability_policy(
-        entry->tool_capability_policy);
     if (deps_.config) {
         entry->loop->set_git_context_config(&deps_.config->git_context);
     }
@@ -1139,14 +1124,16 @@ SessionRegistry::make_entry_locked(const std::string& id,
             ask_timeout = std::chrono::seconds(resolved.timeout_seconds);
         }
     }
-    entry->ask_prompter = std::make_unique<AskUserQuestionPrompter>(
+    auto ask_prompter = std::make_unique<AskUserQuestionPrompter>(
         entry->loop->events(), ask_timeout);
-    entry->loop->set_ask_question_prompter(entry->ask_prompter.get());
+    entry->ask_prompter = ask_prompter.get();
+    entry->loop->set_ask_question_prompter(std::move(ask_prompter));
 
     // A newly created Desktop/Web session must support side chat immediately,
     // before any main request has caused the worker to publish a prompt. Resume
     // primes again after persisted history and worktree state are restored.
     if (!resumed_meta) entry->loop->prime_side_question_context();
+    entry->loop->start();
 
     return entry;
 }

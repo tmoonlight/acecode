@@ -1,6 +1,6 @@
 #include "turn_lifecycle.hpp"
 #include "active_turn_gate.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "session/event_dispatcher.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/transcript/conversation_history.hpp"
@@ -162,6 +162,7 @@ UserTurnInfo TurnLifecycle::prepare_retry_user_turn(const ChatMessage& message) 
 }
 
 void TurnLifecycle::start_user_turn(const UserTurnInfo& info) {
+    const auto callbacks = callbacks_.snapshot();
     if (session_manager_) {
         if (info.visible_timed_turn) {
             session_manager_->record_trajectory_event(
@@ -176,8 +177,8 @@ void TurnLifecycle::start_user_turn(const UserTurnInfo& info) {
             {{"busy", true}, {"turn_id", info.active_turn_id}});
     }
     gate_.begin(info.active_turn_id);
-    if (callbacks_.on_busy_changed) {
-        callbacks_.on_busy_changed(true);
+    if (callbacks.on_busy_changed) {
+        callbacks.on_busy_changed(true);
     }
     events_.emit(SessionEventKind::BusyChanged, nlohmann::json{
         {"busy", true},

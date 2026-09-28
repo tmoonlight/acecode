@@ -1,5 +1,5 @@
 #include "tool_lifecycle_events.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/session_manager.hpp"
@@ -88,9 +88,9 @@ void ToolLifecycleEvents::finish(
 }
 
 ToolLifecycleEvents::Stream::Stream(
-    EventDispatcher& events, AgentCallbacks& callbacks, const ToolCall& call,
+    EventDispatcher& events, CallbacksSlot& callbacks, const ToolCall& call,
     int index, bool emit_tui, Clock clock, std::chrono::steady_clock::time_point start)
-    : events_(events), callback_(emit_tui ? callbacks.on_tool_progress_update : Update{}),
+    : events_(events), callback_(emit_tui ? callbacks.snapshot().on_tool_progress_update : Update{}),
       name_(call.function_name), id_(call.id), index_(index),
       key_("tool_update:" + (!call.id.empty() ? call.id
           : (call.function_name + ":" + std::to_string(index)))),

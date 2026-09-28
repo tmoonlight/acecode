@@ -1,6 +1,6 @@
 #include "compaction_controller.hpp"
 #include "compact.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/model_step/active_model_view.hpp"
@@ -94,7 +94,7 @@ bool CompactionController::mechanical_fallback(
 }
 
 bool CompactionController::run_auto(const CompactionInputs& inputs) {
-    const int context_window = ActiveModelView(inputs.provider, inputs.request.context_window).effective_window();
+    const int context_window = ActiveModelView(inputs.provider, inputs.request.context_window, environment_).effective_window();
     auto initial_context = requests_.initial_context(inputs.request);
     const auto active_history =
         recovered_provider_messages(history_.view(), "auto-compact");
@@ -199,6 +199,7 @@ bool CompactionController::run_auto(const CompactionInputs& inputs) {
 }
 
 void CompactionController::run_manual(const CompactionInputs& inputs) {
+    const auto callbacks = callbacks_.snapshot();
     abort_.clear();
     busy_ = true;
 
@@ -208,8 +209,8 @@ void CompactionController::run_manual(const CompactionInputs& inputs) {
         inputs.session->record_trajectory_event(
             "busy_changed", {{"busy", true}});
     }
-    if (callbacks_.on_busy_changed) {
-        callbacks_.on_busy_changed(true);
+    if (callbacks.on_busy_changed) {
+        callbacks.on_busy_changed(true);
     }
     events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", true}});
     events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
@@ -284,10 +285,11 @@ void CompactionController::run_manual(const CompactionInputs& inputs) {
 
 
 void CompactionController::finish_busy(LifetimeRef<TrajectoryRecorder> terminal) {
+    const auto callbacks = callbacks_.snapshot();
     terminal.with([](TrajectoryRecorder& recorder) {
         recorder.record_terminal({{"busy", false}}, nlohmann::json::object());
     });
-    if (callbacks_.on_busy_changed) callbacks_.on_busy_changed(false);
+    if (callbacks.on_busy_changed) callbacks.on_busy_changed(false);
     busy_ = false;
     events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
     events_.emit(SessionEventKind::Done, nlohmann::json::object());

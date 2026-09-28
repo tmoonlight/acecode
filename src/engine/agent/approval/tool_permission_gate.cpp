@@ -95,7 +95,7 @@ PermissionVerdict ToolPermissionGate::decide(
             if (path.is_relative()) path = path_from_utf8(boundary_.cwd()) / path;
             std::error_code ec;
             const auto normalized = std::filesystem::weakly_canonical(path, ec);
-            const auto global_rules = std::filesystem::weakly_canonical(path_from_utf8(get_acecode_dir()) / "rules", ec);
+            const auto global_rules = std::filesystem::weakly_canonical(path_from_utf8(security_.environment().acecode_dir()) / "rules", ec);
             const auto relative = normalized.lexically_relative(global_rules);
             if (sandbox::is_exec_rules_path(target) || sandbox::is_exec_rules_path(path_to_utf8(normalized)) ||
                 (!relative.empty() && *relative.begin() != "..")) {
@@ -278,7 +278,7 @@ PermissionVerdict ToolPermissionGate::decide(
     //   - --yolo(dangerous):自动放行。
     //   - 其余(default/accept-edits/plan 的受限工具):直接拒绝,
     //     文案告知模型环境约束,引导改用只读方案而不是重试。
-    if (!auto_allow && headless::active()) {
+    if (!auto_allow && security_.environment().headless()) {
         if (permissions_.is_dangerous()) {
             auto_allow = true;
             permission_session.resolve("allow", "headless");

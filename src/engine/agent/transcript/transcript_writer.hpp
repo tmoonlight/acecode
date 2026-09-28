@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 #include "agent/turn/turn_types.hpp"
 
@@ -18,7 +19,7 @@ class TurnOutcomeRecord;
 class TranscriptWriter {
 public:
     TranscriptWriter(ConversationHistory& history, EventDispatcher& events,
-                     AgentCallbacks& callbacks, TurnOutcomeRecord& outcome)
+                     CallbacksSlot& callbacks, TurnOutcomeRecord& outcome)
         : history_(history), events_(events), callbacks_(callbacks), outcome_(outcome) {}
     void dispatch_message(const std::string& role, const std::string& content, bool is_tool,
                           nlohmann::json metadata, nlohmann::json content_parts);
@@ -39,7 +40,7 @@ public:
 private:
     ConversationHistory& history_;
     EventDispatcher& events_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     TurnOutcomeRecord& outcome_;
 };
 

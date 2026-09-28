@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 
 #include "agent/goal/goal_prompts.hpp"
 
@@ -29,7 +30,7 @@ class ConversationHistory;
 class GoalRuntime {
 public:
     GoalRuntime(AgentTaskQueue& queue, ConversationHistory& history, TranscriptWriter& transcript,
-                EventDispatcher& events, AgentCallbacks& callbacks, PermissionManager& permissions,
+                EventDispatcher& events, CallbacksSlot& callbacks, PermissionManager& permissions,
                 const std::atomic<bool>& busy, AbortSignal& abort)
         : queue_(queue), history_(history), transcript_(transcript), events_(events),
           callbacks_(callbacks), permissions_(permissions), busy_(busy), abort_(abort) {}
@@ -51,7 +52,7 @@ private:
     ConversationHistory& history_;
     TranscriptWriter& transcript_;
     EventDispatcher& events_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     PermissionManager& permissions_;
     const std::atomic<bool>& busy_;
     AbortSignal& abort_;

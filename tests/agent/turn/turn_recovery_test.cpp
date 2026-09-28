@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/turn/turn_context.hpp"
 #include "agent/turn/turn_finalizer.hpp"
 #include "agent/turn/active_turn_gate.hpp"
@@ -28,21 +28,22 @@ protected:
     std::atomic<bool> interrupt{false};
     AbortSignal abort;
     AgentCallbacks callbacks;
+    acecode::CallbacksSlot callback_slot;
     PermissionManager permissions;
     ToolExecutor tools;
     ToolCapabilityPolicy policy;
     EventDispatcher events;
     ConversationHistory history{busy};
     TurnOutcomeRecord outcome;
-    TranscriptWriter transcript{history, events, callbacks, outcome};
+    TranscriptWriter transcript{history, events, callback_slot, outcome};
     AgentTaskQueue queue{busy};
     ActiveTurnGate gate{busy, abort, interrupt};
     WorkspaceBoundary boundary{".", permissions};
     AgentHookBridge hooks{boundary, permissions, {}, transcript, history};
-    GoalRuntime goal{queue, history, transcript, events, callbacks, permissions, busy, abort};
-    ActivityNarrator activity{callbacks};
+    GoalRuntime goal{queue, history, transcript, events, callback_slot, permissions, busy, abort};
+    ActivityNarrator activity{callback_slot};
     TurnFinalizer finalizer{{history, transcript, outcome, gate, goal, hooks, activity,
-        events, callbacks, tools, policy, busy, abort, interrupt, nullptr}};
+        events, callback_slot, tools, policy, busy, abort, interrupt, nullptr}};
     ResponseRecovery recovery{history, transcript, goal, nullptr};
 };
 }
@@ -53,8 +54,11 @@ TEST_F(TurnRecoveryTest, MissingContextAndThrowingObserversStillPublishTerminalE
     const auto subscription = events.subscribe([seen](const auto& event) { seen->push_back(event); });
     gate.begin("failed-turn");
     callbacks.on_message = [](const auto&, const auto&, bool) { throw std::runtime_error("message"); };
+    callback_slot.publish(callbacks);
     callbacks.on_turn_finished = [](const auto&) { throw std::runtime_error("finished"); };
+    callback_slot.publish(callbacks);
     callbacks.on_busy_changed = [](bool) { throw std::runtime_error("busy"); };
+    callback_slot.publish(callbacks);
     EXPECT_NO_THROW(finalizer.recover(nullptr, "task", true, {}));
     events.unsubscribe(subscription);
     ASSERT_EQ(seen->size(), 2u);
@@ -72,6 +76,7 @@ TEST_F(TurnRecoveryTest, NonChatRecoveryDoesNotInventTurnUsageOrFinishedCallback
     auto seen = std::make_shared<std::vector<SessionEvent>>();
     auto finished = std::make_shared<int>(0);
     callbacks.on_turn_finished = [finished](const auto&) { ++*finished; };
+    callback_slot.publish(callbacks);
     const auto subscription = events.subscribe([seen](const auto& event) {
         if (event.kind == SessionEventKind::Done) seen->push_back(event);
     });

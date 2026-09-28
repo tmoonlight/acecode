@@ -5,7 +5,8 @@
 #include "utils/abort_signal.hpp"
 #include "utils/joining_thread.hpp"
 
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
+#include "agent/agent_loop_services.hpp"
 #include "agent/control/control_receipt.hpp"
 #include "agent/turn/turn_types.hpp"
 
@@ -76,7 +77,10 @@ public:
     AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
               AgentCallbacks callbacks, const std::string& cwd,
               PermissionManager& permissions);
+    AgentLoop(AgentLoopServices services, AgentLoopOptions options);
     ~AgentLoop();
+    // Install both prompters before start; construction never launches work.
+    void start();
 
     void set_callbacks(AgentCallbacks cb);
 
@@ -276,10 +280,7 @@ public:
     // Install / update the agent-loop termination policy. Called once from
     // main.cpp at startup (and could be called again if config reloads).
     // A fresh-default AgentLoopConfig is used when this setter is never called.
-    void set_agent_loop_config(AgentLoopConfig cfg) {
-        loop_cfg_ = cfg;
-        set_tool_preamble_config(cfg.tool_preamble);
-    }
+    void set_agent_loop_config(AgentLoopConfig cfg);
 
     // 工具前言(add-tool-preamble)。配置可在设置页动态改,所以单独一把锁、
     // 每次用时取快照。
@@ -385,12 +386,8 @@ public:
     // 调,然后才 submit 第一条消息。
     void set_permission_prompter(std::unique_ptr<PermissionPrompter> p);
 
-    // 注入异步 AskUserQuestionPrompter(daemon 模式)。raw 指针;生命周期由
-    // 调用方(典型是 SessionEntry)保证。AgentLoop 在每次工具调用前把它包成
-    // ToolContext::ask_user_questions 回调注入。
-    void set_ask_question_prompter(AskUserQuestionPrompter* p) {
-        ask_prompter_ = p;
-    }
+    // Owned by this loop; SessionEntry may retain only a borrowed alias.
+    void set_ask_question_prompter(std::unique_ptr<AskUserQuestionPrompter> prompter);
 
     // 注入 TUI 侧的 AskUserQuestion 传输通道。与上面的 prompter 二选一 ——
     // daemon 用 prompter(WS 往返),TUI 用这个(overlay 阻塞等待)。两者
@@ -502,69 +499,57 @@ private:
 
     using WorkerTask = agent::WorkerTask;
 
-    ProviderAccessor provider_accessor_;
-    ToolExecutor& tools_;
-    AgentCallbacks callbacks_;
-    AbortSignal abort_signal_;
-    // Distinguishes a steering interrupt from a manual stop. The former
-    // immediately continues with a promised turn and must not pause goals.
-    std::atomic<bool> turn_interrupt_requested_{false};
-    std::atomic<bool> busy_{false};
-    // Roots outlive the collaborators that publish or observe their state.
-    EventDispatcher events_;
-    std::unique_ptr<agent::ConversationHistory> history_;
-    std::unique_ptr<agent::TurnOutcomeRecord> turn_outcome_;
-    std::unique_ptr<agent::TranscriptWriter> transcript_;
-    std::unique_ptr<agent::TrajectoryRecorder> trajectory_;
-    std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
-    std::unique_ptr<agent::WorkspaceBoundary> boundary_;
-    std::unique_ptr<agent::SessionExecSecurity> exec_security_;
+    void require_before_start(const char* operation) const;
     void reload_exec_rules();
-    // P0-11 注入点(见 set_progress_clock_for_tests / set_computer_use_release_for_tests)。
-    SteadyClockFn progress_clock_;
-    ComputerUseReleaseFn computer_use_release_;
-    // 本回合捕获的节流时钟快照(空 = steady_clock::now);只在 worker 线程上读写。
-    // computer-use 会话租约的唯一释放出口:abort / 回合收尾 / DesktopTurnLease 析构。
     void release_computer_use_session(const std::string& session_id) const;
     std::string sandbox_prompt_description() const;
-    PermissionManager& permissions_;
-    // 路径落在某个可写附加文件夹内(相对路径按 cwd_ 解析)。
     bool path_in_workspace_folders(const std::string& path) const;
-    // 系统提示 # Environment 的附加工作目录两行(可写 / 本会话只读)。
     SystemPromptWorkspaceFolders system_prompt_workspace_folders() const;
-    std::atomic<int> context_window_{128000};
-    std::string no_model_config_prompt_;
-    // agent_loop termination policy. Fresh defaults come from AgentLoopConfig
-    // until set_agent_loop_config is called from main.cpp.
-    AgentLoopConfig loop_cfg_;
-    agent::RequestContextSource request_source_;
-    // 本模型步给工具批次的前言:run_agent_with_input 在 Phase 5 之前填,
-    // execute_tool_calls 开头消费(挂 metadata、随 tool_start 下发)后清空。
-    // 本次模型请求实际发出的模型侧工具名(bundle.tool_defs[i].name,已经过
-    // 「工具重写」映射)。主循环每次组装请求后刷新;只在 worker 线程的工具批次
-    // 之间写入,并行工具线程只读。Unknown tool 错误文本据此列出可用名。
-    // spawn_subagent 透传的父会话写边界根;见 write_root()。
     void record_turn_outcome(const std::string& turn_timing_status);
-    // Latest server-reported total active-context usage. For providers that do
-    // not return total_tokens, prompt_tokens is used as the fallback.
+
+    // Roots outlive all collaborators and prompters. Worker is always last.
+    AbortSignal abort_signal_;
+    std::atomic<bool> turn_interrupt_requested_{false};
+    std::atomic<bool> busy_{false};
+    EventDispatcher events_;
+    CallbacksSlot callbacks_;
+    std::unique_ptr<agent::TurnOutcomeRecord> turn_outcome_;
+    std::atomic<int> context_window_{128000};
     std::atomic<int> last_api_total_tokens_{0};
-    // Aggregate usage for the regular turn currently owned by the worker.
-    // Kept as worker state (rather than a stack local) so the outer worker
-    // recovery boundary can still publish an accurate terminal summary after
-    // an exception unwinds run_agent_with_input().
-    std::unique_ptr<agent::TurnContext> turn_context_; // Worker-owned task lifetime.
     std::atomic<int> task_suggestion_compact_threshold_{3};
-    SessionManager* session_manager_ = nullptr;
-    HookManager* hook_manager_ = nullptr;
-    // Worker-thread-only flag derived from the current root UserInput. It
-    // remains active across all provider iterations in that turn.
-    // Worker-only control populated by terminal tool results. Actions run only
-    // after canonical tool results, turn timing, BusyChanged and Done have all
-    // been emitted/persisted.
-    // Dependency order: queue -> input gate -> cross-loop handoff.
+    mutable std::mutex lifecycle_mu_;
+    bool started_ = false;
+    bool stopped_ = false;
+    bool legacy_auto_started_ = false; // Removed with the old constructor in A-17.
+    std::atomic<bool> processed_task_{false};
+
+    // Required references and optional borrowed dependencies are fixed at init.
+    ProviderAccessor provider_accessor_;
+    ToolExecutor& tools_;
+    PermissionManager& permissions_;
+    SessionManager* session_manager_ = nullptr; // Nullable borrowed.
+    HookManager* hook_manager_ = nullptr; // Nullable borrowed.
+    AgentRuntimeEnv runtime_;
+    std::shared_ptr<const SkillRegistry> skills_snapshot_;
+    std::shared_ptr<const ExpertDefinition> expert_snapshot_;
+    SteadyClockFn progress_clock_;
+    ComputerUseReleaseFn computer_use_release_;
+    std::string no_model_config_prompt_;
+    AgentLoopConfig loop_cfg_; // Worker task snapshot, never written by a publisher.
+    std::shared_ptr<const AgentLoopConfig> published_loop_config_;
+    agent::RequestContextSource request_source_;
+
+    // Assembly DAG: history/outcome -> transcript -> queue/gate -> boundary ->
+    // security/hooks -> goal/requests -> model/compaction/recovery -> turn scope.
+    std::unique_ptr<agent::ConversationHistory> history_;
+    std::unique_ptr<agent::TranscriptWriter> transcript_;
+    std::unique_ptr<agent::TrajectoryRecorder> trajectory_;
     std::unique_ptr<agent::AgentTaskQueue> task_queue_;
     std::unique_ptr<agent::ActiveTurnGate> active_turn_gate_;
     std::unique_ptr<agent::TaskHandoff> task_handoff_;
+    std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
+    std::unique_ptr<agent::WorkspaceBoundary> boundary_;
+    std::unique_ptr<agent::SessionExecSecurity> exec_security_;
     std::unique_ptr<agent::AgentHookBridge> hooks_;
     std::unique_ptr<agent::ToolHookBridge> tool_hooks_;
     std::unique_ptr<agent::GoalRuntime> goal_;
@@ -578,22 +563,12 @@ private:
     std::unique_ptr<agent::ProviderStreamCollector> stream_collector_;
     std::unique_ptr<agent::CompactionController> compaction_;
     std::unique_ptr<agent::ContextOverflowRecovery> recovery_;
+    std::unique_ptr<agent::TurnContext> turn_context_;
 
-    // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
-    // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由
-    // HTTP handler 线程并发调用。
-
-    // Section 7.6: PermissionPrompter。null 时走 callbacks_.on_tool_confirm
-    // 老路径(TUI);非 null 时(daemon 模式)走 prompter_->prompt。
+    // Both prompters depend on events_; neither may outlive the loop.
     std::unique_ptr<PermissionPrompter> prompter_;
-
-    // AskUserQuestionPrompter: daemon 模式下走 WS。raw 指针,生命周期由
-    // SessionEntry 持有。null 时 ToolContext::ask_user_questions 不注入,
-    // 此时 AskUserQuestion 工具(daemon 工厂版)会返回 rejected。
-    AskUserQuestionPrompter* ask_prompter_ = nullptr;
+    std::unique_ptr<AskUserQuestionPrompter> ask_prompter_;
     AskQuestionChannel ask_channel_;
-
-    // Declared last: join the worker before any dependency is destroyed.
     JoiningThread worker_thread_;
 };
 

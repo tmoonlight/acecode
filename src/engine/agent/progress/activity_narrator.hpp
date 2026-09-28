@@ -1,6 +1,6 @@
 #pragma once
 
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/turn/turn_types.hpp"
 #include "config/config.hpp"
 #include <mutex>
@@ -13,7 +13,7 @@ namespace acecode::agent {
 // or progress emission. Callbacks may query or reconfigure this narrator.
 class ActivityNarrator {
 public:
-    explicit ActivityNarrator(AgentCallbacks& callbacks) : callbacks_(callbacks) {}
+    explicit ActivityNarrator(CallbacksSlot& callbacks) : callbacks_(callbacks) {}
     void set_config(const ToolPreambleConfig& cfg);
     ToolPreambleConfig config() const;
     bool enabled() const;
@@ -30,7 +30,7 @@ public:
     static const char* responding_label();
 
 private:
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     mutable std::mutex tool_preamble_mu_;
     ToolPreambleConfig tool_preamble_cfg_;
     ToolPreambleTitle phase_preamble_;

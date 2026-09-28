@@ -1,6 +1,6 @@
 #include "user_shell_task.hpp"
 #include "busy_cycle.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/tool_exec/tool_context_factory.hpp"
 #include "agent/tool_exec/tool_stream_progress.hpp"
 #include "agent/transcript/transcript_writer.hpp"
@@ -18,6 +18,7 @@ namespace acecode::agent {
 
 void UserShellTask::run(std::string command, SessionManager* session_manager_,
     HookManager* hook_manager_, LifetimeRef<TrajectoryRecorder> terminal) {
+    const auto callbacks = callbacks_.snapshot();
     abort_signal_.clear();
     busy_ = true;
 
@@ -27,8 +28,8 @@ void UserShellTask::run(std::string command, SessionManager* session_manager_,
         session_manager_->record_trajectory_event(
             "busy_changed", {{"busy", true}});
     }
-    if (callbacks_.on_busy_changed) {
-        callbacks_.on_busy_changed(true);
+    if (callbacks.on_busy_changed) {
+        callbacks.on_busy_changed(true);
     }
 
     BusyCycleScope finish([ref = lifetime_.ref(*this), terminal] {
@@ -72,8 +73,8 @@ void UserShellTask::run(std::string command, SessionManager* session_manager_,
 
         ToolContext tool_ctx = agent::ToolContextFactory::for_user_shell(
             boundary_, abort_signal_, session_manager_);
-        if (callbacks_.on_tool_progress_update) {
-            auto update_cb = callbacks_.on_tool_progress_update;
+        if (callbacks.on_tool_progress_update) {
+            auto update_cb = callbacks.on_tool_progress_update;
             tool_ctx.stream = [prog, update_cb](const std::string& chunk) {
                 const auto progress = prog->append(chunk);
                 update_cb(progress.tail_lines, progress.current_partial,
@@ -86,9 +87,9 @@ void UserShellTask::run(std::string command, SessionManager* session_manager_,
             ~ProgressGuard() { if (end_cb) end_cb(); }
         };
         ProgressGuard guard;
-        if (callbacks_.on_tool_progress_start) {
-            callbacks_.on_tool_progress_start("bash", cmd_preview, std::string{});
-            guard.end_cb = callbacks_.on_tool_progress_end;
+        if (callbacks.on_tool_progress_start) {
+            callbacks.on_tool_progress_start("bash", cmd_preview, std::string{});
+            guard.end_cb = callbacks.on_tool_progress_end;
         }
 
         try {
@@ -122,7 +123,7 @@ void UserShellTask::run(std::string command, SessionManager* session_manager_,
     // 自己输入命令就是为了看完整结果,LLM 工具结果的"摘要 + Ctrl+E 展开"语义
     // 在这里不适用。所以使用一个独立的 TUI 伪角色 `user_shell_output`,渲染分支
     // 走全量路径,与 `tool_result`(LLM 工具结果)区分开。
-    // 同样不调 callbacks_.on_tool_result —— 它会把 ToolResult.summary 回填到
+    // 同样不调 callbacks.on_tool_result —— 它会把 ToolResult.summary 回填到
     // TuiState::Message,导致渲染走 summary 单行;这正是要避免的。
     transcript_.dispatch_message("user_shell_output", result.output, true, nlohmann::json::object(), nlohmann::json::array());
 
@@ -154,10 +155,11 @@ void UserShellTask::run(std::string command, SessionManager* session_manager_,
 
 
 void UserShellTask::finish_busy(LifetimeRef<TrajectoryRecorder> terminal) {
+    const auto callbacks = callbacks_.snapshot();
     terminal.with([](TrajectoryRecorder& recorder) {
         recorder.record_terminal({{"busy", false}}, nlohmann::json::object());
     });
-    if (callbacks_.on_busy_changed) callbacks_.on_busy_changed(false);
+    if (callbacks.on_busy_changed) callbacks.on_busy_changed(false);
     busy_ = false;
     events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
     events_.emit(SessionEventKind::Done, nlohmann::json::object());

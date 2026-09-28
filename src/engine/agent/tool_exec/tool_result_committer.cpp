@@ -59,7 +59,7 @@ ToolBatchOutcome ToolResultCommitter::commit(std::vector<ToolCallSlot>& slots) {
         };
         const bool byte_mode = args.contains("byte_offset");
 
-        MtimeTracker::instance().record_read_observation_result(
+        environment_.mtime_tracker().record_read_observation_result(
             args["file_path"].get<std::string>(),
             int_arg("start_line"),
             int_arg("end_line"),

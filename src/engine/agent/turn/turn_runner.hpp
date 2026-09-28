@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "agent/request/request_context_factory.hpp"
 #include "agent/tool_exec/tool_batch_scheduler.hpp"
 #include "turn_finalizer.hpp"
@@ -52,7 +53,7 @@ private:
         const std::shared_ptr<LlmProvider>& provider, const ProgressEmitter& progress);
 
     ToolExecutor& tools_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     PermissionManager& permissions_;
     ConversationHistory& history_;
     TranscriptWriter& transcript_;

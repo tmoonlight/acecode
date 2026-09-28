@@ -1,5 +1,5 @@
 #include "transcript_writer.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/event_payload/message_payload.hpp"
@@ -20,13 +20,14 @@ void TranscriptWriter::dispatch_message(const std::string& role,
                                   bool is_tool,
                                   nlohmann::json metadata,
                                   nlohmann::json content_parts) {
+    const auto callbacks = callbacks_.snapshot();
     if (role == "error") {
         // 回合级错误文案的唯一收集点:provider 终止错误 / 压缩失败 / 空回复
         // 耗尽 / hook 拦截都经这里派发,wait_subagent 报 ChildFailed 时带上。
         outcome_.set_error(content);
     }
-    if (callbacks_.on_message) {
-        callbacks_.on_message(role, content, is_tool);
+    if (callbacks.on_message) {
+        callbacks.on_message(role, content, is_tool);
     }
     // Web 协议给每条 message 带稳定 id:user 走持久 uuid(走另一路径
     // 直接 emit,见 run_agent),其它角色 lazy sha1(role + " " + content
@@ -81,6 +82,7 @@ void TranscriptWriter::append_turn_timing_record(SessionManager* session, const 
 void TranscriptWriter::append_tool_user_prompt(SessionManager* session, const std::string& content,
                                         const std::string& display_text,
                                         const std::string& source_tool) {
+    const auto callbacks = callbacks_.snapshot();
     if (content.empty()) return;
 
     ChatMessage msg;
@@ -99,8 +101,8 @@ void TranscriptWriter::append_tool_user_prompt(SessionManager* session, const st
         session->on_message(msg);
     }
 
-    if (callbacks_.on_message) {
-        callbacks_.on_message("user", msg.metadata.value("display_text", msg.content), false);
+    if (callbacks.on_message) {
+        callbacks.on_message("user", msg.metadata.value("display_text", msg.content), false);
     }
     nlohmann::json event = {
         {"role", "user"},
@@ -118,6 +120,7 @@ void TranscriptWriter::emit_system_message(const std::string& content, nlohmann:
 
 void TranscriptWriter::emit_transcript_system_message(SessionManager* session, const std::string& content,
                                                nlohmann::json metadata) {
+    const auto callbacks = callbacks_.snapshot();
     ChatMessage msg;
     msg.role = "system";
     msg.content = content;
@@ -125,10 +128,10 @@ void TranscriptWriter::emit_transcript_system_message(SessionManager* session, c
     msg.metadata = metadata.is_object() ? std::move(metadata) : nlohmann::json::object();
     msg.metadata["transcript_only"] = true;
 
-    if (callbacks_.on_transcript_message) {
-        callbacks_.on_transcript_message(msg);
-    } else if (callbacks_.on_message) {
-        callbacks_.on_message(msg.role, msg.content, false);
+    if (callbacks.on_transcript_message) {
+        callbacks.on_transcript_message(msg);
+    } else if (callbacks.on_message) {
+        callbacks.on_message(msg.role, msg.content, false);
     }
     if (session) {
         session->on_message(msg);
@@ -224,6 +227,7 @@ void TranscriptWriter::append_interrupted_turn_context(SessionManager* session, 
 void TranscriptWriter::commit_turn_steering_input(SessionManager* session,
     UserInput input,
     const std::string& turn_id) {
+    const auto callbacks = callbacks_.snapshot();
     ChatMessage message;
     message.role = "user";
     message.content = std::move(input.text);
@@ -247,8 +251,8 @@ void TranscriptWriter::commit_turn_steering_input(SessionManager* session,
 
     const std::string display = message.metadata.value(
         "display_text", message.content);
-    if (callbacks_.on_message) {
-        callbacks_.on_message("user", display, false);
+    if (callbacks.on_message) {
+        callbacks.on_message("user", display, false);
     }
 
     nlohmann::json event = {

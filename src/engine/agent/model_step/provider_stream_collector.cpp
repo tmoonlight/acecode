@@ -1,7 +1,7 @@
 #include "provider_stream_collector.hpp"
 #include "active_provider_slot.hpp"
 #include "model_step_sink.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/progress/activity_narrator.hpp"
 #include "agent/progress/retry_progress.hpp"
@@ -32,7 +32,7 @@ struct ProviderStreamCollector::Call {
          std::shared_ptr<LlmProvider> provider)
         : owner_(owner), sink_(sink), session_manager_(session), bundle(std::move(request)),
           emit_progress(std::move(progress)), model_step_index(step),
-          callbacks_(owner.callbacks_), concrete(owner.activity_.enabled()) {
+          callbacks_(owner.callbacks_.snapshot()), concrete(owner.activity_.enabled()) {
         result.accumulated.finish_reason = "stop";
         result.provider_snapshot = std::move(provider);
         owner_.activity_.reset_step();

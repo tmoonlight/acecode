@@ -30,6 +30,7 @@
 #include "hooks/hook_manager.hpp"
 #include "provider/text_tool_call_recovery.hpp"
 #include "session/permission_prompter.hpp"
+#include "session/ask_user_question_prompter.hpp"
 #include "session/session_manager.hpp"
 #include "session/token_tracker.hpp"
 #include "utils/encoding.hpp"
@@ -43,35 +44,67 @@
 #include <sstream>
 #include <utility>
 #include <thread>
+#include <stdexcept>
 
 namespace acecode {
 
 using agent::detail::kDefaultNoModelConfiguredPrompt;
 
-AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
-                     AgentCallbacks callbacks, const std::string& cwd,
-                     PermissionManager& permissions)
-    : provider_accessor_(std::move(provider_accessor))
-    , tools_(tools)
-    , callbacks_(std::move(callbacks))
-    , history_(std::make_unique<agent::ConversationHistory>(busy_))
+namespace {
+AgentLoopServices legacy_services(AgentLoop::ProviderAccessor provider, ToolExecutor& tools,
+    AgentCallbacks callbacks, PermissionManager& permissions) {
+    AgentLoopServices services{tools, permissions};
+    services.provider = std::move(provider);
+    services.callbacks = std::move(callbacks);
+    return services;
+}
+AgentLoopOptions legacy_options(std::string cwd) {
+    AgentLoopOptions options;
+    options.cwd = std::move(cwd);
+    return options;
+}
+}
+AgentLoop::AgentLoop(ProviderAccessor provider, ToolExecutor& tools,
+    AgentCallbacks callbacks, const std::string& cwd, PermissionManager& permissions)
+    : AgentLoop(legacy_services(std::move(provider), tools, std::move(callbacks), permissions),
+                legacy_options(cwd)) {
+    legacy_auto_started_ = true;
+    start();
+}
+
+AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
+    : callbacks_(std::move(services.callbacks))
     , turn_outcome_(std::make_unique<agent::TurnOutcomeRecord>())
+    , context_window_(options.context_window)
+    , task_suggestion_compact_threshold_(options.task_suggestion_compact_threshold)
+    , provider_accessor_(std::move(services.provider))
+    , tools_(services.tools)
+    , permissions_(services.permissions)
+    , session_manager_(services.session)
+    , hook_manager_(services.hooks)
+    , runtime_(std::move(services.runtime))
+    , skills_snapshot_(std::move(services.skills))
+    , expert_snapshot_(std::move(services.expert))
+    , computer_use_release_(runtime_.computer_use_release)
+    , no_model_config_prompt_(options.no_model_config_prompt.empty()
+          ? kDefaultNoModelConfiguredPrompt : std::move(options.no_model_config_prompt))
+    , loop_cfg_(options.config)
+    , published_loop_config_(std::make_shared<const AgentLoopConfig>(options.config))
+    , history_(std::make_unique<agent::ConversationHistory>(busy_))
     , transcript_(std::make_unique<agent::TranscriptWriter>(
           *history_, events_, callbacks_, *turn_outcome_))
-    , active_provider_slot_(std::make_unique<agent::ActiveProviderSlot>())
-    , boundary_(std::make_unique<agent::WorkspaceBoundary>(cwd, permissions))
-    , exec_security_(std::make_unique<agent::SessionExecSecurity>(*boundary_, permissions, busy_))
-    , permissions_(permissions)
-    , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))
     , task_handoff_(std::make_unique<agent::TaskHandoff>(*task_queue_))
-    , hooks_(std::make_unique<agent::AgentHookBridge>(*boundary_, permissions,
+    , active_provider_slot_(std::make_unique<agent::ActiveProviderSlot>())
+    , boundary_(std::make_unique<agent::WorkspaceBoundary>(options.cwd, permissions_))
+    , exec_security_(std::make_unique<agent::SessionExecSecurity>(*boundary_, permissions_, busy_, runtime_))
+    , hooks_(std::make_unique<agent::AgentHookBridge>(*boundary_, permissions_,
           provider_accessor_, *transcript_, *history_))
     , tool_hooks_(std::make_unique<agent::ToolHookBridge>(*hooks_))
     , goal_(std::make_unique<agent::GoalRuntime>(*task_queue_, *history_, *transcript_,
-          events_, callbacks_, permissions, busy_, abort_signal_))
+          events_, callbacks_, permissions_, busy_, abort_signal_))
     , prompt_cache_(std::make_unique<agent::PromptContextCache>())
     , request_builder_(std::make_unique<agent::ApiRequestBuilder>(tools_, *prompt_cache_))
     , side_questions_(std::make_unique<agent::SideQuestionService>(provider_accessor_))
@@ -84,13 +117,52 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
           *activity_, *retry_progress_))
     , compaction_(std::make_unique<agent::CompactionController>(
           *history_, *transcript_, *boundary_, *hooks_, *request_builder_, *active_provider_slot_,
-          *retry_progress_, callbacks_, events_, abort_signal_, busy_, last_api_total_tokens_))
+          *retry_progress_, callbacks_, events_, abort_signal_, busy_, last_api_total_tokens_, runtime_))
     , recovery_(std::make_unique<agent::ContextOverflowRecovery>(
           *history_, *transcript_, *compaction_, *retry_progress_, *goal_,
-          callbacks_, events_, abort_signal_))
+          callbacks_, events_, abort_signal_, runtime_))
 {
+    request_source_.runtime = runtime_;
+    request_source_.skills = skills_snapshot_.get();
+    request_source_.expert = expert_snapshot_.get();
+    request_source_.expert_member = std::move(options.expert_member_id);
+    request_source_.memory = services.memory;
+    request_source_.skill_usage = services.skill_usage;
+    request_source_.skill_idle_days = options.skill_idle_days;
+    request_source_.tool_policy = std::move(options.tool_policy);
+    request_source_.loop = std::move(options.loop_policy);
+    if (session_manager_)
+        trajectory_ = std::make_unique<agent::TrajectoryRecorder>(events_, *history_, *session_manager_);
+    set_tool_preamble_config(options.config.tool_preamble);
+    if (options.sandbox) set_sandbox_config(*options.sandbox);
+    set_audit_sink(std::move(services.audit_sink));
+    if (!options.exec_rules_dir_override.empty())
+        set_exec_rules_dir_for_tests(options.exec_rules_dir_override);
+    if (!options.inherited_write_root.empty())
+        set_inherited_write_root(std::move(options.inherited_write_root));
     reload_exec_rules();
+}
+
+void AgentLoop::start() {
+    std::lock_guard<std::mutex> lock(lifecycle_mu_);
+    if (stopped_) throw std::logic_error("AgentLoop cannot restart after shutdown");
+    if (started_) return;
     worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);
+    started_ = true;
+}
+void AgentLoop::require_before_start(const char* operation) const {
+    std::lock_guard<std::mutex> lock(lifecycle_mu_);
+    if (!started_) return;
+    if (!legacy_auto_started_)
+        throw std::logic_error(std::string(operation) + " must precede AgentLoop::start");
+    if (busy_.load() || processed_task_.load())
+        LOG_WARN(std::string(operation) + " changes a legacy loop after work has started");
+}
+void AgentLoop::set_agent_loop_config(AgentLoopConfig config) {
+    std::atomic_store(&published_loop_config_,
+        std::make_shared<const AgentLoopConfig>(config));
+    // Tool presentation already uses its own synchronized publication point.
+    set_tool_preamble_config(config.tool_preamble);
 }
 
 AgentLoop::~AgentLoop() {
@@ -103,7 +175,7 @@ void AgentLoop::set_cwd(const std::string& new_cwd) {
 }
 
 ResolvedQuestionPolicy AgentLoop::resolved_question_policy() const {
-    return resolve_question_policy(loop_cfg_);
+    return resolve_question_policy(*std::atomic_load(&published_loop_config_));
 }
 
 void AgentLoop::abort() {
@@ -134,6 +206,10 @@ void AgentLoop::clear_stale_abort_request() {
 }
 
 void AgentLoop::shutdown() {
+    {
+        std::lock_guard<std::mutex> lock(lifecycle_mu_);
+        stopped_ = true;
+    }
     side_questions_->stop_requests();
     task_queue_->request_shutdown();
     abort_signal_.request();
@@ -146,11 +222,17 @@ void AgentLoop::shutdown() {
 }
 
 void AgentLoop::set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {
+    require_before_start("set_permission_prompter");
     prompter_ = std::move(p);
 }
 
+void AgentLoop::set_ask_question_prompter(std::unique_ptr<AskUserQuestionPrompter> p) {
+    require_before_start("set_ask_question_prompter");
+    ask_prompter_ = std::move(p);
+}
+
 void AgentLoop::set_callbacks(AgentCallbacks cb) {
-    callbacks_ = std::move(cb);
+    callbacks_.publish(std::move(cb));
 }
 
 bool AgentLoop::has_pending_work() {

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/hook_bridge/tool_hook_bridge.hpp"
@@ -25,11 +25,12 @@ namespace {
 struct HookBridgeHarness {
     std::atomic<bool> busy{false};
     acecode::AgentCallbacks callbacks;
+    acecode::CallbacksSlot callback_slot;
     acecode::PermissionManager permissions;
     acecode::EventDispatcher events;
     acecode::agent::ConversationHistory history{busy};
     acecode::agent::TurnOutcomeRecord outcome;
-    acecode::agent::TranscriptWriter transcript{history, events, callbacks, outcome};
+    acecode::agent::TranscriptWriter transcript{history, events, callback_slot, outcome};
     acecode::agent::WorkspaceBoundary boundary{".", permissions};
     acecode::agent::AgentHookBridge hooks{boundary, permissions, {}, transcript, history};
     acecode::agent::ToolHookBridge tools{hooks};

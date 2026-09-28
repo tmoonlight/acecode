@@ -15,7 +15,7 @@ TurnSteerResult AgentLoop::steer_input(
 
 TurnSteerResult AgentLoop::interject_question(
     const std::string& request_id, const UserInput& input, const std::string& expected_turn_id) {
-    return active_turn_gate_->interject(request_id, input, expected_turn_id, ask_prompter_);
+    return active_turn_gate_->interject(request_id, input, expected_turn_id, ask_prompter_.get());
 }
 
 TurnSteerResult AgentLoop::interrupt_turn(

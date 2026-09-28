@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "agent/tool_exec/ask_question_binding.hpp"
-#include "agent/agent_callbacks.hpp"
+#include "agent/callbacks_slot.hpp"
 #include "agent/goal/goal_runtime.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
@@ -22,14 +22,15 @@ protected:
     std::atomic<bool> busy{true};
     acecode::AbortSignal abort;
     acecode::AgentCallbacks callbacks;
+    acecode::CallbacksSlot callback_slot;
     acecode::PermissionManager permissions;
     acecode::EventDispatcher events;
     acecode::SessionManager session;
     acecode::agent::ConversationHistory history{busy};
     acecode::agent::TurnOutcomeRecord outcome;
-    acecode::agent::TranscriptWriter transcript{history, events, callbacks, outcome};
+    acecode::agent::TranscriptWriter transcript{history, events, callback_slot, outcome};
     acecode::agent::AgentTaskQueue queue{busy};
-    acecode::agent::GoalRuntime goal{queue, history, transcript, events, callbacks, permissions, busy, abort};
+    acecode::agent::GoalRuntime goal{queue, history, transcript, events, callback_slot, permissions, busy, abort};
     acecode::AgentLoopConfig config;
     acecode::agent::ProgressEmitter progress = [](const auto&...) {};
     acecode::ToolCall call{"id", "AskUserQuestion", "{}"};

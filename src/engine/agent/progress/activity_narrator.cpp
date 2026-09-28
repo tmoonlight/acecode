@@ -63,13 +63,14 @@ void ActivityNarrator::reset_turn() {
 }
 
 void ActivityNarrator::announce(const std::string& label) {
+    const auto callbacks = callbacks_.snapshot();
     if (label.empty()) return;
     {
         std::lock_guard<std::mutex> lk(tool_preamble_mu_);
         if (label == last_announced_activity_) return;
         last_announced_activity_ = label;
     }
-    if (callbacks_.on_thinking_title) callbacks_.on_thinking_title(label);
+    if (callbacks.on_thinking_title) callbacks.on_thinking_title(label);
 }
 
 ToolPreambleTitle ActivityNarrator::for_phase(

@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <mutex>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -17,6 +18,9 @@ namespace acecode {
 class SkillRegistry {
 public:
     SkillRegistry() = default;
+
+    // Freeze discovery policy while retaining the existing live disk reads.
+    std::shared_ptr<const SkillRegistry> snapshot() const;
 
     // Set the scan roots before calling scan(). First entry is typically
     // ~/.acecode/skills/, later entries come from config.skills.external_dirs.

@@ -52,7 +52,7 @@ sandbox::ExecPermission SessionExecSecurity::evaluate_exec(
 
 std::string SessionExecSecurity::global_exec_rules_dir() const {
     { std::lock_guard<std::mutex> lock(state_mu_); if (!rules_dir_.empty()) return rules_dir_; }
-    return path_to_utf8(path_from_utf8(get_acecode_dir()) / "rules");
+    return path_to_utf8(path_from_utf8(environment_.acecode_dir()) / "rules");
 }
 
 void SessionExecSecurity::reload_exec_rules() {
@@ -123,7 +123,7 @@ void SessionExecSecurity::set_sandbox_config(const SandboxConfig& config) {
     runtime_config.deny_defaults = config.deny_defaults;
     runtime_config.windows_backend = config.windows_backend == "mxc"
         ? sandbox::WindowsBackendChoice::Mxc : sandbox::WindowsBackendChoice::RestrictedToken;
-    runtime_config.acecode_home = get_acecode_dir();
+    runtime_config.acecode_home = environment_.acecode_dir();
     runtime_.configure(std::move(runtime_config));
     permissions_.clear_session_allows();
     set_feedback(std::nullopt);

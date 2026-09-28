@@ -1,4 +1,5 @@
 #pragma once
+#include "agent/callbacks_slot.hpp"
 #include "tool_batch_types.hpp"
 #include "tool_lifecycle_events.hpp"
 #include "utils/lifetime_token.hpp"
@@ -15,7 +16,7 @@ class ToolCallLifecycle {
 public:
     ToolCallLifecycle(ToolHookBridge& hooks, ToolContextFactory& contexts,
         AskQuestionBinding& questions, ToolInvoker& invoker, ToolResultPresenter& presenter,
-        ToolLifecycleEvents& lifecycle_events, EventDispatcher& events, AgentCallbacks& callbacks,
+        ToolLifecycleEvents& lifecycle_events, EventDispatcher& events, CallbacksSlot& callbacks,
         HookManager* manager, SessionManager* session, ToolLifecycleEvents::Clock clock)
         : tool_hooks_(hooks), contexts_(contexts), questions_(questions), invoker_(invoker),
           presenter_(presenter), lifecycle_events_(lifecycle_events), events_(events),
@@ -31,7 +32,7 @@ private:
     ToolResultPresenter& presenter_;
     ToolLifecycleEvents& lifecycle_events_;
     EventDispatcher& events_;
-    AgentCallbacks& callbacks_;
+    CallbacksSlot& callbacks_;
     HookManager* hook_manager_; // Nullable borrowed constructor dependency.
     SessionManager* session_manager_; // Nullable borrowed constructor dependency.
     ToolLifecycleEvents::Clock stream_clock_;
