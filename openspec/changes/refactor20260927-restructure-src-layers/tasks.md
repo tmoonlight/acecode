@@ -185,7 +185,7 @@
     - 构建通过;
     - permissions_test 与 MCP 配置拦截测试通过;
     - lint 显示 config 环与 themes→upgrade 边消失。
-- [ ] 3.5 【P2-06】【子】hooks 与 skills 的横向边。〔认领: Codex-root 2026-09-28〕
+- [x] 3.5 【P2-06】【子】hooks 与 skills 的横向边。〔认领: Codex-root 2026-09-28〕〔验收: Codex-root 2026-09-28,PR #83 已合入;四平台与完整用例复核见 verification/P2-06-hooks-and-skills.md,既有 CI 失败按记录保留〕
   - hook_payload 的三个 provider 构造器 → `src/agent/hook_bridge/hook_events`;
   - hook 种子拆出 `hooks/hook_seeds`;
   - `skill_commands` → `src/tui/commands/`,同步 testable 子集;
@@ -195,9 +195,10 @@
   - `tests/skill_registry_test.cpp` 移到 `tests/skills/`。
   - 前置:3.1、3.4。
   - 验证:hooks、skills、seeder 相关测试全部通过;`skill_commands_reload_test` 能链接并运行;lint 显示 hooks→provider、hooks→skills、memory→skills、skills↔commands 边消失。
-- [ ] 3.6 【P2-07】【主】编排层上移到 `session_host/`。
+- [ ] 3.6 【P2-07】【主】编排层上移到 `session_host/`。〔认领: Codex-root 2026-09-28〕
   - 先拆出 `prompt/init_prompt`(自 `commands/init_command` 的 `build_*`)与 `lsp/lsp_status_text`(自 `commands/lsp_command`);
   - 再把 session_registry、local_session_client、thread_service、task_suggestion_service、session_auto_title、session_title_generator 移过去,其中纯函数留在 `session/session_title_text`;
+  - 按 layout-map.md §2,terminal_title 的 sanitize_title 及其 UTF-8 截断辅助归入 session/session_title_text,终端 OS 调用留在 platform;纯标题与 init_prompt 测试随实际职责迁移;
   - apply_model_to_session 也移过去;
   - spawn_subagent、thread、task_suggestion 三类工具移到 `session_host/tools/`。
   - 前置:3.5。
