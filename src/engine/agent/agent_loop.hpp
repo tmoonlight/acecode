@@ -64,6 +64,8 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; }
+
 class AgentLoop {
 public:
     // provider_accessor: 每轮 turn 开始时调用,返回当前有效的 provider 的
@@ -427,6 +429,19 @@ public:
     }
 
 private:
+    using ToolBatchState = agent::ToolBatchState;
+    using DeferredTaskCompleteEnd = agent::DeferredTaskCompleteEnd;
+    using ToolRunner = std::function<ToolResult(const ToolCall&, const ToolContext&, const std::string&, const std::string&)>;
+    void extract_context(const ToolCall& tc, std::string& ctx_path, std::string& ctx_command);
+    bool is_cwd_validation_exempt(const std::string& tool_name, const std::string& path, const std::string& boundary_root);
+    std::string path_validation_error(const std::string& tool_name, const std::string& path);
+    ToolResult execute_single_tool(const std::string& tool_name, const std::string& tool_args, const std::string& ctx_path, const ToolContext& tool_ctx);
+    std::optional<ToolResult> maybe_guard_tool(ToolBatchState& batch, const ToolCall& tc);
+    void record_doom_guard_result(ToolBatchState& batch, const ToolCall& tc, const ToolResult& result);
+    void materialize_result_attachments(ToolResult& result);
+    void dispatch_tool_result_display(const ToolCall& tc, const ToolResult& result);
+    ToolResult run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc, size_t tool_index, bool emit_tui_progress, const ToolRunner& runner);
+    ToolResult run_write_tool(ToolBatchState& batch, const ToolCall& effective_tc, const ToolContext& tool_ctx, const std::string& ctx_path, const std::string& ctx_command, size_t tool_index);
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
     bool has_queued_user_work_locked() const;
@@ -624,7 +639,8 @@ private:
         const ProgressEmitter& emit_progress,
         // Mutable state from the orchestrator:
         AgentLoopDoomGuard& doom_guard,
-        std::mutex& doom_guard_mu);
+        std::mutex& doom_guard_mu,
+        ToolPreambleTitle& pending_preamble);
 
     // Helper: construct a ToolContext with all callbacks wired up.
     ToolContext build_tool_context();

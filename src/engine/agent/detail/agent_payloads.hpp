@@ -8,7 +8,14 @@
 #include <string>
 #include <vector>
 
+namespace acecode { class SessionManager; }
+
 namespace acecode::agent::detail {
+
+inline constexpr const char* kDefaultNoModelConfiguredPrompt =
+    u8"请先配置大模型服务。";
+
+std::string build_session_scratch_dir(const std::string& cwd, SessionManager* session_manager);
 
 nlohmann::json build_agent_progress_payload(
     const std::string& phase,

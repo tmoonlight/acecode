@@ -1,4 +1,6 @@
 #include "agent_payloads.hpp"
+#include "session/session_manager.hpp"
+#include "utils/encoding.hpp"
 #include "prompt/context_usage_breakdown.hpp"
 
 #include <algorithm>
@@ -112,6 +114,15 @@ std::string text_tool_call_rejected_persisted_content(
     if (last == std::string::npos) return {};
     persisted.resize(last + 1);
     return persisted;
+}
+
+std::string build_session_scratch_dir(const std::string& cwd,
+                                      SessionManager* session_manager) {
+    if (cwd.empty() || !session_manager) return {};
+    const std::string session_id = session_manager->ensure_active_session_id();
+    if (session_id.empty()) return {};
+    return path_to_utf8(path_from_utf8(cwd) / ".acecode" / "tmp" /
+                        ("session-" + session_id));
 }
 
 } // namespace acecode::agent::detail

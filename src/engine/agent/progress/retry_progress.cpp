@@ -1,3 +1,12 @@
+#include "agent/agent_loop.hpp"
+#include "pa/pa_overflow_rescue.hpp"
+#include "session/ask_user_question_prompter.hpp"
+#include "session/permission_prompter.hpp"
+#include "session/session_client.hpp"
+#include "session/thread_goal_store.hpp"
+#include "session/thread_repair.hpp"
+#include "utils/logger.hpp"
+#include "utils/time.hpp"
 #include "retry_progress.hpp"
 
 #include <algorithm>
@@ -26,3 +35,58 @@ std::string format_bytes_detail(std::size_t bytes) {
 }
 
 } // namespace acecode::agent::detail
+
+namespace acecode {
+
+using utils::now_epoch_ms;
+
+void AgentLoop::emit_retry_lifecycle(
+    const ProviderErrorInfo& info,
+    bool waiting,
+    bool compaction) {
+    if (waiting) {
+        if (callbacks_.on_model_retry) {
+            callbacks_.on_model_retry(info);
+        }
+    } else if (callbacks_.on_model_retry_resume) {
+        callbacks_.on_model_retry_resume();
+    }
+
+    const std::int64_t now_ms = now_epoch_ms();
+    nlohmann::json payload{
+        {"phase",
+         waiting
+             ? "model_retry"
+             : (compaction ? "compacting" : "model_waiting")},
+        {"label",
+         waiting
+             ? (compaction
+                    ? "压缩请求暂时不可用，等待重试"
+                    : "网络暂时不可用，等待重试")
+             : (compaction
+                    ? "正在重新发起压缩请求"
+                    : "正在重新连接模型")},
+        {"detail",
+         "第 " + std::to_string(info.retry_attempt) +
+             " 次重试" +
+             (waiting
+                  ? "将在 " + std::to_string(info.retry_delay_ms) +
+                      " ms 后发起"
+                  : std::string{})},
+        {"started_at_ms", now_ms},
+        {"retry_attempt", info.retry_attempt},
+        {"retry_delay_ms", waiting ? info.retry_delay_ms : 0},
+        {"retry_at_ms",
+         waiting ? now_ms + info.retry_delay_ms : now_ms},
+        {"retry_max_attempts", info.retry_max_attempts},
+    };
+    EventDispatcher::EmitOptions opts;
+    opts.buffered = true;
+    opts.coalesce_key = "agent_progress";
+    events_.emit(
+        SessionEventKind::AgentProgress,
+        std::move(payload),
+        opts);
+}
+
+} // namespace acecode

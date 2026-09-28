@@ -57,7 +57,7 @@
   - 验证:
     - 新增 `tests/agent/{goal,request,turn,recovery,approval,transcript}/*_test.cpp` 纯函数单测,写中文注释;
     - `RequestPrefixIsByteStableAcrossIterationsInATurn`、`agent_loop_goal_test`、`AgentLoopSkillContext.*`、`system_prompt_test` 全部通过。
-- [ ] 2.3 【A-03】【主】把同一个类拆到多个 TU。
+- [ ] 2.3 【A-03】【主】把同一个类拆到多个 TU。〔实现完成: Codex-root 2026-09-28;成员定义已按职责搬迁,权限门单列,原函数体保留,待统一验收提交〕
   - 成员函数定义按簇整块搬到 design.md §5 表中的文件,函数体不改;
   - 权限门那一段(约 5070-5630)直接落到 `approval/tool_permission_gate.cpp`(LR-22);
   - PA 相关成员 TU 放在 `recovery/pa_rescue_host.cpp`,不放进 pa 目录(LR-9);
@@ -69,7 +69,7 @@
     - `git diff --stat` 显示 agent_loop.cpp 只减不增;
     - `git blame -C` 抽查可追溯;
     - 所有新文件不超过 1000 行(`turn/turn_runner.cpp` 过渡期容纳约 905 行)。
-- [ ] 2.4 【A-04】【主】把 `execute_tool_calls` 里的 lambda 提升为成员函数。
+- [ ] 2.4 【A-04】【主】把 `execute_tool_calls` 里的 lambda 提升为成员函数。〔实现完成: Codex-root 2026-09-28;10 个 lambda 已提升,ToolBatchState 显式携带短期引用,前言由参数传入,待统一验收提交〕
   - `run_tool_with_lifecycle`、`execute_single_tool`、`maybe_guard_tool` 与写路径 runner 原样提升为私有成员;
   - `[&]` 捕获的局部改成显式参数结构 `ToolBatchState`(引用传递,暂不改数据流);
   - `current_step_preamble_` 改为显式参数。
