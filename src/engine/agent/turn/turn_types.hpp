@@ -31,6 +31,9 @@ struct ApiRequestBundle {
     nlohmann::json prompt_diag; // simplified: store as raw json
 };
 
+// Wire metadata key, independent of progress phrase generation.
+inline constexpr const char* kToolPreambleMetadataKey = "tool_preamble";
+
 struct ToolPreambleTitle {
     std::string title;
     std::string source;   // reasoning | template | context

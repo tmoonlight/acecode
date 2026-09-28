@@ -18,4 +18,9 @@
 | AgentHookBridge Stop 状态 | worker | stop_active 跨回合保留;清理 request context 不重置 Stop 状态。 |
 | PermissionHookSession | 单次同步工具执行作用域 | 请求输入按值固定,解决标志在回调前置位;正常离开补 implicit,异常展开不补新 Hook 事件。不得复制或被异步回调保留。 |
 
-A-09 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。
+| SideQuestionService | API、每请求独立线程 | context 叶子锁内按值复制;provider/callback 在锁外,线程捕获自有共享状态;停机先抑制回调,再回收并等待线程。 |
+| ActivityNarrator | worker、并行工具、配置线程 | 叶子锁保护阶段/批次/去重状态;配置与状态一次锁内读取,回调可重入查询,不持锁发送。 |
+| AgentProgressEmitter | worker、并行工具 | shared_ptr 保证发射器状态寿命;750ms 节流锁外调用 narrator 与 EventDispatcher,时钟按回合取值。 |
+| RetryProgressReporter | provider 回调、压缩、PA 重试 | 无可变状态;先状态回调再进度事件,三路径共享载荷出口。 |
+
+A-10 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。

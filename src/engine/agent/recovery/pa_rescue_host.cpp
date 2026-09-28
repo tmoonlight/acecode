@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/progress/retry_progress.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/request/provider_history.hpp"
 #include "pa/pa_overflow_rescue.hpp"
@@ -44,29 +45,12 @@ void AgentLoop::emit_pa_rescue_wait_progress(const ProviderErrorInfo& error,
     info.retry_attempt = attempt;
     info.retry_max_attempts = max_attempts;
     info.retry_delay_ms = waiting ? pa::scaled_rescue_wait_ms(plan.wait_ms) : 0;
-    if (waiting) {
-        if (callbacks_.on_model_retry) callbacks_.on_model_retry(info);
-    } else if (callbacks_.on_model_retry_resume) {
-        callbacks_.on_model_retry_resume();
-    }
-
-    const std::int64_t now_ms = now_epoch_ms();
-    nlohmann::json payload{
-        {"phase", waiting ? "model_retry" : "model_waiting"},
-        {"label", waiting ? plan.label : std::string("正在重新发送请求")},
-        {"detail",
-         waiting ? std::string("服务端报「请求上下文过大」，按 PA 兜底策略等待后重发")
-                 : std::string{}},
-        {"started_at_ms", now_ms},
-        {"retry_attempt", attempt},
-        {"retry_delay_ms", info.retry_delay_ms},
-        {"retry_at_ms", now_ms + info.retry_delay_ms},
-        {"retry_max_attempts", max_attempts},
-    };
-    EventDispatcher::EmitOptions opts;
-    opts.buffered = true;
-    opts.coalesce_key = "agent_progress";
-    events_.emit(SessionEventKind::AgentProgress, std::move(payload), opts);
+    retry_progress_->emit(info, waiting, {
+        waiting ? "model_retry" : "model_waiting",
+        waiting ? plan.label : std::string("正在重新发送请求"),
+        waiting ? std::string("服务端报「请求上下文过大」，按 PA 兜底策略等待后重发")
+                : std::string{},
+    });
 }
 
 AgentLoop::HandleErrorResult AgentLoop::run_pa_overflow_rescue(

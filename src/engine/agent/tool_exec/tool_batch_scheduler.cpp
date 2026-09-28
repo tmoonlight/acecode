@@ -25,7 +25,7 @@
 #include "session/turn_timing.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "tool/mtime_tracker.hpp"
-#include "tool_preamble/tool_preamble.hpp"
+#include "llm/text_preamble_tags.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/stream_processing.hpp"
@@ -77,7 +77,7 @@ bool AgentLoop::execute_tool_calls(
             {"kind", step_preamble.kind},
         };
         if (!tc_msg.metadata.is_object()) tc_msg.metadata = nlohmann::json::object();
-        tc_msg.metadata[tool_preamble::kMetadataKey] = preamble_metadata;
+        tc_msg.metadata[agent::kToolPreambleMetadataKey] = preamble_metadata;
     }
     // 单个调用的前言 = 本批次的阶段前言。
     history_->append(tc_msg);
@@ -94,7 +94,7 @@ bool AgentLoop::execute_tool_calls(
     // 工具前言:正文里的 <text_preamble> 标签不进界面(id 仍按落盘原文算,与
     // GET /messages 重读一致);整段都是标签时不发这条帧。
     const std::string visible_content =
-        tool_preamble::strip_text_preamble_tags(accumulated.content);
+        llm::strip_text_preamble_tags(accumulated.content);
     const bool has_content_parts =
         accumulated.content_parts.is_array() && !accumulated.content_parts.empty();
     if (!visible_content.empty() || has_content_parts) {
@@ -112,7 +112,7 @@ bool AgentLoop::execute_tool_calls(
         }
         if (preamble_metadata.is_object()) {
             assistant_event["metadata"] = {
-                {tool_preamble::kMetadataKey, preamble_metadata}};
+                {agent::kToolPreambleMetadataKey, preamble_metadata}};
         }
         events_.emit(SessionEventKind::Message, std::move(assistant_event));
     }

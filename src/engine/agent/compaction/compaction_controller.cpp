@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/progress/retry_progress.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/turn/busy_cycle.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
@@ -159,7 +160,7 @@ bool AgentLoop::maybe_run_auto_compact() {
         true,
         &abort_signal_.flag_for_legacy_api(),
         [this](const ProviderErrorInfo& info, bool waiting) {
-            emit_retry_lifecycle(info, waiting, true);
+            retry_progress_->standard(info, waiting, true);
         });
     active_provider.reset();
 
@@ -266,7 +267,7 @@ void AgentLoop::run_compact() {
         false,
         &abort_signal_.flag_for_legacy_api(),
         [this](const ProviderErrorInfo& info, bool waiting) {
-            emit_retry_lifecycle(info, waiting, true);
+            retry_progress_->standard(info, waiting, true);
         });
     active_provider.reset();
 

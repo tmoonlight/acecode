@@ -129,7 +129,7 @@
   - `set_cwd` 的扇出顺序原样保留在门面里。
   - 前置:3.2。
   - 验证:`agent_loop_goal_test`、`goal_command_test`、`hook_agent_loop_test`、`agent_loop_workspace_folders_test`、`agent_loop_auto_mode_test`、`audit_log_test`、`spawn_subagent_tool_test`、`session_registry_test`(sandbox 命令、刷新)通过;黄金序列一致。
-- [ ] 3.4 【A-09】【主】旁路问答与进度(D11)。
+- [ ] 3.4 【A-09】【主】旁路问答与进度(D11)。〔实现完成: Codex-root 2026-09-28;SideQuestionService/ActivityNarrator/AgentProgressEmitter/RetryProgressReporter 已接入,回收请求线程、叶子锁外回调和三路重试出口已统一,三处 tool_preamble 临时豁免已收回;待 A-13 将 shared emitter 纳入 TurnContext,用例待统一验收〕
   - `SideQuestionService`:保持一个请求一个线程,线程容器换成可回收的 JoiningThread 表,shutdown 后抑制回调;`side_chat` 的 `chat_stream` 调用点登记进 R11;
   - `ActivityNarrator`:叶子锁,修掉重入陷阱但不改变输出;
   - `AgentProgressEmitter`:由 TurnContext 以 shared_ptr 持有;

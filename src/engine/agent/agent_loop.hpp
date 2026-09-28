@@ -14,7 +14,7 @@
 #include "session/event_dispatcher.hpp"
 #include "agent/side_question/side_chat.hpp"
 #include "config/config.hpp"
-#include "tool_preamble/tool_preamble.hpp"
+#include "llm/text_preamble_tags.hpp"
 #include "pa/pa_overflow_rescue.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "sandbox/sandbox_denial.hpp"
@@ -66,7 +66,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -426,7 +426,6 @@ private:
     ToolResult run_write_tool(ToolBatchState& batch, const ToolCall& effective_tc, const ToolContext& tool_ctx, const std::string& ctx_path, const std::string& ctx_command, size_t tool_index);
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
-    void join_side_question_threads();
     void run_agent_with_input(const UserInput& input,
                               bool hidden_goal_context = false,
                               const ChatMessage* retry_message = nullptr);
@@ -550,34 +549,11 @@ private:
 
     // Phase 3: Stream provider response and accumulate.
     using ProviderCallResult = agent::ProviderCallResult;
-    bool concrete_activity_enabled() const;
-    // 本模型步的工具批次文案(推理加粗标题 > 工具模板),同时记下这批工具,
-    // 供下一次等待模型时给出「正在分析文件内容」这类场景文案。关闭时返回空。
-    ToolPreambleTitle resolve_tool_preamble_for_step(ProviderCallResult& result);
-    // 推理加粗标题就绪时的出口:记成本步标题,并发一条 agent_progress 让
-    // loading 立刻换文案。
-    void publish_phase_preamble(const ToolPreambleTitle& preamble,
-                                const ProgressEmitter& emit_progress);
-    // 本步推理加粗标题的读写(受 tool_preamble_mu_ 保护)。
-    void set_phase_preamble(const ToolPreambleTitle& preamble);
-    ToolPreambleTitle phase_preamble() const;
-    // 给某个进度 phase 算具体文案;关闭或该 phase 不替换时返回空(调用方沿用
-    // 原文案)。权限 / 提问 / 压缩 / 重试不替换。
-    ToolPreambleTitle concrete_activity_for_phase(const std::string& phase) const;
-    // loading 文案变了就回调 TUI(on_thinking_title),同一句不重复回调。
-    void announce_activity(const std::string& label);
-    void note_planned_tool(int tool_index, const std::string& native_name);
-    void reset_activity_for_step();
-    void reset_activity_for_turn();
     ProviderCallResult call_provider_and_collect(
         const std::shared_ptr<LlmProvider>& provider,
         const ApiRequestBundle& bundle,
         const ProgressEmitter& emit_progress,
         int model_step_index);
-    void emit_retry_lifecycle(
-        const ProviderErrorInfo& info,
-        bool waiting,
-        bool compaction);
     void record_terminal_trajectory_events(
         nlohmann::json busy_payload,
         nlohmann::json done_payload);
@@ -626,11 +602,6 @@ private:
     ProviderAccessor provider_accessor_;
     ToolExecutor& tools_;
     AgentCallbacks callbacks_;
-    mutable std::mutex side_question_context_mu_;
-    std::vector<ChatMessage> side_question_context_;
-    std::mutex side_question_threads_mu_;
-    std::vector<std::thread> side_question_threads_;
-    std::atomic<bool> side_question_shutdown_{false};
     AbortSignal abort_signal_;
     // Distinguishes a steering interrupt from a manual stop. The former
     // immediately continues with a promised turn and must not pause goals.
@@ -660,10 +631,6 @@ private:
     ComputerUseReleaseFn computer_use_release_;
     // 本回合捕获的节流时钟快照(空 = steady_clock::now);只在 worker 线程上读写。
     SteadyClockFn turn_progress_clock_;
-    std::chrono::steady_clock::time_point progress_now() const {
-        return turn_progress_clock_ ? turn_progress_clock_()
-                                    : std::chrono::steady_clock::now();
-    }
     // computer-use 会话租约的唯一释放出口:abort / 回合收尾 / DesktopTurnLease 析构。
     void release_computer_use_session(const std::string& session_id) const;
     std::string sandbox_prompt_description() const;
@@ -677,22 +644,8 @@ private:
     // agent_loop termination policy. Fresh defaults come from AgentLoopConfig
     // until set_agent_loop_config is called from main.cpp.
     AgentLoopConfig loop_cfg_;
-    // 具体进度提示(add-tool-preamble)状态,全部受 tool_preamble_mu_ 保护(设置页
-    // 可在回合中途改配置;进度帧可能在工具线程上发)。
-    mutable std::mutex tool_preamble_mu_;
-    ToolPreambleConfig tool_preamble_cfg_;
-    // 本模型步的推理加粗标题:每次 provider 调用开头(含重试)清空。
-    ToolPreambleTitle phase_preamble_;
-    // 本模型步已经流出来的工具调用(按 tool_index,原生名),给「准备调用」阶段拼模板。
-    std::vector<std::string> step_planned_tools_;
-    // 正在执行的这批工具的文案,tool_running 用。
-    ToolPreambleTitle current_batch_activity_;
-    // 本回合上一批工具(原生名):下一次等待模型时据此说「正在分析文件内容」等。
-    std::vector<std::string> last_batch_tools_;
-    // 上一次回调给 TUI 的 loading 文案,避免同一句重复回调。
-    std::string last_announced_activity_;
     // 流式标签扫描器:历史里残留的 <text_preamble> 标签只从界面上剥掉,不再当文案。
-    tool_preamble::TextPreambleScanner text_preamble_scanner_;
+    llm::TextPreambleScanner text_preamble_scanner_;
     // 本模型步给工具批次的前言:run_agent_with_input 在 Phase 5 之前填,
     // execute_tool_calls 开头消费(挂 metadata、随 tool_start 下发)后清空。
     ToolPreambleTitle current_step_preamble_;
@@ -764,6 +717,9 @@ private:
     std::unique_ptr<agent::AgentHookBridge> hooks_;
     std::unique_ptr<agent::ToolHookBridge> tool_hooks_;
     std::unique_ptr<agent::GoalRuntime> goal_;
+    std::unique_ptr<agent::SideQuestionService> side_questions_;
+    std::unique_ptr<agent::ActivityNarrator> activity_;
+    std::unique_ptr<agent::RetryProgressReporter> retry_progress_;
 
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由

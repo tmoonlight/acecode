@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/progress/activity_narrator.hpp"
+#include "agent/progress/agent_progress_emitter.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/goal/goal_runtime.hpp"
 #include "agent/approval/session_exec_security.hpp"
@@ -165,7 +167,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     bool emergency_request_profile = false;
     pa_rescue_state_ = pa::RescueState{};
     skip_auto_compact_once_ = false;
-    reset_activity_for_turn();
+    activity_->reset_turn();
 
     const int max_iter = loop_cfg_.max_iterations;
     const bool has_max_iterations = max_iter > 0;
@@ -196,61 +198,18 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                  std::to_string(current_generation));
     };
 
-    // Progress emitter with rate-limiting and coalescing
-    std::mutex progress_mu;
-    std::string active_progress_key;
-    std::int64_t active_progress_started_at_ms = 0;
-    std::chrono::steady_clock::time_point last_progress_emit_at{};
-    auto emit_agent_progress = [&](const std::string& phase,
-                                   const std::string& label,
-                                   const std::string& detail = std::string{},
-                                   const std::string& tool = std::string{},
-                                   const std::string& tool_call_id = std::string{},
-                                   int tool_index = -1,
-                                   bool force = false) {
-        const auto now = progress_now();
-        const std::string key = phase + "\0" + tool + "\0" + tool_call_id + "\0" + std::to_string(tool_index);
-        // 具体进度提示(add-tool-preamble,「适合日常工作」):开启时 loading 只说正在
-        // 做什么、不带参数 —— 等待 / 推理 / 准备调用 / 执行 / 撰写回复这几类 phase 的
-        // 文案在这里统一换成 推理加粗标题 > 工具模板 > 场景文案,detail(命令预览、
-        // 字节数、片段计数)一律清空;权限 / 提问 / 压缩 / 重试这些必须被看见的状态
-        // 不换。批次之间的 model_waiting 也换(「正在分析文件内容」),否则 Web 实时行
-        // 会在具体文案与「正在等待模型响应」之间闪动。
-        const ToolPreambleTitle preamble = concrete_activity_for_phase(phase);
-        const bool concrete_label = !preamble.title.empty();
-        const std::string effective_label = concrete_label ? preamble.title : label;
-        const std::string effective_detail = concrete_label ? std::string{} : detail;
-        if (concrete_label) announce_activity(preamble.title);
-        nlohmann::json payload;
-        {
-            std::lock_guard<std::mutex> lk(progress_mu);
-            if (key != active_progress_key) {
-                active_progress_key = key;
-                active_progress_started_at_ms = now_epoch_ms();
-                force = true;
-            }
-            if (!force && last_progress_emit_at.time_since_epoch().count() != 0) {
-                const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_progress_emit_at);
-                if (elapsed < std::chrono::milliseconds(750)) return;
-            }
-            last_progress_emit_at = now;
-            payload = build_agent_progress_payload(
-                phase, effective_label, effective_detail, tool, tool_call_id, tool_index,
-                active_progress_started_at_ms);
-        }
-        // 具体文案随进度帧透传,界面据此区分它与普通阶段文案;kind 给以后的
-        // 读 / 写效果留位。
-        if (concrete_label) {
-            payload["preamble"] = {
-                {"title", preamble.title},
-                {"source", preamble.source},
-                {"kind", preamble.kind},
-            };
-        }
-        EventDispatcher::EmitOptions opts;
-        opts.buffered = true;
-        opts.coalesce_key = "agent_progress";
-        events_.emit(SessionEventKind::AgentProgress, std::move(payload), opts);
+    // The turn owns this shared emitter; tool callbacks retain its state by
+    // value, so no callback captures the emitter's stack locals.
+    auto progress = std::make_shared<agent::AgentProgressEmitter>(
+        *activity_, events_, turn_progress_clock_);
+    auto emit_agent_progress = [progress](const std::string& phase,
+                                         const std::string& label,
+                                         const std::string& detail = std::string{},
+                                         const std::string& tool = std::string{},
+                                         const std::string& tool_call_id = std::string{},
+                                         int tool_index = -1,
+                                         bool force = false) {
+        progress->emit(phase, label, detail, tool, tool_call_id, tool_index, force);
     };
 
     auto maybe_continue_from_stop_hook = [&](const std::string& last_assistant_message) {
@@ -720,7 +679,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 // 工具前言:模型若违规给最终回答也打了 <text_preamble> 标签,界面
                 // 照样剥掉;落盘正文保留原文。
                 const std::string visible_content =
-                    tool_preamble::strip_text_preamble_tags(
+                    llm::strip_text_preamble_tags(
                         provider_result.accumulated.content);
                 const bool has_parts =
                     provider_result.accumulated.content_parts.is_array() &&
@@ -756,7 +715,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // 工具前言(add-tool-preamble):在 assistant(tool_calls) 消息落盘之前把
         // 本步沿用的阶段前言定下来,execute_tool_calls 开头把它挂进 metadata
         // 并随 tool_start 下发。
-        current_step_preamble_ = resolve_tool_preamble_for_step(provider_result);
+        current_step_preamble_ = activity_->resolve_step(provider_result.accumulated);
 
         // Phase 5: Execute tool calls
         terminator_fired = execute_tool_calls(
@@ -868,7 +827,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     }
 
     // 回合结束:阶段前言不留到下一回合。
-    reset_activity_for_turn();
+    activity_->reset_turn();
     desktop_turn_lease.release_before_terminal();
     if (callbacks_.on_turn_finished) {
         callbacks_.on_turn_finished(turn_timing_status);

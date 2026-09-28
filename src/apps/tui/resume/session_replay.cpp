@@ -12,7 +12,7 @@
 #include "session/turn_timing.hpp"
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/tool_executor.hpp"
-#include "tool_preamble/tool_preamble.hpp"
+#include "llm/text_preamble_tags.hpp"
 #include "tui/compact_notice_row.hpp"
 
 #include <nlohmann/json.hpp>
@@ -107,7 +107,7 @@ std::vector<TuiState::Message> replay_session_messages(
             // 实时期间进 loading,回放时剥掉;整段都是标签就不推正文行。
             // metadata.tool_preamble 落盘只为记录,不还原任何显示行。
             const std::string visible =
-                tool_preamble::strip_text_preamble_tags(msg.content);
+                llm::strip_text_preamble_tags(msg.content);
             if (!visible.empty()) {
                 out.push_back({"assistant", visible, /*is_tool=*/false});
             }

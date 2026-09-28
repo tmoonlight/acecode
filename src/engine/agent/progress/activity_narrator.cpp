@@ -1,59 +1,44 @@
-#include "agent/agent_loop.hpp"
-#include "computer_use/runtime.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "session/session_storage.hpp"
+#include "activity_narrator.hpp"
 #include "tool_preamble/tool_preamble.hpp"
-#include "utils/encoding.hpp"
-#include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/text.hpp"
-#include "workspace/workspace_registry.hpp"
-
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-void AgentLoop::set_tool_preamble_config(const ToolPreambleConfig& cfg) {
+void ActivityNarrator::set_config(const ToolPreambleConfig& cfg) {
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     tool_preamble_cfg_ = cfg;
 }
 
-ToolPreambleConfig AgentLoop::tool_preamble_config() const {
+ToolPreambleConfig ActivityNarrator::config() const {
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     return tool_preamble_cfg_;
 }
 
-bool AgentLoop::concrete_activity_enabled() const {
-    return tool_preamble_config().enabled;
+bool ActivityNarrator::enabled() const {
+    return config().enabled;
 }
 
-void AgentLoop::set_phase_preamble(const ToolPreambleTitle& preamble) {
+void ActivityNarrator::set_phase(const ToolPreambleTitle& preamble) {
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     phase_preamble_ = preamble;
 }
 
-AgentLoop::ToolPreambleTitle AgentLoop::phase_preamble() const {
+ToolPreambleTitle ActivityNarrator::phase() const {
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     return phase_preamble_;
 }
 
-void AgentLoop::publish_phase_preamble(const ToolPreambleTitle& preamble,
+void ActivityNarrator::publish_phase(const ToolPreambleTitle& preamble,
                                        const ProgressEmitter& emit_progress) {
     if (preamble.title.empty()) return;
-    set_phase_preamble(preamble);
+    set_phase(preamble);
     // 独立的 phase 键 + force,绕开进度节流:标题一出现 loading 就换文案,
     // 不用等下一条 reasoning / tool_planning。
     emit_progress("preamble", preamble.title, std::string{},
                   std::string{}, std::string{}, -1, true);
 }
 
-void AgentLoop::note_planned_tool(int tool_index, const std::string& native_name) {
+void ActivityNarrator::note_planned_tool(int tool_index, const std::string& native_name) {
     if (tool_index < 0 || native_name.empty()) return;
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     const auto index = static_cast<std::size_t>(tool_index);
@@ -61,14 +46,14 @@ void AgentLoop::note_planned_tool(int tool_index, const std::string& native_name
     step_planned_tools_[index] = native_name;
 }
 
-void AgentLoop::reset_activity_for_step() {
+void ActivityNarrator::reset_step() {
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     phase_preamble_ = {};
     step_planned_tools_.clear();
     current_batch_activity_ = {};
 }
 
-void AgentLoop::reset_activity_for_turn() {
+void ActivityNarrator::reset_turn() {
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     phase_preamble_ = {};
     step_planned_tools_.clear();
@@ -77,7 +62,7 @@ void AgentLoop::reset_activity_for_turn() {
     last_announced_activity_.clear();
 }
 
-void AgentLoop::announce_activity(const std::string& label) {
+void ActivityNarrator::announce(const std::string& label) {
     if (label.empty()) return;
     {
         std::lock_guard<std::mutex> lk(tool_preamble_mu_);
@@ -87,10 +72,10 @@ void AgentLoop::announce_activity(const std::string& label) {
     if (callbacks_.on_thinking_title) callbacks_.on_thinking_title(label);
 }
 
-AgentLoop::ToolPreambleTitle AgentLoop::concrete_activity_for_phase(
+ToolPreambleTitle ActivityNarrator::for_phase(
     const std::string& phase) const {
-    if (!concrete_activity_enabled()) return {};
     std::lock_guard<std::mutex> lk(tool_preamble_mu_);
+    if (!tool_preamble_cfg_.enabled) return {};
     if (phase == "responding") {
         return {tool_preamble::kRespondingActivityLabel, tool_preamble::kSourceContext, ""};
     }
@@ -125,16 +110,16 @@ AgentLoop::ToolPreambleTitle AgentLoop::concrete_activity_for_phase(
             tool_preamble::kSourceContext, ""};
 }
 
-AgentLoop::ToolPreambleTitle AgentLoop::resolve_tool_preamble_for_step(
-    ProviderCallResult& result) {
-    const ChatResponse& accumulated = result.accumulated;
-    if (!concrete_activity_enabled() || accumulated.tool_calls.empty()) return {};
+ToolPreambleTitle ActivityNarrator::resolve_step(
+    const ChatResponse& accumulated) {
+    std::lock_guard<std::mutex> lk(tool_preamble_mu_);
+    if (!tool_preamble_cfg_.enabled || accumulated.tool_calls.empty()) return {};
     std::vector<std::string> names;
     names.reserve(accumulated.tool_calls.size());
     for (const auto& tc : accumulated.tool_calls) names.push_back(tc.function_name);
     ToolPreambleTitle out;
     out.kind = tool_preamble::batch_activity_kind(names);
-    const ToolPreambleTitle title = phase_preamble();
+    const ToolPreambleTitle title = phase_preamble_;
     if (!title.title.empty()) {
         out.title = title.title;
         out.source = tool_preamble::kSourceReasoning;
@@ -142,10 +127,22 @@ AgentLoop::ToolPreambleTitle AgentLoop::resolve_tool_preamble_for_step(
         out.title = tool_preamble::batch_activity_label(names);
         out.source = tool_preamble::kSourceTemplate;
     }
-    std::lock_guard<std::mutex> lk(tool_preamble_mu_);
     last_batch_tools_ = std::move(names);
     current_batch_activity_ = out;
     return out;
 }
 
-} // namespace acecode
+ToolPreambleTitle ActivityNarrator::reasoning_title(const std::string& reasoning) {
+    const auto bold = tool_preamble::extract_first_bold_span(reasoning);
+    if (bold.empty()) return {};
+    const auto title = llm::normalize_title_line(
+        bold, tool_preamble::kReasoningTitleMaxCodePoints);
+    return title.empty() ? ToolPreambleTitle{} :
+        ToolPreambleTitle{title, tool_preamble::kSourceReasoning, ""};
+}
+
+const char* ActivityNarrator::responding_label() {
+    return tool_preamble::kRespondingActivityLabel;
+}
+
+} // namespace acecode::agent

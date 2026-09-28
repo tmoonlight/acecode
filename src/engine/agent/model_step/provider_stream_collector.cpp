@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/progress/activity_narrator.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/approval/permission_payloads.hpp"
@@ -23,7 +24,7 @@
 #include "session/thread_repair.hpp"
 #include "session/token_tracker.hpp"
 #include "tool/mtime_tracker.hpp"
-#include "tool_preamble/tool_preamble.hpp"
+#include "llm/text_preamble_tags.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/stream_processing.hpp"
@@ -64,10 +65,10 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     // 具体进度提示(add-tool-preamble):本次调用期间的开关快照。开启时在推理流
     // 里抠第一对加粗标题作本步文案;正文开始流出时 loading 换成「正在撰写回复」。
     // 每次调用(含重试)都从干净的本步状态开始。
-    const bool concrete = concrete_activity_enabled();
+    const bool concrete = activity_->enabled();
     bool reasoning_title_found = false;
     bool step_text_started = false;
-    reset_activity_for_step();
+    activity_->reset_step();
     text_preamble_scanner_.reset();
     // 正文增量的统一出口:可见文本给 TUI / Web。
     auto publish_visible_text = [&](const std::string& text) {
@@ -75,7 +76,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
         if (concrete && !step_text_started &&
             text.find_first_not_of(" \t\r\n") != std::string::npos) {
             step_text_started = true;
-            emit_progress("responding", tool_preamble::kRespondingActivityLabel,
+            emit_progress("responding", agent::ActivityNarrator::responding_label(),
                           std::string{}, std::string{}, std::string{}, -1, true);
         }
         if (callbacks_.on_delta) {
@@ -85,7 +86,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     };
     // 历史里残留的 <text_preamble> 标签(前一版要求模型打标签)总是从可见正文里
     // 剥掉,不再当 loading 文案。
-    auto publish_scanned = [&](tool_preamble::TextPreambleScanner::Output out) {
+    auto publish_scanned = [&](llm::TextPreambleScanner::Output out) {
         publish_visible_text(out.visible);
     };
 
@@ -139,18 +140,10 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                     std::lock_guard<std::mutex> lk(resp_mu);
                     reasoning_so_far = result.accumulated.reasoning_content;
                 }
-                const std::string bold =
-                    tool_preamble::extract_first_bold_span(reasoning_so_far);
-                if (!bold.empty()) {
-                    const std::string title = tool_preamble::normalize_title_line(
-                        bold, tool_preamble::kReasoningTitleMaxCodePoints);
-                    if (!title.empty()) {
-                        reasoning_title_found = true;
-                        ToolPreambleTitle found;
-                        found.title = title;
-                        found.source = tool_preamble::kSourceReasoning;
-                        publish_phase_preamble(found, emit_progress);
-                    }
+                const auto found = agent::ActivityNarrator::reasoning_title(reasoning_so_far);
+                if (!found.title.empty()) {
+                    reasoning_title_found = true;
+                    activity_->publish_phase(found, emit_progress);
                 }
             }
             // 开启具体进度提示时,发射口会把这条换成本步标题或场景文案。
@@ -189,7 +182,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                     ? "正在准备工具调用"
                     : "正在准备调用 " + tool_name;
                 // 具体进度提示:记下本步流出来的工具,发射口据此拼「正在读取 2 个文件」。
-                note_planned_tool(evt.tool_index, tool_name);
+                activity_->note_planned_tool(evt.tool_index, tool_name);
                 emit_progress("tool_planning", label,
                     format_bytes_detail(evt.tool_call_argument_bytes),
                     tool_name, evt.tool_call.id, evt.tool_index, false);
@@ -262,7 +255,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
             first_output_recorded = false;
             reasoning_title_found = false;
             step_text_started = false;
-            reset_activity_for_step();
+            activity_->reset_step();
             text_preamble_scanner_.reset();
             if (callbacks_.on_stream_retry_reset) {
                 callbacks_.on_stream_retry_reset();
@@ -278,11 +271,11 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                     build_transcript_replace_payload(
                         visible_reset_messages, reset_result));
             }
-            emit_retry_lifecycle(
+            retry_progress_->standard(
                 evt.provider_error, true, false);
             break;
         case StreamEventType::RetryResume:
-            emit_retry_lifecycle(
+            retry_progress_->standard(
                 evt.provider_error, false, false);
             break;
         case StreamEventType::Error:

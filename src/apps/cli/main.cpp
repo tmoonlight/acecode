@@ -127,7 +127,7 @@
 #include "tui/markdown/markdown_formatter.hpp"
 #include "session/session_manager.hpp"
 #include "session_host/session_auto_title.hpp"
-#include "tool_preamble/tool_preamble.hpp"
+#include "llm/text_preamble_tags.hpp"
 #include "session_host/session_registry.hpp"
 #include "tui/resume/session_resume_restore.hpp"
 #include "worktree/worktree_core.hpp"
@@ -4853,7 +4853,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         // 只在实时期间进 loading,不进 transcript;整段都是标签时不建空行。
         const bool assistant_text = !is_tool && role == "assistant";
         const std::string content = assistant_text
-            ? acecode::tool_preamble::strip_text_preamble_tags(raw_content)
+            ? acecode::llm::strip_text_preamble_tags(raw_content)
             : raw_content;
         if (assistant_text && content.empty()) return;
         std::lock_guard<std::mutex> lk(state.mu);

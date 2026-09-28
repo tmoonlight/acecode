@@ -1,4 +1,7 @@
 #include "agent/agent_loop.hpp"
+#include "agent/progress/activity_narrator.hpp"
+#include "agent/progress/retry_progress.hpp"
+#include "agent/side_question/side_question_service.hpp"
 #include "agent/hook_bridge/tool_hook_bridge.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/goal/goal_runtime.hpp"
@@ -61,6 +64,9 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , tool_hooks_(std::make_unique<agent::ToolHookBridge>(*hooks_))
     , goal_(std::make_unique<agent::GoalRuntime>(*task_queue_, *history_, *transcript_,
           events_, callbacks_, permissions, busy_, abort_signal_))
+    , side_questions_(std::make_unique<agent::SideQuestionService>(provider_accessor_))
+    , activity_(std::make_unique<agent::ActivityNarrator>(callbacks_))
+    , retry_progress_(std::make_unique<agent::RetryProgressReporter>(callbacks_, events_))
 {
     reload_exec_rules();
     worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);
@@ -115,7 +121,7 @@ void AgentLoop::clear_stale_abort_request() {
 }
 
 void AgentLoop::shutdown() {
-    side_question_shutdown_.store(true);
+    side_questions_->stop_requests();
     task_queue_->request_shutdown();
     abort_signal_.request();
     wake_active_provider_retry();
@@ -123,7 +129,7 @@ void AgentLoop::shutdown() {
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
-    join_side_question_threads();
+    side_questions_->join();
 }
 
 void AgentLoop::set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {
