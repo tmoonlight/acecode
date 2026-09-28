@@ -5,6 +5,8 @@
 #include "utils/abort_signal.hpp"
 
 #include <atomic>
+#include <future>
+#include <thread>
 #include <string>
 #include <utility>
 #include <vector>
@@ -111,4 +113,45 @@ TEST(AgentTaskQueue, HandoffPrunesOnlyHiddenChatContinuations) {
     EXPECT_FALSE(queue.has_pending_work());
     queue.request_shutdown();
     EXPECT_FALSE(queue.wait_pop(task));
+}
+
+// 场景：两条队列尚有闭包时关停。期望移出后在调用线程、锁外释放，
+// control 等待者立即收到未完成；此前闭包一直留到成员析构，等待者只能超时。
+TEST(AgentTaskQueue, ShutdownRetiresBothQueuesAndCancelsReceiptsOutsideQueueLock) {
+    using namespace std::chrono_literals;
+    std::atomic<bool> busy{false};
+    AgentTaskQueue queue(busy);
+    const auto caller = std::this_thread::get_id();
+    int released = 0, executed = 0;
+    auto capture = std::shared_ptr<int>(new int(0), [&](int* value) {
+        EXPECT_FALSE(queue.held_by_current_thread());
+        EXPECT_EQ(std::this_thread::get_id(), caller);
+        ++released;
+        delete value;
+    });
+    auto receipt = queue.enqueue_control([capture, &executed] { ++executed; return true; });
+    queue.with_locked([&](AgentTaskQueue::Locked& state) {
+        WorkerTask task;
+        task.kind = WorkerTask::Kind::Control;
+        task.control = [capture, &executed] { ++executed; };
+        state.push(std::move(task), true);
+    });
+    capture.reset();
+    auto waiting = std::async(std::launch::async, [receipt] { return receipt.wait_for_completion(5s); });
+    queue.request_shutdown();
+    {
+        auto pending = queue.take_pending();
+        pending.cancel_receipts();
+        EXPECT_FALSE(queue.has_pending_work());
+        ASSERT_EQ(waiting.wait_for(1s), std::future_status::ready);
+        EXPECT_FALSE(waiting.get());
+        EXPECT_TRUE(receipt.cancelled());
+        EXPECT_FALSE(receipt.completed());
+        EXPECT_EQ(released, 0);
+    }
+    EXPECT_EQ(released, 1);
+    EXPECT_EQ(executed, 0);
+    queue.enqueue(chat("rejected after shutdown"));
+    EXPECT_FALSE(queue.has_pending_work());
+    EXPECT_FALSE(queue.enqueue_control([] { return true; }).accepted);
 }

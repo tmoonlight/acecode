@@ -53,6 +53,13 @@ ToolBatchOutcome TurnRunner::execute_tools(TurnContext& turn, const ChatResponse
             permission_prompter_, question_prompter_},
         ToolExecutionOptions{options_.provider, options_.question_channel,
             turn.progress_clock, turn.model_tool_names});
-    return pipeline->execute(response, provider, progress, turn.doom_guard, turn.preamble);
+    auto outcome = pipeline->execute(response, provider, progress, turn.doom_guard, turn.preamble);
+    for (auto& action : outcome.post_turn_actions) {
+        if (!action) continue;
+        action = [ref = turn.callback_lifetime.ref(turn), owned = std::move(action)] {
+            ref.with([&](TurnContext&) { owned(); });
+        };
+    }
+    return outcome;
 }
 } // namespace acecode::agent

@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+namespace acecode { struct ControlExecutionState; }
+
 namespace acecode::agent {
 
 using ProgressEmitter = std::function<void(
@@ -60,6 +62,8 @@ struct WorkerTask {
     bool hidden_goal_context = false;
     std::function<void()> control;
     std::string retry_user_message_id;
+    // Shared by the task and its receipt; cancellation does not execute control.
+    std::shared_ptr<ControlExecutionState> control_execution;
 };
 
 enum class HandleErrorResult { Continue, Break, Proceed };

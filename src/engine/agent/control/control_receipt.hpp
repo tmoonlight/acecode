@@ -18,6 +18,7 @@ struct ControlExecutionState {
     mutable std::mutex mu;
     std::condition_variable cv;
     bool completed = false;
+    bool cancelled = false;
     bool succeeded = false;
 };
 
@@ -33,6 +34,12 @@ struct ControlEnqueueReceipt {
         return execution->completed;
     }
 
+    bool cancelled() const {
+        if (!execution) return false;
+        std::lock_guard<std::mutex> lock(execution->mu);
+        return execution->cancelled;
+    }
+
     bool succeeded() const {
         if (!execution) return false;
         std::lock_guard<std::mutex> lock(execution->mu);
@@ -46,8 +53,10 @@ struct ControlEnqueueReceipt {
     bool wait_for_completion(std::chrono::milliseconds timeout) const {
         if (!execution) return false;
         std::unique_lock<std::mutex> lock(execution->mu);
-        return execution->cv.wait_for(
-            lock, timeout, [&] { return execution->completed; });
+        execution->cv.wait_for(lock, timeout, [&] {
+            return execution->completed || execution->cancelled;
+        });
+        return execution->completed;
     }
 };
 

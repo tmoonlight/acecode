@@ -3,6 +3,7 @@
 #include "side_chat.hpp"
 #include "llm/llm_provider.hpp"
 #include "utils/joining_thread.hpp"
+#include "utils/lifetime_token.hpp"
 
 #include <functional>
 #include <memory>
@@ -37,6 +38,7 @@ private:
                                   const std::string& question);
     // Shared only with outstanding requests, which may be reaped concurrently.
     std::shared_ptr<State> state_;
+    LifetimeToken callback_lifetime_;
     ReapingThreadSet threads_; // joins before request state is destroyed
 };
 

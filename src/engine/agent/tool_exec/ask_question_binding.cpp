@@ -7,49 +7,73 @@
 
 namespace acecode::agent {
 
+struct AskQuestionBinding::State {
+    State(GoalRuntime& goal, AbortSignal& abort, const AgentLoopConfig& config,
+        SessionManager* session, AskUserQuestionPrompter* prompter, AskQuestionChannel channel)
+        : goal_(goal), abort_(abort), config_(config), session_manager_(session),
+          prompter_(prompter), channel_(std::move(channel)) {}
+    nlohmann::json ask_daemon(const nlohmann::json& payload, const std::string& tool,
+        const std::string& id, int index, const ProgressEmitter& progress);
+    GoalRuntime& goal_;
+    AbortSignal& abort_;
+    const AgentLoopConfig& config_;
+    SessionManager* session_manager_; // Nullable borrowed; owner revokes before dependencies die.
+    AskUserQuestionPrompter* prompter_; // Nullable borrowed.
+    AskQuestionChannel channel_;
+    LifetimeToken lifetime_;
+};
+AskQuestionBinding::AskQuestionBinding(GoalRuntime& goal, AbortSignal& abort,
+    const AgentLoopConfig& config, SessionManager* session,
+    AskUserQuestionPrompter* prompter, AskQuestionChannel channel)
+    : state_(std::make_shared<State>(goal, abort, config, session, prompter, std::move(channel))) {}
+AskQuestionBinding::~AskQuestionBinding() { state_->lifetime_.revoke(); }
+
 void AskQuestionBinding::bind(ToolContext& context, const ToolCall& call,
     int index, const ProgressEmitter& progress) {
-    const auto ref = lifetime_.ref(*this);
-    if (prompter_) {
+    const auto& state = *state_;
+    const auto weak = std::weak_ptr<State>(state_);
+    if (state.prompter_) {
         context.ask_user_questions =
-            [ref, progress, tool = call.function_name, id = call.id, index](
+            [weak, progress, tool = call.function_name, id = call.id, index](
                 const nlohmann::json& payload) {
                 nlohmann::json response{{"cancelled", true}};
-                ref.with([&](AskQuestionBinding& binding) {
-                    response = binding.ask_daemon(payload, tool, id, index, progress);
-                });
+                if (auto active = weak.lock()) {
+                    active->lifetime_.ref(*active).with([&](State& binding) {
+                        response = binding.ask_daemon(payload, tool, id, index, progress);
+                    });
+                }
                 return response;
             };
-    } else if (channel_) {
-        // TUI captures its timeout and origin at assembly; daemon checks the
-        // unattended goal later, when the question is actually invoked.
-        const auto policy = resolve_question_policy(config_);
+    } else if (state.channel_) {
+        // TUI binds timeout/origin now; daemon evaluates the goal when invoked.
+        const auto policy = resolve_question_policy(state.config_);
         int timeout_seconds = 0;
-        if (goal_.unattended_active(session_manager_)) {
+        if (state.goal_.unattended_active(state.session_manager_)) {
             timeout_seconds = kGoalQuestionTimeoutSeconds;
         } else if (policy.policy == QuestionPolicy::Timeout) {
             timeout_seconds = policy.timeout_seconds;
         }
         std::string origin_label;
-        if (session_manager_ && !session_manager_->current_parent_session_id().empty()) {
-            const auto title = session_manager_->current_title();
+        if (state.session_manager_ && !state.session_manager_->current_parent_session_id().empty()) {
+            const auto title = state.session_manager_->current_title();
             origin_label = "[subagent] " +
-                (title.empty() ? session_manager_->current_session_id() : title);
+                (title.empty() ? state.session_manager_->current_session_id() : title);
         }
         context.ask_user_questions =
-            [ref, channel = channel_, timeout_seconds, origin_label](
-                const nlohmann::json& payload) {
+            [weak, timeout_seconds, origin_label](const nlohmann::json& payload) {
                 nlohmann::json response{{"cancelled", true}};
-                ref.with([&](AskQuestionBinding& binding) {
-                    response = channel(payload, &binding.abort_.flag_for_legacy_api(),
-                        timeout_seconds, origin_label);
-                });
+                if (auto active = weak.lock()) {
+                    active->lifetime_.ref(*active).with([&](State& binding) {
+                        response = binding.channel_(payload, &binding.abort_.flag_for_legacy_api(),
+                            timeout_seconds, origin_label);
+                    });
+                }
                 return response;
             };
     }
 }
 
-nlohmann::json AskQuestionBinding::ask_daemon(
+nlohmann::json AskQuestionBinding::State::ask_daemon(
     const nlohmann::json& questions_payload, const std::string& tool_name_for_question,
     const std::string& tool_call_id_for_question, int tool_index_int,
     const ProgressEmitter& emit_progress) {

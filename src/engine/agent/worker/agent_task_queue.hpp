@@ -19,8 +19,8 @@ namespace acecode::agent {
 
 // Lock order: ActiveTurnGate -> queue; handoff source.queue -> target.queue.
 // A queue-locked callback must never enter ActiveTurnGate or take a model lock.
-// Ordinary and priority work each retain FIFO order. Shutdown only closes the
-// consumer at this migration step; release of queued captures belongs to O-11.
+// Ordinary and priority work each retain FIFO order. Shutdown closes admission;
+// the joined owner then takes pending work and destroys it outside all locks.
 class AgentTaskQueue {
 public:
     explicit AgentTaskQueue(const std::atomic<bool>& busy) : busy_(busy) {}
@@ -67,6 +67,13 @@ public:
     bool wait_pop(WorkerTask& task);
     void finish_task();
     void request_shutdown();
+    struct PendingTasks {
+        std::deque<WorkerTask> priority;
+        std::deque<WorkerTask> ordinary;
+        void cancel_receipts() const;
+    };
+    // Caller has joined the consumer. Returned closures must die outside locks.
+    PendingTasks take_pending();
     void notify() { cv_.notify_one(); }
     bool held_by_current_thread() const;
     bool on_worker_thread() const { return worker_queue_ == this; }

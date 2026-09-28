@@ -70,15 +70,21 @@ void UserShellTask::run(std::string command, SessionManager* session_manager_,
         cmd_preview = truncate_utf8_prefix(cmd_preview, 60);
 
         auto prog = std::make_shared<agent::ToolStreamProgress>();
+        LifetimeToken stream_lifetime;
 
         ToolContext tool_ctx = agent::ToolContextFactory::for_user_shell(
             boundary_, abort_signal_, session_manager_);
         if (callbacks.on_tool_progress_update) {
             auto update_cb = callbacks.on_tool_progress_update;
-            tool_ctx.stream = [prog, update_cb](const std::string& chunk) {
-                const auto progress = prog->append(chunk);
-                update_cb(progress.tail_lines, progress.current_partial,
-                          progress.total_bytes, progress.total_lines);
+            tool_ctx.stream = [weak = std::weak_ptr<agent::ToolStreamProgress>(prog),
+                               ref = stream_lifetime.ref(*prog), update_cb](const std::string& chunk) {
+                if (auto retained = weak.lock()) {
+                    ref.with([&](agent::ToolStreamProgress& state) {
+                        const auto progress = state.append(chunk);
+                        update_cb(progress.tail_lines, progress.current_partial,
+                                  progress.total_bytes, progress.total_lines);
+                    });
+                }
             };
         }
 

@@ -27,19 +27,14 @@ public:
             const std::string&, std::size_t, int)>;
         Stream(EventDispatcher& events, CallbacksSlot& callbacks, const ToolCall& call,
             int index, bool emit_tui, Clock clock, std::chrono::steady_clock::time_point start);
+        ~Stream();
+        Stream(const Stream&) = delete;
+        Stream& operator=(const Stream&) = delete;
         void bind(ToolContext& context);
     private:
-        void append(const std::string& chunk);
-        EventDispatcher& events_;
-        Update callback_;
-        std::string name_;
-        std::string id_;
-        int index_;
-        std::string key_;
-        Clock clock_;
-        std::chrono::steady_clock::time_point start_;
-        ToolStreamProgress progress_;
-        LifetimeToken lifetime_;
+        struct State;
+        // The invocation owns state; only admitted calls temporarily retain it.
+        std::shared_ptr<State> state_;
     };
 private:
     EventDispatcher& events_;

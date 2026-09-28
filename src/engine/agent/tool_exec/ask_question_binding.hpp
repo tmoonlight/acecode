@@ -12,20 +12,15 @@ using AskQuestionChannel = std::function<nlohmann::json(
 class AskQuestionBinding {
 public:
     AskQuestionBinding(GoalRuntime& goal, AbortSignal& abort, const AgentLoopConfig& config,
-        SessionManager* session, AskUserQuestionPrompter* prompter, AskQuestionChannel channel)
-        : goal_(goal), abort_(abort), config_(config), session_manager_(session),
-          prompter_(prompter), channel_(std::move(channel)) {}
+        SessionManager* session, AskUserQuestionPrompter* prompter, AskQuestionChannel channel);
+    ~AskQuestionBinding();
+    AskQuestionBinding(const AskQuestionBinding&) = delete;
+    AskQuestionBinding& operator=(const AskQuestionBinding&) = delete;
     void bind(ToolContext& context, const ToolCall& call, int index,
         const ProgressEmitter& progress);
 private:
-    nlohmann::json ask_daemon(const nlohmann::json& payload, const std::string& tool,
-        const std::string& id, int index, const ProgressEmitter& progress);
-    GoalRuntime& goal_;
-    AbortSignal& abort_;
-    const AgentLoopConfig& config_;
-    SessionManager* session_manager_; // Nullable borrowed constructor dependency.
-    AskUserQuestionPrompter* prompter_; // Nullable borrowed; owner outlives this binding.
-    AskQuestionChannel channel_;
-    LifetimeToken lifetime_;
+    struct State;
+    // Shared only with callbacks already admitted; retained callbacks are weak.
+    std::shared_ptr<State> state_;
 };
 } // namespace acecode::agent

@@ -1987,9 +1987,10 @@ void register_builtin_commands(CommandRegistry& registry) {
     registry.register_command({"mode", "Show or switch permission mode", cmd_mode});
     registry.register_command({"sandbox", "Show shell sandbox status or switch it on/off",
         [](CommandContext& ctx, const std::string& args) {
-            ctx.agent_loop.enqueue_control([loop = &ctx.agent_loop, args] {
-                loop->emit_system_message(loop->sandbox_command(trim_ascii_command(args)));
-                return true;
+            ctx.agent_loop.enqueue_control([ref = ctx.agent_loop.lifetime_ref(), args] {
+                return ref.with([&](AgentLoop& loop) {
+                    loop.emit_system_message(loop.sandbox_command(trim_ascii_command(args)));
+                });
             });
         }});
     registry.register_command({"config", "Open settings (/config show for text summary)", cmd_config});

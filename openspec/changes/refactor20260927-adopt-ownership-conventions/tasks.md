@@ -161,7 +161,7 @@
     - 新增用例:「回合进行中修改 custom_instructions,本回合的请求前缀不变,下一回合生效」,中文注释写明这是有意为之的回合级快照语义;
     - Linux 上用 TSan 跑「保存设置」与「回合执行」并发;
     - spec `prompt-config-turn-snapshot` 的三个 scenario 有对应测试。
-- [ ] 4.2 【O-11】【主】【行为变更 D7】跨线程回调守卫与关停清队(原计划编号 A-16)。
+- [ ] 4.2 【O-11】【主】【行为变更 D7】跨线程回调守卫与关停清队(原计划编号 A-16)。〔实现完成: Codex-root 2026-09-28;侧问/回合收尾 LifetimeToken、提问与流回调弱状态及在途门、串行关停后移出双队列并在锁外销毁、取消回执唤醒且 completed=false;终止取消防止启动 clear 覆盖;双队列/最后所有者/运行回合/并发关停/在途回调用例已补,待 Windows 统一验收〕
   - LifetimeToken 守卫 side question 的异步回调与 `post_turn_action`;
   - `ToolStreamProgress` 与 ask 回调改用 weak_ptr;
   - `shutdown` 在 join worker 之后,于调用线程把两条队列 move 到局部变量,在锁外销毁,之后不再访问 this;

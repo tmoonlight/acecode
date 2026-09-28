@@ -18,10 +18,20 @@ public:
         cv_.notify_all();
     }
 
+    // Terminal cancellation cannot be erased by a task racing its startup.
+    void shutdown() noexcept {
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            stopped_ = true;
+            requested_.store(true, std::memory_order_release);
+        }
+        cv_.notify_all();
+    }
+
     // Clear only at the start of a new operation, after the previous waiters end.
     void clear() noexcept {
         std::lock_guard<std::mutex> lock(mu_);
-        requested_.store(false, std::memory_order_release);
+        if (!stopped_) requested_.store(false, std::memory_order_release);
     }
 
     template <typename Rep, typename Period>
@@ -41,6 +51,7 @@ public:
 
 private:
     std::atomic<bool> requested_{false};
+    bool stopped_ = false; // Protected by mu_.
     mutable std::mutex mu_;
     mutable std::condition_variable cv_;
 };

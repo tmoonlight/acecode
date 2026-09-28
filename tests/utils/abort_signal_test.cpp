@@ -47,3 +47,16 @@ TEST(AbortSignalTest, RequestBeforeWaitIsNotLostAndLegacyFlagIsBorrowed) {
 
 }  // namespace
 }  // namespace acecode
+
+// 场景：worker 已取任务，但主线程先发出终止取消，随后 worker 清旧回合状态。
+// 期望终止标志不会被 clear 擦除，避免退出时反而启动不能取消的新请求。
+TEST(AbortSignal, TerminalShutdownCannotBeClearedByAStartingTask) {
+    acecode::AbortSignal signal;
+    signal.shutdown();
+    signal.clear();
+    EXPECT_TRUE(signal.raw().load());
+    EXPECT_TRUE(signal.wait_for(std::chrono::milliseconds(0)));
+    signal.request();
+    signal.clear();
+    EXPECT_TRUE(signal.raw().load());
+}

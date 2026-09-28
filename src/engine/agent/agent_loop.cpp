@@ -180,19 +180,31 @@ void AgentLoop::clear_stale_abort_request() {
 }
 
 void AgentLoop::shutdown() {
+    // The owner calls shutdown from outside the worker and its own callbacks.
+    // Serialize joining, but release this mutex before retired closures die:
+    // one may drop the final owner and reenter through the destructor.
+    std::unique_lock<std::mutex> shutdown_lock(shutdown_mu_);
+    if (shutdown_complete_) return;
     {
         std::lock_guard<std::mutex> lock(lifecycle_mu_);
         stopped_ = true;
     }
     side_questions_->stop_requests();
     task_queue_->request_shutdown();
-    abort_signal_.request();
+    abort_signal_.shutdown();
     wake_active_provider_retry();
     task_queue_->notify();
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
     side_questions_->join();
+    lifetime_.revoke();
+    auto pending = task_queue_->take_pending();
+    pending.cancel_receipts();
+    shutdown_complete_ = true;
+    shutdown_lock.unlock();
+    // pending is destroyed here, on the caller thread and outside every lock.
+    // It may release this object: do not access any member after this point.
 }
 
 void AgentLoop::set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {

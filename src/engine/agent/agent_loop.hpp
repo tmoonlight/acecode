@@ -4,6 +4,7 @@
 
 #include "utils/abort_signal.hpp"
 #include "utils/joining_thread.hpp"
+#include "utils/lifetime_token.hpp"
 
 #include "agent/callbacks_slot.hpp"
 #include "agent/agent_loop_services.hpp"
@@ -130,6 +131,7 @@ public:
 
     // Signal the worker thread to exit and wait for it to finish.
     void shutdown();
+    LifetimeRef<AgentLoop> lifetime_ref() { return lifetime_.ref(*this); }
 
     // Returns true if abort has been requested. Useful for confirm callbacks.
     bool is_aborting() const { return abort_signal_.raw().load(); }
@@ -367,6 +369,8 @@ private:
     mutable std::mutex lifecycle_mu_;
     bool started_ = false;
     bool stopped_ = false;
+    std::mutex shutdown_mu_; // Only external shutdown callers take this mutex.
+    bool shutdown_complete_ = false;
 
     // Required references and optional borrowed dependencies are fixed at init.
     ProviderAccessor provider_accessor_;
@@ -415,6 +419,7 @@ private:
     std::unique_ptr<PermissionPrompter> prompter_;
     std::unique_ptr<AskUserQuestionPrompter> ask_prompter_;
     AskQuestionChannel ask_channel_;
+    LifetimeToken lifetime_;
     JoiningThread worker_thread_;
 };
 

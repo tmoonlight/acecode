@@ -27,6 +27,7 @@ void SideQuestionService::stop_requests() {
 }
 
 void SideQuestionService::join() {
+    callback_lifetime_.revoke();
     threads_.shutdown();
 }
 
@@ -130,10 +131,12 @@ bool SideQuestionService::ask_async(std::string question, Callback callback) {
     if (state_->stopped.load()) return false;
     // State and the callback are owned by the request. The worker never captures
     // the facade or this service; joining cannot leave borrowed state behind.
-    return threads_.spawn([state = state_, question = std::move(question),
+    return threads_.spawn([state = state_, ref = callback_lifetime_.ref(*state_), question = std::move(question),
                            callback = std::move(callback)]() mutable {
         auto result = ask(state, question);
-        if (!state->stopped.load() && callback) callback(std::move(result));
+        ref.with([&](State& active) {
+            if (!active.stopped.load() && callback) callback(std::move(result));
+        });
     });
 }
 

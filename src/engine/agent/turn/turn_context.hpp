@@ -43,6 +43,7 @@ struct TurnContext {
     // Reset before recovery reporting on unwind, and before finishing the task
     // on normal return. Normal release-before-terminal + destructor is retained.
     std::unique_ptr<computer_use::SessionLease> desktop_lease;
+    LifetimeToken callback_lifetime; // Revoke before any turn dependency is destroyed.
 };
 
 } // namespace acecode::agent

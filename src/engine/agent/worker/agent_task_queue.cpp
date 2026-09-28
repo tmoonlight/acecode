@@ -82,7 +82,7 @@ void AgentTaskQueue::Locked::remove_goal_continuations() {
 }
 
 void AgentTaskQueue::enqueue(WorkerTask task) {
-    with_locked([&](Locked& state) { state.push(std::move(task)); });
+    with_locked([&](Locked& state) { if (!state.stopped()) state.push(std::move(task)); });
     notify();
 }
 
@@ -138,6 +138,32 @@ void AgentTaskQueue::request_shutdown() {
     shutdown_requested_ = true;
 }
 
+AgentTaskQueue::PendingTasks AgentTaskQueue::take_pending() {
+    PendingTasks pending;
+    {
+        Lock lock(*this);
+        assert(shutdown_requested_ && !worker_task_active_);
+        pending.priority.swap(priority_);
+        pending.ordinary.swap(ordinary_);
+        suggestion_ids_.clear();
+    }
+    return pending;
+}
+
+void AgentTaskQueue::PendingTasks::cancel_receipts() const {
+    for (const auto* queue : {&priority, &ordinary}) {
+        for (const auto& task : *queue) {
+            const auto& execution = task.control_execution;
+            if (!execution) continue;
+            {
+                std::lock_guard<std::mutex> lock(execution->mu);
+                if (!execution->completed) execution->cancelled = true;
+            }
+            execution->cv.notify_all();
+        }
+    }
+}
+
 bool AgentTaskQueue::enqueue_suggestion(
     const UserInput& input, const std::string& id, AbortSignal& abort) {
     if (id.empty() || input.empty()) return false;
@@ -171,6 +197,7 @@ ControlEnqueueReceipt AgentTaskQueue::enqueue_control(
 
         WorkerTask task;
         task.kind = WorkerTask::Kind::Control;
+        task.control_execution = execution;
         task.control = [control = std::move(control), execution]() mutable {
             bool succeeded = false;
             try {

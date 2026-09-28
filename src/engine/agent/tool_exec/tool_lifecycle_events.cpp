@@ -87,22 +87,41 @@ void ToolLifecycleEvents::finish(
 
 }
 
+struct ToolLifecycleEvents::Stream::State {
+    State(EventDispatcher& events, CallbacksSlot& callbacks, const ToolCall& call,
+        int index, bool emit_tui, Clock clock, std::chrono::steady_clock::time_point start)
+        : events_(events), callback_(emit_tui ? callbacks.snapshot().on_tool_progress_update : Update{}),
+          name_(call.function_name), id_(call.id), index_(index),
+          key_("tool_update:" + (!call.id.empty() ? call.id
+              : (call.function_name + ":" + std::to_string(index)))),
+          clock_(std::move(clock)), start_(start) {}
+    void append(const std::string& chunk);
+    EventDispatcher& events_;
+    Update callback_;
+    std::string name_, id_;
+    int index_;
+    std::string key_;
+    Clock clock_;
+    std::chrono::steady_clock::time_point start_;
+    ToolStreamProgress progress_;
+    LifetimeToken lifetime_;
+};
+
 ToolLifecycleEvents::Stream::Stream(
     EventDispatcher& events, CallbacksSlot& callbacks, const ToolCall& call,
     int index, bool emit_tui, Clock clock, std::chrono::steady_clock::time_point start)
-    : events_(events), callback_(emit_tui ? callbacks.snapshot().on_tool_progress_update : Update{}),
-      name_(call.function_name), id_(call.id), index_(index),
-      key_("tool_update:" + (!call.id.empty() ? call.id
-          : (call.function_name + ":" + std::to_string(index)))),
-      clock_(std::move(clock)), start_(start) {}
+    : state_(std::make_shared<State>(events, callbacks, call, index, emit_tui, std::move(clock), start)) {}
+ToolLifecycleEvents::Stream::~Stream() { state_->lifetime_.revoke(); }
 
 void ToolLifecycleEvents::Stream::bind(ToolContext& context) {
-    context.stream = [ref = lifetime_.ref(*this)](const std::string& chunk) {
-        ref.with([&](Stream& stream) { stream.append(chunk); });
+    context.stream = [weak = std::weak_ptr<State>(state_)](const std::string& chunk) {
+        if (auto active = weak.lock()) {
+            active->lifetime_.ref(*active).with([&](State& state) { state.append(chunk); });
+        }
     };
 }
 
-void ToolLifecycleEvents::Stream::append(const std::string& chunk) {
+void ToolLifecycleEvents::Stream::State::append(const std::string& chunk) {
     const auto progress = progress_.append(
         chunk, clock_ ? clock_() : std::chrono::steady_clock::now());
     if (callback_) {
