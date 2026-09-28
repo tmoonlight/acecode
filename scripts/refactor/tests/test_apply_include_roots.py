@@ -12,6 +12,10 @@ ROOT_CMAKE = (
     "file(GLOB_RECURSE ACECODE_ALL_SOURCES CONFIGURE_DEPENDS\r\n"
     "    ${CMAKE_SOURCE_DIR}/src/*.cpp\r\n"
     ")\r\n"
+    "file(GLOB_RECURSE ACECODE_HEADER_FILES CONFIGURE_DEPENDS\r\n"
+    "    ${CMAKE_SOURCE_DIR}/src/*.hpp\r\n"
+    "    ${CMAKE_SOURCE_DIR}/src/*.h\r\n"
+    ")\r\n"
     "acecode_assert_known_roots(ALLOW_LEGACY SOURCES\r\n"
     "    ${ACECODE_ALL_SOURCES} ${ACECODE_HEADER_FILES} ${ACECODE_OBJCXX_SOURCES})\r\n"
     "target_include_directories(acecode_testable PUBLIC\r\n"
@@ -19,6 +23,15 @@ ROOT_CMAKE = (
     "    ${CMAKE_BINARY_DIR}/generated)\r\n"
     "target_sources(x PRIVATE ${CMAKE_SOURCE_DIR}/src/apps/cli/main.cpp)\r\n"
     "target_include_directories(native PUBLIC ${CMAKE_SOURCE_DIR}/src)\r\n"
+    "add_library(acecode_testable OBJECT\r\n"
+    "    ${ACECODE_TESTABLE_SOURCES}\r\n"
+    "    ${ACECODE_HEADER_FILES}\r\n"
+    ")\r\n"
+    "source_group(TREE ${CMAKE_SOURCE_DIR} FILES\r\n"
+    "    ${ACECODE_MAIN_SOURCE}\r\n"
+    "    ${ACECODE_ALL_SOURCES}\r\n"
+    "    ${ACECODE_HEADER_FILES}\r\n"
+    ")\r\n"
 )
 TESTS_CMAKE = "target_include_directories(t PRIVATE\n    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external/ftxui/src)\n"
 
@@ -40,6 +53,11 @@ class ApplyIncludeRootsTest(unittest.TestCase):
         self.assertIn("target_include_directories(native PUBLIC ${ACECODE_INCLUDE_ROOTS})", text)
         self.assertNotIn("\n\n\r", text)
         self.assertTrue(text.index("ACECODE_OBJCXX_SOURCES})") < text.index("set(ACECODE_INCLUDE_ROOTS"))
+        # stb 头搬到 external 后仍要出现在 acecode_testable 与 source_group 里(快照逐元组不变),但不进 known-roots 断言。
+        self.assertTrue(report["thirdparty_headers_added"])
+        self.assertEqual(1, text.count("file(GLOB ACECODE_THIRDPARTY_HEADERS"))
+        self.assertEqual(2, text.count("    ${ACECODE_THIRDPARTY_HEADERS}\r\n"))
+        self.assertNotIn("${ACECODE_HEADER_FILES} ${ACECODE_THIRDPARTY_HEADERS} ${ACECODE_OBJCXX_SOURCES}", text)
 
     def test_idempotent_and_tests_cmake_keeps_neighbouring_tokens(self):
         # 触发场景:tests/CMakeLists.txt 同一行里 src 根后面紧跟 ftxui 的 include 目录;脚本对整个仓库跑两次。

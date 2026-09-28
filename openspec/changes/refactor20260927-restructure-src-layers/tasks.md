@@ -1,5 +1,7 @@
 # Tasks: refactor20260927-restructure-src-layers
 
+> **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
+
 > 执行前必读 design.md 的 §6「提交与协作约定」。关键规则:
 > - 开工前在任务行末尾追加 `〔认领: <代理名> <日期>〕`,单独提交到 master;前置任务没勾选的不开工。
 > - 提交信息前缀写 `refactor20260927(layers/<任务编号>): …`。
@@ -233,7 +235,7 @@
 
 ## 4. Phase 3:冻结窗口(半天,外加约 1 天验证)
 
-- [ ] 4.1 【P3-01】【主】演练。〔认领: Claude-D26 2026-09-28,临时 worktree N:/Users/shao/acecode-p3-rehearsal,按 D26 只做 Windows 闸门〕
+- [ ] 4.1 【P3-01】【主】演练。〔认领: Claude-D26 2026-09-28,临时 worktree N:/Users/shao/acecode-p3-rehearsal,按 D26 只做 Windows 闸门〕〔接续: Codex-root 2026-09-28;演练及修正已核对,按 D27 待一期统一验收提交〕
   - 在临时 worktree 里用 `apply_layout.py` 从固定 base 生成 M1 / M2 / M2b / M3,跑完 design.md §7.2「P3」一行的全部闸门,记录耗时,用来估算冻结窗口;
   - 演练分支不推到 master。
   - 前置:Phase 2 全部完成;adopt-ownership-conventions 的 P2-01 已合入。

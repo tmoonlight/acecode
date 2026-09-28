@@ -1,5 +1,7 @@
 # Tasks: refactor20260927-adopt-ownership-conventions
 
+> **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
+
 > **开工前必读**:
 > - `refactor20260927-restructure-src-layers/design.md` 的 §6「提交与协作约定」;
 > - 本变更 design.md 的 §1(约定 C1–C14)和 §3(行为变更语义)。

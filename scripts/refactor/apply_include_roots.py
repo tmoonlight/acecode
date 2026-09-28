@@ -3,6 +3,8 @@
 映射改写只换源文件路径;分组搬迁后 `src/` 本身不再是 include 根(design.md D1),要把三处 CMake 里所有
 单独作为 include 目录出现的 `${CMAKE_SOURCE_DIR}/src` 换成 `${ACECODE_INCLUDE_ROOTS}`(6 个分组根 +
 `external`(stb 等第三方头)+ `generated`(版本头)),并让 `acecode_assert_known_roots` 不再放行映射表里的旧路径。
+stb 头搬到 external/stb 后不再落在 src 的头文件 glob 里;为了让 target 快照(File API 里的头文件元组)与搬迁前逐元组相同,
+另加一个 ACECODE_THIRDPARTY_HEADERS glob 挂回 acecode_testable 与 source_group,但不进 known-roots 断言。
 幂等:重复运行不再改动。
 
   python scripts/refactor/apply_include_roots.py [--repo .] [--dry-run]
@@ -41,8 +43,19 @@ def rewrite(data: bytes, path: str) -> tuple[bytes, dict]:
     nl = b"\r\n" if b"\r\n" in data else b"\n"
     text = data.decode("utf-8").replace("\r\n", "\n")
     text, replaced = ROOT_TOKEN.subn("${ACECODE_INCLUDE_ROOTS}", text)
-    report = {"file": path, "roots_replaced": replaced, "allow_legacy_removed": False, "roots_defined": False}
+    report = {"file": path, "roots_replaced": replaced, "allow_legacy_removed": False, "roots_defined": False, "thirdparty_headers_added": False}
     if path == "CMakeLists.txt":
+        header_glob = "file(GLOB_RECURSE ACECODE_HEADER_FILES CONFIGURE_DEPENDS\n    ${CMAKE_SOURCE_DIR}/src/*.hpp\n    ${CMAKE_SOURCE_DIR}/src/*.h\n)\n"
+        if "ACECODE_THIRDPARTY_HEADERS" not in text:
+            if text.count(header_glob) != 1:
+                raise ValueError("CMakeLists.txt: 找不到 ACECODE_HEADER_FILES 的 glob 块")
+            text = text.replace(header_glob, header_glob + "file(GLOB ACECODE_THIRDPARTY_HEADERS CONFIGURE_DEPENDS\n    ${CMAKE_SOURCE_DIR}/external/stb/*.h)\n")
+            for anchor in ("add_library(acecode_testable OBJECT\n    ${ACECODE_TESTABLE_SOURCES}\n    ${ACECODE_HEADER_FILES}\n",
+                           "source_group(TREE ${CMAKE_SOURCE_DIR} FILES\n    ${ACECODE_MAIN_SOURCE}\n    ${ACECODE_ALL_SOURCES}\n    ${ACECODE_HEADER_FILES}\n"):
+                if text.count(anchor) != 1:
+                    raise ValueError("CMakeLists.txt: 找不到 ACECODE_HEADER_FILES 的用法锚点: " + anchor.splitlines()[0])
+                text = text.replace(anchor, anchor + "    ${ACECODE_THIRDPARTY_HEADERS}\n")
+            report["thirdparty_headers_added"] = True
         if text.count("acecode_assert_known_roots(ALLOW_LEGACY SOURCES\n") == 1:
             text = text.replace("acecode_assert_known_roots(ALLOW_LEGACY SOURCES\n", "acecode_assert_known_roots(SOURCES\n")
             report["allow_legacy_removed"] = True
@@ -76,7 +89,7 @@ def main() -> int:
     args = parser.parse_args()
     for report in apply(Path(args.repo).resolve(), args.dry_run):
         print(f"{report['file']}: roots_replaced={report['roots_replaced']} allow_legacy_removed={report['allow_legacy_removed']} "
-              f"roots_defined={report['roots_defined']} changed={report['changed']}")
+              f"roots_defined={report['roots_defined']} thirdparty_headers_added={report['thirdparty_headers_added']} changed={report['changed']}")
     return 0
 
 
