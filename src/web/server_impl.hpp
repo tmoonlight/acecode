@@ -48,7 +48,6 @@
 #include "utils/logger.hpp"
 #include "utils/base64.hpp"
 #include "utils/cwd_hash.hpp"
-#include "platform/terminal/terminal_title.hpp"
 #include "workspace/files_handler.hpp"
 #include "web/handlers/fork_handler.hpp"
 #include "web/handlers/history_handler.hpp"

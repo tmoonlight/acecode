@@ -5,6 +5,7 @@
 #include "session/session_auto_title.hpp"
 #include "session/session_storage.hpp"
 #include "session/session_title_generator.hpp"
+#include "session/session_title_text.hpp"
 
 #include <filesystem>
 #include <random>

@@ -33,6 +33,7 @@
 #include "session/thread_goal_store.hpp"
 #include "utils/logger.hpp"
 #include "platform/terminal/terminal_title.hpp"
+#include "session/session_title_text.hpp"
 #include "utils/utf8_path.hpp"
 #include "version.hpp"
 #include <algorithm>
@@ -44,7 +45,6 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
-#include <iomanip>
 #include <thread>
 #include <nlohmann/json.hpp>
 

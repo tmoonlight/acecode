@@ -1,5 +1,5 @@
 // 覆盖 src/lsp/lsp_diagnostics.{hpp,cpp} 的纯格式化函数 +
-// src/commands/lsp_command.cpp 的 format_lsp_status。
+// src/lsp/lsp_status_text.cpp 的 format_lsp_status。
 //
 // 覆盖项:
 //   - pretty_diagnostic:0-based → 1-based 行列换算、severity 标签、
@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/lsp_command.hpp"
+#include "lsp/lsp_status_text.hpp"
 #include "lsp/lsp_diagnostics.hpp"
 #include "lsp/lsp_service.hpp"
 

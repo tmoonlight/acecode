@@ -11,6 +11,7 @@
 #include "prompt/context_usage_breakdown.hpp"
 #include "session/session_user_message_search.hpp"
 #include "session/composer_content.hpp"
+#include "session/session_title_text.hpp"
 #include "utils/encoding.hpp"
 
 namespace acecode::web {
