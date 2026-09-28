@@ -108,6 +108,10 @@
 #include "tui/tui_ask_channel.hpp"
 #include "session_host/thread_service.hpp"
 #include "cli/interactive_options.hpp"
+#include "cli/process_environment.hpp"
+#include "cli/command_dispatch.hpp"
+#include "cli/pre_tui_commands.hpp"
+#include "skills/default_skill_startup.hpp"
 #include "cli/configure/configure.hpp"
 #include "daemon/cli.hpp"
 #include "web/remote_web_proxy.hpp"
@@ -684,49 +688,6 @@ static std::string get_cwd() {
     if (getcwd(buf, sizeof(buf))) return std::string(buf);
 #endif
     return ".";
-}
-
-static std::string get_executable_dir_from_argv(int argc, char* argv[]) {
-    if (argc <= 0 || !argv[0]) return "";
-    std::error_code ec;
-    std::filesystem::path exe(argv[0]);
-    std::filesystem::path abs = std::filesystem::weakly_canonical(exe, ec);
-    if (!ec) return abs.parent_path().string();
-    return exe.parent_path().string();
-}
-
-static void reconcile_default_skills_on_startup(const std::string& argv0_dir) {
-    auto result = acecode::reconcile_default_global_skills_on_startup(
-        std::filesystem::path(acecode::get_acecode_dir()),
-        argv0_dir);
-    if (!result.attempted) return;
-
-    size_t installed = 0;
-    size_t updated = 0;
-    size_t unchanged = 0;
-    size_t preserved = 0;
-    size_t errors = 0;
-    const auto count_outcomes = [&](const auto& outcomes) {
-        for (const auto& outcome : outcomes) {
-            if (outcome.result == "installed") ++installed;
-            else if (outcome.result == "updated") ++updated;
-            else if (outcome.result == "unchanged") ++unchanged;
-            else if (outcome.result == "preserved_user_modified") ++preserved;
-            else ++errors;
-        }
-    };
-    count_outcomes(result.outcomes);
-    count_outcomes(result.expert_outcomes);
-    count_outcomes(result.hook_outcomes);
-    if (!result.error.empty()) {
-        LOG_WARN("[seed] Default resource reconciliation issue: " + result.error);
-    }
-    LOG_INFO("[seed] Default resource reconciliation attempted: version=" +
-             result.bundle_version + " installed=" + std::to_string(installed) +
-             " updated=" + std::to_string(updated) +
-             " unchanged=" + std::to_string(unchanged) +
-             " preserved=" + std::to_string(preserved) +
-             " errors=" + std::to_string(errors));
 }
 
 static void write_terminal_control_sequence(std::string_view seq) {
@@ -1980,278 +1941,6 @@ static bool handle_path_reference_event(
 
 static int run_interactive_app(const InteractiveCliOptions& cli,
                                const std::string& argv0_dir);
-
-static void configure_process_environment() {
-#ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);
-    SetConsoleCP(CP_UTF8);
-
-    // SECURITY: Prevent Windows from executing commands from current directory.
-    // Without this, a malicious exe placed in cwd could hijack system commands.
-    SetEnvironmentVariableA("NoDefaultCurrentDirectoryInExePath", "1");
-#endif
-}
-
-static std::vector<std::string> argv_tail(int argc, char* argv[], int start) {
-    std::vector<std::string> tokens;
-    for (int i = start; i < argc; ++i) {
-        tokens.emplace_back(argv[i]);
-    }
-    return tokens;
-}
-
-static std::string executable_path_from_argv(int argc, char* argv[]) {
-    return (argc > 0 && argv[0]) ? std::string(argv[0]) : std::string();
-}
-
-static bool is_version_command_arg(const std::string& arg) {
-    return arg == "version" || arg == "-version" || arg == "--version" ||
-           arg == "/version";
-}
-
-static bool is_help_command_arg(const std::string& arg) {
-    return arg == "help" || arg == "-h" || arg == "--help" || arg == "/?";
-}
-
-// 顶层 `acecode --help`。各子命令的完整帮助由子命令自己出
-// (`acecode -p --help` / `acecode daemon help`),这里只给导航级概览。
-static void print_top_level_help() {
-    std::cout <<
-        "ACECode v" ACECODE_VERSION " - terminal coding agent\n"
-        "\n"
-        "Usage:\n"
-        "  acecode [options]                  Start the interactive TUI\n"
-        "  acecode -p [options] \"<prompt>\"    Headless print mode (acecode -p --help)\n"
-        "  acecode configure                  Interactive provider/model setup\n"
-        "  acecode daemon <subcommand>        Background daemon + Web UI (acecode daemon help)\n"
-        "  acecode channels <command>         WhatsApp channel management (acecode channels help)\n"
-#ifdef _WIN32
-        "  acecode service <subcommand>       Windows service management (acecode service help)\n"
-#endif
-        "  acecode upgrade [--force]          Self-update to the latest release\n"
-        "  acecode version                    Print version and exit\n"
-        "\n"
-        "Interactive (TUI) options:\n"
-        "  --resume [id]          Resume a session (no id = most recent)\n"
-        "  -r                     Open the resume picker on startup\n"
-        "  -w, --worktree [name]  Work inside an isolated git worktree\n"
-        "                         (name may also be a PR ref: #123 / GitHub PR URL)\n"
-        "  --yolo, --dangerous    Skip all permission confirmations\n"
-        "  --alt-screen           Force alternate-screen rendering (legacy terminals)\n"
-        "\n"
-        "Headless print mode (full reference: acecode -p --help):\n"
-        "  acecode -p \"prompt\"                Run one turn, print the reply to stdout\n"
-        "  echo \"...\" | acecode -p            Prompt from stdin (pipe-friendly)\n"
-        "  acecode -p -c \"...\"                Continue this directory's latest session\n"
-        "  acecode -p --resume <id> \"...\"     Continue a specific session\n"
-        "  acecode -p --output-format json    Structured result with session_id\n";
-}
-
-static std::optional<int> dispatch_non_tui_command(int argc, char* argv[]) {
-    const std::string exe_path = executable_path_from_argv(argc, argv);
-
-    if (argc >= 2 && std::string(argv[1]) == "--remote-web-proxy") {
-        return acecode::web::run_remote_web_proxy_command(
-            argv_tail(argc, argv, 2), std::cout, std::cerr);
-    }
-
-    if (argc >= 2 && is_version_command_arg(argv[1] ? std::string(argv[1]) : std::string())) {
-        std::cout << "acecode v" ACECODE_VERSION << "\n";
-        return 0;
-    }
-
-    if (argc >= 2 && is_help_command_arg(argv[1] ? std::string(argv[1]) : std::string())) {
-        print_top_level_help();
-        return 0;
-    }
-
-    if (argc >= 2 && (std::string(argv[1]) == "upgrade" ||
-                      std::string(argv[1]) == "update")) {
-        bool force_update = false;
-        std::optional<std::string> server_override;
-        for (int i = 2; i < argc; ++i) {
-            const std::string arg = argv[i] ? std::string(argv[i]) : std::string();
-            if (arg == "--force") {
-                force_update = true;
-                continue;
-            }
-            constexpr const char* kServerPrefix = "--server=";
-            if (arg.rfind(kServerPrefix, 0) == 0) {
-                server_override = arg.substr(std::char_traits<char>::length(kServerPrefix));
-                continue;
-            }
-            if (arg == "--server") {
-                std::cerr << "acecode " << argv[1] << ": missing value for --server\n"
-                          << "usage: acecode " << argv[1]
-                          << " [--force] [--server=<url>]\n";
-                return 64;
-            }
-            std::cerr << "acecode " << argv[1] << ": unknown option: " << arg << "\n"
-                      << "usage: acecode " << argv[1]
-                      << " [--force] [--server=<url>]\n";
-            return 64;
-        }
-        AppConfig config = load_config();
-        if (server_override.has_value()) {
-            std::string server_error;
-            if (!acecode::upgrade::apply_upgrade_server_override(
-                    config, *server_override, &server_error)) {
-                std::cerr << "acecode " << argv[1] << ": " << server_error << "\n"
-                          << "usage: acecode " << argv[1]
-                          << " [--force] [--server=<url>]\n";
-                return 64;
-            }
-            try {
-                save_config(config);
-            } catch (const std::exception& e) {
-                std::cerr << "acecode " << argv[1]
-                          << ": failed to save update server: " << e.what() << "\n";
-                return 1;
-            }
-        }
-        return acecode::upgrade::run_upgrade_command(
-            config, exe_path, ACECODE_VERSION, std::cout, std::cerr,
-            force_update);
-    }
-
-    if (argc >= 2 && std::string(argv[1]) == "--apply-update") {
-        return acecode::upgrade::run_apply_update_command(
-            argv_tail(argc, argv, 2), std::cout, std::cerr,
-            acecode::upgrade::current_target());
-    }
-
-    if (argc >= 2 && std::string(argv[1]) == "daemon") {
-        return acecode::daemon::cli::run(argv_tail(argc, argv, 2), exe_path);
-    }
-
-    if (argc >= 2 && std::string(argv[1]) == "service") {
-#ifdef _WIN32
-        return acecode::daemon::service_win::run_cli(argv_tail(argc, argv, 2),
-                                                     exe_path);
-#else
-        std::cerr << "acecode: native `service` subcommand is Windows-only;\n"
-                     "         on Linux/macOS use `acecode daemon --foreground`\n"
-                     "         under systemd / launchd (see README for sample units).\n";
-        return 65;
-#endif
-    }
-
-    for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--service-main") {
-#ifdef _WIN32
-            return acecode::daemon::service_win::run_service_main_dispatcher();
-#else
-            std::cerr << "--service-main is Windows-only\n";
-            return 64;
-#endif
-        }
-    }
-
-    // ---- -p / --print 无头模式(openspec add-headless-print-mode) ----
-    // Windows 的 char** argv 是 ANSI 代码页,中文 prompt 会乱码;用宽字符
-    // 命令行重建 UTF-8 token。POSIX 直接用 argv(约定 UTF-8 locale)。
-    {
-        std::vector<std::string> tokens;
-#ifdef _WIN32
-        int wargc = 0;
-        LPWSTR* wargv = ::CommandLineToArgvW(::GetCommandLineW(), &wargc);
-        if (wargv) {
-            for (int i = 1; i < wargc; ++i) {
-                tokens.push_back(acecode::wide_to_utf8(wargv[i]));
-            }
-            ::LocalFree(wargv);
-        } else {
-            tokens = argv_tail(argc, argv, 1);
-        }
-#else
-        tokens = argv_tail(argc, argv, 1);
-#endif
-        if (!tokens.empty() && tokens.front() == "channels") {
-            return acecode::channels::run_cli(
-                std::vector<std::string>(tokens.begin() + 1, tokens.end()), std::cout, std::cerr);
-        }
-        if (acecode::headless::should_enter_print_mode(tokens)) {
-            auto opts = acecode::headless::parse_headless_cli_options(tokens);
-            // --help 优先于用法报错:`-p --help` 后面跟什么都先出帮助。
-            if (opts.show_help) {
-                std::cout << acecode::headless::print_mode_help();
-                return 0;
-            }
-            if (!opts.error.empty()) {
-                std::cerr << "acecode -p: " << opts.error << "\n"
-                          << acecode::headless::print_mode_usage_line();
-                return 64;
-            }
-            return acecode::headless::run_print_mode(opts);
-        }
-    }
-
-#ifdef _WIN32
-    if (argc == 1) {
-        AppConfig cfg_probe = load_config();
-        if (cfg_probe.daemon.auto_start_on_double_click) {
-            DWORD procs[2] = {0, 0};
-            DWORD n = ::GetConsoleProcessList(procs, 2);
-            if (n == 1) {
-                std::vector<std::string> tokens = {"start"};
-                return acecode::daemon::cli::run(tokens, exe_path);
-            }
-        }
-    }
-#endif
-
-    return std::nullopt;
-}
-
-static int validate_models_registry_command(const std::string& argv0_dir) {
-    AppConfig config = load_config();
-    reconcile_default_skills_on_startup(argv0_dir);
-    initialize_registry(config, argv0_dir);
-    const auto& src = current_registry_source();
-    auto registry = current_registry();
-    if (!registry || registry->empty()) {
-        std::cerr << "models.dev registry not found or empty\n";
-        return 1;
-    }
-    size_t actual_models = 0;
-    for (auto it = registry->begin(); it != registry->end(); ++it) {
-        if (!it->is_object()) continue;
-        auto m = it->find("models");
-        if (m == it->end()) continue;
-        if (m->is_object()) actual_models += m->size();
-        else if (m->is_array()) actual_models += m->size();
-    }
-    std::cout << "models.dev registry OK: " << registry->size() << " providers, "
-              << actual_models << " models, source=" << src.path_or_url << "\n";
-    if (src.manifest && src.manifest->is_object()) {
-        const auto& m = *src.manifest;
-        if (m.contains("model_count") && m["model_count"].is_number_integer()) {
-            size_t expected = static_cast<size_t>(m["model_count"].get<int>());
-            if (expected != actual_models) {
-                std::cerr << "MANIFEST.json model_count=" << expected
-                          << " disagrees with actual " << actual_models << "\n";
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
-static std::optional<int> run_pre_tui_command(const InteractiveCliOptions& cli,
-                                              const std::string& argv0_dir) {
-    if (cli.run_configure_cmd) {
-        AppConfig config = load_config();
-        reconcile_default_skills_on_startup(argv0_dir);
-        initialize_registry(config, argv0_dir);
-        return run_configure(config);
-    }
-
-    if (cli.validate_models_registry_cmd) {
-        return validate_models_registry_command(argv0_dir);
-    }
-
-    return std::nullopt;
-}
 
 static bool ensure_interactive_terminal() {
     std::atexit(reset_cursor);
@@ -4463,16 +4152,16 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
 }
 
 int main(int argc, char* argv[]) try {
-    configure_process_environment();
+    acecode::cli::configure_process_environment();
 
-    if (auto exit_code = dispatch_non_tui_command(argc, argv)) {
+    if (auto exit_code = acecode::cli::dispatch_non_tui_command(argc, argv)) {
         return *exit_code;
     }
 
-    std::string argv0_dir = get_executable_dir_from_argv(argc, argv);
+    std::string argv0_dir = acecode::cli::get_executable_dir_from_argv(argc, argv);
     InteractiveCliOptions cli = parse_interactive_cli_options(argc, argv);
 
-    if (auto exit_code = run_pre_tui_command(cli, argv0_dir)) {
+    if (auto exit_code = acecode::cli::run_pre_tui_command(cli, argv0_dir)) {
         return *exit_code;
     }
 

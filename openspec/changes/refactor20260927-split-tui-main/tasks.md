@@ -50,7 +50,7 @@
   - CMake 断言:凡是被 tests include 的 `apps/tui/**/*.hpp`,如果有对应 `.cpp`,该 `.cpp` 必须在 testable 中。
   - 前置:restructure 4.2(P3-02)。
   - 验证:trace 开和关两种配置都能构建;故意漏登记一个 `.cpp`,configure 报错。
-- [ ] 2.2 【B-02】【子】CLI 入口外提。
+- [ ] 2.2 【B-02】【子】CLI 入口外提。〔实现完成: Codex-root 2026-09-28;进程环境、CLI 分派/预命令、升级参数和 UTF-8 argv 已迁入目标模块,默认资源对账回归 skills;新增参数错误/分派优先级/中文宽字符用例,待统一验收〕
   - `apps/cli/{process_environment,command_dispatch,pre_tui_commands}`、`adapters/upgrade/upgrade_cli_args`、`base/platform/utf8_command_line`,函数体逐字搬迁;
   - `reconcile_default_skills_on_startup` 移到 `domain/skills/default_skill_startup`(MR-2)。
   - 前置:2.1。
