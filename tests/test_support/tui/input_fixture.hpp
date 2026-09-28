@@ -34,7 +34,7 @@ struct FakeClipboard final : IClipboard {
     }
     ClipboardImageReadResult read_image() override { ++image_reads; return image; }
     ClipboardTextWriteResult write_text(const std::string& value) override {
-        written.push_back(value); return write;
+        written.push_back(value); if (on_write_text) on_write_text(); return write;
     }
     void write_osc52(const std::string& value) override { osc52.push_back(value); }
     int text_reads = 0, image_reads = 0;
@@ -42,7 +42,7 @@ struct FakeClipboard final : IClipboard {
     ClipboardImageReadResult image;
     ClipboardTextWriteResult write{ClipboardTextWriteResult::Status::Success, {}};
     std::vector<std::string> written, osc52;
-    std::function<void()> on_read_text;
+    std::function<void()> on_read_text, on_write_text;
 };
 struct InputHarness {
     acecode_test::characterization::Isolation isolation;

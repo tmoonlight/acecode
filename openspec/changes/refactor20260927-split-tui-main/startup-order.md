@@ -167,3 +167,17 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 - 右键复制/粘贴只在原鼠标分支位置调用,TooLarge 不发 OSC52。SystemClipboard 的平台细节由 app/tui_clipboard 实现,测试注入 fake。
 - 输入组件保留原 Renderer(bool) 的 Focusable、鼠标 CaptureMouse/TakeFocus 与额外 reflect 盒子;帧宿主持锁期间才构建输入 DOM。
 - TuiInputTurnBinding/TuiInputCommandBinding 是 B-09 过渡接线,完整流水线与三处命令上下文统一后在 B-11 删除;不作为最终架构交付。
+
+### B-10 事件所有权与路由记录(待统一验收)
+
+| 入口状态 | 唯一事件所有者 | 保留行为 |
+| --- | --- | --- |
+| Chat | TuiEventRouter 的逐键表 | Consumed/Declined 都立即终止,分别向 FTXUI 返回 true/false |
+| 设置或管理全屏界面激活 | Container::Tab 当前全屏组件 | router 不运行;远程确认泵暂停,返回 Chat 后继续 |
+| 输入光标定位/ask 未消费鼠标 | 当前 handler,随后交还 FTXUI | 不得继续后续 app handler;FTXUI 仍建立/更新选区 |
+| 忙时 Ctrl+C | Ctrl+C 发 Escape,再由同一路由处理 | 原时点取消,不在 Ctrl+C 内直接调用 turn.cancel |
+
+- 38 个入口均带 7942011b:src/main.cpp 原行号,Ctrl+A/Home/Ctrl+O/Ctrl+E/End 的交错未合并。
+- 右键复制仅由 mouse_router 在 Pressed 隐藏悬停之后调用;非聊天鼠标返回 Declined。
+- app 捕获 LifetimeRef;handler 只借用固定的输入上下文与屏幕/提交/剪贴板接口。
+- 完整矩阵、逐键函数指针顺序、确认队列、Ctrl+C 回灌、鼠标定位、悬停复制、全屏事件所有权与撤销用例已编写,未运行。

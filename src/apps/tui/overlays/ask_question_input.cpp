@@ -1,3 +1,4 @@
+#include "tui/input/tui_input_context.hpp"
 #include "tui/overlays/ask_question_input.hpp"
 #include "tui/terminal_key_event.hpp"
 #include "tui/picker_scroll.hpp"
@@ -395,7 +396,7 @@ static bool dispatch_ask_session_event_locked(
 }
 
 InputDisposition handle_ask_question_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event, AskQuestionFrame& ask_question_frame) {
+    const ftxui::Event& event, AskQuestionFrame& ask_question_frame) {
     // AskQuestionSession owns all question interaction semantics. The TUI
     // layer only adapts raw events, performs side effects, and projects
     // snapshots for rendering. Keep this guard before the shared input
@@ -421,6 +422,10 @@ InputDisposition handle_ask_question_input(TuiState& state, IScreenPort& screen,
 
 
     return InputDisposition::Continue;
+}
+
+InputDisposition handle_ask_question_input(TuiInputContext& context, const ftxui::Event& event) {
+    return handle_ask_question_input(context.state, context.screen, event, context.geometry.ask_question_frame);
 }
 
 }

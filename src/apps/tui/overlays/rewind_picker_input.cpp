@@ -1,3 +1,4 @@
+#include "tui/input/tui_input_context.hpp"
 #include "tui/overlays/rewind_picker_input.hpp"
 #include "tui/terminal_key_event.hpp"
 #include "tui/picker_scroll.hpp"
@@ -180,8 +181,12 @@ static bool handle_rewind_picker_event(
 }
 
 InputDisposition handle_rewind_picker_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event, ChatViewport& viewport) {
+    const ftxui::Event& event, ChatViewport& viewport) {
     return input_handled(handle_rewind_picker_event(state, screen, event, viewport));
+}
+
+InputDisposition handle_rewind_picker_input(TuiInputContext& context, const ftxui::Event& event) {
+    return handle_rewind_picker_input(context.state, context.screen, event, context.viewport);
 }
 
 }

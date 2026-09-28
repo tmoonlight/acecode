@@ -4,8 +4,13 @@
 #include <ftxui/screen/box.hpp>
 
 namespace acecode::tui {
+struct TuiInputContext;
 InputDisposition handle_slash_dropdown_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event);
+    const ftxui::Event& event);
 InputDisposition handle_path_reference_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event, const std::string& cwd, const std::vector<ftxui::Box>& row_boxes);
+    const ftxui::Event& event, const std::string& cwd, const std::vector<ftxui::Box>& row_boxes);
+InputDisposition handle_path_reference_input(TuiInputContext& context, const ftxui::Event& event);
+
+InputDisposition handle_slash_dropdown_input(TuiInputContext& context, const ftxui::Event& event);
+
 }

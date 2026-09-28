@@ -1,3 +1,4 @@
+#include "tui/input/tui_input_context.hpp"
 #include "tui/overlays/list_picker_input.hpp"
 #include "tui/terminal_key_event.hpp"
 #include "tui/picker_scroll.hpp"
@@ -290,6 +291,10 @@ InputDisposition list_picker_character_locked(TuiState& state, IScreenPort& scre
         return InputDisposition::Consumed;
     }
     return InputDisposition::Continue;
+}
+
+InputDisposition handle_list_picker_page(TuiInputContext& context, const ftxui::Event& event) {
+    return list_picker_page(context.state, context.screen, event);
 }
 
 }

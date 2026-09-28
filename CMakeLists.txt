@@ -241,7 +241,8 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     overlays/rewind_picker_input.cpp
     overlays/completion_dropdown_input.cpp
     overlays/list_picker_input.cpp
-    input/chat_keys.cpp
+    input/chat_keys.cpp input/event_prelude.cpp input/control_keys.cpp
+    input/composer_pointer.cpp input/mouse_router.cpp app/tui_event_router.cpp
     composer/paste.cpp composer/suggestions.cpp composer/pending_attachment.cpp
     composer/input_component.cpp model/input_state.cpp
     composer/edit_keys.cpp composer/submit.cpp composer/clipboard_keys.cpp)

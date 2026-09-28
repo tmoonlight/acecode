@@ -115,7 +115,7 @@
   - unlock / lock 的区间逐行保持原样。
   - 前置:3.5。
   - 验证:FakeScreenPort 加注入剪贴板的单测;清单第 5 小节。
-- [ ] 3.7 【B-10】【主】鼠标、按键与 TuiEventRouter。
+- [ ] 3.7 【B-10】【主】鼠标、按键与 TuiEventRouter。〔实现完成: Codex-root 2026-09-28;38 个逐键入口按原行号接入三态路由,鼠标/Ctrl+C/全屏事件所有权保持;已补完整六状态矩阵及交互用例,待末尾统一验证〕
   - 每个模块导出逐键的 handler,路由表逐行列出,带「原行号」列(MR-9);
   - 右键只由 mouse_router 在原位置调用;Ctrl+C 仍用 `post_event(Escape)` 回灌;
   - 事件所有权表加一行「全屏界面激活时 router 不运行」(MR-21);

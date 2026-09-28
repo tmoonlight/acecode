@@ -4,6 +4,9 @@
 #include "tui/chat/chat_viewport.hpp"
 
 namespace acecode::tui {
+struct TuiInputContext;
 InputDisposition handle_rewind_picker_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event, ChatViewport& viewport);
+    const ftxui::Event& event, ChatViewport& viewport);
+InputDisposition handle_rewind_picker_input(TuiInputContext& context, const ftxui::Event& event);
+
 }

@@ -1,3 +1,4 @@
+#include "tui/input/tui_input_context.hpp"
 #include "tui/overlays/confirm_overlay_input.hpp"
 #include "tui/terminal_key_event.hpp"
 #include "tui/picker_scroll.hpp"
@@ -11,7 +12,7 @@ namespace acecode::tui {
 static bool handle_confirm_overlay_event(
     TuiState& state,
     IScreenPort& screen,
-    Event& event,
+    const Event& event,
     const std::function<void(const std::string& session_id,
                              const std::string& request_id,
                              PermissionResult r)>& respond_remote = nullptr) {
@@ -100,8 +101,37 @@ static bool handle_confirm_overlay_event(
 }
 
 InputDisposition handle_confirm_overlay_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event, const PermissionResponder& respond_remote) {
+    const ftxui::Event& event, const PermissionResponder& respond_remote) {
     return input_handled(handle_confirm_overlay_event(state, screen, event, respond_remote));
+}
+
+InputDisposition handle_confirm_overlay_input(TuiInputContext& context, const ftxui::Event& event) {
+    return handle_confirm_overlay_input(context.state, context.screen, event, context.respond_remote);
+}
+
+InputDisposition pump_remote_confirm(TuiInputContext& context, const Event& event) {
+    auto& state = context.state;
+    // 远程确认泵:confirm/ask overlay 空闲时弹出子会话的权限请求占用
+    // confirm overlay(带来源标注)。入队方 PostEvent(Custom) 保证本泵
+    // 在请求到达后至少跑一次;overlay 释放时的 PostEvent 驱动下一条。
+    {
+        std::lock_guard<std::mutex> lk(state.mu);
+        if (!state.confirm_pending && !state.ask_pending &&
+            !state.remote_confirm_queue.empty()) {
+            auto req = std::move(state.remote_confirm_queue.front());
+            state.remote_confirm_queue.pop_front();
+            state.confirm_pending = true;
+            state.confirm_tool_name = req.tool;
+            state.confirm_tool_args = req.args_preview;
+            state.confirm_remote_session_id = req.session_id;
+            state.confirm_remote_request_id = req.request_id;
+            state.confirm_origin_label = req.origin_label;
+            state.confirm_focus = acecode::tui::confirm_default_focus(req.tool, req.args_preview);
+        }
+    }
+
+
+    return InputDisposition::Continue;
 }
 
 }

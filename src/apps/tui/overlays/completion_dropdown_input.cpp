@@ -1,3 +1,4 @@
+#include "tui/input/tui_input_context.hpp"
 #include "tui/overlays/completion_dropdown_input.hpp"
 #include "tui/terminal_key_event.hpp"
 #include "tui/picker_scroll.hpp"
@@ -97,7 +98,7 @@ static bool handle_slash_dropdown_event(TuiState& state,
 static bool handle_path_reference_event(
     TuiState& state,
     IScreenPort& screen,
-    Event& event,
+    const Event& event,
     const std::string& cwd,
     const std::vector<Box>& row_boxes) {
     std::unique_lock<std::mutex> lk(state.mu);
@@ -170,12 +171,20 @@ static bool handle_path_reference_event(
 }
 
 InputDisposition handle_slash_dropdown_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event) {
+    const ftxui::Event& event) {
     return input_handled(handle_slash_dropdown_event(state, screen, event));
 }
 InputDisposition handle_path_reference_input(TuiState& state, IScreenPort& screen,
-    ftxui::Event& event, const std::string& cwd, const std::vector<ftxui::Box>& row_boxes) {
+    const ftxui::Event& event, const std::string& cwd, const std::vector<ftxui::Box>& row_boxes) {
     return input_handled(handle_path_reference_event(state, screen, event, cwd, row_boxes));
+}
+
+InputDisposition handle_path_reference_input(TuiInputContext& context, const ftxui::Event& event) {
+    return handle_path_reference_input(context.state, context.screen, event, context.turn.cwd(), context.geometry.path_reference_boxes);
+}
+
+InputDisposition handle_slash_dropdown_input(TuiInputContext& context, const ftxui::Event& event) {
+    return handle_slash_dropdown_input(context.state, context.screen, event);
 }
 
 }
