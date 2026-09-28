@@ -1,3 +1,4 @@
+#include "session/token_tracker.hpp"
 #include "skills/skill_registry.hpp"
 #include "agent/agent_loop.hpp"
 #include "tui/commands/command_registry.hpp"

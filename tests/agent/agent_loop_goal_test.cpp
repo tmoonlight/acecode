@@ -1,3 +1,4 @@
+#include "session/permission_prompter.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"

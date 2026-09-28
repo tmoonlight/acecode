@@ -1,3 +1,4 @@
+#include "skills/skill_usage_store.hpp"
 #include "config/mcp_config.hpp"
 #include "tool/mcp_scope.hpp"
 #include "environment/bootstrap.hpp"

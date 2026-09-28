@@ -1,3 +1,4 @@
+#include "session/thread_goal_store.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"

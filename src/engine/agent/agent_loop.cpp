@@ -1,4 +1,10 @@
 #include "agent_loop.hpp"
+#include "session/token_tracker.hpp"
+#include "session/session_manager.hpp"
+#include "session/permission_prompter.hpp"
+#include "session/ask_user_question_prompter.hpp"
+#include "hooks/hook_runtime.hpp"
+#include "skills/skill_usage_store.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "computer_use/runtime.hpp"
@@ -1155,6 +1161,10 @@ void AgentLoop::join_side_question_threads() {
     for (auto& thread : threads) {
         if (thread.joinable()) thread.join();
     }
+}
+
+void AgentLoop::set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {
+    prompter_ = std::move(p);
 }
 
 void AgentLoop::set_callbacks(AgentCallbacks cb) {

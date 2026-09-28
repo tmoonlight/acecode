@@ -19,6 +19,7 @@
 //   3. 问题已不再挂起(未知 / 已回答 / 重复插话)→ NoPendingQuestion,文本
 //      不会被静默提交成普通 steer,调用方据此退回普通发送路径。
 
+#include "session/session_client.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"

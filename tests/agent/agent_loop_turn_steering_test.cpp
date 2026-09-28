@@ -1,3 +1,4 @@
+#include "session/session_client.hpp"
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"

@@ -1,15 +1,19 @@
 #pragma once
 
-#include "llm/llm_provider.hpp"
-#include "llm/tool_result.hpp"
-#include "permissions/permissions.hpp"
 
+#include <nlohmann/json_fwd.hpp>
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <vector>
 
 namespace acecode {
 
+struct ChatMessage;
+struct ToolResult;
+struct TokenUsage;
+struct ProviderErrorInfo;
+enum class PermissionResult;
 struct CompactResult;
 
 // Callbacks for the TUI to observe agent loop events

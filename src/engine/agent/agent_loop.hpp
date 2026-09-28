@@ -8,16 +8,10 @@
 #include "tool/tool_executor.hpp"
 #include "permissions/permissions.hpp"
 #include "permissions/path_validator.hpp"
-#include "session/token_tracker.hpp"
-#include "session/session_manager.hpp"
 #include "session/event_dispatcher.hpp"
 #include "agent/side_question/side_chat.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/ask_user_question_prompter.hpp"
 #include "config/config.hpp"
 #include "tool_preamble/tool_preamble.hpp"
-#include "hooks/hook_runtime.hpp"
-#include "skills/skill_usage_store.hpp"
 #include "pa/pa_overflow_rescue.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "sandbox/sandbox_denial.hpp"
@@ -50,6 +44,14 @@ struct LoopExecutionPolicy {
 };
 
 
+class SessionManager;
+class SkillUsageStore;
+class PermissionPrompter;
+class AskUserQuestionPrompter;
+struct ThreadGoal;
+struct TurnSteerResult;
+struct HookCommonPayloadFields;
+struct HookAggregateOutcome;
 class SkillRegistry;
 class MemoryRegistry;
 class HookManager;
@@ -400,9 +402,7 @@ public:
     // 默认走 callbacks_.on_tool_confirm 同步路径(TUI 模式)。线程安全要求:
     // 不在 worker 跑工具时调用 — 通常 SessionRegistry 创建 AgentLoop 后立刻
     // 调,然后才 submit 第一条消息。
-    void set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {
-        prompter_ = std::move(p);
-    }
+    void set_permission_prompter(std::unique_ptr<PermissionPrompter> p);
 
     // 注入异步 AskUserQuestionPrompter(daemon 模式)。raw 指针;生命周期由
     // 调用方(典型是 SessionEntry)保证。AgentLoop 在每次工具调用前把它包成
