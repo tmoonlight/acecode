@@ -1,4 +1,5 @@
 #include "transcript_queries.hpp"
+#include "session/tool_result_storage.hpp"
 #include "agent/compaction/compact.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_rewind.hpp"

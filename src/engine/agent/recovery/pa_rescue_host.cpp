@@ -1,4 +1,5 @@
 #include "pa_rescue_host.hpp"
+#include "llm/token_estimate.hpp"
 #include "agent/callbacks_slot.hpp"
 #include "agent/compaction/compaction_controller.hpp"
 #include "agent/progress/retry_progress.hpp"

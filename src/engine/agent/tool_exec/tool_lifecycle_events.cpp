@@ -1,4 +1,5 @@
 #include "tool_lifecycle_events.hpp"
+#include "agent/event_payload/tool_event_payload.hpp"
 #include "agent/callbacks_slot.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "session/event_dispatcher.hpp"

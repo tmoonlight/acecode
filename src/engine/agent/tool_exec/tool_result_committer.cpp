@@ -35,7 +35,7 @@ ToolBatchOutcome ToolResultCommitter::commit(std::vector<ToolCallSlot>& slots) {
         }
     }
 
-    auto record_file_read_result_reference = [](const ToolCall& tc, const ToolResult& result) {
+    auto record_file_read_result_reference = [](MtimeTracker& tracker, const ToolCall& tc, const ToolResult& result) {
         if (!result.success || tc.function_name != "file_read") return;
         if (result.output.rfind("File unchanged since last read.", 0) == 0) return;
 
@@ -59,7 +59,7 @@ ToolBatchOutcome ToolResultCommitter::commit(std::vector<ToolCallSlot>& slots) {
         };
         const bool byte_mode = args.contains("byte_offset");
 
-        environment_.mtime_tracker().record_read_observation_result(
+        tracker.record_read_observation_result(
             args["file_path"].get<std::string>(),
             int_arg("start_line"),
             int_arg("end_line"),
@@ -72,7 +72,7 @@ ToolBatchOutcome ToolResultCommitter::commit(std::vector<ToolCallSlot>& slots) {
 
     for (size_t i = 0; i < slots.size(); ++i) {
         if (slots[i].outcome) {
-            record_file_read_result_reference(slots[i].call, slots[i].outcome->result);
+            record_file_read_result_reference(environment_.mtime_tracker(), slots[i].call, slots[i].outcome->result);
         }
     }
 

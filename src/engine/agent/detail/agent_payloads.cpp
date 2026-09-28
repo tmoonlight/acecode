@@ -1,4 +1,5 @@
 #include "agent_payloads.hpp"
+#include "utils/utf8_path.hpp"
 #include "session/session_manager.hpp"
 #include "utils/encoding.hpp"
 #include "prompt/context_usage_breakdown.hpp"

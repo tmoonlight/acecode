@@ -1,4 +1,5 @@
 #include "assistant_output.hpp"
+#include "session/session_rewind.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/side_question/side_question_service.hpp"

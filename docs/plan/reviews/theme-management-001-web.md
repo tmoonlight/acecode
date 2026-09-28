@@ -55,10 +55,10 @@ visual: unverified
 
 本次独立执行最终 58 项聚焦检查并通过：
 
-- `node src/lib/themeExports.test.js`：18 项，包含 W2 最终修复回归。
-- `node src/lib/appearancePreferences.test.js`：13 项，包含 W1 修复回归。
-- `node src/lib/themePackages.test.js`：22 项，包含本地删除、离线、迟到选择/创建和资源释放。
-- `node src/lib/themeManagementUi.test.js`：5 项，执行从生产源转换的 React 静态渲染、实际 onClick callback 和 ThemeProvider cache callbacks，覆盖操作按钮语义/传播、真假进度、无图片图标、删除确认层级、迟到加载与刷新失败时资源释放。它没有运行真实浏览器或完整 DOM 事件系统。
+- `node web/src/lib/themeExports.test.js`：18 项，包含 W2 最终修复回归。
+- `node web/src/lib/appearancePreferences.test.js`：13 项，包含 W1 修复回归。
+- `node web/src/lib/themePackages.test.js`：22 项，包含本地删除、离线、迟到选择/创建和资源释放。
+- `node web/src/lib/themeManagementUi.test.js`：5 项，执行从生产源转换的 React 静态渲染、实际 onClick callback 和 ThemeProvider cache callbacks，覆盖操作按钮语义/传播、真假进度、无图片图标、删除确认层级、迟到加载与刷新失败时资源释放。它没有运行真实浏览器或完整 DOM 事件系统。
 - 两个独立真实 controller 故障复现，分别得到 W1 的旧 ID 恢复和 W2 的 cancelled/native_saved 冲突。
 - 本轮 baseline 16 个 SHA-256 校验，0 不一致。
 - 正常仓库配置下 `git diff --check -- web` 退出 0。

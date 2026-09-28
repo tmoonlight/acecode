@@ -1,4 +1,5 @@
 #include "tui/render/transcript_view.hpp"
+#include "tui/chat_render_window.hpp"
 #include "tui/theme_palette.hpp"
 #include "tui/text_style.hpp"
 #include <algorithm>

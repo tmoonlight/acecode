@@ -1,4 +1,5 @@
 #include "turn_usage_accountant.hpp"
+#include "llm/token_estimate.hpp"
 #include "agent/callbacks_slot.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/goal/goal_runtime.hpp"

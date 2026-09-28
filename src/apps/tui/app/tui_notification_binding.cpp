@@ -23,7 +23,7 @@ TuiNotificationBinding::TuiNotificationBinding(const AppConfig& config, TuiState
             desktop::set_click_handler([ref = lifetime_.ref(*this)](const desktop::NotifyPayload& payload) {
                 const auto session_id = payload.session_id;
                 if (session_id.empty()) return;
-                ref.with([&](TuiNotificationBinding& binding) {
+                ref.with([ref, session_id](TuiNotificationBinding& binding) {
                     binding.screen_.post_task([ref, session_id] {
                         ref.with([&](TuiNotificationBinding& owner) { owner.activate(session_id); });
                     });

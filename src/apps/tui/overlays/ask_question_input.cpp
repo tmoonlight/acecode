@@ -413,8 +413,9 @@ InputDisposition handle_ask_question_input(TuiState& state, IScreenPort& screen,
                 return InputDisposition::Consumed;
             }
             if (event.is_mouse()) {
+                auto mouse_event = event;
                 return input_stopped(dispatch_ask_session_mouse_locked(
-                    state, event.mouse(), ask_question_frame, screen));
+                    state, mouse_event.mouse(), ask_question_frame, screen));
             }
             return InputDisposition::Consumed;
         }

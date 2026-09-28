@@ -1,4 +1,5 @@
 #include "tool_batch_scheduler.hpp"
+#include "agent/approval/session_exec_security.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "agent/goal/goal_runtime.hpp"
 #include "agent/transcript/transcript_writer.hpp"

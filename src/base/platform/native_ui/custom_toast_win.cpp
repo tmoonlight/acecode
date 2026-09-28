@@ -1118,9 +1118,7 @@ void Controller::destroy_all() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Render thread + public surface
-// ---------------------------------------------------------------------------
 
 std::mutex g_mutex;
 bool g_running = false;
@@ -1169,8 +1167,7 @@ bool initialize(const InitOptions& options) {
         hwnd = future.get();
     }
     if (!hwnd) {
-        // The thread either failed early or is wedged. A failed start is
-        // non-fatal, so let it go rather than blocking startup on a join.
+        // Keep the failed-start path bounded even if native initialization stalls.
         if (future.valid()) spawn_owned_detached("late toast initialization",
             [worker = std::move(worker), ready = std::move(future)]() mutable {
                 // A late start must stop its otherwise unreachable message loop.

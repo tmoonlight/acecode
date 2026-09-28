@@ -22,9 +22,10 @@ InputDisposition handle_clipboard_alt_v(TuiInputContext& ctx, const ftxui::Event
 }
 
 InputDisposition handle_clipboard_right_click(TuiInputContext& ctx, const ftxui::Event& event) {
+    auto mouse_event = event; // Read-only mouse access through the FTXUI value API.
     auto& state = ctx.state;
     auto& screen = ctx.screen;
-    if (event.is_mouse() && event.mouse().button == Mouse::Right && event.mouse().motion == Mouse::Pressed) {
+    if (event.is_mouse() && mouse_event.mouse().button == Mouse::Right && mouse_event.mouse().motion == Mouse::Pressed) {
         std::string sel = screen.get_selection();
         if (sel.empty()) {
             return input_stopped(paste_clipboard_text(ctx));

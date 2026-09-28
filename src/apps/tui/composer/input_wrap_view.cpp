@@ -339,7 +339,7 @@ Element render_wrapped_input_text(
             tail_ranges[i].second));
     }
 
-    static const auto config = FlexboxConfig().SetGap(0, 0);
+    static const auto config = ftxui::FlexboxConfig().SetGap(0, 0);
     return flexbox(std::move(parts), config);
 }
 

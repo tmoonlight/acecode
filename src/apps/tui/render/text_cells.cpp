@@ -3,8 +3,6 @@
 #include <cctype>
 #include <vector>
 #include <ftxui/screen/string.hpp>
-using ftxui::text;
-using ftxui::size;
 using ftxui::Utf8ToGlyphs;
 using ftxui::string_width;
 

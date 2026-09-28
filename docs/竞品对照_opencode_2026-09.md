@@ -33,7 +33,7 @@ ACECode 侧：master `d603cacb`。所有论断都逐条对照两边源码核实�
 |---|---|---|
 | 语言/栈 | TypeScript + Bun + Effect；TUI 用 opentui(Solid)；Web 用 SolidJS；Desktop 用 **Electron**（已从 Tauri 迁走，`packages/desktop/package.json`） | C++17 + FTXUI；Web 用 React 18 + Vite；Desktop 自研 webview 壳 |
 | 包结构 | 33 个 workspace 包：`opencode`(CLI 主体 678 文件) / `core`(479) / `app`(596) / `tui`(204) / `ui`(247) / `console`(258, 云控制台) / `llm`(105, 原生 provider 协议) / `server` / `plugin` / `sdk` / `codemode` / `enterprise` / `slack` / `stats` … | 单仓：`src/` 40 个子目录 + `web/` + `ace-browser-bridge/` |
-| 运行时 | legacy（`src/domain/session/prompt.ts` 1631 行主循环）与 V2（`core/src/session/*`，durable inbox → runner → projector，见 `CONTEXT.md` 的术语表）双轨过渡 | 单轨：`agent_loop.cpp` 状态机 + `SessionRegistry` 多路复用 |
+| 运行时 | legacy（`packages/opencode/src/session/prompt.ts` 1631 行主循环）与 V2（`core/src/session/*`，durable inbox → runner → projector，见 `CONTEXT.md` 的术语表）双轨过渡 | 单轨：`agent_loop.cpp` 状态机 + `SessionRegistry` 多路复用 |
 | 持久化 | SQLite + drizzle（`core/src/session/sql.ts`：session/message/part 表，带 cost/tokens 列） | JSONL + meta.json 每会话两文件 + writer lease |
 | 客户端 | TUI / `opencode run`(带交互 footer) / Web / Desktop / ACP / GitHub Action / GitLab / VS Code 扩展 / Slack | TUI / `-p` headless / Web / Desktop / Remote Control(IM) |
 | 测试 | 678 单测 + 111 e2e(Playwright) + storybook + perf 基准 | 397 C++ 测试 + 272 前端 Node 测试 |

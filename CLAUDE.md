@@ -82,7 +82,7 @@ Use the command set in [AGENTS.md](AGENTS.md) as the source of truth. Important 
 
 `PermissionMode::Auto` 的规范名称是 `auto`；旧的 `accept-edits` / `acceptEdits`
 仅作为输入别名，统一走 `PermissionManager::parse_mode_name`。
-`src/domain/sandbox/exec_permission` 组合命令分类、全局/项目规则及会话前缀，
+`src/domain/sandbox/exec_permission.hpp` 组合命令分类、全局/项目规则及会话前缀，
 `exec_decision` 输出是否确认和实际执行边界；`AgentLoop` 是唯一审批入口，
 `bash_tool` 只执行已注入的 `ToolContext::exec_sandbox`，不得自行取消沙盒重试。
 规则 forbidden 优先于 yolo/dangerous。文件工具不得改写 exec 规则。
@@ -117,7 +117,7 @@ goal 无人值守下 bash 的 Prompt 决策与其它写工具一样自动放行,
 
 **安全中心(openspec add-security-center)**:设置 > 编码 > 安全中心 = 沙箱开关 / 文件安全
 (三张清单)/ 命令安全(托管规则文件)/ 审计中心,是上面这套模型的界面,不改判定语义。
-审计存储 `src/domain/security/audit_log` 是进程级单例 SQLite(`<data_dir>/security/audit.sqlite3`,
+审计存储 `src/domain/security/audit_log.hpp` 是进程级单例 SQLite(`<data_dir>/security/audit.sqlite3`,
 上限 20000 条),三个入口(worker / TUI main / headless)启动时 `configure`;**唯一记录入口是
 AgentLoop 审批门**里的 `audit_gate` / `record_audit`,每个「决定已作出」的分支记一条(bash 每次
 决策、写文件工具与其它需确认工具的决策、沙盒拒绝 category=sandbox 且 target 只放被拒路径、
@@ -695,7 +695,7 @@ Both `main.cpp` and `daemon/worker.cpp` call `proxy_resolver().init(cfg.network)
 
 **Behavior change:** Windows users upgrading get `proxy_mode = "auto"` by default, which means ACECode now follows the system proxy. To keep the old direct-only behavior: `{"network":{"proxy_mode":"off"}}`.
 
-**Auto-fallback on unreachable proxy** (`proxy-fallback-on-unreachable`): 启动时调用 `proxy_resolver().probe_and_maybe_fallback()` 在 `init` 之后做一次同步 TCP probe(`src/base/network/tcp_probe.{hpp,cpp,_posix.cpp,_win.cpp}`)— 对解析出的代理 host:port 做非阻塞 connect + poll/WSAPoll,失败时设进程级 `fallback_active_`。横幅变成 `Proxy: direct (auto-fallback: <redacted-original-url> from <original-source> unreachable)`,所有 cpr 走直连。`/proxy` 输出新增 `Reachable : yes/no (<reason>)`,fallback 时多一行 `Original proxy : <url> (<source>)`。`/proxy refresh` 同时清 fallback + 重探(用户启动 Fiddler 后立即生效)。两个新配置:`network.proxy_probe_enabled`(默认 true,false = 一键回到旧行为)、`network.proxy_probe_timeout_ms`(默认 1500,clamp 到 [200, 10000])。Session override (`/proxy off` / `/proxy set`) 永远胜过 fallback — 用户显式意志不被二次猜测。
+**Auto-fallback on unreachable proxy** (`proxy-fallback-on-unreachable`): 启动时调用 `proxy_resolver().probe_and_maybe_fallback()` 在 `init` 之后做一次同步 TCP probe(`src/base/network/tcp_probe{.hpp,.cpp,_posix.cpp,_win.cpp}`)— 对解析出的代理 host:port 做非阻塞 connect + poll/WSAPoll,失败时设进程级 `fallback_active_`。横幅变成 `Proxy: direct (auto-fallback: <redacted-original-url> from <original-source> unreachable)`,所有 cpr 走直连。`/proxy` 输出新增 `Reachable : yes/no (<reason>)`,fallback 时多一行 `Original proxy : <url> (<source>)`。`/proxy refresh` 同时清 fallback + 重探(用户启动 Fiddler 后立即生效)。两个新配置:`network.proxy_probe_enabled`(默认 true,false = 一键回到旧行为)、`network.proxy_probe_timeout_ms`(默认 1500,clamp 到 [200, 10000])。Session override (`/proxy off` / `/proxy set`) 永远胜过 fallback — 用户显式意志不被二次猜测。
 
 ### Web Search
 

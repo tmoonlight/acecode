@@ -39,7 +39,7 @@ public:
     // Nested tasks inherit that lease without revisiting a destroyed access point.
     static std::shared_ptr<Logger> lease() {
         if (thread_lease()) return thread_lease();
-        static const auto logger = std::shared_ptr<Logger>(new Logger());
+        static const auto logger = std::shared_ptr<Logger>(std::unique_ptr<Logger>(new Logger()));
         return logger;
     }
     static Logger& instance() { return *lease(); }

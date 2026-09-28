@@ -3,7 +3,7 @@
 > **Reads**: `proposal.md` (this change), `openspec/changes/add-web-daemon/`,
 > `openspec/changes/add-web-chat-ui/`.
 >
-> **Touches**: new `src/apps/desktop/`, modifies `src/cli.cpp`, `CMakeLists.txt`,
+> **Touches**: new `src/apps/desktop/`, modifies `src/apps/cli/command_dispatch.cpp`, `CMakeLists.txt`,
 > `src/base/utils/paths.{hpp,cpp}` (no new path roots — reuses `User` mode), and
 > a small extension to `src/apps/web/auth.cpp` to support per-launch loopback
 > tokens.

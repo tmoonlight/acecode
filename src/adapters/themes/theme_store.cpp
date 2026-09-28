@@ -1,4 +1,3 @@
-#include "utils/joining_thread.hpp"
 #include "theme_store.hpp"
 #include "utils/base64.hpp"
 #include "theme_package.hpp"

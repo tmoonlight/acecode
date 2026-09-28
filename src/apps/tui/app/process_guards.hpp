@@ -1,7 +1,7 @@
 #pragma once
 #include "utils/lifetime_token.hpp"
 namespace acecode { class SessionManager; }
-namespace ftxui { class ScreenInteractive; }
+#include <ftxui/component/screen_interactive.hpp>
 namespace acecode::tui {
 class IScreenPort;
 class TerminalRestoreGuard {

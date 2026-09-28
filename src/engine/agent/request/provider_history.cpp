@@ -1,4 +1,5 @@
 #include "provider_history.hpp"
+#include "session/compact_checkpoint.hpp"
 #include "session/session_history_recovery.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "provider/text_tool_call_recovery.hpp"

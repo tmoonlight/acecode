@@ -31,7 +31,7 @@
 - `tests/tui/message_render_cache_test.cpp` — L1 单测
 - `tests/tui/markdown/streaming_formatter_test.cpp` — L2 单测
 - `tests/tui/markdown/incremental_lexer_test.cpp` — L3 单测
-- `tests/tui/markdown/streaming_layout_benchmark.cpp` — C++ 基准
+- `tests/tui/markdown/streaming_layout_benchmark_test.cpp` — C++ 基准
 
 **修改:**
 - `src/apps/tui/markdown/markdown_lexer.hpp` / `.cpp` — 新增 `LexerState`(`lex()` 保持不动)
@@ -47,7 +47,7 @@
 ### Task 1:消息渲染缓存键 + 每消息 Element 缓存模块
 
 **Files:**
-- Create: `src/apps/tui/message_render_cache.hpp`, `src/tui/message_render_cache.cpp`
+- Create: `src/apps/tui/message_render_cache.hpp`, `src/apps/tui/message_render_cache.hpp`
 - Test: `tests/tui/message_render_cache_test.cpp`
 
 **Interfaces:**
@@ -99,7 +99,7 @@ TEST(MessageRenderCache, StoresAndReplaysLinkRegions) {
 Run: `./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='MessageRenderCache.*'`
 Expected: FAIL(找不到 `message_render_cache.hpp` / 链接失败)
 
-- [ ] **Step 3: 实现模块**(`MessageRenderCacheKey` + `CachedLinkRegion` + `MessageRenderCache`,见 Task 1 Interfaces 精确签名;实现要点:4 个并行 vector `valid_/keys_/elements_(std::vector<std::optional<Element>>)/links_`,`store` 仅在 index 合法时写,`valid` 要求 key 全等且 element 存在;`src/tui/message_render_cache.cpp` 仅 include 头文件)
+- [ ] **Step 3: 实现模块**(`MessageRenderCacheKey` + `CachedLinkRegion` + `MessageRenderCache`,见 Task 1 Interfaces 精确签名;实现要点:4 个并行 vector `valid_/keys_/elements_(std::vector<std::optional<Element>>)/links_`,`store` 仅在 index 合法时写,`valid` 要求 key 全等且 element 存在;`src/apps/tui/message_render_cache.hpp` 仅 include 头文件)
 
 - [ ] **Step 4: 运行确认通过**
 Run: `cmake --build build/macos-x64-debug --target acecode_unit_tests && ./build/macos-x64-debug/tests/acecode_unit_tests --gtest_filter='MessageRenderCache.*'`
@@ -107,7 +107,7 @@ Expected: PASS(3 tests)
 
 - [ ] **Step 5: 提交**
 ```bash
-git add tests/tui/message_render_cache_test.cpp src/apps/tui/message_render_cache.hpp src/tui/message_render_cache.cpp
+git add tests/tui/message_render_cache_test.cpp src/apps/tui/message_render_cache.hpp src/apps/tui/message_render_cache.hpp
 git commit -m "feat: add per-message render cache module (L1)"
 ```
 
@@ -595,13 +595,13 @@ git commit -m "feat: stream formatter builds stable region incrementally via Lex
 ### Task 10:C++ 流式渲染基准
 
 **Files:**
-- Create: `tests/tui/markdown/streaming_layout_benchmark.cpp`
+- Create: `tests/tui/markdown/streaming_layout_benchmark_test.cpp`
 
 **Interfaces:**
 - Consumes: `format_markdown`、`LexerState`、`StreamingFormatter::append_delta/last_element`、`render_token_blocks`
 
 - [ ] **Step 1: 写基准(gtest 形式,输出耗时曲线)**
-`tests/tui/markdown/streaming_layout_benchmark.cpp`:
+`tests/tui/markdown/streaming_layout_benchmark_test.cpp`:
 ```cpp
 #include "markdown/markdown_formatter.hpp"
 #include "markdown/markdown_lexer.hpp"
@@ -664,7 +664,7 @@ Expected: 打印 12 行 CSV(type,lines,full_us,incremental_us)。**验收判据(
 
 - [ ] **Step 3: 提交**
 ```bash
-git add tests/tui/markdown/streaming_layout_benchmark.cpp
+git add tests/tui/markdown/streaming_layout_benchmark_test.cpp
 git commit -m "test: add streaming layout benchmark harness (acceptance)"
 ```
 

@@ -13,7 +13,8 @@ InputDisposition handle_composer_pointer(TuiInputContext& context, const Event& 
     auto& input_hit_layout = context.geometry.input_hit_layout;
     auto& cmd_registry = context.commands;
     if (event.is_mouse()) {
-        const auto& mouse = event.mouse();
+        auto mouse_event = event; // FTXUI exposes mouse() only on mutable Event.
+        const auto& mouse = mouse_event.mouse();
         bool ask_session_active = false;
         {
             std::lock_guard<std::mutex> lk(state.mu);

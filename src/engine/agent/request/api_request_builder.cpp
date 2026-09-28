@@ -1,4 +1,5 @@
 #include "api_request_builder.hpp"
+#include "agent/compaction/compact.hpp"
 #include "prompt_context_cache.hpp"
 #include "provider_history.hpp"
 #include "request_context.hpp"

@@ -46,9 +46,9 @@ visual: unverified
 
 独立执行的 31 项轻量回归全部通过：
 
-- `node src/lib/themeSurfaces.test.js`：7 项。覆盖严格校验、旧/显式缺省规则、属性清理、SVG 几何、实际组件 SSR、实际 renderer 控制流及 CSS/入口关联。
-- `node src/lib/themePackages.test.js`：22 项。保留主题切换、加载失败、迟到资源、删除回退、离线和资源释放的既有行为。
-- `node src/lib/topBarWindowDrag.test.js`：2 项。保留标题栏拖拽范围、消费事件排除及面板按钮语义。
+- `node web/src/lib/themeSurfaces.test.js`：7 项。覆盖严格校验、旧/显式缺省规则、属性清理、SVG 几何、实际组件 SSR、实际 renderer 控制流及 CSS/入口关联。
+- `node web/src/lib/themePackages.test.js`：22 项。保留主题切换、加载失败、迟到资源、删除回退、离线和资源释放的既有行为。
+- `node web/src/lib/topBarWindowDrag.test.js`：2 项。保留标题栏拖拽范围、消费事件排除及面板按钮语义。
 
 已独立读取并核验作者完成的证据，未重跑共享构建：
 

@@ -1,4 +1,5 @@
 #include "active_model_view.hpp"
+#include "llm/token_estimate.hpp"
 #include "llm/model_family.hpp"
 #include "pa/pa_context_budget.hpp"
 #include "session/system_notice.hpp"

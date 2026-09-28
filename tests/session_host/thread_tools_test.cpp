@@ -686,3 +686,48 @@ TEST_F(ThreadTools, HealthyThreadCanRepairBlockedActiveThreadAtQueueBoundary) {
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
 }
+
+// 场景:wait 返回后客户端仍保留投递副本;预期会话可释放,迟到事件安全丢弃。
+TEST_F(ThreadTools, WaitSubscriptionReleasesSessionAndRejectsLateDelivery) {
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    acecode::SessionRegistryDeps deps;
+    deps.tools = &tools;
+    deps.cwd = workspace("wait-owner");
+    deps.template_permissions = &permissions;
+    deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+    acecode::SessionRegistry registry(std::move(deps));
+    class RetainingClient : public acecode::LocalSessionClient {
+    public:
+        using LocalSessionClient::LocalSessionClient;
+        EventListener retained;
+        int drained = 0;
+        SubscriptionId subscribe(const std::string& id, EventListener listener,
+                                 std::uint64_t since) override {
+            retained = listener;
+            return LocalSessionClient::subscribe(id, std::move(listener), since);
+        }
+        void unsubscribe_and_wait(const std::string& id, SubscriptionId sub) override {
+            ++drained;
+            LocalSessionClient::unsubscribe_and_wait(id, sub);
+        }
+    } client(registry);
+    acecode::SessionOptions options;
+    options.cwd = workspace("wait-target");
+    const auto id = registry.create(options);
+    std::weak_ptr<acecode::SessionEntry> weak = registry.acquire(id);
+    acecode::ThreadService service({&registry, &client});
+    acecode::ThreadScope scope;
+    scope.cwd = options.cwd;
+    const auto result = service.wait(scope, {{id, 0}}, 0);
+    ASSERT_TRUE(result.success) << result.error;
+    EXPECT_EQ(client.drained, 1);
+    registry.destroy(id);
+    EXPECT_TRUE(weak.expired());
+    ASSERT_TRUE(client.retained);
+    acecode::SessionEvent late{};
+    late.kind = acecode::SessionEventKind::Done;
+    late.seq = 42;
+    late.payload = {{"outcome", "success"}};
+    client.retained(late);
+}

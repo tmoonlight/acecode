@@ -1,4 +1,3 @@
-#include "utils/joining_thread.hpp"
 #include "session_channel_binder.hpp"
 
 #include "session_host/session_registry.hpp"

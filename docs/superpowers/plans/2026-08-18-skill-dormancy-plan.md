@@ -115,7 +115,7 @@ git commit -m "feat: add SkillUsageStore header with interface declarations"
 
 **Files:**
 - Create: `src/domain/skills/skill_usage_store.cpp`
-- Modify: `src/CMakeLists.txt`
+- Modify: `CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: `SkillUsageStore`, `SkillUsageRecord`, `SkillUsageSummary` from Task 1

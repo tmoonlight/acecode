@@ -28,7 +28,8 @@ InputDisposition handle_mouse(TuiInputContext& context, const Event& event) {
     auto& message_line_counts = context.viewport.message_line_counts;
     auto& message_spacer_rows_after = context.viewport.message_spacer_rows_after;
     if (event.is_mouse()) {
-        auto& mouse = event.mouse();
+        auto mouse_event = event; // FTXUI exposes mouse() only on mutable Event.
+        auto& mouse = mouse_event.mouse();
 
         // link-hover-tooltip (add-tui-hyperlinks 5.3): 任何按键按下
         // (点击/中键/滚轮)立即隐藏气泡 —— 点击即离开,气泡不再有意义。

@@ -1,4 +1,4 @@
-# src/pa — PA 内网模型服务的客制化故障适配层
+# src/adapters/pa — PA 内网模型服务的客制化故障适配层
 
 这个目录只放一类代码:**上游服务端的行为与公开协议不一致,导致 ACECode 的
 通用判定失效**,需要一层按报文特征识别、并归一化回通用故障类别的适配。
@@ -158,5 +158,5 @@ exhausted」。
 
 回归测试:`tests/pa/pa_overflow_rescue_test.cpp`(决策表)、
 `tests/session/thread_repair_test.cpp` 的 `Clears*` 用例(清工具输出)、
-`tests/agent_loop/agent_loop_pa_rescue_test.cpp`(端到端,含截图那种「同回合
+`tests/agent/agent_loop_pa_rescue_test.cpp`(端到端,含截图那种「同回合
 第二次撞墙」的场景)。

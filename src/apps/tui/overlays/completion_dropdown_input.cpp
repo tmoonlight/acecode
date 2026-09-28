@@ -154,7 +154,8 @@ static bool handle_path_reference_event(
         return commit(true);
     }
     if (event.is_mouse()) {
-        const auto& mouse = event.mouse();
+        auto mouse_event = event; // FTXUI exposes mouse() only on mutable Event.
+        const auto& mouse = mouse_event.mouse();
         if (mouse.button != Mouse::Left || mouse.motion != Mouse::Pressed) {
             return false;
         }

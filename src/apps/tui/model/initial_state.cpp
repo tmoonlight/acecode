@@ -1,4 +1,5 @@
 #include "initial_state.hpp"
+#include "tui/model/mcp_sidebar_model.hpp"
 #include "tui/tui_state.hpp"
 #include "tui/sidebar_model.hpp"
 #include "history/input_history_store.hpp"

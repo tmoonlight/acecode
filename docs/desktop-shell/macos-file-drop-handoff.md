@@ -135,7 +135,7 @@ before implementation, then update the existing OpenSpec change.
    receivers. Preserve legacy/browser/other-platform behavior deliberately.
 5. Add small diagnostic messages for coordinate validity, selected target and
    rejection/result, without private paths or input content.
-6. Add focused pure-helper tests and run full frontend tests/build and native
+6. Add focused pure-helper tests and run full frontend tests and build and native
    build. Test duplicate delivery, stale/no hover, disabled/covered composer,
    wrong target, coordinate boundaries and backward compatibility.
 7. Verify typing first on the real app, then local Finder drops. Drop success

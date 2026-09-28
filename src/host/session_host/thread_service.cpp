@@ -1,4 +1,6 @@
 #include "thread_service.hpp"
+#include "session/scoped_subscription.hpp"
+#include "thread_wait_state.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/global_session_catalog.hpp"
@@ -612,15 +614,11 @@ ThreadServiceResult ThreadService::wait(
     }
     timeout_ms = (std::max)(0, (std::min)(timeout_ms, kMaxWaitMs));
 
-    struct State {
-        ThreadWaitTarget target;
-        std::shared_ptr<SessionEntry> active;
-        SessionClient::SubscriptionId subscription = 0;
-        std::uint64_t cursor = 0;
-        bool terminal = false;
-        json event;
-    };
-    std::vector<State> states;
+    using State = thread_detail::WaitTargetState;
+    using WaitState = thread_detail::WaitState;
+    // The caller owns the wait; listeners hold only a weak reference.
+    auto waiting = std::make_shared<WaitState>();
+    auto& states = waiting->states;
     states.reserve(targets.size());
     json errors = json::array();
     std::unordered_set<std::string> seen;
@@ -669,30 +667,39 @@ ThreadServiceResult ThreadService::wait(
             errors.empty() ? "no valid wait target" : errors.dump());
     }
 
-    std::mutex mu;
-    std::condition_variable cv;
-    bool ready = std::any_of(states.begin(), states.end(),
+    auto& mu = waiting->mu;
+    auto& cv = waiting->cv;
+    auto& ready = waiting->ready;
+    ready = std::any_of(states.begin(), states.end(),
                              [](const State& state) {
                                  return state.terminal;
                              });
+    std::vector<ScopedSubscription> subscriptions;
+    subscriptions.reserve(states.size());
+    const std::weak_ptr<WaitState> weak = waiting;
     for (std::size_t i = 0; i < states.size(); ++i) {
         if (!states[i].active || !states[i].active->loop) continue;
-        states[i].subscription = deps_.client->subscribe(
+        const auto subscription = deps_.client->subscribe(
             states[i].target.thread_id,
-            [&, i](const SessionEvent& event) {
-                std::lock_guard<std::mutex> lock(mu);
+            [weak, i](const SessionEvent& event) {
+                auto active = weak.lock();
+                if (!active) return;
+                std::lock_guard<std::mutex> lock(active->mu);
+                auto& states = active->states;
                 states[i].cursor = (std::max)(states[i].cursor, event.seq);
                 if (event.seq > states[i].target.after_cursor) {
                     states[i].event = compact_wait_event(event);
                 }
                 if (wakes_wait(event.kind, event.payload)) {
                     states[i].terminal = true;
-                    ready = true;
-                    cv.notify_all();
+                    active->ready = true;
+                    active->cv.notify_all();
                 }
             },
             states[i].target.after_cursor);
-        if (states[i].subscription == 0) {
+        subscriptions.emplace_back(*deps_.client, states[i].target.thread_id, subscription);
+        if (subscription == 0) {
+            std::lock_guard<std::mutex> lock(mu);
             states[i].terminal = true;
             states[i].event = json{{"type", "unavailable"}};
             ready = true;
@@ -719,12 +726,8 @@ ThreadServiceResult ThreadService::wait(
         }
     }
 
-    for (auto& state : states) {
-        if (state.subscription != 0) {
-            deps_.client->unsubscribe(
-                state.target.thread_id, state.subscription);
-        }
-    }
+    // Wait for admitted listeners without holding their state mutex.
+    subscriptions.clear();
 
     json snapshots = json::array();
     std::string winner;

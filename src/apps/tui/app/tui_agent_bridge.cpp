@@ -1,4 +1,5 @@
 #include "tui/app/tui_agent_bridge.hpp"
+#include "session/compact_notice.hpp"
 #include "tui/app/tui_screen_host.hpp"
 #include "tui/tui_state.hpp"
 #include "tui/chat/chat_viewport.hpp"

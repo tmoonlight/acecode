@@ -1,4 +1,5 @@
 #include "response_recovery.hpp"
+#include "session/session_rewind.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"

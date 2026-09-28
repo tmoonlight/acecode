@@ -20,7 +20,7 @@
 - Create: `src/host/session_host/apply_model_to_session.hpp`
 - Create: `src/host/session_host/apply_model_to_session.cpp`
 - Create: `tests/session_host/apply_model_to_session_test.cpp`
-- Modify: `src/CMakeLists.txt`(加新 cpp 到 acecode_testable 源列表;若用 GLOB 收集则跳过)
+- Modify: `CMakeLists.txt`(加新 cpp 到 acecode_testable 源列表;若用 GLOB 收集则跳过)
 
 - [ ] **Step 1: 写头文件**
 
@@ -70,7 +70,7 @@ ApplyModelResult apply_model_to_session(const ModelProfile& profile,
 ```cpp
 // tests/session_host/apply_model_to_session_test.cpp
 //
-// 覆盖 src/adapters/provider/apply_model_to_session.cpp。两条调用方(daemon 的
+// 覆盖 src/host/session_host/apply_model_to_session.cpp。两条调用方(daemon 的
 // SessionRegistry::switch_model 与 TUI 的 /model 命令)都靠这一份逻辑,
 // 任一分支退化都会让 per-session 切换语义破裂。
 //
@@ -1386,7 +1386,7 @@ includes:删 `provider_swap.hpp`,加 `apply_model_to_session.hpp`。
 git rm src/adapters/provider/provider_swap.hpp src/adapters/provider/provider_swap.cpp
 ```
 
-如果 CMake 用 GLOB 跳过;如果是显式列表,改 `src/CMakeLists.txt` 删两行。
+如果 CMake 用 GLOB 跳过;如果是显式列表,改 `CMakeLists.txt` 删两行。
 
 - [ ] **Step 4: 跑全量单测**
 
@@ -1985,14 +1985,14 @@ git commit -m "feat(tui): /model add|edit|rm|set-default subcommands
 - Create: `web/src/lib/errors.js`
 - Create: `web/src/lib/modelPicker.js`
 - Create: `web/src/lib/modelManager.js`
-- Create: `web/src/lib/__tests__/errors.test.mjs`
-- Create: `web/src/lib/__tests__/modelPicker.test.mjs`
-- Create: `web/src/lib/__tests__/modelManager.test.mjs`
+- Create: `web/src/lib/errors.test.mjs`
+- Create: `web/src/lib/modelPicker.test.mjs`
+- Create: `web/src/lib/modelManager.test.mjs`
 
 - [ ] **Step 1: 看现有 lib 测试约定**
 
 ```bash
-ls web/src/lib/__tests__/ 2>/dev/null || ls web/src/lib/*.test.* 2>/dev/null
+ls web/src/lib/ 2>/dev/null || ls web/src/lib/*.test.* 2>/dev/null
 cat web/package.json | grep -A 5 scripts
 ```
 
@@ -2085,7 +2085,7 @@ export function validateModelDraft(draft) {
 - [ ] **Step 5: 写测试**
 
 ```javascript
-// web/src/lib/__tests__/errors.test.mjs
+// web/src/lib/errors.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lookupErrorMessage } from '../errors.js';
@@ -2104,7 +2104,7 @@ test('null code + fallback', () => {
 ```
 
 ```javascript
-// web/src/lib/__tests__/modelPicker.test.mjs
+// web/src/lib/modelPicker.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isCurrentValueOrphaned, buildOptionsWithOrphan } from '../modelPicker.js';
@@ -2126,7 +2126,7 @@ test('orphan 时插 disabled 灰条', () => {
 ```
 
 ```javascript
-// web/src/lib/__tests__/modelManager.test.mjs
+// web/src/lib/modelManager.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateModelDraft } from '../modelManager.js';
@@ -2157,7 +2157,7 @@ test('合法 copilot 草稿 → ok', () => {
 - [ ] **Step 6: 跑测试确认通过**
 
 ```bash
-cd web && node --test src/lib/__tests__/
+cd web && pnpm test
 ```
 Expected: 全 PASS。如果项目用 vitest,改 `pnpm test`。
 
@@ -2165,7 +2165,7 @@ Expected: 全 PASS。如果项目用 vitest,改 `pnpm test`。
 
 ```bash
 git add web/src/lib/errors.js web/src/lib/modelPicker.js web/src/lib/modelManager.js \
-        web/src/lib/__tests__/
+        web/src/lib/
 git commit -m "feat(web): error code i18n + model picker/manager helpers
 
 errors.js / modelPicker.js / modelManager.js 是 ModelPicker 与 ModelManager
