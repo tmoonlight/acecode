@@ -1,0 +1,21 @@
+{
+  "platform": "Windows x64",
+  "compiler": "MSVC 14.39.33519",
+  "build": "build/refactor-phase1-asan",
+  "configuration": "Release",
+  "compile_flags": "/fsanitize=address /Zi /D_DISABLE_VECTOR_ANNOTATION /D_DISABLE_STRING_ANNOTATION",
+  "link_flags": "/DEBUG:FULL /INCREMENTAL:NO",
+  "asan_options": "alloc_dealloc_mismatch=1:symbolize=1",
+  "build_exit_code": 0,
+  "executed": 489,
+  "skipped": 0,
+  "failed": 0,
+  "wall_seconds": 51.5,
+  "scope": "Ownership, cancellation, admitted callbacks, destructor ordering and WebServer lifetime; focused filter recorded in asan-gtest.json",
+  "limitations": [
+    "STL string/vector container annotations disabled to match prebuilt third-party libraries; capacity-internal overflow checks unavailable",
+    "Existing third-party static libraries reused without ASan instrumentation",
+    "TSan and non-Windows sanitizers deferred with cross-platform validation"
+  ],
+  "configuration_source": "https://learn.microsoft.com/en-us/cpp/sanitizers/error-container-overflow?view=msvc-170"
+}

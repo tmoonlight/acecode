@@ -1,15 +1,15 @@
 {
-  "desktop_pid": 54396,
+  "desktop_pid": 35132,
   "binary": "N:\\Users\\shao\\acecode\\build\\refactor-phase1-windows\\acecode-desktop.exe",
-  "profile": "N:\\adsk0929\\desktop\\home\\.acecode",
+  "profile": "N:\\amcp0929\\desktop\\home\\.acecode",
   "passed": true,
-  "daemon_pid": 27540,
+  "daemon_pid": 53464,
   "health": {
     "console": {
       "available": true,
       "backend": "conpty"
     },
-    "cwd": "N:\\adsk0929\\desktop\\workspace",
+    "cwd": "N:\\amcp0929\\desktop\\workspace",
     "desktop_managed": true,
     "desktop_protocol_version": 1,
     "features": {
@@ -17,7 +17,7 @@
         "enabled": true
       }
     },
-    "guid": "24e8442b-22c4-4f09-afed-8477ee873578",
+    "guid": "53d7fd9b-78d8-4d53-8dde-10375a664ff0",
     "notifications": {
       "enabled": true,
       "on_completion": true,
@@ -25,14 +25,15 @@
       "on_question": true,
       "suppress_when_focused": true
     },
-    "pid": 27540,
-    "port": 62287,
+    "pid": 53464,
+    "port": 49695,
     "uptime_seconds": 0,
     "version": "0.9.27"
   },
   "workspace_active": true,
   "stored_session_visible": true,
   "web_chat_model_request": true,
+  "mcp_call_in_flight": true,
   "inputs": [
     {
       "tag": "INPUT",
@@ -49,9 +50,11 @@
   ],
   "rendered_body_nonempty": true,
   "desktop_exit_code": 0,
-  "shutdown_seconds": 0.14,
+  "shutdown_seconds": 2.18,
   "runtime_pid_files_removed": true,
   "writer_leases_removed": true,
+  "tool_aborted_before_mcp_shutdown": true,
+  "aborted_result_persisted": true,
   "fixture_requests": [
     {
       "path": "/v1/chat/completions",
@@ -160,6 +163,7 @@
         "grep",
         "list_threads",
         "lsp",
+        "mcp_slow_read_only",
         "read_thread",
         "repair_thread",
         "send_message_to_thread",

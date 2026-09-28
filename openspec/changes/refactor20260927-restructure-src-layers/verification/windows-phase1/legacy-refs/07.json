@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "mode": "patch",
+  "source_ref": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+  "source_sha": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+  "onto_ref": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "onto_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "base_sha": "3007f4832f31183e45f8023363c3da4e40c0e58e",
+  "map_sha256": "17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459",
+  "layout": "final",
+  "projection": false,
+  "destination": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\07",
+  "original_refs_untouched": true,
+  "build_validation": "not run",
+  "integration_ready": false,
+  "issues": [
+    {
+      "kind": "semantic_extract",
+      "file": "src/tool/tool_executor.hpp",
+      "target": "src/domain/llm/tool_result.hpp",
+      "reason": "Extract ToolResult and ToolSummary"
+    },
+    {
+      "kind": "deleted_source",
+      "file": "src/web/handlers/pinned_sessions_handler.cpp",
+      "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+    }
+  ],
+  "cherry": [
+    "+ 1ce71fe01bfb54a546d23cbc0ed108423659dcf4"
+  ],
+  "target_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "changed_paths": [
+    "src/agent_loop.cpp",
+    "src/agent_loop.hpp",
+    "src/session/session_control_service.cpp",
+    "src/session/session_control_service.hpp",
+    "src/session/session_pin_store.cpp",
+    "src/session/session_pin_store.hpp",
+    "src/tool/session_control_tool.cpp",
+    "src/tool/session_control_tool.hpp",
+    "src/tool/tool_executor.cpp",
+    "src/tool/tool_executor.hpp",
+    "src/web/handlers/pinned_sessions_handler.cpp",
+    "src/web/handlers/pinned_sessions_handler.hpp",
+    "tests/agent_loop/agent_loop_deferred_tools_test.cpp",
+    "tests/tool/tool_capability_policy_test.cpp"
+  ],
+  "excluded_nested_or_submodule_paths": [],
+  "success": false,
+  "reason": "changed legacy files were deleted upstream; a mechanical patch would lose or resurrect work",
+  "git_apply": null,
+  "conflicts": [],
+  "head_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "status": "",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "report_file": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\07\\.git\\refactor-migration\\report.json",
+  "inventory_ref": "refs/remotes/origin/codex/add-self-session-control"
+}

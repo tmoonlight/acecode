@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-28):** Windows 全量清单 5302 条,执行 5301 条(含 9 SKIP),0 失败;严格静态闸门和本机自动运行证据已整理到 [一期验证记录](verification/windows-phase1-validation.md)。真实桌面交互、最终迁移复核和正式窗口交付尚未结束,因此本表保留待验收状态。
+> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;正式窗口交付尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
 
 > 执行前必读 design.md 的 §6「提交与协作约定」。关键规则:
 > - 开工前在任务行末尾追加 `〔认领: <代理名> <日期>〕`,单独提交到 master;前置任务没勾选的不开工。
@@ -262,7 +262,7 @@
     - `git diff -M100% --name-status pre-src-layout M1` 全部为 R100;
     - design.md §7.2「P3」一行全部通过(target 快照逐元组、三个 lint 为 0、用例与 SKIP 清单、package.yml 全平台且 Deepin 的 `current_target()` 为 linux-deepin、`pnpm test`、Windows verify-package、冒烟五项)。
     - 风险处理:窗口期间 master 被推进时,丢弃已生成的提交,在新 master 上重新生成。
-- [ ] 4.3 【P3-03】【子】解冻后的分支迁移支持。
+- [ ] 4.3 【P3-03】【子】解冻后的分支迁移支持。〔用户决定: 2026-09-29,九个旧 ref 保留原状,迁移另行安排;不标记弃用,不推进原 ref,不阻塞本次主线一期交付;冲突复核见 verification/P3-03-final-legacy-refs.md〕
   - 9 个遗留 ref 用 `migrate_branch.py` 的 patch 模式迁移,或在盘点表里标记弃用;
   - AGENTS.md / CLAUDE.md 写明映射表版本。
   - 验证:每个迁移后的 ref,`migrate_branch.py --check` 0 违规才允许合入。

@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-28):** Windows 全量清单 5302 条,执行 5301 条(含 9 SKIP),0 失败;严格静态闸门和本机自动运行证据已整理到 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。真实桌面交互、最终迁移复核和正式窗口交付尚未结束,因此本表保留待验收状态。
+> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;正式窗口交付尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
 
 > **开工前必读**:
 > - `refactor20260927-restructure-src-layers/design.md` §6「提交与协作约定」;
@@ -25,7 +25,8 @@
 
 ## 1. 前置(可在 restructure 的 Phase 0 期间做,不依赖搬迁)
 
-- [x] 1.1 【P0-09】【主】去掉 main.cpp 中与 `tui_helpers.cpp` 孪生的 helper(MR-12)。〔认领: Claude-phase0 2026-09-27〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-09-twin-helpers.md;底栏 chip 与手工清单第 2、3 小节留待人工〕
+- [x] 1.1 【P0-09】【主】去掉 main.cpp 中与 `tui_helpers.cpp` 孪生的 helper(MR-12)。〔认领: Claude-phase0 2026-09-27〕
+〔验收: Claude-phase0 2026-09-27,见 verification/P0-09-twin-helpers.md;底栏 chip 与手工清单第 2、3 小节留待人工〕
   - **先**把 `main.cpp:5878` 的写入目标改成 `acecode::tui::g_model_load_percent`,**再**删除 716-1150 与 987;
   - 约 30 处调用改为 `tui::` 限定;
   - `is_terminal_*` 包装改为直接调用 `tui::matches_terminal_*`,25 处一次性替换;`kTerminal*` 常量与 `is_alt_v/a` 迁到 `tui/terminal_key_event.hpp`;
@@ -37,7 +38,8 @@
     - 新增单测:写入 `tui::g_model_load_percent` 后,负载 chip 能渲染;中文注释写明回归现象是「负载 chip 永不显示」;
     - 手工逐个比对底栏的 chip,包括 token、缓存命中、模型负载;
     - 跑手工清单第 2、3 小节。
-- [x] 1.2 【P0-12】【主】【并】TUI 手工回归清单与启动时序记录。〔认领: Codex-root 2026-09-27〕〔验收: Claude-phase0 2026-09-27,见 verification/P0-acceptance.md〕
+- [x] 1.2 【P0-12】【主】【并】TUI 手工回归清单与启动时序记录。〔认领: Codex-root 2026-09-27〕
+〔验收: Claude-phase0 2026-09-27,见 verification/P0-acceptance.md〕
   - 按 [manual-test-checklist.md](manual-test-checklist.md) 核对清单是否完整;
   - 记录现状下「原启动步骤 → 行号 → 新宿主」的完整表,存为本 change 目录的 `startup-order.md`(MR-3);
   - 录下四种启动场景(普通、`--resume`、Copilot 未登录、配置了 MCP)的 `state.conversation` 前 N 条快照,供 B-12 比对。

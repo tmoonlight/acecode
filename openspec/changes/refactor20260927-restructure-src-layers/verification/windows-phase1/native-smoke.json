@@ -1,8 +1,14 @@
 [
   {
     "mode": "direct",
-    "exit_code": 1,
-    "seconds": 0.09,
+    "exit_code": 0,
+    "seconds": 15.93,
+    "binary": "N:\\Users\\shao\\acecode\\build\\refactor-phase1-windows\\tests\\computer_use_native_smoke.exe"
+  },
+  {
+    "mode": "helper",
+    "exit_code": 0,
+    "seconds": 17.93,
     "binary": "N:\\Users\\shao\\acecode\\build\\refactor-phase1-windows\\tests\\computer_use_native_smoke.exe"
   }
 ]

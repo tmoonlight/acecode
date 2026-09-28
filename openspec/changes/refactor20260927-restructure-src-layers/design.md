@@ -371,6 +371,10 @@ split-agent-loop、split-tui-main、adopt-ownership-conventions 的验收见各�
 
 快速档排除的 20 个套件(本机串行实测,5114 条共 390 秒,它们合计约 300 秒,占 77%):SessionChannelBinderIntegration 139 秒、WebServerHttp 34 秒、OpenAiProviderErrorRecovery 16 秒、McpManagerAsync 15 秒、AgentLoopTermination 10 秒、SpawnSubagentTool 9 秒、HeadlessJsonlProcess 9 秒、AgentLoopGoal 8 秒、AgentLoopTurnSteering 7 秒、OpenAiProviderAbortTest 6 秒、GitOpsTest 6 秒、BuiltinCommands 5 秒、HookAgentLoop 5 秒、WorktreeGitTest 5 秒、GitContextCollectorTest 5 秒、ExpertRegistry 5 秒、WorktreeToolTest 4 秒、RemoteControlService 4 秒、DefaultSkillSeederTest 4 秒、TaskSuggestionServiceTest 4 秒;其余 669 个套件合计约 90 秒。清单在脚本顶部的 `FAST_EXCLUDED_SUITES`;`not_run` 会写进输出 JSON,验证记录里照实写「快速档,未运行 N 条」,不能写成全量通过。
 
+> **2026-09-29 用户补充决定:** P3-03 的九个旧分支保留原状,迁移另行安排。保留原 ref/worktree 和独有改动,不视为弃用;该后续迁移不阻塞本次主线一期 Windows 验收与交付。
+
+> **2026-09-29 验收范围补充(用户确认):** 人工专项后补,本次按 Windows 自动化及已完成实测交付。未执行的人工项继续保留于 verification/windows-phase1-manual-coverage.md,不登记为通过,不阻塞本次主线交付。
+
 ## 本次实施安排(D27,2026-09-28)
 
 按用户在 Codex 中的最新指令,剩余一期统一在当前 master 检出实施,全部实现后集中执行 Windows 本机全量验收,完成后再一起提交、push。过程中不另建任务分支或工作区,不逐任务提交/推送,不派发或等待跨端 CI;D26 的逐任务构建、快速档和阶段全量档也统一后移。macOS / Linux / Deepin 与 package.yml 暂不纳入本次 Windows 交付,5.4 保留为后续补验事项。

@@ -1688,6 +1688,11 @@
     },
     {
       "target": "acecode_testable",
+      "source": "src/base/platform/process/graceful_stop.hpp",
+      "reason": "D6 Windows process stop event; new RAII header, no extra target or compile flags"
+    },
+    {
+      "target": "acecode_testable",
       "source": "src/base/platform/process/unique_resources.hpp",
       "reason": "new implementation or regression test from phase one"
     },

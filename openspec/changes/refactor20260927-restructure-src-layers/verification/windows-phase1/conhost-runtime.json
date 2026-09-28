@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "exit_code": 0,
+  "startup": true,
+  "model_reply": true,
+  "model_picker": true,
+  "unicode_text_input": true,
+  "resume_hint_visible": true
+}

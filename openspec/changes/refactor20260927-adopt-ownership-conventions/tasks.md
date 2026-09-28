@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-28):** Windows 全量清单 5302 条,执行 5301 条(含 9 SKIP),0 失败;严格静态闸门和本机自动运行证据已整理到 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。真实桌面交互、最终迁移复核和正式窗口交付尚未结束,因此本表保留待验收状态。
+> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;正式窗口交付尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
 
 > **开工前必读**:
 > - `refactor20260927-restructure-src-layers/design.md` 的 §6「提交与协作约定」;
@@ -25,7 +25,8 @@
 
 ## 1. 基础原语(冻结前完成)
 
-- [x] 1.1 【P2-01】【子】新增 RAII 与并发原语,纯新增文件,放在 `src/utils/`,冻结后随目录进入 `base/utils/`。〔认领: Codex-raii 2026-09-27〕〔验收: Claude-phase0 2026-09-27,三平台通过,见 verification/P2-01-primitives.md〕
+- [x] 1.1 【P2-01】【子】新增 RAII 与并发原语,纯新增文件,放在 `src/utils/`,冻结后随目录进入 `base/utils/`。〔认领: Codex-raii 2026-09-27〕
+〔验收: Claude-phase0 2026-09-27,三平台通过,见 verification/P2-01-primitives.md〕
   - 新增文件:
     - `joining_thread.hpp`:JoiningThread + StopToken、JoiningThreadGroup(从 `worker.cpp:109-120` 原样提升,worker 改为 include 新头)、ReapingThreadSet;在线程自身上析构时 detach 并记日志;
     - `lifetime_token.hpp`:LifetimeToken / LifetimeRef;
@@ -85,7 +86,7 @@
     - grep 确认所有 `enqueue_control` 的 lambda 都不再强捕获 entry。
 - [ ] 2.4 【O-04】【主】【行为变更 D6】daemon 拆除顺序(`apps/daemon/worker.cpp`)。〔实现完成: Codex-root 2026-09-28;14 步幂等顺序及异常兜底、停止会话后清 on_spawn、JoiningThread 观察线程、TerminationSignal 自管事件/自管道、RuntimeFilesGuard;worker provider 改不可变捕获且 Web 两指针置空;顺序/异常/桥接在途/运行文件身份用例已补,待 Windows 统一验收〕
   - 关停顺序按 design.md §3「D6」逐条执行;
-  - Windows Desktop 先经进程寿命绑定的停止事件让 worker 完成正常关停,5 秒无响应或旧版本无端点时保留原强制兜底;正常退出、在途请求及端点析构并发补验。〔实现: Codex-root 2026-09-29,待定向和真实 Desktop 验证〕
+  - Windows Desktop 先经进程寿命绑定的停止事件让 worker 完成正常关停,5 秒无响应或旧版本无端点时保留原强制兜底;正常退出、在途请求及端点析构并发补验。〔验证: Codex-root 2026-09-29;56 条定向用例、全量回归与真实 Desktop 慢 MCP 退出通过,待统一交付〕
   - watcher 与 owner_monitor 改为 JoiningThread,并把捕获列表写成显式形式;
   - POSIX 信号处理改用 TerminationSignal(self-pipe),`g_term_*` 只保留桥接作用;
   - 清理运行时文件的逻辑包进 RuntimeFilesGuard;

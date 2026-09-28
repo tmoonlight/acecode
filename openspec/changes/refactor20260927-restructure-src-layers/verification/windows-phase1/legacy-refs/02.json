@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "mode": "patch",
+  "source_ref": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+  "source_sha": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+  "onto_ref": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "onto_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "base_sha": "06aca9526557c38cf5fd0ad4f78b3f01836fcb48",
+  "map_sha256": "17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459",
+  "layout": "final",
+  "projection": false,
+  "destination": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\02",
+  "original_refs_untouched": true,
+  "build_validation": "not run",
+  "integration_ready": false,
+  "issues": [],
+  "cherry": [
+    "+ 3dd26983bc04bbcf451a1c5e000fb6abcbf52991"
+  ],
+  "target_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "changed_paths": [
+    "main.cpp",
+    "src/tool/builtin_tool_registry.hpp",
+    "src/tool/show_image_tool.cpp",
+    "src/tool/show_image_tool.hpp",
+    "src/tool/tool_icons.hpp",
+    "src/tui_state.hpp",
+    "src/utils/open_file.hpp"
+  ],
+  "excluded_nested_or_submodule_paths": [],
+  "patch": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\02\\.git\\refactor-migration\\migration.patch",
+  "patch_sha256": "9415dde839988864832a3508a29946b33fe3dec463cfc264cdee1b331e080e27",
+  "patch_bytes": 13771,
+  "patch_objects_bundle": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\02\\.git\\refactor-migration\\patch-objects.bundle",
+  "patch_base_sha": "8b00e2eede6b04beef2c23b1389bf6785358c5cc",
+  "patch_head_sha": "89955fba5fbc7a134b386de7074143666247d461",
+  "git_apply": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Applied patch to 'src/adapters/tool/builtin_tool_registry.hpp' with conflicts.\nPerforming three-way merge...\nApplied patch to 'src/adapters/tool/show_image_tool.cpp' with conflicts.\nPerforming three-way merge...\nApplied patch to 'src/adapters/tool/show_image_tool.hpp' cleanly.\nApplied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/apps/tui/tui_state.hpp' with conflicts.\nFalling back to direct application...\nApplied patch to 'src/domain/llm/tool_icons.hpp' cleanly.\nU src/adapters/tool/builtin_tool_registry.hpp\nU src/adapters/tool/show_image_tool.cpp\nU src/apps/cli/main.cpp\nU src/apps/tui/tui_state.hpp\n"
+  },
+  "conflicts": [
+    "src/adapters/tool/builtin_tool_registry.hpp",
+    "src/adapters/tool/show_image_tool.cpp",
+    "src/apps/cli/main.cpp",
+    "src/apps/tui/tui_state.hpp"
+  ],
+  "success": false,
+  "head_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "status": "UU src/adapters/tool/builtin_tool_registry.hpp\nAA src/adapters/tool/show_image_tool.cpp\nUU src/apps/cli/main.cpp\nUU src/apps/tui/tui_state.hpp\nA  src/base/utils/open_file.hpp\nM  src/domain/llm/tool_icons.hpp\n",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "reason": "Applied patch to 'src/adapters/tool/builtin_tool_registry.hpp' with conflicts.\nApplied patch to 'src/adapters/tool/show_image_tool.cpp' with conflicts.\nApplied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/apps/tui/tui_state.hpp' with conflicts.",
+  "report_file": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\02\\.git\\refactor-migration\\report.json",
+  "inventory_ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy"
+}

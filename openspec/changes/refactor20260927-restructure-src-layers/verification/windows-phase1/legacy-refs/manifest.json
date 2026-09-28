@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "scenario": "final-patch",
+  "layout": "final",
+  "projection": false,
+  "validated_main_tree": "2660ab5756603e08b7b646706670776ea4045397",
+  "main_base": "c3348df148d51ff799a68b17ce6af0899b5ce2fc",
+  "fixture_commit": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "fixture_repository": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-snapshot-la92q0cs",
+  "runs": [
+    {
+      "success": false,
+      "conflicts": [],
+      "issues": [],
+      "reason": "Applied patch to 'AGENTS.md' with conflicts.\nApplied patch to 'CMakeLists.txt' with conflicts.\nerror: src/adapters/tool/ask_overlay_input.hpp: does not exist in index\nApplied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'tests/tui/chat_viewport_test.cpp' with conflicts.\nApplied patch to 'web/src/components/ChatView.jsx' with conflicts.\nApplied patch to 'web/src/lib/transcriptProjection.js' with conflicts.",
+      "ref": "refs/remotes/origin/chatview_optimize",
+      "source_sha": "3e5bbb440ba7be3420b0844d6c62a9eeea0a5bca",
+      "report": "01.json",
+      "git_returncode": 1
+    },
+    {
+      "success": false,
+      "conflicts": [
+        "src/adapters/tool/builtin_tool_registry.hpp",
+        "src/adapters/tool/show_image_tool.cpp",
+        "src/apps/cli/main.cpp",
+        "src/apps/tui/tui_state.hpp"
+      ],
+      "issues": [],
+      "reason": "Applied patch to 'src/adapters/tool/builtin_tool_registry.hpp' with conflicts.\nApplied patch to 'src/adapters/tool/show_image_tool.cpp' with conflicts.\nApplied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/apps/tui/tui_state.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/ai-image-sharing-tool-8ewihy",
+      "source_sha": "3dd26983bc04bbcf451a1c5e000fb6abcbf52991",
+      "report": "02.json",
+      "git_returncode": 1
+    },
+    {
+      "success": false,
+      "conflicts": [
+        "src/apps/desktop/main.cpp",
+        "src/apps/desktop/web_host.cpp",
+        "src/apps/web/server.cpp",
+        "tests/web/web_server_smoke_test.cpp",
+        "web/src/components/DesktopContextMenu.jsx",
+        "web/src/components/Sidebar.jsx",
+        "web/src/lib/api.js"
+      ],
+      "issues": [],
+      "reason": "Applied patch to 'src/apps/desktop/main.cpp' with conflicts.\nApplied patch to 'src/apps/desktop/web_host.cpp' with conflicts.\nApplied patch to 'src/apps/web/server.cpp' with conflicts.\nApplied patch to 'tests/web/web_server_smoke_test.cpp' with conflicts.\nApplied patch to 'web/src/components/DesktopContextMenu.jsx' with conflicts.\nApplied patch to 'web/src/components/Sidebar.jsx' with conflicts.\nApplied patch to 'web/src/lib/api.js' with conflicts.",
+      "ref": "refs/remotes/origin/claude/debug-acecode-crash-XNWgr",
+      "source_sha": "405a71ec63c4d929f51f212e40f748046c909d00",
+      "report": "03.json",
+      "git_returncode": 1
+    },
+    {
+      "success": false,
+      "conflicts": [
+        "CLAUDE.md",
+        "web/scripts/i18n-en-overrides.mjs",
+        "web/src/components/SettingsPage.jsx",
+        "web/src/i18n/sourceCatalog.generated.js"
+      ],
+      "issues": [],
+      "reason": "Applied patch to 'CLAUDE.md' with conflicts.\nApplied patch to 'web/scripts/i18n-en-overrides.mjs' with conflicts.\nApplied patch to 'web/src/components/SettingsPage.jsx' with conflicts.\nApplied patch to 'web/src/i18n/sourceCatalog.generated.js' with conflicts.",
+      "ref": "refs/remotes/origin/claude/desktop-skill-error-handling-r3j2h8",
+      "source_sha": "241304a8f0fbbea1899360c77c4e74d1e811b001",
+      "report": "04.json",
+      "git_returncode": 1
+    },
+    {
+      "success": false,
+      "conflicts": [
+        "src/engine/agent/agent_loop.cpp",
+        "src/engine/agent/agent_loop.hpp"
+      ],
+      "issues": [],
+      "reason": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/fix-desktop-context-compression-tkOxK",
+      "source_sha": "b893da6d8da696df2dbb92bc4f0cdeb967791411",
+      "report": "05.json",
+      "git_returncode": 1
+    },
+    {
+      "success": false,
+      "conflicts": [
+        "src/apps/cli/main.cpp",
+        "src/apps/tui/commands/builtin_commands.cpp",
+        "src/apps/tui/slash_dropdown.cpp"
+      ],
+      "issues": [],
+      "reason": "Applied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/apps/tui/commands/builtin_commands.cpp' with conflicts.\nApplied patch to 'src/apps/tui/slash_dropdown.cpp' with conflicts.",
+      "ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX",
+      "source_sha": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+      "report": "06.json",
+      "git_returncode": 1
+    },
+    {
+      "success": false,
+      "conflicts": [],
+      "issues": [
+        {
+          "kind": "semantic_extract",
+          "file": "src/tool/tool_executor.hpp",
+          "target": "src/domain/llm/tool_result.hpp",
+          "reason": "Extract ToolResult and ToolSummary"
+        },
+        {
+          "kind": "deleted_source",
+          "file": "src/web/handlers/pinned_sessions_handler.cpp",
+          "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+        }
+      ],
+      "reason": "changed legacy files were deleted upstream; a mechanical patch would lose or resurrect work",
+      "ref": "refs/remotes/origin/codex/add-self-session-control",
+      "source_sha": "1ce71fe01bfb54a546d23cbc0ed108423659dcf4",
+      "report": "07.json",
+      "git_returncode": null
+    },
+    {
+      "success": false,
+      "conflicts": [],
+      "issues": [
+        {
+          "kind": "semantic_extract",
+          "file": "src/tool/tool_executor.hpp",
+          "target": "src/domain/llm/tool_result.hpp",
+          "reason": "Extract ToolResult and ToolSummary"
+        },
+        {
+          "kind": "deleted_source",
+          "file": "src/tui/tui_init.cpp",
+          "reason": "upstream deletion cannot discard or resurrect legacy work automatically"
+        }
+      ],
+      "reason": "changed legacy files were deleted upstream; a mechanical patch would lose or resurrect work",
+      "ref": "refs/remotes/origin/docs/askuserquestion-dual-entry-design",
+      "source_sha": "de8f8c986ff6ff338a04d7aedafc0028ad84bd56",
+      "report": "08.json",
+      "git_returncode": null
+    },
+    {
+      "success": false,
+      "conflicts": [
+        "src/engine/agent/agent_loop.cpp",
+        "src/engine/agent/agent_loop.hpp",
+        "src/engine/prompt/system_prompt.cpp",
+        "src/engine/prompt/system_prompt.hpp",
+        "src/host/session_host/session_registry.cpp",
+        "src/host/session_host/session_registry.hpp",
+        "web/src/lib/settingsSearch.js"
+      ],
+      "issues": [
+        {
+          "kind": "semantic_extract",
+          "file": "src/config/config.cpp",
+          "target": "src/base/utils/paths.cpp",
+          "reason": "Extract get_acecode_dir/get_run_dir/get_logs_dir"
+        }
+      ],
+      "reason": "Applied patch to 'src/engine/agent/agent_loop.cpp' with conflicts.\nApplied patch to 'src/engine/agent/agent_loop.hpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.cpp' with conflicts.\nApplied patch to 'src/engine/prompt/system_prompt.hpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.cpp' with conflicts.\nApplied patch to 'src/host/session_host/session_registry.hpp' with conflicts.\nApplied patch to 'web/src/lib/settingsSearch.js' with conflicts.",
+      "ref": "refs/remotes/origin/jb",
+      "source_sha": "fd895862840e6557e205fa5e37bd7aa72ead10c9",
+      "report": "09.json",
+      "git_returncode": 1
+    }
+  ],
+  "seconds": 30.79,
+  "main_head_unchanged": true,
+  "main_index_unchanged": true,
+  "main_diff_unchanged": true,
+  "main_legacy_refs_unchanged": true,
+  "limit": "The actual final indexed source tree is represented by an unpublished commit in a disposable fixture. Feature refs are preserved; a failed/conflicted patch is not integration-ready. No implementation commit, source edit, or feature merge was made in the main repository."
+}

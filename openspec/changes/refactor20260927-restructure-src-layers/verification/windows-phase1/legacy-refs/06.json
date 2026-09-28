@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "mode": "patch",
+  "source_ref": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+  "source_sha": "3f6a2fe274cff6becfc3e132ede23736c9bc369d",
+  "onto_ref": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "onto_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "base_sha": "5c05129c275d748b0640651dedeca5df391bc427",
+  "map_sha256": "17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459",
+  "layout": "final",
+  "projection": false,
+  "destination": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\06",
+  "original_refs_untouched": true,
+  "build_validation": "not run",
+  "integration_ready": false,
+  "issues": [],
+  "cherry": [
+    "+ 3f6a2fe274cff6becfc3e132ede23736c9bc369d"
+  ],
+  "target_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "changed_paths": [
+    "main.cpp",
+    "src/commands/builtin_commands.cpp",
+    "src/tui/picker_scroll.hpp",
+    "src/tui/slash_dropdown.cpp",
+    "src/tui_state.hpp"
+  ],
+  "excluded_nested_or_submodule_paths": [],
+  "patch": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\06\\.git\\refactor-migration\\migration.patch",
+  "patch_sha256": "8542f1c0e30986a3ad353ab7e20dee1b0533ff5caefea53d445001be87d1c832",
+  "patch_bytes": 28009,
+  "patch_objects_bundle": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\06\\.git\\refactor-migration\\patch-objects.bundle",
+  "patch_base_sha": "6361532910b408cabb7b4cfdf3b479f36776a017",
+  "patch_head_sha": "9f069e7852265994c5f9bda23c37be878ac8c263",
+  "git_apply": {
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "Applied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/apps/tui/commands/builtin_commands.cpp' with conflicts.\nApplied patch to 'src/apps/tui/picker_scroll.hpp' cleanly.\nApplied patch to 'src/apps/tui/slash_dropdown.cpp' with conflicts.\nApplied patch to 'src/apps/tui/tui_state.hpp' cleanly.\nU src/apps/cli/main.cpp\nU src/apps/tui/commands/builtin_commands.cpp\nU src/apps/tui/slash_dropdown.cpp\n"
+  },
+  "conflicts": [
+    "src/apps/cli/main.cpp",
+    "src/apps/tui/commands/builtin_commands.cpp",
+    "src/apps/tui/slash_dropdown.cpp"
+  ],
+  "success": false,
+  "head_sha": "68073c047e04fc0bf7521988eb0792ce70435880",
+  "status": "UU src/apps/cli/main.cpp\nUU src/apps/tui/commands/builtin_commands.cpp\nM  src/apps/tui/picker_scroll.hpp\nUU src/apps/tui/slash_dropdown.cpp\nM  src/apps/tui/tui_state.hpp\n",
+  "next": "Resolve reported conflicts/semantic extractions; run --apply-map, --docs (seed separately), --check and real platform builds before considering integration. The source ref is preserved.",
+  "reason": "Applied patch to 'src/apps/cli/main.cpp' with conflicts.\nApplied patch to 'src/apps/tui/commands/builtin_commands.cpp' with conflicts.\nApplied patch to 'src/apps/tui/slash_dropdown.cpp' with conflicts.",
+  "report_file": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-p303-final-patch-63qupgq3\\06\\.git\\refactor-migration\\report.json",
+  "inventory_ref": "refs/remotes/origin/claude/multi-model-config-design-wWhDX"
+}

@@ -5057,6 +5057,15 @@
       "defines": [],
       "generated": false,
       "language": "",
+      "source": "src/base/platform/process/graceful_stop.hpp",
+      "target": "acecode_testable"
+    },
+    {
+      "compile_options": [],
+      "configuration": "Release",
+      "defines": [],
+      "generated": false,
+      "language": "",
       "source": "src/base/platform/process/unique_resources.hpp",
       "target": "acecode_testable"
     },

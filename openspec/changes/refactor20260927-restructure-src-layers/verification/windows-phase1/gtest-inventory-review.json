@@ -1,7 +1,7 @@
 {
   "g0": {
     "before": 5115,
-    "after": 5302,
+    "after": 5304,
     "added": [
       "AbortSignal.TerminalShutdownCannotBeClearedByAStartingTask",
       "ActiveProviderScope.OwnsLeaseThroughExceptionAndReleasesOnUnwind",
@@ -131,7 +131,9 @@
       "StreamCollectorTest.UsageIsRetainedBeforeAConsumerThrows",
       "SubagentHostShutdown.PendingQuestionIsCancelledBeforeServicesCanClose",
       "SubagentHostShutdown.RunningChildStopsBeforeHostCallbackStateIsDestroyed",
+      "TerminationSignal.ExternalRequestsCanRaceWithOwnerDestruction",
       "TerminationSignal.ProcessBridgeDeliversRequestsBeforeAndAfterInstallation",
+      "TerminationSignal.ProcessStopEndpointWakesOwnerAndIsReleasedOnDestruction",
       "TerminationSignal.RequestWakesWaiterAndRemainsRequested",
       "TerminationSignal.UnregistrationWaitsForConcurrentBridgeCalls",
       "TextFileToolErrors.AmbiguousFilesKeepMappedGuidanceAndOriginalBytes",
@@ -199,7 +201,7 @@
   },
   "p2_07": {
     "before": 5117,
-    "after": 5302,
+    "after": 5304,
     "added": [
       "AbortSignal.TerminalShutdownCannotBeClearedByAStartingTask",
       "ActiveProviderScope.OwnsLeaseThroughExceptionAndReleasesOnUnwind",
@@ -329,7 +331,9 @@
       "StreamCollectorTest.UsageIsRetainedBeforeAConsumerThrows",
       "SubagentHostShutdown.PendingQuestionIsCancelledBeforeServicesCanClose",
       "SubagentHostShutdown.RunningChildStopsBeforeHostCallbackStateIsDestroyed",
+      "TerminationSignal.ExternalRequestsCanRaceWithOwnerDestruction",
       "TerminationSignal.ProcessBridgeDeliversRequestsBeforeAndAfterInstallation",
+      "TerminationSignal.ProcessStopEndpointWakesOwnerAndIsReleasedOnDestruction",
       "TerminationSignal.RequestWakesWaiterAndRemainsRequested",
       "TerminationSignal.UnregistrationWaitsForConcurrentBridgeCalls",
       "ThreadTools.WaitSubscriptionReleasesSessionAndRejectsLateDelivery",
