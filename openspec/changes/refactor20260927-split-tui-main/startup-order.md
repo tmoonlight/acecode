@@ -191,3 +191,15 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 - TuiCommandContextFactory 统一通知恢复、启动 /resume、用户 Enter 三处构造;只有 Enter 上下文带用量观察与全屏入口。所有会被上下文保存的回调使用 LifetimeRef。
 - SessionManager 仅默认声明前移,原 start_session 步骤未提前;三个两阶段消费者均在 AgentLoop 创建后立即 attach。
 - B-12 继续把标题、通知、全屏的 main-owned 临时接线换成其对象;本阶段未执行构建或测试。
+
+### B-12 后台宿主与注册记录(待统一验收)
+
+- UpdateCheckTask 在 screen 设置后立即创建;AskUserQuestion 工具工厂仍随后注册,再创建 McpStatusBinding 并启动 MCP,未越过首回合。
+- CopilotAuthTask 在原认证步骤创建,消息顺序、silent/device flow 与 auth_done 的写入位置保留。这里仍保留旧 provider 借用,其共享寿命修复归 O-07,没有提前混入机械提取。
+- ModelPoolMonitorSubscription 在首次 set_callbacks 后创建;状态先写底栏原子量,再经 weak_ptr<UiPostTarget> 投递 context-window 更新与 Custom。stop 的位置不变,延迟任务受 LifetimeRef 保护。
+- AutoTitleRunner 在 start_session/set_session_manager 之后创建;原线程集合换为会回收的自持任务集合。profile 解析、session 身份核验、生成结果入账、UI/标题 hook、失败重试的顺序保留。
+- TuiNotificationBinding 在命令注册之后创建;通知点击经屏幕队列恢复会话。TuiTurnLifecycle 每次使用时读取当前 binding 的 ready/window,不再捕获旧值。
+- InboundSubmitRegistration 在最终 set_callbacks 后注册;AnimationTicker 随后启动。停入站、停动画与 join 各任务仍在原关停步骤。
+- FullScreenSurfaces 在 chat/frame 构建之后创建,保持 Settings → Management → Tab root 顺序。命令工厂只在事件期间访问固定的 surface owner slot,内部 /resume 上下文不带全屏入口。
+- animation_tick_locked 在原 state.mu 锁内采样 now 后执行;legacy phase 的时间采样仍在锁前。300ms hover、60ms drag、提示过期和 Ctrl+C 到期保留原边界,ShiftSelection 仍只在输入线程执行。
+- 新增测试均未运行。正常/首次 Copilot/无模型/启动 resume 的消息快照、构建和手工检查留到一期全部实现后的统一验收。

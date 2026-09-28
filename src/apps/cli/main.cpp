@@ -1,3 +1,12 @@
+#include "tui/app/animation_ticker.hpp"
+#include "tui/app/update_check_task.hpp"
+#include "tui/app/copilot_auth_task.hpp"
+#include "tui/app/mcp_status_binding.hpp"
+#include "tui/app/model_pool_monitor_subscription.hpp"
+#include "tui/app/inbound_submit_registration.hpp"
+#include "tui/app/full_screen_surfaces.hpp"
+#include "session_host/auto_title_runner.hpp"
+#include "tui/app/tui_notification_binding.hpp"
 #include "tui/app/tui_agent_bridge.hpp"
 #include "tui/app/tui_overlay_gate.hpp"
 #include "tui/app/tui_turn_lifecycle.hpp"
@@ -415,29 +424,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
 
 
-static std::thread start_tui_update_check(const AppConfig& config,
-                                          TuiState& state,
-                                          ScreenInteractive& screen) {
-    return std::thread([config, &state, &screen] {
-        try {
-            auto result = acecode::upgrade::check_for_update(config, ACECODE_VERSION);
-            if (result.update_available()) {
-                std::lock_guard<std::mutex> lk(state.mu);
-                state.update_notice = "Update available: v" + result.latest_version +
-                                      ". Run acecode update.";
-                screen.PostEvent(Event::Custom);
-            } else if (result.status != acecode::upgrade::UpdateCheckStatus::UpToDate) {
-                LOG_DEBUG(std::string("[upgrade] startup check skipped: ") +
-                          acecode::upgrade::update_check_status_name(result.status) +
-                          (result.error.empty() ? "" : " (" + result.error + ")"));
-            }
-        } catch (const std::exception& e) {
-            LOG_DEBUG(std::string("[upgrade] startup check failed: ") + e.what());
-        } catch (...) {
-            LOG_DEBUG("[upgrade] startup check failed with unknown exception");
-        }
-    });
-}
+
 
 // 实现已抽到 src/skills/skill_init.{hpp,cpp},供 TUI 与 daemon(src/daemon/worker.cpp)
 // 共用。下方所有 `initialize_skill_registry(...)` 调用站点经 `using namespace acecode`
@@ -447,28 +434,7 @@ static std::thread start_tui_update_check(const AppConfig& config,
 
 
 
-static void start_mcp_servers_async(McpManager& mcp_manager,
-                                    ToolExecutor& tools,
-                                    TuiState& state,
-                                    ftxui::ScreenInteractive& screen) {
-    if (mcp_manager.configured_server_count() == 0) {
-        return;
-    }
 
-    mcp_manager.set_status_callback([&mcp_manager, &state, &screen](const McpServerInfo& info) {
-        auto sidebar_servers = tui::build_mcp_sidebar_servers(mcp_manager);
-        auto message = acecode::mcp_status_message(info);
-        {
-            std::lock_guard<std::mutex> lk(state.mu);
-            tui::set_mcp_sidebar_servers_locked(state, std::move(sidebar_servers));
-            if (message.has_value()) {
-                state.conversation.push_back({"system", *message, false});
-            }
-        }
-        screen.PostEvent(ftxui::Event::Custom);
-    });
-    mcp_manager.start_async(tools);
-}
 
 
 
@@ -497,29 +463,25 @@ static void run_tui_loop(ftxui::ScreenInteractive& screen,
 static void shutdown_after_tui_loop(TuiState& state,
                                     AgentLoop& agent_loop,
                                     McpManager& mcp_manager,
-                                    std::atomic<bool>& running,
                                     std::atomic<bool>& agent_aborting,
-                                    std::thread& anim_thread,
-                                    std::thread& auth_thread,
-                                    std::thread& update_check_thread,
+                                    tui::AnimationTicker& animation,
+                                    tui::CopilotAuthTask& auth_task,
+                                    tui::UpdateCheckTask& update_check,
                                     SessionManager& session_manager,
-                                    const AppConfig& config) {
-#ifdef _WIN32
-    // Clear notification handlers (and stop the self-drawn toast thread) before
-    // any TUI/session objects captured by the activation callback begin
-    // teardown.
-    acecode::desktop::shutdown_notifications();
-#endif
+                                    const AppConfig& config,
+                                    tui::TuiNotificationBinding& notifications,
+                                    tui::InboundSubmitRegistration& inbound_submit) {
+    notifications.shutdown();
     g_active_screen.store(nullptr, std::memory_order_release);
 #ifdef _WIN32
     SetConsoleCtrlHandler(console_ctrl_handler, FALSE);
 #endif
 
-    running = false;
+    animation.request_stop();
 
     // 先停 remote-control listener:teardown 期间不再接受 IM 入站,也避免
     // 静态析构阶段才停 Crow/asio 的顺序问题。
-    acecode::rc::remote_control_service().stop();
+    inbound_submit.stop();
 
     // Graceful shutdown: abort agent, unblock confirm_cv / ask_cv, then join worker
     agent_aborting = true;
@@ -544,7 +506,7 @@ static void shutdown_after_tui_loop(TuiState& state,
         state.overlay_cv.notify_all();
     }
     agent_loop.shutdown();
-    acecode::release_process_session_power("tui-main");
+    acecode::release_process_session_power(tui::kTuiMainPowerSessionId);
 
     // Tear down MCP child processes after the agent worker has stopped, so no
     // in-flight tool calls can race with the clients being destroyed.
@@ -559,17 +521,11 @@ static void shutdown_after_tui_loop(TuiState& state,
         state.compact_thread.join();
     }
 
-    if (anim_thread.joinable()) {
-        anim_thread.join();
-    }
+    animation.join();
 
-    if (auth_thread.joinable()) {
-        auth_thread.join();
-    }
+    auth_task.join();
 
-    if (update_check_thread.joinable()) {
-        update_check_thread.join();
-    }
+    update_check.join();
 
     tui::finalize_session_worktree_on_exit(session_manager);
 
@@ -751,9 +707,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     const bool hover_supported = screen_host.hover_supported();
     auto redraw_pacer = screen_host.redraw_pacer();
     auto& last_keyboard_input_at_ms = screen_host.last_keyboard_input_at_ms();
-    auto request_scheduled_redraw = [&screen_host](int minimum_interval_ms) {
-        return screen_host.request_scheduled_redraw(minimum_interval_ms);
-    };
     // Publish for the Windows console-ctrl handler so Ctrl+C can trigger a
     // graceful Loop exit instead of letting the default handler kill us.
     g_active_screen.store(&screen, std::memory_order_release);
@@ -763,7 +716,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // CatchEvent handler reads screen.GetSelection() on demand; we don't
     // need per-change work here yet. Future: hook "auto-clear on new drag".
     screen.SelectionChange([]{});
-    std::thread update_check_thread = start_tui_update_check(config, state, screen);
+    auto update_check = std::make_unique<tui::UpdateCheckTask>(config, state, screen_host);
 
     // AskUserQuestion 两端同一个工厂:工具逻辑只有一份,传输由
     // ToolContext::ask_user_questions 注入(见 agent_loop 里的 set_ask_question_channel
@@ -771,79 +724,18 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // 启动顺序拉开。
     tools.register_tool(create_ask_user_question_tool_async(
         config.ask.max_questions, config.ask.max_options));
-    start_mcp_servers_async(mcp_manager, tools, state, screen);
+    auto mcp_status = std::make_unique<tui::McpStatusBinding>(mcp_manager, tools, state, screen_host);
 
     std::atomic<bool> mcp_first_turn_wait_done{false};
     SessionManager session_manager;
-    std::function<void(const UserInput&)> maybe_start_tui_auto_title;
+    std::unique_ptr<AutoTitleRunner> auto_title_runner;
     tui::TuiSubmitter input_turn(state, screen_host, config, model_binding,
-        session_manager, mcp_manager, mcp_first_turn_wait_done, maybe_start_tui_auto_title);
-    auto coordinate_mcp_before_first_turn = [&input_turn]() { input_turn.before_first_turn(); };
+        session_manager, mcp_manager, mcp_first_turn_wait_done, auto_title_runner);
 
     // ---- Copilot auth flow (background thread) ----
     std::atomic<bool> auth_done{false};
-    std::thread auth_thread;
-    bool auth_thread_started = false;
-
-    {
-        auto provider_snapshot = provider_accessor();
-        auto* copilot = dynamic_cast<CopilotProvider*>(provider_snapshot.get());
-        if (copilot && !copilot->is_authenticated()) {
-            const std::string copilot_model = copilot->model();
-            {
-                std::lock_guard<std::mutex> lk(state.mu);
-                tui::begin_user_turn_locked(state, tui::UserTurnPhrase::Random, tui::WaitingUpdate::SetTrue);
-                state.conversation.push_back({"system", "Authenticating with GitHub Copilot...", false});
-            }
-            screen.PostEvent(Event::Custom);
-
-            auth_thread_started = true;
-            auth_thread = std::thread([copilot, &state, &screen, &auth_done, copilot_model] {
-                // Try silent auth first (saved token)
-                if (copilot->try_silent_auth()) {
-                    {
-                        std::lock_guard<std::mutex> lk(state.mu);
-                        state.conversation.push_back({"system", "Authenticated (saved token).", false});
-                        state.is_waiting = false;
-                    }
-                    auth_done = true;
-                    screen.PostEvent(Event::Custom);
-                    return;
-                }
-
-                // Need interactive device flow
-                auto dc = request_device_code();
-                {
-                    std::lock_guard<std::mutex> lk(state.mu);
-                    state.conversation.push_back({"system",
-                        "Open " + dc.verification_uri + " and enter code: " + dc.user_code, false});
-                }
-                screen.PostEvent(Event::Custom);
-
-                copilot->run_device_flow([&state, &screen](const std::string& status) {
-                    std::lock_guard<std::mutex> lk(state.mu);
-                    state.status_line = status;
-                    screen.PostEvent(Event::Custom);
-                });
-
-                if (copilot->is_authenticated()) {
-                    {
-                        std::lock_guard<std::mutex> lk(state.mu);
-                        state.conversation.push_back({"system", "GitHub Copilot authenticated!", false});
-                        state.is_waiting = false;
-                        state.status_line = "[copilot] model: " + copilot_model;
-                    }
-                } else {
-                    std::lock_guard<std::mutex> lk(state.mu);
-                    state.conversation.push_back({"system", "[Error] Authentication failed.", false});
-                    state.is_waiting = false;
-                }
-                auth_done = true;
-                screen.PostEvent(Event::Custom);
-            });
-        }
-    }
-    if (!auth_thread_started) auth_done = true;
+    auto auth_task = std::make_unique<tui::CopilotAuthTask>(
+        provider_accessor, state, screen_host, auth_done);
 
     // ---- Token tracking ----
     TokenTracker token_tracker;
@@ -857,13 +749,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // text is intentionally excluded so a failed/aborted partial stream cannot
     // be mistaken for a completed task notification.
     tui::TurnObservation turn_observation;
-    std::function<void(const std::string&, std::string)> start_tui_auto_title_attempt;
-    void* tui_notification_window = nullptr;
-    bool tui_notifications_ready = false;
+    std::unique_ptr<tui::TuiNotificationBinding> notification_binding;
     tui::TuiOverlayGate overlay_gate(state, screen_host, agent_aborting);
     tui::TuiTurnLifecycle turn_lifecycle(state, screen_host, viewport, input_turn,
-        session_manager, config, turn_observation, start_tui_auto_title_attempt,
-        tui_notifications_ready, tui_notification_window);
+        session_manager, config, turn_observation, auto_title_runner, notification_binding);
     tui::TuiAgentBridge agent_bridge(state, screen_host, viewport, token_tracker,
         config, turn_observation);
     auto callbacks = agent_bridge.initial_callbacks();
@@ -908,41 +797,8 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
     agent_loop.set_callbacks(callbacks);
 
-    // ---- Model-pool load monitor ----
-    // 只为 base_url 包含 wizard-ai 的配置启动轮询,避免普通用户访问企业接口。
-    // 负载实时写 acecode::tui::g_model_load_percent 供底栏 chip 展示;maxWindowTokens 稳定,故只需在
-    // 每次成功轮询时把 0.8x 有效窗口回灌到 config + agent_loop(UI 线程 Post,改的是 int,
-    // 安全),token% 下个回合自然重算。service 在 run_tui_loop 返回后 stop(),保证回调
-    // 不晚于这些局部变量析构。
-    {
-        if (acecode::should_start_model_pool_monitor(config.saved_models)) {
-            auto on_pool_update = [&model_binding, &config, &agent_loop]() {
-                std::string model_id;
-                if (auto provider = model_binding.provider_snapshot()) {
-                    model_id = provider->model();
-                }
-                int pct = -1;
-                int eff = 0;
-                if (auto st = acecode::model_pool_status_service().get(model_id)) {
-                    pct = st->usage_rate;
-                    eff = acecode::effective_context_window(st->max_window_tokens);
-                }
-                acecode::tui::g_model_load_percent.store(pct);
-                auto* scr = g_active_screen.load(std::memory_order_acquire);
-                if (!scr) return;
-                if (eff > 0) {
-                    scr->Post([&config, &agent_loop, eff]() {
-                        if (config.context_window != eff) {
-                            config.context_window = eff;
-                            agent_loop.set_context_window(eff);
-                        }
-                    });
-                }
-                scr->PostEvent(ftxui::Event::Custom);
-            };
-            acecode::model_pool_status_service().start(on_pool_update);
-        }
-    }
+    auto model_pool_monitor = std::make_unique<tui::ModelPoolMonitorSubscription>(
+        model_binding, config, agent_loop, screen_host.post_target());
 
     // ---- Session manager ----
     {
@@ -970,112 +826,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     }
     agent_loop.set_session_manager(&session_manager);
 
-    std::mutex tui_title_threads_mu;
-    std::vector<std::thread> tui_title_threads;
-    std::atomic<bool> tui_title_shutting_down{false};
-    auto join_tui_title_threads = [&]() {
-        std::vector<std::thread> threads;
-        {
-            std::lock_guard<std::mutex> lk(tui_title_threads_mu);
-            tui_title_shutting_down.store(true);
-            threads.swap(tui_title_threads);
-        }
-        for (auto& thread : threads) {
-            if (thread.joinable()) thread.join();
-        }
-    };
-    start_tui_auto_title_attempt =
-        [&](const std::string& session_id, std::string text) {
-        if (tui_title_shutting_down.load() ||
-            session_id.empty() ||
-            session_manager.current_session_id() != session_id) {
-            return;
-        }
-
-        auto profile = resolve_auto_title_profile(
-            config,
-            session_manager.current_model_preset(),
-            agent_loop.cwd());
-        if (!profile.has_value()) {
-            auto retry =
-                session_manager.finish_auto_title_generation_for_session(
-                    session_id, false);
-            if (retry.has_value() && !tui_title_shutting_down.load()) {
-                start_tui_auto_title_attempt(session_id, std::move(*retry));
-            }
-            return;
-        }
-
-        std::lock_guard<std::mutex> threads_lk(tui_title_threads_mu);
-        if (tui_title_shutting_down.load()) return;
-        tui_title_threads.emplace_back(
-            [&, cfg = &config, session_id, text = std::move(text),
-             profile = std::move(*profile)]() mutable {
-            bool applied = false;
-            try {
-                auto provider =
-                    create_auto_title_provider(std::move(profile), *cfg);
-                if (provider) {
-                    auto title =
-                        generate_auto_session_title(*provider, text, *cfg);
-                    if (title.has_value() && !title->empty() &&
-                        session_manager
-                            .try_set_generated_session_title_for_session(
-                                session_id, *title)) {
-                        applied = true;
-                        if (session_manager.current_session_id() == session_id) {
-                            {
-                                std::lock_guard<std::mutex> lk(state.mu);
-                                if (session_manager.current_session_id() ==
-                                    session_id) {
-                                    state.current_session_title = *title;
-                                }
-                            }
-                            set_terminal_title(*title);
-                            agent_loop.dispatch_session_title_changed_hook(
-                                *title,
-                                "generated",
-                                session_manager.current_title_source());
-                            screen.PostEvent(Event::Custom);
-                        }
-                    }
-                }
-            } catch (const std::exception& e) {
-                LOG_WARN("[tui] auto session title generation failed: " +
-                         std::string(e.what()));
-            } catch (...) {
-                LOG_WARN("[tui] auto session title generation failed");
-            }
-
-            auto retry =
-                session_manager.finish_auto_title_generation_for_session(
-                    session_id, applied);
-            if (retry.has_value() && !tui_title_shutting_down.load()) {
-                start_tui_auto_title_attempt(
-                    session_id, std::move(*retry));
-            }
-        });
-    };
-    maybe_start_tui_auto_title = [&](const UserInput& input) {
-        if (!config.session_title.enabled) return;
-        std::string text = visible_auto_title_input(input);
-        if (text.empty()) return;
-
-        const std::string session_id = session_manager.ensure_active_session_id();
-        if (session_id.empty()) return;
-
-        auto attempt_text =
-            session_manager.begin_auto_title_generation(std::move(text));
-        if (!attempt_text.has_value()) return;
-        start_tui_auto_title_attempt(session_id, std::move(*attempt_text));
-    };
+    auto_title_runner = std::make_unique<AutoTitleRunner>(
+        config, session_manager, agent_loop, turn_lifecycle.title_applied_callback());
     callbacks.on_turn_finished = turn_lifecycle.title_finished_callback();
     agent_loop.set_callbacks(callbacks);
     auto submit_tui_input = input_turn.callback();
-    auto submit_tui_text = [&input_turn](const std::string& text,
-                                       const std::string& display = std::string{}) {
-        input_turn.submit_text(text, display);
-    };
 
     // ---- 子代理宿主(spawn_subagent / wait_subagent)----
     // SessionRegistry / LocalSessionClient 不依赖 web 层,TUI 进程内直接
@@ -1316,58 +1071,14 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     CommandRegistry cmd_registry;
     tui::register_slash_commands(cmd_registry, skill_registry, config, working_dir);
 
-    // Assigned after the chat input component is built, when the sibling
-    // Settings and Capability Management roots exist. Slash-command dispatch
-    // captures these stable function objects by reference.
-    std::function<bool(const std::string&, std::string&)>
-        open_settings_surface;
-    std::function<bool(const std::string&, std::string&)>
-        open_management_surface;
-
+    std::unique_ptr<tui::IFullScreenSurfaces> full_screen_surfaces;
     tui::TuiCommandContextFactory input_commands(state, agent_loop, model_binding,
         config, token_tracker, permissions, screen_host, session_manager, mcp_manager,
         tools, skill_registry, memory_registry, cmd_registry, working_dir, input_turn,
-        &subagent_host, open_settings_surface, open_management_surface);
+        &subagent_host, full_screen_surfaces);
 
-    // Windows TUI notification setup. The backend (OS toast or the self-drawn
-    // renderer) is picked inside init_notifications; either way session
-    // mutations stay on the FTXUI thread because activation callbacks only
-    // enqueue a main-loop task.
-#ifdef _WIN32
-    if (config.desktop.notifications.enabled &&
-        config.desktop.notifications.on_completion) {
-        tui_notification_window =
-            acecode::desktop::capture_tui_notification_window();
-        acecode::desktop::NotificationInitOptions notification_options;
-        notification_options.app_name = "ACECode TUI";
-        notification_options.application_id = "ACECode.ACECode.TUI.1";
-        notification_options.activation_window = tui_notification_window;
-        tui_notifications_ready =
-            acecode::desktop::init_notifications(notification_options);
-        if (tui_notifications_ready) {
-            acecode::desktop::set_click_handler(
-                [&](const acecode::desktop::NotifyPayload& payload) {
-                    const std::string session_id = payload.session_id;
-                    if (session_id.empty()) return;
-                    screen.Post([&, session_id] {
-                        if (session_manager.current_session_id() != session_id) {
-                            auto ctx = input_commands.make(false);
-                            resume_session_by_id(ctx, session_id);
-                        }
-                        {
-                            std::lock_guard<std::mutex> lk(state.mu);
-                            viewport.reset(state);
-                            state.chat_follow_tail = true;
-                            viewport.clamp_focus(state);
-                        }
-                        screen.PostEvent(Event::Custom);
-                    });
-                });
-        } else {
-            LOG_WARN("[tui] native notifications unavailable");
-        }
-    }
-#endif
+    notification_binding = std::make_unique<tui::TuiNotificationBinding>(
+        config, state, screen_host, viewport, session_manager, input_commands);
 
     if (resume_picker_on_startup) {
         auto cmd_ctx = input_commands.make(false);
@@ -1389,178 +1100,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // 路径(busy 排队 / 空闲直接 submit),气泡渲染与会话持久化与手输完全一致。
     // 该回调由 RC listener 的 Crow worker 线程调用,锁内逻辑与 Enter 提交分支
     // 保持一字不差。
-    acecode::rc::remote_control_service().hub().set_inbound_submit(
-        [&state, &screen, &viewport, &submit_tui_text,
-         &coordinate_mcp_before_first_turn](const std::string& text) {
-            std::unique_lock<std::mutex> lk(state.mu);
-            if (state.is_waiting) {
-                state.pending_queue.push_back(text);
-            } else {
-                state.conversation.push_back({"user", text, false});
-                state.chat_follow_tail = true;
-                viewport.clamp_focus(state);
-                tui::begin_user_turn_locked(state, tui::UserTurnPhrase::Random, tui::WaitingUpdate::SetTrue);
-                lk.unlock();
-                coordinate_mcp_before_first_turn();
-                lk.lock();
-                submit_tui_text(text);
-            }
-            screen.PostEvent(Event::Custom);
-        });
+    auto inbound_submit = std::make_unique<tui::InboundSubmitRegistration>(
+        state, screen_host, viewport, input_turn);
 
-    // ---- Animation ticker thread ----
-    std::atomic<bool> running{true};
-    std::thread anim_thread([
-        &running,
-        &anim_tick,
-        &state,
-        &screen,
-        &viewport,
-        &last_keyboard_input_at_ms,
-        &request_scheduled_redraw,
-        redraw_pacer,
-        conhost_compat_layout] {
-        const auto legacy_tick_period = std::chrono::milliseconds(
-            conhost_compat_layout ? tui::kConhostAnimationFrameMs
-                                  : tui::kDefaultAnimationFrameMs);
-        auto last_legacy_tick_at = std::chrono::steady_clock::now();
-        auto current_pacing_context = [&] {
-            tui::ThinkingAnimationPacingContext context;
-            context.conhost_compat_layout = conhost_compat_layout;
-            context.keyboard_input_recent =
-                tui::is_keyboard_input_recent(
-                    tui::monotonic_milliseconds(),
-                    last_keyboard_input_at_ms.load(
-                        std::memory_order_acquire));
-            context.last_frame_latency_ms =
-                redraw_pacer->last_frame_latency_ms();
-            std::lock_guard<std::mutex> lk(state.mu);
-            context.drag_autoscroll_active =
-                state.drag_phase == drag_scroll::Phase::ScrollingUp ||
-                state.drag_phase == drag_scroll::Phase::ScrollingDown;
-            context.thinking_visible =
-                state.is_waiting && !state.tool_running;
-            return context;
-        };
-        while (running) {
-            // Modern thinking frames adapt to recent typing and the measured
-            // completed-frame latency. Drag keeps highest priority; conhost
-            // retains its slower compatibility cadence.
-            const int frame_interval_ms = tui::select_animation_frame_interval_ms(
-                current_pacing_context());
-            std::this_thread::sleep_for(std::chrono::milliseconds(frame_interval_ms));
-
-            // anim_tick 仍服务 MCP 等旧动画。按真实经过时间维持原来的
-            // 300/1000ms phase,避免 thinking 的自适应 redraw 把其他效果加速。
-            const auto tick_now = std::chrono::steady_clock::now();
-            const auto legacy_elapsed = tick_now - last_legacy_tick_at;
-            if (legacy_elapsed >= legacy_tick_period) {
-                const auto legacy_steps =
-                    std::chrono::duration_cast<std::chrono::milliseconds>(
-                        legacy_elapsed).count() /
-                    legacy_tick_period.count();
-                anim_tick.fetch_add(static_cast<int>(legacy_steps));
-                last_legacy_tick_at += legacy_tick_period * legacy_steps;
-            }
-            // mouse-selection-copy: clear the "Copied N bytes" confirmation
-            // ~2 s after the copy fired. Run before the post-event gate so we
-            // always get a final render when the deadline passes.
-            bool requires_immediate_post = false;
-            bool background_animation_visible = false;
-            bool should_post = false;
-            {
-                std::lock_guard<std::mutex> lk(state.mu);
-                const auto now = std::chrono::steady_clock::now();
-                if (state.ask_session) {
-                    const auto ask_effects = state.ask_session->tick(now);
-                    if (!ask_effects.empty()) {
-                        tui::dispatch_ask_session_effects_locked(state, ask_effects);
-                        requires_immediate_post = true;
-                    }
-                }
-                if (state.status_line_clear_at.time_since_epoch().count() != 0 &&
-                    now >= state.status_line_clear_at) {
-                    state.status_line = state.status_line_saved;
-                    state.status_line_saved.clear();
-                    state.status_line_clear_at = {};
-                    requires_immediate_post = true;
-                }
-                if (acecode::tui::expire_ctrl_c_exit_state(
-                        state.ctrl_c_armed, state.last_ctrl_c_time, now)) {
-                    requires_immediate_post = true;
-                }
-                // link-hover-tooltip (add-tui-hyperlinks 5.3): 指针在链接上
-                // 无按键停留 >= 300ms 后显示气泡。悬停状态由事件线程在
-                // Mouse::Moved 时更新,这里只做时间门 —— 到期置位并强制
-                // 下一帧渲染,气泡出现不依赖任何后续输入事件。
-                if (!state.hover_link_href.empty() &&
-                    !state.hover_link_visible) {
-                    const auto hover_elapsed_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(
-                            now - state.hover_link_since).count();
-                    if (hover_elapsed_ms >=
-                        acecode::tui::kLinkHoverTooltipDelayMs) {
-                        state.hover_link_visible = true;
-                        requires_immediate_post = true;
-                    }
-                }
-                background_animation_visible = tui::mcp_sidebar_has_loading(state);
-
-                // drag-autoscroll: 时间门到点就滚一行, 把 ShiftSelection 的补偿请求
-                // 累加到 pending_shift_dy, 由事件线程 CatchEvent 的入口消费 — 避免
-                // anim_thread 直接改 FTXUI selection_data_ 与 HandleSelection 撞车.
-                if (state.drag_phase == drag_scroll::Phase::ScrollingUp ||
-                    state.drag_phase == drag_scroll::Phase::ScrollingDown) {
-                    if (drag_scroll::should_tick(now, state.last_drag_scroll_at,
-                                                  std::chrono::milliseconds(60))) {
-                        int dy = (state.drag_phase == drag_scroll::Phase::ScrollingUp) ? -1 : 1;
-                        int actual = viewport.scroll_by_lines(state, dy);
-                        if (actual != 0) {
-                            // viewport.scroll_by_lines(state, +1) 让视口顶部下移一行 → 屏幕
-                            // 内容相对上移 actual 行 → 原 anchor 文本屏幕坐标应
-                            // -actual.
-                            state.pending_shift_dy += -actual;
-                            ACECODE_INPUT_TRACE(
-                            LOG_DEBUG("[drag-select] autoscroll tick phase=" +
-                                      tui::drag_phase_for_log(state.drag_phase) +
-                                      " requested_dy=" + std::to_string(dy) +
-                                      " actual=" + std::to_string(actual) +
-                                      " pending_shift_dy=" +
-                                      std::to_string(state.pending_shift_dy) +
-                                      " focus=" +
-                                      std::to_string(state.chat_focus_index) +
-                                      " offset=" +
-                                      std::to_string(state.chat_line_offset) +
-                                      " mouse=(" +
-                                      std::to_string(state.last_mouse_x) +
-                                      "," +
-                                      std::to_string(state.last_mouse_y) +
-                                      ")");
-                            );
-                            requires_immediate_post = true;
-                        }
-                    }
-                }
-
-                // Drive re-render while waiting on the LLM, while live tool/MCP
-                // progress is visible, or when status cleanup reaches its deadline.
-                // Subagent sidebar snapshots publish their own render event on each
-                // lifecycle update and no longer contain a ticking elapsed readout.
-                // 把读取留在同一把锁里,避免 ticker 与回调并发改 busy 字段。
-                should_post = requires_immediate_post ||
-                    background_animation_visible ||
-                    state.is_waiting ||
-                    state.tool_running;
-            }
-            if (requires_immediate_post) {
-                screen.PostEvent(Event::Custom);
-            } else if (should_post) {
-                request_scheduled_redraw(
-                    tui::select_animation_frame_interval_ms(
-                        current_pacing_context()));
-            }
-        }
-    });
+    auto animation = std::make_unique<tui::AnimationTicker>(
+        state, screen_host, viewport, anim_tick, conhost_compat_layout);
 
     // ---- Input handling ----
     // Custom input component using paragraph-like flexbox for auto-wrapping.
@@ -1605,145 +1149,21 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             return frame;
         });
 
-    int root_surface_index =
-        static_cast<int>(acecode::tui::settings::RootSurface::Chat);
-    auto close_full_screen_surface =
-        [&root_surface_index, &input_with_esc, &screen]() {
-            root_surface_index =
-                static_cast<int>(
-                    acecode::tui::settings::RootSurface::Chat);
-            input_with_esc->TakeFocus();
-            screen.PostEvent(Event::Custom);
-        };
-
-    acecode::tui::settings::SettingsCenter settings_center({
-        &config,
-        working_dir,
-        ACECODE_VERSION,
-        {},
-        close_full_screen_surface,
-        [&screen]() { screen.PostEvent(Event::Custom); },
-        [&screen](std::function<void()> task) {
-            screen.Post(std::move(task));
-        },
-        [&subagent_host](const std::string& model_name) {
-            return subagent_host.registry()
-                .model_profile_used_by_busy_session(model_name);
-        },
-        [&session_manager, &agent_loop, &subagent_host](
-            const std::string& session_id) {
-            if (session_manager.current_session_id() == session_id) {
-                return agent_loop.is_busy();
-            }
-            auto entry = subagent_host.registry().acquire(session_id);
-            return entry && entry->loop && entry->loop->is_busy();
-        },
-    });
-
-    acecode::tui::settings::ManagementCenter management_center({
-        &config,
-        &skill_registry,
-        &cmd_registry,
-        &mcp_manager,
-        &tools,
-        &hook_manager,
-        skill_usage_store.get(),
-        working_dir,
-        close_full_screen_surface,
-        [&screen]() { screen.PostEvent(Event::Custom); },
-        [&screen](std::function<void()> task) {
-            screen.Post(std::move(task));
-        },
-        [&]() {
-            mcp_manager.reconcile_scope("", config.mcp_servers, tools);
-            agent_loop.set_tool_capability_policy(
-                mcp_scope_policy(&config, working_dir, std::nullopt, &mcp_manager, &tools));
-            subagent_host.registry().refresh_mcp_policy(config);
-        },
-    });
-
-    auto foreground_surface_available = [&state](std::string& error) {
-        std::lock_guard<std::mutex> lock(state.mu);
-        if (state.ask_pending || state.confirm_pending) {
-            error =
-                "Answer the active question or permission request before "
-                "opening a full-screen settings view.";
-            return false;
-        }
-        if (state.is_waiting || state.tool_running || state.is_compacting) {
-            error =
-                "Settings can be opened when the foreground turn is idle. "
-                "Background tasks may continue running.";
-            return false;
-        }
-        return true;
-    };
-
-    open_settings_surface =
-        [&settings_center, &root_surface_index, &screen,
-         &foreground_surface_available](
-            const std::string& tab_slug, std::string& error) {
-            if (!foreground_surface_available(error)) return false;
-            if (tab_slug.empty()) {
-                settings_center.open();
-            } else {
-                auto tab =
-                    acecode::tui::settings::parse_settings_tab(tab_slug);
-                if (!tab.has_value()) {
-                    error =
-                        "Unknown /config page '" + tab_slug +
-                        "'. Use general, appearance, configuration, "
-                        "personalization, models, usage, archived, or about.";
-                    return false;
-                }
-                settings_center.open(*tab);
-            }
-            root_surface_index =
-                static_cast<int>(
-                    acecode::tui::settings::RootSurface::Settings);
-            settings_center.component()->TakeFocus();
-            screen.PostEvent(Event::Custom);
-            return true;
-        };
-    open_management_surface =
-        [&management_center, &root_surface_index, &screen,
-         &foreground_surface_available](
-            const std::string& tab_slug, std::string& error) {
-            if (!foreground_surface_available(error)) return false;
-            auto tab =
-                acecode::tui::settings::parse_management_tab(tab_slug);
-            if (!tab.has_value()) {
-                error =
-                    "Unknown capability page '" + tab_slug +
-                    "'. Use skills, mcp, connectors, tools, or hooks.";
-                return false;
-            }
-            management_center.open(*tab);
-            root_surface_index =
-                static_cast<int>(
-                    acecode::tui::settings::RootSurface::Management);
-            management_center.component()->TakeFocus();
-            screen.PostEvent(Event::Custom);
-            return true;
-        };
-
-    auto root_surface = Container::Tab(
-        {
-            chat_renderer,
-            settings_center.component(),
-            management_center.component(),
-        },
-        &root_surface_index);
+    auto surfaces = std::make_unique<tui::FullScreenSurfaces>(
+        state, screen_host, config, session_manager, agent_loop, subagent_host,
+        skill_registry, cmd_registry, mcp_manager, tools, hook_manager, skill_usage_store.get(),
+        working_dir, chat_renderer, input_with_esc);
+    auto root_surface = surfaces->component();
+    full_screen_surfaces = std::move(surfaces);
     run_tui_loop(screen, root_surface);
-    // 先停 model-pool 轮询线程:它的回调按引用捕获 model_binding/config/agent_loop,
-    // 必须在这些局部变量析构前 join。g_active_screen 此时已被 run_tui_loop 清空,
-    // 回调不会再 Post 到屏幕。stop() 幂等,未 start 也安全。
-    acecode::model_pool_status_service().stop();
-    join_tui_title_threads();
-    shutdown_after_tui_loop(state, agent_loop, mcp_manager, running,
-                            agent_aborting, anim_thread, auth_thread,
-                            update_check_thread,
-                            session_manager, config);
+    // Stop background publishers in the original order before shutting down
+    // the turn producer; their callbacks now carry revocable owner references.
+    model_pool_monitor->stop();
+    auto_title_runner->stop();
+    shutdown_after_tui_loop(state, agent_loop, mcp_manager,
+                            agent_aborting, *animation, *auth_task,
+                            *update_check,
+                            session_manager, config, *notification_binding, *inbound_submit);
 
     return 0;
 }

@@ -3,14 +3,14 @@
 #include "tui/app/tui_agent_attachment.hpp"
 #include "provider/session_model_binding.hpp"
 #include "utils/lifetime_token.hpp"
-namespace acecode { struct TuiState; class McpManager; }
+namespace acecode { struct TuiState; class McpManager; class AutoTitleRunner; }
 namespace acecode::tui {
 class TuiSubmitter final : public ITurnSubmitter, public TuiAgentAttachment {
 public:
     TuiSubmitter(TuiState& state, IScreenPort& screen, AppConfig& config,
         SessionModelBinding& binding, SessionManager& session, McpManager& mcp,
         std::atomic<bool>& first_wait_done,
-        const std::function<void(const UserInput&)>& auto_title);
+        const std::unique_ptr<AutoTitleRunner>& auto_title);
     std::string cwd() const override;
     void cancel() override;
     void submit_shell(const std::string& command) override;
@@ -28,8 +28,8 @@ private:
     SessionManager& session_;
     McpManager& mcp_;
     std::atomic<bool>& first_wait_done_;
-    // B-12 replaces the pre-existing main-owned title pipeline with its owner.
-    const std::function<void(const UserInput&)>& auto_title_;
+    // Fixed owner slot; populated at the original title startup step before events.
+    const std::unique_ptr<AutoTitleRunner>& auto_title_;
     LifetimeToken lifetime_;
 };
 }

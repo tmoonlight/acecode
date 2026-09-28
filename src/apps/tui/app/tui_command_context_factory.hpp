@@ -5,13 +5,12 @@
 namespace acecode::tui {
 class TuiCommandContextFactory final : public ICommandContextFactory {
 public:
-    using OpenSurface = std::function<bool(const std::string&, std::string&)>;
     TuiCommandContextFactory(TuiState& state, AgentLoop& agent, SessionModelBinding& binding,
         AppConfig& config, TokenTracker& tracker, PermissionManager& permissions,
         IScreenPort& screen, SessionManager& session, McpManager& mcp, ToolExecutor& tools,
         SkillRegistry& skills, MemoryRegistry& memory, CommandRegistry& commands,
         const std::string& cwd, ITurnSubmitter& submitter,
-        SubagentHost* subagents, const OpenSurface& settings, const OpenSurface& management);
+        SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces);
     CommandContext make(bool track_command_usage) override;
 private:
     void record_usage(const std::string& name);
@@ -31,10 +30,9 @@ private:
     const std::string& cwd_;
     ITurnSubmitter& submitter_;
     SubagentHost* subagents_;  // Nullable, borrowed; optional CommandContext service.
-    // Accessed only during events, never in construction. B-12 gives the two
-    // existing surface callbacks an app-owned FullScreenSurfaces implementation.
-    const OpenSurface& settings_;
-    const OpenSurface& management_;
+    // Borrow the app's fixed owner slot only during events, never construction.
+    // The concrete surface is created after the chat/frame components.
+    const std::unique_ptr<IFullScreenSurfaces>& surfaces_;
     LifetimeToken lifetime_;
 };
 }

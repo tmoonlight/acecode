@@ -1,3 +1,6 @@
+#include "session_host/auto_title_runner.hpp"
+#include "tui/app/tui_notification_binding.hpp"
+#include "platform/terminal/terminal_title.hpp"
 #include "tui/app/tui_turn_lifecycle.hpp"
 #include "tui/tui_state.hpp"
 #include "tui/chat/chat_viewport.hpp"
@@ -13,11 +16,10 @@ using ftxui::Event;
 namespace acecode::tui {
 TuiTurnLifecycle::TuiTurnLifecycle(TuiState& s, IScreenPort& scr, ChatViewport& v,
     ITurnSubmitter& submit, SessionManager& session, AppConfig& cfg, TurnObservation& obs,
-    const std::function<void(const std::string&, std::string)>& title,
-    const bool& ready, void* const& window)
+    const std::unique_ptr<AutoTitleRunner>& title,
+    const std::unique_ptr<TuiNotificationBinding>& notifications)
     : state(s), screen(scr), viewport(v), submitter(submit), session_manager(session),
-      config(cfg), observation(obs), start_tui_auto_title_attempt(title),
-      tui_notifications_ready(ready), tui_notification_window(window) {}
+      config(cfg), observation(obs), title_runner_(title), notifications_(notifications) {}
 std::function<void(bool)> TuiTurnLifecycle::busy_callback() {
     return [ref = lifetime_.ref(*this)](bool busy) {
         ref.with([&](TuiTurnLifecycle& owner) { owner.busy_changed(busy); });
@@ -34,14 +36,13 @@ void TuiTurnLifecycle::title_finished(const std::string& status) {
         std::lock_guard<std::mutex> lk(state.mu);
         observation.outcome = status;
     }
-    const std::string session_id = session_manager.current_session_id();
-    auto retry = session_manager.mark_auto_title_turn_finished(status);
-    if (retry.has_value() && !session_id.empty()) {
-        start_tui_auto_title_attempt(session_id, std::move(*retry));
-    }
+    assert(title_runner_);
+    title_runner_->turn_finished(status);
 }
 void TuiTurnLifecycle::busy_changed(bool busy) {
     (void)agent();
+    const bool tui_notifications_ready = notifications_ && notifications_->ready();
+    void* const tui_notification_window = notifications_ ? notifications_->window() : nullptr;
     acecode::note_process_session_busy(kTuiMainPowerSessionId, busy);
     std::unique_lock<std::mutex> lk(state.mu);
     if (busy && !state.is_waiting) {
@@ -154,4 +155,21 @@ void TuiTurnLifecycle::busy_changed(bool busy) {
     }
     screen.post_event(Event::Custom);
 }
+std::function<void(const std::string&, const std::string&)> TuiTurnLifecycle::title_applied_callback() {
+    return [ref = lifetime_.ref(*this)](const std::string& session_id, const std::string& title) {
+        ref.with([&](TuiTurnLifecycle& owner) {
+            {
+                std::lock_guard<std::mutex> lock(owner.state.mu);
+                if (owner.session_manager.current_session_id() == session_id) {
+                    owner.state.current_session_title = title;
+                }
+            }
+            set_terminal_title(title);
+            owner.agent().dispatch_session_title_changed_hook(
+                title, "generated", owner.session_manager.current_title_source());
+            owner.screen.post_event(Event::Custom);
+        });
+    };
+}
+
 }

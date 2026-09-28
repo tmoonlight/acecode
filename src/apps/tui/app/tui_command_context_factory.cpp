@@ -8,11 +8,11 @@ TuiCommandContextFactory::TuiCommandContextFactory(TuiState& state, AgentLoop& a
     PermissionManager& permissions, IScreenPort& screen, SessionManager& session,
     McpManager& mcp, ToolExecutor& tools, SkillRegistry& skills, MemoryRegistry& memory,
     CommandRegistry& commands, const std::string& cwd, ITurnSubmitter& submitter,
-    SubagentHost* subagents, const OpenSurface& settings, const OpenSurface& management)
+    SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces)
     : state_(state), agent_(agent), binding_(binding), config_(config), tracker_(tracker),
       permissions_(permissions), screen_(screen), session_(session), mcp_(mcp), tools_(tools),
       skills_(skills), memory_(memory), commands_(commands), cwd_(cwd), submitter_(submitter),
-      subagents_(subagents), settings_(settings), management_(management) {}
+      subagents_(subagents), surfaces_(surfaces) {}
 void TuiCommandContextFactory::record_usage(const std::string& name) {
     const auto write_result = record_tui_slash_command_use(name);
     std::lock_guard<std::mutex> usage_lock(state_.mu);
@@ -44,14 +44,14 @@ CommandContext TuiCommandContextFactory::make(bool track_command_usage) {
         context.on_command_recognized = [ref](const std::string& name) {
             ref.with([&](TuiCommandContextFactory& owner) { owner.record_usage(name); });
         };
-        if (settings_) context.open_settings_surface = [ref](const std::string& tab, std::string& error) {
+        if (surfaces_) context.open_settings_surface = [ref](const std::string& tab, std::string& error) {
             bool opened = false;
-            ref.with([&](TuiCommandContextFactory& owner) { opened = owner.settings_(tab, error); });
+            ref.with([&](TuiCommandContextFactory& owner) { opened = owner.surfaces_->open_settings(tab, error); });
             return opened;
         };
-        if (management_) context.open_management_surface = [ref](const std::string& tab, std::string& error) {
+        if (surfaces_) context.open_management_surface = [ref](const std::string& tab, std::string& error) {
             bool opened = false;
-            ref.with([&](TuiCommandContextFactory& owner) { opened = owner.management_(tab, error); });
+            ref.with([&](TuiCommandContextFactory& owner) { opened = owner.surfaces_->open_management(tab, error); });
             return opened;
         };
     }

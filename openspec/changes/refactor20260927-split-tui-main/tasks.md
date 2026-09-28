@@ -134,7 +134,7 @@
   - 验证:
     - 工厂字段集合的断言测试;
     - 手工验证:一轮对话、重试、todo、goal、排队、通知、IM 远程、`/model`、revision 守卫(清单第 2、9 小节)。
-- [ ] 4.2 【B-12】【主】启动任务与外部注册对象化。
+- [ ] 4.2 【B-12】【主】启动任务与外部注册对象化。〔实现完成: Codex-root 2026-09-28;九类任务/注册均有宿主,按原步骤创建,标题/通知/全屏临时接线已删除;动画 tick 和标题生成/重试/会话切换用例已补,待统一验证;Copilot 的借用修复按 O-07 单列〕
   - 对象化 UpdateCheckTask、CopilotAuthTask、McpStatusBinding、ModelPoolMonitorSubscription、TuiNotificationBinding、InboundSubmitRegistration、AnimationTicker、FullScreenSurfaces、`host/session_host/auto_title_runner`;
   - 全部用 `optional` / `unique_ptr`,**在原步骤位置 emplace**;
   - AskUserQuestion 工具的注册(原 5431)仍在首回合之前(MR-3)。

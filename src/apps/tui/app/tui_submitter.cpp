@@ -1,3 +1,4 @@
+#include "session_host/auto_title_runner.hpp"
 #include "tui/app/tui_submitter.hpp"
 #include "tui/tui_state.hpp"
 #include "tool/mcp_startup_coordination.hpp"
@@ -9,7 +10,7 @@ namespace acecode::tui {
 TuiSubmitter::TuiSubmitter(TuiState& state, IScreenPort& screen, AppConfig& config,
     SessionModelBinding& binding, SessionManager& session, McpManager& mcp,
     std::atomic<bool>& first_wait_done,
-    const std::function<void(const UserInput&)>& auto_title)
+    const std::unique_ptr<AutoTitleRunner>& auto_title)
     : state_(state), screen_(screen), config_(config), binding_(binding),
       session_(session), mcp_(mcp), first_wait_done_(first_wait_done), auto_title_(auto_title) {}
 std::string TuiSubmitter::cwd() const { return agent().cwd(); }
@@ -76,7 +77,8 @@ void TuiSubmitter::submit_input(const UserInput& input) {
             });
         });
     }
-    auto_title_(input);
+    assert(auto_title_);
+    auto_title_->maybe_start(input);
     agent().submit(input);
 }
 void TuiSubmitter::submit_text(const std::string& text, const std::string& display_text) {

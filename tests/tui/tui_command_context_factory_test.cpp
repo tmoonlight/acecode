@@ -9,6 +9,15 @@
 namespace {
 using acecode::tui::TuiCommandContextFactory;
 using acecode::tui::test_support::InputHarness;
+struct FakeSurfaces final : acecode::tui::IFullScreenSurfaces {
+    std::string selected;
+    bool open_settings(const std::string& tab, std::string&) override {
+        selected = "settings/" + tab; return true;
+    }
+    bool open_management(const std::string& tab, std::string&) override {
+        selected = "management/" + tab; return true;
+    }
+};
 }
 
 // 中文契约说明：启动/通知上下文没有用量与全屏入口，用户命令上下文包含二者；公共字段完全一致。
@@ -20,16 +29,11 @@ TEST(TuiCommandContextFactory, ContextFieldsAndOptionalDirectInputHooks) {
     acecode::McpManager mcp;
     acecode::SkillRegistry skills;
     acecode::MemoryRegistry memory;
-    std::string selected;
-    TuiCommandContextFactory::OpenSurface settings = [&](const std::string& tab, std::string&) {
-        selected = "settings/" + tab; return true;
-    };
-    TuiCommandContextFactory::OpenSurface management = [&](const std::string& tab, std::string&) {
-        selected = "management/" + tab; return true;
-    };
+    std::unique_ptr<acecode::tui::IFullScreenSurfaces> surfaces = std::make_unique<FakeSurfaces>();
+    auto& selected = static_cast<FakeSurfaces&>(*surfaces).selected;
     TuiCommandContextFactory factory(h.state, *agent.loop, binding, h.config, tracker,
         h.permissions, h.screen, h.session, mcp, agent.tools, skills, memory, h.commands,
-        h.cwd, h.turn, nullptr, settings, management);
+        h.cwd, h.turn, nullptr, surfaces);
     for (bool direct : {false, true}) {
         auto context = factory.make(direct);
         EXPECT_EQ(&context.state, &h.state);
@@ -78,12 +82,12 @@ TEST(TuiCommandContextFactory, ContextCallbacksAreRevokedWithFactory) {
     acecode::McpManager mcp;
     acecode::SkillRegistry skills;
     acecode::MemoryRegistry memory;
-    TuiCommandContextFactory::OpenSurface empty;
+    std::unique_ptr<acecode::tui::IFullScreenSurfaces> surfaces;
     std::optional<acecode::CommandContext> context;
     {
         TuiCommandContextFactory factory(h.state, *agent.loop, binding, h.config, tracker,
             h.permissions, h.screen, h.session, mcp, agent.tools, skills, memory, h.commands,
-            h.cwd, h.turn, nullptr, empty, empty);
+            h.cwd, h.turn, nullptr, surfaces);
         context.emplace(factory.make(false));
     }
     context->post_event();
