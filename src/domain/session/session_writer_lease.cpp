@@ -166,4 +166,51 @@ void SessionWriterLease::remove(const std::string& project_dir,
     fs::remove(path_from_utf8(lease_path(project_dir, session_id)), ec);
 }
 
+WriterLease::WriterLease(std::string project_dir, std::string session_id)
+    : project_dir_(std::move(project_dir)), session_id_(std::move(session_id)),
+      pid_(daemon::current_pid()) {}
+
+WriterLease::~WriterLease() { reset(); }
+
+WriterLease::WriterLease(WriterLease&& other) noexcept
+    : project_dir_(std::move(other.project_dir_)), session_id_(std::move(other.session_id_)),
+      pid_(other.pid_), active_(std::exchange(other.active_, false)) {}
+
+WriterLease& WriterLease::operator=(WriterLease&& other) noexcept {
+    if (this != &other) {
+        reset();
+        project_dir_ = std::move(other.project_dir_);
+        session_id_ = std::move(other.session_id_);
+        pid_ = other.pid_;
+        active_ = std::exchange(other.active_, false);
+    }
+    return *this;
+}
+
+SessionWriterLeaseResult WriterLease::acquire(const std::string& cwd, const std::string& surface) {
+    auto result = SessionWriterLease::acquire(project_dir_, session_id_, cwd, surface, pid_);
+    active_ = result.status == SessionWriterLeaseResult::Status::Acquired;
+    return result;
+}
+
+bool WriterLease::refresh() {
+    if (!active_) return false;
+    active_ = SessionWriterLease::refresh(project_dir_, session_id_, pid_);
+    return active_;
+}
+
+bool WriterLease::matches(const std::string& project_dir, const std::string& session_id) const {
+    return project_dir_ == project_dir && session_id_ == session_id;
+}
+
+void WriterLease::reset() noexcept {
+    if (!std::exchange(active_, false)) return;
+    try {
+        SessionWriterLease::release(project_dir_, session_id_, pid_);
+    } catch (...) {
+        // Destruction is best effort, like explicit SessionManager shutdown.
+        // A failed release is recovered by the existing stale-lease mechanism.
+    }
+}
+
 } // namespace acecode

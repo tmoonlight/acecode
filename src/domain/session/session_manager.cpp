@@ -249,7 +249,7 @@ void SessionManager::start_session(const std::string& cwd,
     session_token_usage_ = {};
     todos_.clear();
     last_error_.clear();
-    writer_lease_active_ = false;
+    writer_lease_.reset();
     archived_ = false;
     parent_session_id_.clear();
     expert_id_.clear();
@@ -585,7 +585,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
 
     // Resume adopts the canonical transcript directly. It must not copy history
     // into a new PID-suffixed file or rewrite the shared transcript.
-    if (writer_lease_active_ && session_id_ != session_id) {
+    if (writer_lease_ && session_id_ != session_id) {
         release_writer_lease_locked();
     }
     session_id_ = session_id;
@@ -1819,16 +1819,18 @@ bool SessionManager::record_trajectory_event_locked(
 bool SessionManager::acquire_writer_lease_locked() {
     if (project_dir_.empty() || session_id_.empty()) return true;
 
-    auto result = SessionWriterLease::acquire(project_dir_, session_id_, cwd_, surface_);
+    if (!writer_lease_ || !writer_lease_->matches(project_dir_, session_id_)) {
+        writer_lease_.emplace(project_dir_, session_id_);
+    }
+    auto result = writer_lease_->acquire(cwd_, surface_);
     if (result.status == SessionWriterLeaseResult::Status::Acquired) {
-        writer_lease_active_ = true;
         if (result.stale_recovered) {
             LOG_INFO("[session] recovered stale writer lease for " + session_id_);
         }
         return true;
     }
 
-    writer_lease_active_ = false;
+    writer_lease_.reset();
     if (result.status == SessionWriterLeaseResult::Status::Conflict) {
         last_error_ = "Session " + session_id_ + " is already active in another ACECode process (pid " +
                       std::to_string(result.owner.pid) + ", surface " + result.owner.surface + ").";
@@ -1844,17 +1846,15 @@ bool SessionManager::acquire_writer_lease_locked() {
 }
 
 void SessionManager::refresh_writer_lease_locked() {
-    if (!writer_lease_active_ || project_dir_.empty() || session_id_.empty()) return;
-    if (!SessionWriterLease::refresh(project_dir_, session_id_)) {
-        writer_lease_active_ = false;
+    if (!writer_lease_) return;
+    if (!writer_lease_->refresh()) {
+        writer_lease_.reset();
         LOG_WARN("[session] failed to refresh writer lease for " + session_id_);
     }
 }
 
 void SessionManager::release_writer_lease_locked() {
-    if (!writer_lease_active_ || project_dir_.empty() || session_id_.empty()) return;
-    SessionWriterLease::release(project_dir_, session_id_);
-    writer_lease_active_ = false;
+    writer_lease_.reset();
 }
 
 std::string SessionManager::extract_summary(const std::string& content) const {

@@ -346,13 +346,12 @@ std::optional<AgentBrowserElementRef> parse_agent_browser_element_ref(
 }
 
 AgentBrowserCdpClient::AgentBrowserCdpClient(std::string acecode_dir)
-    : impl_(new Impl) {
+    : impl_(std::make_unique<Impl>()) {
     impl_->acecode_dir = std::move(acecode_dir);
 }
 
 AgentBrowserCdpClient::~AgentBrowserCdpClient() {
     close();
-    delete impl_;
 }
 
 bool AgentBrowserCdpClient::connect(

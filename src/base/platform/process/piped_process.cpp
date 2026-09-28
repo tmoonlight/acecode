@@ -39,18 +39,11 @@ std::string windows_error_message(DWORD code) {
             FORMAT_MESSAGE_IGNORE_INSERTS,
         nullptr, code, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         reinterpret_cast<LPSTR>(&buffer), 0, nullptr);
+    UniqueLocalMem owned_buffer(buffer);
     std::string out = size > 0 && buffer ? std::string(buffer, size) : std::string{};
-    if (buffer) LocalFree(buffer);
     while (!out.empty() && (out.back() == '\r' || out.back() == '\n')) out.pop_back();
     if (out.empty()) out = "Windows error " + std::to_string(code);
     return out;
-}
-
-void close_handle(void*& handle) {
-    if (handle) {
-        CloseHandle(static_cast<HANDLE>(handle));
-        handle = nullptr;
-    }
 }
 
 std::string lower_ascii(std::string value) {
@@ -107,15 +100,6 @@ std::wstring build_environment_block(
     }
     block.push_back(L'\0');
     return block;
-}
-
-#else
-
-void close_fd(int& fd) {
-    if (fd >= 0) {
-        close(fd);
-        fd = -1;
-    }
 }
 
 #endif
@@ -180,54 +164,39 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
     sa.nLength = sizeof(SECURITY_ATTRIBUTES);
     sa.bInheritHandle = TRUE;
 
-    HANDLE child_stdin_read = nullptr;
-    HANDLE child_stdin_write = nullptr;
-    HANDLE child_stdout_read = nullptr;
-    HANDLE child_stdout_write = nullptr;
-    HANDLE child_stderr = nullptr;
+    UniqueHandle child_stdin_read, child_stdin_write;
+    UniqueHandle child_stdout_read, child_stdout_write, child_stderr;
 
-    auto cleanup = [&] {
-        if (child_stdin_read) CloseHandle(child_stdin_read);
-        if (child_stdin_write) CloseHandle(child_stdin_write);
-        if (child_stdout_read) CloseHandle(child_stdout_read);
-        if (child_stdout_write) CloseHandle(child_stdout_write);
-        if (child_stderr) CloseHandle(child_stderr);
-    };
-
-    if (!CreatePipe(&child_stdin_read, &child_stdin_write, &sa, 0)) {
+    if (!CreatePipe(child_stdin_read.put(), child_stdin_write.put(), &sa, 0)) {
         if (error) *error = "CreatePipe(stdin) failed: " + windows_error_message(GetLastError());
         return false;
     }
-    if (!SetHandleInformation(child_stdin_write, HANDLE_FLAG_INHERIT, 0)) {
+    if (!SetHandleInformation(child_stdin_write.get(), HANDLE_FLAG_INHERIT, 0)) {
         if (error) *error = "SetHandleInformation(stdin) failed: " +
             windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
-    if (!CreatePipe(&child_stdout_read, &child_stdout_write, &sa, 0)) {
+    if (!CreatePipe(child_stdout_read.put(), child_stdout_write.put(), &sa, 0)) {
         if (error) *error = "CreatePipe(stdout) failed: " + windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
-    if (!SetHandleInformation(child_stdout_read, HANDLE_FLAG_INHERIT, 0)) {
+    if (!SetHandleInformation(child_stdout_read.get(), HANDLE_FLAG_INHERIT, 0)) {
         if (error) *error = "SetHandleInformation(stdout) failed: " +
             windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
 
     // stderr 丢弃:LSP server 的日志会污染协议侧观察,统一送 NUL。
-    child_stderr = CreateFileA("NUL", GENERIC_WRITE,
+    child_stderr.reset(CreateFileA("NUL", GENERIC_WRITE,
                                FILE_SHARE_WRITE | FILE_SHARE_READ, &sa,
-                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (child_stderr == INVALID_HANDLE_VALUE) child_stderr = nullptr;
+                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
 
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = child_stdin_read;
-    si.hStdOutput = child_stdout_write;
-    si.hStdError = child_stderr ? child_stderr : child_stdout_write;
+    si.hStdInput = child_stdin_read.get();
+    si.hStdOutput = child_stdout_write.get();
+    si.hStdError = child_stderr ? child_stderr.get() : child_stdout_write.get();
 
     PROCESS_INFORMATION pi{};
     std::wstring wide_command = utf8_to_wide(command_line);
@@ -256,18 +225,13 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
     if (!ok) {
         if (error) *error = "CreateProcess failed for `" + command_line + "`: " +
             windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
 
-    CloseHandle(child_stdin_read);
-    CloseHandle(child_stdout_write);
-    if (child_stderr) CloseHandle(child_stderr);
-    CloseHandle(pi.hThread);
-
-    process_handle_ = pi.hProcess;
-    stdin_write_ = child_stdin_write;
-    stdout_read_ = child_stdout_read;
+    UniqueHandle initial_thread(pi.hThread);
+    process_.reset(pi.hProcess);
+    stdin_write_ = std::move(child_stdin_write);
+    stdout_read_ = std::move(child_stdout_read);
     started_ = true;
     return true;
 #else
@@ -277,21 +241,17 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
         if (error) *error = std::string("pipe(stdin) failed: ") + std::strerror(errno);
         return false;
     }
+    UniqueFd stdin_read(stdin_pipe[0]), stdin_write(stdin_pipe[1]);
     if (pipe(stdout_pipe) != 0) {
         if (error) *error = std::string("pipe(stdout) failed: ") + std::strerror(errno);
-        close_fd(stdin_pipe[0]);
-        close_fd(stdin_pipe[1]);
         return false;
     }
 
+    UniqueFd stdout_read(stdout_pipe[0]), stdout_write(stdout_pipe[1]);
     std::vector<std::string> argv = opts.argv;
     pid_t pid = fork();
     if (pid < 0) {
         if (error) *error = std::string("fork failed: ") + std::strerror(errno);
-        close_fd(stdin_pipe[0]);
-        close_fd(stdin_pipe[1]);
-        close_fd(stdout_pipe[0]);
-        close_fd(stdout_pipe[1]);
         return false;
     }
 
@@ -321,11 +281,11 @@ bool PipedProcess::start(const SpawnOptions& opts, std::string* error) {
         _exit(127);
     }
 
-    close_fd(stdin_pipe[0]);
-    close_fd(stdout_pipe[1]);
-    process_id_ = pid;
-    stdin_write_ = stdin_pipe[1];
-    stdout_read_ = stdout_pipe[0];
+    stdin_read.reset();
+    stdout_write.reset();
+    process_.reset(pid);
+    stdin_write_ = std::move(stdin_write);
+    stdout_read_ = std::move(stdout_read);
     started_ = true;
     return true;
 #endif
@@ -335,7 +295,7 @@ long PipedProcess::read_stdout(char* buf, std::size_t len) {
 #ifdef _WIN32
     if (!stdout_read_) return 0;
     DWORD bytes_read = 0;
-    BOOL ok = ReadFile(static_cast<HANDLE>(stdout_read_), buf,
+    BOOL ok = ReadFile(stdout_read_.get(), buf,
                        static_cast<DWORD>(len), &bytes_read, nullptr);
     if (!ok) {
         const DWORD err = GetLastError();
@@ -344,9 +304,9 @@ long PipedProcess::read_stdout(char* buf, std::size_t len) {
     }
     return static_cast<long>(bytes_read);
 #else
-    if (stdout_read_ < 0) return 0;
+    if (!stdout_read_) return 0;
     for (;;) {
-        ssize_t n = read(stdout_read_, buf, len);
+        ssize_t n = read(stdout_read_.get(), buf, len);
         if (n < 0 && errno == EINTR) continue;
         if (n < 0) return -1;
         return static_cast<long>(n);
@@ -361,7 +321,7 @@ bool PipedProcess::write_stdin(const char* data, std::size_t len, std::string* e
         return false;
     }
     DWORD written = 0;
-    BOOL ok = WriteFile(static_cast<HANDLE>(stdin_write_), data,
+    BOOL ok = WriteFile(stdin_write_.get(), data,
                         static_cast<DWORD>(len), &written, nullptr);
     if (!ok || written != len) {
         if (error) *error = "WriteFile(stdin) failed: " +
@@ -370,14 +330,14 @@ bool PipedProcess::write_stdin(const char* data, std::size_t len, std::string* e
     }
     return true;
 #else
-    if (stdin_write_ < 0) {
+    if (!stdin_write_) {
         if (error) *error = "stdin closed";
         return false;
     }
     const char* cursor = data;
     std::size_t remaining = len;
     while (remaining > 0) {
-        ssize_t n = write(stdin_write_, cursor, remaining);
+        ssize_t n = write(stdin_write_.get(), cursor, remaining);
         if (n < 0) {
             if (errno == EINTR) continue;
             if (error) *error = std::string("write(stdin) failed: ") + std::strerror(errno);
@@ -391,65 +351,22 @@ bool PipedProcess::write_stdin(const char* data, std::size_t len, std::string* e
 }
 
 void PipedProcess::close_stdin() {
-#ifdef _WIN32
-    close_handle(stdin_write_);
-#else
-    close_fd(stdin_write_);
-#endif
+    stdin_write_.reset();
 }
 
 bool PipedProcess::wait_exit(int timeout_ms) {
-#ifdef _WIN32
-    if (!process_handle_) return true;
-    return WaitForSingleObject(static_cast<HANDLE>(process_handle_),
-                               static_cast<DWORD>(timeout_ms)) == WAIT_OBJECT_0;
-#else
-    if (process_id_ <= 0) return true;
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(timeout_ms);
-    for (;;) {
-        int status = 0;
-        pid_t r = waitpid(process_id_, &status, WNOHANG);
-        if (r == process_id_ || (r < 0 && errno == ECHILD)) {
-            process_id_ = -1;
-            return true;
-        }
-        if (std::chrono::steady_clock::now() >= deadline) return false;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    }
-#endif
+    return process_.wait_exit(timeout_ms);
 }
 
 void PipedProcess::kill_child() {
-#ifdef _WIN32
-    if (process_handle_) TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
-#else
-    if (process_id_ > 0) kill(process_id_, SIGKILL);
-#endif
+    process_.kill();
 }
 
 void PipedProcess::terminate() {
-#ifdef _WIN32
-    if (process_handle_) {
-        TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
-    }
-    close_handle(stdin_write_);
-    close_handle(stdout_read_);
-    if (process_handle_) {
-        WaitForSingleObject(static_cast<HANDLE>(process_handle_), 2000);
-        close_handle(process_handle_);
-    }
-#else
-    if (process_id_ > 0) {
-        kill(process_id_, SIGKILL);
-    }
-    close_fd(stdin_write_);
-    close_fd(stdout_read_);
-    if (process_id_ > 0) {
-        wait_exit(2000);
-        process_id_ = -1;
-    }
-#endif
+    process_.kill();
+    stdin_write_.reset();
+    stdout_read_.reset();
+    process_.reset();
     started_ = false;
 }
 

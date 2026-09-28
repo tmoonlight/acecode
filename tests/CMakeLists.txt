@@ -138,6 +138,9 @@ if(WIN32 OR APPLE)
     add_executable(computer_use_broker_smoke EXCLUDE_FROM_ALL
         ${ACECODE_COMPUTER_USE_BROKER_SMOKE_SOURCES})
     target_link_libraries(computer_use_broker_smoke PRIVATE acecode_include_roots)
+    if(WIN32)
+        target_link_libraries(computer_use_broker_smoke PRIVATE advapi32)
+    endif()
     target_link_libraries(computer_use_broker_smoke PRIVATE nlohmann_json::nlohmann_json)
     set_target_properties(computer_use_broker_smoke PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${_computer_broker_dir}")

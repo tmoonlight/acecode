@@ -9,6 +9,8 @@
 // - Windows 上 argv[0] 为 .cmd/.bat 时自动经 cmd.exe /d /c 执行
 //   (CreateProcess 不能直接执行批处理;npm 全局命令都是 .cmd shim)
 
+#include "unique_resources.hpp"
+
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -54,14 +56,13 @@ public:
     void terminate();
 
 private:
+    UniqueProcess process_;
 #ifdef _WIN32
-    void* process_handle_ = nullptr;
-    void* stdin_write_ = nullptr;
-    void* stdout_read_ = nullptr;
+    UniqueHandle stdin_write_;
+    UniqueHandle stdout_read_;
 #else
-    int process_id_ = -1;
-    int stdin_write_ = -1;
-    int stdout_read_ = -1;
+    UniqueFd stdin_write_;
+    UniqueFd stdout_read_;
 #endif
     bool started_ = false;
 };

@@ -12,6 +12,7 @@
 // 接口都允许 nullptr)。
 
 #include "config/config.hpp"
+#include <memory>
 
 namespace acecode::web_search {
 
@@ -31,7 +32,7 @@ public:
 
 private:
     struct Impl;
-    Impl* impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 // 进程级初始化。重复调 → LOG_WARN 并保留第一次的。enabled=false 时仍然会

@@ -256,26 +256,24 @@ bool AuditLog::open_file(const std::string& db_path, std::string* error) {
 
 bool AuditLog::open_locked(const std::string& db_path, std::string* error) {
     close_locked();
-    sqlite3* db = nullptr;
-    const int rc = sqlite3_open_v2(db_path.c_str(), &db,
+    platform::UniqueSqlite db;
+    const int rc = sqlite3_open_v2(db_path.c_str(), db.put(),
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr);
     if (rc != SQLITE_OK) {
-        const std::string message = sqlite_error(db, "cannot open audit database");
-        if (db) sqlite3_close(db);
+        const std::string message = sqlite_error(db.get(), "cannot open audit database");
         set_error(error, message);
         return false;
     }
-    sqlite3_busy_timeout(db, 3000);
+    sqlite3_busy_timeout(db.get(), 3000);
     // WAL + NORMAL:审批门在调用线程同步写,别让一次 fsync 卡住工具执行。
-    (void)exec_sql(db, "PRAGMA journal_mode=WAL;", nullptr);
-    (void)exec_sql(db, "PRAGMA synchronous=NORMAL;", nullptr);
+    (void)exec_sql(db.get(), "PRAGMA journal_mode=WAL;", nullptr);
+    (void)exec_sql(db.get(), "PRAGMA synchronous=NORMAL;", nullptr);
     std::string local_error;
-    if (!exec_sql(db, kCreateSql, &local_error)) {
-        sqlite3_close(db);
+    if (!exec_sql(db.get(), kCreateSql, &local_error)) {
         set_error(error, "cannot create audit schema: " + local_error);
         return false;
     }
-    db_ = db;
+    db_ = std::move(db);
     path_ = db_path;
     inserts_since_prune_ = 0;
     (void)prune_locked(nullptr);
@@ -283,10 +281,7 @@ bool AuditLog::open_locked(const std::string& db_path, std::string* error) {
 }
 
 void AuditLog::close_locked() {
-    if (db_) {
-        sqlite3_close(db_);
-        db_ = nullptr;
-    }
+    db_.reset();
     path_.clear();
 }
 
@@ -297,7 +292,7 @@ void AuditLog::close() {
 
 bool AuditLog::available() const {
     std::lock_guard<std::mutex> lock(mu_);
-    return db_ != nullptr;
+    return static_cast<bool>(db_.get());
 }
 
 std::string AuditLog::path() const {
@@ -317,9 +312,9 @@ std::size_t AuditLog::max_entries() const {
 
 bool AuditLog::record(AuditEntry& entry, std::string* error) {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!db_) return false;
+    if (!db_.get()) return false;
     if (entry.ts_ms <= 0) entry.ts_ms = audit_now_ms();
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "INSERT INTO audit_entries (ts_ms, category, decision, source, reason, tool, target, "
         "session_id, cwd, sandbox, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
         error);
@@ -332,14 +327,14 @@ bool AuditLog::record(AuditEntry& entry, std::string* error) {
         !bind_text(s, 7, entry.target) || !bind_text(s, 8, entry.session_id) ||
         !bind_text(s, 9, entry.cwd) || !bind_text(s, 10, entry.sandbox) ||
         !bind_text(s, 11, detail)) {
-        set_error(error, sqlite_error(db_, "bind failed"));
+        set_error(error, sqlite_error(db_.get(), "bind failed"));
         return false;
     }
     if (sqlite3_step(s) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "insert failed"));
+        set_error(error, sqlite_error(db_.get(), "insert failed"));
         return false;
     }
-    entry.id = static_cast<std::int64_t>(sqlite3_last_insert_rowid(db_));
+    entry.id = static_cast<std::int64_t>(sqlite3_last_insert_rowid(db_.get()));
     if (++inserts_since_prune_ >= kPruneEvery) {
         inserts_since_prune_ = 0;
         (void)prune_locked(nullptr);
@@ -348,19 +343,19 @@ bool AuditLog::record(AuditEntry& entry, std::string* error) {
 }
 
 bool AuditLog::prune_locked(std::string* error) {
-    if (!db_) return false;
+    if (!db_.get()) return false;
     // 保留最新 max_entries_ 条:删掉第 max_entries_+1 新那条及更旧的。
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "DELETE FROM audit_entries WHERE id <= COALESCE("
         "(SELECT id FROM audit_entries ORDER BY id DESC LIMIT 1 OFFSET ?), 0);",
         error);
     if (!stmt) return false;
     if (!bind_i64(stmt.get(), 1, static_cast<std::int64_t>(max_entries_))) {
-        set_error(error, sqlite_error(db_, "bind failed"));
+        set_error(error, sqlite_error(db_.get(), "bind failed"));
         return false;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "prune failed"));
+        set_error(error, sqlite_error(db_.get(), "prune failed"));
         return false;
     }
     return true;
@@ -369,7 +364,7 @@ bool AuditLog::prune_locked(std::string* error) {
 AuditPage AuditLog::query(const AuditQuery& query, std::string* error) const {
     AuditPage page;
     std::lock_guard<std::mutex> lock(mu_);
-    if (!db_) {
+    if (!db_.get()) {
         set_error(error, "audit log is not configured");
         return page;
     }
@@ -377,11 +372,11 @@ AuditPage AuditLog::query(const AuditQuery& query, std::string* error) const {
 
     {
         const FilterClause clause = build_filters(query, /*with_cursor=*/false);
-        Statement count(db_, std::string("SELECT COUNT(*) FROM audit_entries") + clause.where, error);
+        Statement count(db_.get(), std::string("SELECT COUNT(*) FROM audit_entries") + clause.where, error);
         if (!count) return page;
         int index = 1;
         if (!bind_filters(count.get(), clause, index)) {
-            set_error(error, sqlite_error(db_, "bind failed"));
+            set_error(error, sqlite_error(db_.get(), "bind failed"));
             return page;
         }
         if (sqlite3_step(count.get()) == SQLITE_ROW) {
@@ -390,7 +385,7 @@ AuditPage AuditLog::query(const AuditQuery& query, std::string* error) const {
     }
 
     const FilterClause clause = build_filters(query, /*with_cursor=*/true);
-    Statement select(db_,
+    Statement select(db_.get(),
         std::string("SELECT ") + kSelectColumns + " FROM audit_entries" + clause.where +
             " ORDER BY id DESC LIMIT ?;",
         error);
@@ -398,7 +393,7 @@ AuditPage AuditLog::query(const AuditQuery& query, std::string* error) const {
     int index = 1;
     if (!bind_filters(select.get(), clause, index) ||
         !bind_i64(select.get(), index, static_cast<std::int64_t>(limit) + 1)) {
-        set_error(error, sqlite_error(db_, "bind failed"));
+        set_error(error, sqlite_error(db_.get(), "bind failed"));
         return page;
     }
     while (true) {
@@ -411,7 +406,7 @@ AuditPage AuditLog::query(const AuditQuery& query, std::string* error) const {
             page.entries.push_back(read_entry(select.get()));
             continue;
         }
-        if (rc != SQLITE_DONE) set_error(error, sqlite_error(db_, "query failed"));
+        if (rc != SQLITE_DONE) set_error(error, sqlite_error(db_.get(), "query failed"));
         break;
     }
     return page;
@@ -420,33 +415,33 @@ AuditPage AuditLog::query(const AuditQuery& query, std::string* error) const {
 AuditSummary AuditLog::summary(std::size_t blocked_path_limit, std::string* error) const {
     AuditSummary out;
     std::lock_guard<std::mutex> lock(mu_);
-    if (!db_) {
+    if (!db_.get()) {
         set_error(error, "audit log is not configured");
         return out;
     }
     {
-        Statement stmt(db_, "SELECT COUNT(*), COALESCE(MAX(ts_ms), 0) FROM audit_entries;", error);
+        Statement stmt(db_.get(), "SELECT COUNT(*), COALESCE(MAX(ts_ms), 0) FROM audit_entries;", error);
         if (stmt && sqlite3_step(stmt.get()) == SQLITE_ROW) {
             out.total = static_cast<std::int64_t>(sqlite3_column_int64(stmt.get(), 0));
             out.last_ts_ms = static_cast<std::int64_t>(sqlite3_column_int64(stmt.get(), 1));
         }
     }
     {
-        Statement stmt(db_, "SELECT decision, COUNT(*) FROM audit_entries GROUP BY decision;", error);
+        Statement stmt(db_.get(), "SELECT decision, COUNT(*) FROM audit_entries GROUP BY decision;", error);
         while (stmt && sqlite3_step(stmt.get()) == SQLITE_ROW) {
             out.by_decision[column_text(stmt.get(), 0)] =
                 static_cast<std::int64_t>(sqlite3_column_int64(stmt.get(), 1));
         }
     }
     {
-        Statement stmt(db_, "SELECT category, COUNT(*) FROM audit_entries GROUP BY category;", error);
+        Statement stmt(db_.get(), "SELECT category, COUNT(*) FROM audit_entries GROUP BY category;", error);
         while (stmt && sqlite3_step(stmt.get()) == SQLITE_ROW) {
             out.by_category[column_text(stmt.get(), 0)] =
                 static_cast<std::int64_t>(sqlite3_column_int64(stmt.get(), 1));
         }
     }
     if (blocked_path_limit > 0) {
-        Statement stmt(db_,
+        Statement stmt(db_.get(),
             "SELECT target, COUNT(*), MAX(ts_ms) FROM audit_entries "
             "WHERE category = 'sandbox' AND target <> '' GROUP BY target "
             "ORDER BY MAX(ts_ms) DESC LIMIT ?;",
@@ -466,28 +461,28 @@ AuditSummary AuditLog::summary(std::size_t blocked_path_limit, std::string* erro
 
 std::int64_t AuditLog::count(std::string* error) const {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!db_) {
+    if (!db_.get()) {
         set_error(error, "audit log is not configured");
         return 0;
     }
-    Statement stmt(db_, "SELECT COUNT(*) FROM audit_entries;", error);
+    Statement stmt(db_.get(), "SELECT COUNT(*) FROM audit_entries;", error);
     if (!stmt) return 0;
     if (sqlite3_step(stmt.get()) == SQLITE_ROW) {
         return static_cast<std::int64_t>(sqlite3_column_int64(stmt.get(), 0));
     }
-    set_error(error, sqlite_error(db_, "count failed"));
+    set_error(error, sqlite_error(db_.get(), "count failed"));
     return 0;
 }
 
 bool AuditLog::clear(std::string* error) {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!db_) {
+    if (!db_.get()) {
         set_error(error, "audit log is not configured");
         return false;
     }
-    if (!exec_sql(db_, "DELETE FROM audit_entries;", error)) return false;
-    (void)exec_sql(db_, "DELETE FROM sqlite_sequence WHERE name = 'audit_entries';", nullptr);
-    (void)exec_sql(db_, "VACUUM;", nullptr);
+    if (!exec_sql(db_.get(), "DELETE FROM audit_entries;", error)) return false;
+    (void)exec_sql(db_.get(), "DELETE FROM sqlite_sequence WHERE name = 'audit_entries';", nullptr);
+    (void)exec_sql(db_.get(), "VACUUM;", nullptr);
     inserts_since_prune_ = 0;
     return true;
 }

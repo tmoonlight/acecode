@@ -114,8 +114,8 @@ SidBuffer synthetic_sid(const SandboxPolicy& policy) {
     if (!AllocateAndInitializeSid(&nt, 6, 80, sub[0], sub[1], sub[2], sub[3], sub[4], 0, 0, &sid)) {
         return {};
     }
+    platform::UniqueSid owned_sid(sid);
     SidBuffer out = copy_sid(sid);
-    FreeSid(sid);
     return out;
 }
 
@@ -139,13 +139,13 @@ std::string win_error_text(DWORD code) {
     const DWORD n = FormatMessageW(
         FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
         nullptr, code, 0, reinterpret_cast<LPWSTR>(&buffer), 0, nullptr);
+    platform::UniqueLocalMem owned_buffer(buffer);
     std::string text = "error " + std::to_string(code);
     if (n && buffer) {
         std::wstring w(buffer, n);
         while (!w.empty() && (w.back() == L'\r' || w.back() == L'\n' || w.back() == L' ')) w.pop_back();
         text += ": " + wide_to_utf8(w);
     }
-    if (buffer) LocalFree(buffer);
     return text;
 }
 
@@ -184,12 +184,12 @@ bool apply_ace(const std::wstring& path, PSID sid, DWORD mask, bool deny, bool i
     PSECURITY_DESCRIPTOR sd = nullptr;
     DWORD rc = GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
                                      nullptr, nullptr, &old_dacl, nullptr, &sd);
+    platform::UniqueLocalMem owned_sd(sd);
     if (rc != ERROR_SUCCESS) {
         if (error) *error = "GetNamedSecurityInfo(" + wide_to_utf8(path) + ") " + win_error_text(rc);
         return false;
     }
     if (ace_present(old_dacl, sid, mask, deny, is_dir)) {
-        LocalFree(sd);
         return true;
     }
     SECURITY_DESCRIPTOR_CONTROL control = 0;
@@ -205,9 +205,9 @@ bool apply_ace(const std::wstring& path, PSID sid, DWORD mask, bool deny, bool i
     ea.Trustee.ptstrName = static_cast<LPWSTR>(sid);
     PACL fresh = nullptr;
     rc = SetEntriesInAclW(1, &ea, old_dacl, &fresh);
+    platform::UniqueLocalMem owned_fresh(fresh);
     if (rc != ERROR_SUCCESS) {
         if (error) *error = "SetEntriesInAcl(" + wide_to_utf8(path) + ") " + win_error_text(rc);
-        LocalFree(sd);
         return false;
     }
     // 保住 DACL 的"是否继承父目录"状态:不传这一位,SetNamedSecurityInfo 会把
@@ -220,8 +220,6 @@ bool apply_ace(const std::wstring& path, PSID sid, DWORD mask, bool deny, bool i
                                nullptr, nullptr, fresh, nullptr);
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started).count();
-    LocalFree(fresh);
-    LocalFree(sd);
     if (rc != ERROR_SUCCESS) {
         if (error) *error = "SetNamedSecurityInfo(" + wide_to_utf8(path) + ") " + win_error_text(rc);
         return false;
@@ -252,41 +250,39 @@ std::string synthetic_sid_string(const SandboxPolicy& policy) {
     if (!sid.valid()) return {};
     LPWSTR text = nullptr;
     if (!ConvertSidToStringSidW(sid.get(), &text)) return {};
+    platform::UniqueLocalMem owned_text(text);
     std::string out = wide_to_utf8(text);
-    LocalFree(text);
     return out;
 }
 
-void* create_restricted_token(const SandboxPolicy& policy, std::string* error) {
-    HANDLE base = nullptr;
+platform::UniqueHandle create_restricted_token(const SandboxPolicy& policy, std::string* error) {
+    platform::UniqueHandle base;
     if (!OpenProcessToken(GetCurrentProcess(),
-                          TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT, &base)) {
+                          TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT, base.put())) {
         if (error) *error = "OpenProcessToken " + win_error_text(GetLastError());
-        return nullptr;
+        return {};
     }
     SidBuffer everyone = everyone_sid();
-    SidBuffer logon = logon_sid(base);
+    SidBuffer logon = logon_sid(base.get());
     SidBuffer synthetic = synthetic_sid(policy);
     if (!everyone.valid() || !synthetic.valid() || !logon.valid()) {
         if (error) *error = "failed to build restricting SIDs";
-        CloseHandle(base);
-        return nullptr;
+        return {};
     }
     std::vector<SID_AND_ATTRIBUTES> restricting;
     restricting.push_back({everyone.get(), 0});
     if (logon.valid()) restricting.push_back({logon.get(), 0});
     restricting.push_back({synthetic.get(), 0});
 
-    HANDLE restricted = nullptr;
-    const BOOL ok = CreateRestrictedToken(base, WRITE_RESTRICTED | DISABLE_MAX_PRIVILEGE | LUA_TOKEN,
+    platform::UniqueHandle restricted;
+    const BOOL ok = CreateRestrictedToken(base.get(), WRITE_RESTRICTED | DISABLE_MAX_PRIVILEGE | LUA_TOKEN,
                                           0, nullptr, 0, nullptr,
                                           static_cast<DWORD>(restricting.size()), restricting.data(),
-                                          &restricted);
+                                          restricted.put());
     const DWORD last = ok ? 0 : GetLastError();
-    CloseHandle(base);
     if (!ok) {
         if (error) *error = "CreateRestrictedToken " + win_error_text(last);
-        return nullptr;
+        return {};
     }
     // 管道/命名对象的新建默认 DACL 必须能通过限制 SID 检查,否则 cmd/PowerShell
     // 可能在 DLL 初始化或创建管线阶段退出。仅修改新令牌,不修改宿主令牌。
@@ -301,16 +297,14 @@ void* create_restricted_token(const SandboxPolicy& policy, std::string* error) {
     }
     PACL default_dacl = nullptr;
     const DWORD acl_error = SetEntriesInAclW(static_cast<ULONG>(entries.size()), entries.data(), nullptr, &default_dacl);
+    platform::UniqueLocalMem owned_dacl(default_dacl);
     TOKEN_DEFAULT_DACL dacl_info{default_dacl};
     if (acl_error != ERROR_SUCCESS ||
-        !SetTokenInformation(restricted, TokenDefaultDacl, &dacl_info, sizeof(dacl_info))) {
+        !SetTokenInformation(restricted.get(), TokenDefaultDacl, &dacl_info, sizeof(dacl_info))) {
         if (error) *error = "Cannot set restricted token default DACL: " +
             win_error_text(acl_error == ERROR_SUCCESS ? GetLastError() : acl_error);
-        if (default_dacl) LocalFree(default_dacl);
-        CloseHandle(restricted);
-        return nullptr;
+        return {};
     }
-    LocalFree(default_dacl);
     return restricted;
 }
 
@@ -389,6 +383,7 @@ bool remove_windows_acl_grants(const std::string& path, const SandboxPolicy& pol
     PSECURITY_DESCRIPTOR sd = nullptr;
     DWORD rc = GetNamedSecurityInfoW(wpath.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
                                      nullptr, nullptr, &old_dacl, nullptr, &sd);
+    platform::UniqueLocalMem owned_sd(sd);
     if (rc != ERROR_SUCCESS) {
         if (error) *error = "GetNamedSecurityInfo " + win_error_text(rc);
         return false;
@@ -404,9 +399,9 @@ bool remove_windows_acl_grants(const std::string& path, const SandboxPolicy& pol
     ea.Trustee.ptstrName = static_cast<LPWSTR>(sid.get());
     PACL fresh = nullptr;
     rc = SetEntriesInAclW(1, &ea, old_dacl, &fresh);
+    platform::UniqueLocalMem owned_fresh(fresh);
     if (rc != ERROR_SUCCESS) {
         if (error) *error = "SetEntriesInAcl " + win_error_text(rc);
-        LocalFree(sd);
         return false;
     }
     SECURITY_INFORMATION si = DACL_SECURITY_INFORMATION |
@@ -414,8 +409,6 @@ bool remove_windows_acl_grants(const std::string& path, const SandboxPolicy& pol
                                        : UNPROTECTED_DACL_SECURITY_INFORMATION);
     rc = SetNamedSecurityInfoW(const_cast<LPWSTR>(wpath.c_str()), SE_FILE_OBJECT, si,
                                nullptr, nullptr, fresh, nullptr);
-    LocalFree(fresh);
-    LocalFree(sd);
     if (rc != ERROR_SUCCESS) {
         if (error) *error = "SetNamedSecurityInfo " + win_error_text(rc);
         return false;
@@ -423,33 +416,28 @@ bool remove_windows_acl_grants(const std::string& path, const SandboxPolicy& pol
     return true;
 }
 
-void* create_process_tree_job() {
-    HANDLE job = CreateJobObjectW(nullptr, nullptr);
-    if (!job) return nullptr;
+platform::UniqueHandle create_process_tree_job() {
+    platform::UniqueHandle job(CreateJobObjectW(nullptr, nullptr));
+    if (!job) return {};
     // 刻意不设 KILL_ON_JOB_CLOSE:正常结束时关闭句柄不能连带杀掉后台孙进程
     // (agent-browser 起的 Chrome 之类)。只有超时 / 中止才 TerminateJobObject。
     // 也不能设 SILENT_BREAKAWAY_OK —— 它会让所有孙进程静默脱离 Job,杀树就只剩
     // 直接子进程(实测 cmd → ping 时 Job 里只剩 cmd)。
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
     limits.BasicLimitInformation.LimitFlags = 0;
-    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
-        CloseHandle(job);
-        return nullptr;
+    if (!SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+        return {};
     }
     return job;
 }
 
-bool assign_process_to_job(void* job, void* process) {
+bool assign_process_to_job(const platform::UniqueHandle& job, void* process) {
     if (!job || !process) return false;
-    return AssignProcessToJobObject(static_cast<HANDLE>(job), static_cast<HANDLE>(process)) != FALSE;
+    return AssignProcessToJobObject(job.get(), static_cast<HANDLE>(process)) != FALSE;
 }
 
-void terminate_job_tree(void* job) {
-    if (job) TerminateJobObject(static_cast<HANDLE>(job), 1);
-}
-
-void close_job(void* job) {
-    if (job) CloseHandle(static_cast<HANDLE>(job));
+void terminate_job_tree(const platform::UniqueHandle& job) {
+    if (job) TerminateJobObject(job.get(), 1);
 }
 
 BackendProbe probe_backend(WindowsBackendChoice windows_backend) {
@@ -461,9 +449,8 @@ BackendProbe probe_backend(WindowsBackendChoice windows_backend) {
     std::string error;
     SandboxPolicy read_only;
     read_only.mode = SandboxMode::ReadOnly;
-    void* token = create_restricted_token(read_only, &error);
+    auto token = create_restricted_token(read_only, &error);
     if (token) {
-        CloseHandle(static_cast<HANDLE>(token));
         probe.available = true;
     } else {
         probe.available = false;

@@ -11,6 +11,7 @@
 
 #include "sandbox_policy.hpp"
 #include "sandbox_types.hpp"
+#include "platform/process/unique_resources.hpp"
 
 #include <string>
 #include <utility>
@@ -63,8 +64,8 @@ std::string seatbelt_regex_for_glob(const std::string& pattern, bool subtree);
 // 合成 SID(S-1-5-80-… 服务 SID 派生规则)的字符串形式。
 std::string synthetic_sid_string(const SandboxPolicy& policy);
 
-// 创建受限主令牌。返回 HANDLE(void*),失败返回 nullptr 并填 error。
-void* create_restricted_token(const SandboxPolicy& policy, std::string* error);
+// 创建受限主令牌。返回独占令牌,失败返回空句柄并填 error。
+platform::UniqueHandle create_restricted_token(const SandboxPolicy& policy, std::string* error);
 
 // 每次核对实际 ACL,幂等地补齐策略里的可写根 / 只读子路径 ACE。
 // ReadOnly 策略什么都不打,直接 true。
@@ -76,10 +77,10 @@ bool remove_windows_acl_grants(const std::string& path, const SandboxPolicy& pol
 // Job Object:超时 / 中止时杀整棵进程树(D7)。不设 KILL_ON_JOB_CLOSE,正常结束
 // 时后台孙进程照旧存活。create 失败返回 nullptr;assign 失败返回 false(嵌套
 // Job 被拒时调用方退回 TerminateProcess)。
-void* create_process_tree_job();
-bool assign_process_to_job(void* job, void* process);
-void terminate_job_tree(void* job);
-void close_job(void* job);
+platform::UniqueHandle create_process_tree_job();
+// process is a nullable borrowed native process handle.
+bool assign_process_to_job(const platform::UniqueHandle& job, void* process);
+void terminate_job_tree(const platform::UniqueHandle& job);
 
 // MXC 口子(D9):本构建未捆绑 MXC,探测恒不可用并说明原因。
 BackendProbe probe_windows_mxc();

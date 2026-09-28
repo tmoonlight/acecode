@@ -118,7 +118,7 @@
   - 除这两处外,不做任何 web 重构。
   - 前置:2.1。
   - 验证:`web_server_smoke_test` 新增两条用例:导入进行中析构 WebServer 不崩溃;WS 已连接时析构 WebServer,之后会话 emit 不访问已释放的 Impl。前端零改动。
-- [ ] 2.8 【O-09】【子】句柄 RAII 化。
+- [ ] 2.8 【O-09】【子】句柄 RAII 化。〔实现完成: Codex-root 2026-09-28;UniqueHandle/Fd/LocalMem/Sid/Process/Sqlite、WriterLease 及目标调用点已迁移;进程失败句柄数、移动/异常/租约替换及沙盒 Job 标志用例已补,待 Windows 统一验收〕
   - `lsp_process` 改用 UniqueHandle / UniqueFd / UniqueProcess;
   - sandbox 后端的 `void*` 改为 UniqueHandle:bash_tool 与 `sandbox_backend_win.cpp` 多出口的释放改由删除器完成;
   - `audit_log` 改用 UniqueSqlite;

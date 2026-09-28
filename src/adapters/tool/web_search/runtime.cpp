@@ -19,11 +19,9 @@ struct Runtime::Impl {
 };
 
 Runtime::Runtime(const WebSearchConfig& cfg)
-    : impl_(new Impl(cfg)) {}
+    : impl_(std::make_unique<Impl>(cfg)) {}
 
-Runtime::~Runtime() {
-    delete impl_;
-}
+Runtime::~Runtime() = default;
 
 BackendRouter& Runtime::router() { return impl_->router_; }
 RegionDetector& Runtime::detector() { return impl_->detector_; }

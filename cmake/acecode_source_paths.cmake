@@ -12,6 +12,7 @@ set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agen
 set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_mac.mm")
 set(ACECODE_BROWSER_CDP_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/tool/agent_browser/cdp_client.cpp")
 set(ACECODE_BROWSER_POINTER_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/tool/agent_browser/browser_pointer_overlay.cpp")
+set(ACECODE_PROCESS_RESOURCES_SOURCE "${CMAKE_SOURCE_DIR}/src/base/platform/process/unique_resources.cpp")
 set(ACECODE_COMPUTER_USE_RUNTIME_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/computer_use/runtime.cpp")
 set(ACECODE_COMPUTER_USE_AVAILABILITY_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/computer_use/availability.cpp")
 set(ACECODE_COMPUTER_USE_PROCESS_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/computer_use/helper_process_posix.cpp")
@@ -42,7 +43,8 @@ set(ACECODE_COMPUTER_USE_BROKER_FIXTURE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/computer_use/helpers/broker_fixture.cpp)
 set(ACECODE_COMPUTER_USE_BROKER_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/computer_use/helpers/broker_smoke.cpp
-    ${ACECODE_COMPUTER_USE_RUNTIME_SOURCE})
+    ${ACECODE_COMPUTER_USE_RUNTIME_SOURCE}
+    ${ACECODE_PROCESS_RESOURCES_SOURCE})
 if(APPLE)
     list(APPEND ACECODE_COMPUTER_USE_BROKER_SMOKE_SOURCES
         ${ACECODE_COMPUTER_USE_PROCESS_SOURCE})
@@ -50,7 +52,8 @@ endif()
 set(ACECODE_COMPUTER_USE_NATIVE_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/computer_use/helpers/native_smoke.cpp
     ${CMAKE_SOURCE_DIR}/tests/computer_use/helpers/ole_drag_fixture.cpp
-    ${ACECODE_COMPUTER_USE_RUNTIME_SOURCE})
+    ${ACECODE_COMPUTER_USE_RUNTIME_SOURCE}
+    ${ACECODE_PROCESS_RESOURCES_SOURCE})
 set(ACECODE_COMPUTER_USE_NATIVE_MAC_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/computer_use/helpers/native_macos_smoke.mm
     ${ACECODE_COMPUTER_USE_RUNTIME_SOURCE}

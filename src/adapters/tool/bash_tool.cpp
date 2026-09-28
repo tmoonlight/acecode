@@ -357,17 +357,17 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     sa.bInheritHandle = TRUE;
     sa.lpSecurityDescriptor = nullptr;
 
-    HANDLE hReadPipe, hWritePipe;
-    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) {
+    platform::UniqueHandle hReadPipe, hWritePipe;
+    if (!CreatePipe(hReadPipe.put(), hWritePipe.put(), &sa, 0)) {
         return ToolResult{"[Error] Failed to create pipe.", false};
     }
-    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(hReadPipe.get(), HANDLE_FLAG_INHERIT, 0);
 
     STARTUPINFOW si = {};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = hWritePipe;
-    si.hStdError = hWritePipe;
+    si.hStdOutput = hWritePipe.get();
+    si.hStdError = hWritePipe.get();
 
     PROCESS_INFORMATION pi = {};
 
@@ -404,33 +404,31 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     const DWORD creation_flags = CREATE_NO_WINDOW | CREATE_SUSPENDED |
                                  (env_ptr ? CREATE_UNICODE_ENVIRONMENT : 0);
     if (sandboxed) {
-        HANDLE token = static_cast<HANDLE>(sandbox::create_restricted_token(ctx.exec_sandbox->policy, &sandbox_error));
+        auto token = sandbox::create_restricted_token(ctx.exec_sandbox->policy, &sandbox_error);
         if (token) {
             std::wstring desktop = L"winsta0\\default";
             si.lpDesktop = desktop.data();
-            ok = CreateProcessAsUserW(token, nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
+            ok = CreateProcessAsUserW(token.get(), nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
                 creation_flags, env_ptr, cwd_ptr, &si, &pi);
             if (!ok) sandbox_error = "CreateProcessAsUserW failed: " + std::to_string(GetLastError());
-            CloseHandle(token);
         }
     } else {
         ok = CreateProcessW(nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
             creation_flags, env_ptr, cwd_ptr, &si, &pi);
     }
 
-    CloseHandle(hWritePipe);
+    hWritePipe.reset();
 
     if (!ok) {
-        CloseHandle(hReadPipe);
         if (sandboxed) return sandbox_failure(sandbox_error);
         return ToolResult{"[Error] Failed to execute command.", false};
     }
 
-    void* process_job = sandbox::create_process_tree_job();
+    platform::UniqueHandle process(pi.hProcess), initial_thread(pi.hThread);
+    auto process_job = sandbox::create_process_tree_job();
     if (process_job && !sandbox::assign_process_to_job(process_job, pi.hProcess)) {
         // 嵌套 Job 被拒(旧系统 / 受限宿主 Job):退回只杀直接子进程的旧行为。
-        sandbox::close_job(process_job);
-        process_job = nullptr;
+        process_job.reset();
     }
     ResumeThread(pi.hThread);
     auto kill_process_tree = [&]() {
@@ -444,9 +442,9 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
 
     while (true) {
         DWORD avail = 0;
-        PeekNamedPipe(hReadPipe, nullptr, 0, nullptr, &avail, nullptr);
+        PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &avail, nullptr);
         if (avail > 0) {
-            if (ReadFile(hReadPipe, buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
+            if (ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
                 process_raw(buffer, bytes_read);
             }
         }
@@ -465,9 +463,9 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
             // 交给 OS。
             while (true) {
                 DWORD drain_avail = 0;
-                if (!PeekNamedPipe(hReadPipe, nullptr, 0, nullptr, &drain_avail, nullptr)) break;
+                if (!PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &drain_avail, nullptr)) break;
                 if (drain_avail == 0) break;
-                if (!ReadFile(hReadPipe, buffer, sizeof(buffer), &bytes_read, nullptr)) break;
+                if (!ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr)) break;
                 if (bytes_read == 0) break;
                 process_raw(buffer, bytes_read);
             }
@@ -478,8 +476,8 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
         if (ctx.abort_flag && ctx.abort_flag->load()) {
             kill_process_tree();
             WaitForSingleObject(pi.hProcess, 1000);
-            while (PeekNamedPipe(hReadPipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
-                if (ReadFile(hReadPipe, buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
+            while (PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+                if (ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
                     process_raw(buffer, bytes_read);
                 } else break;
             }
@@ -492,8 +490,8 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
         if (elapsed >= timeout_ms) {
             kill_process_tree();
             WaitForSingleObject(pi.hProcess, 1000);
-            while (PeekNamedPipe(hReadPipe, nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
-                if (ReadFile(hReadPipe, buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
+            while (PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
+                if (ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
                     process_raw(buffer, bytes_read);
                 } else break;
             }
@@ -507,10 +505,10 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     DWORD exit_code = 0;
     GetExitCodeProcess(pi.hProcess, &exit_code);
 
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    sandbox::close_job(process_job);
-    CloseHandle(hReadPipe);
+    process.reset();
+    initial_thread.reset();
+    process_job.reset();
+    hReadPipe.reset();
 
 #else
     // POSIX: fork/exec with streaming, stdin injection, and abort support.

@@ -10,6 +10,8 @@
 // 未 configure(测试 / 未接线)时 record() 是 no-op;AgentLoop 经 set_audit_sink
 // 注入接收器,单测用 lambda 收集,不碰磁盘。
 
+#include "platform/unique_sqlite.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <cstddef>
@@ -137,7 +139,7 @@ private:
     void close_locked();
 
     mutable std::mutex mu_;
-    sqlite3* db_ = nullptr;
+    platform::UniqueSqlite db_;
     std::string path_;
     std::size_t max_entries_ = kDefaultMaxEntries;
     std::int64_t inserts_since_prune_ = 0;

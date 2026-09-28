@@ -2,6 +2,8 @@
 #define _WIN32_WINNT 0x0A00
 #endif
 #include "runtime.hpp"
+#include "platform/process/unique_resources.hpp"
+#include "utils/scope_exit.hpp"
 #include "config/vocab/pointer_appearance.hpp"
 #include "helper_process_posix.hpp"
 
@@ -41,21 +43,23 @@ struct Broker {
     std::string pointer_color = pointer_appearance::kDefaultColor;
     std::string owner;
 #ifdef _WIN32
-    HANDLE process = nullptr;
-    HANDLE job = nullptr;
-    HANDLE input = nullptr;
-    HANDLE output = nullptr;
+    platform::UniqueHandle process;
+    platform::UniqueHandle job;
+    platform::UniqueHandle input;
+    platform::UniqueHandle output;
     // The caller holds process_mu for every access to these handles. Revoking
     // terminates the process but does not close a handle underneath active IO.
     void terminate() {
-        if (job) TerminateJobObject(job, 1);
-        else if (process) TerminateProcess(process, 1);
+        if (job) TerminateJobObject(job.get(), 1);
+        else if (process) TerminateProcess(process.get(), 1);
     }
     void close() {
         terminate();
-        if (process) WaitForSingleObject(process, 1000);
-        for (auto h : {input, output, process, job}) if (h) CloseHandle(h);
-        input = output = process = job = nullptr;
+        if (process) WaitForSingleObject(process.get(), 1000);
+        input.reset();
+        output.reset();
+        process.reset();
+        job.reset();
         owner.clear();
     }
 #elif defined(__APPLE__)
@@ -72,12 +76,6 @@ struct Broker {
 Broker& broker() { static Broker instance; return instance; }
 
 #ifdef _WIN32
-struct Handle {
-    HANDLE value = nullptr;
-    ~Handle() { if (value && value != INVALID_HANDLE_VALUE) CloseHandle(value); }
-    HANDLE take() { const auto h = value; value = nullptr; return h; }
-};
-
 std::wstring helper_path() {
     std::vector<wchar_t> path(32768);
     const auto len = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
@@ -94,17 +92,17 @@ json start_worker(Broker& state, const std::string& owner) {
         return failure("COMPUTER_USE_HELPER_MISSING",
             "acecode-computer-use.exe must be installed beside the ACECode executable.");
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-    Handle child_input, parent_input, parent_output, child_output, error_output;
+    platform::UniqueHandle child_input, parent_input, parent_output, child_output, error_output;
     // Bound the payload independently of pipe capacity; writing runs on a
     // cancellable IO thread so even a helper that never reads is revocable.
-    if (!CreatePipe(&child_input.value, &parent_input.value, &sa, 65536) ||
-        !CreatePipe(&parent_output.value, &child_output.value, &sa, 65536) ||
-        !SetHandleInformation(parent_input.value, HANDLE_FLAG_INHERIT, 0) ||
-        !SetHandleInformation(parent_output.value, HANDLE_FLAG_INHERIT, 0))
+    if (!CreatePipe(child_input.put(), parent_input.put(), &sa, 65536) ||
+        !CreatePipe(parent_output.put(), child_output.put(), &sa, 65536) ||
+        !SetHandleInformation(parent_input.get(), HANDLE_FLAG_INHERIT, 0) ||
+        !SetHandleInformation(parent_output.get(), HANDLE_FLAG_INHERIT, 0))
         return failure("COMPUTER_USE_PIPE_ERROR", "Could not create private helper pipes.");
-    error_output.value = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                    &sa, OPEN_EXISTING, 0, nullptr);
-    if (error_output.value == INVALID_HANDLE_VALUE)
+    error_output.reset(CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    &sa, OPEN_EXISTING, 0, nullptr));
+    if (error_output.get() == INVALID_HANDLE_VALUE)
         return failure("COMPUTER_USE_PIPE_ERROR", "Could not open helper diagnostics sink.");
     SIZE_T bytes = 0;
     InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);
@@ -112,11 +110,8 @@ json start_worker(Broker& state, const std::string& owner) {
     auto* list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attributes.data());
     if (!InitializeProcThreadAttributeList(list, 1, 0, &bytes))
         return failure("COMPUTER_USE_START_ERROR", "Could not initialize helper handle isolation.");
-    struct AttributesGuard {
-        LPPROC_THREAD_ATTRIBUTE_LIST list;
-        ~AttributesGuard() { DeleteProcThreadAttributeList(list); }
-    } guard{list};
-    HANDLE inherited[] = {child_input.value, child_output.value, error_output.value};
+    ScopeExit guard([list] { DeleteProcThreadAttributeList(list); });
+    HANDLE inherited[] = {child_input.get(), child_output.get(), error_output.get()};
     if (!UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
                                   inherited, sizeof(inherited), nullptr, nullptr))
         return failure("COMPUTER_USE_START_ERROR", "Could not isolate helper handles.");
@@ -124,18 +119,18 @@ json start_worker(Broker& state, const std::string& owner) {
     si.StartupInfo.cb = sizeof(si);
     si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
     si.StartupInfo.wShowWindow = SW_HIDE;
-    si.StartupInfo.hStdInput = child_input.value;
-    si.StartupInfo.hStdOutput = child_output.value;
-    si.StartupInfo.hStdError = error_output.value;
+    si.StartupInfo.hStdInput = child_input.get();
+    si.StartupInfo.hStdOutput = child_output.get();
+    si.StartupInfo.hStdError = error_output.get();
     si.lpAttributeList = list;
-    Handle job;
-    job.value = CreateJobObjectW(nullptr, nullptr);
+    platform::UniqueHandle job;
+    job.reset(CreateJobObjectW(nullptr, nullptr));
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
     // The helper dies with ACECode; applications explicitly launched by the
     // user/model survive the control session.
     limits.BasicLimitInformation.LimitFlags =
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
-    if (!job.value || !SetInformationJobObject(job.value, JobObjectExtendedLimitInformation,
+    if (!job.get() || !SetInformationJobObject(job.get(), JobObjectExtendedLimitInformation,
                                               &limits, sizeof(limits)))
         return failure("COMPUTER_USE_START_ERROR", "Could not create helper lifetime job.");
     PROCESS_INFORMATION pi{};
@@ -144,18 +139,18 @@ json start_worker(Broker& state, const std::string& owner) {
                         CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
                         nullptr, nullptr, &si.StartupInfo, &pi))
         return failure("COMPUTER_USE_START_ERROR", "Could not start the Windows computer use helper.");
-    Handle process, thread;
-    process.value = pi.hProcess;
-    thread.value = pi.hThread;
-    if (!AssignProcessToJobObject(job.value, process.value) ||
-        ResumeThread(thread.value) == static_cast<DWORD>(-1)) {
-        TerminateProcess(process.value, 1);
+    platform::UniqueHandle process, thread;
+    process.reset(pi.hProcess);
+    thread.reset(pi.hThread);
+    if (!AssignProcessToJobObject(job.get(), process.get()) ||
+        ResumeThread(thread.get()) == static_cast<DWORD>(-1)) {
+        TerminateProcess(process.get(), 1);
         return failure("COMPUTER_USE_START_ERROR", "Could not bind helper lifetime to ACECode.");
     }
-    state.process = process.take();
-    state.job = job.take();
-    state.input = parent_input.take();
-    state.output = parent_output.take();
+    state.process = std::move(process);
+    state.job = std::move(job);
+    state.input = std::move(parent_input);
+    state.output = std::move(parent_output);
     state.owner = owner;
     return {{"success", true}};
 }
@@ -256,19 +251,19 @@ json execute(const std::string& session_id, const json& request,
     const auto interrupted = [&] {
         return !enabled() || state.epoch.load() != epoch || (abort_flag && abort_flag->load());
     };
-    Handle write_pipe;
+    platform::UniqueHandle write_pipe;
     {
         std::lock_guard<std::mutex> lock(state.process_mu);
         if (interrupted()) return failure("COMPUTER_USE_CANCELLED", "Computer use cancelled or disabled.");
-        if (state.process && WaitForSingleObject(state.process, 0) != WAIT_TIMEOUT) state.close();
+        if (state.process && WaitForSingleObject(state.process.get(), 0) != WAIT_TIMEOUT) state.close();
         if (!state.owner.empty() && state.owner != session_id)
             return failure("COMPUTER_USE_BUSY", "Another session owns this desktop. Wait for its turn to finish.");
         if (!state.process) {
             auto started = start_worker(state, session_id);
             if (!started.value("success", false)) return started;
         }
-        if (!DuplicateHandle(GetCurrentProcess(), state.input, GetCurrentProcess(),
-                             &write_pipe.value, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        if (!DuplicateHandle(GetCurrentProcess(), state.input.get(), GetCurrentProcess(),
+                             write_pipe.put(), 0, FALSE, DUPLICATE_SAME_ACCESS)) {
             state.close();
             return failure("COMPUTER_USE_DISCONNECTED", "Could not prepare helper input.");
         }
@@ -276,7 +271,7 @@ json execute(const std::string& session_id, const json& request,
     std::atomic<bool> write_done{false};
     std::atomic<bool> write_ok{false};
     std::atomic<DWORD> writer_thread_id{0};
-    const auto write_handle = write_pipe.value;
+    const auto write_handle = write_pipe.get();
     std::thread writer([&, write_handle] {
         writer_thread_id.store(GetCurrentThreadId());
         DWORD written = 0;
@@ -295,9 +290,9 @@ json execute(const std::string& session_id, const json& request,
                 std::lock_guard<std::mutex> lock(state.process_mu);
                 state.close(); // Closing the only reader unblocks pipe IO.
                 if (const auto id = thread_id.load()) {
-                    Handle thread_handle;
-                    thread_handle.value = OpenThread(THREAD_TERMINATE, FALSE, id);
-                    if (thread_handle.value) CancelSynchronousIo(thread_handle.value);
+                    platform::UniqueHandle thread_handle;
+                    thread_handle.reset(OpenThread(THREAD_TERMINATE, FALSE, id));
+                    if (thread_handle.get()) CancelSynchronousIo(thread_handle.get());
                 }
             }
             writer.join();
@@ -321,7 +316,7 @@ json execute(const std::string& session_id, const json& request,
                 return failure("COMPUTER_USE_DISCONNECTED", "Helper input closed; observe again.");
             }
             DWORD available = 0;
-            if (!PeekNamedPipe(state.output, nullptr, 0, nullptr, &available, nullptr)) {
+            if (!PeekNamedPipe(state.output.get(), nullptr, 0, nullptr, &available, nullptr)) {
                 state.close();
                 return failure("COMPUTER_USE_DISCONNECTED", "Helper exited; observe again.");
             }
@@ -329,7 +324,7 @@ json execute(const std::string& session_id, const json& request,
                 drained = true;
                 char buffer[16384];
                 DWORD received = 0;
-                if (!ReadFile(state.output, buffer, (std::min)(available, static_cast<DWORD>(sizeof(buffer))), &received, nullptr)) {
+                if (!ReadFile(state.output.get(), buffer, (std::min)(available, static_cast<DWORD>(sizeof(buffer))), &received, nullptr)) {
                     state.close();
                     return failure("COMPUTER_USE_DISCONNECTED", "Could not read helper response.");
                 }
@@ -352,7 +347,7 @@ json execute(const std::string& session_id, const json& request,
                     writer_guard.completed_response = true;
                     return result;
                 }
-            } else if (WaitForSingleObject(state.process, 0) != WAIT_TIMEOUT) {
+            } else if (WaitForSingleObject(state.process.get(), 0) != WAIT_TIMEOUT) {
                 state.close();
                 return failure("COMPUTER_USE_DISCONNECTED", "Helper exited before completing the request.");
             }

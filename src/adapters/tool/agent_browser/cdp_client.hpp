@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -71,7 +72,7 @@ private:
         std::string& error);
 
     struct Impl;
-    Impl* impl_ = nullptr;
+    std::unique_ptr<Impl> impl_;
 };
 
 // 代理请求报文的唯一构造点。timeout_ms 钳制到 [100, 120000];owner 只在是对象时

@@ -64,4 +64,26 @@ public:
     static std::int64_t now_ms();
 };
 
+// Move-only ownership of a writer lease. Reacquisition of the same session
+// reuses this object; releasing it never writes transcript/metadata timestamps.
+class WriterLease {
+public:
+    WriterLease(std::string project_dir, std::string session_id);
+    ~WriterLease();
+    WriterLease(const WriterLease&) = delete;
+    WriterLease& operator=(const WriterLease&) = delete;
+    WriterLease(WriterLease&& other) noexcept;
+    WriterLease& operator=(WriterLease&& other) noexcept;
+    SessionWriterLeaseResult acquire(const std::string& cwd, const std::string& surface);
+    bool refresh();
+    bool matches(const std::string& project_dir, const std::string& session_id) const;
+    void reset() noexcept;
+
+private:
+    std::string project_dir_;
+    std::string session_id_;
+    daemon::pid_t_compat pid_;
+    bool active_ = false;
+};
+
 } // namespace acecode

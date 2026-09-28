@@ -326,7 +326,7 @@ private:
     TokenUsage session_token_usage_;
     std::vector<TodoItem> todos_;
     std::string last_error_;
-    bool writer_lease_active_ = false;
+    std::optional<WriterLease> writer_lease_;
     bool archived_ = false;
     std::string parent_session_id_;
     std::string expert_id_;
