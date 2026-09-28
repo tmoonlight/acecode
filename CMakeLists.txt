@@ -215,7 +215,10 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     commands/ resume/ path_reference/ markdown/
     drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp
     input/input_trace.cpp render_mode.cpp
-    model/initial_state.cpp app/startup_worktree.cpp)
+    model/initial_state.cpp app/startup_worktree.cpp
+    model/status_line.cpp model/turn_lifecycle_rules.cpp
+    chat/message_render_revision.cpp render/frame_layout.cpp
+    overlays/rewind_picker_model.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
     if(NOT IS_DIRECTORY "${_tui_dir}")

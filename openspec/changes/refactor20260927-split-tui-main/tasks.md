@@ -71,7 +71,7 @@
 
 ## 3. 视口、渲染与输入
 
-- [ ] 3.1 【B-04】【子】纯逻辑叶子。
+- [ ] 3.1 【B-04】【子】纯逻辑叶子。〔实现完成: Codex-root 2026-09-28;附件和输入历史归 session/history,状态提示、渲染版本、回合判定、含上一帧宽度的布局和 rewind 模式已外提;旧前置声明删除,新增边界用例并登记 testable,待统一验收〕
   - `domain/session/composer_attachments`、`domain/history/input_history_recorder`、`model/status_line`(完成后删掉 200-203 的前置声明)、`chat/message_render_revision`、`model/turn_lifecycle_rules`;
   - `render/frame_layout`:签名带上一帧 chat_box 的宽度(MR-15);
   - `populate_rewind_modes`。

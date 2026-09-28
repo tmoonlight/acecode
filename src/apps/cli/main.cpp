@@ -200,7 +200,13 @@
 #include "session/attachment_store.hpp"
 #include "session/session_storage.hpp"
 #include "session/compact_notice.hpp"
-#include "history/input_history_store.hpp"
+#include "history/input_history_recorder.hpp"
+#include "session/composer_attachments.hpp"
+#include "tui/model/status_line.hpp"
+#include "tui/model/turn_lifecycle_rules.hpp"
+#include "tui/chat/message_render_revision.hpp"
+#include "tui/render/frame_layout.hpp"
+#include "tui/overlays/rewind_picker_model.hpp"
 #include "workspace/workspace_registry.hpp"
 
 #include <cstdio>
@@ -210,10 +216,6 @@ using namespace ftxui;
 using namespace acecode;
 
 namespace acecode { struct TuiState; }
-static std::string clipboard_copy_status_message(
-    acecode::ClipboardTextWriteResult::Status status);
-static void set_transient_status_line_locked(TuiState& state,
-                                             const std::string& message);
 
 namespace {
 
@@ -275,8 +277,8 @@ static void dispatch_ask_session_effects_locked(
                 ? (effect.kind == tui::AskQuestionEffectKind::CutText
                        ? "Cut to clipboard"
                        : "Copied to clipboard")
-                : clipboard_copy_status_message(clipboard_write.status);
-            set_transient_status_line_locked(state, status);
+                : tui::clipboard_copy_status_message(clipboard_write.status);
+            tui::set_transient_status_line_locked(state, status);
             if (effect.kind == tui::AskQuestionEffectKind::CutText &&
                 clipboard_write && state.ask_session) {
                 const auto delete_effects = state.ask_session->dispatch({
@@ -781,136 +783,12 @@ static void signal_handler(int /*sig*/) {
 // TuiState is defined in src/tui/tui_state.hpp, reached through tui/tui_helpers.hpp.
 using acecode::TuiState;
 
-static void set_transient_status_line_locked(TuiState& state,
-                                             const std::string& message) {
-    if (state.status_line_clear_at.time_since_epoch().count() == 0) {
-        state.status_line_saved = state.status_line;
-    }
-    state.status_line = message;
-    state.status_line_clear_at =
-        std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
-}
 
-static std::string clipboard_paste_status_message(
-    acecode::ClipboardTextReadResult::Status status) {
-    using Status = acecode::ClipboardTextReadResult::Status;
-    switch (status) {
-        case Status::Empty:
-            return "Clipboard is empty";
-        case Status::TooLarge:
-            return "Clipboard text too large (max " +
-                   std::to_string(acecode::kMaxClipboardTextBytes / (1024 * 1024)) +
-                   " MB)";
-        case Status::Unavailable:
-#ifdef _WIN32
-            return "Clipboard paste unavailable";
-#elif defined(__APPLE__)
-            return "Clipboard paste unavailable (pbpaste failed)";
-#else
-            return "Clipboard paste unavailable (install wl-clipboard, xclip, or xsel)";
-#endif
-        case Status::Success:
-        default:
-            return "";
-    }
-}
 
-static std::string clipboard_image_status_message(
-    acecode::ClipboardImageReadResult::Status status) {
-    using Status = acecode::ClipboardImageReadResult::Status;
-    switch (status) {
-        case Status::Empty:
-            return "Clipboard has no image";
-        case Status::TooLarge:
-            return "Clipboard image too large (max " +
-                   std::to_string(acecode::kMaxClipboardImageBytes / (1024 * 1024)) +
-                   " MB)";
-        case Status::Unavailable:
-#ifdef _WIN32
-            return "Clipboard image paste unavailable";
-#elif defined(__APPLE__)
-            return "Clipboard image paste unavailable (install pngpaste)";
-#else
-            return "Clipboard image paste unavailable (install wl-clipboard or xclip)";
-#endif
-        case Status::Success:
-        default:
-            return "";
-    }
-}
 
-static std::string attachment_name_from_json(const nlohmann::json& attachment) {
-    return attachment.value("name", std::string{"attachment"});
-}
 
-static std::string display_prompt_with_attachments(
-    const std::string& prompt,
-    const std::vector<nlohmann::json>& attachments) {
-    std::string display = prompt;
-    for (const auto& attachment : attachments) {
-        if (!display.empty()) display.push_back('\n');
-        const std::string kind = attachment.value("kind", std::string{"file"});
-        display += "[";
-        display += (kind == "image") ? "Image: " : "File: ";
-        display += attachment_name_from_json(attachment);
-        display += "]";
-    }
-    return display;
-}
 
-static UserInput build_user_input_with_attachments(
-    const std::string& prompt,
-    const std::string& display_text,
-    const std::vector<nlohmann::json>& attachments) {
-    UserInput input;
-    input.text = prompt;
-    input.display_text = display_text;
-    input.content_parts = nlohmann::json::array();
-    if (!prompt.empty()) {
-        input.content_parts.push_back({{"type", "text"}, {"text", prompt}});
-    }
-    nlohmann::json attachment_meta = nlohmann::json::array();
-    for (const auto& attachment : attachments) {
-        // 按 MIME + 文件名重新分类(route-attachments-by-capability 1.7),不直接信
-        // 持久化的 kind:SVG 等非视觉媒体会被归为 file,避免误走图片 part。
-        const std::string part_kind = attachment_kind_for_mime(
-            attachment.value("mime_type", std::string{}),
-            attachment.value("name", std::string{}));
-        input.content_parts.push_back({
-            {"type", part_kind == "image" ? "image" : "file"},
-            {"attachment", attachment},
-        });
-        attachment_meta.push_back(attachment);
-    }
-    if (attachment_meta.empty()) {
-        input.content_parts = nlohmann::json::array();
-    } else {
-        input.metadata["attachments"] = std::move(attachment_meta);
-    }
-    return input;
-}
 
-static std::string clipboard_copy_status_message(
-    acecode::ClipboardTextWriteResult::Status status) {
-    using Status = acecode::ClipboardTextWriteResult::Status;
-    switch (status) {
-        case Status::TooLarge:
-            return "Clipboard text too large (max " +
-                   std::to_string(acecode::kMaxClipboardTextBytes / (1024 * 1024)) +
-                   " MB)";
-        case Status::Unavailable:
-#ifdef _WIN32
-            return "Clipboard copy unavailable";
-#elif defined(__APPLE__)
-            return "Clipboard copy unavailable (pbcopy failed)";
-#else
-            return "Clipboard copy unavailable (install wl-clipboard, xclip, or xsel)";
-#endif
-        case Status::Success:
-        default:
-            return "";
-    }
-}
 
 struct ChatScrollRuntime {
     Box& chat_box;
@@ -933,61 +811,10 @@ static int chat_viewport_rows_for_box(const Box& chat_box) {
 }
 
 // 合并哈希值，用来判断消息渲染内容有没有变化。
-static std::size_t combine_render_hash(std::size_t seed,
-                                       std::size_t value) {
-    return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) +
-                   (seed >> 2));
-}
 
 // 给消息生成渲染版本号；影响高度的字段变了就会重新测量。
 // transcript_expanded(Ctrl+O 全局展开)也参与哈希:开关翻转时所有消息的
 // revision 一起失配,自动触发整批重测量,不需要单独的失效通道。
-static std::size_t message_render_revision(const TuiState::Message& msg,
-                                           bool transcript_expanded) {
-    std::size_t seed = 0;
-    auto add_string = [&seed](const std::string& value) {
-        seed = combine_render_hash(seed, std::hash<std::string>{}(value));
-    };
-    auto add_size = [&seed](std::size_t value) {
-        seed = combine_render_hash(seed, value);
-    };
-
-    add_string(msg.role);
-    add_size(msg.is_tool ? 1u : 0u);
-    add_size(msg.ask_result ? 1u : 0u);
-    add_string(msg.display_override);
-    add_size(msg.expanded ? 1u : 0u);
-    add_string(msg.compact_notice_id);
-    add_size(msg.compact_notice_complete ? 1u : 0u);
-    add_size(transcript_expanded ? 1u : 0u);
-    add_size(msg.summary.has_value() ? 1u : 0u);
-    if (msg.summary.has_value()) {
-        add_string(msg.summary->verb);
-        add_string(msg.summary->object);
-        add_string(msg.summary->icon);
-        add_size(msg.summary->metrics.size());
-        for (const auto& metric : msg.summary->metrics) {
-            add_string(metric.first);
-            add_string(metric.second);
-        }
-    }
-    add_size(msg.hunks.has_value() ? 1u : 0u);
-    if (msg.hunks.has_value()) {
-        add_size(msg.hunks->size());
-        for (const auto& hunk : *msg.hunks) {
-            add_size(static_cast<std::size_t>(std::max(0, hunk.old_start)));
-            add_size(static_cast<std::size_t>(std::max(0, hunk.old_count)));
-            add_size(static_cast<std::size_t>(std::max(0, hunk.new_start)));
-            add_size(static_cast<std::size_t>(std::max(0, hunk.new_count)));
-            add_size(hunk.lines.size());
-            for (const auto& line : hunk.lines) {
-                add_size(static_cast<std::size_t>(line.kind));
-                add_size(line.text.size());
-            }
-        }
-    }
-    return seed;
-}
 
 // 从测量缓存重建行数数组，滚动数学只看这个轻量数组。
 static void rebuild_message_line_counts_runtime(ChatScrollRuntime& scroll,
@@ -1050,7 +877,7 @@ static void sync_chat_line_counts_from_layout_runtime(ChatScrollRuntime& scroll,
         scroll.message_line_count_width = current_message_width;
     }
     for (size_t i = 0; i < n_msgs; ++i) {
-        const std::size_t revision = message_render_revision(
+        const std::size_t revision = tui::message_render_revision(
             state.conversation[i], state.transcript_expanded);
         const bool has_valid_layout =
             !line_count_width_changed &&
@@ -1241,8 +1068,8 @@ static bool paste_system_clipboard_text(TuiState& state,
             return true;
         }
         if (!clipboard) {
-            set_transient_status_line_locked(
-                state, clipboard_paste_status_message(clipboard.status));
+            tui::set_transient_status_line_locked(
+                state, tui::clipboard_paste_status_message(clipboard.status));
             screen.PostEvent(Event::Custom);
             return true;
         }
@@ -1250,9 +1077,9 @@ static bool paste_system_clipboard_text(TuiState& state,
         std::string normalized =
             acecode::tui::normalize_pasted_text(clipboard.text);
         if (normalized.empty()) {
-            set_transient_status_line_locked(
+            tui::set_transient_status_line_locked(
                 state,
-                clipboard_paste_status_message(
+                tui::clipboard_paste_status_message(
                     acecode::ClipboardTextReadResult::Status::Empty));
             screen.PostEvent(Event::Custom);
             return true;
@@ -1296,8 +1123,8 @@ static bool paste_system_clipboard_image(TuiState& state,
             return true;
         }
         if (!clipboard) {
-            set_transient_status_line_locked(
-                state, clipboard_image_status_message(clipboard.status));
+            tui::set_transient_status_line_locked(
+                state, tui::clipboard_image_status_message(clipboard.status));
             screen.PostEvent(Event::Custom);
             return true;
         }
@@ -1317,7 +1144,7 @@ static bool paste_system_clipboard_image(TuiState& state,
     {
         std::lock_guard<std::mutex> lk(state.mu);
         if (!record.has_value()) {
-            set_transient_status_line_locked(
+            tui::set_transient_status_line_locked(
                 state,
                 error.empty() ? "Clipboard image save failed" : error);
             screen.PostEvent(Event::Custom);
@@ -1328,7 +1155,7 @@ static bool paste_system_clipboard_image(TuiState& state,
         acecode::tui::clamp_pending_attachment_focus(
             state.pending_attachment_focus,
             state.pending_attachments.size());
-        set_transient_status_line_locked(
+        tui::set_transient_status_line_locked(
             state,
             "Attached image: " + record->name);
     }
@@ -1357,7 +1184,7 @@ static bool handle_pending_attachment_focus_event(TuiState& state,
         if (state.pending_attachments.empty()) {
             state.pending_attachment_focus =
                 acecode::tui::kNoPendingAttachmentFocus;
-            set_transient_status_line_locked(state, "No pending attachments");
+            tui::set_transient_status_line_locked(state, "No pending attachments");
         } else {
             acecode::tui::toggle_pending_attachment_focus(
                 state.pending_attachment_focus,
@@ -1404,7 +1231,7 @@ static bool handle_pending_attachment_focus_event(TuiState& state,
             state.pending_attachments.erase(
                 state.pending_attachments.begin() +
                 static_cast<std::ptrdiff_t>(index));
-            set_transient_status_line_locked(
+            tui::set_transient_status_line_locked(
                 state,
                 label + attachment_name_from_json(removed));
         }
@@ -1527,39 +1354,6 @@ static void clear_rewind_picker_locked(TuiState& state) {
 }
 
 // 根据目标是否支持代码恢复，生成 rewind 的二级选项。
-static void populate_rewind_modes_locked(TuiState& state,
-                                         const TuiState::RewindItem& item) {
-    state.rewind_modes.clear();
-    if (item.can_restore_code) {
-        state.rewind_modes.push_back({
-            TuiState::RewindRestoreMode::CodeAndConversation,
-            "Code and conversation",
-            "Restore tracked files, fork the conversation, and prefill the selected prompt."
-        });
-        state.rewind_modes.push_back({
-            TuiState::RewindRestoreMode::ConversationOnly,
-            "Conversation only",
-            "Fork the conversation and prefill the selected prompt."
-        });
-        state.rewind_modes.push_back({
-            TuiState::RewindRestoreMode::CodeOnly,
-            "Code only",
-            "Restore tracked files without changing the conversation."
-        });
-    } else {
-        state.rewind_modes.push_back({
-            TuiState::RewindRestoreMode::ConversationOnly,
-            "Conversation only",
-            "Fork the conversation and prefill the selected prompt."
-        });
-    }
-    state.rewind_modes.push_back({
-        TuiState::RewindRestoreMode::NeverMind,
-        "Never mind",
-        "Cancel rewind."
-    });
-    state.rewind_mode_selected = 0;
-}
 
 // 提交 rewind 模式，执行回调并恢复普通输入状态。
 static void commit_rewind_mode_locked(
@@ -1604,7 +1398,7 @@ static bool handle_rewind_picker_event(
         const auto& item = state.rewind_items[state.rewind_selected];
         if (TuiState::rewind_target_uses_mode_picker(
                 state.rewind_picker_operation, item.can_restore_code)) {
-            populate_rewind_modes_locked(state, item);
+            tui::populate_rewind_modes_locked(state, item);
             state.rewind_mode_active = true;
         } else {
             commit_rewind_mode_locked(
@@ -2224,13 +2018,13 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
         }
         return text(line);
     };
-    constexpr int kRegularSidebarThresholdCols = 120;
-    constexpr int kRegularSidebarWidthCols = 43;
+    constexpr int kRegularSidebarWidthCols = tui::kRegularSidebarWidthCols;
     const int terminal_width =
         std::max(Terminal::Size().dimx, screen.dimx());
-    const bool show_regular_sidebar =
-        !conhost_compat_layout &&
-        terminal_width > kRegularSidebarThresholdCols;
+    const auto frame_layout = tui::compute_frame_layout(
+        terminal_width, conhost_compat_layout,
+        chat_box.x_max >= chat_box.x_min ? chat_box.x_max - chat_box.x_min + 1 : 0);
+    const bool show_regular_sidebar = frame_layout.show_regular_sidebar;
     if (!show_regular_sidebar) {
         sidebar_content_box = Box{1, 0, 1, 0};
         sidebar_viewport_box = Box{1, 0, 1, 0};
@@ -2247,15 +2041,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     // 阶段和 screen.stencil 取交集,只能拿到可见高度;这里必须用未裁剪高度,
     // 否则长消息会被误判为只剩当前可见的几行,导致底部滚动范围过短.
     size_t n_msgs = state.conversation.size();
-    const int current_message_width = chat_box.x_max >= chat_box.x_min
-        ? chat_box.x_max - chat_box.x_min + 1
-        : 0;
-    const int fallback_message_width = terminal_width -
-        (show_regular_sidebar ? kRegularSidebarWidthCols + 9 : 6);
-    const int markdown_render_width =
-        std::max(20, (current_message_width > 0
-            ? current_message_width
-            : fallback_message_width) - 6);
+    const int markdown_render_width = frame_layout.markdown_render_width;
     sync_chat_line_counts_from_layout();
     clamp_chat_focus();
 
@@ -2388,7 +2174,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto tracked_message = [&](size_t index, Element element) -> Element {
         if (index < message_layout_valid.size()) {
             message_layout_valid[index] = 1;
-            message_layout_revisions[index] = message_render_revision(
+            message_layout_revisions[index] = tui::message_render_revision(
                 state.conversation[index], state.transcript_expanded);
             message_layout_widths[index] = current_message_width;
         }
@@ -2424,7 +2210,7 @@ static Element render_tui_frame(TuiRendererContext& ctx) {
     auto render_cached_message_markdown =
         [&](size_t index, const std::string& content,
             Color fallback_color) -> Element {
-        std::size_t rev = message_render_revision(
+        std::size_t rev = tui::message_render_revision(
             state.conversation[index], state.transcript_expanded);
         // R5:content 哈希只进渲染缓存键(布局 revision 不含 content)。
         rev = combine_render_hash(rev, std::hash<std::string>{}(content));
@@ -4879,11 +4665,10 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (was_waiting && !busy) {
             const bool interrupted = state.turn_interrupted_by_user;
             state.turn_interrupted_by_user = false;
-            if (!interrupted && tui_turn_outcome == "completed" &&
-                tui_notifications_ready &&
-                !tui_turn_assistant_text.empty() &&
-                config.desktop.notifications.enabled &&
-                config.desktop.notifications.on_completion &&
+            if (tui::should_notify_turn_completion(
+                    interrupted, tui_turn_outcome, tui_notifications_ready,
+                    !tui_turn_assistant_text.empty(), config.desktop.notifications.enabled,
+                    config.desktop.notifications.on_completion) &&
                 !(config.desktop.notifications.suppress_when_focused &&
                   acecode::desktop::notification_window_is_foreground(
                       tui_notification_window))) {
@@ -4902,13 +4687,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             tui_turn_outcome.clear();
             if (!interrupted &&
                 state.thinking_start_time.time_since_epoch().count() != 0) {
-                const long done_secs = static_cast<long>(
-                    std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::steady_clock::now() -
-                        state.thinking_start_time).count());
-                if (done_secs >= 1) {
+                const auto done_secs = tui::turn_done_seconds(
+                    state.thinking_start_time, std::chrono::steady_clock::now());
+                if (done_secs) {
                     state.conversation.push_back({"turn_done",
-                        "Done for " + std::to_string(done_secs) + "s", false});
+                        "Done for " + std::to_string(*done_secs) + "s", false});
                     if (state.drag_scrollbar_phase ==
                         TuiState::DragScrollbarPhase::Idle) {
                         state.chat_follow_tail = true;
@@ -5576,28 +5359,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 
             // 统一入口：内存 push + 磁盘 append。空白 / 相邻重复被抑制，保持磁盘与内存
             // 行为一致；磁盘持久化受 config.input_history.enabled 控制。
-            auto record_history = [&state, &config, &working_dir](const std::string& entry) {
-                auto is_all_space = [](const std::string& s) {
-                    for (unsigned char c : s) {
-                        if (!std::isspace(c)) return false;
-                    }
-                    return true;
-                };
-                if (entry.empty() || is_all_space(entry)) return;
-                if (!state.input_history.empty() && state.input_history.back() == entry) return;
-                state.input_history.push_back(entry);
-                if (config.input_history.enabled) {
-                    std::string path = InputHistoryStore::file_path(
-                        SessionStorage::get_project_dir(working_dir));
-                    InputHistoryStore::append(path, entry, config.input_history.max_entries);
-                }
-            };
 
             // Shell input mode: dispatch directly to BashTool via agent worker.
             // Skips slash-command parsing and LLM round-trip.
             if (state.input_mode == InputMode::Shell) {
                 if (!attachments.empty()) {
-                    set_transient_status_line_locked(
+                    tui::set_transient_status_line_locked(
                         state,
                         "Image attachments are only supported in normal prompt mode");
                     state.input_text = expanded_prompt;
@@ -5611,7 +5378,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     return true;
                 }
                 const std::string shell_cmd = expanded_prompt;
-                record_history(prepend_mode_prefix(shell_cmd, InputMode::Shell));
+                record_input_history(state.input_history, config.input_history, working_dir, prepend_mode_prefix(shell_cmd, InputMode::Shell));
                 state.history_index = -1;
                 state.input_mode = InputMode::Normal;
 
@@ -5631,7 +5398,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             // Record history（用 expanded_prompt：上箭头取回原文，再次提交不会发出
             // 字面 [Pasted text #N] —— 因为本会话提交后 store 已经清空，未展开的
             // 字面占位符在下次 submit 时也会按 unknown id 保留，丢失原文。）
-            record_history(expanded_prompt);
+            record_input_history(state.input_history, config.input_history, working_dir, expanded_prompt);
             state.history_index = -1;
 
             // Slash command interception（用 expanded_prompt 派发：spec 4.3）。
@@ -5967,7 +5734,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.pending_attachments.clear();
                 state.pending_attachment_focus =
                     acecode::tui::kNoPendingAttachmentFocus;
-                set_transient_status_line_locked(state, "Cleared pending attachments");
+                tui::set_transient_status_line_locked(state, "Cleared pending attachments");
                 screen.PostEvent(Event::Custom);
                 return true;
             }
@@ -6050,12 +5817,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     LOG_INFO("Sent OSC 52 copy request for " +
                              std::to_string(sel.size()) + " bytes");
                 } else {
-                    status_msg = clipboard_copy_status_message(clipboard_write.status);
+                    status_msg = tui::clipboard_copy_status_message(clipboard_write.status);
                     LOG_WARN(status_msg);
                 }
                 {
                     std::lock_guard<std::mutex> lk(state.mu);
-                    set_transient_status_line_locked(state, status_msg);
+                    tui::set_transient_status_line_locked(state, status_msg);
                 }
                 screen.PostEvent(Event::Custom);
                 return true;
@@ -6098,7 +5865,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                                            : opened.error);
                         {
                             std::lock_guard<std::mutex> lk(state.mu);
-                            set_transient_status_line_locked(
+                            tui::set_transient_status_line_locked(
                                 state,
                                 status_msg);
                         }
