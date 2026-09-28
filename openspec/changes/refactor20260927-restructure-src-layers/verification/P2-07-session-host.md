@@ -30,10 +30,19 @@ CTest 注册条目仍为 5121。原始展示名中 42 项含参数指针地址�
 
 `migrate_branch.py --check` 已执行,过渡布局仍返回非零:documentation 102、layers 2341、migration_paths 60;include_normalization、map、ownership、seed 为 0。这里包含尚未执行的 P3 最终分组规则;当前迁移模式的实际分层违规为 79,不将此报告当作 P3 验收。
 
-## 四平台验证进度
+## 四平台验证(D26 之前已触发的一次运行)
 
 [refactor-matrix 36372667024](https://github.com/tmoonlight/acecode/actions/runs/36372667024) 固定上述源码。Deepin 已完成构建,File API 为 13 个目标、1409 个元组;对照 P2-06,原有目标/元组均保持,仅新增三组提取实现的 9 个元组。该平台不运行单测。
 
 Deepin 的 provenance 源码字段仍因容器 Git 归属检查为空;额外核对已完成 job `108772039048` 的 checkout 命令、HEAD 提示和紧接 `git log -1 --format=%H` 的完整 SHA,均为固定源码,不使用空字段作为来源证明。
 
-Windows / Linux / macOS 的构建和完整用例仍在进行,尚未登记为通过。任务复选框保持未勾选;三个平台的快照、用例与既有失败复核完成后再合入。
+该运行随后全部完成:windows-x64、linux-x64、macos-arm64 与 Deepin(configure + build、snapshot)五个 job 均为 success。按 D26(2026-09-28)逐任务验收只做 Windows 本机,三个测试平台的快照、用例清单与既有失败复核没有逐项对照,统一留到 tasks.md 5.4「多平台补验」。
+
+## D26 接手核对(Claude,2026-09-28)
+
+原 Codex 会话停在等待四平台结果的阶段(用户反映验证成本过高),本节按 design.md §7.4 的 B 档在 Windows 本机复核,不再触发新的 CI:
+
+- 静态闸门(分支 `a5cad80d`):`normalize_includes --check` src / tests 均 0 改动、0 错误;`check_layers --enforce-parent-includes` 79 项(master 83);`validate_map --strict`、`check_file_size`、`check_ownership` 均 0;`check_doc_paths` 102 项,较 master 多 23 项,全部是 `docs/superpowers/plans|specs/2026-05-09-model-selection*`、`docs/reviews/pr-24-*` 等历史文档里的 `apply_model_to_session` / `session_registry` 旧路径,P3 M2 的文档改写会统一换算(apply_layout 预演已覆盖 54 份文档),不在本任务改写历史记录。
+- 快速档单测:用上文全新目录 `build/p2-07-session-host` 的 `acecode_unit_tests.exe`,`run_fast_tests.py --profile fast`(6 分片、隔离 HOME/TEMP、对照 P2-05 二进制的全量记录):清单 5117,执行 4515,9 SKIP,0 失败,601 条慢套件用例未运行(已如实记录),27 秒。守护测试 `AgentLoopTermination.RequestPrefixIsByteStableAcrossIterationsInATurn` 与 `SystemPromptTest.*ByteStable*` 单独补跑通过。
+- target 快照:对 master(`fd6f9695`,configure-only File API)与本分支的快照都按映射表反查换算后对照:59 个目标无增删;新增元组只有 init_prompt、lsp_status_text、session_title_text 三组源/头及其 `.obj` 在各链接目标里的引用;另有 25 对 `nlohmann_json.natvis` 差异是主检出记成相对路径、worktree 记成绝对路径的已知形态差异,1 对 `terminal_title_test.cpp` 差异来自本分支补充的映射行(master 侧映射表还没有该行),两者都不是归属变化。
+- 合入前已把 master(D26 决策、apply_layout 工具)合进本分支;src / tests / CMake 相对验证源码无差异。

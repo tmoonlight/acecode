@@ -196,7 +196,7 @@
   - `tests/skill_registry_test.cpp` 移到 `tests/skills/`。
   - 前置:3.1、3.4。
   - 验证:hooks、skills、seeder 相关测试全部通过;`skill_commands_reload_test` 能链接并运行;lint 显示 hooks→provider、hooks→skills、memory→skills、skills↔commands 边消失。
-- [ ] 3.6 【P2-07】【主】编排层上移到 `session_host/`。〔认领: Codex-root 2026-09-28〕
+- [x] 3.6 【P2-07】【主】编排层上移到 `session_host/`。〔认领: Codex-root 2026-09-28〕〔接手: Claude-D26 2026-09-28,原 Codex 会话停在等待四平台结果阶段,按 D26 只补 Windows 本机核对〕〔验收: Claude-D26 2026-09-28,PR #86;本机全新构建 + 全量 5116 / 9 SKIP / 0 失败(Codex 记录)+ 快速档复核 0 失败;target 快照 59 目标无增删,新增元组仅三组提取文件;refactor-matrix 36372667024 四平台 success,逐平台对照留 5.4;见 verification/P2-07-session-host.md〕
   - 先拆出 `prompt/init_prompt`(自 `commands/init_command` 的 `build_*`)与 `lsp/lsp_status_text`(自 `commands/lsp_command`);
   - 再把 session_registry、local_session_client、thread_service、task_suggestion_service、session_auto_title、session_title_generator 移过去,其中纯函数留在 `session/session_title_text`;
   - 按 layout-map.md §2,terminal_title 的 sanitize_title 及其 UTF-8 截断辅助归入 session/session_title_text,终端 OS 调用留在 platform;纯标题与 init_prompt 测试随实际职责迁移;
