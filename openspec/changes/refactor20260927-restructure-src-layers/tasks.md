@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;用户已取消等待原定 06:00 窗口,提交与 push 尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
+> **本次 Windows 验收与主线交付(2026-09-29):** 已通过 [PR #87](https://github.com/tmoonlight/acecode/pull/87) 合入 master,pre/post-src-layout 标签已推送。C++ 5294 通过、9 SKIP、0 失败,Windows ASan 489 条通过,严格闸门与实测证据见母 change 的 verification/windows-phase1-validation.md。以下完成勾选按用户确认的 Windows 范围;人工专项及九个旧 ref 的迁移后补,云端 CI/CD 依最新指令启动后次日查看结果。
 
 > 执行前必读 design.md 的 §6「提交与协作约定」。关键规则:
 > - 开工前在任务行末尾追加 `〔认领: <代理名> <日期>〕`,单独提交到 master;前置任务没勾选的不开工。
@@ -237,13 +237,13 @@
 
 ## 4. Phase 3:冻结窗口(半天,外加约 1 天验证)
 
-- [ ] 4.1 【P3-01】【主】演练。〔认领: Claude-D26 2026-09-28,临时 worktree N:/Users/shao/acecode-p3-rehearsal,按 D26 只做 Windows 闸门〕〔接续: Codex-root 2026-09-28;演练及修正已核对,按 D27 待一期统一验收提交〕
+- [x] 4.1 【P3-01】【主】演练。〔认领: Claude-D26 2026-09-28,临时 worktree N:/Users/shao/acecode-p3-rehearsal,按 D26 只做 Windows 闸门〕〔接续: Codex-root 2026-09-28;演练及修正已核对,按 D27 待一期统一验收提交〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 在临时 worktree 里用 `apply_layout.py` 从固定 base 生成 M1 / M2 / M2b / M3,跑完 design.md §7.2「P3」一行的全部闸门,记录耗时,用来估算冻结窗口;
   - 演练分支不推到 master。
   - 前置:Phase 2 全部完成;adopt-ownership-conventions 的 P2-01 已合入。
   - 验证:全部闸门通过,耗时已记录。
   - 工具:`scripts/refactor/apply_layout.py`(2026-09-28 新增,`plan / move / rewrite / seed / blame` 五步,只复用 migrate_branch 的改写函数)。预演(2026-09-28,P2-07/P2-08 未完成的 master,临时 worktree,不推送):M1 搬 935 个文件全部 R100、23 秒;M2 改 6 个构建文件 + 54 份文档并重生成 help 站点、18 秒,src/tests 只改 3 行 include(image/stb → external/stb)+ tests/CMakeLists.txt 3 行 + cpp_source_paths.json 18 行,blob 保持 LF;`normalize_includes --check` 0、`validate_map --strict` 0。未做:CMake 的 6 个分组 include 根(`${CMAKE_SOURCE_DIR}/src` 共 18 处 + glob 根 + TUI 目录变量)与构建,留给正式演练。
-- [ ] 4.2 【P3-02】【主】正式搬迁。〔实现: Codex-root 2026-09-28;master 的 M1/M2/M2b 已完成,1003 个 R100;待一期统一验收、正式窗口提交与 pre/post 标签〕
+- [x] 4.2 【P3-02】【主】正式搬迁。〔实现: Codex-root 2026-09-28;master 的 M1/M2/M2b 已完成,1003 个 R100;待一期统一验收、正式窗口提交与 pre/post 标签〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 提前 1–2 天在 AGENTS.md / CLAUDE.md 公告窗口;打 tag `pre-src-layout`;在**最新 master 上重新生成**以下提交,不 rebase 演练结果:
     - **M1** `[no-build]`:约 44 个模块目录(含 tests 镜像)`git mv` 到 6 个分组下,stb 移到 `external/stb`,全部 R100,include 改动 0 行;
     - **M2** `[mechanical]`:
@@ -269,9 +269,9 @@
 
 ## 5. Phase 4:搬迁收尾
 
-- [ ] 5.1 【P4-01】【子】〔实现完成: Codex-root 2026-09-28;严格模式及 CTest 已接入,待统一验收〕lint 切到 `--strict`,exceptions 必须为空;注册 `ctest layer_lint`;pre-push 钩子可选,只检查改动文件。
+- [x] 5.1 【P4-01】【子】〔实现完成: Codex-root 2026-09-28;严格模式及 CTest 已接入,待统一验收〕lint 切到 `--strict`,exceptions 必须为空;注册 `ctest layer_lint`;pre-push 钩子可选,只检查改动文件。〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 验证:本地 `ctest -R layer_lint` 通过;故意新增一条向上依赖,lint 失败。
-- [ ] 5.2 【P4-02】【子】叙述性文档。〔实现完成: Codex-root 2026-09-28;六层放置规则、入口/测试镜像、C1-C14 和映射版本已更新;自动记忆由用户后续自行更新,路径/help 站点待统一验收〕
+- [x] 5.2 【P4-02】【子】叙述性文档。〔实现完成: Codex-root 2026-09-28;六层放置规则、入口/测试镜像、C1-C14 和映射版本已更新;自动记忆由用户后续自行更新,路径/help 站点待统一验收〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 新增 `docs/architecture/src-layout.md`:层定义、依赖规则、「新文件放哪」决策表、指向 `src/layers.tsv` 的链接;
   - 重写 ARCHITECTURE.md 的结构章节,改为引用它;更正 AGENTS.md / AGENT.md 里过时的「根目录 main.cpp」;
   - CLAUDE.md 顶部改为正式的分层说明,替换 P0-01 的「进行中」提示;
@@ -279,7 +279,7 @@
   - 进行中的 openspec change 各加一行映射说明;
   - 提醒用户手工更新自动记忆中约 16 处路径。
   - 验证:`check_doc_paths.py` 为 0;help 站点重新生成后,diff 只涉及路径。
-- [ ] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。〔实现完成: Codex-root 2026-09-28;test/refactor-matrix 已改严格阻断并保留失败报告;本机负向闸门待统一验收,本次不发起跨端 CI〕
+- [x] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。〔实现完成: Codex-root 2026-09-28;test/refactor-matrix 已改严格阻断并保留失败报告;本机负向闸门待统一验收,本次不发起跨端 CI〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 验证:CI 上故意新增一个超过 1000 行的文件、一条向上依赖、一处 `.detach()`,三个 lint 分别失败。
 - [ ] 5.4 【P4-04】【主】多平台补验(D26 推迟项)。
   - Windows 侧的一期任务全部合入后,在最新 master 上用完整 SHA dispatch 一次 refactor-matrix(`run_tests=true`,`include_deepin=true`)和一次 package.yml;

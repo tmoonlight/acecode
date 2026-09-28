@@ -377,6 +377,8 @@ split-agent-loop、split-tui-main、adopt-ownership-conventions 的验收见各�
 
 > **交付收尾最新指令(2026-09-29):** 2026-09-29 交付收尾最新指令(用户确认):发完后确保 CI/CD 已启动即关机,结果明天查看。正常触发 test,在最终 master 上启动 refactor-matrix(全量及 Deepin)和 package 分支构建验证;此前暂停跨端 CI 的安排由本条覆盖。人工专项与旧分支迁移仍按已批准范围后补。
 
+> **主线交付记录(2026-09-29):** [PR #87](https://github.com/tmoonlight/acecode/pull/87) 已于 2026-09-28T18:50:48Z 合入 master(1483069f2b97cde11953da1e5e15c8601e71f464),pre-src-layout/post-src-layout 均已推送,当前解除冻结。Windows 验收和用户确认的补验范围见 verification/windows-phase1-validation.md。
+
 ## 本次实施安排(D27,2026-09-28)
 
 按用户在 Codex 中的最新指令,剩余一期统一在当前 master 检出实施,全部实现后集中执行 Windows 本机全量验收,完成后再一起提交、push。过程中不另建任务分支或工作区,不逐任务提交/推送,不派发或等待跨端 CI;D26 的逐任务构建、快速档和阶段全量档也统一后移。macOS / Linux / Deepin 与 package.yml 暂不纳入本次 Windows 交付,5.4 保留为后续补验事项。
