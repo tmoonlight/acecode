@@ -67,7 +67,8 @@ add_executable(acecode_runtime_log_fixture
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/runtime_log_fixture.cpp
     ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
 target_include_directories(acecode_runtime_log_fixture PRIVATE
-    ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/external/ftxui/src)
+    ${CMAKE_SOURCE_DIR}/external/ftxui/src)
+target_link_libraries(acecode_runtime_log_fixture PRIVATE acecode_include_roots)
 if(MSVC)
     set_target_properties(acecode_runtime_log_fixture PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -114,10 +115,8 @@ target_link_libraries(acecode_unit_tests PRIVATE
 )
 
 target_include_directories(acecode_unit_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/tests
-    ${CMAKE_BINARY_DIR}/generated
-)
+    ${CMAKE_SOURCE_DIR}/tests)
+target_link_libraries(acecode_unit_tests PRIVATE acecode_include_roots)
 if(WIN32 OR APPLE)
     target_link_libraries(acecode_unit_tests PRIVATE acecode_computer_use_native)
     add_dependencies(acecode_unit_tests acecode-computer-use)
@@ -138,7 +137,7 @@ if(WIN32 OR APPLE)
         OUTPUT_NAME acecode-computer-use RUNTIME_OUTPUT_DIRECTORY "${_computer_broker_dir}")
     add_executable(computer_use_broker_smoke EXCLUDE_FROM_ALL
         ${ACECODE_COMPUTER_USE_BROKER_SMOKE_SOURCES})
-    target_include_directories(computer_use_broker_smoke PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(computer_use_broker_smoke PRIVATE acecode_include_roots)
     target_link_libraries(computer_use_broker_smoke PRIVATE nlohmann_json::nlohmann_json)
     set_target_properties(computer_use_broker_smoke PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${_computer_broker_dir}")
@@ -166,10 +165,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
     add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
     )
-    target_include_directories(agent_browser_host_smoke PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_BINARY_DIR}/generated
-    )
+    target_link_libraries(agent_browser_host_smoke PRIVATE acecode_include_roots)
     target_link_libraries(agent_browser_host_smoke PRIVATE
         acecode_desktop_support
         acecode_native_bridge_support
@@ -191,10 +187,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
     add_executable(agent_browser_pointer_demo EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_POINTER_DEMO_SOURCES}
     )
-    target_include_directories(agent_browser_pointer_demo PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_BINARY_DIR}/generated
-    )
+    target_link_libraries(agent_browser_pointer_demo PRIVATE acecode_include_roots)
     target_link_libraries(agent_browser_pointer_demo PRIVATE
         acecode_desktop_support
         acecode_native_bridge_support
@@ -213,7 +206,7 @@ endif()
 if(APPLE)
     add_executable(computer_use_native_mac_smoke MACOSX_BUNDLE EXCLUDE_FROM_ALL
         ${ACECODE_COMPUTER_USE_NATIVE_MAC_SMOKE_SOURCES})
-    target_include_directories(computer_use_native_mac_smoke PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(computer_use_native_mac_smoke PRIVATE acecode_include_roots)
     target_link_libraries(computer_use_native_mac_smoke PRIVATE nlohmann_json::nlohmann_json
         "-framework AppKit" "-framework ApplicationServices")
     target_compile_options(computer_use_native_mac_smoke PRIVATE
@@ -250,10 +243,7 @@ if(APPLE)
         "-framework QuartzCore"
         "-framework WebKit"
     )
-    target_include_directories(agent_browser_host_mac_smoke PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${CMAKE_BINARY_DIR}/generated
-    )
+    target_link_libraries(agent_browser_host_mac_smoke PRIVATE acecode_include_roots)
     set_target_properties(agent_browser_host_mac_smoke PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "ACECode Agent Browser Smoke"
         MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.agent-browser-smoke"
@@ -272,9 +262,7 @@ if(APPLE)
     target_link_libraries(acecode_macos_notification_smoke PRIVATE
         acecode_native_bridge_support
     )
-    target_include_directories(acecode_macos_notification_smoke PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-    )
+    target_link_libraries(acecode_macos_notification_smoke PRIVATE acecode_include_roots)
     set_target_properties(acecode_macos_notification_smoke PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "ACECode Notification Smoke"
         MACOSX_BUNDLE_GUI_IDENTIFIER "dev.acecode.notification-smoke"
@@ -301,10 +289,7 @@ target_link_libraries(concurrent_session_writer PRIVATE
     ftxui::dom
     ftxui::component
 )
-target_include_directories(concurrent_session_writer PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
-)
+target_link_libraries(concurrent_session_writer PRIVATE acecode_include_roots)
 add_dependencies(acecode_unit_tests concurrent_session_writer)
 
 # Runtime state is shared by multiple workspace daemons. This helper lets the
@@ -319,10 +304,7 @@ target_link_libraries(state_file_claim_worker PRIVATE
     ftxui::dom
     ftxui::component
 )
-target_include_directories(state_file_claim_worker PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
-)
+target_link_libraries(state_file_claim_worker PRIVATE acecode_include_roots)
 add_dependencies(acecode_unit_tests state_file_claim_worker)
 
 # Real child used by remote-Web proxy controller tests. It dispatches the same
@@ -337,10 +319,7 @@ target_link_libraries(remote_web_proxy_test_child PRIVATE
     ftxui::dom
     ftxui::component
 )
-target_include_directories(remote_web_proxy_test_child PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
-)
+target_link_libraries(remote_web_proxy_test_child PRIVATE acecode_include_roots)
 add_dependencies(acecode_unit_tests remote_web_proxy_test_child)
 
 # 测试辅助 MCP stdio server: 用于 McpManager 异步启动测试走真实
@@ -370,9 +349,7 @@ add_executable(headless_jsonl_process_driver
     ${CMAKE_CURRENT_SOURCE_DIR}/headless/headless_jsonl_process_driver.cpp
     ${CMAKE_SOURCE_DIR}/src/apps/headless/headless_jsonl.cpp
 )
-target_include_directories(headless_jsonl_process_driver PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
+target_link_libraries(headless_jsonl_process_driver PRIVATE acecode_include_roots)
 target_link_libraries(headless_jsonl_process_driver PRIVATE
     nlohmann_json::nlohmann_json
 )

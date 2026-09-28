@@ -39,7 +39,7 @@ TESTS_CMAKE = "target_include_directories(t PRIVATE\n    ${CMAKE_SOURCE_DIR}/src
 class ApplyIncludeRootsTest(unittest.TestCase):
     def test_replaces_only_bare_src_roots_and_defines_variable_once(self):
         # 触发场景:根 CMake 里 src 既作为 glob 前缀、源文件路径前缀,也单独作为 include 根出现。
-        # 期望:只有单独出现的两处换成 ${ACECODE_INCLUDE_ROOTS};glob 与源文件路径原样;ALLOW_LEGACY 去掉;
+        # 期望:只有单独出现的两处改为链接 acecode_include_roots;glob 与源文件路径原样;ALLOW_LEGACY 去掉;
         # 变量在 known-roots 断言之后定义一次;CRLF 保持。
         updated, report = rewrite(ROOT_CMAKE.encode("utf-8"), "CMakeLists.txt")
         text = updated.decode("utf-8")
@@ -49,8 +49,12 @@ class ApplyIncludeRootsTest(unittest.TestCase):
         self.assertIn("${CMAKE_SOURCE_DIR}/src/apps/cli/main.cpp", text)
         self.assertIn("acecode_assert_known_roots(SOURCES\r\n", text)
         self.assertEqual(1, text.count("set(ACECODE_INCLUDE_ROOTS"))
-        self.assertIn("    ${ACECODE_INCLUDE_ROOTS}\r\n    ${CMAKE_BINARY_DIR}/generated)", text)
-        self.assertIn("target_include_directories(native PUBLIC ${ACECODE_INCLUDE_ROOTS})", text)
+        self.assertIn("add_library(acecode_include_roots INTERFACE)", text)
+        self.assertIn("target_link_libraries(acecode_testable PUBLIC acecode_include_roots)", text)
+        self.assertIn("target_link_libraries(native PUBLIC acecode_include_roots)", text)
+        roots = text.split("set(ACECODE_INCLUDE_ROOTS", 1)[1].split(")", 1)[0]
+        self.assertNotIn("/external", roots)
+        self.assertIn("src/base/image/image_processor.cpp", text)
         self.assertNotIn("\n\n\r", text)
         self.assertTrue(text.index("ACECODE_OBJCXX_SOURCES})") < text.index("set(ACECODE_INCLUDE_ROOTS"))
         # stb 头搬到 external 后仍要出现在 acecode_testable 与 source_group 里(快照逐元组不变),但不进 known-roots 断言。
@@ -69,7 +73,7 @@ class ApplyIncludeRootsTest(unittest.TestCase):
             (root / "tests" / "CMakeLists.txt").write_bytes(TESTS_CMAKE.encode("utf-8"))
             first = apply(root)
             self.assertEqual([True, True], [r["changed"] for r in first])
-            self.assertEqual("target_include_directories(t PRIVATE\n    ${ACECODE_INCLUDE_ROOTS} ${CMAKE_SOURCE_DIR}/external/ftxui/src)\n",
+            self.assertEqual("target_include_directories(t PRIVATE\n    ${CMAKE_SOURCE_DIR}/external/ftxui/src)\ntarget_link_libraries(t PRIVATE acecode_include_roots)\n",
                              (root / "tests" / "CMakeLists.txt").read_text(encoding="utf-8"))
             second = apply(root)
             self.assertEqual([False, False], [r["changed"] for r in second])

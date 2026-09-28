@@ -170,10 +170,40 @@ file(GLOB_RECURSE ACECODE_HEADER_FILES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.hpp
     ${CMAKE_SOURCE_DIR}/src/*.h
 )
+file(GLOB ACECODE_THIRDPARTY_HEADERS CONFIGURE_DEPENDS
+    ${CMAKE_SOURCE_DIR}/external/stb/*.h)
 file(GLOB_RECURSE ACECODE_OBJCXX_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.mm)
-acecode_assert_known_roots(ALLOW_LEGACY SOURCES
+acecode_assert_known_roots(SOURCES
     ${ACECODE_ALL_SOURCES} ${ACECODE_HEADER_FILES} ${ACECODE_OBJCXX_SOURCES})
+
+# P3 M2(refactor20260927 D1):6 个分组各自作为 include 根,模块根形式的 include
+# ("utils/paths.hpp")在分组搬迁后不变;generated 放版本头。
+set(ACECODE_INCLUDE_ROOTS
+    ${CMAKE_SOURCE_DIR}/src/base
+    ${CMAKE_SOURCE_DIR}/src/domain
+    ${CMAKE_SOURCE_DIR}/src/adapters
+    ${CMAKE_SOURCE_DIR}/src/engine
+    ${CMAKE_SOURCE_DIR}/src/host
+    ${CMAKE_SOURCE_DIR}/src/apps
+    ${CMAKE_BINARY_DIR}/generated)
+foreach(_root IN LISTS ACECODE_INCLUDE_ROOTS)
+    if(NOT _root MATCHES "generated$" AND NOT IS_DIRECTORY "${_root}")
+        message(FATAL_ERROR "include root does not exist: ${_root}")
+    endif()
+endforeach()
+add_library(acecode_include_roots INTERFACE)
+target_include_directories(acecode_include_roots INTERFACE ${ACECODE_INCLUDE_ROOTS})
+
+# P5 按组建库前,只给 base/image 的实现开放 SYSTEM 第三方头搜索路径。
+# canonical include 保留 stb/...;不能把 external 放进所有目标的公共 include 根。
+if(MSVC)
+    set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/base/image/image_processor.cpp
+        APPEND PROPERTY COMPILE_OPTIONS "/external:I${CMAKE_SOURCE_DIR}/external")
+else()
+    set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/base/image/image_processor.cpp
+        APPEND PROPERTY COMPILE_OPTIONS "-isystem${CMAKE_SOURCE_DIR}/external")
+endif()
 
 # 目录集合与 testable 子集分开登记。P2 将模块移进 tui/ 时沿用这些边界，
 # P3 只修改目录根；不要让正则失配把整套 TUI 静默送进 acecode_testable。
@@ -375,10 +405,7 @@ endif()
 add_library(acecode_native_bridge_support STATIC
     ${ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES}
 )
-target_include_directories(acecode_native_bridge_support PUBLIC
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
-)
+target_link_libraries(acecode_native_bridge_support PUBLIC acecode_include_roots)
 target_link_libraries(acecode_native_bridge_support PUBLIC
     nlohmann_json::nlohmann_json
 )
@@ -413,10 +440,7 @@ endif()
 add_library(acecode_desktop_support STATIC
     ${ACECODE_DESKTOP_SUPPORT_SOURCES}
 )
-target_include_directories(acecode_desktop_support PUBLIC
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
-)
+target_link_libraries(acecode_desktop_support PUBLIC acecode_include_roots)
 target_link_libraries(acecode_desktop_support PUBLIC
     acecode_native_bridge_support
 )
@@ -448,6 +472,7 @@ endif()
 add_library(acecode_testable OBJECT
     ${ACECODE_TESTABLE_SOURCES}
     ${ACECODE_HEADER_FILES}
+    ${ACECODE_THIRDPARTY_HEADERS}
     ${CMAKE_BINARY_DIR}/generated/version.hpp
     ${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp
 )
@@ -462,11 +487,9 @@ if(APPLE)
     )
 endif()
 target_include_directories(acecode_testable PUBLIC
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_BINARY_DIR}/generated
     ${CMAKE_SOURCE_DIR}/external/cpp-mcp/include
-    ${CMAKE_SOURCE_DIR}/external/cpp-mcp/common
-)
+    ${CMAKE_SOURCE_DIR}/external/cpp-mcp/common)
+target_link_libraries(acecode_testable PUBLIC acecode_include_roots)
 
 acecode_set_source_define("${ACECODE_CHANNEL_BRIDGE_SOURCE}"
     ACECODE_CHANNEL_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/channels/whatsapp")
@@ -522,7 +545,7 @@ if(WIN32)
     # cancellable without terminating a conversation or the desktop shell.
     add_library(acecode_computer_use_native STATIC
         ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES})
-    target_include_directories(acecode_computer_use_native PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(acecode_computer_use_native PUBLIC acecode_include_roots)
     target_compile_definitions(acecode_computer_use_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_link_libraries(acecode_computer_use_native PUBLIC
         nlohmann_json::nlohmann_json user32 gdi32 ole32 oleaut32
@@ -538,7 +561,7 @@ elseif(APPLE)
     add_library(acecode_computer_use_native STATIC
         ${ACECODE_COMPUTER_USE_MAC_SOURCES})
     set_target_properties(acecode_computer_use_native PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
-    target_include_directories(acecode_computer_use_native PUBLIC ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(acecode_computer_use_native PUBLIC acecode_include_roots)
     target_compile_options(acecode_computer_use_native PRIVATE -fobjc-arc -mmacosx-version-min=14.0)
     target_link_libraries(acecode_computer_use_native PUBLIC nlohmann_json::nlohmann_json
         "-framework AppKit" "-framework ApplicationServices" "-framework ScreenCaptureKit"
@@ -592,6 +615,7 @@ source_group(TREE ${CMAKE_SOURCE_DIR} FILES
     ${ACECODE_MAIN_SOURCE}
     ${ACECODE_ALL_SOURCES}
     ${ACECODE_HEADER_FILES}
+    ${ACECODE_THIRDPARTY_HEADERS}
     ${CMAKE_SOURCE_DIR}/cmake/version.hpp.in
 )
 
