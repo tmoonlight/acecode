@@ -52,7 +52,7 @@
   - 验证:
     - 新增 `event_dispatcher_test` 用例:listener 阻塞时 `unsubscribe_and_wait` 会等到它返回;在 listener 内对自身退订不死锁;返回之后不再有投递;
     - 既有回放与顺序用例全部通过。
-- [ ] 2.2 【O-02】【主】【行为变更 D7】`SessionRegistry::shutdown_all` + `SessionEntry` 显式析构。
+- [ ] 2.2 【O-02】【主】【行为变更 D7】`SessionRegistry::shutdown_all` + `SessionEntry` 显式析构。〔实现完成: Codex-root 2026-09-28;创建准入与幂等关停、全部取消后逐一 join/释放写者、标题/生命周期任务回收、回调 LifetimeRef;5 项关停用例及同 ID 替换订阅用例已补,待一期末 Windows 统一验收〕
   - `shutdown_all()`:
     - 置 `shutting_down_`,把 `entries_` swap 出来;
     - 对每个 entry 执行与 `destroy()` 相同的 `abort → loop->shutdown() → sm->end_current_session()`;

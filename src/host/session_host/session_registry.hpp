@@ -28,6 +28,8 @@
 #include "session/permission_prompter.hpp"
 #include "session/session_client.hpp"
 #include "session/session_manager.hpp"
+#include "utils/joining_thread.hpp"
+#include "utils/lifetime_token.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -38,7 +40,6 @@
 #include <shared_mutex>
 #include <string>
 #include <stdexcept>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -63,10 +64,10 @@ std::vector<std::string> list_no_workspace_session_cwds(const std::string& cache
 std::optional<SessionMeta> find_no_workspace_session_meta(const std::string& id,
                                                           const std::string& cache_root = {});
 
-// SessionEntry: 一个 session 的所有 per-session 状态。所有指针成员都是
-// unique_ptr,SessionEntry 析构时按相反顺序销毁(AgentLoop 先 shutdown
-// worker thread,再销毁 prompter,再销毁 SessionManager)。
+// Per-session owner. Stop the loop explicitly before destroying any dependency;
+// prompter pointers are borrowed aliases into the loop, snapshots have shared lifetimes.
 struct SessionEntry {
+    ~SessionEntry();
     std::string id;
     std::string cwd;
     std::string workspace_hash;
@@ -201,6 +202,14 @@ class SessionRegistry {
 public:
     explicit SessionRegistry(SessionRegistryDeps deps);
     ~SessionRegistry();
+
+    // Terminal, idempotent operation from the external owner, never a session
+    // worker or registry lifecycle task. Stops admission, joins all producers,
+    // and releases session writers even when clients retain entry snapshots.
+    void shutdown_all();
+
+    // Reap completed handles and report still running background work.
+    std::size_t background_task_count();
 
     SessionRegistry(const SessionRegistry&) = delete;
     SessionRegistry& operator=(const SessionRegistry&) = delete;
@@ -380,6 +389,10 @@ private:
     void restore_loop_history(SessionEntry& entry,
                               const std::vector<ChatMessage>& messages) const;
     void start_auto_title_attempt(const std::string& id, std::string text);
+    void finish_auto_title_attempt(const std::string& id,
+                                    const std::optional<std::string>& title);
+    bool begin_creation();
+    void end_creation();
     void handle_auto_title_turn_finished(const std::string& id,
                                          const std::string& status);
 
@@ -388,11 +401,11 @@ private:
     std::unordered_map<std::string, std::shared_ptr<SessionEntry>> entries_;
     mutable std::mutex                                            external_handler_mu_;
     ExternalCommandHandler                                        external_command_handler_;
-    mutable std::mutex                                            title_threads_mu_;
-    std::vector<std::thread>                                      title_threads_;
-    mutable std::mutex                                            lifecycle_threads_mu_;
-    std::vector<std::thread>                                      lifecycle_threads_;
     std::atomic<bool>                                              shutting_down_{false};
+    std::mutex shutdown_mu_;
+    std::mutex creation_mu_;
+    std::condition_variable creation_cv_;
+    std::size_t creations_in_flight_ = 0;
     // 同 id resume 单飞:web 端 resume 从独占 app_config_mu 降级为共享锁后,
     // 同一会话的并发 resume 不再被外层锁偶然串行化。两个 make_entry 同时
     // 跑会各自 start_session / 抢 writer lease,输家析构时还可能把赢家的
@@ -401,6 +414,9 @@ private:
     std::mutex                                                    resume_inflight_mu_;
     std::condition_variable                                       resume_inflight_cv_;
     std::unordered_set<std::string>                               resume_inflight_;
+    ReapingThreadSet title_threads_;
+    ReapingThreadSet lifecycle_threads_;
+    LifetimeToken lifetime_;
 };
 
 } // namespace acecode

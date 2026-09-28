@@ -29,6 +29,7 @@
 #include "utils/cwd_hash.hpp"
 #include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/scope_exit.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -768,39 +769,68 @@ std::optional<SessionMeta> find_no_workspace_session_meta(const std::string& id,
     return std::nullopt;
 }
 
+SessionEntry::~SessionEntry() {
+    if (loop) loop->shutdown();
+}
+
 SessionRegistry::SessionRegistry(SessionRegistryDeps deps)
     : deps_(std::move(deps)) {}
 
-SessionRegistry::~SessionRegistry() {
+SessionRegistry::~SessionRegistry() { shutdown_all(); }
+
+bool SessionRegistry::begin_creation() {
+    std::lock_guard<std::mutex> lock(creation_mu_);
+    if (shutting_down_.load()) return false;
+    ++creations_in_flight_;
+    return true;
+}
+
+void SessionRegistry::end_creation() {
+    {
+        std::lock_guard<std::mutex> lock(creation_mu_);
+        --creations_in_flight_;
+    }
+    creation_cv_.notify_all();
+}
+
+void SessionRegistry::shutdown_all() {
+    // Concurrent external callers wait for the same full shutdown. Business
+    // callbacks never take this mutex, and no registry/queue lock spans a join.
+    std::lock_guard<std::mutex> shutdown_lock(shutdown_mu_);
     shutting_down_.store(true);
-    if (deps_.power_guard) {
-        std::lock_guard<std::mutex> lk(mu_);
-        for (const auto& [id, _entry] : entries_) {
-            deps_.power_guard->release_session(id);
-        }
-    }
-    std::vector<std::thread> threads;
     {
-        std::lock_guard<std::mutex> lk(title_threads_mu_);
-        threads.swap(title_threads_);
+        std::unique_lock<std::mutex> lock(creation_mu_);
+        creation_cv_.wait(lock, [this] { return creations_in_flight_ == 0; });
     }
-    for (auto& t : threads) {
-        if (t.joinable()) t.join();
-    }
-    threads.clear();
+    std::unordered_map<std::string, std::shared_ptr<SessionEntry>> retired;
     {
-        std::lock_guard<std::mutex> lk(lifecycle_threads_mu_);
-        threads.swap(lifecycle_threads_);
+        std::lock_guard<std::mutex> lock(mu_);
+        retired.swap(entries_);
     }
-    for (auto& t : threads) {
-        if (t.joinable()) t.join();
+    // Cancel every loop before waiting for any one: a parent may await a child.
+    for (const auto& [id, entry] : retired) {
+        if (deps_.power_guard) deps_.power_guard->release_session(id);
+        if (entry && entry->loop) entry->loop->abort();
     }
-    // entries_ 析构会触发每个 SessionEntry 析构 → AgentLoop::shutdown 等等
-    // worker thread join。锁不需要 — 此时没人再调 lookup/destroy(daemon
-    // 退出路径)。
+    for (const auto& [id, entry] : retired) {
+        (void)id;
+        if (entry && entry->loop) entry->loop->shutdown();
+        if (entry && entry->sm) entry->sm->end_current_session();
+    }
+    title_threads_.shutdown();
+    lifecycle_threads_.shutdown();
+    lifetime_.revoke();
+}
+
+std::size_t SessionRegistry::background_task_count() {
+    title_threads_.reap();
+    lifecycle_threads_.reap();
+    return title_threads_.size() + lifecycle_threads_.size();
 }
 
 std::string SessionRegistry::create(const SessionOptions& opts) {
+    if (!begin_creation()) throw std::runtime_error("session registry is shutting down");
+    ScopeExit creation_finished([this] { end_creation(); });
     std::string id = opts.preset_session_id.empty()
         ? SessionStorage::generate_session_id()
         : opts.preset_session_id;
@@ -1063,8 +1093,10 @@ SessionRegistry::make_entry_locked(const std::string& id,
             power_guard->set_busy(id, busy);
         };
     }
-    empty_cb.on_turn_finished = [this, id](const std::string& status) {
-        handle_auto_title_turn_finished(id, status);
+    empty_cb.on_turn_finished = [ref = lifetime_.ref(*this), id](const std::string& status) {
+        ref.with([&](SessionRegistry& registry) {
+            registry.handle_auto_title_turn_finished(id, status);
+        });
     };
     auto binding = entry->model_binding;
     AgentLoop::ProviderAccessor provider_accessor = [binding]() {
@@ -1159,6 +1191,8 @@ void SessionRegistry::restore_loop_history(
 }
 
 bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) {
+    if (!begin_creation()) return false;
+    ScopeExit creation_finished([this] { end_creation(); });
     if (id.empty()) return false;
 
     // 同 id 单飞(声明处有背景):后到者阻塞等待首个 resume 完成,醒来后
@@ -1571,15 +1605,13 @@ void SessionRegistry::start_auto_title_attempt(const std::string& id,
         return;
     }
 
-    std::lock_guard<std::mutex> threads_lk(title_threads_mu_);
     if (shutting_down_.load()) return;
-    title_threads_.emplace_back(
-        [this, cfg, profile = std::move(profile),
+    title_threads_.spawn(
+        [ref = lifetime_.ref(*this), cfg, profile = std::move(profile),
          title_generator = std::move(title_generator),
          session_id = id, text = std::move(text)]() mutable {
-        bool applied = false;
+        std::optional<std::string> title;
         try {
-            std::optional<std::string> title;
             if (title_generator) {
                 title = title_generator(text);
             } else if (profile.has_value()) {
@@ -1588,34 +1620,39 @@ void SessionRegistry::start_auto_title_attempt(const std::string& id,
                     title = generate_auto_session_title(*provider, text, *cfg);
                 }
             }
-            if (title.has_value() && !title->empty()) {
-                auto entry = acquire(session_id);
-                if (entry && entry->sm &&
-                    entry->sm->try_set_generated_session_title_for_session(
-                        session_id, *title)) {
-                    applied = true;
-                    emit_session_title_updated(*entry);
-                    entry->loop->dispatch_session_title_changed_hook(
-                        entry->sm->current_title(),
-                        "generated",
-                        entry->sm->current_title_source());
-                }
-            }
         } catch (const std::exception& e) {
             LOG_WARN("[registry] auto session title generation failed: " +
                      std::string(e.what()));
         } catch (...) {
             LOG_WARN("[registry] auto session title generation failed");
         }
-
-        auto entry = acquire(session_id);
-        if (!entry || !entry->sm) return;
-        auto retry = entry->sm->finish_auto_title_generation_for_session(
-            session_id, applied);
-        if (retry.has_value() && !shutting_down_.load()) {
-            start_auto_title_attempt(session_id, std::move(*retry));
-        }
+        ref.with([&](SessionRegistry& registry) {
+            registry.finish_auto_title_attempt(session_id, title);
+        });
     });
+}
+
+void SessionRegistry::finish_auto_title_attempt(
+    const std::string& id, const std::optional<std::string>& title) {
+    if (shutting_down_.load()) return;
+    auto entry = acquire(id);
+    if (!entry || !entry->sm) return;
+    bool applied = false;
+    try {
+        if (title && !title->empty() &&
+            entry->sm->try_set_generated_session_title_for_session(id, *title)) {
+            applied = true;
+            emit_session_title_updated(*entry);
+            entry->loop->dispatch_session_title_changed_hook(
+                entry->sm->current_title(), "generated", entry->sm->current_title_source());
+        }
+    } catch (const std::exception& e) {
+        LOG_WARN("[registry] applying auto session title failed: " + std::string(e.what()));
+    } catch (...) {
+        LOG_WARN("[registry] applying auto session title failed");
+    }
+    auto retry = entry->sm->finish_auto_title_generation_for_session(id, applied);
+    if (retry && !shutting_down_.load()) start_auto_title_attempt(id, std::move(*retry));
 }
 
 void SessionRegistry::handle_auto_title_turn_finished(
@@ -2180,10 +2217,8 @@ SideChatResult SessionRegistry::stream_side_chat(
 
 bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {
     if (!task || shutting_down_.load()) return false;
-    std::lock_guard<std::mutex> lk(lifecycle_threads_mu_);
-    if (shutting_down_.load()) return false;
     try {
-        lifecycle_threads_.emplace_back(
+        return lifecycle_threads_.spawn(
             [task = std::move(task)]() mutable {
                 try {
                     task();
@@ -2199,7 +2234,6 @@ bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {
                   e.what());
         return false;
     }
-    return true;
 }
 
 void SessionRegistry::destroy(const std::string& id) {
