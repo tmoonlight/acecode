@@ -37,7 +37,7 @@
 
 ## 2. 结构拆分(restructure 的 P3 之后开始;函数体不改)
 
-- [ ] 2.1 【A-01】【主】头文件切分与 include 瘦身,分两个提交。
+- [ ] 2.1 【A-01】【主】头文件切分与 include 瘦身,分两个提交。〔认领: Codex-root 2026-09-28;按 D27 在 master 连续实施,统一验收提交〕
   - (a) 拆出 `agent_callbacks.hpp`(hpp 102-187)、`control/control_receipt.hpp`(hpp 43-89)、`turn/turn_types.hpp`(hpp 541-811)。AgentLoop 内用 using 别名保留嵌套名,`agent_loop.hpp` 转 include 这三个新头。
   - (b) 逐个 TU 补齐 IWYU include。门面必须保留的 include 按 design.md §4 列出,其余改为前置声明。
   - 前置:restructure 4.2(P3-02)、1.1。

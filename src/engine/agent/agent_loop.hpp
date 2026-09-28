@@ -1,5 +1,9 @@
 #pragma once
 
+#include "agent/agent_callbacks.hpp"
+#include "agent/control/control_receipt.hpp"
+#include "agent/turn/turn_types.hpp"
+
 #include "llm/llm_provider.hpp"
 #include "tool/tool_executor.hpp"
 #include "permissions/permissions.hpp"
@@ -45,48 +49,6 @@ struct LoopExecutionPolicy {
     std::string system_context;
 };
 
-// Authoritative receipt for a control task inserted into the AgentLoop worker
-// queue. queued_behind_turn is computed while holding the same mutex that
-// orders chat/control tasks, so a chat that has been submitted but has not yet
-// flipped busy=true is still observed. Completion and success are separate: a
-// callback that ran but could not commit its state must not be reported as
-// applied.
-struct ControlExecutionState {
-    mutable std::mutex mu;
-    std::condition_variable cv;
-    bool completed = false;
-    bool succeeded = false;
-};
-
-struct ControlEnqueueReceipt {
-    std::uint64_t sequence = 0;
-    bool accepted = false;
-    bool queued_behind_turn = false;
-    std::shared_ptr<ControlExecutionState> execution;
-
-    bool completed() const {
-        if (!execution) return false;
-        std::lock_guard<std::mutex> lock(execution->mu);
-        return execution->completed;
-    }
-
-    bool succeeded() const {
-        if (!execution) return false;
-        std::lock_guard<std::mutex> lock(execution->mu);
-        return execution->completed && execution->succeeded;
-    }
-
-    bool applied() const {
-        return succeeded();
-    }
-
-    bool wait_for_completion(std::chrono::milliseconds timeout) const {
-        if (!execution) return false;
-        std::unique_lock<std::mutex> lock(execution->mu);
-        return execution->cv.wait_for(
-            lock, timeout, [&] { return execution->completed; });
-    }
-};
 
 class SkillRegistry;
 class MemoryRegistry;
@@ -99,92 +61,6 @@ struct SystemPromptModelState;
 struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
-// Callbacks for the TUI to observe agent loop events
-struct AgentCallbacks {
-    // Called when a new message is added to the conversation
-    std::function<void(const std::string& role, const std::string& content, bool is_tool)> on_message;
-
-    // Metadata-preserving observer for persisted transcript-only messages.
-    // When installed, it receives those messages instead of the legacy
-    // three-field on_message callback so UI grouping can use stable metadata.
-    std::function<void(const ChatMessage& message)> on_transcript_message;
-
-    // Called after each tool execution with the structured ToolResult so the
-    // TUI can render a summary row. Fires in addition to on_message (not in
-    // place of it) so consumers that only care about the text stream continue
-    // to work unchanged. Receives the tool_call message too so the TUI can
-    // correlate summaries with their call rows.
-    std::function<void(const ChatMessage& call_msg,
-                       const std::string& tool_name,
-                       const ToolResult& result)> on_tool_result;
-
-    // Called when the agent starts/stops processing
-    std::function<void(bool busy)> on_busy_changed;
-
-    // Called once for a submitted agent turn immediately before its terminal
-    // busy=false callback. Values match persisted turn timing status:
-    // "completed", "error", or "aborted". Compact/background busy cycles do
-    // not invoke this hook.
-    std::function<void(const std::string& status)> on_turn_finished;
-
-    // Called to request user confirmation for a tool call.
-    // Returns: Allow, Deny, or AlwaysAllow
-    std::function<PermissionResult(const std::string& tool_name, const std::string& arguments)> on_tool_confirm;
-
-    // Called for each streaming delta token (real-time TUI update)
-    std::function<void(const std::string& token)> on_delta;
-
-    // Called when token usage data is received from the provider
-    std::function<void(const TokenUsage& usage)> on_usage;
-
-    // Called when the current thread goal status changes. Empty string means
-    // no goal is active for the current session.
-    std::function<void(const std::string& status)> on_goal_status;
-
-    // Called when TodoWrite publishes or reads the current visible checklist.
-    // The payload shape matches the todo_updated session event.
-    std::function<void(const nlohmann::json& payload)> on_todo_updated;
-
-    // 具体进度提示(add-tool-preamble,「适合日常工作」):loading 文案变化时回调
-    // (「正在分析你的请求」「正在读取 3 个文件」「正在分析命令输出」、推理加粗
-    // 标题…),TUI 用它替换等待动画里的随机短语。关闭时不回调。
-    std::function<void(const std::string& title)> on_thinking_title;
-
-    // Legacy display observer for replacement-style transcript updates. Normal
-    // compact success appends marker messages and no longer calls this hook.
-    std::function<void(const std::vector<ChatMessage>& messages,
-                       const CompactResult& result)> on_transcript_replace;
-
-    // Called before a provider retry replays the current model request.
-    // Consumers should clear provisional live assistant output from the failed
-    // stream attempt; persisted history is unchanged.
-    std::function<void()> on_stream_retry_reset;
-
-    // Presentation-only retry lifecycle; neither callback appends transcript
-    // messages.
-    std::function<void(const ProviderErrorInfo&)> on_model_retry;
-    std::function<void()> on_model_retry_resume;
-
-    // Called just before a tool begins executing. `command_preview` is a short
-    // human-readable summary (e.g. the first 60 chars of a bash command).
-    // `preamble` 保留给以后用,当前恒为空:进度头是工具行,参数照常显示;具体
-    // 进度提示只走 on_thinking_title(loading 行)。
-    std::function<void(const std::string& tool_name,
-                       const std::string& command_preview,
-                       const std::string& preamble)> on_tool_progress_start;
-
-    // Called from the tool's streaming thread with each cleaned chunk.
-    // `tail_snapshot` is the last-5-lines sliding window; `current_partial` is
-    // the in-progress line (not yet terminated by \n).
-    std::function<void(const std::vector<std::string>& tail_snapshot,
-                       const std::string& current_partial,
-                       size_t total_bytes,
-                       int total_lines)> on_tool_progress_update;
-
-    // Called after the tool returns (or throws). Guaranteed via RAII to fire
-    // once for every on_tool_progress_start.
-    std::function<void()> on_tool_progress_end;
-};
 
 class AgentLoop {
 public:
@@ -657,20 +533,11 @@ private:
                                              const nlohmann::json& payload);
 
     // Type alias for the progress emission callback used across sub-methods.
-    using ProgressEmitter = std::function<void(
-        const std::string& phase, const std::string& label,
-        const std::string& detail, const std::string& tool,
-        const std::string& tool_call_id, int tool_index, bool force)>;
+    using ProgressEmitter = agent::ProgressEmitter;
 
     // Phase 1: Build user message from input, persist, emit events.
     // Returns turn timing metadata for the orchestrator.
-    struct UserTurnInfo {
-        ChatMessage user_msg;
-        bool visible_timed_turn = false;
-        std::string turn_user_uuid;
-        std::string active_turn_id;
-        std::int64_t turn_started_at_ms = 0;
-    };
+    using UserTurnInfo = agent::UserTurnInfo;
     UserTurnInfo prepare_user_turn(const UserInput& input, bool hidden_goal_context);
     UserTurnInfo prepare_retry_user_turn(const ChatMessage& message);
     void append_user_turn_message(UserTurnInfo& info, bool hidden_goal_context);
@@ -681,31 +548,16 @@ private:
     void start_user_turn(const UserTurnInfo& info);
 
     // Phase 2: Build the full message list for the LLM provider.
-    struct ApiRequestBundle {
-        std::vector<ChatMessage> messages_with_system;
-        std::vector<ToolDef> tool_defs;
-        ContextUsageBreakdown context_usage_estimate;
-        nlohmann::json prompt_diag; // simplified: store as raw json
-    };
+    using ApiRequestBundle = agent::ApiRequestBundle;
     ApiRequestBundle build_api_request_messages(bool emergency_profile = false);
     void publish_side_question_context(
         const std::vector<ChatMessage>& messages_with_system);
 
     // 具体进度提示(add-tool-preamble)的一条 loading 文案。
-    struct ToolPreambleTitle {
-        std::string title;
-        std::string source;   // reasoning | template | context
-        std::string kind;     // read | write | ""(按工具类型定,透传给界面)
-    };
+    using ToolPreambleTitle = agent::ToolPreambleTitle;
 
     // Phase 3: Stream provider response and accumulate.
-    struct ProviderCallResult {
-        ChatResponse accumulated;
-        bool provider_error_seen = false;
-        ProviderErrorInfo provider_error_info;
-        std::shared_ptr<LlmProvider> provider_snapshot;
-        int provider_attempt = 1;
-    };
+    using ProviderCallResult = agent::ProviderCallResult;
     bool concrete_activity_enabled() const;
     // 本模型步的工具批次文案(推理加粗标题 > 工具模板),同时记下这批工具,
     // 供下一次等待模型时给出「正在分析文件内容」这类场景文案。关闭时返回空。
@@ -739,12 +591,8 @@ private:
         nlohmann::json done_payload);
 
     // Phase 4: Classify terminal provider errors.
-    enum class HandleErrorResult { Continue, Break, Proceed };
-    enum class ContextRecoveryStage {
-        Normal,
-        HistoryRepaired,
-        EmergencyProfile,
-    };
+    using HandleErrorResult = agent::HandleErrorResult;
+    using ContextRecoveryStage = agent::ContextRecoveryStage;
     HandleErrorResult handle_provider_error(
         ProviderCallResult& result,
         const std::vector<ChatMessage>& messages_with_system,
@@ -781,19 +629,7 @@ private:
     // Helper: construct a ToolContext with all callbacks wired up.
     ToolContext build_tool_context();
 
-    struct WorkerTask {
-        enum class Kind { Chat, Shell, Compact, Control };
-        Kind kind = Kind::Chat;
-        std::string payload;
-        UserInput input;
-        // 仅 Chat 用:UI 渲染时希望显示的"原文",而 payload(发给 LLM)可能
-        // 是被 daemon expander 展开过的字符串(skill 调用提示等)。空 = UI 与
-        // LLM 看到同一份(payload)。
-        std::string display_text;
-        bool hidden_goal_context = false;
-        std::function<void()> control;
-        std::string retry_user_message_id;
-    };
+    using WorkerTask = agent::WorkerTask;
 
     ProviderAccessor provider_accessor_;
     ToolExecutor& tools_;
