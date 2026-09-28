@@ -39,7 +39,7 @@ std::set<std::string> ApiRequestBuilder::dormant_skills(
 
 std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions& options) const {
     std::string system_prompt = build_system_prompt(
-        tools_, options.cwd, options.skills, options.memory,
+        tools_, options.cwd, options.skills.get(), options.memory,
         ptr(options.memory_config), ptr(options.project_config),
         &options.tool_policy,
         &options.worktree,
@@ -74,9 +74,9 @@ std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContext
         tools_.is_allowed("skills_list", &options.tool_policy);
     const bool spawn_subagent_available =
         tools_.is_allowed("spawn_subagent", &options.tool_policy);
-    const auto dormant = dormant_skills(options.skills, options.skill_usage, options.skill_idle_days);
+    const auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
     PromptContextBlock skill_context = build_skills_index_context_prompt(
-        options.skills, options.context_window,
+        options.skills.get(), options.context_window,
         skill_view_available, skills_list_available, &dormant);
     if (!skill_context.content.empty()) {
         ChatMessage skill_system;
@@ -90,7 +90,7 @@ std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContext
     }
     std::string mutable_context = build_session_context_prompt(
         options.cwd, options.memory, ptr(options.memory_config), ptr(options.project_config),
-        options.skills, options.context_window,
+        options.skills.get(), options.context_window,
         ptr(options.custom_config), git_snapshot, ptr(options.expert), options.expert_member,
         /*category_bytes=*/nullptr,
         skill_view_available, skills_list_available,
@@ -166,13 +166,13 @@ RequestBuildInputs ApiRequestBuilder::capture(
         const bool skill_view_available = tools_.is_allowed("skill_view", &options.tool_policy);
         const bool skills_list_available = tools_.is_allowed("skills_list", &options.tool_policy);
         const bool spawn_subagent_available = tools_.is_allowed("spawn_subagent", &options.tool_policy);
-        const auto dormant = dormant_skills(options.skills, options.skill_usage, options.skill_idle_days);
+        const auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
         inputs.skills = build_skills_index_context_prompt(
-            options.skills, options.context_window, skill_view_available,
+            options.skills.get(), options.context_window, skill_view_available,
             skills_list_available, &dormant);
         inputs.session = build_session_context_prompt(
             options.cwd, options.memory, ptr(options.memory_config), ptr(options.project_config),
-            options.skills, options.context_window, ptr(options.custom_config), cache_.cached_git(),
+            options.skills.get(), options.context_window, ptr(options.custom_config), cache_.cached_git(),
             ptr(options.expert), options.expert_member, &inputs.category_bytes,
             skill_view_available, skills_list_available, spawn_subagent_available,
             /*include_skill_index=*/false);

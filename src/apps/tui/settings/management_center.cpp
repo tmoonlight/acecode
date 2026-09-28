@@ -577,6 +577,7 @@ struct ManagementCenter::Impl {
         auto result = mutate_config(mutator, {}, deps.config);
         if (result.ok && deps.config) {
             *deps.config = result.config;
+            if (deps.config_published) deps.config_published();
         }
         return result;
     }
@@ -685,6 +686,7 @@ struct ManagementCenter::Impl {
             }
         }
         refresh_skills();
+        if (deps.skills_changed) deps.skills_changed();
         set_status(
             std::string(disable ? "Disabled skill: " : "Enabled skill: ") +
             name);
@@ -699,6 +701,7 @@ struct ManagementCenter::Impl {
             }
         }
         refresh_skills();
+        if (deps.skills_changed) deps.skills_changed();
         set_status(
             "Reloaded " + std::to_string(skill_catalog.size()) +
             " installed skills.");

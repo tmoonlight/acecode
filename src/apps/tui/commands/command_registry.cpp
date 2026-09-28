@@ -4,6 +4,7 @@
 #include "tui/commands/skill_commands.hpp"
 #include "skills/skill_registry.hpp"
 #include "utils/logger.hpp"
+#include "utils/scope_exit.hpp"
 
 #include <chrono>
 #include <exception>
@@ -41,6 +42,9 @@ bool CommandRegistry::unregister_command(const std::string& name) {
 
 bool CommandRegistry::dispatch(const std::string& input, CommandContext& ctx) {
     if (input.empty() || input[0] != '/') return false;
+    ScopeExit publish([&ctx] {
+        if (ctx.on_command_completed) ctx.on_command_completed();
+    });
 
     // Parse: "/command args..."
     std::string trimmed = input.substr(1); // remove leading '/'

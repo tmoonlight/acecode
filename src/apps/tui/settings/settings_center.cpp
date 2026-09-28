@@ -640,6 +640,7 @@ struct SettingsCenter::Impl {
     SettingsMutationOptions mutation_options() {
         SettingsMutationOptions options;
         options.live_config = deps.config;
+        options.on_live_config_published = deps.config_published;
         options.restart_required_without_live_apply = false;
         return options;
     }

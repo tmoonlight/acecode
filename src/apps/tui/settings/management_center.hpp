@@ -34,6 +34,8 @@ struct ManagementCenterDependencies {
     std::function<void()> post_event;
     std::function<void(std::function<void()>)> post_to_ui;
     std::function<void()> mcp_changed;
+    std::function<void()> config_published;
+    std::function<void()> skills_changed;
 };
 
 class ManagementCenter {

@@ -23,7 +23,7 @@ void AgentLoop::worker_main() {
         try {
             loop_cfg_ = *std::atomic_load(&published_loop_config_);
             if (task.kind == WorkerTask::Kind::Chat) {
-                turn_context_ = std::make_unique<agent::TurnContext>(callbacks_.snapshot());
+                turn_context_ = std::make_unique<agent::TurnContext>(callbacks_.snapshot(), capture_request_source());
             }
             switch (task.kind) {
             case WorkerTask::Kind::Chat:

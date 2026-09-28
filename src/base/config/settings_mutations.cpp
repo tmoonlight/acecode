@@ -31,6 +31,7 @@ SettingsMutationResult finish_mutation(
     result.persisted = mutation.changed;
     if (options.live_config && !publish_saved_models_revision) {
         *options.live_config = mutation.config;
+        if (options.on_live_config_published) options.on_live_config_published();
     }
     if (!mutation.changed) {
         result.runtime_status = SettingsRuntimeStatus::Unchanged;
@@ -53,6 +54,7 @@ SettingsMutationResult finish_mutation(
 
     if (options.live_config && publish_saved_models_revision) {
         publish_live_config(*options.live_config, mutation.config, true);
+        if (options.on_live_config_published) options.on_live_config_published();
     }
     if (options.apply_live) return result;
 

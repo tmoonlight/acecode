@@ -27,6 +27,7 @@ struct AgentLoopServices {
     std::shared_ptr<const ExpertDefinition> expert;
     security::AuditSink audit_sink;
     AgentRuntimeEnv runtime;
+    PromptConfigProvider prompt_config;
 };
 struct AgentLoopOptions {
     std::string cwd;

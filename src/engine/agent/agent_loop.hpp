@@ -260,7 +260,8 @@ public:
     // before the first submit and may be updated once worktree creation adds
     // final branch/path context.
     void set_loop_execution_policy(LoopExecutionPolicy policy);
-    const LoopExecutionPolicy& loop_execution_policy() const {
+    LoopExecutionPolicy loop_execution_policy() const {
+        std::lock_guard<std::mutex> lock(request_source_mu_);
         return request_source_.loop;
     }
 
@@ -290,30 +291,20 @@ public:
     // Active turns consume objective changes at the next model boundary.
     void notify_goal_objective_updated();
 
-    void set_skill_registry(const SkillRegistry* sr) { request_source_.skills = sr; }
-    // Names of skills that are dormant (idle past the threshold, not pinned).
-    // Returns an empty set when dormancy is disabled or the store is unset.
+    // Called by the serialized control publication path. Each turn retains
+    // its previous immutable capability snapshot until completion.
+    void publish_skill_snapshot(std::shared_ptr<const SkillRegistry> skills);
+    void publish_expert_snapshot(std::shared_ptr<const ExpertDefinition> expert,
+        std::shared_ptr<const SkillRegistry> skills, ToolCapabilityPolicy policy,
+        std::string member_id = {});
     std::set<std::string> dormant_skill_names() const;
-    void set_memory_config(const MemoryConfig* cfg) { request_source_.memory_config = cfg; }
-    void set_project_instructions_config(const ProjectInstructionsConfig* cfg) {
-        request_source_.project_config = cfg;
-    }
-    void set_custom_instructions_config(const CustomInstructionsConfig* cfg) {
-        request_source_.custom_config = cfg;
-    }
-    void set_expert_context(const ExpertDefinition* expert,
-                            std::string member_id = {}) {
-        request_source_.expert = expert;
-        request_source_.expert_member = std::move(member_id);
-    }
     void set_tool_capability_policy(ToolCapabilityPolicy policy) {
+        std::lock_guard<std::mutex> lock(request_source_mu_);
         request_source_.tool_policy = std::move(policy);
     }
-    const ToolCapabilityPolicy& tool_capability_policy() const {
+    ToolCapabilityPolicy tool_capability_policy() const {
+        std::lock_guard<std::mutex> lock(request_source_mu_);
         return request_source_.tool_policy;
-    }
-    void set_git_context_config(const GitContextConfig* cfg) {
-        request_source_.git_config = cfg;
     }
     // 外部 git 状态变更(如 Web UI checkout 分支)后标记快照过期。线程安全:
     // 任意线程可调;worker 在下一次模型请求前消费标记并重采。正在跑的 turn
@@ -384,14 +375,15 @@ private:
     SessionManager* const session_manager_; // Nullable borrowed; fixed at construction.
     HookManager* const hook_manager_; // Nullable borrowed; fixed at construction.
     AgentRuntimeEnv runtime_;
-    std::shared_ptr<const SkillRegistry> skills_snapshot_;
-    std::shared_ptr<const ExpertDefinition> expert_snapshot_;
+    const PromptConfigProvider prompt_config_provider_;
     SteadyClockFn progress_clock_;
     ComputerUseReleaseFn computer_use_release_;
     std::string no_model_config_prompt_;
     AgentLoopConfig loop_cfg_; // Worker task snapshot, never written by a publisher.
     std::shared_ptr<const AgentLoopConfig> published_loop_config_;
+    mutable std::mutex request_source_mu_;
     agent::RequestContextSource request_source_;
+    agent::RequestContextSource capture_request_source() const;
 
     // Assembly DAG: history/outcome -> transcript -> queue/gate -> boundary ->
     // security/hooks -> goal/requests -> model/compaction/recovery -> turn scope.

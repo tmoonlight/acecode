@@ -8,10 +8,11 @@ namespace acecode {
 class SessionManager; class AgentLoop;
 class AutoTitleRunner {
 public:
+    using ConfigProvider = std::function<AppConfig()>;
     using Applied = std::function<void(const std::string& session_id, const std::string& title)>;
     using Generate = std::function<std::optional<std::string>(ModelProfile,
         const std::string& text, const AppConfig&)>;
-    AutoTitleRunner(const AppConfig& config, SessionManager& session, AgentLoop& agent,
+    AutoTitleRunner(ConfigProvider config, SessionManager& session, AgentLoop& agent,
         Applied applied, Generate generate = {});
     ~AutoTitleRunner();
     AutoTitleRunner(const AutoTitleRunner&) = delete;
@@ -21,8 +22,8 @@ public:
     void stop();
 private:
     void start_attempt(const std::string& session_id, std::string text);
-    void execute(std::string session_id, std::string text, ModelProfile profile);
-    const AppConfig& config_;
+    void execute(std::string session_id, std::string text, ModelProfile profile, const AppConfig& config);
+    const ConfigProvider config_;
     SessionManager& session_;
     AgentLoop& agent_;
     const Applied applied_;

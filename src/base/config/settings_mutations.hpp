@@ -30,6 +30,7 @@ struct SettingsMutationOptions {
     AppConfig* live_config = nullptr;
     SettingsRuntimeApplyHook apply_live;
     bool restart_required_without_live_apply = true;
+    std::function<void()> on_live_config_published;
 };
 
 struct SettingsMutationResult {

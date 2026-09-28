@@ -32,7 +32,7 @@ void TuiApp::create_components() {
     auto surfaces = std::make_unique<FullScreenSurfaces>(state_, *screen_host_, services_->config,
         session_manager_, *agent_loop_, *subagent_host_, *services_->skills, *commands_, *services_->mcp,
         *services_->tools, *services_->hooks, services_->skill_usage.get(), environment_.working_dir,
-        std::move(chat), input_component_);
+        std::move(chat), input_component_, bind(&TuiApp::publish_configuration));
     root_ = surfaces->component();
     surfaces_ = std::move(surfaces);
 }

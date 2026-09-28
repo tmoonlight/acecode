@@ -10,7 +10,8 @@ public:
     TuiSubmitter(TuiState& state, IScreenPort& screen, AppConfig& config,
         SessionModelBinding& binding, SessionManager& session, McpManager& mcp,
         std::atomic<bool>& first_wait_done,
-        const std::unique_ptr<AutoTitleRunner>& auto_title);
+        const std::unique_ptr<AutoTitleRunner>& auto_title,
+        std::function<void()> publish_config = {});
     std::string cwd() const override;
     void cancel() override;
     void submit_shell(const std::string& command) override;
@@ -30,6 +31,7 @@ private:
     std::atomic<bool>& first_wait_done_;
     // Fixed owner slot; populated at the original title startup step before events.
     const std::unique_ptr<AutoTitleRunner>& auto_title_;
+    std::function<void()> publish_config_;
     LifetimeToken lifetime_;
 };
 }

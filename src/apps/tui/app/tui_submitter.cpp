@@ -10,9 +10,9 @@ namespace acecode::tui {
 TuiSubmitter::TuiSubmitter(TuiState& state, IScreenPort& screen, AppConfig& config,
     SessionModelBinding& binding, SessionManager& session, McpManager& mcp,
     std::atomic<bool>& first_wait_done,
-    const std::unique_ptr<AutoTitleRunner>& auto_title)
+    const std::unique_ptr<AutoTitleRunner>& auto_title, std::function<void()> publish_config)
     : state_(state), screen_(screen), config_(config), binding_(binding),
-      session_(session), mcp_(mcp), first_wait_done_(first_wait_done), auto_title_(auto_title) {}
+      session_(session), mcp_(mcp), first_wait_done_(first_wait_done), auto_title_(auto_title), publish_config_(std::move(publish_config)) {}
 std::string TuiSubmitter::cwd() const { return agent().cwd(); }
 void TuiSubmitter::cancel() { agent().cancel(); }
 void TuiSubmitter::submit_shell(const std::string& command) { agent().submit_shell(command); }
@@ -77,6 +77,7 @@ void TuiSubmitter::submit_input(const UserInput& input) {
             });
         });
     }
+    if (publish_config_) publish_config_();
     assert(auto_title_);
     auto_title_->maybe_start(input);
     agent().submit(input);

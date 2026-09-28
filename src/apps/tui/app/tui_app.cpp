@@ -29,6 +29,7 @@
 #include "tool/ask_user_question_tool.hpp"
 #include "tool/mcp_manager.hpp"
 #include "tool/tool_executor.hpp"
+#include "skills/skill_registry.hpp"
 #include "platform/terminal/terminal_capability.hpp"
 #include "version.hpp"
 namespace acecode::tui {
@@ -41,6 +42,35 @@ int TuiApp::run() { return run_tui_application(*this, shutdown_); }
 std::shared_ptr<LlmProvider> TuiApp::provider_snapshot() {
     return services_->model_binding.provider_snapshot();
 }
+void TuiApp::publish_configuration() {
+    auto config = std::make_shared<const AppConfig>(services_->config);
+    std::atomic_store(&published_config_, std::move(config));
+    if (agent_loop_) {
+        auto skills = services_->skills->snapshot();
+        agent_loop_->enqueue_control([ref = lifetime_.ref(*this), skills = std::move(skills)] {
+            bool applied = false;
+            ref.with([&](TuiApp& app) {
+                app.agent_loop_->publish_skill_snapshot(skills);
+                applied = true;
+            });
+            return applied;
+        });
+    }
+}
+AppConfig TuiApp::config_snapshot() {
+    auto snapshot = std::atomic_load(&published_config_);
+    return snapshot ? *snapshot : AppConfig{};
+}
+SessionPromptConfig TuiApp::prompt_config_snapshot() {
+    auto config = config_snapshot();
+    SessionPromptConfig snapshot;
+    snapshot.memory = config.memory;
+    if (!memory_runtime_available_) snapshot.memory->enabled = false;
+    snapshot.project_instructions = config.project_instructions;
+    snapshot.custom_instructions = config.custom_instructions;
+    snapshot.git_context = config.git_context;
+    return snapshot;
+}
 bool TuiApp::init_stage(TuiInitStage stage) {
     switch (stage) {
     case TuiInitStage::Environment:
@@ -49,6 +79,8 @@ bool TuiApp::init_stage(TuiInitStage stage) {
     case TuiInitStage::Services:
         services_ = std::make_unique<TuiServices>();
         if (!services_->initialize(options_.cli, environment_.working_dir, options_.argv0_dir)) return false;
+        memory_runtime_available_ = !services_->config.memory.enabled || services_->runtime_memory_config.enabled;
+        publish_configuration();
         provider_accessor_ = bind(&TuiApp::provider_snapshot);
         break;
     case TuiInitStage::InitialState:
@@ -82,7 +114,7 @@ bool TuiApp::init_stage(TuiInitStage stage) {
             *services_->mcp, *services_->tools, state_, *screen_host_);
         submitter_ = std::make_unique<TuiSubmitter>(state_, *screen_host_, services_->config,
             services_->model_binding, session_manager_, *services_->mcp,
-            mcp_first_turn_wait_done_, auto_title_runner_);
+            mcp_first_turn_wait_done_, auto_title_runner_, bind(&TuiApp::publish_configuration));
         break;
     case TuiInitStage::CopilotAuth:
         auth_task_ = std::make_unique<CopilotAuthTask>(provider_accessor_, state_, *screen_host_, auth_done_);
@@ -104,7 +136,7 @@ bool TuiApp::init_stage(TuiInitStage stage) {
         start_main_session();
         break;
     case TuiInitStage::AutoTitle:
-        auto_title_runner_ = std::make_unique<AutoTitleRunner>(services_->config,
+        auto_title_runner_ = std::make_unique<AutoTitleRunner>(bind(&TuiApp::config_snapshot),
             session_manager_, *agent_loop_, turn_lifecycle_->title_applied_callback());
         callbacks_.on_turn_finished = turn_lifecycle_->title_finished_callback();
         agent_loop_->set_callbacks(callbacks_);
@@ -125,7 +157,8 @@ bool TuiApp::init_stage(TuiInitStage stage) {
         command_contexts_ = std::make_unique<TuiCommandContextFactory>(state_, *agent_loop_,
             services_->model_binding, services_->config, *token_tracker_, *permissions_, *screen_host_,
             session_manager_, *services_->mcp, *services_->tools, *services_->skills, *services_->memory,
-            *commands_, environment_.working_dir, *submitter_, subagent_host_.get(), surfaces_);
+            *commands_, environment_.working_dir, *submitter_, subagent_host_.get(), surfaces_,
+            bind(&TuiApp::publish_configuration));
         break;
     case TuiInitStage::Notifications:
         notifications_ = std::make_unique<TuiNotificationBinding>(services_->config, state_,

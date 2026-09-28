@@ -49,7 +49,7 @@ ToolBatchOutcome TurnRunner::execute_tools(TurnContext& turn, const ChatResponse
     auto pipeline = std::make_unique<ToolBatchScheduler>(
         ToolExecutionServices{tools_, callbacks_, permissions_, history_, transcript_, hooks_,
             tool_hooks_, boundary_, security_, prompt_cache_, goal_, events_, abort_, config_,
-            source_.tool_policy, session_, hook_manager_, source_.skills,
+            source_.tool_policy, session_, hook_manager_, source_.skills.get(),
             permission_prompter_, question_prompter_},
         ToolExecutionOptions{options_.provider, options_.question_channel,
             turn.progress_clock, turn.model_tool_names});

@@ -49,6 +49,7 @@ void TuiApp::initialize_agent() {
     loop_services.skill_usage = services_->skill_usage.get();
     loop_services.memory = services_->memory.get();
     loop_services.skills = services_->skills->snapshot();
+    loop_services.prompt_config = bind(&TuiApp::prompt_config_snapshot);
     AgentLoopOptions loop_options;
     loop_options.cwd = environment_.working_dir;
     loop_options.context_window = services_->config.context_window;
@@ -65,10 +66,6 @@ void TuiApp::initialize_agent() {
     overlay_gate_->attach(*agent_loop_);
     turn_lifecycle_->attach(*agent_loop_);
     agent_loop_->set_ask_question_channel(bind(&TuiApp::ask_questions));
-    agent_loop_->set_memory_config(&services_->runtime_memory_config);
-    agent_loop_->set_project_instructions_config(&services_->config.project_instructions);
-    agent_loop_->set_custom_instructions_config(&services_->config.custom_instructions);
-    agent_loop_->set_git_context_config(&services_->config.git_context);
     agent_loop_->set_callbacks(callbacks_);
     agent_loop_->start();
 
@@ -124,6 +121,7 @@ void TuiApp::initialize_subagents() {
         rd.tools = &tools;
         rd.cwd = working_dir;
         rd.config = &config;
+        rd.prompt_config = bind(&TuiApp::prompt_config_snapshot);
         rd.mcp_manager = &mcp_manager;
         rd.skill_registry = &skill_registry;
         rd.memory_registry = &memory_registry;

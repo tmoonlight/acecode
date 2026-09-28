@@ -55,6 +55,7 @@ struct CommandContext {
         open_settings_surface;
     std::function<bool(const std::string& tab, std::string& error)>
         open_management_surface;
+    std::function<void()> on_command_completed;
 };
 
 inline void submit_user_input(CommandContext& ctx, UserInput input) {

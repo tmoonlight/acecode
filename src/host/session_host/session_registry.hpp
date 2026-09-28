@@ -121,6 +121,7 @@ struct SessionRegistryDeps {
     // writes. TUI/test adapters may leave it null when config is immutable or
     // externally serialized.
     std::shared_mutex*               config_mutex = nullptr;
+    PromptConfigProvider             prompt_config; // Optional owned snapshot publisher (TUI).
     const SkillRegistry*             skill_registry = nullptr;
     const ExpertRegistry*            expert_registry = nullptr;
     const MemoryRegistry*            memory_registry = nullptr;
@@ -390,6 +391,7 @@ public:
                                              const std::string& base_branch);
 
 private:
+    SessionPromptConfig prompt_config_snapshot() const;
     std::shared_ptr<SessionEntry> make_entry_locked(const std::string& id,
                                                      const SessionOptions& opts,
                                                      const SessionMeta* resumed_meta);

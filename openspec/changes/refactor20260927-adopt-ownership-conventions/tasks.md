@@ -149,7 +149,7 @@
 
 ## 4. 行为变更:依赖 AgentLoop 构造注入
 
-- [ ] 4.1 【O-10】【主】【行为变更 D8】回合级配置快照(原计划编号 A-15)。
+- [ ] 4.1 【O-10】【主】【行为变更 D8】回合级配置快照(原计划编号 A-15)。〔实现完成: Codex-root 2026-09-28;PromptConfigProvider 回合值快照、daemon 共享锁复制、TUI 原子配置发布及标题自有副本、技能/专家 control 快照;跨工具保存、专家技能切换、空闲记忆设置与侧问 prime 用例已补,待 Windows 统一验收〕
   - 删除 `set_{memory,project_instructions,custom_instructions,git_context}_config` 四个裸指针 setter,改用 `PromptConfigProvider`,在回合开始时捕获一次:
     - daemon 侧:在 `app_config_mu` 的 shared_lock 下拷贝;
     - TUI 侧:由 TuiApp 提供。

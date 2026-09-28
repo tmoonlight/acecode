@@ -1,5 +1,6 @@
 #pragma once
 #include "agent/agent_callbacks.hpp"
+#include "agent/request/request_context_source.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "agent/model_step/turn_usage_accountant.hpp"
 #include "agent/recovery/context_overflow_recovery.hpp"
@@ -17,8 +18,10 @@ class AgentProgressEmitter;
 // recovered completion. Provider accounting survives stack unwinding. Shell,
 // compact and control tasks have no chat context; recovery accepts null.
 struct TurnContext {
-    explicit TurnContext(AgentCallbacks snapshot) : callbacks(std::move(snapshot)) {}
+    TurnContext(AgentCallbacks callbacks_snapshot, RequestContextSource source_snapshot = {})
+        : callbacks(std::move(callbacks_snapshot)), request_source(std::move(source_snapshot)) {}
     AgentCallbacks callbacks;
+    RequestContextSource request_source;
     UserTurnInfo info;
     bool swarm_mode = false;
     int total_iterations = 0;

@@ -61,8 +61,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     , session_manager_(services.session)
     , hook_manager_(services.hooks)
     , runtime_(std::move(services.runtime))
-    , skills_snapshot_(std::move(services.skills))
-    , expert_snapshot_(std::move(services.expert))
+    , prompt_config_provider_(std::move(services.prompt_config))
     , computer_use_release_(runtime_.computer_use_release)
     , no_model_config_prompt_(options.no_model_config_prompt.empty()
           ? kDefaultNoModelConfiguredPrompt : std::move(options.no_model_config_prompt))
@@ -101,8 +100,8 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
           callbacks_, events_, abort_signal_, runtime_))
 {
     request_source_.runtime = runtime_;
-    request_source_.skills = skills_snapshot_.get();
-    request_source_.expert = expert_snapshot_.get();
+    request_source_.skills = std::move(services.skills);
+    request_source_.expert = std::move(services.expert);
     request_source_.expert_member = std::move(options.expert_member_id);
     request_source_.memory = services.memory;
     request_source_.skill_usage = services.skill_usage;

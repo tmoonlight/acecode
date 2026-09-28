@@ -10,7 +10,8 @@ public:
         IScreenPort& screen, SessionManager& session, McpManager& mcp, ToolExecutor& tools,
         SkillRegistry& skills, MemoryRegistry& memory, CommandRegistry& commands,
         const std::string& cwd, ITurnSubmitter& submitter,
-        SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces);
+        SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces,
+        std::function<void()> publish_config = {});
     CommandContext make(bool track_command_usage) override;
 private:
     void record_usage(const std::string& name);
@@ -33,6 +34,7 @@ private:
     // Borrow the app's fixed owner slot only during events, never construction.
     // The concrete surface is created after the chat/frame components.
     const std::unique_ptr<IFullScreenSurfaces>& surfaces_;
+    std::function<void()> publish_config_;
     LifetimeToken lifetime_;
 };
 }

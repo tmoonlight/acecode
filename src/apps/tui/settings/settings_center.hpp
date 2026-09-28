@@ -26,6 +26,7 @@ struct SettingsCenterDependencies {
         session_is_busy;
     std::function<bool(const std::string& path)>
         reveal_in_file_manager;
+    std::function<void()> config_published;
 };
 
 class SettingsCenter {

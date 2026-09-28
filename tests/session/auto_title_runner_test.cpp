@@ -33,7 +33,7 @@ TEST(AutoTitleRunner, AcceptedGenerationFinishesBeforeStopReturns) {
     auto config = title_config();
     struct Result { std::string input, session, title; };
     auto result = std::make_shared<Result>();
-    acecode::AutoTitleRunner runner(config, *harness.session, *harness.loop,
+    acecode::AutoTitleRunner runner([config] { return config; }, *harness.session, *harness.loop,
         [result](const std::string& session, const std::string& title) {
             result->session = session; result->title = title;
         },
@@ -61,7 +61,7 @@ TEST(AutoTitleRunner, LateResultCannotRenameReplacementSession) {
     auto config = title_config();
     auto gate = std::make_shared<BlockedGeneration>();
     auto applied = std::make_shared<std::atomic<int>>(0);
-    acecode::AutoTitleRunner runner(config, *harness.session, *harness.loop,
+    acecode::AutoTitleRunner runner([config] { return config; }, *harness.session, *harness.loop,
         [applied](const std::string&, const std::string&) { ++*applied; },
         [gate](acecode::ModelProfile, const std::string&, const acecode::AppConfig&)
             -> std::optional<std::string> {
@@ -99,7 +99,7 @@ TEST(AutoTitleRunner, CompletedTurnRetriesOneFailedGeneration) {
     auto probe = std::make_shared<Probe>();
     auto first = probe->first_returning.get_future();
     auto applied = probe->applied.get_future();
-    acecode::AutoTitleRunner runner(config, *harness.session, *harness.loop,
+    acecode::AutoTitleRunner runner([config] { return config; }, *harness.session, *harness.loop,
         [probe](const std::string&, const std::string&) { probe->applied.set_value(); },
         [probe](acecode::ModelProfile, const std::string& text, const acecode::AppConfig&)
             -> std::optional<std::string> {
@@ -118,4 +118,39 @@ TEST(AutoTitleRunner, CompletedTurnRetriesOneFailedGeneration) {
     runner.stop();
     EXPECT_EQ(probe->attempts.load(), 2);
     EXPECT_EQ(harness.session->current_title(), "Improve request retries");
+}
+
+// 场景：生成已开始时替换设置。期望本次仍用旧配置；此前后台借用可变 AppConfig 会跨次读取。
+TEST(AutoTitleRunner, AcceptedAttemptOwnsConfigurationUntilGenerationFinishes) {
+    acecode_test::characterization::Isolation isolation;
+    acecode_test::characterization::Harness harness(isolation);
+    std::shared_ptr<const acecode::AppConfig> published =
+        std::make_shared<const acecode::AppConfig>(title_config());
+    auto gate = std::make_shared<BlockedGeneration>();
+    auto observed = std::make_shared<std::string>();
+    acecode::AutoTitleRunner runner([&published] { return *std::atomic_load(&published); },
+        *harness.session, *harness.loop, {},
+        [gate, observed](acecode::ModelProfile, const std::string&, const acecode::AppConfig& config)
+            -> std::optional<std::string> {
+            std::unique_lock<std::mutex> lock(gate->mutex);
+            gate->started = true;
+            gate->changed.notify_all();
+            if (!gate->changed.wait_for(lock, std::chrono::seconds(3), [gate] { return gate->released; }))
+                return std::nullopt;
+            *observed = config.session_title.model_name;
+            return "Snapshot title";
+        });
+    acecode::ScopeExit release([gate] { gate->release(); });
+    acecode::UserInput input; input.text = "title this";
+    runner.maybe_start(input);
+    {
+        std::unique_lock<std::mutex> lock(gate->mutex);
+        ASSERT_TRUE(gate->changed.wait_for(lock, std::chrono::seconds(2), [gate] { return gate->started; }));
+    }
+    auto replacement = title_config();
+    replacement.session_title.model_name = "replacement-profile";
+    std::atomic_store(&published, std::make_shared<const acecode::AppConfig>(replacement));
+    gate->release();
+    runner.stop();
+    EXPECT_EQ(*observed, "title-profile");
 }

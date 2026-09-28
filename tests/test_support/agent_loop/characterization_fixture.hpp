@@ -207,7 +207,7 @@ class Harness {
 public:
     explicit Harness(Isolation& isolation, std::string name = "case",
                      std::shared_ptr<acecode::LlmProvider> custom = {},
-                     bool confirmation = true)
+                     bool confirmation = true, acecode::PromptConfigProvider prompt_config = {})
         : cwd(isolation.directory.path / name),
           provider(std::make_shared<StubLlmProvider>()),
           active_provider(custom ? std::move(custom) : provider),
@@ -264,9 +264,11 @@ public:
                 }
                 return hook_output(*reply ? (*reply)(payload) : Json::object());
             });
-        loop = std::make_unique<acecode::AgentLoop>(
-        acecode_test::AgentLoopFixture::dependencies([snapshot = active_provider] { return snapshot; }, tools, callbacks, permissions, session.get(), hooks.get()),
-        acecode_test::AgentLoopFixture::configuration(acecode::path_to_utf8(cwd)));
+        auto services = acecode_test::AgentLoopFixture::dependencies(
+            [snapshot = active_provider] { return snapshot; }, tools, callbacks, permissions, session.get(), hooks.get());
+        services.prompt_config = std::move(prompt_config);
+        loop = std::make_unique<acecode::AgentLoop>(std::move(services),
+            acecode_test::AgentLoopFixture::configuration(acecode::path_to_utf8(cwd)));
         loop->start();
         loop->set_exec_rules({});
         loop->set_exec_rules_dir_for_tests(acecode::path_to_utf8(cwd / "rules"));

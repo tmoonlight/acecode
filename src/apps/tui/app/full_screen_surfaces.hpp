@@ -19,7 +19,8 @@ public:
         SessionManager& session, AgentLoop& agent, SubagentHost& subagents,
         SkillRegistry& skills, CommandRegistry& commands, McpManager& mcp,
         ToolExecutor& tools, HookManager& hooks, SkillUsageStore* skill_usage,
-        const std::string& cwd, ftxui::Component chat, ftxui::Component input);
+        const std::string& cwd, ftxui::Component chat, ftxui::Component input,
+        std::function<void()> publish_config = {});
     ~FullScreenSurfaces();
     bool open_settings(const std::string& tab, std::string& error) override;
     bool open_management(const std::string& tab, std::string& error) override;
@@ -43,6 +44,7 @@ private:
     bool model_is_busy(const std::string& model);
     bool session_is_busy(const std::string& session);
     void mcp_changed();
+    void skills_changed();
     bool foreground_surface_available(std::string& error);
     TuiState& state_;
     IScreenPort& screen_;
@@ -59,6 +61,7 @@ private:
     std::unique_ptr<settings::SettingsCenter> settings_;
     std::unique_ptr<settings::ManagementCenter> management_;
     ftxui::Component root_;  // Shared with the screen loop for the same UI lifetime.
+    std::function<void()> publish_config_;
     LifetimeToken lifetime_;
 };
 }

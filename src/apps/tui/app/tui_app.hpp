@@ -7,6 +7,7 @@
 #include "tui/render/frame_geometry.hpp"
 #include "tui/model/turn_observation.hpp"
 #include "agent/agent_callbacks.hpp"
+#include "agent/request/session_prompt_config.hpp"
 #include "session/session_manager.hpp"
 #include "utils/lifetime_token.hpp"
 #include <ftxui/component/component_base.hpp>
@@ -45,6 +46,9 @@ private:
     void resume_startup();
     void create_components();
     std::shared_ptr<LlmProvider> provider_snapshot();
+    void publish_configuration();
+    AppConfig config_snapshot();
+    SessionPromptConfig prompt_config_snapshot();
     nlohmann::json ask_questions(const nlohmann::json& payload,
         const std::atomic<bool>* abort_flag, int timeout, const std::string& origin);
     std::string parent_session_id();
@@ -71,6 +75,8 @@ private:
     TuiLaunchOptions options_;
     StartupEnvironment environment_;
     std::unique_ptr<TuiServices> services_;
+    std::shared_ptr<const AppConfig> published_config_;
+    bool memory_runtime_available_ = true;
     std::function<std::shared_ptr<LlmProvider>()> provider_accessor_;
 
     // Shared scalar state outlives every task/component that borrows it.

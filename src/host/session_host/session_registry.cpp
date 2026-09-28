@@ -1109,6 +1109,11 @@ SessionRegistry::make_entry_locked(const std::string& id,
     loop_services.session = entry->sm.get();
     loop_services.hooks = deps_.hook_manager;
     loop_services.memory = deps_.memory_registry;
+    loop_services.prompt_config = [ref = lifetime_.ref(*this)] {
+        SessionPromptConfig snapshot;
+        ref.with([&](SessionRegistry& registry) { snapshot = registry.prompt_config_snapshot(); });
+        return snapshot;
+    };
     const auto* skills = entry->skill_registry ? entry->skill_registry.get() : deps_.skill_registry;
     if (skills) loop_services.skills = skills->snapshot();
     if (entry->expert) loop_services.expert = std::make_shared<const ExpertDefinition>(*entry->expert);
@@ -1130,13 +1135,6 @@ SessionRegistry::make_entry_locked(const std::string& id,
     entry->loop = std::make_unique<AgentLoop>(std::move(loop_services), std::move(loop_options));
     if (opts.inherited_worktree.active())
         entry->loop->set_cwd(opts.inherited_worktree.worktree_path);
-    entry->loop->set_memory_config(deps_.memory_cfg);
-    entry->loop->set_project_instructions_config(deps_.project_instructions_cfg);
-    entry->loop->set_custom_instructions_config(deps_.custom_instructions_cfg);
-    if (deps_.config) {
-        entry->loop->set_git_context_config(&deps_.config->git_context);
-    }
-
     // PermissionPrompter: 异步 — 触发 PermissionRequest 事件,等浏览器 decision
     auto prompter = std::make_unique<AsyncPrompter>(entry->loop->events());
     entry->prompter = prompter.get();
@@ -1314,8 +1312,26 @@ SessionRegistry::skill_registry_snapshot(const std::string& id) const {
     return it->second->skill_registry;
 }
 
+SessionPromptConfig SessionRegistry::prompt_config_snapshot() const {
+    if (deps_.prompt_config) return deps_.prompt_config();
+    auto copy = [&] {
+        SessionPromptConfig snapshot;
+        if (deps_.memory_cfg) snapshot.memory = *deps_.memory_cfg;
+        if (deps_.project_instructions_cfg) snapshot.project_instructions = *deps_.project_instructions_cfg;
+        if (deps_.custom_instructions_cfg) snapshot.custom_instructions = *deps_.custom_instructions_cfg;
+        if (deps_.config) snapshot.git_context = deps_.config->git_context;
+        return snapshot;
+    };
+    if (deps_.config_mutex) {
+        std::shared_lock<std::shared_mutex> lock(*deps_.config_mutex);
+        return copy();
+    }
+    return copy(); // Immutable headless/test configuration.
+}
+
 void SessionRegistry::refresh_skill_policy(const AppConfig& config) {
     struct RefreshTarget {
+        std::shared_ptr<SessionEntry> entry;
         std::shared_ptr<SkillRegistry> registry;
         std::string cwd;
         std::vector<std::filesystem::path> roots;
@@ -1330,7 +1346,7 @@ void SessionRegistry::refresh_skill_policy(const AppConfig& config) {
             (void)id;
             if (!entry || !entry->skill_registry) continue;
             targets.push_back({
-                entry->skill_registry,
+                entry, entry->skill_registry,
                 entry->cwd,
                 entry->expert_skill_roots,
                 entry->expert_skill_allowlist,
@@ -1345,6 +1361,14 @@ void SessionRegistry::refresh_skill_policy(const AppConfig& config) {
             target.cwd,
             target.roots,
             target.expert_allowed);
+        auto snapshot = target.registry->snapshot();
+        enqueue_entry_control(target.entry,
+            [expected = std::weak_ptr<SkillRegistry>(target.registry), snapshot = std::move(snapshot)]
+            (SessionRegistry&, SessionEntry& active) {
+                if (active.skill_registry != expected.lock()) return true;
+                active.loop->publish_skill_snapshot(snapshot);
+                return true;
+            });
     }
 }
 
@@ -1918,12 +1942,11 @@ ExpertSwitchResult SessionRegistry::switch_expert(
             active.expert_skill_allowlist = expert_skill_allowlist;
             active.tool_capability_policy = tool_policy;
             if (active.loop) {
-                active.loop->set_skill_registry(
-                    active.skill_registry
-                        ? active.skill_registry.get()
-                        : registry.deps_.skill_registry);
-                active.loop->set_expert_context(&*active.expert);
-                active.loop->set_tool_capability_policy(
+                const auto* registry_skills = active.skill_registry
+                    ? active.skill_registry.get() : registry.deps_.skill_registry;
+                active.loop->publish_expert_snapshot(
+                    std::make_shared<const ExpertDefinition>(*active.expert),
+                    registry_skills ? registry_skills->snapshot() : nullptr,
                     active.tool_capability_policy);
             }
             return true;

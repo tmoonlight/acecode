@@ -8,11 +8,11 @@ TuiCommandContextFactory::TuiCommandContextFactory(TuiState& state, AgentLoop& a
     PermissionManager& permissions, IScreenPort& screen, SessionManager& session,
     McpManager& mcp, ToolExecutor& tools, SkillRegistry& skills, MemoryRegistry& memory,
     CommandRegistry& commands, const std::string& cwd, ITurnSubmitter& submitter,
-    SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces)
+    SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces, std::function<void()> publish_config)
     : state_(state), agent_(agent), binding_(binding), config_(config), tracker_(tracker),
       permissions_(permissions), screen_(screen), session_(session), mcp_(mcp), tools_(tools),
       skills_(skills), memory_(memory), commands_(commands), cwd_(cwd), submitter_(submitter),
-      subagents_(subagents), surfaces_(surfaces) {}
+      subagents_(subagents), surfaces_(surfaces), publish_config_(std::move(publish_config)) {}
 void TuiCommandContextFactory::record_usage(const std::string& name) {
     const auto write_result = record_tui_slash_command_use(name);
     std::lock_guard<std::mutex> usage_lock(state_.mu);
@@ -26,6 +26,7 @@ CommandContext TuiCommandContextFactory::make(bool track_command_usage) {
     context.request_exit = [ref] {
         ref.with([](TuiCommandContextFactory& owner) { owner.screen_.exit(); });
     };
+    context.on_command_completed = publish_config_;
     context.session_manager = &session_;
     context.post_event = [ref] {
         ref.with([](TuiCommandContextFactory& owner) { owner.screen_.post_event(ftxui::Event::Custom); });

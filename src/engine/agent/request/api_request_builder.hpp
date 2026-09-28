@@ -13,11 +13,11 @@ namespace acecode { class SkillUsageStore; }
 namespace acecode::agent {
 class PromptContextCache;
 
-// Used only while capture/initial_context is on the stack. The two registries
-// are nullable borrowed services; neither is saved by the builder or request.
+// The skill snapshot is retained for this capture/initial_context operation.
+// MemoryRegistry is a fixed nullable borrowed service that outlives the loop.
 struct RequestContextOptions {
     std::string cwd;
-    const SkillRegistry* skills = nullptr;
+    std::shared_ptr<const SkillRegistry> skills;
     const MemoryRegistry* memory = nullptr;
     std::optional<MemoryConfig> memory_config;
     std::optional<ProjectInstructionsConfig> project_config;

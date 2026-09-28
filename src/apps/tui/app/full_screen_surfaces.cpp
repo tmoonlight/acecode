@@ -13,10 +13,10 @@ namespace acecode::tui {
 FullScreenSurfaces::FullScreenSurfaces(TuiState& state, IScreenPort& screen, AppConfig& config,
     SessionManager& session, AgentLoop& agent, SubagentHost& subagents, SkillRegistry& skills,
     CommandRegistry& commands, McpManager& mcp, ToolExecutor& tools, HookManager& hooks,
-    SkillUsageStore* skill_usage, const std::string& cwd, ftxui::Component chat, ftxui::Component input)
+    SkillUsageStore* skill_usage, const std::string& cwd, ftxui::Component chat, ftxui::Component input, std::function<void()> publish_config)
     : state_(state), screen_(screen), config_(config), session_(session), agent_(agent),
       subagents_(subagents), mcp_(mcp), tools_(tools), cwd_(cwd),
-      active_surface_(static_cast<int>(settings::RootSurface::Chat)), input_(std::move(input)) {
+      active_surface_(static_cast<int>(settings::RootSurface::Chat)), input_(std::move(input)), publish_config_(std::move(publish_config)) {
     settings_ = std::make_unique<settings::SettingsCenter>(settings::SettingsCenterDependencies{
         &config_, cwd_, ACECODE_VERSION, {},
         bind(&FullScreenSurfaces::close),
@@ -24,6 +24,7 @@ FullScreenSurfaces::FullScreenSurfaces(TuiState& state, IScreenPort& screen, App
         bind(&FullScreenSurfaces::post_to_ui),
         bind(&FullScreenSurfaces::model_is_busy),
         bind(&FullScreenSurfaces::session_is_busy),
+        {}, publish_config_,
     });
     management_ = std::make_unique<settings::ManagementCenter>(settings::ManagementCenterDependencies{
         &config_, &skills, &commands, &mcp_, &tools_, &hooks, skill_usage, cwd_,
@@ -31,6 +32,7 @@ FullScreenSurfaces::FullScreenSurfaces(TuiState& state, IScreenPort& screen, App
         bind(&FullScreenSurfaces::post_event),
         bind(&FullScreenSurfaces::post_to_ui),
         bind(&FullScreenSurfaces::mcp_changed),
+        publish_config_, bind(&FullScreenSurfaces::skills_changed),
     });
     root_ = ftxui::Container::Tab({std::move(chat), settings_->component(), management_->component()},
         &active_surface_);
@@ -56,6 +58,10 @@ void FullScreenSurfaces::mcp_changed() {
     agent_.set_tool_capability_policy(
         mcp_scope_policy(&config_, cwd_, std::nullopt, &mcp_, &tools_));
     subagents_.registry().refresh_mcp_policy(config_);
+}
+void FullScreenSurfaces::skills_changed() {
+    if (publish_config_) publish_config_();
+    subagents_.registry().refresh_skill_policy(config_);
 }
 bool FullScreenSurfaces::foreground_surface_available(std::string& error) {
     std::lock_guard<std::mutex> lock(state_.mu);

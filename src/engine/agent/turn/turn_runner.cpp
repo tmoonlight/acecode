@@ -89,7 +89,7 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
 
     // Phase 1: Build and persist user message after the pre-turn compact attempt.
     agent::TurnLifecycle lifecycle(history_, transcript_, gate_,
-        events_, callbacks_, session_, source_.skills, source_.skill_usage);
+        events_, callbacks_, session_, source_.skills.get(), source_.skill_usage);
     turn.info = retry_message
         ? lifecycle.prepare_retry_user_turn(*retry_message)
         : lifecycle.prepare_user_turn(input, hidden_goal_context);

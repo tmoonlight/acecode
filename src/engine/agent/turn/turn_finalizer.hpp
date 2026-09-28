@@ -1,4 +1,5 @@
 #pragma once
+#include "tool/tool_executor.hpp"
 #include "agent/callbacks_slot.hpp"
 #include "turn_types.hpp"
 #include "utils/lifetime_token.hpp"
@@ -72,7 +73,7 @@ private:
     EventDispatcher& events_;
     CallbacksSlot& callbacks_;
     ToolExecutor& tools_;
-    const ToolCapabilityPolicy& policy_;
+    ToolCapabilityPolicy policy_;
     std::atomic<bool>& busy_;
     AbortSignal& abort_signal_;
     std::atomic<bool>& turn_interrupt_requested_;

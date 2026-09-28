@@ -17,10 +17,10 @@ RequestContextOptions RequestContextFactory::options(
     options.cwd = boundary_.cwd();
     options.skills = source_.skills;
     options.memory = source_.memory;
-    if (source_.memory_config) options.memory_config = *source_.memory_config;
-    if (source_.project_config) options.project_config = *source_.project_config;
-    if (source_.custom_config) options.custom_config = *source_.custom_config;
-    if (source_.git_config) options.git_config = *source_.git_config;
+    options.memory_config = source_.prompt_config.memory;
+    options.project_config = source_.prompt_config.project_instructions;
+    options.custom_config = source_.prompt_config.custom_instructions;
+    options.git_config = source_.prompt_config.git_context;
     if (source_.expert) options.expert = *source_.expert;
     options.expert_member = source_.expert_member;
     options.tool_policy = source_.tool_policy;
