@@ -267,9 +267,9 @@
 
 ## 5. Phase 4:搬迁收尾
 
-- [ ] 5.1 【P4-01】【子】lint 切到 `--strict`,exceptions 必须为空;注册 `ctest layer_lint`;pre-push 钩子可选,只检查改动文件。
+- [ ] 5.1 【P4-01】【子】〔实现完成: Codex-root 2026-09-28;严格模式及 CTest 已接入,待统一验收〕lint 切到 `--strict`,exceptions 必须为空;注册 `ctest layer_lint`;pre-push 钩子可选,只检查改动文件。
   - 验证:本地 `ctest -R layer_lint` 通过;故意新增一条向上依赖,lint 失败。
-- [ ] 5.2 【P4-02】【子】叙述性文档。
+- [ ] 5.2 【P4-02】【子】叙述性文档。〔实现完成: Codex-root 2026-09-28;六层放置规则、入口/测试镜像、C1-C14 和映射版本已更新;自动记忆由用户后续自行更新,路径/help 站点待统一验收〕
   - 新增 `docs/architecture/src-layout.md`:层定义、依赖规则、「新文件放哪」决策表、指向 `src/layers.tsv` 的链接;
   - 重写 ARCHITECTURE.md 的结构章节,改为引用它;更正 AGENTS.md / AGENT.md 里过时的「根目录 main.cpp」;
   - CLAUDE.md 顶部改为正式的分层说明,替换 P0-01 的「进行中」提示;
@@ -277,7 +277,7 @@
   - 进行中的 openspec change 各加一行映射说明;
   - 提醒用户手工更新自动记忆中约 16 处路径。
   - 验证:`check_doc_paths.py` 为 0;help 站点重新生成后,diff 只涉及路径。
-- [ ] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。
+- [ ] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。〔实现完成: Codex-root 2026-09-28;test/refactor-matrix 已改严格阻断并保留失败报告;本机负向闸门待统一验收,本次不发起跨端 CI〕
   - 验证:CI 上故意新增一个超过 1000 行的文件、一条向上依赖、一处 `.detach()`,三个 lint 分别失败。
 - [ ] 5.4 【P4-04】【主】多平台补验(D26 推迟项)。
   - Windows 侧的一期任务全部合入后,在最新 master 上用完整 SHA dispatch 一次 refactor-matrix(`run_tests=true`,`include_deepin=true`)和一次 package.yml;

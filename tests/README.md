@@ -12,13 +12,18 @@ ctest --test-dir build --output-on-failure
 
 ## Layout
 
-Test files live at `tests/<same path as under src>/<unit>_test.cpp`:
+Tests mirror module paths and omit the source group prefix (D15):
 
-| Production source                    | Test file                                      |
-|--------------------------------------|------------------------------------------------|
-| `src/base/platform/terminal/terminal_title.cpp` | `tests/session/session_title_text_test.cpp`  |
-| `src/domain/session/session_storage.cpp`    | `tests/session/session_storage_test.cpp`       |
-| `src/domain/permissions/permissions.hpp`   | `tests/permissions/permissions_test.cpp`        |
+| Production source | Test location |
+| --- | --- |
+| base/platform | tests/platform |
+| domain/session | tests/session |
+| adapters/tool | tests/tool |
+| engine/agent | tests/agent |
+| host/session_host | tests/session_host |
+| apps/tui | tests/tui |
+
+Keep the same subdirectories for a nested module. Shared fixtures live under tests/test_support; AgentLoop fixtures inject dependencies before start, and characterization fixtures isolate HOME, provider scripts and session data.
 
 Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
 `*_test.cpp` (note: singular `_test`, not `_tests`).
@@ -37,7 +42,7 @@ Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
   remaining `src/apps/tui/` and `src/apps/tui/markdown/` sources stay outside that target.
 - LLM provider HTTP paths (`CopilotProvider`, `OpenAiCompatProvider`) — need
   mock HTTP server; left to a future integration-tests change.
-- Agent loop end-to-end behavior — same reason.
+- Real provider/network end-to-end behavior needs configured services. AgentLoop protocol, ownership and lifecycle regressions use injected providers and local HTTP fixtures in the unit suite.
 
 ## Conventions
 

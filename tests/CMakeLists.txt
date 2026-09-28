@@ -1,7 +1,15 @@
 find_package(GTest CONFIG REQUIRED)
-find_package(Python3 COMPONENTS Interpreter QUIET)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME layer_lint
+        COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_SOURCE_DIR}/scripts/layers/check_layers.py
+            --repo ${CMAKE_SOURCE_DIR} --layout final --strict
+            --output ${CMAKE_CURRENT_BINARY_DIR}/layer-lint.json
+    )
+    set_tests_properties(layer_lint PROPERTIES LABELS "architecture")
     add_test(
         NAME verify_package_python_unit
         COMMAND ${Python3_EXECUTABLE} -B

@@ -143,7 +143,7 @@
     - 新增 `auto_title_runner`、`animation_tick` 单测;
     - 四种启动场景下,`state.conversation` 的前 N 条与 P0-12 快照逐条一致;
     - 清单第 1、9 小节。
-- [ ] 4.3 【B-13】【主】TuiApp 成员化与关停序列。〔实现完成: Codex-root 2026-09-28;主入口收为进程配置/CLI 分派/TuiApp.run,22 个命名启动阶段与 21 步幂等退出序列共用异常收尾;进程注册原位创建,会话早于 AgentLoop 声明,依赖成员表与逐阶段异常用例已补;待一期末尾统一验收〕
+- [ ] 4.3 【B-13】【主】TuiApp 成员化与关停序列。〔实现完成: Codex-root 2026-09-28;主入口收为进程配置/CLI 分派/TuiApp.run,22 个命名启动阶段与初始 21 步幂等退出序列(O-05/O-07 后为 23 步)共用异常收尾;进程注册原位创建,会话早于 AgentLoop 声明,依赖成员表与逐阶段异常用例已补;待一期末尾统一验收〕
   - 构造函数只做平凡初始化;`init()` 分阶段执行,异常时 scope guard 走同一个 TuiShutdownSequence(MR-5);
   - 按 design.md §2 补齐成员表(MR-18);
   - 主会话建立(5896-5921)与 AgentLoop 装配(5826-5857)作为命名步骤;SessionManager 的声明移到 AgentLoop 之前;

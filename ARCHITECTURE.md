@@ -6,7 +6,7 @@ ACECode has one shared agent core with several runtime surfaces around it: termi
 
 | Surface | Entry point | Role |
 | --- | --- | --- |
-| Terminal TUI | [main.cpp](main.cpp) | Interactive shell experience with FTXUI rendering, slash commands, permission prompts, and local session work. |
+| Terminal TUI | [CLI main](src/apps/cli/main.cpp) | Interactive shell experience with FTXUI rendering, slash commands, permission prompts, and local session work. |
 | Daemon worker | [src/apps/daemon/](src/apps/daemon) | Background process that owns config, sessions, agent loops, heartbeat files, auth token, and termination handling. |
 | HTTP/WebSocket API | [src/apps/web/](src/apps/web) | Crow server exposing health, sessions, messages, files, skills, MCP, models, and live session events. |
 | Web frontend | [web/](web) | React/Vite/Tailwind UI served by the daemon from embedded or filesystem assets. |
@@ -19,7 +19,7 @@ ACECode has one shared agent core with several runtime surfaces around it: termi
 
 ```mermaid
 flowchart TB
-    user[User] --> tui[Terminal TUI<br/>main.cpp + FTXUI]
+    user[User] --> tui[Terminal TUI<br/>TuiApp + FTXUI]
     user --> desktop[Desktop Shell<br/>src/apps/desktop]
     user --> browser[Browser Web UI<br/>web/src]
 
@@ -117,29 +117,13 @@ flowchart TB
     runfiles --> daemonStatus[daemon status and auth]
 ```
 
-## Source Ownership
+## Source Layout And Ownership
 
-| Area | Ownership |
-| --- | --- |
-| [src/apps/cli/main.cpp](src/apps/cli/main.cpp) and [TuiApp](src/apps/tui/app/tui_app.hpp) | CLI dispatch followed by staged TUI assembly. TuiApp owns screen, session, tasks and components, with one shutdown sequence for normal and exceptional exits. |
-| [AgentLoop](src/engine/agent/agent_loop.hpp), [TurnRunner](src/engine/agent/turn/turn_runner.cpp) and [TurnFinalizer](src/engine/agent/turn/turn_finalizer.cpp) | Fixed service injection and explicit worker startup; separate request, model, tool, approval, history, control and recovery modules implement the turn. |
-| [src/adapters/provider/](src/adapters/provider) | `LlmProvider` implementations, provider factory/swap logic, Copilot auth integration, OpenAI-compatible streaming, model profiles, and context-window resolution. |
-| [src/adapters/tool/](src/adapters/tool) | Tool registry, built-in tools, tool result metadata, summaries, MCP bridge, skills tools, memory tools, and optional web-search tool. |
-| [src/domain/permissions/permissions.hpp](src/domain/permissions/permissions.hpp) | Permission modes and glob-style tool/path allow rules. |
-| [src/domain/session/](src/domain/session) | Session JSONL persistence, metadata sidecars, replay, resume restore, rewind checkpoints, daemon session registry, and event dispatch. |
-| [src/apps/tui/commands/](src/apps/tui/commands) | Slash command registry and built-in command implementations. |
-| [src/base/config/](src/base/config) | Config load/save/validation, saved model profiles, and default schema behavior. |
-| [src/domain/skills/](src/domain/skills) | Skill discovery, command registration, lazy skill body loading, default skill seeding, and skill invocation hints. |
-| [src/domain/memory/](src/domain/memory) | Persistent user memory registry and memory file lifecycle. |
-| [src/domain/project_instructions/](src/domain/project_instructions) | Configurable project-instruction discovery and prompt injection. |
-| [src/domain/history/](src/domain/history) | Per-working-directory input history storage. |
-| [src/apps/daemon/](src/apps/daemon) | Foreground/detached/service daemon launch, runtime files, heartbeat, process supervision, and worker lifecycle. |
-| [src/apps/web/](src/apps/web) | HTTP routes, WebSocket envelopes, payload codecs, auth, static assets, and web-specific handlers. |
-| [src/apps/desktop/](src/apps/desktop) | Workspace registry, daemon pool, native webview host, tray, notifications, and desktop bridge. |
-| [src/apps/tui/](src/apps/tui) and [src/apps/tui/markdown/](src/apps/tui/markdown) | Reusable TUI helpers, markdown rendering, overlays, progress rendering, scroll helpers, and terminal render mode helpers. |
-| [src/base/network/](src/base/network) | Proxy resolution, proxy probing, and shared networking configuration. |
-| [src/base/utils/](src/base/utils) | Shared filesystem, encoding, logging, state, token, UUID, hashing, stream, and terminal helpers. |
-| [tests/](tests) | GoogleTest coverage for headless logic through `acecode_testable`. |
+The [source layout guide](docs/architecture/src-layout.md) defines the six groups, dependency direction and where new files belong. [src/layers.tsv](src/layers.tsv) is the executable policy; tests mirror module names without the group prefix.
+
+The CLI dispatches into TuiApp, daemon or headless assembly. TuiApp owns terminal state, components, session resources and its shutdown sequence. SessionRegistry owns daemon and subagent sessions. AgentLoop fixes its service dependencies during construction and starts its worker explicitly; TurnRunner coordinates request construction, model steps, tool batches and TurnFinalizer.
+
+A turn owns immutable prompt configuration, expert and skill policy snapshots. Settings saved during a turn take effect on the next turn. Shutdown closes admission, cancels and joins active work, releases queued controls outside locks, then tears down process services. The ownership contracts are documented in [AGENTS.md](AGENTS.md).
 
 ## Terminal Turn Flow
 
