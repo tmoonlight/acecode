@@ -17,7 +17,7 @@
 #include "tui/mode_picker.hpp"
 #include "tui/theme_palette.hpp"
 #include "config/saved_models.hpp"
-#include "provider/apply_model_to_session.hpp"
+#include "session_host/apply_model_to_session.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "provider/model_resolver.hpp"
 #include "feedback/feedback_upload.hpp"
@@ -33,6 +33,7 @@
 #include "session/thread_goal_store.hpp"
 #include "utils/logger.hpp"
 #include "platform/terminal/terminal_title.hpp"
+#include "session/session_title_text.hpp"
 #include "utils/utf8_path.hpp"
 #include "version.hpp"
 #include <algorithm>
@@ -44,7 +45,6 @@
 #include <mutex>
 #include <optional>
 #include <sstream>
-#include <iomanip>
 #include <thread>
 #include <nlohmann/json.hpp>
 

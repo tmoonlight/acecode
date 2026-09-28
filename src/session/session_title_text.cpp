@@ -1,18 +1,54 @@
-#include "session_title_generator.hpp"
+#include "session_title_text.hpp"
 
-#include "platform/locale.hpp"
 #include "utils/encoding.hpp"
-#include "platform/terminal/terminal_title.hpp"
 
 #include <algorithm>
 #include <cctype>
-#include <nlohmann/json.hpp>
 #include <optional>
 #include <utility>
-#include <vector>
+
+#include <nlohmann/json.hpp>
 
 namespace acecode {
 namespace {
+
+constexpr size_t kMaxTitleBytes = 256;
+
+size_t utf8_safe_prefix(const std::string& text, size_t max_bytes) {
+    const size_t limit = std::min(max_bytes, text.size());
+    size_t i = 0;
+    size_t last_valid = 0;
+
+    while (i < limit) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        size_t seq_len = 0;
+
+        if ((c & 0x80u) == 0) {
+            seq_len = 1;
+        } else if ((c & 0xE0u) == 0xC0u) {
+            seq_len = 2;
+        } else if ((c & 0xF0u) == 0xE0u) {
+            seq_len = 3;
+        } else if ((c & 0xF8u) == 0xF0u) {
+            seq_len = 4;
+        } else {
+            break;
+        }
+
+        if (i + seq_len > limit || i + seq_len > text.size()) break;
+
+        bool valid = true;
+        for (size_t j = 1; j < seq_len; ++j) {
+            const unsigned char cc = static_cast<unsigned char>(text[i + j]);
+            if ((cc & 0xC0u) != 0x80u) { valid = false; break; }
+        }
+        if (!valid) break;
+
+        i += seq_len;
+        last_valid = i;
+    }
+    return last_valid;
+}
 
 constexpr std::size_t kMaxGeneratedTitleBytes = 120;
 
@@ -157,6 +193,32 @@ std::string strip_common_prefix(std::string s) {
 
 } // namespace
 
+bool sanitize_title(std::string& inout, std::string& error_out) {
+    error_out.clear();
+    for (unsigned char c : inout) {
+        // Reject any C0 control byte. OSC 2 is single-line; tabs/newlines are
+        // also rejected to keep the rendered title predictable.
+        if (c < 0x20 || c == 0x7F) {
+            error_out = "invalid control character";
+            return false;
+        }
+    }
+    if (inout.size() > kMaxTitleBytes) {
+        size_t cut = utf8_safe_prefix(inout, kMaxTitleBytes);
+        if (cut == 0) {
+            error_out = "invalid encoding";
+            return false;
+        }
+        inout.resize(cut);
+        error_out = "truncated";
+    }
+    return true;
+}
+
+bool has_session_title_input(const std::string& text) {
+    return !trim_ascii(text).empty();
+}
+
 bool is_generated_session_error_title(const std::string& title) {
     std::size_t i = 0;
     while (i < title.size() &&
@@ -196,49 +258,6 @@ std::string sanitize_generated_session_title(std::string raw) {
     std::string err;
     if (!sanitize_title(title, err)) return {};
     return trim_ascii(title);
-}
-
-std::optional<std::string> generate_session_title(
-    LlmProvider& provider,
-    const std::string& first_user_text,
-    int max_input_bytes,
-    const std::string& locale) {
-    const int bounded_input = std::max(1, max_input_bytes);
-    const std::string input = truncate_utf8_prefix(
-        first_user_text,
-        static_cast<std::size_t>(bounded_input),
-        "");
-    if (trim_ascii(input).empty()) return std::nullopt;
-
-    ChatMessage system;
-    system.role = "system";
-    system.content =
-        "Generate a concise title for this coding-agent session. "
-        "Return only the title text, without JSON, Markdown, code fences, "
-        "quotes, prefixes, or explanation. "
-        "Do not include punctuation unless needed for a file or symbol name.";
-    system.content += locale == desktop::kLocaleEnUs
-        ? " Write the title in English (en-US), using at most 8 words."
-        : " Write the title in Simplified Chinese (zh-CN), using at most 24 Chinese characters.";
-    system.content +=
-        " Follow this selected language even when the user's message is in another language. "
-        "Keep file paths, code identifiers, and product names in their original form.";
-
-    ChatMessage user;
-    user.role = "user";
-    user.content = input;
-
-    ChatResponse response = provider.chat({system, user}, {});
-    if (response.finish_reason == "error" ||
-        response.has_tool_calls() ||
-        is_generated_session_error_title(response.content)) {
-        return std::nullopt;
-    }
-    std::string title = sanitize_generated_session_title(response.content);
-    if (title.empty() || is_generated_session_error_title(title)) {
-        return std::nullopt;
-    }
-    return title;
 }
 
 } // namespace acecode

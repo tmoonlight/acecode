@@ -1,7 +1,7 @@
 #include "web/server_impl.hpp"
 #include "web/handlers/tool_preamble_handler.hpp"
 #include "config/config_mutation.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/session_registry.hpp"
 
 namespace acecode::web {
 using nlohmann::json;

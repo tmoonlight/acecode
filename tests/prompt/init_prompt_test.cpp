@@ -1,4 +1,4 @@
-// 覆盖 src/commands/init_command.{hpp,cpp} 的两个纯函数:
+// 覆盖 src/prompt/init_prompt.{hpp,cpp} 的两个纯函数:
 // - build_agent_md_skeleton: 离线骨架生成,根据目录下 CLAUDE.md 是否存在拼出迁移提示
 // - build_init_prompt: 交给 LLM 的 /init prompt 构建;根据目录下 AGENT.md /
 //   CLAUDE.md 存在情况在基础 prompt 末尾选一条 suffix
@@ -8,8 +8,9 @@
 
 #include <gtest/gtest.h>
 
-#include "commands/init_command.hpp"
+#include "prompt/init_prompt.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 

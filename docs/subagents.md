@@ -80,10 +80,10 @@
 
 | 文件 | 职责 |
 |---|---|
-| `src/tool/spawn_subagent_tool.{hpp,cpp}` | 两个工具本体 + `SubagentToolDeps{registry, client, config, fallback_permissions, on_spawn}`。daemon 里 deps 用 shared_ptr 延迟回填(ToolExecutor 先于 SessionRegistry 构造,见 worker.cpp) |
+| `src/session_host/tools/spawn_subagent_tool.{hpp,cpp}` | 两个工具本体 + `SubagentToolDeps{registry, client, config, fallback_permissions, on_spawn}`。daemon 里 deps 用 shared_ptr 延迟回填(ToolExecutor 先于 SessionRegistry 构造,见 worker.cpp) |
 | `src/session/session_storage.{hpp,cpp}` | `SessionMeta.parent_session_id`(空省略序列化);`purge_session_files(project_dir, id)` 删 jsonl + meta + `<id>/` 目录(web purge 路由与 TUI `/tasks clear` 共用) |
 | `src/session/session_manager.{hpp,cpp}` | `set_parent_session_id` / `current_parent_session_id`;start_session 重置、ensure_created/update_meta 落盘、resume_session 读回 |
-| `src/session/session_registry.{hpp,cpp}` | `SessionEntry::{subagent_depth, parent_session_id}`;make_entry_locked 从 opts 写入 / 从 resumed_meta 恢复(恢复时强制 depth≥1);list_active 透出 parent 字段 |
+| `src/session_host/session_registry.{hpp,cpp}` | `SessionEntry::{subagent_depth, parent_session_id}`;make_entry_locked 从 opts 写入 / 从 resumed_meta 恢复(恢复时强制 depth≥1);list_active 透出 parent 字段 |
 | `src/session/session_client.hpp` | `SessionOptions::{subagent_depth, parent_session_id}`、`SessionInfo::parent_session_id` |
 | `src/web/server_helpers.cpp` | `sessions_for_workspace(..., parent_filter)`:空 = 常规列表**排除**全部子会话;非空 = 只返回该父会话的子任务(active 部分跳过 workspace 过滤);`session_info_to_json` / `session_meta_to_json` 输出 `parent_session_id` |
 | `src/web/routes/routes_sessions.cpp` | `GET /api/sessions?parent=<id>`;`DELETE /api/sessions/:id?purge=1`(仅子会话,主会话 400,busy 409;destroy 后 purge_session_files) |
@@ -199,7 +199,7 @@ TuiState overlay,工具线程 wait ask_cv 天然带回结果)。只需两点:入
 
 | 文件 | 覆盖 |
 |---|---|
-| `tests/tool/spawn_subagent_tool_test.cpp` | deps 缺失 / 空 prompt / fire-and-forget / 深度拒绝 / wait 全链路 / parent 持久化(ChildRecordsParentSessionId)/ resume 恢复身份(ResumeRestoresSubagentIdentityFromMeta)/ wait_subagent / worktree 与写边界继承(ChildSharesParentWorktreeWithWriteBoundary)/ LOOP 策略继承 / ChildFailed / 主 checkout 监视(WaitReportsMainCheckoutChangesMadeWhileChildRan)|
+| `tests/session_host/spawn_subagent_tool_test.cpp` | deps 缺失 / 空 prompt / fire-and-forget / 深度拒绝 / wait 全链路 / parent 持久化(ChildRecordsParentSessionId)/ resume 恢复身份(ResumeRestoresSubagentIdentityFromMeta)/ wait_subagent / worktree 与写边界继承(ChildSharesParentWorktreeWithWriteBoundary)/ LOOP 策略继承 / ChildFailed / 主 checkout 监视(WaitReportsMainCheckoutChangesMadeWhileChildRan)|
 | `tests/agent_loop/agent_loop_tool_lifecycle_events_test.cpp` | Yolo worktree 会话写边界(文件工具 / 继承 write_root / shell 写守卫) |
 | `tests/worktree/worktree_tool_test.cpp` + `worktree_meta_roundtrip_test.cpp` | 继承 worktree 拒绝 Enter/Exit;meta `inherited` 往返与省略 |
 | `tests/loop/loop_scheduler_test.cpp` + `loop_store_test.cpp` | `detect_workspace_touched` 真实 git;`workspace_touched` 持久化与 v3 迁移 |

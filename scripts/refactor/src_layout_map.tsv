@@ -269,7 +269,7 @@ tests/utils/open_url_test.cpp	tests/platform/open_url_test.cpp	P2-03	move	Mirror
 tests/utils/power_inhibitor_test.cpp	tests/platform/power_inhibitor_test.cpp	P2-03	move	Mirror the corresponding relocated source
 tests/utils/terminal_capability_test.cpp	tests/platform/terminal_capability_test.cpp	P2-03	move	Mirror the corresponding relocated source
 tests/utils/terminal_theme_detect_test.cpp	tests/platform/terminal_theme_detect_test.cpp	P2-03	move	Mirror the corresponding relocated source
-tests/utils/terminal_title_test.cpp	tests/platform/terminal_title_test.cpp	P2-03	move	Mirror the corresponding relocated source
+tests/utils/terminal_title_test.cpp	tests/session/session_title_text_test.cpp	P2-03	move	P2-03 platform intermediate path; pure title responsibility finalized in P2-07
 tests/utils/text_input_ops_test.cpp	tests/tui/text_input_ops_test.cpp	P2-08	move	Mirror the corresponding relocated source
 tests/utils/token_tracker_test.cpp	tests/session/token_tracker_test.cpp	P2-05	move	Mirror the corresponding relocated source
 tests/utils/state_json_web_search_test.cpp	tests/tool/state_json_web_search_test.cpp	P2-05	move	Mirror the extracted search region cache
@@ -321,3 +321,8 @@ src/session/session_resume_restore.cpp	src/adapters/tool/file_state_restore.cpp	
 src/commands/init_command.cpp	src/engine/prompt/init_prompt.cpp	P2-07	extract	Extract prompt builders
 src/commands/lsp_command.cpp	src/adapters/lsp/lsp_status_text.cpp	P2-07	extract	Extract status format and dispatch
 src/cli/interactive_options.cpp	src/adapters/tool/question_policy.cpp	P2-08	extract	Extract question policy parsing
+
+# P2-07 mirrors and the recorded P2-03 intermediate test path.
+tests/commands/init_command_test.cpp	tests/prompt/init_prompt_test.cpp	P2-07	move	Mirror the extracted prompt builders
+tests/platform/terminal_title_test.cpp	tests/session/session_title_text_test.cpp	P2-07	move	Intermediate alias for the original utils test; never coexist with final path
+src/platform/terminal/terminal_title.cpp	src/domain/session/session_title_text.cpp	P2-07	extract	Extract title validation and UTF-8 truncation helpers

@@ -20,8 +20,8 @@
 // mu_ 保护;所有对外交付都经 Deps 回调(由 main.cpp 负责 lock TuiState +
 // PostEvent)。本文件不依赖 FTXUI,编译进 acecode_testable 供单测。
 
-#include "session/local_session_client.hpp"
-#include "session/session_registry.hpp"
+#include "session_host/local_session_client.hpp"
+#include "session_host/session_registry.hpp"
 
 #include <chrono>
 #include <functional>

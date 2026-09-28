@@ -24,10 +24,10 @@
 #include "experts/expert_registry.hpp"
 #include "skills/skill_registry.hpp"
 #include "tool/tool_executor.hpp"
-#include "ask_user_question_prompter.hpp"
-#include "permission_prompter.hpp"
-#include "session_client.hpp"
-#include "session_manager.hpp"
+#include "session/ask_user_question_prompter.hpp"
+#include "session/permission_prompter.hpp"
+#include "session/session_client.hpp"
+#include "session/session_manager.hpp"
 
 #include <atomic>
 #include <condition_variable>

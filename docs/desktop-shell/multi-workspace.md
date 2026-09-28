@@ -71,7 +71,7 @@ daemon slot 已启动,并向 daemon `POST /api/workspaces` 注册 cwd,返回同�
 | `src/desktop/web_host.{hpp,cpp}` | webview/webview wrapper,暴露 `bind` / `eval` / `native_window` |
 | `src/desktop/main.cpp` | wWinMain 入口,串起所有 |
 | `src/utils/cwd_hash.{hpp,cpp}` | desktop 与 SessionStorage 共享的 hash 算法(FNV-1a 64bit) |
-| `src/session/session_registry.{hpp,cpp}` | workspace-aware session create/resume/list |
+| `src/session_host/session_registry.{hpp,cpp}` | workspace-aware session create/resume/list |
 | `src/web/server.{hpp,cpp}` | `/api/workspaces` 与 workspace-scoped session routes |
 | `web/src/components/Sidebar.jsx` | workspace 分组渲染 + workspace-scoped session 选择 |
 | `web/src/lib/api.js` | workspace-scoped list/create/resume helper |

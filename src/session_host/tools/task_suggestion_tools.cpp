@@ -1,7 +1,7 @@
 #include "task_suggestion_tools.hpp"
 
 #include "session/session_manager.hpp"
-#include "session/task_suggestion_service.hpp"
+#include "session_host/task_suggestion_service.hpp"
 #include "tool/tool_args_parser.hpp"
 
 namespace acecode {

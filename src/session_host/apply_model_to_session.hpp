@@ -6,7 +6,7 @@
 #include "config/config.hpp"
 #include "config/saved_models.hpp"
 #include "session/session_client.hpp"  // for SessionModelState
-#include "session_model_binding.hpp"
+#include "provider/session_model_binding.hpp"
 
 #include <stdexcept>
 #include <string>

@@ -3,7 +3,7 @@
 #include "session_serializer.hpp"
 #include "fork_attachment_context.hpp"
 #include "session_rewind.hpp"
-#include "session_title_generator.hpp"
+#include "session_title_text.hpp"
 #include "session_user_message_search.hpp"
 #include "tool_result_storage.hpp"
 #include "turn_net_diff.hpp"

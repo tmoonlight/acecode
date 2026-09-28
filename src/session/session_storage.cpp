@@ -1,7 +1,7 @@
 #include "session_storage.hpp"
 #include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
-#include "session_title_generator.hpp"
+#include "session_title_text.hpp"
 #include "task_suggestion_store.hpp"
 #include "llm/context_usage.hpp"
 #include "utils/atomic_file.hpp"

@@ -7,7 +7,7 @@
 // 浏览器侧的 RemoteSessionClient(走 HTTP/WebSocket 的 wire format)由
 // add-web-chat-ui change 落地,接口契约相同。
 
-#include "session_client.hpp"
+#include "session/session_client.hpp"
 #include "session_registry.hpp"
 
 #include <memory>
