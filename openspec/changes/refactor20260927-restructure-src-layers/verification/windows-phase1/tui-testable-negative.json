@@ -1,0 +1,6 @@
+{
+  "returncode": 1,
+  "rejected_missing_implementation": true,
+  "fixture": "C:\\Users\\shao\\AppData\\Local\\Temp\\acecode-cmake-negative-2u248_mi",
+  "output": "-- Configuring incomplete, errors occurred!\nCMake Error at N:/Users/shao/acecode/cmake/acecode_source_guards.cmake:98 (message):\n  \n  C:/Users/shao/AppData/Local/Temp/acecode-cmake-negative-2u248_mi/tests/a_test.cpp\n  includes tui/example/a.hpp, but\n  C:/Users/shao/AppData/Local/Temp/acecode-cmake-negative-2u248_mi/src/apps/tui/example/a.cpp\n  is not registered in acecode_testable\nCall Stack (most recent call first):\n  CMakeLists.txt:4 (acecode_assert_tested_tui_sources)\n\n\n"
+}

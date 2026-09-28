@@ -1,0 +1,1642 @@
+{
+  "duplicate_basenames": {
+    "interactive_options.hpp": [
+      "src/apps/cli/interactive_options.hpp",
+      "src/apps/tui/app/interactive_options.hpp"
+    ],
+    "main.cpp": [
+      "src/apps/cli/main.cpp",
+      "src/apps/desktop/main.cpp"
+    ],
+    "runtime.cpp": [
+      "src/adapters/computer_use/runtime.cpp",
+      "src/adapters/tool/web_search/runtime.cpp",
+      "src/host/channels/runtime.cpp"
+    ],
+    "runtime.hpp": [
+      "src/adapters/computer_use/runtime.hpp",
+      "src/adapters/tool/web_search/runtime.hpp",
+      "src/host/channels/runtime.hpp"
+    ]
+  },
+  "findings": [],
+  "mapped_files": 0,
+  "planned_or_obsolete_rows": [
+    {
+      "kind": "move",
+      "path": "src/utils/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/image/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/platform/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/config/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/network/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/ipc/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/workspace/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/pty/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/environment/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/llm/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/permissions/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/security/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/sandbox/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/experts/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/project_instructions/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/memory/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/history/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/connectors/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/hooks/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/skills/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/worktree/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/gitinfo/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/upgrade/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/themes/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/feedback/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/computer_use/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/lsp/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/pa/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/provider/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool_preamble/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/prompt/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/session_host/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/loop/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/remote_control/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/channels/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/tui/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/headless/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/cli/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/markdown/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/path_reference/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent_loop.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent_loop.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent_loop_doom_guard.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent_loop_doom_guard.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/agent_loop_shell_guard.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/permissions.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/permissions.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/tui_state.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/main.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/version.hpp.in",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/file_operations.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/tool_errors.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/tool_args_parser.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/token_tracker.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/token_tracker.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/models_dev_catalog.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/models_dev_catalog.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/model_capabilities.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/path_validator.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/clipboard.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/clipboard.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/open_url.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/open_url.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/power_inhibitor.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/power_inhibitor.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_capability.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_capability.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_theme_detect.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_theme_detect.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_title.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_title.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_theme_detect_posix.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_theme_detect_win.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/terminal_input.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/drag_scroll.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/drag_scroll.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/text_input_ops.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/utils/text_input_ops.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/diff_utils.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/diff_utils.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/word_diff.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/word_diff.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/diff_view_truncate.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/diff_view_truncate.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/skills/frontmatter.hpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/skills/frontmatter.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/upgrade/version.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/upgrade/version.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/image/stb/",
+      "phase": "P3"
+    },
+    {
+      "kind": "move",
+      "path": "src/hooks/hook_runner.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/hooks/hook_runner.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/lsp/lsp_process.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/lsp/lsp_process.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/lsp/lsp_which.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/lsp/lsp_which.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/platform.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/platform_posix.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/platform_windows.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/locale.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/locale.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/folder_picker.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/folder_picker_win.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/notifications_win.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/notifications_stub.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/custom_toast_win.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/folder_picker_mac.mm",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/notifications_mac.mm",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/context_picker.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/context_picker.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/open_in_explorer.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/open_in_explorer.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/notifications.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/notifications.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/custom_toast.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/custom_toast.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/strings.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/strings.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/notifications_backend.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/upgrade/console.hpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/computer_use/pointer_appearance.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/themes/theme_id.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/provider/builtin_model_catalog.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/provider/builtin_model_catalog.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/upgrade/http.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/upgrade/http.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/runtime_files.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/runtime_files.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/guid.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/open_request.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/open_request.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/agent_browser_runtime.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/agent_browser_runtime.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/daemon_protocol.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/workspace_registry.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/desktop/workspace_registry.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/handlers/files_handler.hpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/handlers/files_handler.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/pty/",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "src/environment/prompt_environment.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/environment/prompt_environment.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/provider/llm_provider.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/tool_protocol_names.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/tool_protocol_names.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/model_family.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/model_family.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/tool_icons.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "src/headless/headless_mode.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/headless/headless_mode.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/opencode_command.hpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/opencode_command.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/handlers/skill_command_expander.hpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/handlers/skill_command_expander.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_registry.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_registry.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/local_session_client.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/local_session_client.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/thread_service.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/thread_service.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/task_suggestion_service.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/task_suggestion_service.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_auto_title.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_auto_title.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_title_generator.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_title_generator.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/side_chat.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/side_chat.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_replay.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_replay.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_resume_restore.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/session/session_resume_restore.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/provider/apply_model_to_session.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/provider/apply_model_to_session.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/spawn_subagent_tool.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/spawn_subagent_tool.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/thread_tools.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/thread_tools.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/task_suggestion_tools.hpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/task_suggestion_tools.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "src/tool/agent_browser/pointer_overlay.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/mcp_runtime.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/daemon/mcp_runtime.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/message_payload.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/message_payload.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/tool_event_payload.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/web/tool_event_payload.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/compact.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/compact.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/compact_prompt.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/compact_prompt.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/channels/command.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/channels/command.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/skills/skill_commands.hpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/skills/skill_commands.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/configure.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/configure.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/configure_catalog.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/configure_catalog.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/configure_picker.hpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "src/commands/configure_picker.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/cli_dispatch.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/cli_dispatch.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/tui_init.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/tui_init.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/tui_context.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/tui_context.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/agent_callbacks_builder.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/agent_callbacks_builder.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/terminal_utils.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/terminal_utils.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/clipboard_helpers.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/clipboard_helpers.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/ime_windows.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/ime_windows.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/input_event_handler.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/tui/message_render_cache.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/web/handlers/pinned_sessions_handler.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/provider/auth/acecode.code-workspace",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/daemon/supervisor.hpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "delete",
+      "path": "src/daemon/supervisor.cpp",
+      "phase": "P0-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/agent_loop/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/smoke_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/channels/command_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/computer_use/pointer_appearance_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/daemon/mcp_runtime_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/daemon/runtime_files_test.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/agent_browser_runtime_test.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/custom_toast_layout_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/locale_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/notifications_native_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/notifications_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/open_in_explorer_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/open_request_test.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/strings_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/desktop/workspace_registry_test.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "tests/hooks/hook_runner_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/lsp/lsp_which_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/provider/apply_model_to_session_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "tests/provider/builtin_model_catalog_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/session_registry_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/session_replay_real_jsonl_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/session_replay_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/session_replay_tool_preamble_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/session_resume_restore_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/side_chat_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/session/task_suggestion_service_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "tests/skills/frontmatter_test.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "tests/skills/skill_commands_reload_test.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/diff_utils_test.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/diff_view_truncate_test.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/model_family_test.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/spawn_subagent_tool_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/thread_tools_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/tool_protocol_names_test.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "tests/tool/word_diff_test.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/clipboard_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/drag_scroll_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/models_dev_catalog_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/open_url_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/power_inhibitor_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/terminal_capability_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/terminal_theme_detect_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/terminal_title_test.cpp",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/text_input_ops_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/token_tracker_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/utils/state_json_web_search_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/web/files_handler_test.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "move",
+      "path": "tests/web/message_payload_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/web/skill_command_expander_test.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "tests/web/tool_event_payload_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/web/pty/",
+      "phase": "P2-03"
+    },
+    {
+      "kind": "move",
+      "path": "tests/agent_loop/shell_write_guard_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/upgrade/upgrade_http_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/commands/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/markdown/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/path_reference/",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/commands/compact_core_test.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "move",
+      "path": "tests/commands/configure_catalog_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/commands/configure_picker_test.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/commands/opencode_command_test.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "tests/permissions_test.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "move",
+      "path": "tests/skill_registry_test.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "move",
+      "path": "tests/agent_loop/stub_provider.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "move",
+      "path": "tests/channels/test_support.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "move",
+      "path": "tests/sandbox/test_support.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "move",
+      "path": "tests/themes/theme_test_resources.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "move",
+      "path": "tests/computer_use/helpers/native_control_checks.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "move",
+      "path": "tests/computer_use/helpers/native_smoke_backend.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "move",
+      "path": "tests/computer_use/helpers/ole_drag_fixture.hpp",
+      "phase": "P1-01"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/text_file_buffer.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/text_file_buffer.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/permissions.hpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/state_file.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/state_file.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/state_file.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/state_file.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/utils/models_dev_catalog.cpp",
+      "phase": "P2-05"
+    },
+    {
+      "kind": "extract",
+      "path": "src/config/config.cpp",
+      "phase": "P2-04"
+    },
+    {
+      "kind": "extract",
+      "path": "src/tool/tool_executor.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/commands/compact.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/commands/compact.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/commands/compact.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/prompt/context_usage_breakdown.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/tool_preamble/tool_preamble.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/provider/retry_policy.hpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/provider/retry_policy.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/commands/compact_prompt.cpp",
+      "phase": "P2-02"
+    },
+    {
+      "kind": "extract",
+      "path": "src/hooks/hook_payload.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "extract",
+      "path": "src/skills/default_skill_seeder.cpp",
+      "phase": "P2-06"
+    },
+    {
+      "kind": "extract",
+      "path": "src/session/session_title_generator.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "extract",
+      "path": "src/session/session_resume_restore.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "extract",
+      "path": "src/commands/init_command.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "extract",
+      "path": "src/commands/lsp_command.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "extract",
+      "path": "src/cli/interactive_options.cpp",
+      "phase": "P2-08"
+    },
+    {
+      "kind": "move",
+      "path": "tests/commands/init_command_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "move",
+      "path": "tests/platform/terminal_title_test.cpp",
+      "phase": "P2-07"
+    },
+    {
+      "kind": "extract",
+      "path": "src/platform/terminal/terminal_title.cpp",
+      "phase": "P2-07"
+    }
+  ],
+  "schema": 1
+}

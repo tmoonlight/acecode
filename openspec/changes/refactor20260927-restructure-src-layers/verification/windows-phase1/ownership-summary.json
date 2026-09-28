@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "totals": {
+    "delayed_injection": 22,
+    "detach": 0,
+    "raw_delete": 0,
+    "raw_handle": 0,
+    "raw_new": 0,
+    "std_thread": 0,
+    "unsafe_capture": 280
+  },
+  "findings": [],
+  "notes": [
+    "raw_new/raw_delete are one ownership category; raw_handle is the supplemental ownership design section 5 metric",
+    "unsafe_capture includes ambiguous lifetime candidates; inspect requires-review entries before approving a baseline",
+    "ownership_allow entries are exact canonical path, named scope, metric and maximum count; excess occurrences still fail"
+  ],
+  "allowed_occurrence_count": 91,
+  "synchronous_capture_count": 275
+}

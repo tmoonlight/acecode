@@ -390,9 +390,9 @@ InputDisposition handle_mouse(TuiInputContext& context, const Event& event) {
                 return InputDisposition::Consumed;
             }
             if (state.drag_left_pressed) {
-                ACECODE_INPUT_TRACE(
+#if ACECODE_TUI_INPUT_TRACE
                 const auto previous_phase = state.drag_phase;
-                );
+#endif
                 state.last_mouse_x = mouse.x;
                 state.last_mouse_y = mouse.y;
                 auto new_phase = drag_scroll::classify(
@@ -508,11 +508,11 @@ InputDisposition handle_mouse(TuiInputContext& context, const Event& event) {
         // 鼠标滚轮按行滚动 (3 行/notch, Win 默认值), 长消息不再被一格掠过。
         if (mouse.button == Mouse::WheelUp) {
             viewport.sync_from_layout(state);
-            ACECODE_INPUT_TRACE(
+#if ACECODE_TUI_INPUT_TRACE
             const int before_focus = state.chat_focus_index;
             const int before_offset = state.chat_line_offset;
             const bool before_tail = state.chat_follow_tail;
-            );
+#endif
             const int actual = viewport.scroll_by_lines(state, -WHEEL_LINES);
             ACECODE_INPUT_TRACE(
             LOG_DEBUG("[input] chat wheel up delta=-" +
@@ -534,11 +534,11 @@ InputDisposition handle_mouse(TuiInputContext& context, const Event& event) {
         }
         if (mouse.button == Mouse::WheelDown) {
             viewport.sync_from_layout(state);
-            ACECODE_INPUT_TRACE(
+#if ACECODE_TUI_INPUT_TRACE
             const int before_focus = state.chat_focus_index;
             const int before_offset = state.chat_line_offset;
             const bool before_tail = state.chat_follow_tail;
-            );
+#endif
             const int actual = viewport.scroll_by_lines(state, WHEEL_LINES);
             ACECODE_INPUT_TRACE(
             LOG_DEBUG("[input] chat wheel down delta=" +

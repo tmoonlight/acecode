@@ -223,7 +223,7 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
 
         if (abort_.raw()) {
             assistant_output.interrupted(provider_result.accumulated, session_);
-            steps_.response(session_, 
+            steps_.response(session_,
                 current_model_step, provider_result, step_usage, "aborted");
             steps_.finish(current_model_step, "aborted", step_usage);
             break;
@@ -236,14 +236,14 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
         const auto error_result = error.decision;
         reset_doom_guard_after_compact();
         if (error_result == HandleErrorResult::Continue) {
-            steps_.response(session_, 
+            steps_.response(session_,
                 current_model_step, provider_result, step_usage, "retry");
             steps_.finish(current_model_step, "retry", step_usage);
             --total_iterations;
             continue;
         }
         if (error_result == HandleErrorResult::Break) {
-            steps_.response(session_, 
+            steps_.response(session_,
                 current_model_step, provider_result, step_usage, "error");
             steps_.finish(current_model_step, "error", step_usage);
             break;
@@ -256,7 +256,7 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
             step_usage = usage_.estimate(
                 turn.usage, provider_result.accumulated, bundle, session_);
         }
-        steps_.response(session_, 
+        steps_.response(session_,
             current_model_step, provider_result, step_usage, "completed");
 
         // Text-only response (no tool calls) → end the loop

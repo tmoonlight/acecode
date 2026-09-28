@@ -1,0 +1,21 @@
+[
+  {
+    "mode": "idle",
+    "pid": 29688,
+    "passed": true,
+    "exit_seconds": 0.402,
+    "exit_code": 0,
+    "graceful_exit": true,
+    "runtime_files_removed": true
+  },
+  {
+    "mode": "busy",
+    "pid": 49632,
+    "passed": true,
+    "running_turn_entered": true,
+    "exit_seconds": 1.108,
+    "exit_code": 0,
+    "graceful_exit": true,
+    "runtime_files_removed": true
+  }
+]

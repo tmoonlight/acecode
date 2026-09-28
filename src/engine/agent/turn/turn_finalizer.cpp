@@ -229,7 +229,7 @@ void TurnFinalizer::prepare_normal(Frame& frame) {
     }
 
     if (turn_info.visible_timed_turn) {
-        transcript_.append_turn_timing_record(session_manager_, 
+        transcript_.append_turn_timing_record(session_manager_,
             turn_info.turn_user_uuid, turn_info.turn_started_at_ms, now_epoch_ms(),
             turn_timing_status);
     }

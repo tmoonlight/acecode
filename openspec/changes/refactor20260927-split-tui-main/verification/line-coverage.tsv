@@ -1,326 +1,326 @@
 old_path	old_start	old_end	new_path	new_start	new_end	mode	reason
-src/cli/main.cpp	1	1	src/apps/tui/app/tui_runtime_init.cpp	6	6	copy	
+src/cli/main.cpp	1	1	src/apps/tui/app/tui_runtime_init.cpp	6	6	copy	Byte-identical source lines
 src/cli/main.cpp	2	2	src/apps/tui/app/tui_runtime_init.cpp	5	6	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3	3	src/apps/tui/app/tui_runtime_init.cpp	5	5	copy	
+src/cli/main.cpp	3	3	src/apps/tui/app/tui_runtime_init.cpp	5	5	copy	Byte-identical source lines
 src/cli/main.cpp	4	27	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	28	32	src/apps/cli/command_dispatch.cpp	15	19	copy	
+src/cli/main.cpp	28	32	src/apps/cli/command_dispatch.cpp	15	19	copy	Byte-identical source lines
 src/cli/main.cpp	33	48	src/apps/cli/command_dispatch.cpp	7	19	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	49	50	src/apps/cli/command_dispatch.cpp	7	8	copy	
+src/cli/main.cpp	49	50	src/apps/cli/command_dispatch.cpp	7	8	copy	Byte-identical source lines
 src/cli/main.cpp	51	53	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	54	54	src/apps/tui/app/tui_runtime_init.cpp	16	16	copy	
+src/cli/main.cpp	54	54	src/apps/tui/app/tui_runtime_init.cpp	16	16	copy	Byte-identical source lines
 src/cli/main.cpp	55	57	src/apps/tui/app/tui_runtime_init.cpp	13	16	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	58	58	src/apps/tui/app/tui_runtime_init.cpp	13	13	copy	
+src/cli/main.cpp	58	58	src/apps/tui/app/tui_runtime_init.cpp	13	13	copy	Byte-identical source lines
 src/cli/main.cpp	59	59	src/apps/tui/app/tui_runtime_init.cpp	11	13	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	60	61	src/apps/tui/app/tui_runtime_init.cpp	11	12	copy	
+src/cli/main.cpp	60	61	src/apps/tui/app/tui_runtime_init.cpp	11	12	copy	Byte-identical source lines
 src/cli/main.cpp	62	62	src/apps/tui/app/tui_runtime_init.cpp	12	15	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	63	63	src/apps/tui/app/tui_runtime_init.cpp	15	15	copy	
+src/cli/main.cpp	63	63	src/apps/tui/app/tui_runtime_init.cpp	15	15	copy	Byte-identical source lines
 src/cli/main.cpp	64	65	src/apps/tui/app/tui_runtime_init.cpp	15	26	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	66	66	src/apps/tui/app/tui_runtime_init.cpp	26	26	copy	
+src/cli/main.cpp	66	66	src/apps/tui/app/tui_runtime_init.cpp	26	26	copy	Byte-identical source lines
 src/cli/main.cpp	67	79	src/apps/tui/app/tui_runtime_init.cpp	26	27	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	80	83	src/apps/tui/app/tui_runtime_init.cpp	27	30	copy	
-src/cli/main.cpp	84	84	src/apps/tui/app/tui_app.cpp	29	29	copy	
+src/cli/main.cpp	80	83	src/apps/tui/app/tui_runtime_init.cpp	27	30	copy	Byte-identical source lines
+src/cli/main.cpp	84	84	src/apps/tui/app/tui_app.cpp	29	29	copy	Byte-identical source lines
 src/cli/main.cpp	85	86	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	87	87	src/apps/tui/app/tui_runtime_init.cpp	18	18	copy	
+src/cli/main.cpp	87	87	src/apps/tui/app/tui_runtime_init.cpp	18	18	copy	Byte-identical source lines
 src/cli/main.cpp	88	91	src/apps/tui/app/tui_runtime_init.cpp	7	18	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	92	93	src/apps/tui/app/tui_runtime_init.cpp	7	8	copy	
-src/cli/main.cpp	94	94	src/apps/tui/app/tui_runtime_init.cpp	10	10	copy	
-src/cli/main.cpp	95	95	src/apps/tui/app/tui_runtime_init.cpp	9	9	copy	
-src/cli/main.cpp	96	96	src/apps/tui/app/tui_runtime_init.cpp	21	21	copy	
-src/cli/main.cpp	97	97	src/apps/tui/app/tui_runtime_init.cpp	20	20	copy	
-src/cli/main.cpp	98	101	src/apps/tui/app/tui_runtime_init.cpp	22	25	copy	
+src/cli/main.cpp	92	93	src/apps/tui/app/tui_runtime_init.cpp	7	8	copy	Byte-identical source lines
+src/cli/main.cpp	94	94	src/apps/tui/app/tui_runtime_init.cpp	10	10	copy	Byte-identical source lines
+src/cli/main.cpp	95	95	src/apps/tui/app/tui_runtime_init.cpp	9	9	copy	Byte-identical source lines
+src/cli/main.cpp	96	96	src/apps/tui/app/tui_runtime_init.cpp	21	21	copy	Byte-identical source lines
+src/cli/main.cpp	97	97	src/apps/tui/app/tui_runtime_init.cpp	20	20	copy	Byte-identical source lines
+src/cli/main.cpp	98	101	src/apps/tui/app/tui_runtime_init.cpp	22	25	copy	Byte-identical source lines
 src/cli/main.cpp	102	104	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	105	105	src/apps/tui/app/tui_app.cpp	28	28	copy	
+src/cli/main.cpp	105	105	src/apps/tui/app/tui_app.cpp	28	28	copy	Byte-identical source lines
 src/cli/main.cpp	106	111	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	112	112	src/apps/cli/command_dispatch.cpp	12	12	copy	
+src/cli/main.cpp	112	112	src/apps/cli/command_dispatch.cpp	12	12	copy	Byte-identical source lines
 src/cli/main.cpp	113	113	src/apps/cli/command_dispatch.cpp	12	20	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	114	114	src/apps/cli/command_dispatch.cpp	20	20	edited	Includes and platform declarations are distributed to CLI, application and runtime owners
 src/cli/main.cpp	115	117	src/apps/cli/command_dispatch.cpp	6	20	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	118	118	src/apps/cli/command_dispatch.cpp	6	6	copy	
-src/cli/main.cpp	119	119	src/apps/cli/command_dispatch.cpp	4	4	copy	
+src/cli/main.cpp	118	118	src/apps/cli/command_dispatch.cpp	6	6	copy	Byte-identical source lines
+src/cli/main.cpp	119	119	src/apps/cli/command_dispatch.cpp	4	4	copy	Byte-identical source lines
 src/cli/main.cpp	120	124	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	125	125	src/apps/tui/app/tui_app.cpp	27	27	copy	
+src/cli/main.cpp	125	125	src/apps/tui/app/tui_app.cpp	27	27	copy	Byte-identical source lines
 src/cli/main.cpp	126	126	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	127	127	src/apps/tui/app/tui_app.hpp	11	11	copy	
+src/cli/main.cpp	127	127	src/apps/tui/app/tui_app.hpp	11	11	copy	Byte-identical source lines
 src/cli/main.cpp	128	148	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	149	149	src/apps/tui/app/tui_app.cpp	33	33	copy	
+src/cli/main.cpp	149	149	src/apps/tui/app/tui_app.cpp	33	33	copy	Byte-identical source lines
 src/cli/main.cpp	150	151	src/apps/tui/app/tui_app.cpp	25	33	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	152	152	src/apps/tui/app/tui_app.cpp	25	25	copy	
+src/cli/main.cpp	152	152	src/apps/tui/app/tui_app.cpp	25	25	copy	Byte-identical source lines
 src/cli/main.cpp	153	168	src/apps/tui/app/tui_app.cpp	21	35	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	169	169	src/apps/tui/app/tui_runtime_init.cpp	3	3	copy	
+src/cli/main.cpp	169	169	src/apps/tui/app/tui_runtime_init.cpp	3	3	copy	Byte-identical source lines
 src/cli/main.cpp	170	173	src/apps/tui/app/tui_runtime_init.cpp	3	4	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	174	174	src/apps/tui/app/tui_runtime_init.cpp	4	4	copy	
-src/cli/main.cpp	175	175	src/apps/tui/app/tui_app.cpp	23	23	copy	
+src/cli/main.cpp	174	174	src/apps/tui/app/tui_runtime_init.cpp	4	4	copy	Byte-identical source lines
+src/cli/main.cpp	175	175	src/apps/tui/app/tui_app.cpp	23	23	copy	Byte-identical source lines
 src/cli/main.cpp	176	199	src/apps/tui/app/tui_app.cpp	23	47	edited	Includes and platform declarations are distributed to CLI, application and runtime owners; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	200	209	src/apps/tui/model/status_line.hpp	1	12	edited	Forward status and clipboard helper declarations; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	210	210	src/apps/tui/render/ask_question_style.cpp	8	11	edited	Question panel color helper; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	211	225	src/apps/tui/render/ask_question_style.cpp	11	25	copy	
+src/cli/main.cpp	211	225	src/apps/tui/render/ask_question_style.cpp	11	25	copy	Byte-identical source lines
 src/cli/main.cpp	226	226	src/apps/tui/overlays/ask_session_projection.cpp	5	8	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	227	235	src/apps/tui/overlays/ask_session_projection.cpp	8	16	copy	
+src/cli/main.cpp	227	235	src/apps/tui/overlays/ask_session_projection.cpp	8	16	copy	Byte-identical source lines
 src/cli/main.cpp	236	236	src/apps/tui/overlays/ask_session_projection.cpp	16	18	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	237	252	src/apps/tui/overlays/ask_session_projection.cpp	18	33	copy	
+src/cli/main.cpp	237	252	src/apps/tui/overlays/ask_session_projection.cpp	18	33	copy	Byte-identical source lines
 src/cli/main.cpp	253	253	src/apps/tui/overlays/ask_session_projection.cpp	33	35	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	254	254	src/apps/tui/overlays/ask_session_projection.cpp	35	35	copy	
+src/cli/main.cpp	254	254	src/apps/tui/overlays/ask_session_projection.cpp	35	35	copy	Byte-identical source lines
 src/cli/main.cpp	255	255	src/apps/tui/overlays/ask_session_projection.cpp	35	37	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	256	264	src/apps/tui/overlays/ask_session_projection.cpp	37	45	copy	
+src/cli/main.cpp	256	264	src/apps/tui/overlays/ask_session_projection.cpp	37	45	copy	Byte-identical source lines
 src/cli/main.cpp	265	266	src/apps/tui/overlays/ask_session_projection.cpp	45	48	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	267	270	src/apps/tui/overlays/ask_session_projection.cpp	48	51	copy	
+src/cli/main.cpp	267	270	src/apps/tui/overlays/ask_session_projection.cpp	48	51	copy	Byte-identical source lines
 src/cli/main.cpp	271	271	src/apps/tui/overlays/ask_session_projection.cpp	51	53	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	272	274	src/apps/tui/overlays/ask_session_projection.cpp	53	55	copy	
+src/cli/main.cpp	272	274	src/apps/tui/overlays/ask_session_projection.cpp	53	55	copy	Byte-identical source lines
 src/cli/main.cpp	275	275	src/apps/tui/overlays/ask_session_projection.cpp	55	57	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	276	282	src/apps/tui/overlays/ask_session_projection.cpp	57	63	copy	
+src/cli/main.cpp	276	282	src/apps/tui/overlays/ask_session_projection.cpp	57	63	copy	Byte-identical source lines
 src/cli/main.cpp	283	288	src/apps/tui/overlays/ask_session_projection.cpp	63	69	edited	Question session projection and effects; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	289	292	src/apps/tui/overlays/ask_question_input.cpp	14	17	copy	
+src/cli/main.cpp	289	292	src/apps/tui/overlays/ask_question_input.cpp	14	17	copy	Byte-identical source lines
 src/cli/main.cpp	293	293	src/apps/tui/overlays/ask_question_input.cpp	17	19	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	294	313	src/apps/tui/overlays/ask_question_input.cpp	19	38	copy	
+src/cli/main.cpp	294	313	src/apps/tui/overlays/ask_question_input.cpp	19	38	copy	Byte-identical source lines
 src/cli/main.cpp	314	315	src/apps/tui/overlays/ask_question_input.cpp	38	41	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	316	322	src/apps/tui/overlays/ask_question_input.cpp	41	47	copy	
+src/cli/main.cpp	316	322	src/apps/tui/overlays/ask_question_input.cpp	41	47	copy	Byte-identical source lines
 src/cli/main.cpp	323	323	src/apps/tui/overlays/ask_question_input.cpp	47	49	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	324	341	src/apps/tui/overlays/ask_question_input.cpp	49	66	copy	
+src/cli/main.cpp	324	341	src/apps/tui/overlays/ask_question_input.cpp	49	66	copy	Byte-identical source lines
 src/cli/main.cpp	342	343	src/apps/tui/overlays/ask_question_input.cpp	66	69	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	344	379	src/apps/tui/overlays/ask_question_input.cpp	69	104	copy	
+src/cli/main.cpp	344	379	src/apps/tui/overlays/ask_question_input.cpp	69	104	copy	Byte-identical source lines
 src/cli/main.cpp	380	381	src/apps/tui/overlays/ask_question_input.cpp	104	107	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	382	410	src/apps/tui/overlays/ask_question_input.cpp	107	135	copy	
+src/cli/main.cpp	382	410	src/apps/tui/overlays/ask_question_input.cpp	107	135	copy	Byte-identical source lines
 src/cli/main.cpp	411	412	src/apps/tui/overlays/ask_question_input.cpp	135	138	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	413	418	src/apps/tui/overlays/ask_question_input.cpp	138	143	copy	
+src/cli/main.cpp	413	418	src/apps/tui/overlays/ask_question_input.cpp	138	143	copy	Byte-identical source lines
 src/cli/main.cpp	419	419	src/apps/tui/overlays/ask_question_input.cpp	143	145	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	420	420	src/apps/tui/overlays/ask_question_input.cpp	145	145	copy	
+src/cli/main.cpp	420	420	src/apps/tui/overlays/ask_question_input.cpp	145	145	copy	Byte-identical source lines
 src/cli/main.cpp	421	421	src/apps/tui/overlays/ask_question_input.cpp	145	147	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	422	438	src/apps/tui/overlays/ask_question_input.cpp	147	163	copy	
+src/cli/main.cpp	422	438	src/apps/tui/overlays/ask_question_input.cpp	147	163	copy	Byte-identical source lines
 src/cli/main.cpp	439	439	src/apps/tui/overlays/ask_question_input.cpp	163	165	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	440	468	src/apps/tui/overlays/ask_question_input.cpp	165	193	copy	
+src/cli/main.cpp	440	468	src/apps/tui/overlays/ask_question_input.cpp	165	193	copy	Byte-identical source lines
 src/cli/main.cpp	469	469	src/apps/tui/overlays/ask_question_input.cpp	193	195	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	470	496	src/apps/tui/overlays/ask_question_input.cpp	195	221	copy	
+src/cli/main.cpp	470	496	src/apps/tui/overlays/ask_question_input.cpp	195	221	copy	Byte-identical source lines
 src/cli/main.cpp	497	497	src/apps/tui/overlays/ask_question_input.cpp	221	223	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	498	513	src/apps/tui/overlays/ask_question_input.cpp	223	238	copy	
+src/cli/main.cpp	498	513	src/apps/tui/overlays/ask_question_input.cpp	223	238	copy	Byte-identical source lines
 src/cli/main.cpp	514	514	src/apps/tui/overlays/ask_question_input.cpp	238	240	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	515	532	src/apps/tui/overlays/ask_question_input.cpp	240	257	copy	
+src/cli/main.cpp	515	532	src/apps/tui/overlays/ask_question_input.cpp	240	257	copy	Byte-identical source lines
 src/cli/main.cpp	533	533	src/apps/tui/overlays/ask_question_input.cpp	257	259	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	534	537	src/apps/tui/overlays/ask_question_input.cpp	259	262	copy	
+src/cli/main.cpp	534	537	src/apps/tui/overlays/ask_question_input.cpp	259	262	copy	Byte-identical source lines
 src/cli/main.cpp	538	538	src/apps/tui/overlays/ask_question_input.cpp	262	264	edited	Question mouse and keyboard state machine; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	539	672	src/apps/tui/overlays/ask_question_input.cpp	264	397	copy	
+src/cli/main.cpp	539	672	src/apps/tui/overlays/ask_question_input.cpp	264	397	copy	Byte-identical source lines
 src/cli/main.cpp	673	673	src/apps/tui/redraw_pacer.cpp	7	10	edited	Monotonic frame pacing clock; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	674	677	src/apps/tui/redraw_pacer.cpp	10	13	copy	
+src/cli/main.cpp	674	677	src/apps/tui/redraw_pacer.cpp	10	13	copy	Byte-identical source lines
 src/cli/main.cpp	678	680	src/apps/tui/redraw_pacer.cpp	13	16	edited	Monotonic frame pacing clock; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	681	691	src/apps/tui/app/startup_environment.cpp	28	38	copy	
+src/cli/main.cpp	681	691	src/apps/tui/app/startup_environment.cpp	28	38	copy	Byte-identical source lines
 src/cli/main.cpp	692	692	src/apps/cli/process_environment.cpp	21	24	edited	Resolve executable directory; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	693	700	src/apps/cli/process_environment.cpp	24	31	copy	
+src/cli/main.cpp	693	700	src/apps/cli/process_environment.cpp	24	31	copy	Byte-identical source lines
 src/cli/main.cpp	701	701	src/domain/skills/default_skill_startup.cpp	7	10	edited	Reconcile default skills at startup; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	702	734	src/domain/skills/default_skill_startup.cpp	10	42	copy	
+src/cli/main.cpp	702	734	src/domain/skills/default_skill_startup.cpp	10	42	copy	Byte-identical source lines
 src/cli/main.cpp	735	735	src/apps/tui/term/terminal_control.cpp	16	19	edited	Terminal sequences, repaint mode, cursor and input flushing; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	736	759	src/apps/tui/term/terminal_control.cpp	19	42	copy	
+src/cli/main.cpp	736	759	src/apps/tui/term/terminal_control.cpp	19	42	copy	Byte-identical source lines
 src/cli/main.cpp	760	760	src/apps/tui/term/terminal_control.cpp	42	44	edited	Terminal sequences, repaint mode, cursor and input flushing; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	761	771	src/apps/tui/term/terminal_control.cpp	44	54	copy	
+src/cli/main.cpp	761	771	src/apps/tui/term/terminal_control.cpp	44	54	copy	Byte-identical source lines
 src/cli/main.cpp	772	773	src/apps/tui/term/terminal_control.cpp	54	56	edited	Terminal sequences, repaint mode, cursor and input flushing; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	774	777	src/apps/tui/term/terminal_control.cpp	56	59	copy	
+src/cli/main.cpp	774	777	src/apps/tui/term/terminal_control.cpp	56	59	copy	Byte-identical source lines
 src/cli/main.cpp	778	778	src/apps/tui/term/terminal_control.cpp	59	61	edited	Terminal sequences, repaint mode, cursor and input flushing; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	779	791	src/apps/tui/term/terminal_control.cpp	61	73	copy	
+src/cli/main.cpp	779	791	src/apps/tui/term/terminal_control.cpp	61	73	copy	Byte-identical source lines
 src/cli/main.cpp	792	797	src/apps/tui/input/input_trace.cpp	1	5	edited	Compile-time input trace helpers; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	798	803	src/apps/tui/input/input_trace.cpp	5	10	copy	
+src/cli/main.cpp	798	803	src/apps/tui/input/input_trace.cpp	5	10	copy	Byte-identical source lines
 src/cli/main.cpp	804	804	src/apps/tui/input/input_trace.cpp	10	12	edited	Compile-time input trace helpers; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	805	811	src/apps/tui/input/input_trace.cpp	12	18	copy	
+src/cli/main.cpp	805	811	src/apps/tui/input/input_trace.cpp	12	18	copy	Byte-identical source lines
 src/cli/main.cpp	812	812	src/apps/tui/input/input_trace.cpp	18	20	edited	Compile-time input trace helpers; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	813	825	src/apps/tui/input/input_trace.cpp	20	32	copy	
+src/cli/main.cpp	813	825	src/apps/tui/input/input_trace.cpp	20	32	copy	Byte-identical source lines
 src/cli/main.cpp	826	826	src/apps/tui/input/input_trace.cpp	32	34	edited	Compile-time input trace helpers; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	827	832	src/apps/tui/input/input_trace.cpp	34	39	copy	
+src/cli/main.cpp	827	832	src/apps/tui/input/input_trace.cpp	34	39	copy	Byte-identical source lines
 src/cli/main.cpp	833	834	src/apps/tui/input/input_trace.cpp	39	41	edited	Compile-time input trace helpers; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	835	841	src/apps/tui/app/process_guards.cpp	15	22	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	842	842	src/apps/tui/app/process_guards.cpp	22	22	copy	
+src/cli/main.cpp	842	842	src/apps/tui/app/process_guards.cpp	22	22	copy	Byte-identical source lines
 src/cli/main.cpp	843	843	src/apps/tui/app/process_guards.cpp	22	25	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	844	844	src/apps/tui/app/process_guards.cpp	25	25	copy	
+src/cli/main.cpp	844	844	src/apps/tui/app/process_guards.cpp	25	25	copy	Byte-identical source lines
 src/cli/main.cpp	845	847	src/apps/tui/app/process_guards.cpp	25	29	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	848	852	src/apps/tui/app/process_guards.cpp	29	33	copy	
+src/cli/main.cpp	848	852	src/apps/tui/app/process_guards.cpp	29	33	copy	Byte-identical source lines
 src/cli/main.cpp	853	858	src/apps/tui/app/process_guards.cpp	33	36	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	859	890	src/apps/tui/app/process_guards.cpp	36	67	copy	
+src/cli/main.cpp	859	890	src/apps/tui/app/process_guards.cpp	36	67	copy	Byte-identical source lines
 src/cli/main.cpp	891	891	src/apps/tui/app/process_guards.cpp	67	130	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	892	892	src/apps/tui/app/process_guards.cpp	130	130	copy	
+src/cli/main.cpp	892	892	src/apps/tui/app/process_guards.cpp	130	130	copy	Byte-identical source lines
 src/cli/main.cpp	893	899	src/apps/tui/app/process_guards.cpp	130	133	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	900	900	src/apps/tui/app/process_guards.cpp	133	133	copy	
+src/cli/main.cpp	900	900	src/apps/tui/app/process_guards.cpp	133	133	copy	Byte-identical source lines
 src/cli/main.cpp	901	910	src/apps/tui/app/process_guards.cpp	69	133	edited	RAII process registrations and console signal handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	911	919	src/apps/tui/app/process_guards.cpp	69	77	copy	
+src/cli/main.cpp	911	919	src/apps/tui/app/process_guards.cpp	69	77	copy	Byte-identical source lines
 src/cli/main.cpp	920	925	src/apps/tui/model/status_line.cpp	3	9	edited	Transient status and clipboard result text; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	926	930	src/apps/tui/model/status_line.cpp	9	13	copy	
+src/cli/main.cpp	926	930	src/apps/tui/model/status_line.cpp	9	13	copy	Byte-identical source lines
 src/cli/main.cpp	931	934	src/apps/tui/model/status_line.cpp	13	18	edited	Transient status and clipboard result text; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	935	957	src/apps/tui/model/status_line.cpp	18	40	copy	
+src/cli/main.cpp	935	957	src/apps/tui/model/status_line.cpp	18	40	copy	Byte-identical source lines
 src/cli/main.cpp	958	958	src/apps/tui/model/status_line.cpp	40	42	edited	Transient status and clipboard result text; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	959	981	src/apps/tui/model/status_line.cpp	42	64	copy	
+src/cli/main.cpp	959	981	src/apps/tui/model/status_line.cpp	42	64	copy	Byte-identical source lines
 src/cli/main.cpp	982	982	src/domain/session/composer_attachments.cpp	4	7	edited	Attachment prompt and structured user-input conversion; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	983	985	src/domain/session/composer_attachments.cpp	7	9	copy	
+src/cli/main.cpp	983	985	src/domain/session/composer_attachments.cpp	7	9	copy	Byte-identical source lines
 src/cli/main.cpp	986	986	src/domain/session/composer_attachments.cpp	9	11	edited	Attachment prompt and structured user-input conversion; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	987	1000	src/domain/session/composer_attachments.cpp	11	24	copy	
+src/cli/main.cpp	987	1000	src/domain/session/composer_attachments.cpp	11	24	copy	Byte-identical source lines
 src/cli/main.cpp	1001	1001	src/domain/session/composer_attachments.cpp	24	26	edited	Attachment prompt and structured user-input conversion; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1002	1032	src/domain/session/composer_attachments.cpp	26	56	copy	
+src/cli/main.cpp	1002	1032	src/domain/session/composer_attachments.cpp	26	56	copy	Byte-identical source lines
 src/cli/main.cpp	1033	1033	src/apps/tui/model/status_line.cpp	63	66	edited	Clipboard copy status text; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1034	1054	src/apps/tui/model/status_line.cpp	66	86	copy	
+src/cli/main.cpp	1034	1054	src/apps/tui/model/status_line.cpp	66	86	copy	Byte-identical source lines
 src/cli/main.cpp	1055	1068	src/apps/tui/chat/chat_viewport.hpp	1	37	edited	Chat measurement and scroll state owner replaces reference bundle; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	1069	1069	src/apps/tui/chat/chat_viewport.cpp	6	9	edited	Compute viewport rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1070	1074	src/apps/tui/chat/chat_viewport.cpp	9	13	copy	
+src/cli/main.cpp	1070	1074	src/apps/tui/chat/chat_viewport.cpp	9	13	copy	Byte-identical source lines
 src/cli/main.cpp	1075	1075	src/apps/tui/chat/chat_viewport.cpp	13	16	edited	Compute viewport rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1076	1081	src/apps/tui/chat/message_render_revision.cpp	7	12	copy	
+src/cli/main.cpp	1076	1081	src/apps/tui/chat/message_render_revision.cpp	7	12	copy	Byte-identical source lines
 src/cli/main.cpp	1082	1085	src/apps/tui/chat/message_render_revision.cpp	12	14	edited	Compute render revisions; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1086	1131	src/apps/tui/chat/message_render_revision.cpp	14	59	copy	
+src/cli/main.cpp	1086	1131	src/apps/tui/chat/message_render_revision.cpp	14	59	copy	Byte-identical source lines
 src/cli/main.cpp	1132	1132	src/apps/tui/chat/message_render_revision.cpp	59	62	edited	Compute render revisions; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	1133	1136	src/apps/tui/chat/chat_viewport.cpp	13	17	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1137	1137	src/apps/tui/chat/chat_viewport.cpp	17	17	copy	
+src/cli/main.cpp	1137	1137	src/apps/tui/chat/chat_viewport.cpp	17	17	copy	Byte-identical source lines
 src/cli/main.cpp	1138	1138	src/apps/tui/chat/chat_viewport.cpp	17	19	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1139	1141	src/apps/tui/chat/chat_viewport.cpp	19	21	copy	
+src/cli/main.cpp	1139	1141	src/apps/tui/chat/chat_viewport.cpp	19	21	copy	Byte-identical source lines
 src/cli/main.cpp	1142	1144	src/apps/tui/chat/chat_viewport.cpp	21	23	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1145	1145	src/apps/tui/chat/chat_viewport.cpp	23	23	copy	
+src/cli/main.cpp	1145	1145	src/apps/tui/chat/chat_viewport.cpp	23	23	copy	Byte-identical source lines
 src/cli/main.cpp	1146	1160	src/apps/tui/chat/chat_viewport.cpp	23	37	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1161	1161	src/apps/tui/chat/chat_viewport.cpp	37	37	copy	
+src/cli/main.cpp	1161	1161	src/apps/tui/chat/chat_viewport.cpp	37	37	copy	Byte-identical source lines
 src/cli/main.cpp	1162	1176	src/apps/tui/chat/chat_viewport.cpp	37	51	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1177	1177	src/apps/tui/chat/chat_viewport.cpp	51	51	copy	
+src/cli/main.cpp	1177	1177	src/apps/tui/chat/chat_viewport.cpp	51	51	copy	Byte-identical source lines
 src/cli/main.cpp	1178	1179	src/apps/tui/chat/chat_viewport.cpp	51	54	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1180	1182	src/apps/tui/chat/chat_viewport.cpp	54	56	copy	
+src/cli/main.cpp	1180	1182	src/apps/tui/chat/chat_viewport.cpp	54	56	copy	Byte-identical source lines
 src/cli/main.cpp	1183	1186	src/apps/tui/chat/chat_viewport.cpp	56	61	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1187	1188	src/apps/tui/chat/chat_viewport.cpp	61	62	copy	
+src/cli/main.cpp	1187	1188	src/apps/tui/chat/chat_viewport.cpp	61	62	copy	Byte-identical source lines
 src/cli/main.cpp	1189	1193	src/apps/tui/chat/chat_viewport.cpp	62	68	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1194	1196	src/apps/tui/chat/chat_viewport.cpp	68	70	copy	
+src/cli/main.cpp	1194	1196	src/apps/tui/chat/chat_viewport.cpp	68	70	copy	Byte-identical source lines
 src/cli/main.cpp	1197	1205	src/apps/tui/chat/chat_viewport.cpp	70	80	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1206	1206	src/apps/tui/chat/chat_viewport.cpp	80	80	copy	
+src/cli/main.cpp	1206	1206	src/apps/tui/chat/chat_viewport.cpp	80	80	copy	Byte-identical source lines
 src/cli/main.cpp	1207	1208	src/apps/tui/chat/chat_viewport.cpp	80	83	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1209	1210	src/apps/tui/chat/chat_viewport.cpp	83	84	copy	
+src/cli/main.cpp	1209	1210	src/apps/tui/chat/chat_viewport.cpp	83	84	copy	Byte-identical source lines
 src/cli/main.cpp	1211	1211	src/apps/tui/chat/chat_viewport.cpp	84	86	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1212	1216	src/apps/tui/chat/chat_viewport.cpp	86	90	copy	
+src/cli/main.cpp	1212	1216	src/apps/tui/chat/chat_viewport.cpp	86	90	copy	Byte-identical source lines
 src/cli/main.cpp	1217	1224	src/apps/tui/chat/chat_viewport.cpp	90	96	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1225	1261	src/apps/tui/chat/chat_viewport.cpp	96	132	copy	
+src/cli/main.cpp	1225	1261	src/apps/tui/chat/chat_viewport.cpp	96	132	copy	Byte-identical source lines
 src/cli/main.cpp	1262	1267	src/apps/tui/chat/chat_viewport.cpp	132	135	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1268	1309	src/apps/tui/chat/chat_viewport.cpp	135	176	copy	
+src/cli/main.cpp	1268	1309	src/apps/tui/chat/chat_viewport.cpp	135	176	copy	Byte-identical source lines
 src/cli/main.cpp	1310	1310	src/apps/tui/chat/chat_viewport.cpp	176	177	edited	Rebuild, invalidate, clamp and scroll measured chat rows; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	1311	1311	src/apps/tui/model/input_state.cpp	3	6	edited	Cancel pending Ctrl+C exit state; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1312	1315	src/apps/tui/model/input_state.cpp	6	9	copy	
+src/cli/main.cpp	1312	1315	src/apps/tui/model/input_state.cpp	6	9	copy	Byte-identical source lines
 src/cli/main.cpp	1316	1316	src/apps/tui/model/input_state.cpp	9	10	edited	Cancel pending Ctrl+C exit state; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	1317	1317	src/apps/tui/composer/paste.cpp	14	17	edited	Insert collapsed paste and check clipboard acceptance; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1318	1344	src/apps/tui/composer/paste.cpp	17	43	copy	
+src/cli/main.cpp	1318	1344	src/apps/tui/composer/paste.cpp	17	43	copy	Byte-identical source lines
 src/cli/main.cpp	1345	1346	src/apps/tui/composer/paste.cpp	43	45	edited	Insert collapsed paste and check clipboard acceptance; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1347	1356	src/apps/tui/composer/paste.cpp	45	54	copy	
+src/cli/main.cpp	1347	1356	src/apps/tui/composer/paste.cpp	45	54	copy	Byte-identical source lines
 src/cli/main.cpp	1357	1357	src/apps/tui/composer/suggestions.cpp	4	7	edited	Refresh slash and path suggestions; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1358	1363	src/apps/tui/composer/suggestions.cpp	7	12	copy	
+src/cli/main.cpp	1358	1363	src/apps/tui/composer/suggestions.cpp	7	12	copy	Byte-identical source lines
 src/cli/main.cpp	1364	1364	src/apps/tui/composer/suggestions.cpp	12	13	edited	Refresh slash and path suggestions; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	1365	1368	src/apps/tui/composer/paste.cpp	56	60	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1369	1375	src/apps/tui/composer/paste.cpp	60	66	copy	
+src/cli/main.cpp	1369	1375	src/apps/tui/composer/paste.cpp	60	66	copy	Byte-identical source lines
 src/cli/main.cpp	1376	1376	src/apps/tui/composer/paste.cpp	66	68	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1377	1383	src/apps/tui/composer/paste.cpp	68	74	copy	
+src/cli/main.cpp	1377	1383	src/apps/tui/composer/paste.cpp	68	74	copy	Byte-identical source lines
 src/cli/main.cpp	1384	1386	src/apps/tui/composer/paste.cpp	74	78	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1387	1392	src/apps/tui/composer/paste.cpp	78	83	copy	
+src/cli/main.cpp	1387	1392	src/apps/tui/composer/paste.cpp	78	83	copy	Byte-identical source lines
 src/cli/main.cpp	1393	1395	src/apps/tui/composer/paste.cpp	83	87	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1396	1396	src/apps/tui/composer/paste.cpp	87	87	copy	
+src/cli/main.cpp	1396	1396	src/apps/tui/composer/paste.cpp	87	87	copy	Byte-identical source lines
 src/cli/main.cpp	1397	1397	src/apps/tui/composer/paste.cpp	87	89	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1398	1407	src/apps/tui/composer/paste.cpp	89	98	copy	
+src/cli/main.cpp	1398	1407	src/apps/tui/composer/paste.cpp	89	98	copy	Byte-identical source lines
 src/cli/main.cpp	1408	1408	src/apps/tui/composer/paste.cpp	98	100	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1409	1413	src/apps/tui/composer/paste.cpp	100	104	copy	
+src/cli/main.cpp	1409	1413	src/apps/tui/composer/paste.cpp	100	104	copy	Byte-identical source lines
 src/cli/main.cpp	1414	1422	src/apps/tui/composer/paste.cpp	104	114	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1423	1430	src/apps/tui/composer/paste.cpp	114	121	copy	
+src/cli/main.cpp	1423	1430	src/apps/tui/composer/paste.cpp	114	121	copy	Byte-identical source lines
 src/cli/main.cpp	1431	1431	src/apps/tui/composer/paste.cpp	121	123	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1432	1438	src/apps/tui/composer/paste.cpp	123	129	copy	
+src/cli/main.cpp	1432	1438	src/apps/tui/composer/paste.cpp	123	129	copy	Byte-identical source lines
 src/cli/main.cpp	1439	1441	src/apps/tui/composer/paste.cpp	129	133	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1442	1459	src/apps/tui/composer/paste.cpp	133	150	copy	
+src/cli/main.cpp	1442	1459	src/apps/tui/composer/paste.cpp	133	150	copy	Byte-identical source lines
 src/cli/main.cpp	1460	1460	src/apps/tui/composer/paste.cpp	150	152	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1461	1462	src/apps/tui/composer/paste.cpp	152	153	copy	
+src/cli/main.cpp	1461	1462	src/apps/tui/composer/paste.cpp	152	153	copy	Byte-identical source lines
 src/cli/main.cpp	1463	1463	src/apps/tui/composer/paste.cpp	153	155	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1464	1470	src/apps/tui/composer/paste.cpp	155	161	copy	
+src/cli/main.cpp	1464	1470	src/apps/tui/composer/paste.cpp	155	161	copy	Byte-identical source lines
 src/cli/main.cpp	1471	1471	src/apps/tui/composer/paste.cpp	161	163	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1472	1474	src/apps/tui/composer/paste.cpp	163	165	copy	
+src/cli/main.cpp	1472	1474	src/apps/tui/composer/paste.cpp	163	165	copy	Byte-identical source lines
 src/cli/main.cpp	1475	1479	src/apps/tui/composer/paste.cpp	165	170	edited	Paste clipboard text and image through screen and clipboard ports; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1480	1480	src/apps/tui/composer/pending_attachment.cpp	9	9	copy	
+src/cli/main.cpp	1480	1480	src/apps/tui/composer/pending_attachment.cpp	9	9	copy	Byte-identical source lines
 src/cli/main.cpp	1481	1481	src/apps/tui/composer/pending_attachment.cpp	9	11	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1482	1499	src/apps/tui/composer/pending_attachment.cpp	11	28	copy	
+src/cli/main.cpp	1482	1499	src/apps/tui/composer/pending_attachment.cpp	11	28	copy	Byte-identical source lines
 src/cli/main.cpp	1500	1500	src/apps/tui/composer/pending_attachment.cpp	28	30	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1501	1505	src/apps/tui/composer/pending_attachment.cpp	30	34	copy	
+src/cli/main.cpp	1501	1505	src/apps/tui/composer/pending_attachment.cpp	30	34	copy	Byte-identical source lines
 src/cli/main.cpp	1506	1506	src/apps/tui/composer/pending_attachment.cpp	34	36	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1507	1519	src/apps/tui/composer/pending_attachment.cpp	36	48	copy	
+src/cli/main.cpp	1507	1519	src/apps/tui/composer/pending_attachment.cpp	36	48	copy	Byte-identical source lines
 src/cli/main.cpp	1520	1520	src/apps/tui/composer/pending_attachment.cpp	48	50	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1521	1528	src/apps/tui/composer/pending_attachment.cpp	50	57	copy	
+src/cli/main.cpp	1521	1528	src/apps/tui/composer/pending_attachment.cpp	50	57	copy	Byte-identical source lines
 src/cli/main.cpp	1529	1529	src/apps/tui/composer/pending_attachment.cpp	57	59	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1530	1546	src/apps/tui/composer/pending_attachment.cpp	59	75	copy	
+src/cli/main.cpp	1530	1546	src/apps/tui/composer/pending_attachment.cpp	59	75	copy	Byte-identical source lines
 src/cli/main.cpp	1547	1547	src/apps/tui/composer/pending_attachment.cpp	75	77	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1548	1550	src/apps/tui/composer/pending_attachment.cpp	77	79	copy	
+src/cli/main.cpp	1548	1550	src/apps/tui/composer/pending_attachment.cpp	77	79	copy	Byte-identical source lines
 src/cli/main.cpp	1551	1551	src/apps/tui/composer/pending_attachment.cpp	79	81	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1552	1560	src/apps/tui/composer/pending_attachment.cpp	81	89	copy	
+src/cli/main.cpp	1552	1560	src/apps/tui/composer/pending_attachment.cpp	81	89	copy	Byte-identical source lines
 src/cli/main.cpp	1561	1564	src/apps/tui/composer/pending_attachment.cpp	89	93	edited	Pending attachment focus and removal; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1565	1566	src/apps/tui/overlays/confirm_overlay_input.cpp	12	13	copy	
+src/cli/main.cpp	1565	1566	src/apps/tui/overlays/confirm_overlay_input.cpp	12	13	copy	Byte-identical source lines
 src/cli/main.cpp	1567	1568	src/apps/tui/overlays/confirm_overlay_input.cpp	13	16	edited	Confirmation overlay event handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1569	1595	src/apps/tui/overlays/confirm_overlay_input.cpp	16	42	copy	
+src/cli/main.cpp	1569	1595	src/apps/tui/overlays/confirm_overlay_input.cpp	16	42	copy	Byte-identical source lines
 src/cli/main.cpp	1596	1596	src/apps/tui/overlays/confirm_overlay_input.cpp	42	44	edited	Confirmation overlay event handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1597	1613	src/apps/tui/overlays/confirm_overlay_input.cpp	44	60	copy	
+src/cli/main.cpp	1597	1613	src/apps/tui/overlays/confirm_overlay_input.cpp	44	60	copy	Byte-identical source lines
 src/cli/main.cpp	1614	1614	src/apps/tui/overlays/confirm_overlay_input.cpp	60	62	edited	Confirmation overlay event handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1615	1618	src/apps/tui/overlays/confirm_overlay_input.cpp	62	65	copy	
+src/cli/main.cpp	1615	1618	src/apps/tui/overlays/confirm_overlay_input.cpp	62	65	copy	Byte-identical source lines
 src/cli/main.cpp	1619	1619	src/apps/tui/overlays/confirm_overlay_input.cpp	65	67	edited	Confirmation overlay event handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1620	1655	src/apps/tui/overlays/confirm_overlay_input.cpp	67	102	copy	
+src/cli/main.cpp	1620	1655	src/apps/tui/overlays/confirm_overlay_input.cpp	67	102	copy	Byte-identical source lines
 src/cli/main.cpp	1656	1656	src/apps/tui/overlays/confirm_overlay_input.cpp	102	105	edited	Confirmation overlay event handling; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1657	1668	src/apps/tui/overlays/rewind_picker_input.cpp	12	23	copy	
+src/cli/main.cpp	1657	1668	src/apps/tui/overlays/rewind_picker_input.cpp	12	23	copy	Byte-identical source lines
 src/cli/main.cpp	1669	1669	src/apps/tui/overlays/rewind_picker_input.cpp	23	26	edited	Reset rewind picker; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	1670	1670	src/apps/tui/overlays/rewind_picker_model.cpp	3	6	edited	Populate supported rewind modes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1671	1703	src/apps/tui/overlays/rewind_picker_model.cpp	6	38	copy	
+src/cli/main.cpp	1671	1703	src/apps/tui/overlays/rewind_picker_model.cpp	6	38	copy	Byte-identical source lines
 src/cli/main.cpp	1704	1704	src/apps/tui/overlays/rewind_picker_model.cpp	38	40	edited	Populate supported rewind modes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1705	1706	src/apps/tui/overlays/rewind_picker_input.cpp	24	25	copy	
+src/cli/main.cpp	1705	1706	src/apps/tui/overlays/rewind_picker_input.cpp	24	25	copy	Byte-identical source lines
 src/cli/main.cpp	1707	1708	src/apps/tui/overlays/rewind_picker_input.cpp	25	28	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1709	1712	src/apps/tui/overlays/rewind_picker_input.cpp	28	31	copy	
+src/cli/main.cpp	1709	1712	src/apps/tui/overlays/rewind_picker_input.cpp	28	31	copy	Byte-identical source lines
 src/cli/main.cpp	1713	1713	src/apps/tui/overlays/rewind_picker_input.cpp	31	33	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1714	1723	src/apps/tui/overlays/rewind_picker_input.cpp	33	42	copy	
+src/cli/main.cpp	1714	1723	src/apps/tui/overlays/rewind_picker_input.cpp	33	42	copy	Byte-identical source lines
 src/cli/main.cpp	1724	1728	src/apps/tui/overlays/rewind_picker_input.cpp	42	47	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1729	1730	src/apps/tui/overlays/rewind_picker_input.cpp	47	48	copy	
+src/cli/main.cpp	1729	1730	src/apps/tui/overlays/rewind_picker_input.cpp	47	48	copy	Byte-identical source lines
 src/cli/main.cpp	1731	1733	src/apps/tui/overlays/rewind_picker_input.cpp	48	52	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1734	1746	src/apps/tui/overlays/rewind_picker_input.cpp	52	64	copy	
+src/cli/main.cpp	1734	1746	src/apps/tui/overlays/rewind_picker_input.cpp	52	64	copy	Byte-identical source lines
 src/cli/main.cpp	1747	1747	src/apps/tui/overlays/rewind_picker_input.cpp	64	66	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1748	1750	src/apps/tui/overlays/rewind_picker_input.cpp	66	68	copy	
+src/cli/main.cpp	1748	1750	src/apps/tui/overlays/rewind_picker_input.cpp	66	68	copy	Byte-identical source lines
 src/cli/main.cpp	1751	1751	src/apps/tui/overlays/rewind_picker_input.cpp	68	70	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1752	1770	src/apps/tui/overlays/rewind_picker_input.cpp	70	88	copy	
+src/cli/main.cpp	1752	1770	src/apps/tui/overlays/rewind_picker_input.cpp	70	88	copy	Byte-identical source lines
 src/cli/main.cpp	1771	1773	src/apps/tui/overlays/rewind_picker_input.cpp	88	92	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1774	1798	src/apps/tui/overlays/rewind_picker_input.cpp	92	116	copy	
+src/cli/main.cpp	1774	1798	src/apps/tui/overlays/rewind_picker_input.cpp	92	116	copy	Byte-identical source lines
 src/cli/main.cpp	1799	1799	src/apps/tui/overlays/rewind_picker_input.cpp	116	118	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1800	1820	src/apps/tui/overlays/rewind_picker_input.cpp	118	138	copy	
+src/cli/main.cpp	1800	1820	src/apps/tui/overlays/rewind_picker_input.cpp	118	138	copy	Byte-identical source lines
 src/cli/main.cpp	1821	1821	src/apps/tui/overlays/rewind_picker_input.cpp	138	140	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1822	1832	src/apps/tui/overlays/rewind_picker_input.cpp	140	150	copy	
+src/cli/main.cpp	1822	1832	src/apps/tui/overlays/rewind_picker_input.cpp	140	150	copy	Byte-identical source lines
 src/cli/main.cpp	1833	1833	src/apps/tui/overlays/rewind_picker_input.cpp	150	152	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1834	1837	src/apps/tui/overlays/rewind_picker_input.cpp	152	155	copy	
+src/cli/main.cpp	1834	1837	src/apps/tui/overlays/rewind_picker_input.cpp	152	155	copy	Byte-identical source lines
 src/cli/main.cpp	1838	1838	src/apps/tui/overlays/rewind_picker_input.cpp	155	157	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1839	1850	src/apps/tui/overlays/rewind_picker_input.cpp	157	168	copy	
+src/cli/main.cpp	1839	1850	src/apps/tui/overlays/rewind_picker_input.cpp	157	168	copy	Byte-identical source lines
 src/cli/main.cpp	1851	1851	src/apps/tui/overlays/rewind_picker_input.cpp	168	170	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1852	1856	src/apps/tui/overlays/rewind_picker_input.cpp	170	174	copy	
+src/cli/main.cpp	1852	1856	src/apps/tui/overlays/rewind_picker_input.cpp	170	174	copy	Byte-identical source lines
 src/cli/main.cpp	1857	1865	src/apps/tui/overlays/rewind_picker_input.cpp	174	183	edited	Commit and navigate rewind selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1866	1866	src/apps/tui/overlays/completion_dropdown_input.cpp	12	12	copy	
+src/cli/main.cpp	1866	1866	src/apps/tui/overlays/completion_dropdown_input.cpp	12	12	copy	Byte-identical source lines
 src/cli/main.cpp	1867	1867	src/apps/tui/overlays/completion_dropdown_input.cpp	12	14	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1868	1900	src/apps/tui/overlays/completion_dropdown_input.cpp	14	46	copy	
+src/cli/main.cpp	1868	1900	src/apps/tui/overlays/completion_dropdown_input.cpp	14	46	copy	Byte-identical source lines
 src/cli/main.cpp	1901	1901	src/apps/tui/overlays/completion_dropdown_input.cpp	46	48	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1902	1908	src/apps/tui/overlays/completion_dropdown_input.cpp	48	54	copy	
+src/cli/main.cpp	1902	1908	src/apps/tui/overlays/completion_dropdown_input.cpp	48	54	copy	Byte-identical source lines
 src/cli/main.cpp	1909	1909	src/apps/tui/overlays/completion_dropdown_input.cpp	54	56	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1910	1926	src/apps/tui/overlays/completion_dropdown_input.cpp	56	72	copy	
+src/cli/main.cpp	1910	1926	src/apps/tui/overlays/completion_dropdown_input.cpp	56	72	copy	Byte-identical source lines
 src/cli/main.cpp	1927	1927	src/apps/tui/overlays/completion_dropdown_input.cpp	72	74	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1928	1931	src/apps/tui/overlays/completion_dropdown_input.cpp	74	77	copy	
+src/cli/main.cpp	1928	1931	src/apps/tui/overlays/completion_dropdown_input.cpp	74	77	copy	Byte-identical source lines
 src/cli/main.cpp	1932	1932	src/apps/tui/overlays/completion_dropdown_input.cpp	77	79	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1933	1945	src/apps/tui/overlays/completion_dropdown_input.cpp	79	91	copy	
+src/cli/main.cpp	1933	1945	src/apps/tui/overlays/completion_dropdown_input.cpp	79	91	copy	Byte-identical source lines
 src/cli/main.cpp	1946	1946	src/apps/tui/overlays/completion_dropdown_input.cpp	91	93	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1947	1953	src/apps/tui/overlays/completion_dropdown_input.cpp	93	99	copy	
+src/cli/main.cpp	1947	1953	src/apps/tui/overlays/completion_dropdown_input.cpp	93	99	copy	Byte-identical source lines
 src/cli/main.cpp	1954	1955	src/apps/tui/overlays/completion_dropdown_input.cpp	99	102	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1956	1969	src/apps/tui/overlays/completion_dropdown_input.cpp	102	115	copy	
+src/cli/main.cpp	1956	1969	src/apps/tui/overlays/completion_dropdown_input.cpp	102	115	copy	Byte-identical source lines
 src/cli/main.cpp	1970	1970	src/apps/tui/overlays/completion_dropdown_input.cpp	115	117	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1971	1975	src/apps/tui/overlays/completion_dropdown_input.cpp	117	121	copy	
+src/cli/main.cpp	1971	1975	src/apps/tui/overlays/completion_dropdown_input.cpp	117	121	copy	Byte-identical source lines
 src/cli/main.cpp	1976	1976	src/apps/tui/overlays/completion_dropdown_input.cpp	121	123	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1977	1981	src/apps/tui/overlays/completion_dropdown_input.cpp	123	127	copy	
+src/cli/main.cpp	1977	1981	src/apps/tui/overlays/completion_dropdown_input.cpp	123	127	copy	Byte-identical source lines
 src/cli/main.cpp	1982	1982	src/apps/tui/overlays/completion_dropdown_input.cpp	127	129	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1983	1986	src/apps/tui/overlays/completion_dropdown_input.cpp	129	132	copy	
+src/cli/main.cpp	1983	1986	src/apps/tui/overlays/completion_dropdown_input.cpp	129	132	copy	Byte-identical source lines
 src/cli/main.cpp	1987	1987	src/apps/tui/overlays/completion_dropdown_input.cpp	132	134	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1988	1994	src/apps/tui/overlays/completion_dropdown_input.cpp	134	140	copy	
+src/cli/main.cpp	1988	1994	src/apps/tui/overlays/completion_dropdown_input.cpp	134	140	copy	Byte-identical source lines
 src/cli/main.cpp	1995	1995	src/apps/tui/overlays/completion_dropdown_input.cpp	140	142	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	1996	2002	src/apps/tui/overlays/completion_dropdown_input.cpp	142	148	copy	
+src/cli/main.cpp	1996	2002	src/apps/tui/overlays/completion_dropdown_input.cpp	142	148	copy	Byte-identical source lines
 src/cli/main.cpp	2003	2003	src/apps/tui/overlays/completion_dropdown_input.cpp	148	150	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2004	2010	src/apps/tui/overlays/completion_dropdown_input.cpp	150	156	copy	
+src/cli/main.cpp	2004	2010	src/apps/tui/overlays/completion_dropdown_input.cpp	150	156	copy	Byte-identical source lines
 src/cli/main.cpp	2011	2011	src/apps/tui/overlays/completion_dropdown_input.cpp	156	159	edited	Slash and path completion input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2012	2026	src/apps/tui/overlays/completion_dropdown_input.cpp	159	173	copy	
+src/cli/main.cpp	2012	2026	src/apps/tui/overlays/completion_dropdown_input.cpp	159	173	copy	Byte-identical source lines
 src/cli/main.cpp	2027	2029	src/apps/tui/app/tui_app.hpp	1	138	edited	Interactive application entry now owned by TuiApp; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2030	2030	src/apps/cli/process_environment.cpp	10	13	edited	Process console and environment setup; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2031	2040	src/apps/cli/process_environment.cpp	13	22	copy	
+src/cli/main.cpp	2031	2040	src/apps/cli/process_environment.cpp	13	22	copy	Byte-identical source lines
 src/cli/main.cpp	2041	2041	src/base/platform/utf8_command_line.cpp	13	16	edited	Rebuild UTF-8 argv tail; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2042	2048	src/base/platform/utf8_command_line.cpp	16	22	copy	
-src/cli/main.cpp	2049	2052	src/apps/cli/command_dispatch.cpp	25	28	copy	
+src/cli/main.cpp	2042	2048	src/base/platform/utf8_command_line.cpp	16	22	copy	Byte-identical source lines
+src/cli/main.cpp	2049	2052	src/apps/cli/command_dispatch.cpp	25	28	copy	Byte-identical source lines
 src/cli/main.cpp	2053	2053	src/apps/cli/command_dispatch.cpp	28	30	edited	Executable and top-level help/version helpers; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2054	2057	src/apps/cli/command_dispatch.cpp	30	33	copy	
+src/cli/main.cpp	2054	2057	src/apps/cli/command_dispatch.cpp	30	33	copy	Byte-identical source lines
 src/cli/main.cpp	2058	2058	src/apps/cli/command_dispatch.cpp	33	35	edited	Executable and top-level help/version helpers; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2059	2095	src/apps/cli/command_dispatch.cpp	35	71	copy	
+src/cli/main.cpp	2059	2095	src/apps/cli/command_dispatch.cpp	35	71	copy	Byte-identical source lines
 src/cli/main.cpp	2096	2096	src/apps/cli/command_dispatch.cpp	70	73	edited	Preserve non-TUI dispatch order and exit codes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2097	2100	src/apps/cli/command_dispatch.cpp	73	76	copy	
+src/cli/main.cpp	2097	2100	src/apps/cli/command_dispatch.cpp	73	76	copy	Byte-identical source lines
 src/cli/main.cpp	2101	2101	src/apps/cli/command_dispatch.cpp	76	78	edited	Preserve non-TUI dispatch order and exit codes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2102	2117	src/apps/cli/command_dispatch.cpp	78	93	copy	
+src/cli/main.cpp	2102	2117	src/apps/cli/command_dispatch.cpp	78	93	copy	Byte-identical source lines
 src/cli/main.cpp	2118	2118	src/adapters/upgrade/upgrade_cli_args.cpp	8	8	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2119	2119	src/adapters/upgrade/upgrade_cli_args.cpp	9	9	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2120	2120	src/adapters/upgrade/upgrade_cli_args.cpp	10	10	edited	Preserve non-TUI dispatch order and exit codes
@@ -342,15 +342,15 @@ src/cli/main.cpp	2135	2135	src/adapters/upgrade/upgrade_cli_args.cpp	24	26	edite
 src/cli/main.cpp	2136	2136	src/adapters/upgrade/upgrade_cli_args.cpp	26	26	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2137	2137	src/adapters/upgrade/upgrade_cli_args.cpp	27	27	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2138	2138	src/adapters/upgrade/upgrade_cli_args.cpp	28	28	edited	Preserve non-TUI dispatch order and exit codes
-src/cli/main.cpp	2139	2164	src/apps/cli/command_dispatch.cpp	97	122	copy	
+src/cli/main.cpp	2139	2164	src/apps/cli/command_dispatch.cpp	97	122	copy	Byte-identical source lines
 src/cli/main.cpp	2165	2165	src/apps/cli/command_dispatch.cpp	122	124	edited	Preserve non-TUI dispatch order and exit codes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2166	2169	src/apps/cli/command_dispatch.cpp	124	127	copy	
+src/cli/main.cpp	2166	2169	src/apps/cli/command_dispatch.cpp	124	127	copy	Byte-identical source lines
 src/cli/main.cpp	2170	2170	src/apps/cli/command_dispatch.cpp	127	129	edited	Preserve non-TUI dispatch order and exit codes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2171	2174	src/apps/cli/command_dispatch.cpp	129	132	copy	
+src/cli/main.cpp	2171	2174	src/apps/cli/command_dispatch.cpp	129	132	copy	Byte-identical source lines
 src/cli/main.cpp	2175	2175	src/apps/cli/command_dispatch.cpp	132	134	edited	Preserve non-TUI dispatch order and exit codes; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2176	2199	src/apps/cli/command_dispatch.cpp	134	157	copy	
+src/cli/main.cpp	2176	2199	src/apps/cli/command_dispatch.cpp	134	157	copy	Byte-identical source lines
 src/cli/main.cpp	2200	2200	src/base/platform/utf8_command_line.cpp	25	25	edited	Preserve non-TUI dispatch order and exit codes
-src/cli/main.cpp	2201	2201	src/base/platform/utf8_command_line.cpp	26	26	copy	
+src/cli/main.cpp	2201	2201	src/base/platform/utf8_command_line.cpp	26	26	copy	Byte-identical source lines
 src/cli/main.cpp	2202	2202	src/base/platform/utf8_command_line.cpp	27	27	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2203	2203	src/base/platform/utf8_command_line.cpp	27	29	edited	Preserve non-TUI dispatch order and exit codes; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2204	2204	src/base/platform/utf8_command_line.cpp	29	29	edited	Preserve non-TUI dispatch order and exit codes
@@ -361,20 +361,20 @@ src/cli/main.cpp	2208	2208	src/base/platform/utf8_command_line.cpp	33	33	edited	
 src/cli/main.cpp	2209	2209	src/base/platform/utf8_command_line.cpp	34	34	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2210	2210	src/base/platform/utf8_command_line.cpp	35	35	edited	Preserve non-TUI dispatch order and exit codes
 src/cli/main.cpp	2211	2211	src/base/platform/utf8_command_line.cpp	36	36	edited	Preserve non-TUI dispatch order and exit codes
-src/cli/main.cpp	2212	2212	src/base/platform/utf8_command_line.cpp	37	37	copy	
+src/cli/main.cpp	2212	2212	src/base/platform/utf8_command_line.cpp	37	37	copy	Byte-identical source lines
 src/cli/main.cpp	2213	2213	src/base/platform/utf8_command_line.cpp	39	39	edited	Preserve non-TUI dispatch order and exit codes
-src/cli/main.cpp	2214	2214	src/base/platform/utf8_command_line.cpp	40	40	copy	
-src/cli/main.cpp	2215	2251	src/apps/cli/command_dispatch.cpp	159	195	copy	
+src/cli/main.cpp	2214	2214	src/base/platform/utf8_command_line.cpp	40	40	copy	Byte-identical source lines
+src/cli/main.cpp	2215	2251	src/apps/cli/command_dispatch.cpp	159	195	copy	Byte-identical source lines
 src/cli/main.cpp	2252	2252	src/apps/cli/pre_tui_commands.cpp	9	12	edited	Pre-TUI model catalog and configuration commands; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2253	2285	src/apps/cli/pre_tui_commands.cpp	12	44	copy	
+src/cli/main.cpp	2253	2285	src/apps/cli/pre_tui_commands.cpp	12	44	copy	Byte-identical source lines
 src/cli/main.cpp	2286	2286	src/apps/cli/pre_tui_commands.cpp	44	46	edited	Pre-TUI model catalog and configuration commands; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2287	2301	src/apps/cli/pre_tui_commands.cpp	46	60	copy	
-src/cli/main.cpp	2302	2302	src/apps/tui/app/startup_environment.cpp	39	39	copy	
+src/cli/main.cpp	2287	2301	src/apps/cli/pre_tui_commands.cpp	46	60	copy	Byte-identical source lines
+src/cli/main.cpp	2302	2302	src/apps/tui/app/startup_environment.cpp	39	39	copy	Byte-identical source lines
 src/cli/main.cpp	2303	2303	src/apps/tui/app/startup_environment.cpp	39	41	edited	Terminal availability, title and log initialization; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2304	2342	src/apps/tui/app/startup_environment.cpp	41	79	copy	
-src/cli/main.cpp	2343	2372	src/apps/tui/app/tui_runtime_init.cpp	41	70	copy	
+src/cli/main.cpp	2304	2342	src/apps/tui/app/startup_environment.cpp	41	79	copy	Byte-identical source lines
+src/cli/main.cpp	2343	2372	src/apps/tui/app/tui_runtime_init.cpp	41	70	copy	Byte-identical source lines
 src/cli/main.cpp	2373	2375	src/apps/tui/app/tui_runtime_init.cpp	70	72	edited	Initialize proxy, catalog and web-search runtime with owned background work; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2376	2390	src/apps/tui/app/tui_runtime_init.cpp	72	86	copy	
+src/cli/main.cpp	2376	2390	src/apps/tui/app/tui_runtime_init.cpp	72	86	copy	Byte-identical source lines
 src/cli/main.cpp	2391	2397	src/apps/tui/app/tui_runtime_init.cpp	86	93	edited	Initialize proxy, catalog and web-search runtime with owned background work; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2398	2401	src/apps/tui/app/update_check_task.cpp	6	10	edited	Owned startup update task; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2402	2402	src/apps/tui/app/update_check_task.cpp	10	10	edited	Owned startup update task
@@ -395,81 +395,81 @@ src/cli/main.cpp	2416	2416	src/apps/tui/app/update_check_task.cpp	24	24	edited	O
 src/cli/main.cpp	2417	2417	src/apps/tui/app/update_check_task.cpp	25	25	edited	Owned startup update task
 src/cli/main.cpp	2418	2418	src/apps/tui/app/update_check_task.cpp	26	26	edited	Owned startup update task
 src/cli/main.cpp	2419	2425	src/apps/tui/app/update_check_task.cpp	26	28	edited	Owned startup update task; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2426	2454	src/apps/tui/app/tui_runtime_init.cpp	91	119	copy	
-src/cli/main.cpp	2455	2499	src/apps/tui/model/initial_state.cpp	14	58	copy	
+src/cli/main.cpp	2426	2454	src/apps/tui/app/tui_runtime_init.cpp	91	119	copy	Byte-identical source lines
+src/cli/main.cpp	2455	2499	src/apps/tui/model/initial_state.cpp	14	58	copy	Byte-identical source lines
 src/cli/main.cpp	2500	2523	src/apps/tui/model/initial_state.cpp	58	60	edited	Restore history and startup status; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2524	2545	src/apps/tui/model/initial_state.cpp	60	81	copy	
+src/cli/main.cpp	2524	2545	src/apps/tui/model/initial_state.cpp	60	81	copy	Byte-identical source lines
 src/cli/main.cpp	2546	2546	src/domain/permissions/default_rules.cpp	4	7	edited	Apply default permission rules; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2547	2550	src/domain/permissions/default_rules.cpp	7	10	copy	
+src/cli/main.cpp	2547	2550	src/domain/permissions/default_rules.cpp	7	10	copy	Byte-identical source lines
 src/cli/main.cpp	2551	2551	src/domain/permissions/default_rules.cpp	10	12	edited	Apply default permission rules; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2552	2553	src/domain/permissions/default_rules.cpp	12	13	copy	
+src/cli/main.cpp	2552	2553	src/domain/permissions/default_rules.cpp	12	13	copy	Byte-identical source lines
 src/cli/main.cpp	2554	2554	src/domain/permissions/default_rules.cpp	13	15	edited	Apply default permission rules; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2555	2569	src/domain/permissions/default_rules.cpp	15	29	copy	
+src/cli/main.cpp	2555	2569	src/domain/permissions/default_rules.cpp	15	29	copy	Byte-identical source lines
 src/cli/main.cpp	2570	2570	src/apps/tui/commands/command_bootstrap.cpp	8	11	edited	Register slash commands; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2571	2587	src/apps/tui/commands/command_bootstrap.cpp	11	27	copy	
+src/cli/main.cpp	2571	2587	src/apps/tui/commands/command_bootstrap.cpp	11	27	copy	Byte-identical source lines
 src/cli/main.cpp	2588	2607	src/apps/tui/app/tui_screen_host.cpp	1	36	edited	Run screen with scoped terminal and console registrations; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2608	2684	src/apps/tui/app/tui_app_shutdown.cpp	1	119	edited	Ordered shutdown stops producers, workers and dependent services; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2685	2718	src/apps/tui/app/startup_worktree.cpp	83	116	copy	
+src/cli/main.cpp	2685	2718	src/apps/tui/app/startup_worktree.cpp	83	116	copy	Byte-identical source lines
 src/cli/main.cpp	2719	2737	src/apps/tui/app/tui_app_shutdown.cpp	1	119	edited	Finalize history, clear process registration and print resume hint; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2738	2738	src/apps/tui/app/startup_worktree.cpp	14	17	edited	Bootstrap a startup worktree; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2739	2803	src/apps/tui/app/startup_worktree.cpp	17	81	copy	
+src/cli/main.cpp	2739	2803	src/apps/tui/app/startup_worktree.cpp	17	81	copy	Byte-identical source lines
 src/cli/main.cpp	2804	2805	src/apps/tui/app/startup_worktree.cpp	81	84	edited	Bootstrap a startup worktree; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2806	2806	src/apps/tui/app/startup_environment.cpp	78	81	edited	Prepare terminal, cwd, logging and workspace index; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2807	2826	src/apps/tui/app/startup_environment.cpp	81	100	copy	
+src/cli/main.cpp	2807	2826	src/apps/tui/app/startup_environment.cpp	81	100	copy	Byte-identical source lines
 src/cli/main.cpp	2827	2827	src/apps/tui/app/startup_environment.cpp	100	102	edited	Prepare terminal, cwd, logging and workspace index; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2828	2828	src/apps/tui/app/tui_runtime_init.cpp	118	121	edited	Load configuration, provider and tool registries; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2829	2836	src/apps/tui/app/tui_runtime_init.cpp	121	128	copy	
+src/cli/main.cpp	2829	2836	src/apps/tui/app/tui_runtime_init.cpp	121	128	copy	Byte-identical source lines
 src/cli/main.cpp	2837	2838	src/apps/tui/app/tui_runtime_init.cpp	128	130	edited	Load configuration, provider and tool registries; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2839	2862	src/apps/tui/app/tui_runtime_init.cpp	130	153	copy	
+src/cli/main.cpp	2839	2862	src/apps/tui/app/tui_runtime_init.cpp	130	153	copy	Byte-identical source lines
 src/cli/main.cpp	2863	2864	src/apps/tui/app/tui_runtime_init.cpp	153	155	edited	Load configuration, provider and tool registries; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2865	2912	src/apps/tui/app/tui_runtime_init.cpp	155	202	copy	
+src/cli/main.cpp	2865	2912	src/apps/tui/app/tui_runtime_init.cpp	155	202	copy	Byte-identical source lines
 src/cli/main.cpp	2913	2914	src/apps/tui/app/tui_runtime_init.cpp	202	204	edited	Load configuration, provider and tool registries; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2915	2940	src/apps/tui/app/tui_runtime_init.cpp	204	229	copy	
+src/cli/main.cpp	2915	2940	src/apps/tui/app/tui_runtime_init.cpp	204	229	copy	Byte-identical source lines
 src/cli/main.cpp	2941	2941	src/apps/tui/app/tui_runtime_init.cpp	229	232	edited	Load configuration, provider and tool registries; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2942	2942	src/apps/tui/model/initial_state.cpp	80	83	edited	Initialize visible TUI state before screen creation; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2943	2959	src/apps/tui/model/initial_state.cpp	83	99	copy	
+src/cli/main.cpp	2943	2959	src/apps/tui/model/initial_state.cpp	83	99	copy	Byte-identical source lines
 src/cli/main.cpp	2960	2960	src/apps/tui/model/initial_state.cpp	99	101	edited	Initialize visible TUI state before screen creation; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	2961	2961	src/apps/tui/app/tui_runtime_init.cpp	228	231	edited	Initialize theme and select terminal render mode; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	2962	2986	src/apps/tui/app/tui_runtime_init.cpp	231	255	copy	
+src/cli/main.cpp	2962	2986	src/apps/tui/app/tui_runtime_init.cpp	231	255	copy	Byte-identical source lines
 src/cli/main.cpp	2987	3029	src/apps/tui/render/frame_renderer.hpp	1	37	edited	Renderer dependencies and geometry replace the local reference bundle; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3030	3031	src/apps/tui/render/link_hover_tooltip.cpp	24	27	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3032	3033	src/apps/tui/render/link_hover_tooltip.cpp	27	28	copy	
+src/cli/main.cpp	3032	3033	src/apps/tui/render/link_hover_tooltip.cpp	27	28	copy	Byte-identical source lines
 src/cli/main.cpp	3034	3035	src/apps/tui/render/link_hover_tooltip.cpp	28	31	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3036	3039	src/apps/tui/render/link_hover_tooltip.cpp	31	34	copy	
+src/cli/main.cpp	3036	3039	src/apps/tui/render/link_hover_tooltip.cpp	31	34	copy	Byte-identical source lines
 src/cli/main.cpp	3040	3040	src/apps/tui/render/link_hover_tooltip.cpp	34	36	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3041	3043	src/apps/tui/render/link_hover_tooltip.cpp	36	38	copy	
+src/cli/main.cpp	3041	3043	src/apps/tui/render/link_hover_tooltip.cpp	36	38	copy	Byte-identical source lines
 src/cli/main.cpp	3044	3044	src/apps/tui/render/link_hover_tooltip.cpp	38	40	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3045	3049	src/apps/tui/render/link_hover_tooltip.cpp	40	44	copy	
+src/cli/main.cpp	3045	3049	src/apps/tui/render/link_hover_tooltip.cpp	40	44	copy	Byte-identical source lines
 src/cli/main.cpp	3050	3053	src/apps/tui/render/link_hover_tooltip.cpp	44	49	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3054	3057	src/apps/tui/render/link_hover_tooltip.cpp	49	52	copy	
+src/cli/main.cpp	3054	3057	src/apps/tui/render/link_hover_tooltip.cpp	49	52	copy	Byte-identical source lines
 src/cli/main.cpp	3058	3059	src/apps/tui/render/link_hover_tooltip.cpp	52	64	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3060	3076	src/apps/tui/render/link_hover_tooltip.cpp	64	80	copy	
+src/cli/main.cpp	3060	3076	src/apps/tui/render/link_hover_tooltip.cpp	64	80	copy	Byte-identical source lines
 src/cli/main.cpp	3077	3077	src/apps/tui/render/link_hover_tooltip.cpp	80	81	edited	Render hyperlink tooltip; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3078	3109	src/apps/tui/render/frame_renderer.cpp	42	74	edited	Frame assembly and injected terminal dimensions; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3110	3110	src/apps/tui/render/frame_renderer.cpp	74	74	copy	
+src/cli/main.cpp	3110	3110	src/apps/tui/render/frame_renderer.cpp	74	74	copy	Byte-identical source lines
 src/cli/main.cpp	3111	3115	src/apps/tui/render/frame_renderer.cpp	74	78	edited	Frame assembly and injected terminal dimensions; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3116	3124	src/apps/tui/render/frame_renderer.cpp	78	86	copy	
+src/cli/main.cpp	3116	3124	src/apps/tui/render/frame_renderer.cpp	78	86	copy	Byte-identical source lines
 src/cli/main.cpp	3125	3127	src/apps/tui/render/frame_renderer.cpp	86	89	edited	Frame assembly and injected terminal dimensions; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3128	3128	src/apps/tui/render/frame_layout.cpp	5	8	edited	Prepare geometry, selection compensation and measured viewport; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3129	3129	src/apps/tui/render/frame_layout.cpp	8	8	copy	
+src/cli/main.cpp	3129	3129	src/apps/tui/render/frame_layout.cpp	8	8	copy	Byte-identical source lines
 src/cli/main.cpp	3130	3131	src/apps/tui/render/prepare_frame.cpp	23	94	edited	Prepare geometry, selection compensation and measured viewport; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3132	3148	src/apps/tui/render/prepare_frame.cpp	25	41	copy	
+src/cli/main.cpp	3132	3148	src/apps/tui/render/prepare_frame.cpp	25	41	copy	Byte-identical source lines
 src/cli/main.cpp	3149	3150	src/apps/tui/render/prepare_frame.cpp	23	94	edited	Prepare geometry, selection compensation and measured viewport; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3151	3153	src/apps/tui/render/frame_layout.cpp	10	12	copy	
+src/cli/main.cpp	3151	3153	src/apps/tui/render/frame_layout.cpp	10	12	copy	Byte-identical source lines
 src/cli/main.cpp	3154	3158	src/apps/tui/render/prepare_frame.cpp	23	94	edited	Prepare geometry, selection compensation and measured viewport; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3159	3179	src/apps/tui/render/prepare_frame.cpp	46	66	copy	
+src/cli/main.cpp	3159	3179	src/apps/tui/render/prepare_frame.cpp	46	66	copy	Byte-identical source lines
 src/cli/main.cpp	3180	3180	src/apps/tui/render/prepare_frame.cpp	66	68	edited	Prepare geometry, selection compensation and measured viewport; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3181	3186	src/apps/tui/render/prepare_frame.cpp	68	73	copy	
+src/cli/main.cpp	3181	3186	src/apps/tui/render/prepare_frame.cpp	68	73	copy	Byte-identical source lines
 src/cli/main.cpp	3187	3188	src/apps/tui/render/prepare_frame.cpp	73	76	edited	Prepare geometry, selection compensation and measured viewport; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3189	3205	src/apps/tui/render/prepare_frame.cpp	76	92	copy	
-src/cli/main.cpp	3206	3251	src/apps/tui/render/header_view.cpp	26	71	copy	
-src/cli/main.cpp	3252	3288	src/apps/tui/render/transcript_view.cpp	49	85	copy	
+src/cli/main.cpp	3189	3205	src/apps/tui/render/prepare_frame.cpp	76	92	copy	Byte-identical source lines
+src/cli/main.cpp	3206	3251	src/apps/tui/render/header_view.cpp	26	71	copy	Byte-identical source lines
+src/cli/main.cpp	3252	3288	src/apps/tui/render/transcript_view.cpp	49	85	copy	Byte-identical source lines
 src/cli/main.cpp	3289	3289	src/apps/tui/render/transcript_view.cpp	85	87	edited	Transcript measurement, caching and focus; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3290	3324	src/apps/tui/render/transcript_view.cpp	87	121	copy	
+src/cli/main.cpp	3290	3324	src/apps/tui/render/transcript_view.cpp	87	121	copy	Byte-identical source lines
 src/cli/main.cpp	3325	3325	src/apps/tui/render/transcript_view.cpp	87	121	edited	Transcript measurement, caching and focus; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3326	3326	src/apps/tui/render/transcript_view.cpp	87	87	edited	Transcript measurement, caching and focus
 src/cli/main.cpp	3327	3328	src/apps/tui/render/transcript_view.cpp	87	125	edited	Transcript measurement, caching and focus; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3329	3364	src/apps/tui/render/transcript_view.cpp	125	160	copy	
+src/cli/main.cpp	3329	3364	src/apps/tui/render/transcript_view.cpp	125	160	copy	Byte-identical source lines
 src/cli/main.cpp	3365	3367	src/apps/tui/render/transcript_view.cpp	160	163	edited	Transcript measurement, caching and focus; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3368	3368	src/apps/tui/render/message_row_views.cpp	21	21	edited	Render user and assistant message rows
 src/cli/main.cpp	3369	3369	src/apps/tui/render/message_row_views.cpp	22	22	edited	Render user and assistant message rows
@@ -484,7 +484,7 @@ src/cli/main.cpp	3377	3377	src/apps/tui/render/message_row_views.cpp	30	30	edite
 src/cli/main.cpp	3378	3378	src/apps/tui/render/message_row_views.cpp	31	31	edited	Render user and assistant message rows
 src/cli/main.cpp	3379	3379	src/apps/tui/render/message_row_views.cpp	32	32	edited	Render user and assistant message rows
 src/cli/main.cpp	3380	3381	src/apps/tui/render/message_row_views.cpp	19	48	edited	Render user and assistant message rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3382	3382	src/apps/tui/render/transcript_view.cpp	164	164	copy	
+src/cli/main.cpp	3382	3382	src/apps/tui/render/transcript_view.cpp	164	164	copy	Byte-identical source lines
 src/cli/main.cpp	3383	3383	src/apps/tui/render/message_row_views.cpp	36	36	edited	Render user and assistant message rows
 src/cli/main.cpp	3384	3384	src/apps/tui/render/message_row_views.cpp	37	37	edited	Render user and assistant message rows
 src/cli/main.cpp	3385	3385	src/apps/tui/render/message_row_views.cpp	38	38	edited	Render user and assistant message rows
@@ -498,7 +498,7 @@ src/cli/main.cpp	3393	3393	src/apps/tui/render/message_row_views.cpp	44	44	edite
 src/cli/main.cpp	3394	3394	src/apps/tui/render/message_row_views.cpp	45	45	edited	Render user and assistant message rows
 src/cli/main.cpp	3395	3395	src/apps/tui/render/message_row_views.cpp	46	46	edited	Render user and assistant message rows
 src/cli/main.cpp	3396	3397	src/apps/tui/render/message_row_views.cpp	19	48	edited	Render user and assistant message rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3398	3398	src/apps/tui/render/transcript_view.cpp	168	168	copy	
+src/cli/main.cpp	3398	3398	src/apps/tui/render/transcript_view.cpp	168	168	copy	Byte-identical source lines
 src/cli/main.cpp	3399	3399	src/apps/tui/render/tool_row_view.cpp	95	95	edited	Render tool call rows
 src/cli/main.cpp	3400	3400	src/apps/tui/render/tool_row_view.cpp	96	96	edited	Render tool call rows
 src/cli/main.cpp	3401	3401	src/apps/tui/render/tool_row_view.cpp	97	97	edited	Render tool call rows
@@ -543,14 +543,14 @@ src/cli/main.cpp	3439	3439	src/apps/tui/render/tool_row_view.cpp	134	134	edited	
 src/cli/main.cpp	3440	3440	src/apps/tui/render/tool_row_view.cpp	135	135	edited	Render tool call rows
 src/cli/main.cpp	3441	3441	src/apps/tui/render/tool_row_view.cpp	136	136	edited	Render tool call rows
 src/cli/main.cpp	3442	3443	src/apps/tui/render/tool_row_view.cpp	93	138	edited	Render tool call rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3444	3444	src/apps/tui/render/transcript_view.cpp	171	171	copy	
+src/cli/main.cpp	3444	3444	src/apps/tui/render/transcript_view.cpp	171	171	copy	Byte-identical source lines
 src/cli/main.cpp	3445	3451	src/apps/tui/render/message_row_views.cpp	36	43	edited	Render full shell, task-complete and question output; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3452	3452	src/apps/tui/render/message_row_views.cpp	43	43	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3453	3453	src/apps/tui/render/message_row_views.cpp	44	44	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3454	3454	src/apps/tui/render/message_row_views.cpp	45	45	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3455	3455	src/apps/tui/render/message_row_views.cpp	46	46	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3456	3457	src/apps/tui/render/message_row_views.cpp	41	86	edited	Render full shell, task-complete and question output; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3458	3458	src/apps/tui/render/transcript_view.cpp	174	174	copy	
+src/cli/main.cpp	3458	3458	src/apps/tui/render/transcript_view.cpp	174	174	copy	Byte-identical source lines
 src/cli/main.cpp	3459	3469	src/apps/tui/render/message_row_views.cpp	41	86	edited	Render full shell, task-complete and question output; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	3470	3470	src/apps/tui/render/message_row_views.cpp	72	72	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3471	3471	src/apps/tui/render/message_row_views.cpp	73	73	edited	Render full shell, task-complete and question output
@@ -562,7 +562,7 @@ src/cli/main.cpp	3487	3487	src/apps/tui/render/message_row_views.cpp	82	82	edite
 src/cli/main.cpp	3488	3488	src/apps/tui/render/message_row_views.cpp	83	83	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3489	3489	src/apps/tui/render/message_row_views.cpp	84	84	edited	Render full shell, task-complete and question output
 src/cli/main.cpp	3490	3491	src/apps/tui/render/message_row_views.cpp	41	86	edited	Render full shell, task-complete and question output; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3492	3492	src/apps/tui/render/transcript_view.cpp	180	180	copy	
+src/cli/main.cpp	3492	3492	src/apps/tui/render/transcript_view.cpp	180	180	copy	Byte-identical source lines
 src/cli/main.cpp	3493	3493	src/apps/tui/render/tool_row_view.cpp	141	141	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3494	3494	src/apps/tui/render/tool_row_view.cpp	142	142	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3495	3495	src/apps/tui/render/tool_row_view.cpp	143	143	edited	Render tool results with summary, diff and fold precedence
@@ -601,7 +601,7 @@ src/cli/main.cpp	3527	3527	src/apps/tui/render/tool_row_view.cpp	175	175	edited	
 src/cli/main.cpp	3528	3528	src/apps/tui/render/tool_row_view.cpp	176	176	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3529	3529	src/apps/tui/render/tool_row_view.cpp	177	177	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3530	3530	src/apps/tui/render/tool_row_view.cpp	178	178	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3531	3531	src/apps/tui/render/tool_row_view.cpp	179	179	copy	
+src/cli/main.cpp	3531	3531	src/apps/tui/render/tool_row_view.cpp	179	179	copy	Byte-identical source lines
 src/cli/main.cpp	3532	3532	src/apps/tui/render/tool_row_view.cpp	180	180	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3533	3533	src/apps/tui/render/tool_row_view.cpp	181	181	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3534	3534	src/apps/tui/render/tool_row_view.cpp	182	182	edited	Render tool results with summary, diff and fold precedence
@@ -621,7 +621,7 @@ src/cli/main.cpp	3547	3547	src/apps/tui/render/tool_row_view.cpp	195	195	edited	
 src/cli/main.cpp	3548	3548	src/apps/tui/render/tool_row_view.cpp	196	196	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3549	3549	src/apps/tui/render/tool_row_view.cpp	197	197	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3550	3550	src/apps/tui/render/tool_row_view.cpp	198	198	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3551	3551	src/apps/tui/render/tool_row_view.cpp	199	199	copy	
+src/cli/main.cpp	3551	3551	src/apps/tui/render/tool_row_view.cpp	199	199	copy	Byte-identical source lines
 src/cli/main.cpp	3552	3552	src/apps/tui/render/tool_row_view.cpp	200	200	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3553	3553	src/apps/tui/render/tool_row_view.cpp	201	201	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3554	3554	src/apps/tui/render/tool_row_view.cpp	202	202	edited	Render tool results with summary, diff and fold precedence
@@ -633,7 +633,7 @@ src/cli/main.cpp	3559	3559	src/apps/tui/render/tool_row_view.cpp	207	207	edited	
 src/cli/main.cpp	3560	3560	src/apps/tui/render/tool_row_view.cpp	208	208	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3561	3561	src/apps/tui/render/tool_row_view.cpp	209	209	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3562	3562	src/apps/tui/render/tool_row_view.cpp	210	210	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3563	3563	src/apps/tui/render/tool_row_view.cpp	211	211	copy	
+src/cli/main.cpp	3563	3563	src/apps/tui/render/tool_row_view.cpp	211	211	copy	Byte-identical source lines
 src/cli/main.cpp	3564	3564	src/apps/tui/render/tool_row_view.cpp	212	212	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3565	3565	src/apps/tui/render/tool_row_view.cpp	213	213	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3566	3566	src/apps/tui/render/tool_row_view.cpp	214	214	edited	Render tool results with summary, diff and fold precedence
@@ -644,7 +644,7 @@ src/cli/main.cpp	3571	3571	src/apps/tui/render/tool_row_view.cpp	218	218	edited	
 src/cli/main.cpp	3572	3572	src/apps/tui/render/tool_row_view.cpp	219	219	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3573	3573	src/apps/tui/render/tool_row_view.cpp	220	220	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3574	3574	src/apps/tui/render/tool_row_view.cpp	221	221	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3575	3575	src/apps/tui/render/tool_row_view.cpp	222	222	copy	
+src/cli/main.cpp	3575	3575	src/apps/tui/render/tool_row_view.cpp	222	222	copy	Byte-identical source lines
 src/cli/main.cpp	3576	3576	src/apps/tui/render/tool_row_view.cpp	223	223	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3577	3577	src/apps/tui/render/tool_row_view.cpp	224	224	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3578	3578	src/apps/tui/render/tool_row_view.cpp	225	225	edited	Render tool results with summary, diff and fold precedence
@@ -673,18 +673,18 @@ src/cli/main.cpp	3600	3600	src/apps/tui/render/tool_row_view.cpp	247	247	edited	
 src/cli/main.cpp	3601	3601	src/apps/tui/render/tool_row_view.cpp	248	248	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3602	3602	src/apps/tui/render/tool_row_view.cpp	249	249	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3603	3603	src/apps/tui/render/tool_row_view.cpp	250	250	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3604	3604	src/apps/tui/render/tool_row_view.cpp	251	251	copy	
+src/cli/main.cpp	3604	3604	src/apps/tui/render/tool_row_view.cpp	251	251	copy	Byte-identical source lines
 src/cli/main.cpp	3605	3605	src/apps/tui/render/tool_row_view.cpp	252	252	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3606	3606	src/apps/tui/render/tool_row_view.cpp	253	253	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3607	3607	src/apps/tui/render/tool_row_view.cpp	254	254	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3608	3608	src/apps/tui/render/tool_row_view.cpp	255	255	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3609	3609	src/apps/tui/render/tool_row_view.cpp	256	256	copy	
+src/cli/main.cpp	3609	3609	src/apps/tui/render/tool_row_view.cpp	256	256	copy	Byte-identical source lines
 src/cli/main.cpp	3610	3610	src/apps/tui/render/tool_row_view.cpp	257	257	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3611	3611	src/apps/tui/render/tool_row_view.cpp	258	258	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3612	3612	src/apps/tui/render/tool_row_view.cpp	259	259	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3613	3613	src/apps/tui/render/tool_row_view.cpp	260	260	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3614	3614	src/apps/tui/render/tool_row_view.cpp	261	261	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3615	3615	src/apps/tui/render/tool_row_view.cpp	262	262	copy	
+src/cli/main.cpp	3615	3615	src/apps/tui/render/tool_row_view.cpp	262	262	copy	Byte-identical source lines
 src/cli/main.cpp	3616	3616	src/apps/tui/render/tool_row_view.cpp	263	263	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3617	3617	src/apps/tui/render/tool_row_view.cpp	264	264	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3618	3618	src/apps/tui/render/tool_row_view.cpp	265	265	edited	Render tool results with summary, diff and fold precedence
@@ -704,7 +704,7 @@ src/cli/main.cpp	3631	3631	src/apps/tui/render/tool_row_view.cpp	278	278	edited	
 src/cli/main.cpp	3632	3632	src/apps/tui/render/tool_row_view.cpp	279	279	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3633	3633	src/apps/tui/render/tool_row_view.cpp	280	280	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3634	3634	src/apps/tui/render/tool_row_view.cpp	281	281	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3635	3635	src/apps/tui/render/tool_row_view.cpp	282	282	copy	
+src/cli/main.cpp	3635	3635	src/apps/tui/render/tool_row_view.cpp	282	282	copy	Byte-identical source lines
 src/cli/main.cpp	3636	3636	src/apps/tui/render/tool_row_view.cpp	283	283	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3637	3637	src/apps/tui/render/tool_row_view.cpp	284	284	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3638	3638	src/apps/tui/render/tool_row_view.cpp	285	285	edited	Render tool results with summary, diff and fold precedence
@@ -737,7 +737,7 @@ src/cli/main.cpp	3665	3665	src/apps/tui/render/tool_row_view.cpp	311	311	edited	
 src/cli/main.cpp	3666	3666	src/apps/tui/render/tool_row_view.cpp	312	312	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3667	3667	src/apps/tui/render/tool_row_view.cpp	313	313	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3668	3668	src/apps/tui/render/tool_row_view.cpp	314	314	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3669	3669	src/apps/tui/render/tool_row_view.cpp	315	315	copy	
+src/cli/main.cpp	3669	3669	src/apps/tui/render/tool_row_view.cpp	315	315	copy	Byte-identical source lines
 src/cli/main.cpp	3670	3670	src/apps/tui/render/tool_row_view.cpp	316	316	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3671	3671	src/apps/tui/render/tool_row_view.cpp	317	317	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3672	3672	src/apps/tui/render/tool_row_view.cpp	318	318	edited	Render tool results with summary, diff and fold precedence
@@ -755,7 +755,7 @@ src/cli/main.cpp	3683	3683	src/apps/tui/render/tool_row_view.cpp	329	329	edited	
 src/cli/main.cpp	3684	3684	src/apps/tui/render/tool_row_view.cpp	330	330	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3685	3685	src/apps/tui/render/tool_row_view.cpp	331	331	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3686	3686	src/apps/tui/render/tool_row_view.cpp	332	332	edited	Render tool results with summary, diff and fold precedence
-src/cli/main.cpp	3687	3687	src/apps/tui/render/tool_row_view.cpp	333	333	copy	
+src/cli/main.cpp	3687	3687	src/apps/tui/render/tool_row_view.cpp	333	333	copy	Byte-identical source lines
 src/cli/main.cpp	3688	3688	src/apps/tui/render/tool_row_view.cpp	334	334	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3689	3689	src/apps/tui/render/tool_row_view.cpp	335	335	edited	Render tool results with summary, diff and fold precedence
 src/cli/main.cpp	3690	3690	src/apps/tui/render/tool_row_view.cpp	336	336	edited	Render tool results with summary, diff and fold precedence
@@ -812,50 +812,50 @@ src/cli/main.cpp	3745	3745	src/apps/tui/render/message_row_views.cpp	103	103	edi
 src/cli/main.cpp	3746	3746	src/apps/tui/render/message_row_views.cpp	104	104	edited	Render compact and system message rows
 src/cli/main.cpp	3747	3747	src/apps/tui/render/message_row_views.cpp	105	105	edited	Render compact and system message rows
 src/cli/main.cpp	3748	3750	src/apps/tui/render/message_row_views.cpp	105	108	edited	Render compact and system message rows; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3751	3765	src/apps/tui/render/transcript_view.cpp	186	200	copy	
+src/cli/main.cpp	3751	3765	src/apps/tui/render/transcript_view.cpp	186	200	copy	Byte-identical source lines
 src/cli/main.cpp	3766	3766	src/apps/tui/render/transcript_view.cpp	200	202	edited	Compose transcript scroll frame; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3767	3790	src/apps/tui/render/transcript_view.cpp	202	225	copy	
-src/cli/main.cpp	3791	3885	src/apps/tui/render/activity_indicator_view.cpp	28	122	copy	
+src/cli/main.cpp	3767	3790	src/apps/tui/render/transcript_view.cpp	202	225	copy	Byte-identical source lines
+src/cli/main.cpp	3791	3885	src/apps/tui/render/activity_indicator_view.cpp	28	122	copy	Byte-identical source lines
 src/cli/main.cpp	3886	3891	src/apps/tui/render/activity_indicator_view.cpp	122	128	edited	Busy, compact and MCP activity indicators; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	3892	4105	src/apps/tui/render/picker_views.cpp	24	237	copy	
+src/cli/main.cpp	3892	4105	src/apps/tui/render/picker_views.cpp	24	237	copy	Byte-identical source lines
 src/cli/main.cpp	4106	4111	src/apps/tui/render/picker_views.cpp	237	242	edited	Model and session picker rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4112	4134	src/apps/tui/render/overlay_views.cpp	27	49	copy	
+src/cli/main.cpp	4112	4134	src/apps/tui/render/overlay_views.cpp	27	49	copy	Byte-identical source lines
 src/cli/main.cpp	4135	4135	src/apps/tui/render/overlay_views.cpp	49	51	edited	Confirmation and question overlay rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4136	4147	src/apps/tui/render/overlay_views.cpp	51	62	copy	
+src/cli/main.cpp	4136	4147	src/apps/tui/render/overlay_views.cpp	51	62	copy	Byte-identical source lines
 src/cli/main.cpp	4148	4148	src/apps/tui/render/overlay_views.cpp	62	64	edited	Confirmation and question overlay rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4149	4169	src/apps/tui/render/overlay_views.cpp	64	84	copy	
+src/cli/main.cpp	4149	4169	src/apps/tui/render/overlay_views.cpp	64	84	copy	Byte-identical source lines
 src/cli/main.cpp	4170	4170	src/apps/tui/render/overlay_views.cpp	84	86	edited	Confirmation and question overlay rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4171	4180	src/apps/tui/render/overlay_views.cpp	86	95	copy	
+src/cli/main.cpp	4171	4180	src/apps/tui/render/overlay_views.cpp	86	95	copy	Byte-identical source lines
 src/cli/main.cpp	4181	4181	src/apps/tui/render/overlay_views.cpp	95	97	edited	Confirmation and question overlay rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4182	4250	src/apps/tui/render/overlay_views.cpp	97	165	copy	
-src/cli/main.cpp	4251	4282	src/apps/tui/render/prompt_status_view.cpp	33	64	copy	
+src/cli/main.cpp	4182	4250	src/apps/tui/render/overlay_views.cpp	97	165	copy	Byte-identical source lines
+src/cli/main.cpp	4251	4282	src/apps/tui/render/prompt_status_view.cpp	33	64	copy	Byte-identical source lines
 src/cli/main.cpp	4283	4283	src/apps/tui/render/prompt_status_view.cpp	64	66	edited	Prompt, status and editor region rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4284	4303	src/apps/tui/render/prompt_status_view.cpp	66	85	copy	
+src/cli/main.cpp	4284	4303	src/apps/tui/render/prompt_status_view.cpp	66	85	copy	Byte-identical source lines
 src/cli/main.cpp	4304	4304	src/apps/tui/render/prompt_status_view.cpp	85	87	edited	Prompt, status and editor region rendering; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4305	4415	src/apps/tui/render/prompt_status_view.cpp	87	197	copy	
-src/cli/main.cpp	4416	4502	src/apps/tui/render/frame_renderer.cpp	132	218	copy	
+src/cli/main.cpp	4305	4415	src/apps/tui/render/prompt_status_view.cpp	87	197	copy	Byte-identical source lines
+src/cli/main.cpp	4416	4502	src/apps/tui/render/frame_renderer.cpp	132	218	copy	Byte-identical source lines
 src/cli/main.cpp	4503	4510	src/apps/tui/render/frame_renderer.cpp	218	226	edited	Compose terminal layout variants and hover overlay; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4511	4511	src/apps/cli/main.cpp	9	9	copy	
+src/cli/main.cpp	4511	4511	src/apps/cli/main.cpp	9	9	copy	Byte-identical source lines
 src/cli/main.cpp	4512	4528	src/apps/cli/main.cpp	9	17	edited	Minimal CLI entry and application dispatch; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4529	4531	src/apps/cli/main.cpp	17	19	copy	
+src/cli/main.cpp	4529	4531	src/apps/cli/main.cpp	17	19	copy	Byte-identical source lines
 src/cli/main.cpp	4532	4532	src/apps/cli/main.cpp	19	19	edited	Minimal CLI entry and application dispatch; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4533	4548	src/apps/tui/app/tui_app.cpp	1	190	edited	Move local launch state into TuiApp and its environment stage; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4549	4560	src/apps/tui/app/tui_services.cpp	19	31	edited	Construct configuration, hook, provider, tool and workspace services; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4561	4562	src/apps/tui/app/tui_services.cpp	31	32	copy	
+src/cli/main.cpp	4561	4562	src/apps/tui/app/tui_services.cpp	31	32	copy	Byte-identical source lines
 src/cli/main.cpp	4563	4563	src/apps/tui/app/tui_services.cpp	32	34	edited	Construct configuration, hook, provider, tool and workspace services; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4564	4568	src/apps/tui/app/tui_services.cpp	34	38	copy	
+src/cli/main.cpp	4564	4568	src/apps/tui/app/tui_services.cpp	34	38	copy	Byte-identical source lines
 src/cli/main.cpp	4569	4570	src/apps/tui/app/tui_services.cpp	29	44	edited	Construct configuration, hook, provider, tool and workspace services; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4571	4571	src/apps/tui/app/tui_services.hpp	24	24	copy	
+src/cli/main.cpp	4571	4571	src/apps/tui/app/tui_services.hpp	24	24	copy	Byte-identical source lines
 src/cli/main.cpp	4572	4579	src/apps/tui/app/tui_services.cpp	29	44	edited	Construct configuration, hook, provider, tool and workspace services; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4580	4580	src/apps/tui/app/tui_services.cpp	41	41	copy	
+src/cli/main.cpp	4580	4580	src/apps/tui/app/tui_services.cpp	41	41	copy	Byte-identical source lines
 src/cli/main.cpp	4581	4582	src/apps/tui/app/tui_services.cpp	41	42	edited	Construct configuration, hook, provider, tool and workspace services; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4583	4583	src/apps/tui/app/tui_services.cpp	42	42	copy	
+src/cli/main.cpp	4583	4583	src/apps/tui/app/tui_services.cpp	42	42	copy	Byte-identical source lines
 src/cli/main.cpp	4584	4604	src/apps/tui/app/tui_services.cpp	42	59	edited	Construct configuration, hook, provider, tool and workspace services; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4605	4617	src/apps/tui/app/tui_app.cpp	1	190	edited	Initialize visible state and version text; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4618	4648	src/apps/tui/chat/chat_viewport.hpp	1	26	edited	Own animation counters, geometry and chat caches in the application; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4649	4651	src/apps/tui/chat/chat_viewport.hpp	26	28	copy	
+src/cli/main.cpp	4649	4651	src/apps/tui/chat/chat_viewport.hpp	26	28	copy	Byte-identical source lines
 src/cli/main.cpp	4652	4652	src/apps/tui/chat/chat_viewport.hpp	28	30	edited	Own animation counters, geometry and chat caches in the application; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4653	4655	src/apps/tui/chat/chat_viewport.hpp	30	32	copy	
+src/cli/main.cpp	4653	4655	src/apps/tui/chat/chat_viewport.hpp	30	32	copy	Byte-identical source lines
 src/cli/main.cpp	4656	4656	src/apps/tui/chat/chat_viewport.hpp	32	35	edited	Own animation counters, geometry and chat caches in the application; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4657	4698	src/apps/tui/app/tui_screen_host.cpp	1	36	edited	Own screen setup, redraw pacing and active screen registration; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4699	4703	src/apps/tui/app/tui_app.cpp	1	190	edited	Create the owned update worker; signature, state access, ownership or assembly rewritten in this destination
@@ -885,7 +885,7 @@ src/cli/main.cpp	4794	4794	src/apps/tui/app/copilot_auth_task.cpp	32	32	edited	O
 src/cli/main.cpp	4795	4795	src/apps/tui/app/copilot_auth_task.cpp	32	34	edited	Own Copilot auth worker and waiting-state publication; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4796	4796	src/apps/tui/app/copilot_auth_task.cpp	34	34	edited	Own Copilot auth worker and waiting-state publication
 src/cli/main.cpp	4797	4797	src/apps/tui/app/copilot_auth_task.cpp	35	35	edited	Own Copilot auth worker and waiting-state publication
-src/cli/main.cpp	4798	4798	src/apps/tui/app/copilot_auth_task.cpp	36	36	copy	
+src/cli/main.cpp	4798	4798	src/apps/tui/app/copilot_auth_task.cpp	36	36	copy	Byte-identical source lines
 src/cli/main.cpp	4799	4799	src/apps/tui/app/copilot_auth_task.cpp	37	37	edited	Own Copilot auth worker and waiting-state publication
 src/cli/main.cpp	4800	4800	src/apps/tui/app/copilot_auth_task.cpp	38	38	edited	Own Copilot auth worker and waiting-state publication
 src/cli/main.cpp	4801	4801	src/apps/tui/app/copilot_auth_task.cpp	39	39	edited	Own Copilot auth worker and waiting-state publication
@@ -895,7 +895,7 @@ src/cli/main.cpp	4804	4804	src/apps/tui/app/copilot_auth_task.cpp	42	42	edited	O
 src/cli/main.cpp	4805	4805	src/apps/tui/app/copilot_auth_task.cpp	43	43	edited	Own Copilot auth worker and waiting-state publication
 src/cli/main.cpp	4806	4811	src/apps/tui/app/copilot_auth_task.cpp	43	52	edited	Own Copilot auth worker and waiting-state publication; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4812	4812	src/apps/tui/app/copilot_auth_task.cpp	52	52	edited	Own Copilot auth worker and waiting-state publication
-src/cli/main.cpp	4813	4813	src/apps/tui/app/copilot_auth_task.cpp	53	53	copy	
+src/cli/main.cpp	4813	4813	src/apps/tui/app/copilot_auth_task.cpp	53	53	copy	Byte-identical source lines
 src/cli/main.cpp	4814	4814	src/apps/tui/app/copilot_auth_task.cpp	54	54	edited	Own Copilot auth worker and waiting-state publication
 src/cli/main.cpp	4815	4815	src/apps/tui/app/copilot_auth_task.cpp	55	55	edited	Own Copilot auth worker and waiting-state publication
 src/cli/main.cpp	4816	4816	src/apps/tui/app/copilot_auth_task.cpp	56	56	edited	Own Copilot auth worker and waiting-state publication
@@ -951,7 +951,7 @@ src/cli/main.cpp	4891	4891	src/apps/tui/app/tui_agent_bridge.cpp	86	86	edited	Gu
 src/cli/main.cpp	4892	4892	src/apps/tui/app/tui_agent_bridge.cpp	87	87	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4893	4893	src/apps/tui/app/tui_agent_bridge.cpp	88	88	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4894	4894	src/apps/tui/app/tui_agent_bridge.cpp	89	89	edited	Guarded agent callbacks project transcript and busy state into the TUI
-src/cli/main.cpp	4895	4895	src/apps/tui/app/tui_agent_bridge.cpp	90	90	copy	
+src/cli/main.cpp	4895	4895	src/apps/tui/app/tui_agent_bridge.cpp	90	90	copy	Byte-identical source lines
 src/cli/main.cpp	4896	4896	src/apps/tui/app/tui_agent_bridge.cpp	91	91	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4897	4897	src/apps/tui/app/tui_agent_bridge.cpp	92	92	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4898	4898	src/apps/tui/app/tui_agent_bridge.cpp	93	93	edited	Guarded agent callbacks project transcript and busy state into the TUI
@@ -960,7 +960,7 @@ src/cli/main.cpp	4900	4900	src/apps/tui/app/tui_agent_bridge.cpp	95	95	edited	Gu
 src/cli/main.cpp	4901	4901	src/apps/tui/app/tui_agent_bridge.cpp	96	96	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4902	4902	src/apps/tui/app/tui_agent_bridge.cpp	97	97	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4903	4903	src/apps/tui/app/tui_agent_bridge.cpp	98	98	edited	Guarded agent callbacks project transcript and busy state into the TUI
-src/cli/main.cpp	4904	4904	src/apps/tui/app/tui_agent_bridge.cpp	99	99	copy	
+src/cli/main.cpp	4904	4904	src/apps/tui/app/tui_agent_bridge.cpp	99	99	copy	Byte-identical source lines
 src/cli/main.cpp	4905	4911	src/apps/tui/app/tui_agent_bridge.cpp	99	107	edited	Guarded agent callbacks project transcript and busy state into the TUI; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	4912	4912	src/apps/tui/app/tui_agent_bridge.cpp	107	107	edited	Guarded agent callbacks project transcript and busy state into the TUI
 src/cli/main.cpp	4913	4913	src/apps/tui/app/tui_agent_bridge.cpp	108	108	edited	Guarded agent callbacks project transcript and busy state into the TUI
@@ -994,7 +994,7 @@ src/cli/main.cpp	4941	4941	src/apps/tui/app/tui_overlay_gate.cpp	32	32	edited	Wa
 src/cli/main.cpp	4942	4942	src/apps/tui/app/tui_overlay_gate.cpp	33	33	edited	Wait for user permission through the overlay gate
 src/cli/main.cpp	4943	4943	src/apps/tui/app/tui_overlay_gate.cpp	34	34	edited	Wait for user permission through the overlay gate
 src/cli/main.cpp	4944	4944	src/apps/tui/app/tui_overlay_gate.cpp	34	36	edited	Wait for user permission through the overlay gate; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	4945	4945	src/apps/tui/app/tui_overlay_gate.cpp	36	36	copy	
+src/cli/main.cpp	4945	4945	src/apps/tui/app/tui_overlay_gate.cpp	36	36	copy	Byte-identical source lines
 src/cli/main.cpp	4946	4946	src/apps/tui/app/tui_overlay_gate.cpp	37	37	edited	Wait for user permission through the overlay gate
 src/cli/main.cpp	4947	4947	src/apps/tui/app/tui_overlay_gate.cpp	38	38	edited	Wait for user permission through the overlay gate
 src/cli/main.cpp	4948	4948	src/apps/tui/app/tui_overlay_gate.cpp	38	40	edited	Wait for user permission through the overlay gate; signature, state access, ownership or assembly rewritten in this destination
@@ -1097,8 +1097,8 @@ src/cli/main.cpp	5087	5087	src/apps/tui/app/tui_agent_bridge.cpp	232	232	edited	
 src/cli/main.cpp	5088	5088	src/apps/tui/app/tui_agent_bridge.cpp	233	233	edited	Guarded streaming and model progress callbacks
 src/cli/main.cpp	5089	5090	src/apps/tui/app/tui_agent_bridge.cpp	233	236	edited	Guarded streaming and model progress callbacks; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5091	5170	src/apps/tui/app/tui_app_session.cpp	1	361	edited	Construct fixed AgentLoop dependencies, owned prompters and model monitoring; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5171	5179	src/apps/tui/app/tui_app_session.cpp	81	89	copy	
-src/cli/main.cpp	5180	5193	src/apps/tui/app/tui_app_session.cpp	91	104	copy	
+src/cli/main.cpp	5171	5179	src/apps/tui/app/tui_app_session.cpp	81	89	copy	Byte-identical source lines
+src/cli/main.cpp	5180	5193	src/apps/tui/app/tui_app_session.cpp	91	104	copy	Byte-identical source lines
 src/cli/main.cpp	5194	5194	src/apps/tui/app/tui_app_session.cpp	104	107	edited	Start the main session before constructing fixed loop dependencies; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5195	5249	src/host/session_host/auto_title_runner.cpp	1	75	edited	Own auto-title workers and capture immutable configuration for attempts; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5250	5251	src/apps/tui/app/tui_turn_lifecycle.cpp	32	35	edited	Project applied title through a guarded TUI callback; signature, state access, ownership or assembly rewritten in this destination
@@ -1136,8 +1136,8 @@ src/cli/main.cpp	5358	5359	src/apps/tui/app/tui_submitter.cpp	66	68	edited	Refre
 src/cli/main.cpp	5360	5360	src/apps/tui/app/tui_submitter.cpp	68	68	edited	Refresh runtime settings, publish configuration and submit user input
 src/cli/main.cpp	5361	5380	src/apps/tui/app/tui_submitter.cpp	68	88	edited	Refresh runtime settings, publish configuration and submit user input; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5381	5384	src/apps/tui/app/tui_app_session.cpp	113	117	edited	Construct subagent host and guarded parent callbacks; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5385	5391	src/apps/tui/app/tui_app_session.cpp	117	123	copy	
-src/cli/main.cpp	5392	5402	src/apps/tui/app/tui_app_session.cpp	125	135	copy	
+src/cli/main.cpp	5385	5391	src/apps/tui/app/tui_app_session.cpp	117	123	copy	Byte-identical source lines
+src/cli/main.cpp	5392	5402	src/apps/tui/app/tui_app_session.cpp	125	135	copy	Byte-identical source lines
 src/cli/main.cpp	5403	5407	src/apps/tui/app/tui_app_session.cpp	135	317	edited	Construct subagent host and guarded parent callbacks; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5408	5408	src/apps/tui/app/tui_app_session.cpp	317	317	edited	Construct subagent host and guarded parent callbacks
 src/cli/main.cpp	5409	5409	src/apps/tui/app/tui_app_session.cpp	318	318	edited	Construct subagent host and guarded parent callbacks
@@ -1166,27 +1166,27 @@ src/cli/main.cpp	5436	5436	src/apps/tui/app/tui_app_session.cpp	344	344	edited	C
 src/cli/main.cpp	5437	5437	src/apps/tui/app/tui_app_session.cpp	345	345	edited	Construct subagent host and guarded parent callbacks
 src/cli/main.cpp	5438	5438	src/apps/tui/app/tui_app_session.cpp	346	346	edited	Construct subagent host and guarded parent callbacks
 src/cli/main.cpp	5439	5442	src/apps/tui/app/tui_app_session.cpp	142	346	edited	Construct subagent host and guarded parent callbacks; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5443	5447	src/apps/tui/app/tui_app_session.cpp	142	146	copy	
+src/cli/main.cpp	5443	5447	src/apps/tui/app/tui_app_session.cpp	142	146	copy	Byte-identical source lines
 src/cli/main.cpp	5448	5452	src/apps/tui/app/tui_app_session.cpp	146	148	edited	Construct subagent host and guarded parent callbacks; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5453	5456	src/apps/tui/app/tui_app_session.cpp	148	151	copy	
+src/cli/main.cpp	5453	5456	src/apps/tui/app/tui_app_session.cpp	148	151	copy	Byte-identical source lines
 src/cli/main.cpp	5457	5457	src/apps/tui/app/tui_app_session.cpp	151	153	edited	Construct subagent host and guarded parent callbacks; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5458	5459	src/apps/tui/app/tui_app_session.cpp	153	154	copy	
+src/cli/main.cpp	5458	5459	src/apps/tui/app/tui_app_session.cpp	153	154	copy	Byte-identical source lines
 src/cli/main.cpp	5460	5460	src/apps/tui/app/tui_app_session.cpp	154	157	edited	Construct subagent host and guarded parent callbacks; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5461	5464	src/apps/tui/app/process_guards.cpp	97	101	edited	Register session finalization and console handlers with RAII; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5465	5470	src/apps/tui/app/process_guards.cpp	101	106	copy	
+src/cli/main.cpp	5465	5470	src/apps/tui/app/process_guards.cpp	101	106	copy	Byte-identical source lines
 src/cli/main.cpp	5471	5472	src/apps/tui/app/tui_app_session.cpp	167	170	edited	Resume session state and synchronize provider, usage and worktree context; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5473	5565	src/apps/tui/app/tui_app_session.cpp	170	262	copy	
+src/cli/main.cpp	5473	5565	src/apps/tui/app/tui_app_session.cpp	170	262	copy	Byte-identical source lines
 src/cli/main.cpp	5566	5566	src/apps/tui/app/tui_app_session.cpp	262	264	edited	Resume session state and synchronize provider, usage and worktree context; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5567	5567	src/apps/tui/app/tui_app_session.cpp	264	264	copy	
+src/cli/main.cpp	5567	5567	src/apps/tui/app/tui_app_session.cpp	264	264	copy	Byte-identical source lines
 src/cli/main.cpp	5568	5568	src/apps/tui/app/tui_app_session.cpp	264	266	edited	Resume session state and synchronize provider, usage and worktree context; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	5569	5615	src/apps/tui/app/tui_app_session.cpp	266	312	copy	
+src/cli/main.cpp	5569	5615	src/apps/tui/app/tui_app_session.cpp	266	312	copy	Byte-identical source lines
 src/cli/main.cpp	5616	5621	src/apps/tui/app/tui_app.cpp	1	190	edited	Construct and register slash commands; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5622	5641	src/apps/tui/app/tui_notification_binding.cpp	5	25	edited	Own notifications and guard activation callback lifetimes; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5642	5642	src/apps/tui/app/tui_notification_binding.cpp	25	25	edited	Own notifications and guard activation callback lifetimes
 src/cli/main.cpp	5643	5674	src/apps/tui/app/tui_notification_binding.cpp	25	30	edited	Own notifications and guard activation callback lifetimes; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5675	5675	src/apps/tui/app/tui_notification_binding.cpp	30	30	edited	Own notifications and guard activation callback lifetimes
 src/cli/main.cpp	5676	5676	src/apps/tui/app/tui_notification_binding.cpp	31	31	edited	Own notifications and guard activation callback lifetimes
-src/cli/main.cpp	5677	5681	src/apps/tui/app/tui_notification_binding.cpp	32	36	copy	
+src/cli/main.cpp	5677	5681	src/apps/tui/app/tui_notification_binding.cpp	32	36	copy	Byte-identical source lines
 src/cli/main.cpp	5682	5706	src/apps/tui/app/tui_app.cpp	1	190	edited	Construct resume command context and open the initial picker; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	5707	5707	src/apps/tui/app/tui_agent_bridge.cpp	241	241	edited	Install finalized tool progress callbacks
 src/cli/main.cpp	5708	5708	src/apps/tui/app/tui_agent_bridge.cpp	242	242	edited	Install finalized tool progress callbacks
@@ -1372,7 +1372,7 @@ src/cli/main.cpp	6003	6003	src/apps/tui/app/animation_tick.cpp	57	57	edited	Appl
 src/cli/main.cpp	6004	6004	src/apps/tui/app/animation_tick.cpp	58	58	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6005	6005	src/apps/tui/app/animation_tick.cpp	59	59	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6006	6006	src/apps/tui/app/animation_tick.cpp	60	60	edited	Apply animation ticks and schedule redraw without escaping borrowed state
-src/cli/main.cpp	6007	6007	src/apps/tui/app/animation_tick.cpp	61	61	copy	
+src/cli/main.cpp	6007	6007	src/apps/tui/app/animation_tick.cpp	61	61	copy	Byte-identical source lines
 src/cli/main.cpp	6008	6008	src/apps/tui/app/animation_tick.cpp	62	62	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6009	6009	src/apps/tui/app/animation_tick.cpp	63	63	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6010	6010	src/apps/tui/app/animation_tick.cpp	64	64	edited	Apply animation ticks and schedule redraw without escaping borrowed state
@@ -1406,7 +1406,7 @@ src/cli/main.cpp	6039	6039	src/apps/tui/app/animation_tick.cpp	93	93	edited	Appl
 src/cli/main.cpp	6040	6040	src/apps/tui/app/animation_tick.cpp	94	94	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6041	6041	src/apps/tui/app/animation_tick.cpp	95	95	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6042	6042	src/apps/tui/app/animation_tick.cpp	96	96	edited	Apply animation ticks and schedule redraw without escaping borrowed state
-src/cli/main.cpp	6043	6043	src/apps/tui/app/animation_tick.cpp	97	97	copy	
+src/cli/main.cpp	6043	6043	src/apps/tui/app/animation_tick.cpp	97	97	copy	Byte-identical source lines
 src/cli/main.cpp	6044	6044	src/apps/tui/app/animation_tick.cpp	98	98	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6045	6045	src/apps/tui/app/animation_tick.cpp	99	99	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6046	6046	src/apps/tui/app/animation_tick.cpp	100	100	edited	Apply animation ticks and schedule redraw without escaping borrowed state
@@ -1418,10 +1418,10 @@ src/cli/main.cpp	6051	6051	src/apps/tui/app/animation_tick.cpp	105	105	edited	Ap
 src/cli/main.cpp	6052	6052	src/apps/tui/app/animation_tick.cpp	106	106	edited	Apply animation ticks and schedule redraw without escaping borrowed state
 src/cli/main.cpp	6053	6064	src/apps/tui/app/animation_tick.cpp	106	109	edited	Apply animation ticks and schedule redraw without escaping borrowed state; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6065	6072	src/apps/tui/composer/input_component.cpp	5	13	edited	Build the custom input component; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6073	6086	src/apps/tui/composer/input_component.cpp	13	26	copy	
+src/cli/main.cpp	6073	6086	src/apps/tui/composer/input_component.cpp	13	26	copy	Byte-identical source lines
 src/cli/main.cpp	6087	6088	src/apps/tui/composer/input_component.cpp	26	29	edited	Build the custom input component; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6089	6093	src/apps/tui/composer/paste.cpp	96	101	edited	Bind paste, attachment and exit-cancel actions to the component owners; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6094	6094	src/apps/tui/composer/paste.cpp	101	101	copy	
+src/cli/main.cpp	6094	6094	src/apps/tui/composer/paste.cpp	101	101	copy	Byte-identical source lines
 src/cli/main.cpp	6095	6117	src/apps/tui/composer/paste.cpp	101	124	edited	Bind paste, attachment and exit-cancel actions to the component owners; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6118	6119	src/apps/tui/app/tui_event_router.cpp	1	81	edited	Route keyboard and mouse events through one ordered adapter; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6120	6120	src/apps/tui/input/event_prelude.cpp	19	19	edited	Account input timing and perform event normalization
@@ -1449,7 +1449,7 @@ src/cli/main.cpp	6144	6144	src/apps/tui/input/event_prelude.cpp	43	43	edited	Acc
 src/cli/main.cpp	6145	6145	src/apps/tui/input/event_prelude.cpp	44	44	edited	Account input timing and perform event normalization
 src/cli/main.cpp	6146	6146	src/apps/tui/input/event_prelude.cpp	45	45	edited	Account input timing and perform event normalization
 src/cli/main.cpp	6147	6154	src/apps/tui/input/event_prelude.cpp	45	54	edited	Account input timing and perform event normalization; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6155	6155	src/apps/tui/input/event_prelude.cpp	54	54	copy	
+src/cli/main.cpp	6155	6155	src/apps/tui/input/event_prelude.cpp	54	54	copy	Byte-identical source lines
 src/cli/main.cpp	6156	6156	src/apps/tui/input/event_prelude.cpp	55	55	edited	Account input timing and perform event normalization
 src/cli/main.cpp	6157	6157	src/apps/tui/input/event_prelude.cpp	56	56	edited	Account input timing and perform event normalization
 src/cli/main.cpp	6158	6158	src/apps/tui/input/event_prelude.cpp	57	57	edited	Account input timing and perform event normalization
@@ -1589,7 +1589,7 @@ src/cli/main.cpp	6349	6349	src/apps/tui/overlays/confirm_overlay_input.cpp	128	1
 src/cli/main.cpp	6350	6350	src/apps/tui/overlays/confirm_overlay_input.cpp	129	129	edited	Route queued and active permission overlays
 src/cli/main.cpp	6351	6351	src/apps/tui/overlays/confirm_overlay_input.cpp	130	130	edited	Route queued and active permission overlays
 src/cli/main.cpp	6352	6352	src/apps/tui/overlays/confirm_overlay_input.cpp	131	131	edited	Route queued and active permission overlays
-src/cli/main.cpp	6353	6353	src/apps/tui/overlays/confirm_overlay_input.cpp	132	132	copy	
+src/cli/main.cpp	6353	6353	src/apps/tui/overlays/confirm_overlay_input.cpp	132	132	copy	Byte-identical source lines
 src/cli/main.cpp	6354	6367	src/apps/tui/overlays/confirm_overlay_input.cpp	132	137	edited	Route queued and active permission overlays; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6368	6381	src/apps/tui/app/tui_event_router.cpp	1	81	edited	Preserve completion and rewind event precedence; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6382	6382	src/apps/tui/overlays/list_picker_input.cpp	12	12	edited	Accept list picker selections
@@ -1611,7 +1611,7 @@ src/cli/main.cpp	6397	6397	src/apps/tui/overlays/list_picker_input.cpp	27	27	edi
 src/cli/main.cpp	6398	6398	src/apps/tui/overlays/list_picker_input.cpp	28	28	edited	Accept list picker selections
 src/cli/main.cpp	6399	6404	src/apps/tui/overlays/list_picker_input.cpp	28	35	edited	Accept list picker selections; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6405	6405	src/apps/tui/overlays/list_picker_input.cpp	35	35	edited	Accept list picker selections
-src/cli/main.cpp	6406	6406	src/apps/tui/overlays/list_picker_input.cpp	36	36	copy	
+src/cli/main.cpp	6406	6406	src/apps/tui/overlays/list_picker_input.cpp	36	36	copy	Byte-identical source lines
 src/cli/main.cpp	6407	6407	src/apps/tui/overlays/list_picker_input.cpp	37	37	edited	Accept list picker selections
 src/cli/main.cpp	6408	6408	src/apps/tui/overlays/list_picker_input.cpp	38	38	edited	Accept list picker selections
 src/cli/main.cpp	6409	6409	src/apps/tui/overlays/list_picker_input.cpp	39	39	edited	Accept list picker selections
@@ -1628,7 +1628,7 @@ src/cli/main.cpp	6419	6419	src/apps/tui/overlays/list_picker_input.cpp	49	49	edi
 src/cli/main.cpp	6420	6420	src/apps/tui/overlays/list_picker_input.cpp	50	50	edited	Accept list picker selections
 src/cli/main.cpp	6421	6424	src/apps/tui/overlays/list_picker_input.cpp	50	55	edited	Accept list picker selections; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6425	6425	src/apps/tui/overlays/list_picker_input.cpp	55	55	edited	Accept list picker selections
-src/cli/main.cpp	6426	6426	src/apps/tui/overlays/list_picker_input.cpp	56	56	copy	
+src/cli/main.cpp	6426	6426	src/apps/tui/overlays/list_picker_input.cpp	56	56	copy	Byte-identical source lines
 src/cli/main.cpp	6427	6427	src/apps/tui/overlays/list_picker_input.cpp	57	57	edited	Accept list picker selections
 src/cli/main.cpp	6428	6428	src/apps/tui/overlays/list_picker_input.cpp	58	58	edited	Accept list picker selections
 src/cli/main.cpp	6429	6429	src/apps/tui/overlays/list_picker_input.cpp	59	59	edited	Accept list picker selections
@@ -1642,15 +1642,15 @@ src/cli/main.cpp	6436	6436	src/apps/tui/overlays/list_picker_input.cpp	66	66	edi
 src/cli/main.cpp	6437	6437	src/apps/tui/overlays/list_picker_input.cpp	67	67	edited	Accept list picker selections
 src/cli/main.cpp	6438	6438	src/apps/tui/overlays/list_picker_input.cpp	68	68	edited	Accept list picker selections
 src/cli/main.cpp	6439	6443	src/apps/tui/overlays/list_picker_input.cpp	68	73	edited	Accept list picker selections; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6444	6444	src/apps/tui/composer/submit.cpp	29	29	copy	
+src/cli/main.cpp	6444	6444	src/apps/tui/composer/submit.cpp	29	29	copy	Byte-identical source lines
 src/cli/main.cpp	6445	6445	src/apps/tui/composer/submit.cpp	30	30	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6446	6446	src/apps/tui/composer/submit.cpp	31	31	edited	Interpret ordinary submit and attachment input
-src/cli/main.cpp	6447	6447	src/apps/tui/composer/submit.cpp	32	32	copy	
+src/cli/main.cpp	6447	6447	src/apps/tui/composer/submit.cpp	32	32	copy	Byte-identical source lines
 src/cli/main.cpp	6448	6449	src/apps/tui/composer/submit.cpp	32	35	edited	Interpret ordinary submit and attachment input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6450	6450	src/apps/tui/composer/submit.cpp	35	35	copy	
+src/cli/main.cpp	6450	6450	src/apps/tui/composer/submit.cpp	35	35	copy	Byte-identical source lines
 src/cli/main.cpp	6451	6451	src/apps/tui/composer/submit.cpp	36	36	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6452	6452	src/apps/tui/composer/submit.cpp	36	38	edited	Interpret ordinary submit and attachment input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6453	6453	src/apps/tui/composer/submit.cpp	38	38	copy	
+src/cli/main.cpp	6453	6453	src/apps/tui/composer/submit.cpp	38	38	copy	Byte-identical source lines
 src/cli/main.cpp	6454	6454	src/apps/tui/composer/submit.cpp	39	39	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6455	6455	src/apps/tui/composer/submit.cpp	40	40	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6456	6456	src/apps/tui/composer/submit.cpp	41	41	edited	Interpret ordinary submit and attachment input
@@ -1671,7 +1671,7 @@ src/cli/main.cpp	6470	6470	src/apps/tui/composer/submit.cpp	55	55	edited	Interpr
 src/cli/main.cpp	6471	6471	src/apps/tui/composer/submit.cpp	56	56	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6472	6472	src/apps/tui/composer/submit.cpp	57	57	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6473	6473	src/apps/tui/composer/submit.cpp	57	59	edited	Interpret ordinary submit and attachment input; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6474	6474	src/apps/tui/composer/submit.cpp	59	59	copy	
+src/cli/main.cpp	6474	6474	src/apps/tui/composer/submit.cpp	59	59	copy	Byte-identical source lines
 src/cli/main.cpp	6475	6475	src/apps/tui/composer/submit.cpp	60	60	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6476	6476	src/apps/tui/composer/submit.cpp	61	61	edited	Interpret ordinary submit and attachment input
 src/cli/main.cpp	6477	6477	src/domain/history/input_history_recorder.cpp	7	10	edited	Persist input history in the configured scope; signature, state access, ownership or assembly rewritten in this destination
@@ -1685,7 +1685,7 @@ src/cli/main.cpp	6484	6484	src/domain/history/input_history_recorder.cpp	16	16	e
 src/cli/main.cpp	6485	6487	src/domain/history/input_history_recorder.cpp	16	20	edited	Persist input history in the configured scope; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6488	6488	src/domain/history/input_history_recorder.cpp	20	20	edited	Persist input history in the configured scope
 src/cli/main.cpp	6489	6492	src/domain/history/input_history_recorder.cpp	20	24	edited	Persist input history in the configured scope; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6493	6493	src/apps/tui/composer/submit.cpp	62	62	copy	
+src/cli/main.cpp	6493	6493	src/apps/tui/composer/submit.cpp	62	62	copy	Byte-identical source lines
 src/cli/main.cpp	6494	6494	src/apps/tui/composer/submit.cpp	63	63	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6495	6495	src/apps/tui/composer/submit.cpp	64	64	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6496	6496	src/apps/tui/composer/submit.cpp	65	65	edited	Submit user shell input and update wait state
@@ -1706,7 +1706,7 @@ src/cli/main.cpp	6511	6511	src/apps/tui/composer/submit.cpp	80	80	edited	Submit 
 src/cli/main.cpp	6512	6512	src/apps/tui/composer/submit.cpp	80	82	edited	Submit user shell input and update wait state; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6513	6513	src/apps/tui/composer/submit.cpp	82	82	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6514	6514	src/apps/tui/composer/submit.cpp	83	83	edited	Submit user shell input and update wait state
-src/cli/main.cpp	6515	6515	src/apps/tui/composer/submit.cpp	84	84	copy	
+src/cli/main.cpp	6515	6515	src/apps/tui/composer/submit.cpp	84	84	copy	Byte-identical source lines
 src/cli/main.cpp	6516	6516	src/apps/tui/composer/submit.cpp	85	85	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6517	6517	src/apps/tui/composer/submit.cpp	86	86	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6518	6518	src/apps/tui/composer/submit.cpp	87	87	edited	Submit user shell input and update wait state
@@ -1716,13 +1716,13 @@ src/cli/main.cpp	6522	6522	src/apps/tui/model/user_turn_state.cpp	8	8	edited	Sub
 src/cli/main.cpp	6523	6523	src/apps/tui/model/user_turn_state.cpp	9	9	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6524	6526	src/apps/tui/composer/submit.cpp	60	103	edited	Submit user shell input and update wait state; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6527	6527	src/apps/tui/composer/submit.cpp	92	92	edited	Submit user shell input and update wait state
-src/cli/main.cpp	6528	6528	src/apps/tui/composer/submit.cpp	93	93	copy	
+src/cli/main.cpp	6528	6528	src/apps/tui/composer/submit.cpp	93	93	copy	Byte-identical source lines
 src/cli/main.cpp	6529	6529	src/apps/tui/composer/submit.cpp	94	94	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6530	6530	src/apps/tui/composer/submit.cpp	95	95	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6531	6531	src/apps/tui/composer/submit.cpp	96	96	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6532	6532	src/apps/tui/composer/submit.cpp	96	98	edited	Submit user shell input and update wait state; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6533	6533	src/apps/tui/composer/submit.cpp	98	98	edited	Submit user shell input and update wait state
-src/cli/main.cpp	6534	6534	src/apps/tui/composer/submit.cpp	99	99	copy	
+src/cli/main.cpp	6534	6534	src/apps/tui/composer/submit.cpp	99	99	copy	Byte-identical source lines
 src/cli/main.cpp	6535	6535	src/apps/tui/composer/submit.cpp	100	100	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6536	6536	src/apps/tui/composer/submit.cpp	101	101	edited	Submit user shell input and update wait state
 src/cli/main.cpp	6537	6561	src/apps/tui/app/tui_command_context_factory.cpp	1	21	edited	Build a consistent slash command context; signature, state access, ownership or assembly rewritten in this destination
@@ -1740,7 +1740,7 @@ src/cli/main.cpp	6579	6579	src/apps/tui/composer/submit.cpp	115	115	edited	Dispa
 src/cli/main.cpp	6580	6580	src/apps/tui/composer/submit.cpp	116	116	edited	Dispatch slash commands and submit or queue ordinary turns
 src/cli/main.cpp	6581	6581	src/apps/tui/composer/submit.cpp	117	117	edited	Dispatch slash commands and submit or queue ordinary turns
 src/cli/main.cpp	6582	6582	src/apps/tui/composer/submit.cpp	118	118	edited	Dispatch slash commands and submit or queue ordinary turns
-src/cli/main.cpp	6583	6583	src/apps/tui/composer/submit.cpp	119	119	copy	
+src/cli/main.cpp	6583	6583	src/apps/tui/composer/submit.cpp	119	119	copy	Byte-identical source lines
 src/cli/main.cpp	6584	6584	src/apps/tui/composer/submit.cpp	120	120	edited	Dispatch slash commands and submit or queue ordinary turns
 src/cli/main.cpp	6585	6585	src/apps/tui/composer/submit.cpp	121	121	edited	Dispatch slash commands and submit or queue ordinary turns
 src/cli/main.cpp	6586	6586	src/apps/tui/composer/submit.cpp	122	122	edited	Dispatch slash commands and submit or queue ordinary turns
@@ -1939,7 +1939,7 @@ src/cli/main.cpp	6844	6844	src/apps/tui/overlays/list_picker_input.cpp	171	171	e
 src/cli/main.cpp	6845	6848	src/apps/tui/overlays/list_picker_input.cpp	171	175	edited	Handle picker shortcut selection; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6849	6849	src/apps/tui/input/control_keys.cpp	100	100	edited	Permission-mode and escape controls
 src/cli/main.cpp	6850	6850	src/apps/tui/input/control_keys.cpp	101	101	edited	Permission-mode and escape controls
-src/cli/main.cpp	6851	6851	src/apps/tui/input/control_keys.cpp	102	102	copy	
+src/cli/main.cpp	6851	6851	src/apps/tui/input/control_keys.cpp	102	102	copy	Byte-identical source lines
 src/cli/main.cpp	6852	6852	src/apps/tui/input/control_keys.cpp	103	103	edited	Permission-mode and escape controls
 src/cli/main.cpp	6853	6853	src/apps/tui/input/control_keys.cpp	104	104	edited	Permission-mode and escape controls
 src/cli/main.cpp	6854	6854	src/apps/tui/input/control_keys.cpp	105	105	edited	Permission-mode and escape controls
@@ -1988,7 +1988,7 @@ src/cli/main.cpp	6903	6903	src/apps/tui/input/control_keys.cpp	165	165	edited	Pe
 src/cli/main.cpp	6904	6904	src/apps/tui/input/control_keys.cpp	166	166	edited	Permission-mode and escape controls
 src/cli/main.cpp	6905	6909	src/apps/tui/input/control_keys.cpp	166	171	edited	Permission-mode and escape controls; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	6910	6911	src/apps/tui/input/mouse_router.cpp	30	33	edited	Enter mouse routing and classify the pointer target; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6912	6912	src/apps/tui/input/mouse_router.cpp	33	33	copy	
+src/cli/main.cpp	6912	6912	src/apps/tui/input/mouse_router.cpp	33	33	copy	Byte-identical source lines
 src/cli/main.cpp	6913	6913	src/apps/tui/input/mouse_router.cpp	34	34	edited	Enter mouse routing and classify the pointer target
 src/cli/main.cpp	6914	6914	src/apps/tui/input/mouse_router.cpp	35	35	edited	Enter mouse routing and classify the pointer target
 src/cli/main.cpp	6915	6915	src/apps/tui/input/mouse_router.cpp	36	36	edited	Enter mouse routing and classify the pointer target
@@ -2000,7 +2000,7 @@ src/cli/main.cpp	6920	6920	src/apps/tui/input/mouse_router.cpp	41	41	edited	Ente
 src/cli/main.cpp	6921	6921	src/apps/tui/input/mouse_router.cpp	42	42	edited	Enter mouse routing and classify the pointer target
 src/cli/main.cpp	6922	6922	src/apps/tui/input/mouse_router.cpp	43	43	edited	Enter mouse routing and classify the pointer target
 src/cli/main.cpp	6923	6923	src/apps/tui/input/mouse_router.cpp	44	44	edited	Enter mouse routing and classify the pointer target
-src/cli/main.cpp	6924	6924	src/apps/tui/input/mouse_router.cpp	45	45	copy	
+src/cli/main.cpp	6924	6924	src/apps/tui/input/mouse_router.cpp	45	45	copy	Byte-identical source lines
 src/cli/main.cpp	6925	6925	src/apps/tui/input/mouse_router.cpp	46	46	edited	Enter mouse routing and classify the pointer target
 src/cli/main.cpp	6926	6926	src/apps/tui/input/mouse_router.cpp	47	47	edited	Enter mouse routing and classify the pointer target
 src/cli/main.cpp	6927	6927	src/apps/tui/input/mouse_router.cpp	48	48	edited	Enter mouse routing and classify the pointer target
@@ -2028,7 +2028,7 @@ src/cli/main.cpp	6953	6953	src/apps/tui/composer/clipboard_keys.cpp	49	49	edited
 src/cli/main.cpp	6954	6954	src/apps/tui/composer/clipboard_keys.cpp	50	50	edited	Right-click copy or paste through the clipboard port
 src/cli/main.cpp	6955	6955	src/apps/tui/composer/clipboard_keys.cpp	51	51	edited	Right-click copy or paste through the clipboard port
 src/cli/main.cpp	6956	6960	src/apps/tui/composer/clipboard_keys.cpp	51	56	edited	Right-click copy or paste through the clipboard port; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	6961	6961	src/apps/tui/input/mouse_router.cpp	53	53	copy	
+src/cli/main.cpp	6961	6961	src/apps/tui/input/mouse_router.cpp	53	53	copy	Byte-identical source lines
 src/cli/main.cpp	6962	6962	src/apps/tui/input/mouse_router.cpp	54	54	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	6963	6963	src/apps/tui/input/mouse_router.cpp	55	55	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	6964	6964	src/apps/tui/input/mouse_router.cpp	56	56	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2070,11 +2070,11 @@ src/cli/main.cpp	6999	7004	src/apps/tui/input/mouse_router.cpp	90	97	edited	Hand
 src/cli/main.cpp	7005	7005	src/apps/tui/input/mouse_router.cpp	97	97	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7006	7006	src/apps/tui/input/mouse_router.cpp	98	98	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7007	7007	src/apps/tui/input/mouse_router.cpp	99	99	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7008	7008	src/apps/tui/input/mouse_router.cpp	100	100	copy	
+src/cli/main.cpp	7008	7008	src/apps/tui/input/mouse_router.cpp	100	100	copy	Byte-identical source lines
 src/cli/main.cpp	7009	7009	src/apps/tui/input/mouse_router.cpp	101	101	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7010	7010	src/apps/tui/input/mouse_router.cpp	102	102	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7011	7011	src/apps/tui/input/mouse_router.cpp	103	103	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7012	7012	src/apps/tui/input/mouse_router.cpp	104	104	copy	
+src/cli/main.cpp	7012	7012	src/apps/tui/input/mouse_router.cpp	104	104	copy	Byte-identical source lines
 src/cli/main.cpp	7013	7013	src/apps/tui/input/mouse_router.cpp	105	105	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7014	7014	src/apps/tui/input/mouse_router.cpp	106	106	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7015	7015	src/apps/tui/input/mouse_router.cpp	107	107	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2110,7 +2110,7 @@ src/cli/main.cpp	7044	7044	src/apps/tui/input/mouse_router.cpp	136	136	edited	Ha
 src/cli/main.cpp	7045	7046	src/apps/tui/input/mouse_router.cpp	136	139	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	7047	7047	src/apps/tui/input/mouse_router.cpp	139	139	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7048	7048	src/apps/tui/input/mouse_router.cpp	140	140	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7049	7049	src/apps/tui/input/mouse_router.cpp	141	141	copy	
+src/cli/main.cpp	7049	7049	src/apps/tui/input/mouse_router.cpp	141	141	copy	Byte-identical source lines
 src/cli/main.cpp	7050	7050	src/apps/tui/input/mouse_router.cpp	142	142	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7051	7051	src/apps/tui/input/mouse_router.cpp	143	143	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7052	7052	src/apps/tui/input/mouse_router.cpp	144	144	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2186,7 +2186,7 @@ src/cli/main.cpp	7121	7121	src/apps/tui/input/mouse_router.cpp	213	213	edited	Ha
 src/cli/main.cpp	7122	7122	src/apps/tui/input/mouse_router.cpp	214	214	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7123	7125	src/apps/tui/input/mouse_router.cpp	214	218	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	7126	7126	src/apps/tui/input/mouse_router.cpp	218	218	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7127	7127	src/apps/tui/input/mouse_router.cpp	219	219	copy	
+src/cli/main.cpp	7127	7127	src/apps/tui/input/mouse_router.cpp	219	219	copy	Byte-identical source lines
 src/cli/main.cpp	7128	7128	src/apps/tui/input/mouse_router.cpp	220	220	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7129	7129	src/apps/tui/input/mouse_router.cpp	221	221	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7130	7130	src/apps/tui/input/mouse_router.cpp	222	222	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2351,9 +2351,12 @@ src/cli/main.cpp	7292	7292	src/apps/tui/input/mouse_router.cpp	384	384	edited	Ha
 src/cli/main.cpp	7293	7293	src/apps/tui/input/mouse_router.cpp	385	385	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7294	7294	src/apps/tui/input/mouse_router.cpp	386	386	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7295	7295	src/apps/tui/input/mouse_router.cpp	387	387	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7296	7301	src/apps/tui/input/mouse_router.cpp	387	394	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7296	7298	src/apps/tui/input/mouse_router.cpp	387	391	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7299	7299	src/apps/tui/input/mouse_router.cpp	391	391	edited	Handle links, sidebars, scrollbars and mouse selection
+src/cli/main.cpp	7300	7300	src/apps/tui/input/mouse_router.cpp	392	392	edited	Handle links, sidebars, scrollbars and mouse selection
+src/cli/main.cpp	7301	7301	src/apps/tui/input/mouse_router.cpp	393	393	copy	Byte-identical source lines
 src/cli/main.cpp	7302	7302	src/apps/tui/input/mouse_router.cpp	394	394	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7303	7303	src/apps/tui/input/mouse_router.cpp	394	396	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7303	7303	src/apps/tui/input/mouse_router.cpp	395	395	copy	Byte-identical source lines
 src/cli/main.cpp	7304	7304	src/apps/tui/input/mouse_router.cpp	396	396	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7305	7305	src/apps/tui/input/mouse_router.cpp	397	397	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7306	7306	src/apps/tui/input/mouse_router.cpp	398	398	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2415,7 +2418,7 @@ src/cli/main.cpp	7363	7363	src/apps/tui/input/mouse_router.cpp	455	455	edited	Ha
 src/cli/main.cpp	7364	7364	src/apps/tui/input/mouse_router.cpp	456	456	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7365	7365	src/apps/tui/input/mouse_router.cpp	457	457	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7366	7366	src/apps/tui/input/mouse_router.cpp	458	458	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7367	7367	src/apps/tui/input/mouse_router.cpp	459	459	copy	
+src/cli/main.cpp	7367	7367	src/apps/tui/input/mouse_router.cpp	459	459	copy	Byte-identical source lines
 src/cli/main.cpp	7368	7368	src/apps/tui/input/mouse_router.cpp	460	460	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7369	7369	src/apps/tui/input/mouse_router.cpp	461	461	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7370	7370	src/apps/tui/input/mouse_router.cpp	462	462	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2452,14 +2455,16 @@ src/cli/main.cpp	7408	7408	src/apps/tui/input/mouse_router.cpp	500	500	edited	Ha
 src/cli/main.cpp	7409	7409	src/apps/tui/input/mouse_router.cpp	501	501	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7410	7410	src/apps/tui/input/mouse_router.cpp	502	502	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7411	7414	src/apps/tui/input/mouse_router.cpp	502	507	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
-src/cli/main.cpp	7415	7415	src/apps/tui/input/mouse_router.cpp	507	507	copy	
+src/cli/main.cpp	7415	7415	src/apps/tui/input/mouse_router.cpp	507	507	copy	Byte-identical source lines
 src/cli/main.cpp	7416	7416	src/apps/tui/input/mouse_router.cpp	508	508	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7417	7417	src/apps/tui/input/mouse_router.cpp	509	509	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7418	7419	src/apps/tui/input/mouse_router.cpp	509	512	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7418	7418	src/apps/tui/input/mouse_router.cpp	509	511	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7419	7419	src/apps/tui/input/mouse_router.cpp	511	511	copy	Byte-identical source lines
 src/cli/main.cpp	7420	7420	src/apps/tui/input/mouse_router.cpp	512	512	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7421	7421	src/apps/tui/input/mouse_router.cpp	513	513	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7422	7422	src/apps/tui/input/mouse_router.cpp	514	514	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7423	7425	src/apps/tui/input/mouse_router.cpp	514	518	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7423	7423	src/apps/tui/input/mouse_router.cpp	515	515	copy	Byte-identical source lines
+src/cli/main.cpp	7424	7425	src/apps/tui/input/mouse_router.cpp	515	518	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	7426	7426	src/apps/tui/input/mouse_router.cpp	518	518	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7427	7427	src/apps/tui/input/mouse_router.cpp	519	519	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7428	7428	src/apps/tui/input/mouse_router.cpp	520	520	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2474,11 +2479,13 @@ src/cli/main.cpp	7436	7436	src/apps/tui/input/mouse_router.cpp	528	528	edited	Ha
 src/cli/main.cpp	7437	7441	src/apps/tui/input/mouse_router.cpp	528	534	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	7442	7442	src/apps/tui/input/mouse_router.cpp	534	534	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7443	7443	src/apps/tui/input/mouse_router.cpp	535	535	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7444	7445	src/apps/tui/input/mouse_router.cpp	535	538	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7444	7444	src/apps/tui/input/mouse_router.cpp	535	537	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7445	7445	src/apps/tui/input/mouse_router.cpp	537	537	copy	Byte-identical source lines
 src/cli/main.cpp	7446	7446	src/apps/tui/input/mouse_router.cpp	538	538	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7447	7447	src/apps/tui/input/mouse_router.cpp	539	539	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7448	7448	src/apps/tui/input/mouse_router.cpp	540	540	edited	Handle links, sidebars, scrollbars and mouse selection
-src/cli/main.cpp	7449	7451	src/apps/tui/input/mouse_router.cpp	540	544	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
+src/cli/main.cpp	7449	7449	src/apps/tui/input/mouse_router.cpp	541	541	copy	Byte-identical source lines
+src/cli/main.cpp	7450	7451	src/apps/tui/input/mouse_router.cpp	541	544	edited	Handle links, sidebars, scrollbars and mouse selection; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	7452	7452	src/apps/tui/input/mouse_router.cpp	544	544	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7453	7453	src/apps/tui/input/mouse_router.cpp	545	545	edited	Handle links, sidebars, scrollbars and mouse selection
 src/cli/main.cpp	7454	7454	src/apps/tui/input/mouse_router.cpp	546	546	edited	Handle links, sidebars, scrollbars and mouse selection
@@ -2499,7 +2506,7 @@ src/cli/main.cpp	7474	7474	src/apps/tui/composer/edit_keys.cpp	28	28	edited	Edit
 src/cli/main.cpp	7475	7475	src/apps/tui/composer/edit_keys.cpp	29	29	edited	Edit input with navigation keys
 src/cli/main.cpp	7476	7476	src/apps/tui/composer/edit_keys.cpp	29	31	edited	Edit input with navigation keys; signature, state access, ownership or assembly rewritten in this destination
 src/cli/main.cpp	7477	7477	src/apps/tui/composer/edit_keys.cpp	31	31	edited	Edit input with navigation keys
-src/cli/main.cpp	7478	7478	src/apps/tui/composer/edit_keys.cpp	32	32	copy	
+src/cli/main.cpp	7478	7478	src/apps/tui/composer/edit_keys.cpp	32	32	copy	Byte-identical source lines
 src/cli/main.cpp	7479	7479	src/apps/tui/composer/edit_keys.cpp	33	33	edited	Edit input with navigation keys
 src/cli/main.cpp	7480	7480	src/apps/tui/composer/edit_keys.cpp	34	34	edited	Edit input with navigation keys
 src/cli/main.cpp	7481	7481	src/apps/tui/composer/edit_keys.cpp	35	35	edited	Edit input with navigation keys
@@ -2536,7 +2543,7 @@ src/cli/main.cpp	7511	7511	src/apps/tui/composer/edit_keys.cpp	65	65	edited	Edit
 src/cli/main.cpp	7512	7512	src/apps/tui/composer/edit_keys.cpp	66	66	edited	Edit input with navigation keys
 src/cli/main.cpp	7513	7513	src/apps/tui/composer/edit_keys.cpp	67	67	edited	Edit input with navigation keys
 src/cli/main.cpp	7514	7514	src/apps/tui/composer/edit_keys.cpp	68	68	edited	Edit input with navigation keys
-src/cli/main.cpp	7515	7515	src/apps/tui/composer/edit_keys.cpp	69	69	copy	
+src/cli/main.cpp	7515	7515	src/apps/tui/composer/edit_keys.cpp	69	69	copy	Byte-identical source lines
 src/cli/main.cpp	7516	7516	src/apps/tui/composer/edit_keys.cpp	70	70	edited	Edit input with navigation keys
 src/cli/main.cpp	7517	7517	src/apps/tui/composer/edit_keys.cpp	71	71	edited	Edit input with navigation keys
 src/cli/main.cpp	7518	7518	src/apps/tui/composer/edit_keys.cpp	72	72	edited	Edit input with navigation keys

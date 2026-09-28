@@ -1,0 +1,12 @@
+{
+  "base_commit": "c3348df148d51ff799a68b17ce6af0899b5ce2fc",
+  "before_m1_tree": "839db38fdd5eb86eb49ac28daf104c7bf8964aa8",
+  "m1_tree": "5ff54de9f4ce883f7dbc9821b9b7c30ebe85fec6",
+  "m1_status_counts": {
+    "R100": 1003
+  },
+  "mechanical_moves_only": true,
+  "official_tags_created": false,
+  "commit_created": false,
+  "publication_window": "2026-09-29 06:00-18:00 Asia/Taipei"
+}

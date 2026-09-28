@@ -1,0 +1,93 @@
+{
+  "schema": 1,
+  "projection_root": "N:\\aparm0928b",
+  "removed": [
+    "src/adapters/pa/pa_adapter.cpp",
+    "src/adapters/pa/pa_adapter.hpp",
+    "src/adapters/pa/pa_context_budget.cpp",
+    "src/adapters/pa/pa_context_budget.hpp",
+    "src/adapters/pa/pa_overflow_rescue.cpp",
+    "src/adapters/pa/pa_overflow_rescue.hpp",
+    "src/adapters/pa/pa_quirks.cpp",
+    "src/adapters/pa/pa_quirks.hpp",
+    "src/adapters/pa/pa_rescue_driver.cpp",
+    "src/adapters/pa/pa_rescue_driver.hpp",
+    "src/adapters/pa/README.md",
+    "src/engine/agent/recovery/pa_rescue_host.cpp",
+    "src/engine/agent/recovery/pa_rescue_host.hpp"
+  ],
+  "modified": [
+    "src/adapters/provider/retry_policy.cpp",
+    "src/engine/agent/compaction/compact.cpp",
+    "src/engine/agent/agent_runtime_env.hpp",
+    "src/engine/agent/agent_runtime_env.cpp",
+    "src/engine/agent/model_step/active_model_view.cpp",
+    "src/engine/agent/recovery/context_overflow_recovery.hpp",
+    "src/engine/agent/recovery/context_overflow_recovery.cpp"
+  ],
+  "allowed_contacts": [
+    "src/adapters/pa/*",
+    "src/adapters/provider/retry_policy.cpp",
+    "src/engine/agent/recovery/context_overflow_recovery.*",
+    "src/engine/agent/recovery/pa_rescue_host.*",
+    "src/engine/agent/model_step/active_model_view.*",
+    "src/engine/agent/compaction/compact.cpp",
+    "src/engine/agent/agent_runtime_env.*"
+  ],
+  "unexpected_modified": [],
+  "remaining_pa_references": [],
+  "compile_checks": [
+    {
+      "source": "src/adapters/provider/retry_policy.cpp",
+      "exit_code": 0,
+      "seconds": 0.9
+    },
+    {
+      "source": "src/engine/agent/agent_loop.cpp",
+      "exit_code": 0,
+      "seconds": 1.17
+    },
+    {
+      "source": "src/engine/agent/agent_runtime_env.cpp",
+      "exit_code": 0,
+      "seconds": 0.76
+    },
+    {
+      "source": "src/engine/agent/compaction/compact.cpp",
+      "exit_code": 0,
+      "seconds": 0.84
+    },
+    {
+      "source": "src/engine/agent/compaction/compaction_controller.cpp",
+      "exit_code": 0,
+      "seconds": 1.04
+    },
+    {
+      "source": "src/engine/agent/model_step/active_model_view.cpp",
+      "exit_code": 0,
+      "seconds": 0.73
+    },
+    {
+      "source": "src/engine/agent/recovery/context_overflow_recovery.cpp",
+      "exit_code": 0,
+      "seconds": 0.87
+    },
+    {
+      "source": "src/engine/agent/turn/turn_runner.cpp",
+      "exit_code": 0,
+      "seconds": 1.1
+    },
+    {
+      "source": "src/host/session_host/session_registry.cpp",
+      "exit_code": 0,
+      "seconds": 1.58
+    },
+    {
+      "source": "src/apps/tui/app/tui_app.cpp",
+      "exit_code": 0,
+      "seconds": 1.47
+    }
+  ],
+  "source_tree_unchanged": true,
+  "scope": "Disposable source projection only; syntax-checks all changed production TUs and representative public-header consumers with MSVC. No branch/ref/index/source mutation; no claim of PA-disabled product runtime or full link."
+}

@@ -75,7 +75,7 @@ ResponseRecoveryResult ResponseRecovery::resolve(
             history_.append(correction);
             if (session_manager_) session_manager_->on_message(correction);
 
-            transcript_.emit_transcript_system_message(session_manager_, 
+            transcript_.emit_transcript_system_message(session_manager_,
                 std::string(u8"[文本工具调用] 模型把工具调用写成了正文文本,未执行(") +
                     diag.error + u8"),已要求其改用原生工具调用重发 " +
                     std::to_string(state.text_tool_call_corrections) + "/" +
@@ -159,7 +159,7 @@ ResponseRecoveryResult ResponseRecovery::resolve(
             history_.append(nudge);
             if (session_manager_) session_manager_->on_message(nudge);
 
-            transcript_.emit_transcript_system_message(session_manager_, 
+            transcript_.emit_transcript_system_message(session_manager_,
                 std::string(u8"[空回复] 模型返回了空回复(") +
                 (truncated_by_length
                      ? u8"输出被 token 上限截断,思考耗尽了输出预算"

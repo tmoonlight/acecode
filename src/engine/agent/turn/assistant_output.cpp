@@ -70,7 +70,7 @@ void AssistantOutput::completed(
         current_model_step, response.finish_reason,
         step_usage);
     if (truncated_by_length) {
-        transcript_.emit_transcript_system_message(session, 
+        transcript_.emit_transcript_system_message(session,
             u8"[输出截断] 本回复因输出 token 上限被截断,内容可能不完整。",
             make_system_notice_metadata("response_truncated"));
     }
