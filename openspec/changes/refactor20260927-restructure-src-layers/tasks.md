@@ -7,6 +7,7 @@
 >   - agent_loop.* 与 main.cpp 同一时刻只允许一个任务修改;
 >   - CMakeLists.txt、tests/CMakeLists.txt 可以并行开发,但合入 master 要串行,后合入的一方先 rebase,再重跑 cmake_target_snapshot 比对。
 > - 各任务的执行波次与可并行关系见 design.md §8.3。
+> - **2026-09-28 起(design.md D26 / §7.4)**:逐任务验收只做 Windows 本机 —— 静态闸门 + 复用目录增量构建 + 用例清单 / target 快照对照,内容改动再跑 `python scripts/refactor/run_fast_tests.py --profile fast`;不 dispatch refactor-matrix,不等 test.yml;多平台项统一推迟到 5.4「多平台补验」。
 >
 > 其它 change 的任务:
 > - P0-09、P0-12 在 split-tui-main;
@@ -275,3 +276,9 @@
   - 验证:`check_doc_paths.py` 为 0;help 站点重新生成后,diff 只涉及路径。
 - [ ] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。
   - 验证:CI 上故意新增一个超过 1000 行的文件、一条向上依赖、一处 `.detach()`,三个 lint 分别失败。
+- [ ] 5.4 【P4-04】【主】多平台补验(D26 推迟项)。
+  - Windows 侧的一期任务全部合入后,在最新 master 上用完整 SHA dispatch 一次 refactor-matrix(`run_tests=true`,`include_deepin=true`)和一次 package.yml;
+  - 逐平台核对 target 快照、用例与 SKIP 清单,对照最近一份多平台记录(P2-06,refactor-matrix 36341836305);§7.2「P3」一行里的 Deepin `current_target()`、verify-package、`pnpm test` 与冒烟五项也在这里做;
+  - 平台专属的 include / 编译错误集中在这里修,单独提交 `refactor20260927(layers/P4-04): …`。
+  - 前置:P2-08、P3-02、5.1–5.3,以及 P6A / P6B / P7-O 的 Windows 验收全部完成。
+  - 验证:四平台构建通过;三个测试平台的用例与 SKIP 集合相对 P2-06 记录只含已登记差异;记录写入 `verification/P4-04-multi-platform.md`。

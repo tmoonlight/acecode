@@ -296,9 +296,9 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
      - A-07 与 O-03 都改 thread_service;
      - A-14 与 O-05 都改 subagent_host。
 6. **构建目录**:
-   - 不要用主仓 `build/`,它可能正被其它会话并发构建;每个 worktree 用自己的全新构建目录。
+   - 不要用主仓 `build/`,它可能正被其它会话并发构建;每个 worktree 用自己的构建目录。
    - Windows 构建前,确认没有运行中的 acecode / acecode-desktop 进程锁住 exe。
-   - 搬迁或拆分后一律全新目录构建,避免旧 .obj 残留引发 LNK2019 `__std_*`。
+   - D26 起构建目录**跨任务复用**(Ninja 增量):同一个 worktree 换分支继续用同一个目录,不再每个任务全新构建;只有链接报 LNK2019 `__std_*`、换生成器,或 target 快照对不上时才清目录重来。全新构建本机实测约 5 分钟(1035 步,`--parallel 10`),增量通常 1–2 分钟。
 7. **验证记录**:提交说明(或 PR 描述)写明执行过的验证命令和结果,并逐条列出触碰到的不变量守护测试(见 §7.3)。
 8. **单测规范**:新增或修改的测试一律写中文注释,写清触发场景和期望行为,回归测试附上 bug 的表现。进程级状态(PA 学习器、工具名映射等)用 RAII 的 Scoped 守卫恢复。
 9. **文档同步**:改到 CLAUDE.md 里描述过的机制时,同一任务内同步更新 CLAUDE.md 对应段落与行号锚点。
@@ -324,6 +324,8 @@ cmake/version.hpp.in  生成的头名 generated/version.hpp 不变
 | P4 | strict 模式下 exceptions 为空;check_doc_paths 为 0;help 站点重新生成后 diff 只涉及路径;tests/README 镜像表已更新 |
 
 split-agent-loop、split-tui-main、adopt-ownership-conventions 的验收见各自 design.md。**一期整体验收**:四个 change 的验收全部满足,每个【行为变更】都有拍板记录和单独的提交。
+
+**D26(2026-09-28)起的执行口径**:一期剩余任务的逐任务验收只做 Windows 本机,按 §7.4 执行;上表里的「三平台构建」「四个平台」「package.yml 全平台」「Deepin 的 `current_target()`」等多平台项不在逐任务验收里做,统一推迟到 tasks.md 5.4「多平台补验」;合入 master 也不等 test.yml,CI 红了由下一个任务顺手修,不阻塞当前合入。
 
 ### 7.3 系列全局不变量(所有代理都要守住)
 
@@ -351,6 +353,20 @@ split-agent-loop、split-tui-main、adopt-ownership-conventions 的验收见各�
    - OBJCXX 属性与 REMOVE_ITEM 仍生效;
    - 每个文件所属的 target 不变;
    - EXCLUDE_FROM_ALL 冒烟目标都能构建。
+
+### 7.4 轻量验证协议(D26,Windows 本机)
+
+2026-09-28 起一期剩余任务(P2-08、P3、P4、P6A/B、P7-O)的逐任务验收按下表执行:只做 Windows 本机,不 dispatch refactor-matrix,不等待 test.yml;§7.2 里的多平台项统一推迟到 tasks.md 5.4「多平台补验」一次做完。耗时是 2026-09-28 本机实测(MSVC 2022 / Ninja / Release,`--parallel 10`)。
+
+| 档 | 适用 | 必做步骤 | 实测耗时 |
+|---|---|---|---|
+| A 机械搬迁 | `[mechanical]` / `[no-build]` 提交:git mv、include 改写、CMake 清单、文档路径 | ① 静态闸门:`normalize_includes.py --check --scope src` / `--scope tests`、`check_layers.py --enforce-parent-includes`、`validate_map.py --strict`、`check_file_size.py`、`check_ownership.py`(`check_doc_paths.py` 只报告);② 复用构建目录增量构建 `acecode acecode-desktop acecode_unit_tests`(改了 CMake 显式清单时加上冒烟目标);③ 用例清单对照:`gtest_inventory.py --binary … --output …`(不带 `--run`),`tests` 列表与上一条记录相同;④ `cmake_target_snapshot.py --map … --reverse-map --compare <上一条 Windows 快照>`,removed 为 0,added 只含本任务的新文件 | ① 约 1 分钟;② 1–2 分钟;③④ 各不到 1 分钟 |
+| B 内容改动 | 拆头、下沉、改签名、`【行为变更】` | A 全部,再加 ⑤ 快速档单测 `run_fast_tests.py --binary … --profile fast --baseline <上一条 gtest.json>`(6 个分片并行、隔离 HOME/TEMP、排除 20 个最慢套件、§7.3 守护测试强制运行);⑥ 改动直接命中被排除套件时,用 `--filter "<套件>.*"` 正向补跑(显式过滤压过排除表) | ⑤ 约 25 秒;⑥ 视套件而定 |
+| C 阶段收口 | P2-08 合入后、P3-02 合入后、P6A / P6B / P7-O 各自验收、一期验收 | B 全部,再加 ⑦ 全量单测 `run_fast_tests.py --profile full`(仍分片并行),失败与 SKIP 集合对照上一条记录;⑧ 全新目录构建一次;⑨ 改了 web/ 或 `tests/cpp_source_paths.json` 时跑 `pnpm test` | ⑦ 约 200 秒(串行要 390 秒);⑧ 约 5 分钟 |
+
+明确不做的事(直到 5.4「多平台补验」):dispatch refactor-matrix;等待或轮询 test.yml / PR 检查;macOS / Linux / Deepin 的构建与单测;package.yml;CI provenance 交叉核对;A / B 档的 `pnpm test`;每个任务全新目录构建;逐用例 ctest 进程(`--via-ctest`,Windows CI 上 5119 个进程要 12.5 分钟)。
+
+快速档排除的 20 个套件(本机串行实测,5114 条共 390 秒,它们合计约 300 秒,占 77%):SessionChannelBinderIntegration 139 秒、WebServerHttp 34 秒、OpenAiProviderErrorRecovery 16 秒、McpManagerAsync 15 秒、AgentLoopTermination 10 秒、SpawnSubagentTool 9 秒、HeadlessJsonlProcess 9 秒、AgentLoopGoal 8 秒、AgentLoopTurnSteering 7 秒、OpenAiProviderAbortTest 6 秒、GitOpsTest 6 秒、BuiltinCommands 5 秒、HookAgentLoop 5 秒、WorktreeGitTest 5 秒、GitContextCollectorTest 5 秒、ExpertRegistry 5 秒、WorktreeToolTest 4 秒、RemoteControlService 4 秒、DefaultSkillSeederTest 4 秒、TaskSuggestionServiceTest 4 秒;其余 669 个套件合计约 90 秒。清单在脚本顶部的 `FAST_EXCLUDED_SUITES`;`not_run` 会写进输出 JSON,验证记录里照实写「快速档,未运行 N 条」,不能写成全量通过。
 
 ## 8. 系列路线图
 
@@ -510,5 +526,6 @@ P0-01 → P0-03 → P0-04 → P1-01 → P2-02 → P2-05 → P2-06 → P2-07 → 
 | D24 | P2 转发头 | **P2 不在旧路径留转发头,也不登记 exception**。原因:映射表里「旧路径 → 最终路径」的精确行既描述已搬走的真文件,又会命中留在旧路径的转发头,`validate_map --strict` 与 `migrate_branch --check` 都报 destination collision,P3 M1 也会把两者搬到同一处;而 include 改写本树由 `normalize_includes` 按映射表完成,遗留分支由 `migrate_branch --apply-map` 完成,转发头没有独立价值。§7.2「P2」行的「转发头已登记」改为「旧路径不留文件,`validate_map --strict` 通过」;R13 的 exceptions 段仍保留给其它类型的例外 | **已定(2026-09-27,P2-02 执行时登记)** | P2 全部 PR、P3-02 |
 | D23 | P0 授权增删的编译单元与 G0 的对照规则 | 原始 G0 固定在 `3ddb7d43`(P0-07 采集,存 `baseline/g0/original/`)。P0 之后的目标快照与原始 G0 逐元组比较时只允许两类差异:移除的元组其 source 必须是 `src_layout_map.tsv` 的 `delete` 行(P0-08)或其生成对象;新增的元组必须是 P2-01 新增的原语文件(`src/utils/abandonable_call.{hpp,cpp}`、`abort_signal.hpp`、`joining_thread.hpp`、`lifetime_token.hpp`、`scope_exit.hpp`,File API 会把显式登记的头文件也列进 target 源清单)或 `acecode_unit_tests` 下新增的 `tests/` 源文件;target 集合不得增减。判定工具 `scripts/refactor/compare_snapshots.py`。P0 验收完成时的快照另存为 `baseline/g0/post-p0/`,P1 起的逐元组比较以它为对照,原始 G0 只用于追溯 | **已定(2026-09-27,P0 验收时登记)** | P0-07、P0-08、P1、P3 |
 | D25 | state_file 专用状态的归属 | 五组业务逻辑全部迁回各自模块,底层只保留通用文件读写、锁和原子更新;不按是否存在向上 include 缩减任务,不延期到 P4 / 二期 | **已定(用户 2026-09-28 确认)** | P2-05 |
+| D26 | 一期剩余任务的验证范围 | 逐任务验收只做 Windows 本机,按 §7.4 轻量协议(静态闸门 + 复用目录增量构建 + 用例清单 / target 快照对照;内容改动再跑快速档单测);不 dispatch refactor-matrix,不等待 test.yml;macOS / Linux / Deepin 与 package.yml 推迟到 Windows 工作全部完成后的一次「多平台补验」(tasks.md 5.4)。§7.2 表格里的多平台项按此顺延 | **已定(用户 2026-09-28 确认:验证先只做 Windows,不做 CI 验证,其它平台后续再考虑;用例也要大幅精简)** | P2-08、P3、P4、P6A/B、P7-O |
 
 「按推荐执行」的决策可以在对应任务开工前推翻;推翻后需同步修改本表和受影响任务的描述。
