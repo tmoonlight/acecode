@@ -375,6 +375,8 @@ split-agent-loop、split-tui-main、adopt-ownership-conventions 的验收见各�
 
 > **2026-09-29 验收范围补充(用户确认):** 人工专项后补,本次按 Windows 自动化及已完成实测交付。未执行的人工项继续保留于 verification/windows-phase1-manual-coverage.md,不登记为通过,不阻塞本次主线交付。
 
+> **交付收尾最新指令(2026-09-29):** 2026-09-29 交付收尾最新指令(用户确认):发完后确保 CI/CD 已启动即关机,结果明天查看。正常触发 test,在最终 master 上启动 refactor-matrix(全量及 Deepin)和 package 分支构建验证;此前暂停跨端 CI 的安排由本条覆盖。人工专项与旧分支迁移仍按已批准范围后补。
+
 ## 本次实施安排(D27,2026-09-28)
 
 按用户在 Codex 中的最新指令,剩余一期统一在当前 master 检出实施,全部实现后集中执行 Windows 本机全量验收,完成后再一起提交、push。过程中不另建任务分支或工作区,不逐任务提交/推送,不派发或等待跨端 CI;D26 的逐任务构建、快速档和阶段全量档也统一后移。macOS / Linux / Deepin 与 package.yml 暂不纳入本次 Windows 交付,5.4 保留为后续补验事项。

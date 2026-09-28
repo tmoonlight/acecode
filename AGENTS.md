@@ -14,6 +14,8 @@
 
 2026-09-29 验收范围补充(用户确认):人工专项后补,本次按 Windows 自动化及已完成实测交付;未执行的人工项目继续记录,不宣称通过,不阻塞本次主线交付。
 
+2026-09-29 交付收尾最新指令(用户确认):发完后确保 CI/CD 已启动即关机,结果明天查看。正常触发 test,在最终 master 上启动 refactor-matrix(全量及 Deepin)和 package 分支构建验证;此前暂停跨端 CI 的安排由本条覆盖。人工专项与旧分支迁移仍按已批准范围后补。
+
 2026-09-28 D26:一期剩余任务的验收只做 Windows 本机(design.md §7.4 轻量协议:静态闸门 + 复用目录的 Ninja 增量构建 + 用例清单 / target 快照对照,内容改动再跑 `python scripts/refactor/run_fast_tests.py --profile fast`),不 dispatch refactor-matrix、不等 test.yml;macOS / Linux / Deepin 与 package.yml 推迟到 tasks.md 5.4「多平台补验」一次做完。
 
 ## Project Structure & Module Organization

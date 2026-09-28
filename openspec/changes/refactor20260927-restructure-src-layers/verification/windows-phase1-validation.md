@@ -51,5 +51,5 @@ D6 的 DaemonShutdownSequence/SubagentHostShutdown/TuiShutdownSequence,D7 的 Ag
 - ASan 范围限制:首次链接遇到未插桩第三方静态库的 STL 注解不匹配,独立验收构建按微软文档统一禁用 string/vector 容器注解,保留 /fsanitize=address 并启用 alloc_dealloc_mismatch。此配置不覆盖容器已分配容量内的越界;第三方预构建库未重新插桩。依据:[MSVC 容器注解与静态库配置](https://learn.microsoft.com/en-us/cpp/sanitizers/error-container-overflow?view=msvc-170)。
 - 用户已于 2026-09-29 确认:人工专项后补,本次按 Windows 自动化及已完成实测交付。微软拼音候选窗、真实 Copilot/IM 账号与其余未执行人工项仍保留未验收,详见 [人工清单覆盖审查](windows-phase1-manual-coverage.md);不阻塞本次主线交付。
 - 最终任务勾选、提交、机械提交 blame 登记、pre/post 标签和 push 尚待完成。
-- 已核实远端 master 的活动 ruleset 要求 PR 合入,不要求状态检查或批准票。本地实施仍在 master;交付阶段通过远端 PR 保留全部机械/行为提交,不 squash。为落实 D27 不跑跨端 CI,交付顶端与合并提交使用 [skip ci],不修改工作流或保护规则。依据:[GitHub 跳过工作流](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)。
-- macOS/Linux/Deepin、跨端 CI、TSan 及打包补验按 D27/P4-04 后移。本记录不声称跨平台验证通过。
+- 已核实远端 master 的活动 ruleset 要求 PR 合入。本地实施仍在 master;交付阶段通过远端 PR 保留全部机械/行为提交,不 squash。用户最新要求交付后确保 CI/CD 已启动再关机,因此正常触发 test,并在最终 master 上补启动 refactor-matrix(全量及 Deepin)和 package 分支构建验证;结果明天查看。此前暂停云端 CI 的安排由最新指令覆盖。
+- 用户最新要求交付后启动云端 CI/CD;macOS/Linux/Deepin 与打包结果待明天查看,TSan 仍另行补验。本记录仅确认 Windows 本机结果,不声称云端或跨平台验证通过。
