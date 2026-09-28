@@ -332,6 +332,10 @@ public:
 
     // 退订(线程安全)。
     virtual void unsubscribe(const std::string& session_id, SubscriptionId sub) = 0;
+    // Transports without a local delivery gate retain their legacy behavior.
+    virtual void unsubscribe_and_wait(const std::string& session_id, SubscriptionId sub) {
+        unsubscribe(session_id, sub);
+    }
 
     // 发送一条用户输入。非阻塞,内部入队到 AgentLoop worker。
     // 返回 false 表示 session 不在当前 registry 中。

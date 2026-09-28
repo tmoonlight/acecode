@@ -1,6 +1,7 @@
 #include "event_dispatcher.hpp"
 
 #include "utils/logger.hpp"
+#include "utils/scope_exit.hpp"
 
 #include <chrono>
 #include <utility>
@@ -8,6 +9,23 @@
 namespace acecode {
 
 namespace {
+// Stack, rather than a single id, covers a nested listener that unsubscribes
+// its suspended outer listener. Keys are subscription addresses across dispatchers.
+class DeliveryFrame {
+public:
+    explicit DeliveryFrame(const void* subscription)
+        : subscription_(subscription), previous_(current_) { current_ = this; }
+    ~DeliveryFrame() { current_ = previous_; }
+    static bool contains(const void* subscription) {
+        for (auto* frame = current_; frame; frame = frame->previous_)
+            if (frame->subscription_ == subscription) return true;
+        return false;
+    }
+private:
+    const void* subscription_; // Borrowed only for this synchronous call.
+    DeliveryFrame* previous_;
+    inline static thread_local DeliveryFrame* current_ = nullptr;
+};
 
 bool charge_bytes(std::size_t bytes, std::size_t& remaining) {
     if (bytes > remaining) return false;
@@ -107,7 +125,6 @@ void EventDispatcher::drain_subscription(
     SubscriptionId id,
     const std::shared_ptr<Subscription>& sub) {
     while (true) {
-        EventListener listener;
         SessionEvent evt;
         {
             std::lock_guard<std::mutex> lk(mu_);
@@ -122,10 +139,33 @@ void EventDispatcher::drain_subscription(
             }
             evt = std::move(sub->pending.front());
             sub->pending.pop_front();
-            listener = sub->listener;
         }
-        deliver_to_listener(id, listener, evt);
+        deliver_to_subscription(id, sub, evt);
     }
+}
+
+bool EventDispatcher::deliver_to_subscription(
+    SubscriptionId id, const std::shared_ptr<Subscription>& sub, const SessionEvent& event) {
+    EventListener listener;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        auto current = subscriptions_.find(id);
+        if (current == subscriptions_.end() || current->second != sub || !sub->listener)
+            return false;
+        listener = sub->listener;
+        ++sub->in_flight;
+    }
+    DeliveryFrame delivery(sub.get());
+    ScopeExit completed([this, sub, id] {
+        std::lock_guard<std::mutex> lock(mu_);
+        --sub->in_flight;
+        if (sub->in_flight == 0) {
+            retired_.erase(id);
+            sub->drained.notify_all();
+        }
+    });
+    deliver_to_listener(id, listener, event);
+    return true;
 }
 
 void EventDispatcher::deliver_to_listener(
@@ -169,7 +209,8 @@ EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq) {
 
     // 第二步(锁外): 按 seq 顺序回放历史事件。期间产生的实时事件都进了 pending。
     if (listener) {
-        for (const auto& evt : to_replay) deliver_to_listener(id, listener, evt);
+        for (const auto& evt : to_replay)
+            if (!deliver_to_subscription(id, sub, evt)) break;
     }
 
     // 第三步:按序 flush catch-up 期间累积的实时事件;在 pending 清空的同一把锁内
@@ -190,7 +231,7 @@ EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq) {
             it->second->pending.pop_front();
             have_event = true;
         }
-        if (have_event) deliver_to_listener(id, listener, evt);
+        if (have_event) deliver_to_subscription(id, sub, evt);
         if (have_event) ++live_buffered;
     }
 
@@ -209,11 +250,32 @@ EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq) {
 }
 
 void EventDispatcher::unsubscribe(SubscriptionId id) {
-    std::lock_guard<std::mutex> lk(mu_);
-    const auto it = subscriptions_.find(id);
-    if (it != subscriptions_.end()) it->second->pending.clear();
-    subscriptions_.erase(id);
-    if (observer_subscription_id_ == id) observer_subscription_id_ = 0;
+    unsubscribe_impl(id, false);
+}
+void EventDispatcher::unsubscribe_and_wait(SubscriptionId id) {
+    unsubscribe_impl(id, true);
+}
+void EventDispatcher::unsubscribe_impl(SubscriptionId id, bool wait) {
+    std::shared_ptr<Subscription> removed;
+    std::deque<SessionEvent> discarded;
+    {
+        std::unique_lock<std::mutex> lock(mu_);
+        const auto active = subscriptions_.find(id);
+        if (active != subscriptions_.end()) {
+            removed = std::move(active->second);
+            subscriptions_.erase(active);
+            discarded.swap(removed->pending);
+            if (removed->in_flight != 0) retired_[id] = removed;
+        } else {
+            const auto retired = retired_.find(id);
+            if (retired != retired_.end()) removed = retired->second.lock();
+        }
+        if (observer_subscription_id_ == id) observer_subscription_id_ = 0;
+        if (wait && removed && !DeliveryFrame::contains(removed.get())) {
+            removed->drained.wait(lock, [&removed] { return removed->in_flight == 0; });
+        }
+    }
+    // Captured resources and queued payloads are released outside mu_.
 }
 
 std::size_t EventDispatcher::listener_count() const {

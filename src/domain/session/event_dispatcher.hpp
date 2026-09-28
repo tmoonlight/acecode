@@ -29,6 +29,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -80,6 +81,9 @@ public:
 
     // 退订。线程安全;退订一个不存在的 id 是 no-op。
     void unsubscribe(SubscriptionId id);
+    // Wait for admitted callbacks, except when called from this subscription's
+    // own delivery stack. Caller must not hold locks needed by the listener.
+    void unsubscribe_and_wait(SubscriptionId id);
 
     // 当前最大 seq(用于客户端记录"我看到哪了")。
     std::uint64_t current_seq() const { return seq_counter_.load(); }
@@ -102,10 +106,16 @@ private:
         bool                      catching_up = false;
         bool                      delivering = false;
         std::deque<SessionEvent>  pending;
+        std::size_t               in_flight = 0; // Protected by dispatcher mu_.
+        std::condition_variable   drained;
     };
 
     void drain_subscription(SubscriptionId id,
                             const std::shared_ptr<Subscription>& sub);
+    bool deliver_to_subscription(SubscriptionId id,
+                                 const std::shared_ptr<Subscription>& sub,
+                                 const SessionEvent& event);
+    void unsubscribe_impl(SubscriptionId id, bool wait);
     void deliver_to_listener(SubscriptionId id, const EventListener& listener,
                              const SessionEvent& evt) const;
     void push_to_buffer(const SessionEvent& evt, const std::string& coalesce_key = {});
@@ -121,6 +131,8 @@ private:
     std::deque<BufferedEvent>                                         buffer_;
     std::unordered_map<std::string, std::uint64_t>                    coalesced_seq_by_key_;
     std::unordered_map<SubscriptionId, std::shared_ptr<Subscription>> subscriptions_;
+    // Only removed subscriptions with an admitted callback remain here.
+    std::unordered_map<SubscriptionId, std::weak_ptr<Subscription>> retired_;
     SubscriptionId observer_subscription_id_ = 0;
 };
 

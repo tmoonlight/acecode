@@ -42,7 +42,7 @@
 
 ## 2. 不改 API 的修复
 
-- [ ] 2.1 【O-01】【子】`EventDispatcher::unsubscribe_and_wait` + `ScopedSubscription`。
+- [ ] 2.1 【O-01】【子】`EventDispatcher::unsubscribe_and_wait` + `ScopedSubscription`。〔实现完成: Codex-root 2026-09-28;实时/回放/补发统一在途门,TLS 投递栈支持自身及嵌套退订;LocalSessionClient 绑定原 entry 身份,资源封装 move-only;阻塞/自身/嵌套/移动用例已补,待统一验收;现有调用点未替换〕
   - Subscription 增加在途计数与 cv;`drain_subscription` 在投递前后增减计数;
   - 在投递线程自身上调用时不等待,用 thread_local 记录当前线程;
   - `SessionClient` 增加虚函数 `unsubscribe_and_wait`,默认实现退化为 unsubscribe;`LocalSessionClient` 实现它;

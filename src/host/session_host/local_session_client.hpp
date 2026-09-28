@@ -26,6 +26,7 @@ public:
                               EventListener on_event,
                               std::uint64_t since_seq = 0) override;
     void unsubscribe(const std::string& session_id, SubscriptionId sub) override;
+    void unsubscribe_and_wait(const std::string& session_id, SubscriptionId sub) override;
     bool send_input(const std::string& session_id, const std::string& text) override;
     bool send_input(const std::string& session_id,
                       const std::string& text,
@@ -58,7 +59,16 @@ public:
     void abort(const std::string& session_id) override;
 
 private:
+    void remove_subscription(const std::string& session_id, SubscriptionId sub, bool wait);
+    struct Subscription {
+        std::string session_id;
+        std::weak_ptr<SessionEntry> entry;
+        SubscriptionId dispatcher_id = 0;
+    };
     SessionRegistry& registry_;
+    std::mutex subscriptions_mu_;
+    SubscriptionId next_subscription_id_ = 1;
+    std::unordered_map<SubscriptionId, Subscription> subscriptions_;
 };
 
 } // namespace acecode

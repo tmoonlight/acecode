@@ -32,13 +32,36 @@ LocalSessionClient::subscribe(const std::string& session_id,
                                 std::uint64_t since_seq) {
     auto entry = registry_.acquire(session_id);
     if (!entry || !entry->loop) return 0;
-    return entry->loop->events().subscribe(std::move(on_event), since_seq);
+    const auto dispatcher_id = entry->loop->events().subscribe(std::move(on_event), since_seq);
+    if (!dispatcher_id) return 0;
+    std::lock_guard<std::mutex> lock(subscriptions_mu_);
+    const auto id = next_subscription_id_++;
+    subscriptions_.emplace(id, Subscription{session_id, entry, dispatcher_id});
+    return id;
 }
 
 void LocalSessionClient::unsubscribe(const std::string& session_id, SubscriptionId sub) {
-    auto entry = registry_.acquire(session_id);
+    remove_subscription(session_id, sub, false);
+}
+void LocalSessionClient::unsubscribe_and_wait(const std::string& session_id, SubscriptionId sub) {
+    remove_subscription(session_id, sub, true);
+}
+void LocalSessionClient::remove_subscription(
+    const std::string& session_id, SubscriptionId sub, bool wait) {
+    Subscription subscription;
+    {
+        std::lock_guard<std::mutex> lock(subscriptions_mu_);
+        auto found = subscriptions_.find(sub);
+        if (found == subscriptions_.end() || found->second.session_id != session_id) return;
+        subscription = std::move(found->second);
+        subscriptions_.erase(found);
+    }
+    // Retain the exact entry even after registry removal; a later resume with
+    // the same session id must never receive an old subscription's cleanup.
+    const auto entry = subscription.entry.lock();
     if (!entry || !entry->loop) return;
-    entry->loop->events().unsubscribe(sub);
+    if (wait) entry->loop->events().unsubscribe_and_wait(subscription.dispatcher_id);
+    else entry->loop->events().unsubscribe(subscription.dispatcher_id);
 }
 
 bool LocalSessionClient::send_input(const std::string& session_id, const std::string& text) {
