@@ -1,6 +1,6 @@
 #include "commands_handler.hpp"
 
-#include "commands/opencode_command.hpp"
+#include "skills/opencode_command.hpp"
 #include "config/config.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_activation.hpp"

@@ -1,6 +1,5 @@
 #include "terminal_resolver.hpp"
 
-#include "hooks/hook_config.hpp"
 #include "platform/process/process_runner.hpp"
 #include "utils/logger.hpp"
 

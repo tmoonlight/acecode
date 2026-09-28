@@ -19,14 +19,6 @@ struct DefaultExpertSeed {
     std::filesystem::path relative_path;
 };
 
-struct DefaultHookSeed {
-    std::string name;
-    std::string source_id;
-    std::filesystem::path relative_path;
-    std::string definition_sha256;
-    std::vector<std::string> previous_definition_sha256s;
-};
-
 struct DefaultSkillSeedOutcome {
     std::string name;
     std::string source_id;
@@ -61,7 +53,6 @@ struct DefaultSkillSeedInstallResult {
 
 const std::vector<DefaultSkillSeed>& default_skill_seeds();
 const std::vector<DefaultExpertSeed>& default_expert_seeds();
-const std::vector<DefaultHookSeed>& default_hook_seeds();
 
 std::optional<std::filesystem::path> find_default_skill_seed_dir(
     const std::string& argv0_dir = "");

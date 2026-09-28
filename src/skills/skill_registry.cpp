@@ -1,6 +1,6 @@
 #include "skill_registry.hpp"
 
-#include "frontmatter.hpp"
+#include "utils/frontmatter.hpp"
 #include "skill_loader.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"

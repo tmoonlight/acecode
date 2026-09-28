@@ -38,7 +38,7 @@
 #include "utils/paths.hpp"
 #include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
-#include "web/handlers/skill_command_expander.hpp"
+#include "skills/skill_command_expander.hpp"
 
 #include <nlohmann/json.hpp>
 

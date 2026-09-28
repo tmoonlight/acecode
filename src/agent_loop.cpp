@@ -43,7 +43,7 @@
 #include "web/tool_event_payload.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
-#include "hooks/hook_payload.hpp"
+#include "agent/hook_bridge/hook_events.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "pa/pa_context_budget.hpp"
 #include "pa/pa_overflow_rescue.hpp"

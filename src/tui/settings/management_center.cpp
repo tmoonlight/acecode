@@ -11,7 +11,7 @@
 #include "config/config_mutation.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_registry.hpp"
-#include "skills/skill_commands.hpp"
+#include "tui/commands/skill_commands.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
 #include "tool/mcp_manager.hpp"

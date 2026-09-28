@@ -7,7 +7,7 @@
 #include "skills/skill_registry.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
-#include "web/handlers/skill_command_expander.hpp"
+#include "skills/skill_command_expander.hpp"
 #include "worktree/worktree_core.hpp"
 #include "worktree/worktree_manager.hpp"
 

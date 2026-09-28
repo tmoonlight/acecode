@@ -8,7 +8,7 @@
 #include "session/session_storage.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
-#include "web/handlers/skill_command_expander.hpp"
+#include "skills/skill_command_expander.hpp"
 
 #include <algorithm>
 #include <atomic>

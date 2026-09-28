@@ -1,3 +1,4 @@
+#include "hooks/hook_seeds.hpp"
 #include "skills/default_skill_seeder.hpp"
 #include "skills/skill_registry.hpp"
 #include "test_support/repo_root.hpp"

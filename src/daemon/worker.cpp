@@ -27,7 +27,7 @@
 #include "provider/provider_factory.hpp"
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
-#include "hooks/hook_payload.hpp"
+#include "agent/hook_bridge/hook_events.hpp"
 #include "platform/process/process_runner.hpp"
 #include "loop/loop_scheduler.hpp"
 #include "loop/loop_store.hpp"

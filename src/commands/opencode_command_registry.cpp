@@ -1,7 +1,7 @@
 #include "opencode_command_registry.hpp"
 
 #include "command_registry.hpp"
-#include "opencode_command.hpp"
+#include "skills/opencode_command.hpp"
 #include "agent_loop.hpp"
 #include "tui_state.hpp"
 #include "utils/logger.hpp"

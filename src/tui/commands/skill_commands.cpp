@@ -1,7 +1,7 @@
 #include "skill_commands.hpp"
 
-#include "skill_activation.hpp"
-#include "skill_registry.hpp"
+#include "skills/skill_activation.hpp"
+#include "skills/skill_registry.hpp"
 #include "agent_loop.hpp"
 #include "commands/command_registry.hpp"
 #include "tui_state.hpp"

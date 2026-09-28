@@ -24,7 +24,7 @@
 #include "tool/mcp_manager.hpp"
 #include "tool/tool_executor.hpp"
 #include "skills/skill_registry.hpp"
-#include "skills/skill_commands.hpp"
+#include "tui/commands/skill_commands.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_resume_restore.hpp"
 #include "session/session_storage.hpp"

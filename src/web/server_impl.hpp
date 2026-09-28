@@ -59,7 +59,7 @@
 #include "web/handlers/builtin_command_handler.hpp"
 #include "web/handlers/commands_handler.hpp"
 #include "web/handlers/opencode_command_expander.hpp"
-#include "web/handlers/skill_command_expander.hpp"
+#include "skills/skill_command_expander.hpp"
 #include "web/handlers/session_list_handler.hpp"
 #include "web/handlers/side_chat_handler.hpp"
 #include "web/handlers/skills_handler.hpp"
