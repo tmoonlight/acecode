@@ -75,6 +75,19 @@ bool prepare_tool_result_for_delivery(
     const std::string& tool_results_dir,
     const ToolResultBudgetOptions& options = {});
 
+// Borrowed only for this synchronous call. Entries represent completed calls;
+// the caller owns each result and receives any budget replacement in place.
+struct ToolResultBudgetEntry {
+    const ToolCall& call;
+    ToolResult& result;
+};
+
+ToolResultBudgetResult enforce_tool_result_budget(
+    const std::vector<ToolResultBudgetEntry>& entries,
+    const std::string& tool_results_dir,
+    ToolResultReplacementState& state,
+    const ToolResultBudgetOptions& options = {});
+
 ToolResultBudgetResult enforce_tool_result_budget(
     const std::vector<ToolCall>& tool_calls,
     std::vector<ToolResult>& results,

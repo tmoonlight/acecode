@@ -38,12 +38,13 @@
 #include <mutex>
 #include <sstream>
 #include <utility>
+#include "utils/future_join_guard.hpp"
 #include <future>
 #include <thread>
 
 namespace acecode {
 
-bool AgentLoop::execute_tool_calls(
+agent::ToolBatchOutcome AgentLoop::execute_tool_calls(
     const ChatResponse& accumulated,
     const std::shared_ptr<LlmProvider>& provider_snapshot,
     const ProgressEmitter& emit_progress,
@@ -119,38 +120,22 @@ bool AgentLoop::execute_tool_calls(
     // Partition tool calls into read-only (parallelizable) and write (serial) groups
     LOG_INFO("Processing " + std::to_string(accumulated.tool_calls.size()) + " tool calls");
 
-    struct ToolCallEntry {
-        size_t original_index;
-        const ToolCall* tc;
-    };
-
-    std::vector<ToolCallEntry> read_entries, write_entries;
-    for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
+    ToolBatchState batch{doom_guard, emit_progress, step_preamble, {}};
+    auto& slots = batch.slots;
+    slots.reserve(accumulated.tool_calls.size());
+    std::vector<std::size_t> read_entries, write_entries;
+    for (std::size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
         const auto& tc = accumulated.tool_calls[i];
-        ToolCallEntry entry{i, &tc};
+        slots.push_back({i, tc, std::nullopt});
         if (tools_.can_execute_in_parallel(tc.function_name)) {
-            read_entries.push_back(entry);
+            read_entries.push_back(i);
         } else {
-            write_entries.push_back(entry);
+            write_entries.push_back(i);
         }
     }
 
     LOG_INFO("Partitioned: " + std::to_string(read_entries.size()) + " read-only, " +
              std::to_string(write_entries.size()) + " write");
-
-    // Results array indexed by original position
-    std::vector<ToolResult> results(accumulated.tool_calls.size());
-    std::vector<bool> result_ready(accumulated.tool_calls.size(), false);
-    // Each parallel tool writes only its own slot. Collect after joining so
-    // early delivery replacements keep the existing durable replacement audit.
-    std::vector<ToolResultReplacementRecord> delivery_replacements(
-        accumulated.tool_calls.size());
-
-    std::vector<DeferredTaskCompleteEnd> deferred_task_complete_ends(
-        accumulated.tool_calls.size());
-    ToolBatchState batch{
-        doom_guard, emit_progress, step_preamble,
-        delivery_replacements, deferred_task_complete_ends};
 
     // Helper: extract context from a tool call
 
@@ -177,22 +162,22 @@ bool AgentLoop::execute_tool_calls(
         struct PendingReadTool {
             size_t original_index;
             ToolCall call;
-            std::future<ToolResult> future;
+            std::size_t future_index;
         };
 
         size_t i = 0;
         while (i < read_entries.size() && !abort_signal_.raw()) {
             size_t batch_end = std::min(i + max_concurrency, read_entries.size());
             std::vector<PendingReadTool> pending;
+            utils::FutureJoinGuard<agent::ToolCallOutcome> futures;
 
             for (size_t j = i; j < batch_end; ++j) {
-                const auto& entry = read_entries[j];
-                ToolCall tc_copy = *entry.tc;
-                size_t original_index = entry.original_index;
+                const auto original_index = read_entries[j];
+                ToolCall tc_copy = slots[original_index].call;
                 pending.push_back(PendingReadTool{
                     original_index,
                     tc_copy,
-                    std::async(std::launch::async,
+                    futures.add(std::async(std::launch::async,
                     [this, &batch, tc_copy, original_index]() {
                         return run_tool_with_lifecycle(
                             batch, tc_copy, original_index, false,
@@ -220,7 +205,7 @@ bool AgentLoop::execute_tool_calls(
                                     effective_tc.function_name, effective_tc.function_arguments,
                                     ctx_path, ctx);
                             });
-                    })
+                    }))
                 });
             }
 
@@ -234,20 +219,22 @@ bool AgentLoop::execute_tool_calls(
                     "[Tool: " + item.call.function_name + "] " +
                         item.call.function_arguments, true);
                 try {
-                    results[idx] = item.future.get();
+                    slots[idx].outcome = futures.get(item.future_index);
                 } catch (const std::exception& e) {
-                    results[idx] = ToolResult{"[Error] " + std::string(e.what()), false};
+                    slots[idx].outcome.emplace();
+                    slots[idx].outcome->result =
+                        ToolResult{"[Error] " + std::string(e.what()), false};
                     ensure_tool_summary(
                         item.call.function_name,
                         item.call.function_arguments,
-                        results[idx]);
+                        slots[idx].outcome->result);
                 }
-                result_ready[idx] = true;
-                record_doom_guard_result(batch, item.call, results[idx]);
+                record_doom_guard_result(batch, item.call, slots[idx].outcome->result);
                 account_goal_usage(0, false);
-                dispatch_tool_result_display(item.call, results[idx]);
+                dispatch_tool_result_display(item.call, slots[idx].outcome->result);
             }
 
+            futures.join();
             i = batch_end;
         }
     }
@@ -256,15 +243,16 @@ bool AgentLoop::execute_tool_calls(
     for (const auto& entry : write_entries) {
         if (abort_signal_.raw()) break;
 
-        const auto& tc = *entry.tc;
+        auto& slot = slots[entry];
+        const auto& tc = slot.call;
         LOG_INFO("Tool call (write): " + tc.function_name + " id=" + tc.id);
 
         dispatch_message("tool_call",
                 "[Tool: " + tc.function_name + "] " + tc.function_arguments, true);
 
-        results[entry.original_index] = run_tool_with_lifecycle(
-            batch, tc, entry.original_index, true,
-            [this, &batch, tool_index = entry.original_index](
+        slot.outcome = run_tool_with_lifecycle(
+            batch, tc, slot.original_index, true,
+            [this, &batch, tool_index = slot.original_index](
                 const ToolCall& effective_tc,
                 const ToolContext& tool_ctx,
                 const std::string& ctx_path,
@@ -272,34 +260,36 @@ bool AgentLoop::execute_tool_calls(
                 return run_write_tool(batch, effective_tc, tool_ctx,
                                       ctx_path, ctx_command, tool_index);
             });
-        result_ready[entry.original_index] = true;
-        record_doom_guard_result(batch, tc, results[entry.original_index]);
+        record_doom_guard_result(batch, tc, slot.outcome->result);
         account_goal_usage(0, false);
         // 结果行紧跟派发。调用行在执行前已显示(权限确认弹窗需要上下文),
         // 写工具串行执行,顺序天然成对。
-        dispatch_tool_result_display(tc, results[entry.original_index]);
-        if (results[entry.original_index].terminate_session_after_turn) {
+        dispatch_tool_result_display(tc, slot.outcome->result);
+        if (slot.outcome->result.terminate_session_after_turn) {
             LOG_INFO("Stopping remaining write tools after terminal session action");
             break;
         }
     }
 
     std::vector<ToolResultReplacementRecord> replacement_records;
-    for (size_t i = 0; i < delivery_replacements.size(); ++i) {
-        if (result_ready[i] && !delivery_replacements[i].tool_call_id.empty()) {
-            replacement_records.push_back(std::move(delivery_replacements[i]));
+    for (auto& slot : slots) {
+        if (slot.outcome && !slot.outcome->delivery_replacement.tool_call_id.empty()) {
+            replacement_records.push_back(
+                std::move(slot.outcome->delivery_replacement));
         }
     }
     if (session_manager_) {
         const std::string tool_results_dir = session_manager_->ensure_tool_results_dir();
         if (!tool_results_dir.empty()) {
             auto replacement_state = reconstruct_tool_result_replacement_state(history_->view());
+            std::vector<ToolResultBudgetEntry> entries;
+            for (auto& slot : slots) {
+                if (slot.outcome) {
+                    entries.push_back({slot.call, slot.outcome->result});
+                }
+            }
             auto budget_result = enforce_tool_result_budget(
-                accumulated.tool_calls,
-                results,
-                result_ready,
-                tool_results_dir,
-                replacement_state);
+                entries, tool_results_dir, replacement_state);
             for (auto& record : budget_result.newly_replaced) {
                 replacement_records.push_back(std::move(record));
             }
@@ -341,9 +331,9 @@ bool AgentLoop::execute_tool_calls(
             static_cast<size_t>(uint64_arg("max_bytes")));
     };
 
-    for (size_t i = 0; i < accumulated.tool_calls.size() && i < results.size(); ++i) {
-        if (i < result_ready.size() && result_ready[i]) {
-            record_file_read_result_reference(accumulated.tool_calls[i], results[i]);
+    for (size_t i = 0; i < slots.size(); ++i) {
+        if (slots[i].outcome) {
+            record_file_read_result_reference(accumulated.tool_calls[i], slots[i].outcome->result);
         }
     }
 
@@ -351,13 +341,13 @@ bool AgentLoop::execute_tool_calls(
     for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
         const auto& tc = accumulated.tool_calls[i];
         ChatMessage tool_msg;
-        if (result_ready[i]) {
-            tool_msg = ToolExecutor::format_tool_result(tc.id, results[i]);
-            if (results[i].summary.has_value()) {
-                tool_msg.metadata["tool_summary"] = encode_tool_summary(*results[i].summary);
+        if (slots[i].outcome) {
+            tool_msg = ToolExecutor::format_tool_result(tc.id, slots[i].outcome->result);
+            if (slots[i].outcome->result.summary.has_value()) {
+                tool_msg.metadata["tool_summary"] = encode_tool_summary(*slots[i].outcome->result.summary);
             }
-            if (results[i].hunks.has_value()) {
-                tool_msg.metadata["tool_hunks"] = encode_tool_hunks(*results[i].hunks);
+            if (slots[i].outcome->result.hunks.has_value()) {
+                tool_msg.metadata["tool_hunks"] = encode_tool_hunks(*slots[i].outcome->result.hunks);
             }
         } else {
             ToolResult interrupted_result{"[Interrupted]", false};
@@ -376,14 +366,12 @@ bool AgentLoop::execute_tool_calls(
         if (session_manager_) session_manager_->on_message(tool_msg);
 
         if (tc.function_name == "task_complete" &&
-            result_ready[i] && results[i].success) {
+            slots[i].outcome && slots[i].outcome->result.success) {
             const DeferredTaskCompleteEnd deferred =
-                i < deferred_task_complete_ends.size()
-                    ? deferred_task_complete_ends[i]
-                    : DeferredTaskCompleteEnd{};
+                slots[i].outcome->deferred_end;
             auto end_payload = web::build_tool_end_payload(
-                tc.function_name, results[i], deferred.elapsed_seconds,
-                results[i].output, tc.id, static_cast<int>(i),
+                tc.function_name, slots[i].outcome->result, deferred.elapsed_seconds,
+                slots[i].outcome->result.output, tc.id, static_cast<int>(i),
                 web::compute_message_id(tool_msg));
             if (session_manager_) {
                 auto trajectory_payload = end_payload;
@@ -400,12 +388,12 @@ bool AgentLoop::execute_tool_calls(
 
         // 展示派发(tool_result 伪行 + on_tool_result)已前移到各执行点
         // (dispatch_tool_result_display),这里只保留 canonical 相关处理。
-        if (result_ready[i]) {
-            if (results[i].post_user_prompt.has_value() &&
-                !results[i].post_user_prompt->empty()) {
+        if (slots[i].outcome) {
+            if (slots[i].outcome->result.post_user_prompt.has_value() &&
+                !slots[i].outcome->result.post_user_prompt->empty()) {
                 append_tool_user_prompt(
-                    *results[i].post_user_prompt,
-                    results[i].post_user_prompt_display_text,
+                    *slots[i].outcome->result.post_user_prompt,
+                    slots[i].outcome->result.post_user_prompt_display_text,
                     tc.function_name);
             }
         }
@@ -417,37 +405,43 @@ bool AgentLoop::execute_tool_calls(
         if (session_manager_) session_manager_->on_message(meta_msg);
     }
 
+    agent::ToolBatchOutcome batch_outcome;
     // A session-terminal action takes precedence over ordinary terminators.
     // Move its callback only after every canonical result has been recorded.
     for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
-        if (!result_ready[i] ||
-            !results[i].terminate_session_after_turn) {
+        if (!slots[i].outcome ||
+            !slots[i].outcome->result.terminate_session_after_turn) {
             continue;
         }
-        terminate_session_after_turn_ = true;
-        if (results[i].post_turn_action) {
-            post_turn_actions_.push_back(
-                std::move(results[i].post_turn_action));
+        batch_outcome.terminate_session_after_turn = true;
+        if (slots[i].outcome->result.post_turn_action) {
+            batch_outcome.post_turn_actions.push_back(
+                std::move(slots[i].outcome->result.post_turn_action));
         }
         LOG_INFO("Terminal session action queued after turn boundary");
     }
-    if (terminate_session_after_turn_) return true;
+    if (batch_outcome.terminate_session_after_turn) {
+        batch_outcome.terminator_fired = true;
+        return batch_outcome;
+    }
 
     // Terminator detection. A failed ExitPlanMode is a user/runtime boundary:
     // retrying it in the same turn only replays the approval request while the
     // session correctly remains in Plan mode.
     for (size_t i = 0; i < accumulated.tool_calls.size(); ++i) {
         const auto& tc = accumulated.tool_calls[i];
-        if (tc.function_name == "task_complete" && result_ready[i] && results[i].success) {
+        if (tc.function_name == "task_complete" && slots[i].outcome && slots[i].outcome->result.success) {
             LOG_INFO("Terminator fired: task_complete");
-            return true;
+            batch_outcome.terminator_fired = true;
+            return batch_outcome;
         }
-        if (tc.function_name == "ExitPlanMode" && result_ready[i] && !results[i].success) {
+        if (tc.function_name == "ExitPlanMode" && slots[i].outcome && !slots[i].outcome->result.success) {
             LOG_INFO("Ending turn after failed ExitPlanMode");
-            return true;
+            batch_outcome.terminator_fired = true;
+            return batch_outcome;
         }
     }
-    return false;
+    return batch_outcome;
 }
 
 } // namespace acecode

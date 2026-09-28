@@ -174,45 +174,60 @@ ToolResultBudgetResult enforce_tool_result_budget(
     const std::string& tool_results_dir,
     ToolResultReplacementState& state,
     const ToolResultBudgetOptions& options) {
+    std::vector<ToolResultBudgetEntry> entries;
+    const auto n = std::min(tool_calls.size(), results.size());
+    entries.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        if (i < result_ready.size() && result_ready[i]) {
+            entries.push_back({tool_calls[i], results[i]});
+        }
+    }
+    return enforce_tool_result_budget(entries, tool_results_dir, state, options);
+}
+
+ToolResultBudgetResult enforce_tool_result_budget(
+    const std::vector<ToolResultBudgetEntry>& entries,
+    const std::string& tool_results_dir,
+    ToolResultReplacementState& state,
+    const ToolResultBudgetOptions& options) {
     ToolResultBudgetResult budget;
-    if (tool_results_dir.empty() || tool_calls.empty()) return budget;
+    if (tool_results_dir.empty() || entries.empty()) return budget;
 
     std::vector<Candidate> fresh;
     std::size_t frozen_size = 0;
     std::size_t visible_size = 0;
 
-    const std::size_t n = std::min(tool_calls.size(), results.size());
+    const std::size_t n = entries.size();
     for (std::size_t i = 0; i < n; ++i) {
-        if (i >= result_ready.size() || !result_ready[i]) continue;
-        const std::string& id = tool_calls[i].id;
+        const std::string& id = entries[i].call.id;
         if (id.empty()) continue;
 
         auto replacement_it = state.replacements.find(id);
         if (replacement_it != state.replacements.end()) {
-            results[i].output = replacement_it->second;
+            entries[i].result.output = replacement_it->second;
             const std::size_t replacement_size = replacement_it->second.size();
             frozen_size += replacement_size;
             visible_size += replacement_size;
             continue;
         }
 
-        if (is_persisted_output_message(results[i].output)) {
+        if (is_persisted_output_message(entries[i].result.output)) {
             state.seen_ids.insert(id);
-            state.replacements[id] = results[i].output;
-            const std::size_t replacement_size = results[i].output.size();
+            state.replacements[id] = entries[i].result.output;
+            const std::size_t replacement_size = entries[i].result.output.size();
             frozen_size += replacement_size;
             visible_size += replacement_size;
             continue;
         }
 
-        const std::size_t size = results[i].output.size();
+        const std::size_t size = entries[i].result.output.size();
         if (state.seen_ids.count(id)) {
             frozen_size += size;
             visible_size += size;
             continue;
         }
 
-        fresh.push_back(Candidate{i, id, tool_calls[i].function_name, size});
+        fresh.push_back(Candidate{i, id, entries[i].call.function_name, size});
         visible_size += size;
     }
 
@@ -228,7 +243,7 @@ ToolResultBudgetResult enforce_tool_result_budget(
         }
 
         PersistedToolResult persisted = persist_tool_result(
-            results[candidate.index].output,
+            entries[candidate.index].result.output,
             candidate.tool_call_id,
             tool_results_dir,
             options.preview_bytes);
@@ -241,7 +256,7 @@ ToolResultBudgetResult enforce_tool_result_budget(
 
         const std::string replacement =
             build_large_tool_result_message(persisted, options.preview_bytes);
-        results[candidate.index].output = replacement;
+        entries[candidate.index].result.output = replacement;
         state.replacements[candidate.tool_call_id] = replacement;
         budget.newly_replaced.push_back(
             ToolResultReplacementRecord{candidate.tool_call_id, replacement});
@@ -285,7 +300,7 @@ ToolResultBudgetResult enforce_tool_result_budget(
         }
 
         PersistedToolResult persisted = persist_tool_result(
-            results[candidate.index].output,
+            entries[candidate.index].result.output,
             candidate.tool_call_id,
             tool_results_dir,
             options.preview_bytes);
@@ -297,7 +312,7 @@ ToolResultBudgetResult enforce_tool_result_budget(
 
         const std::string replacement =
             build_large_tool_result_message(persisted, options.preview_bytes);
-        results[candidate.index].output = replacement;
+        entries[candidate.index].result.output = replacement;
         state.replacements[candidate.tool_call_id] = replacement;
         budget.newly_replaced.push_back(
             ToolResultReplacementRecord{candidate.tool_call_id, replacement});

@@ -38,16 +38,16 @@ namespace acecode {
 using agent::detail::parse_tool_args_for_permission_payload;
 using utils::now_epoch_ms;
 
-ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc, size_t tool_index, bool emit_tui_progress, const ToolRunner& runner) {
+agent::ToolCallOutcome AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc, size_t tool_index, bool emit_tui_progress, const ToolRunner& runner) {
     const auto& emit_progress = batch.emit_progress;
     const auto& step_preamble = batch.step_preamble;
-    auto& delivery_replacements = batch.delivery_replacements;
-    auto& deferred_task_complete_ends = batch.deferred_task_complete_ends;
+    agent::ToolCallOutcome outcome;
     auto preamble_for_call = [&step_preamble](const ToolCall&, std::size_t) {
         return step_preamble.title;
     };
     if (auto denied = tool_hooks_->before(hook_manager_, session_manager_, tc, tool_index)) {
-        return std::move(*denied);
+        outcome.result = std::move(*denied);
+        return outcome;
     }
 
     std::string exec_path, exec_cmd;
@@ -219,7 +219,7 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
         guard.end_cb = callbacks_.on_tool_progress_end;
     }
 
-    ToolResult result;
+    ToolResult& result = outcome.result;
     try {
         result = runner(tc, tool_ctx, exec_path, exec_cmd);
     } catch (const std::exception& e) {
@@ -237,7 +237,7 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
         if (prepare_tool_result_for_delivery(
                 result, tc.function_name, tc.id,
                 session_manager_->ensure_tool_results_dir()) && !tc.id.empty()) {
-            delivery_replacements[tool_index] = {tc.id, result.output};
+            outcome.delivery_replacement = {tc.id, result.output};
         }
     }
     ensure_tool_summary(
@@ -256,9 +256,8 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
         }
     }
     const bool defer_task_complete_end = is_task_complete && result.success;
-    if (defer_task_complete_end &&
-        tool_index < deferred_task_complete_ends.size()) {
-        auto& deferred = deferred_task_complete_ends[tool_index];
+    if (defer_task_complete_end) {
+        auto& deferred = outcome.deferred_end;
         deferred.started_at_ms = tool_started_at_ms;
         deferred.completed_at_ms = tool_completed_at_ms;
         deferred.duration_ms = elapsed_ms;
@@ -289,7 +288,7 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
                 elapsed_ms / 1000.0, snippet,
                 tc.id, tool_index_int));
     }
-    return result;
+    return outcome;
 }
 
 } // namespace acecode

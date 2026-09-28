@@ -64,7 +64,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { struct ToolCallOutcome; struct ToolBatchOutcome; struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -420,7 +420,7 @@ private:
     void record_doom_guard_result(ToolBatchState& batch, const ToolCall& tc, const ToolResult& result);
     void materialize_result_attachments(ToolResult& result);
     void dispatch_tool_result_display(const ToolCall& tc, const ToolResult& result);
-    ToolResult run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc, size_t tool_index, bool emit_tui_progress, const ToolRunner& runner);
+    agent::ToolCallOutcome run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc, size_t tool_index, bool emit_tui_progress, const ToolRunner& runner);
     ToolResult run_write_tool(ToolBatchState& batch, const ToolCall& effective_tc, const ToolContext& tool_ctx, const std::string& ctx_path, const std::string& ctx_command, size_t tool_index);
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
@@ -533,7 +533,7 @@ private:
 
     // Phase 5: Execute tool calls (parallel read + serial write).
     // Returns true if task_complete terminator fired.
-    bool execute_tool_calls(
+    agent::ToolBatchOutcome execute_tool_calls(
         const ChatResponse& accumulated,
         const std::shared_ptr<LlmProvider>& provider_snapshot,
         const ProgressEmitter& emit_progress,

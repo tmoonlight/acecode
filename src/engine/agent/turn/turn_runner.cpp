@@ -587,9 +587,14 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         current_step_preamble_ = activity_->resolve_step(provider_result.accumulated);
 
         // Phase 5: Execute tool calls
-        terminator_fired = execute_tool_calls(
+        auto tool_batch_outcome = execute_tool_calls(
             provider_result.accumulated, provider_snapshot,
             emit_agent_progress, doom_guard, current_step_preamble_);
+        terminator_fired = tool_batch_outcome.terminator_fired;
+        terminate_session_after_turn_ |= tool_batch_outcome.terminate_session_after_turn;
+        for (auto& action : tool_batch_outcome.post_turn_actions) {
+            post_turn_actions_.push_back(std::move(action));
+        }
         // 混合形态:同一回复里既有原生调用,又有与之不一致的文本调用(回显在
         // provider 那边已剔除,记为 None 不会走到这里)。只执行了原生调用,
         // 批次跑完后追加隐藏说明,免得模型以为文本里那几个也执行了。不消耗
