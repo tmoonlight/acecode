@@ -1,3 +1,4 @@
+#include "tui/model/user_turn_state.hpp"
 #include "tui/composer/submit.hpp"
 #include "tui/composer/suggestions.hpp"
 #include "tui/overlays/list_picker_input.hpp"
@@ -84,11 +85,7 @@ InputDisposition handle_composer_submit(TuiInputContext& ctx, const ftxui::Event
             state.conversation.push_back({"user", "!" + shell_cmd, false});
             state.chat_follow_tail = true;
             viewport.clamp_focus(state);
-            state.current_thinking_phrase = "Running shell";
-            state.thinking_start_time = std::chrono::steady_clock::now();
-            state.streaming_output_chars = 0;
-            state.turn_completion_tokens_confirmed = 0;
-            state.is_waiting = true;
+            tui::begin_user_turn_locked(state, tui::UserTurnPhrase::Shell, tui::WaitingUpdate::SetTrue);
             ctx.turn.submit_shell(shell_cmd);
             return InputDisposition::Consumed;
         }
@@ -135,11 +132,7 @@ InputDisposition handle_composer_submit(TuiInputContext& ctx, const ftxui::Event
             state.conversation.push_back({"user", display_prompt, false});
             state.chat_follow_tail = true;
             viewport.clamp_focus(state);
-            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-            state.thinking_start_time = std::chrono::steady_clock::now();
-            state.streaming_output_chars = 0;
-            state.turn_completion_tokens_confirmed = 0;
-            state.is_waiting = true;
+            tui::begin_user_turn_locked(state, tui::UserTurnPhrase::Random, tui::WaitingUpdate::SetTrue);
             if (attachments.empty()) {
                 ctx.turn.submit_text(expanded_prompt);
             } else {

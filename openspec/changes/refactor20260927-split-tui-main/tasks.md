@@ -125,7 +125,7 @@
 
 ## 4. 装配、生命周期与收尾
 
-- [ ] 4.1 【B-11】【主】提交管线与 agent 桥。
+- [ ] 4.1 【B-11】【主】提交管线与 agent 桥。〔实现完成: Codex-root 2026-09-28;提交器/命令工厂/回调桥/确认门/回合生命周期已外提,三处命令构造统一且过渡适配器删除;七处重置有逐字段证明,三次回调更新时点保留;标题/通知/全屏的剩余宿主接线随 B-12 对象化,测试待末尾统一执行〕
   - TuiSubmitter、TuiCommandContextFactory(统一 6371 / 6410 / 7263 三处构造)、TuiAgentBridge、TuiOverlayGate、TuiTurnLifecycle;
   - 两阶段装配:先持有 accessor,之后 `attach(AgentLoop&)`,未 attach 时断言;通知窗口信息在调用时查询(MR-4);
   - `set_callbacks` 仍然分三次调用,保持原时序(MR-20);

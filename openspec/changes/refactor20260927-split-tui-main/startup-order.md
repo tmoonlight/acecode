@@ -181,3 +181,13 @@ TUI 专属默认规则由 domain/permissions/default_rules 的 configure_tui_def
 - 右键复制仅由 mouse_router 在 Pressed 隐藏悬停之后调用;非聊天鼠标返回 Declined。
 - app 捕获 LifetimeRef;handler 只借用固定的输入上下文与屏幕/提交/剪贴板接口。
 - 完整矩阵、逐键函数指针顺序、确认队列、Ctrl+C 回灌、鼠标定位、悬停复制、全屏事件所有权与撤销用例已编写,未运行。
+
+### B-11 提交与回调记录(待统一验收)
+
+- begin_user_turn_locked 的合并范围与七处差异见 turn-reset-proof.md;busy 回调保留先读旧 waiting 再赋 busy 的顺序,Shell 保留固定短语。
+- TuiSubmitter 保留 ensure_current、告警 Post、标题启动、submit 顺序;MCP 首回合等待仍在调用方原锁外区间。模型 resolver/transition 与告警闭包受 LifetimeRef 保护。
+- TuiAgentBridge 首版回调 → 首次 set_callbacks → 标题完成回调替换后的第二次 set_callbacks → progress/busy 完整接线后的第三次 set_callbacks,时点不变。
+- TuiOverlayGate 的 overlay 排队与 confirm_cv 等待不变;先 attach 后允许调用。回调撤销仍须在停止生产者/唤醒等待之后,由 B-13 的关停顺序固化。
+- TuiCommandContextFactory 统一通知恢复、启动 /resume、用户 Enter 三处构造;只有 Enter 上下文带用量观察与全屏入口。所有会被上下文保存的回调使用 LifetimeRef。
+- SessionManager 仅默认声明前移,原 start_session 步骤未提前;三个两阶段消费者均在 AgentLoop 创建后立即 attach。
+- B-12 继续把标题、通知、全屏的 main-owned 临时接线换成其对象;本阶段未执行构建或测试。

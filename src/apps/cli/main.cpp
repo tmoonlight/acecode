@@ -1,3 +1,8 @@
+#include "tui/app/tui_agent_bridge.hpp"
+#include "tui/app/tui_overlay_gate.hpp"
+#include "tui/app/tui_turn_lifecycle.hpp"
+#include "tui/app/tui_submitter.hpp"
+#include "tui/model/user_turn_state.hpp"
 #include "tui/app/tui_event_router.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "config/mcp_config.hpp"
@@ -207,7 +212,7 @@
 #include "tui/composer/submit.hpp"
 #include "tui/composer/clipboard_keys.hpp"
 #include "tui/model/input_state.hpp"
-#include "tui/app/tui_input_bindings.hpp"
+#include "tui/app/tui_command_context_factory.hpp"
 #include "tui/app/tui_clipboard.hpp"
 #include "tui/render/transcript_view.hpp"
 #include "tui/render/overlay_views.hpp"
@@ -769,19 +774,11 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     start_mcp_servers_async(mcp_manager, tools, state, screen);
 
     std::atomic<bool> mcp_first_turn_wait_done{false};
-    auto coordinate_mcp_before_first_turn = [&]() {
-        auto result = acecode::coordinate_mcp_before_first_turn(
-            mcp_manager,
-            mcp_first_turn_wait_done,
-            std::chrono::milliseconds(1500));
-        if (result.should_warn) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            state.conversation.push_back({"system",
-                acecode::mcp_first_turn_still_starting_warning(),
-                false});
-            screen.PostEvent(Event::Custom);
-        }
-    };
+    SessionManager session_manager;
+    std::function<void(const UserInput&)> maybe_start_tui_auto_title;
+    tui::TuiSubmitter input_turn(state, screen_host, config, model_binding,
+        session_manager, mcp_manager, mcp_first_turn_wait_done, maybe_start_tui_auto_title);
+    auto coordinate_mcp_before_first_turn = [&input_turn]() { input_turn.before_first_turn(); };
 
     // ---- Copilot auth flow (background thread) ----
     std::atomic<bool> auth_done{false};
@@ -795,14 +792,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             const std::string copilot_model = copilot->model();
             {
                 std::lock_guard<std::mutex> lk(state.mu);
-                state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-                // 新一轮等待：计时/计数字段必须和 is_waiting 一起重置，否则
-                // on_busy_changed 的 `busy && !is_waiting` 护栏会把这段跳过，
-                // thinking_start_time 会停在 time_point{} 原点，底部秒数会巨大。
-                state.thinking_start_time = std::chrono::steady_clock::now();
-                state.streaming_output_chars = 0;
-                state.turn_completion_tokens_confirmed = 0;
-                state.is_waiting = true;
+                tui::begin_user_turn_locked(state, tui::UserTurnPhrase::Random, tui::WaitingUpdate::SetTrue);
                 state.conversation.push_back({"system", "Authenticating with GitHub Copilot...", false});
             }
             screen.PostEvent(Event::Custom);
@@ -866,261 +856,26 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // Set only by the authoritative final assistant on_message callback. Delta
     // text is intentionally excluded so a failed/aborted partial stream cannot
     // be mistaken for a completed task notification.
-    std::string tui_turn_assistant_text;
-    std::string tui_turn_outcome;
-    AgentCallbacks callbacks;
-    callbacks.on_message = [&state, &viewport, &screen,
-                            &tui_turn_assistant_text](const std::string& role,
-                                                     const std::string& raw_content,
-                                                     bool is_tool) {
-        // 工具前言(add-tool-preamble):assistant 正文里的 <text_preamble> 标签
-        // 只在实时期间进 loading,不进 transcript;整段都是标签时不建空行。
-        const bool assistant_text = !is_tool && role == "assistant";
-        const std::string content = assistant_text
-            ? acecode::llm::strip_text_preamble_tags(raw_content)
-            : raw_content;
-        if (assistant_text && content.empty()) return;
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!is_tool && role == "assistant") {
-            tui_turn_assistant_text = content;
-        }
-        if (!is_tool && role == "assistant" &&
-            !state.conversation.empty() &&
-            state.conversation.back().role == "assistant" &&
-            !state.conversation.back().is_tool) {
-            state.conversation.back().content = content;
-        } else {
-            TuiState::Message m{role, content, is_tool};
-            if (role == "tool_call") {
-                // push 时就算好紧凑预览:工具执行期间行内即显示
-                // `● Bash(npm install)` 而非原始 JSON;完成后 on_tool_result
-                // 的补挂对已有值是 no-op。
-                const auto parts =
-                    acecode::tui::parse_tool_row(content, std::string());
-                if (!parts.name.empty()) {
-                    m.display_override = ToolExecutor::build_tool_call_preview(
-                        parts.name, parts.args);
-                }
-            }
-            state.conversation.push_back(std::move(m));
-        }
-        viewport.clamp_focus(state);
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_transcript_message =
-        [&state, &viewport, &screen](const ChatMessage& message) {
-            std::lock_guard<std::mutex> lk(state.mu);
-            const auto notice = decode_compact_notice(message);
-            if (notice.has_value() && notice->stage == "progress") {
-                state.is_compacting = true;
-                state.compact_animation_start_time =
-                    std::chrono::steady_clock::now();
-            }
-
-            if (!acecode::tui::append_compact_notice_row(
-                    state.conversation, message)) {
-                state.conversation.push_back(
-                    {message.role, message.content, false});
-            }
-            if (notice.has_value() && notice->complete) {
-                state.is_compacting = false;
-            }
-
-            viewport.reset(state);
-            state.chat_follow_tail = true;
-            viewport.clamp_focus(state);
-            screen.PostEvent(Event::Custom);
-        };
-    callbacks.on_busy_changed = [&state, &screen](bool busy) {
-        acecode::note_process_session_busy("tui-main", busy);
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (busy && !state.is_waiting) {
-            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-            state.thinking_start_time = std::chrono::steady_clock::now();
-            state.streaming_output_chars = 0;
-            state.turn_completion_tokens_confirmed = 0;
-        }
-        state.is_waiting = busy;
-        if (!busy) state.is_compacting = false;
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_tool_confirm = [&state, &screen, &agent_aborting](const std::string& tool_name, const std::string& args) -> PermissionResult {
-        {
-            // 子代理并发后 confirm/ask overlay 可能被别的请求占用(子会话的
-            // AskUserQuestion 或远程权限确认)。占用前排队等 overlay 空闲,
-            // 100ms 超时轮询让 agent_aborting 有机会打断。
-            std::unique_lock<std::mutex> lk(state.mu);
-            while (!agent_aborting.load() &&
-                   (state.confirm_pending || state.ask_pending)) {
-                state.overlay_cv.wait_for(lk, std::chrono::milliseconds(100));
-            }
-            if (agent_aborting.load()) return PermissionResult::Deny;
-            state.confirm_pending = true;
-            state.confirm_tool_name = tool_name;
-            state.confirm_tool_args = args;
-            state.confirm_remote_session_id.clear();
-            state.confirm_remote_request_id.clear();
-            state.confirm_origin_label.clear();
-            // 每次新确认都把焦点复位到 "No",避免上一次留下的焦点泄漏到下一次,
-            // 同时安全的默认是 Deny —— 用户随手 Enter 不会误授权。
-            state.confirm_focus = acecode::tui::confirm_default_focus(tool_name, args);
-        }
-        screen.PostEvent(Event::Custom);
-
-        // Block the agent thread until the user responds in the TUI (or abort)
-        std::unique_lock<std::mutex> lk(state.mu);
-        state.confirm_cv.wait(lk, [&state, &agent_aborting] {
-            return !state.confirm_pending || agent_aborting.load();
-        });
-        if (agent_aborting.load()) return PermissionResult::Deny;
-        return state.confirm_result;
-    };
-    callbacks.on_delta = [&state, &viewport,
-                          &last_keyboard_input_at_ms, redraw_pacer,
-                          &request_scheduled_redraw](
-                             const std::string& token) {
-        {
-            std::lock_guard<std::mutex> lk(state.mu);
-            // Find or create the streaming assistant message
-            if (state.conversation.empty() ||
-                state.conversation.back().role != "assistant" ||
-                state.conversation.back().is_tool) {
-                state.conversation.push_back({"assistant", "", false});
-            }
-            state.conversation.back().content += token;
-            state.streaming_output_chars += token.size();
-            viewport.clamp_focus(state);
-        }
-        const std::int64_t now_ms = tui::monotonic_milliseconds();
-        const bool keyboard_input_recent =
-            acecode::tui::is_keyboard_input_recent(
-                now_ms,
-                last_keyboard_input_at_ms.load(std::memory_order_acquire));
-        request_scheduled_redraw(
-            acecode::tui::select_streaming_redraw_interval_ms(
-                keyboard_input_recent,
-                redraw_pacer->last_frame_latency_ms()));
-    };
-    // Attach summary/display_override to the two most-recent TUI messages
-    // (the trailing tool_call row and tool_result row that on_message just
-    // appended) so the renderer can switch to the single-line summary mode.
-    callbacks.on_tool_result = [&state, &screen, &viewport](
-                                                 const ChatMessage& call_msg,
-                                                 const std::string& tool_name,
-                                                 const ToolResult& result) {
-        std::lock_guard<std::mutex> lk(state.mu);
-        // Walk the tail backwards: most recent tool_result gets `summary` +
-        // `hunks`, the nearest preceding tool_call gets `display_override`.
-        // Both were just pushed by `on_message` on the agent worker thread.
-        for (auto it = state.conversation.rbegin(); it != state.conversation.rend(); ++it) {
-            if (it->role == "tool_result" && !it->summary.has_value() &&
-                !it->ask_result) {
-                it->summary = result.summary;
-                it->hunks = result.hunks;
-                it->ask_result = tool_name == "AskUserQuestion";
-                const int index = static_cast<int>(
-                    state.conversation.size() - 1 -
-                    static_cast<std::size_t>(
-                        it - state.conversation.rbegin()));
-                viewport.invalidate(index);
-                break;
-            }
-        }
-        if (!call_msg.display_override.empty()) {
-            for (auto it = state.conversation.rbegin(); it != state.conversation.rend(); ++it) {
-                if (it->role == "tool_call" && it->display_override.empty()) {
-                    it->display_override = call_msg.display_override;
-                    break;
-                }
-            }
-        }
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_usage = [&token_tracker, &state, &config, &screen](const TokenUsage& usage) {
-        token_tracker.record(usage);
-        std::lock_guard<std::mutex> lk(state.mu);
-        state.token_status = token_tracker.format_status(config.context_window);
-        state.token_percent = token_tracker.context_percent(config.context_window);
-        state.cache_hit_percent = token_tracker.cache_hit_percent();
-        // 心跳读数走回合累计:本请求的 completion_tokens 入账,同时清零流式
-        // 估算基数(该请求的 delta 已计入确认值,不清会双重计数)。
-        state.turn_completion_tokens_confirmed += usage.completion_tokens;
-        state.streaming_output_chars = 0;
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_goal_status = [&state, &screen](const std::string& status) {
-        std::lock_guard<std::mutex> lk(state.mu);
-        state.goal_status = status;
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_todo_updated = [&state, &screen](const nlohmann::json& payload) {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (payload.is_object() && payload.contains("todos")) {
-            state.todos = todo_items_from_json(payload["todos"]);
-        } else {
-            state.todos.clear();
-        }
-        screen.PostEvent(Event::Custom);
-    };
-    // 工具前言(add-tool-preamble):当前阶段的前言(<text_preamble> 标签正文 /
-    // 推理加粗标题)替换等待动画短语;只在等待期显示,不进 transcript。
-    callbacks.on_thinking_title = [&state, &screen](const std::string& title) {
-        if (title.empty()) return;
-        std::lock_guard<std::mutex> lk(state.mu);
-        state.current_thinking_phrase = title;
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_transcript_replace = [&state, &viewport, &screen](
-        const std::vector<ChatMessage>& /*messages*/,
-        const CompactResult& result) {
-        if (!result.performed || result.summary_text.empty()) {
-            return;
-        }
-        std::lock_guard<std::mutex> lk(state.mu);
-        state.conversation.push_back({"system", "--- [Compact Checkpoint] ---", false});
-        state.conversation.push_back({"system", "[Conversation summary]\n" + result.summary_text, false});
-        viewport.reset(state);
-        state.chat_follow_tail = true;
-        viewport.clamp_focus(state);
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_stream_retry_reset = [&state, &viewport, &screen,
-                                       &tui_turn_assistant_text]() {
-        std::lock_guard<std::mutex> lk(state.mu);
-        if (!state.conversation.empty() &&
-            state.conversation.back().role == "assistant" &&
-            !state.conversation.back().is_tool) {
-            state.conversation.pop_back();
-        }
-        tui_turn_assistant_text.clear();
-        state.streaming_output_chars = 0;
-        viewport.clamp_focus(state);
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_model_retry = [&state, &screen](
-                                   const ProviderErrorInfo& info) {
-        std::lock_guard<std::mutex> lk(state.mu);
-        state.current_thinking_phrase =
-            acecode::tui::model_retry_wait_phrase(
-                tui::is_user_chinese(state), info.retry_delay_ms);
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_model_retry_resume = [&state, &screen]() {
-        std::lock_guard<std::mutex> lk(state.mu);
-        state.current_thinking_phrase =
-            acecode::tui::model_retry_resume_phrase(tui::is_user_chinese(state));
-        screen.PostEvent(Event::Custom);
-    };
-    callbacks.on_turn_finished = [&state, &tui_turn_outcome](
-                                     const std::string& status) {
-        std::lock_guard<std::mutex> lk(state.mu);
-        tui_turn_outcome = status;
-    };
+    tui::TurnObservation turn_observation;
+    std::function<void(const std::string&, std::string)> start_tui_auto_title_attempt;
+    void* tui_notification_window = nullptr;
+    bool tui_notifications_ready = false;
+    tui::TuiOverlayGate overlay_gate(state, screen_host, agent_aborting);
+    tui::TuiTurnLifecycle turn_lifecycle(state, screen_host, viewport, input_turn,
+        session_manager, config, turn_observation, start_tui_auto_title_attempt,
+        tui_notifications_ready, tui_notification_window);
+    tui::TuiAgentBridge agent_bridge(state, screen_host, viewport, token_tracker,
+        config, turn_observation);
+    auto callbacks = agent_bridge.initial_callbacks();
+    callbacks.on_tool_confirm = overlay_gate.confirm_callback();
 
     PermissionManager permissions;
     configure_tui_default_permissions(permissions, dangerous_mode, config.default_permission_mode);
 
     AgentLoop agent_loop(provider_accessor, tools, callbacks, working_dir, permissions);
+    input_turn.attach(agent_loop);
+    overlay_gate.attach(agent_loop);
+    turn_lifecycle.attach(agent_loop);
     agent_loop.set_tool_capability_policy(
         mcp_scope_policy(&config, working_dir, std::nullopt, &mcp_manager, &tools));
     // TUI 侧的 AskUserQuestion 传输。接上之后任何工具都能向用户提问
@@ -1190,7 +945,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     }
 
     // ---- Session manager ----
-    SessionManager session_manager;
     {
         auto p = provider_accessor();
         const std::string provider_name = p ? p->name() : std::string{};
@@ -1230,8 +984,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             if (thread.joinable()) thread.join();
         }
     };
-    std::function<void(const std::string&, std::string)>
-        start_tui_auto_title_attempt;
     start_tui_auto_title_attempt =
         [&](const std::string& session_id, std::string text) {
         if (tui_title_shutting_down.load() ||
@@ -1304,7 +1056,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
             }
         });
     };
-    auto maybe_start_tui_auto_title = [&](const UserInput& input) {
+    maybe_start_tui_auto_title = [&](const UserInput& input) {
         if (!config.session_title.enabled) return;
         std::string text = visible_auto_title_input(input);
         if (text.empty()) return;
@@ -1317,89 +1069,12 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
         if (!attempt_text.has_value()) return;
         start_tui_auto_title_attempt(session_id, std::move(*attempt_text));
     };
-    callbacks.on_turn_finished =
-        [&state, &tui_turn_outcome, &session_manager,
-         &start_tui_auto_title_attempt](const std::string& status) {
-        {
-            std::lock_guard<std::mutex> lk(state.mu);
-            tui_turn_outcome = status;
-        }
-        const std::string session_id = session_manager.current_session_id();
-        auto retry = session_manager.mark_auto_title_turn_finished(status);
-        if (retry.has_value() && !session_id.empty()) {
-            start_tui_auto_title_attempt(session_id, std::move(*retry));
-        }
-    };
+    callbacks.on_turn_finished = turn_lifecycle.title_finished_callback();
     agent_loop.set_callbacks(callbacks);
-    auto resolve_tui_model = [&config](const std::string& name) {
-        auto snapshot = std::make_shared<AppConfig>(config);
-        SessionModelResolvedTarget target;
-        target.revision = current_saved_models_revision();
-        target.config = snapshot;
-        const auto found = std::find_if(
-            snapshot->saved_models.begin(), snapshot->saved_models.end(),
-            [&name](const ModelProfile& profile) {
-                return profile.name == name;
-            });
-        if (found != snapshot->saved_models.end()) {
-            target.profile = *found;
-            target.state = session_model_state_from_profile(*snapshot, *found);
-        }
-        return target;
-    };
-    auto apply_tui_model_transition =
-        [&config, &agent_loop, &session_manager](
-            const SessionModelState& model_state,
-            const SessionModelTransition& transition) {
-            if (model_state.context_window > 0) {
-                config.context_window = model_state.context_window;
-                agent_loop.set_context_window(model_state.context_window);
-            }
-            if (!transition.provider_published &&
-                !transition.selection_changed) {
-                return true;
-            }
-            try {
-                return session_manager.set_active_provider(
-                    model_state.provider,
-                    model_state.model,
-                    model_state.name);
-            } catch (...) {
-                return false;
-            }
-        };
-    std::function<void(const UserInput&)> submit_tui_input =
-        [&](const UserInput& input) {
-            const auto reload = model_binding.ensure_current(
-                false,
-                [] { return current_saved_models_revision(); },
-                resolve_tui_model,
-                apply_tui_model_transition);
-            std::string reload_notice;
-            if (!reload.ok) {
-                LOG_WARN("[tui] model profile reload failed; using current provider");
-                reload_notice =
-                    "Warning: model profile reload failed; continuing with the current provider.";
-            } else if (!reload.warning.empty()) {
-                reload_notice = "Warning: " + reload.warning;
-            }
-            if (!reload_notice.empty()) {
-                screen.Post([&state, reload_notice] {
-                    std::lock_guard<std::mutex> lock(state.mu);
-                    state.conversation.push_back(
-                        {"system", reload_notice, false});
-                    state.chat_follow_tail = true;
-                });
-            }
-            maybe_start_tui_auto_title(input);
-            agent_loop.submit(input);
-        };
-    auto submit_tui_text = [&](const std::string& text,
-                               const std::string& display_text = std::string{}) {
-        UserInput input;
-        input.text = text;
-        input.display_text = display_text;
-        submit_tui_input(input);
+    auto submit_tui_input = input_turn.callback();
+    auto submit_tui_text = [&input_turn](const std::string& text,
+                                       const std::string& display = std::string{}) {
+        input_turn.submit_text(text, display);
     };
 
     // ---- 子代理宿主(spawn_subagent / wait_subagent)----
@@ -1641,12 +1316,23 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     CommandRegistry cmd_registry;
     tui::register_slash_commands(cmd_registry, skill_registry, config, working_dir);
 
+    // Assigned after the chat input component is built, when the sibling
+    // Settings and Capability Management roots exist. Slash-command dispatch
+    // captures these stable function objects by reference.
+    std::function<bool(const std::string&, std::string&)>
+        open_settings_surface;
+    std::function<bool(const std::string&, std::string&)>
+        open_management_surface;
+
+    tui::TuiCommandContextFactory input_commands(state, agent_loop, model_binding,
+        config, token_tracker, permissions, screen_host, session_manager, mcp_manager,
+        tools, skill_registry, memory_registry, cmd_registry, working_dir, input_turn,
+        &subagent_host, open_settings_surface, open_management_surface);
+
     // Windows TUI notification setup. The backend (OS toast or the self-drawn
     // renderer) is picked inside init_notifications; either way session
     // mutations stay on the FTXUI thread because activation callbacks only
     // enqueue a main-loop task.
-    void* tui_notification_window = nullptr;
-    bool tui_notifications_ready = false;
 #ifdef _WIN32
     if (config.desktop.notifications.enabled &&
         config.desktop.notifications.on_completion) {
@@ -1665,27 +1351,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                     if (session_id.empty()) return;
                     screen.Post([&, session_id] {
                         if (session_manager.current_session_id() != session_id) {
-                            CommandContext ctx{
-                                state,
-                                agent_loop,
-                                &model_binding,
-                                config,
-                                token_tracker,
-                                permissions,
-                            };
-                            ctx.request_exit = [&screen]() { screen.Exit(); };
-                            ctx.session_manager = &session_manager;
-                            ctx.post_event = [&screen]() {
-                                screen.PostEvent(Event::Custom);
-                            };
-                            ctx.mcp_manager = &mcp_manager;
-                            ctx.tools = &tools;
-                            ctx.skills = &skill_registry;
-                            ctx.memory = &memory_registry;
-                            ctx.command_registry = &cmd_registry;
-                            ctx.cwd = working_dir;
-                            ctx.subagent_host = &subagent_host;
-                            ctx.submit_user_input = submit_tui_input;
+                            auto ctx = input_commands.make(false);
                             resume_session_by_id(ctx, session_id);
                         }
                         {
@@ -1704,199 +1370,19 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
 #endif
 
     if (resume_picker_on_startup) {
-        CommandContext cmd_ctx{
-            state, agent_loop, &model_binding,
-            config, token_tracker,
-            permissions,
-            [&screen]() { screen.Exit(); },
-            &session_manager,
-            [&screen]() { screen.PostEvent(Event::Custom); },
-            &mcp_manager,
-            &tools,
-            &skill_registry,
-            &memory_registry,
-            &cmd_registry,
-            working_dir,
-            &subagent_host,
-            submit_tui_input
-        };
+        auto cmd_ctx = input_commands.make(false);
         cmd_registry.dispatch("/resume", cmd_ctx);
     }
 
     // --- Tool progress callbacks (streaming-tool-progress change) ---
-    callbacks.on_tool_progress_start = [&state, &screen](
-        const std::string& tool_name, const std::string& cmd_preview,
-        const std::string& preamble) {
-        {
-            std::lock_guard<std::mutex> lk(state.mu);
-            state.tool_running = true;
-            state.tool_progress = {};
-            state.tool_progress.tool_name = tool_name;
-            state.tool_progress.command_preview = cmd_preview;
-            state.tool_progress.preamble = preamble;
-            state.tool_progress.start_time = std::chrono::steady_clock::now();
-            state.last_tool_post_event_time = std::chrono::steady_clock::now();
-        }
-        screen.PostEvent(Event::Custom);
-    };
+    agent_bridge.install_progress_callbacks(callbacks);
 
-    callbacks.on_tool_progress_update = [&state, &screen](
-        const std::vector<std::string>& tail_snapshot,
-        const std::string& current_partial,
-        size_t total_bytes, int total_lines) {
-        bool should_post = false;
-        {
-            std::lock_guard<std::mutex> lk(state.mu);
-            state.tool_progress.tail_lines = tail_snapshot;
-            state.tool_progress.current_partial = current_partial;
-            state.tool_progress.total_bytes = total_bytes;
-            state.tool_progress.total_lines = total_lines;
-            auto now = std::chrono::steady_clock::now();
-            if (now - state.last_tool_post_event_time > std::chrono::milliseconds(150)) {
-                state.last_tool_post_event_time = now;
-                should_post = true;
-            }
-        }
-        if (should_post) screen.PostEvent(Event::Custom);
-    };
 
-    callbacks.on_tool_progress_end = [&state, &screen]() {
-        {
-            std::lock_guard<std::mutex> lk(state.mu);
-            state.tool_running = false;
-            state.tool_progress = {};
-        }
-        // Unconditional PostEvent so the live element disappears immediately.
-        screen.PostEvent(Event::Custom);
-    };
+
+
 
     // Now that agent_loop exists, update on_busy_changed to drain pending queue
-    callbacks.on_busy_changed = [&state, &viewport, &screen,
-                                 &coordinate_mcp_before_first_turn,
-                                 &submit_tui_input, &submit_tui_text,
-                                 &tui_turn_assistant_text, &tui_turn_outcome,
-                                 &session_manager,
-                                 &config, tui_notifications_ready,
-                                 tui_notification_window](bool busy) {
-        acecode::note_process_session_busy("tui-main", busy);
-        std::unique_lock<std::mutex> lk(state.mu);
-        if (busy && !state.is_waiting) {
-            tui_turn_assistant_text.clear();
-            tui_turn_outcome.clear();
-            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-            state.thinking_start_time = std::chrono::steady_clock::now();
-            state.streaming_output_chars = 0;
-            state.turn_completion_tokens_confirmed = 0;
-        }
-        const bool was_waiting = state.is_waiting;
-        state.is_waiting = busy;
-        if (!busy) state.is_compacting = false;
-        std::optional<acecode::desktop::NotifyPayload> completion_notification;
-        // inline-thinking-heartbeat:回合正常收尾时追加显示端伪行
-        // "● Done for Ns"(只进 state.conversation,不进 LLM context、不进
-        // session JSONL,resume 后自然消失)。用户 Esc/Ctrl+C 中断的回合与
-        // <1s 的瞬时回合不追加(前者已有中断反馈,后者纯噪音)。中断标记
-        // 无论是否追加都在此消费复位。
-        if (was_waiting && !busy) {
-            const bool interrupted = state.turn_interrupted_by_user;
-            state.turn_interrupted_by_user = false;
-            if (tui::should_notify_turn_completion(
-                    interrupted, tui_turn_outcome, tui_notifications_ready,
-                    !tui_turn_assistant_text.empty(), config.desktop.notifications.enabled,
-                    config.desktop.notifications.on_completion) &&
-                !(config.desktop.notifications.suppress_when_focused &&
-                  acecode::desktop::notification_window_is_foreground(
-                      tui_notification_window))) {
-                const std::string session_id =
-                    session_manager.current_session_id();
-                if (!session_id.empty()) {
-                    completion_notification =
-                        acecode::desktop::build_completion_notification(
-                            session_id,
-                            std::string{},
-                            state.current_session_title,
-                            tui_turn_assistant_text);
-                }
-            }
-            tui_turn_assistant_text.clear();
-            tui_turn_outcome.clear();
-            if (!interrupted &&
-                state.thinking_start_time.time_since_epoch().count() != 0) {
-                const auto done_secs = tui::turn_done_seconds(
-                    state.thinking_start_time, std::chrono::steady_clock::now());
-                if (done_secs) {
-                    state.conversation.push_back({"turn_done",
-                        "Done for " + std::to_string(*done_secs) + "s", false});
-                    if (state.drag_scrollbar_phase ==
-                        TuiState::DragScrollbarPhase::Idle) {
-                        state.chat_follow_tail = true;
-                    }
-                    viewport.clamp_focus(state);
-                }
-            }
-        }
-        // remote-control 出站:回合结束时把游标之后新增的 assistant 文本逐条
-        // 转发给 IM 桥。挂在回合结束而不是 on_message:流式期间 assistant 气泡
-        // 原地增量更新,逐 delta 转发会把半截文本刷给 IM。游标语义见 hub 注释。
-        if (!busy) {
-            auto& rc_hub = acecode::rc::remote_control_service().hub();
-            if (rc_hub.enabled()) {
-                std::size_t cursor = rc_hub.forward_cursor();
-                // /clear 会缩短 conversation,游标越界时收口,避免越界读。
-                if (cursor > state.conversation.size()) {
-                    cursor = state.conversation.size();
-                }
-                for (std::size_t i = cursor; i < state.conversation.size(); ++i) {
-                    const auto& m = state.conversation[i];
-                    if (m.role == "assistant" && !m.is_tool) {
-                        rc_hub.notify_assistant_text(m.content);
-                    }
-                }
-                rc_hub.set_forward_cursor(state.conversation.size());
-            }
-        }
-        if (!busy && !state.pending_queue.empty()) {
-            std::string next_prompt = state.pending_queue.front();
-            state.pending_queue.erase(state.pending_queue.begin());
-            UserInput next_input;
-            bool has_structured_input = false;
-            if (!state.pending_structured_queue.empty() &&
-                state.pending_structured_queue.front().display_text == next_prompt) {
-                next_input = state.pending_structured_queue.front();
-                state.pending_structured_queue.pop_front();
-                has_structured_input = true;
-            }
-            state.conversation.push_back({"user", next_prompt, false});
-            // draggable-thick-scrollbar: 用户主动拖滚动条时不要被 worker 线程
-            // 强行拽回尾巴 —— 让用户看着自己挑的位置,直到他自己释放鼠标。
-            // 拖到底的情况由 clamp_chat_focus 内部 (idx == last) 分支自然恢复。
-            if (state.drag_scrollbar_phase ==
-                TuiState::DragScrollbarPhase::Idle) {
-                state.chat_follow_tail = true;
-            }
-            viewport.clamp_focus(state);
-            state.current_thinking_phrase = tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-            state.thinking_start_time = std::chrono::steady_clock::now();
-            state.streaming_output_chars = 0;
-            state.turn_completion_tokens_confirmed = 0;
-            state.is_waiting = true;
-            lk.unlock();
-            coordinate_mcp_before_first_turn();
-            lk.lock();
-            if (has_structured_input) {
-                submit_tui_input(next_input);
-            } else {
-                submit_tui_text(next_prompt);
-            }
-        }
-        lk.unlock();
-        if (completion_notification.has_value()) {
-            screen.Post([payload = std::move(*completion_notification)] {
-                acecode::desktop::show_notification(payload);
-            });
-        }
-        screen.PostEvent(Event::Custom);
-    };
+    callbacks.on_busy_changed = turn_lifecycle.busy_callback();
     agent_loop.set_callbacks(callbacks);
 
     // remote-control 入站:IM 桥经 loopback HTTP 送来的文本走输入框同款提交
@@ -1913,12 +1399,7 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
                 state.conversation.push_back({"user", text, false});
                 state.chat_follow_tail = true;
                 viewport.clamp_focus(state);
-                state.current_thinking_phrase =
-                    tui::get_random_thinking_phrase(tui::is_user_chinese(state));
-                state.thinking_start_time = std::chrono::steady_clock::now();
-                state.streaming_output_chars = 0;
-                state.turn_completion_tokens_confirmed = 0;
-                state.is_waiting = true;
+                tui::begin_user_turn_locked(state, tui::UserTurnPhrase::Random, tui::WaitingUpdate::SetTrue);
                 lk.unlock();
                 coordinate_mcp_before_first_turn();
                 lk.lock();
@@ -2091,47 +1572,6 @@ static int run_interactive_app(const InteractiveCliOptions& cli,
     // component_active=false and cursor_shape=Hidden).
     auto input_renderer = tui::make_composer_input(state, input_hit_layout);
 
-    // Assigned after the chat input component is built, when the sibling
-    // Settings and Capability Management roots exist. Slash-command dispatch
-    // captures these stable function objects by reference.
-    std::function<bool(const std::string&, std::string&)>
-        open_settings_surface;
-    std::function<bool(const std::string&, std::string&)>
-        open_management_surface;
-
-    tui::TuiInputTurnBinding input_turn(agent_loop, submit_tui_input, coordinate_mcp_before_first_turn);
-    tui::TuiInputCommandBinding input_commands([&](bool) {
-        return CommandContext{
-                    state, agent_loop, &model_binding,
-                    config, token_tracker,
-                    permissions,
-                    [&screen]() { screen.Exit(); },
-                    &session_manager,
-                    [&screen]() { screen.PostEvent(Event::Custom); },
-                    &mcp_manager,
-                    &tools,
-                    &skill_registry,
-                    &memory_registry,
-                    &cmd_registry,
-                    working_dir,
-                    &subagent_host,
-                    submit_tui_input,
-                    [&state](const std::string& command_name) {
-                        const auto write_result =
-                            record_tui_slash_command_use(command_name);
-                        std::lock_guard<std::mutex> usage_lock(state.mu);
-                        auto& cached =
-                            state.slash_command_usage_counts[command_name];
-                        if (cached <
-                            (std::numeric_limits<std::uint64_t>::max)()) {
-                            ++cached;
-                        }
-                        cached = std::max(cached, write_result.count);
-                    },
-                    open_settings_surface,
-                    open_management_surface
-                };
-    });
     tui::TuiClipboard input_clipboard;
     tui::TuiInputContext input_context{
         state, screen_host, viewport, geometry, cmd_registry, input_turn, input_commands,

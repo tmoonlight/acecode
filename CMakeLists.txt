@@ -243,8 +243,9 @@ set(ACECODE_TUI_TESTABLE_SUBSETS
     overlays/list_picker_input.cpp
     input/chat_keys.cpp input/event_prelude.cpp input/control_keys.cpp
     input/composer_pointer.cpp input/mouse_router.cpp app/tui_event_router.cpp
+    app/tui_command_context_factory.cpp app/tui_overlay_gate.cpp
     composer/paste.cpp composer/suggestions.cpp composer/pending_attachment.cpp
-    composer/input_component.cpp model/input_state.cpp
+    composer/input_component.cpp model/input_state.cpp model/user_turn_state.cpp
     composer/edit_keys.cpp composer/submit.cpp composer/clipboard_keys.cpp)
 set(ACECODE_TUI_SOURCES)
 foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
