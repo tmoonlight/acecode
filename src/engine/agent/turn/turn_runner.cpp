@@ -1,4 +1,7 @@
 #include "agent/agent_loop.hpp"
+#include "agent/hook_bridge/agent_hook_bridge.hpp"
+#include "agent/goal/goal_runtime.hpp"
+#include "agent/approval/session_exec_security.hpp"
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "computer_use/session_lease.hpp"
@@ -70,10 +73,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         computer_use_release_);
     // P0-11:进度节流的取时函数在回合开始时按值捕获,回合内不再读取可配置成员。
     turn_progress_clock_ = progress_clock_;
-    {
-        std::lock_guard<std::mutex> lock(sandbox_prompt_mutex_);
-        sandbox_prompt_snapshot_.reset();
-    }
+    exec_security_->reset_prompt_snapshot();
     // 「编辑项目」保存的附加文件夹:每回合开头重读,放在沙盒描述快照之前,
     // 本回合的系统提示与可写根一致且回合内不变(prompt cache 前缀稳定)。
     refresh_workspace_folders();
@@ -86,8 +86,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     restore_goal_runtime();
     // 上一回合没来得及消费的 steering 标记直接丢弃(等价 Codex
     // inject_if_running 在无活动回合时静默跳过)。
-    pending_goal_budget_limit_steering_.store(false);
-    pending_goal_objective_steering_.store(false);
+    goal_->begin_turn();
     active_turn_swarm_mode_ = false;
 
     if (!hidden_goal_context && hook_manager_) {
@@ -254,40 +253,8 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         events_.emit(SessionEventKind::AgentProgress, std::move(payload), opts);
     };
 
-    auto append_stop_continuation = [&](const std::string& prompt) {
-        if (prompt.empty()) return;
-        ChatMessage msg;
-        msg.role = "user";
-        msg.content = prompt;
-        msg.metadata = nlohmann::json{
-            {"hidden_hook_stop_continuation", true},
-            {"hidden_goal_context", true},
-        };
-        ensure_user_message_identity(msg);
-        history_->append(msg);
-        if (session_manager_) session_manager_->on_message(msg);
-    };
-
     auto maybe_continue_from_stop_hook = [&](const std::string& last_assistant_message) {
-        if (!hook_manager_) return false;
-        auto fields = build_hook_common_fields(kCodexHookEventStop);
-        auto payload = build_stop_hook_payload(
-            fields, stop_hook_active_, last_assistant_message);
-        auto outcome = dispatch_codex_hook(kCodexHookEventStop, std::string{}, payload);
-        apply_hook_side_effects(outcome);
-        if (outcome.continue_false) {
-            stop_hook_active_ = false;
-            return false;
-        }
-        if ((outcome.blocked || outcome.denied) &&
-            !stop_hook_active_ &&
-            !outcome.reason.empty()) {
-            stop_hook_active_ = true;
-            append_stop_continuation(outcome.reason);
-            return true;
-        }
-        stop_hook_active_ = false;
-        return false;
+        return hooks_->continue_from_stop(hook_manager_, session_manager_, last_assistant_message);
     };
 
     int model_step_index = 0;

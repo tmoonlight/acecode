@@ -1,4 +1,9 @@
 #include "agent/agent_loop.hpp"
+#include "agent/hook_bridge/tool_hook_bridge.hpp"
+#include "agent/hook_bridge/agent_hook_bridge.hpp"
+#include "agent/goal/goal_runtime.hpp"
+#include "agent/approval/session_exec_security.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/transcript/trajectory_recorder.hpp"
@@ -43,14 +48,19 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , transcript_(std::make_unique<agent::TranscriptWriter>(
           *history_, events_, callbacks_, *turn_outcome_))
     , active_provider_slot_(std::make_unique<agent::ActiveProviderSlot>())
-    , cwd_(cwd)
+    , boundary_(std::make_unique<agent::WorkspaceBoundary>(cwd, permissions))
+    , exec_security_(std::make_unique<agent::SessionExecSecurity>(*boundary_, permissions, busy_))
     , permissions_(permissions)
-    , path_validator_(cwd, permissions.is_dangerous())
     , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))
     , task_handoff_(std::make_unique<agent::TaskHandoff>(*task_queue_))
+    , hooks_(std::make_unique<agent::AgentHookBridge>(*boundary_, permissions,
+          provider_accessor_, *transcript_, *history_))
+    , tool_hooks_(std::make_unique<agent::ToolHookBridge>(*hooks_))
+    , goal_(std::make_unique<agent::GoalRuntime>(*task_queue_, *history_, *transcript_,
+          events_, callbacks_, permissions, busy_, abort_signal_))
 {
     reload_exec_rules();
     worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);
@@ -61,17 +71,16 @@ AgentLoop::~AgentLoop() {
 }
 
 void AgentLoop::set_cwd(const std::string& new_cwd) {
-    cwd_ = new_cwd;
-    path_validator_ = PathValidator(new_cwd, permissions_.is_dangerous());
+    boundary_->set_cwd(new_cwd);
     // cwd 变了(EnterWorktree/ExitWorktree),旧 gitStatus 快照作废,
     // 下一次模型请求按新 cwd 重采(openspec add-git-context)。
     git_snapshot_cache_.reset();
     permissions_.clear_session_allows();
-    sandbox_runtime_.clear_session_grants();
-    last_sandbox_violation_.reset();
+    exec_security_->runtime().clear_session_grants();
+    exec_security_->set_feedback(std::nullopt);
     reload_exec_rules();
     // 进出 worktree 会改变写边界,可写附加文件夹随之重算。
-    sandbox_runtime_.set_workspace_writable_roots(writable_workspace_folders());
+    exec_security_->runtime().set_workspace_writable_roots(writable_workspace_folders());
 }
 
 ResolvedQuestionPolicy AgentLoop::resolved_question_policy() const {

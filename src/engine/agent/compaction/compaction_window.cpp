@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/compaction/compact.hpp"
@@ -148,7 +149,7 @@ void AgentLoop::apply_compact_result(
             store.propose_continuation(
                 source_id, session_manager_->load_active_messages(),
                 static_cast<std::uint64_t>(threshold),
-                {{"source_working_cwd", cwd_}}, &error);
+                {{"source_working_cwd", boundary_->cwd()}}, &error);
             if (!error.empty()) LOG_WARN("[task-suggestion] " + error);
         }
     }

@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
 #include "permissions/interaction_mode.hpp"
@@ -29,7 +30,7 @@ using agent::detail::build_session_scratch_dir;
 
 ToolContext AgentLoop::build_tool_context() {
     ToolContext tool_ctx;
-    tool_ctx.cwd = cwd_;
+    tool_ctx.cwd = boundary_->cwd();
     tool_ctx.write_root = write_root();
     tool_ctx.abort_flag = &abort_signal_.flag_for_legacy_api();
     tool_ctx.session_manager = session_manager_;
@@ -46,7 +47,7 @@ ToolContext AgentLoop::build_tool_context() {
             ? project_dir : project_dir.substr(cut + 1);
     }
     tool_ctx.skill_registry = skill_registry_;
-    tool_ctx.scratch_dir = build_session_scratch_dir(cwd_, session_manager_);
+    tool_ctx.scratch_dir = build_session_scratch_dir(boundary_->cwd(), session_manager_);
     tool_ctx.preserve_full_output = true;
     tool_ctx.capability_policy = tool_capability_policy_;
     // 模型身份在回合内固定(切换只发生在回合边界),所以在这里取一次快照即可。

@@ -120,7 +120,7 @@
     - `agent_loop_trajectory_test`、`agent_loop_session_summary_event_test`、turn_steering 中的重试用例、`session_resume_restore_test`、`builtin_commands_test`(/clear)、termination(消息 id 与 JSONL 重读一致)、thread_service 相关测试通过;
     - 新增 `conversation_history` 单测;
     - R11 检查显示 `messages_` 的写入只出现在 `transcript/conversation_history.cpp`。
-- [ ] 3.3 【A-08】【主】低耦合协作类。
+- [ ] 3.3 【A-08】【主】低耦合协作类。〔实现完成: Codex-root 2026-09-28;GoalRuntime/AgentHookBridge/ToolHookBridge/WorkspaceBoundary/SessionExecSecurity 已接入,游标与请求上下文使用叶子锁,审批作用域保留异常语义,线程归属表与并发/重入/析构用例待统一验收〕
   - `GoalRuntime`:叶子锁,只保护游标;`maybe_continue` 在锁外读取;线程归属表登记从并行只读线程进入的入口;
   - `AgentHookBridge`:request context 队列加锁 swap-drain,`stop_hook_active_` 保持跨回合;
   - `ToolHookBridge`:`PermissionHookSession` 做成 RAII;

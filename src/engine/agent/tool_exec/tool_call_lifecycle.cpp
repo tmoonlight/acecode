@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/hook_bridge/tool_hook_bridge.hpp"
 #include "agent/tool_exec/tool_stream_progress.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
@@ -47,59 +48,8 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
     auto preamble_for_call = [&step_preamble](const ToolCall&, std::size_t) {
         return step_preamble.title;
     };
-    if (hook_manager_) {
-        auto fields = build_hook_common_fields(kCodexHookEventPreToolUse);
-        auto payload = build_tool_hook_payload(
-            fields,
-            tc.function_name,
-            parse_tool_args_for_permission_payload(tc.function_arguments));
-        auto outcome = dispatch_codex_hook(
-            kCodexHookEventPreToolUse, tc.function_name, payload);
-        apply_hook_side_effects(outcome);
-        if (outcome.updated_input.has_value()) {
-            const auto& updated = *outcome.updated_input;
-            tc.function_arguments = updated.is_string()
-                ? updated.get<std::string>()
-                : updated.dump();
-        }
-        if (outcome.denied || outcome.blocked) {
-            const std::string reason = outcome.reason.empty()
-                ? "Tool execution denied by hook."
-                : outcome.reason;
-            ToolResult denied_result{
-                "[Hook denied tool execution] " + reason, false};
-            if (session_manager_) {
-                nlohmann::json args_payload;
-                try {
-                    args_payload = nlohmann::json::parse(
-                        tc.function_arguments);
-                } catch (...) {
-                    args_payload = tc.function_arguments;
-                }
-                const auto timestamp_ms = now_epoch_ms();
-                session_manager_->record_trajectory_event(
-                    "tool_start",
-                    {{"tool", tc.function_name},
-                     {"args", args_payload},
-                     {"tool_call_id", tc.id},
-                     {"tool_index", static_cast<int>(tool_index)},
-                     {"started_at_ms", timestamp_ms}},
-                    timestamp_ms);
-                session_manager_->record_trajectory_event(
-                    "tool_end",
-                    {{"tool", tc.function_name},
-                     {"tool_call_id", tc.id},
-                     {"tool_index", static_cast<int>(tool_index)},
-                     {"success", false},
-                     {"output", denied_result.output},
-                     {"started_at_ms", timestamp_ms},
-                     {"completed_at_ms", timestamp_ms},
-                     {"duration_ms", 0},
-                     {"failure_stage", "pre_tool_hook"}},
-                    timestamp_ms);
-            }
-            return denied_result;
-        }
+    if (auto denied = tool_hooks_->before(hook_manager_, session_manager_, tc, tool_index)) {
+        return std::move(*denied);
     }
 
     std::string exec_path, exec_cmd;
@@ -278,28 +228,7 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
         LOG_ERROR("Tool lifecycle runner error: " + std::string(e.what()));
         result = ToolResult{"[Error] Tool execution failed: " + std::string(e.what()), false};
     }
-    if (hook_manager_) {
-        nlohmann::json response = {
-            {"success", result.success},
-            {"output", result.output},
-        };
-        auto fields = build_hook_common_fields(kCodexHookEventPostToolUse);
-        auto payload = build_tool_hook_payload(
-            fields,
-            tc.function_name,
-            parse_tool_args_for_permission_payload(tc.function_arguments),
-            response);
-        auto outcome = dispatch_codex_hook(
-            kCodexHookEventPostToolUse, tc.function_name, payload);
-        apply_hook_side_effects(outcome);
-        if (outcome.replacement_output.has_value()) {
-            result.output = *outcome.replacement_output;
-            if (outcome.blocked || outcome.continue_false) result.success = false;
-        } else if ((outcome.blocked || outcome.continue_false) && !outcome.reason.empty()) {
-            result.output = outcome.reason;
-            result.success = false;
-        }
-    }
+    tool_hooks_->after(hook_manager_, session_manager_, tc, result);
     materialize_result_attachments(result);
     mark_workspace_scratch_change(result, tool_ctx);
     if (session_manager_) {

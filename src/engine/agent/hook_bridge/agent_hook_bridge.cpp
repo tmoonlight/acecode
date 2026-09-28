@@ -1,37 +1,38 @@
-#include "agent/agent_loop.hpp"
-#include "agent/hook_bridge/hook_events.hpp"
-#include "hooks/hook_config.hpp"
-#include "hooks/hook_manager.hpp"
-#include "hooks/hook_runtime.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "session/system_notice.hpp"
-#include "session/turn_timing.hpp"
-#include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/uuid.hpp"
-#include "workspace/workspace_registry.hpp"
+#include "agent_hook_bridge.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
+#include "agent/hook_bridge/hook_events.hpp"
+#include "agent/transcript/conversation_history.hpp"
+#include "agent/transcript/transcript_writer.hpp"
+#include "hooks/hook_manager.hpp"
+#include "llm/llm_provider.hpp"
+#include "session/session_manager.hpp"
+#include "session/session_rewind.hpp"
+#include "session/system_notice.hpp"
+#include "utils/logger.hpp"
+
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-void AgentLoop::dispatch_assistant_completed_hook(
+HookCommonPayloadFields AgentHookBridge::common_fields(
+    const std::string& event, SessionManager* session) const {
+    return context_.fields(event, session);
+}
+
+void AgentHookBridge::clear_context() {
+    std::lock_guard<std::mutex> lock(context_mu_);
+    request_context_.clear();
+}
+
+void AgentHookBridge::assistant_completed(HookManager* manager, SessionManager* session,
     const ChatMessage& assistant_msg,
     const std::shared_ptr<LlmProvider>& provider_snapshot) {
-    if (!hook_manager_ || assistant_msg.role != "assistant") return;
+    if (!manager || assistant_msg.role != "assistant") return;
 
     std::string session_id;
-    if (session_manager_) {
-        session_id = session_manager_->current_session_id();
+    if (session) {
+        session_id = session->current_session_id();
     }
 
     std::string provider_name;
@@ -42,43 +43,24 @@ void AgentLoop::dispatch_assistant_completed_hook(
     }
 
     auto payload = build_assistant_message_completed_payload(
-        cwd_,
+        context_.cwd(),
         session_id,
         provider_name,
         model_name,
         assistant_msg);
-    hook_manager_->dispatch(kHookEventAssistantMessageCompleted, payload, cwd_);
+    manager->dispatch(kHookEventAssistantMessageCompleted, payload, context_.cwd());
 }
 
-HookCommonPayloadFields AgentLoop::build_hook_common_fields(
-    const std::string& event_name) const {
-    HookCommonPayloadFields fields;
-    fields.cwd = cwd_;
-    fields.hook_event_name = event_name;
-    fields.permission_mode = PermissionManager::mode_name(permissions_.mode());
-    if (session_manager_) {
-        fields.session_id = session_manager_->current_session_id();
-        if (!fields.session_id.empty()) {
-            fields.transcript_path = SessionStorage::session_path(
-                SessionStorage::get_project_dir(cwd_), fields.session_id);
-        }
-    }
-    if (provider_accessor_) {
-        auto provider = provider_accessor_();
-        if (provider) fields.model = provider->model();
-    }
-    return fields;
-}
-
-void AgentLoop::apply_hook_side_effects(const HookAggregateOutcome& outcome,
+void AgentHookBridge::apply(const HookAggregateOutcome& outcome,
                                         bool include_additional_context) {
     for (const auto& message : outcome.system_messages) {
-        if (!message.empty()) dispatch_message("system", "[Hook] " + message, false,
-            make_system_notice_metadata("hook_message", {{"text", message}}));
+        if (!message.empty()) transcript_.dispatch_message("system", "[Hook] " + message, false,
+            make_system_notice_metadata("hook_message", {{"text", message}}), nlohmann::json::array());
     }
     if (include_additional_context) {
+        std::lock_guard<std::mutex> lock(context_mu_);
         for (const auto& context : outcome.additional_context) {
-            if (!context.empty()) hook_request_context_.push_back(context);
+            if (!context.empty()) request_context_.push_back(context);
         }
     }
     for (const auto& diagnostic : outcome.diagnostics) {
@@ -89,49 +71,80 @@ void AgentLoop::apply_hook_side_effects(const HookAggregateOutcome& outcome,
     }
 }
 
-std::string AgentLoop::drain_hook_request_context() {
-    if (hook_request_context_.empty()) return {};
+std::string AgentHookBridge::drain_context() {
+    std::vector<std::string> pending;
+    {
+        std::lock_guard<std::mutex> lock(context_mu_);
+        pending.swap(request_context_);
+    }
+    if (pending.empty()) return {};
     std::ostringstream oss;
     oss << "<hook_context>\n";
-    for (const auto& context : hook_request_context_) {
+    for (const auto& context : pending) {
         if (!context.empty()) oss << context << "\n";
     }
     oss << "</hook_context>";
-    hook_request_context_.clear();
     return oss.str();
 }
 
-HookAggregateOutcome AgentLoop::dispatch_codex_hook(
+HookAggregateOutcome AgentHookBridge::dispatch(HookManager* manager,
     const std::string& event_name,
     const std::string& matcher_value,
     const nlohmann::json& payload) {
-    if (!hook_manager_) return {};
+    if (!manager) return {};
     HookDispatchRequest request;
     request.event_name = event_name;
     request.matcher_value = matcher_value;
-    request.cwd = cwd_;
+    request.cwd = context_.cwd();
     request.payload = payload.is_object() ? payload : nlohmann::json::object();
-    return hook_manager_->dispatch_codex(request);
+    return manager->dispatch_codex(request);
 }
 
-void AgentLoop::dispatch_session_start_hook(const std::string& source) {
-    if (!hook_manager_) return;
-    auto fields = build_hook_common_fields(kCodexHookEventSessionStart);
+void AgentHookBridge::session_start(HookManager* manager, SessionManager* session, const std::string& source) {
+    if (!manager) return;
+    auto fields = common_fields(kCodexHookEventSessionStart, session);
     auto payload = build_session_start_hook_payload(fields, source);
-    auto outcome = dispatch_codex_hook(kCodexHookEventSessionStart, source, payload);
-    apply_hook_side_effects(outcome);
+    auto outcome = dispatch(manager, kCodexHookEventSessionStart, source, payload);
+    apply(outcome);
 }
 
-void AgentLoop::dispatch_session_title_changed_hook(
+void AgentHookBridge::session_title_changed(HookManager* manager, SessionManager* session,
     const std::string& title,
     const std::string& source,
     const std::string& title_source) {
-    if (!hook_manager_) return;
-    auto fields = build_hook_common_fields(kCodexHookEventSessionTitleChanged);
+    if (!manager) return;
+    auto fields = common_fields(kCodexHookEventSessionTitleChanged, session);
     auto payload = build_session_title_changed_hook_payload(
         fields, title, source, title_source);
-    (void)dispatch_codex_hook(
+    (void)dispatch(manager,
         kCodexHookEventSessionTitleChanged, source, payload);
 }
 
-} // namespace acecode
+bool AgentHookBridge::continue_from_stop(
+    HookManager* manager, SessionManager* session, const std::string& last_assistant_message) {
+    if (!manager) return false;
+    auto fields = common_fields(kCodexHookEventStop, session);
+    auto payload = build_stop_hook_payload(fields, stop_active_, last_assistant_message);
+    auto outcome = dispatch(manager, kCodexHookEventStop, std::string{}, payload);
+    apply(outcome);
+    if (outcome.continue_false) {
+        stop_active_ = false;
+        return false;
+    }
+    if ((outcome.blocked || outcome.denied) && !stop_active_ && !outcome.reason.empty()) {
+        stop_active_ = true;
+        ChatMessage message;
+        message.role = "user";
+        message.content = outcome.reason;
+        message.metadata = nlohmann::json{
+            {"hidden_hook_stop_continuation", true}, {"hidden_goal_context", true}};
+        ensure_user_message_identity(message);
+        history_.append(message);
+        if (session) session->on_message(message);
+        return true;
+    }
+    stop_active_ = false;
+    return false;
+}
+
+} // namespace acecode::agent

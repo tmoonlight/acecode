@@ -1,47 +1,67 @@
-#include "agent/agent_loop.hpp"
-#include "agent/guards/doom_guard.hpp"
-#include "computer_use/runtime.hpp"
-#include "hooks/hook_manager.hpp"
-#include "hooks/hook_runtime.hpp"
-#include "pa/pa_context_budget.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "provider/text_tool_call_recovery.hpp"
-#include "sandbox/exec_permission.hpp"
-#include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "session/thread_goal_store.hpp"
-#include "session/token_tracker.hpp"
-#include "session/turn_timing.hpp"
-#include "skills/skill_registry.hpp"
-#include "skills/skill_usage_store.hpp"
-#include "utils/encoding.hpp"
-#include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/text.hpp"
-#include "workspace/workspace_registry.hpp"
+#include "session_exec_security.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
+#include "agent/boundary/workspace_boundary.hpp"
+#include "config/config.hpp"
+#include "session/session_manager.hpp"
+#include "utils/logger.hpp"
+#include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
+
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-std::string AgentLoop::global_exec_rules_dir() const {
-    if (!exec_rules_dir_override_.empty()) return exec_rules_dir_override_;
+void SessionExecSecurity::set_rules(sandbox::ExecRules rules) {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    rules_ = std::move(rules);
+}
+
+void SessionExecSecurity::set_rules_dir(std::string dir) {
+    { std::lock_guard<std::mutex> lock(state_mu_); rules_dir_ = std::move(dir); }
+    reload_exec_rules();
+}
+
+void SessionExecSecurity::set_audit_sink(security::AuditSink sink) {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    audit_sink_ = std::move(sink);
+}
+
+std::optional<sandbox::SandboxViolation> SessionExecSecurity::feedback() const {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    return feedback_;
+}
+
+void SessionExecSecurity::set_feedback(std::optional<sandbox::SandboxViolation> feedback) {
+    std::lock_guard<std::mutex> lock(state_mu_);
+    feedback_ = std::move(feedback);
+}
+
+void SessionExecSecurity::reset_prompt_snapshot() {
+    std::lock_guard<std::mutex> lock(prompt_mu_);
+    prompt_snapshot_.reset();
+}
+
+sandbox::ExecPermission SessionExecSecurity::evaluate_exec(
+    const std::string& args, sandbox::CommandPlatform platform,
+    const sandbox::ExecPermissionOptions& options) {
+    sandbox::ExecRules rules;
+    { std::lock_guard<std::mutex> lock(state_mu_); rules = rules_; }
+    return sandbox::evaluate_exec_permission(args, permissions_, rules,
+        !session_disabled_ && runtime_.available(), platform, options);
+}
+
+std::string SessionExecSecurity::global_exec_rules_dir() const {
+    { std::lock_guard<std::mutex> lock(state_mu_); if (!rules_dir_.empty()) return rules_dir_; }
     return path_to_utf8(path_from_utf8(get_acecode_dir()) / "rules");
 }
 
-void AgentLoop::reload_exec_rules() {
-    exec_rules_ = sandbox::ExecRules::load(
+void SessionExecSecurity::reload_exec_rules() {
+    set_rules(sandbox::ExecRules::load(
         global_exec_rules_dir(),
-        path_to_utf8(path_from_utf8(cwd_) / ".acecode" / "rules"));
+        path_to_utf8(path_from_utf8(boundary_.cwd()) / ".acecode" / "rules")));
 }
 
-std::string AgentLoop::remember_exec_rule(const sandbox::ExecPermission& permission) {
+std::string SessionExecSecurity::remember_exec_rule(const sandbox::ExecPermission& permission) {
     if (permission.remember_patterns.empty()) return "no command prefix to remember";
     // 沙盒外批准 → default.rules(全局 allow = 沙盒外);其余 → default.sandboxed.rules
     // (免确认但仍沙盒)。与会话前缀记忆的 bypass 判定同一条件。
@@ -59,7 +79,7 @@ std::string AgentLoop::remember_exec_rule(const sandbox::ExecPermission& permiss
     return {};
 }
 
-void AgentLoop::record_audit(const std::string& category, const std::string& tool,
+void SessionExecSecurity::record_audit(SessionManager* session, const std::string& category, const std::string& tool,
                              const std::string& target, const std::string& decision,
                              const std::string& source, const std::string& reason,
                              const std::string& sandbox, nlohmann::json detail) {
@@ -74,11 +94,13 @@ void AgentLoop::record_audit(const std::string& category, const std::string& too
         entry.source = source;
         entry.reason = reason;
         entry.sandbox = sandbox;
-        entry.session_id = session_manager_ ? session_manager_->current_session_id() : std::string{};
-        entry.cwd = cwd_;
+        entry.session_id = session ? session->current_session_id() : std::string{};
+        entry.cwd = boundary_.cwd();
         entry.detail = detail.is_object() ? std::move(detail) : nlohmann::json::object();
-        if (audit_sink_) {
-            audit_sink_(entry);
+        security::AuditSink sink;
+        { std::lock_guard<std::mutex> lock(state_mu_); sink = audit_sink_; }
+        if (sink) {
+            sink(entry);
         } else {
             security::audit_log().record(entry);
         }
@@ -89,7 +111,7 @@ void AgentLoop::record_audit(const std::string& category, const std::string& too
     }
 }
 
-void AgentLoop::set_sandbox_config(const SandboxConfig& config) {
+void SessionExecSecurity::set_sandbox_config(const SandboxConfig& config) {
     sandbox::SandboxRuntimeConfig runtime_config;
     runtime_config.enabled = config.enabled;
     runtime_config.network_access = config.network_access;
@@ -102,47 +124,47 @@ void AgentLoop::set_sandbox_config(const SandboxConfig& config) {
     runtime_config.windows_backend = config.windows_backend == "mxc"
         ? sandbox::WindowsBackendChoice::Mxc : sandbox::WindowsBackendChoice::RestrictedToken;
     runtime_config.acecode_home = get_acecode_dir();
-    sandbox_runtime_.configure(std::move(runtime_config));
+    runtime_.configure(std::move(runtime_config));
     permissions_.clear_session_allows();
-    last_sandbox_violation_.reset();
+    set_feedback(std::nullopt);
 }
 
-std::string AgentLoop::sandbox_prompt_description() const {
-    std::lock_guard<std::mutex> lock(sandbox_prompt_mutex_);
+std::string SessionExecSecurity::sandbox_prompt_description(SessionManager* session) const {
+    std::lock_guard<std::mutex> lock(prompt_mu_);
     const auto permission_mode = permissions_.mode();
-    if (busy_ && sandbox_prompt_snapshot_ && sandbox_prompt_snapshot_->first == permission_mode) {
-        return sandbox_prompt_snapshot_->second;
+    if (busy_ && prompt_snapshot_ && prompt_snapshot_->first == permission_mode) {
+        return prompt_snapshot_->second;
     }
     const auto describe = [&]() -> std::string {
     if (permissions_.is_dangerous() || permissions_.mode() == PermissionMode::Yolo) return "none";
-    if (sandbox_session_disabled_) return "unavailable (disabled for this session)";
-    const auto probe = sandbox_runtime_.probe();
-    if (!sandbox_runtime_.available()) return "unavailable (" + probe.reason + ")";
+    if (session_disabled_) return "unavailable (disabled for this session)";
+    const auto probe = runtime_.probe();
+    if (!runtime_.available()) return "unavailable (" + probe.reason + ")";
     const auto mode = sandbox::mode_sandbox(permissions_.mode(), true);
-    const auto root = write_root().empty() ? cwd_ : write_root();
+    const auto root = boundary_.write_root(session).empty() ? boundary_.cwd() : boundary_.write_root(session);
     return std::string(sandbox::sandbox_mode_name(mode)) + " (" + sandbox::backend_kind_name(probe.kind) +
-        "); " + sandbox::describe_policy(sandbox_runtime_.policy_for(mode, root), probe.network_enforced);
+        "); " + sandbox::describe_policy(runtime_.policy_for(mode, root), probe.network_enforced);
     };
     auto result = describe();
-    if (busy_) sandbox_prompt_snapshot_ = std::make_pair(permission_mode, result);
+    if (busy_) prompt_snapshot_ = std::make_pair(permission_mode, result);
     return result;
 }
 
-std::string AgentLoop::sandbox_command(const std::string& args) {
+std::string SessionExecSecurity::sandbox_command(SessionManager* session, const std::string& args) {
     if (args == "off" || args == "on") {
-        sandbox_session_disabled_.store(args == "off");
+        session_disabled_.store(args == "off");
         permissions_.clear_session_allows();
-        sandbox_runtime_.clear_session_grants();
-        last_sandbox_violation_.reset();
+        runtime_.clear_session_grants();
+        set_feedback(std::nullopt);
         // `on` 同时丢掉本会话缓存的探测结论:prepare_request / 启动失败会经
         // mark_unavailable 把后端粘性地标成不可用,用户修好环境(比如把网络盘
         // 上的工作区挪回本地)之后需要一个不重启的恢复入口。
-        if (args == "on") sandbox_runtime_.reset_probe();
+        if (args == "on") runtime_.reset_probe();
     } else if (!args.empty()) {
         return "Usage: /sandbox [on|off]";
     }
-    return sandbox_runtime_.status_text(permissions_.mode(),
-        write_root().empty() ? cwd_ : write_root(), sandbox_session_disabled_);
+    return runtime_.status_text(permissions_.mode(),
+        boundary_.write_root(session).empty() ? boundary_.cwd() : boundary_.write_root(session), session_disabled_);
 }
 
-} // namespace acecode
+} // namespace acecode::agent

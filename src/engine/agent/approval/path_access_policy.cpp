@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
@@ -47,7 +48,7 @@ std::string AgentLoop::path_validation_error(const std::string& tool_name, const
         }
     }
     if (is_cwd_validation_exempt(tool_name, path, boundary_root)) return {};
-    std::string cwd_error = path_validator_.validate(path);
+    std::string cwd_error = boundary_->validate(path);
     // 「编辑项目」的附加文件夹与工作目录同等对待。
     if (!cwd_error.empty() && path_in_workspace_folders(path)) return {};
     return cwd_error;

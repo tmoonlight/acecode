@@ -1,4 +1,7 @@
 #include "agent/agent_loop.hpp"
+#include "agent/hook_bridge/tool_hook_bridge.hpp"
+#include "agent/approval/session_exec_security.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
@@ -71,10 +74,9 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         }
         sandbox::ExecPermissionOptions exec_options;
         exec_options.unattended = goal_unattended_active();
-        exec_options.session_grants = sandbox_runtime_.session_grants();
-        exec_permission = sandbox::evaluate_exec_permission(effective_tc.function_arguments,
-            permissions_, exec_rules_, !sandbox_session_disabled_ && sandbox_runtime_.available(),
-            platform, exec_options);
+        exec_options.session_grants = exec_security_->runtime().session_grants();
+        exec_permission = exec_security_->evaluate_exec(
+            effective_tc.function_arguments, platform, exec_options);
         if (!exec_permission->error.empty()) return ToolResult{"[Error] " + exec_permission->error, false};
         if (exec_permission->decision.verdict == sandbox::ExecVerdict::Forbidden) {
             const bool unattended_forbidden =
@@ -96,18 +98,19 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
             }
             return ToolResult{"[Permission denied by configured exec rule]", false};
         }
-        const std::string sandbox_root = write_root().empty() ? cwd_ : write_root();
+        const std::string sandbox_root = write_root().empty() ? boundary_->cwd() : write_root();
         // D4:越权确认里附上上一次被拒的路径,并在它不在 deny 名单、且能用
         // workspace-write 承载时提供「只放行该目录」选项。
+        const auto last_violation = exec_security_->feedback();
         if (exec_permission->decision.verdict == sandbox::ExecVerdict::Prompt &&
-            exec_permission->input.escalation_requested && last_sandbox_violation_ &&
+            exec_permission->input.escalation_requested && last_violation &&
             permissions_.mode() != PermissionMode::Plan) {
-            if (!last_sandbox_violation_->path.empty()) {
-                exec_permission->arguments["permission"]["denied_path"] = last_sandbox_violation_->path;
+            if (!last_violation->path.empty()) {
+                exec_permission->arguments["permission"]["denied_path"] = last_violation->path;
             }
-            if (!sandbox_session_disabled_ && sandbox_runtime_.available()) {
-                const auto baseline = sandbox_runtime_.policy_for(sandbox::SandboxMode::WorkspaceWrite, sandbox_root);
-                const auto suggested = sandbox::suggested_write_root(*last_sandbox_violation_, baseline);
+            if (!exec_security_->session_disabled() && exec_security_->runtime().available()) {
+                const auto baseline = exec_security_->runtime().policy_for(sandbox::SandboxMode::WorkspaceWrite, sandbox_root);
+                const auto suggested = sandbox::suggested_write_root(*last_violation, baseline);
                 if (!suggested.empty()) {
                     exec_permission->arguments["permission"]["scoped_write_root"] = suggested;
                 }
@@ -116,11 +119,11 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         if (exec_permission->decision.sandbox != sandbox::SandboxMode::FullAccess) {
             const sandbox::AdditionalPermissions* extra =
                 exec_permission->additional.empty() ? nullptr : &exec_permission->additional;
-            auto request = sandbox_runtime_.request_for(exec_permission->decision.sandbox,
+            auto request = exec_security_->runtime().request_for(exec_permission->decision.sandbox,
                                                         sandbox_root, extra);
-            const auto error = sandbox_runtime_.prepare_request(request);
+            const auto error = exec_security_->runtime().prepare_request(request);
             if (!error.empty()) {
-                sandbox_runtime_.mark_unavailable(error);
+                exec_security_->runtime().mark_unavailable(error);
                 exec_permission->set_availability(false);
             } else {
                 execution_context.exec_sandbox = std::move(request);
@@ -135,7 +138,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     std::vector<std::string> target_paths;
     if (effective_tc.function_name == "apply_patch") {
         target_paths = apply_patch::extract_target_paths(
-            effective_tc.function_arguments, cwd_);
+            effective_tc.function_arguments, boundary_->cwd());
     } else if (!ctx_path.empty()) {
         target_paths.push_back(ctx_path);
     }
@@ -181,7 +184,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     if (is_file_mutation_tool) {
         for (const auto& target : target_paths) {
             auto path = path_from_utf8(target);
-            if (path.is_relative()) path = path_from_utf8(cwd_) / path;
+            if (path.is_relative()) path = path_from_utf8(boundary_->cwd()) / path;
             std::error_code ec;
             const auto normalized = std::filesystem::weakly_canonical(path, ec);
             const auto global_rules = std::filesystem::weakly_canonical(path_from_utf8(get_acecode_dir()) / "rules", ec);
@@ -261,29 +264,17 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                 return ToolResult{"[Error] " + boundary_rejection, false};
             }
         }
-        const auto now = std::chrono::steady_clock::now();
-        for (auto it = recent_safe_edit_failures_.begin();
-             it != recent_safe_edit_failures_.end();) {
-            if (now - it->second > std::chrono::minutes(10)) {
-                it = recent_safe_edit_failures_.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        for (const auto& [failed_path, when] : recent_safe_edit_failures_) {
-            (void)when;
-            if (command_mentions_path(ctx_command, failed_path) &&
-                !permissions_.is_dangerous() &&
-                permissions_.mode() != PermissionMode::Yolo) {
-                audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceAuto, "safe_edit_guard");
-                return ToolResult{
-                    "[Error] Shell write blocked for " + failed_path +
-                    " because a recent safe file edit failed. "
-                    "Re-read the file and retry with an exact " +
-                    model_tool_name_for_native("file_edit") +
-                    " old_string, or perform an explicit encoding conversion instead of bypassing text safety.",
-                    false};
-            }
+        const auto failed_path = exec_security_->safe_edit_guard().blocked_path(
+            ctx_command, permissions_.is_dangerous() || permissions_.mode() == PermissionMode::Yolo);
+        if (!failed_path.empty()) {
+            audit_gate(security::kAuditDecisionForbidden, security::kAuditSourceAuto, "safe_edit_guard");
+            return ToolResult{
+                "[Error] Shell write blocked for " + failed_path +
+                " because a recent safe file edit failed. "
+                "Re-read the file and retry with an exact " +
+                model_tool_name_for_native("file_edit") +
+                " old_string, or perform an explicit encoding conversion instead of bypassing text safety.",
+                false};
         }
     }
 
@@ -299,7 +290,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                 return ToolResult{"[Error] " + path_error, false};
             }
             if (!targets_active_plan_file &&
-                path_validator_.is_dangerous_path(target) && auto_allow &&
+                boundary_->is_dangerous_path(target) && auto_allow &&
                 !permissions_.is_dangerous() &&
                 permissions_.mode() != PermissionMode::Yolo) {
                 LOG_INFO("Dangerous path detected, forcing confirmation: " + target);
@@ -349,58 +340,24 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                       : std::string{}));
     }
 
-    nlohmann::json permission_hook_input = nlohmann::json::object();
-    bool permission_request_dispatched = false;
-    bool permission_resolution_dispatched = false;
-    auto report_permission_resolved =
-        [&](const std::string& decision,
-            const std::string& source) {
-            if (!hook_manager_ || !permission_request_dispatched ||
-                permission_resolution_dispatched) {
-                return;
-            }
-            permission_resolution_dispatched = true;
-            auto fields = build_hook_common_fields(
-                kCodexHookEventPermissionResolved);
-            auto payload = build_permission_resolved_hook_payload(
-                fields,
-                effective_tc.function_name,
-                permission_hook_input,
-                decision,
-                source);
-            auto outcome = dispatch_codex_hook(
-                kCodexHookEventPermissionResolved,
-                effective_tc.function_name,
-                payload);
-            apply_hook_side_effects(outcome, false);
-        };
+    agent::PermissionHookSession permission_session(
+        *tool_hooks_, hook_manager_, session_manager_, effective_tc.function_name);
 
     if (!auto_allow && hook_manager_) {
-        permission_hook_input =
+        auto outcome = permission_session.request(
             exec_permission ? exec_permission->arguments :
-            parse_tool_args_for_permission_payload(effective_tc.function_arguments);
-        permission_request_dispatched = true;
-        auto fields = build_hook_common_fields(kCodexHookEventPermissionRequest);
-        auto payload = build_tool_hook_payload(
-            fields,
-            effective_tc.function_name,
-            permission_hook_input);
-        auto outcome = dispatch_codex_hook(
-            kCodexHookEventPermissionRequest,
-            effective_tc.function_name,
-            payload);
-        apply_hook_side_effects(outcome);
+            parse_tool_args_for_permission_payload(effective_tc.function_arguments));
         if (outcome.denied || outcome.blocked) {
             const std::string reason = outcome.reason.empty()
                 ? "Permission denied by hook."
                 : outcome.reason;
-            report_permission_resolved("deny", "hook");
+            permission_session.resolve("deny", "hook");
             audit_gate(security::kAuditDecisionDeny, security::kAuditSourceHook, "hook_denied");
             return ToolResult{"[Hook denied permission] " + reason, false};
         }
         if (outcome.allowed) {
             auto_allow = true;
-            report_permission_resolved("allow", "hook");
+            permission_session.resolve("allow", "hook");
             audit_gate(security::kAuditDecisionAllow, security::kAuditSourceHook, "hook_allowed");
         }
     }
@@ -416,7 +373,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     if (!auto_allow && headless::active()) {
         if (permissions_.is_dangerous()) {
             auto_allow = true;
-            report_permission_resolved("allow", "headless");
+            permission_session.resolve("allow", "headless");
             audit_gate(security::kAuditDecisionAllow, security::kAuditSourceHeadless, "headless_yolo");
             LOG_INFO("[headless] yolo auto-approve: " +
                      effective_tc.function_name +
@@ -424,7 +381,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         } else {
             LOG_INFO("[headless] denied (needs confirmation): " +
                      effective_tc.function_name);
-            report_permission_resolved("deny", "headless");
+            permission_session.resolve("deny", "headless");
             audit_gate(security::kAuditDecisionDeny, security::kAuditSourceHeadless, "headless_no_channel");
             return ToolResult{
                 "[Headless mode] This tool call requires interactive "
@@ -449,7 +406,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
             ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_signal_.flag_for_legacy_api())
             : callbacks_.on_tool_confirm(effective_tc.function_name, permission_args);
         if (perm == PermissionResult::Deny) {
-            report_permission_resolved("deny", "interactive");
+            permission_session.resolve("deny", "interactive");
             audit_gate(security::kAuditDecisionDeny, security::kAuditSourceUser,
                        exec_permission ? exec_permission->decision.reason : "confirmation");
             return ToolResult{"[User denied tool execution]", false};
@@ -464,7 +421,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
             (!exec_permission || exec_permission->remember_patterns.empty())) {
             perm = PermissionResult::AlwaysAllow;
         }
-        report_permission_resolved(
+        permission_session.resolve(
             perm == PermissionResult::AlwaysAllow   ? "always_allow"
             : perm == PermissionResult::AllowScoped   ? "allow_scoped"
             : perm == PermissionResult::AllowRemember ? "allow_remember"
@@ -486,12 +443,12 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
             // 该目录执行,而不是整个出沙盒。
             sandbox::AdditionalPermissions grant;
             grant.write.push_back(scoped_root);
-            sandbox_runtime_.grant_for_session(grant);
-            auto request = sandbox_runtime_.request_for(sandbox::SandboxMode::WorkspaceWrite,
-                write_root().empty() ? cwd_ : write_root());
-            const auto error = sandbox_runtime_.prepare_request(request);
+            exec_security_->runtime().grant_for_session(grant);
+            auto request = exec_security_->runtime().request_for(sandbox::SandboxMode::WorkspaceWrite,
+                write_root().empty() ? boundary_->cwd() : write_root());
+            const auto error = exec_security_->runtime().prepare_request(request);
             if (!error.empty()) {
-                sandbox_runtime_.mark_unavailable(error);
+                exec_security_->runtime().mark_unavailable(error);
                 return ToolResult{"[Sandbox unavailable] " + error +
                     ". The scoped grant was recorded but the command was not executed; retry.", false};
             }
@@ -518,7 +475,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
             if (exec_permission) {
                 if (exec_permission->input.additional_requested && !exec_permission->additional.empty()) {
                     // 额外权限申请的「本次会话允许」记的是权限,不是命令前缀。
-                    sandbox_runtime_.grant_for_session(exec_permission->additional);
+                    exec_security_->runtime().grant_for_session(exec_permission->additional);
                     nlohmann::json grant_detail{{"command", ctx_command}};
                     grant_detail["read"] = exec_permission->additional.read;
                     grant_detail["write"] = exec_permission->additional.write;
@@ -552,9 +509,8 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
     // A non-interactive embedding may intentionally omit a
     // prompter while still allowing execution. Close the paired
     // lifecycle event before the tool starts in that case.
-    if (!auto_allow && permission_request_dispatched &&
-        !permission_resolution_dispatched) {
-        report_permission_resolved("allow", "implicit");
+    if (!auto_allow && permission_session.pending()) {
+        permission_session.resolve("allow", "implicit");
     }
     if (!auto_allow) {
         audit_gate(security::kAuditDecisionAllow, security::kAuditSourceNone, "implicit");
@@ -570,7 +526,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
         if (reason.empty()) {
             reason = tool_result.output.substr(0, tool_result.output.find('\n'));
         }
-        sandbox_runtime_.mark_unavailable(reason);
+        exec_security_->runtime().mark_unavailable(reason);
     }
     if (exec_permission) {
         // D4:记住最近一次沙盒拒绝(含路径),给下一次越权确认提供
@@ -587,38 +543,17 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                          security::kAuditDecisionBlocked, security::kAuditSourceSandbox,
                          violation.reason, audit_sandbox,
                          nlohmann::json{{"command", ctx_command}, {"snippet", violation.snippet}});
-            last_sandbox_violation_ = std::move(violation);
+            exec_security_->set_feedback(std::move(violation));
         } else if (tool_result.success) {
-            last_sandbox_violation_.reset();
+            exec_security_->set_feedback(std::nullopt);
         }
     }
 
-    if ((effective_tc.function_name == "file_edit" || effective_tc.function_name == "file_write") &&
-        !ctx_path.empty() && !tool_result.success) {
-        const std::string lower = ascii_lower(tool_result.output);
-        if (lower.find("encoding") != std::string::npos ||
-            lower.find("old_string") != std::string::npos ||
-            lower.find("round-trip") != std::string::npos) {
-            recent_safe_edit_failures_[ctx_path] = std::chrono::steady_clock::now();
-        }
-    }
-
+    exec_security_->safe_edit_guard().record_result(
+        effective_tc.function_name, ctx_path, tool_result);
     if (effective_tc.function_name == "bash" && tool_result.success &&
         command_looks_like_file_write(ctx_command)) {
-        for (const auto& [failed_path, when] : recent_safe_edit_failures_) {
-            (void)when;
-            if (!command_mentions_path(ctx_command, failed_path)) continue;
-            auto check = with_text_file_tool_errors(read_text_file_buffer(failed_path, false));
-            if (!check.success) {
-                tool_result.success = false;
-                if (!tool_result.output.empty() && tool_result.output.back() != '\n') {
-                    tool_result.output += "\n";
-                }
-                tool_result.output +=
-                    "[Error] Post-command encoding sanity check failed for " +
-                    failed_path + ": " + check.error;
-            }
-        }
+        exec_security_->safe_edit_guard().check_shell_output(ctx_command, tool_result);
     }
 
     return tool_result;

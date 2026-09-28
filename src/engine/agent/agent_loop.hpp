@@ -66,7 +66,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -223,7 +223,7 @@ public:
     bool ask_side_question_async(std::string question,
                                  SideQuestionCallback callback);
 
-    const std::string& cwd() const { return cwd_; }
+    std::string cwd() const;
 
     // 切换会话工作目录(enter_worktree / exit_worktree / worktree resume 恢复)。
     // 更新 cwd_ 并以新根重建 PathValidator;会话存储位置(SessionManager 的
@@ -240,23 +240,18 @@ public:
     // 否则附加一个主仓的上级目录就能绕开 worktree 隔离。
     std::vector<std::string> writable_workspace_folders() const;
     void set_sandbox_config(const SandboxConfig& config);
-    void set_exec_rules(sandbox::ExecRules rules) { exec_rules_ = std::move(rules); }
+    void set_exec_rules(sandbox::ExecRules rules);
     // 测试用:把全局规则目录(默认 `<data_dir>/rules`)指到临时目录,让
     // 「批准并记住」的写回不碰真实用户数据;同时影响 reload_exec_rules()。
-    void set_exec_rules_dir_for_tests(const std::string& dir) {
-        exec_rules_dir_override_ = dir;
-        reload_exec_rules();
-    }
-    void set_sandbox_availability_for_tests(std::optional<bool> value) {
-        sandbox_runtime_.set_availability_override_for_tests(value);
-    }
+    void set_exec_rules_dir_for_tests(const std::string& dir);
+    void set_sandbox_availability_for_tests(std::optional<bool> value);
     std::string sandbox_command(const std::string& args);
     // 重新读取全局 / 项目规则文件(设置页改了托管规则文件之后由 daemon 触发)。
     void refresh_exec_rules() { reload_exec_rules(); }
     // 安全审计接收器(openspec add-security-center D1):审批门每个「决定已作出」
     // 的分支调一次。默认落到进程级 security::audit_log();单测注入 lambda 收集。
     // 只应在会话未运行时设置。
-    void set_audit_sink(security::AuditSink sink) { audit_sink_ = std::move(sink); }
+    void set_audit_sink(security::AuditSink sink);
 
     // 测试用(split-agent-loop P0-11):750ms 进度帧 / 500ms 工具输出帧两处节流的
     // 取时函数,以及 computer-use 会话租约的释放函数,都可以注入。默认与原实现逐字
@@ -302,9 +297,7 @@ public:
     // Per-session policy used only by daemon-owned LOOP runs. It is installed
     // before the first submit and may be updated once worktree creation adds
     // final branch/path context.
-    void set_loop_execution_policy(LoopExecutionPolicy policy) {
-        loop_execution_policy_ = std::move(policy);
-    }
+    void set_loop_execution_policy(LoopExecutionPolicy policy);
     const LoopExecutionPolicy& loop_execution_policy() const {
         return loop_execution_policy_;
     }
@@ -318,9 +311,7 @@ public:
     //      LOOP 会话时靠这条,否则子会话什么都继承不到)。
     // 读工具不受限:父会话读别的 worktree 的记录是合理需求。
     std::string write_root() const;
-    void set_inherited_write_root(std::string root) {
-        inherited_write_root_ = std::move(root);
-    }
+    void set_inherited_write_root(std::string root);
 
     // 上一回合结果:wait_subagent 用它区分"跑完"与"夭折"。回合因 provider
     // 终止错误 / 上下文压缩失败 / 连续空回复耗尽 / max_iterations / hook 拦截
@@ -652,15 +643,8 @@ private:
     std::unique_ptr<agent::TranscriptWriter> transcript_;
     std::unique_ptr<agent::TrajectoryRecorder> trajectory_;
     std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
-    std::string cwd_;
-    mutable sandbox::SandboxRuntime sandbox_runtime_;
-    sandbox::ExecRules exec_rules_;
-    std::atomic<bool> sandbox_session_disabled_{false};
-    // 最近一次 bash 沙盒拒绝(含被拒路径):下一次越权确认据此提供「只放行该目录」
-    // 选项(openspec align-codex-sandboxing D4)。bash 成功 / 换 cwd / 沙盒开关时清空。
-    std::optional<sandbox::SandboxViolation> last_sandbox_violation_;
-    std::string exec_rules_dir_override_;
-    std::string global_exec_rules_dir() const;
+    std::unique_ptr<agent::WorkspaceBoundary> boundary_;
+    std::unique_ptr<agent::SessionExecSecurity> exec_security_;
     // 「批准并记住」:把前缀写进全局规则文件并重载;返回错误信息,空 = 成功。
     std::string remember_exec_rule(const sandbox::ExecPermission& permission);
     void reload_exec_rules();
@@ -671,7 +655,6 @@ private:
                       const std::string& source, const std::string& reason,
                       const std::string& sandbox = {},
                       nlohmann::json detail = nlohmann::json::object());
-    security::AuditSink audit_sink_;
     // P0-11 注入点(见 set_progress_clock_for_tests / set_computer_use_release_for_tests)。
     SteadyClockFn progress_clock_;
     ComputerUseReleaseFn computer_use_release_;
@@ -684,15 +667,7 @@ private:
     // computer-use 会话租约的唯一释放出口:abort / 回合收尾 / DesktopTurnLease 析构。
     void release_computer_use_session(const std::string& session_id) const;
     std::string sandbox_prompt_description() const;
-    mutable std::mutex sandbox_prompt_mutex_;
-    mutable std::optional<std::pair<PermissionMode, std::string>> sandbox_prompt_snapshot_;
     PermissionManager& permissions_;
-    PathValidator path_validator_;
-    // 「编辑项目」的主文件夹与附加文件夹快照(refresh_workspace_folders 每回合重读)。
-    // 并行只读工具会在工作线程上查它,用锁保护。
-    mutable std::mutex workspace_folders_mu_;
-    std::string workspace_main_folder_;
-    std::vector<std::string> workspace_extra_folders_;
     // 路径落在某个可写附加文件夹内(相对路径按 cwd_ 解析)。
     bool path_in_workspace_folders(const std::string& path) const;
     // 系统提示 # Environment 的附加工作目录两行(可写 / 本会话只读)。
@@ -727,7 +702,6 @@ private:
     std::vector<std::string> current_request_model_tool_names_;
     LoopExecutionPolicy loop_execution_policy_;
     // spawn_subagent 透传的父会话写边界根;见 write_root()。
-    std::string inherited_write_root_;
     void record_turn_outcome(const std::string& turn_timing_status);
     // Latest server-reported total active-context usage. For providers that do
     // not return total_tokens, prompt_tokens is used as the fallback.
@@ -752,8 +726,6 @@ private:
     std::string compact_current_window_id_;
     SessionManager* session_manager_ = nullptr;
     HookManager* hook_manager_ = nullptr;
-    std::vector<std::string> hook_request_context_;
-    bool stop_hook_active_ = false;
     const SkillRegistry* skill_registry_ = nullptr;
     SkillUsageStore* skill_usage_store_ = nullptr;
     int skill_idle_days_ = 30;
@@ -785,21 +757,13 @@ private:
     // been emitted/persisted.
     bool terminate_session_after_turn_ = false;
     std::vector<std::function<void()>> post_turn_actions_;
-    std::string goal_accounting_thread_id_;
-    std::string goal_accounting_goal_id_;
-    std::string budget_notice_goal_id_;
-    std::chrono::steady_clock::time_point goal_time_checkpoint_{};
-    // Goal steering pending 标记。atomic:budget 标记可能从并行读工具批次的
-    // 线程置位,objective 标记从 TUI/daemon 命令线程置位;消费固定在 worker
-    // 线程的模型请求前。回合开始时清零 = Codex inject_if_running 失败即丢弃。
-    std::atomic<bool> pending_goal_budget_limit_steering_{false};
-    std::atomic<bool> pending_goal_objective_steering_{false};
-    std::map<std::string, std::chrono::steady_clock::time_point> recent_safe_edit_failures_;
-
     // Dependency order: queue -> input gate -> cross-loop handoff.
     std::unique_ptr<agent::AgentTaskQueue> task_queue_;
     std::unique_ptr<agent::ActiveTurnGate> active_turn_gate_;
     std::unique_ptr<agent::TaskHandoff> task_handoff_;
+    std::unique_ptr<agent::AgentHookBridge> hooks_;
+    std::unique_ptr<agent::ToolHookBridge> tool_hooks_;
+    std::unique_ptr<agent::GoalRuntime> goal_;
 
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由

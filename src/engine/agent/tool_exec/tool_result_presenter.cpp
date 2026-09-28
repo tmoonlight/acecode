@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "permissions/shell_write_guard.hpp"
@@ -30,17 +31,17 @@ void AgentLoop::materialize_result_attachments(ToolResult& result) {
         return;
     }
     const std::string session_id = session_manager_->ensure_active_session_id();
-    const std::string project_dir = SessionStorage::get_project_dir(cwd_);
+    const std::string project_dir = SessionStorage::get_project_dir(boundary_->cwd());
     auto materialized = materialize_output_attachments(
         result.attachments,
         project_dir,
         session_id,
         [this](const std::string& path) {
-            std::string error = path_validator_.validate(path);
+            std::string error = boundary_->validate(path);
             if (!error.empty() && path_in_workspace_folders(path)) error.clear();
             return error;
         },
-        cwd_);
+        boundary_->cwd());
     result.attachments = std::move(materialized.attachments);
     result.attachment_warnings.insert(
         result.attachment_warnings.end(),

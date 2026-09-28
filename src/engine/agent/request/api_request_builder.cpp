@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/boundary/workspace_boundary.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/guards/doom_guard.hpp"
@@ -92,7 +93,7 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
     const SystemPromptModelState model_state = system_prompt_model_state();
     const SystemPromptWorkspaceFolders workspace_folders_state = system_prompt_workspace_folders();
     std::string system_prompt = build_system_prompt(
-        tools_, cwd_, skill_registry_, memory_registry_,
+        tools_, boundary_->cwd(), skill_registry_, memory_registry_,
         memory_cfg_, project_instructions_cfg_,
         &tool_capability_policy_,
         &worktree_state,
@@ -135,7 +136,7 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
         context.push_back(std::move(skill_system));
     }
     std::string mutable_context = build_session_context_prompt(
-        cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
+        boundary_->cwd(), memory_registry_, memory_cfg_, project_instructions_cfg_,
         skill_registry_, context_window_.load(std::memory_order_relaxed),
         custom_instructions_cfg_, git_snapshot, expert_, expert_member_id_,
         /*category_bytes=*/nullptr,
@@ -174,7 +175,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
     const SystemPromptModelState model_state = system_prompt_model_state();
     const SystemPromptWorkspaceFolders workspace_folders_state = system_prompt_workspace_folders();
     std::string system_prompt = build_system_prompt(
-        tools_, cwd_, skill_registry_, memory_registry_,
+        tools_, boundary_->cwd(), skill_registry_, memory_registry_,
         memory_cfg_, project_instructions_cfg_,
         &tool_capability_policy_,
         &worktree_state,
@@ -244,7 +245,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
                                        : gitinfo::kDefaultGitTimeoutMs;
         git_snapshot_cache_ =
             git_ctx_enabled
-                ? gitinfo::collect_git_status_snapshot(cwd_, git_timeout_ms)
+                ? gitinfo::collect_git_status_snapshot(boundary_->cwd(), git_timeout_ms)
                 : std::string();
     }
 
@@ -274,7 +275,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
         }
         session_context = cached_context_for_api(
             build_session_context_prompt(
-                cwd_, memory_registry_, memory_cfg_, project_instructions_cfg_,
+                boundary_->cwd(), memory_registry_, memory_cfg_, project_instructions_cfg_,
                 skill_registry_, context_window_.load(std::memory_order_relaxed),
                 custom_instructions_cfg_,
                 git_snapshot_cache_.value_or(std::string{}),
