@@ -22,6 +22,11 @@
 
 #include "session_host/local_session_client.hpp"
 #include "session_host/session_registry.hpp"
+#include "session/scoped_subscription.hpp"
+#include "utils/lifetime_token.hpp"
+
+#include <atomic>
+#include <unordered_map>
 
 #include <chrono>
 #include <functional>
@@ -54,6 +59,8 @@ public:
     };
 
     explicit SubagentHost(Deps deps);
+    ~SubagentHost();
+    void shutdown();
 
     SessionRegistry& registry() { return registry_; }
     LocalSessionClient& client() { return client_; }
@@ -87,17 +94,25 @@ public:
                             const std::string& choice);
 
 private:
+    void on_event(const std::string& child_id, const SessionEvent& event);
     void publish_locked();
     void remove_task(const std::string& id);
     void update_title(const std::string& id, const std::string& title);
     std::string title_for(const std::string& id) const;
 
-    SessionRegistry registry_;
-    LocalSessionClient client_;
-    Deps deps_;
-
+    // Callback state outlives all workers that can use it.
+    std::function<std::string()> parent_session_id_;
+    std::function<void(std::vector<SubagentTaskSnapshot>)> publish_tasks_;
+    std::function<void(const std::string&, const std::string&, nlohmann::json)>
+        on_permission_request_;
+    std::mutex shutdown_mu_;
+    std::atomic<bool> shutting_down_{false};
     mutable std::mutex mu_;
     std::vector<SubagentTaskSnapshot> running_;
+    SessionRegistry registry_;
+    LocalSessionClient client_;
+    std::unordered_map<std::string, ScopedSubscription> subscriptions_;
+    LifetimeToken lifetime_;
 };
 
 } // namespace acecode::tui

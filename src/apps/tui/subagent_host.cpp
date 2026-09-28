@@ -11,47 +11,56 @@
 namespace acecode::tui {
 
 SubagentHost::SubagentHost(Deps deps)
-    : registry_(deps.registry_deps), client_(registry_), deps_(std::move(deps)) {}
+    : parent_session_id_(std::move(deps.parent_session_id)),
+      publish_tasks_(std::move(deps.publish_tasks)),
+      on_permission_request_(std::move(deps.on_permission_request)),
+      registry_(std::move(deps.registry_deps)), client_(registry_) {}
+
+SubagentHost::~SubagentHost() { shutdown(); }
+
+void SubagentHost::shutdown() {
+    std::lock_guard<std::mutex> shutdown_lock(shutdown_mu_);
+    shutting_down_.store(true);
+    // Wake and join children while callback state and the client still exist.
+    registry_.shutdown_all();
+    lifetime_.revoke();
+    std::unordered_map<std::string, ScopedSubscription> subscriptions;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        subscriptions.swap(subscriptions_);
+        running_.clear();
+    }
+    // Waiting for delivery under mu_ would deadlock an admitted listener.
+    subscriptions.clear();
+}
 
 void SubagentHost::on_spawned(const std::string& child_id,
                               const std::string& prompt) {
-    if (child_id.empty()) return;
+    if (child_id.empty() || shutting_down_.load()) return;
     {
         std::lock_guard<std::mutex> lk(mu_);
+        if (shutting_down_.load()) return;
         running_.push_back({child_id, "", prompt,
                             std::chrono::steady_clock::now()});
         publish_locked();
     }
-    // 订阅子会话事件流。回调在子会话 loop 线程触发;不显式退订 ——
-    // dispatcher 生命周期 = SessionEntry,destroy/clear 时一起消亡。
-    //
-    // 竞态兜底:on_spawn 在 send_input 之后被调用,极快的 turn(stub /
-    // 瞬时失败)可能在订阅建立前就发完 BusyChanged(false)。订阅后补查一次:
-    // 已空闲且已有 assistant 答复 → 视为已结束,直接移除。
-    client_.subscribe(child_id, [this, child_id](const SessionEvent& evt) {
-        switch (evt.kind) {
-            case SessionEventKind::BusyChanged:
-                // 右侧列只显示运行中:本轮结束即移除(用户决策)。
-                if (!evt.payload.value("busy", false)) {
-                    remove_task(child_id);
-                }
-                break;
-            case SessionEventKind::SessionUpdated: {
-                const std::string title =
-                    evt.payload.value("title", std::string{});
-                if (!title.empty()) update_title(child_id, title);
-                break;
-            }
-            case SessionEventKind::PermissionRequest:
-                if (deps_.on_permission_request) {
-                    deps_.on_permission_request(child_id, title_for(child_id),
-                                                evt.payload);
-                }
-                break;
-            default:
-                break;
-        }
-    });
+    ScopedSubscription subscription(client_, child_id,
+        client_.subscribe(child_id,
+            [ref = lifetime_.ref(*this), child_id](const SessionEvent& event) {
+                ref.with([&](SubagentHost& host) {
+                    if (!host.shutting_down_.load()) host.on_event(child_id, event);
+                });
+            }));
+    ScopedSubscription previous;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        if (shutting_down_.load()) return;
+        auto& slot = subscriptions_[child_id];
+        previous = std::move(slot);
+        slot = std::move(subscription);
+    }
+    // on_spawn may follow a very fast completed turn; retain the post-subscribe
+    // idle check in addition to replaying the existing events.
     if (auto entry = registry_.acquire(child_id)) {
         if (entry->loop && !entry->loop->is_busy() && entry->sm) {
             for (const auto& msg : entry->sm->load_active_messages()) {
@@ -64,6 +73,24 @@ void SubagentHost::on_spawned(const std::string& child_id,
     }
 }
 
+void SubagentHost::on_event(const std::string& child_id, const SessionEvent& event) {
+    switch (event.kind) {
+    case SessionEventKind::BusyChanged:
+        if (!event.payload.value("busy", false)) remove_task(child_id);
+        break;
+    case SessionEventKind::SessionUpdated: {
+        const auto title = event.payload.value("title", std::string{});
+        if (!title.empty()) update_title(child_id, title);
+        break;
+    }
+    case SessionEventKind::PermissionRequest:
+        if (on_permission_request_)
+            on_permission_request_(child_id, title_for(child_id), event.payload);
+        break;
+    default: break;
+    }
+}
+
 std::vector<SubagentTaskSnapshot> SubagentHost::running_tasks() const {
     std::lock_guard<std::mutex> lk(mu_);
     return running_;
@@ -72,7 +99,7 @@ std::vector<SubagentTaskSnapshot> SubagentHost::running_tasks() const {
 std::vector<SubagentHost::TaskListEntry>
 SubagentHost::list_tasks(const std::string& project_dir) const {
     const std::string parent =
-        deps_.parent_session_id ? deps_.parent_session_id() : std::string{};
+        parent_session_id_ ? parent_session_id_() : std::string{};
     std::vector<TaskListEntry> out;
     std::vector<std::string> running_ids;
     {
@@ -109,7 +136,7 @@ bool SubagentHost::abort_task(const std::string& id) {
 
 int SubagentHost::clear_settled(const std::string& project_dir) {
     const std::string parent =
-        deps_.parent_session_id ? deps_.parent_session_id() : std::string{};
+        parent_session_id_ ? parent_session_id_() : std::string{};
     if (parent.empty() || project_dir.empty()) return 0;
     std::vector<std::string> running_ids;
     {
@@ -124,6 +151,16 @@ int SubagentHost::clear_settled(const std::string& project_dir) {
             running_ids.end()) {
             continue;
         }
+        ScopedSubscription subscription;
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            const auto found = subscriptions_.find(meta.id);
+            if (found != subscriptions_.end()) {
+                subscription = std::move(found->second);
+                subscriptions_.erase(found);
+            }
+        }
+        subscription.reset();
         registry_.destroy(meta.id);  // 不在 registry 时是 no-op
         SessionStorage::purge_session_files(project_dir, meta.id);
         {
@@ -152,7 +189,7 @@ void SubagentHost::respond_permission(const std::string& session_id,
 }
 
 void SubagentHost::publish_locked() {
-    if (deps_.publish_tasks) deps_.publish_tasks(running_);
+    if (publish_tasks_) publish_tasks_(running_);
 }
 
 void SubagentHost::remove_task(const std::string& id) {

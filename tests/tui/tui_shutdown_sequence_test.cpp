@@ -69,6 +69,7 @@ TEST(TuiShutdownSequence, PreservesEveryShutdownStepAndIsIdempotent) {
         TuiShutdownStep::InboundSubmit,
         TuiShutdownStep::AbortAndWake,
         TuiShutdownStep::AgentWorker,
+        TuiShutdownStep::Subagents,
         TuiShutdownStep::PowerLease,
         TuiShutdownStep::Mcp,
         TuiShutdownStep::Lsp,

@@ -11,6 +11,7 @@
 #include "tui/app/process_guards.hpp"
 #include "tui/app/startup_worktree.hpp"
 #include "agent/agent_loop.hpp"
+#include "tui/subagent_host.hpp"
 #include "session_host/auto_title_runner.hpp"
 #include "tool/mcp_manager.hpp"
 #include "lsp/lsp_service.hpp"
@@ -62,6 +63,9 @@ void TuiApp::shutdown_step(TuiShutdownStep step) {
     }
     case TuiShutdownStep::AgentWorker:
         if (agent_loop_) agent_loop_->shutdown();
+        break;
+    case TuiShutdownStep::Subagents:
+        if (subagent_host_) subagent_host_->shutdown();
         break;
     case TuiShutdownStep::PowerLease:
         if (agent_loop_) release_process_session_power(kTuiMainPowerSessionId);

@@ -2,7 +2,7 @@
 #include <array>
 namespace acecode::tui {
 enum class TuiShutdownStep {
-    ModelPool, AutoTitle, Notifications, ActiveScreen, ConsoleHandler, StopAnimation, InboundSubmit, AbortAndWake, AgentWorker, PowerLease, Mcp, Lsp, CompactWorker, AnimationWorker, AuthWorker, UpdateWorker, Worktree, FinalizeSession, CleanupSessions, SessionRegistration, ResumeHint
+    ModelPool, AutoTitle, Notifications, ActiveScreen, ConsoleHandler, StopAnimation, InboundSubmit, AbortAndWake, AgentWorker, Subagents, PowerLease, Mcp, Lsp, CompactWorker, AnimationWorker, AuthWorker, UpdateWorker, Worktree, FinalizeSession, CleanupSessions, SessionRegistration, ResumeHint
 };
 class ITuiShutdownActions {
 public:
@@ -13,7 +13,7 @@ public:
 class TuiShutdownSequence {
 public:
     void run(ITuiShutdownActions& actions) noexcept;
-    static const std::array<TuiShutdownStep, 21> & order();
+    static const std::array<TuiShutdownStep, 22> & order();
 private:
     bool ran_ = false;
 };

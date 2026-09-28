@@ -4,8 +4,8 @@ namespace acecode::tui {
 void ITuiShutdownActions::shutdown_error(TuiShutdownStep step) noexcept {
     std::fprintf(stderr, "[tui] shutdown step %d failed\n", static_cast<int>(step));
 }
-const std::array<TuiShutdownStep, 21> & TuiShutdownSequence::order() {
-    static const std::array<TuiShutdownStep, 21> steps{{
+const std::array<TuiShutdownStep, 22> & TuiShutdownSequence::order() {
+    static const std::array<TuiShutdownStep, 22> steps{{
         TuiShutdownStep::ModelPool,
         TuiShutdownStep::AutoTitle,
         TuiShutdownStep::Notifications,
@@ -15,6 +15,7 @@ const std::array<TuiShutdownStep, 21> & TuiShutdownSequence::order() {
         TuiShutdownStep::InboundSubmit,
         TuiShutdownStep::AbortAndWake,
         TuiShutdownStep::AgentWorker,
+        TuiShutdownStep::Subagents,
         TuiShutdownStep::PowerLease,
         TuiShutdownStep::Mcp,
         TuiShutdownStep::Lsp,

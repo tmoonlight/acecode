@@ -93,7 +93,7 @@
     - 实机:Desktop 关闭时,同时存在运行中的回合(含慢 MCP 工具、LSP 诊断)、挂起的提问、运行中的子代理,daemon 正常退出,不出现 0xC0000409,也没有残留的 lease;
     - POSIX 下 `kill -TERM` 响应正常;
     - spec `process-shutdown` 中的前两个 scenario 有对应测试或实机记录。
-- [ ] 2.5 【O-05】【主】【行为变更 D6】TUI 的 `SubagentHost` 析构安全与关停顺序。
+- [ ] 2.5 【O-05】【主】【行为变更 D6】TUI 的 `SubagentHost` 析构安全与关停顺序。〔实现完成: Codex-root 2026-09-28;SubagentHost 显式关停、listener LifetimeRef 与 ScopedSubscription、成员顺序及依赖移动;TUI 增加 Subagents 步骤;model_pool 的 LifetimeRef 已由 B-12 落地;运行中析构/挂起提问用例已补,待 Windows 统一验收〕
   - `~SubagentHost()` 先调用 `registry_.shutdown_all()`;
   - 子会话 listener 改为 LifetimeRef + ScopedSubscription;`deps_` 不再重复保存 registry_deps;
   - `TuiShutdownSequence` 在 `agent_loop.shutdown` 之后、MCP 与 LSP 关闭之前,加一步 `subagent_host.shutdown()`,单独提交;
