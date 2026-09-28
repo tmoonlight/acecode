@@ -102,7 +102,7 @@
   - 验证:
     - 新增 `subagent_host_shutdown_test`:子回合运行中析构 SubagentHost 时,`remove_task` / `publish_tasks` 不再被调用。修复前的表现是回调锁住已析构的 mu_;
     - 实机:子代理运行中、有挂起提问时,`/exit` 与 Ctrl+C 都能正常退出(split-tui-main 手工清单第 10 小节)。
-- [ ] 2.6 【O-06】【子】headless 订阅与回填指针收尾。
+- [ ] 2.6 【O-06】【子】headless 订阅与回填指针收尾。〔实现完成: Codex-root 2026-09-28;ScopedSubscription 覆盖提交失败早退,ScopeExit 在 client 存活时先停 registry 再清回填;外层 IIFE 与 MCP/LSP 顺序保持;拒绝提交及装配异常的资源用例已补,完整 CLI 回归待 Windows 统一验收〕
   - `headless_runner.cpp:642-722` 改用 ScopedSubscription,声明在被捕获的等待状态之后;
   - IIFE 末尾用 ScopeExit 清空 `subagent_deps->registry/client/config` 与 `thread_deps->service`;
   - 保持 IIFE 结构与现有收尾顺序不变。

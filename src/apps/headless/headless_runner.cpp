@@ -1,6 +1,8 @@
 #include "config/mcp_config.hpp"
 #include "environment/bootstrap.hpp"
 #include "headless_runner.hpp"
+#include "headless_session_scope.hpp"
+#include "session/scoped_subscription.hpp"
 
 #include "headless_capability_catalog.hpp"
 #include "headless_final_text.hpp"
@@ -534,6 +536,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
 
         acecode::SessionRegistry registry(std::move(reg_deps));
         acecode::LocalSessionClient client(registry);
+        auto session_cleanup = make_session_cleanup(registry, subagent_deps, thread_deps);
         subagent_deps->registry = &registry;
         subagent_deps->client   = &client;
         subagent_deps->config   = &cfg;
@@ -644,7 +647,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         bool turn_done = false;
         std::string last_error_reason;
 
-        auto sub_id = client.subscribe(
+        ScopedSubscription subscription(client, session_id, client.subscribe(
             session_id,
             [&](const SessionEvent& ev) {
                 if (jsonl_projector && jsonl_writer && !jsonl_writer->failed()) {
@@ -668,7 +671,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
                     std::lock_guard<std::mutex> lk(wait_mu);
                     last_error_reason = ev.payload.value("content", std::string{});
                 }
-            });
+            }));
 
         std::size_t baseline = 0;
         if (auto entry = registry.acquire(session_id); entry && entry->sm) {
@@ -719,7 +722,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
                 }
             }
         }
-        client.unsubscribe(session_id, sub_id);
+        subscription.reset();
 
         // ---- 结果输出 ----
         std::string final_text;
