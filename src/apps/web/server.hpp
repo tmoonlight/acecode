@@ -17,6 +17,7 @@
 
 #include "config/config.hpp"
 #include "upgrade/upgrade.hpp"
+#include "session/opencode_import.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -128,6 +129,11 @@ struct WebServerDeps {
                       acecode::upgrade::UpgradeProgressCallback,
                       acecode::upgrade::UpgradeCancelCheck,
                       std::string*)> run_update_command;
+    // Optional importer for embedders/tests. It runs on an owned background
+    // task and must own its captures, never borrow the WebServer.
+    using OpencodeImportRunner = std::function<OpencodeImportJobStatus(
+        const OpencodeImportOptions&, const OpencodeImportProgress&)>;
+    OpencodeImportRunner run_opencode_import;
     bool                       dangerous = false;
     // Web 控制台 PTY 会话注册表(add-console-dock)。null = 控制台不可用,
     // /api/health 报 console.available=false,PTY 路由 404。

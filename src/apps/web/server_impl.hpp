@@ -348,8 +348,13 @@ struct WebServer::Impl {
     mutable std::mutex tracked_subagents_mu;
     std::unordered_map<std::string, SessionClient::SubscriptionId> tracked_subagent_subscriptions;
 
-    mutable std::mutex opencode_import_mu;
-    mutable std::unordered_map<std::string, OpencodeImportJobStatus> opencode_import_jobs;
+    struct OpencodeImportRuntime {
+        std::mutex mu;
+        std::unordered_map<std::string, OpencodeImportJobStatus> jobs;
+    };
+    // Shared with import jobs that can finish after this server is destroyed.
+    std::shared_ptr<OpencodeImportRuntime> opencode_import_runtime =
+        std::make_shared<OpencodeImportRuntime>();
 
     std::shared_ptr<UpdateJobRuntime> update_job_runtime =
         std::make_shared<UpdateJobRuntime>();
@@ -362,7 +367,8 @@ struct WebServer::Impl {
 
     // Daemon-lifetime global search state. The catalog prewarms independently
     // of HTTP requests; content jobs are short, request-scoped batches.
-    std::unique_ptr<GlobalSessionSearchService> global_session_search;
+    // Import completion takes only a temporary lease from a weak reference.
+    std::shared_ptr<GlobalSessionSearchService> global_session_search;
 
     explicit Impl(WebServerDeps d)
         : deps(std::move(d)),
@@ -372,7 +378,7 @@ struct WebServer::Impl {
               : owned_app_config_mu) {
         subagent_tracker_state->impl = this;
         start_attention_flusher();
-        global_session_search = std::make_unique<GlobalSessionSearchService>(
+        global_session_search = std::make_shared<GlobalSessionSearchService>(
             projects_dir(), [this] {
                 return deps.session_client
                     ? deps.session_client->list_sessions()

@@ -1,4 +1,5 @@
 // routes_workspaces.cpp — Route registrations extracted from server.cpp
+#include "utils/abandonable_call.hpp"
 #include "utils/atomic_file.hpp"
 // Parse the Windows ACL helper before Crow, then expose Crow's HTTP aliases.
 #ifdef DELETE
@@ -782,26 +783,37 @@ void WebServer::Impl::register_workspaces() {
                 initial.total = static_cast<int>(opts.selected_session_ids.size());
             }
             {
-                std::lock_guard<std::mutex> lk(opencode_import_mu);
-                opencode_import_jobs[job_id] = initial;
+                std::lock_guard<std::mutex> lk(opencode_import_runtime->mu);
+                opencode_import_runtime->jobs[job_id] = initial;
             }
 
-            std::thread([this, job_id, opts]() {
-                auto publish = [this, job_id](const OpencodeImportJobStatus& next) {
-                    auto copy = next;
-                    copy.job_id = job_id;
-                    if (copy.workspace_hash.empty()) copy.workspace_hash = next.workspace_hash;
-                    std::lock_guard<std::mutex> lk(opencode_import_mu);
-                    opencode_import_jobs[job_id] = std::move(copy);
-                };
-                auto final_status = import_opencode_sessions(opts, publish);
-                final_status.job_id = job_id;
-                final_status.workspace_hash = opts.workspace_hash;
-                publish(final_status);
-                if (global_session_search) {
-                    global_session_search->invalidate_project(opts.workspace_hash);
-                }
-            }).detach();
+            auto run_import = deps.run_opencode_import;
+            if (!run_import) run_import = import_opencode_sessions;
+            spawn_owned_detached("opencode-import",
+                [runtime = opencode_import_runtime,
+                 search = std::weak_ptr<GlobalSessionSearchService>(global_session_search),
+                 job_id, opts, run_import = std::move(run_import)] {
+                    const auto publish = [runtime, job_id](const OpencodeImportJobStatus& next) {
+                        auto copy = next;
+                        copy.job_id = job_id;
+                        std::lock_guard<std::mutex> lock(runtime->mu);
+                        runtime->jobs[job_id] = std::move(copy);
+                    };
+                    OpencodeImportJobStatus final_status;
+                    try {
+                        final_status = run_import(opts, publish);
+                    } catch (const std::exception& e) {
+                        final_status.state = "failed";
+                        final_status.error = e.what();
+                    } catch (...) {
+                        final_status.state = "failed";
+                        final_status.error = "import failed";
+                    }
+                    final_status.job_id = job_id;
+                    final_status.workspace_hash = opts.workspace_hash;
+                    publish(final_status);
+                    if (auto service = search.lock()) service->invalidate_project(opts.workspace_hash);
+                });
 
             crow::response r(202);
             r.body = opencode_import_status_to_json(initial).dump();
@@ -819,9 +831,9 @@ void WebServer::Impl::register_workspaces() {
                 r.add_header("Content-Type", "application/json");
                 return with_cors(req, std::move(r));
             }
-            std::lock_guard<std::mutex> lk(opencode_import_mu);
-            auto it = opencode_import_jobs.find(job_id);
-            if (it == opencode_import_jobs.end() || it->second.workspace_hash != ws->hash) {
+            std::lock_guard<std::mutex> lk(opencode_import_runtime->mu);
+            auto it = opencode_import_runtime->jobs.find(job_id);
+            if (it == opencode_import_runtime->jobs.end() || it->second.workspace_hash != ws->hash) {
                 crow::response r(404);
                 r.body = R"({"error":"import job not found"})";
                 r.add_header("Content-Type", "application/json");

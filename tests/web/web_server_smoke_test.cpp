@@ -65,6 +65,8 @@
 #include "upgrade/manifest.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "utils/base64.hpp"
+#include "utils/abandonable_call.hpp"
+#include "utils/scope_exit.hpp"
 #include "utils/encoding.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/state_file.hpp"
@@ -455,6 +457,7 @@ struct WebServerFixture {
     struct TaskSuggestionsTag {};
     struct PtyTag {};
     struct ReasoningSyncTag {};
+    struct OpencodeImportTag {};
 
     acecode::ToolExecutor tools;
     acecode::PermissionManager template_perm;
@@ -506,7 +509,8 @@ struct WebServerFixture {
         bool expose_session_registry = true,
         bool enable_task_suggestions = false,
         bool enable_pty = false,
-        std::function<void(acecode::AppConfig&)> initialize_reasoning_models = {}) {
+        std::function<void(acecode::AppConfig&)> initialize_reasoning_models = {},
+        acecode::web::WebServerDeps::OpencodeImportRunner run_opencode_import = {}) {
         port = pick_test_port();
         web_cfg.bind = "127.0.0.1";
         web_cfg.port = port;
@@ -617,6 +621,7 @@ struct WebServerFixture {
             std::make_unique<FakeRemoteWebProxyController>();
         wdeps.remote_web_proxy = remote_web_proxy.get();
         wdeps.run_update_command = std::move(run_update_command);
+        wdeps.run_opencode_import = std::move(run_opencode_import);
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
         wdeps.dangerous = dangerous;
         wdeps.loop_store = loop_store.get();
@@ -699,6 +704,11 @@ struct WebServerFixture {
         ReasoningSyncTag, std::function<void(acecode::AppConfig&)> initialize)
         : WebServerFixture(true, false, {}, true, {}, {}, false, {}, {},
                            false, {}, {}, true, false, false, std::move(initialize)) {}
+
+    explicit WebServerFixture(OpencodeImportTag,
+        acecode::web::WebServerDeps::OpencodeImportRunner run_import)
+        : WebServerFixture(true, false, {}, true, {}, {}, false, {}, {},
+                           false, {}, {}, true, false, false, {}, std::move(run_import)) {}
 
     explicit WebServerFixture(TaskSuggestionsTag)
         : WebServerFixture(true, false, {}, true, {}, {}, false, {}, {},
@@ -12418,4 +12428,58 @@ TEST(WebServerHttp, SavedModelOrderPersistsAndValidatesRequests) {
         cpr::Body{json{{"name", "reorder"}, {"provider", "copilot"}, {"model", "gpt-4.1"}}.dump()});
     ASSERT_EQ(edited.status_code, 200) << edited.text;
     EXPECT_EQ(json::parse(edited.text)["model"], "gpt-4.1");
+}
+
+TEST(WebServerHttp, ImportCompletionOutlivesDestroyedServerWithoutBorrowingImpl) {
+    struct Gate {
+        std::mutex mu;
+        std::condition_variable cv;
+        bool entered = false;
+        bool release = false;
+        bool timed_out = false;
+    };
+    auto gate = std::make_shared<Gate>();
+    WebServerFixture fx(WebServerFixture::OpencodeImportTag{},
+        [gate](const acecode::OpencodeImportOptions& options,
+               const acecode::OpencodeImportProgress& progress) {
+            {
+                std::unique_lock<std::mutex> lock(gate->mu);
+                gate->entered = true;
+                gate->cv.notify_all();
+                gate->timed_out = !gate->cv.wait_for(lock, 5s, [gate] { return gate->release; });
+            }
+            acecode::OpencodeImportJobStatus status;
+            status.workspace_hash = options.workspace_hash;
+            status.state = "complete";
+            progress(status);
+            return status;
+        });
+    acecode::ScopeExit release_import([gate] {
+        { std::lock_guard<std::mutex> lock(gate->mu); gate->release = true; }
+        gate->cv.notify_all();
+        (void)acecode::wait_for_abandoned_work(6s);
+    });
+    const auto response = cpr::Get(cpr::Url{fx.url("/api/workspaces")}, cpr::Timeout{2000});
+    ASSERT_EQ(response.status_code, 200);
+    const auto workspaces = json::parse(response.text);
+    ASSERT_FALSE(workspaces.empty());
+    const auto hash = workspaces[0]["hash"].get<std::string>();
+    const auto started = cpr::Post(
+        cpr::Url{fx.url("/api/workspaces/" + url_encode_component(hash) + "/opencode-import")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"}, cpr::Timeout{2000});
+    ASSERT_EQ(started.status_code, 202) << started.text;
+    {
+        std::unique_lock<std::mutex> lock(gate->mu);
+        ASSERT_TRUE(gate->cv.wait_for(lock, 2s, [gate] { return gate->entered; }));
+    }
+    fx.server->stop();
+    fx.server_thread.join();
+    fx.server.reset();
+    {
+        std::lock_guard<std::mutex> lock(gate->mu);
+        EXPECT_FALSE(gate->timed_out);
+        gate->release = true;
+    }
+    gate->cv.notify_all();
+    EXPECT_TRUE(acecode::wait_for_abandoned_work(6s));
 }

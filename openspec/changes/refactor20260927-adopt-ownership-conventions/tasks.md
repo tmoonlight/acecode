@@ -113,7 +113,7 @@
     - 退出码 0 / 1 / 64 / 130 的语义不变;
     - spec `process-shutdown` 中「headless 退出顺序保持」这个 scenario 有测试锁定。
 - [ ] 2.7 【O-08】【主】src/web 内两处 UAF 最小点修(D5,各自单独提交)。
-  - `routes_workspaces.cpp:789-804` 的 opencode 导入线程,改为 `shared_ptr<OpencodeImportRuntime>` + `weak_ptr<GlobalSessionSearchService>`,写法仿照 routes_misc 里的升级任务;
+  - `routes_workspaces.cpp:789-804` 的 opencode 导入线程,改为 `shared_ptr<OpencodeImportRuntime>` + `weak_ptr<GlobalSessionSearchService>`,写法仿照 routes_misc 里的升级任务;〔实现完成: Codex-root 2026-09-28;独立共享任务状态 + 搜索弱引用 + owned detached,真实路由阻塞导入后销毁服务器用例已补,待统一验收〕
   - WS subscribe listener(`routes_ws.cpp:282-296`)改为捕获 Impl 级令牌;`~Impl` 在 `app.stop()` 之后逐一退订。
   - 除这两处外,不做任何 web 重构。
   - 前置:2.1。
