@@ -22,6 +22,7 @@ public:
     ~TrajectoryRecorder();
     TrajectoryRecorder(const TrajectoryRecorder&) = delete;
     TrajectoryRecorder& operator=(const TrajectoryRecorder&) = delete;
+    LifetimeRef<TrajectoryRecorder> ref() { return lifetime_.ref(*this); }
     void record_terminal(nlohmann::json busy_payload, nlohmann::json done_payload);
 
 private:

@@ -14,7 +14,6 @@
 #include "session/event_dispatcher.hpp"
 #include "agent/side_question/side_chat.hpp"
 #include "config/config.hpp"
-#include "pa/pa_overflow_rescue.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "sandbox/sandbox_denial.hpp"
 #include "sandbox/sandbox_runtime.hpp"
@@ -65,7 +64,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -457,42 +456,11 @@ private:
     void append_interrupted_turn_context(const std::string& turn_id);
     std::size_t close_active_turn_and_discard();
     bool maybe_run_auto_compact();
-    // 摘要压缩失败后的兜底:改用不调用模型的机械修剪腾出空间。返回 true 表示
-    // 空间已经腾出、回合可以继续。见 maybe_run_auto_compact 里的失败分支。
-    bool run_mechanical_compact_fallback(int request_tokens,
-                                         int context_window,
-                                         const std::string& compact_notice_id,
-                                         const std::string& summarization_error);
+    agent::CompactionInputs compaction_inputs() const;
     bool active_estimate_exceeds_auto_threshold(
         const UserInput* pending_input = nullptr) const;
 
-    // 压缩决策该用的窗口。正常等于 context_window_,但当服务端声明的窗口不可
-    // 信(实测拒绝过更小的请求)时,收敛到 src/pa 观测到的那条线之下,免得每
-    // 一轮都要先撞一次墙才触发恢复。UI 显示的占用百分比不走这里 —— 那里要如实
-    // 反映用户配置的窗口,不该被适配层改写。
-    int compaction_context_window() const;
-    // 当前 provider/model 身份,供上面的观测表按模型分桶。provider 缺席时返回
-    // 空串 —— 观测表会把空 model 判为身份不明,既不记录也不查表(见
-    // pa::identity_is_known),所以漏接线只会退回原行为,不会串桶。
-    // 服务端整体拒收了这次请求(未产出任何模型输出),把规模记进观测表。
-    void note_pa_context_rejection(int request_tokens);
-    // 服务端接受了这次请求。只在该模型已经撞过墙时才算 —— 全量 token 估算不
-    // 便宜,不该为从未出问题的模型在每个回合上白花一次。
-    void note_pa_context_accepted(
-        const std::vector<ChatMessage>& messages_with_system);
     std::vector<ChatMessage> build_compaction_initial_context() const;
-
-    // 当前 provider 是否能直接读图。喂给 build_system_prompt 的 # Environment
-    // 段,也用于 vision_analyze 的自调用防护。provider 缺席时 fail-open 返回
-    // true(与 LlmProvider::supports_vision 默认同口径)。模型切换发生在回合
-    // 边界,所以同一回合内多次调用的结果一致,不会打穿 prompt cache 前缀。
-    // 当前 provider 的模型族信息(openspec add-gpt-apply-patch-adaptation):
-    // 决定系统提示的工具指引分支与模型侧工具表里给 apply_patch 还是
-    // file_edit / file_write。与视觉那一位同口径:只随模型切换变化。
-    void initialize_compact_window_state();
-    void apply_compact_result(const CompactResult& result,
-                              const std::string& trigger,
-                              const std::string& compact_notice_id);
 
     // Section 7: 同时调老 on_message callback(若 TUI 挂了)和新事件流
     // (events_)。所有 on_message 触发点都该走这个 helper,确保 daemon
@@ -560,27 +528,8 @@ private:
     using HandleErrorResult = agent::HandleErrorResult;
     using ContextRecoveryStage = agent::ContextRecoveryStage;
     HandleErrorResult handle_provider_error(
-        ProviderCallResult& result,
-        const std::vector<ChatMessage>& messages_with_system,
-        std::string& turn_timing_status,
-        ContextRecoveryStage& recovery_stage,
-        bool& emergency_request_profile);
-    // PA 兜底(src/pa/pa_overflow_rescue):服务端以 PA 特征报文拒收整个请求
-    // 时,原样重发 → 逐档收缩 → 紧急档 → 等待重发,不因这条报文终止回合。
-    // 返回 Continue 表示按新状态重发同一回合;Break 表示等待次数耗尽或用户
-    // 中止(调用方按 abort_signal_.raw() 区分)。
-    HandleErrorResult run_pa_overflow_rescue(
-        const ProviderErrorInfo& error,
-        int request_tokens,
-        bool& emergency_request_profile);
-    // 可被 AbortSignal 立即唤醒的兜底等待。false = 用户中止。
-    bool wait_for_pa_rescue_delay(int wait_ms);
-    // 兜底等待期间给 TUI / Web 的进度(与 provider 层重试同款展示)。
-    void emit_pa_rescue_wait_progress(const ProviderErrorInfo& error,
-                                      const pa::RescuePlan& plan,
-                                      int attempt,
-                                      int max_attempts,
-                                      bool waiting);
+        ProviderCallResult& result, const std::vector<ChatMessage>& messages,
+        std::string& turn_timing_status);
 
     // Phase 5: Execute tool calls (parallel read + serial write).
     // Returns true if task_complete terminator fired.
@@ -660,18 +609,8 @@ private:
     // recovery boundary can still publish an accurate terminal summary after
     // an exception unwinds run_agent_with_input().
     std::unique_ptr<agent::TurnUsageRecord> turn_usage_;
-    // PA 兜底的 episode 进度(见 run_pa_overflow_rescue)。服务端收下请求即
-    // 清零;回合开始也清零。只在回合线程上读写。
-    pa::RescueState pa_rescue_state_;
-    // 兜底刚做完一步之后的那次重发跳过自动压缩:压缩本身又是一次可能被拒的
-    // 模型请求,先把已经缩好的请求发出去;下一次采样再照常压缩。
-    bool skip_auto_compact_once_ = false;
-    std::atomic<int> compact_generation_{0};
+    std::unique_ptr<agent::RequestRecoveryState> recovery_state_;
     std::atomic<int> task_suggestion_compact_threshold_{3};
-    bool compact_window_initialized_ = false;
-    std::uint64_t compact_window_number_ = 0;
-    std::string compact_first_window_id_;
-    std::string compact_current_window_id_;
     SessionManager* session_manager_ = nullptr;
     HookManager* hook_manager_ = nullptr;
     const SkillRegistry* skill_registry_ = nullptr;
@@ -708,6 +647,8 @@ private:
     std::unique_ptr<agent::TurnUsageAccountant> usage_accountant_;
     std::unique_ptr<agent::ModelStepRecorder> model_steps_;
     std::unique_ptr<agent::ProviderStreamCollector> stream_collector_;
+    std::unique_ptr<agent::CompactionController> compaction_;
+    std::unique_ptr<agent::ContextOverflowRecovery> recovery_;
 
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由

@@ -1,41 +1,44 @@
-#include "agent/agent_loop.hpp"
+#include "compaction_controller.hpp"
+#include "compact.hpp"
+#include "agent/agent_callbacks.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
-#include "agent/transcript/conversation_history.hpp"
-#include "agent/approval/permission_payloads.hpp"
-#include "agent/compaction/compact.hpp"
+#include "agent/hook_bridge/agent_hook_bridge.hpp"
+#include "agent/model_step/active_model_view.hpp"
+#include "agent/model_step/active_provider_slot.hpp"
+#include "agent/progress/retry_progress.hpp"
+#include "agent/request/api_request_builder.hpp"
 #include "agent/request/provider_history.hpp"
-#include "agent/request/request_context.hpp"
-#include "agent/transcript/transcript_queries.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "permissions/shell_write_guard.hpp"
+#include "agent/transcript/conversation_history.hpp"
+#include "agent/transcript/transcript_writer.hpp"
+#include "agent/transcript/trajectory_recorder.hpp"
+#include "agent/turn/busy_cycle.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/compact_notice.hpp"
+#include "session/event_dispatcher.hpp"
 #include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
+#include "session/system_notice.hpp"
 #include "session/task_suggestion_store.hpp"
-#include "session/turn_timing.hpp"
+#include "session/thread_repair.hpp"
+#include "session/token_tracker.hpp"
 #include "tool/mtime_tracker.hpp"
+#include "utils/abort_signal.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
+#include "utils/encoding.hpp"
+#include "utils/time.hpp"
 #include "utils/uuid.hpp"
-#include "workspace/workspace_registry.hpp"
-
 #include <algorithm>
-#include <chrono>
-#include <cstdint>
 #include <limits>
-#include <mutex>
-#include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
+using detail::recovered_provider_messages;
+using utils::now_epoch_ms;
 
-using agent::detail::recovered_provider_messages;
-
-bool AgentLoop::active_estimate_exceeds_auto_threshold(
+bool CompactionController::exceeds_auto_threshold(
+    const CompactionInputs& inputs,
     const UserInput* pending_input) const {
-    auto request = build_compaction_initial_context();
-    auto history = recovered_provider_messages(history_->view(), "token-estimate");
+    auto request = requests_.initial_context(inputs.request);
+    auto history = recovered_provider_messages(history_.view(), "token-estimate");
     if (pending_input && !pending_input->empty()) {
         ChatMessage pending;
         pending.role = "user";
@@ -46,12 +49,12 @@ bool AgentLoop::active_estimate_exceeds_auto_threshold(
     }
     request.insert(request.end(), history.begin(), history.end());
     return should_auto_compact(
-        compaction_context_window(),
+        ActiveModelView(inputs.provider, inputs.request.context_window).effective_window(),
         last_api_total_tokens_.load(std::memory_order_relaxed),
         estimate_message_tokens(request));
 }
 
-void AgentLoop::initialize_compact_window_state() {
+void CompactionController::initialize_window(const CompactionInputs& inputs) {
     if (compact_window_initialized_) return;
     compact_window_initialized_ = true;
 
@@ -59,8 +62,8 @@ void AgentLoop::initialize_compact_window_state() {
     compact_current_window_id_ = generate_uuid_v7();
     compact_first_window_id_ = compact_current_window_id_;
 
-    if (!session_manager_) return;
-    const auto raw_messages = session_manager_->load_active_messages();
+    if (!inputs.session) return;
+    const auto raw_messages = inputs.session->load_active_messages();
     for (auto it = raw_messages.rbegin(); it != raw_messages.rend(); ++it) {
         const auto checkpoint = decode_compact_checkpoint(*it);
         if (!checkpoint.has_value()) continue;
@@ -80,12 +83,13 @@ void AgentLoop::initialize_compact_window_state() {
     }
 }
 
-void AgentLoop::apply_compact_result(
+void CompactionController::apply_result(
+    const CompactionInputs& inputs,
     const CompactResult& result,
     const std::string& trigger,
     const std::string& compact_notice_id) {
-    auto initial_context = build_compaction_initial_context();
-    auto pre_history = recovered_provider_messages(history_->view(), "compact-input");
+    auto initial_context = requests_.initial_context(inputs.request);
+    auto pre_history = recovered_provider_messages(history_.view(), "compact-input");
     auto pre_request = initial_context;
     pre_request.insert(pre_request.end(), pre_history.begin(), pre_history.end());
     const int pre_tokens = estimate_message_tokens(pre_request);
@@ -96,7 +100,7 @@ void AgentLoop::apply_compact_result(
         post_request.end(), replacement_history.begin(), replacement_history.end());
     const int post_tokens = estimate_message_tokens(post_request);
 
-    initialize_compact_window_state();
+    initialize_window(inputs);
     const std::string previous_window_id = compact_current_window_id_;
     if (compact_window_number_ <
         std::numeric_limits<std::uint64_t>::max()) {
@@ -110,7 +114,7 @@ void AgentLoop::apply_compact_result(
     }
 
     bool checkpoint_persisted = false;
-    if (session_manager_) {
+    if (inputs.session) {
         CompactCheckpoint checkpoint;
         checkpoint.trigger = trigger;
         checkpoint.summary = result.summary_text;
@@ -123,9 +127,9 @@ void AgentLoop::apply_compact_result(
         checkpoint.previous_window_id = previous_window_id;
         checkpoint.window_id = compact_current_window_id_;
         checkpoint.replacement_history = replacement_history;
-        checkpoint_persisted = session_manager_->append_compact_checkpoint(checkpoint);
+        checkpoint_persisted = inputs.session->append_compact_checkpoint(checkpoint);
     }
-    history_->replace(std::move(replacement_history));
+    history_.replace(std::move(replacement_history));
     last_api_total_tokens_.store(post_tokens, std::memory_order_relaxed);
     MtimeTracker::instance().clear_read_observations();
     compact_generation_.fetch_add(1, std::memory_order_relaxed);
@@ -133,26 +137,34 @@ void AgentLoop::apply_compact_result(
     const std::string notice_id = compact_notice_id.empty()
         ? generate_uuid_v7()
         : compact_notice_id;
-    emit_transcript_system_message(
+    transcript_.emit_transcript_system_message(inputs.session,
         "--- [Compact Checkpoint] ---",
         make_compact_notice_metadata(notice_id, "checkpoint"));
-    emit_transcript_system_message(
+    transcript_.emit_transcript_system_message(inputs.session,
         "[Conversation summary]\n" + result.summary_text,
         make_compact_notice_metadata(notice_id, "summary", true, {{"summary", result.summary_text}}));
     if (checkpoint_persisted) {
-        const auto project_dir = session_manager_->current_project_dir();
-        const auto source_id = session_manager_->current_session_id();
-        const int threshold = task_suggestion_compact_threshold_.load(std::memory_order_relaxed);
+        const auto project_dir = inputs.session->current_project_dir();
+        const auto source_id = inputs.session->current_session_id();
+        const int threshold = inputs.suggestion_threshold;
         if (!project_dir.empty() && !source_id.empty() && threshold > 0) {
             TaskSuggestionStore store(path_from_utf8(project_dir));
             std::string error;
             store.propose_continuation(
-                source_id, session_manager_->load_active_messages(),
+                source_id, inputs.session->load_active_messages(),
                 static_cast<std::uint64_t>(threshold),
-                {{"source_working_cwd", boundary_->cwd()}}, &error);
+                {{"source_working_cwd", boundary_.cwd()}}, &error);
             if (!error.empty()) LOG_WARN("[task-suggestion] " + error);
         }
     }
 }
 
-} // namespace acecode
+
+void CompactionController::reset_window() {
+    compact_window_initialized_ = false;
+    compact_window_number_ = 0;
+    compact_first_window_id_.clear();
+    compact_current_window_id_.clear();
+}
+
+} // namespace acecode::agent

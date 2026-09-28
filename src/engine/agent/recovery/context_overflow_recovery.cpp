@@ -1,55 +1,43 @@
-#include "agent/agent_loop.hpp"
-#include "agent/transcript/conversation_history.hpp"
+#include "context_overflow_recovery.hpp"
+#include "pa_rescue_host.hpp"
+#include "provider_error_report.hpp"
+#include "agent/agent_callbacks.hpp"
+#include "agent/compaction/compaction_controller.hpp"
 #include "agent/compaction/compact.hpp"
-#include "agent/recovery/provider_error_report.hpp"
+#include "agent/goal/goal_runtime.hpp"
+#include "agent/model_step/active_model_view.hpp"
 #include "agent/request/provider_history.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "pa/pa_overflow_rescue.hpp"
+#include "agent/transcript/conversation_history.hpp"
+#include "agent/transcript/transcript_writer.hpp"
 #include "pa/pa_quirks.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
-#include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "session/thread_goal_store.hpp"
-#include "session/thread_repair.hpp"
-#include "utils/encoding.hpp"
+#include "session/event_dispatcher.hpp"
+#include "session/token_tracker.hpp"
+#include "utils/abort_signal.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/text.hpp"
-#include "workspace/workspace_registry.hpp"
-
 #include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
 #include <utility>
-#include <thread>
 
-namespace acecode {
+namespace acecode::agent {
+using detail::recovered_provider_messages;
+using detail::provider_error_to_json;
+using detail::provider_error_summary_for_log;
 
-using agent::detail::recovered_provider_messages;
-using agent::detail::provider_error_to_json;
-using agent::detail::provider_error_summary_for_log;
-
-AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
-    ProviderCallResult& result,
-    const std::vector<ChatMessage>& messages_with_system,
-    std::string& turn_timing_status,
-    ContextRecoveryStage& recovery_stage,
-    bool& emergency_request_profile) {
+RecoveryDecision ContextOverflowRecovery::resolve(
+    const ProviderCallResult& result, const std::vector<ChatMessage>& messages_with_system,
+    RequestRecoveryState& state, int declared_window, SessionManager* session) {
+    std::optional<std::string> turn_timing_status;
+    auto& recovery_stage = state.stage;
+    auto& emergency_request_profile = state.emergency_profile;
+    const ActiveModelView model(result.provider_snapshot, declared_window);
     if (!result.provider_error_seen) {
-        note_pa_context_accepted(messages_with_system);
+        model.note_accepted(messages_with_system);
         // 服务端收下了这次请求:PA 兜底的这一轮到此结束,后面再被拒是新一轮。
-        pa_rescue_state_ = pa::RescueState{};
-        return HandleErrorResult::Proceed;
+        state.pa_episode = {};
+        return {HandleErrorResult::Proceed, turn_timing_status};
     }
 
-    if (abort_signal_.raw()) {
-        return HandleErrorResult::Break;
+    if (abort_.raw()) {
+        return {HandleErrorResult::Break, turn_timing_status};
     }
 
     const bool model_output_seen =
@@ -57,7 +45,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
         !result.accumulated.reasoning_content.empty() ||
         result.accumulated.has_tool_calls();
     const int request_tokens = estimate_message_tokens(messages_with_system);
-    const int context_window = context_window_.load(std::memory_order_relaxed);
+    const int context_window = declared_window;
     const bool context_overflow =
         is_context_overflow_error(result.provider_error_info);
     LOG_WARN("Provider error before turn completion; " +
@@ -77,19 +65,24 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
         pa::is_context_overflow(result.provider_error_info)) {
         // PA 特征报文走专用兜底(src/pa/pa_overflow_rescue):不设修复次数
         // 上限,缩到底还被拒就等。下面的通用三级恢复链只服务其它 provider。
-        const HandleErrorResult rescue = run_pa_overflow_rescue(
-            result.provider_error_info, request_tokens,
-            emergency_request_profile);
-        if (rescue == HandleErrorResult::Continue) return rescue;
-        if (abort_signal_.raw()) return HandleErrorResult::Break;
+        PaRescueAdapter host(history_, transcript_, compaction_, retry_, callbacks_,
+                             events_, abort_, session, model);
+        if (pa::run_rescue(host, state.pa_episode, result.provider_error_info,
+                           request_tokens, emergency_request_profile)) {
+            state.skip_auto_compact_once = true;
+            return {HandleErrorResult::Continue, turn_timing_status};
+        }
+        if (abort_.raw()) return {HandleErrorResult::Break, turn_timing_status};
         pa_rescue_exhausted = true;
     } else if (context_overflow && !model_output_seen) {
         // 先记账再恢复:这一轮已经撞墙了救不回来,但下一轮可以不撞。
-        note_pa_context_rejection(request_tokens);
+        if (const auto notice = model.note_rejected(request_tokens)) {
+            transcript_.emit_transcript_system_message(session, notice->text, notice->metadata);
+        }
         if (recovery_stage == ContextRecoveryStage::Normal) {
             const int history_tokens = estimate_message_tokens(
                 recovered_provider_messages(
-                    history_->view(), "context-overflow-estimate"));
+                    history_.view(), "context-overflow-estimate"));
             const int fixed_tokens = (std::max)(0, request_tokens - history_tokens);
             int target_total = (std::max)(1, request_tokens * 2 / 3);
             if (context_window > 0) {
@@ -101,7 +94,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
             options.target_tokens = (std::max)(
                 1, target_total - fixed_tokens);
             options.force_prune_one_group = true;
-            auto repair = history_->repair(session_manager_, options);
+            auto repair = history_.repair(session, options);
             LOG_WARN("[thread-repair] automatic status=" +
                      std::string(to_string(repair.status)) +
                      " pre_tokens=" + std::to_string(repair.pre_tokens) +
@@ -111,8 +104,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
                      " reason=" + repair.reason);
             if (repair.repaired()) {
                 recovery_stage = ContextRecoveryStage::HistoryRepaired;
-                compact_generation_.fetch_add(1, std::memory_order_relaxed);
-                last_api_total_tokens_.store(0, std::memory_order_relaxed);
+                compaction_.mark_history_repaired();
                 if (callbacks_.on_stream_retry_reset) {
                     callbacks_.on_stream_retry_reset();
                 }
@@ -121,7 +113,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
                     {"label", "Retrying with repaired thread history"},
                     {"detail", repair.reason},
                 });
-                return HandleErrorResult::Continue;
+                return {HandleErrorResult::Continue, turn_timing_status};
             }
             recovery_stage = ContextRecoveryStage::EmergencyProfile;
             emergency_request_profile = true;
@@ -130,7 +122,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
             }
             LOG_WARN("[thread-repair] history exhausted; retrying once with "
                      "the emergency request profile");
-            return HandleErrorResult::Continue;
+            return {HandleErrorResult::Continue, turn_timing_status};
         }
         if (recovery_stage == ContextRecoveryStage::HistoryRepaired) {
             recovery_stage = ContextRecoveryStage::EmergencyProfile;
@@ -140,7 +132,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
             }
             LOG_WARN("[thread-repair] repaired history was still rejected; "
                      "retrying once with the emergency request profile");
-            return HandleErrorResult::Continue;
+            return {HandleErrorResult::Continue, turn_timing_status};
         }
         LOG_WARN("[thread-repair] emergency request profile was still rejected; "
                  "automatic recovery is exhausted");
@@ -173,12 +165,12 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
             "both exhausted; the fixed context or current input may exceed the "
             "provider's actual limit.";
     }
-    dispatch_message("error", "[Error] " + display_message, false,
-                     std::move(metadata));
+    transcript_.dispatch_message("error", "[Error] " + display_message, false,
+                                  std::move(metadata), nlohmann::json::array());
     LOG_WARN("Provider stream failed; ending turn without assistant message: " +
              log_truncate(result.provider_error_info.display_message, 500));
-    stop_active_goal_after_turn_error(result.provider_error_info);
-    return HandleErrorResult::Break;
+    goal_.stop_after_error(session, result.provider_error_info);
+    return {HandleErrorResult::Break, turn_timing_status};
 }
 
-} // namespace acecode
+} // namespace acecode::agent

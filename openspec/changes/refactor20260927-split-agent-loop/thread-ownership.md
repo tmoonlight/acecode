@@ -29,4 +29,8 @@
 | ProviderStreamCollector::Call | provider 流回调 | 每请求独占临时输出、scanner、attempt/usage;回调仅持 LifetimeRef,返回前 revoke 等待在途并拒绝晚到事件。 |
 | TurnUsageAccountant / ModelStepRecorder | worker | 先记入 worker 可达的回合用量再调用消费者;request/response/first-output 与 step 事件共享记录出口。 |
 
-A-11 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。
+| CompactionController | worker | 独占 checkpoint 窗口链与 atomic generation;先落 checkpoint 再替换历史;provider 重试回调只捕获 LifetimeRef。 |
+| ContextOverflowRecovery / RequestRecoveryState | worker | 返回决策与可选 timing 变更;通用 stage 与 PA episode 相互独立,使用请求的同一 provider 租约。 |
+| PaRescueAdapter / PaRescueHost | 同步恢复调用 | 适配器固定借用服务,不回指门面;纯策略不保存宿主,所有 IO/等待/发布由宿主实施。 |
+
+A-12 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。

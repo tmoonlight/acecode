@@ -148,7 +148,7 @@
     - termination 中的 `TransientRetryResetsProvisionalStateAndReportsProgress`、`RecoveryPreservesAccountedUsageWhenConsumerThrows`、空回复与文本调用纠正;
     - `agent_loop_apply_patch_test`、`agent_loop_tool_protocol_names_test`、`agent_loop_plan_mode_test`、`system_prompt_test`、`trajectory_legacy_projection_test`;
     - P0-11 的静态 system prompt 一致性用例。
-- [ ] 3.6 【A-11】【主】恢复链与 PA 接触点。
+- [ ] 3.6 【A-11】【主】恢复链与 PA 接触点。〔实现完成: Codex-root 2026-09-28;CompactionController/窗口链、ContextOverflowRecovery 和 adapters/pa/PaRescueDriver 已接入,受限接触点已登记,手动压缩保持无机械兜底;取消/顺序用例与 PA 移除演练待统一验收〕
   - `ContextOverflowRecovery` 返回 {决策, timing_status};
   - PA 兜底的纯逻辑移到 `src/adapters/pa/pa_rescue_driver`,经 `PaRescueHost` 接口取副作用;
   - `CompactionController` 持有窗口链与 `compact_generation`,手动压缩路径保持没有机械兜底;

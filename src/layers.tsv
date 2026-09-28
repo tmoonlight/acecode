@@ -74,32 +74,26 @@ symbol	src/*				R11:tool_names	\bset_model_tool_name_mappings\s*\(			-
 symbol	src/engine/agent/*				R11:messages_write	\bmessages_\s*(?:\.(?:push_back|emplace_back|emplace|pop_back|clear|insert|erase|swap|resize|assign)\s*\(|(?:\[[^\]\n]+\]|\.(?:back|front|at)\([^)\n]*\))?(?:\.\w+|\[[^\]\n]+\])*\s*(?:=(?!=)|\+=|-=))|\b(?:swap|sort|reverse)\s*\(\s*messages_			-
 symbol	src/*				R11:pa	\bpa::|\b(?:note_pa_context_rejection|note_pa_context_accepted|pa_rescue_state_)\b			-
 symbol	src/engine/agent/*				R11:provider_chat	(?:->|\.)\s*chat(?:_stream)?\s*\(			-
-allow	src/engine/agent/agent_loop.cpp				R11:provider_messages				Existing owner; remove after split tasks
-allow	src/engine/agent/request/model_facing_messages.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/request/provider_history.*				R11:provider_messages				Single outlet / PA contact table
 allow	src/engine/agent/request/api_request_builder.*				R11:provider_messages				Single outlet / PA contact table
-allow	src/engine/agent/side_question/side_question_service.*				R11:provider_messages				Single outlet / PA contact table
-allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_messages				Single outlet / PA contact table
+allow	src/engine/agent/side_question/agent_side_question.cpp				R11:provider_messages				Single outlet / PA contact table
 allow	src/engine/agent/agent_loop.cpp				R11:approval				Existing owner; remove after split tasks
 allow	src/engine/agent/approval/tool_approval_gate.*				R11:approval				Single outlet / PA contact table
 allow	src/engine/agent/agent_loop.*				R11:audit				Existing owner; remove after split tasks
 allow	src/engine/agent/approval/*				R11:audit				Single outlet / PA contact table
 allow	src/adapters/tool/tool_rewrites.cpp				R11:tool_names				Single outlet / PA contact table
 allow	src/domain/llm/tool_protocol_names.*				R11:tool_names				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.*				R11:messages_write				Existing owner; remove after split tasks
 allow	src/engine/agent/transcript/conversation_history.*				R11:messages_write				Single outlet / PA contact table
 allow	src/adapters/pa/*				R11:pa				Single outlet / PA contact table
 allow	src/adapters/provider/retry_policy.cpp				R11:pa				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.*				R11:pa				Existing owner; remove after split tasks
 allow	src/engine/agent/recovery/context_overflow_recovery.*				R11:pa				Single outlet / PA contact table
 allow	src/engine/agent/recovery/pa_rescue_host.*				R11:pa				Single outlet / PA contact table
 allow	src/engine/agent/model_step/active_model_view.*				R11:pa				Single outlet / PA contact table
 allow	src/engine/agent/compaction/compact.cpp				R11:pa				Single outlet / PA contact table
-allow	src/engine/agent/agent_loop.cpp				R11:provider_chat				Existing owner; remove after split tasks
 allow	src/engine/agent/model_step/provider_stream_collector.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/side_question/side_question_service.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/side_question/side_chat.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/compaction/compact.cpp				R11:provider_chat				Single outlet / PA contact table
-allow	src/engine/agent/recovery/pa_rescue_host.*				R11:provider_chat				Single outlet / PA contact table
 allow	src/engine/agent/progress/*				R3:tool_preamble				-
 allow	src/adapters/tool/theme_create_tool.*				R3:themes				-
 exempt	src/apps/web/*				R12,R15				D21 user constraint; includes old src/web through mapping

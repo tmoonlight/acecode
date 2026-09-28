@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/recovery/context_overflow_recovery.hpp"
+#include "agent/compaction/compaction_controller.hpp"
 #include "agent/model_step/provider_stream_collector.hpp"
 #include "agent/model_step/turn_usage_accountant.hpp"
 #include "agent/model_step/model_step_recorder.hpp"
@@ -24,7 +26,6 @@
 #include "agent/guards/doom_guard.hpp"
 #include "computer_use/runtime.hpp"
 #include "hooks/hook_manager.hpp"
-#include "pa/pa_context_budget.hpp"
 #include "provider/text_tool_call_recovery.hpp"
 #include "session/permission_prompter.hpp"
 #include "session/session_manager.hpp"
@@ -61,6 +62,7 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , permissions_(permissions)
     , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
     , turn_usage_(std::make_unique<agent::TurnUsageRecord>())
+    , recovery_state_(std::make_unique<agent::RequestRecoveryState>())
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))
@@ -80,6 +82,12 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , stream_collector_(std::make_unique<agent::ProviderStreamCollector>(
           tools_, callbacks_, events_, *history_, *active_provider_slot_, abort_signal_,
           *activity_, *retry_progress_, *usage_accountant_, *model_steps_))
+    , compaction_(std::make_unique<agent::CompactionController>(
+          *history_, *transcript_, *boundary_, *hooks_, *request_builder_, *active_provider_slot_,
+          *retry_progress_, callbacks_, events_, abort_signal_, busy_, last_api_total_tokens_))
+    , recovery_(std::make_unique<agent::ContextOverflowRecovery>(
+          *history_, *transcript_, *compaction_, *retry_progress_, *goal_,
+          callbacks_, events_, abort_signal_))
 {
     reload_exec_rules();
     worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);

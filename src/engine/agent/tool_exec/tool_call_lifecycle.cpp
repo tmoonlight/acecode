@@ -5,8 +5,6 @@
 #include "agent/tool_exec/tool_batch_types.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
-#include "pa/pa_context_budget.hpp"
-#include "pa/pa_overflow_rescue.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "session/ask_user_question_prompter.hpp"
 #include "session/output_attachments.hpp"

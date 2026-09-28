@@ -7,7 +7,6 @@
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "llm/tool_protocol_names.hpp"
-#include "pa/pa_overflow_rescue.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "session/ask_user_question_prompter.hpp"

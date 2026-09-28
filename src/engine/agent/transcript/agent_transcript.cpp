@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/compaction/compaction_controller.hpp"
 
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
@@ -47,10 +48,7 @@ void AgentLoop::record_turn_outcome(const std::string& status) { turn_outcome_->
 void AgentLoop::clear_messages() {
     history_->clear_idle(task_queue_->on_worker_thread() || task_queue_->held_by_current_thread());
     last_api_total_tokens_.store(0, std::memory_order_relaxed);
-    compact_window_initialized_ = false;
-    compact_window_number_ = 0;
-    compact_first_window_id_.clear();
-    compact_current_window_id_.clear();
+    compaction_->reset_window();
 }
 void AgentLoop::push_message(const ChatMessage& message) {
     history_->restore(message, task_queue_->on_worker_thread() || task_queue_->held_by_current_thread());

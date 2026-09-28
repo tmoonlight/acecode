@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/recovery/context_overflow_recovery.hpp"
+#include "agent/compaction/compaction_controller.hpp"
 #include "agent/model_step/model_step_recorder.hpp"
 #include "agent/model_step/turn_usage_accountant.hpp"
 #include "agent/progress/activity_narrator.hpp"
@@ -18,8 +20,6 @@
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "llm/tool_protocol_names.hpp"
-#include "pa/pa_context_budget.hpp"
-#include "pa/pa_overflow_rescue.hpp"
 #include "permissions/interaction_mode.hpp"
 #include "permissions/shell_write_guard.hpp"
 #include "prompt/context_usage_breakdown.hpp"
@@ -164,11 +164,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     // Loop state
     int total_iterations = 0;
     bool terminator_fired = false;
-    ContextRecoveryStage context_recovery_stage =
-        ContextRecoveryStage::Normal;
-    bool emergency_request_profile = false;
-    pa_rescue_state_ = pa::RescueState{};
-    skip_auto_compact_once_ = false;
+    *recovery_state_ = agent::RequestRecoveryState{};
+    auto& context_recovery_stage = recovery_state_->stage;
+    auto& emergency_request_profile = recovery_state_->emergency_profile;
     activity_->reset_turn();
 
     const int max_iter = loop_cfg_.max_iterations;
@@ -190,9 +188,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     constexpr int kMaxDsmlToolCallCorrections = 1;
     int text_tool_call_corrections = 0;
     agent::SynchronizedDoomGuard doom_guard;
-    int observed_compact_generation = compact_generation_.load(std::memory_order_relaxed);
+    int observed_compact_generation = compaction_->generation();
     auto reset_doom_guard_after_compact = [&]() {
-        const int current_generation = compact_generation_.load(std::memory_order_relaxed);
+        const int current_generation = compaction_->generation();
         if (current_generation == observed_compact_generation) return;
         doom_guard.reset();
         observed_compact_generation = current_generation;
@@ -236,10 +234,10 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // The top of every sampling iteration covers both pre-turn and
         // post-tool follow-up compaction. A failed compact aborts this sampling
         // path without silently deleting unsummarized history.
-        // PA 兜底刚做完一步的那次重发不压缩(见 skip_auto_compact_once_);
+        // PA 兜底刚做完一步的那次重发不压缩(见 recovery_state_->skip_auto_compact_once);
         // 这个标记只管紧接着的一次采样,重发成功后的下一次采样照常压缩。
-        const bool skip_auto_compact_after_rescue = skip_auto_compact_once_;
-        skip_auto_compact_once_ = false;
+        const bool skip_auto_compact_after_rescue = recovery_state_->skip_auto_compact_once;
+        recovery_state_->skip_auto_compact_once = false;
         if (total_iterations > 1 && !skip_auto_compact_after_rescue &&
             context_recovery_stage == ContextRecoveryStage::Normal &&
             active_estimate_exceeds_auto_threshold()) {
@@ -320,8 +318,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // Phase 4: Handle provider errors (context rescue, fatal errors)
         auto error_result = handle_provider_error(
             provider_result, bundle.messages_with_system,
-            turn_timing_status, context_recovery_stage,
-            emergency_request_profile);
+            turn_timing_status);
         reset_doom_guard_after_compact();
         if (error_result == HandleErrorResult::Continue) {
             model_steps_->response(session_manager_, 
