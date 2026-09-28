@@ -108,6 +108,7 @@
     12. model_pool stop;
     13. `heartbeat.stop`;
     14. 清理运行时文件(由 RuntimeFilesGuard 兜底)。
+  - **Windows Desktop 停止入口补记(2026-09-29)**:实机验证确认旧 TerminateJobObject 路径跳过 worker 的析构,不能满足本节的 Desktop 退出场景。TerminationSignal 安装时发布以 PID/进程创建时间命名的本地停止事件;Desktop 在现有进程句柄上请求停止,最多等 5 秒,随后沿用原强制兜底并回收 Job 后代。无端点的旧 daemon 立即走原兜底。此项落实已确认的 D6,不增加 Web 路由,也不改变 POSIX 的停止协议。
   - **TUI**:在 `TuiShutdownSequence` 里,`agent_loop.shutdown` 之后、`mcp_manager.shutdown` / `lsp::shutdown` 之前,加一步 `subagent_host.shutdown()`。
   - **headless**:现有顺序已经正确(会话先于 MCP/LSP),保持不变,只加测试锁定。
   - **可见差异**:退出时被中断的工具结果,从「MCP/LSP 已关闭」这类错误变成 `[Aborted]`。

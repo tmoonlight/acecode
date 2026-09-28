@@ -75,8 +75,8 @@ public:
     // 实现: 每 100ms TCP connect 一次,首个成功即返回。
     bool wait_until_ready(int port, std::chrono::milliseconds timeout) override;
 
-    // 优雅停: Windows 下对 Job 调 TerminateJobObject(干脆,因为
-    // GenerateConsoleCtrlEvent 跨进程到 detached child 不可靠)。
+    // Windows 先请求 daemon 正常关停,最多等待 5 秒;旧版本无停止通道或
+    // 超时后沿用 Job/进程强制终止兜底。无 console 的 child 不依赖 CtrlEvent。
     void stop() override;
     void release() override;
     void set_keep_alive_on_exit(bool keep_alive) override;

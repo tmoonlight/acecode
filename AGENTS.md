@@ -80,7 +80,7 @@ This is a terminal UI project. Avoid emoji or ambiguous-width glyphs in C++ sour
 
 ## Testing Guidelines
 
-Tests use GoogleTest through the `acecode_unit_tests` target. Add tests for pure logic, serializers, parsers, validators, handler helpers, and headless state machines. Keep TUI-heavy code in [src/apps/tui/](src/apps/tui), [src/apps/tui/markdown/](src/apps/tui/markdown), and [main.cpp](main.cpp) manually validated unless logic can be isolated.
+Tests use GoogleTest through the `acecode_unit_tests` target. Add tests for pure logic, serializers, parsers, validators, handler helpers, and headless state machines. Keep TUI-heavy code in [src/apps/tui/](src/apps/tui), [src/apps/tui/markdown/](src/apps/tui/markdown), and [CLI main](src/apps/cli/main.cpp) manually validated unless logic can be isolated.
 
 Use `testing::TempDir()` or `std::filesystem::temp_directory_path()` for file I/O; do not write test artifacts into the repository tree. Prefer `EXPECT_*` unless failure would make later assertions unsafe.
 

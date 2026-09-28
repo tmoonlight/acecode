@@ -85,6 +85,7 @@
     - grep 确认所有 `enqueue_control` 的 lambda 都不再强捕获 entry。
 - [ ] 2.4 【O-04】【主】【行为变更 D6】daemon 拆除顺序(`apps/daemon/worker.cpp`)。〔实现完成: Codex-root 2026-09-28;14 步幂等顺序及异常兜底、停止会话后清 on_spawn、JoiningThread 观察线程、TerminationSignal 自管事件/自管道、RuntimeFilesGuard;worker provider 改不可变捕获且 Web 两指针置空;顺序/异常/桥接在途/运行文件身份用例已补,待 Windows 统一验收〕
   - 关停顺序按 design.md §3「D6」逐条执行;
+  - Windows Desktop 先经进程寿命绑定的停止事件让 worker 完成正常关停,5 秒无响应或旧版本无端点时保留原强制兜底;正常退出、在途请求及端点析构并发补验。〔实现: Codex-root 2026-09-29,待定向和真实 Desktop 验证〕
   - watcher 与 owner_monitor 改为 JoiningThread,并把捕获列表写成显式形式;
   - POSIX 信号处理改用 TerminationSignal(self-pipe),`g_term_*` 只保留桥接作用;
   - 清理运行时文件的逻辑包进 RuntimeFilesGuard;

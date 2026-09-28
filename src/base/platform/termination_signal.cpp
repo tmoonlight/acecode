@@ -1,4 +1,5 @@
 #include "termination_signal.hpp"
+#include "platform/process/graceful_stop.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -7,6 +8,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -59,6 +61,7 @@ struct TerminationSignal::Impl {
     bool installed = false;
 #ifdef _WIN32
     HANDLE event = nullptr;
+    UniqueHandle process_stop_event;
     ~Impl() { if (event) ::CloseHandle(event); }
 #else
     int pipe[2]{-1, -1};
@@ -111,9 +114,14 @@ void TerminationSignal::install_process_handlers() {
     if (process_target.load())
         throw std::logic_error("process termination handlers already have an owner");
 #ifdef _WIN32
+    auto process_stop_event = create_process_stop_event();
+    if (!process_stop_event)
+        throw std::system_error(static_cast<int>(::GetLastError()),
+                                std::system_category(), "process stop event");
     if (!::SetConsoleCtrlHandler(console_termination, TRUE))
         throw std::system_error(static_cast<int>(::GetLastError()),
                                 std::system_category(), "termination handler");
+    impl_->process_stop_event = std::move(process_stop_event);
 #else
     struct sigaction action{};
     action.sa_handler = posix_termination;
@@ -162,7 +170,12 @@ bool TerminationSignal::wait_for(std::chrono::milliseconds timeout) {
     if (requested()) return true;
     const auto bounded = std::clamp<long long>(timeout.count(), 0, INT_MAX);
 #ifdef _WIN32
-    if (::WaitForSingleObject(impl_->event, static_cast<DWORD>(bounded)) == WAIT_OBJECT_0)
+    // Both handles are borrowed from this owner until all waiters join.
+    const HANDLE events[]{impl_->event, impl_->process_stop_event.get()};
+    const DWORD count = impl_->process_stop_event ? 2 : 1;
+    const DWORD result = ::WaitForMultipleObjects(
+        count, events, FALSE, static_cast<DWORD>(bounded));
+    if (result < WAIT_OBJECT_0 + count)
         requested_.store(true);
 #else
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(bounded);

@@ -14,6 +14,8 @@ public:
     TerminationSignal(const TerminationSignal&) = delete;
     TerminationSignal& operator=(const TerminationSignal&) = delete;
 
+    // Install before publishing to waiters. Windows also exposes a stop
+    // event for a same-session controller when the process has no console.
     void install_process_handlers();
     void request() noexcept;
     bool requested() const noexcept { return requested_.load(); }

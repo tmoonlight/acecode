@@ -2,6 +2,7 @@
 
 #include "utils/encoding.hpp"
 #include "utils/token.hpp"
+#include "platform/process/graceful_stop.hpp"
 
 #include <chrono>
 #include <cerrno>
@@ -480,6 +481,16 @@ bool DaemonSupervisor::wait_until_ready(int port, std::chrono::milliseconds time
 }
 
 void DaemonSupervisor::stop() {
+    // Let the daemon abort sessions before closing MCP/LSP and drain its own
+    // background work. CREATE_NO_WINDOW children cannot receive console events.
+    // Older or unresponsive daemons still use the established forced fallback.
+    constexpr DWORD graceful_timeout_ms = 5000;
+    if (impl_->process &&
+        ::WaitForSingleObject(impl_->process, 0) == WAIT_TIMEOUT &&
+        acecode::platform::request_process_stop(impl_->process)) {
+        (void)::WaitForSingleObject(impl_->process, graceful_timeout_ms);
+    }
+    // Reap any remaining job descendants even after a clean daemon exit.
     if (impl_->job) {
         ::TerminateJobObject(impl_->job, 0);
     } else if (impl_->attached && impl_->process) {
