@@ -2,7 +2,7 @@
 
 > **D27 最新执行口径(2026-09-28):** 依用户要求,一期剩余实现都在 master 上完成,末尾统一 Windows 全量验收、提交和 push。中途不逐任务建分支/提交/运行完整验证。依赖按实际实现状态推进,待统一验收前仅登记“实现完成,待统一验收提交”,不得提前宣称验证或正式合入完成。跨端补验暂不在本次交付范围。详见母 change design.md 的 D27。
 
-> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;正式窗口交付尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
+> **集中验证进度(2026-09-29):** Windows 全量清单 5304 条,执行 5303 条(含 9 SKIP),0 失败;原生输入、实窗终端与 Desktop 慢 MCP 退出已通过,详见 [一期验证记录](../refactor20260927-restructure-src-layers/verification/windows-phase1-validation.md)。Windows ASan 489 条相关用例通过;用户已取消等待原定 06:00 窗口,提交与 push 尚未结束,因此本表保留待交付状态。九个旧 ref 保留原状,迁移另行安排;人工专项经用户确认后补,本次按 Windows 自动化及已完成实测交付。
 
 > 执行前必读 `refactor20260927-restructure-src-layers/design.md` §6「提交与协作约定」,以及本变更 design.md 的 §7「不变量清单」。
 >
