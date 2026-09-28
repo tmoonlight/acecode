@@ -1,29 +1,29 @@
-#include "agent/agent_loop.hpp"
-#include "utils/logger.hpp"
+#include "turn_outcome.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-std::string AgentLoop::last_turn_error() const {
-    std::lock_guard<std::mutex> lk(last_turn_error_mu_);
-    return last_turn_error_;
+void TurnOutcomeRecord::begin() {
+    outcome_.store(Outcome::None, std::memory_order_release);
+    set_error({});
 }
 
-void AgentLoop::record_turn_outcome(const std::string& turn_timing_status) {
-    int outcome = kTurnOutcomeCompleted;
-    if (turn_timing_status == "error") {
-        outcome = kTurnOutcomeError;
-    } else if (turn_timing_status == "aborted") {
-        outcome = kTurnOutcomeAborted;
-    }
-    last_turn_outcome_.store(outcome, std::memory_order_release);
+void TurnOutcomeRecord::record(const std::string& status) {
+    auto outcome = Outcome::Completed;
+    if (status == "error") outcome = Outcome::Error;
+    else if (status == "aborted") outcome = Outcome::Aborted;
+    outcome_.store(outcome, std::memory_order_release);
 }
 
-} // namespace acecode
+void TurnOutcomeRecord::set_error(std::string error) {
+    std::lock_guard<std::mutex> lock(error_mu_);
+    error_ = std::move(error);
+}
+
+std::string TurnOutcomeRecord::error() const {
+    std::lock_guard<std::mutex> lock(error_mu_);
+    return error_;
+}
+
+} // namespace acecode::agent

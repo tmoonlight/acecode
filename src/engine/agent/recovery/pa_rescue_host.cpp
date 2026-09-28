@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/request/provider_history.hpp"
 #include "pa/pa_overflow_rescue.hpp"
 #include "permissions/interaction_mode.hpp"
@@ -75,7 +76,7 @@ AgentLoop::HandleErrorResult AgentLoop::run_pa_overflow_rescue(
     pa::RescueState& state = pa_rescue_state_;
     if (!state.active) state = pa::RescueState{};
     const int history_tokens = estimate_message_tokens(
-        recovered_provider_messages(messages_, "pa-rescue-estimate"));
+        recovered_provider_messages(history_->view(), "pa-rescue-estimate"));
 
     // 一次调用可能连走几步:收缩腾不出空间时不重发,立刻换下一招。
     for (;;) {
@@ -143,8 +144,7 @@ AgentLoop::HandleErrorResult AgentLoop::run_pa_overflow_rescue(
                 options.force_prune_one_group = true;
                 options.clear_tool_outputs = true;
                 options.keep_recent_tool_outputs = 1;
-                auto repair = apply_thread_repair(
-                    session_manager_, messages_, options);
+                auto repair = history_->repair(session_manager_, options);
                 LOG_WARN("[pa-rescue] shrink status=" +
                          std::string(to_string(repair.status)) +
                          " pre_tokens=" + std::to_string(repair.pre_tokens) +

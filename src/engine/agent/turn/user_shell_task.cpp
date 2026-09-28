@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/turn/busy_cycle.hpp"
 #include "agent/tool_exec/tool_stream_progress.hpp"
 #include "agent/detail/agent_payloads.hpp"
@@ -157,7 +158,7 @@ void AgentLoop::run_shell(std::string command) {
     dispatch_message("user_shell_output", result.output, true);
 
     // Persist the two display-side messages so --resume can rehydrate both the
-    // chat view and (via the recovery pass in main.cpp) the LLM messages_.
+    // chat view and (via the recovery pass in main.cpp) the LLM history.
     // 落盘的 role 仍然是 "tool_result"(伪角色) —— resume 时由 main.cpp
     // 的 shell-mode 配对识别(`is_shell_user && next_is_result`)把它翻译为
     // "user_shell_output"。不写 metadata.tool_summary/tool_hunks,因为

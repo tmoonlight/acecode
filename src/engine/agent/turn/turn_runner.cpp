@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/turn/turn_outcome.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "computer_use/session_lease.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/event_payload/message_payload.hpp"
@@ -78,11 +80,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     abort_signal_.clear();
     turn_interrupt_requested_ = false;
     busy_ = true;
-    last_turn_outcome_.store(kTurnOutcomeNone, std::memory_order_release);
-    {
-        std::lock_guard<std::mutex> lk(last_turn_error_mu_);
-        last_turn_error_.clear();
-    }
+    turn_outcome_->begin();
     terminate_session_after_turn_ = false;
     post_turn_actions_.clear();
     restore_goal_runtime();
@@ -266,7 +264,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             {"hidden_goal_context", true},
         };
         ensure_user_message_identity(msg);
-        messages_.push_back(msg);
+        history_->append(msg);
         if (session_manager_) session_manager_->on_message(msg);
     };
 
@@ -407,7 +405,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         doom_guard.begin_model_turn();
         reset_doom_guard_after_compact();
         LOG_INFO("--- Agent loop turn " + std::to_string(total_iterations) +
-                 ", messages: " + std::to_string(messages_.size()));
+                 ", messages: " + std::to_string(history_->view().size()));
 
         if (abort_signal_.raw()) {
             LOG_WARN("Abort requested, breaking loop");
@@ -578,7 +576,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 rejected_msg.metadata = nlohmann::json{
                     {"text_tool_call_rejected", text_tool_call_diagnostic_to_json(diag)},
                 };
-                messages_.push_back(rejected_msg);
+                history_->append(rejected_msg);
                 if (session_manager_) session_manager_->on_message(rejected_msg);
                 if (!rejected_msg.content.empty()) {
                     // 定稿消息替换流式草稿:可疑级已经流出的标记在界面上随之消失。
@@ -605,7 +603,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                         {"text_tool_call_correction", true},
                     };
                     ensure_user_message_identity(correction);
-                    messages_.push_back(correction);
+                    history_->append(correction);
                     if (session_manager_) session_manager_->on_message(correction);
 
                     emit_transcript_system_message(
@@ -662,7 +660,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 empty_msg.content = provider_result.accumulated.content;
                 empty_msg.reasoning_content =
                     provider_result.accumulated.reasoning_content;
-                messages_.push_back(empty_msg);
+                history_->append(empty_msg);
                 if (session_manager_) session_manager_->on_message(empty_msg);
 
                 if (empty_response_retries < kMaxEmptyResponseRetries) {
@@ -696,7 +694,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                         {"empty_response_retry", true},
                     };
                     ensure_user_message_identity(nudge);
-                    messages_.push_back(nudge);
+                    history_->append(nudge);
                     if (session_manager_) session_manager_->on_message(nudge);
 
                     emit_transcript_system_message(
@@ -746,7 +744,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 assistant_msg.content_parts = provider_result.accumulated.content_parts;
             }
             assistant_msg.reasoning_content = provider_result.accumulated.reasoning_content;
-            messages_.push_back(assistant_msg);
+            history_->append(assistant_msg);
             if (session_manager_) session_manager_->on_message(assistant_msg);
             auto completed_context = bundle.messages_with_system;
             completed_context.push_back(assistant_msg);
@@ -815,7 +813,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                     {"text_tool_call_ignored", true},
                 };
                 ensure_user_message_identity(ignored);
-                messages_.push_back(ignored);
+                history_->append(ignored);
                 if (session_manager_) session_manager_->on_message(ignored);
             }
         }
@@ -846,8 +844,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         {
             // 走的是 system 角色,dispatch_message 的 error 收集点抓不到;
             // 子会话被 cap 截断时父会话同样要拿到原因。
-            std::lock_guard<std::mutex> lk(last_turn_error_mu_);
-            last_turn_error_ = stop_msg;
+            turn_outcome_->set_error(stop_msg);
         }
     }
 
@@ -893,7 +890,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             dispatch_message("system", "[Interjected]", false,
                 make_system_notice_metadata("turn_interjected", {}, {{"turn_interrupt", true}}));
         } else {
-            const auto* user = trailing_transcript_message(messages_, true);
+            const auto* user = trailing_transcript_message(history_->view(), true);
             // Persist the completed stop, including its exact retry target.
             // This notice stays out of the provider's message history.
             emit_transcript_system_message("[Interrupted]", make_system_notice_metadata("turn_interrupted", {}, {
@@ -938,7 +935,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     if (terminate_session_after_turn_) {
         // There must be no provider-visible state left for a deleted session.
         // The post-turn action owns writer teardown and persistent cleanup.
-        messages_.clear();
+        history_->clear();
         auto actions = std::move(post_turn_actions_);
         post_turn_actions_.clear();
         for (auto& action : actions) {

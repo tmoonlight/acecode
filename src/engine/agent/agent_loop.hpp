@@ -66,7 +66,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -195,21 +195,12 @@ public:
     void cancel() { abort(); }
 
     // Clear all messages (for /clear command)
-    void clear_messages() {
-        messages_.clear();
-        live_transcript_tail_blocked_ = false;
-        last_api_total_tokens_.store(0, std::memory_order_relaxed);
-        compact_window_initialized_ = false;
-        compact_window_number_ = 0;
-        compact_first_window_id_.clear();
-        compact_current_window_id_.clear();
-    }
+    void clear_messages();
 
-    // Push a message (for session restore)
-    void push_message(const ChatMessage& msg) { messages_.push_back(msg); }
-
-    const std::vector<ChatMessage>& messages() const { return messages_; }
-    std::vector<ChatMessage>& messages_mut() { return messages_; }
+    // Restore through the history's idle boundary; no mutable vector escapes.
+    void push_message(const ChatMessage& msg);
+    const std::vector<ChatMessage>& messages() const;
+    void history_on_worker(const std::function<void(agent::ConversationHistory&)>& operation);
 
     // Copy of the latest complete provider-facing prompt built by the worker.
     // `/btw` callers use this instead of reading messages_ from an HTTP thread,
@@ -335,9 +326,7 @@ public:
     // 终止错误 / 上下文压缩失败 / 连续空回复耗尽 / max_iterations / hook 拦截
     // 而结束时为 failed,last_turn_error() 带最后一条 error 文案。回合开始时
     // 清零,所以只反映最近一次 submit 的结果。
-    bool last_turn_failed() const {
-        return last_turn_outcome_.load(std::memory_order_acquire) == kTurnOutcomeError;
-    }
+    bool last_turn_failed() const;
     std::string last_turn_error() const;
     ResolvedQuestionPolicy resolved_question_policy() const;
 
@@ -646,10 +635,6 @@ private:
     ProviderAccessor provider_accessor_;
     ToolExecutor& tools_;
     AgentCallbacks callbacks_;
-    std::vector<ChatMessage> messages_;
-    // Visible events (notably errors and partial output) may not be present
-    // in model history or JSONL. They must also invalidate an empty retry.
-    std::atomic<bool> live_transcript_tail_blocked_{false};
     mutable std::mutex side_question_context_mu_;
     std::vector<ChatMessage> side_question_context_;
     std::mutex side_question_threads_mu_;
@@ -660,6 +645,12 @@ private:
     // immediately continues with a promised turn and must not pause goals.
     std::atomic<bool> turn_interrupt_requested_{false};
     std::atomic<bool> busy_{false};
+    // Roots outlive the collaborators that publish or observe their state.
+    EventDispatcher events_;
+    std::unique_ptr<agent::ConversationHistory> history_;
+    std::unique_ptr<agent::TurnOutcomeRecord> turn_outcome_;
+    std::unique_ptr<agent::TranscriptWriter> transcript_;
+    std::unique_ptr<agent::TrajectoryRecorder> trajectory_;
     std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
     std::string cwd_;
     mutable sandbox::SandboxRuntime sandbox_runtime_;
@@ -737,15 +728,6 @@ private:
     LoopExecutionPolicy loop_execution_policy_;
     // spawn_subagent 透传的父会话写边界根;见 write_root()。
     std::string inherited_write_root_;
-    static constexpr int kTurnOutcomeNone = 0;
-    static constexpr int kTurnOutcomeCompleted = 1;
-    static constexpr int kTurnOutcomeError = 2;
-    static constexpr int kTurnOutcomeAborted = 3;
-    // 写在 busy_ 翻 false 之前,轮询 is_busy() 的 wait_for_subagent 一看到
-    // 空闲就能读到确定的结果。
-    std::atomic<int> last_turn_outcome_{kTurnOutcomeNone};
-    mutable std::mutex last_turn_error_mu_;
-    std::string last_turn_error_;
     void record_turn_outcome(const std::string& turn_timing_status);
     // Latest server-reported total active-context usage. For providers that do
     // not return total_tokens, prompt_tokens is used as the fallback.
@@ -822,7 +804,6 @@ private:
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由
     // HTTP handler 线程并发调用。
-    EventDispatcher events_;
 
     // Section 7.6: PermissionPrompter。null 时走 callbacks_.on_tool_confirm
     // 老路径(TUI);非 null 时(daemon 模式)走 prompter_->prompt。

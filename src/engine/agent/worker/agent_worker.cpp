@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/turn/turn_outcome.hpp"
 #include "agent/worker/agent_task_queue.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "utils/encoding.hpp"
@@ -69,10 +70,7 @@ void AgentLoop::recover_worker_task_error(const char* detail, bool chat_task) {
     turn_interrupt_requested_ = false;
     active_turn_swarm_mode_ = false;
     hook_request_context_.clear();
-    {
-        std::lock_guard<std::mutex> lock(last_turn_error_mu_);
-        last_turn_error_ = message;
-    }
+    turn_outcome_->set_error(message);
     record_turn_outcome("error");
     busy_ = false;
 

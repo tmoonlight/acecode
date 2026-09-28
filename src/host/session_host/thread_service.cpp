@@ -1,4 +1,5 @@
 #include "thread_service.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/global_session_catalog.hpp"
 #include "session/session_manager.hpp"
@@ -1164,11 +1165,10 @@ ThreadServiceResult ThreadService::repair(
         auto result = std::make_shared<ThreadRepairResult>();
         auto receipt = entry->loop->enqueue_control(
             [entry, result, options]() mutable {
-                auto& history = entry->loop->messages_mut();
-                options.target_tokens =
-                    estimate_message_tokens(history) * 3 / 4;
-                *result = apply_thread_repair(
-                    entry->sm.get(), history, options);
+                entry->loop->history_on_worker([&](agent::ConversationHistory& history) {
+                    options.target_tokens = estimate_message_tokens(history.view()) * 3 / 4;
+                    *result = history.repair(entry->sm.get(), options);
+                });
                 return result->status != ThreadRepairStatus::Failed;
             });
         if (!receipt.accepted ||

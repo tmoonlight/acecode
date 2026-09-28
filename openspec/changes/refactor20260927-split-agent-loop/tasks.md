@@ -108,7 +108,7 @@
     - `agent_loop_turn_steering_test`(`InterruptAcceptanceCommitsExactlyOnce`、`EveryAcceptedFinalBoundaryRaceInputIsCommitted`)、`agent_loop_question_interjection_test`、`AgentLoopTaskHandoff.*`、`session_registry_test`、`web_server_smoke_test::QuestionInterjectResolvesPendingQuestionInSameTurn` 通过;
     - 新增 `tests/agent/worker/agent_task_queue_test.cpp` 与 `tests/agent/turn/active_turn_gate_test.cpp`,覆盖优先级 FIFO、128 上限、exactly-once、锁序;
     - Linux 下用 TSan 跑一遍 agent 相关用例。
-- [ ] 3.2 【A-07】【主】历史与转录。
+- [ ] 3.2 【A-07】【主】历史与转录。〔实现完成: Codex-root 2026-09-28;ConversationHistory 收口模型历史写入,TranscriptWriter/TrajectoryRecorder/TurnOutcomeRecord 已接入,可变数组出口改为 history_on_worker,空闲写入先告警,单槽订阅由 LifetimeToken 等待在途回调,待统一验收〕
   - `ConversationHistory` 成为 `messages_` 的单写者,收口约 30 个写入点;
   - `TranscriptWriter` 收纳 `dispatch_message` 等;
   - `TrajectoryRecorder` 做成 RAII 卸载的单槽 observer,注释写明只有一个槽位;

@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/compaction/compact.hpp"
@@ -271,7 +272,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                 std::vector<ChatMessage> visible_reset_messages =
                     session_manager_
                         ? session_manager_->load_active_messages()
-                        : messages_;
+                        : history_->view();
                 events_.emit(
                     SessionEventKind::TranscriptReplace,
                     build_transcript_replace_payload(

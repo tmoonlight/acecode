@@ -1,4 +1,8 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
+#include "agent/transcript/transcript_writer.hpp"
+#include "agent/transcript/trajectory_recorder.hpp"
+#include "agent/turn/turn_outcome.hpp"
 #include "agent/control/task_handoff.hpp"
 #include "agent/turn/active_turn_gate.hpp"
 #include "agent/worker/agent_task_queue.hpp"
@@ -34,6 +38,10 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     : provider_accessor_(std::move(provider_accessor))
     , tools_(tools)
     , callbacks_(std::move(callbacks))
+    , history_(std::make_unique<agent::ConversationHistory>(busy_))
+    , turn_outcome_(std::make_unique<agent::TurnOutcomeRecord>())
+    , transcript_(std::make_unique<agent::TranscriptWriter>(
+          *history_, events_, callbacks_, *turn_outcome_))
     , active_provider_slot_(std::make_unique<agent::ActiveProviderSlot>())
     , cwd_(cwd)
     , permissions_(permissions)

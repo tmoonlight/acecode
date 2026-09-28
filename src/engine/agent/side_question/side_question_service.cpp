@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/request/provider_history.hpp"
 #include "agent/turn/user_turn_message.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -55,7 +56,7 @@ void AgentLoop::prime_side_question_context() {
     }
 
     auto context = build_compaction_initial_context();
-    auto history = model_facing_provider_messages(messages_, "side-question-prime");
+    auto history = model_facing_provider_messages(history_->view(), "side-question-prime");
     context.insert(context.end(), history.begin(), history.end());
     publish_side_question_context(context);
 }

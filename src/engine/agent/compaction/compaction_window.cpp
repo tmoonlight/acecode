@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/request/provider_history.hpp"
@@ -33,7 +34,7 @@ using agent::detail::recovered_provider_messages;
 bool AgentLoop::active_estimate_exceeds_auto_threshold(
     const UserInput* pending_input) const {
     auto request = build_compaction_initial_context();
-    auto history = recovered_provider_messages(messages_, "token-estimate");
+    auto history = recovered_provider_messages(history_->view(), "token-estimate");
     if (pending_input && !pending_input->empty()) {
         ChatMessage pending;
         pending.role = "user";
@@ -83,7 +84,7 @@ void AgentLoop::apply_compact_result(
     const std::string& trigger,
     const std::string& compact_notice_id) {
     auto initial_context = build_compaction_initial_context();
-    auto pre_history = recovered_provider_messages(messages_, "compact-input");
+    auto pre_history = recovered_provider_messages(history_->view(), "compact-input");
     auto pre_request = initial_context;
     pre_request.insert(pre_request.end(), pre_history.begin(), pre_history.end());
     const int pre_tokens = estimate_message_tokens(pre_request);
@@ -123,7 +124,7 @@ void AgentLoop::apply_compact_result(
         checkpoint.replacement_history = replacement_history;
         checkpoint_persisted = session_manager_->append_compact_checkpoint(checkpoint);
     }
-    messages_ = std::move(replacement_history);
+    history_->replace(std::move(replacement_history));
     last_api_total_tokens_.store(post_tokens, std::memory_order_relaxed);
     MtimeTracker::instance().clear_read_observations();
     compact_generation_.fetch_add(1, std::memory_order_relaxed);

@@ -1,31 +1,21 @@
-#include "agent/agent_loop.hpp"
+#include "transcript_writer.hpp"
+#include "agent/agent_callbacks.hpp"
+#include "agent/transcript/conversation_history.hpp"
+#include "agent/turn/turn_outcome.hpp"
 #include "agent/event_payload/message_payload.hpp"
-#include "hooks/hook_runtime.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
+#include "session/event_dispatcher.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_rewind.hpp"
 #include "session/session_storage.hpp"
 #include "session/turn_timing.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/uuid.hpp"
-#include "workspace/workspace_registry.hpp"
-
 #include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
 #include <sstream>
 #include <utility>
 
-namespace acecode {
+namespace acecode::agent {
 
-void AgentLoop::dispatch_message(const std::string& role,
+void TranscriptWriter::dispatch_message(const std::string& role,
                                   const std::string& content,
                                   bool is_tool,
                                   nlohmann::json metadata,
@@ -33,8 +23,7 @@ void AgentLoop::dispatch_message(const std::string& role,
     if (role == "error") {
         // 回合级错误文案的唯一收集点:provider 终止错误 / 压缩失败 / 空回复
         // 耗尽 / hook 拦截都经这里派发,wait_subagent 报 ChildFailed 时带上。
-        std::lock_guard<std::mutex> lk(last_turn_error_mu_);
-        last_turn_error_ = content;
+        outcome_.set_error(content);
     }
     if (callbacks_.on_message) {
         callbacks_.on_message(role, content, is_tool);
@@ -61,7 +50,7 @@ void AgentLoop::dispatch_message(const std::string& role,
     events_.emit(SessionEventKind::Message, std::move(payload));
 }
 
-void AgentLoop::append_turn_timing_record(const std::string& user_message_uuid,
+void TranscriptWriter::append_turn_timing_record(SessionManager* session, const std::string& user_message_uuid,
                                           std::int64_t started_at_ms,
                                           std::int64_t completed_at_ms,
                                           const std::string& status) {
@@ -74,10 +63,10 @@ void AgentLoop::append_turn_timing_record(const std::string& user_message_uuid,
     timing.status = status;
 
     ChatMessage msg = make_turn_timing_message(timing, SessionStorage::now_iso8601());
-    messages_.push_back(msg);
-    if (session_manager_) {
-        session_manager_->on_message(msg);
-        session_manager_->record_trajectory_event(
+    history_.append(msg);
+    if (session) {
+        session->on_message(msg);
+        session->record_trajectory_event(
             "turn_end",
             {{"turn_id", timing.user_message_uuid},
              {"user_message_id", timing.user_message_uuid},
@@ -89,7 +78,7 @@ void AgentLoop::append_turn_timing_record(const std::string& user_message_uuid,
     }
 }
 
-void AgentLoop::append_tool_user_prompt(const std::string& content,
+void TranscriptWriter::append_tool_user_prompt(SessionManager* session, const std::string& content,
                                         const std::string& display_text,
                                         const std::string& source_tool) {
     if (content.empty()) return;
@@ -105,9 +94,9 @@ void AgentLoop::append_tool_user_prompt(const std::string& content,
     if (!source_tool.empty()) msg.metadata["source_tool"] = source_tool;
     ensure_user_message_identity(msg);
 
-    messages_.push_back(msg);
-    if (session_manager_) {
-        session_manager_->on_message(msg);
+    history_.append(msg);
+    if (session) {
+        session->on_message(msg);
     }
 
     if (callbacks_.on_message) {
@@ -123,11 +112,11 @@ void AgentLoop::append_tool_user_prompt(const std::string& content,
     events_.emit(SessionEventKind::Message, std::move(event));
 }
 
-void AgentLoop::emit_system_message(const std::string& content, nlohmann::json metadata) {
-    dispatch_message("system", content, false, std::move(metadata));
+void TranscriptWriter::emit_system_message(const std::string& content, nlohmann::json metadata) {
+    dispatch_message("system", content, false, std::move(metadata), nlohmann::json::array());
 }
 
-void AgentLoop::emit_transcript_system_message(const std::string& content,
+void TranscriptWriter::emit_transcript_system_message(SessionManager* session, const std::string& content,
                                                nlohmann::json metadata) {
     ChatMessage msg;
     msg.role = "system";
@@ -141,8 +130,8 @@ void AgentLoop::emit_transcript_system_message(const std::string& content,
     } else if (callbacks_.on_message) {
         callbacks_.on_message(msg.role, msg.content, false);
     }
-    if (session_manager_) {
-        session_manager_->on_message(msg);
+    if (session) {
+        session->on_message(msg);
     }
 
     nlohmann::json payload = {
@@ -156,7 +145,7 @@ void AgentLoop::emit_transcript_system_message(const std::string& content,
     events_.emit(SessionEventKind::Message, std::move(payload));
 }
 
-void AgentLoop::inject_shell_turn(const std::string& cmd,
+void TranscriptWriter::inject_shell_turn(const std::string& cmd,
                                   const std::string& stdout_text,
                                   const std::string& stderr_text,
                                   int exit_code) {
@@ -168,7 +157,112 @@ void AgentLoop::inject_shell_turn(const std::string& cmd,
         << "<bash-stderr>" << stderr_text << "</bash-stderr>\n"
         << "<bash-exit-code>" << exit_code << "</bash-exit-code>";
     msg.content = oss.str();
-    messages_.push_back(std::move(msg));
+    history_.append(std::move(msg));
 }
 
-} // namespace acecode
+void TranscriptWriter::emit_session_summary_updated(SessionManager* session) {
+    if (!session) return;
+    const std::string summary = session->current_summary();
+    if (summary.empty()) return;
+    events_.emit(SessionEventKind::SessionUpdated,
+                 nlohmann::json{{"summary", summary}});
+}
+
+void TranscriptWriter::append_user_turn_message(SessionManager* session, UserTurnInfo& info, bool hidden_goal_context) {
+    auto& user_msg = info.user_msg;
+    ensure_user_message_identity(user_msg);
+    info.active_turn_id = user_msg.uuid;
+    info.visible_timed_turn =
+        !hidden_goal_context &&
+        !(user_msg.metadata.is_object() && user_msg.metadata.value("hidden_goal_context", false));
+    info.turn_user_uuid = info.visible_timed_turn ? user_msg.uuid : std::string{};
+
+    history_.append(user_msg);
+    if (session) {
+        session->on_message(user_msg);
+        if (!hidden_goal_context) {
+            session->begin_user_turn_checkpoint(user_msg.uuid);
+        }
+    }
+    if (!hidden_goal_context) {
+        emit_session_summary_updated(session);
+        nlohmann::json msg_event = {
+            {"role", "user"}, {"content", user_msg.content},
+            {"is_tool", false}, {"id", user_msg.uuid},
+        };
+        if (!user_msg.content_parts.is_null() && user_msg.content_parts.is_array() &&
+            !user_msg.content_parts.empty()) {
+            msg_event["content_parts"] = user_msg.content_parts;
+        }
+        if (!user_msg.metadata.is_null() && !user_msg.metadata.empty()) {
+            msg_event["metadata"] = user_msg.metadata;
+        }
+        events_.emit(SessionEventKind::Message, msg_event);
+    }
+}
+
+void TranscriptWriter::append_interrupted_turn_context(SessionManager* session, const std::string& turn_id) {
+    ChatMessage marker;
+    marker.role = "user";
+    marker.content =
+        "<turn_aborted>\n"
+        "The user interrupted the previous turn on purpose to submit new "
+        "instructions. Any running tools or commands may have partially "
+        "executed; inspect their state before retrying.\n"
+        "</turn_aborted>";
+    marker.metadata = nlohmann::json{
+        {"hidden_goal_context", true},
+        {"turn_interrupt_marker", true},
+        {"interrupted_turn_id", turn_id},
+    };
+    ensure_user_message_identity(marker);
+    history_.append(marker);
+    if (session) session->on_message(marker);
+    LOG_INFO("[turn/interrupt] recorded interrupted-turn context for " + turn_id);
+}
+
+void TranscriptWriter::commit_turn_steering_input(SessionManager* session,
+    UserInput input,
+    const std::string& turn_id) {
+    ChatMessage message;
+    message.role = "user";
+    message.content = std::move(input.text);
+    message.content_parts = std::move(input.content_parts);
+    message.metadata = std::move(input.metadata);
+    if (!message.metadata.is_object()) {
+        message.metadata = nlohmann::json::object();
+    }
+    if (!input.display_text.empty() && input.display_text != message.content) {
+        message.metadata["display_text"] = std::move(input.display_text);
+    }
+    message.metadata["turn_steer"] = true;
+    message.metadata["turn_id"] = turn_id;
+    ensure_user_message_identity(message);
+
+    history_.append(message);
+    if (session) {
+        session->on_message(message);
+    }
+    emit_session_summary_updated(session);
+
+    const std::string display = message.metadata.value(
+        "display_text", message.content);
+    if (callbacks_.on_message) {
+        callbacks_.on_message("user", display, false);
+    }
+
+    nlohmann::json event = {
+        {"role", "user"},
+        {"content", message.content},
+        {"is_tool", false},
+        {"id", message.uuid},
+        {"metadata", message.metadata},
+    };
+    if (message.content_parts.is_array() && !message.content_parts.empty()) {
+        event["content_parts"] = message.content_parts;
+    }
+    events_.emit(SessionEventKind::Message, std::move(event));
+    LOG_INFO("[turn/steer] committed input to active turn " + turn_id);
+}
+
+} // namespace acecode::agent

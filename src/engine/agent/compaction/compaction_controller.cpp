@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/turn/busy_cycle.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/approval/permission_payloads.hpp"
@@ -47,7 +48,7 @@ bool AgentLoop::run_mechanical_compact_fallback(
     const std::string& summarization_error) {
     // 目标规模与上下文溢出恢复路径同口径:降到窗口的 70%,给下一轮留出余量。
     const int history_tokens = estimate_message_tokens(
-        recovered_provider_messages(messages_, "compact-fallback-estimate"));
+        recovered_provider_messages(history_->view(), "compact-fallback-estimate"));
     const int fixed_tokens = (std::max)(0, request_tokens - history_tokens);
     int target_total = (std::max)(1, request_tokens * 2 / 3);
     if (context_window > 0) {
@@ -65,7 +66,7 @@ bool AgentLoop::run_mechanical_compact_fallback(
     options.clear_tool_outputs = true;
     options.keep_recent_tool_outputs = 1;
 
-    auto repair = apply_thread_repair(session_manager_, messages_, options);
+    auto repair = history_->repair(session_manager_, options);
     LOG_WARN("[compact-fallback] mechanical prune after summarization failure; "
              "status=" + std::string(to_string(repair.status)) +
              " pre_tokens=" + std::to_string(repair.pre_tokens) +
@@ -102,13 +103,13 @@ bool AgentLoop::maybe_run_auto_compact() {
     const int context_window = compaction_context_window();
     auto initial_context = build_compaction_initial_context();
     const auto active_history =
-        recovered_provider_messages(messages_, "auto-compact");
+        recovered_provider_messages(history_->view(), "auto-compact");
     auto estimated_request = initial_context;
     estimated_request.insert(
         estimated_request.end(), active_history.begin(), active_history.end());
     const int pre_tokens = estimate_message_tokens(estimated_request);
     const int threshold = get_auto_compact_threshold(context_window);
-    LOG_INFO("Auto-compact preflight; messages=" + std::to_string(messages_.size()) +
+    LOG_INFO("Auto-compact preflight; messages=" + std::to_string(history_->view().size()) +
              " current_request_estimated_tokens=" + std::to_string(pre_tokens) +
              " threshold=" + std::to_string(threshold) +
              " context_window=" + std::to_string(context_window) +
@@ -147,13 +148,13 @@ bool AgentLoop::maybe_run_auto_compact() {
         return false;
     }
 
-    LOG_INFO("Auto full compact starting; messages=" + std::to_string(messages_.size()) +
+    LOG_INFO("Auto full compact starting; messages=" + std::to_string(history_->view().size()) +
              " active_estimated_tokens=" + std::to_string(pre_tokens) +
              " threshold=" + std::to_string(threshold));
     agent::ActiveProviderScope active_provider(*active_provider_slot_, provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
-        messages_,
+        history_->view(),
         initial_context,
         true,
         &abort_signal_.flag_for_legacy_api(),
@@ -184,7 +185,7 @@ bool AgentLoop::maybe_run_auto_compact() {
 
     const int compacted_tokens = estimate_message_tokens(result.compacted_messages);
     LOG_INFO("Auto full compact succeeded; messages_before=" +
-             std::to_string(messages_.size()) +
+             std::to_string(history_->view().size()) +
              " messages_after=" + std::to_string(result.compacted_messages.size()) +
              " messages_compressed=" +
              std::to_string(result.messages_compressed) +
@@ -260,7 +261,7 @@ void AgentLoop::run_compact() {
     agent::ActiveProviderScope active_provider(*active_provider_slot_, provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
-        messages_,
+        history_->view(),
         build_compaction_initial_context(),
         false,
         &abort_signal_.flag_for_legacy_api(),

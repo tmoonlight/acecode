@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/transcript_writer.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_queries.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -124,51 +126,18 @@ AgentLoop::UserTurnInfo AgentLoop::prepare_user_turn(const UserInput& input,
 }
 
 void AgentLoop::emit_session_summary_updated() {
-    if (!session_manager_) return;
-    const std::string summary = session_manager_->current_summary();
-    if (summary.empty()) return;
-    events_.emit(SessionEventKind::SessionUpdated,
-                 nlohmann::json{{"summary", summary}});
+    transcript_->emit_session_summary_updated(session_manager_);
 }
 
 void AgentLoop::append_user_turn_message(UserTurnInfo& info, bool hidden_goal_context) {
-    auto& user_msg = info.user_msg;
-    ensure_user_message_identity(user_msg);
-    info.active_turn_id = user_msg.uuid;
-    info.visible_timed_turn =
-        !hidden_goal_context &&
-        !(user_msg.metadata.is_object() && user_msg.metadata.value("hidden_goal_context", false));
-    info.turn_user_uuid = info.visible_timed_turn ? user_msg.uuid : std::string{};
-
-    messages_.push_back(user_msg);
-    if (session_manager_) {
-        session_manager_->on_message(user_msg);
-        if (!hidden_goal_context) {
-            session_manager_->begin_user_turn_checkpoint(user_msg.uuid);
-        }
-    }
-    if (!hidden_goal_context) {
-        emit_session_summary_updated();
-        nlohmann::json msg_event = {
-            {"role", "user"}, {"content", user_msg.content},
-            {"is_tool", false}, {"id", user_msg.uuid},
-        };
-        if (!user_msg.content_parts.is_null() && user_msg.content_parts.is_array() &&
-            !user_msg.content_parts.empty()) {
-            msg_event["content_parts"] = user_msg.content_parts;
-        }
-        if (!user_msg.metadata.is_null() && !user_msg.metadata.empty()) {
-            msg_event["metadata"] = user_msg.metadata;
-        }
-        events_.emit(SessionEventKind::Message, msg_event);
-    }
+    transcript_->append_user_turn_message(session_manager_, info, hidden_goal_context);
 }
 
 AgentLoop::UserTurnInfo AgentLoop::prepare_retry_user_turn(const ChatMessage& message) {
     UserTurnInfo info;
     info.user_msg = message;
     info.turn_started_at_ms = now_epoch_ms();
-    const auto* tail = trailing_transcript_message(messages_);
+    const auto* tail = trailing_transcript_message(history_->view());
     if (tail && tail->role != "user") {
         // An aborted turn may already contain assistant/tool output. Preserve
         // it and append the original input with a fresh identity, without

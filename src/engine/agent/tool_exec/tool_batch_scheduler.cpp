@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
@@ -79,7 +80,7 @@ bool AgentLoop::execute_tool_calls(
         tc_msg.metadata[tool_preamble::kMetadataKey] = preamble_metadata;
     }
     // 单个调用的前言 = 本批次的阶段前言。
-    messages_.push_back(tc_msg);
+    history_->append(tc_msg);
     if (session_manager_) session_manager_->on_message(tc_msg);
     dispatch_assistant_completed_hook(tc_msg, provider_snapshot);
 
@@ -293,7 +294,7 @@ bool AgentLoop::execute_tool_calls(
     if (session_manager_) {
         const std::string tool_results_dir = session_manager_->ensure_tool_results_dir();
         if (!tool_results_dir.empty()) {
-            auto replacement_state = reconstruct_tool_result_replacement_state(messages_);
+            auto replacement_state = reconstruct_tool_result_replacement_state(history_->view());
             auto budget_result = enforce_tool_result_budget(
                 accumulated.tool_calls,
                 results,
@@ -372,7 +373,7 @@ bool AgentLoop::execute_tool_calls(
                     encode_tool_summary(*interrupted_result.summary);
             }
         }
-        messages_.push_back(tool_msg);
+        history_->append(tool_msg);
         if (session_manager_) session_manager_->on_message(tool_msg);
 
         if (tc.function_name == "task_complete" &&
@@ -413,7 +414,7 @@ bool AgentLoop::execute_tool_calls(
 
     if (!replacement_records.empty()) {
         ChatMessage meta_msg = encode_content_replacement_message(replacement_records);
-        messages_.push_back(meta_msg);
+        history_->append(meta_msg);
         if (session_manager_) session_manager_->on_message(meta_msg);
     }
 

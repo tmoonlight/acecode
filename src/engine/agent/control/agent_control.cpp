@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/control/task_handoff.hpp"
 #include "agent/worker/agent_task_queue.hpp"
 #include "agent/transcript/transcript_queries.hpp"
@@ -32,8 +33,8 @@ void AgentLoop::submit(const UserInput& input) {
 
 std::optional<ChatMessage> AgentLoop::retryable_user_message(
     const std::string& expected_user_message_id) const {
-    if (expected_user_message_id.empty() || live_transcript_tail_blocked_.load()) return std::nullopt;
-    const auto* model_tail = trailing_transcript_message(messages_);
+    if (expected_user_message_id.empty() || history_->retry_blocked()) return std::nullopt;
+    const auto* model_tail = trailing_transcript_message(history_->view());
     if (!model_tail || (model_tail->role != "user" &&
         model_tail->role != "assistant" && model_tail->role != "tool")) return std::nullopt;
     bool user_aborted = false;
@@ -48,7 +49,7 @@ std::optional<ChatMessage> AgentLoop::retryable_user_message(
         if (!tail || tail->role != "user" ||
             tail->uuid != expected_user_message_id) return std::nullopt;
     }
-    const auto* message = trailing_transcript_message(messages_, user_aborted);
+    const auto* message = trailing_transcript_message(history_->view(), user_aborted);
     if (!message || message->role != "user" ||
         message->uuid != expected_user_message_id) return std::nullopt;
     return *message;

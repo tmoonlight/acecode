@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/recovery/provider_error_report.hpp"
 #include "agent/request/provider_history.hpp"
@@ -88,7 +89,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
         if (recovery_stage == ContextRecoveryStage::Normal) {
             const int history_tokens = estimate_message_tokens(
                 recovered_provider_messages(
-                    messages_, "context-overflow-estimate"));
+                    history_->view(), "context-overflow-estimate"));
             const int fixed_tokens = (std::max)(0, request_tokens - history_tokens);
             int target_total = (std::max)(1, request_tokens * 2 / 3);
             if (context_window > 0) {
@@ -100,8 +101,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
             options.target_tokens = (std::max)(
                 1, target_total - fixed_tokens);
             options.force_prune_one_group = true;
-            auto repair = apply_thread_repair(
-                session_manager_, messages_, options);
+            auto repair = history_->repair(session_manager_, options);
             LOG_WARN("[thread-repair] automatic status=" +
                      std::string(to_string(repair.status)) +
                      " pre_tokens=" + std::to_string(repair.pre_tokens) +

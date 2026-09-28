@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "agent/request/provider_history.hpp"
@@ -248,7 +249,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
     }
 
     // Prepare provider-facing messages with system prompt at front.
-    auto api_messages = model_facing_provider_messages(messages_, "provider-request");
+    auto api_messages = model_facing_provider_messages(history_->view(), "provider-request");
     PromptContextCategoryBytes context_category_bytes;
     const bool skill_view_available = !emergency_profile &&
         tools_.is_allowed("skill_view", &tool_capability_policy_);

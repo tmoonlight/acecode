@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/transcript/conversation_history.hpp"
 #include "agent/worker/agent_task_queue.hpp"
 #include "agent/goal/goal_prompts.hpp"
 #include "hooks/hook_runtime.hpp"
@@ -317,7 +318,7 @@ void AgentLoop::maybe_inject_goal_steering() {
         msg.content = text;
         msg.metadata = nlohmann::json{{"hidden_goal_context", true}};
         ensure_user_message_identity(msg);
-        messages_.push_back(msg);
+        history_->append(msg);
         if (session_manager_) session_manager_->on_message(msg);
     };
 
