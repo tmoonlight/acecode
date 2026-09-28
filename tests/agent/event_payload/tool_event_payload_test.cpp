@@ -1,4 +1,4 @@
-// 覆盖 src/web/tool_event_payload.cpp。这套 helper 把 ToolResult/ToolSummary
+// 覆盖 src/agent/event_payload/tool_event_payload.cpp。这套 helper 把 ToolResult/ToolSummary
 // 序列化成 daemon → 浏览器的 tool_start/tool_update/tool_end WS payload。
 // 一旦回归:
 //   - summary 字段错位 → 前端 ToolSummary 行渲染崩

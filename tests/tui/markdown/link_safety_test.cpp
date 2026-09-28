@@ -1,4 +1,4 @@
-// 覆盖 src/markdown/link_safety.cpp 的链接防骗校验(add-tui-hyperlinks 4.4/4.6)。
+// 覆盖 src/tui/markdown/link_safety.cpp 的链接防骗校验(add-tui-hyperlinks 4.4/4.6)。
 //
 // 只比域名(host),不比完整路径。规则(design.md 决策 4):
 //   - href 不含 "://"(本地路径/裸域名)→ 放行(本地通道,防骗只针对网页链接)

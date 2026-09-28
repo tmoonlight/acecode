@@ -178,8 +178,7 @@ acecode_assert_known_roots(ALLOW_LEGACY SOURCES
 # 目录集合与 testable 子集分开登记。P2 将模块移进 tui/ 时沿用这些边界，
 # P3 只修改目录根；不要让正则失配把整套 TUI 静默送进 acecode_testable。
 set(ACECODE_TUI_DIRS
-    ${CMAKE_SOURCE_DIR}/src/tui
-    ${CMAKE_SOURCE_DIR}/src/tui/markdown)
+    ${CMAKE_SOURCE_DIR}/src/tui)
 set(ACECODE_TUI_TESTABLE_SUBSETS
     commands/ resume/ path_reference/ markdown/
     drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp)

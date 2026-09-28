@@ -1,4 +1,4 @@
-// 覆盖 src/utils/drag_scroll.hpp 的两个纯逻辑组件:
+// 覆盖 src/tui/drag_scroll.hpp 的两个纯逻辑组件:
 //   1. classify       — 鼠标 y + chat_box 范围 + 左键状态 → Phase 状态机决策
 //   2. should_tick    — 按固定节奏 (默认 60ms/行) 放行滚动 tick 的时间门
 // 这是拖动选择 + 边界自动滚动功能的纯算法层,跟 FTXUI 完全解耦,

@@ -227,7 +227,7 @@ TEST_F(CommandsHandlerTest, BuiltinDescriptionsMatchTuiRegistration) {
               "Enter plan mode or start planning a described task");
     EXPECT_EQ(payload["builtins"][5]["description"].get<std::string>(),
               "Show LSP server status (connected/broken/not installed)");
-    // rc / remote-control 的描述与 src/commands/remote_control_command.cpp
+    // rc / remote-control 的描述与 src/tui/commands/remote_control_command.cpp
     // 的 TUI 注册文案保持一致。
     EXPECT_EQ(payload["builtins"][6]["description"].get<std::string>(),
               "Show the bash sandbox status, or /sandbox off|on for this session");

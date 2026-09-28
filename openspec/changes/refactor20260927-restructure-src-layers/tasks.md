@@ -204,7 +204,7 @@
   - spawn_subagent、thread、task_suggestion 三类工具移到 `session_host/tools/`。
   - 前置:3.5。
   - 验证:session_registry、spawn_subagent、web_server_smoke 测试通过;lint 显示 `session_registry.cpp:12-13 → commands` 与 provider→agent_loop 两条边消失。
-- [ ] 3.7 【P2-08】【主】agent 与 TUI 归位,清空根目录。〔认领: Claude-D26 2026-09-28,worktree N:/Users/shao/acecode-p2-04,分支 refactor20260927/P2-08,按 D26 只做 Windows 本机验收〕
+- [x] 3.7 【P2-08】【主】agent 与 TUI 归位,清空根目录。〔认领: Claude-D26 2026-09-28,worktree N:/Users/shao/acecode-p2-04,分支 refactor20260927/P2-08,按 D26 只做 Windows 本机验收〕〔验收: Claude-D26 2026-09-28;M1 140 个 R100 + M2 166 行 include / 3 个构建文件 / 87 份文档由 apply_layout.py 生成;src 根目录清空;check_layers 0(3 条 R3 例外登记到 A-09);Windows 增量构建 + 五个冒烟目标通过,快速档 4515 条 0 失败,定向 471 条 0 失败;快照 59 目标无增删、仅新增 file_state_restore 元组;见 verification/P2-08-agent-tui-cli.md〕
   - `web/{message_payload,tool_event_payload}` → `src/agent/event_payload/`;
   - `session/side_chat` → `src/agent/side_question/side_chat`;
   - `commands/{compact,compact_prompt}` 剩余部分 → `src/agent/compaction/`,必须先于 commands 整体移动;

@@ -1,4 +1,4 @@
-// 覆盖 src/commands/proxy_command.cpp 的纯文案构造函数 format_proxy_display。
+// 覆盖 src/tui/commands/proxy_command.cpp 的纯文案构造函数 format_proxy_display。
 // /proxy 命令本体改 ctx.state 状态,需要 mock 一整个 CommandContext —— 不在
 // 单测层做。这个测试聚焦"用户视角看到的字符串结构是否稳定",能在新人改文案
 // 时立刻发现意外破坏(比如把 effective url 换成 redact 调用前的版本)。

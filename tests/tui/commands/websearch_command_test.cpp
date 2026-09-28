@@ -1,4 +1,4 @@
-// 覆盖 src/commands/websearch_command.{hpp,cpp} 的纯函数路径。
+// 覆盖 src/tui/commands/websearch_command.{hpp,cpp} 的纯函数路径。
 //
 // dispatch_websearch_subcommand 依赖 web_search::runtime() 单例,这里通过
 // init/shutdown 配合 set_state_file_path_for_test 把状态隔离到测试临时目录,

@@ -1,4 +1,4 @@
-// 覆盖 src/utils/text_input_ops.cpp 的五个纯函数:
+// 覆盖 src/tui/text_input_ops.cpp 的五个纯函数:
 //   1. insert_at_cursor:空串插入、中间插入多字节 UTF-8、cursor 越界先 clamp
 //   2. backspace_utf8:单字节 / 多字节 glyph 回退、空串 no-op、cursor=0 no-op
 //   3. delete_utf8:单字节 / 多字节 / cursor 已在末尾的对称行为

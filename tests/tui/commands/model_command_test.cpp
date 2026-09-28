@@ -1,6 +1,6 @@
 // tests/commands/model_command_test.cpp
 //
-// 覆盖 src/commands/model_command.cpp 的 args 解析子命令分支。
+// 覆盖 src/tui/commands/model_command.cpp 的 args 解析子命令分支。
 // 新加的 add / edit / rm / set-default 每个都有独立的写盘副作用,解析失
 // 败应当不动 cfg。
 //

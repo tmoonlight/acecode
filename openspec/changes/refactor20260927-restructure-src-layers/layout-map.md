@@ -174,7 +174,7 @@
 | `tests/{session,provider,tool}/` 中的宿主专用测试 | `tests/session_host/` | P2-07 | session_registry、task_suggestion_service、apply_model_to_session、spawn_subagent_tool、thread_tools 五个测试文件 |
 | `tests/commands/init_command_test.cpp` | `tests/prompt/init_prompt_test.cpp` | P2-07 | 只验证提示词与骨架,命令注册留在 TUI |
 | `tests/utils/terminal_title_test.cpp` | `tests/session/session_title_text_test.cpp` | P2-03 / P2-07 | P2-03 中间路径为 tests/platform/terminal_title_test.cpp,P2-07 随 sanitize_title 纯逻辑归入 session |
-| `tests/smoke_test.cpp` | 按被测对象归入模块目录 | P2-08 | 届时确认 |
+| `tests/smoke_test.cpp` | `tests/utils/smoke_test.cpp` | P2-08 | 只有一条 `Smoke.Passes`,不测具体对象,归 base 层 utils 的镜像目录 |
 | `tests/agent_loop/stub_provider.hpp` | `tests/test_support/agent/stub_provider.hpp` | P1-01 | 29 个使用方 |
 | `tests/channels/test_support.hpp` | `tests/test_support/channels/test_support.hpp` | P1-01 | 16 个使用方 |
 | `tests/sandbox/test_support.hpp` | `tests/test_support/sandbox/test_support.hpp` | P1-01 | 16 个使用方 |

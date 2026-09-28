@@ -1,4 +1,4 @@
-// 覆盖 src/commands/configure_catalog.cpp 的纯函数部分（不触发交互式 stdin）：
+// 覆盖 src/cli/configure/configure_catalog.cpp 的纯函数部分（不触发交互式 stdin）：
 // - filter_providers / filter_models 的子串过滤行为
 // - format_provider_row / format_model_row / format_model_summary 的渲染输出
 // - format_source_line 三种状态

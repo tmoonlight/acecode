@@ -918,7 +918,7 @@ static void signal_handler(int /*sig*/) {
 #endif
 
 // ---- Shared TUI state ----
-// TuiState is defined in src/tui_state.hpp, reached through tui/tui_helpers.hpp.
+// TuiState is defined in src/tui/tui_state.hpp, reached through tui/tui_helpers.hpp.
 using acecode::TuiState;
 
 static void set_transient_status_line_locked(TuiState& state,

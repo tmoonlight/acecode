@@ -1,4 +1,4 @@
-// 覆盖 src/commands/configure_picker.{hpp,cpp} 的纯格式化函数:
+// 覆盖 src/cli/configure/configure_picker.{hpp,cpp} 的纯格式化函数:
 // - format_picker_row(label, secondary, width): picker 行文本渲染,所有 call
 //   site(FTXUI 路径和 stdin 回落路径)都通过它产出字符串
 // - 交互循环(run_ftxui_picker / run_plain_stdin_picker)依赖 FTXUI 和 stdin,

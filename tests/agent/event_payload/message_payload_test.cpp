@@ -1,4 +1,4 @@
-// 覆盖 src/web/message_payload.cpp 的纯函数:
+// 覆盖 src/agent/event_payload/message_payload.cpp 的纯函数:
 //   - compute_message_id: user 走 uuid;非 user 走 sha1(role+" "+content+" "+timestamp)
 //   - chat_message_to_payload_json: 顶层带 id 字段,其它字段 = serialize_message
 //

@@ -2,7 +2,7 @@
 
 #include "session/compact_checkpoint.hpp"
 #include "session/session_rewind.hpp"
-#include "tui/resume/session_resume_restore.hpp"
+#include "tool/file_state_restore.hpp"
 #include "session/session_storage.hpp"
 #include "session_auto_title.hpp"
 #include "session/thread_goal_store.hpp"
