@@ -3,6 +3,8 @@
 #include "tui/render_mode_factory.hpp"
 #include "tui/redraw_pacer.hpp"
 #include "tui/app/ui_post_target.hpp"
+#include "tui/app/process_guards.hpp"
+#include <optional>
 #include <atomic>
 #include <memory>
 
@@ -10,6 +12,8 @@ namespace acecode::tui {
 class TuiScreenHost final : public IScreenPort {
 public:
     TuiScreenHost(ScreenRenderMode mode, const TuiConfig& config);
+    void activate();
+    void deactivate();
     std::weak_ptr<UiPostTarget> post_target() const { return post_target_; }
     ftxui::ScreenInteractive& screen() { return screen_; }
     bool hover_supported() const { return hover_supported_; }
@@ -24,6 +28,7 @@ public:
     int dimx() const override;
 private:
     ftxui::ScreenInteractive screen_;
+    std::optional<ActiveScreenRegistration> active_screen_;
     bool hover_supported_ = false;
     // Shared with posted frame-completion callbacks that finish after Draw/Flush.
     std::shared_ptr<TuiRedrawPacer> redraw_pacer_;

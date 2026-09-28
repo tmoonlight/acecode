@@ -26,4 +26,11 @@ std::string TuiScreenHost::get_selection() { return screen_.GetSelection(); }
 void TuiScreenHost::shift_selection(int dx, int dy) { screen_.ShiftSelection(dx, dy); }
 int TuiScreenHost::dimx() const { return screen_.dimx(); }
 
+void TuiScreenHost::activate() {
+    if (!active_screen_) active_screen_.emplace(screen_);
+}
+void TuiScreenHost::deactivate() {
+    if (active_screen_) active_screen_->release();
+}
+
 }

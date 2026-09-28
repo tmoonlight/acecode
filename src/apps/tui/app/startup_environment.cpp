@@ -1,4 +1,5 @@
 #include "startup_environment.hpp"
+#include "tui/app/process_guards.hpp"
 #include "startup_worktree.hpp"
 #include "tui/term/terminal_control.hpp"
 #include "cli/interactive_options.hpp"
@@ -36,7 +37,7 @@ static std::string get_cwd() {
 }
 
 static bool ensure_interactive_terminal() {
-    std::atexit(reset_cursor);
+    TerminalRestoreGuard::install();
 
 #ifdef _WIN32
     bool stdin_is_tty = _isatty(_fileno(stdin));
