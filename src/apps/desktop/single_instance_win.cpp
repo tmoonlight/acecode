@@ -56,8 +56,8 @@ bool SingleInstance::try_acquire() {
     const std::wstring mutex_name =
         lock_name_.empty() ? std::wstring(kMutexName)
                            : acecode::utf8_to_wide(lock_name_);
-    HANDLE h =
-        ::CreateMutexW(nullptr, /*bInitialOwner=*/TRUE, mutex_name.c_str());
+    platform::UniqueHandle h(
+        ::CreateMutexW(nullptr, /*bInitialOwner=*/TRUE, mutex_name.c_str()));
     if (!h) {
         DWORD err = ::GetLastError();
         LOG_WARN("[desktop] single_instance: CreateMutexW failed, err=" + std::to_string(err));
@@ -65,11 +65,10 @@ bool SingleInstance::try_acquire() {
     }
     if (::GetLastError() == ERROR_ALREADY_EXISTS) {
         // 锁已被其它进程持有。把 handle close 掉,不污染对方的锁状态。
-        ::CloseHandle(h);
         LOG_INFO("[desktop] single_instance: another instance is already running");
         return false;
     }
-    native_handle_ = h;
+    native_handle_ = std::move(h);
     acquired_ = true;
     // 提前 register focus msg id,确保后续 host_window_proc 能在第一次 WM 派发时
     // 拿到一致的 UINT(不会因为 race 出现 RegisterWindowMessage 时序问题)。
@@ -80,14 +79,13 @@ bool SingleInstance::try_acquire() {
 
 void SingleInstance::release() {
     if (!acquired_) return;
-    HANDLE h = static_cast<HANDLE>(native_handle_);
+    HANDLE h = static_cast<HANDLE>(native_handle_.get());
     if (h) {
         // ReleaseMutex 让等待方看见 WAIT_OBJECT_0,我们当前没人 wait,但保持
         // 良好风格。CloseHandle 会真正回收。
         ::ReleaseMutex(h);
-        ::CloseHandle(h);
     }
-    native_handle_ = nullptr;
+    native_handle_.reset();
     acquired_ = false;
 }
 

@@ -4,9 +4,7 @@
 #    define NOMINMAX
 #  endif
 #endif
-
 #include "management_center.hpp"
-
 #include "tui/commands/command_registry.hpp"
 #include "config/config_mutation.hpp"
 #include "hooks/hook_manager.hpp"
@@ -19,7 +17,6 @@
 #include "utils/utf8_path.hpp"
 #include "tui/theme_palette.hpp"
 #include "tui/terminal_key_event.hpp"
-
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_options.hpp>
 #include <ftxui/component/event.hpp>
@@ -38,7 +35,7 @@
 #include <set>
 #include <sstream>
 #include <string_view>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -516,7 +513,7 @@ struct ManagementCenter::Impl {
 
     std::atomic<bool> shutting_down{false};
     std::atomic<std::uint64_t> async_generation{0};
-    std::vector<std::thread> async_threads;
+    std::vector<acecode::JoiningThread> async_threads;
 
     Component tab_menu;
     Component tab_content;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/unique_sqlite.hpp"
+
 #include "llm/llm_provider.hpp"
 
 #include <cstdint>
@@ -130,7 +132,7 @@ private:
     void prune_removed_sessions();
 
     std::string project_dir_;
-    ::sqlite3* db_ = nullptr;
+    platform::UniqueSqlite db_;
 };
 
 } // namespace acecode

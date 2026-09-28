@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "tui/app/startup_worktree.hpp"
-#include "cli/interactive_options.hpp"
+#include "tui/app/interactive_options.hpp"
 #include "session/session_manager.hpp"
 #include "tool/worktree_tool.hpp"
 #include "worktree/worktree_manager.hpp"

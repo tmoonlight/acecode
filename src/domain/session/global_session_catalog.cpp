@@ -13,7 +13,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -395,7 +395,7 @@ GlobalSessionCatalog build_global_session_catalog(
     const std::size_t worker_count = effective_worker_count(
         options.max_workers, discovery.paths.size());
     std::atomic<std::size_t> next_project{0};
-    std::vector<std::thread> workers;
+    std::vector<acecode::JoiningThread> workers;
     workers.reserve(worker_count);
     for (std::size_t worker = 0; worker < worker_count; ++worker) {
         workers.emplace_back([&] {
@@ -432,7 +432,7 @@ struct GlobalSessionCatalogIndex::Impl {
 
     mutable std::mutex mu;
     std::condition_variable cv;
-    std::thread worker;
+    acecode::JoiningThread worker;
     bool started = false;
     bool stopping = false;
     bool paused = false;
@@ -659,7 +659,7 @@ void GlobalSessionCatalogIndex::start() {
     if (impl_->started) return;
     impl_->started = true;
     impl_->stopping = false;
-    impl_->worker = std::thread([impl = impl_.get()] { impl->run(); });
+    impl_->worker = acecode::JoiningThread([impl = impl_.get()] { impl->run(); });
 }
 
 void GlobalSessionCatalogIndex::stop() {

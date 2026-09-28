@@ -12,7 +12,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <nlohmann/json.hpp>
 
 namespace acecode::themes {
@@ -87,7 +87,7 @@ private:
     nlohmann::json catalog_;
     nlohmann::json job_ = {{"state", "idle"}};
     std::atomic<bool> cancel_{false};
-    std::thread worker_;
+    acecode::JoiningThread worker_;
     std::shared_ptr<ThemeRootState> local_state_;
     mutable std::mutex exports_mu_;
     std::map<std::string, std::shared_ptr<ThemeExportJob>> exports_;

@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "loop_scheduler.hpp"
 
 #include "config/config.hpp"
@@ -144,7 +145,7 @@ bool LoopScheduler::start(StoreError* error) {
         running_.store(false);
         return false;
     }
-    worker_ = std::thread([this] { run(); });
+    worker_ = acecode::JoiningThread([this] { run(); });
     return true;
 }
 

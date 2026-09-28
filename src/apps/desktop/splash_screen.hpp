@@ -2,12 +2,13 @@
 
 #include <cstdint>
 #include <string>
+#include <memory>
 
 namespace acecode::desktop {
 
 class SplashScreen {
 public:
-    SplashScreen() = default;
+    SplashScreen();
     ~SplashScreen();
 
     SplashScreen(const SplashScreen&) = delete;
@@ -19,7 +20,7 @@ public:
 
 private:
     struct Impl;
-    Impl* impl_ = nullptr;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace acecode::desktop

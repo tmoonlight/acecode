@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "lsp_client.hpp"
 
 #include "lsp_frame.hpp"
@@ -165,7 +166,7 @@ std::unique_ptr<LspClient> LspClient::create(CreateOptions options, std::string*
         return nullptr;
     }
     client->running_.store(true);
-    client->reader_ = std::thread(&LspClient::read_loop, client.get());
+    client->reader_ = acecode::JoiningThread(&LspClient::read_loop, client.get());
 
     std::string handshake_error;
     {

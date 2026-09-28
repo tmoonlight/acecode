@@ -19,7 +19,7 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -115,7 +115,7 @@ private:
     nlohmann::json initialization_;
 
     LspProcess process_;
-    std::thread reader_;
+    acecode::JoiningThread reader_;
     std::atomic<bool> running_{false};
     std::atomic<std::int64_t> next_id_{1};
 

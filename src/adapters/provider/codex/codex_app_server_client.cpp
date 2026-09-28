@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "codex_app_server_client.hpp"
 #include "codex_model_catalog.hpp"
 
@@ -78,12 +79,7 @@ std::string windows_error_message(DWORD code) {
     return out;
 }
 
-void close_handle(void*& handle) {
-    if (handle) {
-        CloseHandle(static_cast<HANDLE>(handle));
-        handle = nullptr;
-    }
-}
+
 #else
 void close_fd(int& fd) {
     if (fd >= 0) {
@@ -114,7 +110,7 @@ bool AppServerClient::start(std::string* error) {
     }
     if (!start_process(error)) return false;
     running_.store(true);
-    reader_ = std::thread(&AppServerClient::read_loop, this);
+    reader_ = acecode::JoiningThread(&AppServerClient::read_loop, this);
     return true;
 }
 
@@ -335,7 +331,7 @@ bool AppServerClient::write_json_line(const nlohmann::json& message, std::string
     std::lock_guard<std::mutex> lk(write_mu_);
 #ifdef _WIN32
     DWORD written = 0;
-    BOOL ok = WriteFile(static_cast<HANDLE>(stdin_write_),
+    BOOL ok = WriteFile(static_cast<HANDLE>(stdin_write_.get()),
                         line.data(),
                         static_cast<DWORD>(line.size()),
                         &written,
@@ -369,7 +365,7 @@ void AppServerClient::read_loop() {
     while (running_.load()) {
 #ifdef _WIN32
         DWORD bytes_read = 0;
-        BOOL ok = ReadFile(static_cast<HANDLE>(stdout_read_),
+        BOOL ok = ReadFile(static_cast<HANDLE>(stdout_read_.get()),
                            chunk,
                            static_cast<DWORD>(sizeof(chunk)),
                            &bytes_read,
@@ -487,59 +483,47 @@ bool AppServerClient::start_process(std::string* error) {
     sa.nLength = sizeof(SECURITY_ATTRIBUTES);
     sa.bInheritHandle = TRUE;
 
-    HANDLE child_stdin_read = nullptr;
-    HANDLE child_stdin_write = nullptr;
-    HANDLE child_stdout_read = nullptr;
-    HANDLE child_stdout_write = nullptr;
-    HANDLE child_stderr = nullptr;
+    platform::UniqueHandle child_stdin_read;
+    platform::UniqueHandle child_stdin_write;
+    platform::UniqueHandle child_stdout_read;
+    platform::UniqueHandle child_stdout_write;
+    platform::UniqueHandle child_stderr;
 
-    auto cleanup = [&] {
-        if (child_stdin_read) CloseHandle(child_stdin_read);
-        if (child_stdin_write) CloseHandle(child_stdin_write);
-        if (child_stdout_read) CloseHandle(child_stdout_read);
-        if (child_stdout_write) CloseHandle(child_stdout_write);
-        if (child_stderr) CloseHandle(child_stderr);
-    };
 
-    if (!CreatePipe(&child_stdin_read, &child_stdin_write, &sa, 0)) {
+
+    if (!CreatePipe(child_stdin_read.put(), child_stdin_write.put(), &sa, 0)) {
         if (error) *error = "CreatePipe(stdin) failed: " + windows_error_message(GetLastError());
         return false;
     }
-    if (!SetHandleInformation(child_stdin_write, HANDLE_FLAG_INHERIT, 0)) {
+    if (!SetHandleInformation(child_stdin_write.get(), HANDLE_FLAG_INHERIT, 0)) {
         if (error) *error = "SetHandleInformation(stdin) failed: " +
             windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
-    if (!CreatePipe(&child_stdout_read, &child_stdout_write, &sa, 0)) {
+    if (!CreatePipe(child_stdout_read.put(), child_stdout_write.put(), &sa, 0)) {
         if (error) *error = "CreatePipe(stdout) failed: " + windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
-    if (!SetHandleInformation(child_stdout_read, HANDLE_FLAG_INHERIT, 0)) {
+    if (!SetHandleInformation(child_stdout_read.get(), HANDLE_FLAG_INHERIT, 0)) {
         if (error) *error = "SetHandleInformation(stdout) failed: " +
             windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
 
-    child_stderr = CreateFileA("NUL",
+    child_stderr.reset(CreateFileA("NUL",
                                GENERIC_WRITE,
                                FILE_SHARE_WRITE | FILE_SHARE_READ,
                                &sa,
                                OPEN_EXISTING,
                                FILE_ATTRIBUTE_NORMAL,
-                               nullptr);
-    if (child_stderr == INVALID_HANDLE_VALUE) {
-        child_stderr = nullptr;
-    }
+                               nullptr));
 
     STARTUPINFOA si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = child_stdin_read;
-    si.hStdOutput = child_stdout_write;
-    si.hStdError = child_stderr ? child_stderr : child_stdout_write;
+    si.hStdInput = child_stdin_read.get();
+    si.hStdOutput = child_stdout_write.get();
+    si.hStdError = child_stderr ? child_stderr.get() : child_stdout_write.get();
 
     PROCESS_INFORMATION pi{};
     std::string command = "cmd.exe /d /c codex app-server --listen stdio://";
@@ -559,18 +543,17 @@ bool AppServerClient::start_process(std::string* error) {
     if (!ok) {
         if (error) *error = "Failed to start `codex app-server`: " +
             windows_error_message(GetLastError());
-        cleanup();
         return false;
     }
 
-    CloseHandle(child_stdin_read);
-    CloseHandle(child_stdout_write);
-    if (child_stderr) CloseHandle(child_stderr);
-    CloseHandle(pi.hThread);
+    child_stdin_read.reset();
+    child_stdout_write.reset();
+    if (child_stderr) child_stderr.reset();
+    platform::UniqueHandle primary_thread(pi.hThread);
 
-    process_handle_ = pi.hProcess;
-    stdin_write_ = child_stdin_write;
-    stdout_read_ = child_stdout_read;
+    process_handle_.reset(pi.hProcess);
+    stdin_write_ = std::move(child_stdin_write);
+    stdout_read_ = std::move(child_stdout_read);
     return true;
 #else
     int stdin_pipe[2] = {-1, -1};
@@ -624,13 +607,13 @@ bool AppServerClient::start_process(std::string* error) {
 void AppServerClient::stop_process() {
 #ifdef _WIN32
     if (process_handle_) {
-        TerminateProcess(static_cast<HANDLE>(process_handle_), 0);
+        TerminateProcess(static_cast<HANDLE>(process_handle_.get()), 0);
     }
-    close_handle(stdin_write_);
-    close_handle(stdout_read_);
+    stdin_write_.reset();
+    stdout_read_.reset();
     if (process_handle_) {
-        WaitForSingleObject(static_cast<HANDLE>(process_handle_), 2000);
-        close_handle(process_handle_);
+        WaitForSingleObject(static_cast<HANDLE>(process_handle_.get()), 2000);
+        process_handle_.reset();
     }
 #else
     if (process_id_ > 0) {

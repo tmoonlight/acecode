@@ -26,7 +26,7 @@
 #include <cctype>
 #include <cerrno>
 #include <mutex>
-#include <thread>
+#include "utils/joining_thread.hpp"
 
 namespace acecode {
 
@@ -121,7 +121,7 @@ public:
             _exit(127);  // exec 失败
         }
         pid_ = pid;
-        reader_ = std::thread([this] { reader_main(); });
+        reader_ = acecode::JoiningThread([this] { reader_main(); });
         return true;
     }
 
@@ -160,7 +160,7 @@ private:
     PtyCallbacks callbacks_;
     std::atomic<bool> stopped_{false};
     std::mutex fd_mu_;
-    std::thread reader_;
+    acecode::JoiningThread reader_;
     int master_fd_ = -1;
     pid_t pid_ = -1;
 };

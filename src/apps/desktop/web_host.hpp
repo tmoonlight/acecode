@@ -14,6 +14,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <memory>
 #include <vector>
 #include "platform/clipboard.hpp"
 
@@ -202,7 +203,7 @@ public:
 
 private:
     struct Impl;
-    Impl* impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace acecode::desktop

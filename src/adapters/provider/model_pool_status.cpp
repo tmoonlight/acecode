@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "model_pool_status.hpp"
 
 #include "network/proxy_resolver.hpp"
@@ -123,7 +124,7 @@ bool ModelPoolStatusService::refresh_once() {
 
 void ModelPoolStatusService::start(std::function<void()> on_update) {
     if (running_.exchange(true)) return;  // 已在跑
-    thread_ = std::thread([this, on_update = std::move(on_update)]() mutable {
+    thread_ = acecode::JoiningThread([this, on_update = std::move(on_update)]() mutable {
         run_loop(std::move(on_update));
     });
 }

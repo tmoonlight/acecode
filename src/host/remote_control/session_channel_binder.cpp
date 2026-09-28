@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "session_channel_binder.hpp"
 
 #include "session_host/session_registry.hpp"
@@ -216,7 +217,7 @@ void KeepaliveDecider::note_reactivated(Clock::time_point now) {
 SessionChannelBinder::SessionChannelBinder(SessionChannelBinderDeps deps)
     : deps_(std::move(deps)),
       decider_(deps_.failure_threshold, deps_.health_interval) {
-    control_thread_ = std::thread([this] { control_loop(); });
+    control_thread_ = acecode::JoiningThread([this] { control_loop(); });
 }
 
 SessionChannelBinder::~SessionChannelBinder() {
@@ -1133,7 +1134,7 @@ void SessionChannelBinder::persist_binding(const std::string& bound_session_id,
 void SessionChannelBinder::ensure_keepalive_thread() {
     std::lock_guard<std::mutex> lk(mu_);
     if (keepalive_thread_.joinable() || stop_requested_) return;
-    keepalive_thread_ = std::thread([this] { keepalive_loop(); });
+    keepalive_thread_ = acecode::JoiningThread([this] { keepalive_loop(); });
 }
 
 void SessionChannelBinder::keepalive_loop() {

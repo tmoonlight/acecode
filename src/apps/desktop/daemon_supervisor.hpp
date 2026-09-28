@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <memory>
 
 namespace acecode::desktop {
 
@@ -84,7 +85,7 @@ public:
 
 private:
     struct Impl;
-    Impl* impl_;
+    std::unique_ptr<Impl> impl_;
 };
 
 // 工具: 对 loopback:port 做一次 TCP connect 探测。端口可连接返回 true。

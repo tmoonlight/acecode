@@ -47,7 +47,6 @@
 #include <sstream>
 #include <thread>
 #include <nlohmann/json.hpp>
-
 namespace acecode {
 
 namespace fs = std::filesystem;

@@ -11,7 +11,7 @@
 #include <map>
 #include <mutex>
 #include <stdexcept>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #ifndef _WIN32
 #include <pthread.h>
 #include <signal.h>
@@ -22,7 +22,7 @@ struct Bridge::Impl {
     platform::PipedProcess process;
     mutable std::mutex mu;
     std::condition_variable cv;
-    std::thread reader, writer;
+    acecode::JoiningThread reader, writer;
     bool alive = false;
     std::string failure;
     std::uint64_t next_id = 1;
@@ -98,8 +98,8 @@ void Bridge::start(const platform::SpawnOptions& options) {
     std::string error;
     if (!b.process.start(options, &error)) throw std::runtime_error("Cannot start WhatsApp bridge: " + error);
     { std::lock_guard<std::mutex> lock(b.mu); b.alive = true; b.failure.clear(); b.events.clear(); }
-    b.reader = std::thread([&b] { b.read_loop(); });
-    b.writer = std::thread([&b] { b.write_loop(); });
+    b.reader = acecode::JoiningThread([&b] { b.read_loop(); });
+    b.writer = acecode::JoiningThread([&b] { b.write_loop(); });
 }
 void Bridge::stop() {
     auto& b = *impl_;

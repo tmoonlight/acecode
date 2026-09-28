@@ -12,7 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_map>
 #include <vector>
 
@@ -88,7 +88,7 @@ private:
     std::atomic<bool> stop_requested_{false};
     std::mutex wait_mu_;
     std::condition_variable wait_cv_;
-    std::thread worker_;
+    acecode::JoiningThread worker_;
     std::shared_ptr<CallbackState> callbacks_;
 };
 

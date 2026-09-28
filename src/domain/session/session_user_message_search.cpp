@@ -284,11 +284,11 @@ SessionUserMessageIndex::SessionUserMessageIndex(std::string project_dir)
     : project_dir_(std::move(project_dir)) {}
 
 SessionUserMessageIndex::~SessionUserMessageIndex() {
-    if (db_) sqlite3_close(db_);
+    if (db_.get()) db_.reset();
 }
 
 bool SessionUserMessageIndex::open(std::string* error) {
-    if (db_) return true;
+    if (db_.get()) return true;
     if (project_dir_.empty()) {
         set_error(error, "project directory required");
         return false;
@@ -306,25 +306,24 @@ bool SessionUserMessageIndex::open(std::string* error) {
     // 索引连接是栈对象短开短关,单独一个 db 文件不改变任何既有约定。
     const std::string db_path =
         path_to_utf8(path_from_utf8(project_dir_) / "user_message_search.sqlite3");
-    if (sqlite3_open_v2(db_path.c_str(), &db_,
+    if (sqlite3_open_v2(db_path.c_str(), db_.put(),
                         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
                         nullptr) != SQLITE_OK) {
-        set_error(error, sqlite_error(db_, "failed to open session search database"));
-        if (db_) {
-            sqlite3_close(db_);
-            db_ = nullptr;
+        set_error(error, sqlite_error(db_.get(), "failed to open session search database"));
+        if (db_.get()) {
+            db_.reset();
         }
         return false;
     }
-    sqlite3_busy_timeout(db_, 5000);
+    sqlite3_busy_timeout(db_.get(), 5000);
     return true;
 }
 
 bool SessionUserMessageIndex::exec(const char* sql, std::string* error) {
     char* raw_error = nullptr;
-    const int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &raw_error);
+    const int rc = sqlite3_exec(db_.get(), sql, nullptr, nullptr, &raw_error);
     if (rc != SQLITE_OK) {
-        std::string msg = raw_error ? raw_error : sqlite3_errmsg(db_);
+        std::string msg = raw_error ? raw_error : sqlite3_errmsg(db_.get());
         sqlite3_free(raw_error);
         set_error(error, msg);
         return false;
@@ -369,8 +368,8 @@ bool SessionUserMessageIndex::source_matches_signature(
     constexpr const char* sql =
         "SELECT jsonl_mtime, jsonl_size FROM session_user_message_sources "
         "WHERE session_id = ?;";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        set_error(error, sqlite_error(db_, "prepare source read failed"));
+    if (sqlite3_prepare_v2(db_.get(), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        set_error(error, sqlite_error(db_.get(), "prepare source read failed"));
         return false;
     }
     bind_text(stmt, 1, session_id);
@@ -381,7 +380,7 @@ bool SessionUserMessageIndex::source_matches_signature(
                   sqlite3_column_int64(stmt, 0) == signature.mtime &&
                   sqlite3_column_int64(stmt, 1) == signature.size;
     } else if (rc != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "source read failed"));
+        set_error(error, sqlite_error(db_.get(), "source read failed"));
     }
     sqlite3_finalize(stmt);
     return matches;
@@ -402,8 +401,8 @@ bool SessionUserMessageIndex::update_source(
         "jsonl_mtime = excluded.jsonl_mtime,"
         "jsonl_size = excluded.jsonl_size,"
         "indexed_at_ms = excluded.indexed_at_ms;";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        set_error(error, sqlite_error(db_, "prepare source update failed"));
+    if (sqlite3_prepare_v2(db_.get(), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        set_error(error, sqlite_error(db_.get(), "prepare source update failed"));
         return false;
     }
     bool ok = bind_text(stmt, 1, session_id) &&
@@ -413,7 +412,7 @@ bool SessionUserMessageIndex::update_source(
               sqlite3_bind_int64(stmt, 5, now_ms()) == SQLITE_OK;
     if (ok && sqlite3_step(stmt) != SQLITE_DONE) {
         ok = false;
-        set_error(error, sqlite_error(db_, "source update failed"));
+        set_error(error, sqlite_error(db_.get(), "source update failed"));
     }
     sqlite3_finalize(stmt);
     return ok;
@@ -436,8 +435,8 @@ bool SessionUserMessageIndex::upsert_searchable_message(
         "search_text = excluded.search_text,"
         "search_text_norm = excluded.search_text_norm,"
         "snippet_text = excluded.snippet_text;";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        set_error(error, sqlite_error(db_, "prepare message upsert failed"));
+    if (sqlite3_prepare_v2(db_.get(), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        set_error(error, sqlite_error(db_.get(), "prepare message upsert failed"));
         return false;
     }
     const std::string names_json = attachment_names_to_json(message.attachment_names).dump();
@@ -452,7 +451,7 @@ bool SessionUserMessageIndex::upsert_searchable_message(
               bind_text(stmt, 9, message.snippet_text);
     if (ok && sqlite3_step(stmt) != SQLITE_DONE) {
         ok = false;
-        set_error(error, sqlite_error(db_, "message upsert failed"));
+        set_error(error, sqlite_error(db_.get(), "message upsert failed"));
     }
     sqlite3_finalize(stmt);
     return ok;
@@ -515,16 +514,16 @@ bool SessionUserMessageIndex::rebuild_session(
 
     bool ok = true;
     sqlite3_stmt* del = nullptr;
-    if (sqlite3_prepare_v2(db_,
+    if (sqlite3_prepare_v2(db_.get(),
                            "DELETE FROM session_user_message_index WHERE session_id = ?;",
                            -1, &del, nullptr) != SQLITE_OK) {
-        set_error(error, sqlite_error(db_, "prepare message delete failed"));
+        set_error(error, sqlite_error(db_.get(), "prepare message delete failed"));
         ok = false;
     }
     if (ok) {
         bind_text(del, 1, session_id);
         if (sqlite3_step(del) != SQLITE_DONE) {
-            set_error(error, sqlite_error(db_, "message delete failed"));
+            set_error(error, sqlite_error(db_.get(), "message delete failed"));
             ok = false;
         }
     }
@@ -597,13 +596,13 @@ bool SessionUserMessageIndex::remove_session(const std::string& session_id,
     };
     for (const char* sql : sqls) {
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-            set_error(error, sqlite_error(db_, "prepare session index removal failed"));
+        if (sqlite3_prepare_v2(db_.get(), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            set_error(error, sqlite_error(db_.get(), "prepare session index removal failed"));
             return false;
         }
         bool ok = bind_text(stmt, 1, session_id) &&
                   sqlite3_step(stmt) == SQLITE_DONE;
-        if (!ok) set_error(error, sqlite_error(db_, "session index removal failed"));
+        if (!ok) set_error(error, sqlite_error(db_.get(), "session index removal failed"));
         sqlite3_finalize(stmt);
         if (!ok) return false;
     }
@@ -615,7 +614,7 @@ void SessionUserMessageIndex::prune_removed_sessions() {
     // 索引里的消息全文必须跟着删,否则已删除会话的用户输入会残留在
     // state.sqlite3 且永远不会被重建逻辑清理。
     sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db_,
+    if (sqlite3_prepare_v2(db_.get(),
                            "SELECT session_id, jsonl_path FROM session_user_message_sources;",
                            -1, &stmt, nullptr) != SQLITE_OK) {
         return;
@@ -685,7 +684,7 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
 
     if (should_cancel) {
         sqlite3_progress_handler(
-            db_, 1000, sqlite_cancel_check,
+            db_.get(), 1000, sqlite_cancel_check,
             const_cast<std::function<bool()>*>(&should_cancel));
     }
 
@@ -703,9 +702,9 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
         "AND latest.message_ordinal = i.message_ordinal "
         "ORDER BY i.message_ordinal DESC "
         "LIMIT ?;";
-    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        sqlite3_progress_handler(db_, 0, nullptr, nullptr);
-        set_error(error, sqlite_error(db_, "prepare user message search failed"));
+    if (sqlite3_prepare_v2(db_.get(), sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        sqlite3_progress_handler(db_.get(), 0, nullptr, nullptr);
+        set_error(error, sqlite_error(db_.get(), "prepare user message search failed"));
         return out;
     }
     bind_text(stmt, 1, query_norm);
@@ -738,11 +737,11 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
     }
     const bool completed = step_rc == SQLITE_DONE || step_rc == SQLITE_ROW;
     sqlite3_finalize(stmt);
-    sqlite3_progress_handler(db_, 0, nullptr, nullptr);
+    sqlite3_progress_handler(db_.get(), 0, nullptr, nullptr);
     if (!completed) {
         set_error(error, step_rc == SQLITE_INTERRUPT
             ? std::string{"cancelled"}
-            : sqlite_error(db_, "user message search failed"));
+            : sqlite_error(db_.get(), "user message search failed"));
     }
     std::sort(out.begin(), out.end(),
               [](const auto& a, const auto& b) {

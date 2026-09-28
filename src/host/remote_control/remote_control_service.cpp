@@ -14,7 +14,7 @@
 #include <chrono>
 #include <random>
 #include <sstream>
-#include <thread>
+#include "utils/joining_thread.hpp"
 
 namespace acecode::rc {
 
@@ -65,7 +65,7 @@ std::string generate_remote_control_token() {
 
 struct RemoteControlService::Impl {
     crow::SimpleApp app;
-    std::thread server_thread;
+    acecode::JoiningThread server_thread;
     std::atomic<bool> server_failed{false};
     std::string server_error;
 };
@@ -154,7 +154,7 @@ bool RemoteControlService::start(const RemoteControlOptions& opts, std::string* 
     });
 
     impl->app.loglevel(crow::LogLevel::Warning);
-    impl->server_thread = std::thread([impl, port = opts.port] {
+    impl->server_thread = acecode::JoiningThread([impl, port = opts.port] {
         try {
             impl->app.bindaddr("127.0.0.1")
                 .port(static_cast<std::uint16_t>(port))

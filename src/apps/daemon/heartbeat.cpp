@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "heartbeat.hpp"
 
 #include "ipc/runtime_files.hpp"
@@ -23,7 +24,7 @@ void HeartbeatWriter::start() {
     Heartbeat hb{pid_, guid_, now_unix_ms()};
     write_heartbeat(hb);
 
-    thread_ = std::thread([this] { run_loop(); });
+    thread_ = acecode::JoiningThread([this] { run_loop(); });
 }
 
 void HeartbeatWriter::stop() {

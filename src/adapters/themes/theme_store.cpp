@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "theme_store.hpp"
 #include "utils/base64.hpp"
 #include "theme_package.hpp"
@@ -34,7 +35,7 @@ struct ThemeExportJob {
     mutable std::mutex mutex;
     json info;
     std::atomic<bool> cancelled{false};
-    std::thread worker;
+    acecode::JoiningThread worker;
     fs::path destination;
     fs::path archive;
     std::string package_sha256;
@@ -737,7 +738,7 @@ json ThemeStore::start_export(const std::string& id, const ExportSavePicker& pic
             exports_.emplace(job_id, job);
             // Publication and the joinable handle are one operation. A fast
             // cached export cannot be pruned before its thread is registered.
-            try { job->worker = std::thread([this, job] { run_export(job); }); }
+            try { job->worker = acecode::JoiningThread([this, job] { run_export(job); }); }
             catch (...) { exports_.erase(job_id); throw; }
         }
         std::lock_guard<std::mutex> lock(job->mutex);
@@ -952,7 +953,7 @@ json ThemeStore::start(const std::string& id, const json& consent) {
             {"bytes_downloaded", 0}, {"bytes_total", entry["package"]["bytes"]},
             {"automatic", consent.value("automatic", false)}};
     }
-    worker_ = std::thread([this, entry] { install(entry); });
+    worker_ = acecode::JoiningThread([this, entry] { install(entry); });
     return job();
 }
 

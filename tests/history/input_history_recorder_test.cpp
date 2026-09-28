@@ -26,7 +26,7 @@ TEST(InputHistoryRecorder, DiskLimitDoesNotRetroactivelyTrimInMemoryHistory) {
     std::vector<std::string> history;
     const auto cwd = acecode::path_to_utf8(workspace.path);
     for (const auto* entry : {"one", "two", "three"}) {
-        acecode::record_input_history(history, config, cwd, entry);
+        acecode::record_input_history(history, config, acecode::SessionStorage::get_project_dir(cwd), entry);
     }
     EXPECT_EQ(history, (std::vector<std::string>{"one", "two", "three"}));
     const auto path = acecode::InputHistoryStore::file_path(

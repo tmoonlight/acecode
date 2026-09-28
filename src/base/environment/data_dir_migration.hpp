@@ -35,7 +35,7 @@
 #include <optional>
 #include <string>
 #include <system_error>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <shared_mutex>
 
 namespace acecode::environment {
@@ -176,7 +176,7 @@ public:
 private:
     mutable std::mutex mu_;
     std::optional<MigrationProgress> progress_;
-    std::thread thread_;
+    acecode::JoiningThread thread_;
     std::atomic<bool> active_{false};
 };
 

@@ -13,7 +13,7 @@
 #include <mutex>
 #include <set>
 #include <stdexcept>
-#include <thread>
+#include "utils/abandonable_call.hpp"
 
 namespace acecode::computer_use {
 namespace {
@@ -378,11 +378,11 @@ void synchronize(const std::shared_ptr<SharedState>& shared) {
 
 struct PointerOverlay::Impl {
     std::shared_ptr<SharedState> shared = std::make_shared<SharedState>();
-    std::thread thread;
+    bool started = false;
 
     Impl() {
         if (!shared->initialized || !shared->stopped || !shared->stop) return;
-        thread = std::thread([state = shared] {
+        spawn_owned_detached("computer-use pointer overlay", [state = shared] {
             try { OverlayThread overlay(state); overlay.run(); } catch (...) {}
             {
                 std::lock_guard<std::mutex> lock(state->mutex);
@@ -392,14 +392,15 @@ struct PointerOverlay::Impl {
             SetEvent(state->initialized);
             SetEvent(state->stopped);
         });
+        started = true;
         if (WaitForSingleObject(shared->initialized, kCommandTimeout) != WAIT_OBJECT_0) SetEvent(shared->stop);
     }
 
     ~Impl() {
-        if (!thread.joinable()) return;
+        if (!started) return;
         SetEvent(shared->stop);
-        if (WaitForSingleObject(shared->stopped, kCommandTimeout) == WAIT_OBJECT_0) thread.join();
-        else thread.detach(); // The thread retains all resources via shared_ptr.
+        WaitForSingleObject(shared->stopped, kCommandTimeout);
+        // A timed-out renderer owns all resources through its SharedState.
     }
 };
 

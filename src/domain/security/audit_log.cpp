@@ -60,9 +60,9 @@ bool exec_sql(sqlite3* db, const char* sql, std::string* error) {
 
 class Statement {
 public:
-    Statement(sqlite3* db, const std::string& sql, std::string* error) : db_(db) {
-        if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt_, nullptr) != SQLITE_OK) {
-            set_error(error, sqlite_error(db_, "prepare failed"));
+    Statement(sqlite3* db, const std::string& sql, std::string* error) {
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt_, nullptr) != SQLITE_OK) {
+            set_error(error, sqlite_error(db, "prepare failed"));
             stmt_ = nullptr;
         }
     }
@@ -75,7 +75,6 @@ public:
     explicit operator bool() const { return stmt_ != nullptr; }
 
 private:
-    sqlite3* db_ = nullptr;
     sqlite3_stmt* stmt_ = nullptr;
 };
 

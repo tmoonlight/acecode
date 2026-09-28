@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/unique_sqlite.hpp"
+
 #include "loop_schedule.hpp"
 
 #include <cstdint>
@@ -101,7 +103,7 @@ private:
     void rollback_locked() const;
 
     std::filesystem::path db_path_;
-    sqlite3* db_ = nullptr;
+    platform::UniqueSqlite db_;
     mutable std::mutex mu_;
 };
 

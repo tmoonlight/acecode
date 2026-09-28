@@ -30,7 +30,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <vector>
 
 namespace acecode::rc {
@@ -225,7 +225,7 @@ private:
     std::shared_ptr<OutboundSender> sender_;
     OutboundResultObserver outbound_result_observer_;
     std::deque<OutboundMessage> queue_;
-    std::thread worker_;
+    acecode::JoiningThread worker_;
     std::uint64_t next_seq_ = 1;
     std::uint64_t last_dequeued_seq_ = 0;
     // 非零时，入队端不得因 FIFO 满而淘汰该 seq 及之前的消息；否则

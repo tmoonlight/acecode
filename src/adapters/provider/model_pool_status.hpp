@@ -20,7 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_map>
 
 namespace acecode {
@@ -131,7 +131,7 @@ private:
     std::unordered_map<std::string, ModelPoolStatus> cache_;
 
     std::atomic<bool> running_{false};
-    std::thread thread_;
+    acecode::JoiningThread thread_;
     std::mutex cv_mu_;
     std::condition_variable cv_;
 };

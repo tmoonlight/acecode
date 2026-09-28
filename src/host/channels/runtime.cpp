@@ -12,7 +12,7 @@
 #include <condition_variable>
 #include <fstream>
 #include <mutex>
-#include <thread>
+#include "utils/joining_thread.hpp"
 
 namespace acecode::channels {
 namespace {
@@ -53,7 +53,7 @@ struct Runtime::Impl {
     std::shared_ptr<Bridge> bridge = std::make_shared<Bridge>();
     std::unique_ptr<Gateway> gateway;
     std::unique_ptr<crow::SimpleApp> app;
-    std::thread worker, server;
+    acecode::JoiningThread worker, server;
     std::atomic<bool> stopping{false}, server_exited{false};
     std::mutex mu, wait_mu;
     std::condition_variable wake;
@@ -132,7 +132,7 @@ struct Runtime::Impl {
             });
         app->bindaddr("127.0.0.1").port(0).concurrency(2).signal_clear();
         server_exited = false;
-        server = std::thread([this] {
+        server = acecode::JoiningThread([this] {
             try { app->run(); } catch (...) {}
             server_exited = true; wake.notify_all();
         });
@@ -214,7 +214,7 @@ void Runtime::start() {
     // Claim before launching the worker so a later instance cannot win its race.
     try { impl_->owns_account = impl_->ownership.acquire(impl_->directory / "owner.lock"); }
     catch (const std::exception& e) { LOG_ERROR(std::string("[channels] ") + e.what()); }
-    impl_->worker = std::thread([this] { impl_->run(); });
+    impl_->worker = acecode::JoiningThread([this] { impl_->run(); });
 }
 void Runtime::stop() {
     impl_->stopping = true; impl_->wake.notify_all();

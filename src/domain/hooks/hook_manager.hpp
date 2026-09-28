@@ -12,7 +12,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 
 #include <nlohmann/json.hpp>
 
@@ -98,7 +97,7 @@ private:
     HookProcessRunner runner_;
     HookShellEnvironmentRunner shell_runner_;
     std::shared_ptr<AsyncState> async_state_;
-    std::thread worker_;
+    bool worker_started_ = false;
     bool worker_detached_ = false;
 };
 

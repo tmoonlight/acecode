@@ -1,4 +1,5 @@
 #include "task_suggestion_store.hpp"
+#include "platform/unique_sqlite.hpp"
 
 #include "compact_checkpoint.hpp"
 #include "session_storage.hpp"
@@ -130,35 +131,33 @@ public:
         }
         const int flags = writable ? SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
                                    : SQLITE_OPEN_READONLY;
-        if (sqlite3_open_v2(path.u8string().c_str(), &db_, flags, nullptr) != SQLITE_OK) {
+        if (sqlite3_open_v2(path.u8string().c_str(), db_.put(), flags, nullptr) != SQLITE_OK) {
             fail("cannot open suggestion database");
-            sqlite3_close(db_);
-            db_ = nullptr;
+            db_.reset();
             return;
         }
-        sqlite3_busy_timeout(db_, 5000);
+        sqlite3_busy_timeout(db_.get(), 5000);
         if (writable && !exec(
             "CREATE TABLE IF NOT EXISTS task_suggestions ("
             "source_session_id TEXT NOT NULL, id TEXT NOT NULL, "
             "kind TEXT NOT NULL, dedupe_key TEXT NOT NULL, "
             "record TEXT NOT NULL, PRIMARY KEY(source_session_id,id), "
             "UNIQUE(source_session_id,kind,dedupe_key));")) {
-            sqlite3_close(db_);
-            db_ = nullptr;
+            db_.reset();
         }
     }
     ~Database() {
-        if (db_) {
-            if (transaction_) sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
-            sqlite3_close(db_);
+        if (db_.get()) {
+            if (transaction_) sqlite3_exec(db_.get(), "ROLLBACK;", nullptr, nullptr, nullptr);
+            db_.reset();
         }
     }
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
-    sqlite3* get() const { return db_; }
-    explicit operator bool() const { return db_ != nullptr; }
+    sqlite3* get() const { return db_.get(); }
+    explicit operator bool() const { return db_.get() != nullptr; }
     bool exec(const char* sql) {
-        if (sqlite3_exec(db_, sql, nullptr, nullptr, nullptr) == SQLITE_OK) return true;
+        if (sqlite3_exec(db_.get(), sql, nullptr, nullptr, nullptr) == SQLITE_OK) return true;
         fail("suggestion transaction failed");
         return false;
     }
@@ -172,10 +171,10 @@ public:
         return true;
     }
     void fail(const char* prefix) const {
-        set_error(error_, std::string(prefix) + ": " + (db_ ? sqlite3_errmsg(db_) : "unavailable"));
+        set_error(error_, std::string(prefix) + ": " + (db_.get() ? sqlite3_errmsg(db_.get()) : "unavailable"));
     }
 private:
-    sqlite3* db_ = nullptr;
+    platform::UniqueSqlite db_;
     std::string* error_ = nullptr;
     bool transaction_ = false;
 };

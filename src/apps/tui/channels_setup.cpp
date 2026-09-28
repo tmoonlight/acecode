@@ -14,7 +14,7 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #ifdef _WIN32
 #include <io.h>
 #else
@@ -34,7 +34,7 @@ struct ChannelsSetup::Impl {
     int page = Mode, selected_mode = 0;
     std::string numbers, validation;
     std::vector<std::string> peers;
-    std::thread worker;
+    acecode::JoiningThread worker;
     std::atomic<bool> cancelled{false}, done{true};
     std::mutex mu;
     channels::SetupUpdate update;
@@ -97,7 +97,7 @@ struct ChannelsSetup::Impl {
         { std::lock_guard<std::mutex> lock(mu); update = {}; }
         set_page(Progress);
         // The worker publishes plain data only; FTXUI components stay on the UI thread.
-        worker = std::thread([this, allowed = peers] {
+        worker = acecode::JoiningThread([this, allowed = peers] {
             channels::run_setup(allowed, deps.setup, cancelled, [this](const channels::SetupUpdate& value) {
                 { std::lock_guard<std::mutex> lock(mu); update = value; }
                 if (deps.post_event) deps.post_event();

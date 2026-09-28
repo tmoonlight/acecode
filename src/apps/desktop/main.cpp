@@ -72,7 +72,7 @@
 #include <random>
 #include <sstream>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <vector>
 
 #include <cpr/cpr.h>
@@ -574,14 +574,14 @@ int run_browser_fallback(const std::string& url,
 
 #ifdef _WIN32
     // 1) 启动浏览器:Edge --app 优先(拿到进程句柄),失败退到默认浏览器。
-    void* edge_process = nullptr;
+    platform::UniqueHandle edge_process;
     unsigned long edge_pid = 0;
     bool opened = false;
     std::string launch_detail;
 
     auto edge = launch_edge_app(browser_url);
     if (edge.ok) {
-        edge_process = edge.process;
+        edge_process = std::move(edge.process);
         edge_pid = edge.pid;
         opened = true;
     } else {
@@ -602,7 +602,7 @@ int run_browser_fallback(const std::string& url,
         LOG_ERROR("[desktop] browser fallback failed to open any browser: " + launch_detail);
         show_error(format_browser_fallback_open_failed_message(
             reason, launch_detail, webview_error, native_locale()));
-        if (edge_process) ::CloseHandle(static_cast<HANDLE>(edge_process));
+        edge_process.reset();
         auto failures = pool.stop_all();
         return failures.empty() ? 1 : 100;
     }
@@ -632,10 +632,10 @@ int run_browser_fallback(const std::string& url,
     // 只有 edge_process 和 stop_event 都有效才起 watcher —— 这样 watcher 总能被
     // stop_event 唤醒后 join,不会在退出时因 WaitForSingleObject 无法取消而卡死。
     HANDLE stop_event = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    const bool can_autoquit_on_close = (edge_process != nullptr) && (stop_event != nullptr);
-    std::thread watcher;
+    const bool can_autoquit_on_close = static_cast<bool>(edge_process) && (stop_event != nullptr);
+    acecode::JoiningThread watcher;
     if (can_autoquit_on_close) {
-        watcher = std::thread([edge_process, stop_event, &request_quit]() {
+        watcher = acecode::JoiningThread([edge_process = edge_process.get(), stop_event, &request_quit]() {
             HANDLE waits[2] = {static_cast<HANDLE>(edge_process), stop_event};
             ::WaitForMultipleObjects(2, waits, FALSE, INFINITE);
             request_quit();
@@ -662,7 +662,7 @@ int run_browser_fallback(const std::string& url,
     if (stop_event) ::SetEvent(stop_event);
     if (watcher.joinable()) watcher.join();
     if (stop_event) ::CloseHandle(stop_event);
-    if (edge_process) ::CloseHandle(static_cast<HANDLE>(edge_process));
+    edge_process.reset();
     shutdown_tray_icon();
 
     auto failures = pool.shutdown_all();

@@ -21,7 +21,7 @@
 #include <mutex>
 #include <set>
 #include <stdexcept>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <utility>
 
 namespace acecode {
@@ -284,13 +284,13 @@ struct TaskSuggestionService::State : std::enable_shared_from_this<State> {
     std::set<std::string> observed_sources;
     bool stopping = false;
     std::size_t active_launches = 0;
-    std::thread coordinator;
+    acecode::JoiningThread coordinator;
 
     static std::string key(const Job& job) {
         return job.source_id + ":" + job.suggestion_id;
     }
 
-    void start() { coordinator = std::thread([this] { run(); }); }
+    void start() { coordinator = acecode::JoiningThread([this] { run(); }); }
 
     void stop() {
         {

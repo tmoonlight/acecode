@@ -223,7 +223,7 @@ EdgeAppLaunchHandle launch_edge_app(const std::string& url) {
     }
 
     result.ok = true;
-    result.process = sei.hProcess;
+    result.process.reset(sei.hProcess);
     result.pid = ::GetProcessId(sei.hProcess);
     LOG_INFO("[desktop] Edge app fallback launched (pid=" + std::to_string(result.pid) + ")");
     return result;
@@ -237,14 +237,13 @@ EdgeAppLaunchResult launch_edge_app_and_wait(const std::string& url) {
         return result;
     }
 
-    HANDLE process = static_cast<HANDLE>(launched.process);
+    HANDLE process = static_cast<HANDLE>(launched.process.get());
     LOG_INFO("[desktop] Edge app fallback launched; waiting for app process to exit");
     ::WaitForSingleObject(process, INFINITE);
     DWORD exit_code = 0;
     if (::GetExitCodeProcess(process, &exit_code)) {
         result.exit_code = static_cast<unsigned long>(exit_code);
     }
-    ::CloseHandle(process);
     result.ok = true;
     return result;
 }

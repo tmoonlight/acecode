@@ -123,3 +123,4 @@ ownership_allow	src/base/utils/joining_thread.hpp			1	R15:std_thread	JoiningThre
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:std_thread	abandonable_detail::start_owned_work	ownership/P2-01		C8 owned abandonable worker; P2-01
 ownership_allow	src/base/utils/abandonable_call.cpp			1	R15:detach	abandonable_detail::start_owned_work	ownership/P2-01		C8 detached worker owns captured lifetime; P2-01
 allow	src/engine/agent/approval/exec_permission_gate.*				R11:approval				Command evaluation delegated by the single tool approval gate
+allow	src/engine/agent/agent_runtime_env.*				R11:pa				A-14 injected process-service access point; algorithms remain at approved PA contacts

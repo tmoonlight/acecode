@@ -20,7 +20,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -733,7 +733,7 @@ struct AgentBrowserHost::Impl
     std::string proxy_pipe_name;
     std::string proxy_auth_token;
     std::atomic<bool> proxy_stopping{false};
-    std::thread proxy_thread;
+    acecode::JoiningThread proxy_thread;
 #endif
 
     Impl(void* parent,
@@ -1009,7 +1009,7 @@ struct AgentBrowserHost::Impl
                           desktop_instance_id;
         try {
             proxy_auth_token = acecode::generate_auth_token();
-            proxy_thread = std::thread([this] { proxy_loop(); });
+            proxy_thread = acecode::JoiningThread([this] { proxy_loop(); });
         } catch (const std::exception& error) {
             fail(std::string("failed to start Agent Browser proxy: ") +
                  error.what());

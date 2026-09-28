@@ -13,9 +13,9 @@
 #include <windows.h>
 #include <shobjidl.h>
 #include <shlobj.h>
+#include <wrl.h>
 
 #include <algorithm>
-#include <atomic>
 #include <string>
 
 namespace acecode::desktop {
@@ -93,30 +93,12 @@ bool shell_item_is_folder(IShellItem* item) {
            (attributes & SFGAO_FILESYSTEM) != 0;
 }
 
-class ContextPickerEvents final : public IFileDialogEvents,
-                                  public IFileDialogControlEvents {
+class ContextPickerEvents final
+    : public Microsoft::WRL::RuntimeClass<
+          Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>,
+          IFileDialogEvents, IFileDialogControlEvents> {
 public:
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** object) override {
-        if (!object) return E_POINTER;
-        *object = nullptr;
-        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IFileDialogEvents)) {
-            *object = static_cast<IFileDialogEvents*>(this);
-        } else if (IsEqualIID(riid, IID_IFileDialogControlEvents)) {
-            *object = static_cast<IFileDialogControlEvents*>(this);
-        } else {
-            return E_NOINTERFACE;
-        }
-        AddRef();
-        return S_OK;
-    }
-
-    IFACEMETHODIMP_(ULONG) AddRef() override { return ++references_; }
-
-    IFACEMETHODIMP_(ULONG) Release() override {
-        const ULONG remaining = --references_;
-        if (remaining == 0) delete this;
-        return remaining;
-    }
+    ~ContextPickerEvents() = default;
 
     IFACEMETHODIMP OnFileOk(IFileDialog*) override { return S_OK; }
     IFACEMETHODIMP OnFolderChanging(IFileDialog*, IShellItem*) override { return S_OK; }
@@ -167,9 +149,6 @@ public:
     const std::optional<std::string>& folder_path() const { return folder_path_; }
 
 private:
-    ~ContextPickerEvents() = default;
-
-    std::atomic<ULONG> references_{1};
     std::optional<std::string> folder_path_;
 };
 
@@ -239,12 +218,11 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
         return outcome;
     }
 
-    auto* events = new ContextPickerEvents();
+    auto events = Microsoft::WRL::Make<ContextPickerEvents>();
     DWORD cookie = 0;
-    const bool advised = SUCCEEDED(dialog->Advise(events, &cookie));
+    const bool advised = SUCCEEDED(dialog->Advise(events.Get(), &cookie));
     if (!advised) {
         outcome.error = "failed to attach native context picker events";
-        events->Release();
         dialog->Release();
         return outcome;
     }
@@ -278,7 +256,6 @@ ContextPickOutcome pick_context_items(void* parent_hwnd,
     }
 
     dialog->Unadvise(cookie);
-    events->Release();
     dialog->Release();
     return outcome;
 }

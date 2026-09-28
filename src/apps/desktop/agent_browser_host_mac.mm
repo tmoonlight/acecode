@@ -37,7 +37,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_map>
 #include <unistd.h>
 #include <utility>
@@ -1010,7 +1010,7 @@ struct AgentBrowserHost::Impl final
     std::string proxy_auth_token;
     std::atomic<bool> proxy_stopping{false};
     std::atomic<int> listener_fd{-1};
-    std::thread proxy_thread;
+    acecode::JoiningThread proxy_thread;
 
     Impl(void* parent,
          std::int64_t pid,
@@ -2849,7 +2849,7 @@ bool AgentBrowserHost::Impl::publish_proxy() {
 
     try {
         proxy_auth_token = acecode::generate_auth_token();
-        proxy_thread = std::thread([this] { proxy_loop(); });
+        proxy_thread = acecode::JoiningThread([this] { proxy_loop(); });
     } catch (const std::exception& error) {
         listener_fd.store(-1);
         ::close(listening);

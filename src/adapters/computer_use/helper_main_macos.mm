@@ -5,7 +5,7 @@
 #include <iostream>
 #include <sys/file.h>
 #include <sys/stat.h>
-#include <thread>
+#include "utils/abandonable_call.hpp"
 #include <unistd.h>
 
 int computer_use_protocol_main();
@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
             }
         }
         const std::string permission = request ? argv[2] : "";
-        std::thread worker([probe, request, permission] {
+        spawn_owned_detached("computer-use helper", [probe, request, permission] {
             @autoreleasepool {
                 int code = 0;
                 if (probe || request) {
@@ -61,7 +61,6 @@ int main(int argc, char** argv) {
                 dispatch_async(dispatch_get_main_queue(), ^{ pointer_hide(); std::exit(code); });
             }
         });
-        worker.detach();
         [NSApp run];
         revoke_input();
         if (lease >= 0) close(lease);

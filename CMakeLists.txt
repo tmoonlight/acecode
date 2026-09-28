@@ -582,7 +582,9 @@ if(WIN32)
     # UI Automation lives outside the daemon: a hung application must remain
     # cancellable without terminating a conversation or the desktop shell.
     add_library(acecode_computer_use_native STATIC
-        ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES})
+        ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES}
+        ${CMAKE_SOURCE_DIR}/src/base/utils/abandonable_call.cpp
+        ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
     target_link_libraries(acecode_computer_use_native PUBLIC acecode_include_roots)
     target_compile_definitions(acecode_computer_use_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_link_libraries(acecode_computer_use_native PUBLIC
@@ -597,7 +599,9 @@ if(WIN32)
 elseif(APPLE)
     enable_language(OBJCXX)
     add_library(acecode_computer_use_native STATIC
-        ${ACECODE_COMPUTER_USE_MAC_SOURCES})
+        ${ACECODE_COMPUTER_USE_MAC_SOURCES}
+        ${CMAKE_SOURCE_DIR}/src/base/utils/abandonable_call.cpp
+        ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
     set_target_properties(acecode_computer_use_native PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
     target_link_libraries(acecode_computer_use_native PUBLIC acecode_include_roots)
     target_compile_options(acecode_computer_use_native PRIVATE -fobjc-arc -mmacosx-version-min=14.0)

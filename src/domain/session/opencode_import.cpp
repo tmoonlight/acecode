@@ -1,4 +1,5 @@
 #include "opencode_import.hpp"
+#include "platform/unique_sqlite.hpp"
 
 #include "session_serializer.hpp"
 #include "config/config.hpp"
@@ -128,11 +129,10 @@ void add_unique_path(std::vector<std::string>& out,
 class SqliteDb {
 public:
     explicit SqliteDb(const std::string& path) {
-        if (sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
-            std::string msg = db_ ? sqlite3_errmsg(db_) : "unknown sqlite error";
-            if (db_) {
-                sqlite3_close(db_);
-                db_ = nullptr;
+        if (sqlite3_open_v2(path.c_str(), db_.put(), SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+            std::string msg = db_.get() ? sqlite3_errmsg(db_.get()) : "unknown sqlite error";
+            if (db_.get()) {
+                db_.reset();
             }
             throw std::runtime_error("open opencode database failed: " + msg);
         }
@@ -141,33 +141,33 @@ public:
     }
 
     ~SqliteDb() {
-        if (db_) sqlite3_close(db_);
+        if (db_.get()) db_.reset();
     }
 
     SqliteDb(const SqliteDb&) = delete;
     SqliteDb& operator=(const SqliteDb&) = delete;
 
-    sqlite3* get() const { return db_; }
+    sqlite3* get() const { return db_.get(); }
 
 private:
     void exec(const char* sql) {
         char* raw_error = nullptr;
-        const int rc = sqlite3_exec(db_, sql, nullptr, nullptr, &raw_error);
+        const int rc = sqlite3_exec(db_.get(), sql, nullptr, nullptr, &raw_error);
         if (rc == SQLITE_OK) return;
-        std::string msg = raw_error ? raw_error : sqlite3_errmsg(db_);
+        std::string msg = raw_error ? raw_error : sqlite3_errmsg(db_.get());
         sqlite3_free(raw_error);
         throw std::runtime_error("configure opencode database failed: " + msg);
     }
 
-    sqlite3* db_ = nullptr;
+    platform::UniqueSqlite db_;
 };
 
 class Statement {
 public:
-    Statement(sqlite3* db, const char* sql) : db_(db) {
-        if (sqlite3_prepare_v2(db_, sql, -1, &stmt_, nullptr) != SQLITE_OK) {
+    Statement(sqlite3* db, const char* sql) {
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt_, nullptr) != SQLITE_OK) {
             throw std::runtime_error(std::string("prepare opencode query failed: ") +
-                                     sqlite3_errmsg(db_));
+                                     sqlite3_errmsg(db));
         }
     }
 
@@ -181,7 +181,7 @@ public:
     void bind_text(int index, const std::string& value) {
         if (sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK) {
             throw std::runtime_error(std::string("bind opencode query failed: ") +
-                                     sqlite3_errmsg(db_));
+                                     sqlite3_errmsg(sqlite3_db_handle(stmt_)));
         }
     }
 
@@ -190,7 +190,7 @@ public:
         if (rc == SQLITE_ROW) return true;
         if (rc == SQLITE_DONE) return false;
         throw std::runtime_error(std::string("read opencode query failed: ") +
-                                 sqlite3_errmsg(db_));
+                                 sqlite3_errmsg(sqlite3_db_handle(stmt_)));
     }
 
     std::string text(int column) const {
@@ -208,7 +208,6 @@ public:
     }
 
 private:
-    sqlite3* db_ = nullptr;
     sqlite3_stmt* stmt_ = nullptr;
 };
 

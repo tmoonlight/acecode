@@ -16,7 +16,7 @@
 #include <deque>
 #include <chrono>
 #include <filesystem>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <atomic>
 #include <set>
 #include <system_error>
@@ -642,10 +642,10 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     close(stdin_pipefd[0]);
 
     // stdin writer thread (only if we have inputs to send)
-    std::thread stdin_writer;
+    acecode::JoiningThread stdin_writer;
     if (!stdin_inputs.empty()) {
         int write_fd = stdin_pipefd[1];
-        stdin_writer = std::thread([write_fd, inputs = stdin_inputs]() {
+        stdin_writer = acecode::JoiningThread([write_fd, inputs = stdin_inputs]() {
             for (const auto& line : inputs) {
                 std::string data = line + "\n";
                 const char* p = data.c_str();

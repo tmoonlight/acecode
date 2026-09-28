@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/process/unique_resources.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -9,7 +11,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -92,7 +94,7 @@ private:
     bool write_json_line(const nlohmann::json& message, std::string* error);
 
     std::atomic<bool> running_{false};
-    std::thread reader_;
+    acecode::JoiningThread reader_;
     std::mutex write_mu_;
     std::mutex responses_mu_;
     std::condition_variable responses_cv_;
@@ -101,9 +103,9 @@ private:
     NotificationHandler notification_handler_;
 
 #ifdef _WIN32
-    void* process_handle_ = nullptr;
-    void* stdin_write_ = nullptr;
-    void* stdout_read_ = nullptr;
+    platform::UniqueHandle process_handle_;
+    platform::UniqueHandle stdin_write_;
+    platform::UniqueHandle stdout_read_;
 #else
     int process_id_ = -1;
     int stdin_write_ = -1;

@@ -23,7 +23,7 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <utility>
 
 namespace acecode {
@@ -475,7 +475,7 @@ private:
     std::condition_variable idle_cv_;
     std::deque<ContextProbeTask> tasks_;
     std::shared_ptr<std::atomic<bool>> active_cancel_;
-    std::thread worker_;
+    acecode::JoiningThread worker_;
     bool active_ = false;
     bool stopping_ = false;
 };

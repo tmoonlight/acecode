@@ -12,7 +12,7 @@
 #include <cstdint>
 #include <mutex>
 #include <stdexcept>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <vector>
 #ifdef __APPLE__
 #include <cerrno>
@@ -272,7 +272,7 @@ json execute(const std::string& session_id, const json& request,
     std::atomic<bool> write_ok{false};
     std::atomic<DWORD> writer_thread_id{0};
     const auto write_handle = write_pipe.get();
-    std::thread writer([&, write_handle] {
+    acecode::JoiningThread writer([&, write_handle] {
         writer_thread_id.store(GetCurrentThreadId());
         DWORD written = 0;
         write_ok.store(WriteFile(write_handle, wire.data(), static_cast<DWORD>(wire.size()),
@@ -281,7 +281,7 @@ json execute(const std::string& session_id, const json& request,
     });
     struct WriterGuard {
         Broker& state;
-        std::thread& writer;
+        acecode::JoiningThread& writer;
         std::atomic<bool>& done;
         std::atomic<DWORD>& thread_id;
         bool completed_response = false;

@@ -19,6 +19,7 @@
 #  include <signal.h>
 #  include <sys/wait.h>
 #  include <thread>
+#include "utils/abandonable_call.hpp"
 #  include <unistd.h>
 #endif
 
@@ -64,23 +65,12 @@ bool platform_open_url(const std::string& url, std::string& error) {
 
     // 不修改进程级 SIGCHLD 策略(ACECode 的其它子进程也依赖它);只为本次
     // opener 启动一个短生命周期 waiter,确保长时间运行的 TUI 不积累 zombie。
-    std::thread reaper;
     try {
-        reaper = std::thread([pid]() { wait_for_child_process(pid); });
+        spawn_owned_detached("URL process reaper", [pid]() { wait_for_child_process(pid); });
     } catch (...) {
         ::kill(pid, SIGTERM);
         wait_for_child_process(pid);
         error = "failed to start URL process reaper";
-        return false;
-    }
-    try {
-        reaper.detach();
-    } catch (...) {
-        ::kill(pid, SIGTERM);
-        if (reaper.joinable()) {
-            reaper.join();
-        }
-        error = "failed to detach URL process reaper";
         return false;
     }
     return true;

@@ -2,7 +2,7 @@
 #include "tui/app/process_guards.hpp"
 #include "startup_worktree.hpp"
 #include "tui/term/terminal_control.hpp"
-#include "cli/interactive_options.hpp"
+#include "tui/app/interactive_options.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "workspace/workspace_registry.hpp"

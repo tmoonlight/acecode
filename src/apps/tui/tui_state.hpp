@@ -26,7 +26,7 @@
 #include <chrono>
 #include <functional>
 #include <atomic>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <optional>
 #include <nlohmann/json.hpp>
 
@@ -410,7 +410,7 @@ struct TuiState {
     bool is_compacting = false;                       // protected by mu
     std::chrono::steady_clock::time_point compact_animation_start_time{};
     std::atomic<bool> compact_abort_requested{false};  // cross-thread abort signal
-    std::thread compact_thread;                        // background compaction thread
+    acecode::JoiningThread compact_thread;                        // background compaction thread
 
     // Tool progress state (streaming-tool-progress change).
     // Lifecycle:

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/process/unique_resources.hpp"
+
 // Final Windows fallback for acecode-desktop startup. If embedded WebView2
 // cannot be initialized, the desktop process can keep the supervised daemon
 // alive and show the daemon web UI through Microsoft Edge app mode.
@@ -18,12 +20,13 @@ struct EdgeAppLaunchResult {
 };
 
 // 非阻塞启动的结果:进程句柄交给调用方,由调用方决定何时 wait / 关句柄。
-// process 是 Windows HANDLE(typed void* 让 header 不必 include <windows.h>);
-// 失败或非 Windows 时为 nullptr。
+// Windows 进程句柄由 move-only 结果持有,销毁时自动关闭。
 struct EdgeAppLaunchHandle {
     bool ok = false;
     std::string error;
-    void* process = nullptr;     // HANDLE;调用方负责 CloseHandle
+#ifdef _WIN32
+    platform::UniqueHandle process;
+#endif
     unsigned long pid = 0;
 };
 
@@ -47,7 +50,7 @@ std::wstring build_edge_app_parameters_w(const std::wstring& url,
 std::string edge_profile_subdir_name(unsigned long pid);
 
 // 非阻塞启动 Edge app 模式:用一个干净的 per-launch user-data-dir,启动后立刻
-// 返回进程句柄(不等待退出)。调用方负责 wait + CloseHandle + daemon 清理。
+// 返回进程句柄(不等待退出)。调用方负责 wait 与 daemon 清理,句柄自动释放。
 // 这样 daemon 的生命周期可以由调用方用更可靠的方式(托盘 + 进程 watcher)托管,
 // 而不是绑死在一个对 Chromium 不可靠的进程句柄等待上。POSIX 返回 error。
 EdgeAppLaunchHandle launch_edge_app(const std::string& url);

@@ -5,7 +5,6 @@
 #endif
 
 #include "settings_center.hpp"
-
 #include "permissions/permissions.hpp"
 #include "config/request_headers.hpp"
 #include "config/settings_mutations.hpp"
@@ -41,7 +40,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -582,7 +581,7 @@ struct SettingsCenter::Impl {
     std::atomic<bool> shutting_down{false};
     std::atomic<std::uint64_t> async_generation{0};
     std::mutex async_mutex;
-    std::vector<std::thread> async_threads;
+    std::vector<acecode::JoiningThread> async_threads;
 
     Component tab_menu;
     Component tab_content;

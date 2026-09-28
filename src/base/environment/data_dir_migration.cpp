@@ -1,3 +1,5 @@
+#include "utils/joining_thread.hpp"
+#include "platform/unique_sqlite.hpp"
 #include "data_dir_migration.hpp"
 
 #include "utils/encoding.hpp"
@@ -580,22 +582,22 @@ MigrationProgress run_data_dir_migration(const std::string& current_dir,
             std::string(header, 16) == std::string("SQLite format 3\0", 16);
         header_stream.close();
         if (is_database) {
-            sqlite3* input = nullptr;
-            sqlite3* output = nullptr;
-            const int opened = sqlite3_open_v2(sqlite_open_path(from, from_io).c_str(), &input, SQLITE_OPEN_READONLY, nullptr);
+            platform::UniqueSqlite input;
+            platform::UniqueSqlite output;
+            const int opened = sqlite3_open_v2(sqlite_open_path(from, from_io).c_str(), input.put(), SQLITE_OPEN_READONLY, nullptr);
             int result = opened;
-            if (opened == SQLITE_OK) result = sqlite3_open(sqlite_open_path(to, to_io).c_str(), &output);
+            if (opened == SQLITE_OK) result = sqlite3_open(sqlite_open_path(to, to_io).c_str(), output.put());
             if (result == SQLITE_OK) {
-                sqlite3_busy_timeout(input, best_effort ? kBestEffortSqliteBusyTimeoutMs : kSqliteBusyTimeoutMs);
-                auto* backup = sqlite3_backup_init(output, "main", input, "main");
+                sqlite3_busy_timeout(input.get(), best_effort ? kBestEffortSqliteBusyTimeoutMs : kSqliteBusyTimeoutMs);
+                auto* backup = sqlite3_backup_init(output.get(), "main", input.get(), "main");
                 if (backup) {
                     result = sqlite3_backup_step(backup, -1);
                     const int finished = sqlite3_backup_finish(backup);
                     if (result == SQLITE_DONE) result = finished;
-                } else result = sqlite3_errcode(output);
+                } else result = sqlite3_errcode(output.get());
             }
-            if (output) sqlite3_close(output);
-            if (input) sqlite3_close(input);
+            if (output) output.reset();
+            if (input) input.reset();
             if (result == SQLITE_OK) {
                 snapshots.insert(relative_name);
             } else if (best_effort) {
@@ -728,7 +730,7 @@ bool DataDirMigrationJob::start(const std::string& current_dir, const std::strin
     active_.store(true);
     writes_blocked.store(true);
     set_state_file_writes_paused(true);
-    thread_ = std::thread([this, current_dir, default_dir, target, before_copy, on_failure]() {
+    thread_ = acecode::JoiningThread([this, current_dir, default_dir, target, before_copy, on_failure]() {
         MigrationProgress result;
         try { if (before_copy) before_copy(); result = run_data_dir_migration(
             current_dir, default_dir, target,
@@ -768,7 +770,7 @@ std::optional<MigrationProgress> DataDirMigrationJob::progress() const {
 }
 
 void DataDirMigrationJob::wait_for_test() {
-    std::thread t;
+    acecode::JoiningThread t;
     {
         std::lock_guard<std::mutex> lk(mu_);
         if (thread_.joinable()) t = std::move(thread_);

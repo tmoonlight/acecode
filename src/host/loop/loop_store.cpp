@@ -39,7 +39,7 @@ bool exec_sql(sqlite3* db, const char* sql, StoreError* error) {
 
 class Statement {
 public:
-    Statement(sqlite3* db, const char* sql, StoreError* error) : db_(db) {
+    Statement(sqlite3* db, const char* sql, StoreError* error) {
         if (sqlite3_prepare_v2(db, sql, -1, &stmt_, nullptr) != SQLITE_OK) {
             set_error(error, "SQLITE_ERROR", sqlite_message(db, "prepare failed"));
         }
@@ -50,7 +50,6 @@ public:
     sqlite3_stmt* get() const { return stmt_; }
     explicit operator bool() const { return stmt_ != nullptr; }
 private:
-    sqlite3* db_ = nullptr;
     sqlite3_stmt* stmt_ = nullptr;
 };
 
@@ -253,7 +252,7 @@ LoopStore::LoopStore(std::filesystem::path database_path)
 
 LoopStore::~LoopStore() {
     std::lock_guard<std::mutex> lock(mu_);
-    if (db_) sqlite3_close(db_);
+    if (db_.get()) db_.reset();
 }
 
 std::filesystem::path LoopStore::default_database_path() {
@@ -262,7 +261,7 @@ std::filesystem::path LoopStore::default_database_path() {
 
 bool LoopStore::initialize(StoreError* error) {
     std::lock_guard<std::mutex> lock(mu_);
-    if (db_) return true;
+    if (db_.get()) return true;
     std::error_code ec;
     std::filesystem::create_directories(db_path_.parent_path(), ec);
     if (ec) {
@@ -270,13 +269,12 @@ bool LoopStore::initialize(StoreError* error) {
         return false;
     }
     const std::string path = path_to_utf8(db_path_);
-    if (sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "open LOOP database failed"));
-        if (db_) sqlite3_close(db_);
-        db_ = nullptr;
+    if (sqlite3_open_v2(path.c_str(), db_.put(), SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "open LOOP database failed"));
+        if (db_.get()) db_.reset();
         return false;
     }
-    sqlite3_busy_timeout(db_, 5000);
+    sqlite3_busy_timeout(db_.get(), 5000);
     const char* schema =
         "PRAGMA foreign_keys=ON;"
         "PRAGMA journal_mode=WAL;"
@@ -302,34 +300,34 @@ bool LoopStore::initialize(StoreError* error) {
         "FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE);"
         "CREATE INDEX IF NOT EXISTS loop_runs_loop_idx ON loop_runs(loop_id,scheduled_at_ms DESC);"
         "CREATE INDEX IF NOT EXISTS loop_runs_active_idx ON loop_runs(status,owner_id);";
-    if (!exec_sql(db_, schema, error)) return false;
+    if (!exec_sql(db_.get(), schema, error)) return false;
     bool has_use_worktree = false;
-    if (!table_has_column(db_, "loops", "use_worktree", has_use_worktree, error)) {
+    if (!table_has_column(db_.get(), "loops", "use_worktree", has_use_worktree, error)) {
         return false;
     }
     if (!has_use_worktree &&
-        !exec_sql(db_,
+        !exec_sql(db_.get(),
                   "ALTER TABLE loops ADD COLUMN use_worktree INTEGER NOT NULL DEFAULT 1;",
                   error)) {
         return false;
     }
     // v3:loop_runs.workspace_touched(换行分隔的路径列表,写边界事后检测)。
     bool has_workspace_touched = false;
-    if (!table_has_column(db_, "loop_runs", "workspace_touched", has_workspace_touched,
+    if (!table_has_column(db_.get(), "loop_runs", "workspace_touched", has_workspace_touched,
                           error)) {
         return false;
     }
     if (!has_workspace_touched &&
-        !exec_sql(db_,
+        !exec_sql(db_.get(),
                   "ALTER TABLE loop_runs ADD COLUMN workspace_touched TEXT NOT NULL DEFAULT '';",
                   error)) {
         return false;
     }
-    Statement migration(db_,
+    Statement migration(db_.get(),
         "INSERT OR IGNORE INTO loop_schema_migrations(version,applied_at_ms) VALUES(?,?);", error);
     if (!migration || !bind_i64(migration.get(), 1, kSchemaVersion) ||
         !bind_i64(migration.get(), 2, 0) || sqlite3_step(migration.get()) != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "record LOOP schema failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "record LOOP schema failed"));
         return false;
     }
     return true;
@@ -337,33 +335,33 @@ bool LoopStore::initialize(StoreError* error) {
 
 bool LoopStore::available() const {
     std::lock_guard<std::mutex> lock(mu_);
-    return db_ != nullptr;
+    return db_.get() != nullptr;
 }
 
 bool LoopStore::ensure_available(StoreError* error) const {
-    if (db_) return true;
+    if (db_.get()) return true;
     set_error(error, "STORE_UNAVAILABLE", "LOOP database is not initialized");
     return false;
 }
 
 bool LoopStore::begin_locked(StoreError* error) const {
-    return exec_sql(db_, "BEGIN IMMEDIATE;", error);
+    return exec_sql(db_.get(), "BEGIN IMMEDIATE;", error);
 }
 
 bool LoopStore::commit_locked(StoreError* error) const {
-    return exec_sql(db_, "COMMIT;", error);
+    return exec_sql(db_.get(), "COMMIT;", error);
 }
 
 void LoopStore::rollback_locked() const {
     StoreError ignored;
-    exec_sql(db_, "ROLLBACK;", &ignored);
+    exec_sql(db_.get(), "ROLLBACK;", &ignored);
 }
 
 std::vector<LoopDefinition> LoopStore::list_loops_locked(StoreError* error) const {
     std::vector<LoopDefinition> result;
     const std::string sql = std::string("SELECT ") + kLoopSelectColumns +
         " FROM loops ORDER BY created_at_ms DESC,id;";
-    Statement stmt(db_, sql.c_str(), error);
+    Statement stmt(db_.get(), sql.c_str(), error);
     if (!stmt) return result;
     int rc = SQLITE_ROW;
     while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW) {
@@ -372,7 +370,7 @@ std::vector<LoopDefinition> LoopStore::list_loops_locked(StoreError* error) cons
         result.push_back(std::move(value));
     }
     if (rc != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "list LOOP failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "list LOOP failed"));
         return {};
     }
     return result;
@@ -388,12 +386,12 @@ std::optional<LoopDefinition> LoopStore::get_loop_locked(const std::string& id,
                                                          StoreError* error) const {
     const std::string sql = std::string("SELECT ") + kLoopSelectColumns +
         " FROM loops WHERE id=?;";
-    Statement stmt(db_, sql.c_str(), error);
+    Statement stmt(db_.get(), sql.c_str(), error);
     if (!stmt || !bind_text(stmt.get(), 1, id)) return std::nullopt;
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_DONE) return std::nullopt;
     if (rc != SQLITE_ROW) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "read LOOP failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "read LOOP failed"));
         return std::nullopt;
     }
     auto value = loop_from_row(stmt.get(), error);
@@ -434,15 +432,15 @@ std::optional<LoopDefinition> LoopStore::create_loop(LoopDefinition value,
         if (error) error->conflict = *conflict;
         return std::nullopt;
     }
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "INSERT INTO loops(id,name,prompt,workspace_hash,workspace_cwd,model_name,"
         "permission_mode,use_worktree,schedule_json,schedule_expr,next_run_at_ms,enabled,"
         "created_at_ms,updated_at_ms) "
         "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);", error);
     if (!stmt || !bind_loop_write(stmt.get(), value, true) ||
         sqlite3_step(stmt.get()) != SQLITE_DONE || !commit_locked(error)) {
-        if (sqlite3_get_autocommit(db_) == 0) rollback_locked();
-        if (error && error->code.empty()) set_error(error, "SQLITE_ERROR", sqlite_message(db_, "create LOOP failed"));
+        if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
+        if (error && error->code.empty()) set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "create LOOP failed"));
         return std::nullopt;
     }
     return value;
@@ -481,15 +479,15 @@ std::optional<LoopDefinition> LoopStore::update_loop(const std::string& id,
         if (error) error->conflict = *conflict;
         return std::nullopt;
     }
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE loops SET name=?,prompt=?,workspace_hash=?,workspace_cwd=?,model_name=?,"
         "permission_mode=?,use_worktree=?,schedule_json=?,schedule_expr=?,next_run_at_ms=?,"
         "enabled=?,created_at_ms=?,updated_at_ms=? WHERE id=?;", error);
     if (!stmt || !bind_loop_write(stmt.get(), value, false) ||
         !bind_text(stmt.get(), 14, id) || sqlite3_step(stmt.get()) != SQLITE_DONE ||
         !commit_locked(error)) {
-        if (sqlite3_get_autocommit(db_) == 0) rollback_locked();
-        if (error && error->code.empty()) set_error(error, "SQLITE_ERROR", sqlite_message(db_, "update LOOP failed"));
+        if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
+        if (error && error->code.empty()) set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "update LOOP failed"));
         return std::nullopt;
     }
     return value;
@@ -511,12 +509,12 @@ std::optional<LoopDefinition> LoopStore::set_loop_enabled(const std::string& id,
 bool LoopStore::delete_loop(const std::string& id, StoreError* error) {
     std::lock_guard<std::mutex> lock(mu_);
     if (!ensure_available(error)) return false;
-    Statement stmt(db_, "DELETE FROM loops WHERE id=?;", error);
+    Statement stmt(db_.get(), "DELETE FROM loops WHERE id=?;", error);
     if (!stmt || !bind_text(stmt.get(), 1, id) || sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "delete LOOP failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "delete LOOP failed"));
         return false;
     }
-    if (sqlite3_changes(db_) == 0) {
+    if (sqlite3_changes(db_.get()) == 0) {
         set_error(error, "NOT_FOUND", "LOOP not found");
         return false;
     }
@@ -530,7 +528,7 @@ std::vector<LoopRun> LoopStore::list_runs(const std::string& loop_id,
     std::vector<LoopRun> result;
     if (!ensure_available(error)) return result;
     limit = std::clamp(limit, 1, 500);
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "SELECT id,loop_id,scheduled_at_ms,started_at_ms,finished_at_ms,status,reason,"
         "missed_count,session_id,worktree_path,worktree_branch,owner_id,workspace_touched "
         "FROM loop_runs WHERE loop_id=? ORDER BY scheduled_at_ms DESC LIMIT ?;", error);
@@ -539,7 +537,7 @@ std::vector<LoopRun> LoopStore::list_runs(const std::string& loop_id,
     int rc = SQLITE_ROW;
     while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW) result.push_back(run_from_row(stmt.get()));
     if (rc != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "list LOOP runs failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "list LOOP runs failed"));
         return {};
     }
     return result;
@@ -548,7 +546,7 @@ std::vector<LoopRun> LoopStore::list_runs(const std::string& loop_id,
 std::optional<std::int64_t> LoopStore::earliest_next_run_at(StoreError* error) const {
     std::lock_guard<std::mutex> lock(mu_);
     if (!ensure_available(error)) return std::nullopt;
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "SELECT MIN(next_run_at_ms) FROM loops WHERE enabled=1 AND next_run_at_ms IS NOT NULL;", error);
     if (!stmt || sqlite3_step(stmt.get()) != SQLITE_ROW) return std::nullopt;
     return column_optional_i64(stmt.get(), 0);
@@ -574,8 +572,8 @@ bool LoopStore::record_offline_missed(std::int64_t now_ms,
         run.reason = "daemon_offline";
         run.missed_count = advanced.missed_count;
         run.owner_id = owner_id;
-        if (!insert_run(db_, run, error) ||
-            !update_next_run(db_, loop.id, advanced.next_run_at_ms, now_ms, error)) {
+        if (!insert_run(db_.get(), run, error) ||
+            !update_next_run(db_.get(), loop.id, advanced.next_run_at_ms, now_ms, error)) {
             rollback_locked();
             return false;
         }
@@ -592,7 +590,7 @@ ClaimResult LoopStore::claim_due(std::int64_t now_ms,
     const std::string sql = std::string("SELECT ") + kLoopSelectColumns +
         " FROM loops WHERE enabled=1 AND next_run_at_ms IS NOT NULL "
         "AND next_run_at_ms<=? ORDER BY next_run_at_ms,id LIMIT 1;";
-    Statement stmt(db_, sql.c_str(), error);
+    Statement stmt(db_.get(), sql.c_str(), error);
     if (!stmt || !bind_i64(stmt.get(), 1, now_ms)) { rollback_locked(); return result; }
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_DONE) {
@@ -600,7 +598,7 @@ ClaimResult LoopStore::claim_due(std::int64_t now_ms,
         return result;
     }
     if (rc != SQLITE_ROW) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "select due LOOP failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "select due LOOP failed"));
         rollback_locked();
         return result;
     }
@@ -608,7 +606,7 @@ ClaimResult LoopStore::claim_due(std::int64_t now_ms,
     if (loop.id.empty() || !loop.next_run_at_ms) { rollback_locked(); return result; }
     const std::int64_t scheduled_at = *loop.next_run_at_ms;
     const auto next = next_occurrence_ms(loop.schedule, scheduled_at);
-    const bool busy = same_workspace_active(db_, loop, error);
+    const bool busy = same_workspace_active(db_.get(), loop, error);
     if (error && !error->code.empty()) { rollback_locked(); return result; }
 
     LoopRun run;
@@ -626,10 +624,10 @@ ClaimResult LoopStore::claim_due(std::int64_t now_ms,
         run.status = RunStatus::Running;
         result.disposition = ClaimDisposition::Claimed;
     }
-    if (!insert_run(db_, run, error) ||
-        !update_next_run(db_, loop.id, next, now_ms, error) ||
+    if (!insert_run(db_.get(), run, error) ||
+        !update_next_run(db_.get(), loop.id, next, now_ms, error) ||
         !commit_locked(error)) {
-        if (sqlite3_get_autocommit(db_) == 0) rollback_locked();
+        if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
         result = {};
         return result;
     }
@@ -649,7 +647,7 @@ bool LoopStore::update_run_state(const std::string& run_id,
                                  StoreError* error) {
     std::lock_guard<std::mutex> lock(mu_);
     if (!ensure_available(error)) return false;
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE loop_runs SET status=?,reason=?,"
         "finished_at_ms=CASE WHEN ? THEN ? ELSE NULL END,"
         "session_id=CASE WHEN ?<>'' THEN ? ELSE session_id END,"
@@ -667,10 +665,10 @@ bool LoopStore::update_run_state(const std::string& run_id,
         bind_text(stmt.get(), 9, worktree_branch) && bind_text(stmt.get(), 10, worktree_branch) &&
         bind_text(stmt.get(), 11, run_id);
     if (!bound || sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "update LOOP run failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "update LOOP run failed"));
         return false;
     }
-    if (sqlite3_changes(db_) == 0) {
+    if (sqlite3_changes(db_.get()) == 0) {
         set_error(error, "NOT_FOUND", "LOOP run not found");
         return false;
     }
@@ -688,15 +686,15 @@ bool LoopStore::set_run_workspace_touched(const std::string& run_id,
         if (!joined.empty()) joined.push_back('\n');
         joined += path;
     }
-    Statement stmt(db_, "UPDATE loop_runs SET workspace_touched=? WHERE id=?;", error);
+    Statement stmt(db_.get(), "UPDATE loop_runs SET workspace_touched=? WHERE id=?;", error);
     if (!stmt) return false;
     if (!bind_text(stmt.get(), 1, joined) || !bind_text(stmt.get(), 2, run_id) ||
         sqlite3_step(stmt.get()) != SQLITE_DONE) {
         set_error(error, "SQLITE_ERROR",
-                  sqlite_message(db_, "update LOOP run workspace_touched failed"));
+                  sqlite_message(db_.get(), "update LOOP run workspace_touched failed"));
         return false;
     }
-    if (sqlite3_changes(db_) == 0) {
+    if (sqlite3_changes(db_.get()) == 0) {
         set_error(error, "NOT_FOUND", "LOOP run not found");
         return false;
     }
@@ -708,12 +706,12 @@ bool LoopStore::interrupt_owner_runs(const std::string& owner_id,
                                      StoreError* error) {
     std::lock_guard<std::mutex> lock(mu_);
     if (!ensure_available(error)) return false;
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE loop_runs SET status='failed',reason='daemon_interrupted',finished_at_ms=? "
         "WHERE owner_id=? AND status IN ('running','waiting_user');", error);
     if (!stmt || !bind_i64(stmt.get(), 1, now_ms) || !bind_text(stmt.get(), 2, owner_id) ||
         sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, "SQLITE_ERROR", sqlite_message(db_, "interrupt LOOP runs failed"));
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "interrupt LOOP runs failed"));
         return false;
     }
     return true;

@@ -201,6 +201,8 @@
 
 ### 6. PA 接触点表
 
+A-14 新增 agent_runtime_env 的构造注入接触点:只绑定 ContextBudgetLearner 访问器,算法调用仍在下表模块;R11 白名单已按这一职责登记。
+
 与 restructure R3/R11 共用,**A-11 完成后回填 `layers.tsv`**。
 
 | 位置(原行号) | 内容 |

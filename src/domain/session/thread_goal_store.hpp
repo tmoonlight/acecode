@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/unique_sqlite.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -55,7 +57,7 @@ public:
         const std::filesystem::path& project_dir);
 
     bool initialize(std::string* error = nullptr);
-    bool available() const { return db_ != nullptr; }
+    bool available() const { return static_cast<bool>(db_); }
 
     std::optional<ThreadGoal> get_thread_goal(
         const std::string& thread_id,
@@ -100,7 +102,7 @@ private:
     bool ensure_initialized(std::string* error) const;
 
     std::filesystem::path db_path_;
-    sqlite3* db_ = nullptr;
+    platform::UniqueSqlite db_;
 };
 
 std::string trim_goal_objective(const std::string& text);

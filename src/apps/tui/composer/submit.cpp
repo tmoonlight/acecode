@@ -8,6 +8,7 @@
 #include "tui/model/thinking_phrases.hpp"
 #include "tui/commands/command_registry.hpp"
 #include "session/composer_attachments.hpp"
+#include "session/session_storage.hpp"
 #include "history/input_history_recorder.hpp"
 #include "config/config.hpp"
 using ftxui::Event;
@@ -77,7 +78,7 @@ InputDisposition handle_composer_submit(TuiInputContext& ctx, const ftxui::Event
                 return InputDisposition::Consumed;
             }
             const std::string shell_cmd = expanded_prompt;
-            record_input_history(state.input_history, config.input_history, working_dir, prepend_mode_prefix(shell_cmd, InputMode::Shell));
+            record_input_history(state.input_history, config.input_history, SessionStorage::get_project_dir(working_dir), prepend_mode_prefix(shell_cmd, InputMode::Shell));
             state.history_index = -1;
             state.input_mode = InputMode::Normal;
 
@@ -93,7 +94,7 @@ InputDisposition handle_composer_submit(TuiInputContext& ctx, const ftxui::Event
         // Record history（用 expanded_prompt：上箭头取回原文，再次提交不会发出
         // 字面 [Pasted text #N] —— 因为本会话提交后 store 已经清空，未展开的
         // 字面占位符在下次 submit 时也会按 unknown id 保留，丢失原文。）
-        record_input_history(state.input_history, config.input_history, working_dir, expanded_prompt);
+        record_input_history(state.input_history, config.input_history, SessionStorage::get_project_dir(working_dir), expanded_prompt);
         state.history_index = -1;
 
         // Slash command interception（用 expanded_prompt 派发：spec 4.3）。

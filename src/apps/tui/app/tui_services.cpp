@@ -1,6 +1,6 @@
 #include "tui/app/tui_services.hpp"
 #include "tui/app/tui_runtime_init.hpp"
-#include "cli/interactive_options.hpp"
+#include "tui/app/interactive_options.hpp"
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_payload.hpp"
 #include "agent/hook_bridge/hook_events.hpp"

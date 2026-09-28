@@ -1,5 +1,5 @@
 #pragma once
-#include "cli/interactive_options.hpp"
+#include "tui/app/interactive_options.hpp"
 #include <string>
 namespace acecode::tui {
 struct TuiLaunchOptions {

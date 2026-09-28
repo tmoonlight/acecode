@@ -2369,8 +2369,8 @@ struct WebHost::Impl {
 };
 
 WebHost::WebHost(bool debug, StartupWindowMode startup_mode)
-    : impl_(new Impl(debug, startup_mode)) {}
-WebHost::~WebHost() { delete impl_; }
+    : impl_(std::make_unique<Impl>(debug, startup_mode)) {}
+WebHost::~WebHost() = default;
 
 void WebHost::set_title(const std::string& title) {
     impl_->w->set_title(title);

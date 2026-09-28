@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
+#include "utils/abandonable_call.hpp"
 #include <vector>
 
 #ifdef _WIN32
@@ -730,11 +731,11 @@ static HookProcessResult run_hook_process_impl(
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         // Preserve the bounded caller wait while still arranging eventual reap.
-        std::thread([pid]() {
+        spawn_owned_detached("process runner reaper", [pid]() {
             int ignored_status = 0;
             while (waitpid(pid, &ignored_status, 0) < 0 && errno == EINTR) {
             }
-        }).detach();
+        });
     };
 
     const bool has_timeout = options.timeout_ms > 0;

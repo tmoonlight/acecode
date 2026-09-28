@@ -233,11 +233,10 @@ struct DaemonSupervisor::Impl {
     bool attached = false;
 };
 
-DaemonSupervisor::DaemonSupervisor() : impl_(new Impl()) {}
+DaemonSupervisor::DaemonSupervisor() : impl_(std::make_unique<Impl>()) {}
 DaemonSupervisor::~DaemonSupervisor() {
     if (impl_->keep_alive_on_exit) release();
     else stop();
-    delete impl_;
 }
 
 SpawnResult DaemonSupervisor::spawn(const SpawnRequest& req) {
@@ -606,11 +605,10 @@ struct DaemonSupervisor::Impl {
     }
 };
 
-DaemonSupervisor::DaemonSupervisor() : impl_(new Impl()) {}
+DaemonSupervisor::DaemonSupervisor() : impl_(std::make_unique<Impl>()) {}
 DaemonSupervisor::~DaemonSupervisor() {
     if (impl_->keep_alive_on_exit) release();
     else stop();
-    delete impl_;
 }
 
 SpawnResult DaemonSupervisor::spawn(const SpawnRequest& req) {

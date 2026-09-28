@@ -45,7 +45,7 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 #include <unordered_set>
 
 namespace acecode::rc {
@@ -336,7 +336,7 @@ private:
     bool channel_recovery_pending_ = false;
     bool stop_requested_ = false;
     bool shut_down_ = false;
-    std::thread keepalive_thread_;
+    acecode::JoiningThread keepalive_thread_;
 
     // The callback attached to RemoteControlHub is deliberately shallow: it
     // only parses and queues. All disk/index/session operations run here.
@@ -346,7 +346,7 @@ private:
     std::deque<ControlTask> control_queue_;
     std::unordered_set<std::uint64_t> catalog_task_generations_;
     bool control_stop_ = false;
-    std::thread control_thread_;
+    acecode::JoiningThread control_thread_;
     std::vector<RcSessionTarget> latest_session_snapshot_;
     std::uint64_t latest_session_snapshot_generation_ = 0;
 };

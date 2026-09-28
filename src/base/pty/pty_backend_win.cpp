@@ -31,7 +31,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
-#include <thread>
+#include "utils/joining_thread.hpp"
 
 namespace fs = std::filesystem;
 
@@ -180,7 +180,7 @@ public:
 protected:
     // 子类 spawn 成功后调用,启动读线程。
     void start_reader() {
-        reader_ = std::thread([this] { reader_main(); });
+        reader_ = acecode::JoiningThread([this] { reader_main(); });
     }
 
     void reader_main() {
@@ -244,7 +244,7 @@ protected:
     // close_pty() 已执行(conpty 专用信号:管道不会断,靠它结束读循环)。
     std::atomic<bool> pty_closed_{false};
     std::mutex write_mu_;
-    std::thread reader_;
+    acecode::JoiningThread reader_;
     HANDLE input_write_ = INVALID_HANDLE_VALUE;  // 我们写 → shell stdin
     HANDLE output_read_ = INVALID_HANDLE_VALUE;  // shell 输出 → 我们读
     HANDLE process_ = nullptr;
@@ -333,7 +333,7 @@ public:
         // 进程退出不会自动断 output 管道(conhost 持有写端)。等待线程在
         // 进程退出后 ClosePseudoConsole(同步 flush 尾部输出到管道),再置
         // pty_closed_ — 读线程 drain 完残余后据此结束(见 reader_main 注释)。
-        waiter_ = std::thread([this] {
+        waiter_ = acecode::JoiningThread([this] {
             WaitForSingleObject(process_, INFINITE);
             close_pty();
             pty_closed_.store(true);
@@ -366,7 +366,7 @@ private:
     PseudoConsoleHandle hpc_ = nullptr;
     std::mutex hpc_mu_;
     LPPROC_THREAD_ATTRIBUTE_LIST attr_list_ = nullptr;
-    std::thread waiter_;
+    acecode::JoiningThread waiter_;
 };
 
 // ── winpty ──────────────────────────────────────────────────────────────

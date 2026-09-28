@@ -3,6 +3,7 @@
 #include "hook_payload.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
+#include "utils/abandonable_call.hpp"
 
 #include <chrono>
 #include <optional>
@@ -277,16 +278,13 @@ void HookManager::shutdown(std::chrono::milliseconds wait_timeout) {
     async_state_->cv.notify_all();
 
     bool done = true;
-    if (worker_.joinable()) {
+    if (worker_started_ && !worker_detached_) {
         std::unique_lock<std::mutex> lk(async_state_->mu);
         done = async_state_->done_cv.wait_for(lk, wait_timeout, [&] {
             return async_state_->done;
         });
         lk.unlock();
-        if (done) {
-            worker_.join();
-        } else if (!worker_detached_) {
-            worker_.detach();
+        if (!done) {
             worker_detached_ = true;
             LOG_WARN("[hooks] async worker still running during shutdown; detached");
         }
@@ -294,12 +292,13 @@ void HookManager::shutdown(std::chrono::milliseconds wait_timeout) {
 }
 
 void HookManager::start_worker_locked() {
-    if (worker_.joinable() || worker_detached_) return;
+    if (worker_started_) return;
     auto state = async_state_;
     auto runner = runner_;
-    worker_ = std::thread([state, runner] {
+    spawn_owned_detached("async hooks", [state, runner] {
         worker_loop(state, runner);
     });
+    worker_started_ = true;
 }
 
 void HookManager::enqueue_async(Invocation invocation) {

@@ -21,7 +21,7 @@
 #include <cwchar>
 #include <exception>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 
 namespace acecode::desktop {
 
@@ -143,7 +143,7 @@ public:
     void start() {
         stop_.store(false);
         try {
-            worker_ = std::thread([this] {
+            worker_ = acecode::JoiningThread([this] {
                 const DWORD pid = ::GetCurrentProcessId();
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
                 while (!stop_.load() && std::chrono::steady_clock::now() < deadline) {
@@ -176,7 +176,7 @@ public:
 
 private:
     std::atomic<bool> stop_{false};
-    std::thread worker_;
+    acecode::JoiningThread worker_;
 };
 
 } // namespace

@@ -544,26 +544,27 @@ struct SplashScreen::Impl {
 
 #endif
 
+SplashScreen::SplashScreen() = default;
+
 SplashScreen::~SplashScreen() {
     close();
 }
 
 void SplashScreen::show() {
-    if (!impl_) impl_ = new Impl();
+    if (!impl_) impl_ = std::make_unique<Impl>();
     impl_->show();
 }
 
 void SplashScreen::set_status(const std::string& message,
                               std::uint64_t elapsed_ms) {
-    if (!impl_) impl_ = new Impl();
+    if (!impl_) impl_ = std::make_unique<Impl>();
     impl_->set_status(message, elapsed_ms);
 }
 
 void SplashScreen::close() {
     if (!impl_) return;
     impl_->close();
-    delete impl_;
-    impl_ = nullptr;
+    impl_.reset();
 }
 
 } // namespace acecode::desktop

@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
 
 namespace acecode::daemon {
 
@@ -38,7 +38,7 @@ private:
     std::string  guid_;
     int          interval_ms_;
 
-    std::thread             thread_;
+    acecode::JoiningThread             thread_;
     std::mutex              mu_;
     std::condition_variable cv_;
     std::atomic<bool>       stop_{false};

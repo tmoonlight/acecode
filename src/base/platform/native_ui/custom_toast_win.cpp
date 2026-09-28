@@ -24,7 +24,8 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
+#include "utils/joining_thread.hpp"
+#include "utils/abandonable_call.hpp"
 #include <vector>
 
 namespace acecode::desktop::custom_toast {
@@ -1124,7 +1125,7 @@ void Controller::destroy_all() {
 std::mutex g_mutex;
 bool g_running = false;
 HWND g_controller_hwnd = nullptr;
-std::thread g_thread;
+JoiningThread g_thread;
 
 void render_thread_main(InitOptions options, std::promise<HWND> ready) {
     enable_thread_dpi_awareness();
@@ -1161,7 +1162,7 @@ bool initialize(const InitOptions& options) {
 
     std::promise<HWND> ready;
     std::future<HWND> future = ready.get_future();
-    std::thread worker(render_thread_main, options, std::move(ready));
+    JoiningThread worker(render_thread_main, options, std::move(ready));
 
     HWND hwnd = nullptr;
     if (future.wait_for(std::chrono::seconds(5)) == std::future_status::ready) {
@@ -1170,7 +1171,14 @@ bool initialize(const InitOptions& options) {
     if (!hwnd) {
         // The thread either failed early or is wedged. A failed start is
         // non-fatal, so let it go rather than blocking startup on a join.
-        worker.detach();
+        if (future.valid()) spawn_owned_detached("late toast initialization",
+            [worker = std::move(worker), ready = std::move(future)]() mutable {
+                // A late start must stop its otherwise unreachable message loop.
+                if (HWND late_window = ready.get()) {
+                    ::PostMessageW(late_window, kMsgQuitLoop, 0, 0);
+                }
+                worker.join();
+            });
         LOG_WARN("[notifications] self-drawn toast renderer failed to start");
         return false;
     }
@@ -1204,7 +1212,7 @@ bool show(const NotifyPayload& payload) {
 }
 
 void shutdown() {
-    std::thread worker;
+    JoiningThread worker;
     HWND hwnd = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -1216,12 +1224,7 @@ void shutdown() {
     }
     if (hwnd) ::PostMessageW(hwnd, kMsgQuitLoop, 0, 0);
     if (!worker.joinable()) return;
-    // A click handler runs on the render thread and may tear notifications
-    // down from there; joining ourselves would deadlock.
-    if (worker.get_id() == std::this_thread::get_id()) {
-        worker.detach();
-        return;
-    }
+    // JoiningThread also guards shutdown invoked by a render-thread callback.
     worker.join();
 }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "platform/process/unique_resources.hpp"
+
 // acecode-desktop 全局单例(per-user)。
 //
 // 设计:
@@ -54,7 +56,11 @@ public:
 
 private:
     bool acquired_ = false;
-    void* native_handle_ = nullptr; // Windows: HANDLE;POSIX: 把 fd 装在 intptr_t 里
+#ifdef _WIN32
+    platform::UniqueHandle native_handle_;
+#else
+    platform::UniqueFd native_handle_;
+#endif
     std::string lock_name_;          // empty = production singleton name/path
     std::string lock_path_;          // POSIX 用,Windows 留空
 };

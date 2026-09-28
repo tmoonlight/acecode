@@ -1,3 +1,4 @@
+#include "utils/joining_thread.hpp"
 #include "remote_control_hub.hpp"
 
 #include "outbound_summary.hpp"
@@ -212,7 +213,7 @@ void RemoteControlHub::enable(std::string token,
     // 已越过，避免一次没有新出站的 clear barrier 等待不存在的 seq。
     last_dequeued_seq_ = next_seq_ - 1;
     drain_through_seq_ = 0;
-    worker_ = std::thread([this] { worker_loop(); });
+    worker_ = acecode::JoiningThread([this] { worker_loop(); });
 }
 
 void RemoteControlHub::disable() {
@@ -266,7 +267,7 @@ void RemoteControlHub::stop_worker_locked(std::unique_lock<std::mutex>& lk) {
     stopping_ = true;
     cv_.notify_all();
     // join 必须放锁外,worker 退出前还要拿一次锁。
-    std::thread to_join = std::move(worker_);
+    acecode::JoiningThread to_join = std::move(worker_);
     lk.unlock();
     to_join.join();
     lk.lock();

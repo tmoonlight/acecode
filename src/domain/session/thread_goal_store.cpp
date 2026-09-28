@@ -60,9 +60,9 @@ bool exec_sql(sqlite3* db, const char* sql, std::string* error) {
 
 class Statement {
 public:
-    Statement(sqlite3* db, const char* sql, std::string* error) : db_(db) {
-        if (sqlite3_prepare_v2(db_, sql, -1, &stmt_, nullptr) != SQLITE_OK) {
-            set_error(error, sqlite_error(db_, "prepare failed"));
+    Statement(sqlite3* db, const char* sql, std::string* error) {
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt_, nullptr) != SQLITE_OK) {
+            set_error(error, sqlite_error(db, "prepare failed"));
         }
     }
 
@@ -77,7 +77,6 @@ public:
     explicit operator bool() const { return stmt_ != nullptr; }
 
 private:
-    sqlite3* db_ = nullptr;
     sqlite3_stmt* stmt_ = nullptr;
 };
 
@@ -257,7 +256,7 @@ ThreadGoalStore::ThreadGoalStore(std::filesystem::path project_dir)
     : db_path_(database_path_for_project(project_dir)) {}
 
 ThreadGoalStore::~ThreadGoalStore() {
-    if (db_) sqlite3_close(db_);
+    if (db_.get()) db_.reset();
 }
 
 std::filesystem::path ThreadGoalStore::database_path_for_project(
@@ -266,7 +265,7 @@ std::filesystem::path ThreadGoalStore::database_path_for_project(
 }
 
 bool ThreadGoalStore::initialize(std::string* error) {
-    if (db_) return true;
+    if (db_.get()) return true;
 
     std::error_code ec;
     std::filesystem::create_directories(db_path_.parent_path(), ec);
@@ -276,55 +275,54 @@ bool ThreadGoalStore::initialize(std::string* error) {
     }
 
     const std::string path = db_path_.u8string();
-    if (sqlite3_open_v2(path.c_str(), &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-        set_error(error, sqlite_error(db_, "failed to open goal state database"));
-        if (db_) {
-            sqlite3_close(db_);
-            db_ = nullptr;
+    if (sqlite3_open_v2(path.c_str(), db_.put(), SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+        set_error(error, sqlite_error(db_.get(), "failed to open goal state database"));
+        if (db_.get()) {
+            db_.reset();
         }
         return false;
     }
 
-    if (!exec_sql(db_, "PRAGMA foreign_keys = ON;", error)) return false;
-    if (!exec_sql(db_,
+    if (!exec_sql(db_.get(), "PRAGMA foreign_keys = ON;", error)) return false;
+    if (!exec_sql(db_.get(),
         "CREATE TABLE IF NOT EXISTS schema_migrations ("
         "version INTEGER PRIMARY KEY,"
         "applied_at_ms INTEGER NOT NULL"
         ");",
         error)) return false;
 
-    if (!exec_sql(db_, "BEGIN IMMEDIATE;", error)) return false;
-    bool ok = exec_sql(db_, kThreadGoalsCreateSql, error);
+    if (!exec_sql(db_.get(), "BEGIN IMMEDIATE;", error)) return false;
+    bool ok = exec_sql(db_.get(), kThreadGoalsCreateSql, error);
     if (ok) {
         std::string schema_error;
         const bool supports_stopped =
-            thread_goal_table_supports_stopped_statuses(db_, &schema_error);
+            thread_goal_table_supports_stopped_statuses(db_.get(), &schema_error);
         if (!schema_error.empty()) {
             set_error(error, schema_error);
             ok = false;
         } else if (!supports_stopped) {
-            ok = migrate_thread_goal_statuses_v2(db_, error);
+            ok = migrate_thread_goal_statuses_v2(db_.get(), error);
         }
     }
     if (ok) {
         const std::int64_t applied_at = now_ms();
-        ok = record_schema_version(db_, 1, applied_at, error) &&
-             record_schema_version(db_, kSchemaVersion, applied_at, error);
+        ok = record_schema_version(db_.get(), 1, applied_at, error) &&
+             record_schema_version(db_.get(), kSchemaVersion, applied_at, error);
         if (!ok && error && error->empty()) {
-            *error = sqlite_error(db_, "migration insert failed");
+            *error = sqlite_error(db_.get(), "migration insert failed");
         }
     }
     if (ok) {
-        ok = exec_sql(db_, "COMMIT;", error);
+        ok = exec_sql(db_.get(), "COMMIT;", error);
     } else {
         std::string rollback_error;
-        exec_sql(db_, "ROLLBACK;", &rollback_error);
+        exec_sql(db_.get(), "ROLLBACK;", &rollback_error);
     }
     return ok;
 }
 
 bool ThreadGoalStore::ensure_initialized(std::string* error) const {
-    if (db_) return true;
+    if (db_.get()) return true;
     set_error(error, "goal store is not initialized");
     return false;
 }
@@ -333,18 +331,18 @@ std::optional<ThreadGoal> ThreadGoalStore::get_thread_goal(
     const std::string& thread_id,
     std::string* error) const {
     if (!ensure_initialized(error)) return std::nullopt;
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "SELECT thread_id, goal_id, objective, status, token_budget, tokens_used, "
         "time_used_seconds, created_at_ms, updated_at_ms "
         "FROM thread_goals WHERE thread_id = ?;",
         error);
     if (!stmt || !bind_text(stmt.get(), 1, thread_id)) {
-        if (error && error->empty()) *error = sqlite_error(db_, "goal read failed");
+        if (error && error->empty()) *error = sqlite_error(db_.get(), "goal read failed");
         return std::nullopt;
     }
     const int rc = sqlite3_step(stmt.get());
     if (rc == SQLITE_ROW) return row_to_goal(stmt.get());
-    if (rc != SQLITE_DONE) set_error(error, sqlite_error(db_, "goal read failed"));
+    if (rc != SQLITE_DONE) set_error(error, sqlite_error(db_.get(), "goal read failed"));
     return std::nullopt;
 }
 
@@ -363,7 +361,7 @@ bool ThreadGoalStore::replace_thread_goal(const std::string& thread_id,
     }
 
     const std::int64_t now = now_ms();
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "INSERT INTO thread_goals("
         "thread_id, goal_id, objective, status, token_budget, tokens_used, "
         "time_used_seconds, created_at_ms, updated_at_ms"
@@ -390,11 +388,11 @@ bool ThreadGoalStore::replace_thread_goal(const std::string& thread_id,
         bind_i64(stmt.get(), 6, now) &&
         bind_i64(stmt.get(), 7, now);
     if (!bound) {
-        set_error(error, sqlite_error(db_, "goal bind failed"));
+        set_error(error, sqlite_error(db_.get(), "goal bind failed"));
         return false;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "goal replace failed"));
+        set_error(error, sqlite_error(db_.get(), "goal replace failed"));
         return false;
     }
     return true;
@@ -405,7 +403,7 @@ bool ThreadGoalStore::update_thread_goal_status(const std::string& thread_id,
                                                 ThreadGoalStatus status,
                                                 std::string* error) {
     if (!ensure_initialized(error)) return false;
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE thread_goals SET status = ?, updated_at_ms = ? "
         "WHERE thread_id = ? AND goal_id = ?;",
         error);
@@ -416,14 +414,14 @@ bool ThreadGoalStore::update_thread_goal_status(const std::string& thread_id,
         bind_text(stmt.get(), 3, thread_id) &&
         bind_text(stmt.get(), 4, goal_id);
     if (!bound) {
-        set_error(error, sqlite_error(db_, "goal status bind failed"));
+        set_error(error, sqlite_error(db_.get(), "goal status bind failed"));
         return false;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "goal status update failed"));
+        set_error(error, sqlite_error(db_.get(), "goal status update failed"));
         return false;
     }
-    return sqlite3_changes(db_) > 0;
+    return sqlite3_changes(db_.get()) > 0;
 }
 
 bool ThreadGoalStore::update_thread_goal_objective(
@@ -441,7 +439,7 @@ bool ThreadGoalStore::update_thread_goal_objective(
         return false;
     }
 
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE thread_goals SET objective = ?, token_budget = ?, updated_at_ms = ? "
         "WHERE thread_id = ? AND goal_id = ?;",
         error);
@@ -453,46 +451,46 @@ bool ThreadGoalStore::update_thread_goal_objective(
         bind_text(stmt.get(), 4, thread_id) &&
         bind_text(stmt.get(), 5, goal_id);
     if (!bound) {
-        set_error(error, sqlite_error(db_, "goal objective bind failed"));
+        set_error(error, sqlite_error(db_.get(), "goal objective bind failed"));
         return false;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "goal objective update failed"));
+        set_error(error, sqlite_error(db_.get(), "goal objective update failed"));
         return false;
     }
-    return sqlite3_changes(db_) > 0;
+    return sqlite3_changes(db_.get()) > 0;
 }
 
 bool ThreadGoalStore::pause_active_thread_goal(const std::string& thread_id,
                                                std::string* error) {
     if (!ensure_initialized(error)) return false;
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE thread_goals SET status = 'paused', updated_at_ms = ? "
         "WHERE thread_id = ? AND status = 'active';",
         error);
     if (!stmt) return false;
     if (!bind_i64(stmt.get(), 1, now_ms()) || !bind_text(stmt.get(), 2, thread_id)) {
-        set_error(error, sqlite_error(db_, "goal pause bind failed"));
+        set_error(error, sqlite_error(db_.get(), "goal pause bind failed"));
         return false;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "goal pause failed"));
+        set_error(error, sqlite_error(db_.get(), "goal pause failed"));
         return false;
     }
-    return sqlite3_changes(db_) > 0;
+    return sqlite3_changes(db_.get()) > 0;
 }
 
 bool ThreadGoalStore::delete_thread_goal(const std::string& thread_id,
                                          std::string* error) {
     if (!ensure_initialized(error)) return false;
-    Statement stmt(db_, "DELETE FROM thread_goals WHERE thread_id = ?;", error);
+    Statement stmt(db_.get(), "DELETE FROM thread_goals WHERE thread_id = ?;", error);
     if (!stmt) return false;
     if (!bind_text(stmt.get(), 1, thread_id)) {
-        set_error(error, sqlite_error(db_, "goal delete bind failed"));
+        set_error(error, sqlite_error(db_.get(), "goal delete bind failed"));
         return false;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "goal delete failed"));
+        set_error(error, sqlite_error(db_.get(), "goal delete failed"));
         return false;
     }
     return true;
@@ -532,7 +530,7 @@ ThreadGoalAccountingResult ThreadGoalStore::account_thread_goal_usage(
         result.became_budget_limited = true;
     }
 
-    Statement stmt(db_,
+    Statement stmt(db_.get(),
         "UPDATE thread_goals SET tokens_used = ?, time_used_seconds = ?, "
         "status = ?, updated_at_ms = ? "
         "WHERE thread_id = ? AND goal_id = ?;",
@@ -546,14 +544,14 @@ ThreadGoalAccountingResult ThreadGoalStore::account_thread_goal_usage(
         bind_text(stmt.get(), 5, thread_id) &&
         bind_text(stmt.get(), 6, goal_id);
     if (!bound) {
-        set_error(error, sqlite_error(db_, "goal account bind failed"));
+        set_error(error, sqlite_error(db_.get(), "goal account bind failed"));
         return result;
     }
     if (sqlite3_step(stmt.get()) != SQLITE_DONE) {
-        set_error(error, sqlite_error(db_, "goal account failed"));
+        set_error(error, sqlite_error(db_.get(), "goal account failed"));
         return result;
     }
-    result.updated = sqlite3_changes(db_) > 0;
+    result.updated = sqlite3_changes(db_.get()) > 0;
     result.goal = get_thread_goal(thread_id, error);
     return result;
 }

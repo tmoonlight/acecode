@@ -102,7 +102,7 @@ def transition_path(path: str) -> str:
 
 
 class IncludeIndex:
-    def __init__(self, files: list[str], generated: tuple[str, ...] = ("version.hpp",), aliases: LayoutMap | None = None):
+    def __init__(self, files: list[str], generated: tuple[str, ...] = ("version.hpp", "acecode_tui_input_trace_config.hpp"), aliases: LayoutMap | None = None):
         self.files = set(files)
         self.roots = ["src", *(f"src/{g}" for g in GROUPS), "tests", "external/stb"]
         self.generated = generated
