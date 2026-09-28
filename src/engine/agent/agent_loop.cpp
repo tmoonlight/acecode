@@ -1,4 +1,7 @@
 #include "agent/agent_loop.hpp"
+#include "agent/control/task_handoff.hpp"
+#include "agent/turn/active_turn_gate.hpp"
+#include "agent/worker/agent_task_queue.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/guards/doom_guard.hpp"
@@ -36,6 +39,10 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , permissions_(permissions)
     , path_validator_(cwd, permissions.is_dangerous())
     , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
+    , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
+    , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
+          busy_, abort_signal_, turn_interrupt_requested_))
+    , task_handoff_(std::make_unique<agent::TaskHandoff>(*task_queue_))
 {
     reload_exec_rules();
     worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);
@@ -92,13 +99,10 @@ void AgentLoop::clear_stale_abort_request() {
 
 void AgentLoop::shutdown() {
     side_question_shutdown_.store(true);
-    {
-        std::lock_guard<std::mutex> lk(queue_mu_);
-        shutdown_requested_ = true;
-    }
+    task_queue_->request_shutdown();
     abort_signal_.request();
     wake_active_provider_retry();
-    queue_cv_.notify_one();
+    task_queue_->notify();
     if (worker_thread_.joinable()) {
         worker_thread_.join();
     }
@@ -111,6 +115,18 @@ void AgentLoop::set_permission_prompter(std::unique_ptr<PermissionPrompter> p) {
 
 void AgentLoop::set_callbacks(AgentCallbacks cb) {
     callbacks_ = std::move(cb);
+}
+
+bool AgentLoop::has_pending_work() {
+    return task_queue_->has_pending_work();
+}
+
+bool AgentLoop::has_queued_user_work() {
+    return task_queue_->has_user_work();
+}
+
+bool AgentLoop::has_task_suggestion_input(const std::string& suggestion_id) {
+    return task_queue_->has_suggestion(suggestion_id);
 }
 
 } // namespace acecode

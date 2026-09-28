@@ -1,25 +1,9 @@
 #include "agent/agent_loop.hpp"
+#include "agent/control/task_handoff.hpp"
+#include "agent/worker/agent_task_queue.hpp"
 #include "agent/transcript/transcript_queries.hpp"
-#include "llm/tool_protocol_names.hpp"
-#include "permissions/interaction_mode.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "provider/text_tool_call_recovery.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
 #include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "utils/encoding.hpp"
-#include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "workspace/workspace_registry.hpp"
-
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
+#include "session/system_notice.hpp"
 #include <utility>
 
 namespace acecode {
@@ -39,15 +23,11 @@ void AgentLoop::submit(const std::string& prompt, const std::string& display_tex
 
 void AgentLoop::submit(const UserInput& input) {
     clear_stale_abort_request();
-    {
-        std::lock_guard<std::mutex> lk(queue_mu_);
-        WorkerTask task;
-        task.kind = WorkerTask::Kind::Chat;
-        task.input = input;
-        task.hidden_goal_context = false;
-        task_queue_.push(std::move(task));
-    }
-    queue_cv_.notify_one();
+    WorkerTask task;
+    task.kind = WorkerTask::Kind::Chat;
+    task.input = input;
+    task.hidden_goal_context = false;
+    task_queue_->enqueue(std::move(task));
 }
 
 std::optional<ChatMessage> AgentLoop::retryable_user_message(
@@ -76,10 +56,8 @@ std::optional<ChatMessage> AgentLoop::retryable_user_message(
 
 bool AgentLoop::retry_last_user_message(
     const std::string& expected_user_message_id, std::string& error) {
-    {
-        std::lock_guard<std::mutex> lock(queue_mu_);
-        if (shutdown_requested_ || worker_task_active_ || busy_.load() ||
-            !priority_task_queue_.empty() || !task_queue_.empty()) {
+    const bool accepted = task_queue_->with_locked([&](agent::AgentTaskQueue::Locked& queue) {
+        if (!queue.idle()) {
             error = "session has active or queued work";
             return false;
         }
@@ -90,98 +68,59 @@ bool AgentLoop::retry_last_user_message(
         WorkerTask task;
         task.kind = WorkerTask::Kind::Chat;
         task.retry_user_message_id = expected_user_message_id;
-        task_queue_.push(std::move(task));
+        queue.push(std::move(task));
         abort_signal_.clear();
-    }
+        return true;
+    });
+    if (!accepted) return false;
     error.clear();
-    queue_cv_.notify_one();
+    task_queue_->notify();
     return true;
 }
 
-ControlEnqueueReceipt AgentLoop::enqueue_control(
-    std::function<bool()> control) {
-    ControlEnqueueReceipt receipt;
-    if (!control) return receipt;
-    auto execution = std::make_shared<ControlExecutionState>();
-    {
-        std::lock_guard<std::mutex> lk(queue_mu_);
-        if (shutdown_requested_) return receipt;
-
-        auto is_turn_task = [](WorkerTask::Kind kind) {
-            return kind == WorkerTask::Kind::Chat ||
-                   kind == WorkerTask::Kind::Shell ||
-                   kind == WorkerTask::Kind::Compact;
-        };
-        bool queued_behind_turn =
-            worker_task_active_ && is_turn_task(worker_task_kind_);
-        auto urgent = priority_task_queue_;
-        while (!queued_behind_turn && !urgent.empty()) {
-            queued_behind_turn = is_turn_task(urgent.front().kind);
-            urgent.pop();
-        }
-        auto ordinary = task_queue_;
-        while (!queued_behind_turn && !ordinary.empty()) {
-            queued_behind_turn = is_turn_task(ordinary.front().kind);
-            ordinary.pop();
-        }
-
-        WorkerTask task;
-        task.kind = WorkerTask::Kind::Control;
-        task.control = [control = std::move(control), execution]() mutable {
-            bool succeeded = false;
-            try {
-                succeeded = control();
-            } catch (const std::exception& e) {
-                LOG_ERROR(std::string("Control task failed: ") + e.what());
-            } catch (...) {
-                LOG_ERROR("Control task failed with unknown exception");
-            }
-            {
-                std::lock_guard<std::mutex> lock(execution->mu);
-                execution->succeeded = succeeded;
-                execution->completed = true;
-            }
-            execution->cv.notify_all();
-        };
-        task_queue_.push(std::move(task));
-        receipt.sequence = ++next_control_sequence_;
-        receipt.accepted = true;
-        receipt.queued_behind_turn = queued_behind_turn;
-        receipt.execution = std::move(execution);
-    }
-    queue_cv_.notify_one();
-    return receipt;
+ControlEnqueueReceipt AgentLoop::enqueue_control(std::function<bool()> control) {
+    return task_queue_->enqueue_control(std::move(control));
 }
 
 bool AgentLoop::try_run_idle_control(const std::function<void()>& control) {
-    if (!control) return false;
-    std::lock_guard<std::mutex> lock(queue_mu_);
-    if (shutdown_requested_ || worker_task_active_ || busy_.load() ||
-        !priority_task_queue_.empty() || !task_queue_.empty()) {
-        return false;
-    }
-    control();
-    return true;
+    return task_queue_->try_run_idle(control);
 }
 
 void AgentLoop::submit_shell(std::string command) {
     clear_stale_abort_request();
-    {
-        std::lock_guard<std::mutex> lk(queue_mu_);
-        task_queue_.push(WorkerTask{WorkerTask::Kind::Shell, std::move(command)});
-    }
-    queue_cv_.notify_one();
+    task_queue_->enqueue(WorkerTask{WorkerTask::Kind::Shell, std::move(command)});
 }
 
 void AgentLoop::submit_compact() {
     clear_stale_abort_request();
-    {
-        std::lock_guard<std::mutex> lk(queue_mu_);
-        WorkerTask task;
-        task.kind = WorkerTask::Kind::Compact;
-        task_queue_.push(std::move(task));
-    }
-    queue_cv_.notify_one();
+    WorkerTask task;
+    task.kind = WorkerTask::Kind::Compact;
+    task_queue_->enqueue(std::move(task));
+}
+
+
+bool AgentLoop::submit_task_suggestion_input(const UserInput& input,
+                                             const std::string& suggestion_id) {
+    return task_queue_->enqueue_suggestion(input, suggestion_id, abort_signal_);
+}
+
+bool AgentLoop::try_start_side_task(
+    const std::function<bool()>& accept_target_input, std::string* error) {
+    return task_handoff_->try_start_side_task(accept_target_input, error);
+}
+
+bool AgentLoop::complete_task_handoff(
+    const std::string& target_session_id,
+    const std::function<bool()>& accept_target_input, std::string* error) {
+    const auto result = task_handoff_->complete(
+        session_manager_, target_session_id, accept_target_input, error);
+    if (!result.accepted) return false;
+    if (result.paused_goal) emit_goal_updated(*result.paused_goal);
+    emit_transcript_system_message(
+        "Continued in session " + target_session_id + ".",
+        make_system_notice_metadata("session_continued", {{"session", target_session_id}},
+            {{"task_handoff", true}, {"target_session_id", target_session_id}}));
+    return true;
 }
 
 } // namespace acecode

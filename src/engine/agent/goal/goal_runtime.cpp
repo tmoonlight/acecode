@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/worker/agent_task_queue.hpp"
 #include "agent/goal/goal_prompts.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -222,17 +223,16 @@ void AgentLoop::maybe_continue_goal() {
     }
     if (!goal.has_value() || goal->status != ThreadGoalStatus::Active) return;
 
-    {
-        std::lock_guard<std::mutex> lk(queue_mu_);
-        if (shutdown_requested_ || !priority_task_queue_.empty() ||
-            !task_queue_.empty()) return;
+    const bool queued = task_queue_->with_locked([&](agent::AgentTaskQueue::Locked& queue) {
+        if (queue.stopped() || !queue.empty()) return false;
         WorkerTask task;
         task.kind = WorkerTask::Kind::Chat;
         task.input.text = build_goal_context_prompt(*goal);
         task.hidden_goal_context = true;
-        task_queue_.push(std::move(task));
-    }
-    queue_cv_.notify_one();
+        queue.push(std::move(task));
+        return true;
+    });
+    if (queued) task_queue_->notify();
 }
 
 bool AgentLoop::goal_unattended_active() {

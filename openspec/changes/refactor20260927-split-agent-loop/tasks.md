@@ -98,7 +98,7 @@
 
 ## 3. 协作类(按依赖从下往上)
 
-- [ ] 3.1 【A-06】【主】队列与回合门(LR-4:排在其它协作类之前)。
+- [ ] 3.1 【A-06】【主】队列与回合门(LR-4:排在其它协作类之前)。〔实现完成: Codex-root 2026-09-28;独立 AgentTaskQueue/ActiveTurnGate/TaskHandoff 已接入,队列扫描使用 deque 迭代器,优先级/容量/并发确认/交接锁序用例待统一验收;关停暂不清队列〕
   - `AgentTaskQueue`:deque 双 FIFO、priority 优先、迭代器扫描,不再整队拷贝;
   - `ActiveTurnGate`:`interrupt(expected, input, queue&)` 这类「gate 锁内再取队列锁」的原子操作,是唯一允许的方向;
   - `TaskHandoff`:跨 loop 锁序 `source.queue → target.queue`;

@@ -1,25 +1,9 @@
 #include "agent/agent_loop.hpp"
+#include "agent/worker/agent_task_queue.hpp"
 #include "agent/detail/agent_payloads.hpp"
-#include "agent/guards/doom_guard.hpp"
-#include "pa/pa_context_budget.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "provider/text_tool_call_recovery.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
-#include "session/session_storage.hpp"
-#include "session/token_tracker.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "workspace/workspace_registry.hpp"
-
-#include <algorithm>
-#include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
+#include <stdexcept>
 #include <utility>
 
 namespace acecode {
@@ -29,23 +13,7 @@ using agent::detail::model_step_usage_to_json;
 void AgentLoop::worker_main() {
     while (true) {
         WorkerTask task;
-        {
-            std::unique_lock<std::mutex> lk(queue_mu_);
-            queue_cv_.wait(lk, [this] {
-                return !priority_task_queue_.empty() ||
-                       !task_queue_.empty() || shutdown_requested_;
-            });
-            if (shutdown_requested_) return;
-            if (!priority_task_queue_.empty()) {
-                task = std::move(priority_task_queue_.front());
-                priority_task_queue_.pop();
-            } else {
-                task = std::move(task_queue_.front());
-                task_queue_.pop();
-            }
-            worker_task_active_ = true;
-            worker_task_kind_ = task.kind;
-        }
+        if (!task_queue_->wait_pop(task)) return;
         if (task.kind == WorkerTask::Kind::Chat) {
             active_turn_usage_ = TokenUsage{};
             active_turn_usage_initialized_ = false;
@@ -89,11 +57,7 @@ void AgentLoop::worker_main() {
         } catch (...) {
             recover_worker_task_error("unknown exception", task.kind == WorkerTask::Kind::Chat);
         }
-        {
-            std::lock_guard<std::mutex> lk(queue_mu_);
-            worker_task_active_ = false;
-            worker_task_kind_ = WorkerTask::Kind::Control;
-        }
+        task_queue_->finish_task();
     }
 }
 

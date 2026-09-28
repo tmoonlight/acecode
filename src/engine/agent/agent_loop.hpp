@@ -30,7 +30,6 @@
 #include <thread>
 #include <condition_variable>
 #include <deque>
-#include <queue>
 #include <map>
 #include <set>
 #include <optional>
@@ -67,7 +66,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; }
 
 class AgentLoop {
 public:
@@ -123,7 +122,7 @@ public:
 
     // Run an external model-state mutation only when no work is active or
     // queued. The callback holds the queue gate; it must not submit work, wait
-    // for the worker, or acquire active_turn_mu_. False means it was not run.
+    // for the worker, or acquire ActiveTurnGate. False means it was not run.
     bool try_run_idle_control(const std::function<void()>& control);
 
     // Emit a visible system message without adding it to LLM history. Used by
@@ -182,7 +181,7 @@ public:
     // 提问挂起时的用户插话(daemon 路径):把 request_id 对应的
     // AskUserQuestion 以「用户改为直接输入」收掉,并把 input 作为同回合
     // steering 输入排在该工具结果之后提交 —— 不 abort、不开新回合。
-    // 两步在 active_turn_mu_ 下一起完成:worker 要等工具返回后才会
+    // 两步在 ActiveTurnGate 下一起完成:worker 要等工具返回后才会
     // drain,所以模型看到的顺序恒为 tool_call → tool_result → user 插话。
     // expected_turn_id 可空;非空时与 steer_input 一样校验。
     // 问题已被回答 / 超时 / 关闭 → NoPendingQuestion,input 不会被提交,
@@ -447,7 +446,6 @@ private:
     ToolResult run_write_tool(ToolBatchState& batch, const ToolCall& effective_tc, const ToolContext& tool_ctx, const std::string& ctx_path, const std::string& ctx_command, size_t tool_index);
     void worker_main();
     void recover_worker_task_error(const char* detail, bool chat_task);
-    bool has_queued_user_work_locked() const;
     void join_side_question_threads();
     void run_agent_with_input(const UserInput& input,
                               bool hidden_goal_context = false,
@@ -621,7 +619,7 @@ private:
         const ProviderErrorInfo& error,
         int request_tokens,
         bool& emergency_request_profile);
-    // 兜底等待,每 50ms 看一次中止标记。false = 用户中止。
+    // 可被 AbortSignal 立即唤醒的兜底等待。false = 用户中止。
     bool wait_for_pa_rescue_delay(int wait_ms);
     // 兜底等待期间给 TUI / Web 的进度(与 provider 层重试同款展示)。
     void emit_pa_rescue_wait_progress(const ProviderErrorInfo& error,
@@ -816,24 +814,10 @@ private:
     std::atomic<bool> pending_goal_objective_steering_{false};
     std::map<std::string, std::chrono::steady_clock::time_point> recent_safe_edit_failures_;
 
-    static constexpr std::size_t kMaxPendingTurnSteers = 128;
-    mutable std::mutex active_turn_mu_;
-    std::string active_turn_id_;
-    bool active_turn_accepting_ = false;
-    std::deque<UserInput> pending_turn_inputs_;
-
-    // Worker thread and task queue
-    std::mutex queue_mu_;
-    std::condition_variable queue_cv_;
-    // Immediate steering follow-ups run before ordinary queued work. Separate
-    // FIFOs preserve both urgent and ordinary relative ordering.
-    std::queue<WorkerTask> priority_task_queue_;
-    std::queue<WorkerTask> task_queue_;
-    std::set<std::string> task_suggestion_input_ids_;
-    bool shutdown_requested_ = false;
-    bool worker_task_active_ = false;
-    WorkerTask::Kind worker_task_kind_ = WorkerTask::Kind::Control;
-    std::uint64_t next_control_sequence_ = 0;
+    // Dependency order: queue -> input gate -> cross-loop handoff.
+    std::unique_ptr<agent::AgentTaskQueue> task_queue_;
+    std::unique_ptr<agent::ActiveTurnGate> active_turn_gate_;
+    std::unique_ptr<agent::TaskHandoff> task_handoff_;
 
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由
