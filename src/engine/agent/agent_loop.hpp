@@ -14,7 +14,6 @@
 #include "session/event_dispatcher.hpp"
 #include "agent/side_question/side_chat.hpp"
 #include "config/config.hpp"
-#include "llm/text_preamble_tags.hpp"
 #include "pa/pa_overflow_rescue.hpp"
 #include "sandbox/exec_permission.hpp"
 #include "sandbox/sandbox_denial.hpp"
@@ -66,7 +65,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -374,7 +373,7 @@ public:
     // 外部 git 状态变更(如 Web UI checkout 分支)后标记快照过期。线程安全:
     // 任意线程可调;worker 在下一次模型请求前消费标记并重采。正在跑的 turn
     // 继续用旧快照 —— 快照本身声明为 point-in-time,一回合的陈旧无害。
-    void invalidate_git_snapshot() { git_snapshot_stale_.store(true); }
+    void invalidate_git_snapshot();
 
     // ---- 事件流(Section 7 SessionClient)----
     // 老的 AgentCallbacks 路径**完全不动**:TUI 仍然用 callbacks。
@@ -475,7 +474,6 @@ private:
     // 当前 provider/model 身份,供上面的观测表按模型分桶。provider 缺席时返回
     // 空串 —— 观测表会把空 model 判为身份不明,既不记录也不查表(见
     // pa::identity_is_known),所以漏接线只会退回原行为,不会串桶。
-    void active_model_identity(std::string& provider, std::string& model) const;
     // 服务端整体拒收了这次请求(未产出任何模型输出),把规模记进观测表。
     void note_pa_context_rejection(int request_tokens);
     // 服务端接受了这次请求。只在该模型已经撞过墙时才算 —— 全量 token 估算不
@@ -488,11 +486,9 @@ private:
     // 段,也用于 vision_analyze 的自调用防护。provider 缺席时 fail-open 返回
     // true(与 LlmProvider::supports_vision 默认同口径)。模型切换发生在回合
     // 边界,所以同一回合内多次调用的结果一致,不会打穿 prompt cache 前缀。
-    bool active_model_can_read_images() const;
     // 当前 provider 的模型族信息(openspec add-gpt-apply-patch-adaptation):
     // 决定系统提示的工具指引分支与模型侧工具表里给 apply_patch 还是
     // file_edit / file_write。与视觉那一位同口径:只随模型切换变化。
-    SystemPromptModelState system_prompt_model_state() const;
     void initialize_compact_window_state();
     void apply_compact_result(const CompactResult& result,
                               const std::string& trigger,
@@ -540,7 +536,9 @@ private:
 
     // Phase 2: Build the full message list for the LLM provider.
     using ApiRequestBundle = agent::ApiRequestBundle;
-    ApiRequestBundle build_api_request_messages(bool emergency_profile = false);
+    agent::RequestContextOptions request_context_options(const std::shared_ptr<LlmProvider>& provider) const;
+    ApiRequestBundle build_api_request_messages(const std::shared_ptr<LlmProvider>& provider,
+                                                bool emergency_profile = false);
     void publish_side_question_context(
         const std::vector<ChatMessage>& messages_with_system);
 
@@ -644,8 +642,6 @@ private:
     // agent_loop termination policy. Fresh defaults come from AgentLoopConfig
     // until set_agent_loop_config is called from main.cpp.
     AgentLoopConfig loop_cfg_;
-    // 流式标签扫描器:历史里残留的 <text_preamble> 标签只从界面上剥掉,不再当文案。
-    llm::TextPreambleScanner text_preamble_scanner_;
     // 本模型步给工具批次的前言:run_agent_with_input 在 Phase 5 之前填,
     // execute_tool_calls 开头消费(挂 metadata、随 tool_start 下发)后清空。
     ToolPreambleTitle current_step_preamble_;
@@ -663,8 +659,7 @@ private:
     // Kept as worker state (rather than a stack local) so the outer worker
     // recovery boundary can still publish an accurate terminal summary after
     // an exception unwinds run_agent_with_input().
-    TokenUsage active_turn_usage_;
-    bool active_turn_usage_initialized_ = false;
+    std::unique_ptr<agent::TurnUsageRecord> turn_usage_;
     // PA 兜底的 episode 进度(见 run_pa_overflow_rescue)。服务端收下请求即
     // 清零;回合开始也清零。只在回合线程上读写。
     pa::RescueState pa_rescue_state_;
@@ -690,18 +685,6 @@ private:
     std::string expert_member_id_;
     ToolCapabilityPolicy tool_capability_policy_;
     const GitContextConfig* git_context_cfg_ = nullptr;
-    // gitStatus 快照缓存(openspec add-git-context):nullopt = 尚未采集,
-    // 空串 = 已采集但非仓库/失败/disabled(不注入)。只在 worker 线程读写
-    // (build_api_request_messages 惰性采集,set_cwd 经工具回调在同线程重置),
-    // 与 cwd_ 本身的线程假设一致。
-    std::optional<std::string> git_snapshot_cache_;
-    // 跨线程失效信号(invalidate_git_snapshot):worker 在模型请求前 exchange
-    // 消费,避免 HTTP 线程直接 reset optional 造成数据竞争。
-    std::atomic<bool> git_snapshot_stale_{false};
-    std::string session_context_cache_key_;
-    std::string session_context_cache_content_;
-    std::string skill_context_cache_key_;
-    std::string skill_context_cache_content_;
     // Worker-thread-only flag derived from the current root UserInput. It
     // remains active across all provider iterations in that turn.
     bool active_turn_swarm_mode_ = false;
@@ -717,9 +700,14 @@ private:
     std::unique_ptr<agent::AgentHookBridge> hooks_;
     std::unique_ptr<agent::ToolHookBridge> tool_hooks_;
     std::unique_ptr<agent::GoalRuntime> goal_;
+    std::unique_ptr<agent::PromptContextCache> prompt_cache_;
+    std::unique_ptr<agent::ApiRequestBuilder> request_builder_;
     std::unique_ptr<agent::SideQuestionService> side_questions_;
     std::unique_ptr<agent::ActivityNarrator> activity_;
     std::unique_ptr<agent::RetryProgressReporter> retry_progress_;
+    std::unique_ptr<agent::TurnUsageAccountant> usage_accountant_;
+    std::unique_ptr<agent::ModelStepRecorder> model_steps_;
+    std::unique_ptr<agent::ProviderStreamCollector> stream_collector_;
 
     // Section 7: 事件分发器。EventDispatcher 自己内部加锁,所以这里不需要
     // 额外的同步;emit 由 worker_main 线程调用,subscribe/unsubscribe 由

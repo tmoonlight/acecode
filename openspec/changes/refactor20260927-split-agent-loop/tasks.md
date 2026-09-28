@@ -136,7 +136,7 @@
   - `RetryProgressReporter`:三处共用。
   - 前置:3.3。
   - 验证:`SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMutation`、`side_chat_test`、`PostSideQuestionWorksBeforeFirstMainRequest`、`agent_loop_tool_preamble_test` 六条、`model_retry_status_test` 通过。
-- [ ] 3.5 【A-10】【主】请求组装与模型步。
+- [ ] 3.5 【A-10】【主】请求组装与模型步。〔实现完成: Codex-root 2026-09-28;请求值快照、统一静态前缀、PromptContextCache、每步 ActiveModelView、受寿命保护的 ProviderStreamCollector、用量与轨迹协作类已接入;缓存边界/晚到回调/异常记账用例待统一验收〕
   - `ApiRequestBuilder` 接收 `RequestBuildInputs` 值快照,`drain_hook_request_context` 挪到调用方;
   - 合并静态 system prompt 的重复构造,输出必须逐字节一致;
   - `PromptContextCache::reset_on_cwd_change` 只清 git 快照;

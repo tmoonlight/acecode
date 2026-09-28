@@ -1,111 +1,64 @@
-#include "agent/agent_loop.hpp"
-#include "agent/boundary/workspace_boundary.hpp"
-#include "agent/transcript/conversation_history.hpp"
-#include "agent/compaction/compact.hpp"
-#include "agent/guards/doom_guard.hpp"
-#include "agent/request/provider_history.hpp"
-#include "agent/request/request_context.hpp"
-#include "computer_use/runtime.hpp"
-#include "gitinfo/git_context_collector.hpp"
-#include "llm/model_family.hpp"
+#include "api_request_builder.hpp"
+#include "prompt_context_cache.hpp"
+#include "provider_history.hpp"
+#include "request_context.hpp"
 #include "llm/tool_protocol_names.hpp"
-#include "pa/pa_context_budget.hpp"
-#include "pa/pa_overflow_rescue.hpp"
-#include "permissions/interaction_mode.hpp"
-#include "permissions/shell_write_guard.hpp"
-#include "prompt/context_usage_breakdown.hpp"
-#include "prompt/prompt_environment.hpp"
-#include "prompt/system_prompt.hpp"
-#include "provider/text_tool_call_recovery.hpp"
-#include "session/ask_user_question_prompter.hpp"
-#include "session/permission_prompter.hpp"
-#include "session/session_client.hpp"
-#include "session/session_manager.hpp"
-#include "session/session_storage.hpp"
-#include "session/task_suggestion_store.hpp"
-#include "session/thread_goal_store.hpp"
-#include "session/thread_repair.hpp"
-#include "session/todo_state.hpp"
-#include "session/token_tracker.hpp"
-#include "session/turn_timing.hpp"
 #include "skills/skill_registry.hpp"
 #include "skills/skill_usage_store.hpp"
-#include "utils/encoding.hpp"
 #include "utils/logger.hpp"
-#include "utils/stream_processing.hpp"
-#include "utils/text.hpp"
-#include "utils/time.hpp"
-#include "utils/uuid.hpp"
-#include "workspace/workspace_registry.hpp"
-
 #include <algorithm>
 #include <chrono>
-#include <cstdint>
-#include <limits>
-#include <mutex>
-#include <sstream>
 #include <utility>
-#include <thread>
 
-namespace acecode {
+namespace acecode::agent {
+namespace {
+template<class T> const T* ptr(const std::optional<T>& value) {
+    return value ? &*value : nullptr;
+}
+}
 
-using agent::detail::model_facing_provider_messages;
-using agent::detail::build_plan_mode_context_prompt;
-using agent::detail::append_plan_mode_context_for_api;
-using agent::detail::append_todo_context_for_api;
-using agent::detail::append_request_context_for_api;
-using agent::detail::cached_context_for_api;
-
-std::set<std::string> AgentLoop::dormant_skill_names() const {
+std::set<std::string> ApiRequestBuilder::dormant_skills(
+    const SkillRegistry* registry, SkillUsageStore* store, int idle_days) {
     std::set<std::string> out;
-    if (!skill_usage_store_ || skill_idle_days_ <= 0 || !skill_registry_) {
+    if (!store || idle_days <= 0 || !registry) {
         return out;
     }
     const std::int64_t now_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
             .count();
-    const std::int64_t idle_ms = static_cast<std::int64_t>(skill_idle_days_) *
+    const std::int64_t idle_ms = static_cast<std::int64_t>(idle_days) *
                                  24LL * 60 * 60 * 1000;
-    for (const auto& meta : skill_registry_->list()) {
-        if (skill_usage_store_->is_dormant(meta.name, now_ms, idle_ms)) {
+    for (const auto& meta : registry->list()) {
+        if (store->is_dormant(meta.name, now_ms, idle_ms)) {
             out.insert(meta.name);
         }
     }
     return out;
 }
 
-std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
-    std::vector<ChatMessage> context;
-
-    SystemPromptWorktreeState worktree_state;
-    if (session_manager_) {
-        const WorktreeSessionInfo info = session_manager_->active_worktree();
-        worktree_state.active = info.active();
-        worktree_state.worktree_path = info.worktree_path;
-        worktree_state.worktree_branch = info.worktree_branch;
-        worktree_state.original_cwd = info.original_cwd;
-        worktree_state.inherited = info.inherited;
-    }
-    const acecode::SystemPromptEnvironment prompt_environment =
-        acecode::environment::prompt_environment();
-    const SystemPromptSandboxState sandbox_state{sandbox_prompt_description()};
-    const SystemPromptModelState model_state = system_prompt_model_state();
-    const SystemPromptWorkspaceFolders workspace_folders_state = system_prompt_workspace_folders();
+std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions& options) const {
     std::string system_prompt = build_system_prompt(
-        tools_, boundary_->cwd(), skill_registry_, memory_registry_,
-        memory_cfg_, project_instructions_cfg_,
-        &tool_capability_policy_,
-        &worktree_state,
-        active_model_can_read_images(),
-        &prompt_environment, &sandbox_state, &model_state,
-        &workspace_folders_state);
-    if (loop_execution_policy_.active &&
-        !loop_execution_policy_.system_context.empty()) {
+        tools_, options.cwd, options.skills, options.memory,
+        ptr(options.memory_config), ptr(options.project_config),
+        &options.tool_policy,
+        &options.worktree,
+        options.can_read_images,
+        &options.environment, &options.sandbox, &options.model,
+        &options.folders);
+    if (options.loop_active &&
+        !options.loop_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
-        system_prompt += loop_execution_policy_.system_context;
+        system_prompt += options.loop_context;
         system_prompt += "\n</loop-execution>";
     }
+    return system_prompt;
+}
+
+std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContextOptions& options) const {
+    std::vector<ChatMessage> context;
+
+    std::string system_prompt = static_system_prompt(options);
     if (!system_prompt.empty()) {
         ChatMessage system;
         system.role = "system";
@@ -114,17 +67,17 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
     }
 
     const std::string git_snapshot =
-        git_snapshot_cache_.has_value() ? *git_snapshot_cache_ : std::string{};
+        cache_.cached_git();
     const bool skill_view_available =
-        tools_.is_allowed("skill_view", &tool_capability_policy_);
+        tools_.is_allowed("skill_view", &options.tool_policy);
     const bool skills_list_available =
-        tools_.is_allowed("skills_list", &tool_capability_policy_);
+        tools_.is_allowed("skills_list", &options.tool_policy);
     const bool spawn_subagent_available =
-        tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
-    const std::set<std::string> dormant_skills = dormant_skill_names();
+        tools_.is_allowed("spawn_subagent", &options.tool_policy);
+    const auto dormant = dormant_skills(options.skills, options.skill_usage, options.skill_idle_days);
     PromptContextBlock skill_context = build_skills_index_context_prompt(
-        skill_registry_, context_window_.load(std::memory_order_relaxed),
-        skill_view_available, skills_list_available, &dormant_skills);
+        options.skills, options.context_window,
+        skill_view_available, skills_list_available, &dormant);
     if (!skill_context.content.empty()) {
         ChatMessage skill_system;
         skill_system.role = "system";
@@ -136,9 +89,9 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
         context.push_back(std::move(skill_system));
     }
     std::string mutable_context = build_session_context_prompt(
-        boundary_->cwd(), memory_registry_, memory_cfg_, project_instructions_cfg_,
-        skill_registry_, context_window_.load(std::memory_order_relaxed),
-        custom_instructions_cfg_, git_snapshot, expert_, expert_member_id_,
+        options.cwd, options.memory, ptr(options.memory_config), ptr(options.project_config),
+        options.skills, options.context_window,
+        ptr(options.custom_config), git_snapshot, ptr(options.expert), options.expert_member,
         /*category_bytes=*/nullptr,
         skill_view_available, skills_list_available,
         spawn_subagent_available,
@@ -153,45 +106,17 @@ std::vector<ChatMessage> AgentLoop::build_compaction_initial_context() const {
     return context;
 }
 
-AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
+RequestBuildInputs ApiRequestBuilder::capture(
+    const RequestContextOptions& options, std::vector<ChatMessage> history,
     bool emergency_profile) {
-    ApiRequestBundle bundle;
-
-    // Rebuild the system prompt for each provider call from session-stable
-    // inputs. The working directory and date belong here; request-local
-    // context below must remain byte-stable while its inputs are unchanged.
-    SystemPromptWorktreeState worktree_state;
-    if (session_manager_) {
-        const WorktreeSessionInfo info = session_manager_->active_worktree();
-        worktree_state.active = info.active();
-        worktree_state.worktree_path = info.worktree_path;
-        worktree_state.worktree_branch = info.worktree_branch;
-        worktree_state.original_cwd = info.original_cwd;
-        worktree_state.inherited = info.inherited;
-    }
-    const acecode::SystemPromptEnvironment prompt_environment =
-        acecode::environment::prompt_environment();
-    const SystemPromptSandboxState sandbox_state{sandbox_prompt_description()};
-    const SystemPromptModelState model_state = system_prompt_model_state();
-    const SystemPromptWorkspaceFolders workspace_folders_state = system_prompt_workspace_folders();
-    std::string system_prompt = build_system_prompt(
-        tools_, boundary_->cwd(), skill_registry_, memory_registry_,
-        memory_cfg_, project_instructions_cfg_,
-        &tool_capability_policy_,
-        &worktree_state,
-        active_model_can_read_images(),
-        &prompt_environment, &sandbox_state, &model_state,
-        &workspace_folders_state);
-    if (loop_execution_policy_.active && !loop_execution_policy_.system_context.empty()) {
-        system_prompt += "\n\n<loop-execution>\n";
-        system_prompt += loop_execution_policy_.system_context;
-        system_prompt += "\n</loop-execution>";
-    }
-    LOG_DEBUG("System prompt length: " + std::to_string(system_prompt.size()));
+    RequestBuildInputs inputs;
+    inputs.emergency_profile = emergency_profile;
+    inputs.system_prompt = static_system_prompt(options);
+    LOG_DEBUG("System prompt length: " + std::to_string(inputs.system_prompt.size()));
     auto builtin_tool_defs = tools_.get_model_tool_definitions_by_source(
-        ToolSource::Builtin, &tool_capability_policy_);
+        ToolSource::Builtin, &options.tool_policy);
     auto mcp_tool_defs = tools_.get_model_tool_definitions_by_source(
-        ToolSource::Mcp, &tool_capability_policy_);
+        ToolSource::Mcp, &options.tool_policy);
     if (emergency_profile) {
         // 这里拿到的已是模型侧定义,核心工具名必须经映射取,不能写死 read/write:
         // 「工具重写」关闭时它们叫 file_read / file_write,写死会把核心工具整个滤掉。
@@ -218,98 +143,63 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
         LOG_WARN("[thread-repair] using emergency request profile with " +
                  std::to_string(builtin_tool_defs.size()) +
                  " core tool schemas");
-        bundle.tool_defs = builtin_tool_defs;
+        inputs.tool_defs = builtin_tool_defs;
     } else {
         // Preserve the normal model-facing order exactly. The unified helper
         // keeps builtin and MCP tools in registry order, which is also part of
         // prompt-cache stability and expert-switch behavior.
-        bundle.tool_defs =
-            tools_.get_model_tool_definitions(&tool_capability_policy_);
+        inputs.tool_defs =
+            tools_.get_model_tool_definitions(&options.tool_policy);
     }
     // GPT / Codex 系模型只看到 apply_patch,其它模型只看到 file_edit / file_write
     // (openspec add-gpt-apply-patch-adaptation)。三个工具始终注册,这里只裁
     // 模型侧定义表;模型在回合内固定,所以裁完的表逐字节稳定,不打穿 prompt cache。
-    filter_tool_definitions_for_model(bundle.tool_defs, model_state.prefers_apply_patch);
-    LOG_DEBUG("Registered tools: " + std::to_string(bundle.tool_defs.size()));
+    filter_tool_definitions_for_model(inputs.tool_defs, options.model.prefers_apply_patch);
+    LOG_DEBUG("Registered tools: " + std::to_string(inputs.tool_defs.size()));
 
-    // gitStatus 快照:每会话激活惰性采集一次,cwd 切换或外部失效(Web UI
-    // checkout)时重采(openspec add-git-context)。采集失败/非仓库/disabled
-    // → 空串不注入。
-    if (!emergency_profile && git_snapshot_stale_.exchange(false)) {
-        git_snapshot_cache_.reset();
-    }
-    if (!emergency_profile && !git_snapshot_cache_.has_value()) {
-        const bool git_ctx_enabled = !git_context_cfg_ || git_context_cfg_->enabled;
-        const int git_timeout_ms = git_context_cfg_
-                                       ? git_context_cfg_->timeout_ms
-                                       : gitinfo::kDefaultGitTimeoutMs;
-        git_snapshot_cache_ =
-            git_ctx_enabled
-                ? gitinfo::collect_git_status_snapshot(boundary_->cwd(), git_timeout_ms)
-                : std::string();
-    }
 
-    // Prepare provider-facing messages with system prompt at front.
-    auto api_messages = model_facing_provider_messages(history_->view(), "provider-request");
-    PromptContextCategoryBytes context_category_bytes;
-    const bool skill_view_available = !emergency_profile &&
-        tools_.is_allowed("skill_view", &tool_capability_policy_);
-    const bool skills_list_available = !emergency_profile &&
-        tools_.is_allowed("skills_list", &tool_capability_policy_);
-    const bool spawn_subagent_available = !emergency_profile &&
-        tools_.is_allowed("spawn_subagent", &tool_capability_policy_);
-    std::string skill_context;
-    std::string session_context;
+    cache_.prepare_git(options.cwd, ptr(options.git_config), emergency_profile);
+    inputs.builtin_tool_defs = std::move(builtin_tool_defs);
+    inputs.mcp_tool_defs = std::move(mcp_tool_defs);
+    inputs.history = std::move(history);
     if (!emergency_profile) {
-        const std::set<std::string> dormant_skills = dormant_skill_names();
-        PromptContextBlock skill_context_block = build_skills_index_context_prompt(
-            skill_registry_, context_window_.load(std::memory_order_relaxed),
-            skill_view_available, skills_list_available, &dormant_skills);
-        const bool skill_context_changed =
-            skill_context_block.cache_key != skill_context_cache_key_;
-        skill_context = cached_context_for_api(
-            skill_context_block,
-            skill_context_cache_key_, skill_context_cache_content_);
-        if (skill_context_changed && !skill_context_block.warning.empty()) {
-            LOG_WARN("[skills] " + skill_context_block.warning);
-        }
-        session_context = cached_context_for_api(
-            build_session_context_prompt(
-                boundary_->cwd(), memory_registry_, memory_cfg_, project_instructions_cfg_,
-                skill_registry_, context_window_.load(std::memory_order_relaxed),
-                custom_instructions_cfg_,
-                git_snapshot_cache_.value_or(std::string{}),
-                expert_, expert_member_id_,
-                &context_category_bytes,
-                skill_view_available, skills_list_available,
-                spawn_subagent_available,
-                /*include_skill_index=*/false),
-            session_context_cache_key_, session_context_cache_content_);
+        const bool skill_view_available = tools_.is_allowed("skill_view", &options.tool_policy);
+        const bool skills_list_available = tools_.is_allowed("skills_list", &options.tool_policy);
+        const bool spawn_subagent_available = tools_.is_allowed("spawn_subagent", &options.tool_policy);
+        const auto dormant = dormant_skills(options.skills, options.skill_usage, options.skill_idle_days);
+        inputs.skills = build_skills_index_context_prompt(
+            options.skills, options.context_window, skill_view_available,
+            skills_list_available, &dormant);
+        inputs.session = build_session_context_prompt(
+            options.cwd, options.memory, ptr(options.memory_config), ptr(options.project_config),
+            options.skills, options.context_window, ptr(options.custom_config), cache_.cached_git(),
+            ptr(options.expert), options.expert_member, &inputs.category_bytes,
+            skill_view_available, skills_list_available, spawn_subagent_available,
+            /*include_skill_index=*/false);
+        inputs.swarm_context = build_swarm_mode_context_prompt(
+            options.swarm_mode, spawn_subagent_available);
     }
+    return inputs;
+}
+
+ApiRequestBundle ApiRequestBuilder::build(RequestBuildInputs inputs) {
+    ApiRequestBundle bundle;
+    bundle.tool_defs = std::move(inputs.tool_defs);
+    auto api_messages = detail::model_facing_provider_messages(inputs.history, "provider-request");
+    auto context_category_bytes = inputs.category_bytes;
+    const std::string skill_context = inputs.emergency_profile ? std::string{} : cache_.skills(inputs.skills);
+    const std::string session_context = inputs.emergency_profile ? std::string{} : cache_.session(inputs.session);
+    const std::string& swarm_mode_context = inputs.swarm_context;
+    const std::string& hook_context = inputs.hook_context;
+    const std::string& plan_mode_context = inputs.plan_context;
+    const auto& todo_context_items = inputs.todos;
     context_category_bytes.skills = skill_context.size();
     std::vector<ChatMessage> mutable_context_messages;
-    append_request_context_for_api(mutable_context_messages, session_context);
-    std::string swarm_mode_context = emergency_profile
-        ? std::string{}
-        : build_swarm_mode_context_prompt(
-              active_turn_swarm_mode_, spawn_subagent_available);
-    append_request_context_for_api(
-        mutable_context_messages, swarm_mode_context);
-    std::string hook_context = emergency_profile
-        ? std::string{} : drain_hook_request_context();
-    append_request_context_for_api(mutable_context_messages, hook_context);
-    std::string plan_mode_context =
-        !emergency_profile && permissions_.mode() == PermissionMode::Plan
-            ? build_plan_mode_context_prompt(
-                  session_manager_,
-                  tools_.is_allowed("AskUserQuestion", &tool_capability_policy_),
-                  tools_.is_allowed("ExitPlanMode", &tool_capability_policy_))
-            : std::string{};
-    append_plan_mode_context_for_api(mutable_context_messages, plan_mode_context);
-    std::vector<TodoItem> todo_context_items =
-        !emergency_profile && session_manager_
-            ? session_manager_->current_todos() : std::vector<TodoItem>{};
-    append_todo_context_for_api(mutable_context_messages, todo_context_items);
+    detail::append_request_context_for_api(mutable_context_messages, session_context);
+    detail::append_request_context_for_api(mutable_context_messages, swarm_mode_context);
+    detail::append_request_context_for_api(mutable_context_messages, hook_context);
+    detail::append_plan_mode_context_for_api(mutable_context_messages, plan_mode_context);
+    detail::append_todo_context_for_api(mutable_context_messages, todo_context_items);
 
     ChatMessage skill_system_message;
     if (!skill_context.empty()) {
@@ -326,20 +216,20 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
     }
 
     bundle.context_usage_estimate = estimate_context_usage_breakdown(
-        system_prompt,
+        inputs.system_prompt,
         api_messages,
         estimated_context_messages,
         context_category_bytes.project_rules,
         context_category_bytes.skills,
-        builtin_tool_defs,
-        mcp_tool_defs);
+        inputs.builtin_tool_defs,
+        inputs.mcp_tool_defs);
 
     insert_context_before_last_real_user_or_summary(
         api_messages, std::move(mutable_context_messages));
 
     ChatMessage sys_msg;
     sys_msg.role = "system";
-    sys_msg.content = system_prompt;
+    sys_msg.content = inputs.system_prompt;
     bundle.messages_with_system.push_back(sys_msg);
     if (!skill_system_message.content.empty()) {
         bundle.messages_with_system.push_back(std::move(skill_system_message));
@@ -348,7 +238,7 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
                                        api_messages.begin(), api_messages.end());
 
     auto prompt_diag = build_prompt_cache_diagnostics(
-        system_prompt,
+        inputs.system_prompt,
         skill_context + "\n" + session_context + "\n" + swarm_mode_context + "\n" +
             plan_mode_context + "\n" + hook_context + "\n" +
             format_todo_injection(todo_context_items),
@@ -365,4 +255,5 @@ AgentLoop::ApiRequestBundle AgentLoop::build_api_request_messages(
     return bundle;
 }
 
-} // namespace acecode
+
+} // namespace acecode::agent

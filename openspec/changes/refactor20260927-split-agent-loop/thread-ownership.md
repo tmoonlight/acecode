@@ -23,4 +23,10 @@
 | AgentProgressEmitter | worker、并行工具 | shared_ptr 保证发射器状态寿命;750ms 节流锁外调用 narrator 与 EventDispatcher,时钟按回合取值。 |
 | RetryProgressReporter | provider 回调、压缩、PA 重试 | 无可变状态;先状态回调再进度事件,三路径共享载荷出口。 |
 
-A-10 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。
+| PromptContextCache | worker;Git 失效信号可由 UI/API 发送 | 内容键钉住技能/会话文本;切 cwd 只清 Git;跨线程只写 atomic stale。 |
+| ApiRequestBuilder | worker、空闲旁路上下文预热 | capture 的注册表借用不离开调用;build 只消费值快照,Hook drain 在调用方,工具名映射每次仍经 ToolExecutor 查询。 |
+| ActiveModelView | 当前模型步 | 从该步的 provider 租约取身份、能力与窗口;主请求的 prompt 与 chat 共用同一份 provider。 |
+| ProviderStreamCollector::Call | provider 流回调 | 每请求独占临时输出、scanner、attempt/usage;回调仅持 LifetimeRef,返回前 revoke 等待在途并拒绝晚到事件。 |
+| TurnUsageAccountant / ModelStepRecorder | worker | 先记入 worker 可达的回合用量再调用消费者;request/response/first-output 与 step 事件共享记录出口。 |
+
+A-11 至 A-14 继续在本表追加旁路问答、进度、请求、工具批次与最终装配的线程归属。Windows 本轮不声称执行 Linux TSan。

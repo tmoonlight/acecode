@@ -1,4 +1,9 @@
 #include "agent/agent_loop.hpp"
+#include "agent/model_step/provider_stream_collector.hpp"
+#include "agent/model_step/turn_usage_accountant.hpp"
+#include "agent/model_step/model_step_recorder.hpp"
+#include "agent/request/prompt_context_cache.hpp"
+#include "agent/request/api_request_builder.hpp"
 #include "agent/progress/activity_narrator.hpp"
 #include "agent/progress/retry_progress.hpp"
 #include "agent/side_question/side_question_service.hpp"
@@ -55,6 +60,7 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , exec_security_(std::make_unique<agent::SessionExecSecurity>(*boundary_, permissions, busy_))
     , permissions_(permissions)
     , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
+    , turn_usage_(std::make_unique<agent::TurnUsageRecord>())
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))
@@ -64,9 +70,16 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     , tool_hooks_(std::make_unique<agent::ToolHookBridge>(*hooks_))
     , goal_(std::make_unique<agent::GoalRuntime>(*task_queue_, *history_, *transcript_,
           events_, callbacks_, permissions, busy_, abort_signal_))
+    , prompt_cache_(std::make_unique<agent::PromptContextCache>())
+    , request_builder_(std::make_unique<agent::ApiRequestBuilder>(tools_, *prompt_cache_))
     , side_questions_(std::make_unique<agent::SideQuestionService>(provider_accessor_))
     , activity_(std::make_unique<agent::ActivityNarrator>(callbacks_))
     , retry_progress_(std::make_unique<agent::RetryProgressReporter>(callbacks_, events_))
+    , usage_accountant_(std::make_unique<agent::TurnUsageAccountant>(*goal_, callbacks_, events_, last_api_total_tokens_))
+    , model_steps_(std::make_unique<agent::ModelStepRecorder>(tools_, events_))
+    , stream_collector_(std::make_unique<agent::ProviderStreamCollector>(
+          tools_, callbacks_, events_, *history_, *active_provider_slot_, abort_signal_,
+          *activity_, *retry_progress_, *usage_accountant_, *model_steps_))
 {
     reload_exec_rules();
     worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);
@@ -80,7 +93,7 @@ void AgentLoop::set_cwd(const std::string& new_cwd) {
     boundary_->set_cwd(new_cwd);
     // cwd 变了(EnterWorktree/ExitWorktree),旧 gitStatus 快照作废,
     // 下一次模型请求按新 cwd 重采(openspec add-git-context)。
-    git_snapshot_cache_.reset();
+    prompt_cache_->reset_on_cwd_change();
     permissions_.clear_session_allows();
     exec_security_->runtime().clear_session_grants();
     exec_security_->set_feedback(std::nullopt);

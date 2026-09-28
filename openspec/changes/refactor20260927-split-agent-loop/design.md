@@ -243,7 +243,7 @@
     - 回合前压缩先于用户消息落盘,重试回合不压缩;
     - 之后依次是:ensure identity → push → on_message → checkpoint(非 hidden)→ session_updated{summary} → Message → turn_start/busy 轨迹 → begin_active_turn → on_busy_changed → BusyChanged;
     - hidden_goal_context 跳过 UserPromptSubmit、不计时、不建检查点、不发 Message。
-14. 每次迭代的顺序:begin_model_turn → 代际检查 → 自动压缩 → drain(false) → goal steering → build → publish side question → 刷新模型侧工具名 → provider 快照(为空则在 ModelStepStart 之前 break)→ ModelStepStart → record_model_request → call。
+14. 每次迭代的顺序:begin_model_turn → 代际检查 → 自动压缩 → drain(false) → goal steering → 取本次迭代 provider 快照供 prompt/model view 与 chat 共用(LR-10)→ build → publish side question → 刷新模型侧工具名 → 检查该 provider 快照(为空则在 ModelStepStart 之前 break)→ ModelStepStart → record_model_request → call。
 15. 每个 ModelStepStart 恰好配一个 Finish;BusyChanged / Done 先 `record_terminal_trajectory_events` 再 emit。
 16. 迭代计数:provider 重试、文本调用纠正、空回复重试都不计入 max_iterations,且防下溢;0 表示无限。
 17. 流式输出:

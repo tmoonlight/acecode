@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/model_step/model_step_recorder.hpp"
+#include "agent/model_step/turn_usage_accountant.hpp"
 #include "agent/progress/activity_narrator.hpp"
 #include "agent/progress/agent_progress_emitter.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
@@ -107,7 +109,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 callbacks_.on_turn_finished("error");
             }
             const std::string turn_id = generate_uuid();
-            const auto usage = model_step_usage_to_json(active_turn_usage_);
+            const auto usage = model_step_usage_to_json(turn_usage_->aggregate);
             const nlohmann::json idle = {
                 {"busy", false},
                 {"outcome", "error"},
@@ -217,113 +219,6 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     };
 
     int model_step_index = 0;
-    auto emit_model_step_finish = [&](int step_index,
-                                      std::string reason,
-                                      const TokenUsage& usage) {
-        if (reason.empty()) reason = "unknown";
-        events_.emit(SessionEventKind::ModelStepFinish, nlohmann::json{
-            {"step_index", step_index},
-            {"reason", std::move(reason)},
-            {"usage", model_step_usage_to_json(usage)},
-        });
-    };
-
-    auto record_model_request = [this](
-        int step_index,
-        const std::shared_ptr<LlmProvider>& provider,
-        const ApiRequestBundle& bundle) {
-        if (!session_manager_ || !provider) return;
-        nlohmann::json messages = nlohmann::json::array();
-        for (const auto& message : bundle.messages_with_system) {
-            try {
-                messages.push_back(
-                    nlohmann::json::parse(serialize_message(message)));
-            } catch (...) {
-                messages.push_back(nlohmann::json{
-                    {"role", message.role},
-                    {"content", message.content},
-                });
-            }
-        }
-        nlohmann::json tools = nlohmann::json::array();
-        for (const auto& tool : bundle.tool_defs) {
-            const std::string native_name =
-                tools_.resolve_model_tool_name_to_native(tool.name);
-            tools.push_back(nlohmann::json{
-                {"name", tool.name},
-                {"native_name", native_name.empty() ? tool.name : native_name},
-                {"description", tool.description},
-                {"parameters", tool.parameters},
-            });
-        }
-        session_manager_->record_trajectory_event(
-            "model_request",
-            {{"step_index", step_index},
-             {"provider", provider->name()},
-             {"model", provider->model()},
-             {"context_window", context_window()},
-             {"messages", std::move(messages)},
-             {"tools", std::move(tools)},
-             {"context_usage_estimate",
-              context_usage_breakdown_to_json(
-                  bundle.context_usage_estimate)},
-             {"prompt_diagnostics", bundle.prompt_diag}});
-    };
-
-    auto record_model_response = [this](
-        int step_index,
-        const ProviderCallResult& result,
-        const TokenUsage& usage,
-        std::string status) {
-        if (!session_manager_) return;
-        if (status.empty()) {
-            status = result.provider_error_seen ? "error" : "completed";
-        }
-        nlohmann::json tool_calls = nlohmann::json::array();
-        for (const auto& call : result.accumulated.tool_calls) {
-            tool_calls.push_back(nlohmann::json{
-                {"id", call.id},
-                {"name", call.function_name},
-                {"arguments", call.function_arguments},
-            });
-        }
-        nlohmann::json payload{
-            {"step_index", step_index},
-            {"attempt", result.provider_attempt},
-            {"content", result.accumulated.content},
-            {"reasoning_content", result.accumulated.reasoning_content},
-            {"content_parts", result.accumulated.content_parts.is_null()
-                ? nlohmann::json::array()
-                : result.accumulated.content_parts},
-            {"tool_calls", std::move(tool_calls)},
-            {"finish_reason", result.accumulated.finish_reason},
-            {"usage", model_step_usage_to_json(usage)},
-            {"status", std::move(status)},
-        };
-        if (result.provider_snapshot) {
-            payload["provider"] = result.provider_snapshot->name();
-            payload["model"] = result.provider_snapshot->model();
-        }
-        if (result.provider_error_seen ||
-            result.provider_error_info.has_error()) {
-            payload["error"] = provider_error_to_json(
-                result.provider_error_info);
-        }
-        if (result.accumulated.text_tool_calls.outcome !=
-            TextToolCallDiagnostic::Outcome::None) {
-            payload["text_tool_calls"] = text_tool_call_diagnostic_to_json(
-                result.accumulated.text_tool_calls);
-        }
-        if (!result.accumulated.content.empty()) {
-            ChatMessage id_basis;
-            id_basis.role = "assistant";
-            id_basis.content = result.accumulated.content;
-            payload["message_id"] = web::compute_message_id(id_basis);
-        }
-        session_manager_->record_trajectory_event(
-            "model_response", std::move(payload));
-    };
-
     // Main agent loop
     while (!preturn_compaction_failed && !abort_signal_.raw() && !terminator_fired &&
            (!has_max_iterations || total_iterations < max_iter)) {
@@ -361,8 +256,12 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         drain_active_turn_inputs(false);
         maybe_inject_goal_steering();
 
+        // One provider lease per iteration: prompt facts and chat use the
+        // same snapshot. The null-provider decision remains before StepStart.
+        std::shared_ptr<LlmProvider> provider_snapshot;
+        if (provider_accessor_) provider_snapshot = provider_accessor_();
         // Phase 2: Build API request messages
-        auto bundle = build_api_request_messages(emergency_request_profile);
+        auto bundle = build_api_request_messages(provider_snapshot, emergency_request_profile);
         publish_side_question_context(bundle.messages_with_system);
         current_request_model_tool_names_.clear();
         current_request_model_tool_names_.reserve(bundle.tool_defs.size());
@@ -370,9 +269,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             current_request_model_tool_names_.push_back(def.name);
         }
 
-        // Get provider snapshot
-        std::shared_ptr<LlmProvider> provider_snapshot;
-        if (provider_accessor_) provider_snapshot = provider_accessor_();
+        // Check the same snapshot after publishing the detached context.
         if (!provider_snapshot) {
             LOG_ERROR("provider_accessor returned null; aborting turn");
             turn_timing_status = "error";
@@ -389,11 +286,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // Phase 3: Call provider and collect response.这两个显式 lifecycle 事件
         // 是完成态 JSONL 的可靠边界;progress/usage 都不能替代它们。
         const int current_model_step = ++model_step_index;
-        events_.emit(SessionEventKind::ModelStepStart, nlohmann::json{
-            {"step_index", current_model_step},
-        });
-        record_model_request(
-            current_model_step, provider_snapshot, bundle);
+        model_steps_->start(current_model_step);
+        model_steps_->request(
+            session_manager_, current_model_step, provider_snapshot, bundle, context_window());
         auto provider_result = call_provider_and_collect(
             provider_snapshot, bundle, emit_agent_progress,
             current_model_step);
@@ -416,9 +311,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 dispatch_message(partial.role, partial.content, false,
                                  partial.metadata, partial.content_parts);
             }
-            record_model_response(
+            model_steps_->response(session_manager_, 
                 current_model_step, provider_result, step_usage, "aborted");
-            emit_model_step_finish(current_model_step, "aborted", step_usage);
+            model_steps_->finish(current_model_step, "aborted", step_usage);
             break;
         }
 
@@ -429,16 +324,16 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             emergency_request_profile);
         reset_doom_guard_after_compact();
         if (error_result == HandleErrorResult::Continue) {
-            record_model_response(
+            model_steps_->response(session_manager_, 
                 current_model_step, provider_result, step_usage, "retry");
-            emit_model_step_finish(current_model_step, "retry", step_usage);
+            model_steps_->finish(current_model_step, "retry", step_usage);
             --total_iterations;
             continue;
         }
         if (error_result == HandleErrorResult::Break) {
-            record_model_response(
+            model_steps_->response(session_manager_, 
                 current_model_step, provider_result, step_usage, "error");
-            emit_model_step_finish(current_model_step, "error", step_usage);
+            model_steps_->finish(current_model_step, "error", step_usage);
             break;
         }
 
@@ -446,33 +341,10 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // 旧条件把「纯工具调用轮(无正文)」排除,导致不上报 usage 的
         // provider 下 goal 预算在工具轮从不入账,budget_limited 永不触发。
         if (!provider_result.accumulated.usage.has_data) {
-            TokenUsage estimated_usage;
-            estimated_usage.prompt_tokens = estimate_message_tokens(bundle.messages_with_system);
-            ChatMessage estimated_response;
-            if (provider_result.accumulated.has_tool_calls()) {
-                estimated_response = ToolExecutor::format_assistant_tool_calls(provider_result.accumulated);
-            } else {
-                estimated_response.role = "assistant";
-                estimated_response.content = provider_result.accumulated.content;
-                if (provider_result.accumulated.content_parts.is_array() && !provider_result.accumulated.content_parts.empty()) {
-                    estimated_response.content_parts = provider_result.accumulated.content_parts;
-                }
-                estimated_response.reasoning_content = provider_result.accumulated.reasoning_content;
-            }
-            estimated_usage.completion_tokens = estimate_message_tokens({estimated_response});
-            estimated_usage.total_tokens = estimated_usage.prompt_tokens + estimated_usage.completion_tokens;
-            estimated_usage.has_data = false;
-            estimated_usage.context_breakdown = reconcile_context_usage_breakdown(
-                bundle.context_usage_estimate,
-                estimated_usage.prompt_tokens);
-            step_usage = estimated_usage;
-            accumulate_turn_usage(
-                active_turn_usage_, active_turn_usage_initialized_, estimated_usage);
-            account_goal_usage(estimated_usage.total_tokens, false);
-            if (callbacks_.on_usage) callbacks_.on_usage(estimated_usage);
-            if (session_manager_) session_manager_->record_token_usage(estimated_usage);
+            step_usage = usage_accountant_->estimate(
+                *turn_usage_, provider_result.accumulated, bundle, session_manager_);
         }
-        record_model_response(
+        model_steps_->response(session_manager_, 
             current_model_step, provider_result, step_usage, "completed");
 
         // Text-only response (no tool calls) → end the loop
@@ -545,7 +417,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                     if (total_iterations > 0) {
                         --total_iterations; // 纠正轮不计入 max_iterations
                     }
-                    emit_model_step_finish(
+                    model_steps_->finish(
                         current_model_step, "text_tool_call_retry", step_usage);
                     continue;
                 }
@@ -563,7 +435,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                         u8")。任务未完成,请重试或换用支持原生工具调用的模型。",
                     false);
                 stop_active_goal_after_turn_error(ProviderErrorInfo{});
-                emit_model_step_finish(current_model_step, "error", step_usage);
+                model_steps_->finish(current_model_step, "error", step_usage);
                 break;
             }
 
@@ -638,7 +510,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                     if (total_iterations > 0) {
                         --total_iterations; // 空轮不计入 max_iterations
                     }
-                    emit_model_step_finish(
+                    model_steps_->finish(
                         current_model_step, "empty_response_retry", step_usage);
                     continue;
                 }
@@ -658,7 +530,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                         u8")。任务未完成,请重试或换用其它模型。",
                     false);
                 stop_active_goal_after_turn_error(ProviderErrorInfo{});
-                emit_model_step_finish(current_model_step, "error", step_usage);
+                model_steps_->finish(current_model_step, "error", step_usage);
                 break;
             }
 
@@ -690,7 +562,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                                      provider_result.accumulated.content_parts);
                 }
             }
-            emit_model_step_finish(
+            model_steps_->finish(
                 current_model_step, provider_result.accumulated.finish_reason,
                 step_usage);
             if (truncated_by_length) {
@@ -743,7 +615,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                 if (session_manager_) session_manager_->on_message(ignored);
             }
         }
-        emit_model_step_finish(
+        model_steps_->finish(
             current_model_step, provider_result.accumulated.finish_reason,
             step_usage);
         if (!terminate_session_after_turn_ && terminator_fired &&
@@ -832,7 +704,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     if (callbacks_.on_turn_finished) {
         callbacks_.on_turn_finished(turn_timing_status);
     }
-    const auto usage = model_step_usage_to_json(active_turn_usage_);
+    const auto usage = model_step_usage_to_json(turn_usage_->aggregate);
     const nlohmann::json idle = {
         {"busy", false},
         {"outcome", turn_timing_status},

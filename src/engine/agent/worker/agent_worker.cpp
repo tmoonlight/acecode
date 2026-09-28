@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/model_step/turn_usage_accountant.hpp"
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/worker/agent_task_queue.hpp"
@@ -17,8 +18,7 @@ void AgentLoop::worker_main() {
         WorkerTask task;
         if (!task_queue_->wait_pop(task)) return;
         if (task.kind == WorkerTask::Kind::Chat) {
-            active_turn_usage_ = TokenUsage{};
-            active_turn_usage_initialized_ = false;
+            *turn_usage_ = agent::TurnUsageRecord{};
         }
         try {
             switch (task.kind) {
@@ -95,7 +95,7 @@ void AgentLoop::recover_worker_task_error(const char* detail, bool chat_task) {
         {"busy", false}, {"outcome", "error"}, {"turn_id", turn_id}};
     nlohmann::json done = {{"outcome", "error"}};
     if (chat_task) {
-        const auto usage = model_step_usage_to_json(active_turn_usage_);
+        const auto usage = model_step_usage_to_json(turn_usage_->aggregate);
         idle["usage"] = usage;
         done["turn_id"] = turn_id;
         done["usage"] = usage;
