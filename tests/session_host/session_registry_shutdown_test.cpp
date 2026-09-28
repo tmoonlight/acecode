@@ -217,4 +217,32 @@ TEST_F(SessionRegistryShutdown, OldClientSubscriptionCannotRemoveReplacementList
     EXPECT_EQ(old_count->load(), 0);
     EXPECT_EQ(new_count->load(), 1);
 }
+TEST_F(SessionRegistryShutdown, QueuedPolicyControlsDoNotKeepDestroyedEntryAlive) {
+    auto registry = make_registry();
+    const auto id = registry->create({});
+    auto entry = registry->acquire(id);
+    std::weak_ptr<SessionEntry> weak = entry;
+    auto provider = std::make_shared<AbortAwareProvider>();
+    auto entered = provider->entered.get_future();
+    install(*entry, provider);
+    UserInput input;
+    input.text = "Keep policy changes queued behind this turn.";
+    entry->loop->submit(input);
+    ASSERT_EQ(entered.wait_for(5s), std::future_status::ready);
+    EXPECT_EQ(registry->refresh_sandbox_config(config.sandbox), 1u);
+    EXPECT_EQ(registry->refresh_exec_rules(), 1u);
+    registry->refresh_mcp_policy(config);
+    auto called = std::make_shared<std::atomic<bool>>(false);
+    const auto receipt = registry->enqueue_entry_control(entry,
+        [called](SessionRegistry&, SessionEntry&) {
+            called->store(true);
+            return true;
+        });
+    ASSERT_TRUE(receipt.accepted);
+    ASSERT_TRUE(receipt.queued_behind_turn);
+    entry.reset();
+    registry->destroy(id);
+    EXPECT_TRUE(weak.expired());
+    EXPECT_FALSE(called->load());
+}
 } // namespace

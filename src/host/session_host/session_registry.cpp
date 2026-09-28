@@ -1667,6 +1667,24 @@ void SessionRegistry::handle_auto_title_turn_finished(
     }
 }
 
+ControlEnqueueReceipt SessionRegistry::enqueue_entry_control(
+    const std::shared_ptr<SessionEntry>& entry,
+    std::function<bool(SessionRegistry&, SessionEntry&)> control) {
+    if (!entry || !entry->loop || !control || shutting_down_.load()) return {};
+    return entry->loop->enqueue_control(
+        [ref = lifetime_.ref(*this), weak = std::weak_ptr<SessionEntry>(entry),
+         control = std::move(control)]() mutable {
+            const auto live = weak.lock();
+            if (!live) return false;
+            bool succeeded = false;
+            ref.with([&](SessionRegistry& registry) {
+                if (registry.shutting_down_.load() || registry.acquire(live->id) != live) return;
+                succeeded = control(registry, *live);
+            });
+            return succeeded;
+        });
+}
+
 std::size_t SessionRegistry::refresh_sandbox_config(const SandboxConfig& sandbox) {
     auto snapshot = std::make_shared<SandboxConfig>(sandbox);
     std::vector<std::shared_ptr<SessionEntry>> targets;
@@ -1680,11 +1698,11 @@ std::size_t SessionRegistry::refresh_sandbox_config(const SandboxConfig& sandbox
     }
     std::size_t queued = 0;
     for (const auto& entry : targets) {
-        auto* loop = entry->loop.get();
-        const auto receipt = loop->enqueue_control([entry, loop, snapshot]() {
-            loop->set_sandbox_config(*snapshot);
-            return true;
-        });
+        const auto receipt = enqueue_entry_control(entry,
+            [snapshot](SessionRegistry&, SessionEntry& active) {
+                active.loop->set_sandbox_config(*snapshot);
+                return true;
+            });
         (void)receipt;
         ++queued;
     }
@@ -1719,11 +1737,11 @@ std::size_t SessionRegistry::refresh_exec_rules() {
     }
     std::size_t queued = 0;
     for (const auto& entry : targets) {
-        auto* loop = entry->loop.get();
-        const auto receipt = loop->enqueue_control([entry, loop]() {
-            loop->refresh_exec_rules();
-            return true;
-        });
+        const auto receipt = enqueue_entry_control(entry,
+            [](SessionRegistry&, SessionEntry& active) {
+                active.loop->refresh_exec_rules();
+                return true;
+            });
         (void)receipt;
         ++queued;
     }
@@ -1743,15 +1761,13 @@ void SessionRegistry::refresh_mcp_policy(const AppConfig& config) {
     }
 
     for (const auto& entry : targets) {
-        const std::string session_id = entry->id;
-        auto receipt = entry->loop->enqueue_control(
-            [this, session_id, expected = entry, config_snapshot]() {
-                std::lock_guard<std::mutex> lk(mu_);
-                auto it = entries_.find(session_id);
-                if (it == entries_.end() || it->second != expected) {
+        auto receipt = enqueue_entry_control(entry,
+            [config_snapshot](SessionRegistry& registry, SessionEntry& active) {
+                std::lock_guard<std::mutex> lk(registry.mu_);
+                auto it = registry.entries_.find(active.id);
+                if (it == registry.entries_.end() || it->second.get() != &active) {
                     return false;
                 }
-                auto& active = *it->second;
                 ExpertCapabilityScopes scopes;
                 if (!active.expert_id.empty() && active.expert) {
                     scopes = active.expert->selected_capabilities(
@@ -1761,7 +1777,7 @@ void SessionRegistry::refresh_mcp_policy(const AppConfig& config) {
                 }
                 const auto refreshed =
                     tool_policy_from_expert_scopes(
-                        scopes, config_snapshot.get(), active.no_workspace ? "" : active.cwd, deps_);
+                        scopes, config_snapshot.get(), active.no_workspace ? "" : active.cwd, registry.deps_);
                 active.tool_capability_policy.mcp_servers =
                     refreshed.mcp_servers;
                 if (active.loop) {
@@ -1876,16 +1892,13 @@ ExpertSwitchResult SessionRegistry::switch_expert(
         binding_revision = ++it->second->expert_binding_revision;
     }
 
-    const std::string session_id = id;
-    auto receipt = entry->loop->enqueue_control(
-        [this, session_id, expected = entry, expert, skills, tool_policy,
-         expert_skill_roots, expert_skill_allowlist, draft_text,
-         binding_revision]() mutable {
-            std::lock_guard<std::mutex> lk(mu_);
-            auto it = entries_.find(session_id);
-            if (it == entries_.end() || it->second != expected) return false;
+    auto receipt = enqueue_entry_control(entry,
+        [expert, skills, tool_policy, expert_skill_roots, expert_skill_allowlist,
+         draft_text, binding_revision](SessionRegistry& registry, SessionEntry& active) {
+            std::lock_guard<std::mutex> lk(registry.mu_);
+            auto it = registry.entries_.find(active.id);
+            if (it == registry.entries_.end() || it->second.get() != &active) return false;
 
-            auto& active = *it->second;
             // A later switch or metadata-only detach superseded this queued
             // intent. Treat it as consumed without touching AgentLoop state.
             if (active.expert_binding_revision != binding_revision) return true;
@@ -1893,7 +1906,7 @@ ExpertSwitchResult SessionRegistry::switch_expert(
                 !active.sm->set_expert_binding_and_input_draft(
                     expert->id, {}, draft_text)) {
                 LOG_ERROR("[registry] failed to persist expert switch for " +
-                          session_id);
+                          active.id);
                 return false;
             }
             active.expert_id = expert->id;
@@ -1908,7 +1921,7 @@ ExpertSwitchResult SessionRegistry::switch_expert(
                 active.loop->set_skill_registry(
                     active.skill_registry
                         ? active.skill_registry.get()
-                        : deps_.skill_registry);
+                        : registry.deps_.skill_registry);
                 active.loop->set_expert_context(&*active.expert);
                 active.loop->set_tool_capability_policy(
                     active.tool_capability_policy);

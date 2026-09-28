@@ -239,6 +239,13 @@ public:
     // from that loop's own worker. All queued tasks are joined on destruction.
     bool enqueue_lifecycle_task(std::function<void()> task);
 
+    // A queued session control retains neither the entry nor the registry.
+    // Execution validates the entry identity; callback arguments are borrowed
+    // only for this call. Keep captured payloads independent of these owners.
+    ControlEnqueueReceipt enqueue_entry_control(
+        const std::shared_ptr<SessionEntry>& entry,
+        std::function<bool(SessionRegistry&, SessionEntry&)> control);
+
     // 列出当前 daemon 内活跃 session 的元数据(只看内存,不读磁盘历史)。
     std::vector<SessionInfo> list_active() const;
 

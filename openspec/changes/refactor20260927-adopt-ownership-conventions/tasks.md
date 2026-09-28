@@ -74,7 +74,7 @@
     - ASan(Linux)通过;
     - `session_title_test`、`web_server_smoke_test` 通过;
     - spec `session-lifecycle` 中的前三个 scenario 有对应测试。
-- [ ] 2.3 【O-03】【主】control lambda 改为捕获 `weak_ptr<SessionEntry>`。
+- [ ] 2.3 【O-03】【主】control lambda 改为捕获 `weak_ptr<SessionEntry>`。〔实现完成: Codex-root 2026-09-28;统一 enqueue_entry_control 以弱 entry + registry LifetimeRef 验证身份,迁移 sandbox/exec-rules/MCP/expert/repair;忙回合销毁弱引用失效用例已补,待统一验收〕
   - 涉及位置:`session_registry.cpp` 原 1667、1706、1731、1864 行,**以及 `thread_service.cpp:1165`**;
   - lambda 执行时先 lock,再与 `entries_` 中的对象比对身份。
   - 前置:2.2。

@@ -1163,11 +1163,11 @@ ThreadServiceResult ThreadService::repair(
             deps_.client->abort(thread_id);
         }
         auto result = std::make_shared<ThreadRepairResult>();
-        auto receipt = entry->loop->enqueue_control(
-            [entry, result, options]() mutable {
-                entry->loop->history_on_worker([&](agent::ConversationHistory& history) {
+        auto receipt = deps_.registry->enqueue_entry_control(entry,
+            [result, options](SessionRegistry&, SessionEntry& active) mutable {
+                active.loop->history_on_worker([&](agent::ConversationHistory& history) {
                     options.target_tokens = estimate_message_tokens(history.view()) * 3 / 4;
-                    *result = history.repair(entry->sm.get(), options);
+                    *result = history.repair(active.sm.get(), options);
                 });
                 return result->status != ThreadRepairStatus::Failed;
             });
