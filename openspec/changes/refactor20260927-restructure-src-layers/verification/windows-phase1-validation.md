@@ -14,7 +14,7 @@
 | Web | pnpm test 和 pnpm build 成功;源路径表征测试已跟随真正的 ToolContextFactory 所有者更新 |
 | 分层与棘轮 | [layers.json](windows-phase1/layers.json):R1–R14 全部 0,exceptions_used 为空;文件大小、映射表、src/tests include 规范化、文档路径严格检查均通过 |
 | 所有权一期目标 | [ownership-summary.json](windows-phase1/ownership-summary.json):raw_new/raw_delete/detach/std_thread/raw_handle 均为 0;允许的原语实现和同步借用逐项登记,热点目标通过。全仓保留的 unsafe_capture=280、delayed_injection=22 属于设计允许的一期范围外存量 |
-| 闸门负向验证 | Python refactor guard suite 95 条通过;ctest -R layer_lint 通过;故意漏登记 TUI 实现时 configure 按预期拒绝,见 [负例](windows-phase1/tui-testable-negative.json) |
+| 闸门负向验证 | Python refactor guard suite 96 条通过;ctest -R layer_lint 通过;故意漏登记 TUI 实现时 configure 按预期拒绝,见 [负例](windows-phase1/tui-testable-negative.json) |
 | trace 双配置 | [trace-validation.json](windows-phase1/trace-validation.json):ON/OFF 均重新 configure 并构建三个主目标成功;最终恢复 OFF |
 | 构建目标 | 59 个 target 及依赖图保持不变;新增 1167、移除 18 个规范化元组逐项有归属,无未知增删。唯一保留源元组选项变化为 image_processor 的 SYSTEM stb include,见 [归属审查](windows-phase1/target-membership-review.json) 与 [元组差异](windows-phase1/target-tuple-diff.json) |
 | M1 纯搬迁 | [机械证明](windows-phase1/p3-mechanical-proof.json):索引树之间 1003 个 R100,无其它状态;后续实现不混入 M1 |
@@ -35,6 +35,8 @@ D6 的 DaemonShutdownSequence/SubagentHostShutdown/TuiShutdownSequence,D7 的 Ag
 - 补齐拆分后的编译/链接依赖,修复构造注入后测试夹具的声明与析构顺序;FTXUI 事件假件明确具备焦点能力;D9 关停测试最后一步更新为 AbandonedWork。
 - 测试隔离根缩短为 N:/agf3。此前长路径导致 seed 的 MAX_PATH 失败,也改变了窄屏路径行的截断结果;没有修改相关生产逻辑或放宽断言。
 - 行映射的 copy 行显式写明理由,避免空 TSV 尾字段触发 whitespace 检查;修复少量提取代码的行尾空格。
+
+- 最终旧分支演练发现根目录 main.cpp 不在映射与源码 include 处理范围,现已补齐并用真实 Git 三方补丁用例验证;AGENTS.md/CLAUDE.md 的映射 SHA-256 同步更新。
 
 ## 尚未完成,不得登记为通过
 

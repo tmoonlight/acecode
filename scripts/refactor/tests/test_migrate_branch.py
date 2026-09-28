@@ -88,6 +88,35 @@ class MigrationTest(unittest.TestCase):
         git(other, "apply", "--3way", "--index", "--whitespace=nowarn", report["patch"])
         self.assertEqual(expected, (other / path).read_bytes())
 
+    def test_repository_root_main_is_mapped_and_its_includes_are_transformed(self):
+        # 九个旧 ref 中仍有根目录 main.cpp。仅处理 src/ 会漏搬入口,
+        # 还会让三方补丁中的旧 include 与最终文件不一致。
+        from layout import read_tsv
+        real_map = LayoutMap(read_tsv(HERE / "src_layout_map.tsv"))
+        self.assertEqual("src/apps/cli/main.cpp", real_map.translate("main.cpp"))
+        self.rows.append(("main.cpp", "src/apps/cli/main.cpp", "move"))
+        self.write_map()
+        original = b'#include "src/other/header.hpp"\r\nint feature_value = 1;\r\n'
+        self.write("main.cpp", original)
+        self.write("src/other/header.hpp", b"#pragma once\n")
+        self.write("CMakeLists.txt", b"set(MAIN main.cpp)\n")
+        self.commit("root entry baseline")
+        git(self.root, "switch", "-c", "legacy")
+        self.write("main.cpp", original.replace(b"= 1", b"= 2"))
+        self.commit("root entry feature")
+        git(self.root, "switch", "master")
+        applied = apply_map(self.root, self.map)
+        self.assertFalse(applied["issues"], applied)
+        self.commit("final grouped entry")
+        report = migrate(self.root, "patch", "legacy", "master",
+                         self.parent / "root-entry", self.map)
+        self.assertTrue(report["success"], report)
+        result = Path(report["destination"])
+        self.assertFalse((result / "main.cpp").exists())
+        self.assertEqual(b'#include "tool/header.hpp"\r\nint feature_value = 2;\r\n',
+                         (result / "src/apps/cli/main.cpp").read_bytes())
+        self.assertIn(b"src/apps/cli/main.cpp", (result / "CMakeLists.txt").read_bytes())
+
     def test_current_layout_rehearsal_does_not_normalize_or_claim_final_layout(self):
         path = self.branch_fixture(final=False)
         report = migrate(self.root, "patch", "legacy", "master", self.parent / "current", self.map, layout="current")

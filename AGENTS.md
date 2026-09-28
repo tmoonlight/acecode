@@ -14,7 +14,7 @@
 
 ACECode is a C++17 coding agent with terminal, daemon, web and optional desktop surfaces. [CLI main](src/apps/cli/main.cpp) dispatches into [TuiApp](src/apps/tui/app/tui_app.hpp). Source modules live in six groups: base, domain, adapters, engine, host and apps. Follow [the source layout guide](docs/architecture/src-layout.md); [src/layers.tsv](src/layers.tsv) is the checked dependency policy.
 
-映射版本: refactor20260927/P3, src_layout_map.tsv SHA-256 e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965。原 ref/worktree 保留,旧路径不留转发头;按映射生成 patch、处理语义冲突并通过 migrate_branch.py --check 后才允许合入。
+映射版本: refactor20260927/P3, src_layout_map.tsv SHA-256 17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459。原 ref/worktree 保留,旧路径不留转发头;按映射生成 patch、处理语义冲突并通过 migrate_branch.py --check 后才允许合入。
 
 Unit tests live in [tests/](tests) and mirror module paths without the group prefix; for example, session storage code should be covered under `tests/session/`. Static model catalog assets are in [assets/models_dev/](assets/models_dev). User and subsystem docs live in [docs/](docs). Vendored or submodule code is under [external/](external). vcpkg overlay ports are under [ports/](ports).
 

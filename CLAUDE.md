@@ -12,7 +12,7 @@
 
 源码采用 base / domain / adapters / engine / host / apps 六组。[分层说明](docs/architecture/src-layout.md)定义放置规则,[src/layers.tsv](src/layers.tsv)定义依赖闸门。项目头使用模块根形式,共享测试头使用 test_support 完整前缀,禁止父目录 include。实现与验收状态分别记录在四个 refactor20260927 change 中。
 
-映射版本: refactor20260927/P3, src_layout_map.tsv SHA-256 e2eb7cc27deba8a1e0bfb8fa3e6771094a4ccb875d33cab20578289cd5198965。原 ref/worktree 保留,旧路径不留转发头;按映射生成 patch、处理语义冲突并通过 migrate_branch.py --check 后才允许合入。
+映射版本: refactor20260927/P3, src_layout_map.tsv SHA-256 17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459。原 ref/worktree 保留,旧路径不留转发头;按映射生成 patch、处理语义冲突并通过 migrate_branch.py --check 后才允许合入。
 
 Implementation m emory for coding agents working in this repository. For user-facing setup and run modes, use [README.md](README.md). For stable structure, use[ARCHITECTURE.md](ARCHITECTURE.md). For contributor rules, use [AGENTS.md](AGENTS.md).
 
