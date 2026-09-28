@@ -106,10 +106,6 @@ void AgentLoop::recover_worker_task_error(const char* detail, bool chat_task) {
     active_turn_swarm_mode_ = false;
     hook_request_context_.clear();
     {
-        std::lock_guard<std::mutex> lock(active_provider_mu_);
-        active_provider_.reset();
-    }
-    {
         std::lock_guard<std::mutex> lock(last_turn_error_mu_);
         last_turn_error_ = message;
     }

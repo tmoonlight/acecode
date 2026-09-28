@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/model_step/active_provider_slot.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/guards/doom_guard.hpp"
 #include "computer_use/runtime.hpp"
@@ -30,13 +31,14 @@ AgentLoop::AgentLoop(ProviderAccessor provider_accessor, ToolExecutor& tools,
     : provider_accessor_(std::move(provider_accessor))
     , tools_(tools)
     , callbacks_(std::move(callbacks))
+    , active_provider_slot_(std::make_unique<agent::ActiveProviderSlot>())
     , cwd_(cwd)
     , permissions_(permissions)
     , path_validator_(cwd, permissions.is_dangerous())
     , no_model_config_prompt_(kDefaultNoModelConfiguredPrompt)
 {
     reload_exec_rules();
-    worker_thread_ = std::thread(&AgentLoop::worker_main, this);
+    worker_thread_ = JoiningThread(&AgentLoop::worker_main, this);
 }
 
 AgentLoop::~AgentLoop() {
@@ -62,7 +64,7 @@ ResolvedQuestionPolicy AgentLoop::resolved_question_policy() const {
 }
 
 void AgentLoop::abort() {
-    abort_requested_ = true;
+    abort_signal_.request();
     if (session_manager_) release_computer_use_session(session_manager_->current_session_id());
     wake_active_provider_retry();
 }
@@ -78,9 +80,13 @@ void AgentLoop::release_computer_use_session(const std::string& session_id) cons
     computer_use::release_session(session_id);
 }
 
+void AgentLoop::wake_active_provider_retry() {
+    active_provider_slot_->wake();
+}
+
 void AgentLoop::clear_stale_abort_request() {
     if (!busy_.load()) {
-        abort_requested_ = false;
+        abort_signal_.clear();
     }
 }
 
@@ -90,7 +96,7 @@ void AgentLoop::shutdown() {
         std::lock_guard<std::mutex> lk(queue_mu_);
         shutdown_requested_ = true;
     }
-    abort_requested_ = true;
+    abort_signal_.request();
     wake_active_provider_retry();
     queue_cv_.notify_one();
     if (worker_thread_.joinable()) {

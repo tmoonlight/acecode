@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/tool_exec/tool_stream_progress.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
 #include "hooks/hook_manager.hpp"
@@ -142,21 +143,13 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
     emit_progress("tool_running", "正在调用工具 " + tc.function_name,
         cmd_preview, tc.function_name, tc.id, tool_index_int, true);
 
-    struct ProgressState {
-        std::mutex mu;
-        std::string current_line;
-        std::deque<std::string> tail_lines;
-        int total_lines = 0;
-        size_t total_bytes = 0;
-        std::chrono::steady_clock::time_point last_emit_at{};
-    };
-    auto prog = std::make_shared<ProgressState>();
+    auto prog = std::make_shared<agent::ToolStreamProgress>();
 
     ToolContext tool_ctx = build_tool_context();
     // Wire up per-call callbacks that aren't in the base context
     if (ask_prompter_) {
         AskUserQuestionPrompter* p = ask_prompter_;
-        std::atomic<bool>* abort_flag_ptr = &abort_requested_;
+        std::atomic<bool>* abort_flag_ptr = &abort_signal_.flag_for_legacy_api();
         const std::string tool_name_for_question = tc.function_name;
         const std::string tool_call_id_for_question = tc.id;
         tool_ctx.ask_user_questions =
@@ -201,7 +194,7 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
         // 超时与来源标注在这里算 —— 与 daemon 给 prompter 算
         // timeout_override 是同一处职责,两端不会各自漂移。
         AskQuestionChannel channel = ask_channel_;
-        std::atomic<bool>* abort_flag_ptr = &abort_requested_;
+        std::atomic<bool>* abort_flag_ptr = &abort_signal_.flag_for_legacy_api();
         const ResolvedQuestionPolicy policy = resolved_question_policy();
         int timeout_seconds = 0;
         if (goal_unattended_active()) {
@@ -240,25 +233,13 @@ ToolResult AgentLoop::run_tool_with_lifecycle(ToolBatchState& batch, ToolCall tc
     tool_ctx.stream = [prog, stream_update_cb, events_ptr, tool_start_tp,
                         tool_name_copy, tool_call_id_copy, tool_index_int,
                         update_coalesce_key, stream_clock](const std::string& chunk) {
-        std::vector<std::string> snapshot;
-        std::string current_partial;
-        int total_lines = 0;
-        size_t total_bytes = 0;
-        bool should_emit = false;
-        {
-            std::lock_guard<std::mutex> lk(prog->mu);
-            feed_line_state(chunk, prog->current_line, prog->tail_lines, prog->total_lines);
-            prog->total_bytes += chunk.size();
-            snapshot.assign(prog->tail_lines.begin(), prog->tail_lines.end());
-            current_partial = prog->current_line;
-            total_lines = prog->total_lines;
-            total_bytes = prog->total_bytes;
-            const auto now = stream_clock ? stream_clock() : std::chrono::steady_clock::now();
-            should_emit = prog->last_emit_at.time_since_epoch().count() == 0 ||
-                std::chrono::duration_cast<std::chrono::milliseconds>(now - prog->last_emit_at) >=
-                    std::chrono::milliseconds(500);
-            if (should_emit) prog->last_emit_at = now;
-        }
+        const auto progress = prog->append(
+            chunk, stream_clock ? stream_clock() : std::chrono::steady_clock::now());
+        const auto& snapshot = progress.tail_lines;
+        const auto& current_partial = progress.current_partial;
+        const auto total_bytes = progress.total_bytes;
+        const auto total_lines = progress.total_lines;
+        const bool should_emit = progress.should_emit;
         if (stream_update_cb) {
             stream_update_cb(snapshot, current_partial, total_bytes, total_lines);
         }

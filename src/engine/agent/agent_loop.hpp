@@ -1,5 +1,8 @@
 #pragma once
 
+#include "utils/abort_signal.hpp"
+#include "utils/joining_thread.hpp"
+
 #include "agent/agent_callbacks.hpp"
 #include "agent/control/control_receipt.hpp"
 #include "agent/turn/turn_types.hpp"
@@ -64,7 +67,7 @@ struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
 
-namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; }
+namespace agent { struct ToolBatchState; struct DeferredTaskCompleteEnd; class ActiveProviderSlot; class SynchronizedDoomGuard; }
 
 class AgentLoop {
 public:
@@ -147,7 +150,7 @@ public:
     void shutdown();
 
     // Returns true if abort has been requested. Useful for confirm callbacks.
-    bool is_aborting() const { return abort_requested_.load(); }
+    bool is_aborting() const { return abort_signal_.raw().load(); }
 
     // Returns true while the worker is processing a submitted turn.
     bool is_busy() const { return busy_.load(); }
@@ -464,10 +467,6 @@ private:
     // goal:HTTP 429 → usage_limited,其余 → blocked。对齐 Codex ext/goal 的
     // on_turn_error,防止 maybe_continue_goal 对着同一个错误无限重试烧 token。
     void stop_active_goal_after_turn_error(const ProviderErrorInfo& info);
-    void set_active_provider_for_retry(
-        const std::shared_ptr<LlmProvider>& provider);
-    void clear_active_provider_for_retry(
-        const std::shared_ptr<LlmProvider>& provider);
     void wake_active_provider_retry();
     // 在每次模型请求前消费 pending steering 标记,把 budget_limit /
     // objective_updated 提示以 hidden_goal_context user 消息注入。
@@ -617,7 +616,7 @@ private:
     // PA 兜底(src/pa/pa_overflow_rescue):服务端以 PA 特征报文拒收整个请求
     // 时,原样重发 → 逐档收缩 → 紧急档 → 等待重发,不因这条报文终止回合。
     // 返回 Continue 表示按新状态重发同一回合;Break 表示等待次数耗尽或用户
-    // 中止(调用方按 abort_requested_ 区分)。
+    // 中止(调用方按 abort_signal_.raw() 区分)。
     HandleErrorResult run_pa_overflow_rescue(
         const ProviderErrorInfo& error,
         int request_tokens,
@@ -638,8 +637,7 @@ private:
         const std::shared_ptr<LlmProvider>& provider_snapshot,
         const ProgressEmitter& emit_progress,
         // Mutable state from the orchestrator:
-        AgentLoopDoomGuard& doom_guard,
-        std::mutex& doom_guard_mu,
+        agent::SynchronizedDoomGuard& doom_guard,
         ToolPreambleTitle& pending_preamble);
 
     // Helper: construct a ToolContext with all callbacks wired up.
@@ -659,13 +657,12 @@ private:
     std::mutex side_question_threads_mu_;
     std::vector<std::thread> side_question_threads_;
     std::atomic<bool> side_question_shutdown_{false};
-    std::atomic<bool> abort_requested_{false};
+    AbortSignal abort_signal_;
     // Distinguishes a steering interrupt from a manual stop. The former
     // immediately continues with a promised turn and must not pause goals.
     std::atomic<bool> turn_interrupt_requested_{false};
     std::atomic<bool> busy_{false};
-    std::mutex active_provider_mu_;
-    std::weak_ptr<LlmProvider> active_provider_;
+    std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
     std::string cwd_;
     mutable sandbox::SandboxRuntime sandbox_runtime_;
     sandbox::ExecRules exec_rules_;
@@ -826,7 +823,6 @@ private:
     std::deque<UserInput> pending_turn_inputs_;
 
     // Worker thread and task queue
-    std::thread worker_thread_;
     std::mutex queue_mu_;
     std::condition_variable queue_cv_;
     // Immediate steering follow-ups run before ordinary queued work. Separate
@@ -853,6 +849,9 @@ private:
     // 此时 AskUserQuestion 工具(daemon 工厂版)会返回 rejected。
     AskUserQuestionPrompter* ask_prompter_ = nullptr;
     AskQuestionChannel ask_channel_;
+
+    // Declared last: join the worker before any dependency is destroyed.
+    JoiningThread worker_thread_;
 };
 
 } // namespace acecode

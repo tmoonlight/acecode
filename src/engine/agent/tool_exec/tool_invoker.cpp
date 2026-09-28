@@ -65,12 +65,10 @@ ToolResult AgentLoop::execute_single_tool(const std::string& tool_name, const st
 }
 
 std::optional<ToolResult> AgentLoop::maybe_guard_tool(ToolBatchState& batch, const ToolCall& tc) {
-    std::lock_guard<std::mutex> lk(batch.doom_guard_mu);
     return batch.doom_guard.maybe_guard(tc);
 }
 
 void AgentLoop::record_doom_guard_result(ToolBatchState& batch, const ToolCall& tc, const ToolResult& result) {
-    std::lock_guard<std::mutex> lk(batch.doom_guard_mu);
     batch.doom_guard.record_result(tc, result);
 }
 

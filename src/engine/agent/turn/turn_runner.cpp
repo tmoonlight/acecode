@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "computer_use/session_lease.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "agent/guards/doom_guard.hpp"
@@ -62,11 +63,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
                                       const ChatMessage* retry_message) {
     // Capture the owner before callbacks can switch/delete the active session.
     // RAII also releases on exceptions and early hook returns.
-    struct DesktopTurnLease {
-        const AgentLoop* loop;
-        std::string owner;
-        ~DesktopTurnLease() { loop->release_computer_use_session(owner); }
-    } desktop_turn_lease{this, session_manager_ ? session_manager_->current_session_id() : std::string{}};
+    computer_use::SessionLease desktop_turn_lease(
+        session_manager_ ? session_manager_->current_session_id() : std::string{},
+        computer_use_release_);
     // P0-11:进度节流的取时函数在回合开始时按值捕获,回合内不再读取可配置成员。
     turn_progress_clock_ = progress_clock_;
     {
@@ -76,7 +75,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     // 「编辑项目」保存的附加文件夹:每回合开头重读,放在沙盒描述快照之前,
     // 本回合的系统提示与可写根一致且回合内不变(prompt cache 前缀稳定)。
     refresh_workspace_folders();
-    abort_requested_ = false;
+    abort_signal_.clear();
     turn_interrupt_requested_ = false;
     busy_ = true;
     last_turn_outcome_.store(kTurnOutcomeNone, std::memory_order_release);
@@ -154,7 +153,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     auto turn_info = retry_message
         ? prepare_retry_user_turn(*retry_message)
         : prepare_user_turn(input, hidden_goal_context);
-    if (session_manager_) desktop_turn_lease.owner = session_manager_->current_session_id();
+    if (session_manager_) desktop_turn_lease.set_owner(session_manager_->current_session_id());
     std::string turn_timing_status = "completed";
     if (preturn_compaction_failed) {
         turn_timing_status = "error";
@@ -189,16 +188,12 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     constexpr int kMaxTextToolCallCorrections = 2;
     constexpr int kMaxDsmlToolCallCorrections = 1;
     int text_tool_call_corrections = 0;
-    AgentLoopDoomGuard doom_guard;
-    std::mutex doom_guard_mu;
+    agent::SynchronizedDoomGuard doom_guard;
     int observed_compact_generation = compact_generation_.load(std::memory_order_relaxed);
     auto reset_doom_guard_after_compact = [&]() {
         const int current_generation = compact_generation_.load(std::memory_order_relaxed);
         if (current_generation == observed_compact_generation) return;
-        {
-            std::lock_guard<std::mutex> lk(doom_guard_mu);
-            doom_guard.reset();
-        }
+        doom_guard.reset();
         observed_compact_generation = current_generation;
         LOG_INFO("Doom guard reset after compact generation " +
                  std::to_string(current_generation));
@@ -406,18 +401,15 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     };
 
     // Main agent loop
-    while (!preturn_compaction_failed && !abort_requested_ && !terminator_fired &&
+    while (!preturn_compaction_failed && !abort_signal_.raw() && !terminator_fired &&
            (!has_max_iterations || total_iterations < max_iter)) {
         ++total_iterations;
-        {
-            std::lock_guard<std::mutex> lk(doom_guard_mu);
-            doom_guard.begin_model_turn();
-        }
+        doom_guard.begin_model_turn();
         reset_doom_guard_after_compact();
         LOG_INFO("--- Agent loop turn " + std::to_string(total_iterations) +
                  ", messages: " + std::to_string(messages_.size()));
 
-        if (abort_requested_) {
+        if (abort_signal_.raw()) {
             LOG_WARN("Abort requested, breaking loop");
             break;
         }
@@ -483,7 +475,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             current_model_step);
         TokenUsage step_usage = provider_result.accumulated.usage;
 
-        if (abort_requested_) {
+        if (abort_signal_.raw()) {
             const auto& output = provider_result.accumulated;
             if (!output.content.empty() ||
                 (output.content_parts.is_array() && !output.content_parts.empty())) {
@@ -804,14 +796,14 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
         // Phase 5: Execute tool calls
         terminator_fired = execute_tool_calls(
             provider_result.accumulated, provider_snapshot,
-            emit_agent_progress, doom_guard, doom_guard_mu, current_step_preamble_);
+            emit_agent_progress, doom_guard, current_step_preamble_);
         // 混合形态:同一回复里既有原生调用,又有与之不一致的文本调用(回显在
         // provider 那边已剔除,记为 None 不会走到这里)。只执行了原生调用,
         // 批次跑完后追加隐藏说明,免得模型以为文本里那几个也执行了。不消耗
         // 纠正预算,不发界面通知。
         if (provider_result.accumulated.text_tool_calls.outcome ==
                 TextToolCallDiagnostic::Outcome::IgnoredWithNative &&
-            !terminator_fired && !abort_requested_) {
+            !terminator_fired && !abort_signal_.raw()) {
             const std::string note = build_text_tool_call_ignored_note(
                 provider_result.accumulated.text_tool_calls);
             if (!note.empty()) {
@@ -843,7 +835,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     }
 
     // Post-loop cleanup
-    if (!abort_requested_ && !terminator_fired &&
+    if (!abort_signal_.raw() && !terminator_fired &&
         has_max_iterations && total_iterations >= max_iter) {
         std::string stop_msg = "Agent loop stopped: reached max_iterations (" +
                                std::to_string(max_iter) + ")";
@@ -860,8 +852,8 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
     }
 
     const bool interrupted_for_new_turn =
-        abort_requested_.load() && turn_interrupt_requested_.exchange(false);
-    if (abort_requested_) {
+        abort_signal_.raw().load() && turn_interrupt_requested_.exchange(false);
+    if (abort_signal_.raw()) {
         turn_timing_status = "aborted";
         account_goal_usage(0, false);
         if (interrupted_for_new_turn) {
@@ -896,7 +888,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
             turn_timing_status);
     }
 
-    if (abort_requested_) {
+    if (abort_signal_.raw()) {
         if (interrupted_for_new_turn) {
             dispatch_message("system", "[Interjected]", false,
                 make_system_notice_metadata("turn_interjected", {}, {{"turn_interrupt", true}}));
@@ -913,7 +905,7 @@ void AgentLoop::run_agent_with_input(const UserInput& input,
 
     // 回合结束:阶段前言不留到下一回合。
     reset_activity_for_turn();
-    release_computer_use_session(desktop_turn_lease.owner);
+    desktop_turn_lease.release_before_terminal();
     if (callbacks_.on_turn_finished) {
         callbacks_.on_turn_finished(turn_timing_status);
     }

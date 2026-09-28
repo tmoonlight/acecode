@@ -1,4 +1,5 @@
 #include "agent/agent_loop.hpp"
+#include "agent/model_step/active_provider_slot.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/detail/agent_payloads.hpp"
@@ -286,7 +287,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
         case StreamEventType::Error:
             if ((evt.provider_error.kind == ProviderErrorKind::UserCancelled ||
                  evt.error == "Request cancelled") &&
-                abort_requested_.load()) {
+                abort_signal_.raw().load()) {
                 break;
             }
             result.provider_error_seen = true;
@@ -307,10 +308,10 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
         emit_progress(
             "model_waiting", "正在等待模型响应",
             std::string{}, std::string{}, std::string{}, -1, true);
-        set_active_provider_for_retry(provider);
+        agent::ActiveProviderScope active_provider(*active_provider_slot_, provider);
         provider->chat_stream(bundle.messages_with_system, bundle.tool_defs,
-                              stream_callback, &abort_requested_);
-        clear_active_provider_for_retry(provider);
+                              stream_callback, &abort_signal_.flag_for_legacy_api());
+        active_provider.reset();
         // 流结束:把扫描器扣住的字节结清(半截开标签按正文放行,没闭合的标签
         // 正文仍算前言)。
         publish_scanned(text_preamble_scanner_.flush());
@@ -318,13 +319,11 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
                  std::to_string(result.accumulated.content.size()) +
                  " tool_calls=" + std::to_string(result.accumulated.tool_calls.size()));
     } catch (const std::exception& e) {
-        clear_active_provider_for_retry(provider);
         LOG_ERROR(std::string("chat_stream exception: ") + e.what());
         result.provider_error_seen = true;
         result.provider_error_info.kind = ProviderErrorKind::Unknown;
         result.provider_error_info.display_message = e.what();
     } catch (...) {
-        clear_active_provider_for_retry(provider);
         LOG_ERROR("chat_stream threw an unknown exception");
         result.provider_error_seen = true;
         result.provider_error_info.kind = ProviderErrorKind::Unknown;
@@ -339,7 +338,7 @@ AgentLoop::ProviderCallResult AgentLoop::call_provider_and_collect(
     }
     result.provider_attempt = provider_attempt;
     if (!result.provider_error_seen &&
-        !abort_requested_.load() &&
+        !abort_signal_.raw().load() &&
         final_usage.has_data) {
         // Record at the same boundary as live accounting, before consumers
         // can throw and transfer control to worker recovery.

@@ -31,7 +31,7 @@ ToolContext AgentLoop::build_tool_context() {
     ToolContext tool_ctx;
     tool_ctx.cwd = cwd_;
     tool_ctx.write_root = write_root();
-    tool_ctx.abort_flag = &abort_requested_;
+    tool_ctx.abort_flag = &abort_signal_.flag_for_legacy_api();
     tool_ctx.session_manager = session_manager_;
     if (session_manager_) {
         tool_ctx.session_id = session_manager_->current_session_id();

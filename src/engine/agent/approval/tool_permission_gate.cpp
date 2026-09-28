@@ -446,7 +446,7 @@ ToolResult AgentLoop::run_write_tool(ToolBatchState& batch, const ToolCall& effe
                 exec_permission ? exec_permission->arguments.dump() : effective_tc.function_arguments,
                 session_manager_);
         PermissionResult perm = prompter_
-            ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_requested_)
+            ? prompter_->prompt(effective_tc.function_name, permission_args, &abort_signal_.flag_for_legacy_api())
             : callbacks_.on_tool_confirm(effective_tc.function_name, permission_args);
         if (perm == PermissionResult::Deny) {
             report_permission_resolved("deny", "interactive");

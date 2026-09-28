@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/turn/busy_cycle.hpp"
+#include "agent/tool_exec/tool_stream_progress.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/tool_exec/tool_batch_types.hpp"
 #include "computer_use/runtime.hpp"
@@ -35,7 +37,7 @@ namespace acecode {
 using agent::detail::build_session_scratch_dir;
 
 void AgentLoop::run_shell(std::string command) {
-    abort_requested_ = false;
+    abort_signal_.clear();
     busy_ = true;
 
     LOG_WARN("user_initiated_shell: " + log_truncate(command, 200));
@@ -47,6 +49,17 @@ void AgentLoop::run_shell(std::string command) {
     if (callbacks_.on_busy_changed) {
         callbacks_.on_busy_changed(true);
     }
+
+    agent::BusyCycleScope finish([this] {
+        record_terminal_trajectory_events(
+            {{"busy", false}}, nlohmann::json::object());
+        if (callbacks_.on_busy_changed) {
+            callbacks_.on_busy_changed(false);
+        }
+        busy_ = false;
+        events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
+        events_.emit(SessionEventKind::Done, nlohmann::json::object());
+    });
 
     // Surface the invocation in the TUI using the usual tool_call styling so
     // the user sees a clear "-> bash command" line followed by its result.
@@ -81,27 +94,20 @@ void AgentLoop::run_shell(std::string command) {
         std::string cmd_preview = command;
         cmd_preview = truncate_utf8_prefix(cmd_preview, 60);
 
-        struct ProgressState {
-            std::string current_line;
-            std::deque<std::string> tail_lines;
-            int total_lines = 0;
-            size_t total_bytes = 0;
-        };
-        auto prog = std::make_shared<ProgressState>();
+        auto prog = std::make_shared<agent::ToolStreamProgress>();
 
         ToolContext tool_ctx;
         tool_ctx.cwd = cwd_;
         tool_ctx.write_root = write_root();
-        tool_ctx.abort_flag = &abort_requested_;
+        tool_ctx.abort_flag = &abort_signal_.flag_for_legacy_api();
         tool_ctx.session_manager = session_manager_;
         tool_ctx.scratch_dir = build_session_scratch_dir(cwd_, session_manager_);
         if (callbacks_.on_tool_progress_update) {
             auto update_cb = callbacks_.on_tool_progress_update;
             tool_ctx.stream = [prog, update_cb](const std::string& chunk) {
-                feed_line_state(chunk, prog->current_line, prog->tail_lines, prog->total_lines);
-                prog->total_bytes += chunk.size();
-                std::vector<std::string> snapshot(prog->tail_lines.begin(), prog->tail_lines.end());
-                update_cb(snapshot, prog->current_line, prog->total_bytes, prog->total_lines);
+                const auto progress = prog->append(chunk);
+                update_cb(progress.tail_lines, progress.current_partial,
+                          progress.total_bytes, progress.total_lines);
             };
         }
 
@@ -173,14 +179,7 @@ void AgentLoop::run_shell(std::string command) {
     // stderr empty; exit code derives from `success`.
     inject_shell_turn(command, result.output, "", result.success ? 0 : 1);
 
-    record_terminal_trajectory_events(
-        {{"busy", false}}, nlohmann::json::object());
-    if (callbacks_.on_busy_changed) {
-        callbacks_.on_busy_changed(false);
-    }
-    busy_ = false;
-    events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
-    events_.emit(SessionEventKind::Done, nlohmann::json::object());
+    finish.finish();
 }
 
 } // namespace acecode

@@ -29,13 +29,7 @@ using utils::now_epoch_ms;
 
 bool AgentLoop::wait_for_pa_rescue_delay(int wait_ms) {
     const int scaled = pa::scaled_rescue_wait_ms(wait_ms);
-    const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::milliseconds(scaled);
-    while (!abort_requested_.load()) {
-        if (std::chrono::steady_clock::now() >= deadline) return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    return false;
+    return !abort_signal_.wait_for(std::chrono::milliseconds(scaled));
 }
 
 void AgentLoop::emit_pa_rescue_wait_progress(const ProviderErrorInfo& error,

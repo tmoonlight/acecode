@@ -4,6 +4,7 @@
 #include "tool/tool_executor.hpp"
 
 #include <optional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -75,5 +76,35 @@ private:
     std::vector<Attempt> attempts_;
     std::unordered_map<std::string, int> cooldown_turns_;
 };
+
+namespace agent {
+
+// Serializes guard accounting from parallel read tools. No caller receives the
+// mutex or a mutable guard reference, so they cannot forget the pairing.
+class SynchronizedDoomGuard {
+public:
+    void begin_model_turn() {
+        std::lock_guard<std::mutex> lock(mu_);
+        guard_.begin_model_turn();
+    }
+    void reset() {
+        std::lock_guard<std::mutex> lock(mu_);
+        guard_.reset();
+    }
+    std::optional<ToolResult> maybe_guard(const ToolCall& call) {
+        std::lock_guard<std::mutex> lock(mu_);
+        return guard_.maybe_guard(call);
+    }
+    void record_result(const ToolCall& call, const ToolResult& result) {
+        std::lock_guard<std::mutex> lock(mu_);
+        guard_.record_result(call, result);
+    }
+
+private:
+    std::mutex mu_;
+    AgentLoopDoomGuard guard_;
+};
+
+} // namespace agent
 
 } // namespace acecode

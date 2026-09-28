@@ -91,7 +91,7 @@ bool AgentLoop::retry_last_user_message(
         task.kind = WorkerTask::Kind::Chat;
         task.retry_user_message_id = expected_user_message_id;
         task_queue_.push(std::move(task));
-        abort_requested_ = false;
+        abort_signal_.clear();
     }
     error.clear();
     queue_cv_.notify_one();

@@ -63,3 +63,41 @@ TEST(AgentLoopWorkerRecovery, FailingTaskAndErrorCallbacksDoNotPreventNextTurn) 
         EXPECT_TRUE(loop.active_turn_id().empty());
     }
 }
+
+TEST(AgentLoopWorkerRecovery, CompactExceptionEmitsTerminalEventsOnlyOnce) {
+    std::mutex mu;
+    std::condition_variable cv;
+    std::vector<std::string> outcomes;
+    int idle_events = 0;
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_text("next turn");
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    bool fail_compact = true;
+    acecode::AgentLoop loop([&]() -> std::shared_ptr<acecode::LlmProvider> {
+        if (fail_compact) {
+            fail_compact = false;
+            throw std::runtime_error("compact provider lookup failed");
+        }
+        return provider;
+    }, tools, {}, ".", permissions);
+    loop.events().subscribe([&](const acecode::SessionEvent& event) {
+        std::lock_guard<std::mutex> lock(mu);
+        if (event.kind == acecode::SessionEventKind::BusyChanged &&
+            !event.payload.value("busy", true)) ++idle_events;
+        if (event.kind == acecode::SessionEventKind::Done) {
+            outcomes.push_back(event.payload.value("outcome", ""));
+            cv.notify_all();
+        }
+    });
+    loop.submit_compact();
+    loop.submit("continue after compact error");
+    {
+        std::unique_lock<std::mutex> lock(mu);
+        EXPECT_TRUE(cv.wait_for(lock, 10s, [&] { return outcomes.size() >= 2; }));
+    }
+    loop.shutdown();
+    EXPECT_EQ(outcomes, (std::vector<std::string>{"error", "completed"}));
+    EXPECT_EQ(idle_events, 2);
+    EXPECT_EQ(provider->turn_count(), 1);
+}

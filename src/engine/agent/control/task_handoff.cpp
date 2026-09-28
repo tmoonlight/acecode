@@ -43,7 +43,7 @@ bool AgentLoop::submit_task_suggestion_input(const UserInput& input,
         task.hidden_goal_context = false;
         task_queue_.push(std::move(task));
         task_suggestion_input_ids_.insert(suggestion_id);
-        abort_requested_ = false;
+        abort_signal_.clear();
     }
     queue_cv_.notify_one();
     return true;

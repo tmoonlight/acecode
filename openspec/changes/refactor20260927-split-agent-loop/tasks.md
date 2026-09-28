@@ -82,7 +82,7 @@
       - `agent_loop_ask_user_question_parallel_test`、`agent_loop_computer_use_scheduling_test`;
       - `agent_loop_tool_result_storage_test`、`agent_loop_termination_test`;
     - `audit_sandbox` 早绑定与 daemon ask 分支晚求值两处时机,经 code review 逐条确认。
-- [ ] 2.5 【A-05】【主】RAII 原语落地,依赖 ownership 的 P2-01。
+- [ ] 2.5 【A-05】【主】RAII 原语落地,依赖 ownership 的 P2-01。〔实现完成: Codex-root 2026-09-28;取消信号、provider/忙碌/桌面租约作用域、同步保护器与共享进度已迁入,新增取消/异常/析构用例,待统一验收〕
   - `ActiveProviderScope` 替换四处手工 set/clear,删除 recover 中 `active_provider_.reset()` 这个兜底;
   - `BusyCycleScope`:析构时检查 `std::uncaught_exceptions()`,异常路径跳过终态;
   - `SessionLease` 替换 `DesktopTurnLease` 与 6663 行的手工释放;

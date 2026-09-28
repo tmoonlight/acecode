@@ -47,8 +47,7 @@ bool AgentLoop::execute_tool_calls(
     const ChatResponse& accumulated,
     const std::shared_ptr<LlmProvider>& provider_snapshot,
     const ProgressEmitter& emit_progress,
-    AgentLoopDoomGuard& doom_guard,
-    std::mutex& doom_guard_mu,
+    agent::SynchronizedDoomGuard& doom_guard,
     ToolPreambleTitle& pending_preamble) {
     // Record the assistant message with tool_calls in the history
     auto tc_msg = ToolExecutor::format_assistant_tool_calls(accumulated);
@@ -150,7 +149,7 @@ bool AgentLoop::execute_tool_calls(
     std::vector<DeferredTaskCompleteEnd> deferred_task_complete_ends(
         accumulated.tool_calls.size());
     ToolBatchState batch{
-        doom_guard, doom_guard_mu, emit_progress, step_preamble,
+        doom_guard, emit_progress, step_preamble,
         delivery_replacements, deferred_task_complete_ends};
 
     // Helper: extract context from a tool call
@@ -170,7 +169,7 @@ bool AgentLoop::execute_tool_calls(
     // canonical 落盘与跨结果的 aggregate budget 仍在 Phase 3 统一进行。
 
     // Phase 1: Execute read-only tools in parallel
-    if (!read_entries.empty() && !abort_requested_) {
+    if (!read_entries.empty() && !abort_signal_.raw()) {
         unsigned int max_concurrency = std::min(
             static_cast<unsigned int>(4),
             std::max(static_cast<unsigned int>(1), std::thread::hardware_concurrency()));
@@ -182,7 +181,7 @@ bool AgentLoop::execute_tool_calls(
         };
 
         size_t i = 0;
-        while (i < read_entries.size() && !abort_requested_) {
+        while (i < read_entries.size() && !abort_signal_.raw()) {
             size_t batch_end = std::min(i + max_concurrency, read_entries.size());
             std::vector<PendingReadTool> pending;
 
@@ -255,7 +254,7 @@ bool AgentLoop::execute_tool_calls(
 
     // Phase 2: Execute write tools sequentially (with permission checks)
     for (const auto& entry : write_entries) {
-        if (abort_requested_) break;
+        if (abort_signal_.raw()) break;
 
         const auto& tc = *entry.tc;
         LOG_INFO("Tool call (write): " + tc.function_name + " id=" + tc.id);

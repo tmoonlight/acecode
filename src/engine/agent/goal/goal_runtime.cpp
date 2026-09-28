@@ -202,7 +202,7 @@ std::string AgentLoop::build_goal_objective_updated_prompt(const ThreadGoal& goa
 }
 
 void AgentLoop::maybe_continue_goal() {
-    if (!session_manager_ || abort_requested_.load() || busy_.load()) return;
+    if (!session_manager_ || abort_signal_.raw().load() || busy_.load()) return;
     if (!tools_.is_allowed("update_goal", &tool_capability_policy_)) return;
     // Plan mode 下不自动开新回合(对齐 Codex try_start_turn_if_idle 的
     // PlanMode 拒绝):plan 模式的只读约束不该被 goal continuation 绕过。

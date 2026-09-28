@@ -254,7 +254,7 @@ TurnSteerResult AgentLoop::interrupt_turn(
         // cannot be acknowledged and then discarded during turn teardown.
         active_turn_accepting_ = false;
         turn_interrupt_requested_.store(true);
-        abort_requested_.store(true);
+        abort_signal_.request();
     }
 
     wake_active_provider_retry();

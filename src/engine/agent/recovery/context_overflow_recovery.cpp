@@ -47,7 +47,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
         return HandleErrorResult::Proceed;
     }
 
-    if (abort_requested_) {
+    if (abort_signal_.raw()) {
         return HandleErrorResult::Break;
     }
 
@@ -80,7 +80,7 @@ AgentLoop::HandleErrorResult AgentLoop::handle_provider_error(
             result.provider_error_info, request_tokens,
             emergency_request_profile);
         if (rescue == HandleErrorResult::Continue) return rescue;
-        if (abort_requested_) return HandleErrorResult::Break;
+        if (abort_signal_.raw()) return HandleErrorResult::Break;
         pa_rescue_exhausted = true;
     } else if (context_overflow && !model_output_seen) {
         // 先记账再恢复:这一轮已经撞墙了救不回来,但下一轮可以不撞。

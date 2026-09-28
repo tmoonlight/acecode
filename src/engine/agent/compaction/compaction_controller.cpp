@@ -1,4 +1,6 @@
 #include "agent/agent_loop.hpp"
+#include "agent/turn/busy_cycle.hpp"
+#include "agent/model_step/active_provider_slot.hpp"
 #include "agent/approval/permission_payloads.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/request/provider_history.hpp"
@@ -148,17 +150,17 @@ bool AgentLoop::maybe_run_auto_compact() {
     LOG_INFO("Auto full compact starting; messages=" + std::to_string(messages_.size()) +
              " active_estimated_tokens=" + std::to_string(pre_tokens) +
              " threshold=" + std::to_string(threshold));
-    set_active_provider_for_retry(provider_snapshot);
+    agent::ActiveProviderScope active_provider(*active_provider_slot_, provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
         messages_,
         initial_context,
         true,
-        &abort_requested_,
+        &abort_signal_.flag_for_legacy_api(),
         [this](const ProviderErrorInfo& info, bool waiting) {
             emit_retry_lifecycle(info, waiting, true);
         });
-    clear_active_provider_for_retry(provider_snapshot);
+    active_provider.reset();
 
     if (!result.performed) {
         LOG_WARN("Auto full compact failed; error=" +
@@ -201,7 +203,7 @@ bool AgentLoop::maybe_run_auto_compact() {
 }
 
 void AgentLoop::run_compact() {
-    abort_requested_ = false;
+    abort_signal_.clear();
     busy_ = true;
 
     const std::string compact_notice_id = generate_uuid_v7();
@@ -223,7 +225,7 @@ void AgentLoop::run_compact() {
         "Compacting conversation...",
         make_compact_notice_metadata(compact_notice_id, "progress"));
 
-    auto finish = [this]() {
+    agent::BusyCycleScope finish([this]() {
         record_terminal_trajectory_events(
             {{"busy", false}}, nlohmann::json::object());
         if (callbacks_.on_busy_changed) {
@@ -232,7 +234,7 @@ void AgentLoop::run_compact() {
         busy_ = false;
         events_.emit(SessionEventKind::BusyChanged, nlohmann::json{{"busy", false}});
         events_.emit(SessionEventKind::Done, nlohmann::json::object());
-    };
+    });
 
     if (hook_manager_) {
         auto fields = build_hook_common_fields(kCodexHookEventPreCompact);
@@ -255,17 +257,17 @@ void AgentLoop::run_compact() {
         return;
     }
 
-    set_active_provider_for_retry(provider_snapshot);
+    agent::ActiveProviderScope active_provider(*active_provider_slot_, provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
         messages_,
         build_compaction_initial_context(),
         false,
-        &abort_requested_,
+        &abort_signal_.flag_for_legacy_api(),
         [this](const ProviderErrorInfo& info, bool waiting) {
             emit_retry_lifecycle(info, waiting, true);
         });
-    clear_active_provider_for_retry(provider_snapshot);
+    active_provider.reset();
 
     if (!result.performed) {
         dispatch_message("error", "[Error] " + result.error, false);

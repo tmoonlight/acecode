@@ -10,6 +10,7 @@
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/session_manager.hpp"
+#include "session/session_client.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_repair.hpp"
 #include "tool/tool_executor.hpp"
@@ -367,4 +368,48 @@ TEST(AgentLoopPaRescue, RecoversAgainAfterASuccessInTheSameTurn) {
     EXPECT_FALSE(has_error_event(events));
     EXPECT_EQ(count_message_events(events, "system", "第 1 次收缩"), 2)
         << "两次撞墙各自从头开始一轮兜底";
+}
+
+// Use a long real wait so passing requires cancellation, not an elapsed timer.
+TEST(AgentLoopPaRescue, InterruptTurnWakesRescueWaitPromptly) {
+    RescueWaitGuard wait_guard;
+    acecode::pa::set_rescue_wait_scale_for_test(300.0);
+    std::mutex mu;
+    std::condition_variable cv;
+    bool waiting = false;
+    int done_count = 0;
+    RescueHarness h("pa_rescue_interrupt_wait");
+    h.push_pa_errors(1);
+    h.provider->push_text("follow-up response");
+    acecode::AgentCallbacks callbacks;
+    callbacks.on_model_retry = [&](const acecode::ProviderErrorInfo& info) {
+        std::lock_guard<std::mutex> lock(mu);
+        waiting = info.retry_delay_ms >= 600000;
+        cv.notify_all();
+    };
+    h.loop.set_callbacks(std::move(callbacks));
+    const auto subscription = h.loop.events().subscribe([&](const acecode::SessionEvent& event) {
+        if (event.kind != acecode::SessionEventKind::Done) return;
+        std::lock_guard<std::mutex> lock(mu);
+        ++done_count;
+        cv.notify_all();
+    });
+    h.loop.submit("start a turn");
+    bool entered_wait = false;
+    {
+        std::unique_lock<std::mutex> lock(mu);
+        entered_wait = cv.wait_for(lock, 10s, [&] { return waiting; });
+    }
+    EXPECT_TRUE(entered_wait);
+    if (entered_wait) {
+        acecode::UserInput follow_up;
+        follow_up.text = "interrupt and follow up";
+        const auto result = h.loop.interrupt_turn(h.loop.active_turn_id(), follow_up);
+        EXPECT_TRUE(result.accepted());
+        std::unique_lock<std::mutex> lock(mu);
+        EXPECT_TRUE(cv.wait_for(lock, 2s, [&] { return done_count == 2; }));
+    }
+    h.loop.shutdown();
+    h.loop.events().unsubscribe(subscription);
+    EXPECT_EQ(done_count, 2);
 }
