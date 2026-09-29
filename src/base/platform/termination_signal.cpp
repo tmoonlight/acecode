@@ -125,7 +125,8 @@ void TerminationSignal::install_process_handlers() {
 #else
     struct sigaction action{};
     action.sa_handler = posix_termination;
-    ::sigemptyset(&action.sa_mask);
+    // The macOS SDK exposes sigemptyset as a function-like macro.
+    sigemptyset(&action.sa_mask);
     if (::sigaction(SIGINT, &action, &impl_->previous_int) != 0)
         throw std::system_error(errno, std::generic_category(), "SIGINT handler");
     if (::sigaction(SIGTERM, &action, &impl_->previous_term) != 0) {
