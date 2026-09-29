@@ -480,10 +480,10 @@ P0-01 → P0-03 → P0-04 → P1-01 → P2-02 → P2-05 → P2-06 → P2-07 → 
 
 ### 8.4 二期待办(各自独立 change,本期只登记,不排期)
 
-- **P5 按组建库(D17)**:〔2026-09-29 用户要求继续完成,实施与验收记录见 [独立 P5 change](../refactor20260929-build-layer-libraries/tasks.md)〕
-  - 建 base_core、base_host、domain、adapters、engine、host(链接 Crow)、web 等 STATIC 库,`acecode_testable` 改为 INTERFACE 聚合目标;
-  - apps/tui 整体做成 STATIC 库,删除 TESTABLE_TUI 清单与正则。
-  - 需要 Linux 与 MSVC 全量链接验证。
+- **P5 按组建库(D17)**:〔2026-09-29 已通过 [PR #90](https://github.com/tmoonlight/acecode/pull/90) 合入 master,详见 [P5 验收记录](../refactor20260929-build-layer-libraries/verification.md)〕
+  - 已建立 base_core、base_host、domain、adapters、engine、host(链接 Crow)、web 等 12 个 STATIC 库,`acecode_testable` 已改为无源码的 INTERFACE 聚合目标;
+  - apps/tui 全部 144 个实现进入同一 STATIC 库,TESTABLE_TUI 清单与筛选逻辑已删除;Desktop 项目头搜索范围限制为 apps/base。
+  - MSVC / Linux 全量构建、链接和测试已通过;最终提交的十平台打包全部通过。
 - **P6C 其它超限文件**:每个文件一个 change,串行。
   - apps/desktop:agent_browser_host_mac.mm 3157、web_host.cpp 2889、main.cpp 2860、agent_browser_host.cpp 2832、tray_icon_win.cpp 2261;
   - base/config/config.cpp 2875;

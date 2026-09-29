@@ -43,6 +43,15 @@ Local environment observations were resolved without changing C++ assertions or 
 - A first run from the Windows-mounted source directory failed to enter provider retry before its two-second test deadline. The unrelated Git-context probe timed out after three seconds; direct git status exceeded eight seconds on that mount. The same case passed three times from the native Linux test directory (23/0/0 ms), then the entire suite passed there, matching CTest's working-directory convention.
 - The five native Python/architecture/runtime CTest checks passed. Four shell checks initially saw the Windows checkout's CRLF endings. They passed against a Git archive of the same f08cbf69 commit with LF endings. The package-launch check used a private PID namespace because an existing user Desktop process correctly caused its startup probe to skip outside isolation; that user process was preserved.
 
-Initial ten-platform packages passed on f08cbf6942e9252cd8176e22a2cf9784d2f0d384 ([run 36573562417](https://github.com/tmoonlight/acecode/actions/runs/36573562417)). Final review additionally removed Desktop's redundant six-root include interface and declared Deepin's desktop-support dependency. Both MSVC and GCC Desktop rebuilds and generated graph checks passed after this tightening; injecting an engine include root into the actual File API model is rejected. Updated PR/package CI is required for the final implementation commit. Branch validation does not publish a version tag, release or npm package.
+Final implementation: `d7044c96c707cd67cbd4edb08657fcd58481b431`. Desktop's narrowed apps/base include visibility and the explicit Deepin desktop-support dependency passed MSVC/GCC rebuilds; injecting an engine include root into the generated graph is rejected.
+
+| Final CI run | Evidence |
+| --- | --- |
+| [test 36577951353](https://github.com/tmoonlight/acecode/actions/runs/36577951353) | Success: strict refactor guards, Web tests/build, macOS installer contracts, Linux CLI/Desktop/unit-test build, File API library contract and models.dev validation. Full CTest registered 5227 cases: 1 disabled, 16 skipped, 0 failures; 288.34 seconds. |
+| [package 36577945428](https://github.com/tmoonlight/acecode/actions/runs/36577945428) | Success: Windows x64/ARM64, macOS x64/ARM64, Linux x64/ARM64/ARMv7 and Deepin x64/ARM64/ARMv7 all built and uploaded their packages. Release and npm publication were skipped for branch validation. |
+
+## Delivery
+
+[PR #90](https://github.com/tmoonlight/acecode/pull/90) merged the implementation into protected master on 2026-09-29 as `7e47b719c8a7000011dea895307ca4645af20189`. The local master was fast-forwarded and its HEAD matched the remote master. The subsequent acceptance-record update changes Markdown only; it does not alter the verified build or runtime code.
 
 Existing manual acceptance deferrals and the nine preserved legacy refs are unchanged. Unrelated console-font and agent-office working-tree changes are excluded from this delivery.
