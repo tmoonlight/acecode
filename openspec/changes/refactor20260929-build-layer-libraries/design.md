@@ -18,7 +18,7 @@ Each target publishes its own group include root and receives lower roots throug
 
 ### 2. Specialized process boundaries remain explicit
 
-Desktop support owns all reusable desktop sources and depends on base_core; the native-bridge archive's base files move to base_core and its desktop helpers move to desktop support. Desktop does not link domain/adapters/engine/host/Web/TUI or the test aggregate. Its direct WebView/CPR dependencies remain. Computer-use native helpers keep a separate archive with their original platform flags; shared base helpers link from base_core. WinPTY keeps its upstream-specific source ownership and embedding step. Select .mm implementations only on Apple, notification backends by platform, and Deepin effects only in the desktop child directory.
+Desktop support owns all reusable desktop sources and depends on base_core; the native-bridge archive's base files move to base_core and its desktop helpers move to desktop support. Desktop does not link domain/adapters/engine/host/Web/TUI or the test aggregate; it receives only apps/base project include roots from desktop_support/base_core. Deepin window effects declare desktop_support for their scale-policy and logging references instead of borrowing the six-root include interface. Its direct WebView/CPR dependencies remain. Computer-use native helpers keep a separate archive with their original platform flags; shared base helpers link from base_core. WinPTY keeps its upstream-specific source ownership and embedding step. Select .mm implementations only on Apple, notification backends by platform, and Deepin effects only in the desktop child directory.
 
 ### 3. Static archives provide shared implementations
 

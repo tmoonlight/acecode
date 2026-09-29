@@ -28,7 +28,7 @@ def load_targets(build):
             target = json.loads((reply / ref["jsonFile"]).read_text(encoding="utf-8"))
             targets[target["name"]] = target
         configurations.append((config["name"], targets))
-    return Path(model["paths"]["source"]), configurations
+    return Path(model["paths"]["source"]).resolve(), configurations
 
 
 def source_paths(target, root):
@@ -78,6 +78,19 @@ def verify(root, targets):
         raise ValueError("CLI link command does not consume the complete production graph")
     if "acecode_unit_tests" in targets and not names.issubset(consumers["acecode_unit_tests"]):
         raise ValueError("Unit tests do not consume the production archives")
+    desktop_includes = {}
+    forbidden_roots = {(root / "src" / group).resolve()
+                       for group in ("domain", "adapters", "engine", "host")}
+    for name in ("acecode-desktop", "acecode_desktop_support", "acecode_deepin_window_effects"):
+        if name not in targets:
+            continue
+        includes = {Path(item["path"]).resolve()
+                    for group in targets[name].get("compileGroups", [])
+                    for item in group.get("includes", [])}
+        if includes & forbidden_roots:
+            raise ValueError(f"{name} exposes forbidden group include roots: {includes & forbidden_roots}")
+        desktop_includes[name] = sorted(str(p.relative_to(root)).replace("\\", "/")
+                                        for p in includes if p.parent == (root / "src").resolve())
     permitted = {
         "acecode-desktop": {"acecode_base_core", "acecode_desktop_support", "acecode_deepin_window_effects"},
         "concurrent_session_writer": {"acecode_base_core", "acecode_domain"},
@@ -87,7 +100,8 @@ def verify(root, targets):
         if name in consumers and not set(consumers[name]).issubset(allowed):
             raise ValueError(f"{name} pulls unrelated layers: {set(consumers[name]) - allowed}")
     return {"static_libraries": sorted(names), "tui_sources": len(actual_tui),
-            "embedded_asset_owners": asset_owners, "consumer_libraries": consumers}
+            "embedded_asset_owners": asset_owners, "consumer_libraries": consumers,
+            "desktop_include_roots": desktop_includes}
 
 
 def main():

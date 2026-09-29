@@ -52,7 +52,7 @@ Tests mirror module paths without the group: engine/agent maps to tests/agent, h
 | daemon / cli | Daemon uses web; CLI assembles daemon, headless and TUI |
 | desktop_support | Reusable Desktop code over base_core; no agent, TUI, Crow or Web asset linkage |
 
-Libraries publish their own group include root and receive lower roots from their dependencies. Standalone smoke fixtures retain the six-root include interface. Native computer-use workers remain separate executables and reuse base_core. WinPTY keeps its upstream-specific implementation and embedded agent. Platform-specific and Desktop-off source exclusions are explicit.
+Libraries publish their own group include root and receive lower roots from their dependencies. Standalone smoke fixtures retain the six-root include interface. Desktop and its Deepin window-effects library receive only apps/base project include roots; the window-effects library explicitly depends on desktop_support. Native computer-use workers remain separate executables and reuse base_core. WinPTY keeps its upstream-specific implementation and embedded agent. Platform-specific and Desktop-off source exclusions are explicit.
 
 Configure-time checks require STATIC layer targets, an INTERFACE test aggregate, downward links and exactly one primary owner per active translation unit. Independent smoke fixtures may compile selected production sources separately. CI independently checks the generated File API graph, complete TUI coverage, Web asset ownership and final consumer link lines. The same check works with `BUILD_TESTING=OFF`. File API queries must exist before CMake starts, including on the supported CMake 3.20 baseline:
 
