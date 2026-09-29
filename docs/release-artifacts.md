@@ -2,6 +2,8 @@
 
 `.github/workflows/package.yml` 的 `v*` 标签构建必须生成下列 18 个用户下载包。发布任务通过 `scripts/verify_release_assets.py` 检查每个文件只有一个非空副本，并拒绝不属于当前版本的包、未签名包或重名文件；检查失败时不创建 GitHub Release。
 
+发布前先检查 `assets/models_dev/MANIFEST.json` 的快照时间不超过 30 天。刷新模型目录后必须执行 `pnpm --dir web sync:provider-logos`，同步官方图标与生成映射，再运行前端全量测试和构建；目录、图标 manifest 和映射的提供商数量必须一致。图标仍执行去重、单文件 100 KiB 和总量 576 KiB 上限，以及脚本/远程内容拒绝检查。
+
 各平台打包可以与测试并行。发布任务还必须等待同一提交在 master 上的 `test.yml` 检查全部成功；测试缺失、失败或超时都不能发布。
 
 | 平台 | 架构 | 必需文件 |
