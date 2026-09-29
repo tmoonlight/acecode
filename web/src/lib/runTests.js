@@ -97,6 +97,7 @@ import './slateComposerArchitecture.test.js';
 import './chatFileDropFeedbackArchitecture.test.js';
 import './consoleDropPaths.test.js';
 import './consoleShells.test.js';
+import './consoleFont.test.js';
 import './imageNormalize.test.js';
 import './messageAttachments.test.js';
 import './selectionChatContext.test.js';
