@@ -918,12 +918,14 @@ TEST(BuiltinCommands, McpCommandsResolveCurrentProjectWithoutAffectingOtherOwner
     ASSERT_TRUE(h.dispatch("/mcp enable same"));
     ASSERT_TRUE(h.mcp_.wait_for_startup_settled(std::chrono::seconds(5)));
     const auto owner = acecode::mcp_project_server_id(h.cwd_.string(), "same");
-    EXPECT_EQ(h.loop_.tool_capability_policy().mcp_servers->count(owner), 1u);
-    EXPECT_EQ(h.tools_.get_tool_definitions(&h.loop_.tool_capability_policy()).size(), 1u);
+    const auto enabled_policy = h.loop_.tool_capability_policy();
+    EXPECT_EQ(enabled_policy.mcp_servers->count(owner), 1u);
+    EXPECT_EQ(h.tools_.get_tool_definitions(&enabled_policy).size(), 1u);
     ASSERT_TRUE(h.dispatch("/mcp disable same"));
     EXPECT_TRUE(h.tools_.has_tool("mcp_same_global"));
     EXPECT_EQ(h.mcp_.connected_server_count(), 2u);
-    EXPECT_TRUE(h.tools_.get_tool_definitions(&h.loop_.tool_capability_policy()).empty());
+    const auto disabled_policy = h.loop_.tool_capability_policy();
+    EXPECT_TRUE(h.tools_.get_tool_definitions(&disabled_policy).empty());
 }
 
 TEST(BuiltinCommands, McpListShowsNoToolsForConnectedEmptyServer) {

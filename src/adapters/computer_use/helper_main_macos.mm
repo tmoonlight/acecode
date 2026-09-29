@@ -50,7 +50,7 @@ int main(int argc, char** argv) {
             }
         }
         const std::string permission = request ? argv[2] : "";
-        spawn_owned_detached("computer-use helper", [probe, request, permission] {
+        acecode::spawn_owned_detached("computer-use helper", [probe, request, permission] {
             @autoreleasepool {
                 int code = 0;
                 if (probe || request) {
