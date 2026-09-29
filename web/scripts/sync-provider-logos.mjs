@@ -19,7 +19,7 @@ const catalogPath = path.join(repoRoot, 'assets', 'models_dev', 'api.json');
 const sourceBaseUrl = 'https://models.dev/logos';
 const maxConcurrentRequests = 16;
 const maxLogoBytes = 100 * 1024;
-const maxBundledSvgBytes = 512 * 1024;
+const maxBundledSvgBytes = 576 * 1024;
 
 function assertChildPath(parent, target) {
   const relative = path.relative(path.resolve(parent), path.resolve(target));
