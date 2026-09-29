@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f4eb">
+  <title>好好工作事务所 · 像素 AI 办公室</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="office.css">
+  <script defer src="assets.js"></script>
+  <script defer src="simulation.js"></script>
+  <script defer src="renderer.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <svg class="icon-definitions" aria-hidden="true"><defs>
+    <symbol id="i-office" viewBox="0 0 24 24"><path d="M4 21V7h9v14M13 11h7v10M1 21h22M7 10h3M7 14h3M7 18h3M16 14h1M16 18h1M6 7V3h5v4"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><path d="M5 3h14v2h2v14h-2v2H5v-2H3V5h2zM12 7v6h4"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 5v14M16 5v14" stroke-width="4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-pointer" viewBox="0 0 24 24"><path d="M5 3v16l5-5 4 7 3-2-4-7h7z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M4 8h12v10H4zM16 9h4v6h-4M2 21h17M7 2v3M12 2v3"/></symbol>
+    <symbol id="i-fit" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5"/></symbol>
+  </defs></svg>
+  <div class="app-shell">
+    <header class="app-header">
+      <a class="brand" href="./index.html" aria-label="好好工作事务所首页">
+        <span class="brand-mark"><svg><use href="#i-office"/></svg></span>
+        <span><h1>好好工作事务所<span class="brand-period">.</span></h1><span class="brand-subtitle">A LITTLE OFFICE, BIG IDEAS</span></span>
+      </a>
+      <div class="header-right"><span class="online"><i></i>团队在线</span><span class="day">DAY <b id="day">01</b></span><span class="clock"><svg><use href="#i-clock"/></svg><time id="clock">09:41</time></span><button class="button library-button" id="open-library"><svg><use href="#i-grid"/></svg><span>素材图鉴</span></button></div>
+    </header>
+    <main>
+      <div class="workspace-header">
+        <div class="workspace-name"><span class="room-marker"></span><h2>办公室</h2><span class="workspace-slash">/</span><span class="workspace-subtitle">每个好想法，都有人在认真实现</span></div>
+        <div class="workspace-actions"><span class="demo-label">本地模拟 DEMO</span><button class="button primary" id="new-project"><svg><use href="#i-plus"/></svg>派发新任务</button></div>
+      </div>
+      <div class="workspace">
+        <section class="office-section" aria-label="像素办公室场景">
+          <div class="scene-heading"><div><span class="live-square"></span><strong id="scene-heading">灵感正在发生</strong><span class="scene-caption">WORKSPACE / 01</span></div><span class="scene-weather"><span class="pixel-sun" aria-hidden="true"></span>晴 · 适合一起做点什么</span></div>
+          <div class="stage" id="stage">
+            <canvas id="office" width="768" height="512" aria-label="六位 AI 成员的等距像素办公室。可通过右侧成员列表选择成员。">请使用支持 Canvas 的浏览器查看办公室。</canvas>
+            <div class="scene-note"><span class="note-dash"></span>小小的办公室，大大的可能。</div>
+            <div class="pause-overlay" id="pause-overlay" hidden><svg><use href="#i-pause"/></svg>办公室已暂停</div>
+          </div>
+          <div class="scene-toolbar"><span class="scene-hint"><svg><use href="#i-pointer"/></svg>点击小人，看看 TA 在忙什么</span><div class="view-controls"><button class="icon-button" id="zoom-out" aria-label="缩小场景"><svg><use href="#i-minus"/></svg></button><output id="zoom-label" aria-label="场景缩放">100%</output><button class="icon-button" id="zoom-in" aria-label="放大场景"><svg><use href="#i-plus"/></svg></button><span class="control-divider"></span><button class="icon-button" id="zoom-reset" aria-label="适应窗口"><svg><use href="#i-fit"/></svg></button></div></div>
+        </section>
+        <aside class="team-panel" aria-label="团队成员与动态">
+          <div class="panel-heading"><h2>今天的伙伴</h2><span class="count-label">6 位</span></div>
+          <div class="team-summary"><span><i class="status-dot"></i><span id="working-count">4</span> 位工作中</span><span id="resting-count">2 位准备中</span></div>
+          <div class="agent-list" id="agent-list"></div>
+          <section class="agent-detail" aria-label="选中成员详情"><div class="detail-heading"><span class="detail-label">正在关注</span><span id="detail-id">AGENT 01</span></div><div class="detail-name"><strong id="detail-name">阿策</strong><span id="detail-role">团队协调</span><span id="detail-state" class="state-tag">构思中</span></div><p id="detail-task">把一个好想法拆成可执行的步骤。</p><div class="detail-meter"><span>当前任务</span><span id="detail-percent">0%</span></div><div class="meter"><span id="detail-progress"></span></div></section>
+          <section class="activity-section" aria-label="团队动态"><div class="activity-heading"><h3>办公室动态</h3><span class="activity-live">LIVE</span></div><ol class="activity-list" id="activity-list" aria-live="off"></ol></section>
+          <div class="team-footer"><svg><use href="#i-coffee"/></svg><span>好代码和好咖啡，都值得等待。</span></div>
+        </aside>
+      </div>
+      <section class="project-bar" aria-label="当前演示项目"><div class="project-info"><div class="project-heading"><span class="project-indicator"></span><h2 id="project-title">做一个有趣的 AI 工作台</h2><span class="project-kind">演示项目</span></div><div class="project-meta"><span id="project-status">团队正在协作</span><span class="meta-dot">·</span><span id="task-count">0 / 6 项任务完成</span></div></div><div class="project-progress"><div><span>项目进度</span><strong id="project-percent">0<span>%</span></strong></div><div class="meter project-meter"><span id="project-fill"></span></div><span class="progress-caption" id="progress-caption">一步一步，把想法变成作品。</span></div><div class="simulation-controls"><button class="button pause-button" id="toggle-pause" aria-pressed="false"><svg><use href="#i-pause"/></svg><span>暂停</span></button><div class="speed-control" role="group" aria-label="模拟速度"><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button></div></div></section>
+    </main>
+    <footer class="app-footer"><span><span class="footer-pixel"></span>像素很小，想法很大。</span><span>6 位 AI 伙伴 · 本地模拟 · 无需联网</span></footer>
+  </div>
+  <dialog id="library" aria-labelledby="library-title"><div class="library-heading"><div><h2 id="library-title">办公室素材图鉴</h2><p>同一套积木，搭出整个办公室。</p></div><button class="icon-button" id="close-library" aria-label="关闭素材图鉴"><svg><use href="#i-close"/></svg></button></div><div class="library-content"><h3>家具与房间</h3><div class="asset-grid" id="asset-grid"></div><h3>一个人物模板，六位伙伴</h3><div class="portrait-grid" id="portrait-grid"></div><p class="library-footnote">家具重复使用同一缓存图块；人物通过发型、衣服换色和动作帧组合。场景、头像、图鉴共享素材，不加载任何图片。</p><output id="asset-stats"></output></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <noscript><p class="noscript">请启用 JavaScript 来运行像素办公室。</p></noscript>
+</body>
+</html>
