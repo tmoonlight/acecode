@@ -281,7 +281,7 @@
   - 验证:`check_doc_paths.py` 为 0;help 站点重新生成后,diff 只涉及路径。
 - [x] 5.3 【P4-03】【子】行数、分层、所有权三个棘轮在 CI 中转为阻断。〔实现完成: Codex-root 2026-09-28;test/refactor-matrix 已改严格阻断并保留失败报告;本机负向闸门待统一验收,本次不发起跨端 CI〕〔本次 Windows 验收与主线交付: 2026-09-29,PR #87;人工及跨端结果按最新范围另记〕
   - 验证:CI 上故意新增一个超过 1000 行的文件、一条向上依赖、一处 `.detach()`,三个 lint 分别失败。
-- [ ] 5.4 【P4-04】【主】多平台补验(D26 推迟项)。〔接续: 2026-09-29;昨晚 package 的双 macOS 构建缺少命名空间限定,两条 Linux 测试构建对值快照取临时地址;已定向修复,验证与结果见 verification/P4-04-multi-platform.md,完整补验保持待验收〕
+- [ ] 5.4 【P4-04】【主】多平台补验(D26 推迟项)。〔接续: 2026-09-29;macOS 限定名/信号宏及 Linux 测试快照取址已修复,test 36517786705 与十平台 package 36517783704 通过;完整矩阵快照和用例对照仍待验收,见 verification/P4-04-multi-platform.md〕
   - Windows 侧的一期任务全部合入后,在最新 master 上用完整 SHA dispatch 一次 refactor-matrix(`run_tests=true`,`include_deepin=true`)和一次 package.yml;
   - 逐平台核对 target 快照、用例与 SKIP 清单,对照最近一份多平台记录(P2-06,refactor-matrix 36341836305);§7.2「P3」一行里的 Deepin `current_target()`、verify-package、`pnpm test` 与冒烟五项也在这里做;
   - 平台专属的 include / 编译错误集中在这里修,单独提交 `refactor20260927(layers/P4-04): …`。

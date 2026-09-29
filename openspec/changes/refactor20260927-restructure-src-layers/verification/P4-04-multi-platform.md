@@ -15,10 +15,21 @@
 
 本机验证:复用 build/refactor-phase1-windows 的 MSVC Release/Ninja 增量构建 acecode_unit_tests 成功;run_fast_tests.py --profile full --filter "BuiltinCommands.*" 执行 47 条(含强制守护用例),0 SKIP、0 失败,5.4 秒。全量用例清单仍为 5304 条,无增删。严格分层与所有权检查通过。
 
-macOS 与 Linux 的修复后 CI 待确认。P4-04 完整验收保持未勾选,既有人工专项与九个旧 ref 的后续安排不变。
+本次编译修复的原生 CI 结果见下节。P4-04 完整验收保持未勾选,既有人工专项与九个旧 ref 的后续安排不变。
 
 ## 原生构建继续复核
 
 [修复后 package 36516779969](https://github.com/tmoonlight/acecode/actions/runs/36516779969) 已越过 macOS helper 的原报错位置,继续编译至 TerminationSignal 时发现 macOS SDK 把 sigemptyset 定义为函数式宏,`::sigemptyset(...)` 展开后语法无效。已改为不带作用域限定的调用,同时兼容 Linux 的函数声明与 macOS 的宏,不改变信号掩码语义。全仓同类带作用域限定的 sigset 调用仅此一处。
 
-该补充修复已通过 Windows MSVC/Ninja 增量构建、TerminationSignal.* 与守护用例共 12 条(0 SKIP、0 失败)、严格分层检查。下一轮 macOS/Linux 原生 CI 待确认。
+该补充修复已通过 Windows MSVC/Ninja 增量构建、TerminationSignal.* 与守护用例共 12 条(0 SKIP、0 失败)、严格分层检查。后续原生 CI 已通过,结果如下。
+
+## 修复验证通过
+
+验证代码:21842477dd8fb5a862ba519bc765202a5fe4cdb5,包含 7f112802 的限定名/策略快照修复与 21842477 的信号宏兼容修复。
+
+| 流水线 | 结果 |
+| --- | --- |
+| [test 36517786705](https://github.com/tmoonlight/acecode/actions/runs/36517786705) | 成功;Linux CLI/Desktop/测试程序编译及完整 ctest 通过,Web、严格分层与 macOS installer 检查通过 |
+| [package 36517783704](https://github.com/tmoonlight/acecode/actions/runs/36517783704) | 成功;Windows x64/ARM64、macOS x64/ARM64、Linux x64/ARM64/ARMv7、Deepin x64/ARM64/ARMv7 共十个平台全部构建并上传成功;分支验证按配置跳过 release/npm 发布 |
+
+本次三处编译兼容问题已解决。P4-04 的完整矩阵快照、各平台用例与 SKIP 集合对照仍是后续验收事项,不因本次编译修复提前勾选。
