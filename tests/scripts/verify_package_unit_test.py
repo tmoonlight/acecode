@@ -188,7 +188,14 @@ class VerifyPackageUnitTest(unittest.TestCase):
                 for mode, failures in ((0o644, 1), (0o755, 0)):
                     helper.chmod(mode)
                     report = verify_package.Report()
-                    verify_package.structural_checks(report, root, root, "darwin", ["tui"])
+                    with mock.patch.object(verify_package.os, "access",
+                                           wraps=verify_package.os.access) as access:
+                        # Windows chmod has no POSIX execute bits. Simulate that
+                        # boundary here while retaining real mode checks on Unix.
+                        if sys.platform == "win32":
+                            access.return_value = bool(mode & 0o111)
+                        verify_package.structural_checks(report, root, root, "darwin", ["tui"])
+                        access.assert_called_once_with(helper, verify_package.os.X_OK)
                     self.assertEqual(report.failed, failures)
 
     def test_staging_path_guard_rejects_protected_paths(self) -> None:

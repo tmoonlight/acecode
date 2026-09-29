@@ -105,7 +105,7 @@ acecode_set_source_define(${CMAKE_CURRENT_SOURCE_DIR}/upgrade/executable_version
 add_executable(acecode_upgrade_restart_smoke EXCLUDE_FROM_ALL
     ${ACECODE_UPGRADE_RESTART_SMOKE_SOURCES})
 target_link_libraries(acecode_upgrade_restart_smoke PRIVATE
-    acecode_desktop_support acecode_native_bridge_support cpr::cpr nlohmann_json::nlohmann_json)
+    acecode_desktop_support acecode_base_core cpr::cpr nlohmann_json::nlohmann_json)
 if(MSVC)
     set_target_properties(acecode_upgrade_restart_smoke PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -113,17 +113,17 @@ endif()
 
 target_link_libraries(acecode_unit_tests PRIVATE
     acecode_testable
-    acecode_desktop_support
-    acecode_native_bridge_support
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
     GTest::gtest
     GTest::gtest_main
+    libzip::zip
+    unofficial::sqlite3::sqlite3
 )
 
+# Local HTTP fixtures consume the vendored header directly, independently of
+# MCP's private include paths in the adapters library.
 target_include_directories(acecode_unit_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests)
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/external/cpp-mcp/common)
 target_link_libraries(acecode_unit_tests PRIVATE acecode_include_roots)
 if(WIN32 OR APPLE)
     target_link_libraries(acecode_unit_tests PRIVATE acecode_computer_use_native)
@@ -179,7 +179,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
     target_link_libraries(agent_browser_host_smoke PRIVATE acecode_include_roots)
     target_link_libraries(agent_browser_host_smoke PRIVATE
         acecode_desktop_support
-        acecode_native_bridge_support
+        acecode_base_core
         webview::core
         cpr::cpr
         nlohmann_json::nlohmann_json
@@ -201,7 +201,7 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
     target_link_libraries(agent_browser_pointer_demo PRIVATE acecode_include_roots)
     target_link_libraries(agent_browser_pointer_demo PRIVATE
         acecode_desktop_support
-        acecode_native_bridge_support
+        acecode_base_core
         webview::core
         cpr::cpr
         nlohmann_json::nlohmann_json
@@ -246,7 +246,7 @@ if(APPLE)
     )
     target_link_libraries(agent_browser_host_mac_smoke PRIVATE
         acecode_desktop_support
-        acecode_native_bridge_support
+        acecode_base_core
         nlohmann_json::nlohmann_json
         "-framework AppKit"
         "-framework ApplicationServices"
@@ -271,7 +271,7 @@ if(APPLE)
         ${ACECODE_MACOS_NOTIFICATION_SMOKE_SOURCES}
     )
     target_link_libraries(acecode_macos_notification_smoke PRIVATE
-        acecode_native_bridge_support
+        acecode_base_core
     )
     target_link_libraries(acecode_macos_notification_smoke PRIVATE acecode_include_roots)
     set_target_properties(acecode_macos_notification_smoke PROPERTIES
@@ -286,21 +286,12 @@ endif()
 
 # 测试辅助 binary: 用于 SessionConcurrencyE2E 测试 std::system 起两个子进程
 # 验证同 cwd 下多 session 写 canonical 文件。独立 main(),不参与
-# gtest_discover_tests。链 acecode_testable 拿 SessionManager。
+# gtest_discover_tests。只链接 SessionManager 所在的 domain 库。
 add_executable(concurrent_session_writer
     ${CMAKE_CURRENT_SOURCE_DIR}/daemon/helpers/concurrent_session_writer.cpp
 )
-target_link_libraries(concurrent_session_writer PRIVATE
-    acecode_testable
-    acecode_native_bridge_support
-    # acecode_testable 里 src/adapters/tool/ask_user_question_tool.cpp 等 TU 引用了
-    # ftxui::Event,所以即使 helper main 自己只调 SessionManager,链接器也要
-    # 拉 ftxui 才能 resolve。匹配 acecode_unit_tests 的 link 列表。
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
-)
-target_link_libraries(concurrent_session_writer PRIVATE acecode_include_roots)
+target_link_libraries(concurrent_session_writer PRIVATE acecode_domain)
+
 add_dependencies(acecode_unit_tests concurrent_session_writer)
 
 # Runtime state is shared by multiple workspace daemons. This helper lets the
@@ -308,14 +299,8 @@ add_dependencies(acecode_unit_tests concurrent_session_writer)
 add_executable(state_file_claim_worker
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/state_file_claim_worker.cpp
 )
-target_link_libraries(state_file_claim_worker PRIVATE
-    acecode_testable
-    acecode_native_bridge_support
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
-)
-target_link_libraries(state_file_claim_worker PRIVATE acecode_include_roots)
+target_link_libraries(state_file_claim_worker PRIVATE acecode_base_core)
+
 add_dependencies(acecode_unit_tests state_file_claim_worker)
 
 # Real child used by remote-Web proxy controller tests. It dispatches the same
@@ -323,14 +308,8 @@ add_dependencies(acecode_unit_tests state_file_claim_worker)
 add_executable(remote_web_proxy_test_child
     ${CMAKE_CURRENT_SOURCE_DIR}/web/helpers/remote_web_proxy_child.cpp
 )
-target_link_libraries(remote_web_proxy_test_child PRIVATE
-    acecode_testable
-    acecode_native_bridge_support
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
-)
-target_link_libraries(remote_web_proxy_test_child PRIVATE acecode_include_roots)
+target_link_libraries(remote_web_proxy_test_child PRIVATE acecode_web)
+
 add_dependencies(acecode_unit_tests remote_web_proxy_test_child)
 
 # 测试辅助 MCP stdio server: 用于 McpManager 异步启动测试走真实
@@ -379,6 +358,8 @@ target_compile_definitions(acecode_unit_tests PRIVATE
 # winpty spike/冒烟测试需要 winpty-agent.exe 在单测 exe 同目录
 # (findAgentProgram 未设置覆盖路径时的 fallback 查找位置)。
 if(WIN32)
+    # The spike test calls WinPTY directly; base_host keeps it private.
+    target_link_libraries(acecode_unit_tests PRIVATE winpty_static)
     add_custom_command(TARGET acecode_unit_tests POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:winpty-agent>

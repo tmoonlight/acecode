@@ -90,7 +90,7 @@ if(WIN32)
     set(ACECODE_WINDOWS_RESOURCES ${CMAKE_BINARY_DIR}/generated/acecode.rc)
 endif()
 
-# Embed web/ assets into acecode_testable. Generates a single .cpp with byte
+# Embed web/ assets into acecode_web. Generates a single .cpp with byte
 # arrays + a name → span lookup map. Re-runs on every cmake re-configure when
 # files in web/dist/ change (CONFIGURE_DEPENDS in the cmake function).
 #
@@ -128,14 +128,8 @@ find_package(ftxui CONFIG REQUIRED)
 find_package(libzip CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
-# Crow is the HTTP/WebSocket server used by `acecode daemon`. Wired up as
-# QUIET in M1 so existing builds keep working before users re-run vcpkg
-# install; M2 introduces the first translation unit that consumes Crow and
-# will flip this to REQUIRED.
-find_package(Crow CONFIG QUIET)
-if(NOT Crow_FOUND)
-    message(STATUS "Crow not found yet; run `vcpkg install` to pick it up before M2.")
-endif()
+find_package(Crow CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 # cpr ships with libcurl; on Windows libcurl >= 8.14 is required for proper
 # certificate handling.  Detect the version through the CURL::libcurl target
@@ -157,7 +151,7 @@ set(BUILD_MCP_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/cpp-mcp EXCLUDE_FROM_ALL)
 
 # winpty(仅 WIN32 内部生效): Win10 < 1809 无 ConPTY 时的 PTY 兜底。
-# 定义 winpty_static(链进 acecode_testable)与 winpty-agent(嵌入释放)。
+# 定义 winpty_static(链进 acecode_base_host)与 winpty-agent(嵌入释放)。
 include(${CMAKE_SOURCE_DIR}/cmake/acecode_winpty.cmake)
 
 # Gather all sources under src/ once, then split them into focused build
@@ -197,397 +191,15 @@ target_include_directories(acecode_include_roots INTERFACE ${ACECODE_INCLUDE_ROO
 configure_file(cmake/acecode_tui_input_trace_config.hpp.in
     "${CMAKE_BINARY_DIR}/generated/acecode_tui_input_trace_config.hpp" @ONLY)
 
-# P5 按组建库前,只给 base/image 的实现开放 SYSTEM 第三方头搜索路径。
-# canonical include 保留 stb/...;不能把 external 放进所有目标的公共 include 根。
-if(MSVC)
-    set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/base/image/image_processor.cpp
-        APPEND PROPERTY COMPILE_OPTIONS "/external:I${CMAKE_SOURCE_DIR}/external")
-else()
-    set_property(SOURCE ${CMAKE_SOURCE_DIR}/src/base/image/image_processor.cpp
-        APPEND PROPERTY COMPILE_OPTIONS "-isystem${CMAKE_SOURCE_DIR}/external")
-endif()
-
-# 目录集合与 testable 子集分开登记。P2 将模块移进 tui/ 时沿用这些边界，
-# P3 只修改目录根；不要让正则失配把整套 TUI 静默送进 acecode_testable。
-set(ACECODE_TUI_DIRS
-    ${CMAKE_SOURCE_DIR}/src/apps/tui)
-set(ACECODE_TUI_TESTABLE_SUBSETS
-    commands/ resume/ path_reference/ markdown/
-    drag_scroll.cpp text_input_ops.cpp slash_command_usage.cpp
-    input/input_trace.cpp render_mode.cpp
-    model/initial_state.cpp app/startup_worktree.cpp
-    model/status_line.cpp model/turn_lifecycle_rules.cpp
-    chat/message_render_revision.cpp chat/chat_viewport.cpp render/frame_layout.cpp
-    overlays/rewind_picker_model.cpp
-    model/thinking_phrases.cpp
-    model/mcp_sidebar_model.cpp
-    render/text_cells.cpp
-    render/status_chips.cpp
-    render/regular_sidebar_view.cpp
-    render/tool_row_view.cpp
-    composer/input_wrap_view.cpp
-    render/ask_question_style.cpp
-    render/header_view.cpp
-    render/activity_indicator_view.cpp
-    render/picker_views.cpp
-    render/prompt_status_view.cpp
-    render/link_hover_tooltip.cpp
-    tool_progress.cpp slash_dropdown.cpp diff_view.cpp path_reference_dropdown.cpp
-    render/message_row_views.cpp render/transcript_view.cpp render/overlay_views.cpp
-    overlays/ask_session_projection.cpp
-    render/prepare_frame.cpp render/frame_renderer.cpp
-    overlays/ask_question_input.cpp
-    overlays/confirm_overlay_input.cpp
-    overlays/rewind_picker_input.cpp
-    overlays/completion_dropdown_input.cpp
-    overlays/list_picker_input.cpp
-    input/chat_keys.cpp input/event_prelude.cpp input/control_keys.cpp
-    input/composer_pointer.cpp input/mouse_router.cpp app/tui_event_router.cpp
-    app/tui_command_context_factory.cpp app/tui_overlay_gate.cpp app/animation_tick.cpp
-    app/tui_init_sequence.cpp app/tui_shutdown_sequence.cpp
-    composer/paste.cpp composer/suggestions.cpp composer/pending_attachment.cpp
-    composer/input_component.cpp model/input_state.cpp model/user_turn_state.cpp
-    composer/edit_keys.cpp composer/submit.cpp composer/clipboard_keys.cpp)
-set(ACECODE_TUI_SOURCES)
-foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
-    if(NOT IS_DIRECTORY "${_tui_dir}")
-        message(FATAL_ERROR "TUI source directory does not exist: ${_tui_dir}")
-    endif()
-    foreach(_source IN LISTS ACECODE_ALL_SOURCES)
-        string(FIND "${_source}" "${_tui_dir}/" _position)
-        if(_position EQUAL 0)
-            list(APPEND ACECODE_TUI_SOURCES "${_source}")
-        endif()
-    endforeach()
-endforeach()
-list(REMOVE_DUPLICATES ACECODE_TUI_SOURCES)
-if(NOT ACECODE_TUI_SOURCES)
-    message(FATAL_ERROR "TUI source set is empty; check ACECODE_TUI_DIRS")
-endif()
-
-set(ACECODE_TESTABLE_SOURCES ${ACECODE_ALL_SOURCES})
-set(ACECODE_TESTABLE_EXCLUDED_SOURCES
-    ${ACECODE_MAIN_SOURCE}
-    ${ACECODE_COMPUTER_USE_MAIN_SOURCE}
-    ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/native_windows.cpp)
-acecode_require_sources("testable exclusions" ${ACECODE_TESTABLE_EXCLUDED_SOURCES})
-list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES
-    ${ACECODE_TESTABLE_EXCLUDED_SOURCES} ${ACECODE_TUI_SOURCES})
-
-# winpty_agent_location.cpp 属于 winpty_static(需要 winpty 内部 include 路径),
-# 不能同时进 acecode_testable,否则 findAgentProgram 符号重复。
-list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES
-    ${ACECODE_WINPTY_AGENT_LOCATION_SOURCE})
-
-set(ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/base/config/config.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/config_mutation.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/config_recovery.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/mcp_config.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/model_provider_registry.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/request_headers.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/saved_models.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/builtin_model_catalog.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/process/os_process_posix.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/process/os_process_windows.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/process/unique_resources.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/utils/abandonable_call.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/ipc/runtime_files.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/custom_toast.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/custom_toast_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_navigation_state.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_page_directory.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/ipc/agent_browser_runtime.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/context_items.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/context_picker.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/folder_picker_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/locale.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/ipc/open_request.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/open_in_explorer.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/startup_progress.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/strings.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/workspace/workspace_registry.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/clipboard.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/utils/cwd_hash.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/utils/encoding.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/config/model_capabilities.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/utils/paths.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/utils/state_file.cpp
-)
-
-set(ACECODE_DESKTOP_SUPPORT_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/workspace_state.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/application_icon.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_webview_scale_policy.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/daemon_pool.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/daemon_supervisor.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_about.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_restart.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/dpi_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/edge_app_launcher.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/external_url.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/pick_active.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/single_instance_posix.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/single_instance_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/taskbar_badge.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/taskbar_badge_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/tray_icon_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/url_builder.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/webview2_runtime_probe.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/window_background.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/window_chrome.cpp
-)
-
-# desktop 二进制专属(main.cpp / web_host.cpp 用 webview/webview)从 testable
-# 里剔除。desktop/native helper 源文件改由 focused support target 拥有,
-# 这样 acecode-desktop 不需要链接 acecode_testable。
-set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
-    ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE}
-    ${ACECODE_DESKTOP_LINUX_SOURCE}
-    ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
-    ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE}
-    ${ACECODE_DESKTOP_MAIN_SOURCE}
-    ${ACECODE_DESKTOP_SPLASH_SOURCE}
-    ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
-)
-set(ACECODE_NOTIFICATION_BACKEND_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_win.cpp
-    ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_stub.cpp
-)
-foreach(_source_list IN ITEMS
-        ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES ACECODE_DESKTOP_SUPPORT_SOURCES
-        ACECODE_DESKTOP_BINARY_ONLY_SOURCES ACECODE_NOTIFICATION_BACKEND_SOURCES)
-    acecode_require_sources("${_source_list}" ${${_source_list}})
-endforeach()
-foreach(_f IN LISTS ACECODE_DESKTOP_BINARY_ONLY_SOURCES)
-    list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES ${_f})
-endforeach()
-foreach(_f IN LISTS
-        ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES
-        ACECODE_DESKTOP_SUPPORT_SOURCES
-        ACECODE_NOTIFICATION_BACKEND_SOURCES)
-    list(REMOVE_ITEM ACECODE_TESTABLE_SOURCES ${_f})
-endforeach()
-
-# Most TUI files stay out of acecode_testable. These focused helpers and shared
-# sidebar renderer are used by main.cpp plus unit tests, so compile them once in
-# acecode_testable and remove them from the TUI-only source group.
-set(ACECODE_TESTABLE_TUI_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/markdown/markdown_formatter.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/markdown/markdown_lexer.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/markdown/mermaid_renderer.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/markdown/link_safety.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/markdown/syntax_highlight.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_controller.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_editor.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_layout.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_adapter.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_panel.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_view.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_session.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/ask_question_text.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/chat_file_link.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/channels_setup.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/text_truncation.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/paste_handler.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/pending_attachment_selection.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/path_reference_input.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/confirm_question.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/compact_animation.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/compact_notice_row.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/diff_line_wrap.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/model_picker.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/mode_picker.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/input_history_navigation.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/sidebar_model.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/subagent_host.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/tui_ask_channel.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/terminal_key_event.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/theme_palette.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/settings/management_center.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/settings/settings_center.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/settings/settings_state.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/thick_vscroll_bar.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/redraw_pacer.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/thinking_animation.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/thinking_heartbeat.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/tool_result_fold.cpp
-    ${CMAKE_SOURCE_DIR}/src/apps/tui/tool_row_format.cpp
-)
-acecode_require_sources("testable TUI explicit sources" ${ACECODE_TESTABLE_TUI_SOURCES})
-foreach(_tui_dir IN LISTS ACECODE_TUI_DIRS)
-    foreach(_subset IN LISTS ACECODE_TUI_TESTABLE_SUBSETS)
-        set(_subset_path "${_tui_dir}/${_subset}")
-        foreach(_source IN LISTS ACECODE_TUI_SOURCES)
-            if(_subset MATCHES "/$")
-                string(FIND "${_source}" "${_subset_path}" _position)
-                if(_position EQUAL 0)
-                    list(APPEND ACECODE_TESTABLE_TUI_SOURCES "${_source}")
-                endif()
-            elseif(_source STREQUAL _subset_path)
-                list(APPEND ACECODE_TESTABLE_TUI_SOURCES "${_source}")
-            endif()
-        endforeach()
-    endforeach()
-endforeach()
-list(REMOVE_DUPLICATES ACECODE_TESTABLE_TUI_SOURCES)
-if(BUILD_TESTING)
-    acecode_assert_tested_tui_sources(SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
-endif()
-list(APPEND ACECODE_TESTABLE_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
-list(REMOVE_ITEM ACECODE_TUI_SOURCES ${ACECODE_TESTABLE_TUI_SOURCES})
-if(NOT ACECODE_TUI_SOURCES)
-    message(FATAL_ERROR "TUI-only source set is empty after testable subsets")
-endif()
-
-add_library(acecode_native_bridge_support STATIC
-    ${ACECODE_NATIVE_BRIDGE_SUPPORT_SOURCES}
-)
-target_link_libraries(acecode_native_bridge_support PUBLIC acecode_include_roots)
-target_link_libraries(acecode_native_bridge_support PUBLIC
-    nlohmann_json::nlohmann_json
-)
-if(APPLE)
-    enable_language(OBJCXX)
-    target_sources(acecode_native_bridge_support PRIVATE
-        ${ACECODE_NATIVE_BRIDGE_MAC_SOURCES}
-    )
-    target_link_libraries(acecode_native_bridge_support PUBLIC
-        "-framework AppKit"
-        "-framework UserNotifications"
-    )
-elseif(WIN32)
-    # advapi32: restrictive ACL writes in utils/atomic_file.hpp.
-    # ws2_32: ipc/runtime_files.cpp port probes.
-    # ole32/shell32/user32: native folder picker and clipboard integration.
-    # gdi32/msimg32: the self-drawn toast renderer (layered window + GDI).
-    # winmm: PlaySound for the self-drawn toast.
-    target_link_libraries(acecode_native_bridge_support PUBLIC
-        advapi32 ws2_32 ole32 shell32 user32 gdi32 msimg32 winmm
-    )
-    # Windows notifications use the self-drawn layered toast (Win32 + GDI only).
-    target_sources(acecode_native_bridge_support PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_win.cpp
-    )
-else()
-    target_sources(acecode_native_bridge_support PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_stub.cpp
-    )
-endif()
-
-add_library(acecode_desktop_support STATIC
-    ${ACECODE_DESKTOP_SUPPORT_SOURCES}
-)
-target_link_libraries(acecode_desktop_support PUBLIC acecode_include_roots)
-target_link_libraries(acecode_desktop_support PUBLIC
-    acecode_native_bridge_support
-)
-if(APPLE)
-    enable_language(OBJCXX)
-    set_source_files_properties(
-        ${ACECODE_DESKTOP_OBJCXX_SOURCES}
-        PROPERTIES LANGUAGE OBJCXX
-    )
-    set_source_files_properties(
-        ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
-        PROPERTIES COMPILE_OPTIONS "-Wno-auto-var-id"
-    )
-    target_link_libraries(acecode_desktop_support PUBLIC "-framework AppKit")
-elseif(UNIX)
-    target_link_libraries(acecode_desktop_support PUBLIC ${CMAKE_DL_LIBS})
-endif()
-if(WIN32)
-    # bcrypt: desktop/daemon_supervisor.cpp generates daemon auth tokens.
-    # ws2_32: readiness probes; shell/user/gdi: Edge/tray/window helpers.
-    target_link_libraries(acecode_desktop_support PUBLIC
-        bcrypt ws2_32 ole32 shell32 user32 gdi32 gdiplus comctl32
-    )
-endif()
-
-# Shared OBJECT library: one compile per source, consumed by both acecode
-# (production binary) and acecode_unit_tests (test binary). PUBLIC link deps
-# propagate to consumers so they get the right include dirs + libraries.
-add_library(acecode_testable OBJECT
-    ${ACECODE_TESTABLE_SOURCES}
-    ${ACECODE_HEADER_FILES}
-    ${ACECODE_THIRDPARTY_HEADERS}
-    ${CMAKE_BINARY_DIR}/generated/version.hpp
-    ${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp
-)
-if(APPLE)
-    enable_language(OBJCXX)
-    target_sources(acecode_testable PRIVATE
-        ${ACECODE_UPGRADE_MAC_SOURCE}
-    )
-    target_link_libraries(acecode_testable PUBLIC
-        "-framework Foundation"
-        "-framework Security"
-    )
-endif()
-target_include_directories(acecode_testable PUBLIC
-    ${CMAKE_SOURCE_DIR}/external/cpp-mcp/include
-    ${CMAKE_SOURCE_DIR}/external/cpp-mcp/common)
-target_link_libraries(acecode_testable PUBLIC acecode_include_roots)
-
-acecode_set_source_define("${ACECODE_CHANNEL_BRIDGE_SOURCE}"
-    ACECODE_CHANNEL_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets/channels/whatsapp")
-target_link_libraries(acecode_testable PUBLIC
-    cpr::cpr
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
-    libzip::zip
-    nlohmann_json::nlohmann_json
-    unofficial::sqlite3::sqlite3
-    mcp
-)
-if(Crow_FOUND)
-    target_link_libraries(acecode_testable PUBLIC Crow::Crow)
-    # Crow 默认走 standalone asio，但只在它自己的 socket_adaptors.h 里 #define
-    # ASIO_STANDALONE。如果某个 TU 先 include <asio.hpp> 再 include <crow.h>，
-    # asio 头会先被以 boost-fallback 模式编译，触发 boost/asio.hpp not found。
-    # PUBLIC 显式定义消除 include 顺序依赖。
-    target_compile_definitions(acecode_testable PUBLIC ASIO_STANDALONE)
-endif()
-if(WIN32)
-    # ws2_32: src/apps/desktop/daemon_supervisor.cpp 用 winsock 探测端口连通性。
-    # mswsock: standalone Asio IOCP uses AcceptEx/GetAcceptExSockaddrs.
-    # ole32/shell32/user32: src/base/platform/native_ui/folder_picker_win.cpp 的 COM + IFileOpenDialog + owner/foreground handling。
-    target_link_libraries(acecode_testable PUBLIC bcrypt advapi32 winhttp ws2_32 mswsock iphlpapi ole32 shell32 user32)
-    # winpty 客户端库(< 1809 的 PTY 兜底,cmake/acecode_winpty.cmake)。
-    target_link_libraries(acecode_testable PUBLIC winpty_static)
-endif()
-if(UNIX AND NOT APPLE)
-    # forkpty(src/base/pty/pty_backend_posix.cpp)。glibc 2.34+ 已并入 libc,
-    # 老 glibc / musl 仍需显式链 util;find_library 找不到就交给 libc。
-    find_library(ACECODE_LIBUTIL util)
-    if(ACECODE_LIBUTIL)
-        target_link_libraries(acecode_testable PUBLIC ${ACECODE_LIBUTIL})
-    elseif(CMAKE_CROSSCOMPILING AND CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7")
-        # CMake 的宿主搜索路径可能找不到交叉 sysroot 内的 libutil，
-        # 但目标编译器驱动能够按 gnueabihf sysroot 正确解析 -lutil。
-        target_link_libraries(acecode_testable PUBLIC util)
-    endif()
-
-    # ARMv7 是 32 位目标，64 位 std::atomic 操作通常由 GCC/Clang 的
-    # libatomic 提供。vcpkg arm-linux triplet 将处理器标记为 armv7l。
-    if(CMAKE_SIZEOF_VOID_P EQUAL 4
-       AND CMAKE_SYSTEM_PROCESSOR MATCHES "^armv7"
-       AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
-        target_link_libraries(acecode_testable PUBLIC atomic)
-    endif()
-endif()
+include(${CMAKE_SOURCE_DIR}/cmake/acecode_layer_libraries.cmake)
 
 if(WIN32)
     # UI Automation lives outside the daemon: a hung application must remain
     # cancellable without terminating a conversation or the desktop shell.
     add_library(acecode_computer_use_native STATIC
-        ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES}
-        ${CMAKE_SOURCE_DIR}/src/base/utils/abandonable_call.cpp
-        ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
-    target_link_libraries(acecode_computer_use_native PUBLIC acecode_include_roots)
+        ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES})
+    target_link_libraries(acecode_computer_use_native PUBLIC acecode_base_core)
+    target_include_directories(acecode_computer_use_native PUBLIC ${CMAKE_SOURCE_DIR}/src/adapters)
     target_compile_definitions(acecode_computer_use_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
     target_link_libraries(acecode_computer_use_native PUBLIC
         nlohmann_json::nlohmann_json user32 gdi32 ole32 oleaut32
@@ -601,11 +213,10 @@ if(WIN32)
 elseif(APPLE)
     enable_language(OBJCXX)
     add_library(acecode_computer_use_native STATIC
-        ${ACECODE_COMPUTER_USE_MAC_SOURCES}
-        ${CMAKE_SOURCE_DIR}/src/base/utils/abandonable_call.cpp
-        ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
+        ${ACECODE_COMPUTER_USE_MAC_SOURCES})
     set_target_properties(acecode_computer_use_native PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
-    target_link_libraries(acecode_computer_use_native PUBLIC acecode_include_roots)
+    target_link_libraries(acecode_computer_use_native PUBLIC acecode_base_core)
+    target_include_directories(acecode_computer_use_native PUBLIC ${CMAKE_SOURCE_DIR}/src/adapters)
     target_compile_options(acecode_computer_use_native PRIVATE -fobjc-arc -mmacosx-version-min=14.0)
     target_link_libraries(acecode_computer_use_native PUBLIC nlohmann_json::nlohmann_json
         "-framework AppKit" "-framework ApplicationServices" "-framework ScreenCaptureKit"
@@ -621,16 +232,9 @@ endif()
 
 add_executable(acecode
     ${ACECODE_MAIN_SOURCE}
-    ${ACECODE_TUI_SOURCES}
     ${ACECODE_WINDOWS_RESOURCES}
 )
-target_link_libraries(acecode PRIVATE
-    acecode_testable
-    acecode_native_bridge_support
-    ftxui::screen
-    ftxui::dom
-    ftxui::component
-)
+target_link_libraries(acecode PRIVATE acecode_cli)
 if(WIN32 OR APPLE)
     add_dependencies(acecode acecode-computer-use)
 endif()
@@ -677,6 +281,8 @@ endif()
 
 # tuitest helloworld 子目标(opt-in,默认 OFF)。-DACECODE_BUILD_TUITEST=ON 开启。
 include(${CMAKE_SOURCE_DIR}/cmake/acecode_tuitest.cmake)
+
+include(${CMAKE_SOURCE_DIR}/cmake/acecode_layer_contract.cmake)
 
 # Bundled models.dev snapshot. Installed alongside the executable so
 # find_models_dev_dir() can resolve <exe_dir>/../share/acecode/models_dev.

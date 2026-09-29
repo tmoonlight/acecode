@@ -15,6 +15,7 @@ add_library(acecode_deepin_window_effects STATIC
     ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE})
 target_compile_definitions(acecode_deepin_window_effects PRIVATE
     ACECODE_DEEPIN=1 QT_NO_KEYWORDS)
-target_link_libraries(acecode_deepin_window_effects PRIVATE acecode_include_roots)
+# Window effects use the desktop scale policy and base logging helpers.
+target_link_libraries(acecode_deepin_window_effects PRIVATE acecode_desktop_support)
 target_link_libraries(acecode_deepin_window_effects PRIVATE
     ${_acecode_dtk_target} Qt5::Widgets X11::X11 webview::core)

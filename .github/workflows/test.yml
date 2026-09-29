@@ -140,6 +140,7 @@ jobs:
       - name: Configure
         shell: bash
         run: |
+          python3 scripts/refactor/cmake_target_snapshot.py --build-dir build --query
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
@@ -147,6 +148,9 @@ jobs:
             -DVCPKG_MANIFEST_FEATURES=tests \
             -DBUILD_TESTING=ON \
             -DACECODE_BUILD_DESKTOP=ON
+
+      - name: Verify layer library ownership and link boundaries
+        run: python3 scripts/refactor/check_layer_libraries.py --build-dir build
 
       - name: Build CLI, desktop and test binary
         shell: bash

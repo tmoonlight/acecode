@@ -36,7 +36,31 @@ Business state stays with its owner: model caches in provider, region cache in t
 
 [CLI main](../../src/apps/cli/main.cpp) dispatches and runs the selected surface. [TuiApp](../../src/apps/tui/app/tui_app.hpp) owns named initialization stages and normal/exceptional cleanup. [AgentLoop](../../src/engine/agent/agent_loop.hpp) receives fixed services and options, then starts explicitly.
 
-Tests mirror module paths without the group: engine/agent maps to tests/agent, host/session_host to tests/session_host. Shared fixtures use the full test_support prefix. The CMake testable TUI allowlist contains implementations testable without the full terminal loop; production links those same implementations.
+Tests mirror module paths without the group: engine/agent maps to tests/agent, host/session_host to tests/session_host. Shared fixtures use the full test_support prefix. All TUI implementations compile once into the `acecode_tui` static library. Unit tests consume the same production archives through the source-free `acecode_testable` INTERFACE target; executable entry points and the Desktop WebView shell are separate.
+
+## Static library boundaries
+
+[cmake/acecode_layer_libraries.cmake](../../cmake/acecode_layer_libraries.cmake) implements P5. Library names use the `acecode_` prefix:
+
+| Libraries | Ownership and dependencies |
+| --- | --- |
+| base_core | config, image, ipc, platform, utils and workspace; JSON, SQLite and native OS support |
+| base_host | network, pty and environment; depends on base_core and adds CPR/WinPTY or libutil |
+| domain | Domain modules; depends on base_core without CPR, Crow or MCP |
+| adapters / engine / host | Downward chain; adapters owns external integrations, host adds Crow for channels and remote control |
+| web / tui / headless | Application libraries over host; web owns embedded assets, tui owns FTXUI and every TUI implementation |
+| daemon / cli | Daemon uses web; CLI assembles daemon, headless and TUI |
+| desktop_support | Reusable Desktop code over base_core; no agent, TUI, Crow or Web asset linkage |
+
+Libraries publish their own group include root and receive lower roots from their dependencies. Standalone smoke fixtures retain the six-root include interface. Desktop and its Deepin window-effects library receive only apps/base project include roots; the window-effects library explicitly depends on desktop_support. Native computer-use workers remain separate executables and reuse base_core. WinPTY keeps its upstream-specific implementation and embedded agent. Platform-specific and Desktop-off source exclusions are explicit.
+
+Configure-time checks require STATIC layer targets, an INTERFACE test aggregate, downward links and exactly one primary owner per active translation unit. Independent smoke fixtures may compile selected production sources separately. CI independently checks the generated File API graph, complete TUI coverage, Web asset ownership and final consumer link lines. The same check works with `BUILD_TESTING=OFF`. File API queries must exist before CMake starts, including on the supported CMake 3.20 baseline:
+
+```sh
+python scripts/refactor/cmake_target_snapshot.py --build-dir build --query
+cmake -S . -B build  # retain the toolchain/options used to configure this directory
+python scripts/refactor/check_layer_libraries.py --build-dir build
+```
 
 ## Migration and guards
 

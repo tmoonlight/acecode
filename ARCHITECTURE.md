@@ -203,7 +203,11 @@ Memory writes are path-locked to the memory directory even when broader permissi
 
 | Target | Purpose |
 | --- | --- |
-| `acecode_testable` | Object library containing headless reusable logic for production binaries and tests. |
+| `acecode_base_core` / `acecode_base_host` | Base primitives and native UI / network, PTY and environment static libraries. |
+| `acecode_domain` / `acecode_adapters` / `acecode_engine` / `acecode_host` | Downward-linked domain, integration, agent and session-host static libraries. |
+| `acecode_web` / `acecode_tui` / `acecode_headless` / `acecode_daemon` / `acecode_cli` | Application static libraries; Web owns embedded assets and TUI owns all terminal implementations. |
+| `acecode_desktop_support` | Reusable desktop code linking only the base layer. |
+| `acecode_testable` | Source-free INTERFACE aggregate of production libraries for tests. |
 | `acecode` | Main terminal/daemon executable. |
 | `acecode_unit_tests` | GoogleTest binary when `BUILD_TESTING=ON`. |
 | `acecode-desktop` | Optional desktop shell when `ACECODE_BUILD_DESKTOP=ON`. |

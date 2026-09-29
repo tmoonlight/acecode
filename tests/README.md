@@ -37,9 +37,10 @@ Adding a new test file needs no CMake edit — `tests/CMakeLists.txt` globs
 ## What's exempt
 
 - The TUI entry point `src/apps/cli/main.cpp` and the full terminal loop are validated
-  manually. Pure TUI helpers listed in `ACECODE_TESTABLE_TUI_SOURCES` in the root
-  `CMakeLists.txt` are part of `acecode_testable` and covered by unit tests; the
-  remaining `src/apps/tui/` and `src/apps/tui/markdown/` sources stay outside that target.
+  manually. All TUI implementations compile once in `acecode_tui`; tests link
+  those production archives through the source-free `acecode_testable` interface.
+  No testable TUI allowlist is required. Executable entry points and WebView
+  shells remain outside the test aggregate.
 - LLM provider HTTP paths (`CopilotProvider`, `OpenAiCompatProvider`) — need
   mock HTTP server; left to a future integration-tests change.
 - Real provider/network end-to-end behavior needs configured services. AgentLoop protocol, ownership and lifecycle regressions use injected providers and local HTTP fixtures in the unit suite.

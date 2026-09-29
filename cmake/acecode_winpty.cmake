@@ -3,7 +3,7 @@
 #
 # 上游(rprichard/winpty)不是 CMake 工程(gyp + Makefile + vcbuild.bat),
 # 这里按 src/winpty.gyp 的源文件清单手工定义两个 target:
-#   - winpty_static : libwinpty 客户端静态库,链进 acecode_testable
+#   - winpty_static : libwinpty 客户端静态库,链进 acecode_base_host
 #   - winpty-agent  : 独立 agent 可执行文件(挂隐藏 console 抓屏翻译 VT),
 #                     运行时必须以磁盘文件存在 — 嵌入主程序、首次使用时
 #                     释放到 <data_dir>/bin/
