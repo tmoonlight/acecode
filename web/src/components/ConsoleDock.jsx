@@ -40,6 +40,7 @@ import { postWindowsNativeFilesystemDrop } from '../lib/desktopNativeFilesystemD
 import { fileDropDiagnostic } from '../lib/macNativeFileDrag.js';
 import { copyTextToSystemClipboard, readTextFromSystemClipboard } from '../lib/systemClipboard.js';
 import { normalizeShells, buildShellMenuItems } from '../lib/consoleShells.js';
+import { CONSOLE_FONT_SIZE, resolveConsoleFont } from '../lib/consoleFont.js';
 import { useTheme } from '../theme.jsx';
 import { VsIcon } from './Icon.jsx';
 import { Modal } from './Modal.jsx';
@@ -47,8 +48,6 @@ import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { toast } from './Toast.jsx';
 
 const api = createApi();
-
-const TERMINAL_FONT = '"SF Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace';
 
 const THEMES = {
   dark: {
@@ -251,8 +250,8 @@ export function ConsoleDock({ owner, open, height: preferredHeight, onHeightChan
     entriesRef.current.set(id, entry);
 
     const term = new Terminal({
-      fontSize: 13,
-      fontFamily: TERMINAL_FONT,
+      fontSize: CONSOLE_FONT_SIZE,
+      fontFamily: resolveConsoleFont(el.ownerDocument, CONSOLE_FONT_SIZE),
       scrollback: 10000,
       cursorBlink: true,
       theme: THEMES[mode === 'dark' ? 'dark' : 'light'],
