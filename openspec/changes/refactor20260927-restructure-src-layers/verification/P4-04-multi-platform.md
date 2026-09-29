@@ -16,3 +16,9 @@
 本机验证:复用 build/refactor-phase1-windows 的 MSVC Release/Ninja 增量构建 acecode_unit_tests 成功;run_fast_tests.py --profile full --filter "BuiltinCommands.*" 执行 47 条(含强制守护用例),0 SKIP、0 失败,5.4 秒。全量用例清单仍为 5304 条,无增删。严格分层与所有权检查通过。
 
 macOS 与 Linux 的修复后 CI 待确认。P4-04 完整验收保持未勾选,既有人工专项与九个旧 ref 的后续安排不变。
+
+## 原生构建继续复核
+
+[修复后 package 36516779969](https://github.com/tmoonlight/acecode/actions/runs/36516779969) 已越过 macOS helper 的原报错位置,继续编译至 TerminationSignal 时发现 macOS SDK 把 sigemptyset 定义为函数式宏,`::sigemptyset(...)` 展开后语法无效。已改为不带作用域限定的调用,同时兼容 Linux 的函数声明与 macOS 的宏,不改变信号掩码语义。全仓同类带作用域限定的 sigset 调用仅此一处。
+
+该补充修复已通过 Windows MSVC/Ninja 增量构建、TerminationSignal.* 与守护用例共 12 条(0 SKIP、0 失败)、严格分层检查。下一轮 macOS/Linux 原生 CI 待确认。
