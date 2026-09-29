@@ -42,7 +42,7 @@ Canonical root docs are [README.md](README.md), [README_CN.md](README_CN.md), [A
 ## Architecture Boundaries
 
 - Keep terminal UI behavior in [src/apps/tui/](src/apps/tui), including its markdown and command adapters. Put reusable logic in the owning module under base, domain, adapters, engine or host; keep the CLI entry point limited to dispatch and assembly.
-- `acecode_testable` intentionally excludes the full TUI entry point and desktop WebView shell. Pure helpers can be added there and covered by unit tests.
+- `acecode_testable` is an INTERFACE aggregate of the production static libraries. All TUI implementations belong to `acecode_tui`; do not add testable subset lists. Executable entry points and the desktop WebView shell stay outside the aggregate. See `cmake/acecode_layer_libraries.cmake` for source ownership.
 - Daemon/API work usually touches [src/apps/daemon/](src/apps/daemon), [src/apps/web/](src/apps/web), and [src/domain/session/](src/domain/session). Update [docs/daemon-api.md](docs/daemon-api.md) when protocol behavior changes.
 - React/Vite/Tailwind frontend work stays under [web/src/](web/src). Do not edit generated build output directly; regenerate it with the web build.
 - Avoid modifying vendored or submodule trees such as [external/](external), `hermes-agent/`, or `claudecodehaha/` unless the task explicitly targets them.

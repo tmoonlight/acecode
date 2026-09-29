@@ -82,5 +82,55 @@ endif()
         self.assertIn("outside known layout roots", result.stderr)
 
 
+    def test_primary_sources_reject_missing_duplicate_and_inactive_owners(self):
+        prefix = """add_library(first INTERFACE)
+set_property(TARGET first PROPERTY SOURCES "${CMAKE_SOURCE_DIR}/src/base/utils/a.cpp")
+add_library(second INTERFACE)
+"""
+        source = '"${CMAKE_SOURCE_DIR}/src/base/utils/a.cpp"'
+        for extra, targets, inactive, expected in (
+            ('', 'first', '', None),
+            ('', 'second', '', 'expected one owner, found 0'),
+            ('set_property(TARGET second PROPERTY SOURCES ' + source + ')\n', 'first second', '', 'expected one owner, found 2'),
+            ('', 'first', 'INACTIVE ' + source, 'inactive source is compiled'),
+        ):
+            with self.subTest(expected=expected):
+                result = self.configure(prefix + extra + 'acecode_assert_primary_sources(SOURCES ' + source +
+                    ' TARGETS ' + targets + ' ' + inactive + ')\n', ['src/base/utils/a.cpp'])
+                if expected:
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(expected, result.stderr)
+                else:
+                    self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_layer_graph_rejects_back_edges_and_object_aggregates(self):
+        for top_link, aggregate_type, expected in (
+            ('set_property(TARGET upper PROPERTY LINK_LIBRARIES lower)', 'INTERFACE', None),
+            ('set_property(TARGET lower PROPERTY LINK_LIBRARIES upper)', 'INTERFACE', 'layer link must point downward'),
+            ('', 'OBJECT IMPORTED', 'source-free INTERFACE aggregate'),
+        ):
+            body = ('add_library(lower STATIC IMPORTED)\nadd_library(upper STATIC IMPORTED)\n'
+                    'add_library(aggregate ' + aggregate_type + ')\n' + top_link + '\n'
+                    'acecode_assert_layer_targets(TARGETS lower upper AGGREGATE aggregate)\n')
+            result = self.configure(body)
+            if expected:
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(expected, result.stderr)
+            else:
+                self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_desktop_guard_follows_transitive_private_links(self):
+        body = """add_library(desktop INTERFACE)
+add_library(support INTERFACE)
+add_library(engine STATIC IMPORTED)
+target_link_libraries(desktop INTERFACE support)
+target_link_libraries(support INTERFACE "$<LINK_ONLY:engine>")
+acecode_assert_no_link_path(desktop engine)
+"""
+        result = self.configure(body)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('forbidden link path from desktop reaches engine', result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

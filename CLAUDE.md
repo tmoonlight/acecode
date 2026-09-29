@@ -77,8 +77,9 @@ text nodes. The new path row is mounted only after Change is activated.
 
 Use the command set in [AGENTS.md](AGENTS.md) as the source of truth. Important local facts:
 
-- `acecode_testable` is the shared object library for headless logic and unit tests.
-- `acecode` links `acecode_testable` plus FTXUI and TUI/markdown sources.
+- `acecode_testable` is a source-free INTERFACE aggregate over production static libraries.
+- `acecode` links `acecode_cli`, which assembles the TUI, headless and daemon libraries. The whole TUI belongs to `acecode_tui`; no testable subset list remains.
+- `cmake/acecode_layer_libraries.cmake` defines library ownership; configure-time guards and the File API check in CI validate coverage and dependency boundaries.
 - `acecode_unit_tests` is available when `BUILD_TESTING=ON`.
 - `acecode-desktop` is only created when desktop building is enabled.
 - Rebuild [web/](web) with `pnpm build` before configuring CMake when embedded frontend assets need to change.
@@ -492,7 +493,7 @@ FTXUI mouse tracking is enabled by default — wheel scrolls `chat_focus_index` 
 
 FTXUI's default `TerminalOutput()` mode emits `\033[1A` per frame to rewind. This breaks on Win10 < 1809 conhost and Cmder/ConEmu pty wrappers (banner stacking, viewport drift). Workaround: alt-screen (`\033[?1049h`).
 
-`detect_terminal_capabilities()` reads `ConEmuPID` / `WT_SESSION` env, Windows build via `RtlGetVersion`, and classic conhost signals (visible `ConsoleWindowClass`, hidden pseudoconsole + VT support). `decide_render_mode(cfg.tui, caps)` is a pure function in `src/apps/tui/render_mode.hpp` (no FTXUI dep, in `acecode_testable`). `make_screen_interactive` is the only FTXUI consumer.
+`detect_terminal_capabilities()` reads `ConEmuPID` / `WT_SESSION` env, Windows build via `RtlGetVersion`, and classic conhost signals (visible `ConsoleWindowClass`, hidden pseudoconsole + VT support). `decide_render_mode(cfg.tui, caps)` is a pure function in `src/apps/tui/render_mode.hpp` (no FTXUI dependency in the helper itself, compiled in `acecode_tui`). `make_screen_interactive` is the only FTXUI consumer.
 
 | `tui.alt_screen_mode` | caps | decision |
 |---|---|---|
@@ -506,7 +507,7 @@ Classic/legacy conhost also enables a conservative TUI layout via `should_use_co
 
 ### Web UI (browser front-end)
 
-`acecode daemon start` → `http://localhost:28080/` 浏览器界面。前端代码在 `web/`(顶层),build 期通过 `cmake/acecode_embed_assets.cmake` 扫描整个目录,把每个文件 hex 编码后写到 `${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp`(单文件,字节数组 + `embedded_asset_map()` static map),链入 `acecode_testable` 与 `acecode` 二进制 — daemon 自带前端,无外部 CDN / npm 依赖。`web.static_dir` 为非空时改走 `FileSystemAssetSource`(开发模式,改文件即生效)。
+`acecode daemon start` → `http://localhost:28080/` 浏览器界面。前端代码在 `web/`(顶层),build 期通过 `cmake/acecode_embed_assets.cmake` 扫描整个目录,把每个文件 hex 编码后写到 `${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp`(单文件,字节数组 + `embedded_asset_map()` static map),由 `acecode_web` 静态库编译并链入 `acecode` 二进制 — daemon 自带前端,无外部 CDN / npm 依赖。`web.static_dir` 为非空时改走 `FileSystemAssetSource`(开发模式,改文件即生效)。
 
 ### Web UI: 前端目录
 

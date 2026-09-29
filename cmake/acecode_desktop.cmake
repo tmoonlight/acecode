@@ -106,7 +106,7 @@ target_link_libraries(acecode-desktop PRIVATE acecode_include_roots)
 # webview::core_static 提供 WebView2 wrapper(Windows 路径)。
 target_link_libraries(acecode-desktop PRIVATE
     acecode_desktop_support
-    acecode_native_bridge_support
+    acecode_base_core
     webview::core
     cpr::cpr
     nlohmann_json::nlohmann_json
