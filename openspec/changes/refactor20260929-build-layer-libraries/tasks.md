@@ -14,4 +14,4 @@
 
 - [x] 3.1 Complete MSVC Release builds for CLI/Desktop/unit tests and applicable smoke targets; run full C++ tests and confirm the baseline inventory is unchanged, recording results.
 - [x] 3.2 Complete native Linux CLI/Desktop/unit-test linking and full tests; verify the configured library graph and record evidence.
-- [ ] 3.3 Review the complete diff, commit only P5 changes, deliver through protected master and verify CI plus final local/remote state; retain unrelated changes.
+- [x] 3.3 Review the complete diff, commit only P5 changes, deliver through protected master and verify CI plus final local/remote state; retain unrelated changes.
