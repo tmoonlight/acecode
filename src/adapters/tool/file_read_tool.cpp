@@ -735,6 +735,7 @@ ToolResult execute_file_read(
         return ToolResult{ToolErrors::cannot_open_file(request.file_path), false};
     }
 
+    // 按会话去重:同一进程里别的会话(含子代理)读过,不代表这个会话见过内容。
     auto unchanged_observation =
         MtimeTracker::instance().unchanged_read_observation(
             request.file_path,
@@ -742,7 +743,8 @@ ToolResult execute_file_read(
             request.end_line,
             request.byte_mode,
             request.byte_offset,
-            request.requested_max_bytes);
+            request.requested_max_bytes,
+            ctx.session_id);
     if (unchanged_observation.has_value()) {
         ToolSummary summary;
         summary.verb = "Read";
@@ -963,7 +965,8 @@ ToolResult execute_file_read(
         request.end_line,
         request.byte_mode,
         request.byte_offset,
-        request.requested_max_bytes);
+        request.requested_max_bytes,
+        ctx.session_id);
 
     bool hint_added = false;
     if (!request.byte_mode &&

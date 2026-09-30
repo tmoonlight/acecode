@@ -142,7 +142,7 @@ export function presentSystemNotice(message = {}, t = tr) {
     else if (typeof params.summary === 'string') details = `${t('systemNotice.fields.summary')}:\n${params.summary}`;
     else if (typeof params.text === 'string') details = params.text;
     else if (params.provider_unavailable === true) details = t('systemNotice.providerUnavailable');
-    else if (code === 'context_compact_warning' && params.groups != null) details = t('systemNotice.compactFallback', params);
+    else if (code === 'context_compact_warning' && params.groups != null) details = t(params.thinned ? 'systemNotice.compactFallbackThinned' : 'systemNotice.compactFallback', params);
     else if (template) details = template;
     else if (typeof params.error === 'string') details = title;
     if (typeof params.error === 'string' && params.error) details += `\n\n${t('systemNotice.fields.error')}:\n${params.error}`;

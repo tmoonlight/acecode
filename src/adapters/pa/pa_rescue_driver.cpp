@@ -84,6 +84,7 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                 options.force_prune_one_group = true;
                 options.clear_tool_outputs = true;
                 options.keep_recent_tool_outputs = 1;
+                options.thin_old_turns_first = true;
                 auto repair = host.repair(options);
                 LOG_WARN("[pa-rescue] shrink status=" +
                          std::string(to_string(repair.status)) +
@@ -93,6 +94,8 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                          std::to_string(repair.pruned_groups) +
                          " cleared_tool_outputs=" +
                          std::to_string(repair.cleared_tool_outputs) +
+                         " thinned_groups=" +
+                         std::to_string(repair.thinned_groups) +
                          " reason=" + repair.reason);
                 if (!repair.repaired()) {
                     // 一点空间都没腾出来:这一轮不再提议收缩,立刻换下一招。
@@ -106,6 +109,24 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                     {"label", plan.label},
                     {"detail", repair.reason},
                 });
+                if (repair.thinned_groups > 0) {
+                    host.notice(
+                        "[智能压缩] 服务端拒收请求（第 " +
+                        std::to_string(state.shrink_rounds) +
+                        " 次收缩）：已清除 " +
+                        std::to_string(repair.cleared_tool_outputs) +
+                        " 条旧工具输出、精简 " +
+                        std::to_string(repair.thinned_groups) +
+                        " 组旧回合（保留用户消息与结论）、丢弃 " +
+                        std::to_string(repair.pruned_groups) +
+                        " 组最旧历史后重试。",
+                        make_system_notice_metadata("context_history_thinned",
+                            {{"round", state.shrink_rounds},
+                             {"groups", repair.pruned_groups},
+                             {"thinned", repair.thinned_groups},
+                             {"outputs", repair.cleared_tool_outputs}}));
+                    return true;
+                }
                 host.notice(
                     "[智能压缩] 服务端拒收请求（第 " +
                     std::to_string(state.shrink_rounds) +

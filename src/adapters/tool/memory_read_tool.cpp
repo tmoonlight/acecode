@@ -47,6 +47,9 @@ ToolImpl create_memory_read_tool(MemoryRegistry& registry,
         } catch (...) {
             return ToolResult{"[Error] Failed to parse tool arguments.", false};
         }
+        // 另一个进程(别的工作区的 daemon、TUI)可能刚写过新条目;目录里只有
+        // 几个小文件,每次读前重扫的代价可以忽略。
+        registry.reload();
 
         if (!name.empty()) {
             auto found = registry.find(name);

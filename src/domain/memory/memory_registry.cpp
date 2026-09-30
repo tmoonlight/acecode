@@ -60,6 +60,10 @@ std::string atomic_write(const fs::path& target, const std::string& content) {
 
 void MemoryRegistry::scan() {
     std::lock_guard<std::mutex> lock(mu_);
+    scan_locked();
+}
+
+void MemoryRegistry::scan_locked() {
     entries_.clear();
 
     fs::path dir = get_memory_dir();
@@ -175,6 +179,9 @@ std::optional<MemoryEntry> MemoryRegistry::upsert(const std::string& name,
     }
 
     std::lock_guard<std::mutex> lock(mu_);
+    // 写前按磁盘重扫:TUI 与每个工作区的 daemon 各持一份缓存,拿启动时的旧缓存
+    // 重写 MEMORY.md 会把别的进程后来写的条目当成「已删除」从索引里丢掉。
+    scan_locked();
 
     auto existing = find_locked(name);
     bool file_exists = existing != entries_.end();
@@ -228,6 +235,7 @@ bool MemoryRegistry::remove(const std::string& name, std::string& error_out) {
     }
 
     std::lock_guard<std::mutex> lock(mu_);
+    scan_locked();
 
     auto it = find_locked(name);
     if (it == entries_.end()) {

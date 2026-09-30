@@ -316,6 +316,10 @@ Proactive skill discovery (`inject-skill-index-into-context`): a compact skill i
 
 [src/domain/memory/](src/domain/memory) stores Markdown memory entries under `~/.acecode/memory/` and rewrites an index on upsert/remove. `memory_write` is constrained to that directory even under broad permission modes.
 
+记忆在 TUI 与 daemon(桌面版 / Web)两端都接线:daemon 曾经 `memory_registry = nullptr`,桌面会话既没有索引注入也没有 `memory_read` / `memory_write`,用户让模型「记住」时它只能把经验写进子目录 CLAUDE.md / `.acecode/MEMORY.md` 这类不会被自动加载的文件(反馈 LINDANDAN069)。每个工作区一个 daemon 加上 TUI 会同时写同一个目录,所以 `MemoryRegistry::upsert` / `remove` 写前按磁盘重扫、`memory_read` 读前重扫 —— 拿启动时的旧缓存重写 MEMORY.md 会把别的进程后来写的条目当成已删除丢掉。静态 system prompt 在注册了 `memory_write` 时带一段 `# Memory` 指引(「记住」一律走 `memory_write`,别另写笔记文件)。headless 仍不注册记忆工具。
+
+`file_read` 的「文件未变」去重(`MtimeTracker` 的已读观测)按会话 id 分区:进程级单例曾经不分会话,daemon 里别的会话或子代理读过同一文件,本会话第一次读就只拿到占位。摘要压缩与各种线程修复(`CompactionController::mark_history_repaired`)之后清空观测,因为之前的读取结果可能已被清成占位符。
+
 [src/domain/project_instructions/](src/domain/project_instructions) loads configured project-instruction filenames from the global config directory and then from the project hierarchy, outer-first, subject to per-file and aggregate byte caps. The repository root intentionally keeps only canonical docs; do not add duplicate root instruction files for this repository.
 
 ## Daemon And Web UI
@@ -422,8 +426,10 @@ revision stale so a later send retries.
 3. **随机拒收绝不终止回合**(`pa_overflow_rescue`)。服务端实际能收的规模随
    负载浮动,同一规模的请求时过时不过。PA 特征的整体拒收不走通用三级恢复链,
    改走 `AgentLoop::run_pa_overflow_rescue`:原样重发 2 次 → 每次被拒缩到
-   上一次的 85%(先丢老回合,再清本回合旧工具输出 / 大参数,
-   `ThreadRepairOptions::clear_tool_outputs`)无上限 → 紧急档 → 5s 起封顶
+   上一次的 85%(先清整段历史里最旧的工具输出 / 大参数,再把老回合精简成
+   「用户消息 + 摘要 + 纯文本结论」,最后才整组丢且保留最新摘要;
+   `ThreadRepairOptions::clear_tool_outputs` + `thin_old_turns_first`,
+   反馈 LINDANDAN069:旧的「先丢老回合」把任务说明与用户纠正一起删掉)无上限 → 紧急档 → 5s 起封顶
    60s 的退避等待最多 12 次,只有等待耗尽才报错。兜底后的那次重发跳过自动
    压缩(`skip_auto_compact_once_`);请求被收下即清零 episode,同回合再被拒
    重新开始。学习器只记每个 episode 最初确认拒收的规模,紧急档请求永远不记。

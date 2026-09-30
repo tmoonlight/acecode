@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "llm/message_predicates.hpp"
+#include "llm/token_estimate.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
@@ -227,6 +229,181 @@ TEST(ThreadRepair, ClearsOversizedToolCallArgumentsAfterOutputs) {
     EXPECT_EQ(result.replacement_history[5].tool_calls[0]["function"]["arguments"],
               big_arguments)
         << "最近一条调用必须保留";
+}
+
+namespace {
+
+acecode::ThreadRepairOptions shrink_options(int target_tokens) {
+    // 与 PA 兜底 / 摘要失败后的机械兜底同一组开关。
+    acecode::ThreadRepairOptions options;
+    options.trigger = "repair-test";
+    options.target_tokens = target_tokens;
+    options.force_prune_one_group = true;
+    options.clear_tool_outputs = true;
+    options.keep_recent_tool_outputs = 1;
+    options.thin_old_turns_first = true;
+    return options;
+}
+
+acecode::ChatMessage compact_summary(std::string content) {
+    acecode::ChatMessage item = message("user", std::move(content));
+    item.is_compact_summary = true;
+    item.metadata = nlohmann::json{{"compact_summary", true}};
+    return item;
+}
+
+} // namespace
+
+// 触发场景:一个老回合(用户的任务说明 + 一次大工具输出 + 结论)加当前回合,
+// 目标只比现规模低约 500 token —— 清掉那条旧工具输出就够。
+// 期望行为:只清旧工具输出,老回合的任务说明与结论、当前回合的输出都保留;
+// 一组都不丢、也不精简。
+// 回归背景(反馈 LINDANDAN069):旧顺序先整组丢老回合、后清工具输出,PA 服务端
+// 随机拒收时一次把最初的任务说明、用户的多次纠正连同压缩摘要全部删掉,而真正
+// 省出空间的是随后清掉的工具输出 —— 模型此后「忘了」任务要求与刚学到的做法。
+TEST(ThreadRepair, ClearsToolOutputsBeforeDroppingOldTurns) {
+    const std::vector<acecode::ChatMessage> history{
+        message("user", "original task: always verify every expect"),
+        assistant_call("old-call"),
+        tool_result("old-call", std::string(4000, 'O')),
+        message("assistant", "old conclusion: compose window found via tabs"),
+        message("user", "current request"),
+        assistant_call("new-call"),
+        tool_result("new-call", std::string(400, 'N')),
+    };
+    const int pre = acecode::estimate_message_tokens(history);
+
+    const auto result = acecode::plan_thread_repair(
+        history, shrink_options(pre - 500));
+
+    ASSERT_EQ(result.status, acecode::ThreadRepairStatus::Repaired);
+    EXPECT_EQ(result.pruned_groups, 0);
+    EXPECT_EQ(result.thinned_groups, 0);
+    EXPECT_EQ(result.cleared_tool_outputs, 1);
+    EXPECT_EQ(result.reason, "old tool outputs were cleared");
+    EXPECT_TRUE(contains(result.replacement_history, "original task"))
+        << "任务说明是老回合里最不该丢的部分";
+    EXPECT_TRUE(contains(result.replacement_history, "old conclusion"));
+    EXPECT_FALSE(contains(result.replacement_history, std::string(4000, 'O')));
+    EXPECT_TRUE(contains(result.replacement_history, std::string(400, 'N')))
+        << "最近一条工具输出必须保留";
+}
+
+// 触发场景:老回合里有 12 次工具往返,每次调用参数约 3KB(不到 4KB,清不掉)、
+// 返回只有 "ok"(比占位符还短,也清不掉);目标要求腾出这些往返的大头。
+// 期望行为:清工具输出腾不出空间,就把老回合精简成「任务说明 + 结论」:
+// 工具调用与结果全部删掉,用户消息与助手的纯文本结论保留,整组不丢。
+// 回归背景:旧实现只能整组丢弃,模型连任务说明带结论一起丢;只留用户消息不留
+// 结论又会让模型以为老任务还没做、从头再做一遍,所以结论必须一起保留。
+TEST(ThreadRepair, ThinsOldTurnsBeforeDroppingThem) {
+    std::vector<acecode::ChatMessage> history{
+        message("user", "original task: reuse netdisk_helpers.py"),
+    };
+    for (int i = 0; i < 12; ++i) {
+        const std::string id = "old-" + std::to_string(i);
+        history.push_back(assistant_call(
+            id, R"({"path":"x.txt","content":")" + std::string(3000, 'P') +
+                    R"("})"));
+        history.push_back(tool_result(id, "ok"));
+    }
+    history.push_back(message("assistant", "old conclusion: all cases rerun"));
+    history.push_back(message("user", "current request"));
+    const int pre = acecode::estimate_message_tokens(history);
+
+    const auto result = acecode::plan_thread_repair(
+        history, shrink_options(pre / 2));
+
+    ASSERT_EQ(result.status, acecode::ThreadRepairStatus::Repaired);
+    EXPECT_EQ(result.cleared_tool_outputs, 0);
+    EXPECT_EQ(result.thinned_groups, 1);
+    EXPECT_EQ(result.pruned_groups, 0);
+    EXPECT_EQ(result.pruned_messages, 24);
+    ASSERT_EQ(result.replacement_history.size(), 3u);
+    EXPECT_EQ(result.replacement_history[0].content,
+              "original task: reuse netdisk_helpers.py");
+    EXPECT_EQ(result.replacement_history[1].content,
+              "old conclusion: all cases rerun");
+    EXPECT_EQ(result.replacement_history[2].content, "current request");
+    EXPECT_LE(result.post_tokens, pre / 2);
+}
+
+// 触发场景:历史开头是上一次压缩留下的「保留用户消息 + 摘要」,后面接着两个
+// 纯文本老回合和当前输入;目标极小(1 token),精简也腾不出空间,只能整组丢。
+// 期望行为:老回合整组丢掉,但最新那份压缩摘要保留在最前面,当前输入不动。
+// 回归背景:旧实现整组丢弃时摘要跟着所在的组一起消失 —— 那份摘要是此前所有
+// 回合的唯一记忆,丢了它模型对之前做过的事一无所知。
+TEST(ThreadRepair, KeepsLatestCompactSummaryWhenDroppingOldTurns) {
+    const std::vector<acecode::ChatMessage> history{
+        message("user", "retained request from before compaction"),
+        compact_summary("handoff summary: helpers live in reports/"),
+        message("assistant", "reply after compaction"),
+        message("user", "second request"),
+        message("assistant", "second reply"),
+        message("user", "current request"),
+    };
+
+    const auto result = acecode::plan_thread_repair(history, shrink_options(1));
+
+    ASSERT_EQ(result.status, acecode::ThreadRepairStatus::Repaired);
+    EXPECT_EQ(result.pruned_groups, 2);
+    ASSERT_EQ(result.replacement_history.size(), 2u);
+    EXPECT_TRUE(acecode::is_compact_summary_message(
+        result.replacement_history[0]));
+    EXPECT_NE(result.replacement_history[0].content.find("helpers live in"),
+              std::string::npos);
+    EXPECT_EQ(result.replacement_history[1].content, "current request");
+}
+
+// 触发场景:同样的历史,但调用方没打开 thin_old_turns_first(手动修复、通用
+// 恢复链的默认值)。
+// 期望行为:与旧行为一致 —— 整组丢弃,摘要不额外保留。
+TEST(ThreadRepair, DefaultOptionsKeepWholeGroupPruning) {
+    const std::vector<acecode::ChatMessage> history{
+        message("user", "retained request from before compaction"),
+        compact_summary("handoff summary: helpers live in reports/"),
+        message("assistant", "reply after compaction"),
+        message("user", "current request"),
+    };
+    acecode::ThreadRepairOptions options;
+    options.force_prune_one_group = true;
+
+    const auto result = acecode::plan_thread_repair(history, options);
+
+    ASSERT_EQ(result.status, acecode::ThreadRepairStatus::Repaired);
+    EXPECT_EQ(result.pruned_groups, 1);
+    EXPECT_EQ(result.thinned_groups, 0);
+    ASSERT_EQ(result.replacement_history.size(), 1u);
+    EXPECT_EQ(result.replacement_history[0].content, "current request");
+}
+
+// 触发场景:当前回合里先有一次大输出(4000 字节),最近一次工具只返回了 "ok"
+// (比占位符还短,本身不值得清);目标要求腾空间,保留最近 1 条。
+// 期望行为:最近那条 "ok" 占掉保护名额,更早的大输出被清掉。
+// 回归背景:旧实现只在「值得清的输出」里数最近 N 条,短输出不算,保护名额
+// 落到了更早的大输出上 —— 它恰恰是唯一能腾出空间的那条,于是一条都清不掉,
+// 修复转而去精简 / 整组丢弃老回合(端到端用例里就是这么绕过去的)。
+TEST(ThreadRepair, ShortLatestToolOutputStillTakesTheProtectedSlot) {
+    const std::vector<acecode::ChatMessage> history{
+        message("user", "current request"),
+        assistant_call("c1"),
+        tool_result("c1", std::string(4000, 'A')),
+        assistant_call("c2"),
+        tool_result("c2", "ok"),
+    };
+    acecode::ThreadRepairOptions options;
+    options.force_prune_one_group = true;
+    options.target_tokens = 1;
+    options.clear_tool_outputs = true;
+    options.keep_recent_tool_outputs = 1;
+
+    const auto result = acecode::plan_thread_repair(history, options);
+
+    EXPECT_EQ(result.status, acecode::ThreadRepairStatus::Repaired);
+    EXPECT_EQ(result.cleared_tool_outputs, 1);
+    ASSERT_EQ(result.replacement_history.size(), 5u);
+    EXPECT_EQ(result.replacement_history[2].content,
+              acecode::kClearedToolOutputPlaceholder);
+    EXPECT_EQ(result.replacement_history[4].content, "ok");
 }
 
 TEST(ThreadRepair, HealthyHistoryReportsNoChangeWithoutWritingCheckpoint) {

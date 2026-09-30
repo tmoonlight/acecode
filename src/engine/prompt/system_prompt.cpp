@@ -225,6 +225,9 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     const bool bash_allowed = guidance_allows("bash");
     const bool skill_view_allowed = guidance_allows("skill_view");
     const bool skills_list_allowed = guidance_allows("skills_list");
+    // 记忆工具可能没注册(headless 的工具面):不能让模型去调一个不存在的工具。
+    const bool memory_write_allowed =
+        tools.has_tool("memory_write") && guidance_allows("memory_write");
     const bool enter_worktree_allowed = guidance_allows("EnterWorktree");
     const bool exit_worktree_allowed = guidance_allows("ExitWorktree");
     const std::string file_read_name =
@@ -605,6 +608,24 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
                 << "- Do not use these tools for built-in CLI commands (like /help, /clear, /model, /compact).\n";
         }
         oss << "\nSkill selection is turn-scoped: do not assume a prior turn selected a skill unless the current request names or clearly matches it.\n\n";
+    }
+
+    // 「记住」要落到会被自动注入的地方。反馈 LINDANDAN069:用户让模型记住做法,
+    // 模型把经验写进了子目录里的 CLAUDE.md / .acecode/MEMORY.md,ACECode 从不
+    // 自动加载这些文件,下一轮压缩之后经验就「忘」了。
+    if (memory_write_allowed) {
+        oss << "# Memory\n\n"
+            << "- When the user asks you to remember something for later (\"remember this\", "
+            << "\"next time do X\", \"don't repeat this mistake\"), save it with `memory_write`. "
+            << "The memory index is included in every future request and survives context "
+            << "compaction.\n"
+            << "- Do not substitute ad-hoc notes files (MEMORY.md, LESSONS_LEARNED.md, or a "
+            << "CLAUDE.md/AGENTS.md in a subdirectory): they are not loaded automatically, so the "
+            << "lesson is lost once it leaves the context. Project instruction files are loaded "
+            << "only from the working directory and its parent directories.\n"
+            << "- Put the actionable rule in the memory description (what to do, what to reuse "
+            << "and where it lives) so it is visible without opening the entry, and call "
+            << "`memory_read` for the details before starting related work.\n\n";
     }
 
     return oss.str();

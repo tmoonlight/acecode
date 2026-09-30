@@ -66,6 +66,7 @@ public:
 
 private:
     // Non-locking helpers — callers must already hold mu_.
+    void scan_locked();
     std::vector<MemoryEntry>::iterator find_locked(const std::string& name);
     void rewrite_index_locked();
 

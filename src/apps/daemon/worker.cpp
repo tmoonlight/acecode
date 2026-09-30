@@ -57,6 +57,10 @@
 #include "tool/grep_tool.hpp"
 #include "tool/glob_tool.hpp"
 #include "tool/goal_tool.hpp"
+#include "memory/memory_paths.hpp"
+#include "memory/memory_registry.hpp"
+#include "tool/memory_read_tool.hpp"
+#include "tool/memory_write_tool.hpp"
 #include "tool/skill_view_tool.hpp"
 #include "tool/skills_tool.hpp"
 #include "tool/task_complete_tool.hpp"
@@ -473,6 +477,27 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 安全审计存储(openspec add-security-center):失败只记日志,record 退化为 no-op。
     acecode::security::audit_log().configure(acecode::get_acecode_dir());
 
+    // 记忆(~/.acecode/memory):与 TUI(tui_runtime_init.cpp 的
+    // initialize_memory_registry)同一套初始化与工具,先于 ToolExecutor 构造,
+    // 工具闭包引用它、析构顺序要反过来。daemon 曾经整条缺失(memory_registry =
+    // nullptr):桌面版 / Web 会话既没有记忆索引注入也没有记忆工具,用户让模型
+    // 「记住」时它只能把经验写进不会被自动加载的文件(反馈 LINDANDAN069)。
+    acecode::MemoryRegistry memory_registry;
+    acecode::MemoryConfig runtime_memory_cfg = cfg_mut.memory;
+    {
+        std::error_code memory_dir_ec;
+        std::filesystem::create_directories(acecode::get_memory_dir(), memory_dir_ec);
+        if (memory_dir_ec) {
+            LOG_ERROR("[memory] failed to create " +
+                      acecode::get_memory_dir().generic_string() + ": " +
+                      memory_dir_ec.message() +
+                      " - memory will be disabled for this daemon");
+            runtime_memory_cfg.enabled = false;
+        } else if (runtime_memory_cfg.enabled) {
+            memory_registry.scan();
+        }
+    }
+
     acecode::ToolExecutor tools;
     acecode::register_session_builtin_tools(tools, cfg_mut);
     // daemon 用 async 版本(走 ToolContext::ask_user_questions → AskUserQuestionPrompter
@@ -485,6 +510,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 这两个 tool 自己取)。
     tools.register_tool(acecode::create_skills_list_tool(skill_registry, &cfg_mut));
     tools.register_tool(acecode::create_skill_view_tool(skill_registry, &cfg_mut));
+    tools.register_tool(acecode::create_memory_read_tool(
+        memory_registry, runtime_memory_cfg.max_index_bytes));
+    tools.register_tool(acecode::create_memory_write_tool(memory_registry));
 
     // spawn_subagent / wait_subagent:daemon 专属(TUI 无 SessionRegistry 不注册)。
     // ToolExecutor 先于 SessionRegistry 构造,deps 用 shared_ptr 延迟回填 —— 回填
@@ -516,8 +544,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     reg_deps.config_mutex         = &app_config_mu;
     reg_deps.skill_registry       = &skill_registry;
     reg_deps.expert_registry      = &expert_registry;
-    reg_deps.memory_registry      = nullptr;
-    reg_deps.memory_cfg           = nullptr;
+    reg_deps.memory_registry      = &memory_registry;
+    reg_deps.memory_cfg           = &runtime_memory_cfg;
     reg_deps.project_instructions_cfg = &cfg_mut.project_instructions;
     reg_deps.custom_instructions_cfg = &cfg_mut.custom_instructions;
     reg_deps.hook_manager         = &hook_manager;

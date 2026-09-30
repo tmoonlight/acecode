@@ -232,6 +232,36 @@ TEST_F(MemoryRegistryTest, RemoveDropsFileAndIndexLine) {
     EXPECT_EQ(idx.find("to_forget"), std::string::npos);
 }
 
+// 场景:两份 MemoryRegistry 模拟两个进程(TUI 与某个工作区的 daemon,或两个工作区
+// 的 daemon),都在启动时 scan 过一次空目录;之后进程 A 写入 a、进程 B 再写入 b。
+// 期望:MEMORY.md 同时保留 a 与 b 两行;进程 B 删除 a 也能成功。
+// 回归背景:写索引只按本进程启动时的缓存渲染,B 不认识 A 后来写的 a,会把 a 那一行
+// 当成「条目已删」丢掉 —— daemon 接入记忆后多进程共写同一目录成为常态。
+TEST_F(MemoryRegistryTest, UpsertKeepsEntriesWrittenByAnotherProcess) {
+    acecode::MemoryRegistry process_a;
+    acecode::MemoryRegistry process_b;
+    process_a.scan();
+    process_b.scan();
+
+    std::string err;
+    ASSERT_TRUE(process_a.upsert("from_a", acecode::MemoryType::Project,
+                                 "written by process a", "a body",
+                                 acecode::MemoryWriteMode::Create, err))
+        << err;
+    ASSERT_TRUE(process_b.upsert("from_b", acecode::MemoryType::Project,
+                                 "written by process b", "b body",
+                                 acecode::MemoryWriteMode::Create, err))
+        << err;
+
+    const std::string idx = read_file(acecode::get_memory_index_path());
+    EXPECT_NE(idx.find("from_a.md"), std::string::npos) << idx;
+    EXPECT_NE(idx.find("from_b.md"), std::string::npos) << idx;
+
+    ASSERT_TRUE(process_b.remove("from_a", err)) << err;
+    EXPECT_EQ(read_file(acecode::get_memory_index_path()).find("from_a.md"),
+              std::string::npos);
+}
+
 // 场景:并发 upsert 不崩溃,最终状态一致(由 mutex 保证)
 TEST_F(MemoryRegistryTest, ConcurrentUpsertIsSafe) {
     acecode::MemoryRegistry reg;

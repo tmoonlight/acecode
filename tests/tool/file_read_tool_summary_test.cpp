@@ -496,6 +496,39 @@ TEST(FileReadToolSummary, DuplicateFullReadReturnsUnchangedStub) {
     fs::remove(p);
 }
 
+// 触发场景:同一进程里会话 A 先完整读一遍文件,会话 B 随后读同一个没变过的
+// 文件,然后会话 A 再读一次。
+// 期望行为:会话 B 拿到真实内容;只有会话 A 的第二次读命中「未变化」占位。
+// 回归背景:去重表不分会话时,会话 B 的第一次读直接返回占位,模型看不到内容。
+TEST(FileReadToolSummary, DuplicateReadIsOnlyDeduplicatedWithinTheSameSession) {
+    ToolImpl tool = create_file_read_tool();
+
+    auto p = make_temp_file("alpha\nbeta\n");
+    nlohmann::json args = {{"file_path", p.string()}};
+    ToolContext session_a;
+    session_a.session_id = "scope-test-session-a";
+    ToolContext session_b;
+    session_b.session_id = "scope-test-session-b";
+
+    ToolResult first = tool.execute(args.dump(), session_a);
+    ASSERT_TRUE(first.success) << first.output;
+    EXPECT_NE(first.output.find("alpha\nbeta\n"), std::string::npos);
+
+    ToolResult other_session = tool.execute(args.dump(), session_b);
+    ASSERT_TRUE(other_session.success) << other_session.output;
+    EXPECT_NE(other_session.output.find("alpha\nbeta\n"), std::string::npos)
+        << "另一个会话必须读到真实内容";
+    EXPECT_EQ(other_session.output.find("File unchanged since last read"),
+              std::string::npos);
+
+    ToolResult repeated = tool.execute(args.dump(), session_a);
+    ASSERT_TRUE(repeated.success) << repeated.output;
+    EXPECT_NE(repeated.output.find("File unchanged since last read"),
+              std::string::npos);
+
+    fs::remove(p);
+}
+
 TEST(FileReadToolSummary, DuplicateReadStubIncludesPreviousPersistedReference) {
     ToolImpl tool = create_file_read_tool();
 

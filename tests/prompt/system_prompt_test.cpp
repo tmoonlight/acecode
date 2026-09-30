@@ -859,6 +859,30 @@ void register_probe_tools(acecode::ToolExecutor& tools,
 
 } // namespace
 
+// 场景:工具表里注册了 memory_write / memory_read;另一份工具表没有。
+// 期望:有 memory_write 时静态提示出现「# Memory」段,明确「让我记住」要用
+// memory_write、不要另写 MEMORY.md / LESSONS_LEARNED.md / 子目录 CLAUDE.md;
+// 没有 memory_write 时整段不出现。
+// 回归背景(反馈 LINDANDAN069):用户要求「记住这个处理方式」,记忆目录为空、
+// 提示里没有任何记忆指引,模型把经验写进了子目录的 CLAUDE.md 与项目里的
+// .acecode/MEMORY.md,ACECode 从不自动加载它们,压缩之后经验就丢了。
+TEST_F(SystemPromptTest, MemoryGuidanceRoutesRememberRequestsToMemoryWrite) {
+    acecode::ScopedModelToolNameMappings none({});
+    acecode::ToolExecutor tools;
+    register_probe_tools(tools, {"memory_write", "memory_read"});
+    const std::string with_memory =
+        acecode::build_system_prompt(tools, temp_home.string());
+    EXPECT_NE(with_memory.find("# Memory\n"), std::string::npos);
+    EXPECT_NE(with_memory.find("save it with `memory_write`"), std::string::npos);
+    EXPECT_NE(with_memory.find("LESSONS_LEARNED.md"), std::string::npos);
+    EXPECT_NE(with_memory.find("`memory_read`"), std::string::npos);
+
+    acecode::ToolExecutor bare;
+    const std::string without_memory =
+        acecode::build_system_prompt(bare, temp_home.string());
+    EXPECT_EQ(without_memory.find("# Memory\n"), std::string::npos);
+}
+
 // 场景:模型态是 gpt-5(偏好 apply_patch),工具表里 apply_patch 可用。
 // 期望:出现 apply_patch 指引(相对路径 / 3 行上下文 / @@ 锚点、找不到时重读
 // 而不是绕道 shell)与 "# Model-specific guidance" 段(自主推进、最小改动、脏

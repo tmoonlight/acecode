@@ -3,6 +3,7 @@
 #include "compact_prompt.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_history_recovery.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "pa/pa_quirks.hpp"
 #include "provider/text_tool_call_recovery.hpp"
 #include "utils/encoding.hpp"
@@ -146,6 +147,68 @@ int estimate_history_tokens(const std::vector<acecode::ChatMessage>& history) {
     return tokens > static_cast<std::size_t>(std::numeric_limits<int>::max())
         ? std::numeric_limits<int>::max()
         : static_cast<int>(tokens);
+}
+
+// 压缩前加载过的 skill(skill_view 调用 + 显式提及展开的 <skill> 片段),按首次
+// 出现顺序去重。skill_view 的结果是工具输出,压缩后一定不在上下文里了。
+std::vector<std::string> loaded_skill_names(
+    const std::vector<acecode::ChatMessage>& history) {
+    std::vector<std::string> names;
+    auto add = [&names](const std::string& name) {
+        if (name.empty() || name.size() > 128) return;
+        if (std::find(names.begin(), names.end(), name) == names.end()) {
+            names.push_back(name);
+        }
+    };
+    static const std::string kFragmentOpen = "<skill>\n<name>";
+    for (const auto& message : history) {
+        if (message.role == "assistant" && message.tool_calls.is_array()) {
+            for (const auto& call : message.tool_calls) {
+                if (!call.is_object() || !call.contains("function")) continue;
+                const auto& function = call["function"];
+                if (!function.is_object() ||
+                    function.value("name", std::string{}) != "skill_view") {
+                    continue;
+                }
+                const auto arguments = function.value("arguments", std::string{});
+                const auto parsed =
+                    nlohmann::json::parse(arguments, nullptr, false);
+                if (parsed.is_object() && parsed.contains("name") &&
+                    parsed["name"].is_string()) {
+                    add(parsed["name"].get<std::string>());
+                }
+            }
+        } else if (message.role == "user") {
+            std::size_t pos = 0;
+            while ((pos = message.content.find(kFragmentOpen, pos)) !=
+                   std::string::npos) {
+                pos += kFragmentOpen.size();
+                const auto end = message.content.find("</name>", pos);
+                if (end == std::string::npos) break;
+                add(message.content.substr(pos, end - pos));
+                pos = end;
+            }
+        }
+    }
+    return names;
+}
+
+// 附在摘要末尾的确定性提醒:不依赖摘要模型记得写。反馈 LINDANDAN069 里 skill
+// 刚加载完 19 秒就触发了自动压缩,之后的模型没再加载它,skill 里写好的经验
+// 等于没看过。
+std::string loaded_skills_reminder(
+    const std::vector<acecode::ChatMessage>& history) {
+    const auto names = loaded_skill_names(history);
+    if (names.empty()) return {};
+    std::string text = "\n\nSkills loaded before this checkpoint: ";
+    for (std::size_t i = 0; i < names.size(); ++i) {
+        if (i > 0) text += ", ";
+        text += names[i];
+    }
+    text += ". Their full instructions are no longer in context; call `" +
+            acecode::model_tool_name_for_native("skill_view") +
+            "` again before relying on any of them.";
+    return text;
 }
 
 int shrink_history_for_overflow(std::vector<acecode::ChatMessage>& history,
@@ -510,6 +573,7 @@ CompactResult compact_messages(
         }
     }
 
+    summary_suffix += loaded_skills_reminder(original_history);
     result.compacted_messages = build_compacted_history(
         original_history, summary_suffix, COMPACT_USER_MESSAGE_MAX_TOKENS);
     const int before_tokens = estimate_message_tokens(original_history);
