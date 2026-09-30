@@ -160,3 +160,17 @@ run('context repair notices report condensed turns and keep the legacy wording',
   assert.match(legacy.text, /丢弃最旧的 1 组历史、清除 2 条旧工具输出/);
   for (const text of [cn.text, english.text, fallback.text, legacy.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
 });
+
+// 场景：模型回复正文混进工具参数模板标记，AgentLoop 丢弃这一步并重发一次。
+// 期望：标题与正文按当前语言显示，原样带出命中的标记和次数。
+run('corrupted output retry notice shows the leaked marker and attempt counters', () => {
+  const message = notice('response_corrupted_retry', { attempt: 1, attempts: 1, marker: '</arg_value>' });
+  const cn = presentSystemNotice(message, zh);
+  const english = presentSystemNotice(message, en);
+  assert.equal(cn.title, '输出异常重试中');
+  assert.equal(english.title, 'Retrying corrupted output');
+  assert.ok(cn.text.includes('（</arg_value>）'));
+  assert.ok(cn.text.includes('重新请求 1/1'));
+  assert.ok(english.text.includes('(</arg_value>)'));
+  for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
+});

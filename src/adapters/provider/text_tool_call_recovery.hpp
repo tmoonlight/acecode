@@ -93,6 +93,15 @@ std::optional<TextToolCallDiagnostic> detect_suspicious_text_tool_call(
 // DSML 标记也算。围栏与行内代码里的不算。
 bool text_contains_tool_call_markup(std::string_view text);
 
+// 输出损坏检测:工具参数模板标记(GLM 系聊天模板的 `<arg_key>` / `<arg_value>`
+// 及闭合标签)出现在正文里,围栏与行内代码之外。原生工具调用时这些标记由服务端
+// 解析掉,不会进正文;出现就说明网关把模板残片吐进了输出流 —— 这一步的正文和
+// 同一回复里的工具调用参数都不可信(反馈 huangyuan816:正文是一串数字加
+// `</arg_value>`,同一回复的 bash 命令也夹着乱码)。返回命中的标记,没有则空。
+// `</think>` 刻意不算:把推理写进正文的模型会合法地输出它。
+std::optional<std::string> find_leaked_tool_argument_markup(
+    std::string_view text);
+
 // 混合形态:文本调用与原生调用逐个比对(名字按请求工具表规范化,参数 parse 成
 // JSON 比较),完全一致的算回显,从 text_calls 里剔除;每个原生调用最多抵消一个。
 void drop_echoes_of_native_calls(std::vector<ToolCall>& text_calls,

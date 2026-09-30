@@ -18,7 +18,12 @@
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/turn/turn_outcome.hpp"
+#include "agent/compaction/compact.hpp"
+#include "agent/transcript/transcript_queries.hpp"
+#include "provider/text_tool_call_recovery.hpp"
+#include "session/event_dispatcher.hpp"
 #include "session/session_manager.hpp"
+#include "session/system_notice.hpp"
 #include "config/config.hpp"
 #include "utils/abort_signal.hpp"
 #include "utils/logger.hpp"
@@ -26,6 +31,36 @@
 
 namespace acecode::agent {
 using detail::kDefaultNoModelConfiguredPrompt;
+
+namespace {
+// 输出损坏只重发一次:网关偶发把模板残片吐进输出流,重采通常就好;连续两次
+// 损坏多半是服务端持续异常,继续重发只会烧 token,按原流程往下走不卡住回合。
+constexpr int kMaxCorruptedOutputRetries = 1;
+} // namespace
+
+void TurnRunner::discard_corrupted_output(const ChatResponse& response,
+    const std::string& marker, int attempt, int attempts) {
+    LOG_WARN("Corrupted model output: leaked template markup " + marker +
+             " in reply text; discarding the step without running its " +
+             std::to_string(response.tool_calls.size()) +
+             " tool call(s) and retrying " + std::to_string(attempt) + "/" +
+             std::to_string(attempts) + " excerpt=" +
+             log_truncate(response.content, 300));
+    // 与 provider 的 Retry 事件同一套清理:TUI 丢掉流式草稿行,Web 用已落盘
+    // 的消息整体替换转录,损坏的正文不留在界面上。
+    const auto callbacks = callbacks_.snapshot();
+    if (callbacks.on_stream_retry_reset) callbacks.on_stream_retry_reset();
+    const std::vector<ChatMessage> visible =
+        session_ ? session_->load_active_messages() : history_.view();
+    events_.emit(SessionEventKind::TranscriptReplace,
+        detail::build_transcript_replace_payload(visible, CompactResult{}));
+    transcript_.emit_transcript_system_message(session_,
+        std::string(u8"[输出异常] 模型回复里混入了工具参数模板标记(") + marker +
+            u8"),正文与工具调用都不可信,已丢弃并重新请求 " +
+            std::to_string(attempt) + "/" + std::to_string(attempts) + u8"…",
+        make_system_notice_metadata("response_corrupted_retry",
+            {{"attempt", attempt}, {"attempts", attempts}, {"marker", marker}}));
+}
 
 void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal_context,
                      const ChatMessage* retry_message, LifetimeRef<TrajectoryRecorder> terminal) {
@@ -247,6 +282,28 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
                 current_model_step, provider_result, step_usage, "error");
             steps_.finish(current_model_step, "error", step_usage);
             break;
+        }
+
+        // Phase 4b: 输出损坏 —— 正文里混进了工具参数模板标记(<arg_value> 等)。
+        // 这一步的正文和工具调用都不可信:整条丢弃(不入历史、不执行工具)、
+        // 原样重发一次;重发后仍损坏就按原流程继续。反馈 huangyuan816:第一条
+        // 回复是一串数字加 </arg_value>,同一回复里的 bash 命令也夹着乱码,照样
+        // 被执行,之后整个回合跑题。检查放在 has_tool_calls 分支之前,带原生
+        // 工具调用的回复同样拦下。
+        if (turn.response_recovery.corrupted_output_retries <
+            kMaxCorruptedOutputRetries) {
+            if (const auto marker = find_leaked_tool_argument_markup(
+                    provider_result.accumulated.content)) {
+                ++turn.response_recovery.corrupted_output_retries;
+                discard_corrupted_output(provider_result.accumulated, *marker,
+                    turn.response_recovery.corrupted_output_retries,
+                    kMaxCorruptedOutputRetries);
+                steps_.response(session_,
+                    current_model_step, provider_result, step_usage, "retry");
+                steps_.finish(current_model_step, "retry", step_usage);
+                if (total_iterations > 0) --total_iterations;
+                continue;
+            }
         }
 
         // Usage estimation when provider didn't report usage。必须覆盖所有轮:

@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -773,4 +774,38 @@ TEST(TextToolCallRecoveryTest, SanitizeIsIdempotentAndByteStable) {
         EXPECT_EQ(history[i].content, once[i].content) << "message " << i;
     }
     EXPECT_EQ(history[2].content, "keep me");
+}
+
+// 触发场景:网关把 GLM 系工具参数模板残片吐进了正文。第一条是反馈 huangyuan816
+// 的原文(一串数字 + `</think>` + 结尾的 `</arg_value>`),另外三条分别只带
+// `<arg_key>` / `</arg_key>` / `<arg_value>`。
+// 期望行为:都判为输出损坏,返回命中的那个标记,供 AgentLoop 丢弃这一步并重发。
+TEST(TextToolCallRecoveryTest, LeakedToolArgumentMarkupIsDetected) {
+    const std::string huangyuan816 =
+        " roots\n# 3.3# 4</think>5 4}\n443void\n38 id\n37\n41id\n47\n36id\n"
+        "52\n40\n17.18\n19\n12\n21\n20\n39id\n40</arg_value>";
+    EXPECT_EQ(acecode::find_leaked_tool_argument_markup(huangyuan816),
+              std::optional<std::string>("</arg_value>"));
+    EXPECT_EQ(acecode::find_leaked_tool_argument_markup("bash\n<arg_key>command"),
+              std::optional<std::string>("<arg_key>"));
+    EXPECT_EQ(acecode::find_leaked_tool_argument_markup("command</arg_key> ls"),
+              std::optional<std::string>("</arg_key>"));
+    EXPECT_EQ(acecode::find_leaked_tool_argument_markup("<arg_value>ls -la"),
+              std::optional<std::string>("<arg_value>"));
+}
+
+// 触发场景:正常回复在行内代码或代码块里讨论这些标记(比如解释 GLM 的工具调用
+// 模板),或者只出现 `</think>` / 相近的普通单词。
+// 期望行为:都不算损坏。`</think>` 刻意不处理 —— 把推理写进正文的模型会合法地
+// 输出它,拿它当损坏信号会误伤正常回复。
+TEST(TextToolCallRecoveryTest, ToolArgumentMarkupInCodeOrThinkTagIsNotCorruption) {
+    EXPECT_FALSE(acecode::find_leaked_tool_argument_markup(
+        "GLM wraps each value in `<arg_value>` tags."));
+    EXPECT_FALSE(acecode::find_leaked_tool_argument_markup(
+        "Template:\n```\n<arg_key>path</arg_key>\n<arg_value>a.txt</arg_value>\n```\n"));
+    EXPECT_FALSE(acecode::find_leaked_tool_argument_markup(
+        "done</think>\nThe fix is in place."));
+    EXPECT_FALSE(acecode::find_leaked_tool_argument_markup(
+        "pass arg_value and arg_key as plain words"));
+    EXPECT_FALSE(acecode::find_leaked_tool_argument_markup(""));
 }
