@@ -29,6 +29,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 
@@ -133,7 +134,7 @@ struct MemorySummaryScheduler::State {
     bool stopping = false;
     std::deque<std::pair<std::string, std::string>> flush_queue;
     std::atomic<bool> abort{false};
-    std::string config_stamp;
+    std::optional<fs::file_time_type> config_stamp;
     std::map<std::string, int> budget_divisor;  // PA 上下文超限后按会话把预算减半
     std::mutex work_mu;                          // 同一时刻最多一个提炼 / 整合
     JoiningThread thread;
@@ -163,9 +164,8 @@ void reload_config_if_changed(State& state) {
     std::error_code ec;
     const auto stamp_time = fs::last_write_time(path, ec);
     if (ec) return;
-    const std::string stamp = std::to_string(stamp_time.time_since_epoch().count());
-    if (stamp == state.config_stamp) return;
-    state.config_stamp = stamp;
+    if (state.config_stamp && stamp_time == *state.config_stamp) return;
+    state.config_stamp = stamp_time;
     try {
         const auto j = nlohmann::json::parse(read_text(path));
         MemoryConfig fresh;
