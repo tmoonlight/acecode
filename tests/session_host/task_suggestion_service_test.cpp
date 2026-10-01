@@ -324,11 +324,16 @@ TEST_F(TaskSuggestionServiceTest, RetryKeepsTargetAndRecoveryDoesNotRepeatInput)
     ASSERT_TRUE(service->accept(source_id, suggestion["id"], "current_branch").ok);
     ASSERT_TRUE(client->wait_for_inputs(1));
     await_status(suggestion["id"], "started");
+    // The durable receipt is published before the worker drops its in-flight
+    // job. Join that worker before simulating recovery after a service restart.
+    service->shutdown();
     acecode::TaskSuggestionStore store(acecode::path_from_utf8(project_dir));
     ASSERT_TRUE(store.update(source_id, suggestion["id"], [](json& record) {
         record["status"] = "starting";
         return true;
     }).has_value());
+    service = std::make_unique<acecode::TaskSuggestionService>(
+        acecode::TaskSuggestionService::Deps{registry.get(), client.get()});
     ASSERT_TRUE(service->recover(source_id).ok);
     await_status(suggestion["id"], "started");
     EXPECT_EQ(client->input_count(), 1u);

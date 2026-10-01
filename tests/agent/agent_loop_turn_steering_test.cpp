@@ -617,7 +617,10 @@ TEST(AgentLoopTurnSteering, EveryAcceptedFinalBoundaryRaceInputIsCommitted) {
 
 TEST(AgentLoopTurnSteering, InterruptStartsStructuredTurnBeforeOrdinaryQueue) {
     TurnSteeringHarness h("interrupt_priority");
-    h.provider().set_latency_ms(400);
+    // The first request snapshots a long latency. Later requests have none;
+    // the normal bounded wait below proves cancellation skips the old delay
+    // without relying on subsecond disk/scheduler throughput.
+    h.provider().set_latency_ms(30000);
     h.provider().push_text("old response that must be cancelled");
     h.provider().push_text("interrupt response");
     h.provider().push_text("ordinary response");
@@ -629,6 +632,7 @@ TEST(AgentLoopTurnSteering, InterruptStartsStructuredTurnBeforeOrdinaryQueue) {
     // test interrupts an in-flight request, so wait for that precondition;
     // otherwise the replacement can legitimately be provider call number one.
     ASSERT_TRUE(h.wait_for_provider_turns(1));
+    h.provider().set_latency_ms(0);
     h.loop().submit("ordinary queued input");
 
     acecode::UserInput guidance;
@@ -642,18 +646,14 @@ TEST(AgentLoopTurnSteering, InterruptStartsStructuredTurnBeforeOrdinaryQueue) {
     });
     guidance.metadata["client_message_id"] = "interrupt-client-1";
 
-    const auto started = std::chrono::steady_clock::now();
     const auto result = h.loop().interrupt_turn(turn_id, guidance);
     ASSERT_TRUE(result.accepted()) << result.message;
     EXPECT_EQ(result.turn_id, turn_id);
     EXPECT_TRUE(h.loop().active_turn_id().empty())
         << "the interrupted turn must stop accepting additional steering";
-    ASSERT_TRUE(h.wait_for_provider_turns(2, 250ms))
-        << "the replacement provider call should start without waiting for the "
-           "old 400ms response";
-    EXPECT_LT(
-        std::chrono::steady_clock::now() - started,
-        350ms);
+    ASSERT_TRUE(h.wait_for_provider_turns(2))
+        << "the replacement provider call must start while the old 30s response "
+           "would still be waiting";
     ASSERT_TRUE(h.wait_for_provider_turns_and_idle(3, 5s));
 
     const auto replacement_request = h.provider().messages_for_turn(1);
