@@ -75,3 +75,10 @@ node scripts/test-composer-completion.mjs
 - 既有选择回归 80 项通过；`pnpm test`、`pnpm build`、OpenSpec 严格校验及差异检查通过。截图中的拖入与粘贴 tag 外观一致，保留原有圆角与独立矩形选区。
 - Windows 原生文件处理 7 项测试通过，包括中文名称、同名文件独立保存、二进制字节、失败批次回滚与原始大文件引用。macOS/Linux 的桥接由当前平台适配代码实现，路径与入口契约由 Windows 浏览器 fixture 检查，未在这两个系统上实机验证。
 - 本次 Windows Release 原生支持库与 Desktop 已重新编译、链接并启动，实际客户端返回的前端资源与本次构建哈希一致；交互验证使用生产组件 fixture，不操作真实任务草稿。
+
+## 2026-10-01：图片恢复缩略图
+
+- 上一节的「原生文件引用不读取字节、无源路径数据落 `composer-files/` 再引用」对栅格图片撤回：Desktop 粘贴截图、拖入、选择或从资源管理器复制的 PNG/JPEG/GIF/WebP/BMP 等图片重新作为快照附件（输入框与对话记录显示缩略图，模型直接收到图片）。原因：服务端拒收图片引用（`image attachments require snapshot data`），路径引用的截图只显示文件名，模型还要先 `bash` 再 `show_image` 才看得到。
+- `materialize_context_items` 对 25 MiB 以内的栅格图带回字节；超限或读取失败退回路径引用，SVG、普通文件与文件夹不变。`composerFileIntake` 把带字节的图片条目还原成带来源路径标记的 File 走上传，同一手势里的其它条目照旧插 `@路径`。
+- 对话记录中用户消息的图片附件改由气泡上方的缩略图条渲染，不再作为正文里的文件名按钮；只有图片的消息不画空气泡。
+- 验证：`pnpm test`、`pnpm build` 通过；`DesktopContextItems.*` 8 项通过；在运行中的 Desktop 页面上确认旧会话的图片消息显示缩略图，并以桩桥接确认截图粘贴与「图片 + 普通文件」混合粘贴的输入框表现。`test-composer-file-drop.mjs` 需要 Playwright，本次未运行。

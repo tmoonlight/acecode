@@ -1,4 +1,7 @@
 #include "session_manager.hpp"
+#include "session_history_page.hpp"
+#include "session_load_metrics.hpp"
+#include "session_file_reader.hpp"
 #include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
 #include "fork_attachment_context.hpp"
@@ -257,8 +260,10 @@ void SessionManager::start_session(const std::string& cwd,
     loop_id_.clear();
     loop_run_id_.clear();
     worktree_ = {};
+    file_checkpoints_loaded_ = true;
     checkpoint_store_.reset();
     checkpoint_store_.set_session(project_dir_, session_id_);
+    publish_display_snapshot_locked();
 }
 
 bool SessionManager::ensure_created() {
@@ -427,6 +432,7 @@ bool SessionManager::replace_active_messages(const std::vector<ChatMessage>& mes
 
     SessionStorage::write_messages(jsonl_path_, rewritten);
     checkpoint_store_.load_from_messages(project_dir_, session_id_, rewritten);
+    file_checkpoints_loaded_ = true;
     message_count_ = static_cast<int>(rewritten.size());
     {
         std::string index_error;
@@ -471,6 +477,7 @@ void SessionManager::begin_user_turn_checkpoint(const std::string& user_message_
     if (!started_ || user_message_uuid.empty()) return;
     if (!ensure_created()) return;
 
+    ensure_file_checkpoints_loaded_locked();
     FileCheckpointSnapshot snapshot = checkpoint_store_.make_snapshot(user_message_uuid);
     if (!append_non_searchable_locked(FileCheckpointStore::encode_snapshot_message(snapshot))) {
         last_error_ = "failed to append file checkpoint";
@@ -486,6 +493,7 @@ void SessionManager::track_file_write_before(const std::string& file_path) {
     if (!started_ || file_path.empty()) return;
     if (!ensure_created()) return;
 
+    ensure_file_checkpoints_loaded_locked();
     auto snapshot = checkpoint_store_.track_before_write(file_path);
     if (!snapshot.has_value()) return;
     if (!append_non_searchable_locked(FileCheckpointStore::encode_snapshot_message(*snapshot))) {
@@ -503,6 +511,7 @@ std::optional<TurnNetDiffRecord> SessionManager::finalize_user_turn_net_diff(
     if (!started_ || user_message_uuid.empty()) return std::nullopt;
     if (!ensure_created()) return std::nullopt;
 
+    ensure_file_checkpoints_loaded_locked();
     TurnNetDiffRecord record = checkpoint_store_.build_active_turn_net_diff(cwd_);
     if (record.user_message_uuid != user_message_uuid) {
         record.complete = false;
@@ -523,23 +532,6 @@ std::optional<TurnNetDiffRecord> SessionManager::finalize_user_turn_net_diff(
     return record;
 }
 
-bool SessionManager::file_checkpoint_can_restore(const std::string& user_message_uuid) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    return checkpoint_store_.can_restore(user_message_uuid);
-}
-
-FileCheckpointDiffStats SessionManager::file_checkpoint_diff_stats(
-    const std::string& user_message_uuid) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    return checkpoint_store_.diff_stats(user_message_uuid);
-}
-
-FileCheckpointRestoreResult SessionManager::rewind_files_to_checkpoint(
-    const std::string& user_message_uuid) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    return checkpoint_store_.rewind_to(user_message_uuid);
-}
-
 void SessionManager::finalize() {
     std::lock_guard<std::mutex> lk(mu_);
     if (!created_ || finalized_) return;
@@ -548,7 +540,7 @@ void SessionManager::finalize() {
     release_writer_lease_locked();
 }
 
-std::vector<ChatMessage> SessionManager::resume_session(const std::string& session_id) {
+std::vector<ChatMessage> SessionManager::resume_session(const std::string& session_id, bool model_context_only) {
     std::lock_guard<std::mutex> lk(mu_);
     last_error_.clear();
 
@@ -562,8 +554,11 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         }
         return {};
     }
-    auto load_result =
-        SessionStorage::load_messages_with_diagnostics(jsonl_path);
+    const auto persisted_meta = SessionStorage::read_meta(meta_path);
+    // Old/missing metadata still takes the repairing full-load path.
+    auto load_result = model_context_only && persisted_meta.message_count > 0
+        ? load_session_resume_suffix(jsonl_path)
+        : SessionStorage::load_messages_with_diagnostics(jsonl_path);
     if (load_result.diagnostics.recovered()) {
         LOG_WARN("[session-recovery] resumed session=" + session_id +
                  " malformed_records=" +
@@ -606,7 +601,10 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     user_title_touched_ = false;
     local_user_title_write_pending_ = false;
     reset_auto_title_state_locked();
-    checkpoint_store_.load_from_messages(project_dir_, session_id_, messages);
+    file_checkpoints_loaded_ = true;
+    checkpoint_store_.reset();
+    checkpoint_store_.set_session(project_dir_, session_id_);
+    file_checkpoints_loaded_ = false;
 
     // Restore persisted display/model metadata when present. Resuming is not
     // conversation activity, so keep the persisted activity timestamp while
@@ -650,7 +648,8 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         created_at_ = SessionStorage::now_iso8601();
     }
 
-    message_count_ = static_cast<int>(messages.size());
+    message_count_ = load_result.start_offset > 0
+        ? persisted_meta.message_count : static_cast<int>(messages.size());
     if (turn_count_ <= 0) {
         for (const auto& msg : messages) {
             if (is_visible_user_turn_message(msg)) turn_count_++;
@@ -658,6 +657,20 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     }
     if (pending_title_.empty() && !user_title_touched_) {
         auto_title_input_ = first_visible_user_message_text(messages);
+        if (load_result.start_offset > 0) {
+            // A title retry must use the original prompt, not a compact summary.
+            auto_title_input_.clear();
+            SessionFileReader title_reader(jsonl_path);
+            JsonlScanner title_scanner(title_reader, false);
+            while (const auto record = title_scanner.next()) {
+                try {
+                    ++session_read_metrics().records;
+                    const auto value = nlohmann::json::parse(record->text);
+                    auto_title_input_ = first_visible_user_message_text({deserialize_message_json(value)});
+                    if (!auto_title_input_.empty()) break;
+                } catch (...) {}
+            }
+        }
         if (!auto_title_input_.empty()) {
             auto_title_session_id_ = session_id_;
         }
@@ -665,33 +678,6 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     update_meta(persisted_updated_at);
 
     return messages;
-}
-
-SessionMeta SessionManager::load_session_meta(const std::string& session_id) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (project_dir_.empty()) return {};
-    const auto meta_path = SessionStorage::meta_path(project_dir_, session_id);
-    if (!fs::exists(meta_path)) {
-        if (SessionStorage::has_incompatible_pid_session_files(project_dir_, session_id)) {
-            LOG_WARN("[session] meta for " + session_id +
-                     " not loaded: incompatible PID-suffixed old data is unsupported");
-        }
-        return {};
-    }
-    return SessionStorage::read_meta(meta_path);
-}
-
-bool SessionManager::has_session_file(const std::string& session_id) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (project_dir_.empty() || session_id.empty()) return false;
-    const auto candidates = SessionStorage::find_session_files(project_dir_, session_id);
-    return !candidates.empty();
-}
-
-bool SessionManager::has_incompatible_session_data(const std::string& session_id) const {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (project_dir_.empty()) return false;
-    return SessionStorage::has_incompatible_pid_session_files(project_dir_, session_id);
 }
 
 std::string SessionManager::last_error() const {
@@ -793,8 +779,10 @@ void SessionManager::end_current_session() {
     expert_member_id_.clear();
     loop_id_.clear();
     loop_run_id_.clear();
+    file_checkpoints_loaded_ = true;
     checkpoint_store_.reset();
     checkpoint_store_.set_session(project_dir_, "");
+    publish_display_snapshot_locked();
     // Keep started_=true, cwd_, provider_name_, model_name_, project_dir_
 }
 
@@ -815,6 +803,7 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
 
     const std::string previous_session_id = session_id_;
     const std::string new_session_id = SessionStorage::generate_session_id();
+    ensure_file_checkpoints_loaded_locked();
     auto checkpoint_meta = checkpoint_store_.fork_to_session(new_session_id, retained_user_uuids);
     auto timing_by_user = collect_retained_turn_timing_messages(
         SessionStorage::load_messages(jsonl_path_), fork_messages, retained_user_uuids);
@@ -921,14 +910,6 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
         }
     }
     return session_id_;
-}
-
-std::vector<ChatMessage> SessionManager::load_active_messages() const {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (!started_ || !created_ || jsonl_path_.empty()) {
-        return {};
-    }
-    return SessionStorage::load_messages(jsonl_path_);
 }
 
 std::string SessionManager::fork_session_to_new_id(
@@ -1182,11 +1163,13 @@ const ThreadGoalStore* SessionManager::goal_store() const {
 
 bool SessionManager::update_meta(
     std::optional<std::string> updated_at_override) {
-    // Must be called under lock
+    // Must be called under lock. Publish before IO so readers never wait for disk.
+    publish_display_snapshot_locked();
     if (!created_) return true;
 
     const auto persisted = SessionStorage::read_meta(meta_path_str_);
     adopt_foreign_user_title_locked(persisted);
+    publish_display_snapshot_locked();
 
     SessionMeta meta;
     meta.id = session_id_;
@@ -1255,6 +1238,7 @@ void SessionManager::set_session_title(std::string title) {
     title_source_ = pending_title_.empty() ? "user-cleared" : "user";
     user_title_touched_ = true;
     local_user_title_write_pending_ = true;
+    publish_display_snapshot_locked();
     if (created_) {
         update_meta();
     }
@@ -1280,6 +1264,7 @@ bool SessionManager::try_set_generated_session_title_locked(std::string title) {
     if (title.empty()) return false;
     pending_title_ = std::move(title);
     title_source_ = "generated";
+    publish_display_snapshot_locked();
     if (created_) {
         update_meta();
     }
@@ -1502,6 +1487,7 @@ void SessionManager::set_loop_origin(std::string loop_id, std::string loop_run_i
 void SessionManager::set_active_worktree(const WorktreeSessionInfo& info) {
     std::lock_guard<std::mutex> lk(mu_);
     worktree_ = info;
+    publish_display_snapshot_locked();
     if (created_) {
         update_meta();
     }
@@ -1510,6 +1496,7 @@ void SessionManager::set_active_worktree(const WorktreeSessionInfo& info) {
 void SessionManager::clear_active_worktree() {
     std::lock_guard<std::mutex> lk(mu_);
     worktree_ = {};
+    publish_display_snapshot_locked();
     if (created_) {
         update_meta();
     }
@@ -1730,6 +1717,7 @@ void SessionManager::record_token_usage(const TokenUsage& usage) {
     std::lock_guard<std::mutex> lk(mu_);
     last_token_usage_ = usage;
     add_usage_to_session_total(session_token_usage_, usage);
+    publish_display_snapshot_locked();
     if (!created_ && started_) {
         ensure_created();
     }

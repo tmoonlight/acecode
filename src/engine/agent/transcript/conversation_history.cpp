@@ -2,6 +2,8 @@
 
 #include "session/session_client.hpp"
 #include "session/thread_repair.hpp"
+#include "session/tool_result_storage.hpp"
+#include "utils/uuid.hpp"
 #include "utils/logger.hpp"
 
 #include <utility>
@@ -14,11 +16,40 @@ void ConversationHistory::warn_unless_idle_access(bool worker_or_queue_held) con
     }
 }
 
+void ConversationHistory::remember_tool_call_ids(const ChatMessage& message) {
+    if (!message.tool_call_id.empty()) used_tool_call_ids_.insert(message.tool_call_id);
+    if (message.tool_calls.is_array()) {
+        for (const auto& call : message.tool_calls) {
+            if (!call.is_object()) continue;
+            const auto id = call.find("id");
+            if (id != call.end() && id->is_string() && !id->get_ref<const std::string&>().empty()) {
+                used_tool_call_ids_.insert(id->get<std::string>());
+            }
+        }
+    }
+    for (const auto& record : decode_content_replacement_message(message)) {
+        used_tool_call_ids_.insert(record.tool_call_id);
+    }
+}
+
+void ConversationHistory::prepare_tool_calls(std::vector<ToolCall>& calls) {
+    std::unordered_set<std::string> batch_ids;
+    for (const auto& call : calls) batch_ids.insert(call.id);
+    for (auto& call : calls) {
+        if (!call.id.empty() && used_tool_call_ids_.insert(call.id).second) continue;
+        do {
+            call.id = "call_ace_" + generate_uuid_v7();
+        } while (batch_ids.count(call.id) || !used_tool_call_ids_.insert(call.id).second);
+    }
+}
+
 void ConversationHistory::append(ChatMessage message) {
+    remember_tool_call_ids(message);
     messages_.push_back(std::move(message));
 }
 
 void ConversationHistory::replace(std::vector<ChatMessage> messages) {
+    for (const auto& message : messages) remember_tool_call_ids(message);
     messages_ = std::move(messages);
 }
 
@@ -45,7 +76,9 @@ void ConversationHistory::on_worker(
 
 ThreadRepairResult ConversationHistory::repair(
     SessionManager* session, const ThreadRepairOptions& options) {
-    return apply_thread_repair(session, messages_, options);
+    auto result = apply_thread_repair(session, messages_, options);
+    for (const auto& message : messages_) remember_tool_call_ids(message);
+    return result;
 }
 
 void ConversationHistory::observe_transcript(const SessionEvent& event) {

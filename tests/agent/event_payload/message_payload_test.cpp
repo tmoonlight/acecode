@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "agent/event_payload/message_payload.hpp"
+#include "session/session_serializer.hpp"
 #include "utils/sha1.hpp"
 #include "llm/llm_provider.hpp"
 
@@ -117,4 +118,21 @@ TEST(MessagePayload, Sha1KnownVectors) {
     EXPECT_EQ(sha1_hex("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
     EXPECT_EQ(sha1_hex("The quick brown fox jumps over the lazy dog"),
               "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12");
+}
+
+TEST(MessagePayload, DirectJsonPreservesPersistedFieldsAndStableId) {
+    const auto golden = nlohmann::json::parse(R"({
+        "role":"assistant","content":"quoted text",
+        "content_parts":[{"type":"text","text":"part"}],
+        "tool_calls":[{"id":"call","type":"function","function":{"name":"shell","arguments":"{}"}}],
+        "tool_call_id":"result","reasoning_content":"reasoning","uuid":"non-user",
+        "subtype":"fixture","timestamp":"2026-10-01T00:00:00Z",
+        "is_meta":true,"is_compact_summary":true,"metadata":{"nested":[1,true,null]}
+    })");
+    const auto message = acecode::deserialize_message(golden.dump());
+    auto expected = golden;
+    expected["id"] = compute_message_id(message);
+    EXPECT_EQ(chat_message_to_payload_json(message), expected);
+    EXPECT_EQ(acecode::serialize_message_json(message), golden);
+    EXPECT_EQ(acecode::serialize_message(message), golden.dump());
 }

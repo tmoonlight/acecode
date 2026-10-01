@@ -145,9 +145,12 @@ run('Desktop ordinary-file references bypass image normalization and Base64 uplo
   );
 });
 
-run('Desktop native filesystem items become path references before attachment staging', () => {
+// 触发场景:Desktop 拖入 / 粘贴 / 选择文件。
+// 期望行为:普通文件与文件夹插成 @路径;栅格图片(同一手势里的也算)走附件暂存,显示缩略图。
+run('Desktop native filesystem items become path references while raster images stage as attachments', () => {
   const inputBar = source('components/InputBar.jsx');
   assert.match(inputBar, /result\.kind === 'paths'\) transfer\.insertPaths\(result\.items\)/);
+  assert.match(inputBar, /result\.files\?\.length && onMediaFiles && transfer\.reserveAttachments\(\)\) onMediaFiles\(result\.files\)/);
   assert.match(inputBar, /onPasteFilesystemItems=\{handleFilesystemPaste\}/);
   assert.match(inputBar, /source: 'picker', items: picked\.folder \? \[picked\.folder\] : picked\.files/);
   assert.doesNotMatch(inputBar, /nativePickedFileToFile/);

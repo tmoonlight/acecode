@@ -1,4 +1,6 @@
 #include "session_pin_store.hpp"
+#include "session_load_metrics.hpp"
+#include <iterator>
 
 #include <algorithm>
 #include <fstream>
@@ -79,11 +81,16 @@ std::vector<std::string> prune_pinned_session_ids(
 }
 
 PinnedSessionsState read_pinned_sessions_state(const fs::path& path) {
-    std::ifstream in(path);
+    std::ifstream in(path, std::ios::binary);
     if (!in) return {};
+    ++session_read_metrics().files;
 
     try {
-        auto root = json::parse(in, nullptr, true, true);
+        const std::string contents((std::istreambuf_iterator<char>(in)),
+                                   std::istreambuf_iterator<char>());
+        session_read_metrics().bytes += contents.size();
+        ++session_read_metrics().records;
+        auto root = json::parse(contents, nullptr, true, true);
         if (!root.is_object() || !root.contains("session_ids") ||
             !root["session_ids"].is_array()) {
             return {};
@@ -170,11 +177,16 @@ std::vector<PinnedSessionOrderItem> prune_pinned_session_order_items(
 }
 
 PinnedSessionOrderState read_pinned_session_order_state(const fs::path& path) {
-    std::ifstream in(path);
+    std::ifstream in(path, std::ios::binary);
     if (!in) return {};
+    ++session_read_metrics().files;
 
     try {
-        auto root = json::parse(in, nullptr, true, true);
+        const std::string contents((std::istreambuf_iterator<char>(in)),
+                                   std::istreambuf_iterator<char>());
+        session_read_metrics().bytes += contents.size();
+        ++session_read_metrics().records;
+        auto root = json::parse(contents, nullptr, true, true);
         if (!root.is_object() || !root.contains("items") ||
             !root["items"].is_array()) {
             return {};

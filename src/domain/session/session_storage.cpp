@@ -1,4 +1,6 @@
 #include "session_storage.hpp"
+#include "session_load_metrics.hpp"
+#include "session_file_reader.hpp"
 #include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
 #include "session_title_text.hpp"
@@ -102,6 +104,7 @@ bool is_visible_user_turn(const ChatMessage& msg) {
 bool try_deserialize_session_record(const std::string& line,
                                     ChatMessage& message) {
     try {
+        ++session_read_metrics().records;
         const auto json = nlohmann::json::parse(line);
         if (!json.is_object() ||
             !json.contains("role") ||
@@ -109,7 +112,7 @@ bool try_deserialize_session_record(const std::string& line,
             json["role"].get_ref<const std::string&>().empty()) {
             return false;
         }
-        message = deserialize_message(line);
+        message = deserialize_message_json(json);
         return true;
     } catch (...) {
         return false;
@@ -218,17 +221,33 @@ void SessionStorage::write_messages(const std::string& session_path,
         content += serialize_message(msg);
         content.push_back('\n');
     }
-    atomic_write_file(session_path, content);
+    if (!atomic_write_file(session_path, content, false, true)) {
+        throw std::runtime_error("failed to replace session transcript");
+    }
 }
 
 SessionLoadResult SessionStorage::load_messages_with_diagnostics(
     const std::string& session_path) {
-    SessionLoadResult result;
-    std::ifstream ifs(path_from_utf8(session_path), std::ios::binary);
-    if (!ifs.is_open()) return result;
+    SessionLoadTimer timer("load", path_to_utf8(path_from_utf8(session_path).stem()));
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        try {
+            SessionFileReader reader(session_path);
+            if (!reader.valid()) return {};
+            const auto prefix = reader.prefix();
+            auto result = load_messages_snapshot(reader);
+            if (reader.unchanged(prefix)) return result;
+        } catch (const HistorySnapshotChanged&) {
+            if (attempt == 1) throw;
+        }
+    }
+    throw HistorySnapshotChanged();
+}
 
-    std::string content((std::istreambuf_iterator<char>(ifs)),
-                        std::istreambuf_iterator<char>());
+SessionLoadResult SessionStorage::load_messages_snapshot(const SessionFileReader& reader) {
+    SessionLoadTimer timer("load", path_to_utf8(path_from_utf8(reader.path()).stem()));
+    SessionLoadResult result;
+    if (session_read_observer()) session_read_observer()();
+    const auto content = reader.read(0, reader.size());
     size_t start = 0;
     while (start < content.size()) {
         const size_t nl = content.find('\n', start);
@@ -358,11 +377,16 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
 
 SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
     SessionMeta meta;
-    std::ifstream ifs(path_from_utf8(meta_path));
+    std::ifstream ifs(path_from_utf8(meta_path), std::ios::binary);
     if (!ifs.is_open()) return meta;
+    ++session_read_metrics().files;
 
     try {
-        nlohmann::json j = nlohmann::json::parse(ifs);
+        const std::string contents((std::istreambuf_iterator<char>(ifs)),
+                                   std::istreambuf_iterator<char>());
+        session_read_metrics().bytes += contents.size();
+        ++session_read_metrics().records;
+        nlohmann::json j = nlohmann::json::parse(contents);
         if (j.contains("id"))            meta.id            = j["id"].get<std::string>();
         if (j.contains("cwd"))           meta.cwd           = j["cwd"].get<std::string>();
         if (j.contains("created_at"))    meta.created_at    = j["created_at"].get<std::string>();
@@ -706,6 +730,7 @@ SessionStorage::MetadataPage SessionStorage::list_session_metadata_page(
     int limit,
     const std::function<bool(const SessionMeta&)>& accept,
     const std::function<bool()>& should_cancel) {
+    SessionLoadTimer timer("metadata_list", path_to_utf8(path_from_utf8(project_dir).filename()));
     MetadataPage page;
     fs::path project_path = path_from_utf8(project_dir);
     std::error_code dir_ec;

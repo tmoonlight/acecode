@@ -92,10 +92,10 @@ test('normalizeWorkspaceSessionListResponse trusts has_more over an inexact tota
 });
 
 test('sidebar workspace compact query asks for five rows', () => {
-  assert.deepEqual(sidebarWorkspaceSessionListQuery({ full: false }), {
+  assert.deepEqual(sidebarWorkspaceSessionListQuery(), {
     limit: SIDEBAR_SESSION_COLLAPSE_LIMIT,
   });
-  assert.deepEqual(sidebarWorkspaceSessionListQuery({ full: true }), {});
+  assert.deepEqual(sidebarWorkspaceSessionListQuery({ visibleCount: 10 }), { limit: 10 });
 });
 
 test('workspaceNeedsInitialSidebarLoad only reports true before any workspace data exists', () => {
@@ -236,7 +236,7 @@ test('compact workspace requests leave five ordinary rows after pinned sessions 
   const page = sessions.slice(0, query.limit);
   const ordinary = filterPinnedSessions(page, new Map([['w1', pinnedIds]]));
   assert.equal(sidebarSessionProjection(ordinary).visibleSessions.length, 5);
-  assert.deepEqual(sidebarWorkspaceSessionListQuery({ full: true, pinnedIds }), {});
+  assert.deepEqual(sidebarWorkspaceSessionListQuery({ visibleCount: 10, pinnedIds }), { limit: 12 });
 });
 
 test('workspaceHasCachedSidebarSessions only matches that workspace', () => {

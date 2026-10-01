@@ -1,4 +1,5 @@
 #include "session_registry.hpp"
+#include "session/session_load_metrics.hpp"
 
 #include "session/compact_checkpoint.hpp"
 #include "session/session_rewind.hpp"
@@ -1189,6 +1190,7 @@ void SessionRegistry::restore_loop_history(
 }
 
 bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) {
+    SessionLoadTimer timer("resume", id);
     if (!begin_creation()) return false;
     ScopeExit creation_finished([this] { end_creation(); });
     if (id.empty()) return false;
@@ -1251,7 +1253,7 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     entry_opts.expert_id = meta.expert_id;
     entry_opts.expert_member_id = meta.expert_member_id;
     auto entry = make_entry_locked(id, entry_opts, &meta);
-    auto messages = entry->sm->resume_session(id);
+    auto messages = entry->sm->resume_session(id, true);
     if (!entry->sm->last_error().empty()) {
         LOG_WARN("[registry] resume " + id + " failed: " + entry->sm->last_error());
         return false;
@@ -2178,7 +2180,8 @@ SideChatResult SessionRegistry::stream_side_chat(
     const std::string& question,
     const std::vector<SideChatMessage>& history,
     SideChatCancellation& cancellation,
-    const SideChatStreamCallback& callback) {
+    const SideChatStreamCallback& callback,
+    const SideChatToolCallback& on_tool) {
     // Keep the entry and loop alive until the provider returns, including when
     // the main session is removed while its detached request is streaming.
     auto entry = acquire(id);
@@ -2188,7 +2191,7 @@ SideChatResult SessionRegistry::stream_side_chat(
         result.response.error = "unknown session";
         return result;
     }
-    return entry->loop->stream_side_chat(question, history, cancellation, callback);
+    return entry->loop->stream_side_chat(question, history, cancellation, callback, on_tool);
 }
 
 bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {
@@ -2245,11 +2248,18 @@ void SessionRegistry::destroy(const std::string& id) {
 std::vector<SessionInfo> SessionRegistry::list_active() const {
     std::vector<SessionInfo> out;
     const auto config_snapshot = snapshot_model_config(deps_);
-    std::lock_guard<std::mutex> lk(mu_);
-    out.reserve(entries_.size());
-    for (const auto& [id, entry] : entries_) {
+    // The local snapshots retain entries while destroy/shutdown may remove
+    // them from the registry; no entry lock is taken while holding mu_.
+    std::vector<std::shared_ptr<SessionEntry>> entries;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        entries.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) entries.push_back(entry);
+    }
+    out.reserve(entries.size());
+    for (const auto& entry : entries) {
         SessionInfo info;
-        info.id = id;
+        info.id = entry->id;
         info.cwd = entry->cwd;
         info.workspace_hash = entry->workspace_hash;
         info.active = true;
@@ -2268,18 +2278,14 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
             info.active_turn_id = entry->loop->active_turn_id();
         }
         if (entry->sm) {
-            // SessionManager 没有公开的 created_at / updated_at 接口,从 meta
-            // 拿:这里**可选**调 load_session_meta 走磁盘读,有 IO 成本。
-            // v1 不读磁盘(list_active 是热路径),只填 id + active + title。
-            info.title = entry->sm->current_title();
-            info.title_source = entry->sm->current_title_source();
-            // 摘要也是内存值(不读磁盘):它是无标题会话的显示名,列表必须与
-            // session_updated{summary} 事件、messages 快照同源。
-            info.summary = entry->sm->current_summary();
-            info.turn_count = entry->sm->current_turn_count();
-            info.last_token_usage = entry->sm->current_last_token_usage();
-            info.session_token_usage = entry->sm->current_session_token_usage();
-            const WorktreeSessionInfo worktree = entry->sm->active_worktree();
+            const auto display = entry->sm->display_snapshot();
+            info.title = display.title;
+            info.title_source = display.title_source;
+            info.summary = display.summary;
+            info.turn_count = display.turn_count;
+            info.last_token_usage = display.last_token_usage;
+            info.session_token_usage = display.session_token_usage;
+            const auto& worktree = display.worktree;
             info.worktree_path = worktree.worktree_path;
             info.worktree_name = worktree.worktree_name;
             info.worktree_branch = worktree.worktree_branch;

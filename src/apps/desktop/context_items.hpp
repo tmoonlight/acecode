@@ -31,8 +31,9 @@ struct ContextItemsResult {
 };
 
 // Canonicalize and classify native filesystem paths. Ordinary files are
-// represented by source-path metadata only, including raster images.
-// Folders are represented only by their
+// represented by source-path metadata only. Raster images up to 25 MiB also
+// carry their bytes for the snapshot/thumbnail flow; a larger or unreadable
+// image falls back to a path reference. Folders are represented only by their
 // absolute path and are never traversed.
 ContextItemsResult materialize_context_items(
     const std::vector<std::string>& paths);

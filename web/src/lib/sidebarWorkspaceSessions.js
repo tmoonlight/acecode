@@ -52,10 +52,9 @@ export function normalizeWorkspaceSessionListResponse(data) {
   return { sessions, total, totalExact, hasMore };
 }
 
-export function sidebarWorkspaceSessionListQuery({ full = false, pinnedIds = [] } = {}) {
-  if (full) return {};
-  // 服务端分页包含置顶项，多取这些名额，确保普通会话首批仍可显示五条。
-  return { limit: SIDEBAR_SESSION_COLLAPSE_LIMIT + normalizePinnedIds(pinnedIds).length };
+export function sidebarWorkspaceSessionListQuery({ visibleCount = SIDEBAR_SESSION_COLLAPSE_LIMIT, pinnedIds = [] } = {}) {
+  const count = Math.max(SIDEBAR_SESSION_COLLAPSE_LIMIT, Math.floor(Number(visibleCount) || 0));
+  return { limit: count + normalizePinnedIds(pinnedIds).length };
 }
 
 // 已缓存的会话或已经完成过一次加载的空工作区都不应在后台刷新时重新显示

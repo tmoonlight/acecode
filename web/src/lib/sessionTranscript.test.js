@@ -2839,8 +2839,10 @@ const transcriptSource = (await import('node:fs')).readFileSync(
   new URL('./sessionTranscript.js', import.meta.url),
   'utf8',
 ).replace(/\r\n?/g, '\n');
-run('架构: 加载 effect 依赖为 [api, isLive, sid],不含 ref 对象身份', () => {
-  assert.match(transcriptSource, /\}, \[api, isLive, sid\]\);/);
+run('架构: 历史加载只依赖会话与连接身份，实时性单独更新', () => {
+  assert.match(transcriptSource, /\}, \[api, sid\]\);/);
+  assert.match(transcriptSource, /\}, \[isLive, store\]\);/);
+  assert.doesNotMatch(transcriptSource, /\}, \[api, isLive, sid\]\);/);
   assert.doesNotMatch(transcriptSource, /\}, \[api, isLive, ref, sid\]\);/);
 });
 

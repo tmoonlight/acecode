@@ -1,6 +1,9 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '滚动到底部': 'Scroll to bottom',
+  '由 Microsoft Store 管理更新': 'Updates managed by Microsoft Store',
+  '请在 Microsoft Store 的“库”中获取 ACECode 更新。': 'Get ACECode updates from Library in Microsoft Store.',
   '取消目标': 'Cancel goal',
   '切换到项目': 'Switch to project',
   '添加工作区失败:': 'Failed to add workspace:',
@@ -920,6 +923,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '确认': 'Confirm',
   '显示更早的 {{p0}} 条消息': 'Show {{p0}} earlier messages',
   '显示全部': 'Show all',
+  '显示更早的消息': 'Show earlier messages',
   '连接失败': 'Connection failed',
   '连接失败，请检查全局 MCP 设置': 'Connection failed. Check the global MCP settings',
   '连接已取消': 'Connection cancelled',
@@ -1402,6 +1406,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
     'Chat about this session without interrupting the main task or adding to its conversation.',
   '旁路提问失败': 'Side chat failed',
   '正在回答…': 'Answering…',
+  '查询代码': 'Query code',
+  '查找文件': 'Find files',
+  '只读工具调用': 'Read-only tool calls',
   '思考中…': 'Thinking…',
   '正在停止…': 'Stopping…',
   '停止生成': 'Stop generating',

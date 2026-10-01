@@ -1,6 +1,7 @@
 #include "feedback_upload.hpp"
 
 #include "config/config.hpp"
+#include "platform/package_identity.hpp"
 #include "network/proxy_resolver.hpp"
 #include "session/session_storage.hpp"
 #include "upgrade/manifest.hpp"
@@ -578,10 +579,27 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     return result;
 }
 
+bool validate_feedback_upload_url(const std::string& url,
+                                  bool require_https,
+                                  std::string* error) {
+    if (!is_valid_upgrade_base_url(url)) {
+        if (error) *error = "upgrade.base_url must be a non-empty http or https URL";
+        return false;
+    }
+    if (require_https && normalize_upgrade_base_url(url).rfind("https://", 0) != 0) {
+        if (error) {
+            *error = "Microsoft Store installations require an HTTPS feedback service. "
+                     "No feedback was uploaded. Configure an HTTPS service before retrying.";
+        }
+        return false;
+    }
+    return true;
+}
+
 FeedbackUploadResult upload_feedback_package(const FeedbackUploadRequest& request) {
     FeedbackUploadResult result;
-    if (!is_valid_upgrade_base_url(request.upload_url)) {
-        result.error = "upgrade.base_url must be a non-empty http or https URL";
+    if (!validate_feedback_upload_url(request.upload_url,
+                                     has_windows_package_identity(), &result.error)) {
         return result;
     }
     std::error_code ec;

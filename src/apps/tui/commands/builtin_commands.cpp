@@ -359,7 +359,7 @@ static void cmd_side_question(CommandContext& ctx,
         [state, post_event, command_name](SideQuestionResult result) {
             std::string message;
             if (result.status == SideQuestionStatus::Ok) {
-                message = "[/" + command_name + "] " + result.answer;
+                message = "[/" + command_name + "] " + side_question_tools_note(result) + result.answer;
             } else {
                 message = "[/" + command_name + "] Side question failed: " +
                           (result.error.empty()
@@ -397,7 +397,7 @@ static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
         << "  /goal     - Create, view, pause, resume, edit, or clear the thread goal\n"
         << "  /plan     - Enter plan mode or start planning a described task\n"
         << "  /turn     - Interrupt the active turn and send guidance immediately\n"
-        << "  /btw      - Ask a detached one-turn side question\n"
+        << "  /btw      - Ask a detached side question (reads files, never edits)\n"
         << "  /side     - Alias for /btw\n"
         << "  /resume   - Resume a previous session\n"
         << "  /rewind   - Rewind to a previous user turn\n"
@@ -2000,7 +2000,7 @@ void register_builtin_commands(CommandRegistry& registry) {
         "turn", "Interrupt the active turn and send guidance", cmd_turn});
     registry.register_command({
         "btw",
-        "Ask a detached one-turn side question",
+        "Ask a detached side question (read-only tools)",
         [](CommandContext& ctx, const std::string& args) {
             cmd_side_question(ctx, args, "btw");
         },

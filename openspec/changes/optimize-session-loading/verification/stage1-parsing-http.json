@@ -1,0 +1,79 @@
+{
+  "executable_sha256": "1afb6212682f72940ade486f449dc79a56977ad072ad3244b168220ffd285cd4",
+  "mode": "warm filesystem cache; synthetic data",
+  "bounded_list": {
+    "ms": 71.018,
+    "bytes": 5388,
+    "status": 200
+  },
+  "full_list": {
+    "ms": 7386.288,
+    "bytes": 1594906,
+    "status": 200
+  },
+  "global_list": {
+    "ms": 200.415,
+    "bytes": 1594906,
+    "status": 200
+  },
+  "sessions": [
+    {
+      "id": "20260101-000000-0000",
+      "jsonl_bytes": 104881361,
+      "resume": {
+        "ms": 401.708,
+        "bytes": 336,
+        "status": 200
+      },
+      "history": {
+        "ms": 970.82,
+        "bytes": 103353724,
+        "status": 200
+      },
+      "concurrent_list": {
+        "ms": 3.895,
+        "bytes": 5412,
+        "status": 200
+      },
+      "concurrent_history": {
+        "ms": 916.494,
+        "bytes": 103353724,
+        "status": 200
+      },
+      "tail": {
+        "ms": 970.552,
+        "bytes": 103353724,
+        "status": 200
+      }
+    },
+    {
+      "id": "20260101-000001-0001",
+      "jsonl_bytes": 20994668,
+      "resume": {
+        "ms": 155.441,
+        "bytes": 336,
+        "status": 200
+      },
+      "history": {
+        "ms": 246.596,
+        "bytes": 20700540,
+        "status": 200
+      },
+      "concurrent_list": {
+        "ms": 4.0,
+        "bytes": 5435,
+        "status": 200
+      },
+      "concurrent_history": {
+        "ms": 261.275,
+        "bytes": 20700540,
+        "status": 200
+      },
+      "tail": {
+        "ms": 247.469,
+        "bytes": 20700540,
+        "status": 200
+      }
+    }
+  ]
+}

@@ -363,3 +363,15 @@ await testAsync('workspace resume does not fall back unless a no-workspace sessi
   })).cwd, 'N:/repo');
   assert.equal(compatibilityCalls, 1);
 });
+
+{
+  const { sessionJumpMessagePosition } = await import('./sessionJump.js');
+  const position = '9007199254740993';
+  const target = openSessionTargetFromSearch('?open=large&message_position=' + position);
+  assert.equal(sessionJumpMessagePosition(target), position);
+  const ref = sessionRefFromJumpTarget(target);
+  assert.equal(sessionJumpMessagePosition(ref), position);
+  const url = desktopOpenSessionUrl({ port: 1234, sessionId: 'large', messagePosition: position });
+  assert.equal(new URL(url).searchParams.get('message_position'), position);
+  assert.equal(stripOpenSessionParams('?open=large&message_position=' + position + '&keep=1'), 'keep=1');
+}

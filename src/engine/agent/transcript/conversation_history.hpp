@@ -5,6 +5,7 @@
 #include <atomic>
 #include <functional>
 #include <vector>
+#include <unordered_set>
 
 namespace acecode {
 class SessionManager;
@@ -21,6 +22,8 @@ class ConversationHistory {
 public:
     explicit ConversationHistory(const std::atomic<bool>& busy) : busy_(busy) {}
     const std::vector<ChatMessage>& view() const { return messages_; }
+    // Assign execution IDs before recording or publishing the new tool batch.
+    void prepare_tool_calls(std::vector<ToolCall>& calls);
     void append(ChatMessage message);
     void replace(std::vector<ChatMessage> messages);
     void clear();
@@ -33,9 +36,12 @@ public:
     bool retry_blocked() const { return live_tail_blocked_.load(); }
 
 private:
+    void remember_tool_call_ids(const ChatMessage& message);
     void warn_unless_idle_access(bool worker_or_queue_held) const;
     const std::atomic<bool>& busy_;
     std::vector<ChatMessage> messages_;
+    // Keep reservations across compaction/rewind/clear for this history owner.
+    std::unordered_set<std::string> used_tool_call_ids_;
     std::atomic<bool> live_tail_blocked_{false};
 };
 

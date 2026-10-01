@@ -51,16 +51,26 @@ export function sessionJumpMessageOrdinal(...sources) {
   return null;
 }
 
+export function sessionJumpMessagePosition(...sources) {
+  for (const source of sources) {
+    const match = source?.searchMatch || source?.search_match || {};
+    const value = source?.messagePosition ?? source?.message_position ?? match.messagePosition ?? match.message_position;
+    if (value != null && /^\d+$/.test(String(value))) return String(value);
+  }
+  return null;
+}
+
 function normalizedSearchMatch(...sources) {
   for (const source of sources || []) {
     if (!source || typeof source !== 'object') continue;
     const raw = source.searchMatch || source.search_match;
     const ordinal = sessionJumpMessageOrdinal(raw || {}, source);
-    if (ordinal === null) continue;
+    const position = sessionJumpMessagePosition(raw || {}, source);
+    if (ordinal === null && position === null) continue;
     const out = raw && typeof raw === 'object' ? { ...raw } : {};
     if (!out.kind) out.kind = 'user_message';
-    out.messageOrdinal = ordinal;
-    out.message_ordinal = ordinal;
+    if (ordinal !== null) { out.messageOrdinal = ordinal; out.message_ordinal = ordinal; }
+    if (position !== null) { out.messagePosition = position; out.message_position = position; }
     return out;
   }
   return null;
@@ -156,13 +166,15 @@ export function openSessionTargetFromSearch(search = '') {
   if (ordinal !== null) {
     target.search_match = { kind: 'user_message', message_ordinal: ordinal, messageOrdinal: ordinal };
   }
+  const position = sessionJumpMessagePosition({ message_position: params.get('message_position') ?? params.get('messagePosition') });
+  if (position !== null) target.search_match = { ...target.search_match, kind: 'user_message', message_position: position, messagePosition: position };
   return target;
 }
 
 export function stripOpenSessionParams(search = '') {
   const raw = text(search);
   const params = new URLSearchParams(raw.startsWith('?') ? raw.slice(1) : raw);
-  for (const key of ['open', 'workspace', 'workspace_hash', 'workspaceHash', 'no_workspace', 'noWorkspace', 'read_only', 'readOnly', 'message_ordinal', 'messageOrdinal']) {
+  for (const key of ['open', 'workspace', 'workspace_hash', 'workspaceHash', 'no_workspace', 'noWorkspace', 'read_only', 'readOnly', 'message_ordinal', 'messageOrdinal', 'message_position', 'messagePosition']) {
     params.delete(key);
   }
   return params.toString();
@@ -176,6 +188,7 @@ export function desktopOpenSessionUrl({
   noWorkspace = false,
   readOnly = false,
   messageOrdinal = null,
+  messagePosition = null,
   navigationHistory = null,
   protocol = 'http:',
 } = {}) {
@@ -190,6 +203,7 @@ export function desktopOpenSessionUrl({
   if (readOnly) params.set('read_only', '1');
   const ordinal = ordinalValue(messageOrdinal);
   if (ordinal !== null) params.set('message_ordinal', String(ordinal));
+  if (messagePosition != null && /^\d+$/.test(String(messagePosition))) params.set('message_position', String(messagePosition));
   const scheme = text(protocol).replace(/:$/, '') || 'http';
   const historyHash = navigationHistory ? navigationHistoryHash(navigationHistory) : '';
   const fragment = historyHash ? `#${historyHash}` : '';

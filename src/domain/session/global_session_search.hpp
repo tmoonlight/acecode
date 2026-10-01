@@ -45,6 +45,7 @@ public:
 
     void start();
     void stop();
+    void notify_startup_interaction();
 
     GlobalSessionSearchPage search_sessions(
         const std::string& request_id,

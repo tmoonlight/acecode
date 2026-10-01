@@ -124,7 +124,12 @@ import './subagentTasks.test.js';
 import './subagentPanelSplitArchitecture.test.js';
 import './queueCardItem.test.js';
 import './sessionSubscription.test.js';
+import './connectionStatusSubscriptions.test.js';
 import './sessionTranscript.test.js';
+import './sessionHistoryPaging.test.js';
+import './sessionOpenDiagnostics.test.js';
+import { execFileSync as runHookTest } from 'node:child_process';
+import { fileURLToPath as hookTestPath } from 'node:url';
 import './sessionTranscriptRecovery.test.js';
 import './transcriptSelfHeal.test.js';
 import './singleWriterStore.test.js';
@@ -330,3 +335,6 @@ await import('./slashCommands.test.js');
 import './composerCommandSync.test.js';
 import './composerDropdownKeyboard.test.js';
 import './composerSelection.test.js';
+
+// The hook fixture controls browser globals; isolate it from other test modules.
+runHookTest(process.execPath, [hookTestPath(new URL('./sessionTranscriptLoading.test.js', import.meta.url))], { stdio: 'inherit' });

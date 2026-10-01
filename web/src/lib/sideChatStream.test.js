@@ -29,6 +29,7 @@ function setup() {
     requestId: 'request-one', question: 'question', history: [],
     onDelta: (delta) => events.push(['delta', delta]),
     onReset: () => events.push(['reset']),
+    onTool: (tool) => events.push(['tool', tool]),
     onDone: (result) => events.push(['done', result]),
     onError: (error) => events.push(['error', error]),
   };
@@ -76,6 +77,38 @@ run('deltas, retry reset and authoritative completion are delivered privately', 
   assert.equal(socket.closed, 1);
   assert.equal(socket.onmessage, null);
   assert.equal(timers.size, 0);
+});
+
+// 侧边对话的只读工具调用:进度原样转给界面;reset 只丢弃当前这一步的正文,
+// 工具调用之前的正文保留(停止时作为已生成内容交回)。
+run('tool progress is forwarded and reset keeps text written before the tool call', () => {
+  const { handle, socket, events, fireTimer } = setup();
+  socket.open();
+  socket.message('side_chat_delta', { request_id: 'request-one', delta: 'before' });
+  socket.message('side_chat_tool', {
+    request_id: 'request-one', call_id: 'c1', name: 'file_read', target: 'a.txt', status: 'running',
+  });
+  const draft = `${String.fromCharCode(10).repeat(2)}draft`;
+  socket.message('side_chat_delta', { request_id: 'request-one', delta: draft });
+  socket.message('side_chat_reset', { request_id: 'request-one' });
+  handle.stop();
+  fireTimer(SIDE_CHAT_STOP_TIMEOUT_MS);
+  assert.deepEqual(events, [
+    ['delta', 'before'],
+    ['tool', { callId: 'c1', name: 'file_read', target: 'a.txt', status: 'running' }],
+    ['delta', draft],
+    ['reset'],
+    ['done', { answer: 'before', cancelled: true }],
+  ]);
+});
+
+run('malformed tool progress is a protocol error', () => {
+  const { socket, events } = setup();
+  socket.open();
+  socket.message('side_chat_tool', { request_id: 'request-one', name: 'file_read' });
+  assert.equal(events.length, 1);
+  assert.equal(events[0][0], 'error');
+  assert.equal(events[0][1].code, 'SIDE_CHAT_PROTOCOL_ERROR');
 });
 
 run('stop waits for acknowledgement and sends cancellation once', () => {

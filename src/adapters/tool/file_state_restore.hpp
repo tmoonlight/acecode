@@ -5,6 +5,7 @@
 
 #include "llm/llm_provider.hpp"
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -12,7 +13,8 @@ namespace acecode {
 
 // cwd:会话工作目录,apply_patch 历史调用里的相对路径按它解析后补
 // MtimeTracker 基线;空串 = 相对路径原样(只对绝对路径生效)。
-void restore_file_tool_state_from_messages(const std::vector<ChatMessage>& messages,
+// Returns the number of current-file content reads attempted (one per path).
+std::size_t restore_file_tool_state_from_messages(const std::vector<ChatMessage>& messages,
                                            const std::string& cwd = std::string());
 
 } // namespace acecode

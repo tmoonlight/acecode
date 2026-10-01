@@ -305,6 +305,19 @@ jobs:
             libegl1-mesa-dev libudev-dev libxi-dev libcups2-dev librsvg2-dev
           rm -rf /var/lib/apt/lists/*
 
+      - name: Record verified source revision
+        shell: bash
+        run: |
+          # Buster's Git security backport ignores command-scope safe.directory.
+          # Trust only this ephemeral checkout, then fail if HEAD is unavailable.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          source_sha="$(git -C "$GITHUB_WORKSPACE" rev-parse --verify HEAD)"
+          if [[ ! "$source_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source revision: $source_sha" >&2
+            exit 1
+          fi
+          printf 'SOURCE_REVISION=%s\n' "$source_sha" >> "$GITHUB_ENV"
+
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
@@ -366,7 +379,7 @@ jobs:
             "runner_image": "ubuntu-22.04 / buildpack-deps:buster",
             "label": "${{ inputs.label }}",
             "source_ref_input": "${{ inputs.source_ref }}",
-            "source_revision": "$(git -c safe.directory='*' rev-parse HEAD)",
+            "source_revision": "${SOURCE_REVISION}",
             "tools_revision": "${{ github.sha }}",
             "workflow_run_id": "${{ github.run_id }}",
             "run_tests": false,

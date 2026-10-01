@@ -10,6 +10,8 @@ namespace {
 
 constexpr std::size_t kMaxReadObservationEntries = 100;
 
+thread_local bool t_detached_reads = false;
+
 std::string normalize_tracker_path_key(const std::string& path) {
     std::error_code ec;
     auto fs_path = path_from_utf8(path);
@@ -88,6 +90,18 @@ MtimeTracker& MtimeTracker::instance() {
     return tracker;
 }
 
+MtimeTracker::DetachedReadScope::DetachedReadScope() : previous_(t_detached_reads) {
+    t_detached_reads = true;
+}
+
+MtimeTracker::DetachedReadScope::~DetachedReadScope() {
+    t_detached_reads = previous_;
+}
+
+bool MtimeTracker::DetachedReadScope::active() {
+    return t_detached_reads;
+}
+
 void MtimeTracker::record_read(const std::string& path) {
     record_read(path, "", false);
 }
@@ -100,6 +114,7 @@ void MtimeTracker::record_read(const std::string& path,
                                const std::string& normalized_content,
                                bool partial,
                                const FileReadEditMetadata& metadata) {
+    if (t_detached_reads) return;
     try {
         const std::string key = normalize_tracker_path_key(path);
         auto mtime = std::filesystem::last_write_time(path_from_utf8(key));
@@ -151,6 +166,7 @@ std::optional<MtimeTracker::ReadObservation> MtimeTracker::unchanged_read_observ
     uint64_t byte_offset,
     size_t max_bytes
 ) const {
+    if (t_detached_reads) return std::nullopt;
     const auto key = make_read_observation_key(
         path, start_line, end_line, byte_mode, byte_offset, max_bytes);
     std::lock_guard<std::mutex> lk(mu_);
@@ -172,6 +188,7 @@ void MtimeTracker::record_read_observation(const std::string& path,
                                            bool byte_mode,
                                            uint64_t byte_offset,
                                            size_t max_bytes) {
+    if (t_detached_reads) return;
     try {
         auto key = make_read_observation_key(
             path, start_line, end_line, byte_mode, byte_offset, max_bytes);

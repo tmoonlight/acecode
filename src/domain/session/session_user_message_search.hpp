@@ -23,6 +23,7 @@ struct SessionUserMessageFileSignature {
 struct SearchableUserMessage {
     std::string session_id;
     int message_ordinal = 0;
+    std::uint64_t message_position = 0;
     std::string message_uuid;
     std::string user_text;
     std::vector<std::string> attachment_names;
@@ -35,6 +36,7 @@ struct SearchableUserMessage {
 struct SessionUserMessageSearchResult {
     std::string session_id;
     int message_ordinal = 0;
+    std::uint64_t message_position = 0;
     int score = 0;
     std::string snippet;
     std::vector<std::string> matched_attachment_names;
@@ -133,6 +135,7 @@ private:
 
     std::string project_dir_;
     platform::UniqueSqlite db_;
+    bool initialized_ = false;
 };
 
 } // namespace acecode

@@ -460,3 +460,17 @@ TEST(EventDispatcher, ConcurrentEmitsDeliverEachListenerSeriallyInSeqOrder) {
         EXPECT_EQ(got[i], i + 1) << "listener delivery diverged at index " << i;
     }
 }
+
+TEST(EventDispatcher, ExplicitZeroReplayIncludesFirstEventWithoutChangingLegacyZero) {
+    EventDispatcher dispatcher;
+    dispatcher.emit(SessionEventKind::Message, {{"content", "resume audit"}});
+    std::vector<SessionEvent> legacy, recovered;
+    const auto a = dispatcher.subscribe([&](const auto& event) { legacy.push_back(event); });
+    const auto b = dispatcher.subscribe([&](const auto& event) { recovered.push_back(event); }, 0, true);
+    EXPECT_TRUE(legacy.empty());
+    ASSERT_EQ(recovered.size(), 1u);
+    EXPECT_EQ(recovered[0].seq, 1u);
+    EXPECT_TRUE(recovered[0].replayed);
+    dispatcher.unsubscribe_and_wait(a);
+    dispatcher.unsubscribe_and_wait(b);
+}

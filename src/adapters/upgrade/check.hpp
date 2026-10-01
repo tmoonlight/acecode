@@ -14,6 +14,7 @@ class DiagnosticLog;
 enum class UpdateCheckStatus {
     UpdateAvailable,
     UpToDate,
+    StoreManaged,
     NoCompatiblePackage,
     InvalidConfig,
     UnsupportedTarget,

@@ -12,11 +12,3 @@ TEST(AgentUserTurnMessage, UsesExistingWhitespaceRules) {
     EXPECT_TRUE(acecode::agent::detail::has_meaningful_user_input(input));
     EXPECT_EQ(acecode::utils::trim_ascii_copy(input.text), "继续");
 }
-
-// 旁路问题保留明确的只读语义,尾部问题原文不折叠、不裁剪。
-TEST(AgentUserTurnMessage, KeepsSideQuestionReadOnlyAndLiteral) {
-    const auto message = acecode::agent::detail::build_side_question_message("why?\n ");
-    EXPECT_EQ(message.role, "user");
-    EXPECT_NE(message.content.find("Do not call tools"), std::string::npos);
-    EXPECT_NE(message.content.find("Side question:\nwhy?\n "), std::string::npos);
-}

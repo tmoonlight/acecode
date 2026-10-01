@@ -803,7 +803,9 @@ export const InputBar = forwardRef(function InputBar({
       }
       if (result.kind === 'none') return false;
       if (result.kind === 'paths') transfer.insertPaths(result.items);
-      else if (onMediaFiles && transfer.reserveAttachments()) onMediaFiles(result.files);
+      // Raster images (a pure upload, or those that came with path references)
+      // become thumbnail attachments rather than @path tags.
+      if (result.files?.length && onMediaFiles && transfer.reserveAttachments()) onMediaFiles(result.files);
       setEditedSinceHistory(true);
       return true;
     }).catch(error => {

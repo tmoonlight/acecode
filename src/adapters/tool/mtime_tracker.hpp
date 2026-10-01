@@ -84,6 +84,22 @@ public:
         std::string persisted_output_path;
     };
 
+    // 旁路读取作用域(侧边对话的只读工具):存活期间,**本线程**上的读取既不登记
+    // 编辑基线 / 重复读取观察,也不命中「未变化」短桩。旁路读到的内容只进侧边
+    // 对话,主代理没看过;照常登记的话,主代理随后读同一文件会拿到一个它从没见过
+    // 内容的短桩,或凭这次读取的基线直接编辑。可嵌套。
+    class DetachedReadScope {
+    public:
+        DetachedReadScope();
+        ~DetachedReadScope();
+        DetachedReadScope(const DetachedReadScope&) = delete;
+        DetachedReadScope& operator=(const DetachedReadScope&) = delete;
+        static bool active();
+
+    private:
+        bool previous_;
+    };
+
     // Record the mtime of a file at the time it was read or observed by the agent.
     void record_read(const std::string& path);
 

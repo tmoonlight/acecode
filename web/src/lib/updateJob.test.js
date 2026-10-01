@@ -67,6 +67,19 @@ await test('phase labels and terminal dialog modes are stable', () => {
   assert.equal(updateDialogMode({ state: 'cancelled' }), 'cancelled');
 });
 
+await test('Store-managed updates suppress stale ZIP jobs and never become an install confirmation', () => {
+  const status = { status: 'store_managed', current_version: '0.9.30', update_available: false };
+  for (const job of [
+    null,
+    { state: 'pending' },
+    { state: 'running', phase: 'installing' },
+    { state: 'succeeded', restart_required: true },
+    { state: 'failed', target_version: '0.9.31' },
+  ]) {
+    assert.equal(updateDialogMode(job, status), 'store_managed');
+  }
+});
+
 await test('release history normalization keeps ordered non-empty plain-text notes', () => {
   assert.deepEqual(normalizeUpdateReleases(null), []);
   assert.deepEqual(normalizeUpdateReleases([

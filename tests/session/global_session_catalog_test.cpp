@@ -8,6 +8,8 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <future>
+#include <atomic>
 #include <fstream>
 #include <functional>
 #include <random>
@@ -495,4 +497,53 @@ TEST(GlobalSessionSearchService, ContentBatchesStopAfterCancellation) {
     EXPECT_TRUE(cancelled.cancelled);
     EXPECT_EQ(cancelled.scanned_projects, 0u);
     service.stop();
+}
+
+TEST(GlobalSessionCatalogIndex, WarmupWaitsForInteractionOrSearchSignal) {
+    for (const bool search : {false, true}) {
+        TempProjectsRoot root;
+        const auto fixture = project(root, "C:/projects/deferred");
+        seed_meta(fixture, "deferred", "2026-10-01T00:00:00Z");
+        struct ClockState {
+            std::atomic<int> calls{0};
+            std::promise<void> waiting;
+        };
+        auto clock = std::make_shared<ClockState>(); // Test and worker share only the clock probe.
+        auto waiting = clock->waiting.get_future();
+        acecode::GlobalSessionCatalogIndex index(root.path().string(), {}, [clock] {
+            if (clock->calls.fetch_add(1) == 1) clock->waiting.set_value();
+            return std::chrono::steady_clock::time_point{};
+        });
+        index.start();
+        ASSERT_EQ(waiting.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+        EXPECT_EQ(index.snapshot().progress.scanned_projects, 0u);
+        EXPECT_FALSE(index.snapshot().progress.complete);
+        if (search) EXPECT_TRUE(index.attach_request("early-search"));
+        else index.notify_startup_interaction();
+        const auto result = wait_for_index(index, [](const auto& snapshot) { return snapshot.progress.complete; });
+        EXPECT_TRUE(result.progress.complete);
+        EXPECT_EQ(result.catalog.entries.size(), 1u);
+        index.stop();
+    }
+}
+
+TEST(GlobalSessionCatalogIndex, WarmupUsesInjectedTenSecondDeadlineAndStopsWhileWaiting) {
+    TempProjectsRoot root;
+    const auto fixture = project(root, "C:/projects/deadline");
+    seed_meta(fixture, "deadline", "2026-10-01T00:00:00Z");
+    auto calls = std::make_shared<std::atomic<int>>(0); // Shared clock state, no borrowed worker capture.
+    acecode::GlobalSessionCatalogIndex index(root.path().string(), {}, [calls] {
+        return std::chrono::steady_clock::time_point{} +
+               std::chrono::seconds(calls->fetch_add(1) == 0 ? 0 : 10);
+    });
+    index.start();
+    EXPECT_TRUE(wait_for_index(index, [](const auto& snapshot) { return snapshot.progress.complete; }).progress.complete);
+    index.stop();
+    acecode::GlobalSessionCatalogIndex stopped(root.path().string(), {}, [] {
+        return std::chrono::steady_clock::time_point{};
+    });
+    stopped.start();
+    const auto before = std::chrono::steady_clock::now();
+    stopped.stop();
+    EXPECT_LT(std::chrono::steady_clock::now() - before, std::chrono::seconds(1));
 }

@@ -1,0 +1,34 @@
+[
+  {
+    "mode": "message_position",
+    "target_ordinal": 24,
+    "target_position": "158392",
+    "correct_row": true,
+    "geometry": {
+      "visible": true,
+      "top": 106.5,
+      "bottom": 173.5
+    },
+    "queries": [
+      "?limit=200&workspace=8bfa3dd971394f1f",
+      "?limit=200&before=h1.627c1ce.be9a6c32d462e22124bc305a93e781a38d56e9a3.eb1388143763921af7ddcc7cb5518b9eead0441f.r&from_position=158392&workspace=8bfa3dd971394f1f"
+    ],
+    "errors": []
+  },
+  {
+    "mode": "message_ordinal",
+    "target_ordinal": 24,
+    "target_position": "158392",
+    "correct_row": true,
+    "geometry": {
+      "visible": true,
+      "top": 106.5,
+      "bottom": 173.5
+    },
+    "queries": [
+      "?limit=200&workspace=8bfa3dd971394f1f",
+      "?limit=200&from_ordinal=24&workspace=8bfa3dd971394f1f"
+    ],
+    "errors": []
+  }
+]

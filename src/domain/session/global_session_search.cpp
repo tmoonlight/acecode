@@ -443,6 +443,10 @@ void GlobalSessionSearchService::invalidate_project(
     impl_->index.invalidate_project(workspace_hash);
 }
 
+void GlobalSessionSearchService::notify_startup_interaction() {
+    impl_->index.notify_startup_interaction();
+}
+
 void GlobalSessionSearchService::request_discovery() {
     impl_->index.request_discovery();
 }

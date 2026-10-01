@@ -29,6 +29,7 @@ import {
   isPasteBlockPart,
   normalizeComposerContent,
 } from '../lib/composerContent.js';
+import { isComposerThumbnailAttachment } from '../lib/composerImagePresentation.js';
 import { pasteBlockTextSource, pasteBlocksOf, pastedTextTitle } from '../lib/pastedText.js';
 import { composerContentMessagePreview, userMessageTextPreview } from '../lib/userMessagePreview.js';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
@@ -173,21 +174,31 @@ function pasteBlockCard(block, attachments) {
   };
 }
 
+// 图片附件与输入框一致:显示在气泡上方的缩略图条(AttachmentStrip),不作为正文里的
+// 文件名按钮。曾经所有 attachment 部件都进正文按钮分支,同时又被从缩略图条剔除,
+// 用户消息里的图片于是只剩一个文件名。
+function isThumbnailPart(part) {
+  return part?.type === 'attachment' && isComposerThumbnailAttachment(part);
+}
+
 function OrderedUserMessageBody({ composerContent, contentParts, onOpenFilePreview, onLocateInFileTree }) {
   const { commands } = useSlashCommands();
   const loadAttachmentText = useContext(AttachmentTextLoaderContext);
   const [preview, setPreview] = useState(null);
   const [openPasteId, setOpenPasteId] = useState('');
+  // 缩略图由 AttachmentStrip 渲染并处理预览;这里只留正文内联的附件,避免桌面右键
+  // 「预览」被两处同时接住。
   const attachments = useMemo(() => composerContentAttachments(
     composerContent, attachmentsFromContentParts(contentParts),
-  ), [composerContent, contentParts]);
+  ).filter((attachment) => !isComposerThumbnailAttachment(attachment)), [composerContent, contentParts]);
   const pasteCards = useMemo(
     () => pasteBlocksOf(composerContent).map((block) => pasteBlockCard(block, attachments)),
     [composerContent, attachments],
   );
   const openPaste = openPasteId ? pasteCards.find((card) => card.id === openPasteId) : null;
   // 两种粘贴块都渲染成上方的卡片;留在正文里会落进 attachment 的内联按钮分支。
-  const bodyParts = composerContent.parts.filter((part) => !isPasteBlockPart(part));
+  // 图片同理,由气泡上方的缩略图条渲染。
+  const bodyParts = composerContent.parts.filter((part) => !isPasteBlockPart(part) && !isThumbnailPart(part));
   const previewAttachment = useCallback((attachment) => {
     const url = attachment.blob_url || attachment.preview_url || attachment.url || '';
     if (isImageAttachment(attachment) && url) {
@@ -294,7 +305,9 @@ function UserBubble({
   showFooter,
   annotationPresentations,
 }) {
-  const inlineReferences = (composerContent?.parts || []).filter((part) => part.type === 'attachment');
+  // 正文内联渲染的附件不再进缩略图条;图片部件不在正文里,照常留在缩略图条。
+  const inlineReferences = (composerContent?.parts || [])
+    .filter((part) => part.type === 'attachment' && !isThumbnailPart(part));
   const inlineIds = new Set(inlineReferences.map((part) => part.id).filter(Boolean));
   const inlineKeys = new Set(inlineReferences.map((part) => part.key).filter(Boolean));
   const remainingParts = composerContent
@@ -302,6 +315,10 @@ function UserBubble({
       inlineIds.has(part.attachment.id) || inlineKeys.has(part.attachment.local_id)
     ))
     : contentParts;
+  // 只有图片的消息不画空气泡。
+  const hasBubbleBody = composerContent
+    ? composerContent.parts.some((part) => !isThumbnailPart(part))
+    : !!content;
   // f300:2400 多万字符的旧消息整段进 pre-wrap 气泡会卡死页面。气泡只渲染有界预览,
   // 截断时显示 … 与「查看全文」(只读对话框);复制仍取全文。
   const messagePreview = useMemo(() => {
@@ -326,7 +343,7 @@ function UserBubble({
         annotationPresentations={annotationPresentations}
         align="right"
       />
-      {(composerContent ? composerContent.parts.length > 0 : content) ? (
+      {hasBubbleBody ? (
         <div className="ace-user-message-bubble ace-chat-message-content px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
           {messagePreview.composerContent ? (
             <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}

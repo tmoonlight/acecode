@@ -5,7 +5,10 @@
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 
+#include "jsonl_scanner.hpp"
+#include "session_load_metrics.hpp"
 #include <sqlite3.h>
+#include <charconv>
 
 #include <algorithm>
 #include <chrono>
@@ -13,6 +16,7 @@
 #include <filesystem>
 #include <iterator>
 #include <sstream>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
@@ -332,11 +336,40 @@ bool SessionUserMessageIndex::exec(const char* sql, std::string* error) {
 }
 
 bool SessionUserMessageIndex::initialize(std::string* error) {
+    if (initialized_) return true;
     if (!open(error)) return false;
+    const auto read_version = [&] {
+        int version = -1;
+        const auto receive = [](void* output, int count, char** values, char**) -> int {
+            if (count != 1 || !values[0]) return 1;
+            const std::string_view value(values[0]);
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(),
+                                                 *static_cast<int*>(output));
+            return parsed.ec == std::errc{} ? 0 : 1;
+        };
+        if (sqlite3_exec(db_.get(), "PRAGMA user_version;", receive, &version, nullptr) != SQLITE_OK) {
+            set_error(error, sqlite_error(db_.get(), "read schema version failed"));
+            return -1;
+        }
+        return version;
+    };
+    int version = read_version();
+    if (version < 0) return false;
+    // A current projection needs no write lock; searching must not wait behind
+    // another session's writer merely to check the schema.
+    if (version == 1) { initialized_ = true; return true; }
+    if (!exec("BEGIN IMMEDIATE;", error)) return false;
+    version = read_version(); // another process may have migrated before this lock
+    bool ok = version >= 0;
+    // This database contains only disposable search projections, never history.
+    if (ok && version != 1) ok = exec(
+        "DROP TABLE IF EXISTS session_user_message_index;"
+        "DROP TABLE IF EXISTS session_user_message_sources;", error);
     constexpr const char* schema_sql =
         "CREATE TABLE IF NOT EXISTS session_user_message_index ("
         "session_id TEXT NOT NULL,"
         "message_ordinal INTEGER NOT NULL,"
+        "message_position INTEGER NOT NULL,"
         "message_uuid TEXT NOT NULL DEFAULT '',"
         "user_text TEXT NOT NULL DEFAULT '',"
         "attachment_text TEXT NOT NULL DEFAULT '',"
@@ -355,7 +388,10 @@ bool SessionUserMessageIndex::initialize(std::string* error) {
         "jsonl_size INTEGER NOT NULL,"
         "indexed_at_ms INTEGER NOT NULL"
         ");";
-    if (!exec(schema_sql, error)) return false;
+    if (ok) ok = exec(schema_sql, error) && exec("PRAGMA user_version=1;", error);
+    if (ok) ok = exec("COMMIT;", error);
+    if (!ok) { exec("ROLLBACK;", nullptr); return false; }
+    initialized_ = true;
     return true;
 }
 
@@ -425,10 +461,11 @@ bool SessionUserMessageIndex::upsert_searchable_message(
     constexpr const char* sql =
         "INSERT INTO session_user_message_index("
         "session_id, message_ordinal, message_uuid, user_text, attachment_text, "
-        "attachment_names_json, search_text, search_text_norm, snippet_text"
-        ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "attachment_names_json, search_text, search_text_norm, snippet_text, message_position"
+        ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(session_id, message_ordinal) DO UPDATE SET "
         "message_uuid = excluded.message_uuid,"
+        "message_position = excluded.message_position,"
         "user_text = excluded.user_text,"
         "attachment_text = excluded.attachment_text,"
         "attachment_names_json = excluded.attachment_names_json,"
@@ -448,7 +485,8 @@ bool SessionUserMessageIndex::upsert_searchable_message(
               bind_text(stmt, 6, names_json) &&
               bind_text(stmt, 7, message.search_text) &&
               bind_text(stmt, 8, message.search_text_norm) &&
-              bind_text(stmt, 9, message.snippet_text);
+              bind_text(stmt, 9, message.snippet_text) &&
+              sqlite3_bind_int64(stmt, 10, static_cast<sqlite3_int64>(message.message_position)) == SQLITE_OK;
     if (ok && sqlite3_step(stmt) != SQLITE_DONE) {
         ok = false;
         set_error(error, sqlite_error(db_.get(), "message upsert failed"));
@@ -473,6 +511,11 @@ bool SessionUserMessageIndex::index_appended_message(
     }
 
     if (auto searchable = build_searchable_user_message(session_id, message_ordinal, msg)) {
+        searchable->message_position = static_cast<std::uint64_t>(before_append.size);
+        SessionFileReader reader(jsonl_path);
+        if (before_append.size > 0 && reader.read(before_append.size - 1, 1) != "\n") {
+            ++searchable->message_position; // append_message repairs a missing newline
+        }
         if (!upsert_searchable_message(*searchable, error)) return false;
     }
     return update_source(session_id, jsonl_path, after, error);
@@ -500,7 +543,7 @@ bool SessionUserMessageIndex::source_is_fresh(
 bool SessionUserMessageIndex::rebuild_session(
     const std::string& session_id,
     const std::string& jsonl_path,
-    const std::vector<ChatMessage>& messages,
+    const std::vector<ChatMessage>& /*messages*/,
     std::string* error,
     const std::function<bool()>& should_cancel) {
     if (session_id.empty() || jsonl_path.empty()) return true;
@@ -530,19 +573,42 @@ bool SessionUserMessageIndex::rebuild_session(
     if (del) sqlite3_finalize(del);
 
     if (ok) {
-        for (std::size_t i = 0; i < messages.size(); ++i) {
+        SessionFileReader reader(jsonl_path);
+        const auto prefix = reader.prefix();
+        JsonlScanner scanner(reader, false);
+        int ordinal = 0;
+        while (auto record = scanner.next()) {
             if (should_cancel && should_cancel()) {
                 set_error(error, "cancelled");
                 ok = false;
                 break;
             }
-            auto searchable = build_searchable_user_message(
-                session_id, static_cast<int>(i), messages[i]);
+            std::optional<ChatMessage> message;
+            try {
+                ++session_read_metrics().records;
+                const auto value = nlohmann::json::parse(record->text);
+                if (value.is_object() && value.contains("role") && value["role"].is_string() &&
+                    !value["role"].get_ref<const std::string&>().empty()) message = deserialize_message_json(value);
+            } catch (...) {}
+            if (!message) continue;
+            auto searchable = build_searchable_user_message(session_id, ordinal++, *message);
+            if (searchable) searchable->message_position = record->offset;
             if (!searchable.has_value()) continue;
             if (!upsert_searchable_message(*searchable, error)) {
                 ok = false;
                 break;
             }
+        }
+        if (reader.valid() && !reader.unchanged(prefix)) {
+            set_error(error, "history replaced during index rebuild");
+            ok = false;
+        }
+    }
+    if (ok) {
+        const auto current = session_user_message_file_signature(jsonl_path);
+        if (signature.size != current.size || signature.mtime != current.mtime) {
+            set_error(error, "history changed during index rebuild");
+            ok = false;
         }
     }
     if (ok) ok = update_source(session_id, jsonl_path, signature, error);
@@ -566,7 +632,7 @@ bool SessionUserMessageIndex::rebuild_session(
         return false;
     }
     return rebuild_session(session_id, jsonl_path,
-                           SessionStorage::load_messages(jsonl_path),
+                           std::vector<ChatMessage>{},
                            error, should_cancel);
 }
 
@@ -691,7 +757,7 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
     sqlite3_stmt* stmt = nullptr;
     constexpr const char* sql =
         "SELECT i.session_id, i.message_ordinal, i.user_text, i.attachment_text, "
-        "i.attachment_names_json, i.snippet_text "
+        "i.attachment_names_json, i.snippet_text, i.message_position "
         "FROM session_user_message_index i "
         "JOIN ("
         "SELECT session_id, MAX(message_ordinal) AS message_ordinal "
@@ -726,6 +792,7 @@ std::vector<SessionUserMessageSearchResult> SessionUserMessageIndex::search(
         SessionUserMessageSearchResult result;
         result.session_id = session_id;
         result.message_ordinal = ordinal;
+        result.message_position = static_cast<std::uint64_t>(sqlite3_column_int64(stmt, 6));
         result.score = match_score(user_text, attachment_text, query_norm, ordinal);
         result.snippet = make_snippet(snippet_source, query_norm);
         for (const auto& name : names) {

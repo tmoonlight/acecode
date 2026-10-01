@@ -10,9 +10,12 @@ namespace {
 class SideStreamProvider : public acecode::LlmProvider {
 public:
     std::vector<acecode::ChatMessage> received;
+    std::vector<std::vector<acecode::ChatMessage>> requests;
+    std::vector<std::vector<acecode::ToolDef>> tool_requests;
     std::function<void(const acecode::StreamCallback&, std::atomic<bool>*)> emit;
     int calls = 0;
     bool tool_free = true;
+    bool expect_no_tools = true;
 
     acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
                                const std::vector<acecode::ToolDef>&) override { return {}; }
@@ -22,7 +25,9 @@ public:
                      std::atomic<bool>* abort) override {
         ++calls;
         received = messages;
-        EXPECT_TRUE(tools.empty());
+        requests.push_back(messages);
+        tool_requests.push_back(tools);
+        if (expect_no_tools) EXPECT_TRUE(tools.empty());
         ASSERT_NE(abort, nullptr);
         if (emit) emit(callback, abort);
     }
@@ -41,6 +46,34 @@ void event(const acecode::StreamCallback& callback, acecode::StreamEventType typ
     if (type == acecode::StreamEventType::Done) value.finish_reason = "stop";
     if (type == acecode::StreamEventType::Error) value.error = "upstream unavailable";
     callback(value);
+}
+
+void tool_call(const acecode::StreamCallback& callback, const std::string& id,
+               const std::string& name, const std::string& arguments) {
+    acecode::StreamEvent value;
+    value.type = acecode::StreamEventType::ToolCall;
+    value.tool_call = {id, name, arguments};
+    value.tool_index = 0;
+    callback(value);
+}
+
+void done_with_tool_calls(const acecode::StreamCallback& callback) {
+    acecode::StreamEvent value;
+    value.type = acecode::StreamEventType::Done;
+    value.finish_reason = "tool_calls";
+    callback(value);
+}
+
+// 只读工具集替身:记录收到的调用,回填固定内容。
+acecode::SideChatToolset read_toolset(std::vector<acecode::ToolCall>& executed,
+                                      const std::string& output = "FILE CONTENT") {
+    acecode::SideChatToolset tools;
+    tools.definitions = {{"file_read", "Read a file", nlohmann::json{{"type", "object"}}}};
+    tools.execute = [&executed, output](const acecode::ToolCall& call, const std::atomic<bool>*) {
+        executed.push_back(call);
+        return acecode::ToolResult{output, true};
+    };
+    return tools;
 }
 
 std::vector<acecode::ChatMessage> main_context() {
@@ -237,6 +270,225 @@ TEST(SideChat, NativeAgentProviderWithoutToolFreeCapabilityIsNeverInvoked) {
     EXPECT_EQ(result.code, "SIDE_CHAT_PROVIDER_UNSUPPORTED");
     EXPECT_EQ(result.response.status, SideQuestionStatus::ProviderUnavailable);
     EXPECT_EQ(provider->calls, 0);
+}
+
+// 场景:侧边对话里模型先说一句、调用只读工具 file_read,拿到结果后再作答。
+// 期望:工具只执行一次;第二次请求带上 assistant 工具调用与 tool 结果;回答把两步
+// 正文用空行拼起来,流式增量与最终回答一致;工具事件先 running 后 success 并带路径。
+// 回归:侧边对话不带工具表时,模型照着主会话历史把 bash 调用写成尖括号正文显示出来。
+TEST(SideChat, ReadOnlyToolResultFeedsBackBeforeFinalAnswer) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        if (provider->calls == 1) {
+            event(callback, StreamEventType::Delta, "先看一下。");
+            tool_call(callback, "call_1", "file_read", R"({"file_path":"src/a.cpp"})");
+            done_with_tool_calls(callback);
+            return;
+        }
+        event(callback, StreamEventType::Delta, "答案");
+        event(callback, StreamEventType::Done);
+    };
+    std::vector<acecode::ToolCall> executed;
+    std::vector<acecode::SideChatToolEvent> tool_events;
+    std::string streamed;
+    acecode::SideChatCancellation cancellation;
+    const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation,
+        [&](const auto& delta, bool reset) { EXPECT_FALSE(reset); streamed += delta; },
+        read_toolset(executed), [&](const auto& tool) { tool_events.push_back(tool); });
+    EXPECT_EQ(result.response.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(result.response.answer, "先看一下。\n\n答案");
+    EXPECT_EQ(streamed, result.response.answer);
+    ASSERT_EQ(executed.size(), 1u);
+    EXPECT_EQ(executed[0].id, "call_1");
+    ASSERT_EQ(provider->calls, 2);
+    ASSERT_EQ(provider->tool_requests[0].size(), 1u);
+    EXPECT_EQ(provider->tool_requests[0][0].name, "file_read");
+    // 指令点名可用的只读工具,并说明命令 / 编辑类工具在侧边对话里不可用。
+    EXPECT_NE(provider->requests[0][1].content.find("only these read-only tools: file_read"),
+              std::string::npos);
+    const auto& second = provider->requests[1];
+    ASSERT_GE(second.size(), 2u);
+    const auto& assistant = second[second.size() - 2];
+    EXPECT_EQ(assistant.role, "assistant");
+    ASSERT_TRUE(assistant.tool_calls.is_array());
+    ASSERT_EQ(assistant.tool_calls.size(), 1u);
+    EXPECT_EQ(assistant.tool_calls[0]["function"]["name"], "file_read");
+    EXPECT_EQ(second.back().role, "tool");
+    EXPECT_EQ(second.back().tool_call_id, "call_1");
+    EXPECT_EQ(second.back().content, "FILE CONTENT");
+    ASSERT_EQ(tool_events.size(), 2u);
+    EXPECT_EQ(tool_events[0].status, "running");
+    EXPECT_EQ(tool_events[0].target, "src/a.cpp");
+    EXPECT_EQ(tool_events[1].status, "success");
+}
+
+// 场景:provider 不扣住文本调用标记(非 OpenAI 兼容通道),模型仍把 bash 调用写成
+// 尖括号正文。期望:这一步正文经 reset 丢弃,追加纠正提示(点名只读工具、说明不能
+// 跑命令)后重试;最终回答不含尖括号标记,也没有执行任何工具。
+TEST(SideChat, TextToolCallMarkupIsDiscardedAndCorrected) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        if (provider->calls == 1) {
+            event(callback, StreamEventType::Delta,
+                  "<invoke name=\"bash\">\n<parameter name=\"command\">ls</parameter>\n</invoke>");
+        } else {
+            event(callback, StreamEventType::Delta, "plain answer");
+        }
+        event(callback, StreamEventType::Done);
+    };
+    std::vector<acecode::ToolCall> executed;
+    std::string visible;
+    int resets = 0;
+    acecode::SideChatCancellation cancellation;
+    const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation,
+        [&](const auto& delta, bool reset) {
+            if (reset) { visible.clear(); ++resets; } else visible += delta;
+        }, read_toolset(executed));
+    EXPECT_EQ(result.response.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(result.response.answer, "plain answer");
+    EXPECT_EQ(visible, "plain answer");
+    EXPECT_EQ(resets, 1);
+    EXPECT_TRUE(executed.empty());
+    ASSERT_EQ(provider->calls, 2);
+    const auto& correction = provider->requests[1].back();
+    EXPECT_EQ(correction.role, "user");
+    EXPECT_NE(correction.content.find("file_read"), std::string::npos);
+    EXPECT_NE(correction.content.find("Shell commands"), std::string::npos);
+}
+
+// 场景:OpenAI 兼容 provider 已把标记扣住,只在 Done 上报 Rejected,本步正文为空。
+// 期望:同样走纠正重试,而不是被判成「空回复」失败。
+TEST(SideChat, ProviderRejectedTextToolCallTriggersCorrectionNotEmptyFailure) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        if (provider->calls == 1) {
+            acecode::StreamEvent done;
+            done.type = StreamEventType::Done;
+            done.finish_reason = "stop";
+            done.text_tool_calls.outcome = acecode::TextToolCallDiagnostic::Outcome::Rejected;
+            done.text_tool_calls.reason = "unknown_tool";
+            done.text_tool_calls.error = "Unknown tool: bash";
+            callback(done);
+            return;
+        }
+        event(callback, StreamEventType::Delta, "ok");
+        event(callback, StreamEventType::Done);
+    };
+    std::vector<acecode::ToolCall> executed;
+    acecode::SideChatCancellation cancellation;
+    const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation, {},
+                                               read_toolset(executed));
+    EXPECT_EQ(result.response.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(result.response.answer, "ok");
+    EXPECT_EQ(provider->calls, 2);
+}
+
+// 场景:模型每次(1 次 + 全部纠正)都写调用标记。期望:不再重试;标记前有正文时
+// 只保留那段正文作为回答,没有正文时报错 —— 两种情况都不会把尖括号标记显示出来。
+TEST(SideChat, PersistentTextToolCallsKeepOnlyProseOrFail) {
+    for (bool with_prose : {true, false}) {
+        auto provider = std::make_shared<SideStreamProvider>();
+        provider->expect_no_tools = false;
+        provider->emit = [with_prose](const auto& callback, auto*) {
+            event(callback, StreamEventType::Delta,
+                  std::string(with_prose ? "前言\n" : "") +
+                  "<function_calls>\n<invoke name=\"bash\">\n</invoke>\n</function_calls>");
+            event(callback, StreamEventType::Done);
+        };
+        std::vector<acecode::ToolCall> executed;
+        acecode::SideChatCancellation cancellation;
+        const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation,
+                                                   {}, read_toolset(executed));
+        EXPECT_EQ(provider->calls, 1 + acecode::kMaxSideChatTextToolCallCorrections);
+        EXPECT_EQ(result.response.answer.find('<'), std::string::npos);
+        if (with_prose) {
+            EXPECT_EQ(result.response.status, SideQuestionStatus::Ok);
+            EXPECT_EQ(result.response.answer, "前言");
+        } else {
+            EXPECT_EQ(result.response.status, SideQuestionStatus::Failed);
+        }
+    }
+}
+
+// 场景:模型每一步都继续调用工具。期望:执行满 kMaxSideChatToolRounds 轮后,下一轮
+// 的调用只回填「已达上限」而不执行,再给一轮作答;仍调用工具则以错误结束,不会无限循环。
+TEST(SideChat, ToolRoundLimitStopsRunawayLoops) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        tool_call(callback, "call_" + std::to_string(provider->calls), "file_read", "{}");
+        done_with_tool_calls(callback);
+    };
+    std::vector<acecode::ToolCall> executed;
+    acecode::SideChatCancellation cancellation;
+    const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation, {},
+                                               read_toolset(executed));
+    EXPECT_EQ(executed.size(), static_cast<std::size_t>(acecode::kMaxSideChatToolRounds));
+    ASSERT_EQ(provider->calls, acecode::kMaxSideChatToolRounds + 2);
+    EXPECT_NE(provider->requests.back().back().content.find("limit reached"), std::string::npos);
+    EXPECT_EQ(result.response.status, SideQuestionStatus::Failed);
+    EXPECT_NE(result.response.error.find("tool-call limit"), std::string::npos);
+}
+
+// 场景:工具之后的第二步流式中途 provider 重试。期望:reset 只丢弃第二步的临时正文,
+// 第一步正文保留;按「工具事件处记下步起点、reset 截回起点」的前端规则重放结果与回答一致。
+TEST(SideChat, RetryInLaterStepKeepsEarlierStepText) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        if (provider->calls == 1) {
+            event(callback, StreamEventType::Delta, "A");
+            tool_call(callback, "call_1", "file_read", "{}");
+            done_with_tool_calls(callback);
+            return;
+        }
+        event(callback, StreamEventType::Delta, "draft");
+        event(callback, StreamEventType::Retry);
+        event(callback, StreamEventType::RetryResume);
+        event(callback, StreamEventType::Delta, "B");
+        event(callback, StreamEventType::Done);
+    };
+    std::vector<acecode::ToolCall> executed;
+    std::string visible;
+    std::size_t step_start = 0;
+    acecode::SideChatCancellation cancellation;
+    const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation,
+        [&](const auto& delta, bool reset) {
+            if (reset) visible.resize(step_start); else visible += delta;
+        }, read_toolset(executed), [&](const auto& tool) {
+            if (tool.status == "running") step_start = visible.size();
+        });
+    EXPECT_EQ(result.response.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(result.response.answer, "A\n\nB");
+    EXPECT_EQ(visible, result.response.answer);
+}
+
+// 场景:工具执行期间用户点停止。期望:不再发起下一步模型请求,结果为 cancelled,
+// 已经流出的正文保留。
+TEST(SideChat, StopDuringToolExecutionEndsWithoutAnotherModelCall) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        event(callback, StreamEventType::Delta, "A");
+        tool_call(callback, "call_1", "file_read", "{}");
+        done_with_tool_calls(callback);
+    };
+    acecode::SideChatCancellation cancellation;
+    acecode::SideChatToolset tools;
+    tools.definitions = {{"file_read", "Read a file", nlohmann::json{{"type", "object"}}}};
+    tools.execute = [&](const acecode::ToolCall&, const std::atomic<bool>* abort) {
+        cancellation.cancel();
+        EXPECT_TRUE(abort && abort->load());
+        return acecode::ToolResult{"x", true};
+    };
+    const auto result = acecode::run_side_chat(provider, main_context(), "q", {}, cancellation, {},
+                                               tools);
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_EQ(result.response.answer, "A");
+    EXPECT_EQ(provider->calls, 1);
 }
 
 TEST(SideChatProtocol, ParsesTextHistoryAndRejectsInjectedFieldsOrMalformedTypes) {

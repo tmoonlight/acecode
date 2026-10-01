@@ -99,6 +99,7 @@ export function transcriptRowAttrs(item, {
     'data-chat-message-ordinal': item?.kind === 'msg' && item.messageOrdinal != null
       ? String(item.messageOrdinal)
       : undefined,
+    ...(item?.messagePosition != null ? { 'data-chat-message-position': String(item.messagePosition) } : {}),
     'data-chat-assistant-continuation': continuation ? 'true' : undefined,
   };
 }

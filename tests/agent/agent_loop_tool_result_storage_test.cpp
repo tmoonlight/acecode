@@ -5,6 +5,7 @@
 #include "permissions/permissions.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
+#include "session/scoped_subscription.hpp"
 #include "session/tool_result_storage.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/file_read_tool.hpp"
@@ -17,6 +18,9 @@
 #include <memory>
 #include <mutex>
 #include <random>
+#include <set>
+#include <fstream>
+#include <iterator>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -114,6 +118,12 @@ public:
         tools_.register_tool(bash_threshold_tool());
         tools_.register_tool(medium_read_tool());
         tools_.register_tool(big_read_tool());
+        auto short_tool = medium_read_tool();
+        short_tool.definition.name = "short_read";
+        short_tool.execute = [](const std::string&, const acecode::ToolContext&) {
+            return acecode::ToolResult{"FRESH-RESULT", true};
+        };
+        tools_.register_tool(std::move(short_tool));
         tools_.register_tool(big_image_tool());
         tools_.register_tool(acecode::create_file_read_tool());
 
@@ -189,7 +199,7 @@ TEST(AgentLoopToolResultStorage, PersistsLargeToolResultBeforeProviderFollowup) 
     ASSERT_NE(meta_it, messages.end());
 
     const fs::path artifact =
-        fs::path(h.session_manager().ensure_tool_results_dir()) / "call-big.txt";
+        acecode::persisted_output_filepath(tool_it->content);
     ASSERT_TRUE(fs::exists(artifact));
     EXPECT_EQ(fs::file_size(artifact), 260000u);
 
@@ -221,7 +231,7 @@ TEST(AgentLoopToolResultStorage, PersistsBashResultBySingleResultThresholdBelowB
     EXPECT_EQ(tool_it->content.find(std::string(40000, 'b')), std::string::npos);
 
     const fs::path artifact =
-        fs::path(h.session_manager().ensure_tool_results_dir()) / "call-bash.txt";
+        acecode::persisted_output_filepath(tool_it->content);
     ASSERT_TRUE(fs::exists(artifact));
     EXPECT_EQ(fs::file_size(artifact), 40000u);
 }
@@ -242,7 +252,7 @@ TEST(AgentLoopToolResultStorage, PersistsDefaultToolResultBySingleResultThreshol
     EXPECT_TRUE(acecode::is_persisted_output_message(tool_it->content));
 
     const fs::path artifact =
-        fs::path(h.session_manager().ensure_tool_results_dir()) / "call-medium.txt";
+        acecode::persisted_output_filepath(tool_it->content);
     ASSERT_TRUE(fs::exists(artifact));
     EXPECT_EQ(fs::file_size(artifact), 60000u);
 }
@@ -314,8 +324,9 @@ TEST(AgentLoopToolResultStorage, PersistsLargestFreshResultWhenAggregateBudgetEx
     EXPECT_TRUE(state.seen_ids.count("call-b"));
     EXPECT_TRUE(state.replacements.count("call-a"));
     EXPECT_FALSE(state.replacements.count("call-b"));
-    EXPECT_TRUE(fs::exists(tool_results_dir / "call-a.txt"));
-    EXPECT_EQ(fs::file_size(tool_results_dir / "call-a.txt"), 49000u);
+    const fs::path artifact = acecode::persisted_output_filepath(results[0].output);
+    EXPECT_TRUE(fs::exists(artifact));
+    EXPECT_EQ(fs::file_size(artifact), 49000u);
 
     fs::remove_all(cwd);
 }
@@ -345,7 +356,7 @@ TEST(AgentLoopToolResultStorage, SeenInlineResultIsNotRewrittenBySingleResultThr
     EXPECT_TRUE(budget.newly_replaced.empty());
     EXPECT_EQ(results[0].output, original);
     EXPECT_TRUE(state.replacements.empty());
-    EXPECT_FALSE(fs::exists(tool_results_dir / "call-seen.txt"));
+    EXPECT_FALSE(fs::exists(tool_results_dir));
 
     fs::remove_all(cwd);
 }
@@ -384,4 +395,63 @@ TEST(AgentLoopToolResultStorage, LargeToolResultReplacementPreservesAttachments)
     ASSERT_EQ(followup_tool->content_parts.size(), 1u);
     EXPECT_EQ(followup_tool->content_parts[0]["attachment"]["id"],
               tool_it->content_parts[0]["attachment"]["id"]);
+}
+
+TEST(AgentLoopToolResultStorage, ReusedIdsKeepEachExecutionOutputAndEventsDistinct) {
+    Harness h;
+    struct Capture {
+        std::mutex mutex;
+        std::vector<acecode::SessionEvent> events;
+    };
+    // Shared by the test and the listener; the subscription drains before teardown.
+    auto capture = std::make_shared<Capture>();
+    acecode::ScopedSubscription subscription(h.loop().events(),
+        h.loop().events().subscribe([capture](const acecode::SessionEvent& event) {
+            if (event.kind != acecode::SessionEventKind::ToolStart &&
+                event.kind != acecode::SessionEventKind::ToolEnd) return;
+            std::lock_guard<std::mutex> lock(capture->mutex);
+            capture->events.push_back(event);
+        }));
+    h.provider().push_tool_call("big_read", "{}", "call_0");
+    h.provider().push_tool_call("big_image", "{}", "call_0");
+    h.provider().push_tool_call("short_read", "{}", "call_0");
+    h.provider().push_text("done");
+    ASSERT_TRUE(h.submit_and_wait("read three distinct probe outputs"));
+    subscription.reset();
+
+    std::vector<acecode::ChatMessage> results;
+    for (const auto& message : h.loop().messages()) {
+        if (message.role == "tool") results.push_back(message);
+    }
+    ASSERT_EQ(results.size(), 3u);
+    std::set<std::string> ids;
+    for (const auto& result : results) ids.insert(result.tool_call_id);
+    EXPECT_EQ(ids.size(), 3u);
+    EXPECT_EQ(results[2].content, "FRESH-RESULT");
+    EXPECT_TRUE(results[2].metadata.value("tool_success", false));
+    ASSERT_EQ(results[1].content_parts.size(), 1u);
+    const auto first_path = acecode::persisted_output_filepath(results[0].content);
+    const auto second_path = acecode::persisted_output_filepath(results[1].content);
+    EXPECT_NE(first_path, second_path);
+    for (std::size_t i = 0; i < 2; ++i) {
+        std::ifstream file(i == 0 ? first_path : second_path, std::ios::binary);
+        const std::string content{std::istreambuf_iterator<char>(file), {}};
+        EXPECT_EQ(content, std::string(260000, i == 0 ? 'x' : 'y'));
+    }
+    const auto request = h.provider().messages_for_turn(3);
+    std::vector<std::string> received;
+    for (const auto& message : request) {
+        if (message.role == "tool") received.push_back(message.content);
+    }
+    ASSERT_EQ(received.size(), 3u);
+    for (std::size_t i = 0; i < results.size(); ++i) {
+        EXPECT_EQ(received[i], results[i].content);
+    }
+    std::set<std::string> starts, ends;
+    for (const auto& event : capture->events) {
+        auto& set = event.kind == acecode::SessionEventKind::ToolStart ? starts : ends;
+        EXPECT_TRUE(set.insert(event.payload.value("tool_call_id", std::string{})).second);
+    }
+    EXPECT_EQ(starts, ids);
+    EXPECT_EQ(ends, ids);
 }

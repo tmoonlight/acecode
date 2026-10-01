@@ -58,6 +58,7 @@ import {
   SESSION_LIST_CHANGED_EVENT,
 } from './lib/sessionListEvents.js';
 import { normalizeRemoteControlSessionSelected } from './lib/remoteControlSessionNavigation.js';
+import { beginSessionOpen } from './lib/sessionOpenDiagnostics.js';
 import { usePreference, mergeNextValue, readWithFallback } from './lib/usePreference.js';
 import { sessionWorkbench } from './lib/sessionWorkbench.js';
 import { useWorkbenchState } from './lib/useWorkbenchState.js';
@@ -135,6 +136,7 @@ import {
   openSessionTargetFromSearch,
   sessionJumpId,
   sessionJumpMessageOrdinal,
+  sessionJumpMessagePosition,
   sessionJumpNoWorkspace,
   sessionJumpReadOnly,
   sessionJumpWorkspaceHash,
@@ -704,6 +706,7 @@ export function App() {
   const resumeAndOpenSession = useCallback(async (target, options = {}) => {
     const sessionId = sessionJumpId(target);
     if (!sessionId) return false;
+    beginSessionOpen(sessionId);
     if (!await requestPreviewLeave(target)) return false;
     resetSidebarSessionLoading();
     const navigationId = beginSessionNavigation();
@@ -762,6 +765,7 @@ export function App() {
               noWorkspace: nextRef.noWorkspace,
               readOnly,
               messageOrdinal: sessionJumpMessageOrdinal(target),
+              messagePosition: sessionJumpMessagePosition(target),
               navigationHistory: redirectHistory,
               protocol: window.location?.protocol || 'http:',
             });
@@ -1475,13 +1479,18 @@ export function App() {
     setUpdateChecking(true);
     try {
       const status = await api.getUpdateStatus();
-      if (status?.status !== 'available' && status?.status !== 'up_to_date') {
+      if (!['available', 'up_to_date', 'store_managed'].includes(status?.status)) {
         throw new Error(
           status?.error
           || (status?.status ? `更新服务返回状态 ${status.status}` : '更新服务返回无效响应'),
         );
       }
       setUpdateStatus(status);
+      if (status.status === 'store_managed') {
+        setUpdateJob(null);
+        setUpdateDialogOpen(true);
+        return;
+      }
       const keepCurrentJob = updateJobIsActive(updateJob)
         || (updateJob?.state === 'succeeded' && updateJob?.restart_required);
       if (!keepCurrentJob) {

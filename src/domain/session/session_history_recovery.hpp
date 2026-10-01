@@ -11,6 +11,7 @@ namespace acecode {
 // not contain transcript text, tool arguments, paths, or provider secrets.
 struct ProviderHistoryRecoveryStats {
     std::size_t malformed_tool_calls = 0;
+    // Includes same-message duplicates dropped and cross-message IDs remapped.
     std::size_t duplicate_tool_calls = 0;
     std::size_t synthesized_tool_results = 0;
     std::size_t standalone_tool_results = 0;

@@ -77,7 +77,8 @@ public:
     // seq > since_seq 的事件给这个 listener,再切到实时投递;回放期间产生的
     // 实时事件会被排队并在回放后按序补发(见文件头 "有序投递保证")。返回 id
     // 供 unsubscribe 用。线程安全。
-    SubscriptionId subscribe(EventListener listener, std::uint64_t since_seq = 0);
+    SubscriptionId subscribe(EventListener listener, std::uint64_t since_seq = 0,
+                             bool replay_from_start = false);
 
     // 退订。线程安全;退订一个不存在的 id 是 no-op。
     void unsubscribe(SubscriptionId id);

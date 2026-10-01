@@ -94,8 +94,9 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
             conn.send_text(R"({"type":"error","payload":{"reason":"unknown workspace"}})");
             return;
         }
-        state->status_workspaces.insert(ws->hash);
-        send_status_snapshot(conn, *ws);
+        if (state->status_workspaces.insert(ws->hash).second) {
+            send_status_snapshot(conn, *ws);
+        }
         return;
     }
 
@@ -271,6 +272,14 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
             }
         };
 
+        const bool replay_from_start = payload.contains("replay_from_start") &&
+            payload["replay_from_start"].is_boolean() && payload["replay_from_start"].get<bool>();
+        if (replay_from_start) {
+            if (auto existing = state->subscriptions.find(sid); existing != state->subscriptions.end()) {
+                deps.session_client->unsubscribe_and_wait(sid, existing->second);
+                state->subscriptions.erase(existing);
+            }
+        }
         if (state->subscriptions.find(sid) != state->subscriptions.end()) {
             {
                 std::lock_guard<std::mutex> lk(ws_mu);
@@ -281,7 +290,12 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
             send_pending_interaction_snapshots();
             return;
         }
-        auto sub = deps.session_client->subscribe(sid,
+        const auto subscribe = [&](SessionClient::EventListener listener) {
+            return replay_from_start
+                ? deps.session_client->subscribe_replay(sid, std::move(listener), since)
+                : deps.session_client->subscribe(sid, std::move(listener), since);
+        };
+        auto sub = subscribe(
             [ref = ws_listener_lifetime.ref(*this), weak_state = std::weak_ptr<WsConnState>(state),
              sid_copy = sid, workspace_hash, session_cwd](const SessionEvent& evt) {
                 ref.with([&](Impl& owner) {
@@ -297,8 +311,7 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
                     } catch (...) {}
                     owner.note_session_event_for_attention(sid_copy, workspace_hash, session_cwd, evt);
                 });
-            },
-            since);
+            });
         if (sub == 0) {
             conn.send_text(R"({"type":"error","payload":{"reason":"unknown session"}})");
             return;
@@ -538,6 +551,9 @@ void WebServer::Impl::handle_side_chat_message(
                     worker->request->cancellation, [&](const std::string& delta, bool reset) {
                         send(reset ? "side_chat_reset" : "side_chat_delta",
                              reset ? json::object() : json{{"delta", delta}}, false);
+                    }, [&](const SideChatToolEvent& tool) {
+                        send("side_chat_tool", {{"call_id", tool.call_id}, {"name", tool.name},
+                             {"target", tool.target}, {"status", tool.status}}, false);
                     });
                 if (result.response.status == SideQuestionStatus::Ok) {
                     send("side_chat_done", {{"answer", result.response.answer},

@@ -23,6 +23,16 @@ enum class ArchiveCurrentSessionResult {
     PersistenceFailed,
 };
 
+struct SessionDisplaySnapshot {
+    std::string title;
+    std::string title_source;
+    std::string summary;
+    int turn_count = 0;
+    TokenUsage last_token_usage;
+    TokenUsage session_token_usage;
+    WorktreeSessionInfo worktree;
+};
+
 class SessionManager {
 public:
     // Prepare a new session (lazy: files created on first message)
@@ -62,7 +72,8 @@ public:
 
     // Resume a previous session by ID. Returns loaded messages.
     // Reopens the JSONL file for continued append.
-    std::vector<ChatMessage> resume_session(const std::string& session_id);
+    std::vector<ChatMessage> resume_session(const std::string& session_id, bool model_context_only = false);
+    std::optional<CompactCheckpoint> load_latest_compact_checkpoint() const;
 
     // Read the active session transcript without mutating session state.
     // Returns empty when no active JSONL has been created yet.
@@ -222,6 +233,8 @@ public:
     // 最近一条可见用户消息的摘要(显示文本截到 80 字节)。没有标题时它就是
     // 会话在侧栏 / 顶部标题栏里显示的名字,与 meta.summary 同源。
     std::string current_summary() const;
+    // A small coherent copy, independent of transcript writes and storage IO.
+    SessionDisplaySnapshot display_snapshot() const;
 
     // Persisted unsubmitted chat input draft for the active session.
     void set_input_draft(std::string draft, nlohmann::json composer_content = nullptr);
@@ -259,6 +272,7 @@ public:
     std::string current_trajectory_path() const;
 
 private:
+    void publish_display_snapshot_locked(); // mu_ held; display_mu_ is a leaf lock.
     bool ensure_created();  // Lazy creation of session files on first message
     // 追加一条不含可搜索用户文本的记录(检查点 / 净差异等),并同步推进用户消息
     // 搜索索引记下的文件签名,避免下一条消息落盘时整份 JSONL 重读重建。调用方持有 mu_。
@@ -334,10 +348,14 @@ private:
     std::string loop_id_;
     std::string loop_run_id_;
     WorktreeSessionInfo worktree_;
-    FileCheckpointStore checkpoint_store_;
+    void ensure_file_checkpoints_loaded_locked() const;
+    mutable bool file_checkpoints_loaded_ = true;
+    mutable FileCheckpointStore checkpoint_store_;
     std::unique_ptr<ThreadGoalStore> goal_store_;
 
     mutable std::mutex mu_;
+    mutable std::mutex display_mu_;
+    SessionDisplaySnapshot display_snapshot_;
 };
 
 } // namespace acecode

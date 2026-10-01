@@ -30,6 +30,19 @@ run('away-from-tail metrics are not near the chat tail', () => {
   assert.equal(isChatNearTail({ scrollTop: 360, clientHeight: 400, scrollHeight: 1000 }, 80), false);
 });
 
+run('bottom control uses a pixel tolerance independently of the follow threshold', () => {
+  assert.equal(isChatNearTail({ scrollTop: 599.5, clientHeight: 400, scrollHeight: 1000 }, 1), true);
+  assert.equal(isChatNearTail({ scrollTop: 598, clientHeight: 400, scrollHeight: 1000 }, 1), false);
+  assert.equal(isChatNearTail({ scrollTop: 0, clientHeight: 400, scrollHeight: 300 }, 1), true);
+});
+
+run('explicit jump resumes tail follow after reviewing or activity expansion', () => {
+  const paused = nextChatTailFollowState(CHAT_TAIL_FOLLOW_STATE.FOLLOWING, { type: 'review_pause' });
+  const resumed = nextChatTailFollowState(paused, { type: 'jump_to_tail' });
+  assert.equal(resumed, CHAT_TAIL_FOLLOW_STATE.FOLLOWING);
+  assert.equal(shouldAutoFollowChatTail(resumed), true);
+});
+
 // 场景:内容高度不变(scrollHeight 1000 → 1000)时用户把 scrollTop 从
 // 500 滚到 100 —— 真实的用户上滚。期望:暂停跟随,进入 REVIEWING。
 run('scrolling away pauses tail follow', () => {

@@ -11,6 +11,10 @@
 
 namespace acecode::web {
 
+inline bool session_list_no_workspace_scope(const char* raw) {
+    return raw && std::string(raw) == "no-workspace";
+}
+
 // 0 = unlimited. Invalid or non-positive input also returns 0.
 inline int parse_session_list_limit(const char* raw) {
     if (!raw || !*raw) return 0;

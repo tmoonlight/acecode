@@ -19,13 +19,13 @@ bool is_provider_role(const std::string& role) {
 }
 
 nlohmann::json message_to_json(const ChatMessage& msg) {
-    return nlohmann::json::parse(serialize_message(msg));
+    return serialize_message_json(msg);
 }
 
 std::optional<ChatMessage> message_from_json(const nlohmann::json& json) {
     if (!json.is_object()) return std::nullopt;
     try {
-        return deserialize_message(json.dump());
+        return deserialize_message_json(json);
     } catch (...) {
         return std::nullopt;
     }

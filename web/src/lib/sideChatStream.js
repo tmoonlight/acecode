@@ -19,6 +19,7 @@ export function createSideChatStream({
   history = [],
   onDelta,
   onReset,
+  onTool,
   onDone,
   onError,
 }, dependencies = {}) {
@@ -31,6 +32,9 @@ export function createSideChatStream({
   let finished = false;
   let stopping = false;
   let answer = '';
+  // Length of the answer when the current model step started (after its
+  // predecessor's tool calls); a reset truncates back to it.
+  let stepStart = 0;
 
   function cleanup() {
     if (connectTimer !== null) clearTimer(connectTimer);
@@ -132,8 +136,23 @@ export function createSideChatStream({
           onDelta?.(payload.delta);
           break;
         case 'side_chat_reset':
-          answer = '';
+          // Only the current model step is discarded; text before the step's
+          // tool calls stays. The final side_chat_done answer is authoritative.
+          answer = answer.slice(0, stepStart);
           onReset?.();
+          break;
+        case 'side_chat_tool':
+          if (typeof payload.call_id !== 'string' || typeof payload.status !== 'string') {
+            fail('SIDE_CHAT_PROTOCOL_ERROR', '旁路聊天响应格式错误，请重试。');
+            return;
+          }
+          stepStart = answer.length;
+          onTool?.({
+            callId: payload.call_id,
+            name: typeof payload.name === 'string' ? payload.name : '',
+            target: typeof payload.target === 'string' ? payload.target : '',
+            status: payload.status,
+          });
           break;
         case 'side_chat_done':
           done({ answer: typeof payload.answer === 'string' ? payload.answer : answer, cancelled: payload.cancelled === true });

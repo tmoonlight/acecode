@@ -63,3 +63,10 @@ TEST(SessionListHandler, UnlimitedListsNeverGainPagingFields) {
     ASSERT_TRUE(body.is_array());
     EXPECT_EQ(body.size(), 1u);
 }
+
+TEST(SessionListHandler, NoWorkspaceScopeIsExplicitAndDoesNotChangeLegacyCalls) {
+    EXPECT_FALSE(acecode::web::session_list_no_workspace_scope(nullptr));
+    EXPECT_FALSE(acecode::web::session_list_no_workspace_scope(""));
+    EXPECT_FALSE(acecode::web::session_list_no_workspace_scope("all"));
+    EXPECT_TRUE(acecode::web::session_list_no_workspace_scope("no-workspace"));
+}

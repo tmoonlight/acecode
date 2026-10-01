@@ -378,24 +378,58 @@ TEST_F(ToolImageFeedback, OpenAiBatchImagesStayWithTheirRowsWhenSystemMessagesMo
     EXPECT_EQ(messages[6]["content"][2]["type"], "image_url");
 }
 
-TEST_F(ToolImageFeedback, RecoveredDuplicateCallBatchCannotReplayEarlierImages) {
+TEST_F(ToolImageFeedback, ReusedCallIdsKeepImagesWithTheirOwnResults) {
     TestOpenAiProvider provider;
-    // The existing recovery policy drops repeated call IDs across history.
-    // Its rejected result must not leak images into any surviving batch.
+    // 跨模型步骤复用 ID 时保留两轮截图，同时防止按旧 ID 串用图片。
+    for (const bool stream : {false, true}) {
+        const auto first_body = provider.build_request_body(
+            {calls({"shot"}), screenshot("shot")}, {}, stream);
+        const auto body = provider.build_request_body({
+            calls({"shot"}), screenshot("shot"),
+            calls({"shot", "later"}), screenshot("shot", 3), screenshot("later", 2),
+        }, {}, stream);
+        const auto& messages = body["messages"];
+        ASSERT_EQ(messages.size(), 7u);
+        for (std::size_t i = 0; i < 3; ++i) {
+            EXPECT_EQ(messages[i], first_body["messages"][i]);
+        }
+        ASSERT_EQ(messages[3]["tool_calls"].size(), 2u);
+        const auto reused_id = messages[3]["tool_calls"][0]["id"].get<std::string>();
+        EXPECT_NE(reused_id, "shot");
+        EXPECT_NE(reused_id, "later");
+        EXPECT_EQ(messages[3]["tool_calls"][1]["id"], "later");
+        EXPECT_EQ(messages[4]["tool_call_id"], reused_id);
+        EXPECT_EQ(messages[5]["tool_call_id"], "later");
+        ASSERT_EQ(messages[6]["content"].size(), 7u);
+        const auto& images = messages[6]["content"];
+        EXPECT_NE(images[0]["text"].get<std::string>().find(
+            "tool_call_id=" + reused_id), std::string::npos);
+        EXPECT_NE(images[4]["text"].get<std::string>().find(
+            "tool_call_id=later"), std::string::npos);
+        EXPECT_EQ(all_text(images).find("tool_call_id=shot"), std::string::npos);
+        for (const auto i : {1, 2, 3, 5, 6}) {
+            EXPECT_EQ(images[i]["type"], "image_url");
+            EXPECT_EQ(images[i]["image_url"]["url"], "data:image/png;base64," + png_base64);
+        }
+    }
+}
+
+TEST_F(ToolImageFeedback, ReusedCallWithoutResultDoesNotReplayEarlierImages) {
+    TestOpenAiProvider provider;
     const auto body = provider.build_request_body({
-        calls({"shot"}), screenshot("shot"),
-        calls({"shot", "later"}), screenshot("shot", 3), screenshot("later", 2),
+        calls({"shot"}), screenshot("shot"), calls({"shot"}),
     }, {}, false);
     const auto& messages = body["messages"];
-    ASSERT_EQ(messages.size(), 6u);
-    EXPECT_EQ(messages[1]["tool_call_id"], "shot");
-    EXPECT_EQ(messages[2]["content"].size(), 2u);
-    ASSERT_EQ(messages[3]["tool_calls"].size(), 1u);
-    EXPECT_EQ(messages[3]["tool_calls"][0]["id"], "later");
-    EXPECT_EQ(messages[4]["tool_call_id"], "later");
-    ASSERT_EQ(messages[5]["content"].size(), 3u);
-    EXPECT_NE(all_text(messages[5]["content"]).find("tool_call_id=later"), std::string::npos);
-    EXPECT_EQ(all_text(messages[5]["content"]).find("tool_call_id=shot"), std::string::npos);
+    ASSERT_EQ(messages.size(), 5u);
+    ASSERT_EQ(messages[2]["content"].size(), 2u);
+    EXPECT_EQ(messages[2]["content"][1]["type"], "image_url");
+    const auto& reused_id = messages[3]["tool_calls"][0]["id"];
+    EXPECT_NE(reused_id, "shot");
+    EXPECT_EQ(messages.back()["role"], "tool");
+    EXPECT_EQ(messages.back()["tool_call_id"], reused_id);
+    const auto text = all_text(messages.back()["content"]);
+    EXPECT_NE(text.find("outcome is unknown"), std::string::npos);
+    EXPECT_EQ(text.find(png_base64), std::string::npos);
 }
 
 TEST_F(ToolImageFeedback, OpenAiNonVisionKeepsObservationAndDoesNotEncodeImages) {

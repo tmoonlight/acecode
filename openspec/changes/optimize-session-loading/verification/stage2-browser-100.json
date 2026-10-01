@@ -1,0 +1,565 @@
+{
+  "executable_sha256": "8c1119a14eeebc6f71d1d4ab1168773bd2994a78b3e3ca7ca631303359e6405d",
+  "profile": "C:\\Users\\shao\\AppData\\Local\\Temp\\ace-session-bench-01a0f688-v2",
+  "mode": "warm filesystem cache; synthetic data",
+  "browser": {
+    "first_content_ms": 286.8,
+    "history_requests": 1,
+    "history_bytes": 1612905,
+    "resources": [
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions/20260101-000000-0000/resume",
+        "start": 935.3000000007451,
+        "ms": 40.69999999925494,
+        "bytes": 336
+      },
+      {
+        "path": "/api/models",
+        "start": 951.1000000014901,
+        "ms": 1.1000000014901161,
+        "bytes": 151
+      },
+      {
+        "path": "/api/skills",
+        "start": 951.2000000029802,
+        "ms": 17.099999997764826,
+        "bytes": 6643
+      },
+      {
+        "path": "/api/mcp",
+        "start": 951.3000000007451,
+        "ms": 1.300000000745058,
+        "bytes": 2
+      },
+      {
+        "path": "/api/experts?workspace=8bfa3dd971394f1f",
+        "start": 951.3000000007451,
+        "ms": 18.800000000745058,
+        "bytes": 13180
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 951.4000000022352,
+        "ms": 2,
+        "bytes": 192
+      },
+      {
+        "path": "/api/lsp/status?cwd=N%3A%2FUsers%2Fshao%2FAppData%2FLocal%2FTemp%2Face-session-bench-01a0f688-v2%2Fworkspace",
+        "start": 951.7000000029802,
+        "ms": 1.0999999977648258,
+        "bytes": 29
+      },
+      {
+        "path": "/api/files?cwd=N%3A%2FUsers%2Fshao%2FAppData%2FLocal%2FTemp%2Face-session-bench-01a0f688-v2%2Fworkspace&path=",
+        "start": 955.1000000014901,
+        "ms": 1,
+        "bytes": 2
+      },
+      {
+        "path": "/api/git/info?cwd=N%3A%2FUsers%2Fshao%2FAppData%2FLocal%2FTemp%2Face-session-bench-01a0f688-v2%2Fworkspace",
+        "start": 955.6000000014901,
+        "ms": 525.1000000014901,
+        "bytes": 123
+      },
+      {
+        "path": "/api/model-pool-status",
+        "start": 955.8000000007451,
+        "ms": 0.6999999992549419,
+        "bytes": 13
+      },
+      {
+        "path": "/api/sessions/20260101-000000-0000/messages?limit=200&workspace=8bfa3dd971394f1f",
+        "start": 956.3000000007451,
+        "ms": 27.199999999254942,
+        "bytes": 1612905
+      },
+      {
+        "path": "/api/sessions?parent=20260101-000000-0000",
+        "start": 956.6000000014901,
+        "ms": 135.10000000149012,
+        "bytes": 2
+      },
+      {
+        "path": "/api/experts?workspace=8bfa3dd971394f1f",
+        "start": 956.8000000007451,
+        "ms": 29.699999999254942,
+        "bytes": 13180
+      },
+      {
+        "path": "/api/models",
+        "start": 958.4000000022352,
+        "ms": 10.399999998509884,
+        "bytes": 151
+      },
+      {
+        "path": "/api/sessions/20260101-000000-0000/model?workspace=8bfa3dd971394f1f",
+        "start": 958.5,
+        "ms": 11.5,
+        "bytes": 169
+      },
+      {
+        "path": "/api/sessions/20260101-000000-0000/permissions",
+        "start": 958.7000000029802,
+        "ms": 12.599999997764826,
+        "bytes": 62
+      },
+      {
+        "path": "/api/history?cwd=N%3A%5CUsers%5Cshao%5CAppData%5CLocal%5CTemp%5Cace-session-bench-01a0f688-v2%5Cworkspace&max=200",
+        "start": 958.8000000007451,
+        "ms": 12.5,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions/20260101-000000-0000/draft",
+        "start": 961.9000000022352,
+        "ms": 10.399999998509884,
+        "bytes": 75
+      },
+      {
+        "path": "/api/git/info?cwd=N%3A%5CUsers%5Cshao%5CAppData%5CLocal%5CTemp%5Cace-session-bench-01a0f688-v2%5Cworkspace",
+        "start": 996.1000000014901,
+        "ms": 360.5,
+        "bytes": 123
+      },
+      {
+        "path": "/api/commands?workspace=8bfa3dd971394f1f",
+        "start": 996.3000000007451,
+        "ms": 26.5,
+        "bytes": 6001
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 1009.6000000014901,
+        "ms": 1.3999999985098839,
+        "bytes": 75
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 1009.7000000029802,
+        "ms": 2.099999997764826,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 1009.7000000029802,
+        "ms": 6.5,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 1009.8000000007451,
+        "ms": 2.5,
+        "bytes": 142
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 1009.9000000022352,
+        "ms": 2.800000000745058,
+        "bytes": 69
+      },
+      {
+        "path": "/api/sessions/20260101-000000-0000/suggestions",
+        "start": 1089.6000000014901,
+        "ms": 35.899999998509884,
+        "bytes": 88
+      },
+      {
+        "path": "/api/lsp/status?cwd=N%3A%2FUsers%2Fshao%2FAppData%2FLocal%2FTemp%2Face-session-bench-01a0f688-v2%2Fworkspace",
+        "start": 1089.7000000029802,
+        "ms": 0.8999999985098839,
+        "bytes": 29
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 1126.2000000029802,
+        "ms": 1.0999999977648258,
+        "bytes": 12
+      },
+      {
+        "path": "/api/diagnostics/session-open",
+        "start": 1139.5,
+        "ms": 0.8000000007450581,
+        "bytes": 0
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 1144.6000000014901,
+        "ms": 1.699999999254942,
+        "bytes": 192
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 1147.2000000029802,
+        "ms": 1.3999999985098839,
+        "bytes": 75
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 1147.4000000022352,
+        "ms": 5.099999997764826,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 1147.5,
+        "ms": 1.2000000029802322,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 1147.6000000014901,
+        "ms": 1.1000000014901161,
+        "bytes": 142
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 1147.7000000029802,
+        "ms": 1.5,
+        "bytes": 69
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 1150.1000000014901,
+        "ms": 1.699999999254942,
+        "bytes": 12
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 5952.800000000745,
+        "ms": 1.5,
+        "bytes": 192
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 5955,
+        "ms": 1.4000000022351742,
+        "bytes": 75
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 5955.10000000149,
+        "ms": 4.899999998509884,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 5955.300000000745,
+        "ms": 1.1000000014901161,
+        "bytes": 69
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 5955.300000000745,
+        "ms": 1.199999999254942,
+        "bytes": 142
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 5955.300000000745,
+        "ms": 1.199999999254942,
+        "bytes": 2
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 5957.400000002235,
+        "ms": 0.8999999985098839,
+        "bytes": 12
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 10959.10000000149,
+        "ms": 1.199999999254942,
+        "bytes": 192
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 10960.800000000745,
+        "ms": 0.8000000007450581,
+        "bytes": 75
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 10960.900000002235,
+        "ms": 0.8999999985098839,
+        "bytes": 69
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 10960.900000002235,
+        "ms": 0.8999999985098839,
+        "bytes": 142
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 10960.900000002235,
+        "ms": 1,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 10960.900000002235,
+        "ms": 4.5,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 10962.800000000745,
+        "ms": 0.8000000007450581,
+        "bytes": 12
+      },
+      {
+        "path": "/api/models",
+        "start": 15959.800000000745,
+        "ms": 1.1000000014901161,
+        "bytes": 151
+      },
+      {
+        "path": "/api/mcp",
+        "start": 15959.900000002235,
+        "ms": 1.199999999254942,
+        "bytes": 2
+      },
+      {
+        "path": "/api/skills",
+        "start": 15959.900000002235,
+        "ms": 9.5,
+        "bytes": 6643
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 15960,
+        "ms": 1.5,
+        "bytes": 192
+      },
+      {
+        "path": "/api/experts?workspace=8bfa3dd971394f1f",
+        "start": 15960,
+        "ms": 9.5,
+        "bytes": 13180
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 15961.900000002235,
+        "ms": 1,
+        "bytes": 75
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 15962,
+        "ms": 4.300000000745058,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 15962.10000000149,
+        "ms": 0.8000000007450581,
+        "bytes": 2
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 15962.20000000298,
+        "ms": 1.0999999977648258,
+        "bytes": 69
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 15962.20000000298,
+        "ms": 1.3999999985098839,
+        "bytes": 142
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 15964.60000000149,
+        "ms": 0.8000000007450581,
+        "bytes": 12
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 20961,
+        "ms": 1549.7000000029802,
+        "bytes": 192
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 22513,
+        "ms": 3.800000000745058,
+        "bytes": 75
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 22513.400000002235,
+        "ms": 83.89999999850988,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 22513.70000000298,
+        "ms": 78.69999999925494,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 22514,
+        "ms": 78.5,
+        "bytes": 142
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 22514.20000000298,
+        "ms": 50.099999997764826,
+        "bytes": 69
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 22593.20000000298,
+        "ms": 1.0999999977648258,
+        "bytes": 12
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 25953.800000000745,
+        "ms": 1.199999999254942,
+        "bytes": 192
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 25955.60000000149,
+        "ms": 1.1000000014901161,
+        "bytes": 75
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 25955.800000000745,
+        "ms": 6.300000000745058,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 25955.900000002235,
+        "ms": 1.0999999977648258,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 25956,
+        "ms": 2.2000000029802322,
+        "bytes": 142
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 25956.10000000149,
+        "ms": 0.8999999985098839,
+        "bytes": 69
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 25959.300000000745,
+        "ms": 1.4000000022351742,
+        "bytes": 12
+      },
+      {
+        "path": "/api/models",
+        "start": 30962.800000000745,
+        "ms": 0.9000000022351742,
+        "bytes": 151
+      },
+      {
+        "path": "/api/skills",
+        "start": 30962.800000000745,
+        "ms": 10,
+        "bytes": 6643
+      },
+      {
+        "path": "/api/mcp",
+        "start": 30962.900000002235,
+        "ms": 1.0999999977648258,
+        "bytes": 2
+      },
+      {
+        "path": "/api/experts?workspace=8bfa3dd971394f1f",
+        "start": 30963,
+        "ms": 10.5,
+        "bytes": 13180
+      },
+      {
+        "path": "/api/model-pool-status",
+        "start": 30963.10000000149,
+        "ms": 1,
+        "bytes": 13
+      },
+      {
+        "path": "/api/workspaces",
+        "start": 30963.10000000149,
+        "ms": 1.300000000745058,
+        "bytes": 192
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/opencode-import",
+        "start": 30964.800000000745,
+        "ms": 1,
+        "bytes": 75
+      },
+      {
+        "path": "/api/sessions?scope=no-workspace",
+        "start": 30965,
+        "ms": 1,
+        "bytes": 2
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/sessions?limit=5",
+        "start": 30965,
+        "ms": 6.900000002235174,
+        "bytes": 5412
+      },
+      {
+        "path": "/api/no-workspace/pinned-sessions",
+        "start": 30965.20000000298,
+        "ms": 0.8999999985098839,
+        "bytes": 69
+      },
+      {
+        "path": "/api/workspaces/8bfa3dd971394f1f/pinned-sessions",
+        "start": 30965.20000000298,
+        "ms": 0.8999999985098839,
+        "bytes": 142
+      },
+      {
+        "path": "/api/pinned-sessions/order",
+        "start": 30970.800000000745,
+        "ms": 1,
+        "bytes": 12
+      }
+    ],
+    "steady_seconds": 30,
+    "steady_requests": 57,
+    "steady_status_subscriptions": 0,
+    "steady_list_requests": 14,
+    "steady_list_bytes": 37898,
+    "long_tasks": [
+      {
+        "start": 312.70000000298023,
+        "ms": 237
+      },
+      {
+        "start": 557.1000000014901,
+        "ms": 109
+      },
+      {
+        "start": 681.6000000014901,
+        "ms": 58
+      },
+      {
+        "start": 1012.4000000022352,
+        "ms": 82
+      }
+    ],
+    "page_errors": [],
+    "paging_checks": [
+      {
+        "anchor_retained": true,
+        "scroll_delta_px": -0.375,
+        "network_page": true
+      }
+    ]
+  }
+}

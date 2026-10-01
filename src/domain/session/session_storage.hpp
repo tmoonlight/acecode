@@ -10,6 +10,8 @@
 
 namespace acecode {
 
+class SessionFileReader;
+
 struct SessionLoadDiagnostics {
     std::size_t malformed_complete_records = 0;
     bool ignored_partial_tail = false;
@@ -23,6 +25,7 @@ struct SessionLoadDiagnostics {
 };
 
 struct SessionLoadResult {
+    std::uint64_t start_offset = 0; // Zero for complete-file reads.
     std::vector<ChatMessage> messages;
     SessionLoadDiagnostics diagnostics;
 };
@@ -134,6 +137,9 @@ public:
     // without a newline is recovered; an invalid final fragment is ignored.
     static SessionLoadResult load_messages_with_diagnostics(
         const std::string& session_path);
+
+    // Reads precisely the captured size. Caller validates identity afterward.
+    static SessionLoadResult load_messages_snapshot(const SessionFileReader& reader);
 
     // Write session metadata to a .meta.json file. Returns true only when the
     // atomic replacement succeeds.

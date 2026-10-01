@@ -1,5 +1,8 @@
 // routes_sessions.cpp — Route registrations extracted from server.cpp
 #include "web/server_impl.hpp"
+#include "session/session_load_metrics.hpp"
+#include "session/session_file_reader.hpp"
+#include "web/handlers/session_history_handler.hpp"
 #include "web/session_reference_context.hpp"
 #include "web/trajectory_legacy_projection.hpp"
 #include "session/compact_checkpoint.hpp"
@@ -108,6 +111,7 @@ json global_search_entry_to_json(const GlobalSessionCatalogEntry& entry) {
             {"kind", "user_message"},
             {"score", entry.content_match->score},
             {"message_ordinal", entry.content_match->message_ordinal},
+            {"message_position", std::to_string(entry.content_match->message_position)},
             {"snippet", entry.content_match->snippet},
             {"attachments", entry.content_match->matched_attachment_names},
         };
@@ -961,13 +965,21 @@ void WebServer::Impl::register_sessions() {
         // 父会话派生的后台任务子会话(「后台任务」面板数据源)。
         CROW_ROUTE(app, "/api/sessions").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
+            SessionLoadTimer timer("session_list", "");
             if (auto rej = require_auth(req)) return std::move(*rej);
             const char* parent_raw = req.url_params.get("parent");
+            const auto parent = parent_raw ? std::string(parent_raw) : std::string{};
+            const bool no_workspace_only = session_list_no_workspace_scope(req.url_params.get("scope"));
+            auto workspace = compatibility_workspace();
+            if (!parent.empty()) {
+                if (auto resolved = resolve_session_workspace(parent)) workspace = *resolved;
+            }
+            const auto requested_limit = parse_session_list_limit(req.url_params.get("limit"));
+            const int limit = parent.empty() ? 0 : (requested_limit > 0 ? requested_limit : 100);
             auto arr = sessions_for_workspace(
-                compatibility_workspace(),
-                archived_query_requested(req),
-                /*include_no_workspace=*/true,
-                parent_raw ? std::string(parent_raw) : std::string{});
+                workspace, archived_query_requested(req),
+                /*include_no_workspace=*/parent.empty(),
+                parent, limit, nullptr, no_workspace_only);
             crow::response r(arr.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
@@ -1325,6 +1337,8 @@ void WebServer::Impl::register_sessions() {
         // WS 重连时 ?since=N 用同样语义。
         CROW_ROUTE(app, "/api/sessions/<string>/messages").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req, const std::string& id) {
+            try {
+            SessionLoadTimer timer("history", id);
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             std::uint64_t since = 0;
@@ -1333,6 +1347,68 @@ void WebServer::Impl::register_sessions() {
                 req.url_params.get("workspace")
                 ? std::string(req.url_params.get("workspace"))
                 : std::string{};
+
+            const auto history = parse_history_request(
+                req.url_params.get("limit"), req.url_params.get("before"),
+                req.url_params.get("after"), req.url_params.get("from_position"),
+                req.url_params.get("from_ordinal"), since);
+            if (!history.error.empty()) {
+                crow::response response(400, json{{"error", "BAD_REQUEST"}, {"message", history.error}}.dump());
+                response.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(response));
+            }
+            if (history.paged) {
+                std::string path;
+                if (deps.session_registry) {
+                    if (auto entry = deps.session_registry->acquire(id)) {
+                        path = SessionStorage::session_path(SessionStorage::get_project_dir(entry->cwd), id);
+                    }
+                }
+                if (path.empty()) {
+                    std::vector<std::string> directories;
+                    if (!workspace_hash_hint.empty()) {
+                        if (auto workspace = resolve_workspace(workspace_hash_hint)) {
+                            directories.push_back(SessionStorage::get_project_dir(workspace->cwd));
+                        }
+                    }
+                    directories.push_back(SessionStorage::get_project_dir(deps.cwd));
+                    if (auto meta = find_no_workspace_session_meta(id)) {
+                        directories.push_back(SessionStorage::get_project_dir(meta->cwd));
+                    }
+                    for (const auto& directory : directories) {
+                        auto files = SessionStorage::find_session_files(directory, id);
+                        if (!files.empty()) { path = files.front().jsonl_path; break; }
+                    }
+                }
+                if (path.empty()) {
+                    crow::response response(404, R"({"error":"SESSION_NOT_FOUND"})");
+                    response.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(response));
+                }
+                SessionHistoryPage page;
+                try {
+                    page = load_session_history_page(path, history.request);
+                } catch (const std::invalid_argument& error) {
+                    crow::response response(400, json{{"error", "BAD_REQUEST"}, {"message", error.what()}}.dump());
+                    response.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(response));
+                }
+                json messages = json::array();
+                for (const auto& item : page.messages) {
+                    auto payload = chat_message_to_json(item.message);
+                    payload["message_position"] = std::to_string(item.offset);
+                    payload["history_cursor"] = item.cursor;
+                    messages.push_back(std::move(payload));
+                }
+                json wrapper{{"messages", std::move(messages)}, {"events", json::array()},
+                             {"has_more", page.has_more}, {"after", page.after},
+                             {"turn_truncated", page.turn_truncated}};
+                if (page.has_more) wrapper["before"] = page.before;
+                append_session_runtime_snapshot(wrapper, id);
+                crow::response response(wrapper.dump());
+                response.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(response));
+            }
 
             // 用 subscribe(since_seq) 触发 replay,回调里收集事件;然后立刻
             // unsubscribe。因为 EventDispatcher 的 replay 是同步的,subscribe
@@ -1426,6 +1502,11 @@ void WebServer::Impl::register_sessions() {
             crow::response r(arr.dump());
             r.add_header("Content-Type", "application/json");
             return with_cors(req, std::move(r));
+            } catch (const HistorySnapshotChanged&) {
+                crow::response response(409, R"({"error":"HISTORY_CURSOR_STALE","message":"Session history changed; reload the tail"})");
+                response.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(response));
+            }
         });
 
         // GET /api/sessions/:id/trajectory: durable precise records plus the
@@ -2221,7 +2302,8 @@ void WebServer::Impl::register_sessions() {
             crow::response r(status);
             if (result.status == SideQuestionStatus::Ok) {
                 r.body = json{{"question", result.question},
-                              {"answer", result.answer}}.dump();
+                              {"answer", result.answer},
+                              {"tools_used", result.tools_used}}.dump();
             } else {
                 r.body = json{{"error", code},
                               {"message", result.error.empty()
