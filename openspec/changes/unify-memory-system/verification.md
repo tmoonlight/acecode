@@ -51,3 +51,7 @@ TUI 的 `/memory` 与网页内置命令都调用 `dispatch_memory_command`;`TuiM
 ## 验证边界
 
 端到端走的是桌面版所用的 daemon 与嵌入网页,在浏览器里操作;没有启动 `acecode-desktop` 窗口本身,也没有在 macOS / Linux 上验证(按仓库约定留待多平台补验)。
+
+## 2026-10-02 发布补验
+
+v0.9.31 的最终 master CI 已通过，但 macOS arm64 / x64 打包均在 `memory_scheduler.cpp` 编译失败：libc++ 的文件时钟计数类型使 `std::to_string` 重载不明确。缓存改为 `std::optional<std::filesystem::file_time_type>`，直接比较原生修改时间，不降低精度、不依赖时钟纪元。修复通过 v0.9.32 接续发布；Windows CLI / Desktop / 单测增量构建通过，CLI 输出 `acecode v0.9.32`；记忆调度、摘要、运行时与守护测试共 37 项通过，0 失败。分层、所有权、OpenSpec 严格验证及 `git diff --check` 通过。最终 macOS 构建及签名、公证以 [v0.9.32 发布流水线](https://github.com/tmoonlight/acecode/actions?query=branch%3Av0.9.32) 的结果为准。
