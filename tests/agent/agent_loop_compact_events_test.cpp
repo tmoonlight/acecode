@@ -29,6 +29,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <thread>
 #include <system_error>
 
 using namespace std::chrono_literals;
@@ -198,6 +199,16 @@ std::vector<acecode::SessionEvent> wait_for_done(
         EXPECT_TRUE(cv.wait_for(lock, 5s, [&] { return done; }));
     }
     loop.events().unsubscribe(subscription);
+    // Done is emitted before the worker releases its active task. Consecutive
+    // compactions must not mutate history while that task is still unwinding.
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    bool idle = false;
+    do {
+        idle = loop.try_run_idle_control([] {});
+        if (idle) break;
+        std::this_thread::sleep_for(1ms);
+    } while (std::chrono::steady_clock::now() < deadline);
+    EXPECT_TRUE(idle);
     return events;
 }
 
