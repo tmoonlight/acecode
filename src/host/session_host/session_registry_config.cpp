@@ -1,4 +1,5 @@
 #include "session_registry.hpp"
+#include "memory_runtime.hpp"
 #include "agent/agent_loop.hpp"
 #include "config/config.hpp"
 #include "skills/skill_init.hpp"
@@ -10,7 +11,7 @@ SessionPromptConfig SessionRegistry::prompt_config_snapshot() const {
     if (deps_.prompt_config) return deps_.prompt_config();
     auto copy = [&] {
         SessionPromptConfig snapshot;
-        if (deps_.memory_cfg) snapshot.memory = *deps_.memory_cfg;
+        if (deps_.memory) snapshot.memory = deps_.memory->service()->config();
         if (deps_.project_instructions_cfg) snapshot.project_instructions = *deps_.project_instructions_cfg;
         if (deps_.custom_instructions_cfg) snapshot.custom_instructions = *deps_.custom_instructions_cfg;
         if (deps_.config) snapshot.git_context = deps_.config->git_context;

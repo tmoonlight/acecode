@@ -138,9 +138,6 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
 PromptContextBlock build_project_instructions_context_prompt(
     const std::string& cwd,
     const ProjectInstructionsConfig* cfg);
-PromptContextBlock build_user_memory_context_prompt(
-    const MemoryRegistry* memory,
-    const MemoryConfig* cfg);
 PromptContextBlock build_custom_instructions_context_prompt(
     const CustomInstructionsConfig* cfg);
 
@@ -187,10 +184,11 @@ PromptContextBlock build_expert_context_prompt(
     const std::string& member_id = std::string(),
     bool spawn_subagent_available = true);
 
+// memory_snapshot:按会话冻结的记忆快照(build_memory_snapshot_prompt 的结果,
+// 由 AgentLoop 的 PromptContextCache 持有);nullptr 或空块 = 不注入记忆。
 PromptContextBlock build_session_context_prompt(
     const std::string& cwd,
-    const MemoryRegistry* memory,
-    const MemoryConfig* memory_cfg,
+    const PromptContextBlock* memory_snapshot,
     const ProjectInstructionsConfig* project_instructions_cfg,
     const SkillRegistry* skills = nullptr,
     int context_window_tokens = 0,

@@ -36,6 +36,18 @@ bool append_output(std::string& output, const char* bytes, std::size_t size,
     return true;
 }
 
+// 超时文案带上等了多久和最常见的原因:升级日志与界面只看得到这一句,
+// 原来的「probe timed out」分不清是包坏了还是被安全软件扫描拖住。
+std::string probe_timeout_error(std::chrono::milliseconds timeout) {
+    const auto seconds =
+        std::chrono::duration_cast<std::chrono::seconds>(timeout).count();
+    return "executable version probe timed out after " +
+           (seconds > 0 ? std::to_string(seconds) + "s"
+                        : std::to_string(timeout.count()) + "ms") +
+           " (the new executable did not exit; security software may still be "
+           "scanning it)";
+}
+
 #ifdef _WIN32
 bool capture_version(const std::filesystem::path& executable,
                      std::chrono::milliseconds timeout,
@@ -121,7 +133,7 @@ bool capture_version(const std::filesystem::path& executable,
             break;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            error = "executable version probe timed out";
+            error = probe_timeout_error(timeout);
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -191,7 +203,7 @@ bool capture_version(const std::filesystem::path& executable,
             break;
         }
         if (std::chrono::steady_clock::now() >= deadline) {
-            error = "executable version probe timed out";
+            error = probe_timeout_error(timeout);
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));

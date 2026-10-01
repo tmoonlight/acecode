@@ -5,6 +5,7 @@
 #endif
 
 #include "settings_center.hpp"
+#include "memory_settings_section.hpp"
 #include "permissions/permissions.hpp"
 #include "config/request_headers.hpp"
 #include "config/settings_mutations.hpp"
@@ -528,6 +529,7 @@ struct SettingsCenter::Impl {
 
     std::string upgrade_url;
     std::string custom_instructions;
+    std::unique_ptr<MemorySettingsSection> memory_section;  // 个性化页的记忆区
 
     std::string model_filter;
     std::vector<std::string> model_entries;
@@ -688,8 +690,8 @@ struct SettingsCenter::Impl {
             deps.config->tui.theme == "dark" ? 1 :
             deps.config->tui.theme == "light" ? 2 : 0;
         upgrade_url = deps.config->upgrade.base_url;
-        custom_instructions =
-            deps.config->custom_instructions.text_snapshot();
+        custom_instructions = deps.config->custom_instructions.text_snapshot();
+        if (memory_section) memory_section->sync_from_config();
         rebuild_model_entries();
     }
 
@@ -743,13 +745,9 @@ struct SettingsCenter::Impl {
             set_status(result.error, true);
             return;
         }
-        if (value == "auto") {
-            set_status(
-                "Auto saved. Terminal background detection runs at next launch; "
-                "the current palette stays active.");
-        } else {
-            set_status("Theme switched to " + value + " and saved.");
-        }
+        set_status(value == "auto" ? std::string("Auto saved. Terminal background detection runs at "
+                                                 "next launch; the current palette stays active.")
+                                   : "Theme switched to " + value + " and saved.");
     }
 
     bool save_current_editor() {
@@ -1905,10 +1903,9 @@ struct SettingsCenter::Impl {
             " Save ",
             [this]() { save_current_editor(); },
             ButtonOption::Animated());
+        memory_section = std::make_unique<MemorySettingsSection>(deps.config, deps.config_published);
         auto personalization_container = Container::Vertical({
-            instructions_input,
-            instructions_save_button,
-        });
+            instructions_input, instructions_save_button, memory_section->component()});
         personalization_page = Renderer(
             personalization_container, [this]() {
                 const std::size_t bytes = custom_instructions.size();
@@ -1933,6 +1930,7 @@ struct SettingsCenter::Impl {
                         filler(),
                         instructions_save_button->Render(),
                     }),
+                    memory_section->render(),
                 }) | yframe | vscroll_indicator | flex;
             });
 

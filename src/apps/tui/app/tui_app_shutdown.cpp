@@ -1,5 +1,6 @@
 #include "tui/app/tui_app.hpp"
 #include "tui/app/tui_services.hpp"
+#include "session_host/memory_runtime.hpp"
 #include "tui/app/tui_screen_host.hpp"
 #include "tui/app/model_pool_monitor_subscription.hpp"
 #include "tui/app/tui_notification_binding.hpp"
@@ -28,6 +29,7 @@ void TuiApp::shutdown_step(TuiShutdownStep step) {
         break;
     case TuiShutdownStep::AutoTitle:
         if (auto_title_runner_) auto_title_runner_->stop();
+        if (services_ && services_->memory) services_->memory->stop_summary_scheduler();
         break;
     case TuiShutdownStep::Notifications:
         if (notifications_) notifications_->shutdown();

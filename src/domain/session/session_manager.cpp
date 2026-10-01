@@ -222,6 +222,7 @@ void SessionManager::start_session(const std::string& cwd,
     reasoning_effort_.reset();
     surface_ = surface.empty() ? "unknown" : surface;
     no_workspace_ = no_workspace;
+    memory_mode_.clear();
     project_dir_ = SessionStorage::get_project_dir(cwd);
     goal_store_ = std::make_unique<ThreadGoalStore>(project_dir_);
     session_id_ = preset_session_id;
@@ -312,6 +313,8 @@ bool SessionManager::ensure_created() {
     meta.todos = todos_;
     meta.archived = archived_;
     meta.no_workspace = no_workspace_;
+    meta.memory_mode = memory_mode_;
+    meta.surface = surface_;
     meta.parent_session_id = parent_session_id_;
     meta.expert_id = expert_id_;
     meta.expert_member_id = expert_member_id_;
@@ -635,6 +638,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         todos_ = meta.todos;
         archived_ = meta.archived;
         no_workspace_ = meta.no_workspace;
+        memory_mode_ = meta.memory_mode;
         parent_session_id_ = meta.parent_session_id;
         expert_id_ = meta.expert_id;
         expert_member_id_ = meta.expert_member_id;
@@ -1213,6 +1217,8 @@ bool SessionManager::update_meta(
     meta.todos = todos_;
     meta.archived = archived_;
     meta.no_workspace = no_workspace_;
+    meta.memory_mode = memory_mode_;
+    meta.surface = surface_;
     meta.parent_session_id = parent_session_id_;
     meta.expert_id = expert_id_;
     meta.expert_member_id = expert_member_id_;
@@ -1400,32 +1406,6 @@ SessionManager::mark_auto_title_turn_finished(const std::string& status) {
     return auto_title_input_;
 }
 
-void SessionManager::set_session_archived(bool archived) {
-    std::lock_guard<std::mutex> lk(mu_);
-    archived_ = archived;
-    if (created_) {
-        update_meta();
-    }
-}
-
-ArchiveCurrentSessionResult SessionManager::archive_current_session() {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (!created_ || finalized_ || session_id_.empty()) {
-        return ArchiveCurrentSessionResult::NoActiveSession;
-    }
-
-    const bool previous_archived = archived_;
-    archived_ = true;
-    if (!update_meta()) {
-        archived_ = previous_archived;
-        last_error_ = "Failed to persist archived session metadata.";
-        return ArchiveCurrentSessionResult::PersistenceFailed;
-    }
-
-    last_error_.clear();
-    return ArchiveCurrentSessionResult::Archived;
-}
-
 void SessionManager::set_parent_session_id(std::string parent_id) {
     std::lock_guard<std::mutex> lk(mu_);
     parent_session_id_ = std::move(parent_id);
@@ -1566,6 +1546,8 @@ void SessionManager::set_input_draft(std::string draft, nlohmann::json composer_
         meta.todos = todos_;
         meta.archived = archived_;
         meta.no_workspace = no_workspace_;
+        meta.memory_mode = memory_mode_;
+        meta.surface = surface_;
         meta.parent_session_id = parent_session_id_;
         meta.expert_id = expert_id_;
         meta.expert_member_id = expert_member_id_;

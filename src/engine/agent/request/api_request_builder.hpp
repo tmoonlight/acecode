@@ -8,18 +8,21 @@
 #include <optional>
 #include <set>
 
-namespace acecode { class SkillUsageStore; }
+namespace acecode { class SkillUsageStore; class MemoryService; }
 
 namespace acecode::agent {
 class PromptContextCache;
 
 // The skill snapshot is retained for this capture/initial_context operation.
-// MemoryRegistry is a fixed nullable borrowed service that outlives the loop.
+// MemoryService is a nullable borrowed service that outlives this call.
 struct RequestContextOptions {
     std::string cwd;
     std::shared_ptr<const SkillRegistry> skills;
-    const MemoryRegistry* memory = nullptr;
+    MemoryService* memory = nullptr;
+    // 生效的记忆配置;本会话 /memory off 时 enabled=false(不注入、不给记忆工具)。
     std::optional<MemoryConfig> memory_config;
+    std::string memory_project_dir;  // 会话项目目录;空 = 没有工作区,只有全局记忆
+    std::string memory_session_key;  // 会话 id;切换 / 恢复会话时记忆快照随之重建
     std::optional<ProjectInstructionsConfig> project_config;
     std::optional<CustomInstructionsConfig> custom_config;
     std::optional<GitContextConfig> git_config;
@@ -69,7 +72,12 @@ public:
     std::string static_system_prompt(const RequestContextOptions& options) const;
     static std::set<std::string> dormant_skills(const SkillRegistry* registry,
                                                SkillUsageStore* store, int idle_days);
+    static bool memory_active(const RequestContextOptions& options);
+    static PromptContextBlock render_memory_snapshot(const RequestContextOptions& options);
+    // 压缩 / 线程修复后调用:下一次请求按磁盘重建记忆快照。
+    void invalidate_memory_snapshot();
 private:
+    const PromptContextBlock& frozen_memory_snapshot(const RequestContextOptions& options);
     ToolExecutor& tools_;
     PromptContextCache& cache_;
 };

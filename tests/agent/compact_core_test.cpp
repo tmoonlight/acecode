@@ -884,6 +884,75 @@ TEST(CompactCore, ShortChineseSummaryIsAccepted) {
 // 触发场景:检查压缩提示词本身。
 // 期望行为:保留 Codex 原文开头;末尾追加「不能调工具、不要输出调用标签、用纯文本」,
 // 同时明确允许引用命令、路径和代码(原提示词要求保留关键数据与引用,不能被削弱)。
+// 触发场景:被压缩的历史里,模型用 skill_view 加载过 paoffice-cdp-techniques
+// (结果是一条工具输出),用户消息里还有一段显式提及展开的 <skill> 片段 commit;
+// 同一个 skill 被加载了两次。
+// 期望行为:摘要末尾附上确定性的提醒,按首次出现顺序、去重后列出两个 skill,
+// 并要求重新调用 skill_view;摘要模型写的正文原样保留在前面。
+// 回归背景(反馈 LINDANDAN069):skill 刚加载完 19 秒就触发自动压缩,工具输出
+// 被摘要替换,之后的模型再也没加载它,skill 里写好的经验等于没看过。
+TEST(CompactCore, SummaryRemindsToReloadSkillsLoadedBeforeCheckpoint) {
+    ChatStubProvider provider;
+    auto first_view = msg("assistant", "");
+    first_view.tool_calls = nlohmann::json::array({{
+        {"id", "view-1"},
+        {"type", "function"},
+        {"function", {{"name", "skill_view"},
+                      {"arguments", R"({"name":"paoffice-cdp-techniques"})"}}},
+    }});
+    auto second_view = first_view;
+    second_view.tool_calls[0]["id"] = "view-2";
+    auto first_output = msg("tool", "skill body");
+    first_output.tool_call_id = "view-1";
+    auto second_output = msg("tool", "skill body");
+    second_output.tool_call_id = "view-2";
+    std::vector<acecode::ChatMessage> messages{
+        msg("user", "run all cases", "u1"),
+        first_view,
+        first_output,
+        msg("user", "please $commit\n\n<skill>\n<name>commit</name>\n"
+                    "<path>/skills/commit/SKILL.md</path>\nbody\n</skill>",
+            "u2"),
+        second_view,
+        second_output,
+    };
+
+    auto result = acecode::compact_messages(provider, messages, {}, true, nullptr);
+
+    ASSERT_TRUE(result.performed) << result.error;
+    EXPECT_EQ(result.summary_text.rfind("Important retained context.", 0), 0u)
+        << "摘要模型写的正文必须原样在前";
+    EXPECT_NE(result.summary_text.find(
+                  "Skills loaded before this checkpoint: "
+                  "paoffice-cdp-techniques, commit."),
+              std::string::npos)
+        << result.summary_text;
+    EXPECT_NE(result.summary_text.find("call `skill_view` again"),
+              std::string::npos);
+    ASSERT_FALSE(result.compacted_messages.empty());
+    EXPECT_NE(result.compacted_messages.back().content.find(
+                  "Skills loaded before this checkpoint"),
+              std::string::npos)
+        << "提醒要进入模型实际收到的摘要消息";
+}
+
+// 触发场景:被压缩的历史里没有加载过任何 skill。
+// 期望行为:摘要与摘要模型的输出逐字相同,不追加任何提醒。
+TEST(CompactCore, SummaryIsUnchangedWhenNoSkillWasLoaded) {
+    ChatStubProvider provider;
+    std::vector<acecode::ChatMessage> messages{
+        msg("user", "first request", "u1"),
+        tool_call_message("call-1"),
+        tool_output_message("call-1"),
+        msg("user", "latest request", "u2"),
+    };
+
+    auto result = acecode::compact_messages(provider, messages, {}, true, nullptr);
+
+    ASSERT_TRUE(result.performed) << result.error;
+    EXPECT_EQ(result.summary_text, "Important retained context.");
+}
+
 TEST(CompactCore, PromptForbidsToolCallsButAllowsQuotingCommands) {
     const std::string& prompt = acecode::get_compact_prompt();
     EXPECT_EQ(prompt.rfind("You are performing a CONTEXT CHECKPOINT COMPACTION.", 0), 0u);

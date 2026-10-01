@@ -12,7 +12,13 @@ const std::string kCompactPrompt =
     "- Current progress and key decisions made\n"
     "- Important context, constraints, or user preferences\n"
     "- What remains to be done (clear next steps)\n"
-    "- Any critical data, examples, or references needed to continue\n\n"
+    "- Any critical data, examples, or references needed to continue\n"
+    // ACECode 追加的四条(反馈 LINDANDAN069):压缩后模型忘了用户的原始要求与
+    // 纠正、忘了刚总结出的做法,又把已验证的函数重写一遍、重新踩坑。
+    "- Every explicit instruction, requirement and correction the user gave, quoted as closely as possible; they must survive this checkpoint\n"
+    "- Lessons learned in this session: what failed, why, and the approach that finally worked\n"
+    "- Scripts, helper functions and files that were already written and verified, with exact paths and names, so the next LLM reuses them instead of rewriting them\n"
+    "- Skills and memory entries that were loaded and still apply, by name, so the next LLM can reload them\n\n"
     "Be concise, structured, and focused on helping the next LLM seamlessly continue the work."
     // 以下一段是 ACECode 有意偏离 Codex 原文的追加:压缩请求不带工具表,部分模型
     // (实测 dots3)会接着历史里的 tool_calls「做下一步」,把工具调用写成正文当摘要。

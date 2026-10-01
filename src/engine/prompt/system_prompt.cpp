@@ -4,7 +4,7 @@
 #include "llm/token_estimate.hpp"
 #include "config/config.hpp"
 #include "gitinfo/git_context_collector.hpp"
-#include "memory/memory_registry.hpp"
+#include "memory_prompt.hpp"
 #include "project_instructions/instructions_loader.hpp"
 #include "skills/skill_registry.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -202,7 +202,6 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     (void)cwd;
     (void)skills;
     (void)memory;
-    (void)memory_cfg;
     (void)project_instructions_cfg;
 
     auto guidance_allows = [&](const char* name) {
@@ -225,6 +224,10 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
     const bool bash_allowed = guidance_allows("bash");
     const bool skill_view_allowed = guidance_allows("skill_view");
     const bool skills_list_allowed = guidance_allows("skills_list");
+    // 记忆工具可能没注册或本会话关闭了记忆(/memory off 时 memory_cfg->enabled=false):
+    // 不能让模型去调一个不在工具表里的工具。
+    const bool memory_write_allowed = tools.has_tool("memory_write") &&
+        guidance_allows("memory_write") && (!memory_cfg || memory_cfg->enabled);
     const bool enter_worktree_allowed = guidance_allows("EnterWorktree");
     const bool exit_worktree_allowed = guidance_allows("ExitWorktree");
     const std::string file_read_name =
@@ -607,6 +610,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         oss << "\nSkill selection is turn-scoped: do not assume a prior turn selected a skill unless the current request names or clearly matches it.\n\n";
     }
 
+    if (memory_write_allowed) append_memory_tool_guidance(oss);
+
     return oss.str();
 }
 
@@ -641,29 +646,6 @@ PromptContextBlock build_project_instructions_context_prompt(
     key << "truncated=" << (merged.truncated ? "1" : "0") << "\n"
         << prompt_component_hash(merged.merged_body);
     block.cache_key = prompt_component_hash(key.str());
-    return block;
-}
-
-PromptContextBlock build_user_memory_context_prompt(
-    const MemoryRegistry* memory,
-    const MemoryConfig* cfg) {
-    PromptContextBlock block;
-    if (!memory || !cfg || !cfg->enabled) return block;
-
-    std::string idx = memory->read_index_raw(cfg->max_index_bytes);
-    if (idx.empty()) return block;
-
-    std::ostringstream oss;
-    oss << "# User Memory\n\n"
-        << "The following is your persistent memory index (MEMORY.md). "
-        << "It lists what memory files exist under ~/.acecode/memory/. "
-        << "Use memory_read to load any specific entry's body when relevant, "
-        << "and memory_write to persist new facts you learn during the session.\n\n"
-        << idx;
-    if (idx.back() != '\n') oss << "\n";
-
-    block.content = oss.str();
-    block.cache_key = "memory:" + prompt_component_hash(idx);
     return block;
 }
 
@@ -1256,8 +1238,7 @@ PromptContextBlock build_expert_context_prompt(
 
 PromptContextBlock build_session_context_prompt(
     const std::string& cwd,
-    const MemoryRegistry* memory,
-    const MemoryConfig* memory_cfg,
+    const PromptContextBlock* memory_snapshot,
     const ProjectInstructionsConfig* project_instructions_cfg,
     const SkillRegistry* skills,
     int context_window_tokens,
@@ -1276,7 +1257,7 @@ PromptContextBlock build_session_context_prompt(
         build_expert_context_prompt(
             expert, expert_member_id, spawn_subagent_available);
     PromptContextBlock project = build_project_instructions_context_prompt(cwd, project_instructions_cfg);
-    PromptContextBlock user_memory = build_user_memory_context_prompt(memory, memory_cfg);
+    const PromptContextBlock user_memory = memory_snapshot ? *memory_snapshot : PromptContextBlock{};
     PromptContextBlock custom =
         build_custom_instructions_context_prompt(custom_instructions_cfg);
     PromptContextBlock skill_index;

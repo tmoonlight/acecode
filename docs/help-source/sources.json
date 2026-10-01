@@ -237,8 +237,10 @@
     "file": "memory.html",
     "sources": [
       "web/src/components/SettingsPage.jsx",
+      "web/src/components/MemorySettings.jsx",
       "src/domain/memory/memory_paths.cpp",
-      "src/apps/tui/commands/memory_command.cpp",
+      "src/host/session_host/memory_command.cpp",
+      "src/host/session_host/memory_scheduler.cpp",
       "src/adapters/tool/memory_read_tool.cpp",
       "src/adapters/tool/memory_write_tool.cpp"
     ]

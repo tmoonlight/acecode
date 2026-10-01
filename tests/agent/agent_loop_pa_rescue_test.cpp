@@ -14,12 +14,14 @@
 #include "session/session_client.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_repair.hpp"
+#include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 #include "test_support/agent/stub_provider.hpp"
 
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -294,6 +296,74 @@ TEST(AgentLoopPaRescue, ClearsToolOutputsInsideTheCurrentTurn) {
     EXPECT_TRUE(request_contains(h.loop.messages(), "done after clearing"));
     EXPECT_FALSE(has_error_event(events));
     EXPECT_TRUE(has_system_event(events, "清除 1 条旧工具输出"));
+}
+
+// 触发场景:会话里有一个老回合 —— 用户给出任务要求、模型调了一次工具拿回约
+// 6 万字符的输出、再给出结论;当前回合的请求被 PA 连续拒收(原样重发也被拒)。
+// 期望行为:收缩时先把那条旧工具输出换成占位符,老回合里的任务要求与结论都
+// 留在被接受的请求里;回合正常结束,没有错误事件。
+// 回归背景(反馈 LINDANDAN069,模型 aicoder-pro):旧顺序先整组丢老回合,
+// 一次拒收就把最初的任务说明、用户的多次纠正和压缩摘要全部删掉,模型此后
+// 「忘了」任务要求和刚总结出的做法,又去重写已验证过的函数。
+// 6 万字符约 1.5 万 token:远大于测试里 system prompt 与工具表这些固定部分,
+// 保证「只清这条输出」就能缩到 85% 目标以下,不用动老回合本身。
+// 另外:收缩前本会话对某文件留有「已读观测」,收缩后必须清掉 —— 读取结果可能
+// 刚被换成占位符,再读同一文件要拿到真实内容,而不是「文件未变、参见先前结果」。
+TEST(AgentLoopPaRescue, ClearsOldToolOutputsBeforeDroppingEarlierInstructions) {
+    RescueWaitGuard wait_guard;
+    RescueHarness h("pa_rescue_keep_instructions");
+    register_read_only_tool(h.tools, "tool_a", "unused");
+    h.loop.push_message(loop_msg("user", "original task: verify every expect"));
+    acecode::ChatMessage old_call = loop_msg("assistant", "");
+    old_call.tool_calls = nlohmann::json::array({nlohmann::json{
+        {"id", "old-call"},
+        {"type", "function"},
+        {"function", {{"name", "tool_a"}, {"arguments", "{}"}}},
+    }});
+    h.loop.push_message(old_call);
+    const std::string old_output(60000, 'O');
+    acecode::ChatMessage old_result = loop_msg("tool", old_output);
+    old_result.tool_call_id = "old-call";
+    h.loop.push_message(old_result);
+    h.loop.push_message(loop_msg(
+        "assistant", "old conclusion: reuse the validated helper"));
+    // 当前回合先调一次工具:最近一条工具输出按规则受保护,旧输出才是可清的那条。
+    register_read_only_tool(h.tools, "tool_b", "fresh result");
+    h.provider->push_tool_call("tool_b", "{}", "call-b");
+    h.push_pa_errors(3);
+    h.provider->push_text("accepted without forgetting");
+    const auto read_file = h.cwd / "already_read.txt";
+    std::ofstream(read_file) << "content the model read earlier";
+    const std::string scope = h.session.current_session_id();
+    acecode::MtimeTracker::instance().record_read_observation(
+        read_file.string(), 0, 0, false, 0, 0, scope);
+    ASSERT_TRUE(acecode::MtimeTracker::instance().has_unchanged_read_observation(
+        read_file.string(), 0, 0, false, 0, 0, scope));
+
+    const auto events = wait_for_done(h.loop, [&] {
+        h.loop.submit("latest user request");
+    });
+
+    EXPECT_FALSE(acecode::MtimeTracker::instance().has_unchanged_read_observation(
+        read_file.string(), 0, 0, false, 0, 0, scope))
+        << "历史被修复后,已读观测必须失效";
+    // 1 次工具调用 + 3 次被拒 + 1 次被接受。
+    ASSERT_EQ(h.provider->turn_count(), 5);
+    const auto accepted_request = h.provider->messages_for_turn(4);
+    EXPECT_TRUE(request_contains(accepted_request,
+                                 "original task: verify every expect"))
+        << "老回合的任务要求不能因为收缩而丢失";
+    EXPECT_TRUE(request_contains(accepted_request,
+                                 "old conclusion: reuse the validated helper"));
+    EXPECT_FALSE(request_contains(accepted_request, old_output))
+        << "旧工具输出应被占位符替换";
+    EXPECT_TRUE(request_contains(accepted_request,
+                                 acecode::kClearedToolOutputPlaceholder));
+    EXPECT_TRUE(request_contains(accepted_request, "latest user request"));
+    EXPECT_TRUE(request_contains(accepted_request, "fresh result"))
+        << "最近一条工具输出必须保留";
+    EXPECT_FALSE(has_error_event(events));
+    EXPECT_TRUE(has_system_event(events, "已丢弃最旧的 0 组历史、清除 1 条"));
 }
 
 // 触发场景:历史里只有当前这一条用户输入,什么都缩不了,服务端仍连续拒收。

@@ -37,6 +37,7 @@ class PtySessionRegistry;
 class SessionClient;
 class SessionRegistry;
 class TaskSuggestionService;
+class MemoryRuntime;
 class SkillRegistry;
 class SkillUsageStore;
 class ExpertRegistry;
@@ -87,6 +88,8 @@ struct WebServerDeps {
     SessionClient*             session_client = nullptr;
     SessionRegistry*           session_registry = nullptr;
     std::shared_ptr<TaskSuggestionService> task_suggestions;
+    // 记忆运行时(/api/config/memory、/api/memory*);为空时这些路由返回 503。
+    std::shared_ptr<MemoryRuntime> memory;
     ExpertRegistry*            expert_registry = nullptr;
     HookManager*               hook_manager = nullptr;
     ToolExecutor*              tools = nullptr;

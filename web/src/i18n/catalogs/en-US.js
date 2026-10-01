@@ -117,6 +117,7 @@ export const enUS = {
       side: 'Open side chat for questions and follow-ups',
       lsp: 'Show LSP server status (connected, broken, or not installed)',
       sandbox: 'Show sandbox status or turn this session’s sandbox on or off',
+      memory: 'List, view, or delete memories; consolidate memory summaries; turn memory off or on for this session',
       rc: 'Alias for /remote-control',
       remoteControl: 'Activate a configured channel plugin or manage manual remote-control webhooks',
     },

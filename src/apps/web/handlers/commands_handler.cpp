@@ -80,6 +80,10 @@ nlohmann::json build_commands_payload(const SkillRegistry& global_skills,
         {"description", "Show the bash sandbox status, or /sandbox off|on for this session"},
     });
     builtins.push_back({
+        {"name", "memory"},
+        {"description", "List, view, edit or forget memory; flush memory summarization; turn memory off/on for this session"},
+    });
+    builtins.push_back({
         {"name", "rc"},
         {"description", "Alias for /remote-control"},
     });

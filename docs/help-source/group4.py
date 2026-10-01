@@ -87,10 +87,12 @@ PAGES = {
         code("用简体中文解释结果。\n修改代码前先阅读相关实现。\n完成后说明改动与验证结果；没有执行的检查请明确写出。", "自定义指令示例"),
         figure("CF-05", "个性化指令与保存反馈", "展示自定义指令编辑区和已保存状态，使用通用示例，不展示个人或公司私密信息。")),
     section("memory", "保存和查看记忆",
-        '''<p>需要记住长期信息时，可以在任务中明确提出要求，例如“记住：我希望解释结果时先给结论，再给验证依据”。阅读执行结果，确认实际保存了什么，避免把一次聊天中出现的信息都当作已经持久化。</p><p>默认记忆目录是 <code>~/.acecode/memory/</code>，其中 <code>MEMORY.md</code> 为索引，具体条目分别保存为 Markdown 文件。TUI 的 <code>/memory</code> 用于列出记忆，更多操作可查看 <code>/memory help</code>。</p><p>记忆与聊天记录不同：恢复任务读取该任务的上下文，持久记忆用于后续工作重用信息。不要把整个项目源码或完整对话复制为一条记忆。</p>'''),
+        '''<p>需要记住长期信息时，可以在任务中明确提出要求，例如“记住：我希望解释结果时先给结论，再给验证依据”。阅读执行结果，确认实际保存了什么，避免把一次聊天中出现的信息都当作已经持久化。</p><p>记忆分两层：<strong>全局记忆</strong>保存跨项目的个人偏好，位于 <code>~/.acecode/memory/</code>；<strong>工作区记忆</strong>只属于当前工作区，位于 <code>~/.acecode/projects/&lt;工作区标识&gt;/memory/</code>。每层都有 <code>MEMORY.md</code> 索引，条目分别保存为 Markdown 文件。未指定时，个人偏好与协作反馈写入全局，项目背景与外部资料写入工作区。</p><p>每个会话在第一次请求时读取一份记忆快照，之后保持不变；会话中途新写的记忆在下一个会话或本会话压缩上下文之后出现。记忆是历史记录，智能体依赖其中的路径或命令前会先核实，与你当前的要求冲突时以当前要求为准。</p><p>TUI 与桌面 / 网页对话都可以用 <code>/memory</code>：<code>/memory list</code> 列出两层记忆，<code>/memory view 名称</code> 查看，<code>/memory forget 名称</code> 删除，<code>/memory off</code> 与 <code>/memory on</code> 只对当前会话关闭或恢复记忆。</p>'''),
+    section("summary", "记忆摘要",
+        '''<p><strong>设置 &gt; 个性化 &gt; 记忆</strong>中可以开启<strong>记忆摘要</strong>（默认关闭）。开启后，会话闲置约 30 分钟，ACECode 用摘要模型把这段对话中值得长期保留的经验提炼成观察，攒够一批后整合为正式记忆；每次自动改动都记录来源会话。摘要模型默认是该会话最后使用的模型，也可以指定一个已保存的模型。开启会额外调用模型。</p><p>想立即整理当前会话时执行 <code>/memory flush</code>，完成后对话里会出现处理结果。永久删除一个会话时，只来源于它的自动记忆会一并撤回；你手动删除的记忆在 90 天内不会被自动重新生成。</p>'''),
     section("maintenance", "更新与删除过时信息",
-        '''<p>当工作习惯或项目信息变化时，明确告诉 ACECode 要更新哪条记忆以及新内容。删除时同样指定对象，先查看内容再操作；TUI 的记忆命令提供查看、编辑、忘记和重新加载入口。</p><p>适合长期保存的是稳定偏好、反复需要的项目说明和可复用经验。账号密钥、临时验证码、大段日志和未经确认的推测不适合作为普通记忆保存。分享备份前检查记忆与配置中的私密内容。</p><p>如果某条旧信息反复影响回答，先检查个性化指令、项目规则和记忆三个来源，修正对应来源后再开始新任务验证。</p>''')
-], ["web/src/components/SettingsPage.jsx", "src/domain/memory/memory_paths.cpp", "src/apps/tui/commands/memory_command.cpp", "src/adapters/tool/memory_read_tool.cpp", "src/adapters/tool/memory_write_tool.cpp"])
+        '''<p>当工作习惯或项目信息变化时，明确告诉 ACECode 要更新哪条记忆以及新内容。也可以在<strong>设置 &gt; 个性化 &gt; 记忆</strong>中按“全局 / 当前工作区”浏览、编辑、删除条目，或在二次确认后重置某一层。手动编辑过的条目不会再被记忆摘要改动。</p><p>写入记忆前，ACECode 会把可识别的密钥、令牌和密码替换为 <code>[REDACTED]</code>；即便如此，账号密钥、临时验证码、大段日志和未经确认的推测也不适合保存为记忆。分享备份前检查记忆与配置中的私密内容。</p><p>如果某条旧信息反复影响回答，先检查个性化指令、项目规则和记忆三个来源，修正对应来源后再开始新任务验证。</p>''')
+], ["web/src/components/SettingsPage.jsx", "web/src/components/MemorySettings.jsx", "src/domain/memory/memory_paths.cpp", "src/host/session_host/memory_command.cpp", "src/host/session_host/memory_scheduler.cpp", "src/adapters/tool/memory_read_tool.cpp", "src/adapters/tool/memory_write_tool.cpp"])
 }
 
 from group4_extensions import PAGES as EXTENSIONS

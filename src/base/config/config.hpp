@@ -82,12 +82,27 @@ struct SkillsConfig {
     std::optional<std::vector<std::string>> allowed;
 };
 
+// 记忆摘要(openspec unify-memory-system,默认关闭):会话闲置后用摘要模型
+// 提炼观察进收件箱,攒批整合成正式条目。
+struct MemorySummaryConfig {
+    bool enabled = false;
+    // 摘要模型(saved_models 名);空 = 「当前模型」(被提炼会话最后使用的模型)。
+    std::string model_name;
+    int idle_minutes = 30;           // 会话闲置多久后提炼,[5, 1440]
+    int max_session_age_days = 7;    // 只处理这段时间内活动过的会话,[1, 90]
+};
+
 struct MemoryConfig {
     bool enabled = true;
-    // Hard cap on MEMORY.md size for system-prompt injection. Oversized indexes
-    // are truncated in-memory with a marker; the on-disk file is untouched.
-    std::size_t max_index_bytes = 32 * 1024;
+    // Per-scope cap on the injected memory index (global and workspace each).
+    // Entries past the budget are omitted with a note; files are untouched.
+    std::size_t max_index_bytes = 8 * 1024;
+    MemorySummaryConfig summary;
 };
+
+// config.json 的 memory 段读写(memory_config.cpp)。写出时省略默认值。
+void load_memory_config_json(const nlohmann::json& j, MemoryConfig& out);
+nlohmann::json memory_config_to_json(const MemoryConfig& cfg);
 
 struct ProjectInstructionsConfig {
     bool enabled = true;

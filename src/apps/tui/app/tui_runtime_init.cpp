@@ -17,8 +17,7 @@
 #include "skills/default_skill_startup.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
-#include "memory/memory_registry.hpp"
-#include "memory/memory_paths.hpp"
+#include "session_host/memory_runtime.hpp"
 #include "lsp/lsp_service.hpp"
 #include "tool/web_search/runtime.hpp"
 #include "tool/web_search/backend_router.hpp"
@@ -26,8 +25,6 @@
 #include "tool/builtin_tool_registry.hpp"
 #include "tool/skills_tool.hpp"
 #include "tool/skill_view_tool.hpp"
-#include "tool/memory_read_tool.hpp"
-#include "tool/memory_write_tool.hpp"
 #include "tool/mcp_manager.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/logger.hpp"
@@ -86,23 +83,6 @@ static void initialize_web_search_runtime(const AppConfig& config) {
     if (cached == web_search::Region::Unknown) {
         web_search::runtime().detect_region_async();
     }
-}
-
-static MemoryConfig initialize_memory_registry(MemoryRegistry& memory_registry,
-                                               const AppConfig& config) {
-    // Auto-create ~/.acecode/memory/ if missing; failure disables the memory
-    // system for this session without rewriting the user's config.json.
-    MemoryConfig runtime_memory_cfg = config.memory;
-    std::error_code mkec;
-    std::filesystem::create_directories(get_memory_dir(), mkec);
-    if (mkec) {
-        LOG_ERROR("[memory] failed to create " + get_memory_dir().generic_string() +
-                  ": " + mkec.message() + " — memory will be disabled this session");
-        runtime_memory_cfg.enabled = false;
-    } else if (runtime_memory_cfg.enabled) {
-        memory_registry.scan();
-    }
-    return runtime_memory_cfg;
 }
 
 static void initialize_mcp_servers(McpManager& mcp_manager,
@@ -200,10 +180,10 @@ ModelProfile initialize_tui_provider_runtime(
     return effective_entry;
 }
 
-MemoryConfig initialize_tui_tools_and_registries(
+void initialize_tui_tools_and_registries(
     ToolExecutor& tools,
     SkillRegistry& skill_registry,
-    MemoryRegistry& memory_registry,
+    MemoryRuntime& memory,
     McpManager& mcp_manager,
     const AppConfig& config,
     const std::string& working_dir) {
@@ -216,15 +196,11 @@ MemoryConfig initialize_tui_tools_and_registries(
     tools.register_tool(create_skills_list_tool(skill_registry, &config));
     tools.register_tool(create_skill_view_tool(skill_registry, &config));
 
-    MemoryConfig runtime_memory_cfg =
-        initialize_memory_registry(memory_registry, config);
-    tools.register_tool(create_memory_read_tool(memory_registry,
-                                                runtime_memory_cfg.max_index_bytes));
-    tools.register_tool(create_memory_write_tool(memory_registry));
+    // 记忆工具与 daemon / headless 同一份注册(create_memory_runtime 已建好目录)。
+    memory.register_tools(tools);
 
     initialize_mcp_servers(mcp_manager, config);
     mcp_manager.reconcile_scope(working_dir, load_project_mcp_config(working_dir), tools);
-    return runtime_memory_cfg;
 }
 
 acecode::tui::ScreenRenderMode initialize_tui_render_mode(

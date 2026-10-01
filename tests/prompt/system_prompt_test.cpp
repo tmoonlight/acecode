@@ -8,6 +8,7 @@
 #include "config/config.hpp"
 #include "memory/memory_paths.hpp"
 #include "memory/memory_registry.hpp"
+#include "prompt/memory_prompt.hpp"
 #include "memory/memory_types.hpp"
 #include "prompt/system_prompt.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -178,63 +179,41 @@ TEST_F(SystemPromptTest, UserAtPathReferenceContractIsExplicit) {
 // 不变。这里曾经拼进一个秒级时间戳,导致同一回合内每次工具调用往返都把
 // 缓存前缀从插入点截断,整条尾巴全价重算。
 TEST_F(SystemPromptTest, SessionContextIsByteStableForUnchangedInputs) {
-    acecode::MemoryRegistry reg;
-    reg.scan();
-    acecode::MemoryConfig mem_cfg;
+    acecode::PromptContextBlock memory_snapshot;
+    memory_snapshot.content = "# Memory\n- [user] a\n";
+    memory_snapshot.cache_key = "memory:fixed";
 
     const auto first = acecode::build_session_context_prompt(
-        temp_home.string(), &reg, &mem_cfg, nullptr, nullptr, 128000);
+        temp_home.string(), &memory_snapshot, nullptr, nullptr, 128000);
     const auto second = acecode::build_session_context_prompt(
-        temp_home.string(), &reg, &mem_cfg, nullptr, nullptr, 128000);
+        temp_home.string(), &memory_snapshot, nullptr, nullptr, 128000);
 
     EXPECT_EQ(first.content, second.content);
     EXPECT_EQ(first.cache_key, second.cache_key);
     EXPECT_EQ(first.content.find("[当前环境状态]"), std::string::npos);
 }
 
-// 场景:memory 有条目 -> MEMORY.md 非空 -> 进入 session context,
-// 静态 system prompt 保持不含 User Memory。
-TEST_F(SystemPromptTest, MemoryContextAppearsWhenIndexNonEmpty) {
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry reg;
-    reg.scan();
-    std::string err;
-    reg.upsert("user_profile", acecode::MemoryType::User,
-               "senior Go dev", "10y Go\n",
-               acecode::MemoryWriteMode::Create, err);
+// 场景:记忆快照块非空 -> 原样进入 session context;静态 system prompt 不含记忆条目。
+TEST_F(SystemPromptTest, MemorySnapshotGoesIntoSessionContextOnly) {
+    acecode::PromptContextBlock memory_snapshot;
+    memory_snapshot.content = "# Memory\n\n## Global memory\n- [user] user_profile - senior Go dev\n";
+    memory_snapshot.cache_key = "memory:abc";
 
     acecode::ToolExecutor tools;
     acecode::MemoryConfig mcfg;
     std::string out = acecode::build_system_prompt(
-        tools, temp_home.string(),
-        /*skills=*/nullptr, &reg, &mcfg, /*project=*/nullptr);
-    EXPECT_EQ(out.find("# User Memory"), std::string::npos);
-    EXPECT_EQ(out.find("user_profile.md"), std::string::npos);
+        tools, temp_home.string(), /*skills=*/nullptr, /*memory=*/nullptr, &mcfg, /*project=*/nullptr);
+    EXPECT_EQ(out.find("user_profile"), std::string::npos);
 
-    auto context = acecode::build_user_memory_context_prompt(&reg, &mcfg);
-    EXPECT_NE(context.content.find("# User Memory"), std::string::npos);
-    EXPECT_NE(context.content.find("user_profile.md"), std::string::npos);
-    EXPECT_FALSE(context.cache_key.empty());
-}
+    auto context = acecode::build_session_context_prompt(
+        temp_home.string(), &memory_snapshot, nullptr, nullptr, 128000);
+    EXPECT_NE(context.content.find("## Global memory"), std::string::npos);
+    EXPECT_NE(context.content.find("user_profile"), std::string::npos);
 
-// 场景:memory_cfg.enabled=false 时即使有条目也不注入
-TEST_F(SystemPromptTest, MemoryDisabledByCfg) {
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry reg;
-    std::string err;
-    reg.upsert("x", acecode::MemoryType::User, "x", "x",
-               acecode::MemoryWriteMode::Create, err);
-
-    acecode::ToolExecutor tools;
-    acecode::MemoryConfig mcfg;
-    mcfg.enabled = false;
-    std::string out = acecode::build_system_prompt(
-        tools, temp_home.string(),
-        /*skills=*/nullptr, &reg, &mcfg, /*project=*/nullptr);
-    EXPECT_EQ(out.find("# User Memory"), std::string::npos);
-
-    auto context = acecode::build_user_memory_context_prompt(&reg, &mcfg);
-    EXPECT_TRUE(context.content.empty());
+    // 空快照(两个作用域都没有条目 / 记忆关闭)不产生任何 session context。
+    acecode::PromptContextBlock empty;
+    EXPECT_TRUE(acecode::build_session_context_prompt(
+        temp_home.string(), &empty, nullptr, nullptr, 128000).content.empty());
 }
 
 // 场景:cwd 下有 AGENT.md -> provider-facing Project Instructions context,
@@ -324,8 +303,7 @@ TEST_F(SystemPromptTest, SessionContextIncludesCustomInstructions) {
 
     auto context = acecode::build_session_context_prompt(
         temp_home.string(),
-        /*memory=*/nullptr,
-        /*memory_cfg=*/nullptr,
+        /*memory_snapshot=*/nullptr,
         /*project_instructions_cfg=*/nullptr,
         /*skills=*/nullptr,
         /*context_window_tokens=*/0,
@@ -858,6 +836,30 @@ void register_probe_tools(acecode::ToolExecutor& tools,
 }
 
 } // namespace
+
+// 场景:工具表里注册了 memory_write / memory_read;另一份工具表没有。
+// 期望:有 memory_write 时静态提示出现「# Memory」段,明确「让我记住」要用
+// memory_write、不要另写 MEMORY.md / LESSONS_LEARNED.md / 子目录 CLAUDE.md;
+// 没有 memory_write 时整段不出现。
+// 回归背景(反馈 LINDANDAN069):用户要求「记住这个处理方式」,记忆目录为空、
+// 提示里没有任何记忆指引,模型把经验写进了子目录的 CLAUDE.md 与项目里的
+// .acecode/MEMORY.md,ACECode 从不自动加载它们,压缩之后经验就丢了。
+TEST_F(SystemPromptTest, MemoryGuidanceRoutesRememberRequestsToMemoryWrite) {
+    acecode::ScopedModelToolNameMappings none({});
+    acecode::ToolExecutor tools;
+    register_probe_tools(tools, {"memory_write", "memory_read"});
+    const std::string with_memory =
+        acecode::build_system_prompt(tools, temp_home.string());
+    EXPECT_NE(with_memory.find("# Memory\n"), std::string::npos);
+    EXPECT_NE(with_memory.find("save it with `memory_write`"), std::string::npos);
+    EXPECT_NE(with_memory.find("LESSONS_LEARNED.md"), std::string::npos);
+    EXPECT_NE(with_memory.find("`memory_read`"), std::string::npos);
+
+    acecode::ToolExecutor bare;
+    const std::string without_memory =
+        acecode::build_system_prompt(bare, temp_home.string());
+    EXPECT_EQ(without_memory.find("# Memory\n"), std::string::npos);
+}
 
 // 场景:模型态是 gpt-5(偏好 apply_patch),工具表里 apply_patch 可用。
 // 期望:出现 apply_patch 指引(相对路径 / 3 行上下文 / @@ 锚点、找不到时重读

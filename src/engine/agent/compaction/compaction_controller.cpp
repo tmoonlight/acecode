@@ -59,6 +59,9 @@ bool CompactionController::mechanical_fallback(
     // 读了一堆大文件正是摘要请求本身也会被拒的那种场景。
     options.clear_tool_outputs = true;
     options.keep_recent_tool_outputs = 1;
+    // 摘要已经失败,这次修剪就是唯一的「压缩」:丢老回合前先精简,保住用户
+    // 消息、结论与上一份摘要,否则模型连任务说明都一起丢了。
+    options.thin_old_turns_first = true;
 
     auto repair = history_.repair(inputs.session, options);
     LOG_WARN("[compact-fallback] mechanical prune after summarization failure; "
@@ -68,27 +71,32 @@ bool CompactionController::mechanical_fallback(
              " pruned_groups=" + std::to_string(repair.pruned_groups) +
              " cleared_tool_outputs=" +
              std::to_string(repair.cleared_tool_outputs) +
+             " thinned_groups=" + std::to_string(repair.thinned_groups) +
              " target_tokens=" + std::to_string(options.target_tokens) +
              " reason=" + repair.reason);
     if (!repair.repaired()) {
         return false;
     }
 
-    compact_generation_.fetch_add(1, std::memory_order_relaxed);
-    last_api_total_tokens_.store(0, std::memory_order_relaxed);
+    mark_history_repaired();
 
     events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
         {"phase", "context_repair"},
         {"label", "Compaction failed; pruned oldest history instead"},
         {"detail", repair.reason},
     });
+    const std::string thinned_text = repair.thinned_groups > 0
+        ? "、精简 " + std::to_string(repair.thinned_groups) +
+              " 组旧回合(保留用户消息与结论)"
+        : std::string();
     transcript_.emit_transcript_system_message(inputs.session,
         "[智能压缩] 摘要压缩失败(" + log_truncate(summarization_error, 160) +
         "),已改为丢弃最旧的 " + std::to_string(repair.pruned_groups) +
         " 组历史、清除 " + std::to_string(repair.cleared_tool_outputs) +
-        " 条旧工具输出腾出空间,会话继续。",
+        " 条旧工具输出" + thinned_text + "腾出空间,会话继续。",
         make_compact_notice_metadata(compact_notice_id, "warning", false,
             {{"error", summarization_error}, {"groups", repair.pruned_groups},
+             {"thinned", repair.thinned_groups},
              {"outputs", repair.cleared_tool_outputs}}));
     return true;
 }
@@ -297,7 +305,11 @@ void CompactionController::finish_busy(LifetimeRef<TrajectoryRecorder> terminal)
 
 void CompactionController::mark_history_repaired() {
     compact_generation_.fetch_add(1, std::memory_order_relaxed);
+    requests_.invalidate_memory_snapshot();  // 历史改写后记忆快照按磁盘重建
     last_api_total_tokens_.store(0, std::memory_order_relaxed);
+    // 修复可能清掉 / 丢掉了之前的读取结果;再读同一文件必须拿到真实内容,
+    // 不能是指向已不存在结果的「文件未变」占位。与摘要压缩后的处理一致。
+    environment_.mtime_tracker().clear_read_observations();
 }
 
 } // namespace acecode::agent

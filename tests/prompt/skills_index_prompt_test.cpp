@@ -379,7 +379,7 @@ TEST_F(SkillsIndexRegistryTest, SessionContextExcludesSkillsBlockByDefault) {
     registry.scan();
 
     auto block = acecode::build_session_context_prompt(
-        temp_root.string(), nullptr, nullptr, nullptr, &registry, 128000);
+        temp_root.string(), nullptr, nullptr, &registry, 128000);
     EXPECT_TRUE(block.content.empty());
 }
 
@@ -387,7 +387,7 @@ TEST_F(SkillsIndexRegistryTest, SessionContextExcludesSkillsBlockByDefault) {
 // 期望:行为与改动前完全一致 —— 无其它 context 时返回空块。向后兼容回归。
 TEST_F(SkillsIndexRegistryTest, SessionContextWithoutRegistryUnchanged) {
     auto block = acecode::build_session_context_prompt(
-        temp_root.string(), nullptr, nullptr, nullptr);
+        temp_root.string(), nullptr, nullptr);
     EXPECT_TRUE(block.content.empty());
 }
 

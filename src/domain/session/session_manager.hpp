@@ -137,6 +137,12 @@ public:
     // Storage remains anchored to the original project when execution enters
     // a worktree. Callers must not derive this directory from the live cwd.
     std::string current_project_dir() const;
+    // 会话没有所属工作区(Web「无工作区」会话):记忆只用全局作用域。
+    bool is_no_workspace() const;
+
+    // 本会话记忆开关(/memory off|on),随 meta 持久化,恢复会话后保持。
+    void set_memory_enabled(bool enabled);
+    bool memory_enabled() const;
 
     bool has_active_session() const;
 
@@ -291,6 +297,7 @@ private:
     std::optional<std::string> reasoning_effort_;
     std::string surface_ = "tui";
     bool no_workspace_ = false;
+    std::string memory_mode_;  // "off" = 本会话关闭记忆;空 = 开启
     std::string project_dir_;
     std::string session_id_;
     std::string jsonl_path_;

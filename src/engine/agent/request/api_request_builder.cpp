@@ -4,6 +4,7 @@
 #include "provider_history.hpp"
 #include "request_context.hpp"
 #include "llm/tool_protocol_names.hpp"
+#include "prompt/memory_prompt.hpp"
 #include "skills/skill_registry.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "utils/logger.hpp"
@@ -16,7 +17,47 @@ namespace {
 template<class T> const T* ptr(const std::optional<T>& value) {
     return value ? &*value : nullptr;
 }
+
+std::string memory_snapshot_key(const RequestContextOptions& options) {
+    return options.memory_session_key + "|" + options.memory_project_dir + "|" +
+           (ApiRequestBuilder::memory_active(options) ? "on" : "off");
 }
+
+// 本会话关闭记忆(或记忆整体关闭)时,记忆工具不进模型侧工具表。
+void remove_memory_tools(std::vector<ToolDef>& defs) {
+    const std::string read_name = model_tool_name_for_native("memory_read");
+    const std::string write_name = model_tool_name_for_native("memory_write");
+    defs.erase(std::remove_if(defs.begin(), defs.end(), [&](const ToolDef& def) {
+        return def.name == read_name || def.name == write_name;
+    }), defs.end());
+}
+}
+
+bool ApiRequestBuilder::memory_active(const RequestContextOptions& options) {
+    return options.memory != nullptr && options.memory_config && options.memory_config->enabled;
+}
+
+PromptContextBlock ApiRequestBuilder::render_memory_snapshot(const RequestContextOptions& options) {
+    if (!memory_active(options)) return {};
+    MemorySnapshotSource source;
+    source.memory = options.memory;
+    source.project_dir = options.memory_project_dir;
+    source.max_index_bytes = options.memory_config->max_index_bytes;
+    source.now_seconds = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    return build_memory_snapshot_prompt(source);
+}
+
+const PromptContextBlock& ApiRequestBuilder::frozen_memory_snapshot(
+    const RequestContextOptions& options) {
+    const std::string key = memory_snapshot_key(options);
+    if (cache_.needs_memory_snapshot(key)) {
+        cache_.store_memory_snapshot(key, render_memory_snapshot(options));
+    }
+    return cache_.memory_snapshot();
+}
+
+void ApiRequestBuilder::invalidate_memory_snapshot() { cache_.invalidate_memory(); }
 
 std::set<std::string> ApiRequestBuilder::dormant_skills(
     const SkillRegistry* registry, SkillUsageStore* store, int idle_days) {
@@ -40,7 +81,7 @@ std::set<std::string> ApiRequestBuilder::dormant_skills(
 
 std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions& options) const {
     std::string system_prompt = build_system_prompt(
-        tools_, options.cwd, options.skills.get(), options.memory,
+        tools_, options.cwd, options.skills.get(), /*memory=*/nullptr,
         ptr(options.memory_config), ptr(options.project_config),
         &options.tool_policy,
         &options.worktree,
@@ -89,8 +130,11 @@ std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContext
         };
         context.push_back(std::move(skill_system));
     }
+    // 压缩 / 估算用:有冻结快照就复用,否则现渲染一份(不写回缓存)。
+    const PromptContextBlock* frozen = cache_.peek_memory_snapshot(memory_snapshot_key(options));
+    const PromptContextBlock memory_block = frozen ? *frozen : render_memory_snapshot(options);
     std::string mutable_context = build_session_context_prompt(
-        options.cwd, options.memory, ptr(options.memory_config), ptr(options.project_config),
+        options.cwd, &memory_block, ptr(options.project_config),
         options.skills.get(), options.context_window,
         ptr(options.custom_config), git_snapshot, ptr(options.expert), options.expert_member,
         /*category_bytes=*/nullptr,
@@ -156,6 +200,10 @@ RequestBuildInputs ApiRequestBuilder::capture(
     // (openspec add-gpt-apply-patch-adaptation)。三个工具始终注册,这里只裁
     // 模型侧定义表;模型在回合内固定,所以裁完的表逐字节稳定,不打穿 prompt cache。
     filter_tool_definitions_for_model(inputs.tool_defs, options.model.prefers_apply_patch);
+    if (!memory_active(options)) {
+        remove_memory_tools(inputs.tool_defs);
+        remove_memory_tools(builtin_tool_defs);
+    }
     LOG_DEBUG("Registered tools: " + std::to_string(inputs.tool_defs.size()));
 
 
@@ -172,7 +220,7 @@ RequestBuildInputs ApiRequestBuilder::capture(
             options.skills.get(), options.context_window, skill_view_available,
             skills_list_available, &dormant);
         inputs.session = build_session_context_prompt(
-            options.cwd, options.memory, ptr(options.memory_config), ptr(options.project_config),
+            options.cwd, &frozen_memory_snapshot(options), ptr(options.project_config),
             options.skills.get(), options.context_window, ptr(options.custom_config), cache_.cached_git(),
             ptr(options.expert), options.expert_member, &inputs.category_bytes,
             skill_view_available, skills_list_available, spawn_subagent_available,
