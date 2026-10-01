@@ -132,6 +132,7 @@ WebServer::Impl::~Impl() {
 // =====================================================================
 void WebServer::Impl::register_routes() {
     register_health();
+    register_session_diagnostics();
     register_usage();
     register_workspaces();
     register_pinned_sessions();

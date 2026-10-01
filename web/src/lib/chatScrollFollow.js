@@ -55,6 +55,7 @@ export function nextChatTailFollowState(currentState = CHAT_TAIL_FOLLOW_STATE.FO
     : CHAT_TAIL_FOLLOW_STATE.FOLLOWING;
 
   switch (action?.type) {
+    case 'jump_to_tail':
     case 'session_reset':
     case 'new_turn':
       return CHAT_TAIL_FOLLOW_STATE.FOLLOWING;

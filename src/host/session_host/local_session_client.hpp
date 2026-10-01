@@ -25,6 +25,9 @@ public:
     SubscriptionId subscribe(const std::string& session_id,
                               EventListener on_event,
                               std::uint64_t since_seq = 0) override;
+    SubscriptionId subscribe_replay(const std::string& session_id,
+                                     EventListener on_event,
+                                     std::uint64_t since_seq = 0) override;
     void unsubscribe(const std::string& session_id, SubscriptionId sub) override;
     void unsubscribe_and_wait(const std::string& session_id, SubscriptionId sub) override;
     bool send_input(const std::string& session_id, const std::string& text) override;
@@ -59,6 +62,8 @@ public:
     void abort(const std::string& session_id) override;
 
 private:
+    SubscriptionId subscribe_impl(const std::string& session_id, EventListener on_event,
+                                  std::uint64_t since_seq, bool replay_from_start);
     void remove_subscription(const std::string& session_id, SubscriptionId sub, bool wait);
     struct Subscription {
         std::string session_id;

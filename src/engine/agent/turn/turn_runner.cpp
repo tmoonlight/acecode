@@ -306,6 +306,10 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
             }
         }
 
+        // Provider IDs can repeat between responses. Reserve distinct execution
+        // IDs before traces, hooks, lifecycle events, persistence and callbacks.
+        history_.prepare_tool_calls(provider_result.accumulated.tool_calls);
+
         // Usage estimation when provider didn't report usage。必须覆盖所有轮:
         // 旧条件把「纯工具调用轮(无正文)」排除,导致不上报 usage 的
         // provider 下 goal 预算在工具轮从不入账,budget_limited 永不触发。

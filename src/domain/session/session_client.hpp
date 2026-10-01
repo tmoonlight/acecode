@@ -140,6 +140,8 @@ struct SideQuestionResult {
     std::string question;
     std::string answer;
     std::string error;
+    // Read-only tool calls made while answering, e.g. "file_read src/a.cpp".
+    std::vector<std::string> tools_used;
 };
 
 constexpr std::size_t kMaxSideQuestionBytes = 16000;
@@ -329,6 +331,14 @@ public:
     virtual SubscriptionId subscribe(const std::string& session_id,
                                        EventListener on_event,
                                        std::uint64_t since_seq = 0) = 0;
+
+    // Explicit recovery replay, including sequence 1 when since_seq == 0.
+    // Existing transports retain their legacy subscription behavior by default.
+    virtual SubscriptionId subscribe_replay(const std::string& session_id,
+                                            EventListener on_event,
+                                            std::uint64_t since_seq = 0) {
+        return subscribe(session_id, std::move(on_event), since_seq);
+    }
 
     // 退订(线程安全)。
     virtual void unsubscribe(const std::string& session_id, SubscriptionId sub) = 0;

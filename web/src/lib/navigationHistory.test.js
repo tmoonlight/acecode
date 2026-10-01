@@ -154,3 +154,10 @@ run('navigation history fragment is one-shot and preserves unrelated hash parame
   assert.equal(stripNavigationHistoryHash(`#panel=chat&${hash}`), 'panel=chat');
   assert.equal(stripNavigationHistoryHash('#plain-anchor'), 'plain-anchor');
 });
+
+run('byte position survives navigation history transfer without precision loss', () => {
+  const ref = { sessionId: 'position-target', searchMatch: { kind: 'user_message', message_position: '9007199254740993' } };
+  const history = { back: [ref], forward: [] };
+  const decoded = navigationHistoryFromHash(navigationHistoryHash(history));
+  assert.equal(decoded.back[0].searchMatch.message_position, '9007199254740993');
+});

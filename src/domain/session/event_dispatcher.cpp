@@ -182,7 +182,7 @@ void EventDispatcher::deliver_to_listener(
 }
 
 EventDispatcher::SubscriptionId
-EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq) {
+EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq, bool replay_from_start) {
     if (!listener) return 0;
     SubscriptionId id = next_sub_id_.fetch_add(1);
 
@@ -195,7 +195,7 @@ EventDispatcher::subscribe(EventListener listener, std::uint64_t since_seq) {
     std::vector<SessionEvent> to_replay;
     {
         std::lock_guard<std::mutex> lk(mu_);
-        if (since_seq > 0) {
+        if (since_seq > 0 || replay_from_start) {
             for (const auto& buffered : buffer_) {
                 if (buffered.event.seq > since_seq) {
                     auto replay = buffered.event;

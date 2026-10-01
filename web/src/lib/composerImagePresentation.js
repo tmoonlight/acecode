@@ -3,11 +3,16 @@ import {
 } from './composerContent.js';
 import { isComposerImageAttachment } from './richComposerModel.js';
 
+// Raster images are shown as thumbnails and travel as snapshot uploads. SVG is
+// deliberately excluded: it stays an ordinary file/path reference.
+export function isRasterImageMimeType(mimeType) {
+  return /^image\/(?:png|jpe?g|webp|gif|bmp|tiff|avif|heic|heif)$/i.test(String(mimeType || '').trim());
+}
+
 // Local raster references remain file resources in the transport, but have the
 // same thumbnail presentation as clipboard image snapshots.
 export function isComposerThumbnailAttachment(item) {
-  return isComposerImageAttachment(item)
-    || /^image\/(?:png|jpe?g|webp|gif|bmp|tiff|avif|heic|heif)$/i.test(item?.mime_type || item?.mimeType || '');
+  return isComposerImageAttachment(item) || isRasterImageMimeType(item?.mime_type || item?.mimeType);
 }
 
 const isImagePart = (part) => part.type === 'attachment' && isComposerThumbnailAttachment(part);

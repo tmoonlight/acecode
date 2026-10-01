@@ -454,7 +454,8 @@ struct WebServer::Impl {
                                           bool include_no_workspace = false,
                                           const std::string& parent_filter = {},
                                           int limit = 0,
-                                          SessionListPage* page_out = nullptr) const;
+                                          SessionListPage* page_out = nullptr,
+                                          bool no_workspace_only = false) const;
     bool session_entry_matches_workspace(const SessionEntry& entry,
                                           const acecode::desktop::WorkspaceMeta& ws) const;
     std::optional<SessionMeta> find_session_meta_for_workspace(
@@ -508,8 +509,10 @@ struct WebServer::Impl {
     std::filesystem::path no_workspace_pinned_sessions_path() const;
     std::filesystem::path pinned_session_order_path() const;
     std::vector<std::string> session_ids_for_workspace(
-        const acecode::desktop::WorkspaceMeta& ws) const;
-    std::vector<std::string> session_ids_for_no_workspace() const;
+        const acecode::desktop::WorkspaceMeta& ws,
+        const std::vector<std::string>& candidates) const;
+    std::vector<std::string> session_ids_for_no_workspace(
+        const std::vector<std::string>& candidates) const;
     nlohmann::json pinned_sessions_to_json(const acecode::desktop::WorkspaceMeta& ws,
                                             const std::vector<std::string>& session_ids) const;
     nlohmann::json no_workspace_pinned_sessions_to_json(
@@ -609,6 +612,7 @@ struct WebServer::Impl {
     void register_security();
 
     void register_health();
+    void register_session_diagnostics();
     void register_usage();
     void register_workspaces();
     void register_pinned_sessions();

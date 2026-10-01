@@ -125,7 +125,8 @@ import {
   updateQueuedInputContent,
 } from '../lib/chatInputQueue.js';
 import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceRow } from '../lib/stickyUserContext.js';
-import { loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
+import { fetchCompletedTurnHistory, loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
+import { sessionJumpMessagePosition } from '../lib/sessionJump.js';
 import { trailingUserMessageRetryId } from '../lib/trailingUserMessageRetry.js';
 import { createSingleWriterStore } from '../lib/singleWriterStore.js';
 import { projectCollapsedTranscriptItems } from '../lib/transcriptProjection.js';
@@ -289,6 +290,7 @@ import { nextAutoPreviewRefresh } from '../lib/previewRefresh.js';
 import {
   CHAT_TAIL_FOLLOW_STATE,
   chatScrollMetrics,
+  isChatNearTail,
   nextChatTailFollowState,
   observeChatTailContent,
   shouldAutoFollowChatTail,
@@ -472,10 +474,10 @@ function scrollTopForCenteredRow(container, row) {
   return Math.max(0, target);
 }
 
-function searchJumpTargetRow(container, ordinal) {
-  if (!container || ordinal === null) return null;
+function searchJumpTargetRow(container, ordinal, position = null) {
+  if (!container || (ordinal === null && position === null)) return null;
   return Array.from(container.querySelectorAll('[data-chat-row="true"][data-chat-user-message="true"]'))
-    .find((row) => row.getAttribute('data-chat-message-ordinal') === String(ordinal)) || null;
+    .find((row) => row.getAttribute(position !== null ? 'data-chat-message-position' : 'data-chat-message-ordinal') === String(position ?? ordinal)) || null;
 }
 
 function collectRowMetrics(container) {
@@ -671,6 +673,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     todoSummary,
     activity,
     applyEvent,
+    loadEarlier,
   } = transcript;
 
   const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
@@ -755,7 +758,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         typeof document === 'undefined' || document.visibilityState !== 'hidden'
       ),
       fetchCanonicalHistory: (sessionId) => (
-        selfHealRuntimeRef.current.api?.getMessages(sessionId, 0)
+        fetchCompletedTurnHistory(selfHealRuntimeRef.current.api, sessionId, selfHealTranscriptRef.current.getState?.())
       ),
       applyCanonicalHistory: (data, snapshot) => {
         const updateState = selfHealTranscriptRef.current.updateState;
@@ -882,6 +885,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 图像行默认展开,所以这里记的是「被用户收起的」行,与上面那个集合语义相反。
   const [collapsedMediaKeys, setCollapsedMediaKeys] = useState(() => new Set());
   const scrollRef = useRef(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const transcriptContentRef = useRef(null);
   const tailFollowStateRef = useRef(CHAT_TAIL_FOLLOW_STATE.FOLLOWING);
   const tailFollowScrollRafRef = useRef({ first: 0, second: 0 });
@@ -1096,18 +1100,30 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 「显示更早」的滚动补偿:向上补条目会把现有内容往下推,浏览器原生
   // 锚定已被 overflow-anchor:none 关掉,这里手动按 scrollHeight 差值回补。
   const windowRevealScrollRef = useRef(null);
-  const revealEarlierTranscript = useCallback(() => {
+  const revealEarlierTranscript = useCallback(async () => {
     const el = scrollRef.current;
     if (el) {
       windowRevealScrollRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
     }
-    setTranscriptWindow((prev) => {
-      if (prev.sid !== sid || !prev.anchorKey) return prev;
-      return { sid, anchorKey: revealEarlierAnchorKey(itemsRef.current, prev.anchorKey) };
-    });
-  }, [sid]);
-  const expandTranscriptWindow = useCallback((options = {}) => {
-    if (!windowHiddenCountRef.current) return;
+    if (windowHiddenCountRef.current === 0) {
+      await loadEarlier();
+      setTranscriptWindow({ sid, anchorKey: null });
+    } else {
+      setTranscriptWindow((prev) => {
+        if (prev.sid !== sid || !prev.anchorKey) return prev;
+        return { sid, anchorKey: revealEarlierAnchorKey(itemsRef.current, prev.anchorKey) };
+      });
+    }
+  }, [sid, loadEarlier]);
+  const expandTranscriptWindow = useCallback(async (options = {}) => {
+    if (options.loadAll) {
+      while (transcript.getState().historyHasMore) {
+        const before = transcript.getState().historyBefore;
+        await loadEarlier();
+        if (before === transcript.getState().historyBefore) break;
+      }
+    }
+    if (!windowHiddenCountRef.current && !options.loadAll) return;
     if (options.compensateScroll) {
       const el = scrollRef.current;
       if (el) {
@@ -1117,7 +1133,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setTranscriptWindow((prev) => (
       prev.sid === sid && prev.anchorKey ? { sid, anchorKey: null } : prev
     ));
-  }, [sid]);
+  }, [sid, loadEarlier, transcript.getState]);
   useLayoutEffect(() => {
     const saved = windowRevealScrollRef.current;
     if (!saved) return;
@@ -1125,11 +1141,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = saved.scrollTop + (el.scrollHeight - saved.scrollHeight);
-  }, [transcriptWindow]);
+  }, [transcriptWindow, items]);
   // 会话内查找(Ctrl+F)在 DOM 文本上搜索,窗口外的行搜不到 —— find 打开
   // 时直接全量展开(GlobalFindOverlay 广播的事件)。
   useEffect(() => {
-    const handler = () => expandTranscriptWindow();
+    const handler = () => expandTranscriptWindow({ loadAll: true });
     window.addEventListener('acecode:conversation-find-open', handler);
     return () => window.removeEventListener('acecode:conversation-find-open', handler);
   }, [expandTranscriptWindow]);
@@ -1172,6 +1188,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     preparedConversationTurns,
   );
   const searchJumpOrdinal = useMemo(() => searchJumpOrdinalFromRef(ref), [ref]);
+  const requestedSearchPosition = sessionJumpMessagePosition(ref);
+  const searchTargetKey = `${sid}:${requestedSearchPosition ?? ''}:${searchJumpOrdinal ?? ''}`;
+  const [resolvedSearchTarget, setResolvedSearchTarget] = useState(null);
+  const searchJumpPosition = resolvedSearchTarget?.key === searchTargetKey
+    ? resolvedSearchTarget.position : requestedSearchPosition;
+  useEffect(() => {
+    if (transcriptLoadState !== 'loaded' || (requestedSearchPosition === null && searchJumpOrdinal === null)) return undefined;
+    let cancelled = false;
+    loadEarlier(requestedSearchPosition !== null
+      ? { messagePosition: requestedSearchPosition }
+      : { messageOrdinal: searchJumpOrdinal }).then((position) => {
+        if (!cancelled && position != null) setResolvedSearchTarget({ key: searchTargetKey, position: String(position) });
+      });
+    return () => { cancelled = true; };
+  }, [transcriptLoadState, searchTargetKey, requestedSearchPosition, searchJumpOrdinal, loadEarlier]);
 
   useEffect(() => {
     if (!sid || transcriptLoadState !== 'loaded') return undefined;
@@ -2589,6 +2620,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       conversationTurnRafRef.current = 0;
       const el = scrollRef.current;
       const rowMetrics = collectRowMetrics(el);
+      setShowScrollToBottom(!!el && el.clientHeight > 0 && !isChatNearTail(el, 1));
       measureStickyContext(rowMetrics);
       measureConversationTurn(rowMetrics);
     });
@@ -2716,6 +2748,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       });
     });
   }, [cancelTailFollowScroll]);
+
+  const jumpToChatTail = useCallback(() => {
+    cancelActivityExpansionAnchor();
+    setTailFollowFromAction({ type: 'jump_to_tail' });
+    scheduleTailFollowScroll();
+    scheduleTranscriptMeasures();
+  }, [cancelActivityExpansionAnchor, scheduleTailFollowScroll, scheduleTranscriptMeasures, setTailFollowFromAction]);
 
   const pauseTailFollowForReview = useCallback(() => {
     cancelTailFollowScroll();
@@ -2899,6 +2938,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useLayoutEffect(() => {
     cancelActivityExpansionAnchor();
     setTailFollowFromAction({ type: 'session_reset' });
+    setShowScrollToBottom(false);
     lastUserTurnKeyRef.current = '';
     scrollActivityRef.current = { prev: null, pointerActive: false };
     return cancelActivityExpansionAnchor;
@@ -2935,9 +2975,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   ]);
 
   const handleTranscriptContentResize = useCallback(() => {
+    scheduleTranscriptMeasures();
     if (preserveActivityExpansionAnchor()) return;
     scheduleTailFollowScroll();
-  }, [preserveActivityExpansionAnchor, scheduleTailFollowScroll]);
+  }, [preserveActivityExpansionAnchor, scheduleTailFollowScroll, scheduleTranscriptMeasures]);
 
   useEffect(() => observeChatTailContent(
     transcriptContentRef.current,
@@ -2950,7 +2991,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (previous.timer) window.clearTimeout(previous.timer);
     searchJumpRetryRef.current = { frame: 0, timer: 0 };
 
-    if (!sid || searchJumpOrdinal === null) return undefined;
+    if (!sid || (searchJumpOrdinal === null && searchJumpPosition === null)) return undefined;
 
     let cancelled = false;
     const task = { frame: 0, timer: 0, attempts: 0, settled: 0 };
@@ -2969,7 +3010,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       task.attempts += 1;
 
       const el = scrollRef.current;
-      const targetRow = searchJumpTargetRow(el, searchJumpOrdinal);
+      const targetRow = searchJumpTargetRow(el, searchJumpOrdinal, searchJumpPosition);
       if (el && targetRow) {
         cancelTailFollowScroll();
         setTailFollowFromAction({ type: 'review_pause' });
@@ -3008,6 +3049,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     renderedItems,
     scheduleStickyMeasure,
     searchJumpOrdinal,
+    searchJumpPosition,
     setTailFollowFromAction,
     sid,
   ]);
@@ -5930,18 +5972,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           style={changeDockBottomPadding > 0 ? { paddingBottom: changeDockBottomPadding } : undefined}
         >
           <div ref={transcriptContentRef} className="flex flex-col gap-3">
-          {windowHiddenCount > 0 && (
+          {(windowHiddenCount > 0 || transcript.historyHasMore) && (
             <div className="flex items-center justify-center gap-3 py-1.5 text-[12px] text-fg-mute">
               <button
                 type="button"
                 onClick={revealEarlierTranscript}
                 className="px-3 py-1 rounded-full border border-border bg-surface hover:bg-surface-hi hover:text-fg transition"
               >
-                {`显示更早的 ${windowHiddenCount} 条消息`}
+                {windowHiddenCount > 0 ? `显示更早的 ${windowHiddenCount} 条消息` : '显示更早的消息'}
               </button>
               <button
                 type="button"
-                onClick={() => expandTranscriptWindow({ compensateScroll: true })}
+                onClick={() => expandTranscriptWindow({ compensateScroll: true, loadAll: true })}
                 className="hover:text-fg transition underline-offset-2 hover:underline"
               >
                 显示全部
@@ -6045,6 +6087,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               />
             </Suspense>
           </ConversationTurnScrubberBoundary>
+        )}
+        {sid && showScrollToBottom && (
+          <button
+            type="button"
+            onClick={jumpToChatTail}
+            className="absolute left-1/2 -translate-x-1/2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg ace-shadow-lg hover:bg-surface-hi focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            style={{ bottom: Math.max(12, changeDockBottomPadding + 12) }}
+            title="滚动到底部"
+            aria-label="滚动到底部"
+          >
+            <VsIcon name="ArrowDown" size={18} />
+          </button>
         )}
         <StickyUserContext context={stickyUserContext} onJumpToSource={jumpToStickyUserSource} />
         {showChangeDock && (

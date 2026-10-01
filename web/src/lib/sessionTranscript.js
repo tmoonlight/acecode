@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { createApi } from './api.js';
+import { ensureSessionOpen, reportSessionOpen } from './sessionOpenDiagnostics.js';
 import { connection } from './connection.js';
 import { attachmentsFromContentParts, normalizeAttachmentList } from './messageAttachments.js';
 import { sessionDisplayTitle } from './sessionTitle.js';
@@ -866,7 +867,8 @@ function historyItemsFromMessages(next, messages) {
     }
     const message = withVisibleAssistantContent(
       withPersistedToolName(rawMessage, toolNamesByCallId));
-    items.push(...historyItemsFromMessage(next, message, i));
+    items.push(...historyItemsFromMessage(next, message, i).map((item) => message.message_position == null
+      ? item : { ...item, messagePosition: String(message.message_position) }));
     if (message?.role === 'tool') {
       const toolCallId = String((message.tool_call_id ?? message.toolCallId ?? '') || '').trim();
       if (toolCallId) toolNamesByCallId.delete(toolCallId);
@@ -880,7 +882,7 @@ function historyItemsFromMessages(next, messages) {
 function visibleTranscriptMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
-    .map((m, index) => (m && typeof m === 'object' ? { ...m, __messageOrdinal: index } : m))
+    .map((m, index) => (m && typeof m === 'object' ? { ...m, __messageOrdinal: m.message_ordinal ?? m.__messageOrdinal ?? (m.message_position == null ? index : null) } : m))
     .filter((m) => !m?.is_meta && !m?.metadata?.hidden_goal_context);
 }
 
@@ -1216,6 +1218,10 @@ export function createTranscriptState(overrides = {}) {
     lastSeq: 0,
     isLive: false,
     loadState: 'idle',
+    historyBefore: '',
+    historyAfter: '',
+    historyHasMore: false,
+    historyTurnTruncated: false,
     streamingId: null,
     trajectoryPartial: null,
     toolMap: new Map(),
@@ -1792,6 +1798,53 @@ export function reduceTranscriptEvent(state, msg) {
   return { state: next, effects };
 }
 
+
+export const HISTORY_PAGE_SIZE = 200;
+
+// Prepending keeps every existing item ID (and therefore the DOM/window anchor).
+// Runtime events remain owned by the live store while disk pages arrive.
+export function mergeTranscriptHistoryPage(state, data = {}, direction = 'before') {
+  const current = state || createTranscriptState();
+  const messages = Array.isArray(data.messages) ? data.messages : [];
+  const next = cloneState(current);
+  const split = splitTranscriptMessages(messages);
+  const added = historyItemsFromMessages(next, split.messages);
+  for (const [key, value] of split.turnTimings) next.turnTimings.set(key, value);
+  for (const [key, value] of split.turnNetDiffs) next.turnNetDiffs.set(key, value);
+  next.items = messages.length === 0 ? current.items : applyTurnMetadataToItems(
+    direction === 'before' ? [...added, ...current.items] : [...current.items, ...added],
+    next.turnTimings, next.turnNetDiffs,
+  );
+  if (direction === 'before') {
+    next.historyBefore = data.before || '';
+    next.historyHasMore = data.has_more === true;
+    next.historyTurnTruncated = data.turn_truncated === true;
+  } else {
+    next.historyAfter = data.after || current.historyAfter;
+  }
+  return next;
+}
+
+export async function fetchCompletedTurnHistory(api, sid, state) {
+  const items = Array.isArray(state?.items) ? state.items : [];
+  let anchor = null;
+  let count = 0;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    count += 1;
+    if (items[i]?.kind === 'msg' && items[i].role === 'user') { anchor = items[i]; break; }
+  }
+  const limit = Math.min(1000, Math.max(HISTORY_PAGE_SIZE, count + 16));
+  const tail = await api.getMessages(sid, { limit });
+  const containsAnchor = (tail.messages || []).some((m) => (
+    m.role === 'user' && (anchor?.messageId ? m.id === anchor.messageId : m.content === anchor?.content)
+  ));
+  if (!containsAnchor && tail.has_more && tail.before) {
+    const older = await api.getMessages(sid, { limit, before: tail.before });
+    return { ...tail, messages: [...(older.messages || []), ...(tail.messages || [])] };
+  }
+  return tail;
+}
+
 export function loadTranscriptHistory(state, data = {}) {
   const current = state || createTranscriptState();
   let next = createTranscriptState({
@@ -1802,6 +1855,10 @@ export function loadTranscriptHistory(state, data = {}) {
     isLive: !!current.isLive,
     lastSeq: 0,
     loadState: 'loaded',
+    historyBefore: data.before || '',
+    historyAfter: data.after || '',
+    historyHasMore: data.has_more === true,
+    historyTurnTruncated: data.turn_truncated === true,
   });
   const effects = [];
   const { messages: msgs, turnTimings, turnNetDiffs } = splitTranscriptMessages(data.messages);
@@ -1928,6 +1985,11 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const api = useMemo(() => createApi(ref), [ref?.port, ref?.token, ref?.workspaceHash]);
   const liveMode = options.live ?? 'auto';
   const isLive = !!sid && canLiveMonitorSession(ref, liveMode);
+  const liveRef = useRef(isLive);
+  liveRef.current = isLive;
+  const resumeReplayRef = useRef({ sid, pending: !isLive });
+  if (resumeReplayRef.current.sid !== sid) resumeReplayRef.current = { sid, pending: !isLive };
+  if (!isLive) resumeReplayRef.current.pending = true;
   const refreshIntervalMs = Math.max(
     0,
     Number(options.refreshIntervalMs) || 0,
@@ -1956,12 +2018,15 @@ export function useSessionTranscript(sessionRef, options = {}) {
   // 旧会话的 loaded 状态当成新会话已加载。
   const stateSessionIdRef = useRef(sid);
   const historyScopeRef = useRef(null);
+  const loadingHistoryRef = useRef(false);
+  const pendingHistoryEventsRef = useRef([]);
   sessionRefRef.current = ref;
   const refreshSignatureRef = useRef('');
 
   useEffect(() => { optionsRef.current = options; }, [options]);
 
   const applyEvent = useCallback((msg, { emitEffects = true } = {}) => {
+    if (loadingHistoryRef.current) pendingHistoryEventsRef.current.push(msg);
     let effects = [];
     // reducer 的附带产物用闭包带出 producer:先把数据落进 store,再派发副作用。
     const nextState = store.commit((prevState) => {
@@ -1977,6 +2042,56 @@ export function useSessionTranscript(sessionRef, options = {}) {
     return nextState;
   }, [sid, store]);
 
+
+  const pageRequestRef = useRef(null);
+  const reloadHistoryTail = useCallback(async () => {
+    const scope = historyScopeRef.current;
+    const data = await api.getMessages(sid, { limit: HISTORY_PAGE_SIZE });
+    if (historyScopeRef.current !== scope) return null;
+    store.commit((previous) => preserveLiveAssistantTailOnLoad(
+      preserveLiveRuntimeOnLoad(loadTranscriptHistory(previous, data).state, previous), previous,
+    ));
+    return data;
+  }, [api, sid, store]);
+
+  const loadEarlier = useCallback(async (target = null) => {
+    if (pageRequestRef.current) return pageRequestRef.current;
+    const scope = historyScopeRef.current;
+    const previous = store.getState();
+    if (previous.loadState !== 'loaded') return null;
+    const position = target?.messagePosition;
+    if (position != null && previous.items.some((item) => item.messagePosition === String(position))) return String(position);
+    if (!target && !previous.historyHasMore) return null;
+    const query = { limit: HISTORY_PAGE_SIZE };
+    if (previous.historyBefore && target?.messageOrdinal == null) query.before = previous.historyBefore;
+    if (target?.messagePosition != null) query.from_position = String(target.messagePosition);
+    else if (target?.messageOrdinal != null) query.from_ordinal = target.messageOrdinal;
+    const pending = (async () => {
+      try {
+        const data = await api.getMessages(sid, query);
+        if (historyScopeRef.current !== scope) return null;
+        // A legacy ordinal may resolve inside the already loaded tail. In that
+        // case its response is used only to resolve the position, without overlap.
+        store.commit((current) => {
+          if (current.historyBefore !== previous.historyBefore) return current;
+          const existing = new Set(current.items.map((item) => item.messagePosition).filter((p) => p != null));
+          if (target && existing.has(String(data.messages?.[0]?.message_position))) return current;
+          const rows = (data.messages || []).filter((m) => !existing.has(String(m.message_position)));
+          return mergeTranscriptHistoryPage(current, { ...data, messages: rows }, 'before');
+        });
+        return data.messages?.[0]?.message_position ?? null;
+      } catch (error) {
+        if (historyScopeRef.current !== scope) return null;
+        if (error?.status === 409) { await reloadHistoryTail(); return null; }
+        optionsRef.current.onError?.('加载会话失败:' + (error?.message || ''));
+        return null;
+      }
+    })();
+    pageRequestRef.current = pending;
+    try { return await pending; }
+    finally { if (pageRequestRef.current === pending) pageRequestRef.current = null; }
+  }, [api, sid, store, reloadHistoryTail]);
+
   const getState = useCallback(() => store.getState(), [store]);
 
   // 只接受 producer:值形式允许调用方传入一份过期快照,正是本次修复要根除的
@@ -1984,11 +2099,21 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const updateState = useCallback((producer) => store.commit(producer), [store]);
 
   useEffect(() => {
+    store.commit((previous) => previous.isLive === isLive
+      ? previous
+      : { ...previous, isLive });
+  }, [isLive, store]);
+
+  useEffect(() => {
+    const isLive = liveRef.current;
     stateSessionIdRef.current = sid;
     const baseTitleFields = sessionTitleFieldsFromRef(sessionRefRef.current);
     const sameHistory = historyScopeRef.current?.sid === sid
       && historyScopeRef.current?.api === api;
     historyScopeRef.current = { sid, api };
+    loadingHistoryRef.current = !!sid;
+    pendingHistoryEventsRef.current = [];
+    pageRequestRef.current = null;
     if (sameHistory) {
       // Runtime recovery changes live eligibility, not transcript identity.
       // Keep the disk history visible while fetching the live catch-up.
@@ -2002,10 +2127,15 @@ export function useSessionTranscript(sessionRef, options = {}) {
       refreshSignatureRef.current = '';
     }
     if (!sid) return undefined;
+    ensureSessionOpen(sid);
 
     let off = false;
-    api.getMessages(sid, 0).then((data) => {
+    api.getMessages(sid, { limit: HISTORY_PAGE_SIZE }).then((data) => {
       if (off) return;
+      loadingHistoryRef.current = false;
+      const pendingEvents = pendingHistoryEventsRef.current;
+      pendingHistoryEventsRef.current = [];
+      const isLive = liveRef.current;
       const messages = Array.isArray(data?.messages) ? data.messages : [];
       refreshSignatureRef.current = `${messages.length}:${
         messages.length > 0 ? JSON.stringify(messages[messages.length - 1]) : ''
@@ -2016,6 +2146,9 @@ export function useSessionTranscript(sessionRef, options = {}) {
       const nextState = store.commit((prevState) => {
         const loaded = loadTranscriptHistory(prevState, data || {});
         loadEffects = loaded.effects;
+        // A recovery audit/live event can arrive after the disk read's fixed
+        // boundary but before its response. Reapply it without emitting effects twice.
+        loaded.state = applyTranscriptReplayEvents(loaded.state, pendingEvents).state;
         // 防回退:实时 WS 可能在 getMessages(0) 解析期间已累积了更完整的当前
         // 回合内容,而这份 REST 快照更旧(messages 尚未含进行中的 assistant)。
         // 直接覆盖会把界面截断,这里保留更完整的实时尾巴。
@@ -2076,6 +2209,8 @@ export function useSessionTranscript(sessionRef, options = {}) {
       }
     }).catch((error) => {
       if (off) return;
+      loadingHistoryRef.current = false;
+      pendingHistoryEventsRef.current = [];
       store.commit((prevState) => ({
         ...prevState,
         loadState: 'error',
@@ -2090,8 +2225,23 @@ export function useSessionTranscript(sessionRef, options = {}) {
     // transcript 整个重置回 loading 并重拉全量历史(feedback IQSZ-D0668 的
     // desktop 日志里 "tail shrank via catchup: lastSeq 0→NNNN" 就是这条路径
     // 的可见后果)。真正需要重载的输入只有:会话身份(sid)、连接目标(api,
-    // 已按 port/token/workspaceHash memo)、实时性(isLive)。
-  }, [api, isLive, sid]);
+    // 已按 port/token/workspaceHash memo)。实时性单独更新,不会取消仍在途的
+    // 磁盘加载;成为实时会话时由下方 WebSocket 订阅回放补齐事件。
+  }, [api, sid]);
+
+  useEffect(() => {
+    if (!sid || stateSessionIdRef.current !== sid || state.loadState !== 'loaded') return undefined;
+    let secondFrame = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        void reportSessionOpen(sid, (payload) => api.reportSessionOpen(payload));
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [api, sid, state.loadState]);
 
   useEffect(() => {
     if (!sid || refreshIntervalMs < 250) return undefined;
@@ -2100,24 +2250,17 @@ export function useSessionTranscript(sessionRef, options = {}) {
     const refresh = () => {
       if (stopped || inFlight) return;
       inFlight = true;
-      api.getMessages(sid, 0)
+      const after = store.getState().historyAfter;
+      if (!after) { inFlight = false; return; }
+      api.getMessages(sid, { after })
         .then((data) => {
           if (stopped) return;
-          const messages = Array.isArray(data?.messages) ? data.messages : [];
-          const signature = `${messages.length}:${
-            messages.length > 0
-              ? JSON.stringify(messages[messages.length - 1])
-              : ''
-          }`;
-          if (signature === refreshSignatureRef.current) return;
-          refreshSignatureRef.current = signature;
-          store.commit((prevState) => ({
-            ...loadTranscriptHistory(prevState, data || {}).state,
-            isLive,
-            loadState: 'loaded',
-          }));
+          store.commit((current) => current.historyAfter !== after ? current
+            : mergeTranscriptHistoryPage(current, data, 'after'));
         })
-        .catch(() => {})
+        .catch(async (error) => {
+          if (!stopped && error?.status === 409) await reloadHistoryTail();
+        })
         .finally(() => {
           inFlight = false;
         });
@@ -2127,7 +2270,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [api, isLive, refreshIntervalMs, sid]);
+  }, [api, isLive, refreshIntervalMs, sid, reloadHistoryTail, store]);
 
   useEffect(() => {
     if (!sid || !isLive) return undefined;
@@ -2139,7 +2282,10 @@ export function useSessionTranscript(sessionRef, options = {}) {
       applyEvent(msg);
     };
     connection.addEventListener('message', handler);
-    connection.retainSession(sid);
+    connection.retainSession(sid, resumeReplayRef.current.pending
+      ? { since: store.getState().lastSeq || 0, replayFromStart: true }
+      : {});
+    resumeReplayRef.current.pending = false;
     return () => {
       connection.removeEventListener('message', handler);
       connection.releaseSession(sid);
@@ -2159,6 +2305,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
       ? state.loadState
       : (sid ? 'loading' : 'idle'),
     applyEvent,
+    loadEarlier,
     getState,
     updateState,
   };

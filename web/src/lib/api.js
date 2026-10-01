@@ -4,6 +4,7 @@
 // setBase({port, token}) 仍保留给 standalone/desktop bootstrap 与兼容场景。
 
 import { getToken } from './auth.js';
+import { recordSessionHistoryBytes, trackSessionHistoryRequest } from './sessionOpenDiagnostics.js';
 import { createSideChatStream } from './sideChatStream.js';
 import { mcpScopeQuery } from './mcpServers.js';
 import { memoryEntryPath, memoryOverviewPath, memoryResetBody } from './memorySettings.js';
@@ -81,6 +82,7 @@ function fullUrl(path, base) {
 function sessionsPath(path, opts = {}) {
   const qs = new URLSearchParams();
   if (opts && opts.archived) qs.set('archived', '1');
+  if (opts?.scope === 'no-workspace') qs.set('scope', 'no-workspace');
   // 后台任务反查:只返回该父会话派生的 spawn_subagent 子会话。
   if (opts && opts.parent) qs.set('parent', String(opts.parent));
   const limit = Number(opts?.limit);
@@ -146,7 +148,13 @@ function sessionCatalogSearchPath(options = {}) {
 
 function sessionMessagesPath(id, since = 0, base = null, workspaceHash = '') {
   const params = new URLSearchParams();
-  params.set('since', String(since));
+  if (since && typeof since === 'object') {
+    for (const key of ['limit', 'before', 'after', 'from_position', 'from_ordinal']) {
+      if (since[key] !== undefined && since[key] !== null && since[key] !== '') params.set(key, String(since[key]));
+    }
+  } else {
+    params.set('since', String(since));
+  }
   const effectiveWorkspaceHash = String(
     workspaceHash || base?.workspaceHash || base?.workspace_hash || '',
   ).trim();
@@ -260,6 +268,7 @@ function timeoutOptions(options = {}, defaultTimeoutMs = undefined) {
 }
 
 async function request(method, path, body, base, options = {}) {
+  const historyMeasurement = method === 'GET' ? trackSessionHistoryRequest(path) : null;
   const headers = {};
   const token = baseToken(base);
   if (token) headers['X-ACECode-Token'] = token;
@@ -303,6 +312,9 @@ async function request(method, path, body, base, options = {}) {
     if (resp.ok && options.responseType === 'blob') return await resp.blob();
     // 附件正文按原样读成字符串,不按 Content-Type 猜 JSON(粘贴的文本可能恰好是 JSON)。
     if (resp.ok && options.responseType === 'text') return await resp.text();
+    if (historyMeasurement) {
+      recordSessionHistoryBytes(historyMeasurement, resp.headers.get('Content-Length'));
+    }
     const ctype = resp.headers.get('Content-Type') || '';
     let parsed = null;
     if (resp.status !== 204 && ctype.includes('application/json')) {
@@ -331,6 +343,7 @@ async function request(method, path, body, base, options = {}) {
 export function createApi(base = null) {
   const client = {
     health:           ()             => request('GET',    '/api/health', undefined, base),
+    reportSessionOpen: (measurement) => request('POST', '/api/diagnostics/session-open', measurement, base, { timeoutMs: 2000 }),
     // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。
     modelPoolStatus:  ()             => request('GET',    '/api/model-pool-status', undefined, base),
     // 控制台 PTY(add-console-dock):loopback-only,daemon 端 16 会话上限(429)。

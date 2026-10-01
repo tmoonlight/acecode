@@ -45,6 +45,18 @@ The system SHALL answer each side question using a safe main-session context sna
 - **THEN** the system refuses the side request before invocation with a clear unsupported-provider error
 - **AND** the main task remains available without changing its provider behavior
 
+### Requirement: Read-only tools in side chat
+Streaming side chat and the single-turn TUI `/btw` / `/side` and HTTP side questions SHALL offer the model only the read-only built-in tools `file_read`, `grep`, `glob` and `lsp` that the session has registered and its capability policy allows, and SHALL never offer shell, write, sub-agent or MCP tools. The daemon SHALL execute each call only after configured Deny rules, the main session's path validation and the dangerous-path check, refuse any call that would require a confirmation prompt, and leave the main agent's read state unchanged. Each call SHALL be shown as a tool row at the position where it happened. Tool calls written as plain text SHALL be discarded and corrected rather than displayed.
+
+#### Scenario: Read a file to answer
+- **WHEN** a side question needs a file that is not in the main context
+- **THEN** the model reads it through `file_read`, a tool row shows the path, and the answer continues after the result
+- **AND** the main agent's later read of that file returns its content rather than an unchanged-file stub
+
+#### Scenario: Model attempts a shell command
+- **WHEN** the model calls `bash` or writes a tool call as angle-bracket text
+- **THEN** nothing is executed, the markup is not shown, and the model is told that only the read-only tools are available
+
 ### Requirement: Streaming progress and cancellation
 The UI SHALL show loading from submission, render actual streamed answer text, and provide a stop control for the active side request. The input SHALL be disabled from submission until completion, failure, or cancellation. Stopping SHALL cancel only the side model request and retain text already produced. Retried provider attempts SHALL replace provisional text rather than concatenate failed attempts.
 

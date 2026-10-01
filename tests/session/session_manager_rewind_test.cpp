@@ -172,3 +172,39 @@ TEST(SessionManagerRewind, ResumeReconstructsCheckpointState) {
     fs::remove_all(project_dir);
     fs::remove_all(cwd);
 }
+
+TEST(SessionManagerRewind, SuffixResumeLazilyRestoresFilesFromBeforeLatestCompact) {
+    auto cwd = make_temp_cwd("suffix");
+    const auto project = SessionStorage::get_project_dir(cwd.string());
+    auto file = cwd / "tracked.txt";
+    write_file(file, "original\n");
+    SessionManager sm;
+    sm.start_session(cwd.string(), "test", "test");
+    sm.on_message(user_msg("before", "old prompt"));
+    sm.begin_user_turn_checkpoint("before");
+    sm.track_file_write_before(file.string());
+    write_file(file, "modified\n");
+    acecode::CompactCheckpoint compact;
+    compact.window_number = 5;
+    compact.window_id = "window-five";
+    compact.first_window_id = "window-one";
+    compact.replacement_history = {user_msg("summary", "summary")};
+    ASSERT_TRUE(sm.append_compact_checkpoint(compact));
+    sm.on_message(user_msg("after", "new prompt"));
+    const auto id = sm.current_session_id();
+    const auto count = sm.load_session_meta(id).message_count;
+    const auto suffix = sm.resume_session(id, true);
+    EXPECT_FALSE(contains_content(suffix, "old prompt"));
+    EXPECT_TRUE(contains_content(suffix, "new prompt"));
+    EXPECT_EQ(sm.load_session_meta(id).message_count, count);
+    const auto latest = sm.load_latest_compact_checkpoint();
+    ASSERT_TRUE(latest);
+    EXPECT_EQ(latest->window_number, 5u);
+    EXPECT_EQ(latest->first_window_id, "window-one");
+    EXPECT_TRUE(sm.file_checkpoint_can_restore("before"));
+    EXPECT_TRUE(sm.rewind_files_to_checkpoint("before").ok());
+    EXPECT_EQ(read_file(file), "original\n");
+    sm.finalize();
+    fs::remove_all(project);
+    fs::remove_all(cwd);
+}

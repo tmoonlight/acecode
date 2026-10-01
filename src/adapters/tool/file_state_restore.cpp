@@ -1,4 +1,9 @@
 #include "file_state_restore.hpp"
+#include "session/compact_checkpoint.hpp"
+#include "utils/utf8_path.hpp"
+#include <filesystem>
+#include <algorithm>
+#include <cctype>
 
 #include "tool/apply_patch_format.hpp"
 #include "tool/mtime_tracker.hpp"
@@ -121,21 +126,21 @@ std::string strip_read_metadata_footer(std::string content) {
     return content;
 }
 
-void restore_file_tool_state(const FileToolUse& use, const ChatMessage& result) {
-    if (looks_like_failed_tool_result(result)) return;
+std::size_t restore_file_tool_state(const FileToolUse& use, const ChatMessage& result) {
+    if (looks_like_failed_tool_result(result)) return 0;
 
     if (use.name == "file_read") {
-        if (use.partial_read_request) return;
-        if (starts_with(result.content, kFileUnchangedStubPrefix)) return;
-        if (read_footer_is_lossy(result.content)) return;
-        if (read_footer_is_partial(result.content)) return;
+        if (use.partial_read_request) return 0;
+        if (starts_with(result.content, kFileUnchangedStubPrefix)) return 0;
+        if (read_footer_is_lossy(result.content)) return 0;
+        if (read_footer_is_partial(result.content)) return 0;
 
         FileReadEditMetadata metadata;
         MtimeTracker::instance().seed_transcript_read_baseline(
             use.path,
             strip_read_metadata_footer(result.content),
             metadata);
-        return;
+        return 0;
     }
 
     if (use.name == "file_write") {
@@ -144,7 +149,7 @@ void restore_file_tool_state(const FileToolUse& use, const ChatMessage& result) 
             use.path,
             use.content,
             metadata);
-        return;
+        return 0;
     }
 
     if (use.name == "file_edit") {
@@ -152,46 +157,86 @@ void restore_file_tool_state(const FileToolUse& use, const ChatMessage& result) 
         if (read_result.success && !read_result.buffer.metadata.lossy) {
             MtimeTracker::instance().record_write(use.path, read_result.buffer.text);
         }
-        return;
+        return 1;
     }
 
-    if (use.name == "apply_patch") {
-        // 补丁写过的文件当作已有编辑基线(与 file_edit 同款),这样 resume 后
-        // 模型切回 file_edit 也不会被「未读过」挡住。被删除的文件读不到就跳过。
-        for (const auto& path : use.patch_paths) {
-            auto read_result = read_text_file_buffer(path);
-            if (read_result.success && !read_result.buffer.metadata.lossy) {
-                MtimeTracker::instance().record_write(path, read_result.buffer.text);
-            }
-        }
-    }
+    return 0;
 }
 
 } // namespace
 
-void restore_file_tool_state_from_messages(const std::vector<ChatMessage>& messages,
-                                           const std::string& cwd) {
-    std::map<std::string, FileToolUse> file_tool_uses;
-
-    for (const auto& msg : messages) {
-        if (msg.role != "assistant" || !msg.tool_calls.is_array()) continue;
-        for (const auto& tool_call : msg.tool_calls) {
-            if (!tool_call.is_object() ||
-                !tool_call.contains("id") || !tool_call["id"].is_string()) {
-                continue;
+std::size_t restore_file_tool_state_from_messages(const std::vector<ChatMessage>& messages,
+                                                  const std::string& cwd) {
+    std::size_t begin = 0;
+    for (std::size_t i = messages.size(); i > 0; --i) {
+        try {
+            if (decode_compact_checkpoint(messages[i - 1])) {
+                begin = i;
+                break;
             }
-            auto use = parse_file_tool_use(tool_call, cwd);
-            if (!use.has_value()) continue;
-            file_tool_uses[tool_call["id"].get<std::string>()] = std::move(*use);
+        } catch (...) {
+            // A damaged checkpoint cannot define the restored context boundary.
         }
     }
-
-    for (const auto& msg : messages) {
-        if (msg.role != "tool" || msg.tool_call_id.empty()) continue;
-        auto it = file_tool_uses.find(msg.tool_call_id);
-        if (it == file_tool_uses.end()) continue;
-        restore_file_tool_state(it->second, msg);
+    struct Baseline {
+        FileToolUse use;
+        const ChatMessage* result; // Borrowed only during this synchronous call.
+    };
+    std::map<std::string, FileToolUse> calls;
+    std::map<std::string, Baseline> baselines;
+    std::map<std::string, std::string> paths;
+    const auto normalize = [&](const std::string& raw) {
+        if (const auto found = paths.find(raw); found != paths.end()) return found->second;
+        auto path = path_from_utf8(raw);
+        if (path.is_relative() && !cwd.empty()) path = path_from_utf8(cwd) / path;
+        std::error_code error;
+        const auto canonical = std::filesystem::weakly_canonical(path, error);
+        auto key = path_to_utf8((error ? path : canonical).lexically_normal());
+#ifdef _WIN32
+        std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
+#endif
+        paths.emplace(raw, key);
+        return key;
+    };
+    for (std::size_t i = begin; i < messages.size(); ++i) {
+        const auto& message = messages[i];
+        if (message.role == "user" && !message.is_meta) calls.clear();
+        if (message.role == "assistant" && message.tool_calls.is_array()) {
+            for (const auto& call : message.tool_calls) {
+                if (!call.is_object() || !call.contains("id") || !call["id"].is_string()) continue;
+                if (auto use = parse_file_tool_use(call, cwd)) {
+                    calls[call["id"].get<std::string>()] = std::move(*use);
+                }
+            }
+        }
+        if (message.role != "tool" || looks_like_failed_tool_result(message)) continue;
+        const auto call = calls.find(message.tool_call_id);
+        if (call == calls.end()) continue;
+        auto use = call->second;
+        calls.erase(call);
+        if (use.name == "file_read" &&
+            (use.partial_read_request || starts_with(message.content, kFileUnchangedStubPrefix) ||
+             read_footer_is_lossy(message.content) || read_footer_is_partial(message.content))) continue;
+        if (use.name == "apply_patch") {
+            for (const auto& path : use.patch_paths) {
+                FileToolUse edit;
+                edit.name = "file_edit";
+                edit.path = normalize(path);
+                baselines[edit.path] = {edit, &message};
+            }
+        } else {
+            use.path = normalize(use.path);
+            const auto key = use.path;
+            baselines[key] = {std::move(use), &message};
+        }
     }
+    std::size_t reads = 0;
+    for (const auto& [path, baseline] : baselines) {
+        reads += restore_file_tool_state(baseline.use, *baseline.result);
+    }
+    return reads;
 }
 
 } // namespace acecode

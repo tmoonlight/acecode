@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -65,15 +66,36 @@ ProviderHistoryRecoveryResult recover_provider_history(
     ProviderHistoryRecoveryResult result;
     result.messages.reserve(messages.size());
 
+    // 预留整个输入的 ID，避免改名占用后续调用或误匹配无关联结果。
+    std::unordered_set<std::string> reserved_ids;
+    const auto reserve_call_id = [&](const nlohmann::json& call) {
+        const auto id = valid_tool_call_id(call);
+        if (id) reserved_ids.insert(*id);
+    };
+    for (const auto& msg : messages) {
+        if (msg.role == "assistant") {
+            if (msg.tool_calls.is_array()) {
+                for (const auto& call : msg.tool_calls) reserve_call_id(call);
+            } else if (msg.tool_calls.is_object()) {
+                reserve_call_id(msg.tool_calls);
+            }
+        } else if (msg.role == "tool" && !msg.tool_call_id.empty()) {
+            reserved_ids.insert(msg.tool_call_id);
+        }
+    }
+    std::size_t next_recovered_id = 0;
+
     std::vector<std::string> pending_order;
-    std::unordered_set<std::string> pending_ids;
+    // 当前 assistant 的原始 ID -> 提供者投影 ID；结果只在本组内配对。
+    std::unordered_map<std::string, std::string> pending_ids;
     std::unordered_set<std::string> seen_call_ids;
     std::unordered_set<std::string> seen_result_ids;
 
     const auto flush_missing_results = [&]() {
         for (const auto& id : pending_order) {
-            if (!pending_ids.count(id)) continue;
-            result.messages.push_back(interrupted_tool_result(id));
+            const auto pending = pending_ids.find(id);
+            if (pending == pending_ids.end()) continue;
+            result.messages.push_back(interrupted_tool_result(pending->second));
             seen_result_ids.insert(id);
             ++result.stats.synthesized_tool_results;
         }
@@ -99,19 +121,31 @@ ProviderHistoryRecoveryResult recover_provider_history(
             }
 
             nlohmann::json retained = nlohmann::json::array();
+            std::unordered_set<std::string> batch_ids;
             for (const auto& call : calls) {
                 const auto id = valid_tool_call_id(call);
                 if (!id.has_value()) {
                     ++result.stats.malformed_tool_calls;
                     continue;
                 }
-                if (!seen_call_ids.insert(*id).second) {
+                if (!batch_ids.insert(*id).second) {
                     ++result.stats.duplicate_tool_calls;
                     continue;
                 }
-                retained.push_back(call);
+                auto projected_call = call;
+                std::string projected_id = *id;
+                if (!seen_call_ids.insert(*id).second) {
+                    // 兼容服务可能每次响应都返回 call_0；跨消息复用不是重复执行。
+                    ++result.stats.duplicate_tool_calls;
+                    do {
+                        projected_id = "call_ace_recovered_" +
+                                       std::to_string(++next_recovered_id);
+                    } while (!reserved_ids.insert(projected_id).second);
+                    projected_call["id"] = projected_id;
+                }
+                retained.push_back(std::move(projected_call));
                 pending_order.push_back(*id);
-                pending_ids.insert(*id);
+                pending_ids.emplace(*id, std::move(projected_id));
             }
 
             if (retained.empty()) {
@@ -129,8 +163,12 @@ ProviderHistoryRecoveryResult recover_provider_history(
 
         if (original.role == "tool") {
             const std::string& id = original.tool_call_id;
-            if (!id.empty() && pending_ids.erase(id) > 0) {
-                result.messages.push_back(original);
+            const auto pending = pending_ids.find(id);
+            if (pending != pending_ids.end()) {
+                ChatMessage tool = original;
+                tool.tool_call_id = pending->second;
+                result.messages.push_back(std::move(tool));
+                pending_ids.erase(pending);
                 seen_result_ids.insert(id);
                 continue;
             }

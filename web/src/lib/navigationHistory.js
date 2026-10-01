@@ -63,6 +63,11 @@ function transferableRef(ref) {
     };
   }
 
+  const position = match?.messagePosition ?? match?.message_position;
+  if (position != null && /^\d+$/.test(String(position))) {
+    out.searchMatch = { ...out.searchMatch, kind: 'user_message', messagePosition: String(position), message_position: String(position) };
+  }
+
   if (!out.home && !out.loop && !out.sessionId && !out.expertComponents && !out.expertId) {
     return null;
   }

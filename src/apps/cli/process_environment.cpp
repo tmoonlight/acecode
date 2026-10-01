@@ -1,4 +1,7 @@
 #include "process_environment.hpp"
+#include "ipc/runtime_files.hpp"
+#include "platform/package_identity.hpp"
+#include "platform/process/os_process.hpp"
 #include <filesystem>
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -21,6 +24,12 @@ void configure_process_environment() {
 }
 
 std::string get_executable_dir_from_argv(int argc, char* argv[]) {
+    if (has_windows_package_identity()) {
+        // An AppExecutionAlias points into WindowsApps, not beside our resources.
+        if (auto path = daemon::process_executable_path(daemon::current_pid())) {
+            return std::filesystem::u8path(*path).parent_path().u8string();
+        }
+    }
     if (argc <= 0 || !argv[0]) return "";
     std::error_code ec;
     std::filesystem::path exe(argv[0]);

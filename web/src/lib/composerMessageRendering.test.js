@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { parseSync } from '@babel/core';
 import { transformWithEsbuild } from 'vite';
 import * as composerContent from './composerContent.js';
+import * as composerImagePresentation from './composerImagePresentation.js';
 import * as messageAttachments from './messageAttachments.js';
 import * as desktopContext from './desktopContextMenu.js';
 import { resolveLeadingSlashCommand } from './slashCommands.js';
@@ -36,7 +37,7 @@ const contextLoader = () => Promise.resolve('');
 const LoaderContext = React.createContext(contextLoader);
 function compile(overrides = {}) {
   return vm.runInNewContext(`${messageCode}; ({ Message, OrderedUserMessageBody });`, {
-    React, ...React, ...composerContent, ...messageAttachments, ...desktopContext,
+    React, ...React, ...composerContent, ...composerImagePresentation, ...messageAttachments, ...desktopContext,
     ...pastedText, ...userMessagePreview, clsx,
     useTranslation() {}, useSlashCommands: () => ({ commands }), resolveLeadingSlashCommand, extractSessionReferences,
     VsIcon: () => null, CommandGlyph: () => null, FileTypeIcon: () => null,
@@ -64,38 +65,60 @@ function hookHarness() {
   };
 }
 const { Message } = compile();
+// 与输入框产出的文档同形:图片部件排在最前(输入框把图片放在上方缩略图条),
+// 普通文件附件可以夹在文字中间。
+const imagePart = { type: 'attachment', key: 'local-a', id: 'a', name: 'diagram.png', kind: 'image' };
+const skillPart = { type: 'skill', name: 'review', token: '$review', path: '/skills/review/SKILL.md' };
+const filePart = { type: 'attachment', key: 'local-b', id: 'b', name: 'spec.pdf', kind: 'file', mime_type: 'application/pdf' };
 const ordered = { version: 1, parts: [
+  imagePart,
   { type: 'text', text: 'first ' },
-  { type: 'skill', name: 'review', token: '$review', path: '/skills/review/SKILL.md' },
+  skillPart,
   { type: 'text', text: ' second ' },
   { type: 'path', path: 'src/a.cpp', token: '@src/a.cpp' },
   { type: 'text', text: ' third ' },
-  { type: 'attachment', key: 'local-a', id: 'a', name: 'diagram.png', kind: 'image' },
+  filePart,
   { type: 'text', text: ' last' },
 ] };
 const contentParts = [
   { type: 'image', attachment: { id: 'a', name: 'diagram.png', kind: 'image', mime_type: 'image/png', blob_url: '/image/blob', path: '/stored/diagram.png' } },
+  { type: 'file', attachment: { id: 'b', name: 'spec.pdf', kind: 'file', mime_type: 'application/pdf', blob_url: '/file/blob', path: '/stored/spec.pdf' } },
   { type: 'selection_context', context: { label: 'selected passage' } },
 ];
 const render = (props = {}) => renderToStaticMarkup(React.createElement(Message, { role: 'user', showFooter: false, ...props }));
 
-run('actual sent message renders references between the original words without duplicate attachments', () => {
+// 触发场景:已发送的用户消息,composer_content 里有图片、技能、路径、普通文件与文字。
+// 期望行为:技能 / 路径 / 普通文件按原顺序内联在正文里;图片在气泡上方的缩略图条里
+// 出现且只出现一次,正文里没有它的文件名按钮。
+// 回归:曾经所有 attachment 部件都走正文内联按钮并被从缩略图条剔除,用户消息里的图片
+// 只剩一个「diagram.png」文件名,看不到缩略图。
+run('sent message keeps references inline in order and shows images as thumbnails above the bubble', () => {
   const html = render({ content: 'wire text', composerContent: ordered, contentParts });
-  const positions = ['first ', '>review<', ' second ', '>src/a.cpp<', ' third ', '>diagram.png<', ' last'].map((part) => html.indexOf(part));
-  assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1])));
+  const bubble = html.indexOf('ace-user-message-bubble');
+  const positions = ['first ', '>review<', ' second ', '>src/a.cpp<', ' third ', '>spec.pdf<', ' last'].map((part) => html.indexOf(part));
+  assert.ok(positions.every((position, index) => position > bubble && (index === 0 || position > positions[index - 1])));
   assert.equal((html.match(/>diagram.png</g) || []).length, 1);
+  assert.ok(html.indexOf('<aside><span>diagram.png</span>') >= 0, 'image goes to the thumbnail strip');
+  assert.ok(html.indexOf('<aside>') < bubble, 'thumbnail strip sits above the bubble');
+  assert.doesNotMatch(html, /data-desktop-attachment-id="a"/, 'no inline file-name token for the image');
+  assert.equal((html.match(/>spec.pdf</g) || []).length, 1, 'inline file is not duplicated in the strip');
+  assert.match(html, /data-desktop-attachment-url="\/file\/blob"/);
   assert.match(html, /selected passage/);
-  assert.match(html, /data-desktop-attachment-preview-url="\/image\/blob"/);
   assert.doesNotMatch(html, /wire text/);
 });
 
+// 触发场景:只带附件、没有文字的用户消息。
+// 期望行为:只有图片时只渲染缩略图条,不画空气泡;只有普通文件时照旧在气泡里内联。
 run('persisted metadata and attachment-only prompts render through the same ordered path', () => {
   const html = render({ metadata: { composer_content: ordered }, contentParts });
   assert.match(html, /first /);
   assert.match(html, / last/);
-  const attachmentOnly = render({ composerContent: { version: 1, parts: [ordered.parts[5]] }, contentParts: [contentParts[0]] });
-  assert.match(attachmentOnly, /ace-user-message-bubble/);
-  assert.equal((attachmentOnly.match(/>diagram.png</g) || []).length, 1);
+  const imageOnly = render({ composerContent: { version: 1, parts: [imagePart] }, contentParts: [contentParts[0]] });
+  assert.doesNotMatch(imageOnly, /ace-user-message-bubble/);
+  assert.equal((imageOnly.match(/>diagram.png</g) || []).length, 1);
+  const fileOnly = render({ composerContent: { version: 1, parts: [filePart] }, contentParts: [contentParts[1]] });
+  assert.match(fileOnly, /ace-user-message-bubble/);
+  assert.equal((fileOnly.match(/>spec.pdf</g) || []).length, 1);
 });
 
 run('ordered session references use readable titles before and after inline references without exposing encoded payloads', () => {
@@ -103,9 +126,9 @@ run('ordered session references use readable titles before and after inline refe
   const second = formatSessionReferenceToken({ id: 'session-b', title: '<script>Task</script>', workspace_hash: 'workspace-b' });
   const composerContent = { version: 1, parts: [
     { type: 'text', text: `Read ${first}with ` },
-    ordered.parts[1],
+    skillPart,
     { type: 'text', text: ` and ${second}then ` },
-    ordered.parts[5],
+    filePart,
     { type: 'text', text: ' without changing @session:%not-valid' },
   ] };
   for (const props of [{ composerContent }, { metadata: { composer_content: composerContent } }]) {
@@ -114,7 +137,7 @@ run('ordered session references use readable titles before and after inline refe
     assert.match(html, / and @&lt;script&gt;Task&lt;\/script&gt; then /);
     assert.doesNotMatch(html, /@session:%7B|session-a|session-b|<script>/);
     assert.match(html, />review</);
-    assert.match(html, />diagram.png</);
+    assert.match(html, />spec.pdf</);
     assert.match(html, /without changing @session:%not-valid/);
   }
 });
@@ -131,18 +154,24 @@ run('legacy and unsupported metadata retain existing slash display and attachmen
   assert.match(structured, / hello/);
 });
 
+// 触发场景:乐观渲染的用户消息,附件还没有服务端 id,只能按 local_id(部件 key)对上。
+// 期望行为:内联文件按 key 只渲染一次(不再进缩略图条);待上传的图片在缩略图条里
+// 出现一次;文档里没有引用的其它资源仍留在缩略图条。
 run('optimistic pending attachment is rendered once by stable key while other unreferenced resources stay visible', () => {
   const html = render({ composerContent: { version: 1, parts: [
+    { type: 'attachment', key: 'pending-img', id: '', name: 'pending.png', kind: 'image' },
     { type: 'text', text: 'before ' },
-    { type: 'attachment', key: 'pending-a', id: '', name: 'pending.png', kind: 'image' },
+    { type: 'attachment', key: 'pending-a', id: '', name: 'pending.pdf', kind: 'file' },
     { type: 'text', text: ' after' },
   ] }, contentParts: [
-    { type: 'image', attachment: { local_id: 'pending-a', name: 'pending.png', preview_url: 'blob:pending-a', kind: 'image' } },
+    { type: 'image', attachment: { local_id: 'pending-img', name: 'pending.png', preview_url: 'blob:pending-img', kind: 'image' } },
+    { type: 'file', attachment: { local_id: 'pending-a', name: 'pending.pdf', kind: 'file', path: '/tmp/pending.pdf' } },
     { type: 'file', attachment: { local_id: 'extra-b', id: '', name: 'extra.txt', kind: 'file' } },
   ] });
+  assert.equal((html.match(/>pending.pdf</g) || []).length, 1);
+  assert.match(html, /data-desktop-attachment-id="pending-a"/);
   assert.equal((html.match(/>pending.png</g) || []).length, 1);
-  assert.match(html, /data-desktop-attachment-preview-url="blob:pending-a"/);
-  assert.match(html, /<aside><span>extra.txt<\/span><\/aside>/);
+  assert.match(html, /<aside><span>pending.png<\/span><span>extra.txt<\/span><\/aside>/);
 });
 
 run('inline text and labels are escaped as React text', () => {
@@ -154,7 +183,10 @@ run('inline text and labels are escaped as React text', () => {
   assert.match(html, /&lt;script&gt;/);
 });
 
-run('actual inline handlers preserve file, directory, image and desktop preview actions', () => {
+// 触发场景:点击正文里的路径 / 目录 / 文件附件按钮,以及桌面右键「预览」。
+// 期望行为:文件与目录走各自的打开回调;图片不在正文里,它的右键预览归 AttachmentStrip,
+// 正文不接(否则两处同时弹灯箱)。
+run('actual inline handlers preserve file, directory, attachment and desktop preview actions', () => {
   let preview;
   let file;
   let directory;
@@ -174,13 +206,18 @@ run('actual inline handlers preserve file, directory, image and desktop preview 
   assert.equal(file, 'src/a.cpp');
   buttons.find((child) => child.props['data-file-path'] === 'src/').props.onClick();
   assert.equal(directory, 'src/');
-  buttons.find((child) => child.props['data-desktop-attachment-id'] === 'a').props.onClick();
-  assert.equal(preview.src, '/image/blob');
-  preview = null;
-  const detail = { action: desktopContext.DESKTOP_CONTEXT_ACTIONS.PREVIEW_ATTACHMENT, target: { type: 'attachment', id: 'a' } };
+  assert.equal(buttons.some((child) => child.props['data-desktop-attachment-id'] === 'a'), false);
+  buttons.find((child) => child.props['data-desktop-attachment-id'] === 'b').props.onClick();
+  assert.equal(file, '/stored/spec.pdf');
+  file = null;
+  const detail = { action: desktopContext.DESKTOP_CONTEXT_ACTIONS.PREVIEW_ATTACHMENT, target: { type: 'attachment', id: 'b' } };
   desktopHandler({ detail });
   assert.equal(detail.handled, true);
-  assert.equal(preview.src, '/image/blob');
+  assert.equal(file, '/stored/spec.pdf');
+  const imageDetail = { action: desktopContext.DESKTOP_CONTEXT_ACTIONS.PREVIEW_ATTACHMENT, target: { type: 'attachment', id: 'a' } };
+  desktopHandler({ detail: imageDetail });
+  assert.equal(imageDetail.handled, undefined);
+  assert.equal(preview, undefined);
 });
 
 // ---- 粘贴的文本块与超长消息(第 2 条反馈 f300) ----

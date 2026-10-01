@@ -76,7 +76,15 @@ export class AceConnection extends EventTarget {
     this.subscribe(sessionId);
   }
 
-  retainSession(sessionId) {
+  retainSession(sessionId, options = {}) {
+    const retained = this.sessionRefs.count(sessionId);
+    if (options.replayFromStart) {
+      this.sessions.set(sessionId, {
+        lastSeq: Math.max(0, Number(options.since) || 0),
+        replayFromStart: true,
+      });
+      if (retained > 0) this._sendSubscribe(sessionId);
+    }
     return this.sessionRefs.retain(sessionId);
   }
 
@@ -105,9 +113,10 @@ export class AceConnection extends EventTarget {
 
   subscribeWorkspaceStatus(workspaceHash) {
     if (!workspaceHash) return;
+    const alreadySubscribed = this.statusWorkspaces.has(workspaceHash);
     this.statusWorkspaces.add(workspaceHash);
     if (!this.ws || this.ws.readyState === WebSocket.CLOSED) this._open();
-    else if (this.ws.readyState === WebSocket.OPEN) this._sendStatusSubscribe(workspaceHash);
+    else if (!alreadySubscribed && this.ws.readyState === WebSocket.OPEN) this._sendStatusSubscribe(workspaceHash);
   }
 
   unsubscribeWorkspaceStatus(workspaceHash) {
@@ -151,7 +160,8 @@ export class AceConnection extends EventTarget {
     if (!state) return;
     this._send({
       type: 'subscribe',
-      payload: { session_id: sessionId, since: state.lastSeq || 0 },
+      payload: { session_id: sessionId, since: state.lastSeq || 0,
+        ...(state.replayFromStart ? { replay_from_start: true } : {}) },
     });
   }
 
@@ -188,6 +198,10 @@ export class AceConnection extends EventTarget {
       try { msg = JSON.parse(e.data); } catch { return; }
       const sid = msg.session_id || msg.payload?.session_id || this.sessionId || '';
       if (sid) msg.session_id = sid;
+      if (sid && (msg.type === 'subscribe_ack' || msg.type === 'hello_ack')) {
+        const state = this.sessions.get(sid);
+        if (state) state.replayFromStart = false;
+      }
       if (sid && typeof msg.seq === 'number') {
         const state = this.sessions.get(sid) || { lastSeq: 0 };
         // 乱序探针:正常情况下同一连接内 seq 严格递增(服务端先按序补发历史、

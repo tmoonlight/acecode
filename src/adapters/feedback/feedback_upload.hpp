@@ -123,6 +123,10 @@ std::optional<FeedbackLogBundle> collect_recent_upgrade_log_bundle(
     std::chrono::hours window = kRecentUpgradeLogWindow);
 
 FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& request);
+// Packaged Windows apps require encrypted transport for diagnostic uploads.
+bool validate_feedback_upload_url(const std::string& url,
+                                  bool require_https,
+                                  std::string* error = nullptr);
 FeedbackUploadResult upload_feedback_package(const FeedbackUploadRequest& request);
 
 } // namespace acecode::feedback

@@ -1,0 +1,80 @@
+{
+  "executable_sha256": "8c1119a14eeebc6f71d1d4ab1168773bd2994a78b3e3ca7ca631303359e6405d",
+  "profile": "C:\\Users\\shao\\AppData\\Local\\Temp\\ace-session-bench-01a0f688-v2",
+  "mode": "warm filesystem cache; synthetic data",
+  "bounded_list": {
+    "ms": 109.191,
+    "bytes": 5388,
+    "status": 200
+  },
+  "full_list": {
+    "ms": 8297.821,
+    "bytes": 1594906,
+    "status": 200
+  },
+  "global_list": {
+    "ms": 250.458,
+    "bytes": 1594906,
+    "status": 200
+  },
+  "sessions": [
+    {
+      "id": "20260101-000000-0000",
+      "jsonl_bytes": 104881361,
+      "resume": {
+        "ms": 34.461,
+        "bytes": 336,
+        "status": 200
+      },
+      "history": {
+        "ms": 1050.554,
+        "bytes": 103353724,
+        "status": 200
+      },
+      "concurrent_list": {
+        "ms": 4.426,
+        "bytes": 5412,
+        "status": 200
+      },
+      "concurrent_history": {
+        "ms": 915.249,
+        "bytes": 103353724,
+        "status": 200
+      },
+      "tail": {
+        "ms": 18.213,
+        "bytes": 1612918,
+        "status": 200
+      }
+    },
+    {
+      "id": "20260101-000001-0001",
+      "jsonl_bytes": 20994668,
+      "resume": {
+        "ms": 47.406,
+        "bytes": 336,
+        "status": 200
+      },
+      "history": {
+        "ms": 195.82,
+        "bytes": 20700540,
+        "status": 200
+      },
+      "concurrent_list": {
+        "ms": 3.986,
+        "bytes": 5435,
+        "status": 200
+      },
+      "concurrent_history": {
+        "ms": 192.752,
+        "bytes": 20700540,
+        "status": 200
+      },
+      "tail": {
+        "ms": 17.989,
+        "bytes": 1612517,
+        "status": 200
+      }
+    }
+  ]
+}

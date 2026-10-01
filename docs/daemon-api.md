@@ -1183,7 +1183,7 @@ currently being committed outranks the disk snapshot.
 
 ### `GET /api/sessions/:id/messages?since=N`
 
-When `since=0` or omitted, returns a full snapshot object:
+When `since=0` or omitted **and no pagination/navigation parameters are present**, returns a full snapshot object:
 
 ```json
 {
@@ -1206,6 +1206,39 @@ When `since=0` or omitted, returns a full snapshot object:
 
 Hidden file checkpoints, compact checkpoints, and hidden goal context messages
 are filtered from `messages`.
+
+Pagination uses the same snapshot fields and filtering. The query parameters are:
+
+| Parameter | Meaning |
+|---|---|
+| `limit` | Positive decimal record count; default 200, clamped to 1000. Returns the latest page. |
+| `before` | Opaque cursor from the previous page; reads immediately older records. |
+| `after` | Opaque cursor; reads only records appended after the previous response. |
+| `from_position` | Explicit search navigation: decimal JSONL byte position, returning the continuous interval up to `before` or EOF. |
+| `from_ordinal` | Legacy search navigation: resolves a zero-based ordinal over successfully parsed JSONL records, including hidden checkpoints, then returns that interval. |
+| `workspace` | Existing workspace hash hint, also supported by paged requests. |
+
+Paged responses add `has_more`, `after`, `turn_truncated`, and `before` when
+`has_more` is true. Each message adds `message_position` (a decimal string to
+avoid JavaScript integer precision loss) and `history_cursor`. A backward page
+contains at least `limit` records where available, extending back to a visible
+user message within 4 times the limit. If that boundary cannot be reached, only
+`limit` records are returned and `turn_truncated` is true. Results are chronological.
+An `after` response can contain zero messages; retain the existing transcript and
+advance its cursor. Older pages do not replace the current live state or after cursor.
+
+Malformed cursors/numbers, zero/negative limits, combining `before` and `after`,
+combining position and ordinal, or combining pagination with `since>0` return
+400 `BAD_REQUEST` before opening the transcript. Missing sessions return 404.
+Cursor validation checks the file identity, line boundary and record fingerprint:
+append preserves validity; rewrite/replacement returns 409 `HISTORY_CURSOR_STALE`.
+On 409 discard the old cursors and request a fresh tail page. Reads use a fixed
+file-size snapshot and retry once if the file is replaced during the read.
+
+The default web/grid loading path requests `limit=200`. Earlier history is loaded
+on demand, external-session polling uses `after`, and completion self-healing
+reads only a bounded tail (plus one older page if the user-turn anchor is absent).
+Full export, fork and explicit session references keep the legacy full read.
 
 Visible system messages may include `metadata.system_notice` with
 `{ "version": 1, "code": "goal_started", "params": { "goal": { ... } } }`.
@@ -1253,7 +1286,7 @@ When `since>0`, returns an event array directly:
 ```
 
 If the requested sequence predates the in-memory replay ring, the array can be
-empty. The frontend should fall back to `since=0`.
+empty. A paged frontend can reload `limit=200`; legacy full-history clients can fall back to `since=0`.
 
 ### `GET /api/sessions/:id/trajectory`
 
@@ -1655,16 +1688,24 @@ session's first main provider request:
 {"question":"Why did the current approach choose a mutex?"}
 ```
 
-The daemon makes exactly one call to the session's current model with an empty
-tool list. It does not append the question or answer to the main agent history,
-JSONL transcript, hooks, goals, event stream, or busy lifecycle. Success:
+The question is single-turn (no side history) but runs the same read-only tool
+loop as streaming side chat below: the model may call only `file_read`, `grep`,
+`glob` and `lsp`, under the same checks, until it answers in text. Providers
+that run their own tools (the native Codex app-server) are rejected with
+`503 SIDE_QUESTION_PROVIDER_UNAVAILABLE`. It does not append the question or
+answer to the main agent history, JSONL transcript, hooks, goals, event stream,
+or busy lifecycle. Success:
 
 ```json
 {
   "question": "Why did the current approach choose a mutex?",
-  "answer": "It protects the snapshot while the main worker publishes it."
+  "answer": "It protects the snapshot while the main worker publishes it.",
+  "tools_used": ["file_read src/engine/agent/side_question/side_question_service.cpp"]
 }
 ```
+
+`tools_used` lists each read-only call as `<tool> <path or pattern>`; it is
+empty when the model answered from context alone.
 
 Errors use structured codes:
 
@@ -1715,7 +1756,8 @@ has messages / already in a worktree / invalid or missing base branch,
 Web/Desktop floating side chat opens its own connection to the existing
 `/ws/sessions/<id>?token=...` endpoint using the same authentication rules. This
 connection does not send `hello` and does not subscribe to main-session events.
-The synchronous HTTP endpoint and TUI `/btw` and `/side` remain single-turn.
+The synchronous HTTP endpoint and TUI `/btw` and `/side` remain single-turn but
+use the same read-only tools.
 
 Start a request with:
 
@@ -1742,21 +1784,40 @@ Clients include successful answers and nonempty stopped answers in subsequent
 history; failed or empty stopped turns stay local to the floating transcript.
 
 The model receives the latest safe main context snapshot, detached side-chat
-instructions, the supplied side history, and the new question, with no tools.
-Side messages do not mutate main history, transcript, hooks, goals, busy state,
-or the session event stream. Responses go only to the requesting connection:
+instructions, the supplied side history, and the new question. Its tool list
+contains only the read-only built-in tools `file_read`, `grep`, `glob` and
+`lsp` that the session has registered and its expert capability policy allows
+(model-facing names follow tool rewrites); `bash`, write tools, sub-agents and
+MCP tools are never offered. The daemon runs those calls itself and feeds the
+results back until the model answers in text (at most 8 tool steps). Each call
+passes configured Deny rules, the main session's path validation, and the
+dangerous-path check; anything that would need a confirmation prompt is refused,
+because side chat has no confirmation channel. Reads never update the main
+agent's read baseline or unchanged-read cache. A reply that writes a tool call
+as plain text is discarded (`side_chat_reset`) and the model is asked to retry;
+the markup is never shown. Side messages do not mutate main history,
+transcript, hooks, goals, busy state, or the session event stream. Responses go
+only to the requesting connection:
 
 ```json
 {"type":"side_chat_delta","payload":{"request_id":"unique-request-id","delta":"Text fragment"}}
+{"type":"side_chat_tool","payload":{"request_id":"unique-request-id","call_id":"call_1","name":"file_read","target":"src/apps/cli/main.cpp","status":"running"}}
 {"type":"side_chat_reset","payload":{"request_id":"unique-request-id"}}
 {"type":"side_chat_done","payload":{"request_id":"unique-request-id","answer":"Complete or stopped partial answer","cancelled":false}}
 {"type":"side_chat_error","payload":{"request_id":"unique-request-id","code":"SIDE_CHAT_FAILED","message":"Provider error"}}
 ```
 
-`side_chat_reset` clears provisional answer text before a provider retry.
-`side_chat_done` includes the authoritative accumulated answer. On error,
-clients retain already received text for display but exclude the failed turn
-from follow-up context.
+`side_chat_tool` reports one read-only call: `running` before execution, then
+`success` or `error` with the same `call_id`. `name` is the native tool name and
+`target` a short path or pattern for display. Text after a tool call starts a
+new model step; the daemon prefixes it with a blank line so the accumulated
+answer stays readable Markdown.
+
+`side_chat_reset` discards the provisional text of the current model step
+(provider retry, or a step that wrote a tool call as text). Text received before
+that step's preceding `side_chat_tool` frames stays. `side_chat_done` includes
+the authoritative accumulated answer. On error, clients retain already received
+text for display but exclude the failed turn from follow-up context.
 
 Send `{"type":"side_chat_stop","payload":{"request_id":"unique-request-id"}}`
 to cancel only that side request, including its retry backoff. The terminal
@@ -4032,6 +4093,13 @@ Normalizes and validates a non-empty HTTP(S) base URL.
 
 ### `GET /api/update/status`
 
+For Windows MSIX/AppX installations, returns `status: "store_managed"` and
+`update_available: false` before contacting the configured self-update server.
+This is not an "up to date" result: the client should direct the user to
+Microsoft Store's Library. No ZIP URL or target version is provided.
+`POST /api/update/start` cannot create a self-update job for this installation.
+
+
 Checks the update manifest and returns:
 
 ```json
@@ -4314,6 +4382,13 @@ Sessions that belong to no workspace (the sidebar task list) are included with
 hash.
 
 ### `POST /api/feedback/desktop`
+
+Windows MSIX/AppX installations require an HTTPS feedback endpoint. If the
+configured service uses HTTP, this endpoint returns `502 UPLOAD_FAILED` with
+an HTTPS requirement message before uploading the package. The retained local
+package path is reported as for other upload failures. Unpackaged installations
+retain the existing configurable HTTP/HTTPS behavior.
+
 
 Body fields are optional strings:
 
@@ -5337,3 +5412,39 @@ in `config.json` are independent of owner-written `state.json`, including writes
 from older binaries. Explicit CLI runtime commands never start
 a missing host. `acecode channels status` can read saved settings without one;
 its `host_running` field distinguishes offline configuration from a live owner.
+
+## Session loading diagnostics
+
+- `POST /api/diagnostics/session-open` accepts `session_id`, nonnegative
+  `elapsed_ms`, `history_requests`, and `history_bytes`. Success is 204;
+  malformed measurements return 400 `BAD_REQUEST`. Only these fields are
+  logged. Web/Desktop reports once after first content paint and drops failures.
+- `GET /api/diagnostics/sessions` returns `workspaces`, `sample_limit: 5`,
+  and `cancelled`. Each registered visible workspace is identified by hash and
+  display name, with `session_count`, `total_bytes`, `largest_bytes`,
+  `errors`, and up to five `samples` from its largest canonical JSONL files.
+  Samples contain session id, file/sample bytes, and per-category record count,
+  bytes and fraction. Categories: user, assistant, tool, compact_checkpoint,
+  file_checkpoint, turn_net_diff, other. No message content, session title,
+  workspace path or referenced file path is returned.
+- HTTP diagnostics cooperatively stops on shutdown or after ten seconds and
+  returns the partial report with `cancelled: true`.
+  `acecode diagnose sessions` uses the same statistics and supports Ctrl+C
+  cancellation (partial JSON, exit status 130).
+- Synchronous load, resume, history, list, pins and status-snapshot operations log
+  elapsed milliseconds and transcript/metadata/pin-state bytes, opened files and
+  parsed records under `[session-load]`. Nested reads count toward their request.
+  Operations over 500ms are warnings; others are debug records. File enumeration
+  and OS metadata queries are not counted as content reads.
+
+### Recovery event replay and duplicate subscriptions
+
+The multiplex WebSocket `subscribe` payload accepts optional
+`replay_from_start: true` together with `session_id` and `since`. This explicitly
+replays all retained events after `since`, including event 1 when `since=0`.
+Legacy subscriptions with `since=0` remain live-only. An existing subscription
+is replaced only for this explicit replay request. The frontend requests it when
+a disk session becomes live, and buffers events arriving during its first REST
+load so that an older disk snapshot cannot discard recovery events.
+Repeated `status_subscribe` for the same connection/workspace does not send a
+second snapshot; clients resubscribe once after reconnect.

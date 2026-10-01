@@ -6,6 +6,7 @@
 #undef DELETE
 #endif
 #include "web/server_impl.hpp"
+#include "session/session_load_metrics.hpp"
 #include "web/project_creation.hpp"
 #include "session/composer_content.hpp"
 #include "session/pasted_text_attachment.hpp"
@@ -846,6 +847,7 @@ void WebServer::Impl::register_workspaces() {
 
         CROW_ROUTE(app, "/api/workspaces/<string>/sessions").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req, const std::string& hash) {
+            SessionLoadTimer timer("workspace_list", hash);
             if (auto rej = require_auth(req)) return std::move(*rej);
             auto ws = resolve_workspace(hash);
             if (!ws.has_value()) {
@@ -867,6 +869,7 @@ void WebServer::Impl::register_workspaces() {
                 std::move(arr), page.total, limit,
                 page.total_exact, page.has_more).dump());
             r.add_header("Content-Type", "application/json");
+            if (global_session_search) global_session_search->notify_startup_interaction();
             return with_cors(req, std::move(r));
         });
 
@@ -1139,12 +1142,13 @@ void WebServer::Impl::register_pinned_sessions() {
 
         CROW_ROUTE(app, "/api/no-workspace/pinned-sessions").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
+            SessionLoadTimer timer("pinned_sessions", "no-workspace");
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             const auto path = no_workspace_pinned_sessions_path();
             auto state = read_pinned_sessions_state(path);
             const auto pruned = prune_pinned_session_ids(
-                state.session_ids, session_ids_for_no_workspace());
+                state.session_ids, session_ids_for_no_workspace(state.session_ids));
             if (pruned != state.session_ids) {
                 std::string ignored;
                 write_pinned_sessions_state(path, PinnedSessionsState{pruned}, &ignored);
@@ -1179,7 +1183,7 @@ void WebServer::Impl::register_pinned_sessions() {
             }
 
             const auto next = prune_pinned_session_ids(
-                normalize_pinned_session_ids(ids), session_ids_for_no_workspace());
+                normalize_pinned_session_ids(ids), session_ids_for_no_workspace(ids));
             std::string error;
             if (!write_pinned_sessions_state(no_workspace_pinned_sessions_path(),
                                              PinnedSessionsState{next}, &error)) {
@@ -1202,6 +1206,7 @@ void WebServer::Impl::register_pinned_sessions() {
 
         CROW_ROUTE(app, "/api/pinned-sessions/order").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
+            SessionLoadTimer timer("pinned_order", "");
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             const auto path = pinned_session_order_path();
@@ -1274,6 +1279,7 @@ void WebServer::Impl::register_pinned_sessions() {
 
         CROW_ROUTE(app, "/api/workspaces/<string>/pinned-sessions").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req, const std::string& hash) {
+            SessionLoadTimer timer("pinned_sessions", hash);
             if (auto rej = require_auth(req)) return std::move(*rej);
             auto ws = resolve_workspace(hash);
             if (!ws.has_value()) {
@@ -1286,7 +1292,7 @@ void WebServer::Impl::register_pinned_sessions() {
             const auto path = pinned_sessions_path_for_cwd(ws->cwd);
             auto state = read_pinned_sessions_state(path);
             const auto pruned = prune_pinned_session_ids(
-                state.session_ids, session_ids_for_workspace(*ws));
+                state.session_ids, session_ids_for_workspace(*ws, state.session_ids));
             if (pruned != state.session_ids) {
                 std::string ignored;
                 write_pinned_sessions_state(path, PinnedSessionsState{pruned}, &ignored);
@@ -1328,7 +1334,7 @@ void WebServer::Impl::register_pinned_sessions() {
             }
 
             const auto next = prune_pinned_session_ids(
-                normalize_pinned_session_ids(ids), session_ids_for_workspace(*ws));
+                normalize_pinned_session_ids(ids), session_ids_for_workspace(*ws, ids));
             std::string error;
             if (!write_pinned_sessions_state(pinned_sessions_path_for_cwd(ws->cwd),
                                              PinnedSessionsState{next}, &error)) {

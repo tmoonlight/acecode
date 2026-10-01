@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { createSideChatController, SIDE_CHAT_HISTORY_MAX_BYTES } from './sideChatController.js';
+import {
+  createSideChatController,
+  SIDE_CHAT_HISTORY_MAX_BYTES,
+  sideChatToolVerb,
+  sideChatTurnParts,
+} from './sideChatController.js';
 
 function run(name, fn) {
   try { fn(); console.log(`[pass] side chat controller: ${name}`); }
@@ -20,6 +25,56 @@ function setup() {
   });
   return { controller, requests, state: () => controller.getSnapshot() };
 }
+
+// 场景:侧边回答先写一段、调用只读工具,再继续写;中途 provider 重试。
+// 期望:工具行记下调用发生时回答的位置,reset 只丢弃工具之后这一步的正文;
+// 渲染分段为「前文 / 工具行 / 后文」,完整回答进入后续追问的历史。
+run('tool rows keep their position and reset discards only the current step', () => {
+  const { controller, requests, state } = setup();
+  controller.submit('question');
+  requests[0].onDelta('before');
+  requests[0].onTool({ callId: 'c1', name: 'file_read', target: 'a.txt', status: 'running' });
+  assert.equal(state().turns[0].tools[0].offset, 6);
+  assert.equal(state().turns[0].stepStart, 6);
+  requests[0].onTool({ callId: 'c1', name: 'file_read', target: 'a.txt', status: 'success' });
+  assert.equal(state().turns[0].tools.length, 1);
+  assert.equal(state().turns[0].tools[0].status, 'success');
+  const gap = String.fromCharCode(10).repeat(2);
+  requests[0].onDelta(`${gap}draft`);
+  requests[0].onReset();
+  assert.equal(state().turns[0].answer, 'before');
+  assert.equal(state().turns[0].status, 'streaming');
+  requests[0].onDelta(`${gap}after`);
+  assert.deepEqual(sideChatTurnParts(state().turns[0]).map((part) => part.kind), ['text', 'tools', 'text']);
+  assert.equal(sideChatTurnParts(state().turns[0])[2].text, `${gap}after`);
+  requests[0].onDone({ answer: `before${gap}after`, cancelled: false });
+  controller.submit('follow-up');
+  assert.deepEqual(requests[1].history, [
+    { role: 'user', content: 'question' },
+    { role: 'assistant', content: `before${gap}after` },
+  ]);
+});
+
+// 场景:工具还在执行时用户最小化 / 停止。期望:界面不会留下一直转圈的工具行。
+run('closing during a running tool marks the row cancelled', () => {
+  const { controller, requests, state } = setup();
+  controller.submit('question');
+  requests[0].onTool({ callId: 'c1', name: 'grep', target: 'TODO', status: 'running' });
+  controller.close();
+  assert.equal(state().turns[0].tools[0].status, 'cancelled');
+  assert.equal(state().turns[0].status, 'stopped');
+});
+
+run('turn parts clamp offsets, group adjacent tools and skip blank separators', () => {
+  const parts = sideChatTurnParts({
+    answer: `A${String.fromCharCode(10).repeat(2)}`,
+    tools: [{ id: 'x', offset: 1 }, { id: 'y', offset: 1 }, { id: 'z', offset: 99 }],
+  });
+  assert.deepEqual(parts.map((part) => part.kind), ['text', 'tools']);
+  assert.deepEqual(parts[1].tools.map((tool) => tool.id), ['x', 'y', 'z']);
+  assert.equal(sideChatToolVerb('grep'), '搜索');
+  assert.equal(sideChatToolVerb('unknown_tool'), '调用工具');
+});
 
 run('follow-ups include detached complete pairs and use the authoritative final answer', () => {
   const { controller, requests, state } = setup();

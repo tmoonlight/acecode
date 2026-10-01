@@ -8,20 +8,63 @@
 #include "utils/scope_exit.hpp"
 
 namespace {
+// 一问一答的旁路问题现在与浮动侧边对话共用流式工具循环(run_side_chat)。
 class WaitingProvider : public acecode_test::StubLlmProvider {
 public:
     std::promise<void> entered;
     std::promise<void> release;
-    acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
-                              const std::vector<acecode::ToolDef>& tools) override {
+    void chat_stream(const std::vector<acecode::ChatMessage>&,
+                     const std::vector<acecode::ToolDef>& tools,
+                     const acecode::StreamCallback& callback,
+                     std::atomic<bool>*) override {
         EXPECT_TRUE(tools.empty());
         entered.set_value();
         release.get_future().wait();
-        acecode::ChatResponse response;
-        response.content = "answer";
-        return response;
+        acecode::StreamEvent delta;
+        delta.type = acecode::StreamEventType::Delta;
+        delta.content = "answer";
+        callback(delta);
+        acecode::StreamEvent done;
+        done.type = acecode::StreamEventType::Done;
+        done.finish_reason = "stop";
+        callback(done);
     }
 };
+
+// 模拟一次耗时很长的模型请求(比如 provider 正在重试退避),只有中止标志能唤醒它。
+class RetryWaitingProvider : public acecode_test::StubLlmProvider {
+public:
+    std::promise<void> entered;
+    void chat_stream(const std::vector<acecode::ChatMessage>&,
+                     const std::vector<acecode::ToolDef>&,
+                     const acecode::StreamCallback&,
+                     std::atomic<bool>* abort) override {
+        entered.set_value();
+        EXPECT_TRUE(wait_for_retry(std::chrono::seconds(30), abort));
+    }
+};
+}
+
+// 场景:TUI /btw 的旁路问题正在等模型(工具循环可能还要再走好几步),此时会话关闭。
+// 期望:stop_requests 直接中止在途请求,join 很快返回,结果回调被抑制。
+// 回归:没有在途取消时,关闭会话要等完整个多步工具循环。
+TEST(SideQuestionService, StopRequestsCancelsInFlightQuestion) {
+    using namespace std::chrono_literals;
+    auto provider = std::make_shared<RetryWaitingProvider>();
+    auto entered = provider->entered.get_future();
+    acecode::agent::SideQuestionService service([provider] { return provider; });
+    acecode::ChatMessage context;
+    context.role = "system";
+    context.content = "context";
+    service.publish({context});
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    ASSERT_TRUE(service.ask_async("question", [calls](auto) { ++*calls; }));
+    ASSERT_EQ(entered.wait_for(2s), std::future_status::ready);
+    const auto started = std::chrono::steady_clock::now();
+    service.stop_requests();
+    service.join();
+    EXPECT_LT(std::chrono::steady_clock::now() - started, 5s);
+    EXPECT_EQ(calls->load(), 0);
 }
 
 TEST(SideQuestionService, ShutdownSuppressesOutstandingCallbackAndRejectsNewRequests) {

@@ -103,7 +103,7 @@ test('reopening a collapsed workspace always restores the compact five-row sessi
     sidebar,
     /sessionListDisclosureCompactRef\.current\.add\(hash\);\s*if \(collapsing\) \{/,
   );
-  assert.match(sidebar, /loadWorkspaceSessions\(hash, \{\s*full: true,/);
+  assert.match(sidebar, /loadWorkspaceSessions\(hash, \{\s*visibleCount,/);
 });
 
 test('workspace folder clicks only disclose and headings have no selected styling', () => {

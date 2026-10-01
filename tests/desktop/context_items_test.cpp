@@ -61,12 +61,18 @@ TEST(DesktopContextItems, ReferencesOrdinaryFilesAndFoldersInTransferOrder) {
     EXPECT_TRUE(result.items[1].bytes.empty());
 }
 
-TEST(DesktopContextItems, ReferencesRasterImagesWithoutReadingBytes) {
+// 触发场景:Desktop 拖入 / 选择 / 从资源管理器复制一张 25 MiB 以内的本地图片。
+// 期望行为:条目带上图片字节(reference_only=false),前端据此走快照附件:输入框与
+// 对话记录显示缩略图,模型直接收到图片;来源路径仍随条目返回。
+// 回归:曾经图片也只给路径,前端只能插 @路径,输入框和对话记录都只剩文件名
+// (服务端拒收图片引用,模型要先 bash 再 show_image 才看得到)。
+TEST(DesktopContextItems, RasterImagesCarrySnapshotBytes) {
     ContextItemsTempDir temp;
     const fs::path image = temp.path / "screen.png";
+    const std::string bytes("png\0bytes", 9);
     {
         std::ofstream output(image, std::ios::binary);
-        output << "png-bytes";
+        output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     }
 
     const auto result = acecode::desktop::materialize_context_items({
@@ -75,10 +81,29 @@ TEST(DesktopContextItems, ReferencesRasterImagesWithoutReadingBytes) {
 
     ASSERT_TRUE(result) << result.error;
     ASSERT_EQ(result.items.size(), 1u);
-    EXPECT_TRUE(result.items[0].reference_only);
+    EXPECT_FALSE(result.items[0].reference_only);
     EXPECT_EQ(result.items[0].mime_type, "image/png");
+    EXPECT_EQ(result.items[0].bytes, bytes);
+    EXPECT_EQ(result.items[0].size_bytes, bytes.size());
+    EXPECT_TRUE(fs::path(result.items[0].path).is_absolute());
+}
+
+// 触发场景:拖入 SVG。
+// 期望行为:SVG 不是栅格图,不读字节,仍是路径引用(与前端 isRasterImageMimeType 一致)。
+TEST(DesktopContextItems, SvgStaysPathReference) {
+    ContextItemsTempDir temp;
+    const fs::path svg = temp.path / "logo.svg";
+    std::ofstream(svg, std::ios::binary) << "<svg/>";
+
+    const auto result = acecode::desktop::materialize_context_items({
+        acecode::path_to_utf8(svg),
+    });
+
+    ASSERT_TRUE(result) << result.error;
+    ASSERT_EQ(result.items.size(), 1u);
+    EXPECT_EQ(result.items[0].mime_type, "image/svg+xml");
+    EXPECT_TRUE(result.items[0].reference_only);
     EXPECT_TRUE(result.items[0].bytes.empty());
-    EXPECT_EQ(result.items[0].size_bytes, 9u);
 }
 
 TEST(DesktopContextItems, LargeOrdinaryFileBypassesSnapshotLimit) {
@@ -103,6 +128,8 @@ TEST(DesktopContextItems, LargeOrdinaryFileBypassesSnapshotLimit) {
     EXPECT_EQ(result.items[0].size_bytes, large_size);
 }
 
+// 触发场景:拖入超过 25 MiB 快照上限的图片。
+// 期望行为:不读字节、不报错,退回路径引用(添加文件本身不因大小失败)。
 TEST(DesktopContextItems, LargeRasterImageBypassesSnapshotLimit) {
     ContextItemsTempDir temp;
     const fs::path image = temp.path / "large.png";
@@ -150,10 +177,13 @@ TEST(DesktopContextItems, SavesPathlessDataAsPersistentPathReferences) {
     ASSERT_TRUE(result) << result.error;
     ASSERT_EQ(result.items.size(), 3u);
     EXPECT_EQ(result.items[0].name, "截图.png");
-    EXPECT_TRUE(result.items[0].reference_only);
+    // 落盘后的图片同样按栅格图规则带回字节(前端现在直接上传截图,这里只是兜底)。
+    EXPECT_FALSE(result.items[0].reference_only);
+    EXPECT_EQ(result.items[0].bytes, bytes);
     EXPECT_EQ(result.items[0].size_bytes, bytes.size());
     EXPECT_NE(result.items[0].path, result.items[1].path);
     EXPECT_EQ(result.items[2].name, "outside.txt");
+    EXPECT_TRUE(result.items[2].reference_only);
     for (const auto& item : result.items) {
         const auto path = acecode::path_from_utf8(item.path);
         EXPECT_EQ(path.parent_path().parent_path(), fs::weakly_canonical(temp.path));

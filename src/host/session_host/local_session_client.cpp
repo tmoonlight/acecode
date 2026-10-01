@@ -30,9 +30,20 @@ LocalSessionClient::SubscriptionId
 LocalSessionClient::subscribe(const std::string& session_id,
                                 EventListener on_event,
                                 std::uint64_t since_seq) {
+    return subscribe_impl(session_id, std::move(on_event), since_seq, false);
+}
+
+LocalSessionClient::SubscriptionId LocalSessionClient::subscribe_replay(
+    const std::string& session_id, EventListener on_event, std::uint64_t since_seq) {
+    return subscribe_impl(session_id, std::move(on_event), since_seq, true);
+}
+
+LocalSessionClient::SubscriptionId LocalSessionClient::subscribe_impl(
+    const std::string& session_id, EventListener on_event,
+    std::uint64_t since_seq, bool replay_from_start) {
     auto entry = registry_.acquire(session_id);
     if (!entry || !entry->loop) return 0;
-    const auto dispatcher_id = entry->loop->events().subscribe(std::move(on_event), since_seq);
+    const auto dispatcher_id = entry->loop->events().subscribe(std::move(on_event), since_seq, replay_from_start);
     if (!dispatcher_id) return 0;
     std::lock_guard<std::mutex> lock(subscriptions_mu_);
     const auto id = next_subscription_id_++;

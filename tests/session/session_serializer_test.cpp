@@ -347,3 +347,18 @@ TEST(SessionSerializer, SessionMetaEmptyForkFieldsOmitted) {
     std::error_code ec;
     fs::remove(tmp, ec);
 }
+
+TEST(SessionSerializer, ParsedJsonMatchesStringEntryForLegacyAndCurrentRecords) {
+    const std::vector<std::string> fixtures{
+        R"({"role":"user","content":"hello","uuid":"user-id"})",
+        R"({"role":"assistant","tool_calls":{"id":"legacy","function":{"name":"shell","arguments":"{}"}}})",
+        R"({"role":"tool","tool_call_id":"legacy","content_parts":[{"type":"text","text":"part"}],"metadata":{"x":1}})",
+        R"({"role":"system","is_meta":true,"subtype":"compact_checkpoint","metadata":{"replacement_history":[]}})",
+        R"({"role":"assistant","content":null,"metadata":[]})",
+    };
+    for (const auto& fixture : fixtures) {
+        const auto from_text = deserialize_message(fixture);
+        const auto from_json = acecode::deserialize_message_json(nlohmann::json::parse(fixture));
+        EXPECT_EQ(serialize_message(from_text), serialize_message(from_json)) << fixture;
+    }
+}

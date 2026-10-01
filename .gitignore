@@ -98,3 +98,7 @@ skills-lock.json
 /docs/desktop-shell/composer-diagnostic.md
 /docs/desktop-shell/composer-diagnostic-handoff.md
 /pnpm-lock.yaml
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]

@@ -63,10 +63,7 @@ void CompactionController::initialize_window(const CompactionInputs& inputs) {
     compact_first_window_id_ = compact_current_window_id_;
 
     if (!inputs.session) return;
-    const auto raw_messages = inputs.session->load_active_messages();
-    for (auto it = raw_messages.rbegin(); it != raw_messages.rend(); ++it) {
-        const auto checkpoint = decode_compact_checkpoint(*it);
-        if (!checkpoint.has_value()) continue;
+    if (const auto checkpoint = inputs.session->load_latest_compact_checkpoint()) {
 
         compact_window_number_ = checkpoint->window_number;
         if (!checkpoint->window_id.empty()) {

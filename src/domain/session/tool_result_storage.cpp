@@ -4,6 +4,7 @@
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -34,7 +35,7 @@ std::string sanitize_tool_call_id(std::string id) {
 std::string tool_result_path(const std::string& tool_results_dir,
                              const std::string& tool_call_id) {
     return path_to_utf8(path_from_utf8(tool_results_dir) /
-                        (sanitize_tool_call_id(tool_call_id) + ".txt"));
+                        (sanitize_tool_call_id(tool_call_id) + "-" + generate_uuid_v7() + ".txt"));
 }
 
 std::string generate_preview(const std::string& content,
@@ -118,7 +119,7 @@ PersistedToolResult persist_tool_result(const std::string& content,
     }
 
     const fs::path path = path_from_utf8(out.filepath);
-    if (!fs::exists(path, ec)) {
+    { // Each persistence operation owns a fresh artifact; old references stay valid.
         std::ofstream ofs(path, std::ios::binary);
         if (!ofs) {
             LOG_WARN("[tool-result-storage] failed to open " + out.filepath);
@@ -383,10 +384,13 @@ std::vector<ToolResultReplacementRecord> decode_content_replacement_message(
 ToolResultReplacementState reconstruct_tool_result_replacement_state(
     const std::vector<ChatMessage>& messages) {
     ToolResultReplacementState state;
+    std::set<std::string> ambiguous_ids;
 
     for (const auto& msg : messages) {
         if (msg.role == "tool" && !msg.tool_call_id.empty()) {
-            state.seen_ids.insert(msg.tool_call_id);
+            if (!state.seen_ids.insert(msg.tool_call_id).second) {
+                ambiguous_ids.insert(msg.tool_call_id);
+            }
             if (is_persisted_output_message(msg.content)) {
                 state.replacements.emplace(msg.tool_call_id, msg.content);
             }
@@ -401,6 +405,9 @@ ToolResultReplacementState reconstruct_tool_result_replacement_state(
         }
     }
 
+    // Legacy transcripts can contain multiple executions under the same raw
+    // provider ID. An ID-only replacement cannot identify its intended result.
+    for (const auto& id : ambiguous_ids) state.replacements.erase(id);
     return state;
 }
 

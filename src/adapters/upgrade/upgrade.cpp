@@ -3,6 +3,7 @@
 #include "apply.hpp"
 #include "check.hpp"
 #include "platform/terminal/console.hpp"
+#include "platform/package_identity.hpp"
 #include "diagnostics.hpp"
 #include "executable_version.hpp"
 #include "network/http.hpp"
@@ -209,6 +210,7 @@ const char* update_check_status_name(UpdateCheckStatus status) {
     switch (status) {
         case UpdateCheckStatus::UpdateAvailable: return "available";
         case UpdateCheckStatus::UpToDate: return "up_to_date";
+        case UpdateCheckStatus::StoreManaged: return "store_managed";
         case UpdateCheckStatus::NoCompatiblePackage: return "no_compatible_package";
         case UpdateCheckStatus::InvalidConfig: return "invalid_config";
         case UpdateCheckStatus::UnsupportedTarget: return "unsupported_target";
@@ -224,6 +226,10 @@ static UpdateCheckResult check_for_update_impl(const AppConfig& config,
     UpdateCheckResult result;
     result.current_version = current_version;
     result.target = current_target();
+    if (has_windows_package_identity()) {
+        result.status = UpdateCheckStatus::StoreManaged;
+        return result;
+    }
     diagnostics.phase("checking", {{"current_version", current_version},
                                    {"target", result.target},
                                    {"base_url", config.upgrade.base_url}});
@@ -689,6 +695,12 @@ int run_upgrade_command(const AppConfig& config,
                         UpgradeProgressCallback progress_callback,
                         UpgradeCancelCheck cancel_check,
                         DiagnosticLog* diagnostics) {
+    if (has_windows_package_identity()) {
+        err << "ACECode is installed as a Windows package. "
+               "Get updates from Microsoft Store > Library. "
+               "Self-upgrade is unavailable for this installation.\n";
+        return 1;
+    }
     const auto owned_log = diagnostics ? nullptr : std::make_unique<DiagnosticLog>("upgrade");
     auto& log = diagnostics ? *diagnostics : *owned_log;
     if (!log.path().empty()) out << "Upgrade log: " << log.path() << "\n";

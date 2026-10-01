@@ -68,9 +68,12 @@ export function UpdateDialog({
   if (!open) return null;
 
   const mode = updateDialogMode(job, updateStatus);
-  const active = updateJobIsActive(job) || starting || restarting;
+  const storeManaged = mode === 'store_managed';
+  const active = !storeManaged && (updateJobIsActive(job) || starting || restarting);
   const canCancel = updateJobCanCancel(job);
-  const currentVersion = job?.current_version || updateStatus?.current_version;
+  const currentVersion = storeManaged
+    ? updateStatus?.current_version
+    : job?.current_version || updateStatus?.current_version;
   const targetVersion = mode === 'up_to_date'
     ? currentVersion
     : job?.target_version || updateStatus?.latest_version;
@@ -79,7 +82,9 @@ export function UpdateDialog({
   const progress = updateJobProgress(job);
   const phaseLabel = starting && !job ? '正在启动升级任务' : updateJobPhaseLabel(job);
   const restartMessage = updateRestartMessage(job);
-  const title = mode === 'success'
+  const title = storeManaged
+    ? '由 Microsoft Store 管理更新'
+    : mode === 'success'
     ? '升级安装完成'
     : mode === 'cancelled'
       ? '升级已取消'
@@ -88,7 +93,9 @@ export function UpdateDialog({
       : mode === 'up_to_date'
         ? '已是最新版本'
         : 'ACECode 升级';
-  const subtitle = mode === 'confirm'
+  const subtitle = storeManaged
+    ? '请在 Microsoft Store 的“库”中获取 ACECode 更新。'
+    : mode === 'confirm'
     ? '升级期间可以继续查看当前页面，请勿重复启动升级。'
     : mode === 'up_to_date'
       ? '当前安装的 ACECode 已是最新版本。'
@@ -109,11 +116,15 @@ export function UpdateDialog({
         <div className="grid grid-cols-[88px_1fr] gap-y-2 text-[12px]">
           <span className="text-fg-mute">当前版本</span>
           <span className="text-fg font-medium tabular-nums">{versionText(currentVersion)}</span>
-          <span className="text-fg-mute">
-            {mode === 'up_to_date' ? '最新版本' : '目标版本'}
-          </span>
-          <span className="text-fg font-medium tabular-nums">{versionText(targetVersion)}</span>
-          {Number(packageSize) > 0 && (
+          {!storeManaged && (
+            <>
+              <span className="text-fg-mute">
+                {mode === 'up_to_date' ? '最新版本' : '目标版本'}
+              </span>
+              <span className="text-fg font-medium tabular-nums">{versionText(targetVersion)}</span>
+            </>
+          )}
+          {!storeManaged && Number(packageSize) > 0 && (
             <>
               <span className="text-fg-mute">安装包</span>
               <span className="text-fg tabular-nums">{formatBytes(Number(packageSize))}</span>
@@ -127,7 +138,7 @@ export function UpdateDialog({
           </div>
         )}
 
-        {releaseHistory.length > 0 && (
+        {!storeManaged && releaseHistory.length > 0 && (
           <section className="mt-5" aria-label="版本更新记录">
             <div className="text-[14px] font-semibold text-fg">版本更新记录</div>
             <div className="mt-1 text-[11px] text-fg-mute">
@@ -238,7 +249,7 @@ export function UpdateDialog({
             </button>
           </>
         )}
-        {mode === 'up_to_date' && (
+        {(mode === 'up_to_date' || storeManaged) && (
           <button
             type="button"
             data-ace-dialog-primary="true"

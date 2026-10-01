@@ -20,6 +20,7 @@
 #include "utils/paths.hpp"
 #include "test_support/agent/stub_provider.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <chrono>
 #include <condition_variable>
@@ -366,11 +367,22 @@ public:
     acecode::AgentLoop loop_;
 };
 
+// /btw 与浮动侧边对话共用流式只读工具循环:带侧边对话指令的请求按旁路问题回答,
+// 其余请求交给脚本化的主回合。
 class CommandTestProvider : public acecode_test::StubLlmProvider {
 public:
-    acecode::ChatResponse chat(
+    void chat_stream(
         const std::vector<acecode::ChatMessage>& messages,
-        const std::vector<acecode::ToolDef>& tools) override {
+        const std::vector<acecode::ToolDef>& tools,
+        const acecode::StreamCallback& callback,
+        std::atomic<bool>* abort_flag = nullptr) override {
+        const bool side = std::any_of(messages.begin(), messages.end(), [](const auto& message) {
+            return message.content.find("read-only side conversation") != std::string::npos;
+        });
+        if (!side) {
+            acecode_test::StubLlmProvider::chat_stream(messages, tools, callback, abort_flag);
+            return;
+        }
         {
             std::lock_guard<std::mutex> lk(side_mu_);
             ++side_calls_;
@@ -380,10 +392,14 @@ public:
             }
         }
         side_cv_.notify_all();
-        acecode::ChatResponse response;
-        response.content = "detached answer";
-        response.finish_reason = "stop";
-        return response;
+        acecode::StreamEvent delta;
+        delta.type = acecode::StreamEventType::Delta;
+        delta.content = "detached answer";
+        callback(delta);
+        acecode::StreamEvent done;
+        done.type = acecode::StreamEventType::Done;
+        done.finish_reason = "stop";
+        callback(done);
     }
 
     bool wait_for_side_calls(int count) {

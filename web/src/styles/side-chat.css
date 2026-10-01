@@ -139,6 +139,63 @@
   margin-bottom: 0;
 }
 
+.ace-side-chat-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ace-side-chat-answer > .ace-side-chat-tools:first-child {
+  margin-top: 0;
+}
+
+.ace-side-chat-answer > .ace-md + .ace-md,
+.ace-side-chat-tools + .ace-md {
+  margin-top: 8px;
+}
+
+.ace-side-chat-tool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ace-fg-mute);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.ace-side-chat-tool-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ace-ok);
+}
+
+.ace-side-chat-tool[data-tool-status="error"] .ace-side-chat-tool-dot {
+  background: var(--ace-danger);
+}
+
+.ace-side-chat-tool[data-tool-status="cancelled"] .ace-side-chat-tool-dot {
+  background: var(--ace-fg-mute);
+}
+
+.ace-side-chat-tool-verb {
+  flex: 0 0 auto;
+  color: var(--ace-fg);
+}
+
+.ace-side-chat-tool-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
 .ace-side-chat-progress,
 .ace-side-chat-status,
 .ace-side-chat-error {

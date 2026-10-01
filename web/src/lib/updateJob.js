@@ -112,6 +112,7 @@ export async function requestDesktopUpdateRestart(
 }
 
 export function updateDialogMode(job, updateStatus = null) {
+  if (updateStatus?.status === 'store_managed') return 'store_managed';
   if (!job) {
     return updateStatus?.status === 'up_to_date' ? 'up_to_date' : 'confirm';
   }

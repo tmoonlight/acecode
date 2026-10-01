@@ -1,5 +1,6 @@
 #include "agent/agent_loop.hpp"
 #include "side_question_service.hpp"
+#include "side_chat_tools.hpp"
 #include "agent/request/provider_history.hpp"
 #include "agent/transcript/conversation_history.hpp"
 #include "utils/logger.hpp"
@@ -26,16 +27,24 @@ void AgentLoop::prime_side_question_context() {
     publish_side_question_context(context);
 }
 
+// The toolset borrows tools_/permissions_/boundary_; shutdown() joins every
+// side request before any of them can go away.
+SideChatToolset AgentLoop::side_chat_toolset() {
+    return agent::build_side_chat_toolset(
+        tools_, permissions_, *boundary_, session_manager_, tool_capability_policy());
+}
 SideQuestionResult AgentLoop::ask_side_question(const std::string& question) {
-    return side_questions_->ask(question);
+    return side_questions_->ask(question, side_chat_toolset());
 }
 bool AgentLoop::ask_side_question_async(std::string question, SideQuestionCallback callback) {
-    return side_questions_->ask_async(std::move(question), std::move(callback));
+    return side_questions_->ask_async(std::move(question), std::move(callback), side_chat_toolset());
 }
 SideChatResult AgentLoop::stream_side_chat(
     const std::string& question, const std::vector<SideChatMessage>& history,
-    SideChatCancellation& cancellation, const SideChatStreamCallback& callback) {
-    return side_questions_->stream(question, history, cancellation, callback);
+    SideChatCancellation& cancellation, const SideChatStreamCallback& callback,
+    const SideChatToolCallback& on_tool) {
+    return side_questions_->stream(question, history, cancellation, callback,
+                                   side_chat_toolset(), on_tool);
 }
 
 } // namespace acecode

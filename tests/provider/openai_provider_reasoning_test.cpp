@@ -24,6 +24,7 @@
 #include "provider/openai_provider.hpp"
 #include "llm/llm_provider.hpp"
 #include "session/attachment_store.hpp"
+#include "session/session_history_recovery.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -1124,3 +1125,45 @@ TEST(OpenAiProviderReasoningTest, DoneEventFinishReasonEmptyWhenGatewayOmitsIt) 
 }
 
 } // namespace
+
+// 模拟截图后视觉分析复用 call_0；请求必须以真实工具结果结束。
+TEST(OpenAiProviderReasoningTest, ReusedToolIdsKeepBothResultsInFinalRequest) {
+    TestableProvider provider("http://example.invalid", "", "test-model");
+    ChatMessage user;
+    user.role = "user";
+    user.content = "describe the screen";
+    ChatMessage capture;
+    capture.role = "assistant";
+    capture.content = "capture";
+    capture.tool_calls = nlohmann::json::array({{
+        {"id", "call_0"}, {"type", "function"},
+        {"function", {{"name", "bash"}, {"arguments", "{}"}}},
+    }});
+    ChatMessage saved;
+    saved.role = "tool";
+    saved.tool_call_id = "call_0";
+    saved.content = "screenshot saved";
+    auto vision = capture;
+    vision.content = "inspect";
+    vision.tool_calls[0]["function"]["name"] = "vision_analyze";
+    auto description = saved;
+    description.content = "screen description";
+    const std::vector<ChatMessage> history{user, capture, saved, vision, description};
+
+    for (bool stream : {false, true}) {
+        const auto body = provider.build_request_body(history, {}, stream);
+        const auto& messages = body.at("messages");
+        ASSERT_EQ(messages.size(), 5u);
+        EXPECT_EQ(messages[1]["tool_calls"][0]["id"], "call_0");
+        EXPECT_EQ(messages[2]["content"], "screenshot saved");
+        ASSERT_TRUE(messages[3].contains("tool_calls"));
+        const auto& id = messages[3]["tool_calls"][0]["id"];
+        EXPECT_NE(id, "call_0");
+        EXPECT_EQ(messages[3]["tool_calls"][0]["function"]["name"], "vision_analyze");
+        EXPECT_EQ(messages.back()["role"], "tool");
+        EXPECT_EQ(messages.back()["tool_call_id"], id);
+        EXPECT_EQ(messages.back()["content"], "screen description");
+        const auto projected = acecode::recover_provider_history(history);
+        EXPECT_EQ(provider.build_request_body(projected.messages, {}, stream), body);
+    }
+}

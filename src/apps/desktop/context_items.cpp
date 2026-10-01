@@ -40,6 +40,24 @@ std::string display_name(const fs::path& path) {
     return path_to_utf8(filename.empty() ? path : filename);
 }
 
+bool is_raster_image(const std::string& mime_type) {
+    return mime_type.rfind("image/", 0) == 0 && mime_type != "image/svg+xml";
+}
+
+// Reads the whole file; false (and no bytes) when it cannot be read or its
+// size no longer matches what was inspected.
+bool read_snapshot_bytes(const fs::path& path, std::uintmax_t expected_size, std::string& bytes) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return false;
+    std::string data(static_cast<std::size_t>(expected_size), '\0');
+    if (expected_size > 0 && !input.read(data.data(), static_cast<std::streamsize>(expected_size))) {
+        return false;
+    }
+    if (input.peek() != std::char_traits<char>::eof()) return false;
+    bytes = std::move(data);
+    return true;
+}
+
 } // namespace
 
 ContextItemsResult materialize_context_items(
@@ -89,10 +107,18 @@ ContextItemsResult materialize_context_items(
             return result;
         }
 
-        // Desktop files already have a canonical, server-reachable path. Keep
-        // every local file path-native (including raster images) so adding it
-        // never depends on reading, Base64 encoding, or attachment limits.
-        item.reference_only = true;
+        // Raster images carry their bytes: the composer and transcript show
+        // them as thumbnails and they reach the model as image snapshots (the
+        // daemon refuses image references). Every other file, and an image
+        // above the 25 MiB snapshot limit or one that cannot be read, stays
+        // path-native, so adding a file never fails on reading or limits.
+        if (is_raster_image(item.mime_type) && item.size_bytes <= kMaxClipboardImageBytes &&
+            read_snapshot_bytes(canonical, item.size_bytes, item.bytes)) {
+            item.reference_only = false;
+        } else {
+            item.bytes.clear();
+            item.reference_only = true;
+        }
         result.items.push_back(std::move(item));
     }
 

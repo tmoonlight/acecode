@@ -127,3 +127,13 @@ TEST(PinnedSessionsHandler, WritesAndReadsVisualOrderState) {
     auto state = read_pinned_session_order_state(path);
     EXPECT_EQ(state.items, (std::vector<PinnedSessionOrderItem>{{"w1", "a"}, {"w2", "x"}}));
 }
+
+TEST(PinnedSessionsHandler, PointLookupsDoNoWorkForEmptyPinsAndPruneDeletedIds) {
+    int reads = 0;
+    const auto lookup = [&](const std::string& id) { ++reads; return id == "present"; };
+    EXPECT_TRUE(acecode::web::existing_pinned_session_ids({}, lookup).empty());
+    EXPECT_EQ(reads, 0);
+    EXPECT_EQ(acecode::web::existing_pinned_session_ids({"present", "deleted", "present", "../escape"}, lookup),
+              (std::vector<std::string>{"present"}));
+    EXPECT_EQ(reads, 2);
+}

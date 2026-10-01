@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 #include <httplib.h>
 #include <sqlite3.h>
+#include "utils/uuid.hpp"
 #include "computer_use/runtime.hpp"
 
 #include "provider/auth/github_auth.hpp"
@@ -340,6 +341,20 @@ public:
         const std::vector<acecode::ToolDef>&,
         const acecode::StreamCallback& callback,
         std::atomic<bool>* abort_flag = nullptr) override {
+        // 旁路问题(同步 /side-question)走流式只读工具循环,带侧边对话指令;
+        // 它不计入主回合,也不等待主回合的放行。
+        if (std::any_of(messages.begin(), messages.end(), [](const auto& message) {
+                return message.content.find("read-only side conversation") != std::string::npos;
+            })) {
+            acecode::StreamEvent side;
+            side.type = acecode::StreamEventType::Delta;
+            side.content = "side";
+            callback(side);
+            acecode::StreamEvent side_done;
+            side_done.type = acecode::StreamEventType::Done;
+            callback(side_done);
+            return;
+        }
         int call_index = 0;
         {
             std::lock_guard<std::mutex> lk(mu_);
@@ -2539,6 +2554,22 @@ TEST(WebServerHttp, LoopSessionListIncludesOriginWhileActiveAndAfterDestroy) {
     EXPECT_EQ((*found)["loop_execution"]["run_id"], "run-1");
 }
 
+// A search releases deferred warmup immediately; discovery remains progressive.
+static cpr::Response completed_user_message_search(WebServerFixture& fx, const std::string& query) {
+    cpr::Response response;
+    const auto request_id = acecode::generate_uuid();
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    do {
+        response = cpr::Get(cpr::Url{fx.url("/api/session-search/user-messages")},
+            cpr::Parameters{{"q", query}, {"request_id", request_id}});
+        if (response.status_code != 200) return response;
+        if (json::parse(response.text)["progress"].value("complete", false)) return response;
+        std::this_thread::sleep_for(5ms);
+    } while (std::chrono::steady_clock::now() < deadline);
+    ADD_FAILURE() << "search did not complete: " << response.text;
+    return response;
+}
+
 TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
     WebServerFixture fx;
     const std::string search_project_dir =
@@ -2579,9 +2610,7 @@ TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
     acecode::SessionStorage::write_meta(
         acecode::SessionStorage::meta_path(search_project_dir, sid), meta);
 
-    auto text = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "sqlite索引"}});
+    auto text = completed_user_message_search(fx, "sqlite索引");
     ASSERT_EQ(text.status_code, 200) << text.text;
     auto text_body = json::parse(text.text);
     ASSERT_TRUE(text_body["matches"].is_array());
@@ -2593,9 +2622,7 @@ TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
               std::string::npos);
     EXPECT_FALSE(text_body["matches"][0].contains("messages"));
 
-    auto file = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "report-final"}});
+    auto file = completed_user_message_search(fx, "report-final");
     ASSERT_EQ(file.status_code, 200) << file.text;
     auto file_body = json::parse(file.text);
     ASSERT_EQ(file_body["matches"].size(), 1u);
@@ -2605,18 +2632,14 @@ TEST(WebServerHttp, SessionUserMessageSearchFindsTextAndAttachmentNames) {
     EXPECT_EQ(file_body["matches"][0]["search_match"]["snippet"].get<std::string>().find("C:/private"),
               std::string::npos);
 
-    auto hidden_result = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "quarterly-secret"}});
+    auto hidden_result = completed_user_message_search(fx, "quarterly-secret");
     ASSERT_EQ(hidden_result.status_code, 200) << hidden_result.text;
     EXPECT_TRUE(json::parse(hidden_result.text)["matches"].empty());
 }
 
 TEST(WebServerHttp, SessionUserMessageSearchReturnsNoMatchesForEmptyQuery) {
     WebServerFixture fx;
-    auto empty = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "   "}});
+    auto empty = completed_user_message_search(fx, "   ");
     ASSERT_EQ(empty.status_code, 200) << empty.text;
     auto body = json::parse(empty.text);
     ASSERT_TRUE(body["matches"].is_array());
@@ -2651,16 +2674,12 @@ TEST(WebServerHttp, SessionUserMessageSearchKeepsLiteralPlusAndPercent) {
         acecode::SessionStorage::meta_path(search_project_dir, sid), meta);
 
     // cpr 会把 "C++" 编码为 q=C%2B%2B,服务端只应 decode 一次。
-    auto plus = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "C++"}});
+    auto plus = completed_user_message_search(fx, "C++");
     ASSERT_EQ(plus.status_code, 200) << plus.text;
     ASSERT_EQ(json::parse(plus.text)["matches"].size(), 1u)
         << "字面 '+' 被二次解码成空格,导致查询不命中";
 
-    auto percent = cpr::Get(
-        cpr::Url{fx.url("/api/session-search/user-messages")},
-        cpr::Parameters{{"q", "95%"}});
+    auto percent = completed_user_message_search(fx, "95%");
     ASSERT_EQ(percent.status_code, 200) << percent.text;
     ASSERT_EQ(json::parse(percent.text)["matches"].size(), 1u)
         << "字面 '%' 被二次解码,导致查询不命中";
@@ -12605,6 +12624,174 @@ TEST(WebServerHttp, ConnectedWebSocketCannotDeliverIntoDestroyedImpl) {
     event.payload = {{"text", "late retained callback"}};
     EXPECT_NO_THROW(listener(event));
     socket.close(error);
+}
+
+TEST(SessionDiagnosticsSmoke, AcceptsMeasurementAndRejectsInvalidFields) {
+    WebServerFixture fx;
+    const auto send = [&](const json& payload) {
+        return cpr::Post(cpr::Url{fx.url("/api/diagnostics/session-open")},
+                         cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+    };
+    json payload{{"session_id", "20260101-000000-abcd"}, {"elapsed_ms", 12.5},
+                 {"history_requests", 1}, {"history_bytes", 4096}};
+    EXPECT_EQ(send(payload).status_code, 204);
+    payload["elapsed_ms"] = -1;
+    EXPECT_EQ(send(payload).status_code, 400);
+    payload["elapsed_ms"] = 1;
+    payload["session_id"] = "unexpected\\ncontent";
+    EXPECT_EQ(send(payload).status_code, 400);
+}
+
+TEST(SessionDiagnosticsSmoke, ReturnsStructuredRegisteredWorkspaceReport) {
+    WebServerFixture fx;
+    const auto response = cpr::Get(cpr::Url{fx.url("/api/diagnostics/sessions")});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto report = json::parse(response.text);
+    EXPECT_TRUE(report["workspaces"].is_array());
+    EXPECT_EQ(report["sample_limit"], 5);
+    EXPECT_FALSE(report["cancelled"].get<bool>());
+}
+
+TEST(SessionLoadingSmoke, ScopedListExcludesWorkspaceSessions) {
+    WebServerFixture fx;
+    auto create = [&](const json& body) {
+        return cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                         cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{body.dump()});
+    };
+    auto workspace = create(json::object());
+    auto detached = create({{"no_workspace", true}});
+    ASSERT_EQ(workspace.status_code, 201);
+    ASSERT_EQ(detached.status_code, 201);
+    const auto id = json::parse(detached.text).value("session_id", std::string{});
+    auto response = cpr::Get(cpr::Url{fx.url("/api/sessions?scope=no-workspace")});
+    ASSERT_EQ(response.status_code, 200);
+    const auto rows = json::parse(response.text);
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0]["id"], id);
+    EXPECT_TRUE(rows[0]["no_workspace"].get<bool>());
+    const auto legacy = json::parse(cpr::Get(cpr::Url{fx.url("/api/sessions")}).text);
+    EXPECT_EQ(legacy.size(), 2u);
+}
+
+TEST(SessionLoadingSmoke, ParentQueryReadsTheParentsWorkspaceAndHonorsBound) {
+    WebServerFixture fx;
+    const auto other = fx.tmp_dir / "other-workspace";
+    std::filesystem::create_directories(other);
+    fx.workspace_registry->register_new(fx.projects_dir.string(), other.string());
+    acecode::SessionOptions options;
+    options.cwd = other.string();
+    const auto parent = fx.registry->create(options);
+    options.parent_session_id = parent;
+    std::vector<std::string> children;
+    for (int i = 0; i < 3; ++i) {
+        const auto child = fx.registry->create(options);
+        fx.registry->acquire(child)->sm->ensure_active_session_id();
+        children.push_back(child);
+    }
+    for (const auto& child : children) fx.registry->destroy(child);
+    const auto response = cpr::Get(cpr::Url{fx.url("/api/sessions?parent=" + parent + "&limit=2")});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto rows = json::parse(response.text);
+    ASSERT_EQ(rows.size(), 2u);
+    for (const auto& row : rows) EXPECT_EQ(row["parent_session_id"], parent);
+}
+
+TEST(SessionLoadingSmoke, DuplicateStatusSubscriptionsEmitOneSnapshot) {
+    WebServerFixture fx;
+    asio::io_context io;
+    asio::ip::tcp::socket socket(io);
+    asio::error_code error;
+    socket.connect({asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(fx.port)}, error);
+    ASSERT_FALSE(error);
+    const std::string upgrade =
+        "GET /ws/sessions/_multiplex?token=smoke-token HTTP/1.1\r\n"
+        "Host: 127.0.0.1:" + std::to_string(fx.port) + "\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+    asio::write(socket, asio::buffer(upgrade), error);
+    ASSERT_FALSE(error);
+    ASSERT_TRUE(read_ws_upgrade(socket));
+    const auto subscribe = masked_ws_text(json{{"type", "status_subscribe"},
+        {"payload", {{"workspace_hash", acecode::compute_cwd_hash(fx.cwd)}}}}.dump());
+    const auto frames = subscribe + subscribe + subscribe + masked_ws_text(json{
+        {"type", "status_unsubscribe"},
+        {"payload", {{"workspace_hash", acecode::compute_cwd_hash(fx.cwd)}}},
+    }.dump());
+    asio::write(socket, asio::buffer(frames), error);
+    ASSERT_FALSE(error);
+    socket.non_blocking(true, error);
+    std::string received;
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (std::chrono::steady_clock::now() < deadline && received.find("status_unsubscribe_ack") == std::string::npos) {
+        char buffer[4096];
+        const auto size = socket.read_some(asio::buffer(buffer), error);
+        if (!error) received.append(buffer, size);
+        else if (error != asio::error::would_block && error != asio::error::try_again) break;
+        std::this_thread::sleep_for(2ms);
+    }
+    EXPECT_NE(received.find("status_unsubscribe_ack"), std::string::npos);
+    const std::string marker = "session_status_snapshot";
+    const auto first = received.find(marker);
+    ASSERT_NE(first, std::string::npos);
+    EXPECT_EQ(received.find(marker, first + marker.size()), std::string::npos);
+    socket.close(error);
+}
+
+TEST(SessionHistorySmoke, PagesLegacyIncrementalInvalidAndStaleCursors) {
+    WebServerFixture fx;
+    acecode::SessionOptions options; options.cwd = fx.cwd;
+    const auto sid = fx.registry->create(options);
+    auto entry = fx.registry->acquire(sid);
+    for (int i = 0; i < 9; ++i) {
+        acecode::ChatMessage user; user.role = "user"; user.content = "request " + std::to_string(i);
+        user.uuid = "u-" + std::to_string(i);
+        entry->sm->on_message(user);
+        entry->sm->begin_user_turn_checkpoint(user.uuid);
+        acecode::ChatMessage answer; answer.role = "assistant"; answer.content = "answer";
+        entry->sm->on_message(answer);
+    }
+    const auto base = "/api/sessions/" + sid + "/messages";
+    auto get = [&](const std::string& query) { return cpr::Get(cpr::Url{fx.url(base + query)}); };
+    auto response = get("?limit=3");
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    auto tail = json::parse(response.text);
+    EXPECT_TRUE(tail["has_more"].get<bool>());
+    EXPECT_EQ(tail["messages"].size(), 4u);
+    EXPECT_EQ(tail["messages"][0]["role"], "user");
+    EXPECT_TRUE(tail.contains("busy"));
+    EXPECT_TRUE(tail["messages"][0]["message_position"].is_string());
+    std::size_t count = tail["messages"].size();
+    auto page = tail;
+    for (int i = 0; i < 10 && page["has_more"].get<bool>(); ++i) {
+        response = get("?limit=3&before=" + page["before"].get<std::string>());
+        ASSERT_EQ(response.status_code, 200);
+        page = json::parse(response.text);
+        count += page["messages"].size();
+    }
+    EXPECT_EQ(count, 18u);
+    EXPECT_FALSE(page["has_more"].get<bool>());
+    EXPECT_EQ(json::parse(get("?since=0").text)["messages"].size(), 18u);
+    EXPECT_TRUE(json::parse(get("?after=" + tail["after"].get<std::string>()).text)["messages"].empty());
+    acecode::ChatMessage newest; newest.role = "user"; newest.content = "new";
+    entry->sm->on_message(newest);
+    EXPECT_EQ(json::parse(get("?after=" + tail["after"].get<std::string>()).text)["messages"].size(), 1u);
+    for (const auto* invalid : {"?limit=0", "?limit=-1", "?limit=abc", "?before=bad", "?after=bad",
+                                "?limit=2&since=1", "?from_position=x"}) {
+        EXPECT_EQ(get(invalid).status_code, 400) << invalid;
+    }
+    EXPECT_EQ(get("?limit=999999999999999999999999").status_code, 200);
+    // Old links count JSONL messages, including hidden checkpoint records.
+    const auto ordinal_page = json::parse(get("?limit=3&from_ordinal=6&before=" + tail["before"].get<std::string>()).text);
+    ASSERT_FALSE(ordinal_page["messages"].empty());
+    EXPECT_EQ(ordinal_page["messages"][0]["content"], "request 2");
+    const auto position = ordinal_page["messages"][0]["message_position"].get<std::string>();
+    const auto positioned = json::parse(get("?from_position=" + position + "&before=" + tail["before"].get<std::string>()).text);
+    EXPECT_EQ(positioned["messages"], ordinal_page["messages"]);
+    const auto path = acecode::SessionStorage::session_path(entry->sm->current_project_dir(), sid);
+    acecode::SessionStorage::write_messages(path, entry->sm->load_active_messages());
+    response = get("?before=" + tail["before"].get<std::string>());
+    ASSERT_EQ(response.status_code, 409) << response.text;
+    EXPECT_NE(response.text.find("HISTORY_CURSOR_STALE"), std::string::npos);
 }
 
 // ---------------------------------------------------------------------------

@@ -28,12 +28,7 @@ bool is_hidden_goal_context_message(const ChatMessage& m) {
 
 nlohmann::json chat_message_to_payload_json(const ChatMessage& m) {
     // 复用 session_serializer 的字段集合 + 顶层 id。
-    nlohmann::json j;
-    try {
-        j = nlohmann::json::parse(serialize_message(m));
-    } catch (...) {
-        j = nlohmann::json{{"role", m.role}, {"content", m.content}};
-    }
+    auto j = serialize_message_json(m);
     j["id"] = compute_message_id(m);
     return j;
 }

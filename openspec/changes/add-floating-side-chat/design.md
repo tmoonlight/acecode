@@ -9,7 +9,7 @@
 
 **Goals:** Keep one owner for side-request lifecycle, preserve detached context semantics, and reuse existing themes, Markdown rendering and WebSocket authentication.
 
-**Non-Goals:** Persisting another session, tools in side chat, modifying TUI interaction, OS-level always-on-top windows outside ACECode, or changing main composer behavior.
+**Non-Goals:** Persisting another session, write/shell/MCP tools in side chat, modifying TUI interaction, OS-level always-on-top windows outside ACECode, or changing main composer behavior.
 
 ## Decisions
 
@@ -21,6 +21,8 @@
 6. Cancellation wakes only waits whose request abort flag is set; it must not increment the provider's global retry-wake generation or shorten a main-task Retry-After delay. Providers expose whether they support tool-free requests. Codex's native app-server ignores the caller's tool list and has its own tool runtime, so its side requests are explicitly rejected until that adapter can guarantee tool-free execution. Regular model providers retain the existing empty-tool-list contract.
 7. Main and side requests share their configured provider. Copilot token refresh and token snapshots therefore use a short credential lock; network model calls remain concurrent. This prevents concurrent refresh from racing a request's authorization header construction.
 8. Add a speech-bubble SVG action before the trajectory action in the session header, using the existing `openSideQuestionComposer` entry and shared icon rendering. Add `clear()` to the existing controller: invalidate/cancel the active request, discard turns and draft, release the input, and preserve visibility. Late callbacks cannot repopulate cleared history or alter a fresh request. The trash button calls this action and focuses the textarea; the next request sends empty side history while retaining the usual main-session snapshot.
+
+9. Read-only tools (follow-up fix): with an empty tool list the model copied the main session's `bash` calls into the answer as angle-bracket text. Streaming side chat now offers only the registered, policy-allowed built-ins `file_read`, `grep`, `glob` and `lsp` (`side_chat_tools.cpp`, an allowlist rather than `is_read_only`, which also marks sub-agent and question tools). The daemon runs each call after Deny rules, the main path validation and the dangerous-path check, refusing anything that would need a prompt, inside `MtimeTracker::DetachedReadScope` so the main agent's read baseline and unchanged-read cache stay untouched. Results feed back for at most 8 steps; `side_chat_tool` frames report progress and `side_chat_reset` now discards only the current step. Text-form tool calls are discarded and corrected up to twice and never displayed. The synchronous HTTP and TUI `/btw` / `/side` questions stay single-turn but run the same loop, report `tools_used`, and reject native-tool providers; `stop_requests` cancels any in-flight side request.
 
 ### Window size and toolbar placement refinement
 

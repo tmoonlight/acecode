@@ -673,3 +673,37 @@ TEST(AnthropicProviderTest, StreamingOverloadRetriesAndResumesWithoutBudget) {
         }),
         events.end());
 }
+
+TEST(AnthropicProviderTest, ReusedToolIdsKeepDistinctToolUseResultPairs) {
+    AnthropicProvider provider(
+        AnthropicProvider::kDefaultBaseUrl, "sk-ant-test", "claude-test");
+    ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.tool_calls = nlohmann::json::array({{
+        {"id", "call_0"}, {"type", "function"},
+        {"function", {{"name", "file_read"}, {"arguments", "{}"}}},
+    }});
+    ChatMessage first;
+    first.role = "tool";
+    first.tool_call_id = "call_0";
+    first.content = "first output";
+    auto second = first;
+    second.content = "second output";
+
+    for (bool stream : {false, true}) {
+        const auto body = provider.build_request_body(
+            {user_message("read twice"), assistant, first, assistant, second}, {}, stream);
+        const auto& messages = body.at("messages");
+        ASSERT_EQ(messages.size(), 5u);
+        EXPECT_EQ(messages[1]["content"][0]["id"], "call_0");
+        EXPECT_EQ(messages[2]["content"][0]["tool_use_id"], "call_0");
+        EXPECT_EQ(messages[2]["content"][0]["content"], "first output");
+        const auto& id = messages[3]["content"][0]["id"];
+        EXPECT_NE(id, "call_0");
+        EXPECT_EQ(messages[3]["content"][0]["type"], "tool_use");
+        EXPECT_EQ(messages.back()["role"], "user");
+        EXPECT_EQ(messages.back()["content"][0]["type"], "tool_result");
+        EXPECT_EQ(messages.back()["content"][0]["tool_use_id"], id);
+        EXPECT_EQ(messages.back()["content"][0]["content"], "second output");
+    }
+}

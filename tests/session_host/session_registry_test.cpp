@@ -25,6 +25,8 @@
 #include "session_host/session_registry.hpp"
 #include "session/session_storage.hpp"
 #include "session/thread_goal_store.hpp"
+#include "tool/bash_tool.hpp"
+#include "tool/file_read_tool.hpp"
 #include "tool/goal_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/cwd_hash.hpp"
@@ -339,50 +341,70 @@ private:
 
 class SideQuestionStubProvider : public acecode::LlmProvider {
 public:
-    enum class SideMode { Answer, ToolCall, Empty, Error };
+    // ReadFile:先调用 file_read 读 read_path,拿到 tool 结果后回答 "saw <内容>"。
+    enum class SideMode { Answer, ToolCall, Empty, Error, ReadFile };
 
     acecode::ChatResponse chat(
-        const std::vector<acecode::ChatMessage>& messages,
-        const std::vector<acecode::ToolDef>& tools) override {
-        std::lock_guard<std::mutex> lk(mu_);
-        side_messages_ = messages;
-        side_tools_ = tools;
-        ++side_calls_;
-
-        acecode::ChatResponse response;
-        response.finish_reason = "stop";
-        if (mode_ == SideMode::Answer) {
-            response.content = "  isolated answer  ";
-        } else if (mode_ == SideMode::ToolCall) {
-            acecode::ToolCall call;
-            call.id = "forbidden";
-            call.function_name = "bash";
-            call.function_arguments = R"({"command":"echo no"})";
-            response.tool_calls.push_back(std::move(call));
-        } else if (mode_ == SideMode::Error) {
-            response.content = "[Error] upstream unavailable";
-            response.finish_reason = "error";
-        }
-        return response;
+        const std::vector<acecode::ChatMessage>&,
+        const std::vector<acecode::ToolDef>&) override {
+        // 旁路问题只走流式工具循环;这里不计入 side_calls。
+        return {};
     }
 
-    void chat_stream(const std::vector<acecode::ChatMessage>&,
-                     const std::vector<acecode::ToolDef>&,
+    // 旁路请求带侧边对话指令,据此与主回合请求区分;主回合固定回答 "main answer"。
+    void chat_stream(const std::vector<acecode::ChatMessage>& messages,
+                     const std::vector<acecode::ToolDef>& tools,
                      const acecode::StreamCallback& callback,
                      std::atomic<bool>* = nullptr) override {
-        acecode::StreamEvent delta;
-        delta.type = acecode::StreamEventType::Delta;
-        delta.content = "main answer";
-        callback(delta);
-        acecode::StreamEvent done;
-        done.type = acecode::StreamEventType::Done;
-        done.finish_reason = "stop";
-        callback(done);
+        const bool side = std::any_of(messages.begin(), messages.end(), [](const auto& message) {
+            return message.content.find("read-only side conversation") != std::string::npos;
+        });
+        if (!side) {
+            emit(callback, acecode::StreamEventType::Delta, "main answer");
+            emit(callback, acecode::StreamEventType::Done);
+            return;
+        }
+        SideMode mode;
+        std::string read_path;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            side_messages_ = messages;
+            side_tools_ = tools;
+            ++side_calls_;
+            mode = mode_;
+            read_path = read_path_;
+        }
+        if (mode == SideMode::Answer) {
+            emit(callback, acecode::StreamEventType::Delta, "  isolated answer  ");
+        } else if (mode == SideMode::ToolCall) {
+            acecode::StreamEvent call;
+            call.type = acecode::StreamEventType::ToolCall;
+            call.tool_call = {"forbidden", "bash", R"({"command":"echo no"})"};
+            callback(call);
+        } else if (mode == SideMode::Error) {
+            acecode::StreamEvent error;
+            error.type = acecode::StreamEventType::Error;
+            error.error = "[Error] upstream unavailable";
+            callback(error);
+            return;
+        } else if (mode == SideMode::ReadFile) {
+            if (messages.back().role == "tool") {
+                emit(callback, acecode::StreamEventType::Delta, "saw " + messages.back().content);
+            } else {
+                acecode::StreamEvent call;
+                call.type = acecode::StreamEventType::ToolCall;
+                call.tool_call = {"call_read", "file_read",
+                                  nlohmann::json{{"file_path", read_path}}.dump()};
+                callback(call);
+            }
+        }
+        emit(callback, acecode::StreamEventType::Done);
     }
 
-    void set_side_mode(SideMode mode) {
+    void set_side_mode(SideMode mode, std::string read_path = {}) {
         std::lock_guard<std::mutex> lk(mu_);
         mode_ = mode;
+        read_path_ = std::move(read_path);
     }
 
     int side_calls() const {
@@ -406,8 +428,18 @@ public:
     void set_model(const std::string&) override {}
 
 private:
+    static void emit(const acecode::StreamCallback& callback, acecode::StreamEventType type,
+                     const std::string& content = {}) {
+        acecode::StreamEvent event;
+        event.type = type;
+        event.content = content;
+        if (type == acecode::StreamEventType::Done) event.finish_reason = "stop";
+        callback(event);
+    }
+
     mutable std::mutex mu_;
     SideMode mode_ = SideMode::Answer;
+    std::string read_path_;
     int side_calls_ = 0;
     std::vector<acecode::ChatMessage> side_messages_;
     std::vector<acecode::ToolDef> side_tools_;
@@ -749,10 +781,14 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
     auto side_messages = provider->side_messages();
     ASSERT_FALSE(side_messages.empty());
     EXPECT_EQ(side_messages.back().role, "user");
-    EXPECT_NE(side_messages.back().content.find("separate, read-only, one-turn"),
-              std::string::npos);
-    EXPECT_NE(side_messages.back().content.find("explain the mutex"),
-              std::string::npos);
+    EXPECT_EQ(side_messages.back().content, "explain the mutex");
+    EXPECT_TRUE(std::any_of(
+        side_messages.begin(), side_messages.end(), [](const auto& message) {
+            return message.role == "system" &&
+                   message.content.find("separate, read-only side conversation") !=
+                       std::string::npos &&
+                   message.content.find("Do not call tools") != std::string::npos;
+        }));
     EXPECT_TRUE(std::any_of(
         side_messages.begin(), side_messages.end(), [](const auto& message) {
             return message.content.find("main task") != std::string::npos;
@@ -809,6 +845,47 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
         [](const auto& message) {
             return message.content.find("main answer") != std::string::npos;
         }));
+
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(cwd, ec);
+}
+
+// 场景:TUI /btw(同步 HTTP 侧问走同一路径)问到上下文里没有的文件,会话同时注册了
+// bash 与 file_read。期望:模型的工具表里只有 file_read(没有 bash);读取在后台执行、
+// 结果回填后作答;tools_used 列出读过的文件,TUI 据此在回答前提示;主会话历史不变。
+// 回归:一问一答的旁路问题不带工具表,模型把 bash 调用写成尖括号正文当作回答。
+TEST(SessionRegistry, SideQuestionReadsFilesWithReadOnlyToolsOnly) {
+    auto cwd = temp_cwd("side_question_tools");
+    const auto file = cwd / "notes.txt";
+    {
+        std::ofstream out(file, std::ios::binary);
+        out << "side secret\n";
+    }
+    TestFixture fx;
+    fx.tools.register_tool(acecode::create_bash_tool());
+    fx.tools.register_tool(acecode::create_file_read_tool());
+    auto provider = std::make_shared<SideQuestionStubProvider>();
+    fx.provider = provider;
+    SessionOptions opts;
+    opts.cwd = cwd.string();
+    auto id = fx.registry.create(opts);
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+
+    provider->set_side_mode(SideQuestionStubProvider::SideMode::ReadFile, file.string());
+    auto result = fx.registry.ask_side_question(id, "what is in notes.txt?");
+    EXPECT_EQ(result.status, SideQuestionStatus::Ok) << result.error;
+    EXPECT_NE(result.answer.find("side secret"), std::string::npos) << result.answer;
+    ASSERT_EQ(result.tools_used.size(), 1u);
+    EXPECT_EQ(result.tools_used[0], "file_read " + file.string());
+    EXPECT_EQ(acecode::side_question_tools_note(result),
+              "(read-only tools: file_read " + file.string() + ")\n");
+    EXPECT_EQ(provider->side_calls(), 2);
+    const auto tools = provider->side_tools();
+    ASSERT_EQ(tools.size(), 1u);
+    EXPECT_EQ(tools[0].name, "file_read");
+    EXPECT_TRUE(entry->loop->messages().empty());
 
     fx.registry.destroy(id);
     std::error_code ec;

@@ -699,6 +699,21 @@ TEST(FeedbackUpload, UploadPackageSendsGoHttpServerCompatibleMultipart) {
     EXPECT_EQ(received_content, "zip-bytes");
 }
 
+TEST(FeedbackUpload, StoreTransportRequiresHttpsAndPreservesUnpackagedCompatibility) {
+    std::string error;
+    EXPECT_FALSE(acecode::feedback::validate_feedback_upload_url(
+        "http://feedback.example/upload", true, &error));
+    EXPECT_NE(error.find("No feedback was uploaded"), std::string::npos);
+    EXPECT_TRUE(acecode::feedback::validate_feedback_upload_url(
+        "  https://feedback.example/upload  ", true));
+    EXPECT_FALSE(acecode::feedback::validate_feedback_upload_url(
+        "http://https://feedback.example", true));
+    EXPECT_FALSE(acecode::feedback::validate_feedback_upload_url(
+        "file:///feedback.zip", false));
+    EXPECT_TRUE(acecode::feedback::validate_feedback_upload_url(
+        "http://127.0.0.1:8080/upload", false));
+}
+
 TEST(FeedbackUpload, UploadPackageTreatsSuccessFalseAsFailure) {
     TempDir tmp("acecode_feedback_upload_fail");
     const fs::path package = tmp.root / "feedback.zip";

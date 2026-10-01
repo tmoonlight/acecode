@@ -3,7 +3,7 @@
 
 namespace acecode {
 
-std::string serialize_message(const ChatMessage& msg) {
+nlohmann::json serialize_message_json(const ChatMessage& msg) {
     nlohmann::json j;
     j["role"] = msg.role;
 
@@ -54,12 +54,18 @@ std::string serialize_message(const ChatMessage& msg) {
         j["metadata"] = msg.metadata;
     }
 
-    // dump(-1) produces compact single-line JSON with no extra whitespace
-    return j.dump(-1);
+    return j;
+}
+
+std::string serialize_message(const ChatMessage& msg) {
+    return serialize_message_json(msg).dump(-1);
 }
 
 ChatMessage deserialize_message(const std::string& line) {
-    auto j = nlohmann::json::parse(line);
+    return deserialize_message_json(nlohmann::json::parse(line));
+}
+
+ChatMessage deserialize_message_json(const nlohmann::json& j) {
     ChatMessage msg;
 
     if (j.contains("role") && j["role"].is_string()) {

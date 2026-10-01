@@ -30,7 +30,8 @@ namespace acecode {
 // permissions for sensitive payloads (token, keys).
 inline bool atomic_write_file(const std::string& path,
                               const std::string& content,
-                              bool restrict_permissions = false) {
+                              bool restrict_permissions = false,
+                              bool allow_open_readers = false) {
     namespace fs = std::filesystem;
     fs::path target = path_from_utf8(path);
     fs::path tmp = target;
@@ -95,6 +96,17 @@ inline bool atomic_write_file(const std::string& path,
 #endif
     }
 
+#ifdef _WIN32
+    // Session snapshots keep a FILE_SHARE_DELETE reader open. MoveFileEx can
+    // still reject replacing that target; ReplaceFile preserves those readers
+    // on the old file while atomically installing the new file identity.
+    if (allow_open_readers && fs::exists(target, ec)) {
+        return ::ReplaceFileW(target.wstring().c_str(), tmp.wstring().c_str(),
+                              nullptr, 0, nullptr, nullptr) != FALSE;
+    }
+#else
+    (void)allow_open_readers;
+#endif
     fs::rename(tmp, target, ec);
     if (ec) {
 #ifdef _WIN32

@@ -19,6 +19,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { beginSessionOpen } from '../lib/sessionOpenDiagnostics.js';
 import { SidebarQuickMenu } from './SidebarQuickMenu.jsx';
 import { SidebarExtensions } from './SidebarExtensions.jsx';
 import { Modal } from './Modal.jsx';
@@ -1757,12 +1758,15 @@ export function Sidebar({
   const [sessionListTotals, setSessionListTotals] = useState(() => new Map());
   const [expanded,    setExpanded]    = useState(new Set());
   const [expandedSessionLists, setExpandedSessionLists] = useState(new Map());
+  const expandedSessionListsRef = useRef(expandedSessionLists);
+  expandedSessionListsRef.current = expandedSessionLists;
   const [sectionExpansion, setSectionExpansion] = usePreference(
     SIDEBAR_SECTIONS_STORAGE_KEY,
     DEFAULT_SIDEBAR_SECTION_EXPANSION,
     validateSidebarSectionExpansion,
   );
   const [activeWorkspaceHash, setActiveWorkspaceHash] = useState('');
+  const refreshSelectionRef = useRef(null);
   const refreshingRef = useRef(false);
   const pendingRefreshHashRef = useRef('');
   const expandedRef = useRef(new Set());
@@ -1770,7 +1774,7 @@ export function Sidebar({
   const sessionFullyLoadedWorkspacesRef = useRef(new Set());
   const sessionsRef = useRef([]);
   const workspaceSessionLoadSeqRef = useRef(new Map());
-  const pendingFullWorkspaceLoadsRef = useRef(new Map());
+  const pendingWorkspaceLoadsRef = useRef(new Map());
   // 已经探过 opencode 导入预览的 workspace。探测结果近乎静态,没必要每轮
   // 对全部 workspace 重问一遍(见 lib/sidebarAuxiliaryFetch.js)。
   const opencodePreviewProbedRef = useRef(new Set());
@@ -1838,6 +1842,7 @@ export function Sidebar({
     });
   }
   const revealTarget = useMemo(() => sidebarRevealTarget(activeRef), [activeRef]);
+  refreshSelectionRef.current = { activeWorkspaceHash, revealTarget };
   const selectedRevealTarget = useMemo(
     () => sidebarRevealTarget(sessionSelectionIntent?.target || activeRef),
     [activeRef, sessionSelectionIntent],
@@ -2315,13 +2320,17 @@ export function Sidebar({
     markWorkspaceSessionsFullyLoaded(hash, page?.hasMore === false);
   }, [markWorkspaceSessionsFullyLoaded, setSessionWorkspacesLoaded]);
 
-  const loadWorkspaceSessions = useCallback(async (hash, { full = false, silent = false } = {}) => {
+  const loadWorkspaceSessions = useCallback(async (hash, { visibleCount, silent = false } = {}) => {
     const workspaceHash = String(hash || '').trim();
     if (!workspaceHash) return;
     const workspace = workspaces.find((item) => item.hash === workspaceHash)
       || { hash: workspaceHash };
-    const wantFull = full || sessionFullyLoadedWorkspacesRef.current.has(workspaceHash);
-    const appendNewSessions = wantFull && !sessionFullyLoadedWorkspacesRef.current.has(workspaceHash);
+    const wantedRows = visibleCount ?? expandedSessionListsRef.current.get(workspaceHash) ?? SIDEBAR_SESSION_COLLAPSE_LIMIT;
+    const appendNewSessions = wantedRows > SIDEBAR_SESSION_COLLAPSE_LIMIT;
+    const query = sidebarWorkspaceSessionListQuery({
+      visibleCount: wantedRows,
+      pinnedIds: pinnedByWorkspaceRef.current.get(workspaceHash),
+    });
     const cached = silent || sessionLoadedWorkspacesRef.current.has(workspaceHash);
     if (workspaceNeedsInitialSidebarLoad({
       hasCachedSessions: workspaceHasCachedSidebarSessions(sessionsRef.current, workspaceHash),
@@ -2333,22 +2342,11 @@ export function Sidebar({
     const sequence = (workspaceSessionLoadSeqRef.current.get(workspaceHash) || 0) + 1;
     workspaceSessionLoadSeqRef.current.set(workspaceHash, sequence);
     const pagePromise = (async () => {
-      if (workspaceHash === '__local__') {
-        const list = await api.listSessions();
-        return normalizeWorkspaceSessionListResponse(
-          (Array.isArray(list) ? list : []).filter((session) => !isNoWorkspaceSession(session)),
-        );
-      }
       return normalizeWorkspaceSessionListResponse(
-        await api.listWorkspaceSessions(workspaceHash, sidebarWorkspaceSessionListQuery({
-          full: wantFull,
-          pinnedIds: pinnedByWorkspaceRef.current.get(workspaceHash),
-        })),
+        await api.listWorkspaceSessions(workspaceHash, query),
       );
     })();
-    if (wantFull) {
-      pendingFullWorkspaceLoadsRef.current.set(workspaceHash, { sequence, promise: pagePromise });
-    }
+    pendingWorkspaceLoadsRef.current.set(workspaceHash, { sequence, query, promise: pagePromise });
     try {
       const payload = await pagePromise;
       if (workspaceSessionLoadSeqRef.current.get(workspaceHash) !== sequence) return;
@@ -2356,8 +2354,8 @@ export function Sidebar({
     } catch {
       /* 鉴权失败不致命 */
     } finally {
-      if (pendingFullWorkspaceLoadsRef.current.get(workspaceHash)?.sequence === sequence) {
-        pendingFullWorkspaceLoadsRef.current.delete(workspaceHash);
+      if (pendingWorkspaceLoadsRef.current.get(workspaceHash)?.sequence === sequence) {
+        pendingWorkspaceLoadsRef.current.delete(workspaceHash);
       }
       if (workspaceSessionLoadSeqRef.current.get(workspaceHash) === sequence) {
         setSessionWorkspaceLoading([workspaceHash], false);
@@ -2374,17 +2372,18 @@ export function Sidebar({
       setExpandedSessionLists((prev) => {
         const next = new Map(prev);
         next.delete(hash);
+        expandedSessionListsRef.current = next;
         return next;
       });
       return;
     }
-    setExpandedSessionLists((prev) => new Map(prev).set(
-      hash,
-      (prev.get(hash) ?? SIDEBAR_SESSION_COLLAPSE_LIMIT) + SIDEBAR_SESSION_COLLAPSE_LIMIT,
-    ));
+    const visibleCount = (expandedSessionListsRef.current.get(hash) ?? SIDEBAR_SESSION_COLLAPSE_LIMIT)
+      + SIDEBAR_SESSION_COLLAPSE_LIMIT;
+    expandedSessionListsRef.current = new Map(expandedSessionListsRef.current).set(hash, visibleCount);
+    setExpandedSessionLists(expandedSessionListsRef.current);
     if (hash === NO_WORKSPACE_SESSION_LIST_KEY || sessionFullyLoadedWorkspaces.has(hash)) return;
     loadWorkspaceSessions(hash, {
-      full: true,
+      visibleCount,
       silent: sessionLoadedWorkspaces.has(hash),
     }).catch(() => {});
   }, [loadWorkspaceSessions, sessionFullyLoadedWorkspaces, sessionLoadedWorkspaces]);
@@ -2403,6 +2402,7 @@ export function Sidebar({
   }, [togglePinnedSession]);
 
   const refresh = useCallback(async (preferredHash = null) => {
+    const { activeWorkspaceHash, revealTarget } = refreshSelectionRef.current;
     const revealWorkspaceHash = revealTarget.noWorkspace ? '' : revealTarget.workspaceHash;
     const requestedHash = preferredHash == null
       ? (revealTarget.noWorkspace ? '' : (revealWorkspaceHash || activeWorkspaceHash))
@@ -2474,15 +2474,6 @@ export function Sidebar({
           refreshOpencodeImportPreview(w).catch(() => {});
         });
       const loadWorkspacePage = async (workspace, query) => {
-        if (workspace.hash === '__local__') {
-          const list = await api.listSessions();
-          return {
-            workspace,
-            ...normalizeWorkspaceSessionListResponse(
-              (Array.isArray(list) ? list : []).filter((session) => !isNoWorkspaceSession(session)),
-            ),
-          };
-        }
         return {
           workspace,
           ...normalizeWorkspaceSessionListResponse(
@@ -2495,27 +2486,35 @@ export function Sidebar({
       };
       // 会话行是侧边栏的主体，不能等待置顶等辅助数据后才开始请求。
       const startWorkspacePageLoad = (workspace) => {
-        const pendingFull = pendingFullWorkspaceLoadsRef.current.get(workspace.hash);
+        const pendingFull = pendingWorkspaceLoadsRef.current.get(workspace.hash);
         if (pendingFull && sidebarWorkspacePageIsCurrent(
           workspaceSessionLoadSeqRef.current.get(workspace.hash), pendingFull.sequence,
         )) {
           // 用户的全量请求尚未完成时，后台摘要不能推进代次使它失效。
           return {
             sequence: pendingFull.sequence,
-            query: {},
+            query: pendingFull.query,
             result: settleSidebarWorkspacePage(pendingFull.promise.then((page) => ({ workspace, ...page }))),
           };
         }
         const sequence = (workspaceSessionLoadSeqRef.current.get(workspace.hash) || 0) + 1;
         workspaceSessionLoadSeqRef.current.set(workspace.hash, sequence);
         const query = sidebarWorkspaceSessionListQuery({
-          full: sessionFullyLoadedWorkspacesRef.current.has(workspace.hash),
+          visibleCount: expandedSessionListsRef.current.get(workspace.hash),
           pinnedIds: pinnedByWorkspaceRef.current.get(workspace.hash),
         });
         return {
           sequence,
           query,
-          result: settleSidebarWorkspacePage(loadWorkspacePage(workspace, query)),
+          result: settleSidebarWorkspacePage(loadWorkspacePage(workspace, query)).then((result) => {
+            if (result.ok && sidebarWorkspacePageIsCurrent(
+              workspaceSessionLoadSeqRef.current.get(workspace.hash), sequence,
+            )) {
+              applyWorkspaceSessionList(workspace, result.page);
+              setSessionWorkspaceLoading([workspace.hash], false);
+            }
+            return result;
+          }),
         };
       };
       const earlyVisibleWorkspaces = withActive.filter((workspace) => (
@@ -2525,7 +2524,7 @@ export function Sidebar({
         workspace.hash,
         startWorkspacePageLoad(workspace),
       ]));
-      const noWorkspaceListPromise = api.listSessions().catch(() => null);
+      const noWorkspaceListPromise = api.listSessions({ scope: 'no-workspace' }).catch(() => null);
 
       const pinnedTargets = new Set(pinnedRefreshTargets(withActive, earlyVisibleWorkspaceHashes));
       const [pinnedPairs, noWorkspacePinnedIds] = await Promise.all([
@@ -2604,6 +2603,7 @@ export function Sidebar({
             || startWorkspacePageLoad(workspace);
           let result = await request.result;
           const neededQuery = sidebarWorkspaceSessionListQuery({
+            visibleCount: expandedSessionListsRef.current.get(workspace.hash),
             pinnedIds: nextPinnedMap.get(workspace.hash),
           });
           // 先用缓存置顶数启动请求；本轮发现更多置顶项时补足普通五条。
@@ -2682,7 +2682,7 @@ export function Sidebar({
       pendingRefreshHashRef.current = '';
       if (pendingHash) setTimeout(() => refresh(pendingHash).catch(() => {}), 0);
     }
-  }, [activeWorkspaceHash, markWorkspaceSessionsFullyLoaded, refreshOpencodeImportPreview, revealTarget, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, syncRetainedSessionIds, updateExpanded]);
+  }, [applyWorkspaceSessionList, markWorkspaceSessionsFullyLoaded, refreshOpencodeImportPreview, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, syncRetainedSessionIds, updateExpanded]);
   workspaceOrderRefreshRef.current = refresh;
 
   const archiveSession = useCallback(async (session) => {
@@ -2774,7 +2774,7 @@ export function Sidebar({
     refresh();
     const t = setInterval(() => refresh().catch(() => {}), 5000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [refresh, revealTarget.workspaceHash, revealTarget.noWorkspace]);
 
   useEffect(() => {
     const handler = () => refresh().catch(() => {});
@@ -3386,6 +3386,7 @@ export function Sidebar({
 
   const selectSession = async (ws, session) => {
     if (!session?.id) return;
+    beginSessionOpen(session.id);
     const target = sidebarSessionTarget(ws, session);
     const loadKey = sidebarSessionLoadKey(target);
     const revealKey = sidebarRevealTargetKey(target);

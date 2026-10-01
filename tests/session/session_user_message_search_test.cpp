@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
+#include <sqlite3.h>
 
 #include "session/session_storage.hpp"
+#include "session/session_history_page.hpp"
 #include "session/session_user_message_search.hpp"
 
 #include <filesystem>
@@ -311,4 +313,69 @@ TEST(SessionUserMessageIndex, EnsureProjectIndexedPrunesDeletedSessions) {
 
     EXPECT_TRUE(index.search("orphan secret", 10, &error).empty())
         << "JSONL 已删除的会话内容仍留在索引里";
+}
+
+TEST(SessionUserMessageIndex, BytePositionsSurviveHiddenCheckpointsRebuildAndAppend) {
+    auto dir = temp_dir("positions");
+    const std::string sid = "session-position";
+    const auto path = acecode::SessionStorage::session_path(dir.string(), sid);
+    std::vector<acecode::ChatMessage> history;
+    for (int i = 0; i < 8; ++i) {
+        history.push_back(user_message("target-" + std::to_string(i)));
+        acecode::ChatMessage hidden; hidden.role = "system"; hidden.is_meta = true;
+        hidden.subtype = "file_checkpoint"; history.push_back(hidden);
+    }
+    acecode::SessionStorage::write_messages(path, history);
+    acecode::SessionUserMessageIndex index(dir.string());
+    std::string error;
+    ASSERT_TRUE(index.rebuild_session(sid, path, &error)) << error;
+    auto results = index.search("target-5", 10, &error);
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].message_ordinal, 10);
+    acecode::SessionHistoryRequest request; request.from_position = results[0].message_position;
+    auto page = acecode::load_session_history_page(path, request);
+    ASSERT_FALSE(page.messages.empty());
+    EXPECT_EQ(page.messages[0].message.content, "target-5");
+    const auto before = acecode::session_user_message_file_signature(path);
+    const auto appended = user_message("appended-target");
+    ASSERT_TRUE(acecode::SessionStorage::append_message(path, appended));
+    ASSERT_TRUE(index.index_appended_message(sid, 16, appended, path, before, &error)) << error;
+    results = index.search("appended-target", 10, &error);
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_EQ(results[0].message_position, static_cast<std::uint64_t>(before.size));
+    request.from_position = results[0].message_position;
+    EXPECT_EQ(acecode::load_session_history_page(path, request).messages[0].message.content, "appended-target");
+}
+
+TEST(SessionUserMessageIndex, UpgradesLegacyProjectionAndRebuildsPositions) {
+    auto dir = temp_dir("legacy_schema");
+    const auto path = acecode::SessionStorage::session_path(dir.string(), "legacy");
+    acecode::SessionStorage::write_messages(path, {user_message("schema migration target")});
+    {
+        acecode::platform::UniqueSqlite database;
+        ASSERT_EQ(sqlite3_open((dir / "user_message_search.sqlite3").string().c_str(), database.put()), SQLITE_OK);
+        ASSERT_EQ(sqlite3_exec(database.get(),
+            "CREATE TABLE session_user_message_index(session_id TEXT, message_ordinal INTEGER);"
+            "CREATE TABLE session_user_message_sources(session_id TEXT);"
+            "INSERT INTO session_user_message_sources VALUES('legacy');", nullptr, nullptr, nullptr), SQLITE_OK);
+    }
+    acecode::SessionUserMessageIndex index(dir.string());
+    std::string error;
+    ASSERT_TRUE(index.ensure_session_indexed("legacy", path, &error)) << error;
+    const auto rows = index.search("migration target", 10, &error);
+    ASSERT_EQ(rows.size(), 1u) << error;
+    EXPECT_EQ(rows[0].message_position, 0u);
+}
+
+TEST(SessionUserMessageIndex, CurrentSchemaInitializationDoesNotAcquireAWriteLock) {
+    auto dir = temp_dir("schema_reader");
+    acecode::SessionUserMessageIndex initial(dir.string());
+    std::string error;
+    ASSERT_TRUE(initial.initialize(&error)) << error;
+    acecode::platform::UniqueSqlite writer;
+    ASSERT_EQ(sqlite3_open((dir / "user_message_search.sqlite3").string().c_str(), writer.put()), SQLITE_OK);
+    ASSERT_EQ(sqlite3_exec(writer.get(), "BEGIN IMMEDIATE;", nullptr, nullptr, nullptr), SQLITE_OK);
+    acecode::SessionUserMessageIndex reader(dir.string());
+    EXPECT_TRUE(reader.initialize(&error)) << error;
+    EXPECT_EQ(sqlite3_exec(writer.get(), "ROLLBACK;", nullptr, nullptr, nullptr), SQLITE_OK);
 }

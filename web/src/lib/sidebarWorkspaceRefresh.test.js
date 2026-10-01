@@ -86,11 +86,13 @@ function fixture({
   });
   const refs = {
     sessionsRef: state.sessions,
+    expandedSessionListsRef: state.expandedSessionLists,
     sessionLoadedWorkspacesRef: state.loaded,
     sessionFullyLoadedWorkspacesRef: state.fullyLoaded,
     workspaceSessionLoadSeqRef: new Map(),
-    pendingFullWorkspaceLoadsRef: new Map(),
+    pendingWorkspaceLoadsRef: new Map(),
     refreshingRef: false, pendingRefreshHashRef: '',
+    refreshSelectionRef: { activeWorkspaceHash: 'w', revealTarget: { noWorkspace: false, workspaceHash: 'w' } },
     expandedRef: new Set(['w']),
     workspaceCollapseAllRef: false, userCollapsedWorkspacesRef: new Set(),
     sessionListDisclosureCompactRef: new Set(),
@@ -106,7 +108,7 @@ function fixture({
     ['setSessionListTotals', 'totals'],
     ['setStatusBySession', 'statuses'],
     ['setWorkspaces', 'workspaces'],
-    ['setExpandedSessionLists', 'expandedSessionLists'],
+    ['setExpandedSessionLists', 'expandedSessionLists', 'expandedSessionListsRef'],
   ]) {
     context[setter] = (update) => {
       state[key] = typeof update === 'function' ? update(state[key]) : update;
@@ -148,7 +150,7 @@ test('an old compact result cannot overwrite a full load while waiting for no-wo
   assert.equal(requests[0].query.limit, 5);
   requests[0].resolve({ ...compactPage(), total: 99 });
   await nextTask();
-  const full = context.loadWorkspaceSessions('w', { full: true });
+  const full = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   requests[1].resolve(sessions(20));
   await full;
   assert.equal(state.sessions.length, 20, 'user full load commits before the old refresh resumes');
@@ -161,7 +163,7 @@ test('an old compact result cannot overwrite a full load while waiting for no-wo
 
 test('a periodic refresh reuses a pending user full load instead of superseding it with five rows', async () => {
   const { context, state, requests } = fixture();
-  const full = context.loadWorkspaceSessions('w', { full: true });
+  const full = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   const refresh = context.refresh();
   await nextTask();
   // Resolve a compact request too on the unfixed PR, exposing the resulting
@@ -194,7 +196,7 @@ test('an old refresh cannot clear the loading indicator of a newer pending full 
   const { context, state, requests } = fixture({ initialSessions: [], loaded: false });
   const refresh = context.refresh();
   await nextTask();
-  const full = context.loadWorkspaceSessions('w', { full: true });
+  const full = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   requests[0].resolve(compactPage());
   await refresh;
   assert.equal(state.loading.has('w'), true, 'new full request still owns loading');
@@ -221,7 +223,7 @@ test('a failed current request also clears activation loading for an already loa
 
 test('a failed shared full request retains cached rows and permits a later retry', async () => {
   const { context, state, requests } = fixture();
-  const full = context.loadWorkspaceSessions('w', { full: true });
+  const full = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   const refresh = context.refresh();
   await nextTask();
   requests.slice(1).forEach((request) => request.reject(new Error('unavailable')));
@@ -231,7 +233,7 @@ test('a failed shared full request retains cached rows and permits a later retry
   assert.equal(state.fullyLoaded.has('w'), false);
   assert.equal(state.loading.has('w'), false);
   const beforeRetry = requests.length;
-  const retry = context.loadWorkspaceSessions('w', { full: true });
+  const retry = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   assert.equal(requests.length, beforeRetry + 1);
   requests.at(-1).resolve(sessions(20));
   await retry;
@@ -241,8 +243,8 @@ test('a failed shared full request retains cached rows and permits a later retry
 
 test('settling an earlier full request does not remove a later full request from refresh sharing', async () => {
   const { context, state, requests } = fixture();
-  const first = context.loadWorkspaceSessions('w', { full: true });
-  const second = context.loadWorkspaceSessions('w', { full: true });
+  const first = context.loadWorkspaceSessions('w', { visibleCount: 20 });
+  const second = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   requests[0].resolve(sessions(10));
   await first;
   assert.equal(state.sessions.length, 5, 'superseded full result is discarded');
@@ -257,11 +259,13 @@ test('settling an earlier full request does not remove a later full request from
 
 test('visible session requests still start before slow pinned metadata resolves', async () => {
   const pinned = deferred();
-  const { context, state, requests } = fixture({ pinned });
+  const { context, state, requests } = fixture({ pinned, initialSessions: [], loaded: false });
   const refresh = context.refresh();
   await nextTask();
   assert.equal(requests.length, 1, 'retain the early request benefit of PR #64');
   requests[0].resolve(compactPage());
+  await nextTask();
+  assert.equal(state.sessions.length, 5, 'render rows while pinned request is still pending');
   pinned.resolve({ session_ids: [] });
   await refresh;
   assert.equal(state.sessions.length, 5);
@@ -301,7 +305,7 @@ test('a newer full result prevents stale compact pinned supplementation', async 
   const refresh = context.refresh();
   await nextTask();
   requests[0].resolve(compactPage());
-  const full = context.loadWorkspaceSessions('w', { full: true });
+  const full = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   requests[1].resolve(sessions(20));
   await full;
   pinned.resolve({ session_ids: ['session-0', 'session-1'] });
@@ -314,7 +318,7 @@ test('a newer full result prevents stale compact pinned supplementation', async 
 test('a pending full request is shared even when pinned metadata grows', async () => {
   const pinned = deferred();
   const { context, state, requests } = fixture({ pinned });
-  const full = context.loadWorkspaceSessions('w', { full: true });
+  const full = context.loadWorkspaceSessions('w', { visibleCount: 20 });
   const refresh = context.refresh();
   await nextTask();
   pinned.resolve({ session_ids: ['session-0', 'session-1'] });
@@ -355,6 +359,38 @@ test('refresh uses the real workspace order controller to preserve a concurrent 
   requests[0].resolve(compactPage());
   await refresh;
   assert.deepEqual(state.workspaces.map((item) => item.hash), ['other', 'w']);
+});
+
+
+test('expansion and subsequent refresh request only the displayed batches', async () => {
+  const { context, state, requests } = fixture();
+  context.toggleSessionListExpanded('w');
+  assert.equal(requests[0].query.limit, 10);
+  requests[0].resolve({ sessions: sessions(10), total: 30, has_more: true });
+  await nextTask();
+  context.toggleSessionListExpanded('w');
+  assert.equal(requests[1].query.limit, 15);
+  requests[1].resolve({ sessions: sessions(15), total: 30, has_more: true });
+  await nextTask();
+  const refresh = context.refresh();
+  await nextTask();
+  assert.equal(requests[2].query.limit, 15);
+  requests[2].resolve({ sessions: sessions(15), total: 30, has_more: true });
+  await refresh;
+  assert.equal(state.sessions.length, 15);
+  assert.ok(requests.every(request => Number.isFinite(request.query.limit)));
+});
+
+test('runtime promotion and internal workspace selection do not change refresh dependencies', () => {
+  const refresh = declarations.find(node => node.id.name === 'refresh');
+  const dependencies = source.slice(refresh.init.arguments[1].start, refresh.init.arguments[1].end);
+  assert.doesNotMatch(dependencies, /activeWorkspaceHash|revealTarget/);
+  assert.match(source, /\[refresh, revealTarget.workspaceHash, revealTarget.noWorkspace\]/);
+});
+
+test('sidebar default session list is explicitly scoped to no-workspace tasks', () => {
+  assert.match(source, /api.listSessions\(\{ scope: 'no-workspace' \}\)/);
+  assert.doesNotMatch(source, /api.listSessions\(\)/);
 });
 
 let failures = 0;

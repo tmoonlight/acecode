@@ -1,4 +1,5 @@
 #include "command_dispatch.hpp"
+#include "diagnose_sessions.hpp"
 #include "platform/utf8_command_line.hpp"
 #include "upgrade/upgrade_cli_args.hpp"
 #include "upgrade/upgrade.hpp"
@@ -45,6 +46,7 @@ static void print_top_level_help() {
         "  acecode [options]                  Start the interactive TUI\n"
         "  acecode -p [options] \"<prompt>\"    Headless print mode (acecode -p --help)\n"
         "  acecode configure                  Interactive provider/model setup\n"
+        "  acecode diagnose sessions          Read-only session size/composition report\n"
         "  acecode daemon <subcommand>        Background daemon + Web UI (acecode daemon help)\n"
         "  acecode channels <command>         WhatsApp channel management (acecode channels help)\n"
 #ifdef _WIN32
@@ -71,6 +73,12 @@ static void print_top_level_help() {
 
 std::optional<int> dispatch_non_tui_command(int argc, char* argv[]) {
     const std::string exe_path = executable_path_from_argv(argc, argv);
+
+    if (argc >= 2 && std::string(argv[1]) == "diagnose") {
+        if (argc == 3 && std::string(argv[2]) == "sessions") return diagnose_sessions(std::cout);
+        std::cerr << "usage: acecode diagnose sessions\n";
+        return 64;
+    }
 
     if (argc >= 2 && std::string(argv[1]) == "--remote-web-proxy") {
         return acecode::web::run_remote_web_proxy_command(

@@ -8,9 +8,12 @@ namespace acecode {
 // Serialize a ChatMessage to a single-line JSON string (for JSONL storage).
 // Empty fields are omitted to save space.
 std::string serialize_message(const ChatMessage& msg);
+// The same persisted field set, without a JSON string round trip.
+nlohmann::json serialize_message_json(const ChatMessage& msg);
 
 // Deserialize a single-line JSON string back to a ChatMessage.
 // Handles missing fields gracefully. Throws on invalid JSON.
 ChatMessage deserialize_message(const std::string& line);
+ChatMessage deserialize_message_json(const nlohmann::json& value);
 
 } // namespace acecode

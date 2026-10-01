@@ -74,7 +74,7 @@ TEST(ToolResultStorage, DeliveryPreparesLargeResultAndPreservesStructuredFields)
     EXPECT_TRUE(batch.newly_replaced.empty());
     EXPECT_EQ(state.replacements.at("call-delivery"), preview);
     EXPECT_EQ(results[0].output, preview);
-    EXPECT_EQ(read_file(dir / "call-delivery.txt"), original);
+    EXPECT_EQ(read_file(acecode::persisted_output_filepath(preview)), original);
     fs::remove_all(dir);
 }
 
@@ -129,7 +129,7 @@ TEST(ToolResultStorage, PersistsLargestFreshResultUntilBatchUnderBudget) {
     EXPECT_EQ(results[1].output, std::string(500, 'b'));
     EXPECT_EQ(results[2].output, std::string(100, 'c'));
 
-    const fs::path persisted = dir / "call-large.txt";
+    const fs::path persisted = acecode::persisted_output_filepath(results[0].output);
     ASSERT_TRUE(fs::exists(persisted));
     EXPECT_EQ(read_file(persisted), std::string(3000, 'a'));
     EXPECT_TRUE(state.seen_ids.count("call-large"));
@@ -231,4 +231,51 @@ TEST(ToolResultStorage, ContentReplacementMetaIsHiddenFromReplay) {
     ASSERT_EQ(rows.size(), 1u);
     EXPECT_EQ(rows[0].role, "tool_result");
     EXPECT_EQ(rows[0].content, "visible tool result");
+}
+
+TEST(ToolResultStorage, ReusedAndSanitizedIdsPersistIndependentArtifacts) {
+    const auto dir = temp_dir("colliding_ids");
+    const auto first = acecode::persist_tool_result("FIRST", "call_0", dir.string());
+    const auto second = acecode::persist_tool_result("SECOND", "call_0", dir.string());
+    const auto slash = acecode::persist_tool_result("SLASH", "call/a", dir.string());
+    const auto colon = acecode::persist_tool_result("COLON", "call:a", dir.string());
+    EXPECT_NE(first.filepath, second.filepath);
+    EXPECT_NE(slash.filepath, colon.filepath);
+    EXPECT_EQ(read_file(first.filepath), "FIRST");
+    EXPECT_EQ(read_file(second.filepath), "SECOND");
+    EXPECT_EQ(read_file(slash.filepath), "SLASH");
+    EXPECT_EQ(read_file(colon.filepath), "COLON");
+    fs::remove_all(dir);
+}
+
+TEST(ToolResultStorage, AmbiguousLegacyIdsDoNotOverwriteDistinctResultsOnResume) {
+    const auto cwd = temp_dir("legacy_ids");
+    const auto project = acecode::SessionStorage::get_project_dir(cwd.string());
+    const std::string preview = "<persisted-output>\nOLD-PREVIEW\n</persisted-output>";
+    auto first = tool_message("call_0", preview);
+    auto second = tool_message("call_0", "FRESH-RESULT");
+    second.metadata = {{"tool_success", true}, {"probe", "preserved"}};
+    std::vector<acecode::ChatMessage> messages = {
+        first, acecode::encode_content_replacement_message({{"call_0", preview}}), second,
+    };
+    const auto state = acecode::reconstruct_tool_result_replacement_state(messages);
+    EXPECT_EQ(acecode::apply_tool_result_replacements(messages, state), 0);
+    EXPECT_EQ(messages[2].content, "FRESH-RESULT");
+    acecode::SessionManager writer;
+    writer.start_session(cwd.string(), "stub", "stub-model");
+    writer.on_message(first);
+    writer.on_message(acecode::encode_content_replacement_message({{"call_0", preview}}));
+    writer.on_message(second);
+    const auto sid = writer.current_session_id();
+    writer.finalize();
+    acecode::SessionManager reader;
+    reader.start_session(cwd.string(), "stub", "stub-model");
+    const auto restored = reader.resume_session(sid);
+    ASSERT_GE(restored.size(), 3u);
+    EXPECT_EQ(restored[0].content, preview);
+    EXPECT_EQ(restored[2].content, "FRESH-RESULT");
+    EXPECT_EQ(restored[2].metadata, second.metadata);
+    reader.finalize();
+    fs::remove_all(project);
+    fs::remove_all(cwd);
 }

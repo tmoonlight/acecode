@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 #include "session_client.hpp"
 #include "session_storage.hpp"
 #include "session_user_message_search.hpp"
@@ -99,9 +101,11 @@ class GlobalSessionCatalogIndex {
 public:
     using ActiveSessionsProvider = std::function<std::vector<SessionInfo>()>;
 
+    using WarmupClock = std::function<std::chrono::steady_clock::time_point()>;
     explicit GlobalSessionCatalogIndex(
         std::string projects_dir,
-        ActiveSessionsProvider active_sessions_provider = {});
+        ActiveSessionsProvider active_sessions_provider = {},
+        WarmupClock warmup_clock = [] { return std::chrono::steady_clock::now(); });
     ~GlobalSessionCatalogIndex();
 
     GlobalSessionCatalogIndex(const GlobalSessionCatalogIndex&) = delete;
@@ -109,6 +113,7 @@ public:
 
     void start();
     void stop();
+    void notify_startup_interaction();
 
     // Returns false when request_id was already cancelled; a cancelled id can
     // never be resurrected by a late/in-flight HTTP request.

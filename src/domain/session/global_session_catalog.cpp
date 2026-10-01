@@ -1,4 +1,5 @@
 #include "global_session_catalog.hpp"
+#include "global_session_catalog_meta.hpp"
 
 #include "workspace/workspace_registry.hpp"
 #include "utils/cwd_hash.hpp"
@@ -50,33 +51,6 @@ std::string effective_updated_at(const GlobalSessionCatalogEntry& entry) {
 
 int content_score(const GlobalSessionCatalogEntry& entry) {
     return entry.content_match ? entry.content_match->score : 0;
-}
-
-SessionMeta synthesize_meta(const SessionInfo& active) {
-    SessionMeta meta;
-    meta.id = active.id;
-    meta.cwd = active.cwd;
-    meta.created_at = active.created_at;
-    meta.updated_at = active.updated_at;
-    meta.summary = active.summary;
-    meta.provider = active.provider;
-    meta.model = active.model;
-    meta.model_preset = active.model_name;
-    meta.title = active.title;
-    meta.title_source = active.title_source;
-    meta.message_count = active.message_count;
-    meta.turn_count = active.turn_count;
-    meta.permission_mode = active.permission_mode;
-    meta.last_token_usage = active.last_token_usage;
-    meta.session_token_usage = active.session_token_usage;
-    meta.parent_session_id = active.parent_session_id;
-    meta.expert_id = active.expert_id;
-    meta.expert_member_id = active.expert_member_id;
-    meta.no_workspace = active.no_workspace;
-    meta.worktree.worktree_path = active.worktree_path;
-    meta.worktree.worktree_name = active.worktree_name;
-    meta.worktree.worktree_branch = active.worktree_branch;
-    return meta;
 }
 
 GlobalSessionCatalogError make_error(const std::string& project_dir,
@@ -328,7 +302,7 @@ GlobalSessionCatalog merge_project_results(
 
         GlobalSessionCatalogEntry entry;
         entry.workspace_hash = workspace_hash;
-        entry.meta = synthesize_meta(active);
+        entry.meta = detail::catalog_meta_from_active(active);
         entry.active = active;
         if (!active.no_workspace) {
             entry.project_dir = path_to_utf8(root / workspace_hash);
@@ -429,6 +403,9 @@ struct GlobalSessionCatalogIndex::Impl {
 
     std::string projects_dir;
     ActiveSessionsProvider active_sessions_provider;
+    WarmupClock warmup_clock;
+    std::chrono::steady_clock::time_point warmup_deadline{};
+    bool warmup_released = false;
 
     mutable std::mutex mu;
     std::condition_variable cv;
@@ -455,9 +432,9 @@ struct GlobalSessionCatalogIndex::Impl {
     std::unordered_map<std::string, std::shared_ptr<const ProjectScanResult>> shards;
     std::vector<GlobalSessionCatalogError> discovery_errors;
 
-    explicit Impl(std::string root, ActiveSessionsProvider provider)
-        : projects_dir(std::move(root)),
-          active_sessions_provider(std::move(provider)) {}
+    explicit Impl(std::string root, ActiveSessionsProvider provider, WarmupClock clock)
+        : projects_dir(std::move(root)), active_sessions_provider(std::move(provider)),
+          warmup_clock(std::move(clock)) {}
 
     bool cancelled_or_stopping() const {
         std::lock_guard<std::mutex> lock(mu);
@@ -579,6 +556,15 @@ struct GlobalSessionCatalogIndex::Impl {
     }
 
     void run() {
+        {
+            std::unique_lock<std::mutex> lock(mu);
+            while (!stopping && !warmup_released) {
+                const auto now = warmup_clock();
+                if (now >= warmup_deadline) break;
+                cv.wait_for(lock, warmup_deadline - now);
+            }
+            if (stopping) return;
+        }
         refresh_discovery();
         constexpr auto kDiscoveryInterval = std::chrono::seconds(5);
 
@@ -646,9 +632,9 @@ struct GlobalSessionCatalogIndex::Impl {
 
 GlobalSessionCatalogIndex::GlobalSessionCatalogIndex(
     std::string projects_dir,
-    ActiveSessionsProvider active_sessions_provider)
+    ActiveSessionsProvider active_sessions_provider, WarmupClock warmup_clock)
     : impl_(std::make_unique<Impl>(
-          std::move(projects_dir), std::move(active_sessions_provider))) {}
+          std::move(projects_dir), std::move(active_sessions_provider), std::move(warmup_clock))) {}
 
 GlobalSessionCatalogIndex::~GlobalSessionCatalogIndex() {
     stop();
@@ -659,7 +645,16 @@ void GlobalSessionCatalogIndex::start() {
     if (impl_->started) return;
     impl_->started = true;
     impl_->stopping = false;
+    impl_->warmup_deadline = impl_->warmup_clock() + std::chrono::seconds(10);
     impl_->worker = acecode::JoiningThread([impl = impl_.get()] { impl->run(); });
+}
+
+void GlobalSessionCatalogIndex::notify_startup_interaction() {
+    {
+        std::lock_guard<std::mutex> lock(impl_->mu);
+        impl_->warmup_released = true;
+    }
+    impl_->cv.notify_all();
 }
 
 void GlobalSessionCatalogIndex::stop() {
@@ -684,6 +679,7 @@ bool GlobalSessionCatalogIndex::attach_request(const std::string& request_id) {
     const bool first_attach = !impl_->ever_attached;
     const bool resuming_after_pause = impl_->paused;
     impl_->ever_attached = true;
+    impl_->warmup_released = true;
     // Legacy callers have no lifecycle id to detach later. They still resume
     // prewarming, but are not retained as an active request that could prevent
     // a later explicit cancellation from pausing the worker.
@@ -891,7 +887,7 @@ GlobalSessionCatalogSelection GlobalSessionCatalogIndex::select_entries(
             : (!active->workspace_hash.empty()
                 ? active->workspace_hash
                 : compute_cwd_hash(active->cwd));
-        entry.meta = synthesize_meta(*active);
+        entry.meta = detail::catalog_meta_from_active(*active);
         entry.active = *active;
         if (!active->no_workspace) {
             entry.project_dir = path_to_utf8(root / entry.workspace_hash);

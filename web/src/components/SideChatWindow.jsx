@@ -6,6 +6,7 @@ import {
 } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { renderMarkdown } from '../lib/markdown.js';
+import { sideChatToolVerb, sideChatTurnParts } from '../lib/sideChatController.js';
 import {
   anchorSideChatGeometry,
   clampSideChatGeometry,
@@ -19,22 +20,45 @@ import { toast } from './Toast.jsx';
 const RESIZE_DIRECTIONS = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'];
 const isComposing = (event) => event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229;
 
+const SideChatMarkdown = memo(function SideChatMarkdown({ text, onMarkdownInteraction }) {
+  const html = useMemo(() => ({ __html: renderMarkdown(text) }), [text]);
+  return (
+    <div
+      className="ace-md"
+      onClick={onMarkdownInteraction}
+      onKeyDown={onMarkdownInteraction}
+      dangerouslySetInnerHTML={html}
+    />
+  );
+});
+
+function SideChatToolRow({ tool }) {
+  return (
+    <li className="ace-side-chat-tool" data-tool-status={tool.status}>
+      {tool.status === 'running'
+        ? <span className="ace-spinner" aria-hidden="true" />
+        : <span className="ace-side-chat-tool-dot" aria-hidden="true" />}
+      <span className="ace-side-chat-tool-verb">{sideChatToolVerb(tool.name)}</span>
+      {tool.target && <span className="ace-side-chat-tool-target" title={tool.target}>{tool.target}</span>}
+    </li>
+  );
+}
+
 const SideChatTurn = memo(function SideChatTurn({ turn, onMarkdownInteraction }) {
   const answer = String(turn.answer || '');
-  const html = useMemo(() => ({ __html: renderMarkdown(answer) }), [answer]);
+  const parts = useMemo(() => sideChatTurnParts(turn), [turn]);
   const generating = turn.status === 'loading' || turn.status === 'streaming';
   return (
     <article className="ace-side-chat-turn" data-side-chat-status={turn.status}>
       <div className="ace-side-chat-question">{turn.question}</div>
       <div className="ace-side-chat-answer">
-        {answer && (
-          <div
-            className="ace-md"
-            onClick={onMarkdownInteraction}
-            onKeyDown={onMarkdownInteraction}
-            dangerouslySetInnerHTML={html}
-          />
-        )}
+        {parts.map((part) => (part.kind === 'tools' ? (
+          <ul key={part.key} className="ace-side-chat-tools" aria-label="只读工具调用">
+            {part.tools.map((tool) => <SideChatToolRow key={tool.id} tool={tool} />)}
+          </ul>
+        ) : (
+          <SideChatMarkdown key={part.key} text={part.text} onMarkdownInteraction={onMarkdownInteraction} />
+        )))}
         {generating && (
           <div className="ace-side-chat-progress" role="status">
             <span className="ace-spinner" aria-hidden="true" />
