@@ -312,7 +312,8 @@ TEST_F(MemoryRegistryTest, ScanPreservesUtf8PathStemAndBody) {
     ASSERT_TRUE(found.has_value());
     EXPECT_EQ(found->name, u8"中文记忆");
     EXPECT_EQ(found->description, u8"中文描述");
-    EXPECT_EQ(found->body, u8"\n正文内容\n");
+    // frontmatter 与正文之间那一个空行是格式分隔,读回时去掉(否则每次系统改写都多一行)。
+    EXPECT_EQ(found->body, u8"正文内容\n");
     EXPECT_TRUE(acecode::is_valid_utf8(found->name));
     EXPECT_TRUE(acecode::is_valid_utf8(found->body));
 }

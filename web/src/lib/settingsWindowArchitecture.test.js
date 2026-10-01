@@ -96,7 +96,7 @@ run('Settings panel keeps normal caps and an exact 13px expanded inset', () => {
 run('upgrade URL and personalization editors save on blur without save buttons', () => {
   const settings = source('components/SettingsPage.jsx');
   const config = source('components/SettingsConfigSection.jsx');
-  const personalization = between(settings, 'function SectionPersonalization()', '// ─── 技能');
+  const personalization = between(settings, 'function SectionPersonalization(', '// ─── 技能');
 
   assert.match(config, /onBlur=\{\(\) => \{ void saveUpgradeUrl\(\); \}\}/);
   assert.match(config, /api\.setUpgradeConfig\(\{ base_url: baseUrl \}\)/);

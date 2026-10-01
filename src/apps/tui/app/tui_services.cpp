@@ -12,7 +12,7 @@
 #include "security/audit_log.hpp"
 #include "skills/skill_registry.hpp"
 #include "skills/skill_usage_store.hpp"
-#include "memory/memory_registry.hpp"
+#include "session_host/memory_runtime.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
@@ -42,10 +42,9 @@ bool TuiServices::initialize(const InteractiveCliOptions& cli, const std::string
     security::audit_log().configure(get_acecode_dir());
     tools = std::make_unique<ToolExecutor>();
     skills = std::make_unique<SkillRegistry>();
-    memory = std::make_unique<MemoryRegistry>();
+    memory = create_memory_runtime(config, get_acecode_dir(), MemorySurface::Tui);
     mcp = std::make_unique<McpManager>();
-    runtime_memory_config = initialize_tui_tools_and_registries(
-        *tools, *skills, *memory, *mcp, config, cwd);
+    initialize_tui_tools_and_registries(*tools, *skills, *memory, *mcp, config, cwd);
     const auto projects = path_to_utf8(path_from_utf8(get_acecode_dir()) / "projects");
     workspaces = std::make_unique<desktop::WorkspaceRegistry>();
     workspaces->scan(projects);

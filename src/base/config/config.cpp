@@ -943,15 +943,7 @@ static AppConfig load_config_from_path_once(
                     cfg.skills.idle_days = sj["idle_days"].get<int>();
                 }
             }
-            if (j.contains("memory") && j["memory"].is_object()) {
-                const auto& mj = j["memory"];
-                if (mj.contains("enabled") && mj["enabled"].is_boolean())
-                    cfg.memory.enabled = mj["enabled"].get<bool>();
-                if (mj.contains("max_index_bytes") && mj["max_index_bytes"].is_number_integer()) {
-                    long long v = mj["max_index_bytes"].get<long long>();
-                    if (v > 0) cfg.memory.max_index_bytes = static_cast<std::size_t>(v);
-                }
-            }
+            if (j.contains("memory")) load_memory_config_json(j["memory"], cfg.memory);
             if (j.contains("project_instructions") && j["project_instructions"].is_object()) {
                 const auto& pj = j["project_instructions"];
                 if (pj.contains("enabled") && pj["enabled"].is_boolean())
@@ -2326,13 +2318,7 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             web_uij["message_auto_collapse"] = cfg.web_ui.message_auto_collapse;
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
-        MemoryConfig mem_d;
-        nlohmann::json memj = nlohmann::json::object();
-        if (cfg.memory.enabled != mem_d.enabled)
-            memj["enabled"] = cfg.memory.enabled;
-        if (cfg.memory.max_index_bytes != mem_d.max_index_bytes)
-            memj["max_index_bytes"] = cfg.memory.max_index_bytes;
-        if (!memj.empty()) j["memory"] = memj;
+        if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);
 
         ProjectInstructionsConfig pi_d;
         nlohmann::json pij = nlohmann::json::object();

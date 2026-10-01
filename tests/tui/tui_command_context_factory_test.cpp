@@ -4,7 +4,9 @@
 #include "test_support/tui/input_fixture.hpp"
 #include "tool/mcp_manager.hpp"
 #include "skills/skill_registry.hpp"
-#include "memory/memory_registry.hpp"
+#include "memory/memory_service.hpp"
+#include "session_host/memory_runtime.hpp"
+#include <filesystem>
 
 namespace {
 using acecode::tui::TuiCommandContextFactory;
@@ -28,7 +30,11 @@ TEST(TuiCommandContextFactory, ContextFieldsAndOptionalDirectInputHooks) {
     acecode::TokenTracker tracker;
     acecode::McpManager mcp;
     acecode::SkillRegistry skills;
-    acecode::MemoryRegistry memory;
+    // 只当成借用指针透传,不触碰磁盘(MemoryService 构造不建目录、不开状态库)。
+    acecode::MemoryRuntime memory(std::make_shared<acecode::MemoryService>(
+        std::filesystem::temp_directory_path() / "acecode-ctx-memory",
+        std::filesystem::temp_directory_path() / "acecode-ctx-memory" / "state.sqlite3",
+        acecode::MemoryConfig{}), acecode::MemorySurface::Tui);
     std::unique_ptr<acecode::tui::IFullScreenSurfaces> surfaces = std::make_unique<FakeSurfaces>();
     auto& selected = static_cast<FakeSurfaces&>(*surfaces).selected;
     TuiCommandContextFactory factory(h.state, *agent.loop, binding, h.config, tracker,
@@ -81,7 +87,11 @@ TEST(TuiCommandContextFactory, ContextCallbacksAreRevokedWithFactory) {
     acecode::TokenTracker tracker;
     acecode::McpManager mcp;
     acecode::SkillRegistry skills;
-    acecode::MemoryRegistry memory;
+    // 只当成借用指针透传,不触碰磁盘(MemoryService 构造不建目录、不开状态库)。
+    acecode::MemoryRuntime memory(std::make_shared<acecode::MemoryService>(
+        std::filesystem::temp_directory_path() / "acecode-ctx-memory",
+        std::filesystem::temp_directory_path() / "acecode-ctx-memory" / "state.sqlite3",
+        acecode::MemoryConfig{}), acecode::MemorySurface::Tui);
     std::unique_ptr<acecode::tui::IFullScreenSurfaces> surfaces;
     std::optional<acecode::CommandContext> context;
     {

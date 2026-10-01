@@ -62,7 +62,7 @@ TEST(ExpertContextPrompt, TeamLeadOmitsUnavailableDelegationToolName) {
 TEST(ExpertContextPrompt, ExpertPrecedesOtherDynamicSessionContext) {
     auto expert = make_team();
     auto block = acecode::build_session_context_prompt(
-        "/tmp", nullptr, nullptr, nullptr, nullptr, 0, nullptr, "git snapshot", &expert);
+        "/tmp", nullptr, nullptr, nullptr, 0, nullptr, "git snapshot", &expert);
     const auto expert_pos = block.content.find("# Selected Expert Component");
     const auto git_pos = block.content.find("# Git Status");
     ASSERT_NE(expert_pos, std::string::npos);

@@ -117,6 +117,7 @@ export const zhCN = {
       side: '打开旁路聊天浮窗，支持继续追问',
       lsp: '显示 LSP 服务器状态（已连接、异常或未安装）',
       sandbox: '显示沙盒状态，或切换本会话的沙盒开关',
+      memory: '列出、查看、删除记忆;整理记忆摘要;本会话关闭/开启记忆',
       rc: '/remote-control 的别名',
       remoteControl: '启用已配置的频道插件，或管理手动远程控制 Webhook',
     },

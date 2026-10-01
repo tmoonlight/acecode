@@ -21,7 +21,7 @@ namespace acecode {
 class McpManager;
 class ToolExecutor;
 class SkillRegistry;
-class MemoryRegistry;
+class MemoryRuntime;
 class CommandRegistry;
 namespace tui { class SubagentHost; }
 
@@ -40,7 +40,7 @@ struct CommandContext {
     McpManager* mcp_manager = nullptr; // runtime MCP control surface (optional)
     ToolExecutor* tools = nullptr;     // tool registry for /mcp enable/disable
     SkillRegistry* skills = nullptr;   // skill registry for /skills and /<skill-name> commands
-    MemoryRegistry* memory = nullptr;  // memory registry for /memory commands
+    MemoryRuntime* memory = nullptr;   // memory runtime for /memory commands
     CommandRegistry* command_registry = nullptr; // self-reference for /skills reload
     std::string cwd;                   // working directory for cwd-scoped operations
     tui::SubagentHost* subagent_host = nullptr; // /tasks 的子代理宿主(仅斜杠 dispatch 路径注入)

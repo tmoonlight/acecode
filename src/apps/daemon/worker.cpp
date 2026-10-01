@@ -57,10 +57,8 @@
 #include "tool/grep_tool.hpp"
 #include "tool/glob_tool.hpp"
 #include "tool/goal_tool.hpp"
-#include "memory/memory_paths.hpp"
-#include "memory/memory_registry.hpp"
-#include "tool/memory_read_tool.hpp"
-#include "tool/memory_write_tool.hpp"
+#include "daemon_memory.hpp"
+#include "session_host/memory_runtime.hpp"
 #include "tool/skill_view_tool.hpp"
 #include "tool/skills_tool.hpp"
 #include "tool/task_complete_tool.hpp"
@@ -477,26 +475,10 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 安全审计存储(openspec add-security-center):失败只记日志,record 退化为 no-op。
     acecode::security::audit_log().configure(acecode::get_acecode_dir());
 
-    // 记忆(~/.acecode/memory):与 TUI(tui_runtime_init.cpp 的
-    // initialize_memory_registry)同一套初始化与工具,先于 ToolExecutor 构造,
-    // 工具闭包引用它、析构顺序要反过来。daemon 曾经整条缺失(memory_registry =
-    // nullptr):桌面版 / Web 会话既没有记忆索引注入也没有记忆工具,用户让模型
-    // 「记住」时它只能把经验写进不会被自动加载的文件(反馈 LINDANDAN069)。
-    acecode::MemoryRegistry memory_registry;
-    acecode::MemoryConfig runtime_memory_cfg = cfg_mut.memory;
-    {
-        std::error_code memory_dir_ec;
-        std::filesystem::create_directories(acecode::get_memory_dir(), memory_dir_ec);
-        if (memory_dir_ec) {
-            LOG_ERROR("[memory] failed to create " +
-                      acecode::get_memory_dir().generic_string() + ": " +
-                      memory_dir_ec.message() +
-                      " - memory will be disabled for this daemon");
-            runtime_memory_cfg.enabled = false;
-        } else if (runtime_memory_cfg.enabled) {
-            memory_registry.scan();
-        }
-    }
+    // 记忆:三入口共用 create_memory_runtime(openspec unify-memory-system),
+    // 先于 ToolExecutor 构造 —— 工具持有它的服务,析构顺序要反过来。
+    auto memory_runtime = acecode::create_memory_runtime(
+        cfg_mut, acecode::get_acecode_dir(), acecode::MemorySurface::Daemon);
 
     acecode::ToolExecutor tools;
     acecode::register_session_builtin_tools(tools, cfg_mut);
@@ -510,9 +492,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 这两个 tool 自己取)。
     tools.register_tool(acecode::create_skills_list_tool(skill_registry, &cfg_mut));
     tools.register_tool(acecode::create_skill_view_tool(skill_registry, &cfg_mut));
-    tools.register_tool(acecode::create_memory_read_tool(
-        memory_registry, runtime_memory_cfg.max_index_bytes));
-    tools.register_tool(acecode::create_memory_write_tool(memory_registry));
+    memory_runtime->register_tools(tools);
 
     // spawn_subagent / wait_subagent:daemon 专属(TUI 无 SessionRegistry 不注册)。
     // ToolExecutor 先于 SessionRegistry 构造,deps 用 shared_ptr 延迟回填 —— 回填
@@ -544,8 +524,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     reg_deps.config_mutex         = &app_config_mu;
     reg_deps.skill_registry       = &skill_registry;
     reg_deps.expert_registry      = &expert_registry;
-    reg_deps.memory_registry      = &memory_registry;
-    reg_deps.memory_cfg           = &runtime_memory_cfg;
+    reg_deps.memory               = memory_runtime;
     reg_deps.project_instructions_cfg = &cfg_mut.project_instructions;
     reg_deps.custom_instructions_cfg = &cfg_mut.custom_instructions;
     reg_deps.hook_manager         = &hook_manager;
@@ -634,6 +613,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     web_deps.session_client     = &client;
     web_deps.session_registry   = &registry;
     web_deps.task_suggestions   = task_suggestions;
+    web_deps.memory             = memory_runtime;
     web_deps.before_data_dir_copy = [&] { loop_scheduler.stop(); };
     web_deps.on_data_dir_copy_failure = [&] { if (loop_store_ready) loop_scheduler.start(); };
     web_deps.expert_registry    = &expert_registry;
@@ -805,7 +785,10 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
             desktop_owner_monitor.request_stop();
             desktop_owner_monitor.join();
             break;
-        case DaemonShutdownStep::LoopScheduler: loop_scheduler.stop(); break;
+        case DaemonShutdownStep::LoopScheduler:
+            loop_scheduler.stop();
+            memory_runtime->stop_summary_scheduler();  // 调度线程引用注册表,先于会话停
+            break;
         case DaemonShutdownStep::TaskSuggestions: task_suggestions->shutdown(); break;
         case DaemonShutdownStep::Sessions: registry.shutdown_all(); break;
         case DaemonShutdownStep::SpawnListener: subagent_deps->on_spawn = {}; break;
@@ -818,6 +801,9 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     };
     // Synchronous cleanup while all referenced stack resources are still alive.
     ScopeExit shutdown_on_exit([&] { shutdown.run(shutdown_step); });
+    // 记忆摘要调度器引用注册表:在停机守卫建立之后再启动,任何退出路径都先停它。
+    memory_runtime->start_summary_scheduler(acecode::daemon::make_memory_scheduler_host(
+        registry, cwd, cfg_mut, app_config_mu, config_path));
     const auto first_start_auth =
         acecode::plan_connector_first_start_auth(cfg_mut.connectors);
     if (!first_start_auth.persisted) {

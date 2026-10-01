@@ -17,14 +17,9 @@ using namespace acecode;
 
 namespace {
 
-// 模拟 config.cpp 中 load_config() 对 memory 段的解析逻辑,避免依赖真实文件系统
+// load_config() 与调度器重读 config.json 共用的 memory 段解析(memory_config.cpp)。
 void apply_memory_section(const nlohmann::json& mj, MemoryConfig& out) {
-    if (mj.contains("enabled") && mj["enabled"].is_boolean())
-        out.enabled = mj["enabled"].get<bool>();
-    if (mj.contains("max_index_bytes") && mj["max_index_bytes"].is_number_integer()) {
-        long long v = mj["max_index_bytes"].get<long long>();
-        if (v > 0) out.max_index_bytes = static_cast<std::size_t>(v);
-    }
+    load_memory_config_json(mj, out);
 }
 
 // 同上,对 project_instructions 段
@@ -69,7 +64,13 @@ nlohmann::json read_json_file(const std::filesystem::path& path) {
 TEST(ConfigMemoryDefaults, StructDefaults) {
     MemoryConfig mem;
     EXPECT_TRUE(mem.enabled);
-    EXPECT_EQ(mem.max_index_bytes, 32u * 1024);
+    // openspec unify-memory-system 5.3:每个作用域的注入预算默认 8 KiB(原先整份 32 KiB)。
+    EXPECT_EQ(mem.max_index_bytes, 8u * 1024);
+    // 记忆摘要默认关闭,摘要模型默认「当前模型」(空)。
+    EXPECT_FALSE(mem.summary.enabled);
+    EXPECT_TRUE(mem.summary.model_name.empty());
+    EXPECT_EQ(mem.summary.idle_minutes, 30);
+    EXPECT_EQ(mem.summary.max_session_age_days, 7);
 
     ProjectInstructionsConfig pi;
     EXPECT_TRUE(pi.enabled);
@@ -91,6 +92,32 @@ TEST(ConfigMemoryParse, ExplicitFieldsAccepted) {
     apply_memory_section(j, mem);
     EXPECT_FALSE(mem.enabled);
     EXPECT_EQ(mem.max_index_bytes, 65536u);
+}
+
+// 场景:memory.summary 段的合法值、越界值与错误类型。
+// 期望:合法值照读;越界值夹到允许范围;类型不对的字段忽略、保持默认。
+TEST(ConfigMemoryParse, SummarySectionIsParsedAndClamped) {
+    MemoryConfig mem;
+    apply_memory_section(nlohmann::json::parse(
+        R"({"summary":{"enabled":true,"model_name":"fast","idle_minutes":1,"max_session_age_days":365}})"), mem);
+    EXPECT_TRUE(mem.summary.enabled);
+    EXPECT_EQ(mem.summary.model_name, "fast");
+    EXPECT_EQ(mem.summary.idle_minutes, 5);
+    EXPECT_EQ(mem.summary.max_session_age_days, 90);
+
+    MemoryConfig typed;
+    apply_memory_section(nlohmann::json::parse(R"({"summary":{"enabled":"yes","idle_minutes":"x"}})"), typed);
+    EXPECT_FALSE(typed.summary.enabled);
+    EXPECT_EQ(typed.summary.idle_minutes, 30);
+}
+
+// 场景:写回 memory 段。期望:默认值全部省略(稀疏写回);只写改过的字段。
+TEST(ConfigMemoryParse, SaveIsSparse) {
+    EXPECT_TRUE(memory_config_to_json(MemoryConfig{}).empty());
+    MemoryConfig changed;
+    changed.summary.enabled = true;
+    const auto j = memory_config_to_json(changed);
+    EXPECT_EQ(j.dump(), R"({"summary":{"enabled":true}})");
 }
 
 // 场景:project_instructions 段可以关掉 CLAUDE.md fallback 读取开关

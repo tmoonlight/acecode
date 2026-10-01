@@ -47,6 +47,11 @@ private:
     void create_components();
     std::shared_ptr<LlmProvider> provider_snapshot();
     void publish_configuration();
+    // 记忆摘要调度器的宿主回调(tui_app_memory.cpp);经 bind() 走 LifetimeRef。
+    void start_memory_scheduler();
+    std::vector<std::string> memory_project_dirs();
+    bool memory_session_busy(const std::string& session_id);
+    void memory_notice(const std::string& session_id, const std::string& text);
     AppConfig config_snapshot();
     SessionPromptConfig prompt_config_snapshot();
     nlohmann::json ask_questions(const nlohmann::json& payload,

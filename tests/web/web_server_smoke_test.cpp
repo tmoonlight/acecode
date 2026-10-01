@@ -52,6 +52,9 @@
 #include "session/session_user_message_search.hpp"
 #include "session/todo_state.hpp"
 #include "session_host/task_suggestion_service.hpp"
+#include "session_host/memory_command.hpp"
+#include "session_host/memory_runtime.hpp"
+#include "memory/memory_service.hpp"
 #include "session/session_usage_ledger.hpp"
 #include "skills/skill_registry.hpp"
 #include "test_support/repo_root.hpp"
@@ -462,6 +465,8 @@ struct WebServerFixture {
     acecode::PermissionManager template_perm;
     acecode::SkillRegistry skill_registry;
     acecode::AppConfig cfg;
+    // 记忆运行时:全局目录与状态库落在 tmp_dir/memory(openspec unify-memory-system)。
+    std::shared_ptr<acecode::MemoryRuntime> memory_runtime;
     std::shared_mutex app_config_mu;
     acecode::WebConfig web_cfg;
     acecode::DaemonConfig daemon_cfg;
@@ -555,7 +560,10 @@ struct WebServerFixture {
 
         hook_manager = std::make_unique<acecode::HookManager>(
             acecode::HookRegistrySnapshot{});
+        memory_runtime = acecode::create_memory_runtime(
+            cfg, acecode::path_to_utf8(tmp_dir), acecode::MemorySurface::Daemon);
         acecode::SessionRegistryDeps deps;
+        deps.memory = memory_runtime;
         deps.provider_accessor = [registry_provider] { return registry_provider; };
         deps.tools = &tools;
         deps.cwd = cwd;
@@ -600,6 +608,7 @@ struct WebServerFixture {
                 std::chrono::system_clock::now().time_since_epoch()).count();
         wdeps.session_client = client.get();
         wdeps.task_suggestions = task_suggestions;
+        wdeps.memory = memory_runtime;
         wdeps.session_registry = expose_session_registry
             ? registry.get()
             : nullptr;
@@ -12596,4 +12605,142 @@ TEST(WebServerHttp, ConnectedWebSocketCannotDeliverIntoDestroyedImpl) {
     event.payload = {{"text", "late retained callback"}};
     EXPECT_NO_THROW(listener(event));
     socket.close(error);
+}
+
+// ---------------------------------------------------------------------------
+// 记忆(openspec unify-memory-system 6.3 / 7.2)
+
+// 场景:个性化页读取并修改记忆设置;摘要模型填了不存在的名字;类型不对。
+// 期望:默认使用记忆开、记忆摘要关、每作用域预算 8 KiB;PUT 写回 config.json 并立即
+// 更新本进程的记忆服务;未知模型与错误类型返回 400。
+TEST(WebServerHttp, MemorySettingsRoundTripThroughConfig) {
+    WebServerFixture fx;
+    auto get = cpr::Get(cpr::Url{fx.url("/api/config/memory")});
+    ASSERT_EQ(get.status_code, 200) << get.text;
+    auto body = json::parse(get.text);
+    EXPECT_TRUE(body["enabled"].get<bool>());
+    EXPECT_FALSE(body["summary"]["enabled"].get<bool>());
+    EXPECT_EQ(body["summary"]["model_name"], "");
+    EXPECT_EQ(body["max_index_bytes"].get<int>(), 8192);
+    EXPECT_TRUE(body["summary_available"].get<bool>());
+
+    auto put = cpr::Put(cpr::Url{fx.url("/api/config/memory")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{R"({"summary":{"enabled":true,"model_name":"fixture-copilot"}})"});
+    ASSERT_EQ(put.status_code, 200) << put.text;
+    auto updated = json::parse(put.text);
+    EXPECT_TRUE(updated["summary"]["enabled"].get<bool>());
+    EXPECT_EQ(updated["summary"]["model_name"], "fixture-copilot");
+    EXPECT_TRUE(fx.memory_runtime->service()->config().summary.enabled);
+    std::ifstream saved(fx.tmp_dir / "config.json");
+    const std::string saved_text((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+    EXPECT_NE(saved_text.find("\"model_name\""), std::string::npos) << saved_text;
+
+    auto unknown = cpr::Put(cpr::Url{fx.url("/api/config/memory")},
+                            cpr::Header{{"Content-Type", "application/json"}},
+                            cpr::Body{R"({"summary":{"model_name":"no-such-model"}})"});
+    EXPECT_EQ(unknown.status_code, 400) << unknown.text;
+    auto wrong_type = cpr::Put(cpr::Url{fx.url("/api/config/memory")},
+                               cpr::Header{{"Content-Type", "application/json"}},
+                               cpr::Body{R"({"enabled":"yes"})"});
+    EXPECT_EQ(wrong_type.status_code, 400) << wrong_type.text;
+}
+
+// 场景:个性化页按「全局 / 当前工作区」浏览、查看、编辑、删除条目,并重置工作区。
+// 期望:列表带两个作用域与状态;编辑保存时脱敏、刷新 updated_at、改为手写来源;删除记
+// 墓碑;重置只清当前工作区;未登记的工作区 hash 返回 404。
+TEST(WebServerHttp, MemoryEntryRoutesListEditDeleteAndReset) {
+    WebServerFixture fx;
+    auto& memory = *fx.memory_runtime->service();
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    const std::string project_dir = acecode::SessionStorage::get_project_dir(fx.cwd);
+    std::string err;
+    ASSERT_TRUE(memory.global().upsert("prefs", acecode::MemoryType::User, "prefers pnpm", "use pnpm\n",
+                                       acecode::MemoryWriteMode::Upsert, err)) << err;
+    ASSERT_TRUE(memory.workspace(project_dir)->upsert("layout", acecode::MemoryType::Project,
+                                                      "src layering", "six groups\n",
+                                                      acecode::MemoryWriteMode::Upsert, err)) << err;
+
+    auto list = cpr::Get(cpr::Url{fx.url("/api/memory?workspace=" + hash)});
+    ASSERT_EQ(list.status_code, 200) << list.text;
+    auto overview = json::parse(list.text);
+    EXPECT_EQ(overview["scopes"]["global"]["entries"][0]["name"], "prefs");
+    EXPECT_TRUE(overview["scopes"]["workspace"]["available"].get<bool>());
+    EXPECT_EQ(overview["scopes"]["workspace"]["entries"][0]["name"], "layout");
+    EXPECT_FALSE(overview["status"]["summary_enabled"].get<bool>());
+    EXPECT_FALSE(json::parse(cpr::Get(cpr::Url{fx.url("/api/memory")}).text)
+                     ["scopes"]["workspace"]["available"].get<bool>());
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/memory?workspace=ffffffffffffffff")}).status_code, 404);
+
+    auto one = cpr::Get(cpr::Url{fx.url("/api/memory/workspace/layout?workspace=" + hash)});
+    ASSERT_EQ(one.status_code, 200) << one.text;
+    EXPECT_EQ(json::parse(one.text)["body"], "six groups\n");
+
+    auto edit = cpr::Put(cpr::Url{fx.url("/api/memory/workspace/layout?workspace=" + hash)},
+                         cpr::Header{{"Content-Type", "application/json"}},
+                         cpr::Body{R"({"description":"src layering v2","body":"login password=hunter2\n"})"});
+    ASSERT_EQ(edit.status_code, 200) << edit.text;
+    auto edited = json::parse(edit.text);
+    EXPECT_EQ(edited["redactions"].get<int>(), 1);
+    EXPECT_EQ(edited["body"], "login password=[REDACTED]\n");
+    EXPECT_EQ(edited["source"], "manual");
+    EXPECT_FALSE(edited["updated_at"].get<std::string>().empty());
+
+    auto removed = cpr::Delete(cpr::Url{fx.url("/api/memory/global/prefs?workspace=" + hash)});
+    ASSERT_EQ(removed.status_code, 200) << removed.text;
+    EXPECT_TRUE(memory.state().is_tombstoned("global", "prefs", "", acecode::memory_now_ms()));
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/memory/global/prefs")}).status_code, 404);
+
+    ASSERT_TRUE(memory.global().upsert("keep", acecode::MemoryType::User, "keep me", "k\n",
+                                       acecode::MemoryWriteMode::Upsert, err)) << err;
+    auto reset = cpr::Post(cpr::Url{fx.url("/api/memory/reset")},
+                           cpr::Header{{"Content-Type", "application/json"}},
+                           cpr::Body{json{{"scope", "workspace"}, {"workspace", hash}}.dump()});
+    ASSERT_EQ(reset.status_code, 200) << reset.text;
+    auto after = json::parse(cpr::Get(cpr::Url{fx.url("/api/memory?workspace=" + hash)}).text);
+    EXPECT_TRUE(after["scopes"]["workspace"]["entries"].empty());
+    EXPECT_EQ(after["scopes"]["global"]["entries"].size(), 1u);
+}
+
+// 场景:网页对话里执行 /memory list,与 TUI 对同一会话执行同一命令。
+// 期望:daemon 内置命令放行 /memory,经会话 system message 发出的文本与共享实现
+// dispatch_memory_command 的输出逐字相同(TUI 用的就是这份文本)。
+TEST(WebServerHttp, MemoryBuiltinCommandMatchesSharedText) {
+    WebServerFixture fx;
+    std::string err;
+    ASSERT_TRUE(fx.memory_runtime->service()->global().upsert(
+        "prefs", acecode::MemoryType::User, "prefers pnpm", "use pnpm\n",
+        acecode::MemoryWriteMode::Upsert, err)) << err;
+    auto post = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                          cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({})"});
+    ASSERT_EQ(post.status_code, 201) << post.text;
+    const auto sid = json::parse(post.text)["session_id"].get<std::string>();
+    auto entry = fx.registry->acquire(sid);
+    ASSERT_TRUE(entry && entry->loop);
+
+    std::mutex mu;
+    std::condition_variable cv;
+    std::string seen;
+    const auto sub = entry->loop->events().subscribe([&](const acecode::SessionEvent& event) {
+        if (event.kind != acecode::SessionEventKind::Message) return;
+        if (event.payload.value("role", "") != "system") return;
+        std::lock_guard<std::mutex> lock(mu);
+        seen = event.payload.value("content", "");
+        cv.notify_all();
+    });
+    auto r = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/commands")},
+                       cpr::Header{{"Content-Type", "application/json"}},
+                       cpr::Body{R"({"command":"/memory list"})"});
+    EXPECT_LT(r.status_code, 300) << r.text;
+    {
+        std::unique_lock<std::mutex> lock(mu);
+        cv.wait_for(lock, 3s, [&] { return !seen.empty(); });
+    }
+    entry->loop->events().unsubscribe(sub);
+
+    acecode::MemoryCommandContext ctx;
+    ctx.runtime = fx.memory_runtime.get();
+    ctx.session = entry->sm.get();
+    EXPECT_EQ(seen, acecode::dispatch_memory_command("list", ctx).text);
+    EXPECT_NE(seen.find("[user] prefs"), std::string::npos) << seen;
 }

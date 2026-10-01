@@ -324,6 +324,7 @@ await import('./summaryGenerationSettings.test.js');
 await import('./computerUseSettings.test.js');
 await import('./computerUsePointerTheme.test.js');
 await import('./toolRewrites.test.js');
+await import('./memorySettings.test.js');
 await import('../i18n/runtime.test.js');
 await import('./uiLocale.test.js');
 await import('./slashCommands.test.js');

@@ -8,7 +8,7 @@ public:
     TuiCommandContextFactory(TuiState& state, AgentLoop& agent, SessionModelBinding& binding,
         AppConfig& config, TokenTracker& tracker, PermissionManager& permissions,
         IScreenPort& screen, SessionManager& session, McpManager& mcp, ToolExecutor& tools,
-        SkillRegistry& skills, MemoryRegistry& memory, CommandRegistry& commands,
+        SkillRegistry& skills, MemoryRuntime& memory, CommandRegistry& commands,
         const std::string& cwd, ITurnSubmitter& submitter,
         SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces,
         std::function<void()> publish_config = {});
@@ -26,7 +26,7 @@ private:
     McpManager& mcp_;
     ToolExecutor& tools_;
     SkillRegistry& skills_;
-    MemoryRegistry& memory_;
+    MemoryRuntime& memory_;
     CommandRegistry& commands_;
     const std::string& cwd_;
     ITurnSubmitter& submitter_;

@@ -21,6 +21,7 @@
 #include "config/config.hpp"
 #include "memory/memory_paths.hpp"
 #include "memory/memory_registry.hpp"
+#include "memory/memory_service.hpp"
 #include "memory/memory_types.hpp"
 #include "project_instructions/instructions_loader.hpp"
 #include "test_support/agent/stub_provider.hpp"
@@ -183,8 +184,8 @@ class AgentLoopHarness {
 public:
     explicit AgentLoopHarness(std::string cwd = ".",
         std::function<void(const acecode::TokenUsage&)> on_usage = {},
-        const acecode::MemoryRegistry* memory = nullptr, bool with_session = false)
-        : cwd_(std::move(cwd)) {
+        std::shared_ptr<acecode::MemoryService> memory = nullptr, bool with_session = false)
+        : cwd_(std::move(cwd)), memory_(memory) {
         tools_.register_tool(create_noop_tool());
         tools_.register_tool(acecode::create_task_complete_tool());
 
@@ -387,6 +388,8 @@ public:
     void set_memory_config(const acecode::MemoryConfig* config) {
         std::lock_guard<std::mutex> lock(prompt_state_->mutex);
         prompt_state_->config.memory = config ? std::make_optional(*config) : std::nullopt;
+        // 有记忆服务时开关以服务的运行时配置为准(与生产一致:设置保存即更新服务)。
+        if (memory_ && config) memory_->update_config(*config);
     }
 
     void set_project_instructions_config(const acecode::ProjectInstructionsConfig* cfg) {
@@ -511,6 +514,7 @@ public:
 
 private:
     std::string cwd_;
+    std::shared_ptr<acecode::MemoryService> memory_;
     std::shared_ptr<StubLlmProvider> provider_ = std::make_shared<StubLlmProvider>();
     ToolExecutor tools_;
     PermissionManager perms_;
@@ -1142,19 +1146,18 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     fs::path repo = home.root() / "repo";
     write_file(repo / "AGENT.md", "# repo rules\nuse goroutines\n");
 
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry memory;
-    memory.scan();
+    auto memory = std::make_shared<acecode::MemoryService>(
+        acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
     std::string err;
-    ASSERT_TRUE(memory.upsert("user_profile", acecode::MemoryType::User,
-                              "senior Go dev", "10y Go\n",
-                              acecode::MemoryWriteMode::Create, err).has_value())
+    ASSERT_TRUE(memory->global().upsert("user_profile", acecode::MemoryType::User,
+                                        "senior Go dev", "10y Go\n",
+                                        acecode::MemoryWriteMode::Create, err).has_value())
         << err;
 
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string(), {}, &memory);
+    AgentLoopHarness h(repo.string(), {}, memory);
     h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("ok");
@@ -1166,9 +1169,9 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     ASSERT_GE(request.size(), 3u);
     ASSERT_EQ(request.front().role, "system");
     EXPECT_EQ(request.front().content.find("# Project Instructions"), std::string::npos);
-    EXPECT_EQ(request.front().content.find("# User Memory"), std::string::npos);
+    EXPECT_EQ(request.front().content.find("## Global memory"), std::string::npos);
     EXPECT_EQ(request.front().content.find("use goroutines"), std::string::npos);
-    EXPECT_EQ(request.front().content.find("user_profile.md"), std::string::npos);
+    EXPECT_EQ(request.front().content.find("user_profile"), std::string::npos);
 
     bool saw_project = false;
     bool saw_memory = false;
@@ -1177,8 +1180,8 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
             msg.content.find("use goroutines") != std::string::npos) {
             saw_project = true;
         }
-        if (msg.content.find("# User Memory") != std::string::npos &&
-            msg.content.find("user_profile.md") != std::string::npos) {
+        if (msg.content.find("## Global memory") != std::string::npos &&
+            msg.content.find("user_profile") != std::string::npos) {
             saw_memory = true;
         }
     }
@@ -1195,40 +1198,41 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     auto persisted = h.persisted_messages();
     for (const auto& msg : persisted) {
         EXPECT_EQ(msg.content.find("# Project Instructions"), std::string::npos);
-        EXPECT_EQ(msg.content.find("# User Memory"), std::string::npos);
+        EXPECT_EQ(msg.content.find("## Global memory"), std::string::npos);
         EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
     }
 }
 
-// 场景:项目文件和 memory mid-session 变化时,provider context 更新,
-// 但静态 system prompt 字节不变。
+// 场景:项目文件与记忆在会话中途都变了。
+// 期望:项目指令按内容刷新;记忆上下文是会话快照,中途写入的条目不出现、已注入的
+// 逐字节不变(openspec unify-memory-system:会话内快照稳定,不打穿 prompt cache);
+// 静态 system prompt 字节不变。
 TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     TempHomeGuard home("acecode-agentloop-context-edit");
     fs::path repo = home.root() / "repo";
     write_file(repo / "AGENT.md", "before rule\n");
 
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry memory;
-    memory.scan();
+    auto memory = std::make_shared<acecode::MemoryService>(
+        acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
     std::string err;
-    ASSERT_TRUE(memory.upsert("first_memory", acecode::MemoryType::User,
-                              "first memory", "before\n",
-                              acecode::MemoryWriteMode::Create, err).has_value())
+    ASSERT_TRUE(memory->global().upsert("first_memory", acecode::MemoryType::User,
+                                        "first memory", "before\n",
+                                        acecode::MemoryWriteMode::Create, err).has_value())
         << err;
 
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string(), {}, &memory);
+    AgentLoopHarness h(repo.string(), {}, memory);
     h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("first ok");
     ASSERT_TRUE(h.submit_and_wait("first"));
 
     write_file(repo / "AGENT.md", "after rule\n");
-    ASSERT_TRUE(memory.upsert("second_memory", acecode::MemoryType::User,
-                              "second memory", "after\n",
-                              acecode::MemoryWriteMode::Create, err).has_value())
+    ASSERT_TRUE(memory->global().upsert("second_memory", acecode::MemoryType::User,
+                                        "second memory", "after\n",
+                                        acecode::MemoryWriteMode::Create, err).has_value())
         << err;
 
     h.push_text("second ok");
@@ -1251,11 +1255,12 @@ TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     };
     EXPECT_TRUE(contains(first_request, "before rule"));
     EXPECT_FALSE(contains(first_request, "after rule"));
-    EXPECT_TRUE(contains(first_request, "first_memory.md"));
-    EXPECT_FALSE(contains(first_request, "second_memory.md"));
+    EXPECT_TRUE(contains(first_request, "first_memory"));
+    EXPECT_FALSE(contains(first_request, "second_memory"));
 
     EXPECT_TRUE(contains(second_request, "after rule"));
-    EXPECT_TRUE(contains(second_request, "second_memory.md"));
+    EXPECT_TRUE(contains(second_request, "first_memory"));
+    EXPECT_FALSE(contains(second_request, "second_memory"));
 }
 
 // 场景 (b):turn 1 就调用 task_complete → 1 轮退出,无 cap 消息
@@ -2443,14 +2448,13 @@ TEST(AgentLoopTermination, CustomInstructionSaveAffectsOnlyTheNextTurn) {
 // 不再借用先前传入配置对象的地址，因此调用者配置离开作用域也不影响回合。
 TEST(AgentLoopTermination, IdleMemoryConfigurationSaveAppearsInNextTurn) {
     TempHomeGuard home("acecode-memory-config-snapshot");
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry memory;
-    memory.scan();
+    auto memory = std::make_shared<acecode::MemoryService>(
+        acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
     std::string error;
-    ASSERT_TRUE(memory.upsert("snapshot_memory", acecode::MemoryType::User,
+    ASSERT_TRUE(memory->global().upsert("snapshot_memory", acecode::MemoryType::User,
         "snapshot memory", "MEMORY_SNAPSHOT_CONTENT\n",
         acecode::MemoryWriteMode::Create, error).has_value()) << error;
-    AgentLoopHarness h(home.root().string(), {}, &memory);
+    AgentLoopHarness h(home.root().string(), {}, memory);
     {
         acecode::MemoryConfig config;
         config.enabled = false;
@@ -2467,7 +2471,7 @@ TEST(AgentLoopTermination, IdleMemoryConfigurationSaveAppearsInNextTurn) {
     ASSERT_TRUE(h.submit_and_wait("with memory"));
     auto contains = [](const auto& messages) {
         return std::any_of(messages.begin(), messages.end(), [](const auto& message) {
-            return message.content.find("snapshot_memory.md") != std::string::npos;
+            return message.content.find("snapshot_memory") != std::string::npos;
         });
     };
     EXPECT_FALSE(contains(h.request_messages_for_turn(0)));

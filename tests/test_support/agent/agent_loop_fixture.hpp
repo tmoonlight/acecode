@@ -21,14 +21,14 @@ struct AgentLoopFixture {
         acecode::AgentProviderAccessor provider, acecode::ToolExecutor& tools,
         acecode::AgentCallbacks callbacks, acecode::PermissionManager& permissions,
         acecode::SessionManager* session = nullptr, acecode::HookManager* hooks = nullptr,
-        const acecode::MemoryRegistry* memory = nullptr,
+        std::shared_ptr<acecode::MemoryService> memory = nullptr,
         std::shared_ptr<const acecode::SkillRegistry> skills = {}) {
         acecode::AgentLoopServices result{tools, permissions};
         result.provider = std::move(provider);
         result.callbacks = std::move(callbacks);
         result.session = session;
         result.hooks = hooks;
-        result.memory = memory;
+        result.memory = std::move(memory);
         result.skills = std::move(skills);
         return result;
     }

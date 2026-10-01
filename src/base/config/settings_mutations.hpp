@@ -68,6 +68,12 @@ SettingsMutationResult set_custom_instructions(
     const std::string& text,
     const SettingsMutationOptions& options = {});
 
+// 记忆设置(个性化 > 记忆):网页 /api/config/memory 与 TUI 设置中心共用。
+// summary.model_name 非空时必须是已保存的模型名;数值字段越界即校验失败。
+SettingsMutationResult set_memory_settings(
+    const MemoryConfig& memory,
+    const SettingsMutationOptions& options = {});
+
 SettingsMutationResult add_saved_model_setting(
     const SavedModelDraft& draft,
     const SettingsMutationOptions& options = {});

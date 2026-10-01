@@ -305,6 +305,7 @@ void CompactionController::finish_busy(LifetimeRef<TrajectoryRecorder> terminal)
 
 void CompactionController::mark_history_repaired() {
     compact_generation_.fetch_add(1, std::memory_order_relaxed);
+    requests_.invalidate_memory_snapshot();  // 历史改写后记忆快照按磁盘重建
     last_api_total_tokens_.store(0, std::memory_order_relaxed);
     // 修复可能清掉 / 丢掉了之前的读取结果;再读同一文件必须拿到真实内容,
     // 不能是指向已不存在结果的「文件未变」占位。与摘要压缩后的处理一致。

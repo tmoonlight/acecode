@@ -10,7 +10,7 @@
 
 namespace acecode {
 class LlmProvider; class PermissionManager; class SessionManager; class HookManager;
-class SkillUsageStore; class MemoryRegistry; class SkillRegistry; struct ExpertDefinition;
+class SkillUsageStore; class MemoryService; class SkillRegistry; struct ExpertDefinition;
 using AgentProviderAccessor = std::function<std::shared_ptr<LlmProvider>()>;
 
 struct AgentLoopServices {
@@ -21,7 +21,8 @@ struct AgentLoopServices {
     SessionManager* session = nullptr; // Nullable borrowed; outlives the loop.
     HookManager* hooks = nullptr; // Nullable borrowed; outlives the loop.
     SkillUsageStore* skill_usage = nullptr; // Nullable borrowed; outlives the loop.
-    const MemoryRegistry* memory = nullptr; // Nullable borrowed; outlives the loop.
+    // 记忆服务(全局 + 会话工作区作用域);三个入口与子会话共用同一个实例。
+    std::shared_ptr<MemoryService> memory;
     // Shared immutable policy snapshots retained by the loop and its caller.
     std::shared_ptr<const SkillRegistry> skills;
     std::shared_ptr<const ExpertDefinition> expert;

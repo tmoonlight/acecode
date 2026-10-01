@@ -154,6 +154,41 @@ TEST(SettingsMutations, UpgradeUrlIsNormalizedAndInstructionsAreBounded) {
         std::string::npos);
 }
 
+// 场景:个性化 > 记忆保存(网页 /api/config/memory 与 TUI 设置中心共用)。
+// 期望:合法设置落盘并更新运行中的配置;摘要模型必须是已保存的模型名;
+// 闲置分钟数越界视为校验失败,磁盘不变。
+TEST(SettingsMutations, MemorySettingsValidateAndPersist) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig initial;
+    acecode::ModelProfile model;
+    model.name = "fast";
+    model.provider = "copilot";
+    model.model = "gpt-4o";
+    initial.saved_models.push_back(model);
+    acecode::save_config(initial, temp.config_path());
+    acecode::AppConfig live = initial;
+
+    acecode::MemoryConfig next = initial.memory;
+    next.summary.enabled = true;
+    next.summary.model_name = "fast";
+    const auto saved = acecode::set_memory_settings(next, options_for(temp, &live));
+    ASSERT_TRUE(saved.ok) << saved.error;
+    EXPECT_TRUE(saved.persisted);
+    EXPECT_TRUE(live.memory.summary.enabled);
+    EXPECT_EQ(acecode::load_config_from_path(temp.config_path()).memory.summary.model_name, "fast");
+
+    acecode::MemoryConfig unknown = next;
+    unknown.summary.model_name = "missing";
+    const auto rejected = acecode::set_memory_settings(unknown, options_for(temp, &live));
+    EXPECT_FALSE(rejected.ok);
+    EXPECT_EQ(rejected.error_kind, acecode::SettingsMutationErrorKind::Validation);
+
+    acecode::MemoryConfig too_fast = next;
+    too_fast.summary.idle_minutes = 1;
+    EXPECT_FALSE(acecode::set_memory_settings(too_fast, options_for(temp, &live)).ok);
+    EXPECT_EQ(acecode::load_config_from_path(temp.config_path()).memory.summary.idle_minutes, 30);
+}
+
 TEST(SettingsMutations, RemoteWebModePersistsProxyIntentAndKeepsDaemonLocal) {
     SettingsMutationTempDir temp;
     acecode::AppConfig initial;

@@ -55,6 +55,7 @@ import { ComputerUseSettings } from './ComputerUseSettings.jsx';
 import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
 import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
+import { MemorySettings } from './MemorySettings.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
 import { lookupErrorMessage } from '../lib/errors.js';
 import { buildMcpServerList, countEnabledMcp, applyMcpToggle, mcpConfigErrorMessage } from '../lib/mcpServers.js';
@@ -144,6 +145,9 @@ export function SettingsPage({
   onClose,
   health,
   activeSessionId = '',
+  // 当前视图(会话或首页选中的项目)所属的 workspace hash;个性化 > 记忆用它展示
+  // 「当前工作区」的记忆。空串 = 没有工作区。
+  activeWorkspaceHash = '',
   onModelProfileUpdated,
   onPermissionModeChanged,
   onDesktopNotificationsChanged,
@@ -438,7 +442,7 @@ export function SettingsPage({
             />
           )}
           {activeNavKey === 'config' && <SettingsConfigSection />}
-          {activeNavKey === 'personalization' && <SectionPersonalization />}
+          {activeNavKey === 'personalization' && <SectionPersonalization workspaceHash={activeWorkspaceHash} />}
           {activeNavKey === 'skills' && <SectionSkills />}
           {activeNavKey === 'mcp' && <SectionMCP />}
           {activeNavKey === 'connectors' && <SectionConnectors />}
@@ -1494,7 +1498,8 @@ function SectionAbout({ health }) {
 }
 
 // ─── 个性化 ────────────────────────────────────────────────────────────────
-function SectionPersonalization() {
+// 自定义指令(失焦保存)+ 记忆(MemorySettings:使用记忆 / 记忆摘要 / 条目浏览)。
+function SectionPersonalization({ workspaceHash = '' }) {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1570,6 +1575,10 @@ function SectionPersonalization() {
           {saving ? '保存中...' : '已保存'}
         </div>
       )}
+
+      <div className="h-px bg-border my-5" />
+
+      <MemorySettings workspaceHash={workspaceHash} />
     </>
   );
 }

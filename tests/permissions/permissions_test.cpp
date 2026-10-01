@@ -195,3 +195,17 @@ TEST(Permissions, ApplyPatchFollowsFileEditSemantics) {
               std::optional<RuleAction>(RuleAction::Deny));
     EXPECT_FALSE(pm.should_auto_allow("apply_patch", false, "proj/.acecode/rules/exec.json"));
 }
+
+// 场景:Default / Auto 模式下调用 memory_read 与 memory_write(写入全局或当前工作区
+// 作用域,openspec unify-memory-system 4.3)。
+// 期望:memory_read 按只读自动放行;memory_write 在非 Yolo 模式下也自动放行 —— 目标
+// 路径由工具在作用域目录内按清洗过的名字拼出,解析到作用域外(含符号链接逃逸)的
+// 写入由存储层一律拒绝(见 memory_scope_store_test 的 SymlinkEscapeIsRejected)。
+TEST(Permissions, MemoryToolsAreAutoApprovedForEitherScope) {
+    for (const auto mode : {PermissionMode::Default, PermissionMode::Auto}) {
+        PermissionManager pm;
+        pm.set_mode(mode);
+        EXPECT_TRUE(pm.should_auto_allow("memory_read", /*is_read_only=*/true));
+        EXPECT_TRUE(pm.should_auto_allow("memory_write", /*is_read_only=*/false));
+    }
+}

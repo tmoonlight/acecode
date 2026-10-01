@@ -51,6 +51,16 @@ TEST(BuiltinCommandHandler, ParsesSandboxCommand) {
     EXPECT_EQ(parsed.request.display_text, "/sandbox off");
 }
 
+// 场景:网页输入 /memory list --scope=workspace。
+// 期望:作为内置命令放行,名字与参数原样拆出(openspec unify-memory-system 6.3)。
+TEST(BuiltinCommandHandler, ParsesMemoryCommand) {
+    auto parsed = acecode::web::parse_builtin_command_request(
+        R"({"command":"/memory list --scope=workspace"})");
+    ASSERT_TRUE(parsed.ok) << parsed.error;
+    EXPECT_EQ(parsed.request.name, "memory");
+    EXPECT_EQ(parsed.request.args, "list --scope=workspace");
+}
+
 TEST(BuiltinCommandHandler, RejectsUnsupportedCommand) {
     auto parsed = acecode::web::parse_builtin_command_request(
         R"({"command":"model"})");

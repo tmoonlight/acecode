@@ -142,6 +142,7 @@ void WebServer::Impl::register_routes() {
     register_computer_use();
     register_summary_generation();
     register_tool_rewrites();
+    register_memory();
     register_tool_preamble();
     register_security();
     register_experts();

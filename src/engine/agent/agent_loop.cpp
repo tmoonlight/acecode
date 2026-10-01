@@ -103,7 +103,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     request_source_.skills = std::move(services.skills);
     request_source_.expert = std::move(services.expert);
     request_source_.expert_member = std::move(options.expert_member_id);
-    request_source_.memory = services.memory;
+    request_source_.memory = std::move(services.memory);
     request_source_.skill_usage = services.skill_usage;
     request_source_.skill_idle_days = options.skill_idle_days;
     request_source_.tool_policy = std::move(options.tool_policy);

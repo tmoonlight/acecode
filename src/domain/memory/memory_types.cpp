@@ -20,4 +20,20 @@ std::optional<MemoryType> parse_memory_type(const std::string& s) {
     return std::nullopt;
 }
 
+std::string memory_scope_to_string(MemoryScope s) {
+    return s == MemoryScope::Workspace ? "workspace" : "global";
+}
+
+std::optional<MemoryScope> parse_memory_scope(const std::string& s) {
+    if (s == "global") return MemoryScope::Global;
+    if (s == "workspace") return MemoryScope::Workspace;
+    return std::nullopt;
+}
+
+MemoryScope default_memory_scope_for_type(MemoryType type) {
+    return type == MemoryType::Project || type == MemoryType::Reference
+        ? MemoryScope::Workspace
+        : MemoryScope::Global;
+}
+
 } // namespace acecode

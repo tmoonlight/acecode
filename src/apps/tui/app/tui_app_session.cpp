@@ -22,7 +22,7 @@
 #include "tool/mcp_manager.hpp"
 #include "skills/skill_registry.hpp"
 #include "skills/skill_usage_store.hpp"
-#include "memory/memory_registry.hpp"
+#include "session_host/memory_runtime.hpp"
 #include "hooks/hook_manager.hpp"
 #include "provider/model_resolver.hpp"
 #include "platform/power_inhibitor.hpp"
@@ -47,7 +47,7 @@ void TuiApp::initialize_agent() {
     loop_services.session = &session_manager_;
     loop_services.hooks = services_->hooks.get();
     loop_services.skill_usage = services_->skill_usage.get();
-    loop_services.memory = services_->memory.get();
+    loop_services.memory = services_->memory->service();
     loop_services.skills = services_->skills->snapshot();
     loop_services.prompt_config = bind(&TuiApp::prompt_config_snapshot);
     AgentLoopOptions loop_options;
@@ -107,9 +107,7 @@ void TuiApp::initialize_subagents() {
     auto& config = services_->config;
     auto& tools = *services_->tools;
     auto& skill_registry = *services_->skills;
-    auto& memory_registry = *services_->memory;
     auto& mcp_manager = *services_->mcp;
-    auto& runtime_memory_cfg = services_->runtime_memory_config;
     auto& hook_manager = *services_->hooks;
     auto& permissions = *permissions_;
     auto& working_dir = environment_.working_dir;
@@ -124,8 +122,7 @@ void TuiApp::initialize_subagents() {
         rd.prompt_config = bind(&TuiApp::prompt_config_snapshot);
         rd.mcp_manager = &mcp_manager;
         rd.skill_registry = &skill_registry;
-        rd.memory_registry = &memory_registry;
-        rd.memory_cfg = &runtime_memory_cfg;
+        rd.memory = services_->memory;
         rd.project_instructions_cfg = &config.project_instructions;
         rd.custom_instructions_cfg = &config.custom_instructions;
         rd.hook_manager = &hook_manager;

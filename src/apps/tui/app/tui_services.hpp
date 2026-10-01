@@ -6,7 +6,7 @@
 #include <string>
 namespace acecode {
 struct InteractiveCliOptions;
-class HookManager; class ToolExecutor; class SkillRegistry; class MemoryRegistry;
+class HookManager; class ToolExecutor; class SkillRegistry; class MemoryRuntime;
 class McpManager; class SkillUsageStore; struct WorkspaceToolDeps;
 namespace desktop { class WorkspaceRegistry; }
 }
@@ -24,14 +24,13 @@ public:
     SessionModelBinding model_binding;
     std::unique_ptr<ToolExecutor> tools;
     std::unique_ptr<SkillRegistry> skills;
-    std::unique_ptr<MemoryRegistry> memory;
+    std::shared_ptr<MemoryRuntime> memory;
     std::unique_ptr<McpManager> mcp;
     std::unique_ptr<desktop::WorkspaceRegistry> workspaces;
     // Shared by workspace tool closures and this service owner.
     std::shared_ptr<WorkspaceToolDeps> workspace_tool_deps;
     // Shared with UI state and session skill callbacks, persisted at one store.
     std::shared_ptr<SkillUsageStore> skill_usage;
-    MemoryConfig runtime_memory_config;
     std::optional<std::string> cwd_model_override;
     ModelProfile initial_model;
 };

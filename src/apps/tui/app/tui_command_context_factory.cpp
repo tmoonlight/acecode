@@ -6,7 +6,7 @@ namespace acecode::tui {
 TuiCommandContextFactory::TuiCommandContextFactory(TuiState& state, AgentLoop& agent,
     SessionModelBinding& binding, AppConfig& config, TokenTracker& tracker,
     PermissionManager& permissions, IScreenPort& screen, SessionManager& session,
-    McpManager& mcp, ToolExecutor& tools, SkillRegistry& skills, MemoryRegistry& memory,
+    McpManager& mcp, ToolExecutor& tools, SkillRegistry& skills, MemoryRuntime& memory,
     CommandRegistry& commands, const std::string& cwd, ITurnSubmitter& submitter,
     SubagentHost* subagents, const std::unique_ptr<IFullScreenSurfaces>& surfaces, std::function<void()> publish_config)
     : state_(state), agent_(agent), binding_(binding), config_(config), tracker_(tracker),

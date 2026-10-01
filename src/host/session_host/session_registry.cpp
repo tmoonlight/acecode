@@ -5,6 +5,8 @@
 #include "tool/file_state_restore.hpp"
 #include "session/session_storage.hpp"
 #include "session_auto_title.hpp"
+#include "memory_runtime.hpp"
+#include "session_registry_memory.hpp"
 #include "session/thread_goal_store.hpp"
 #include "session/system_notice.hpp"
 #include "session/tool_result_storage.hpp"
@@ -1012,7 +1014,7 @@ SessionRegistry::make_entry_locked(const std::string& id,
                              initial_model_state.model,
                              id,
                              initial_model_state.name,
-                             "daemon",
+                             deps_.session_surface,
                              entry->no_workspace);
     entry->sm->set_active_model_state(
         initial_model_state.provider, initial_model_state.model,
@@ -1108,7 +1110,7 @@ SessionRegistry::make_entry_locked(const std::string& id,
     loop_services.callbacks = std::move(empty_cb);
     loop_services.session = entry->sm.get();
     loop_services.hooks = deps_.hook_manager;
-    loop_services.memory = deps_.memory_registry;
+    loop_services.memory = deps_.memory ? deps_.memory->service() : nullptr;
     loop_services.prompt_config = [ref = lifetime_.ref(*this)] {
         SessionPromptConfig snapshot;
         ref.with([&](SessionRegistry& registry) { snapshot = registry.prompt_config_snapshot(); });
@@ -1327,7 +1329,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     const BuiltinCommandRequest& request) {
     if (request.name != "init" && request.name != "compact" &&
         request.name != "goal" && request.name != "plan" &&
-        request.name != "lsp" && request.name != "sandbox") {
+        request.name != "lsp" && request.name != "sandbox" && request.name != "memory") {
         // 内置名单之外:先给宿主注册的兜底处理器(daemon 托管 /rc 走这里),
         // 没有兜底或兜底不认时保持原 UnsupportedCommand 语义。锁外调用,
         // handler 内部可以安全地回头 acquire()/emit。
@@ -1357,6 +1359,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     if (request.name == "plan") {
         return execute_plan_builtin(*entry, request);
     }
+    if (request.name == "memory") return execute_memory_builtin(*entry, request, deps_.memory.get());
 
     if (request.name == "lsp") {
         // 与 TUI /lsp 共用同一份文本(dispatch_lsp_subcommand),经会话

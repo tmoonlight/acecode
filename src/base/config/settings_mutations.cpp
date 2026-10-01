@@ -246,6 +246,46 @@ SettingsMutationResult set_custom_instructions(
         options);
 }
 
+SettingsMutationResult set_memory_settings(
+    const MemoryConfig& memory,
+    const SettingsMutationOptions& options) {
+    return run_mutation(
+        [memory](AppConfig& cfg, std::string& error) {
+            const auto& summary = memory.summary;
+            if (memory.max_index_bytes == 0 || memory.max_index_bytes > 1024 * 1024) {
+                error = "memory.max_index_bytes must be between 1 and 1048576";
+                return false;
+            }
+            if (summary.idle_minutes < 5 || summary.idle_minutes > 1440) {
+                error = "memory.summary.idle_minutes must be between 5 and 1440";
+                return false;
+            }
+            if (summary.max_session_age_days < 1 || summary.max_session_age_days > 90) {
+                error = "memory.summary.max_session_age_days must be between 1 and 90";
+                return false;
+            }
+            if (!summary.model_name.empty() &&
+                std::none_of(cfg.saved_models.begin(), cfg.saved_models.end(),
+                             [&summary](const ModelProfile& profile) {
+                                 return profile.name == summary.model_name;
+                             })) {
+                error = "unknown saved model: " + summary.model_name;
+                return false;
+            }
+            const auto& cur = cfg.memory;
+            if (cur.enabled == memory.enabled && cur.max_index_bytes == memory.max_index_bytes &&
+                cur.summary.enabled == summary.enabled &&
+                cur.summary.model_name == summary.model_name &&
+                cur.summary.idle_minutes == summary.idle_minutes &&
+                cur.summary.max_session_age_days == summary.max_session_age_days) {
+                return false;
+            }
+            cfg.memory = memory;
+            return true;
+        },
+        options);
+}
+
 SettingsMutationResult add_saved_model_setting(
     const SavedModelDraft& draft,
     const SettingsMutationOptions& options) {
