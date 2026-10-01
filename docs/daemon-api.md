@@ -386,6 +386,13 @@ update their transcript presentation.
 | PUT | `/api/config/summary-generation` | save summary-model override for automatic session titles |
 | PUT | `/api/config/image-generation` | save image generation settings and refresh the tool |
 | POST | `/api/config/image-generation/test` | explicitly generate one standard-quality test image |
+| GET | `/api/config/memory` | read memory settings (use memory, memory summarization, summary model) |
+| PUT | `/api/config/memory` | patch memory settings; persists `config.json` and applies to this daemon's memory runtime |
+| GET | `/api/memory?workspace=<hash>` | list global and workspace memory entries plus memory-summarization status |
+| GET | `/api/memory/:scope/:name?workspace=<hash>` | read one entry with body |
+| PUT | `/api/memory/:scope/:name?workspace=<hash>` | edit one entry (redacted, marked manual) |
+| DELETE | `/api/memory/:scope/:name?workspace=<hash>` | delete one entry and record a tombstone |
+| POST | `/api/memory/reset` | clear one scope (entries, index, inbox, archive) |
 | GET | `/api/config/tool-rewrites` | read tool rewrite settings plus the built-in tool catalog |
 | PUT | `/api/config/tool-rewrites` | replace tool rewrite settings, persist `tool-rewrites.json`, apply live |
 | GET | `/api/config/tool-preamble` | read the concrete progress text switch (work mode) |
@@ -1794,7 +1801,7 @@ only to the requesting connection:
 
 ```json
 {"type":"side_chat_delta","payload":{"request_id":"unique-request-id","delta":"Text fragment"}}
-{"type":"side_chat_tool","payload":{"request_id":"unique-request-id","call_id":"call_1","name":"file_read","target":"src/main.cpp","status":"running"}}
+{"type":"side_chat_tool","payload":{"request_id":"unique-request-id","call_id":"call_1","name":"file_read","target":"src/apps/cli/main.cpp","status":"running"}}
 {"type":"side_chat_reset","payload":{"request_id":"unique-request-id"}}
 {"type":"side_chat_done","payload":{"request_id":"unique-request-id","answer":"Complete or stopped partial answer","cancelled":false}}
 {"type":"side_chat_error","payload":{"request_id":"unique-request-id","code":"SIDE_CHAT_FAILED","message":"Provider error"}}
@@ -1908,8 +1915,18 @@ Runs daemon-owned builtin slash commands. Body:
 
 `command` can also be slash text like `"/compact"`. Supported commands are
 the daemon builtin commands accepted by `parse_builtin_command_request`:
-`init`, `compact`, `goal`, and `plan`. Skill slash commands must use
+`init`, `compact`, `goal`, `plan`, `lsp`, `sandbox`, `memory`, `rc` and
+`remote-control`. Skill slash commands must use
 `POST /api/sessions/:id/messages`.
+
+`memory` runs the same text implementation as the TUI `/memory`
+(`dispatch_memory_command`): `list [--scope=global|workspace] [--type=<t>]`,
+`view <name>`, `forget <name>` (records a tombstone), `flush`, `off`, `on`
+and `reload`. The result is emitted as a session system message with notice code
+`memory_status`; `edit` only points to Settings > Personalization > Memory.
+`/memory flush` returns immediately and, when memory summarization is on, a
+second system message with code `memory_flush_done` reports the processed
+observations and changed entries.
 
 Returns `202 {"queued":true,"command":"compact"}`. Errors:
 
@@ -3802,6 +3819,48 @@ history or logs. A concurrent test returns 409 `IMAGE_TEST_BUSY`; incomplete
 configuration returns 400 `IMAGE_NOT_CONFIGURED`; upstream failures return 502
 `IMAGE_QUOTA_ERROR` or `IMAGE_TEST_FAILED` without echoing provider error bodies.
 All endpoints use normal API authentication/CORS and `Cache-Control: no-store`.
+
+### Memory settings and entries (`openspec unify-memory-system`)
+
+Memory has two scopes: **global** (`<data_dir>/memory/`, the user's personal
+preferences) and **workspace** (`<data_dir>/projects/<hash>/memory/`, the same
+hash as the workspace's session storage). The `workspace` query parameter must
+be a registered workspace hash (`404 {"error":"UNKNOWN_WORKSPACE"}` otherwise);
+without it the workspace scope is reported as unavailable. Every route returns
+`503 {"error":"UNAVAILABLE"}` when the daemon has no memory runtime.
+
+`GET /api/config/memory` returns:
+
+```json
+{"enabled":true,"max_index_bytes":8192,
+ "summary":{"enabled":false,"model_name":"","idle_minutes":30,"max_session_age_days":7},
+ "summary_available":true}
+```
+
+`enabled` is "use memory" (inject the per-session memory snapshot and offer
+`memory_read` / `memory_write`). `max_index_bytes` is the per-scope injection
+budget. `summary.enabled` turns memory summarization on (default off);
+`summary.model_name` is a saved model name, empty meaning "the model each
+session last used". `PUT /api/config/memory` accepts a patch of the same shape
+and goes through `set_memory_settings` (unknown model, `idle_minutes` outside
+5–1440 or `max_session_age_days` outside 1–90 → `400 BAD_REQUEST`). Other
+ACECode processes pick the change up from `config.json` within one minute.
+
+`GET /api/memory?workspace=<hash>` rescans disk and returns
+`{enabled, scopes:{global:{available,dir,entries[]}, workspace:{...}}, status}`.
+Each entry is `{scope,name,description,type,created_at,updated_at,source,source_sessions}`
+(`source` is `manual` or `summary`; legacy entries without provenance report
+`manual`). `status` is `{summary_enabled, global_inbox, workspace_inbox,
+last_extraction_ms, last_consolidation_ms, last_error, last_error_ms}`.
+
+`GET /api/memory/:scope/:name` adds `body` and `path`. `PUT` takes
+`{description, body, type?}`, writes through the store (secrets redacted to
+`[REDACTED]`, `updated_at` refreshed, source becomes `manual` so summarization
+leaves the entry alone) and returns the entry plus `redactions`. `DELETE`
+removes the entry and its index line and records a tombstone (90 days) so
+summarization cannot recreate the same name or title. `POST /api/memory/reset`
+takes `{scope, workspace}` and clears that scope's entries, index, inbox and
+archive; the other scope is untouched.
 
 ### Tool rewrite settings
 

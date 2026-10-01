@@ -130,6 +130,7 @@ void CompactionController::apply_result(
     last_api_total_tokens_.store(post_tokens, std::memory_order_relaxed);
     environment_.mtime_tracker().clear_read_observations();
     compact_generation_.fetch_add(1, std::memory_order_relaxed);
+    requests_.invalidate_memory_snapshot();  // 压缩后记忆快照按磁盘重建
 
     const std::string notice_id = compact_notice_id.empty()
         ? generate_uuid_v7()

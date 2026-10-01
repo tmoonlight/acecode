@@ -22,6 +22,10 @@
 #include "session_host/local_session_client.hpp"
 #include "session_host/session_registry.hpp"
 #include "session_host/thread_service.hpp"
+#include "session_host/memory_runtime.hpp"
+#include "memory/memory_paths.hpp"
+#include "tool/memory_read_tool.hpp"
+#include "tool/memory_write_tool.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
 #include "tool/ask_user_question_tool.hpp"
@@ -200,8 +204,14 @@ void register_headless_tools(
     SkillRegistry* skill_registry,
     const std::shared_ptr<SubagentToolDeps>& subagent_deps,
     const std::shared_ptr<ThreadToolDeps>& thread_deps,
-    const std::shared_ptr<WorkspaceToolDeps>& workspace_deps) {
+    const std::shared_ptr<WorkspaceToolDeps>& workspace_deps,
+    const std::shared_ptr<MemoryService>& memory) {
     register_session_builtin_tools(tools, cfg);
+    // 记忆工具与 TUI / daemon 同一份;可被 --disable-tools 移除(openspec unify-memory-system)。
+    if (memory) {
+        tools.register_tool(create_memory_read_tool(memory));
+        tools.register_tool(create_memory_write_tool(memory));
+    }
     tools.register_tool(create_ask_user_question_tool_async(
         cfg.ask.max_questions, cfg.ask.max_options));
     if (skill_registry && cfg.skills.allowed &&
@@ -250,9 +260,11 @@ int print_available_capabilities(const HeadlessCliOptions& opts) {
             auto subagent_deps = std::make_shared<SubagentToolDeps>();
             auto thread_deps = std::make_shared<ThreadToolDeps>();
             auto workspace_deps = std::make_shared<WorkspaceToolDeps>();
+            // 只为列出名字构造记忆服务:不建目录、不打开状态库,发现分支保持无副作用。
             register_headless_tools(
                 tools, cfg, nullptr, subagent_deps, thread_deps,
-                workspace_deps);
+                workspace_deps, std::make_shared<MemoryService>(
+                    get_memory_dir(), get_memory_state_db_path(), cfg.memory));
             for (const auto& def :
                  tools.get_tool_definitions_by_source(ToolSource::Builtin)) {
                 entries.push_back({def.name, {}});
@@ -470,6 +482,9 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     acecode::SkillRegistry skill_registry;
     acecode::initialize_skill_registry(skill_registry, cfg, cwd);
 
+    // 记忆:注入与工具和 TUI / daemon 一致,但 headless 不跑记忆摘要调度器。
+    auto memory_runtime = acecode::create_memory_runtime(
+        cfg, acecode::get_acecode_dir(), acecode::MemorySurface::Headless);
     acecode::ToolExecutor tools;
     auto subagent_deps = std::make_shared<acecode::SubagentToolDeps>();
     auto thread_deps = std::make_shared<acecode::ThreadToolDeps>();
@@ -480,7 +495,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
     // 不会真的走到 prompter。仍注册它是为了让模型看到与 daemon 一致的工具面。
     register_headless_tools(
         tools, cfg, &skill_registry, subagent_deps, thread_deps,
-        workspace_deps);
+        workspace_deps, memory_runtime->service());
 
     acecode::daemon::DaemonMcpRuntime mcp_runtime;
 
@@ -531,8 +546,8 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         reg_deps.mcp_manager              = &mcp_runtime.manager();
         reg_deps.load_project_mcp         = false;
         reg_deps.skill_registry           = &skill_registry;
-        reg_deps.memory_registry          = nullptr;
-        reg_deps.memory_cfg               = nullptr;
+        reg_deps.memory                   = memory_runtime;
+        reg_deps.session_surface          = "headless";
         reg_deps.project_instructions_cfg = &cfg.project_instructions;
         reg_deps.custom_instructions_cfg  = &cfg.custom_instructions;
         reg_deps.hook_manager             = &hook_manager;

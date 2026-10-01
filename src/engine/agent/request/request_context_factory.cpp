@@ -8,7 +8,9 @@
 #include "agent/transcript/conversation_history.hpp"
 #include "permissions/permissions.hpp"
 #include "prompt/prompt_environment.hpp"
+#include "memory/memory_service.hpp"
 #include "session/session_manager.hpp"
+#include "session/session_storage.hpp"
 
 namespace acecode::agent {
 RequestContextOptions RequestContextFactory::options(
@@ -16,8 +18,21 @@ RequestContextOptions RequestContextFactory::options(
     agent::RequestContextOptions options;
     options.cwd = boundary_.cwd();
     options.skills = source_.skills;
-    options.memory = source_.memory;
-    options.memory_config = source_.prompt_config.memory;
+    options.memory = source_.memory.get();
+    // 记忆开关以记忆服务的运行时配置为准(设置页改了立即对新请求生效)。
+    options.memory_config = source_.memory ? std::optional<MemoryConfig>(source_.memory->config())
+                                           : source_.prompt_config.memory;
+    if (session_manager_) {
+        options.memory_session_key = session_manager_->current_session_id();
+        if (!session_manager_->is_no_workspace()) {
+            options.memory_project_dir = session_manager_->current_project_dir();
+        }
+        if (!session_manager_->memory_enabled() && options.memory_config) {
+            options.memory_config->enabled = false;
+        }
+    } else if (!options.cwd.empty()) {
+        options.memory_project_dir = SessionStorage::get_project_dir(options.cwd);
+    }
     options.project_config = source_.prompt_config.project_instructions;
     options.custom_config = source_.prompt_config.custom_instructions;
     options.git_config = source_.prompt_config.git_context;

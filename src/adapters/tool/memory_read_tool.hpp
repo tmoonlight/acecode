@@ -2,18 +2,21 @@
 
 #include "tool_executor.hpp"
 
+#include <memory>
+
 namespace acecode {
 
-class MemoryRegistry;
+class MemoryService;
 
-// `memory_read` — tier-1 progressive disclosure for the user's persistent
-// memory. Read-only. Args are all optional; see create_memory_read_tool for
-// semantics:
-//   {}             → full MEMORY.md index + list of {name,description,type}
-//   {type}         → entries of that type as {name,description}
-//   {name}         → single entry with full body
-//   {name, type}   → same as {name} (type ignored when name given)
-ToolImpl create_memory_read_tool(MemoryRegistry& registry,
-                                 std::size_t max_index_bytes);
+// `memory_read` — read persistent memory from the global scope and the
+// session's workspace scope. Read-only; every call rescans disk so entries
+// written by another ACECode process are visible. Args are all optional:
+//   {}                 → entries of both scopes (scope, name, description, type, updated_at)
+//   {scope}            → only that scope (global | workspace | all)
+//   {type}             → filter by user | feedback | project | reference
+//   {name}             → one entry with full body; workspace first, then global
+//   {query}            → case-insensitive substring match with a snippet
+// Missing entries return {found:false} rather than an error.
+ToolImpl create_memory_read_tool(std::shared_ptr<MemoryService> memory);
 
 } // namespace acecode

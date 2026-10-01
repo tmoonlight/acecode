@@ -103,6 +103,14 @@ struct SessionMeta {
     // workspace.
     bool no_workspace = false;
 
+    // 本会话的记忆开关(/memory off|on)。"off" = 不注入记忆、不提供记忆工具、
+    // 不参与记忆摘要;空 = 开启(默认,序列化省略)。
+    std::string memory_mode;
+
+    // 最近一次承载该会话的入口(tui / daemon / headless)。记忆摘要据此跳过
+    // headless 会话;老 meta 没有该字段时为空。
+    std::string surface;
+
     // 会话当前的 worktree 状态。inactive(worktree_path 为空)时序列化省略。
     WorktreeSessionInfo worktree;
 };

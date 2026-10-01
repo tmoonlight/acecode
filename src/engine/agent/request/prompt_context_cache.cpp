@@ -26,5 +26,18 @@ std::string PromptContextCache::skills(const PromptContextBlock& block) {
 std::string PromptContextCache::session(const PromptContextBlock& block) {
     return detail::cached_context_for_api(block, session_key_, session_content_);
 }
+bool PromptContextCache::needs_memory_snapshot(const std::string& key) {
+    const bool stale = memory_stale_.exchange(false);
+    return stale || !memory_ready_ || key != memory_key_;
+}
+void PromptContextCache::store_memory_snapshot(const std::string& key, PromptContextBlock block) {
+    memory_key_ = key;
+    memory_block_ = std::move(block);
+    memory_ready_ = true;
+}
+const PromptContextBlock* PromptContextCache::peek_memory_snapshot(const std::string& key) const {
+    if (!memory_ready_ || memory_stale_.load() || key != memory_key_) return nullptr;
+    return &memory_block_;
+}
 
 } // namespace acecode::agent

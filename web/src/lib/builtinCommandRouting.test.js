@@ -59,6 +59,23 @@ run('/sandbox is handled locally without auto-starting a model turn', () => {
   assert.deepEqual(sessionCreateOptionsForText('/sandbox on'), { auto_start: false });
 });
 
+// 触发场景:Web 输入框里敲 /memory(列出 / 查看 / 删除 / flush / off / on)。
+// 期望行为:与 /lsp、/sandbox 一样走内置命令端点(daemon execute_builtin_command 已放行
+//          memory,结果以 memory_status 系统通知回到聊天流),不新建模型回合。
+// 回归表现:漏加时 /memory 被当成普通消息发给模型,模型只能回一句「我没有这个命令」。
+run('/memory is a daemon builtin command and never starts a model turn', () => {
+  assert.deepEqual(inputRouteForText('/memory flush'), {
+    kind: 'builtin',
+    command: { command: 'memory', args: 'flush', display_text: '/memory flush' },
+  });
+  assert.deepEqual(inputRouteForText('/memory'), {
+    kind: 'builtin',
+    command: { command: 'memory', args: '', display_text: '/memory' },
+  });
+  assert.deepEqual(sessionCreateOptionsForText('/memory off'), { auto_start: false });
+  assert.deepEqual(inputRouteForText('/memoryx'), { kind: 'message', text: '/memoryx' });
+});
+
 run('/btw routes immediately as a side question before builtin parsing', () => {
   assert.deepEqual(sideQuestionRequestForText('  /BTW   explain this\nplease  '), {
     command: 'btw',

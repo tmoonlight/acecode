@@ -24,6 +24,7 @@ const BUILTIN_DESCRIPTION_KEYS = Object.freeze({
   side: 'side',
   lsp: 'lsp',
   sandbox: 'sandbox',
+  memory: 'memory',
   rc: 'rc',
   'remote-control': 'remoteControl',
 });
@@ -256,7 +257,7 @@ export function resolveLeadingSlashCommand(text, commands = []) {
 
 export function parseExecutableBuiltinCommand(value) {
   const text = typeof value === 'string' ? value.trim() : '';
-  const leading = parseLeadingCommand(text, ['init', 'compact', 'goal', 'plan', 'lsp', 'sandbox', 'rc', 'remote-control']);
+  const leading = parseLeadingCommand(text, ['init', 'compact', 'goal', 'plan', 'lsp', 'sandbox', 'memory', 'rc', 'remote-control']);
   if (!leading.name) return null;
   return {
     name: leading.name,

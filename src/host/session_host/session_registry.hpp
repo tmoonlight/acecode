@@ -47,7 +47,7 @@
 namespace acecode {
 
 class HookManager;
-class MemoryRegistry;
+class MemoryRuntime;
 class ActiveSessionPowerGuard;
 class McpManager;
 
@@ -124,8 +124,10 @@ struct SessionRegistryDeps {
     PromptConfigProvider             prompt_config; // Optional owned snapshot publisher (TUI).
     const SkillRegistry*             skill_registry = nullptr;
     const ExpertRegistry*            expert_registry = nullptr;
-    const MemoryRegistry*            memory_registry = nullptr;
-    const MemoryConfig*              memory_cfg = nullptr;
+    // 记忆运行时(create_memory_runtime 创建);全部会话与子会话共用。可空。
+    std::shared_ptr<MemoryRuntime>   memory;
+    // 写进会话 meta 的入口标识(headless 传 "headless",记忆摘要据此跳过)。
+    std::string                      session_surface = "daemon";
     const ProjectInstructionsConfig* project_instructions_cfg = nullptr;
     const CustomInstructionsConfig*  custom_instructions_cfg = nullptr;
     HookManager*                     hook_manager = nullptr;

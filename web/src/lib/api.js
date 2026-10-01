@@ -7,6 +7,7 @@ import { getToken } from './auth.js';
 import { recordSessionHistoryBytes, trackSessionHistoryRequest } from './sessionOpenDiagnostics.js';
 import { createSideChatStream } from './sideChatStream.js';
 import { mcpScopeQuery } from './mcpServers.js';
+import { memoryEntryPath, memoryOverviewPath, memoryResetBody } from './memorySettings.js';
 
 export class ApiError extends Error {
   constructor(status, body) {
@@ -674,6 +675,20 @@ export function createApi(base = null) {
       'POST', '/api/config/recovery-notice/acknowledge', undefined, base),
     getCustomInstructions: ()        => request('GET',    '/api/config/custom-instructions', undefined, base),
     setCustomInstructions: (cfg)     => request('PUT',    '/api/config/custom-instructions', cfg, base),
+    // 设置 > 个性化 > 记忆(openspec unify-memory-system)。设置 PUT 是 PATCH 语义;
+    // 条目路径与 workspace 参数统一由 lib/memorySettings.js 拼接(全局条目不带工作区)。
+    getMemorySettings: ()            => request('GET',    '/api/config/memory', undefined, base),
+    setMemorySettings: (patch)       => request('PUT',    '/api/config/memory', patch, base),
+    getMemoryOverview: (workspaceHash = '') =>
+      request('GET', memoryOverviewPath(workspaceHash), undefined, base),
+    getMemoryEntry: (scope, name, workspaceHash = '') =>
+      request('GET', memoryEntryPath(scope, name, workspaceHash), undefined, base),
+    updateMemoryEntry: (scope, name, edit, workspaceHash = '') =>
+      request('PUT', memoryEntryPath(scope, name, workspaceHash), edit, base),
+    deleteMemoryEntry: (scope, name, workspaceHash = '') =>
+      request('DELETE', memoryEntryPath(scope, name, workspaceHash), undefined, base),
+    resetMemoryScope: (scope, workspaceHash = '') =>
+      request('POST', '/api/memory/reset', memoryResetBody(scope, workspaceHash), base),
     getConnectors: ()                => request('GET',    '/api/config/connectors', undefined, base),
     getImageGeneration: ()           => request('GET', '/api/config/image-generation', undefined, base),
     getComputerUse: ()               => request('GET', '/api/config/computer-use', undefined, base),

@@ -141,3 +141,36 @@ run('text-form tool call retry notice is localized with attempt counters', () =>
   assert.match(english.text, /\(1\/2\)/);
   for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
 });
+
+// 场景：PA 兜底 / 摘要失败后的机械兜底改为「先清工具输出、再精简旧回合、最后才整组丢弃」，
+// 新增 context_history_thinned 与带 thinned 参数的 context_compact_warning。
+// 期望：两种语言都带出精简组数、清除条数与丢弃组数；旧通知（没有 thinned）仍走原文案。
+run('context repair notices report condensed turns and keep the legacy wording', () => {
+  const thinned = notice('context_history_thinned', { round: 1, groups: 0, thinned: 2, outputs: 5 });
+  const cn = presentSystemNotice(thinned, zh);
+  const english = presentSystemNotice(thinned, en);
+  assert.equal(cn.title, '旧回合已精简');
+  assert.equal(english.title, 'Old turns condensed');
+  assert.match(cn.text, /清除 5 条旧工具输出、精简 2 组旧回合/);
+  assert.match(english.text, /condensed 2 old turns/);
+  const fallback = presentSystemNotice(notice('context_compact_warning', { groups: 0, thinned: 3, outputs: 4, error: 'summary failed' }), zh);
+  assert.match(fallback.text, /精简 3 组旧回合/);
+  assert.ok(fallback.text.includes('summary failed'));
+  const legacy = presentSystemNotice(notice('context_compact_warning', { groups: 1, outputs: 2, error: 'summary failed' }), zh);
+  assert.match(legacy.text, /丢弃最旧的 1 组历史、清除 2 条旧工具输出/);
+  for (const text of [cn.text, english.text, fallback.text, legacy.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
+});
+
+// 场景：模型回复正文混进工具参数模板标记，AgentLoop 丢弃这一步并重发一次。
+// 期望：标题与正文按当前语言显示，原样带出命中的标记和次数。
+run('corrupted output retry notice shows the leaked marker and attempt counters', () => {
+  const message = notice('response_corrupted_retry', { attempt: 1, attempts: 1, marker: '</arg_value>' });
+  const cn = presentSystemNotice(message, zh);
+  const english = presentSystemNotice(message, en);
+  assert.equal(cn.title, '输出异常重试中');
+  assert.equal(english.title, 'Retrying corrupted output');
+  assert.ok(cn.text.includes('（</arg_value>）'));
+  assert.ok(cn.text.includes('重新请求 1/1'));
+  assert.ok(english.text.includes('(</arg_value>)'));
+  for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
+});

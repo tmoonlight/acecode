@@ -10,6 +10,8 @@ class GoalRuntime;
 struct ResponseRecoveryState {
     int empty_response_retries = 0;
     int text_tool_call_corrections = 0;
+    // 正文混入工具参数模板标记(输出损坏)后的丢弃重发次数,见 TurnRunner。
+    int corrupted_output_retries = 0;
 };
 struct ResponseRecoveryResult {
     HandleErrorResult action = HandleErrorResult::Proceed;

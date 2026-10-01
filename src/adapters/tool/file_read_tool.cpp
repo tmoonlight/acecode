@@ -742,7 +742,7 @@ ToolResult execute_file_read(
             request.end_line,
             request.byte_mode,
             request.byte_offset,
-            request.requested_max_bytes);
+            request.requested_max_bytes, ctx.session_id);  // 按会话去重
     if (unchanged_observation.has_value()) {
         ToolSummary summary;
         summary.verb = "Read";
@@ -963,7 +963,7 @@ ToolResult execute_file_read(
         request.end_line,
         request.byte_mode,
         request.byte_offset,
-        request.requested_max_bytes);
+        request.requested_max_bytes, ctx.session_id);
 
     bool hint_added = false;
     if (!request.byte_mode &&

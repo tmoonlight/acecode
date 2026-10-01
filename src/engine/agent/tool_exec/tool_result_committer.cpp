@@ -35,7 +35,10 @@ ToolBatchOutcome ToolResultCommitter::commit(std::vector<ToolCallSlot>& slots) {
         }
     }
 
-    auto record_file_read_result_reference = [](MtimeTracker& tracker, const ToolCall& tc, const ToolResult& result) {
+    // 与 file_read 记录观测时同一口径(ToolContextFactory 填的会话 id)。
+    const std::string read_scope =
+        session_manager_ ? session_manager_->current_session_id() : std::string{};
+    auto record_file_read_result_reference = [&read_scope](MtimeTracker& tracker, const ToolCall& tc, const ToolResult& result) {
         if (!result.success || tc.function_name != "file_read") return;
         if (result.output.rfind("File unchanged since last read.", 0) == 0) return;
 
@@ -67,7 +70,8 @@ ToolBatchOutcome ToolResultCommitter::commit(std::vector<ToolCallSlot>& slots) {
             persisted_output_filepath(result.output),
             byte_mode,
             uint64_arg("byte_offset"),
-            static_cast<size_t>(uint64_arg("max_bytes")));
+            static_cast<size_t>(uint64_arg("max_bytes")),
+            read_scope);
     };
 
     for (size_t i = 0; i < slots.size(); ++i) {

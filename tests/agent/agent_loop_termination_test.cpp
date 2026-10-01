@@ -21,6 +21,7 @@
 #include "config/config.hpp"
 #include "memory/memory_paths.hpp"
 #include "memory/memory_registry.hpp"
+#include "memory/memory_service.hpp"
 #include "memory/memory_types.hpp"
 #include "project_instructions/instructions_loader.hpp"
 #include "test_support/agent/stub_provider.hpp"
@@ -183,8 +184,8 @@ class AgentLoopHarness {
 public:
     explicit AgentLoopHarness(std::string cwd = ".",
         std::function<void(const acecode::TokenUsage&)> on_usage = {},
-        const acecode::MemoryRegistry* memory = nullptr, bool with_session = false)
-        : cwd_(std::move(cwd)) {
+        std::shared_ptr<acecode::MemoryService> memory = nullptr, bool with_session = false)
+        : cwd_(std::move(cwd)), memory_(memory) {
         tools_.register_tool(create_noop_tool());
         tools_.register_tool(acecode::create_task_complete_tool());
 
@@ -305,6 +306,14 @@ public:
         response.tool_calls = std::move(calls);
         provider_->push_response(std::move(response));
     }
+    // 同一条回复里既有正文又有原生工具调用。
+    void push_text_with_tool_calls(std::string text,
+                                   std::vector<acecode::ToolCall> calls) {
+        ScriptedResponse response;
+        response.text = std::move(text);
+        response.tool_calls = std::move(calls);
+        provider_->push_response(std::move(response));
+    }
     void register_tool(ToolImpl tool) {
         tools_.register_tool(std::move(tool));
     }
@@ -379,6 +388,8 @@ public:
     void set_memory_config(const acecode::MemoryConfig* config) {
         std::lock_guard<std::mutex> lock(prompt_state_->mutex);
         prompt_state_->config.memory = config ? std::make_optional(*config) : std::nullopt;
+        // 有记忆服务时开关以服务的运行时配置为准(与生产一致:设置保存即更新服务)。
+        if (memory_ && config) memory_->update_config(*config);
     }
 
     void set_project_instructions_config(const acecode::ProjectInstructionsConfig* cfg) {
@@ -503,6 +514,7 @@ public:
 
 private:
     std::string cwd_;
+    std::shared_ptr<acecode::MemoryService> memory_;
     std::shared_ptr<StubLlmProvider> provider_ = std::make_shared<StubLlmProvider>();
     ToolExecutor tools_;
     PermissionManager perms_;
@@ -1134,19 +1146,18 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     fs::path repo = home.root() / "repo";
     write_file(repo / "AGENT.md", "# repo rules\nuse goroutines\n");
 
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry memory;
-    memory.scan();
+    auto memory = std::make_shared<acecode::MemoryService>(
+        acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
     std::string err;
-    ASSERT_TRUE(memory.upsert("user_profile", acecode::MemoryType::User,
-                              "senior Go dev", "10y Go\n",
-                              acecode::MemoryWriteMode::Create, err).has_value())
+    ASSERT_TRUE(memory->global().upsert("user_profile", acecode::MemoryType::User,
+                                        "senior Go dev", "10y Go\n",
+                                        acecode::MemoryWriteMode::Create, err).has_value())
         << err;
 
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string(), {}, &memory);
+    AgentLoopHarness h(repo.string(), {}, memory);
     h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("ok");
@@ -1158,9 +1169,9 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     ASSERT_GE(request.size(), 3u);
     ASSERT_EQ(request.front().role, "system");
     EXPECT_EQ(request.front().content.find("# Project Instructions"), std::string::npos);
-    EXPECT_EQ(request.front().content.find("# User Memory"), std::string::npos);
+    EXPECT_EQ(request.front().content.find("## Global memory"), std::string::npos);
     EXPECT_EQ(request.front().content.find("use goroutines"), std::string::npos);
-    EXPECT_EQ(request.front().content.find("user_profile.md"), std::string::npos);
+    EXPECT_EQ(request.front().content.find("user_profile"), std::string::npos);
 
     bool saw_project = false;
     bool saw_memory = false;
@@ -1169,8 +1180,8 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
             msg.content.find("use goroutines") != std::string::npos) {
             saw_project = true;
         }
-        if (msg.content.find("# User Memory") != std::string::npos &&
-            msg.content.find("user_profile.md") != std::string::npos) {
+        if (msg.content.find("## Global memory") != std::string::npos &&
+            msg.content.find("user_profile") != std::string::npos) {
             saw_memory = true;
         }
     }
@@ -1187,40 +1198,41 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     auto persisted = h.persisted_messages();
     for (const auto& msg : persisted) {
         EXPECT_EQ(msg.content.find("# Project Instructions"), std::string::npos);
-        EXPECT_EQ(msg.content.find("# User Memory"), std::string::npos);
+        EXPECT_EQ(msg.content.find("## Global memory"), std::string::npos);
         EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
     }
 }
 
-// 场景:项目文件和 memory mid-session 变化时,provider context 更新,
-// 但静态 system prompt 字节不变。
+// 场景:项目文件与记忆在会话中途都变了。
+// 期望:项目指令按内容刷新;记忆上下文是会话快照,中途写入的条目不出现、已注入的
+// 逐字节不变(openspec unify-memory-system:会话内快照稳定,不打穿 prompt cache);
+// 静态 system prompt 字节不变。
 TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     TempHomeGuard home("acecode-agentloop-context-edit");
     fs::path repo = home.root() / "repo";
     write_file(repo / "AGENT.md", "before rule\n");
 
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry memory;
-    memory.scan();
+    auto memory = std::make_shared<acecode::MemoryService>(
+        acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
     std::string err;
-    ASSERT_TRUE(memory.upsert("first_memory", acecode::MemoryType::User,
-                              "first memory", "before\n",
-                              acecode::MemoryWriteMode::Create, err).has_value())
+    ASSERT_TRUE(memory->global().upsert("first_memory", acecode::MemoryType::User,
+                                        "first memory", "before\n",
+                                        acecode::MemoryWriteMode::Create, err).has_value())
         << err;
 
     acecode::MemoryConfig memory_cfg;
     acecode::ProjectInstructionsConfig project_cfg;
 
-    AgentLoopHarness h(repo.string(), {}, &memory);
+    AgentLoopHarness h(repo.string(), {}, memory);
     h.set_memory_config(&memory_cfg);
     h.set_project_instructions_config(&project_cfg);
     h.push_text("first ok");
     ASSERT_TRUE(h.submit_and_wait("first"));
 
     write_file(repo / "AGENT.md", "after rule\n");
-    ASSERT_TRUE(memory.upsert("second_memory", acecode::MemoryType::User,
-                              "second memory", "after\n",
-                              acecode::MemoryWriteMode::Create, err).has_value())
+    ASSERT_TRUE(memory->global().upsert("second_memory", acecode::MemoryType::User,
+                                        "second memory", "after\n",
+                                        acecode::MemoryWriteMode::Create, err).has_value())
         << err;
 
     h.push_text("second ok");
@@ -1243,11 +1255,12 @@ TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     };
     EXPECT_TRUE(contains(first_request, "before rule"));
     EXPECT_FALSE(contains(first_request, "after rule"));
-    EXPECT_TRUE(contains(first_request, "first_memory.md"));
-    EXPECT_FALSE(contains(first_request, "second_memory.md"));
+    EXPECT_TRUE(contains(first_request, "first_memory"));
+    EXPECT_FALSE(contains(first_request, "second_memory"));
 
     EXPECT_TRUE(contains(second_request, "after rule"));
-    EXPECT_TRUE(contains(second_request, "second_memory.md"));
+    EXPECT_TRUE(contains(second_request, "first_memory"));
+    EXPECT_FALSE(contains(second_request, "second_memory"));
 }
 
 // 场景 (b):turn 1 就调用 task_complete → 1 轮退出,无 cap 消息
@@ -2216,6 +2229,136 @@ TEST(AgentLoopTermination, CorrectionDoesNotUnderflowIterationCounter) {
     EXPECT_EQ(h.last_system_message().find("max_iterations"), std::string::npos);
 }
 
+namespace {
+
+// 计数型只读工具:断言「损坏那一步的工具调用没有被执行」。
+ToolImpl create_counting_tool(const std::string& name,
+                              std::shared_ptr<std::atomic<int>> runs) {
+    ToolDef def;
+    def.name = name;
+    def.description = "Counts executions for agent-loop tests.";
+    def.parameters = {
+        {"type", "object"},
+        {"properties", nlohmann::json::object()}
+    };
+    ToolImpl impl;
+    impl.definition = def;
+    impl.execute = [runs](const std::string&, const acecode::ToolContext&) {
+        runs->fetch_add(1);
+        return ToolResult{"counted", true};
+    };
+    impl.is_read_only = true;
+    impl.source = ToolSource::Builtin;
+    return impl;
+}
+
+acecode::ToolCall probe_call(const std::string& id) {
+    acecode::ToolCall call;
+    call.id = id;
+    call.function_name = "probe";
+    call.function_arguments = "{}";
+    return call;
+}
+
+// 反馈 huangyuan816 第一条回复的开头与结尾(一串数字 + 结尾的 </arg_value>)。
+const char* const kCorruptedReply =
+    " roots\n# 3.3# 4</think>5 4}\n443void\n38 id\n37\n41id\n40</arg_value>";
+
+bool assistant_said(const std::vector<ChatMessage>& messages,
+                    const std::string& needle) {
+    for (const auto& msg : messages) {
+        if (msg.role == "assistant" &&
+            msg.content.find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+// 场景:模型第一条回复的正文混进了工具参数模板标记(</arg_value>),同一回复里
+// 还带着一个原生工具调用;重发后正常回答。
+// 期望:损坏那一步整条丢弃 —— 工具不执行、正文和调用都不入历史,两次请求的
+// 消息逐条相同(原样重发);发一条 response_corrupted_retry 通知(1/1,带出
+// 命中的标记);最终回复正常落盘,没有错误。
+// 回归背景(反馈 huangyuan816,0.9.27):坏回复里的 bash 命令也夹着乱码
+// (`ls …/2&&`),照样被执行,之后整个回合跑题、答非所问。
+TEST(AgentLoopTermination, CorruptedOutputIsDiscardedAndRequestedAgainOnce) {
+    AgentLoopHarness h;
+    auto runs = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_counting_tool("probe", runs));
+    h.push_text_with_tool_calls(kCorruptedReply, {probe_call("bad-1")});
+    h.push_text("recovered answer");
+
+    ASSERT_TRUE(h.submit_and_wait("why is the gif slow"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(runs->load(), 0) << "损坏那一步的工具调用不能执行";
+    EXPECT_EQ(h.count_by_role("error"), 0);
+
+    const auto first = h.request_messages_for_turn(0);
+    const auto second = h.request_messages_for_turn(1);
+    ASSERT_EQ(first.size(), second.size()) << "丢弃后原样重发,历史不能多出消息";
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].content, second[i].content) << "message " << i;
+    }
+
+    const auto persisted = h.persisted_messages();
+    for (const auto& msg : persisted) {
+        if (msg.role == "system") continue;  // 通知本身会复述命中的标记
+        EXPECT_EQ(msg.content.find("</arg_value>"), std::string::npos)
+            << msg.content;
+        EXPECT_NE(msg.tool_call_id, "bad-1");
+        if (msg.tool_calls.is_array()) {
+            for (const auto& call : msg.tool_calls) {
+                EXPECT_NE(call.value("id", std::string{}), "bad-1");
+            }
+        }
+    }
+    EXPECT_TRUE(assistant_said(persisted, "recovered answer"));
+
+    const auto notices = notice_params_for(h.snapshot_events(),
+                                           "response_corrupted_retry");
+    ASSERT_EQ(notices.size(), 1u);
+    EXPECT_EQ(notices[0].value("attempt", 0), 1);
+    EXPECT_EQ(notices[0].value("attempts", 0), 1);
+    EXPECT_EQ(notices[0].value("marker", std::string{}), "</arg_value>");
+}
+
+// 场景:重发之后的回复仍然带着模板标记。
+// 期望:只重发一次,第二次按原流程当普通回复收下,回合正常结束,不报错。
+// 连续两次损坏多半是服务端持续异常,再重发只会烧 token、把回合卡住。
+TEST(AgentLoopTermination, CorruptedOutputIsRequestedAgainOnlyOnce) {
+    AgentLoopHarness h;
+    h.push_text(kCorruptedReply);
+    h.push_text("still broken <arg_key>x</arg_key>");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(h.count_by_role("error"), 0);
+    EXPECT_EQ(notice_params_for(h.snapshot_events(),
+                                "response_corrupted_retry").size(), 1u);
+    EXPECT_TRUE(assistant_said(h.persisted_messages(), "still broken"));
+}
+
+// 场景:损坏 → 重发得到一次正常的工具调用 → 下一步又损坏 → 再重发得到正常回答。
+// 期望:重发名额按「连续」计,正常产出一次工具批次后清零,所以第二次损坏
+// 同样会被丢弃重发一次:共 4 次请求、2 条通知、没有错误。
+TEST(AgentLoopTermination, CorruptedOutputAllowanceResetsAfterValidToolStep) {
+    AgentLoopHarness h;
+    h.push_text(kCorruptedReply);
+    h.push_tool_call("noop", "{}", "c1");
+    h.push_text(kCorruptedReply);
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 4);
+    EXPECT_EQ(h.count_by_role("error"), 0);
+    EXPECT_EQ(notice_params_for(h.snapshot_events(),
+                                "response_corrupted_retry").size(), 2u);
+    EXPECT_TRUE(assistant_said(h.persisted_messages(), "done"));
+}
+
 // 场景:修复上线前落盘的老会话里有一条 assistant 消息整条是文本工具调用(测试
 // stub 不经过 provider 的文本调用恢复,原样返回,等价于旧版本落盘的消息)。
 // 期望:下一回合发给模型的历史里它被换成固定说明,不再出现 <invoke;同一回合
@@ -2305,14 +2448,13 @@ TEST(AgentLoopTermination, CustomInstructionSaveAffectsOnlyTheNextTurn) {
 // 不再借用先前传入配置对象的地址，因此调用者配置离开作用域也不影响回合。
 TEST(AgentLoopTermination, IdleMemoryConfigurationSaveAppearsInNextTurn) {
     TempHomeGuard home("acecode-memory-config-snapshot");
-    fs::create_directories(acecode::get_memory_dir());
-    acecode::MemoryRegistry memory;
-    memory.scan();
+    auto memory = std::make_shared<acecode::MemoryService>(
+        acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
     std::string error;
-    ASSERT_TRUE(memory.upsert("snapshot_memory", acecode::MemoryType::User,
+    ASSERT_TRUE(memory->global().upsert("snapshot_memory", acecode::MemoryType::User,
         "snapshot memory", "MEMORY_SNAPSHOT_CONTENT\n",
         acecode::MemoryWriteMode::Create, error).has_value()) << error;
-    AgentLoopHarness h(home.root().string(), {}, &memory);
+    AgentLoopHarness h(home.root().string(), {}, memory);
     {
         acecode::MemoryConfig config;
         config.enabled = false;
@@ -2329,7 +2471,7 @@ TEST(AgentLoopTermination, IdleMemoryConfigurationSaveAppearsInNextTurn) {
     ASSERT_TRUE(h.submit_and_wait("with memory"));
     auto contains = [](const auto& messages) {
         return std::any_of(messages.begin(), messages.end(), [](const auto& message) {
-            return message.content.find("snapshot_memory.md") != std::string::npos;
+            return message.content.find("snapshot_memory") != std::string::npos;
         });
     };
     EXPECT_FALSE(contains(h.request_messages_for_turn(0)));

@@ -54,7 +54,11 @@ public:
         bool content_unchanged_after_mtime_change = false;
     };
 
+    // scope = 会话 id。daemon 一个进程服务多个会话(含子代理),「上次读过、
+    // 没变」只对同一会话成立:别的会话从没见过那份内容,给它 unchanged 占位
+    // 等于让它什么都读不到。空 scope 是不区分会话的旧行为(单测与无会话调用)。
     struct ReadObservationKey {
+        std::string scope;
         std::string path;
         int start_line = 0;
         int end_line = 0;
@@ -63,13 +67,14 @@ public:
         size_t max_bytes = 0;
 
         bool operator<(const ReadObservationKey& other) const {
-            return std::tie(path, start_line, end_line, byte_mode,
+            return std::tie(scope, path, start_line, end_line, byte_mode,
                             byte_offset, max_bytes) <
-                   std::tie(other.path, other.start_line, other.end_line,
-                            other.byte_mode, other.byte_offset, other.max_bytes);
+                   std::tie(other.scope, other.path, other.start_line,
+                            other.end_line, other.byte_mode, other.byte_offset,
+                            other.max_bytes);
         }
         bool operator==(const ReadObservationKey& other) const {
-            return path == other.path &&
+            return scope == other.scope && path == other.path &&
                    start_line == other.start_line &&
                    end_line == other.end_line &&
                    byte_mode == other.byte_mode &&
@@ -127,7 +132,8 @@ public:
         int end_line,
         bool byte_mode = false,
         uint64_t byte_offset = 0,
-        size_t max_bytes = 0
+        size_t max_bytes = 0,
+        const std::string& scope = {}
     ) const;
     std::optional<ReadObservation> unchanged_read_observation(
         const std::string& path,
@@ -135,14 +141,16 @@ public:
         int end_line,
         bool byte_mode = false,
         uint64_t byte_offset = 0,
-        size_t max_bytes = 0
+        size_t max_bytes = 0,
+        const std::string& scope = {}
     ) const;
     void record_read_observation(const std::string& path,
                                  int start_line,
                                  int end_line,
                                  bool byte_mode = false,
                                  uint64_t byte_offset = 0,
-                                 size_t max_bytes = 0);
+                                 size_t max_bytes = 0,
+                                 const std::string& scope = {});
     void record_read_observation_result(const std::string& path,
                                         int start_line,
                                         int end_line,
@@ -150,7 +158,8 @@ public:
                                         const std::string& persisted_output_path,
                                         bool byte_mode = false,
                                         uint64_t byte_offset = 0,
-                                        size_t max_bytes = 0);
+                                        size_t max_bytes = 0,
+                                        const std::string& scope = {});
     void invalidate_read_observations(const std::string& path);
     void clear_read_observations();
 

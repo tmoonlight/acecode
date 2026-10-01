@@ -2321,6 +2321,7 @@ export function App() {
             initialSearch={settingsSearchSeed}
             health={health}
             activeSessionId={activeId}
+            activeWorkspaceHash={commandWorkspaceHash}
             onModelProfileUpdated={() => setModelProfileRevision((value) => value + 1)}
             onDesktopNotificationsChanged={handleDesktopNotificationsChanged}
             onReplayGuidedTour={desktopGuidedTourModeEligible(desktopModeRef.current)

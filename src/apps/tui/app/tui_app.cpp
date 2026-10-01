@@ -1,5 +1,6 @@
 #include "tui/app/tui_app.hpp"
 #include "tui/app/tui_services.hpp"
+#include "session_host/memory_runtime.hpp"
 #include "tui/app/tui_screen_host.hpp"
 #include "tui/app/tui_submitter.hpp"
 #include "tui/app/tui_overlay_gate.hpp"
@@ -45,6 +46,12 @@ std::shared_ptr<LlmProvider> TuiApp::provider_snapshot() {
 void TuiApp::publish_configuration() {
     auto config = std::make_shared<const AppConfig>(services_->config);
     std::atomic_store(&published_config_, std::move(config));
+    if (services_->memory) {
+        // 设置中心改了记忆开关 / 记忆摘要:立即对本进程的新请求与调度生效。
+        MemoryConfig memory = services_->config.memory;
+        if (!memory_runtime_available_) memory.enabled = false;
+        services_->memory->update_config(memory);
+    }
     if (agent_loop_) {
         auto skills = services_->skills->snapshot();
         agent_loop_->enqueue_control([ref = lifetime_.ref(*this), skills = std::move(skills)] {
@@ -79,7 +86,7 @@ bool TuiApp::init_stage(TuiInitStage stage) {
     case TuiInitStage::Services:
         services_ = std::make_unique<TuiServices>();
         if (!services_->initialize(options_.cli, environment_.working_dir, options_.argv0_dir)) return false;
-        memory_runtime_available_ = !services_->config.memory.enabled || services_->runtime_memory_config.enabled;
+        memory_runtime_available_ = !services_->config.memory.enabled || services_->memory->service()->enabled();
         publish_configuration();
         provider_accessor_ = bind(&TuiApp::provider_snapshot);
         break;
@@ -140,6 +147,7 @@ bool TuiApp::init_stage(TuiInitStage stage) {
             session_manager_, *agent_loop_, turn_lifecycle_->title_applied_callback());
         callbacks_.on_turn_finished = turn_lifecycle_->title_finished_callback();
         agent_loop_->set_callbacks(callbacks_);
+        start_memory_scheduler();
         break;
     case TuiInitStage::Subagents:
         initialize_subagents();

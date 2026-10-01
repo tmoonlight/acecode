@@ -150,6 +150,8 @@ generates one standard-quality image and must never run on load or save.
 
 [AgentLoop](src/engine/agent/agent_loop.hpp) is the public facade. [TurnRunner](src/engine/agent/turn/turn_runner.cpp) owns the multi-turn state machine; [TurnFinalizer](src/engine/agent/turn/turn_finalizer.cpp) owns ordered completion. Fixed dependencies enter through [AgentLoopServices](src/engine/agent/agent_loop_services.hpp); event-backed prompters are installed before explicit start(). A text-only assistant reply ends the loop. `task_complete` is an optional explicit terminator that renders a concise completion row. `AskUserQuestion` is not a terminator; its answer returns as a tool result. `config.agent_loop.max_iterations` is an optional hard cap; `0` or omitted means unlimited.
 
+**输出损坏重发一次(`<arg_value>`)。** 回复正文里(代码块与行内代码之外)出现工具参数模板标记 `<arg_key>` / `<arg_value>` 及闭合标签(`find_leaked_tool_argument_markup`),说明网关把模板残片吐进了输出流,这一步的正文与同一回复里的原生工具调用都不可信:TurnRunner 在执行工具之前整条丢弃(不入历史、不执行)、清掉 TUI / Web 的流式草稿、发 `response_corrupted_retry` 通知后原样重发;每步连续最多 1 次(`ResponseRecoveryState::corrupted_output_retries`,产出有效工具批次后清零),重发后仍损坏就按原流程继续。`</think>` 刻意不算 —— 把推理写进正文的模型会合法输出它(用户拍板:think 残片不处理)。起因:反馈 huangyuan816,坏回复里的 bash 命令也夹着乱码照样执行,之后整个回合答非所问。
+
 `agent_loop.question_policy`(`ask` 默认 / `deny` / `timeout`,CLI `--question-policy` 覆盖只写运行时字段不落盘)控制 AskUserQuestion 应答:deny 不弹 UI 直接返回「自行决策并继续」自动应答;timeout 等 `question_timeout_seconds`(默认 60,[5,3600])秒后自动采纳每题第一选项(output/metadata 标注自动采纳)。YOLO 只跳过工具权限确认,不改变提问策略;active goal 将每次 AskUserQuestion 覆盖为 30 秒 timeout,正常弹 UI,超时采纳推荐项。daemon 通过 `AskUserQuestionPrompter::prompt` 的 per-call timeout override 实现 goal 动态覆盖。见 openspec/changes/add-ask-question-policy。
 
 **提问期间的插话(question interjection)。** AskUserQuestion 挂起时用户没作答而是直接发了文本,三端统一走 `AgentLoop::interject_question(request_id, input)`(REST `POST /api/sessions/:id/questions/interject`,`SessionClient::interject_question`):在 `active_turn_mu_` 下先把该 request 经 prompter `notify_response({cancelled:true, interjected:true})` 收掉(first-wins,已不挂起 → `TurnSteerStatus::NoPendingQuestion`,输入**不**提交,调用方退回普通路径),再把文本压进 `pending_turn_inputs_`(同回合 soft steer,metadata `question_interjection` / `question_request_id`)。worker 要等工具批次收割完才 drain,所以模型看到的顺序恒为 tool_call → tool_result(`[User interjected] …看下一条 user 消息`,success=true,metadata `ask_user_question_result.interjected`)→ 插话 user 消息,回合不 abort、不开新回合、没有 `<turn_aborted>` 标记;`question_closed.reason=interjected`。**不要**改成走 `interrupt_turn`:那会把回合打断并给模型「工具可能部分执行」的错误前提。曾经的时序问题就是它要修的:Web 提问期间输入框被禁用,用户只能先点取消,工具立刻返回 declined 错误、模型带着「用户拒答」自作主张继续,那句话排在队列里要等本回合结束才作为新回合送达;IM 通道里非 `/aq` 文本直接 `send_input` 排在被阻塞的回合后面,问题却还在等,双方互相等到超时。接线:Web `ChatView::submit` 在 `questionForView` 存在时优先调 `api.interjectQuestion`(目标是问题所属会话,子代理的问题路由回子会话;`QuestionPicker` 挂载时若输入框正在输入不抢焦点);IM `session_channel_binder` 对非 `/aq` 文本先 `ChannelQuestionBridge::begin_interjection()` 再锁外调 `interject_question`,失败回退 `send_input`。TUI overlay 期间 composer 不可达,没有这条路径。`interjected` 与 `cancelled` 同时为 true,只认 cancelled 的旧调用方(image_generate 费用确认、theme_create)把它当普通拒绝。回归:`tests/agent/agent_loop_question_interjection_test.cpp`、`ask_user_question_prompter_test.cpp::InterjectedResponseClosesWithInterjectedReason`、`ask_user_question_tool_test.cpp::InterjectedResponseWinsOverCancelled`、`channel_question_bridge_test.cpp` 两条、`session_channel_binder_test.cpp::PlainTextDuringPendingQuestionInterjectsInsteadOfQueueing`、`web_server_smoke_test.cpp::QuestionInterjectResolvesPendingQuestionInSameTurn`,前端 `composerEditabilityArchitecture.test.js`(此前未注册进 runTests.js,现已登记)。
@@ -316,7 +318,16 @@ P2-06 module boundaries: generic YAML frontmatter lives in `src/base/utils/front
 
 Proactive skill discovery (`inject-skill-index-into-context`): a compact skill index (name + description + optional `whenToUse` frontmatter, grouped by category) is injected each request into the session-context system-reminder built by `build_session_context_prompt` — the same per-request, never-persisted block that carries project instructions and the memory index. Budget is 1% of the context window in chars (4 chars/token, 8000-char fallback), 250 chars per entry (UTF-8-safe truncation); over budget degrades to names-only, then tail-cut with a `(+N more — call skills_list)` marker. The static `# Skills` prompt section points at this index ("err on the side of loading"); `skills_list` remains the fallback enumerator only. Without this index the model has zero visibility into installed skills and never invokes them proactively.
 
-[src/domain/memory/](src/domain/memory) stores Markdown memory entries under `~/.acecode/memory/` and rewrites an index on upsert/remove. `memory_write` is constrained to that directory even under broad permission modes.
+**记忆(openspec unify-memory-system)。** TUI、daemon、headless 都经 `create_memory_runtime`([src/host/session_host/memory_runtime.cpp](src/host/session_host/memory_runtime.cpp))拿到同一个 `MemoryService`([src/domain/memory/](src/domain/memory)):全局作用域 `<data_dir>/memory/`,工作区作用域 `get_project_dir(会话 cwd)/memory/`(与会话存储同一 hash,worktree 会话归主工作区,子会话与父会话同目录)。作用域一律按**会话**项目目录解析(工具经 `ToolContext::session_manager`,请求经 `RequestContextFactory`),不用进程 cwd —— daemon 一个进程服务多个工作区。
+
+- 存储:`MemoryRegistry` 按目录实例化,写入先重扫磁盘,再在状态库 `<data_dir>/memory/state.sqlite3` 的 `BEGIN IMMEDIATE`(`MemoryWriteLock`)里完成,锁序固定「跨进程写锁 → 进程内 mu_」。写入口统一 `redact_secrets`(手写扫描,别换 `std::regex`)。frontmatter 保留未知字段、补 `created_at` / `updated_at` / `source` / `source_sessions`;读回时去掉 frontmatter 之后那一个空行,否则每次系统改写正文前都多攒一行。
+- 注入是**按会话冻结的快照**:`ApiRequestBuilder::frozen_memory_snapshot` 以「会话 id|项目目录|开关」为 key 存进 `PromptContextCache`,只在压缩 / 线程修复(`invalidate_memory_snapshot`,挂在两处 `compact_generation_` 自增点)或 key 变化时按磁盘重建 —— 会话中途写入不打穿 prompt cache。记忆关闭(配置或 `/memory off`,meta `memory_mode: off`)时快照为空、模型侧工具表滤掉两个记忆工具、静态提示不出 `# Memory` 指引;工具本身始终注册(headless `--list-tools` / `--disable-tools` 能看到)。
+- `/memory` 只有一份文本实现 `dispatch_memory_command`:TUI 命令与 daemon 内置命令白名单(含网页 `builtin_command_handler` / `/api/commands`)都调它,网页的 `edit` 改为指向设置页。设置走 `set_memory_settings`(`/api/config/memory` 与 TUI 设置中心 `memory_settings_section` 共用);本进程经 `MemoryRuntime::update_config` 立即生效,其他进程由调度器每分钟按 `config.json` 修改时间重读。
+- 记忆摘要(默认关)`MemorySummaryScheduler` 只在 daemon / TUI 跑:闲置会话(排除子会话、headless(meta `surface`)、关了记忆的会话)→ 提炼观察进 `inbox/<会话>-<from>-<to>.json`(写成功才推进位置,重放覆盖同名文件)→ 满 20 条或最早超 24 小时整合:JSON 计划 create / update / merge / delete 每项都要引用本批观察,`source: manual`(含没有 source 的旧条目)只读,墓碑 90 天内不得复活;计划先存为待应用、再在写锁内应用,失败整批回滚,成功后本批观察整体归档。永久删除会话经 `notify_session_purged`(`purge_session_files` 成功后)撤回只来源于它的摘要条目。测试经 `MemorySchedulerHost::complete` / `now_ms` 注入假模型与时钟。模型输出经 `parse_model_json` 容错取出 JSON 对象(跳过 `</think>` 之前的内容、代码围栏和正文里夹带的推理文字),仍无效时日志记一段输出样本;实测会把推理写进正文的模型不加这层会让每次提炼都判无效。`/memory flush` 的完成报告在 daemon 用 `emit_transcript_system_message` 写进对话记录,刷新或重新打开会话后仍可见。
+
+记忆在 TUI、daemon(桌面版 / Web)与 headless 都接线:daemon 曾经 `memory_registry = nullptr`,桌面会话既没有索引注入也没有 `memory_read` / `memory_write`,用户让模型「记住」时它只能把经验写进子目录 CLAUDE.md / `.acecode/MEMORY.md` 这类不会被自动加载的文件(反馈 LINDANDAN069)。每个工作区一个 daemon 加上 TUI 会同时写同一个目录,所以 `MemoryRegistry::upsert` / `remove` 写前按磁盘重扫、`memory_read` 读前重扫 —— 拿启动时的旧缓存重写 MEMORY.md 会把别的进程后来写的条目当成已删除丢掉。静态 system prompt 在记忆开启时带一段 `# Memory` 指引(「记住」一律走 `memory_write`,别另写笔记文件)。headless(`-p`)同样注册两个记忆工具,但不跑记忆摘要。
+
+`file_read` 的「文件未变」去重(`MtimeTracker` 的已读观测)按会话 id 分区:进程级单例曾经不分会话,daemon 里别的会话或子代理读过同一文件,本会话第一次读就只拿到占位。摘要压缩与各种线程修复(`CompactionController::mark_history_repaired`)之后清空观测,因为之前的读取结果可能已被清成占位符。
 
 [src/domain/project_instructions/](src/domain/project_instructions) loads configured project-instruction filenames from the global config directory and then from the project hierarchy, outer-first, subject to per-file and aggregate byte caps. The repository root intentionally keeps only canonical docs; do not add duplicate root instruction files for this repository.
 
@@ -424,8 +435,10 @@ revision stale so a later send retries.
 3. **随机拒收绝不终止回合**(`pa_overflow_rescue`)。服务端实际能收的规模随
    负载浮动,同一规模的请求时过时不过。PA 特征的整体拒收不走通用三级恢复链,
    改走 `AgentLoop::run_pa_overflow_rescue`:原样重发 2 次 → 每次被拒缩到
-   上一次的 85%(先丢老回合,再清本回合旧工具输出 / 大参数,
-   `ThreadRepairOptions::clear_tool_outputs`)无上限 → 紧急档 → 5s 起封顶
+   上一次的 85%(先清整段历史里最旧的工具输出 / 大参数,再把老回合精简成
+   「用户消息 + 摘要 + 纯文本结论」,最后才整组丢且保留最新摘要;
+   `ThreadRepairOptions::clear_tool_outputs` + `thin_old_turns_first`,
+   反馈 LINDANDAN069:旧的「先丢老回合」把任务说明与用户纠正一起删掉)无上限 → 紧急档 → 5s 起封顶
    60s 的退避等待最多 12 次,只有等待耗尽才报错。兜底后的那次重发跳过自动
    压缩(`skip_auto_compact_once_`);请求被收下即清零 episode,同回合再被拒
    重新开始。学习器只记每个 episode 最初确认拒收的规模,紧急档请求永远不记。
@@ -760,7 +773,11 @@ The existing region detector still probes DuckDuckGo once at startup through `Pr
   "context_window": 128000,
   "max_sessions": 50,
   "skills": { "disabled": [], "external_dirs": [] },
-  "memory": { "enabled": true, "max_index_bytes": 32768 },
+  "memory": {
+    "enabled": true,
+    "max_index_bytes": 8192,
+    "summary": { "enabled": false, "model_name": "", "idle_minutes": 30, "max_session_age_days": 7 }
+  },
   "project_instructions": {
     "enabled": true,
     "max_depth": 8,

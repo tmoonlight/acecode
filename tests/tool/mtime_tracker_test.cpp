@@ -78,4 +78,46 @@ TEST(MtimeTrackerTest, DetachedReadScopeNeitherRecordsNorReusesAgentReadState) {
     std::filesystem::remove(side_path, ec);
 }
 
+// 触发场景:会话 A 读过文件并记下「已读观测」;同一进程里的会话 B(daemon 里
+// 另一个会话或子代理)以同样的范围读同一个没变过的文件。
+// 期望行为:只有会话 A 命中「未变化」;会话 B 与不带会话的调用都查不到观测,
+// 必须真的读一次。按路径失效(人工改文件)对所有会话一起生效。
+// 回归背景:观测表是进程级单例、键里没有会话,会话 B 第一次读就拿到「File
+// unchanged since last read」占位 —— 它从没见过那份内容,模型等于什么都没读到
+// (反馈 huangyuan816 排障时发现:新会话读 SDDisplayLink.m 拿到的是别的会话留下
+// 的占位)。
+TEST(MtimeTrackerTest, ReadObservationsAreScopedPerSession) {
+    const auto unique = std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    const auto path = std::filesystem::path(testing::TempDir()) /
+                      ("acecode_mtime_scope_" + unique + ".txt");
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        ASSERT_TRUE(out.good());
+        out << "alpha\n";
+    }
+
+    auto& tracker = acecode::MtimeTracker::instance();
+    tracker.record_read_observation(path.string(), 0, 0, false, 0, 0,
+                                    "session-a");
+
+    EXPECT_TRUE(tracker.has_unchanged_read_observation(
+        path.string(), 0, 0, false, 0, 0, "session-a"));
+    EXPECT_FALSE(tracker.has_unchanged_read_observation(
+        path.string(), 0, 0, false, 0, 0, "session-b"))
+        << "别的会话没见过内容,不能拿到未变化占位";
+    EXPECT_FALSE(tracker.has_unchanged_read_observation(path.string(), 0, 0));
+
+    tracker.record_read_observation(path.string(), 0, 0, false, 0, 0,
+                                    "session-b");
+    tracker.invalidate_read_observations(path.string());
+    EXPECT_FALSE(tracker.has_unchanged_read_observation(
+        path.string(), 0, 0, false, 0, 0, "session-a"));
+    EXPECT_FALSE(tracker.has_unchanged_read_observation(
+        path.string(), 0, 0, false, 0, 0, "session-b"));
+
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 } // namespace

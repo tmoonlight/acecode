@@ -35,9 +35,11 @@ MtimeTracker::ReadObservationKey make_read_observation_key(
     int end_line,
     bool byte_mode,
     uint64_t byte_offset,
-    size_t max_bytes
+    size_t max_bytes,
+    const std::string& scope
 ) {
     return MtimeTracker::ReadObservationKey{
+        scope,
         normalize_tracker_path_key(path),
         start_line,
         end_line,
@@ -152,10 +154,12 @@ bool MtimeTracker::has_unchanged_read_observation(
     int end_line,
     bool byte_mode,
     uint64_t byte_offset,
-    size_t max_bytes
+    size_t max_bytes,
+    const std::string& scope
 ) const {
     return unchanged_read_observation(
-        path, start_line, end_line, byte_mode, byte_offset, max_bytes).has_value();
+        path, start_line, end_line, byte_mode, byte_offset, max_bytes, scope)
+        .has_value();
 }
 
 std::optional<MtimeTracker::ReadObservation> MtimeTracker::unchanged_read_observation(
@@ -164,11 +168,12 @@ std::optional<MtimeTracker::ReadObservation> MtimeTracker::unchanged_read_observ
     int end_line,
     bool byte_mode,
     uint64_t byte_offset,
-    size_t max_bytes
+    size_t max_bytes,
+    const std::string& scope
 ) const {
     if (t_detached_reads) return std::nullopt;
     const auto key = make_read_observation_key(
-        path, start_line, end_line, byte_mode, byte_offset, max_bytes);
+        path, start_line, end_line, byte_mode, byte_offset, max_bytes, scope);
     std::lock_guard<std::mutex> lk(mu_);
     auto it = read_observations_.find(key);
     if (it == read_observations_.end()) return std::nullopt;
@@ -187,11 +192,12 @@ void MtimeTracker::record_read_observation(const std::string& path,
                                            int end_line,
                                            bool byte_mode,
                                            uint64_t byte_offset,
-                                           size_t max_bytes) {
+                                           size_t max_bytes,
+                                           const std::string& scope) {
     if (t_detached_reads) return;
     try {
         auto key = make_read_observation_key(
-            path, start_line, end_line, byte_mode, byte_offset, max_bytes);
+            path, start_line, end_line, byte_mode, byte_offset, max_bytes, scope);
         auto mtime = std::filesystem::last_write_time(path_from_utf8(key.path));
         std::lock_guard<std::mutex> lk(mu_);
         read_observations_[key] = ReadObservation{mtime, {}, {}};
@@ -209,11 +215,12 @@ void MtimeTracker::record_read_observation_result(
     const std::string& persisted_output_path,
     bool byte_mode,
     uint64_t byte_offset,
-    size_t max_bytes
+    size_t max_bytes,
+    const std::string& scope
 ) {
     if (tool_call_id.empty() && persisted_output_path.empty()) return;
     const auto key = make_read_observation_key(
-        path, start_line, end_line, byte_mode, byte_offset, max_bytes);
+        path, start_line, end_line, byte_mode, byte_offset, max_bytes, scope);
     std::lock_guard<std::mutex> lk(mu_);
     auto it = read_observations_.find(key);
     if (it == read_observations_.end()) return;

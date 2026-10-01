@@ -34,14 +34,14 @@ TEST(GitStatusPromptTest, EmptySnapshotYieldsEmptyBlock) {
 // 且内容包含快照;快照为空时回到"什么都没有 → 空块"的旧行为。
 TEST(GitStatusPromptTest, SessionContextCarriesGitSnapshot) {
     auto with_git = acecode::build_session_context_prompt(
-        /*cwd=*/"", nullptr, nullptr, nullptr, nullptr, 0, nullptr,
+        /*cwd=*/"", nullptr, nullptr, nullptr, 0, nullptr,
         "Current branch: main");
     ASSERT_FALSE(with_git.content.empty());
     EXPECT_NE(with_git.content.find("# Git Status"), std::string::npos);
     EXPECT_NE(with_git.content.find("<system-reminder>"), std::string::npos);
 
     auto without_git = acecode::build_session_context_prompt(
-        /*cwd=*/"", nullptr, nullptr, nullptr, nullptr, 0, nullptr, "");
+        /*cwd=*/"", nullptr, nullptr, nullptr, 0, nullptr, "");
     EXPECT_TRUE(without_git.content.empty());
 }
 
@@ -50,12 +50,12 @@ TEST(GitStatusPromptTest, SessionContextCarriesGitSnapshot) {
 // 不漂移来避免重复注入差异内容。
 TEST(GitStatusPromptTest, SessionContextCacheKeyStable) {
     auto a = acecode::build_session_context_prompt(
-        "", nullptr, nullptr, nullptr, nullptr, 0, nullptr, "snap");
+        "", nullptr, nullptr, nullptr, 0, nullptr, "snap");
     auto b = acecode::build_session_context_prompt(
-        "", nullptr, nullptr, nullptr, nullptr, 0, nullptr, "snap");
+        "", nullptr, nullptr, nullptr, 0, nullptr, "snap");
     EXPECT_EQ(a.cache_key, b.cache_key);
 
     auto c = acecode::build_session_context_prompt(
-        "", nullptr, nullptr, nullptr, nullptr, 0, nullptr, "snap2");
+        "", nullptr, nullptr, nullptr, 0, nullptr, "snap2");
     EXPECT_NE(a.cache_key, c.cache_key);
 }

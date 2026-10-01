@@ -1,6 +1,7 @@
 #include "session_storage.hpp"
 #include "session_load_metrics.hpp"
 #include "session_file_reader.hpp"
+#include "session_purge_listeners.hpp"
 #include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
 #include "session_title_text.hpp"
@@ -369,6 +370,8 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     if (meta.no_workspace) {
         j["no_workspace"] = true;
     }
+    if (!meta.memory_mode.empty()) j["memory_mode"] = meta.memory_mode;
+    if (!meta.surface.empty()) j["surface"] = meta.surface;
 
     std::error_code ec;
     fs::create_directories(path_from_utf8(meta_path).parent_path(), ec);
@@ -448,6 +451,8 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
         }
         meta.archived        = j.value("archived",        false);
         meta.no_workspace    = j.value("no_workspace",    false);
+        meta.memory_mode     = j.value("memory_mode",     std::string{});
+        meta.surface         = j.value("surface",         std::string{});
     } catch (...) {
         // Return empty meta on parse failure
     }
@@ -857,8 +862,11 @@ bool SessionStorage::purge_session_files(const std::string& project_dir,
     TaskSuggestionStore suggestions(path_from_utf8(project_dir));
     if (!suggestions.erase_source(session_id, error)) return false;
 
-    return remove_file(path_from_utf8(meta_path(project_dir, session_id)),
-                       "session metadata");
+    if (!remove_file(path_from_utf8(meta_path(project_dir, session_id)), "session metadata")) {
+        return false;
+    }
+    notify_session_purged(project_dir, session_id);  // 记忆摘要据此撤回该会话的观察与条目
+    return true;
 }
 
 std::string SessionStorage::visible_user_message_text(const ChatMessage& msg) {

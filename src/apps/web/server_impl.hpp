@@ -607,6 +607,7 @@ struct WebServer::Impl {
     void register_computer_use();
     void register_summary_generation();
     void register_tool_rewrites();
+    void register_memory();
     void register_tool_preamble();
     void register_security();
 
