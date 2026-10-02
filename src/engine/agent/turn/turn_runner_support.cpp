@@ -1,6 +1,7 @@
 #include "turn_runner.hpp"
 #include "turn_context.hpp"
 #include "active_turn_gate.hpp"
+#include "agent/mailbox/agent_mailbox.hpp"
 #include "agent/compaction/compaction_controller.hpp"
 #include "agent/request/request_context_source.hpp"
 #include "agent/transcript/transcript_writer.hpp"
@@ -15,7 +16,8 @@ TurnRunner::TurnRunner(TurnRunnerServices s, TurnRunnerOptions options)
       abort_(s.tools.abort), config_(s.tools.config), source_(s.request_source),
       session_(s.tools.session), hook_manager_(s.tools.hook_manager),
       permission_prompter_(s.tools.permission_prompter), question_prompter_(s.tools.question_prompter),
-      outcome_(s.outcome), gate_(s.gate), activity_(s.activity), side_questions_(s.side_questions),
+      outcome_(s.outcome), gate_(s.gate), mailbox_(s.mailbox), activity_(s.activity),
+      side_questions_(s.side_questions),
       usage_(s.usage), steps_(s.steps), stream_(s.stream), compaction_(s.compaction),
       recovery_(s.recovery), busy_(s.busy), interrupt_(s.interrupt), context_window_(s.context_window),
       suggestion_threshold_(s.suggestion_threshold), options_(std::move(options)),
@@ -30,7 +32,7 @@ CompactionInputs TurnRunner::compaction_inputs(
     inputs.session = session_;
     inputs.hooks = hook_manager_;
     inputs.provider = options_.provider ? options_.provider() : nullptr;
-    inputs.request = requests_.options(inputs.provider, turn.swarm_mode);
+    inputs.request = requests_.options(inputs.provider);
     inputs.suggestion_threshold = suggestion_threshold_.load(std::memory_order_relaxed);
     inputs.terminal = terminal;
     return inputs;
@@ -41,7 +43,17 @@ bool TurnRunner::drain_inputs(bool close_if_empty) {
     for (auto& input : drained.inputs) {
         transcript_.commit_turn_steering_input(session_, std::move(input), drained.turn_id);
     }
-    return !drained.inputs.empty();
+    bool any = !drained.inputs.empty();
+    // Codex get_pending_input: steering first, then the session mailbox. After
+    // a final answer queue-only mail waits for the next turn unless same-turn
+    // user input keeps this turn open; trigger mail already queued a wake turn.
+    if (!close_if_empty || any) {
+        for (auto& mail : mailbox_.take_all()) {
+            transcript_.commit_inter_agent_message(session_, std::move(mail.input));
+            any = true;
+        }
+    }
+    return any;
 }
 
 ToolBatchOutcome TurnRunner::execute_tools(TurnContext& turn, const ChatResponse& response,

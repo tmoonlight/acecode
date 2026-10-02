@@ -2,6 +2,7 @@
 #include "tool/tool_executor.hpp"
 #include "agent/agent_runtime_env.hpp"
 #include "session_prompt_config.hpp"
+#include "swarm_context.hpp"
 #include <memory>
 #include <string>
 
@@ -34,5 +35,6 @@ struct RequestContextSource {
     std::string expert_member;
     ToolCapabilityPolicy tool_policy;
     LoopExecutionPolicy loop;
+    SwarmContext swarm;
 };
 } // namespace acecode::agent

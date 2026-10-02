@@ -37,6 +37,7 @@ public:
     TurnSteerResult interrupt(const std::string& expected, const UserInput& input,
                               AgentTaskQueue& queue, std::size_t& promised_inputs);
     std::string id() const;
+    bool has_pending() const;
     void begin(const std::string& id);
     DrainedInputs drain(bool close_if_empty);
     std::size_t close_and_discard();

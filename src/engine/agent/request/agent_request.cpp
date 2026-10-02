@@ -17,12 +17,12 @@ std::set<std::string> AgentLoop::dormant_skill_names() const {
 }
 
 agent::RequestContextOptions AgentLoop::request_context_options(
-    const std::shared_ptr<LlmProvider>& provider, bool swarm_mode) const {
+    const std::shared_ptr<LlmProvider>& provider) const {
     const auto source = capture_request_source();
     agent::RequestContextFactory context(
         *boundary_, *exec_security_, source, context_window_, session_manager_,
         tools_, permissions_, *history_, *request_builder_, *hooks_);
-    return context.options(provider, swarm_mode);
+    return context.options(provider);
 }
 
 agent::RequestContextSource AgentLoop::capture_request_source() const {
@@ -34,6 +34,8 @@ agent::RequestContextSource AgentLoop::capture_request_source() const {
     // The provider may acquire the host AppConfig lock. Never call it while
     // holding this loop's publication mutex.
     if (prompt_config_provider_) snapshot.prompt_config = prompt_config_provider_();
+    // 蜂群模式两套协作工具互斥:按本回合捕获的模式隐藏另一套(schema 与执行同一谓词)。
+    snapshot.tool_policy.hidden_builtin_tools = swarm_mode_hidden_tools(snapshot.swarm.mode);
     return snapshot;
 }
 

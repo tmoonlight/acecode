@@ -1,4 +1,5 @@
 #include "session_storage.hpp"
+#include "inter_agent_message.hpp"
 #include "session_load_metrics.hpp"
 #include "session_file_reader.hpp"
 #include "session_purge_listeners.hpp"
@@ -99,7 +100,8 @@ bool is_hidden_goal_context_message_storage(const ChatMessage& msg) {
 bool is_visible_user_turn(const ChatMessage& msg) {
     return msg.role == "user" &&
            !msg.is_meta &&
-           !is_hidden_goal_context_message_storage(msg);
+           !is_hidden_goal_context_message_storage(msg) &&
+           !mesh::is_inter_agent_message(msg);
 }
 
 bool try_deserialize_session_record(const std::string& line,
@@ -372,6 +374,8 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     }
     if (!meta.memory_mode.empty()) j["memory_mode"] = meta.memory_mode;
     if (!meta.surface.empty()) j["surface"] = meta.surface;
+    if (!meta.swarm_mode.empty() && meta.swarm_mode != "off") j["swarm_mode"] = meta.swarm_mode;
+    if (!meta.agent_path.empty()) j["mesh_agent"] = {{"path", meta.agent_path}};
 
     std::error_code ec;
     fs::create_directories(path_from_utf8(meta_path).parent_path(), ec);
@@ -453,6 +457,10 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
         meta.no_workspace    = j.value("no_workspace",    false);
         meta.memory_mode     = j.value("memory_mode",     std::string{});
         meta.surface         = j.value("surface",         std::string{});
+        meta.swarm_mode      = j.value("swarm_mode",      std::string{});
+        if (j.contains("mesh_agent") && j["mesh_agent"].is_object()) {
+            meta.agent_path = j["mesh_agent"].value("path", std::string{});
+        }
     } catch (...) {
         // Return empty meta on parse failure
     }

@@ -4,6 +4,7 @@
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "session/event_dispatcher.hpp"
+#include "session/inter_agent_message.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_rewind.hpp"
 #include "session/session_storage.hpp"
@@ -174,21 +175,28 @@ void TranscriptWriter::emit_session_summary_updated(SessionManager* session) {
 void TranscriptWriter::append_user_turn_message(SessionManager* session, UserTurnInfo& info, bool hidden_goal_context) {
     auto& user_msg = info.user_msg;
     ensure_user_message_identity(user_msg);
+    // 网状蜂群的邮箱唤醒回合以信封开头:不是可见用户回合(不计时、不建检查点、
+    // 不更新摘要),但照常发 Message 事件让界面渲染「来自 /root/... 」行。
+    const bool inter_agent = mesh::is_inter_agent_message(user_msg);
     info.active_turn_id = user_msg.uuid;
     info.visible_timed_turn =
-        !hidden_goal_context &&
+        !hidden_goal_context && !inter_agent &&
         !(user_msg.metadata.is_object() && user_msg.metadata.value("hidden_goal_context", false));
     info.turn_user_uuid = info.visible_timed_turn ? user_msg.uuid : std::string{};
 
     history_.append(user_msg);
     if (session) {
         session->on_message(user_msg);
-        if (!hidden_goal_context) {
+        if (!hidden_goal_context && !inter_agent) {
             session->begin_user_turn_checkpoint(user_msg.uuid);
         }
     }
+    if (inter_agent) {
+        const auto callbacks = callbacks_.snapshot();
+        if (callbacks.on_transcript_message) callbacks.on_transcript_message(user_msg);
+    }
     if (!hidden_goal_context) {
-        emit_session_summary_updated(session);
+        if (!inter_agent) emit_session_summary_updated(session);
         nlohmann::json msg_event = {
             {"role", "user"}, {"content", user_msg.content},
             {"is_tool", false}, {"id", user_msg.uuid},
@@ -222,6 +230,28 @@ void TranscriptWriter::append_interrupted_turn_context(SessionManager* session, 
     history_.append(marker);
     if (session) session->on_message(marker);
     LOG_INFO("[turn/interrupt] recorded interrupted-turn context for " + turn_id);
+}
+
+void TranscriptWriter::commit_inter_agent_message(SessionManager* session, UserInput input) {
+    const auto callbacks = callbacks_.snapshot();
+    ChatMessage message;
+    message.role = "user";
+    message.content = std::move(input.text);
+    message.content_parts = std::move(input.content_parts);
+    message.metadata = input.metadata.is_object() ? std::move(input.metadata)
+                                                  : nlohmann::json::object();
+    ensure_user_message_identity(message);
+    history_.append(message);
+    if (session) session->on_message(message);
+    if (callbacks.on_transcript_message) callbacks.on_transcript_message(message);
+    nlohmann::json event = {
+        {"role", "user"},
+        {"content", message.content},
+        {"is_tool", false},
+        {"id", message.uuid},
+        {"metadata", message.metadata},
+    };
+    events_.emit(SessionEventKind::Message, std::move(event));
 }
 
 void TranscriptWriter::commit_turn_steering_input(SessionManager* session,

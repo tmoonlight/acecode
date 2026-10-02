@@ -37,6 +37,9 @@ public:
     void append_user_turn_message(SessionManager* session, UserTurnInfo& info, bool hidden_goal_context);
     void append_interrupted_turn_context(SessionManager* session, const std::string& turn_id);
     void commit_turn_steering_input(SessionManager* session, UserInput input, const std::string& turn_id);
+    // Mesh swarm envelope drained from the mailbox: persisted user-role message
+    // with metadata.inter_agent; emitted so the UI renders a sender row.
+    void commit_inter_agent_message(SessionManager* session, UserInput input);
 private:
     ConversationHistory& history_;
     EventDispatcher& events_;

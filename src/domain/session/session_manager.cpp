@@ -1,4 +1,5 @@
 #include "session_manager.hpp"
+#include "inter_agent_message.hpp"
 #include "session_history_page.hpp"
 #include "session_load_metrics.hpp"
 #include "session_file_reader.hpp"
@@ -68,7 +69,8 @@ bool is_hidden_goal_context_message(const acecode::ChatMessage& msg) {
 bool is_visible_user_turn_message(const acecode::ChatMessage& msg) {
     return msg.role == "user" &&
            !msg.is_meta &&
-           !is_hidden_goal_context_message(msg);
+           !is_hidden_goal_context_message(msg) &&
+           !acecode::mesh::is_inter_agent_message(msg);
 }
 
 std::string first_visible_user_message_text(
@@ -261,6 +263,7 @@ void SessionManager::start_session(const std::string& cwd,
     loop_id_.clear();
     loop_run_id_.clear();
     worktree_ = {};
+    adopt_swarm_identity_locked(SessionMeta{});
     file_checkpoints_loaded_ = true;
     checkpoint_store_.reset();
     checkpoint_store_.set_session(project_dir_, session_id_);
@@ -326,6 +329,7 @@ bool SessionManager::ensure_created() {
     meta.loop_id = loop_id_;
     meta.loop_run_id = loop_run_id_;
     meta.worktree = worktree_;
+    write_swarm_identity_locked(meta);
     if (SessionStorage::write_meta(meta_path_str_, meta)) {
         local_user_title_write_pending_ = false;
     }
@@ -643,6 +647,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         loop_id_ = meta.loop_id;
         loop_run_id_ = meta.loop_run_id;
         worktree_ = meta.worktree;
+        adopt_swarm_identity_locked(meta);
         reasoning_effort_ = meta.reasoning_effort;
         if (model_preset_.empty()) {
             model_preset_ = meta.model_preset;
@@ -1208,6 +1213,7 @@ bool SessionManager::update_meta(
     meta.loop_id = loop_id_;
     meta.loop_run_id = loop_run_id_;
     meta.worktree = worktree_;
+    write_swarm_identity_locked(meta);
     const bool written = SessionStorage::write_meta(meta_path_str_, meta);
     if (written) {
         local_user_title_write_pending_ = false;
@@ -1540,6 +1546,7 @@ void SessionManager::set_input_draft(std::string draft, nlohmann::json composer_
         meta.expert_member_id = expert_member_id_;
         meta.loop_id = loop_id_;
         meta.loop_run_id = loop_run_id_;
+        write_swarm_identity_locked(meta);
     }
     meta.input_draft = input_draft_;
     meta.input_draft_content = input_draft_content_;

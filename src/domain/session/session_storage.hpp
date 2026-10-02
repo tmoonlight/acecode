@@ -113,6 +113,13 @@ struct SessionMeta {
 
     // 会话当前的 worktree 状态。inactive(worktree_path 为空)时序列化省略。
     WorktreeSessionInfo worktree;
+
+    // 会话级蜂群模式:"" = off,"star" / "mesh"。off 时序列化省略。
+    std::string swarm_mode;
+    // 蜂群模式（网状）子 agent 的 canonical 路径(/root/a/b)。网状子 agent 的
+    // parent_session_id 恒为树根会话 id(界面归属、冒泡与级联删除都按它走),
+    // 真实父子关系由路径表达。根会话与非网状会话为空,序列化省略。
+    std::string agent_path;
 };
 
 class SessionStorage {

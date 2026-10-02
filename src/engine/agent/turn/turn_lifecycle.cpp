@@ -14,6 +14,7 @@
 #include "session/session_manager.hpp"
 #include "session/session_rewind.hpp"
 #include "session/session_storage.hpp"
+#include "session/inter_agent_message.hpp"
 #include "session/thread_goal_store.hpp"
 #include "session/thread_repair.hpp"
 #include "session/token_tracker.hpp"
@@ -52,7 +53,8 @@ UserTurnInfo TurnLifecycle::prepare_user_turn(const UserInput& input,
 
     ExplicitSkillPromptExpansion skill_expansion;
     skill_expansion.prompt = user_message;
-    if (!hidden_goal_context && skill_registry_ && !user_message.empty()) {
+    const bool inter_agent = mesh::inter_agent_envelope_from_metadata(input.metadata).has_value();
+    if (!hidden_goal_context && !inter_agent && skill_registry_ && !user_message.empty()) {
         skill_expansion = inject_explicit_skill_instructions(
             user_message, *skill_registry_);
         if (!skill_expansion.injected_skill_names.empty()) {

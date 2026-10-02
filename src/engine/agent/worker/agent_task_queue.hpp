@@ -60,6 +60,8 @@ public:
     void enqueue(WorkerTask task);
     ControlEnqueueReceipt enqueue_control(std::function<bool()> control);
     bool enqueue_suggestion(const UserInput& input, const std::string& id, AbortSignal& abort);
+    // Queues one mailbox-wake Chat task unless one is already waiting.
+    void enqueue_mailbox_wake();
     bool has_pending_work();
     bool has_user_work();
     bool has_suggestion(const std::string& id);

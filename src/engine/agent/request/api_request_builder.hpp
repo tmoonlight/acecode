@@ -1,5 +1,6 @@
 #pragma once
 
+#include "agent/request/swarm_context.hpp"
 #include "agent/turn/turn_types.hpp"
 #include "config/config.hpp"
 #include "experts/expert_registry.hpp"
@@ -32,7 +33,7 @@ struct RequestContextOptions {
     int context_window = 128000;
     bool can_read_images = true;
     bool loop_active = false;
-    bool swarm_mode = false;
+    SwarmContext swarm;
     std::string loop_context;
     SystemPromptWorktreeState worktree;
     SystemPromptEnvironment environment;

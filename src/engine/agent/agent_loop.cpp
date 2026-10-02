@@ -22,6 +22,7 @@
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/control/task_handoff.hpp"
 #include "agent/turn/active_turn_gate.hpp"
+#include "agent/mailbox/agent_mailbox.hpp"
 #include "agent/worker/agent_task_queue.hpp"
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/detail/agent_payloads.hpp"
@@ -73,6 +74,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))
+    , mailbox_(std::make_unique<agent::AgentMailbox>())
     , task_handoff_(std::make_unique<agent::TaskHandoff>(*task_queue_))
     , active_provider_slot_(std::make_unique<agent::ActiveProviderSlot>())
     , boundary_(std::make_unique<agent::WorkspaceBoundary>(options.cwd, permissions_))
@@ -107,6 +109,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     request_source_.skill_usage = services.skill_usage;
     request_source_.skill_idle_days = options.skill_idle_days;
     request_source_.tool_policy = std::move(options.tool_policy);
+    request_source_.swarm = std::move(options.swarm);
     set_loop_execution_policy(std::move(options.loop_policy));
     if (session_manager_)
         trajectory_ = std::make_unique<agent::TrajectoryRecorder>(events_, *history_, *session_manager_);
@@ -190,6 +193,7 @@ void AgentLoop::shutdown() {
         stopped_ = true;
     }
     side_questions_->stop_requests();
+    mailbox_->close();
     task_queue_->request_shutdown();
     abort_signal_.shutdown();
     wake_active_provider_retry();

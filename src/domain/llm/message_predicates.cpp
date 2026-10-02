@@ -21,6 +21,13 @@ bool has_internal_user_context_metadata(const ChatMessage& msg) {
     for (const char* key : kInternalContextKeys) {
         if (msg.metadata.value(key, false)) return true;
     }
+    // 蜂群模式（网状）的跨 agent 信封(session/inter_agent_message.hpp):MESSAGE /
+    // FINAL_ANSWER 属内部上下文;NEW_TASK 是子 agent 收到的任务,等同真实用户请求,
+    // 可变上下文锚在它前面,回合中途到达的其它信封不会挪动锚点打穿前缀缓存。
+    const auto envelope = msg.metadata.find("inter_agent");
+    if (envelope != msg.metadata.end() && envelope->is_object()) {
+        return envelope->value("type", std::string{}) != "NEW_TASK";
+    }
     return false;
 }
 

@@ -6,6 +6,7 @@
 #include "agent/hook_bridge/agent_hook_bridge.hpp"
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/worker/agent_task_queue.hpp"
+#include "agent/mailbox/agent_mailbox.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
@@ -27,6 +28,14 @@ void AgentLoop::worker_main() {
             }
             switch (task.kind) {
             case WorkerTask::Kind::Chat:
+                if (task.mailbox_wake) {
+                    // Codex maybe_start_turn_for_pending_work: only trigger mail
+                    // starts a turn; a running turn may already have taken it.
+                    agent::AgentMailbox::Mail mail;
+                    if (!mailbox_->has_trigger_turn() || !mailbox_->pop_front(mail)) break;
+                    run_agent_with_input(mail.input, false);
+                    break;
+                }
                 if (!task.retry_user_message_id.empty()) {
                     const auto message = retryable_user_message(task.retry_user_message_id);
                     if (!message) {

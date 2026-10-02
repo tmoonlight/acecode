@@ -12,12 +12,14 @@ class ProviderStreamCollector;
 class SideQuestionService;
 class TurnUsageAccountant;
 class ModelStepRecorder;
+class AgentMailbox;
 
 // Constructor input only; the runner keeps fixed, typed collaborator references.
 struct TurnRunnerServices {
     ToolExecutionServices tools;
     TurnOutcomeRecord& outcome;
     ActiveTurnGate& gate;
+    AgentMailbox& mailbox;
     ActivityNarrator& activity;
     SideQuestionService& side_questions;
     TurnUsageAccountant& usage;
@@ -76,6 +78,7 @@ private:
     AskUserQuestionPrompter* question_prompter_;
     TurnOutcomeRecord& outcome_;
     ActiveTurnGate& gate_;
+    AgentMailbox& mailbox_;
     ActivityNarrator& activity_;
     SideQuestionService& side_questions_;
     TurnUsageAccountant& usage_;

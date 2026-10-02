@@ -60,6 +60,9 @@ struct WorkerTask {
     // LLM 看到同一份(payload)。
     std::string display_text;
     bool hidden_goal_context = false;
+    // Mesh swarm: start a turn from the inter-agent mailbox (input taken at run
+    // time; a no-op when a running turn already consumed the trigger mail).
+    bool mailbox_wake = false;
     std::function<void()> control;
     std::string retry_user_message_id;
     // Shared by the task and its receipt; cancellation does not execute control.

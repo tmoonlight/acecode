@@ -17,6 +17,7 @@
 #include <optional>
 #include <utility>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace acecode {
@@ -38,6 +39,9 @@ enum class ToolSource {
 struct ToolCapabilityPolicy {
     std::optional<std::unordered_set<std::string>> builtin_tools;
     std::optional<std::unordered_set<std::string>> mcp_servers;
+    // Built-in tools hidden by the session's swarm mode, mapped to the refusal
+    // text returned when the model calls one anyway (session/swarm_mode.hpp).
+    std::unordered_map<std::string, std::string> hidden_builtin_tools;
 };
 
 // Build and attach the shared fallback used by built-in, MCP, unknown, denied,
@@ -280,6 +284,10 @@ public:
     // tool names remain unknown instead of being mislabeled as policy denials.
     bool is_denied_by_policy(const std::string& name,
                              const ToolCapabilityPolicy* policy) const;
+    // Model-facing refusal text for a policy-denied tool (expert policy or a
+    // swarm-mode hidden tool).
+    static std::string policy_denial_text(const std::string& name,
+                                          const ToolCapabilityPolicy* policy);
 
     // Execute a tool call and return the result. Legacy overload — no streaming,
     // no abort flag. Delegates to the ctx overload with a default context.
