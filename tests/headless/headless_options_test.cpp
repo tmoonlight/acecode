@@ -454,3 +454,24 @@ TEST(HeadlessOptions, SessionIdTokenBoundaries) {
     EXPECT_FALSE(acecode::headless::is_valid_session_id_token(std::string(65, 'x')));
     EXPECT_FALSE(acecode::headless::is_valid_session_id_token(""));
 }
+
+// 场景:headless 指定本会话的蜂群模式(add-mesh-swarm-mode),空格与等号两种形式。
+// 期望:star / mesh / off 原样透传;其它值报错并带上非法值;--swarm 属于执行参数,
+// 与 --list-tools 等发现模式混用时报用法错误。
+TEST(HeadlessOptions, ParsesAndValidatesSwarmMode) {
+    for (const char* mode : {"star", "mesh", "off"}) {
+        auto space = parse_headless_cli_options({"-p", "--swarm", mode, "plan it"});
+        EXPECT_TRUE(space.error.empty()) << mode << ": " << space.error;
+        EXPECT_EQ(space.swarm_mode, mode);
+        EXPECT_EQ(space.prompt, "plan it");
+        auto eq = parse_headless_cli_options({"-p", std::string("--swarm=") + mode, "plan it"});
+        EXPECT_TRUE(eq.error.empty()) << mode << ": " << eq.error;
+        EXPECT_EQ(eq.swarm_mode, mode);
+    }
+    auto bad = parse_headless_cli_options({"-p", "--swarm", "grid", "x"});
+    EXPECT_NE(bad.error.find("invalid --swarm: grid"), std::string::npos) << bad.error;
+    auto missing = parse_headless_cli_options({"-p", "x", "--swarm"});
+    EXPECT_FALSE(missing.error.empty());
+    auto mixed = parse_headless_cli_options({"-p", "--list-tools", "--swarm", "mesh"});
+    EXPECT_NE(mixed.error.find("cannot be combined"), std::string::npos) << mixed.error;
+}

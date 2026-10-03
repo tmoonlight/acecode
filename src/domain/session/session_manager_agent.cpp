@@ -9,6 +9,7 @@ void SessionManager::set_swarm_mode(std::string swarm_mode) {
     if (swarm_mode == "off") swarm_mode.clear();
     if (swarm_mode_ == swarm_mode) return;
     swarm_mode_ = std::move(swarm_mode);
+    publish_display_snapshot_locked();
     if (created_) update_meta();
 }
 
@@ -16,6 +17,7 @@ void SessionManager::set_mesh_agent_path(std::string agent_path) {
     std::lock_guard<std::mutex> lk(mu_);
     if (agent_path_ == agent_path) return;
     agent_path_ = std::move(agent_path);
+    publish_display_snapshot_locked();
     if (created_) update_meta();
 }
 
@@ -27,6 +29,16 @@ std::string SessionManager::current_swarm_mode() const {
 std::string SessionManager::current_agent_path() const {
     std::lock_guard<std::mutex> lk(mu_);
     return agent_path_;
+}
+
+std::string SessionManager::current_cwd() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return cwd_;
+}
+
+std::optional<std::string> SessionManager::current_reasoning_effort() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return reasoning_effort_;
 }
 
 void SessionManager::write_swarm_identity_locked(SessionMeta& meta) const {

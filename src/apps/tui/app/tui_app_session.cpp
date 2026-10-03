@@ -13,6 +13,7 @@
 #include "agent/agent_loop.hpp"
 #include "session/token_tracker.hpp"
 #include "session/permission_prompter.hpp"
+#include "session_host/tools/mesh_agent_tools.hpp"
 #include "session_host/tools/spawn_subagent_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "session_host/apply_model_to_session.hpp"
@@ -61,6 +62,8 @@ void TuiApp::initialize_agent() {
     loop_options.skill_idle_days = services_->config.skills.idle_days;
     loop_options.tool_policy = mcp_scope_policy(&services_->config, environment_.working_dir,
         std::nullopt, services_->mcp.get(), services_->tools.get());
+    // 模式与网状路径每回合从 SessionManager 读取,这里只提供网状提示参数。
+    loop_options.swarm = agent::make_swarm_context(SwarmMode::Off, "", services_->config.swarm.mesh);
     agent_loop_ = std::make_unique<AgentLoop>(std::move(loop_services), std::move(loop_options));
     submitter_->attach(*agent_loop_);
     overlay_gate_->attach(*agent_loop_);
@@ -133,6 +136,7 @@ void TuiApp::initialize_subagents() {
     subagent_host_deps.parent_session_id = bind(&TuiApp::parent_session_id);
     subagent_host_deps.publish_tasks = bind(&TuiApp::publish_subagent_tasks);
     subagent_host_deps.on_permission_request = bind(&TuiApp::receive_subagent_permission);
+    subagent_host_deps.main_loop = bind(&TuiApp::main_agent_loop);
     subagent_host_ = std::make_unique<SubagentHost>(std::move(subagent_host_deps));
     auto& subagent_host = *subagent_host_;
     {
@@ -149,6 +153,7 @@ void TuiApp::initialize_subagents() {
             ThreadService::Deps{
                 &subagent_host.registry(), &subagent_host.client()});
         register_codex_thread_tools(tools, std::move(thread_deps));
+        register_mesh_agent_tools(tools, subagent_host.mesh(), config);
     }
 }
 void TuiApp::resume_startup() {
@@ -349,6 +354,7 @@ nlohmann::json TuiApp::ask_questions(const nlohmann::json& payload,
     return ask_via_tui_overlay(state_, screen_host_->screen(), payload, abort_flag, timeout, origin);
 }
 std::string TuiApp::parent_session_id() { return session_manager_.current_session_id(); }
+AgentLoop* TuiApp::main_agent_loop() { return agent_loop_.get(); }
 void TuiApp::subagent_spawned(const std::string& id, const std::string& prompt) {
     subagent_host_->on_spawned(id, prompt);
 }

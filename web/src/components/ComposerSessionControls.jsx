@@ -200,7 +200,7 @@ export function ComposerSessionControls({
   permissionMode = 'default',
   permissionSwitching = false,
   onPermissionModeChange,
-  swarmMode = false,
+  swarmMode = 'off',
   onDisableSwarm,
   expertId = '',
   expertName = '',
@@ -221,6 +221,20 @@ export function ComposerSessionControls({
     reasoningCaretRestoreRef.current = null;
     if (restore) window.requestAnimationFrame(restore);
   };
+  // 蜂群模式芯片:星型 / 网状各一套文案(add-mesh-swarm-mode),关闭时不显示。
+  const swarmTag = swarmMode === 'mesh'
+    ? {
+        label: '蜂群模式（网状）',
+        status: '已开启蜂群模式（网状）',
+        title: 'Agent 之间可以互相派任务、发消息，组成协作网络',
+      }
+    : swarmMode === 'star'
+      ? {
+          label: '蜂群模式（星型）',
+          status: '已开启蜂群模式（星型）',
+          title: '主 Agent 积极派遣子 Agent 并汇总结果',
+        }
+      : null;
   const compactControls = useAdaptiveComposerControls(
     rootRef,
     `${goalMode}|${swarmMode}|${expertName}|${pendingExpertName}|${permissionMode}|${selectedModelName}|${model}|${reasoningOptions?.label || ''}`,
@@ -312,17 +326,18 @@ export function ComposerSessionControls({
           </ComposerSelectionTag>
         )}
 
-        {swarmMode && (
+        {swarmTag && (
           <ComposerSelectionTag
             data-composer-control="swarm-mode"
+            data-swarm-mode={swarmMode}
             compact={compactControls.has('swarm-mode')}
             icon={<SwarmModeIcon size={16} />}
             onClick={onDisableSwarm}
-            status="已开启蜂群模式"
+            status={swarmTag.status}
             aria-label="关闭蜂群模式"
-            title="下一条普通消息将积极派遣子 Agent"
+            title={swarmTag.title}
           >
-            蜂群模式
+            {swarmTag.label}
           </ComposerSelectionTag>
         )}
 

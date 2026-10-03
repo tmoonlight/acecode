@@ -14,13 +14,39 @@ SubagentHost::SubagentHost(Deps deps)
     : parent_session_id_(std::move(deps.parent_session_id)),
       publish_tasks_(std::move(deps.publish_tasks)),
       on_permission_request_(std::move(deps.on_permission_request)),
-      registry_(std::move(deps.registry_deps)), client_(registry_) {}
+      // Copied: the mesh service below borrows the same config/expert pointers.
+      registry_(deps.registry_deps), client_(registry_) {
+    mesh::MeshAgentService::Deps mesh_deps;
+    mesh_deps.registry = &registry_;
+    mesh_deps.experts = deps.registry_deps.expert_registry;
+    mesh_deps.config = deps.registry_deps.config;
+    mesh_deps.config_mutex = deps.registry_deps.config_mutex;
+    mesh_deps.external_root_id = parent_session_id_;
+    mesh_deps.external_root_loop = std::move(deps.main_loop);
+    mesh_ = std::make_shared<mesh::MeshAgentService>(std::move(mesh_deps));
+    mesh_->attach();
+    // 网状子 agent 创建 / 换出后恢复时登记为后台任务并(重新)订阅事件。标题事件在
+    // 订阅之前已发出,侧栏先用 agent 路径(/root/worker)当显示名。
+    mesh_->set_on_agent_loaded(
+        [ref = lifetime_.ref(*this)](const std::string& child_id, const std::string&) {
+            ref.with([child_id](SubagentHost& host) {
+                std::string label = child_id;
+                if (auto entry = host.registry().acquire(child_id); entry && entry->sm) {
+                    const std::string path = entry->sm->current_agent_path();
+                    if (!path.empty()) label = path;
+                }
+                host.on_spawned(child_id, label);
+            });
+        });
+}
 
 SubagentHost::~SubagentHost() { shutdown(); }
 
 void SubagentHost::shutdown() {
     std::lock_guard<std::mutex> shutdown_lock(shutdown_mu_);
     shutting_down_.store(true);
+    // Drop mesh subscriptions before the children they watch are joined.
+    if (mesh_) mesh_->shutdown();
     // Wake and join children while callback state and the client still exist.
     registry_.shutdown_all();
     lifetime_.revoke();

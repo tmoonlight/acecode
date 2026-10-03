@@ -143,6 +143,19 @@ Payload:
 
 回滚：不选择网状模式即回到今天的行为；`swarm_mode` 字段向后兼容；新增元数据字段旧版本忽略。`add-agent-tree-collaboration` 目录只存在于主工作树且未纳入 git，应在主工作树里移入 `openspec/changes/archive/` 并注明由本变更取代。
 
+## 实现记录（与上文设计的差异，以代码为准）
+
+实现时用户拍板「全按 Codex V2」，上文几处设计据此改动：
+
+- **身份字段只加两个**：`SessionMeta.swarm_mode` 与 `agent_path`。根会话 id 直接用 `parent_session_id`（所有网状子 agent 扁平挂在根下），深度与任务名从路径推出；不合成 legacy 路径。
+- **`MeshTreeControl` → `host/session_host/mesh/MeshAgentService`**：worker / TUI / headless 各一份，工具与事件监听只捕获 `weak_ptr`；树目录持久化在根会话目录的 `mesh_agents.json`，重启后据此重建，不扫全部 meta。
+- **模式切换不经 `enqueue_control`**：AgentLoop 在每回合捕获请求源时从 SessionManager 读模式与路径（会话元数据是唯一事实源），切换天然只影响下一回合。
+- **邮箱投递**：信封一律先入箱，不直接 `submit()`；空闲时 `trigger_turn` 经 `mailbox_wake` 任务唤醒，唤醒前再查一次是否仍有触发邮件（已被运行中回合并入则不多跑一回合）。回合第一次模型请求前也会并入邮箱（Codex 要等下一次采样，属有意偏离）。
+- **状态与列表按 Codex**：`agent_list` 只列已加载的 agent，状态取 Codex 枚举（`pending_init / running / interrupted / {completed} / {errored} / not_found`），没有 `idle` / `inactive`；被换出的 agent 只在内部目录与 UI 快照里可见。
+- **完成回报按 Codex**：completed = 该回合最终回答，errored = `Agent errored: …` + 下一步提示，**interrupted 不回报**；父 agent 未加载时暂存到恢复（根不在则丢弃并记日志）。
+- **未做**：未读邮件计数（Codex 无）、面板按深度缩进、来源标签改用完整路径、采样中途因新邮件抢占输出、`<subagents>` 名册注入、`agent_interrupt` 后的 `<turn_aborted>` 标记。
+- **Web 芯片**：芯片 = 服务端模式（messages 快照 / `session_updated{swarm_mode}`）+ 未提交的本地选择，只有二者不同才随消息提交 `swarm_mode`，避免普通消息把 `/swarm` 刚切的模式改回去；信封在 transcript 摄入时转成系统提示行。
+
 ## Open Questions
 
 - 移植的角色提示词具体措辞（在实现时对照 Codex 源文本逐段改写，不影响规格与任务拆分）。

@@ -394,7 +394,23 @@ public:
     WebWorktreeResult enter_worktree_for_web(const std::string& id,
                                              const std::string& base_branch);
 
+    // ---- 蜂群模式(会话级 off / star / mesh,session_registry_swarm.cpp)----
+    // Installed by MeshAgentService: a non-empty result refuses the change
+    // (leaving mesh while the agent tree still has running work).
+    using SwarmModeGuard = std::function<std::string(
+        const std::string& session_id, SwarmMode from, SwarmMode to)>;
+    void set_swarm_mode_guard(SwarmModeGuard guard);
+    // Persists the mode and publishes it for the session's next turn.
+    bool set_swarm_mode(const std::string& id, SwarmMode mode, std::string* error = nullptr);
+    std::optional<SwarmMode> swarm_mode(const std::string& id) const;
+    // Request-builder view of a mode: mesh roots are /root, children keep path.
+    agent::SwarmContext swarm_context_for(SwarmMode mode, const std::string& agent_path) const;
+
 private:
+    agent::SwarmContext apply_swarm_identity(SessionEntry& entry, const SessionOptions& opts,
+                                             const SessionMeta* resumed_meta);
+    BuiltinCommandResult execute_swarm_builtin(SessionEntry& entry,
+                                               const BuiltinCommandRequest& request);
     SessionPromptConfig prompt_config_snapshot() const;
     std::shared_ptr<SessionEntry> make_entry_locked(const std::string& id,
                                                      const SessionOptions& opts,
@@ -427,6 +443,8 @@ private:
     std::mutex                                                    resume_inflight_mu_;
     std::condition_variable                                       resume_inflight_cv_;
     std::unordered_set<std::string>                               resume_inflight_;
+    mutable std::mutex swarm_guard_mu_;
+    SwarmModeGuard swarm_guard_;
     ReapingThreadSet title_threads_;
     ReapingThreadSet lifecycle_threads_;
     LifetimeToken lifetime_;

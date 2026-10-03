@@ -4,6 +4,8 @@ import { ensureSessionOpen, reportSessionOpen } from './sessionOpenDiagnostics.j
 import { connection } from './connection.js';
 import { attachmentsFromContentParts, normalizeAttachmentList } from './messageAttachments.js';
 import { sessionDisplayTitle } from './sessionTitle.js';
+import { normalizeSwarmMode } from './swarmMode.js';
+import { presentInterAgentMessage } from './interAgentMessage.js';
 import { transcriptTimestampMs } from './timestamps.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { normalizeToolInvocationItems } from './transcriptProjection.js';
@@ -135,6 +137,9 @@ function sessionTitleFieldsFromRef(ref) {
     title: typeof s.title === 'string' ? s.title : '',
     titleSource: String(s.title_source ?? s.titleSource ?? ''),
     summary: typeof s.summary === 'string' ? s.summary : '',
+    // 会话级蜂群模式(add-mesh-swarm-mode)同理:侧栏对象给初值,之后由
+    // messages 快照与 session_updated 刷新;输入框芯片跟随它。
+    swarmMode: normalizeSwarmMode(s.swarm_mode ?? s.swarmMode),
   };
 }
 
@@ -883,7 +888,9 @@ function visibleTranscriptMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
     .map((m, index) => (m && typeof m === 'object' ? { ...m, __messageOrdinal: m.message_ordinal ?? m.__messageOrdinal ?? (m.message_position == null ? index : null) } : m))
-    .filter((m) => !m?.is_meta && !m?.metadata?.hidden_goal_context);
+    .filter((m) => !m?.is_meta && !m?.metadata?.hidden_goal_context)
+    // 蜂群模式（网状）的 agent 间信封落盘为 user 角色,界面上显示成系统提示行。
+    .map(presentInterAgentMessage);
 }
 
 function splitTranscriptMessages(messages) {
@@ -1214,6 +1221,8 @@ export function createTranscriptState(overrides = {}) {
     title: '',
     titleSource: '',
     summary: '',
+    // 服务端会话的蜂群模式 off | star | mesh。
+    swarmMode: 'off',
     status: 'idle',
     lastSeq: 0,
     isLive: false,
@@ -1368,7 +1377,8 @@ export function reduceTranscriptEvent(state, msg) {
     }
     case 'message': {
       // 工具前言:assistant 正文里的 <text_preamble> 标签不进 transcript。
-      const p = withVisibleAssistantContent(msg?.payload || {});
+      // agent 间信封(user 角色)与历史一样转成系统提示行。
+      const p = presentInterAgentMessage(withVisibleAssistantContent(msg?.payload || {}));
       const role = p.role || 'system';
       if (role === 'assistant' && p.metadata?.transcript_only === true &&
           p.metadata?.interrupted_output === true) {
@@ -1695,6 +1705,9 @@ export function reduceTranscriptEvent(state, msg) {
       if (Object.prototype.hasOwnProperty.call(p, 'summary')) {
         next.summary = typeof p.summary === 'string' ? p.summary : '';
       }
+      if (Object.prototype.hasOwnProperty.call(p, 'swarm_mode')) {
+        next.swarmMode = normalizeSwarmMode(p.swarm_mode);
+      }
       break;
     }
     case 'busy_changed': {
@@ -1851,6 +1864,7 @@ export function loadTranscriptHistory(state, data = {}) {
     title: current.title || '',
     titleSource: current.titleSource || '',
     summary: current.summary || '',
+    swarmMode: normalizeSwarmMode(current.swarmMode),
     status: current.status || 'idle',
     isLive: !!current.isLive,
     lastSeq: 0,
@@ -1875,6 +1889,7 @@ export function loadTranscriptHistory(state, data = {}) {
     next.titleSource = typeof data.title_source === 'string' ? data.title_source : '';
   }
   if (typeof data.summary === 'string') next.summary = data.summary;
+  if (typeof data.swarm_mode === 'string') next.swarmMode = normalizeSwarmMode(data.swarm_mode);
 
   const seenMessages = new Set(msgs.map((m) => messageKey(m.role || 'system', m.content || '')));
   let pendingStreamEvents = [];

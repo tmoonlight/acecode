@@ -31,6 +31,8 @@ struct SessionDisplaySnapshot {
     TokenUsage last_token_usage;
     TokenUsage session_token_usage;
     WorktreeSessionInfo worktree;
+    std::string swarm_mode;   // "" = off
+    std::string agent_path;   // mesh child path; empty for roots
 };
 
 class SessionManager {
@@ -216,6 +218,10 @@ public:
     void set_mesh_agent_path(std::string agent_path);
     std::string current_swarm_mode() const;
     std::string current_agent_path() const;
+    // Session cwd (workspace or no-workspace cache dir) and the session-local
+    // reasoning choice; mesh children inherit both from their spawner.
+    std::string current_cwd() const;
+    std::optional<std::string> current_reasoning_effort() const;
 
     // Persist the current expert identity selected for this session.
     void set_expert_binding(std::string expert_id, std::string member_id = {});

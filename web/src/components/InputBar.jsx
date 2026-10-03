@@ -20,6 +20,7 @@ import { ExpertAvatar, compactExpertSummary } from './ExpertCatalog.jsx';
 import { GoalStatusBar } from './GoalStatusBar.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import { SwarmModeIcon } from './SwarmModeIcon.jsx';
+import { normalizeSwarmMode, pickSwarmMode, swarmModeLabel } from '../lib/swarmMode.js';
 import { RichComposer } from './RichComposer.jsx';
 import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
@@ -217,7 +218,7 @@ export const InputBar = forwardRef(function InputBar({
   onMediaFiles, onRemoveAttachment, onRemoveContext,
   onLargeTextPaste, onReplacePasteBlock, onRetryPasteUpload, onCommitDeferredPastes,
   attachmentTextLoader,
-  swarmMode = false, onSwarmModeChange,
+  swarmMode = 'off', onSwarmModeChange,
   expertOptions = [],
   selectedExpertId = '',
   selectedExpertName = '',
@@ -1156,16 +1157,18 @@ export const InputBar = forwardRef(function InputBar({
     }
   }, []);
 
-  const toggleSwarmMode = useCallback(() => {
+  // 蜂群模式（星型）/（网状）两项互斥;再点已选中的一项即关闭。
+  const activeSwarmMode = normalizeSwarmMode(swarmMode);
+  const chooseSwarmMode = useCallback((mode) => {
     setCapabilityOpen(false);
     closeExpertSubmenu(false);
-    onSwarmModeChange?.(!swarmMode);
+    onSwarmModeChange?.(pickSwarmMode(activeSwarmMode, mode));
     requestComposerCaretRestore();
   }, [
+    activeSwarmMode,
     closeExpertSubmenu,
     onSwarmModeChange,
     requestComposerCaretRestore,
-    swarmMode,
   ]);
 
   const handleExpertSubmenuKeyDown = useCallback((event) => {
@@ -1352,21 +1355,25 @@ export const InputBar = forwardRef(function InputBar({
             <VsIcon name="Goal" size={15} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">目标</span>
           </button>
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={swarmMode}
-            className={clsx(
-              'w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] hover:bg-surface-hi',
-              swarmMode ? 'bg-accent-bg text-accent' : 'text-fg',
-            )}
-            onPointerEnter={() => closeExpertSubmenu(false)}
-            onClick={toggleSwarmMode}
-          >
-            <SwarmModeIcon size={15} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">蜂群模式</span>
-            {swarmMode && <VsIcon name="check" size={12} className="shrink-0 opacity-70" />}
-          </button>
+          {['star', 'mesh'].map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="menuitemradio"
+              data-swarm-mode={mode}
+              aria-checked={activeSwarmMode === mode}
+              className={clsx(
+                'w-full h-8 px-2 flex items-center gap-2 text-left text-[13px] hover:bg-surface-hi',
+                activeSwarmMode === mode ? 'bg-accent-bg text-accent' : 'text-fg',
+              )}
+              onPointerEnter={() => closeExpertSubmenu(false)}
+              onClick={() => chooseSwarmMode(mode)}
+            >
+              <SwarmModeIcon size={15} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{swarmModeLabel(mode)}</span>
+              {activeSwarmMode === mode && <VsIcon name="check" size={12} className="shrink-0 opacity-70" />}
+            </button>
+          ))}
 
           <div className="my-1 border-t border-border" aria-hidden="true" />
 
@@ -1800,8 +1807,8 @@ export const InputBar = forwardRef(function InputBar({
           expertId={selectedExpertId}
           expertName={selectedExpertName}
           expertType={selectedExpertType}
-          swarmMode={swarmMode}
-          onDisableSwarm={() => onSwarmModeChange?.(false)}
+          swarmMode={activeSwarmMode}
+          onDisableSwarm={() => onSwarmModeChange?.('off')}
           expertRemoving={expertRemoving}
           onRemoveExpert={onRemoveExpert}
           pendingExpertName={pendingExpertName}

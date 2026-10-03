@@ -183,6 +183,24 @@ run('只有当前父会话的 spawn_subagent tool_start 触发面板自动打开
   }), false);
 });
 
+// 场景:蜂群模式（网状）用 agent_spawn 派子 agent(add-mesh-swarm-mode),子会话扁平挂在
+// 根会话下,真实层级在 agent_path 里。
+// 期望:agent_spawn 同样触发面板自动打开;任务对象带上 agentPath 供卡片显示层级;
+// 星型子任务没有路径,字段为空串。
+run('网状 agent_spawn 同样打开面板,任务带 agent 路径', () => {
+  assert.equal(isSubagentSpawnStartEvent('parent-1', {
+    type: 'tool_start',
+    session_id: 'parent-1',
+    payload: { tool: 'agent_spawn', args: { task_name: 'worker', message: 'go' } },
+  }), true);
+  assert.equal(isSubagentSpawnStartEvent('parent-1', {
+    type: 'tool_start', session_id: 'parent-1', payload: { tool: 'agent_send_message' },
+  }), false);
+  assert.equal(normalizeSubagentTask(makeSession({ agent_path: '/root/lead/sub' })).agentPath,
+    '/root/lead/sub');
+  assert.equal(normalizeSubagentTask(makeSession()).agentPath, '');
+});
+
 run('已知 child 的 session_status 可直接完成任务状态', () => {
   let tasks = mergeSubagentTaskList([], [makeSession({ busy: true })]);
   tasks = applySubagentSessionEvent(tasks, {

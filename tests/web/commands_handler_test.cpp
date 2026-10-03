@@ -94,7 +94,7 @@ TEST_F(CommandsHandlerTest, NoWorkspaceCwdOmitsSkillsField) {
     EXPECT_FALSE(payload.contains("skills")) << "缺 workspace_cwd 不应输出 skills 字段";
     EXPECT_FALSE(payload.contains("commands")) << "缺 workspace_cwd 不应输出 commands 字段";
 
-    ASSERT_EQ(payload["builtins"].size(), 10u);
+    ASSERT_EQ(payload["builtins"].size(), 11u);
     EXPECT_EQ(payload["builtins"][0]["name"].get<std::string>(), "init");
     EXPECT_EQ(payload["builtins"][1]["name"].get<std::string>(), "compact");
     EXPECT_EQ(payload["builtins"][2]["name"].get<std::string>(), "feedback");
@@ -107,8 +107,10 @@ TEST_F(CommandsHandlerTest, NoWorkspaceCwdOmitsSkillsField) {
     EXPECT_EQ(payload["builtins"][6]["name"].get<std::string>(), "sandbox");
     // /memory 与 TUI 同一份文本实现,网页斜杠下拉也要列出(openspec unify-memory-system 6.3)。
     EXPECT_EQ(payload["builtins"][7]["name"].get<std::string>(), "memory");
-    EXPECT_EQ(payload["builtins"][8]["name"].get<std::string>(), "rc");
-    EXPECT_EQ(payload["builtins"][9]["name"].get<std::string>(), "remote-control");
+    // /swarm 切换会话级蜂群模式(openspec add-mesh-swarm-mode),三端同一份实现。
+    EXPECT_EQ(payload["builtins"][8]["name"].get<std::string>(), "swarm");
+    EXPECT_EQ(payload["builtins"][9]["name"].get<std::string>(), "rc");
+    EXPECT_EQ(payload["builtins"][10]["name"].get<std::string>(), "remote-control");
     for (const auto& builtin : payload["builtins"]) {
         EXPECT_FALSE(builtin["description"].get<std::string>().empty());
     }
@@ -236,9 +238,12 @@ TEST_F(CommandsHandlerTest, BuiltinDescriptionsMatchTuiRegistration) {
     // /memory 与 src/apps/tui/commands/memory_command.cpp 的 TUI 注册文案一致。
     EXPECT_EQ(payload["builtins"][7]["description"].get<std::string>(),
               "List, view, edit or forget memory; flush memory summarization; turn memory off/on for this session");
+    // /swarm 与 TUI 注册文案一致(src/apps/tui/commands/swarm_mode_command.cpp)。
     EXPECT_EQ(payload["builtins"][8]["description"].get<std::string>(),
-              "Alias for /remote-control");
+              "Show or switch swarm mode: /swarm star|mesh|off");
     EXPECT_EQ(payload["builtins"][9]["description"].get<std::string>(),
+              "Alias for /remote-control");
+    EXPECT_EQ(payload["builtins"][10]["description"].get<std::string>(),
               "Activate a configured channel plugin or manage manual remote-control webhooks");
 }
 

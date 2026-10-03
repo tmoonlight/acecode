@@ -84,6 +84,10 @@ nlohmann::json build_commands_payload(const SkillRegistry& global_skills,
         {"description", "List, view, edit or forget memory; flush memory summarization; turn memory off/on for this session"},
     });
     builtins.push_back({
+        {"name", "swarm"},
+        {"description", "Show or switch swarm mode: /swarm star|mesh|off"},
+    });
+    builtins.push_back({
         {"name", "rc"},
         {"description", "Alias for /remote-control"},
     });

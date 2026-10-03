@@ -64,4 +64,39 @@ bool is_inter_agent_message(const ChatMessage& message) {
            inter_agent_envelope_from_metadata(message.metadata).has_value();
 }
 
+std::string inter_agent_payload_from_content(const std::string& content) {
+    static const std::string kPayload = "\nPayload:\n";
+    static const std::string kClose = "\n</inter_agent_message>";
+    const auto start = content.find(kPayload);
+    if (start == std::string::npos) return {};
+    std::string payload = content.substr(start + kPayload.size());
+    if (payload.size() >= kClose.size() &&
+        payload.compare(payload.size() - kClose.size(), kClose.size(), kClose) == 0) {
+        payload.resize(payload.size() - kClose.size());
+    }
+    return payload;
+}
+
+std::string inter_agent_display_text(const ChatMessage& message) {
+    if (message.role != "user") return {};
+    const auto envelope = inter_agent_envelope_from_metadata(message.metadata);
+    if (!envelope) return {};
+    std::string header;
+    switch (envelope->type) {
+    case InterAgentMessageType::NewTask:
+        header = "Task from " + envelope->sender + " to " + envelope->recipient;
+        break;
+    case InterAgentMessageType::Message:
+        header = "Message from " + envelope->sender + " to " + envelope->recipient;
+        break;
+    case InterAgentMessageType::FinalAnswer:
+        header = "Agent " + envelope->sender + " " +
+                 (envelope->final_status.empty() ? std::string("finished")
+                                                 : envelope->final_status);
+        break;
+    }
+    const std::string payload = inter_agent_payload_from_content(message.content);
+    return payload.empty() ? header : header + ":\n" + payload;
+}
+
 } // namespace acecode::mesh

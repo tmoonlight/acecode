@@ -45,6 +45,8 @@ export function normalizeSubagentTask(session) {
     updatedAtMs: parseIsoMs(session.updated_at),
     tokens: readTokens(session),
     turnCount: Math.max(0, Number(session.turn_count) || 0),
+    // 蜂群模式（网状）的子 agent 都扁平挂在根会话下,真实层级看路径(/root/a/b)。
+    agentPath: String(session.agent_path || ''),
     // 实时聚合字段:REST 快照没有工具级数据,从 0 起由 WS 事件累积。
     toolCount: 0,
     lastTool: '',
@@ -94,7 +96,7 @@ export function shouldRefreshSubagentTasksFromStatus(
   return !(knownTaskIds instanceof Set && knownTaskIds.has(sessionId));
 }
 
-// 只有当前父会话实时开始执行 spawn_subagent 才是面板自动打开信号。
+// 只有当前父会话实时开始执行 spawn_subagent / agent_spawn 才是面板自动打开信号。
 // 初始 REST 快照、子会话状态和 tool_end 都不经过这条路径,避免打开旧会话
 // 或用户手动关闭后被同一次任务的后续事件强制重开。
 export function isSubagentSpawnStartEvent(parentSessionId, msg) {
@@ -102,7 +104,8 @@ export function isSubagentSpawnStartEvent(parentSessionId, msg) {
   if (!parentId || msg?.type !== 'tool_start') return false;
   const payload = msg?.payload || {};
   const eventSessionId = String(msg?.session_id || payload.session_id || '').trim();
-  return eventSessionId === parentId && payload.tool === 'spawn_subagent';
+  return eventSessionId === parentId &&
+    (payload.tool === 'spawn_subagent' || payload.tool === 'agent_spawn');
 }
 
 // 子会话自己的 WS 事件 → 任务增量。返回新数组;无关事件返回原引用

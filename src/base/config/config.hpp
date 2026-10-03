@@ -104,6 +104,22 @@ struct MemoryConfig {
 void load_memory_config_json(const nlohmann::json& j, MemoryConfig& out);
 nlohmann::json memory_config_to_json(const MemoryConfig& cfg);
 
+// 蜂群模式（网状）调优(swarm_config.cpp,默认值对齐 Codex MultiAgentV2Config)。
+struct MeshSwarmConfig {
+    // 每棵 agent 树同时驻留的 agent 数(含 root),[2, 64]。
+    int max_concurrent_agents = 4;
+    int min_wait_timeout_ms = 10000;      // agent_wait 下限,[1000, 600000]
+    int default_wait_timeout_ms = 30000;  // 夹在 [min, max] 内
+    int max_wait_timeout_ms = 3600000;    // [min, 86400000]
+    // agent_spawn 暴露 model / reasoning_effort 覆盖参数。
+    bool expose_model_overrides = true;
+};
+struct SwarmConfig {
+    MeshSwarmConfig mesh;
+};
+void load_swarm_config_json(const nlohmann::json& j, SwarmConfig& out);
+nlohmann::json swarm_config_to_json(const SwarmConfig& cfg);
+
 struct ProjectInstructionsConfig {
     bool enabled = true;
     int max_depth = 8;                         // max dirs walked from cwd towards HOME
@@ -581,6 +597,7 @@ struct AppConfig {
     std::map<std::string, McpServerConfig> mcp_servers; // MCP stdio servers (optional)
     SkillsConfig skills;                         // skill system configuration (optional)
     MemoryConfig memory;                         // persistent user memory settings
+    SwarmConfig swarm;                           // 蜂群模式（网状）调优
     ProjectInstructionsConfig project_instructions; // AGENT.md / AGENTS.md / CLAUDE.md loader
     CustomInstructionsConfig custom_instructions; // Desktop/Web user-authored prompt context
     std::vector<ConnectorConfig> connectors;      // user-configured desktop connectors

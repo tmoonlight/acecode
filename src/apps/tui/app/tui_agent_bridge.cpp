@@ -1,5 +1,6 @@
 #include "tui/app/tui_agent_bridge.hpp"
 #include "session/compact_notice.hpp"
+#include "session/inter_agent_message.hpp"
 #include "tui/app/tui_screen_host.hpp"
 #include "tui/tui_state.hpp"
 #include "tui/chat/chat_viewport.hpp"
@@ -88,7 +89,11 @@ void TuiAgentBridge::on_transcript_message(const ChatMessage& message) {
             std::chrono::steady_clock::now();
     }
 
-    if (!acecode::tui::append_compact_notice_row(
+    // 蜂群模式（网状）的 agent 间消息落盘为 user 信封,界面显示为系统行。
+    const std::string inter_agent = acecode::mesh::inter_agent_display_text(message);
+    if (!inter_agent.empty()) {
+        state.conversation.push_back({"system", inter_agent, false});
+    } else if (!acecode::tui::append_compact_notice_row(
             state.conversation, message)) {
         state.conversation.push_back(
             {message.role, message.content, false});

@@ -44,4 +44,11 @@ std::optional<InterAgentEnvelope> inter_agent_envelope_from_metadata(
     const nlohmann::json& metadata);
 bool is_inter_agent_message(const ChatMessage& message);
 
+// The Payload section of a rendered envelope (model content); empty when the
+// content is not an envelope body.
+std::string inter_agent_payload_from_content(const std::string& content);
+// One-line header plus payload for transcript surfaces (TUI rows); never sent
+// to the model. Empty for ordinary messages.
+std::string inter_agent_display_text(const ChatMessage& message);
+
 } // namespace acecode::mesh

@@ -57,6 +57,7 @@ private:
     nlohmann::json ask_questions(const nlohmann::json& payload,
         const std::atomic<bool>* abort_flag, int timeout, const std::string& origin);
     std::string parent_session_id();
+    AgentLoop* main_agent_loop();
     void publish_subagent_tasks(std::vector<SubagentTaskSnapshot> tasks);
     void receive_subagent_permission(const std::string& session_id,
         const std::string& task_title, nlohmann::json payload);

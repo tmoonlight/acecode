@@ -124,6 +124,12 @@ import {
   retryQueuedInput,
   updateQueuedInputContent,
 } from '../lib/chatInputQueue.js';
+import {
+  effectiveSwarmMode,
+  normalizeSwarmMode,
+  reconcileSwarmChoice,
+  swarmModeForSubmission,
+} from '../lib/swarmMode.js';
 import { findStickyUserContext, sameStickyUserContext, scrollTopForStickySourceRow } from '../lib/stickyUserContext.js';
 import { fetchCompletedTurnHistory, loadTranscriptHistory, useSessionTranscript } from '../lib/sessionTranscript.js';
 import { sessionJumpMessagePosition } from '../lib/sessionJump.js';
@@ -379,7 +385,8 @@ function fileToBase64(file) {
   });
 }
 
-function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMode = false, composerContent = null) {
+// swarmMode: 要随这条消息写给服务端的会话级蜂群模式(swarmModeForSubmission),null = 不写。
+function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMode = null, composerContent = null) {
   const sessionReferences = extractSessionReferences(String(text || ''));
   const content = reconcileComposerContentAttachments(composerContent, attachments);
   const payload = {
@@ -399,7 +406,7 @@ function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMo
   if (sessionReferences.references.length > 0) {
     payload.session_references = sessionReferences.references;
   }
-  if (swarmMode) payload.swarm_mode = true;
+  if (swarmMode) payload.swarm_mode = swarmMode;
   if (content) payload.composer_content = content;
   return payload;
 }
@@ -945,7 +952,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setComposerContent((previous) => composerContentSignature(previous) === composerContentSignature(normalized) ? previous : normalized);
   }, []);
   const [composerContexts, setComposerContexts] = useState([]);
-  const [composerSwarmMode, setComposerSwarmMode] = useState(false);
+  // 蜂群模式是会话级状态(add-mesh-swarm-mode):芯片 = 服务端值(transcript 的
+  // swarmMode,来自 messages 快照与 session_updated)+ 尚未随消息提交的本地选择。
+  const transcriptSwarmMode = normalizeSwarmMode(transcript.swarmMode);
+  const [composerSwarmChoice, setComposerSwarmChoice] = useState(null);
+  const composerSwarmMode = effectiveSwarmMode(composerSwarmChoice, transcriptSwarmMode);
+  const changeComposerSwarmMode = useCallback((mode) => {
+    setComposerSwarmChoice(reconcileSwarmChoice(normalizeSwarmMode(mode), transcriptSwarmMode));
+  }, [transcriptSwarmMode]);
+  // 服务端确认(或别处切到同一模式)后,本地选择清空,重新跟随服务端。
+  useEffect(() => {
+    setComposerSwarmChoice((choice) => reconcileSwarmChoice(choice, transcriptSwarmMode));
+  }, [transcriptSwarmMode]);
   const [selectionPreview, setSelectionPreview] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
   const [composerSubmitting, setComposerSubmitting] = useState(false);
@@ -1464,7 +1482,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const resetComposerContextSelections = useCallback(() => {
     clearComposerExtras();
-    setComposerSwarmMode(false);
+    setComposerSwarmChoice(null);
   }, [clearComposerExtras]);
 
   const createHomeComposerSession = useCallback(async (text, {
@@ -2226,7 +2244,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     onCommitDeferredPastes: commitDeferredPastes,
     attachmentTextLoader: api.readAttachmentText,
     swarmMode: composerSwarmMode,
-    onSwarmModeChange: setComposerSwarmMode,
+    onSwarmModeChange: changeComposerSwarmMode,
   }), [
     api,
     commitDeferredPastes,
@@ -2234,6 +2252,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     composerContent,
     composerContexts,
     composerSwarmMode,
+    changeComposerSwarmMode,
     handleLargeTextPaste,
     handleMediaFiles,
     pinSelectionContext,
@@ -3461,7 +3480,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       text,
       activeAttachments,
       composerContexts,
-      composerSwarmMode,
+      swarmModeForSubmission(composerSwarmChoice, transcriptSwarmMode),
       submittedContent,
     );
     // 提交那一刻输入框里的原文。发送回执回来时拿它比对,用户在等待窗口里
@@ -3469,7 +3488,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const submittedComposerText = composerValueRef.current;
     const submittedComposerContent = composerContentRef.current;
     const hasExtras = payloadHasExtras(payload) || hasPendingAttachments;
-    const hasSwarmMode = payload.swarm_mode === true;
+    const hasSwarmMode = typeof payload.swarm_mode === 'string';
     if (!payload.text.trim() && !hasExtras) {
       if (!retryUserMessageId || composerSubmitting || retrySubmissionRef.current) return;
       const latest = transcript.getState();
@@ -3802,7 +3821,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
       })
       .finally(() => setComposerSubmitting(false));
-  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, updateQueueState, applyEvent, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmMode, clearComposerExtras, createHomeComposerSession, persistMediaFilesToSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, homeComposerDrafts, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash, sessionRuntimeUnavailable, retryUserMessageId, transcript.getState, transcriptLoadState, readOnlyExternalSession, commitDeferredPastes, materializeWorkspaceDraftPastes, uploadPasteReservations]);
+  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, updateQueueState, applyEvent, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmChoice, transcriptSwarmMode, clearComposerExtras, createHomeComposerSession, persistMediaFilesToSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, homeComposerDrafts, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash, sessionRuntimeUnavailable, retryUserMessageId, transcript.getState, transcriptLoadState, readOnlyExternalSession, commitDeferredPastes, materializeWorkspaceDraftPastes, uploadPasteReservations]);
 
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;

@@ -1,6 +1,8 @@
 # 子代理(Subagent)体系
 
 实现参考文档 — 覆盖 `spawn_subagent` / `wait_subagent` 工具、Web「后台任务」面板与 TUI 支持。
+蜂群模式分两种:**星型**(本文 1–8 节,`spawn_subagent`)与**网状**(第 9 节,`agent_*`,复刻 Codex
+Multi-Agent V2,openspec `add-mesh-swarm-mode`)。
 对应提交:`dd10b15`(工具内核,daemon)→ `2c20b5b`(Web 后台任务面板 + parent 持久化)→ `35b986f`(TUI 支持)。
 
 ## 1. 设计概览
@@ -236,3 +238,92 @@ TuiState overlay,工具线程 wait ask_cv 天然带回结果)。只需两点:入
 「完成后调用 `spawn_subagent(prompt="/next-stage-skill <args>", wait=false)` 点火下一阶段」。
 用户只需在第一个会话输入 `/stage-1 <需求>`,阶段间上下文零互通、信息只走交接文档,
 每阶段在后台任务面板 / `/tasks` 独立可查。
+
+## 9. 蜂群模式（网状）:agent_* 协作树(add-mesh-swarm-mode)
+
+复刻 Codex Multi-Agent V2(`codex-rs/core/src/tools/handlers/multi_agents_v2/`、`agent/control.rs`、
+`session/input_queue.rs`),语义逐条对齐,只有两处有意偏离:**工具名加 `agent_` 前缀**、
+**agent 间信封用 user 角色**(Codex 用 assistant;连续两条 assistant 在 Anthropic / DeepSeek 一类
+provider 上会被拒或合并)。
+
+### 模式
+
+- 会话级三态 `off | star | mesh`,存 `SessionMeta.swarm_mode`(off 省略)。入口:消息体
+  `swarm_mode`(`"star"|"mesh"|"off"`,旧布尔 `true` = star)、`/swarm [star|mesh|off]`(TUI 命令 +
+  daemon 内置命令共用 `session_host/swarm_command`)、headless `--swarm`。AgentLoop 每回合从
+  SessionManager 读模式,切换只影响下一回合。
+- 两套工具互斥(`swarm_mode_hidden_tools` → `ToolCapabilityPolicy::hidden_builtin_tools`,schema 与执行
+  同一谓词):off / star 隐藏 6 个 `agent_*`;mesh 隐藏 `spawn_subagent` / `wait_subagent` 与全部
+  thread 工具,调用被拒时文案指向替代工具。
+- 网状树里还有运行中 / 待投递后续任务的 agent 时拒绝退出网状(`SessionRegistry::set_swarm_mode`
+  守卫,Web 409);网状子 agent 自己不能改模式;Web 不接受直接发给网状子 agent 的输入(409,对应
+  Codex「direct input is not allowed for multi-agent v2 sub-agents」)。
+
+### 身份与持久化
+
+- 子 agent 的 `parent_session_id` 恒为**根**会话 id(扁平挂在根下,后台任务面板 / 权限冒泡 / purge
+  全部复用星型通道);真实层级是 `SessionMeta.agent_path`(`/root/a/b`,`session/agent_path` 移植
+  Codex `AgentPath`,错误文案逐字一致)。根会话路径为空 = `/root`。
+- 树目录 `path → session id` 落在根会话数据目录 `<project_dir>/<root_id>/mesh_agents.json`
+  (`session/mesh_tree_index`),daemon 重启后按它重建,不扫全部 meta。
+
+### 服务与投递
+
+- `host/session_host/mesh/MeshAgentService`:每个根一棵 `Tree`(path → Record:session id、驻留、
+  started / last_outcome / final_text / error_text、未加载时暂存的邮件 `held_mail`)。worker / TUI
+  (`SubagentHost`,TUI 主会话是外部根)/ headless 各持一份,工具只捕获 `weak_ptr`。
+- 邮箱在 AgentLoop(`engine/agent/mailbox/AgentMailbox`,对应 Codex `mailbox_pending_mails`):
+  `deliver_inter_agent_message(envelope, trigger_turn)` 一律入箱;每次模型请求前(含回合第一次)由
+  `TurnRunner::drain_inputs` 先 steering 后邮箱整体并入;回合以最终回答收尾时只排队的邮件留到下一
+  回合;`trigger_turn` 邮件在空闲时由 `mailbox_wake` 任务唤醒(第一封作回合输入,其余随之并入)。
+- 信封正文是 Codex InterAgentMessage 文本外包 `<inter_agent_message>`,metadata `inter_agent`
+  `{type, sender, recipient, sender_session_id?, status?}`。NEW_TASK 计为真实用户消息(上下文锚点),
+  MESSAGE / FINAL_ANSWER 是内部上下文;都不计可见回合、不进摘要、不触发 UserPromptSubmit。TUI / Web
+  都把它显示成系统提示行(`inter_agent_display_text` / `web/src/lib/interAgentMessage.js`)。
+- 完成回报(Codex `notify_parent_of_terminal_turn`):子 agent 回合 `Done` → 父 agent 邮箱收到
+  FINAL_ANSWER(`trigger_turn=false`,**不唤醒**空闲的父);completed = 该回合最终回答,errored =
+  `Agent errored: …` + 下一步提示,**interrupted 不回报**。父未加载时暂存,恢复后投递;根不在时丢弃并记日志。
+
+### 六个工具(`tools/mesh_agent_tools.cpp`,串行执行,输出对齐 Codex)
+
+| 工具 | Codex | 要点 |
+|---|---|---|
+| `agent_spawn` | `spawn_agent` | `task_name` + `message`(必填),`fork_turns`(`none`/`all`/正整数,默认 all,只继承用户消息与最终回答),`agent_type`(团队专家成员),`model` / `reasoning_effort`(`swarm.mesh.expose_model_overrides`,默认继承父);输出 `{"task_name": 路径}`;`fork_context` 报错;未知字段报错 |
+| `agent_list` | `list_agents` | 只列已加载的 agent(根在前),状态 `pending_init` / `running` / `interrupted` / `{"completed":…}` / `{"errored":…}`,`path_prefix` 按段过滤 |
+| `agent_send_message` | `send_message` | 入箱不唤醒,可发给根;成功输出空串 |
+| `agent_followup_task` | `followup_task` | 唤醒空闲目标,运行中在消息边界投递;不能发给根 |
+| `agent_wait` | `wait_agent` | 等本 agent 的邮箱活动或插话;默认 30s,低于 10s 夹取并注明,超过 1h 报错;输出 `{"message","timed_out"}` |
+| `agent_interrupt` | `interrupt_agent` | 返回中断前状态;不能打断根或自己;未加载目标视为 not_found |
+
+### 驻留(Codex V2Residency)
+
+- `swarm.mesh.max_concurrent_agents` 默认 4 **含根**,即每棵树最多驻留 3 个子 agent。满了换出
+  最久没有活动、已有结果、无待办与空邮箱的子 agent(`registry.destroy`,记录仍在磁盘);一个都换不出
+  时报 `collab spawn failed: agent thread limit reached`(投递恢复时是 `collab tool failed: …`)。
+- 给未加载的 agent 发消息 / 后续任务会先 `registry.resume` 恢复(可能换出别的),再投递并冲刷暂存邮件。
+- `on_agent_loaded` 回调让 Web(`track_subagent`)与 TUI(`SubagentHost::on_spawned`)对新建 / 恢复的
+  子会话重新订阅事件。
+
+### 前端与 TUI
+
+- Web 输入框:「蜂群模式（星型）」「蜂群模式（网状）」两个互斥菜单项;芯片 = 服务端模式(messages
+  快照 / `session_updated{swarm_mode}`)+ 未提交的本地选择,只有不同才随消息提交(`web/src/lib/swarmMode.js`)。
+- 后台任务面板复用星型面板,卡片显示 `agent_path`;`agent_spawn` 同样自动打开面板。
+- TUI:`/swarm`;侧栏运行中任务以路径为显示名。
+
+### 有意未复刻 / 与 Codex 的差异
+
+- Codex 首次请求不 drain 邮箱(邮件要等下一次采样),这里回合第一次请求就并入。
+- Codex 父 agent 未加载时丢弃完成回报;这里非根父 agent 暂存到恢复时投递。
+- 未做:采样中途因新邮件抢占流式输出、环境上下文里的 `<subagents>` 名册、`agent_interrupt`
+  后的 `<turn_aborted>` 标记、消息板 / 模型目录(Codex 也默认关闭)、共享预算与邮箱上限(Codex 无)。
+
+### 测试地图
+
+| 文件 | 覆盖 |
+|---|---|
+| `tests/session/agent_path_test.cpp`、`mesh_swarm_domain_test.cpp`、`inter_agent_message_test.cpp` | 路径 / 模式名 / 工具互斥 / 信封 / fork_turns / 树索引 |
+| `tests/agent/agent_mailbox_test.cpp`、`agent_loop_mesh_mailbox_test.cpp` | 邮箱等待;运行中并入、空闲触发唤醒、只排队、agent_wait 结局 |
+| `tests/session_host/mesh_agent_service_test.cpp` | spawn → 回报、send / followup、参数校验、LRU 换出与恢复、上限、interrupt、errored、嵌套、退出守卫、重启重建、工具输出契约 |
+| `tests/session_host/swarm_command_test.cpp`、`tests/config/config_swarm_test.cpp`、`tests/headless/headless_options_test.cpp` | `/swarm` 文本、配置夹取、`--swarm` |
+| `web/src/lib/swarmMode.test.js`、`interAgentMessage.test.js`、`subagentTasks.test.js`、`chatInputQueue.test.js` | 芯片状态、信封显示、面板路径、排队模式 |

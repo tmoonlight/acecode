@@ -56,6 +56,7 @@ struct HeadlessCliOptions {
     std::string output_format;     // --output-format <text|json|stream-json>,空 = text
     std::string permission_mode;   // --permission-mode <default|accept-edits|plan|yolo>
     std::string model_name;        // --model <saved_models.name>
+    std::string swarm_mode;        // --swarm <star|mesh|off>,空 = 新会话 off、resume 沿用
     int max_turns = 0;             // --max-turns <n>,0 = 本次无限制
     std::vector<std::string> disabled_system_tools; // --disable-tools 精确名称
     std::vector<std::string> enabled_skills;        // --enable-skills 精确名称

@@ -28,6 +28,8 @@ export const systemNoticeZhCN = {
     init_started: '正在初始化项目说明', init_exists: '项目说明已存在',
     init_created: '项目说明已创建', init_failed: '项目说明创建失败',
     model_profile_reload_failed: '模型配置刷新失败', model_profile_warning: '模型配置警告',
+    inter_agent_task: '{{sender}} 派来新任务', inter_agent_message: '{{sender}} 发来消息',
+    inter_agent_final: '{{sender}} 已完成', inter_agent_error: '{{sender}} 执行出错',
   },
   details: {
     goal_missing: '尚未设置目标。使用 /goal <目标> 创建目标。',
@@ -110,6 +112,8 @@ export const systemNoticeEnUS = {
     init_started: 'Initializing project instructions', init_exists: 'Project instructions already exist',
     init_created: 'Project instructions created', init_failed: 'Could not create project instructions',
     model_profile_reload_failed: 'Model configuration reload failed', model_profile_warning: 'Model configuration warning',
+    inter_agent_task: 'New task from {{sender}}', inter_agent_message: 'Message from {{sender}}',
+    inter_agent_final: '{{sender}} finished', inter_agent_error: '{{sender}} failed',
   },
   details: {
     goal_missing: 'No goal set. Use /goal <objective> to create one.',

@@ -5,7 +5,7 @@
 ## ADDED Requirements
 
 ### Requirement: agent 拥有 canonical 路径并支持相对寻址
-根会话的路径 SHALL 为 `/root`。`agent_spawn` 创建的子 agent 路径 SHALL 为调用者路径加 `/` 加 `task_name`，可无限嵌套。`task_name` MUST 匹配 `[a-z0-9_]+`，MUST NOT 为 `root`、`.` 或 `..`；同一父 agent 下重复的 `task_name` SHALL 返回错误，MUST NOT 静默改名。所有接受目标的工具参数 SHALL 接受 canonical 路径、相对调用者路径的相对名或底层会话 id；相对名 SHALL 相对调用者自身路径解析。只有 `parent_session_id` 的旧子会话 SHALL 呈现为 `/root/legacy_<会话 id 前 8 位>`。
+根会话的路径 SHALL 为 `/root`。`agent_spawn` 创建的子 agent 路径 SHALL 为调用者路径加 `/` 加 `task_name`，可无限嵌套。`task_name` MUST 匹配 `[a-z0-9_]+`，MUST NOT 为 `root`、`.` 或 `..`；同一父 agent 下重复的 `task_name` SHALL 返回错误，MUST NOT 静默改名。所有接受目标的工具参数 SHALL 接受 canonical 路径、相对调用者路径的相对名或底层会话 id；相对名 SHALL 相对调用者自身路径解析。星型模式的子会话（只有 `parent_session_id`、没有路径）MUST NOT 被并入任何网状树。
 
 #### Scenario: 嵌套路径
 - **WHEN** `/root/task1` 以 `task_name="task_3"` 调用 `agent_spawn`
@@ -88,9 +88,9 @@
 - **AND** 用户下一次向 `/root` 发送消息时，该信封出现在 `/root` 的上下文中
 
 #### Scenario: 发给已被换出的 agent
-- **WHEN** 目标 agent 处于 `inactive`（已换出）状态
+- **WHEN** 目标 agent 已被换出（未加载）
 - **THEN** 系统先恢复该 agent，再把信封写入其邮箱
-- **AND** 回执说明目标已被恢复且消息待投递
+- **AND** 回执与普通投递相同（空输出）
 
 ### Requirement: agent_followup_task 恰好一次地触发目标
 `agent_followup_task(target, message)` SHALL 把 `NEW_TASK` 信封写入目标邮箱并保证目标处理它：目标空闲、已完成或已被换出时 SHALL（必要时恢复后）启动一个新回合；目标运行中时 SHALL 在当前回合的下一处消息边界投递，MUST NOT 并发启动第二个回合。目标从运行到空闲的竞态窗口内，同一条后续任务 MUST 恰好被投递一次，不得丢失或重复。目标 MUST NOT 为 root，否则 SHALL 返回错误 "Follow-up tasks can't target the root agent"。
@@ -116,7 +116,7 @@
 - **AND** `/root` 的邮箱与状态不变
 
 ### Requirement: 完成结果投递给父 agent 且不唤醒空闲父
-子 agent 回合结束时，系统 SHALL 向其父 agent 邮箱投递一条 `FINAL_ANSWER` 信封：正常结束时 Payload 为最终 assistant 回复；因错误或中断结束时 Payload 为状态说明与可用的部分输出。该投递 MUST NOT 唤醒空闲的父；父正在 `agent_wait` 中 SHALL 被唤醒；父正在运行中 SHALL 在下一处消息边界收到。
+子 agent 回合结束时，系统 SHALL 向其父 agent 邮箱投递一条 `FINAL_ANSWER` 信封（与 Codex 一致）：正常结束时 Payload 为该回合的最终 assistant 回复（没有则为空）；因错误结束时 Payload 为 `Agent errored: <错误>` 加上「可用协作工具给它派新任务」的下一步提示；被中断的回合 MUST NOT 投递。该投递 MUST NOT 唤醒空闲的父；父正在 `agent_wait` 中 SHALL 被唤醒；父正在运行中 SHALL 在下一处消息边界收到；父未加载时 SHALL 暂存到它被恢复后再投递。
 
 #### Scenario: 父正在等待
 - **WHEN** `/root` 阻塞在 `agent_wait`，`/root/a` 完成回合
@@ -134,7 +134,7 @@
 - **AND** `/root/a` 仍可被寻址与派后续任务
 
 ### Requirement: agent_wait 等待自身邮箱
-`agent_wait(timeout_ms?)` SHALL 阻塞直到调用者自身邮箱出现新活动、用户向调用者提交新输入或超时，并只返回 "Wait completed."、"Wait interrupted by new input." 或 "Wait timed out." 之一；MUST NOT 返回消息正文（正文以信封形式出现在调用者的下一次模型请求中）。`timeout_ms` SHALL 被钳制到最短 10 秒、最长 1 小时，缺省 30 秒；三者 SHALL 可通过配置调整。调用者被用户中止时等待 SHALL 立即结束，且 MUST NOT 影响任何其它 agent。
+`agent_wait(timeout_ms?)` SHALL 阻塞直到调用者自身邮箱出现新活动、用户向调用者提交新输入或超时，并只返回 "Wait completed."、"Wait interrupted by new input." 或 "Wait timed out." 之一；MUST NOT 返回消息正文（正文以信封形式出现在调用者的下一次模型请求中）。`timeout_ms` 低于最短 10 秒时 SHALL 按最短值等待并在结果中注明被夹取，超过最长 1 小时 SHALL 返回错误 "timeout_ms must be at most <最大值>"，缺省 30 秒；三者 SHALL 可通过配置调整。调用者被用户中止时等待 SHALL 立即结束，且 MUST NOT 影响任何其它 agent。
 
 #### Scenario: 邮箱活动唤醒
 - **WHEN** `/root` 调用 `agent_wait(timeout_ms=600000)`，30 秒后 `/root/a` 发来消息
@@ -148,7 +148,7 @@
 #### Scenario: 超时钳制
 - **WHEN** `agent_wait(timeout_ms=1000)` 被调用
 - **THEN** 实际等待下限为 10 秒
-- **AND** 超时后返回 "Wait timed out."
+- **AND** 超时后返回 "Wait timed out." 并注明请求值被夹取到最小值
 
 #### Scenario: 调用者被中止
 - **WHEN** 用户停止正在 `agent_wait` 的 `/root`

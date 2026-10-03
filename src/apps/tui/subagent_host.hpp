@@ -21,6 +21,7 @@
 // PostEvent)。本文件不依赖 FTXUI,编译进 acecode_testable 供单测。
 
 #include "session_host/local_session_client.hpp"
+#include "session_host/mesh/mesh_agent_service.hpp"
 #include "session_host/session_registry.hpp"
 #include "session/scoped_subscription.hpp"
 #include "utils/lifetime_token.hpp"
@@ -56,6 +57,9 @@ public:
         std::function<void(const std::string& session_id,
                            const std::string& task_title,
                            nlohmann::json payload)> on_permission_request;
+        // 蜂群模式（网状）:TUI 主会话不在 registry 里,是 agent 树的外部根。
+        // 返回的指针只在一次调用内借用。
+        std::function<AgentLoop*()> main_loop;
     };
 
     explicit SubagentHost(Deps deps);
@@ -64,6 +68,8 @@ public:
 
     SessionRegistry& registry() { return registry_; }
     LocalSessionClient& client() { return client_; }
+    // 网状 agent 树服务;shutdown 前一直可用,工具只持有 weak_ptr。
+    std::shared_ptr<mesh::MeshAgentService> mesh() { return mesh_; }
 
     // spawn_subagent 工具的 on_spawn 回调实现。
     void on_spawned(const std::string& child_id, const std::string& prompt);
@@ -111,6 +117,7 @@ private:
     std::vector<SubagentTaskSnapshot> running_;
     SessionRegistry registry_;
     LocalSessionClient client_;
+    std::shared_ptr<mesh::MeshAgentService> mesh_;
     std::unordered_map<std::string, ScopedSubscription> subscriptions_;
     LifetimeToken lifetime_;
 };

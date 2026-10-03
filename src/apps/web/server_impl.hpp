@@ -164,6 +164,9 @@ struct ParsedSessionUserInputRequest {
     std::string expected_turn_id;
     // 提问插话路由专用:body.request_id,对应 question_request.request_id。
     std::string question_request_id;
+    // body.swarm_mode:"star" | "mesh" | "off" | false,旧客户端的 true 等价 star。
+    // 缺省 = 沿用会话当前模式。
+    std::optional<SwarmMode> swarm_mode;
 };
 
 // Where a home (workspace) draft lives. draft_dir holds input_draft.json;

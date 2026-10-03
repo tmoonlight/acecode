@@ -69,8 +69,10 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
           </button>
         )}
       </div>
-      <div className="flex items-center gap-1.5 text-[11px] text-fg-2">
-        <span>Agent</span>
+      <div className="flex items-center gap-1.5 text-[11px] text-fg-2 min-w-0">
+        {task.agentPath
+          ? <span className="font-mono truncate" title={task.agentPath}>{task.agentPath}</span>
+          : <span>Agent</span>}
         {running ? (
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-ok shadow-[0_0_5px_var(--ace-ok)]" />
