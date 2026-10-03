@@ -689,8 +689,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, []);
   // 后台任务(spawn_subagent 子会话):数据 hook 常驻(运行中任务保持 WS
   // 订阅,权限/问题请求才能冒泡到主会话 UI);新调用开始时自动打开面板。
+  // 子会话跟随父会话所在工作区:Desktop 的 daemon 同时服务多个工作区,子会话
+  // 不在内存里时(Desktop 重启后、网状 agent 被换出)只能按这个工作区读盘。
+  const subagentWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash || ref?.workspace_hash)
+    ? (ref?.workspaceHash || ref?.workspace_hash)
+    : '';
   const subagentTasks = useSubagentTasks(sid, {
     onSpawnStart: openSubagentPanelForSpawn,
+    workspaceHash: subagentWorkspaceHash,
   });
   // 当前视图可见的待答问题。提问挂起期间 composer dock 由提问框整体替换
   // (方案 A),所以它只驱动渲染,不再参与 submit 的分支判定。
@@ -6166,11 +6172,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           focus={subagentFocus}
           onClose={() => setSubagentPanelOpen(false)}
           tasks={subagentTasks.tasks}
+          workspaceHash={subagentWorkspaceHash}
           onAbort={(task) => subagentTasks.abortTask(task.id)}
           onClearSettled={async () => {
             const result = await subagentTasks.clearSettled();
             if (result?.failed > 0) {
-              toast({ kind: 'err', text: `有 ${result.failed} 个任务清除失败(可能仍在运行)` });
+              toast({ kind: 'err', text: `有 ${result.failed} 个任务归档失败(可能仍在运行)` });
             }
           }}
         />

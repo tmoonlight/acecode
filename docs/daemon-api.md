@@ -812,6 +812,13 @@ the user-message search index, then removes `<id>.jsonl`, the per-session
 `<id>/` persisted-data directory, and `<id>.meta.json` last. Returns `204` only
 after cleanup succeeds.
 
+Sub-agent sessions (`spawn_subagent` tasks and every mesh agent of the tree)
+are kept like ordinary sessions and live and die with their main session:
+purging a main session first applies the same cleanup to each of its child
+sessions (archived or not, including children that exist only in memory), then
+to the main session itself. A failure stops before the main session is removed,
+so the operation stays retryable.
+
 Guard rails and errors:
 
 - `400` when `purge=1` is missing or the session id is invalid
@@ -819,6 +826,8 @@ Guard rails and errors:
 - `409 {"error":"session must be archived before permanent deletion"}` when
   the target is not archived
 - `409` when the target is unexpectedly busy
+- `409 {"error":"subagent session <id> is busy; abort it first"}` when one of
+  the main session's child sessions is running a turn; nothing is deleted
 - `500` when search-index or file cleanup fails; metadata is retained until
   the other known session data has been removed so the operation remains
   retryable
@@ -1079,9 +1088,13 @@ thread, and removes it from the registry. It does not delete disk history.
 Returns `204`; returns `503` when the session client is unavailable.
 
 `DELETE /api/sessions/:id?purge=1` performs the same durable cleanup for either
-an archived main session or a sub-agent session. It remains the background-task
-"clear" action for sub-agents and is also the compatibility fallback used by
-the archived-session settings page. Guard rails:
+an archived main session (cascading to its child sessions as above) or a single
+sub-agent session. It is the compatibility fallback used by the
+archived-session settings page. The background-task panel no longer purges:
+its "archive" action uses `PUT /api/workspaces/:hash/sessions/:id/archive`
+(or `PUT /api/sessions/:id/archive` without a workspace), which unloads the
+child, hides it from `?parent=` listings and keeps its records. Archived child
+sessions never appear in the `?archived=1` list. Guard rails:
 
 - `400 {"error":"only subagent sessions can be purged"}` for a non-archived
   main session

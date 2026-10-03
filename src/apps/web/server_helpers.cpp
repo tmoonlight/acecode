@@ -1453,9 +1453,6 @@ crow::response WebServer::Impl::purge_session_data(
         }
     }
 
-    // Destroy first so SessionManager flushes and releases the writer lease.
-    deps.session_client->destroy_session(id);
-
     const std::string storage_cwd = meta.no_workspace
         ? meta.cwd
         : (meta.archived
@@ -1463,23 +1460,55 @@ crow::response WebServer::Impl::purge_session_data(
             : (meta.cwd.empty() ? ws.cwd : meta.cwd));
     const auto project_dir = SessionStorage::get_project_dir(storage_cwd);
 
-    // Remove the full-text projection first. If this fails, leave the files
-    // and metadata untouched so the settings row remains retryable.
-    SessionUserMessageIndex search_index(project_dir);
-    std::string index_error;
-    if (!search_index.remove_session(id, &index_error)) {
-        LOG_WARN("[web] purge failed to remove search index for " + id +
-                 ": " + index_error);
-        return error_response(500, "failed to remove session search index");
+    // Child sessions (spawn_subagent tasks, every mesh agent of the tree) are
+    // kept like ordinary sessions and only deleted together with their
+    // top-level session. Children go first so a failure leaves the parent
+    // (and the settings row) in place for a retry.
+    std::vector<std::string> doomed;
+    if (meta.parent_session_id.empty()) {
+        for (const auto& child : SessionStorage::list_session_metadata(project_dir)) {
+            if (child.parent_session_id == id) doomed.push_back(child.id);
+        }
+        // A child that has not written anything yet exists only in memory.
+        for (const auto& s : deps.session_client->list_sessions()) {
+            if (s.parent_session_id == id &&
+                std::find(doomed.begin(), doomed.end(), s.id) == doomed.end()) {
+                doomed.push_back(s.id);
+            }
+        }
+        for (const auto& child_id : doomed) {
+            if (!deps.session_registry) break;
+            if (auto entry = deps.session_registry->acquire(child_id);
+                entry && entry->loop && entry->loop->is_busy()) {
+                return error_response(409, "subagent session " + child_id +
+                                               " is busy; abort it first");
+            }
+        }
     }
+    doomed.push_back(id);
 
-    std::string purge_error;
-    if (!SessionStorage::purge_session_files(project_dir, id, &purge_error)) {
-        LOG_WARN("[web] purge failed to remove session files for " + id +
-                 ": " + purge_error);
-        return error_response(500, purge_error.empty()
-            ? "failed to remove session files"
-            : purge_error);
+    SessionUserMessageIndex search_index(project_dir);
+    for (const auto& target : doomed) {
+        // Destroy first so SessionManager flushes and releases the writer lease.
+        deps.session_client->destroy_session(target);
+
+        // Remove the full-text projection first. If this fails, leave the files
+        // and metadata untouched so the settings row remains retryable.
+        std::string index_error;
+        if (!search_index.remove_session(target, &index_error)) {
+            LOG_WARN("[web] purge failed to remove search index for " + target +
+                     ": " + index_error);
+            return error_response(500, "failed to remove session search index");
+        }
+
+        std::string purge_error;
+        if (!SessionStorage::purge_session_files(project_dir, target, &purge_error)) {
+            LOG_WARN("[web] purge failed to remove session files for " + target +
+                     ": " + purge_error);
+            return error_response(500, purge_error.empty()
+                ? "failed to remove session files"
+                : purge_error);
+        }
     }
 
     if (global_session_search) {
@@ -1488,7 +1517,7 @@ crow::response WebServer::Impl::purge_session_data(
 
     LOG_INFO("[web] permanently deleted session " + id +
              (meta.parent_session_id.empty()
-                  ? std::string{" (archived)"}
+                  ? " (archived, " + std::to_string(doomed.size() - 1) + " subagent session(s))"
                   : " (parent=" + meta.parent_session_id + ")"));
     return with_cors(req, crow::response(204));
 }

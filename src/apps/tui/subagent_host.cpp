@@ -3,7 +3,6 @@
 #include "agent/agent_loop.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
-#include "session/session_user_message_search.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
@@ -139,6 +138,7 @@ SubagentHost::list_tasks(const std::string& project_dir) const {
     if (!parent.empty() && !project_dir.empty()) {
         for (const auto& meta : SessionStorage::list_sessions(project_dir)) {
             if (meta.parent_session_id != parent) continue;
+            if (meta.archived) continue;  // /tasks clear 收起的任务不再列出
             if (std::find(running_ids.begin(), running_ids.end(), meta.id) !=
                 running_ids.end()) {
                 continue;
@@ -169,10 +169,11 @@ int SubagentHost::clear_settled(const std::string& project_dir) {
         std::lock_guard<std::mutex> lk(mu_);
         for (const auto& t : running_) running_ids.push_back(t.id);
     }
+    // 子会话与普通会话一样长期保存:clear 只归档(从列表收起并卸载),
+    // 磁盘记录在主会话被永久删除时才随之删除(Web 面板「归档」同语义)。
     int removed = 0;
-    SessionUserMessageIndex search_index(project_dir);
-    for (const auto& meta : SessionStorage::list_sessions(project_dir)) {
-        if (meta.parent_session_id != parent) continue;
+    for (auto meta : SessionStorage::list_sessions(project_dir)) {
+        if (meta.parent_session_id != parent || meta.archived) continue;
         if (std::find(running_ids.begin(), running_ids.end(), meta.id) !=
             running_ids.end()) {
             continue;
@@ -187,19 +188,16 @@ int SubagentHost::clear_settled(const std::string& project_dir) {
             }
         }
         subscription.reset();
-        registry_.destroy(meta.id);  // 不在 registry 时是 no-op
-        SessionStorage::purge_session_files(project_dir, meta.id);
-        {
-            // 与 Web 端 purge 一致:永久删除必须连用户消息搜索索引一起清,
-            // 否则子会话的用户输入全文残留在索引数据库。
-            std::string index_error;
-            if (!search_index.remove_session(meta.id, &index_error)) {
-                LOG_WARN("[subagent] purge failed to remove search index for " +
-                         meta.id + ": " + index_error);
-            }
+        registry_.destroy(meta.id);  // 不在 registry 时是 no-op;先落盘再改 meta
+        meta = SessionStorage::read_meta(SessionStorage::meta_path(project_dir, meta.id));
+        if (meta.id.empty()) continue;
+        meta.archived = true;
+        if (!SessionStorage::write_meta(SessionStorage::meta_path(project_dir, meta.id), meta)) {
+            LOG_WARN("[subagent] failed to archive settled task " + meta.id);
+            continue;
         }
         ++removed;
-        LOG_INFO("[subagent] purged settled task " + meta.id);
+        LOG_INFO("[subagent] archived settled task " + meta.id);
     }
     return removed;
 }

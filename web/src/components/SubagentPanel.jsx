@@ -8,7 +8,8 @@
 //
 // 两个视图:
 //   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop);
-//     已完成组标题行有「清除」(purge 全部已结束任务,永久删除)。
+//     已完成组标题行有「归档」:把已结束任务从面板收起,记录仍保留在磁盘上,
+//     主会话被永久删除时才随之删除(子会话与普通会话一样长期保存)。
 //   - transcript:点卡片「查看会话」原地切换,复用主会话的完整 transcript
 //     投影与渲染链路,仅通过能力开关保持只读。AskUserQuestion 工具行不显示——
 //     子代理的提问/权限确认冒泡到主会话 UI 回答,这里只看执行过程。
@@ -100,12 +101,16 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
   );
 }
 
-function SubagentTranscriptView({ task, messageAutoCollapse }) {
+function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse }) {
+  // workspaceHash 让历史请求带上 ?workspace=:子会话不在 daemon 内存里时
+  // (Desktop 重启后、网状 agent 被换出)daemon 才知道去哪个工作区读盘,
+  // 否则多工作区 daemon 只查自己的 cwd,返回 404 SESSION_NOT_FOUND。
   const sessionRef = useMemo(() => ({
     sessionId: task.id,
+    workspaceHash,
     busy: task.status === SUBAGENT_TASK_STATUS.RUNNING,
     title: taskDisplayTitle(task),
-  }), [task.id, task.status, task.title, task.summary]);
+  }), [task.id, task.status, task.title, task.summary, workspaceHash]);
   const transcript = useSessionTranscript(sessionRef, { live: 'auto' });
   // 子会话记录里的附件 blob_url 本来就在子会话 id 下;loader 走 request() 带 token。
   const attachmentApi = useMemo(() => createApi(sessionRef), [sessionRef]);
@@ -270,7 +275,7 @@ function SubagentTranscriptView({ task, messageAutoCollapse }) {
   );
 }
 
-export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, onAbort, onClearSettled, messageAutoCollapse = true }) {
+export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, workspaceHash = '', onAbort, onClearSettled, messageAutoCollapse = true }) {
   const [transcriptTaskId, setTranscriptTaskId] = useState('');
   const [clearing, setClearing] = useState(false);
 
@@ -353,7 +358,12 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
       </div>
 
       {transcriptTask ? (
-        <SubagentTranscriptView key={transcriptTask.id} task={transcriptTask} messageAutoCollapse={messageAutoCollapse} />
+        <SubagentTranscriptView
+          key={transcriptTask.id}
+          task={transcriptTask}
+          workspaceHash={workspaceHash}
+          messageAutoCollapse={messageAutoCollapse}
+        />
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-3">
           {tasks.length === 0 && (
@@ -390,9 +400,9 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                     'text-[11.5px] text-fg-mute transition hover:text-danger',
                     clearing && 'opacity-50 cursor-default',
                   )}
-                  title="永久删除全部已结束任务(不影响主会话)"
+                  title="把已结束任务从面板收起;记录保留,主会话永久删除时一并删除"
                 >
-                  {clearing ? '清除中…' : '清除'}
+                  {clearing ? '归档中…' : '归档'}
                 </button>
               </div>
               {groups.settled.map((task) => (
