@@ -1052,7 +1052,7 @@ void WebServer::Impl::register_workspaces() {
                 r.add_header("Content-Type", "application/json");
                 return with_cors(req, std::move(r));
             }
-            return purge_session_data(req, *ws, id, /*require_archived=*/true);
+            return purge_session_data(req, *ws, id);
         });
 
         CROW_ROUTE(app, "/api/workspaces/<string>/sessions/<string>/archive").methods(crow::HTTPMethod::PUT)

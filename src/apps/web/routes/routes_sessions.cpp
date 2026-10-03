@@ -1331,8 +1331,7 @@ void WebServer::Impl::register_sessions() {
                 deps.session_client->destroy_session(id);
                 return with_cors(req, crow::response(204));
             }
-            return purge_session_data(
-                req, compatibility_workspace(), id, /*require_archived=*/false);
+            return purge_session_data(req, compatibility_workspace(), id);
         });
 
         // GET /api/sessions/:id/messages?since=N: 拉历史 + 缓存事件。spec 9.6

@@ -985,11 +985,6 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '批注 {{p0}}': 'Annotation {{p0}}',
   '{{p0}} · 原文已变化': '{{p0}} · Source text changed',
   '添加能力或上下文': 'Add capability or context',
-  // 后台任务面板:已结束子任务只归档、不再永久删除(子会话随主会话一起删除)
-  '归档中…': 'Archiving…',
-  '把已结束任务从面板收起;记录保留,主会话永久删除时一并删除':
-    'Hide finished tasks from the panel; records are kept and deleted together with the main session',
-  '有 {{p0}} 个任务归档失败(可能仍在运行)': '{{p0}} task(s) could not be archived (they may still be running)',
   // 蜂群模式分星型 / 网状(openspec add-mesh-swarm-mode)
   '蜂群模式（星型）': 'Swarm mode (Star)',
   '蜂群模式（网状）': 'Swarm mode (Mesh)',

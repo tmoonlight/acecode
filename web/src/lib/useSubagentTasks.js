@@ -7,9 +7,8 @@
 //   3. 对运行中的子任务保持 WS 订阅(connection.retainSession)——
 //      **不依赖面板是否打开**:这是子会话 permission_request / question_request
 //      能到达 App 全局监听并冒泡到主会话 UI 的前提。已结束任务不订阅。
-//   4. 操作:中止(sendAbort + 本地标记)、归档(archive REST + 本地移除)。
-//      子会话和普通会话一样长期保存:面板的「归档」只把已结束任务收起,
-//      记录随父会话一起在永久删除时才清掉(daemon purge 级联)。
+//   4. 操作:只有中止(sendAbort + 本地标记)。子会话没有单独的归档 / 删除:
+//      它们始终跟随主会话,只在主会话归档后被永久删除时一起删除(daemon 级联)。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
@@ -24,7 +23,7 @@ import {
   shouldRefreshSubagentTasksFromStatus,
 } from './subagentTasks.js';
 
-export function useSubagentTasks(parentSessionId, { onSpawnStart, workspaceHash = '' } = {}) {
+export function useSubagentTasks(parentSessionId, { onSpawnStart } = {}) {
   const [tasks, setTasks] = useState([]);
   const retainedRef = useRef(new Set());
   const parentRef = useRef(parentSessionId);
@@ -124,28 +123,10 @@ export function useSubagentTasks(parentSessionId, { onSpawnStart, workspaceHash 
     setTasks((prev) => markSubagentTaskAborted(prev, id));
   }, []);
 
-  const clearSettled = useCallback(async () => {
-    const settled = tasks.filter((t) => t.status !== SUBAGENT_TASK_STATUS.RUNNING);
-    // 子会话跟随父会话所在工作区;多工作区 daemon 的兼容路由只认自己的 cwd,
-    // 知道工作区时走工作区路由,否则(无工作区父会话)走兼容路由。
-    const archive = (id) => (workspaceHash
-      ? api.archiveWorkspaceSession(workspaceHash, id)
-      : api.archiveSession(id));
-    const results = await Promise.allSettled(settled.map((t) => archive(t.id)));
-    const removed = new Set(
-      settled.filter((_, i) => results[i].status === 'fulfilled').map((t) => t.id));
-    if (removed.size > 0) {
-      setTasks((prev) => prev.filter((t) => !removed.has(t.id)));
-    }
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    return { removed: removed.size, failed };
-  }, [tasks, workspaceHash]);
-
   return {
     tasks,
     runningCount: runningSubagentCount(tasks),
     refresh,
     abortTask,
-    clearSettled,
   };
 }

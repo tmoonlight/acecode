@@ -13,6 +13,7 @@
 #include "session/session_user_message_search.hpp"
 #include "session/composer_content.hpp"
 #include "session/session_title_text.hpp"
+#include "session/session_tree_purge.hpp"
 #include "utils/encoding.hpp"
 
 namespace acecode::web {
@@ -1203,7 +1204,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             if (!disk_meta.id.empty()) meta = std::move(disk_meta);
         }
         const bool archived = meta ? meta->archived : false;
-        if (archived != archived_only) continue;
+        if (parent_filter.empty() && archived != archived_only) continue;
         push_row(s.id, session_info_to_json(s, meta ? &*meta : nullptr));
     }
     const std::size_t active_rows = rows.size();
@@ -1211,7 +1212,7 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
     const auto accept_disk = [&](const SessionMeta& m) {
         if (seen.count(m.id)) return false;
         if (parent_mismatch(m.parent_session_id)) return false;
-        if (m.archived != archived_only) return false;
+        if (parent_filter.empty() && m.archived != archived_only) return false;
         if (m.no_workspace && !include_no_workspace) return false;
         return true;
     };
@@ -1374,6 +1375,13 @@ crow::response WebServer::Impl::set_session_archive_state(
     }
 
     SessionMeta meta = *maybe_meta;
+    if (archived && !meta.parent_session_id.empty()) {
+        // 子会话跟随主会话,没有单独归档(用户决策,见 session_tree_purge.hpp)。
+        crow::response r(409);
+        r.body = R"({"error":"subagent sessions follow their main session and cannot be archived separately"})";
+        r.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(r));
+    }
     if (archived && deps.session_client) {
         deps.session_client->destroy_session(id);
         const auto reread = find_session_meta_for_workspace(ws, id);
@@ -1404,8 +1412,7 @@ crow::response WebServer::Impl::set_session_archive_state(
 crow::response WebServer::Impl::purge_session_data(
     const crow::request& req,
     const acecode::desktop::WorkspaceMeta& ws,
-    const std::string& id,
-    bool require_archived) {
+    const std::string& id) {
     const auto error_response = [this, &req](int status, const std::string& message) {
         crow::response r(status);
         r.body = json{{"error", message}}.dump();
@@ -1432,14 +1439,11 @@ crow::response WebServer::Impl::purge_session_data(
         return error_response(404, "session not found");
     }
     const SessionMeta meta = *maybe_meta;
-    if (require_archived && !meta.archived) {
-        return error_response(409, "session must be archived before permanent deletion");
+    if (!meta.parent_session_id.empty()) {
+        return error_response(409, "subagent sessions are deleted together with their main session");
     }
-    if (!require_archived && !meta.archived && meta.parent_session_id.empty()) {
-        // Preserve the existing compatibility-route error for active main
-        // sessions while allowing archived main sessions through the same
-        // explicit ?purge=1 path.
-        return error_response(400, "only subagent sessions can be purged");
+    if (!meta.archived) {
+        return error_response(409, "session must be archived before permanent deletion");
     }
 
     if (deps.session_registry) {
@@ -1460,32 +1464,25 @@ crow::response WebServer::Impl::purge_session_data(
             : (meta.cwd.empty() ? ws.cwd : meta.cwd));
     const auto project_dir = SessionStorage::get_project_dir(storage_cwd);
 
-    // Child sessions (spawn_subagent tasks, every mesh agent of the tree) are
-    // kept like ordinary sessions and only deleted together with their
-    // top-level session. Children go first so a failure leaves the parent
-    // (and the settings row) in place for a retry.
-    std::vector<std::string> doomed;
-    if (meta.parent_session_id.empty()) {
-        for (const auto& child : SessionStorage::list_session_metadata(project_dir)) {
-            if (child.parent_session_id == id) doomed.push_back(child.id);
-        }
-        // A child that has not written anything yet exists only in memory.
-        for (const auto& s : deps.session_client->list_sessions()) {
-            if (s.parent_session_id == id &&
-                std::find(doomed.begin(), doomed.end(), s.id) == doomed.end()) {
-                doomed.push_back(s.id);
-            }
-        }
-        for (const auto& child_id : doomed) {
-            if (!deps.session_registry) break;
-            if (auto entry = deps.session_registry->acquire(child_id);
-                entry && entry->loop && entry->loop->is_busy()) {
-                return error_response(409, "subagent session " + child_id +
-                                               " is busy; abort it first");
-            }
+    // Child sessions (spawn_subagent tasks, every mesh agent of the tree) have
+    // no lifecycle of their own: they go together with their main session.
+    // Children first, the main session last, so a failure keeps it retryable.
+    std::vector<std::string> doomed = session_tree_delete_order(project_dir, id);
+    // A child that has not written anything yet exists only in memory.
+    for (const auto& s : deps.session_client->list_sessions()) {
+        if (s.parent_session_id == id &&
+            std::find(doomed.begin(), doomed.end(), s.id) == doomed.end()) {
+            doomed.insert(doomed.end() - 1, s.id);
         }
     }
-    doomed.push_back(id);
+    for (const auto& child_id : doomed) {
+        if (child_id == id || !deps.session_registry) continue;
+        if (auto entry = deps.session_registry->acquire(child_id);
+            entry && entry->loop && entry->loop->is_busy()) {
+            return error_response(409, "subagent session " + child_id +
+                                           " is busy; abort it first");
+        }
+    }
 
     SessionUserMessageIndex search_index(project_dir);
     for (const auto& target : doomed) {
@@ -1515,10 +1512,8 @@ crow::response WebServer::Impl::purge_session_data(
         global_session_search->invalidate_project(ws.hash);
     }
 
-    LOG_INFO("[web] permanently deleted session " + id +
-             (meta.parent_session_id.empty()
-                  ? " (archived, " + std::to_string(doomed.size() - 1) + " subagent session(s))"
-                  : " (parent=" + meta.parent_session_id + ")"));
+    LOG_INFO("[web] permanently deleted archived session " + id + " with " +
+             std::to_string(doomed.size() - 1) + " subagent session(s)");
     return with_cors(req, crow::response(204));
 }
 

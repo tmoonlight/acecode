@@ -813,16 +813,18 @@ the user-message search index, then removes `<id>.jsonl`, the per-session
 after cleanup succeeds.
 
 Sub-agent sessions (`spawn_subagent` tasks and every mesh agent of the tree)
-are kept like ordinary sessions and live and die with their main session:
-purging a main session first applies the same cleanup to each of its child
-sessions (archived or not, including children that exist only in memory), then
-to the main session itself. A failure stops before the main session is removed,
-so the operation stays retryable.
+have no lifecycle of their own: they cannot be archived or deleted separately
+and live and die with their main session. Purging a main session first applies
+the same cleanup to each of its child sessions (including children that exist
+only in memory), then to the main session itself. A failure stops before the
+main session is removed, so the operation stays retryable.
 
 Guard rails and errors:
 
 - `400` when `purge=1` is missing or the session id is invalid
 - `404` when the workspace or session does not exist
+- `409 {"error":"subagent sessions are deleted together with their main session"}`
+  when the target is a sub-agent session; nothing is deleted
 - `409 {"error":"session must be archived before permanent deletion"}` when
   the target is not archived
 - `409` when the target is unexpectedly busy
@@ -1036,8 +1038,8 @@ storage directly; they do not call the daemon HTTP API:
 | `wait_threads` | wait for up to eight targets across workspaces using event cursors |
 | `set_thread_title` | rename a thread |
 | `set_thread_pinned` | update the existing pinned-session state |
-| `set_thread_archived` | archive or unarchive a thread |
-| `delete_thread` | permanently delete a thread and all descendants |
+| `set_thread_archived` | archive or unarchive a thread (sub-agent threads cannot be archived) |
+| `delete_thread` | permanently delete a main thread and all descendants (sub-agent threads are refused) |
 | `repair_thread` | append a deterministic repair checkpoint to another thread |
 | `create_workspace` | register an existing absolute directory as a visible workspace |
 
@@ -1087,17 +1089,18 @@ Destroys an active in-memory session: aborts the current turn, joins the worker
 thread, and removes it from the registry. It does not delete disk history.
 Returns `204`; returns `503` when the session client is unavailable.
 
-`DELETE /api/sessions/:id?purge=1` performs the same durable cleanup for either
-an archived main session (cascading to its child sessions as above) or a single
-sub-agent session. It is the compatibility fallback used by the
-archived-session settings page. The background-task panel no longer purges:
-its "archive" action uses `PUT /api/workspaces/:hash/sessions/:id/archive`
-(or `PUT /api/sessions/:id/archive` without a workspace), which unloads the
-child, hides it from `?parent=` listings and keeps its records. Archived child
-sessions never appear in the `?archived=1` list. Guard rails:
+`DELETE /api/sessions/:id?purge=1` is the compatibility form of the workspace
+purge above, used by the archived-session settings page, with the same
+semantics: only an archived main session is accepted, and it is deleted
+together with its child sessions. The background-task panel has no archive or
+delete action; `?parent=` listings return every child regardless of a legacy
+`archived` flag, and child sessions never appear in the `?archived=1` list.
+Guard rails:
 
-- `400 {"error":"only subagent sessions can be purged"}` for a non-archived
-  main session
+- `409 {"error":"subagent sessions are deleted together with their main session"}`
+  for a sub-agent session
+- `409 {"error":"session must be archived before permanent deletion"}` for a
+  non-archived main session
 - `409 {"error":"session is busy; abort it first"}` while the target is
   running a turn
 - `404` for a missing session, `500` for incomplete durable cleanup, and `503`
@@ -1175,7 +1178,7 @@ Workspace-scoped and compatibility paths share the same behavior:
 
 | Method | Path shape | Body | Response |
 |---|---|---|---|
-| PUT | `.../sessions/:id/archive` | ignored | updated `SessionSummary` |
+| PUT | `.../sessions/:id/archive` | ignored | updated `SessionSummary`; `409` for a sub-agent session (children follow their main session) |
 | DELETE | `.../sessions/:id/archive` | none | updated `SessionSummary` |
 | PUT | `.../sessions/:id/title` | `{"title":"..."}` | updated `SessionSummary` |
 | GET | `.../sessions/:id/draft` | none | `{"session_id","id","text"}` |

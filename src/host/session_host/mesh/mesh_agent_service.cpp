@@ -416,10 +416,6 @@ std::string MeshAgentService::ensure_loaded(const Caller& caller, const std::str
         finish(false);
         return "collab tool failed: agent `" + path + "` could not be restored";
     }
-    if (auto entry = deps_.registry->acquire(session_id); entry && entry->sm) {
-        // 面板「归档」收起的 agent 被再次寻址:取消归档,让它重新出现在后台任务面板里。
-        entry->sm->set_session_archived(false);
-    }
     subscribe_child(caller.root_id, session_id);
     commit_resident(caller.root_id, session_id);
     LOG_INFO("[mesh] restored agent " + path + " (" + session_id + ")");

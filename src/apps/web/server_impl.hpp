@@ -475,10 +475,10 @@ struct WebServer::Impl {
                                               const acecode::desktop::WorkspaceMeta& ws,
                                               const std::string& id,
                                               bool archived);
+    // 永久删除已归档主会话,连同它的全部子会话;子会话不能单独删(409)。
     crow::response purge_session_data(const crow::request& req,
                                       const acecode::desktop::WorkspaceMeta& ws,
-                                      const std::string& id,
-                                      bool require_archived);
+                                      const std::string& id);
     crow::response session_input_draft_response(const crow::request& req,
                                                  const std::string& id,
                                                  const std::string& text,

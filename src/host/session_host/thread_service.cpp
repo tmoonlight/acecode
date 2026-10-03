@@ -8,6 +8,7 @@
 #include "session/session_pin_store.hpp"
 #include "session_registry.hpp"
 #include "session/session_storage.hpp"
+#include "session/session_tree_purge.hpp"
 #include "session/session_user_message_search.hpp"
 #include "session/thread_repair.hpp"
 #include "llm/message_predicates.hpp"
@@ -942,6 +943,11 @@ ThreadServiceResult ThreadService::set_archived(
         return ThreadServiceResult::fail(
             "thread is unavailable in the current workspace");
     }
+    if (archived && !scoped->meta.parent_session_id.empty()) {
+        // 子会话跟随主会话,没有单独归档(见 session_tree_purge.hpp)。
+        return ThreadServiceResult::fail(
+            "subagent threads follow their main thread and cannot be archived separately");
+    }
     if (auto* manager = scoped->manager()) {
         manager->set_session_archived(archived);
     } else {
@@ -974,32 +980,6 @@ ThreadServiceResult ThreadService::set_archived(
 }
 
 namespace {
-
-std::vector<std::string> child_first_delete_order(
-    const std::string& project_dir,
-    const std::string& root_thread_id) {
-    const auto metas = SessionStorage::list_sessions(project_dir);
-    std::unordered_multimap<std::string, std::string> children;
-    for (const auto& meta : metas) {
-        if (!meta.parent_session_id.empty()) {
-            children.emplace(meta.parent_session_id, meta.id);
-        }
-    }
-
-    std::vector<std::string> delete_order;
-    std::unordered_set<std::string> visited;
-    std::function<void(const std::string&)> collect =
-        [&](const std::string& id) {
-            if (!visited.insert(id).second) return;
-            const auto range = children.equal_range(id);
-            for (auto it = range.first; it != range.second; ++it) {
-                collect(it->second);
-            }
-            delete_order.push_back(id);
-        };
-    collect(root_thread_id);
-    return delete_order;
-}
 
 json deleted_ids_json(const std::vector<std::string>& delete_order) {
     json deleted = json::array();
@@ -1069,9 +1049,14 @@ ThreadServiceResult ThreadService::delete_thread(
         return ThreadServiceResult::fail(
             "thread is unavailable in the current workspace");
     }
+    if (!target->meta.parent_session_id.empty()) {
+        return ThreadServiceResult::fail(
+            "subagent threads are deleted together with their main thread; "
+            "delete the main thread instead");
+    }
 
     const std::string project_dir = target->project_dir;
-    const auto delete_order = child_first_delete_order(project_dir, thread_id);
+    const auto delete_order = session_tree_delete_order(project_dir, thread_id);
     const bool contains_caller =
         !scope.caller_thread_id.empty() &&
         std::find(delete_order.begin(), delete_order.end(),
