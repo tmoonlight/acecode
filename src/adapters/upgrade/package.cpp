@@ -1,5 +1,6 @@
 #include "package.hpp"
 
+#include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>
@@ -94,7 +95,7 @@ bool apply_archive_permissions(const fs::path& path,
     if (ec) {
         if (error) {
             *error = "failed to restore zip entry permissions for " +
-                     path_to_utf8(path) + ": " + ec.message();
+                     path_to_utf8(path) + ": " + ensure_utf8(ec.message());
         }
         return false;
     }
@@ -148,7 +149,9 @@ bool extract_zip_to_staging(const fs::path& zip_path,
     std::error_code ec;
     fs::create_directories(staging_dir, ec);
     if (ec) {
-        if (error) *error = "failed to create staging directory: " + ec.message();
+        // 错误文本会成为 GUI 升级任务的 job.error;MSVC 的 ec.message() 走 ANSI
+        // 代码页(中文 Windows 为 GBK),先单独转 UTF-8 再拼接。
+        if (error) *error = "failed to create staging directory: " + ensure_utf8(ec.message());
         return false;
     }
 
@@ -196,7 +199,10 @@ bool extract_zip_to_staging(const fs::path& zip_path,
         if (is_dir) {
             fs::create_directories(dest, ec);
             if (ec) {
-                if (error) *error = "failed to create directory from zip: " + ec.message();
+                if (error) {
+                    *error = "failed to create directory from zip: " +
+                             ensure_utf8(ec.message());
+                }
                 zip_close(archive);
                 return false;
             }
@@ -208,7 +214,10 @@ bool extract_zip_to_staging(const fs::path& zip_path,
 
         fs::create_directories(dest.parent_path(), ec);
         if (ec) {
-            if (error) *error = "failed to create parent directory from zip: " + ec.message();
+            if (error) {
+                *error = "failed to create parent directory from zip: " +
+                         ensure_utf8(ec.message());
+            }
             zip_close(archive);
             return false;
         }
@@ -283,7 +292,7 @@ std::optional<StagedPackage> validate_staged_package(const fs::path& staging_dir
         }
     }
     if (ec) {
-        if (error) *error = "failed to inspect staged package: " + ec.message();
+        if (error) *error = "failed to inspect staged package: " + ensure_utf8(ec.message());
         return std::nullopt;
     }
     if (top_dirs.size() == 1) {

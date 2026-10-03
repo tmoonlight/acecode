@@ -27,6 +27,7 @@
     "i18next": "26.3.6",
     "katex": "^0.16.47",
     "markdown-it": "^14.1.1",
+    "markdown-it-cjk-friendly": "3.0.0",
     "markdown-it-task-lists": "^2.1.1",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm": "^3.1.0",

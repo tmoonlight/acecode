@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { refreshSavedModelReasoning, subscribeModelProfileUpdates } from './modelReasoningSync.js';
+import { refreshSavedModelReasoning, requestSavedModelReasoningSync, subscribeModelProfileUpdates } from './modelReasoningSync.js';
+import { composerReasoningOptions } from './modelReasoning.js';
+import { normalizeModelOptions, withCreateSessionPreferences } from './sessionModel.js';
 
 const connection = new EventTarget();
 let updates = 0;
@@ -19,6 +21,38 @@ unsubscribe();
 message('model_profiles_updated');
 connection.dispatchEvent(new Event('open'));
 assert.equal(updates, 2);
+
+await requestSavedModelReasoningSync({ refreshModelReasoning: async () => { throw new Error('offline'); } });
+await requestSavedModelReasoningSync({ refreshModelReasoning() { throw new Error('unavailable'); } });
+await requestSavedModelReasoningSync({});
+
+// A new conversation reads saved profiles, which can lack a declaration even
+// when existing sessions still have one. Discovery restores the home control.
+let savedModels = [{ name: 'ACEModel-starrylight', provider: 'openai' }];
+let homeModels = normalizeModelOptions(savedModels);
+let syncRequests = 0;
+const offHome = subscribeModelProfileUpdates(connection, () => {
+  homeModels = normalizeModelOptions(savedModels);
+});
+assert.equal(composerReasoningOptions(homeModels[0]), null);
+await requestSavedModelReasoningSync({ refreshModelReasoning: async () => {
+  syncRequests += 1;
+  savedModels = [{ ...savedModels[0], reasoning: {
+    supported: true, default_enabled: true,
+    supported_efforts: ['low', 'medium', 'high'], default_effort: 'medium',
+  } }];
+  message('model_profiles_updated');
+} });
+assert.equal(composerReasoningOptions(homeModels[0]).label, '中');
+assert.equal(composerReasoningOptions(homeModels[0], 'high').label, '高');
+const creation = withCreateSessionPreferences({}, {
+  modelName: homeModels[0].name, reasoningEffort: 'high',
+});
+assert.equal(creation.reasoning_effort, 'high');
+assert.equal(savedModels[0].reasoning.default_effort, 'medium');
+message('model_profiles_updated');
+assert.equal(syncRequests, 1, 'profile notifications must not queue more remote syncs');
+offHome();
 
 let release;
 const blocked = new Promise((resolve) => { release = resolve; });
@@ -44,4 +78,7 @@ assert.match(settings, /subscribeModelProfileUpdates\(connection,/);
 assert.match(settings, /loadSavedModels\(\{ quiet: true, silent: true \}\)/);
 const app = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8');
 assert.match(app, /subscribeModelProfileUpdates\(connection,[\s\S]*?setModelProfileRevision/);
+const chat = readFileSync(new URL('../components/ChatView.jsx', import.meta.url), 'utf8');
+assert.match(chat, /useEffect\(\(\) => \{\s*if \(sid\) return;[\s\S]*?requestSavedModelReasoningSync\(api\);\s*\}, \[api, sid\]\)/);
+assert.match(chat, /const refreshSessionModels = useCallback\(async \(\) => \{[\s\S]*?requestSavedModelReasoningSync\(api\)/);
 console.log('modelReasoningSync.test.js: all tests passed');

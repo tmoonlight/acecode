@@ -208,6 +208,7 @@ import {
   withCreateSessionPreferences,
 } from '../lib/sessionModel.js';
 import { composerReasoningOptions } from '../lib/modelReasoning.js';
+import { requestSavedModelReasoningSync } from '../lib/modelReasoningSync.js';
 import { normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
 import { ATTACHMENT_HARD_LIMIT_BYTES, normalizeImageFile } from '../lib/imageNormalize.js';
 import { VsIcon } from './Icon.jsx';
@@ -2439,6 +2440,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [composerValue, composerContent, composerAttachments, draftReadyKey, draftSessionKey, draftWorkspaceHash, persistDraftValue, sid]);
 
   useEffect(() => {
+    if (sid) return;
+    // Retry discovery on home entry even if startup discovery failed. Profile
+    // update notifications only reload local state and must not retrigger this.
+    void requestSavedModelReasoningSync(api);
+  }, [api, sid]);
+
+  useEffect(() => {
     let cancelled = false;
     setPendingModelName('');
     setModelSwitching(false);
@@ -2504,6 +2512,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (modelRefreshing || reasoningSwitching) return;
     const targetSid = sid;
     setModelRefreshing(true);
+    void requestSavedModelReasoningSync(api);
     try {
       const requests = targetSid
         ? [api.listModels(), api.reloadSessionModel(targetSid)]

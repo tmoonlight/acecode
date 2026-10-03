@@ -9,6 +9,7 @@ import { isImageAttachment, normalizeAttachmentList } from './messageAttachments
 import { questionFeedbackForItem } from './questionFeedback.js';
 import { isShellCommand } from './shellCommandPresentation.js';
 import { mergeLegacyGoalNotices } from './systemNotice.js';
+import { interAgentEnvelope } from './interAgentMessage.js';
 
 function isUserMessage(item) {
   return item?.kind === 'msg' && item.role === 'user';
@@ -954,22 +955,29 @@ function preservedTurnPrefix(items) {
   return items.filter((item) => isUserMessage(item));
 }
 
-function appendFinalProcessedItems(out, items, beforeIndex, endItem) {
+function appendProcessedItems(out, items, endItem) {
   const processed = [];
+  let summaryIndex = -1;
   const flushProcessed = () => {
-    pushProcessedSummary(out, processed, endItem);
+    if (summaryIndex < 0) return;
+    out[summaryIndex] = makeProcessedItem(processed, endItem);
     processed.length = 0;
+    summaryIndex = -1;
   };
 
-  for (let i = 0; i < beforeIndex; i += 1) {
-    const item = items[i];
-    if (isUserMessage(item)) continue;
-    if (isEmptyAssistantMessage(item)) continue;
-    if (isTaskCompleteTool(item) || isTaskCompleteToolCallMessage(item)) continue;
+  for (const item of items) {
     if (isProcessedActivityItem(item)) {
+      if (summaryIndex < 0) {
+        summaryIndex = out.length;
+        out.push(null);
+      }
       processed.push(item);
     } else {
-      flushProcessed();
+      // 跨 agent 通知保留为独立行,但不是已处理活动的分段边界。
+      // 摘要锚定首个活动,避免每封邮件都重复显示整回合的持久耗时。
+      const interAgentNotice = item?.kind === 'msg' && item.role === 'system'
+        && interAgentEnvelope(item.metadata) !== null;
+      if (!interAgentNotice) flushProcessed();
       out.push(item);
     }
   }
@@ -977,10 +985,14 @@ function appendFinalProcessedItems(out, items, beforeIndex, endItem) {
   flushProcessed();
 }
 
-function pushProcessedSummary(out, processed, endItem) {
-  if (processed.length > 0) {
-    out.push(makeProcessedItem(processed, endItem));
-  }
+function appendFinalProcessedItems(out, items, beforeIndex, endItem) {
+  const activityItems = items.slice(0, beforeIndex).filter((item) => (
+    !isUserMessage(item)
+    && !isEmptyAssistantMessage(item)
+    && !isTaskCompleteTool(item)
+    && !isTaskCompleteToolCallMessage(item)
+  ));
+  appendProcessedItems(out, activityItems, endItem);
 }
 
 function projectFinalCollapsedTurn(items, options = {}) {
@@ -1101,26 +1113,7 @@ function projectCompletionTurn(items, options = {}) {
   if (finalAssistantIndex < 0) return projectGenericTurn(items, options);
 
   const out = [];
-  const processed = [];
-
-  const flushProcessed = () => {
-    if (processed.length > 0) {
-      out.push(makeProcessedItem(processed, items[taskIndex]));
-      processed.length = 0;
-    }
-  };
-
-  for (let i = 0; i < finalAssistantIndex; i += 1) {
-    const item = items[i];
-    if (isProcessedActivityItem(item)) {
-      processed.push(item);
-    } else {
-      flushProcessed();
-      out.push(item);
-    }
-  }
-
-  flushProcessed();
+  appendProcessedItems(out, items.slice(0, finalAssistantIndex), items[taskIndex]);
   out.push(items[finalAssistantIndex]);
 
   const tools = [];

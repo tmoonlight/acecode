@@ -8,6 +8,7 @@
 #include "utils/state_file.hpp"
 #include "provider/model_probe_cache.hpp"
 #include "upgrade/diagnostics.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -109,6 +110,13 @@ std::string trim_update_error(std::string value) {
         value.pop_back();
     }
     return value;
+}
+
+// 升级接口的出口兜底:检查结果与任务错误里拼着网络 / OS 错误文本和本地路径,
+// 已在产生处转成 UTF-8;漏网的非法字节换成 U+FFFD,不让默认严格模式的 dump 抛
+// type_error.316 —— 失败的任务会一直留在内存里,否则每次轮询都是 500。
+std::string dump_update_json(const json& body) {
+    return body.dump(-1, ' ', false, json::error_handler_t::replace);
 }
 
 int hex_value(char ch) {
@@ -1272,10 +1280,7 @@ void WebServer::Impl::register_ui_preferences() {
                                                              ACECODE_VERSION, &diagnostics);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            // 出口兜底:网络 / OS 错误文本已在产生处转 UTF-8,漏网的非法字节换成
-            // U+FFFD,不让 dump 抛 type_error.316 把整个请求变成 500。
-            r.body = update_check_to_json(result).dump(
-                -1, ' ', false, json::error_handler_t::replace);
+            r.body = dump_update_json(update_check_to_json(result));
             return with_cors(req, std::move(r));
         });
 
@@ -1293,7 +1298,7 @@ void WebServer::Impl::register_ui_preferences() {
             }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = update_job_to_json(*update_job_runtime->current).dump();
+            r.body = dump_update_json(update_job_to_json(*update_job_runtime->current));
             return with_cors(req, std::move(r));
         });
 
@@ -1312,7 +1317,7 @@ void WebServer::Impl::register_ui_preferences() {
             }
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = update_job_to_json(*update_job_runtime->current).dump();
+            r.body = dump_update_json(update_job_to_json(*update_job_runtime->current));
             return with_cors(req, std::move(r));
         });
 
@@ -1335,15 +1340,15 @@ void WebServer::Impl::register_ui_preferences() {
             if (job.state == "cancelled") {
                 crow::response r(200);
                 r.add_header("Content-Type", "application/json");
-                r.body = update_job_to_json(job).dump();
+                r.body = dump_update_json(update_job_to_json(job));
                 return with_cors(req, std::move(r));
             }
             if (!update_job_can_cancel(job)) {
                 crow::response r(409);
                 r.add_header("Content-Type", "application/json");
-                r.body = json{{"error", "UPDATE_NOT_CANCELLABLE"},
-                              {"message", "update can no longer be cancelled"},
-                              {"job", update_job_to_json(job)}}.dump();
+                r.body = dump_update_json(json{{"error", "UPDATE_NOT_CANCELLABLE"},
+                                               {"message", "update can no longer be cancelled"},
+                                               {"job", update_job_to_json(job)}});
                 return with_cors(req, std::move(r));
             }
 
@@ -1354,7 +1359,7 @@ void WebServer::Impl::register_ui_preferences() {
             }
             crow::response r(202);
             r.add_header("Content-Type", "application/json");
-            r.body = update_job_to_json(job).dump();
+            r.body = dump_update_json(update_job_to_json(job));
             return with_cors(req, std::move(r));
         });
 
@@ -1375,7 +1380,7 @@ void WebServer::Impl::register_ui_preferences() {
                 body["message"] = "update is already installed; restart ACECode to finish";
                 crow::response response(202);
                 response.add_header("Content-Type", "application/json");
-                response.body = body.dump();
+                response.body = dump_update_json(body);
                 return with_cors(req, std::move(response));
             };
 
@@ -1386,9 +1391,10 @@ void WebServer::Impl::register_ui_preferences() {
                     update_job_is_active(*update_job_runtime->current)) {
                     crow::response r(409);
                     r.add_header("Content-Type", "application/json");
-                    r.body = json{{"error", "UPDATE_IN_PROGRESS"},
-                                  {"message", "an update job is already running"},
-                                  {"job", update_job_to_json(*update_job_runtime->current)}}.dump();
+                    r.body = dump_update_json(json{
+                        {"error", "UPDATE_IN_PROGRESS"},
+                        {"message", "an update job is already running"},
+                        {"job", update_job_to_json(*update_job_runtime->current)}});
                     return with_cors(req, std::move(r));
                 }
             }
@@ -1409,15 +1415,13 @@ void WebServer::Impl::register_ui_preferences() {
                     acecode::upgrade::UpdateCheckStatus::NoCompatiblePackage;
                 crow::response r(409);
                 r.add_header("Content-Type", "application/json");
-                r.body = json{{"error", no_compatible_package
-                                           ? "NO_COMPATIBLE_PACKAGE"
-                                           : "NO_UPDATE"},
-                              {"message", !result.error.empty()
-                                             ? result.error
-                                             : "no compatible update is available"},
-                              {"log_path", result.log_path},
-                              {"status", update_check_to_json(result)}}
-                             .dump(-1, ' ', false, json::error_handler_t::replace);
+                r.body = dump_update_json(json{
+                    {"error", no_compatible_package ? "NO_COMPATIBLE_PACKAGE" : "NO_UPDATE"},
+                    {"message", !result.error.empty()
+                                    ? result.error
+                                    : "no compatible update is available"},
+                    {"log_path", result.log_path},
+                    {"status", update_check_to_json(result)}});
                 return with_cors(req, std::move(r));
             }
 
@@ -1435,9 +1439,10 @@ void WebServer::Impl::register_ui_preferences() {
                     update_job_is_active(*update_job_runtime->current)) {
                     crow::response r(409);
                     r.add_header("Content-Type", "application/json");
-                    r.body = json{{"error", "UPDATE_IN_PROGRESS"},
-                                  {"message", "an update job is already running"},
-                                  {"job", update_job_to_json(*update_job_runtime->current)}}.dump();
+                    r.body = dump_update_json(json{
+                        {"error", "UPDATE_IN_PROGRESS"},
+                        {"message", "an update job is already running"},
+                        {"job", update_job_to_json(*update_job_runtime->current)}});
                     return with_cors(req, std::move(r));
                 }
                 update_job_runtime->current = initial;
@@ -1500,7 +1505,11 @@ void WebServer::Impl::register_ui_preferences() {
                         }
                     }
                 } catch (const std::exception& e) {
-                    error = e.what();
+                    // MSVC 的 filesystem_error / system_error 文本走 ANSI 代码页(中文
+                    // Windows 为 GBK),在这里单独转码。上面 errors 流的文本已在各产生处
+                    // 转好,其中的 UTF-8 路径经不起整串 ensure_utf8;漏网字节交给
+                    // dump_update_json 兜底。
+                    error = ensure_utf8(e.what());
                     code = 1;
                 } catch (...) {
                     error = "unknown update failure";
@@ -1534,16 +1543,18 @@ void WebServer::Impl::register_ui_preferences() {
             try {
                 std::thread(std::move(run_job)).detach();
             } catch (const std::exception& e) {
-                diagnostics->record("job_start_failed", {{"job_id", initial.job_id}, {"error", e.what()}});
+                const std::string start_error = ensure_utf8(e.what());
+                diagnostics->record("job_start_failed", {{"job_id", initial.job_id}, {"error", start_error}});
                 std::lock_guard<std::mutex> lock(runtime->mu);
                 auto& job = *runtime->current;
                 job.state = "failed";
-                job.error = diagnostics->with_location(e.what());
+                job.error = diagnostics->with_location(start_error);
                 job.log_error = diagnostics->error();
                 crow::response r(500);
                 r.add_header("Content-Type", "application/json");
-                r.body = json{{"error", "UPDATE_START_FAILED"}, {"message", job.error},
-                              {"job", update_job_to_json(job)}}.dump();
+                r.body = dump_update_json(json{{"error", "UPDATE_START_FAILED"},
+                                               {"message", job.error},
+                                               {"job", update_job_to_json(job)}});
                 return with_cors(req, std::move(r));
             }
 
@@ -1553,7 +1564,7 @@ void WebServer::Impl::register_ui_preferences() {
             body["started"] = true;
             body["latest_version"] = result.latest_version;
             body["message"] = "acecode update job started";
-            r.body = body.dump();
+            r.body = dump_update_json(body);
             return with_cors(req, std::move(r));
         });
 

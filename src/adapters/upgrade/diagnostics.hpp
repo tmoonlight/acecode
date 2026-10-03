@@ -20,6 +20,9 @@ public:
                nlohmann::json details = nlohmann::json::object()) noexcept;
     std::string path() const;
     std::string error() const;
+    // Appends the log path and the diagnostics failure line unless the message
+    // already has them: the GUI update job wraps run_upgrade_command's error
+    // text, which has been through this once.
     std::string with_location(const std::string& message) const;
 
 private:
