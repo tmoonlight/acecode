@@ -132,6 +132,7 @@ Tailwind v4 + CSS 变量。`<html data-theme="light|dark">` 切主题,变量值�
 |---|---|---|
 | `react` / `react-dom` | ^18.3.1 | UI |
 | `markdown-it` | ^14 | GFM markdown 渲染(表格/任务清单/嵌套 list) |
+| `markdown-it-cjk-friendly` | 3.0.0 | 兼容中日韩标点相邻的强调，如 `**建议：**共享`；完整、行内与流式分块渲染共用 |
 | `markdown-it-task-lists` | ^2 | task list 渲染 plugin |
 | `highlight.js` | ^11 | 代码高亮(core + 12 种语言:c/cpp/js/ts/python/bash/json/diff/markdown/rust/go/yaml) |
 | `diff2html` | ^3.4 | file_edit / file_write 工具的 hunks → 着色 diff |

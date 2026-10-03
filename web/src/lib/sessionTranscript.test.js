@@ -2020,6 +2020,40 @@ run('history load 消费 turn_timing 并用持久 duration 渲染 processed summ
   assert.equal(projectLoadedItems(reloaded.items)[1].title, '已处理 1m 5s');
 });
 
+run('蜂群通知在实时完成、历史加载和 transcript_replace 中只生成一条持久耗时摘要', () => {
+  const mail = (id, type, status = '') => ({
+    id, role: 'user', content: `report ${id}`, timestamp: '2026-10-03T00:01:00Z',
+    metadata: { inter_agent: { type, status, sender: `/root/${id}`, recipient: '/root' } },
+  });
+  const messages = [
+    { id: 'u-mesh', role: 'user', content: 'review', timestamp: '2026-10-03T00:00:00Z' },
+    { id: 'a-mesh-1', role: 'assistant', content: 'inspect', timestamp: '2026-10-03T00:00:01Z' },
+    mail('security_review', 'MESSAGE'),
+    { id: 'a-mesh-2', role: 'assistant', content: 'check findings', timestamp: '2026-10-03T00:02:00Z' },
+    mail('delivery_review', 'FINAL_ANSWER', 'completed'),
+    { id: 'a-mesh-3', role: 'assistant', content: 'verify', timestamp: '2026-10-03T00:03:00Z' },
+    mail('ux_review', 'FINAL_ANSWER', 'errored'),
+    { id: 'a-mesh-4', role: 'assistant', content: 'prepare summary', timestamp: '2026-10-03T00:04:00Z' },
+    { id: 'a-mesh-final', role: 'assistant', content: 'final answer', timestamp: '2026-10-03T00:22:00Z' },
+    turnTimingMessage('u-mesh', 1320000),
+  ];
+  const live = reduceMany(messages.map((payload) => ({ type: 'message', payload })));
+  const history = loadTranscriptHistory(createTranscriptState(), { messages, events: [] }).state;
+  const replaced = reduceTranscriptEvent(live, { type: 'transcript_replace', payload: { messages } }).state;
+  for (const state of [live, history, replaced]) {
+    const projected = projectCollapsedTranscriptItems(state.items);
+    const summaries = projected.filter((item) => item.mode === 'processed');
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0].title, '已处理 22m 0s');
+    assert.deepEqual(summaries[0].collapsedItems.map((item) => item.content), ['inspect', 'check findings', 'verify', 'prepare summary']);
+    assert.deepEqual(projected.filter((item) => item.metadata?.inter_agent).map((item) => [item.role, item.content]), [
+      ['system', 'report security_review'], ['system', 'report delivery_review'], ['system', 'report ux_review'],
+    ]);
+    assert.equal(projected.filter((item) => item.role === 'user').length, 1);
+    assert.equal(projected.at(-1).content, 'final answer');
+  }
+});
+
 run('history load 从 meta 消息恢复 turn_net_diff 并关联用户 item', () => {
   const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
     messages: [

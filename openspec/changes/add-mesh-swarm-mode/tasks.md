@@ -73,3 +73,11 @@
 - [x] 9.2 单元测试中文注释；`acecode_unit_tests` fast profile 全绿，`pnpm test` / `pnpm build` 通过
 - [x] 9.3 `openspec validate add-mesh-swarm-mode --strict` 通过；变更文档随分支强制加入版本库（`openspec/` 被 ignore）
 - [ ] 9.4 帮助页截图 AD-03 仍是旧菜单（只有一个「蜂群模式」），需补拍
+
+## 10. 蜂群通知穿插时的已处理摘要修复（2026-10-03）
+
+- [x] 10.1 复现通知拆分已处理摘要的问题，修正完成回合投影，保留通知正文、活动详情与原有非通知边界
+- [x] 10.2 增加持久耗时、实时事件、历史加载及 transcript_replace 回归，覆盖 task_complete 与关闭自动折叠
+- [x] 10.3 运行定向测试、Web 全量测试、构建、OpenSpec 严格验证与差异检查，记录结果
+
+验证记录：修复前定向用例复现同一回合 4 条已处理摘要（期望 1 条）；修复后 `transcriptProjection.test.js`、`sessionTranscript.test.js` 通过。`pnpm test` 通过（2981 项），`pnpm build` 及正则兼容检查通过，`openspec validate add-mesh-swarm-mode --strict`、`git diff --check` 通过。Headless Edge 使用实际 TranscriptItems / Message / ActivityLine 组件验证 1280px 浅色折叠态与 720px 深色展开态：1 条已处理、3 条独立通知、全部通知正文和 4 条活动详情可展开，无横向溢出及脚本异常。未重新编译或替换已安装 Desktop。

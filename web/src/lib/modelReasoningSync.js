@@ -13,11 +13,20 @@ export function subscribeModelProfileUpdates(connection, onChange) {
   };
 }
 
-// The POST only queues work; both failures are deliberately silent.
+// The POST only queues work. Callers can start it without waiting for discovery.
+export async function requestSavedModelReasoningSync(apiClient) {
+  try {
+    await apiClient.refreshModelReasoning();
+  } catch {
+    // Missing metadata must not block the composer, including on older daemons.
+  }
+}
+
+// Both failures are deliberately silent.
 // Reload in parallel so an unreachable provider never delays the local list.
 export async function refreshSavedModelReasoning(apiClient, reload) {
   await Promise.allSettled([
-    Promise.resolve().then(() => apiClient.refreshModelReasoning()),
+    requestSavedModelReasoningSync(apiClient),
     Promise.resolve().then(reload),
   ]);
 }

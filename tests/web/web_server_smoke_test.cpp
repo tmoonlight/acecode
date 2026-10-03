@@ -65,6 +65,7 @@
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 #include "session_host/tools/task_suggestion_tools.hpp"
+#include "upgrade/diagnostics.hpp"
 #include "upgrade/manifest.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "utils/base64.hpp"
@@ -9795,6 +9796,199 @@ TEST(WebServerHttp, FailedUpdateJobCanBeRetried) {
     EXPECT_EQ(retried["state"], "succeeded");
     EXPECT_EQ(retried["log_path"], failed["log_path"]);
     EXPECT_NE(read_text(log_path).find(retry_id), std::string::npos);
+}
+
+// 场景:GUI 升级任务失败,错误文本里既有已是 UTF-8 的中文路径,又混进一段 GBK 的系统错误文本
+//      (中文 Windows 上 MSVC 的 ec.message() 走 ANSI 代码页,漏网到 job.error 的就是这种串)。
+// 触发:注入的 runner 返回 1,error = "failed to copy C:\Users\张三\...\acecode.exe: " +
+//      GBK「拒绝访问。」;任务落到 failed 后依次请求 GET /api/update/jobs/<id>、
+//      GET /api/update/job、POST /api/update/jobs/<id>/cancel(已失败的任务不能取消,409 也带 job)。
+// 期望:三个接口分别 200 / 200 / 409,响应都能被 json::parse 严格解析;error 里的 UTF-8 中文路径
+//      原样保留(出口兜底只替换非法字节,没有把整串按 GBK 重新解码),GBK 字节变成 U+FFFD。
+// 回归:修复前这三个接口用默认严格 dump(),遇到 0xBE 抛 type_error.316,全部返回 500
+//      INTERNAL_ERROR;失败的任务一直留在内存里,前端每次轮询都 500。
+TEST(WebServerHttp, FailedUpdateJobWithGbkErrorStaysValidJson) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    const std::string utf8_path = "C:\\Users\\张三\\AppData\\Local\\ACECode\\acecode.exe";
+    // 「拒绝访问。」的 GBK 编码,首字节 0xBE 在 UTF-8 里是孤立的续字节。
+    const std::string gbk_os_text = "\xBE\xDC\xBE\xF8\xB7\xC3\xCE\xCA\xA1\xA3";
+    WebServerFixture fx(
+        true,
+        false,
+        {},
+        true,
+        [utf8_path, gbk_os_text](const acecode::AppConfig&,
+                                 acecode::upgrade::UpgradeProgressCallback publish,
+                                 acecode::upgrade::UpgradeCancelCheck,
+                                 std::string* error) {
+            acecode::upgrade::UpgradeProgress progress;
+            progress.phase = acecode::upgrade::UpgradePhase::Installing;
+            progress.target_version = "9.9.9";
+            publish(progress);
+            if (error) *error = "failed to copy " + utf8_path + ": " + gbk_os_text;
+            return 1;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+
+    auto start = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start.status_code, 202) << start.text;
+    const std::string job_id = json::parse(start.text)["job_id"];
+    json failed;
+    for (int i = 0; i < 100; ++i) {
+        auto poll = cpr::Get(cpr::Url{fx.url("/api/update/jobs/" + job_id)});
+        ASSERT_EQ(poll.status_code, 200) << poll.text;
+        failed = json::parse(poll.text);
+        if (failed["state"] == "failed") break;
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(failed["state"], "failed");
+    const std::string error = failed["error"].get<std::string>();
+    EXPECT_EQ(error.rfind("failed to copy " + utf8_path + ": ", 0), 0u) << error;
+    EXPECT_NE(error.find("\xEF\xBF\xBD"), std::string::npos) << error;
+
+    auto latest = cpr::Get(cpr::Url{fx.url("/api/update/job")});
+    ASSERT_EQ(latest.status_code, 200) << latest.text;
+    EXPECT_EQ(json::parse(latest.text)["error"], error);
+
+    auto cancel = cpr::Post(cpr::Url{fx.url("/api/update/jobs/" + job_id + "/cancel")});
+    ASSERT_EQ(cancel.status_code, 409) << cancel.text;
+    const auto cancel_body = json::parse(cancel.text);
+    EXPECT_EQ(cancel_body["error"], "UPDATE_NOT_CANCELLABLE");
+    EXPECT_EQ(cancel_body["job"]["error"], error);
+}
+
+// 场景:升级 runner 抛出带 GBK 文本的异常(MSVC 的 filesystem_error / system_error 的 what()
+//      走 ANSI 代码页,中文用户名路径与系统错误文本都会是 GBK)。
+// 触发:注入的 runner 抛 std::runtime_error("cannot open C:\Users\" + GBK「张三」 +
+//      "\AppData\Local\ACECode\acecode.exe"),任务线程在 catch 里把 what() 写进 job.error。
+// 期望:GET /api/update/jobs/<id> 返回 200 且可严格解析;error 以
+//      "cannot open C:\Users\" + ensure_utf8(GBK「张三」) + "\AppData\" 开头(中文 Windows 上就是
+//      「张三」本身,其他代码页上是对应的合法字符),且不含 U+FFFD —— 异常文本在产生处转码,
+//      而不是等出口兜底把用户名换成替换符。
+// 回归:修复前任务线程原样保存 e.what(),轮询接口 500;只有出口兜底而不转码时接口虽然 200,
+//      用户名却变成一串 U+FFFD,看不出是哪个路径出了错。
+TEST(WebServerHttp, UpdateJobExceptionTextIsConvertedToUtf8) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    // 「张三」的 GBK 编码:四个字节在 UTF-8 里都非法,出口兜底会把它们全换成 U+FFFD。
+    const std::string gbk_user = "\xD5\xC5\xC8\xFD";
+    WebServerFixture fx(
+        true,
+        false,
+        {},
+        true,
+        [gbk_user](const acecode::AppConfig&,
+                   acecode::upgrade::UpgradeProgressCallback publish,
+                   acecode::upgrade::UpgradeCancelCheck,
+                   std::string*) -> int {
+            acecode::upgrade::UpgradeProgress progress;
+            progress.phase = acecode::upgrade::UpgradePhase::Installing;
+            progress.target_version = "9.9.9";
+            publish(progress);
+            throw std::runtime_error("cannot open C:\\Users\\" + gbk_user +
+                                     "\\AppData\\Local\\ACECode\\acecode.exe");
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+
+    auto start = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start.status_code, 202) << start.text;
+    const std::string job_id = json::parse(start.text)["job_id"];
+    json failed;
+    for (int i = 0; i < 100; ++i) {
+        auto poll = cpr::Get(cpr::Url{fx.url("/api/update/jobs/" + job_id)});
+        ASSERT_EQ(poll.status_code, 200) << poll.text;
+        failed = json::parse(poll.text);
+        if (failed["state"] == "failed") break;
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(failed["state"], "failed");
+    const std::string error = failed["error"].get<std::string>();
+    const std::string expected_prefix =
+        "cannot open C:\\Users\\" + acecode::ensure_utf8(gbk_user) + "\\AppData\\";
+    EXPECT_EQ(error.rfind(expected_prefix, 0), 0u) << error;
+    EXPECT_EQ(error.find("\xEF\xBF\xBD"), std::string::npos) << error;
+}
+
+// 场景:GUI 升级任务失败,且升级诊断日志不可用(logs 目录被同名普通文件占住)。
+// 触发:fixture 建好后把 fx.logs_dir 换成普通文件,/api/update/start 的 DiagnosticLog 建不出目录;
+//      注入的 runner 按 run_upgrade_command 的方式报错 —— 它写进 err 的文本已经过一次
+//      with_location,末行就是 "Upgrade diagnostics unavailable or incomplete: <原因>";
+//      任务线程随后再对这段文本调用一次 with_location,写进 job.error。
+// 期望:job 终态 failed;error 含原始失败原因,说明行恰好出现一次且原因与 log_error 一致;
+//      没有 log_path(日志文件不存在,不能报给用户)。
+// 回归:修复前任务线程无条件再追加一遍,界面显示的错误里这一行重复两次。
+TEST(WebServerHttp, FailedUpdateJobReportsUnavailableDiagnosticsOnce) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    // fixture 构造前还不知道临时目录,runner 经 shared_ptr 拿到被占住的日志目录。
+    auto blocked_logs_dir = std::make_shared<std::filesystem::path>();
+    WebServerFixture fx(
+        true,
+        false,
+        {},
+        true,
+        [blocked_logs_dir](const acecode::AppConfig&,
+                           acecode::upgrade::UpgradeProgressCallback publish,
+                           acecode::upgrade::UpgradeCancelCheck,
+                           std::string* error) {
+            acecode::upgrade::UpgradeProgress progress;
+            progress.phase = acecode::upgrade::UpgradePhase::Downloading;
+            progress.target_version = "9.9.9";
+            publish(progress);
+            // 同一个被占住的目录得到同样的失败原因,与 run_upgrade_command 写进 err 的文本一致。
+            acecode::upgrade::DiagnosticLog runner_log("upgrade", *blocked_logs_dir);
+            if (error) *error = runner_log.with_location("acecode upgrade: download failed");
+            return 1;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+    std::filesystem::remove_all(fx.logs_dir);
+    write_text(fx.logs_dir, "blocks the upgrade log directory");
+    *blocked_logs_dir = fx.logs_dir;
+
+    auto start = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start.status_code, 202) << start.text;
+    const auto started = json::parse(start.text);
+    EXPECT_FALSE(started.contains("log_path")) << start.text;
+    EXPECT_TRUE(started.contains("log_error")) << start.text;
+    const auto job_id = started["job_id"].get<std::string>();
+
+    json failed;
+    std::string failed_text;
+    for (int i = 0; i < 200; ++i) {
+        auto poll = cpr::Get(cpr::Url{fx.url("/api/update/jobs/" + job_id)});
+        ASSERT_EQ(poll.status_code, 200) << poll.text;
+        failed_text = poll.text;
+        failed = json::parse(poll.text);
+        if (failed["state"] == "failed") break;
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(failed["state"], "failed") << failed_text;
+    EXPECT_FALSE(failed.contains("log_path")) << failed_text;
+    ASSERT_TRUE(failed.contains("log_error")) << failed_text;
+    const auto message = failed["error"].get<std::string>();
+    const std::string marker = "Upgrade diagnostics unavailable or incomplete: ";
+    EXPECT_NE(message.find("acecode upgrade: download failed"), std::string::npos) << message;
+    EXPECT_NE(message.find(marker + failed["log_error"].get<std::string>()), std::string::npos)
+        << message;
+    size_t occurrences = 0;
+    for (auto pos = message.find(marker); pos != std::string::npos;
+         pos = message.find(marker, pos + marker.size())) {
+        ++occurrences;
+    }
+    EXPECT_EQ(occurrences, 1U) << message;
 }
 
 TEST(WebServerHttp, ComputerUseSettingsPersistAndRevokeToolsLive) {

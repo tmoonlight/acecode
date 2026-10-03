@@ -58,7 +58,7 @@ int report_upgrade_cancelled(std::ostream& err,
         diagnostics.record("cancel_cleanup", {
             {"workspace", path_to_utf8(workspace_dir)},
             {"error_code", cleanup_error.value()},
-            {"error", cleanup_error ? cleanup_error.message() : std::string{}},
+            {"error", cleanup_error ? ensure_utf8(cleanup_error.message()) : std::string{}},
         });
     }
     err << "acecode upgrade: update cancelled\n";
@@ -529,8 +529,10 @@ static int run_upgrade_command_impl(const AppConfig& config,
     std::error_code ec;
     fs::create_directories(package_path.parent_path(), ec);
     if (ec) {
+        // 错误流会成为 GUI 任务的 job.error;MSVC 的 ec.message() 走 ANSI 代码页
+        // (中文 Windows 为 GBK),先单独转 UTF-8,路径同理一律 path_to_utf8。
         err << "acecode upgrade: failed to create update workspace: "
-            << ec.message() << "\n";
+            << ensure_utf8(ec.message()) << "\n";
         return 1;
     }
 
@@ -671,7 +673,7 @@ static int run_upgrade_command_impl(const AppConfig& config,
     if (!apply_staged_update(staging_dir, install_dir, backup_dir,
                              target, &apply_error, &diagnostics, selected.version)) {
         err << "acecode upgrade: failed to apply update: " << apply_error << "\n"
-            << "Backup directory: " << backup_dir.string() << "\n";
+            << "Backup directory: " << path_to_utf8(backup_dir) << "\n";
         return 1;
     }
 
@@ -683,7 +685,7 @@ static int run_upgrade_command_impl(const AppConfig& config,
     out << "  Install : " << styled(out, ConsoleStyle::Green, "OK") << "\n\n"
         << styled(out, ConsoleStyle::Green, "ACECode update applied successfully.") << "\n"
         << "  Version : v" << selected.version << "\n"
-        << "  Backup  : " << backup_dir.string() << "\n";
+        << "  Backup  : " << path_to_utf8(backup_dir) << "\n";
     return 0;
 }
 
@@ -711,7 +713,7 @@ int run_upgrade_command(const AppConfig& config,
         code = run_upgrade_command_impl(config, argv0, current_version, out, errors,
             force, std::move(progress_callback), std::move(cancel_check), log);
     } catch (const std::exception& e) {
-        errors << "acecode upgrade: exception: " << e.what() << "\n";
+        errors << "acecode upgrade: exception: " << ensure_utf8(e.what()) << "\n";
     } catch (...) {
         errors << "acecode upgrade: unknown exception\n";
     }

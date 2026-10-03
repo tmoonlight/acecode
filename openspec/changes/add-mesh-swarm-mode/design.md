@@ -156,6 +156,14 @@ Payload:
 - **未做**：未读邮件计数（Codex 无）、面板按深度缩进、来源标签改用完整路径、采样中途因新邮件抢占输出、`<subagents>` 名册注入、`agent_interrupt` 后的 `<turn_aborted>` 标记。
 - **Web 芯片**：芯片 = 服务端模式（messages 快照 / `session_updated{swarm_mode}`）+ 未提交的本地选择，只有二者不同才随消息提交 `swarm_mode`，避免普通消息把 `/swarm` 刚切的模式改回去；信封在 transcript 摄入时转成系统提示行。
 
+## 2026-10-03：跨 agent 通知不拆分已处理摘要
+
+`presentInterAgentMessage` 已将信封转换成系统提示行，但完成回合的投影把每条系统行都当作分段边界；通知间的工具和 assistant 活动分别生成「已处理」，并重复使用同一条 `turn_timing` 总耗时。
+
+完成回合的活动收集改为：识别结构化 `metadata.inter_agent` 的系统通知，保留其顶层位置及展开正文，同时让通知两侧的活动归入同一摘要。摘要锚定第一条被折叠活动的位置，内部活动顺序不变，通知彼此的顺序不变；通知不重复收进摘要。真实用户消息、提问卡片、图片及其它系统提示仍保持原来的分段边界。实时活动、关闭自动折叠、原始会话记录及后端投递行为保持原有契约。
+
+定向回归覆盖 MESSAGE / FINAL_ANSWER / NEW_TASK、持久总耗时、普通完成与 task_complete 两条路径，以及实时事件、历史加载、transcript_replace 的一致性。
+
 ## Open Questions
 
 - 移植的角色提示词具体措辞（在实现时对照 Codex 源文本逐段改写，不影响规格与任务拆分）。

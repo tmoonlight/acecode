@@ -6,6 +6,7 @@
 // 公开 API: renderMarkdown(src) -> string,签名跟旧版一致,Message.jsx 零改。
 
 import MarkdownIt from 'markdown-it';
+import markdownItCjkFriendly from 'markdown-it-cjk-friendly';
 import taskLists from 'markdown-it-task-lists';
 import { classifyFileLink } from './fileLink.js';
 import { createMarkdownHighlightCache } from './markdownHighlightCache.js';
@@ -137,6 +138,8 @@ const md = new MarkdownIt({
   },
 });
 
+// Preserve source text while allowing CJK emphasis such as **建议：**共享.
+md.use(markdownItCjkFriendly);
 md.use(taskLists, { enabled: false, label: false });
 md.use(markdownColorSwatches);
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { __test__, projectCollapsedTranscriptItems } from './transcriptProjection.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
+import { presentInterAgentMessage } from './interAgentMessage.js';
 
 function run(name, fn) {
   try {
@@ -19,6 +20,13 @@ function user(id, content = 'do work', ts = id * 1000) {
 
 function assistant(id, content, ts = id * 1000, extra = {}) {
   return { kind: 'msg', id, role: 'assistant', content, ts, ...extra };
+}
+
+function interAgentNotice(id, type = 'MESSAGE', status = '') {
+  return presentInterAgentMessage({
+    ...user(id, `report ${id}`),
+    metadata: { inter_agent: { type, status, sender: `/root/worker_${id}`, recipient: '/root' } },
+  });
 }
 
 function tool(id, {
@@ -967,6 +975,66 @@ run('final assistant text 加 task_complete 时保留 final 并折叠前序活�
   assert.equal(projected[2].content, 'Final answer kept');
   assert.equal(projected[3].title, '总结：all done');
   assert.equal(projected.some((item) => item.kind === 'tool' && item.tool?.isTaskComplete), false);
+});
+
+run('蜂群通知穿插完成活动时总耗时只显示一次且通知正文保持可见', () => {
+  const activity = [assistant(2, 'inspect'), tool(4), assistant(7, 'checking'), tool(9)]
+    .map((item) => ({ ...item, turnDurationMs: 1320000 }));
+  const notices = [
+    interAgentNotice(3), interAgentNotice(5, 'NEW_TASK'),
+    interAgentNotice(6, 'FINAL_ANSWER', 'completed'), interAgentNotice(8, 'FINAL_ANSWER', 'errored'),
+  ];
+  const prefix = [user(1), activity[0], notices[0], activity[1], notices[1], notices[2], activity[2], notices[3], activity[3]];
+  // 普通最终答复、task_complete、有后续系统提示的 completion 分支共用此约束。
+  for (const ending of [
+    [assistant(10, 'final')],
+    [assistant(10, 'final'), taskComplete(11)],
+    [taskComplete(11)],
+    [assistant(10, 'final'), taskComplete(11), { kind: 'msg', id: 12, role: 'system', content: 'notice' }],
+  ]) {
+    const input = [...prefix, ...ending];
+    const before = JSON.stringify(input);
+    const projected = projectCollapsedTranscriptItems(input);
+    const summaries = projected.filter((item) => item.mode === 'processed');
+    assert.equal(summaries.length, 1);
+    assert.equal(summaries[0].title, '已处理 22m 0s');
+    assert.deepEqual(summaries[0].coveredItemIds, [2, 4, 7, 9]);
+    assert.deepEqual(summaries[0].collapsedItems, activity);
+    assert.equal(projected[1], summaries[0]);
+    assert.deepEqual(projected.filter((item) => item.metadata?.inter_agent), notices);
+    assert.equal(JSON.stringify(input), before);
+  }
+});
+
+run('蜂群通知不跨越提问、图片、普通系统行或真实用户回合合并摘要', () => {
+  const imageTool = tool(6);
+  imageTool.tool.attachments = [{ kind: 'image', mime_type: 'image/png', url: '/image.png' }];
+  for (const boundary of [
+    askQuestionTool(6), imageTool,
+    { kind: 'msg', id: 6, role: 'system', content: '/root/worker 发来消息' },
+    user(6, 'next turn'),
+  ]) {
+    const projected = projectCollapsedTranscriptItems([
+      user(1), tool(2), interAgentNotice(3), tool(4), assistant(5, 'first part'),
+      boundary, tool(7), interAgentNotice(8), tool(9), assistant(10, 'final'),
+    ]);
+    const summaries = projected.filter((item) => item.mode === 'processed');
+    assert.equal(summaries.length, 2);
+    assert.deepEqual(summaries[0].coveredItemIds, boundary.role === 'user' ? [2, 4] : [2, 4, 5]);
+    assert.deepEqual(summaries[1].coveredItemIds, [7, 9]);
+    assert.equal(projected.some((item) => item.id === 6 || item.kind === 'media_group'), true);
+  }
+});
+
+run('运行中及关闭自动折叠时蜂群通知保留原有活动顺序', () => {
+  const items = [user(1), tool(2), interAgentNotice(3), tool(4), interAgentNotice(5), tool(6, { isDone: false })];
+  const live = projectCollapsedTranscriptItems(items, { deferTrailingToolSummary: true });
+  assert.equal(live.some((item) => item.mode === 'processed'), false);
+  assert.equal(live.at(-1).mode, 'live');
+  const expanded = projectCollapsedTranscriptItems(items, { messageAutoCollapse: false });
+  assert.deepEqual(expanded, items);
+  const noticesOnly = [user(1), interAgentNotice(2), interAgentNotice(3), assistant(4, 'final')];
+  assert.deepEqual(projectCollapsedTranscriptItems(noticesOnly), noticesOnly);
 });
 
 run('final assistant text 前的 AskUserQuestion 卡片不折叠进已处理', () => {

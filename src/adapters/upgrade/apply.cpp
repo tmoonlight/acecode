@@ -4,6 +4,7 @@
 #include "platform/terminal/console.hpp"
 #include "diagnostics.hpp"
 #include "package.hpp"
+#include "utils/encoding.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -39,6 +40,10 @@ namespace {
 
 constexpr const char* kUpdateRunnerDirName = ".acecode-update-runner";
 
+// 这里的错误文本会经 run_upgrade_command 成为 GUI 升级任务的 job.error。MSVC 的
+// ec.message() 与 path::string() 走 ANSI 代码页(中文 Windows 为 GBK):OS 文本
+// 单独 ensure_utf8 后再拼接,路径一律 path_to_utf8。不要对拼好的整串 ensure_utf8,
+// 串里已是 UTF-8 的中文路径会被按 GBK 重新解码成乱码。
 void record_file_operation(DiagnosticLog* diagnostics, const char* operation,
                            const fs::path& source, const fs::path& destination,
                            const std::error_code& error) {
@@ -46,7 +51,7 @@ void record_file_operation(DiagnosticLog* diagnostics, const char* operation,
     diagnostics->record(operation, {{"source", path_to_utf8(source)},
         {"destination", path_to_utf8(destination)}, {"error_code", error.value()},
         {"error_category", error.category().name()},
-        {"error", error ? error.message() : std::string{}}});
+        {"error", error ? ensure_utf8(error.message()) : std::string{}}});
 }
 
 bool is_same_or_inside(const fs::path& maybe_child, const fs::path& maybe_parent) {
@@ -93,7 +98,7 @@ bool staged_paths_avoid_user_data(const fs::path& install_dir,
         }
         if (error) {
             *error = "refusing to update a package path that overlaps "
-                     "ACECode user data: " + target.string();
+                     "ACECode user data: " + path_to_utf8(target);
         }
         return false;
     };
@@ -108,12 +113,15 @@ bool collect_staged_paths(const fs::path& content_root,
     std::error_code ec;
     for (const auto& entry : fs::recursive_directory_iterator(content_root, ec)) {
         if (ec) {
-            if (error) *error = "failed to walk staged files: " + ec.message();
+            if (error) *error = "failed to walk staged files: " + ensure_utf8(ec.message());
             return false;
         }
         fs::path rel = fs::relative(entry.path(), content_root, ec);
         if (ec || rel.empty()) {
-            if (error) *error = "failed to compute staged relative path: " + ec.message();
+            if (error) {
+                *error = "failed to compute staged relative path: " +
+                         ensure_utf8(ec.message());
+            }
             return false;
         }
         if (entry.is_directory()) {
@@ -142,21 +150,22 @@ bool backup_existing_path(const fs::path& install_dir,
     record_file_operation(diagnostics, "backup_directory", {}, dest.parent_path(), ec);
     if (ec) {
         if (error) *error = "failed to create backup directory " +
-                            dest.parent_path().string() + ": " + ec.message();
+                            path_to_utf8(dest.parent_path()) + ": " +
+                            ensure_utf8(ec.message());
         return false;
     }
     fs::remove_all(dest, ec);
     record_file_operation(diagnostics, "backup_clear", {}, dest, ec);
     if (ec) {
-        if (error) *error = "failed to clear backup path " + dest.string() + ": " +
-                            ec.message();
+        if (error) *error = "failed to clear backup path " + path_to_utf8(dest) + ": " +
+                            ensure_utf8(ec.message());
         return false;
     }
     fs::rename(src, dest, ec);
     record_file_operation(diagnostics, "backup_move", src, dest, ec);
     if (ec) {
-        if (error) *error = "failed to move " + src.string() + " to " +
-                            dest.string() + ": " + ec.message();
+        if (error) *error = "failed to move " + path_to_utf8(src) + " to " +
+                            path_to_utf8(dest) + ": " + ensure_utf8(ec.message());
         return false;
     }
     backed_up.push_back(rel);
@@ -180,8 +189,8 @@ bool prepare_package_directories(const fs::path& install_dir,
         fs::create_directories(dest, ec);
         record_file_operation(diagnostics, "install_directory", {}, dest, ec);
         if (ec) {
-            if (error) *error = "failed to create directory " + dest.string() + ": " +
-                                ec.message();
+            if (error) *error = "failed to create directory " + path_to_utf8(dest) + ": " +
+                                ensure_utf8(ec.message());
             return false;
         }
     }
@@ -206,14 +215,15 @@ bool copy_package_files(const fs::path& content_root,
         record_file_operation(diagnostics, "install_parent_directory", {}, dest.parent_path(), ec);
         if (ec) {
             if (error) *error = "failed to create directory " +
-                                dest.parent_path().string() + ": " + ec.message();
+                                path_to_utf8(dest.parent_path()) + ": " +
+                                ensure_utf8(ec.message());
             return false;
         }
         fs::copy_file(src, dest, fs::copy_options::overwrite_existing, ec);
         record_file_operation(diagnostics, "install_copy", src, dest, ec);
         if (ec) {
-            if (error) *error = "failed to copy " + src.string() + " to " +
-                                dest.string() + ": " + ec.message();
+            if (error) *error = "failed to copy " + path_to_utf8(src) + " to " +
+                                path_to_utf8(dest) + ": " + ensure_utf8(ec.message());
             return false;
         }
     }
@@ -415,12 +425,12 @@ bool prepare_update_runner(const fs::path& current_exe,
     std::error_code ec;
     fs::create_directories(runner_path.parent_path(), ec);
     if (ec) {
-        if (error) *error = "failed to create runner directory: " + ec.message();
+        if (error) *error = "failed to create runner directory: " + ensure_utf8(ec.message());
         return false;
     }
     fs::copy_file(current_exe, runner_path, fs::copy_options::overwrite_existing, ec);
     if (ec) {
-        if (error) *error = "failed to copy update runner: " + ec.message();
+        if (error) *error = "failed to copy update runner: " + ensure_utf8(ec.message());
         return false;
     }
     return true;
@@ -513,13 +523,13 @@ bool apply_staged_update(const fs::path& staging_dir,
     fs::create_directories(backup_dir, ec);
     record_file_operation(diagnostics, "install_backup_directory", {}, backup_dir, ec);
     if (ec) {
-        if (error) *error = "failed to create backup directory: " + ec.message();
+        if (error) *error = "failed to create backup directory: " + ensure_utf8(ec.message());
         return false;
     }
     fs::create_directories(install_dir, ec);
     record_file_operation(diagnostics, "install_root_directory", {}, install_dir, ec);
     if (ec) {
-        if (error) *error = "failed to create install directory: " + ec.message();
+        if (error) *error = "failed to create install directory: " + ensure_utf8(ec.message());
         return false;
     }
 
@@ -577,20 +587,21 @@ int run_apply_update_command(const std::vector<std::string>& args,
                                  opts->backup_dir, target, &apply_error, &diagnostics)) {
             diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", apply_error}});
             err << diagnostics.with_location("acecode update apply failed: " + apply_error) << "\n"
-                << "Backup directory: " << opts->backup_dir.string() << "\n";
+                << "Backup directory: " << path_to_utf8(opts->backup_dir) << "\n";
             prompt_press_any_key_if_interactive(out);
             return 1;
         }
 
         out << styled(out, ConsoleStyle::Cyan, "[3/3] Finalizing") << "\n"
             << styled(out, ConsoleStyle::Green, "ACECode update applied successfully.") << "\n"
-            << "Backup directory: " << opts->backup_dir.string() << "\n";
+            << "Backup directory: " << path_to_utf8(opts->backup_dir) << "\n";
         diagnostics.record("apply_finished", {{"exit_code", 0}, {"backup", path_to_utf8(opts->backup_dir)}});
         prompt_press_any_key_if_interactive(out);
         return 0;
     } catch (const std::exception& e) {
-        diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", e.what()}});
-        err << diagnostics.with_location(std::string("acecode update apply exception: ") + e.what()) << "\n";
+        const std::string exception_text = ensure_utf8(e.what());
+        diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", exception_text}});
+        err << diagnostics.with_location("acecode update apply exception: " + exception_text) << "\n";
     } catch (...) {
         diagnostics.record("apply_finished", {{"exit_code", 1}, {"error", "unknown exception"}});
         err << diagnostics.with_location("acecode update apply: unknown exception") << "\n";

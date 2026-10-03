@@ -30,6 +30,17 @@ root 会话的后台任务面板 SHALL 列出该树的全部子 agent（任意�
 - **THEN** 信封行以相同的独立样式回放
 - **AND** 该会话的摘要仍为其最后一条真实用户消息
 
+#### Scenario: 同一回合的多条通知不重复生成已处理摘要
+- **WHEN** 一个已完成回合的工具与 assistant 活动之间穿插多条跨 agent 通知，且没有其它必须独立分段的项目
+- **THEN** Web/Desktop SHALL 仅生成一条「已处理」活动摘要，总耗时只显示一次
+- **AND** 各通知 SHALL 仍按原顺序独立展示并可展开正文，摘要详情保留全部被折叠活动
+- **AND** 实时事件完成、历史加载及 transcript_replace SHALL 得到相同结果
+
+#### Scenario: 其它可见边界不被跨 agent 通知合并
+- **WHEN** 通知附近存在提问卡片、图片、普通系统提示或下一条真实用户消息
+- **THEN** 系统 SHALL 保持这些项目原有的分段与展示行为
+- **AND** 关闭自动折叠时 SHALL 继续按原顺序显示活动与通知
+
 ### Requirement: 任意层级的权限请求与提问冒泡到 root 界面
 任意深度子 agent 的权限请求与 AskUserQuestion SHALL 出现在 root 会话所在的界面（Web/Desktop 全局弹窗、TUI 确认/提问浮层），来源标签 SHALL 为该 agent 的任务名（会话标题）；用户的回答 SHALL 路由回发起请求的 agent。
 
