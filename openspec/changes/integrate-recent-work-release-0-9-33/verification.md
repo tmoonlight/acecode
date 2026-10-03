@@ -16,6 +16,9 @@
 - 前端全部修复在同一工作区通过 `pnpm test`、`pnpm build`；真实 ChatView 浏览器 fixture 验证宽屏/窄屏思考深度显示、选择传递、后台同步失败及草稿保留。
 - 分层/尺寸和最终所有权严格检查通过；OpenSpec 三个相关变更严格验证通过。
 - `tests/scripts/verify_release_assets_test.py`：6 项通过。
+- 重构工具自测 99 项通过；include、文档路径和迁移映射严格检查通过。
+- Windows Release 单测目标构建成功；旧 MSVC 结构化诊断曾输出 MSB8084 编码错误，关闭 `UseStructuredOutput` 后增量复核构建通过，无编译错误。285 项升级、UTF-8、蜂群/子会话、内置命令、种子及请求前缀守护测试通过，0 跳过、0 失败；使用短路径隔离 profile，未改变用户运行中的桌面实例。
+- 整合提交 e470bfde 已推送到 `codex/release-v0.9.33` 并建立 PR #101；该提交的分层、前端与 macOS 安装器 CI 已通过。最终版本提交另由 CI 验证，不把前一提交结果冒充最终结果。
 - `assets/models_dev/MANIFEST.json` 快照为 2026-09-29，满足 30 天要求；未改模型目录或图标输入。
 - 对比最近正式版 v0.9.30 到整合前 HEAD：`assets/seed`、`src/domain/skills/default_skill_seeder.cpp`、`tests/skills` 无差异；seed 与 manifest 均为 2026-09-28.1，无新种子迁移。
 
