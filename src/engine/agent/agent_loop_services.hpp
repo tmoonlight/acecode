@@ -43,5 +43,7 @@ struct AgentLoopOptions {
     int skill_idle_days = 30;
     std::optional<SandboxConfig> sandbox; // Absent preserves the unconfigured runtime.
     std::string exec_rules_dir_override;
+    // Session swarm mode and mesh identity; published later via set_swarm_context.
+    agent::SwarmContext swarm;
 };
 } // namespace acecode

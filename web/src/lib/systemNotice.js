@@ -129,7 +129,12 @@ function legacyDetails(text, t) {
 export function presentSystemNotice(message = {}, t = tr) {
   const { code, params, translated, text, opaque } = decodeSystemNotice(message);
   const roleCode = message.role === 'tool_call' ? 'tool_call' : ['tool', 'tool_result'].includes(message.role) ? 'tool_result' : '';
-  const localizedTitle = t(`systemNotice.titles.${code || roleCode}`, { defaultValue: '' });
+  // 标题只插值 agent 路径(蜂群模式（网状）的 agent 间消息):其它参数可能带 count 之类
+  // 会改变 i18next 取词规则的键,不往标题里传。
+  const titleValues = translated && params.sender != null
+    ? { sender: asText(params.sender), recipient: asText(params.recipient) }
+    : {};
+  const localizedTitle = t(`systemNotice.titles.${code || roleCode}`, { ...titleValues, defaultValue: '' });
   const custom = message.metadata?.compact_label;
   const fallback = custom && custom !== 'Context compacted' ? asText(custom) : text.trim().split(/\r?\n/)[0];
   const title = localizedTitle || (fallback ? Array.from(fallback).slice(0, 80).join('') : t('systemNotice.titles.notice'));

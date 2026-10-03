@@ -21,10 +21,9 @@ public:
         : boundary_(boundary), security_(security), source_(source), context_window_(context_window),
           session_manager_(session), tools_(tools), permissions_(permissions), history_(history),
           builder_(builder), hooks_(hooks) {}
-    RequestContextOptions options(const std::shared_ptr<LlmProvider>& provider,
-        bool swarm_mode = false) const;
+    RequestContextOptions options(const std::shared_ptr<LlmProvider>& provider) const;
     ApiRequestBundle build(const std::shared_ptr<LlmProvider>& provider,
-        bool emergency_profile = false, bool swarm_mode = false);
+        bool emergency_profile = false);
 private:
     WorkspaceBoundary& boundary_;
     SessionExecSecurity& security_;

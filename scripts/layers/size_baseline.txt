@@ -29,5 +29,5 @@ src/engine/agent/agent_loop.cpp	6952
 src/engine/agent/agent_loop.hpp	1010
 src/engine/prompt/system_prompt.cpp	1383
 src/host/remote_control/session_channel_binder.cpp	1236
-src/host/session_host/session_registry.cpp	2466
+src/host/session_host/session_registry.cpp	2400
 src/host/session_host/thread_service.cpp	1211

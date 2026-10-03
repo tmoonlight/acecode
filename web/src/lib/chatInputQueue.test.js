@@ -182,6 +182,23 @@ run('蜂群模式在排队、重试和请求重建时保持，普通消息不产
   assert.equal(Object.hasOwn(queuedInputRequestPayload(ordinary), 'swarm_mode'), false);
 });
 
+// 场景:蜂群模式升级为会话级的 off | star | mesh(add-mesh-swarm-mode),排队消息携带
+// 要写给服务端的模式;关闭也是一次显式切换。
+// 期望:三个字符串原样保留到请求里;无法识别的值丢弃,不把垃圾值发给服务端。
+run('排队消息保留字符串形式的蜂群模式,未知值丢弃', () => {
+  let state = createChatInputQueueState();
+  for (const [index, mode] of ['mesh', 'off', 'grid'].entries()) {
+    state = enqueueQueuedInput(state, {
+      sessionId: `m${index}`,
+      payload: { text: `模式 ${mode}`, attachments: [], contexts: [], swarm_mode: mode },
+      now: 100 + index,
+    });
+  }
+  assert.equal(queuedInputRequestPayload(nextQueuedInput(state, 'm0')).swarm_mode, 'mesh');
+  assert.equal(queuedInputRequestPayload(nextQueuedInput(state, 'm1')).swarm_mode, 'off');
+  assert.equal(Object.hasOwn(queuedInputRequestPayload(nextQueuedInput(state, 'm2')), 'swarm_mode'), false);
+});
+
 run('cancelled 项不会出现在可见队列也不会被发送', () => {
   let state = createChatInputQueueState();
   state = enqueueQueuedInput(state, { sessionId: 's1', text: 'one' });

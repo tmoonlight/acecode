@@ -251,6 +251,11 @@ std::string ActiveTurnGate::id() const {
     return accepting_ ? id_ : std::string{};
 }
 
+bool ActiveTurnGate::has_pending() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return accepting_ && !pending_.empty();
+}
+
 void ActiveTurnGate::begin(const std::string& turn_id) {
     std::lock_guard<std::mutex> lk(mu_);
     pending_.clear();

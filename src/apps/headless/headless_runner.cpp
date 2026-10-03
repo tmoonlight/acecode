@@ -37,6 +37,9 @@
 #include "tool/skills_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "session_host/tools/thread_tools.hpp"
+#include "session_host/tools/mesh_agent_tools.hpp"
+#include "session_host/mesh/mesh_agent_service.hpp"
+#include "utils/scope_exit.hpp"
 #include "tool/workspace_tools.hpp"
 #include "tool/web_search/backend_router.hpp"
 #include "tool/web_search/region_detector.hpp"
@@ -206,6 +209,8 @@ void register_headless_tools(
     const std::shared_ptr<ThreadToolDeps>& thread_deps,
     const std::shared_ptr<WorkspaceToolDeps>& workspace_deps,
     const std::shared_ptr<MemoryService>& memory) {
+    // 网状蜂群工具先以空服务注册(--list-tools / --disable-tools 能看到),
+    // registry 建好后再 rebind_mesh_agent_tools 绑定真实服务。
     register_session_builtin_tools(tools, cfg);
     // 记忆工具与 TUI / daemon 同一份;可被 --disable-tools 移除(openspec unify-memory-system)。
     if (memory) {
@@ -223,6 +228,7 @@ void register_headless_tools(
     tools.register_tool(create_wait_subagent_tool(subagent_deps));
     register_codex_thread_tools(tools, thread_deps);
     register_workspace_tools(tools, workspace_deps);
+    register_mesh_agent_tools(tools, {}, cfg);
 }
 
 int print_available_capabilities(const HeadlessCliOptions& opts) {
@@ -562,12 +568,19 @@ int run_print_mode(const HeadlessCliOptions& opts) {
         subagent_deps->config   = &cfg;
         thread_deps->service = std::make_shared<acecode::ThreadService>(
             acecode::ThreadService::Deps{&registry, &client});
+        auto mesh_service = std::make_shared<acecode::mesh::MeshAgentService>(
+            acecode::mesh::MeshAgentService::Deps{&registry, nullptr, &cfg, nullptr, {}, {}});
+        mesh_service->attach();
+        acecode::rebind_mesh_agent_tools(tools, mesh_service, cfg);
+        // 声明在 session_cleanup 之后 → 先于 registry.shutdown_all 退订子 agent 事件。
+        acecode::ScopeExit mesh_cleanup([mesh_service] { mesh_service->shutdown(); });
 
         SessionOptions session_opts;
         session_opts.cwd             = cwd;
         session_opts.model_name      = opts.model_name;
         session_opts.permission_mode = effective_permission_mode;
         session_opts.auto_start      = false;
+        session_opts.swarm_mode      = opts.swarm_mode;
 
         // meta 探针:--continue 找最近会话 / --session-id 查碰撞都只读磁盘,
         // 复用 registry resume 的同款惰性 SessionManager 用法(不落任何文件)。

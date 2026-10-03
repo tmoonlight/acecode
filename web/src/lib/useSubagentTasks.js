@@ -62,8 +62,9 @@ export function useSubagentTasks(parentSessionId, { onSpawnStart } = {}) {
         }
         if (msg.type === 'tool_end') {
           const p = msg.payload || {};
-          if ((p.tool === 'spawn_subagent' && p.metadata?.subagent_session_id) ||
-              p.tool === 'wait_subagent') {
+          if (((p.tool === 'spawn_subagent' || p.tool === 'agent_spawn') &&
+               p.metadata?.subagent_session_id) ||
+              p.tool === 'wait_subagent' || p.tool === 'agent_wait') {
             refresh();
           }
         }

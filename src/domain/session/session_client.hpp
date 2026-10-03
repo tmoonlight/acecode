@@ -191,6 +191,12 @@ struct SessionOptions {
     // 从常规列表隐藏、归入父会话的「后台任务」面板;daemon 重启后依然生效。
     std::string parent_session_id;
 
+    // 蜂群模式 off / star / mesh;空 = create 时 off、resume 时沿用 meta。
+    std::string swarm_mode;
+    // 网状子 agent 的 canonical 路径(agent_spawn 派生时填,parent_session_id
+    // 此时恒为树根会话 id);根会话与非网状会话为空。
+    std::string agent_path;
+
     // 可选调用方自定的新会话 id(headless -p --session-id:脚本免解析
     // stdout 即可确定性地 --resume)。留空 = registry 自动生成。调用方
     // 负责保证 id 文件名安全且未被占用;registry 不做碰撞检查。
@@ -261,6 +267,8 @@ struct SessionInfo {
     bool        busy = false;     // 是否正在处理当前轮
     bool        no_workspace = false;
     std::string parent_session_id; // 非空 = spawn_subagent 子会话(后台任务)
+    std::string swarm_mode = "off"; // off | star | mesh
+    std::string agent_path;        // 网状子 agent 的 canonical 路径
     std::string active_turn_id;   // 非空 = 当前可接受 steering 的 regular turn
     std::string expert_id;
     std::string expert_member_id;

@@ -16,6 +16,8 @@
 #include "version.hpp"
 #include "session_host/tools/spawn_subagent_tool.hpp"
 #include "session_host/tools/thread_tools.hpp"
+#include "session_host/tools/mesh_agent_tools.hpp"
+#include "session_host/mesh/mesh_agent_service.hpp"
 #include "tool/workspace_tools.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "experts/expert_registry.hpp"
@@ -564,6 +566,11 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     auto task_suggestions = std::make_shared<acecode::TaskSuggestionService>(
         acecode::TaskSuggestionService::Deps{&registry, &client, &cfg_mut, &app_config_mu});
     acecode::register_task_suggestion_tools(tools, task_suggestions);
+    // 蜂群模式（网状）:agent_* 工具在 registry 之后注册,闭包只捕获 weak_ptr(C12)。
+    auto mesh_service = std::make_shared<acecode::mesh::MeshAgentService>(
+        acecode::mesh::MeshAgentService::Deps{&registry, &expert_registry, &cfg_mut, &app_config_mu, {}, {}});
+    mesh_service->attach();
+    acecode::register_mesh_agent_tools(tools, mesh_service, cfg_mut);
 
     // LOOP is daemon-owned and independent of browser connections. SQLite is
     // initialized before HTTP routes are exposed; scheduler shutdown happens
@@ -791,7 +798,10 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
             break;
         case DaemonShutdownStep::TaskSuggestions: task_suggestions->shutdown(); break;
         case DaemonShutdownStep::Sessions: registry.shutdown_all(); break;
-        case DaemonShutdownStep::SpawnListener: subagent_deps->on_spawn = {}; break;
+        case DaemonShutdownStep::SpawnListener:
+            subagent_deps->on_spawn = {};
+            mesh_service->shutdown();
+            break;
         case DaemonShutdownStep::Mcp: mcp_runtime.shutdown(); break;
         case DaemonShutdownStep::Lsp: acecode::lsp::shutdown(); break;
         case DaemonShutdownStep::ModelPool: acecode::model_pool_status_service().stop(); break;
@@ -856,6 +866,12 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
                 active.track_subagent(child_id);
             });
         };
+    mesh_service->set_on_agent_loaded(
+        [server_ref](const std::string& child_id, const std::string& /*root_id*/) {
+            server_ref.with([&](acecode::web::WebServer& active) {
+                active.track_subagent(child_id);
+            });
+        });
 
     // 行为①:持久化的 bound_session_id 非空且会话存在(active 或可从磁盘
     // resume)→ 自动 start rc 服务 + 激活默认 channel + 重建绑定。失败只记

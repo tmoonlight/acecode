@@ -72,8 +72,7 @@ ToolResult ToolInvoker::invoke(ToolBatchState& batch, const ToolCall& call,
     std::size_t index, bool needs_approval) {
     const auto* policy = context.capability_policy ? &*context.capability_policy : nullptr;
     if (tools_.is_denied_by_policy(call.function_name, policy)) {
-        return {"[Error] Tool denied by the active expert capability policy: " +
-            call.function_name, false};
+        return {ToolExecutor::policy_denial_text(call.function_name, policy), false};
     }
     if (auto denied = batch.doom_guard.maybe_guard(call)) return *denied;
     if (!needs_approval) {

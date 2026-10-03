@@ -22,6 +22,7 @@
 #include "agent/transcript/transcript_queries.hpp"
 #include "provider/text_tool_call_recovery.hpp"
 #include "session/event_dispatcher.hpp"
+#include "session/inter_agent_message.hpp"
 #include "session/session_manager.hpp"
 #include "session/system_notice.hpp"
 #include "config/config.hpp"
@@ -87,9 +88,11 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
     // 上一回合没来得及消费的 steering 标记直接丢弃(等价 Codex
     // inject_if_running 在无活动回合时静默跳过)。
     goal_.begin_turn();
-    turn.swarm_mode = false;
 
-    if (!hidden_goal_context && hook_manager_) {
+    // 跨 agent 信封不是用户输入:不触发 UserPromptSubmit 钩子(与隐藏 goal 上下文同理)。
+    const bool inter_agent_input =
+        mesh::inter_agent_envelope_from_metadata(input.metadata).has_value();
+    if (!hidden_goal_context && !inter_agent_input && hook_manager_) {
         auto fields = hooks_.common_fields(kCodexHookEventUserPromptSubmit, session_);
         auto payload = build_user_prompt_submit_hook_payload(fields, input.text);
         auto outcome = hooks_.dispatch(hook_manager_,
@@ -103,16 +106,6 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
             return;
         }
     }
-
-    turn.swarm_mode =
-        input.metadata.is_object() &&
-        input.metadata.contains("swarm_mode") &&
-        input.metadata["swarm_mode"].is_boolean() &&
-        input.metadata["swarm_mode"].get<bool>();
-    struct ActiveTurnSwarmModeReset {
-        bool& active;
-        ~ActiveTurnSwarmModeReset() { active = false; }
-    } swarm_mode_reset{turn.swarm_mode};
 
     // Codex pre-turn compaction estimates the pending input but summarizes only
     // already-recorded history. Persisting first would put the new request into
@@ -223,7 +216,7 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
         std::shared_ptr<LlmProvider> provider_snapshot;
         if (options_.provider) provider_snapshot = options_.provider();
         // Phase 2: Build API request messages
-        auto bundle = requests_.build(provider_snapshot, emergency_request_profile, turn.swarm_mode);
+        auto bundle = requests_.build(provider_snapshot, emergency_request_profile);
         side_questions_.publish(bundle.messages_with_system);
         turn.model_tool_names.clear();
         turn.model_tool_names.reserve(bundle.tool_defs.size());

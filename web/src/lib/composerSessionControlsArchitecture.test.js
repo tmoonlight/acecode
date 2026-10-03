@@ -102,8 +102,11 @@ run('composer footer preserves required left-to-right control order', () => {
     'data-composer-control="submit"',
   ]);
   assert.match(footer, /\{expertName && \(/);
-  assert.match(footer, /\{swarmMode && \(/);
-  assert.match(footer, /data-composer-control="swarm-mode"[\s\S]*status="已开启蜂群模式"/);
+  // 蜂群模式分星型 / 网状两种(add-mesh-swarm-mode),芯片文案按模式给出。
+  assert.match(footer, /\{swarmTag && \(/);
+  assert.match(footer, /data-composer-control="swarm-mode"[\s\S]*status=\{swarmTag\.status\}/);
+  assert.match(component, /status: '已开启蜂群模式（网状）'/);
+  assert.match(component, /status: '已开启蜂群模式（星型）'/);
   assert.match(footer, /<SwarmModeIcon size=\{16\}/);
   assert.match(footer, /aria-label="关闭蜂群模式"/);
   assert.match(footer, /data-composer-control="expert"[\s\S]*status=\{`已派遣/);
@@ -117,14 +120,20 @@ run('swarm and expert selections survive submission until explicitly changed', (
   const icon = source('components/SwarmModeIcon.jsx');
 
   assert.match(inputBar, /role="menuitemcheckbox"/);
-  assert.match(inputBar, /aria-checked=\{swarmMode\}/);
+  // 两个互斥的菜单项:蜂群模式（星型）/（网状）。
+  assert.match(inputBar, /\['star', 'mesh'\]\.map\(\(mode\) =>/);
+  assert.match(inputBar, /role="menuitemradio"/);
+  assert.match(inputBar, /aria-checked=\{activeSwarmMode === mode\}/);
   assert.match(inputBar, /<SwarmModeIcon size=\{15\}/);
-  assert.match(inputBar, />蜂群模式</);
+  assert.match(inputBar, /\{swarmModeLabel\(mode\)\}/);
   assert.match(icon, /<VsIcon name="Swarm" size=\{size\} className=\{className\}/);
   assert.doesNotMatch(icon, /<svg|<polygon|strokeWidth/);
 
-  assert.match(chatView, /const \[composerSwarmMode, setComposerSwarmMode\] = useState\(false\)/);
-  assert.match(chatView, /if \(swarmMode\) payload\.swarm_mode = true/);
+  // 会话级模式:芯片 = 服务端值 + 未提交的本地选择,只有不同才随消息提交。
+  assert.match(chatView, /const \[composerSwarmChoice, setComposerSwarmChoice\] = useState\(null\)/);
+  assert.match(chatView, /effectiveSwarmMode\(composerSwarmChoice, transcriptSwarmMode\)/);
+  assert.match(chatView, /swarmModeForSubmission\(composerSwarmChoice, transcriptSwarmMode\)/);
+  assert.match(chatView, /if \(swarmMode\) payload\.swarm_mode = swarmMode/);
   assert.match(chatView, /swarmMode: composerSwarmMode/);
   assert.match(chatView, /const explicitHomeSend = !isBuiltin && \(hasExtras \|\| hasSwarmMode/);
   assert.match(chatView, /preserveExtras: hasExtras \|\| hasSwarmMode/);
@@ -133,7 +142,7 @@ run('swarm and expert selections survive submission until explicitly changed', (
     /const expertOptions = homeExpertId \? \{ expert_id: homeExpertId, expertId: homeExpertId \} : \{\}/,
   );
   assert.match(chatView, /if \(sid\) \{[\s\S]{0,80}setSessionExpertId\(expertId\)/);
-  assert.match(inputBar, /onDisableSwarm=\{\(\) => onSwarmModeChange\?\.\(false\)\}/);
+  assert.match(inputBar, /onDisableSwarm=\{\(\) => onSwarmModeChange\?\.\('off'\)\}/);
 
   const cleanupStart = chatView.indexOf('const clearComposerExtras = useCallback');
   const resetStart = chatView.indexOf('const resetComposerContextSelections = useCallback');
@@ -142,11 +151,11 @@ run('swarm and expert selections survive submission until explicitly changed', (
   const submissionCleanup = chatView.slice(cleanupStart, resetStart);
   assert.doesNotMatch(
     submissionCleanup,
-    /setComposerSwarmMode|setHomeExpertId|setSessionExpertId|onSessionExpertChanged/,
+    /setComposerSwarmChoice|setHomeExpertId|setSessionExpertId|onSessionExpertChanged/,
   );
   const contextReset = chatView.slice(resetStart, createStart);
   assert.match(contextReset, /clearComposerExtras\(\)/);
-  assert.match(contextReset, /setComposerSwarmMode\(false\)/);
+  assert.match(contextReset, /setComposerSwarmChoice\(null\)/);
   assert.match(chatView, /resetComposerContextSelections\(\)/);
   assert.doesNotMatch(chatView, /clearComposerExtras\(\{[^)]*preserveSwarm/);
 

@@ -109,6 +109,7 @@ bool tool_allowed_by_policy(const ToolImpl& impl,
                             const ToolCapabilityPolicy* policy) {
     if (!policy) return true;
     if (impl.source == ToolSource::Builtin) {
+        if (policy->hidden_builtin_tools.count(impl.definition.name) != 0) return false;
         return !policy->builtin_tools ||
                policy->builtin_tools->count(impl.definition.name) != 0;
     }
@@ -117,11 +118,9 @@ bool tool_allowed_by_policy(const ToolImpl& impl,
             policy->mcp_servers->count(impl.source_owner) != 0);
 }
 
-ToolResult expert_policy_denied_result(const std::string& tool_name) {
-    return ToolResult{
-        "[Error] Tool denied by the active expert capability policy: " +
-            tool_name,
-        false};
+ToolResult expert_policy_denied_result(const std::string& tool_name,
+                                       const ToolCapabilityPolicy* policy) {
+    return ToolResult{ToolExecutor::policy_denial_text(tool_name, policy), false};
 }
 
 } // namespace
@@ -396,6 +395,15 @@ bool ToolExecutor::is_allowed(const std::string& name,
     return it != tools_.end() && tool_allowed_by_policy(it->second, policy);
 }
 
+std::string ToolExecutor::policy_denial_text(const std::string& name,
+                                             const ToolCapabilityPolicy* policy) {
+    if (policy) {
+        const auto hidden = policy->hidden_builtin_tools.find(name);
+        if (hidden != policy->hidden_builtin_tools.end()) return "[Error] " + hidden->second;
+    }
+    return "[Error] Tool denied by the active expert capability policy: " + name;
+}
+
 bool ToolExecutor::is_denied_by_policy(
     const std::string& name,
     const ToolCapabilityPolicy* policy) const {
@@ -426,7 +434,7 @@ ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string
         if (!tool_allowed_by_policy(it->second, policy)) {
             LOG_WARN("execute: expert capability policy denied tool '" +
                      tool_name + "'");
-            auto result = expert_policy_denied_result(tool_name);
+            auto result = expert_policy_denied_result(tool_name, policy);
             ensure_tool_summary(tool_name, arguments_json, result);
             return result;
         }

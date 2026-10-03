@@ -321,6 +321,8 @@
       "web/src/components/ComposerSessionControls.jsx",
       "web/src/components/SubagentPanel.jsx",
       "src/apps/tui/commands/builtin_commands.cpp",
+      "src/apps/tui/commands/swarm_mode_command.cpp",
+      "src/host/session_host/mesh/mesh_agent_service.cpp",
       "docs/subagents.md"
     ]
   },

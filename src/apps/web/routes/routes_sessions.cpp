@@ -202,7 +202,6 @@ WebServer::Impl::parse_session_user_input_request(
     std::string composer_text;
     bool leads_with_pasted_text = false;
     std::vector<SessionReferenceDescriptor> session_references;
-    bool swarm_mode = false;
 
     try {
         auto payload = json::parse(body);
@@ -245,12 +244,17 @@ WebServer::Impl::parse_session_user_input_request(
             // string. Preserve that compatibility projection when supplied.
             if (session_references.empty() || !payload.contains("text")) text = composer_text;
         }
-        if (payload.contains("swarm_mode")) {
-            if (!payload["swarm_mode"].is_boolean()) {
-                result.error = "swarm_mode must be a boolean";
+        if (payload.contains("swarm_mode") && !payload["swarm_mode"].is_null()) {
+            const auto& value = payload["swarm_mode"];
+            if (value.is_boolean()) {
+                result.swarm_mode = value.get<bool>() ? SwarmMode::Star : SwarmMode::Off;
+            } else if (value.is_string() &&
+                       (value == "star" || value == "mesh" || value == "off")) {
+                result.swarm_mode = parse_swarm_mode(value.get<std::string>());
+            } else {
+                result.error = R"(swarm_mode must be "star", "mesh" or false)";
                 return result;
             }
-            swarm_mode = payload["swarm_mode"].get<bool>();
         }
         if (payload.contains("client_message_id") &&
             payload["client_message_id"].is_string()) {
@@ -513,8 +517,8 @@ WebServer::Impl::parse_session_user_input_request(
     if (!client_message_id.empty()) {
         result.input.metadata["client_message_id"] = client_message_id;
     }
-    if (swarm_mode) {
-        result.input.metadata["swarm_mode"] = true;
+    if (result.swarm_mode) {
+        result.input.metadata["swarm_mode"] = swarm_mode_name(*result.swarm_mode);
     }
     json verified_attachment_records = json::array();
     if (session_references_expanded) {
@@ -2109,6 +2113,28 @@ void WebServer::Impl::register_sessions() {
             }
             // 数据目录迁移期间不接新回合(复制中写会话会丢数据)。
             if (auto rej = reject_if_migrating(req)) return std::move(*rej);
+            // 网状子 agent 只接受 agent_* 协作工具的投递(Codex:direct input is not
+            // allowed for multi-agent v2 sub-agents)。
+            if (deps.session_registry) {
+                if (auto target = deps.session_registry->acquire(id);
+                    target && target->sm && !target->sm->current_agent_path().empty()) {
+                    crow::response r(409);
+                    r.body = R"({"error":"direct input is not allowed for mesh swarm sub-agents"})";
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+            }
+            // 蜂群模式是会话级状态:随消息提交写入,下一回合起生效。网状树内
+            // 仍有运行中的子 agent 时拒绝退出网状(409)。
+            if (parsed.swarm_mode && deps.session_registry) {
+                std::string swarm_error;
+                if (!deps.session_registry->set_swarm_mode(id, *parsed.swarm_mode, &swarm_error)) {
+                    crow::response r(swarm_error == "unknown session" ? 404 : 409);
+                    r.body = json{{"error", swarm_error}}.dump();
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
+                }
+            }
 
             bool ok = deps.session_client->send_input(id, parsed.input);
             if (!ok) {

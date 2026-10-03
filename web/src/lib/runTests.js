@@ -108,6 +108,8 @@ import './inactiveSelection.test.js';
 import './goalControl.test.js';
 import './goalStatusBarArchitecture.test.js';
 import './chatInputQueue.test.js';
+import './swarmMode.test.js';
+import './interAgentMessage.test.js';
 import './chatInputQueueIntegrity.test.js';
 import './turnInterruptionArchitecture.test.js';
 import './composerEditabilityArchitecture.test.js';

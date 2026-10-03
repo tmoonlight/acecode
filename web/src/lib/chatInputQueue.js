@@ -31,7 +31,10 @@ function normalizePayload({ text, payload } = {}) {
       attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
       contexts: Array.isArray(payload.contexts) ? payload.contexts : [],
     };
-    if (payload.swarm_mode === true) normalized.swarm_mode = true;
+    // 会话级蜂群模式随这条消息写给服务端:'star' | 'mesh' | 'off';旧排队项的 true = 星型。
+    if (payload.swarm_mode === true || ['star', 'mesh', 'off'].includes(payload.swarm_mode)) {
+      normalized.swarm_mode = payload.swarm_mode;
+    }
     const content = normalizeComposerContent(payload.composer_content);
     if (content) normalized.composer_content = content;
     if (Array.isArray(payload.session_references)) normalized.session_references = payload.session_references;

@@ -898,6 +898,10 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     o["parent_session_id"] = !s.parent_session_id.empty()
         ? s.parent_session_id
         : (m ? m->parent_session_id : std::string{});
+    o["swarm_mode"] = s.active ? s.swarm_mode
+        : (m && !m->swarm_mode.empty() ? m->swarm_mode : std::string("off"));
+    o["agent_path"] = !s.agent_path.empty() ? s.agent_path
+        : (m ? m->agent_path : std::string{});
     const std::string expert_id = !s.expert_id.empty()
         ? s.expert_id : (m ? m->expert_id : std::string{});
     const std::string expert_member_id = !s.expert_member_id.empty()
@@ -968,6 +972,8 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
     }
     o["archived"]       = m.archived;
     o["parent_session_id"] = m.parent_session_id;
+    o["swarm_mode"] = m.swarm_mode.empty() ? std::string("off") : m.swarm_mode;
+    o["agent_path"] = m.agent_path;
     o["expert_id"] = m.expert_id;
     o["expert_member_id"] = m.expert_member_id;
     if (!m.expert_id.empty()) {
@@ -1024,6 +1030,12 @@ void WebServer::Impl::append_session_runtime_snapshot(json& wrapper,
                     : entry->sm->current_title_source();
                 const std::string live_summary = entry->sm->current_summary();
                 wrapper["summary"] = !live_summary.empty() ? live_summary : meta.summary;
+                // 会话级蜂群模式(add-mesh-swarm-mode):输入框芯片的初值。
+                const std::string swarm = entry->sm->current_swarm_mode();
+                wrapper["swarm_mode"] = swarm.empty() ? std::string("off") : swarm;
+                if (const std::string path = entry->sm->current_agent_path(); !path.empty()) {
+                    wrapper["agent_path"] = path;
+                }
                 wrapper["turn_count"] = entry->sm->current_turn_count();
                 wrapper["permission_mode"] = entry->sm->current_permission_mode();
                 wrapper["token_usage"] = token_usage_or_null(entry->sm->current_last_token_usage());
@@ -1062,6 +1074,10 @@ void WebServer::Impl::append_session_runtime_snapshot(json& wrapper,
             wrapper["title_source"] = meta.title_source;
         }
         if (!wrapper.contains("summary")) wrapper["summary"] = meta.summary;
+        if (!wrapper.contains("swarm_mode")) {
+            wrapper["swarm_mode"] = meta.swarm_mode.empty() ? std::string("off") : meta.swarm_mode;
+            if (!meta.agent_path.empty()) wrapper["agent_path"] = meta.agent_path;
+        }
         if (!wrapper.contains("turn_count")) wrapper["turn_count"] = meta.turn_count;
         if (!wrapper.contains("permission_mode")) {
             wrapper["permission_mode"] = meta.permission_mode.empty() ? "default" : meta.permission_mode;
@@ -2064,6 +2080,10 @@ json WebServer::Impl::attention_payload_for_record(
         if (auto entry = deps.session_registry->acquire(session_id);
             entry && !entry->parent_session_id.empty()) {
             payload["parent_session_id"] = entry->parent_session_id;
+            if (entry->sm) {
+                const auto path = entry->sm->display_snapshot().agent_path;
+                if (!path.empty()) payload["agent_path"] = path;
+            }
         }
     }
     return payload;
@@ -2154,13 +2174,19 @@ void WebServer::Impl::broadcast_remote_control_session_selected(
 
 void WebServer::Impl::track_subagent(const std::string& child_id) {
     if (child_id.empty() || !deps.session_client || !deps.session_registry) return;
+    // 蜂群模式（网状）会把空闲子 agent 换出(destroy)再按需恢复(resume):旧订阅
+    // 随旧 entry 失效,必须换成挂在新 entry 上的订阅,否则恢复后的子 agent 不再
+    // 广播 session_status。对已失效的旧订阅退订是 no-op。
+    SessionClient::SubscriptionId previous = 0;
     {
         std::lock_guard<std::mutex> lk(tracked_subagents_mu);
-        if (tracked_subagent_subscriptions.find(child_id) !=
-            tracked_subagent_subscriptions.end()) {
-            return;
+        const auto existing = tracked_subagent_subscriptions.find(child_id);
+        if (existing != tracked_subagent_subscriptions.end()) {
+            previous = existing->second;
+            tracked_subagent_subscriptions.erase(existing);
         }
     }
+    if (previous != 0) deps.session_client->unsubscribe(child_id, previous);
     std::string ws_hash;
     std::string cwd;
     if (auto e = deps.session_registry->acquire(child_id)) {

@@ -944,6 +944,7 @@ static AppConfig load_config_from_path_once(
                 }
             }
             if (j.contains("memory")) load_memory_config_json(j["memory"], cfg.memory);
+            if (j.contains("swarm")) load_swarm_config_json(j["swarm"], cfg.swarm);
             if (j.contains("project_instructions") && j["project_instructions"].is_object()) {
                 const auto& pj = j["project_instructions"];
                 if (pj.contains("enabled") && pj["enabled"].is_boolean())
@@ -2319,6 +2320,7 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);
+        if (auto swj = swarm_config_to_json(cfg.swarm); !swj.empty()) j["swarm"] = std::move(swj);
 
         ProjectInstructionsConfig pi_d;
         nlohmann::json pij = nlohmann::json::object();

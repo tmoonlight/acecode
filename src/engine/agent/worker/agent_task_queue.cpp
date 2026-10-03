@@ -31,7 +31,8 @@ bool AgentTaskQueue::is_turn(WorkerTask::Kind kind) {
 }
 
 bool AgentTaskQueue::is_user_work(const WorkerTask& task) {
-    return (task.kind == WorkerTask::Kind::Chat && !task.hidden_goal_context) ||
+    return (task.kind == WorkerTask::Kind::Chat && !task.hidden_goal_context &&
+            !task.mailbox_wake) ||
            task.kind == WorkerTask::Kind::Shell || task.kind == WorkerTask::Kind::Compact;
 }
 
@@ -84,6 +85,21 @@ void AgentTaskQueue::Locked::remove_goal_continuations() {
 void AgentTaskQueue::enqueue(WorkerTask task) {
     with_locked([&](Locked& state) { if (!state.stopped()) state.push(std::move(task)); });
     notify();
+}
+
+void AgentTaskQueue::enqueue_mailbox_wake() {
+    const bool queued = with_locked([](Locked& state) {
+        if (state.stopped()) return false;
+        const auto is_wake = [](const WorkerTask& task) { return task.mailbox_wake; };
+        auto& tasks = state.queue_;
+        if (std::any_of(tasks.ordinary_.begin(), tasks.ordinary_.end(), is_wake)) return false;
+        WorkerTask task;
+        task.kind = WorkerTask::Kind::Chat;
+        task.mailbox_wake = true;
+        state.push(std::move(task));
+        return true;
+    });
+    if (queued) notify();
 }
 
 bool AgentTaskQueue::has_pending_work() {

@@ -6214,9 +6214,10 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
         cpr::Header{{"Content-Type", "application/json"}},
         cpr::Body{R"({"text":"invalid swarm","swarm_mode":"true"})"});
     ASSERT_EQ(invalid.status_code, 400) << invalid.text;
+    // add-mesh-swarm-mode:swarm_mode 升级为 "star" | "mesh" | "off",旧客户端的布尔仍兼容。
     EXPECT_EQ(
         json::parse(invalid.text)["error"],
-        "swarm_mode must be a boolean");
+        R"(swarm_mode must be "star", "mesh" or false)");
 
     auto queued = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
                             cpr::Header{{"Content-Type", "application/json"}},
@@ -6239,7 +6240,7 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
                 m.value("content", "") == "hello from http submit" &&
                 m.contains("metadata") && m["metadata"].is_object() &&
                 m["metadata"].value("client_message_id", "") == "queued-test-1" &&
-                m["metadata"].value("swarm_mode", false)) {
+                m["metadata"].value("swarm_mode", std::string{}) == "star") {
                 found = true;
                 break;
             }
@@ -6247,6 +6248,17 @@ TEST(WebServerHttp, PostMessageQueuesInputInDaemonSession) {
         if (!found) std::this_thread::sleep_for(20ms);
     }
     EXPECT_TRUE(found) << "HTTP submit should be owned by daemon session";
+
+    // 蜂群模式是会话级状态:旧客户端的 true 等价星型,会话列表随之报告。
+    bool listed_star = false;
+    auto sessions = cpr::Get(cpr::Url{fx.url("/api/sessions")});
+    ASSERT_EQ(sessions.status_code, 200) << sessions.text;
+    for (const auto& s : json::parse(sessions.text)) {
+        if (s.value("id", std::string{}) == sid) {
+            listed_star = s.value("swarm_mode", std::string{}) == "star";
+        }
+    }
+    EXPECT_TRUE(listed_star) << sessions.text;
 
     auto ordinary = cpr::Post(
         cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},

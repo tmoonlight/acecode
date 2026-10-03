@@ -5,6 +5,7 @@
 #include "request_context.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "prompt/memory_prompt.hpp"
+#include "prompt/mesh_swarm_prompts.hpp"
 #include "skills/skill_registry.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "utils/logger.hpp"
@@ -225,8 +226,17 @@ RequestBuildInputs ApiRequestBuilder::capture(
             ptr(options.expert), options.expert_member, &inputs.category_bytes,
             skill_view_available, skills_list_available, spawn_subagent_available,
             /*include_skill_index=*/false);
-        inputs.swarm_context = build_swarm_mode_context_prompt(
-            options.swarm_mode, spawn_subagent_available);
+        if (options.swarm.mode == SwarmMode::Mesh) {
+            // 网状:六个 agent_* 工具被专家策略裁掉时不注入,避免提示与工具表矛盾。
+            if (tools_.is_allowed("agent_spawn", &options.tool_policy)) {
+                MeshSwarmPromptOptions mesh = options.swarm.mesh;
+                mesh.wait_agent_enabled = tools_.is_allowed("agent_wait", &options.tool_policy);
+                inputs.swarm_context = build_mesh_swarm_context_prompt(mesh);
+            }
+        } else {
+            inputs.swarm_context = build_swarm_mode_context_prompt(
+                options.swarm.mode == SwarmMode::Star, spawn_subagent_available);
+        }
     }
     return inputs;
 }

@@ -193,19 +193,24 @@ TEST(AgentLoopLifecycleGolden, StopHookActiveSurvivesCappedTurnUntilNextStopDeci
     EXPECT_EQ(h.observed->done, 3);
 }
 
-// 场景:swarm 用户回合后提交普通回合。期望:仅首轮有 swarm 上下文,静态前缀不变;
-// 回归会让后续普通聊天继续错误地启动群体协作。
-TEST(AgentLoopLifecycleGolden, SwarmModeResetsBetweenVisibleTurns) {
+// 场景:会话级蜂群模式(星型)下跑一个回合,随后把模式切回 off 再跑普通回合;另外
+// 用户消息 metadata 里残留旧的 swarm_mode=true 布尔。
+// 期望:仅首轮有 swarm 上下文,模式切换只影响下一回合,静态前缀不变;消息 metadata
+// 不再驱动模式(add-mesh-swarm-mode 把蜂群模式升级为会话级,AgentLoop 每回合从
+// SessionManager 读取)。回归会让关掉蜂群后的普通聊天继续错误地启动群体协作。
+TEST(AgentLoopLifecycleGolden, SwarmModeFollowsSessionContextBetweenTurns) {
     Isolation isolation;
     Harness h(isolation);
     h.tools.register_tool(h.probe("spawn_subagent", true));
+    h.session->set_swarm_mode("star");
     h.provider->push_text("swarm finished");
-    UserInput swarm;
-    swarm.text = "coordinate this turn";
-    swarm.metadata = {{"swarm_mode", true}};
-    ASSERT_TRUE(h.perform([loop = h.loop.get(), swarm] { loop->submit(swarm); }));
+    ASSERT_TRUE(h.perform([loop = h.loop.get()] { loop->submit("coordinate this turn"); }));
+    h.session->set_swarm_mode("off");
     h.provider->push_text("ordinary finished");
-    ASSERT_TRUE(h.perform([loop = h.loop.get()] { loop->submit("ordinary next turn"); }));
+    UserInput stale;
+    stale.text = "ordinary next turn";
+    stale.metadata = {{"swarm_mode", true}};
+    ASSERT_TRUE(h.perform([loop = h.loop.get(), stale] { loop->submit(stale); }));
     const auto first = h.provider->messages_for_turn(0);
     const auto second = h.provider->messages_for_turn(1);
     const auto count_swarm = [](const std::vector<ChatMessage>& messages) {

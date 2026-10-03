@@ -119,7 +119,6 @@ void TurnFinalizer::step(Step selected, Frame& frame) {
         frame.turn_id = gate_.id();
         gate_.close_and_discard();
         turn_interrupt_requested_ = false;
-        if (frame.turn) frame.turn->swarm_mode = false;
         hooks_.clear_context();
         outcome_.set_error(frame.error);
         outcome_.record("error");

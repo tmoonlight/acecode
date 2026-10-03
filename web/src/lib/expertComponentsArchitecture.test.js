@@ -207,7 +207,7 @@ test('all real composers host the picker in place and opening prompts use atomic
   assert.match(input, /compactExpertSummary\(expert\)/);
   assert.match(input, /role="menuitemcheckbox"/);
   assert.match(input, /<SwarmModeIcon size=\{15\}/);
-  assert.match(input, />蜂群模式</);
+  assert.match(input, /\{swarmModeLabel\(mode\)\}/);
   assert.match(input, />更多专家</);
   assert.match(input, />文件或文件夹</);
   assert.doesNotMatch(input, /暂无最近使用的专家|没有最近的专家|onAddBrowserContext|>浏览器</);

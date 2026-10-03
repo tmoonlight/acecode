@@ -65,7 +65,11 @@ run('live spawn_subagent tool_start opens the panel through the task hook', () =
 
   assert.match(taskState, /export function isSubagentSpawnStartEvent\(parentSessionId, msg\)/);
   assert.match(taskState, /msg\?\.type !== 'tool_start'/);
-  assert.match(taskState, /eventSessionId === parentId && payload\.tool === 'spawn_subagent'/);
+  // 星型 spawn_subagent 与网状 agent_spawn(add-mesh-swarm-mode)都是面板打开信号。
+  assert.match(
+    taskState,
+    /eventSessionId === parentId &&\s*\(payload\.tool === 'spawn_subagent' \|\| payload\.tool === 'agent_spawn'\)/,
+  );
   assert.match(taskHook, /useSubagentTasks\(parentSessionId, \{ onSpawnStart \} = \{\}\)/);
   assert.match(taskHook, /isSubagentSpawnStartEvent\(parentSessionId, msg\)/);
   assert.match(taskHook, /onSpawnStartRef\.current\?\.\(msg\)/);

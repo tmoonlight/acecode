@@ -184,6 +184,11 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
             o.permission_mode = tokens[++i];
         } else if (split_eq(t, "--permission-mode", eq_value)) {
             o.permission_mode = eq_value;
+        } else if (t == "--swarm") {
+            if (i + 1 >= tokens.size()) return fail("--swarm requires a value (star|mesh|off)");
+            o.swarm_mode = tokens[++i];
+        } else if (split_eq(t, "--swarm", eq_value)) {
+            o.swarm_mode = eq_value;
         } else if (t == "--model") {
             if (i + 1 >= tokens.size()) return fail("--model requires a saved model name");
             o.model_name = tokens[++i];
@@ -253,6 +258,10 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
         return fail("--session-id names a NEW session and cannot be combined "
                     "with --resume/--continue");
     }
+    if (!o.swarm_mode.empty() && o.swarm_mode != "star" && o.swarm_mode != "mesh" &&
+        o.swarm_mode != "off") {
+        return fail("invalid --swarm: " + o.swarm_mode + " (expected star|mesh|off)");
+    }
     if (!o.output_format.empty() && o.output_format != "text" &&
         o.output_format != "json" && o.output_format != "stream-json") {
         return fail("invalid --output-format: " + o.output_format +
@@ -264,7 +273,7 @@ HeadlessCliOptions parse_headless_cli_options(const std::vector<std::string>& to
         !o.prompt.empty() || o.dangerous_mode || o.include_thinking ||
         o.continue_latest || !o.resume_session_id.empty() ||
         !o.session_id.empty() || !o.output_format.empty() ||
-        !o.permission_mode.empty() || !o.model_name.empty() ||
+        !o.permission_mode.empty() || !o.model_name.empty() || !o.swarm_mode.empty() ||
         o.max_turns != 0 || !o.disabled_system_tools.empty() ||
         !o.enabled_skills.empty() || !o.enabled_mcp_servers.empty();
     if (discovery_mode && has_execution_input) {
@@ -285,7 +294,7 @@ std::string print_mode_usage_line() {
            "   or: acecode -p [-c | --resume <id> | --session-id <id>] "
            "[--output-format text|json|stream-json] [--thinking] "
            "[--yolo] [--permission-mode <m>] "
-           "[--model <name>] [--max-turns <n>] "
+           "[--model <name>] [--swarm <mode>] [--max-turns <n>] "
            "[--disable-tools <names>] [--enable-skills <names>] "
            "[--enable-mcp <names>] \"<prompt>\"\n"
            "run `acecode -p --help` for details\n";
@@ -321,6 +330,8 @@ std::string print_mode_help() {
         "                           its saved model unless this option is supplied)\n"
         "  --permission-mode <m>    default | auto | plan | yolo (accept-edits = auto)\n"
         "                           (default: default; also applies on resume)\n"
+        "  --swarm <mode>           star | mesh | off: swarm mode for this session\n"
+        "                           (new sessions: off; resume keeps the saved mode)\n"
         "  --max-turns <n>          Cap agent-loop iterations (default: unlimited)\n"
         "  --disable-tools <names>  Disable exact system tool names (default: none)\n"
         "  --enable-skills <names>  Enable exact installed Skill names (default: none)\n"

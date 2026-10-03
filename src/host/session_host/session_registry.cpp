@@ -63,11 +63,6 @@ std::string session_dir_name_from_id(const std::string& session_id) {
     return out.empty() ? "session" : out;
 }
 
-bool is_llm_role(const std::string& role) {
-    return role == "user" || role == "assistant" ||
-           role == "system" || role == "tool";
-}
-
 std::string trim_copy(const std::string& value) {
     std::size_t first = 0;
     while (first < value.size() &&
@@ -100,50 +95,6 @@ ExpertCapabilityScopes fail_closed_expert_scopes() {
     scopes.mcp_servers = std::vector<std::string>{};
     scopes.tools = std::vector<std::string>{};
     return scopes;
-}
-
-bool is_transcript_only_message(const ChatMessage& msg) {
-    return msg.metadata.is_object() &&
-           msg.metadata.value("transcript_only", false);
-}
-
-std::optional<std::pair<std::size_t, CompactCheckpoint>>
-latest_valid_compact_checkpoint(const std::vector<ChatMessage>& messages) {
-    for (std::size_t i = messages.size(); i > 0; --i) {
-        auto checkpoint = decode_compact_checkpoint(messages[i - 1]);
-        if (checkpoint.has_value()) {
-            return std::make_pair(i - 1, std::move(*checkpoint));
-        }
-    }
-    return std::nullopt;
-}
-
-void append_model_messages_to_loop(AgentLoop& loop,
-                                   const std::vector<ChatMessage>& messages) {
-    for (std::size_t i = 0; i < messages.size(); ++i) {
-        const auto& msg = messages[i];
-        if (is_file_checkpoint_message(msg)) continue;
-        if (is_content_replacement_message(msg)) continue;
-        if (is_turn_timing_message(msg)) continue;
-        if (is_compact_checkpoint_message(msg)) continue;
-
-        const bool is_shell_user =
-            (msg.role == "user" && !msg.content.empty() && msg.content[0] == '!');
-        const bool next_is_result =
-            (i + 1 < messages.size() && messages[i + 1].role == "tool_result");
-        if (is_shell_user && next_is_result) {
-            loop.inject_shell_turn(msg.content.substr(1),
-                                   messages[i + 1].content,
-                                   "",
-                                   0);
-            ++i;
-            continue;
-        }
-
-        if (is_llm_role(msg.role) && !is_transcript_only_message(msg)) {
-            loop.push_message(msg);
-        }
-    }
 }
 
 std::pair<std::string, std::string>
@@ -1135,6 +1086,7 @@ SessionRegistry::make_entry_locked(const std::string& id,
     loop_options.inherited_write_root = opts.write_root;
     loop_options.tool_policy = entry->tool_capability_policy;
     loop_options.expert_member_id = entry->expert_member_id;
+    loop_options.swarm = apply_swarm_identity(*entry, opts, resumed_meta);
     entry->loop = std::make_unique<AgentLoop>(std::move(loop_services), std::move(loop_options));
     if (opts.inherited_worktree.active())
         entry->loop->set_cwd(opts.inherited_worktree.worktree_path);
@@ -1169,26 +1121,6 @@ SessionRegistry::make_entry_locked(const std::string& id,
     entry->loop->start();
 
     return entry;
-}
-
-void SessionRegistry::restore_loop_history(
-    SessionEntry& entry,
-    const std::vector<ChatMessage>& messages) const {
-    if (!entry.loop) return;
-    restore_file_tool_state_from_messages(messages, entry.loop->cwd());
-    entry.loop->clear_messages();
-
-    if (auto checkpoint = latest_valid_compact_checkpoint(messages)) {
-        append_model_messages_to_loop(*entry.loop, checkpoint->second.replacement_history);
-        if (checkpoint->first + 1 < messages.size()) {
-            std::vector<ChatMessage> suffix(
-                messages.begin() + static_cast<std::ptrdiff_t>(checkpoint->first + 1),
-                messages.end());
-            append_model_messages_to_loop(*entry.loop, suffix);
-        }
-    } else {
-        append_model_messages_to_loop(*entry.loop, messages);
-    }
 }
 
 bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) {
@@ -1329,9 +1261,9 @@ void SessionRegistry::set_external_command_handler(ExternalCommandHandler handle
 BuiltinCommandResult SessionRegistry::execute_builtin_command(
     const std::string& id,
     const BuiltinCommandRequest& request) {
-    if (request.name != "init" && request.name != "compact" &&
-        request.name != "goal" && request.name != "plan" &&
-        request.name != "lsp" && request.name != "sandbox" && request.name != "memory") {
+    if (request.name != "init" && request.name != "compact" && request.name != "goal" &&
+        request.name != "plan" && request.name != "lsp" && request.name != "sandbox" &&
+        request.name != "memory" && request.name != "swarm") {
         // 内置名单之外:先给宿主注册的兜底处理器(daemon 托管 /rc 走这里),
         // 没有兜底或兜底不认时保持原 UnsupportedCommand 语义。锁外调用,
         // handler 内部可以安全地回头 acquire()/emit。
@@ -1354,6 +1286,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
         return {BuiltinCommandStatus::Accepted, "queued"};
     }
 
+    if (request.name == "swarm") return execute_swarm_builtin(*entry, request);
     if (request.name == "goal") {
         return execute_goal_builtin(*entry, request);
     }
@@ -2292,6 +2225,8 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
             info.worktree_path = worktree.worktree_path;
             info.worktree_name = worktree.worktree_name;
             info.worktree_branch = worktree.worktree_branch;
+            if (!display.swarm_mode.empty()) info.swarm_mode = display.swarm_mode;
+            info.agent_path = display.agent_path;
         }
         if (entry->perm) {
             info.permission_mode = PermissionManager::mode_name(entry->perm->mode());

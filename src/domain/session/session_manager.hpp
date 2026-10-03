@@ -31,6 +31,8 @@ struct SessionDisplaySnapshot {
     TokenUsage last_token_usage;
     TokenUsage session_token_usage;
     WorktreeSessionInfo worktree;
+    std::string swarm_mode;   // "" = off
+    std::string agent_path;   // mesh child path; empty for roots
 };
 
 class SessionManager {
@@ -210,6 +212,16 @@ public:
     // otherwise on lazy creation). Pass empty string to clear.
     void set_parent_session_id(std::string parent_id);
     std::string current_parent_session_id() const;
+    // 蜂群模式与网状 agent 路径(session_manager_agent.cpp)。模式取
+    // "" / "off" / "star" / "mesh";根会话与非网状会话的路径为空。
+    void set_swarm_mode(std::string swarm_mode);
+    void set_mesh_agent_path(std::string agent_path);
+    std::string current_swarm_mode() const;
+    std::string current_agent_path() const;
+    // Session cwd (workspace or no-workspace cache dir) and the session-local
+    // reasoning choice; mesh children inherit both from their spawner.
+    std::string current_cwd() const;
+    std::optional<std::string> current_reasoning_effort() const;
 
     // Persist the current expert identity selected for this session.
     void set_expert_binding(std::string expert_id, std::string member_id = {});
@@ -355,6 +367,10 @@ private:
     std::string loop_id_;
     std::string loop_run_id_;
     WorktreeSessionInfo worktree_;
+    std::string swarm_mode_;
+    std::string agent_path_;
+    void write_swarm_identity_locked(SessionMeta& meta) const;
+    void adopt_swarm_identity_locked(const SessionMeta& meta);
     void ensure_file_checkpoints_loaded_locked() const;
     mutable bool file_checkpoints_loaded_ = true;
     mutable FileCheckpointStore checkpoint_store_;

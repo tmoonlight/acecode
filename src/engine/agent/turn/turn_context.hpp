@@ -23,7 +23,6 @@ struct TurnContext {
     AgentCallbacks callbacks;
     RequestContextSource request_source;
     UserTurnInfo info;
-    bool swarm_mode = false;
     int total_iterations = 0;
     int model_step_index = 0;
     bool preturn_compaction_failed = false;

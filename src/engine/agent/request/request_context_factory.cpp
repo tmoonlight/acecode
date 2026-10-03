@@ -14,7 +14,7 @@
 
 namespace acecode::agent {
 RequestContextOptions RequestContextFactory::options(
-    const std::shared_ptr<LlmProvider>& provider, bool swarm_mode) const {
+    const std::shared_ptr<LlmProvider>& provider) const {
     agent::RequestContextOptions options;
     options.cwd = boundary_.cwd();
     options.skills = source_.skills;
@@ -45,7 +45,7 @@ RequestContextOptions RequestContextFactory::options(
     options.can_read_images = model.can_read_images();
     options.loop_active = source_.loop.active;
     options.loop_context = source_.loop.system_context;
-    options.swarm_mode = swarm_mode;
+    options.swarm = source_.swarm;
     options.environment = source_.runtime.prompt_environment();
     options.sandbox.description = security_.sandbox_prompt_description(session_manager_);
     options.folders = boundary_.system_prompt_workspace_folders(session_manager_);
@@ -60,8 +60,8 @@ RequestContextOptions RequestContextFactory::options(
 }
 
 ApiRequestBundle RequestContextFactory::build(
-    const std::shared_ptr<LlmProvider>& provider, bool emergency_profile, bool swarm_mode) {
-    auto inputs = builder_.capture(options(provider, swarm_mode),
+    const std::shared_ptr<LlmProvider>& provider, bool emergency_profile) {
+    auto inputs = builder_.capture(options(provider),
                                             history_.view(), emergency_profile);
     if (!emergency_profile) {
         inputs.hook_context = hooks_.drain_context();

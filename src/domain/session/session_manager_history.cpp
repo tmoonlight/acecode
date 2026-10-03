@@ -9,7 +9,7 @@ namespace fs = std::filesystem;
 void SessionManager::publish_display_snapshot_locked() {
     SessionDisplaySnapshot snapshot{
         pending_title_, title_source_, last_user_summary_, turn_count_,
-        last_token_usage_, session_token_usage_, worktree_,
+        last_token_usage_, session_token_usage_, worktree_, swarm_mode_, agent_path_,
     };
     std::lock_guard<std::mutex> lock(display_mu_);
     display_snapshot_ = std::move(snapshot);

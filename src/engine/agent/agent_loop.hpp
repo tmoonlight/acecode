@@ -61,7 +61,7 @@ struct SystemPromptModelState;
 struct SystemPromptWorkspaceFolders;
 class AgentLoopDoomGuard;
 
-namespace agent { class TurnFinalizer; struct TurnContext; struct ToolCallOutcome; struct ToolBatchOutcome; struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
+namespace agent { class AgentMailbox; class TurnFinalizer; struct TurnContext; struct ToolCallOutcome; struct ToolBatchOutcome; struct ToolBatchState; struct DeferredTaskCompleteEnd; class ContextOverflowRecovery; struct RequestRecoveryState; class CompactionController; struct CompactionInputs; class ProviderStreamCollector; struct TurnUsageRecord; class TurnUsageAccountant; class ModelStepRecorder; struct RequestContextOptions; class ApiRequestBuilder; class PromptContextCache; class ActivityNarrator; class RetryProgressReporter; class SideQuestionService; class ActiveProviderSlot; class SynchronizedDoomGuard; class AgentTaskQueue; class ActiveTurnGate; class TaskHandoff; class GoalRuntime; class AgentHookBridge; class ToolHookBridge; class WorkspaceBoundary; class SessionExecSecurity; class ConversationHistory; class TranscriptWriter; class TrajectoryRecorder; class TurnOutcomeRecord; }
 
 class AgentLoop {
 public:
@@ -169,6 +169,23 @@ public:
                                        const UserInput& input,
                                        const std::string& expected_turn_id = {});
     std::string active_turn_id() const;
+
+    // ---- 蜂群模式（网状）----
+    // Session swarm mode and mesh identity for the next captured turn.
+    void set_swarm_context(agent::SwarmContext context);
+    agent::SwarmContext swarm_context() const;
+    // Queue an inter-agent envelope (user-role input with metadata.inter_agent).
+    // Mail always goes through the session mailbox: a running turn takes it at
+    // its next model boundary; trigger_turn also wakes an idle agent with a
+    // mailbox turn, otherwise the mail waits for the agent's next turn.
+    void deliver_inter_agent_message(UserInput envelope, bool trigger_turn);
+    enum class MailboxWaitOutcome { Mailbox, Steered, TimedOut, Aborted };
+    // agent_wait: already-pending steering / mail returns immediately, then
+    // blocks for new mail or steered user input until the timeout or abort.
+    MailboxWaitOutcome wait_for_mailbox_activity(std::chrono::milliseconds timeout,
+                                                 const std::atomic<bool>* abort_flag);
+    std::size_t pending_mailbox_count() const;
+    bool has_pending_trigger_mail() const;
 
     // Legacy cancel alias
     void cancel() { abort(); }
@@ -352,7 +369,7 @@ private:
     agent::CompactionInputs compaction_inputs() const;
     std::vector<ChatMessage> build_compaction_initial_context() const;
     agent::RequestContextOptions request_context_options(
-        const std::shared_ptr<LlmProvider>& provider, bool swarm_mode = false) const;
+        const std::shared_ptr<LlmProvider>& provider) const;
     void publish_side_question_context(const std::vector<ChatMessage>& messages);
     SideChatToolset side_chat_toolset();
     void require_before_start(const char* operation) const;
@@ -400,6 +417,7 @@ private:
     std::unique_ptr<agent::TrajectoryRecorder> trajectory_;
     std::unique_ptr<agent::AgentTaskQueue> task_queue_;
     std::unique_ptr<agent::ActiveTurnGate> active_turn_gate_;
+    std::unique_ptr<agent::AgentMailbox> mailbox_;
     std::unique_ptr<agent::TaskHandoff> task_handoff_;
     std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
     std::unique_ptr<agent::WorkspaceBoundary> boundary_;

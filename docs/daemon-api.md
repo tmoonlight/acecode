@@ -135,6 +135,7 @@ Session list endpoints return arrays of objects shaped like:
   "title": "Investigate daemon routes",
   "title_source": "user",
   "summary": "latest user summary",
+  "swarm_mode": "off",
   "created_at": "2026-07-04T01:23:45Z",
   "updated_at": "2026-07-04T01:25:00Z",
   "provider": "openai",
@@ -1526,6 +1527,17 @@ Queues a user input turn. Body:
 with `type:"selection"` are sanitized and expanded into model-visible context
 while preserving the user's original display text. Other context objects are
 passed as browser context content parts.
+
+`swarm_mode` (optional) switches the session-level swarm mode before the input
+is queued: `"star"`, `"mesh"` or `"off"`; legacy clients may send `true` (=
+`"star"`) or `false` (= `"off"`). Any other value returns `400` with
+`swarm_mode must be "star", "mesh" or false`. The mode is sticky: omitting the
+field keeps the session's current mode, and the accepted value is also recorded
+as `metadata.swarm_mode` on that user message. Leaving `"mesh"` while agents of
+the session's mesh tree are still running (or hold undelivered follow-up tasks)
+returns `409` with the reason; so does posting directly to a mesh sub-agent
+(`direct input is not allowed for mesh swarm sub-agents`). A successful switch
+emits `session_updated {"swarm_mode"}`. See `docs/subagents.md` §9.
 
 `client_message_id` is an optional non-empty string (maximum 256 bytes) used by
 Desktop queued-input handoff. When accepted, it is preserved as
@@ -4775,7 +4787,10 @@ sends `{"title", "title_source"}`. After each visible user message is persisted
 the daemon sends `{"summary"}`: the latest user message's display text
 (`metadata.display_text` when present, otherwise `content`) collapsed to one
 line and truncated to 80 UTF-8 bytes plus `...`. The same three fields appear in
-session listings and in the `GET .../messages?since=0` snapshot. Clients show
+session listings and in the `GET .../messages?since=0` snapshot. A swarm-mode
+switch sends `{"swarm_mode"}` (`"off" | "star" | "mesh"`); session listings and
+the messages snapshot carry the current `swarm_mode` too, plus `agent_path`
+(`/root/...`) for mesh sub-agents. Clients show
 `title` when it is non-empty (ignoring generated titles that start with
 `[Error]`) and `summary` otherwise, in both the session list and the chat
 header; they must not derive a title from message bodies.
