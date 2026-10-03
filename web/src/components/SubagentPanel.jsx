@@ -7,9 +7,9 @@
 // 已约束的 width 渲染内容。
 //
 // 两个视图:
-//   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop);
-//     已完成组标题行有「归档」:把已结束任务从面板收起,记录仍保留在磁盘上,
-//     主会话被永久删除时才随之删除(子会话与普通会话一样长期保存)。
+//   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop)。
+//     子会话没有单独归档 / 删除入口:它们始终跟随主会话留在这里,
+//     只在主会话归档后被永久删除时一起删除(用户决策,事后分析要完整上下文)。
 //   - transcript:点卡片「查看会话」原地切换,复用主会话的完整 transcript
 //     投影与渲染链路,仅通过能力开关保持只读。AskUserQuestion 工具行不显示——
 //     子代理的提问/权限确认冒泡到主会话 UI 回答,这里只看执行过程。
@@ -22,7 +22,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { clsx } from '../lib/format.js';
 import { DEFAULT_SUBAGENT_PANEL_WIDTH } from '../lib/singleLayout.js';
 import { useSessionTranscript } from '../lib/sessionTranscript.js';
 import { createApi } from '../lib/api.js';
@@ -275,9 +274,8 @@ function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse 
   );
 }
 
-export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, workspaceHash = '', onAbort, onClearSettled, messageAutoCollapse = true }) {
+export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, workspaceHash = '', onAbort, messageAutoCollapse = true }) {
   const [transcriptTaskId, setTranscriptTaskId] = useState('');
-  const [clearing, setClearing] = useState(false);
 
   // 面板关闭后回到列表视图,重开不残留上一次的 transcript。
   useEffect(() => {
@@ -291,7 +289,7 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
   }, [focus?.n, focus?.id]);
 
   const groups = useMemo(() => subagentTaskGroups(tasks), [tasks]);
-  // 目标任务不在列表(如已清除但聊天流仍留有分组项)时,合成一个最小任务对象,
+  // 目标任务不在列表(如列表尚未刷新到它)时,合成一个最小任务对象,
   // transcript 仍能按 session_id 拉取展示。
   const transcriptTask = transcriptTaskId
     ? (tasks.find((t) => t.id === transcriptTaskId)
@@ -307,16 +305,6 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
   }, [open, transcriptTask, groups.running.length]);
 
   if (!open) return null;
-
-  const clearSettled = async () => {
-    if (clearing) return;
-    setClearing(true);
-    try {
-      await onClearSettled?.();
-    } finally {
-      setClearing(false);
-    }
-  };
 
   return (
     <div
@@ -392,18 +380,6 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                 <span className="text-[11.5px] font-medium text-fg-2">
                   已完成 {groups.settled.length}
                 </span>
-                <button
-                  type="button"
-                  onClick={clearSettled}
-                  disabled={clearing}
-                  className={clsx(
-                    'text-[11.5px] text-fg-mute transition hover:text-danger',
-                    clearing && 'opacity-50 cursor-default',
-                  )}
-                  title="把已结束任务从面板收起;记录保留,主会话永久删除时一并删除"
-                >
-                  {clearing ? '归档中…' : '归档'}
-                </button>
               </div>
               {groups.settled.map((task) => (
                 <TaskCard

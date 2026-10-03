@@ -13,6 +13,7 @@
 #include "network/proxy_resolver.hpp"
 #include "provider/auth/github_auth.hpp"
 #include "session/session_storage.hpp"
+#include "session/session_tree_purge.hpp"
 #include "session/session_usage_ledger.hpp"
 #include "platform/clipboard.hpp"
 #include "utils/utf8_path.hpp"
@@ -1427,7 +1428,7 @@ struct SettingsCenter::Impl {
                     continue;
                 }
                 std::string error;
-                if (SessionStorage::purge_session_files(
+                if (purge_session_tree(
                         row.project_dir, row.meta.id, &error)) {
                     ++purged;
                     archived_selected_ids.erase(archived_row_key(row));

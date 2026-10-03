@@ -696,7 +696,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     : '';
   const subagentTasks = useSubagentTasks(sid, {
     onSpawnStart: openSubagentPanelForSpawn,
-    workspaceHash: subagentWorkspaceHash,
   });
   // 当前视图可见的待答问题。提问挂起期间 composer dock 由提问框整体替换
   // (方案 A),所以它只驱动渲染,不再参与 submit 的分支判定。
@@ -6174,12 +6173,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           tasks={subagentTasks.tasks}
           workspaceHash={subagentWorkspaceHash}
           onAbort={(task) => subagentTasks.abortTask(task.id)}
-          onClearSettled={async () => {
-            const result = await subagentTasks.clearSettled();
-            if (result?.failed > 0) {
-              toast({ kind: 'err', text: `有 ${result.failed} 个任务归档失败(可能仍在运行)` });
-            }
-          }}
         />
       </div>
 

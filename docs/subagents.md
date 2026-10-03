@@ -83,12 +83,12 @@ Multi-Agent V2,openspec `add-mesh-swarm-mode`)。
 | 文件 | 职责 |
 |---|---|
 | `src/host/session_host/tools/spawn_subagent_tool.{hpp,cpp}` | 两个工具本体 + `SubagentToolDeps{registry, client, config, fallback_permissions, on_spawn}`。daemon 里 deps 用 shared_ptr 延迟回填(ToolExecutor 先于 SessionRegistry 构造,见 worker.cpp) |
-| `src/domain/session/session_storage.{hpp,cpp}` | `SessionMeta.parent_session_id`(空省略序列化);`purge_session_files(project_dir, id)` 删 jsonl + meta + `<id>/` 目录(web purge 路由用;主会话永久删除时对它的每个子会话各调一次) |
+| `src/domain/session/session_storage.{hpp,cpp}` | `SessionMeta.parent_session_id`(空省略序列化);`purge_session_files(project_dir, id)` 删 jsonl + meta + `<id>/` 目录;`session_tree_purge.{hpp,cpp}` 的 `session_tree_delete_order` / `purge_session_tree` 给出「子会话在前、主会话最后」的删除顺序(Web 永久删除、TUI 设置中心、线程工具 `delete_thread` 共用) |
 | `src/domain/session/session_manager.{hpp,cpp}` | `set_parent_session_id` / `current_parent_session_id`;start_session 重置、ensure_created/update_meta 落盘、resume_session 读回 |
 | `src/host/session_host/session_registry.{hpp,cpp}` | `SessionEntry::{subagent_depth, parent_session_id}`;make_entry_locked 从 opts 写入 / 从 resumed_meta 恢复(恢复时强制 depth≥1);list_active 透出 parent 字段 |
 | `src/domain/session/session_client.hpp` | `SessionOptions::{subagent_depth, parent_session_id}`、`SessionInfo::parent_session_id` |
 | `src/apps/web/server_helpers.cpp` | `sessions_for_workspace(..., parent_filter)`:空 = 常规列表**排除**全部子会话;非空 = 只返回该父会话的子任务(active 部分跳过 workspace 过滤);`session_info_to_json` / `session_meta_to_json` 输出 `parent_session_id` |
-| `src/apps/web/routes/routes_sessions.cpp` | `GET /api/sessions?parent=<id>`;`DELETE /api/sessions/:id?purge=1`(子会话或已归档主会话,未归档主会话 400,busy 409;实现在 `server_helpers.cpp::purge_session_data`,主会话连同子会话级联删除) |
+| `src/apps/web/routes/routes_sessions.cpp` | `GET /api/sessions?parent=<id>`;`DELETE /api/sessions/:id?purge=1`(只收已归档主会话,连同子会话级联删除;子会话 / 未归档主会话 409;实现在 `server_helpers.cpp::purge_session_data`,与工作区路由同语义) |
 | `src/apps/web/routes/routes_workspaces.cpp` | workspace 路由的 `?parent=` 同语义 |
 | `src/apps/daemon/worker.cpp` | daemon 注册点(registry/client 就绪后回填 deps) |
 
@@ -97,13 +97,15 @@ Multi-Agent V2,openspec `add-mesh-swarm-mode`)。
 - `GET /api/sessions` 与 `GET /api/workspaces/:hash/sessions` 默认排除子会话;
   `?parent=<session_id>` 反查该父会话的子任务(后台任务面板数据源)。
 - `SessionSummary` 增 `parent_session_id` 字段(普通会话为空串)。
-- 子会话与普通会话一样长期保存。面板「归档」= `PUT /api/workspaces/:hash/sessions/:id/archive`
-  (父会话没有工作区时走 `PUT /api/sessions/:id/archive`):卸载 + `meta.archived=true`,`?parent=`
-  不再返回它,「已归档会话」列表也不列子会话,磁盘记录保留。
-- 永久删除(`DELETE …?purge=1`)一个已归档主会话时级联删除它的全部子会话(归档与否,含还没落盘、
-  只在内存里的),子会话在前、主会话最后,中途失败时主会话仍在可重试;任一子会话运行中 →
-  `409 subagent session <id> is busy; abort it first`。单独 purge 子会话的兼容路由保留
-  (`400 only subagent sessions can be purged` / `409 session is busy`),面板已不再调用。
+- **子会话始终跟随主会话(用户决策,事后分析要完整上下文)**:哪里都没有单独归档 / 删除子会话的入口。
+  归档路由对子会话回 `409 subagent sessions follow their main session and cannot be archived separately`
+  (取消归档仍允许,用来清掉旧版本留下的标记);`?purge=1` 对子会话回
+  `409 subagent sessions are deleted together with their main session`;`?parent=` 列出全部子会话,
+  不看 `archived` 标记;「已归档会话」列表只列主会话。
+- 永久删除(`DELETE …?purge=1`,两条路由同语义)只收已归档主会话,连同它的全部子会话(含还没落盘、
+  只在内存里的)一起删,子会话在前、主会话最后,中途失败时主会话仍在可重试;任一子会话运行中 →
+  `409 subagent session <id> is busy; abort it first`;未归档主会话 →
+  `409 session must be archived before permanent deletion`。
 - `tool_end` payload 的 `metadata` 原样透传(含 `subagent_session_id`),这是前端即时发现
   新子任务的通道之一。
 
@@ -126,8 +128,8 @@ session_status 帧(未知 busy 会话)            → refetch   ← wait=true �
   `connection.retainSession`(不依赖面板开关)** —— 这是子会话的 permission_request /
   question_request 能到达 App 全局监听并冒泡的前提。parent 切换有迟到响应守卫。
 - `web/src/components/SubagentPanel.jsx` — overlay(absolute 挂在 ChatView 消息区容器内,
-  只覆盖聊天区,不动 Sidebar/SidePanel):运行中 / 已完成分组卡片;运行中卡片右上停止按钮;
-  「归档」批量归档已结束任务(按父会话所在工作区走工作区路由);「查看会话」原地切到只读
+  只覆盖聊天区,不动 Sidebar/SidePanel):运行中 / 已完成分组卡片;运行中卡片右上停止按钮,
+  已完成组没有归档 / 清除入口(子会话始终留在面板里);「查看会话」原地切到只读
   transcript,历史请求带父会话的 `workspaceHash` —— Desktop 的 daemon 同时服务多个工作区,子会话
   不在内存里(Desktop 重启后、网状 agent 被换出)时只能按它读盘,否则 404 SESSION_NOT_FOUND(复用主会话
   Message/ToolBlock 紧凑渲染,`useSessionTranscript` live:'auto' 实时跟尾,AskUserQuestion
@@ -162,9 +164,8 @@ SessionRegistry / LocalSessionClient 无 web 依赖 → TUI 进程直接实例�
   运行中**,用户决策);`SessionUpdated` → 标题更新;`PermissionRequest` →
   `Deps::on_permission_request` 冒泡。快照经 `Deps::publish_tasks` 交付
   (main.cpp 写入 `TuiState.subagent_tasks` + PostEvent)。
-- `/tasks` 后端:`list_tasks`(运行中 registry + 磁盘 parent 匹配的已结束)、
-  `abort_task`、`clear_settled`(归档:卸载 + 写 `meta.archived`,`list_tasks` 不再列出)、
-  `respond_permission`。
+- `/tasks` 后端:`list_tasks`(运行中 registry + 磁盘 parent 匹配的全部已结束,不看归档标记)、
+  `abort_task`、`respond_permission`。
 - 不显式退订:dispatcher 生命周期 = SessionEntry;host 析构(main 栈)→ registry 析构
   → 逐个 abort+join 子会话。
 
@@ -202,10 +203,11 @@ TuiState overlay,工具线程 wait ask_cv 天然带回结果)。只需两点:入
 - `render_regular_sidebar` 的「Background Tasks」区块:bash 前台任务(原有)+ 子代理
   运行中任务(`●` + 标题截断 + 耗时);anim_thread 在 `subagent_tasks` 非空时持续
   tick(否则 `wait=false` 点火后主会话 idle,耗时不刷新)。
-- `/tasks [list|abort <id>|clear]`(builtin_commands.cpp,`CommandContext::subagent_host`
-  仅斜杠 dispatch 路径注入):abort 支持 id 前缀唯一匹配;clear 与 Web「归档」同语义(只收起,
-  记录保留)。TUI 退出时的 `cleanup_old_sessions` 只按主会话计 `max_sessions` 名额,被清理的主会话
-  连同子会话一起删;父会话已不在的孤儿子会话按主会话计,否则永远清不掉。
+- `/tasks [list|abort <id>]`(builtin_commands.cpp,`CommandContext::subagent_host`
+  仅斜杠 dispatch 路径注入):abort 支持 id 前缀唯一匹配;没有 clear(子会话不能单独清除)。
+  TUI 退出时的 `cleanup_old_sessions` 只按主会话计 `max_sessions` 名额,被清理的主会话连同子会话
+  一起删;父会话已不在的孤儿子会话按主会话计,否则永远清不掉。设置中心永久删除已归档主会话走
+  `purge_session_tree`,同样连同子会话(并清搜索索引)。
 
 ## 6. 测试地图
 
@@ -217,10 +219,12 @@ TuiState overlay,工具线程 wait ask_cv 天然带回结果)。只需两点:入
 | `tests/loop/loop_scheduler_test.cpp` + `loop_store_test.cpp` | `detect_workspace_touched` 真实 git;`workspace_touched` 持久化与 v3 迁移 |
 | `tests/project_instructions/instructions_loader_test.cpp` | linked worktree 根止步(主 checkout 的 AGENTS.md 不再重复加载) |
 | `tests/session/session_storage_test.cpp` | meta parent_session_id 回环 + 空省略 |
-| `tests/web/web_server_smoke_test.cpp` | 列表隐藏 + ?parent= 反查;purge 护栏(主会话 400)+ 真删 + 普通 DELETE 不删盘;归档子会话离开面板但保留、主会话永久删除级联子会话(PurgingArchivedMainSessionCascadesToItsSubagents) |
-| `tests/tui/subagent_host_test.cpp` | 快照发布/BusyChanged 移除;list 合并 + clear 只归档已结束;abort 路由 |
+| `tests/web/web_server_smoke_test.cpp` | 列表隐藏 + ?parent= 反查;子会话不能单独 purge / 归档(PurgeRejectsSubagentAndUnarchivedMainSession)+ 普通 DELETE 不删盘;?parent= 不看归档标记、主会话永久删除级联子会话(PurgingArchivedMainSessionCascadesToItsSubagents) |
+| `tests/tui/subagent_host_test.cpp` | 快照发布/BusyChanged 移除;list 合并运行中与全部已结束;abort 路由 |
 | `tests/session/session_cleanup_test.cpp` | 退出清理只按主会话计名额、级联删子会话、孤儿子会话按主会话计 |
-| `web/src/lib/subagentPanelSplitArchitecture.test.js` | 子会话 transcript 带父会话工作区;面板只归档不 purge |
+| `tests/session/session_tree_purge_test.cpp` | 删除顺序(子在前、主会话最后、不碰别的树)、连同子会话删数据与搜索索引 |
+| `tests/session_host/thread_tools_test.cpp` | `delete_thread` / `set_thread_archived` 拒绝子会话(含子会话删自己),删主会话级联 |
+| `web/src/lib/subagentPanelSplitArchitecture.test.js` | 子会话 transcript 带父会话工作区;面板没有归档 / 清除 / 删除入口 |
 | `web/src/lib/subagentTasks.test.js` | 归一化/合并/事件增量/aborted 保持/分组/格式化(13 例) |
 
 统一模式:EchoStreamProvider stub 让子会话 turn 真实完成(消息落盘、busy 迁移),不打真实 LLM。
@@ -313,7 +317,6 @@ provider 上会被拒或合并)。
   最久没有活动、已有结果、无待办与空邮箱的子 agent(`registry.destroy`,记录仍在磁盘);一个都换不出
   时报 `collab spawn failed: agent thread limit reached`(投递恢复时是 `collab tool failed: …`)。
 - 给未加载的 agent 发消息 / 后续任务会先 `registry.resume` 恢复(可能换出别的),再投递并冲刷暂存邮件。
-  被面板「归档」收起的 agent 同样走这条路,恢复时取消归档,重新出现在后台任务面板里。
 - `on_agent_loaded` 回调让 Web(`track_subagent`)与 TUI(`SubagentHost::on_spawned`)对新建 / 恢复的
   子会话重新订阅事件。
 
@@ -337,6 +340,6 @@ provider 上会被拒或合并)。
 |---|---|
 | `tests/session/agent_path_test.cpp`、`mesh_swarm_domain_test.cpp`、`inter_agent_message_test.cpp` | 路径 / 模式名 / 工具互斥 / 信封 / fork_turns / 树索引 |
 | `tests/agent/agent_mailbox_test.cpp`、`agent_loop_mesh_mailbox_test.cpp` | 邮箱等待;运行中并入、空闲触发唤醒、只排队、agent_wait 结局 |
-| `tests/session_host/mesh_agent_service_test.cpp` | spawn → 回报、send / followup、参数校验、LRU 换出与恢复、上限、interrupt、errored、嵌套、退出守卫、重启重建、归档后再寻址取消归档、工具输出契约 |
+| `tests/session_host/mesh_agent_service_test.cpp` | spawn → 回报、send / followup、参数校验、LRU 换出与恢复、上限、interrupt、errored、嵌套、退出守卫、重启重建、工具输出契约 |
 | `tests/session_host/swarm_command_test.cpp`、`tests/config/config_swarm_test.cpp`、`tests/headless/headless_options_test.cpp` | `/swarm` 文本、配置夹取、`--swarm` |
 | `web/src/lib/swarmMode.test.js`、`interAgentMessage.test.js`、`subagentTasks.test.js`、`chatInputQueue.test.js` | 芯片状态、信封显示、面板路径、排队模式 |

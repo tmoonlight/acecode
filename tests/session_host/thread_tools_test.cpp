@@ -470,6 +470,56 @@ TEST_F(ThreadTools, DeleteCascadesToDescendantsAndCleansPins) {
     std::filesystem::remove_all(cwd);
 }
 
+// 场景: 模型经线程工具对一个子会话(后台任务 / 网状 agent)调 delete_thread 或
+// set_thread_archived(true);子会话自己调 delete_thread(不带 id = 删自己)。
+// 期望: 全部失败并提示去处理主会话,子会话的磁盘记录与归档状态原样不动;
+// 取消归档(清掉旧版本留下的标记)仍然允许。删除主会话时子会话照常级联
+// (见 DeleteCascadesToDescendantsAndCleansPins)。
+// 回归: 子会话曾能被单独删除 / 归档,用户要求子会话始终跟随主会话,
+// 单独删掉会让事后分析缺上下文。
+TEST_F(ThreadTools, SubagentThreadsCannotBeDeletedOrArchivedSeparately) {
+    const auto cwd = unique_cwd("subagent_guard");
+    const std::string cwd_string = cwd.string();
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd_string);
+    std::filesystem::remove_all(project_dir);
+
+    const std::string root = "20261003-100000-0001";
+    const std::string child = "20261003-100001-0002";
+    persist_thread(cwd_string, root, {}, "root");
+    persist_thread(cwd_string, child, root, "child");
+
+    acecode::ThreadService service({});
+    acecode::ThreadScope scope;
+    scope.cwd = cwd_string;
+    scope.caller_thread_id = "20261003-090000-cafe";
+
+    const auto deleted = service.delete_thread(scope, child);
+    EXPECT_FALSE(deleted.success);
+    EXPECT_NE(deleted.error.find("main thread"), std::string::npos)
+        << deleted.error;
+    EXPECT_FALSE(acecode::SessionStorage::find_session_files(
+        project_dir, child).empty());
+
+    // 子会话自己调 delete_thread(不带 id)同样被拒。
+    acecode::ThreadScope child_scope;
+    child_scope.cwd = cwd_string;
+    child_scope.caller_thread_id = child;
+    EXPECT_FALSE(service.delete_thread(child_scope, "").success);
+    EXPECT_FALSE(acecode::SessionStorage::find_session_files(
+        project_dir, child).empty());
+
+    const auto archived = service.set_archived(scope, child, true);
+    EXPECT_FALSE(archived.success);
+    EXPECT_FALSE(acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(project_dir, child)).archived);
+    EXPECT_TRUE(service.set_archived(scope, child, false).success)
+        << "取消归档仍允许";
+
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
 TEST_F(ThreadTools, SelfDeleteWaitsForTuiTurnBoundaryBeforePurging) {
     const auto cwd = unique_cwd("self_delete_tui");
     const std::string cwd_string = cwd.string();

@@ -137,8 +137,8 @@ SubagentHost::list_tasks(const std::string& project_dir) const {
     }
     if (!parent.empty() && !project_dir.empty()) {
         for (const auto& meta : SessionStorage::list_sessions(project_dir)) {
+            // 子会话跟随主会话:不论有没有归档标记(旧版本留下的)都列出。
             if (meta.parent_session_id != parent) continue;
-            if (meta.archived) continue;  // /tasks clear 收起的任务不再列出
             if (std::find(running_ids.begin(), running_ids.end(), meta.id) !=
                 running_ids.end()) {
                 continue;
@@ -158,48 +158,6 @@ bool SubagentHost::abort_task(const std::string& id) {
     // BusyChanged(false) 事件随后到达并移除任务;这里不提前动列表,
     // 避免「中止请求发出但子会话还在收尾」期间右侧列消失误导用户。
     return true;
-}
-
-int SubagentHost::clear_settled(const std::string& project_dir) {
-    const std::string parent =
-        parent_session_id_ ? parent_session_id_() : std::string{};
-    if (parent.empty() || project_dir.empty()) return 0;
-    std::vector<std::string> running_ids;
-    {
-        std::lock_guard<std::mutex> lk(mu_);
-        for (const auto& t : running_) running_ids.push_back(t.id);
-    }
-    // 子会话与普通会话一样长期保存:clear 只归档(从列表收起并卸载),
-    // 磁盘记录在主会话被永久删除时才随之删除(Web 面板「归档」同语义)。
-    int removed = 0;
-    for (auto meta : SessionStorage::list_sessions(project_dir)) {
-        if (meta.parent_session_id != parent || meta.archived) continue;
-        if (std::find(running_ids.begin(), running_ids.end(), meta.id) !=
-            running_ids.end()) {
-            continue;
-        }
-        ScopedSubscription subscription;
-        {
-            std::lock_guard<std::mutex> lock(mu_);
-            const auto found = subscriptions_.find(meta.id);
-            if (found != subscriptions_.end()) {
-                subscription = std::move(found->second);
-                subscriptions_.erase(found);
-            }
-        }
-        subscription.reset();
-        registry_.destroy(meta.id);  // 不在 registry 时是 no-op;先落盘再改 meta
-        meta = SessionStorage::read_meta(SessionStorage::meta_path(project_dir, meta.id));
-        if (meta.id.empty()) continue;
-        meta.archived = true;
-        if (!SessionStorage::write_meta(SessionStorage::meta_path(project_dir, meta.id), meta)) {
-            LOG_WARN("[subagent] failed to archive settled task " + meta.id);
-            continue;
-        }
-        ++removed;
-        LOG_INFO("[subagent] archived settled task " + meta.id);
-    }
-    return removed;
 }
 
 void SubagentHost::respond_permission(const std::string& session_id,

@@ -90,9 +90,6 @@ public:
     // 中止运行中的子会话(loop abort;不销毁)。返回 false = 未找到。
     bool abort_task(const std::string& id);
 
-    // 永久删除全部已结束的子任务(destroy + 删磁盘)。返回删除数。
-    int clear_settled(const std::string& project_dir);
-
     // 把 confirm overlay 的用户选择路由回子会话。choice 取
     // "allow" / "allow_session" / "deny"。
     void respond_permission(const std::string& session_id,

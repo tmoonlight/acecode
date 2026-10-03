@@ -1952,8 +1952,8 @@ static void cmd_tasks(CommandContext& ctx, const std::string& args) {
                 << e.id;
             if (!e.title.empty()) oss << "  " << e.title;
         }
-        oss << "\n\nUse /tasks abort <id> to stop a running task, "
-               "/tasks clear to archive settled ones (kept until the main session is deleted).";
+        oss << "\n\nUse /tasks abort <id> to stop a running task. Subagent tasks "
+               "stay with this session and are deleted only together with it.";
         push_system(oss.str());
         return;
     }
@@ -1982,15 +1982,7 @@ static void cmd_tasks(CommandContext& ctx, const std::string& args) {
         push_system("Abort requested for subagent task " + id + ".");
         return;
     }
-    if (sub == "clear") {
-        const int removed = ctx.subagent_host->clear_settled(project_dir);
-        push_system(removed > 0
-            ? "Archived " + std::to_string(removed) +
-              " settled subagent task(s); records are kept until the main session is deleted."
-            : "No settled subagent tasks to clear.");
-        return;
-    }
-    push_system("Usage: /tasks [list|abort <id>|clear]");
+    push_system("Usage: /tasks [list|abort <id>]");
 }
 
 void register_builtin_commands(CommandRegistry& registry) {
@@ -2066,7 +2058,7 @@ void register_builtin_commands(CommandRegistry& registry) {
     register_remote_control_command(registry);
     register_desktop_command(registry);
     registry.register_command({"feedback", "Upload current session and runtime logs to the configured upgrade service", cmd_feedback});
-    registry.register_command({"tasks", "List, abort, or clear subagent background tasks", cmd_tasks});
+    registry.register_command({"tasks", "List or abort subagent background tasks", cmd_tasks});
     registry.register_command({"title", "Set or show the window title for this session", cmd_title});
     registry.register_command({"page-step", "Toggle single-line PgUp/PgDn scrolling (for terminals that swallow Alt+Arrow)", cmd_page_step});
     registry.register_command({"theme", "Switch TUI color theme (dark/light/auto)", cmd_theme});

@@ -445,9 +445,6 @@ export function createApi(base = null) {
     setPinnedSessionOrder: (items=[]) =>
       request('PUT', '/api/pinned-sessions/order', { items }, base),
     destroySession:   (id)           => request('DELETE', `/api/sessions/${encodeURIComponent(id)}`, undefined, base),
-    // 永久删除:单个子会话,或已归档的主会话(daemon 连同它的全部子会话一起删,
-    // 未归档主会话 400)。后台任务面板只归档,不调用它。
-    purgeSession:     (id)           => request('DELETE', `/api/sessions/${encodeURIComponent(id)}?purge=1`, undefined, base),
     getSessionDraft:  (id, workspaceHash = '') =>
       request('GET', sessionDraftPath(id, workspaceHash), undefined, base),
     setSessionDraft:  (id, text = '', workspaceHash = '', composerContent = null) =>

@@ -5507,7 +5507,7 @@ TEST(WebServerHttp, CompatibilityArchiveSessionHidesFromDefaultList) {
 }
 
 // 场景:无 workspace registry 的归档页回退到兼容路由时,已归档普通会话
-// 也能通过显式 purge 永久删除;未归档普通会话仍由既有 guard 拒绝。
+// 也能通过显式 purge 永久删除;未归档普通会话按与工作区路由相同的 409 拒绝。
 TEST(WebServerHttp, CompatibilityPurgeAcceptsArchivedMainSession) {
     WebServerFixture fx;
 
@@ -5521,9 +5521,9 @@ TEST(WebServerHttp, CompatibilityPurgeAcceptsArchivedMainSession) {
 
     auto rejected = cpr::Delete(cpr::Url{
         fx.url("/api/sessions/" + session_id + "?purge=1")});
-    EXPECT_EQ(rejected.status_code, 400);
+    EXPECT_EQ(rejected.status_code, 409);
     EXPECT_EQ(json::parse(rejected.text)["error"],
-              "only subagent sessions can be purged");
+              "session must be archived before permanent deletion");
 
     auto archive = cpr::Put(cpr::Url{
         fx.url("/api/sessions/" + session_id + "/archive")});
@@ -5935,10 +5935,13 @@ TEST(WebServerHttp, SubagentQueryReadsMetaFromSessionOwnWorkspace) {
         path_from_utf8(acecode::SessionStorage::get_project_dir(other_cwd)), cleanup_ec);
 }
 
-// 场景: DELETE /api/sessions/:id?purge=1 兼容路由(后台任务面板现在只归档,
-// 不再调用它)——只允许子会话或已归档主会话,成功后磁盘 jsonl/meta 永久删除;
-// 对未归档主会话 purge 必须 400 拒绝(防误删)。
-TEST(WebServerHttp, PurgeDeletesSubagentDiskDataAndRejectsMainSession) {
+// 场景: 直接调 DELETE /api/sessions/:id?purge=1 单独永久删除一个子会话,
+// 以及永久删除一个还没归档的主会话。
+// 期望: 两者都 409 拒绝且磁盘数据原地不动 —— 子会话没有独立的生命周期,只随主会话
+// 一起删;不带 purge 的 DELETE 只卸载内存会话,对磁盘无破坏。
+// 回归: 这条兼容路由曾是后台任务面板「清除」的实现,子会话一点就被永久删除,
+// 用户要求子会话始终跟随主会话(事后分析要完整上下文)。
+TEST(WebServerHttp, PurgeRejectsSubagentAndUnarchivedMainSession) {
     WebServerFixture fx;
     const std::string parent_id = "20260705-091000-cccc";
     const std::string child_id  = "20260705-091100-dddd";
@@ -5955,18 +5958,20 @@ TEST(WebServerHttp, PurgeDeletesSubagentDiskDataAndRejectsMainSession) {
             acecode::SessionStorage::session_path(fx.project_dir, id)), "");
     }
 
-    // 主会话 purge → 400,文件原地不动。
+    // 未归档主会话 purge → 409,文件原地不动。
     auto bad = cpr::Delete(cpr::Url{fx.url("/api/sessions/" + parent_id + "?purge=1")});
-    EXPECT_EQ(bad.status_code, 400);
+    EXPECT_EQ(bad.status_code, 409);
     EXPECT_TRUE(std::filesystem::exists(path_from_utf8(
         acecode::SessionStorage::meta_path(fx.project_dir, parent_id))));
 
-    // 子会话 purge → 204,jsonl + meta 都消失。
-    auto ok = cpr::Delete(cpr::Url{fx.url("/api/sessions/" + child_id + "?purge=1")});
-    EXPECT_EQ(ok.status_code, 204);
-    EXPECT_FALSE(std::filesystem::exists(path_from_utf8(
+    // 子会话单独 purge → 409,jsonl + meta 都还在。
+    auto child = cpr::Delete(cpr::Url{fx.url("/api/sessions/" + child_id + "?purge=1")});
+    EXPECT_EQ(child.status_code, 409) << child.text;
+    EXPECT_EQ(json::parse(child.text)["error"],
+              "subagent sessions are deleted together with their main session");
+    EXPECT_TRUE(std::filesystem::exists(path_from_utf8(
         acecode::SessionStorage::meta_path(fx.project_dir, child_id))));
-    EXPECT_FALSE(std::filesystem::exists(path_from_utf8(
+    EXPECT_TRUE(std::filesystem::exists(path_from_utf8(
         acecode::SessionStorage::session_path(fx.project_dir, child_id))));
 
     // 不带 purge 的 DELETE 语义不变:对磁盘数据无破坏。
@@ -5976,13 +5981,13 @@ TEST(WebServerHttp, PurgeDeletesSubagentDiskDataAndRejectsMainSession) {
         acecode::SessionStorage::meta_path(fx.project_dir, parent_id))));
 }
 
-// 场景: 用户在后台任务面板点「归档」收起已结束的子会话(网状 agent / 后台任务),
-// 之后把主会话归档并在设置里永久删除。
-// 期望: 归档的子会话从 ?parent= 列表消失,但磁盘记录保留,也不出现在
-// 「已归档会话」列表里(那里只列主会话);主会话永久删除时连同它的全部
-// 子会话(归档与否)一起删除,别的主会话及其子会话不受影响。
-// 回归: 旧面板「清除」直接永久删除子会话,用户要求子会话与普通会话一样
-// 长期保存;而只删主会话不删子会话又会留下永远清不掉的孤儿记录。
+// 场景: 主会话下有两个子会话(其中一个带着上一版面板「归档」留下的标记),
+// 有人试图单独归档 / 永久删除子会话,之后用户把主会话归档并在设置里永久删除。
+// 期望: 单独归档、单独永久删除子会话都 409;?parent= 列表照常列出全部子会话
+// (不看归档标记);「已归档会话」列表只列主会话;主会话永久删除时连同全部子会话
+// 一起删除,别的主会话及其子会话不受影响。
+// 回归: 子会话曾能被面板「清除」/「归档」单独处理,用户要求子会话始终跟随主会话;
+// 只删主会话不删子会话又会留下永远清不掉的孤儿记录。
 TEST(WebServerHttp, PurgingArchivedMainSessionCascadesToItsSubagents) {
     WebServerFixture fx;
     const std::string hash = acecode::compute_cwd_hash(fx.cwd);
@@ -5999,6 +6004,7 @@ TEST(WebServerHttp, PurgingArchivedMainSessionCascadesToItsSubagents) {
         meta.id = id;
         meta.cwd = fx.cwd;
         meta.parent_session_id = parent;
+        meta.archived = id == child_a;  // 上一版面板「归档」留下的标记
         acecode::SessionStorage::write_meta(
             acecode::SessionStorage::meta_path(fx.project_dir, id), meta);
         write_text(path_from_utf8(
@@ -6021,17 +6027,24 @@ TEST(WebServerHttp, PurgingArchivedMainSessionCascadesToItsSubagents) {
         return std::find(ids.begin(), ids.end(), id) != ids.end();
     };
 
-    // 面板「归档」:子会话从后台任务列表收起,记录仍在。
+    // 子会话不能单独归档,也不能单独永久删除。
     auto archive_child = cpr::Put(cpr::Url{
-        fx.url("/api/workspaces/" + hash + "/sessions/" + child_a + "/archive")});
-    ASSERT_EQ(archive_child.status_code, 200) << archive_child.text;
+        fx.url("/api/workspaces/" + hash + "/sessions/" + child_b + "/archive")});
+    EXPECT_EQ(archive_child.status_code, 409) << archive_child.text;
+    EXPECT_FALSE(acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(fx.project_dir, child_b)).archived);
+    auto purge_child = cpr::Delete(cpr::Url{
+        fx.url("/api/workspaces/" + hash + "/sessions/" + child_a + "?purge=1")});
+    EXPECT_EQ(purge_child.status_code, 409) << purge_child.text;
+    EXPECT_TRUE(exists(child_a)) << "子会话不能被单独永久删除";
+
+    // 后台任务列表列出全部子会话,带旧归档标记的也在。
     auto tasks = cpr::Get(cpr::Url{
         fx.url("/api/workspaces/" + hash + "/sessions?parent=" + parent_id)});
     ASSERT_EQ(tasks.status_code, 200) << tasks.text;
     const auto task_ids = ids_of(tasks);
-    EXPECT_FALSE(contains(task_ids, child_a)) << "归档的子会话不应再出现在面板里";
+    EXPECT_TRUE(contains(task_ids, child_a)) << "子会话始终跟随主会话出现在面板里";
     EXPECT_TRUE(contains(task_ids, child_b));
-    EXPECT_TRUE(exists(child_a)) << "归档不能删除子会话记录";
 
     // 主会话归档后,「已归档会话」列表只列主会话,不列子会话。
     auto archive_parent = cpr::Put(cpr::Url{
