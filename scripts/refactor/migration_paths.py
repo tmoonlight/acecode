@@ -14,7 +14,7 @@ from repo_files import NESTED_WORKTREES, SOURCE_SUFFIXES
 PATH_TOKEN = re.compile(rb'(?<![A-Za-z0-9_./\\-])(?P<prefix>\$\{(?:CMAKE_SOURCE_DIR|PROJECT_SOURCE_DIR|ACECODE_SOURCE_DIR)\}/|\./)?(?P<path>(?:src|tests)/[A-Za-z0-9_./{}*?,+\x80-\xff-]+)')
 RELATIVE_TOKEN = re.compile(rb'(?<![A-Za-z0-9_./\\-])(?:\.\./)+(?:src|tests)/[A-Za-z0-9_./{}*?,+\x80-\xff-]+')
 CMAKE_TOKEN = re.compile(rb'(?<![A-Za-z0-9_./\\$-])(?P<prefix>\$\{CMAKE_CURRENT_SOURCE_DIR\}/)?(?P<path>[A-Za-z0-9_./+\x80-\xff-]+\.(?:cpp|hpp|h|mm|c|cc|hh|in))(?=$|[^A-Za-z0-9_./\\-])')
-ROOT_DOCS = {"CLAUDE.md", "ARCHITECTURE.md", "AGENTS.md", "AGENT.md", "README.md", "README_CN.md", "tests/README.md"}
+ROOT_DOCS = {"CLAUDE.md", "ARCHITECTURE.md", "AGENTS.md", "AGENTS.md", "README.md", "README_CN.md", "tests/README.md"}
 GENERATED_HELP = {"docs/help-source/sources.json", "docs/help-source/images.json", "docs/help-source/image-plan.md", "docs/help/assets/search-index.js"}
 
 

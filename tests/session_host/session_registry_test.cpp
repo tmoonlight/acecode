@@ -1006,7 +1006,7 @@ TEST(LocalSessionClient, InitBuiltinNoProviderWritesSkeletonWithoutUserMessage) 
     auto result = client.execute_builtin_command(id, req);
 
     EXPECT_EQ(result.status, acecode::BuiltinCommandStatus::Accepted);
-    EXPECT_TRUE(std::filesystem::exists(cwd / "AGENT.md"));
+    EXPECT_TRUE(std::filesystem::exists(cwd / "AGENTS.md"));
 
     auto* entry = fx.registry.lookup(id);
     ASSERT_NE(entry, nullptr);
@@ -1134,7 +1134,7 @@ TEST(LocalSessionClient, DaemonSessionInjectsAgentMdProjectInstructions) {
     auto cwd = home / "repo";
     std::filesystem::create_directories(cwd);
     {
-        std::ofstream ofs(cwd / "AGENT.md", std::ios::binary);
+        std::ofstream ofs(cwd / "AGENTS.md", std::ios::binary);
         ofs << "# daemon rules\nprefer session registry\n";
     }
 
@@ -1163,7 +1163,7 @@ TEST(LocalSessionClient, DaemonSessionInjectsAgentMdProjectInstructions) {
     bool saw_project_context = false;
     for (const auto& msg : request) {
         if (msg.content.find("# Project Instructions") != std::string::npos &&
-            msg.content.find("AGENT.md") != std::string::npos &&
+            msg.content.find("AGENTS.md") != std::string::npos &&
             msg.content.find("prefer session registry") != std::string::npos) {
             saw_project_context = true;
         }
@@ -1177,8 +1177,8 @@ TEST(LocalSessionClient, DaemonSessionInjectsAgentMdProjectInstructions) {
 
 TEST(LocalSessionClient, InitBuiltinNoProviderRefusesExistingAgentMd) {
     auto cwd = temp_cwd("init_builtin_existing");
-    const auto target = cwd / "AGENT.md";
-    const std::string original = "# AGENT.md\n\nExisting guidance.\n";
+    const auto target = cwd / "AGENTS.md";
+    const std::string original = "# AGENTS.md\n\nExisting guidance.\n";
     {
         std::ofstream ofs(target, std::ios::binary);
         ofs << original;

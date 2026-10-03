@@ -9420,6 +9420,71 @@ TEST(WebServerHttp, UpdateApisReportMissingCompatiblePackage) {
     EXPECT_EQ(start["status"]["latest_version"], "9.9.9");
 }
 
+// 场景:清单服务器返回 GBK 正文(网关 / 代理的中文错误页「该页面无法访问」,不是 JSON)。
+// 触发:GET /api/update/status 与 POST /api/update/start 都把清单解析错误
+//      "invalid JSON: ..." 放进响应,nlohmann 的 parse_error 会原样回显出错位置的正文字节 0xB8。
+// 期望:状态接口 200、启动接口 409 NO_UPDATE,两份响应都能被严格解析(json::parse 会校验
+//      UTF-8),status 为 manifest_invalid,error 仍以 "invalid JSON: " 开头。
+// 回归:修复前两个接口都返回 500
+//      {"error":"INTERNAL_ERROR","message":"[json.exception.type_error.316] invalid UTF-8 byte
+//      at index 144: 0xB8"} —— update_check_to_json(...).dump() 在严格模式下遇到 0xB8 抛异常。
+TEST(WebServerHttp, UpdateApisStayValidJsonWhenManifestBodyIsGbk) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content("\xB8\xC3\xD2\xB3\xC3\xE6\xCE\xDE\xB7\xA8\xB7\xC3\xCE\xCA",
+                            "text/html; charset=gbk");
+        });
+    });
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+
+    auto status_response = cpr::Get(cpr::Url{fx.url("/api/update/status")});
+    ASSERT_EQ(status_response.status_code, 200) << status_response.text;
+    const auto status = json::parse(status_response.text);
+    EXPECT_EQ(status["status"], "manifest_invalid");
+    EXPECT_EQ(status["error"].get<std::string>().rfind("invalid JSON: ", 0), 0u)
+        << status_response.text;
+
+    auto start_response = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start_response.status_code, 409) << start_response.text;
+    const auto start = json::parse(start_response.text);
+    EXPECT_EQ(start["error"], "NO_UPDATE");
+    EXPECT_EQ(start["status"]["status"], "manifest_invalid");
+    EXPECT_EQ(start["message"].get<std::string>().rfind("invalid JSON: ", 0), 0u)
+        << start_response.text;
+}
+
+// 场景:升级诊断日志目录建不出来(deps.logs_dir 被同名普通文件占住),清单本身正常。
+// 触发:GET /api/update/status 构造 DiagnosticLog 时 create_directories 失败,
+//      "cannot create log directory: " + ec.message() 经 check_for_update 进 log_error 字段。
+// 期望:接口 200 且响应可严格解析;检查结果不受日志失败影响(status=available),
+//      不返回 log_path,log_error 带 "cannot create log directory: " 前缀。
+// 回归:中文 Windows 上 ec.message() 走 ANSI 代码页(GBK「当文件已存在时，无法创建该文件。」),
+//      修复前 log_error 原样进 JSON,接口 500。英文系统上该文本是 ASCII,
+//      这条用例只在中文 Windows 上能复现修复前的失败。
+TEST(WebServerHttp, GetUpdateStatusStaysValidJsonWhenDiagnosticLogDirectoryFails) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    WebServerFixture fx;
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+    std::filesystem::remove_all(fx.logs_dir);
+    std::ofstream(fx.logs_dir) << "blocks the upgrade log directory";
+
+    auto r = cpr::Get(cpr::Url{fx.url("/api/update/status")});
+    ASSERT_EQ(r.status_code, 200) << r.text;
+    const auto status = json::parse(r.text);
+    EXPECT_EQ(status["status"], "available");
+    EXPECT_FALSE(status.contains("log_path"));
+    ASSERT_TRUE(status.contains("log_error")) << r.text;
+    EXPECT_EQ(status["log_error"].get<std::string>().rfind(
+                  "cannot create log directory: ", 0), 0u) << r.text;
+}
+
 // 场景:POST 创建可轮询 GUI 升级任务,成功后保留重启提示与 latest-job 状态。
 TEST(WebServerHttp, PostUpdateStartPublishesSuccessfulGuiJob) {
     LocalUpdateServer update_server([](httplib::Server& s) {

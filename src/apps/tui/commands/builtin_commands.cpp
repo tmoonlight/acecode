@@ -381,38 +381,63 @@ static void cmd_side_question(CommandContext& ctx,
 }
 
 static void cmd_help(CommandContext& ctx, const std::string& /*args*/) {
+    // 别名不单独占行:原名后面括号列出全部别名,如 "/clear (new)"。
+    // 别名取自注册表,与实际可敲的名字保持一致。
+    static const std::pair<const char*, const char*> kHelpEntries[] = {
+        {"help", "Show this help message"},
+        {"clear", "Clear conversation history"},
+        {"archive", "Archive this session, then clear the conversation"},
+        {"compact", "Compress conversation history"},
+        {"model", "Show or switch current model"},
+        {"mode", "Show or switch permission mode"},
+        {"config", "Show current configuration"},
+        {"tokens", "Show session token usage"},
+        {"goal", "Create, view, pause, resume, edit, or clear the thread goal"},
+        {"plan", "Enter plan mode or start planning a described task"},
+        {"turn", "Interrupt the active turn and send guidance immediately"},
+        {"btw", "Ask a detached side question (reads files, never edits)"},
+        {"resume", "Resume a previous session"},
+        {"rewind", "Rewind to a previous user turn"},
+        {"fork", "Fork from a previous user turn"},
+        {"mcp", "Manage MCP servers"},
+        {"skills", "List, invoke, or reload installed skills"},
+        {"memory", "List, view, edit, forget, or reload persistent user memory"},
+        {"init", "Generate an AGENTS.md skeleton in the current directory"},
+        {"history", "List or clear the per-working-directory input history"},
+        {"feedback", "Upload current session and runtime logs to the configured upgrade service"},
+        {"models", "Inspect bundled models.dev registry"},
+        {"proxy", "Show or switch the HTTP proxy used for LLM/API requests"},
+        {"remote-control", "Activate a configured channel or manage remote-control webhooks"},
+        {"desktop", "Open ACECode Desktop"},
+        {"title", "Set or show the window title for this session"},
+        {"exit", "Exit acecode"},
+    };
+
+    std::vector<std::pair<std::string, std::string>> rows;
+    size_t label_width = 0;
+    for (const auto& [name, description] : kHelpEntries) {
+        std::string label = std::string("/") + name;
+        const SlashCommand* command =
+            ctx.command_registry ? ctx.command_registry->find(name) : nullptr;
+        if (command && !command->aliases.empty()) {
+            label += " (";
+            for (size_t i = 0; i < command->aliases.size(); ++i) {
+                if (i > 0) label += ", ";
+                label += command->aliases[i];
+            }
+            label += ")";
+        }
+        label_width = std::max(label_width, label.size());
+        rows.emplace_back(std::move(label), description);
+    }
+
     std::lock_guard<std::mutex> lk(ctx.state.mu);
     std::ostringstream oss;
-    oss << "Available commands:\n"
-        << "  /help     - Show this help message\n"
-        << "  /clear    - Clear conversation history\n"
-        << "  /new      - Alias for /clear\n"
-        << "  /archive  - Archive this session, then clear the conversation\n"
-        << "  /archieve - Alias for /archive\n"
-        << "  /compact  - Compress conversation history\n"
-        << "  /model    - Show or switch current model\n"
-        << "  /mode     - Show or switch permission mode\n"
-        << "  /config   - Show current configuration\n"
-        << "  /tokens   - Show session token usage\n"
-        << "  /goal     - Create, view, pause, resume, edit, or clear the thread goal\n"
-        << "  /plan     - Enter plan mode or start planning a described task\n"
-        << "  /turn     - Interrupt the active turn and send guidance immediately\n"
-        << "  /btw      - Ask a detached side question (reads files, never edits)\n"
-        << "  /side     - Alias for /btw\n"
-        << "  /resume   - Resume a previous session\n"
-        << "  /rewind   - Rewind to a previous user turn\n"
-        << "  /fork     - Fork from a previous user turn\n"
-        << "  /mcp      - Manage MCP servers\n"
-        << "  /skills   - List, invoke, or reload installed skills\n"
-        << "  /memory   - List, view, edit, forget, or reload persistent user memory\n"
-        << "  /init     - Generate an AGENT.md skeleton in the current directory\n"
-        << "  /history  - List or clear the per-working-directory input history\n"
-        << "  /feedback - Upload current session and runtime logs to the configured upgrade service\n"
-        << "  /models   - Inspect bundled models.dev registry\n"
-        << "  /proxy    - Show or switch the HTTP proxy used for LLM/API requests\n"
-        << "  /desktop  - Open ACECode Desktop\n"
-        << "  /title    - Set or show the window title for this session\n"
-        << "  /exit     - Exit acecode";
+    oss << "Available commands:";
+    for (const auto& [label, description] : rows) {
+        oss << "\n  " << label << std::string(label_width - label.size(), ' ')
+            << " - " << description;
+    }
 
     if (ctx.skills) {
         size_t n = ctx.skills->list().size();
@@ -1970,17 +1995,12 @@ static void cmd_tasks(CommandContext& ctx, const std::string& args) {
 
 void register_builtin_commands(CommandRegistry& registry) {
     registry.register_command({"help", "Show available commands", cmd_help});
-    registry.register_command({"clear", "Clear conversation history", cmd_clear});
-    registry.register_command({"new", "Alias for /clear", cmd_clear});
+    registry.register_command({"clear", "Clear conversation history", cmd_clear, {"new"}});
     registry.register_command({
         "archive",
         "Archive this session, then clear the conversation",
         cmd_archive,
-    });
-    registry.register_command({
-        "archieve",
-        "Alias for /archive",
-        cmd_archive,
+        {"archieve"},
     });
     register_model_command(registry);
     registry.register_command({"mode", "Show or switch permission mode", cmd_mode});
@@ -2002,20 +2022,17 @@ void register_builtin_commands(CommandRegistry& registry) {
         "btw",
         "Ask a detached side question (read-only tools)",
         [](CommandContext& ctx, const std::string& args) {
-            cmd_side_question(ctx, args, "btw");
+            // 回显用户实际敲的名字:/side 的回答仍标成 "[/side]"。
+            cmd_side_question(
+                ctx, args,
+                ctx.invoked_command_name == "side" ? "side" : "btw");
         },
-    });
-    registry.register_command({
-        "side",
-        "Alias for /btw",
-        [](CommandContext& ctx, const std::string& args) {
-            cmd_side_question(ctx, args, "side");
-        },
+        {"side"},
     });
     registry.register_command({"compact", "Compress conversation history", cmd_compact});
     registry.register_command({"resume", "Resume a previous session", cmd_resume});
-    registry.register_command({"rewind", "Rewind to a previous user turn", cmd_rewind});
-    registry.register_command({"checkpoint", "Alias for /rewind", cmd_rewind});
+    registry.register_command({
+        "rewind", "Rewind to a previous user turn", cmd_rewind, {"checkpoint"}});
     registry.register_command({"fork", "Fork from a previous user turn", cmd_fork});
     registry.register_command({"mcp", "Open MCP management or run an MCP subcommand", cmd_mcp});
     registry.register_command({"skills", "Open skill management or run a skill subcommand", cmd_skills});

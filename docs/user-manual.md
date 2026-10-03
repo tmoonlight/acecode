@@ -274,7 +274,7 @@ Desktop 文件树中也可以右键文件或文件夹并选择“添加到会话
 | `/connectors` | 打开能力中心并选中 Connectors 页签 |
 | `/tools` | 打开能力中心并选中 Tools 页签 |
 | `/hooks` | 打开能力中心并选中 Hooks 页签 |
-| `/init` | 让 LLM 分析当前仓库，自动生成或改进 `AGENT.md`（详见下方小节） |
+| `/init` | 让 LLM 分析当前仓库，自动生成或改进 `AGENTS.md`（详见下方小节） |
 | `/history` | 列出当前工作目录的持久化输入历史（旧→新编号） |
 | `/history clear` | 清空当前工作目录的输入历史（内存 + 磁盘） |
 | `/exit` | 退出 acecode |
@@ -302,17 +302,17 @@ Connectors 的开关只改变启用状态，不会触发登录。若安装包或
 
 #### `/init` 的工作方式
 
-配置了 provider 时，`/init` 会把一段分析指令作为 user 消息提交给 LLM（消耗一次对话轮次，token 用量会出现在计数器里）。LLM 会用 `file_read` / `glob` / `grep` / `bash` 等工具读取 `README`、`package.json` / `CMakeLists.txt` / `pyproject.toml` 等清单文件，最后通过 `file_write_tool` 写出 `AGENT.md`。
+配置了 provider 时，`/init` 会把一段分析指令作为 user 消息提交给 LLM（消耗一次对话轮次，token 用量会出现在计数器里）。LLM 会用 `file_read` / `glob` / `grep` / `bash` 等工具读取 `README`、`package.json` / `CMakeLists.txt` / `pyproject.toml` 等清单文件，最后通过 `file_write_tool` 写出 `AGENTS.md`。
 
 三条分支：
 
-- **首次运行**：目录下没有 `AGENT.md` → LLM 从零生成。
-- **改进模式**：`AGENT.md` 已存在 → LLM 读完后用 `file_edit_tool` 做局部改动；如果内容已经够好会直接说"无需改动"，不会覆盖。
-- **迁移模式**：只有 `CLAUDE.md` → LLM 以它为起点生成 `AGENT.md`，不会删除或修改原文件（acecode 仍会把 `CLAUDE.md` 作为 fallback 读入）。
+- **首次运行**：目录下没有 `AGENTS.md` → LLM 从零生成。
+- **改进模式**：`AGENTS.md` 已存在 → LLM 读完后用 `file_edit_tool` 做局部改动；如果内容已经够好会直接说"无需改动"，不会覆盖。
+- **迁移模式**：只有 `CLAUDE.md` → LLM 以它为起点生成 `AGENTS.md`，不会删除或修改原文件（acecode 仍会把 `CLAUDE.md` 作为 fallback 读入）。
 
 当没有配置 provider 时，`/init` 回落到写一个带 TODO 占位的静态骨架，方便你首次启动就能有文件可编辑；此时会在对话里标注"offline skeleton — no model is configured"。
 
-在 Desktop/Web 中，这两条分支与 TUI 一样会显示系统提示：有 provider 时显示正在分析并把可见输入保留为 `/init`；无 provider 时直接显示已创建骨架或已有 `AGENT.md` 的提示。
+在 Desktop/Web 中，这两条分支与 TUI 一样会显示系统提示：有 provider 时显示正在分析并把可见输入保留为 `/init`；无 provider 时直接显示已创建骨架或已有 `AGENTS.md` 的提示。
 
 ### 斜杠下拉菜单
 

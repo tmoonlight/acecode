@@ -94,7 +94,7 @@ TEST_F(CommandsHandlerTest, NoWorkspaceCwdOmitsSkillsField) {
     EXPECT_FALSE(payload.contains("skills")) << "缺 workspace_cwd 不应输出 skills 字段";
     EXPECT_FALSE(payload.contains("commands")) << "缺 workspace_cwd 不应输出 commands 字段";
 
-    ASSERT_EQ(payload["builtins"].size(), 11u);
+    ASSERT_EQ(payload["builtins"].size(), 10u);
     EXPECT_EQ(payload["builtins"][0]["name"].get<std::string>(), "init");
     EXPECT_EQ(payload["builtins"][1]["name"].get<std::string>(), "compact");
     EXPECT_EQ(payload["builtins"][2]["name"].get<std::string>(), "feedback");
@@ -109,8 +109,10 @@ TEST_F(CommandsHandlerTest, NoWorkspaceCwdOmitsSkillsField) {
     EXPECT_EQ(payload["builtins"][7]["name"].get<std::string>(), "memory");
     // /swarm 切换会话级蜂群模式(openspec add-mesh-swarm-mode),三端同一份实现。
     EXPECT_EQ(payload["builtins"][8]["name"].get<std::string>(), "swarm");
-    EXPECT_EQ(payload["builtins"][9]["name"].get<std::string>(), "rc");
-    EXPECT_EQ(payload["builtins"][10]["name"].get<std::string>(), "remote-control");
+    // rc 是 remote-control 的别名,挂在 aliases 上而不是单列一条:
+    // 回归:旧响应把两者各列一条,Web 下拉里出现两行几乎相同的命令。
+    EXPECT_EQ(payload["builtins"][9]["name"].get<std::string>(), "remote-control");
+    EXPECT_EQ(payload["builtins"][9]["aliases"], nlohmann::json::array({"rc"}));
     for (const auto& builtin : payload["builtins"]) {
         EXPECT_FALSE(builtin["description"].get<std::string>().empty());
     }
@@ -220,7 +222,7 @@ TEST_F(CommandsHandlerTest, BuiltinDescriptionsMatchTuiRegistration) {
     auto payload = acecode::web::build_commands_payload(registry);
 
     EXPECT_EQ(payload["builtins"][0]["description"].get<std::string>(),
-              "Analyze this codebase and generate (or improve) AGENT.md");
+              "Analyze this codebase and generate (or improve) AGENTS.md");
     EXPECT_EQ(payload["builtins"][1]["description"].get<std::string>(),
               "Compress conversation history");
     EXPECT_EQ(payload["builtins"][2]["description"].get<std::string>(),
@@ -242,8 +244,6 @@ TEST_F(CommandsHandlerTest, BuiltinDescriptionsMatchTuiRegistration) {
     EXPECT_EQ(payload["builtins"][8]["description"].get<std::string>(),
               "Show or switch swarm mode: /swarm star|mesh|off");
     EXPECT_EQ(payload["builtins"][9]["description"].get<std::string>(),
-              "Alias for /remote-control");
-    EXPECT_EQ(payload["builtins"][10]["description"].get<std::string>(),
               "Activate a configured channel plugin or manage manual remote-control webhooks");
 }
 

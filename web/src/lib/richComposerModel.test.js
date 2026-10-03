@@ -47,7 +47,7 @@ function run(name, fn) {
 
 const COMMANDS = flattenCommands({
   builtins: [
-    { name: 'init', description: 'Generate AGENT.md' },
+    { name: 'init', description: 'Generate AGENTS.md' },
     { name: 'goal', description: 'Manage thread goal' },
   ],
   commands: [{ name: 'opsx-apply', description: 'Apply OpenSpec change' }],

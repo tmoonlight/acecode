@@ -970,7 +970,7 @@ static AppConfig load_config_from_path_once(
                         }
                     }
                     // Empty array -> keep the struct's default list so
-                    // AGENT.md / CLAUDE.md still work out of the box.
+                    // AGENTS.md / CLAUDE.md still work out of the box.
                     if (!fns.empty()) cfg.project_instructions.filenames = std::move(fns);
                 }
                 if (pj.contains("read_claude_md") && pj["read_claude_md"].is_boolean())

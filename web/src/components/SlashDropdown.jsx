@@ -12,7 +12,11 @@ import {
   useRef,
   useState,
 } from 'react';
-import { rankCommands, slashCommandKindPresentation } from '../lib/slashCommands.js';
+import {
+  rankCommands,
+  slashCommandKindPresentation,
+  slashCommandMatchedAlias,
+} from '../lib/slashCommands.js';
 import {
   computeAnchoredDropdownLayout,
   DROPDOWN_GAP_PX,
@@ -251,13 +255,15 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
         ) : ranked.map((it, idx) => {
           const selected = idx === selectedIndex;
           const presentation = slashCommandKindPresentation(it);
+          // 敲的是别名时显示 "原名 (别名)";选中仍插入原名。
+          const matchedAlias = slashCommandMatchedAlias(it, query);
           return (
             <div
               key={it.kind + ':' + it.name}
               ref={(el) => { if (el) rowRefs.current.set(idx, el); else rowRefs.current.delete(idx); }}
               role="option"
               aria-selected={selected}
-              aria-label={`${presentation.label} ${it.name}${it.description ? ' ' + it.description : ''}`}
+              aria-label={`${presentation.label} ${it.name}${matchedAlias ? ` (${matchedAlias})` : ''}${it.description ? ' ' + it.description : ''}`}
               data-command-kind={it.kind}
               onMouseEnter={() => setSelectedIndex(idx)}
               onClick={() => onSelect?.(it)}
@@ -275,7 +281,12 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
               >
                 <VsIcon name={presentation.icon} size={14} />
               </span>
-              <span className="min-w-0 max-w-[220px] shrink-0 truncate text-accent font-medium text-[13px]">{it.name}</span>
+              <span className="min-w-0 max-w-[220px] shrink-0 truncate text-accent font-medium text-[13px]">
+                {it.name}
+                {matchedAlias && (
+                  <span data-command-alias="true" className="font-normal text-fg-mute"> ({matchedAlias})</span>
+                )}
+              </span>
               <span className="min-w-0 flex-1 truncate text-fg-mute text-[13px]">{it.description}</span>
             </div>
           );

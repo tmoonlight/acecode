@@ -2512,16 +2512,23 @@ empty `commands` array plus enabled global skills only:
 ```json
 {
   "builtins": [
-    {"name":"init","description":"Analyze this codebase and generate (or improve) AGENT.md"},
+    {"name":"init","description":"Analyze this codebase and generate (or improve) AGENTS.md"},
     {"name":"compact","description":"Compress conversation history"},
     {"name":"goal","description":"Create, view, pause, resume, edit, or clear the thread goal"},
-    {"name":"plan","description":"Enter plan mode or start planning a described task"}
+    {"name":"plan","description":"Enter plan mode or start planning a described task"},
+    {"name":"remote-control","description":"...","aliases":["rc"]}
   ],
   "skills": [
     {"name":"my-skill","description":"..."}
   ]
 }
 ```
+
+A builtin's aliases are listed in its optional `aliases` array instead of as
+separate entries; the slash picker shows one row per command and appends the
+alias in parentheses only when the typed query matches that alias (for example
+`remote-control (rc)`). `POST /api/sessions/:id/commands` still accepts both
+the name and its aliases.
 
 For backward compatibility, omitting the `workspace` query entirely returns
 the builtin-only response and omits both `commands` and `skills`.

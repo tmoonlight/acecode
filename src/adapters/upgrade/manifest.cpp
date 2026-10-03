@@ -1,6 +1,7 @@
 #include "manifest.hpp"
 
 #include "config/config.hpp"
+#include "utils/encoding.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -43,7 +44,8 @@ std::optional<UpdateManifest> parse_update_manifest(const std::string& text,
     try {
         j = nlohmann::json::parse(text);
     } catch (const nlohmann::json::parse_error& e) {
-        if (error) *error = std::string("invalid JSON: ") + e.what();
+        // what() 原样回显出错位置的正文字节(网关的 GBK 错误页、按 GBK 保存的清单)。
+        if (error) *error = std::string("invalid JSON: ") + ensure_utf8(e.what());
         return std::nullopt;
     }
 

@@ -23,16 +23,16 @@ void emit(CommandContext& ctx, const std::string& msg) {
 void cmd_init(CommandContext& ctx, const std::string& /*args*/) {
     fs::path cwd = path_from_utf8(ctx.agent_loop.cwd());
     std::error_code ec;
-    bool agent_exists = fs::exists(cwd / "AGENT.md", ec);
+    bool agent_exists = fs::exists(cwd / "AGENTS.md", ec);
 
     if (!has_usable_init_provider(ctx.config)) {
         // Offline fallback: write the static skeleton, same refuse-on-exists
         // behavior as the pre-LLM implementation. The skeleton helper already
         // tolerates the case where neither legacy file is present.
-        fs::path target = cwd / "AGENT.md";
+        fs::path target = cwd / "AGENTS.md";
         if (agent_exists) {
             emit(ctx,
-                 "AGENT.md already exists at " + path_to_utf8_generic(target) +
+                 "AGENTS.md already exists at " + path_to_utf8_generic(target) +
                  " — no model is configured, so /init cannot propose "
                  "improvements. Edit it by hand, or run /configure first and "
                  "re-run /init to get an LLM-driven improvement pass.");
@@ -58,7 +58,7 @@ void cmd_init(CommandContext& ctx, const std::string& /*args*/) {
     std::string prompt = build_init_prompt(cwd);
 
     const std::string ack =
-        "[Invoking /init — analyzing codebase and authoring AGENT.md...]";
+        "[Invoking /init — analyzing codebase and authoring AGENTS.md...]";
 
     {
         std::lock_guard<std::mutex> lk(ctx.state.mu);
@@ -114,7 +114,7 @@ bool has_usable_init_provider(const AppConfig& cfg) {
 void register_init_command(CommandRegistry& registry) {
     registry.register_command(
         {"init",
-         "Analyze this codebase and generate (or improve) AGENT.md",
+         "Analyze this codebase and generate (or improve) AGENTS.md",
          cmd_init});
 }
 

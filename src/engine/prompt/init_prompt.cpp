@@ -11,11 +11,11 @@ std::string skeleton_body_internal(bool claude_exists) {
     std::ostringstream oss;
     if (claude_exists) {
         oss << "<!--\n"
-            << "  acecode found CLAUDE.md in this directory. AGENT.md is the\n"
+            << "  acecode found CLAUDE.md in this directory. AGENTS.md is the\n"
             << "  native project-instructions file; CLAUDE.md is read only as a\n"
-            << "  compatibility fallback when AGENT.md is absent.\n"
+            << "  compatibility fallback when AGENTS.md is absent.\n"
             << "  If you want to migrate the legacy file, you can rename it:\n"
-            << "    mv CLAUDE.md AGENT.md\n"
+            << "    mv CLAUDE.md AGENTS.md\n"
             << "-->\n\n";
     }
     oss << "# Project Overview\n\n"
@@ -30,13 +30,13 @@ std::string skeleton_body_internal(bool claude_exists) {
 }
 
 // Body adapted from claudecodehaha/src/commands/init.ts OLD_INIT_PROMPT with
-// Claude Code → acecode and an acecode-specific AGENT.md file prefix. The
+// Claude Code → acecode and an acecode-specific AGENTS.md file prefix. The
 // wording ("not obvious instructions", "avoid listing every
 // component") carries over verbatim because it is the load-bearing part that
 // keeps the LLM from producing boilerplate.
 std::string build_init_prompt_body() {
     return
-        "Please analyze this codebase and create an AGENT.md file, which "
+        "Please analyze this codebase and create an AGENTS.md file, which "
         "will be given to future instances of acecode to operate in this "
         "repository.\n"
         "\n"
@@ -50,8 +50,8 @@ std::string build_init_prompt_body() {
         "understand.\n"
         "\n"
         "Usage notes:\n"
-        "- If there's already an AGENT.md, suggest improvements to it.\n"
-        "- When you make the initial AGENT.md, do not repeat yourself and "
+        "- If there's already an AGENTS.md, suggest improvements to it.\n"
+        "- When you make the initial AGENTS.md, do not repeat yourself and "
         "do not include obvious instructions like \"Provide helpful error "
         "messages to users\", \"Write unit tests for all new utilities\", "
         "\"Never include sensitive information (API keys, tokens) in code or "
@@ -70,7 +70,7 @@ std::string build_init_prompt_body() {
         "- Be sure to prefix the file with the following text:\n"
         "\n"
         "```\n"
-        "# AGENT.md\n"
+        "# AGENTS.md\n"
         "\n"
         "This file provides guidance to acecode "
         "(https://github.com/tmoonlight/acecode) when working with code in "
@@ -81,7 +81,7 @@ std::string build_init_prompt_body() {
 std::string improvement_suffix() {
     return
         "\n"
-        "NOTE: AGENT.md already exists in this directory. Read it first "
+        "NOTE: AGENTS.md already exists in this directory. Read it first "
         "with the file_read tool, identify specific gaps against what the "
         "codebase actually shows, and apply targeted edits via the "
         "file_edit_tool. If the file is already accurate and well-written, "
@@ -94,13 +94,13 @@ std::string migration_suffix(bool claude_exists) {
     oss << "\n"
         << "NOTE: ";
     if (claude_exists) {
-        oss << "CLAUDE.md already exists in this directory but AGENT.md "
+        oss << "CLAUDE.md already exists in this directory but AGENTS.md "
                "does not. Read CLAUDE.md first and adapt its content into a "
-               "new AGENT.md via the file_write_tool rather than writing "
+               "new AGENTS.md via the file_write_tool rather than writing "
                "from scratch. ";
     }
     oss << "Do not delete or modify CLAUDE.md on disk — leave it alone. After "
-           "writing AGENT.md, tell the user that AGENT.md now takes precedence "
+           "writing AGENTS.md, tell the user that AGENTS.md now takes precedence "
            "so they can delete CLAUDE.md or keep it as a fallback.\n";
     return oss.str();
 }
@@ -115,7 +115,7 @@ std::string build_agent_md_skeleton(const fs::path& cwd) {
 
 std::string build_init_prompt(const fs::path& cwd) {
     std::error_code ec;
-    bool agent_exists = fs::exists(cwd / "AGENT.md", ec);
+    bool agent_exists = fs::exists(cwd / "AGENTS.md", ec);
     bool claude_exists = fs::exists(cwd / "CLAUDE.md", ec);
 
     std::string out = build_init_prompt_body();
@@ -124,8 +124,8 @@ std::string build_init_prompt(const fs::path& cwd) {
         if (claude_exists) {
             out +=
                 "\nAlso read CLAUDE.md and cross-check it for additional "
-                "project guidance not already present in AGENT.md. Preserve "
-                "AGENT.md as the file you edit; do not delete or modify "
+                "project guidance not already present in AGENTS.md. Preserve "
+                "AGENTS.md as the file you edit; do not delete or modify "
                 "CLAUDE.md.\n";
         }
     } else if (claude_exists) {

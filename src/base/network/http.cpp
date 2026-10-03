@@ -1,6 +1,8 @@
 #include "http.hpp"
 
 #include "network/proxy_resolver.hpp"
+#include "utils/encoding.hpp"
+#include "utils/utf8_path.hpp"
 
 #include <cpr/cpr.h>
 #include <atomic>
@@ -41,7 +43,8 @@ HttpTextResult fetch_text(const std::string& url,
     out.body = std::move(r.text);
     out.cancelled = cancel_observed.load();
     if (!out.cancelled && r.error.code != cpr::ErrorCode::OK) {
-        out.error = r.error.message;
+        // libcurl 在 Windows 上按本地代码页(中文系统为 GBK)拼入系统错误文本。
+        out.error = ensure_utf8(r.error.message);
     }
     return out;
 }
@@ -64,7 +67,7 @@ DownloadResult download_to_file(const std::string& url,
     }
     std::ofstream ofs(output_path, std::ios::binary);
     if (!ofs) {
-        out.error = "failed to open output file: " + output_path.string();
+        out.error = "failed to open output file: " + path_to_utf8(output_path);
         return out;
     }
 
@@ -112,7 +115,7 @@ DownloadResult download_to_file(const std::string& url,
     out.transport_code = static_cast<int>(r.error.code);
     out.cancelled = cancel_observed.load();
     if (!out.cancelled && r.error.code != cpr::ErrorCode::OK) {
-        out.error = r.error.message;
+        out.error = ensure_utf8(r.error.message);
     }
     return out;
 }

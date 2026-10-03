@@ -56,6 +56,12 @@ export function toggleRightPanel(uiPrefs, previewPanelVisible = false) {
     : { ...uiPrefs, sidePanelCollapsed: true };
 }
 
+// 打开详情时保留列表的实际可见状态；总折叠下的列表也继续收起。
+export function revealRightPanelDetails(uiPrefs) {
+  if (!uiPrefs?.sidePanelCollapsed) return uiPrefs;
+  return { ...uiPrefs, sidePanelCollapsed: false, sidePanelListCollapsed: true };
+}
+
 export function effectiveFontSize(uiPrefs) {
   return ALLOWED_FONT_SIZES.has(uiPrefs?.fontSize)
     ? uiPrefs.fontSize

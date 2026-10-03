@@ -334,15 +334,12 @@ std::string format_remote_control_display(const RemoteControlDisplaySnapshot& sn
 }
 
 void register_remote_control_command(CommandRegistry& registry) {
-    SlashCommand cmd{
+    registry.register_command({
         "remote-control",
         "Activate a configured channel plugin or manage manual remote-control webhooks",
         cmd_remote_control,
-    };
-    registry.register_command(cmd);
-    cmd.name = "rc";
-    cmd.description = "Alias for /remote-control";
-    registry.register_command(cmd);
+        {"rc"},
+    });
 }
 
 } // namespace acecode

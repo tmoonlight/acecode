@@ -26,7 +26,8 @@ struct AppConfig;
 namespace acecode::web {
 
 // 拼装 GET /api/commands 响应:
-//   {builtins: [{name,description}], commands: [{name,description}], skills: [...]}
+//   {builtins: [{name,description,aliases?}], commands: [{name,description}], skills: [...]}
+// builtin 的别名(如 remote-control 的 rc)不单独成条,放在 aliases 数组里。
 // builtins 顺序固定 init→compact→goal→plan;commands/skills 按 name 字典序。
 //
 // workspace_cwd 三态:

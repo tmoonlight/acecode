@@ -1144,7 +1144,7 @@ TEST(AgentLoopTermination, InjectedContextIsApiOnlyAtHandoffBoundary) {
 TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
     TempHomeGuard home("acecode-agentloop-context");
     fs::path repo = home.root() / "repo";
-    write_file(repo / "AGENT.md", "# repo rules\nuse goroutines\n");
+    write_file(repo / "AGENTS.md", "# repo rules\nuse goroutines\n");
 
     auto memory = std::make_shared<acecode::MemoryService>(
         acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
@@ -1210,7 +1210,7 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
 TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     TempHomeGuard home("acecode-agentloop-context-edit");
     fs::path repo = home.root() / "repo";
-    write_file(repo / "AGENT.md", "before rule\n");
+    write_file(repo / "AGENTS.md", "before rule\n");
 
     auto memory = std::make_shared<acecode::MemoryService>(
         acecode::get_memory_dir(), acecode::get_memory_state_db_path(), acecode::MemoryConfig{});
@@ -1229,7 +1229,7 @@ TEST(AgentLoopTermination, MutableContextChangesDoNotChangeStaticSystemPrompt) {
     h.push_text("first ok");
     ASSERT_TRUE(h.submit_and_wait("first"));
 
-    write_file(repo / "AGENT.md", "after rule\n");
+    write_file(repo / "AGENTS.md", "after rule\n");
     ASSERT_TRUE(memory->global().upsert("second_memory", acecode::MemoryType::User,
                                         "second memory", "after\n",
                                         acecode::MemoryWriteMode::Create, err).has_value())

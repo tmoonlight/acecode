@@ -1,6 +1,6 @@
 // 覆盖 src/prompt/init_prompt.{hpp,cpp} 的两个纯函数:
 // - build_agent_md_skeleton: 离线骨架生成,根据目录下 CLAUDE.md 是否存在拼出迁移提示
-// - build_init_prompt: 交给 LLM 的 /init prompt 构建;根据目录下 AGENT.md /
+// - build_init_prompt: 交给 LLM 的 /init prompt 构建;根据目录下 AGENTS.md /
 //   CLAUDE.md 存在情况在基础 prompt 末尾选一条 suffix
 //
 // 完整 /init 命令的 CommandContext 组装依赖 AgentLoop / AppConfig 等运行时对
@@ -85,31 +85,31 @@ TEST_F(InitSkeletonTest, ClaudeMdTriggersMigrationHint) {
     touch("CLAUDE.md");
     std::string s = acecode::build_agent_md_skeleton(temp_dir);
     EXPECT_NE(s.find("CLAUDE.md"), std::string::npos);
-    EXPECT_NE(s.find("mv CLAUDE.md AGENT.md"), std::string::npos);
+    EXPECT_NE(s.find("mv CLAUDE.md AGENTS.md"), std::string::npos);
 }
 
-// 场景:已有 AGENT.md 时,骨架 helper 本身不生成迁移提示(实际 /init 离线路径会拒绝覆盖)
+// 场景:已有 AGENTS.md 时,骨架 helper 本身不生成迁移提示(实际 /init 离线路径会拒绝覆盖)
 TEST_F(InitSkeletonTest, AgentMdDoesNotTriggerMigrationHint) {
-    touch("AGENT.md");
+    touch("AGENTS.md");
     std::string s = acecode::build_agent_md_skeleton(temp_dir);
     EXPECT_EQ(s.find("mv "), std::string::npos);
 }
 
-// 场景:AGENT.md 与 CLAUDE.md 同时存在时,迁移提示仍只针对 legacy CLAUDE.md
+// 场景:AGENTS.md 与 CLAUDE.md 同时存在时,迁移提示仍只针对 legacy CLAUDE.md
 TEST_F(InitSkeletonTest, ClaudeMdHintEvenWhenAgentExists) {
     touch("CLAUDE.md");
-    touch("AGENT.md");
+    touch("AGENTS.md");
     std::string s = acecode::build_agent_md_skeleton(temp_dir);
     EXPECT_NE(s.find("CLAUDE.md"), std::string::npos);
-    EXPECT_NE(s.find("AGENT.md"), std::string::npos);
-    EXPECT_NE(s.find("mv CLAUDE.md AGENT.md"), std::string::npos);
+    EXPECT_NE(s.find("AGENTS.md"), std::string::npos);
+    EXPECT_NE(s.find("mv CLAUDE.md AGENTS.md"), std::string::npos);
 }
 
-// 场景:任何情况下 prompt 都指示 LLM 用 AGENT.md 的前缀块,并且保持
+// 场景:任何情况下 prompt 都指示 LLM 用 AGENTS.md 的前缀块,并且保持
 // acecode 指向(不能泄漏 Claude Code 这样的外部产品名)
 TEST_F(InitPromptTest, BaseBodyAlwaysIncludesAgentMdPrefix) {
     std::string s = acecode::build_init_prompt(temp_dir);
-    EXPECT_NE(s.find("# AGENT.md"), std::string::npos);
+    EXPECT_NE(s.find("# AGENTS.md"), std::string::npos);
     EXPECT_NE(s.find("acecode"), std::string::npos);
     EXPECT_EQ(s.find("Claude Code"), std::string::npos);
     EXPECT_EQ(s.find("CLAUDE.md"), std::string::npos);
@@ -125,45 +125,45 @@ TEST_F(InitPromptTest, FreshDirectoryHasNoMigrationOrImprovementSuffix) {
     EXPECT_NE(s.find("Please analyze this codebase"), std::string::npos);
 }
 
-// 场景:已有 AGENT.md 时触发改进 suffix,让 LLM 用 file_edit_tool 而非
+// 场景:已有 AGENTS.md 时触发改进 suffix,让 LLM 用 file_edit_tool 而非
 // 覆盖,且明确要求原文已好就留着别改
 TEST_F(InitPromptTest, ExistingAgentMdTriggersImprovementSuffix) {
-    touch("AGENT.md");
+    touch("AGENTS.md");
     std::string s = acecode::build_init_prompt(temp_dir);
-    EXPECT_NE(s.find("AGENT.md already exists"), std::string::npos);
+    EXPECT_NE(s.find("AGENTS.md already exists"), std::string::npos);
     EXPECT_NE(s.find("file_edit_tool"), std::string::npos);
     EXPECT_NE(s.find("do not overwrite silently"), std::string::npos);
 }
 
 // 场景:只有 CLAUDE.md 时,suffix 点名 CLAUDE.md 作为起点,且不提到
-// AGENT.md(否则 LLM 会去找一个不存在的文件)
+// AGENTS.md(否则 LLM 会去找一个不存在的文件)
 TEST_F(InitPromptTest, ClaudeMdPresentTriggersMigrationSuffix) {
     touch("CLAUDE.md");
     std::string s = acecode::build_init_prompt(temp_dir);
     EXPECT_NE(s.find("CLAUDE.md already exists"), std::string::npos);
     EXPECT_NE(s.find("file_write_tool"), std::string::npos);
     // 未触发改进分支
-    EXPECT_EQ(s.find("AGENT.md already exists"), std::string::npos);
+    EXPECT_EQ(s.find("AGENTS.md already exists"), std::string::npos);
 }
 
-// 场景:只有 AGENT.md 时,suffix 点名 AGENT.md,且不提到 CLAUDE.md
+// 场景:只有 AGENTS.md 时,suffix 点名 AGENTS.md,且不提到 CLAUDE.md
 TEST_F(InitPromptTest, AgentMdPresentTriggersImprovementSuffix) {
-    touch("AGENT.md");
+    touch("AGENTS.md");
     std::string s = acecode::build_init_prompt(temp_dir);
-    EXPECT_NE(s.find("AGENT.md already exists"), std::string::npos);
+    EXPECT_NE(s.find("AGENTS.md already exists"), std::string::npos);
     EXPECT_NE(s.find("file_edit_tool"), std::string::npos);
     EXPECT_EQ(s.find("CLAUDE.md"), std::string::npos);
 }
 
-// 场景:CLAUDE.md / AGENT.md 同时存在时,改进 AGENT.md,CLAUDE.md 作为补充
+// 场景:CLAUDE.md / AGENTS.md 同时存在时,改进 AGENTS.md,CLAUDE.md 作为补充
 TEST_F(InitPromptTest, BothLegacyFilesNamedAgentMdPreferred) {
     touch("CLAUDE.md");
-    touch("AGENT.md");
+    touch("AGENTS.md");
     std::string s = acecode::build_init_prompt(temp_dir);
     // 两个文件都必须出现
     EXPECT_NE(s.find("CLAUDE.md"), std::string::npos);
-    EXPECT_NE(s.find("AGENT.md"), std::string::npos);
-    EXPECT_NE(s.find("AGENT.md already exists"), std::string::npos);
+    EXPECT_NE(s.find("AGENTS.md"), std::string::npos);
+    EXPECT_NE(s.find("AGENTS.md already exists"), std::string::npos);
     EXPECT_NE(s.find("file_edit_tool"), std::string::npos);
     // CLAUDE.md 必须是被交叉检查的补充来源
     EXPECT_NE(s.find("cross-check"), std::string::npos);

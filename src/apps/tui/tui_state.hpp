@@ -310,8 +310,9 @@ struct TuiState {
     // command still matches. dismissed_for_input is set on Esc and cleared when
     // input leaves slash-command position (empty/no-slash/has-space).
     struct SlashDropdownItem {
-        std::string name;
+        std::string name;          // 原名;选中后插入的是它
         std::string description;
+        std::string matched_alias; // 本次查询命中的别名,渲染成 "/name (alias)"
     };
     bool slash_dropdown_active = false;
     std::vector<SlashDropdownItem> slash_dropdown_items;

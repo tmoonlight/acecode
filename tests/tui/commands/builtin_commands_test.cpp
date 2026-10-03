@@ -543,6 +543,9 @@ public:
 
 } // namespace
 
+// 场景:/new 是 /clear 的别名。
+// 期望:/new 仍可敲(has_command),但解析回原名 clear,且不再作为独立条目
+// 出现在 commands() 里 —— 下拉菜单因此只出一行 "/clear"。
 TEST(BuiltinCommands, NewIsRegisteredAsClearAlias) {
     acecode::CommandRegistry registry;
 
@@ -550,9 +553,14 @@ TEST(BuiltinCommands, NewIsRegisteredAsClearAlias) {
 
     ASSERT_TRUE(registry.has_command("clear"));
     ASSERT_TRUE(registry.has_command("new"));
-    EXPECT_EQ(registry.commands().at("new").description, "Alias for /clear");
+    EXPECT_EQ(registry.resolve_name("new"), "clear");
+    EXPECT_EQ(registry.commands().count("new"), 0u);
+    EXPECT_EQ(registry.commands().at("clear").aliases,
+              std::vector<std::string>{"new"});
 }
 
+// 场景:/archieve 是 /archive 的拼写容错别名,用户敲 /help。
+// 期望:帮助里只有一行 "/archive (archieve)",不再出现单独的 "Alias for" 行。
 TEST(BuiltinCommands, ArchiveCommandsAreRegisteredAndListedInHelp) {
     ResumeCommandHarness h("archive_help");
 
@@ -561,15 +569,69 @@ TEST(BuiltinCommands, ArchiveCommandsAreRegisteredAndListedInHelp) {
     EXPECT_EQ(
         h.registry_.commands().at("archive").description,
         "Archive this session, then clear the conversation");
-    EXPECT_EQ(
-        h.registry_.commands().at("archieve").description,
-        "Alias for /archive");
+    EXPECT_EQ(h.registry_.resolve_name("archieve"), "archive");
 
     ASSERT_TRUE(h.dispatch("/help"));
     ASSERT_FALSE(h.state_.conversation.empty());
     const std::string help = h.state_.conversation.back().content;
-    EXPECT_NE(help.find("/archive"), std::string::npos);
-    EXPECT_NE(help.find("/archieve"), std::string::npos);
+    EXPECT_NE(help.find("/archive (archieve)"), std::string::npos);
+    EXPECT_EQ(help.find("Alias for"), std::string::npos);
+}
+
+// 场景:所有内建别名(new / archieve / side / checkpoint / rc)。
+// 期望:都不是 commands() 里的独立条目,各自解析回原名;/help 把它们写在原名
+// 后的括号里。回归:旧实现每个别名单独注册一条,下拉里出现两条描述几乎相同的命令。
+TEST(BuiltinCommands, BuiltinAliasesFoldIntoTheirCanonicalCommand) {
+    ResumeCommandHarness h("alias_fold");
+    const std::vector<std::pair<std::string, std::string>> aliases = {
+        {"new", "clear"},
+        {"archieve", "archive"},
+        {"side", "btw"},
+        {"checkpoint", "rewind"},
+        {"rc", "remote-control"},
+    };
+    for (const auto& [alias, canonical] : aliases) {
+        EXPECT_EQ(h.registry_.commands().count(alias), 0u) << alias;
+        EXPECT_EQ(h.registry_.resolve_name(alias), canonical) << alias;
+    }
+
+    ASSERT_TRUE(h.dispatch("/help"));
+    const std::string help = h.state_.conversation.back().content;
+    EXPECT_NE(help.find("/clear (new)"), std::string::npos) << help;
+    EXPECT_NE(help.find("/btw (side)"), std::string::npos) << help;
+    EXPECT_NE(help.find("/rewind (checkpoint)"), std::string::npos) << help;
+    EXPECT_NE(help.find("/remote-control (rc)"), std::string::npos) << help;
+}
+
+// 场景:用户敲别名 /tst(原名 /alias-target),带参数。
+// 期望:执行原名的处理函数,参数原样传入;处理函数经 invoked_command_name
+// 拿到用户实际敲的 "tst"(/side 靠它回显 "[/side]");使用计数记在原名上,
+// 使下拉的使用排序不被别名拆散;dispatch 结束后 invoked_command_name 复原为空。
+TEST(BuiltinCommands, AliasDispatchRunsCanonicalCommandWithInvokedName) {
+    ResumeCommandHarness h("alias_dispatch");
+    std::string seen_invoked;
+    std::string seen_args;
+    h.registry_.register_command({
+        "alias-target",
+        "Alias dispatch target",
+        [&](acecode::CommandContext& ctx, const std::string& args) {
+            seen_invoked = ctx.invoked_command_name;
+            seen_args = args;
+        },
+        {"tst"},
+    });
+    std::vector<std::string> recognized;
+    auto ctx = h.context();
+    ctx.on_command_recognized = [&](const std::string& name) {
+        recognized.push_back(name);
+    };
+
+    ASSERT_TRUE(h.registry_.dispatch("/tst hello", ctx));
+
+    EXPECT_EQ(seen_invoked, "tst");
+    EXPECT_EQ(seen_args, "hello");
+    EXPECT_EQ(recognized, std::vector<std::string>{"alias-target"});
+    EXPECT_TRUE(ctx.invoked_command_name.empty());
 }
 
 TEST(BuiltinCommands, TurnBtwAndSideCommandsAreRegistered) {

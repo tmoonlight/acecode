@@ -53,7 +53,7 @@ nlohmann::json build_commands_payload(const SkillRegistry& global_skills,
     nlohmann::json builtins = nlohmann::json::array();
     builtins.push_back({
         {"name", "init"},
-        {"description", "Analyze this codebase and generate (or improve) AGENT.md"},
+        {"description", "Analyze this codebase and generate (or improve) AGENTS.md"},
     });
     builtins.push_back({
         {"name", "compact"},
@@ -87,13 +87,12 @@ nlohmann::json build_commands_payload(const SkillRegistry& global_skills,
         {"name", "swarm"},
         {"description", "Show or switch swarm mode: /swarm star|mesh|off"},
     });
-    builtins.push_back({
-        {"name", "rc"},
-        {"description", "Alias for /remote-control"},
-    });
+    // 别名不单列一行,挂在原名的 aliases 上(前端下拉显示成 "remote-control (rc)");
+    // 可执行白名单仍同时接受 rc 与 remote-control,见 builtin_command_handler。
     builtins.push_back({
         {"name", "remote-control"},
         {"description", "Activate a configured channel plugin or manage manual remote-control webhooks"},
+        {"aliases", nlohmann::json::array({"rc"})},
     });
     out["builtins"] = std::move(builtins);
 

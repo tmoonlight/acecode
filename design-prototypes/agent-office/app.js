@@ -27,7 +27,7 @@
     }
     setText($('working-count'),working);setText($('resting-count'),(6-working)+' 位待命 / 休息');
     const a=sim.agents[sim.selected],task=sim.tasks[sim.selected],status=sim.status(sim.selected),percent=Math.floor(task.elapsed/task.duration*100);
-    setText($('detail-name'),a.name);setText($('detail-role'),a.role);setText($('detail-id'),'AGENT '+String(a.index+1).padStart(2,'0'));
+    setText($('detail-name'),a.name);setText($('detail-role'),a.role);setText($('detail-id'),'AGENTS '+String(a.index+1).padStart(2,'0'));
     setText($('detail-state'),status.label);
     const description=task.elapsed>=task.duration?'已完成'+task.title+'。休息一下，准备迎接下一个好想法。':!sim.ready(a.index)?'等待'+task.deps.filter(i=>sim.tasks[i].elapsed<sim.tasks[i].duration).map(i=>sim.agents[i].name).join('、')+'交接，然后开始'+task.title+'。':task.text;
     setText($('detail-task'),description);setText($('detail-percent'),percent+'%');$('detail-progress').style.width=percent+'%';

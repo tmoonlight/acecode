@@ -14,6 +14,7 @@
 #include "macos_app_installer.hpp"
 #endif
 #include "network/proxy_resolver.hpp"
+#include "utils/encoding.hpp"
 #include "utils/sha256.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -330,7 +331,7 @@ UpdateCheckResult check_for_update(const AppConfig& config,
         result = check_for_update_impl(config, current_version, log);
     } catch (const std::exception& e) {
         result.current_version = current_version;
-        result.error = std::string("update check exception: ") + e.what();
+        result.error = std::string("update check exception: ") + ensure_utf8(e.what());
     } catch (...) {
         result.current_version = current_version;
         result.error = "unknown update check exception";

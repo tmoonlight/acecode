@@ -36,6 +36,13 @@ std::string repeat_utf8(const char* glyph, int count) {
     return out;
 }
 
+// 下拉行的命令文本:命中别名时显示 "/原名 (别名)",否则只显示 "/原名"。
+std::string dropdown_command_label(const TuiState::SlashDropdownItem& item) {
+    std::string label = "/" + item.name;
+    if (!item.matched_alias.empty()) label += " (" + item.matched_alias + ")";
+    return label;
+}
+
 std::string truncate_cells(const std::string& value, int max_cells) {
     if (max_cells <= 0) return {};
     if (ftxui::string_width(value) <= max_cells) return value;
@@ -102,7 +109,11 @@ void refresh_slash_dropdown(TuiState& state, const CommandRegistry& reg) {
     candidates.reserve(reg.commands().size());
     for (const auto& entry : reg.commands()) {
         const auto& cmd = entry.second;
-        candidates.push_back({cmd.name, cmd.description});
+        SlashCommandCandidate candidate;
+        candidate.name = cmd.name;
+        candidate.description = cmd.description;
+        candidate.aliases = cmd.aliases;
+        candidates.push_back(std::move(candidate));
     }
     auto ranked = rank_slash_command_candidates(
         query, candidates, state.slash_command_usage_counts);
@@ -135,14 +146,18 @@ void refresh_slash_dropdown(TuiState& state, const CommandRegistry& reg) {
     state.slash_dropdown_items.reserve(ranked.size());
     for (auto& candidate : ranked) {
         state.slash_dropdown_items.push_back(
-            {std::move(candidate.name), std::move(candidate.description)});
+            {std::move(candidate.name), std::move(candidate.description),
+             std::move(candidate.matched_alias)});
     }
 
     int new_selected = 0;
     const auto exact_match = std::find_if(
         state.slash_dropdown_items.begin(),
         state.slash_dropdown_items.end(),
-        [&query](const auto& item) { return item.name == query; });
+        [&query](const auto& item) {
+            return item.name == query ||
+                   (!item.matched_alias.empty() && item.matched_alias == query);
+        });
     if (exact_match != state.slash_dropdown_items.end()) {
         // A fully typed built-in must win over a previously-highlighted fuzzy
         // match. Otherwise `/skills` can remain pinned to `skill-creator`
@@ -200,7 +215,7 @@ ftxui::Element render_slash_dropdown(const TuiState& state,
         const bool selected = (i == state.slash_dropdown_selected);
         Element row;
         if (conhost_compat_layout) {
-            std::string line = "  /" + item.name;
+            std::string line = "  " + dropdown_command_label(item);
             if (!narrow && !item.description.empty()) {
                 line += " - " + item.description;
             }
@@ -208,7 +223,7 @@ ftxui::Element render_slash_dropdown(const TuiState& state,
             compat_rows.push_back(line);
             row = text(line);
         } else if (narrow) {
-            row = text("  /" + item.name + "  ");
+            row = text("  " + dropdown_command_label(item) + "  ");
         } else {
             std::string desc = item.description;
             if (desc.size() > 60) {
@@ -219,7 +234,7 @@ ftxui::Element render_slash_dropdown(const TuiState& state,
                 desc = desc.substr(0, cut) + "\xE2\x80\xA6"; // ellipsis
             }
             row = hbox({
-                text("  /" + item.name + "  "),
+                text("  " + dropdown_command_label(item) + "  "),
                 text("\xE2\x80\x94 ") | color(tui::theme().ui.text_dim),
                 text(desc) | color(tui::theme().ui.text_muted),
             });

@@ -602,6 +602,7 @@ function RichComposerShell({
         command?.name || '',
         command?.kind || '',
         command?.description || '',
+        Array.isArray(command?.aliases) ? command.aliases.join(',') : '',
       ].join(':'))
       .join('\n'),
     [commands],

@@ -1,6 +1,7 @@
 #include "diagnostics.hpp"
 
 #include "apply.hpp"
+#include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
@@ -34,6 +35,12 @@ std::string timestamp() {
     out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%S") << '.'
         << std::setfill('0') << std::setw(3) << ms << 'Z';
     return out.str();
+}
+
+// error_ reaches UpdateCheckResult::error/log_error; MSVC exception text
+// (filesystem_error, system_error) uses the ANSI code page, GBK on zh-CN.
+std::string exception_text(const std::exception& e) {
+    return redact_upgrade_diagnostic(ensure_utf8(e.what()));
 }
 
 void sanitize(nlohmann::json& value) {
@@ -83,10 +90,13 @@ DiagnosticLog::DiagnosticLog(const std::string& operation,
         path_ = root / ("upgrade-" + now.substr(0, 10) + "-" + pid + ".log");
         std::error_code ec;
         std::filesystem::create_directories(root, ec);
-        if (ec) throw std::runtime_error("cannot create log directory: " + ec.message());
+        if (ec) {
+            throw std::runtime_error("cannot create log directory: " +
+                                     ensure_utf8(ec.message()));
+        }
         record("operation_started", {{"operation", operation}});
     } catch (const std::exception& e) {
-        error_ = redact_upgrade_diagnostic(e.what());
+        error_ = exception_text(e);
     } catch (...) {
         error_ = "cannot initialize upgrade diagnostics";
     }
@@ -116,7 +126,7 @@ void DiagnosticLog::record(const std::string& event, nlohmann::json details) noe
     try {
         write_locked(event, std::move(details));
     } catch (const std::exception& e) {
-        error_ = redact_upgrade_diagnostic(e.what());
+        error_ = exception_text(e);
         LOG_WARN("[upgrade] diagnostics unavailable: " + error_);
     } catch (...) {
         error_ = "cannot write upgrade diagnostics";
@@ -129,7 +139,7 @@ void DiagnosticLog::phase(const std::string& phase, nlohmann::json details) noex
         phase_ = phase;
         if (error_.empty()) write_locked("phase_started", std::move(details));
     } catch (const std::exception& e) {
-        error_ = redact_upgrade_diagnostic(e.what());
+        error_ = exception_text(e);
     } catch (...) {
         error_ = "cannot write upgrade diagnostics";
     }

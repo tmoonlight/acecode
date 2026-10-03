@@ -98,7 +98,7 @@ export function threadSessionTargetFromClickEvent(event) {
 // kind ∈ 'external' | 'anchor' | 'file' | 'directory' | 'session' | 'reject'。
 // path/line 仅在 kind==='file' / 'directory' 有意义。
 // sessionId 仅在 kind==='session' 有意义。
-// 目录判定:href 或可见链接文案以 / 或 \ 结尾(模型/AGENT.md 的目录型链接约定)。
+// 目录判定:href 或可见链接文案以 / 或 \ 结尾(模型/AGENTS.md 的目录型链接约定)。
 // markdown-it 在 parse 阶段就对 href 做百分号编码(mdurl.encode):中文文件名变成
 // %E9%9A%8F%E6%9C%BA...,Windows 路径的反斜杠变成 %5C。这对 http 外链是必要的,
 // 对本地路径却是两个真实故障:

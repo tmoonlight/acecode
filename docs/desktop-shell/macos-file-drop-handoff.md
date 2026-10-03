@@ -208,7 +208,7 @@ At handoff, git status additionally shows modifications to `.gitignore` and
 `AGENTS.md`, and an untracked `.comet/` directory. These were not part of the
 rollback changes listed above; investigate if needed and do not revert them.
 
-Read current AGENT.md/AGENTS.md and follow the active session's instructions.
+Read current AGENTS.md/AGENTS.md and follow the active session's instructions.
 Use apply_patch for manual edits, and do not change vendored/submodule sources.
 Codegraph was unavailable/not indexed in the previous session; ordinary bounded
 source inspection was used. `rg` is not installed; use grep or built-in tools.

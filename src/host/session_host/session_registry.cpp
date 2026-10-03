@@ -1314,7 +1314,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     }
 
     const std::filesystem::path cwd = path_from_utf8(entry->cwd);
-    const std::filesystem::path target = cwd / "AGENT.md";
+    const std::filesystem::path target = cwd / "AGENTS.md";
 
     const bool provider_usable = entry->model_binding &&
         static_cast<bool>(entry->model_binding->provider_snapshot());
@@ -1322,7 +1322,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
         std::error_code ec;
         if (std::filesystem::exists(target, ec)) {
             entry->loop->emit_system_message(
-                "AGENT.md already exists at " + path_to_utf8_generic(target) +
+                "AGENTS.md already exists at " + path_to_utf8_generic(target) +
                 " - no model is configured, so /init cannot propose improvements. "
                 "Edit it by hand, or run /configure first and re-run /init to get "
                 "an LLM-driven improvement pass.",
@@ -1335,7 +1335,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
             entry->loop->emit_system_message(
                 "Failed to open " + path_to_utf8_generic(target) + " for writing.",
                 make_system_notice_metadata("init_failed", {{"path", path_to_utf8_generic(target)}}));
-            return {BuiltinCommandStatus::Failed, "failed to open AGENT.md for writing"};
+            return {BuiltinCommandStatus::Failed, "failed to open AGENTS.md for writing"};
         }
         ofs << build_agent_md_skeleton(cwd);
         entry->loop->emit_system_message(
@@ -1347,7 +1347,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     }
 
     entry->loop->emit_system_message(
-        "[Invoking /init - analyzing codebase and authoring AGENT.md...]",
+        "[Invoking /init - analyzing codebase and authoring AGENTS.md...]",
         make_system_notice_metadata("init_started"));
     const std::string display = request.display_text.empty()
         ? std::string{"/init"}

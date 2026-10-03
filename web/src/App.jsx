@@ -79,6 +79,7 @@ import {
   effectiveMessageAutoCollapse,
   effectiveSidebarSessionTime,
   effectiveSidePanelListCollapsed,
+  revealRightPanelDetails,
   rightPanelHidden,
   toggleRightPanel,
   UI_PREFS_STORAGE_KEY,
@@ -1426,6 +1427,10 @@ export function App() {
     });
   }, [previewPanelVisible, requestPreviewLeave, setUiPrefs, uiPrefs]);
 
+  const revealPreviewPanel = useCallback(() => {
+    setUiPrefs(revealRightPanelDetails);
+  }, [setUiPrefs]);
+
   const toggleSidePanelList = useCallback(() => {
     setUiPrefs((prev) => ({
       ...prev,
@@ -2262,6 +2267,7 @@ export function App() {
                 sidePanelCollapsed={sidePanelCollapsed}
                 sidePanelListCollapsed={sidePanelListCollapsed}
                 onToggleSidePanel={toggleSidePanel}
+                onRevealPreviewPanel={revealPreviewPanel}
                 onToggleSidePanelList={toggleSidePanelList}
                 onRevealSidePanelList={revealSidePanelList}
                 sidePanelMaximized={sidePanelMaximized}

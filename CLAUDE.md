@@ -482,6 +482,8 @@ writes finish and refills the password from the authenticated settings response.
 - [src/apps/tui/render_mode.hpp](src/apps/tui/render_mode.hpp): pure terminal render-mode decision logic.
 - [src/base/utils/paths.cpp](src/base/utils/paths.cpp): user vs service data directory resolution.
 
+**斜杠命令别名只挂在原名上,不单独注册。** `SlashCommand::aliases`(TUI)与 `/api/commands` builtin 的 `aliases` 数组(Web)是唯一来源;`commands()` 只有原名,下拉与 `/help` 一条命令一行。下拉只在查询命中别名、且别名档位高于原名时显示 `/原名 (别名)`(三名命令敲 `/new` 显示 `/generate (new)`,敲 `/create` 显示 `/generate (create)`,空查询不标别名),选中插入原名。`has_command` 对别名也返回 true —— skill / opencode 命令撞名检查靠它挡住 `rc`、`new`;dispatch 把使用计数记到原名(排序时再加上旧版按别名记的次数),用户实际敲的名字放在 `CommandContext::invoked_command_name`(`/side` 回显 `[/side]` 用它)。纯逻辑:`slash_command_ranking.cpp`、`web/src/lib/slashCommands.js::slashCommandMatchedAlias`;回归:`tests/tui/commands/command_alias_test.cpp`、`slashCommands.test.js` 的别名组。
+
 ## Maintenance Notes
 
 **Daemon mode:** main thread blocks in `Crow::App::run()`. Plus:
@@ -785,7 +787,7 @@ The existing region detector still probes DuckDuckGo once at startup through `Pr
     "max_depth": 8,
     "max_bytes": 262144,
     "max_total_bytes": 1048576,
-    "filenames": ["AGENT.md", "AGENTS.md", "CLAUDE.md"],
+    "filenames": ["AGENTS.md", "AGENTS.md", "CLAUDE.md"],
     "read_claude_md": true
   },
   "models_dev": {

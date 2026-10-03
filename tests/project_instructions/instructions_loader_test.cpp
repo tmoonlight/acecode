@@ -1,5 +1,5 @@
 // 覆盖 src/project_instructions/instructions_loader.{hpp,cpp}:
-// - AGENT.md native 文件和 CLAUDE.md fallback 都能被读到
+// - AGENTS.md native 文件和 CLAUDE.md fallback 都能被读到
 // - 同层目录只选一个,按 filenames 优先级
 // - 自定义 filenames 顺序生效
 // - read_claude_md 开关正确剔除 fallback 文件名
@@ -75,16 +75,16 @@ protected:
 
 } // namespace
 
-// 场景:cwd 下有 AGENT.md,cfg 默认时被加载
+// 场景:cwd 下有 AGENTS.md,cfg 默认时被加载
 TEST_F(InstructionsLoaderTest, LoadsProjectAgentMd) {
     fs::path repo = temp_home / "repo";
-    write_file(repo / "AGENT.md", "# repo rules\nuse goroutines\n");
+    write_file(repo / "AGENTS.md", "# repo rules\nuse goroutines\n");
 
     acecode::ProjectInstructionsConfig cfg;
     auto merged = acecode::load_project_instructions(repo.string(), cfg);
     EXPECT_FALSE(merged.merged_body.empty());
     EXPECT_NE(merged.merged_body.find("goroutines"), std::string::npos);
-    EXPECT_NE(merged.merged_body.find("AGENT.md"), std::string::npos);
+    EXPECT_NE(merged.merged_body.find("AGENTS.md"), std::string::npos);
     EXPECT_EQ(merged.sources.size(), 1u);
 }
 
@@ -98,7 +98,7 @@ TEST_F(InstructionsLoaderTest, AcecodeMdIgnoredByDefault) {
     EXPECT_TRUE(merged.sources.empty());
 }
 
-// 场景:cwd 没有 AGENT.md 只有 CLAUDE.md → 读到 CLAUDE.md
+// 场景:cwd 没有 AGENTS.md 只有 CLAUDE.md → 读到 CLAUDE.md
 TEST_F(InstructionsLoaderTest, FallbacksToClaudeMd) {
     fs::path repo = temp_home / "repo";
     write_file(repo / "CLAUDE.md", "# claude rules\n");
@@ -108,11 +108,11 @@ TEST_F(InstructionsLoaderTest, FallbacksToClaudeMd) {
     EXPECT_NE(merged.merged_body.find("CLAUDE.md"), std::string::npos);
 }
 
-// 场景:同层目录同时有 AGENT / CLAUDE / 旧 ACECODE 时,默认 filenames 优先级选 AGENT
+// 场景:同层目录同时有 AGENTS / CLAUDE / 旧 ACECODE 时,默认 filenames 优先级选 AGENTS
 TEST_F(InstructionsLoaderTest, AgentBeatsLegacyFilesByDefault) {
     fs::path repo = temp_home / "repo";
     write_file(repo / "ACECODE.md", "ace content\n");
-    write_file(repo / "AGENT.md", "agent content\n");
+    write_file(repo / "AGENTS.md", "agent content\n");
     write_file(repo / "CLAUDE.md", "claude content\n");
 
     acecode::ProjectInstructionsConfig cfg;
@@ -135,11 +135,11 @@ TEST_F(InstructionsLoaderTest, LoadsAgentsMd) {
     EXPECT_EQ(merged.sources.size(), 1u);
 }
 
-// 场景:同一目录同时存在 AGENT.md 与 AGENTS.md 时,默认优先级选 AGENT.md(原生优先)
+// 场景:同一目录同时存在 AGENTS.md 与 AGENTS.md 时,默认优先级选 AGENTS.md(原生优先)
 TEST_F(InstructionsLoaderTest, AgentMdBeatsAgentsMdByDefault) {
     fs::path repo = temp_home / "repo";
     write_file(repo / "AGENTS.md", "agents content\n");
-    write_file(repo / "AGENT.md", "agent content\n");
+    write_file(repo / "AGENTS.md", "agent content\n");
 
     acecode::ProjectInstructionsConfig cfg;
     auto merged = acecode::load_project_instructions(repo.string(), cfg);
@@ -151,11 +151,11 @@ TEST_F(InstructionsLoaderTest, AgentMdBeatsAgentsMdByDefault) {
 // 场景:自定义 filenames 顺序把 CLAUDE.md 抬到首位
 TEST_F(InstructionsLoaderTest, CustomFilenamesOrderOverridesDefault) {
     fs::path repo = temp_home / "repo";
-    write_file(repo / "AGENT.md", "agent content\n");
+    write_file(repo / "AGENTS.md", "agent content\n");
     write_file(repo / "CLAUDE.md", "claude content\n");
 
     acecode::ProjectInstructionsConfig cfg;
-    cfg.filenames = {"CLAUDE.md", "AGENT.md"};
+    cfg.filenames = {"CLAUDE.md", "AGENTS.md"};
     auto merged = acecode::load_project_instructions(repo.string(), cfg);
     EXPECT_NE(merged.merged_body.find("claude content"), std::string::npos);
     EXPECT_EQ(merged.merged_body.find("agent content"), std::string::npos);
@@ -175,18 +175,18 @@ TEST_F(InstructionsLoaderTest, ReadClaudeMdGateDisabled) {
 // 场景:cfg.enabled=false 时完全不读文件
 TEST_F(InstructionsLoaderTest, DisabledProducesEmpty) {
     fs::path repo = temp_home / "repo";
-    write_file(repo / "AGENT.md", "should not be read\n");
+    write_file(repo / "AGENTS.md", "should not be read\n");
     acecode::ProjectInstructionsConfig cfg;
     cfg.enabled = false;
     auto merged = acecode::load_project_instructions(repo.string(), cfg);
     EXPECT_TRUE(merged.merged_body.empty());
 }
 
-// 场景:~/.acecode/AGENT.md 作为全局层被前置到项目级之前
+// 场景:~/.acecode/AGENTS.md 作为全局层被前置到项目级之前
 TEST_F(InstructionsLoaderTest, GlobalAgentMdPrepended) {
-    write_file(temp_home / ".acecode" / "AGENT.md", "GLOBAL RULES\n");
+    write_file(temp_home / ".acecode" / "AGENTS.md", "GLOBAL RULES\n");
     fs::path repo = temp_home / "repo";
-    write_file(repo / "AGENT.md", "PROJECT RULES\n");
+    write_file(repo / "AGENTS.md", "PROJECT RULES\n");
 
     acecode::ProjectInstructionsConfig cfg;
     auto merged = acecode::load_project_instructions(repo.string(), cfg);
@@ -195,16 +195,16 @@ TEST_F(InstructionsLoaderTest, GlobalAgentMdPrepended) {
     std::size_t ppos = merged.merged_body.find("PROJECT RULES");
     ASSERT_NE(gpos, std::string::npos);
     ASSERT_NE(ppos, std::string::npos);
-    EXPECT_LT(gpos, ppos) << "全局 AGENT.md 应位于项目 AGENT.md 之前";
+    EXPECT_LT(gpos, ppos) << "全局 AGENTS.md 应位于项目 AGENTS.md 之前";
     EXPECT_EQ(merged.sources.size(), 2u);
 }
 
-// 场景:外层目录和内层目录同时有 AGENT.md,合并顺序是外层在前
+// 场景:外层目录和内层目录同时有 AGENTS.md,合并顺序是外层在前
 TEST_F(InstructionsLoaderTest, NestedOuterBeforeInner) {
     fs::path outer = temp_home / "repo";
     fs::path inner = outer / "src";
-    write_file(outer / "AGENT.md", "OUTER\n");
-    write_file(inner / "AGENT.md", "INNER\n");
+    write_file(outer / "AGENTS.md", "OUTER\n");
+    write_file(inner / "AGENTS.md", "INNER\n");
 
     acecode::ProjectInstructionsConfig cfg;
     auto merged = acecode::load_project_instructions(inner.string(), cfg);
@@ -219,11 +219,11 @@ TEST_F(InstructionsLoaderTest, NestedOuterBeforeInner) {
 TEST_F(InstructionsLoaderTest, StopsAtHomeBoundary) {
     // 我们用 temp_home 作为 HOME,在 HOME 同级或更上不应出现"读到"的效果
     fs::path repo = temp_home / "sub" / "repo";
-    write_file(repo / "AGENT.md", "repo\n");
+    write_file(repo / "AGENTS.md", "repo\n");
     // 故意在 temp_home 同级父目录也放一份(不应被读取,因为会越过 HOME)
     fs::path parent_of_home = temp_home.parent_path();
     if (!parent_of_home.empty()) {
-        write_file(parent_of_home / "AGENT.md", "SHOULD_NOT_APPEAR\n");
+        write_file(parent_of_home / "AGENTS.md", "SHOULD_NOT_APPEAR\n");
     }
 
     acecode::ProjectInstructionsConfig cfg;
@@ -236,7 +236,7 @@ TEST_F(InstructionsLoaderTest, StopsAtHomeBoundary) {
 TEST_F(InstructionsLoaderTest, PerFileTruncation) {
     fs::path repo = temp_home / "repo";
     std::string big(4096, 'x');
-    write_file(repo / "AGENT.md", big);
+    write_file(repo / "AGENTS.md", big);
 
     acecode::ProjectInstructionsConfig cfg;
     cfg.max_bytes = 1024;
@@ -258,7 +258,7 @@ TEST_F(InstructionsLoaderTest, NoFilesEmptyResult) {
 
 TEST_F(InstructionsLoaderTest, PreservesUtf8PathAndContentInternally) {
     fs::path repo = temp_home / acecode::path_from_utf8(u8"中文项目");
-    write_file(repo / "AGENT.md", u8"# 规则\n默认使用 UTF-8\n");
+    write_file(repo / "AGENTS.md", u8"# 规则\n默认使用 UTF-8\n");
 
     acecode::ProjectInstructionsConfig cfg;
     auto merged = acecode::load_project_instructions(acecode::path_to_utf8(repo), cfg);

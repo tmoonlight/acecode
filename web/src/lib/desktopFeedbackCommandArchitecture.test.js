@@ -75,7 +75,8 @@ run('feedback remains discovery-only in generic session command parsing', () => 
   const parserStart = slashCommands.indexOf('export function parseExecutableBuiltinCommand');
   const parser = slashCommands.slice(parserStart);
 
-  assert.match(slashCommands, /feedback: 'feedback'/);
+  // feedback 留在下拉的基础 builtin 表里(可被发现),但不进可执行白名单。
+  assert.match(slashCommands, /\{ name: 'feedback', descriptionKey: 'feedback' \}/);
   assert.doesNotMatch(
     parser,
     /parseLeadingCommand\(text,\s*\[[^\]]*['"]feedback['"]/,

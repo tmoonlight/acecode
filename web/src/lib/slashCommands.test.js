@@ -22,6 +22,7 @@ import {
   parseExecutableBuiltinCommand,
   resolveLeadingSlashCommand,
   slashCommandKindPresentation,
+  slashCommandMatchedAlias,
 } from './slashCommands.js';
 
 function run(name, fn) {
@@ -46,7 +47,7 @@ async function runAsync(name, fn) {
 
 const ITEMS = flattenCommands({
   builtins: [
-    { name: 'init', description: 'Generate AGENT.md' },
+    { name: 'init', description: 'Generate AGENTS.md' },
     { name: 'compact', description: 'Compress conversation history' },
     { name: 'goal', description: 'Manage thread goal' },
     { name: 'plan', description: 'Enter plan mode' },
@@ -73,10 +74,10 @@ run('flattenCommands 注入 kind 字段并保留 builtin/skill 顺序', () => {
 
 run('fallbackCommands 返回基础 builtin 命令', () => {
   const r = fallbackCommands();
-  assert.equal(r.length, 13);
+  assert.equal(r.length, 11);
   assert.ok(r.every((x) => x.kind === 'builtin'));
   assert.deepEqual(r.map((x) => x.name), [
-    'init', 'compact', 'feedback', 'goal', 'plan', 'turn', 'btw', 'side', 'lsp', 'sandbox', 'memory', 'rc', 'remote-control',
+    'init', 'compact', 'feedback', 'goal', 'plan', 'turn', 'btw', 'lsp', 'sandbox', 'memory', 'remote-control',
   ]);
 });
 
@@ -108,7 +109,7 @@ run('slashCommandKindPresentation 只返回 glyph 与 label,颜色由 UI 统一�
 
 run('flattenCommands 把 opencode commands 放在 builtin 和 skill 之间', () => {
   const items = flattenCommands({
-    builtins: [{ name: 'init', description: 'Generate AGENT.md' }],
+    builtins: [{ name: 'init', description: 'Generate AGENTS.md' }],
     commands: [{ name: 'opsx-apply', description: 'Apply OpenSpec change' }],
     skills: [{ name: 'openspec-apply-change', description: 'Apply change skill' }],
   });
@@ -123,7 +124,7 @@ run('commandsWithFallback:空响应回退到基础命令', () => {
   const r1 = commandsWithFallback(null);
   const r2 = commandsWithFallback({ builtins: [], skills: [] });
   const expected = [
-    'init', 'compact', 'feedback', 'goal', 'plan', 'turn', 'btw', 'side', 'lsp', 'sandbox', 'memory', 'rc', 'remote-control',
+    'init', 'compact', 'feedback', 'goal', 'plan', 'turn', 'btw', 'lsp', 'sandbox', 'memory', 'remote-control',
   ];
   assert.deepEqual(r1.map((x) => x.name), expected);
   assert.deepEqual(r2.map((x) => x.name), expected);
@@ -132,7 +133,7 @@ run('commandsWithFallback:空响应回退到基础命令', () => {
 run('commandsWithFallback:后端返回 skills 时保留 skill + builtin 组合', () => {
   const r = commandsWithFallback({
     builtins: [
-      { name: 'init', description: 'Generate AGENT.md' },
+      { name: 'init', description: 'Generate AGENTS.md' },
       { name: 'compact', description: 'Compress conversation history' },
       { name: 'goal', description: 'Manage thread goal' },
       { name: 'plan', description: 'Enter plan mode' },
@@ -147,11 +148,9 @@ run('commandsWithFallback:后端返回 skills 时保留 skill + builtin 组合',
     'builtin:plan',
     'builtin:turn',
     'builtin:btw',
-    'builtin:side',
     'builtin:lsp',
     'builtin:sandbox',
     'builtin:memory',
-    'builtin:rc',
     'builtin:remote-control',
     'skill:calculator',
   ]);
@@ -170,11 +169,9 @@ run('commandsWithFallback:保留 command kind 并放在基础 builtin 后', () =
     'builtin:plan',
     'builtin:turn',
     'builtin:btw',
-    'builtin:side',
     'builtin:lsp',
     'builtin:sandbox',
     'builtin:memory',
-    'builtin:rc',
     'builtin:remote-control',
     'command:opsx-apply',
     'skill:calculator',
@@ -193,11 +190,9 @@ run('commandsWithFallback:skills-only 响应也补上基础命令', () => {
     'builtin:plan',
     'builtin:turn',
     'builtin:btw',
-    'builtin:side',
     'builtin:lsp',
     'builtin:sandbox',
     'builtin:memory',
-    'builtin:rc',
     'builtin:remote-control',
     'skill:calculator',
   ]);
@@ -216,15 +211,13 @@ run('commandsWithFallback:partial builtin 响应补齐缺失基础命令', () =>
     'builtin:plan',
     'builtin:turn',
     'builtin:btw',
-    'builtin:side',
     'builtin:lsp',
     'builtin:sandbox',
     'builtin:memory',
-    'builtin:rc',
     'builtin:remote-control',
     'skill:calculator',
   ]);
-  assert.equal(r[0].description, '分析此代码库并生成（或改进）AGENT.md');
+  assert.equal(r[0].description, '分析此代码库并生成（或改进）AGENTS.md');
 });
 
 run('commandsWithFallback:额外 builtin 保留在基础命令之后', () => {
@@ -242,11 +235,9 @@ run('commandsWithFallback:额外 builtin 保留在基础命令之后', () => {
     'builtin:plan',
     'builtin:turn',
     'builtin:btw',
-    'builtin:side',
     'builtin:lsp',
     'builtin:sandbox',
     'builtin:memory',
-    'builtin:rc',
     'builtin:remote-control',
     'builtin:custom',
   ]);
@@ -505,14 +496,66 @@ run('parseExecutableBuiltinCommand:识别 init、compact、goal 和 plan', () =>
 // 回归:B-Task 8 复审发现 /rc、/remote-control 只进了 parseExecutableBuiltinCommand
 // 的可执行白名单,FALLBACK_BUILTINS 漏加。bug 表现:输入框打 "/r" 时下拉
 // 自动补全里不出现 /rc(rankCommands 的数据源是 fallback/后端 builtin 清单),
-// 完整敲 /rc 功能正常但用户无从发现。期望:两条命令都能被前缀匹配排到最前。
-run('rankCommands:rc 与 remote-control 出现在 fallback 下拉补全里', () => {
+// 完整敲 /rc 功能正常但用户无从发现。
+// 别名合并后:rc 挂在 remote-control 上,下拉只出 remote-control 一行;
+// 敲 "rc" 时它排第一,并标出命中的别名 rc。
+run('rankCommands:rc 作为 remote-control 的别名出现在下拉补全里', () => {
   const r = rankCommands('r', fallbackCommands());
-  // 前缀匹配(+1000)排最前,同分按字典序:rc < remote-control
-  assert.equal(r[0].name, 'rc');
-  assert.equal(r[1].name, 'remote-control');
+  assert.equal(r[0].name, 'remote-control');
+  assert.equal(r.filter((x) => x.name === 'rc').length, 0);
+  assert.equal(slashCommandMatchedAlias(r[0], 'r'), '');
   const rc = rankCommands('rc', fallbackCommands());
-  assert.equal(rc[0].name, 'rc');
+  assert.equal(rc[0].name, 'remote-control');
+  assert.equal(slashCommandMatchedAlias(rc[0], 'rc'), 'rc');
+});
+
+// 场景:三名命令 generate(别名 new、create),用户分别敲 "new" / "create" / "gen" / 空查询。
+// 期望:generate 只出一行;敲 new 显示 "generate (new)",敲 create 显示
+// "generate (create)";原名命中或空查询不标别名。
+run('slashCommandMatchedAlias:只标出用户敲中的那个别名', () => {
+  const items = [
+    { kind: 'command', name: 'generate', description: 'Generate a scaffold', aliases: ['new', 'create'] },
+    { kind: 'command', name: 'help', description: 'Show help' },
+  ];
+  const byNew = rankCommands('new', items);
+  assert.deepEqual(byNew.map((x) => x.name), ['generate']);
+  assert.equal(slashCommandMatchedAlias(byNew[0], 'new'), 'new');
+  const byCreate = rankCommands('create', items);
+  assert.deepEqual(byCreate.map((x) => x.name), ['generate']);
+  assert.equal(slashCommandMatchedAlias(byCreate[0], 'create'), 'create');
+  assert.equal(slashCommandMatchedAlias(items[0], 'gen'), '');
+  assert.equal(slashCommandMatchedAlias(items[0], ''), '');
+  assert.equal(slashCommandMatchedAlias(items[1], 'help'), '');
+});
+
+// 场景:/btw 的别名 side。
+// 期望:fallback 清单只有 btw 一条且带 aliases:['side'];敲 side 时 btw 排第一并标出别名。
+run('fallbackCommands:side 作为 btw 的别名,不单列一条', () => {
+  const btw = fallbackCommands().find((x) => x.name === 'btw');
+  assert.deepEqual(btw.aliases, ['side']);
+  const ranked = rankCommands('side', fallbackCommands());
+  assert.equal(ranked[0].name, 'btw');
+  assert.equal(slashCommandMatchedAlias(ranked[0], 'side'), 'side');
+});
+
+// 场景:新 daemon 在 builtin 上带 aliases;旧 daemon 仍把 rc 单列一条 builtin。
+// 期望:两种响应都只得到一条 remote-control(aliases 含 rc),旧响应里单列的 rc 被丢弃。
+run('flattenCommands:合并后端 aliases,并丢弃旧响应里单列的别名条目', () => {
+  const fresh = commandsWithFallback({
+    builtins: [{ name: 'remote-control', description: 'x', aliases: ['rc'] }],
+  });
+  const legacy = commandsWithFallback({
+    builtins: [
+      { name: 'rc', description: 'Alias for /remote-control' },
+      { name: 'remote-control', description: 'x' },
+    ],
+  });
+  for (const list of [fresh, legacy]) {
+    assert.equal(list.filter((x) => x.name === 'rc').length, 0);
+    const rc = list.filter((x) => x.name === 'remote-control');
+    assert.equal(rc.length, 1);
+    assert.deepEqual(rc[0].aliases, ['rc']);
+  }
 });
 
 // 回归:同一漏项的第二个表现 —— 会话转写里已发送的 "/rc off" 不渲染成命令
@@ -529,6 +572,11 @@ run('resolveLeadingSlashCommand:rc 与 remote-control 渲染成 builtin chip', (
   assert.equal(full.name, 'remote-control');
   assert.equal(full.kind, 'builtin');
   assert.equal(full.token, '/remote-control');
+  // 别名命中时描述取原名那条(rc 不再有自己的条目)。
+  assert.equal(rc.description, full.description);
+  const side = resolveLeadingSlashCommand('/side what changed?', list);
+  assert.equal(side.name, 'side');
+  assert.equal(side.kind, 'builtin');
 });
 
 run('parseExecutableBuiltinCommand:识别 rc 与 remote-control(builtin command HTTP 面白名单)', () => {
@@ -563,7 +611,7 @@ await runAsync('已知 builtin 元数据随语言切换，未知后端文案保�
         { name: 'custom', description: '用户自定义命令说明' },
       ],
     });
-    assert.equal(items[0].description, 'Analyze this codebase and generate (or improve) AGENT.md');
+    assert.equal(items[0].description, 'Analyze this codebase and generate (or improve) AGENTS.md');
     assert.equal(items[1].description, '用户自定义命令说明');
     assert.equal(slashCommandKindPresentation(items[0]).label, 'Built-in tool');
   } finally {

@@ -6,6 +6,10 @@
 //   3. description 子串匹配最后
 //   4. 同档内按 name 字典序
 // 完全不命中 → 过滤掉。空查询返回原顺序(builtin 在前 + skill 字典序),不打分。
+//
+// 别名:一条命令可以有多个别名(item.aliases),别名不单独占一行。别名按 name
+// 同样的前缀 / 子串档位参与匹配,命令取最好的一档;只有别名比原名匹配得更好时,
+// 下拉才显示成 "原名 (别名)"(slashCommandMatchedAlias),选中后插入原名。
 
 import { tr } from '../i18n/index.js';
 
@@ -13,35 +17,58 @@ function lower(s) {
   return typeof s === 'string' ? s.toLowerCase() : '';
 }
 
-const BUILTIN_DESCRIPTION_KEYS = Object.freeze({
-  init: 'init',
-  compact: 'compact',
-  feedback: 'feedback',
-  goal: 'goal',
-  plan: 'plan',
-  turn: 'turn',
-  btw: 'btw',
-  side: 'side',
-  lsp: 'lsp',
-  sandbox: 'sandbox',
-  memory: 'memory',
-  rc: 'rc',
-  'remote-control': 'remoteControl',
-});
+// 基础 builtin 命令表(也是下拉空查询时的顺序)。别名与 TUI 注册保持一致:
+// /btw 的别名 side,/remote-control 的别名 rc。
+const BUILTIN_COMMANDS = Object.freeze([
+  { name: 'init', descriptionKey: 'init' },
+  { name: 'compact', descriptionKey: 'compact' },
+  { name: 'feedback', descriptionKey: 'feedback' },
+  { name: 'goal', descriptionKey: 'goal' },
+  { name: 'plan', descriptionKey: 'plan' },
+  { name: 'turn', descriptionKey: 'turn' },
+  { name: 'btw', descriptionKey: 'btw', aliases: Object.freeze(['side']) },
+  { name: 'lsp', descriptionKey: 'lsp' },
+  { name: 'sandbox', descriptionKey: 'sandbox' },
+  { name: 'memory', descriptionKey: 'memory' },
+  { name: 'remote-control', descriptionKey: 'remoteControl', aliases: Object.freeze(['rc']) },
+]);
 
-const FALLBACK_BUILTIN_NAMES = Object.freeze(Object.keys(BUILTIN_DESCRIPTION_KEYS));
+const BUILTIN_BY_NAME = new Map(BUILTIN_COMMANDS.map((c) => [c.name, c]));
+const BUILTIN_BY_ALIAS = new Map(
+  BUILTIN_COMMANDS.flatMap((c) => (c.aliases || []).map((alias) => [alias, c])),
+);
+
+function builtinDefinition(name) {
+  return BUILTIN_BY_NAME.get(name) || BUILTIN_BY_ALIAS.get(name) || null;
+}
+
+// 命令的别名数组(去空、去重、去掉与原名相同的项);没有别名返回空数组。
+export function commandAliases(item) {
+  const name = item && item.name;
+  const out = [];
+  for (const alias of Array.isArray(item?.aliases) ? item.aliases : []) {
+    if (typeof alias !== 'string' || !alias || alias === name || out.includes(alias)) continue;
+    out.push(alias);
+  }
+  return out;
+}
+
+function withAliases(item, aliases) {
+  const list = commandAliases({ name: item.name, aliases });
+  return list.length > 0 ? { ...item, aliases: list } : item;
+}
 
 export function builtinCommandDescription(name, fallback = '') {
-  const key = BUILTIN_DESCRIPTION_KEYS[name];
-  return key ? tr(`commands.descriptions.${key}`) : fallback;
+  const def = builtinDefinition(name);
+  return def ? tr(`commands.descriptions.${def.descriptionKey}`) : fallback;
 }
 
 export function fallbackCommands() {
-  return FALLBACK_BUILTIN_NAMES.map((name) => ({
+  return BUILTIN_COMMANDS.map((c) => withAliases({
     kind: 'builtin',
-    name,
-    description: builtinCommandDescription(name),
-  }));
+    name: c.name,
+    description: builtinCommandDescription(c.name),
+  }, c.aliases));
 }
 
 // 把后端返回的 {builtins, commands, skills} 拍平成统一项数组,加 kind 字段以备扩展。
@@ -50,11 +77,15 @@ export function flattenCommands(payload) {
   const out = [];
   if (payload && Array.isArray(payload.builtins)) {
     for (const c of payload.builtins) {
-      if (c && c.name) out.push({
+      if (!c || !c.name) continue;
+      // 旧 daemon 把别名(如 rc)单列成一条 builtin;它已经挂在原名的 aliases 上,丢掉。
+      if (BUILTIN_BY_ALIAS.has(c.name)) continue;
+      const def = BUILTIN_BY_NAME.get(c.name);
+      out.push(withAliases({
         kind: 'builtin',
         name: c.name,
         description: builtinCommandDescription(c.name, c.description || ''),
-      });
+      }, [...(Array.isArray(c.aliases) ? c.aliases : []), ...(def?.aliases || [])]));
     }
   }
   if (payload && Array.isArray(payload.commands)) {
@@ -77,6 +108,7 @@ export function flattenCommands(payload) {
 export function commandsWithFallback(payload) {
   const commands = flattenCommands(payload);
   const fallbackBuiltins = fallbackCommands();
+  // 后端返回的 builtin 覆盖同名基础命令(描述以本地 i18n 为准,别名已在 flatten 时合并)。
   const fallbackNames = new Set(fallbackBuiltins.map((c) => c.name));
   const payloadBuiltins = new Map(
     commands
@@ -88,15 +120,44 @@ export function commandsWithFallback(payload) {
   return [...mergedBuiltins, ...rest];
 }
 
-// 给单条命令打分。query 已 lowercase。
-function scoreCommand(item, query) {
-  const name = lower(item.name);
-  const desc = lower(item.description);
-  if (!query) return 1; // 空查询人人有份,排序回退到原顺序
-  if (name.startsWith(query)) return 1000;
-  if (name.includes(query)) return 500;
-  if (desc.includes(query)) return 100;
+function nameScore(name, query) {
+  const value = lower(name);
+  if (value.startsWith(query)) return 1000;
+  if (value.includes(query)) return 500;
   return 0;
+}
+
+// 只看原名与描述的分数。query 已 lowercase。
+function scoreCommandName(item, query) {
+  if (!query) return 1; // 空查询人人有份,排序回退到原顺序
+  const score = nameScore(item.name, query);
+  if (score > 0) return score;
+  if (lower(item.description).includes(query)) return 100;
+  return 0;
+}
+
+// 原名、描述、别名里最好的一档,以及(别名胜出时)胜出的别名。
+function matchCommand(item, query) {
+  let score = scoreCommandName(item, query);
+  let alias = '';
+  if (query) {
+    for (const candidate of commandAliases(item)) {
+      const aliasScore = nameScore(candidate, query);
+      if (aliasScore > score) {
+        score = aliasScore;
+        alias = candidate;
+      }
+    }
+  }
+  return { score, alias };
+}
+
+// 下拉行要标出的别名:查询命中别名、且别名比原名(含描述)匹配得更好时返回该别名,
+// 否则返回空串。敲 "rc" → "remote-control (rc)";敲 "re" 或空查询 → 只显示原名。
+export function slashCommandMatchedAlias(item, query) {
+  const q = lower(query || '').trim();
+  if (!item || !q) return '';
+  return matchCommand(item, q).alias;
 }
 
 // 排序:分数降序,同分按 name 字典序。返回新数组,不修改输入。
@@ -104,7 +165,7 @@ export function rankCommands(query, items) {
   const q = lower(query || '').trim();
   const scored = [];
   for (const it of items || []) {
-    const s = scoreCommand(it, q);
+    const s = matchCommand(it, q).score;
     if (s > 0) scored.push({ it, s });
   }
   if (!q) {
@@ -241,11 +302,14 @@ export function moveAcrossLeadingCommandBlock(value, leading, selectionStart, se
 //     调用方据此回退到纯文本渲染,避免把 `/foobar` 误当命令高亮。
 export function resolveLeadingSlashCommand(text, commands = []) {
   if (typeof text !== 'string' || text.length === 0 || text[0] !== '/') return null;
-  const list = Array.isArray(commands) ? commands : [];
-  const knownNames = list.map((c) => c && c.name).filter(Boolean);
+  const list = Array.isArray(commands) ? commands.filter(Boolean) : [];
+  // 别名同样识别成命令徽标(如 "/rc show"),name 保留用户实际敲的名字。
+  const knownNames = list.flatMap((c) => [c.name, ...commandAliases(c)]).filter(Boolean);
   const leading = parseLeadingCommand(text, knownNames);
   if (!leading.name) return null;
-  const item = list.find((c) => c && c.name === leading.name) || null;
+  const item = list.find((c) => c.name === leading.name)
+    || list.find((c) => commandAliases(c).includes(leading.name))
+    || null;
   return {
     token: text.slice(0, leading.headLength),
     name: leading.name,

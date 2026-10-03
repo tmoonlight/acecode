@@ -6,6 +6,7 @@ import {
   effectiveMessageAutoCollapse,
   effectiveSidePanelListCollapsed,
   effectiveShowAceCodeAvatar,
+  revealRightPanelDetails,
   rightPanelHidden,
   toggleRightPanel,
   FONT_SIZE_VALUES,
@@ -73,6 +74,25 @@ run('right panel closes visible details and restores navigation on reopening', (
   assert.equal(closed.sidePanelListCollapsed, true);
   assert.equal(rightPanelHidden(closed, true), true);
   assert.deepEqual(toggleRightPanel(closed, false), { ...DEFAULT_UI_PREFS, sidePanelCollapsed: false });
+});
+
+run('opening details from a fully hidden right panel keeps the list hidden', () => {
+  for (const sidePanelListCollapsed of [false, true, undefined]) {
+    const before = { ...DEFAULT_UI_PREFS, sidePanelListCollapsed, sidePanelMaximized: true };
+    const after = revealRightPanelDetails(before);
+    assert.deepEqual(after, { ...before, sidePanelCollapsed: false, sidePanelListCollapsed: true });
+    assert.equal(rightPanelHidden(after, true), false);
+    assert.equal(before.sidePanelCollapsed, true);
+    assert.strictEqual(revealRightPanelDetails(after), after);
+  }
+});
+
+run('opening details preserves an already visible or independently hidden list', () => {
+  for (const sidePanelListCollapsed of [false, true, undefined]) {
+    const before = { ...DEFAULT_UI_PREFS, sidePanelCollapsed: false, sidePanelListCollapsed };
+    assert.strictEqual(revealRightPanelDetails(before), before);
+    assert.equal(rightPanelHidden(before, true), false);
+  }
 });
 
 run('validateUiPrefs accepts legacy objects without sidePanelListCollapsed', () => {

@@ -25,7 +25,7 @@ const legacyMessages = new Map([
   ['[Auto-compact] Context approaching limit, compacting...', 'context_compacting'],
   ['[Compact] Stopped by hook.', 'context_compact_stopped'], ['[Auto-compact] Stopped by hook.', 'context_compact_stopped'],
   ['[Interjected]', 'turn_interjected'], ['[Interrupted]', 'turn_interrupted'],
-  ['[Invoking /init - analyzing codebase and authoring AGENT.md...]', 'init_started'],
+  ['[Invoking /init - analyzing codebase and authoring AGENTS.md...]', 'init_started'],
 ]);
 
 function legacyGoal(text) {

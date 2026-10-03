@@ -14,7 +14,7 @@ function run(name, fn) {
 run('pathAncestors lists parent directories without the leaf', () => {
   assert.deepEqual(pathAncestors('src/headless/headless_runner.cpp'), ['src', 'src/headless']);
   assert.deepEqual(pathAncestors('src/worktree'), ['src']);
-  assert.deepEqual(pathAncestors('AGENT.md'), []);
+  assert.deepEqual(pathAncestors('AGENTS.md'), []);
 });
 
 run('fileTreeLocatePlan expands ancestors for a file', () => {

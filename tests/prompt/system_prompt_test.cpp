@@ -216,11 +216,11 @@ TEST_F(SystemPromptTest, MemorySnapshotGoesIntoSessionContextOnly) {
         temp_home.string(), &empty, nullptr, nullptr, 128000).content.empty());
 }
 
-// 场景:cwd 下有 AGENT.md -> provider-facing Project Instructions context,
+// 场景:cwd 下有 AGENTS.md -> provider-facing Project Instructions context,
 // 静态 system prompt 不包含项目文件内容。
 TEST_F(SystemPromptTest, ProjectInstructionsContextWithSource) {
     fs::path repo = temp_home / "repo";
-    write_file(repo / "AGENT.md", "# rules\nuse goroutines\n");
+    write_file(repo / "AGENTS.md", "# rules\nuse goroutines\n");
 
     acecode::ToolExecutor tools;
     acecode::ProjectInstructionsConfig pcfg;
@@ -232,7 +232,7 @@ TEST_F(SystemPromptTest, ProjectInstructionsContextWithSource) {
 
     auto context = acecode::build_project_instructions_context_prompt(repo.string(), &pcfg);
     EXPECT_NE(context.content.find("# Project Instructions"), std::string::npos);
-    EXPECT_NE(context.content.find("AGENT.md"), std::string::npos);
+    EXPECT_NE(context.content.find("AGENTS.md"), std::string::npos);
     EXPECT_NE(context.content.find("goroutines"), std::string::npos);
     EXPECT_FALSE(context.cache_key.empty());
 }
@@ -255,10 +255,10 @@ TEST_F(SystemPromptTest, ClaudeMdFallback) {
     EXPECT_NE(context.content.find("CLAUDE.md"), std::string::npos);
 }
 
-// 场景:cfg.enabled=false 时即便有 AGENT.md 也不注入
+// 场景:cfg.enabled=false 时即便有 AGENTS.md 也不注入
 TEST_F(SystemPromptTest, ProjectInstructionsDisabledByCfg) {
     fs::path repo = temp_home / "repo";
-    write_file(repo / "AGENT.md", "content\n");
+    write_file(repo / "AGENTS.md", "content\n");
     acecode::ToolExecutor tools;
     acecode::ProjectInstructionsConfig pcfg;
     pcfg.enabled = false;

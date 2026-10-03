@@ -1272,7 +1272,10 @@ void WebServer::Impl::register_ui_preferences() {
                                                              ACECODE_VERSION, &diagnostics);
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = update_check_to_json(result).dump();
+            // 出口兜底:网络 / OS 错误文本已在产生处转 UTF-8,漏网的非法字节换成
+            // U+FFFD,不让 dump 抛 type_error.316 把整个请求变成 500。
+            r.body = update_check_to_json(result).dump(
+                -1, ' ', false, json::error_handler_t::replace);
             return with_cors(req, std::move(r));
         });
 
@@ -1413,7 +1416,8 @@ void WebServer::Impl::register_ui_preferences() {
                                              ? result.error
                                              : "no compatible update is available"},
                               {"log_path", result.log_path},
-                              {"status", update_check_to_json(result)}}.dump();
+                              {"status", update_check_to_json(result)}}
+                             .dump(-1, ' ', false, json::error_handler_t::replace);
                 return with_cors(req, std::move(r));
             }
 
