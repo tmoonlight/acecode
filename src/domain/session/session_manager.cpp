@@ -1067,13 +1067,29 @@ void SessionManager::cleanup_old_sessions(int max_sessions) {
     std::lock_guard<std::mutex> lk(mu_);
     if (project_dir_.empty()) return;
 
-    auto sessions = SessionStorage::list_sessions(project_dir_);
-    if (static_cast<int>(sessions.size()) <= max_sessions) return;
+    // Child sessions (spawn_subagent / mesh agents) do not use up the quota:
+    // they live and die with their top-level session. Orphans whose parent is
+    // already gone count as top-level, otherwise nothing would ever remove them.
+    const auto sessions = SessionStorage::list_sessions(project_dir_);
+    std::unordered_set<std::string> ids;
+    for (const auto& meta : sessions) ids.insert(meta.id);
+    std::vector<std::string> top;
+    std::unordered_map<std::string, std::vector<std::string>> children;
+    for (const auto& meta : sessions) {
+        if (meta.parent_session_id.empty() || !ids.count(meta.parent_session_id)) top.push_back(meta.id);
+        else children[meta.parent_session_id].push_back(meta.id);
+    }
+    if (static_cast<int>(top.size()) <= max_sessions) return;
 
     // Sessions are sorted newest-first; remove canonical files from the tail.
     // PID-suffixed files are incompatible old data and are not counted here.
-    for (size_t i = static_cast<size_t>(max_sessions); i < sessions.size(); ++i) {
-        const std::string& id = sessions[i].id;
+    std::vector<std::string> doomed;
+    for (size_t i = static_cast<size_t>(max_sessions); i < top.size(); ++i) {
+        doomed.push_back(top[i]);
+        const auto& kids = children[top[i]];
+        doomed.insert(doomed.end(), kids.begin(), kids.end());
+    }
+    for (const std::string& id : doomed) {
         std::error_code ec;
         fs::remove(SessionStorage::session_path(project_dir_, id), ec);
         fs::remove(SessionStorage::meta_path(project_dir_, id), ec);

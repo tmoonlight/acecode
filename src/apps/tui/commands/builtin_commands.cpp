@@ -1953,7 +1953,7 @@ static void cmd_tasks(CommandContext& ctx, const std::string& args) {
             if (!e.title.empty()) oss << "  " << e.title;
         }
         oss << "\n\nUse /tasks abort <id> to stop a running task, "
-               "/tasks clear to permanently delete settled ones.";
+               "/tasks clear to archive settled ones (kept until the main session is deleted).";
         push_system(oss.str());
         return;
     }
@@ -1985,8 +1985,8 @@ static void cmd_tasks(CommandContext& ctx, const std::string& args) {
     if (sub == "clear") {
         const int removed = ctx.subagent_host->clear_settled(project_dir);
         push_system(removed > 0
-            ? "Cleared " + std::to_string(removed) +
-              " settled subagent task(s) (disk data permanently deleted)."
+            ? "Archived " + std::to_string(removed) +
+              " settled subagent task(s); records are kept until the main session is deleted."
             : "No settled subagent tasks to clear.");
         return;
     }

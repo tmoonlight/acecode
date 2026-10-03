@@ -15,6 +15,7 @@
 #include "session/inter_agent_message.hpp"
 #include "session/mesh_tree_index.hpp"
 #include "session/session_manager.hpp"
+#include "session/session_storage.hpp"
 #include "session_host/mesh/mesh_agent_service.hpp"
 #include "session_host/session_registry.hpp"
 #include "session_host/tools/mesh_agent_tools.hpp"
@@ -597,6 +598,37 @@ TEST_F(MeshAgentServiceTest, RestartRebuildsTreeFromIndexAndRestoresOnDemand) {
     EXPECT_NE(registry->acquire(worker.session_id), nullptr);
     EXPECT_TRUE(any_content_contains(provider->request(provider->request_count() - 1),
                                      "answer:first"));
+}
+
+// 场景:用户在后台任务面板把已完成的子 agent「归档」收起(卸载会话 + meta.archived=true),
+// 之后根 agent 又对它发 followup_task。
+// 期望:子 agent 照常从磁盘恢复并带着原上下文工作,同时取消归档,让它重新出现在
+// 后台任务面板里;归档只是收起,不影响 agent 树的寻址。
+// 回归:若恢复时不取消归档,还在干活的 agent 在面板里永远看不到。
+TEST_F(MeshAgentServiceTest, ArchivedAgentIsUnarchivedWhenAddressedAgain) {
+    start_service();
+    create_root();
+    const auto worker = spawn(root_id, "worker", "first");
+    ASSERT_EQ(worker.error, "");
+    ASSERT_TRUE(wait_until([&] { return root_mail() == 1; }));
+    ASSERT_TRUE(wait_until([&] { return !loop(worker.session_id)->is_busy(); }));
+
+    // 模拟面板「归档」:Web 端先卸载会话,再把落盘 meta 标成 archived。
+    registry->destroy(worker.session_id);
+    const auto meta_path = acecode::SessionStorage::meta_path(
+        acecode::SessionStorage::get_project_dir(workspace), worker.session_id);
+    auto meta = acecode::SessionStorage::read_meta(meta_path);
+    ASSERT_EQ(meta.id, worker.session_id);
+    meta.archived = true;
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(meta_path, meta));
+
+    EXPECT_EQ(service->deliver(ctx_for(root_id), "worker", "second", true), "");
+    ASSERT_TRUE(wait_until([&] { return provider->payloads().back() == "second"; }));
+    EXPECT_NE(registry->acquire(worker.session_id), nullptr);
+    EXPECT_TRUE(any_content_contains(provider->request(provider->request_count() - 1),
+                                     "answer:first"));
+    EXPECT_FALSE(acecode::SessionStorage::read_meta(meta_path).archived)
+        << "再次被寻址的 agent 要取消归档,重新出现在后台任务面板里";
 }
 
 // 场景:模型经工具调用整套协作工具(工具层的参数解析与输出格式)。

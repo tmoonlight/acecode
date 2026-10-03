@@ -4,7 +4,8 @@
 // 右侧「运行中任务」快照 + /tasks 的 list/abort/clear 后端。一旦回归:
 //   - publish 快照失灵 → 右侧栏不出现/不消失(wait=false 的任务无感知)
 //   - busy=false 不移除 → 「只显示运行中」的用户决策被打破
-//   - clear_settled 误删运行中任务 → 数据丢失
+//   - clear_settled 误删运行中任务,或把已结束任务的记录永久删掉 → 数据丢失
+//     (子会话与普通会话一样长期保存,clear 只归档,主会话永久删除时才一起删)
 //   - permission_request 不冒泡 → default 模式子代理卡 5 分钟超时
 //
 // 测试不真跑 LLM:EchoStreamProvider 立即完成 turn,让 busy 迁移与消息
@@ -148,8 +149,12 @@ TEST(SubagentHost, PublishesRunningTaskAndRemovesOnIdle) {
 }
 
 // 场景: /tasks list 合并「运行中(registry)+ 已结束(磁盘 parent 匹配)」;
-// clear_settled 只删已结束的,不碰运行中。
-TEST(SubagentHost, ListMergesAndClearOnlyRemovesSettled) {
+// 用户执行 /tasks clear。
+// 期望: clear_settled 只处理已结束的,不碰运行中;已结束任务只是归档
+// (meta.archived=true,从列表收起),jsonl 与 meta 都还在,再 clear 一次是 0。
+// 回归: 旧实现 clear 直接永久删除子会话记录,用户要求子会话与普通会话一样
+// 长期保存,只在主会话被永久删除时才随之删除。
+TEST(SubagentHost, ListMergesAndClearOnlyArchivesSettled) {
     HostFixture fx;
     const auto project_dir = acecode::SessionStorage::get_project_dir(fx.cwd.string());
     fs::create_directories(project_dir);
@@ -180,11 +185,23 @@ TEST(SubagentHost, ListMergesAndClearOnlyRemovesSettled) {
     EXPECT_FALSE(entries[1].running);
     EXPECT_EQ(entries[1].id, settled_id);
 
-    // clear 只删已结束;运行中任务与它的持久化数据不受影响。
+    // clear 只归档已结束任务;运行中任务与它的持久化数据不受影响。
     EXPECT_EQ(fx.host->clear_settled(project_dir), 1);
-    EXPECT_FALSE(fs::exists(
-        acecode::SessionStorage::meta_path(project_dir, settled_id)));
+    const auto archived = acecode::SessionStorage::read_meta(
+        acecode::SessionStorage::meta_path(project_dir, settled_id));
+    ASSERT_EQ(archived.id, settled_id) << "归档不能删除子会话 meta";
+    EXPECT_TRUE(archived.archived);
+    EXPECT_EQ(archived.parent_session_id, fx.parent_id) << "归档后仍归属原主会话";
+    EXPECT_TRUE(fs::exists(
+        acecode::SessionStorage::session_path(project_dir, settled_id)))
+        << "归档不能删除子会话的对话记录";
     EXPECT_NE(fx.host->registry().acquire(running_id), nullptr);
+
+    // 归档后的任务从 /tasks list 收起,再 clear 也不会重复计数。
+    entries = fx.host->list_tasks(project_dir);
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].id, running_id);
+    EXPECT_EQ(fx.host->clear_settled(project_dir), 0);
     fx.host->registry().destroy(running_id);
 }
 

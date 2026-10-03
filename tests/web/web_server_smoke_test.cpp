@@ -5935,8 +5935,9 @@ TEST(WebServerHttp, SubagentQueryReadsMetaFromSessionOwnWorkspace) {
         path_from_utf8(acecode::SessionStorage::get_project_dir(other_cwd)), cleanup_ec);
 }
 
-// 场景: DELETE /api/sessions/:id?purge=1 是「后台任务-清除」——只允许子会话,
-// 成功后磁盘 jsonl/meta 永久删除;对主会话 purge 必须 400 拒绝(防误删)。
+// 场景: DELETE /api/sessions/:id?purge=1 兼容路由(后台任务面板现在只归档,
+// 不再调用它)——只允许子会话或已归档主会话,成功后磁盘 jsonl/meta 永久删除;
+// 对未归档主会话 purge 必须 400 拒绝(防误删)。
 TEST(WebServerHttp, PurgeDeletesSubagentDiskDataAndRejectsMainSession) {
     WebServerFixture fx;
     const std::string parent_id = "20260705-091000-cccc";
@@ -5973,6 +5974,90 @@ TEST(WebServerHttp, PurgeDeletesSubagentDiskDataAndRejectsMainSession) {
     EXPECT_EQ(plain.status_code, 204);
     EXPECT_TRUE(std::filesystem::exists(path_from_utf8(
         acecode::SessionStorage::meta_path(fx.project_dir, parent_id))));
+}
+
+// 场景: 用户在后台任务面板点「归档」收起已结束的子会话(网状 agent / 后台任务),
+// 之后把主会话归档并在设置里永久删除。
+// 期望: 归档的子会话从 ?parent= 列表消失,但磁盘记录保留,也不出现在
+// 「已归档会话」列表里(那里只列主会话);主会话永久删除时连同它的全部
+// 子会话(归档与否)一起删除,别的主会话及其子会话不受影响。
+// 回归: 旧面板「清除」直接永久删除子会话,用户要求子会话与普通会话一样
+// 长期保存;而只删主会话不删子会话又会留下永远清不掉的孤儿记录。
+TEST(WebServerHttp, PurgingArchivedMainSessionCascadesToItsSubagents) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    const std::string parent_id = "20261003-090000-aaaa";
+    const std::string child_a = "20261003-090100-bbbb";
+    const std::string child_b = "20261003-090200-cccc";
+    const std::string other_parent = "20261003-090300-dddd";
+    const std::string other_child = "20261003-090400-eeee";
+    for (const auto& [id, parent] :
+         std::vector<std::pair<std::string, std::string>>{
+             {parent_id, ""}, {child_a, parent_id}, {child_b, parent_id},
+             {other_parent, ""}, {other_child, other_parent}}) {
+        acecode::SessionMeta meta;
+        meta.id = id;
+        meta.cwd = fx.cwd;
+        meta.parent_session_id = parent;
+        acecode::SessionStorage::write_meta(
+            acecode::SessionStorage::meta_path(fx.project_dir, id), meta);
+        write_text(path_from_utf8(
+            acecode::SessionStorage::session_path(fx.project_dir, id)), "");
+    }
+    const auto exists = [&](const std::string& id) {
+        return std::filesystem::exists(path_from_utf8(
+                   acecode::SessionStorage::meta_path(fx.project_dir, id))) &&
+               std::filesystem::exists(path_from_utf8(
+                   acecode::SessionStorage::session_path(fx.project_dir, id)));
+    };
+    const auto ids_of = [](const cpr::Response& r) {
+        std::vector<std::string> ids;
+        for (const auto& item : json::parse(r.text)) {
+            ids.push_back(item.value("id", std::string{}));
+        }
+        return ids;
+    };
+    const auto contains = [](const std::vector<std::string>& ids, const std::string& id) {
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+
+    // 面板「归档」:子会话从后台任务列表收起,记录仍在。
+    auto archive_child = cpr::Put(cpr::Url{
+        fx.url("/api/workspaces/" + hash + "/sessions/" + child_a + "/archive")});
+    ASSERT_EQ(archive_child.status_code, 200) << archive_child.text;
+    auto tasks = cpr::Get(cpr::Url{
+        fx.url("/api/workspaces/" + hash + "/sessions?parent=" + parent_id)});
+    ASSERT_EQ(tasks.status_code, 200) << tasks.text;
+    const auto task_ids = ids_of(tasks);
+    EXPECT_FALSE(contains(task_ids, child_a)) << "归档的子会话不应再出现在面板里";
+    EXPECT_TRUE(contains(task_ids, child_b));
+    EXPECT_TRUE(exists(child_a)) << "归档不能删除子会话记录";
+
+    // 主会话归档后,「已归档会话」列表只列主会话,不列子会话。
+    auto archive_parent = cpr::Put(cpr::Url{
+        fx.url("/api/workspaces/" + hash + "/sessions/" + parent_id + "/archive")});
+    ASSERT_EQ(archive_parent.status_code, 200) << archive_parent.text;
+    auto archived = cpr::Get(cpr::Url{
+        fx.url("/api/workspaces/" + hash + "/sessions?archived=1")});
+    ASSERT_EQ(archived.status_code, 200) << archived.text;
+    const auto archived_ids = ids_of(archived);
+    EXPECT_TRUE(contains(archived_ids, parent_id));
+    EXPECT_FALSE(contains(archived_ids, child_a));
+
+    // 永久删除主会话:它的子会话(归档与否)一起删除,别的会话原样保留。
+    auto purge = cpr::Delete(cpr::Url{
+        fx.url("/api/workspaces/" + hash + "/sessions/" + parent_id + "?purge=1")});
+    EXPECT_EQ(purge.status_code, 204) << purge.text;
+    EXPECT_FALSE(std::filesystem::exists(path_from_utf8(
+        acecode::SessionStorage::meta_path(fx.project_dir, parent_id))));
+    for (const auto& id : {child_a, child_b}) {
+        EXPECT_FALSE(std::filesystem::exists(path_from_utf8(
+            acecode::SessionStorage::meta_path(fx.project_dir, id)))) << id;
+        EXPECT_FALSE(std::filesystem::exists(path_from_utf8(
+            acecode::SessionStorage::session_path(fx.project_dir, id)))) << id;
+    }
+    EXPECT_TRUE(exists(other_parent));
+    EXPECT_TRUE(exists(other_child)) << "别的主会话的子会话不能被连带删除";
 }
 
 // 场景: GET /api/sessions/:id/messages 第一次(无 since)返回 {events:[], messages:[]}。
