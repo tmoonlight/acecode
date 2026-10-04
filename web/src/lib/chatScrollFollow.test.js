@@ -8,6 +8,7 @@ import {
   nextChatTailFollowState,
   observeChatTailContent,
   shouldAutoFollowChatTail,
+  shouldShowChatScrollToBottom,
 } from './chatScrollFollow.js';
 
 function run(name, fn) {
@@ -30,10 +31,33 @@ run('away-from-tail metrics are not near the chat tail', () => {
   assert.equal(isChatNearTail({ scrollTop: 360, clientHeight: 400, scrollHeight: 1000 }, 80), false);
 });
 
-run('bottom control uses a pixel tolerance independently of the follow threshold', () => {
-  assert.equal(isChatNearTail({ scrollTop: 599.5, clientHeight: 400, scrollHeight: 1000 }, 1), true);
-  assert.equal(isChatNearTail({ scrollTop: 598, clientHeight: 400, scrollHeight: 1000 }, 1), false);
-  assert.equal(isChatNearTail({ scrollTop: 0, clientHeight: 400, scrollHeight: 300 }, 1), true);
+run('bottom control hides at the scaled browser maximum despite rounded height metrics', () => {
+  // Captured from Edge at 150% device scale and 90% page zoom after
+  // assigning scrollTop = scrollHeight: the browser cannot scroll any farther.
+  const metrics = { scrollTop: 1112.5926513671875, clientHeight: 620, scrollHeight: 1734 };
+  assert.ok(chatTailDistance(metrics) > 1);
+  assert.equal(shouldShowChatScrollToBottom(metrics), false);
+  assert.equal(shouldShowChatScrollToBottom({ scrollTop: 598, clientHeight: 400, scrollHeight: 1000 }), false);
+});
+
+run('bottom control tolerance remains independent of the automatic follow threshold', () => {
+  for (const distance of [3, 24, 80, 240]) {
+    const metrics = { scrollTop: 600 - distance, clientHeight: 400, scrollHeight: 1000 };
+    assert.equal(shouldShowChatScrollToBottom(metrics), true);
+    assert.equal(isChatNearTail(metrics), distance <= 80);
+  }
+});
+
+run('bottom control hides for missing, hidden, short and overscrolled viewports', () => {
+  for (const metrics of [
+    null,
+    {},
+    { scrollTop: 0, clientHeight: 0, scrollHeight: 1000 },
+    { scrollTop: 0, clientHeight: 400, scrollHeight: 300 },
+    { scrollTop: 600.5, clientHeight: 400, scrollHeight: 1000 },
+  ]) {
+    assert.equal(shouldShowChatScrollToBottom(metrics), false);
+  }
 });
 
 run('explicit jump resumes tail follow after reviewing or activity expansion', () => {

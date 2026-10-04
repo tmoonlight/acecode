@@ -27,6 +27,26 @@ TEST(HookRunner, SendsPayloadOnStdinWithZeroTimeoutAsInfinite) {
     EXPECT_NE(result.output.find("hello hook"), std::string::npos);
 }
 
+TEST(HookRunner, LargeStdinIsDeliveredCompletelyWhileDrainingOutput) {
+    acecode::platform::ProcessSpec cmd;
+#ifdef _WIN32
+    cmd.command = "powershell.exe";
+    cmd.args = {"-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
+                "[Console]::OpenStandardInput().CopyTo([Console]::OpenStandardOutput())"};
+#else
+    cmd.command = "/bin/cat";
+#endif
+    const std::string payload = std::string(256 * 1024, 'x') + "\n";
+    acecode::HookProcessOptions options;
+    options.timeout_ms = 5000;
+    options.max_stdout_bytes = payload.size() + 1024;
+    const auto result = acecode::run_hook_process(cmd, payload, "", options);
+    EXPECT_TRUE(result.started) << result.error;
+    EXPECT_FALSE(result.timed_out);
+    EXPECT_EQ(result.exit_code, 0);
+    EXPECT_EQ(std::count(result.stdout_text.begin(), result.stdout_text.end(), 'x'), 256 * 1024);
+}
+
 TEST(HookRunner, ShellCommandRunsThroughPlatformShellWithStdin) {
 #ifdef _WIN32
     const std::string command = "more";

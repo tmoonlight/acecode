@@ -156,4 +156,33 @@ auto run_abandonable(Fn&& fn, const Abort& abort,
         std::forward<Fn>(fn), abort, poll);
 }
 
+// A cancellable observation owns a fresh cancellation flag for its entire
+// lifetime. The caller's flag is borrowed only while waiting; a late worker
+// never observes a reset flag from a subsequent turn or a destroyed caller.
+// Fn must own everything it uses and must not publish results/callbacks into
+// its caller. Use cooperative, joined execution for mutations instead.
+template <typename R, typename Fn>
+AbandonableResult<R> run_cancellable(Fn&& fn, const std::atomic<bool>* abort) {
+    if (!abort) {
+        if constexpr (std::is_void_v<R>) {
+            std::invoke(std::forward<Fn>(fn), nullptr);
+            return true;
+        } else {
+            return std::invoke(std::forward<Fn>(fn), nullptr);
+        }
+    }
+    if (abort->load(std::memory_order_acquire)) return {};
+    // Shared only by this waiter and its owned worker; no link to the host.
+    auto cancellation = std::make_shared<std::atomic<bool>>(false);
+    auto result = run_abandonable<R>(
+        [task = std::decay_t<Fn>(std::forward<Fn>(fn)), cancellation]() mutable -> R {
+            return std::invoke(task, cancellation.get());
+        }, abort);
+    if (!result || abort->load(std::memory_order_acquire)) {
+        cancellation->store(true, std::memory_order_release);
+        return {};
+    }
+    return result;
+}
+
 }  // namespace acecode

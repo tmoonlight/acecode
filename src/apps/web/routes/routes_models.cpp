@@ -571,7 +571,7 @@ void WebServer::Impl::register_models() {
             return with_cors(req, std::move(r));
         });
 
-        // Session reasoning is validated and applied behind the worker's idle gate.
+        // Session reasoning updates the provider snapshot for the next request.
         CROW_ROUTE(app, "/api/sessions/<string>/reasoning").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req, const std::string& sid) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -598,8 +598,6 @@ void WebServer::Impl::register_models() {
             switch (result.status) {
                 case SessionReasoningStatus::UnknownSession:
                     return failure(404, "SESSION_NOT_FOUND", result.error);
-                case SessionReasoningStatus::Busy:
-                    return failure(409, "SESSION_BUSY", result.error);
                 case SessionReasoningStatus::InvalidEffort:
                     return failure(400, "INVALID_REASONING_EFFORT", result.error);
                 case SessionReasoningStatus::Unavailable:

@@ -8,6 +8,7 @@ import {
   hasFileTransfer,
   markFileSourcePath,
   markFileSourceReference,
+  readComposerClipboardData,
 } from './composerFileTransfer.js';
 
 function run(name, fn) {
@@ -143,3 +144,34 @@ run('composer file identity falls back to stable browser metadata', () => {
   assert.notEqual(composerFileIdentity(first), composerFileIdentity(changed));
   assert.match(composerFileIdentity(first), /^file:/);
 });
+
+const clipboardItem = (representations) => ({
+  types: Object.keys(representations),
+  getType: async type => new Blob([representations[type]], { type }),
+});
+const imageClipboard = await readComposerClipboardData({ read: async () => [clipboardItem({
+  'image/jpeg': 'jpeg', 'image/png': 'png', 'text/html': '<img src="https://invalid.test/x">',
+})] });
+assert.equal(imageClipboard.files.length, 1);
+assert.equal(imageClipboard.files[0].type, 'image/png');
+assert.equal(imageClipboard.files[0].name, 'pasted-image.png');
+assert.equal(await imageClipboard.files[0].text(), 'png');
+assert.equal(imageClipboard.getData('text/html'), '');
+console.log('[pass] context clipboard chooses one image representation without duplicate HTML');
+
+const textClipboard = await readComposerClipboardData({ read: async () => [clipboardItem({
+  'text/plain': 'hello', 'text/html': '<b>hello</b>',
+})] });
+assert.equal(textClipboard.getData('text/plain'), 'hello');
+assert.equal(textClipboard.getData('text/html'), '<b>hello</b>');
+assert.deepEqual(textClipboard.files, []);
+const fallbackClipboard = await readComposerClipboardData({
+  read: async () => { throw new Error('permission'); }, readText: async () => 'fallback',
+});
+assert.equal(fallbackClipboard.getData('text/plain'), 'fallback');
+assert.deepEqual((await readComposerClipboardData({ read: async () => [] })).types, []);
+await assert.rejects(readComposerClipboardData({}), /unavailable/);
+await assert.rejects(readComposerClipboardData({ read: async () => [{
+  types: ['image/png', 'text/plain'], getType: async () => { throw new Error('image decode failed'); },
+}], readText: async () => 'must not hide image failure' }), /image decode failed/);
+console.log('[pass] context clipboard handles text and empty data while preserving image read errors');

@@ -209,7 +209,7 @@ function ComposerBrowserContextCard({ item, onRemove }) {
 export const InputBar = forwardRef(function InputBar({
   disabled, submitting = false, canRetryLastUserMessage = false,
   queuePaused = false, onResumeQueue,
-  placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, goal = null,
+  placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, stopping = false, goal = null,
   onGoalEdit, onGoalStatusChange, onGoalClear,
   history = [], historyEntries = [], variant = 'default', attentionRequest = 0,
   value: controlledValue, onChange,
@@ -1318,7 +1318,7 @@ export const InputBar = forwardRef(function InputBar({
   };
 
   const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
-  const stopControl = getGoalStopControlState({ busy });
+  const stopControl = getGoalStopControlState({ busy, stopping });
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
   const hasInlineContexts = otherContextItems.length > 0;
   const capabilityControl = (

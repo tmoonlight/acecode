@@ -80,7 +80,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     , boundary_(std::make_unique<agent::WorkspaceBoundary>(options.cwd, permissions_))
     , exec_security_(std::make_unique<agent::SessionExecSecurity>(*boundary_, permissions_, busy_, runtime_))
     , hooks_(std::make_unique<agent::AgentHookBridge>(*boundary_, permissions_,
-          provider_accessor_, *transcript_, *history_))
+          provider_accessor_, *transcript_, *history_, abort_signal_))
     , tool_hooks_(std::make_unique<agent::ToolHookBridge>(*hooks_))
     , goal_(std::make_unique<agent::GoalRuntime>(*task_queue_, *history_, *transcript_,
           events_, callbacks_, permissions_, busy_, abort_signal_))

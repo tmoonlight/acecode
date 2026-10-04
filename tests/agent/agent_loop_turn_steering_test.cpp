@@ -9,6 +9,9 @@
 #include "session/turn_timing.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/tool_executor.hpp"
+#include "utils/abandonable_call.hpp"
+#include "utils/scope_exit.hpp"
+#include "test_support/utils/concurrency_gate.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -76,6 +79,7 @@ public:
     acecode::AgentLoop& loop() { return *loop_; }
     acecode_test::StubLlmProvider& provider() { return *provider_; }
     acecode::SessionManager& session_manager() { return *sm_; }
+    acecode::ToolExecutor& tools() { return tools_; }
 
     std::string wait_for_active_turn(std::chrono::milliseconds timeout = 5s) {
         const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -358,6 +362,68 @@ TEST(AgentLoopUserMessageRetry, RetriesAbortAfterPartialTextOrReasoning) {
         EXPECT_EQ(request_user_texts(h.provider().messages_for_turn(1)),
                   std::vector<std::string>{"original request"});
     }
+}
+
+TEST(AgentLoopCancellation, ParallelWaitsEndBeforeLateResultsAndQueuedTurnStartsCleanly) {
+    auto first = std::make_shared<acecode::test::ConcurrencyGate>();
+    auto second = std::make_shared<acecode::test::ConcurrencyGate>();
+    auto release = std::make_shared<acecode::test::ConcurrencyGate>();
+    acecode::ScopeExit unblock([release] { release->open(); });
+    std::atomic<int> writes{0};
+    TurnSteeringHarness h("cancel-parallel-tools");
+    for (const auto& name : {"slow_one", "slow_two"}) {
+        acecode::ToolImpl tool;
+        tool.definition.name = name;
+        tool.definition.parameters = {{"type", "object"}};
+        tool.is_read_only = true;
+        tool.execute = [entered = std::string(name) == "slow_one" ? first : second, release]
+            (const std::string&, const acecode::ToolContext& context) {
+            auto result = acecode::run_cancellable<acecode::ToolResult>(
+                [entered, release](auto) {
+                    entered->open();
+                    release->wait(5s);
+                    return acecode::ToolResult{"must not reach next turn", true};
+                }, context.abort_flag);
+            return result ? std::move(*result) : acecode::ToolResult{"[Interrupted]", false};
+        };
+        ASSERT_TRUE(h.tools().register_tool(std::move(tool)));
+    }
+    acecode::ToolImpl write;
+    write.definition.name = "cancelled_write";
+    write.definition.parameters = {{"type", "object"}};
+    write.execute = [&writes](const std::string&, const acecode::ToolContext&) {
+        ++writes;
+        return acecode::ToolResult{"written", true};
+    };
+    ASSERT_TRUE(h.tools().register_tool(std::move(write)));
+    acecode_test::ScriptedResponse batch;
+    batch.tool_calls = {{"slow-1", "slow_one", "{}"}, {"slow-2", "slow_two", "{}"},
+                        {"write-1", "cancelled_write", "{}"}};
+    h.provider().push_response(std::move(batch));
+    h.provider().push_text("next turn completed");
+    h.loop().submit("first turn");
+    ASSERT_TRUE(first->wait());
+    ASSERT_TRUE(second->wait());
+    const auto stopped_turn = h.loop().active_turn_id();
+    ASSERT_FALSE(stopped_turn.empty());
+    h.loop().abort();
+    h.loop().submit("second turn");
+    ASSERT_TRUE(h.wait_for_provider_turns_and_idle(2, 2s));
+    EXPECT_EQ(writes, 0);
+    const auto request = h.provider().messages_for_turn(1);
+    for (const auto& id : {"slow-1", "slow-2", "write-1"}) {
+        EXPECT_EQ(std::count_if(request.begin(), request.end(), [&](const auto& message) {
+            return message.role == "tool" && message.tool_call_id == id;
+        }), 1);
+    }
+    for (const auto& message : request) EXPECT_NE(message.content, "must not reach next turn");
+    const auto messages = h.session_manager().load_active_messages();
+    EXPECT_EQ(std::count_if(messages.begin(), messages.end(), [&](const auto& message) {
+        return message.metadata.is_object() && message.metadata.value("user_aborted", false) &&
+               message.metadata.value("turn_id", "") == stopped_turn;
+    }), 1);
+    release->open();
+    EXPECT_TRUE(acecode::wait_for_abandoned_work(2s));
 }
 
 TEST(AgentLoopUserMessageRetry, PreservesToolResultsAndAppendsOriginalStructuredInputAfterAbort) {

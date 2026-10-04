@@ -15,6 +15,8 @@ struct VisionSubagentToolOptions {
         std::function<std::shared_ptr<LlmProvider>(const ModelProfile&)>;
     using IndexChooser = std::function<std::size_t(std::size_t)>;
 
+    // With cancellation enabled, factory and its captures may outlive the
+    // invocation. Injected factories must own all captured dependencies.
     ProviderFactory provider_factory;
     IndexChooser choose_index;
 };

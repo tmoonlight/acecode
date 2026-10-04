@@ -1,5 +1,9 @@
 // Original ACECode functional artwork on a 20-unit grid.
 // Paint and size-aware stroke weight are inherited from the shared renderer.
+const pin = [
+  ['path', { d: 'M11.8 3.1L16.9 8.2Q17.3 8.6 16.7 8.7L14.4 8.7L12.2 12.6C12.9 14 12.9 15.2 12 16.1Q11.7 16.4 11.3 16L4 8.7Q3.6 8.3 3.9 8C4.8 7.1 6 7.1 7.4 7.8L11.3 5.6V3.3Q11.4 2.7 11.8 3.1ZM7.7 12.3L3.1 16.9' }],
+];
+
 const globe = [
   ['circle', { cx: 10, cy: 10, r: 7.1 }],
   ['ellipse', { cx: 10, cy: 10, rx: 3.2, ry: 7.1 }],
@@ -129,9 +133,8 @@ export const systemIcons = {
     ['circle', { cx: 12.8, cy: 6.8, r: 0.85, fill: 'currentColor', stroke: 'none' }],
     ['circle', { cx: 5.9, cy: 12.1, r: 0.85, fill: 'currentColor', stroke: 'none' }],
   ],
-  Pin: [
-    ['path', { d: 'M11.8 3.1L16.9 8.2Q17.3 8.6 16.7 8.7L14.4 8.7L12.2 12.6C12.9 14 12.9 15.2 12 16.1Q11.7 16.4 11.3 16L4 8.7Q3.6 8.3 3.9 8C4.8 7.1 6 7.1 7.4 7.8L11.3 5.6V3.3Q11.4 2.7 11.8 3.1ZM7.7 12.3L3.1 16.9' }],
-  ],
+  Pin: pin,
+  PinOff: [...pin, ['path', { d: 'M3 3L17 17' }]],
   SearchSparkle: [
     ['path', { d: 'M10.7 3.4C8.7 2.7 6.6 3.1 5 4.6C2.6 6.9 2.6 10.7 5 13C7.3 15.3 11 15.3 13.3 13C14.9 11.4 15.3 9.2 14.6 7.2M13.3 13.3L17.1 17.1M14.8 2.6C15 4.1 15.5 4.6 17 4.8C15.5 5 15 5.5 14.8 7C14.6 5.5 14.1 5 12.6 4.8C14.1 4.6 14.6 4.1 14.8 2.6Z' }],
   ],

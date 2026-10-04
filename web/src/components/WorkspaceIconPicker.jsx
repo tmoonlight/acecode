@@ -12,9 +12,10 @@ const VIEWPORT_MARGIN = 8;
 // 「编辑项目」左上角图标按钮弹出的选择层:搜索框 + 色板 + 图标网格。
 // 放在对话框 DOM 内、用 fixed 定位:对话框本身 overflow:auto,绝对定位会被裁掉;
 // 留在对话框里则 Tab 循环与 Enter 约定(lib/dialogKeyboard.js)照常生效。
-// 点选择层外面的空白不收起(挑图标时误点旁边不该让它消失),只有再点一次图标按钮或
-// 按 Esc 才收起;网格里选中的那一格显示展开态,与侧栏项目展开时一致。
+// 点击选择层外部只收起选择层,保留编辑项目表单;触发按钮和 Esc 也可收起。
+// 网格里选中的那一格显示展开态,与侧栏项目展开时一致。
 export function WorkspaceIconPicker({ anchorRef, value, onChange, onClose }) {
+  const pickerRef = useRef(null);
   const searchRef = useRef(null);
   const [query, setQuery] = useState('');
   const [position, setPosition] = useState(null);
@@ -41,6 +42,16 @@ export function WorkspaceIconPicker({ anchorRef, value, onChange, onClose }) {
   }, []);
 
   useEffect(() => {
+    const onPointerDown = (event) => {
+      if (pickerRef.current?.contains(event.target)
+        || anchorRef?.current?.contains(event.target)) return;
+      onClose?.();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [anchorRef, onClose]);
+
+  useEffect(() => {
     // Esc 只收起选择层:捕获阶段先拦下,对话框(document 冒泡阶段监听)就不会一起关掉。
     const onKey = (event) => {
       if (event.key !== 'Escape' || event.isComposing) return;
@@ -55,6 +66,7 @@ export function WorkspaceIconPicker({ anchorRef, value, onChange, onClose }) {
 
   return (
     <div
+      ref={pickerRef}
       className="ace-workspace-icon-picker fixed z-[210] rounded-xl border border-border bg-surface ace-shadow-lg p-2.5"
       style={{
         width: PICKER_WIDTH,

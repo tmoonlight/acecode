@@ -2,6 +2,7 @@
 #include "web/server_impl.hpp"
 
 #include "loop/loop_schedule.hpp"
+#include "loop/loop_request.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -63,34 +64,27 @@ void WebServer::Impl::register_loops() {
             return json_response(req, 400,
                 {{"error", "BAD_JSON"}, {"message", "invalid JSON body"}});
         }
+        std::vector<std::string> model_names;
+        {
+            std::shared_lock<std::shared_mutex> lock(app_config_mu);
+            if (deps.app_config) {
+                for (const auto& model : deps.app_config->saved_models) model_names.push_back(model.name);
+            }
+        }
         acecode::loop::ValidationError validation;
-        if (!acecode::loop::loop_from_json(body, value, &validation)) {
+        std::optional<std::string> workspace_cwd;
+        if (body.is_object() && body.contains("workspace_hash") && body["workspace_hash"].is_string()) {
+            if (const auto workspace = resolve_workspace(body["workspace_hash"].get<std::string>())) {
+                workspace_cwd = workspace->cwd;
+            }
+        }
+        const auto resolve = [workspace_cwd](const std::string&) {
+            return workspace_cwd;
+        };
+        if (!acecode::loop::parse_loop_request(body, loop_now_ms(), model_names, resolve, value, validation)) {
             return json_response(req, 400,
                 {{"error", validation.code}, {"field", validation.field},
                  {"message", validation.message}});
-        }
-        if (body.contains("schedule") && body["schedule"].is_object() &&
-            !body["schedule"].contains("timezone_offset_minutes")) {
-            value.schedule.timezone_offset_minutes =
-                acecode::loop::current_timezone_offset_minutes(loop_now_ms());
-        }
-        if (!value.workspace_hash.empty()) {
-            auto workspace = resolve_workspace(value.workspace_hash);
-            if (!workspace || workspace->cwd != value.workspace_cwd) {
-                return json_response(req, 400,
-                    {{"error", "INVALID_WORKSPACE"},
-                     {"message", "workspace is not registered or its path changed"}});
-            }
-        }
-        {
-            std::shared_lock<std::shared_mutex> lock(app_config_mu);
-            const bool exists = deps.app_config && std::any_of(
-                deps.app_config->saved_models.begin(), deps.app_config->saved_models.end(),
-                [&](const ModelProfile& model) { return model.name == value.model_name; });
-            if (!exists) {
-                return json_response(req, 400,
-                    {{"error", "INVALID_MODEL"}, {"message", "selected model is unavailable"}});
-            }
         }
         return std::nullopt;
     };

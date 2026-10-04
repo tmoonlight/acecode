@@ -25,6 +25,7 @@ import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoor
 import {
   captureRichComposerContextSelection,
   insertRichComposerContextText,
+  pasteRichComposerContextClipboard,
   richComposerRootFromTarget,
 } from '../lib/richComposerContextPaste.js';
 import { api } from '../lib/api.js';
@@ -239,6 +240,11 @@ export async function copyImageWithToast(target) {
 async function pasteIntoTarget(target, richComposerSelection = null) {
   const editable = editableTargetFromElement(target);
   if (!editable) return;
+  const paste = pasteRichComposerContextClipboard(editable, richComposerSelection);
+  if (paste) {
+    await paste;
+    return;
+  }
   if (navigator.clipboard?.readText) {
     const text = await navigator.clipboard.readText();
     insertTextIntoEditable(editable, text, richComposerSelection);
@@ -411,7 +417,11 @@ async function runAction(
       }
       break;
     case DESKTOP_CONTEXT_ACTIONS.PASTE:
-      await pasteIntoTarget(target, rememberedRichComposerSelection);
+      try {
+        await pasteIntoTarget(target, rememberedRichComposerSelection);
+      } catch (error) {
+        toast({ kind: 'err', text: `操作失败：${error?.message || ''}` });
+      }
       break;
     case DESKTOP_CONTEXT_ACTIONS.CUT:
       editableTargetFromElement(target)?.focus();

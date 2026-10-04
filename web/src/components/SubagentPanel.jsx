@@ -61,6 +61,7 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
           <button
             type="button"
             onClick={() => onAbort?.(task)}
+            disabled={task.abortPending}
             className="w-6 h-6 shrink-0 rounded-md border border-border text-fg-mute flex items-center justify-center transition hover:text-danger hover:border-danger/40 hover:bg-danger-bg"
             title="中止任务"
             aria-label="中止任务"
@@ -77,6 +78,7 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
           <>
             <span className="w-1.5 h-1.5 rounded-full bg-ok shadow-[0_0_5px_var(--ace-ok)]" />
             <span className="tabular-nums">{elapsed}</span>
+            {task.abortPending && <span>正在停止…</span>}
           </>
         ) : (
           <span className="text-fg-mute">

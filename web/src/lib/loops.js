@@ -102,7 +102,7 @@ function localInputMs(value) {
 }
 
 export function validateLoopForm(form) {
-  if (!String(form?.name || '').trim()) return '请输入循环名称';
+  if (!String(form?.name || '').trim()) return '请输入定时任务名称';
   if (!String(form?.prompt || '').trim()) return '请输入提示词';
   if (!String(form?.modelName || '').trim()) return '请选择模型';
   if (form.scheduleKind === 'interval' && Number(form.intervalValue) < 1) return '执行间隔必须大于 0';
@@ -192,10 +192,10 @@ export function loopRunPresentation(run = {}) {
     completed: '已完成', failed: '失败', missed: '已错过',
   };
   const reasons = {
-    workspace_busy: '工作空间在该时间已有循环运行，已错过且不会补跑',
+    workspace_busy: '工作空间在该时间已有定时任务运行，已错过且不会补跑',
     daemon_offline: 'daemon 未运行，已错过且不会补跑',
     daemon_interrupted: 'daemon 退出时运行被中断',
-    model_unavailable: '所选模型已不可用，循环已停用',
+    model_unavailable: '所选模型已不可用，定时任务已停用',
     workspace_unavailable: '工作空间不可用',
   };
   // 写边界事后检测:run 结束时主 checkout 里新出现的、落在 worktree 之外的改动。

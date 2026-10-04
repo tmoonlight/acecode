@@ -72,6 +72,7 @@ export function createChatInputQueueState(overrides = {}) {
     nextLocalId: nextSequence(overrides),
     items: cloneItems(overrides),
     paused: clonePaused(overrides),
+    resumedAbortTurns: overrides?.resumedAbortTurns || {},
   };
 }
 
@@ -248,7 +249,13 @@ export function acceptedQueuedInputEvent(item, { now = Date.now() } = {}) {
     text: item?.content,
     payload: item?.queued?.payload,
   });
-  const content = payload.text || (payload.attachments.length > 0 ? '附件消息' : '上下文消息');
+  return acceptedUserInputEvent({ ...payload, client_message_id: clientMessageId }, { now });
+}
+
+export function acceptedUserInputEvent(payload, { now = Date.now() } = {}) {
+  const clientMessageId = normalizeText(payload?.client_message_id).trim();
+  if (!clientMessageId) return null;
+  const content = payload.text || (payload.attachments?.length > 0 ? '附件消息' : '上下文消息');
   return {
     type: 'queued_input_accepted',
     payload: {
@@ -376,6 +383,12 @@ export function pauseQueuedInput(
 ) {
   const sid = normalizeSessionId(sessionId);
   const current = createChatInputQueueState(state);
+  if (current.resumedAbortTurns[sid]) {
+    const resumedAbortTurns = { ...current.resumedAbortTurns };
+    delete resumedAbortTurns[sid];
+    state = { ...current, resumedAbortTurns };
+    current.resumedAbortTurns = resumedAbortTurns;
+  }
   // 没有待发送消息就没有可暂停的东西;已暂停则保持首次暂停的时间与原因。
   if (!sid || queuedInputsForSession(current, sid).length === 0) {
     return state && typeof state === 'object' ? state : current;
@@ -387,13 +400,18 @@ export function pauseQueuedInput(
   };
 }
 
-export function resumeQueuedInput(state, sessionId) {
+export function resumeQueuedInput(state, sessionId, { afterAbortTurnId = '' } = {}) {
   const sid = normalizeSessionId(sessionId);
   const current = createChatInputQueueState(state);
-  if (!sid || !current.paused[sid]) return state && typeof state === 'object' ? state : current;
+  if (!sid || (!current.paused[sid] && !afterAbortTurnId)) return state && typeof state === 'object' ? state : current;
   const paused = { ...current.paused };
   delete paused[sid];
-  return { ...current, paused };
+  return {
+    ...current, paused,
+    resumedAbortTurns: afterAbortTurnId
+      ? { ...current.resumedAbortTurns, [sid]: afterAbortTurnId }
+      : current.resumedAbortTurns,
+  };
 }
 
 // 回合以「中断」收尾时队列是否应该转入暂停。
@@ -405,9 +423,11 @@ export function shouldPauseQueuedInputAfterAbort({
   state,
   sessionId = '',
   lastTurnOutcome = '',
+  turnId = '',
 } = {}) {
   const sid = normalizeSessionId(sessionId);
   if (!sid || lastTurnOutcome !== 'aborted') return false;
+  if (state?.resumedAbortTurns?.[sid] === (turnId || 'pending-stop')) return false;
   if (isQueuedInputPaused(state, sid)) return false;
   return queuedInputsForSession(state, sid).length > 0;
 }

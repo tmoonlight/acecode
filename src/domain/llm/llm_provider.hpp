@@ -229,6 +229,22 @@ public:
         const std::vector<ToolDef>& tools
     ) = 0;
 
+    // Synchronous borrowed cancellation channel. Providers may override to
+    // cancel transport; the owned-call boundary bounds legacy provider waits.
+    virtual ChatResponse chat_cancellable(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const std::atomic<bool>* abort_flag) {
+        if (abort_flag && abort_flag->load()) {
+            ChatResponse response;
+            response.finish_reason = "error";
+            response.provider_error.kind = ProviderErrorKind::UserCancelled;
+            response.provider_error.display_message = "[Interrupted]";
+            return response;
+        }
+        return chat(messages, tools);
+    }
+
     // Streaming chat: invokes callback for each event. abort_flag can cancel the request.
     virtual void chat_stream(
         const std::vector<ChatMessage>& messages,

@@ -260,6 +260,7 @@ TEST_F(SkillActivationTest, AgentLoopInjectsOnlyTheMentioningTurnAndKeepsDisplay
 
     acecode::UserInput input;
     input.text = "$review inspect this attachment";
+    input.metadata[acecode::kLoadedSkillsMetadata] = nlohmann::json::array({"unread-skill"});
     input.content_parts = nlohmann::json::array({
         nlohmann::json{{"type", "text"}, {"text", input.text}},
         nlohmann::json{{"type", "browser_context"},
@@ -275,6 +276,7 @@ TEST_F(SkillActivationTest, AgentLoopInjectsOnlyTheMentioningTurnAndKeepsDisplay
                    message.metadata.value("display_text", std::string{}) == input.text;
         });
     ASSERT_NE(first_user, first_request.end());
+    EXPECT_EQ(first_user->metadata[acecode::kLoadedSkillsMetadata], nlohmann::json::array({"review"}));
     EXPECT_NE(first_user->content.find("<name>review</name>"), std::string::npos);
     ASSERT_TRUE(first_user->content_parts.is_array());
     ASSERT_FALSE(first_user->content_parts.empty());
@@ -283,7 +285,10 @@ TEST_F(SkillActivationTest, AgentLoopInjectsOnlyTheMentioningTurnAndKeepsDisplay
               std::string::npos)
         << "structured attachment requests must carry the injected prompt too";
 
-    loop.submit("This second turn has no explicit Skill mention.");
+    acecode::UserInput second_input;
+    second_input.text = "This second turn has no explicit Skill mention.";
+    second_input.metadata[acecode::kLoadedSkillsMetadata] = nlohmann::json::array({"unread-skill"});
+    loop.submit(second_input);
     ASSERT_TRUE(provider->wait_for_count(2, std::chrono::seconds(5)));
     const auto second_request = provider->request(1);
     auto second_user = std::find_if(
@@ -293,6 +298,7 @@ TEST_F(SkillActivationTest, AgentLoopInjectsOnlyTheMentioningTurnAndKeepsDisplay
                        std::string::npos;
         });
     ASSERT_NE(second_user, second_request.rend());
+    EXPECT_FALSE(second_user->metadata.contains(acecode::kLoadedSkillsMetadata));
     EXPECT_EQ(second_user->content.find("<skill>"), std::string::npos)
         << "an explicit selection must not be automatically re-injected next turn";
 }

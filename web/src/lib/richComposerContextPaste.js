@@ -4,6 +4,7 @@ export const RICH_COMPOSER_ROOT_ATTRIBUTE = 'data-ace-rich-composer';
 export const RICH_COMPOSER_CONTEXT_PASTE_ACTIONS = Object.freeze({
   CAPTURE_SELECTION: 'capture-selection',
   INSERT_TEXT: 'insert-text',
+  READ_CLIPBOARD: 'read-clipboard',
 });
 
 export function normalizeRichComposerContextSelection(value) {
@@ -15,7 +16,17 @@ export function normalizeRichComposerContextSelection(value) {
   const direction = value?.direction === 'backward' || value?.direction === 'forward'
     ? value.direction
     : 'none';
-  return { start: safeStart, end: safeEnd, direction };
+  const selection = { start: safeStart, end: safeEnd, direction };
+  const validPoint = point => Array.isArray(point?.path) && point.path.length > 0
+    && point.path.every(index => Number.isInteger(index) && index >= 0)
+    && Number.isInteger(point.offset) && point.offset >= 0;
+  if (validPoint(value?.slateRange?.anchor) && validPoint(value?.slateRange?.focus)) {
+    selection.slateRange = {
+      anchor: { path: [...value.slateRange.anchor.path], offset: value.slateRange.anchor.offset },
+      focus: { path: [...value.slateRange.focus.path], offset: value.slateRange.focus.offset },
+    };
+  }
+  return selection;
 }
 
 export function richComposerRootFromTarget(target) {
@@ -64,4 +75,15 @@ export function insertRichComposerContextText(target, text, selection, options) 
     selection: normalizeRichComposerContextSelection(selection),
   };
   return dispatchRichComposerContextPasteAction(target, detail, options);
+}
+
+export function pasteRichComposerContextClipboard(target, selection, options) {
+  const detail = {
+    action: RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.READ_CLIPBOARD,
+    handled: false,
+    selection: normalizeRichComposerContextSelection(selection),
+    result: null,
+  };
+  return dispatchRichComposerContextPasteAction(target, detail, options)
+    ? Promise.resolve(detail.result) : null;
 }

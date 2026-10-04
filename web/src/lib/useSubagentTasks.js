@@ -119,8 +119,16 @@ export function useSubagentTasks(parentSessionId, { onSpawnStart } = {}) {
 
   const abortTask = useCallback((id) => {
     if (!id) return;
-    connection.sendAbort(id);
+    if (!connection.sendAbort(id)) return false;
     setTasks((prev) => markSubagentTaskAborted(prev, id));
+    return true;
+  }, []);
+
+  useEffect(() => {
+    const onDisconnect = () => setTasks((prev) => prev.map((task) => task.abortPending
+      ? { ...task, abortPending: false } : task));
+    connection.addEventListener('disconnect', onDisconnect);
+    return () => connection.removeEventListener('disconnect', onDisconnect);
   }, []);
 
   return {

@@ -1052,10 +1052,14 @@ SessionRegistry::make_entry_locked(const std::string& id,
             registry.handle_auto_title_turn_finished(id, status);
         });
     };
-    auto binding = entry->model_binding;
-    AgentLoop::ProviderAccessor provider_accessor = [binding]() {
-        return binding ? binding->provider_snapshot()
-                       : std::shared_ptr<LlmProvider>{};
+    AgentLoop::ProviderAccessor provider_accessor = [weak = std::weak_ptr<SessionEntry>(entry)]() {
+        auto active = weak.lock();
+        if (!active) return std::shared_ptr<LlmProvider>{};
+        // A new request must not observe a provider whose reasoning metadata
+        // is still being persisted (and may need to be rolled back).
+        std::lock_guard<std::mutex> model_lock(active->model_control_mu);
+        return active->model_binding ? active->model_binding->provider_snapshot()
+                                     : std::shared_ptr<LlmProvider>{};
     };
     AgentLoopServices loop_services{*deps_.tools, *entry->perm};
     loop_services.provider = std::move(provider_accessor);
@@ -2017,54 +2021,48 @@ SessionReasoningResult SessionRegistry::set_reasoning_effort(
         result.error = "session model unavailable";
         return result;
     }
-    // The queue gate covers pending submissions as well as running turns.
-    // Lock order: queue gate -> model control -> binding -> session metadata.
-    const bool ran = entry->loop->try_run_idle_control([&] {
-        std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
-        result.state = entry->model_binding->state_snapshot();
-        SessionModelResolver resolver = [this, effort](const std::string& name) {
-            return resolve_target_for_name(deps_, name, effort, true);
-        };
-        SessionModelResolvedTarget target;
-        try {
-            target = resolver(result.state.name);
-        } catch (const SessionReasoningValidationError& ex) {
-            result.status = SessionReasoningStatus::InvalidEffort;
-            result.error = ex.what();
-            return;
-        }
-        if (!target.profile || !target.config) {
-            result.status = SessionReasoningStatus::Unavailable;
-            result.error = "session model unavailable";
-            return;
-        }
-        auto previous = entry->model_binding->runtime_snapshot();
-        const auto installed = entry->model_binding->install_explicit(
-            std::move(target), resolver);
-        result.state = installed.state;
-        if (!installed.ok) {
-            result.error = installed.error;
-            return;
-        }
-        // An empty session must retain an explicit selection across restart.
-        if (!entry->sm->set_active_model_state(
-                result.state.provider, result.state.model, result.state.name,
-                result.state.reasoning_effort, true)) {
-            entry->model_binding->install_cloned_snapshot(std::move(previous));
-            result.state = entry->model_binding->state_snapshot();
-            result.error = "session reasoning metadata could not be persisted";
-            return;
-        }
-        if (result.state.context_window > 0) {
-            entry->loop->set_context_window(result.state.context_window);
-        }
-        result.status = SessionReasoningStatus::Updated;
-    });
-    if (!ran) {
-        result.status = SessionReasoningStatus::Busy;
-        result.state = entry->model_binding->state_snapshot();
-        result.error = "session is busy";
+    // Active requests retain their provider lease. Publish the new provider
+    // for the next request, including later steps in the same busy turn.
+    // Lock order: model control -> binding -> session metadata; no queue gate.
+    std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
+    result.state = entry->model_binding->state_snapshot();
+    SessionModelResolver resolver = [this, effort](const std::string& name) {
+        return resolve_target_for_name(deps_, name, effort, true);
+    };
+    SessionModelResolvedTarget target;
+    try {
+        target = resolver(result.state.name);
+    } catch (const SessionReasoningValidationError& ex) {
+        result.status = SessionReasoningStatus::InvalidEffort;
+        result.error = ex.what();
+        return result;
     }
+    if (!target.profile || !target.config) {
+        result.status = SessionReasoningStatus::Unavailable;
+        result.error = "session model unavailable";
+        return result;
+    }
+    auto previous = entry->model_binding->runtime_snapshot();
+    const auto installed = entry->model_binding->install_explicit(
+        std::move(target), resolver);
+    result.state = installed.state;
+    if (!installed.ok) {
+        result.error = installed.error;
+        return result;
+    }
+    // An empty session must retain an explicit selection across restart.
+    if (!entry->sm->set_active_model_state(
+            result.state.provider, result.state.model, result.state.name,
+            result.state.reasoning_effort, true)) {
+        entry->model_binding->install_cloned_snapshot(std::move(previous));
+        result.state = entry->model_binding->state_snapshot();
+        result.error = "session reasoning metadata could not be persisted";
+        return result;
+    }
+    if (result.state.context_window > 0) {
+        entry->loop->set_context_window(result.state.context_window);
+    }
+    result.status = SessionReasoningStatus::Updated;
     return result;
 }
 

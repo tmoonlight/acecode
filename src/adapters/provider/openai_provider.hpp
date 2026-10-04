@@ -24,7 +24,12 @@ public:
     ChatResponse chat(
         const std::vector<ChatMessage>& messages,
         const std::vector<ToolDef>& tools
-    ) override;
+    ) override { return OpenAiCompatProvider::chat_cancellable(messages, tools, nullptr); }
+
+    ChatResponse chat_cancellable(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const std::atomic<bool>* abort_flag) override;
 
     void chat_stream(
         const std::vector<ChatMessage>& messages,

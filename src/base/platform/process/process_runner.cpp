@@ -301,6 +301,10 @@ static HookProcessResult run_hook_process_impl(
         return result;
     };
 
+    if (options.abort_flag && options.abort_flag->load()) {
+        result.aborted = true;
+        return finish();
+    }
     std::vector<std::string> argv = make_argv(command);
     if (argv.empty() || argv[0].empty()) {
         result.error = "hook command is empty";
@@ -337,6 +341,12 @@ static HookProcessResult run_hook_process_impl(
     }
     if (!SetHandleInformation(child_stdin_write, HANDLE_FLAG_INHERIT, 0)) {
         result.error = "SetHandleInformation(stdin) failed: " + windows_error_message(GetLastError());
+        cleanup();
+        return finish();
+    }
+    DWORD input_mode = PIPE_NOWAIT;
+    if (!SetNamedPipeHandleState(child_stdin_write, &input_mode, nullptr, nullptr)) {
+        result.error = "SetNamedPipeHandleState(stdin) failed: " + windows_error_message(GetLastError());
         cleanup();
         return finish();
     }
@@ -480,19 +490,22 @@ static HookProcessResult run_hook_process_impl(
     }
     CloseHandle(pi.hThread);
 
-    if (!stdin_text.empty()) {
-        const char* ptr = stdin_text.data();
-        std::size_t remaining = stdin_text.size();
-        while (remaining > 0) {
+    std::size_t stdin_offset = 0;
+    auto feed_windows_stdin = [&]() {
+        if (!child_stdin_write) return;
+        if (stdin_offset < stdin_text.size()) {
             DWORD written = 0;
-            DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(remaining, 64 * 1024));
-            if (!WriteFile(child_stdin_write, ptr, chunk, &written, nullptr)) break;
-            if (written == 0) break;
-            ptr += written;
-            remaining -= written;
+            const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(stdin_text.size() - stdin_offset, 4096));
+            if (!WriteFile(child_stdin_write, stdin_text.data() + stdin_offset, chunk, &written, nullptr)) {
+                close_handle(child_stdin_write);
+                return;
+            }
+            // A full nonblocking byte pipe reports zero bytes. Retry only
+            // after output draining and cancellation/timeout checks.
+            stdin_offset += written;
         }
-    }
-    close_handle(child_stdin_write);
+        if (stdin_offset == stdin_text.size()) close_handle(child_stdin_write);
+    };
 
     CaptureState stdout_capture;
     CaptureState stderr_capture;
@@ -503,7 +516,10 @@ static HookProcessResult run_hook_process_impl(
                           std::size_t max_lines,
                           bool stop_when_truncated,
                           CaptureState& capture) {
-        for (;;) {
+        // Bound each pump so a continuously writing child cannot starve the
+        // outer cancellation checks. Also drain buffered output on completion.
+        std::size_t drained = 0;
+        while (drained < 1024 * 1024) {
             if (stop_when_truncated && capture.truncated) break;
             DWORD avail = 0;
             if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &avail, nullptr)) break;
@@ -515,6 +531,7 @@ static HookProcessResult run_hook_process_impl(
                 break;
             }
             if (bytes_read == 0) break;
+            drained += bytes_read;
             append_capped(out,
                           buffer,
                           bytes_read,
@@ -570,8 +587,10 @@ static HookProcessResult run_hook_process_impl(
             terminate_child();
             break;
         }
+        feed_windows_stdin();
         Sleep(10);
     }
+    close_handle(child_stdin_write);
     drain_output();
 
     DWORD exit_code = 1;
@@ -659,17 +678,25 @@ static HookProcessResult run_hook_process_impl(
     flags = fcntl(stderr_pipe[0], F_GETFL, 0);
     if (flags >= 0) fcntl(stderr_pipe[0], F_SETFL, flags | O_NONBLOCK);
 
-    if (!stdin_text.empty()) {
-        const char* ptr = stdin_text.data();
-        std::size_t remaining = stdin_text.size();
-        while (remaining > 0) {
-            ssize_t written = write(stdin_pipe[1], ptr, remaining);
-            if (written <= 0) break;
-            ptr += written;
-            remaining -= static_cast<std::size_t>(written);
-        }
+    flags = fcntl(stdin_pipe[1], F_GETFL, 0);
+    const bool nonblocking_stdin = flags >= 0 && fcntl(stdin_pipe[1], F_SETFL, flags | O_NONBLOCK) == 0;
+    if (!nonblocking_stdin) {
+        result.error = std::string("fcntl(stdin) failed: ") + std::strerror(errno);
+        close_fd(stdin_pipe[1]);
     }
-    close_fd(stdin_pipe[1]);
+    std::size_t stdin_offset = 0;
+    auto feed_stdin = [&]() {
+        if (stdin_pipe[1] < 0) return;
+        if (stdin_offset < stdin_text.size()) {
+            const ssize_t written = write(stdin_pipe[1], stdin_text.data() + stdin_offset,
+                std::min<std::size_t>(stdin_text.size() - stdin_offset, 4096));
+            if (written > 0) stdin_offset += static_cast<std::size_t>(written);
+            else if (written < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                close_fd(stdin_pipe[1]);
+            }
+        }
+        if (stdin_offset == stdin_text.size()) close_fd(stdin_pipe[1]);
+    };
 
     CaptureState stdout_capture;
     CaptureState stderr_capture;
@@ -680,10 +707,12 @@ static HookProcessResult run_hook_process_impl(
                         std::size_t max_lines,
                         bool stop_when_truncated,
                         CaptureState& capture) {
-        for (;;) {
+        std::size_t drained = 0;
+        while (drained < 1024 * 1024) {
             if (stop_when_truncated && capture.truncated) break;
             ssize_t n = read(fd, buffer, sizeof(buffer));
             if (n > 0) {
+                drained += static_cast<std::size_t>(n);
                 append_capped(out,
                               buffer,
                               static_cast<std::size_t>(n),
@@ -746,6 +775,7 @@ static HookProcessResult run_hook_process_impl(
             terminate_and_reap();
             break;
         }
+        if (!nonblocking_stdin) { terminate_and_reap(); break; }
         pid_t done = waitpid(pid, &status, WNOHANG);
         if (done == pid) {
             status_valid = true;
@@ -762,8 +792,10 @@ static HookProcessResult run_hook_process_impl(
             terminate_and_reap();
             break;
         }
+        feed_stdin();
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+    close_fd(stdin_pipe[1]);
     drain_output();
 
     if (status_valid && WIFEXITED(status)) result.exit_code = WEXITSTATUS(status);
@@ -797,12 +829,25 @@ HookProcessResult run_hook_shell_command(const std::string& command,
                                          int timeout_ms,
                                          const std::string& cwd,
                                          const HookEnvironment& environment) {
+    HookProcessOptions options;
+    options.timeout_ms = timeout_ms;
+    return run_hook_shell_command(command, stdin_text, cwd, options, environment);
+}
+
+HookProcessResult run_hook_shell_command(const std::string& command,
+                                         const std::string& stdin_text,
+                                         const std::string& cwd,
+                                         const HookProcessOptions& options,
+                                         const HookEnvironment& environment) {
+    if (options.abort_flag && options.abort_flag->load()) {
+        HookProcessResult result;
+        result.aborted = true;
+        return result;
+    }
     platform::ProcessSpec spec;
 #ifdef _WIN32
     const char* comspec = std::getenv("COMSPEC");
     spec.command = (comspec && *comspec) ? std::string(comspec) : std::string("cmd.exe");
-    HookProcessOptions options;
-    options.timeout_ms = timeout_ms;
     return run_hook_process_impl(
         spec, stdin_text, cwd, options, environment, &command);
 #else
@@ -821,7 +866,7 @@ HookProcessResult run_hook_shell_command(const std::string& command,
         spec.args.push_back("-c");
         spec.args.push_back(command);
     }
-    return run_hook_process(spec, stdin_text, timeout_ms, cwd);
+    return run_hook_process(spec, stdin_text, cwd, options);
 #endif
 }
 

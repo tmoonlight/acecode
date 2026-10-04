@@ -159,6 +159,18 @@ ChatResponse CopilotProvider::chat(
     const std::vector<ChatMessage>& messages,
     const std::vector<ToolDef>& tools
 ) {
+    return chat_cancellable(messages, tools, nullptr);
+}
+
+ChatResponse CopilotProvider::chat_cancellable(
+    const std::vector<ChatMessage>& messages, const std::vector<ToolDef>& tools,
+    const std::atomic<bool>* abort_flag) {
+    const auto cancelled = [&] { return abort_flag && abort_flag->load(); };
+    const auto interrupted = [&] {
+        return make_copilot_error(ProviderErrorKind::UserCancelled, 0, model_,
+                                 "[Interrupted]", {}, false);
+    };
+    if (cancelled()) return interrupted();
     const auto token = copilot_token_snapshot();
     if (token.empty()) {
         return make_copilot_error(
@@ -189,8 +201,14 @@ ChatResponse CopilotProvider::chat(
         network::build_ssl_options(proxy_opts),
         proxy_opts.proxies,
         proxy_opts.auth,
-        cpr::Timeout{stream_timeout_ms_}
+        cpr::Timeout{stream_timeout_ms_},
+        cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
+                                          cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+            return !abort_flag || !abort_flag->load();
+        }}
     );
+
+    if (cancelled()) return interrupted();
 
     if (r.status_code == 401) {
         // Token expired, try refresh once
@@ -205,11 +223,16 @@ ChatResponse CopilotProvider::chat(
                 network::build_ssl_options(proxy_opts2),
                 proxy_opts2.proxies,
                 proxy_opts2.auth,
-                cpr::Timeout{stream_timeout_ms_}
+                cpr::Timeout{stream_timeout_ms_},
+                cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
+                                                  cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+                    return !abort_flag || !abort_flag->load();
+                }}
             );
         }
     }
 
+    if (cancelled()) return interrupted();
     if (r.status_code == 0) {
         const ProviderErrorKind kind = classify_cpr_error(r.error);
         return make_copilot_error(

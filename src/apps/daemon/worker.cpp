@@ -39,6 +39,7 @@
 #include "platform/process/process_runner.hpp"
 #include "loop/loop_scheduler.hpp"
 #include "loop/loop_store.hpp"
+#include "loop/scheduled_task_tool.hpp"
 #include "session_host/local_session_client.hpp"
 #include "session/global_session_catalog.hpp"
 #include "session_host/session_registry.hpp"
@@ -585,6 +586,13 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         loop_store, registry, client, cfg_mut);
     if (loop_store_ready && !loop_scheduler.start(&loop_error)) {
         LOG_ERROR("[loop] scheduler failed to start: " + loop_error.message);
+    }
+    // Shared ownership: this composition root owns the service; tool calls
+    // temporarily lock its weak reference. Sessions stop before dependencies.
+    auto scheduled_task_service = std::make_shared<acecode::loop::ScheduledTaskService>(
+        loop_store, cfg_mut, app_config_mu, workspace_registry, projects_dir, &loop_scheduler);
+    if (loop_store_ready && loop_scheduler.running()) {
+        tools.register_tool(acecode::loop::create_scheduled_task_tool(scheduled_task_service));
     }
 
     const std::string config_path =

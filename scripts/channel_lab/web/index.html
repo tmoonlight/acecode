@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>本机 IM · Channel 测试</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="会话列表">
+      <div class="brand"><span class="brand-mark">IM</span><div><h1>本机 IM</h1><p>Channel 测试客户端</p></div></div>
+      <div class="section-label">会话</div>
+      <nav>
+        <button class="conversation selected" data-room="self" aria-current="page">
+          <span class="avatar self-avatar">我</span><span class="conversation-copy"><strong>自己</strong><span>发送给自己，验证消息收发</span></span>
+        </button>
+        <button class="conversation" data-room="acecode">
+          <span class="avatar ace-avatar">A</span><span class="conversation-copy"><strong>ACECode</strong><span id="nav-status">正在检查 Channel</span></span>
+        </button>
+      </nav>
+      <div class="sidebar-footer"><div class="service"><span id="service-dot" class="dot"></span><span id="service-status">连接服务中</span></div><p>消息仅保存在这台电脑。<br>可同时打开多个窗口测试同步。</p><button class="text-button" id="shutdown">停止测试服务</button></div>
+    </aside>
+    <main>
+      <header class="chat-header">
+        <div><h2 id="chat-title">自己</h2><p id="chat-subtitle">自己的消息，也可以有回音。</p></div>
+        <div class="header-actions"><button data-command="/help" aria-label="显示指令帮助">帮助</button><button id="connection" hidden>连接 ACECode</button><button id="export">导出记录</button></div>
+      </header>
+      <div id="channel-info" class="channel-info" hidden><span id="binding-state">未连接</span><span id="session-info"></span></div>
+      <div id="error" class="error" role="alert" hidden></div>
+      <section id="messages" class="messages" aria-label="聊天记录" tabindex="0">
+        <button id="older" class="text-button older" hidden>加载更早的消息</button>
+        <div id="message-list"></div>
+        <div id="empty" class="empty"><span class="empty-mark">我</span><h3>和自己说句话</h3><p>发一条消息，服务端会原样回送。<br>切换到 ACECode，开始测试 Channel。</p><button id="first-message">发送一条测试消息</button></div>
+      </section>
+      <button id="jump" class="jump" hidden>查看新消息</button>
+      <footer class="composer">
+        <div id="commands" class="commands" hidden aria-label="Channel 快捷命令">
+          <button data-command="/session">会话列表</button><button data-command="/session all">全部会话</button><button data-command="/aq --status">待回答问题</button><button data-command="/aq --cancel">取消提问</button>
+          <span>可输入 /session 1 切换会话</span>
+        </div>
+        <form id="send-form">
+          <label class="sr-only" for="message-input">消息内容</label>
+          <textarea id="message-input" rows="3" placeholder="给自己发条消息…" maxlength="16000"></textarea>
+          <div class="composer-bottom"><span id="input-hint">Enter 发送 · Shift + Enter 换行</span><button class="primary" id="send" type="submit">发送<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m5 12 14-7-4 14-3-6-7-1Z"/><path d="m12 13 7-8"/></svg></button></div>
+        </form>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

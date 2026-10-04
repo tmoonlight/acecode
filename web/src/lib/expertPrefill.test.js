@@ -8,6 +8,7 @@ import { homeRefFromWorkspace } from './homeWorkspaceSelection.js';
 import { homeComposerDraft, homeComposerDraftText, updateHomeComposerDrafts } from './homeComposerDrafts.js';
 import { composerDraftFingerprint } from './composerDraft.js';
 import { aiThemeCreationRef, homeComposerScopedWorkspace } from './aiThemeCreation.js';
+import { scheduledTaskCreationRef } from './scheduledTaskCreation.js';
 import { commandsWithFallback } from './slashCommands.js';
 import {
   COMPOSER_COMMAND_TAG,
@@ -91,7 +92,7 @@ function fixture(workspaceHash = 'workspace-a') {
     },
   });
   const scope = {
-    ...refs, api, homeRefFromWorkspace, aiThemeCreationRef, health: {}, homeComposerDraft, composerDraftFingerprint,
+    ...refs, api, homeRefFromWorkspace, aiThemeCreationRef, scheduledTaskCreationRef, health: {}, homeComposerDraft, composerDraftFingerprint,
     createApi: () => api, refreshWorkspaceGitInfo: async () => {},
     navigateToRef: navigate, replaceActiveRef: navigate,
     rememberRecentExpert() {}, onRememberExpert() {},
@@ -118,6 +119,7 @@ function fixture(workspaceHash = 'workspace-a') {
   const dispatch = evaluate(page.callback('dispatchToNewTask'));
   const create = evaluate(app.callback('startConversationalExpertCreation'));
   const createTheme = evaluate(app.callback('startAiThemeCreation'));
+  const createScheduled = evaluate(app.callback('startScheduledTaskCreation'));
 
   function render() {
     let commits = 0;
@@ -166,6 +168,7 @@ function fixture(workspaceHash = 'workspace-a') {
     },
     create() { create(); render(); },
     createTheme() { createTheme(); render(); },
+    createScheduled() { createScheduled(); render(); },
     navigate(next) { navigate(next); render(); },
     edit(text) {
       composer = text;
@@ -178,6 +181,20 @@ function fixture(workspaceHash = 'workspace-a') {
 
 const expert = { id: 'expert-a', quick_prompts: ['first prompt', 'second prompt', 'third prompt'] };
 const cases = [
+  ['scheduled task callback prefills an isolated editable skill draft without creating or sending', () => {
+    const view = fixture();
+    view.createScheduled();
+    assert.equal(view.text, '/scheduled-task 我希望在明天X点提醒我参加会议，重复X天');
+    assert.equal(view.route.composerDraftScope, 'scheduled-task');
+    assert.equal(view.consumed, 1);
+    view.edit('/scheduled-task 明天九点提醒我开会，重复三天');
+    view.render();
+    assert.equal(view.text, '/scheduled-task 明天九点提醒我开会，重复三天');
+    assert.equal(view.drafts['workspace-a'], 'older draft A');
+    view.navigate(homeRefFromWorkspace({ workspaceHash: 'workspace-a' }));
+    assert.equal(view.text, 'older draft A');
+    assert.deepEqual(view.loads, []);
+  }],
   ['AI theme callback closes settings and consumes its isolated draft without sending or replacing ordinary work', () => {
     const view = fixture();
     view.createTheme();

@@ -320,8 +320,10 @@ std::vector<ToolDef> ToolExecutor::get_tool_definitions_by_source(
 // 返回空表 —— 空表意味着模型在零工具状态下静默运行,症状极难定位;原生名
 // 永远可被 resolve_model_tool_name_to_native 精确命中,功能不受影响。
 std::vector<ToolDef> ToolExecutor::get_model_tool_definitions(
-    const ToolCapabilityPolicy* policy) const {
+    const ToolCapabilityPolicy* policy,
+    const std::unordered_set<std::string>& loaded_skills) const {
     auto native = get_tool_definitions(policy);
+    filter_deferred_tools(native, loaded_skills);
     std::vector<ToolDef> definitions;
     std::string error;
     if (!translate_tool_definitions_for_model(native, definitions, &error)) {
@@ -334,8 +336,10 @@ std::vector<ToolDef> ToolExecutor::get_model_tool_definitions(
 
 std::vector<ToolDef> ToolExecutor::get_model_tool_definitions_by_source(
     ToolSource source,
-    const ToolCapabilityPolicy* policy) const {
+    const ToolCapabilityPolicy* policy,
+    const std::unordered_set<std::string>& loaded_skills) const {
     auto native = get_tool_definitions_by_source(source, policy);
+    filter_deferred_tools(native, loaded_skills);
     std::vector<ToolDef> definitions;
     std::string error;
     if (!translate_tool_definitions_for_model(native, definitions, &error)) {
@@ -344,6 +348,18 @@ std::vector<ToolDef> ToolExecutor::get_model_tool_definitions_by_source(
         return native;
     }
     return definitions;
+}
+
+void ToolExecutor::filter_deferred_tools(
+    std::vector<ToolDef>& definitions,
+    const std::unordered_set<std::string>& loaded_skills) const {
+    std::lock_guard<std::mutex> lock(tools_mu_);
+    definitions.erase(std::remove_if(definitions.begin(), definitions.end(),
+        [&](const ToolDef& def) {
+            const auto it = tools_.find(def.name);
+            return it != tools_.end() && !it->second.activation_skill.empty() &&
+                   loaded_skills.count(it->second.activation_skill) == 0;
+        }), definitions.end());
 }
 
 std::string ToolExecutor::resolve_model_tool_name_to_native(
@@ -419,6 +435,12 @@ ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string
 
 ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string& arguments_json,
                                  const ToolContext& ctx) const {
+    if (ctx.abort_flag && ctx.abort_flag->load(std::memory_order_acquire)) {
+        ToolResult result{"[Interrupted]", false};
+        result.metadata = {{"cancelled", true}};
+        ensure_tool_summary(tool_name, arguments_json, result);
+        return result;
+    }
     ToolImpl impl;
     {
         std::lock_guard<std::mutex> lk(tools_mu_);
@@ -442,6 +464,14 @@ ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string
     }
     ToolContext effective_ctx = ctx;
     effective_ctx.tool_executor = const_cast<ToolExecutor*>(this);
+    // Admission can wait on registration/policy locks; recheck before invoking
+    // a handler. Already completed writes keep their real result after abort.
+    if (ctx.abort_flag && ctx.abort_flag->load(std::memory_order_acquire)) {
+        ToolResult result{"[Interrupted]", false};
+        result.metadata = {{"cancelled", true}};
+        ensure_tool_summary(tool_name, arguments_json, result);
+        return result;
+    }
     auto result = impl.execute(arguments_json, effective_ctx);
     ensure_tool_summary(tool_name, arguments_json, result);
     return result;

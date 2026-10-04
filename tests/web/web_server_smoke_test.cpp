@@ -11856,11 +11856,123 @@ TEST(WebServerHttp, WorkspaceReasoningCreationAndBusyMutation) {
     EXPECT_TRUE(blocker->wait_for_started(2s));
     auto busy = cpr::Post(cpr::Url{fx.url("/api/sessions/" + id + "/reasoning")},
         cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"effort":"low"})"});
+    EXPECT_TRUE(entry->loop->is_busy());
+    entry->loop->abort();
     blocker->release();
-    EXPECT_EQ(busy.status_code, 409) << busy.text;
-    EXPECT_EQ(json::parse(busy.text)["error"], "SESSION_BUSY");
-    EXPECT_EQ(entry->model_binding->state_snapshot().reasoning_effort, "high");
-    EXPECT_EQ(entry->model_binding->provider_snapshot(), blocker);
+    EXPECT_EQ(busy.status_code, 200) << busy.text;
+    EXPECT_EQ(json::parse(busy.text)["reasoning_effort"], "low");
+    EXPECT_EQ(entry->model_binding->state_snapshot().reasoning_effort, "low");
+    EXPECT_NE(entry->model_binding->provider_snapshot(), blocker);
+}
+
+TEST(WebServerHttp, BusyReasoningChangesReachNextRequestWithinSameTurn) {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<json> bodies;
+    std::size_t released = 0;
+    std::atomic<int> tool_calls{0};
+    LocalUpdateServer model_server([&](httplib::Server& server) {
+        server.Post("/v1/chat/completions", [&](const httplib::Request& request,
+                                               httplib::Response& response) {
+            std::unique_lock<std::mutex> lock(mutex);
+            bodies.push_back(json::parse(request.body));
+            const auto index = bodies.size();
+            cv.notify_all();
+            if (index <= 2 && !cv.wait_for(lock, 10s, [&] { return released >= index; })) {
+                response.status = 500;
+                return;
+            }
+            lock.unlock();
+            json delta;
+            if (index <= 2) {
+                delta = {{"tool_calls", json::array({{
+                    {"index", 0}, {"id", "reasoning-" + std::to_string(index)},
+                    {"type", "function"},
+                    {"function", {{"name", "reasoning_probe"}, {"arguments", "{}"}}}
+                }})}};
+            } else {
+                delta = {{"content", "reasoning update completed"}};
+            }
+            const json chunk = {{"choices", json::array({{
+                {"delta", delta}, {"finish_reason", index <= 2 ? "tool_calls" : "stop"}
+            }})}};
+            response.set_content("data: " + chunk.dump() + "\n\ndata: [DONE]\n\n",
+                                 "text/event-stream");
+        });
+    });
+    WebServerFixture fx;
+    configure_reasoning_http_model(fx);
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        fx.cfg.saved_models.back().base_url = model_server.base_url() + "v1";
+        fx.cfg.saved_models.back().reasoning->default_effort = "high";
+    }
+    acecode::ToolImpl probe;
+    probe.definition.name = "reasoning_probe";
+    probe.definition.description = "Continue the reasoning request test";
+    probe.definition.parameters = {{"type", "object"}, {"properties", json::object()}};
+    probe.is_read_only = true;
+    probe.execute = [&](const std::string&, const acecode::ToolContext&) {
+        ++tool_calls;
+        return acecode::ToolResult{"ok", true};
+    };
+    ASSERT_TRUE(fx.tools.register_tool(probe));
+    acecode::SessionOptions options;
+    options.model_name = "reasoning-http";
+    options.reasoning_effort = "high";
+    const auto id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    acecode::ScopeExit unblock([&] {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            released = 100;
+        }
+        cv.notify_all();
+    });
+    auto wait_request = [&](std::size_t count) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return cv.wait_for(lock, 5s, [&] { return bodies.size() >= count; });
+    };
+    auto release_request = [&](std::size_t count) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            released = count;
+        }
+        cv.notify_all();
+    };
+    auto update = [&](const json& effort) {
+        return cpr::Post(cpr::Url{fx.url("/api/sessions/" + id + "/reasoning")},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{json{{"effort", effort}}.dump()}, cpr::Timeout{5000});
+    };
+    entry->loop->submit("continue through two tools");
+    ASSERT_TRUE(wait_request(1));
+    for (const auto* effort : {"low", "high", "low"}) {
+        const auto result = update(effort);
+        ASSERT_EQ(result.status_code, 200) << result.text;
+        EXPECT_EQ(json::parse(result.text)["reasoning_effort"], effort);
+        EXPECT_TRUE(entry->loop->is_busy());
+    }
+    release_request(1);
+    ASSERT_TRUE(wait_request(2));
+    const auto invalid = update("max");
+    EXPECT_EQ(invalid.status_code, 400) << invalid.text;
+    EXPECT_EQ(entry->model_binding->state_snapshot().reasoning_effort, "low");
+    const auto reset = update(nullptr);
+    ASSERT_EQ(reset.status_code, 200) << reset.text;
+    EXPECT_TRUE(json::parse(reset.text)["reasoning_effort"].is_null());
+    EXPECT_TRUE(entry->loop->is_busy());
+    release_request(2);
+    ASSERT_TRUE(wait_request(3));
+    auto drained = entry->loop->enqueue_control([] { return true; });
+    ASSERT_TRUE(drained.wait_for_completion(5s));
+    EXPECT_EQ(tool_calls.load(), 2);
+    EXPECT_FALSE(entry->loop->is_busy());
+    std::lock_guard<std::mutex> lock(mutex);
+    ASSERT_EQ(bodies.size(), 3u);
+    EXPECT_EQ(bodies[0]["reasoning_effort"], "high");
+    EXPECT_EQ(bodies[1]["reasoning_effort"], "low");
+    EXPECT_EQ(bodies[2]["reasoning_effort"], "high");
 }
 
 TEST(WebServerHttp, WorkspaceHomeDraftPersistsWithoutCreatingASession) {

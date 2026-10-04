@@ -1145,15 +1145,15 @@ function SessionRow({
               onTogglePin?.(s, !pinned);
             }}
             className={clsx(
-              'ace-session-pin-btn ace-sidebar-row-hover-action w-[18px] h-7 rounded items-center justify-center shrink-0 transition',
+              'ace-session-pin-btn ace-sidebar-row-hover-action w-[18px] h-7 rounded items-center justify-center shrink-0 transition text-fg-mute hover:text-fg hover:bg-surface-hi',
               pinned
-                ? 'flex text-accent'
-                : 'hidden group-hover:flex group-focus-within:flex text-fg-mute hover:text-fg hover:bg-surface-hi',
+                ? 'flex'
+                : 'hidden group-hover:flex group-focus-within:flex',
             )}
             title={pinned ? '取消置顶' : '置顶'}
             aria-label={pinned ? '取消置顶' : '置顶'}
           >
-            <VsIcon name="pin" size={18} />
+            <VsIcon name={pinned ? 'pinOff' : 'pin'} size={18} />
           </button>
         )}
         <button

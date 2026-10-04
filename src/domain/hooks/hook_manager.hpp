@@ -54,7 +54,8 @@ public:
 
     std::size_t dispatch(const std::string& event,
                          const nlohmann::json& payload,
-                         const std::string& cwd);
+                         const std::string& cwd,
+                         const std::atomic<bool>* abort_flag = nullptr);
     HookAggregateOutcome dispatch_codex(const HookDispatchRequest& request);
 
     HookRegistrySnapshot registry_snapshot() const;
@@ -84,12 +85,13 @@ private:
 
     void start_worker_locked();
     void enqueue_async(Invocation invocation);
-    void run_invocation(const Invocation& invocation) const;
+    void run_invocation(const Invocation& invocation, const std::atomic<bool>* abort_flag) const;
 
     static void worker_loop(std::shared_ptr<AsyncState> state,
                             HookProcessRunner runner);
     static void run_invocation_with_runner(const Invocation& invocation,
-                                           const HookProcessRunner& runner);
+                                           const HookProcessRunner& runner,
+                                           const std::atomic<bool>* abort_flag = nullptr);
 
     HookConfig config_;
     HookRegistrySnapshot registry_;

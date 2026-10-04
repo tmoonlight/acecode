@@ -66,6 +66,10 @@ export function mergeSubagentTaskList(prevTasks, sessions) {
     if (prev) {
       task.toolCount = prev.toolCount;
       task.lastTool = prev.lastTool;
+      task.abortPending = !!prev.abortPending && task.status === SUBAGENT_TASK_STATUS.RUNNING;
+      if (prev.abortPending && task.status !== SUBAGENT_TASK_STATUS.RUNNING) {
+        task.status = SUBAGENT_TASK_STATUS.ABORTED;
+      }
       if (prev.status === SUBAGENT_TASK_STATUS.ABORTED &&
           task.status !== SUBAGENT_TASK_STATUS.RUNNING) {
         task.status = SUBAGENT_TASK_STATUS.ABORTED;
@@ -120,12 +124,16 @@ export function applySubagentSessionEvent(tasks, msg) {
   const p = msg?.payload || {};
   let patch = null;
 
-  if (type === 'busy_changed' || type === 'session_status') {
+  if (type === 'busy_changed' || type === 'session_status' || type === 'done') {
     const busy = p.busy === true;
     if (busy && task.status !== SUBAGENT_TASK_STATUS.RUNNING) {
       patch = { status: SUBAGENT_TASK_STATUS.RUNNING };
     } else if (!busy && task.status === SUBAGENT_TASK_STATUS.RUNNING) {
-      patch = { status: SUBAGENT_TASK_STATUS.COMPLETED, updatedAtMs: Date.now() };
+      patch = {
+        status: p.outcome === 'aborted' || (task.abortPending && !p.outcome)
+          ? SUBAGENT_TASK_STATUS.ABORTED : SUBAGENT_TASK_STATUS.COMPLETED,
+        abortPending: false, updatedAtMs: Date.now(),
+      };
     }
   } else if (type === 'usage') {
     const total = Number(p.total_tokens ?? p.totalTokens);
@@ -151,14 +159,14 @@ export function applySubagentSessionEvent(tasks, msg) {
   return next;
 }
 
-// 本地中止标记:sendAbort 之后立即把运行中任务显示为「已中止」,不等
-// busy_changed 往返(之后 busy_changed(false) 到达时 status 已非 RUNNING,
-// applySubagentSessionEvent 不会覆盖回 completed)。
+// Keep the subscription and running group until authoritative completion.
+// This legacy export name denotes the user's request, not a completed stop.
 export function markSubagentTaskAborted(tasks, id) {
   const index = (tasks || []).findIndex((t) => t.id === id);
   if (index < 0) return tasks;
   const next = tasks.slice();
-  next[index] = { ...next[index], status: SUBAGENT_TASK_STATUS.ABORTED, updatedAtMs: Date.now() };
+  if (next[index].status !== SUBAGENT_TASK_STATUS.RUNNING) return tasks;
+  next[index] = { ...next[index], abortPending: true };
   return next;
 }
 

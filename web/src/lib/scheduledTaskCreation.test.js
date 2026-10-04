@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { scheduledTaskCreationRef } from './scheduledTaskCreation.js';
+import { homeComposerScopedWorkspace } from './aiThemeCreation.js';
+import { homeComposerDraftText, updateHomeComposerDrafts } from './homeComposerDrafts.js';
+import { composerDocumentFromText, composerTextFromDocument, COMPOSER_COMMAND_TAG } from './richComposerModel.js';
+import { deserializeNavigationHistory, serializeNavigationHistory } from './navigationHistory.js';
+
+const current = { workspaceHash: 'project-a', sessionId: 'existing', loop: true };
+const next = scheduledTaskCreationRef(current, {});
+assert.equal(next.sessionId, undefined);
+assert.equal(next.loop, undefined);
+assert.equal(next.home, true);
+assert.equal(next.initialDraftText, '/scheduled-task 我希望在明天X点提醒我参加会议，重复X天');
+assert.equal(deserializeNavigationHistory(serializeNavigationHistory({ back: [next] })).back[0].composerDraftScope, 'scheduled-task');
+const key = homeComposerScopedWorkspace(next.workspaceHash, next.composerDraftScope);
+assert.notEqual(key, next.workspaceHash);
+let drafts = updateHomeComposerDrafts({}, next.workspaceHash, 'ordinary draft');
+drafts = updateHomeComposerDrafts(drafts, key, next.initialDraftText);
+assert.equal(homeComposerDraftText(drafts, next.workspaceHash), 'ordinary draft');
+assert.equal(homeComposerDraftText(drafts, key), next.initialDraftText);
+const command = { name: 'scheduled-task', type: 'skill', source: 'skill', description: 'Create scheduled tasks' };
+const document = composerDocumentFromText(next.initialDraftText, [command]);
+assert.equal(composerTextFromDocument(document), next.initialDraftText);
+assert.ok(document.some((paragraph) => paragraph.children.some((node) => node.type === COMPOSER_COMMAND_TAG)));
+console.log('scheduledTaskCreation tests passed');

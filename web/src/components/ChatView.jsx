@@ -81,6 +81,8 @@ import { sessionContentLoadingPhase } from '../lib/sessionContentLoading.js';
 import { SidePanel } from './SidePanel.jsx';
 import { SubagentPanel } from './SubagentPanel.jsx';
 import { TranscriptItems } from './TranscriptItems.jsx';
+import { TranscriptHistoryBoundary } from './TranscriptHistoryBoundary.jsx';
+import { useTranscriptHistory } from '../lib/useTranscriptHistory.js';
 import { PreviewDetailsPanel } from './PreviewDetailsPanel.jsx';
 import { Modal } from './Modal.jsx';
 import { CreateProjectModal } from './CreateProjectModal.jsx';
@@ -100,6 +102,7 @@ import { forkRestoredPrompt } from '../lib/sessionFork.js';
 import { stableBySignature } from '../lib/changeReviewStability.js';
 import {
   acceptedQueuedInputEvent,
+  acceptedUserInputEvent,
   beginQueuedGuidance,
   buildQueuedMessageItems,
   cancelQueuedInput,
@@ -138,7 +141,6 @@ import { createSingleWriterStore } from '../lib/singleWriterStore.js';
 import { projectCollapsedTranscriptItems } from '../lib/transcriptProjection.js';
 import {
   reconcileTranscriptWindowAnchorKey,
-  revealEarlierAnchorKey,
   windowTranscriptItems,
 } from '../lib/transcriptWindow.js';
 import { buildComposerHistoryEntries } from '../lib/inputHistoryNavigation.js';
@@ -297,10 +299,10 @@ import { nextAutoPreviewRefresh } from '../lib/previewRefresh.js';
 import {
   CHAT_TAIL_FOLLOW_STATE,
   chatScrollMetrics,
-  isChatNearTail,
   nextChatTailFollowState,
   observeChatTailContent,
   shouldAutoFollowChatTail,
+  shouldShowChatScrollToBottom,
 } from '../lib/chatScrollFollow.js';
 import {
   activityAnchorViewportTop,
@@ -674,6 +676,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     streamingId,
     abortPending,
     lastTurnOutcome,
+    lastTerminalTurnId,
     trajectoryPartial,
     tokenUsage,
     goal,
@@ -1121,51 +1124,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   );
   const windowHiddenCountRef = useRef(0);
   windowHiddenCountRef.current = windowHiddenCount;
-  // 「显示更早」的滚动补偿:向上补条目会把现有内容往下推,浏览器原生
-  // 锚定已被 overflow-anchor:none 关掉,这里手动按 scrollHeight 差值回补。
-  const windowRevealScrollRef = useRef(null);
-  const revealEarlierTranscript = useCallback(async () => {
-    const el = scrollRef.current;
-    if (el) {
-      windowRevealScrollRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
-    }
-    if (windowHiddenCountRef.current === 0) {
-      await loadEarlier();
-      setTranscriptWindow({ sid, anchorKey: null });
-    } else {
-      setTranscriptWindow((prev) => {
-        if (prev.sid !== sid || !prev.anchorKey) return prev;
-        return { sid, anchorKey: revealEarlierAnchorKey(itemsRef.current, prev.anchorKey) };
-      });
-    }
-  }, [sid, loadEarlier]);
-  const expandTranscriptWindow = useCallback(async (options = {}) => {
-    if (options.loadAll) {
-      while (transcript.getState().historyHasMore) {
-        const before = transcript.getState().historyBefore;
-        await loadEarlier();
-        if (before === transcript.getState().historyBefore) break;
-      }
-    }
-    if (!windowHiddenCountRef.current && !options.loadAll) return;
-    if (options.compensateScroll) {
-      const el = scrollRef.current;
-      if (el) {
-        windowRevealScrollRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop };
-      }
-    }
-    setTranscriptWindow((prev) => (
-      prev.sid === sid && prev.anchorKey ? { sid, anchorKey: null } : prev
-    ));
-  }, [sid, loadEarlier, transcript.getState]);
-  useLayoutEffect(() => {
-    const saved = windowRevealScrollRef.current;
-    if (!saved) return;
-    windowRevealScrollRef.current = null;
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = saved.scrollTop + (el.scrollHeight - saved.scrollHeight);
-  }, [transcriptWindow, items]);
+  const historyPaging = useTranscriptHistory({
+    sid, loadEarlier, getState: transcript.getState, scrollRef,
+    hiddenCount: windowHiddenCount, anchorKey: windowAnchorKey,
+    items: renderedItems, setWindow: setTranscriptWindow,
+    onReview: () => {
+      cancelActivityExpansionAnchor();
+      cancelTailFollowScroll();
+      setTailFollowFromAction({ type: 'review_pause' });
+    },
+  });
+  const historyController = historyPaging.controller;
+  const revealEarlierTranscript = historyController.reveal;
+  const expandTranscriptWindow = historyController.expand;
   // 会话内查找(Ctrl+F)在 DOM 文本上搜索,窗口外的行搜不到 —— find 打开
   // 时直接全量展开(GlobalFindOverlay 广播的事件)。
   useEffect(() => {
@@ -2653,7 +2624,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       conversationTurnRafRef.current = 0;
       const el = scrollRef.current;
       const rowMetrics = collectRowMetrics(el);
-      setShowScrollToBottom(!!el && el.clientHeight > 0 && !isChatNearTail(el, 1));
+      setShowScrollToBottom(shouldShowChatScrollToBottom(el));
       measureStickyContext(rowMetrics);
       measureConversationTurn(rowMetrics);
     });
@@ -2731,6 +2702,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [preserveActivityExpansionAnchor]);
 
   const beginActivityExpansionAnchor = useCallback((titleElement) => {
+    historyController.cancelAnchor();
     const container = scrollRef.current;
     cancelActivityExpansionAnchor();
     if (
@@ -2757,15 +2729,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       secondFrame: 0,
     };
     return true;
-  }, [cancelActivityExpansionAnchor, cancelTailFollowScroll, setTailFollowFromAction]);
+  }, [cancelActivityExpansionAnchor, cancelTailFollowScroll, historyController, setTailFollowFromAction]);
 
   const scheduleTailFollowScroll = useCallback(() => {
     const scrollToBottom = () => {
+      if (historyController.hasAnchor()) return false;
       if (activityExpansionAnchorRef.current) return false;
       if (!shouldAutoFollowChatTail(tailFollowStateRef.current)) return false;
       const el = scrollRef.current;
       if (!el) return false;
       el.scrollTop = el.scrollHeight;
+      // At the clamped maximum another scroll event is not guaranteed.
+      setShowScrollToBottom(shouldShowChatScrollToBottom(el));
       return true;
     };
 
@@ -2780,14 +2755,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         scrollToBottom();
       });
     });
-  }, [cancelTailFollowScroll]);
+  }, [cancelTailFollowScroll, historyController]);
 
   const jumpToChatTail = useCallback(() => {
+    historyController.cancelAnchor();
     cancelActivityExpansionAnchor();
     setTailFollowFromAction({ type: 'jump_to_tail' });
     scheduleTailFollowScroll();
     scheduleTranscriptMeasures();
-  }, [cancelActivityExpansionAnchor, scheduleTailFollowScroll, scheduleTranscriptMeasures, setTailFollowFromAction]);
+  }, [cancelActivityExpansionAnchor, historyController, scheduleTailFollowScroll, scheduleTranscriptMeasures, setTailFollowFromAction]);
 
   const pauseTailFollowForReview = useCallback(() => {
     cancelTailFollowScroll();
@@ -2796,6 +2772,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [busy, cancelTailFollowScroll, setTailFollowFromAction, transcriptStatus]);
 
   const handleMessagesScroll = useCallback(() => {
+    historyController.onScroll({ pointerActive: scrollActivityRef.current.pointerActive });
     const el = scrollRef.current;
     if (el) {
       const metrics = chatScrollMetrics(el);
@@ -2827,26 +2804,29 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       scrollActivityRef.current.prev = metrics;
     }
     scheduleTranscriptMeasures();
-  }, [cancelActivityExpansionAnchor, scheduleTranscriptMeasures, setTailFollowFromAction]);
+  }, [cancelActivityExpansionAnchor, historyController, scheduleTranscriptMeasures, setTailFollowFromAction]);
 
   // 滚轮上滚是最明确的"用户想往回看"信号,不等 scroll 事件的启发式判定,
   // 直接暂停跟随(仅回合进行中生效,见 pauseTailFollowForReview 内的门)。
   const handleMessagesWheel = useCallback((event) => {
+    historyController.onWheel(event);
     cancelActivityExpansionAnchor();
     if (event.deltaY < 0) pauseTailFollowForReview();
-  }, [cancelActivityExpansionAnchor, pauseTailFollowForReview]);
+  }, [cancelActivityExpansionAnchor, historyController, pauseTailFollowForReview]);
 
   const handleMessagesPointerDown = useCallback(() => {
+    historyController.onPointerDown();
     cancelActivityExpansionAnchor();
     scrollActivityRef.current.pointerActive = true;
-  }, [cancelActivityExpansionAnchor]);
+  }, [cancelActivityExpansionAnchor, historyController]);
 
   const handleMessagesKeyDownCapture = useCallback((event) => {
+    historyController.onKeyDown(event);
     if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
       return;
     }
     cancelActivityExpansionAnchor();
-  }, [cancelActivityExpansionAnchor]);
+  }, [cancelActivityExpansionAnchor, historyController]);
 
   useEffect(() => {
     const clearPointerActive = () => {
@@ -2871,6 +2851,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
     const containerRect = el.getBoundingClientRect();
     const rowRect = targetRow.getBoundingClientRect();
+    historyController.cancelAnchor();
     el.scrollTo({
       top: scrollTopForStickySourceRow({
         scrollTop: el.scrollTop,
@@ -2881,9 +2862,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
     requestAnimationFrame(scheduleStickyMeasure);
     window.setTimeout(scheduleStickyMeasure, 220);
-  }, [scheduleStickyMeasure]);
+  }, [historyController, scheduleStickyMeasure]);
 
   const jumpToConversationTurn = useCallback((turn, index, retried = false) => {
+    historyController.cancelAnchor();
     const el = scrollRef.current;
     const targetId = String(turn?.itemId || '');
     if (!el || !targetId) return;
@@ -2925,7 +2907,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       scrollTop: el.scrollTop,
     };
     window.requestAnimationFrame(scheduleTranscriptMeasures);
-  }, [expandTranscriptWindow, pauseTailFollowForReview, scheduleTranscriptMeasures, sid]);
+  }, [expandTranscriptWindow, historyController, pauseTailFollowForReview, scheduleTranscriptMeasures, sid]);
 
   const focusChatInput = useCallback((force = false) => {
     if (questionRequest) return;
@@ -2981,11 +2963,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (!sid || !lastUserTurnKey) return;
     const prev = lastUserTurnKeyRef.current;
     if (!prev || prev !== lastUserTurnKey) {
+      historyController.cancelAnchor();
       cancelActivityExpansionAnchor();
       setTailFollowFromAction({ type: 'new_turn' });
     }
     lastUserTurnKeyRef.current = lastUserTurnKey;
-  }, [cancelActivityExpansionAnchor, lastUserTurnKey, setTailFollowFromAction, sid]);
+  }, [cancelActivityExpansionAnchor, historyController, lastUserTurnKey, setTailFollowFromAction, sid]);
 
   // 只在用户仍跟随底部时自动滚到底。审查栏会异步测量高度并给消息区补
   // bottom padding,因此跟随模式下仍需在 padding 生效后补几帧滚动。
@@ -3009,9 +2992,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const handleTranscriptContentResize = useCallback(() => {
     scheduleTranscriptMeasures();
+    if (historyController.preserveAnchor()) return;
     if (preserveActivityExpansionAnchor()) return;
     scheduleTailFollowScroll();
-  }, [preserveActivityExpansionAnchor, scheduleTailFollowScroll, scheduleTranscriptMeasures]);
+  }, [historyController, preserveActivityExpansionAnchor, scheduleTailFollowScroll, scheduleTranscriptMeasures]);
 
   useEffect(() => observeChatTailContent(
     transcriptContentRef.current,
@@ -3025,6 +3009,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     searchJumpRetryRef.current = { frame: 0, timer: 0 };
 
     if (!sid || (searchJumpOrdinal === null && searchJumpPosition === null)) return undefined;
+
+    historyController.cancelAnchor();
 
     let cancelled = false;
     const task = { frame: 0, timer: 0, attempts: 0, settled: 0 };
@@ -3078,6 +3064,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     cancelTailFollowScroll,
     changeDockBottomPadding,
     expandTranscriptWindow,
+    historyController,
     ref,
     renderedItems,
     scheduleStickyMeasure,
@@ -3285,17 +3272,24 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const resumeQueue = useCallback(() => {
     const targetSid = sidRef.current;
     if (!targetSid) return;
-    updateQueueState((prev) => resumeQueuedInput(prev, targetSid));
-  }, [updateQueueState]);
+    const current = transcript.getState();
+    updateQueueState((prev) => resumeQueuedInput(prev, targetSid, {
+      afterAbortTurnId: current.abortPending ? (current.abortTurnId || 'pending-stop') : '',
+    }));
+  }, [updateQueueState, transcript.getState]);
 
   const retryQueued = useCallback((queuedId) => {
     // 点「重试」是用户明确要发这条消息,暂停态一并解除,否则按钮按了没反应。
     updateQueueState((prev) => {
       const next = retryQueuedInput(prev, queuedId);
       const sessionId = next.items.find((item) => item?.queued?.id === queuedId)?.queued?.sessionId;
-      return sessionId ? resumeQueuedInput(next, sessionId) : next;
+      const current = transcript.getState();
+      return sessionId ? resumeQueuedInput(next, sessionId, {
+        afterAbortTurnId: sessionId === sidRef.current && current.abortPending
+          ? (current.abortTurnId || 'pending-stop') : '',
+      }) : next;
     });
-  }, [updateQueueState]);
+  }, [updateQueueState, transcript.getState]);
 
   const saveQueuedEdit = useCallback((queuedId, text, composerContent) => {
     const queuedItem = queueStore.getState().items.find(
@@ -3784,8 +3778,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (composerSubmitting) return;
     // 用户再次主动发送 / 排队 = 解除「中断回合」带来的队列暂停:这条新消息先走,
     // 排队里的旧消息在它之后照常出队(与卡片栈上的「继续」同义)。
-    updateQueueState((prev) => resumeQueuedInput(prev, sid));
-    if (busy && !isBuiltin) {
+    const liveTranscript = transcript.getState();
+    updateQueueState((prev) => resumeQueuedInput(prev, sid, {
+      afterAbortTurnId: liveTranscript.abortPending
+        ? (liveTranscript.abortTurnId || 'pending-stop') : '',
+    }));
+    if ((liveTranscript.busy || liveTranscript.abortPending) && !isBuiltin) {
       enqueueInput(payload);
       clearCurrentSessionDraft();
       clearComposerExtras();
@@ -3807,9 +3805,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       : null;
     const sessionSendPayload = sessionWorktreeIntent
       ? { ...payload, worktree: sessionWorktreeIntent }
-      : payload;
+      : { ...payload };
+    if (!isBuiltin) {
+      sessionSendPayload.client_message_id = `input-${targetSid}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    }
     sendInputOrBuiltin(targetSid, sessionSendPayload)
       .then((queued) => {
+        if (!isBuiltin && sidRef.current === targetSid) {
+          applyEvent(acceptedUserInputEvent(sessionSendPayload), { emitEffects: false });
+        }
         if (sessionWorktreeIntent) {
           setLocalWorktree({
             sid: targetSid,
@@ -3828,11 +3832,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           });
         }
         if (historyText.trim()) recordInputHistory(historyText);
-        if (clearCurrentSessionDraft({ expectedText: submittedComposerText, expectedContent: submittedComposerContent })) clearComposerExtras();
+        if (sidRef.current === targetSid && clearCurrentSessionDraft({ expectedText: submittedComposerText, expectedContent: submittedComposerContent })) clearComposerExtras();
       })
       .catch((e) => {
         toast({ kind: 'err', text: '发送失败:' + (e.message || '') });
-        applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
+        if (sidRef.current === targetSid) {
+          applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
+        }
       })
       .finally(() => setComposerSubmitting(false));
   }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, updateQueueState, applyEvent, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmChoice, transcriptSwarmMode, clearComposerExtras, createHomeComposerSession, persistMediaFilesToSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, homeComposerDrafts, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash, sessionRuntimeUnavailable, retryUserMessageId, transcript.getState, transcriptLoadState, readOnlyExternalSession, commitDeferredPastes, materializeWorkspaceDraftPastes, uploadPasteReservations]);
@@ -3840,6 +3846,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const drainQueuedInput = useCallback(() => {
     const targetSid = sidRef.current;
     if (!targetSid || busy || drainRef.current || sessionRuntimeUnavailable) return;
+    const current = transcript.getState();
+    if (current.busy || current.abortPending || current.loadState !== 'loaded') return;
     // 取出待发送项与标记 sending 在同一次提交内完成,避免这中间的取消/编辑被
     // 一份过期快照覆盖。drainRef 仍在提交之前置位,保持原来的重入保护顺序。
     drainRef.current = true;
@@ -3881,7 +3889,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       .finally(() => {
         drainRef.current = false;
       });
-  }, [applyEvent, busy, queueStore, sendInputOrBuiltin, setTailFollowFromAction, updateQueueState, sessionRuntimeUnavailable]);
+  }, [applyEvent, busy, queueStore, sendInputOrBuiltin, setTailFollowFromAction, updateQueueState, sessionRuntimeUnavailable, transcript.getState]);
 
   const prevBusyRef = useRef(busy);
   useEffect(() => {
@@ -3904,6 +3912,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       state: queueState,
       sessionId: sid,
       lastTurnOutcome,
+      turnId: lastTerminalTurnId,
     })) {
       updateQueueState((prev) => pauseQueuedInput(prev, sid));
       return;
@@ -3911,7 +3920,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (wasBusy || !hasSendingQueuedInput(queueState, sid)) {
       drainQueuedInput();
     }
-  }, [busy, drainQueuedInput, lastTurnOutcome, queueState, sid, transcriptLoadState, updateQueueState]);
+  }, [busy, drainQueuedInput, lastTurnOutcome, lastTerminalTurnId, queueState, sid, transcriptLoadState, updateQueueState]);
 
   useEffect(() => {
     if (!sid || items.length === 0) return;
@@ -3934,22 +3943,35 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const abort = useCallback(() => {
     if (!sid) return;
-    // 用户点了停止:排队消息不能跟着自动出队。先暂停队列,再让 turn_aborted 把
-    // busy 翻成 false —— 顺序反过来 drain effect 会先看到 busy=false 把下一条发出去。
-    // 回归(bug 表现):排了一堆消息后点停止,下一条排队消息立刻上屏。
+    const current = transcript.getState();
+    if (!current.busy || current.abortPending) return;
+    if (!connection.sendAbort(sid)) {
+      toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
+      return;
+    }
+    // 请求成功发出后保持 busy，等待服务端确认，期间新输入仍进入可见队列。
     updateQueueState((prev) => pauseQueuedInput(prev, sid));
     applyEvent({
-      type: 'turn_aborted',
-      payload: { reason: '用户已终止本轮任务' },
+      type: 'turn_abort_requested',
+      payload: { turn_id: current.activeTurnId },
       timestamp_ms: Date.now(),
     }, { emitEffects: false });
-    connection.sendAbort(sid);
-  }, [applyEvent, sid, updateQueueState]);
+  }, [applyEvent, sid, updateQueueState, transcript.getState]);
 
   const stopCurrentWork = useCallback(() => {
     if (!sid || !busy) return;
     abort();
   }, [abort, busy, sid]);
+
+  useEffect(() => {
+    const onDisconnect = () => {
+      if (!transcript.getState().abortPending) return;
+      applyEvent({ type: 'turn_abort_failed' }, { emitEffects: false });
+      toast({ kind: 'err', text: '连接已断开，停止状态尚未确认' });
+    };
+    connection.addEventListener('disconnect', onDisconnect);
+    return () => connection.removeEventListener('disconnect', onDisconnect);
+  }, [applyEvent, transcript.getState]);
 
   const runGoalCommand = useCallback(async (action, objective = '') => {
     if (!sid) throw new Error('当前会话不可用');
@@ -4039,7 +4061,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [homeModelName, modelOptions]);
 
   const changeComposerReasoning = useCallback(async (effort) => {
-    if (busy || homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing) return;
+    if (homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing) return;
     const selected = sid ? modelState : modelOptions.find((option) => option.name === homeModelName);
     const choices = composerReasoningOptions(selected, sid ? undefined : homeReasoningEffort);
     if (!choices || !choices.items.some((item) => item.effort === effort)) return;
@@ -4062,7 +4084,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       if (sidRef.current === targetSid && reasoningRequestRef.current === request) setReasoningSwitching(false);
     }
-  }, [api, busy, composerSubmitting, homeModelName, homeReasoningEffort, homeSubmitting, modelOptions, modelRefreshing, modelState, modelSwitching, reasoningSwitching, sid]);
+  }, [api, composerSubmitting, homeModelName, homeReasoningEffort, homeSubmitting, modelOptions, modelRefreshing, modelState, modelSwitching, reasoningSwitching, sid]);
 
   const switchHomeDefaultPermissionMode = useCallback(async (mode) => {
     const nextMode = normalizePermissionMode(mode);
@@ -5195,6 +5217,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const conversationActivity = useMemo(() => selectConversationActivity({
     foregroundBusy: busy,
+    foregroundStopping: abortPending,
     foregroundActivity: activity,
     permissionRequests,
     questionRequest: questionForView,
@@ -5202,6 +5225,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }), [
     activity,
     busy,
+    abortPending,
     permissionRequests,
     questionForView,
     subagentTasks.tasks,
@@ -5731,7 +5755,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
                     modelSwitching: modelSwitching || reasoningSwitching,
                     modelRefreshing,
                     reasoningOptions: composerReasoningOptions(selectedHomeModel, homeReasoningEffort),
-                    reasoningDisabled: busy || homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing,
+                    reasoningDisabled: homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing,
                     onReasoningChange: changeComposerReasoning,
                     onModelChange: changeComposerModel,
                     onRefreshModels: refreshSessionModels,
@@ -6008,6 +6032,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           onScroll={handleMessagesScroll}
           onWheel={handleMessagesWheel}
           onPointerDown={handleMessagesPointerDown}
+          onTouchStart={historyController.onTouchStart}
+          onTouchMove={historyController.onTouchMove}
+          onTouchEnd={historyController.onTouchEnd}
+          onTouchCancel={historyController.onTouchEnd}
           onKeyDownCapture={handleMessagesKeyDownCapture}
           onClick={handleTranscriptFileLink}
           onKeyDown={handleTranscriptFileLink}
@@ -6015,24 +6043,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           style={changeDockBottomPadding > 0 ? { paddingBottom: changeDockBottomPadding } : undefined}
         >
           <div ref={transcriptContentRef} className="flex flex-col gap-3">
-          {(windowHiddenCount > 0 || transcript.historyHasMore) && (
-            <div className="flex items-center justify-center gap-3 py-1.5 text-[12px] text-fg-mute">
-              <button
-                type="button"
-                onClick={revealEarlierTranscript}
-                className="px-3 py-1 rounded-full border border-border bg-surface hover:bg-surface-hi hover:text-fg transition"
-              >
-                {windowHiddenCount > 0 ? `显示更早的 ${windowHiddenCount} 条消息` : '显示更早的消息'}
-              </button>
-              <button
-                type="button"
-                onClick={() => expandTranscriptWindow({ compensateScroll: true, loadAll: true })}
-                className="hover:text-fg transition underline-offset-2 hover:underline"
-              >
-                显示全部
-              </button>
-            </div>
-          )}
+          <TranscriptHistoryBoundary
+            boundaryRef={historyPaging.boundaryRef}
+            phase={historyPaging.phase}
+            hiddenCount={windowHiddenCount}
+            hasMore={transcript.historyHasMore}
+            onEarlier={revealEarlierTranscript}
+            onAll={() => expandTranscriptWindow({ compensateScroll: true, loadAll: true })}
+          />
           <AttachmentTextLoaderContext.Provider value={api.readAttachmentText}>
           <TranscriptItems
             items={windowedItems}
@@ -6137,10 +6155,16 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onClick={jumpToChatTail}
             className="absolute left-1/2 -translate-x-1/2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg ace-shadow-lg hover:bg-surface-hi focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             style={{ bottom: Math.max(12, changeDockBottomPadding + 12) }}
-            title="滚动到底部"
+            title={status === 'running' ? '运行中' : '滚动到底部'}
             aria-label="滚动到底部"
           >
-            <VsIcon name="ArrowDown" size={18} />
+            {status === 'running' ? (
+              <span className="ace-chat-tail-progress" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+            ) : <VsIcon name="ArrowDown" size={18} />}
           </button>
         )}
         <StickyUserContext context={stickyUserContext} onJumpToSource={jumpToStickyUserSource} />
@@ -6181,7 +6205,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           onClose={() => setSubagentPanelOpen(false)}
           tasks={subagentTasks.tasks}
           workspaceHash={subagentWorkspaceHash}
-          onAbort={(task) => subagentTasks.abortTask(task.id)}
+          onAbort={(task) => {
+            if (subagentTasks.abortTask(task.id) === false) {
+              toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
+            }
+          }}
         />
       </div>
 
@@ -6258,6 +6286,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onRemoveExpert={detachComposerExpert}
             onOpenExpertComponents={() => setExpertPickerOpen(true)}
             busy={busy}
+            stopping={abortPending}
             goal={goal}
             onGoalEdit={editGoal}
             onGoalStatusChange={changeGoalStatus}
@@ -6285,7 +6314,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               modelSwitching: modelSwitching || reasoningSwitching,
               modelRefreshing,
               reasoningOptions: composerReasoningOptions(modelState),
-              reasoningDisabled: busy || homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing,
+              reasoningDisabled: homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing,
               onReasoningChange: changeComposerReasoning,
               onModelChange: changeComposerModel,
               onRefreshModels: refreshSessionModels,
@@ -6347,6 +6376,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             owner={workbenchOwner}
             api={api}
             cwd={sidePanelCwd}
+            workspaceCwd={sessionIsNoWorkspace ? '' : sidePanelCwd}
             tabs={previewTabs}
             activeTab={activePreview}
             changeGroups={changeGroups}

@@ -62,7 +62,7 @@ import {
   composerContentText,
   composerContentClipboardText,
 } from '../lib/composerContent.js';
-import { filesFromTransfer } from '../lib/composerFileTransfer.js';
+import { filesFromTransfer, readComposerClipboardData } from '../lib/composerFileTransfer.js';
 import { isPasteBlockPart, shouldFoldPastedText } from '../lib/pastedText.js';
 import { composerSelectedTag, composerTagSelection } from '../lib/composerSelection.js';
 import { synchronizeComposerLeadingCommand } from '../lib/composerCommandSync.js';
@@ -748,11 +748,17 @@ function RichComposerShell({
     }
   }, [capturePasteSelection, editor, foldLargePaste, publishSelection]);
 
+  const contextClipboardPasteRef = useRef(null);
   const handleContextPasteAction = useCallback((event) => {
     const detail = event?.detail;
     if (detail?.action === RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.CAPTURE_SELECTION) {
       detail.selection = capturePasteSelection();
       detail.handled = true;
+      return;
+    }
+    if (detail?.action === RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.READ_CLIPBOARD) {
+      detail.handled = true;
+      if (!disabled) detail.result = contextClipboardPasteRef.current?.(detail.selection);
       return;
     }
     if (detail?.action !== RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.INSERT_TEXT) return;
@@ -1259,6 +1265,28 @@ function RichComposerShell({
       return;
     }
 
+    if (
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+      && editor.selection && Range.isCollapsed(editor.selection)
+    ) {
+      const paragraph = editor.children[editor.selection.focus.path[0]];
+      const isRTL = ReactEditor.toDOMNode(editor, paragraph).dir === 'rtl';
+      const reverse = (event.key === 'ArrowLeft') !== isRTL;
+      const advance = reverse ? Editor.before : Editor.after;
+      const next = advance(editor, editor.selection.focus, { unit: 'character' });
+      const tag = next && Editor.above(editor, { at: next, match: isComposerInlineTag, voids: true });
+      if (tag) {
+        // Skip the void's internal selection stop, not the text after it.
+        const target = advance(editor, tag[1]);
+        if (target) {
+          event.preventDefault();
+          Transforms.select(editor, target);
+          return;
+        }
+      }
+    }
+
     if (event.key === 'Enter' && submitOnEnter) {
       if (event.ctrlKey && isDesktopShell()) {
         event.preventDefault();
@@ -1334,7 +1362,7 @@ function RichComposerShell({
       .catch(() => {});
   }, [applyPlainTextPaste, disabled]);
 
-  const handleClipboardPaste = useCallback((event, clipboardData) => {
+  const handleClipboardPaste = useCallback((event, clipboardData, context = null) => {
     const consume = () => {
       event.preventDefault?.();
       event.stopPropagation?.();
@@ -1371,30 +1399,32 @@ function RichComposerShell({
     const handlesFilesystemItems = typeof onPasteFilesystemItems === 'function';
     if (files.length === 0 && !text && !hasTextFormat && !handlesFilesystemItems) return false;
 
-    const capturedSelection = capturePasteSelection();
+    const capturedSelection = context?.selection || capturePasteSelection();
     consume();
     if (handlesFilesystemItems) {
       let uriList = '';
       try { uriList = clipboardData?.getData?.('text/uri-list') || ''; } catch { /* ignored */ }
-      const transfer = beginFileTransfer(capturedSelection);
-      Promise.resolve(onPasteFilesystemItems({ files, uriList }, transfer))
+      const transfer = context?.transfer || beginFileTransfer(capturedSelection);
+      return Promise.resolve(onPasteFilesystemItems({ files, uriList }, transfer))
         .then(async (handled) => {
           if (handled || !transfer.isActive()) return;
+          if (context?.readError) throw context.readError;
           if (text) transfer.insertText(text);
           else if (!files.length && hasTextFormat) {
             const fallback = await window.navigator?.clipboard?.readText?.();
             if (fallback) transfer.insertText(fallback);
           }
         })
-        .catch(() => {})
+        .catch(error => { if (context) throw error; })
         .finally(() => transfer.dispose());
-      return true;
     } else if (files.length > 0) {
       onPasteFiles?.(files);
       return true;
     }
+    if (context?.readError) throw context.readError;
     if (text) {
-      applyPlainTextPaste(text, capturedSelection);
+      if (context?.transfer) context.transfer.insertText(text);
+      else applyPlainTextPaste(text, capturedSelection);
     } else if (files.length === 0 && hasTextFormat) {
       requestClipboardTextFallback(capturedSelection);
     }
@@ -1411,6 +1441,23 @@ function RichComposerShell({
     onPasteFilesystemItems,
     requestClipboardTextFallback,
   ]);
+
+  contextClipboardPasteRef.current = async (selection) => {
+    const captured = selection || capturePasteSelection();
+    const transfer = beginFileTransfer(captured);
+    try {
+      // Focus before asynchronous IO, never after the user has moved elsewhere.
+      try { ReactEditor.focus(editor); } catch { /* Slate may still be reconciling. */ }
+      let clipboardData;
+      let readError;
+      try { clipboardData = await readComposerClipboardData(); } catch (error) { readError = error; }
+      if (!transfer.isActive()) return;
+      if (readError && typeof onPasteFilesystemItems !== 'function') throw readError;
+      await handleClipboardPaste({}, clipboardData, { selection: captured, transfer, readError });
+    } finally {
+      transfer.dispose();
+    }
+  };
 
   const markPasteHandled = useCallback(() => {
     const token = pasteBeforeInputGuardRef.current + 1;

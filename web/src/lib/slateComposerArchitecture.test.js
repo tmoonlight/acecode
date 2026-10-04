@@ -44,7 +44,7 @@ run('command, skill, path, session, and attachment tags use Slate inline void el
   assert.match(composer, /types\.includes\('application\/x-slate-fragment'\)/);
 });
 
-run('composer command tag reuses the sent-message badge without a visible slash', () => {
+run('composer command tag reuses the sent-message markup without a visible slash', () => {
   const composer = source('components/RichComposer.jsx');
   const message = source('components/Message.jsx');
   const styles = source('styles/globals.css');
@@ -59,7 +59,21 @@ run('composer command tag reuses the sent-message badge without a visible slash'
   assert.doesNotMatch(styles, /\.ace-rich-command-token\s*\{/);
 });
 
-run('path tags keep canonical text while using the compact badge surface', () => {
+run('composer tags use unboxed accent text and native selection colors', () => {
+  const styles = source('styles/globals.css');
+  assert.match(styles, /--ace-composer-selection-bg:\s*Highlight;/);
+  assert.match(styles, /--ace-composer-selection-fg:\s*HighlightText;/);
+  assert.match(styles, /\.ace-slate-inline-tag \*\s*\{[^}]*transition:\s*none;/);
+  assert.match(styles, /\.ace-slate-inline-tag > \.ace-cmd-token\s*\{[^}]*align-items:\s*baseline;[^}]*margin:\s*0;[^}]*padding:\s*0;[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*font:\s*inherit;[^}]*font-weight:\s*600;/);
+  assert.match(styles, /\.ace-slate-inline-tag \.ace-cmd-token-name\s*\{[^}]*font:\s*inherit;/);
+  assert.match(styles, /\.ace-slate-inline-tag \.ace-cmd-token-glyph\s*\{[^}]*align-self:\s*center;/);
+  assert.match(styles, /\.ace-slate-inline-tag \.ace-cmd-token-name\s*\{[^}]*color:\s*inherit;/);
+  assert.match(styles, /\.ace-slate-inline-tag \.ace-cmd-token-glyph\s*\{[^}]*color:\s*inherit !important;/);
+  assert.match(styles, /\.ace-slate-inline-tag\[data-composer-selected="true"\] > \.ace-cmd-token\s*\{[^}]*color:\s*var\(--ace-composer-selection-fg\);[^}]*opacity:\s*1;/);
+  assert.match(styles, /\.ace-slate-inline-tag\[data-composer-selected="true"\]::before\s*\{[^}]*background:\s*var\(--ace-composer-selection-bg\);/);
+});
+
+run('path tags keep canonical text while using inline tag markup', () => {
   const composer = source('components/RichComposer.jsx');
   assert.match(composer, /data-composer-inline-tag="path"/);
   assert.match(composer, /className="ace-slate-inline-tag ace-slate-path-tag"/);
@@ -67,7 +81,7 @@ run('path tags keep canonical text while using the compact badge surface', () =>
   assert.match(composer, /<FileTypeIcon path=\{path\} size="1em"/);
 });
 
-run('session tags keep stable identity while reusing the compact badge surface', () => {
+run('session tags keep stable identity while reusing inline tag markup', () => {
   const composer = source('components/RichComposer.jsx');
   assert.match(composer, /data-composer-inline-tag="session"/);
   assert.match(composer, /className="ace-slate-inline-tag ace-slate-session-tag"/);
@@ -248,6 +262,7 @@ run('desktop context-menu paste captures Slate selection and bridges before DOM 
   assert.match(menu, /captureRichComposerContextSelection\(editableTarget\)/);
   assert.match(menu, /openWithSwitchGap\(\{[\s\S]*richComposerSelection,[\s\S]*\}\);/);
   assert.match(menu, /pasteIntoTarget\(target, rememberedRichComposerSelection\)/);
+  assert.match(menu, /pasteRichComposerContextClipboard\(editable, richComposerSelection\)/);
   assert.match(menu, /editableTargetFromElement\(target\)/);
   assert.doesNotMatch(menu, /\.isContentEditable/);
   assert.ok(insertBody.indexOf('insertRichComposerContextText') >= 0);
@@ -264,6 +279,8 @@ run('rich context paste mutates Slate state while send gating reads the controll
 
   assert.match(composer, /addEventListener\(RICH_COMPOSER_CONTEXT_PASTE_EVENT, handleContextPasteAction\)/);
   assert.match(composer, /CAPTURE_SELECTION[\s\S]*capturePasteSelection\(\)/);
+  assert.match(composer, /READ_CLIPBOARD[\s\S]*contextClipboardPasteRef\.current\?\.\(detail\.selection\)/);
+  assert.match(composer, /const transfer = beginFileTransfer\(captured\);[\s\S]*await readComposerClipboardData\(\);[\s\S]*if \(!transfer\.isActive\(\)\) return;[\s\S]*await handleClipboardPaste/);
   assert.match(composer, /INSERT_TEXT[\s\S]*applyPlainTextPaste\(detail\.text, detail\.selection\)/);
   assert.match(composer, /const applyPlainTextPaste = useCallback\([\s\S]*ensureLegalEditorDocument\(editor\)[\s\S]*Transforms\.select[\s\S]*insertPlainText\(editor, normalizedText\)/);
   assert.doesNotMatch(composer, /execCommand/);

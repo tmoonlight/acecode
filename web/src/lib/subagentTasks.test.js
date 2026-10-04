@@ -283,4 +283,16 @@ run('taskDisplayTitle 标题 → 摘要 → id 逐级退化', () => {
   assert.equal(taskDisplayTitle({ title: '[Error] Failed to parse response JSON', summary: 'S', id: 'i' }), 'S');
 });
 
+run('停止请求保留运行订阅直到确认，迟到 busy 不会重置请求', () => {
+  let tasks = mergeSubagentTaskList([], [makeSession({ busy: true })]);
+  tasks = markSubagentTaskAborted(tasks, 'child-1');
+  assert.equal(tasks[0].status, SUBAGENT_TASK_STATUS.RUNNING);
+  assert.equal(tasks[0].abortPending, true);
+  tasks = applySubagentSessionEvent(tasks, { type: 'busy_changed', session_id: 'child-1', payload: { busy: true } });
+  assert.equal(tasks[0].abortPending, true);
+  tasks = applySubagentSessionEvent(tasks, { type: 'done', session_id: 'child-1', payload: { outcome: 'aborted' } });
+  assert.equal(tasks[0].status, SUBAGENT_TASK_STATUS.ABORTED);
+  assert.equal(tasks[0].abortPending, false);
+});
+
 console.log('subagentTasks.test.js: all tests passed');

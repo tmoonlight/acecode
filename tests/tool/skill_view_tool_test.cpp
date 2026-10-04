@@ -80,6 +80,7 @@ TEST_F(SkillViewToolTest, SkillBodyKeepsFullOutputButAddsCompactSummary) {
               std::string::npos);
     ASSERT_TRUE(payload.contains("linked_files"));
     EXPECT_EQ(payload["linked_files"].size(), 1u);
+    EXPECT_EQ(result.metadata["loaded_skills"], nlohmann::json::array({"openspec-explore"}));
 }
 
 TEST_F(SkillViewToolTest, SupportingFileKeepsFullOutputButAddsCompactSummary) {
@@ -98,6 +99,15 @@ TEST_F(SkillViewToolTest, SupportingFileKeepsFullOutputButAddsCompactSummary) {
     EXPECT_TRUE(payload.value("success", false));
     EXPECT_EQ(payload.value("file_path", ""), "references/notes.md");
     EXPECT_EQ(payload.value("content", ""), "supporting reference body\n");
+    EXPECT_FALSE(result.metadata.contains("loaded_skills"));
+}
+
+TEST_F(SkillViewToolTest, UnreadableSkillCannotActivateDeferredTools) {
+    std::filesystem::remove(root / "engineering" / "openspec-explore" / "SKILL.md");
+    const auto result = acecode::create_skill_view_tool(registry).execute(
+        R"({"name":"openspec-explore"})", {});
+    EXPECT_FALSE(result.success);
+    EXPECT_FALSE(result.metadata.contains("loaded_skills"));
 }
 
 TEST_F(SkillViewToolTest, ToolContextCwdLoadsWorkspaceLocalSkill) {

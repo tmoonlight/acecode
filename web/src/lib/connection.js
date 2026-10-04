@@ -237,7 +237,7 @@ export class AceConnection extends EventTarget {
   sendUserInput(text, sessionId=this.sessionId) { this._send({ type: 'user_input', payload: { session_id: sessionId, text } }); }
   sendDecision(request_id, choice, sessionId=this.sessionId) { this._send({ type: 'decision', payload: { session_id: sessionId, request_id, choice } }); }
   sendQuestionAnswer(payload)      { this._send({ type: 'question_answer', payload }); }
-  sendAbort(sessionId=this.sessionId) { this._send({ type: 'abort', payload: { session_id: sessionId } }); }
+  sendAbort(sessionId=this.sessionId) { return this._send({ type: 'abort', payload: { session_id: sessionId } }); }
   markSessionRead({ sessionId=this.sessionId, workspaceHash='', cursor=0 } = {}) {
     if (!sessionId) return;
     this._send({
@@ -255,8 +255,13 @@ export class AceConnection extends EventTarget {
   ping()                           { this._send({ type: 'ping' }); }
 
   _send(msg) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(JSON.stringify(msg));
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      this.ws.send(JSON.stringify(msg));
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

@@ -2,6 +2,7 @@
 
 #include "config/config.hpp"
 #include "skills/skill_init.hpp"
+#include "skills/skill_activation.hpp"
 #include "skills/skill_registry.hpp"
 #include "llm/tool_icons.hpp"
 #include "utils/logger.hpp"
@@ -163,6 +164,9 @@ ToolImpl create_skill_view_tool(SkillRegistry& registry,
             oss << ifs.rdbuf();
             body = oss.str();
         }
+        if (body.empty()) {
+            return ToolResult{"[Error] Could not read the skill instructions. Reload the skill catalog and try again.", false};
+        }
         auto supporting = active_registry.list_supporting_files(meta->name);
 
         nlohmann::json out;
@@ -179,6 +183,7 @@ ToolImpl create_skill_view_tool(SkillRegistry& registry,
                   std::to_string(supporting.size()) + " supporting files)");
         ToolResult result{out.dump(), true};
         result.summary = make_loaded_summary(meta->name);
+        result.metadata[kLoadedSkillsMetadata] = nlohmann::json::array({meta->name});
         return result;
     };
 

@@ -45,3 +45,12 @@
 - 配对截图在临时目录 `acecode-file-intake-shots/drop.png`、`paste.png`，逐项样式与结构比较通过。macOS/Linux 尚未实机验证；浏览器中的平台分支使用桥接 fixture。
 - Windows Release 原生支持库与 Desktop 编译、链接通过，使用当前工作树的 Desktop 启动器重新运行；HTTP 返回的开发前端 SHA-256 与 `web/dist/index.html` 一致。相邻 daemon 的 API 无变更，复用现有可运行产物。
 - 功能提交 `9f1a847c`，合入远端 macOS 窗口按钮调整后，以 `b5aee5ba` 推送到 `origin/master`，远端提交哈希回读一致。
+
+## 2026-10-04：普通左右键直接越过 tag
+
+- 同一工作树的变更前定向浏览器检查 8 项失败，命令、技能、路径、会话、附件均会先形成选区；真实 Slate 模型测试同样复现。修改后直接定位相邻 tag 另一侧的可编辑 point，不经过 void 内部选区，不使用附件为零的纯文本长度。
+- Windows Chromium 生产 RichComposer 回归 89/89 通过，包含双向移动后输入、连续无空格 tag、段落首尾、RTL、Shift 原子选中、鼠标拖选、剪贴板、撤销和排版。候选菜单生产 InputBar 回归 16/16 通过。浏览器异常及 console errors 为零。
+- `richComposerKeyboard.test.js`、`composerSelection.test.js`、`composerDropdownKeyboard.test.js`、`slateComposerArchitecture.test.js` 定向通过。IME 的十种组合状态均新增左右键保护检查。
+- `corepack pnpm build` 通过（3132 模块、4500 个正则兼容检查）；OpenSpec 严格校验与本任务差异检查通过。
+- `corepack pnpm test` 已执行，但被当前工作树并行改动中的三个未登记文案阻断：`ChatView.jsx` 的“停止请求发送失败，连接恢复后请重试”、`goalControl.js` 的“正在等待当前任务停止”、`sessionTranscript.js` 的“正在停止本轮任务…”。失败来自 `sourceCatalog.test.js` 的目录覆盖断言，本任务未修改这些文件或绕过检查，不宣称全量通过。
+- 测试原始结果在本会话临时目录的 `composer-arrows-baseline/results.json` 和 `composer-arrows-final/results.json`。未重新构建或安装 Desktop/WebView2，未触碰真实草稿；系统输入法候选窗未人工验证。

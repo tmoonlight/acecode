@@ -4,6 +4,11 @@ import {
   selectConversationActivity,
 } from './conversationActivity.js';
 
+const stopping = selectConversationActivity({ foregroundBusy: true, foregroundStopping: true,
+  foregroundActivity: { phase: 'tool_running', label: 'running a tool' } });
+assert.equal(stopping.phase, 'stopping');
+assert.equal(stopping.label, '正在停止…');
+
 function run(name, fn) {
   try {
     fn();

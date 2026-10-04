@@ -12,22 +12,6 @@
 namespace acecode {
 namespace {
 
-HookProcessResult default_runner(const HookCommandSpec& command,
-                                 const std::string& stdin_text,
-                                 int timeout_ms,
-                                 const std::string& cwd) {
-    return run_hook_process(command, stdin_text, timeout_ms, cwd);
-}
-
-HookProcessResult default_shell_runner(const std::string& command,
-                                       const std::string& stdin_text,
-                                       int timeout_ms,
-                                       const std::string& cwd,
-                                       const HookEnvironment& environment) {
-    return run_hook_shell_command(
-        command, stdin_text, timeout_ms, cwd, environment);
-}
-
 std::string mode_name(HookMode mode) {
     return mode == HookMode::Async ? "async" : "sync";
 }
@@ -76,8 +60,7 @@ HookManager::HookManager()
 
 HookManager::HookManager(HookConfig config, HookProcessRunner runner)
     : config_(std::move(config)),
-      runner_(runner ? std::move(runner) : HookProcessRunner(default_runner)),
-      shell_runner_(HookShellEnvironmentRunner(default_shell_runner)),
+      runner_(std::move(runner)),
       async_state_(std::make_shared<AsyncState>()) {}
 
 HookManager::HookManager(HookRegistrySnapshot registry,
@@ -85,7 +68,7 @@ HookManager::HookManager(HookRegistrySnapshot registry,
                          HookShellRunner shell_runner)
     : config_{},
       registry_(std::move(registry)),
-      runner_(legacy_runner ? std::move(legacy_runner) : HookProcessRunner(default_runner)),
+      runner_(std::move(legacy_runner)),
       shell_runner_(shell_runner
           ? HookShellEnvironmentRunner(
                 [runner = std::move(shell_runner)](
@@ -96,7 +79,7 @@ HookManager::HookManager(HookRegistrySnapshot registry,
                     const HookEnvironment&) {
                     return runner(command, stdin_text, timeout_ms, cwd);
                 })
-          : HookShellEnvironmentRunner(default_shell_runner)),
+          : HookShellEnvironmentRunner{}),
       async_state_(std::make_shared<AsyncState>()) {}
 
 HookManager::HookManager(HookRegistrySnapshot registry,
@@ -104,11 +87,8 @@ HookManager::HookManager(HookRegistrySnapshot registry,
                          HookShellEnvironmentRunner shell_runner)
     : config_{},
       registry_(std::move(registry)),
-      runner_(legacy_runner ? std::move(legacy_runner)
-                            : HookProcessRunner(default_runner)),
-      shell_runner_(shell_runner ? std::move(shell_runner)
-                                 : HookShellEnvironmentRunner(
-                                       default_shell_runner)),
+      runner_(std::move(legacy_runner)),
+      shell_runner_(std::move(shell_runner)),
       async_state_(std::make_shared<AsyncState>()) {}
 
 std::size_t dispatch_startup_before_model_load_hooks(const std::string& cwd,
@@ -125,7 +105,8 @@ HookManager::~HookManager() {
 
 std::size_t HookManager::dispatch(const std::string& event,
                                   const nlohmann::json& payload,
-                                  const std::string& cwd) {
+                                  const std::string& cwd,
+                                  const std::atomic<bool>* abort_flag) {
     if (!config_.enabled) return 0;
     auto it = config_.events.find(event);
     if (it == config_.events.end()) return 0;
@@ -133,6 +114,7 @@ std::size_t HookManager::dispatch(const std::string& event,
     std::size_t count = 0;
     HookPlatform current = current_hook_platform();
     for (const auto& hook : it->second) {
+        if (abort_flag && abort_flag->load()) break;
         if (!hook_platform_matches(hook, current)) {
             LOG_DEBUG("[hooks] skip id=" + hook.id + " event=" + event +
                       " platform=" + hook_platform_name(current));
@@ -155,7 +137,7 @@ std::size_t HookManager::dispatch(const std::string& event,
         if (hook.mode == HookMode::Async) {
             enqueue_async(std::move(invocation));
         } else {
-            run_invocation(invocation);
+            run_invocation(invocation, abort_flag);
         }
     }
     return count;
@@ -174,6 +156,7 @@ HookAggregateOutcome HookManager::dispatch_codex(const HookDispatchRequest& requ
     std::optional<std::string> payload_text;
 
     for (const auto& hook : registry.hooks) {
+        if (request.abort_flag && request.abort_flag->load()) break;
         if (!hook_matcher_matches(hook,
                                   request.event_name,
                                   request.matcher_value,
@@ -219,9 +202,18 @@ HookAggregateOutcome HookManager::dispatch_codex(const HookDispatchRequest& requ
                 environment["ACECODE_HOOK_SESSION_TITLE"] =
                     request.payload.value("title", std::string{});
             }
-            return shell_runner_(command, *payload_text, timeout_ms,
-                                 request.cwd, environment);
+            if (shell_runner_) {
+                return shell_runner_(command, *payload_text, timeout_ms, request.cwd, environment);
+            }
+            HookProcessOptions options;
+            options.timeout_ms = timeout_ms;
+            options.abort_flag = request.abort_flag;
+            options.terminate_process_tree = true;
+            return run_hook_shell_command(command, *payload_text, request.cwd, options, environment);
         });
+
+        // Cancelled hooks cannot rewrite a result or block/continue a turn.
+        if (result.aborted || (request.abort_flag && request.abort_flag->load())) break;
 
         const std::string status = result.timed_out ? "timeout" :
             (result.started && result.exit_code == 0 ? "ok" :
@@ -310,8 +302,8 @@ void HookManager::enqueue_async(Invocation invocation) {
     async_state_->cv.notify_one();
 }
 
-void HookManager::run_invocation(const Invocation& invocation) const {
-    run_invocation_with_runner(invocation, runner_);
+void HookManager::run_invocation(const Invocation& invocation, const std::atomic<bool>* abort_flag) const {
+    run_invocation_with_runner(invocation, runner_, abort_flag);
 }
 
 void HookManager::worker_loop(std::shared_ptr<AsyncState> state,
@@ -351,7 +343,8 @@ void HookManager::worker_loop(std::shared_ptr<AsyncState> state,
 }
 
 void HookManager::run_invocation_with_runner(const Invocation& invocation,
-                                             const HookProcessRunner& runner) {
+                                             const HookProcessRunner& runner,
+                                             const std::atomic<bool>* abort_flag) {
     LOG_INFO("[hooks] start id=" + invocation.hook.id +
              " event=" + invocation.hook.event +
              " mode=" + mode_name(invocation.hook.mode) +
@@ -361,8 +354,13 @@ void HookManager::run_invocation_with_runner(const Invocation& invocation,
     HookProcessResult result = invoke_hook_safely([&] {
         const std::string payload_text = invocation.payload.dump(
             -1, ' ', false, nlohmann::json::error_handler_t::replace);
-        return runner(invocation.command, payload_text,
-                      invocation.hook.timeout_ms, invocation.cwd);
+        if (runner) return runner(invocation.command, payload_text,
+                                  invocation.hook.timeout_ms, invocation.cwd);
+        HookProcessOptions options;
+        options.timeout_ms = invocation.hook.timeout_ms;
+        options.abort_flag = abort_flag;
+        options.terminate_process_tree = abort_flag != nullptr;
+        return run_hook_process(invocation.command, payload_text, invocation.cwd, options);
     });
 
     std::string status = result.timed_out ? "timeout" :

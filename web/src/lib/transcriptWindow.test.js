@@ -245,7 +245,7 @@ run('架构: ChatView 行渲染使用 windowedItems,保留揭示入口与滚动�
   assert.match(chatViewSource, /<TranscriptItems\s+items=\{windowedItems\}/);
   assert.doesNotMatch(chatViewSource, /renderedItems\.map\(\(it\)/);
   assert.match(chatViewSource, /revealEarlierTranscript/);
-  assert.match(chatViewSource, /windowRevealScrollRef/);
+  assert.match(chatViewSource, /useTranscriptHistory/);
   assert.match(chatViewSource, /reconcileTranscriptWindowAnchorKey/);
   assert.ok(
     chatViewSource.indexOf('reconcileTranscriptWindowAnchorKey(')

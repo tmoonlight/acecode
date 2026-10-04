@@ -111,6 +111,7 @@ import { ConfigRecoveryDialog } from './components/ConfigRecoveryDialog.jsx';
 import { UpdateDialog } from './components/UpdateDialog.jsx';
 import InteractiveHomeLogo from './components/InteractiveHomeLogo.jsx';
 import { LoopPage } from './components/LoopPage.jsx';
+import { scheduledTaskCreationRef } from './lib/scheduledTaskCreation.js';
 import { ExpertComponentsPage } from './components/ExpertComponentsPage.jsx';
 import {
   CONSOLE_DOCK_DEFAULT_HEIGHT,
@@ -1656,6 +1657,12 @@ export function App() {
     navigateToRef(next);
   }, [health, navigateToRef]);
 
+  const startScheduledTaskCreation = useCallback(() => {
+    const next = scheduledTaskCreationRef(activeRefRef.current || {}, health);
+    void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
+    navigateToRef(next);
+  }, [health, navigateToRef]);
+
   const dispatchExpertToNewTask = useCallback((expert, prompt = expert?.quick_prompts?.[0] || '') => {
     const expertId = String(expert?.id || '');
     if (!expertId) return false;
@@ -1702,7 +1709,9 @@ export function App() {
   const replaceHomeWorkspace = useCallback((workspace) => {
     replaceActiveRef((current) => {
       const next = homeRefFromWorkspace(workspace, current, health);
-      if (current?.composerDraftScope === 'ai-theme') next.composerDraftScope = 'ai-theme';
+      if (['ai-theme', 'scheduled-task'].includes(current?.composerDraftScope)) {
+        next.composerDraftScope = current.composerDraftScope;
+      }
       void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
       return next;
     });
@@ -2285,7 +2294,7 @@ export function App() {
                 nativeSurfacesVisible={nativeSurfacesVisible}
               >
                 {activeRef?.loop ? (
-                  <LoopPage onOpenSession={openLoopRun} />
+                  <LoopPage onOpenSession={openLoopRun} onSmartAdd={startScheduledTaskCreation} />
                 ) : activeRef?.expertComponents ? (
                   <ExpertComponentsPage
                     workspaceHash={activeRef?.workspaceHash || ''}

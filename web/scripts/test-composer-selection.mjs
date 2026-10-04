@@ -61,10 +61,14 @@ const fixtures = {
  session:[text('ALPHA '+sessionToken+' BRAVO')],
  attachment:[text('ALPHA '),attachment('file-1'),text(' BRAVO')],
  image:[text('ALPHA '),attachment('image-1'),text(' BRAVO')],
- duplicate:[text('ALPHA '),attachment('file-1'),text(' BRAVO '),attachment('file-1'),text(' CHARLIE')],
- command:[text('/init BRAVO')],
- multiline:[text('FIRST ALPHA '),pathTag,text(' BRAVO\\nSECOND CHARLIE '),skillTag,text(' DELTA\\nTHIRD ECHO '),attachment('file-1'),text(' FOXTROT')],
- empty:[],
+  duplicate:[text('ALPHA '),attachment('file-1'),text(' BRAVO '),attachment('file-1'),text(' CHARLIE')],
+  adjacent:[pathTag,attachment('file-1'),skillTag],
+  edgeTags:[pathTag,text('\\n'),skillTag],
+  rtl:[text('\\u05d0\\u05d1 '),pathTag,text(' \\u05d2\\u05d3')],
+  command:[text('/init BRAVO')],
+  multiline:[text('FIRST ALPHA '),pathTag,text(' BRAVO\\nSECOND CHARLIE '),skillTag,text(' DELTA\\nTHIRD ECHO '),attachment('file-1'),text(' FOXTROT')],
+  typography:[text('/init AgTest \\u6d4b\\u8bd5\\n'),pathTag,text(' AgTest \\u6d4b\\u8bd5\\n'),skillTag,text(' AgTest \\u6d4b\\u8bd5\\n'+sessionToken+' AgTest \\u6d4b\\u8bd5\\n'),attachment('file-1'),text(' AgTest \\u6d4b\\u8bd5\\n'),attachment('image-1'),text(' AgTest \\u6d4b\\u8bd5')],
+  empty:[],
 };
 window.previews = [];
 window.__ACECODE_DESKTOP_SHELL__ = true;
@@ -147,14 +151,27 @@ try {
  async function keyboardTag(type){
   await reset(type);
   if(type==='command'){await editor.click();await page.keyboard.press('Control+Home');}
-  else {const point=await pointAtText('ALPHA',5);await page.mouse.click(point.x,point.y);await page.keyboard.press('ArrowRight');}
-  await settle();
-  for(let step=0;step<3;step++){
-   await page.keyboard.press('ArrowRight');const s=await state();if(s.selected.includes(type))return;
+   else {const point=await pointAtText('ALPHA',5);await page.mouse.click(point.x,point.y);await settle();await page.keyboard.press('ArrowRight');}
+   await settle();
+   for(let step=0;step<3;step++){
+    await page.keyboard.press('Shift+ArrowRight');if((await state()).selected.includes(type))return;
+   }
+   assert.fail('Shift+ArrowRight did not select the tag');
   }
-  assert.fail('ArrowRight did not enter tag');
- }
- for(const type of ['command','path','skill','session','attachment']){
+  for(const type of ['command','path','skill','session','attachment']){
+   await run(type+' plain arrows skip the tag without selecting or replacing it',async()=>{
+    for(const backwards of [false,true]){
+     await reset(type);const initial=await state();const before=initial.content;
+     await clickTag(type);await page.keyboard.press(backwards?'ArrowRight':'ArrowLeft');await settle();
+     await page.keyboard.press(backwards?'ArrowLeft':'ArrowRight');
+     const moved=await state();assert.equal(moved.collapsed,true);assert.deepEqual(moved.selected,[]);
+     assert.deepEqual(moved.content,before,'movement cannot mutate the draft');
+     await page.keyboard.type('X');const after=await state();
+     const prefix=type==='command'?'':'ALPHA ';
+     const offset=backwards?prefix.length:initial.value.length-' BRAVO'.length;
+     assert.equal(after.value,initial.value.slice(0,offset)+'X'+initial.value.slice(offset),'typing lands exactly at the far boundary');
+    }
+   });
   await run(type+' single click selects whole tag',async()=>{
    await reset(type);await clickTag(type);const s=await state();assert(s.selected.includes(type),'tag must highlight');assert(s.focused,'editor must retain focus');
    await page.keyboard.press('Backspace');assert.equal(await tag(type).count(),0,'Backspace must remove selected tag');
@@ -185,22 +202,56 @@ try {
    await reset(type);await clickTag(type);await page.keyboard.press('Delete');assert.equal(await tag(type).count(),0);
    assert.equal((await state()).value,type==='command'?' BRAVO':'ALPHA  BRAVO');
   });
-  await run(type+' keyboard void point supports copy, cut and undo',async()=>{
+   await run(type+' Shift-selected tag supports copy, cut and undo',async()=>{
    await keyboardTag(type);const original=(await state()).content;await page.keyboard.press('Control+c');
    const copied=await page.evaluate(()=>navigator.clipboard.readText());const expected={command:'/init',path:'@src/main.cpp',skill:'$review',attachment:'[notes.txt]'}[type];
    assert(expected ? copied===expected : copied.startsWith('@session:'),'copy must serialize keyboard-selected tag');
    await page.keyboard.press('Control+x');assert.equal(await tag(type).count(),0);await page.keyboard.press('Control+z');assert.deepEqual((await state()).content,original);
   });
-  await run(type+' keyboard void point supports replacement typing',async()=>{
+   await run(type+' Shift-selected tag supports replacement typing',async()=>{
    await keyboardTag(type);await page.keyboard.type('X');assert.equal(await tag(type).count(),0);assert.equal((await state()).value,type==='command'?'X BRAVO':'ALPHA X BRAVO');
   });
-  await run(type+' keyboard void point supports paste and line breaks',async()=>{
+   await run(type+' Shift-selected tag supports paste and line breaks',async()=>{
    await reset('empty');await page.getByRole('textbox',{name:'External clipboard target'}).click();await page.keyboard.type('PASTE');await page.keyboard.press('Control+a');await page.keyboard.press('Control+c');
    await keyboardTag(type);await page.keyboard.press('Control+v');assert.equal(await tag(type).count(),0,'paste replaces keyboard-selected tag');assert.equal((await state()).value,type==='command'?'PASTE BRAVO':'ALPHA PASTE BRAVO');
    await keyboardTag(type);await page.keyboard.press('Shift+Enter');assert.equal(await tag(type).count(),0,'line break replaces keyboard-selected tag');assert.equal((await state()).value,type==='command'?'\n BRAVO':'ALPHA \n BRAVO');
   });
- }
- for(const type of ['path','skill','session','attachment']){
+  }
+  await run('plain arrows cross adjacent tags one at a time in either direction',async()=>{
+   for(const backwards of [false,true]){
+    await reset('adjacent');const original=(await state()).content;
+    await editor.click();await page.keyboard.press(backwards?'Control+End':'Control+Home');await settle();
+    for(let step=1;step<=3;step++){
+     await page.keyboard.press(backwards?'ArrowLeft':'ArrowRight');
+     const s=await state();assert.equal(s.collapsed,true);assert.deepEqual(s.selected,[]);
+     await page.keyboard.type('X');
+     const parts=(await state()).content.parts;
+     assert.equal(parts.findIndex(part=>part.type==='text' && part.text==='X'),backwards?3-step:step,JSON.stringify({backwards,step,parts}));
+     assert.deepEqual(parts.filter(part=>part.type!=='text'),original.parts);
+     await page.keyboard.press('Control+z');await settle();
+    }
+   }
+  });
+  await run('plain arrows retain line breaks and start/end tag caret stops',async()=>{
+   await reset('edgeTags');await editor.click();await page.keyboard.press('Control+Home');await settle();
+   for(const key of ['ArrowLeft','ArrowRight','ArrowRight','ArrowRight','ArrowRight']){
+    await page.keyboard.press(key);const s=await state();assert(s.collapsed);assert.deepEqual(s.selected,[]);
+   }
+   await page.keyboard.type('X');assert.equal((await state()).value,'@src/main.cpp\n$reviewX');
+   await page.keyboard.press('Control+z');await settle();
+   for(let i=0;i<4;i++){await page.keyboard.press('ArrowLeft');assert.deepEqual((await state()).selected,[]);}
+   await page.keyboard.type('X');assert.equal((await state()).value,'X@src/main.cpp\n$review');
+  });
+  await run('plain arrows follow RTL paragraph direction across tags',async()=>{
+   for(const backwards of [false,true]){
+    await reset('rtl');await clickTag('path');
+    await page.keyboard.press(backwards?'ArrowLeft':'ArrowRight');await settle();
+    await page.keyboard.press(backwards?'ArrowRight':'ArrowLeft');
+    const s=await state();assert(s.collapsed);assert.deepEqual(s.selected,[]);
+    await page.keyboard.type('X');assert.equal((await state()).value,backwards?'\u05d0\u05d1 X@src/main.cpp \u05d2\u05d3':'\u05d0\u05d1 @src/main.cppX \u05d2\u05d3');
+   }
+  });
+  for(const type of ['path','skill','session','attachment']){
   await run(type+' drag from tag into following text',async()=>{
    await reset(type);const box=await tag(type).boundingBox();await drag({x:box.x+box.width/2,y:box.y+box.height/2},await pointAtText('BRAVO',3));
    const s=await state();assert.equal(s.collapsed,false,'drag must produce range');assert(s.selected.includes(type),'origin tag must join selection');assert(s.selection.includes('BRA'),'trailing text must join selection');
@@ -318,13 +369,44 @@ try {
    await page.keyboard.press('Control+z');assert.deepEqual((await state()).content,original);
   } finally {await page.setViewportSize({width:1200,height:760});}
  });
- await run('selection adds a rectangle without recoloring or moving tags across themes and font sizes',async()=>{
+ await run('tags share the prose font, size, line height and baseline with only a heavier weight',async()=>{
+  for(const sample of [
+   {theme:'light',font:13,line:'20px'},
+   {theme:'dark',font:14,line:'20px'},
+   {theme:'light',font:20,line:'28px'},
+   {theme:'dark',font:16,line:'28px'},
+  ]){
+   await reset('typography&'+new URLSearchParams(sample));
+   const typography=await editor.evaluate(el=>[...el.querySelectorAll('[data-composer-inline-tag]')].map(tag=>{
+    const label=tag.querySelector('.ace-cmd-token-name');
+    const prose=tag.nextElementSibling.querySelector('[data-slate-string]');
+    const labelCss=getComputedStyle(label),proseCss=getComputedStyle(prose);
+    const rect=node=>{const range=document.createRange();range.selectNodeContents(node);return range.getClientRects()[0];};
+    const a=rect(label),b=rect(prose);
+    return {type:tag.dataset.composerInlineTag,
+     label:[labelCss.fontFamily,labelCss.fontSize,labelCss.lineHeight],prose:[proseCss.fontFamily,proseCss.fontSize,proseCss.lineHeight],
+     labelWeight:labelCss.fontWeight,proseWeight:proseCss.fontWeight,top:a.top-b.top,bottom:a.bottom-b.bottom,
+     height:tag.getBoundingClientRect().height};
+   }));
+   assert.equal(typography.length,6);
+   for(const item of typography){
+    const message=JSON.stringify({sample,item});
+    assert.deepEqual(item.label,item.prose,message);
+    assert.equal(item.labelWeight,'600',message);assert.equal(item.proseWeight,'400',message);
+    assert(Math.abs(item.top)<1 && Math.abs(item.bottom)<1,message);
+    assert(Math.abs(item.height-parseFloat(sample.line))<1,message);
+   }
+  }
+ });
+ await run('unboxed accent tags use native selection colors without moving across themes and font sizes',async()=>{
   async function badgeStyles(){return editor.evaluate(el=>[...el.querySelectorAll('.ace-slate-inline-tag > .ace-cmd-token')].map(tag=>{
    const css=getComputedStyle(tag),rect=tag.getBoundingClientRect();
-   return {background:css.backgroundColor,border:css.borderColor,radius:css.borderRadius,opacity:css.opacity,
+   return {background:css.backgroundColor,border:css.borderWidth,radius:css.borderRadius,
     padding:[css.paddingLeft,css.paddingRight],margin:[css.marginLeft,css.marginRight],rect:[rect.x,rect.y,rect.width,rect.height],
+    color:css.color,opacity:css.opacity,
     colors:[...tag.querySelectorAll('.ace-cmd-token-name,.ace-cmd-token-glyph,.ace-file-type-glyph')].map(node=>getComputedStyle(node).color)};
   }));}
+  const geometry=(styles)=>styles.map(({color,colors,opacity,...layout})=>layout);
   try {
    for(const sample of [
     {theme:'light',font:13,line:20,width:1200},
@@ -337,18 +419,31 @@ try {
     await editor.waitFor();await page.evaluate(()=>document.fonts.ready);await settle();
     const point=await pointAtText('ALPHA',2);await page.mouse.click(point.x,point.y);await page.mouse.move(1,1);await settle();
     const before=await badgeStyles();
+    const accent=await editor.evaluate(el=>getComputedStyle(el).getPropertyValue('--ace-accent').trim());
+    const accentColor=await page.evaluate(color=>{
+     const probe=document.createElement('span');probe.style.color=color;document.body.append(probe);
+     const resolved=getComputedStyle(probe).color;probe.remove();return resolved;
+    },accent);
+    for(const style of before){
+     assert.equal(style.background,'rgba(0, 0, 0, 0)');assert.equal(style.border,'0px');assert.equal(style.radius,'0px');
+     assert.deepEqual(style.padding,['0px','0px']);assert.deepEqual(style.margin,['0px','0px']);
+     assert.equal(style.color,accentColor);assert(style.colors.every(color=>color===accentColor),'tag text and icons use the theme accent');
+    }
+    await tag('command').hover();assert.deepEqual(await badgeStyles(),before,'hover must not restore a badge');await page.mouse.move(1,1);
     await page.keyboard.press('Control+a');assert.equal((await state()).selected.length,6);
-    assert.deepEqual(await badgeStyles(),before,'selection must preserve badge surfaces, colors and geometry');
+    assert.deepEqual(geometry(await badgeStyles()),geometry(before),'selection must preserve transparent surfaces and geometry');
     const problems=await editor.evaluate(el=>{
      const failures=[],canvas=document.createElement('canvas').getContext('2d');
      const background=getComputedStyle(el,'::selection').backgroundColor;
+     const foreground=getComputedStyle(el,'::selection').color;
      for(const tag of el.querySelectorAll('[data-composer-selected="true"]')){
       const badge=tag.querySelector('.ace-cmd-token'),css=getComputedStyle(badge),rect=badge.getBoundingClientRect();
       const fill=getComputedStyle(tag,'::before');
       if(fill.backgroundColor!==background || parseFloat(fill.height)<rect.height || fill.borderRadius!=='0px')failures.push('selection rectangle');
+      if(css.color!==foreground || css.opacity!=='1')failures.push('selected tag foreground: '+JSON.stringify({actual:css.color,expected:foreground,opacity:css.opacity}));
       if(css.paddingLeft!==css.paddingRight || css.marginLeft!==css.marginRight)failures.push('asymmetric spacing');
       for(const node of tag.querySelectorAll('.ace-cmd-token-name,.ace-cmd-token-glyph,.ace-file-type-glyph')){
-       if(getComputedStyle(node,'::selection').color!==getComputedStyle(node).color)failures.push('selection recolors '+node.className);
+       if(getComputedStyle(node).color!==foreground || getComputedStyle(node,'::selection').color!==foreground)failures.push('selection foreground '+node.className+': '+JSON.stringify({actual:getComputedStyle(node).color,native:getComputedStyle(node,'::selection').color,expected:foreground}));
       }
       const glyph=tag.querySelector('.ace-cmd-token-glyph'),ink=glyph.querySelector('.ace-file-type-glyph');
       if(ink){
@@ -362,10 +457,13 @@ try {
     });
     assert.deepEqual(problems,[],JSON.stringify(sample));
     await page.keyboard.press('ArrowRight');await settle();assert.deepEqual((await state()).selected,[]);
-    assert.deepEqual(await badgeStyles(),before,'collapsing selection restores only the background');
+    assert.deepEqual(await badgeStyles(),before,'collapsing selection restores accent text and upload opacity');
     assert(await editor.evaluate(el=>[...el.querySelectorAll('[data-composer-inline-tag]')].every(tag=>getComputedStyle(tag,'::before').content==='none')));
+    await clickTag('command');
+    assert.equal(await tag('command').locator('.ace-cmd-token-name').evaluate(el=>getComputedStyle(el).color),await editor.evaluate(el=>getComputedStyle(el,'::selection').color),'single-click selection uses the native foreground');
     await page.keyboard.press('Control+a');assert.equal((await state()).selected.length,6);
     await page.getByRole('textbox',{name:'External clipboard target'}).click();assert.deepEqual((await state()).selected,[],'blur removes the tag selection layer');
+    assert.deepEqual(await badgeStyles(),before,'blur restores unselected tag colors');
    }
   } finally {await page.setViewportSize({width:1200,height:760});}
  });
@@ -390,6 +488,7 @@ try {
     await page.setViewportSize({width:sample.width,height:sample.height});await page.emulateMedia({reducedMotion:sample.reducedMotion});
     await page.goto('http://127.0.0.1:'+port+'/__composer-selection?fixture=all&theme='+sample.theme+'&locale='+sample.locale);
     await editor.waitFor();await page.evaluate(()=>document.fonts.ready);await settle();
+    await page.screenshot({path:path.join(output,sample.name+'-unselected.png')});
     const point=await pointAtText('ALPHA',2);await page.mouse.click(point.x,point.y);await page.keyboard.press('Control+a');await settle();
     assert.equal((await state()).selected.length,6,'screenshot must show six selected tags');assert.equal((await state()).focused,true);
     await page.screenshot({path:path.join(output,sample.name+'.png')});
