@@ -51,6 +51,18 @@ void sanitize(nlohmann::json& value) {
     }
 }
 
+// True when `line` is a whole line of `text`, not part of a longer line.
+bool contains_line(const std::string& text, const std::string& line) {
+    for (auto pos = text.find(line); pos != std::string::npos; pos = text.find(line, pos + 1)) {
+        const auto end = pos + line.size();
+        if ((pos == 0 || text[pos - 1] == '\n') &&
+            (end == text.size() || text[end] == '\n' || text[end] == '\r')) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 std::string redact_upgrade_diagnostic(std::string text) {
@@ -163,7 +175,10 @@ std::string DiagnosticLog::with_location(const std::string& message) const {
         result += "Upgrade log: " + log_path;
     }
     const auto log_error = error();
-    if (!log_error.empty()) result += "\nUpgrade diagnostics unavailable or incomplete: " + log_error;
+    if (!log_error.empty()) {
+        const auto unavailable = "Upgrade diagnostics unavailable or incomplete: " + log_error;
+        if (!contains_line(result, unavailable)) result += "\n" + unavailable;
+    }
     return result;
 }
 

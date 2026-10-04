@@ -65,6 +65,7 @@
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
 #include "session_host/tools/task_suggestion_tools.hpp"
+#include "upgrade/diagnostics.hpp"
 #include "upgrade/manifest.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "utils/base64.hpp"
@@ -9697,6 +9698,79 @@ TEST(WebServerHttp, FailedUpdateJobCanBeRetried) {
     EXPECT_EQ(retried["state"], "succeeded");
     EXPECT_EQ(retried["log_path"], failed["log_path"]);
     EXPECT_NE(read_text(log_path).find(retry_id), std::string::npos);
+}
+
+// 场景:GUI 升级任务失败,且升级诊断日志不可用(logs 目录被同名普通文件占住)。
+// 触发:fixture 建好后把 fx.logs_dir 换成普通文件,/api/update/start 的 DiagnosticLog 建不出目录;
+//      注入的 runner 按 run_upgrade_command 的方式报错 —— 它写进 err 的文本已经过一次
+//      with_location,末行就是 "Upgrade diagnostics unavailable or incomplete: <原因>";
+//      任务线程随后再对这段文本调用一次 with_location,写进 job.error。
+// 期望:job 终态 failed;error 含原始失败原因,说明行恰好出现一次且原因与 log_error 一致;
+//      没有 log_path(日志文件不存在,不能报给用户)。
+// 回归:修复前任务线程无条件再追加一遍,界面显示的错误里这一行重复两次。
+TEST(WebServerHttp, FailedUpdateJobReportsUnavailableDiagnosticsOnce) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    // fixture 构造前还不知道临时目录,runner 经 shared_ptr 拿到被占住的日志目录。
+    auto blocked_logs_dir = std::make_shared<std::filesystem::path>();
+    WebServerFixture fx(
+        true,
+        false,
+        {},
+        true,
+        [blocked_logs_dir](const acecode::AppConfig&,
+                           acecode::upgrade::UpgradeProgressCallback publish,
+                           acecode::upgrade::UpgradeCancelCheck,
+                           std::string* error) {
+            acecode::upgrade::UpgradeProgress progress;
+            progress.phase = acecode::upgrade::UpgradePhase::Downloading;
+            progress.target_version = "9.9.9";
+            publish(progress);
+            // 同一个被占住的目录得到同样的失败原因,与 run_upgrade_command 写进 err 的文本一致。
+            acecode::upgrade::DiagnosticLog runner_log("upgrade", *blocked_logs_dir);
+            if (error) *error = runner_log.with_location("acecode upgrade: download failed");
+            return 1;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    fx.cfg.upgrade.timeout_ms = 3000;
+    std::filesystem::remove_all(fx.logs_dir);
+    write_text(fx.logs_dir, "blocks the upgrade log directory");
+    *blocked_logs_dir = fx.logs_dir;
+
+    auto start = cpr::Post(cpr::Url{fx.url("/api/update/start")});
+    ASSERT_EQ(start.status_code, 202) << start.text;
+    const auto started = json::parse(start.text);
+    EXPECT_FALSE(started.contains("log_path")) << start.text;
+    EXPECT_TRUE(started.contains("log_error")) << start.text;
+    const auto job_id = started["job_id"].get<std::string>();
+
+    json failed;
+    std::string failed_text;
+    for (int i = 0; i < 200; ++i) {
+        auto poll = cpr::Get(cpr::Url{fx.url("/api/update/jobs/" + job_id)});
+        ASSERT_EQ(poll.status_code, 200) << poll.text;
+        failed_text = poll.text;
+        failed = json::parse(poll.text);
+        if (failed["state"] == "failed") break;
+        std::this_thread::sleep_for(10ms);
+    }
+    ASSERT_EQ(failed["state"], "failed") << failed_text;
+    EXPECT_FALSE(failed.contains("log_path")) << failed_text;
+    ASSERT_TRUE(failed.contains("log_error")) << failed_text;
+    const auto message = failed["error"].get<std::string>();
+    const std::string marker = "Upgrade diagnostics unavailable or incomplete: ";
+    EXPECT_NE(message.find("acecode upgrade: download failed"), std::string::npos) << message;
+    EXPECT_NE(message.find(marker + failed["log_error"].get<std::string>()), std::string::npos)
+        << message;
+    size_t occurrences = 0;
+    for (auto pos = message.find(marker); pos != std::string::npos;
+         pos = message.find(marker, pos + marker.size())) {
+        ++occurrences;
+    }
+    EXPECT_EQ(occurrences, 1U) << message;
 }
 
 TEST(WebServerHttp, ComputerUseSettingsPersistAndRevokeToolsLive) {
