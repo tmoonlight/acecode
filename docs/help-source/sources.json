@@ -327,7 +327,7 @@
     ]
   },
   {
-    "article": "定时与循环任务",
+    "article": "定时任务",
     "file": "schedules.html",
     "sources": [
       "web/src/components/LoopPage.jsx",

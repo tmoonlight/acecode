@@ -9,6 +9,7 @@
 #include "session/session_rewind.hpp"
 #include "session/system_notice.hpp"
 #include "utils/logger.hpp"
+#include "utils/abort_signal.hpp"
 
 #include <sstream>
 #include <utility>
@@ -48,7 +49,7 @@ void AgentHookBridge::assistant_completed(HookManager* manager, SessionManager* 
         provider_name,
         model_name,
         assistant_msg);
-    manager->dispatch(kHookEventAssistantMessageCompleted, payload, context_.cwd());
+    manager->dispatch(kHookEventAssistantMessageCompleted, payload, context_.cwd(), &abort_.raw());
 }
 
 void AgentHookBridge::apply(const HookAggregateOutcome& outcome,
@@ -97,6 +98,11 @@ HookAggregateOutcome AgentHookBridge::dispatch(HookManager* manager,
     request.matcher_value = matcher_value;
     request.cwd = context_.cwd();
     request.payload = payload.is_object() ? payload : nlohmann::json::object();
+    // Session lifecycle hooks are outside a foreground turn. All synchronous
+    // turn hooks borrow the same cancellation channel as model/tool execution.
+    if (event_name != kCodexHookEventSessionStart && event_name != kCodexHookEventSessionTitleChanged) {
+        request.abort_flag = &abort_.raw();
+    }
     return manager->dispatch_codex(request);
 }
 

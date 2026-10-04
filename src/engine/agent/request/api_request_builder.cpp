@@ -7,6 +7,7 @@
 #include "prompt/memory_prompt.hpp"
 #include "prompt/mesh_swarm_prompts.hpp"
 #include "skills/skill_registry.hpp"
+#include "skills/skill_activation.hpp"
 #include "skills/skill_usage_store.hpp"
 #include "utils/logger.hpp"
 #include <algorithm>
@@ -159,10 +160,22 @@ RequestBuildInputs ApiRequestBuilder::capture(
     inputs.emergency_profile = emergency_profile;
     inputs.system_prompt = static_system_prompt(options);
     LOG_DEBUG("System prompt length: " + std::to_string(inputs.system_prompt.size()));
+    std::unordered_set<std::string> loaded_skills;
+    for (const auto& message : history) {
+        if ((message.role != "user" && message.role != "tool") ||
+            !message.metadata.is_object()) continue;
+        if (message.role == "tool" &&
+            (!message.metadata.contains("tool_success") || message.metadata["tool_success"] != true)) continue;
+        const auto names = message.metadata.find(kLoadedSkillsMetadata);
+        if (names == message.metadata.end() || !names->is_array()) continue;
+        for (const auto& name : *names) {
+            if (name.is_string()) loaded_skills.insert(name.get<std::string>());
+        }
+    }
     auto builtin_tool_defs = tools_.get_model_tool_definitions_by_source(
-        ToolSource::Builtin, &options.tool_policy);
+        ToolSource::Builtin, &options.tool_policy, loaded_skills);
     auto mcp_tool_defs = tools_.get_model_tool_definitions_by_source(
-        ToolSource::Mcp, &options.tool_policy);
+        ToolSource::Mcp, &options.tool_policy, loaded_skills);
     if (emergency_profile) {
         // 这里拿到的已是模型侧定义,核心工具名必须经映射取,不能写死 read/write:
         // 「工具重写」关闭时它们叫 file_read / file_write,写死会把核心工具整个滤掉。
@@ -195,7 +208,7 @@ RequestBuildInputs ApiRequestBuilder::capture(
         // keeps builtin and MCP tools in registry order, which is also part of
         // prompt-cache stability and expert-switch behavior.
         inputs.tool_defs =
-            tools_.get_model_tool_definitions(&options.tool_policy);
+            tools_.get_model_tool_definitions(&options.tool_policy, loaded_skills);
     }
     // GPT / Codex 系模型只看到 apply_patch,其它模型只看到 file_edit / file_write
     // (openspec add-gpt-apply-patch-adaptation)。三个工具始终注册,这里只裁

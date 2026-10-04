@@ -39,7 +39,7 @@ protected:
     AgentTaskQueue queue{busy};
     ActiveTurnGate gate{busy, abort, interrupt};
     WorkspaceBoundary boundary{".", permissions};
-    AgentHookBridge hooks{boundary, permissions, {}, transcript, history};
+    AgentHookBridge hooks{boundary, permissions, {}, transcript, history, abort};
     GoalRuntime goal{queue, history, transcript, events, callback_slot, permissions, busy, abort};
     ActivityNarrator activity{callback_slot};
     TurnFinalizer finalizer{{history, transcript, outcome, gate, goal, hooks, activity,

@@ -37,6 +37,8 @@ struct HookDispatchRequest {
     std::string matcher_value;
     std::string cwd;
     nlohmann::json payload = nlohmann::json::object();
+    // Nullable borrowed flag, used only during synchronous dispatch.
+    const std::atomic<bool>* abort_flag = nullptr;
 };
 
 struct HookParsedOutput {

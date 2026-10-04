@@ -309,7 +309,7 @@ update their transcript presentation.
 | PUT | `/api/sessions/:id/permissions` | set session permission mode |
 | GET | `/api/sessions/:id/model` | read session model state |
 | POST | `/api/sessions/:id/model` | switch session model |
-| POST | `/api/sessions/:id/reasoning` | set or reset the idle session's reasoning effort |
+| POST | `/api/sessions/:id/reasoning` | set or reset session reasoning effort for the next model request |
 | POST | `/api/sessions/:id/model/reload` | force reload the selected saved-model profile for one active session |
 | POST | `/api/sessions/:id/fork` | fork a transcript prefix |
 | POST | `/api/sessions/:id/file-checkpoints/:message_id/restore` | restore files to checkpoint |
@@ -1494,7 +1494,7 @@ records do not count as transcript messages; assistant (including empty
 messages), tool, system and error messages prevent ordinary retry.
 
 A completed manual stop persists a transcript-only system message with
-`metadata.user_aborted: true` and `metadata.retry_user_message_id`. If that
+`metadata.user_aborted: true`, `metadata.turn_id`, and `metadata.retry_user_message_id`. If that
 marker is the final visible transcript entry, the backend may retry its
 specified last user message even after partial assistant output or tool
 results. A stop request alone, an interjection, or plain interruption text
@@ -1556,7 +1556,7 @@ returns `409` with the reason; so does posting directly to a mesh sub-agent
 emits `session_updated {"swarm_mode"}`. See `docs/subagents.md` §9.
 
 `client_message_id` is an optional non-empty string (maximum 256 bytes) used by
-Desktop queued-input handoff. When accepted, it is preserved as
+Desktop ordinary and queued-input handoff. When accepted, it is preserved as
 `metadata.client_message_id` on the canonical user message so an optimistic
 local item can reconcile with persistence and WebSocket replay. It does not
 deduplicate backend execution; callers that omit it retain the existing behavior.
@@ -3206,8 +3206,13 @@ are unaffected. The override is persisted, restored on resume and inherited
 by a fork. An explicit effort takes precedence over the saved reasoning token
 budget; resetting the override restores that budget as well as the default.
 
-Mutation runs under the worker's idle gate. An active turn or queued input
-returns `409 SESSION_BUSY` without changing the selection. Malformed bodies,
+Active turns and queued input accept changes. Each model request captures its
+own provider snapshot: an in-flight request keeps its existing effort and is
+not interrupted; the next request that captures its provider after the update
+uses the new effort, including subsequent requests within the same turn.
+Multiple successful changes before that boundary use the latest selection.
+Failed persistence restores the prior provider and effort before another
+request can capture them. Malformed bodies,
 non-null selections for unsupported models and undeclared efforts return
 `400 INVALID_REASONING_EFFORT`;
 unknown sessions return `404 SESSION_NOT_FOUND`, unavailable model profiles
@@ -4947,10 +4952,21 @@ All client frames are JSON:
 | `user_input` | `{session_id,text}` | queues plain user input |
 | `decision` | `{session_id,request_id,choice}` | responds to permission request; `choice` is `allow`, `deny`, `allow_session`, `allow_scoped`, or `allow_remember` |
 | `question_answer` | `{session_id,request_id,cancelled,answers}` | responds to AskUserQuestion |
-| `abort` | `{session_id}` | aborts current turn |
+| `abort` | `{session_id}` | requests cancellation of the current turn; completion is confirmed by terminal events |
 | `ping` | `{}` | replies `{"type":"pong"}` |
 
 `decision` uses `choice`, not `decision`, in the payload.
+
+Sending `abort` does not mean the turn has already ended. Clients keep the
+turn busy while showing a stopping state, then settle it on the matching
+`busy_changed(false)` or `done` event. Terminal `turn_id` values must not end
+a different active turn. The persisted `user_aborted` message confirms the
+same termination notice even when tool messages arrive in between; older
+records without `turn_id` are matched only within their user-turn boundary.
+Queued input remains visible during cancellation. Previously queued messages
+pause on a user stop; an explicit send or resume during stopping is honored
+after completion. A client that cannot send the stop request must report the
+failure and allow retry rather than displaying a completed stop.
 
 For `bash`, `permission_request.args` retains the original tool arguments and
 adds a server-generated `permission` object:
@@ -5179,12 +5195,21 @@ Resize uses `POST /api/pty/:id/resize`, not the WebSocket.
 
 ---
 
-## 14. LOOP scheduling
+## 14. Scheduled tasks
 
-LOOP (Chinese UI: “循环”) is a daemon-owned scheduler. It persists to
+Scheduled tasks (Chinese UI: “定时任务”, internal identifier: LOOP) is a daemon-owned scheduler. It persists to
 `<acecode_dir>/scheduled-loops.sqlite3` and continues running without an open
 browser. Clients configure friendly period/interval/once fields; the compiled
 schedule expression is internal and is never returned by the API.
+
+The daemon also registers the deferred built-in `create_scheduled_task` tool.
+Loading the `scheduled-task` skill exposes it only in that conversation's model
+requests. It shares request validation and persistence with the manual form.
+The tool asks for execution permission before saving (YOLO is the recommended
+choice; `default` is also available). Cancelled, unanswered, or automatically
+timed-out choices do not create a task. Success returns `created`, `task`, and
+`schedule_summary`; the task includes `id` and `next_run_at_ms`. The creating
+conversation can finish immediately; execution follows the scheduler's policy.
 
 Routes (all use the normal daemon auth and CORS rules):
 

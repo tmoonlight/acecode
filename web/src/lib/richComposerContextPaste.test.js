@@ -3,6 +3,7 @@ import {
   captureRichComposerContextSelection,
   insertRichComposerContextText,
   normalizeRichComposerContextSelection,
+  pasteRichComposerContextClipboard,
   RICH_COMPOSER_CONTEXT_PASTE_ACTIONS,
   RICH_COMPOSER_CONTEXT_PASTE_EVENT,
   RICH_COMPOSER_ROOT_ATTRIBUTE,
@@ -165,3 +166,22 @@ run('child dispatch bubbles once to the owning composer listener', () => {
   });
   assert.equal(rootDispatchCount, 1);
 });
+
+run('context selection retains exact Slate boundaries for zero-length attachments', () => {
+  const slateRange = { anchor: { path: [0, 0], offset: 0 }, focus: { path: [0, 2], offset: 0 } };
+  const normalized = normalizeRichComposerContextSelection({ start: 0, end: 0, slateRange });
+  assert.deepEqual(normalized.slateRange, slateRange);
+  slateRange.anchor.path[1] = 99;
+  assert.deepEqual(normalized.slateRange.anchor.path, [0, 0]);
+  assert.equal(normalizeRichComposerContextSelection({ start: 0, end: 0, slateRange: {} }).slateRange, undefined);
+});
+
+const clipboardHarness = eventHarness(event => {
+  assert.equal(event.detail.action, RICH_COMPOSER_CONTEXT_PASTE_ACTIONS.READ_CLIPBOARD);
+  event.detail.handled = true;
+  event.detail.result = Promise.resolve('received');
+});
+assert.equal(await pasteRichComposerContextClipboard(clipboardHarness.target, null, clipboardHarness), 'received');
+const unhandledClipboard = eventHarness();
+assert.equal(pasteRichComposerContextClipboard(unhandledClipboard.target, null, unhandledClipboard), null);
+console.log('[pass] context clipboard action carries asynchronous completion without generic fallback');

@@ -106,6 +106,31 @@ acecode::AttachmentRecord save_image(
 
 } // namespace
 
+TEST(VisionSubagentTool, ProviderFailureIsNotReportedAsSuccessfulObservation) {
+    class ErrorProvider : public CapturingProvider {
+        acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
+                                  const std::vector<acecode::ToolDef>&) override {
+            acecode::ChatResponse response;
+            response.finish_reason = "error";
+            response.provider_error.kind = acecode::ProviderErrorKind::Http;
+            response.provider_error.display_message = "upstream rejected image";
+            return response;
+        }
+    };
+    acecode::AppConfig config;
+    config.saved_models.push_back(model_profile("vision", {"vision"}));
+    acecode::VisionSubagentToolOptions options;
+    options.provider_factory = [](const acecode::ModelProfile&) { return std::make_shared<ErrorProvider>(); };
+    auto tool = acecode::create_vision_analyze_tool(config, options);
+    acecode::ToolContext context;
+    context.active_model_can_read_images = false;
+    auto result = tool.execute(R"({"prompt":"inspect","attachment":{"id":"a","session_id":"s","name":"x.png","kind":"image","mime_type":"image/png","path":"x.png","blob_url":"/b","size_bytes":1}})", context);
+    EXPECT_FALSE(result.success);
+    const auto output = nlohmann::json::parse(result.output);
+    EXPECT_EQ(output["error"], "PROVIDER_ERROR");
+    EXPECT_EQ(output["message"], "upstream rejected image");
+}
+
 TEST(VisionSubagentTool, MissingVisionModelFailsClearly) {
     acecode::AppConfig cfg;
     cfg.saved_models.push_back(model_profile("text-only", {"tool_use"}));

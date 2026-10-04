@@ -30,6 +30,7 @@
 #include "tool/goal_tool.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/cwd_hash.hpp"
+#include "utils/scope_exit.hpp"
 #include "platform/power_inhibitor.hpp"
 
 #include <atomic>
@@ -3234,7 +3235,7 @@ TEST_F(SessionReasoningTest, ResumeAndForkRetainOverrideAndInvalidResumeFallsBac
     EXPECT_FALSE(meta(id).reasoning_effort);
 }
 
-TEST_F(SessionReasoningTest, BusyTurnAndQueuedChatBeforeBusyRejectChanges) {
+TEST_F(SessionReasoningTest, BusyTurnAndQueuedChatBeforeBusyAcceptChanges) {
     const auto id = create("high");
     auto entry = registry->acquire(id);
     auto blocker = std::make_shared<BlockingProvider>();
@@ -3242,8 +3243,15 @@ TEST_F(SessionReasoningTest, BusyTurnAndQueuedChatBeforeBusyRejectChanges) {
     entry->loop->submit("hold active request");
     EXPECT_TRUE(blocker->wait_for_started(2s));
     EXPECT_EQ(registry->set_reasoning_effort(id, "low").status,
-              acecode::SessionReasoningStatus::Busy);
-    EXPECT_EQ(entry->model_binding->provider_snapshot(), blocker);
+              acecode::SessionReasoningStatus::Updated);
+    EXPECT_EQ(entry->model_binding->state_snapshot().reasoning_effort, "low");
+    EXPECT_NE(entry->model_binding->provider_snapshot(), blocker);
+    EXPECT_EQ(meta(id).reasoning_effort, "low");
+    EXPECT_TRUE(entry->loop->is_busy());
+    EXPECT_EQ(registry->set_reasoning_effort(id, "max").status,
+              acecode::SessionReasoningStatus::InvalidEffort);
+    EXPECT_EQ(meta(id).reasoning_effort, "low");
+    entry->loop->abort();
     blocker->release();
     auto drained = entry->loop->enqueue_control([] { return true; });
     ASSERT_TRUE(drained.wait_for_completion(2s));
@@ -3265,9 +3273,12 @@ TEST_F(SessionReasoningTest, BusyTurnAndQueuedChatBeforeBusyRejectChanges) {
     }
     entry->loop->submit("queued request");
     EXPECT_FALSE(entry->loop->is_busy());
-    EXPECT_EQ(registry->set_reasoning_effort(id, "low").status,
-              acecode::SessionReasoningStatus::Busy);
+    EXPECT_EQ(registry->set_reasoning_effort(id, "high").status,
+              acecode::SessionReasoningStatus::Updated);
     EXPECT_EQ(entry->model_binding->state_snapshot().reasoning_effort, "high");
+    EXPECT_EQ(meta(id).reasoning_effort, "high");
+    // Keep the queue test offline; real request parameters are covered by HTTP.
+    install_test_provider(*entry, std::make_shared<InitStubProvider>());
     {
         std::lock_guard<std::mutex> lock(gate_mu);
         release = true;
@@ -3297,6 +3308,39 @@ TEST_F(SessionReasoningTest, PersistenceFailureRestoresProviderAndEffort) {
     acecode::ChatMessage message;
     message.role = "user";
     message.content = "preserve original choice";
+    entry->sm->on_message(message);
+    EXPECT_EQ(meta(id).reasoning_effort, "high");
+}
+
+TEST_F(SessionReasoningTest, BusyPersistenceFailurePreservesActiveProviderAndChoice) {
+    const auto id = create("high");
+    auto entry = registry->acquire(id);
+    auto blocker = std::make_shared<BlockingProvider>();
+    install_test_provider(*entry, blocker);
+    acecode::ScopeExit unblock([&] {
+        entry->loop->abort();
+        blocker->release();
+    });
+    entry->loop->submit("hold while persistence fails");
+    ASSERT_TRUE(blocker->wait_for_started(2s));
+    const auto meta_path = SessionStorage::meta_path(
+        SessionStorage::get_project_dir(cwd.string()), id);
+    ASSERT_TRUE(std::filesystem::remove(meta_path));
+    ASSERT_TRUE(std::filesystem::create_directory(meta_path));
+    const auto changed = registry->set_reasoning_effort(id, "low");
+    EXPECT_EQ(changed.status, acecode::SessionReasoningStatus::Failed);
+    EXPECT_EQ(changed.state.reasoning_effort, "high");
+    EXPECT_EQ(entry->model_binding->provider_snapshot(), blocker);
+    EXPECT_EQ(entry->sm->current_reasoning_effort(), "high");
+    EXPECT_TRUE(entry->loop->is_busy());
+    std::filesystem::remove(meta_path);
+    entry->loop->abort();
+    blocker->release();
+    auto drained = entry->loop->enqueue_control([] { return true; });
+    ASSERT_TRUE(drained.wait_for_completion(2s));
+    acecode::ChatMessage message;
+    message.role = "user";
+    message.content = "persist the original effort after failure";
     entry->sm->on_message(message);
     EXPECT_EQ(meta(id).reasoning_effort, "high");
 }

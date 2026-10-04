@@ -81,4 +81,10 @@ HookProcessResult run_hook_shell_command(const std::string& command,
                                          const std::string& cwd,
                                          const HookEnvironment& environment = {});
 
+HookProcessResult run_hook_shell_command(const std::string& command,
+                                         const std::string& stdin_text,
+                                         const std::string& cwd,
+                                         const HookProcessOptions& options,
+                                         const HookEnvironment& environment = {});
+
 } // namespace acecode

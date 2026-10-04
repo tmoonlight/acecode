@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-09-28.1",
+  "bundle_version": "2026-10-04.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -46,9 +46,9 @@
     },
     {
       "name": "acecode-desktop-usage",
-      "source_id": "acecode:acecode-desktop-usage@2026-09-09",
+      "source_id": "acecode:acecode-desktop-usage@2026-10-04",
       "relative_path": "acecode/acecode-desktop-usage",
-      "skill_md_sha256": "5ace6b52f76f9fa95ccc2ec3c72231f9a4b159a5380d10aa2f638bca5a2b4d59"
+      "skill_md_sha256": "e67f13bd466c274840be46ab48bcffb8b4c06e61012010ab6cb2ae5670a64485"
     },
     {
       "name": "vision-image-reader",
@@ -61,6 +61,12 @@
       "source_id": "acecode:ai-theme@2026-09-15.3",
       "relative_path": "acecode/ai-theme",
       "skill_md_sha256": "db18caf8b4d9586139cc6eb9e8907cd5a263406acab5cd890a762992762d9014"
+    },
+    {
+      "name": "scheduled-task",
+      "source_id": "acecode:scheduled-task@2026-10-04",
+      "relative_path": "acecode/scheduled-task",
+      "skill_md_sha256": "89354de4dc007479bf5a39aba0179928f6f53b39ead451fddcdbb5c9a65b691e"
     }
   ],
   "experts": [

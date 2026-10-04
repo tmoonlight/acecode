@@ -221,6 +221,9 @@ struct ToolImpl {
     // Observation tools can be read-only for permissions yet depend on the
     // order of a stateful desktop session. Keep scheduling separate from it.
     bool requires_serial_execution = false;
+    // Model schemas are deferred until this skill has actually loaded in the
+    // requesting session. Registration and execution permissions stay separate.
+    std::string activation_skill;
 };
 
 struct RegisteredToolInfo {
@@ -258,11 +261,13 @@ public:
     // Get tool definitions translated to the public names exposed to models.
     // Internal callers should continue using the native definition methods.
     std::vector<ToolDef> get_model_tool_definitions(
-        const ToolCapabilityPolicy* policy = nullptr) const;
+        const ToolCapabilityPolicy* policy = nullptr,
+        const std::unordered_set<std::string>& loaded_skills = {}) const;
 
     std::vector<ToolDef> get_model_tool_definitions_by_source(
         ToolSource source,
-        const ToolCapabilityPolicy* policy = nullptr) const;
+        const ToolCapabilityPolicy* policy = nullptr,
+        const std::unordered_set<std::string>& loaded_skills = {}) const;
 
     // Accept an exact registered native name first, then resolve a compatible
     // public alias only when its native handler is registered. 两步都没命中时
@@ -324,6 +329,8 @@ public:
                                                const std::string& arguments_json);
 
 private:
+    void filter_deferred_tools(std::vector<ToolDef>& definitions,
+                               const std::unordered_set<std::string>& loaded_skills) const;
     std::map<std::string, ToolImpl> tools_;
     mutable std::mutex tools_mu_;
     LifetimeToken lifetime_;

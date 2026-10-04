@@ -152,8 +152,8 @@ export function getGoalStopControlState({ busy = false, stopping = false } = {})
     visible: isBusy,
     action: isBusy ? 'abort' : 'none',
     disabled: !!stopping,
-    label: isBusy ? '中断' : '',
-    title: isBusy ? '中断当前任务' : '',
+    label: isBusy ? (stopping ? '正在停止…' : '中断') : '',
+    title: isBusy ? (stopping ? '正在等待当前任务停止' : '中断当前任务') : '',
   };
 }
 

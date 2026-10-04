@@ -86,3 +86,25 @@ run('activity expansion starts review anchoring and manual scroll gestures cance
   assert.match(chatView, /const handleMessagesPointerDown[\s\S]*?cancelActivityExpansionAnchor\(\);/);
   assert.match(chatView, /onKeyDownCapture=\{handleMessagesKeyDownCapture\}/);
 });
+
+run('tail button reuses session status without changing visibility or navigation', () => {
+  const chatView = source('components/ChatView.jsx');
+  const start = chatView.indexOf('{sid && showScrollToBottom && (');
+  const end = chatView.indexOf('<StickyUserContext', start);
+  const button = chatView.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(button, /onClick=\{jumpToChatTail\}/);
+  assert.match(button, /aria-label="滚动到底部"/);
+  assert.match(button, /status === 'running' \? \(/);
+  assert.match(button, /className="ace-chat-tail-progress" aria-hidden="true"/);
+  assert.equal((button.match(/<span \/>/g) || []).length, 3);
+  assert.match(button, /: <VsIcon name="ArrowDown" size=\{18\} \/>/);
+});
+
+run('tail progress dots animate left to right and respect reduced motion', () => {
+  const styles = source('styles/globals.css');
+  assert.match(styles, /\.ace-chat-tail-progress > span\s*\{[^}]*background: currentColor;[^}]*animation: ace-chat-tail-dot-hop 1\.2s ease-in-out infinite;/);
+  assert.match(styles, /\.ace-chat-tail-progress > span:nth-child\(2\)\s*\{ animation-delay: \.2s;/);
+  assert.match(styles, /\.ace-chat-tail-progress > span:nth-child\(3\)\s*\{ animation-delay: \.4s;/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ace-chat-tail-progress > span\s*\{ animation: none;/);
+});

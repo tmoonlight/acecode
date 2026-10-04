@@ -72,9 +72,9 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
       onSaved(saved);
     } catch (e) {
       if (e?.status === 409 && e?.body?.conflict) {
-        setError(`该工作空间的执行时间与“${e.body.conflict.loop_name || '已有循环'}”冲突（首次：${formatDate(e.body.conflict.first_conflict_at_ms)}），请调整时间`);
+        setError(`该工作空间的执行时间与“${e.body.conflict.loop_name || '已有定时任务'}”冲突（首次：${formatDate(e.body.conflict.first_conflict_at_ms)}），请调整时间`);
       } else {
-        setError(e?.message || '保存循环失败');
+        setError(e?.message || '保存定时任务失败');
       }
     } finally {
       setSaving(false);
@@ -87,7 +87,7 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
     <Modal onClose={onClose} width={620} dismissOnBackdrop={false} labelledBy="loop-dialog-title">
       <>
         <div className="sticky top-0 z-10 h-12 px-5 flex items-center justify-between border-b border-border bg-surface">
-          <h2 id="loop-dialog-title" className="text-[16px] font-semibold">{loop ? '编辑循环' : '添加循环'}</h2>
+          <h2 id="loop-dialog-title" className="text-[16px] font-semibold">{loop ? '编辑定时任务' : '添加定时任务'}</h2>
           <button type="button" onClick={onClose} className="w-7 h-7 rounded-md hover:bg-surface-hi flex items-center justify-center" aria-label="关闭">
             <VsIcon name="close" size={14} />
           </button>
@@ -121,7 +121,7 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
                 className={`h-8 px-2.5 rounded-md border border-border bg-bg flex items-center gap-1.5 text-[11px] ${
                   form.workspaceHash ? 'text-fg cursor-pointer' : 'text-fg-mute cursor-not-allowed'
                 }`}
-                title={form.workspaceHash ? '在独立的 Git worktree 中运行此循环' : '请先选择工作空间'}
+                title={form.workspaceHash ? '在独立的 Git worktree 中运行此定时任务' : '请先选择工作空间'}
               >
                 <input
                   type="checkbox"
@@ -230,7 +230,7 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button type="button" onClick={onClose} className="h-8 px-4 rounded-md border border-border text-[12px] hover:bg-surface-hi">取消</button>
-            <button type="button" data-ace-dialog-primary="true" onClick={submit} disabled={saving} className="h-8 px-5 rounded-md bg-fg text-bg text-[12px] font-medium disabled:opacity-50">{saving ? '保存中…' : loop ? '保存' : '添加循环'}</button>
+            <button type="button" data-ace-dialog-primary="true" onClick={submit} disabled={saving} className="h-8 px-5 rounded-md bg-fg text-bg text-[12px] font-medium disabled:opacity-50">{saving ? '保存中…' : loop ? '保存' : '添加定时任务'}</button>
           </div>
         </div>
       </>
@@ -265,7 +265,7 @@ function RunList({ runs, onOpenSession }) {
   );
 }
 
-export function LoopPage({ onOpenSession }) {
+export function LoopPage({ onOpenSession, onSmartAdd }) {
   const [loops, setLoops] = useState([]);
   const [models, setModels] = useState([]);
   const [defaultModelName, setDefaultModelName] = useState('');
@@ -295,7 +295,7 @@ export function LoopPage({ onOpenSession }) {
       setUnsupported(false);
     } catch (e) {
       if (e?.status === 404 || e?.status === 501 || e?.code === 'LOOP_UNAVAILABLE') setUnsupported(true);
-      else toast({ kind: 'err', text: '读取循环失败：' + (e?.message || '') });
+      else toast({ kind: 'err', text: '读取定时任务失败：' + (e?.message || '') });
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -353,7 +353,7 @@ export function LoopPage({ onOpenSession }) {
         ? { ...updated, latest_run: item.latest_run || null }
         : item));
     } catch (e) {
-      const conflict = e?.status === 409 ? '启用失败：该工作空间的执行时间与已有循环冲突' : `操作失败：${e?.message || ''}`;
+      const conflict = e?.status === 409 ? '启用失败：该工作空间的执行时间与已有定时任务冲突' : `操作失败：${e?.message || ''}`;
       toast({ kind: 'err', text: conflict });
     }
   };
@@ -371,15 +371,18 @@ export function LoopPage({ onOpenSession }) {
   };
 
   if (unsupported) {
-    return <div className="flex-1 flex items-center justify-center text-center p-8"><div><VsIcon name="alarm" size={36} className="mx-auto mb-3 text-fg-mute" /><h1 className="text-lg font-semibold">当前 daemon 不支持 LOOP</h1><p className="mt-2 text-[13px] text-fg-mute">请升级并重启 ACECode daemon 后再试。</p></div></div>;
+    return <div className="flex-1 flex items-center justify-center text-center p-8"><div><VsIcon name="alarm" size={36} className="mx-auto mb-3 text-fg-mute" /><h1 className="text-lg font-semibold">当前后台不支持定时任务</h1><p className="mt-2 text-[13px] text-fg-mute">请升级并重启 ACECode daemon 后再试。</p></div></div>;
   }
 
   return (
     <div className="flex-1 overflow-y-auto bg-bg">
       <div className="max-w-[1040px] mx-auto px-6 py-6">
-        <div className="flex items-start justify-between gap-4">
-          <div><h1 className="text-[20px] font-semibold tracking-tight">循环</h1><p className="mt-0.5 text-[12px] text-fg-mute">管理计划执行的代码任务并查看最近运行记录。</p></div>
-          <button type="button" onClick={() => setDialog({})} className="h-8 px-3 rounded-md border border-border bg-surface hover:bg-surface-hi text-[12px] flex items-center gap-1.5"><VsIcon name="add" size={13} />添加</button>
+        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+          <div><h1 className="text-[20px] font-semibold tracking-tight">定时任务</h1><p className="mt-0.5 text-[12px] text-fg-mute">管理定时提醒和计划执行的任务，查看最近运行记录。</p></div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button type="button" onClick={onSmartAdd} className="h-8 px-3 rounded-md border border-border bg-surface hover:bg-surface-hi text-[12px] flex items-center gap-1.5"><VsIcon name="sparkle" size={15} />智能添加定时任务</button>
+            <button type="button" onClick={() => setDialog({})} className="h-8 px-3 rounded-md border border-border bg-surface hover:bg-surface-hi text-[12px] flex items-center gap-1.5"><VsIcon name="add" size={13} />手动添加</button>
+          </div>
         </div>
 
         <section className="mt-6">
@@ -396,10 +399,10 @@ export function LoopPage({ onOpenSession }) {
 
         <section className="mt-7">
           <div className="mb-2.5 flex items-center justify-between gap-3">
-            <h2 className="text-[13px] font-medium text-fg-2">我的循环</h2>
+            <h2 className="text-[13px] font-medium text-fg-2">我的定时任务</h2>
             <span className="text-[10px] text-fg-mute">自动刷新运行状态</span>
           </div>
-          {loading ? <div className="py-6 text-[12px] text-fg-mute">加载中…</div> : !loops.length ? <div className="py-6 rounded-lg border border-dashed border-border text-center text-[12px] text-fg-mute">还没有循环，选择模板或点击“添加”开始。</div> : (
+          {loading ? <div className="py-6 text-[12px] text-fg-mute">加载中…</div> : !loops.length ? <div className="py-6 rounded-lg border border-dashed border-border text-center text-[12px] text-fg-mute">还没有定时任务，点击“智能添加定时任务”或“手动添加”开始。</div> : (
             <div className="space-y-2">
               {loops.map((loop) => {
                 const workspace = workspaceByHash.get(loop.workspace_hash);
@@ -455,9 +458,9 @@ export function LoopPage({ onOpenSession }) {
         <Modal onClose={() => setDeleteConfirm(null)} width={440}>
           {({ close }) => (
             <div className="p-4">
-              <div className="text-[14px] font-semibold mb-2">删除循环</div>
+              <div className="text-[14px] font-semibold mb-2">删除定时任务</div>
               <div className="text-[12.5px] text-fg-mute leading-relaxed mb-4">
-                {`删除循环“${deleteConfirm.name}”？运行记录也会一并删除。`}
+                {`删除定时任务“${deleteConfirm.name}”？运行记录也会一并删除。`}
               </div>
               <div className="flex justify-end gap-2">
                 <button

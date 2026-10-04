@@ -92,7 +92,8 @@ struct SessionEntry {
     // 只在父会话的工具线程上读写。
     std::string workspace_watch_cwd;
     std::vector<std::string> workspace_watch_baseline;
-    // Serializes profile selection, reload and session reasoning overrides.
+    // Serializes profile selection, reload, reasoning overrides and request
+    // snapshot acquisition, including persistence failure rollback.
     // Never acquire the AgentLoop queue gate while holding this mutex.
     std::mutex model_control_mu;
     std::shared_ptr<SessionModelBinding> model_binding;
@@ -193,7 +194,7 @@ public:
         : std::invalid_argument("reasoning effort is not supported by the enabled model") {}
 };
 
-enum class SessionReasoningStatus { Updated, UnknownSession, Busy, InvalidEffort, Unavailable, Failed };
+enum class SessionReasoningStatus { Updated, UnknownSession, InvalidEffort, Unavailable, Failed };
 
 struct SessionReasoningResult {
     SessionReasoningStatus status = SessionReasoningStatus::Failed;

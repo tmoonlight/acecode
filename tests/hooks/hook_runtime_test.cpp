@@ -3,6 +3,12 @@
 
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
+#include "utils/joining_thread.hpp"
+#include "utils/uuid.hpp"
+
+#include <atomic>
+#include <filesystem>
+#include <thread>
 
 #include <string>
 #include <vector>
@@ -36,6 +42,69 @@ acecode::HookProcessResult ok_json_result(const std::string& stdout_text) {
 }
 
 } // namespace
+
+TEST(HookRuntime, CancelledDispatchSkipsAllSynchronousHooks) {
+    acecode::HookRegistrySnapshot registry;
+    registry.feature_enabled = true;
+    registry.hooks = {make_hook("first", acecode::kCodexHookEventPreToolUse, "*")};
+    int calls = 0;
+    acecode::HookManager manager(registry, {}, acecode::HookShellRunner{
+        [&calls](const auto&, const auto&, int, const auto&) {
+            ++calls;
+            return ok_json_result("{}");
+        }});
+    std::atomic<bool> abort{true};
+    acecode::HookDispatchRequest request;
+    request.event_name = acecode::kCodexHookEventPreToolUse;
+    request.matcher_value = "bash";
+    request.abort_flag = &abort;
+    const auto outcome = manager.dispatch_codex(request);
+    EXPECT_EQ(calls, 0);
+    EXPECT_EQ(outcome.invoked_count, 0);
+}
+
+TEST(HookRuntime, NativeSynchronousHookCancelsProcessTreeAndSkipsNextHook) {
+    using namespace std::chrono_literals;
+    namespace fs = std::filesystem;
+    const auto marker = fs::temp_directory_path() / ("hook-cancel-" + acecode::generate_uuid());
+    acecode::HookRegistrySnapshot registry;
+    registry.feature_enabled = true;
+    auto hook = make_hook("blocking", acecode::kCodexHookEventPreToolUse, "*");
+    hook.command.timeout_seconds = 10;
+#ifdef _WIN32
+    hook.command.command_windows = "echo ready > \"" + marker.string() + "\" & ping -n 20 127.0.0.1 > nul";
+#else
+    hook.command.command = "printf ready > '" + marker.string() + "'; sleep 20";
+#endif
+    registry.hooks = {hook, make_hook("must-not-run", acecode::kCodexHookEventPreToolUse, "*")};
+    acecode::HookManager manager(registry);
+    std::atomic<bool> abort{false}, saw_marker{false};
+    acecode::JoiningThread cancel([&] {
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (fs::exists(marker)) { saw_marker = true; break; }
+            std::this_thread::sleep_for(2ms);
+        }
+        abort = true;
+    });
+    acecode::HookDispatchRequest request;
+    request.event_name = acecode::kCodexHookEventPreToolUse;
+    request.matcher_value = "bash";
+    request.abort_flag = &abort;
+    const auto start = std::chrono::steady_clock::now();
+    // A hook that does not read stdin must not block the caller while writing
+    // a large tool payload, before the cancellation loop even starts.
+    request.payload = {{"tool_output", std::string(1024 * 1024, 'x')}};
+    const auto outcome = manager.dispatch_codex(request);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, 3s);
+    cancel.join();
+    EXPECT_TRUE(saw_marker);
+    EXPECT_EQ(outcome.invoked_count, 1);
+    EXPECT_TRUE(outcome.no_decision);
+    EXPECT_FALSE(outcome.blocked);
+    EXPECT_FALSE(outcome.replacement_output);
+    fs::remove(marker);
+}
 
 TEST(HookRuntime, MatcherAliasesMapCodexNamesToAceCodeTools) {
     EXPECT_TRUE(acecode::hook_matcher_matches(

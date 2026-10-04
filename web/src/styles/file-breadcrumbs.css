@@ -1,0 +1,84 @@
+.ace-file-breadcrumbs {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 3px 8px;
+  overflow-x: auto;
+  background: var(--ace-surface);
+  border-bottom: 1px solid var(--ace-border);
+  color: var(--ace-fg-mute);
+  font-size: 13px;
+}
+.ace-file-breadcrumbs ol,
+.ace-file-breadcrumbs li,
+.ace-file-breadcrumbs button {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.ace-file-breadcrumbs ol {
+  width: max-content;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ace-file-breadcrumbs button {
+  gap: 5px;
+  min-height: 26px;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ace-file-breadcrumbs button:hover,
+.ace-file-breadcrumbs button[aria-expanded="true"] {
+  color: var(--ace-fg);
+  background: var(--ace-surface-hi);
+}
+.ace-file-breadcrumbs button:focus-visible,
+.ace-breadcrumb-entry:focus-visible,
+.ace-breadcrumb-retry:focus-visible {
+  outline: 1px solid var(--ace-accent);
+  outline-offset: -1px;
+}
+.ace-breadcrumb-separator { flex-shrink: 0; }
+.ace-breadcrumb-menu {
+  z-index: 80;
+  padding: 4px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  box-shadow: var(--ace-shadow-lg);
+  font-size: 13px;
+}
+.ace-breadcrumb-tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.ace-breadcrumb-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ace-breadcrumb-entry > :not(.ace-breadcrumb-entry-name) { flex-shrink: 0; }
+.ace-breadcrumb-entry-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ace-breadcrumb-arrow-spacer { width: 14px; }
+.ace-breadcrumb-entry:hover { background: var(--ace-surface-hi); }
+.ace-breadcrumb-entry[aria-selected="true"] { background: var(--ace-accent-bg); color: var(--ace-accent); }
+.ace-breadcrumb-message { padding: 8px; color: var(--ace-fg-mute); }
+.ace-breadcrumb-retry { margin-left: 8px; color: var(--ace-accent); cursor: pointer; }

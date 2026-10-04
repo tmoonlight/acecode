@@ -25,21 +25,6 @@
 
 namespace acecode {
 
-AnthropicProvider::AnthropicProvider(const std::string& base_url,
-                                     const std::string& api_key,
-                                     const std::string& model,
-                                     int stream_timeout_ms,
-                                     std::map<std::string, std::string> request_headers,
-                                     ProviderRequestOptions request_options)
-    : base_url_(normalize_base_url(base_url)),
-      api_key_(api_key),
-      model_(model),
-      request_headers_(std::move(request_headers)),
-      request_options_(std::move(request_options)),
-      stream_timeout_ms_(stream_timeout_ms > 0
-          ? stream_timeout_ms
-          : OpenAiConfig::kDefaultStreamTimeoutMs) {}
-
 namespace {
 
 constexpr int kStreamConnectTimeoutCapMs = 15000;
@@ -738,10 +723,15 @@ ChatResponse AnthropicProvider::parse_response(const nlohmann::json& j) {
     return resp;
 }
 
-ChatResponse AnthropicProvider::chat(
-    const std::vector<ChatMessage>& messages,
-    const std::vector<ToolDef>& tools
-) {
+ChatResponse AnthropicProvider::chat_cancellable(
+    const std::vector<ChatMessage>& messages, const std::vector<ToolDef>& tools,
+    const std::atomic<bool>* abort_flag) {
+    const auto interrupted = [&] {
+        return make_chat_error_response(make_provider_error(
+            ProviderErrorKind::UserCancelled, 0, name(), model_, {}, {},
+            "[Interrupted]", false));
+    };
+    if (abort_flag && abort_flag->load()) return interrupted();
     if (api_key_.empty()) {
         auto info = make_provider_error(
             ProviderErrorKind::Unknown,
@@ -788,8 +778,14 @@ ChatResponse AnthropicProvider::chat(
         network::build_ssl_options(proxy_opts),
         proxy_opts.proxies,
         proxy_opts.auth,
-        cpr::Timeout{stream_timeout_ms_}
+        cpr::Timeout{stream_timeout_ms_},
+        cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
+                                          cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+            return !abort_flag || !abort_flag->load();
+        }}
     );
+
+    if (abort_flag && abort_flag->load()) return interrupted();
 
     if (r.status_code == 0) {
         const ProviderErrorKind kind = classify_cpr_error(r.error);

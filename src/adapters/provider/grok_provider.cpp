@@ -207,6 +207,18 @@ bool GrokProvider::authenticate() {
 ChatResponse GrokProvider::chat(
         const std::vector<ChatMessage>& messages,
         const std::vector<ToolDef>& tools) {
+    return chat_cancellable(messages, tools, nullptr);
+}
+
+ChatResponse GrokProvider::chat_cancellable(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools, const std::atomic<bool>* abort_flag) {
+    const auto cancelled = [&] { return abort_flag && abort_flag->load(); };
+    const auto interrupted = [&] {
+        return grok_error_response(grok_error_info(
+            ProviderErrorKind::UserCancelled, 0, model_, "", "[Interrupted]", "", false));
+    };
+    if (cancelled()) return interrupted();
     std::string conversion_error;
     nlohmann::json body = build_grok_responses_request(
         build_request_body(messages, tools, false), &messages,
@@ -238,10 +250,15 @@ ChatResponse GrokProvider::chat(
             network::build_ssl_options(proxy),
             proxy.proxies,
             proxy.auth,
-            cpr::Timeout{stream_timeout_ms_});
+            cpr::Timeout{stream_timeout_ms_},
+            cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
+                                              cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+                return !abort_flag || !abort_flag->load();
+            }});
     };
 
     cpr::Response upstream = make_request(access.tokens);
+    if (cancelled()) return interrupted();
     if (upstream.status_code == 401) {
         GrokAccessTokenResult refreshed = ensure_grok_access_token(
             true, access.tokens.access_token, auth_config_);
@@ -256,6 +273,7 @@ ChatResponse GrokProvider::chat(
         upstream = make_request(access.tokens);
     }
 
+    if (cancelled()) return interrupted();
     if (upstream.status_code == 0) {
         const ProviderErrorKind kind = classify_cpr_error(upstream.error);
         return grok_error_response(grok_error_info(

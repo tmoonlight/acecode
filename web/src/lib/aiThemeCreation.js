@@ -14,6 +14,7 @@ export function aiThemeCreationRef(current, health) {
 }
 
 export function homeComposerScopedWorkspace(workspaceHash = '', scope = '') {
+  if (scope === 'scheduled-task') return `__scheduled_task__:${workspaceHash}`;
   return scope === 'ai-theme' ? `__ai_theme__:${workspaceHash}` : workspaceHash;
 }
 

@@ -116,13 +116,10 @@ test('折叠 / 展开两态接到侧栏与选图标网格', () => {
   assert.ok(picker.includes('open={selected}'));
 });
 
-// 场景:打开选图标层后点它旁边的空白(对话框里其它地方或遮罩)。期望:选择层不收起,
-// 「编辑项目」对话框也不关闭;只有再点图标按钮或按 Esc 才收起。回归:原来选择层在
-// document 上监听 pointerdown,点外面任何地方都会立刻消失,点到遮罩还会连同未保存的
-// 改动把整个对话框关掉。
-test('选图标层点外面空白不消失', () => {
+// 选择层可以因外部点击收起,但编辑项目对话框仍保留草稿。
+// 真实点击、焦点和草稿保留由 test-context-image-paste.mjs 覆盖。
+test('收起选图标层保留编辑项目对话框', () => {
   const picker = source('components/WorkspaceIconPicker.jsx');
-  assert.doesNotMatch(picker, /pointerdown|mousedown/);
   assert.ok(picker.includes("event.key !== 'Escape'"));
   const modal = source('components/EditWorkspaceModal.jsx');
   assert.match(modal, /<Modal[\s\S]*?dismissOnBackdrop=\{false\}[\s\S]*?labelledBy="ace-edit-workspace-title"/);

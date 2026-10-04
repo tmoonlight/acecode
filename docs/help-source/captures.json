@@ -457,7 +457,7 @@
   },
   {
     "file": "assets/screenshots/schedules-list.jpg",
-    "description": "循环列表的模板、频率、模型、启用入口与最近运行失败状态；现有循环保持停用",
+    "description": "定时任务列表的模板、频率、模型、启用入口与最近运行失败状态；现有定时任务保持停用",
     "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
     "windowTitle": "ACECode",
     "version": "0.9.11",
@@ -469,7 +469,7 @@
   },
   {
     "file": "assets/screenshots/schedule-run-history.jpg",
-    "description": "循环真实运行记录：所选模型不可用导致停用，以及 daemon 未运行产生的已错过记录",
+    "description": "定时任务真实运行记录：所选模型不可用导致停用，以及 daemon 未运行产生的已错过记录",
     "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
     "windowTitle": "ACECode",
     "version": "0.9.11",
@@ -481,7 +481,7 @@
   },
   {
     "file": "assets/screenshots/schedule-create-form.jpg",
-    "description": "添加循环表单：名称、工作空间、提示词、模型、执行频率和生效日期。此示例尚未保存。",
+    "description": "添加定时任务表单：名称、工作空间、提示词、模型、执行频率和生效日期。此示例尚未保存。",
     "app": "process:N:\\Users\\shao\\acecode\\build\\Release\\acecode-desktop.exe",
     "windowTitle": "ACECode",
     "version": "0.9.11",

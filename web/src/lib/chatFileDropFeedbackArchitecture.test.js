@@ -179,6 +179,6 @@ run('drop overlay uses a themed blur fallback and Slate tags keep symmetric spac
   assert.match(styles, /@supports \(\(-webkit-backdrop-filter:[\s\S]*\.ace-chat-file-drop-overlay\s*\{[\s\S]*backdrop-filter:\s*blur\(2\.5px\) saturate\(0\.72\);/);
   assert.match(styles, /\.ace-chat-file-drop-prompt\s*\{[\s\S]*background:\s*rgba\(var\(--ace-surface-rgb\), 0\.94\);/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.ace-chat-file-drop-overlay\s*\{\s*animation:\s*none;/);
-  assert.match(styles, /\.ace-slate-inline-tag > \.ace-cmd-token\s*\{[^}]*margin:\s*1px 0;[^}]*padding:\s*0 5px;/);
+  assert.match(styles, /\.ace-slate-inline-tag > \.ace-cmd-token\s*\{[^}]*margin:\s*0;[^}]*padding:\s*0;/);
   assert.match(styles, /\.ace-cmd-token\s*\{[\s\S]*margin-right:\s*1px;/);
 });

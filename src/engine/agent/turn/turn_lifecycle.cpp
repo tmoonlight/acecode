@@ -106,6 +106,13 @@ UserTurnInfo TurnLifecycle::prepare_user_turn(const UserInput& input,
     if (input.metadata.is_object() && !input.metadata.empty()) {
         user_msg.metadata = input.metadata;
     }
+    // Only successful expansion may activate deferred tools; caller-provided
+    // metadata must not claim a skill was loaded.
+    if (user_msg.metadata.is_object()) user_msg.metadata.erase(kLoadedSkillsMetadata);
+    if (!skill_expansion.injected_skill_names.empty()) {
+        if (!user_msg.metadata.is_object()) user_msg.metadata = nlohmann::json::object();
+        user_msg.metadata[kLoadedSkillsMetadata] = skill_expansion.injected_skill_names;
+    }
     if (!display_text.empty() && display_text != user_message) {
         // 让 UI 渲染 display_text(原文),LLM 看到的仍是 user_message(展开后的)。
         // session_serializer 会把 metadata 全字段持久化,resume 后恢复。

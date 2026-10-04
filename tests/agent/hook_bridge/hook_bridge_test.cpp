@@ -8,6 +8,7 @@
 #include "agent/transcript/transcript_writer.hpp"
 #include "agent/turn/turn_outcome.hpp"
 #include "hooks/hook_manager.hpp"
+#include "utils/abort_signal.hpp"
 #include "permissions/permissions.hpp"
 #include "session/event_dispatcher.hpp"
 #include "utils/joining_thread.hpp"
@@ -24,6 +25,7 @@
 namespace {
 struct HookBridgeHarness {
     std::atomic<bool> busy{false};
+    acecode::AbortSignal abort;
     acecode::AgentCallbacks callbacks;
     acecode::CallbacksSlot callback_slot;
     acecode::PermissionManager permissions;
@@ -32,7 +34,7 @@ struct HookBridgeHarness {
     acecode::agent::TurnOutcomeRecord outcome;
     acecode::agent::TranscriptWriter transcript{history, events, callback_slot, outcome};
     acecode::agent::WorkspaceBoundary boundary{".", permissions};
-    acecode::agent::AgentHookBridge hooks{boundary, permissions, {}, transcript, history};
+    acecode::agent::AgentHookBridge hooks{boundary, permissions, {}, transcript, history, abort};
     acecode::agent::ToolHookBridge tools{hooks};
 };
 

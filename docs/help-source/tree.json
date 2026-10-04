@@ -39,7 +39,7 @@
   {"title":"进阶使用","pages":[
     {"slug":"experts","title":"专家与专家团","sections":["选择与派遣专家","创建专家与组建专家团"]},
     {"slug":"swarm","title":"蜂群模式与子代理","sections":["任务分工与并行执行","查看进度与处理操作确认"]},
-    {"slug":"schedules","title":"定时与循环任务","sections":["创建与设置执行时间","查看记录、暂停与管理"]},
+    {"slug":"schedules","title":"定时任务","sections":["创建与设置执行时间","查看记录、暂停与管理"]},
     {"slug":"agent-browser","title":"Agent 浏览器"},
     {"slug":"channels","title":"消息渠道与远程控制"},
     {"slug":"examples","title":"实战示例","sections":["新项目实战","排查问题与修复缺陷","实现功能与重构代码","审查代码变更"]}

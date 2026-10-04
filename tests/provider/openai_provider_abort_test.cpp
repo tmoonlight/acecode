@@ -22,6 +22,9 @@
 #include "provider/openai_provider.hpp"
 #include "llm/llm_provider.hpp"
 #include "utils/logger.hpp"
+#include "utils/joining_thread.hpp"
+#include "utils/scope_exit.hpp"
+#include "test_support/utils/concurrency_gate.hpp"
 
 #include <httplib.h>
 
@@ -266,6 +269,35 @@ TEST(OpenAiProviderAbortTest, SilentPhaseCancelWritesDiagnosticLog) {
         << "日志里应该有 abort 告警，实际内容：\n" << log_contents;
     EXPECT_NE(log_contents.find("no-data phase"), std::string::npos)
         << "静默期取消时日志必须带 'no-data phase' 区分符，实际内容：\n" << log_contents;
+}
+
+TEST(OpenAiProviderAbortTest, NonStreamingRequestCancelsDuringSilentResponse) {
+    auto entered = std::make_shared<acecode::test::ConcurrencyGate>();
+    auto release = std::make_shared<acecode::test::ConcurrencyGate>();
+    auto returned = std::make_shared<acecode::test::ConcurrencyGate>();
+    LocalHttpServer server([entered, release](httplib::Server& server) {
+        server.Post("/chat/completions", [entered, release](const httplib::Request&, httplib::Response& response) {
+            entered->open();
+            release->wait(5s);
+            response.set_content(R"({"choices":[{"message":{"content":"late"},"finish_reason":"stop"}]})", "application/json");
+        });
+    });
+    acecode::ScopeExit unblock([release] { release->open(); });
+    std::atomic<bool> abort{false};
+    auto provider = std::make_shared<OpenAiCompatProvider>(
+        "http://127.0.0.1:" + std::to_string(server.port), "test", "model");
+    acecode::ChatResponse response;
+    acecode::JoiningThread request([&response, &abort, provider, returned] {
+        response = provider->chat_cancellable({ChatMessage{"user", "test"}}, {}, &abort);
+        returned->open();
+    });
+    EXPECT_TRUE(entered->wait());
+    abort = true;
+    EXPECT_TRUE(returned->wait(2s));
+    release->open();
+    request.join();
+    EXPECT_EQ(response.provider_error.kind, acecode::ProviderErrorKind::UserCancelled);
+    EXPECT_EQ(response.finish_reason, "error");
 }
 
 } // namespace

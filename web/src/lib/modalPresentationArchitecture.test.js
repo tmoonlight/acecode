@@ -89,7 +89,7 @@ run('loop delete and desktop context-menu confirmations share Modal', () => {
   const contextMenu = source('components/DesktopContextMenu.jsx');
 
   assert.match(loopPage, /<Modal onClose=\{\(\) => setDeleteConfirm\(null\)\}/);
-  assert.match(loopPage, />\s*删除循环\s*</);
+  assert.match(loopPage, />\s*删除定时任务\s*</);
   assert.doesNotMatch(loopPage, /window\.confirm|window\.alert/);
   assert.match(contextMenu, /<Modal onClose=\{\(\) => setPendingConfirm\(null\)\}/);
   assert.match(contextMenu, /pendingConfirm\.action\.confirm/);

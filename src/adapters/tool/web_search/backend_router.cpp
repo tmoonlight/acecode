@@ -3,6 +3,7 @@
 #include "duckduckgo_backend.hpp"
 #include "rss_search_backend.hpp"
 #include "utils/logger.hpp"
+#include "utils/abandonable_call.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,21 @@
 namespace acecode::web_search {
 
 namespace {
+
+using SearchOutcome = std::variant<SearchResponse, SearchError>;
+
+SearchOutcome search_cancellable(std::shared_ptr<WebSearchBackend> backend,
+                                std::string query, int limit,
+                                const std::atomic<bool>* abort) {
+    const auto name = backend->name();
+    auto result = run_cancellable<SearchOutcome>(
+        [backend = std::move(backend), query = std::move(query), limit]
+        (const std::atomic<bool>* cancellation) {
+            return backend->search(query, limit, cancellation);
+        }, abort);
+    if (result) return std::move(*result);
+    return SearchError{SearchError::Kind::Network, "aborted", name};
+}
 
 bool is_known_backend_name(const std::string& name) {
     return name == "parallel" || name == "rss" ||
@@ -172,7 +188,7 @@ BackendRouter::search_parallel(std::string_view query, int limit,
             [backend = std::move(backend), backend_name, query = std::string(query),
              limit, abort]() -> Outcome {
                 try {
-                    return backend->search(query, limit, abort);
+                    return search_cancellable(backend, query, limit, abort);
                 } catch (const std::exception& e) {
                     return SearchError{SearchError::Kind::Network,
                                        "search threw an exception: " +
@@ -192,6 +208,10 @@ BackendRouter::search_parallel(std::string_view query, int limit,
     };
     for (std::size_t i = 0; i < futures.size(); ++i) {
         if (launched[i]) outcomes[i] = futures[i].get();
+    }
+
+    if (abort && abort->load()) {
+        return SearchError{SearchError::Kind::Network, "aborted", "parallel"};
     }
 
     SearchResponse combined;
@@ -278,7 +298,8 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
                            ""};
     }
 
-    auto first = primary_be->search(query, limit, abort);
+    auto first = search_cancellable(primary_be, std::string(query), limit, abort);
+    if (abort && abort->load()) return first;
     const bool rss_primary = primary == "rss";
     std::string rss_fallback_reason;
     if (std::holds_alternative<SearchResponse>(first)) {
@@ -308,7 +329,8 @@ BackendRouter::search_with_fallback(std::string_view query, int limit,
         return first;
     }
 
-    auto second = fallback_be->search(query, limit, abort);
+    auto second = search_cancellable(fallback_be, std::string(query), limit, abort);
+    if (abort && abort->load()) return second;
     if (std::holds_alternative<SearchResponse>(second)) {
         if (notify) {
             notify("RSS search had no usable result; used " + fallback_name +

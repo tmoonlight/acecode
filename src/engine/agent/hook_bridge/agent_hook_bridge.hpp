@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace acecode { class HookManager; struct ChatMessage; }
+namespace acecode { class HookManager; class AbortSignal; struct ChatMessage; }
 
 namespace acecode::agent {
 class TranscriptWriter;
@@ -18,8 +18,8 @@ class AgentHookBridge {
 public:
     AgentHookBridge(WorkspaceBoundary& boundary, PermissionManager& permissions,
                     HookContextProvider::ProviderAccessor provider,
-                    TranscriptWriter& transcript, ConversationHistory& history)
-        : context_(boundary, permissions, std::move(provider)), transcript_(transcript), history_(history) {}
+                    TranscriptWriter& transcript, ConversationHistory& history, AbortSignal& abort)
+        : context_(boundary, permissions, std::move(provider)), transcript_(transcript), history_(history), abort_(abort) {}
     HookCommonPayloadFields common_fields(const std::string& event, SessionManager* session) const;
     HookAggregateOutcome dispatch(HookManager* manager, const std::string& event,
                                   const std::string& matcher, const nlohmann::json& payload);
@@ -38,6 +38,7 @@ private:
     HookContextProvider context_;
     TranscriptWriter& transcript_;
     ConversationHistory& history_;
+    AbortSignal& abort_;
     std::mutex context_mu_; // Leaf: append or swap only, no observers/store calls.
     std::vector<std::string> request_context_;
     bool stop_active_ = false; // Worker-only, intentionally survives turn boundaries.

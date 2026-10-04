@@ -54,6 +54,7 @@ function backgroundContext(tasks) {
 
 export function selectConversationActivity({
   foregroundBusy = false,
+  foregroundStopping = false,
   foregroundActivity = null,
   permissionRequests = [],
   questionRequest = null,
@@ -61,6 +62,14 @@ export function selectConversationActivity({
 } = {}) {
   const runningTasks = runningBackgroundTasks(subagentTasks);
   const background = backgroundContext(runningTasks);
+  if (foregroundBusy && foregroundStopping) {
+    return {
+      kind: CONVERSATION_ACTIVITY_KIND.FOREGROUND,
+      phase: 'stopping', label: '正在停止…', detail: '',
+      startedAtMs: Number(foregroundActivity?.startedAtMs || 0),
+      needsAction: false, ...background,
+    };
+  }
   const permission = (Array.isArray(permissionRequests) ? permissionRequests : [])
     .find(requestIsUnresolved);
 

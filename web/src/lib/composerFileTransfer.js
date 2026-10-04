@@ -168,3 +168,38 @@ export function filesFromTransfer(dataTransfer, { source = 'drop' } = {}) {
 export function filesFromClipboardEvent(event) {
   return filesFromTransfer(event?.clipboardData || event?.nativeEvent?.clipboardData, { source: 'paste' });
 }
+
+// Adapt the async browser clipboard to the same shape as a native paste event.
+// One ClipboardItem can expose several representations of the same image.
+export async function readComposerClipboardData(clipboard = globalThis.navigator?.clipboard) {
+  const files = [];
+  const text = new Map();
+  let items;
+  if (typeof clipboard?.read === 'function') {
+    try { items = await clipboard.read(); } catch (error) {
+      if (typeof clipboard?.readText !== 'function') throw error;
+    }
+  }
+  if (items) {
+    for (const item of items) {
+      const types = Array.from(item.types || []);
+      const imageType = types.includes('image/png') ? 'image/png' : types.find(type => type.startsWith('image/'));
+      if (imageType) {
+        files.push(await item.getType(imageType));
+        continue;
+      }
+      for (const type of ['text/plain', 'text/html', 'text/uri-list']) {
+        if (types.includes(type)) text.set(type, (text.get(type) || '') + await (await item.getType(type)).text());
+      }
+    }
+  } else if (typeof clipboard?.readText === 'function') {
+    text.set('text/plain', await clipboard.readText());
+  } else {
+    throw new Error('Clipboard read unavailable');
+  }
+  return {
+    files: normalizeTransferFiles(files, 'paste'),
+    types: [...text.keys(), ...(files.length ? ['Files'] : [])],
+    getData: type => text.get(type) || '',
+  };
+}

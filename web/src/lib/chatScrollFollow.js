@@ -1,4 +1,7 @@
 export const CHAT_TAIL_FOLLOW_THRESHOLD_PX = 80;
+// Integer scroll/client heights and scaled scrollTop can differ by more than
+// one CSS pixel even at the browser's clamped maximum scroll position.
+export const CHAT_SCROLL_TO_BOTTOM_TOLERANCE_PX = 2;
 
 export const CHAT_TAIL_FOLLOW_STATE = Object.freeze({
   FOLLOWING: 'following',
@@ -30,6 +33,12 @@ export function chatTailDistance(metrics = {}) {
 export function isChatNearTail(metrics = {}, thresholdPx = CHAT_TAIL_FOLLOW_THRESHOLD_PX) {
   const threshold = nonNegativeNumber(thresholdPx, CHAT_TAIL_FOLLOW_THRESHOLD_PX);
   return chatTailDistance(metrics) <= threshold;
+}
+
+export function shouldShowChatScrollToBottom(source = {}) {
+  const metrics = chatScrollMetrics(source);
+  return metrics.clientHeight > 0
+    && !isChatNearTail(metrics, CHAT_SCROLL_TO_BOTTOM_TOLERANCE_PX);
 }
 
 // 离开尾部的 scroll 事件里,只有"真实的用户上滚"才应该暂停跟随。流式渲染

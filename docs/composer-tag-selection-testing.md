@@ -82,3 +82,11 @@ node scripts/test-composer-completion.mjs
 - `materialize_context_items` 对 25 MiB 以内的栅格图带回字节；超限或读取失败退回路径引用，SVG、普通文件与文件夹不变。`composerFileIntake` 把带字节的图片条目还原成带来源路径标记的 File 走上传，同一手势里的其它条目照旧插 `@路径`。
 - 对话记录中用户消息的图片附件改由气泡上方的缩略图条渲染，不再作为正文里的文件名按钮；只有图片的消息不画空气泡。
 - 验证：`pnpm test`、`pnpm build` 通过；`DesktopContextItems.*` 8 项通过；在运行中的 Desktop 页面上确认旧会话的图片消息显示缩略图，并以桩桥接确认截图粘贴与「图片 + 普通文件」混合粘贴的输入框表现。`test-composer-file-drop.mjs` 需要 Playwright，本次未运行。
+
+## 2026-10-04：tag 排版与普通方向键
+
+此处覆盖前文历史行为：tag 为无背景的主题色文本，与正文使用相同字体、字号、行高和基线，仅稍加粗。选中时蓝底白字。普通左右键不再进入 tag 选择状态，而是一次越过一个 tag；Shift 和鼠标仍可选中，选中后复制、剪切、替换、删除和撤销保持原有行为。
+
+- 生产 RichComposer 浏览器回归 89 项、InputBar 候选回归 16 项全部通过，包括连续 tag、空格、段落边界、RTL 和混合选择；定向模型测试、构建、OpenSpec 严格检查与差异检查通过。
+- 本轮全量 `pnpm test` 被当前工作树其它改动的三个未登记静态文案阻断，详见 `openspec/changes/fix-composer-tag-selection/validation.md`。未改动无关文案或翻译目录。
+- 验证平台为 Windows Chromium 生产组件 fixture；未重建或安装 Desktop/WebView2，未在真实输入法候选窗口人工验证。

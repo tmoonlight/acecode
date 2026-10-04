@@ -28,22 +28,6 @@
 #include <utility>
 #include <vector>
 namespace acecode {
-
-OpenAiCompatProvider::OpenAiCompatProvider(const std::string& base_url,
-                                           const std::string& api_key,
-                                           const std::string& model,
-                                           int stream_timeout_ms,
-                                           std::map<std::string, std::string> request_headers,
-                                           ProviderRequestOptions request_options)
-    : base_url_(normalize_endpoint(base_url, request_options.endpoint_mode)),
-      api_key_(api_key),
-      model_(model),
-      request_headers_(std::move(request_headers)),
-      request_options_(std::move(request_options)),
-      stream_timeout_ms_(stream_timeout_ms > 0
-          ? stream_timeout_ms
-          : OpenAiConfig::kDefaultStreamTimeoutMs) {}
-
 namespace {
 
 constexpr int kStreamConnectTimeoutCapMs = 15000;
@@ -1237,10 +1221,16 @@ ChatResponse OpenAiCompatProvider::parse_response(const nlohmann::json& j) {
     return resp;
 }
 
-ChatResponse OpenAiCompatProvider::chat(
+ChatResponse OpenAiCompatProvider::chat_cancellable(
     const std::vector<ChatMessage>& messages,
-    const std::vector<ToolDef>& tools
+    const std::vector<ToolDef>& tools,
+    const std::atomic<bool>* abort_flag
 ) {
+    if (abort_flag && abort_flag->load()) {
+        return make_chat_error_response(make_provider_error(
+            ProviderErrorKind::UserCancelled, 0, name(), model_, {}, {},
+            "[Interrupted]", false));
+    }
     nlohmann::json body = build_request_body(messages, tools, false);
 
     std::string url = request_url();
@@ -1276,8 +1266,18 @@ ChatResponse OpenAiCompatProvider::chat(
         network::build_ssl_options(proxy_opts),
         proxy_opts.proxies,
         proxy_opts.auth,
-        cpr::Timeout{stream_timeout_ms_}
+        cpr::Timeout{stream_timeout_ms_},
+        cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
+                                          cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+            return !abort_flag || !abort_flag->load();
+        }}
     );
+
+    if (abort_flag && abort_flag->load()) {
+        return make_chat_error_response(make_provider_error(
+            ProviderErrorKind::UserCancelled, 0, name(), model_, {}, {},
+            "[Interrupted]", false));
+    }
 
     if (r.status_code == 0) {
         const ProviderErrorKind kind = classify_cpr_error(r.error);

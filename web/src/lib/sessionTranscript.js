@@ -293,7 +293,7 @@ export function isTranscriptActivelyRunning(state = {}) {
 function markTranscriptRunning(next, turnId = '') {
   if (!next || next.status === 'error') return next;
   next.busy = true;
-  next.status = 'running';
+  next.status = next.abortPending ? 'stopping' : 'running';
   if (turnId && !next.activeTurnId) next.activeTurnId = String(turnId);
   return next;
 }
@@ -405,9 +405,44 @@ function isUserAbortMessage(message) {
 }
 
 function appendTerminationNotice(next, msg, payload = {}) {
-  const text = terminationNoticeText(payload);
+  const pending = payload.pending === true;
+  const text = pending ? '正在停止本轮任务…' : terminationNoticeText(payload);
+  const turnId = String(payload.metadata?.turn_id || payload.turn_id || next.activeTurnId || next.abortTurnId || '');
+  let match = -1;
+  for (let i = next.items.length - 1; i >= 0; i -= 1) {
+    const item = next.items[i];
+    if (item.kind === 'termination_notice' && item.source === 'user' && payload.source !== 'user' &&
+        isAbortLikeReason(payload.reason || payload.message) &&
+        (!turnId || item.turnId === turnId)) return;
+    if (payload.id && item.kind === 'termination_notice' && item.messageId === payload.id) {
+      match = i;
+      break;
+    }
+    if (item.kind === 'termination_notice' && item.source === 'user' && payload.source === 'user' &&
+        turnId && item.turnId === turnId) {
+      match = i;
+      break;
+    }
+    // Old transcripts have no turn id. Only merge inside the same user turn.
+    if (item.kind === 'msg' && item.role === 'user' && !turnId) break;
+    if (!turnId && item.kind === 'termination_notice' && item.source === 'user' &&
+        payload.source === 'user' && !item.messageId) {
+      match = i;
+      break;
+    }
+  }
+  if (match >= 0) {
+    const item = next.items[match];
+    if (pending && !item.pending) return;
+    next.items = next.items.map((entry, i) => i === match ? {
+      ...entry, content: text, pending, turnId: turnId || entry.turnId,
+      ...(payload.id ? { messageId: payload.id } : {}),
+      ...(payload.metadata ? { metadata: payload.metadata } : {}),
+    } : entry);
+    return;
+  }
   const last = next.items[next.items.length - 1];
-  if (last?.kind === 'termination_notice') {
+  if (last?.kind === 'termination_notice' && (!turnId || !last.turnId || last.turnId === turnId)) {
     if (last.content === text) {
       if (payload.metadata?.user_aborted === true) {
         next.items = [...next.items.slice(0, -1), {
@@ -426,11 +461,33 @@ function appendTerminationNotice(next, msg, payload = {}) {
       kind: 'termination_notice',
       id: allocateItemId(next),
       source: payload.source || 'server',
+      pending,
+      turnId,
       ...(payload.metadata ? { metadata: payload.metadata, messageId: payload.id || '' } : {}),
       content: text,
       ts: eventTs(msg),
     },
   ];
+}
+
+function settlePendingAbort(next, msg, outcome) {
+  if (!next.abortPending) return;
+  if (!outcome || outcome === 'aborted') {
+    appendTerminationNotice(next, msg, { source: 'user', turn_id: next.abortTurnId });
+  } else {
+    next.items = next.items.filter((item) => !item.pending || item.kind !== 'termination_notice');
+  }
+  next.abortPending = false;
+  next.abortTurnId = '';
+}
+
+function preserveAcceptedInputs(next, current) {
+  for (const item of current.items || []) {
+    const clientId = clientMessageIdFromMetadata(item.metadata);
+    if (item.kind !== 'msg' || item.role !== 'user' || !item.metadata?.optimistic_queued_input || !clientId) continue;
+    if (next.items.some((loaded) => clientMessageIdFromMetadata(loaded.metadata) === clientId)) continue;
+    next.items.push({ ...item, id: allocateItemId(next) });
+  }
 }
 
 function normalizeSummaryMetrics(metrics) {
@@ -738,6 +795,7 @@ function historyItemFromMessage(next, m, messageOrdinal = null) {
     return {
       kind: 'termination_notice', id: allocateItemId(next),
       source: 'user', content: terminationNoticeText({ source: 'user' }),
+      turnId: String(metadata?.turn_id || ''),
       metadata, messageId: m.id || '', ts,
     };
   }
@@ -1115,7 +1173,9 @@ export function preserveLiveRuntimeOnLoad(loadedState, liveState) {
   if (!loadedState) return loadedState;
   const liveSeq = Number(liveState?.lastSeq) || 0;
   const loadedSeq = Number(loadedState?.lastSeq) || 0;
-  if (liveSeq <= loadedSeq) return loadedState;
+  const samePendingTurn = liveState?.abortPending && loadedState.busy &&
+    (!loadedState.activeTurnId || loadedState.activeTurnId === liveState.abortTurnId);
+  if (liveSeq <= loadedSeq && !samePendingTurn) return loadedState;
 
   const liveIsRunning = isTranscriptActivelyRunning(liveState);
   if (!liveIsRunning) return loadedState;
@@ -1127,7 +1187,9 @@ export function preserveLiveRuntimeOnLoad(loadedState, liveState) {
     ...loadedState,
     busy: true,
     activeTurnId: String(liveState.activeTurnId || loadedState.activeTurnId || ''),
-    status: 'running',
+    status: liveState.abortPending ? 'stopping' : 'running',
+    abortPending: !!liveState.abortPending,
+    abortTurnId: liveState.abortTurnId || '',
     activity: liveState.activity && typeof liveState.activity === 'object'
       ? { ...liveState.activity }
       : (loadedState.activity && typeof loadedState.activity === 'object'
@@ -1213,6 +1275,8 @@ export function createTranscriptState(overrides = {}) {
     items: [],
     busy: false,
     abortPending: false,
+    abortTurnId: '',
+    lastTerminalTurnId: '',
     activeTurnId: '',
     turns: 0,
     // 会话显示标题的三个服务端字段(与侧栏会话列表同源):title 是用户改名 /
@@ -1286,6 +1350,13 @@ export function reduceTranscriptEvent(state, msg) {
 
   markEventSeqApplied(next, msg);
 
+  const terminalTurnId = String(p.turn_id || '');
+  if ((t === 'done' || (t === 'busy_changed' && !p.busy)) && terminalTurnId &&
+      (terminalTurnId === next.lastTerminalTurnId ||
+       (next.activeTurnId && terminalTurnId !== next.activeTurnId))) {
+    return { state: next, effects };
+  }
+
   switch (t) {
     case 'transcript_replace': {
       finalizeStreaming(next);
@@ -1296,6 +1367,7 @@ export function reduceTranscriptEvent(state, msg) {
       next.turnNetDiffs = turnNetDiffs;
       next.items = applyTurnMetadataToItems(
         historyItemsFromMessages(next, messages), turnTimings, turnNetDiffs);
+      preserveAcceptedInputs(next, current);
       // 标题不从消息正文现推:title / summary 只认服务端(session_updated 与
       // messages 快照),否则顶部标题会变成最后一条 user 消息的全文,与侧栏不一致。
       next.tokenUsage = null;
@@ -1712,12 +1784,17 @@ export function reduceTranscriptEvent(state, msg) {
     }
     case 'busy_changed': {
       const wasBusy = !!state?.busy;
-      const outcome = typeof p.outcome === 'string' ? p.outcome : '';
+      const closingTurnId = terminalTurnId || next.activeTurnId || next.abortTurnId;
+      const outcome = (typeof p.outcome === 'string' ? p.outcome : '') ||
+        (!p.busy && next.abortPending ? 'aborted' : '');
       const completedOutcome = !outcome || outcome === 'completed';
       next.busy = !!p.busy;
-      next.abortPending = false;
-      next.activeTurnId = next.busy ? String(p.turn_id || '') : '';
-      next.status = next.busy ? 'running' : 'idle';
+      if (!next.busy) settlePendingAbort(next, msg, outcome);
+      else if (!wasBusy || (p.turn_id && next.abortTurnId && p.turn_id !== next.abortTurnId)) {
+        settlePendingAbort(next, msg, 'completed');
+      }
+      next.activeTurnId = next.busy ? String(p.turn_id || next.activeTurnId || '') : '';
+      next.status = next.busy ? (next.abortPending ? 'stopping' : 'running') : 'idle';
       if (next.busy && !wasBusy) {
         // 回合开始 → 重置桌面通知用的回合标记
         next.turnHadAssistantText = false;
@@ -1726,6 +1803,7 @@ export function reduceTranscriptEvent(state, msg) {
         next.lastTurnOutcome = '';
       }
       if (!next.busy) {
+        next.lastTerminalTurnId = closingTurnId || next.lastTerminalTurnId;
         next.activity = null;
         next.trajectoryPartial = null;
         finalizeStreaming(next);
@@ -1750,10 +1828,13 @@ export function reduceTranscriptEvent(state, msg) {
     }
     case 'done': {
       const wasBusy = !!state?.busy;
-      const outcome = typeof p.outcome === 'string' ? p.outcome : '';
+      const closingTurnId = terminalTurnId || next.activeTurnId || next.abortTurnId;
+      const outcome = (typeof p.outcome === 'string' ? p.outcome : '') ||
+        (next.abortPending ? 'aborted' : '');
       const completedOutcome = !outcome || outcome === 'completed';
       next.busy = false;
-      next.abortPending = false;
+      settlePendingAbort(next, msg, outcome);
+      next.lastTerminalTurnId = closingTurnId || next.lastTerminalTurnId;
       next.activeTurnId = '';
       next.status = 'idle';
       next.activity = null;
@@ -1771,6 +1852,7 @@ export function reduceTranscriptEvent(state, msg) {
       break;
     }
     case 'error':
+      settlePendingAbort(next, msg, isAbortLikeReason(p.reason) ? 'aborted' : 'error');
       next.busy = false;
       next.abortPending = false;
       next.activeTurnId = '';
@@ -1784,6 +1866,20 @@ export function reduceTranscriptEvent(state, msg) {
       next.lastAssistantText = '';
       appendTerminationNotice(next, msg, { ...p, source: p.source || 'server' });
       effects.push({ type: 'error', payload: p });
+      break;
+    case 'turn_abort_requested':
+      if (!next.busy || next.abortPending) break;
+      next.abortPending = true;
+      next.abortTurnId = String(p.turn_id || next.activeTurnId || '');
+      next.status = 'stopping';
+      appendTerminationNotice(next, msg, { ...p, pending: true, source: 'user' });
+      break;
+    case 'turn_abort_failed':
+      if (!next.abortPending) break;
+      next.items = next.items.filter((item) => item.kind !== 'termination_notice' || !item.pending);
+      next.abortPending = false;
+      next.abortTurnId = '';
+      next.status = next.busy ? 'running' : next.status;
       break;
     case 'turn_aborted':
       next.busy = false;
@@ -1947,12 +2043,27 @@ export function loadTranscriptHistory(state, data = {}) {
     next.activeTurnId = String(data.active_turn_id || data.activeTurnId || '');
     next.status = 'running';
   } else if (data.busy === false && next.status !== 'error') {
+    settlePendingAbort(next, {}, data.last_turn_outcome || 'aborted');
     next.busy = false;
     next.activeTurnId = '';
     next.status = 'idle';
     next.activity = null;
     next.trajectoryPartial = null;
     finalizeStreaming(next);
+  }
+
+  // Local acceptance is not part of the server event ring yet. A concurrent
+  // history refresh must not erase input already acknowledged over HTTP.
+  preserveAcceptedInputs(next, current);
+  if (current.abortPending && next.busy &&
+      (!next.activeTurnId || next.activeTurnId === current.abortTurnId)) {
+    next.abortPending = true;
+    next.abortTurnId = current.abortTurnId;
+    next.status = 'stopping';
+    const notice = current.items.find((item) => item.kind === 'termination_notice' && item.pending);
+    if (notice && !next.items.some((item) => item.kind === 'termination_notice' && item.turnId === notice.turnId)) {
+      next.items.push({ ...notice, id: allocateItemId(next) });
+    }
   }
 
   return { state: next, effects };
@@ -2069,14 +2180,23 @@ export function useSessionTranscript(sessionRef, options = {}) {
     return data;
   }, [api, sid, store]);
 
-  const loadEarlier = useCallback(async (target = null) => {
-    if (pageRequestRef.current) return pageRequestRef.current;
+  const loadEarlier = useCallback(async (target = null, options = {}) => {
+    const result = (value) => options.detailed ? value : value.position ?? null;
     const scope = historyScopeRef.current;
+    if (pageRequestRef.current) {
+      const pending = await pageRequestRef.current;
+      if (historyScopeRef.current !== scope) return result({ status: 'stale' });
+      // Search must still resolve its own target after an ordinary page finishes.
+      if (target) return loadEarlier(target, options);
+      return result(pending);
+    }
     const previous = store.getState();
-    if (previous.loadState !== 'loaded') return null;
+    if (previous.loadState !== 'loaded') return result({ status: 'idle' });
     const position = target?.messagePosition;
-    if (position != null && previous.items.some((item) => item.messagePosition === String(position))) return String(position);
-    if (!target && !previous.historyHasMore) return null;
+    if (position != null && previous.items.some((item) => item.messagePosition === String(position))) {
+      return result({ status: 'loaded', position: String(position) });
+    }
+    if (!target && !previous.historyHasMore) return result({ status: 'idle' });
     const query = { limit: HISTORY_PAGE_SIZE };
     if (previous.historyBefore && target?.messageOrdinal == null) query.before = previous.historyBefore;
     if (target?.messagePosition != null) query.from_position = String(target.messagePosition);
@@ -2084,7 +2204,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
     const pending = (async () => {
       try {
         const data = await api.getMessages(sid, query);
-        if (historyScopeRef.current !== scope) return null;
+        if (historyScopeRef.current !== scope) return { status: 'stale' };
         // A legacy ordinal may resolve inside the already loaded tail. In that
         // case its response is used only to resolve the position, without overlap.
         store.commit((current) => {
@@ -2094,16 +2214,24 @@ export function useSessionTranscript(sessionRef, options = {}) {
           const rows = (data.messages || []).filter((m) => !existing.has(String(m.message_position)));
           return mergeTranscriptHistoryPage(current, { ...data, messages: rows }, 'before');
         });
-        return data.messages?.[0]?.message_position ?? null;
+        return { status: 'loaded', position: data.messages?.[0]?.message_position ?? null };
       } catch (error) {
-        if (historyScopeRef.current !== scope) return null;
-        if (error?.status === 409) { await reloadHistoryTail(); return null; }
-        optionsRef.current.onError?.('加载会话失败:' + (error?.message || ''));
-        return null;
+        if (historyScopeRef.current !== scope) return { status: 'stale' };
+        if (error?.status === 409) {
+          try {
+            await reloadHistoryTail();
+            return { status: historyScopeRef.current === scope ? 'reset' : 'stale' };
+          } catch (reloadError) {
+            error = reloadError;
+          }
+        }
+        if (historyScopeRef.current !== scope) return { status: 'stale' };
+        if (!options.silent) optionsRef.current.onError?.('加载会话失败:' + (error?.message || ''));
+        return { status: 'error' };
       }
     })();
     pageRequestRef.current = pending;
-    try { return await pending; }
+    try { return result(await pending); }
     finally { if (pageRequestRef.current === pending) pageRequestRef.current = null; }
   }, [api, sid, store, reloadHistoryTail]);
 

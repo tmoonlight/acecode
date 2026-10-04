@@ -18,7 +18,7 @@ const defaults = defaultLoopForm('model-a', Date.UTC(2026, 6, 13));
 assert.equal(defaults.permissionMode, 'yolo');
 assert.equal(defaults.useWorktree, false);
 assert.equal(defaults.scheduleKind, 'period');
-assert.equal(validateLoopForm(defaults), '请输入循环名称');
+assert.equal(validateLoopForm(defaults), '请输入定时任务名称');
 
 const form = { ...defaults, name: 'Review', prompt: 'Review code', workspaceHash: 'h1' };
 assert.equal(validateLoopForm(form), '');

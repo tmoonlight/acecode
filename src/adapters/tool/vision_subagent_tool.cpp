@@ -1,4 +1,5 @@
 #include "vision_subagent_tool.hpp"
+#include "utils/abandonable_call.hpp"
 
 #include "config/model_provider_registry.hpp"
 #include "provider/copilot_provider.hpp"
@@ -320,6 +321,9 @@ ToolResult execute_vision_analyze(
     const ToolContext& ctx,
     const AppConfig* config,
     VisionSubagentToolOptions options) {
+    if (ctx.abort_flag && ctx.abort_flag->load()) {
+        return ToolResult{"[Interrupted]", false};
+    }
     if (!config) {
         return error_result("CONFIG_UNAVAILABLE", "configuration unavailable");
     }
@@ -359,11 +363,6 @@ ToolResult execute_vision_analyze(
     auto factory = options.provider_factory
         ? options.provider_factory
         : VisionSubagentToolOptions::ProviderFactory(default_provider_factory);
-    auto provider = factory(*profile);
-    if (!provider) {
-        return error_result("PROVIDER_UNAVAILABLE",
-                            "failed to create provider for saved model '" + profile->name + "'");
-    }
 
     ChatMessage user;
     user.role = "user";
@@ -375,9 +374,28 @@ ToolResult execute_vision_analyze(
 
     ChatResponse response;
     try {
-        response = provider->chat({user}, {});
+        // Only the independent provider and request snapshot can outlive this
+        // call. ToolContext, attachment/session services and callbacks cannot.
+        auto result = run_cancellable<std::optional<ChatResponse>>(
+            [factory = std::move(factory), profile = *profile, user = std::move(user)]
+            (const std::atomic<bool>* cancellation) -> std::optional<ChatResponse> {
+                auto provider = factory(profile);
+                if (!provider) return std::nullopt;
+                return provider->chat_cancellable({user}, {}, cancellation);
+            }, ctx.abort_flag);
+        if (!result) return ToolResult{"[Interrupted]", false};
+        if (!*result) {
+            return error_result("PROVIDER_UNAVAILABLE",
+                "failed to create provider for saved model '" + profile->name + "'");
+        }
+        response = std::move(**result);
     } catch (const std::exception& e) {
         return error_result("PROVIDER_ERROR", e.what());
+    }
+
+    if (response.finish_reason == "error" || response.provider_error.has_error()) {
+        return error_result("PROVIDER_ERROR", response.provider_error.display_message.empty()
+            ? response.content : response.provider_error.display_message);
     }
 
     nlohmann::json out = {

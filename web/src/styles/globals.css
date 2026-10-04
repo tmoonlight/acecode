@@ -4158,6 +4158,31 @@ a.ace-thread-link:focus-visible {
   cursor: default;
 }
 
+.ace-chat-tail-progress {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 18px;
+  height: 18px;
+}
+.ace-chat-tail-progress > span {
+  flex: 0 0 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ace-chat-tail-dot-hop 1.2s ease-in-out infinite;
+}
+.ace-chat-tail-progress > span:nth-child(2) { animation-delay: .2s; }
+.ace-chat-tail-progress > span:nth-child(3) { animation-delay: .4s; }
+@keyframes ace-chat-tail-dot-hop {
+  0%, 16.667%, 100% { transform: translateY(0); }
+  8.333% { transform: translateY(-3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-chat-tail-progress > span { animation: none; }
+}
+
 /* hover actions on chat messages (复制 / 分叉) */
 .ace-msg-actions {
   flex: 0 0 auto;
@@ -4363,10 +4388,6 @@ a.ace-thread-link:focus-visible {
   opacity: 1;
   outline: none;
 }
-.ace-slate-attachment-tag:focus-within > .ace-cmd-token {
-  background: var(--ace-accent-bg);
-  border-color: var(--ace-accent);
-}
 
 /* 用户气泡和 composer 共用的命令/tag 徽标:图标 + 蓝色名称。
    inline-flex 让徽标与 whitespace-pre-wrap 正文内联同行排版。 */
@@ -4386,11 +4407,6 @@ a.ace-thread-link:focus-visible {
   vertical-align: baseline;
   cursor: default;
   outline: none;
-}
-.ace-slate-inline-tag > .ace-cmd-token {
-  max-width: 100%;
-  margin: 1px 0;
-  padding: 0 5px;
 }
 .ace-slate-inline-tag .ace-file-type-glyph {
   /* Seti glyph ink fills about half its em square. Scale only the ink so the
@@ -4412,8 +4428,40 @@ a.ace-thread-link:focus-visible {
   border-color: var(--ace-accent);
 }
 
-/* The rectangular selection sits behind the original rounded badge. Keep this
-   layer in the editor's stacking context, below the tag's own surface/content. */
+/* Composer tags are inline accent text; sent-message badges stay unchanged. */
+.ace-slate-inline-tag,
+.ace-slate-inline-tag * {
+  /* Native text selection changes ink immediately, without theme transitions. */
+  transition: none;
+}
+.ace-slate-inline-tag > .ace-cmd-token {
+  align-items: baseline;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: text;
+}
+.ace-slate-inline-tag .ace-cmd-token-name {
+  font: inherit;
+  color: inherit;
+}
+.ace-slate-inline-tag .ace-cmd-token-glyph {
+  /* Let the label, not the icon font, establish the text baseline. */
+  align-self: center;
+  /* FileTypeIcon sets an inline color; composer icons follow their tag ink. */
+  color: inherit !important;
+  opacity: 1;
+}
+.ace-slate-inline-tag[data-composer-selected="true"] > .ace-cmd-token {
+  color: var(--ace-composer-selection-fg);
+  opacity: 1;
+}
+/* Match adjacent native text selection, including a collapsed void selection. */
 .ace-slate-inline-tag[data-composer-selected="true"]::before {
   content: "";
   position: absolute;
@@ -4429,13 +4477,13 @@ a.ace-thread-link:focus-visible {
 }
 .ace-slate-inline-tag::selection,
 .ace-slate-inline-tag ::selection {
-  /* Native selection still paints adjacent text; it must not recolor the badge. */
+  /* The whole-tag layer supplies the fill; avoid double-painting native ranges. */
   background: transparent;
   color: currentColor;
 }
-.ace-slate-inline-tag .ace-file-type-icon::selection,
-.ace-slate-inline-tag .ace-file-type-glyph::selection {
-  color: var(--ace-file-type-color);
+.ace-slate-inline-tag[data-composer-selected="true"]::selection,
+.ace-slate-inline-tag[data-composer-selected="true"] ::selection {
+  color: var(--ace-composer-selection-fg);
 }
 
 /* 描述气泡:portal 到 body + position:fixed,坐标由 JS 计算(锚右对齐徽标右缘)。
@@ -5184,6 +5232,12 @@ a.ace-thread-link:focus-visible {
   gap: 6px;
   min-width: 0;
   padding: 0;
+}
+/* Default blue/light chrome shares the sidebar surface, without changing hover
+   tokens or other palettes. Missing attributes are the initial light defaults. */
+:root:not([data-theme="dark"]):is([data-color-theme="blue"], :not([data-color-theme]))
+  :is(.ace-preview-details-tabs, .ace-agent-browser-toolbar, .ace-side-tabs) {
+  background: var(--ace-shell-bg);
 }
 .ace-side-tab {
   flex: 0 0 auto;

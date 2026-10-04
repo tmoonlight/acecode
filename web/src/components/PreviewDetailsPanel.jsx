@@ -15,6 +15,7 @@ import {
 } from '../lib/previewTabScroll.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 import { FilePreviewContent } from './FilePreviewContent.jsx';
+import { FileBreadcrumbs } from './FileBreadcrumbs.jsx';
 import { AgentBrowserPanel } from './AgentBrowserPanel.jsx';
 import { SessionChangeDetails } from './ChangeReview.jsx';
 import { GitChangeDetails } from './GitChangeReview.jsx';
@@ -304,6 +305,7 @@ export function PreviewDetailsPanel({
   owner,
   api,
   cwd,
+  workspaceCwd = cwd,
   tabs = [],
   activeTab = null,
   changeGroups = [],
@@ -967,6 +969,10 @@ export function PreviewDetailsPanel({
           )}
         </div>
       </div>
+      {active.type === PREVIEW_TAB_TYPES.FILE && (
+        <FileBreadcrumbs api={api} workspaceCwd={workspaceCwd} cwd={active.cwd || cwd}
+          path={active.path} onOpenFile={onOpenFilePreview} />
+      )}
       <div className="ace-preview-details-body">
         {renderedBody}
       </div>

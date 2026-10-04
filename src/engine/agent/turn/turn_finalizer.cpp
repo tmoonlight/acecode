@@ -243,6 +243,7 @@ void TurnFinalizer::prepare_normal(Frame& frame) {
             // This notice stays out of the provider's message history.
             transcript_.emit_transcript_system_message(session_manager_, "[Interrupted]", make_system_notice_metadata("turn_interrupted", {}, {
                 {"user_aborted", true},
+                {"turn_id", turn_info.active_turn_id},
                 {"retry_user_message_id", user ? user->uuid : std::string{}},
             }));
         }

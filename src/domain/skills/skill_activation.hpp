@@ -9,6 +9,9 @@ namespace acecode {
 
 class SkillRegistry;
 
+// Trusted load records emitted after reading a skill, persisted with messages.
+inline constexpr const char* kLoadedSkillsMetadata = "loaded_skills";
+
 // Result of applying Codex-compatible explicit Skill selection to one user
 // turn. `prompt` is model-visible; `injected_skill_names` is ordered by the
 // registry and contains each successfully-read Skill at most once.

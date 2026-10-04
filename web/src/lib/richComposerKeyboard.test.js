@@ -70,7 +70,7 @@ function fixture({ kind = 'path', key = 'Backspace', selected = false } = {}) {
     submitOnEnter: true,
     compositionStateRef: { current: state },
     isComposingKeyEvent: () => state.parentComposing,
-    ReactEditor: { isComposing: () => state.slateComposing },
+    ReactEditor: { isComposing: () => state.slateComposing, toDOMNode: () => ({ dir: state.rtl ? 'rtl' : '' }) },
     isDesktopShell: () => state.desktop,
     onKeyDown: () => { state.parentCalls += 1; },
     onSubmit: () => { state.submissions += 1; },
@@ -186,7 +186,7 @@ const signals = {
 
 for (const [name, applySignal] of Object.entries(signals)) {
   run(`IME keyboard protection honors ${name} independently`, () => {
-    for (const key of ['Backspace', 'Delete', 'Enter', 'ArrowUp', 'ArrowDown']) {
+    for (const key of ['Backspace', 'Delete', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
       const test = fixture({ key });
       applySignal(test);
       assertImeOwnsKey(test);
@@ -364,6 +364,63 @@ run('queue editor lets Enter reach Slate when submitOnEnter is disabled', () => 
   test.handleKeyDown(test.event);
   assert.equal(test.state.submissions, 0);
   assert.equal(test.event.defaultPrevented, false);
+});
+
+for (const kind of ['path', 'command', 'session', 'attachment']) {
+  for (const reverse of [false, true]) {
+    run(`plain ${reverse ? 'left' : 'right'} arrow skips one ${kind} without selecting it`, () => {
+      const test = fixture({ kind, key: reverse ? 'ArrowLeft' : 'ArrowRight' });
+      const [, path] = [...Editor.nodes(test.editor, { at: [], match: composerModel.isComposerInlineTag })][0];
+      const range = composerSelection.composerTagSelection(test.editor, path);
+      const before = structuredClone(test.editor.children);
+      Transforms.select(test.editor, reverse ? range.focus : range.anchor);
+      test.handleKeyDown(test.event);
+      const expected = reverse ? range.anchor : range.focus;
+      assert.deepEqual(test.editor.selection, { anchor: expected, focus: expected });
+      assert.equal(test.event.defaultPrevented, true);
+      assert.equal(composerSelection.composerSelectedTag(test.editor), null);
+      assert.deepEqual(test.editor.children, before);
+      assert.equal(test.editor.history.undos.length, 0);
+    });
+  }
+}
+
+run('plain arrow tag crossing follows the Slate paragraph RTL direction', () => {
+  for (const key of ['ArrowLeft', 'ArrowRight']) {
+    const test = fixture({ key });
+    test.state.rtl = true;
+    const range = composerSelection.composerTagSelection(test.editor, [0, 1]);
+    Transforms.select(test.editor, key === 'ArrowLeft' ? range.anchor : range.focus);
+    test.handleKeyDown(test.event);
+    const expected = key === 'ArrowLeft' ? range.focus : range.anchor;
+    assert.deepEqual(test.editor.selection, { anchor: expected, focus: expected });
+    assert.equal(test.event.defaultPrevented, true);
+  }
+});
+
+run('modified arrows and expanded selections stay with existing keyboard handlers', () => {
+  for (const modifier of ['shiftKey', 'ctrlKey', 'altKey', 'metaKey', 'expanded']) {
+    const test = fixture({ key: 'ArrowRight' });
+    const range = composerSelection.composerTagSelection(test.editor, [0, 1]);
+    if (modifier === 'expanded') Transforms.select(test.editor, range);
+    else { Transforms.select(test.editor, range.anchor); test.event[modifier] = true; }
+    const before = structuredClone(test.editor.selection);
+    test.handleKeyDown(test.event);
+    assert.deepEqual(test.editor.selection, before);
+    assert.equal(test.event.defaultPrevented, false);
+  }
+});
+
+run('ordinary text and a parent-consumed arrow are not intercepted', () => {
+  for (const parentConsumed of [false, true]) {
+    const test = fixture({ key: 'ArrowLeft' });
+    test.context.onKeyDown = event => { if (parentConsumed) event.preventDefault(); };
+    Transforms.select(test.editor, Editor.end(test.editor, []));
+    const before = structuredClone(test.editor.selection);
+    test.handleKeyDown(test.event);
+    assert.deepEqual(test.editor.selection, before);
+    assert.equal(test.event.defaultPrevented, parentConsumed);
+  }
 });
 
 run('repeated attachment references paste twice and Backspace removes only the selected occurrence', () => {
