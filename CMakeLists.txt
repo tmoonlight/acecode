@@ -7,7 +7,7 @@ if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MA
     set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet" FORCE)
 endif()
 
-project(acecode VERSION 0.9.33 LANGUAGES C CXX)
+project(acecode VERSION 0.9.34 LANGUAGES C CXX)
 
 include(${CMAKE_SOURCE_DIR}/cmake/acecode_source_guards.cmake)
 
