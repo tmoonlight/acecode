@@ -4178,6 +4178,13 @@ Check and job responses include `log_path` when a log was created, and
 not change the upgrade outcome. Failure text includes the underlying error and
 available log path so existing clients can display actionable diagnostics.
 
+Check and job responses are always valid UTF-8 JSON. Operating-system and
+transport error text (which Windows reports in the ANSI code page, for example
+GBK on Chinese systems) is converted to UTF-8 where it is produced, and local
+paths are reported in UTF-8. Any byte that still is not valid UTF-8 is replaced
+with U+FFFD instead of failing the request, so a failed job with such text in
+`error` keeps polling successfully.
+
 ### `POST /api/update/start`
 
 Checks for an update and starts one daemon-managed background update job. The

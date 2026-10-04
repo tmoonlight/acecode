@@ -1,5 +1,7 @@
 #include "macos_bundle.hpp"
 
+#include "utils/encoding.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <vector>
@@ -91,7 +93,10 @@ std::optional<fs::path> find_staged_macos_app_bundle(
         top_level.push_back(it->path());
     }
     if (ec) {
-        if (error) *error = "failed to inspect macOS update staging directory: " + ec.message();
+        if (error) {
+            *error = "failed to inspect macOS update staging directory: " +
+                     ensure_utf8(ec.message());
+        }
         return std::nullopt;
     }
     if (top_level.size() == 1 && is_real_directory(top_level.front())) {
