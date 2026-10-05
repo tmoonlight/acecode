@@ -44,3 +44,14 @@ acecode_unit_tests --gtest_filter=DesktopPetLayout.*:SessionActivityState.*:Rece
 浏览器脚本通过 `ACE_PLAYWRIGHT_MODULE` 使用已安装的 Playwright，`ACE_BROWSER_CHANNEL=msedge`；`ACE_OFFICE_CAPTURE_DIR` 可指定截图目录。原生验收对两个 WebView2 使用进程级 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=0`，通过临时目录中的 DevToolsActivePort 连接；未修改用户全局环境或配置。
 
 运行边界：本次验证 Windows Desktop；macOS/Linux 本次仅保留无桌宠的空实现，没有宣称跨平台原生验收。源代码交付不会自动替换用户已安装的 Desktop。
+
+
+## 本地交付
+
+功能提交 `e80bccba355fd0b20dda3f42b2b0107d177cada0` 已从独立工作区 `codex/agent-office-live` 快进合入本地 `master`。
+
+合并前主工作区的 42 个已跟踪改动文件和 188 个未跟踪文件均保留：218 个文件逐字节 SHA-256 未变；12 个与功能重叠的文件先生成三方合并结果，再在每文件写入门下恢复用户改动。唯一需要手动合并的是通知测试文件，保留消息通道测试和本次原生桥测试。合并后这些原有改动仍未提交，Git index 无无关内容。
+
+主工作区在恢复上述改动后再次运行 `pnpm test`、`pnpm build` 和 `git diff --check` 均通过；办公室与通知桥定向 JS 测试通过。原 Claude 工作区七个导入文件的 SHA-256 与导入基线全部一致。旧事务所原型目录已从主工作区删除，验收创建的 Desktop/daemon/本机测试 provider 已退出。
+
+未执行 push、发布或安装替换。验收记录在后续文档提交中补齐，功能提交保持独立。
