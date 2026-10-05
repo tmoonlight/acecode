@@ -13,6 +13,7 @@ export function ActivityLine({
   icon = null,
   running = false,
   spinnerStatic = false,
+  preferIconWhileRunning = false,
   trailing = null,
   expandable = false,
   expanded = false,
@@ -37,7 +38,7 @@ export function ActivityLine({
         className="flex h-4 w-4 shrink-0 items-center justify-center"
         aria-hidden="true"
       >
-        {running ? (
+        {running && !preferIconWhileRunning ? (
           <span className={clsx('ace-spinner h-3 w-3', spinnerStatic && 'ace-spinner-static')} />
         ) : icon}
       </span>

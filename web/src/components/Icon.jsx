@@ -1,4 +1,5 @@
 import { createElement } from 'react';
+import { toolIconName } from '../lib/toolIcons.js';
 import { fileTypeIconForPath } from '../lib/fileTypeIcons.js';
 import { ICON_VIEW_BOX, INTERFACE_ICONS, iconStrokeWidth } from '../lib/interfaceIcons.js';
 
@@ -218,7 +219,8 @@ export function FileTypeIcon({
   );
 }
 
-export function ToolSummaryIcon({ icon, ok, className = '' }) {
+export function ToolSummaryIcon({ icon, tool = '', ok, className = '' }) {
+  if (tool) return <VsIcon name={toolIconName(tool, icon)} size={14} className={className} />;
   if (!ok) return <VsIcon name="error" size={14} mono={false} className={className} />;
   const mapped = TOOL_ICON_MAP.get(icon) || (ICONS[icon] ? icon : 'ok');
   const statusIcon = mapped === 'ok' || mapped === 'warning' || mapped === 'error';

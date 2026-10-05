@@ -120,6 +120,8 @@ struct SessionMeta {
     // parent_session_id 恒为树根会话 id(界面归属、冒泡与级联删除都按它走),
     // 真实父子关系由路径表达。根会话与非网状会话为空,序列化省略。
     std::string agent_path;
+    std::string last_user_message_at; // ISO 8601; human input, not background activity.
+    std::string last_turn_outcome; // completed | aborted | error; empty = unknown/pending.
 };
 
 class SessionStorage {

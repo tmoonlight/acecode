@@ -281,6 +281,8 @@ struct SessionInfo {
     std::string worktree_path;
     std::string worktree_name;
     std::string worktree_branch;
+    std::string last_user_message_at;
+    std::string last_turn_outcome;
 };
 
 // ----- AskUserQuestion 回应(client→server) -----

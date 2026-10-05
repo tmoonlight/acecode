@@ -620,6 +620,7 @@ struct WebServer::Impl {
     void register_workspaces();
     void register_pinned_sessions();
     void register_sessions();
+    void register_desktop_office();
     void register_task_suggestions();
     void register_models();
     void register_experts();

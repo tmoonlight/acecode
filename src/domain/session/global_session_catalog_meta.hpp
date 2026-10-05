@@ -10,6 +10,8 @@ inline SessionMeta catalog_meta_from_active(const SessionInfo& active) {
     meta.cwd = active.cwd;
     meta.created_at = active.created_at;
     meta.updated_at = active.updated_at;
+    meta.last_user_message_at = active.last_user_message_at;
+    meta.last_turn_outcome = active.last_turn_outcome;
     meta.summary = active.summary;
     meta.provider = active.provider;
     meta.model = active.model;

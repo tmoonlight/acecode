@@ -1,4 +1,5 @@
 #include "session_manager.hpp"
+#include "session_recent_activity.hpp"
 #include "inter_agent_message.hpp"
 #include "session_history_page.hpp"
 #include "session_load_metrics.hpp"
@@ -241,6 +242,8 @@ void SessionManager::start_session(const std::string& cwd,
     message_count_ = 0;
     turn_count_ = 0;
     last_user_summary_.clear();
+    last_user_message_at_.clear();
+    last_turn_outcome_.clear();
     created_at_.clear();
     pending_title_.clear();
     title_source_.clear();
@@ -370,6 +373,7 @@ void SessionManager::on_message(const ChatMessage& msg) {
         }
     }
 
+    record_recent_activity_locked(msg);
     // Track last user message for summary
     if (is_visible_user_turn_message(msg)) {
         const std::string text = user_summary_source_text(msg);
@@ -616,6 +620,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
     // Restore persisted display/model metadata when present. Resuming is not
     // conversation activity, so keep the persisted activity timestamp while
     // still rewriting repaired counters and compatibility fields below.
+    restore_recent_activity_locked(persisted_meta);
     std::optional<std::string> persisted_updated_at;
     if (fs::exists(meta_path_str_)) {
         auto meta = SessionStorage::read_meta(meta_path_str_);
@@ -911,6 +916,7 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
             log_user_message_index_error("rebuild after fork", session_id_, index_error);
         }
     }
+    restore_recent_activity_locked({});
     update_meta(SessionStorage::now_iso8601());
     if (goal_store_ && !previous_session_id.empty()) {
         std::string goal_error;
@@ -920,7 +926,6 @@ std::string SessionManager::fork_active_session(const std::vector<ChatMessage>& 
     }
     return session_id_;
 }
-
 std::string SessionManager::fork_session_to_new_id(
     const std::vector<ChatMessage>& retained_prefix,
     const std::string& title,
@@ -1031,6 +1036,9 @@ std::string SessionManager::fork_session_to_new_id(
     meta.message_count   = count;
     meta.turn_count      = turn_count;
     meta.summary         = last_user_summary;
+    const auto recent = read_session_recent_activity(new_jsonl);
+    meta.last_user_message_at = recent.last_user_message_at;
+    meta.last_turn_outcome = recent.last_turn_outcome;
     meta.provider        = provider_name_;
     meta.model           = model_name_;
     meta.model_preset    = model_preset_;
@@ -1205,6 +1213,8 @@ bool SessionManager::update_meta(
         : (persisted.id.empty() ? created_at_ : persisted.updated_at);
     meta.message_count = message_count_;
     meta.turn_count = turn_count_;
+    meta.last_user_message_at = last_user_message_at_;
+    meta.last_turn_outcome = last_turn_outcome_;
     meta.summary = last_user_summary_;
     meta.provider = provider_name_;
     meta.model = model_name_;
@@ -1519,11 +1529,6 @@ std::string SessionManager::current_title_source() const {
     return title_source_;
 }
 
-std::string SessionManager::current_summary() const {
-    std::lock_guard<std::mutex> lk(mu_);
-    return last_user_summary_;
-}
-
 void SessionManager::set_input_draft(std::string draft, nlohmann::json composer_content) {
     std::lock_guard<std::mutex> lk(mu_);
     input_draft_ = std::move(draft);
@@ -1541,6 +1546,8 @@ void SessionManager::set_input_draft(std::string draft, nlohmann::json composer_
         meta.updated_at = meta.created_at;
         meta.message_count = message_count_;
         meta.turn_count = turn_count_;
+        meta.last_user_message_at = last_user_message_at_;
+        meta.last_turn_outcome = last_turn_outcome_;
         meta.summary = last_user_summary_;
         meta.provider = provider_name_;
         meta.model = model_name_;

@@ -1,3 +1,4 @@
+import { useDesktopOffice } from './lib/useDesktopOffice.js';
 // 顶层 App:鉴权 gate(401 → TokenPrompt)+ 主壳。
 //
 // 视觉对齐设计稿方向 C:顶部 41px TopBar + 270px Sidebar + 主区(单会话/4宫格/9宫格)
@@ -250,6 +251,7 @@ export function App() {
   );
 
   const [activeRef,    setActiveRef]    = useState(null);
+  useDesktopOffice(activeRef);
   const workbenchOwner = sessionWorkbench.ownerFor(activeRef);
   const [sessionTitleTarget, setSessionTitleTarget] = useState(null);
   const [sessionActionsTarget, setSessionActionsTarget] = useState(null);

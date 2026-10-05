@@ -137,6 +137,7 @@ void WebServer::Impl::register_routes() {
     register_workspaces();
     register_pinned_sessions();
     register_sessions();
+    register_desktop_office();
     register_task_suggestions();
     register_models();
     register_image_generation();

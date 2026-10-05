@@ -406,7 +406,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
             : 'submit'}
         >
           <ActivityLine
-            icon={<ToolSummaryIcon icon={completedSummary.icon} ok={!askCancelled} className={askCancelled ? 'text-fg-mute' : 'text-ok'} />}
+            icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={!askCancelled} className={askCancelled ? 'text-fg-mute' : 'text-ok'} />}
             label={completedSummary.verb || title || tool || 'AskUserQuestion'}
             detail={completedSummary.object || ''}
             trailing={liveElapsed > 0 ? <span className="tabular-nums">{formatElapsed(liveElapsed)}</span> : null}
@@ -438,7 +438,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         className="ace-tool-activity min-w-0"
       >
         <ActivityLine
-          icon={<ToolSummaryIcon icon={completedSummary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
+          icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
           label={completedSummary.verb || title || tool || '工具完成'}
           detail={bashCommand || completedSummary.object || ''}
           trailing={(
@@ -498,6 +498,8 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     >
       <ActivityLine
         running
+        preferIconWhileRunning
+        icon={<ToolSummaryIcon tool={tool} icon={genericSummary.icon} ok />}
         spinnerStatic={!liveProgress}
         label={genericSummary.verb || title || displayOverride || tool || '正在执行工具'}
         detail={bashCommand || genericSummary.object || ''}

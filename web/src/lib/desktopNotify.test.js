@@ -14,6 +14,7 @@ import {
   shouldSuppress,
   truncateForNotification,
   maybeNotify,
+  focusSession,
   noteHostWindowFocus,
   isHostWindowFocused,
 } from './desktopNotify.js';
@@ -285,4 +286,21 @@ run('maybeNotify 桥可用 + 窗口聚焦 → 不投递完成通知', () => {
   assert.equal(ok, false);
   assert.equal(called, 0);
   global.window = prev;
+});
+
+run('focusSession passes a structured native argument and supports no-workspace sessions', () => {
+  const previous = globalThis.window;
+  let request;
+  globalThis.window = {aceDesktop_focusSession: value => {request = value;}};
+  try {
+    assert.equal(focusSession('', 'office-root'), true);
+    // Native receives the JSON-encoded argument array, whose first item must
+    // be an object rather than a second, nested JSON string.
+    const nativeArgs = JSON.parse(JSON.stringify([request]));
+    assert.deepEqual(nativeArgs, [{workspace_hash:'', session_id:'office-root'}]);
+    assert.equal(focusSession('workspace', ''), false);
+  } finally {
+    if (previous === undefined) delete globalThis.window;
+    else globalThis.window = previous;
+  }
 });

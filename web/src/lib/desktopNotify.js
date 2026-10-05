@@ -155,10 +155,10 @@ export function focusSession(workspaceHash, sessionId) {
     return false;
   }
   try {
-    window.aceDesktop_focusSession(JSON.stringify({
+    window.aceDesktop_focusSession({
       workspace_hash: workspaceHash || '',
       session_id: sessionId,
-    }));
+    });
     return true;
   } catch {
     return false;

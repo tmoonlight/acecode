@@ -1,6 +1,12 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '待命': 'Standing by',
+  '等待授权': 'Waiting for approval',
+  '等待回答': 'Waiting for an answer',
+  '整理上下文': 'Compacting context',
+  '正在重试': 'Retrying',
+  '思考中': 'Thinking',
   '选择文件': 'Select file',
   '无法读取目录': 'Unable to read directory',
   '空目录': 'Empty directory',

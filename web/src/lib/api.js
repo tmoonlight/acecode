@@ -616,6 +616,10 @@ export function createApi(base = null) {
       );
     },
     refreshModelCatalog: ()          => request('POST',   '/api/models/catalog/refresh', {}, base),
+    getDesktopOffice: ({sessionId = '', workspaceHash = ''} = {}, {signal} = {}) => {
+      const query = new URLSearchParams({session: sessionId, workspace: workspaceHash});
+      return request('GET', `/api/desktop-office?${query}`, undefined, base, {signal});
+    },
     getSessionModel:  (sid, workspaceHash = '') => {
       const qs = workspaceHash ? `?workspace=${encodeURIComponent(workspaceHash)}` : '';
       return request('GET', `/api/sessions/${encodeURIComponent(sid)}/model${qs}`, undefined, base);

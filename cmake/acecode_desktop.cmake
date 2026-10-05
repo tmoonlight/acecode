@@ -78,6 +78,7 @@ set(ACECODE_DESKTOP_SOURCES
     ${ACECODE_DESKTOP_MAIN_SOURCE}
     ${ACECODE_DESKTOP_SPLASH_SOURCE}
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
+    ${ACECODE_DESKTOP_PET_SOURCE}
 )
 if(UNIX AND NOT APPLE)
     list(APPEND ACECODE_DESKTOP_SOURCES
@@ -129,8 +130,22 @@ endif()
 
 if(WIN32)
     target_link_libraries(acecode-desktop PRIVATE
-        ole32 shell32 user32 gdi32
+        ole32 shell32 user32 gdi32 dwmapi
     )
+    set(ACECODE_DESKTOP_PET_PAGE "${CMAKE_SOURCE_DIR}/assets/desktop_pet/agent_office_pet.html")
+    set(ACECODE_DESKTOP_PET_PAGE_CPP "${CMAKE_BINARY_DIR}/generated/desktop_pet_page_embedded.cpp")
+    add_custom_command(
+        OUTPUT ${ACECODE_DESKTOP_PET_PAGE_CPP}
+        COMMAND ${CMAKE_COMMAND}
+            -DBIN2CPP_INPUT=${ACECODE_DESKTOP_PET_PAGE}
+            -DBIN2CPP_OUTPUT=${ACECODE_DESKTOP_PET_PAGE_CPP}
+            -DBIN2CPP_SYMBOL=desktop_pet_page
+            -P ${CMAKE_SOURCE_DIR}/cmake/acecode_bin2cpp.cmake
+        DEPENDS ${ACECODE_DESKTOP_PET_PAGE} ${CMAKE_SOURCE_DIR}/cmake/acecode_bin2cpp.cmake
+        COMMENT "Embedding the desktop agent office"
+        VERBATIM
+    )
+    target_sources(acecode-desktop PRIVATE ${ACECODE_DESKTOP_PET_PAGE_CPP})
 endif()
 
 if(UNIX AND NOT APPLE)

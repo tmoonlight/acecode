@@ -165,7 +165,10 @@ void TurnFinalizer::step(Step selected, Frame& frame) {
     case Step::RecordOutcome: outcome_.record(status); break;
     case Step::ClearBusy: busy_ = false; break;
     case Step::BusyEvent: events_.emit(SessionEventKind::BusyChanged, frame.idle); break;
-    case Step::Done: events_.emit(SessionEventKind::Done, frame.done); break;
+    case Step::Done:
+        if (session_manager_) session_manager_->record_turn_outcome(status);
+        events_.emit(SessionEventKind::Done, frame.done);
+        break;
     case Step::AfterNormal: after_normal(*frame.turn); break;
     case Step::ContinueHook: continue_goal(); break;
     }
