@@ -1,9 +1,9 @@
 #include "daemon_shutdown_sequence.hpp"
 #include <cstdio>
 namespace acecode::daemon {
-const std::array<DaemonShutdownStep, 14>& DaemonShutdownSequence::order() {
-    static const std::array<DaemonShutdownStep, 14> steps{{
-        DaemonShutdownStep::Channels, DaemonShutdownStep::RemoteWeb,
+const std::array<DaemonShutdownStep, 15>& DaemonShutdownSequence::order() {
+    static const std::array<DaemonShutdownStep, 15> steps{{
+        DaemonShutdownStep::Channels, DaemonShutdownStep::ImChannels, DaemonShutdownStep::RemoteWeb,
         DaemonShutdownStep::RemoteControl, DaemonShutdownStep::ConnectorWorkers,
         DaemonShutdownStep::Watchers, DaemonShutdownStep::LoopScheduler,
         DaemonShutdownStep::TaskSuggestions, DaemonShutdownStep::Sessions,

@@ -25,6 +25,7 @@
 //   "实时新帧抢在历史旧帧之前送达、被客户端按 seq 误判为过期而丢弃" 的问题。
 
 #include "session_client.hpp"
+#include "session_activity_state.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -92,6 +93,9 @@ public:
     // 测试用: 当前活跃 listener 数。
     std::size_t listener_count() const;
 
+    // Coherent presentation snapshot even when transient events are not replayed.
+    nlohmann::json activity_snapshot() const;
+
 private:
     struct BufferedEvent {
         SessionEvent event;
@@ -124,6 +128,7 @@ private:
 
     std::atomic<std::uint64_t> seq_counter_{0};
     std::atomic<SubscriptionId> next_sub_id_{1};
+    SessionActivityState activity_; // Guarded by mu_, no callbacks or IO.
     std::size_t                buffer_capacity_;
     std::size_t                buffer_byte_capacity_;
     std::size_t                buffered_bytes_ = 0;

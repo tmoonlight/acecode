@@ -77,6 +77,9 @@
 #include "utils/text_file_buffer.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/handlers/fs_browser_handler.hpp"
+#include "web/handlers/channels_handler.hpp"
+#include "channels/core/host.hpp"
+#include "test_support/channels/core_fakes.hpp"
 #include "web/remote_web_proxy.hpp"
 #include "agent/event_payload/message_payload.hpp"
 #include "web/server.hpp"
@@ -497,6 +500,13 @@ struct WebServerFixture {
     std::unique_ptr<FakeRemoteWebProxyController> remote_web_proxy;
     std::unique_ptr<acecode::web::WebServer> server;
     std::unique_ptr<acecode::PtySessionRegistry> pty_registry;
+    // 消息通道宿主:每个夹具都接上(未 start 时不建线程、不读盘),通道用例里再 start。
+    // 传输层是假的,凭据校验对 token "bad:token" 失败。
+    std::shared_ptr<acecode::channels::core::Broadcast> channel_broadcast =
+        std::make_shared<acecode::channels::core::Broadcast>();
+    std::unique_ptr<acecode::channels::core::ChannelHost> channel_host;
+    std::mutex channel_mu;
+    std::vector<std::shared_ptr<acecode::channels::core::test::FakeTransport>> channel_transports;
 
     std::thread server_thread;
     int port = 0;
@@ -661,7 +671,41 @@ struct WebServerFixture {
             wdeps.pty_registry = pty_registry.get();
         }
 
+        {
+            acecode::channels::core::HostServices channel_services;
+            channel_services.conversation.sessions = client.get();
+            channel_services.conversation.session_cwd = [this](const std::string& id) {
+                auto entry = registry->acquire(id);
+                return entry ? entry->cwd : std::string{};
+            };
+            channel_services.broadcast = [broadcast = channel_broadcast](const std::string& type,
+                                                                         const json& payload) {
+                if (*broadcast) (*broadcast)(type, payload);
+            };
+            channel_services.make_transport = [this](const std::string& platform,
+                                                     const acecode::channels::core::PlatformConfig&,
+                                                     acecode::channels::core::ChannelStore&) {
+                auto transport = std::make_shared<acecode::channels::core::test::FakeTransport>(platform);
+                std::lock_guard<std::mutex> lock(channel_mu);
+                channel_transports.push_back(transport);
+                return transport;
+            };
+            channel_services.validate_credentials = [](const std::string&, const json& credentials,
+                                                       std::string* error) {
+                if (credentials.value("token", std::string{}) == "bad:token") {
+                    *error = "Token 无效";
+                    return json(nullptr);
+                }
+                return credentials;
+            };
+            channel_host = std::make_unique<acecode::channels::core::ChannelHost>(
+                tmp_dir / "channels", std::move(channel_services));
+            wdeps.channel_host = channel_host.get();
+        }
         server = std::make_unique<acecode::web::WebServer>(std::move(wdeps));
+        *channel_broadcast = [srv = server.get()](const std::string& type, const json& payload) {
+            srv->broadcast_local_event(type, payload);
+        };
         server_thread = std::thread([this] { server->run(); });
 
         // 等 server 监听就绪 — 用 cpr 探活到 /api/health 通为止,最多 3s
@@ -783,6 +827,7 @@ struct WebServerFixture {
               true) {}
 
     ~WebServerFixture() {
+        if (channel_host) channel_host->stop();
         if (server) server->stop();
         if (server_thread.joinable()) server_thread.join();
 
@@ -791,7 +836,9 @@ struct WebServerFixture {
         // while its project/checkpoint directories still exist; deleting the
         // fixture tree first races those terminal writes and can crash during
         // member destruction.
+        *channel_broadcast = nullptr;
         server.reset();
+        channel_host.reset();
         if (task_suggestions) task_suggestions->shutdown();
         task_suggestions.reset();
         client.reset();
@@ -2244,6 +2291,122 @@ TEST(WebServerHttp, SessionListMarksOnlyRemoteControlBoundSession) {
     for (const auto& session : json::parse(unbound.text)) {
         EXPECT_FALSE(session.value("remote_control_bound", true));
     }
+}
+
+// 场景:远程 Web 代理转发进来的请求(源地址 127.0.0.2)带着正确 token 访问消息通道接口。
+// 期望:返回 403,不泄露任何通道配置;本机直连照常 200。
+TEST(WebServerHttp, ChannelRoutesRejectNonLocalClients) {
+    WebServerFixture fx;
+    fx.channel_host->start();
+    const auto remote = cpr::Get(cpr::Url{fx.url("/api/channels")},
+                                 cpr::Header{{"X-ACECode-Token", "smoke-token"}},
+                                 cpr::Interface{"127.0.0.2"}, cpr::Timeout{3000});
+    if (remote.status_code == 0) GTEST_SKIP() << "本机不能以 127.0.0.2 为源地址发起连接: " << remote.error.message;
+    EXPECT_EQ(remote.status_code, 403) << remote.text;
+    EXPECT_EQ(json::parse(remote.text).value("error", ""), "LOCAL_ONLY");
+    EXPECT_EQ(remote.text.find("platforms"), std::string::npos);
+    const auto local = cpr::Get(cpr::Url{fx.url("/api/channels")});
+    ASSERT_EQ(local.status_code, 200) << local.text;
+    EXPECT_EQ(json::parse(local.text)["platforms"].size(), acecode::channels::core::platform_specs().size());
+}
+
+// 场景:设置页保存 Telegram token、打开再关闭开关;以及各种错误请求。
+// 期望:返回的快照只含 token 尾号;打开立即连接(假传输层被启动),关闭立即断开;
+// 校验失败的凭据不保存;非法请求体 400、未知平台 404。
+TEST(WebServerHttp, ChannelCredentialsAreMaskedAndToggleRoundTrips) {
+    WebServerFixture fx;
+    fx.channel_host->start();
+    const auto platform_of = [](const json& snapshot, const std::string& name) {
+        for (const auto& item : snapshot["platforms"])
+            if (item.value("platform", "") == name) return item;
+        return json(json::object());
+    };
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+
+    const auto bad = cpr::Put(cpr::Url{fx.url("/api/channels/telegram/credentials")}, headers,
+                              cpr::Body{R"({"token":"bad:token"})"});
+    EXPECT_EQ(bad.status_code, 400) << bad.text;
+    EXPECT_EQ(json::parse(bad.text).value("message", ""), "Token 无效");
+
+    const auto saved = cpr::Put(cpr::Url{fx.url("/api/channels/telegram/credentials")}, headers,
+                                cpr::Body{R"({"token":"100:abcdefgh1234"})"});
+    ASSERT_EQ(saved.status_code, 200) << saved.text;
+    EXPECT_EQ(saved.text.find("abcdefgh1234"), std::string::npos);
+    EXPECT_EQ(platform_of(json::parse(saved.text), "telegram").value("credential_hint", ""), "****1234");
+    const auto listed = cpr::Get(cpr::Url{fx.url("/api/channels")});
+    ASSERT_EQ(listed.status_code, 200);
+    EXPECT_EQ(listed.text.find("abcdefgh1234"), std::string::npos);
+
+    const auto enabled = cpr::Post(cpr::Url{fx.url("/api/channels/telegram/enabled")}, headers,
+                                   cpr::Body{R"({"enabled":true})"});
+    ASSERT_EQ(enabled.status_code, 200) << enabled.text;
+    EXPECT_EQ(platform_of(json::parse(enabled.text), "telegram").value("state", ""), "connected");
+    std::shared_ptr<acecode::channels::core::test::FakeTransport> transport;
+    {
+        std::lock_guard<std::mutex> lock(fx.channel_mu);
+        ASSERT_EQ(fx.channel_transports.size(), 1u);
+        transport = fx.channel_transports[0];
+    }
+    EXPECT_EQ(transport->starts, 1);
+
+    const auto disabled = cpr::Post(cpr::Url{fx.url("/api/channels/telegram/enabled")}, headers,
+                                    cpr::Body{R"({"enabled":false})"});
+    ASSERT_EQ(disabled.status_code, 200) << disabled.text;
+    EXPECT_EQ(platform_of(json::parse(disabled.text), "telegram").value("state", ""), "disabled");
+    EXPECT_EQ(transport->stops, 1);
+
+    EXPECT_EQ(cpr::Post(cpr::Url{fx.url("/api/channels/telegram/enabled")}, headers,
+                        cpr::Body{R"({"enabled":"yes"})"}).status_code, 400);
+    EXPECT_EQ(cpr::Put(cpr::Url{fx.url("/api/channels/telegram/credentials")}, headers,
+                       cpr::Body{R"({"password":"x"})"}).status_code, 400);
+    EXPECT_EQ(cpr::Post(cpr::Url{fx.url("/api/channels/wechat/enabled")}, headers,
+                        cpr::Body{R"({"enabled":true})"}).status_code, 404);
+    EXPECT_EQ(cpr::Delete(cpr::Url{fx.url("/api/channels/telegram/access/admin")}).status_code, 400);
+}
+
+// 场景:机主在 Telegram 里发出第一条消息,通道为其新建并绑定一个无项目会话。
+// 期望:会话列表里只有这个会话带 channel_bound:{platform:"telegram"},其它会话不带该字段;
+// remote_control_bound 不受影响(/rc 专属行为只看它)。
+TEST(WebServerHttp, SessionListMarksChannelBoundSessions) {
+    WebServerFixture fx;
+    fx.channel_host->start();
+    const auto other = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                                 cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({})"});
+    ASSERT_EQ(other.status_code, 201) << other.text;
+    const auto other_id = json::parse(other.text).value("session_id", std::string{});
+    auto& telegram = fx.channel_host->platform("telegram");
+    telegram.set_credentials({{"token", "100:abcdefgh1234"}});
+    telegram.set_owner("user:1", "机主");
+    telegram.set_enabled(true);
+    std::shared_ptr<acecode::channels::core::test::FakeTransport> transport;
+    {
+        std::lock_guard<std::mutex> lock(fx.channel_mu);
+        ASSERT_FALSE(fx.channel_transports.empty());
+        transport = fx.channel_transports.back();
+    }
+    transport->inject(acecode::channels::core::test::message(
+        acecode::channels::core::test::private_address("1"), "你好", "m1"));
+    ASSERT_TRUE(acecode::channels::core::test::wait_until([&] { return !fx.channel_host->bound_sessions().empty(); }));
+    const auto bound_id = fx.channel_host->bound_sessions().begin()->first;
+
+    const auto listed = cpr::Get(cpr::Url{fx.url("/api/sessions")});
+    ASSERT_EQ(listed.status_code, 200) << listed.text;
+    bool saw_bound = false;
+    bool saw_other = false;
+    for (const auto& session : json::parse(listed.text)) {
+        const auto id = session.value("id", std::string{});
+        if (id == bound_id) {
+            saw_bound = true;
+            ASSERT_TRUE(session.contains("channel_bound")) << session.dump();
+            EXPECT_EQ(session["channel_bound"].value("platform", ""), "telegram");
+            EXPECT_FALSE(session.value("remote_control_bound", true));
+        } else if (id == other_id) {
+            saw_other = true;
+            EXPECT_FALSE(session.contains("channel_bound"));
+        }
+    }
+    EXPECT_TRUE(saw_bound);
+    EXPECT_TRUE(saw_other);
 }
 
 TEST(WebServerHttp, ExportSessionMarkdownUsesSuggestedAndUserSelectedFilename) {

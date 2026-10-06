@@ -1,6 +1,7 @@
 #include "global_session_search.hpp"
 
 #include "session_user_message_search.hpp"
+#include "session_recent_activity.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -172,6 +173,12 @@ struct GlobalSessionSearchService::Impl {
         std::mutex run_mu;
     };
 
+    struct RecentCache {
+        SessionUserMessageFileSignature signature;
+        SessionRecentActivity activity;
+    };
+    std::mutex recent_mu;
+    std::unordered_map<std::string, RecentCache> recent_cache;
     GlobalSessionCatalogIndex index;
     std::mutex jobs_mu;
     std::unordered_map<std::string, std::shared_ptr<ContentJob>> jobs;
@@ -248,6 +255,56 @@ void GlobalSessionSearchService::stop() {
         impl_->jobs.clear();
     }
     impl_->index.stop();
+}
+
+GlobalSessionSearchPage GlobalSessionSearchService::recent_user_sessions(std::size_t limit) {
+    impl_->index.attach_request("desktop-agent-office");
+    auto snapshot = impl_->index.snapshot();
+    GlobalSessionSearchPage result;
+    result.progress = snapshot.progress;
+    result.errors = std::move(snapshot.catalog.errors);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    std::lock_guard<std::mutex> lock(impl_->recent_mu);
+    for (auto& entry : snapshot.catalog.entries) {
+        if (entry.meta.archived || !entry.meta.parent_session_id.empty()) continue;
+        if (entry.active && !entry.active->last_user_message_at.empty()) {
+            entry.meta.last_user_message_at = entry.active->last_user_message_at;
+            entry.meta.last_turn_outcome = entry.active->last_turn_outcome;
+        }
+        if (entry.meta.last_user_message_at.empty()) {
+            const auto path = SessionStorage::session_path(entry.project_dir, entry.meta.id);
+            const auto signature = session_user_message_file_signature(path);
+            auto cached = impl_->recent_cache.find(path);
+            if (cached == impl_->recent_cache.end() ||
+                cached->second.signature.mtime != signature.mtime ||
+                cached->second.signature.size != signature.size) {
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    result.progress.complete = false;
+                    continue;
+                }
+                try {
+                    Impl::RecentCache value{signature, read_session_recent_activity(path)};
+                    cached = impl_->recent_cache.insert_or_assign(path, std::move(value)).first;
+                } catch (const std::exception& error) {
+                    result.errors.push_back({entry.project_dir, entry.workspace_hash,
+                                             "recent-user-message", error.what()});
+                    continue;
+                }
+            }
+            entry.meta.last_user_message_at = cached->second.activity.last_user_message_at;
+            if (entry.meta.last_turn_outcome.empty()) {
+                entry.meta.last_turn_outcome = cached->second.activity.last_turn_outcome;
+            }
+        }
+        if (!entry.meta.last_user_message_at.empty()) result.entries.push_back(std::move(entry));
+    }
+    std::sort(result.entries.begin(), result.entries.end(), [](const auto& a, const auto& b) {
+        if (a.meta.last_user_message_at != b.meta.last_user_message_at)
+            return a.meta.last_user_message_at > b.meta.last_user_message_at;
+        return a.meta.id < b.meta.id;
+    });
+    if (result.entries.size() > limit) result.entries.resize(limit);
+    return result;
 }
 
 GlobalSessionSearchPage GlobalSessionSearchService::search_sessions(

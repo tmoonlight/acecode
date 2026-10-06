@@ -4159,6 +4159,7 @@ a.ace-thread-link:focus-visible {
 }
 
 .ace-chat-tail-progress {
+  --ace-chat-tail-dot-lift: -3px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4173,14 +4174,15 @@ a.ace-thread-link:focus-visible {
   background: currentColor;
   animation: ace-chat-tail-dot-hop 1.2s ease-in-out infinite;
 }
-.ace-chat-tail-progress > span:nth-child(2) { animation-delay: .2s; }
-.ace-chat-tail-progress > span:nth-child(3) { animation-delay: .4s; }
+.ace-chat-tail-progress > span:nth-child(2) { animation-delay: .4s; }
+.ace-chat-tail-progress > span:nth-child(3) { animation-delay: .8s; }
 @keyframes ace-chat-tail-dot-hop {
-  0%, 16.667%, 100% { transform: translateY(0); }
-  8.333% { transform: translateY(-3px); }
+  0%, 33.333%, 100% { transform: translateY(0); }
+  16.667% { transform: translateY(var(--ace-chat-tail-dot-lift)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ace-chat-tail-progress > span { animation: none; }
+  /* Keep the live-work signal visible without the full bounce amplitude. */
+  .ace-chat-tail-progress { --ace-chat-tail-dot-lift: -1.5px; }
 }
 
 /* hover actions on chat messages (复制 / 分叉) */

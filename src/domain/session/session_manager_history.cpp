@@ -1,4 +1,6 @@
 #include "session_manager.hpp"
+#include "session_recent_activity.hpp"
+#include "turn_timing.hpp"
 #include "session_history_page.hpp"
 #include "utils/logger.hpp"
 #include <filesystem>
@@ -6,13 +8,46 @@
 namespace acecode {
 namespace fs = std::filesystem;
 
+void SessionManager::record_turn_outcome(const std::string& outcome) {
+    if (!is_valid_turn_timing_status(outcome)) return;
+    std::lock_guard<std::mutex> lock(mu_);
+    if (last_turn_outcome_ == outcome) return;
+    last_turn_outcome_ = outcome;
+    update_meta();
+}
+
+void SessionManager::record_recent_activity_locked(const ChatMessage& msg) {
+    if (is_recent_user_message(msg)) {
+        last_user_message_at_ = msg.timestamp.empty() ? SessionStorage::now_iso8601() : msg.timestamp;
+        last_turn_outcome_.clear();
+    } else if (is_turn_timing_message(msg)) {
+        last_turn_outcome_ = decode_turn_timing(msg.metadata.at("turn_timing"))->status;
+    }
+}
+
+void SessionManager::restore_recent_activity_locked(const SessionMeta& persisted_meta) {
+    last_user_message_at_ = persisted_meta.last_user_message_at;
+    last_turn_outcome_ = persisted_meta.last_turn_outcome;
+    if (last_user_message_at_.empty()) {
+        const auto recent = read_session_recent_activity(jsonl_path_);
+        last_user_message_at_ = recent.last_user_message_at;
+        if (last_turn_outcome_.empty()) last_turn_outcome_ = recent.last_turn_outcome;
+    }
+}
+
 void SessionManager::publish_display_snapshot_locked() {
     SessionDisplaySnapshot snapshot{
         pending_title_, title_source_, last_user_summary_, turn_count_,
         last_token_usage_, session_token_usage_, worktree_, swarm_mode_, agent_path_,
+        last_user_message_at_, last_turn_outcome_,
     };
     std::lock_guard<std::mutex> lock(display_mu_);
     display_snapshot_ = std::move(snapshot);
+}
+
+std::string SessionManager::current_summary() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return last_user_summary_;
 }
 
 SessionDisplaySnapshot SessionManager::display_snapshot() const {

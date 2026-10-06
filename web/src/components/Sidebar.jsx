@@ -27,6 +27,7 @@ import BrandLogo from './BrandLogo.jsx';
 import { api } from '../lib/api.js';
 import { sessionWorktreeFromSources } from '../lib/sessionJump.js';
 import { connection } from '../lib/connection.js';
+import { channelBoundLabel, channelBoundPlatform } from '../lib/channelsSettings.js';
 import { tr } from '../i18n/index.js';
 import {
   DESKTOP_CONTEXT_ACTION_EVENT,
@@ -802,6 +803,9 @@ function SessionRow({
   const title = sessionDisplayTitle(s, s.name || '');
   const sessionMarker = sidebarSessionMarker(s);
   const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
+  // 被 QQ / Telegram 会话绑定的会话显示同一个电脑图标;/rc 的专属行为(换绑动画等)仍只看
+  // remoteControlBound(openspec add-desktop-im-channels design D12)。
+  const channelPlatform = remoteControlBound ? '' : channelBoundPlatform(s);
   const hoverDetails = sessionHoverDetails(s);
   const hasHoverDetails = Boolean(hoverDetails);
   const hoverCardId = useId();
@@ -983,6 +987,7 @@ function SessionRow({
       data-desktop-session-title={title || undefined}
       data-desktop-session-archive="true"
       data-remote-control-bound={remoteControlBound ? 'true' : undefined}
+      data-channel-bound={channelPlatform || undefined}
       data-sidebar-pinned-key={pinned ? rowKey || undefined : undefined}
       data-sidebar-pinned-id={pinned ? s.id || undefined : undefined}
       data-sidebar-pinned-workspace={pinned ? pinScope || undefined : undefined}
@@ -1098,7 +1103,7 @@ function SessionRow({
           aria-describedby={hoverCardVisible ? hoverCardId : undefined}
           aria-label={remoteControlBound
             ? tr('remoteControl.connectedSessionAria', { title })
-            : title}
+            : channelPlatform ? `${title},${channelBoundLabel(channelPlatform)}` : title}
           className="ace-sidebar-session-title-button ace-sidebar-tree-content flex min-w-0 w-full items-center gap-1.5 px-0 py-[4.5px] bg-transparent text-left cursor-pointer"
         >
           {remoteControlBound && (
@@ -1108,6 +1113,12 @@ function SessionRow({
               className="text-accent"
               data-remote-control-session-icon="true"
             />
+          )}
+          {channelPlatform && (
+            <span className="inline-flex shrink-0" title={channelBoundLabel(channelPlatform)}
+              data-channel-session-icon={channelPlatform}>
+              <VsIcon name="computer" size={18} className="text-accent" />
+            </span>
           )}
           <SidebarSessionTitle title={title} />
         </button>
@@ -1144,12 +1155,7 @@ function SessionRow({
               e.stopPropagation();
               onTogglePin?.(s, !pinned);
             }}
-            className={clsx(
-              'ace-session-pin-btn ace-sidebar-row-hover-action w-[18px] h-7 rounded items-center justify-center shrink-0 transition text-fg-mute hover:text-fg hover:bg-surface-hi',
-              pinned
-                ? 'flex'
-                : 'hidden group-hover:flex group-focus-within:flex',
-            )}
+            className="ace-session-pin-btn ace-sidebar-row-hover-action w-[18px] h-7 rounded items-center justify-center shrink-0 transition text-fg-mute hover:text-fg hover:bg-surface-hi hidden group-hover:flex group-focus-within:flex"
             title={pinned ? '取消置顶' : '置顶'}
             aria-label={pinned ? '取消置顶' : '置顶'}
           >

@@ -101,10 +101,11 @@ run('tail button reuses session status without changing visibility or navigation
   assert.match(button, /: <VsIcon name="ArrowDown" size=\{18\} \/>/);
 });
 
-run('tail progress dots animate left to right and respect reduced motion', () => {
+run('tail progress dots keep a lower-amplitude live signal under reduced motion', () => {
   const styles = source('styles/globals.css');
   assert.match(styles, /\.ace-chat-tail-progress > span\s*\{[^}]*background: currentColor;[^}]*animation: ace-chat-tail-dot-hop 1\.2s ease-in-out infinite;/);
-  assert.match(styles, /\.ace-chat-tail-progress > span:nth-child\(2\)\s*\{ animation-delay: \.2s;/);
-  assert.match(styles, /\.ace-chat-tail-progress > span:nth-child\(3\)\s*\{ animation-delay: \.4s;/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.ace-chat-tail-progress > span\s*\{ animation: none;/);
+  assert.match(styles, /\.ace-chat-tail-progress > span:nth-child\(2\)\s*\{ animation-delay: \.4s;/);
+  assert.match(styles, /\.ace-chat-tail-progress > span:nth-child\(3\)\s*\{ animation-delay: \.8s;/);
+  assert.match(styles, /\.ace-chat-tail-progress\s*\{ --ace-chat-tail-dot-lift: -1\.5px;/);
+  assert.doesNotMatch(styles, /\.ace-chat-tail-progress > span\s*\{ animation: none;/);
 });

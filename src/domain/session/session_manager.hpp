@@ -33,6 +33,8 @@ struct SessionDisplaySnapshot {
     WorktreeSessionInfo worktree;
     std::string swarm_mode;   // "" = off
     std::string agent_path;   // mesh child path; empty for roots
+    std::string last_user_message_at;
+    std::string last_turn_outcome;
 };
 
 class SessionManager {
@@ -275,6 +277,7 @@ public:
     TokenUsage current_last_token_usage() const;
     TokenUsage current_session_token_usage() const;
     int current_turn_count() const;
+    void record_turn_outcome(const std::string& outcome);
 
     // Append one model-invisible diagnostic record to the active session's
     // trajectory sidecar. timestamp_ms <= 0 uses the current system clock.
@@ -290,6 +293,8 @@ public:
     std::string current_trajectory_path() const;
 
 private:
+    void record_recent_activity_locked(const ChatMessage& msg);
+    void restore_recent_activity_locked(const SessionMeta& persisted_meta);
     void publish_display_snapshot_locked(); // mu_ held; display_mu_ is a leaf lock.
     bool ensure_created();  // Lazy creation of session files on first message
     // 追加一条不含可搜索用户文本的记录(检查点 / 净差异等),并同步推进用户消息
@@ -338,6 +343,8 @@ private:
     int message_count_ = 0;
     int turn_count_ = 0;
     std::string last_user_summary_;
+    std::string last_user_message_at_;
+    std::string last_turn_outcome_;
     std::string created_at_;
     std::string pending_title_;
     std::string title_source_;

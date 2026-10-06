@@ -87,6 +87,7 @@ std::uint64_t EventDispatcher::emit(SessionEventKind kind, nlohmann::json payloa
     {
         std::lock_guard<std::mutex> lk(mu_);
         evt.seq = ++seq_counter_;
+        activity_.apply(evt);
         if (options.buffered) {
             push_to_buffer(evt, options.coalesce_key);
         }
@@ -276,6 +277,11 @@ void EventDispatcher::unsubscribe_impl(SubscriptionId id, bool wait) {
         }
     }
     // Captured resources and queued payloads are released outside mu_.
+}
+
+nlohmann::json EventDispatcher::activity_snapshot() const {
+    std::lock_guard<std::mutex> lock(mu_);
+    return activity_.snapshot();
 }
 
 std::size_t EventDispatcher::listener_count() const {

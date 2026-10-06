@@ -43,7 +43,7 @@ import {
   taskStatsParts,
   taskStatusLabel,
 } from '../lib/subagentTasks.js';
-import { VsIcon } from './Icon.jsx';
+import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 
@@ -88,6 +88,7 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
       </div>
       {stats.length > 0 && (
         <div className="text-[11px] text-fg-mute truncate" title={stats.join(' · ')}>
+          {task.lastTool && <ToolSummaryIcon tool={task.lastTool} ok className="inline-flex align-middle mr-1" />}
           {stats.join(' · ')}
         </div>
       )}

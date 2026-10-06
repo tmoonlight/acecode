@@ -130,6 +130,24 @@ try {
     await button.waitFor();
     await settle();
   };
+  // Observe the live animation clock, without pausing or seeking keyframes.
+  const observeDotMotion = () => dots.evaluateAll(async nodes => {
+    const samples = [];
+    const start = performance.now();
+    while (performance.now() - start < 2600) {
+      await new Promise(requestAnimationFrame);
+      samples.push(nodes.map(node => new DOMMatrixReadOnly(getComputedStyle(node).transform).m42));
+    }
+    return {
+      reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+      names: nodes.map(node => getComputedStyle(node).animationName),
+      ranges: nodes.map((_, index) => {
+        const values = samples.map(sample => sample[index]);
+        return Math.max(...values) - Math.min(...values);
+      }),
+      frames: samples.length,
+    };
+  });
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/scroll-fixture`);
   await page.locator('[data-chat-row="true"]').last().waitFor();
   await settle();
@@ -177,9 +195,16 @@ try {
   const runningBox = await button.boundingBox();
   check('running indicator preserves the button position and size',
     ['x', 'y', 'width', 'height'].every(key => Math.abs(idleBox[key] - runningBox[key]) < 1), { idleBox, runningBox });
+  for (const reducedMotion of [null, 'no-preference', 'reduce']) {
+    await page.emulateMedia({ reducedMotion });
+    const motion = await observeDotMotion();
+    check(`dots advance in real time with ${reducedMotion || 'system'} motion preference`,
+      motion.frames > 10 && motion.ranges.length === 3 && motion.ranges.every(range => range > 1), motion);
+  }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const animation = await dots.evaluateAll(nodes => ({
     delays: nodes.map(node => getComputedStyle(node).animationDelay),
-    samples: [100, 300, 500].map(time => nodes.map(node => {
+    samples: [200, 600, 1000].map(time => nodes.map(node => {
       const animation = node.getAnimations()[0];
       animation.pause();
       animation.currentTime = time;
@@ -187,7 +212,7 @@ try {
     })),
   }));
   check('dots hop one at a time from left to right',
-    animation.delays.join(',') === '0s,0.2s,0.4s'
+    animation.delays.join(',') === '0s,0.4s,0.8s'
     && animation.samples.every((sample, index) => sample.every((y, dot) => dot === index ? y < -2.9 : Math.abs(y) < .1)), animation);
   await dots.evaluateAll(nodes => nodes.forEach(node => node.getAnimations().forEach(animation => {
     animation.currentTime = 0;
@@ -199,11 +224,12 @@ try {
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await settle();
-  check('reduced motion keeps static dots and a usable button', await button.isEnabled()
-    && await dots.evaluateAll(nodes => nodes.length === 3 && nodes.every(node => getComputedStyle(node).animationName === 'none')));
+  const reducedMotion = await observeDotMotion();
+  check('reduced motion keeps gentle moving dots and a usable button', await button.isEnabled()
+    && reducedMotion.ranges.every(range => range > 1 && range <= 1.5), reducedMotion);
   await button.click();
   await settle();
-  await bottom('clicking static running dots returns to the bottom');
+  await bottom('clicking reduced-motion running dots returns to the bottom');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await away();
   for (const type of ['done', 'error', 'turn_aborted']) {

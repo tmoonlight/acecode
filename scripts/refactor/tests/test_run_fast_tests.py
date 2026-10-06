@@ -2,10 +2,12 @@
 
 不启动真实的单测二进制;gtest 的 XML 用最小样例写到临时目录里解析。
 """
+import io
 import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -123,6 +125,52 @@ class MergeAndBaselineTest(unittest.TestCase):
             self.assertEqual(["Beta.Skips"], diff["skipped_added"])
             self.assertEqual([], diff["skipped_removed"])
             json.dumps(diff)  # 报告必须能直接序列化进记录
+
+
+class ProcessExitTest(unittest.TestCase):
+    def run_fixture(self, exit_code, xml, baseline=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "fake-test-binary"
+            binary.touch()
+            output = root / "report.json"
+            argv = ["run_fast_tests.py", "--binary", str(binary), "--profile", "full",
+                    "--shards", "1", "--iso-root", str(root / "isolated"), "--output", str(output)]
+            if baseline:
+                prior = root / "baseline.json"
+                prior.write_text(json.dumps({"tests": ["Alpha.Fails"], "actual_results": {
+                    "executed": ["Alpha.Fails"], "skipped": [],
+                    "failures": [{"name": "Alpha.Fails", "message": "boom"}]}}), encoding="utf-8")
+                argv.extend(["--baseline", str(prior)])
+
+            def run_process(binary, args, env, cwd, log_path, timeout):
+                (log_path.parent / "results.xml").write_text(xml, encoding="utf-8")
+                return {"exit_code": exit_code, "seconds": 0, "log": str(log_path)}
+
+            listing = mock.Mock(stdout="Alpha.\n  Fails\n")
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.object(sys, "stdout", io.StringIO()), \
+                    mock.patch.object(rft.subprocess, "run", return_value=listing), \
+                    mock.patch.object(rft, "run_process", side_effect=run_process):
+                code = rft.main()
+            return code, json.loads(output.read_text(encoding="utf-8"))
+
+    def test_earlier_repeat_failure_cannot_be_hidden_by_final_passing_xml(self):
+        xml = GTEST_XML.format(suite="Alpha").replace('<failure message="boom"/>', '').replace('failures="1"', 'failures="0"')
+        code, report = self.run_fixture(1, xml)
+        self.assertEqual(1, code)
+        self.assertEqual([], report["actual_results"]["failures"])
+        self.assertEqual(1, report["run_exit_code"])
+
+    def test_timeout_preserves_negative_exit_even_with_previous_xml(self):
+        code, report = self.run_fixture(-1, GTEST_XML.format(suite="Alpha"), baseline=True)
+        self.assertEqual(1, code)
+        self.assertEqual(-1, report["run_exit_code"])
+
+    def test_known_assertion_failure_still_uses_baseline_policy(self):
+        code, report = self.run_fixture(1, GTEST_XML.format(suite="Alpha"), baseline=True)
+        self.assertEqual(0, code)
+        self.assertEqual([], report["comparison"]["failures_new"])
 
 
 if __name__ == "__main__":

@@ -278,6 +278,13 @@ def main() -> int:
     missing = [job["label"] for job in jobs if not job["xml"]]
     actual = merge_results([Path(job["xml"]) for job in jobs if job["xml"]]) if jobs else \
         {"executed": [], "skipped": [], "failures": []}
+    # GTest repeat mode writes only the final iteration to XML, while the
+    # process keeps a failure exit from any earlier iteration. Crashes/timeouts
+    # can also leave a previous XML behind. Only ordinary assertion failures
+    # represented in this process's XML may use the known-baseline allowance.
+    unexpected_exits = [job for job in jobs if job["exit_code"] != 0 and
+                        (job["exit_code"] != 1 or not job["xml"] or
+                         not parse_xml(Path(job["xml"]))["failures"])]
     report = {
         "schema": 1,
         "tests": tests,
@@ -292,7 +299,7 @@ def main() -> int:
         "jobs": jobs,
         "wall_seconds": wall,
         "shards_wall_seconds": shards_wall,
-        "run_exit_code": max([job["exit_code"] for job in jobs], default=0),
+        "run_exit_code": next((job["exit_code"] for job in jobs if job["exit_code"] != 0), 0),
         "binary": str(binary),
         "cwd": str(cwd),
         "iso_root": str(iso_root),
@@ -314,7 +321,8 @@ def main() -> int:
         print(f"  {job['label']:>8}: exit={job['exit_code']} {job['seconds']}s")
     for row in actual["failures"]:
         print(f"  FAILED {row['name']}")
-    problems = []
+    problems = [f"{job['label']}: unexplained process exit {job['exit_code']}"
+                for job in unexpected_exits]
     if missing:
         problems.append(f"no XML from: {', '.join(missing)}")
     if comparison:

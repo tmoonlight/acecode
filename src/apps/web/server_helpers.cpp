@@ -7,6 +7,8 @@
 #include "session/session_load_metrics.hpp"
 #include "computer_use/runtime.hpp"
 #include "remote_control_session_event.hpp"
+#include "web/handlers/channels_handler.hpp"
+#include "channels/core/host.hpp"
 #include "session_status_routing.hpp"
 #include "config/saved_models_revision.hpp"
 #include "prompt/context_usage_breakdown.hpp"
@@ -860,6 +862,8 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
     o["model_name"]    = model_name;
     o["model_preset"]  = o["model_name"];
     o["context_window"] = s.context_window;
+    o["last_user_message_at"] = !s.last_user_message_at.empty() ? s.last_user_message_at : (m ? m->last_user_message_at : "");
+    o["last_turn_outcome"] = s.active ? s.last_turn_outcome : (m ? m->last_turn_outcome : "");
     o["deleted"]       = model_deleted;
     o["message_count"] = s.message_count > 0 ? s.message_count : (m ? m->message_count : 0);
     o["turn_count"]    = s.turn_count > 0 ? s.turn_count : (m ? m->turn_count : 0);
@@ -953,6 +957,8 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
     o["summary"]        = m.summary;
     o["created_at"]     = m.created_at;
     o["updated_at"]     = m.updated_at;
+    o["last_user_message_at"] = m.last_user_message_at;
+    o["last_turn_outcome"] = m.last_turn_outcome;
     o["provider"]       = model_deleted ? "" : m.provider;
     o["model"]          = model_deleted ? "" : m.model;
     o["model_name"]     = m.model_preset;
@@ -1276,6 +1282,9 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             !remote_control_session_id.empty() &&
             item.value("id", std::string{}) == remote_control_session_id;
     }
+    // 消息通道(QQ / Telegram)绑定的会话同样显示电脑图标;/rc 专属行为仍只看
+    // remote_control_bound(design D12)。
+    if (deps.channel_host) annotate_channel_bound(arr, deps.channel_host->bound_sessions());
     if (page_out) *page_out = page;
     return arr;
 }

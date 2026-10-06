@@ -55,7 +55,15 @@ PAGES = {
         '''<p>元素选择可以把目标位置作为上下文加入输入区，按 <kbd>Esc</kbd> 退出选择。添加控制台信息时，引用的是当时的快照，不会自动发送消息，也不会持续同步未来所有日志。</p><p>提交前检查附件或上下文项是否指向正确页面，可以移除无关项。动态页面、跨来源 iframe 和不同操作系统的原生实现存在能力差异；选不到时描述页面和元素位置，并以实际返回信息为准。</p><p>让智能体完成操作后，检查网页结果与必要的应用数据。浏览器动作成功只证明交互执行，不代表业务提交一定成功。连接能力状态可以在<strong>设置 &gt; 工具</strong>检查。</p>''')
 ], ["docs/agent-browser.md", "web/src/components/PreviewDetailsPanel.jsx", "web/src/components/SettingsPage.jsx"]),
 
-"channels": page("通过已经安装的渠道插件把一个 ACECode 会话连接到外部消息平台，或使用手动 Webhook 进行集成。", [
+"channels": page("在设置里直接连接 QQ 与 Telegram，或通过渠道插件、手动 Webhook 把 ACECode 会话接到其他消息平台。", [
+    section("im", "连接 QQ、微信、飞书、钉钉、Telegram、Discord 与 LINE",
+        '''<p>在 <strong>设置 &gt; 集成 &gt; 消息通道</strong> 中直接连接 QQ 官方机器人、微信、飞书、钉钉、Telegram、Discord 与 LINE，不需要安装插件或 Node.js；除 LINE 外都由本机主动连出，不需要公网地址，所有连接都跟随 ACECode 的代理设置。页面上每个平台一张卡片：点<strong>连接</strong>，还没配好的平台会弹出三步向导（创建机器人 → 连接 → 绑定机主），配好的直接连上；连上后按钮变成<strong>取消连接</strong>，点一下立即断开。卡片只显示简要状态和待批准请求，连接失败的原因、群隐私模式、收发计数等细节写在后台进程的日志里（数据目录下 <code>logs/daemon-日期.log</code>，带 <code>[channels/…]</code> 前缀）。</p>''',
+        table(["平台", "配置方式"], [["QQ", "点<strong>连接</strong>后向导直接显示二维码，用手机 QQ 扫码并确认，机器人会自动创建并配置，扫码人成为机主。也可以改为<strong>手动填写 AppID / AppSecret</strong>，保存前会先验证。未经个人认证的机器人只有管理员本人能使用，并且只能加入管理员担任群主的群。"], ["Telegram", "向导第一步说明如何在 @BotFather 创建机器人，粘贴 Token 后会先验证。连上后在“绑定机主”一步用手机相机扫码（Telegram 自带的扫码只能登录设备，扫不了这个），在 Telegram 里点<strong>开始</strong>即成为机主；电脑上登录了 Telegram 也可以直接点链接，或点<strong>复制链接</strong>。"], ["微信", "点<strong>连接</strong>后用微信扫码并在手机上确认，扫码的微信号自动成为机主，也是唯一能使用它的人。微信机器人只支持私聊；登录失效时卡片会提示，重新扫码即可。"], ["飞书", "在飞书开放平台创建企业自建应用、添加机器人能力并开通 im:message 等权限，填入 App ID 与 App Secret（可选飞书或 Lark）。连上之后回到开放平台，把订阅方式保存为<strong>使用长连接接收事件</strong>、添加<strong>接收消息 v2.0</strong>事件并发布版本（飞书要求长连接在线时才能保存）。"], ["钉钉", "在钉钉开放平台创建企业内部应用、添加机器人并选择 <strong>Stream 模式</strong>，开通机器人发送消息权限后发布，填入 Client ID 与 Client Secret。"], ["Discord", "在 Discord 开发者后台新建应用，在 Bot 页复制 Token 并打开 <strong>Message Content Intent</strong>，粘贴 Token 后用向导给出的邀请链接把机器人拉进服务器。私信与频道里 @机器人 都能用。"], ["LINE", "在 LINE Official Account Manager 建官方账号并启用 Messaging API，填入 Channel ID 与 Channel secret；在控制台打开 Use webhook、关闭自动回应。LINE 只能回调公网地址：公网地址留空时 ACECode 用 cloudflared 自动建立临时隧道（先用 <code>winget install --id Cloudflare.cloudflared</code> 安装），也可以填写自己的 HTTPS 地址。"]]),
+        '''<p>默认拒绝所有人。陌生人私聊只会收到配对提示，平台卡片上出现待批准请求（Desktop 窗口不在前台时弹出系统通知），请求 10 分钟后失效。群要先批准，群里只处理 @机器人 的消息，群成员也要单独批准。飞书、钉钉、Discord、LINE 连上后，向导会给出 6 位绑定码，私聊机器人发送这串数字即成为机主（10 分钟内有效，只能用一次）。飞书和钉钉会把每条消息随机交给同一应用的某一个连接，同一个应用不要再同时接到别的工具上，否则会悄悄分走一部分消息。在卡片的<strong>管理</strong>里可以更换机器人或撤销授权；撤销会立即停止处理对方的消息，并中止其会话正在进行的回合。</p>''',
+        table(["在聊天中发送", "作用"], [["<code>/help</code>", "列出可用命令。"], ["<code>/status</code>", "查看会话、位置、模型、是否忙碌和待处理事项。"], ["<code>/stop</code>", "停止当前回合。"], ["<code>/new</code>", "在当前会话所在的位置新建会话。"], ["<code>/sessions</code>、<code>/resume 编号</code>", "列出并切换会话；机主可以切到任意会话，其他人只能切换自己创建的会话。"], ["<code>/model 名称</code>", "从下一回合起切换模型。"], ["<code>/approve 编号</code>、<code>/deny 编号</code>、<code>/aq</code>", "处理权限请求与提问，与 Desktop 先答者生效。"]]),
+        '''<p>每个私聊（或群里的每位成员）绑定一个 ACECode 会话，第一条消息会自动新建无项目会话并使用默认权限。被绑定的会话在侧栏显示电脑图标；在 Desktop 里向它输入时，回复也会发到聊天。图片和文件会导入会话附件，QQ 语音使用平台识别出的文字。通道由后台进程托管：在“常规”中勾选“退出 ACECode 后继续运行后台进程”时，关闭 Desktop 后通道仍然在线。</p>''',
+        note("关于 QQ 回复额度", "QQ 对每条消息的被动回复有次数与时间限制。超出后 ACECode 改发主动消息；仍被拒绝时先暂存，等对方下一条消息时补发。暂存只在内存里，后台进程重启会丢失，但会话记录完整。")),
+
     section("configure", "准备并连接消息渠道",
         '''<p>先按渠道插件的说明安装它的可执行程序、完成平台认证并取得 manifest 文件。ACECode 使用 <code>remote_control.channels</code> 保存插件配置，使用 <code>remote_control.default_channel</code> 指定默认渠道。只输入消息平台名称不会自动安装插件。</p>''',
         code('{\n  "remote_control": {\n    "default_channel": "my-channel",\n    "channels": {\n      "my-channel": {\n        "manifest_path": "/absolute/path/to/channel-plugin.json",\n        "timeout_ms": 10000,\n        "settings": {}\n      }\n    }\n  }\n}', "JSON · 合并到主配置，路径与 settings 按插件说明填写"),
@@ -68,7 +76,7 @@ PAGES = {
     section("manage", "查看状态、解绑与手动接入",
         code("/rc show\n/rc off", "在 ACECode 会话中查看状态与解除绑定"),
         '''<p>show 展示当前连接、入站与出站状态，内容可能包含认证信息，不要直接公开截图。off 解除当前绑定。daemon 托管模式会保存绑定会话并在后续启动时尝试恢复，单纯关闭桌面窗口不等于主动解绑。</p><p>手动集成使用 <code>/remote-control on</code> 启动本地入站服务，再通过 <code>/remote-control url &lt;webhook-url&gt;</code> 指定出站地址。入站使用 <code>POST /rc/send</code>、<code>X-ACECode-RC-Token</code> 请求头和 <code>{"text":"消息"}</code> 正文；按 show 的实际地址接入。</p><p>远程消息控制与<a href="web.html#remote">远程 Web</a>是两套入口，认证头与端口也不同。需要实现自己的渠道时，参见<a href="extension-development.html#channel">渠道插件协议</a>。</p>''')
-], ["src/base/config/config.hpp", "src/apps/tui/commands/remote_control_command.cpp", "src/host/remote_control/session_channel_binder.cpp", "docs/channel-plugin-protocol.md"]),
+], ["src/base/config/config.hpp", "src/apps/tui/commands/remote_control_command.cpp", "src/host/remote_control/session_channel_binder.cpp", "docs/channel-plugin-protocol.md", "docs/channels.md", "src/host/channels/core/host.cpp", "web/src/components/ChannelsSettings.jsx"]),
 
 "examples": page("用四个完整流程练习把目标、范围、执行和验证连在一起。示例提示可直接修改后使用。", [
     section("new-project", "新项目实战",

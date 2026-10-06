@@ -343,6 +343,29 @@ Loopback requests bypass daemon token auth. Non-loopback requests require `X-ACE
 
 The frontend has pure helpers under [web/src/lib/](web/src/lib) with Node-based tests. Prefer adding data-shaping logic there rather than embedding it directly in components.
 
+### 消息通道(QQ / 微信 / 飞书 / 钉钉 / Telegram / Discord / LINE,openspec add-desktop-im-channels)
+
+用户文档 [docs/channels.md](docs/channels.md),接口 [docs/daemon-api.md](docs/daemon-api.md) 第 19 节。分三层,方向只能向下:`src/adapters/im/<平台>/` 是平台传输层(QQ 官方机器人 v2 网关、微信 iLink 长轮询、飞书长连接、钉钉 Stream、Telegram 长轮询、Discord 网关、LINE webhook),不认识会话;`src/host/channels/core/` 是核心(存储、访问与配对、命令、出站投影、会话路由、平台运行时、宿主);`src/apps/daemon/im_channels.cpp` 装配(worker.cpp 已接近 1000 行上限,装配与 `/rc` 共用的 `rc_session_catalog` 都拆在外面)。WhatsApp(`src/host/channels/*.cpp` 其余文件)不经过这套核心。
+
+- **平台清单只有一张表** `core/platforms.cpp`(`PlatformSpec`:凭据字段与是否密钥 / 可手填、账号字段、群成员身份是否按群隔离、换机器人是否清空机主与授权、机主绑定方式 Scan / Link / Code)。运行时、宿主、Web 接口、快照的 `credentials_public`(非密钥原样、密钥只给尾号)都按这张表走;认识各平台传输层类型的只有 `core/platform_adapters.cpp`(创建传输层、联网校验凭据、扫码流程),测试改地址走 `HostEndpoints`。加平台 = 加一行描述 + 一个 adapters 分支 + `Address::valid` 放行平台名。
+- **机主绑定三种**:QQ / 微信扫码时带出扫码人;Telegram 用 `/start <码>` 链接;飞书、钉钉、Discord、LINE 在连上之后由 `owner-link` 发 6 位一次性绑定码(`AccessControl::issue_owner_pin`,10 分钟、一次有效、码存在期间错 10 次作废),私聊发送这串数字即成为机主,这条消息不进会话。
+- **新代码过 R15 所有权检查(CI `check_ownership --strict --final`):** 不写裸 `std::thread`,线程用 `JoiningThread(&Class::method, this)`;存起来的回调捕获 `lifetime_.ref(*this)`,`LifetimeToken` 声明为最后一个成员、析构函数体先 `stop()`;同步回调用具名捕获,不要 `[&]` / `[this]`。未跟踪的新文件不在 lint 范围里,本地要用临时索引把它们加进去再跑。
+- **锁:** `PlatformRuntime` 的 `ops_mu_` 串行化开关 / 改凭据 / 接管 / 停止,`process_mu_` 让入站处理与断开互斥,`mu_` 只护状态字段;调 `transport->stop()` 时不能持 `mu_`(传输线程的 `on_status` 要拿它)。传输层在自己的锁外回调 `on_status`,快照在本对象锁外读 `transport->status()`,两边不会互锁。
+- **只给本机:** 路由用 `is_trusted_local_client_address`,远程 Web 代理转发进来的 `127.0.0.2` 也是 403;`WebServer::broadcast_local_event` 只推给 `WsConnState::trusted_local` 的连接 —— `channels_bind` 带扫码二维码内容。凭据只回尾号,二维码内容与密钥不写日志。
+- **会话列表 `channel_bound:{platform}`** 由 `sessions_for_workspace` 统一标注,侧栏显示与 `/rc` 相同的电脑图标;`/rc` 的换绑动画等专属行为仍只看 `remote_control_bound`,别把两者合并。
+- **连接后由工作线程为已有绑定恢复出站投影**(`Conversations::restore`),否则重启后在 Desktop 里输入的回复不会发到 IM。QQ 换 AppID 时清空机主与授权名单(用户 openid 按机器人隔离),并丢弃旧机器人下的绑定。
+- **QQ:** 全进程单调 `msg_seq`;被动回复额度按入站 msg_id 记账,被拒先降级主动消息,再被拒才暂存(只在内存,下一条入站时先补发);Markdown 被拒后改纯文本且不再尝试;超过直传上限的文件改发文字说明。扫码协议见 `qq_bind.hpp` 文件头(腾讯 connector 无开源许可,只参照协议)。
+- **Telegram:** update offset 存 `state.json` 游标,重启不重复处理;409 分 webhook(等用户在页面确认移除)与另一个轮询方(60 秒后重试)两种。
+- **Telegram 在 getMe 成功后就置已连接**,不要改回等第一次长轮询返回 —— 没有新消息时真实平台要等满 25 秒,设置页会一直停在“连接中”。
+- **设置页只给简要状态,细节写日志**(2026-10-05 验收反馈,仿 WorkBuddy「远程通道」):两列卡片、单色聊天图标、「连接 / 取消连接」按钮;没有凭据或没有机主时「连接」打开三步向导(创建机器人 → 连接 → 绑定机主),配好的直接连。失败原因、隐私模式、暂存待补发、绑定与收发计数由 `core/state_log.cpp` 在每次 `publish_state` 比较前后快照写进 daemon 日志(`[channels/<平台>]` 前缀,凭据尾号也不写);入站判定原因(`AccessResult::reason`)、IM 命令、QQ 扫码各阶段与发送回退在各自位置记日志。前端 `channelsSettings.test.js` 有守卫断言页面不渲染这些细节,别加回页面。`ChannelHost::publish_all` 也走 `publish_state`,否则绑定变化不进日志。
+- **微信(iLink)**:凭据全部来自扫码(`weixin_login`,二维码编码 `qrcode_img_content` 而不是 32 位令牌),设置页不能手填,校验只查齐全不联网。轮询游标与每个联系人的 `context_token` 存在 store 的 `values`(`weixin_cursor` / `weixin_context_tokens`,换机器人随 `clear_transport_state` 清掉);主动发送(Desktop 里输入的回复)也要带 context_token。-14 = 登录失效 → Failed 且停止重试,设置页点「连接」直接回到扫码。只有私聊。CDN 媒体 AES-128-ECB,上传结果在响应头 `x-encrypted-param`(`im::HttpResponse::headers` 键已小写)。
+- **钉钉 Stream**:校验 = 取 access token + 试注册一次 Stream(票据丢弃),能分出凭据错 / 应用未发布或没开 Stream 模式。每条入站要 ACK;回复优先用消息带来的 sessionWebhook,过期后走机器人 OpenAPI(要检查 errcode,HTTP 200 也可能失败)。同一应用每条消息只投给随机一个连接,靠核心的按账号文件锁保证只有一个 ACECode 在连。
+- **飞书长连接**:protobuf 帧(`feishu_frame`),每个事件帧都要 ACK,分片按 sum/seq 重组;飞书要求长连接**在线时**才能保存「使用长连接接收事件」,所以机器人未发布 / 未就绪只在 `extra.bot_warning` 里提示、不判校验失败,连接步骤的清单告诉用户回后台保存订阅、加 `im.message.receive_v1` 并发布。`domain`=lark 走 open.larksuite.com,测试经 `HostEndpoints::feishu_base` 覆盖。握手失败的响应头(`Handshake-Status` 等)`WebSocketClient` 拿不到,403 / 连接数超限目前按可重试处理。飞书、钉钉都按集群模式把事件随机分给同一应用的某个连接,同一应用接在别的工具上会被分走消息。
+- **LINE**:唯一要公网回调的平台。回调端口是 `core/line_webhook_server`(独立 Crow 应用,只监听 127.0.0.1,只有 webhook / health / media 三条路由,**绝不复用 daemon 主端口** —— 本机请求在主端口免 token,经隧道进来的也是本机地址);端口第一次由系统分配后存 cursor `line_listen_port` 沿用。公网地址留空 → 起 cloudflared 快速隧道(找不到时 `extra.cloudflared_missing`,设置页提示 winget 安装),每次连接用 PUT 重新登记 webhook;控制台的 Use webhook 只能手动开,没开时停在 Retrying(`extra.webhook_active=false`,设置页给出该做什么)。回复令牌 50 秒内免费用 reply,否则 push(计月额度,额度用完暂存到下一条消息再补发);机器人不能发文件,图片走回调端口的临时链接。
+- **Discord**:校验时 `/applications/@me` 报 Message Content Intent 关着就直接拒绝保存(否则网关 4014);保存时带回 `bot_id` / `application_id`(设置页邀请链接用)。优先 Resume,Identify 每 24 小时有上限,计数经 `on_identify_ledger` 存两个 cursor 跨重启保留;4004 / 4010–4014 停止重试。服务器频道与线程算群,@ 或回复机器人才处理;不 ping @everyone。
+- **Telegram 群隐私模式开启时 @机器人 的消息照常送达**(BotFather 默认即开启,正好符合“群里只处理 @”);关闭后机器人收到群里全部消息,仍只处理 @ 它的。早期 spec 把这条写反了,已更正。
+- 回归:`tests/daemon/im_channels_e2e_test.cpp`(生产装配 + 真实 SessionRegistry / 脚本化模型 + 真实传输层对假平台,覆盖验收清单里不依赖真实账号的部分)、`tests/im/`、`tests/network/websocket_client_test.cpp`、`tests/platform/aes_gcm_test.cpp`、`tests/channels/core/`(核心用内存版 SessionClient 与假传输层,宿主测试含两个宿主争同一把锁;`state_log_test.cpp` 守着日志内容与“不写凭据”)、`tests/web/channels_handler_test.cpp`、`web_server_smoke_test.cpp` 的 `ChannelRoutesRejectNonLocalClients` 等三条,前端 `channelsSettings.test.js` 与 `desktopNotify.test.js`。各平台假服务在 `tests/test_support/im/fake_*_server.hpp`(端到端测试只在用到的用例里创建微信 / 飞书 / 钉钉 / Discord / LINE 假服务,传输层参数经 `ImChannelDeps::tune_services` 调整),所有测试都不连真实平台。
+
 ## Desktop Shell
 
 The desktop shell runs a webview against workspace-local daemon processes. It does not change daemon internals; each daemon still serves one current working directory. Workspace switching currently uses whole-page navigation so browser origin follows the active loopback port.
@@ -580,6 +603,10 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 ### Web UI: 图片附件一律走快照 + 缩略图
 
 **栅格图片不要做成 `@路径` 引用。** 2026-09-04 / 09-20 两次改动让 Desktop 的本地文件全部「只给路径」,连截图也先落 `~/.acecode/composer-files/<uuid>/` 再插 `@路径`;结果输入框和对话记录只剩文件名,服务端又拒收图片引用(`save_attachment_reference`: `image attachments require snapshot data`),模型得先 `bash` 再 `show_image` 才看得到图。现在:`composerFileIntake` 把栅格图(`composerImagePresentation.js::isRasterImageMimeType`,不含 SVG)的 File 直接交给 `onMediaFiles` 上传;原生 `materialize_context_items` 对 ≤25 MiB 的栅格图带回字节(超限 / 读失败退回路径,添加不报错),前端经 `nativePickedFileToFile` 还原成带来源路径标记的 File;普通文件与文件夹仍是 `@路径`。对话记录里 `Message.jsx` 的用户气泡把图片部件交给上方 `AttachmentStrip` 渲染缩略图,不进正文的文件名按钮分支(与输入框的图片条对称;只有图片时不画空气泡)。回归:`composerFileIntake.test.js` 的栅格图一组、`composerMessageRendering.test.js`、`tests/desktop/context_items_test.cpp::RasterImagesCarrySnapshotBytes`。
+
+### Web UI: 输入框光标与 Slate 选区同步
+
+用户反馈:光标在行首,中文却打在行末,切换会话后恢复。Chrome 下输入法在 DOM 光标处合成,Slate 却在 compositionend 把文字插到 `editor.selection`;而 Slate 只在节流的 selectionchange 里把 DOM 光标写回选区,并在它认为「拖拽中 / 正在写选区 / 合成中」时整段跳过 —— 拖拽标记残留(dragstart 后没等到 dragend/drop)就会让选区永久过期,直到输入框重新挂载。`RichComposer` 因此在 `compositionstart` 与普通 `keydown` 消费选区前调 `adoptDomSelection`(判定在 `lib/composerDomSelection.js`),Slate 还有未渲染的改动时不采纳:`editor.onChange` 包装置位、`<ComposerRenderSentinel>`(与 Editable 同一次提交的 layout effect)清除,否则会用旧 DOM 撤销刚做的程序化选区。回归:`composerDomSelection.test.js`、`richComposerKeyboard.test.js` 的采纳用例。
 
 ### 其它反馈修复备忘(fix-feedback-0924)
 

@@ -24,6 +24,7 @@ export function groupArchivedSessions(items, {
   query = '',
   workspaceKey = '',
   sortOrder = 'newest',
+  workspaceOrder = [],
 } = {}) {
   const search = String(query).trim().toLowerCase();
   const rows = (Array.isArray(items) ? items : [])
@@ -34,19 +35,29 @@ export function groupArchivedSessions(items, {
       return [sessionDisplayTitle(item, item?.name || ''), workspace.name, workspace.path]
         .some((value) => value.toLowerCase().includes(search));
     });
-  rows.sort((a, b) => {
-    if (a.time === null) return b.time === null ? 0 : 1;
-    if (b.time === null) return -1;
-    return sortOrder === 'oldest' ? a.time - b.time : b.time - a.time;
-  });
   const groups = new Map();
-  for (const { item, workspace } of rows) {
+  for (const row of rows) {
+    const { workspace } = row;
     if (!groups.has(workspace.key)) {
       groups.set(workspace.key, { ...workspace, items: [] });
     }
-    groups.get(workspace.key).items.push(item);
+    groups.get(workspace.key).items.push(row);
   }
-  return [...groups.values()];
+  const order = Array.isArray(workspaceOrder) ? workspaceOrder : [];
+  const ranks = new Map(order.map((key, index) => [key, index]));
+  // The sidebar places no-workspace tasks before workspace folders.
+  ranks.set('__no_workspace__', -1);
+  return [...groups.values()]
+    .sort((a, b) => (ranks.get(a.key) ?? order.length) - (ranks.get(b.key) ?? order.length)
+      || a.key.localeCompare(b.key))
+    .map((group) => ({
+      ...group,
+      items: group.items.sort((a, b) => {
+        if (a.time === null) return b.time === null ? 0 : 1;
+        if (b.time === null) return -1;
+        return sortOrder === 'oldest' ? a.time - b.time : b.time - a.time;
+      }).map(({ item }) => item),
+    }));
 }
 
 export function archivedSessionTarget(item = {}) {

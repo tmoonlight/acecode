@@ -53,6 +53,8 @@ public:
         std::size_t limit,
         const std::string& cursor = {});
 
+    GlobalSessionSearchPage recent_user_sessions(std::size_t limit = 5);
+
     GlobalSessionContentSearchPage search_user_messages_batch(
         const std::string& request_id,
         const std::string& query,

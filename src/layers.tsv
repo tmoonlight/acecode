@@ -33,6 +33,7 @@ module	src/adapters/lsp/	lsp	adapters	28					D1 D2 D15
 module	src/adapters/pa/	pa	adapters	29					D1 D2 D15
 module	src/adapters/provider/	provider	adapters	30					D1 D2 D15
 module	src/adapters/tool/	tool	adapters	31					D1 D2 D15
+module	src/adapters/im/	im	adapters	32					add-desktop-im-channels: QQ / Telegram transports
 module	src/engine/tool_preamble/	tool_preamble	engine	40					D1 D2 D15
 module	src/engine/prompt/	prompt	engine	41					D1 D2 D15
 module	src/engine/agent/	agent	engine	42					D1 D2 D15

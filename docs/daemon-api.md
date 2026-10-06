@@ -138,6 +138,8 @@ Session list endpoints return arrays of objects shaped like:
   "swarm_mode": "off",
   "created_at": "2026-07-04T01:23:45Z",
   "updated_at": "2026-07-04T01:25:00Z",
+  "last_user_message_at": "2026-07-04T01:24:00Z",
+  "last_turn_outcome": "completed",
   "provider": "openai",
   "model": "gpt-4.1",
   "model_name": "work-gpt",
@@ -168,7 +170,11 @@ Session list endpoints return arrays of objects shaped like:
 ```
 
 Some fields are omitted when empty, especially `worktree`, `todos`, and token
-usage. For a managed-worktree session, top-level `cwd` intentionally remains
+usage. `remote_control_bound` is `true` only for the session bound by `/rc`.
+A session bound by an IM channel conversation (QQ / Telegram, section 19) also
+carries `"channel_bound": {"platform": "qq"}`; unbound sessions omit the field.
+The sidebar shows the same computer icon for either, but `/rc`-specific
+behavior keys only on `remote_control_bound`. For a managed-worktree session, top-level `cwd` intentionally remains
 the workspace/session-storage root. `worktree.path` is the active absolute
 working root used by file, Git, LSP, and path-reference surfaces.
 
@@ -272,6 +278,7 @@ update their transcript presentation.
 | GET | `/api/pinned-sessions/order` | read global cross-scope pin order |
 | PUT | `/api/pinned-sessions/order` | set global cross-scope pin order |
 | GET | `/api/sessions` | compatibility session list |
+| GET | `/api/desktop-office?session=<id>&workspace=<hash>` | recent five offices and selected root/agent runtime snapshot |
 | GET | `/api/session-search/sessions?q=...&limit=N&cursor=...&request_id=...` | incremental global session catalog page |
 | GET | `/api/session-search/user-messages?q=...&limit=N&request_id=...` | advance one bounded visible-user-message search batch |
 | POST | `/api/session-search/requests/:request_id/cancel` | cancel/pause an incremental global search |
@@ -442,6 +449,14 @@ update their transcript presentation.
 | POST | `/api/pty/:id/resize` | resize PTY |
 | POST | `/api/pty/:id/title` | set PTY title |
 | PUT | `/api/console/config` | write console shell config |
+| GET | `/api/channels` | IM channel snapshots (QQ, WeChat, Feishu, DingTalk, Telegram, Discord, LINE); local clients only |
+| POST | `/api/channels/:platform/enabled` | connect or disconnect a channel immediately |
+| PUT | `/api/channels/:platform/credentials` | validate, then save channel credentials |
+| POST / DELETE | `/api/channels/:platform/bind` | start or cancel scan-to-configure (QQ, WeChat) |
+| POST | `/api/channels/:platform/owner-link` | one-time owner link (Telegram) or 6-digit owner code (Feishu, DingTalk, Discord, LINE) |
+| POST | `/api/channels/telegram/remove-webhook` | remove a Telegram webhook after confirmation |
+| POST | `/api/channels/:platform/requests/:id/{approve,reject}` | decide a pairing request |
+| DELETE | `/api/channels/:platform/access/:principal` | revoke a contact or group |
 
 `POST /api/config/model-order` requires authentication and a complete permutation of
 the current model names returned by `GET /api/models`. Legacy profiles belonging
@@ -544,6 +559,32 @@ disabled, the write is silently ignored.
 ---
 
 ## 5. Workspaces and Sessions
+
+### `GET /api/desktop-office?session=<id>&workspace=<hash>`
+
+只读桌面办公室快照，使用通用鉴权/CORS，响应 `Cache-Control: no-store`。
+`session` 与 `workspace` 可省略；默认选最近办公室。选择子会话时返回它所属的根办公室。
+显式选择不存在或已归档会话返回 `404`，并在可用时附带当前 `offices`。
+
+```json
+{
+  "offices": [{"id":"root","workspace_hash":"abc123","title":"Review", "last_user_message_at":"2026-10-06T10:00:00Z"}],
+  "selected": {"id":"root","active":true,"status":"idle","last_turn_outcome":"completed","activity":{"known":true,"busy":false,"outcome":"completed","phase":"","tool":"","seq":42}},
+  "agents": [{"id":"root"}],
+  "complete": true,
+  "connected": true
+}
+```
+
+`offices` 最多五个：跨工作区按 `last_user_message_at` 降序，排除归档、子会话和没有真实用户输入的会话。打开会话、模型输出、隐藏提示及 agent 间消息不推进此时间；旧记录从 JSONL 逆向读取后缓存。目录或旧记录仍在加载时 `complete=false`，客户端可继续读取；空目录返回空数组及 `selected:null`。分叉继承保留消息的原始时间。
+
+`selected` 和 `agents` 只传身份、标题、所属工作区、真实状态和当前上下文用量等展示字段；不含输入草稿、原始工具参数、工具输出或历史正文（下文 `activity.detail` / `activity.text` 两个有界展示片段除外）。`agents` 包含根会话和当前 daemon 已装载的直属/网状子会话；网状子会话的 `parent_session_id` 是树根，`agent_path` 保留实际层级。已成功结束的子会话可仍出现在原始快照中，由桌宠投影立即离座。标题/摘要限 240 UTF-8 字节。
+
+运行中条目的 `activity` 来自事件分发器维护的紧凑状态，不依赖有限的重放缓冲：`known`、`busy`、`turn_id`、`outcome`、`phase`、`label`、`tool`、`detail`、`text`、`seq`、`compact_id`、`transfers`。待授权/待回答优先于工具和模型阶段；`outcome` 保留 `completed`/`aborted`/`error` 差别。`transfers` 最多保留 16 个带序号的 agent 间交接标识，不含消息内容。持久化 `last_turn_outcome` 使恢复后的完成主会话继续显示睡眠状态。
+
+流式正文会把 `phase` 置为 `responding`（默认「用于编程」模式下服务端不发该进度，由 token 事件推断），推理片段对应 `reasoning`，`text` 是本段正文或推理最后不超过 160 UTF-8 字节的尾巴，换阶段或开始工具调用即清空；`detail` 是正在运行工具的一行调用预览（`display_override`，为空时取 `command_preview`），最多 120 字节，工具结束清空。桌宠页面在两次快照之间直接用 WebSocket 的 `token` / `reasoning` 事件按 `seq` 叠加实时文字（约 150ms 节流），快照追上后以快照为准。
+
+`token_usage` 是最近请求上下文统计，配合 `context_window` 计算文件堆厚度；未知窗口不伪造比例。休眠会话可通过已有 model 端点补充窗口大小。该端点不会发起模型请求或改变会话运行状态。
 
 ### `GET /api/workspaces`
 
@@ -5458,7 +5499,7 @@ discarded. The original history remains available.
 
 The daemon also hosts the optional WhatsApp channel runtime. Its control plane
 is a separate private loopback listener, not a route on this Web API. See
-[WhatsApp channels](channels.md) for standalone CLI configuration and management. The descriptor
+[WhatsApp channels](channels.md#whatsapp) for standalone CLI configuration and management. The descriptor
 `channels/whatsapp/owner.json` in the ACECode data directory contains protocol
 version 1, PID, port and an owner token. `POST /channels` requires the
 `X-ACECode-Channels-Token` header even on loopback and rejects browser Origin
@@ -5482,6 +5523,167 @@ in `config.json` are independent of owner-written `state.json`, including writes
 from older binaries. Explicit CLI runtime commands never start
 a missing host. `acecode channels status` can read saved settings without one;
 its `host_running` field distinguishes offline configuration from a live owner.
+
+## 19. IM Channels (QQ, WeChat, Feishu, DingTalk, Telegram, Discord, LINE)
+
+`openspec add-desktop-im-channels`. The daemon hosts native channels for QQ
+(official bot, API v2 WebSocket gateway), WeChat (`weixin`, Tencent iLink bot,
+long polling), Feishu / Lark (`feishu`, long-connection WebSocket), DingTalk
+(`dingtalk`, Stream mode), Telegram (Bot API long polling), Discord (gateway
+WebSocket) and LINE (`line`, Messaging API webhooks through a dedicated local
+listener). Platform names in paths are exactly these keys. Each platform keeps
+its data under `<data_dir>/channels/<platform>/`: `config.json`
+(enabled flag, credentials, owner, approved contacts and groups; written only by
+these endpoints, owner-only permissions) and `state.json` (session bindings,
+sessions created per IM conversation, de-duplication receipts, Telegram update
+offset). A corrupt file blocks that platform with state `error`; it is never
+reset silently. WhatsApp (section 18) is unaffected and is not managed here.
+
+All routes accept only direct local clients. Requests forwarded by the remote
+Web proxy (source `127.0.0.2`) or from any other address return
+`403 {"error":"LOCAL_ONLY"}` even with a valid token. Errors use
+`{"error": CODE, "message": text}`: `400 CHANNEL_ERROR` or `BAD_REQUEST`
+(messages are user-facing Chinese text without credentials),
+`404 UNKNOWN_PLATFORM`, and `503 UNAVAILABLE` when the daemon has no channel host.
+Mutating routes return the full `GET /api/channels` snapshot unless noted.
+
+### `GET /api/channels`
+
+```json
+{
+  "platforms": [
+    {
+      "platform": "telegram",
+      "configured": true,
+      "enabled": true,
+      "state": "connected",
+      "detail": "",
+      "retry_stopped": false,
+      "account": "123456",
+      "display_name": "@ace_bot",
+      "extra": {"username": "ace_bot", "privacy_mode": true, "link": "https://t.me/ace_bot"},
+      "credential_hint": "****wxyz",
+      "owner": "user:42",
+      "contacts": [
+        {"principal": "user:42", "kind": "user", "name": "Me", "owner": true, "approved_at_ms": 1790000000000}
+      ],
+      "pending": [
+        {"id": "a1b2c3d4", "kind": "user", "name": "Alice", "principal": "user:7",
+         "label": "Telegram 私聊", "expires_in_s": 512}
+      ],
+      "owner_window": false,
+      "bindings": [
+        {"key": "[\"telegram\",\"123456\",\"private\",\"42\"]", "label": "Telegram 私聊",
+         "chat": "42", "sender": "42", "session_id": "sid", "no_workspace": true,
+         "cwd": "...", "workspace_hash": "", "sent": 3, "failed": 0, "dropped": 0}
+      ]
+    }
+  ],
+  "binds": {"qq": {"platform": "qq", "phase": "idle"}, "weixin": {"platform": "weixin", "phase": "idle"}}
+}
+```
+
+- `state`: `unconfigured`, `disabled`, `connecting`, `connected`, `retrying`,
+  `failed` (`retry_stopped=true` after authentication failure, ban or another
+  fatal close; turning the switch on again reconnects), `standby` (another
+  ACECode process owns the account lock; `hosted_by_pid` names it, and this
+  process takes over after that owner exits), `stopped`, or `error` (corrupt
+  data files; `detail` gives the reason).
+- `credentials_public` lists the saved credential fields: non-secret values as
+  stored (AppID, Client ID, bot ids, Feishu `domain`, LINE `public_url`) and
+  secrets masked to their last four characters. `credential_hint` is the mask of
+  the platform's first secret field. QQ snapshots also carry `app_id`. QQ `extra`
+  reports `held` (outputs waiting for the contact's next message after the
+  passive and active reply windows were exhausted) and `markdown`.
+- Telegram `extra.webhook=true` means `getUpdates` is blocked by a configured
+  webhook; call `remove-webhook` after the user confirms.
+- Principals are `user:<id>`, `group:<id>`, and `member:<group>:<member>`
+  (only QQ scopes group member ids to the group). On WeChat only private chats
+  exist; on Discord a guild channel (or thread) is the "group".
+- The page shows only a one-line status. Failure reasons, privacy mode, held
+  outputs, bindings and send counts are written to the daemon log under
+  `[channels/<platform>]`.
+
+### `POST /api/channels/:platform/enabled`
+
+Body `{"enabled": true|false}`. The switch persists immediately and connects or
+disconnects without a separate save. Enabling an unconfigured platform returns
+`400`. Disabling keeps credentials, contacts and bindings.
+
+### `PUT /api/channels/:platform/credentials`
+
+Accepted fields per platform: QQ `app_id`, `app_secret`; Feishu `app_id`,
+`app_secret`, `domain` (`feishu` or `lark`); DingTalk `client_id`,
+`client_secret`, `robot_code`; Telegram `token`; Discord `token`; LINE
+`channel_id`, `channel_secret`, `access_token` (optional long-lived token),
+`public_url` (optional). WeChat has no manual credentials (scan only). Values
+are trimmed strings of at most 512 bytes; unknown fields are rejected. An empty
+or missing required field keeps the saved value (the page only knows the masked
+hint); an empty optional field such as `public_url` clears it. The merged
+credentials are validated online first (QQ access-token exchange, Feishu tenant
+token, DingTalk access token, Telegram `getMe`, Discord `/users/@me` plus
+`/applications/@me`, LINE token issue plus `/v2/bot/info`); failure returns
+`400` and saves nothing. Validation may add derived non-secret fields (Discord
+`bot_id` and `application_id`, LINE `bot_id`). On success the platform
+reconnects if it is on. Switching to a different bot account drops bindings of
+the old bot, and on platforms whose user ids are scoped per bot (QQ, WeChat,
+Feishu, DingTalk, LINE) also clears the owner and approved contacts.
+
+### `POST /api/channels/:platform/bind` and `DELETE /api/channels/:platform/bind`
+
+Scan-to-configure for `qq` and `weixin` (other platforms return `404`). Starts
+the flow and returns `{"platform":<p>,"phase":"starting"}`; a second start while
+any scan is running returns `400`. Progress is pushed as `channels_bind` events
+(below). `DELETE` cancels and returns the current bind state. Cancellation,
+failure and timeout leave the existing configuration untouched. On success the
+credentials are saved (QQ: AppID and the locally decrypted AppSecret; WeChat:
+bot token, bot id and API base), the scanning user becomes owner when the
+service reports them (WeChat always does; on QQ otherwise the first private
+sender within 10 minutes does), and the platform turns on.
+
+### `POST /api/channels/:platform/owner-link`
+
+Requires a connected bot and no owner yet. Telegram returns
+`{"link":"https://t.me/<bot>?start=<code>","expires_in_s":600}`; the first user
+who opens the link and sends `/start <code>` becomes owner. Feishu, DingTalk,
+Discord and LINE return `{"code":"123456","expires_in_s":600}`; the first user
+who sends exactly these six digits in a private chat with the bot becomes owner,
+and that message is not passed to a session. Codes are single-use; while a code
+is outstanding, ten wrong six-digit guesses in private chats invalidate all
+outstanding codes. QQ and WeChat return `400` (owners come from scanning).
+
+### `POST /api/channels/telegram/remove-webhook`
+
+Calls Telegram `deleteWebhook` and resumes polling. Only call it after the user
+confirms; it replaces whatever other service registered the webhook.
+
+### `POST /api/channels/:platform/requests/:id/approve|reject`
+
+Decides a pending pairing request (requests expire after 10 minutes; an
+expired or unknown id returns `400`). Approving a private user while the
+platform has no owner makes that user the owner. Approval applies from the
+contact's next message; the message that triggered the request is not replayed.
+
+### `DELETE /api/channels/:platform/access/:principal`
+
+The principal is percent-encoded in the path (for example
+`member%3AG1%3AM1`). Revoking removes it from the approved list (clearing the
+owner if it matches), drops its pending requests, and aborts the running turn
+of every session bound to it.
+
+### WebSocket events
+
+Channel events are sent only to WebSocket connections opened by direct local
+clients, using the envelope `{"type", "timestamp_ms", "payload"}` without a
+session id:
+
+| Type | Payload |
+|---|---|
+| `channels_state` | one platform snapshot, same shape as an item of `platforms` |
+| `channels_bind` | `{"platform":"qq"/"weixin", "phase", "qr_url"?, "refreshes"?, "error"?, "account"?, "owner_bound"?}`; phase is `starting`, `waiting`, `completed`, `failed`, `cancelled` or `timed_out` |
+| `channels_request` | `{"platform","id","kind","name","label"}` for a new pairing request; Desktop shows a system notification |
+
+`qr_url` is the QR code content for the phone; it is never logged.
 
 ## Session loading diagnostics
 

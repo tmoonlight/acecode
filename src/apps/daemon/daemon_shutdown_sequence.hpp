@@ -4,14 +4,14 @@
 
 namespace acecode::daemon {
 enum class DaemonShutdownStep {
-    Channels, RemoteWeb, RemoteControl, ConnectorWorkers, Watchers, LoopScheduler,
+    Channels, ImChannels, RemoteWeb, RemoteControl, ConnectorWorkers, Watchers, LoopScheduler,
     TaskSuggestions, Sessions, SpawnListener, Mcp, Lsp, ModelPool, Heartbeat, RuntimeFiles
 };
 class DaemonShutdownSequence {
 public:
     using Action = std::function<void(DaemonShutdownStep)>;
     void run(const Action& action) noexcept;
-    static const std::array<DaemonShutdownStep, 14>& order();
+    static const std::array<DaemonShutdownStep, 15>& order();
 private:
     bool ran_ = false;
 };

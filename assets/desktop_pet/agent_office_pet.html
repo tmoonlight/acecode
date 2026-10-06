@@ -1,0 +1,1541 @@
+<!doctype html>
+<!-- ACECode 桌面宠物：像素 AI 办公室。源自 agent-office 导出包，由 acecode-desktop 嵌入后
+     用 NavigateToString 加载，窗口透明、置顶、不抢焦点。像素字体 Pixelify Sans 采用 SIL OFL 1.1，见同目录 OFL.txt。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACECode 像素办公室</title>
+<style>
+@font-face{font-family:"Pixelify Sans";font-style:normal;font-weight:400 700;font-display:swap;src:url(data:font/woff2;base64,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) format("woff2");}
+
+:root{--k:1.25;--font:"Pixelify Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",system-ui,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+body{font:12px/1.4 var(--font);-webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none}
+.scene{position:relative;width:100vw;height:100vh}
+.scene canvas{display:block;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none}
+.ov{position:absolute;inset:0;pointer-events:none;line-height:1.4}
+.scene canvas.up{position:absolute;inset:0;image-rendering:auto;pointer-events:none}
+.grip{position:absolute;left:calc(11 / 344 * 100%);top:calc(112 / 252 * 100%);width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;z-index:3}
+.scene:hover .grip{opacity:.95}
+.grip svg{display:block;width:100%;height:100%}
+.zoom-badge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#27324f;color:#fff;font-weight:700;border-radius:6px;padding:2px 9px;font-size:13px;pointer-events:none;z-index:4}
+.bub{position:absolute;left:0;top:0;z-index:2;display:flex;align-items:center;gap:3px;max-width:min(64vw,calc(var(--k) * 150px));background:#fff;color:#1b2540;border:2px solid #27324f;border-radius:6px;padding:1px 6px 2px;font-size:max(10px,calc(var(--k) * 6.2px));font-weight:700;white-space:nowrap;box-shadow:2px 2px 0 rgba(20,24,40,.28)}
+.bub::after{content:"";position:absolute;left:var(--tail,50%);bottom:-6px;width:8px;height:8px;margin-left:-4px;background:inherit;border-right:2px solid #27324f;border-bottom:2px solid #27324f;transform:rotate(45deg)}
+.bub::before{content:"";position:absolute;left:var(--tail,50%);top:100%;width:2px;margin-left:-1px;height:var(--lead,0px);background:#27324f;opacity:.55}
+.bub.bot{background:#e6f4ff;transform:translate(-50%,calc(-100% - 7px))}
+.bub[hidden],.bub-detail[hidden]{display:none}
+.bub-label{flex:0 0 auto;max-width:calc(var(--k) * 96px);overflow:hidden;text-overflow:ellipsis}
+.bub-detail{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:500 1em/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#4d5875}
+.bub.compact .bub-detail{display:none}
+.bub.think{background:#f3f0ff}
+.bub.think .bub-detail{font-style:italic}
+.bub.type{background:#f2fbf4}
+.bub.type .bub-detail{color:#22324f}
+.bub.type .bub-detail::after{content:"\258d";margin-left:1px;color:#2f8f57;animation:office-caret 1s steps(1) infinite}
+.bub.wait{background:#eef4fb}
+.bub.alert{background:#fff1bf}
+.bub.bad{background:#ffe2dc}
+.bub.flash{background:#e6f7e9}
+.bub.picked{outline:2px solid #ffe14d;outline-offset:1px}
+@keyframes office-caret{50%{opacity:0}}
+.tag{position:absolute;transform:translate(-50%,calc(-100% - 8px));background:#ffe27a;color:#3a2a00;border:2px solid #27324f;border-radius:3px;font-size:max(10px,calc(var(--k) * 6px));font-weight:700;padding:0 4px;white-space:nowrap;z-index:3}
+
+:root{--office-paper:#fff9e9;--office-ink:#27324f;--office-line:#a8a6a4;--office-selected:#dce7f6}
+.office-controls{position:absolute;z-index:5;top:calc(var(--k)*2px);left:calc(var(--k)*4px);right:calc(var(--k)*4px);height:calc(var(--k)*26px);display:flex;align-items:center;gap:4px;font:12px/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--office-ink)}
+.office-tabs{display:flex;gap:3px;flex:1;min-width:0}
+.office-tab,.office-follow,.office-overflow{font:inherit;color:inherit;background:var(--office-paper);border:1px solid var(--office-line);border-radius:4px;cursor:pointer;min-width:0;padding:5px 7px;line-height:1.3}
+.office-tab{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.office-tab[aria-selected="true"]{background:var(--office-selected);border-color:#526a91}
+.office-tab:hover,.office-follow:hover,.office-overflow:hover{background:#e6ecf5}
+.office-tab:focus-visible,.office-follow:focus-visible,.office-overflow:focus-visible{outline:2px solid #4378be;outline-offset:1px}
+.office-follow{flex:none;display:flex;align-items:center;gap:4px;white-space:nowrap}
+.office-follow::before{content:"";display:block;width:8px;height:8px;border:1px solid #65738b;border-radius:2px}
+.office-follow[aria-checked="true"]::before{background:#456b9c;border-color:#456b9c}
+.office-notice{position:absolute;left:50%;top:calc(var(--k)*30px);transform:translateX(-50%);max-width:90%;font:11px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--office-ink);background:var(--office-paper);padding:2px 6px;border-radius:3px;z-index:4}
+.office-tool{flex:none;display:block;width:max(12px,calc(var(--k)*8px));height:max(12px,calc(var(--k)*8px))}
+.office-tool[hidden]{display:none}
+.office-overflow{position:absolute;right:calc(var(--k)*13px);bottom:calc(var(--k)*14px);z-index:4}
+.office-members{position:absolute;z-index:6;top:calc(var(--k)*30px);left:8px;right:8px;max-height:65%;overflow:auto;background:var(--office-paper);border:1px solid var(--office-line);border-radius:5px;padding:6px;scrollbar-color:#a8b6c9 var(--office-paper);scrollbar-width:thin}
+.office-members button{display:block;width:100%;background:transparent;border:0;color:var(--office-ink);text-align:left;padding:6px;cursor:pointer;font:12px/1.4 "Segoe UI",sans-serif}
+.office-members button:hover{background:var(--office-selected)}
+@media(max-width:400px){.office-controls{font-size:11px;gap:2px}.office-tab,.office-follow{padding:2px 3px}.office-tabs{gap:2px}.office-follow{gap:2px}.office-follow::before{width:6px;height:6px}}
+@media(max-width:250px){.office-tab,.office-follow{padding:0 1px;line-height:1}.office-follow::before{width:5px;height:5px}}
+@media(prefers-reduced-motion:reduce){.grip{transition:none}.bub.type .bub-detail::after{animation:none}}
+</style>
+</head>
+<body>
+<div class="scene" id="scene">
+  <div class="office-controls" aria-label="办公室切换">
+    <div class="office-tabs" id="officeTabs" role="tablist" aria-label="最近发消息的五个会话"></div>
+    <button class="office-follow" id="officeFollow" type="button" role="switch" aria-checked="true" title="跟随主窗口当前会话">跟随</button>
+  </div>
+  <div class="office-notice" id="officeNotice" role="status">正在连接会话</div>
+  <button class="office-overflow" id="officeOverflow" type="button" hidden></button>
+  <div class="office-members" id="officeMembers" hidden></div>
+  <canvas id="cv" width="344" height="252" aria-label="像素风 AI 办公室，Agent 们在工位上工作"></canvas>
+  <canvas id="up" class="up" hidden></canvas>
+  <div class="ov" id="ov"></div>
+  <div class="grip" id="grip" title="拖动调整大小，双击恢复默认大小"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7L7 2M2 11L11 2M2 15L15 2" stroke="#2b2737" stroke-width="3.4" stroke-linecap="square" fill="none"/><path d="M2 7L7 2M2 11L11 2M2 15L15 2" stroke="#ffffff" stroke-width="1.4" stroke-linecap="square" fill="none"/></svg></div>
+  <div class="zoom-badge" id="zoomBadge" hidden></div>
+</div>
+<script>
+/* AI Agent 像素办公室 —— 纯原生 JS，零依赖，可离线运行
+   ACECode 桌面宠物版：只保留场景画布与气泡层；草地不画（窗口在那里透明），
+   面板 / 按钮 / 花名册 / 事件日志全部去掉，交互改为拖动挪窗口 + 右键原生菜单。 */
+(() => {
+'use strict';
+/* =====================================================================
+   像素 AI 办公室 —— 资源复用思路
+   1. 一个图元 box()：所有家具、墙、机器人都是等距长方体拼出来的
+   2. 一个基色 → 三个面：mat(c) 自动算顶面/左面/右面明暗，换色只改一个值
+   3. 一个像素模板渲染器 pix() + 调色板：小人、图标、数字、信封全靠它
+   4. 小人 = 身体模板 × 调色板换色 × 水平翻转 × 动作补丁 × 配饰补丁
+   5. 一个描边后处理 outline()：所有精灵共用同一套像素描边
+   6. 一个精灵缓存 sprite(key)：同样外观只画一次，场景里无限实例化
+   7. 预制体：工位 = 椅子 + 人 + 桌 + 显示器；双人工位 = 工位 ×2（镜像）+ 隔板
+   ===================================================================== */
+
+/* ---------- 0. 工具 ---------- */
+const T = 8, RW = 88, RD = 72, WALL_H = 40;          // 1 格 = 8 单位，房间 11×9 格
+const VIEW = { w: 344, h: 252, ox: 156, oy: 86 };
+const INK = '#2b2737';                                // 统一描边色
+
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const rng = s => () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const R = rng(20260927);
+const pick = a => a[(R() * a.length) | 0];
+const hash = n => { n = Math.imul(n ^ (n >>> 16), 0x45d9f3b); n = Math.imul(n ^ (n >>> 16), 0x45d9f3b); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+
+const toRGB = h => { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const toHex = a => '#' + a.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, t) => { const A = toRGB(a), B = toRGB(b); return toHex(A.map((v, i) => v + (B[i] - v) * t)); };
+const lite = (c, t) => mix(c, '#ffffff', t), dark = (c, t) => mix(c, '#000000', t);
+const mat = c => typeof c === 'object' ? c : { top: lite(c, .2), left: c, right: dark(c, .17) };
+
+/* ---------- 1. 等距光栅化：一个图元走天下 ---------- */
+const P = (o, x, y, z = 0) => [o.ox + 2 * (x - y), o.oy + x + y - z];
+
+function fillPoly(g, pts, color) {            // 自己扫描线填充，保证 2:1 像素阶梯清晰不糊
+  let y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) { if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
+  g.fillStyle = color;
+  for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
+    const cy = y + .5, xs = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[(i + 1) % pts.length];
+      if ((ay <= cy && by > cy) || (by <= cy && ay > cy)) xs.push(ax + (cy - ay) * (bx - ax) / (by - ay));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const a = Math.round(xs[k]), b = Math.round(xs[k + 1]);
+      if (b > a) g.fillRect(a, y, b - a, 1);
+    }
+  }
+}
+function box(g, o, x, y, z, w, d, h, c) {
+  const m = mat(c);
+  if (h > 0) {
+    fillPoly(g, [P(o, x, y + d, z + h), P(o, x + w, y + d, z + h), P(o, x + w, y + d, z), P(o, x, y + d, z)], m.left);
+    fillPoly(g, [P(o, x + w, y, z + h), P(o, x + w, y + d, z + h), P(o, x + w, y + d, z), P(o, x + w, y, z)], m.right);
+  }
+  fillPoly(g, [P(o, x, y, z + h), P(o, x + w, y, z + h), P(o, x + w, y + d, z + h), P(o, x, y + d, z + h)], m.top);
+}
+const faceX = (g, o, x, y0, y1, z0, z1, c) => fillPoly(g, [P(o, x, y0, z1), P(o, x, y1, z1), P(o, x, y1, z0), P(o, x, y0, z0)], c);
+const faceY = (g, o, y, x0, x1, z0, z1, c) => fillPoly(g, [P(o, x0, y, z1), P(o, x1, y, z1), P(o, x1, y, z0), P(o, x0, y, z0)], c);
+const faceZ = (g, o, z, x0, y0, x1, y1, c) => fillPoly(g, [P(o, x0, y0, z), P(o, x1, y0, z), P(o, x1, y1, z), P(o, x0, y1, z)], c);
+function lineX(g, o, x, y0, y1, z, c) { g.fillStyle = c; for (let y = y0; y < y1; y++) { const [sx, sy] = P(o, x, y, z); g.fillRect(sx - 2, sy, 2, 1); } }
+function vline(g, o, x, y, z0, z1, c) { g.fillStyle = c; for (let z = z0; z < z1; z++) { const [sx, sy] = P(o, x, y, z); g.fillRect(sx - 1, sy, 1, 1); } }
+function lineY(g, o, y, x0, x1, z, c) { g.fillStyle = c; for (let x = x0; x < x1; x++) { const [sx, sy] = P(o, x, y, z); g.fillRect(sx, sy, 2, 1); } }
+
+/* ---------- 2. 描边 + 像素模板 + 精灵缓存 ---------- */
+function outline(cv, col = INK) {
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height;
+  const im = g.getImageData(0, 0, W, H), d = im.data, a = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) a[i] = d[i * 4 + 3] > 0 ? 1 : 0;
+  const [r, gg, b] = toRGB(col);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; if (a[i]) continue;
+    if ((x > 0 && a[i - 1]) || (x < W - 1 && a[i + 1]) || (y > 0 && a[i - W]) || (y < H - 1 && a[i + W])) {
+      const k = i * 4; d[k] = r; d[k + 1] = gg; d[k + 2] = b; d[k + 3] = 255;
+    }
+  }
+  g.putImageData(im, 0, 0);
+}
+function pix(rows, pal, flip = false, ol = true) {
+  const h = rows.length, w = rows[0].length, m = ol ? 1 : 0;
+  const cv = mk(w + 2 * m, h + 2 * m), g = cv.getContext('2d');
+  rows.forEach((row, y) => { for (let x = 0; x < w; x++) { const c = pal[row[x]]; if (!c) continue; g.fillStyle = c; g.fillRect((flip ? w - 1 - x : x) + m, y + m, 1, 1); } });
+  if (ol) outline(cv, pal.ink || INK);
+  return cv;
+}
+const patch = (rows, ps) => {
+  if (!ps) return rows; rows = rows.slice();
+  for (const [i, s] of ps) rows[i] = [...rows[i]].map((ch, k) => (s[k] && s[k] !== '_') ? s[k] : ch).join('');
+  return rows;
+};
+const SPR = new Map(); let blits = 0;
+const sprite = (key, build) => { let s = SPR.get(key); if (!s) { s = build(); SPR.set(key, s); } return s; };
+function isoSprite(key, [x0, y0, x1, y1, h], draw, ol = true) {
+  return sprite(key, () => {
+    const m = 2, sx0 = 2 * (x0 - y1), sx1 = 2 * (x1 - y0), sy0 = x0 + y0 - h, sy1 = x1 + y1;
+    const cv = mk(sx1 - sx0 + 2 * m, sy1 - sy0 + 2 * m), o = { ox: m - sx0, oy: m - sy0 };
+    draw(cv.getContext('2d'), o);
+    if (ol) outline(cv);
+    return { cv, ax: o.ox, ay: o.oy };
+  });
+}
+function blit(c, s, x, y, z = 0) {
+  const [sx, sy] = P(VIEW, x, y, z);
+  c.drawImage(s.cv, Math.round(sx - s.ax), Math.round(sy - s.ay)); blits++;
+}
+
+/* ---------- 3. 小人：1 套模板 × 调色板 × 翻转 × 补丁 ---------- */
+const BODY = {
+  front: [ // 面朝右下（看得见脸）
+    '....hhhhh...',
+    '..hhhhhhhhh.',
+    '.hhhhhhhllhh',
+    '.hhhhhhhhhhh',
+    '.hhhhhhshhsh',
+    '.hhhhsssssss',
+    '.Hhhssessses',
+    '.Hhhssessses',
+    '..Hhsbssssbs',
+    '...HSsssssS.',
+    '.....sss....',
+    '...cwwwwcc..',
+    '..ccccwwcccc',
+    '.ccccccccccc',
+    '.sCccccccccs',
+    '..CCCCCCCC..',
+    '..pppppppp..'],
+  back: [  // 背对镜头（面朝左上）
+    '...hhhhhh...',
+    '..hhhhhhhhh.',
+    '.hhhhllhhhhh',
+    '.hhhhhhhhhhh',
+    '.hhhhhhhhhhh',
+    '.hhhhhhhhhhh',
+    '.hhhhhhhhhhs',
+    '.HhhhhhhhhHs',
+    '..HHhhhhhHS.',
+    '...HHHHHH...',
+    '.....sss....',
+    '...cccccc...',
+    '..cccccccc..',
+    '.cccccccccc.',
+    '.sCccccccCs.',
+    '..CCCCCCCC..',
+    '..pppppppp..'],
+};
+const FRAMES = { // 动作 = 在同一模板上打几行补丁（_ 表示不变）
+  front: {
+    typeA: [[13, '_s__________'], [14, '_C__________']],
+    typeB: [[13, '___________s'], [14, '___________c']],
+    blink: [[6, '______s___s_']],
+  },
+  back: {
+    typeA: [[13, '_s__________'], [14, '_c__________']],
+    typeB: [[13, '__________s_'], [14, '__________C_']],
+  },
+};
+const ACC = { // 配饰 / 发型也是补丁
+  long:    { front: [[8, '.h__________'], [9, '.hh_________'], [10, '.hH_________'], [11, '.hH_________'], [12, '.H__________']],
+             back:  [[9, '.hhHHHHHHhh.'], [10, '..hhhhhhhh..'], [11, '..hHhhhhHh..']] },
+  tie:     { front: [[12, '______r_____'], [13, '______r_____']] },
+  glasses: { front: [[6, '_____g_ggg_g']], back: [[6, '__________g_']] },
+  headset: { front: [[1, '__aaaaaaaaa_'], [5, '__aA________'], [6, '__aA________'], [7, '__aA________'], [8, '____a_______'], [9, '____aa______']],
+             back:  [[1, '__aaaaaaaaa_'], [5, '_a_________a'], [6, '_a_________a']] },
+  cap:     { front: [[0, '....aaaaa...'], [1, '..aaaaaaaaa.'], [2, '.aaaaaaaaaaa'], [3, '________AAAA']],
+             back:  [[0, '...aaaaaa...'], [1, '..aaaaaaaaa.'], [2, '.aaaaaaaaaaa'], [3, '.aaaaaaaaaaa']] },
+
+  // ---- 扩充发型（10 种）：只改头发像素，发色跟着 h / H / l 走 ----
+  ponytail:  { front: [[2, 'a___________'], [3, 'h___________'], [4, 'h___________'], [5, 'h___________'], [6, 'H___________'], [7, 'h___________'], [8, 'Hh__________'], [9, '.H__________']],
+               back:  [[4, '_____aa_____'], [9, '_____hh_____'], [10, '_____hH_____'], [11, '_____hh_____'], [12, '_____H______']] },
+  twintails: { front: [[2, 'a___________'], [3, 'h___________'], [4, 'h___________'], [5, 'h___________'], [6, 'H___________'], [7, 'h___________'], [8, 'Hh__________'], [9, '.H_________a'], [10, '___________h'], [11, '__________hH']],
+               back:  [[3, 'a__________a'], [4, 'h___________'], [5, 'h___________'], [6, 'H___________'], [7, 'h___________'], [8, 'h__________h'], [9, 'H_________hh'], [10, '_h________hH'], [11, '_H__________']] },
+  bun:       { front: [[0, 'hlh.________'], [1, 'hhHa________'], [2, 'H___________']],
+               back:  [[1, '____HHHH____'], [2, '___HhllhH___'], [3, '___HhhhhH___'], [4, '____HHHH____'], [5, '_____aa_____']] },
+  spiky:     { front: [[0, '...h.h.h.h..'], [1, '.hhhhhhhlhhh'], [2, 'h___________'], [4, 'h___________']],
+               back:  [[0, '..h.h.h.h.h.'], [1, '.hhhhhhhhhhh'], [3, 'h___________'], [5, 'h___________']] },
+  bald:      { front: [[0, '....sssss...'], [1, '..Sssssssss.'], [2, '.Ssssssswsss'], [3, '.Sssssssssss'], [4, '.SsSssssssss'], [5, '.SsbSsssssss'], [6, '.SsS________'], [7, '.SSs________'], [8, '..Ss________'], [9, '...S________']],
+               back:  [[0, '...ssssss...'], [1, '..sssssssss.'], [2, '.sssswssssss'], [3, '.sssssssssss'], [4, '.sssssssssss'], [5, '.sssssssssss'], [6, '.Sssssssssss'], [7, '.SssssssssSs'], [8, '..SSsssssSS.'], [9, '...SSSSSS...']] },
+  bangs:     { front: [[4, '.hhhhhhhhhhh'], [5, '_____HhHhHhH']] },
+  bob:       { front: [[5, '___________h'], [6, 'hHhh_______h'], [7, 'hHhh_______h'], [8, 'hhhH_______H'], [9, '.HHH________']],
+               back:  [[6, 'hhhhhhhhhhhh'], [7, 'hHhhhhhhhhHh'], [8, 'hHHhhhhhhHHh'], [9, '.HHHHHHHHHH.']] },
+  afro:      { front: [[0, '..hhlhhhhh..'], [1, '.hhhhhhlhhhh'], [2, 'hhlhhhhhhhhh'], [3, 'hhhhhlhhhhhh'], [4, 'hh_l________'], [5, 'hhlh________'], [6, 'hHhh________'], [7, 'hhHh________'], [8, '.hHh________']],
+               back:  [[0, '..hhhlhhhh..'], [1, '.hhlhhhhhlhh'], [2, 'hhhhhhlhhhhh'], [3, 'hlhhhhhhhlhh'], [4, 'hhhhlhhhhhhh'], [5, 'hhhhhhhhlhhh'], [6, 'hhlhhhhhhhhs'], [7, 'hHhhhhlhhhHs'], [8, '.hHHhhhhhHS.']] },
+  mohawk:    { front: [[0, '...hhlhh....'], [1, '..HhhhhhHHH.'], [2, '.HHHhhhhHHHH'], [3, '.HHHHhhHHHHH'], [4, '.HHHHHHsHHsH'], [5, '.HHHH_______'], [6, '.HHH________'], [7, '.HHH________'], [8, '..HH________']],
+               back:  [[0, '...HHhhHH...'], [1, '..HHHhhHHHH.'], [2, '.HHHHhlHHHHH'], [3, '.HHHHhhHHHHH'], [4, '.HHHHhhHHHHH'], [5, '.HHHHhhHHHHH'], [6, '.HHHHhhHHHHs'], [7, '.HHHHhhHHHHs'], [8, '..HHHhhHHHS.']] },
+  braid:     { front: [[8, '_h__________'], [9, '_hH_________'], [10, '__Hh________'], [11, '__hH________'], [12, '__Hh________'], [13, '___a________']],
+               back:  [[9, '_____hH_____'], [10, '_____Hh_____'], [11, '_____hH_____'], [12, '_____Hh_____'], [13, '_____aa_____']] },
+
+  // ---- 扩充配饰（10 种）：帽子 / 头饰 / 脸部 / 胸前，颜色走 a / A（accColor）或固定色 ----
+  beanie:    { front: [[0, '....aawaa...'], [1, '..aaaaaaaaa.'], [2, '.aaaaaaaaaaa'], [3, '.AAAAAAAAAAA']],
+               back:  [[0, '...aawaaa...'], [1, '..aaaaaaaaa.'], [2, '.aaaaaaaaaaa'], [3, '.AAAAAAAAAAA']] },
+  headband:  { front: [[3, '.aaaaaaaaaaa']],
+               back:  [[3, '.aaaaaaaaaaa'], [4, 'a___________'], [5, 'A___________']] },
+  bow:       { front: [[0, 'aa.aa_______'], [1, 'aAAa________'], [2, '.a__________']],
+               back:  [[0, '...aa.aa....'], [1, '...aaAAaa...'], [2, '____a__a____']] },
+  shades:    { front: [[6, '____gkkgkkkk'], [7, '_____kk__kk_']], back: [[6, '__________g_']] },
+  mask:      { front: [[7, '____M_______'], [8, '____Mmmmmmmm'], [9, '____MmmmmmM_']], back: [[7, '__________M_']] },
+  beard:     { front: [[7, '____h_______'], [8, '____hhsssshh'], [9, '___HhhhhhhH_']], back: [[8, '__________h_']] },
+  mustache:  { front: [[8, '______HhhH__'], [9, '______H__H__']] },
+  bowtie:    { front: [[11, '____aaAaa___'], [12, '____a___a___']] },
+  badge:     { front: [[11, '____a___a___'], [12, '_____a_a____'], [13, '_____yYy____']], back: [[11, '____aaaa____']] },
+  scarf:     { front: [[10, '____aAaAa___'], [11, '___aaaaaaa__'], [12, '____A_______'], [13, '____a_______']],
+               back:  [[10, '____aAaAa___'], [11, '___aaaaaa___']] },
+};
+const luminance = c => { const [r, g, b] = toRGB(c); return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255; };
+function lookPal(L) {
+  return {
+    h: L.hair, H: dark(L.hair, .28), l: lite(L.hair, .35),
+    // 深肤色上默认眼色几乎看不见，换成更深的一档
+    s: L.skin, S: dark(L.skin, .13), b: mix(L.skin, '#ff6f6f', .35), e: luminance(L.skin) < .45 ? '#140d12' : '#2a2230',
+    c: L.shirt, C: dark(L.shirt, .22), w: '#ffffff', p: L.pants || '#3a3f52',
+    a: L.accColor || '#454b5e', A: L.accColor ? dark(L.accColor, .25) : '#ff8a5c',
+    r: '#d8423a', g: '#9aa3b8',
+    k: '#1d2130', m: '#f3f6fb', M: '#c5cdd9', y: '#ffd35c', Y: '#d9a92e',   // 墨镜片 / 口罩 / 工牌卡片
+  };
+}
+// 走路 = 坐姿模板下面再接三行腿脚;手臂沿用打字的两帧补丁当摆臂
+const LEGS = {
+  stand: ['...pp..pp...', '...pp..pp...', '..kkk..kkk..'],
+  walkA: ['..pp....pp..', '.pp......pp.', '.kk......kk.'],
+  walkB: ['...pp..pp...', '...pp..pp...', '..kkk..kkk..'],
+};
+const WALK_ARMS = { walkA: 'typeA', walkB: 'typeB' };
+function charSprite(L, pose, frame, flip) {
+  return sprite(`ch|${L.key}|${pose}|${frame}|${+flip}`, () => {
+    const legs = LEGS[frame];
+    let rows = patch(BODY[pose], FRAMES[pose][legs ? WALK_ARMS[frame] : frame]);
+    for (const k of L.acc) rows = patch(rows, ACC[k] && ACC[k][pose]);
+    if (legs) rows = rows.concat(legs);
+    const cv = pix(rows, lookPal(L), flip);
+    return { cv, ax: cv.width >> 1, ay: cv.height - 2 };
+  });
+}
+
+/* ---------- 4. 其他像素模板（图标 / 数字 / 信封 / 植物） ---------- */
+const MINI = {
+  q: ['.yyy.', 'y...y', '...y.', '..y..', '.....', '..y..'],
+  ex: ['y', 'y', 'y', 'y', '.', 'y'],
+  star: ['..y..', '.yyy.', 'yyyyy', '.yyy.', 'y...y'],
+  z: ['yyyy', '..y.', '.y..', 'yyyy'],
+  arrow: ['yyyyy', '.yyy.', '..y..'],
+  dot: ['yy', 'yy'],
+  glass: ['yyyyy', '.y.y.', '..y..', '.y.y.', 'yyyyy'],
+};
+const miniSpr = (n, c) => sprite(`mi|${n}|${c}`, () => ({ cv: pix(MINI[n], { y: c }) }));
+const DIGITS = {
+  0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'], 2: ['###', '..#', '###', '#..', '###'],
+  3: ['###', '..#', '.##', '..#', '###'], 4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],
+  6: ['###', '#..', '###', '#.#', '###'], 7: ['###', '..#', '..#', '.#.', '.#.'], 8: ['###', '#.#', '###', '#.#', '###'],
+  9: ['###', '#.#', '###', '..#', '###'], '+': ['...', '.#.', '###', '.#.', '...'],
+};
+const digitSpr = (ch, c) => sprite(`dg|${ch}|${c}`, () => ({ cv: pix(DIGITS[ch], { '#': c }) }));
+const ENV = ['wwwwwwwwwwwww', 'wWwwwwwwwwwWw', 'wwWwwwwwwwWww', 'wwwWwwwwwWwww', 'wwwwWwrwWwwww', 'wwwwwWrWwwwww', 'wwwwwwwwwwwww', 'wwwwwwwwwwwww'];
+const envSpr = () => sprite('env', () => ({ cv: pix(ENV, { w: '#fffdf4', W: '#cfc6b2', r: '#e5534b' }) }));
+const LEAF = [
+  '......l......', '..l...lG..l..', '..Gl.lGG.lG..', '...GllGGlG...', '.lGGgGGGgGGl.', 'lG..gGgGg..Gl',
+  '...lgGgGgl...', '..lG.gGg.Gl..', '.lG..gGg..Gl.', '.....gGg.....', '......g......'];
+const TREE = [
+  '.....lGGl.....', '...lGGgGGGl...', '..lGGgGGgGGl..', '.lGgGGlGGGgGl.', 'lGGGgGGGgGGGGl', 'GGgGGGlGGGGgGG',
+  'GGGGgGGGGgGGGG', '.GgGGGGgGGGgG.', '..GGgGGGGgGG..', '...GGGGgGGG...', '.....GGGG.....', '......tt......'];
+const ICON8 = {
+  plan:   { rows: ['..yyyy..', '.yywyyy.', '.ywyyyy.', '.yyyyyy.', '..yyyy..', '...gg...', '..gggg..', '...gg...'], pal: { y: '#ffd54a', w: '#fff7cf', g: '#9aa3b5' } },
+  code:   { rows: ['dddddddd', 'dkkkkkkd', 'dkgkkkkd', 'dkkgkkkd', 'dkgkwwkd', 'dkkkkkkd', 'dddddddd'], pal: { d: '#8ea3cf', k: '#1e2638', g: '#66e08f', w: '#ffffff' } },
+  review: { rows: ['.bbbb...', 'bwllwb..', 'blwwlb..', 'bwwwwb..', '.bbbb...', '....hh..', '.....hh.', '......hh'], pal: { b: '#5a6f9e', w: '#dff1ff', l: '#9fd4ff', h: '#b8773f' } },
+  test:   { rows: ['.......g', '......gg', '.....gg.', 'g...gg..', 'gg.gg...', '.ggg....', '..g.....'], pal: { g: '#45c46e' } },
+};
+
+/* ---------- 5. 家具预制体（全部由 box() 拼成） ---------- */
+const DESK_W = '#eceff4', DESK_WOOD = '#b8773f', MON = '#2f3341';
+const CH = { blue: '#3b6fe0', gray: '#5e6475', red: '#d9505e', green: '#4fb35a', orange: '#ef8a3a' };
+
+// 工位局部坐标：u = 朝向轴（人朝 +u 或 -u），v = 横向；axis 决定映射到世界 x 还是 y
+const sBox = (g, o, ax, u, v, z, du, dv, h, c) => ax === 'x' ? box(g, o, u, v, z, du, dv, h, c) : box(g, o, v, u, z, dv, du, h, c);
+const sLineU = (g, o, ax, v, u0, u1, z, c) => ax === 'x' ? lineY(g, o, v, u0, u1, z, c) : lineX(g, o, v, u0, u1, z, c);
+const sLineV = (g, o, ax, u, v0, v1, z, c) => ax === 'x' ? lineX(g, o, u, v0, v1, z, c) : lineY(g, o, u, v0, v1, z, c);
+const sFaceU = (g, o, ax, u, v0, v1, z0, z1, c) => ax === 'x' ? faceX(g, o, u, v0, v1, z0, z1, c) : faceY(g, o, u, v0, v1, z0, z1, c);
+
+function stationSprite(S, part) {  // 同款工位（朝向+配色相同）只渲染一次
+  const { axis: ax, s, desk, chair, mon } = S;
+  return isoSprite(`st|${ax}|${s}|${desk}|${chair}|${mon}|${part}`, [-11, -11, 11, 11, 18], (g, o) => {
+    const d0 = s > 0 ? 3 : -10, mu = s > 0 ? 7 : -8, ku = s > 0 ? 3 : -5;
+    const B = (...a) => sBox(g, o, ax, ...a);
+    const chairBack = () => B(s > 0 ? -3 : 2, -2, 4, 1, 4, 7, chair);
+    const chairBase = () => { B(-2, -2, 0, 4, 4, 1, '#4a4e60'); B(-1, -1, 1, 2, 2, 2, '#5d6275'); B(-2, -2, 3, 4, 4, 1, chair); };
+    const deskAll = () => {
+      B(d0, -6, 0, 7, 1, 6, dark(desk, .1));                 // 挡板
+      B(d0, 2, 0, 7, 4, 6, desk);                             // 抽屉柜
+      const dl = dark(desk, .3);
+      sLineU(g, o, ax, 6, d0 + 1, d0 + 6, 4, dl); sLineU(g, o, ax, 6, d0 + 1, d0 + 6, 2, dl);
+      B(d0, -6, 6, 7, 12, 2, desk);                           // 桌面
+    };
+    const keyboard = () => B(ku, -3, 8, 2, 4, 1, '#d3d8e2');
+    const monitor = () => { B(mu - 1, -3, 8, 3, 3, 1, mon); B(mu, -2, 9, 1, 1, 2, mon); B(mu, -5, 10, 1, 6, 6, mon); };
+    const mug = () => B(d0 + (s > 0 ? 1 : 5), 4, 8, 1, 1, 2, '#f5f5f5');
+    if (s > 0) { if (part === 'back') { chairBack(); chairBase(); } else { deskAll(); keyboard(); monitor(); mug(); } }
+    else { if (part === 'back') { deskAll(); monitor(); keyboard(); mug(); chairBase(); } else chairBack(); }
+  });
+}
+const dividerSpr = (ax, col) => isoSprite(`dv|${ax}|${col}`, [-7, -7, 7, 7, 15], (g, o) => sBox(g, o, ax, 0, -6, 0, 1, 12, 13, col));
+
+const SP = {
+  plant: () => isoSprite('plant', [-3, -3, 3, 3, 20], (g, o) => {
+    box(g, o, -2, -2, 0, 4, 4, 5, '#eee9df'); faceZ(g, o, 5, -1, -1, 1, 1, '#6b4a2e');
+    const lv = pix(LEAF, { l: '#8fd46a', G: '#4fa846', g: '#2f7d3a' }, false, false);
+    const [sx, sy] = P(o, 0, 0, 5); g.drawImage(lv, sx - (lv.width >> 1), sy - lv.height + 2);
+  }),
+  cooler: () => isoSprite('cooler', [-3, -3, 3, 3, 18], (g, o) => {
+    box(g, o, -2, -2, 0, 4, 4, 9, '#eef1f6');
+    const [sx, sy] = P(o, 2, 0, 7); g.fillStyle = '#e5534b'; g.fillRect(sx - 3, sy, 1, 1); g.fillStyle = '#3a8cf0'; g.fillRect(sx - 1, sy - 1, 1, 1);
+    box(g, o, -1, -1, 9, 2, 2, 6, '#86c8f5'); box(g, o, -1, -1, 15, 2, 2, 1, '#4a90d0');
+  }),
+  cabinet: () => isoSprite('cab', [0, 0, 5, 8, 15], (g, o) => {
+    box(g, o, 0, 0, 0, 5, 8, 14, '#d7dbe3');
+    const [sx, sy] = P(o, 5, 4, 14); g.fillStyle = '#9aa1b0'; g.fillRect(sx - 1, sy + 1, 1, 12);
+    g.fillStyle = '#6d7486'; g.fillRect(sx - 3, sy + 6, 1, 2); g.fillRect(sx + 1, sy + 6, 1, 2);
+  }),
+  shelf: () => isoSprite('shelf', [0, 0, 10, 5, 24], (g, o) => {
+    box(g, o, 0, 0, 0, 10, 5, 23, '#c98f55');
+    const BOOK = ['#e5534b', '#3a8cf0', '#f2c14e', '#45b36a', '#8e6bd8', '#f08a3c', '#2fb5b0'];
+    for (const z0 of [2, 9, 16]) {
+      faceY(g, o, 5, 1, 9, z0, z0 + 6, '#7a4f2c');
+      for (let x = 1; x < 9; x++) { const hh = 3 + ((hash(x * 31 + z0) * 3) | 0); faceY(g, o, 5, x, x + 1, z0, z0 + hh, BOOK[(x * 3 + z0) % BOOK.length]); }
+    }
+  }),
+  rack: () => isoSprite('rack', [0, 0, 6, 7, 29], (g, o) => {
+    box(g, o, 0, 0, 0, 6, 7, 28, '#3a4052');
+    faceY(g, o, 7, 1, 5, 2, 26, '#232838');
+    for (let z = 4; z < 26; z += 4) lineY(g, o, 7, 1, 5, z, '#4b5268');
+    for (let z = 6; z < 24; z += 3) lineX(g, o, 6, 2, 6, z, '#2c3140');
+  }),
+  counter: () => isoSprite('counter', [0, 0, 20, 5, 18], (g, o) => {
+    box(g, o, 0, 0, 0, 20, 5, 8, '#eef0f4');
+    for (let x = 5; x < 20; x += 5) { const [sx, sy] = P(o, x, 5, 7); g.fillStyle = '#b9c0cc'; g.fillRect(sx, sy + 1, 1, 6); }
+    box(g, o, 0, 0, 8, 20, 5, 1, DESK_WOOD);
+    box(g, o, 3, 1, 9, 4, 3, 6, '#3b3f4c'); faceY(g, o, 4, 4, 6, 11, 14, '#1f232e');
+    box(g, o, 9, 2, 9, 1, 1, 2, '#ffffff'); box(g, o, 11, 2, 9, 1, 1, 2, '#ffe0a3');
+  }),
+  table: () => isoSprite('table', [0, 0, 20, 6, 9], (g, o) => {
+    for (const [x, y] of [[0, 0], [19, 0], [0, 5], [19, 5]]) box(g, o, x, y, 0, 1, 1, 6, '#6d4a2c');
+    box(g, o, 0, 0, 6, 20, 6, 2, '#c0824a');
+    faceZ(g, o, 8, 3, 1, 6, 4, '#ffffff'); faceZ(g, o, 8, 12, 2, 15, 5, '#fff3c4');
+  }),
+  stool: () => isoSprite('stool', [-2, -2, 2, 2, 6], (g, o) => { box(g, o, -1, -1, 0, 2, 2, 4, '#6d4a2c'); box(g, o, -2, -2, 4, 4, 4, 1, '#e9774f'); }),
+  robot: dir => isoSprite(`bot|${dir}`, [-3, -3, 3, 3, 14], (g, o) => {
+    box(g, o, -2, -2, 0, 4, 4, 1, '#3b3f4c'); box(g, o, -2, -2, 1, 4, 4, 5, '#eef3f9');
+    lineX(g, o, 2, -2, 2, 3, '#4aa3ff'); lineY(g, o, 2, -2, 2, 3, '#4aa3ff');
+    box(g, o, -2, -2, 6, 4, 4, 4, '#d6e2f1');
+    box(g, o, 0, 0, 10, 1, 1, 2, '#8a93a8'); box(g, o, 0, 0, 12, 1, 1, 1, '#ff5a5a');
+    g.fillStyle = '#7ff3ff';
+    if (dir === '+x') { faceX(g, o, 2, -1, 1, 7, 9, '#223049'); g.fillStyle = '#7ff3ff'; g.fillRect(o.ox + 3, o.oy - 6, 1, 1); g.fillRect(o.ox + 5, o.oy - 7, 1, 1); }
+    if (dir === '+y') { faceY(g, o, 2, -1, 1, 7, 9, '#223049'); g.fillStyle = '#7ff3ff'; g.fillRect(o.ox - 4, o.oy - 6, 1, 1); g.fillRect(o.ox - 6, o.oy - 7, 1, 1); }
+  }),
+
+  // ---- 扩充物品：落地 16 种（墙面 4 种见 WALL_KINDS） ----
+  sofa: col => isoSprite(`sofa|${col}`, [0, 0, 16, 6, 10], (g, o) => {
+    box(g, o, 0, 0, 0, 16, 6, 3, dark(col, .18)); box(g, o, 0, 0, 3, 16, 2, 6, col);
+    box(g, o, 0, 2, 3, 2, 4, 3, dark(col, .06));
+    box(g, o, 2, 2, 3, 6, 4, 2, lite(col, .12)); box(g, o, 8, 2, 3, 6, 4, 2, lite(col, .12));
+    box(g, o, 14, 2, 3, 2, 4, 3, dark(col, .06));
+  }),
+  beanbag: col => isoSprite(`bean|${col}`, [0, 0, 5, 5, 7], (g, o) => { box(g, o, 0, 0, 0, 5, 5, 3, col); box(g, o, 1, 0, 3, 4, 4, 2, lite(col, .1)); box(g, o, 0, 0, 3, 2, 5, 3, dark(col, .08)); }),
+  lamp: () => isoSprite('lamp', [-1, -1, 2, 2, 20], (g, o) => {
+    box(g, o, 0, 0, 0, 2, 2, 1, '#3a3f52'); box(g, o, 0, 0, 1, 1, 1, 14, '#8a93a8'); box(g, o, -1, -1, 15, 3, 3, 4, '#ffe7a8');
+  }),
+  printer: () => isoSprite('printer', [0, 0, 6, 5, 12], (g, o) => {
+    box(g, o, 0, 0, 0, 6, 5, 6, '#c9ced8'); lineY(g, o, 5, 1, 5, 3, '#9aa1b0');
+    box(g, o, 0, 0, 6, 6, 5, 4, '#eef0f4'); faceY(g, o, 5, 1, 5, 7, 8, '#2b2737');
+    box(g, o, 1, 1, 10, 4, 3, 1, '#ffffff');
+    const [sx, sy] = P(o, 6, 1, 9); g.fillStyle = '#45c46e'; g.fillRect(sx - 1, sy, 1, 1);
+  }),
+  fridge: () => isoSprite('fridge', [0, 0, 5, 5, 16], (g, o) => {   // 复古薄荷色小冰箱，比打印机高一截
+    box(g, o, 0, 0, 0, 5, 5, 15, '#bfe3d6'); lineY(g, o, 5, 0, 5, 10, '#8cc2ae');
+    faceY(g, o, 5, 4, 5, 11, 14, '#e8e8e8'); faceY(g, o, 5, 4, 5, 5, 9, '#e8e8e8');
+    const [sx, sy] = P(o, 1, 5, 13); g.fillStyle = '#e5534b'; g.fillRect(sx, sy, 1, 1); g.fillStyle = '#f2c14e'; g.fillRect(sx + 2, sy + 1, 1, 1);
+  }),
+  vending: col => isoSprite(`vend|${col}`, [0, 0, 7, 6, 25], (g, o) => {
+    box(g, o, 0, 0, 0, 7, 6, 24, col); faceY(g, o, 6, 1, 5, 9, 21, '#bfe3ff');
+    const CAN = ['#e5534b', '#f2c14e', '#45b36a', '#3a8cf0', '#8e6bd8'];
+    for (const z of [10, 13, 16, 19]) for (let x = 1; x < 5; x++) faceY(g, o, 6, x, x + 1, z, z + 2, CAN[(x + z) % CAN.length]);
+    faceY(g, o, 6, 1, 5, 3, 6, '#2b2737'); faceX(g, o, 7, 2, 4, 12, 16, '#e8e8e8');
+  }),
+  lockers: col => isoSprite(`lock|${col}`, [0, 0, 12, 5, 21], (g, o) => {
+    box(g, o, 0, 0, 0, 12, 5, 20, col);
+    for (const x of [4, 8]) vline(g, o, x, 5, 1, 19, dark(col, .3));
+    for (const x0 of [0, 4, 8]) {
+      lineY(g, o, 5, x0 + 1, x0 + 3, 17, dark(col, .25)); lineY(g, o, 5, x0 + 1, x0 + 3, 16, dark(col, .25));
+      const [sx, sy] = P(o, x0 + 3, 5, 10); g.fillStyle = '#e8e8e8'; g.fillRect(sx - 1, sy, 1, 2);
+    }
+  }),
+  easel: () => isoSprite('easel', [0, 0, 12, 3, 19], (g, o) => {
+    box(g, o, 0, 1, 0, 1, 2, 7, '#9aa1b0'); box(g, o, 11, 1, 0, 1, 2, 7, '#9aa1b0');
+    box(g, o, 0, 1, 7, 12, 1, 11, '#c9ced8'); faceY(g, o, 2, 1, 11, 8, 17, '#fdfdf8');
+    lineY(g, o, 2, 2, 7, 15, '#3a8cf0'); lineY(g, o, 2, 2, 9, 12, '#e5534b'); lineY(g, o, 2, 3, 6, 10, '#45b36a');
+  }),
+  boxes: () => isoSprite('boxes', [0, 0, 9, 6, 8], (g, o) => {
+    box(g, o, 0, 0, 0, 5, 5, 4, '#c9975b'); faceZ(g, o, 4, 2, 0, 3, 5, '#ead3a6');
+    box(g, o, 1, 1, 4, 4, 4, 3, '#bf8750'); faceZ(g, o, 7, 2, 1, 3, 5, '#ead3a6');
+    box(g, o, 5, 1, 0, 4, 4, 3, '#d4a46a'); faceZ(g, o, 3, 5, 2, 9, 3, '#ead3a6');
+  }),
+  bins: () => isoSprite('bins', [0, 0, 7, 3, 6], (g, o) => {
+    box(g, o, 0, 0, 0, 3, 3, 5, '#6d7486'); faceZ(g, o, 5, 0, 0, 3, 3, '#3a3f52');
+    box(g, o, 4, 0, 0, 3, 3, 5, '#3f9a5c'); faceZ(g, o, 5, 4, 0, 7, 3, '#2a6e41');
+    const [sx, sy] = P(o, 5, 3, 3); g.fillStyle = '#d7f5e1'; g.fillRect(sx, sy, 2, 1);
+  }),
+  bigplant: () => isoSprite('bigplant', [-2, -2, 2, 2, 32], (g, o) => {   // 琴叶榕：木盆 + 树干 + 大树冠
+    box(g, o, -2, -2, 0, 4, 4, 6, '#c98f55'); faceZ(g, o, 6, -1, -1, 1, 1, '#6b4a2e');
+    box(g, o, 0, 0, 6, 1, 1, 8, '#7a5230');
+    const tr = pix(TREE, { l: '#8fd46a', G: '#4fa846', g: '#2f7d3a', t: '#6b4a2e' }, false, false);
+    const [sx, sy] = P(o, 0, 0, 12); g.drawImage(tr, sx - (tr.width >> 1), sy - tr.height + 3);
+  }),
+  cactus: () => isoSprite('cactus', [-1, -1, 2, 2, 12], (g, o) => {
+    box(g, o, -1, -1, 0, 3, 3, 3, '#e27d60'); box(g, o, 0, 0, 3, 1, 1, 7, '#4fa846');
+    box(g, o, -1, 0, 5, 1, 1, 3, '#4fa846'); box(g, o, 1, 0, 6, 1, 1, 2, '#4fa846');
+    const [sx, sy] = P(o, 0, 0, 10); g.fillStyle = '#ff9fbf'; g.fillRect(sx - 1, sy - 1, 2, 1);
+  }),
+  arcade: col => isoSprite(`arc|${col}`, [0, 0, 6, 8, 23], (g, o) => {
+    box(g, o, 0, 0, 0, 6, 6, 22, col); faceY(g, o, 6, 1, 5, 13, 19, '#141a2e');
+    faceY(g, o, 6, 2, 3, 15, 16, '#62f08e'); faceY(g, o, 6, 3, 4, 17, 18, '#ffcc4d');
+    box(g, o, 0, 6, 9, 6, 2, 2, dark(col, .25));
+    let [sx, sy] = P(o, 2, 7, 11); g.fillStyle = '#e5534b'; g.fillRect(sx, sy, 1, 1);
+    [sx, sy] = P(o, 4, 7, 11); g.fillStyle = '#f2c14e'; g.fillRect(sx, sy, 1, 1);
+    faceY(g, o, 6, 0, 6, 19, 22, '#ffcc4d');
+  }),
+  purifier: () => isoSprite('purif', [0, 0, 4, 4, 13], (g, o) => {
+    box(g, o, 0, 0, 0, 4, 4, 12, '#f4f6fa');
+    for (const z of [3, 5, 7]) lineY(g, o, 4, 1, 3, z, '#c9d0dc');
+    faceY(g, o, 4, 1, 3, 10, 11, '#5ab8ff');
+  }),
+  coatrack: col => isoSprite(`coat|${col}`, [-1, -1, 3, 2, 21], (g, o) => {
+    box(g, o, -1, -1, 0, 3, 3, 1, '#6d4a2c'); box(g, o, 0, 0, 1, 1, 1, 18, '#8b5a39');
+    box(g, o, -1, 0, 17, 3, 1, 1, '#8b5a39'); box(g, o, 1, 0, 9, 2, 1, 8, col);
+    box(g, o, -1, -1, 19, 2, 2, 1, '#3a3f52'); box(g, o, -1, -1, 18, 2, 2, 1, dark('#3a3f52', .2));
+  }),
+  coffeetable: () => isoSprite('ctable', [0, 0, 8, 5, 8], (g, o) => {
+    for (const [x, y] of [[0, 0], [7, 0], [0, 4], [7, 4]]) box(g, o, x, y, 0, 1, 1, 4, '#6d4a2c');
+    box(g, o, 0, 0, 4, 8, 5, 1, '#a86b3c'); box(g, o, 1, 1, 5, 3, 2, 1, '#3a8cf0'); box(g, o, 5, 2, 5, 1, 1, 2, '#ffffff');
+  }),
+};
+
+/* ---------- 6. 场景布局（纯数据） ---------- */
+const STN = {}, OBJ = [];
+function station(id, x, y, axis, s, o = {}) { return STN[id] = { id, x, y, axis, s, desk: o.desk || DESK_W, chair: o.chair || CH.blue, mon: MON, agent: null }; }
+const fp = (S, u0, u1) => S.axis === 'x'
+  ? { minX: S.x + u0, maxX: S.x + u1, minY: S.y - 6, maxY: S.y + 6 }
+  : { minX: S.x - 6, maxX: S.x + 6, minY: S.y + u0, maxY: S.y + u1 };
+function single(id, x, y, axis, s, o) {
+  const S = station(id, x, y, axis, s, o);
+  OBJ.push({ ...fp(S, s > 0 ? -3 : -10, s > 0 ? 10 : 3), h: 24, draw: c => drawStation(c, S) });
+}
+function pod(idA, idB, x, y, axis, oa, ob) {  // 双人对坐 = 工位 + 镜像工位 + 隔板
+  const A = station(idA, x, y, axis, 1, oa);
+  const B = station(idB, axis === 'x' ? x + 21 : x, axis === 'x' ? y : y + 21, axis, -1, ob);
+  const [dx, dy] = axis === 'x' ? [x + 10, y] : [x, y + 10];
+  OBJ.push({ ...fp(A, -3, 24), h: 24, draw: c => { drawStation(c, A); blit(c, dividerSpr(axis, '#86c46b'), dx, dy); drawStation(c, B); } });
+}
+function prop(get, x, y, w, d, h, extra) { OBJ.push({ minX: x, maxX: x + w, minY: y, maxY: y + d, h, draw: c => { blit(c, get(), x, y); extra && extra(c); } }); }
+function propC(get, x, y, h, z = 0) { OBJ.push({ minX: x - 2, maxX: x + 2, minY: y - 2, maxY: y + 2, h, draw: c => blit(c, get(), x, y, z) }); }
+
+// 布局随机：种子决定配色、靠墙物品、休息区、前排、角落和墙面装饰；
+// 9 个工位的位置、门、调度台、机器人巡逻路线不变，保证看得懂、不挡路
+const THEMES = [
+  { floor: ['#cfe4c6', '#c4ddbb'], slab: '#a9c6a3', wall: { top: '#fffaf0', left: '#f3e9d4', right: '#e4d6bb' }, base: '#b98a5c', rug: ['#c79a5e', '#ead6a8'] },
+  { floor: ['#e8dcc6', '#dfd0b6'], slab: '#c9b596', wall: { top: '#fbfbf7', left: '#e6ecf1', right: '#d3dbe3' }, base: '#8a6a4e', rug: ['#5f7fa8', '#a9c1dc'] },
+  { floor: ['#d7e1ea', '#cbd7e3'], slab: '#a7b6c6', wall: { top: '#fff9f2', left: '#f6e7dc', right: '#e8d4c6' }, base: '#9a7a62', rug: ['#b86a6a', '#e9c1b5'] },
+  { floor: ['#ecdce2', '#e2cfd7'], slab: '#c7aeb8', wall: { top: '#f7fbf8', left: '#e3efe8', right: '#cfe0d6' }, base: '#8d6f7d', rug: ['#6f9a7c', '#bcd9c4'] },
+];
+const SOFT_COLORS = ['#3a9d9a', '#d9a63e', '#e0735c', '#3b4f86', '#8e6bd8', '#6f9a7c'];
+const BODY_COLORS = ['#d94a4a', '#3a8cf0', '#45b36a', '#7c93b8', '#8a93a8', '#343a8a', '#e08a3a'];
+// 靠墙物品池：w × d 为占地（世界单位）；wt 权重；once 一间最多一个；side 也能靠左墙放
+const FURN = {
+  shelf:    { w: 10, d: 5, wt: 3, put: (x, y) => prop(SP.shelf, x, y, 10, 5, 24) },
+  rack:     { w: 6, d: 7, wt: 3, put: (x, y) => prop(SP.rack, x, y, 6, 7, 28, c => leds(c, x)) },
+  lockers:  { w: 12, d: 5, wt: 2, once: 1, put: (x, y, col) => prop(() => SP.lockers(col), x, y, 12, 5, 20) },
+  vending:  { w: 7, d: 6, wt: 2, once: 1, put: (x, y, col) => prop(() => SP.vending(col), x, y, 7, 6, 24) },
+  sofa:     { w: 16, d: 6, wt: 2, once: 1, put: (x, y, col) => prop(() => SP.sofa(col), x, y, 16, 6, 9) },
+  arcade:   { w: 6, d: 8, wt: 1, once: 1, put: (x, y, col) => prop(() => SP.arcade(col), x, y, 6, 8, 22) },
+  easel:    { w: 12, d: 3, wt: 1, once: 1, put: (x, y) => prop(SP.easel, x, y, 12, 3, 18) },
+  printer:  { w: 6, d: 5, wt: 2, once: 1, side: 1, put: (x, y) => prop(SP.printer, x, y, 6, 5, 11) },
+  fridge:   { w: 5, d: 5, wt: 1, once: 1, side: 1, put: (x, y) => prop(SP.fridge, x, y, 5, 5, 15) },
+  boxes:    { w: 9, d: 6, wt: 1, once: 1, side: 1, put: (x, y) => prop(SP.boxes, x, y, 9, 6, 7) },
+  bins:     { w: 7, d: 3, wt: 1, once: 1, side: 1, put: (x, y) => prop(SP.bins, x, y, 7, 3, 5) },
+  purifier: { w: 4, d: 4, wt: 1, once: 1, side: 1, put: (x, y) => prop(SP.purifier, x, y, 4, 4, 12) },
+  beanbag:  { w: 5, d: 5, wt: 1, side: 1, put: (x, y, col) => prop(() => SP.beanbag(col), x, y, 5, 5, 6) },
+  cabinet:  { w: 5, d: 8, wt: 2, side: 1, put: (x, y) => prop(SP.cabinet, x, y, 5, 8, 14) },
+  cooler:   { w: 4, d: 4, wt: 2, once: 1, side: 1, put: (x, y) => propC(SP.cooler, x + 2, y + 2, 16) },
+  plant:    { w: 4, d: 4, wt: 2, side: 1, put: (x, y) => propC(SP.plant, x + 2, y + 2, 20) },
+  bigplant: { w: 4, d: 4, wt: 2, side: 1, put: (x, y) => propC(SP.bigplant, x + 2, y + 2, 28) },
+  lamp:     { w: 4, d: 4, wt: 1, side: 1, put: (x, y) => propC(SP.lamp, x + 2, y + 2, 19) },
+  coatrack: { w: 4, d: 4, wt: 1, once: 1, side: 1, put: (x, y, col) => propC(() => SP.coatrack(col), x + 2, y + 2, 19) },
+  cactus:   { w: 4, d: 4, wt: 1, side: 1, put: (x, y) => propC(SP.cactus, x + 2, y + 2, 10) },
+};
+const BACK_POOL = Object.keys(FURN).filter(k => k !== 'cabinet');
+const LEFT_POOL = Object.keys(FURN).filter(k => FURN[k].side && FURN[k].w <= 9);
+// 墙面装饰：F(a, b, z0, z1, 颜色) 画在墙面上，a 为沿墙的起点
+const WALL_KINDS = {
+  clock: { w: 6, draw: (F, a) => {
+    F(a, a + 6, 21, 27, '#3a3f52'); F(a + 1, a + 5, 22, 26, '#ffffff');
+    const t = ((simNow / 3000) | 0) % 4;
+    F(a + 3, a + 4, 24, 26, '#2b2737');
+    if (t === 0) F(a + 3, a + 5, 24, 25, '#e5534b');
+    else if (t === 1) F(a + 3, a + 4, 23, 24, '#e5534b');
+    else if (t === 2) F(a + 1, a + 3, 24, 25, '#e5534b');
+    else F(a + 3, a + 4, 25, 26, '#e5534b');
+  } },
+  painting: { w: 9, draw: (F, a, d) => { F(a, a + 9, 14, 25, '#8a6a4a'); F(a + 1, a + 8, 15, 24, d.bg); F(a + 2, a + 5, 16, 21, d.c1); F(a + 4, a + 7, 18, 23, d.c2); } },
+  corkboard: { w: 10, draw: (F, a, d) => { F(a, a + 10, 13, 24, '#9c6f48'); F(a + 1, a + 9, 14, 23, '#d9a86b'); for (const [x, z, c] of d.notes) F(a + x, a + x + 2, z, z + 3, c); } },
+  dashboard: { w: 12, draw: (F, a) => {
+    F(a, a + 12, 15, 26, '#262b38'); F(a + 1, a + 11, 16, 25, '#141a2e');
+    const t = (simNow / 700) | 0;
+    for (let i = 0; i < 5; i++) { const h = 2 + ((hash(i * 7 + t) * 6) | 0); F(a + 2 + i * 2, a + 3 + i * 2, 17, 17 + h, i % 2 ? '#5ab8ff' : '#62f08e'); }
+  } },
+};
+let THEME = THEMES[0], WINDOWS = [], RUG = null, WALL_DECOR = [];
+function weightedKey(r, keys) {
+  let total = 0;
+  for (const k of keys) total += FURN[k].wt;
+  let v = r() * total;
+  for (const k of keys) { v -= FURN[k].wt; if (v < 0) return k; }
+  return keys[keys.length - 1];
+}
+function fillAlong(r, from, to, pool, used, size, place) {   // 沿墙从一头挑物品排下去，间距随机
+  let cur = from + ((r() * 3) | 0);
+  for (let guard = 0; guard < 24; guard++) {
+    const fits = pool.filter(k => cur + size(k) <= to && !(FURN[k].once && used.has(k)));
+    if (!fits.length) break;
+    const k = weightedKey(r, fits);
+    used.add(k);
+    place(k, cur);
+    cur += size(k) + 1 + ((r() * 4) | 0);
+  }
+}
+function freeSpans(from, to, wins) {   // 墙面上去掉窗户之后的空段
+  let spans = [[from, to]];
+  for (const w of wins) spans = spans.flatMap(([a, b]) => [[a, Math.min(b, w.a - 1)], [Math.max(a, w.b + 1), b]]).filter(([a, b]) => b - a >= 6);
+  return spans;
+}
+// 房间布局模板：调度台 + 7 个组员工位（比原来少一张桌子，腾出摆家具的空间）。
+// 每个模板自带机器人巡逻路线、左墙可用段和空地；随机时先挑模板，再往空地里摆家具。
+// 工位写法：['s', x, y, 朝向轴, 1 面向镜头 / -1 背对镜头] 单人位，['p', x, y, 轴] 双人对坐；第一项是调度台。
+const ROOMS = [
+  { name: '经典', stations: [['s', 14, 24, 'x', 1], ['p', 30, 22, 'x'], ['p', 30, 44, 'x'], ['p', 66, 14, 'y'], ['s', 80, 50, 'x', -1]],
+    robot: [[57, 33], [57, 56], [20, 56], [20, 33]], left: [32, 52],
+    zones: [[60, 40, 69, 57], [75, 12, 87, 34]], corners: [[3, 3], [84, 3], [4, 68], [86, 40], [86, 58]] },
+  { name: '横排', stations: [['s', 14, 40, 'x', 1], ['p', 34, 16, 'x'], ['p', 34, 40, 'x'], ['p', 68, 20, 'y'], ['s', 80, 54, 'x', -1]],
+    robot: [[27, 28], [60, 28], [60, 52], [27, 52]], left: [33, 50],
+    zones: [[77, 8, 87, 44]], corners: [[3, 3], [84, 3], [4, 68], [66, 55]] },
+  { name: '纵排', stations: [['s', 14, 24, 'x', 1], ['p', 36, 14, 'y'], ['p', 56, 14, 'y'], ['p', 30, 50, 'x'], ['s', 78, 24, 'y', 1]],
+    robot: [[26, 41], [46, 41], [46, 14], [46, 41], [67, 41], [67, 20], [67, 41]], left: [32, 52],
+    zones: [[70, 38, 87, 57]], corners: [[3, 3], [84, 3], [4, 68], [86, 12]] },
+  { name: 'L 形', stations: [['s', 46, 16, 'x', 1], ['p', 14, 24, 'y'], ['p', 34, 40, 'x'], ['p', 66, 16, 'y'], ['s', 80, 50, 'x', -1]],
+    robot: [[25, 52], [25, 28], [57, 28], [25, 28]], left: null,
+    zones: [[60, 42, 69, 57], [75, 10, 87, 40]], corners: [[3, 3], [84, 3], [4, 68], [86, 58]] },
+  { name: '工作岛', stations: [['s', 14, 24, 'x', 1], ['p', 34, 26, 'x'], ['p', 34, 38, 'x'], ['p', 70, 16, 'y'], ['s', 76, 52, 'x', -1]],
+    robot: [[27, 16], [61, 16], [61, 48], [27, 48]], left: [32, 52],
+    zones: [[78, 8, 87, 44], [31, 52, 58, 57]], corners: [[3, 3], [84, 3], [4, 68], [86, 58]] },
+];
+// 空地里的一组摆设：w × d 占地；once 与靠墙物品共用「一间最多一个」
+const VIGNETTES = [
+  { w: 8, d: 12, put: (x, y, p) => { prop(SP.coffeetable, x, y, 8, 5, 7); const c = p(SOFT_COLORS); prop(() => SP.beanbag(c), x + 1, y + 7, 5, 5, 6); } },
+  { w: 16, d: 12, once: 'sofa', put: (x, y, p) => { const c = p(SOFT_COLORS); prop(() => SP.sofa(c), x, y, 16, 6, 9); prop(SP.coffeetable, x + 4, y + 7, 8, 5, 7); } },
+  { w: 12, d: 4, put: (x, y) => { propC(SP.bigplant, x + 2, y + 2, 28); propC(SP.plant, x + 6, y + 2, 20); propC(SP.lamp, x + 10, y + 2, 19); } },
+  { w: 14, d: 8, once: 'arcade', put: (x, y, p) => { const c = p(BODY_COLORS); prop(() => SP.arcade(c), x, y, 6, 8, 22); prop(SP.bins, x + 7, y, 7, 3, 5); } },
+  { w: 12, d: 3, once: 'easel', put: (x, y) => prop(SP.easel, x, y, 12, 3, 18) },
+  { w: 9, d: 6, once: 'boxes', put: (x, y) => prop(SP.boxes, x, y, 9, 6, 7) },
+  { w: 4, d: 4, put: (x, y) => propC(SP.bigplant, x + 2, y + 2, 28) },
+  { w: 5, d: 5, put: (x, y, p) => { const c = p(SOFT_COLORS); prop(() => SP.beanbag(c), x, y, 5, 5, 6); } },
+];
+let ROOM = ROOMS[0];
+function fillZone(r, p, [x0, y0, x1, y1], used) {   // 沿空地的长边摆 1–3 组，最后一组之后可能留白
+  const alongX = (x1 - x0) >= (y1 - y0), end = alongX ? x1 : y1;
+  let cur = alongX ? x0 : y0;
+  for (let n = 0; n < 3; n++) {
+    const fits = VIGNETTES.filter(v => !(v.once && used.has(v.once)) &&
+      (alongX ? cur + v.w <= end && v.d <= y1 - y0 : cur + v.d <= end && v.w <= x1 - x0));
+    if (!fits.length || r() < .2 * n) break;
+    const v = p(fits);
+    if (v.once) used.add(v.once);
+    const x = alongX ? cur : x0 + ((r() * (x1 - x0 - v.w + 1)) | 0);
+    const y = alongX ? y0 + ((r() * (y1 - y0 - v.d + 1)) | 0) : cur;
+    v.put(x, y, p);
+    cur += (alongX ? v.w : v.d) + 1 + ((r() * 3) | 0);
+  }
+}
+function buildStations(room, chair) {
+  const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7'];
+  let n = 0;
+  room.stations.forEach((st, i) => {
+    if (i === 0) single('s_conductor', st[1], st[2], st[3], st[4], { desk: DESK_WOOD, chair: CH.red });
+    else if (st[0] === 's') single(ids[n++], st[1], st[2], st[3], st[4], { chair: chair() });
+    else { const a = ids[n++], b = ids[n++]; pod(a, b, st[1], st[2], st[3], { chair: chair() }, { chair: chair() }); }
+  });
+}
+function placeRobot(room) {
+  robot.path = room.robot.map(pt => pt.slice());
+  [robot.x, robot.y] = robot.path[0];
+  robot.i = 1 % robot.path.length; robot.wait = 600; robot.moving = false;
+}
+function buildLayout(seed) {
+  const r = rng(seed), p = a => a[(r() * a.length) | 0];
+  for (const k of Object.keys(STN)) delete STN[k];
+  OBJ.length = 0;
+  THEME = p(THEMES);
+  const chair = () => p([CH.blue, CH.gray, CH.green, CH.orange, CH.blue]);
+  const colOf = k => (k === 'sofa' || k === 'beanbag' || k === 'coatrack') ? p(SOFT_COLORS) : p(BODY_COLORS);
+  ROOM = p(ROOMS);
+  buildStations(ROOM, chair);
+  placeRobot(ROOM);
+  const used = new Set();
+  // 后墙一排（x 6–82，深度不超过 8，碰不到后排工位）
+  fillAlong(r, 6, 82, BACK_POOL, used, k => FURN[k].w, (k, x) => FURN[k].put(x, 0, colOf(k)));
+  // 左墙一段（看板下方到门之前；有的模板这里被工位占了）
+  if (ROOM.left) fillAlong(r, ROOM.left[0], ROOM.left[1], LEFT_POOL, used, k => FURN[k].d, (k, y) => FURN[k].put(1, y, colOf(k)));
+  // 模板留出的空地：沙发茶几、绿植、街机、白板、纸箱……随机摆 1–3 组
+  for (const z of ROOM.zones) fillZone(r, p, z, used);
+  // 前排：会议桌和茶水台左右互换，地毯跟着会议桌，茶水台上随机摆件
+  const topper = p([SP.plant, SP.cactus, null]);
+  if (r() < .5) {
+    prop(SP.table, 28, 62, 20, 6, 8); RUG = [25, 59, 52, 72];
+    prop(SP.counter, 64, 63, 20, 5, 9, topper ? c => blit(c, topper(), 81, 65, 9) : null);
+    propC(SP.stool, 32, 70, 5); propC(SP.stool, 38, 70, 5); propC(SP.stool, 44, 70, 5);
+  } else {
+    prop(SP.counter, 24, 63, 20, 5, 9, topper ? c => blit(c, topper(), 41, 65, 9) : null);
+    prop(SP.table, 58, 62, 20, 6, 8); RUG = [55, 59, 82, 72];
+    propC(SP.stool, 62, 70, 5); propC(SP.stool, 68, 70, 5); propC(SP.stool, 74, 70, 5);
+  }
+  // 角落：绿植、大盆栽、落地灯、仙人掌，偶尔空着
+  for (const [x, y] of ROOM.corners) {
+    const k = p(['plant', 'plant', 'bigplant', 'lamp', 'cactus', null]);
+    if (k) FURN[k].put(x - (FURN[k].w >> 1), y - (FURN[k].d >> 1));
+  }
+  WINDOWS = p([
+    [{ p: 'y', a: 14, b: 28 }, { p: 'y', a: 34, b: 48 }, { p: 'x', a: 38, b: 48 }],
+    [{ p: 'y', a: 8, b: 22 }, { p: 'y', a: 28, b: 42 }],
+    [{ p: 'y', a: 20, b: 40 }, { p: 'x', a: 36, b: 50 }],
+    [{ p: 'y', a: 48, b: 62 }, { p: 'x', a: 38, b: 48 }],
+  ]);
+  // 墙面装饰：后墙空段里挑 1–2 个，左墙没窗户时再挂 1 个
+  WALL_DECOR = [];
+  const kinds = Object.keys(WALL_KINDS).sort(() => r() - .5);
+  const decorData = () => ({ bg: p(['#fdf6e3', '#e8f1f8', '#f3e8f2']), c1: p(BODY_COLORS), c2: p(SOFT_COLORS),
+    notes: [[1, 19, p(NOTE)], [4, 15, p(NOTE)], [7, 18, p(NOTE)]] });
+  let spans = freeSpans(3, 86, WINDOWS.filter(w => w.p === 'y'));
+  for (let n = 0, want = 1 + ((r() * 2) | 0); n < want && kinds.length; n++) {
+    const kind = kinds.pop(), w = WALL_KINDS[kind].w, fit = spans.filter(([a, b]) => b - a >= w);
+    if (!fit.length) continue;
+    const [a, b] = p(fit), at = a + ((r() * (b - a - w + 1)) | 0);
+    WALL_DECOR.push({ wall: 'y', kind, a: at, ...decorData() });
+    spans = spans.flatMap(([sa, sb]) => (sa === a && sb === b) ? [[sa, at - 1], [at + w + 1, sb]] : [[sa, sb]]).filter(([sa, sb]) => sb - sa >= 6);
+  }
+  if (!WINDOWS.some(w => w.p === 'x') && kinds.length) WALL_DECOR.push({ wall: 'x', kind: kinds.pop(), a: 38, ...decorData() });
+  BG = buildBG();
+  buildBlockMap();
+}
+function relayout(seed) {   // 运行中换布局：保留谁坐哪个工位
+  const seats = Object.values(STN).filter(s => s.agent).map(s => [s.id, s.agent]);
+  buildLayout(seed);
+  for (const [id, agent] of seats) if (STN[id]) STN[id].agent = agent;
+}
+
+/* ---------- 6b. 走路：2 单位一格的占地图 + 8 向 BFS，家具外扩 1 单位不贴边走 ---------- */
+const GRID = 2, GW = RW / GRID, GH = RD / GRID, DOOR = [2, 59];
+let BLOCK = new Uint8Array(GW * GH);
+function buildBlockMap() {
+  BLOCK = new Uint8Array(GW * GH);
+  for (const o of OBJ) {
+    for (let gy = Math.max(0, Math.floor((o.minY - 1) / GRID)); gy <= Math.min(GH - 1, Math.floor((o.maxY + 1 - .01) / GRID)); gy++)
+      for (let gx = Math.max(0, Math.floor((o.minX - 1) / GRID)); gx <= Math.min(GW - 1, Math.floor((o.maxX + 1 - .01) / GRID)); gx++) BLOCK[gy * GW + gx] = 1;
+  }
+}
+const cellOf = ([x, y]) => [Math.max(0, Math.min(GW - 1, Math.floor(x / GRID))), Math.max(0, Math.min(GH - 1, Math.floor(y / GRID)))];
+const cellPoint = i => [(i % GW) * GRID + GRID / 2, ((i / GW) | 0) * GRID + GRID / 2];
+function nearestFree(x, y) {   // 目标落在家具里时，取最近的空格
+  const [cx, cy] = cellOf([x, y]);
+  for (let r = 0; r < 10; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    const gx = cx + dx, gy = cy + dy;
+    if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && !BLOCK[gy * GW + gx]) return gy * GW + gx;
+  }
+  return cy * GW + cx;
+}
+function findPath(from, to) {
+  const s = nearestFree(...from), t = nearestFree(...to), prev = new Int32Array(GW * GH).fill(-1), queue = [s];
+  prev[s] = s;
+  for (let q = 0; q < queue.length && prev[t] < 0; q++) {
+    const i = queue[q], x = i % GW, y = (i / GW) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = x + dx, ny = y + dy, n = ny * GW + nx;
+      if (nx < 0 || ny < 0 || nx >= GW || ny >= GH || prev[n] >= 0 || BLOCK[n]) continue;
+      if (dx && dy && (BLOCK[y * GW + nx] || BLOCK[ny * GW + x])) continue;   // 不斜穿桌角
+      prev[n] = i; queue.push(n);
+    }
+  }
+  if (prev[t] < 0) return [from, to];
+  const cells = [];
+  for (let i = t; i !== s; i = prev[i]) cells.push(i);
+  cells.push(s); cells.reverse();
+  const pts = [from];   // 只留拐点
+  for (let k = 1; k < cells.length - 1; k++) {
+    const [ax, ay] = cellPoint(cells[k - 1]), [bx, by] = cellPoint(cells[k]), [cx, cy] = cellPoint(cells[k + 1]);
+    if (Math.sign(bx - ax) !== Math.sign(cx - bx) || Math.sign(by - ay) !== Math.sign(cy - by)) pts.push([bx, by]);
+  }
+  pts.push(cellPoint(t));
+  const [ex, ey] = cellOf(to);
+  if (!BLOCK[ey * GW + ex]) pts.push(to);   // 终点本身被家具占着时停在最近的空格
+  return pts;
+}
+// 工位局部坐标 u 轴：人朝 +u（s>0）或 -u，椅子在人身后；身后是过道，桌对面是来访者站的位置
+const seatSpot = (S, du) => { const u = S.s > 0 ? du : -du; return S.axis === 'x' ? [S.x + u, S.y] : [S.x, S.y + u]; };
+const seatBehind = S => seatSpot(S, -7), deskFront = S => seatSpot(S, 15);
+// stops: [{p:[x,y], wait, face, call}]，相邻两站之间各寻一次路
+function route(stops) {
+  const out = [{ p: stops[0].p }];
+  let last = stops[0].p;
+  for (const stop of stops.slice(1)) {
+    const legs = stop.direct ? [last, stop.p] : findPath(last, stop.p);
+    legs.slice(1).forEach((p, k) => out.push(k === legs.length - 2 ? { ...stop, p } : { p }));
+    last = legs[legs.length - 1];
+  }
+  return out;
+}
+
+/* ---------- 7. 角色与状态 ---------- */
+const ROLES = {
+  conductor: { name: '调度', stat: null, screen: 'doc' },
+  planner: { name: '规划', stat: 'plan', screen: 'doc' },
+  researcher: { name: '调研', stat: 'plan', screen: 'web' },
+  coder: { name: '编码', stat: 'code', screen: 'code' },
+  reviewer: { name: '审查', stat: 'review', screen: 'diff' },
+  tester: { name: '测试', stat: 'test', screen: 'test' },
+  designer: { name: '设计', stat: 'plan', screen: 'web' },
+  ops: { name: '运维', stat: 'test', screen: 'term' },
+};
+const STATS = { plan: '#ffd54a', code: '#66e08f', review: '#7cc4ff', test: '#ff9fbf' };
+const SCREEN = {
+  code: { bg: '#1c2536', ink: ['#7ee2a0', '#7cc4ff', '#ffb86b'] },
+  diff: { bg: '#1c2536', ink: ['#ff7b7b', '#7ee2a0'] },
+  test: { bg: '#143020', ink: ['#7ee2a0', '#c8f7d4'] },
+  web:  { bg: '#eef3ff', ink: ['#7a8db3', '#e46b9a', '#5a6c93'] },
+  doc:  { bg: '#fdfcf6', ink: ['#8a93a8', '#5b6aa6'] },
+  term: { bg: '#101521', ink: ['#9df29d'] },
+};
+const STATE_TXT = { idle:'待命', work:'工作中', think:'思考中', sleep:'zzz', done:'完成', error:'执行失败', stopped:'已停止', permission:'等待授权', question:'等待回答', retry:'正在重试', compact:'整理上下文' };
+
+let simNow = 0, paused = false, speed = 1, selected = null;
+let tokens = 0, shipped = 0;
+const AG = {}, envelopes = [], floats = [];
+const board = { todo: 0, doing: 0, done: 0 };
+let task = null;
+
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d'), ov = $('ov');
+ctx.imageSmoothingEnabled = false;
+
+function mkEl(cls) { const e = document.createElement('div'); e.className = cls; e.hidden = true; ov.appendChild(e); return e; }
+
+const freeSeat = (prefer = '') => prefer && STN[prefer] && !STN[prefer].agent ? prefer
+  : Object.keys(STN).find(k => k !== 's_conductor' && !STN[k].agent);
+function addAgent(o) {
+  const seatId = o.seat && STN[o.seat] && !STN[o.seat].agent ? o.seat : freeSeat();
+  if (!seatId || AG[o.id]) return null;
+  const lk = o.look || randomLook();
+  const L = { hair: lk.hair, skin: lk.skin, shirt: lk.shirt, pants: lk.pants || '#3a3f52', acc: lk.acc || [], accColor: lk.accColor || '' };
+  L.key = [L.hair, L.skin, L.shirt, L.pants, L.acc.join('+'), L.accColor].join('|');
+  const a = { id: o.id, name: o.name || o.id, role: ROLES[o.role] ? o.role : 'coder', look: L, seat: seatId, recruit: !!o.recruit,
+    state: 'idle', stateAt: simNow, text: '', textUntil: 0, pingUntil: 0, hopUntil: 0, seed: (R() * 3000) | 0, hx: 0, hy: 0,
+    activityLabel: '', detail: '', icon: '', iconSvg: '', labelAt: simNow, walk: null, leaving: false, bubKey: '' };
+  STN[seatId].agent = a.id; AG[a.id] = a;
+  a.bub = mkEl('bub');
+  a.toolNode = document.createElement('img'); a.toolNode.className = 'office-tool'; a.toolNode.alt = ''; a.toolNode.hidden = true;
+  a.labelNode = document.createElement('span'); a.labelNode.className = 'bub-label';
+  a.detailNode = document.createElement('span'); a.detailNode.className = 'bub-detail';
+  a.bub.append(a.toolNode, a.labelNode, a.detailNode);
+  rosterAdd(a); updateHire();
+  return a;
+}
+// 随机外观池：前半段是原有的，后 10 个是扩充的
+const HAIR_COLORS = ['#231d1c', '#5b3b2b', '#b8683a', '#dcb24c', '#2c2a38', '#8b5a39', '#c94f7c', '#4a6fa5',
+  '#b9bcc6', '#f1dca0', '#8e2b3b', '#e0673a', '#5fc8a8', '#9b7fd6', '#5aa9e6', '#f29bb8', '#2f3f7a', '#2c8c8c'];
+const SKIN_TONES = ['#f7d5b5', '#eec7a3', '#d9a77f', '#b9825a', '#f9dcc0',
+  '#fbe5d6', '#f3cfb3', '#e8b894', '#e0ac7e', '#c68c62', '#a8714a', '#94603e', '#7d4f33', '#6b4430', '#5a3825'];
+const SHIRT_COLORS = ['#3aa56b', '#e0574c', '#4a8fdc', '#f2a444', '#7a62d8', '#2fb5b0', '#e36aa6',
+  '#f4d35e', '#2e3a59', '#8a9aa9', '#f2f2ec', '#3a3b45', '#a3d977', '#8e3b5f', '#c9975b', '#86c5f0', '#ff8f7a'];
+const ACC_COLORS = ['#e8544a', '#3a8cf0', '#45b36a',
+  '#f2c14e', '#8e6bd8', '#2fb5b0', '#f08a3c', '#e36aa6', '#3a3f52', '#f4f4f0', '#7a4a2a', '#9fd4ff', '#b8e986'];
+// 四个槽位各抽一个，互不打架；空字符串的权重就是「不戴」的概率
+const HAIR_STYLES = ['', '', 'long', 'ponytail', 'twintails', 'bun', 'spiky', 'bald', 'bangs', 'bob', 'afro', 'mohawk', 'braid'];
+const HEADWEAR = ['', '', '', 'cap', 'beanie', 'headband', 'bow', 'headset'];
+const FACEWEAR = ['', '', '', 'glasses', 'shades', 'mask', 'beard', 'mustache'];
+const CHESTWEAR = ['', '', 'tie', 'bowtie', 'badge', 'scarf'];
+const TALL_HAIR = new Set(['bun', 'spiky', 'afro', 'mohawk']);   // 帽子会把它们压扁
+function randomLook() {
+  const style = pick(HAIR_STYLES);
+  let head = pick(HEADWEAR);
+  if (TALL_HAIR.has(style) && (head === 'cap' || head === 'beanie')) head = '';
+  return {
+    hair: pick(HAIR_COLORS), skin: pick(SKIN_TONES), shirt: pick(SHIRT_COLORS),
+    acc: [style, head, pick(FACEWEAR), pick(CHESTWEAR)].filter(Boolean),
+    accColor: pick(ACC_COLORS),
+  };
+}
+function setState(id, state, text, ms) {
+  const a = AG[id]; if (!a) return;
+  if (a.state !== state) { a.state = state; a.stateAt = simNow; rosterUpd(a); }
+  if (text) say(id, text, ms);
+}
+function say(id, text, ms = 2600) { const a = AG[id]; if (!a) return; a.text = text; a.textUntil = simNow + ms; }
+function send(from, to, label = '') {
+  if (!AG[from] || !AG[to]) return;
+  const el = label ? mkEl('tag') : null; if (el) el.textContent = label;
+  AG[from].hopUntil = simNow + 450;
+  envelopes.push({ a: AG[from], b: AG[to], t0: simNow, dur: 1150, el });
+}
+function floatNum(a, n, col) { floats.push({ x: a.hx + 6, y: a.hy + 2, t0: simNow, s: '+' + n, col }); }
+
+/* ---------- 8. 绘制 ---------- */
+function drawStation(c, S) {
+  blit(c, stationSprite(S, 'back'), S.x, S.y);
+  if (S.s < 0) drawScreen(c, S);
+  drawAgent(c, S);
+  blit(c, stationSprite(S, 'front'), S.x, S.y);
+  const actor = S.agent && AG[S.agent];
+  if (actor && actor.contextKnown) {
+    const o = {ox:VIEW.ox+2*(S.x-S.y), oy:VIEW.oy+S.x+S.y};
+    const layers = Math.ceil(Math.max(0,Math.min(1,actor.contextRatio))*8);
+    for(let i=0;i<layers;i++) sBox(c,o,S.axis,S.s>0?4:-6,2,8+i,3,3,1,i===layers-1&&actor.contextRatio>=.85?'#e8786b':i%2?'#d7ddec':'#fff8e6');
+  }
+}
+// 工具类型 → 屏幕内容与动作：读类工具看屏幕（偶尔点头），写类工具敲键盘
+const SCREEN_BY_ICON = { TerminalReadWrite: 'term', Edit: 'code', Save: 'code', OpenFile: 'doc', Search: 'diff', BrowserGlobe: 'web', Eye: 'web', List: 'doc' };
+const READ_ICONS = new Set(['OpenFile', 'Search', 'BrowserGlobe', 'Eye', 'List', 'Embedding']);
+const typing = a => a.state === 'type' || (a.state === 'work' && !READ_ICONS.has(a.icon));
+function drawScreen(c, S) {           // 只有背对镜头的人，屏幕才朝向我们 → 动态画内容
+  const a = S.agent && AG[S.agent];
+  const o = { ox: VIEW.ox + 2 * (S.x - S.y), oy: VIEW.oy + S.x + S.y }, ax = S.axis, u = -7;
+  if (!a || a.walk) { sFaceU(c, o, ax, u, -4, 0, 11, 15, '#232a3d'); return; }
+  const sc = SCREEN[a.state === 'type' ? 'doc' : SCREEN_BY_ICON[a.icon] || ROLES[a.role].screen];
+  if (a.state !== 'work' && a.state !== 'type') {
+    sFaceU(c, o, ax, u, -4, 0, 11, 15, '#3f7ae0');
+    sLineV(c, o, ax, u, ax === 'x' ? -1 : -4, ax === 'x' ? 0 : -3, 14, '#9cc2ff');
+    return;
+  }
+  sFaceU(c, o, ax, u, -4, 0, 11, 15, sc.bg);
+  const tick = (simNow / 190) | 0;
+  [14, 12].forEach((z, i) => {
+    const len = 1 + ((hash(tick * 7 + i * 13 + S.x * 3) * 3.99) | 0);
+    const [v0, v1] = ax === 'x' ? [-len, 0] : [-4, -4 + len];
+    sLineV(c, o, ax, u, v0, v1, z, sc.ink[(tick + i) % sc.ink.length]);
+  });
+}
+function drawAgent(c, S) {
+  const a = S.agent && AG[S.agent]; if (!a || a.walk) return;
+  const pose = S.s > 0 ? 'front' : 'back', flip = S.axis === 'y';
+  let frame = 'idle', hop = 0;
+  if (typing(a)) frame = ((simNow / (a.state === 'type' ? 120 : 170)) | 0) % 2 ? 'typeA' : 'typeB';
+  else if (pose === 'front' && (simNow + a.seed) % 3300 < 140) frame = 'blink';
+  if (a.state === 'work' && !typing(a) && (simNow + a.seed) % 1400 < 220) hop = 1;   // 读东西时偶尔点头
+  if ((a.state === 'done' || simNow < a.hopUntil) && ((simNow / 140) | 0) % 4 < 2) hop = 2;
+  const spr = charSprite(a.look, pose, frame, flip);
+  const [sx, sy] = P(VIEW, S.x, S.y, 4);
+  c.drawImage(spr.cv, sx - spr.ax, sy - spr.ay - hop); blits++;
+  a.hx = sx; a.hy = sy - spr.ay - hop;
+}
+function drawWalker(c, a) {
+  const w = a.walk, d = w.dir;
+  const pose = d === '+x' || d === '+y' ? 'front' : 'back', flip = d === '+y' || d === '-y';
+  const step = ((simNow / 150) | 0) % 2;
+  const spr = charSprite(a.look, pose, w.moving ? (step ? 'walkA' : 'walkB') : 'stand', flip);
+  const [sx, sy] = P(VIEW, w.x, w.y, 0), bob = w.moving && step ? 1 : 0;
+  c.drawImage(spr.cv, Math.round(sx - spr.ax), Math.round(sy - spr.ay - bob)); blits++;
+  a.hx = Math.round(sx); a.hy = Math.round(sy - spr.ay - bob);
+}
+function leds(c, rx) {
+  const t = (simNow / 260) | 0;
+  for (let r = 0; r < 6; r++) for (let k = 0; k < 2; k++) {
+    if (hash(rx * 97 + r * 13 + k * 7 + t * 31) < .35) continue;
+    const [sx, sy] = P(VIEW, rx + 1 + k * 2, 7, 25 - r * 4);
+    c.fillStyle = hash(r * 5 + k + rx) > .82 ? '#ffc857' : (k ? '#5ab8ff' : '#62f08e');
+    c.fillRect(sx, sy, 2, 1);
+  }
+}
+
+// 背景（地板/墙/门）按当前主题画一次；草地不画，留给宠物窗口透明
+let BG = null;
+function buildBG() {
+  const cv = mk(VIEW.w, VIEW.h), g = cv.getContext('2d'), o = VIEW, t = THEME;
+  box(g, o, -3, -3, -4, RW + 3, RD + 3, 4, { top: t.slab, left: '#a3adba', right: '#8791a1' });
+  for (let tx = 0; tx < RW / T; tx++) for (let ty = 0; ty < RD / T; ty++)
+    faceZ(g, o, 0, tx * T + 1, ty * T + 1, tx * T + T, ty * T + T, (tx + ty) % 2 ? t.floor[0] : t.floor[1]);
+  if (RUG) { const [x0, y0, x1, y1] = RUG; faceZ(g, o, 0, x0, y0, x1, y1, t.rug[0]); faceZ(g, o, 0, x0 + 1, y0 + 1, x1 - 1, y1 - 1, t.rug[1]); }
+  box(g, o, -3, -3, 0, 3, RD + 3, WALL_H, t.wall);
+  box(g, o, 0, -3, 0, RW, 3, WALL_H, t.wall);
+  const bb = t.base;
+  box(g, o, 0, 0, 0, 1, 54, 3, bb); box(g, o, 0, 64, 0, 1, RD - 64, 3, bb); box(g, o, 0, 0, 0, RW, 1, 3, bb);
+  faceX(g, o, 0, 54, 64, 0, 25, '#7c4f2c'); faceX(g, o, 0, 55, 63, 0, 24, '#b07342');
+  faceX(g, o, 0, 56, 62, 14, 22, '#c4884f'); faceX(g, o, 0, 56, 62, 3, 12, '#c4884f');
+  const [kx, ky] = P(o, 0, 57, 12); g.fillStyle = '#ffd24a'; g.fillRect(kx - 1, ky, 2, 1);
+  return cv;
+}
+
+function hourNow() { const m = (simNow / 1000) * 5; return { day: 1 + Math.floor(m / 540), min: 540 + (m % 540) }; }
+function skyColor() { const h = hourNow().min / 60; return h < 14 ? '#8fd0ff' : h < 16 ? '#a6c9f2' : h < 17 ? '#ffcf8f' : '#f5a06b'; }
+const NOTE = ['#ffe36e', '#ff9fb6', '#9fd8ff', '#b8f09a'];
+function drawWalls(c) {
+  const o = VIEW, sky = skyColor();
+  for (const w of WINDOWS) {
+    const F = w.p === 'y' ? (a, b, z0, z1, col) => faceY(c, o, 0, a, b, z0, z1, col) : (a, b, z0, z1, col) => faceX(c, o, 0, a, b, z0, z1, col);
+    F(w.a - 1, w.b + 1, 11, 12, '#d9dde6');
+    F(w.a - 1, w.b + 1, 12, 31, '#fbfcff');
+    F(w.a, w.b, 13, 30, sky); F(w.a, w.b, 13, 19, lite(sky, .18));
+    F(w.a + 2, w.a + 3, 20, 28, lite(sky, .5)); F(w.a + 4, w.a + 5, 23, 29, lite(sky, .5));
+    const mid = (w.a + w.b) >> 1; F(mid, mid + 1, 13, 30, '#fbfcff');
+  }
+  // 看板墙：待办 / 进行 / 完成 —— 便签数量跟着任务走
+  faceX(c, o, 0, 7, 31, 11, 31, '#8a6a4a'); faceX(c, o, 0, 8, 30, 12, 30, '#fdfdf8');
+  const cols = [[23, 30, '#ef6b6b', board.todo], [16, 23, '#f2c14e', board.doing], [8, 16, '#58c07a', board.done]];
+  cols.forEach(([y0, y1, hc, n], ci) => {
+    faceX(c, o, 0, y0, y1, 27, 30, hc);
+    for (let k = 0; k < Math.min(6, n); k++) {
+      const r = k >> 1, ny = y0 + 1 + (k & 1) * 3, z1 = 26 - r * 5;
+      faceX(c, o, 0, ny, ny + 2, z1 - 3, z1, NOTE[(ci + k) % NOTE.length]);
+    }
+  });
+  c.fillStyle = '#c9c2b0';
+  for (const y of [16, 23]) { const [sx, sy] = P(o, 0, y, 27); c.fillRect(sx - 1, sy, 1, 15); }
+  for (const d of WALL_DECOR) {
+    const F = d.wall === 'y' ? (a, b, z0, z1, col) => faceY(c, o, 0, a, b, z0, z1, col) : (a, b, z0, z1, col) => faceX(c, o, 0, a, b, z0, z1, col);
+    WALL_KINDS[d.kind].draw(F, d.a, d);
+  }
+}
+
+// 机器人：场景里唯一会走动的角色（也是 box() 拼的）
+const BOT_LINES = ['休息一下', 'Beep!', '巡逻中'];
+const robot = { x: 20, y: 33, path: [[57, 33], [57, 56], [20, 56], [20, 33]], i: 0, wait: 900, dir: '+x', moving: false, text: '', textUntil: 0, hx: 0, hy: 0, bub: mkEl('bub bot') };
+const robotObj = { h: 14, minX: 0, maxX: 0, minY: 0, maxY: 0, draw: c => {
+  const bob = robot.moving && ((simNow / 150) | 0) % 2 ? 1 : 0;
+  blit(c, SP.robot(robot.dir), robot.x, robot.y, bob);
+  const [sx, sy] = P(VIEW, robot.x, robot.y, 14 + bob); robot.hx = sx; robot.hy = sy;
+} };
+function updRobot(dt) {
+  if (robot.wait > 0) { robot.wait -= dt; robot.moving = false; return; }
+  const [tx, ty] = robot.path[robot.i], dx = tx - robot.x, dy = ty - robot.y, dist = Math.hypot(dx, dy), sp = dt * 0.011;
+  robot.moving = true;
+  if (dist <= sp) {
+    robot.x = tx; robot.y = ty; robot.i = (robot.i + 1) % robot.path.length; robot.wait = 900 + R() * 1800;
+    // 有人在忙时机器人不闲聊，免得和真实状态气泡抢位置
+    if (R() < .4 && !Object.values(AG).some(a => a.state in BUBBLE_CLASS)) { robot.text = pick(BOT_LINES); robot.textUntil = simNow + 2200; }
+  } else {
+    robot.x += dx / dist * sp; robot.y += dy / dist * sp;
+    robot.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? '+x' : '-x') : (dy > 0 ? '+y' : '-y');
+  }
+}
+
+// 走动的组员：进门领任务、回工位、交结果、出门；占用与机器人同样的深度排序
+const WALK_SPEED = 0.032;   // 世界单位 / 毫秒，穿过房间约 2–3 秒
+const walkers = new Set();
+function startWalk(a, path, done) {
+  const [x, y] = path[0].p;
+  a.walk = { path, i: 1, x, y, dir: a.walk ? a.walk.dir : '+x', moving: false, pause: 0, done,
+    obj: { h: 20, minX: 0, maxX: 0, minY: 0, maxY: 0, draw: c => a.walk && drawWalker(c, a) } };
+  walkers.add(a);
+}
+const faceDir = (fx, fy, tx, ty) => Math.abs(tx - fx) > Math.abs(ty - fy) ? (tx > fx ? '+x' : '-x') : (ty > fy ? '+y' : '-y');
+function updWalkers(dt) {
+  for (const a of [...walkers]) {
+    const w = a.walk;
+    if (!w) { walkers.delete(a); continue; }
+    if (w.pause > 0) { w.pause -= dt; w.moving = false; continue; }
+    if (w.i >= w.path.length) { walkers.delete(a); a.walk = null; w.done && w.done(); continue; }
+    const stop = w.path[w.i], [tx, ty] = stop.p, dx = tx - w.x, dy = ty - w.y, dist = Math.hypot(dx, dy), sp = dt * WALK_SPEED;
+    w.moving = true;
+    if (dist > .01) w.dir = faceDir(w.x, w.y, tx, ty);
+    if (dist <= sp) {
+      w.x = tx; w.y = ty; w.i++;
+      if (stop.face) w.dir = faceDir(w.x, w.y, ...stop.face);
+      if (stop.wait) { w.pause = stop.wait; w.moving = false; }
+      if (stop.call) stop.call();
+    } else { w.x += dx / dist * sp; w.y += dy / dist * sp; }
+  }
+}
+function walkerObjs() {
+  const out = [];
+  for (const a of walkers) {
+    const w = a.walk; if (!w) continue;
+    Object.assign(w.obj, { minX: w.x - 2, maxX: w.x + 2, minY: w.y - 2, maxY: w.y + 2 });
+    out.push(w.obj);
+  }
+  return out;
+}
+
+// 深度排序：按等距足迹做拓扑排序（只比较屏幕上重叠的对象）
+const sbb = o => [2 * (o.minX - o.maxY), 2 * (o.maxX - o.minY), o.minX + o.minY - o.h, o.maxX + o.maxY];
+function behind(a, b) {
+  const ab = a.maxX <= b.minX || a.maxY <= b.minY, ba = b.maxX <= a.minX || b.maxY <= a.minY;
+  if (ab !== ba) return ab;
+  return a.minX + a.maxX + a.minY + a.maxY < b.minX + b.maxX + b.minY + b.maxY;
+}
+function depthSort(list) {
+  const n = list.length, deps = list.map(() => []), bb = list.map(sbb);
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const A = bb[i], B = bb[j];
+    if (!(A[0] < B[1] && B[0] < A[1] && A[2] < B[3] && B[2] < A[3])) continue;
+    if (behind(list[i], list[j])) deps[j].push(i); else deps[i].push(j);
+  }
+  const out = [], mark = new Uint8Array(n);
+  const visit = i => { if (mark[i]) return; mark[i] = 1; deps[i].forEach(visit); out.push(list[i]); };
+  list.map((_, i) => i).sort((i, j) => (list[i].maxX + list[i].maxY) - (list[j].maxX + list[j].maxY)).forEach(visit);
+  return out;
+}
+
+function drawOverlays(c) {
+  // 信封（agent 之间的消息）：带两格残影的抛物线，落地时收件人头顶冒「!」
+  const env = envSpr(), arc = t => Math.sin(Math.PI * t) * 26;
+  for (let i = envelopes.length - 1; i >= 0; i--) {
+    const e = envelopes[i], t = Math.min(1, (simNow - e.t0) / e.dur);
+    const at = u => [e.a.hx + (e.b.hx - e.a.hx) * u, e.a.hy + 4 + (e.b.hy - e.a.hy) * u - arc(u)];
+    c.globalAlpha = .35;
+    for (const lag of [.16, .08]) if (t > lag) { const [gx, gy] = at(t - lag); c.drawImage(env.cv, Math.round(gx - 7), Math.round(gy - 5)); }
+    c.globalAlpha = 1;
+    const [x, y] = at(t);
+    c.drawImage(env.cv, Math.round(x - 7), Math.round(y - 5)); blits++;
+    e.x = x; e.y = y - 5;
+    if (t >= 1) { e.b.pingUntil = simNow + 900; if (e.el) e.el.remove(); envelopes.splice(i, 1); }
+  }
+  // 头顶状态图标
+  const bobT = ((simNow / 260) | 0) % 2;
+  for (const a of Object.values(AG)) {
+    if (!a.hx) continue;
+    let n = null, col = '#ffe14d';
+    if (simNow < a.pingUntil) n = 'ex';
+    else if (a.state === 'question') n = 'q';
+    else if (a.state === 'error') { n = 'ex'; col = '#ff5a4f'; }
+    else if (a.state === 'done') n = 'star';
+    else if (a.state === 'sleep') { n = 'z'; col = '#cfe9ff'; }
+    else if (a.state === 'permission') n = 'ex';
+    else if (a.state === 'wait') { n = 'glass'; col = '#9fd4ff'; }
+    if (n) { const s = miniSpr(n, col); c.drawImage(s.cv, a.hx + 5, a.hy - 3 - bobT); if (a.state === 'sleep') { c.drawImage(s.cv,a.hx+10,a.hy-6-bobT);c.drawImage(s.cv,a.hx+15,a.hy-9-bobT); } blits++; }
+    else if (a.state === 'think' || a.state === 'compact' || a.state === 'retry') {   // 思考：三个点轮流跳
+      const lit = ((simNow / 280) | 0) % 3;
+      for (let k = 0; k < 3; k++) { const s = miniSpr('dot', k === lit ? '#ffffff' : '#b9c3dc'); c.drawImage(s.cv, a.hx + 5 + k * 4, a.hy - 2 - (k === lit ? 1 : 0)); }
+      blits++;
+    }
+    if (a.id === selected) { const s = miniSpr('arrow', '#ffe14d'); c.drawImage(s.cv, a.hx - 3, a.hy - 10 - bobT * 2); blits++; }
+  }
+  // 飘字 +N
+  for (let i = floats.length - 1; i >= 0; i--) {
+    const f = floats[i], t = (simNow - f.t0) / 900;
+    if (t >= 1) { floats.splice(i, 1); continue; }
+    [...f.s].forEach((ch, k) => { const s = digitSpr(ch, f.col); c.drawImage(s.cv, Math.round(f.x + k * 4), Math.round(f.y - t * 12)); blits++; });
+  }
+}
+// 状态气泡：忙碌期间常驻。一行「图标 动作 · 细节」，细节是正在写的最后几个字或调用的路径/命令。
+// 先放优先级高的（求助 > 主 agent > 正在输出 > 刚变化），撞上就往上叠，叠不下改成只显示动作。
+const BUBBLE_CLASS = { think: 'think', compact: 'think', retry: 'think', type: 'type', work: '', wait: 'wait',
+  permission: 'alert', question: 'alert', error: 'bad', stopped: 'bad', done: 'flash' };
+const ICON_STATES = new Set(['work', 'wait', 'permission', 'type']);
+function bubbleContent(a) {
+  if (a.text && simNow < a.textUntil) return { cls: 'flash', label: a.text, detail: '', icon: '', prio: 5 };
+  if (!(a.state in BUBBLE_CLASS)) return null;   // 待命、zzz 不说话
+  const alert = a.state === 'permission' || a.state === 'question' || a.state === 'error' || a.state === 'stopped';
+  return { cls: BUBBLE_CLASS[a.state], label: a.activityLabel || STATE_TXT[a.state] || '', detail: a.detail || '',
+    icon: ICON_STATES.has(a.state) ? a.iconSvg : '',
+    prio: alert ? 4 : a.role === 'conductor' ? 3 : a.state === 'type' ? 2 : simNow - a.labelAt < 4000 ? 1 : 0 };
+}
+// 气泡放不下时从开头裁：正在写的回复要看最新的字，路径要看文件名
+function fitDetailTail(node, text) {
+  if (!text || node.scrollWidth <= node.clientWidth + 1) return;
+  const chars = [...text.replace(/^…/, '')];
+  let lo = 1, hi = chars.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    node.textContent = '…' + chars.slice(mid).join('');
+    if (node.scrollWidth > node.clientWidth + 1) lo = mid + 1; else hi = mid;
+  }
+  node.textContent = '…' + chars.slice(lo).join('');
+}
+function renderBubble(a, c) {
+  const key = [c.cls, c.label, c.detail, c.icon, a.id === selected, innerWidth].join('\u0001');
+  if (key === a.bubKey) return;
+  a.bubKey = key;
+  a.bub.className = 'bub' + (c.cls ? ' ' + c.cls : '') + (a.id === selected ? ' picked' : '');
+  a.labelNode.textContent = c.label;
+  a.detailNode.textContent = c.detail; a.detailNode.hidden = !c.detail;
+  if (c.icon) {
+    if (a.iconFor !== c.icon) { a.iconFor = c.icon; a.toolNode.src = safeIcon(c.icon); }
+    a.toolNode.alt = a.tool || ''; a.toolNode.hidden = false;
+  } else a.toolNode.hidden = true;
+  a.bub.hidden = false; a.bub.style.left = '0px';   // 在左边缘量，免得被窗口右侧挤窄
+  fitDetailTail(a.detailNode, c.detail);
+  a.bubFullW = a.bub.offsetWidth; a.bubH = a.bub.offsetHeight;
+  a.bub.classList.add('compact'); a.bubCompactW = a.bub.offsetWidth; a.bub.classList.remove('compact');
+}
+function layoutBubbles(k) {
+  const W = innerWidth, minTop = k * 30, items = [];
+  for (const a of Object.values(AG)) {
+    const c = a.hx ? bubbleContent(a) : null;
+    if (!c) { if (!a.bub.hidden) { a.bub.hidden = true; a.bubKey = ''; } continue; }
+    renderBubble(a, c); items.push([c.prio, a]);
+  }
+  items.sort((x, y) => y[0] - x[0] || y[1].labelAt - x[1].labelAt);
+  const placed = [];
+  const hits = r => placed.some(p => r.left < p.right + 2 && p.left < r.right + 2 && r.top < p.bottom + 2 && p.top < r.bottom + 2);
+  // 候选位置：头顶居中 → 往左/右错开（尾巴仍指着头）→ 抬高一层/两层（用引线连回头顶）
+  const rectAt = (a, compact, lift, side) => {
+    const w = compact ? a.bubCompactW : a.bubFullW, h = a.bubH, cx = a.hx * k, tip = (a.hy - 1) * k - 7;
+    const want = side < 0 ? cx - w + 14 : side > 0 ? cx - 14 : cx - w / 2;
+    const left = Math.max(2, Math.min(W - w - 2, want)), top = Math.max(minTop, tip - h - lift * (h + 3));
+    return { left, top, right: left + w, bottom: top + h, compact, cx, lead: Math.max(0, tip - h - top) };
+  };
+  for (const [, a] of items) {
+    let best = null;
+    for (const compact of [false, true]) for (let lift = 0; lift < 3 && !best; lift++)
+      for (const side of [0, -1, 1]) { const r = rectAt(a, compact, lift, side); if (!hits(r)) { best = r; break; } }
+    best = best || rectAt(a, true, 0, 0);
+    placed.push(best);
+    a.bub.classList.toggle('compact', best.compact);
+    a.bub.style.left = best.left + 'px'; a.bub.style.top = best.top + 'px';
+    a.bub.style.setProperty('--tail', Math.max(8, Math.min(best.right - best.left - 8, best.cx - best.left)) + 'px');
+    a.bub.style.setProperty('--lead', best.lead + 'px');
+  }
+  // 原生窗口的形状区域也裁剪绘制：气泡（含尾巴和引线）范围变化时节流上报
+  const r3 = v => Math.round(v * 1000) / 1000, H = innerHeight;
+  const rects = placed.map(p => [r3(p.left / W), r3(p.top / H), r3(p.right / W), r3(Math.min(H, p.bottom + 8 + p.lead) / H)]);
+  if (!robot.bub.hidden) { const b = robot.bub.getBoundingClientRect(); rects.push([r3(b.left / W), r3(b.top / H), r3(b.right / W), r3((b.bottom + 8) / H)]); }
+  const key = JSON.stringify(rects);
+  if (key !== bubbleRegionKey && (simNow - bubbleRegionAt > 150 || rects.length !== bubbleRegions.length)) {
+    bubbleRegionKey = key; bubbleRegionAt = simNow; bubbleRegions = rects; reportOfficeRegions();
+  }
+}
+let bubbleRegions = [], bubbleRegionKey = '', bubbleRegionAt = -1e9;
+function placeDom() {
+  const k = cv.clientWidth / VIEW.w; if (!k) return;
+  const put = (el, x, y) => { el.style.left = (x * k) + 'px'; el.style.top = (y * k) + 'px'; };
+  layoutBubbles(k);
+  if (robot.text && simNow < robot.textUntil) { robot.bub.textContent = robot.text; robot.bub.hidden = false; put(robot.bub, robot.hx, robot.hy - 1); }
+  else robot.bub.hidden = true;
+  for (const e of envelopes) if (e.el && e.x !== undefined) { e.el.hidden = false; put(e.el, e.x, e.y); }
+}
+function render() {
+  blits = 0;
+  ctx.clearRect(0, 0, VIEW.w, VIEW.h);
+  ctx.drawImage(BG, 0, 0);
+  drawWalls(ctx);
+  robotObj.minX = robot.x - 2; robotObj.maxX = robot.x + 2; robotObj.minY = robot.y - 2; robotObj.maxY = robot.y + 2;
+  for (const o of depthSort(OBJ.concat(robotObj, walkerObjs()))) o.draw(ctx);
+  drawOverlays(ctx);
+  placeDom();
+}
+
+/* ---------- 9. 时间 & 主循环 ---------- */
+const waiters = [];
+const wait = ms => new Promise(r => waiters.push({ t: simNow + ms, r }));
+const FRAME_MS = 33;   // 常驻桌面：像素动画本来就是 150ms 级步进，约 30fps 足够，省 CPU/GPU
+let last = performance.now(), sinceDraw = FRAME_MS;
+function advance(dt) {
+  simNow += dt;
+  for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i].t <= simNow) { const w = waiters[i]; waiters.splice(i, 1); w.r(); }
+  updRobot(dt);
+  updWalkers(dt);
+}
+function loop(ts) {
+  const dt = Math.min(64, ts - last); last = ts;
+  if (!paused) advance(dt * speed);
+  if ((sinceDraw += dt) >= FRAME_MS) { sinceDraw = 0; render(); presentUpscale(); notifyReady(); }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 10. 桌面宠物交互（原页面的面板 / 按钮 / 花名册都去掉了） ---------- */
+const post = msg => { try { if (window.chrome && chrome.webview) chrome.webview.postMessage(msg); } catch (e) { /* 普通浏览器里打开时没有宿主 */ } };
+let readySent = false;
+function notifyReady() { if (!readySent) { readySent = true; post('ready'); } }   // 第一帧画完再让原生把窗口挪进屏幕
+function renderTask() {}
+function rosterAdd() {}
+function rosterUpd() {}
+function updateHire() {}
+function log() {}
+function select(id) {
+  selected = id;
+  if (id) { const a = AG[id]; say(id, `${a.name} · ${a.activityLabel || STATE_TXT[a.state]}`, 3200); }
+}
+// 左键按住拖动 = 挪窗口（交给原生的标题栏拖动循环）；单击小人 = 头顶报状态；右键 = 原生菜单
+let press = null, dragged = false;
+cv.addEventListener('pointerdown', e => { if (e.button === 0) { press = { x: e.screenX, y: e.screenY }; dragged = false; } });
+cv.addEventListener('pointermove', e => {
+  if (!press || !(e.buttons & 1)) return;
+  if (Math.abs(e.screenX - press.x) + Math.abs(e.screenY - press.y) >= 4) { press = null; dragged = true; post('drag'); }
+});
+cv.addEventListener('pointerup', () => { press = null; });
+document.addEventListener('contextmenu', e => { e.preventDefault(); post('menu'); });
+cv.addEventListener('click', e => {
+  if (dragged) { dragged = false; return; }
+  const r = cv.getBoundingClientRect(), k = VIEW.w / r.width;
+  const x = (e.clientX - r.left) * k, y = (e.clientY - r.top) * k;
+  let best = null, bd = 1e9;
+  for (const a of Object.values(AG)) {
+    const dx = x - a.hx, dy = y - (a.hy + 8), d = dx * dx + dy * dy;
+    if (Math.abs(dx) < 9 && Math.abs(dy) < 12 && d < bd) { bd = d; best = a; }
+  }
+  select(best ? best.id : null);
+});
+// 窗口尺寸由原生按整数倍缩放给出，画布铺满窗口；--k = 每个场景像素对应多少 CSS 像素，气泡字号跟着它走
+function fit() {
+  const k = window.innerWidth / VIEW.w;
+  if (k > 0) document.documentElement.style.setProperty('--k', String(k));
+  syncUpscale();
+  reportOfficeRegions();
+}
+window.addEventListener('resize', fit);
+
+// ---- 用户缩放：滚轮 / 左上角把手交给原生改窗口大小，页面只负责把任意倍数画整齐 ----
+// 非整数倍（比如 2.3 倍）直接最近邻放大会一行 2 像素一行 3 像素；先按整数倍（向上取整）
+// 放大到离屏画布，再让浏览器平滑缩到窗口大小，像素宽窄一致，只在边缘有 1 像素过渡。
+const up = $('up'), upCtx = up ? up.getContext('2d') : null;
+let upN = 0;
+function syncUpscale() {
+  if (!up) return;
+  const K = cv.clientWidth * (window.devicePixelRatio || 1) / VIEW.w;
+  const n = !(K > 0) || Math.abs(K - Math.round(K)) < 0.02 ? 0 : Math.max(1, Math.ceil(K));
+  if (n === upN) return;
+  upN = n;
+  up.hidden = !n;
+  cv.style.opacity = n ? '0' : '';
+  if (n) { up.width = VIEW.w * n; up.height = VIEW.h * n; }
+}
+function presentUpscale() {
+  if (!upN) return;
+  upCtx.imageSmoothingEnabled = false;
+  upCtx.clearRect(0, 0, up.width, up.height);
+  upCtx.drawImage(cv, 0, 0, up.width, up.height);
+}
+const hostAttached = () => !!(window.chrome && chrome.webview);
+let wheelAcc = 0;
+cv.parentElement.addEventListener('wheel', e => {
+  if(e.target.closest('.office-controls,.office-members'))return;
+  if (!hostAttached()) return;   // 普通浏览器里打开时不拦滚动
+  e.preventDefault();
+  wheelAcc += e.deltaY * (e.deltaMode === 1 ? 33 : 1);
+  const r = cv.getBoundingClientRect();
+  const fx = ((e.clientX - r.left) / r.width).toFixed(3), fy = ((e.clientY - r.top) / r.height).toFixed(3);
+  while (Math.abs(wheelAcc) >= 100) {   // 鼠标滚轮一格 = 100；触控板的小增量攒够一格再发
+    const step = wheelAcc < 0 ? 1 : -1;
+    wheelAcc += step * 100;
+    post(`zoom ${step} ${fx} ${fy}`);
+  }
+}, { passive: false });
+const grip = $('grip');
+if (grip) {
+  grip.addEventListener('pointerdown', e => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); post('resize'); });
+  grip.addEventListener('dblclick', e => { e.preventDefault(); post('size-reset'); });
+}
+let badgeTimer = 0;
+function showBadge(text) {
+  const b = $('zoomBadge'); if (!b) return;
+  b.textContent = text; b.hidden = false;
+  clearTimeout(badgeTimer);
+  badgeTimer = setTimeout(() => { b.hidden = true; }, 900);
+}
+if (hostAttached()) chrome.webview.addEventListener('message', e => {
+  if (e.data && typeof e.data === 'object') {applyOfficeSnapshot(e.data);return;}
+  const m = String(e.data || '');
+  if (m.startsWith('size ')) showBadge(m.slice(5) + '%');
+});
+
+/* ---------- 11. 真实会话快照 ---------- */
+let officeSnapshot = {version:1,follow:true,connected:false,offices:[],agents:[],selected:null};
+let officeIdentity = '', liveReady = false;
+const seenTransfers = new Set();
+const TRANSFER_TAG = {NEW_TASK:'新任务', MESSAGE:'消息', FINAL_ANSWER:'回报'};
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+function action(value) {post(JSON.stringify(value));}
+function removeAgent(id) {
+  const a=AG[id];if(!a)return;
+  if(STN[a.seat]&&STN[a.seat].agent===id)STN[a.seat].agent=null;
+  a.walk=null;walkers.delete(a);
+  a.bub.remove();delete AG[id];
+  if(selected===id)selected=null;
+}
+function clearAgents() {
+  for(const id of Object.keys(AG))removeAgent(id);
+  for(const e of envelopes)e.el?.remove();
+  envelopes.length=0;floats.length=0;walkers.clear();
+}
+// 进出场：只在本办公室已经显示过一帧真实快照后才演（切换办公室、重连恢复都直接落座）
+const motionOK=()=>liveReady&&!reducedMotion.matches;
+const shortName=name=>{const s=[...String(name||'')];return s.length>8?s.slice(0,7).join('')+'…':s.join('');};
+function bossOf(item,visible) {
+  const parent=item.parentPath&&visible.find(x=>x.path===item.parentPath&&AG[x.id]&&!AG[x.id].leaving);
+  const boss=parent||visible.find(x=>x.root);
+  return boss&&AG[boss.id]&&boss.id!==item.id?AG[boss.id]:null;
+}
+const posOf=a=>a.walk?[a.walk.x,a.walk.y]:STN[a.seat]?[STN[a.seat].x,STN[a.seat].y]:DOOR;
+// 新成员：进门 → 到派活的人桌前领信封 → 绕到自己椅子后面 → 坐下
+function enterOffice(a,boss,from=DOOR) {
+  const S=STN[a.seat];
+  if(!S)return;
+  if(!motionOK()) {   // 减少动态效果：不走路，信封直接从派活的人飞到工位
+    if(boss&&liveReady){send(boss.id,a.id,'任务');say(boss.id,'派给 '+shortName(a.name),2200);}
+    return;
+  }
+  const stops=[{p:from}];
+  const B=boss&&!boss.walk&&STN[boss.seat];
+  if(B) stops.push({p:deskFront(B),wait:1000,face:[B.x,B.y],call:()=>{send(boss.id,a.id,'任务');say(boss.id,'交给你了',1500);}});
+  stops.push({p:seatBehind(S)},{p:[S.x,S.y],direct:true});
+  startWalk(a,route(stops),null);
+}
+// 离开：完成的人先到上级桌前交回报，再出门；失败/停止的人直接出门
+function leaveOffice(a,boss,report) {
+  const S=STN[a.seat];
+  if(S&&S.agent===a.id)S.agent=null;
+  a.leaving=true;
+  const from=posOf(a),stops=[{p:from}];
+  if(S&&!a.walk)stops.push({p:seatBehind(S),direct:true});
+  const B=report&&boss&&!boss.walk&&STN[boss.seat];
+  if(B) stops.push({p:deskFront(B),wait:1000,face:[B.x,B.y],call:()=>{send(a.id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}});
+  stops.push({p:DOOR});
+  startWalk(a,route(stops),()=>removeAgent(a.id));
+}
+// 正在往外走的人又接到任务：掉头回工位
+function returnToSeat(a,boss) {
+  const seat=freeSeat(a.seat);
+  if(!seat){removeAgent(a.id);return false;}
+  a.leaving=false;a.seat=seat;STN[seat].agent=a.id;
+  enterOffice(a,boss,posOf(a));
+  if(!motionOK()){a.walk=null;walkers.delete(a);}
+  return true;
+}
+function stableLook(seed) {
+  const rand=rng(seed), choose=items=>items[Math.floor(rand()*items.length)];
+  const style=choose(HAIR_STYLES);let head=choose(HEADWEAR);
+  if(TALL_HAIR.has(style)&&(head==='cap'||head==='beanie'))head='';
+  return {hair:choose(HAIR_COLORS),skin:choose(SKIN_TONES),shirt:choose(SHIRT_COLORS),pants:'#3a3f52',acc:[style,head,choose(FACEWEAR),choose(CHESTWEAR)].filter(Boolean),accColor:choose(ACC_COLORS)};
+}
+function safeIcon(svg) {
+  // Keep SVG in an image document: never inject bridge-provided markup into DOM.
+  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(String(svg).replace(/currentColor/g,'#27324f'));
+}
+function applyOfficeSnapshot(next) {
+  if(!next||next.version!==1||!Array.isArray(next.agents)||!Array.isArray(next.offices))return;
+  const identity=next.selected?.sessionId||'';
+  const changed=identity!==officeIdentity;
+  if(changed) {
+    clearAgents();officeIdentity=identity;liveReady=false;seenTransfers.clear();
+    $('officeMembers').hidden=true;reportOfficeRegions();
+    relayout(Number(next.seed)||1);
+  }
+  officeSnapshot=next;
+  const visible=next.agents.slice(0,8), ids=new Set(visible.map(a=>a.id)), completed=new Set(next.completed||[]);
+  for(const id of Object.keys(AG)) {
+    const a=AG[id];
+    if(ids.has(id)||a.leaving)continue;
+    const item={id,parentPath:a.parentPath||''}, boss=bossOf(item,visible), report=completed.has(id);
+    if(motionOK()) {a.state=report?'done':a.state;a.activityLabel=report?'已完成':a.activityLabel;a.detail='';leaveOffice(a,boss,report);}
+    else {
+      if(liveReady&&report&&boss){send(id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}
+      removeAgent(id);
+    }
+  }
+  for(const item of visible) {
+    let a=AG[item.id];
+    if(a&&a.leaving&&!returnToSeat(a,bossOf(item,visible)))a=null;
+    if(!a) {
+      a=addAgent({id:item.id,name:item.name,role:item.root?'conductor':'coder',seat:item.root?'s_conductor':undefined,
+        look:item.root?{hair:'#3b2a22',skin:'#f7d5b5',shirt:'#2d406e',pants:'#262b38',acc:['tie']}:stableLook(item.seed)});
+      if(!a)continue;
+      a.parentPath=item.parentPath||'';
+      if(liveReady&&!item.root)enterOffice(a,bossOf(item,visible));
+    }
+    const key=[item.state,item.label,item.tool].join('|');
+    if(key!==a.activityKey){a.activityKey=key;a.labelAt=simNow;}
+    a.name=item.name;a.contextKnown=item.contextKnown;a.contextRatio=item.contextRatio;a.parentPath=item.parentPath||'';
+    a.activityLabel=item.label;a.detail=item.detail||'';a.tool=item.tool;a.icon=item.icon||'';a.iconSvg=item.iconSvg||'';
+    if(liveReady&&item.compactId&&item.compactId!==a.compactId) {
+      robot.text='整理好旧文件了';robot.textUntil=simNow+2600;
+    }
+    a.compactId=item.compactId;
+    setState(a.id,item.state);
+    if(item.state==='compact'){robot.text='整理上下文';robot.textUntil=simNow+1600;}
+    for(const transfer of item.transfers||[]) {
+      const key=item.id+':'+transfer.seq;
+      if(seenTransfers.has(key))continue;
+      seenTransfers.add(key);
+      if(!liveReady)continue;
+      const from=visible.find(x=>x.id===transfer.sender_session_id||x.path===transfer.sender);
+      const to=visible.find(x=>x.path===transfer.recipient)||item;
+      if(!from||!to||from.id===to.id||!AG[from.id]||!AG[to.id])continue;
+      send(from.id,to.id,TRANSFER_TAG[transfer.type]||'消息');
+    }
+  }
+  while(seenTransfers.size>256)seenTransfers.delete(seenTransfers.values().next().value);
+  board.doing=next.agents.filter(a=>a.busy).length;
+  board.todo=next.agents.filter(a=>a.state==='permission'||a.state==='question').length;
+  board.done=next.agents.some(a=>a.root&&a.state==='sleep')?1:0;
+  tokens=next.agents.reduce((n,a)=>n+(a.contextTokens||0),0);
+  updateOfficeControls();syncOfficeMembers();liveReady=true;render();presentUpscale();
+}
+let controlsKey='';
+function updateOfficeControls() {
+  const s=officeSnapshot, tabs=$('officeTabs');
+  const key=JSON.stringify([s.offices,s.selected?.sessionId,s.follow,s.connected,s.complete,s.overflow]);
+  if(key===controlsKey)return;controlsKey=key;
+  tabs.replaceChildren();
+  s.offices.slice(0,5).forEach((office,index)=>{
+    const b=document.createElement('button');b.type='button';b.className='office-tab';b.setAttribute('role','tab');
+    b.textContent=office.title||String(index+1);b.title=[office.workspaceName,office.title].filter(Boolean).join(' / ');
+    b.setAttribute('aria-label',b.title);b.setAttribute('aria-selected',String(office.sessionId===s.selected?.sessionId));
+    b.addEventListener('click',()=>action({type:'select',session_id:office.sessionId,workspace_hash:office.workspaceHash}));
+    tabs.appendChild(b);
+  });
+  $('officeFollow').setAttribute('aria-checked',String(s.follow));
+  const notice=$('officeNotice');
+  notice.textContent=!s.connected?'连接已中断，正在重连':!s.selected?(s.complete===false?'正在读取最近会话':'发送消息后，会话会出现在这里'):s.complete===false?'正在读取最近会话':'';
+  notice.hidden=!notice.textContent;
+  const overflow=$('officeOverflow');overflow.hidden=!s.overflow;overflow.textContent='+'+s.overflow;
+  overflow.setAttribute('aria-label','查看其余 '+s.overflow+' 位成员');
+}
+$('officeFollow').addEventListener('click',()=>action({type:'follow',follow:!officeSnapshot.follow}));
+function reportOfficeRegions() {
+  const rects=[$('officeMembers'),$('officeNotice')].filter(node=>node&&!node.hidden).map(node=>node.getBoundingClientRect());
+  const rect=rects.length?[Math.min(...rects.map(r=>r.left))/innerWidth,Math.min(...rects.map(r=>r.top))/innerHeight,
+    Math.max(...rects.map(r=>r.right))/innerWidth,Math.max(...rects.map(r=>r.bottom))/innerHeight]:null;
+  action({type:'overlay',rect,bubbles:bubbleRegions});
+}
+function syncOfficeMembers() {
+  const list=$('officeMembers');
+  if(!officeSnapshot.overflow)list.hidden=true;
+  if(list.hidden){reportOfficeRegions();return;}
+  const focused=document.activeElement?.dataset.memberId;
+  list.replaceChildren();
+  for(const member of officeSnapshot.agents){const b=document.createElement('button');b.type='button';b.dataset.memberId=member.id;b.textContent=member.name+' · '+member.label;
+    b.addEventListener('click',()=>{action({type:'open',session_id:member.id,workspace_hash:officeSnapshot.selected?.workspaceHash||''});list.hidden=true;reportOfficeRegions();});list.appendChild(b);}
+  if(focused){const button=Array.from(list.children).find(b=>b.dataset.memberId===focused);(button||$('officeOverflow')).focus();}
+  reportOfficeRegions();
+}
+$('officeOverflow').addEventListener('click',()=>{
+  const list=$('officeMembers');list.hidden=!list.hidden;syncOfficeMembers();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('officeMembers').hidden=true;reportOfficeRegions();}});
+cv.addEventListener('dblclick',()=>{if(selected)action({type:'open',session_id:selected,workspace_hash:officeSnapshot.selected?.workspaceHash||''});});
+// A stable empty room appears until the first real snapshot; no demo workers.
+buildLayout(1);
+window.AgentOffice={applySnapshot:applyOfficeSnapshot,get snapshot(){return officeSnapshot;},
+  get agents(){return Object.values(AG).map(a=>({id:a.id,name:a.name,state:a.state,contextRatio:a.contextRatio,look:a.look.key,seat:a.seat,
+    walking:!!a.walk,leaving:a.leaving,bubble:a.bub.hidden?'':a.bub.textContent,compact:a.bub.classList.contains('compact')}));},
+  get envelopes(){return envelopes.map(e=>({from:e.a.id,to:e.b.id,label:e.el?e.el.textContent:''}));},
+  get layoutSignature(){return JSON.stringify({theme:THEME,seats:Object.values(STN).map(s=>[s.id,s.x,s.y,s.axis,s.s])});},
+  // 测试用：按 32ms 步长推进模拟时间（走路、信封、等待）后重画一帧
+  advance(ms){for(let left=ms;left>0;left-=32)advance(Math.min(32,left));render();presentUpscale();},
+  layout:seed=>relayout(seed)};
+fit();
+requestAnimationFrame(t=>{last=t;requestAnimationFrame(loop);});
+
+})();
+
+</script>
+</body>
+</html>

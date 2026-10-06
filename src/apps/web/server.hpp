@@ -19,6 +19,8 @@
 #include "upgrade/upgrade.hpp"
 #include "session/opencode_import.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -51,6 +53,10 @@ class LoopStore;
 namespace acecode::desktop {
 class WorkspaceRegistry;
 } // namespace acecode::desktop
+
+namespace acecode::channels::core {
+class ChannelHost;
+} // namespace acecode::channels::core
 
 namespace acecode::web {
 
@@ -147,6 +153,9 @@ struct WebServerDeps {
     std::function<void()>      on_loops_changed;
     std::function<void()>      before_data_dir_copy;
     std::function<void()>      on_data_dir_copy_failure;
+    // 消息通道宿主(QQ / Telegram,add-desktop-im-channels)。null = /api/channels 返回 503,
+    // 会话列表不带 channel_bound。
+    acecode::channels::core::ChannelHost* channel_host = nullptr;
 };
 
 class WebServer {
@@ -186,6 +195,11 @@ public:
         bool no_workspace,
         const std::string& title,
         const std::string& updated_at);
+
+    // 只推给本机直连的 WS 连接(不含远程 Web 代理转发进来的连接):
+    // 消息通道的 channels_state / channels_bind / channels_request 带二维码与联系人信息。
+    // 线程安全。
+    void broadcast_local_event(const std::string& type, const nlohmann::json& payload);
 
 private:
     struct Impl;

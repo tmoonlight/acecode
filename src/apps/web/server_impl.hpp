@@ -136,6 +136,8 @@ struct SideChatWorker {
 struct WsConnState {
     // Nullable borrowed connection; access only under Impl::ws_mu while registered.
     crow::websocket::connection* connection = nullptr;
+    // 本机直连(不含远程 Web 代理的 127.0.0.2);只有这类连接收消息通道事件。
+    bool trusted_local = false;
     std::string session_id;
     std::unordered_map<std::string, SessionClient::SubscriptionId> subscriptions;
     std::unordered_set<std::string> status_workspaces;
@@ -554,6 +556,7 @@ struct WebServer::Impl {
         const std::string& session_id,
         const std::string& workspace_hash_hint = {}) const;
     void broadcast_session_status(const nlohmann::json& payload);
+    void broadcast_local_event(const std::string& type, const nlohmann::json& payload);
     void broadcast_remote_control_session_selected(const std::string& session_id,
                                                    const std::string& workspace_hash,
                                                    const std::string& cwd,
@@ -620,6 +623,7 @@ struct WebServer::Impl {
     void register_workspaces();
     void register_pinned_sessions();
     void register_sessions();
+    void register_desktop_office();
     void register_task_suggestions();
     void register_models();
     void register_experts();
@@ -638,6 +642,7 @@ struct WebServer::Impl {
     void register_hooks();
     void register_feedback();
     void register_pty();
+    void register_channels();
     void register_environment();
     void register_websocket();
     void register_static();

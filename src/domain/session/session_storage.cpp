@@ -296,6 +296,8 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     j["cwd"] = meta.cwd;
     j["created_at"] = meta.created_at;
     j["updated_at"] = meta.updated_at;
+    if (!meta.last_user_message_at.empty()) j["last_user_message_at"] = meta.last_user_message_at;
+    if (!meta.last_turn_outcome.empty()) j["last_turn_outcome"] = meta.last_turn_outcome;
     j["message_count"] = meta.message_count;
     j["summary"] = meta.summary;
     j["provider"] = meta.provider;
@@ -424,6 +426,8 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
         meta.pre_plan_permission_mode = normalize_pre_plan_permission_mode_name(
             j.value("pre_plan_permission_mode", std::string{}));
         meta.turn_count      = (std::max)(0, j.value("turn_count", 0));
+        meta.last_user_message_at = j.value("last_user_message_at", std::string{});
+        meta.last_turn_outcome = j.value("last_turn_outcome", std::string{});
         if (j.contains("last_token_usage")) {
             meta.last_token_usage = token_usage_from_json(j["last_token_usage"]);
         }

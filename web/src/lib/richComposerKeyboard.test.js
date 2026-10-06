@@ -52,6 +52,9 @@ function fixture({ kind = 'path', key = 'Backspace', selected = false } = {}) {
     parentCalls: 0,
     submissions: 0,
     removed: [],
+    adoptCalls: 0,
+    // 模拟用户看到的 DOM 光标;为 null 表示 DOM 与 Slate 一致、无需采纳。
+    domCaret: null,
   };
   const context = vm.createContext({ ...composerModel, ...contentModel, ...composerSelection, Editor, Range, Transforms, HistoryEditor, COMPOSER_CLIPBOARD_TYPE: 'application/x-acecode-composer-content' });
   const editor = withHistory(loadFunction('withComposerInlineTags', context)(createEditor()));
@@ -75,6 +78,12 @@ function fixture({ kind = 'path', key = 'Backspace', selected = false } = {}) {
     onKeyDown: () => { state.parentCalls += 1; },
     onSubmit: () => { state.submissions += 1; },
     onRemoveAttachment: (attachmentKey) => state.removed.push(attachmentKey),
+    adoptDomSelection: () => {
+      state.adoptCalls += 1;
+      if (!state.domCaret) return false;
+      Transforms.select(editor, state.domCaret);
+      return true;
+    },
     deleteAdjacentTag: loadFunction('deleteAdjacentTag', context),
     removeAttachmentReference: loadFunction('removeAttachmentReference', context),
     deleteSelectedPlainText: loadFunction('deleteSelectedPlainText', context),
@@ -103,6 +112,8 @@ function assertImeOwnsKey(test) {
   assert.deepEqual(test.state.removed, [], 'IME key must not remove attachments');
   assert.equal(test.state.parentCalls, 0, 'IME key must not invoke parent history navigation');
   assert.equal(test.state.submissions, 0, 'IME key must not submit');
+  // 合成期间 DOM 里有未提交的拼音,此时的 DOM 选区不能写回 Slate(由 compositionstart 负责)。
+  assert.equal(test.state.adoptCalls, 0, 'IME key must not adopt the DOM selection');
   assert.equal(handled, true, 'Slate keyboard fallthrough must be skipped');
   assert.equal(test.event.defaultPrevented, false, 'native IME default must remain available');
   assert.equal(test.event.propagationStopped, false);
@@ -356,6 +367,25 @@ for (const directory of ['@src/', '@"my docs/"']) run('entering a directory keep
   const changed = loadFunction('replaceComposerTextPreservingReferences', test.context)(test.editor, `before ${directory} after`, [], { begin: 7, end: 10, plainText: true });
   assert.equal(contentModel.composerContentText(changed), `before ${directory} after`);
   assert.equal(changed.parts.some((part) => part.type === 'path'), false);
+});
+
+// 场景:Slate 的 selectionchange 同步被卡住(例如拖拽结束事件丢失),editor.selection 停在
+// 行首(标签之前),用户看到的光标却在 "@main.js " 末尾。按普通 Backspace。
+// 期望:handleKeyDown 先采纳 DOM 光标,父组件 onKeyDown 读到的是采纳后的选区,退格按用户
+// 看到的位置删除前面的标签。
+// 修复前:退格在过期的行首选区上执行,标签不删(同一根因下输入法文字也会落到过期位置)。
+run('ordinary keys adopt the visible DOM caret before parent and deletion handlers read the selection', () => {
+  const test = fixture({ kind: 'path', key: 'Backspace' });
+  const visibleCaret = structuredClone(test.editor.selection);
+  Transforms.select(test.editor, Editor.start(test.editor, []));
+  test.state.domCaret = visibleCaret;
+  let parentSelection = null;
+  test.context.onKeyDown = () => { parentSelection = structuredClone(test.editor.selection); };
+  test.handleKeyDown(test.event);
+  assert.equal(test.state.adoptCalls, 1);
+  assert.deepEqual(parentSelection, visibleCaret);
+  assert.equal(test.event.defaultPrevented, true);
+  assert.equal(composerModel.composerTextFromDocument(test.editor.children), '');
 });
 
 run('queue editor lets Enter reach Slate when submitOnEnter is disabled', () => {

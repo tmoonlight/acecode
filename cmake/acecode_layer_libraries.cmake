@@ -69,9 +69,14 @@ elseif(WIN32)
     target_link_libraries(acecode_base_core PRIVATE
         bcrypt advapi32 ws2_32 ole32 shell32 user32 gdi32 msimg32 winmm)
 endif()
+if(NOT WIN32)
+    # platform/crypto 的 AES-256-GCM 在非 Windows 平台走 libcrypto。
+    target_link_libraries(acecode_base_core PRIVATE OpenSSL::Crypto)
+endif()
 
 acecode_add_layer_library(acecode_base_host base ${_base_host})
-target_link_libraries(acecode_base_host PUBLIC acecode_base_core cpr::cpr
+# network/websocket_client 直接使用 libcurl 的 WebSocket API。
+target_link_libraries(acecode_base_host PUBLIC acecode_base_core cpr::cpr CURL::libcurl
     PRIVATE unofficial::sqlite3::sqlite3)
 if(WIN32)
     target_link_libraries(acecode_base_host PRIVATE winhttp iphlpapi winpty_static)
@@ -164,7 +169,8 @@ set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
     ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE} ${ACECODE_DESKTOP_LINUX_SOURCE}
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE} ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE}
     ${ACECODE_DESKTOP_MAIN_SOURCE} ${ACECODE_DESKTOP_SPLASH_SOURCE}
-    ${ACECODE_DESKTOP_WEB_HOST_SOURCE})
+    ${ACECODE_DESKTOP_WEB_HOST_SOURCE} ${ACECODE_DESKTOP_PET_SOURCE}
+    ${ACECODE_DESKTOP_PET_MAC_SOURCE})
 acecode_collect_group_sources(_desktop apps/desktop)
 list(REMOVE_ITEM _desktop ${ACECODE_DESKTOP_BINARY_ONLY_SOURCES})
 acecode_add_layer_library(acecode_desktop_support apps ${_desktop})

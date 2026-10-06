@@ -19,6 +19,7 @@
 #include "context_items.hpp"
 #include "platform/native_ui/context_picker.hpp"
 #include "desktop_about.hpp"
+#include "desktop_pet.hpp"
 #include "desktop_restart.hpp"
 #include "dpi_win.hpp"
 #include "edge_app_launcher.hpp"
@@ -2773,11 +2774,10 @@ int main(int argc, char** argv) {
         startup_timeline.snapshot_json() + ";\n");
     startup_navigation_started = true;
     host.navigate(url);
-    if (url == onboarding_url()) {
-        close_splash_once();
-    }
+    if (url == onboarding_url()) close_splash_once();
 
-    // 5. 阻塞主循环
+    // 5. GUI-owned office is destroyed before the WebHost.
+    DesktopPet desktop_pet(host);
     host.run();
 
     // 6. quit:写 last_active + stop_all

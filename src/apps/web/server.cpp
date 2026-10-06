@@ -137,6 +137,7 @@ void WebServer::Impl::register_routes() {
     register_workspaces();
     register_pinned_sessions();
     register_sessions();
+    register_desktop_office();
     register_task_suggestions();
     register_models();
     register_image_generation();
@@ -161,6 +162,7 @@ void WebServer::Impl::register_routes() {
     register_hooks();
     register_feedback();
     register_pty();
+    register_channels();
     register_environment();
     register_websocket();
     register_static();
@@ -255,6 +257,11 @@ void WebServer::with_app_config_lock(const std::function<void()>& fn) const {
     }
     std::lock_guard<std::shared_mutex> lock(impl_->app_config_mu);
     fn();
+}
+
+void WebServer::broadcast_local_event(const std::string& type, const nlohmann::json& payload) {
+    if (!impl_) return;
+    impl_->broadcast_local_event(type, payload);
 }
 
 void WebServer::broadcast_remote_control_session_selected(
