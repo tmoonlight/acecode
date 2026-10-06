@@ -44,12 +44,18 @@ body{font:12px/1.4 var(--font);-webkit-font-smoothing:antialiased;-webkit-user-s
 
 :root{--office-paper:#fff9e9;--office-ink:#27324f;--office-line:#a8a6a4;--office-selected:#dce7f6}
 .office-controls{position:absolute;z-index:5;top:calc(var(--k)*2px);left:calc(var(--k)*4px);right:calc(var(--k)*4px);height:calc(var(--k)*26px);display:flex;align-items:center;gap:4px;font:12px/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--office-ink)}
+.office-controls{opacity:0;pointer-events:none}
+.office-controls.is-visible{opacity:1;pointer-events:auto}
 .office-tabs{display:flex;gap:3px;flex:1;min-width:0}
-.office-tab,.office-follow,.office-overflow{font:inherit;color:inherit;background:var(--office-paper);border:1px solid var(--office-line);border-radius:4px;cursor:pointer;min-width:0;padding:5px 7px;line-height:1.3}
+.office-tab,.office-follow,.office-overflow,.office-window-button{font:inherit;color:inherit;background:var(--office-paper);border:1px solid var(--office-line);border-radius:4px;cursor:pointer;min-width:0;padding:5px 7px;line-height:1.3}
 .office-tab{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .office-tab[aria-selected="true"]{background:var(--office-selected);border-color:#526a91}
-.office-tab:hover,.office-follow:hover,.office-overflow:hover{background:#e6ecf5}
-.office-tab:focus-visible,.office-follow:focus-visible,.office-overflow:focus-visible{outline:2px solid #4378be;outline-offset:1px}
+.office-tab:hover,.office-follow:hover,.office-overflow:hover,.office-window-button:hover{background:#e6ecf5}
+.office-tab:focus-visible,.office-follow:focus-visible,.office-overflow:focus-visible,.office-window-button:focus-visible{outline:2px solid #4378be;outline-offset:1px}
+.office-window-button{flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:4px}
+.office-window-button svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.office-pin[aria-pressed="true"]{background:var(--office-selected);border-color:#526a91}
+.office-pin[aria-pressed="false"] svg{transform:rotate(45deg)}
 .office-follow{flex:none;display:flex;align-items:center;gap:4px;white-space:nowrap}
 .office-follow::before{content:"";display:block;width:8px;height:8px;border:1px solid #65738b;border-radius:2px}
 .office-follow[aria-checked="true"]::before{background:#456b9c;border-color:#456b9c}
@@ -62,14 +68,22 @@ body{font:12px/1.4 var(--font);-webkit-font-smoothing:antialiased;-webkit-user-s
 .office-members button:hover{background:var(--office-selected)}
 @media(max-width:400px){.office-controls{font-size:11px;gap:2px}.office-tab,.office-follow{padding:2px 3px}.office-tabs{gap:2px}.office-follow{gap:2px}.office-follow::before{width:6px;height:6px}}
 @media(max-width:250px){.office-tab,.office-follow{padding:0 1px;line-height:1}.office-follow::before{width:5px;height:5px}}
+@media(max-width:400px){.office-window-button{width:22px;height:22px;padding:3px}}
+@media(max-width:250px){.office-window-button{width:16px;height:14px;padding:0}.office-window-button svg{width:10px;height:10px}}
 @media(prefers-reduced-motion:reduce){.grip{transition:none}.bub.type .bub-detail::after{animation:none}}
 </style>
 </head>
 <body>
 <div class="scene" id="scene">
-  <div class="office-controls" aria-label="办公室切换">
+  <div class="office-controls" id="officeControls" aria-label="办公室控制">
     <div class="office-tabs" id="officeTabs" role="tablist" aria-label="最近发消息的五个会话"></div>
     <button class="office-follow" id="officeFollow" type="button" role="switch" aria-checked="true" title="跟随主窗口当前会话">跟随</button>
+    <button class="office-window-button office-pin" id="officePin" type="button" aria-pressed="true" aria-label="置顶办公室" title="取消置顶">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 9V3H8v6l-3 4v3h14v-3l-3-4ZM12 16v5"/></svg>
+    </button>
+    <button class="office-window-button" id="officeClose" type="button" aria-label="关闭办公室" title="关闭办公室">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+    </button>
   </div>
   <div class="office-notice" id="officeNotice" role="status">正在连接会话</div>
   <button class="office-overflow" id="officeOverflow" type="button" hidden></button>
@@ -1252,6 +1266,42 @@ function loop(ts) {
 
 /* ---------- 10. 桌面宠物交互（原页面的面板 / 按钮 / 花名册都去掉了） ---------- */
 const post = msg => { try { if (window.chrome && chrome.webview) chrome.webview.postMessage(msg); } catch (e) { /* 普通浏览器里打开时没有宿主 */ } };
+const officeControls = $('officeControls'), officeScene = $('scene');
+const CONTROLS_HIDE_DELAY_MS = 1000;
+let controlsHideTimer = 0, officeHovered = false, keyboardNavigation = false, officePinned = true;
+const hasKeyboardFocus = () => keyboardNavigation && officeScene.contains(document.activeElement);
+function showOfficeControls() {
+  clearTimeout(controlsHideTimer);
+  if (officeControls.classList.contains('is-visible')) return;
+  officeControls.classList.add('is-visible');
+  reportOfficeRegions();
+}
+function scheduleControlsHide() {
+  clearTimeout(controlsHideTimer);
+  if (officeHovered || hasKeyboardFocus()) return;
+  controlsHideTimer = setTimeout(() => {
+    if (officeHovered || hasKeyboardFocus()) return;
+    officeControls.classList.remove('is-visible');
+    reportOfficeRegions();
+  }, CONTROLS_HIDE_DELAY_MS);
+}
+officeScene.addEventListener('pointerenter', () => { officeHovered = true; showOfficeControls(); });
+officeScene.addEventListener('pointerleave', () => { officeHovered = false; scheduleControlsHide(); });
+document.addEventListener('keydown', () => { keyboardNavigation = true; if (hasKeyboardFocus()) showOfficeControls(); });
+document.addEventListener('pointerdown', () => { keyboardNavigation = false; scheduleControlsHide(); }, true);
+officeScene.addEventListener('focusin', () => { if (hasKeyboardFocus()) showOfficeControls(); });
+officeScene.addEventListener('focusout', e => {
+  if (!officeScene.contains(e.relatedTarget)) { keyboardNavigation = false; scheduleControlsHide(); }
+});
+window.addEventListener('blur', () => { keyboardNavigation = false; officeHovered = false; scheduleControlsHide(); });
+window.addEventListener('pagehide', () => clearTimeout(controlsHideTimer));
+function syncOfficePin(pinned) {
+  officePinned = pinned;
+  $('officePin').setAttribute('aria-pressed', String(pinned));
+  $('officePin').title = pinned ? '取消置顶' : '置顶办公室';
+}
+$('officePin').addEventListener('click', () => action({type:'pin', pinned:!officePinned}));
+$('officeClose').addEventListener('click', () => action({type:'close'}));
 let readySent = false;
 function notifyReady() { if (!readySent) { readySent = true; post('ready'); } }   // 第一帧画完再让原生把窗口挪进屏幕
 function renderTask() {}
@@ -1341,6 +1391,10 @@ function showBadge(text) {
   badgeTimer = setTimeout(() => { b.hidden = true; }, 900);
 }
 if (hostAttached()) chrome.webview.addEventListener('message', e => {
+  if (e.data?.type === 'pet-window-state') {
+    if (typeof e.data.pinned === 'boolean') syncOfficePin(e.data.pinned);
+    return;
+  }
   if (e.data && typeof e.data === 'object') {applyOfficeSnapshot(e.data);return;}
   const m = String(e.data || '');
   if (m.startsWith('size ')) showBadge(m.slice(5) + '%');
@@ -1503,7 +1557,11 @@ function reportOfficeRegions() {
   const rects=[$('officeMembers'),$('officeNotice')].filter(node=>node&&!node.hidden).map(node=>node.getBoundingClientRect());
   const rect=rects.length?[Math.min(...rects.map(r=>r.left))/innerWidth,Math.min(...rects.map(r=>r.top))/innerHeight,
     Math.max(...rects.map(r=>r.right))/innerWidth,Math.max(...rects.map(r=>r.bottom))/innerHeight]:null;
-  action({type:'overlay',rect,bubbles:bubbleRegions});
+  const bounds=officeControls.getBoundingClientRect();
+  const controls=officeControls.classList.contains('is-visible')
+    ? [Math.max(0,bounds.left-3)/innerWidth,Math.max(0,bounds.top-3)/innerHeight,
+      Math.min(innerWidth,bounds.right+3)/innerWidth,Math.min(innerHeight,bounds.bottom+3)/innerHeight] : null;
+  action({type:'overlay',rect,controls,bubbles:bubbleRegions});
 }
 function syncOfficeMembers() {
   const list=$('officeMembers');

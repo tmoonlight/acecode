@@ -248,11 +248,28 @@ TEST(DesktopPetLayout, HitTestCoversRoomToolbarAndOverlays) {
     const int width = 430, height = 315;
     const std::vector<DesktopPetOverlay> none;
     EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, none, 215, 200)) << "房间中央";
-    EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, none, 400, 10)) << "顶部控制条";
+    EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, none, 400, 10)) << "隐藏的控制条穿透";
+    const auto controls = desktop_pet_overlays_from_message(nlohmann::json{
+        {"controls", {0.0, 0.0, 1.0, 32.0 / kDesktopPetSceneHeight}}});
+    EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, controls, 400, 10)) << "可见控制条";
+    const auto hidden = desktop_pet_overlays_from_message(nlohmann::json{{"controls", nullptr}});
+    EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, hidden, 400, 10)) << "移出后控制条穿透";
     EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, none, 6, 60)) << "左上透明角落";
     EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, none, 6, 310)) << "左下透明角落";
     const std::vector<DesktopPetOverlay> bubble{{0.0, 0.15, 0.1, 0.25}};
     EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, bubble, 6, 60)) << "角落里的气泡";
     EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, bubble, -1, 60)) << "窗口外";
     EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, bubble, 430, 60)) << "右边界外";
+}
+
+TEST(DesktopPetLayout, ControlsOverlayUsesValidationAndSharesOverlayLimit) {
+    EXPECT_TRUE(desktop_pet_overlays_from_message(nlohmann::json{{"controls", {0, "bad", 1, 1}}}).empty());
+    EXPECT_TRUE(desktop_pet_overlays_from_message(nlohmann::json{{"controls", {0, 0, 0, 1}}}).empty());
+    nlohmann::json many = nlohmann::json::array();
+    for (int i = 0; i < 40; ++i) many.push_back({0.1, 0.1, 0.2, 0.2});
+    const auto overlays = desktop_pet_overlays_from_message(nlohmann::json{
+        {"controls", {-0.1, 0.0, 1.2, 0.1}}, {"rect", {0.0, 0.2, 0.3, 0.4}}, {"bubbles", many}});
+    ASSERT_EQ(overlays.size(), kDesktopPetMaxOverlays);
+    EXPECT_EQ(overlays.front(), (DesktopPetOverlay{0.0, 0.0, 1.0, 0.1}));
+    EXPECT_EQ(overlays[1], (DesktopPetOverlay{0.0, 0.2, 0.3, 0.4}));
 }

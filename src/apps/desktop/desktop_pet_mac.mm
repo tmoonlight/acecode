@@ -205,6 +205,7 @@ private:
     bool closed_ = false;
     bool resizing_ = false;
     bool dragging_ = false;
+    bool pinned_ = true;
     NSPoint gesture_mouse_ = NSZeroPoint;
     DesktopPetRect gesture_start_{};
 };
@@ -484,6 +485,7 @@ void PetController::on_web_message(const std::string& message) {
         page_ready_ = true;
         reveal();
         publish_snapshot();
+        deliver({{"type", "pet-window-state"}, {"pinned", pinned_}});
     } else if (!message.empty() && message.front() == '{') {
         office_action(message);
     } else if (message == "drag") {
@@ -512,6 +514,23 @@ void PetController::office_action(const std::string& message) {
     const auto type_field = value.find("type");
     if (type_field == value.end() || !type_field->is_string()) return;
     const auto type = type_field->get<std::string>();
+    if (type == "pin") {
+        const auto field = value.find("pinned");
+        if (field == value.end() || !field->is_boolean()) return;
+        pinned_ = field->get<bool>();
+        panel_.floatingPanel = pinned_;
+        panel_.level = pinned_ ? NSFloatingWindowLevel : NSNormalWindowLevel;
+        deliver({{"type", "pet-window-state"}, {"pinned", pinned_}});
+        return;
+    }
+    if (type == "close") {
+        // Leave the WebKit message callback before releasing the view and bridge.
+        const std::weak_ptr<PetController> weak = weak_from_this();
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (const auto self = weak.lock()) self->close();
+        });
+        return;
+    }
     if (type == "overlay") {
         overlays_ = desktop_pet_overlays_from_message(value);
         return;

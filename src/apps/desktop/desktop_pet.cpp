@@ -184,10 +184,6 @@ void apply_hit_region(HWND hwnd, double scale, const std::vector<DesktopPetOverl
     points.reserve(polygon.size());
     for (const auto& point : polygon) points.push_back(POINT{point.x, point.y});
     UniqueRegion region(::CreatePolygonRgn(points.data(), static_cast<int>(points.size()), WINDING));
-    UniqueRegion toolbar(::CreateRectRgn(0, 0,
-        static_cast<int>(std::lround(kDesktopPetSceneWidth * scale)),
-        static_cast<int>(std::lround(kDesktopPetToolbarHeight * scale))));
-    if (region && toolbar) ::CombineRgn(region.get(), region.get(), toolbar.get(), RGN_OR);
     RECT bounds{};
     ::GetClientRect(hwnd, &bounds);
     for (const auto& overlay : overlays) {
@@ -222,6 +218,7 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
     bool user_moved = false;
     bool closed = false;
     bool resizing = false;
+    bool pinned = true;
     DesktopPetRect resize_start{};
     POINT resize_cursor{};
 
@@ -257,6 +254,12 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
         webview->PostWebMessageAsJson(utf8_to_wide(office_snapshot.dump()).c_str());
     }
 
+    void publish_window_state() {
+        if (closed || !page_ready || !webview) return;
+        const nlohmann::json state = {{"type", "pet-window-state"}, {"pinned", pinned}};
+        webview->PostWebMessageAsJson(utf8_to_wide(state.dump()).c_str());
+    }
+
     void office_action(const std::wstring& message) {
         if (message.size() > 16384) return;
         const auto value = nlohmann::json::parse(wide_to_utf8(message), nullptr, false);
@@ -264,6 +267,24 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
         const auto type_field = value.find("type");
         if (type_field == value.end() || !type_field->is_string()) return;
         const auto type = type_field->get<std::string>();
+        if (type == "pin") {
+            const auto field = value.find("pinned");
+            if (field == value.end() || !field->is_boolean()) return;
+            const bool next = field->get<bool>();
+            if (::SetWindowPos(hwnd, next ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)) {
+                pinned = next;
+            } else {
+                LOG_WARN("[desktop-pet] pin update failed: " + std::to_string(::GetLastError()));
+            }
+            publish_window_state();
+            return;
+        }
+        if (type == "close") {
+            // Leave the WebView callback before destroying its controller.
+            ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            return;
+        }
         if (type == "overlay") {
             auto next = desktop_pet_overlays_from_message(value);
             if (next == hit_overlays) return;
@@ -468,6 +489,7 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
             page_ready = true;
             reveal();
             publish_snapshot();
+            publish_window_state();
         } else if (!message.empty() && message.front() == L'{') {
             office_action(message);
         } else if (message == L"drag") {
@@ -501,9 +523,9 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
     void apply_placement(const DesktopPetPlacement& next) {
         placement = next;
         // 尺寸变了会同步收到 WM_SIZE,在那里更新 WebView2 边界和命中区域。
-        ::SetWindowPos(hwnd, HWND_TOPMOST, next.window.x, next.window.y,
+        ::SetWindowPos(hwnd, nullptr, next.window.x, next.window.y,
                        next.window.width, next.window.height,
-                       SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                       SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOZORDER);
     }
 
     int window_dpi() const { return monitor_dpi(::MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY)); }
@@ -667,6 +689,9 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
 
     LRESULT handle_message(UINT message, WPARAM wparam, LPARAM lparam) {
         switch (message) {
+        case WM_CLOSE:
+            close();
+            return 0;
         case WM_MOUSEACTIVATE:
             return MA_NOACTIVATE;
         case WM_SIZE: {

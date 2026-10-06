@@ -18,6 +18,7 @@ namespace acecode::desktop {
 
 inline constexpr int kDesktopPetSceneWidth = 344;
 inline constexpr int kDesktopPetSceneHeight = 252;
+// Scene layout reserves this space even while the controls are hidden.
 inline constexpr int kDesktopPetToolbarHeight = 32;
 
 struct DesktopPetRect {
@@ -65,16 +66,16 @@ DesktopPetPlacement scale_desktop_pet(const DesktopPetRect& current, double new_
 // 顺时针,已夹在窗口范围内。
 std::vector<DesktopPetPoint> desktop_pet_hit_polygon(double scale);
 
-// 页面浮层(成员列表、提示、状态气泡)在窗口里的矩形,按窗口宽高的比例给出:
+// 页面浮层(可见控制条、成员列表、提示、状态气泡)在窗口里的矩形,按窗口宽高的比例给出:
 // {left, top, right, bottom},均在 [0, 1]。
 using DesktopPetOverlay = std::array<double, 4>;
 inline constexpr std::size_t kDesktopPetMaxOverlays = 24;
 
-// 解析页面发来的 {"type":"overlay","rect":[...]|null,"bubbles":[[...],...]}:
+// 解析页面发来的 {"type":"overlay","controls":[...]|null,"rect":[...]|null,"bubbles":[[...],...]}:
 // 非数字 / 非有限值 / 空矩形整条丢弃,坐标夹到 [0, 1],最多保留 kDesktopPetMaxOverlays 个。
 std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann::json& message);
 
-// 窗口内一点 (x, y)(设备像素,左上为原点)是否落在桌宠上:房间轮廓、顶部控制条或任一浮层。
+// 窗口内一点 (x, y)(设备像素,左上为原点)是否落在桌宠上:房间轮廓或页面上报的可见浮层。
 // 透明区域返回 false,点击应穿透到后面的窗口。
 bool desktop_pet_hit_test(double scale, int width, int height,
                           const std::vector<DesktopPetOverlay>& overlays, double x, double y);
