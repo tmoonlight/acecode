@@ -328,6 +328,7 @@ export function ComposerSessionControls({
 
         {swarmTag && (
           <ComposerSelectionTag
+            key={swarmMode}
             data-composer-control="swarm-mode"
             data-swarm-mode={swarmMode}
             compact={compactControls.has('swarm-mode')}
@@ -343,6 +344,7 @@ export function ComposerSessionControls({
 
         {expertName && (
           <ComposerSelectionTag
+            key={`${expertType}:${expertId || expertName}`}
             data-composer-control="expert"
             compact={compactControls.has('expert')}
             icon={<VsIcon name="expert" size={16} />}
@@ -360,6 +362,7 @@ export function ComposerSessionControls({
 
         {pendingExpertName && (
           <ComposerSelectionTag
+            key={`${pendingExpertType}:${pendingExpertName}`}
             data-composer-control="expert-pending"
             compact={compactControls.has('expert-pending')}
             icon={<VsIcon name="running" size={16} mono={false} />}

@@ -1433,6 +1433,40 @@ body {
   cursor: pointer;
   overflow: hidden;
 }
+.ace-composer-adaptive-chip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--ace-accent-bg);
+  box-shadow: inset 0 0 0 1px var(--ace-accent);
+  pointer-events: none;
+  opacity: 0;
+  animation: ace-composer-chip-highlight 400ms ease-out;
+}
+/* Animate the contents, not the measured button: compact layout stays stable. */
+.ace-composer-adaptive-chip > .ace-composer-chip-icon,
+.ace-composer-adaptive-chip > .ace-composer-adaptive-content {
+  position: relative;
+  animation: ace-composer-chip-arrive 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes ace-composer-chip-highlight {
+  0%, 25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes ace-composer-chip-arrive {
+  from { transform: translateY(-4px); }
+  to { transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-composer-adaptive-chip::before {
+    animation-duration: 180ms;
+  }
+  .ace-composer-adaptive-chip > .ace-composer-chip-icon,
+  .ace-composer-adaptive-chip > .ace-composer-adaptive-content {
+    animation: none;
+  }
+}
 .ace-composer-pending-chip {
   color: var(--ace-warn);
 }

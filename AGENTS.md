@@ -45,6 +45,7 @@ Canonical root docs are [README.md](README.md), [README_CN.md](README_CN.md), [A
 - `acecode_testable` is an INTERFACE aggregate of the production static libraries. All TUI implementations belong to `acecode_tui`; do not add testable subset lists. Executable entry points and the desktop WebView shell stay outside the aggregate. See `cmake/acecode_layer_libraries.cmake` for source ownership.
 - Daemon/API work usually touches [src/apps/daemon/](src/apps/daemon), [src/apps/web/](src/apps/web), and [src/domain/session/](src/domain/session). Update [docs/daemon-api.md](docs/daemon-api.md) when protocol behavior changes.
 - React/Vite/Tailwind frontend work stays under [web/src/](web/src). Do not edit generated build output directly; regenerate it with the web build.
+- 新增弹框默认规则：有关闭按钮时，点击弹框外部不得关闭（使用 `Modal` 时显式设置 `dismissOnBackdrop={false}`）；没有关闭按钮时，默认允许点击外部关闭。用户特殊指定的行为优先（例如设置对话框）。此规则面向今后的新增弹框，不追溯修改其他既有弹框；2026-10-07 指定的消息通道连接向导与管理弹框按此规则调整。
 - Avoid modifying vendored or submodule trees such as [external/](external), `hermes-agent/`, or `claudecodehaha/` unless the task explicitly targets them.
 
 ## OpenSpec Workflow

@@ -170,6 +170,9 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
     std::vector<DesktopPetOverlay> overlays;
     if (!message.is_object()) return overlays;
     DesktopPetOverlay rect{};
+    if (const auto it = message.find("controls"); it != message.end() && overlay_from_json(*it, rect)) {
+        overlays.push_back(rect);
+    }
     if (const auto it = message.find("rect"); it != message.end() && overlay_from_json(*it, rect)) {
         overlays.push_back(rect);
     }
@@ -186,7 +189,6 @@ bool desktop_pet_hit_test(double scale, int width, int height,
                           const std::vector<DesktopPetOverlay>& overlays, double x, double y) {
     if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return false;
     if (!(scale > 0.0)) scale = 1.0;
-    if (y < kDesktopPetToolbarHeight * scale) return true;
     for (const auto& overlay : overlays) {
         if (x >= overlay[0] * width && x < overlay[2] * width &&
             y >= overlay[1] * height && y < overlay[3] * height) {

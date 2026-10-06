@@ -1,11 +1,12 @@
 #pragma once
 
-// 桌面 agent 办公室:acecode-desktop 启动时在主屏右下角拉起一个透明、置顶、
+// 桌面 agent 办公室:acecode-desktop 启动时在主屏右下角拉起一个透明、默认置顶、
 // 不抢焦点、不进任务栏的小窗口,里面是真实会话驱动的像素 AI 办公室
 // (assets/desktop_pet/agent_office_pet.html,构建期嵌进 exe)。
 // Web 应用经快照桥更新；GUI 线程拥有窗口和桥回调。
 //
 // 交互:左键拖动挪位置;单击小人头顶报状态;右键菜单「回到右下角 / 隐藏桌面宠物」
+// 顶部菜单悬停显示、移出延迟隐藏;pin 切换置顶,关闭按钮只关闭桌宠。
 // (隐藏只到本次退出)。环境变量 ACECODE_DESKTOP_PET=0 可整体关闭。
 //
 // Windows 实现在 desktop_pet.cpp(独立的 WebView2 环境,用户数据在

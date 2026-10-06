@@ -582,7 +582,7 @@ function ConnectWizard({ platformKey, platform, bind, busy, run, onDecide, start
   const toOwner = useCallback(() => setStep(2), []);
 
   return (
-    <Modal onClose={close} width={540} labelledBy={titleId}>
+    <Modal onClose={close} width={540} labelledBy={titleId} dismissOnBackdrop={false}>
       <div className="p-5">
         <div className="mb-4 flex items-center gap-3">
           <PlatformIcon name={card.icon} size={16} box="h-8 w-8" />
@@ -619,7 +619,7 @@ function ManageDialog({ platformKey, platform, busy, onRevoke, onChangeBot, onCl
   const titleId = `ace-channels-manage-${platformKey}`;
   const bot = savedBotSummary(platformKey, platform);
   return (
-    <Modal onClose={onClose} width={480} labelledBy={titleId}>
+    <Modal onClose={onClose} width={480} labelledBy={titleId} dismissOnBackdrop={false}>
       <div className="p-5">
         <div className="mb-4 flex items-center gap-3">
           <PlatformIcon name={card.icon} size={16} box="h-8 w-8" />

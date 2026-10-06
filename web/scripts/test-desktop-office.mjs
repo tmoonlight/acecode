@@ -22,6 +22,40 @@ try {
   await page.addInitScript(()=>{window.officeActions=[];window.chrome={webview:{postMessage:value=>officeActions.push(value),addEventListener:(type,listener)=>{window.hostMessage=listener;}}};});
   await page.goto(pathToFileURL(path.join(root,'assets/desktop_pet/agent_office_pet.html')).href);
   await page.waitForFunction(()=>!!window.AgentOffice&&window.officeActions.includes('ready'));
+  const controlsVisible=()=>page.locator('#officeControls').evaluate(node=>getComputedStyle(node).opacity==='1');
+  const lastOverlay=()=>page.evaluate(()=>officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay').at(-1));
+  assert.equal(await controlsVisible(),false,'menu starts hidden');
+  assert.equal((await lastOverlay()).controls,null,'hidden menu has no native hit region');
+  await page.screenshot({path:path.join(output,'office-controls-hidden.png')});
+  await page.mouse.move(344,280);
+  assert.equal(await controlsVisible(),true,'hover reveals the menu');
+  assert.ok(Array.isArray((await lastOverlay()).controls),'visible menu supplies a native hit region');
+  await page.mouse.move(-10,-10);
+  await page.waitForTimeout(550);
+  assert.equal(await controlsVisible(),true,'leaving allows time to cross the gap');
+  await page.locator('#officePin').hover();
+  await page.waitForTimeout(600);
+  assert.equal(await controlsVisible(),true,'returning cancels the previous hide timer');
+  await page.locator('#officePin').click();
+  assert.ok(await page.evaluate(()=>officeActions.includes(JSON.stringify({type:'pin',pinned:false}))));
+  await page.evaluate(()=>hostMessage({data:{type:'pet-window-state',pinned:false}}));
+  assert.equal(await page.locator('#officePin').getAttribute('aria-pressed'),'false');
+  await page.mouse.move(-10,-10);
+  await page.waitForTimeout(1100);
+  assert.equal(await controlsVisible(),false,'mouse click focus does not keep the menu open');
+  assert.equal((await lastOverlay()).controls,null);
+  await page.keyboard.press('Tab');
+  assert.equal(await controlsVisible(),true,'Tab reveals controls without a pointer');
+  await page.waitForTimeout(1100);
+  assert.equal(await controlsVisible(),true,'keyboard focus keeps controls available');
+  assert.equal(await page.locator('#officeClose').evaluate(node=>node===document.activeElement),true);
+  await page.keyboard.press('Enter');
+  assert.ok(await page.evaluate(()=>officeActions.includes(JSON.stringify({type:'close'}))));
+  await page.mouse.move(344,280);
+  await page.locator('#officePin').click();
+  assert.ok(await page.evaluate(()=>officeActions.includes(JSON.stringify({type:'pin',pinned:true}))));
+  await page.evaluate(()=>hostMessage({data:{type:'pet-window-state',pinned:true}}));
+  assert.equal(await page.locator('#officePin').getAttribute('aria-pressed'),'true');
   assert.equal(await page.evaluate(()=>AgentOffice.agents.length),0,'production starts without demo workers');
   const apply=async snapshot=>{await page.evaluate(value=>window.hostMessage({data:value}),snapshot);await page.waitForTimeout(90);};
   // 以模拟时间推进(走路、信封、等待),不依赖真实帧率;predicate 在页面里求值。
@@ -100,11 +134,12 @@ try {
   assert.equal(await page.locator('#officeMembers').isHidden(),true);
   assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='overlay'&&m.rect===null;}catch{return false;}})));
 
-  // The narrowest native scale keeps all five controls and the follow switch clickable.
+  // The narrowest native scale keeps tabs, follow, pin and close clickable.
   for(const [width,height] of [[172,126],[344,252],[860,630]]) {
     await page.setViewportSize({width,height});await page.waitForTimeout(90);
+    await page.mouse.move(width/2,height/2);
     const bounds=await page.locator('.office-controls button').evaluateAll(buttons=>buttons.map(b=>{const r=b.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom};}));
-    assert.equal(bounds.length,6);
+    assert.equal(bounds.length,8);
     assert.ok(bounds.every(r=>r.x>=0&&r.y>=0&&r.right<=width&&r.bottom<=32*width/344+1),JSON.stringify({width,bounds}));
     await page.screenshot({path:path.join(output,`office-size-${width}.png`)});
   }
@@ -116,5 +151,5 @@ try {
   assert.match(await page.locator('#officeNotice').textContent(),/发送消息后/);
   assert.ok(await page.evaluate(()=>{const notices=officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay');return Array.isArray(notices.at(-1)?.rect);}), 'native region includes empty-state notice');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  console.log(JSON.stringify({output,checks:40,errors,external},null,2));
+  console.log(JSON.stringify({output,checks:57,errors,external},null,2));
 } finally {await browser.close();}
