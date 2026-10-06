@@ -758,7 +758,7 @@ function relayout(seed) {   // 运行中换布局：保留谁坐哪个工位
 }
 
 /* ---------- 6b. 走路：2 单位一格的占地图 + 8 向 BFS，家具外扩 1 单位不贴边走 ---------- */
-const GRID = 2, GW = RW / GRID, GH = RD / GRID, DOOR = [2, 59];
+const GRID = 2, GW = RW / GRID, GH = RD / GRID, DOOR = [3, 59], DOOR_SILL = [0.4, 59];   // 门内一步 / 门槛（左墙 y 54–64）
 let BLOCK = new Uint8Array(GW * GH);
 function buildBlockMap() {
   BLOCK = new Uint8Array(GW * GH);
@@ -966,7 +966,15 @@ function drawWalker(c, a) {
   const step = ((simNow / 150) | 0) % 2;
   const spr = charSprite(a.look, pose, w.moving ? (step ? 'walkA' : 'walkB') : 'stand', flip);
   const [sx, sy] = P(VIEW, w.x, w.y, 0), bob = w.moving && step ? 1 : 0;
+  // 进门第一段从门槛淡入，出门最后一段淡出到门槛
+  const gap = (px, py) => Math.hypot(w.x - px, w.y - py) / 2.5;
+  let alpha = 1;
+  if (w.fadeIn && w.i <= 1) alpha = Math.min(alpha, gap(...w.path[0].p));
+  if (w.fadeOut && w.i >= w.path.length - 1) alpha = Math.min(alpha, gap(...w.path[w.path.length - 1].p));
+  a.fade = Math.max(0, Math.min(1, alpha));
+  c.globalAlpha = a.fade;
   c.drawImage(spr.cv, Math.round(sx - spr.ax), Math.round(sy - spr.ay - bob)); blits++;
+  c.globalAlpha = 1;
   a.hx = Math.round(sx); a.hy = Math.round(sy - spr.ay - bob);
 }
 function leds(c, rx) {
@@ -1026,6 +1034,10 @@ function drawWalls(c) {
     const F = d.wall === 'y' ? (a, b, z0, z1, col) => faceY(c, o, 0, a, b, z0, z1, col) : (a, b, z0, z1, col) => faceX(c, o, 0, a, b, z0, z1, col);
     WALL_KINDS[d.kind].draw(F, d.a, d);
   }
+  if (doorOpen > .04) {   // 门开着：门洞是暗的，门板绕 y=54 一侧的铰链转进屋里
+    faceX(c, o, 0, 55, 63, 0, 24, '#2b2230'); faceX(c, o, 0, 55, 63, 16, 24, '#3a2f3f');
+    box(c, o, 0, 54, 0, Math.max(1, Math.round(7 * doorOpen)), 1, 24, { top: '#c4884f', left: '#b07342', right: '#8d5a33' });
+  }
 }
 
 // 机器人：场景里唯一会走动的角色（也是 box() 拼的）
@@ -1052,12 +1064,24 @@ function updRobot(dt) {
 
 // 走动的组员：进门领任务、回工位、交结果、出门；占用与机器人同样的深度排序
 const WALK_SPEED = 0.032;   // 世界单位 / 毫秒，穿过房间约 2–3 秒
+const LEAVE_SPEED = WALK_SPEED * 1.7;   // 离场快步出门
+const DOORWAY_SPEED = 0.008;   // 跨门槛那一步放慢（约 0.3 秒），淡入淡出看得见
 const walkers = new Set();
-function startWalk(a, path, done) {
+// opts.fadeIn：从门槛淡入（进门）；opts.fadeOut：走到终点（门槛）时淡出（出门）
+function startWalk(a, path, done, opts = {}) {
   const [x, y] = path[0].p;
-  a.walk = { path, i: 1, x, y, dir: a.walk ? a.walk.dir : '+x', moving: false, pause: 0, done,
+  a.walk = { path, i: 1, x, y, dir: a.walk ? a.walk.dir : '+x', moving: false, done,
+    speed: opts.speed || WALK_SPEED, fadeIn: !!opts.fadeIn, fadeOut: !!opts.fadeOut,
+    pause: opts.delay || 0,
     obj: { h: 20, minX: 0, maxX: 0, minY: 0, maxY: 0, draw: c => a.walk && drawWalker(c, a) } };
   walkers.add(a);
+}
+// 门：有人从门槛进出时打开，人走远后关上
+let doorOpen = 0;
+function updDoor(dt) {
+  const near = [...walkers].some(a => a.walk && (a.walk.fadeIn || a.walk.fadeOut) &&
+    Math.hypot(a.walk.x - DOOR_SILL[0], a.walk.y - DOOR_SILL[1]) < 10);
+  doorOpen += ((near ? 1 : 0) - doorOpen) * Math.min(1, dt / 110);
 }
 const faceDir = (fx, fy, tx, ty) => Math.abs(tx - fx) > Math.abs(ty - fy) ? (tx > fx ? '+x' : '-x') : (ty > fy ? '+y' : '-y');
 function updWalkers(dt) {
@@ -1066,7 +1090,7 @@ function updWalkers(dt) {
     if (!w) { walkers.delete(a); continue; }
     if (w.pause > 0) { w.pause -= dt; w.moving = false; continue; }
     if (w.i >= w.path.length) { walkers.delete(a); a.walk = null; w.done && w.done(); continue; }
-    const stop = w.path[w.i], [tx, ty] = stop.p, dx = tx - w.x, dy = ty - w.y, dist = Math.hypot(dx, dy), sp = dt * WALK_SPEED;
+    const stop = w.path[w.i], [tx, ty] = stop.p, dx = tx - w.x, dy = ty - w.y, dist = Math.hypot(dx, dy), sp = dt * (stop.speed || w.speed);
     w.moving = true;
     if (dist > .01) w.dir = faceDir(w.x, w.y, tx, ty);
     if (dist <= sp) {
@@ -1127,6 +1151,7 @@ function drawOverlays(c) {
     if (!a.hx) continue;
     let n = null, col = '#ffe14d';
     if (simNow < a.pingUntil) n = 'ex';
+    else if (simNow < a.arriveUntil) n = 'star';
     else if (a.state === 'question') n = 'q';
     else if (a.state === 'error') { n = 'ex'; col = '#ff5a4f'; }
     else if (a.state === 'done') n = 'star';
@@ -1192,7 +1217,7 @@ function renderBubble(a, c) {
 function layoutBubbles(k) {
   const W = innerWidth, minTop = k * 30, items = [];
   for (const a of Object.values(AG)) {
-    const c = a.hx ? bubbleContent(a) : null;
+    const c = a.hx && !(a.walk && a.fade < .5) ? bubbleContent(a) : null;   // 门口还没完全显形时不说话
     if (!c) { if (!a.bub.hidden) { a.bub.hidden = true; a.bubKey = ''; } continue; }
     renderBubble(a, c); items.push([c.prio, a]);
   }
@@ -1249,13 +1274,18 @@ function render() {
 /* ---------- 9. 时间 & 主循环 ---------- */
 const waiters = [];
 const wait = ms => new Promise(r => waiters.push({ t: simNow + ms, r }));
+// 同步的模拟时间定时器：回调在推进时间的同一步里执行（Promise 回调要等到微任务）
+const timers = [];
+const after = (ms, fn) => timers.push({ t: simNow + ms, fn });
 const FRAME_MS = 33;   // 常驻桌面：像素动画本来就是 150ms 级步进，约 30fps 足够，省 CPU/GPU
 let last = performance.now(), sinceDraw = FRAME_MS;
 function advance(dt) {
   simNow += dt;
   for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i].t <= simNow) { const w = waiters[i]; waiters.splice(i, 1); w.r(); }
+  for (let i = timers.length - 1; i >= 0; i--) if (timers[i].t <= simNow) { const t = timers[i]; timers.splice(i, 1); t.fn(); }
   updRobot(dt);
   updWalkers(dt);
+  updDoor(dt);
 }
 function loop(ts) {
   const dt = Math.min(64, ts - last); last = ts;
@@ -1428,21 +1458,29 @@ function bossOf(item,visible) {
   return boss&&AG[boss.id]&&boss.id!==item.id?AG[boss.id]:null;
 }
 const posOf=a=>a.walk?[a.walk.x,a.walk.y]:STN[a.seat]?[STN[a.seat].x,STN[a.seat].y]:DOOR;
-// 新成员：进门 → 到派活的人桌前领信封 → 绕到自己椅子后面 → 坐下
-function enterOffice(a,boss,from=DOOR) {
+// 报到：在工位上跳一跳、头顶冒星星（原桌宠新人入职的效果）
+function arrive(a) {
+  if(!AG[a.id]||a.leaving)return;
+  a.hopUntil=simNow+1600;a.arriveUntil=simNow+1600;say(a.id,'报到！',1600);
+}
+// 道别：气泡留到人走出门为止
+const farewell=a=>{if(AG[a.id]===a&&a.leaving)say(a.id,'再见',60000);};
+// 新成员：开门从门槛淡入 → 到派活的人桌前领信封 → 绕到自己椅子后面 → 坐下报到
+function enterOffice(a,boss,from=null) {
   const S=STN[a.seat];
   if(!S)return;
-  if(!motionOK()) {   // 减少动态效果：不走路，信封直接从派活的人飞到工位
-    if(boss&&liveReady){send(boss.id,a.id,'任务');say(boss.id,'派给 '+shortName(a.name),2200);}
+  if(!motionOK()) {   // 减少动态效果：不走路，信封直接从派活的人飞到工位，人在工位上报到
+    if(liveReady){if(boss){send(boss.id,a.id,'任务');say(boss.id,'派给 '+shortName(a.name),2200);}arrive(a);}
     return;
   }
-  const stops=[{p:from}];
+  const stops=[{p:from||DOOR_SILL}];
+  if(!from)stops.push({p:DOOR,direct:true,speed:DOORWAY_SPEED});
   const B=boss&&!boss.walk&&STN[boss.seat];
   if(B) stops.push({p:deskFront(B),wait:1000,face:[B.x,B.y],call:()=>{send(boss.id,a.id,'任务');say(boss.id,'交给你了',1500);}});
   stops.push({p:seatBehind(S)},{p:[S.x,S.y],direct:true});
-  startWalk(a,route(stops),null);
+  startWalk(a,route(stops),()=>arrive(a),{fadeIn:!from,delay:from?0:220});   // 先开门再迈进来
 }
-// 离开：完成的人先到上级桌前交回报，再出门；失败/停止的人直接出门
+// 离开：完成的人先到上级桌前交回报，说「再见」，快步走出大门；失败/停止的人直接道别出门
 function leaveOffice(a,boss,report) {
   const S=STN[a.seat];
   if(S&&S.agent===a.id)S.agent=null;
@@ -1450,13 +1488,17 @@ function leaveOffice(a,boss,report) {
   const from=posOf(a),stops=[{p:from}];
   if(S&&!a.walk)stops.push({p:seatBehind(S),direct:true});
   const B=report&&boss&&!boss.walk&&STN[boss.seat];
-  if(B) stops.push({p:deskFront(B),wait:1000,face:[B.x,B.y],call:()=>{send(a.id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}});
-  stops.push({p:DOOR});
-  startWalk(a,route(stops),()=>removeAgent(a.id));
+  if(B) stops.push({p:deskFront(B),wait:800,face:[B.x,B.y],call:()=>{
+    send(a.id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);
+    after(600,()=>farewell(a));
+  }});
+  stops.push({p:DOOR},{p:DOOR_SILL,direct:true,speed:DOORWAY_SPEED});
+  startWalk(a,route(stops),()=>removeAgent(a.id),{fadeOut:true,speed:LEAVE_SPEED});
+  if(!B)farewell(a);
 }
 // 正在往外走的人又接到任务：掉头回工位
 function returnToSeat(a,boss) {
-  const seat=freeSeat(a.seat);
+  const seat=STN[a.seat]&&STN[a.seat].agent===a.id?a.seat:freeSeat(a.seat);
   if(!seat){removeAgent(a.id);return false;}
   a.leaving=false;a.seat=seat;STN[seat].agent=a.id;
   enterOffice(a,boss,posOf(a));
@@ -1489,10 +1531,11 @@ function applyOfficeSnapshot(next) {
     if(ids.has(id)||a.leaving)continue;
     const item={id,parentPath:a.parentPath||''}, boss=bossOf(item,visible), report=completed.has(id);
     if(motionOK()) {a.state=report?'done':a.state;a.activityLabel=report?'已完成':a.activityLabel;a.detail='';leaveOffice(a,boss,report);}
-    else {
-      if(liveReady&&report&&boss){send(id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}
-      removeAgent(id);
-    }
+    else if(liveReady) {   // 减少动态效果：原地道别片刻后离开
+      if(report&&boss){send(id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}
+      a.leaving=true;farewell(a);
+      after(900,()=>{if(AG[id]===a&&a.leaving)removeAgent(id);});
+    } else removeAgent(id);
   }
   for(const item of visible) {
     let a=AG[item.id];
@@ -1585,6 +1628,7 @@ window.AgentOffice={applySnapshot:applyOfficeSnapshot,get snapshot(){return offi
   get agents(){return Object.values(AG).map(a=>({id:a.id,name:a.name,state:a.state,contextRatio:a.contextRatio,look:a.look.key,seat:a.seat,
     walking:!!a.walk,leaving:a.leaving,bubble:a.bub.hidden?'':a.bub.textContent,compact:a.bub.classList.contains('compact')}));},
   get envelopes(){return envelopes.map(e=>({from:e.a.id,to:e.b.id,label:e.el?e.el.textContent:''}));},
+  get door(){return doorOpen;},
   get layoutSignature(){return JSON.stringify({theme:THEME,seats:Object.values(STN).map(s=>[s.id,s.x,s.y,s.axis,s.s])});},
   // 测试用：按 32ms 步长推进模拟时间（走路、信封、等待）后重画一帧
   advance(ms){for(let left=ms;left>0;left-=32)advance(Math.min(32,left));render();presentUpscale();},

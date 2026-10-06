@@ -95,14 +95,19 @@ try {
   assert.ok(await page.evaluate(()=>AgentOffice.agents.filter(a=>a.leaving).every(a=>a.walking&&a.state==='done')));
   assert.ok(await advanceUntil("AgentOffice.envelopes.some(e=>e.label==='回报'&&e.to==='root')"),'report envelope flies to the dispatcher');
   assert.ok(await advanceUntil("AgentOffice.agents.some(a=>a.id==='root'&&/收到.*的结果/.test(a.bubble))"),'dispatcher acknowledges the report');
+  assert.ok(await advanceUntil("AgentOffice.agents.some(a=>a.leaving&&a.bubble.includes('再见'))"),'leaving workers say goodbye');
+  assert.ok(await advanceUntil("AgentOffice.door>0.6"),'the door opens for the exit');
   assert.ok(await advanceUntil("AgentOffice.agents.length===1"),'workers leave through the door');
+  assert.ok(await advanceUntil("AgentOffice.door<0.1"),'the door closes again');
   assert.deepEqual(await page.evaluate(()=>AgentOffice.agents.map(a=>a.state)),['sleep']);
   await page.screenshot({path:path.join(output,'office-sleep-688.png')});
   // A new worker walks in, receives a task envelope at the dispatcher's desk, then sits down.
   await apply(data());
   assert.ok(await page.evaluate(()=>AgentOffice.agents.filter(a=>!a.root&&a.id!=='root').every(a=>a.walking)),'new workers enter on foot');
+  assert.ok(await advanceUntil("AgentOffice.door>0.6",1000),'the door opens as workers step in');
   assert.ok(await advanceUntil("AgentOffice.envelopes.some(e=>e.label==='任务'&&e.from==='root')"),'task envelope leaves the dispatcher');
   assert.ok(await advanceUntil("AgentOffice.agents.every(a=>!a.walking)"),'workers reach their seats');
+  assert.ok(await page.evaluate(()=>AgentOffice.agents.some(a=>a.bubble.includes('报到'))),'arrivals hop and report in at their desks');
   assert.equal(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='代码审查').look),look);
   assert.equal(await page.evaluate(()=>AgentOffice.layoutSignature),originalLayout);
   const toolImage=await page.locator('.office-tool:not([hidden])').first().getAttribute('src');
@@ -130,6 +135,10 @@ try {
   await apply(data({agents:[actor('root'),actor('代码审查',{path:'/root/review'}),actor('回归测试',{path:'/root/test'}),actor('文档')]}));
   assert.equal(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='文档').walking),false);
   assert.ok(await page.evaluate(()=>AgentOffice.envelopes.some(e=>e.to==='文档'&&e.label==='任务')),'reduced motion keeps the hand-off');
+  assert.match(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='文档').bubble),/报到/,'reduced motion still reports in');
+  await apply(data({agents:[actor('root'),actor('代码审查',{path:'/root/review'}),actor('回归测试',{path:'/root/test'})]}));
+  assert.match(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='文档')?.bubble||''),/再见/,'reduced motion says goodbye in place');
+  assert.ok(await advanceUntil("!AgentOffice.agents.some(a=>a.id==='文档')",2000),'then leaves without walking');
   await page.emulateMedia({reducedMotion:'no-preference'});
   assert.equal(await page.locator('#officeMembers').isHidden(),true);
   assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='overlay'&&m.rect===null;}catch{return false;}})));
@@ -151,5 +160,5 @@ try {
   assert.match(await page.locator('#officeNotice').textContent(),/发送消息后/);
   assert.ok(await page.evaluate(()=>{const notices=officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay');return Array.isArray(notices.at(-1)?.rect);}), 'native region includes empty-state notice');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  console.log(JSON.stringify({output,checks:57,errors,external},null,2));
+  console.log(JSON.stringify({output,checks:64,errors,external},null,2));
 } finally {await browser.close();}
