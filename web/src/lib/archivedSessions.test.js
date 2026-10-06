@@ -110,12 +110,12 @@ const archive = [
 
 test('archive groups keep same-name workspaces and no-workspace tasks separate', () => {
   const groups = groupArchivedSessions(archive);
-  assert.deepEqual(groups.map(({ key }) => key), ['two', 'one', '__no_workspace__']);
+  assert.deepEqual(groups.map(({ key }) => key), ['__no_workspace__', 'one', 'two']);
   assert.deepEqual(groups[1].items.map(({ id }) => id), ['middle', 'same']);
   assert.deepEqual(groups.map(({ items }) => items.length), [1, 2, 1]);
-  assert.equal(groups[0].name, groups[1].name);
-  assert.notEqual(groups[0].path, groups[1].path);
-  assert.equal(groups[2].name, '无工作区');
+  assert.equal(groups[1].name, groups[2].name);
+  assert.notEqual(groups[1].path, groups[2].path);
+  assert.equal(groups[0].name, '无工作区');
 });
 
 test('archive workspace labels support paths, legacy local rows, and explicit no-workspace flags', () => {
@@ -127,7 +127,7 @@ test('archive workspace labels support paths, legacy local rows, and explicit no
     key: '__no_workspace__', name: '无工作区', path: '',
   });
   assert.deepEqual(groupArchivedSessions([{ id: 'local' }, { id: 'task', no_workspace: true }])
-    .map(({ key }) => key), ['__local__', '__no_workspace__']);
+    .map(({ key }) => key), ['__no_workspace__', '__local__']);
 });
 
 test('archive search combines trimmed case-insensitive titles, workspace names, paths, and workspace filter', () => {
@@ -155,11 +155,49 @@ test('archive sorting uses creation fallback, keeps undated rows last, and leave
   ]);
   const newest = groupArchivedSessions(items);
   const oldest = groupArchivedSessions(items, { sortOrder: 'oldest' });
-  assert.deepEqual(newest.map(({ key }) => key), ['two', 'one', '__no_workspace__']);
-  assert.deepEqual(oldest.map(({ key }) => key), ['one', '__no_workspace__', 'two']);
+  assert.deepEqual(newest.map(({ key }) => key), ['__no_workspace__', 'one', 'two']);
+  assert.deepEqual(oldest.map(({ key }) => key), ['__no_workspace__', 'one', 'two']);
   assert.deepEqual(newest[1].items.map(({ id }) => id), ['middle', 'fallback', 'same', 'unknown']);
-  assert.deepEqual(oldest[0].items.map(({ id }) => id), ['same', 'fallback', 'middle', 'unknown']);
+  assert.deepEqual(oldest[1].items.map(({ id }) => id), ['same', 'fallback', 'middle', 'unknown']);
   assert.equal(items[0].id, 'unknown');
+});
+
+test('sidebar workspace order is independent of session times and sort direction', () => {
+  for (const workspaceOrder of [Object.freeze(['one', 'two']), Object.freeze(['two', 'one'])]) {
+    for (const sortOrder of ['newest', 'oldest']) {
+      const groups = groupArchivedSessions([...archive].reverse(), { workspaceOrder, sortOrder });
+      assert.deepEqual(groups.map(({ key }) => key), ['__no_workspace__', ...workspaceOrder]);
+      assert.deepEqual(groups.find(({ key }) => key === 'one').items.map(({ id }) => id),
+        sortOrder === 'oldest' ? ['same', 'middle'] : ['middle', 'same']);
+    }
+  }
+});
+
+test('search and archive removal preserve workspace order without empty groups', () => {
+  const options = { workspaceOrder: ['two', 'empty', 'one'] };
+  assert.deepEqual(groupArchivedSessions(archive, { ...options, query: 'draft', sortOrder: 'oldest' })
+    .map(({ key }) => key), ['__no_workspace__', 'two', 'one']);
+  assert.deepEqual(groupArchivedSessions(archive, { ...options, query: 'project' })
+    .map(({ key }) => key), ['two', 'one']);
+  const remaining = removeArchivedSessionsByKey(archive, [archivedSessionKey(archive[2])]);
+  assert.deepEqual(groupArchivedSessions(remaining, options).map(({ key }) => key),
+    ['__no_workspace__', 'two', 'one']);
+  assert.deepEqual(groupArchivedSessions(remaining, { ...options, workspaceKey: 'one' })[0].items,
+    [archive[0]]);
+  assert.deepEqual(groupArchivedSessions(remaining, { ...options, workspaceKey: 'empty' }), []);
+});
+
+test('unlisted and local archive groups have stable order after listed workspaces', () => {
+  const items = [{ id: 'local', updated_at: '2030-01-01' }, ...archive];
+  for (const sortOrder of ['newest', 'oldest']) {
+    assert.deepEqual(groupArchivedSessions(items, { workspaceOrder: ['two'], sortOrder })
+      .map(({ key }) => key), ['__no_workspace__', 'two', '__local__', 'one']);
+    const reversed = [...items].reverse();
+    assert.deepEqual(groupArchivedSessions(reversed, { workspaceOrder: ['two'], sortOrder })
+      .map(({ key }) => key), ['__no_workspace__', 'two', '__local__', 'one']);
+    assert.deepEqual(groupArchivedSessions(reversed, { workspaceOrder: null, sortOrder })
+      .map(({ key }) => key), ['__no_workspace__', '__local__', 'one', 'two']);
+  }
 });
 
 test('filtered selection excludes hidden sessions and preserves visible selection through sorting and failures', () => {

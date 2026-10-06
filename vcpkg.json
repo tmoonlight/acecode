@@ -3,6 +3,12 @@
   "version-semver": "0.9.34",
   "dependencies": [
     "cpr",
+    {
+      "name": "curl",
+      "features": [
+        "websockets"
+      ]
+    },
     "crow",
     "ftxui",
     "libzip",

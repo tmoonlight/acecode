@@ -5,16 +5,18 @@
 // 不存在 → 所有 notify 调用 no-op,这与 search palette 跨 workspace bridge 的
 // 降级模式一致。
 //
-// 唯一弹窗规则:
+// 弹窗规则:
 //   - master enabled 开启
-//   - 事件是主任务 completion
+//   - 事件是主任务 completion,或消息通道的新配对请求(channel)
 //   - 整个 ACECode 窗口失焦
 // permission / question 一律留在页面内处理;窗口只要有焦点,无论当前打开
-// 哪个会话、workspace 或页面都不发 native completion 通知。旧的 per-type
-// 和 suppress_when_focused 配置字段仅保留后端兼容,不再参与运行时判定。
+// 哪个会话、workspace 或页面都不发 native 通知(配对请求改由页面内 toast 提示)。
+// 旧的 per-type 和 suppress_when_focused 配置字段仅保留后端兼容,不再参与运行时判定。
 //
 // payload 构造抽到 buildNotificationPayload — 长文本截断 80 字 + 省略号,
 // 空文本回退到默认占位,纯函数,可测。
+
+import { channelPlatformTitle } from './channelsSettings.js';
 
 const NOTIFICATION_BODY_LIMIT = 80;
 
@@ -122,10 +124,34 @@ export function shouldNotifySessionCompletion({
 
 export function shouldSuppress(payload, hasFocus, cfg) {
   if (!notificationsEnabled(cfg)) return true;
-  // payload.id 形如 "question-..." / "completion-...",取首段判类型。
+  // payload.id 形如 "question-..." / "completion-..." / "channel-...",取首段判类型。
   const type = String(payload?.id || '').split('-')[0];
-  if (type !== 'completion') return true;
+  if (type !== 'completion' && type !== 'channel') return true;
   return hasFocus === true;
+}
+
+// 消息通道(QQ、微信、飞书、钉钉、Telegram、Discord、LINE)的新配对请求(WS channels_request)。
+// 不关联会话,点击通知只把窗口拉到前台。
+export function buildChannelRequestPayload(request = {}) {
+  const platform = String(request.platform || '');
+  const title = `${channelPlatformTitle(platform)} 配对请求`;
+  const who = String(request.name || '').trim() || (request.kind === 'group' ? '一个群' : '新联系人');
+  const where = String(request.label || '').trim();
+  return {
+    id: `channel-${platform || 'unknown'}-${String(request.id || '')}-${Date.now()}`,
+    workspace_hash: '',
+    session_id: '',
+    title,
+    body: truncateForNotification(`${who}${where ? `(${where})` : ''}请求使用 ACECode,到设置 > 消息通道处理`),
+  };
+}
+
+export function maybeNotifyChannelRequest(request, { hasFocus, cfg } = {}) {
+  if (!bridgeAvailable()) return false;
+  const payload = buildChannelRequestPayload(request);
+  const focused = typeof hasFocus === 'boolean' ? hasFocus : isHostWindowFocused();
+  if (shouldSuppress(payload, focused, cfg)) return false;
+  return notify(payload);
 }
 
 function bridgeAvailable() {

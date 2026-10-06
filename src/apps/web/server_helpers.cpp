@@ -7,6 +7,8 @@
 #include "session/session_load_metrics.hpp"
 #include "computer_use/runtime.hpp"
 #include "remote_control_session_event.hpp"
+#include "web/handlers/channels_handler.hpp"
+#include "channels/core/host.hpp"
 #include "session_status_routing.hpp"
 #include "config/saved_models_revision.hpp"
 #include "prompt/context_usage_breakdown.hpp"
@@ -1280,6 +1282,9 @@ json WebServer::Impl::sessions_for_workspace(const acecode::desktop::WorkspaceMe
             !remote_control_session_id.empty() &&
             item.value("id", std::string{}) == remote_control_session_id;
     }
+    // 消息通道(QQ / Telegram)绑定的会话同样显示电脑图标;/rc 专属行为仍只看
+    // remote_control_bound(design D12)。
+    if (deps.channel_host) annotate_channel_bound(arr, deps.channel_host->bound_sessions());
     if (page_out) *page_out = page;
     return arr;
 }

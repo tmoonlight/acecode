@@ -30,9 +30,11 @@ void WebServer::Impl::register_websocket() {
                 // Crow WS 的 onopen 不直接传 route 参数;走 hello-binding:
                 // 客户端 onopen 后立刻发 {type:"hello", payload:{session_id, since}},
                 // handle_ws_message 完成 SessionClient::subscribe 绑定。
+                const bool trusted_local = is_trusted_local_client_address(conn.get_remote_ip());
                 std::lock_guard<std::mutex> lk(ws_mu);
                 auto state = std::make_shared<WsConnState>();
                 state->connection = &conn;
+                state->trusted_local = trusted_local;
                 ws_connections.emplace(&conn, std::move(state));
                 LOG_INFO("[ws] connection opened");
             })

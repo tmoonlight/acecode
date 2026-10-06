@@ -145,6 +145,15 @@ if(WIN32)
     endif()
 endif()
 
+# QQ / Telegram 通道直接调用 libcurl 的 WebSocket 接口(curl_ws_send / curl_ws_recv),
+# vcpkg.json 为此请求了 curl[websockets];缺这个特性时在配置期就失败,别等到运行期。
+find_package(CURL CONFIG REQUIRED COMPONENTS WSS)
+if(NOT WIN32)
+    # QQ 扫码配置要做 AES-256-GCM 解密:Windows 用 BCrypt,其它平台用 libcrypto
+    # (vcpkg 在这些平台上本来就把 OpenSSL 编成 curl 的 TLS 后端)。
+    find_package(OpenSSL REQUIRED)
+endif()
+
 # cpp-mcp: only build the library, skip examples and tests
 set(MCP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(BUILD_MCP_EXAMPLES OFF CACHE BOOL "" FORCE)

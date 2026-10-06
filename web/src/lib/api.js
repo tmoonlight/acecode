@@ -713,6 +713,27 @@ export function createApi(base = null) {
     exportAudit: (query = '')        => request('GET', '/api/security/audit/export' + query, undefined, base),
     clearAudit: ()                   => request('DELETE', '/api/security/audit', undefined, base),
     setConnectors: (cfg)             => request('PUT',    '/api/config/connectors', cfg, base),
+    // 消息通道(Settings > 集成 > 消息通道,openspec add-desktop-im-channels)。只接受本机直连。
+    getChannels: ()                  => request('GET', '/api/channels', undefined, base),
+    setChannelEnabled: (platform, enabled) =>
+      request('POST', `/api/channels/${encodeURIComponent(platform)}/enabled`, { enabled }, base),
+    // 保存前联网校验(QQ 换取令牌 / Telegram getMe),给足时间。
+    setChannelCredentials: (platform, credentials) =>
+      request('PUT', `/api/channels/${encodeURIComponent(platform)}/credentials`, credentials, base,
+        { timeoutMs: 45000 }),
+    startChannelBind: (platform)     =>
+      request('POST', `/api/channels/${encodeURIComponent(platform)}/bind`, {}, base),
+    cancelChannelBind: (platform)    =>
+      request('DELETE', `/api/channels/${encodeURIComponent(platform)}/bind`, undefined, base),
+    createChannelOwnerLink: (platform) =>
+      request('POST', `/api/channels/${encodeURIComponent(platform)}/owner-link`, {}, base),
+    removeTelegramWebhook: ()        => request('POST', '/api/channels/telegram/remove-webhook', {}, base),
+    decideChannelRequest: (platform, id, approve) =>
+      request('POST', `/api/channels/${encodeURIComponent(platform)}/requests/${encodeURIComponent(id)}/`
+        + (approve ? 'approve' : 'reject'), {}, base),
+    revokeChannelAccess: (platform, principal) =>
+      request('DELETE', `/api/channels/${encodeURIComponent(platform)}/access/${encodeURIComponent(principal)}`,
+        undefined, base),
     getUpgradeConfig: ()             => request('GET',    '/api/config/upgrade', undefined, base),
     setUpgradeConfig: (cfg)          => request('PUT',    '/api/config/upgrade', cfg, base),
     getToolchainConfig: () => request('GET', '/api/config/toolchains', undefined, base),

@@ -15,6 +15,8 @@ import {
   truncateForNotification,
   maybeNotify,
   focusSession,
+  maybeNotifyChannelRequest,
+  buildChannelRequestPayload,
   noteHostWindowFocus,
   isHostWindowFocused,
 } from './desktopNotify.js';
@@ -285,6 +287,37 @@ run('maybeNotify 桥可用 + 窗口聚焦 → 不投递完成通知', () => {
   });
   assert.equal(ok, false);
   assert.equal(called, 0);
+  global.window = prev;
+});
+
+// 消息通道(QQ / Telegram)的新配对请求:窗口失焦时弹系统通知,聚焦时由页面内 toast 提示;
+// 总开关关闭时一律不弹。
+run('buildChannelRequestPayload 写明平台、来源与处理入口', () => {
+  const payload = buildChannelRequestPayload({ platform: 'qq', id: 'r1', kind: 'user', name: 'Alice', label: 'QQ 私聊' });
+  assert.equal(payload.title, 'QQ 配对请求');
+  assert.equal(payload.body, 'Alice(QQ 私聊)请求使用 ACECode,到设置 > 消息通道处理');
+  assert.equal(payload.session_id, '');
+  assert.ok(payload.id.startsWith('channel-qq-r1-'));
+  const group = buildChannelRequestPayload({ platform: 'telegram', id: 'r2', kind: 'group', name: '' });
+  assert.equal(group.title, 'Telegram 配对请求');
+  assert.ok(group.body.startsWith('一个群请求使用'));
+});
+
+run('shouldSuppress: 配对请求只在窗口失焦且总开关开启时弹', () => {
+  const payload = buildChannelRequestPayload({ platform: 'telegram', id: 'r1', name: 'Bob' });
+  assert.equal(shouldSuppress(payload, false, null), false);
+  assert.equal(shouldSuppress(payload, true, null), true);
+  assert.equal(shouldSuppress(payload, false, { enabled: false }), true);
+});
+
+run('maybeNotifyChannelRequest 失焦时经桥投递,聚焦时不投递', () => {
+  const prev = global.window;
+  const captured = [];
+  global.window = { aceDesktop_notify: (json) => { captured.push(JSON.parse(json)); } };
+  assert.equal(maybeNotifyChannelRequest({ platform: 'qq', id: 'r9', name: 'Carol' }, { hasFocus: false, cfg: null }), true);
+  assert.equal(maybeNotifyChannelRequest({ platform: 'qq', id: 'r9', name: 'Carol' }, { hasFocus: true, cfg: null }), false);
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].title, 'QQ 配对请求');
   global.window = prev;
 });
 

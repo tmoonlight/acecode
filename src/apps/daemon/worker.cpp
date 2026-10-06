@@ -1,6 +1,8 @@
 #include "utils/abandonable_call.hpp"
 #include "worker.hpp"
 #include "daemon_shutdown_sequence.hpp"
+#include "im_channels.hpp"
+#include "rc_session_catalog.hpp"
 #include "platform/termination_signal.hpp"
 #include "ipc/runtime_files_guard.hpp"
 #include "utils/lifetime_token.hpp"
@@ -41,7 +43,6 @@
 #include "loop/loop_store.hpp"
 #include "loop/scheduled_task_tool.hpp"
 #include "session_host/local_session_client.hpp"
-#include "session/global_session_catalog.hpp"
 #include "session_host/session_registry.hpp"
 #include "session_host/thread_service.hpp"
 #include "session_host/task_suggestion_service.hpp"
@@ -110,49 +111,6 @@
 namespace acecode::daemon {
 
 namespace {
-
-std::vector<acecode::rc::RcSessionTarget> build_rc_session_catalog(
-    const std::string& projects_dir,
-    acecode::SessionClient& client,
-    const std::optional<std::string>& query) {
-    acecode::GlobalSessionCatalogOptions options;
-    options.content_query = query;
-    options.content_limit_per_project = 100;
-    const auto catalog = acecode::build_global_session_catalog(
-        projects_dir, client.list_sessions(), options);
-
-    std::vector<acecode::rc::RcSessionTarget> out;
-    out.reserve(catalog.entries.size());
-    for (const auto& entry : catalog.entries) {
-        const auto* active = entry.active ? &*entry.active : nullptr;
-        acecode::rc::RcSessionTarget target;
-        target.session_id = entry.meta.id;
-        target.workspace_hash = entry.workspace_hash;
-        target.cwd = active && !active->cwd.empty() ? active->cwd : entry.meta.cwd;
-        target.title = active && !active->title.empty() ? active->title : entry.meta.title;
-        target.summary = active && !active->summary.empty() ? active->summary : entry.meta.summary;
-        target.workspace_label = entry.meta.no_workspace
-            ? std::string{}
-            : (!entry.workspace_name.empty()
-                ? entry.workspace_name
-                : acecode::desktop::default_workspace_name(target.cwd));
-        target.updated_at = active && !active->updated_at.empty()
-            ? active->updated_at
-            : entry.meta.updated_at;
-        target.no_workspace = entry.meta.no_workspace;
-        target.active = active != nullptr;
-        target.content_match_score = entry.content_match
-            ? entry.content_match->score
-            : 0;
-        out.push_back(std::move(target));
-    }
-    for (const auto& error : catalog.errors) {
-        LOG_WARN("[remote-control] global session catalog " + error.stage +
-                 " failed for " + error.project_dir + ": " + error.message);
-    }
-    acecode::rc::sort_rc_session_targets(out, query.has_value());
-    return out;
-}
 
 // Windows service control and owner-monitor requests share the process bridge.
 void request_terminate() {
@@ -559,6 +517,16 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         return result;
     };
     acecode::channels::Runtime channel_runtime(std::move(channel_deps));
+    // 消息通道(QQ / Telegram):WS 推送等 WebServer 建好后再接上(宿主声明在 server 之前)。
+    auto im_broadcast = std::make_shared<acecode::channels::core::Broadcast>();
+    auto im_channels = make_im_channel_host(
+        {&registry, &client, &cfg_mut, &app_config_mu,
+         [projects_dir, &client](const std::optional<std::string>& query) {
+             return build_rc_session_catalog(projects_dir, client, query);
+         },
+         [im_broadcast](const std::string& type, const nlohmann::json& payload) {
+             if (*im_broadcast) (*im_broadcast)(type, payload);
+         }});
     subagent_deps->registry = &registry;
     subagent_deps->client   = &client;
     subagent_deps->config   = &cfg_mut;
@@ -698,8 +666,12 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         }
     }
     web_deps.remote_web_proxy = &remote_web_proxy;
+    web_deps.channel_host = im_channels.get();
 
     acecode::web::WebServer server(std::move(web_deps));
+    *im_broadcast = [&server](const std::string& type, const nlohmann::json& payload) {
+        server.broadcast_local_event(type, payload);
+    };
     LifetimeToken server_lifetime;
     const auto server_ref = server_lifetime.ref(server);
 
@@ -785,6 +757,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     const DaemonShutdownSequence::Action shutdown_step = [&](DaemonShutdownStep step) {
         switch (step) {
         case DaemonShutdownStep::Channels: channel_runtime.stop(); break;
+        case DaemonShutdownStep::ImChannels: im_channels->stop(); break;
         case DaemonShutdownStep::RemoteWeb: remote_web_proxy.stop(); break;
         case DaemonShutdownStep::RemoteControl:
             rc_binder.shutdown();
@@ -958,6 +931,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     });
 
     channel_runtime.start();
+    im_channels->start();
     const int rc = server.run();
     LOG_INFO("[daemon] worker shutting down");
     if (opts.foreground) std::cerr << "[daemon] shutting down\n";

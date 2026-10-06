@@ -55,6 +55,7 @@ import { ComputerUseSettings } from './ComputerUseSettings.jsx';
 import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
 import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
+import { ChannelsSettings } from './ChannelsSettings.jsx';
 import { MemorySettings } from './MemorySettings.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
 import { lookupErrorMessage } from '../lib/errors.js';
@@ -446,6 +447,7 @@ export function SettingsPage({
           {activeNavKey === 'skills' && <SectionSkills />}
           {activeNavKey === 'mcp' && <SectionMCP />}
           {activeNavKey === 'connectors' && <SectionConnectors />}
+          {activeNavKey === 'channels' && <ChannelsSettings />}
           {activeNavKey === 'models' && (
             <SectionModel onModelProfileUpdated={onModelProfileUpdated} />
           )}
@@ -2767,9 +2769,9 @@ function SectionArchived() {
         }
         if (!cancelled) {
           setList(sessions);
-          setWorkspaces(groupArchivedSessions(sessions)
-            .map(({ key, name, path }) => ({ key, name, path }))
-            .sort((a, b) => a.name.localeCompare(b.name)));
+          setWorkspaces(groupArchivedSessions(sessions, {
+            workspaceOrder: (Array.isArray(result?.workspaces) ? result.workspaces : []).map((workspace) => workspace.hash),
+          }).map(({ key, name, path }) => ({ key, name, path })));
         }
       })
       .catch((e) => {
@@ -2782,8 +2784,11 @@ function SectionArchived() {
   }, []);
 
   const groups = useMemo(
-    () => groupArchivedSessions(list, { query: search, workspaceKey, sortOrder }),
-    [list, search, workspaceKey, sortOrder],
+    () => groupArchivedSessions(list, {
+      query: search, workspaceKey, sortOrder,
+      workspaceOrder: workspaces.map((workspace) => workspace.key),
+    }),
+    [list, search, workspaceKey, sortOrder, workspaces],
   );
   const visibleItems = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const workspaceOptions = useMemo(() => workspaces.map((workspace) => ({

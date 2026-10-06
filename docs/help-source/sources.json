@@ -353,7 +353,10 @@
       "src/base/config/config.hpp",
       "src/apps/tui/commands/remote_control_command.cpp",
       "src/host/remote_control/session_channel_binder.cpp",
-      "docs/channel-plugin-protocol.md"
+      "docs/channel-plugin-protocol.md",
+      "docs/channels.md",
+      "src/host/channels/core/host.cpp",
+      "web/src/components/ChannelsSettings.jsx"
     ]
   },
   {

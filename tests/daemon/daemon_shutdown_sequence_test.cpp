@@ -53,6 +53,18 @@ TEST(DaemonShutdownSequence, StopsProducersAndSessionsBeforeTheirServices) {
     for (const auto& [step, count] : calls) { (void)step; EXPECT_EQ(count, 1); }
 }
 
+// 场景与期望：消息通道(QQ / Telegram)先停止接收入站消息并退订会话事件，再关闭会话；
+// 否则回合收尾时投影还会往已断开的平台发消息。
+TEST(DaemonShutdownSequence, ImChannelsStopBeforeSessions) {
+    bool channels_running = true;
+    DaemonShutdownSequence shutdown;
+    shutdown.run([&](DaemonShutdownStep step) {
+        if (step == DaemonShutdownStep::ImChannels) channels_running = false;
+        if (step == DaemonShutdownStep::Sessions) EXPECT_FALSE(channels_running);
+    });
+    EXPECT_FALSE(channels_running);
+}
+
 // 场景与期望：一个收尾步骤抛异常后，后续步骤仍执行且重复调用不重做，避免退出漏清理。
 TEST(DaemonShutdownSequence, ExceptionStillRunsLaterCleanupOnce) {
     int registry_shutdowns = 0;

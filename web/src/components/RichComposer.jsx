@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,7 @@ import {
   Slate,
   useFocused,
   useSelected,
+  useSlate,
   withReact,
 } from 'slate-react';
 import {
@@ -65,6 +67,7 @@ import {
 import { filesFromTransfer, readComposerClipboardData } from '../lib/composerFileTransfer.js';
 import { isPasteBlockPart, shouldFoldPastedText } from '../lib/pastedText.js';
 import { composerSelectedTag, composerTagSelection } from '../lib/composerSelection.js';
+import { composerDomSelectionToAdopt } from '../lib/composerDomSelection.js';
 import { synchronizeComposerLeadingCommand } from '../lib/composerCommandSync.js';
 import {
   RICH_COMPOSER_CONTEXT_PASTE_ACTIONS,
@@ -253,6 +256,16 @@ function ComposerElement({ onPreviewAttachment, onRemoveAttachment, ...props }) 
       {props.children}
     </div>
   );
+}
+
+// Subscribes to every editor change like <Editable>, so its layout effect runs
+// in the same commit after Editable has written the new state into the DOM.
+function ComposerRenderSentinel({ onRendered }) {
+  useSlate();
+  useLayoutEffect(() => {
+    onRendered();
+  });
+  return null;
 }
 
 function currentPlainSelection(document, selection) {
@@ -563,10 +576,20 @@ function RichComposerShell({
       ? composerDocumentFromContent(externalContent, commands, attachments)
       : composerDocumentFromText(normalizedValue, commands, attachments);
   }
-  const editor = useMemo(
-    () => withComposerInlineTags(withHistory(withReact(createEditor()))),
-    [],
-  );
+  const renderPendingRef = useRef(false);
+  const editor = useMemo(() => {
+    const instance = withComposerInlineTags(withHistory(withReact(createEditor())));
+    const { onChange } = instance;
+    instance.onChange = (options) => {
+      // Cleared by ComposerRenderSentinel once React has rendered this change.
+      renderPendingRef.current = true;
+      onChange(options);
+    };
+    return instance;
+  }, []);
+  const markEditorRendered = useCallback(() => {
+    renderPendingRef.current = false;
+  }, []);
   const editableRef = useRef(null);
   const pointerSelectionRef = useRef(null);
   const seenAttachmentKeysRef = useRef(new Set(attachments.map((item, index) => composerAttachmentTag(item, index).attachmentKey)));
@@ -622,12 +645,43 @@ function RichComposerShell({
     clearCompositionSettleTimer();
   }, [clearCompositionSettleTimer]);
 
+  const publishSelection = useCallback((selection = editor.selection) => {
+    const next = {
+      ...currentPlainSelection(editor.children, selection),
+      collapsed: !selection || (Range.isCollapsed(selection) && !composerSelectedTag(editor)),
+    };
+    selectionRef.current = next;
+    onSelectionChange?.(next);
+  }, [editor, onSelectionChange]);
+
+  // Input must apply where the user sees the caret. Slate's own selectionchange
+  // sync can be left disabled (for example by a drag that never reported its
+  // end), so adopt the live DOM selection right before Slate consumes it.
+  const adoptDomSelection = useCallback(() => {
+    const range = composerDomSelectionToAdopt({
+      editor,
+      editableElement: editableRef.current,
+      renderPending: renderPendingRef.current,
+      toSlateRange: (domSelection) => ReactEditor.toSlateRange(editor, domSelection, {
+        exactMatch: false,
+        suppressThrow: true,
+      }),
+    });
+    if (!range) return false;
+    Transforms.select(editor, range);
+    publishSelection(range);
+    return true;
+  }, [editor, publishSelection]);
+
   const handleCompositionStart = useCallback((event) => {
     clearCompositionSettleTimer();
+    // Chrome composes at the DOM caret, but Slate commits event.data at
+    // editor.selection when the composition ends.
+    adoptDomSelection();
     compositionStateRef.current.active = true;
     compositionStateRef.current.settling = false;
     return onCompositionStart?.(event);
-  }, [clearCompositionSettleTimer, onCompositionStart]);
+  }, [adoptDomSelection, clearCompositionSettleTimer, onCompositionStart]);
 
   const handleCompositionEnd = useCallback((event) => {
     compositionStateRef.current.active = false;
@@ -644,15 +698,6 @@ function RichComposerShell({
     }, 0);
     return handled;
   }, [clearCompositionSettleTimer, onCompositionEnd]);
-
-  const publishSelection = useCallback((selection = editor.selection) => {
-    const next = {
-      ...currentPlainSelection(editor.children, selection),
-      collapsed: !selection || (Range.isCollapsed(selection) && !composerSelectedTag(editor)),
-    };
-    selectionRef.current = next;
-    onSelectionChange?.(next);
-  }, [editor, onSelectionChange]);
 
   const capturePasteSelection = useCallback(() => {
     const editable = editableRef.current;
@@ -1258,6 +1303,8 @@ function RichComposerShell({
       return true;
     }
 
+    // Deletes, tag navigation and parent shortcuts all read editor.selection.
+    adoptDomSelection();
     onKeyDown?.(event);
     if (event.defaultPrevented) return;
     if (disabled) {
@@ -1342,7 +1389,7 @@ function RichComposerShell({
     if (event.key === 'Delete' && deleteAdjacentTag(editor, 'forward')) {
       event.preventDefault();
     }
-  }, [disabled, editor, isComposingKeyEvent, onKeyDown, onSubmit, submitOnEnter]);
+  }, [adoptDomSelection, disabled, editor, isComposingKeyEvent, onKeyDown, onSubmit, submitOnEnter]);
 
   const requestClipboardTextFallback = useCallback((capturedSelection) => {
     const clipboard = window.navigator?.clipboard;
@@ -1578,6 +1625,7 @@ function RichComposerShell({
         onCompositionEnd={handleCompositionEnd}
         spellCheck
       />
+      <ComposerRenderSentinel onRendered={markEditorRendered} />
     </Slate>
   );
 }

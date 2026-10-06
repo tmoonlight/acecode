@@ -28,6 +28,8 @@ import {
 } from './lib/desktopNotificationMonitor.js';
 import {
   maybeNotify,
+  maybeNotifyChannelRequest,
+  buildChannelRequestPayload,
   noteHostWindowFocus,
   isHostWindowFocused,
   notificationBodyFromEvent,
@@ -59,6 +61,7 @@ import {
   SESSION_LIST_CHANGED_EVENT,
 } from './lib/sessionListEvents.js';
 import { normalizeRemoteControlSessionSelected } from './lib/remoteControlSessionNavigation.js';
+import { channelStateBindingSignature } from './lib/channelsSettings.js';
 import { beginSessionOpen } from './lib/sessionOpenDiagnostics.js';
 import { usePreference, mergeNextValue, readWithFallback } from './lib/usePreference.js';
 import { sessionWorkbench } from './lib/sessionWorkbench.js';
@@ -1133,6 +1136,33 @@ export function App() {
     connection.addEventListener('message', handler);
     return () => connection.removeEventListener('message', handler);
   }, [authState, resumeAndOpenSession]);
+
+  // 消息通道(QQ / Telegram):新的配对请求在窗口失焦时弹系统通知,否则页面内提示;
+  // 某个平台绑定的会话集合变化时让侧栏立即刷新,电脑图标随之移动。
+  useEffect(() => {
+    if (authState !== 'ok') return undefined;
+    const bindingSignatures = new Map();
+    const handler = (event) => {
+      const message = event.detail || {};
+      if (message.type === 'channels_request') {
+        const request = message.payload || {};
+        if (!maybeNotifyChannelRequest(request, { cfg: healthRef.current?.notifications })) {
+          const payload = buildChannelRequestPayload(request);
+          toast({ kind: 'info', text: `${payload.title}:${payload.body}`, duration: 6000 });
+        }
+        return;
+      }
+      if (message.type !== 'channels_state') return;
+      const signature = channelStateBindingSignature(message.payload);
+      if (signature === null) return;
+      const platform = message.payload.platform;
+      if (bindingSignatures.get(platform) === signature) return;
+      bindingSignatures.set(platform, signature);
+      notifySessionListChanged({ reason: 'channel-binding-changed', noWorkspace: true });
+    };
+    connection.addEventListener('message', handler);
+    return () => connection.removeEventListener('message', handler);
+  }, [authState]);
 
   // 全局 Ctrl/Cmd+K 切换搜索面板。键位定义、判定与提示文案都收在
   // lib/searchPaletteShortcut.js,控制台(xterm)也按同一判定放行冒泡。
