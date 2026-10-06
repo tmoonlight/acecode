@@ -8,6 +8,7 @@ set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/splash_screen.cpp")
 set(ACECODE_DESKTOP_WEB_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/web_host.cpp")
 set(ACECODE_DESKTOP_PET_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp")
+set(ACECODE_DESKTOP_PET_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet_mac.mm")
 set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_desktop.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_mac.mm")
@@ -87,6 +88,7 @@ acecode_require_sources("shared target source paths"
     ${ACECODE_DESKTOP_SPLASH_SOURCE}
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
     ${ACECODE_DESKTOP_PET_SOURCE}
+    ${ACECODE_DESKTOP_PET_MAC_SOURCE}
     ${ACECODE_DESKTOP_LINUX_SOURCE}
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
     ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE}

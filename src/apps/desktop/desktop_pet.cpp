@@ -175,8 +175,10 @@ void enable_per_pixel_alpha(HWND hwnd) {
     }
 }
 
-// 窗口区域只留房间轮廓:透明角落既不绘制也不接收点击,点击会落到后面的窗口。
-void apply_hit_region(HWND hwnd, double scale, const std::array<double, 4>& overlay = {}) {
+// 窗口区域只留房间轮廓、控制条和页面浮层(成员列表 / 提示 / 状态气泡):
+// 透明角落既不绘制也不接收点击,点击会落到后面的窗口。区域同时裁剪绘制,
+// 所以冒出墙顶的气泡必须由页面上报,否则会被切掉。
+void apply_hit_region(HWND hwnd, double scale, const std::vector<DesktopPetOverlay>& overlays = {}) {
     const auto polygon = desktop_pet_hit_polygon(scale);
     std::vector<POINT> points;
     points.reserve(polygon.size());
@@ -186,9 +188,10 @@ void apply_hit_region(HWND hwnd, double scale, const std::array<double, 4>& over
         static_cast<int>(std::lround(kDesktopPetSceneWidth * scale)),
         static_cast<int>(std::lround(kDesktopPetToolbarHeight * scale))));
     if (region && toolbar) ::CombineRgn(region.get(), region.get(), toolbar.get(), RGN_OR);
-    if (region && overlay[2] > overlay[0] && overlay[3] > overlay[1]) {
-        RECT bounds{};
-        ::GetClientRect(hwnd, &bounds);
+    RECT bounds{};
+    ::GetClientRect(hwnd, &bounds);
+    for (const auto& overlay : overlays) {
+        if (!region) break;
         UniqueRegion popup(::CreateRectRgn(
             static_cast<int>(overlay[0] * bounds.right), static_cast<int>(overlay[1] * bounds.bottom),
             static_cast<int>(std::ceil(overlay[2] * bounds.right)), static_cast<int>(std::ceil(overlay[3] * bounds.bottom))));
@@ -205,7 +208,7 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
     WebHost& host; // Required GUI host; DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot = {{"follow", true}};
     bool page_ready = false;
-    std::array<double, 4> hit_overlay{};
+    std::vector<DesktopPetOverlay> hit_overlays;
     HWND hwnd = nullptr;
     webview::detail::mswebview2::loader loader;
     ComPtr<ICoreWebView2Environment> environment;
@@ -255,25 +258,19 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
     }
 
     void office_action(const std::wstring& message) {
-        if (message.size() > 8192) return;
+        if (message.size() > 16384) return;
         const auto value = nlohmann::json::parse(wide_to_utf8(message), nullptr, false);
         if (!value.is_object()) return;
         const auto type_field = value.find("type");
         if (type_field == value.end() || !type_field->is_string()) return;
         const auto type = type_field->get<std::string>();
         if (type == "overlay") {
-            hit_overlay = {};
-            const auto rect = value.find("rect");
-            if (rect != value.end() && rect->is_array() && rect->size() == 4) {
-                for (std::size_t i = 0; i < 4; ++i) {
-                    if (!(*rect)[i].is_number()) { hit_overlay = {}; break; }
-                    const double coordinate = (*rect)[i].get<double>();
-                    hit_overlay[i] = std::isfinite(coordinate) ? std::clamp(coordinate, 0.0, 1.0) : 0.0;
-                }
-            }
+            auto next = desktop_pet_overlays_from_message(value);
+            if (next == hit_overlays) return;
+            hit_overlays = std::move(next);
             RECT bounds{};
             ::GetClientRect(hwnd, &bounds);
-            apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlay);
+            apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlays);
             return;
         }
         if (type != "select" && type != "follow" && type != "open") return;
@@ -676,7 +673,7 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
             RECT bounds{};
             ::GetClientRect(hwnd, &bounds);
             if (controller) controller->put_Bounds(bounds);
-            if (bounds.right > 0) apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlay);
+            if (bounds.right > 0) apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlays);
             break;
         }
         case WM_MOVE:

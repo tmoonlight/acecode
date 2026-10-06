@@ -21,10 +21,26 @@ body{font:12px/1.4 var(--font);-webkit-font-smoothing:antialiased;-webkit-user-s
 .scene:hover .grip{opacity:.95}
 .grip svg{display:block;width:100%;height:100%}
 .zoom-badge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#27324f;color:#fff;font-weight:700;border-radius:6px;padding:2px 9px;font-size:13px;pointer-events:none;z-index:4}
-.bub{position:absolute;transform:translate(-50%,calc(-100% - 7px));background:#fff;color:#1b2540;border:2px solid #27324f;border-radius:6px;padding:1px 7px 2px;font-size:max(10px,calc(var(--k) * 6.5px));font-weight:700;white-space:nowrap;box-shadow:2px 2px 0 rgba(20,24,40,.28)}
-.bub::after{content:"";position:absolute;left:50%;bottom:-6px;width:8px;height:8px;margin-left:-4px;background:inherit;border-right:2px solid #27324f;border-bottom:2px solid #27324f;transform:rotate(45deg)}
-.bub.bot{background:#e6f4ff}
-.tag{position:absolute;transform:translate(-50%,calc(-100% - 8px));background:#ffe27a;color:#3a2a00;border:2px solid #27324f;font-size:max(9px,calc(var(--k) * 5.4px));font-weight:700;padding:0 4px;white-space:nowrap}
+.bub{position:absolute;left:0;top:0;z-index:2;display:flex;align-items:center;gap:3px;max-width:min(64vw,calc(var(--k) * 150px));background:#fff;color:#1b2540;border:2px solid #27324f;border-radius:6px;padding:1px 6px 2px;font-size:max(10px,calc(var(--k) * 6.2px));font-weight:700;white-space:nowrap;box-shadow:2px 2px 0 rgba(20,24,40,.28)}
+.bub::after{content:"";position:absolute;left:var(--tail,50%);bottom:-6px;width:8px;height:8px;margin-left:-4px;background:inherit;border-right:2px solid #27324f;border-bottom:2px solid #27324f;transform:rotate(45deg)}
+.bub::before{content:"";position:absolute;left:var(--tail,50%);top:100%;width:2px;margin-left:-1px;height:var(--lead,0px);background:#27324f;opacity:.55}
+.bub.bot{background:#e6f4ff;transform:translate(-50%,calc(-100% - 7px))}
+.bub[hidden],.bub-detail[hidden]{display:none}
+.bub-label{flex:0 0 auto;max-width:calc(var(--k) * 96px);overflow:hidden;text-overflow:ellipsis}
+.bub-detail{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:500 1em/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#4d5875}
+.bub.compact .bub-detail{display:none}
+.bub.think{background:#f3f0ff}
+.bub.think .bub-detail{font-style:italic}
+.bub.type{background:#f2fbf4}
+.bub.type .bub-detail{color:#22324f}
+.bub.type .bub-detail::after{content:"\258d";margin-left:1px;color:#2f8f57;animation:office-caret 1s steps(1) infinite}
+.bub.wait{background:#eef4fb}
+.bub.alert{background:#fff1bf}
+.bub.bad{background:#ffe2dc}
+.bub.flash{background:#e6f7e9}
+.bub.picked{outline:2px solid #ffe14d;outline-offset:1px}
+@keyframes office-caret{50%{opacity:0}}
+.tag{position:absolute;transform:translate(-50%,calc(-100% - 8px));background:#ffe27a;color:#3a2a00;border:2px solid #27324f;border-radius:3px;font-size:max(10px,calc(var(--k) * 6px));font-weight:700;padding:0 4px;white-space:nowrap;z-index:3}
 
 :root{--office-paper:#fff9e9;--office-ink:#27324f;--office-line:#a8a6a4;--office-selected:#dce7f6}
 .office-controls{position:absolute;z-index:5;top:calc(var(--k)*2px);left:calc(var(--k)*4px);right:calc(var(--k)*4px);height:calc(var(--k)*26px);display:flex;align-items:center;gap:4px;font:12px/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--office-ink)}
@@ -38,15 +54,15 @@ body{font:12px/1.4 var(--font);-webkit-font-smoothing:antialiased;-webkit-user-s
 .office-follow::before{content:"";display:block;width:8px;height:8px;border:1px solid #65738b;border-radius:2px}
 .office-follow[aria-checked="true"]::before{background:#456b9c;border-color:#456b9c}
 .office-notice{position:absolute;left:50%;top:calc(var(--k)*30px);transform:translateX(-50%);max-width:90%;font:11px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--office-ink);background:var(--office-paper);padding:2px 6px;border-radius:3px;z-index:4}
-.office-tool{position:absolute;width:max(12px,calc(var(--k)*9px));height:max(12px,calc(var(--k)*9px));background:var(--office-paper);border:1px solid #8595ab;border-radius:3px;padding:1px}
+.office-tool{flex:none;display:block;width:max(12px,calc(var(--k)*8px));height:max(12px,calc(var(--k)*8px))}
+.office-tool[hidden]{display:none}
 .office-overflow{position:absolute;right:calc(var(--k)*13px);bottom:calc(var(--k)*14px);z-index:4}
 .office-members{position:absolute;z-index:6;top:calc(var(--k)*30px);left:8px;right:8px;max-height:65%;overflow:auto;background:var(--office-paper);border:1px solid var(--office-line);border-radius:5px;padding:6px;scrollbar-color:#a8b6c9 var(--office-paper);scrollbar-width:thin}
 .office-members button{display:block;width:100%;background:transparent;border:0;color:var(--office-ink);text-align:left;padding:6px;cursor:pointer;font:12px/1.4 "Segoe UI",sans-serif}
 .office-members button:hover{background:var(--office-selected)}
-.bub{max-width:65vw;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:400px){.office-controls{font-size:11px;gap:2px}.office-tab,.office-follow{padding:2px 3px}.office-tabs{gap:2px}.office-follow{gap:2px}.office-follow::before{width:6px;height:6px}}
 @media(max-width:250px){.office-tab,.office-follow{padding:0 1px;line-height:1}.office-follow::before{width:5px;height:5px}}
-@media(prefers-reduced-motion:reduce){.grip{transition:none}}
+@media(prefers-reduced-motion:reduce){.grip{transition:none}.bub.type .bub-detail::after{animation:none}}
 </style>
 </head>
 <body>
@@ -284,10 +300,19 @@ function lookPal(L) {
     k: '#1d2130', m: '#f3f6fb', M: '#c5cdd9', y: '#ffd35c', Y: '#d9a92e',   // 墨镜片 / 口罩 / 工牌卡片
   };
 }
+// 走路 = 坐姿模板下面再接三行腿脚;手臂沿用打字的两帧补丁当摆臂
+const LEGS = {
+  stand: ['...pp..pp...', '...pp..pp...', '..kkk..kkk..'],
+  walkA: ['..pp....pp..', '.pp......pp.', '.kk......kk.'],
+  walkB: ['...pp..pp...', '...pp..pp...', '..kkk..kkk..'],
+};
+const WALK_ARMS = { walkA: 'typeA', walkB: 'typeB' };
 function charSprite(L, pose, frame, flip) {
   return sprite(`ch|${L.key}|${pose}|${frame}|${+flip}`, () => {
-    let rows = patch(BODY[pose], FRAMES[pose][frame]);
+    const legs = LEGS[frame];
+    let rows = patch(BODY[pose], FRAMES[pose][legs ? WALK_ARMS[frame] : frame]);
     for (const k of L.acc) rows = patch(rows, ACC[k] && ACC[k][pose]);
+    if (legs) rows = rows.concat(legs);
     const cv = pix(rows, lookPal(L), flip);
     return { cv, ax: cv.width >> 1, ay: cv.height - 2 };
   });
@@ -300,6 +325,8 @@ const MINI = {
   star: ['..y..', '.yyy.', 'yyyyy', '.yyy.', 'y...y'],
   z: ['yyyy', '..y.', '.y..', 'yyyy'],
   arrow: ['yyyyy', '.yyy.', '..y..'],
+  dot: ['yy', 'yy'],
+  glass: ['yyyyy', '.y.y.', '..y..', '.y.y.', 'yyyyy'],
 };
 const miniSpr = (n, c) => sprite(`mi|${n}|${c}`, () => ({ cv: pix(MINI[n], { y: c }) }));
 const DIGITS = {
@@ -309,7 +336,7 @@ const DIGITS = {
   9: ['###', '#.#', '###', '..#', '###'], '+': ['...', '.#.', '###', '.#.', '...'],
 };
 const digitSpr = (ch, c) => sprite(`dg|${ch}|${c}`, () => ({ cv: pix(DIGITS[ch], { '#': c }) }));
-const ENV = ['wwwwwwwww', 'wWwwwwwWw', 'wwWwwwWww', 'wwwWrWwww', 'wwwwwwwww', 'wwwwwwwww'];
+const ENV = ['wwwwwwwwwwwww', 'wWwwwwwwwwwWw', 'wwWwwwwwwwWww', 'wwwWwwwwwWwww', 'wwwwWwrwWwwww', 'wwwwwWrWwwwww', 'wwwwwwwwwwwww', 'wwwwwwwwwwwww'];
 const envSpr = () => sprite('env', () => ({ cv: pix(ENV, { w: '#fffdf4', W: '#cfc6b2', r: '#e5534b' }) }));
 const LEAF = [
   '......l......', '..l...lG..l..', '..Gl.lGG.lG..', '...GllGGlG...', '.lGGgGGGgGGl.', 'lG..gGgGg..Gl',
@@ -708,11 +735,74 @@ function buildLayout(seed) {
   }
   if (!WINDOWS.some(w => w.p === 'x') && kinds.length) WALL_DECOR.push({ wall: 'x', kind: kinds.pop(), a: 38, ...decorData() });
   BG = buildBG();
+  buildBlockMap();
 }
 function relayout(seed) {   // 运行中换布局：保留谁坐哪个工位
   const seats = Object.values(STN).filter(s => s.agent).map(s => [s.id, s.agent]);
   buildLayout(seed);
   for (const [id, agent] of seats) if (STN[id]) STN[id].agent = agent;
+}
+
+/* ---------- 6b. 走路：2 单位一格的占地图 + 8 向 BFS，家具外扩 1 单位不贴边走 ---------- */
+const GRID = 2, GW = RW / GRID, GH = RD / GRID, DOOR = [2, 59];
+let BLOCK = new Uint8Array(GW * GH);
+function buildBlockMap() {
+  BLOCK = new Uint8Array(GW * GH);
+  for (const o of OBJ) {
+    for (let gy = Math.max(0, Math.floor((o.minY - 1) / GRID)); gy <= Math.min(GH - 1, Math.floor((o.maxY + 1 - .01) / GRID)); gy++)
+      for (let gx = Math.max(0, Math.floor((o.minX - 1) / GRID)); gx <= Math.min(GW - 1, Math.floor((o.maxX + 1 - .01) / GRID)); gx++) BLOCK[gy * GW + gx] = 1;
+  }
+}
+const cellOf = ([x, y]) => [Math.max(0, Math.min(GW - 1, Math.floor(x / GRID))), Math.max(0, Math.min(GH - 1, Math.floor(y / GRID)))];
+const cellPoint = i => [(i % GW) * GRID + GRID / 2, ((i / GW) | 0) * GRID + GRID / 2];
+function nearestFree(x, y) {   // 目标落在家具里时，取最近的空格
+  const [cx, cy] = cellOf([x, y]);
+  for (let r = 0; r < 10; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+    const gx = cx + dx, gy = cy + dy;
+    if (gx >= 0 && gy >= 0 && gx < GW && gy < GH && !BLOCK[gy * GW + gx]) return gy * GW + gx;
+  }
+  return cy * GW + cx;
+}
+function findPath(from, to) {
+  const s = nearestFree(...from), t = nearestFree(...to), prev = new Int32Array(GW * GH).fill(-1), queue = [s];
+  prev[s] = s;
+  for (let q = 0; q < queue.length && prev[t] < 0; q++) {
+    const i = queue[q], x = i % GW, y = (i / GW) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = x + dx, ny = y + dy, n = ny * GW + nx;
+      if (nx < 0 || ny < 0 || nx >= GW || ny >= GH || prev[n] >= 0 || BLOCK[n]) continue;
+      if (dx && dy && (BLOCK[y * GW + nx] || BLOCK[ny * GW + x])) continue;   // 不斜穿桌角
+      prev[n] = i; queue.push(n);
+    }
+  }
+  if (prev[t] < 0) return [from, to];
+  const cells = [];
+  for (let i = t; i !== s; i = prev[i]) cells.push(i);
+  cells.push(s); cells.reverse();
+  const pts = [from];   // 只留拐点
+  for (let k = 1; k < cells.length - 1; k++) {
+    const [ax, ay] = cellPoint(cells[k - 1]), [bx, by] = cellPoint(cells[k]), [cx, cy] = cellPoint(cells[k + 1]);
+    if (Math.sign(bx - ax) !== Math.sign(cx - bx) || Math.sign(by - ay) !== Math.sign(cy - by)) pts.push([bx, by]);
+  }
+  pts.push(cellPoint(t));
+  const [ex, ey] = cellOf(to);
+  if (!BLOCK[ey * GW + ex]) pts.push(to);   // 终点本身被家具占着时停在最近的空格
+  return pts;
+}
+// 工位局部坐标 u 轴：人朝 +u（s>0）或 -u，椅子在人身后；身后是过道，桌对面是来访者站的位置
+const seatSpot = (S, du) => { const u = S.s > 0 ? du : -du; return S.axis === 'x' ? [S.x + u, S.y] : [S.x, S.y + u]; };
+const seatBehind = S => seatSpot(S, -7), deskFront = S => seatSpot(S, 15);
+// stops: [{p:[x,y], wait, face, call}]，相邻两站之间各寻一次路
+function route(stops) {
+  const out = [{ p: stops[0].p }];
+  let last = stops[0].p;
+  for (const stop of stops.slice(1)) {
+    const legs = stop.direct ? [last, stop.p] : findPath(last, stop.p);
+    legs.slice(1).forEach((p, k) => out.push(k === legs.length - 2 ? { ...stop, p } : { p }));
+    last = legs[legs.length - 1];
+  }
+  return out;
 }
 
 /* ---------- 7. 角色与状态 ---------- */
@@ -749,16 +839,23 @@ ctx.imageSmoothingEnabled = false;
 
 function mkEl(cls) { const e = document.createElement('div'); e.className = cls; e.hidden = true; ov.appendChild(e); return e; }
 
+const freeSeat = (prefer = '') => prefer && STN[prefer] && !STN[prefer].agent ? prefer
+  : Object.keys(STN).find(k => k !== 's_conductor' && !STN[k].agent);
 function addAgent(o) {
-  const seatId = o.seat && STN[o.seat] && !STN[o.seat].agent ? o.seat : Object.keys(STN).find(k => !STN[k].agent);
+  const seatId = o.seat && STN[o.seat] && !STN[o.seat].agent ? o.seat : freeSeat();
   if (!seatId || AG[o.id]) return null;
   const lk = o.look || randomLook();
   const L = { hair: lk.hair, skin: lk.skin, shirt: lk.shirt, pants: lk.pants || '#3a3f52', acc: lk.acc || [], accColor: lk.accColor || '' };
   L.key = [L.hair, L.skin, L.shirt, L.pants, L.acc.join('+'), L.accColor].join('|');
   const a = { id: o.id, name: o.name || o.id, role: ROLES[o.role] ? o.role : 'coder', look: L, seat: seatId, recruit: !!o.recruit,
-    state: 'idle', stateAt: simNow, text: '', textUntil: 0, pingUntil: 0, seed: (R() * 3000) | 0, hx: 0, hy: 0 };
+    state: 'idle', stateAt: simNow, text: '', textUntil: 0, pingUntil: 0, hopUntil: 0, seed: (R() * 3000) | 0, hx: 0, hy: 0,
+    activityLabel: '', detail: '', icon: '', iconSvg: '', labelAt: simNow, walk: null, leaving: false, bubKey: '' };
   STN[seatId].agent = a.id; AG[a.id] = a;
   a.bub = mkEl('bub');
+  a.toolNode = document.createElement('img'); a.toolNode.className = 'office-tool'; a.toolNode.alt = ''; a.toolNode.hidden = true;
+  a.labelNode = document.createElement('span'); a.labelNode.className = 'bub-label';
+  a.detailNode = document.createElement('span'); a.detailNode.className = 'bub-detail';
+  a.bub.append(a.toolNode, a.labelNode, a.detailNode);
   rosterAdd(a); updateHire();
   return a;
 }
@@ -796,7 +893,8 @@ function say(id, text, ms = 2600) { const a = AG[id]; if (!a) return; a.text = t
 function send(from, to, label = '') {
   if (!AG[from] || !AG[to]) return;
   const el = label ? mkEl('tag') : null; if (el) el.textContent = label;
-  envelopes.push({ a: AG[from], b: AG[to], t0: simNow, dur: 950, el });
+  AG[from].hopUntil = simNow + 450;
+  envelopes.push({ a: AG[from], b: AG[to], t0: simNow, dur: 1150, el });
 }
 function floatNum(a, n, col) { floats.push({ x: a.hx + 6, y: a.hy + 2, t0: simNow, s: '+' + n, col }); }
 
@@ -813,12 +911,16 @@ function drawStation(c, S) {
     for(let i=0;i<layers;i++) sBox(c,o,S.axis,S.s>0?4:-6,2,8+i,3,3,1,i===layers-1&&actor.contextRatio>=.85?'#e8786b':i%2?'#d7ddec':'#fff8e6');
   }
 }
+// 工具类型 → 屏幕内容与动作：读类工具看屏幕（偶尔点头），写类工具敲键盘
+const SCREEN_BY_ICON = { TerminalReadWrite: 'term', Edit: 'code', Save: 'code', OpenFile: 'doc', Search: 'diff', BrowserGlobe: 'web', Eye: 'web', List: 'doc' };
+const READ_ICONS = new Set(['OpenFile', 'Search', 'BrowserGlobe', 'Eye', 'List', 'Embedding']);
+const typing = a => a.state === 'type' || (a.state === 'work' && !READ_ICONS.has(a.icon));
 function drawScreen(c, S) {           // 只有背对镜头的人，屏幕才朝向我们 → 动态画内容
   const a = S.agent && AG[S.agent];
   const o = { ox: VIEW.ox + 2 * (S.x - S.y), oy: VIEW.oy + S.x + S.y }, ax = S.axis, u = -7;
-  if (!a) { sFaceU(c, o, ax, u, -4, 0, 11, 15, '#232a3d'); return; }
-  const sc = SCREEN[ROLES[a.role].screen];
-  if (a.state !== 'work') {
+  if (!a || a.walk) { sFaceU(c, o, ax, u, -4, 0, 11, 15, '#232a3d'); return; }
+  const sc = SCREEN[a.state === 'type' ? 'doc' : SCREEN_BY_ICON[a.icon] || ROLES[a.role].screen];
+  if (a.state !== 'work' && a.state !== 'type') {
     sFaceU(c, o, ax, u, -4, 0, 11, 15, '#3f7ae0');
     sLineV(c, o, ax, u, ax === 'x' ? -1 : -4, ax === 'x' ? 0 : -3, 14, '#9cc2ff');
     return;
@@ -832,16 +934,26 @@ function drawScreen(c, S) {           // 只有背对镜头的人，屏幕才朝
   });
 }
 function drawAgent(c, S) {
-  const a = S.agent && AG[S.agent]; if (!a) return;
+  const a = S.agent && AG[S.agent]; if (!a || a.walk) return;
   const pose = S.s > 0 ? 'front' : 'back', flip = S.axis === 'y';
-  let frame = 'idle';
-  if (a.state === 'work') frame = ((simNow / 170) | 0) % 2 ? 'typeA' : 'typeB';
+  let frame = 'idle', hop = 0;
+  if (typing(a)) frame = ((simNow / (a.state === 'type' ? 120 : 170)) | 0) % 2 ? 'typeA' : 'typeB';
   else if (pose === 'front' && (simNow + a.seed) % 3300 < 140) frame = 'blink';
-  const hop = a.state === 'done' && ((simNow / 140) | 0) % 4 < 2 ? 2 : 0;
+  if (a.state === 'work' && !typing(a) && (simNow + a.seed) % 1400 < 220) hop = 1;   // 读东西时偶尔点头
+  if ((a.state === 'done' || simNow < a.hopUntil) && ((simNow / 140) | 0) % 4 < 2) hop = 2;
   const spr = charSprite(a.look, pose, frame, flip);
   const [sx, sy] = P(VIEW, S.x, S.y, 4);
   c.drawImage(spr.cv, sx - spr.ax, sy - spr.ay - hop); blits++;
   a.hx = sx; a.hy = sy - spr.ay - hop;
+}
+function drawWalker(c, a) {
+  const w = a.walk, d = w.dir;
+  const pose = d === '+x' || d === '+y' ? 'front' : 'back', flip = d === '+y' || d === '-y';
+  const step = ((simNow / 150) | 0) % 2;
+  const spr = charSprite(a.look, pose, w.moving ? (step ? 'walkA' : 'walkB') : 'stand', flip);
+  const [sx, sy] = P(VIEW, w.x, w.y, 0), bob = w.moving && step ? 1 : 0;
+  c.drawImage(spr.cv, Math.round(sx - spr.ax), Math.round(sy - spr.ay - bob)); blits++;
+  a.hx = Math.round(sx); a.hy = Math.round(sy - spr.ay - bob);
 }
 function leds(c, rx) {
   const t = (simNow / 260) | 0;
@@ -916,11 +1028,49 @@ function updRobot(dt) {
   robot.moving = true;
   if (dist <= sp) {
     robot.x = tx; robot.y = ty; robot.i = (robot.i + 1) % robot.path.length; robot.wait = 900 + R() * 1800;
-    if (R() < .4) { robot.text = pick(BOT_LINES); robot.textUntil = simNow + 2200; }
+    // 有人在忙时机器人不闲聊，免得和真实状态气泡抢位置
+    if (R() < .4 && !Object.values(AG).some(a => a.state in BUBBLE_CLASS)) { robot.text = pick(BOT_LINES); robot.textUntil = simNow + 2200; }
   } else {
     robot.x += dx / dist * sp; robot.y += dy / dist * sp;
     robot.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? '+x' : '-x') : (dy > 0 ? '+y' : '-y');
   }
+}
+
+// 走动的组员：进门领任务、回工位、交结果、出门；占用与机器人同样的深度排序
+const WALK_SPEED = 0.032;   // 世界单位 / 毫秒，穿过房间约 2–3 秒
+const walkers = new Set();
+function startWalk(a, path, done) {
+  const [x, y] = path[0].p;
+  a.walk = { path, i: 1, x, y, dir: a.walk ? a.walk.dir : '+x', moving: false, pause: 0, done,
+    obj: { h: 20, minX: 0, maxX: 0, minY: 0, maxY: 0, draw: c => a.walk && drawWalker(c, a) } };
+  walkers.add(a);
+}
+const faceDir = (fx, fy, tx, ty) => Math.abs(tx - fx) > Math.abs(ty - fy) ? (tx > fx ? '+x' : '-x') : (ty > fy ? '+y' : '-y');
+function updWalkers(dt) {
+  for (const a of [...walkers]) {
+    const w = a.walk;
+    if (!w) { walkers.delete(a); continue; }
+    if (w.pause > 0) { w.pause -= dt; w.moving = false; continue; }
+    if (w.i >= w.path.length) { walkers.delete(a); a.walk = null; w.done && w.done(); continue; }
+    const stop = w.path[w.i], [tx, ty] = stop.p, dx = tx - w.x, dy = ty - w.y, dist = Math.hypot(dx, dy), sp = dt * WALK_SPEED;
+    w.moving = true;
+    if (dist > .01) w.dir = faceDir(w.x, w.y, tx, ty);
+    if (dist <= sp) {
+      w.x = tx; w.y = ty; w.i++;
+      if (stop.face) w.dir = faceDir(w.x, w.y, ...stop.face);
+      if (stop.wait) { w.pause = stop.wait; w.moving = false; }
+      if (stop.call) stop.call();
+    } else { w.x += dx / dist * sp; w.y += dy / dist * sp; }
+  }
+}
+function walkerObjs() {
+  const out = [];
+  for (const a of walkers) {
+    const w = a.walk; if (!w) continue;
+    Object.assign(w.obj, { minX: w.x - 2, maxX: w.x + 2, minY: w.y - 2, maxY: w.y + 2 });
+    out.push(w.obj);
+  }
+  return out;
 }
 
 // 深度排序：按等距足迹做拓扑排序（只比较屏幕上重叠的对象）
@@ -944,13 +1094,18 @@ function depthSort(list) {
 }
 
 function drawOverlays(c) {
-  // 信封（agent 之间的消息）
+  // 信封（agent 之间的消息）：带两格残影的抛物线，落地时收件人头顶冒「!」
+  const env = envSpr(), arc = t => Math.sin(Math.PI * t) * 26;
   for (let i = envelopes.length - 1; i >= 0; i--) {
     const e = envelopes[i], t = Math.min(1, (simNow - e.t0) / e.dur);
-    const x = e.a.hx + (e.b.hx - e.a.hx) * t, y = e.a.hy + 4 + (e.b.hy - e.a.hy) * t - Math.sin(Math.PI * t) * 22;
-    const s = envSpr(); c.drawImage(s.cv, Math.round(x - 5), Math.round(y - 4)); blits++;
-    e.x = x; e.y = y - 4;
-    if (t >= 1) { e.b.pingUntil = simNow + 600; if (e.el) e.el.remove(); envelopes.splice(i, 1); }
+    const at = u => [e.a.hx + (e.b.hx - e.a.hx) * u, e.a.hy + 4 + (e.b.hy - e.a.hy) * u - arc(u)];
+    c.globalAlpha = .35;
+    for (const lag of [.16, .08]) if (t > lag) { const [gx, gy] = at(t - lag); c.drawImage(env.cv, Math.round(gx - 7), Math.round(gy - 5)); }
+    c.globalAlpha = 1;
+    const [x, y] = at(t);
+    c.drawImage(env.cv, Math.round(x - 7), Math.round(y - 5)); blits++;
+    e.x = x; e.y = y - 5;
+    if (t >= 1) { e.b.pingUntil = simNow + 900; if (e.el) e.el.remove(); envelopes.splice(i, 1); }
   }
   // 头顶状态图标
   const bobT = ((simNow / 260) | 0) % 2;
@@ -958,12 +1113,18 @@ function drawOverlays(c) {
     if (!a.hx) continue;
     let n = null, col = '#ffe14d';
     if (simNow < a.pingUntil) n = 'ex';
-    else if (a.state === 'think') n = 'q';
+    else if (a.state === 'question') n = 'q';
     else if (a.state === 'error') { n = 'ex'; col = '#ff5a4f'; }
     else if (a.state === 'done') n = 'star';
     else if (a.state === 'sleep') { n = 'z'; col = '#cfe9ff'; }
-    else if (a.state === 'permission' || a.state === 'question') { n = 'ex'; col = '#ffe14d'; }
+    else if (a.state === 'permission') n = 'ex';
+    else if (a.state === 'wait') { n = 'glass'; col = '#9fd4ff'; }
     if (n) { const s = miniSpr(n, col); c.drawImage(s.cv, a.hx + 5, a.hy - 3 - bobT); if (a.state === 'sleep') { c.drawImage(s.cv,a.hx+10,a.hy-6-bobT);c.drawImage(s.cv,a.hx+15,a.hy-9-bobT); } blits++; }
+    else if (a.state === 'think' || a.state === 'compact' || a.state === 'retry') {   // 思考：三个点轮流跳
+      const lit = ((simNow / 280) | 0) % 3;
+      for (let k = 0; k < 3; k++) { const s = miniSpr('dot', k === lit ? '#ffffff' : '#b9c3dc'); c.drawImage(s.cv, a.hx + 5 + k * 4, a.hy - 2 - (k === lit ? 1 : 0)); }
+      blits++;
+    }
     if (a.id === selected) { const s = miniSpr('arrow', '#ffe14d'); c.drawImage(s.cv, a.hx - 3, a.hy - 10 - bobT * 2); blits++; }
   }
   // 飘字 +N
@@ -973,19 +1134,89 @@ function drawOverlays(c) {
     [...f.s].forEach((ch, k) => { const s = digitSpr(ch, f.col); c.drawImage(s.cv, Math.round(f.x + k * 4), Math.round(f.y - t * 12)); blits++; });
   }
 }
+// 状态气泡：忙碌期间常驻。一行「图标 动作 · 细节」，细节是正在写的最后几个字或调用的路径/命令。
+// 先放优先级高的（求助 > 主 agent > 正在输出 > 刚变化），撞上就往上叠，叠不下改成只显示动作。
+const BUBBLE_CLASS = { think: 'think', compact: 'think', retry: 'think', type: 'type', work: '', wait: 'wait',
+  permission: 'alert', question: 'alert', error: 'bad', stopped: 'bad', done: 'flash' };
+const ICON_STATES = new Set(['work', 'wait', 'permission', 'type']);
+function bubbleContent(a) {
+  if (a.text && simNow < a.textUntil) return { cls: 'flash', label: a.text, detail: '', icon: '', prio: 5 };
+  if (!(a.state in BUBBLE_CLASS)) return null;   // 待命、zzz 不说话
+  const alert = a.state === 'permission' || a.state === 'question' || a.state === 'error' || a.state === 'stopped';
+  return { cls: BUBBLE_CLASS[a.state], label: a.activityLabel || STATE_TXT[a.state] || '', detail: a.detail || '',
+    icon: ICON_STATES.has(a.state) ? a.iconSvg : '',
+    prio: alert ? 4 : a.role === 'conductor' ? 3 : a.state === 'type' ? 2 : simNow - a.labelAt < 4000 ? 1 : 0 };
+}
+// 气泡放不下时从开头裁：正在写的回复要看最新的字，路径要看文件名
+function fitDetailTail(node, text) {
+  if (!text || node.scrollWidth <= node.clientWidth + 1) return;
+  const chars = [...text.replace(/^…/, '')];
+  let lo = 1, hi = chars.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    node.textContent = '…' + chars.slice(mid).join('');
+    if (node.scrollWidth > node.clientWidth + 1) lo = mid + 1; else hi = mid;
+  }
+  node.textContent = '…' + chars.slice(lo).join('');
+}
+function renderBubble(a, c) {
+  const key = [c.cls, c.label, c.detail, c.icon, a.id === selected, innerWidth].join('\u0001');
+  if (key === a.bubKey) return;
+  a.bubKey = key;
+  a.bub.className = 'bub' + (c.cls ? ' ' + c.cls : '') + (a.id === selected ? ' picked' : '');
+  a.labelNode.textContent = c.label;
+  a.detailNode.textContent = c.detail; a.detailNode.hidden = !c.detail;
+  if (c.icon) {
+    if (a.iconFor !== c.icon) { a.iconFor = c.icon; a.toolNode.src = safeIcon(c.icon); }
+    a.toolNode.alt = a.tool || ''; a.toolNode.hidden = false;
+  } else a.toolNode.hidden = true;
+  a.bub.hidden = false; a.bub.style.left = '0px';   // 在左边缘量，免得被窗口右侧挤窄
+  fitDetailTail(a.detailNode, c.detail);
+  a.bubFullW = a.bub.offsetWidth; a.bubH = a.bub.offsetHeight;
+  a.bub.classList.add('compact'); a.bubCompactW = a.bub.offsetWidth; a.bub.classList.remove('compact');
+}
+function layoutBubbles(k) {
+  const W = innerWidth, minTop = k * 30, items = [];
+  for (const a of Object.values(AG)) {
+    const c = a.hx ? bubbleContent(a) : null;
+    if (!c) { if (!a.bub.hidden) { a.bub.hidden = true; a.bubKey = ''; } continue; }
+    renderBubble(a, c); items.push([c.prio, a]);
+  }
+  items.sort((x, y) => y[0] - x[0] || y[1].labelAt - x[1].labelAt);
+  const placed = [];
+  const hits = r => placed.some(p => r.left < p.right + 2 && p.left < r.right + 2 && r.top < p.bottom + 2 && p.top < r.bottom + 2);
+  // 候选位置：头顶居中 → 往左/右错开（尾巴仍指着头）→ 抬高一层/两层（用引线连回头顶）
+  const rectAt = (a, compact, lift, side) => {
+    const w = compact ? a.bubCompactW : a.bubFullW, h = a.bubH, cx = a.hx * k, tip = (a.hy - 1) * k - 7;
+    const want = side < 0 ? cx - w + 14 : side > 0 ? cx - 14 : cx - w / 2;
+    const left = Math.max(2, Math.min(W - w - 2, want)), top = Math.max(minTop, tip - h - lift * (h + 3));
+    return { left, top, right: left + w, bottom: top + h, compact, cx, lead: Math.max(0, tip - h - top) };
+  };
+  for (const [, a] of items) {
+    let best = null;
+    for (const compact of [false, true]) for (let lift = 0; lift < 3 && !best; lift++)
+      for (const side of [0, -1, 1]) { const r = rectAt(a, compact, lift, side); if (!hits(r)) { best = r; break; } }
+    best = best || rectAt(a, true, 0, 0);
+    placed.push(best);
+    a.bub.classList.toggle('compact', best.compact);
+    a.bub.style.left = best.left + 'px'; a.bub.style.top = best.top + 'px';
+    a.bub.style.setProperty('--tail', Math.max(8, Math.min(best.right - best.left - 8, best.cx - best.left)) + 'px');
+    a.bub.style.setProperty('--lead', best.lead + 'px');
+  }
+  // 原生窗口的形状区域也裁剪绘制：气泡（含尾巴和引线）范围变化时节流上报
+  const r3 = v => Math.round(v * 1000) / 1000, H = innerHeight;
+  const rects = placed.map(p => [r3(p.left / W), r3(p.top / H), r3(p.right / W), r3(Math.min(H, p.bottom + 8 + p.lead) / H)]);
+  if (!robot.bub.hidden) { const b = robot.bub.getBoundingClientRect(); rects.push([r3(b.left / W), r3(b.top / H), r3(b.right / W), r3((b.bottom + 8) / H)]); }
+  const key = JSON.stringify(rects);
+  if (key !== bubbleRegionKey && (simNow - bubbleRegionAt > 150 || rects.length !== bubbleRegions.length)) {
+    bubbleRegionKey = key; bubbleRegionAt = simNow; bubbleRegions = rects; reportOfficeRegions();
+  }
+}
+let bubbleRegions = [], bubbleRegionKey = '', bubbleRegionAt = -1e9;
 function placeDom() {
   const k = cv.clientWidth / VIEW.w; if (!k) return;
   const put = (el, x, y) => { el.style.left = (x * k) + 'px'; el.style.top = (y * k) + 'px'; };
-  for (const a of Object.values(AG)) {
-    if (a.text && simNow < a.textUntil && a.hx) {
-      if (a.bub.textContent !== a.text) a.bub.textContent = a.text;
-      a.bub.hidden = false; put(a.bub, a.hx, a.hy - 2);
-    } else a.bub.hidden = true;
-    if (a.toolNode) {
-      a.toolNode.hidden = !a.tool || a.state !== 'work';
-      put(a.toolNode,a.hx-9,a.hy-12);
-    }
-  }
+  layoutBubbles(k);
   if (robot.text && simNow < robot.textUntil) { robot.bub.textContent = robot.text; robot.bub.hidden = false; put(robot.bub, robot.hx, robot.hy - 1); }
   else robot.bub.hidden = true;
   for (const e of envelopes) if (e.el && e.x !== undefined) { e.el.hidden = false; put(e.el, e.x, e.y); }
@@ -996,7 +1227,7 @@ function render() {
   ctx.drawImage(BG, 0, 0);
   drawWalls(ctx);
   robotObj.minX = robot.x - 2; robotObj.maxX = robot.x + 2; robotObj.minY = robot.y - 2; robotObj.maxY = robot.y + 2;
-  for (const o of depthSort(OBJ.concat(robotObj))) o.draw(ctx);
+  for (const o of depthSort(OBJ.concat(robotObj, walkerObjs()))) o.draw(ctx);
   drawOverlays(ctx);
   placeDom();
 }
@@ -1006,13 +1237,15 @@ const waiters = [];
 const wait = ms => new Promise(r => waiters.push({ t: simNow + ms, r }));
 const FRAME_MS = 33;   // 常驻桌面：像素动画本来就是 150ms 级步进，约 30fps 足够，省 CPU/GPU
 let last = performance.now(), sinceDraw = FRAME_MS;
+function advance(dt) {
+  simNow += dt;
+  for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i].t <= simNow) { const w = waiters[i]; waiters.splice(i, 1); w.r(); }
+  updRobot(dt);
+  updWalkers(dt);
+}
 function loop(ts) {
   const dt = Math.min(64, ts - last); last = ts;
-  if (!paused) {
-    simNow += dt * speed;
-    for (let i = waiters.length - 1; i >= 0; i--) if (waiters[i].t <= simNow) { const w = waiters[i]; waiters.splice(i, 1); w.r(); }
-    updRobot(dt * speed);
-  }
+  if (!paused) advance(dt * speed);
   if ((sinceDraw += dt) >= FRAME_MS) { sinceDraw = 0; render(); presentUpscale(); notifyReady(); }
   requestAnimationFrame(loop);
 }
@@ -1117,18 +1350,64 @@ if (hostAttached()) chrome.webview.addEventListener('message', e => {
 let officeSnapshot = {version:1,follow:true,connected:false,offices:[],agents:[],selected:null};
 let officeIdentity = '', liveReady = false;
 const seenTransfers = new Set();
+const TRANSFER_TAG = {NEW_TASK:'新任务', MESSAGE:'消息', FINAL_ANSWER:'回报'};
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 function action(value) {post(JSON.stringify(value));}
 function removeAgent(id) {
   const a=AG[id];if(!a)return;
-  if(STN[a.seat])STN[a.seat].agent=null;
-  a.bub.remove();a.toolNode?.remove();delete AG[id];
+  if(STN[a.seat]&&STN[a.seat].agent===id)STN[a.seat].agent=null;
+  a.walk=null;walkers.delete(a);
+  a.bub.remove();delete AG[id];
   if(selected===id)selected=null;
 }
 function clearAgents() {
   for(const id of Object.keys(AG))removeAgent(id);
   for(const e of envelopes)e.el?.remove();
-  envelopes.length=0;floats.length=0;
+  envelopes.length=0;floats.length=0;walkers.clear();
+}
+// 进出场：只在本办公室已经显示过一帧真实快照后才演（切换办公室、重连恢复都直接落座）
+const motionOK=()=>liveReady&&!reducedMotion.matches;
+const shortName=name=>{const s=[...String(name||'')];return s.length>8?s.slice(0,7).join('')+'…':s.join('');};
+function bossOf(item,visible) {
+  const parent=item.parentPath&&visible.find(x=>x.path===item.parentPath&&AG[x.id]&&!AG[x.id].leaving);
+  const boss=parent||visible.find(x=>x.root);
+  return boss&&AG[boss.id]&&boss.id!==item.id?AG[boss.id]:null;
+}
+const posOf=a=>a.walk?[a.walk.x,a.walk.y]:STN[a.seat]?[STN[a.seat].x,STN[a.seat].y]:DOOR;
+// 新成员：进门 → 到派活的人桌前领信封 → 绕到自己椅子后面 → 坐下
+function enterOffice(a,boss,from=DOOR) {
+  const S=STN[a.seat];
+  if(!S)return;
+  if(!motionOK()) {   // 减少动态效果：不走路，信封直接从派活的人飞到工位
+    if(boss&&liveReady){send(boss.id,a.id,'任务');say(boss.id,'派给 '+shortName(a.name),2200);}
+    return;
+  }
+  const stops=[{p:from}];
+  const B=boss&&!boss.walk&&STN[boss.seat];
+  if(B) stops.push({p:deskFront(B),wait:1000,face:[B.x,B.y],call:()=>{send(boss.id,a.id,'任务');say(boss.id,'交给你了',1500);}});
+  stops.push({p:seatBehind(S)},{p:[S.x,S.y],direct:true});
+  startWalk(a,route(stops),null);
+}
+// 离开：完成的人先到上级桌前交回报，再出门；失败/停止的人直接出门
+function leaveOffice(a,boss,report) {
+  const S=STN[a.seat];
+  if(S&&S.agent===a.id)S.agent=null;
+  a.leaving=true;
+  const from=posOf(a),stops=[{p:from}];
+  if(S&&!a.walk)stops.push({p:seatBehind(S),direct:true});
+  const B=report&&boss&&!boss.walk&&STN[boss.seat];
+  if(B) stops.push({p:deskFront(B),wait:1000,face:[B.x,B.y],call:()=>{send(a.id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}});
+  stops.push({p:DOOR});
+  startWalk(a,route(stops),()=>removeAgent(a.id));
+}
+// 正在往外走的人又接到任务：掉头回工位
+function returnToSeat(a,boss) {
+  const seat=freeSeat(a.seat);
+  if(!seat){removeAgent(a.id);return false;}
+  a.leaving=false;a.seat=seat;STN[seat].agent=a.id;
+  enterOffice(a,boss,posOf(a));
+  if(!motionOK()){a.walk=null;walkers.delete(a);}
+  return true;
 }
 function stableLook(seed) {
   const rand=rng(seed), choose=items=>items[Math.floor(rand()*items.length)];
@@ -1150,41 +1429,46 @@ function applyOfficeSnapshot(next) {
     relayout(Number(next.seed)||1);
   }
   officeSnapshot=next;
-  const visible=next.agents.slice(0,8), ids=new Set(visible.map(a=>a.id));
-  for(const id of Object.keys(AG))if(!ids.has(id)){
-    const root=visible.find(a=>a.root);
-    if(liveReady&&root&&(next.completed||[]).includes(id)&&!reducedMotion.matches)send(id,root.id);
-    removeAgent(id);
+  const visible=next.agents.slice(0,8), ids=new Set(visible.map(a=>a.id)), completed=new Set(next.completed||[]);
+  for(const id of Object.keys(AG)) {
+    const a=AG[id];
+    if(ids.has(id)||a.leaving)continue;
+    const item={id,parentPath:a.parentPath||''}, boss=bossOf(item,visible), report=completed.has(id);
+    if(motionOK()) {a.state=report?'done':a.state;a.activityLabel=report?'已完成':a.activityLabel;a.detail='';leaveOffice(a,boss,report);}
+    else {
+      if(liveReady&&report&&boss){send(id,boss.id,'回报');say(boss.id,'收到 '+shortName(a.name)+' 的结果',2600);}
+      removeAgent(id);
+    }
   }
   for(const item of visible) {
     let a=AG[item.id];
+    if(a&&a.leaving&&!returnToSeat(a,bossOf(item,visible)))a=null;
     if(!a) {
       a=addAgent({id:item.id,name:item.name,role:item.root?'conductor':'coder',seat:item.root?'s_conductor':undefined,
         look:item.root?{hair:'#3b2a22',skin:'#f7d5b5',shirt:'#2d406e',pants:'#262b38',acc:['tie']}:stableLook(item.seed)});
       if(!a)continue;
-      a.toolNode=document.createElement('img');a.toolNode.className='office-tool';a.toolNode.hidden=true;ov.appendChild(a.toolNode);
-      if(liveReady&&!item.root&&!reducedMotion.matches) {const root=visible.find(x=>x.root);if(root)send(root.id,item.id);}
+      a.parentPath=item.parentPath||'';
+      if(liveReady&&!item.root)enterOffice(a,bossOf(item,visible));
     }
-    const prior=a.state;
-    a.name=item.name;a.contextKnown=item.contextKnown;a.contextRatio=item.contextRatio;
-    a.activityLabel=item.label;a.tool=item.tool;
-    if(item.iconSvg&&a.iconSvg!==item.iconSvg){a.iconSvg=item.iconSvg;a.toolNode.src=safeIcon(item.iconSvg);}
-    a.toolNode.alt=item.tool||'';
+    const key=[item.state,item.label,item.tool].join('|');
+    if(key!==a.activityKey){a.activityKey=key;a.labelAt=simNow;}
+    a.name=item.name;a.contextKnown=item.contextKnown;a.contextRatio=item.contextRatio;a.parentPath=item.parentPath||'';
+    a.activityLabel=item.label;a.detail=item.detail||'';a.tool=item.tool;a.icon=item.icon||'';a.iconSvg=item.iconSvg||'';
     if(liveReady&&item.compactId&&item.compactId!==a.compactId) {
       robot.text='整理好旧文件了';robot.textUntil=simNow+2600;
     }
     a.compactId=item.compactId;
     setState(a.id,item.state);
-    if(prior!==item.state&&['permission','question','error','stopped'].includes(item.state))say(a.id,item.label,5000);
     if(item.state==='compact'){robot.text='整理上下文';robot.textUntil=simNow+1600;}
     for(const transfer of item.transfers||[]) {
       const key=item.id+':'+transfer.seq;
       if(seenTransfers.has(key))continue;
       seenTransfers.add(key);
-      if(!liveReady||reducedMotion.matches)continue;
+      if(!liveReady)continue;
       const from=visible.find(x=>x.id===transfer.sender_session_id||x.path===transfer.sender);
       const to=visible.find(x=>x.path===transfer.recipient)||item;
-      if(from&&to)send(from.id,to.id);
+      if(!from||!to||from.id===to.id||!AG[from.id]||!AG[to.id])continue;
+      send(from.id,to.id,TRANSFER_TAG[transfer.type]||'消息');
     }
   }
   while(seenTransfers.size>256)seenTransfers.delete(seenTransfers.values().next().value);
@@ -1217,9 +1501,9 @@ function updateOfficeControls() {
 $('officeFollow').addEventListener('click',()=>action({type:'follow',follow:!officeSnapshot.follow}));
 function reportOfficeRegions() {
   const rects=[$('officeMembers'),$('officeNotice')].filter(node=>node&&!node.hidden).map(node=>node.getBoundingClientRect());
-  if(!rects.length){action({type:'overlay',rect:null});return;}
-  action({type:'overlay',rect:[Math.min(...rects.map(r=>r.left))/innerWidth,Math.min(...rects.map(r=>r.top))/innerHeight,
-    Math.max(...rects.map(r=>r.right))/innerWidth,Math.max(...rects.map(r=>r.bottom))/innerHeight]});
+  const rect=rects.length?[Math.min(...rects.map(r=>r.left))/innerWidth,Math.min(...rects.map(r=>r.top))/innerHeight,
+    Math.max(...rects.map(r=>r.right))/innerWidth,Math.max(...rects.map(r=>r.bottom))/innerHeight]:null;
+  action({type:'overlay',rect,bubbles:bubbleRegions});
 }
 function syncOfficeMembers() {
   const list=$('officeMembers');
@@ -1239,7 +1523,14 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('officeMembers').
 cv.addEventListener('dblclick',()=>{if(selected)action({type:'open',session_id:selected,workspace_hash:officeSnapshot.selected?.workspaceHash||''});});
 // A stable empty room appears until the first real snapshot; no demo workers.
 buildLayout(1);
-window.AgentOffice={applySnapshot:applyOfficeSnapshot,get snapshot(){return officeSnapshot;},get agents(){return Object.values(AG).map(a=>({id:a.id,name:a.name,state:a.state,contextRatio:a.contextRatio,look:a.look.key,seat:a.seat}));},get layoutSignature(){return JSON.stringify({theme:THEME,seats:Object.values(STN).map(s=>[s.id,s.x,s.y,s.axis,s.s])});},layout:seed=>relayout(seed)};
+window.AgentOffice={applySnapshot:applyOfficeSnapshot,get snapshot(){return officeSnapshot;},
+  get agents(){return Object.values(AG).map(a=>({id:a.id,name:a.name,state:a.state,contextRatio:a.contextRatio,look:a.look.key,seat:a.seat,
+    walking:!!a.walk,leaving:a.leaving,bubble:a.bub.hidden?'':a.bub.textContent,compact:a.bub.classList.contains('compact')}));},
+  get envelopes(){return envelopes.map(e=>({from:e.a.id,to:e.b.id,label:e.el?e.el.textContent:''}));},
+  get layoutSignature(){return JSON.stringify({theme:THEME,seats:Object.values(STN).map(s=>[s.id,s.x,s.y,s.axis,s.s])});},
+  // 测试用：按 32ms 步长推进模拟时间（走路、信封、等待）后重画一帧
+  advance(ms){for(let left=ms;left>0;left-=32)advance(Math.min(32,left));render();presentUpscale();},
+  layout:seed=>relayout(seed)};
 fit();
 requestAnimationFrame(t=>{last=t;requestAnimationFrame(loop);});
 

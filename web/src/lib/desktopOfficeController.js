@@ -1,5 +1,9 @@
 import { officeSessionRef, projectDesktopOffice } from './desktopOfficeState.js';
 
+// Streaming text reaches the office a few times per second, not per token.
+export const OFFICE_LIVE_PUBLISH_MS = 150;
+const LIVE_TEXT_CHARS = 400;
+
 // One App-owned controller; every asynchronous response belongs to a selection
 // generation. Inject IO, timers and publishing so lifecycle races are testable.
 export function createDesktopOfficeController({
@@ -8,9 +12,23 @@ export function createDesktopOfficeController({
 } = {}) {
   let follow = initial.follow !== false, active = {}, selected = initial.selected || {};
   let generation = 0, disposed = false, timer = null, timerDelay = Infinity, request = null;
-  let snapshot = {}, connected = true, queued = false;
+  let snapshot = {}, connected = true, queued = false, liveTimer = null;
   const retained = new Set();
-  const emit = () => !disposed && publish(projectDesktopOffice(snapshot, {follow, connected}));
+  // session id -> {phase, seq, fromSeq, text}: token/reasoning events newer than the snapshot.
+  const live = new Map();
+  const project = () => projectDesktopOffice(snapshot, {follow, connected, live});
+  const emit = () => !disposed && publish(project());
+  const emitLive = () => {
+    if (disposed || liveTimer !== null) return;
+    liveTimer = schedule(() => {liveTimer = null; emit();}, OFFICE_LIVE_PUBLISH_MS);
+  };
+  const tracked = id => (snapshot.agents || []).some(session => session.id === id);
+  const pruneLive = () => {
+    for (const [id, entry] of live) {
+      const session = (snapshot.agents || []).find(item => item.id === id);
+      if (!session || entry.seq <= (Number(session.activity?.seq) || 0)) live.delete(id);
+    }
+  };
   const syncRetained = () => {
     const wanted = new Set();
     for (const session of [...(snapshot.offices || []), ...(snapshot.agents || [])]) {
@@ -47,13 +65,13 @@ export function createDesktopOfficeController({
       }
       snapshot = next; connected = true;
       if (next.selected) selected = officeSessionRef(next.selected);
-      syncRetained(); emit();
+      pruneLive(); syncRetained(); emit();
     } catch (error) {
       if (disposed || version !== generation || controller.signal.aborted) return;
       if (error?.status === 404) {
         selected = {}; snapshot = {...snapshot, selected:null, agents:[], offices:error.body?.offices || snapshot.offices || []};
         if (follow) active = {};
-        syncRetained();
+        live.clear(); syncRetained();
       } else connected = false;
       emit();
     } finally {
@@ -68,7 +86,18 @@ export function createDesktopOfficeController({
     generation++;
     request?.abort(); request = null; queued = false;
     snapshot = {...snapshot, selected:null, agents:[]};
-    syncRetained(); emit(); later(0);
+    live.clear(); syncRetained(); emit(); later(0);
+  }
+  function streamed(message) {
+    const id = String(message.session_id || '');
+    if (!id || !tracked(id)) return;
+    const phase = message.type === 'token' ? 'responding' : 'reasoning';
+    const seq = Number(message.seq) || 0, piece = String(message.payload?.text || '');
+    const prev = live.get(id);
+    live.set(id, prev && prev.phase === phase
+      ? {...prev, seq: Math.max(seq, prev.seq), text: (prev.text + piece).slice(-LIVE_TEXT_CHARS)}
+      : {phase, seq, fromSeq: seq, text: piece.slice(-LIVE_TEXT_CHARS)});
+    emitLive();
   }
   return {
     start() {later(0);},
@@ -82,7 +111,8 @@ export function createDesktopOfficeController({
     select(value) {selected = officeSessionRef(value); follow = false; change();},
     setFollow(value) {follow = !!value; change();},
     onEvent(message) {
-      if (['token','reasoning','tool_update'].includes(message.type)) return;
+      if (message.type === 'token' || message.type === 'reasoning') {streamed(message); return;}
+      if (message.type === 'tool_update') return;
       if (request) queued = true;
       else later(100);
     },
@@ -93,10 +123,12 @@ export function createDesktopOfficeController({
       // an onopen callback would close/reopen an office-only connection forever.
       later(0);
     },
-    get state() {return projectDesktopOffice(snapshot, {follow, connected});},
+    get state() {return project();},
     dispose() {
       disposed = true; generation++; request?.abort(); request = null;
       if (timer !== null) cancel(timer);
+      if (liveTimer !== null) cancel(liveTimer);
+      timer = null; liveTimer = null; live.clear();
       for (const id of retained) releaseSession(id);
       retained.clear();
     },

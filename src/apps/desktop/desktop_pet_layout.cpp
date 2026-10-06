@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <nlohmann/json.hpp>
+
 namespace acecode::desktop {
 namespace {
 
@@ -149,6 +151,56 @@ std::vector<DesktopPetPoint> desktop_pet_hit_polygon(double scale) {
         });
     }
     return polygon;
+}
+
+namespace {
+bool overlay_from_json(const nlohmann::json& value, DesktopPetOverlay& out) {
+    if (!value.is_array() || value.size() != 4) return false;
+    for (std::size_t i = 0; i < 4; ++i) {
+        if (!value[i].is_number()) return false;
+        const double coordinate = value[i].get<double>();
+        if (!std::isfinite(coordinate)) return false;
+        out[i] = std::clamp(coordinate, 0.0, 1.0);
+    }
+    return out[2] > out[0] && out[3] > out[1];
+}
+} // namespace
+
+std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann::json& message) {
+    std::vector<DesktopPetOverlay> overlays;
+    if (!message.is_object()) return overlays;
+    DesktopPetOverlay rect{};
+    if (const auto it = message.find("rect"); it != message.end() && overlay_from_json(*it, rect)) {
+        overlays.push_back(rect);
+    }
+    if (const auto it = message.find("bubbles"); it != message.end() && it->is_array()) {
+        for (const auto& item : *it) {
+            if (overlays.size() >= kDesktopPetMaxOverlays) break;
+            if (overlay_from_json(item, rect)) overlays.push_back(rect);
+        }
+    }
+    return overlays;
+}
+
+bool desktop_pet_hit_test(double scale, int width, int height,
+                          const std::vector<DesktopPetOverlay>& overlays, double x, double y) {
+    if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return false;
+    if (!(scale > 0.0)) scale = 1.0;
+    if (y < kDesktopPetToolbarHeight * scale) return true;
+    for (const auto& overlay : overlays) {
+        if (x >= overlay[0] * width && x < overlay[2] * width &&
+            y >= overlay[1] * height && y < overlay[3] * height) {
+            return true;
+        }
+    }
+    // 偶奇规则判断点是否在房间多边形里。
+    const auto polygon = desktop_pet_hit_polygon(scale);
+    bool inside = false;
+    for (std::size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        const double xi = polygon[i].x, yi = polygon[i].y, xj = polygon[j].x, yj = polygon[j].y;
+        if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
 }
 
 } // namespace acecode::desktop

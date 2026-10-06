@@ -4,6 +4,9 @@
 
 namespace acecode {
 namespace {
+// Enough for a speech bubble; the office shows only the last few words.
+constexpr std::size_t kStreamTailBytes = 160;
+
 std::string text(const nlohmann::json& value, const char* key) {
     const auto it = value.find(key);
     return it != value.end() && it->is_string()
@@ -13,7 +16,35 @@ bool flag(const nlohmann::json& value, const char* key) {
     const auto it = value.find(key);
     return it != value.end() && it->is_boolean() && it->get<bool>();
 }
+std::string utf8_tail(const std::string& value, std::size_t max_bytes) {
+    if (value.size() <= max_bytes) return value;
+    std::size_t start = value.size() - max_bytes;
+    while (start < value.size() &&
+           (static_cast<unsigned char>(value[start]) & 0xC0) == 0x80) {
+        ++start;
+    }
+    return value.substr(start);
+}
 } // namespace
+
+void SessionActivityState::enter_phase(const std::string& phase) {
+    // Each model step starts a fresh bubble; a phase change ends the old text.
+    if (phase != phase_) stream_tail_.clear();
+    phase_ = phase;
+}
+
+void SessionActivityState::append_stream(const std::string& phase, const std::string& piece) {
+    if (phase_ != phase) {
+        enter_phase(phase);
+        if (phase == "responding") label_.clear();
+    }
+    if (tools_.empty()) tool_.clear();
+    stream_tail_ += piece;
+    // Trim in batches so a long reply costs O(piece) per token.
+    if (stream_tail_.size() > kStreamTailBytes * 2) {
+        stream_tail_ = utf8_tail(stream_tail_, kStreamTailBytes);
+    }
+}
 
 void SessionActivityState::apply(const SessionEvent& event) {
     seq_ = event.seq;
@@ -25,37 +56,55 @@ void SessionActivityState::apply(const SessionEvent& event) {
         busy_ = false;
         known_ = true;
         outcome_ = outcome;
-        phase_.clear(); label_.clear(); tool_.clear(); tools_.clear();
-        permissions_.clear(); questions_.clear();
+        phase_.clear(); label_.clear(); tool_.clear(); detail_.clear(); stream_tail_.clear();
+        tools_.clear(); permissions_.clear(); questions_.clear();
     };
     switch (event.kind) {
     case SessionEventKind::BusyChanged:
         busy_ = flag(p, "busy"); known_ = true;
         if (busy_) {
             outcome_.clear(); phase_ = "model_waiting";
-            label_.clear(); tool_.clear(); tools_.clear();
-            permissions_.clear(); questions_.clear();
+            label_.clear(); tool_.clear(); detail_.clear(); stream_tail_.clear();
+            tools_.clear(); permissions_.clear(); questions_.clear();
             turn_id_ = text(p, "turn_id");
         } else finish();
         break;
     case SessionEventKind::Done: finish(); break;
     case SessionEventKind::AgentProgress:
-        phase_ = text(p, "phase");
+        enter_phase(text(p, "phase"));
         label_ = text(p, "label");
         tool_ = text(p, "tool");
         break;
+    case SessionEventKind::Token:
+    case SessionEventKind::Reasoning: {
+        const auto it = p.find("text");
+        if (it == p.end() || !it->is_string()) break;
+        append_stream(event.kind == SessionEventKind::Token ? "responding" : "reasoning",
+                      it->get_ref<const std::string&>());
+        break;
+    }
     case SessionEventKind::ToolStart: {
         tool_ = text(p, "tool");
+        auto preview = text(p, "display_override");
+        if (preview.empty()) preview = text(p, "command_preview");
+        detail_ = truncate_utf8_prefix(preview, 120);
         auto id = text(p, "tool_call_id");
         if (id.empty()) id = tool_;
-        tools_[id] = tool_;
+        tools_[id] = {tool_, detail_};
+        stream_tail_.clear();
         break;
     }
     case SessionEventKind::ToolEnd: {
         auto id = text(p, "tool_call_id");
         if (id.empty()) id = text(p, "tool");
         tools_.erase(id);
-        tool_ = tools_.empty() ? std::string{} : tools_.rbegin()->second;
+        if (tools_.empty()) {
+            tool_.clear();
+            detail_.clear();
+        } else {
+            tool_ = tools_.rbegin()->second.first;
+            detail_ = tools_.rbegin()->second.second;
+        }
         break;
     }
     case SessionEventKind::PermissionRequest:
@@ -91,9 +140,11 @@ nlohmann::json SessionActivityState::snapshot() const {
     if (!permissions_.empty()) phase = "permission_waiting";
     else if (!questions_.empty()) phase = "question_waiting";
     else if (!tools_.empty()) phase = "tool_running";
+    const bool streaming = phase == "responding" || phase == "reasoning";
     return {{"seq", seq_}, {"known", known_}, {"busy", busy_},
         {"turn_id", turn_id_}, {"outcome", outcome_}, {"phase", phase},
-        {"label", label_}, {"tool", tool_}, {"compact_id", compact_id_},
-        {"transfers", transfers_}};
+        {"label", label_}, {"tool", tool_}, {"detail", detail_},
+        {"text", streaming ? utf8_tail(stream_tail_, kStreamTailBytes) : std::string{}},
+        {"compact_id", compact_id_}, {"transfers", transfers_}};
 }
 } // namespace acecode

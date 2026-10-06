@@ -10,11 +10,15 @@
 //   6. 用户缩放的上下限(逻辑 0.5 倍到工作区 90%);
 //   7. 用户调过的大小跨 DPI 按逻辑倍数换算;
 //   8. 滚轮 / 把手缩放时锚点不动,放不下时推回工作区;
-//   9. 小数倍缩放时命中区域按四舍五入换算。
+//   9. 小数倍缩放时命中区域按四舍五入换算;
+//  10. 页面上报的浮层(成员列表 / 提示 / 状态气泡)解析:坏数据整条丢弃、坐标夹紧、条数有上限;
+//  11. 点击命中判定(macOS 用它切换点击穿透):房间、控制条、浮层命中,透明角落穿透。
 
 #include <gtest/gtest.h>
 
 #include "desktop/desktop_pet_layout.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <cmath>
 #include <vector>
@@ -205,4 +209,50 @@ TEST(DesktopPetLayout, HitPolygonSupportsFractionalScale) {
         EXPECT_EQ(scaled[i].x, static_cast<int>(std::lround(base[i].x * 1.5)));
         EXPECT_EQ(scaled[i].y, static_cast<int>(std::lround(base[i].y * 1.5)));
     }
+}
+
+// 场景:页面发来 overlay 消息,rect 是成员列表 / 提示的外包框,bubbles 是状态气泡列表,
+// 其中混着越界坐标、NaN 以外的非数字、宽度为 0 的矩形和超量条目。
+// 期望:越界坐标夹到 [0,1];非数字、空矩形整条丢弃;rect=null 时只取气泡;
+// 总数不超过 kDesktopPetMaxOverlays。
+// 回归:修复前原生端只认一个 rect,冒出墙顶的气泡被窗口区域裁掉、也点不到。
+TEST(DesktopPetLayout, OverlayMessageKeepsValidRectsOnly) {
+    const auto overlays = desktop_pet_overlays_from_message(nlohmann::json{
+        {"type", "overlay"},
+        {"rect", {0.1, 0.2, 0.5, 0.6}},
+        {"bubbles", nlohmann::json::array({
+            nlohmann::json::array({-0.2, 0.1, 0.3, 1.4}),
+            nlohmann::json::array({0.4, "x", 0.5, 0.6}),
+            nlohmann::json::array({0.4, 0.4, 0.4, 0.6}),
+            nlohmann::json::array({0.6, 0.1, 0.7})})}});
+    ASSERT_EQ(overlays.size(), 2u);
+    EXPECT_DOUBLE_EQ(overlays[1][0], 0.0) << "左边越界夹到 0";
+    EXPECT_DOUBLE_EQ(overlays[1][3], 1.0) << "下边越界夹到 1";
+
+    const auto bubbles_only = desktop_pet_overlays_from_message(nlohmann::json{
+        {"type", "overlay"}, {"rect", nullptr},
+        {"bubbles", nlohmann::json::array({nlohmann::json::array({0.2, 0.2, 0.3, 0.3})})}});
+    ASSERT_EQ(bubbles_only.size(), 1u);
+
+    nlohmann::json many = nlohmann::json::array();
+    for (int i = 0; i < 40; ++i) many.push_back({0.1, 0.1, 0.2, 0.2});
+    EXPECT_EQ(desktop_pet_overlays_from_message({{"bubbles", many}}).size(), kDesktopPetMaxOverlays);
+    EXPECT_TRUE(desktop_pet_overlays_from_message(nlohmann::json::array()).empty());
+}
+
+// 场景:1.25 倍(430×315)窗口,依次点:房间中央、顶部控制条、左上透明角落、
+// 左上角落里一个上报过的气泡、窗口外。
+// 期望:房间 / 控制条 / 气泡命中;没有浮层的透明角落与窗口外不命中(点击应穿透)。
+TEST(DesktopPetLayout, HitTestCoversRoomToolbarAndOverlays) {
+    const double scale = 1.25;
+    const int width = 430, height = 315;
+    const std::vector<DesktopPetOverlay> none;
+    EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, none, 215, 200)) << "房间中央";
+    EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, none, 400, 10)) << "顶部控制条";
+    EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, none, 6, 60)) << "左上透明角落";
+    EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, none, 6, 310)) << "左下透明角落";
+    const std::vector<DesktopPetOverlay> bubble{{0.0, 0.15, 0.1, 0.25}};
+    EXPECT_TRUE(desktop_pet_hit_test(scale, width, height, bubble, 6, 60)) << "角落里的气泡";
+    EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, bubble, -1, 60)) << "窗口外";
+    EXPECT_FALSE(desktop_pet_hit_test(scale, width, height, bubble, 430, 60)) << "右边界外";
 }

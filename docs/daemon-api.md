@@ -566,9 +566,11 @@ disabled, the write is silently ignored.
 
 `offices` 最多五个：跨工作区按 `last_user_message_at` 降序，排除归档、子会话和没有真实用户输入的会话。打开会话、模型输出、隐藏提示及 agent 间消息不推进此时间；旧记录从 JSONL 逆向读取后缓存。目录或旧记录仍在加载时 `complete=false`，客户端可继续读取；空目录返回空数组及 `selected:null`。分叉继承保留消息的原始时间。
 
-`selected` 和 `agents` 只传身份、标题、所属工作区、真实状态和当前上下文用量等展示字段；不含输入草稿、工具参数、工具输出或历史正文。`agents` 包含根会话和当前 daemon 已装载的直属/网状子会话；网状子会话的 `parent_session_id` 是树根，`agent_path` 保留实际层级。已成功结束的子会话可仍出现在原始快照中，由桌宠投影立即离座。标题/摘要限 240 UTF-8 字节。
+`selected` 和 `agents` 只传身份、标题、所属工作区、真实状态和当前上下文用量等展示字段；不含输入草稿、原始工具参数、工具输出或历史正文（下文 `activity.detail` / `activity.text` 两个有界展示片段除外）。`agents` 包含根会话和当前 daemon 已装载的直属/网状子会话；网状子会话的 `parent_session_id` 是树根，`agent_path` 保留实际层级。已成功结束的子会话可仍出现在原始快照中，由桌宠投影立即离座。标题/摘要限 240 UTF-8 字节。
 
-运行中条目的 `activity` 来自事件分发器维护的紧凑状态，不依赖有限的重放缓冲：`known`、`busy`、`turn_id`、`outcome`、`phase`、`label`、`tool`、`seq`、`compact_id`、`transfers`。待授权/待回答优先于工具和模型阶段；`outcome` 保留 `completed`/`aborted`/`error` 差别。`transfers` 最多保留 16 个带序号的 agent 间交接标识，不含消息内容。持久化 `last_turn_outcome` 使恢复后的完成主会话继续显示睡眠状态。
+运行中条目的 `activity` 来自事件分发器维护的紧凑状态，不依赖有限的重放缓冲：`known`、`busy`、`turn_id`、`outcome`、`phase`、`label`、`tool`、`detail`、`text`、`seq`、`compact_id`、`transfers`。待授权/待回答优先于工具和模型阶段；`outcome` 保留 `completed`/`aborted`/`error` 差别。`transfers` 最多保留 16 个带序号的 agent 间交接标识，不含消息内容。持久化 `last_turn_outcome` 使恢复后的完成主会话继续显示睡眠状态。
+
+流式正文会把 `phase` 置为 `responding`（默认「用于编程」模式下服务端不发该进度，由 token 事件推断），推理片段对应 `reasoning`，`text` 是本段正文或推理最后不超过 160 UTF-8 字节的尾巴，换阶段或开始工具调用即清空；`detail` 是正在运行工具的一行调用预览（`display_override`，为空时取 `command_preview`），最多 120 字节，工具结束清空。桌宠页面在两次快照之间直接用 WebSocket 的 `token` / `reasoning` 事件按 `seq` 叠加实时文字（约 150ms 节流），快照追上后以快照为准。
 
 `token_usage` 是最近请求上下文统计，配合 `context_window` 计算文件堆厚度；未知窗口不伪造比例。休眠会话可通过已有 model 端点补充窗口大小。该端点不会发起模型请求或改变会话运行状态。
 

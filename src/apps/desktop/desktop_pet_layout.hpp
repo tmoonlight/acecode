@@ -9,7 +9,10 @@
 // 画布里房间以外(原来的草地)是透明的,命中区域只取房间轮廓,
 // 透明角落的点击会落到后面的窗口上。
 
+#include <array>
 #include <vector>
+
+#include <nlohmann/json_fwd.hpp>
 
 namespace acecode::desktop {
 
@@ -61,5 +64,19 @@ DesktopPetPlacement scale_desktop_pet(const DesktopPetRect& current, double new_
 // 房间轮廓(地台 + 两面墙的外包六边形)外扩少量边距,按 scale 换成窗口内设备像素坐标,
 // 顺时针,已夹在窗口范围内。
 std::vector<DesktopPetPoint> desktop_pet_hit_polygon(double scale);
+
+// 页面浮层(成员列表、提示、状态气泡)在窗口里的矩形,按窗口宽高的比例给出:
+// {left, top, right, bottom},均在 [0, 1]。
+using DesktopPetOverlay = std::array<double, 4>;
+inline constexpr std::size_t kDesktopPetMaxOverlays = 24;
+
+// 解析页面发来的 {"type":"overlay","rect":[...]|null,"bubbles":[[...],...]}:
+// 非数字 / 非有限值 / 空矩形整条丢弃,坐标夹到 [0, 1],最多保留 kDesktopPetMaxOverlays 个。
+std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann::json& message);
+
+// 窗口内一点 (x, y)(设备像素,左上为原点)是否落在桌宠上:房间轮廓、顶部控制条或任一浮层。
+// 透明区域返回 false,点击应穿透到后面的窗口。
+bool desktop_pet_hit_test(double scale, int width, int height,
+                          const std::vector<DesktopPetOverlay>& overlays, double x, double y);
 
 } // namespace acecode::desktop

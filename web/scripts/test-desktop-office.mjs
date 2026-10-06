@@ -24,6 +24,13 @@ try {
   await page.waitForFunction(()=>!!window.AgentOffice&&window.officeActions.includes('ready'));
   assert.equal(await page.evaluate(()=>AgentOffice.agents.length),0,'production starts without demo workers');
   const apply=async snapshot=>{await page.evaluate(value=>window.hostMessage({data:value}),snapshot);await page.waitForTimeout(90);};
+  // 以模拟时间推进(走路、信封、等待),不依赖真实帧率;predicate 在页面里求值。
+  const advanceUntil=async(predicate,maxMs=20000)=>page.evaluate(({source,maxMs})=>{
+    const test=new Function('return ('+source+')');
+    for(let t=0;t<maxMs;t+=100){if(test())return true;AgentOffice.advance(100);}
+    return test();
+  },{source:predicate,maxMs});
+  const present=()=>page.evaluate(()=>AgentOffice.agents.filter(a=>!a.leaving).map(a=>a.id));
   await apply(data());
   assert.equal(await page.locator('.office-tab').count(),5);
   assert.equal(await page.locator('#officeFollow').getAttribute('aria-checked'),'true');
@@ -38,11 +45,30 @@ try {
   await page.keyboard.press('Enter');
   assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='select'&&m.session_id==='root2';}catch{return false;}})));
   await page.screenshot({path:path.join(output,'office-working-688.png')});
-  // Completion removes workers immediately while the main agent displays zzz.
+  // Busy agents keep a persistent bubble: verb plus the call preview or the latest streamed words.
+  await apply(data({agents:[actor('root',{tool:'file_read',iconSvg:toolIconSvg('file_read'),label:'读取',detail:'src/auth/login.cpp'}),
+    actor('代码审查',{state:'type',label:'撰写回复',detail:'…并发登录会覆盖旧会话'}),actor('回归测试',{state:'permission',label:'等待授权',detail:'运行命令'})]}));
+  const bubbles=await page.evaluate(()=>Object.fromEntries(AgentOffice.agents.map(a=>[a.id,a.bubble])));
+  assert.match(bubbles.root,/读取.*src\/auth\/login\.cpp/);
+  assert.match(bubbles['代码审查'],/撰写回复.*覆盖旧会话/);
+  assert.match(bubbles['回归测试'],/等待授权/);
+  assert.ok(await page.locator('.bub.type .bub-detail').count()>=1,'streaming bubble keeps the typing caret style');
+  assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='overlay'&&m.bubbles?.length>=3;}catch{return false;}})),'bubble regions reach the native window shape');
+  await page.screenshot({path:path.join(output,'office-bubbles-688.png')});
+  // Completed workers walk to their dispatcher, hand in a report envelope, then leave; the main agent sleeps.
   await apply(data({agents:[actor('root',{state:'sleep',label:'zzz',busy:false,contextRatio:.15})],completed:['代码审查','回归测试']}));
+  assert.deepEqual(await present(),['root']);
+  assert.ok(await page.evaluate(()=>AgentOffice.agents.filter(a=>a.leaving).every(a=>a.walking&&a.state==='done')));
+  assert.ok(await advanceUntil("AgentOffice.envelopes.some(e=>e.label==='回报'&&e.to==='root')"),'report envelope flies to the dispatcher');
+  assert.ok(await advanceUntil("AgentOffice.agents.some(a=>a.id==='root'&&/收到.*的结果/.test(a.bubble))"),'dispatcher acknowledges the report');
+  assert.ok(await advanceUntil("AgentOffice.agents.length===1"),'workers leave through the door');
   assert.deepEqual(await page.evaluate(()=>AgentOffice.agents.map(a=>a.state)),['sleep']);
   await page.screenshot({path:path.join(output,'office-sleep-688.png')});
+  // A new worker walks in, receives a task envelope at the dispatcher's desk, then sits down.
   await apply(data());
+  assert.ok(await page.evaluate(()=>AgentOffice.agents.filter(a=>!a.root&&a.id!=='root').every(a=>a.walking)),'new workers enter on foot');
+  assert.ok(await advanceUntil("AgentOffice.envelopes.some(e=>e.label==='任务'&&e.from==='root')"),'task envelope leaves the dispatcher');
+  assert.ok(await advanceUntil("AgentOffice.agents.every(a=>!a.walking)"),'workers reach their seats');
   assert.equal(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='代码审查').look),look);
   assert.equal(await page.evaluate(()=>AgentOffice.layoutSignature),originalLayout);
   const toolImage=await page.locator('.office-tool:not([hidden])').first().getAttribute('src');
@@ -50,7 +76,7 @@ try {
   // Over-capacity members remain reachable, and the host receives their hit box.
   const many=[actor('root'),...Array.from({length:9},(_,i)=>actor('成员'+i))];
   await apply(data({agents:many,overflow:2}));
-  assert.equal(await page.evaluate(()=>AgentOffice.agents.length),8);
+  assert.equal((await present()).length,8);
   await page.locator('#officeOverflow').click();
   assert.equal(await page.locator('#officeMembers button').count(),10);
   assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='overlay'&&m.rect?.[2]>m.rect?.[0];}catch{return false;}})));
@@ -60,6 +86,17 @@ try {
   assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='open'&&m.session_id==='成员8';}catch{return false;}})));
   await page.locator('#officeOverflow').click();
   await apply(data({follow:false}));
+  await advanceUntil("AgentOffice.agents.every(a=>!a.walking)");
+  // Mesh messages between members fly as labelled envelopes.
+  await apply(data({agents:[actor('root'),actor('代码审查',{path:'/root/review'}),actor('回归测试',{path:'/root/test',
+    transfers:[{seq:77,sender:'/root/review',recipient:'/root/test',sender_session_id:'代码审查',type:'MESSAGE'}]})]}));
+  assert.ok(await page.evaluate(()=>AgentOffice.envelopes.some(e=>e.from==='代码审查'&&e.to==='回归测试'&&e.label==='消息')),'mesh message envelope');
+  // Reduced motion: no walking, but the task hand-off is still shown.
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await apply(data({agents:[actor('root'),actor('代码审查',{path:'/root/review'}),actor('回归测试',{path:'/root/test'}),actor('文档')]}));
+  assert.equal(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='文档').walking),false);
+  assert.ok(await page.evaluate(()=>AgentOffice.envelopes.some(e=>e.to==='文档'&&e.label==='任务')),'reduced motion keeps the hand-off');
+  await page.emulateMedia({reducedMotion:'no-preference'});
   assert.equal(await page.locator('#officeMembers').isHidden(),true);
   assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='overlay'&&m.rect===null;}catch{return false;}})));
 
@@ -79,5 +116,5 @@ try {
   assert.match(await page.locator('#officeNotice').textContent(),/发送消息后/);
   assert.ok(await page.evaluate(()=>{const notices=officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay');return Array.isArray(notices.at(-1)?.rect);}), 'native region includes empty-state notice');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  console.log(JSON.stringify({output,checks:22,errors,external},null,2));
+  console.log(JSON.stringify({output,checks:40,errors,external},null,2));
 } finally {await browser.close();}

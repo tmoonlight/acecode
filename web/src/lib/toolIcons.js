@@ -27,3 +27,20 @@ export function toolIconName(tool = '', summaryIcon = '') {
 export function toolIconSvg(tool = '', summaryIcon = '') {
   return interfaceIconSvg(toolIconName(tool, summaryIcon), 14);
 }
+
+// Short present-tense verbs for the desktop office speech bubbles.
+const VERB_BY_ICON = new Map([
+  ['OpenFile', '读取'], ['Save', '写入文件'], ['Edit', '修改代码'], ['Search', '搜索代码'],
+  ['BrowserGlobe', '查阅网页'], ['TerminalReadWrite', '运行命令'], ['Embedding', '协作'],
+  ['StatusHelp', '提问'], ['List', '更新待办'], ['StatusOK', '收尾'], ['Eye', '看图'],
+  ['Extension', '使用技能'], ['MCP', '调用 MCP'], ['Tool', '调用工具'],
+]);
+const VERB_BY_TOOL = new Map([
+  ['spawn_subagent', '派发任务'], ['agent_spawn', '派发任务'], ['wait_subagent', '等成员回报'],
+  ['agent_wait', '等成员回报'], ['agent_send_message', '发消息'], ['agent_followup_task', '追加任务'],
+  ['agent_interrupt', '叫停成员'], ['agent_list', '查看成员'],
+]);
+export function toolActivityVerb(tool = '') {
+  const name = String(tool).toLowerCase().replace(/^functions\./, '');
+  return VERB_BY_TOOL.get(name) || VERB_BY_ICON.get(toolIconName(tool)) || '调用工具';
+}
