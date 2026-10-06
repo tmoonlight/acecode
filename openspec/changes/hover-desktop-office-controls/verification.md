@@ -32,3 +32,15 @@ Temporary evidence: `C:/Users/shao/AppData/Local/Temp/ace-office-controls-native
 - macOS floating/normal level and deferred close paths were updated and reviewed from source; no macOS compiler or runtime validation was performed on Windows.
 - Installed Desktop packages are not updated by this local build. The pet HTML is embedded directly by CMake, independently of `web/dist`; the user can run the current development build to see the change.
 - Existing dirty changes in AGENTS.md, ChannelsSettings.jsx, ComposerSessionControls.jsx and globals.css were left outside this change. No commit or push.
+
+## Release integration — 0.9.36
+
+After implementation, the user authorized release if both Claude App and Codex App had no other active ACECode turn. Claude's local ACECode process reported `idle`; Codex's current runtime had no other in-progress ACECode turn. The earlier retained working-tree changes were reviewed and included through PR #106.
+
+The fixed audit window is 2026-10-05 01:51:29 through 2026-10-07 01:51:29 (Asia/Taipei). All 46 worktrees were inspected. Claude's completed `38eeec9651aa2698d84f1a4817573d841af7bd3b` adds door entrances, report-in hops and faster goodbyes; its animation code merges with the new window controls. Only the browser script's reported check count conflicted; both sets of assertions were retained and the combined 64-check run passed.
+
+The two recent preserved upgrade branches (`6d45f1ce`, `8d64540d`) are already present as patches: reverse apply checks pass outside the combined HTTP test file, and all five introduced HTTP tests are byte-identical in master. No duplicate merge is needed. Remaining worktrees are outside the window, and the nine explicitly retained migration refs remain untouched.
+
+Seed assets, seeding code and tests are unchanged from v0.9.35; revision and manifest remain `2026-10-04.1`. Release binaries are built from the final synchronized master and the release script verifies upgrade behavior and the complete GitHub/aupdate inventory. The final version/commit, CI, hashes and public downloads are recorded in the external release verification JSON rather than adding a post-tag source commit.
+
+![Office controls after animation integration](../../../docs/images/agent-office/office-controls-hover.png)
