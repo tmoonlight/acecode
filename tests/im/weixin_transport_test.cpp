@@ -121,8 +121,8 @@ TEST(WeixinTransport, ConnectsReceivesAndPersistsCursor) {
         std::lock_guard<std::mutex> lock(mu);
         tokens[peer] = token;
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     EXPECT_EQ(transport.status().account, kBot);
@@ -166,8 +166,8 @@ TEST(WeixinTransport, ResumesFromPersistedCursor) {
     server.push_text(kUser, "new", 2);  // seq 2
     auto options = local_options(server);
     options.initial_cursor = "cur-1";
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeWeixinServer::wait_until([&] { return recorder.count() == 1; }));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -182,8 +182,8 @@ TEST(WeixinTransport, SessionExpiredStopsRetrying) {
     test::FakeWeixinServer server;
     auto options = local_options(server);
     options.api.token = "stale-token-ZYXWVUTSRQPONMLK";
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Failed));
     const auto status = transport.status();
@@ -205,8 +205,8 @@ TEST(WeixinTransport, RetriesAfterHttp200Error) {
         if (call.endpoint == "getupdates" && ++polls == 1) return {{"ret", -1}, {"errmsg", "system busy"}};
         return nullptr;
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeWeixinServer::wait_until([&] { return recorder.saw(LinkState::Retrying); }));
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
@@ -227,8 +227,8 @@ TEST(WeixinTransport, DedupesRepeatedMessages) {
     server.push_message(first);
     server.push_message(resent);
     server.push_text(kUser, u8"新消息", 102);
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeWeixinServer::wait_until([&] { return recorder.count() == 2; }));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -243,8 +243,8 @@ TEST(WeixinTransport, MergesSplitLongMessage) {
     test::FakeWeixinServer server;
     std::string longer;
     for (int i = 0; i < 1900; ++i) longer += u8"长";
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     server.push_text(kUser, longer, 1);
@@ -263,8 +263,8 @@ TEST(WeixinTransport, MergesSplitLongMessage) {
 // 长回答按 2000 字(码点)切成 3 段依次发送,内容拼起来与原文一致,每段 client_id 不同。
 TEST(WeixinTransport, SendsPlainTextWithContextTokenAndChunks) {
     test::FakeWeixinServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     server.push_text(kUser, "hi", 1, "ctx-B");
     ASSERT_TRUE(test::FakeWeixinServer::wait_until([&] { return recorder.count() == 1; }));
@@ -317,8 +317,8 @@ TEST(WeixinTransport, RetriesWithoutStaleContextToken) {
         std::lock_guard<std::mutex> lock(mu);
         updates.emplace_back(peer, token);
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     EXPECT_EQ(transport.send_text(user_address(), "hello", nlohmann::json::object()).outcome, SendOutcome::Sent);
     const auto sends = server.calls_to("sendmessage");
@@ -368,8 +368,8 @@ TEST(WeixinTransport, TypingUsesTicketAndAlwaysCancels) {
     test::FakeWeixinServer server;
     auto options = local_options(server);
     options.initial_context_tokens = {{kUser, "ctx-T"}};
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     const auto typing_with = [&](int status) {
         std::size_t n = 0;
@@ -490,8 +490,8 @@ TEST(WeixinTransport, DownloadsAndDecryptsMedia) {
     server.push_message(message);
     auto options = local_options(server);
     options.max_download_bytes = 1024;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeWeixinServer::wait_until([&] { return recorder.count() == 1; }));
     const auto inbound = recorder.at(0);
@@ -532,8 +532,8 @@ TEST(WeixinTransport, StopsPromptlyDuringLongPoll) {
     server.max_hold = std::chrono::seconds(5);
     auto options = local_options(server);
     options.poll_timeout = std::chrono::seconds(5);
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeWeixinServer::wait_until([&] { return !server.calls_to("getupdates").empty(); }));
     const auto start = std::chrono::steady_clock::now();
@@ -550,8 +550,8 @@ TEST(WeixinTransport, ReportsConnectedWhileFirstPollIsHeld) {
     server.max_hold = std::chrono::seconds(4);
     auto options = local_options(server);
     options.poll_timeout = std::chrono::seconds(4);
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     WeixinTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     EXPECT_TRUE(test::FakeWeixinServer::wait_until(
         [&] { return transport.status().state == LinkState::Connected; }, std::chrono::milliseconds(1500)));

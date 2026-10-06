@@ -61,8 +61,8 @@ bool wait_connected(QqTransport& transport) {
 // 回复以 Markdown 被动回复送达(带 msg_id 与 msg_seq),结果为已发送。
 TEST(QqTransport, ConnectsReceivesAndRepliesPassively) {
     test::FakeQqServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     EXPECT_EQ(transport.status().display_name, "TestBot");
@@ -97,8 +97,8 @@ TEST(QqTransport, FallsBackToActiveMessageWhenPassiveIsRejected) {
             return std::make_pair(400, nlohmann::json{{"code", 40034}, {"message", "msg_id expired"}});
         return std::make_pair(200, nlohmann::json{{"id", "R"}});
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.push_c2c("M1", "U1", "hi");
@@ -122,8 +122,8 @@ TEST(QqTransport, HoldsOutputAndFlushesOnNextInbound) {
         if (reject) return std::make_pair(403, nlohmann::json{{"code", 304}, {"message", "proactive disabled"}});
         return std::make_pair(200, nlohmann::json{{"id", "R"}});
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.push_c2c("M1", "U1", "first");
@@ -153,8 +153,8 @@ TEST(QqTransport, FallsBackToPlainTextWhenMarkdownIsRejected) {
             return std::make_pair(400, nlohmann::json{{"code", 11255}, {"message", "markdown not allowed"}});
         return std::make_pair(200, nlohmann::json{{"id", "R"}});
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.push_c2c("M1", "U1", "hi");
@@ -173,8 +173,8 @@ TEST(QqTransport, FallsBackToPlainTextWhenMarkdownIsRejected) {
 // 期望:重复的消息只交给上层一次;群消息按“群 + 成员”定位。
 TEST(QqTransport, DeduplicatesMessagesAndParsesGroupMentions) {
     test::FakeQqServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.push_c2c("M1", "U1", "hi");
@@ -193,8 +193,8 @@ TEST(QqTransport, DeduplicatesMessagesAndParsesGroupMentions) {
 // 期望:等待频控延迟后自动重连,并用 Resume 恢复原会话,最终回到已连接。
 TEST(QqTransport, ReconnectsAndResumesAfterRateLimitClose) {
     test::FakeQqServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.close_connection(4008, "rate limited");
@@ -209,8 +209,8 @@ TEST(QqTransport, ReconnectsAndResumesAfterRateLimitClose) {
 // 期望:状态变为失败、停止自动重试,原因为“机器人已被封禁”,之后不再重连。
 TEST(QqTransport, StopsRetryingAfterBan) {
     test::FakeQqServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.close_connection(4915, "banned");
@@ -229,8 +229,8 @@ TEST(QqTransport, InvalidCredentialsFailWithoutRetrying) {
     server.token_handler = [](const nlohmann::json&) {
         return nlohmann::json{{"code", 100016}, {"message", "invalid appsecret"}};
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeQqServer::wait_until([&] { return transport.status().state == LinkState::Failed; }));
     const auto status = transport.status();
@@ -243,8 +243,8 @@ TEST(QqTransport, InvalidCredentialsFailWithoutRetrying) {
 // 期望:先上传(base64、file_type=4、带文件名),再以 msg_type 7 带 file_info 发送。
 TEST(QqTransport, SendsFilesThroughRichMediaUpload) {
     test::FakeQqServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.push_c2c("M1", "U1", "send me the report");
@@ -272,8 +272,8 @@ TEST(QqTransport, OversizedFileBecomesTextNotice) {
     test::FakeQqServer server;
     auto options = local_options(server);
     options.max_upload_bytes = 4;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     QqTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport));
     server.push_c2c("M1", "U1", "send me the report");

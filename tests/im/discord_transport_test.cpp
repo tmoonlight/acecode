@@ -99,8 +99,8 @@ TEST(DiscordTransport, ConnectsIdentifiesAndReceivesDirectMessage) {
     auto options = local_options(server);
     std::atomic<std::int64_t> ledger{0};
     options.on_identify_ledger = [&ledger](std::int64_t, std::int64_t count) { ledger = count; };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     const auto status = transport.status();
@@ -139,8 +139,8 @@ TEST(DiscordTransport, ConnectsIdentifiesAndReceivesDirectMessage) {
 // (点名,带被回复内容);机器人消息、自己的回显和重复消息都不上报。
 TEST(DiscordTransport, GuildMentionsRepliesAndFilters) {
     FakeDiscordServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     const auto bot = server.bot_id;
@@ -176,8 +176,8 @@ TEST(DiscordTransport, GuildMentionsRepliesAndFilters) {
 // 指向触发消息;每条都带 allowed_mentions 且只允许提及用户(不会 @everyone / 角色);带 nonce 幂等键。
 TEST(DiscordTransport, RepliesWithReferenceAndSafeMentionsInChunks) {
     FakeDiscordServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     const auto in = connect_and_receive_dm(server, transport, recorder);
     const auto text = std::string(1500, 'a') + "\n\n" + std::string(1500, 'b') + "\n\n" + std::string(1500, 'c');
     const auto result = transport.send_text(in.address, text, in.reply_context);
@@ -206,8 +206,8 @@ TEST(DiscordTransport, ResendsWithoutReferenceWhenReplyTargetIsGone) {
             return std::make_pair(404, nlohmann::json{{"code", 10008}, {"message", "Unknown Message"}});
         return std::make_pair(0, nlohmann::json());
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     const auto in = connect_and_receive_dm(server, transport, recorder);
     const auto result = transport.send_text(in.address, "reply", in.reply_context);
     EXPECT_EQ(result.outcome, SendOutcome::Sent) << result.error;
@@ -265,8 +265,8 @@ TEST(DiscordTransport, OpensDirectMessageChannelWithoutReplyContext) {
 // 不重新 Identify(不消耗登录预算),最终回到已连接。
 TEST(DiscordTransport, ResumesAfterRecoverableClose) {
     FakeDiscordServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     connect_and_receive_dm(server, transport, recorder);
     const auto seq_before = server.last_seq();
     server.close_connection(4000, "unknown error");
@@ -285,8 +285,8 @@ TEST(DiscordTransport, ResumesAfterRecoverableClose) {
 // 期望:客户端以非 1000 关闭码断开(1000 会让会话作废),连到恢复地址并 Resume,不重新登录。
 TEST(DiscordTransport, ServerReconnectRequestResumes) {
     FakeDiscordServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     server.push({{"op", 7}, {"d", nullptr}});
@@ -302,8 +302,8 @@ TEST(DiscordTransport, ServerReconnectRequestResumes) {
 // 不去恢复地址。
 TEST(DiscordTransport, InvalidSessionTriggersFreshIdentify) {
     FakeDiscordServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     server.push({{"op", 9}, {"d", false}});
@@ -318,8 +318,8 @@ TEST(DiscordTransport, InvalidSessionTriggersFreshIdentify) {
 TEST(DiscordTransport, RejectedResumeFallsBackToIdentify) {
     FakeDiscordServer server;
     server.resume_ok = false;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     server.close_connection(4000, "unknown error");
@@ -334,8 +334,8 @@ TEST(DiscordTransport, RejectedResumeFallsBackToIdentify) {
 TEST(DiscordTransport, DisallowedIntentIsFatal) {
     FakeDiscordServer server;
     server.identify_close_code = 4014;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Failed));
     const auto status = transport.status();
@@ -352,8 +352,8 @@ TEST(DiscordTransport, InvalidTokenStopsBeforeConnecting) {
     FakeDiscordServer server;
     auto options = local_options(server);
     options.api.token = "OTk5OTk5.wrong.token-that-must-not-appear";
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Failed));
     const auto status = transport.status();
@@ -370,8 +370,8 @@ TEST(DiscordTransport, ZombieConnectionIsClosedAndResumed) {
     FakeDiscordServer server;
     server.heartbeat_interval_ms = 150;
     server.ack_heartbeats = false;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(FakeDiscordServer::wait_until([&server] { return server.connections("resume") >= 1; }));
     server.ack_heartbeats = true;
@@ -386,8 +386,8 @@ TEST(DiscordTransport, ZombieConnectionIsClosedAndResumed) {
 // 期望:打开期间持续向私聊频道 POST /typing;关闭后不再发送。
 TEST(DiscordTransport, TypingIndicatorRepeatsUntilTurnedOff) {
     FakeDiscordServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     const auto in = connect_and_receive_dm(server, transport, recorder);
     EXPECT_TRUE(transport.capabilities().supports_typing);
     const auto path = "/channels/" + dm_channel() + "/typing";
@@ -524,8 +524,8 @@ TEST(DiscordTransport, RefreshesExpiredAttachmentUrl) {
     FakeDiscordServer server;
     const std::string attachment_id = "1290000000000000099";
     server.expired_attachments = {attachment_id};
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     server.push_dm("600000000000000021", kUser, u8"看附件",
@@ -550,8 +550,8 @@ TEST(DiscordTransport, StopIsPromptDuringBackoff) {
     server.gateway_bot_status = 500;
     auto options = local_options(server);
     options.backoff = {std::chrono::seconds(30)};
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     DiscordTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Retrying));
     const auto begin = std::chrono::steady_clock::now();

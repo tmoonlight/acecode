@@ -96,8 +96,8 @@ std::filesystem::path temp_file(const char* name, const std::string& data) {
 // 状态里不出现长连接票据与密钥;停止后状态为已停止。
 TEST(FeishuTransport, ConnectsAcksAndDeliversPrivateMessage) {
     FakeFeishuServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     const auto status = transport.status();
@@ -148,8 +148,8 @@ TEST(FeishuTransport, ConnectsAcksAndDeliversPrivateMessage) {
 // (是否响应由核心决定);旧消息被丢弃。四个事件帧全部 ACK(包括重复与丢弃的),避免平台重投。
 TEST(FeishuTransport, GroupMentionsDedupeAndStaleEvents) {
     FakeFeishuServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     const auto mentioned = FakeFeishuServer::message_event("om_g1", "group", "oc_group", "ou_user", "text",
@@ -183,8 +183,8 @@ TEST(FeishuTransport, GroupMentionsDedupeAndStaleEvents) {
 // 期望:重组成一条入站消息;只对凑齐的最后一片回 ACK(共 1 个)。
 TEST(FeishuTransport, ReassemblesSplitEvents) {
     FakeFeishuServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     server.push_event(p2p_text("om_split", std::string(300, 'x')), 3);
@@ -200,8 +200,8 @@ TEST(FeishuTransport, ReassemblesSplitEvents) {
 // 每段 content 是 {"zh_cn":{"content":[[{"tag":"md",…}]]}};每次请求带 uuid。
 TEST(FeishuTransport, RepliesToTriggerThenCreatesLaterChunks) {
     FakeFeishuServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     server.push_event(p2p_text("om_1", "写个报告"));
@@ -327,8 +327,8 @@ TEST(FeishuTransport, ReportsPermanentSendErrors) {
 // 期望:重新请求长连接地址(旧地址不复用)并重连,回到已连接;新连接上的消息照常收到。
 TEST(FeishuTransport, ReconnectsWithFreshEndpointAfterServerClose) {
     FakeFeishuServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     server.close_connection(1000);
@@ -350,8 +350,8 @@ TEST(FeishuTransport, RetriesTransientEndpointFailures) {
                                                   {"data", {{"URL", server.ws_url()},
                                                             {"ClientConfig", server.client_config}}}});
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     EXPECT_EQ(server.endpoint_calls(), 2);
@@ -368,8 +368,8 @@ TEST(FeishuTransport, EndpointCredentialErrorStopsRetrying) {
         return std::make_pair(200, nlohmann::json{{"code", 1000040345}, {"msg", "app_id or app_secret is invalid"},
                                                   {"data", {{"URL", ""}}}});
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(FakeFeishuServer::wait_until([&] { return transport.status().state == LinkState::Failed; }));
     const auto status = transport.status();
@@ -388,8 +388,8 @@ TEST(FeishuTransport, InvalidAppIdStopsRetrying) {
     server.token_handler = [](const FakeFeishuServer::Request&) {
         return std::make_pair(200, nlohmann::json{{"code", 10014}, {"msg", "app id not exists"}});
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(FakeFeishuServer::wait_until([&] { return transport.status().state == LinkState::Failed; }));
     EXPECT_TRUE(transport.status().retry_stopped);
@@ -454,8 +454,8 @@ TEST(FeishuTransport, DownloadsInboundAttachments) {
     FakeFeishuServer server;
     auto options = local_options(server);
     options.max_download_bytes = 1024;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     server.push_event(FakeFeishuServer::message_event("om_img", "p2p", "oc_p2p", "ou_user", "image",
@@ -487,8 +487,8 @@ TEST(FeishuTransport, DownloadsInboundAttachments) {
 // 连接当作仍在线,继续把消息随机分给这条死连接,通道整段时间“收不到消息”(hermes #10202)。
 TEST(FeishuTransport, StopSendsCloseFrame) {
     FakeFeishuServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     FeishuTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_connected(transport, server));
     transport.stop();

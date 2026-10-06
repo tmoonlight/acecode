@@ -62,8 +62,8 @@ TEST(TelegramTransport, ConnectsReceivesAndPersistsOffset) {
     auto options = local_options(server);
     std::atomic<std::int64_t> persisted{0};
     options.on_offset = [&](std::int64_t value) { persisted = value; };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     const auto status = transport.status();
@@ -88,8 +88,8 @@ TEST(TelegramTransport, ResumesFromPersistedOffset) {
     server.push_private_text(42, "new", 2);  // update_id 101
     auto options = local_options(server);
     options.initial_offset = 101;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeTelegramServer::wait_until([&] { return recorder.count() == 1; }));
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -108,8 +108,8 @@ TEST(TelegramTransport, SendsHtmlAndFallsBackToPlainText) {
             return {{"ok", false}, {"error_code", 400}, {"description", "Bad Request: can't parse entities"}};
         return nullptr;
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     Address to;
@@ -136,8 +136,8 @@ TEST(TelegramTransport, RetriesAfterRateLimit) {
         if (call.method != "sendMessage" || ++sends > 1) return nullptr;
         return {{"ok", false}, {"error_code", 429}, {"description", "Too Many Requests"}, {"parameters", {{"retry_after", 1}}}};
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     Address to;
@@ -165,8 +165,8 @@ TEST(TelegramTransport, WebhookConflictWaitsForUserConfirmation) {
                     {"description", "Conflict: can't use getUpdates method while webhook is active"}};
         return nullptr;
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Failed));
     EXPECT_TRUE(transport.status().extra.value("webhook", false));
@@ -184,8 +184,8 @@ TEST(TelegramTransport, ReportsOtherPollerAndInvalidToken) {
         if (call.method != "getUpdates") return nullptr;
         return {{"ok", false}, {"error_code", 409}, {"description", "Conflict: terminated by other getUpdates request"}};
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Retrying));
     EXPECT_NE(transport.status().detail.find(u8"占用"), std::string::npos);
@@ -204,8 +204,8 @@ TEST(TelegramTransport, ReportsOtherPollerAndInvalidToken) {
 // 期望:忙碌期间持续发送 sendChatAction(typing);关闭后不再发送。
 TEST(TelegramTransport, TypingIndicatorRepeatsWhileBusy) {
     test::FakeTelegramServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     Address to;
@@ -228,8 +228,8 @@ TEST(TelegramTransport, TypingIndicatorRepeatsWhileBusy) {
 // 下载经 getFile 拿到路径后成功;超出 20 MB 的文件被拒。
 TEST(TelegramTransport, SendsAndDownloadsFiles) {
     test::FakeTelegramServer server;
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(wait_state(transport, LinkState::Connected));
     Address to;
@@ -266,8 +266,8 @@ TEST(TelegramTransport, StopsPromptlyDuringLongPoll) {
     test::FakeTelegramServer server;
     auto options = local_options(server);
     options.poll_timeout = std::chrono::seconds(25);
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(options);
-    Recorder recorder;
     transport.start(recorder.callbacks());
     ASSERT_TRUE(test::FakeTelegramServer::wait_until([&] { return !server.calls_to("getUpdates").empty(); }));
     const auto start = std::chrono::steady_clock::now();
@@ -287,8 +287,8 @@ TEST(TelegramTransport, ReportsConnectedBeforeFirstLongPollReturns) {
         for (int i = 0; i < 150 && !release; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(20));
         return {{"ok", true}, {"result", nlohmann::json::array()}};
     };
+    Recorder recorder;  // 停机仍会回调:记录器必须晚于传输对象析构
     TelegramTransport transport(local_options(server));
-    Recorder recorder;
     transport.start(recorder.callbacks());
     EXPECT_TRUE(test::FakeTelegramServer::wait_until(
         [&] { return transport.status().state == LinkState::Connected; }, std::chrono::milliseconds(1000)));
