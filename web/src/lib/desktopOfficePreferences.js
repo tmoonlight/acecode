@@ -1,5 +1,9 @@
 export const OFFICE_PREFERENCES_EVENT = 'ace-desktop-office-preferences';
 
+export function isOfficeWelcomeVisible({ requested, blocked, tourPreparing, tourRunning }) {
+  return requested && !blocked && !tourPreparing && !tourRunning;
+}
+
 export function parseOfficePreferences(value) {
   const result = typeof value === 'string' ? JSON.parse(value) : value;
   if (!result || typeof result.available !== 'boolean' || typeof result.enabled !== 'boolean') {

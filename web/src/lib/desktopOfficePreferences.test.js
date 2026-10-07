@@ -1,5 +1,22 @@
 import assert from 'node:assert/strict';
-import { createDesktopOfficePreferences, OFFICE_PREFERENCES_EVENT } from './desktopOfficePreferences.js';
+import { createDesktopOfficePreferences, isOfficeWelcomeVisible, OFFICE_PREFERENCES_EVENT } from './desktopOfficePreferences.js';
+import { shouldPrepareDesktopGuidedTour } from './desktopGuidedTour.js';
+
+// Native claiming may finish after the ordinary first-run tour starts preparing.
+// A queued invitation must let that tour finish before taking its turn.
+{
+  const tour = { mode: 'shell', authState: 'ok', startupNavigationSettled: true, hasActiveSession: false };
+  const queued = { requested: true, blocked: false, tourPreparing: true, tourRunning: false };
+  assert.equal(isOfficeWelcomeVisible(queued), false);
+  assert.equal(shouldPrepareDesktopGuidedTour({ ...tour, blocked: isOfficeWelcomeVisible(queued) }), true,
+    'a welcome claimed during preparation cannot deadlock the guided tour');
+  assert.equal(isOfficeWelcomeVisible({ ...queued, tourPreparing: false, tourRunning: true }), false);
+  const visible = isOfficeWelcomeVisible({ ...queued, tourPreparing: false });
+  assert.equal(visible, true, 'welcome appears once the tour finishes or is dismissed');
+  assert.equal(shouldPrepareDesktopGuidedTour({ ...tour, blocked: visible }), false,
+    'a visible invitation protects its focus from the tour');
+  assert.equal(isOfficeWelcomeVisible({ ...queued, tourPreparing: false, blocked: true }), false);
+}
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const initial = { ok: true, available: true, enabled: false, welcomePending: true };

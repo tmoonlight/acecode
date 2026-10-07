@@ -12,3 +12,9 @@
 macOS was source-reviewed only: shared lifecycle/preferences and early bridge registration are applied to the WKWebView host. A Mac build/runtime is not claimed. Follow the handoff in `docs/desktop-agent-office.md` for session linkage, close/reopen, restart and first-run invitation verification.
 
 Current project version remains 0.9.36. The invitation gate intentionally activates at 0.9.37 and later stable versions; version thresholds are covered by native tests. This change requests code delivery only, with no release tag or package publication.
+
+## Follow-up during 0.9.37 release validation
+
+With the native version gate active, a clean-profile startup exposed a race: the welcome claim could finish while the existing guided tour was preparing, and the queued welcome then blocked that tour while waiting for it. The invitation had been acknowledged but neither surface appeared. The provisional update entry was withdrawn and the package job cancelled before GitHub Release publication.
+
+The fix distinguishes queued and visible invitations; an already preparing/running tour can finish first. Regression tests check this interaction with `shouldPrepareDesktopGuidedTour`. Full Web tests/build passed again. An isolated native v0.9.37 process using the corrected production Web build passed automatic invitation display, dismissal without enabling, once-only acknowledgement, snapshot/title delivery, native close persistence, same-process reopening and disabling. Native evidence: `C:/Users/shao/AppData/Local/Temp/ace-office-optin-native-xv7o4_q8/result.json`. Source version is now 0.9.37; publication recovery is tracked separately in the release evidence.

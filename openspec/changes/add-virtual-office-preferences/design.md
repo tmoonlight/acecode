@@ -10,6 +10,7 @@ The office is a Windows WebView2 or macOS WKWebView window driven by Web UI sess
 4. One frontend owner manages preference state and live controller lifetime. Menu/settings receive that state; native close events update it. Stop polling and subscriptions when disabled. Unsupported Web/Linux shows a disabled settings switch with a short explanation and no actionable quick-menu entry or invitation.
 5. Only while the invitation is open, request the already embedded HTML over the native bridge and render it in an `allow-scripts` sandboxed iframe with local demo snapshots. No video/GIF, network, real sessions, duplicated HTML bundle, or surviving animation after dismissal. Honor reduced motion and provide pause/play.
 6. Invitation uses shared Modal, exact requested description, explicit close/later/enable buttons, no backdrop dismissal, and avoids other startup blocking dialogs. Existing settings tokens and a simple 20-unit desk/room SVG are reused.
+7. A native welcome claim can resolve after the ordinary guided tour starts preparing. Only a visible office invitation blocks that tour: a queued invitation waits for an already preparing/running tour to finish. This avoids both startup surfaces waiting for the other to close.
 
 ## Validation
 
