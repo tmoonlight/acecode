@@ -3,6 +3,8 @@
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '打开设置': 'Open settings',
   '在内置浏览器中打开': 'Open in built-in browser',
+  '浏览器页面已关闭': 'The browser page has been closed',
+  '浏览器启动超时，请重试': 'Browser startup timed out. Please try again',
   '发送消息': 'Send message',
   '思考深度 ({{p0}} / {{p1}})': 'Reasoning depth ({{p0}} / {{p1}})',
   'keyboard shortcuts hotkeys 快捷键 键盘 搜索 前进 后退 思维深度 Ctrl Alt Cmd': 'keyboard shortcuts hotkeys search forward back reasoning depth Ctrl Alt Cmd',

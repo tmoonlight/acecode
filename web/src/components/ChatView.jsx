@@ -287,6 +287,7 @@ import {
   hasNativeAgentBrowser,
   runAgentBrowserBridgeAction,
   selectAgentBrowserPage,
+  waitForAgentBrowserPageReady,
 } from '../lib/agentBrowser.js';
 import {
   agentBrowserPageStore,
@@ -5478,12 +5479,24 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         await closeAgentBrowserPage(created.page_id);
         return;
       }
-      showBrowserPage(
+      const shown = await showBrowserPage(
         created.page_id,
         created.title || defaultBrowserTabTitle(),
         created.favicon,
       );
+      if (!shown) {
+        await closeAgentBrowserPage(created.page_id);
+        return;
+      }
       if (typeof url === 'string' && url) {
+        const ready = await waitForAgentBrowserPageReady(created.page_id, {
+          isCurrent: () => sidRef.current === sid,
+        });
+        if (ready.cancelled) {
+          await closeAgentBrowserPage(created.page_id);
+          return;
+        }
+        if (ready.ok === false) throw new Error(ready.error || '浏览器操作失败');
         const navigated = await runAgentBrowserBridgeAction('aceDesktop_agentBrowserNavigate', {
           page_id: created.page_id, url,
         });

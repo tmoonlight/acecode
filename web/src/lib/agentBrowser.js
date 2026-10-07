@@ -138,6 +138,22 @@ export async function getAgentBrowserState(pageId = '', win = globalThis.window)
   );
 }
 
+export async function waitForAgentBrowserPageReady(
+  pageId, { isCurrent = () => true, timeoutMs = 15000, pollMs = 50 } = {}, win = globalThis.window,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (isCurrent()) {
+    const state = await getAgentBrowserState(pageId, win);
+    if (!isCurrent()) break;
+    if (state.ok === false) return state;
+    if (state.closed) return { ok: false, error: '浏览器页面已关闭' };
+    if (state.ready) return state;
+    if (Date.now() >= deadline) return { ok: false, error: '浏览器启动超时，请重试' };
+    await new Promise(resolve => setTimeout(resolve, Math.min(pollMs, deadline - Date.now())));
+  }
+  return { ok: false, cancelled: true };
+}
+
 // 页面归属参数:daemon 工具与 UI 自建页都用同一形态,session_id 是唯一联结键,
 // workspace_hash 只作附带信息。
 export function agentBrowserOwnerForSession(sessionRef) {

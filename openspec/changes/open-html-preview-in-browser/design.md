@@ -12,6 +12,7 @@ Reuse preview path resolution, native browser ownership, toolbar styling and uns
 - Pass the existing browser-opening callback through PreviewDetailsPanel to FilePreviewContent. Extend it with an optional URL and navigate the newly created page using the existing bridge. This preserves session ownership instead of bypassing ChatView from a leaf component.
 - Reuse the globe icon and ace-code-action-btn styling before the wrap action. Hide the action in runtimes without native browser support.
 - Reuse save/discard/cancel before opening. The browser reads the saved disk file, never an unsaved draft. Guard session changes across asynchronous work and prevent duplicate opens while pending.
+- Native page creation is asynchronous and may return `ready:false`. Wait for the native ready state before navigation, bounded to 15 seconds, preserving cancellation when the session changes or page closes. This was verified against real Windows WebView2, not inferred from an immediate-ready fixture.
 
 ## Risks / Trade-offs
 

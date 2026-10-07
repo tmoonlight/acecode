@@ -21,3 +21,8 @@ The file source preview SHALL offer a keyboard-accessible browser icon before th
 #### Scenario: Browser failure
 - **WHEN** browser page creation or navigation fails
 - **THEN** the application displays the failure and retains the source file tab
+
+#### Scenario: Native page is still initializing
+- **WHEN** the newly created native browser page is not yet ready
+- **THEN** the application waits for readiness before navigating to the file
+- **AND** a closed page, startup failure, timeout, or session switch stops that navigation

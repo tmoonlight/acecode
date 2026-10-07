@@ -13,6 +13,7 @@ import {
   setAgentBrowserShared,
   toggleAgentBrowserDevTools,
   toggleAgentBrowserElementSelection,
+  waitForAgentBrowserPageReady,
 } from './agentBrowser.js';
 
 async function run(name, fn) {
@@ -24,6 +25,31 @@ async function run(name, fn) {
     throw error;
   }
 }
+
+await run('Agent Browser waits for native page readiness before immediate navigation', async () => {
+  const states = [{ ok: true, ready: false }, { ok: true, ready: true }];
+  const calls = [];
+  const win = {
+    __ACECODE_DESKTOP_SHELL__: true,
+    __ACECODE_OS__: 'windows',
+    aceDesktop_agentBrowserCreatePage() {},
+    aceDesktop_agentBrowserSetLayout() {},
+    aceDesktop_agentBrowserGetState(pageId) { calls.push(pageId); return states.shift(); },
+  };
+  assert.equal((await waitForAgentBrowserPageReady('page-1', { pollMs: 0 }, win)).ready, true);
+  assert.deepEqual(calls, ['page-1', 'page-1']);
+  win.aceDesktop_agentBrowserGetState = () => ({ ok: true, ready: false });
+  assert.match((await waitForAgentBrowserPageReady('page-1', { timeoutMs: 0 }, win)).error, /超时/);
+  win.aceDesktop_agentBrowserGetState = () => ({ ok: false, error: 'native failed' });
+  assert.equal((await waitForAgentBrowserPageReady('page-1', {}, win)).error, 'native failed');
+  win.aceDesktop_agentBrowserGetState = () => ({ ok: true, closed: true });
+  assert.match((await waitForAgentBrowserPageReady('page-1', {}, win)).error, /已关闭/);
+  let current = true;
+  win.aceDesktop_agentBrowserGetState = () => { current = false; return { ok: true, ready: true }; };
+  assert.equal((await waitForAgentBrowserPageReady('page-1', { isCurrent: () => current }, win)).cancelled, true);
+  win.aceDesktop_agentBrowserGetState = () => { throw new Error('must not read a stale page'); };
+  assert.equal((await waitForAgentBrowserPageReady('page-1', { isCurrent: () => false }, win)).cancelled, true);
+});
 
 await run('Agent Browser address normalization accepts web and absolute local paths', () => {
   assert.equal(normalizeAgentBrowserAddress(' example.com/a '), 'https://example.com/a');
