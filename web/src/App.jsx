@@ -1,4 +1,5 @@
 import { useDesktopOffice } from './lib/useDesktopOffice.js';
+import { VirtualOfficeWelcome } from './components/VirtualOfficeWelcome.jsx';
 // 顶层 App:鉴权 gate(401 → TokenPrompt)+ 主壳。
 //
 // 视觉对齐设计稿方向 C:顶部 41px TopBar + 270px Sidebar + 主区(单会话/4宫格/9宫格)
@@ -254,7 +255,9 @@ export function App() {
   );
 
   const [activeRef,    setActiveRef]    = useState(null);
-  useDesktopOffice(activeRef);
+  const office = useDesktopOffice(activeRef);
+  const [officeWelcomeOpen, setOfficeWelcomeOpen] = useState(false);
+  const officeWelcomeAttempted = useRef(false);
   const workbenchOwner = sessionWorkbench.ownerFor(activeRef);
   const [sessionTitleTarget, setSessionTitleTarget] = useState(null);
   const [sessionActionsTarget, setSessionActionsTarget] = useState(null);
@@ -503,10 +506,21 @@ export function App() {
   const configRecoveryBlocking = (
     authState === 'ok' && !configRecoveryNoticeChecked
   ) || recoveryNoticeBlocksStartup(configRecoveryNotice, configRecoveryDialogOpen);
-  const guidedTourBlocked = showSettings || showFeedback || searchOpen || updateDialogOpen
+  const officeInvitationBlocked = showSettings || showFeedback || searchOpen || updateDialogOpen
     || desktopCloseDialogOpen
     || configRecoveryBlocking
     || questionReqs.length > 0;
+  const guidedTourBlocked = officeInvitationBlocked || officeWelcomeOpen;
+
+  useEffect(() => {
+    if (officeWelcomeAttempted.current || !office.welcomePending || authState !== 'ok' || !health
+        || officeInvitationBlocked || guidedTourPreparing || guidedTourRun) return;
+    officeWelcomeAttempted.current = true;
+    void office.claimWelcome().then(result => {
+      if (result.ok && result.show) setOfficeWelcomeOpen(true);
+    });
+  }, [office.welcomePending, office.claimWelcome, authState, health, officeInvitationBlocked, guidedTourPreparing, guidedTourRun]);
+  useEffect(() => { if (office.error) toast({ kind: 'err', text: office.error }); }, [office.error]);
 
   useEffect(() => initInactiveSelection(), []);
   useEffect(() => {
@@ -2153,6 +2167,7 @@ export function App() {
     || (projectSidebarCollapsed && !guidedTourPreparing && !guidedTourRun);
 
   const nativeSurfacesVisible = !showSettings
+    && !officeWelcomeOpen
     && !showFeedback
     && !searchOpen
     && !updateDialogOpen
@@ -2171,6 +2186,7 @@ export function App() {
     desktopMode: desktopModeRef.current,
     chatVisible: view === 'single' && !activeRef?.loop && !activeRef?.expertComponents,
     blockingSurfaceOpen: showSettings || showFeedback || searchOpen || updateDialogOpen
+      || officeWelcomeOpen
       || desktopCloseDialogOpen || configRecoveryBlocking
       || !!visibleQuestionReq || guidedTourPreparing || guidedTourRun,
   });
@@ -2180,7 +2196,7 @@ export function App() {
     loop: !!activeRef?.loop,
     showSettings: showSettings || showFeedback,
     searchOpen,
-    updateDialogOpen: updateDialogOpen || desktopCloseDialogOpen || configRecoveryBlocking,
+    updateDialogOpen: updateDialogOpen || desktopCloseDialogOpen || configRecoveryBlocking || officeWelcomeOpen,
     permissionOpen: false,
     questionOpen: !!visibleQuestionReq,
     guidedTourPreparing,
@@ -2242,6 +2258,7 @@ export function App() {
           appVersion={health?.version || ''}
           workspaceActivationRequest={workspaceActivationRequest}
           onOpenSettingsSection={openSettingsSection}
+          office={office}
           onOpenFeedback={() => setShowFeedback(true)}
           onOpenExpertComponents={openExpertComponents}
           onOpenSearch={() => setSearchOpen(true)}
@@ -2359,6 +2376,7 @@ export function App() {
         {showFeedback && <FeedbackForm onClose={() => setShowFeedback(false)} />}
         {showSettings && (
           <SettingsPage
+            office={office}
             onClose={() => setShowSettings(false)}
             onCheckUpdates={() => {
               setShowSettings(false);
@@ -2449,6 +2467,9 @@ export function App() {
         onDismiss={dismissGuidedTour}
         onAbort={abortGuidedTour}
       />
+      {officeWelcomeOpen && !officeInvitationBlocked && !guidedTourPreparing && !guidedTourRun && (
+        <VirtualOfficeWelcome office={office} onClose={() => setOfficeWelcomeOpen(false)} />
+      )}
       <SessionNavigationMask
         open={sessionNavigationPending}
         onCancel={cancelSessionNavigation}

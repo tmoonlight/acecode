@@ -2,6 +2,8 @@
 #include "web_host.hpp"
 
 #include "desktop_pet_layout.hpp"
+#include "desktop_office_service.hpp"
+#include "version.hpp"
 #include "platform/native_ui/strings.hpp"
 
 #include "utils/encoding.hpp"
@@ -199,8 +201,8 @@ void apply_hit_region(HWND hwnd, double scale, const std::vector<DesktopPetOverl
 
 } // namespace
 
-struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
-    explicit Impl(WebHost& owner) : host(owner) {}
+struct PetController : std::enable_shared_from_this<PetController> {
+    explicit PetController(WebHost& owner) : host(owner) {}
     WebHost& host; // Required GUI host; DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot = {{"follow", true}};
     bool page_ready = false;
@@ -222,31 +224,13 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
     DesktopPetRect resize_start{};
     POINT resize_cursor{};
 
-    ~Impl() { close(); }
+    ~PetController() { close(); }
 
-    void bind_bridge() {
-        const auto weak = weak_from_this();
-        host.bind("aceDesktop_updateOffice", [weak](const std::string& request) {
-            const auto self = weak.lock();
-            if (!self || self->closed || request.size() > 512 * 1024) return std::string("false");
-            try {
-                const auto args = nlohmann::json::parse(request);
-                if (!args.is_array() || args.size() != 1 || !args[0].is_string()) return std::string("false");
-                const auto value = nlohmann::json::parse(args[0].get<std::string>());
-                if (!value.is_object() || value.value("version", 0) != 1 ||
-                    !value.contains("agents") || !value["agents"].is_array() ||
-                    !value.contains("offices") || !value["offices"].is_array() || value["offices"].size() > 5) {
-                    return std::string("false");
-                }
-                self->office_snapshot = value;
-                self->publish_snapshot();
-                return std::string("true");
-            } catch (...) { return std::string("false"); }
-        });
-        host.bind("aceDesktop_getOfficeState", [weak](const std::string&) {
-            const auto self = weak.lock();
-            return self && !self->closed ? self->office_snapshot.dump() : std::string("{}");
-        });
+    std::function<void()> on_closed;
+
+    void update_snapshot(const nlohmann::json& value) {
+        office_snapshot = value;
+        publish_snapshot();
     }
 
     void publish_snapshot() {
@@ -309,7 +293,7 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
         WNDCLASSEXW window_class{};
         window_class.cbSize = sizeof(window_class);
         window_class.hInstance = instance;
-        window_class.lpfnWndProc = &Impl::window_proc;
+        window_class.lpfnWndProc = &PetController::window_proc;
         window_class.lpszClassName = kPetWindowClass;
         window_class.hCursor = ::LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); // IDC_ARROW
         // 纯黑在 per-pixel alpha 合成下就是全透明:WebView2 首帧之前窗口什么也不显示。
@@ -746,11 +730,11 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
     static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
         if (message == WM_NCCREATE) {
             const auto* create = reinterpret_cast<const CREATESTRUCTW*>(lparam);
-            auto* self = static_cast<Impl*>(create->lpCreateParams);
+            auto* self = static_cast<PetController*>(create->lpCreateParams);
             ::SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
             if (self) self->hwnd = window;
         }
-        auto* self = reinterpret_cast<Impl*>(::GetWindowLongPtrW(window, GWLP_USERDATA));
+        auto* self = reinterpret_cast<PetController*>(::GetWindowLongPtrW(window, GWLP_USERDATA));
         if (!self || self->hwnd != window) return ::DefWindowProcW(window, message, wparam, lparam);
         return self->handle_message(message, wparam, lparam);
     }
@@ -772,23 +756,23 @@ struct DesktopPet::Impl : std::enable_shared_from_this<DesktopPet::Impl> {
             ::SetWindowLongPtrW(window, GWLP_USERDATA, 0);
             ::DestroyWindow(window);
         }
+        if (on_closed) on_closed();
     }
+};
+
+struct DesktopPet::Impl : DesktopOfficeService<WebHost, PetController> {
+    using DesktopOfficeService::DesktopOfficeService;
 };
 #endif
 
 DesktopPet::DesktopPet(WebHost& host) {
 #ifdef _WIN32
-    if (desktop_pet_disabled_by_env()) {
-        LOG_INFO("[desktop-pet] disabled by ACECODE_DESKTOP_PET");
-        return;
-    }
-    auto impl = std::make_shared<Impl>(host);
-    impl->bind_bridge();
-    if (impl->start()) {
-        impl_ = std::move(impl);
-    } else {
-        impl->close();
-    }
+    impl_ = std::make_shared<Impl>(host, pet_root_dir() / "office.json", ACECODE_VERSION,
+        !desktop_pet_disabled_by_env(), [] {
+            return std::string(reinterpret_cast<const char*>(acecode::desktop_pet_page_data()),
+                               acecode::desktop_pet_page_size());
+        });
+    impl_->bind_bridge();
 #else
     (void)host;
 #endif
@@ -796,7 +780,7 @@ DesktopPet::DesktopPet(WebHost& host) {
 
 DesktopPet::~DesktopPet() {
 #ifdef _WIN32
-    if (impl_) impl_->close();
+    impl_.reset();
 #endif
 }
 

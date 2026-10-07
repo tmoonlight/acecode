@@ -21,6 +21,8 @@
 #include "web_host.hpp"
 
 #include "desktop_pet_layout.hpp"
+#include "desktop_office_service.hpp"
+#include "version.hpp"
 #include "platform/native_ui/strings.hpp"
 
 #include "utils/logger.hpp"
@@ -64,7 +66,6 @@ constexpr double kZoomStep = 1.1;
 constexpr NSTimeInterval kHoverPollSeconds = 1.0 / 30.0;
 constexpr NSTimeInterval kGesturePollSeconds = 1.0 / 60.0;
 constexpr NSTimeInterval kRevealFallbackSeconds = 3.0;
-constexpr std::size_t kMaxSnapshotBytes = 512 * 1024;
 constexpr std::size_t kMaxActionBytes = 16384;
 
 enum MenuCommand : NSInteger { kMenuDock = 1, kMenuHide, kMenuZoomIn, kMenuZoomOut, kMenuResetSize };
@@ -155,7 +156,8 @@ public:
     explicit PetController(WebHost& owner) : host_(owner) {}
     virtual ~PetController() { close(); }
 
-    void bind_bridge();
+    std::function<void()> on_closed;
+    void update_snapshot(const nlohmann::json& value);
     bool start();
     void close();
 
@@ -309,31 +311,9 @@ using acecode::desktop::PetController;
 
 namespace acecode::desktop {
 
-void PetController::bind_bridge() {
-    const std::weak_ptr<PetController> weak = weak_from_this();
-    host_.bind("aceDesktop_updateOffice", [weak](const std::string& request) {
-        const auto self = weak.lock();
-        if (!self || self->closed_ || request.size() > kMaxSnapshotBytes) return std::string("false");
-        try {
-            const auto args = nlohmann::json::parse(request);
-            if (!args.is_array() || args.size() != 1 || !args[0].is_string()) return std::string("false");
-            const auto value = nlohmann::json::parse(args[0].get<std::string>());
-            if (!value.is_object() || value.value("version", 0) != 1 ||
-                !value.contains("agents") || !value["agents"].is_array() ||
-                !value.contains("offices") || !value["offices"].is_array() || value["offices"].size() > 5) {
-                return std::string("false");
-            }
-            self->office_snapshot_ = value;
-            self->publish_snapshot();
-            return std::string("true");
-        } catch (...) {
-            return std::string("false");
-        }
-    });
-    host_.bind("aceDesktop_getOfficeState", [weak](const std::string&) {
-        const auto self = weak.lock();
-        return self && !self->closed_ ? self->office_snapshot_.dump() : std::string("{}");
-    });
+void PetController::update_snapshot(const nlohmann::json& value) {
+    office_snapshot_ = value;
+    publish_snapshot();
 }
 
 bool PetController::start() {
@@ -745,29 +725,25 @@ void PetController::close() {
     panel_ = nil;
     bridge_ = nil;
     menu_target_ = nil;
+    if (on_closed) on_closed();
 }
 
 // DesktopPet 持有的实现:只是把控制器的所有权包起来。
-struct DesktopPet::Impl : PetController {
-    using PetController::PetController;
+struct DesktopPet::Impl : DesktopOfficeService<WebHost, PetController> {
+    using DesktopOfficeService::DesktopOfficeService;
 };
 
 DesktopPet::DesktopPet(WebHost& host) {
-    if (desktop_pet_disabled_by_env()) {
-        LOG_INFO("[desktop-pet] disabled by ACECODE_DESKTOP_PET");
-        return;
-    }
-    auto impl = std::make_shared<Impl>(host);
-    impl->bind_bridge();
-    if (impl->start()) {
-        impl_ = std::move(impl);
-    } else {
-        impl->close();
-    }
+    impl_ = std::make_shared<Impl>(host, pet_root_dir() / "office.json", ACECODE_VERSION,
+        !desktop_pet_disabled_by_env(), [] {
+            return std::string(reinterpret_cast<const char*>(acecode::desktop_pet_page_data()),
+                               acecode::desktop_pet_page_size());
+        });
+    impl_->bind_bridge();
 }
 
 DesktopPet::~DesktopPet() {
-    if (impl_) impl_->close();
+    impl_.reset();
 }
 
 } // namespace acecode::desktop

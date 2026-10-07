@@ -17,6 +17,7 @@ export function SidebarQuickMenu({
   onOpenLoop,
   onOpenSearch,
   onSettings,
+  office,
   onAppearance,
   onAbout,
   onCheckUpdates,
@@ -29,6 +30,7 @@ export function SidebarQuickMenu({
     setOpen(false);
     invokeTopBarQuickAction(actionId, {
       onNewSession, onOpenLoop, onOpenSearch, onSettings, onAppearance,
+      onToggleOffice: () => office?.setEnabled(!office.enabled),
       onAbout, onCheckUpdates, onExit,
     });
   };
@@ -63,7 +65,9 @@ export function SidebarQuickMenu({
           className="z-50 rounded-lg border border-border bg-surface p-1 ace-shadow-lg"
         >
           {TOPBAR_QUICK_ACTIONS.map((action, index) => {
+            if (action.id === 'virtual-office' && !office?.available) return null;
             const checkingUpdates = action.id === 'check-updates' && updateChecking;
+            const officeAction = action.id === 'virtual-office';
             const shortcutLabel = topBarQuickActionShortcutLabel(action);
             return (
               <Fragment key={action.id}>
@@ -74,14 +78,14 @@ export function SidebarQuickMenu({
                   type="button"
                   role="menuitem"
                   onClick={() => selectAction(action.id)}
-                  disabled={checkingUpdates}
+                  disabled={checkingUpdates || (officeAction && office.busy)}
                   aria-busy={checkingUpdates || undefined}
                   className="w-full h-8 px-2 rounded-md flex items-center gap-2 text-[13px] text-fg-2 hover:bg-surface-hi hover:text-fg transition text-left disabled:opacity-50 disabled:cursor-wait"
                 >
                   <span className="w-5 shrink-0 flex items-center justify-center">
                     <VsIcon name={action.icon} size={18} className={checkingUpdates ? 'animate-spin' : ''} />
                   </span>
-                  <span className="flex-1 min-w-0 truncate">{action.label}</span>
+                  <span className="flex-1 min-w-0 truncate">{officeAction && office.enabled ? '隐藏虚拟办公室' : action.label}</span>
                   {shortcutLabel && (
                     <kbd
                       aria-label={shortcutLabel}

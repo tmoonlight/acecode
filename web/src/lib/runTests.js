@@ -1,4 +1,5 @@
 import './desktopOffice.test.js';
+import './desktopOfficePreferences.test.js';
 import './questionPicker.test.js';
 import './turnCancellation.test.js';
 import './modelReasoningSync.test.js';

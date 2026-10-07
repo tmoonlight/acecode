@@ -1,3 +1,4 @@
+import { VirtualOfficeSettings } from './VirtualOfficeSettings.jsx';
 // 浮动设置窗口:mask + 贯通的左栏导航与右栏内容。
 //
 // 左侧导航按 Codex 风格分组,section key 与深链行为保持稳定。
@@ -143,6 +144,7 @@ const NOTIFICATION_AUTHORIZATION_TONE = {
 };
 
 export function SettingsPage({
+  office,
   onClose,
   health,
   activeSessionId = '',
@@ -444,6 +446,7 @@ export function SettingsPage({
           )}
           {activeNavKey === 'config' && <SettingsConfigSection />}
           {activeNavKey === 'personalization' && <SectionPersonalization workspaceHash={activeWorkspaceHash} />}
+          {activeNavKey === 'virtual-office' && <VirtualOfficeSettings office={office} />}
           {activeNavKey === 'skills' && <SectionSkills />}
           {activeNavKey === 'mcp' && <SectionMCP />}
           {activeNavKey === 'connectors' && <SectionConnectors />}

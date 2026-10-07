@@ -24,6 +24,7 @@ const ICONS = {
   collapseAll: 'CollapseAll',
   columns: 'Columns',
   computer: 'Computer',
+  office: 'Office',
   copy: 'Copy',
   darkTheme: 'DarkTheme',
   delete: 'Delete',
