@@ -1712,6 +1712,7 @@ export function Sidebar({
   appVersion = '',
   workspaceActivationRequest = null,
   onOpenSettingsSection,
+  office,
   onOpenExpertComponents,
   onOpenFeedback,
   onOpenSearch,
@@ -3829,6 +3830,7 @@ export function Sidebar({
               onOpenLoop={onNewLoop}
               onOpenSearch={onOpenSearch}
               onSettings={() => onOpenSettingsSection?.('general')}
+              office={office}
               onAppearance={() => onOpenSettingsSection?.('appearance')}
               onAbout={onAbout}
               onCheckUpdates={onCheckUpdates}

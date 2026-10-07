@@ -40,6 +40,14 @@ export const TOPBAR_QUICK_ACTIONS = Object.freeze([
     group: 'application',
   }),
   Object.freeze({
+    id: 'virtual-office',
+    label: '显示虚拟办公室',
+    icon: 'office',
+    iconSize: 16,
+    callback: 'onToggleOffice',
+    group: 'application',
+  }),
+  Object.freeze({
     id: 'appearance',
     label: '外观',
     icon: 'palette',

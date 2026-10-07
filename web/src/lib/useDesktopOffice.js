@@ -1,15 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { api } from './api.js';
 import { connection } from './connection.js';
 import { focusSession } from './desktopNotify.js';
 import { createDesktopOfficeController } from './desktopOfficeController.js';
+import { createDesktopOfficePreferences } from './desktopOfficePreferences.js';
 
 export function useDesktopOffice(activeRef) {
+  const [preferences] = useState(() => createDesktopOfficePreferences(window));
+  const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
+  useEffect(() => { preferences.start(); return () => preferences.dispose(); }, [preferences]);
   const current = useRef(activeRef);
   current.current = activeRef;
   const controllerRef = useRef(null);
   useEffect(() => {
-    if (typeof window.aceDesktop_updateOffice !== 'function') return undefined;
+    if (!state.enabled || !state.available || typeof window.aceDesktop_updateOffice !== 'function') return undefined;
     let disposed = false, controller = null;
     const onMessage = event => controller?.onEvent(event.detail || {});
     const onOpen = () => controller?.reconnected();
@@ -51,6 +55,7 @@ export function useDesktopOffice(activeRef) {
       connection.removeEventListener('disconnect', onDisconnect);
       window.removeEventListener('ace-desktop-office-action', onAction);
     };
-  }, []);
+  }, [state.enabled, state.available]);
   useEffect(() => {controllerRef.current?.setActive(activeRef);}, [activeRef]);
+  return { ...state, setEnabled: preferences.setEnabled, claimWelcome: preferences.claimWelcome };
 }

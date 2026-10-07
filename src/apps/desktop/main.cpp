@@ -2766,7 +2766,8 @@ int main(int argc, char** argv) {
         return nlohmann::json{{"ok", true}, {"cancelled", false}, {"path", path}}.dump();
     });
 
-    // 4. navigate(URL 在第 3 步已就绪)
+    // Office bridges precede navigation (WKWebView first mount); service is destroyed before WebHost.
+    DesktopPet desktop_pet(host);
     mark_startup("native_shell_ready");
     mark_startup("webview_navigate_begin");
     host.init_script(
@@ -2776,8 +2777,7 @@ int main(int argc, char** argv) {
     host.navigate(url);
     if (url == onboarding_url()) close_splash_once();
 
-    // 5. GUI-owned office is destroyed before the WebHost.
-    DesktopPet desktop_pet(host);
+    // 5. Run the GUI message loop.
     host.run();
 
     // 6. quit:写 last_active + stop_all

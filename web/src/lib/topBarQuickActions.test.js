@@ -26,6 +26,7 @@ test('top-bar quick actions keep the requested labels and order', () => {
       { id: 'new-loop', label: '定时任务', group: 'navigation' },
       { id: 'find-content', label: '查找内容', group: 'navigation' },
       { id: 'settings', label: '设置', group: 'application' },
+      { id: 'virtual-office', label: '显示虚拟办公室', group: 'application' },
       { id: 'appearance', label: '外观', group: 'application' },
       { id: 'about', label: '关于 ACECode', group: 'application' },
       { id: 'check-updates', label: '检查更新', group: 'application' },
@@ -37,7 +38,7 @@ test('top-bar quick actions keep the requested labels and order', () => {
 test('top-bar quick actions separate navigation, application, and exit groups', () => {
   assert.deepEqual(
     TOPBAR_QUICK_ACTIONS.map((_, index) => topBarQuickActionNeedsSeparator(index)),
-    [false, false, false, true, false, false, false, true],
+    [false, false, false, true, false, false, false, false, true],
   );
 });
 
@@ -48,6 +49,7 @@ test('top-bar quick actions invoke only their matching callbacks', () => {
     onOpenLoop: () => calls.push('new-loop'),
     onOpenSearch: () => calls.push('find-content'),
     onSettings: () => calls.push('settings'),
+    onToggleOffice: () => calls.push('virtual-office'),
     onAppearance: () => calls.push('appearance'),
     onAbout: () => calls.push('about'),
     onCheckUpdates: () => calls.push('check-updates'),
@@ -62,6 +64,7 @@ test('top-bar quick actions invoke only their matching callbacks', () => {
     'new-loop',
     'find-content',
     'settings',
+    'virtual-office',
     'appearance',
     'about',
     'check-updates',

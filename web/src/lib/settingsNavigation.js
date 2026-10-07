@@ -7,6 +7,7 @@ export const SETTINGS_NAV_GROUPS = [
       { key: 'appearance', label: '外观', icon: 'brightness' },
       { key: 'config', label: '配置', icon: 'terminal' },
       { key: 'personalization', label: '个性化', icon: 'eye' },
+      { key: 'virtual-office', label: '虚拟办公室', icon: 'office' },
       { key: 'usage', label: '使用情况', icon: 'list' },
     ],
   },

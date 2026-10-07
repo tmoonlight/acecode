@@ -31,6 +31,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['personalization', '使用记忆', 'memory enable disable remember context tools 记忆开关'],
     ['personalization', '记忆摘要', 'memory summary consolidation extraction inbox idle 记忆整理 自动提炼'],
     ['personalization', '摘要模型', 'memory summary model 记忆摘要模型'],
+    ['virtual-office', '开启虚拟办公室', 'virtual office desktop pet 桌面宠物 显示 隐藏'],
     ['skills', '工作区 Skill 目录', 'workspace skill directory'],
     ['mcp', '服务器配置', 'mcp server config json'],
     ['channels', 'QQ 机器人', 'qq bot 机器人 扫码 appid appsecret im channel 消息通道 连接 取消连接 owner approve revoke 机主 授权 审批 撤销'],
