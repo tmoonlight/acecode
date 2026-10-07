@@ -1,5 +1,6 @@
 import { DEFAULT_SINGLE_LAYOUT } from './singleLayout.js';
 import { searchPaletteShortcutLabel } from './searchPaletteShortcut.js';
+import { isMacShortcutHost, shortcutLabel } from './appShortcuts.js';
 
 // 快捷操作里带默认快捷键的项:值是逻辑名而不是按键文案,按键文案随平台变
 // (macOS 显示 ⌘K),渲染时经 topBarQuickActionShortcutLabel 解析。
@@ -38,6 +39,7 @@ export const TOPBAR_QUICK_ACTIONS = Object.freeze([
     iconSize: 16,
     callback: 'onSettings',
     group: 'application',
+    shortcut: 'settings',
   }),
   Object.freeze({
     id: 'virtual-office',
@@ -99,6 +101,7 @@ export function topBarQuickActionShortcutLabel(action, win) {
   if (action?.shortcut === QUICK_ACTION_SHORTCUT_SEARCH_PALETTE) {
     return searchPaletteShortcutLabel(win);
   }
+  if (action?.shortcut === 'settings') return shortcutLabel('settings', isMacShortcutHost(win));
   return '';
 }
 

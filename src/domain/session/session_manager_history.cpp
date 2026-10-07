@@ -8,6 +8,10 @@
 namespace acecode {
 namespace fs = std::filesystem;
 
+void SessionManager::on_message(const ChatMessage& msg) {
+    (void)try_on_message(msg);
+}
+
 void SessionManager::record_turn_outcome(const std::string& outcome) {
     if (!is_valid_turn_timing_status(outcome)) return;
     std::lock_guard<std::mutex> lock(mu_);

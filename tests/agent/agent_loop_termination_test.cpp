@@ -1116,8 +1116,28 @@ TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossIterationsInATurn) {
     EXPECT_EQ(first.front().content.find("[当前环境状态]"), std::string::npos);
 }
 
-// 场景:注入的可变上下文只进 API 消息,不落会话历史。
-TEST(AgentLoopTermination, InjectedContextIsApiOnlyAtHandoffBoundary) {
+TEST(AgentLoopTermination, RequestPrefixIsByteStableAcrossUserTurns) {
+    AgentLoopHarness h;
+    h.push_tool_call("noop", "{}", "cross-turn-tool");
+    h.push_text("first answer");
+    ASSERT_TRUE(h.submit_and_wait("first user input"));
+    h.push_text("second answer");
+    ASSERT_TRUE(h.submit_and_wait("second user input"));
+    const auto previous = h.request_messages_for_turn(1);
+    const auto next = h.request_messages_for_turn(2);
+    ASSERT_GT(next.size(), previous.size());
+    for (std::size_t i = 0; i < previous.size(); ++i) {
+        EXPECT_EQ(previous[i].role, next[i].role) << i;
+        EXPECT_EQ(previous[i].content, next[i].content) << i;
+        EXPECT_EQ(previous[i].tool_calls, next[i].tool_calls) << i;
+        EXPECT_EQ(previous[i].tool_call_id, next[i].tool_call_id) << i;
+        EXPECT_EQ(previous[i].reasoning_content, next[i].reasoning_content) << i;
+    }
+    EXPECT_EQ(next.back().content, "second user input");
+}
+
+// Context is persisted as hidden meta records and never becomes a user turn.
+TEST(AgentLoopTermination, InjectedContextIsPersistedHiddenAtHandoffBoundary) {
     AgentLoopHarness h;
     h.push_text("ok");
 
@@ -1135,13 +1155,16 @@ TEST(AgentLoopTermination, InjectedContextIsApiOnlyAtHandoffBoundary) {
     EXPECT_EQ(persisted[0].role, "user");
     EXPECT_EQ(persisted[0].content, "what time is it?");
     for (const auto& msg : persisted) {
-        EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
+        if (!msg.is_meta) EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
     }
+    EXPECT_TRUE(std::any_of(persisted.begin(), persisted.end(), [](const ChatMessage& msg) {
+        return msg.is_meta && msg.subtype == "request_context_snapshot";
+    }));
 }
 
 // 场景:Project Instructions / User Memory 从静态 system prompt 移到
 // provider-facing session context,且不进入持久历史。
-TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
+TEST(AgentLoopTermination, SessionContextIsHiddenAndStaticPromptStaysClean) {
     TempHomeGuard home("acecode-agentloop-context");
     fs::path repo = home.root() / "repo";
     write_file(repo / "AGENTS.md", "# repo rules\nuse goroutines\n");
@@ -1197,6 +1220,7 @@ TEST(AgentLoopTermination, SessionContextIsApiOnlyAndStaticPromptStaysClean) {
 
     auto persisted = h.persisted_messages();
     for (const auto& msg : persisted) {
+        if (msg.is_meta) continue;
         EXPECT_EQ(msg.content.find("# Project Instructions"), std::string::npos);
         EXPECT_EQ(msg.content.find("## Global memory"), std::string::npos);
         EXPECT_EQ(msg.content.find("<system-reminder>"), std::string::npos);
@@ -2441,7 +2465,12 @@ TEST(AgentLoopTermination, CustomInstructionSaveAffectsOnlyTheNextTurn) {
     EXPECT_TRUE(contains(first, "SNAPSHOT_BEFORE"));
     EXPECT_FALSE(contains(continued, "SNAPSHOT_AFTER"));
     EXPECT_TRUE(contains(next, "SNAPSHOT_AFTER"));
-    EXPECT_FALSE(contains(next, "SNAPSHOT_BEFORE"));
+    ASSERT_GE(next.size(), continued.size());
+    for (std::size_t i = 0; i < continued.size(); ++i) {
+        EXPECT_EQ(next[i].content, continued[i].content);
+    }
+    EXPECT_NE(next.back().content.find("SNAPSHOT_AFTER"), std::string::npos);
+    EXPECT_EQ(next.back().content.find("SNAPSHOT_BEFORE"), std::string::npos);
 }
 
 // 场景：会话空闲时从关闭记忆切换为开启。期望下一回合立即采用新值；

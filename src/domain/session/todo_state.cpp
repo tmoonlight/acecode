@@ -187,13 +187,15 @@ std::string format_todo_injection(const std::vector<TodoItem>& items) {
     bool wrote_header = false;
     for (const auto& item : items) {
         const std::string status = normalize_todo_status(item.status);
-        if (status != "pending" && status != "in_progress") continue;
+        if (!is_valid_todo_status(status)) continue;
         if (!wrote_header) {
-            oss << "[Your active task list was preserved across context compression]\n";
+            oss << "[Task list snapshot; later TodoWrite results replace this list]\n";
             wrote_header = true;
         }
         std::string marker = "[ ]";
         if (status == "in_progress") marker = "[>]";
+        if (status == "completed") marker = "[x]";
+        if (status == "cancelled") marker = "[-]";
         oss << "- " << marker << " " << item.id << ". " << item.content
             << " (" << status << ")\n";
     }

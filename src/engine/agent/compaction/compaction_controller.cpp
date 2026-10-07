@@ -104,12 +104,8 @@ bool CompactionController::mechanical_fallback(
 bool CompactionController::run_auto(const CompactionInputs& inputs) {
     const int context_window = ActiveModelView(inputs.provider, inputs.request.context_window, environment_).effective_window();
     auto initial_context = requests_.initial_context(inputs.request);
-    const auto active_history =
-        recovered_provider_messages(history_.view(), "auto-compact");
-    auto estimated_request = initial_context;
-    estimated_request.insert(
-        estimated_request.end(), active_history.begin(), active_history.end());
-    const int pre_tokens = estimate_message_tokens(estimated_request);
+    auto request_bundle = requests_.compaction_request(inputs.request, history_.view());
+    const int pre_tokens = estimate_message_tokens(request_bundle.messages_with_system);
     const int threshold = get_auto_compact_threshold(context_window);
     LOG_INFO("Auto-compact preflight; messages=" + std::to_string(history_.view().size()) +
              " current_request_estimated_tokens=" + std::to_string(pre_tokens) +
@@ -152,6 +148,10 @@ bool CompactionController::run_auto(const CompactionInputs& inputs) {
     LOG_INFO("Auto full compact starting; messages=" + std::to_string(history_.view().size()) +
              " active_estimated_tokens=" + std::to_string(pre_tokens) +
              " threshold=" + std::to_string(threshold));
+    CompactRequestPrefix request_prefix;
+    request_prefix.request_options = request_bundle.request_options;
+    request_prefix.messages = std::move(request_bundle.messages_with_system);
+    request_prefix.tools = std::move(request_bundle.tool_defs);
     agent::ActiveProviderScope active_provider(active_provider_, provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
@@ -163,7 +163,7 @@ bool CompactionController::run_auto(const CompactionInputs& inputs) {
             owner.with([&info, waiting](CompactionController& controller) {
                 controller.retry_.standard(info, waiting, true);
             });
-        });
+        }, &request_prefix);
     active_provider.reset();
 
     if (!result.performed) {
@@ -195,7 +195,7 @@ bool CompactionController::run_auto(const CompactionInputs& inputs) {
              " estimated_tokens_saved=" +
              std::to_string(result.estimated_tokens_saved) +
              " compacted_estimated_tokens=" + std::to_string(compacted_tokens));
-    apply_result(inputs, result, "auto", compact_notice_id);
+    if (!apply_result(inputs, result, "auto", compact_notice_id)) return false;
     if (inputs.hooks) {
         auto fields = hooks_.common_fields(kCodexHookEventPostCompact, inputs.session);
         auto payload = build_compact_hook_payload(fields, "auto");
@@ -255,6 +255,11 @@ void CompactionController::run_manual(const CompactionInputs& inputs) {
         return;
     }
 
+    CompactRequestPrefix request_prefix;
+    auto bundle = requests_.compaction_request(inputs.request, history_.view());
+    request_prefix.request_options = bundle.request_options;
+    request_prefix.messages = std::move(bundle.messages_with_system);
+    request_prefix.tools = std::move(bundle.tool_defs);
     agent::ActiveProviderScope active_provider(active_provider_, provider_snapshot);
     CompactResult result = compact_messages(
         *provider_snapshot,
@@ -266,7 +271,7 @@ void CompactionController::run_manual(const CompactionInputs& inputs) {
             owner.with([&info, waiting](CompactionController& controller) {
                 controller.retry_.standard(info, waiting, true);
             });
-        });
+        }, &request_prefix);
     active_provider.reset();
 
     if (!result.performed) {
@@ -276,7 +281,10 @@ void CompactionController::run_manual(const CompactionInputs& inputs) {
         return;
     }
 
-    apply_result(inputs, result, "manual", compact_notice_id);
+    if (!apply_result(inputs, result, "manual", compact_notice_id)) {
+        finish();
+        return;
+    }
     if (inputs.hooks) {
         auto fields = hooks_.common_fields(kCodexHookEventPostCompact, inputs.session);
         auto payload = build_compact_hook_payload(fields, "manual");

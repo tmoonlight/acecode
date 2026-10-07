@@ -38,6 +38,7 @@
 #include "loop/loop_store.hpp"
 #include "prompt/system_prompt.hpp"
 #include "llm/tool_protocol_names.hpp"
+#include "llm/message_predicates.hpp"
 #include "tool/tool_rewrites.hpp"
 #include "provider/cwd_model_override.hpp"
 #include "provider/models_dev_registry.hpp"
@@ -3425,7 +3426,7 @@ TEST(WebServerHttp, SessionSlashExpansionHonorsExplicitExpertSkillScope) {
         while (std::chrono::steady_clock::now() < deadline) {
             std::size_t count = 0;
             for (const auto& message : entry->loop->messages()) {
-                if (message.role == "user") ++count;
+                if (acecode::is_real_user_message(message)) ++count;
             }
             if (count >= expected_user_count && !entry->loop->is_busy()) {
                 break;
@@ -3436,7 +3437,7 @@ TEST(WebServerHttp, SessionSlashExpansionHonorsExplicitExpertSkillScope) {
     auto user_messages = [&] {
         std::vector<acecode::ChatMessage> result;
         for (const auto& message : entry->loop->messages()) {
-            if (message.role == "user") result.push_back(message);
+            if (acecode::is_real_user_message(message)) result.push_back(message);
         }
         return result;
     };
@@ -6787,8 +6788,13 @@ TEST(WebServerHttp, RetryLastUserMessageValidatesRequestAndPreservesInput) {
     EXPECT_EQ(provider->turn_count(), 1);
     const auto messages = entry->sm->load_active_messages();
     EXPECT_EQ(std::count_if(messages.begin(), messages.end(), [](const auto& message) {
-        return message.role == "user";
+        return acecode::is_real_user_message(message);
     }), 1);
+    const auto persisted_user = std::find_if(
+        messages.begin(), messages.end(), acecode::is_real_user_message);
+    ASSERT_NE(persisted_user, messages.end());
+    EXPECT_EQ(persisted_user->uuid, user.uuid);
+    EXPECT_EQ(persisted_user->content, user.content);
     EXPECT_EQ(post(request).status_code, 409);
 }
 
@@ -12397,7 +12403,8 @@ TEST(WebServerHttp, ComposerContentForkRetainsEarlierUploadsAfterSourceAttachmen
 
 namespace {
 
-// 轮询会话里第 expected_count 条 user 消息(AgentLoop 内存历史),等回合结束。
+// Count real user submissions, excluding hidden context snapshots/updates.
+// Wait for the expected submission count and the end of the agent turn.
 std::vector<acecode::ChatMessage> wait_for_user_messages(
     acecode::SessionEntry& entry, std::size_t expected_count) {
     std::vector<acecode::ChatMessage> users;
@@ -12405,7 +12412,7 @@ std::vector<acecode::ChatMessage> wait_for_user_messages(
     while (std::chrono::steady_clock::now() < deadline) {
         users.clear();
         for (const auto& message : entry.loop->messages()) {
-            if (message.role == "user") users.push_back(message);
+            if (acecode::is_real_user_message(message)) users.push_back(message);
         }
         if (users.size() >= expected_count && !entry.loop->is_busy()) break;
         std::this_thread::sleep_for(10ms);

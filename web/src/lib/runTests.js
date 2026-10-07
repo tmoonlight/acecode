@@ -1,4 +1,5 @@
 import './desktopOffice.test.js';
+import './htmlPreview.test.js';
 import './desktopOfficePreferences.test.js';
 import './questionPicker.test.js';
 import './turnCancellation.test.js';
@@ -227,6 +228,7 @@ import './systemClipboard.test.js';
 import './searchSessions.test.js';
 import './searchExperienceArchitecture.test.js';
 import './useGlobalShortcut.test.js';
+import './appShortcuts.test.js';
 import './searchPaletteShortcut.test.js';
 import './browserCompatibility.test.js';
 import './browserDefaults.test.js';

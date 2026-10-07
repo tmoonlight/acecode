@@ -9,6 +9,7 @@
 #include "skills/skill_registry.hpp"
 #include "skills/skill_activation.hpp"
 #include "skills/skill_usage_store.hpp"
+#include "session/request_context_record.hpp"
 #include "utils/logger.hpp"
 #include <algorithm>
 #include <chrono>
@@ -32,6 +33,39 @@ void remove_memory_tools(std::vector<ToolDef>& defs) {
     defs.erase(std::remove_if(defs.begin(), defs.end(), [&](const ToolDef& def) {
         return def.name == read_name || def.name == write_name;
     }), defs.end());
+}
+
+nlohmann::json context_state(const RequestBuildInputs& inputs) {
+    return {{"session", inputs.session.content}, {"swarm", inputs.swarm_context},
+            {"plan", inputs.plan_context}, {"execution", inputs.execution_context}};
+}
+
+std::string render_context_state(const nlohmann::json& state, bool update) {
+    std::string content = update
+        ? "<request-context-update>\nThe following sections replace their earlier values. "
+          "Unmentioned sections remain in effect.\n"
+        : "<request-context>\n";
+    for (auto it = state.begin(); it != state.end(); ++it) {
+        if (!it.value().is_string()) continue;
+        const auto text = it.value().get<std::string>();
+        if (text.empty() && !update) continue;
+        content += "<" + it.key() + ">\n";
+        content += text.empty() ? "This section is no longer active.\n" : text + "\n";
+        content += "</" + it.key() + ">\n";
+    }
+    content += update ? "</request-context-update>" : "</request-context>";
+    return content;
+}
+
+ChatMessage context_record(const char* subtype, std::string content) {
+    ChatMessage message;
+    message.role = "user";
+    message.content = std::move(content);
+    message.is_meta = true;
+    message.subtype = subtype;
+    message.uuid = generate_uuid();
+    message.metadata = {{"request_context_version", 1}};
+    return message;
 }
 }
 
@@ -59,7 +93,10 @@ const PromptContextBlock& ApiRequestBuilder::frozen_memory_snapshot(
     return cache_.memory_snapshot();
 }
 
-void ApiRequestBuilder::invalidate_memory_snapshot() { cache_.invalidate_memory(); }
+void ApiRequestBuilder::invalidate_memory_snapshot() {
+    cache_.invalidate_memory();
+    cache_.invalidate_git();
+}
 
 std::set<std::string> ApiRequestBuilder::dormant_skills(
     const SkillRegistry* registry, SkillUsageStore* store, int idle_days) {
@@ -82,13 +119,15 @@ std::set<std::string> ApiRequestBuilder::dormant_skills(
 }
 
 std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions& options) const {
+    SystemPromptSandboxState stable_sandbox;
+    stable_sandbox.description = "see the latest execution context; tool permission checks are authoritative";
     std::string system_prompt = build_system_prompt(
         tools_, options.cwd, options.skills.get(), /*memory=*/nullptr,
         ptr(options.memory_config), ptr(options.project_config),
         &options.tool_policy,
         &options.worktree,
         options.can_read_images,
-        &options.environment, &options.sandbox, &options.model,
+        &options.environment, &stable_sandbox, &options.model,
         &options.folders);
     if (options.loop_active &&
         !options.loop_context.empty()) {
@@ -158,6 +197,12 @@ RequestBuildInputs ApiRequestBuilder::capture(
     bool emergency_profile) {
     RequestBuildInputs inputs;
     inputs.emergency_profile = emergency_profile;
+    inputs.session_cache_key = options.memory_session_key.empty()
+        ? fallback_session_key_ : options.memory_session_key;
+    inputs.memory_active = memory_active(options);
+    inputs.plan_context = options.plan_context;
+    inputs.todos = options.todos;
+    inputs.execution_context = "Shell sandbox: " + options.sandbox.description;
     inputs.system_prompt = static_system_prompt(options);
     LOG_DEBUG("System prompt length: " + std::to_string(inputs.system_prompt.size()));
     std::unordered_set<std::string> loaded_skills;
@@ -233,6 +278,12 @@ RequestBuildInputs ApiRequestBuilder::capture(
         inputs.skills = build_skills_index_context_prompt(
             options.skills.get(), options.context_window, skill_view_available,
             skills_list_available, &dormant);
+        const std::set<std::string> no_dormant;
+        // Explicit catalog/policy changes must still reach the model. Idle
+        // timestamps and other sessions' usage do not change this identity.
+        inputs.skills_catalog_key = build_skills_index_context_prompt(
+            options.skills.get(), options.context_window, skill_view_available,
+            skills_list_available, &no_dormant).cache_key;
         inputs.session = build_session_context_prompt(
             options.cwd, &frozen_memory_snapshot(options), ptr(options.project_config),
             options.skills.get(), options.context_window, ptr(options.custom_config), cache_.cached_git(),
@@ -257,64 +308,113 @@ RequestBuildInputs ApiRequestBuilder::capture(
 ApiRequestBundle ApiRequestBuilder::build(RequestBuildInputs inputs) {
     ApiRequestBundle bundle;
     bundle.tool_defs = std::move(inputs.tool_defs);
-    auto api_messages = detail::model_facing_provider_messages(inputs.history, "provider-request");
+    bundle.request_options.prompt_cache_key = inputs.session_cache_key;
     auto context_category_bytes = inputs.category_bytes;
-    const std::string skill_context = inputs.emergency_profile ? std::string{} : cache_.skills(inputs.skills);
-    const std::string session_context = inputs.emergency_profile ? std::string{} : cache_.session(inputs.session);
-    const std::string& swarm_mode_context = inputs.swarm_context;
-    const std::string& hook_context = inputs.hook_context;
-    const std::string& plan_mode_context = inputs.plan_context;
-    const auto& todo_context_items = inputs.todos;
-    context_category_bytes.skills = skill_context.size();
-    std::vector<ChatMessage> mutable_context_messages;
-    detail::append_request_context_for_api(mutable_context_messages, session_context);
-    detail::append_request_context_for_api(mutable_context_messages, swarm_mode_context);
-    detail::append_request_context_for_api(mutable_context_messages, hook_context);
-    detail::append_plan_mode_context_for_api(mutable_context_messages, plan_mode_context);
-    detail::append_todo_context_for_api(mutable_context_messages, todo_context_items);
-
-    ChatMessage skill_system_message;
-    if (!skill_context.empty()) {
-        skill_system_message.role = "system";
-        skill_system_message.content = skill_context;
-        skill_system_message.metadata =
-            nlohmann::json{{"request_local_skill_context", true}};
+    std::string skill_context;
+    std::vector<ChatMessage> api_history;
+    std::vector<ChatMessage> context_messages;
+    if (inputs.emergency_profile) {
+        for (const auto& message : inputs.history) {
+            if (!is_request_context_record(message)) api_history.push_back(message);
+        }
+    } else {
+        const auto last_snapshot = std::find_if(inputs.history.rbegin(), inputs.history.rend(),
+                                               is_request_context_snapshot);
+        const auto snapshot_it = last_snapshot == inputs.history.rend()
+            ? inputs.history.end() : std::prev(last_snapshot.base());
+        // Explicit memory disable must remove previously injected memory from
+        // outgoing requests. That privacy boundary starts a fresh context epoch.
+        const bool reset_memory = snapshot_it != inputs.history.end() &&
+            snapshot_it->metadata.value("memory_active", inputs.memory_active) != inputs.memory_active;
+        ChatMessage snapshot;
+        nlohmann::json previous = nlohmann::json::object();
+        const auto current = context_state(inputs);
+        if (snapshot_it == inputs.history.end() || reset_memory) {
+            snapshot = context_record(kRequestContextSnapshot, render_context_state(current, false));
+            const auto todos = format_todo_injection(inputs.todos);
+            if (!todos.empty()) snapshot.content += "\n" + todos;
+            snapshot.metadata["context_state"] = current;
+            snapshot.metadata["skills"] = inputs.skills.content;
+            snapshot.metadata["skills_catalog_key"] = inputs.skills_catalog_key;
+            snapshot.metadata["project_rules_bytes"] = inputs.category_bytes.project_rules;
+            snapshot.metadata["memory_active"] = inputs.memory_active;
+            bundle.context_records.push_back(snapshot);
+            previous = current;
+        } else {
+            snapshot = *snapshot_it;
+            previous = snapshot.metadata.value("context_state", nlohmann::json::object());
+        }
+        skill_context = snapshot.metadata.value("skills", std::string{});
+        auto previous_skills_key = snapshot.metadata.value("skills_catalog_key", inputs.skills_catalog_key);
+        context_category_bytes.project_rules = snapshot.metadata.value(
+            "project_rules_bytes", context_category_bytes.project_rules);
+        // The initial snapshot occupies the same position even though its
+        // append-only storage record follows the first user message.
+        api_history.push_back(snapshot);
+        bool current_epoch = snapshot_it == inputs.history.end();
+        for (auto it = inputs.history.begin(); it != inputs.history.end(); ++it) {
+            const auto& message = *it;
+            if (it == snapshot_it) current_epoch = true;
+            if (is_request_context_snapshot(message)) continue;
+            if (is_request_context_record(message) && message.metadata.contains("context_state") &&
+                (reset_memory || !current_epoch)) continue;
+            api_history.push_back(message);
+            if (is_request_context_record(message) && message.metadata.contains("context_state")) {
+                previous.update(message.metadata["context_state"]);
+                previous_skills_key = message.metadata.value("skills_catalog_key", previous_skills_key);
+            }
+        }
+        nlohmann::json changed = nlohmann::json::object();
+        for (auto it = current.begin(); it != current.end(); ++it) {
+            if (!previous.contains(it.key()) || previous[it.key()] != it.value()) {
+                changed[it.key()] = it.value();
+            }
+        }
+        if (!inputs.skills_catalog_key.empty() && inputs.skills_catalog_key != previous_skills_key) {
+            changed["skills"] = inputs.skills.content;
+        }
+        if (!changed.empty()) {
+            auto update = context_record(kRequestContextUpdate, render_context_state(changed, true));
+            update.metadata["context_state"] = std::move(changed);
+            update.metadata["skills_catalog_key"] = inputs.skills_catalog_key;
+            api_history.push_back(update);
+            bundle.context_records.push_back(std::move(update));
+        }
+        if (!inputs.hook_context.empty()) {
+            auto hook = context_record(kRequestContextUpdate, inputs.hook_context);
+            api_history.push_back(hook);
+            bundle.context_records.push_back(std::move(hook));
+        }
     }
-    std::vector<ChatMessage> estimated_context_messages =
-        mutable_context_messages;
-    if (!skill_system_message.content.empty()) {
-        estimated_context_messages.insert(
-            estimated_context_messages.begin(), skill_system_message);
+    auto api_messages = detail::model_facing_provider_messages(api_history, "provider-request");
+    std::vector<ChatMessage> conversation;
+    for (const auto& message : api_messages) {
+        (is_request_context_record(message) ? context_messages : conversation).push_back(message);
     }
-
-    bundle.context_usage_estimate = estimate_context_usage_breakdown(
-        inputs.system_prompt,
-        api_messages,
-        estimated_context_messages,
-        context_category_bytes.project_rules,
-        context_category_bytes.skills,
-        inputs.builtin_tool_defs,
-        inputs.mcp_tool_defs);
-
-    insert_context_before_last_real_user_or_summary(
-        api_messages, std::move(mutable_context_messages));
 
     ChatMessage sys_msg;
     sys_msg.role = "system";
     sys_msg.content = inputs.system_prompt;
     bundle.messages_with_system.push_back(sys_msg);
-    if (!skill_system_message.content.empty()) {
-        bundle.messages_with_system.push_back(std::move(skill_system_message));
+    if (!skill_context.empty()) {
+        ChatMessage skill_system;
+        skill_system.role = "system";
+        skill_system.content = skill_context;
+        skill_system.metadata = {{"request_local_skill_context", true}};
+        context_messages.push_back(skill_system);
+        bundle.messages_with_system.push_back(std::move(skill_system));
     }
     bundle.messages_with_system.insert(bundle.messages_with_system.end(),
                                        api_messages.begin(), api_messages.end());
 
+    bundle.context_usage_estimate = estimate_context_usage_breakdown(
+        inputs.system_prompt, conversation, context_messages,
+        context_category_bytes.project_rules, skill_context.size(),
+        inputs.builtin_tool_defs, inputs.mcp_tool_defs);
+    std::string context_text;
+    for (const auto& message : context_messages) context_text += message.content + "\n";
     auto prompt_diag = build_prompt_cache_diagnostics(
-        inputs.system_prompt,
-        skill_context + "\n" + session_context + "\n" + swarm_mode_context + "\n" +
-            plan_mode_context + "\n" + hook_context + "\n" +
-            format_todo_injection(todo_context_items),
-        bundle.tool_defs);
+        inputs.system_prompt, context_text, bundle.tool_defs);
     bundle.prompt_diag = {
         {"system", prompt_diag.static_system_prompt_hash},
         {"context", prompt_diag.mutable_context_hash},
@@ -327,5 +427,45 @@ ApiRequestBundle ApiRequestBuilder::build(RequestBuildInputs inputs) {
     return bundle;
 }
 
+ApiRequestBundle ApiRequestBuilder::compaction_request(
+    const RequestContextOptions& options, const std::vector<ChatMessage>& history) {
+    auto inputs = capture(options, history, false);
+    nlohmann::json state = nlohmann::json::object();
+    bool has_snapshot = false;
+    bool snapshot_memory_active = inputs.memory_active;
+    auto skills_catalog_key = inputs.skills_catalog_key;
+    for (const auto& message : history) {
+        if (!is_request_context_record(message)) continue;
+        if (is_request_context_snapshot(message)) {
+            has_snapshot = true;
+            state = nlohmann::json::object();
+            snapshot_memory_active = message.metadata.value("memory_active", inputs.memory_active);
+        }
+        if (message.metadata.contains("context_state")) state.update(message.metadata["context_state"]);
+        skills_catalog_key = message.metadata.value("skills_catalog_key", skills_catalog_key);
+    }
+    if (has_snapshot && snapshot_memory_active == inputs.memory_active) {
+        // Summarize exactly the already-sent context, without consuming hooks
+        // or inventing uncommitted updates at the compaction boundary.
+        inputs.session.content = state.value("session", std::string{});
+        inputs.swarm_context = state.value("swarm", std::string{});
+        inputs.plan_context = state.value("plan", std::string{});
+        inputs.execution_context = state.value("execution", std::string{});
+        inputs.skills_catalog_key = skills_catalog_key;
+    }
+    return build(std::move(inputs));
+}
+
+ChatMessage ApiRequestBuilder::fresh_window_snapshot(
+    const RequestContextOptions& options, const std::vector<ChatMessage>& replacement_history) {
+    // Prepare off to the side: a failed checkpoint must not refresh the live
+    // window's memory/git pins before the replacement is committed.
+    PromptContextCache window_cache;
+    ApiRequestBuilder window_builder(tools_, window_cache);
+    auto inputs = window_builder.capture(options, replacement_history, false);
+    inputs.history.erase(std::remove_if(inputs.history.begin(), inputs.history.end(),
+                                       is_request_context_record), inputs.history.end());
+    return window_builder.build(std::move(inputs)).context_records.front();
+}
 
 } // namespace acecode::agent

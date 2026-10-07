@@ -1,6 +1,7 @@
 #include "compact_checkpoint.hpp"
 #include "session_history_recovery.hpp"
 #include "session_serializer.hpp"
+#include "request_context_record.hpp"
 #include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
@@ -118,9 +119,16 @@ std::optional<CompactCheckpoint> decode_compact_checkpoint(const ChatMessage& ms
 std::vector<ChatMessage> provider_relevant_messages(const std::vector<ChatMessage>& messages) {
     std::vector<ChatMessage> result;
     result.reserve(messages.size());
-    for (const auto& msg : messages) {
+    std::size_t latest_snapshot = 0;
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        if (is_request_context_snapshot(messages[i])) latest_snapshot = i;
+    }
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        const auto& msg = messages[i];
+        if (i < latest_snapshot && is_request_context_record(msg) &&
+            (is_request_context_snapshot(msg) || msg.metadata.contains("context_state"))) continue;
         if (is_compact_checkpoint_message(msg)) continue;
-        if (msg.is_meta) continue;
+        if (msg.is_meta && !is_request_context_record(msg)) continue;
         if (is_transcript_only_message(msg)) continue;
         if (!is_provider_role(msg.role)) continue;
         result.push_back(msg);
@@ -163,7 +171,7 @@ ProviderHistoryRecoveryResult reconstruct_effective_model_history_with_recovery(
         auto one = provider_relevant_messages({msg});
         effective.insert(effective.end(), one.begin(), one.end());
     }
-    return recover_provider_history(effective);
+    return recover_provider_history(provider_relevant_messages(effective));
 }
 
 } // namespace acecode

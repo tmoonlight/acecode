@@ -95,6 +95,13 @@ struct ToolDef {
     nlohmann::json parameters; // JSON Schema object
 };
 
+// Owned per-call hints. Passing them with the request keeps shared providers
+// from mixing identities when independent sessions sample concurrently.
+struct ChatRequestOptions {
+    std::string prompt_cache_key;
+    bool for_compaction = false;
+};
+
 enum class ProviderErrorKind {
     None,
     UserCancelled,
@@ -258,6 +265,39 @@ public:
     // Native agent runtimes may own tools even when ACECode passes an empty
     // tool list. Detached read-only side chat must reject those runtimes.
     virtual bool supports_tool_free_chat() const { return true; }
+
+    // Optional session routing hint. Callers supply a stable opaque identity;
+    // providers must copy it and synchronize updates with concurrent requests.
+    virtual void set_prompt_cache_key(const std::string&) {}
+
+    // Compaction may preserve the main request's schemas without executing
+    // tools. Providers opt in only when they can preserve that wire prefix.
+    virtual bool supports_compaction_prefix_reuse() const { return false; }
+    virtual ChatResponse chat_for_compaction(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>&,
+        const std::atomic<bool>* abort_flag) {
+        return chat_cancellable(messages, {}, abort_flag);
+    }
+
+    virtual ChatResponse chat_with_options(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const ChatRequestOptions& options,
+        const std::atomic<bool>* abort_flag) {
+        return options.for_compaction
+            ? chat_for_compaction(messages, tools, abort_flag)
+            : chat_cancellable(messages, tools, abort_flag);
+    }
+
+    virtual void chat_stream_with_options(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const ChatRequestOptions&,
+        const StreamCallback& callback,
+        std::atomic<bool>* abort_flag = nullptr) {
+        chat_stream(messages, tools, callback, abort_flag);
+    }
 
     virtual std::string model() const = 0;
     virtual void set_model(const std::string& m) = 0;

@@ -30,13 +30,15 @@ Multi-Agent V2,openspec `add-mesh-swarm-mode`)。
 |---|---|
 | `prompt`(必填) | 子会话的首条用户消息。以 `/` 开头时按子会话 cwd 走 `try_expand_skill_command`(与 Web 输入框同一套 skill 命令展开),原文存 `display_text` |
 | `wait`(默认 true) | true:阻塞至子会话本轮结束,返回最终答复;false:点火即返,返回 `session_id`(流水线接力 / fan-out) |
-| `model` | 可选 saved_models 名称;缺省用 daemon/TUI 默认模型 |
+| `model` | 可选 saved_models 名称;缺省或空值继承父会话当前模型,显式值优先;无父模型状态时沿用配置默认值 |
 | `timeout_seconds` | 可选等待上限;0/缺省 = 无限(父会话 abort 仍可打断) |
 
 - `is_read_only = true`:spawn 本身自动放行不弹确认;子会话内部的危险操作由子会话自己的
   PermissionManager 把关(权限模式继承父会话)。
 - 子会话继承父会话的 cwd 与权限模式。父会话不在 registry(TUI 主会话)时,权限模式经
   `SubagentToolDeps::fallback_permissions` 继承。
+- 模型继承读取 `ToolContext::session_manager` 的当前 saved model,适用于 daemon、TUI 和
+  headless;父会话切换模型后,后续子会话使用新选择。专家成员绑定不改变模型选择优先级。
 - **继承父会话的隔离**(fix-subagent-write-boundary):父会话在 worktree 里时,子会话共享
   同一个 worktree —— `SessionOptions::inherited_worktree` 进子会话 meta
   (`worktree_session.inherited=true`,resume 照常恢复),AgentLoop cwd 切进 worktree,而

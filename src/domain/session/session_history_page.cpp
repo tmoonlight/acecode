@@ -1,6 +1,7 @@
 #include "session_history_page.hpp"
 #include "session_load_metrics.hpp"
 #include "session_serializer.hpp"
+#include "request_context_record.hpp"
 #include "utils/sha1.hpp"
 
 #include <algorithm>
@@ -160,6 +161,7 @@ JsonlRecord validate_history_cursor(const SessionFileReader& reader, const Histo
 }
 
 bool is_visible_paged_history_message(const ChatMessage& message) {
+    if (is_request_context_metadata(message)) return false;
     if (message.is_meta && (message.subtype == "file_checkpoint" || message.subtype == "compact_checkpoint")) return false;
     const auto hidden = message.metadata.find("hidden_goal_context");
     return !message.metadata.is_object() || hidden == message.metadata.end() ||

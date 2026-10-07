@@ -6,6 +6,7 @@
 #include "experts/expert_registry.hpp"
 #include "prompt/system_prompt.hpp"
 #include "session/todo_state.hpp"
+#include "utils/uuid.hpp"
 #include <optional>
 #include <set>
 
@@ -42,23 +43,29 @@ struct RequestContextOptions {
     SystemPromptWorkspaceFolders folders;
     SkillUsageStore* skill_usage = nullptr; // nullable, borrowed for this call
     int skill_idle_days = 30;
+    std::string plan_context;
+    std::vector<TodoItem> todos;
 };
 
 // Every mutable request input is a value. Hook draining and session queries
 // happen before build; the builder cannot consume a loop-owned queue.
 struct RequestBuildInputs {
     bool emergency_profile = false;
+    std::string session_cache_key;
+    bool memory_active = false;
     std::string system_prompt;
     std::vector<ChatMessage> history;
     std::vector<ToolDef> tool_defs;
     std::vector<ToolDef> builtin_tool_defs;
     std::vector<ToolDef> mcp_tool_defs;
     PromptContextBlock skills;
+    std::string skills_catalog_key;
     PromptContextBlock session;
     PromptContextCategoryBytes category_bytes;
     std::string swarm_context;
     std::string hook_context;
     std::string plan_context;
+    std::string execution_context;
     std::vector<TodoItem> todos;
 };
 
@@ -69,6 +76,12 @@ public:
     RequestBuildInputs capture(const RequestContextOptions& options,
                                std::vector<ChatMessage> history, bool emergency_profile);
     ApiRequestBundle build(RequestBuildInputs inputs);
+    ApiRequestBundle compaction_request(const RequestContextOptions& options,
+                                       const std::vector<ChatMessage>& history);
+    // Called only when installing a successful replacement history.
+    ChatMessage fresh_window_snapshot(const RequestContextOptions& options,
+                                      const std::vector<ChatMessage>& replacement_history);
+    const std::string& fallback_session_key() const { return fallback_session_key_; }
     std::vector<ChatMessage> initial_context(const RequestContextOptions& options) const;
     std::string static_system_prompt(const RequestContextOptions& options) const;
     static std::set<std::string> dormant_skills(const SkillRegistry* registry,
@@ -81,6 +94,7 @@ private:
     const PromptContextBlock& frozen_memory_snapshot(const RequestContextOptions& options);
     ToolExecutor& tools_;
     PromptContextCache& cache_;
+    const std::string fallback_session_key_ = generate_uuid();
 };
 
 } // namespace acecode::agent

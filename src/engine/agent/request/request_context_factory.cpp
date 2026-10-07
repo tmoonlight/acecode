@@ -11,6 +11,7 @@
 #include "memory/memory_service.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
+#include <stdexcept>
 
 namespace acecode::agent {
 RequestContextOptions RequestContextFactory::options(
@@ -33,6 +34,7 @@ RequestContextOptions RequestContextFactory::options(
     } else if (!options.cwd.empty()) {
         options.memory_project_dir = SessionStorage::get_project_dir(options.cwd);
     }
+    if (options.memory_session_key.empty()) options.memory_session_key = builder_.fallback_session_key();
     options.project_config = source_.prompt_config.project_instructions;
     options.custom_config = source_.prompt_config.custom_instructions;
     options.git_config = source_.prompt_config.git_context;
@@ -56,6 +58,12 @@ RequestContextOptions RequestContextFactory::options(
     }
     options.skill_usage = source_.skill_usage;
     options.skill_idle_days = source_.skill_idle_days;
+    if (permissions_.mode() == PermissionMode::Plan) {
+        options.plan_context = detail::build_plan_mode_context_prompt(
+            session_manager_, tools_.is_allowed("AskUserQuestion", &source_.tool_policy),
+            tools_.is_allowed("ExitPlanMode", &source_.tool_policy), source_.runtime.mtime_tracker());
+    }
+    if (session_manager_) options.todos = session_manager_->current_todos();
     return options;
 }
 
@@ -65,13 +73,14 @@ ApiRequestBundle RequestContextFactory::build(
                                             history_.view(), emergency_profile);
     if (!emergency_profile) {
         inputs.hook_context = hooks_.drain_context();
-        if (permissions_.mode() == PermissionMode::Plan) {
-            inputs.plan_context = agent::detail::build_plan_mode_context_prompt(
-                session_manager_, tools_.is_allowed("AskUserQuestion", &source_.tool_policy),
-                tools_.is_allowed("ExitPlanMode", &source_.tool_policy), source_.runtime.mtime_tracker());
-        }
-        if (session_manager_) inputs.todos = session_manager_->current_todos();
     }
-    return builder_.build(std::move(inputs));
+    auto bundle = builder_.build(std::move(inputs));
+    for (const auto& record : bundle.context_records) {
+        if (session_manager_ && !session_manager_->try_on_message(record)) {
+            throw std::runtime_error("Could not persist request context; request was not sent.");
+        }
+        history_.append(record);
+    }
+    return bundle;
 }
 } // namespace acecode::agent

@@ -1,0 +1,44 @@
+[
+  {
+    "file": "qq.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/16.0.0/icons/qq.svg",
+    "sourceSha256": "3c94e923013fe13a5194c84d9a44e2d62225a7ea3537f3ad95a3cb72fdae1383",
+    "adaptation": "Brand fill color only"
+  },
+  {
+    "file": "weixin.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/16.0.0/icons/wechat.svg",
+    "sourceSha256": "74b48b3d315337ce79cb644933b5f975e19996f564fcc4138ed67d45674c43ca",
+    "adaptation": "Brand fill color only"
+  },
+  {
+    "file": "telegram.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/16.0.0/icons/telegram.svg",
+    "sourceSha256": "147fd8f8923e7e5f463fe98c0eb9913bead6b2ae59935728cda141002ec8a7c9",
+    "adaptation": "Brand fill color only"
+  },
+  {
+    "file": "discord.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/16.0.0/icons/discord.svg",
+    "sourceSha256": "1d364b72c9eaf1fe37d17ca88cd8fb541308dc0f3b09e2ab3b824f380b3493d5",
+    "adaptation": "Brand fill color only"
+  },
+  {
+    "file": "line.svg",
+    "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/16.0.0/icons/line.svg",
+    "sourceSha256": "b62430462354f95914536d7205128647d5563cdb805bc9aca000300aaed816c8",
+    "adaptation": "Brand fill color only"
+  },
+  {
+    "file": "feishu.svg",
+    "source": "https://raw.githubusercontent.com/DouyinFE/semi-design/v2.101.0/packages/semi-icons/src/svgs/feishu_logo.svg",
+    "sourceSha256": "5f9a5066c702ada4acdb752521a7d70293fbe5166ac4a7fa256cff8778670e2d",
+    "adaptation": "None"
+  },
+  {
+    "file": "dingtalk.svg",
+    "source": "https://raw.githubusercontent.com/Remix-Design/RemixIcon/v4.6.0/icons/Logos/dingding-fill.svg",
+    "sourceSha256": "3ba4ab741fceb5f9adb4d3a0faab10cb961d37e351a82b231f2d1dc10e46ee3f",
+    "adaptation": "Brand fill color only"
+  }
+]

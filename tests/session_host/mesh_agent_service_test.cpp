@@ -412,6 +412,37 @@ TEST_F(MeshAgentServiceTest, SpawnValidatesCallerAndArguments) {
     EXPECT_EQ(registry->size(), sessions_before + 1);
 }
 
+TEST_F(MeshAgentServiceTest, SpawnInheritsCurrentParentModelAndPreservesExplicitOverride) {
+    acecode::ModelProfile explicit_model;
+    explicit_model.name = "explicit-child";
+    explicit_model.provider = "openai";
+    explicit_model.model = "explicit-child-model";
+    config.saved_models.push_back(explicit_model);
+    start_service();
+    create_root();
+    auto root = registry->acquire(root_id);
+    ASSERT_TRUE(root);
+    ASSERT_TRUE(root->sm->set_active_provider(
+        provider->name(), provider->model(), "parent-current"));
+
+    const auto inherited = spawn(root_id, "inherited", "use the current parent model");
+    ASSERT_EQ(inherited.error, "");
+    auto inherited_child = registry->acquire(inherited.session_id);
+    ASSERT_TRUE(inherited_child);
+    EXPECT_EQ(inherited_child->sm->current_model_preset(), "parent-current");
+
+    acecode::mesh::SpawnArgs args;
+    args.task_name = "overridden";
+    args.message = "use the explicit model";
+    args.model = "explicit-child";
+    const auto overridden = service->spawn(ctx_for(root_id), args);
+    ASSERT_EQ(overridden.error, "");
+    auto overridden_child = registry->acquire(overridden.session_id);
+    ASSERT_TRUE(overridden_child);
+    EXPECT_EQ(overridden_child->sm->current_model_preset(), "explicit-child");
+    EXPECT_EQ(root->sm->current_model_preset(), "parent-current");
+}
+
 // 场景:并发上限 3(根占 1 个名额,子 agent 最多驻留 2 个),依次派出 a、b、c。
 // 期望:派 c 时换出最久没有活动且已完成的 a(Codex V2Residency 的 LRU);a 不再出现在
 // agent_list 里,但树里仍有记录;对 a 发 followup_task 会从磁盘恢复它(这次换出 b),

@@ -51,6 +51,9 @@ public:
     // Called for each message produced during conversation.
     // Appends to JSONL and periodically updates metadata.
     void on_message(const ChatMessage& msg);
+    // Checked append for state that must be durable before it is used by a
+    // provider request. False leaves message/turn counters unchanged.
+    bool try_on_message(const ChatMessage& msg);
 
     // Replace the current active JSONL transcript, preserving checkpoint
     // metadata for user turns that remain in the supplied message list.

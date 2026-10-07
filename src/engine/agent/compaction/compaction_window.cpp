@@ -37,8 +37,7 @@ using utils::now_epoch_ms;
 bool CompactionController::exceeds_auto_threshold(
     const CompactionInputs& inputs,
     const UserInput* pending_input) const {
-    auto request = requests_.initial_context(inputs.request);
-    auto history = recovered_provider_messages(history_.view(), "token-estimate");
+    auto history = history_.view();
     if (pending_input && !pending_input->empty()) {
         ChatMessage pending;
         pending.role = "user";
@@ -47,7 +46,7 @@ bool CompactionController::exceeds_auto_threshold(
         pending.metadata = pending_input->metadata;
         history.push_back(std::move(pending));
     }
-    request.insert(request.end(), history.begin(), history.end());
+    const auto request = requests_.compaction_request(inputs.request, history).messages_with_system;
     return should_auto_compact(
         ActiveModelView(inputs.provider, inputs.request.context_window, environment_).effective_window(),
         last_api_total_tokens_.load(std::memory_order_relaxed),
@@ -80,35 +79,33 @@ void CompactionController::initialize_window(const CompactionInputs& inputs) {
     }
 }
 
-void CompactionController::apply_result(
+bool CompactionController::apply_result(
     const CompactionInputs& inputs,
     const CompactResult& result,
     const std::string& trigger,
     const std::string& compact_notice_id) {
-    auto initial_context = requests_.initial_context(inputs.request);
-    auto pre_history = recovered_provider_messages(history_.view(), "compact-input");
-    auto pre_request = initial_context;
-    pre_request.insert(pre_request.end(), pre_history.begin(), pre_history.end());
+    const auto pre_request = requests_.compaction_request(
+        inputs.request, history_.view()).messages_with_system;
     const int pre_tokens = estimate_message_tokens(pre_request);
     std::vector<ChatMessage> replacement_history =
         recovered_provider_messages(result.compacted_messages, "compact-output");
-    auto post_request = initial_context;
-    post_request.insert(
-        post_request.end(), replacement_history.begin(), replacement_history.end());
+    replacement_history.insert(replacement_history.begin(),
+        requests_.fresh_window_snapshot(inputs.request, replacement_history));
+    const auto post_request = requests_.compaction_request(
+        inputs.request, replacement_history).messages_with_system;
     const int post_tokens = estimate_message_tokens(post_request);
 
     initialize_window(inputs);
     const std::string previous_window_id = compact_current_window_id_;
-    if (compact_window_number_ <
+    auto next_window_number = compact_window_number_;
+    if (next_window_number <
         std::numeric_limits<std::uint64_t>::max()) {
-        ++compact_window_number_;
+        ++next_window_number;
     }
-    compact_current_window_id_ = generate_uuid_v7();
-    if (compact_first_window_id_.empty()) {
-        compact_first_window_id_ = previous_window_id.empty()
-            ? compact_current_window_id_
-            : previous_window_id;
-    }
+    const auto next_window_id = generate_uuid_v7();
+    const auto first_window_id = compact_first_window_id_.empty()
+        ? (previous_window_id.empty() ? next_window_id : previous_window_id)
+        : compact_first_window_id_;
 
     bool checkpoint_persisted = false;
     if (inputs.session) {
@@ -119,18 +116,26 @@ void CompactionController::apply_result(
         checkpoint.estimated_tokens_saved = result.estimated_tokens_saved;
         checkpoint.pre_tokens = pre_tokens;
         checkpoint.post_tokens = post_tokens;
-        checkpoint.window_number = compact_window_number_;
-        checkpoint.first_window_id = compact_first_window_id_;
+        checkpoint.window_number = next_window_number;
+        checkpoint.first_window_id = first_window_id;
         checkpoint.previous_window_id = previous_window_id;
-        checkpoint.window_id = compact_current_window_id_;
+        checkpoint.window_id = next_window_id;
         checkpoint.replacement_history = replacement_history;
         checkpoint_persisted = inputs.session->append_compact_checkpoint(checkpoint);
+        if (!checkpoint_persisted) {
+            transcript_.dispatch_message("error", "[Compact] Could not persist checkpoint; history was kept.",
+                false, nlohmann::json::object(), nlohmann::json::array());
+            return false;
+        }
     }
+    compact_window_number_ = next_window_number;
+    compact_current_window_id_ = next_window_id;
+    compact_first_window_id_ = first_window_id;
     history_.replace(std::move(replacement_history));
     last_api_total_tokens_.store(post_tokens, std::memory_order_relaxed);
     environment_.mtime_tracker().clear_read_observations();
     compact_generation_.fetch_add(1, std::memory_order_relaxed);
-    requests_.invalidate_memory_snapshot();  // 压缩后记忆快照按磁盘重建
+    requests_.invalidate_memory_snapshot();
 
     const std::string notice_id = compact_notice_id.empty()
         ? generate_uuid_v7()
@@ -155,6 +160,7 @@ void CompactionController::apply_result(
             if (!error.empty()) LOG_WARN("[task-suggestion] " + error);
         }
     }
+    return true;
 }
 
 

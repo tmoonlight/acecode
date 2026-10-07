@@ -51,6 +51,7 @@ const ICONS = {
   help: 'StatusHelp',
   hook: 'FishHook',
   info: 'StatusInformation',
+  keyboard: 'Keyboard',
   leftBar: 'LeftBar',
   lightbulb: 'IntellisenseLightBulbSparkle',
   list: 'List',

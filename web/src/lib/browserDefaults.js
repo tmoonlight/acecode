@@ -3,6 +3,7 @@
 
 import { isFindShortcut } from './globalFind.js';
 import { isDesktopShell } from './desktopShellMode.js';
+import { APP_SHORTCUT_BROWSER_GUARD, matchAppShortcut } from './appShortcuts.js';
 
 const ZOOM_SHORTCUT_KEYS = new Set(['+', '=', '-', '_', '0']);
 const ZOOM_SHORTCUT_CODES = new Set([
@@ -54,6 +55,13 @@ export function installBrowserDefaultGuards(target = globalThis.window) {
         event.stopImmediatePropagation();
         return;
       }
+    }
+    // These two zoom-shaped chords belong to ACECode history navigation.
+    const shortcut = matchAppShortcut(event);
+    if (shortcut === 'forward' || shortcut === 'back') {
+      event.preventDefault();
+      event[APP_SHORTCUT_BROWSER_GUARD] = true;
+      return;
     }
     if (isBlockedBrowserDefaultShortcut(event)) event.preventDefault();
   };

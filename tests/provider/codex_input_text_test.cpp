@@ -2,6 +2,7 @@
 
 #include "provider/codex_provider.hpp"
 #include "llm/tool_protocol_names.hpp"
+#include "session/request_context_record.hpp"
 
 #include <string>
 #include <vector>
@@ -114,4 +115,33 @@ TEST(CodexInputText, PlainMessagesAreUnchanged) {
         "\n\n"
         "### Tool tool_call_id=call_1\ntool output\n\n";
     EXPECT_EQ(acecode::codex_detail::build_codex_input_text(messages), expected);
+}
+
+TEST(CodexInputText, PersistedRequestContextReachesModelWithoutBecomingUserSpeech) {
+    auto snapshot = message("user", "frozen project instructions");
+    snapshot.is_meta = true;
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.metadata = {{"request_context_version", 1}};
+    auto update = message("user", "updated plan instructions");
+    update.is_meta = true;
+    update.subtype = acecode::kRequestContextUpdate;
+    update.metadata = {{"request_context_version", 1}};
+    auto unsupported = snapshot;
+    unsupported.content = "unrecognized internal record";
+    unsupported.metadata["request_context_version"] = 999;
+    auto checkpoint = message("system", "transcript-only checkpoint");
+    checkpoint.is_meta = true;
+    checkpoint.subtype = "compact_checkpoint";
+
+    const auto text = acecode::codex_detail::build_codex_input_text({
+        message("system", "base system"), snapshot, message("user", "real user request"),
+        update, unsupported, checkpoint});
+    const std::string expected =
+        "Continue this ACECode conversation. Preserve the user's latest "
+        "request as the active task.\n\n"
+        "### System\nbase system\n\n"
+        "### Context\nfrozen project instructions\n\n"
+        "### User\nreal user request\n\n"
+        "### Context\nupdated plan instructions\n\n";
+    EXPECT_EQ(text, expected);
 }

@@ -308,7 +308,7 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
             {"model", json{
                 {"type", "string"},
                 {"description", "Optional saved model name for the sub-agent "
-                                "session (defaults to the daemon default)."}}},
+                                "session (defaults to the parent's current model)."}}},
             {"expert_member", json{
                 {"type", "string"},
                 {"description", "Optional selected expert ID from the current "
@@ -422,6 +422,11 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
             }
         }
         opts.model_name = model_name;
+        if (opts.model_name.empty() && ctx.session_manager) {
+            // Read the live parent selection, including TUI parents outside the
+            // registry. An empty preset preserves the configured fallback.
+            opts.model_name = ctx.session_manager->current_model_preset();
+        }
         opts.permission_mode = parent_permission_mode;
         opts.subagent_depth = 1;
         // 父会话 id 持久化到子会话 meta:子会话从常规列表隐藏,归入父会话

@@ -32,13 +32,17 @@ using acecode_test::MemoryTestHome;
 // 压缩走非流式 chat:返回一段摘要,让摘要压缩真正成功(而不是退化成机械修剪)。
 class CompactingStub : public acecode_test::StubLlmProvider {
 public:
-    acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>&,
-                               const std::vector<acecode::ToolDef>&) override {
+    acecode::ChatResponse chat(const std::vector<acecode::ChatMessage>& messages,
+                               const std::vector<acecode::ToolDef>& tools) override {
+        compact_requests.push_back(messages);
+        compact_tools.push_back(tools);
         acecode::ChatResponse response;
         response.content = "Summary of the earlier conversation.";
         response.finish_reason = "stop";
         return response;
     }
+    std::vector<std::vector<acecode::ChatMessage>> compact_requests;
+    std::vector<std::vector<acecode::ToolDef>> compact_tools;
 };
 
 void wait_done(acecode::AgentLoop& loop, const std::function<void()>& action) {
@@ -167,6 +171,79 @@ TEST(AgentLoopMemoryTest, SessionMemoryOffRemovesContextAndTools) {
     EXPECT_TRUE(has_tool(h.provider->tools_for_turn(1), "memory_read"));
     EXPECT_TRUE(has_tool(h.provider->tools_for_turn(1), "memory_write"));
     EXPECT_NE(on_request.front().content.find("# Memory\n"), std::string::npos);
+}
+
+TEST(AgentLoopMemoryTest, TurningMemoryOffRemovesEarlierInjectedMemoryUntilReenabled) {
+    MemoryTestHome home("agentloop-memory-toggle-context");
+    MemoryLoopHarness h(home);
+    const std::string original = "memory_toggle_original_unique_marker";
+    const std::string later = "memory_toggle_later_unique_marker";
+    h.write_global(original);
+    h.turn("first task");
+    const auto first = h.provider->messages_for_turn(0);
+    ASSERT_NE(session_context(first).find(original), std::string::npos);
+    EXPECT_TRUE(has_tool(h.provider->tools_for_turn(0), "memory_read"));
+    EXPECT_TRUE(has_tool(h.provider->tools_for_turn(0), "memory_write"));
+
+    h.session.set_memory_enabled(false);
+    h.turn("continue without memory");
+    h.write_global(later);
+    h.turn("continue while memory stays disabled");
+    for (int index : {1, 2}) {
+        const auto request = h.provider->messages_for_turn(index);
+        ASSERT_FALSE(request.empty());
+        // Check every context/history row: inspecting only the newest update
+        // misses the original frozen snapshot retained before it.
+        for (const auto& message : request) {
+            EXPECT_EQ(message.content.find(original), std::string::npos);
+            EXPECT_EQ(message.content.find(later), std::string::npos);
+        }
+        EXPECT_FALSE(has_tool(h.provider->tools_for_turn(index), "memory_read"));
+        EXPECT_FALSE(has_tool(h.provider->tools_for_turn(index), "memory_write"));
+        EXPECT_EQ(request.front().content.find("# Memory\n"), std::string::npos);
+    }
+
+    h.session.set_memory_enabled(true);
+    h.turn("use memory again");
+    const auto enabled = h.provider->messages_for_turn(3);
+    ASSERT_FALSE(enabled.empty());
+    const auto context = session_context(enabled);
+    EXPECT_NE(context.find(original), std::string::npos);
+    EXPECT_NE(context.find(later), std::string::npos);
+    EXPECT_TRUE(has_tool(h.provider->tools_for_turn(3), "memory_read"));
+    EXPECT_TRUE(has_tool(h.provider->tools_for_turn(3), "memory_write"));
+    EXPECT_NE(enabled.front().content.find("# Memory\n"), std::string::npos);
+}
+
+TEST(AgentLoopMemoryTest, ImmediateToolFreeCompactionAfterMemoryOffExcludesPriorEpoch) {
+    MemoryTestHome home("agentloop-memory-off-before-compact");
+    MemoryLoopHarness h(home);
+    const std::string marker = "PRIVATE_MEMORY_BEFORE_COMPACT_UNIQUE";
+    h.write_global(marker);
+    h.turn("start the task");
+    ASSERT_NE(session_context(h.provider->messages_for_turn(0)).find(marker), std::string::npos);
+    ASSERT_FALSE(h.provider->supports_compaction_prefix_reuse());
+
+    // No ordinary request occurs after this toggle: the compaction controller
+    // must use the updated projection instead of rebuilding from the old row.
+    h.session.set_memory_enabled(false);
+    wait_done(*h.loop, [&] { h.loop->submit_compact(); });
+    h.turn("continue without private memory");
+    ASSERT_EQ(h.provider->compact_requests.size(), 1u);
+    ASSERT_EQ(h.provider->compact_tools.size(), 1u);
+    EXPECT_TRUE(h.provider->compact_tools.front().empty());
+    for (const auto& message : h.provider->compact_requests.front()) {
+        EXPECT_EQ(message.content.find(marker), std::string::npos);
+        EXPECT_EQ(message.content.find("# Memory\n"), std::string::npos);
+    }
+    const auto checkpoint = h.session.load_latest_compact_checkpoint();
+    ASSERT_TRUE(checkpoint.has_value());
+    for (const auto& message : checkpoint->replacement_history) {
+        EXPECT_EQ(message.content.find(marker), std::string::npos);
+    }
+    for (const auto& message : h.provider->messages_for_turn(1)) {
+        EXPECT_EQ(message.content.find(marker), std::string::npos);
+    }
 }
 
 // 场景:会话执行 /memory off 后被关闭,之后恢复这个会话。

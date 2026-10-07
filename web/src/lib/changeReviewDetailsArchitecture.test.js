@@ -185,7 +185,7 @@ run('Top bar keeps direct task search while new-conversation and loop stay in qu
   assert.doesNotMatch(topBar, /<QuickBtn[^>]*title="循环"/);
   assert.match(
     topBar,
-    /<QuickBtn title="前进"[\s\S]*?<\/QuickBtn>\s*<QuickBtn title=\{withSearchPaletteShortcutHint\('搜索任务'\)\} onClick=\{onOpenSearch\}>/,
+    /<QuickBtn title=\{withAppShortcutHint\('前进', 'forward'\)\}[\s\S]*?<\/QuickBtn>\s*<QuickBtn title=\{withSearchPaletteShortcutHint\('搜索任务'\)\} onClick=\{onOpenSearch\}>/,
   );
   assert.match(source('SidebarQuickMenu.jsx'), /invokeTopBarQuickAction/);
 });

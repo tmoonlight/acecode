@@ -1720,6 +1720,12 @@ export function Sidebar({
   onCheckUpdates,
   onExit,
   updateChecking = false,
+  updateStatus = null,
+  updateStarting = false,
+  updateRunning = false,
+  updateReady = false,
+  updateProgress = 0,
+  onStartUpdate,
   pendingPermissionSessionIds = new Set(),
   pendingQuestionSessionIds = new Set(),
   showSessionTime = true,
@@ -3593,6 +3599,18 @@ export function Sidebar({
   const appVersionLabel = typeof appVersion === 'string' && appVersion.trim()
     ? formatProgramVersion(appVersion.trim())
     : '';
+  const updateAvailable = !!updateStatus?.update_available;
+  const boundedUpdateProgress = Number.isFinite(Number(updateProgress))
+    ? Math.max(0, Math.min(100, Math.round(Number(updateProgress))))
+    : 0;
+  const updateLabel = updateReady ? '已更新' : updateRunning ? '更新中' : '更新';
+  const updateTitle = updateAvailable
+    ? updateReady
+      ? '升级已安装，点击查看重启选项'
+      : updateRunning
+      ? `升级正在进行，${boundedUpdateProgress}%，点击查看进度`
+      : `发现新版 v${updateStatus.latest_version || ''}, 点击升级`
+    : '';
   const workspaceForSession = (session) => {
     const hash = session.workspace_hash || session.workspaceHash || '';
     return workspaces.find((w) => w.hash === hash) || {
@@ -3837,6 +3855,49 @@ export function Sidebar({
               onExit={onExit}
             />
           )}
+          <div className="flex-1" />
+          {!collapsed && updateAvailable && (
+            <button
+              type="button"
+              title={updateTitle}
+              aria-label={updateTitle || '更新'}
+              onClick={() => {
+                cancelSessionSelection();
+                onStartUpdate?.();
+              }}
+              disabled={updateStarting}
+              className={clsx(
+                'ace-sidebar-update-button relative h-6 shrink-0 min-w-[44px] overflow-hidden px-3 rounded-full text-[12px] font-semibold leading-none shadow-sm transition',
+                updateRunning ? 'bg-transparent text-accent' : 'bg-accent text-white',
+                'hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20',
+                updateStarting && 'opacity-60 cursor-not-allowed hover:opacity-60',
+              )}
+            >
+              <span className={updateRunning ? 'invisible' : ''}>{updateLabel}</span>
+              {updateRunning && (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-0 bg-accent"
+                    style={{ clipPath: `inset(0 ${100 - boundedUpdateProgress}% 0 0)` }}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-0 flex items-center justify-center text-accent"
+                  >
+                    {updateLabel}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-0 flex items-center justify-center text-white"
+                    style={{ clipPath: `inset(0 ${100 - boundedUpdateProgress}% 0 0)` }}
+                  >
+                    {updateLabel}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
           <button
             data-tour-target="sidebar-feedback"
             type="button"
@@ -3846,7 +3907,7 @@ export function Sidebar({
               cancelSessionSelection();
               onOpenFeedback?.();
             }}
-            className="ml-auto w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-mute hover:text-fg hover:bg-surface-hi transition"
+            className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-mute hover:text-fg hover:bg-surface-hi transition"
           >
             <VsIcon name="bug" size={18} />
           </button>

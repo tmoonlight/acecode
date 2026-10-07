@@ -105,12 +105,10 @@ run('applyChannelsEvent 只合并消息通道事件', () => {
 });
 
 // 场景:设置页的平台卡片。
-// 期望:七个平台按国内(QQ、微信、飞书、钉钉)再海外(Telegram、Discord、LINE)排列;图标统一是
-// 单色聊天图标(用户拍板:不用彩色品牌 logo);向导都是三步,第一步按平台区分。
+// 期望:七个平台按国内再海外排列;向导都是三步,第一步按平台区分。
 run('channelCards 与向导步骤', () => {
   assert.deepEqual(channelCards().map((card) => card.platform),
     ['qq', 'weixin', 'feishu', 'dingtalk', 'telegram', 'discord', 'line']);
-  assert.ok(channelCards().every((card) => card.icon === 'chat'));
   assert.deepEqual(wizardSteps('qq'), ['扫码创建机器人', '连接', '绑定机主']);
   assert.deepEqual(wizardSteps('weixin'), ['扫码登录', '连接', '完成']);
   assert.deepEqual(wizardSteps('telegram'), ['创建机器人', '连接', '绑定机主']);
@@ -295,7 +293,7 @@ run('telegramWebhookBlocked', () => {
 // 期望:页面组件不渲染原因 / 隐私模式 / 暂存数 / 绑定计数这些细节;卡片两列;不用开关,用连接按钮。
 run('消息通道设置页保持简洁,细节只进日志', () => {
   const page = readFileSync(new URL('../components/ChannelsSettings.jsx', import.meta.url), 'utf8');
-  assert.match(page, /grid grid-cols-2/);
+  assert.match(page, /grid grid-cols-1.*grid-cols-2/);
   assert.doesNotMatch(page, /platform\.detail|privacy_mode|\.held\b|bindingRows|binding\.stats/);
   assert.doesNotMatch(page, /<Toggle\b/);
 });

@@ -28,7 +28,10 @@ struct UserTurnInfo {
 
 struct ApiRequestBundle {
     std::vector<ChatMessage> messages_with_system;
+    // New hidden records to commit once before the provider is invoked.
+    std::vector<ChatMessage> context_records;
     std::vector<ToolDef> tool_defs;
+    ChatRequestOptions request_options;
     ContextUsageBreakdown context_usage_estimate;
     nlohmann::json prompt_diag; // simplified: store as raw json
 };

@@ -7,6 +7,7 @@
 //     AgentLoop / PermissionManager / SessionModelBinding),上下文与父会话完全隔离;
 //     它出现在侧栏里,用户可随时点进去围观或接管。
 //   - spawn_subagent(prompt, wait=true):创建子会话并注入首条消息。
+//     model 缺省继承父会话当前 saved model;显式 model 优先,无父模型时沿用默认。
 //     wait=true 阻塞至子会话本轮结束,把最终 assistant 答复带回父上下文
 //     (父上下文只多这一条摘要,不吃子会话的中间过程);
 //     wait=false 点火即返(fire-and-forget),用于流水线接力 —— 阶段 A 结束

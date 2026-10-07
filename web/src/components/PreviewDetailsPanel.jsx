@@ -451,10 +451,11 @@ export function PreviewDetailsPanel({
         editState={active.edit || null}
         onEditStateChange={(patch) => onEditFileTab?.(active.key, patch)}
         onToggleWrapPreview={() => setWrapPreview((prev) => !prev)}
+        onOpenBrowser={onOpenBrowser}
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;

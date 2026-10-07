@@ -27,7 +27,7 @@ test('settings navigation uses the confirmed Codex-style groups', () => {
       {
         key: 'personal',
         label: '个人',
-        items: ['常规', '外观', '配置', '个性化', '虚拟办公室', '使用情况'],
+        items: ['常规', '外观', '快捷键', '配置', '个性化', '虚拟办公室', '使用情况'],
       },
       {
         key: 'integrations',
@@ -58,6 +58,7 @@ test('flattened settings routes remain unique and complete', () => {
   assert.deepEqual(keys, [
     'general',
     'appearance',
+    'shortcuts',
     'config',
     'personalization',
     'virtual-office',

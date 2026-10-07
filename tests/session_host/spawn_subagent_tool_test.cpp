@@ -137,11 +137,11 @@ struct SubagentFixture {
     acecode::LocalSessionClient client;
     std::shared_ptr<acecode::SubagentToolDeps> deps;
 
-    SubagentFixture()
+    explicit SubagentFixture(bool resolve_saved_models = false)
         : cwd(fs::temp_directory_path() /
               ("acecode_subagent_test_" + std::to_string(std::random_device{}()))),
           experts(cwd / "global-experts"),
-          registry(make_deps(*this)), client(registry) {
+          registry(make_deps(*this, resolve_saved_models)), client(registry) {
         fs::create_directories(cwd);
         deps = std::make_shared<acecode::SubagentToolDeps>();
         deps->registry = &registry;
@@ -156,14 +156,29 @@ struct SubagentFixture {
         fs::remove_all(cwd, ec);
     }
 
-    static acecode::SessionRegistryDeps make_deps(SubagentFixture& self) {
+    static acecode::SessionRegistryDeps make_deps(SubagentFixture& self,
+                                                 bool resolve_saved_models) {
         acecode::SessionRegistryDeps d;
         d.provider_accessor = [&self] { return self.provider; };
         d.tools = &self.tools;
         d.cwd = "/tmp/subagent_test_registry";
         d.expert_registry = &self.experts;
         d.template_permissions = &self.permissions;
+        if (resolve_saved_models) d.config = &self.config;
         return d;
+    }
+
+    void configure_models() {
+        config.default_model_name = "daemon-default";
+        for (const char* name : {"daemon-default", "parent-current", "explicit-child"}) {
+            acecode::ModelProfile profile;
+            profile.name = name;
+            profile.provider = "openai";
+            profile.model = std::string(name) + "-model";
+            profile.base_url = "http://127.0.0.1:9/v1";
+            profile.api_key = "test-key";
+            config.saved_models.push_back(std::move(profile));
+        }
     }
 
     acecode::ToolContext ctx_for(const std::string& session_id) {
@@ -216,6 +231,110 @@ TEST(SpawnSubagentTool, FireAndForgetCreatesIsolatedSession) {
     ASSERT_NE(child, nullptr);
     EXPECT_EQ(child->subagent_depth, 1);
     fx.registry.destroy(child_id);
+}
+
+// Exercise the actual saved-model resolver with a global default that differs
+// from the parent. RecordingSessionClient prevents any provider request.
+TEST(SpawnSubagentTool, UnspecifiedModelUsesParentsCurrentSelectionAfterSwitch) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    RecordingSessionClient recording_client;
+    fx.deps->client = &recording_client;
+    acecode::SessionOptions parent_options;
+    parent_options.cwd = fx.cwd.string();
+    parent_options.swarm_mode = "star";
+    const auto parent_id = fx.registry.create(parent_options);
+    const auto initial = fx.registry.current_model_state(parent_id);
+    ASSERT_TRUE(initial.has_value());
+    EXPECT_EQ(initial->name, "daemon-default");
+
+    std::string error;
+    ASSERT_TRUE(fx.registry.switch_model(
+        parent_id, fx.config.saved_models[1], nullptr, &error)) << error;
+    for (const char* arguments : {
+             R"({"prompt":"inherit","wait":false})",
+             R"({"prompt":"inherit empty","wait":false,"model":""})"}) {
+        const auto result = fx.tools.execute(
+            "spawn_subagent", arguments, fx.ctx_for(parent_id));
+        ASSERT_TRUE(result.success) << result.output;
+        const auto child_id = result.metadata["subagent_session_id"].get<std::string>();
+        const auto state = fx.registry.current_model_state(child_id);
+        ASSERT_TRUE(state.has_value());
+        EXPECT_EQ(state->name, "parent-current");
+        EXPECT_EQ(state->provider, "openai");
+        EXPECT_EQ(state->model, "parent-current-model");
+        fx.registry.destroy(child_id);
+    }
+    fx.registry.destroy(parent_id);
+}
+
+TEST(SpawnSubagentTool, ExplicitModelOverridesParentsCurrentSelection) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    RecordingSessionClient recording_client;
+    fx.deps->client = &recording_client;
+    acecode::SessionOptions parent_options;
+    parent_options.cwd = fx.cwd.string();
+    parent_options.model_name = "parent-current";
+    const auto parent_id = fx.registry.create(parent_options);
+    const auto result = fx.tools.execute(
+        "spawn_subagent",
+        R"({"prompt":"override","wait":false,"model":"explicit-child"})",
+        fx.ctx_for(parent_id));
+    ASSERT_TRUE(result.success) << result.output;
+    const auto child_id = result.metadata["subagent_session_id"].get<std::string>();
+    const auto state = fx.registry.current_model_state(child_id);
+    ASSERT_TRUE(state.has_value());
+    EXPECT_EQ(state->name, "explicit-child");
+    EXPECT_EQ(state->model, "explicit-child-model");
+    fx.registry.destroy(child_id);
+    fx.registry.destroy(parent_id);
+}
+
+TEST(SpawnSubagentTool, InheritsModelFromTuiParentOutsideRegistry) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    RecordingSessionClient recording_client;
+    fx.deps->client = &recording_client;
+    acecode::SessionManager parent;
+    parent.start_session(fx.cwd.string(), "openai", "parent-current-model",
+                         "", "parent-current", "tui");
+    const auto parent_id = parent.ensure_active_session_id();
+    ASSERT_FALSE(parent_id.empty());
+    EXPECT_EQ(fx.registry.acquire(parent_id), nullptr);
+    auto ctx = fx.ctx_for("");
+    ctx.session_manager = &parent;
+    const auto result = fx.tools.execute(
+        "spawn_subagent", R"({"prompt":"external parent","wait":false})", ctx);
+    ASSERT_TRUE(result.success) << result.output;
+    const auto child_id = result.metadata["subagent_session_id"].get<std::string>();
+    const auto state = fx.registry.current_model_state(child_id);
+    ASSERT_TRUE(state.has_value());
+    EXPECT_EQ(state->name, "parent-current");
+    EXPECT_EQ(state->model, "parent-current-model");
+    fx.registry.destroy(child_id);
+}
+
+TEST(SpawnSubagentTool, MissingParentModelRetainsConfiguredDefault) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    RecordingSessionClient recording_client;
+    fx.deps->client = &recording_client;
+    acecode::SessionManager legacy_parent;
+    legacy_parent.start_session(fx.cwd.string(), "openai", "legacy-model");
+    for (auto* parent : {static_cast<acecode::SessionManager*>(nullptr), &legacy_parent}) {
+        auto ctx = fx.ctx_for("");
+        ctx.session_manager = parent;
+        const auto result = fx.tools.execute(
+            "spawn_subagent", R"({"prompt":"fallback","wait":false})", ctx);
+        ASSERT_TRUE(result.success) << result.output;
+        const auto child_id = result.metadata["subagent_session_id"].get<std::string>();
+        const auto state = fx.registry.current_model_state(child_id);
+        ASSERT_TRUE(state.has_value());
+        EXPECT_EQ(state->name, "daemon-default");
+        EXPECT_EQ(state->model, "daemon-default-model");
+        fx.registry.destroy(child_id);
+    }
 }
 
 // 场景: daemon 要在子会话首条输入入队前安装 tracking 监听器,否则 child
@@ -339,6 +458,7 @@ TEST(SpawnSubagentTool, TeamLeadCanSpawnOnlyDeclaredExpertMember) {
     acecode::SessionOptions parent_options;
     parent_options.cwd = fx.cwd.string();
     parent_options.expert_id = team.id;
+    parent_options.model_name = "team-current";
     const std::string parent_id = fx.registry.create(parent_options);
 
     const std::size_t before = fx.registry.size();
@@ -363,6 +483,7 @@ TEST(SpawnSubagentTool, TeamLeadCanSpawnOnlyDeclaredExpertMember) {
     ASSERT_NE(child, nullptr);
     EXPECT_EQ(child->expert_id, team.id);
     EXPECT_EQ(child->expert_member_id, "tester");
+    EXPECT_EQ(child->sm->current_model_preset(), "team-current");
     ASSERT_TRUE(child->expert.has_value());
     ASSERT_NE(child->expert->selected_agent("tester"), nullptr);
     EXPECT_EQ(child->expert->selected_agent("tester")->instructions, "Test the work.");

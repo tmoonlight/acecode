@@ -44,7 +44,8 @@ bool is_retryable_compaction_error(const ProviderErrorInfo& info);
 // summary. Returns "" when acceptable, otherwise a short reason:
 // "tool_calls" (native tool calls), "empty" (blank after trimming) or
 // "tool_call_markup" (tool-call tags anywhere outside code fences/inline
-// code). There is intentionally no minimum length: a valid Chinese summary
+// code, or provider diagnostics for filtered textual calls). There is
+// intentionally no minimum length: a valid Chinese summary
 // can be only a few characters.
 std::string compact_summary_rejection_reason(const ChatResponse& response);
 
@@ -55,6 +56,16 @@ constexpr int kMaxInvalidCompactSummaryRetries = 2;
 using CompactRetryCallback =
     std::function<void(const ProviderErrorInfo& info, bool waiting)>;
 
+// Already-built model-facing input. Keep its ordering, tool aliases, reasoning
+// and structured parts unchanged; only the summary instruction is appended.
+// Tool-free fallback retains these same bytes; initial system/snapshot messages
+// stay fixed while overflow recovery may prune the remaining history.
+struct CompactRequestPrefix {
+    std::vector<ChatMessage> messages;
+    std::vector<ToolDef> tools;
+    ChatRequestOptions request_options;
+};
+
 // Insert rebuilt request-local context at Codex's handoff boundary: before the
 // last real user message, or before the compact summary when no real user
 // message remains. Existing history content is never rewritten.
@@ -64,12 +75,15 @@ void insert_context_before_last_real_user_or_summary(
 
 // Run Codex-compatible local compaction. initial_context contains stable
 // base/session instructions that are always retained during overflow retries.
+// A supported request_prefix is used verbatim, then retried without tools on
+// invalid summaries or incompatibility before applying normal overflow pruning.
 CompactResult compact_messages(
     LlmProvider& provider,
     const std::vector<ChatMessage>& messages,
     const std::vector<ChatMessage>& initial_context = {},
     bool is_auto = false,
     std::atomic<bool>* abort_flag = nullptr,
-    CompactRetryCallback on_retry = {});
+    CompactRetryCallback on_retry = {},
+    const CompactRequestPrefix* request_prefix = nullptr);
 
 } // namespace acecode
