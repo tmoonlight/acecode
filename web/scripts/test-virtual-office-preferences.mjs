@@ -30,7 +30,7 @@ window.aceDesktop_updateOffice=async value=>{window.published.push(JSON.parse(va
 window.aceDesktop_getOfficePreview=async()=>{window.previewRequests++;return ${JSON.stringify(html)};};
 window.nativeClose=()=>{prefs={...prefs,enabled:false};window.dispatchEvent(new CustomEvent('ace-desktop-office-preferences',{detail:prefs}));};
 Object.assign(connection,{retainSession:id=>window.retained.add(id),releaseSession:id=>window.retained.delete(id)});
-Object.assign(api,{getDesktopOffice:async()=>{window.snapshotRequests++;const s={id:'live',title:'当前工作',busy:true,workspace_hash:'w'};return {selected:s,agents:[s],offices:[s],complete:true};},getSessionModel:async()=>({})});
+Object.assign(api,{getDesktopOffice:async()=>{window.snapshotRequests++;const s={id:'live',title:'当前工作',active:true,busy:true,workspace_hash:'w'};return {selected:s,agents:[s],offices:[s],complete:true};},getSessionModel:async()=>({})});
 function Fixture(){
  const office=useDesktopOffice({sessionId:'live',workspaceHash:'w'});
  const [welcome,setWelcome]=useState(false);
@@ -113,6 +113,7 @@ try {
   await toggle.click();
   await page.waitForFunction(() => window.published.at(-1)?.selected?.title === '当前工作');
   assert.equal(await page.evaluate(() => published.at(-1).selected.title), '当前工作');
+  assert.equal(await page.evaluate(() => retained.has('live')), true, 'enabled office retains the live session');
   await page.evaluate(() => nativeClose());
   await page.waitForFunction(() => !office.enabled && retained.size === 0);
   const requests = await page.evaluate(() => snapshotRequests);
