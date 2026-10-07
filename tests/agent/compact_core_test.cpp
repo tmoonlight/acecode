@@ -2,7 +2,9 @@
 
 #include "agent/compaction/compact.hpp"
 #include "agent/compaction/compact_prompt.hpp"
+#include "session/request_context_record.hpp"
 
+#include <algorithm>
 #include <deque>
 #include <stdexcept>
 #include <thread>
@@ -13,8 +15,9 @@ class ChatStubProvider : public acecode::LlmProvider {
 public:
     acecode::ChatResponse chat(
         const std::vector<acecode::ChatMessage>& messages,
-        const std::vector<acecode::ToolDef>&) override {
+        const std::vector<acecode::ToolDef>& tools) override {
         calls.push_back(messages);
+        tool_tables.push_back(tools);
         if (!exceptions.empty()) {
             const std::string error = exceptions.front();
             exceptions.pop_front();
@@ -43,6 +46,24 @@ public:
     bool supports_native_compaction() const override {
         return native_capability;
     }
+    bool supports_compaction_prefix_reuse() const override {
+        return prefix_capability;
+    }
+    acecode::ChatResponse chat_for_compaction(
+        const std::vector<acecode::ChatMessage>& messages,
+        const std::vector<acecode::ToolDef>& tools,
+        const std::atomic<bool>* abort_flag) override {
+        ++prefix_calls;
+        return chat_cancellable(messages, tools, abort_flag);
+    }
+    acecode::ChatResponse chat_with_options(
+        const std::vector<acecode::ChatMessage>& messages,
+        const std::vector<acecode::ToolDef>& tools,
+        const acecode::ChatRequestOptions& options,
+        const std::atomic<bool>* abort_flag) override {
+        call_options.push_back(options);
+        return LlmProvider::chat_with_options(messages, tools, options, abort_flag);
+    }
 
     static acecode::ChatResponse response(std::string content,
                                           std::string finish_reason = "stop") {
@@ -53,9 +74,13 @@ public:
     }
 
     std::vector<std::vector<acecode::ChatMessage>> calls;
+    std::vector<std::vector<acecode::ToolDef>> tool_tables;
+    std::vector<acecode::ChatRequestOptions> call_options;
     std::deque<acecode::ChatResponse> responses;
     std::deque<std::string> exceptions;
     bool native_capability = false;
+    bool prefix_capability = false;
+    int prefix_calls = 0;
 };
 
 acecode::ChatMessage msg(std::string role,
@@ -114,10 +139,214 @@ void expect_same_request(const std::vector<acecode::ChatMessage>& lhs,
             << "message index " << i;
         EXPECT_EQ(lhs[i].tool_calls, rhs[i].tool_calls)
             << "message index " << i;
+        EXPECT_EQ(lhs[i].content_parts, rhs[i].content_parts)
+            << "message index " << i;
+        EXPECT_EQ(lhs[i].reasoning_content, rhs[i].reasoning_content)
+            << "message index " << i;
     }
 }
 
 } // namespace
+
+TEST(CompactCore, ReusesExactModelFacingPrefixIncludingReasoningAndSchemas) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    auto call = tool_call_message("read-1");
+    call.tool_calls[0]["function"]["name"] = "InspectDocument";
+    call.reasoning_content = "Preserved GLM/DeepSeek reasoning.";
+    auto user = msg("user", "read the attached document");
+    user.content_parts = nlohmann::json::array({
+        {{"type", "text"}, {"text", user.content}},
+        {{"type", "file"}, {"path", "/tmp/document.txt"}},
+    });
+    acecode::CompactRequestPrefix prefix{
+        {msg("system", "frozen main system"),
+         msg("system", "frozen skill index"),
+         msg("user", "frozen session context"), user, call,
+         tool_output_message("read-1"), msg("user", "appended context update")},
+        {{"InspectDocument", "Inspect a file", {{"type", "object"}}}},
+    };
+    prefix.request_options.prompt_cache_key = "fixed-session-key";
+    const auto original_prefix = prefix;
+    auto result = acecode::compact_messages(provider, {user, call, tool_output_message("read-1")},
+        {msg("system", "legacy context")}, false, nullptr, {}, &prefix);
+
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 1u);
+    EXPECT_EQ(provider.prefix_calls, 1);
+    EXPECT_EQ(provider.call_options[0].prompt_cache_key, "fixed-session-key");
+    EXPECT_TRUE(provider.call_options[0].for_compaction);
+    auto expected = prefix.messages;
+    expected.push_back(msg("user", acecode::get_compact_prompt()));
+    expect_same_request(provider.calls[0], expected);
+    expect_same_request(prefix.messages, original_prefix.messages);
+    ASSERT_EQ(provider.tool_tables[0].size(), 1u);
+    EXPECT_EQ(provider.tool_tables[0][0].name, prefix.tools[0].name);
+    EXPECT_EQ(provider.tool_tables[0][0].description, prefix.tools[0].description);
+    EXPECT_EQ(provider.tool_tables[0][0].parameters, prefix.tools[0].parameters);
+}
+
+TEST(CompactCore, UnsupportedProviderUsesCurrentProjectionWithoutTools) {
+    ChatStubProvider provider;
+    acecode::CompactRequestPrefix prefix{
+        {msg("system", "different prefix")}, {{"probe", "probe", {}}}};
+    auto result = acecode::compact_messages(provider, {msg("user", "original history")},
+        {msg("system", "legacy context")}, false, nullptr, {}, &prefix);
+    ASSERT_TRUE(result.performed) << result.error;
+    EXPECT_EQ(provider.prefix_calls, 0);
+    ASSERT_EQ(provider.calls.size(), 1u);
+    EXPECT_EQ(provider.calls[0][0].content, "different prefix");
+    EXPECT_EQ(provider.calls[0][1].content, acecode::get_compact_prompt());
+    EXPECT_TRUE(provider.tool_tables[0].empty());
+}
+
+TEST(CompactCore, InvalidPrefixRepliesFallBackWithoutToolsOrInstallingContamination) {
+    std::vector<acecode::ChatResponse> invalid{
+        ChatStubProvider::response("<tool_call>probe({})</tool_call>"),
+        ChatStubProvider::response(" \n"),
+        ChatStubProvider::response("clean-looking remainder"),
+        ChatStubProvider::response("", "tool_calls"),
+    };
+    invalid[2].text_tool_calls.outcome = acecode::TextToolCallDiagnostic::Outcome::Rejected;
+    invalid[2].text_tool_calls.format = "dsml";
+    invalid[3].tool_calls.push_back({"bad-call", "probe", "{}"});
+    for (const auto& response : invalid) {
+        SCOPED_TRACE(acecode::compact_summary_rejection_reason(response));
+        ChatStubProvider provider;
+        provider.prefix_capability = true;
+        provider.responses = {response, ChatStubProvider::response("Valid summary.")};
+        acecode::CompactRequestPrefix prefix{
+            {msg("system", "main prefix"), msg("user", "history")},
+            {{"probe", "probe", {{"type", "object"}}}}};
+        prefix.request_options.prompt_cache_key = "retry-session-key";
+        auto result = acecode::compact_messages(provider, {msg("user", "history")},
+            {msg("system", "legacy context")}, false, nullptr, {}, &prefix);
+        ASSERT_TRUE(result.performed) << result.error;
+        ASSERT_EQ(provider.calls.size(), 2u);
+        EXPECT_EQ(provider.prefix_calls, 1);
+        EXPECT_EQ(provider.call_options[0].prompt_cache_key, "retry-session-key");
+        EXPECT_EQ(provider.call_options[1].prompt_cache_key, "retry-session-key");
+        EXPECT_TRUE(provider.call_options[0].for_compaction);
+        EXPECT_FALSE(provider.call_options[1].for_compaction);
+        ASSERT_EQ(provider.tool_tables[0].size(), 1u);
+        EXPECT_TRUE(provider.tool_tables[1].empty());
+        EXPECT_EQ(provider.calls[1].front().content, "main prefix");
+        EXPECT_EQ(provider.calls[1].back().content,
+            acecode::get_compact_prompt() + "\n\n" + acecode::get_compact_invalid_summary_reminder());
+        EXPECT_EQ(result.summary_text, "Valid summary.");
+        EXPECT_EQ(result.compaction_request_items_removed, 0);
+    }
+}
+
+TEST(CompactCore, LegacyProviderKeepsFrozenSnapshotOnceThroughOverflowPruning) {
+    ChatStubProvider provider;
+    provider.responses.push_back(provider_error_response(acecode::ProviderErrorKind::Http,
+        400, "maximum context length exceeded", false));
+    auto snapshot = msg("user", "frozen project rules and checklist");
+    snapshot.is_meta = true;
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.metadata = {{"request_context_version", 1}, {"skills", "frozen skills"}};
+    auto rebuilt_skills = msg("system", "new uncommitted skills");
+    rebuilt_skills.metadata = {{"request_local_skill_context", true}};
+    auto result = acecode::compact_messages(provider,
+        {msg("user", "old input"), snapshot, msg("assistant", "old reply")},
+        {msg("system", "base system"), rebuilt_skills, msg("user", "duplicate rebuilt context")});
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 2u);
+    for (const auto& request : provider.calls) {
+        EXPECT_EQ(request[0].content, "base system");
+        EXPECT_EQ(request[1].content, "frozen skills");
+        EXPECT_EQ(request[2].content, snapshot.content);
+        EXPECT_EQ(std::count_if(request.begin(), request.end(), [&](const acecode::ChatMessage& item) {
+            return item.content == snapshot.content;
+        }), 1);
+        EXPECT_FALSE(std::any_of(request.begin(), request.end(), [](const acecode::ChatMessage& item) {
+            return item.content == "duplicate rebuilt context" || item.content == "new uncommitted skills";
+        }));
+    }
+    EXPECT_EQ(provider.calls[1][3].content, "old reply");
+    EXPECT_EQ(result.compaction_request_items_removed, 1);
+}
+
+TEST(CompactCore, PrefixOverflowTriesToolFreeRequestBeforePruningHistory) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    const auto overflow = provider_error_response(acecode::ProviderErrorKind::Http, 400,
+        "maximum context length exceeded", false);
+    provider.responses = {overflow, overflow, ChatStubProvider::response("Valid summary.")};
+    const std::vector<acecode::ChatMessage> history{
+        msg("user", "old input"), msg("assistant", "old reply"), msg("user", "latest")};
+    acecode::CompactRequestPrefix prefix{history, {{"probe", "probe", {}}}};
+    prefix.messages.insert(prefix.messages.begin(), msg("system", "legacy context"));
+    auto result = acecode::compact_messages(provider, history,
+        {msg("system", "legacy context")}, false, nullptr, {}, &prefix);
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 3u);
+    EXPECT_EQ(provider.prefix_calls, 1);
+    EXPECT_EQ(provider.calls[1][1].content, "old input");
+    EXPECT_EQ(provider.calls[2][1].content, "old reply");
+    EXPECT_EQ(result.compaction_request_items_removed, 1);
+    EXPECT_TRUE(provider.tool_tables[1].empty());
+    EXPECT_TRUE(provider.tool_tables[2].empty());
+}
+
+TEST(CompactCore, ExplicitUnsupportedToolFieldsFallBackButOtherErrorsRemainErrors) {
+    struct Case { int status; const char* message; bool fallback; };
+    const Case cases[] = {
+        {400, "unknown field tool_choice", true},
+        {422, "tools are not supported", true},
+        {401, "tools are not supported for this credential", false},
+        {400, "invalid tools JSON schema", false},
+        {400, "unknown field unrelated_parameter", false},
+    };
+    for (const auto& item : cases) {
+        SCOPED_TRACE(item.message);
+        ChatStubProvider provider;
+        provider.prefix_capability = true;
+        provider.responses.push_back(provider_error_response(acecode::ProviderErrorKind::Http,
+            item.status, item.message, false));
+        acecode::CompactRequestPrefix prefix{
+            {msg("user", "history")}, {{"probe", "probe", {}}}};
+        auto result = acecode::compact_messages(provider, prefix.messages, {},
+            false, nullptr, {}, &prefix);
+        EXPECT_EQ(result.performed, item.fallback);
+        EXPECT_EQ(provider.calls.size(), item.fallback ? 2u : 1u);
+        EXPECT_EQ(provider.prefix_calls, 1);
+        if (item.fallback) EXPECT_TRUE(provider.tool_tables.back().empty());
+    }
+}
+
+TEST(CompactCore, TransientFailureRetriesIdenticalPrefixAndCancellationPreventsFallback) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    provider.responses.push_back(provider_error_response(acecode::ProviderErrorKind::Http,
+        429, "rate limited", true, {}, 0));
+    acecode::CompactRequestPrefix prefix{
+        {msg("system", "main system"), msg("user", "history")}, {{"probe", "probe", {}}}};
+    auto result = acecode::compact_messages(provider, {msg("user", "history")}, {},
+        false, nullptr, {}, &prefix);
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 2u);
+    EXPECT_EQ(provider.prefix_calls, 2);
+    expect_same_request(provider.calls[0], provider.calls[1]);
+    EXPECT_EQ(provider.tool_tables[0].size(), provider.tool_tables[1].size());
+    EXPECT_EQ(result.compaction_request_retries, 1);
+
+    ChatStubProvider cancelled;
+    cancelled.prefix_capability = true;
+    cancelled.responses.push_back(provider_error_response(acecode::ProviderErrorKind::Http,
+        429, "rate limited", true, {}, 0));
+    std::atomic<bool> abort{false};
+    auto cancelled_result = acecode::compact_messages(cancelled, prefix.messages, {},
+        false, &abort, [&abort](const acecode::ProviderErrorInfo&, bool waiting) {
+            if (waiting) abort.store(true);
+        }, &prefix);
+    EXPECT_FALSE(cancelled_result.performed);
+    EXPECT_EQ(cancelled_result.error, "Compaction cancelled.");
+    EXPECT_EQ(cancelled.calls.size(), 1u);
+    EXPECT_EQ(cancelled.prefix_calls, 1);
+    EXPECT_TRUE(cancelled_result.compacted_messages.empty());
+}
 
 // 注意:这里比较的是 get_compact_prompt() 的返回值。提示词从 fix-feedback-0924
 // 起在末尾有意偏离 Codex 原文(追加「Output requirements」一段,禁止调工具 /

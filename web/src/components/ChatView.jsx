@@ -209,7 +209,8 @@ import {
   sessionModelReloadFeedback,
   withCreateSessionPreferences,
 } from '../lib/sessionModel.js';
-import { composerReasoningOptions } from '../lib/modelReasoning.js';
+import { composerReasoningOptions, nextReasoningEffort } from '../lib/modelReasoning.js';
+import { useAppShortcuts } from '../lib/useAppShortcuts.js';
 import { requestSavedModelReasoningSync } from '../lib/modelReasoningSync.js';
 import { normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
 import { ATTACHMENT_HARD_LIMIT_BYTES, normalizeImageFile } from '../lib/imageNormalize.js';
@@ -284,6 +285,7 @@ import {
   closeAgentBrowserPage,
   createAgentBrowserPage,
   hasNativeAgentBrowser,
+  runAgentBrowserBridgeAction,
   selectAgentBrowserPage,
 } from '../lib/agentBrowser.js';
 import {
@@ -4086,6 +4088,28 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
   }, [api, composerSubmitting, homeModelName, homeReasoningEffort, homeSubmitting, modelOptions, modelRefreshing, modelState, modelSwitching, reasoningSwitching, sid]);
 
+  const reasoningShortcutPending = useRef(false);
+  const shortcutComposerVisible = () => !!inputRef.current?.getElement()?.getClientRects().length
+    && !questionForView && permissionRequests.length === 0;
+  const stepReasoning = (direction) => {
+    if (!shortcutComposerVisible()) return false;
+    if (reasoningShortcutPending.current) return;
+    const model = sid ? modelState : modelOptions.find((option) => option.name === homeModelName);
+    const effort = nextReasoningEffort(model, direction, sid ? undefined : homeReasoningEffort);
+    if (!effort) return;
+    reasoningShortcutPending.current = true;
+    void changeComposerReasoning(effort).finally(() => { reasoningShortcutPending.current = false; });
+  };
+  useAppShortcuts({
+    focusInput: () => { if (!shortcutComposerVisible()) return false; inputRef.current.focus(); },
+    stop: () => {
+      if (!shortcutComposerVisible() || !busy || abortPending) return false;
+      stopCurrentWork();
+    },
+    reasoningUp: () => stepReasoning(1),
+    reasoningDown: () => stepReasoning(-1),
+  });
+
   const switchHomeDefaultPermissionMode = useCallback(async (mode) => {
     const nextMode = normalizePermissionMode(mode);
     const previousMode = normalizePermissionMode(permissionMode);
@@ -5440,17 +5464,36 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
   }, [onRevealPreviewPanel, previewScope, selectPreview, sid]);
 
-  const openBrowserPreview = useCallback(async () => {
-    if (!sid || !hasNativeAgentBrowser()) return;
-    if (!await requestActiveFileLeave()) return;
-    const created = await createAgentBrowserPage(agentBrowserOwnerForSession(ref));
-    if (created?.ok === false || !created?.page_id) return;
-    if (sidRef.current !== sid) return;
-    showBrowserPage(
-      created.page_id,
-      created.title || defaultBrowserTabTitle(),
-      created.favicon,
-    );
+  const browserOpenPendingRef = useRef(false);
+  const openBrowserPreview = useCallback(async (url = '') => {
+    if (!sid || !hasNativeAgentBrowser() || browserOpenPendingRef.current) return;
+    browserOpenPendingRef.current = true;
+    try {
+      if (!await requestActiveFileLeave() || sidRef.current !== sid) return;
+      const created = await createAgentBrowserPage(agentBrowserOwnerForSession(ref));
+      if (created?.ok === false || !created?.page_id) {
+        throw new Error(created?.error || '浏览器操作失败');
+      }
+      if (sidRef.current !== sid) {
+        await closeAgentBrowserPage(created.page_id);
+        return;
+      }
+      showBrowserPage(
+        created.page_id,
+        created.title || defaultBrowserTabTitle(),
+        created.favicon,
+      );
+      if (typeof url === 'string' && url) {
+        const navigated = await runAgentBrowserBridgeAction('aceDesktop_agentBrowserNavigate', {
+          page_id: created.page_id, url,
+        });
+        if (navigated?.ok === false) throw new Error(navigated.error || '浏览器操作失败');
+      }
+    } catch (error) {
+      toast({ kind: 'err', text: error?.message || '浏览器操作失败' });
+    } finally {
+      browserOpenPendingRef.current = false;
+    }
   }, [ref, requestActiveFileLeave, showBrowserPage, sid]);
 
   // 切会话时向 Desktop 对账一次 native 页面池;事件流已经在 App 级持续镜像。
@@ -5724,6 +5767,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               ) : (
                 <InputBar
                   ref={inputRef}
+                  mainComposer
                   variant="hero"
                   attentionRequest={homeComposerAttentionRequest}
                   pathReferenceApi={api}
@@ -6272,6 +6316,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             <>
           <InputBar
             ref={inputRef}
+            mainComposer
             pathReferenceApi={api}
             currentSessionId={sid}
             cwd={sidePanelCwd}

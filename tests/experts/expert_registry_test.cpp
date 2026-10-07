@@ -6,6 +6,7 @@
 #include "prompt/system_prompt.hpp"
 #include "session_host/session_registry.hpp"
 #include "session/session_storage.hpp"
+#include "session/request_context_record.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
 #include "skills/skill_command_expander.hpp"
@@ -1498,10 +1499,10 @@ TEST(ExpertRegistry,
         }
         return result;
     };
-    const std::string first_request =
-        request_text(provider->messages_for_turn(0));
-    const std::string second_request =
-        request_text(provider->messages_for_turn(1));
+    const auto first_messages = provider->messages_for_turn(0);
+    const auto second_messages = provider->messages_for_turn(1);
+    const std::string first_request = request_text(first_messages);
+    const std::string second_request = request_text(second_messages);
     EXPECT_NE(first_request.find("Review code carefully."),
               std::string::npos);
     EXPECT_NE(first_request.find("review-skill"), std::string::npos);
@@ -1509,7 +1510,36 @@ TEST(ExpertRegistry,
     EXPECT_NE(second_request.find("Write the requested implementation."),
               std::string::npos);
     EXPECT_NE(second_request.find("write-skill"), std::string::npos);
-    EXPECT_EQ(second_request.find("review-skill"), std::string::npos);
+
+    // Explicit tool-policy changes rebuild the first system message. Frozen
+    // skills, persisted context and conversation entries remain unchanged;
+    // replacement expert sections are appended at the queued boundary.
+    ASSERT_FALSE(first_messages.empty());
+    ASSERT_GT(second_messages.size(), first_messages.size());
+    EXPECT_EQ(first_messages.front().role, "system");
+    EXPECT_EQ(second_messages.front().role, "system");
+    for (std::size_t i = 1; i < first_messages.size(); ++i) {
+        EXPECT_EQ(second_messages[i].role, first_messages[i].role) << i;
+        EXPECT_EQ(second_messages[i].content, first_messages[i].content) << i;
+        EXPECT_EQ(second_messages[i].content_parts, first_messages[i].content_parts) << i;
+    }
+    const auto updated = std::find_if(
+        second_messages.begin() + first_messages.size(), second_messages.end(),
+        [](const acecode::ChatMessage& message) {
+            return acecode::is_request_context_record(message) &&
+                message.subtype == acecode::kRequestContextUpdate &&
+                message.metadata.contains("context_state") &&
+                message.metadata["context_state"].contains("session") &&
+                message.metadata["context_state"].contains("skills");
+        });
+    ASSERT_NE(updated, second_messages.end());
+    const auto& updated_state = updated->metadata["context_state"];
+    const auto updated_session = updated_state["session"].get<std::string>();
+    const auto updated_skills = updated_state["skills"].get<std::string>();
+    EXPECT_NE(updated_session.find("Write the requested implementation."), std::string::npos);
+    EXPECT_EQ(updated_session.find("Review code carefully."), std::string::npos);
+    EXPECT_NE(updated_skills.find("write-skill"), std::string::npos);
+    EXPECT_EQ(updated_skills.find("review-skill"), std::string::npos);
 
     EXPECT_EQ(entry->expert_id, "writer");
     EXPECT_EQ(entry->sm->current_input_draft(), "writer draft");

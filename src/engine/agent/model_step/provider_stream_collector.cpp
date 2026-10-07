@@ -273,8 +273,8 @@ ProviderCallResult ProviderStreamCollector::collect(
             "model_waiting", "正在等待模型响应",
             std::string{}, std::string{}, std::string{}, -1, true);
         agent::ActiveProviderScope active_provider(active_provider_, provider);
-        provider->chat_stream(bundle.messages_with_system, bundle.tool_defs,
-                              stream_callback, &abort_.flag_for_legacy_api());
+        provider->chat_stream_with_options(bundle.messages_with_system, bundle.tool_defs,
+                              bundle.request_options, stream_callback, &abort_.flag_for_legacy_api());
         active_provider.reset();
         call.lifetime.revoke();
         // 流结束:把扫描器扣住的字节结清(半截开标签按正文放行,没闭合的标签

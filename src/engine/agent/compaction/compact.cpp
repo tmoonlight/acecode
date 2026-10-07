@@ -3,6 +3,7 @@
 #include "compact_prompt.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_history_recovery.hpp"
+#include "session/request_context_record.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "pa/pa_quirks.hpp"
 #include "provider/text_tool_call_recovery.hpp"
@@ -37,6 +38,17 @@ bool contains_any(const std::string& haystack,
 std::string provider_error_search_text(const acecode::ProviderErrorInfo& info) {
     return ascii_lower(info.display_message + "\n" + info.raw_body + "\n" +
                        info.pretty_json);
+}
+
+bool compaction_tools_rejected(const acecode::ProviderErrorInfo& info) {
+    if (info.kind != acecode::ProviderErrorKind::Http ||
+        (info.status_code != 400 && info.status_code != 422)) return false;
+    const auto text = provider_error_search_text(info);
+    return contains_any(text, {"tool_choice", "tools"}) &&
+           contains_any(text, {"unsupported", "not supported", "does not support",
+                               "unknown", "unrecognized", "not allowed",
+                               "not permitted", "unexpected", "extra inputs",
+                               "extra fields", "extra_forbidden"});
 }
 
 bool has_context_overflow_code(const nlohmann::json& value) {
@@ -383,9 +395,14 @@ void insert_context_before_last_real_user_or_summary(
 }
 
 std::string compact_summary_rejection_reason(const ChatResponse& response) {
-    // 压缩请求不带工具表,仍有模型(实测 dots3)接着历史里的 tool_calls「做下一步」:
+    // 即使禁止调用工具,仍有模型接着历史里的 tool_calls「做下一步」:
     // 要么真的回原生 tool_calls,要么把调用写成正文。两种都不是摘要,绝不能落盘。
     if (response.has_tool_calls()) return "tool_calls";
+    // Providers can remove invalid textual calls from the visible body. Their
+    // diagnostic must still reject a contaminated reply that retains prose.
+    if (response.text_tool_calls.outcome != TextToolCallDiagnostic::Outcome::None) {
+        return "tool_call_markup";
+    }
     const bool blank = std::all_of(
         response.content.begin(), response.content.end(), [](char c) {
             return std::isspace(static_cast<unsigned char>(c)) != 0;
@@ -404,7 +421,8 @@ CompactResult compact_messages(
     const std::vector<ChatMessage>& initial_context,
     bool is_auto,
     std::atomic<bool>* abort_flag,
-    CompactRetryCallback on_retry) {
+    CompactRetryCallback on_retry,
+    const CompactRequestPrefix* request_prefix) {
     CompactResult result;
     const std::vector<ChatMessage> original_history =
         normalize_messages_for_api(messages);
@@ -412,6 +430,44 @@ CompactResult compact_messages(
     // 被总结的模型同样不该看到旧的文本工具调用样本(与主请求同一套清洗),
     // 否则 dots 这类模型会接着把调用写进摘要(yubo2 现场)。
     sanitize_text_tool_call_history(request_history, get_compact_summary_prefix());
+    std::vector<ChatMessage> stable_context = normalize_messages_for_api(initial_context);
+    const bool projected_prefix = request_prefix && !request_prefix->messages.empty();
+    bool reuse_prefix = projected_prefix && provider.supports_compaction_prefix_reuse();
+    if (projected_prefix) {
+        // The tool-free retry keeps the same frozen window and model-facing
+        // history. Rebuilding initial_context would duplicate the persisted
+        // snapshot and could reintroduce different skill/context bytes. The
+        // same projection is required for legacy providers after memory off;
+        // capability only controls whether tool schemas accompany the input.
+        const auto history_begin = std::find_if_not(request_prefix->messages.begin(),
+            request_prefix->messages.end(), [](const ChatMessage& message) {
+                return message.role == "system" || is_request_context_snapshot(message);
+            });
+        stable_context.assign(request_prefix->messages.begin(), history_begin);
+        request_history.assign(history_begin, request_prefix->messages.end());
+    } else if (const auto snapshot = std::find_if(request_history.begin(), request_history.end(),
+                                                 is_request_context_snapshot);
+               snapshot != request_history.end()) {
+        // Legacy providers retain their native-name history path. Persisted
+        // window context replaces the separately rebuilt user context.
+        stable_context.erase(std::remove_if(stable_context.begin(), stable_context.end(),
+            [](const ChatMessage& message) {
+                return message.role != "system" ||
+                       (message.metadata.is_object() &&
+                        message.metadata.value("request_local_skill_context", false));
+            }),
+            stable_context.end());
+        const auto skill_index = snapshot->metadata.value("skills", std::string{});
+        if (!skill_index.empty()) {
+            ChatMessage skill_system;
+            skill_system.role = "system";
+            skill_system.content = skill_index;
+            stable_context.push_back(std::move(skill_system));
+        }
+        stable_context.push_back(*snapshot);
+        request_history.erase(std::remove_if(request_history.begin(), request_history.end(),
+                                             is_request_context_snapshot), request_history.end());
+    }
 
     if (provider.supports_native_compaction()) {
         LOG_WARN("Provider advertises native compaction but the active LlmProvider contract "
@@ -420,13 +476,14 @@ CompactResult compact_messages(
 
     LOG_INFO("Compact start; trigger=" + compact_trigger_name(is_auto) +
              " history_items=" + std::to_string(original_history.size()) +
-             " initial_context_items=" + std::to_string(initial_context.size()));
+             " initial_context_items=" + std::to_string(stable_context.size()));
 
     std::string summary_suffix;
     std::uint64_t transient_retries = 0;
     // 与上下文溢出、瞬时错误的重试互不共享计数。
     int invalid_summary_retries = 0;
     int overflow_retries = 0;
+    const std::vector<ToolDef> no_tools;
     for (;;) {
         if (abort_flag && abort_flag->load()) {
             result.error = "Compaction cancelled.";
@@ -434,10 +491,13 @@ CompactResult compact_messages(
         }
 
         std::vector<ChatMessage> request;
-        request.reserve(initial_context.size() + request_history.size() + 1);
-        auto stable_context = normalize_messages_for_api(initial_context);
-        request.insert(request.end(), stable_context.begin(), stable_context.end());
-        request.insert(request.end(), request_history.begin(), request_history.end());
+        if (reuse_prefix) {
+            request = request_prefix->messages;
+        } else {
+            request.reserve(stable_context.size() + request_history.size() + 1);
+            request.insert(request.end(), stable_context.begin(), stable_context.end());
+            request.insert(request.end(), request_history.begin(), request_history.end());
+        }
 
         ChatMessage prompt;
         prompt.role = "user";
@@ -455,7 +515,11 @@ CompactResult compact_messages(
                      std::to_string(request_history.size()) +
                      " removed_items=" +
                      std::to_string(result.compaction_request_items_removed));
-            ChatResponse response = provider.chat(request, {});
+            auto request_options = request_prefix ? request_prefix->request_options
+                                                  : ChatRequestOptions{};
+            request_options.for_compaction = reuse_prefix;
+            ChatResponse response = provider.chat_with_options(request,
+                reuse_prefix ? request_prefix->tools : no_tools, request_options, abort_flag);
 
             if (abort_flag && abort_flag->load()) {
                 result.error = "Compaction cancelled.";
@@ -467,6 +531,16 @@ CompactResult compact_messages(
                 const bool context_overflow = has_structured_error
                     ? is_context_overflow_error(response.provider_error)
                     : is_context_overflow_error(response.content);
+                if (reuse_prefix && (context_overflow ||
+                                     compaction_tools_rejected(response.provider_error))) {
+                    // Removing the schemas may itself make the request fit.
+                    // Preserve every history item until the legacy path also
+                    // reports an overflow, then apply its existing pruning.
+                    reuse_prefix = false;
+                    transient_retries = 0;
+                    LOG_WARN("Compact prefix request rejected; retrying without tools");
+                    continue;
+                }
                 if (context_overflow &&
                     !request_history.empty()) {
                     const int removed = shrink_history_for_overflow(
@@ -542,6 +616,7 @@ CompactResult compact_messages(
                          truncate_utf8_prefix(response.content, 300));
                 if (invalid_summary_retries < kMaxInvalidCompactSummaryRetries) {
                     ++invalid_summary_retries;
+                    reuse_prefix = false;
                     continue;
                 }
                 // 不安装任何摘要:自动压缩由 AgentLoop 现有的丢弃最旧历史兜底接手。
@@ -556,6 +631,12 @@ CompactResult compact_messages(
             break;
         } catch (const std::exception& error) {
             const std::string message = error.what();
+            if (reuse_prefix && is_context_overflow_error(message)) {
+                reuse_prefix = false;
+                transient_retries = 0;
+                LOG_WARN("Compact prefix exceeded context; retrying without tools");
+                continue;
+            }
             if (is_context_overflow_error(message) && !request_history.empty()) {
                 const int removed = shrink_history_for_overflow(
                     request_history, ++overflow_retries);

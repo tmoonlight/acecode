@@ -7,6 +7,7 @@
 #include "hooks/hook_manager.hpp"
 #include "hooks/hook_runtime.hpp"
 #include "permissions/permissions.hpp"
+#include "session/request_context_record.hpp"
 #include "tool/tool_executor.hpp"
 #include "test_support/agent/stub_provider.hpp"
 
@@ -208,6 +209,18 @@ acecode::HookProcessResult hook_json(const std::string& json) {
     return r;
 }
 
+std::size_t hook_context_occurrences(const std::vector<acecode::ChatMessage>& messages,
+                                     const std::string& context) {
+    std::size_t count = 0;
+    for (const auto& message : messages) {
+        for (auto pos = message.content.find(context); pos != std::string::npos;
+             pos = message.content.find(context, pos + context.size())) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 } // namespace
 
 TEST(HookAgentLoop, DispatchesAssistantCompletedAfterTextMessageCommit) {
@@ -330,65 +343,83 @@ TEST(HookAgentLoop, UserPromptSubmitBlockPreventsPersistenceAndProviderCall) {
         terminal_events->busy["usage"], terminal_events->done["usage"]);
 }
 
-TEST(HookAgentLoop, UserPromptSubmitAdditionalContextReachesNextRequestOnly) {
+TEST(HookAgentLoop, UserPromptSubmitAdditionalContextPersistsOncePerHookEvent) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_tool_call("probe", R"({"value":"first"})", "hook-probe-first");
     provider->push_text("done");
-
-
+    std::atomic<int> hook_calls{0};
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
             "prompt-context", acecode::kCodexHookEventUserPromptSubmit)}),
         acecode::HookProcessRunner{},
-        [](const std::string&, const std::string&, int, const std::string&) {
+        [&hook_calls](const std::string&, const std::string&, int, const std::string&) {
+            ++hook_calls;
             return hook_json(R"({"hookSpecificOutput":{"additionalContext":"hook context value"}})");
         });
     LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
-
-
+    h.tools.register_tool(make_probe_tool("probe", true, nullptr));
     ASSERT_TRUE(h.submit_and_wait("hello"));
-    ASSERT_EQ(provider->turn_count(), 1);
-    auto request = provider->messages_for_turn(0);
-    bool request_has_context = false;
-    for (const auto& msg : request) {
+    ASSERT_EQ(provider->turn_count(), 2);
+    EXPECT_EQ(hook_calls.load(), 1);
+    for (int request : {0, 1}) {
+        EXPECT_EQ(hook_context_occurrences(provider->messages_for_turn(request), "hook context value"), 1u);
+    }
+    EXPECT_EQ(hook_context_occurrences(h.loop->messages(), "hook context value"), 1u);
+    for (const auto& msg : h.loop->messages()) {
         if (msg.content.find("hook context value") != std::string::npos) {
-            request_has_context = true;
+            EXPECT_TRUE(acecode::is_request_context_record(msg));
         }
     }
-    EXPECT_TRUE(request_has_context);
-    for (const auto& msg : h.loop->messages()) {
-        EXPECT_EQ(msg.content.find("hook context value"), std::string::npos);
+
+    // A new user event may return the same text again. Each event contributes
+    // exactly one durable row; another model step must not reinject either.
+    provider->push_tool_call("probe", R"({"value":"second"})", "hook-probe-second");
+    provider->push_text("done again");
+    ASSERT_TRUE(h.submit_and_wait("another request"));
+    ASSERT_EQ(provider->turn_count(), 4);
+    EXPECT_EQ(hook_calls.load(), 2);
+    for (int request : {2, 3}) {
+        EXPECT_EQ(hook_context_occurrences(provider->messages_for_turn(request), "hook context value"), 2u);
     }
+    EXPECT_EQ(hook_context_occurrences(h.loop->messages(), "hook context value"), 2u);
 }
 
-TEST(HookAgentLoop, SessionStartAdditionalContextReachesNextRequestOnly) {
+TEST(HookAgentLoop, SessionStartAdditionalContextPersistsAcrossRequestsWithoutReinjection) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->push_tool_call("probe", R"({"value":"first"})", "session-hook-probe");
     provider->push_text("done");
-
-
+    std::atomic<int> hook_calls{0};
     acecode::HookManager hooks(
         registry_with({make_codex_hook(
             "session-context", acecode::kCodexHookEventSessionStart, "startup")}),
         acecode::HookProcessRunner{},
-        [](const std::string&, const std::string&, int, const std::string&) {
+        [&hook_calls](const std::string&, const std::string&, int, const std::string&) {
+            ++hook_calls;
             return hook_json(R"({"hookSpecificOutput":{"additionalContext":"session hook context"}})");
         });
     LoopHarness h(provider, acecode::PermissionResult::Deny, &hooks);
-
+    h.tools.register_tool(make_probe_tool("probe", true, nullptr));
     h.loop->dispatch_session_start_hook("startup");
 
     ASSERT_TRUE(h.submit_and_wait("hello"));
-    ASSERT_EQ(provider->turn_count(), 1);
-    auto request = provider->messages_for_turn(0);
-    bool request_has_context = false;
-    for (const auto& msg : request) {
+    ASSERT_EQ(provider->turn_count(), 2);
+    EXPECT_EQ(hook_calls.load(), 1);
+    for (int request : {0, 1}) {
+        EXPECT_EQ(hook_context_occurrences(provider->messages_for_turn(request), "session hook context"), 1u);
+    }
+    EXPECT_EQ(hook_context_occurrences(h.loop->messages(), "session hook context"), 1u);
+    for (const auto& msg : h.loop->messages()) {
         if (msg.content.find("session hook context") != std::string::npos) {
-            request_has_context = true;
+            EXPECT_TRUE(acecode::is_request_context_record(msg));
         }
     }
-    EXPECT_TRUE(request_has_context);
-    for (const auto& msg : h.loop->messages()) {
-        EXPECT_EQ(msg.content.find("session hook context"), std::string::npos);
-    }
+
+    provider->push_text("later response");
+    ASSERT_TRUE(h.submit_and_wait("later user turn"));
+    ASSERT_EQ(provider->turn_count(), 3);
+    EXPECT_EQ(hook_calls.load(), 1);
+    EXPECT_EQ(hook_context_occurrences(provider->messages_for_turn(2), "session hook context"), 1u);
+    EXPECT_EQ(hook_context_occurrences(h.loop->messages(), "session hook context"), 1u);
 }
 
 TEST(HookAgentLoop, PreToolUseDenySkipsToolExecution) {

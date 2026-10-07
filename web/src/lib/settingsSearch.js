@@ -20,6 +20,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['appearance', '字体大小', 'font size'],
     ['appearance', '显示任务时间', 'sidebar task time timestamp'],
     ['appearance', '消息自动折叠', '会话 conversation messages auto collapse fold expand tools'],
+    ['shortcuts', '搜索快捷键', 'keyboard shortcuts hotkeys 快捷键 键盘 搜索 前进 后退 思维深度 Ctrl Alt Cmd'],
     ['config', '升级服务 URL', 'upgrade update service url'],
     ['config', 'Python 工具', 'python uv ruff mypy path directory'],
     ['config', 'Node.js 工具', 'node nodejs npm pnpm tsx path directory'],

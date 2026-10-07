@@ -3,19 +3,16 @@
 // 这是唯一的定义点 —— App.jsx 的全局监听、TopBar / 快捷菜单里的提示文案、
 // 控制台(xterm)的放行名单都从这里取,改键位只改这一个文件。
 
-import { matchShortcut } from './useGlobalShortcut.js';
+import { APP_SHORTCUTS, matchAppShortcut } from './appShortcuts.js';
 
-export const SEARCH_PALETTE_SHORTCUT = Object.freeze({ key: 'k', ctrl: true, meta: true });
+export const SEARCH_PALETTE_SHORTCUT = Object.freeze({ key: APP_SHORTCUTS.search.key.toLowerCase(), ctrl: true, meta: true });
 
 // 判定 keydown 是否为搜索面板快捷键。
 // - Ctrl 与 ⌘ 任一即可(matchShortcut 的 ctrl/meta 语义),Alt / Shift 额外按下不算。
 // - 兼容 e.code === 'KeyK':非拉丁键盘布局(如俄语)或部分输入法下 e.key 不是 'k',
 //   但物理键位不变 —— 与 Ctrl+` 用 e.code 兜底是同一个理由。
 export function isSearchPaletteShortcut(event) {
-  if (!event || event.altKey || event.shiftKey) return false;
-  if (matchShortcut(event, SEARCH_PALETTE_SHORTCUT)) return true;
-  if (!event.ctrlKey && !event.metaKey) return false;
-  return event.code === 'KeyK';
+  return matchAppShortcut(event) === 'search';
 }
 
 function isMacHost(win) {

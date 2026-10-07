@@ -20,6 +20,7 @@
 #include "hooks/hook_runtime.hpp"
 #include "prompt/system_prompt.hpp"
 #include "session/compact_checkpoint.hpp"
+#include "session/request_context_record.hpp"
 #include "session_host/local_session_client.hpp"
 #include "session/session_manager.hpp"
 #include "session_host/session_registry.hpp"
@@ -2677,6 +2678,49 @@ TEST(SessionRegistry, ResumeDiskSessionUsesCompactCheckpointForLoopHistory) {
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
+}
+
+TEST(SessionRegistry, ResumeSkipsInvalidInternalRequestMetadataBeforeTypedReads) {
+    const auto cwd = temp_cwd("resume_context_metadata");
+    const auto project_dir = SessionStorage::get_project_dir(cwd.string());
+    acecode::ScopeExit cleanup([cwd, project_dir] {
+        std::error_code ec;
+        std::filesystem::remove_all(project_dir, ec);
+        std::filesystem::remove_all(cwd, ec);
+    });
+    const auto id = SessionStorage::generate_session_id();
+    auto snapshot = registry_msg("user", "valid internal context");
+    snapshot.is_meta = true;
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.metadata = {{"request_context_version", 1}};
+    auto damaged = snapshot;
+    damaged.subtype = acecode::kRequestContextUpdate;
+    damaged.metadata["transcript_only"] = "false";
+    auto future = snapshot;
+    future.metadata["request_context_version"] = 2;
+    const auto user = registry_msg("user", "visible task");
+    {
+        acecode::SessionManager writer;
+        writer.start_session(cwd.string(), "stub", "stub-model", id);
+        writer.on_message(user);
+        acecode::CompactCheckpoint checkpoint;
+        checkpoint.replacement_history = {snapshot, user, damaged};
+        ASSERT_TRUE(writer.append_compact_checkpoint(checkpoint));
+        writer.on_message(future);
+        writer.finalize();
+    }
+    TestFixture fixture;
+    SessionOptions options;
+    options.cwd = cwd.string();
+    bool resumed = false;
+    ASSERT_NO_THROW(resumed = fixture.registry.resume(id, options));
+    ASSERT_TRUE(resumed);
+    const auto entry = fixture.registry.acquire(id);
+    ASSERT_TRUE(entry);
+    ASSERT_EQ(entry->loop->messages().size(), 2u);
+    EXPECT_TRUE(acecode::is_request_context_snapshot(entry->loop->messages()[0]));
+    EXPECT_EQ(entry->loop->messages()[1].content, user.content);
+    EXPECT_EQ(entry->sm->load_active_messages().size(), 3u);
 }
 
 // 场景: daemon resume 历史会话时,若 meta.model_preset 指向已删除 saved model,

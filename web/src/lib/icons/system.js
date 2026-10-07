@@ -28,6 +28,10 @@ const info = [
 ];
 
 export const systemIcons = {
+  Keyboard: [
+    ['rect', { x: 2.5, y: 5, width: 15, height: 10, rx: 1.5 }],
+    ['path', { d: 'M5.5 8h1m3 0h1m3 0h1M5.5 10.5h1m3 0h1m3 0h1M6.5 13h7' }],
+  ],
   Alarm: [
     ['circle', { cx: 10, cy: 10.8, r: 5.9 }],
     ['path', { d: 'M10 7.4V10.5Q10 10.8 10.3 11L12.2 12.2M3.1 5.5L5.1 3.5M14.9 3.5L16.9 5.5M5.5 15.3L4.3 17M14.5 15.3L15.7 17' }],

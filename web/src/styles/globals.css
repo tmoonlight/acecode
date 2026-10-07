@@ -1805,8 +1805,7 @@ body {
   flex-shrink: 0;
 }
 .ace-topbar-navigation,
-.ace-topbar-controls,
-.ace-topbar-update-button {
+.ace-topbar-controls {
   /* Keep controls aligned with native macOS lights when a long directory wraps. */
   align-self: flex-start;
   margin-top: 3px;
@@ -1836,9 +1835,6 @@ body {
 }
 .ace-topbar .ace-session-title-actions > button {
   width: var(--ace-topbar-control-size);
-  height: var(--ace-topbar-control-size);
-}
-.ace-topbar-update-button {
   height: var(--ace-topbar-control-size);
 }
 .ace-topbar .ace-window-control {

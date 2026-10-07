@@ -339,11 +339,10 @@ bool SessionManager::ensure_created() {
     return true;
 }
 
-void SessionManager::on_message(const ChatMessage& msg) {
+bool SessionManager::try_on_message(const ChatMessage& msg) {
     std::lock_guard<std::mutex> lk(mu_);
-    if (!started_) return;
-
-    if (!ensure_created()) return;
+    last_error_.clear();
+    if (!started_ || !ensure_created()) return false;
 
     const int message_ordinal = message_count_;
     const auto before_index_signature =
@@ -353,7 +352,7 @@ void SessionManager::on_message(const ChatMessage& msg) {
     if (!SessionStorage::append_message(jsonl_path_, msg)) {
         last_error_ = "failed to append session message";
         LOG_WARN("[session] " + last_error_ + " session=" + session_id_);
-        return;
+        return false;
     }
     message_count_++;
     if (is_visible_user_turn_message(msg)) {
@@ -381,6 +380,7 @@ void SessionManager::on_message(const ChatMessage& msg) {
     }
 
     update_meta(SessionStorage::now_iso8601());
+    return true;
 }
 
 bool SessionManager::replace_active_messages(const std::vector<ChatMessage>& messages) {

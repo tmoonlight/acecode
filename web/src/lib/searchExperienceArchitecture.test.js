@@ -68,17 +68,18 @@ run('settings hits in the palette reuse the settings window index and never call
 });
 
 run('the search palette shortcut has a single definition shared by every surface', () => {
-  // Ctrl+K 的判定只在 lib/searchPaletteShortcut.js:App 的全局监听、TopBar 提示、
+  // Ctrl+K 的判定统一在 lib/appShortcuts.js:App 的全局监听、TopBar 提示、
   // 快捷菜单 kbd、控制台(xterm)放行都引用它,不能各自再写一遍 e.key === 'k'。
   const app = source('App.jsx');
   const topBar = source('components/TopBar.jsx');
   const consoleDock = source('components/ConsoleDock.jsx');
   const quickActions = source('lib/topBarQuickActions.js');
   const quickMenu = source('components/SidebarQuickMenu.jsx');
-  assert.match(app, /useGlobalShortcut\(\s*isSearchPaletteShortcut,/);
+  assert.match(app, /useAppShortcuts\(/);
+  assert.match(source('lib/searchPaletteShortcut.js'), /matchAppShortcut\(event\) === 'search'/);
   assert.doesNotMatch(app, /toLowerCase\(\) === 'k'/);
   assert.match(topBar, /withSearchPaletteShortcutHint\('搜索任务'\)/);
-  assert.match(consoleDock, /if \(isSearchPaletteShortcut\(ev\)\) return false;/);
+  assert.match(consoleDock, /matchAppShortcut\(ev\)/);
   assert.match(quickActions, /searchPaletteShortcutLabel\(win\)/);
   assert.match(quickMenu, /topBarQuickActionShortcutLabel\(action\)/);
 });

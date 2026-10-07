@@ -1,4 +1,5 @@
 #include "test_support/agent/agent_loop_fixture.hpp"
+#include "test_support/agent_loop/characterization_fixture.hpp"
 // 验证 AgentLoop 在并行 read-only batch 路径下,把 AskUserQuestionPrompter
 // 包成 ToolContext::ask_user_questions 回调正确注入到每个并行任务。
 //
@@ -152,7 +153,12 @@ public:
         auto provider_accessor =
             [this]() -> std::shared_ptr<acecode::LlmProvider> { return provider_; };
 
-        if (with_session_manager) session_manager_ = std::make_unique<SessionManager>();
+        if (with_session_manager) {
+            session_manager_ = std::make_unique<SessionManager>();
+            // Real session hosts initialize storage before allowing a turn.
+            // A non-null but unstarted manager cannot persist request context.
+            session_manager_->start_session(".", provider_->name(), provider_->model());
+        }
         loop_ = std::make_unique<AgentLoop>(
         acecode_test::AgentLoopFixture::dependencies(provider_accessor, tools_, cb, perms_, session_manager_.get()),
         acecode_test::AgentLoopFixture::configuration(/*cwd=*/"."));
@@ -324,6 +330,7 @@ TEST(AgentLoopAskUserQuestionParallel, NoPrompterStillFailsFast) {
 // batch → 复用并行 ctx 构造段。Probe 工具记录 ctx.track_file_write_before
 // 是否非空。要求 构造注入 SessionManager(非空) 才会触发 if 分支。
 TEST(AgentLoopAskUserQuestionParallel, ParallelCtxHasTrackFileWriteBefore) {
+    acecode_test::characterization::Isolation isolation;
     AskParallelHarness h(/*with_prompter=*/true, /*with_session_manager=*/true);
 
     // 单 turn 同时返回两个 read-only tool_calls,触发并行 batch 路径。

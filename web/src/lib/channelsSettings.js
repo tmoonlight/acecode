@@ -172,10 +172,10 @@ export function applyChannelsEvent(state, envelope) {
   return state;
 }
 
-// 平台卡片的固定内容。图标统一用单色图标,默认是聊天图标(用户拍板:不用彩色品牌 logo)。
+// 平台卡片的固定内容。品牌图标由 ChannelPlatformIcon 使用本地 SVG 提供。
 // 写成函数:文案在渲染时求值,切换界面语言后跟着变。
 export function channelCards() {
-  const card = (platform, title, description) => ({ platform, title, icon: 'chat', description });
+  const card = (platform, title, description) => ({ platform, title, description });
   return [
     card('qq', 'QQ 机器人', '在 QQ 私聊或群里 @机器人 下达指令,结果回到聊天窗口。'),
     card('weixin', '微信', '在微信里私聊机器人下达指令,结果回到聊天窗口。'),

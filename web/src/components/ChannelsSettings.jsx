@@ -1,7 +1,6 @@
 // 消息通道(设置 > 集成 > 消息通道,openspec add-desktop-im-channels / add-more-im-channels)。
 // 页面只有两列平台卡片:「连接」在还没配好时打开分步向导,配好的直接连接;连上后按钮变成
-// 「取消连接」。卡片只显示一行简要状态和待批准请求;连接原因、隐私模式、收发计数等细节由 daemon
-// 写进日志,不在页面展开(2026-10-05 验收反馈)。各平台向导的说明、字段与机主绑定方式在
+// 「取消连接」。卡片高度不随状态变化;连接状态、待批准请求和恢复操作放在管理中。各平台向导的说明、字段与机主绑定方式在
 // lib/channelsSettings.js 的 platformSetup;状态变化经 WS(channels_*)实时合并。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
@@ -33,6 +32,7 @@ import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { Modal } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
+import { ChannelPlatformIcon } from './ChannelPlatformIcon.jsx';
 
 const inputClass = 'w-full h-8 px-2.5 text-[12px] rounded-md border border-border bg-surface-alt text-fg outline-none focus:border-accent transition disabled:opacity-50';
 const primaryButtonClass = 'px-3 py-1 text-[12px] bg-accent text-white rounded disabled:opacity-60 shrink-0';
@@ -54,14 +54,6 @@ function StatusPill({ tone = 'mute', text }) {
     <span className={clsx('flex items-center gap-1.5 text-[12px] min-w-0', TONE_TEXT[tone] || TONE_TEXT.mute)}>
       <span className={clsx('w-2 h-2 rounded-full shrink-0', TONE_DOT[tone] || TONE_DOT.mute)} />
       <span className="truncate">{text}</span>
-    </span>
-  );
-}
-
-function PlatformIcon({ name, size = 18, box = 'h-9 w-9' }) {
-  return (
-    <span className={clsx('flex shrink-0 items-center justify-center rounded-md border border-border bg-surface-alt text-fg-2', box)}>
-      <VsIcon name={name} size={size} />
     </span>
   );
 }
@@ -105,41 +97,32 @@ function PendingList({ requests, busy, onDecide }) {
   ));
 }
 
-function ChannelCard({ card, platform, busy, onConnect, onDisconnect, onFix, onManage, onDecide }) {
+function ChannelCard({ card, platform, busy, onConnect, onDisconnect, onManage }) {
   const view = channelCardView(platform, busy);
   const pending = pendingRows(platform);
   const connect = view.button.action === 'connect';
   return (
     <article data-channel-card={card.platform} className="flex min-w-0 flex-col rounded-lg border border-border bg-surface p-4">
-      <div className="flex items-center gap-3">
-        <PlatformIcon name={card.icon} />
-        <div className="min-w-0 flex-1 truncate text-[14px] font-semibold">{card.title}</div>
-        <button type="button" disabled={view.button.disabled}
-          className={connect ? primaryButtonClass : secondaryButtonClass}
-          onClick={connect ? onConnect : onDisconnect}>
-          {view.button.label}
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <ChannelPlatformIcon platform={card.platform} />
+        <div className="min-w-0 flex-1 truncate text-[14px] font-normal" title={card.title}>{card.title}</div>
+        <span role="img" aria-label={view.status?.text || '未连接'} title={view.status?.text || '未连接'}
+          className={clsx('h-1.5 w-1.5 shrink-0 rounded-full', TONE_DOT[view.status?.tone || 'mute'])} />
+        <div className="ml-auto flex shrink-0 items-center gap-1 max-[600px]:basis-full max-[600px]:justify-end">
+          <button type="button" data-channel-manage className={clsx(linkButtonClass, 'relative h-7 px-2')}
+            onClick={onManage} aria-label={pending.length ? `管理，${pending.length} 个请求待批准` : '管理'}
+            title={pending.length ? `${pending.length} 个请求待批准` : '管理'}>
+            管理
+            {pending.length > 0 && <span aria-hidden="true" className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-warn" />}
+          </button>
+          <button type="button" data-channel-connect disabled={view.button.disabled}
+            className={clsx(connect ? primaryButtonClass : secondaryButtonClass, 'h-7 w-20 px-0')}
+            onClick={connect ? onConnect : onDisconnect}>
+            {view.button.label}
+          </button>
+        </div>
       </div>
       <p className="mt-3 text-[12px] leading-5 text-fg-mute">{card.description}</p>
-      {(view.status || platform.configured) && (
-        <div className="mt-3 flex min-h-[22px] items-center justify-between gap-2">
-          {view.status ? <StatusPill tone={view.status.tone} text={view.status.text} /> : <span />}
-          <span className="flex items-center gap-1 shrink-0">
-            {view.status?.action === 'fix' && (
-              <button type="button" className={linkButtonClass} onClick={onFix}>处理</button>
-            )}
-            {platform.configured && (
-              <button type="button" className={linkButtonClass} onClick={onManage}>管理</button>
-            )}
-          </span>
-        </div>
-      )}
-      {pending.length > 0 && (
-        <div className="mt-3 border-t border-border pt-2">
-          <div className="text-[12px] font-medium text-warn">{`${pending.length} 个请求待批准`}</div>
-          <PendingList requests={pending} busy={busy} onDecide={onDecide} />
-        </div>
-      )}
     </article>
   );
 }
@@ -585,7 +568,7 @@ function ConnectWizard({ platformKey, platform, bind, busy, run, onDecide, start
     <Modal onClose={close} width={540} labelledBy={titleId} dismissOnBackdrop={false}>
       <div className="p-5">
         <div className="mb-4 flex items-center gap-3">
-          <PlatformIcon name={card.icon} size={16} box="h-8 w-8" />
+          <ChannelPlatformIcon platform={card.platform} size={20} box="h-8 w-8" />
           <div id={titleId} className="flex-1 text-[15px] font-semibold">{`连接 ${card.title}`}</div>
           <button type="button" className={iconButtonClass} aria-label="关闭" onClick={close}>
             <VsIcon name="close" size={14} />
@@ -613,25 +596,37 @@ function ConnectWizard({ platformKey, platform, bind, busy, run, onDecide, start
   );
 }
 
-function ManageDialog({ platformKey, platform, busy, onRevoke, onChangeBot, onClose }) {
+function ManageDialog({ platformKey, platform, busy, onRevoke, onChangeBot, onFix, onDecide, onClose }) {
   const card = channelCards().find((item) => item.platform === platformKey);
   const contacts = contactRows(platform);
   const titleId = `ace-channels-manage-${platformKey}`;
   const bot = savedBotSummary(platformKey, platform);
+  const view = channelCardView(platform, busy);
+  const pending = pendingRows(platform);
   return (
     <Modal onClose={onClose} width={480} labelledBy={titleId} dismissOnBackdrop={false}>
       <div className="p-5">
         <div className="mb-4 flex items-center gap-3">
-          <PlatformIcon name={card.icon} size={16} box="h-8 w-8" />
+          <ChannelPlatformIcon platform={card.platform} size={20} box="h-8 w-8" />
           <div id={titleId} className="flex-1 text-[15px] font-semibold">{`管理 ${card.title}`}</div>
           <button type="button" className={iconButtonClass} aria-label="关闭" onClick={onClose}>
             <VsIcon name="close" size={14} />
           </button>
         </div>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <StatusPill tone={view.status?.tone} text={view.status?.text || '未连接'} />
+          {view.status?.action === 'fix' && <button type="button" className={secondaryButtonClass} disabled={!!busy} onClick={onFix}>处理</button>}
+        </div>
         <div className="mb-1 text-[12px] font-semibold">机器人</div>
-        <SavedBot title={bot.title} desc={bot.desc}>
-          <button type="button" className={secondaryButtonClass} disabled={!!busy} onClick={onChangeBot}>更换机器人</button>
+        <SavedBot title={platform.configured ? bot.title : '尚未配置机器人'} desc={platform.configured ? bot.desc : ''}>
+          <button type="button" className={secondaryButtonClass} disabled={!!busy} onClick={onChangeBot}>{platform.configured ? '更换机器人' : '配置机器人'}</button>
         </SavedBot>
+        {pending.length > 0 && (
+          <div className="mt-4">
+            <div className="mb-1 text-[12px] font-semibold text-warn">{`${pending.length} 个请求待批准`}</div>
+            <PendingList requests={pending} busy={busy} onDecide={onDecide} />
+          </div>
+        )}
         <div className="mt-4 mb-1 text-[12px] font-semibold">机主与授权名单</div>
         <p className="mb-1 text-[11px] text-fg-mute">机主可以切换到任意会话;其他人只能在自己创建的会话之间切换。</p>
         {contacts.length === 0 ? (
@@ -743,14 +738,12 @@ export function ChannelsSettings() {
           <span className="ace-spinner mr-2" /> 加载中
         </div>
       ) : (
-        <div data-channel-cards="true" className="grid grid-cols-2 gap-3">
+        <div data-channel-cards="true" className="grid grid-cols-1 gap-3 min-[1100px]:grid-cols-2">
           {channelCards().map((card) => (
             <ChannelCard key={card.platform} card={card} platform={state.platforms[card.platform]} busy={busy}
               onConnect={() => connect(card.platform)}
               onDisconnect={() => run(`${card.platform}-toggle`, () => api.setChannelEnabled(card.platform, false))}
-              onFix={() => setWizard({ platform: card.platform, startAt: 1, change: false })}
-              onManage={() => setManaging(card.platform)}
-              onDecide={(request, approve) => decide(card.platform, request, approve)} />
+              onManage={() => setManaging(card.platform)} />
           ))}
         </div>
       )}
@@ -763,6 +756,11 @@ export function ChannelsSettings() {
       )}
       {managing && (
         <ManageDialog platformKey={managing} platform={state.platforms[managing]} busy={busy}
+          onDecide={(request, approve) => decide(managing, request, approve)}
+          onFix={() => {
+            setWizard({ platform: managing, startAt: 1, change: false });
+            setManaging('');
+          }}
           onRevoke={(contact) => setRevoking({ platform: managing, contact })}
           onChangeBot={() => {
             setWizard({ platform: managing, startAt: 0, change: true });

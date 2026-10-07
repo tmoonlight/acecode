@@ -27,6 +27,7 @@ import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { PathReferenceDropdown } from './PathReferenceDropdown.jsx';
 import { SlashDropdown } from './SlashDropdown.jsx';
 import { toast } from './Toast.jsx';
+import { withAppShortcutHint } from '../lib/appShortcuts.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { getNextInputHistoryPointer, isUserComposerEdit, shouldNavigateInputHistory } from '../lib/inputHistoryNavigation.js';
 import { filesFromTransfer, hasFileTransfer } from '../lib/composerFileTransfer.js';
@@ -209,7 +210,7 @@ function ComposerBrowserContextCard({ item, onRemove }) {
 export const InputBar = forwardRef(function InputBar({
   disabled, submitting = false, canRetryLastUserMessage = false,
   queuePaused = false, onResumeQueue,
-  placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, stopping = false, goal = null,
+  placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, stopping = false, goal = null, mainComposer = false,
   onGoalEdit, onGoalStatusChange, onGoalClear,
   history = [], historyEntries = [], variant = 'default', attentionRequest = 0,
   value: controlledValue, onChange,
@@ -964,6 +965,7 @@ export const InputBar = forwardRef(function InputBar({
 
   useImperativeHandle(ref, () => ({
     focus: () => ta.current?.focus(),
+    getElement: () => rootRef.current,
     getComposerContent: () => serializeComposerGoal(
       valueRef.current,
       mergeEditorContent(ta.current?.getComposerContent?.() || contentRef.current),
@@ -1520,7 +1522,7 @@ export const InputBar = forwardRef(function InputBar({
           onClick={onAbort}
           disabled={stopControl.disabled}
           className="px-2 h-7 rounded-md text-[11px] text-danger border border-danger/40 hover:bg-danger-bg transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-wait"
-          title={stopControl.title}
+          title={mainComposer ? withAppShortcutHint(stopControl.title, 'stop') : stopControl.title}
         >
           <VsIcon name="stop" size={12} mono={false} />
           <span>{stopControl.label}</span>
@@ -1595,6 +1597,7 @@ export const InputBar = forwardRef(function InputBar({
         dragActive && 'is-drag-active',
       )}
       ref={rootRef}
+      data-main-composer={mainComposer ? 'true' : undefined}
       data-native-file-drop-disabled={disabled ? 'true' : undefined}
       onPointerDownCapture={(event) => preserveComposerFocusOnPointerDown(event, rootRef.current)}
       onDragEnter={fileDropManagedExternally ? undefined : handleDragEnter}

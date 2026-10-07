@@ -1,6 +1,7 @@
 #include "session/session_history_page.hpp"
 #include "session/session_load_metrics.hpp"
 #include "session/session_serializer.hpp"
+#include "session/request_context_record.hpp"
 #include "utils/uuid.hpp"
 #include <gtest/gtest.h>
 #include <filesystem>
@@ -76,6 +77,40 @@ TEST(SessionHistoryPage, TailAndBeforePagesExactlyReconstructVisibleHistory) {
     for (std::size_t i = 0; i < expected.size(); ++i) {
         EXPECT_EQ(acecode::serialize_message(reconstructed[i]), acecode::serialize_message(expected[i]));
     }
+}
+
+TEST(SessionHistoryPage, FutureAndDamagedRequestContextRecordsNeverConsumeVisiblePageSlots) {
+    HistoryFixture fixture;
+    auto future = message("user", "future internal request context");
+    future.is_meta = true;
+    future.subtype = acecode::kRequestContextSnapshot;
+    future.metadata = {{"request_context_version", 2}};
+    auto damaged = message("user", "damaged internal request context");
+    damaged.is_meta = true;
+    damaged.subtype = acecode::kRequestContextUpdate;
+    damaged.metadata = {{"request_context_version", 1}, {"skills", nlohmann::json::array()}};
+    for (const auto& hidden : {future, damaged}) {
+        EXPECT_TRUE(acecode::is_request_context_metadata(hidden));
+        EXPECT_FALSE(acecode::is_request_context_record(hidden));
+        EXPECT_FALSE(acecode::is_visible_paged_history_message(hidden));
+    }
+    fixture.write({future, message("user", "visible task"), damaged, future});
+    acecode::SessionHistoryRequest request;
+    request.limit = 1;
+    const auto tail = acecode::load_session_history_page(fixture.path.string(), request);
+    ASSERT_EQ(tail.messages.size(), 1u);
+    EXPECT_EQ(tail.messages.front().message.content, "visible task");
+    EXPECT_FALSE(tail.has_more);
+
+    request.after = acecode::decode_history_cursor(tail.after);
+    ASSERT_TRUE(request.after.has_value());
+    ASSERT_TRUE(acecode::SessionStorage::append_message(fixture.path.string(), damaged));
+    EXPECT_TRUE(acecode::load_session_history_page(fixture.path.string(), request).messages.empty());
+    ASSERT_TRUE(acecode::SessionStorage::append_message(
+        fixture.path.string(), message("assistant", "visible answer")));
+    const auto next = acecode::load_session_history_page(fixture.path.string(), request);
+    ASSERT_EQ(next.messages.size(), 1u);
+    EXPECT_EQ(next.messages.front().message.content, "visible answer");
 }
 
 TEST(SessionHistoryPage, CursorSurvivesAppendButNotRewriteEvenWhenAnchorIsUnchanged) {

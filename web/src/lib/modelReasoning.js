@@ -50,3 +50,16 @@ export function composerReasoningOptions(model, override = undefined) {
     ],
   };
 }
+
+// Step through supported numeric depths, starting at the effective default.
+// null means no available move; the default menu entry is not a depth.
+export function nextReasoningEffort(model, direction, override = undefined) {
+  const options = composerReasoningOptions(model, override);
+  if (!options || ![-1, 1].includes(direction)) return null;
+  const levels = MODEL_REASONING_EFFORTS.filter((effort) => options.items.some((item) => item.effort === effort));
+  const reasoning = normalizeModelReasoning(model.reasoning);
+  const current = options.selectedEffort || reasoning.effort || reasoning.default_effort;
+  const index = levels.indexOf(current);
+  if (index < 0) return direction > 0 ? levels[0] ?? null : levels[levels.length - 1] ?? null;
+  return levels[index + direction] ?? null;
+}

@@ -1,6 +1,7 @@
 #include "session_resume_restore.hpp"
 
 #include "session/compact_checkpoint.hpp"
+#include "session/request_context_record.hpp"
 #include "session_replay.hpp"
 #include "tool/file_state_restore.hpp"
 #include "session/session_rewind.hpp"
@@ -42,6 +43,7 @@ void append_agent_model_messages(const std::vector<ChatMessage>& messages,
                                  AgentLoop& agent_loop) {
     for (std::size_t i = 0; i < messages.size(); ++i) {
         const auto& msg = messages[i];
+        if (is_request_context_metadata(msg) && !is_request_context_record(msg)) continue;
         if (is_file_checkpoint_message(msg)) continue;
         if (is_content_replacement_message(msg)) continue;
         if (is_turn_timing_message(msg)) continue;

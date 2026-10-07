@@ -3,6 +3,7 @@
 #include "provider/codex/codex_app_server_client.hpp"
 #include "session/attachment_prompt_context.hpp"
 #include "session/attachment_store.hpp"
+#include "session/request_context_record.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -23,6 +24,7 @@ std::string current_cwd_utf8() {
 }
 
 std::string role_label(const ChatMessage& message) {
+    if (is_request_context_record(message)) return "Context";
     if (message.role == "system") return "System";
     if (message.role == "assistant") return "Assistant";
     if (message.role == "tool") return "Tool";
@@ -58,7 +60,7 @@ std::string build_codex_input_text(const std::vector<ChatMessage>& messages) {
     out << "Continue this ACECode conversation. Preserve the user's latest "
            "request as the active task.\n\n";
     for (const auto& message : messages) {
-        if (message.is_meta) continue;
+        if (message.is_meta && !is_request_context_record(message)) continue;
         const auto file_references = user_file_reference_texts(message);
         // A user message may carry only file parts (a paste stored as a
         // file with nothing typed next to it); it must not be skipped.

@@ -10,6 +10,7 @@
 #include "tui/resume/session_replay.hpp"
 #include "session/compact_notice.hpp"
 #include "session/file_checkpoint_store.hpp"
+#include "session/request_context_record.hpp"
 #include "session/tool_metadata_codec.hpp"
 #include "session/turn_net_diff.hpp"
 #include "tool/ask_user_question_tool.hpp"
@@ -92,6 +93,43 @@ TEST(SessionReplay, UserPassthrough) {
     EXPECT_EQ(out[0].role, "user");
     EXPECT_EQ(out[0].content, "hi");
     EXPECT_FALSE(out[0].is_tool);
+}
+
+TEST(SessionReplay, RequestContextSnapshotsAndUpdatesStayHidden) {
+    ChatMessage snapshot;
+    snapshot.role = "user";
+    snapshot.content = "internal frozen project instructions";
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.is_meta = true;
+    snapshot.metadata = {{"request_context_version", 1}};
+    auto update = snapshot;
+    update.subtype = acecode::kRequestContextUpdate;
+    update.content = "internal appended context change";
+    auto future = snapshot;
+    future.metadata["request_context_version"] = 2;
+    auto damaged = update;
+    damaged.metadata["skills"] = nlohmann::json::array();
+    auto wrong_role = snapshot;
+    wrong_role.role = "system";
+    for (const auto& hidden : {future, damaged, wrong_role}) {
+        EXPECT_TRUE(acecode::is_request_context_metadata(hidden));
+        EXPECT_FALSE(acecode::is_request_context_record(hidden));
+    }
+    ChatMessage user;
+    user.role = "user";
+    user.content = "visible task";
+    ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.content = "visible answer";
+
+    ToolExecutor tools;
+    const auto out = replay_session_messages(
+        {snapshot, future, user, update, damaged, wrong_role, assistant}, tools);
+    ASSERT_EQ(out.size(), 2u);
+    EXPECT_EQ(out[0].role, "user");
+    EXPECT_EQ(out[0].content, user.content);
+    EXPECT_EQ(out[1].role, "assistant");
+    EXPECT_EQ(out[1].content, assistant.content);
 }
 
 // system 消息不变换。

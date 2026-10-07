@@ -879,10 +879,13 @@ nlohmann::json openai_content_for_message(const ChatMessage& msg,
 nlohmann::json OpenAiCompatProvider::build_request_body(
     const std::vector<ChatMessage>& messages,
     const std::vector<ToolDef>& tools,
-    bool stream
+    bool stream,
+    bool for_compaction,
+    const ChatRequestOptions* call_options
 ) const {
     nlohmann::json body;
     body["model"] = model_;
+    apply_call_options(body, tools, for_compaction, call_options);
     if (stream) {
         body["stream"] = true;
         body["stream_options"] = {{"include_usage", true}};
@@ -1221,17 +1224,19 @@ ChatResponse OpenAiCompatProvider::parse_response(const nlohmann::json& j) {
     return resp;
 }
 
-ChatResponse OpenAiCompatProvider::chat_cancellable(
+ChatResponse OpenAiCompatProvider::chat_cancellable_impl(
     const std::vector<ChatMessage>& messages,
     const std::vector<ToolDef>& tools,
-    const std::atomic<bool>* abort_flag
+    const std::atomic<bool>* abort_flag,
+    bool for_compaction,
+    const ChatRequestOptions* call_options
 ) {
     if (abort_flag && abort_flag->load()) {
         return make_chat_error_response(make_provider_error(
             ProviderErrorKind::UserCancelled, 0, name(), model_, {}, {},
             "[Interrupted]", false));
     }
-    nlohmann::json body = build_request_body(messages, tools, false);
+    nlohmann::json body = build_request_body(messages, tools, false, for_compaction, call_options);
 
     std::string url = request_url();
 
@@ -1259,19 +1264,21 @@ ChatResponse OpenAiCompatProvider::chat_cancellable(
     }
 
     auto proxy_opts = network::proxy_options_for(url);
-    cpr::Response r = cpr::Post(
-        cpr::Url{url},
-        headers,
-        cpr::Body{body.dump()},
-        network::build_ssl_options(proxy_opts),
-        proxy_opts.proxies,
-        proxy_opts.auth,
-        cpr::Timeout{stream_timeout_ms_},
-        cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
-                                          cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
-            return !abort_flag || !abort_flag->load();
-        }}
-    );
+    cpr::Response r;
+    do {
+        if (abort_flag && abort_flag->load()) break;
+        r = cpr::Post(
+            cpr::Url{url}, headers, cpr::Body{body.dump()},
+            network::build_ssl_options(proxy_opts), proxy_opts.proxies, proxy_opts.auth,
+            cpr::Timeout{stream_timeout_ms_},
+            cpr::ProgressCallback{[abort_flag](cpr::cpr_off_t, cpr::cpr_off_t,
+                                              cpr::cpr_off_t, cpr::cpr_off_t, intptr_t) {
+                return !abort_flag || !abort_flag->load();
+            }});
+        // Removing the field bounds this compatibility retry to one request.
+    } while ((!abort_flag || !abort_flag->load()) &&
+             remove_rejected_prompt_cache_key(body, url,
+                 static_cast<int>(r.status_code), r.text));
 
     if (abort_flag && abort_flag->load()) {
         return make_chat_error_response(make_provider_error(
@@ -1433,6 +1440,7 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
     ChatResponse last_accumulated;
     last_accumulated.finish_reason = "stop";
     const auto dsml_tools = request_tool_defs(body);
+    nlohmann::json request_body = body;
 
     for (std::uint64_t attempt = 1; ;
          attempt = attempt == (std::numeric_limits<std::uint64_t>::max)()
@@ -1814,7 +1822,7 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         auto proxy_opts = network::proxy_options_for(url);
         stream_session.SetOption(cpr::Url{url});
         stream_session.SetOption(headers);
-        stream_session.SetOption(cpr::Body{body.dump()});
+        stream_session.SetOption(cpr::Body{request_body.dump()});
         stream_session.SetOption(cpr::ConnectTimeout{
             (std::min)(stream_idle_timeout_ms, kStreamConnectTimeoutCapMs)});
         stream_session.SetOption(network::build_ssl_options(proxy_opts));
@@ -1952,6 +1960,15 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
             return accumulated;
         }
 
+        if ((!abort_flag || !abort_flag->load()) &&
+            !saw_done && accumulated.tool_calls.empty() &&
+            accumulated.content.empty() && accumulated.reasoning_content.empty() &&
+            pending_tools.empty() &&
+            remove_rejected_prompt_cache_key(request_body, url,
+                error_info.status_code, error_info.raw_body)) {
+            continue;
+        }
+
         if (error_info.retryable) {
             const int delay_ms = retry_after_delay_ms(r.header, attempt);
             error_info.retry_attempt = saturating_retry_attempt(attempt);
@@ -1990,36 +2007,6 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
     }
 
     return last_accumulated;
-}
-
-void OpenAiCompatProvider::chat_stream(
-    const std::vector<ChatMessage>& messages,
-    const std::vector<ToolDef>& tools,
-    const StreamCallback& callback,
-    std::atomic<bool>* abort_flag
-) {
-    nlohmann::json body = build_request_body(messages, tools, true);
-    std::string url = request_url();
-
-    std::map<std::string, std::string> extra_headers;
-    if (!api_key_.empty()) {
-        extra_headers["Authorization"] = "Bearer " + api_key_;
-    }
-    std::string header_error;
-    auto resolved_headers = resolve_request_headers(request_headers_, header_error);
-    if (!resolved_headers.has_value()) {
-        LOG_ERROR("OpenAI request_headers resolution failed: " + header_error);
-        StreamEvent evt;
-        evt.type = StreamEventType::Error;
-        evt.error = header_error;
-        callback(evt);
-        return;
-    }
-    for (const auto& [k, v] : *resolved_headers) {
-        extra_headers[k] = v;
-    }
-
-    parse_sse_stream(url, body, extra_headers, callback, abort_flag);
 }
 
 } // namespace acecode

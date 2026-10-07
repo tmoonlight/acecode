@@ -57,6 +57,7 @@ import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
 import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
 import { ChannelsSettings } from './ChannelsSettings.jsx';
+import { ShortcutsSettings } from './ShortcutsSettings.jsx';
 import { MemorySettings } from './MemorySettings.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
 import { lookupErrorMessage } from '../lib/errors.js';
@@ -157,6 +158,7 @@ export function SettingsPage({
   onCheckUpdates,
   onReplayGuidedTour,
   initialNavKey = 'general',
+  navigationRequest = 0,
   // 全局搜索面板带来的搜索种子 {query, resultId, section, label, nonce};
   // nonce 变化即视为一次新的跳转(设置窗口已开着时也能再次定位)。
   initialSearch = null,
@@ -260,7 +262,7 @@ export function SettingsPage({
   useEffect(() => { requestAnimationFrame(() => setShow(true)); }, []);
   useEffect(() => {
     setActiveNav(settingsNavIndexForKey(initialNavKey, developerModeUnlocked));
-  }, [initialNavKey]);
+  }, [initialNavKey, navigationRequest]);
   useEffect(() => () => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
   }, []);
@@ -458,6 +460,7 @@ export function SettingsPage({
           {activeNavKey === 'hooks' && <SectionHooks />}
           {activeNavKey === 'security' && <SecurityCenterSettings />}
           {activeNavKey === 'archived' && <SectionArchived />}
+          {activeNavKey === 'shortcuts' && <ShortcutsSettings />}
           {activeNavKey === 'usage' && <SectionUsage />}
           {activeNavKey === 'feedback' && <FeedbackForm />}
           {activeNavKey === 'about' && <SectionAbout health={health} />}

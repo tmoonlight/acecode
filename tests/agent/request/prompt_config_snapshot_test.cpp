@@ -88,7 +88,15 @@ TEST(PromptConfigSnapshot, ExpertAndSkillsSwitchAtTheFollowingTurn) {
     EXPECT_FALSE(contains(continued, "after-skill"));
     EXPECT_TRUE(contains(next, "EXPERT_AFTER"));
     EXPECT_TRUE(contains(next, "after-skill"));
-    EXPECT_FALSE(contains(next, "EXPERT_BEFORE"));
+    // Catalog/expert changes append their replacement instructions, while the
+    // original skill system message and context remain byte-stable.
+    ASSERT_FALSE(next.empty());
+    EXPECT_NE(next.back().content.find("EXPERT_AFTER"), std::string::npos);
+    EXPECT_EQ(next.back().content.find("EXPERT_BEFORE"), std::string::npos);
+    ASSERT_GE(next.size(), continued.size());
+    for (std::size_t i = 0; i < continued.size(); ++i) {
+        EXPECT_EQ(next[i].content, continued[i].content);
+    }
 }
 
 // 场景：空闲时发布设置后 prime 侧问上下文。期望每次 prime 只取一次当前快照，

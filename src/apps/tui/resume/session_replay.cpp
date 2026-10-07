@@ -5,6 +5,7 @@
 #include "session/compact_checkpoint.hpp"
 #include "session/compact_notice.hpp"
 #include "session/inter_agent_message.hpp"
+#include "session/request_context_record.hpp"
 #include "session/session_rewind.hpp"
 #include "session/tool_metadata_codec.hpp"
 #include "session/tool_result_storage.hpp"
@@ -68,6 +69,9 @@ std::vector<TuiState::Message> replay_session_messages(
     };
 
     for (const auto& msg : messages) {
+        if (is_request_context_metadata(msg)) {
+            continue;
+        }
         if (is_file_checkpoint_message(msg)) {
             continue;
         }

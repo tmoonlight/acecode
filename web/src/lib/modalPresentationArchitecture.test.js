@@ -125,18 +125,21 @@ run('update progress is monotonic, accessible, striped, and reduced-motion safe'
   );
 });
 
-run('update UI exposes safe cancellation and a dual-foreground topbar progress pill', () => {
+run('update UI exposes safe cancellation and a dual-foreground sidebar progress pill', () => {
   const app = source('App.jsx');
   const updateDialog = source('components/UpdateDialog.jsx');
   const topBar = source('components/TopBar.jsx');
+  const sidebar = source('components/Sidebar.jsx');
+  const sidebarFooter = between(sidebar, 'ace-sidebar-footer', '</aside>');
 
   assert.match(app, /api\.cancelUpdate\(updateJob\.job_id\)/);
   assert.match(updateDialog, /取消升级/);
   assert.match(updateDialog, /job\?\.can_cancel === false/);
   assert.match(updateDialog, /mode === 'cancelled'/);
-  assert.match(topBar, /updateProgress = 0/);
-  assert.match(topBar, /100 - boundedUpdateProgress/);
-  assert.match(topBar, /absolute inset-0 flex items-center justify-center text-accent/);
-  assert.match(topBar, /absolute inset-0 flex items-center justify-center text-white/);
-  assert.match(topBar, /ace-topbar-update-button relative min-w-\[44px\] overflow-hidden px-3 rounded-full/);
+  assert.match(sidebar, /updateProgress = 0/);
+  assert.match(sidebarFooter, /100 - boundedUpdateProgress/);
+  assert.match(sidebarFooter, /absolute inset-0 flex items-center justify-center text-accent/);
+  assert.match(sidebarFooter, /absolute inset-0 flex items-center justify-center text-white/);
+  assert.match(sidebarFooter, /ace-sidebar-update-button relative h-6 shrink-0 min-w-\[44px\] overflow-hidden px-3 rounded-full/);
+  assert.doesNotMatch(topBar, /updateStatus|onStartUpdate|ace-topbar-update-button/);
 });

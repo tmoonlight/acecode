@@ -436,6 +436,7 @@ export function SearchPalette({
 
   return (
     <div
+      data-search-palette="true"
       data-ace-native-overlay="blocking"
       className="fixed inset-0 z-[300] flex items-start justify-center pt-[15vh] px-4"
       onKeyDown={onRootKeyDown}

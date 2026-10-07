@@ -91,8 +91,8 @@ import {
   UI_PREFS_STORAGE_KEY,
   validateUiPrefs,
 } from './lib/uiPrefs.js';
-import { useGlobalShortcut } from './lib/useGlobalShortcut.js';
-import { isSearchPaletteShortcut } from './lib/searchPaletteShortcut.js';
+import { useAppShortcuts } from './lib/useAppShortcuts.js';
+import { appShortcutContextAllows } from './lib/appShortcuts.js';
 import { TopBar } from './components/TopBar.jsx';
 import { FeedbackForm } from './components/FeedbackForm.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
@@ -277,6 +277,7 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [settingsNavKey, setSettingsNavKey] = useState('general');
+  const [settingsNavRequest, setSettingsNavRequest] = useState(0);
   // 从全局搜索面板(Ctrl+K)跳进设置时携带的搜索种子:{query, resultId, section, nonce}。
   // 普通打开设置一律清空,否则上一次的搜索会在下次打开时重新出现。
   const [settingsSearchSeed, setSettingsSearchSeed] = useState(null);
@@ -858,6 +859,7 @@ export function App() {
 
   const openSettingsSection = useCallback((key = 'general') => {
     setSettingsNavKey(key || 'general');
+    setSettingsNavRequest((request) => request + 1);
     setSettingsSearchSeed(null);
     setShowSettings(true);
   }, []);
@@ -1183,14 +1185,6 @@ export function App() {
     return () => connection.removeEventListener('message', handler);
   }, [authState]);
 
-  // 全局 Ctrl/Cmd+K 切换搜索面板。键位定义、判定与提示文案都收在
-  // lib/searchPaletteShortcut.js,控制台(xterm)也按同一判定放行冒泡。
-  useGlobalShortcut(
-    isSearchPaletteShortcut,
-    () => setSearchOpen((o) => !o),
-    [],
-  );
-
   // Ctrl+` toggle 控制台(终端聚焦时 xterm 的 customKeyEventHandler 放行该
   // 组合,事件照常冒泡到 window)。后端 console 不可用时快捷键惰化。
   const consoleAvailable = !!health?.console?.available;
@@ -1198,12 +1192,6 @@ export function App() {
     if (!consoleAvailable) return;
     setConsoleDock((prev) => ({ ...prev, open: !prev.open }));
   }, [consoleAvailable, setConsoleDock]);
-  useGlobalShortcut(
-    // e.code 是物理键位:中文 IME 下反引号键的 e.key 是 '·',精确匹配 key 会失效。
-    (e) => (e.code === 'Backquote' || e.key === '`') && e.ctrlKey && !e.altKey && !e.metaKey,
-    toggleConsoleDock,
-    [toggleConsoleDock],
-  );
   const setConsoleDockHeight = useCallback((next) => {
     setConsoleDock((prev) => ({
       ...prev,
@@ -1910,7 +1898,8 @@ export function App() {
           no_workspace: noWorkspace,
         },
       });
-      navigateToRef(next);
+      const opened = await navigateToRef(next);
+      return opened ? next : null;
     } catch (e) {
       toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
     }
@@ -1968,6 +1957,33 @@ export function App() {
       if (window.aceDesktop_createNewSession) delete window.aceDesktop_createNewSession;
     };
   }, [createDesktopTraySession]);
+
+  const shortcutNewSessionPending = useRef(false);
+  useAppShortcuts(authState === 'ok' && !configRecoveryBlocking ? {
+    search: () => setSearchOpen((open) => !open),
+    console: () => { if (!consoleAvailable) return false; toggleConsoleDock(); },
+    settings: () => { if (!showSettings) openSettingsSection('general'); },
+    shortcuts: () => {
+      openSettingsSection('shortcuts');
+      requestAnimationFrame(() => document.querySelector('[data-shortcut-search]')?.focus());
+    },
+    toggleSidebar: toggleProjectSidebar,
+    toggleRightPanel: () => { void toggleSidePanel(); },
+    forward: () => { if (navHistoryRef.current.forward.length) void goForwardActiveRef(); },
+    back: () => { if (navHistoryRef.current.back.length) void goBackActiveRef(); },
+    newSession: () => {
+      if (shortcutNewSessionPending.current) return;
+      shortcutNewSessionPending.current = true;
+      void createDesktopTraySession().then((next) => {
+        if (!next) return;
+        requestAnimationFrame(() => {
+          if (activeRefRef.current?.sessionId !== next.sessionId
+              || !appShortcutContextAllows('focusInput', document.activeElement)) return;
+          document.querySelector('[data-main-composer="true"] [contenteditable="true"]')?.focus();
+        });
+      }).finally(() => { shortcutNewSessionPending.current = false; });
+    },
+  } : {});
 
   const setSidebarWidth = useCallback((nextWidth, shellWidth = 0) => {
     const sidePanelVisible = !sidePanelNavigationCollapsed;
@@ -2233,12 +2249,6 @@ export function App() {
         onGoForward={goForwardActiveRef}
         canGoBack={navHistory.back.length > 0}
         canGoForward={navHistory.forward.length > 0}
-        updateStatus={updateStatus}
-        updateStarting={updateStarting}
-        updateRunning={updateJobIsActive(updateJob)}
-        updateReady={updateJob?.state === 'succeeded' && !!updateJob?.restart_required}
-        updateProgress={updateJobProgress(updateJob)}
-        onStartUpdate={openUpdateDialog}
       />
       <div
         ref={singleShellRef}
@@ -2271,6 +2281,12 @@ export function App() {
           onCheckUpdates={checkForUpdates}
           onExit={exitAceCode}
           updateChecking={updateChecking}
+          updateStatus={updateStatus}
+          updateStarting={updateStarting}
+          updateRunning={updateJobIsActive(updateJob)}
+          updateReady={updateJob?.state === 'succeeded' && !!updateJob?.restart_required}
+          updateProgress={updateJobProgress(updateJob)}
+          onStartUpdate={openUpdateDialog}
           pendingPermissionSessionIds={pendingPermissionSessionIdsForSidebar}
           pendingQuestionSessionIds={pendingQuestionSessionIdsForSidebar}
           showSessionTime={sidebarSessionTime}
@@ -2388,6 +2404,7 @@ export function App() {
               void checkForUpdates();
             }}
             initialNavKey={settingsNavKey}
+            navigationRequest={settingsNavRequest}
             initialSearch={settingsSearchSeed}
             health={health}
             activeSessionId={activeId}

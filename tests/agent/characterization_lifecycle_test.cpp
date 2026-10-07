@@ -219,9 +219,17 @@ TEST(AgentLoopLifecycleGolden, SwarmModeFollowsSessionContextBetweenTurns) {
         });
     };
     EXPECT_EQ(count_swarm(first), 1);
-    EXPECT_EQ(count_swarm(second), 0);
+    // The earlier snapshot stays unchanged; the appended replacement clears
+    // swarm state even if incoming user metadata still contains an old flag.
+    EXPECT_EQ(count_swarm(second), 1);
     ASSERT_FALSE(first.empty());
     ASSERT_FALSE(second.empty());
+    EXPECT_EQ(second.back().metadata.at("context_state").at("swarm"), "");
+    EXPECT_NE(second.back().content.find("no longer active"), std::string::npos);
+    ASSERT_GE(second.size(), first.size());
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].content, second[i].content);
+    }
     EXPECT_EQ(first[0].role, "system");
     EXPECT_EQ(first[0].content, second[0].content);
 }

@@ -8,6 +8,7 @@
 #include "agent/agent_loop.hpp"
 #include "permissions/permissions.hpp"
 #include "session/compact_checkpoint.hpp"
+#include "session/request_context_record.hpp"
 #include "tui/resume/session_resume_restore.hpp"
 #include "tool/mtime_tracker.hpp"
 #include "tool/tool_executor.hpp"
@@ -243,6 +244,40 @@ TEST(SessionResumeRestore, CompactCheckpointKeepsFullTuiTranscriptButRestoresEff
     ASSERT_EQ(h.loop_.messages().size(), 2u);
     EXPECT_EQ(h.loop_.messages()[0].content, "[Conversation summary]\nold prompt summarized");
     EXPECT_EQ(h.loop_.messages()[1].content, "new prompt");
+}
+
+TEST(SessionResumeRestore, InvalidInternalRequestMetadataIsSkippedBeforeTypedReads) {
+    acecode::ChatMessage snapshot;
+    snapshot.role = "user";
+    snapshot.is_meta = true;
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.content = "valid internal context";
+    snapshot.metadata = {{"request_context_version", 1}};
+    auto damaged = snapshot;
+    damaged.subtype = acecode::kRequestContextUpdate;
+    damaged.metadata["transcript_only"] = "false";
+    auto future = snapshot;
+    future.metadata["request_context_version"] = 2;
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "visible task";
+    for (const bool checkpointed : {false, true}) {
+        SCOPED_TRACE(checkpointed);
+        ResumeRestoreHarness h;
+        std::vector<acecode::ChatMessage> records{snapshot, user, damaged, future};
+        if (checkpointed) {
+            acecode::CompactCheckpoint checkpoint;
+            checkpoint.replacement_history = records;
+            records = {user, acecode::encode_compact_checkpoint(checkpoint), damaged, future};
+        }
+        ASSERT_NO_THROW(acecode::append_resumed_session_messages(
+            records, h.state, h.loop_, h.tools_));
+        ASSERT_EQ(h.loop_.messages().size(), 2u);
+        EXPECT_TRUE(acecode::is_request_context_snapshot(h.loop_.messages()[0]));
+        EXPECT_EQ(h.loop_.messages()[1].content, user.content);
+        ASSERT_EQ(h.state.conversation.size(), 1u);
+        EXPECT_EQ(h.state.conversation[0].content, user.content);
+    }
 }
 
 TEST(SessionResumeRestore, RestoresFullFileReadBaselineFromTranscript) {

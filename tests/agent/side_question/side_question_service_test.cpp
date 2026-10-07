@@ -1,6 +1,10 @@
 #include <gtest/gtest.h>
 #include "agent/side_question/side_question_service.hpp"
 #include "test_support/agent/stub_provider.hpp"
+#include "test_support/agent_loop/characterization_fixture.hpp"
+#include "session/request_context_record.hpp"
+#include "session/session_serializer.hpp"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -99,6 +103,86 @@ TEST(SideQuestionService, PublishedContextIsAnIndependentValue) {
     ASSERT_EQ(service.snapshot().size(), 1U);
     EXPECT_EQ(service.snapshot().front().content, "original");
     EXPECT_EQ(service.ask(" ").status, acecode::SideQuestionStatus::InvalidQuestion);
+}
+
+TEST(SideQuestionService, PrimedRequestReusesFrozenContextAndRetainsReadOnlyToolWhitelist) {
+    acecode_test::characterization::Isolation isolation;
+    acecode_test::characterization::Harness harness(
+        isolation, "side-context", {}, true, [] {
+            acecode::SessionPromptConfig config;
+            config.custom_instructions.emplace();
+            config.custom_instructions->set_text("UNSENT_LIVE_CONTEXT");
+            return config;
+        });
+    harness.tools.register_tool(harness.probe("file_read", true));
+    harness.tools.register_tool(harness.probe("bash", true));
+    harness.tools.register_tool(harness.probe("file_write", false));
+
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "original task";
+    acecode::ChatMessage snapshot;
+    snapshot.role = "user";
+    snapshot.is_meta = true;
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.content = "FROZEN_REQUEST_CONTEXT";
+    snapshot.metadata = {
+        {"request_context_version", 1}, {"skills", "FROZEN_SKILL_INDEX"},
+        {"context_state", {{"session", "FROZEN_REQUEST_CONTEXT"},
+                           {"swarm", ""}, {"plan", ""}, {"execution", ""}}},
+    };
+    auto update = snapshot;
+    update.subtype = acecode::kRequestContextUpdate;
+    update.content = "APPENDED_REQUEST_CONTEXT";
+    update.metadata = {
+        {"request_context_version", 1},
+        {"context_state", {{"session", "APPENDED_REQUEST_CONTEXT"}}},
+    };
+    // The first request snapshot is physically appended after its user input.
+    const std::vector<acecode::ChatMessage> stored = {user, snapshot, update};
+    for (const auto& message : stored) harness.loop->push_message(message);
+    harness.loop->prime_side_question_context();
+    const auto context = harness.loop->side_question_context_snapshot();
+    const auto count_content = [](const std::vector<acecode::ChatMessage>& messages,
+                                  const std::string& needle) {
+        return std::count_if(messages.begin(), messages.end(), [&](const auto& message) {
+            return message.content.find(needle) != std::string::npos;
+        });
+    };
+    EXPECT_EQ(count_content(context, "FROZEN_REQUEST_CONTEXT"), 1);
+    EXPECT_EQ(count_content(context, "APPENDED_REQUEST_CONTEXT"), 1);
+    EXPECT_EQ(count_content(context, "FROZEN_SKILL_INDEX"), 1);
+    EXPECT_EQ(count_content(context, "UNSENT_LIVE_CONTEXT"), 0);
+    ASSERT_EQ(context.size(), 5u);
+    EXPECT_EQ(context[1].content, "FROZEN_SKILL_INDEX");
+    EXPECT_EQ(context[2].content, snapshot.content);
+    EXPECT_EQ(context[3].content, user.content);
+    EXPECT_EQ(context[4].content, update.content);
+
+    // Even a provider that asks for a tool present in the main context cannot
+    // execute it outside the side-chat whitelist.
+    harness.provider->push_tool_call("bash", "{}");
+    harness.provider->push_text("side answer");
+    const auto answer = harness.loop->ask_side_question("explain the task");
+    EXPECT_EQ(answer.status, acecode::SideQuestionStatus::Ok) << answer.error;
+    EXPECT_EQ(answer.answer, "side answer");
+    for (int index = 0; index < 2; ++index) {
+        const auto definitions = harness.provider->tools_for_turn(index);
+        ASSERT_EQ(definitions.size(), 1u);
+        EXPECT_EQ(definitions.front().name, "file_read");
+    }
+    EXPECT_EQ(count_content(harness.provider->messages_for_turn(1),
+                           "not available in this read-only side chat"), 1);
+    {
+        std::lock_guard<std::mutex> lock(harness.observed->mutex);
+        EXPECT_TRUE(harness.observed->executions.empty());
+    }
+    const auto& after = harness.loop->messages();
+    ASSERT_EQ(after.size(), stored.size());
+    for (std::size_t index = 0; index < stored.size(); ++index) {
+        EXPECT_EQ(acecode::serialize_message(after[index]),
+                  acecode::serialize_message(stored[index]));
+    }
 }
 
 // 场景：侧问的结果回调已经进入，此时关停。期望关停等待该回调退出，

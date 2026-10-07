@@ -56,7 +56,7 @@ private:
     bool mechanical_fallback(const CompactionInputs& inputs, int request_tokens,
         int context_window, const std::string& notice_id, const std::string& error);
     void initialize_window(const CompactionInputs& inputs);
-    void apply_result(const CompactionInputs& inputs, const CompactResult& result,
+    bool apply_result(const CompactionInputs& inputs, const CompactResult& result,
                       const std::string& trigger, const std::string& notice_id);
     void finish_busy(LifetimeRef<TrajectoryRecorder> terminal);
 

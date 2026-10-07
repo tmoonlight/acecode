@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cctype>
 #include <map>
+#include <mutex>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -37,6 +39,27 @@ public:
         const StreamCallback& callback,
         std::atomic<bool>* abort_flag = nullptr
     ) override;
+
+    void set_prompt_cache_key(const std::string& key) override;
+    bool supports_compaction_prefix_reuse() const override {
+        // Copilot and Grok own different transport/authentication paths.
+        return name() == "openai";
+    }
+    ChatResponse chat_for_compaction(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const std::atomic<bool>* abort_flag) override;
+    ChatResponse chat_with_options(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const ChatRequestOptions& options,
+        const std::atomic<bool>* abort_flag) override;
+    void chat_stream_with_options(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const ChatRequestOptions& options,
+        const StreamCallback& callback,
+        std::atomic<bool>* abort_flag = nullptr) override;
 
     std::string name() const override { return "openai"; }
     bool is_authenticated() override { return true; }
@@ -114,8 +137,15 @@ protected:
     nlohmann::json build_request_body(
         const std::vector<ChatMessage>& messages,
         const std::vector<ToolDef>& tools,
-        bool stream = false
+        bool stream = false,
+        bool for_compaction = false,
+        const ChatRequestOptions* call_options = nullptr
     ) const;
+
+    // Capability seams also let protocol adapters use an explicit policy;
+    // the default implementation recognizes verified official endpoints only.
+    virtual bool supports_prompt_cache_key() const;
+    virtual bool supports_compaction_tool_choice_none() const;
 
     // Parse a chat completions response JSON (reusable by CopilotProvider)
     static ChatResponse parse_response(const nlohmann::json& j);
@@ -137,6 +167,31 @@ protected:
     int stream_timeout_ms_ = OpenAiConfig::kDefaultStreamTimeoutMs;
     bool model_has_vision_ = true;             // fail-open,见 set_vision_routing
     bool any_vision_model_available_ = false;
+
+private:
+    void apply_call_options(nlohmann::json& body,
+        const std::vector<ToolDef>& tools, bool for_compaction,
+        const ChatRequestOptions* call_options) const;
+    ChatResponse chat_cancellable_impl(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const std::atomic<bool>* abort_flag,
+        bool for_compaction,
+        const ChatRequestOptions* call_options = nullptr);
+    void chat_stream_impl(
+        const std::vector<ChatMessage>& messages,
+        const std::vector<ToolDef>& tools,
+        const StreamCallback& callback,
+        std::atomic<bool>* abort_flag,
+        const ChatRequestOptions* call_options);
+    bool remove_rejected_prompt_cache_key(
+        nlohmann::json& body, const std::string& url,
+        int status_code, const std::string& error_body);
+
+    // Leaf lock: copies request state only; never held during I/O/callbacks.
+    mutable std::mutex prompt_cache_mu_;
+    std::string prompt_cache_key_;
+    std::set<std::pair<std::string, std::string>> unsupported_prompt_cache_scopes_;
 };
 
 // 把一条 ChatMessage 的 content_parts 转成 OpenAI-compatible content payload。

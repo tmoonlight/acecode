@@ -1,9 +1,13 @@
 #include "agent/agent_loop.hpp"
 #include "side_question_service.hpp"
 #include "side_chat_tools.hpp"
+#include "agent/request/api_request_builder.hpp"
 #include "agent/request/provider_history.hpp"
 #include "agent/transcript/conversation_history.hpp"
+#include "session/request_context_record.hpp"
 #include "utils/logger.hpp"
+
+#include <algorithm>
 
 namespace acecode {
 
@@ -21,6 +25,16 @@ void AgentLoop::prime_side_question_context() {
         return;
     }
 
+    if (std::any_of(history_->view().begin(), history_->view().end(),
+                    is_request_context_snapshot)) {
+        const auto provider = provider_accessor_ ? provider_accessor_() : nullptr;
+        auto request = request_builder_->compaction_request(
+            request_context_options(provider), history_->view());
+        // Reuse the stored window and skill index. Side requests still obtain
+        // their own restricted toolset through side_chat_toolset().
+        publish_side_question_context(request.messages_with_system);
+        return;
+    }
     auto context = build_compaction_initial_context();
     auto history = model_facing_provider_messages(history_->view(), "side-question-prime");
     context.insert(context.end(), history.begin(), history.end());

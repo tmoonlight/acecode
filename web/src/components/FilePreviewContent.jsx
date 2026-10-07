@@ -27,6 +27,7 @@ import { CLEAR_PREVIEW_SELECTION_EVENT } from '../lib/inactiveSelection.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import { filePreviewKind, isBlobFilePreview } from '../lib/filePreviewKind.js';
+import { htmlPreviewFileUrl } from '../lib/htmlPreview.js';
 import {
   editableFileConflict,
   editableFileError,
@@ -179,6 +180,7 @@ export function FilePreviewContent({
   onEditStateChange,
   onToggleWrapPreview,
   onRefresh,
+  onOpenBrowser,
 }) {
   const [state, setState] = useState({
     status: 'idle',
@@ -582,6 +584,7 @@ export function FilePreviewContent({
     ).join('')
   }</tbody></table>`;
   const wrapTitle = wrapPreview ? '关闭自动换行' : '开启自动换行';
+  const htmlBrowserUrl = onOpenBrowser ? htmlPreviewFileUrl({ cwd, path }) : '';
   const showMarkdownRendered = isMarkdown && !markdownSource;
   const markdownToggleTitle = markdownSource ? '渲染 Markdown' : '查看 Markdown 原文';
   return (
@@ -592,6 +595,17 @@ export function FilePreviewContent({
         data-wrap={wrapPreview ? 'true' : 'false'}
         actions={(
           <>
+            {htmlBrowserUrl && (
+              <button
+                type="button"
+                className="ace-code-action-btn ace-code-browser-btn"
+                title="在内置浏览器中打开"
+                aria-label="在内置浏览器中打开"
+                onClick={(event) => { event.stopPropagation(); void onOpenBrowser(htmlBrowserUrl); }}
+              >
+                <VsIcon name="globe" size={14} />
+              </button>
+            )}
             {isMarkdown && (
               <button
                 type="button"

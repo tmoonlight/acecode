@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
+#include "llm/message_predicates.hpp"
 #include "permissions/permissions.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
@@ -153,7 +154,7 @@ std::vector<std::string> request_user_texts(
     const std::vector<acecode::ChatMessage>& messages) {
     std::vector<std::string> texts;
     for (const auto& message : messages) {
-        if (message.role == "user") texts.push_back(message.content);
+        if (acecode::is_real_user_message(message)) texts.push_back(message.content);
     }
     return texts;
 }
@@ -197,7 +198,7 @@ TEST(AgentLoopUserMessageRetry, ReusesStructuredTailWithoutDuplicatingUser) {
     EXPECT_EQ(request_user_texts(request), std::vector<std::string>{user.content});
     const auto persisted = h.session_manager().load_active_messages();
     EXPECT_EQ(std::count_if(persisted.begin(), persisted.end(), [](const auto& message) {
-        return message.role == "user";
+        return acecode::is_real_user_message(message);
     }), 1);
     for (const auto& event : h.events()) {
         EXPECT_FALSE(event.kind == acecode::SessionEventKind::Message &&
@@ -323,7 +324,7 @@ TEST(AgentLoopUserMessageRetry, RetriesConfirmedUserAbortWithoutDuplicatingUser)
               std::vector<std::string>{"original request"});
     const auto persisted = h.session_manager().load_active_messages();
     EXPECT_EQ(std::count_if(persisted.begin(), persisted.end(), [](const auto& message) {
-        return message.role == "user";
+        return acecode::is_real_user_message(message);
     }), 1);
     EXPECT_FALSE(h.loop().retry_last_user_message(id, error));
 }
@@ -463,13 +464,21 @@ TEST(AgentLoopUserMessageRetry, PreservesToolResultsAndAppendsOriginalStructured
     EXPECT_EQ(request[request.size() - 2].role, "tool");
     EXPECT_EQ(request[request.size() - 2].tool_call_id, "retry-tool-call");
     EXPECT_EQ(request_user_texts(request), (std::vector<std::string>{input.text, input.text}));
-    for (std::size_t i = 1; i < request.size(); ++i) {
-        EXPECT_FALSE(request[i - 1].role == "user" && request[i].role == "user");
-        EXPECT_NE(request[i].content, "[Interrupted]");
+    const acecode::ChatMessage* previous = nullptr;
+    for (const auto& message : request) {
+        EXPECT_NE(message.content, "[Interrupted]");
+        if (message.is_meta) continue;
+        // Hidden persisted context must neither count as a user retry nor
+        // conceal consecutive duplicate user messages in the conversation.
+        if (previous) {
+            EXPECT_FALSE(acecode::is_real_user_message(*previous) &&
+                         acecode::is_real_user_message(message));
+        }
+        previous = &message;
     }
     const auto persisted = h.session_manager().load_active_messages();
     EXPECT_EQ(std::count_if(persisted.begin(), persisted.end(), [](const auto& message) {
-        return message.role == "user";
+        return acecode::is_real_user_message(message);
     }), 2);
 }
 
@@ -589,7 +598,7 @@ TEST(AgentLoopTurnSteering, CommitsStructuredInputsInFifoAndContinuesSameTurn) {
     EXPECT_LT(start, first_guidance);
     EXPECT_LT(first_guidance, second_guidance);
     EXPECT_EQ(second_guidance, user_texts.end() - 1)
-        << "mutable API-only context must be inserted before the final real user input";
+        << "the last accepted guidance must remain the final real user input";
 
     std::vector<acecode::ChatMessage> guided;
     for (const auto& message : h.loop().messages()) {

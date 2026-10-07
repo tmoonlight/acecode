@@ -8,6 +8,7 @@ import { RefreshIcon, VsIcon } from './Icon.jsx';
 import { SwarmModeIcon } from './SwarmModeIcon.jsx';
 import { TokenBudgetRing } from './TokenBudgetRing.jsx';
 import { ProviderIcon } from './model-settings/ProviderIcon.jsx';
+import { shortcutLabel } from '../lib/appShortcuts.js';
 
 function permissionTextClass(color) {
   if (color === 'ok') return 'text-ok';
@@ -565,7 +566,7 @@ export function ComposerSessionControls({
               ref={reasoningAnchorRef}
               type="button"
               disabled={reasoningDisabled}
-              title="思考深度"
+              title={`思考深度 (${shortcutLabel('reasoningDown')} / ${shortcutLabel('reasoningUp')})`}
               aria-label={`思考深度：${reasoningOptions.label}`}
               aria-haspopup="menu"
               aria-expanded={openMenu === 'reasoning'}

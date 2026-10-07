@@ -116,6 +116,7 @@ export function AnchoredMenu({ anchorRef, onClose, children, className = '', wid
       {...props}
       ref={menuRef}
       data-ace-native-overlay="overlap"
+      data-shortcut-menu="true"
       className={`ace-anchored-menu ace-scrollbar ${className}`}
       style={{ position: 'fixed', top: 0, left: 0, width, visibility: 'hidden' }}
     >

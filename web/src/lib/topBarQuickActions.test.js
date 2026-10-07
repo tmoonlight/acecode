@@ -90,13 +90,18 @@ test('top-bar quick-actions menu uses the default sidebar width for invalid inpu
 
 test('only the find-content quick action carries the search-palette shortcut', () => {
   // 触发场景:侧栏快捷菜单渲染各项右侧的按键提示。
-  // 期望:只有「查找内容」带 Ctrl+K(macOS 上 ⌘K),其它项返回空串以便不渲染 kbd。
+  // 搜索保留 Ctrl+K，设置显示自己的已注册快捷键。
   const findContent = TOPBAR_QUICK_ACTIONS.find((action) => action.id === 'find-content');
   assert.equal(findContent.shortcut, QUICK_ACTION_SHORTCUT_SEARCH_PALETTE);
   assert.equal(topBarQuickActionShortcutLabel(findContent, { __ACECODE_OS__: 'windows' }), 'Ctrl+K');
   assert.equal(topBarQuickActionShortcutLabel(findContent, { __ACECODE_OS__: 'macos' }), '⌘K');
   for (const action of TOPBAR_QUICK_ACTIONS) {
     if (action.id === 'find-content') continue;
+    if (action.id === 'settings') {
+      assert.equal(topBarQuickActionShortcutLabel(action, { __ACECODE_OS__: 'windows' }), 'Ctrl+,');
+      assert.equal(topBarQuickActionShortcutLabel(action, { __ACECODE_OS__: 'macos' }), 'Cmd+,');
+      continue;
+    }
     assert.equal(action.shortcut, undefined);
     assert.equal(topBarQuickActionShortcutLabel(action, { __ACECODE_OS__: 'windows' }), '');
   }
