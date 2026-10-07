@@ -65,7 +65,17 @@ try {
     return test();
   },{source:predicate,maxMs});
   const present=()=>page.evaluate(()=>AgentOffice.agents.filter(a=>!a.leaving).map(a=>a.id));
+  await apply(data({complete:false}));
+  assert.equal(await page.locator('#officeNotice').textContent(),'修复登录流程','selected title replaces the recent-session loading notice');
+  await apply(data({complete:false,selected:{sessionId:'root',workspaceHash:'project',title:'当前会话已改名'}}));
+  assert.equal(await page.locator('#officeNotice').textContent(),'当前会话已改名','title-only updates refresh even when recent tabs do not change');
+  const longTitle='当前会话的完整标题需要保持单行显示而不遮挡办公室场景。'.repeat(8);
+  await apply(data({selected:{sessionId:'outside-recent-five',workspaceHash:'project',title:longTitle}}));
+  assert.equal(await page.locator('#officeNotice').textContent(),longTitle,'switching to a session outside the recent five updates the title');
+  assert.equal(await page.locator('#officeNotice').getAttribute('title'),longTitle,'hover exposes the complete title');
+  assert.ok(await page.locator('#officeNotice').evaluate(node=>node.scrollWidth>node.clientWidth&&getComputedStyle(node).whiteSpace==='nowrap'),'long titles stay on one line');
   await apply(data());
+  assert.equal(await page.locator('#officeNotice').textContent(),'修复登录流程','title remains visible after loading completes and selection returns');
   assert.equal(await page.locator('.office-tab').count(),5);
   assert.equal(await page.locator('#officeFollow').getAttribute('aria-checked'),'true');
   assert.equal(await page.evaluate(()=>AgentOffice.agents.length),3);
@@ -141,7 +151,7 @@ try {
   assert.ok(await advanceUntil("!AgentOffice.agents.some(a=>a.id==='文档')",2000),'then leaves without walking');
   await page.emulateMedia({reducedMotion:'no-preference'});
   assert.equal(await page.locator('#officeMembers').isHidden(),true);
-  assert.ok(await page.evaluate(()=>officeActions.some(raw=>{try{const m=JSON.parse(raw);return m.type==='overlay'&&m.rect===null;}catch{return false;}})));
+  assert.ok((await lastOverlay()).rect?.[3]<.25,'closing members leaves only the compact title hit region');
 
   // The narrowest native scale keeps tabs, follow, pin and close clickable.
   for(const [width,height] of [[172,126],[344,252],[860,630]]) {
@@ -160,5 +170,5 @@ try {
   assert.match(await page.locator('#officeNotice').textContent(),/发送消息后/);
   assert.ok(await page.evaluate(()=>{const notices=officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay');return Array.isArray(notices.at(-1)?.rect);}), 'native region includes empty-state notice');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  console.log(JSON.stringify({output,checks:64,errors,external},null,2));
+  console.log(JSON.stringify({output,checks:70,errors,external},null,2));
 } finally {await browser.close();}

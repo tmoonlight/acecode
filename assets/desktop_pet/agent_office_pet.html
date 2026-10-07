@@ -60,6 +60,7 @@ body{font:12px/1.4 var(--font);-webkit-font-smoothing:antialiased;-webkit-user-s
 .office-follow::before{content:"";display:block;width:8px;height:8px;border:1px solid #65738b;border-radius:2px}
 .office-follow[aria-checked="true"]::before{background:#456b9c;border-color:#456b9c}
 .office-notice{position:absolute;left:50%;top:calc(var(--k)*30px);transform:translateX(-50%);max-width:90%;font:11px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--office-ink);background:var(--office-paper);padding:2px 6px;border-radius:3px;z-index:4}
+.office-notice.has-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .office-tool{flex:none;display:block;width:max(12px,calc(var(--k)*8px));height:max(12px,calc(var(--k)*8px))}
 .office-tool[hidden]{display:none}
 .office-overflow{position:absolute;right:calc(var(--k)*13px);bottom:calc(var(--k)*14px);z-index:4}
@@ -1578,7 +1579,7 @@ function applyOfficeSnapshot(next) {
 let controlsKey='';
 function updateOfficeControls() {
   const s=officeSnapshot, tabs=$('officeTabs');
-  const key=JSON.stringify([s.offices,s.selected?.sessionId,s.follow,s.connected,s.complete,s.overflow]);
+  const key=JSON.stringify([s.offices,s.selected?.sessionId,s.selected?.title,s.follow,s.connected,s.complete,s.overflow]);
   if(key===controlsKey)return;controlsKey=key;
   tabs.replaceChildren();
   s.offices.slice(0,5).forEach((office,index)=>{
@@ -1590,7 +1591,10 @@ function updateOfficeControls() {
   });
   $('officeFollow').setAttribute('aria-checked',String(s.follow));
   const notice=$('officeNotice');
-  notice.textContent=!s.connected?'连接已中断，正在重连':!s.selected?(s.complete===false?'正在读取最近会话':'发送消息后，会话会出现在这里'):s.complete===false?'正在读取最近会话':'';
+  const title=s.connected&&s.selected?String(s.selected.title||'未命名会话'):'';
+  notice.textContent=title||(!s.connected?'连接已中断，正在重连':s.complete===false?'正在读取最近会话':'发送消息后，会话会出现在这里');
+  notice.classList.toggle('has-title',Boolean(title));
+  notice.title=title;
   notice.hidden=!notice.textContent;
   const overflow=$('officeOverflow');overflow.hidden=!s.overflow;overflow.textContent='+'+s.overflow;
   overflow.setAttribute('aria-label','查看其余 '+s.overflow+' 位成员');
