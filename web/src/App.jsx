@@ -1,4 +1,5 @@
 import { useDesktopOffice } from './lib/useDesktopOffice.js';
+import { isOfficeWelcomeVisible } from './lib/desktopOfficePreferences.js';
 import { VirtualOfficeWelcome } from './components/VirtualOfficeWelcome.jsx';
 // 顶层 App:鉴权 gate(401 → TokenPrompt)+ 主壳。
 //
@@ -510,7 +511,11 @@ export function App() {
     || desktopCloseDialogOpen
     || configRecoveryBlocking
     || questionReqs.length > 0;
-  const guidedTourBlocked = officeInvitationBlocked || officeWelcomeOpen;
+  // A tour that started while the native welcome claim was pending finishes first.
+  // Blocking it with the queued invitation would make both surfaces wait forever.
+  const officeWelcomeVisible = isOfficeWelcomeVisible({ requested: officeWelcomeOpen,
+    blocked: officeInvitationBlocked, tourPreparing: guidedTourPreparing, tourRunning: guidedTourRun });
+  const guidedTourBlocked = officeInvitationBlocked || officeWelcomeVisible;
 
   useEffect(() => {
     if (officeWelcomeAttempted.current || !office.welcomePending || authState !== 'ok' || !health
@@ -2467,7 +2472,7 @@ export function App() {
         onDismiss={dismissGuidedTour}
         onAbort={abortGuidedTour}
       />
-      {officeWelcomeOpen && !officeInvitationBlocked && !guidedTourPreparing && !guidedTourRun && (
+      {officeWelcomeVisible && (
         <VirtualOfficeWelcome office={office} onClose={() => setOfficeWelcomeOpen(false)} />
       )}
       <SessionNavigationMask
