@@ -58,6 +58,44 @@ TEST(AgentProgressEmitter, ExactThrottleBoundaryAndForcedUpdateUseInjectedClock)
     events.unsubscribe(subscription);
 }
 
+// 触发场景:provider 因 429 限流进入退避等待;对照一条 503 过载。
+// 期望行为:限流的等待文案写明「限流」,过载仍是「网络暂时不可用」;恢复文案不变。
+// 回归背景(2026-10-08 反馈):内网限速触发后界面显示「网络暂时不可用,等待重试」,
+// 用户去排查网络、又怀疑是上下文超限被压缩 —— 文案没说清楚是在等限流窗口。
+TEST(RetryProgressReporter, RateLimitedRetryUsesDedicatedLabel) {
+    acecode::AgentCallbacks callbacks;
+    acecode::CallbacksSlot callback_slot;
+    callback_slot.publish(callbacks);
+    acecode::EventDispatcher events;
+    auto labels = std::make_shared<std::vector<std::string>>();
+    auto subscription = events.subscribe([labels](const acecode::SessionEvent& event) {
+        labels->push_back(event.payload.value("label", std::string{}));
+    });
+    acecode::agent::RetryProgressReporter reporter(callback_slot, events);
+
+    acecode::ProviderErrorInfo rate_limited;
+    rate_limited.kind = acecode::ProviderErrorKind::Http;
+    rate_limited.status_code = 429;
+    rate_limited.retry_attempt = 1;
+    rate_limited.retry_delay_ms = 1000;
+    reporter.standard(rate_limited, true, false);
+    reporter.standard(rate_limited, true, true);
+    reporter.standard(rate_limited, false, false);
+
+    acecode::ProviderErrorInfo overloaded = rate_limited;
+    overloaded.status_code = 503;
+    reporter.standard(overloaded, true, false);
+    reporter.standard(overloaded, true, true);
+
+    ASSERT_EQ(labels->size(), 5U);
+    EXPECT_EQ((*labels)[0], "服务端限流，等待重试");
+    EXPECT_EQ((*labels)[1], "压缩请求被服务端限流，等待重试");
+    EXPECT_EQ((*labels)[2], "正在重新连接模型");
+    EXPECT_EQ((*labels)[3], "网络暂时不可用，等待重试");
+    EXPECT_EQ((*labels)[4], "压缩请求暂时不可用，等待重试");
+    events.unsubscribe(subscription);
+}
+
 TEST(RetryProgressReporter, RegularAndCustomProgressKeepCallbackBeforeEvent) {
     acecode::AgentCallbacks callbacks;
     acecode::CallbacksSlot callback_slot;

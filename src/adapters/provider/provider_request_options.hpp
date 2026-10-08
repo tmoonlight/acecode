@@ -18,6 +18,7 @@ enum class ReasoningWireProtocol {
 
 struct ProviderRequestOptions {
     std::string endpoint_mode = "base_url";
+    std::string api_protocol = "chat_completions";
     std::optional<int> max_output_tokens;
     std::optional<ModelReasoningOptions> reasoning;
     ReasoningWireProtocol reasoning_protocol = ReasoningWireProtocol::None;

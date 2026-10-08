@@ -811,3 +811,33 @@ TEST(ModelsHandler, ModelStateSerializesReasoningAndNullableSessionOverride) {
     state.reasoning.reset();
     EXPECT_TRUE(model_state_to_json(state)["reasoning"].is_null());
 }
+
+// API 往返保留协议；省略与 null 区分保留和清除，错误类型不得静默忽略。
+TEST(ModelsHandler, ApiProtocolRoundTripAndDraftPresence) {
+    auto cfg = make_cfg_with_two();
+    auto& profile = cfg.saved_models.back();
+    profile.api_protocol = "responses";
+    const auto wire = profile_to_json(profile);
+    EXPECT_EQ(wire["api_protocol"], "responses");
+    EXPECT_EQ(list_models(cfg).back()["api_protocol"], "responses");
+    std::string error;
+    auto draft = parse_model_draft(wire, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_TRUE(draft->api_protocol_supplied);
+    EXPECT_EQ(draft->api_protocol, "responses");
+    auto missing = wire;
+    missing.erase("api_protocol");
+    draft = parse_model_draft(missing, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_FALSE(draft->api_protocol_supplied);
+    auto clear = wire;
+    clear["api_protocol"] = nullptr;
+    draft = parse_model_draft(clear, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_TRUE(draft->api_protocol_supplied);
+    EXPECT_FALSE(draft->api_protocol.has_value());
+    auto invalid = wire;
+    invalid["api_protocol"] = 42;
+    EXPECT_FALSE(parse_model_draft(invalid, error));
+    EXPECT_NE(error.find("api_protocol"), std::string::npos);
+}

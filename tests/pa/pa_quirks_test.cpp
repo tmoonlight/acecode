@@ -4,6 +4,8 @@
 #include "provider/retry_policy.hpp"
 #include "pa/pa_quirks.hpp"
 
+#include <string>
+
 namespace {
 
 // set_enabled 改的是进程级开关,测试之间必须还原,否则关掉开关的那个用例会
@@ -32,7 +34,104 @@ acecode::ProviderErrorInfo make_pa_overflow_error() {
     return info;
 }
 
+// 线上实测报文(2026-10-08 截图),一字不改:限流被网关以 SSE 形式返回,HTTP 429,
+// body 带 "data:" 前缀。
+constexpr const char* kObservedRateLimitBody =
+    "data:{\"object\":\"error\",\"message\":\"您的请求频率已达到限制 (100次/10分钟)。"
+    "当前已使用: 100次。\",\"type\":\"BadRequestError\",\"code\":429}";
+
+acecode::ProviderErrorInfo make_pa_rate_limit_error(int status_code = 429) {
+    acecode::ProviderErrorInfo info;
+    info.kind = acecode::ProviderErrorKind::Http;
+    info.status_code = status_code;
+    info.display_message =
+        "HTTP " + std::to_string(status_code) + " from openai model aicoder-pro";
+    info.raw_body = kObservedRateLimitBody;
+    info.body_is_json = false;
+    return info;
+}
+
 } // namespace
+
+// 触发场景:内网网关把「请求频率已达到限制 (100次/10分钟)」以 429 返回。
+// 期望行为:判为 RateLimited;通用超限入口返回 false;重试策略放行。
+// 回归背景(2026-10-08 反馈):内网做了限速后,这条报文被怀疑当成了上下文超限的
+// 中断,会话表现为一直在压缩。把「限流」在 PA 层显式建模,是为了让它永远走不进
+// 压缩 / 兜底收缩 / 预算学习这三条路。
+TEST(PaQuirks, ObservedRateLimitPayloadIsClassifiedAsRateLimited) {
+    const auto info = make_pa_rate_limit_error();
+    EXPECT_EQ(acecode::pa::classify(info), acecode::pa::FaultKind::RateLimited);
+    EXPECT_TRUE(acecode::pa::is_rate_limited(info.raw_body));
+    EXPECT_FALSE(acecode::pa::is_context_overflow(info));
+    EXPECT_FALSE(acecode::is_context_overflow_error(info));
+    EXPECT_TRUE(acecode::provider_http_error_is_retryable(429, info.raw_body));
+    EXPECT_TRUE(acecode::provider_error_is_rate_limited(429, info.raw_body));
+}
+
+// 触发场景:同一条限流报文,状态码被网关写成 400 / 451(「错误代码不一定靠谱」)。
+// 期望行为:仍按文案判为限流 —— 可重试、不是超限。修复前 4xx 一律终止,一次
+// 限流就断掉整个回合;而 451 本来是额度用完的码,这里只认报文不认码。
+TEST(PaQuirks, RateLimitTextOverridesUnreliableStatusCode) {
+    for (int status : {400, 451, 500}) {
+        const auto info = make_pa_rate_limit_error(status);
+        EXPECT_EQ(acecode::pa::classify(info), acecode::pa::FaultKind::RateLimited)
+            << status;
+        EXPECT_FALSE(acecode::is_context_overflow_error(info)) << status;
+        EXPECT_TRUE(acecode::provider_http_error_is_retryable(status, info.raw_body))
+            << status;
+        EXPECT_TRUE(acecode::provider_error_is_rate_limited(status, info.raw_body))
+            << status;
+    }
+    // 硬配额(余额 / 额度用完)仍然终止:那不是等一会儿就能过的事。
+    const std::string quota_body =
+        R"({"message":"请求过于频繁，且账户余额不足","code":429})";
+    EXPECT_FALSE(acecode::provider_http_error_is_retryable(429, quota_body));
+    EXPECT_FALSE(acecode::provider_error_is_rate_limited(429, quota_body));
+}
+
+// 触发场景:上下文超限报文被网关以 429 / 503 返回(同一个「码不可信」的问题的
+// 另一面)。
+// 期望行为:不重试、判为超限。修复前 429 / 5xx 在状态码白名单里被无上限重试,
+// 同一个超大请求每次都被秒拒,回合困在退避里永远进不了压缩 / 兜底链。
+TEST(PaQuirks, OverflowTextIsNeverRetriedEvenWithRetryableStatusCode) {
+    for (int status : {429, 503}) {
+        auto info = make_pa_overflow_error();
+        info.status_code = status;
+        EXPECT_FALSE(acecode::provider_http_error_is_retryable(status, info.raw_body))
+            << status;
+        EXPECT_TRUE(acecode::is_context_overflow_error(info)) << status;
+        EXPECT_FALSE(acecode::provider_error_is_rate_limited(status, info.raw_body))
+            << status;
+    }
+}
+
+// 触发场景:限流措辞与超限 / 瞬时故障措辞同时出现。
+// 期望行为:RateLimited 优先。「频率 / 限流」说的是时间窗口,比「过大」更具体;
+// 判成超限的代价是压缩丢历史,判成限流的代价只是多等一会儿。
+TEST(PaQuirks, RateLimitWordingWinsOverOverflowAndTransientWording) {
+    EXPECT_EQ(acecode::pa::classify_error_text(
+                  "请求频率过高，请求上下文过大，请稍候重试"),
+              acecode::pa::FaultKind::RateLimited);
+    EXPECT_EQ(acecode::pa::classify_error_text("服务繁忙，已触发限流"),
+              acecode::pa::FaultKind::RateLimited);
+    EXPECT_FALSE(acecode::pa::is_transient_upstream("操作过于频繁，请稍后重试"));
+}
+
+// 触发场景:关掉 PA 适配总开关。
+// 期望行为:退回纯状态码判定 —— 400 + 限流文案终止,429 + 超限文案重试,证明
+// 这层是可摘除的。
+TEST(PaQuirks, DisablingAdapterRestoresStatusDrivenRetryDecisions) {
+    PaEnabledGuard guard(false);
+    const auto rate_limit = make_pa_rate_limit_error(400);
+    EXPECT_EQ(acecode::pa::classify(rate_limit), acecode::pa::FaultKind::None);
+    EXPECT_FALSE(acecode::provider_http_error_is_retryable(400, rate_limit.raw_body));
+    EXPECT_FALSE(acecode::provider_error_is_rate_limited(400, rate_limit.raw_body));
+    // 429 本身仍算限流:那是 HTTP 协议语义,不是 PA 适配。
+    EXPECT_TRUE(acecode::provider_error_is_rate_limited(429, rate_limit.raw_body));
+
+    const auto overflow = make_pa_overflow_error();
+    EXPECT_TRUE(acecode::provider_http_error_is_retryable(429, overflow.raw_body));
+}
 
 // 触发场景:内网服务端以中文文案 + 非标准 type 报上下文超限。
 // 期望行为:PA 层识别为 ContextOverflow。

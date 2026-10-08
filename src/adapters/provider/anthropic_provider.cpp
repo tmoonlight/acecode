@@ -430,15 +430,16 @@ void emit_retry_resume_event(const StreamCallback& callback,
     callback(evt);
 }
 
-int retry_after_delay_ms(const cpr::Header& headers,
-                         std::uint64_t retry_number) {
+int retry_after_delay_ms(const cpr::Header& headers, std::uint64_t retry_number,
+                         int status_code, const std::string& body) {
     std::optional<std::int64_t> server_delay;
     const std::string retry_after = header_value_ci(headers, "retry-after");
     if (!retry_after.empty()) {
         server_delay = parse_retry_after_ms(retry_after);
     }
     return static_cast<int>(
-        provider_retry_delay_ms(retry_number, server_delay));
+        provider_retry_delay_ms(retry_number, server_delay,
+                                provider_retry_max_delay_ms(status_code, body)));
 }
 
 bool find_event_delimiter(const std::string& buffer,
@@ -1244,7 +1245,8 @@ ChatResponse AnthropicProvider::parse_sse_stream(
         }
 
         if (error_info.retryable) {
-            const int delay_ms = retry_after_delay_ms(r.header, attempt);
+            const int delay_ms = retry_after_delay_ms(
+                r.header, attempt, error_info.status_code, error_info.raw_body);
             error_info.retry_attempt = saturating_retry_attempt(attempt);
             error_info.retry_max_attempts = -1;
             error_info.retry_delay_ms = delay_ms;

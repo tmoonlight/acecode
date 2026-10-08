@@ -47,12 +47,16 @@ public:
     int stream_message_count = 0;
     std::vector<std::vector<acecode::ChatMessage>> compact_requests;
     std::vector<std::vector<acecode::ChatMessage>> stream_requests;
+    // 摘要请求进行中的钩子(在 worker 线程上调用):用例用它模拟「用户在压缩
+    // 请求期间点了停止」。
+    std::function<void()> on_compact_request;
 
     acecode::ChatResponse chat(
         const std::vector<acecode::ChatMessage>& messages,
         const std::vector<acecode::ToolDef>&) override {
         ++chat_calls;
         compact_requests.push_back(messages);
+        if (on_compact_request) on_compact_request();
         for (const auto& message : messages) {
             if (message.content.find(std::string(128, 'T')) != std::string::npos) {
                 compact_prompt_saw_full_tool_result = true;
@@ -921,6 +925,52 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactFallsBackToMechanicalPrune) {
     // 但本轮输入必须留下 —— 兜底是为了让这一轮能继续,不是把它一起丢掉。
     EXPECT_TRUE(
         request_contains(loop.messages(), "continue after a failed summarization"));
+}
+
+// 触发场景:自动压缩的摘要请求进行中(典型:被限流、正在退避等待),用户点了停止。
+// 期望行为:按取消收尾 —— 不走机械修剪,最旧的历史一条不丢;压缩通知停在 error
+// 阶段,没有「兜底成功」的 warning。
+// 回归背景(2026-10-08 反馈链):摘要请求遇到 429 时界面长时间停在「等待重试」,
+// 用户按停止,旧实现把「Compaction cancelled.」当成摘要失败进了机械修剪,每按
+// 一次停止就真丢一段历史 —— 用户看到的就是「上下文一直在被压缩」。
+TEST(AgentLoopCompactEvents, CancelledAutoCompactDoesNotPruneHistory) {
+    auto provider = std::make_shared<CompactEventProvider>();
+    provider->fail_compact = true;
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    const auto cwd = make_temp_cwd("compact_cancel_no_prune");
+    std::filesystem::remove_all(
+        acecode::SessionStorage::get_project_dir(cwd.string()));
+    acecode::SessionManager session;
+    session.start_session(cwd.string(), "stub", "model");
+    acecode::AgentLoop loop(
+        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        acecode_test::AgentLoopFixture::configuration(cwd.string()));
+    loop.start();
+    loop.set_context_window(4000);
+    // 与机械修剪用例同样长的历史:修剪有得可丢,才能证明这里没丢。
+    add_history(loop, 20);
+    // 摘要请求发出的那一刻点停止:compact_messages 在响应返回后看到 abort 标记,
+    // 以「Compaction cancelled.」返回。
+    provider->on_compact_request = [&loop] { loop.abort(); };
+
+    const auto events = wait_for_done(loop, [&] {
+        loop.submit("cancel while compacting");
+    });
+
+    EXPECT_EQ(provider->chat_calls, 1);
+    EXPECT_EQ(provider->stream_calls, 0) << "取消后不应再发主请求";
+    EXPECT_TRUE(request_contains(loop.messages(), "old assistant 0"))
+        << "取消不是摘要失败,最旧的历史不能被机械修剪丢掉";
+    EXPECT_FALSE(has_system_event(events, "摘要压缩失败"));
+    const auto notices = compact_notices(events);
+    ASSERT_EQ(notices.size(), 2u);
+    EXPECT_EQ(notices[0].stage, "progress");
+    EXPECT_EQ(notices[1].stage, "error");
+    for (const auto& notice : notices) {
+        EXPECT_NE(notice.stage, "warning") << "取消不应被报成兜底成功";
+    }
+    session.finalize();
 }
 
 TEST(AgentLoopCompactEvents, FailedAutoCompactIsAtomicAndRetriesOnNextTurn) {

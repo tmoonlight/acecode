@@ -42,6 +42,27 @@ function fieldLabel(id, label, optional = false) {
   );
 }
 
+function ModelApiProtocolField({ draft, onPatchDraft }) {
+  return (
+    <div className="md:col-span-2">
+      {fieldLabel('model-api-protocol', 'API 协议')}
+      <select
+        id="model-api-protocol"
+        value={draft.api_protocol || 'chat_completions'}
+        onChange={(event) => onPatchDraft({ api_protocol: event.target.value })}
+        aria-describedby="model-api-protocol-help"
+        className={inputClass()}
+      >
+        <option value="chat_completions">Chat Completions</option>
+        <option value="responses">Responses</option>
+      </select>
+      <p id="model-api-protocol-help" className="mt-1.5 text-[11px] leading-5 text-fg-mute">
+        按服务商支持的接口选择；需要 Responses 的模型请在此切换。
+      </p>
+    </div>
+  );
+}
+
 function ModelApiKeyInput({ draft, apiKeyVisible, onPatchDraft, onToggleApiKey,
   testStatus, onTest, submitting }) {
   const testing = testStatus === 'testing';
@@ -159,6 +180,9 @@ function CustomCompatibilityApiFields({
           onPatchDraft={onPatchDraft}
         />
       </div>
+      {policy?.show_api_protocol && (
+        <ModelApiProtocolField draft={draft} onPatchDraft={onPatchDraft} />
+      )}
       {policy?.show_base_url && (
         <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
           {fieldLabel('model-base-url', draft.endpoint_mode === 'full_url' ? '完整端点 URL' : 'Base URL')}
@@ -459,6 +483,9 @@ export function ModelProfileDialog({
 
           {!policy?.managed && !customCompatibilityApi && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {policy?.show_api_protocol && (
+                <ModelApiProtocolField draft={draft} onPatchDraft={patchDraft} />
+              )}
               {policy?.show_base_url && (
                 <div className={policy.show_api_key ? '' : 'md:col-span-2'}>
                   {fieldLabel('model-base-url', draft.endpoint_mode === 'full_url' ? '完整端点 URL' : 'Base URL')}

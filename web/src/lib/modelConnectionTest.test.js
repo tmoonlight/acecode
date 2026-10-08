@@ -114,3 +114,13 @@ await run('model failure copy does not echo upstream error bodies or draft secre
   assert.ok(!message.includes('secret'));
   assert.match(message, /模型检测失败/);
 });
+
+await run('model test carries the selected Responses protocol to every request', async () => {
+  const calls = [];
+  await testModelDraft({ testModel: async (payload) => {
+    calls.push(payload);
+    return { ok: true };
+  } }, { ...draft, api_protocol: 'responses' }, provider);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((payload) => payload.api_protocol === 'responses'));
+});

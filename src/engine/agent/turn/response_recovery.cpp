@@ -10,6 +10,8 @@
 #include "session/system_notice.hpp"
 #include "utils/logger.hpp"
 
+#include <algorithm>
+
 namespace acecode::agent {
 using detail::text_tool_call_rejected_persisted_content;
 using detail::text_tool_call_diagnostic_to_json;
@@ -105,7 +107,14 @@ ResponseRecoveryResult ResponseRecovery::resolve(
 
     const bool has_content_parts =
         response.content_parts.is_array() &&
-        !response.content_parts.empty();
+        std::any_of(response.content_parts.begin(), response.content_parts.end(),
+            [](const nlohmann::json& part) {
+                // Opaque Responses replay state is not a visible answer.
+                if (!part.is_object()) return true;
+                const auto type = part.find("type");
+                return type == part.end() || !type->is_string() ||
+                    *type != "openai_responses_item";
+            });
     const bool response_is_blank =
         !has_content_parts &&
         response.content.find_first_not_of(" \t\r\n") ==
@@ -122,6 +131,7 @@ ResponseRecoveryResult ResponseRecovery::resolve(
         empty_msg.content = response.content;
         empty_msg.reasoning_content =
             response.reasoning_content;
+        empty_msg.content_parts = response.content_parts;
         history_.append(empty_msg);
         if (session_manager_) session_manager_->on_message(empty_msg);
 

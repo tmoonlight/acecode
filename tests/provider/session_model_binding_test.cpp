@@ -2,6 +2,7 @@
 
 #include "provider/session_model_binding.hpp"
 #include "provider/openai_provider.hpp"
+#include "provider/openai_responses_provider.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -121,6 +122,37 @@ TEST(SessionModelBinding, ClonedBindingCanIndependentlyContinueAgain) {
     EXPECT_NE(second->provider, source.provider_snapshot());
     EXPECT_NE(second->provider, successor.provider_snapshot());
     EXPECT_EQ(second->provider->model(), source.provider_snapshot()->model());
+}
+
+TEST(SessionModelBinding, ProtocolEditRebuildsFutureSnapshotAndClonesResponses) {
+    acecode::AppConfig cfg;
+    auto profile = profile_named();
+    cfg.saved_models = {profile};
+    acecode::SessionModelBinding binding;
+    ASSERT_TRUE(install_initial(binding, target_for(profile, cfg, 1)).ok);
+    const auto in_flight = binding.provider_snapshot();
+
+    profile.api_protocol = "responses";
+    cfg.saved_models = {profile};
+    const auto updated = target_for(profile, cfg, 2);
+    const auto result = binding.ensure_current(
+        false, [] { return acecode::SavedModelsRevision{2}; },
+        [updated](const std::string&) { return updated; });
+    ASSERT_TRUE(result.ok);
+    EXPECT_EQ(result.outcome, acecode::SessionModelReloadOutcome::Reloaded);
+    const auto current = std::dynamic_pointer_cast<acecode::OpenAiResponsesProvider>(
+        binding.provider_snapshot());
+    ASSERT_TRUE(current);
+    EXPECT_NE(current, in_flight);
+    const auto previous = std::dynamic_pointer_cast<acecode::OpenAiCompatProvider>(in_flight);
+    ASSERT_TRUE(previous);
+    EXPECT_EQ(previous->request_url(), "https://gateway.example/v1/chat/completions");
+    EXPECT_EQ(current->request_url(), "https://gateway.example/v1/responses");
+
+    const auto cloned = binding.clone_runtime_snapshot(profile.name);
+    ASSERT_TRUE(cloned);
+    EXPECT_NE(cloned->provider, current);
+    EXPECT_TRUE(std::dynamic_pointer_cast<acecode::OpenAiResponsesProvider>(cloned->provider));
 }
 
 TEST(SessionModelBinding, CloneRejectsChangedSelectionAndUncloneableRuntimeProvider) {

@@ -2860,7 +2860,7 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 返回所有运行时已启用的模型配置。该路由要求通过 Web 认证，响应包含 `api_key`
 原值和 `has_api_key` 布尔值，供编辑表单默认遮罩回填；调用方必须把整个响应视为
 敏感数据，日志与错误消息仍不得包含密钥。高级字段有值时会原样返回，包括
-`endpoint_mode`、`max_output_tokens`、`capabilities_source`、`reasoning`、
+`endpoint_mode`、`api_protocol`、`max_output_tokens`、`capabilities_source`、`reasoning`、
 `request_headers`、`context_window` 与 `stream_timeout_ms`。
 
 ### `POST /api/models`
@@ -2894,6 +2894,14 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 }
 ```
 
+`api_protocol` 仅适用于 `provider:"openai"`，接受 `chat_completions` 或
+`responses`；省略时继续使用 Chat Completions。模型设置的 **API 协议** 下拉框可
+选择 Responses，保存和连接检测使用同一协议。`base_url` 模式下 Responses 会向
+基础地址追加 `/responses`；`full_url` 模式直接使用给定 URL。协议由该字段决定，
+不会根据 URL 或模型名称自动推断。更新时省略该字段保留原值，传 `null` 清除并恢复
+默认 Chat Completions；切换到其他 Provider 会清除该字段，其他 Provider 显式传入
+则返回 `UNSUPPORTED_MODEL_OPTION`，未知协议值返回 `INVALID_API_PROTOCOL`。
+
 返回包含 `api_key` 原值的模型配置。校验错误使用 `BAD_JSON`、`BAD_REQUEST` 或
 `SavedModelEditError` 字符串；持久化失败会回滚内存并返回
 `500 PERSIST_FAILED`。
@@ -2908,7 +2916,7 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 路径仍区分大小写。
 
 省略 `base_url`、`context_window`、`stream_timeout_ms`、`capabilities`、
-`endpoint_mode`、`max_output_tokens`、`capabilities_source`、`reasoning` 或
+`endpoint_mode`、`api_protocol`、`max_output_tokens`、`capabilities_source`、`reasoning` 或
 `request_headers` 会保留原值。显式空 `request_headers` 会清空请求头；对应高级
 字段传 `null` 时按各字段合同清除。外部登录器留下的 legacy `readonly:true` 只是
 兼容元数据，不阻止编辑。响应包含 `api_key` 原值与 `has_api_key`，并仅允许经

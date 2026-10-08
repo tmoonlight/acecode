@@ -25,6 +25,40 @@ TEST(ProviderRetryPolicy, ServerDelayOverridesLocalDelayButUsesSameCap) {
     EXPECT_EQ(acecode::provider_retry_delay_ms(1, 3600000), 1200000);
 }
 
+// 触发场景:429 限流(或按 PA 文案判定的限流)且服务端没给 Retry-After。
+// 期望行为:本地翻倍退避封顶 1 分钟,而不是 20 分钟。
+// 回归背景(2026-10-08 反馈):内网网关限速「100 次 / 10 分钟」,旧退避第 10 次
+// 要等 512 秒、第 12 次起每次 20 分钟,窗口早已复位之后还在白等;用户看到的是
+// 界面长时间停在「等待重试」。非限流故障(5xx / 超时)的上限不变。
+TEST(ProviderRetryPolicy, RateLimitBackoffCapsAtOneMinute) {
+    EXPECT_EQ(acecode::provider_retry_max_delay_ms(429, ""), 60000);
+    EXPECT_EQ(acecode::provider_retry_max_delay_ms(503, ""), 1200000);
+    EXPECT_EQ(acecode::provider_retry_max_delay_ms(
+                  400, "{\"message\":\"\xE6\x82\xA8\xE7\x9A\x84\xE8\xAF\xB7\xE6\xB1\x82"
+                       "\xE9\xA2\x91\xE7\x8E\x87\xE5\xB7\xB2\xE8\xBE\xBE\xE5\x88\xB0"
+                       "\xE9\x99\x90\xE5\x88\xB6\"}"),  // 您的请求频率已达到限制
+              60000);
+    // 硬配额不是限流:它根本不会重试,上限按普通值给,不影响判定。
+    EXPECT_FALSE(acecode::provider_error_is_rate_limited(
+        429, R"({"error":{"code":"insufficient_quota"}})"));
+
+    EXPECT_EQ(acecode::provider_retry_delay_ms(1, std::nullopt, 60000), 1000);
+    EXPECT_EQ(acecode::provider_retry_delay_ms(6, std::nullopt, 60000), 32000);
+    EXPECT_EQ(acecode::provider_retry_delay_ms(7, std::nullopt, 60000), 60000);
+    EXPECT_EQ(acecode::provider_retry_delay_ms(1000000, std::nullopt, 60000), 60000);
+    // 默认上限不变:老调用方的行为逐字节一致。
+    EXPECT_EQ(acecode::provider_retry_delay_ms(12, std::nullopt), 1200000);
+}
+
+// 触发场景:限流响应带了 Retry-After。
+// 期望行为:服务端给的时长优先,不被 1 分钟的本地上限截短;仍以 20 分钟封顶。
+// 限流网关说「10 分钟后再来」时按 1 分钟去探只会多吃几次拒绝。
+TEST(ProviderRetryPolicy, ServerRetryAfterIsHonoredBeyondRateLimitCap) {
+    EXPECT_EQ(acecode::provider_retry_delay_ms(1, 600000, 60000), 600000);
+    EXPECT_EQ(acecode::provider_retry_delay_ms(1, 3600000, 60000), 1200000);
+    EXPECT_EQ(acecode::provider_retry_delay_ms(3, 0, 60000), 0);
+}
+
 TEST(ProviderRetryPolicy, ParsesDeltaSecondsAndHttpDate) {
     EXPECT_EQ(acecode::parse_retry_after_ms("2.5", 0), 2500);
     EXPECT_EQ(

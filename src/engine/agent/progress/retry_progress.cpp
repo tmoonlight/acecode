@@ -1,5 +1,6 @@
 #include "retry_progress.hpp"
 #include "agent/callbacks_slot.hpp"
+#include "provider/retry_policy.hpp"
 #include "session/event_dispatcher.hpp"
 #include "utils/time.hpp"
 #include <sstream>
@@ -32,9 +33,17 @@ void RetryProgressReporter::standard(const ProviderErrorInfo& info, bool waiting
                                      bool compaction) {
     RetryProgressText text;
     text.phase = waiting ? "model_retry" : (compaction ? "compacting" : "model_waiting");
-    text.label = waiting
-        ? (compaction ? "压缩请求暂时不可用，等待重试" : "网络暂时不可用，等待重试")
-        : (compaction ? "正在重新发起压缩请求" : "正在重新连接模型");
+    // 限流单独说明。被限流时显示「网络暂时不可用」会把用户引向排查网络 / 怀疑
+    // 上下文被压缩(反馈:内网 100 次 / 10 分钟的限速触发后,用户以为是超限)。
+    const bool rate_limited =
+        provider_error_is_rate_limited(info.status_code, info.raw_body);
+    if (waiting) {
+        text.label = rate_limited
+            ? (compaction ? "压缩请求被服务端限流，等待重试" : "服务端限流，等待重试")
+            : (compaction ? "压缩请求暂时不可用，等待重试" : "网络暂时不可用，等待重试");
+    } else {
+        text.label = compaction ? "正在重新发起压缩请求" : "正在重新连接模型";
+    }
     text.detail = "第 " + std::to_string(info.retry_attempt) + " 次重试" +
         (waiting ? "将在 " + std::to_string(info.retry_delay_ms) + " ms 后发起"
                  : std::string{});

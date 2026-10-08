@@ -1282,3 +1282,66 @@ TEST(SavedModelsTest, ParseReadonlyFlagDefaultsFalse) {
     EXPECT_FALSE((*parsed)[0].readonly);
     EXPECT_TRUE((*parsed)[1].readonly);
 }
+
+// Responses 协议只允许 OpenAI 预设显式选择，缺省仍保留旧协议。
+TEST(SavedModelsTest, ApiProtocolParsesAndRejectsUnsupportedValuesAndProviders) {
+    const nlohmann::json legacy = {
+        {"name", "responses-test"}, {"provider", "openai"},
+        {"model", "model-id"}, {"base_url", "https://api.example/v1"},
+        {"api_key", "test-key"},
+    };
+    std::string error;
+    auto parsed = parse_saved_models(nlohmann::json::array({legacy}), error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    EXPECT_FALSE(parsed->front().api_protocol.has_value());
+    for (const auto* protocol : {"chat_completions", "responses"}) {
+        auto node = legacy;
+        node["api_protocol"] = protocol;
+        parsed = parse_saved_models(nlohmann::json::array({node}), error);
+        ASSERT_TRUE(parsed.has_value()) << error;
+        EXPECT_EQ(parsed->front().api_protocol, protocol);
+        EXPECT_TRUE(validate_saved_models(*parsed, "", error)) << error;
+    }
+    auto invalid = legacy;
+    invalid["api_protocol"] = 42;
+    EXPECT_FALSE(parse_saved_models(nlohmann::json::array({invalid}), error));
+    EXPECT_NE(error.find("api_protocol"), std::string::npos);
+    auto profile = make_valid_openai_profile("test", "model-id");
+    profile.api_protocol = "guess";
+    EXPECT_FALSE(validate_saved_models({profile}, "", error));
+    profile.api_protocol = "responses";
+    for (const auto* provider : {"anthropic", "copilot", "grok", "codex"}) {
+        profile.provider = provider;
+        if (profile.provider == "copilot" || profile.provider == "grok") {
+            profile.api_key.clear();
+            profile.base_url.clear();
+        }
+        EXPECT_FALSE(validate_saved_models({profile}, "", error)) << provider;
+        EXPECT_NE(error.find("api_protocol"), std::string::npos) << error;
+    }
+}
+
+// 保存、加载和配置变更比较均须保留协议，否则运行中的模型不会更新。
+TEST(SavedModelsTest, ApiProtocolRoundTripsAndParticipatesInEquality) {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto path = std::filesystem::temp_directory_path() /
+        ("acecode-responses-profile-" + std::to_string(suffix) + ".json");
+    AppConfig cfg;
+    auto responses = make_valid_openai_profile("responses", "model-id");
+    responses.api_protocol = "responses";
+    const auto legacy = make_valid_openai_profile("legacy", "model-id");
+    cfg.saved_models = {responses, legacy};
+    cfg.default_model_name = responses.name;
+    save_config(cfg, path.string());
+    const auto loaded = load_config_from_path(path.string());
+    ASSERT_EQ(loaded.saved_models.size(), 2u);
+    EXPECT_EQ(loaded.saved_models[0].api_protocol, "responses");
+    EXPECT_FALSE(loaded.saved_models[1].api_protocol.has_value());
+    EXPECT_TRUE(model_profiles_equal(responses, loaded.saved_models[0]));
+    auto changed = responses;
+    changed.api_protocol = "chat_completions";
+    EXPECT_FALSE(model_profiles_equal(responses, changed));
+    EXPECT_FALSE(saved_model_lists_equal({responses}, {changed}));
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}

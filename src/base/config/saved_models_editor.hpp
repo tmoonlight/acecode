@@ -35,6 +35,8 @@ struct SavedModelDraft {
     bool capabilities_supplied = false;
     std::optional<std::string> endpoint_mode;
     bool endpoint_mode_supplied = false;
+    std::optional<std::string> api_protocol;
+    bool api_protocol_supplied = false;
     std::optional<int> max_output_tokens;
     bool max_output_tokens_supplied = false;
     std::optional<std::string> capabilities_source;
@@ -60,6 +62,7 @@ enum class SavedModelEditError {
     INVALID_CAPABILITY,     // capabilities 含空值/控制字符/重复项
     INVALID_REQUEST_HEADER, // request_headers 非 openai / 非法 header/template
     INVALID_ENDPOINT_MODE,
+    INVALID_API_PROTOCOL,
     INVALID_MAX_OUTPUT_TOKENS,
     INVALID_CAPABILITIES_SOURCE,
     INVALID_REASONING,

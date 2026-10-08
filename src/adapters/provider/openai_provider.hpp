@@ -100,7 +100,7 @@ public:
         return request_options_;
     }
 
-    std::string request_url() const {
+    virtual std::string request_url() const {
         return request_options_.endpoint_mode == "full_url"
             ? base_url_
             : base_url_ + "/chat/completions";
@@ -146,6 +146,9 @@ protected:
     // the default implementation recognizes verified official endpoints only.
     virtual bool supports_prompt_cache_key() const;
     virtual bool supports_compaction_tool_choice_none() const;
+    bool remove_rejected_prompt_cache_key(
+        nlohmann::json& body, const std::string& url,
+        int status_code, const std::string& error_body);
 
     // Parse a chat completions response JSON (reusable by CopilotProvider)
     static ChatResponse parse_response(const nlohmann::json& j);
@@ -184,10 +187,6 @@ private:
         const StreamCallback& callback,
         std::atomic<bool>* abort_flag,
         const ChatRequestOptions* call_options);
-    bool remove_rejected_prompt_cache_key(
-        nlohmann::json& body, const std::string& url,
-        int status_code, const std::string& error_body);
-
     // Leaf lock: copies request state only; never held during I/O/callbacks.
     mutable std::mutex prompt_cache_mu_;
     std::string prompt_cache_key_;

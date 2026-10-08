@@ -20,6 +20,7 @@ import { providerDisplayName } from './providerCatalogGroups.js';
 
 export const MODEL_CATALOG_QUERY_LIMIT = 50;
 export const MODEL_ENDPOINT_MODES = ['base_url', 'full_url'];
+export const MODEL_API_PROTOCOLS = ['chat_completions', 'responses'];
 import { MODEL_REASONING_EFFORTS } from './modelReasoning.js';
 export { MODEL_REASONING_EFFORTS } from './modelReasoning.js';
 
@@ -385,6 +386,10 @@ export function normalizeSavedModelProfile(raw, index = 0) {
     throw contractError(`saved_models[${index}].provider is unsupported`);
   }
   const apiKey = optionalString(value.api_key, `saved_models[${index}].api_key`);
+  const apiProtocol = optionalString(value.api_protocol, `saved_models[${index}].api_protocol`);
+  if (apiProtocol && (provider !== 'openai' || !MODEL_API_PROTOCOLS.includes(apiProtocol))) {
+    throw contractError(`saved_models[${index}].api_protocol is unsupported`);
+  }
   return {
     ...value,
     name: requireString(value.name, `saved_models[${index}].name`),
@@ -416,6 +421,7 @@ export function normalizeSavedModelProfile(raw, index = 0) {
       : MODEL_ENDPOINT_MODES.includes(value.endpoint_mode)
         ? value.endpoint_mode
         : (() => { throw contractError(`saved_models[${index}].endpoint_mode is unsupported`); })(),
+    api_protocol: apiProtocol,
     reasoning: normalizeReasoning(value.reasoning, `saved_models[${index}].reasoning`),
     request_headers: value.request_headers === undefined || value.request_headers === null
       ? undefined
@@ -771,6 +777,7 @@ export function emptyModelProfileDraft() {
     model: '',
     base_url: OPENAI_DEFAULT_BASE_URL,
     endpoint_mode: 'base_url',
+    api_protocol: '',
     api_key: '',
     has_api_key: false,
     clear_api_key: false,
@@ -805,6 +812,7 @@ export function modelProfileDraftFromSaved(raw) {
         model.provider === 'openai' ? OPENAI_DEFAULT_BASE_URL : ''
     ),
     endpoint_mode: model.endpoint_mode,
+    api_protocol: model.api_protocol,
     api_key: model.api_key,
     has_api_key: model.has_api_key || !!model.api_key,
     request_headers_json: formatRequestHeadersJson(model.request_headers),
@@ -833,6 +841,7 @@ export function modelFieldPolicy(provider) {
     show_base_url: supportsHttpOptions && (!!value.base_url || !!value.endpoint_editable),
     edit_base_url: supportsHttpOptions && !!value.endpoint_editable,
     show_endpoint_mode: supportsHttpOptions && endpointModes.includes('full_url'),
+    show_api_protocol: supportsHttpOptions && value.runtime_provider === 'openai',
     show_request_headers: supportsHttpOptions,
     show_max_output: !managed,
     show_reasoning: supportsHttpOptions,
@@ -859,6 +868,10 @@ export function applyCatalogProviderToDraft(draft, provider) {
     model: '',
     base_url: policy.show_base_url ? provider.base_url : '',
     endpoint_mode: provider.endpoint_modes?.[0] || 'base_url',
+    // An explicit provider switch must clear a previously selected Responses
+    // protocol even when both providers share the openai runtime kind.
+    api_protocol: provider.runtime_provider === 'openai' && draft?.api_protocol
+      ? 'chat_completions' : '',
     api_key: '',
     has_api_key: false,
     clear_api_key: !!draft?.has_api_key && provider.auth_mode === 'none',
@@ -963,6 +976,10 @@ export function validateModelProfileDraft(draft, provider, { editing = false } =
   if (draft.clear_api_key && !policy.can_clear_api_key) {
     return { ok: false, code: 'INVALID_API_KEY' };
   }
+  if (draft.api_protocol && (!policy.show_api_protocol
+      || !MODEL_API_PROTOCOLS.includes(draft.api_protocol))) {
+    return { ok: false, code: 'INVALID_API_PROTOCOL' };
+  }
   if (draft.endpoint_mode === 'full_url' && !policy.show_endpoint_mode) {
     return { ok: false, code: 'INVALID_ENDPOINT_MODE' };
   }
@@ -1047,6 +1064,7 @@ export function buildModelMutationPayload(draft, provider, options = {}) {
     payload.models_dev_provider_id = null;
   }
   if (policy.show_base_url) payload.base_url = String(draft.base_url || '').trim();
+  if (policy.show_api_protocol && draft.api_protocol) payload.api_protocol = draft.api_protocol;
   if (policy.show_endpoint_mode) payload.endpoint_mode = draft.endpoint_mode || 'base_url';
   else if (options.editing && !policy.managed) payload.endpoint_mode = null;
   if (policy.show_api_key && String(draft.api_key || '').trim()) {

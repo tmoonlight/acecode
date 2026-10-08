@@ -2,6 +2,7 @@
 
 #include "config/config.hpp"
 #include "provider/provider_factory.hpp"
+#include "provider/openai_responses_provider.hpp"
 
 #include <httplib.h>
 
@@ -223,6 +224,7 @@ TEST(ProviderFactory, FingerprintCoversEveryEffectiveConstructionField) {
         [](ModelProfile& p) { p.stream_timeout_ms = 42000; },
         [](ModelProfile& p) { p.request_headers["Authorization"] = "Bearer new"; },
         [](ModelProfile& p) { p.endpoint_mode = "full_url"; },
+        [](ModelProfile& p) { p.api_protocol = "responses"; },
         [](ModelProfile& p) { p.max_output_tokens = 8193; },
         [](ModelProfile& p) { p.reasoning->supported = false; },
         [](ModelProfile& p) { p.reasoning->mandatory = true; },
@@ -276,6 +278,42 @@ TEST(ProviderFactory, FingerprintCoversDerivedReasoningWireProtocol) {
     const auto ordinary = fingerprint_for(profile);
     profile.models_dev_provider_id = "OpenRouter";
     EXPECT_NE(fingerprint_for(profile), ordinary);
+}
+
+TEST(ProviderFactory, ResponsesProtocolSelectsAdapterAndLegacyRemainsChat) {
+    auto profile = openai_profile("https://api.example/v1/");
+    const auto legacy_fingerprint = fingerprint_for(profile);
+    auto legacy = create_provider_from_entry(profile);
+    ASSERT_TRUE(legacy);
+    EXPECT_FALSE(std::dynamic_pointer_cast<acecode::OpenAiResponsesProvider>(legacy));
+
+    profile.api_protocol = "chat_completions";
+    EXPECT_EQ(fingerprint_for(profile), legacy_fingerprint);
+    profile.api_protocol = "responses";
+    EXPECT_NE(fingerprint_for(profile), legacy_fingerprint);
+    auto provider = create_provider_from_entry(profile);
+    auto responses = std::dynamic_pointer_cast<acecode::OpenAiResponsesProvider>(provider);
+    ASSERT_TRUE(responses);
+    EXPECT_EQ(responses->name(), "openai");
+    EXPECT_EQ(responses->request_url(), "https://api.example/v1/responses");
+
+    profile.endpoint_mode = "full_url";
+    profile.base_url = "https://api.example/custom/responses?version=1";
+    responses = std::dynamic_pointer_cast<acecode::OpenAiResponsesProvider>(
+        create_provider_from_entry(profile));
+    ASSERT_TRUE(responses);
+    EXPECT_EQ(responses->request_url(), profile.base_url);
+}
+
+TEST(ProviderFactory, RejectsInvalidOrNonOpenAiProtocolEvenWithoutConfigValidation) {
+    auto profile = openai_profile("https://api.example/v1");
+    profile.api_protocol = "unknown";
+    EXPECT_FALSE(acecode::prepare_provider_construction(profile).has_value());
+    profile.api_protocol = "responses";
+    for (const auto* provider : {"anthropic", "copilot", "grok", "codex"}) {
+        profile.provider = provider;
+        EXPECT_FALSE(acecode::prepare_provider_construction(profile).has_value());
+    }
 }
 
 // 触发场景:仅重命名或修改 context_window;期望 Provider 指纹保持相同。

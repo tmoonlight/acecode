@@ -676,15 +676,20 @@ void emit_retry_resume_event(const StreamCallback& callback,
     callback(evt);
 }
 
+// 限流(429 / 按文案判定)的本地退避封顶 1 分钟,其它故障仍封顶 20 分钟;
+// 服务端 Retry-After 优先,见 retry_policy。
 int retry_after_delay_ms(const cpr::Header& headers,
-                         std::uint64_t retry_number) {
+                         std::uint64_t retry_number,
+                         int status_code,
+                         const std::string& body) {
     std::optional<std::int64_t> server_delay;
     const std::string retry_after = header_value_ci(headers, "retry-after");
     if (!retry_after.empty()) {
         server_delay = parse_retry_after_ms(retry_after);
     }
     return static_cast<int>(
-        provider_retry_delay_ms(retry_number, server_delay));
+        provider_retry_delay_ms(retry_number, server_delay,
+                                provider_retry_max_delay_ms(status_code, body)));
 }
 
 void push_openai_text_part(nlohmann::json& parts, const std::string& text) {
@@ -1970,7 +1975,8 @@ ChatResponse OpenAiCompatProvider::parse_sse_stream(
         }
 
         if (error_info.retryable) {
-            const int delay_ms = retry_after_delay_ms(r.header, attempt);
+            const int delay_ms = retry_after_delay_ms(
+                r.header, attempt, error_info.status_code, error_info.raw_body);
             error_info.retry_attempt = saturating_retry_attempt(attempt);
             error_info.retry_max_attempts = -1;
             error_info.retry_delay_ms = delay_ms;

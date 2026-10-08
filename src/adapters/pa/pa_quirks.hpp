@@ -22,6 +22,10 @@ enum class FaultKind {
     // 上游的瞬时故障(服务抽风、网络波动、处理超时)。报文自己就写着「请稍候
     // 重试」,但被塞在 4xx 里返回,通用重试策略会当成客户端错误直接放弃。
     TransientUpstream,
+    // 服务端限流:报文写明「请求频率达到限制 / 过于频繁 / 限流」。它只与时间
+    // 窗口有关、与请求大小无关 —— 等一会儿原样重发就能过。绝不能按上下文超限
+    // 处理(压缩会白丢历史),也不参与上下文预算学习。
+    RateLimited,
 };
 
 // 纯文本判定。text 可以是 display_message、raw_body、pretty_json 的任意
@@ -37,5 +41,9 @@ bool is_transient_upstream(const std::string& error_text);
 
 // classify() == ContextOverflow 的便捷形式,供 compact.cpp 的通用判定兜底。
 bool is_context_overflow(const ProviderErrorInfo& info);
+
+// classify_error_text() == RateLimited 的便捷形式,供 retry_policy 在状态码
+// 不可信时按文案放行重试、并给限流单独的退避节奏。
+bool is_rate_limited(const std::string& error_text);
 
 } // namespace acecode::pa

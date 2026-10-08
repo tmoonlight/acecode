@@ -111,9 +111,25 @@ bool provider_error_body_has_hard_quota(const std::string& body) {
 
 bool provider_http_error_is_retryable(int status_code,
                                       const std::string& body) {
-    if (status_code == 429 && provider_error_body_has_hard_quota(body)) {
+    const bool hard_quota = provider_error_body_has_hard_quota(body);
+    if (status_code == 429 && hard_quota) {
         return false;
     }
+
+    // 状态码不可信的网关(src/adapters/pa):报文文案优先于状态码。
+    // - 写明上下文超限:不重试,哪怕码是 429 / 5xx。重发同一个超大请求不可能
+    //   成功,只会把它困在无上限的退避里;不重试才能进压缩 / PA 兜底链。
+    // - 写明限流:重试,哪怕码是 400 / 451。限流只与时间窗口有关,等一会儿
+    //   原样重发就能过;按 4xx 终止会让一次限流断掉整个回合。硬配额仍终止。
+    switch (pa::classify_error_text(body)) {
+    case pa::FaultKind::ContextOverflow:
+        return false;
+    case pa::FaultKind::RateLimited:
+        return !hard_quota;
+    default:
+        break;
+    }
+
     switch (status_code) {
     case 408:
     case 425:
@@ -179,26 +195,51 @@ std::optional<std::int64_t> parse_retry_after_ms(
     return seconds_until * 1000;
 }
 
+bool provider_error_is_rate_limited(int status_code, const std::string& body) {
+    if (provider_error_body_has_hard_quota(body)) return false;
+    // 与 provider_http_error_is_retryable 同一口径:文案压过状态码。写明超限的
+    // 报文即使挂着 429 也不是限流(它根本不会被重试)。
+    switch (pa::classify_error_text(body)) {
+    case pa::FaultKind::RateLimited:
+        return true;
+    case pa::FaultKind::ContextOverflow:
+        return false;
+    default:
+        break;
+    }
+    return status_code == 429;
+}
+
+std::int64_t provider_retry_max_delay_ms(int status_code, const std::string& body) {
+    return provider_error_is_rate_limited(status_code, body)
+        ? kProviderRateLimitRetryMaxDelayMs
+        : kProviderRetryMaxDelayMs;
+}
+
 std::int64_t provider_retry_delay_ms(
     std::uint64_t retry_number,
-    std::optional<std::int64_t> server_delay_ms) {
+    std::optional<std::int64_t> server_delay_ms,
+    std::int64_t max_delay_ms) {
     if (server_delay_ms.has_value() && *server_delay_ms >= 0) {
+        // 服务端明确给的等待时长照办(封顶 20 分钟),不受本地退避上限约束:
+        // 限流网关说「10 分钟后再来」时按 1 分钟去探只会多吃几次拒绝。
         return (std::min)(*server_delay_ms, kProviderRetryMaxDelayMs);
     }
 
+    const std::int64_t cap = (std::max)(
+        kProviderRetryBaseDelayMs,
+        (std::min)(max_delay_ms, kProviderRetryMaxDelayMs));
     std::int64_t delay = kProviderRetryBaseDelayMs;
     const std::uint64_t doublings =
         retry_number > 0 ? (std::min<std::uint64_t>)(retry_number - 1, 63) : 0;
-    for (std::uint64_t i = 0;
-         i < doublings && delay < kProviderRetryMaxDelayMs;
-         ++i) {
-        if (delay > kProviderRetryMaxDelayMs / 2) {
-            delay = kProviderRetryMaxDelayMs;
+    for (std::uint64_t i = 0; i < doublings && delay < cap; ++i) {
+        if (delay > cap / 2) {
+            delay = cap;
             break;
         }
         delay *= 2;
     }
-    return (std::min)(delay, kProviderRetryMaxDelayMs);
+    return (std::min)(delay, cap);
 }
 
 int saturating_retry_attempt(std::uint64_t retry_number) {

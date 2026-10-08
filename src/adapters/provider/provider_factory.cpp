@@ -4,6 +4,7 @@
 #include "copilot_provider.hpp"
 #include "grok_provider.hpp"
 #include "openai_provider.hpp"
+#include "openai_responses_provider.hpp"
 #include "vision_capability.hpp"
 #include "config/config.hpp"
 #include "config/model_provider_registry.hpp"
@@ -48,11 +49,13 @@ struct EffectiveProviderBuildPlan {
 ProviderRequestOptions request_options_from_entry(const ModelProfile& entry) {
     ProviderRequestOptions options;
     options.endpoint_mode = entry.endpoint_mode.value_or("base_url");
+    options.api_protocol = entry.api_protocol.value_or("chat_completions");
     options.max_output_tokens = entry.max_output_tokens;
     options.reasoning = entry.reasoning;
     if (entry.provider == "anthropic" && entry.reasoning.has_value()) {
         options.reasoning_protocol = ReasoningWireProtocol::Anthropic;
     } else if (entry.provider == "openai" && entry.reasoning.has_value() &&
+               options.api_protocol == "chat_completions" &&
                entry.models_dev_provider_id.has_value() &&
                equals_ascii_ci(*entry.models_dev_provider_id, "openrouter")) {
         options.reasoning_protocol = ReasoningWireProtocol::OpenRouter;
@@ -134,6 +137,7 @@ std::string canonical_plan_bytes(const EffectiveProviderBuildPlan& plan) {
     append_bool(out, plan.uses_request_options);
     if (plan.uses_request_options) {
         append_string(out, plan.request_options.endpoint_mode);
+        append_string(out, plan.request_options.api_protocol);
         append_optional_int(out, plan.request_options.max_output_tokens);
         append_u64(out, static_cast<std::uint64_t>(
             plan.request_options.reasoning_protocol));
@@ -170,6 +174,14 @@ std::optional<EffectiveProviderBuildPlan> effective_plan_from_entry(
     EffectiveProviderBuildPlan plan;
     plan.provider_kind = entry.provider;
     plan.model = entry.model;
+
+    if (entry.api_protocol.has_value() &&
+        (entry.provider != "openai" ||
+         (*entry.api_protocol != "chat_completions" &&
+          *entry.api_protocol != "responses"))) {
+        LOG_WARN("[provider_factory] refusing unsupported API protocol");
+        return std::nullopt;
+    }
 
     if (entry.provider == "openai" || entry.provider == "anthropic") {
         plan.uses_connection_inputs = true;
@@ -239,7 +251,16 @@ std::optional<EffectiveProviderBuildPlan> effective_plan_from_entry(
 std::shared_ptr<LlmProvider> construct_from_plan(
     const EffectiveProviderBuildPlan& plan) {
     std::shared_ptr<LlmProvider> provider;
-    if (plan.provider_kind == "openai") {
+    if (plan.provider_kind == "openai" &&
+        plan.request_options.api_protocol == "responses") {
+        provider = std::make_shared<OpenAiResponsesProvider>(
+            plan.base_url,
+            plan.api_key,
+            plan.model,
+            plan.stream_timeout_ms,
+            plan.request_headers,
+            plan.request_options);
+    } else if (plan.provider_kind == "openai") {
         provider = std::make_shared<OpenAiCompatProvider>(
             plan.base_url,
             plan.api_key,

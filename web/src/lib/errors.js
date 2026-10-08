@@ -37,6 +37,7 @@ const TABLE = {
   MISSING_MODEL:     '请填写 model',
   MISSING_BASE_URL:  '该 provider 必须填写 base_url',
   INVALID_API_KEY:   '该 provider 的 API key 不能为空',
+  INVALID_API_PROTOCOL: 'API 协议无效，请选择 Chat Completions 或 Responses',
   INVALID_CONTEXT_WINDOW: '上下文窗口必须是大于 0 的数字',
   INVALID_CAPABILITY: '模型能力标签无效',
   INVALID_REQUEST_HEADER: '自定义请求头 JSON 无效',

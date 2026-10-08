@@ -38,6 +38,8 @@ struct ModelProfile {
     std::vector<std::string> capabilities; // 用户声明的能力标签,如 vision/tool_use/web_search
     // Missing on legacy profiles. New profiles use base_url or full_url.
     std::optional<std::string> endpoint_mode;
+    // OpenAI only; omission preserves the legacy Chat Completions protocol.
+    std::optional<std::string> api_protocol; // chat_completions | responses
     std::optional<int> max_output_tokens;
     // catalog/manual marks capabilities as authoritative. Missing preserves
     // the legacy capability interpretation.
