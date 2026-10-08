@@ -1,26 +1,26 @@
 {
-  "name": "acecode",
-  "version-semver": "1.0.2",
-  "dependencies": [
-    "cpr",
-    {
-      "name": "curl",
-      "features": [
-        "websockets"
-      ]
-    },
-    "crow",
-    "ftxui",
-    "libzip",
-    "nlohmann-json",
-    "sqlite3"
-  ],
-  "features": {
-    "tests": {
-      "description": "Dependencies required only by ACECode unit tests",
-      "dependencies": [
-        "gtest"
-      ]
-    }
-  }
+    "name":  "acecode",
+    "version-semver":  "1.0.2",
+    "dependencies":  [
+                         "cpr",
+                         {
+                             "name":  "curl",
+                             "features":  [
+                                              "websockets"
+                                          ]
+                         },
+                         "crow",
+                         "ftxui",
+                         "libzip",
+                         "nlohmann-json",
+                         "sqlite3"
+                     ],
+    "features":  {
+                     "tests":  {
+                                   "description":  "Dependencies required only by ACECode unit tests",
+                                   "dependencies":  [
+                                                        "gtest"
+                                                    ]
+                               }
+                 }
 }
