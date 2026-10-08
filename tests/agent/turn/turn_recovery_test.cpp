@@ -117,4 +117,26 @@ TEST_F(TurnRecoveryTest, StructuredOutputIsNotRetriedAsBlankText) {
     ResponseRecoveryState state;
     EXPECT_EQ(recovery.resolve(response, state, {}).action, HandleErrorResult::Proceed);
     EXPECT_TRUE(history.view().empty());
+    response.content_parts = nlohmann::json::array({{{"type", 1}}});
+    EXPECT_EQ(recovery.resolve(response, state, {}).action, HandleErrorResult::Proceed);
+}
+
+TEST_F(TurnRecoveryTest, ResponsesReasoningOnlyIsRetriedAndOpaqueStateIsPreserved) {
+    ChatResponse response;
+    response.finish_reason = "length";
+    response.reasoning_content = "Still considering the request.";
+    response.content_parts = nlohmann::json::array({
+        {{"type", "openai_responses_item"}, {"item", {
+            {"type", "reasoning"}, {"id", "rs_1"},
+            {"summary", nlohmann::json::array()},
+            {"encrypted_content", "opaque-state"}}}},
+    });
+    ResponseRecoveryState state;
+    const auto result = recovery.resolve(response, state, {});
+    EXPECT_EQ(result.action, HandleErrorResult::Continue);
+    EXPECT_EQ(result.finish_status, "empty_response_retry");
+    ASSERT_EQ(history.view().size(), 2u);
+    EXPECT_EQ(history.view()[0].content_parts, response.content_parts);
+    EXPECT_EQ(history.view()[0].reasoning_content, response.reasoning_content);
+    EXPECT_TRUE(history.view()[1].metadata.value("empty_response_retry", false));
 }

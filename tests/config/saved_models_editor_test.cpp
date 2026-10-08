@@ -749,3 +749,39 @@ TEST(SavedModelsEditor, AdvancedFieldsPersistAndInvalidReasoningIsAtomic) {
               SavedModelEditError::INVALID_REASONING);
     EXPECT_EQ(cfg.saved_models[0].reasoning->max_tokens, 8192);
 }
+
+// 协议编辑遵循缺省保留、显式清除和切换 Provider 清理的统一草稿语义。
+TEST(SavedModelsEditor, ApiProtocolPreservesClearsAndResetsOnProviderChange) {
+    AppConfig cfg;
+    auto draft = good_openai_draft("responses");
+    draft.api_protocol = "responses";
+    ASSERT_EQ(add_saved_model(cfg, draft), SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models.front().api_protocol, "responses");
+    draft.api_protocol.reset();
+    ASSERT_EQ(update_saved_model(cfg, "responses", draft), SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models.front().api_protocol, "responses");
+    draft.api_protocol_supplied = true;
+    ASSERT_EQ(update_saved_model(cfg, "responses", draft), SavedModelEditError::OK);
+    EXPECT_FALSE(cfg.saved_models.front().api_protocol.has_value());
+    draft.api_protocol = "responses";
+    ASSERT_EQ(update_saved_model(cfg, "responses", draft), SavedModelEditError::OK);
+    auto anthropic = good_anthropic_draft("responses");
+    ASSERT_EQ(update_saved_model(cfg, "responses", anthropic), SavedModelEditError::OK);
+    EXPECT_FALSE(cfg.saved_models.front().api_protocol.has_value());
+}
+
+// 无效协议和非 OpenAI Provider 的协议字段不得写入模型列表。
+TEST(SavedModelsEditor, ApiProtocolRejectsInvalidOrUnsupportedDrafts) {
+    AppConfig cfg;
+    auto draft = good_openai_draft();
+    draft.api_protocol = "auto";
+    EXPECT_EQ(add_saved_model(cfg, draft), SavedModelEditError::INVALID_API_PROTOCOL);
+    EXPECT_TRUE(cfg.saved_models.empty());
+    auto anthropic = good_anthropic_draft();
+    anthropic.api_protocol = "responses";
+    EXPECT_EQ(add_saved_model(cfg, anthropic), SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+    anthropic.api_protocol.reset();
+    anthropic.api_protocol_supplied = true;
+    EXPECT_EQ(add_saved_model(cfg, anthropic), SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+    EXPECT_TRUE(cfg.saved_models.empty());
+}

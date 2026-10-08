@@ -2672,6 +2672,9 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (!e.capabilities.empty()) {
             ej["capabilities"] = e.capabilities;
         }
+        if (e.api_protocol.has_value()) {
+            ej["api_protocol"] = *e.api_protocol;
+        }
         if (e.endpoint_mode.has_value()) {
             ej["endpoint_mode"] = *e.endpoint_mode;
         }

@@ -443,6 +443,44 @@ TEST(AgentLoopPaRescue, RecoversAgainAfterASuccessInTheSameTurn) {
         << "两次撞墙各自从头开始一轮兜底";
 }
 
+// 触发场景:网关的限流报文「您的请求频率已达到限制 (100次/10分钟)」以终止性错误
+// 到达 AgentLoop(provider 已放弃重试,或旧版 provider 对非 429 码不重试)。
+// 期望行为:它不是上下文超限 —— 不进 PA 兜底(没有「先原样重发」「次收缩」通知)、
+// 不给预算学习器记账(压缩阈值不变)、历史一条不动;按普通错误结束回合。
+// 回归背景(2026-10-08 反馈):内网限速后用户看到会话一直在压缩,怀疑限流被当成
+// 了超限。这条用例钉住:限流报文永远走不进压缩 / 收缩 / 学习三条路。
+TEST(AgentLoopPaRescue, RateLimitErrorNeverEntersRescueOrBudgetLearner) {
+    RescueWaitGuard wait_guard;
+    RescueHarness h("pa_rescue_rate_limit_not_overflow");
+    add_history(h.loop, 3);
+    acecode::ProviderErrorInfo rate_limited;
+    rate_limited.kind = acecode::ProviderErrorKind::Http;
+    rate_limited.status_code = 429;
+    rate_limited.display_message = "HTTP 429 from openai model aicoder-pro";
+    // 线上实测报文,一字不改(SSE 形式,带 data: 前缀)。
+    rate_limited.raw_body =
+        "data:{\"object\":\"error\",\"message\":\"您的请求频率已达到限制 (100次/10分钟)。"
+        "当前已使用: 100次。\",\"type\":\"BadRequestError\",\"code\":429}";
+    rate_limited.retryable = false;
+    h.provider->push_error(rate_limited);
+    h.provider->push_text("never reached in this turn");
+
+    const auto events = wait_for_done(h.loop, [&] {
+        h.loop.submit("latest user request");
+    });
+
+    EXPECT_EQ(h.provider->turn_count(), 1) << "限流不是超限,不该触发任何重发";
+    EXPECT_TRUE(has_error_event(events));
+    EXPECT_FALSE(has_system_event(events, "先原样重发"));
+    EXPECT_FALSE(has_system_event(events, "次收缩"));
+    EXPECT_FALSE(has_system_event(events, "压缩阈值下调"));
+    EXPECT_FALSE(acecode::pa::context_budget().has_observation(
+        h.provider->name(), h.provider->model()))
+        << "限流报文不能进上下文预算学习器";
+    EXPECT_TRUE(request_contains(h.loop.messages(), "old assistant 0"));
+    EXPECT_TRUE(request_contains(h.loop.messages(), "old user 0"));
+}
+
 // Use a long real wait so passing requires cancellation, not an elapsed timer.
 TEST(AgentLoopPaRescue, InterruptTurnWakesRescueWaitPromptly) {
     RescueWaitGuard wait_guard;

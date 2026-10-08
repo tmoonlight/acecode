@@ -240,6 +240,14 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
     if (node.contains("capabilities")) {
         e.capabilities = parse_capabilities_array(node["capabilities"]);
     }
+    if (node.contains("api_protocol")) {
+        if (!node["api_protocol"].is_string()) {
+            err = "saved_models[" + std::to_string(idx) +
+                  "] field 'api_protocol' must be string";
+            return std::nullopt;
+        }
+        e.api_protocol = node["api_protocol"].get<std::string>();
+    }
     if (node.contains("endpoint_mode")) {
         if (!node["endpoint_mode"].is_string()) {
             err = "saved_models[" + std::to_string(idx) +
@@ -455,6 +463,19 @@ bool validate_saved_models(const std::vector<ModelProfile>& entries,
                 (e.provider == "grok" && e.stream_timeout_ms.has_value())) {
                 err = "saved_models entry '" + e.name +
                       "' contains unsupported managed provider runtime options";
+                return false;
+            }
+        }
+        if (e.api_protocol.has_value()) {
+            if (e.provider != "openai") {
+                err = "saved_models entry '" + e.name +
+                      "' cannot use api_protocol for this provider";
+                return false;
+            }
+            if (*e.api_protocol != "chat_completions" &&
+                *e.api_protocol != "responses") {
+                err = "saved_models entry '" + e.name +
+                      "' has unknown api_protocol";
                 return false;
             }
         }
@@ -753,6 +774,7 @@ bool model_profiles_equal(const ModelProfile& left,
            left.stream_timeout_ms == right.stream_timeout_ms &&
            left.capabilities == right.capabilities &&
            left.endpoint_mode == right.endpoint_mode &&
+           left.api_protocol == right.api_protocol &&
            left.max_output_tokens == right.max_output_tokens &&
            left.capabilities_source == right.capabilities_source &&
            reasoning_equal &&

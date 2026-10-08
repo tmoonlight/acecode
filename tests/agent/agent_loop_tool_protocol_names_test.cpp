@@ -2,9 +2,13 @@
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
+#include "agent/request/provider_history.hpp"
 #include "permissions/permissions.hpp"
 #include "provider/dsml_tool_call_recovery.hpp"
 #include "provider/text_tool_call_recovery.hpp"
+#include "provider/openai_provider.hpp"
+#include "provider/openai_responses.hpp"
+#include "session/session_serializer.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "tool/tool_executor.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -335,6 +339,87 @@ TEST(AgentLoopToolProtocolNames,
     EXPECT_EQ(internal_call->tool_calls[0]["id"], "call-public-write");
     ASSERT_NE(find_tool_result(internal_messages, "call-public-write"), nullptr);
 
+    fs::remove_all(cwd);
+}
+
+TEST(AgentLoopToolProtocolNames, ResponsesNativeItemsSurviveToolExecutionAndResume) {
+    const fs::path cwd = make_protocol_temp_dir();
+    ToolProtocolAgentHarness harness(cwd.string());
+    const nlohmann::json output = nlohmann::json::array({
+        {{"type", "reasoning"}, {"id", "rs_1"},
+         {"summary", nlohmann::json::array()}, {"encrypted_content", "opaque-state"}},
+        {{"type", "message"}, {"id", "msg_1"}, {"role", "assistant"},
+         {"status", "completed"}, {"phase", "commentary"},
+         {"content", nlohmann::json::array({
+             {{"type", "output_text"}, {"text", "I will write."},
+              {"annotations", nlohmann::json::array()}}})}},
+        {{"type", "function_call"}, {"id", "fc_1"}, {"call_id", "call_write"},
+         {"status", "completed"}, {"name", "write"},
+         {"arguments", R"({"value":"from-responses"})"}},
+    });
+    acecode::OpenAiResponsesStreamParser parser;
+    acecode_test::ScriptedResponse script;
+    script.events = parser.consume({
+        {"type", "response.completed"},
+        {"response", {{"id", "resp_1"}, {"status", "completed"}, {"output", output}}},
+    });
+    ASSERT_EQ(parser.accumulated().tool_calls.size(), 1u);
+    harness.provider().push_response(std::move(script));
+    harness.provider().push_text("done");
+    ASSERT_TRUE(harness.submit_and_wait());
+    harness.loop().shutdown();
+    EXPECT_EQ(harness.calls(), 1);
+    EXPECT_EQ(harness.captured_arguments(), R"({"value":"from-responses"})");
+
+    const auto* internal = find_assistant_call(harness.loop().messages());
+    ASSERT_NE(internal, nullptr);
+    ASSERT_EQ(internal->content_parts.size(), output.size());
+    EXPECT_EQ(internal->tool_calls[0]["function"]["name"], "file_write");
+
+    std::vector<acecode::ChatMessage> resumed;
+    for (const auto& msg : harness.loop().messages()) {
+        resumed.push_back(acecode::deserialize_message(acecode::serialize_message(msg)));
+    }
+    resumed = acecode::agent::detail::model_facing_provider_messages(
+        resumed, "responses-resume-test");
+    const auto* resumed_call = find_assistant_call(resumed);
+    ASSERT_NE(resumed_call, nullptr);
+    EXPECT_EQ(resumed_call->content_parts, internal->content_parts);
+    EXPECT_EQ(resumed_call->tool_calls[0]["function"]["name"], "write");
+
+    class Builder : public acecode::OpenAiCompatProvider {
+    public:
+        using OpenAiCompatProvider::OpenAiCompatProvider;
+        using OpenAiCompatProvider::build_request_body;
+    };
+    Builder builder("https://api.example/v1", "test", "test-model");
+    std::string error;
+    const auto body = acecode::build_openai_responses_request(
+        builder.build_request_body(resumed, harness.provider().tools_for_turn(1)),
+        &resumed, &error);
+    ASSERT_TRUE(error.empty()) << error;
+    int native_calls = 0;
+    int native_reasoning = 0;
+    int tool_outputs = 0;
+    for (const auto& item : body["input"]) {
+        const auto type = item.value("type", std::string{});
+        if (type == "reasoning") {
+            ++native_reasoning;
+            EXPECT_EQ(item["encrypted_content"], "opaque-state");
+        } else if (type == "function_call") {
+            ++native_calls;
+            EXPECT_EQ(item["name"], "write");
+            EXPECT_EQ(item["call_id"], "call_write");
+        } else if (type == "function_call_output") {
+            ++tool_outputs;
+            EXPECT_EQ(item["call_id"], "call_write");
+        } else if (item.value("id", std::string{}) == "msg_1") {
+            EXPECT_EQ(item["phase"], "commentary");
+        }
+    }
+    EXPECT_EQ(native_reasoning, 1);
+    EXPECT_EQ(native_calls, 1);
+    EXPECT_EQ(tool_outputs, 1);
     fs::remove_all(cwd);
 }
 

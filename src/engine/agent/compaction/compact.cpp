@@ -352,7 +352,17 @@ bool is_context_overflow_error(const ProviderErrorInfo& info) {
     // 状态码本身也不可信,下面这套 HTTP + 标准 code 的判定一条都不命中。
     // 认不出的后果不是多报一个错,而是 handle_provider_error 里那条三级恢复链
     // (修剪历史重试 → 精简请求档重试)整个不启动。判定收在 src/pa/。
-    if (pa::is_context_overflow(info)) return true;
+    switch (pa::classify(info)) {
+    case pa::FaultKind::ContextOverflow:
+        return true;
+    case pa::FaultKind::RateLimited:
+        // 写明「频率 / 限流」的报文绝不是超限:把它当超限会把回合拖进压缩与
+        // PA 兜底收缩,白丢历史(反馈:内网限速报文让会话一直在压缩)。这里
+        // 提前返回,不再让下面的状态码 + 英文 needle 路径有机会误判。
+        return false;
+    default:
+        break;
+    }
     if (info.kind != ProviderErrorKind::Http) return false;
     if (info.status_code != 400 && info.status_code != 413 &&
         info.status_code != 422) {
@@ -570,7 +580,10 @@ CompactResult compact_messages(
                     }
                     const int delay_ms = static_cast<int>(
                         provider_retry_delay_ms(
-                            transient_retries, server_delay));
+                            transient_retries, server_delay,
+                            provider_retry_max_delay_ms(
+                                response.provider_error.status_code,
+                                response.provider_error.raw_body)));
                     ProviderErrorInfo retry_info = response.provider_error;
                     retry_info.retry_attempt =
                         saturating_retry_attempt(transient_retries);

@@ -57,6 +57,29 @@ const std::vector<std::string>& transient_upstream_needles() {
     return needles;
 }
 
+// 服务端限流的中文特征串。收录标准:必须专指「单位时间内请求太多」—— 它描述
+// 的是时间窗口,不是这次请求的大小。
+//
+// 起因:网关把限流报成 {"message":"您的请求频率已达到限制 (100次/10分钟)。
+// 当前已使用: 100次。","type":"BadRequestError","code":429}。这类网关的状态码
+// 不可信(同一套网关把瞬时故障编成 400,见 transient_upstream_needles),所以
+// 限流也必须能按文案认出来:code 不是 429 时通用重试策略会把它当成终止性的
+// 客户端错误,一次限流就断一个回合。
+const std::vector<std::string>& rate_limit_needles() {
+    static const std::vector<std::string> needles = {
+        // 实测报文:「您的请求频率已达到限制 (100次/10分钟)」
+        "请求频率",
+        "访问频率",
+        "调用频率",
+        "频率已达到限制",
+        "频率超限",
+        "频率过高",
+        "过于频繁",
+        "限流",
+    };
+    return needles;
+}
+
 bool contains_any(const std::string& text,
                   const std::vector<std::string>& needles) {
     for (const auto& needle : needles) {
@@ -70,6 +93,12 @@ bool contains_any(const std::string& text,
 FaultKind classify_error_text(const std::string& text) {
     if (!enabled()) return FaultKind::None;
     if (text.empty()) return FaultKind::None;
+    // 顺序有意:限流最优先。一条写明「频率 / 限流」的报文说的是时间窗口,
+    // 与请求大小无关;把它判成上下文超限会触发压缩与兜底收缩,白丢历史
+    // (反馈:内网限速报文被当成超限,会话一直在压缩)。
+    if (contains_any(text, rate_limit_needles())) {
+        return FaultKind::RateLimited;
+    }
     if (contains_any(text, context_overflow_needles())) {
         return FaultKind::ContextOverflow;
     }
@@ -83,6 +112,10 @@ FaultKind classify_error_text(const std::string& text) {
 
 bool is_transient_upstream(const std::string& error_text) {
     return classify_error_text(error_text) == FaultKind::TransientUpstream;
+}
+
+bool is_rate_limited(const std::string& error_text) {
+    return classify_error_text(error_text) == FaultKind::RateLimited;
 }
 
 FaultKind classify(const ProviderErrorInfo& info) {

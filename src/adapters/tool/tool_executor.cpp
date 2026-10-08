@@ -657,7 +657,7 @@ ChatMessage ToolExecutor::format_assistant_tool_calls(const ChatResponse& respon
     msg.content = response.content;
     // Carry reasoning_content forward so the next API call can echo it back.
     msg.reasoning_content = response.reasoning_content;
-    const bool has_signed_anthropic_thinking =
+    const bool has_native_replay_state =
         response.content_parts.is_array() &&
         std::any_of(response.content_parts.begin(), response.content_parts.end(),
                     [](const nlohmann::json& part) {
@@ -669,12 +669,14 @@ ChatMessage ToolExecutor::format_assistant_tool_calls(const ChatResponse& respon
                                 part["signature"].is_string()) ||
                                (type == "redacted_thinking" &&
                                 part.contains("data") &&
-                                part["data"].is_string());
+                                part["data"].is_string()) ||
+                               (type == "openai_responses_item" &&
+                                part.contains("item") &&
+                                part["item"].is_object());
                     });
-    if (has_signed_anthropic_thinking) {
-        // Only Anthropic's provider-owned signed blocks cross this generic
-        // tool-history boundary. Other providers retain their prior transcript
-        // behavior.
+    if (has_native_replay_state) {
+        // Signed Anthropic blocks and ordered Responses output must survive
+        // tool execution and persistence for the next stateless model request.
         msg.content_parts = response.content_parts;
     }
 

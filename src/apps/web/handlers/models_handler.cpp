@@ -75,6 +75,9 @@ nlohmann::json entry_to_json(const ModelProfile& entry) {
     if (!entry.capabilities.empty()) {
         o["capabilities"] = entry.capabilities;
     }
+    if (entry.api_protocol.has_value()) {
+        o["api_protocol"] = *entry.api_protocol;
+    }
     if (entry.endpoint_mode.has_value()) {
         o["endpoint_mode"] = *entry.endpoint_mode;
     }
@@ -327,6 +330,16 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
                 }
                 d.capabilities.push_back(item.get<std::string>());
             }
+        }
+    }
+    if (body.contains("api_protocol")) {
+        d.api_protocol_supplied = true;
+        if (body["api_protocol"].is_null()) {
+            d.api_protocol.reset();
+        } else if (body["api_protocol"].is_string()) {
+            d.api_protocol = body["api_protocol"].get<std::string>();
+        } else {
+            err = "field 'api_protocol' must be string or null";
         }
     }
     if (body.contains("endpoint_mode")) {

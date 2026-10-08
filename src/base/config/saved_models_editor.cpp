@@ -31,6 +31,8 @@ const char* to_string(SavedModelEditError e) {
             return "INVALID_REQUEST_HEADER";
         case SavedModelEditError::INVALID_ENDPOINT_MODE:
             return "INVALID_ENDPOINT_MODE";
+        case SavedModelEditError::INVALID_API_PROTOCOL:
+            return "INVALID_API_PROTOCOL";
         case SavedModelEditError::INVALID_MAX_OUTPUT_TOKENS:
             return "INVALID_MAX_OUTPUT_TOKENS";
         case SavedModelEditError::INVALID_CAPABILITIES_SOURCE:
@@ -93,6 +95,15 @@ SavedModelEditError validate_draft_shape(const SavedModelDraft& d) {
             return SavedModelEditError::INVALID_CAPABILITY;
         }
     }
+    if (field_supplied(d.api_protocol_supplied, d.api_protocol.has_value()) &&
+        d.provider != "openai") {
+        return SavedModelEditError::UNSUPPORTED_MODEL_OPTION;
+    }
+    if (d.api_protocol.has_value() &&
+        *d.api_protocol != "chat_completions" &&
+        *d.api_protocol != "responses") {
+        return SavedModelEditError::INVALID_API_PROTOCOL;
+    }
     if (d.endpoint_mode.has_value() &&
         *d.endpoint_mode != "base_url" &&
         *d.endpoint_mode != "full_url") {
@@ -150,6 +161,7 @@ void reset_provider_specific_fields(ModelProfile& profile) {
     profile.api_key.clear();
     profile.models_dev_provider_id.reset();
     profile.endpoint_mode.reset();
+    profile.api_protocol.reset();
     profile.max_output_tokens.reset();
     profile.capabilities_source.reset();
     profile.reasoning.reset();
@@ -190,6 +202,9 @@ ModelProfile merge_profile(const SavedModelDraft& d,
     }
     if (is_new || d.capabilities_supplied || !d.capabilities.empty()) {
         profile.capabilities = d.capabilities;
+    }
+    if (is_new || d.api_protocol_supplied || d.api_protocol.has_value()) {
+        profile.api_protocol = d.api_protocol;
     }
     if (is_new || d.endpoint_mode_supplied || d.endpoint_mode.has_value()) {
         profile.endpoint_mode = d.endpoint_mode;
@@ -292,6 +307,15 @@ SavedModelEditError validate_candidate(const ModelProfile& candidate) {
     if ((candidate.provider == "openai" || candidate.provider == "anthropic") &&
         candidate.base_url.empty()) {
         return SavedModelEditError::MISSING_BASE_URL;
+    }
+    if (candidate.api_protocol.has_value()) {
+        if (candidate.provider != "openai") {
+            return SavedModelEditError::UNSUPPORTED_MODEL_OPTION;
+        }
+        if (*candidate.api_protocol != "chat_completions" &&
+            *candidate.api_protocol != "responses") {
+            return SavedModelEditError::INVALID_API_PROTOCOL;
+        }
     }
     if (candidate.endpoint_mode.has_value() &&
         *candidate.endpoint_mode != "base_url" &&

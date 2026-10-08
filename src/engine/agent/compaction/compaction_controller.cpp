@@ -166,6 +166,19 @@ bool CompactionController::run_auto(const CompactionInputs& inputs) {
         }, &request_prefix);
     active_provider.reset();
 
+    if (!result.performed && abort_.raw()) {
+        // 用户在摘要请求期间点了停止(典型:摘要请求被限流、正在退避等待)。
+        // 这不是摘要失败,不能进下面的机械修剪 —— 那会把最旧的历史真丢掉,
+        // 用户按一次停止就少一段上下文。按取消收尾,回合由 finalizer 标 aborted。
+        LOG_WARN("Auto full compact cancelled by user; error=" +
+                 log_truncate(result.error, 500));
+        transcript_.emit_transcript_system_message(inputs.session,
+            "[Auto-compact] " + result.error,
+            make_compact_notice_metadata(compact_notice_id, "error", false,
+                {{"error", result.error}, {"cancelled", true}}));
+        return false;
+    }
+
     if (!result.performed) {
         LOG_WARN("Auto full compact failed; error=" +
                  log_truncate(result.error, 500) +

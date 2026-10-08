@@ -66,8 +66,54 @@
 - 单独的「重试」二字 —— 额度用完的报文写的是「请切换模型后重试」,那是要人换
   模型,不是让程序再发一次。
 
-分类顺序上**上下文超限优先**:超限报文也可能带「请稍候重试」的客套话,但盲目
-重试同一个超大请求只会再撞一次墙,必须先走压缩。
+分类顺序上**上下文超限优先于瞬时故障**:超限报文也可能带「请稍候重试」的客套话,
+但盲目重试同一个超大请求只会再撞一次墙,必须先走压缩。(限流又优先于这两者,
+见第 5 条。)
+
+### 5. 限流报文(`pa_quirks.{hpp,cpp}`,2026-10-08)
+
+**观测报文**(HTTP 429,SSE 形式返回,body 带 `data:` 前缀):
+
+```json
+{"object":"error","message":"您的请求频率已达到限制 (100次/10分钟)。当前已使用: 100次。","type":"BadRequestError","code":429}
+```
+
+**背景**:内网网关加了限速(100 次 / 10 分钟)之后,用户反馈这条报文「似乎被当成
+上下文超限的中断,导致上下文一直在压缩」,并强调网关的错误码不可信。排查结论
+分两半:
+
+- 判定层**没有**把它当超限 —— 它不含任何超限 needle,码也过不了通用路径的
+  400/413/422 门;provider 层对 429 是无上限重试。但「限流」在这里没有被建模,
+  是否误判完全押在「needle 恰好不命中」上,而且**码一旦不是 429**(这套网关的
+  惯例)它就落到 `retry_policy` 的「4xx 一律终止」上,一次限流断一个回合。
+- 用户看到的「一直在压缩」另有来源:摘要压缩请求自己遇到 429 时按 1s、2s、4s…
+  封顶 20 分钟退避,界面长时间停在「压缩请求暂时不可用,等待重试」;此时按停止,
+  旧实现把「Compaction cancelled.」当作摘要失败进了机械修剪,每按一次停止真丢
+  一段历史。主请求的 429 退避文案「网络暂时不可用」也把人引向错误方向。
+
+**适配**(四处,只有前两处在本目录):
+
+1. `FaultKind::RateLimited` + `is_rate_limited()`:按「请求频率 / 过于频繁 / 限流」
+   等中文特征串判定,**排在超限与瞬时故障之前**——「频率」说的是时间窗口,比
+   「过大」更具体;判成超限的代价是压缩丢历史,判成限流的代价只是多等一会儿。
+   `is_context_overflow_error` 对 RateLimited 直接返回 false,不再给状态码 +
+   英文 needle 路径机会。
+2. `retry_policy::provider_http_error_is_retryable` 让文案优先于状态码:写明
+   超限的一律不重试(哪怕是 429 / 5xx —— 否则同一个超大请求被困在无上限退避里,
+   永远进不了压缩 / 兜底链);写明限流的一律重试(哪怕是 400 / 451);硬配额仍终止。
+3. 限流(429 或文案判定)的本地退避封顶 1 分钟(`kProviderRateLimitRetryMaxDelayMs`),
+   服务端 `Retry-After` 仍优先、20 分钟封顶;进度文案改为「服务端限流,等待重试」。
+4. `CompactionController::run_auto` 在用户取消时不再进机械修剪。
+
+学习器(第 2 条)与兜底(第 4 条)都只由 `is_context_overflow` 触发,限流报文
+因此天然进不去;`tests/agent/agent_loop_pa_rescue_test.cpp::RateLimitErrorNeverEntersRescueOrBudgetLearner`
+把这条钉死。其余回归:`tests/pa/pa_quirks_test.cpp` 的 RateLimit* 五条、
+`tests/provider/retry_policy_test.cpp` 的 RateLimitBackoffCapsAtOneMinute /
+ServerRetryAfterIsHonoredBeyondRateLimitCap、`tests/agent/progress/agent_progress_test.cpp::RateLimitedRetryUsesDedicatedLabel`、
+`tests/agent/agent_loop_compact_events_test.cpp::CancelledAutoCompactDoesNotPruneHistory`。
+
+**没做**:按报文里的「N 次 / M 分钟」反推窗口长度来定等待时长 —— 那是解析业务
+文案,超出「按特征判类别」的边界;服务端给 `Retry-After` 才是正道。
 
 ### 2. 声明的上下文窗口不准(`pa_context_budget.{hpp,cpp}`)
 

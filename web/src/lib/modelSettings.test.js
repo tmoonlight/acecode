@@ -353,6 +353,7 @@ run('切换到 Copilot 清空秘密与端点并隐藏 API Key/Base URL', () => {
     show_base_url: false,
     edit_base_url: false,
     show_endpoint_mode: false,
+    show_api_protocol: false,
     show_request_headers: false,
     show_max_output: false,
     show_reasoning: false,
@@ -513,6 +514,7 @@ run('Grok Coding Plan 使用受管路径且 payload 不含端点、密钥或运�
     show_base_url: false,
     edit_base_url: false,
     show_endpoint_mode: false,
+    show_api_protocol: false,
     show_request_headers: false,
     show_max_output: false,
     show_reasoning: false,
@@ -1379,4 +1381,52 @@ run('ACEModel reasoning refresh preserves same-model manual capabilities without
   assert.equal(reprobedPayloads.ok, true);
   assert.deepEqual(reprobedPayloads.payloads[0].capabilities, ['vision', 'reasoning']);
   assert.deepEqual(reprobedPayloads.payloads[1].capabilities, ['reasoning']);
+});
+
+run('Responses 协议贯通保存、编辑及显式切回 Chat Completions', () => {
+  const saved = {
+    name: 'responses-model', provider: 'openai', model: 'model-id',
+    base_url: 'https://api.example/v1', api_key: 'test-key', api_protocol: 'responses',
+  };
+  const restored = modelProfileDraftFromSaved(saved);
+  assert.equal(restored.api_protocol, 'responses');
+  assert.equal(modelFieldPolicy(customProvider).show_api_protocol, true);
+  const result = buildModelMutationPayload(restored, customProvider, { editing: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.api_protocol, 'responses');
+  const chat = buildModelMutationPayload({ ...restored, api_protocol: 'chat_completions' }, customProvider, { editing: true });
+  assert.equal(chat.payload.api_protocol, 'chat_completions');
+  const legacy = modelProfileDraftFromSaved({ ...saved, api_protocol: undefined });
+  assert.equal(legacy.api_protocol, '');
+  assert.equal(Object.hasOwn(buildModelMutationPayload(legacy, customProvider).payload, 'api_protocol'), false);
+  assert.equal(validateModelProfileDraft({ ...restored, api_protocol: 'auto' }, customProvider).code, 'INVALID_API_PROTOCOL');
+  assert.throws(() => normalizeSavedModelList([{ ...saved, api_protocol: 'auto' }]), /api_protocol is unsupported/);
+});
+
+run('协议不泄露到非 OpenAI Provider，切换 Provider 时重置选择', () => {
+  for (const provider of [anthropicProvider, copilotProvider, grokProvider]) {
+    const switched = applyCatalogProviderToDraft({ ...emptyModelProfileDraft(), api_protocol: 'responses' }, provider);
+    assert.equal(switched.api_protocol, '');
+    assert.equal(modelFieldPolicy(provider).show_api_protocol, false);
+    const draft = { ...switched, name: 'model', model: 'id', api_key: 'test-key' };
+    const result = buildModelMutationPayload(draft, provider);
+    assert.equal(result.ok, true);
+    assert.equal(Object.hasOwn(result.payload, 'api_protocol'), false);
+    assert.equal(validateModelProfileDraft({ ...draft, api_protocol: 'responses' }, provider).code, 'INVALID_API_PROTOCOL');
+    assert.throws(() => normalizeSavedModelList([{
+      name: 'model', provider: provider.runtime_provider, model: 'id', api_protocol: 'responses',
+    }]), /api_protocol is unsupported/);
+  }
+});
+
+run('同 OpenAI runtime 切换服务商显式恢复 Chat Completions', () => {
+  const previous = modelProfileDraftFromSaved({
+    name: 'responses-model', provider: 'openai', model: 'model-id',
+    base_url: 'https://api.example/v1', api_key: 'test-key', api_protocol: 'responses',
+  });
+  const next = applyCatalogProviderToDraft(previous, openRouterProvider);
+  assert.equal(next.api_protocol, 'chat_completions');
+  const result = buildModelMutationPayload({ ...next, model: 'new-model', api_key: 'new-key' }, openRouterProvider, { editing: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.payload.api_protocol, 'chat_completions');
 });
