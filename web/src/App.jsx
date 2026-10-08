@@ -105,6 +105,7 @@ import { TokenPrompt } from './components/TokenPrompt.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { WorkspaceCleanupNotice } from './components/WorkspaceCleanupNotice.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
+import { usePreviewPresentation } from './lib/usePreviewPresentation.js';
 import { Toaster, toast } from './components/Toast.jsx';
 import { SlashCommandsProvider } from './components/SlashCommandsContext.jsx';
 import { FramelessResizeHandles } from './components/FramelessResizeHandles.jsx';
@@ -323,17 +324,21 @@ export function App() {
   const [panelPrefs, setPanelPrefs] = useWorkbenchState(workbenchOwner, 'panels', () => ({
     sidePanelCollapsed: true, sidePanelListCollapsed: false, sidePanelMaximized: false,
   }));
-  const uiPrefs = useMemo(() => ({ ...globalUiPrefs, ...panelPrefs }), [globalUiPrefs, panelPrefs]);
-  const setUiPrefs = useCallback((updater) => {
-    const next = mergeNextValue(uiPrefs, updater);
+  const storedUiPrefs = useMemo(() => ({ ...globalUiPrefs, ...panelPrefs }), [globalUiPrefs, panelPrefs]);
+  const setStoredUiPrefs = useCallback((updater) => {
+    const next = mergeNextValue(storedUiPrefs, updater);
     const panelKeys = ['sidePanelCollapsed', 'sidePanelListCollapsed', 'sidePanelMaximized'];
     setPanelPrefs((previous) => panelKeys.some((key) => previous[key] !== next[key])
       ? Object.fromEntries(panelKeys.map((key) => [key, next[key]])) : previous);
     const changes = Object.fromEntries(Object.entries(next).filter(([key, value]) => (
-      !panelKeys.includes(key) && value !== uiPrefs[key]
+      !panelKeys.includes(key) && value !== storedUiPrefs[key]
     )));
     if (Object.keys(changes).length) setGlobalUiPrefs(changes);
-  }, [uiPrefs, setPanelPrefs, setGlobalUiPrefs]);
+  }, [storedUiPrefs, setPanelPrefs, setGlobalUiPrefs]);
+  const [previewPanelVisible, setPreviewPanelVisible] = useWorkbenchState(workbenchOwner, '$previewVisible', false);
+  const { uiPrefs, setUiPrefs, active: previewPresenting, toggle: togglePreviewPresentation } = usePreviewPresentation(
+    workbenchOwner, storedUiPrefs, setStoredUiPrefs, previewPanelVisible,
+  );
   useLayoutEffect(() => {
     if (bootstrapAppearance) {
       setUiPrefs({ messageAutoCollapse: bootstrapAppearance.messageAutoCollapse });
@@ -439,7 +444,6 @@ export function App() {
   const showAceCodeAvatar = false;
   const singleShellRef = useRef(null);
   const sidebarResizeActiveRef = useRef(false);
-  const [previewPanelVisible, setPreviewPanelVisible] = useWorkbenchState(workbenchOwner, '$previewVisible', false);
   const activeRefRef = useRef(activeRef);
   const themeCreationMonitor = useMemo(() => createLiveThemeCreationMonitor({
     onStart: () => themeDownloads.controller.beginCreation(),
@@ -1969,6 +1973,7 @@ export function App() {
     },
     toggleSidebar: toggleProjectSidebar,
     toggleRightPanel: () => { void toggleSidePanel(); },
+    previewPresentation: togglePreviewPresentation,
     forward: () => { if (navHistoryRef.current.forward.length) void goForwardActiveRef(); },
     back: () => { if (navHistoryRef.current.back.length) void goBackActiveRef(); },
     newSession: () => {
@@ -2351,6 +2356,8 @@ export function App() {
                 onRevealSidePanelList={revealSidePanelList}
                 sidePanelMaximized={sidePanelMaximized}
                 onToggleSidePanelMaximized={toggleSidePanelMaximized}
+                previewPresenting={previewPresenting}
+                onTogglePreviewPresentation={togglePreviewPresentation}
                 showAceCodeAvatar={showAceCodeAvatar}
                 messageAutoCollapse={messageAutoCollapse}
                 permissionRequests={visiblePermissionEntries}

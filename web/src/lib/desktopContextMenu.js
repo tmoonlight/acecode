@@ -37,6 +37,7 @@ export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
   ADD_FILE_CONTEXT: 'add_file_context',
   ADD_DIRECTORY_CONTEXT: 'add_directory_context',
   ADD_SELECTION_CONTEXT: 'add_selection_context',
+  TOGGLE_PREVIEW_PRESENTATION: 'toggle_preview_presentation',
   REFRESH_FILE_TREE: 'refresh_file_tree',
   EXPAND_DIRECTORY: 'expand_directory',
   COLLAPSE_DIRECTORY: 'collapse_directory',
@@ -278,6 +279,7 @@ export function buildDesktopContextMenuItems({
   attachmentTarget = null,
   mermaidTarget = null,
   previewTabTarget = null,
+  previewPresentationTarget = null,
 } = {}) {
   const items = [];
 
@@ -285,6 +287,9 @@ export function buildDesktopContextMenuItems({
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_PNG, mermaidTarget, { group: GROUPS.CONTENT });
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_SVG, mermaidTarget, { group: GROUPS.CONTENT });
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_SOURCE, mermaidTarget, { group: GROUPS.CONTENT });
+    if (previewPresentationTarget) {
+      addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
+    }
     return finalizeContextMenuItems(items, allowNativeActions);
   }
 
@@ -293,6 +298,9 @@ export function buildDesktopContextMenuItems({
     addAction(items, DESKTOP_CONTEXT_ACTIONS.CLOSE_OTHER_PREVIEW_TABS, previewTabTarget, { group: GROUPS.OBJECT, enabled: previewTabTarget.hasOthers });
     addAction(items, DESKTOP_CONTEXT_ACTIONS.CLOSE_PREVIEW_TABS_TO_RIGHT, previewTabTarget, { group: GROUPS.OBJECT, enabled: previewTabTarget.hasRight });
     addAction(items, DESKTOP_CONTEXT_ACTIONS.CLOSE_ALL_PREVIEW_TABS, previewTabTarget, { group: GROUPS.GENERIC });
+    if (previewPresentationTarget) {
+      addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
+    }
     if (previewTabTarget.tabType === 'file') {
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH, previewTabTarget, { group: GROUPS.FILE, enabled: !!previewTabTarget.absolutePath });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH, previewTabTarget, { group: GROUPS.FILE, enabled: !!previewTabTarget.relativePath });
@@ -304,6 +312,9 @@ export function buildDesktopContextMenuItems({
   if (hasSelection && previewTarget &&
       (previewTarget.kind === 'text' || previewTarget.kind === 'markdown')) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT, previewTarget, { group: GROUPS.SELECTION });
+  }
+  if (previewPresentationTarget) {
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
   }
 
   if (!editable) {
@@ -666,7 +677,13 @@ export function mermaidTargetFromElement(target) {
 }
 
 export function contextTargetsFromElement(target) {
+  const panel = closest(target, '[data-preview-presentation]');
   return {
+    previewPresentationTarget: panel ? {
+      type: 'preview-presentation',
+      element: panel,
+      active: getAttr(panel, 'data-preview-presentation') === 'active',
+    } : null,
     openInExplorerTarget: openInExplorerTargetFromElement(target),
     sessionTarget: sessionTargetFromElement(target),
     workspaceTarget: workspaceTargetFromElement(target),

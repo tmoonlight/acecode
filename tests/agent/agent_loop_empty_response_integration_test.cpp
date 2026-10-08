@@ -45,9 +45,9 @@ struct MockGlmServer {
     std::mutex mu;
     std::vector<nlohmann::json> request_bodies;
 
-    MockGlmServer() {
+    explicit MockGlmServer(bool placeholder = false) {
         svr.Post("/chat/completions",
-                 [this](const httplib::Request& req, httplib::Response& res) {
+                 [this, placeholder](const httplib::Request& req, httplib::Response& res) {
             int request_index = 0;
             {
                 std::lock_guard<std::mutex> lk(mu);
@@ -60,9 +60,13 @@ struct MockGlmServer {
                 // 上报 finish_reason=length,然后正常 [DONE] 收尾。
                 body =
                     "data: {\"choices\":[{\"delta\":{\"reasoning_content\":"
-                    "\"think hard... budget exhausted\"}}]}\n\n"
-                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n"
-                    "data: [DONE]\n\n";
+                    "\"think hard... budget exhausted\"}}]}\n\n";
+                if (placeholder) {
+                    body += "data: {\"choices\":[{\"delta\":{\"content\":\"  ...\\u23af\\u23af\\u23af\\u23af\\u23af\"}}]}\n\n";
+                }
+                body += "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"" +
+                        std::string(placeholder ? "stop" : "length") +
+                        "\"}]}\n\ndata: [DONE]\n\n";
             } else {
                 body =
                     "data: {\"choices\":[{\"delta\":{\"content\":\"recovered answer\"},"
@@ -107,8 +111,8 @@ struct MockGlmServer {
 //   3. 第 2 次请求把上一轮空 assistant 的 reasoning_content 回传(DeepSeek/GLM
 //      thinking 模式的协议要求,丢了会 400);
 //   4. 最终 dispatch 的 assistant 是恢复后的 "recovered answer",无 error。
-TEST(AgentLoopEmptyResponseIntegration, GlmLengthTruncationRetriesOverRealHttpAndRecovers) {
-    MockGlmServer server;
+void verify_empty_response_recovery(bool placeholder) {
+    MockGlmServer server(placeholder);
     auto provider = std::make_shared<acecode::OpenAiCompatProvider>(
         "http://127.0.0.1:" + std::to_string(server.port), "", "mock-glm");
 
@@ -161,7 +165,7 @@ TEST(AgentLoopEmptyResponseIntegration, GlmLengthTruncationRetriesOverRealHttpAn
         const std::string content = msg.value("content", "");
         if (role == "user" &&
             content.find("[SYSTEM NOTE]") != std::string::npos &&
-            content.find("finish_reason=length") != std::string::npos) {
+            (placeholder || content.find("finish_reason=length") != std::string::npos)) {
             saw_retry_prompt = true;
         }
         if (role == "assistant" &&
@@ -195,6 +199,14 @@ TEST(AgentLoopEmptyResponseIntegration, GlmLengthTruncationRetriesOverRealHttpAn
     EXPECT_EQ(last_assistant, "recovered answer");
     EXPECT_EQ(error_count, 0);
     EXPECT_TRUE(saw_empty_notice);
+}
+
+TEST(AgentLoopEmptyResponseIntegration, GlmLengthTruncationRetriesOverRealHttpAndRecovers) {
+    verify_empty_response_recovery(false);
+}
+
+TEST(AgentLoopEmptyResponseIntegration, PlaceholderStopResponseRetriesOverRealHttpAndRecovers) {
+    verify_empty_response_recovery(true);
 }
 
 } // namespace

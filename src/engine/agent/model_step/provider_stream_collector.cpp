@@ -282,6 +282,8 @@ ProviderCallResult ProviderStreamCollector::collect(
         call.publish_scanned(call.text_preamble_scanner_.flush());
         LOG_INFO("chat_stream returned. content_len=" +
                  std::to_string(result.accumulated.content.size()) +
+                 " reasoning_len=" + std::to_string(result.accumulated.reasoning_content.size()) +
+                 " finish_reason=" + result.accumulated.finish_reason +
                  " tool_calls=" + std::to_string(result.accumulated.tool_calls.size()));
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("chat_stream exception: ") + e.what());

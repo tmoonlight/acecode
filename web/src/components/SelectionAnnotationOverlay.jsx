@@ -70,6 +70,7 @@ function measuredMarkers(frame, host, groups) {
 }
 
 export function SelectionAnnotationOverlay({
+  layoutRevision = 0,
   hostRef,
   contexts = [],
   sourcePath = '',
@@ -166,7 +167,7 @@ export function SelectionAnnotationOverlay({
       window.removeEventListener('resize', scheduleMeasure);
       observer?.disconnect();
     };
-  }, [appliedGroups, hostRef]);
+  }, [appliedGroups, hostRef, layoutRevision]);
 
   if (markers.length === 0) return null;
   return (

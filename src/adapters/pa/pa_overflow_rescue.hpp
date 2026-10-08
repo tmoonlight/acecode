@@ -8,7 +8,8 @@
 // 等待、重发都在 AgentLoop 里执行(run_pa_overflow_rescue)。纯函数,
 // tests/pa/ 直接单测。
 //
-// 策略按顺序走,每一步之后都原样发一次请求;被拒的报文是服务端在准入时就
+// 请求不足 40k 时优先保留完整请求,无限次可取消的指数退避重试。
+// 其余请求的策略按顺序走,每一步之后都原样发一次请求;被拒的报文是服务端在准入时就
 // 拦下的,一次往返只要不到一秒,所以多试几档的代价很低:
 //   1. 原样重发 —— 先当它是抽风。重发 PA_RESCUE_SAME_REQUEST_RETRIES 次,过了
 //      就一点上下文都不丢,也不给学习器记账(抽风不是证据)。
@@ -90,6 +91,8 @@ struct RescuePlan {
     // 请求没有工具定义与注入上下文,它的规模不代表正常请求能过的上限,记进去
     // 会把压缩窗口砍到远小于真实能力,把会话拖进「永远在压缩」。
     bool record_rejection = false;
+    // Small requests keep all context and wait without a retry-count limit.
+    bool preserve_context = false;
     std::string label;  // 进度 / 日志文案(中文,给用户看)
 };
 

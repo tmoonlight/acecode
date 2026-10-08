@@ -24,6 +24,8 @@ Windows 与 macOS Desktop 可开启一个透明的像素办公室，默认关闭
 
 macOS 版（`src/apps/desktop/desktop_pet_mac.mm`，ARC 编译）用非激活 NSPanel + WKWebView 承载同一份页面：文档开始前注入 `window.chrome.webview` 垫片，页面代码不分平台；透明区域的点击穿透靠定时检测鼠标是否落在房间、控制条或页面上报的浮层里，再切换 `ignoresMouseEvents`；拖动与把手缩放由定时器跟随鼠标。默认 1.25 倍（约 430×315 点），设置存 `~/Library/Application Support/ACECode/desktop-pet/settings.json`。
 
+macOS 在原生左键按下时保留鼠标接收和原始窗口位置，防止异步拖动消息到达前被切换成点击穿透。注入桥为画布及缩放把手捕获 pointer，画布以页面坐标判断 4 点拖动阈值；松开、取消、页面重载和关闭都清理交互状态。把手的方向光标由 AppKit 设置，位置随窗口比例变化、命中大小保持 16 点；未置顶且被其它窗口覆盖时不改动其它窗口的光标。
+
 数据链为：会话元数据/事件分发器 → `GET /api/desktop-office` → App 级办公室控制器 → 原生 WebView 桥 → 像素场景。控制器复用现有引用计数 WS 订阅，事件触发刷新并以 3 秒轮询兜底；正在加载旧记录时短间隔继续读取。快速切换以请求代次和取消信号隔离迟到响应；隐藏或页面卸载释放订阅和计时器，重开/重载从原生缓存恢复当前选择与跟随状态。
 
 Windows/macOS 共用 `desktop_office_service.hpp` 管理偏好、桥和可重建窗口。桥在主页面导航前注册，避免 WKWebView 首次加载时漏掉会话联动。`enabled` 和 `welcome_seen` 原子保存到桌宠目录的 `office.json`，与现有 `settings.json` 缩放设置分开；Windows 目录为 `%LOCALAPPDATA%/ACECode/desktop-pet`，macOS 为 `~/Library/Application Support/ACECode/desktop-pet`。
@@ -37,3 +39,5 @@ Windows/macOS 共用 `desktop_office_service.hpp` 管理偏好、桥和可重建
 ## macOS 接续验证
 
 本次在 Windows 完成原生窗口与 Web 交互验证；macOS 的源码已同步，尚未在 Mac 编译或运行。Mac 接续时先构建 `web/` 再配置/构建 Desktop。确认默认不出现办公室；菜单开启后选择、切换真实会话，检查标题、主/子角色和工作气泡；叉号关闭后从设置重新开启，检查继续跟随；退出重启检查开关持久化。版本达到 0.9.37 后首次提示应出现一次，关闭/拒绝后不再自动提示，预览关闭后也不保留 iframe。测试一次性提示时使用独立测试用户配置，勿删除日常偏好。
+
+2026-10-09 鼠标修复的可移植 C++、Chromium 和 Windows WebKit 验证见 [修复验证记录](../openspec/changes/fix-macos-desktop-pet-pointer/verification.md)。Mac 仍需确认：ACECode 未激活时把手显示对角缩放光标；快速拖过透明角落和窗口外再松开、连续再次拖动正常；把手双击重置、普通角色点击及菜单按钮正常；取消置顶后被其它应用覆盖时不干扰光标；关闭/重开及跨显示器后交互正常。Windows 上的 WebKit 测试不等于 macOS NSPanel/WKWebView 实机验收。

@@ -71,6 +71,7 @@ const ACTION_LABELS = {
   [DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT]: '添加到会话',
   [DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT]: '添加到会话',
   [DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT]: '引用到聊天',
+  [DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION]: '全屏演示',
   [DESKTOP_CONTEXT_ACTIONS.REFRESH_FILE_TREE]: '刷新文件树',
   [DESKTOP_CONTEXT_ACTIONS.EXPAND_DIRECTORY]: '展开目录',
   [DESKTOP_CONTEXT_ACTIONS.COLLAPSE_DIRECTORY]: '折叠目录',
@@ -440,6 +441,7 @@ async function runAction(
 
 function actionLabel(action) {
   const id = typeof action === 'string' ? action : action.id;
+  if (id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION && action.target?.active) return '退出全屏演示';
   return action?.label || ACTION_LABELS[id] || id;
 }
 
@@ -541,7 +543,7 @@ export function DesktopContextMenu() {
         ? captureRichComposerContextSelection(editableTarget)
         : null;
       const contextTargets = editable
-        ? { previewTarget: candidateTargets.previewTarget || null }
+        ? { previewTarget: candidateTargets.previewTarget || null, previewPresentationTarget: candidateTargets.previewPresentationTarget }
         : candidateTargets;
       const sessionPinTarget = contextTargets.sessionTarget
         ? {
@@ -573,7 +575,7 @@ export function DesktopContextMenu() {
       ));
       // 侧栏会话行 / 项目行的右键与会话菜单按钮一样带图标;其它区域的右键保持纯文字。
       const showIcons = !!explicit || !!(contextTargets.sessionTarget || contextTargets.workspaceTarget);
-      const width = showIcons ? ICON_MENU_WIDTH : MENU_WIDTH;
+      const width = showIcons || contextTargets.previewPresentationTarget ? ICON_MENU_WIDTH : MENU_WIDTH;
       // 按钮触发时菜单右缘对齐按钮;右键委托(placement=pointer)时像原生右键一样从光标处展开。
       const x = explicit
         ? (explicit.placement === 'pointer' ? explicit.x : explicit.x - width)
@@ -723,6 +725,9 @@ export function DesktopContextMenu() {
                   ? <VsIcon name={action.icon || CONTEXT_ACTION_ICONS[action.id]} size={16} />
                   : <span className="ace-desktop-context-menu-icon-spacer" aria-hidden="true" />)}
                 <span>{actionLabel(action)}</span>
+                {action.id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION && (
+                  <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">Ctrl+F11</span>
+                )}
               </button>
             </Fragment>
           ))}

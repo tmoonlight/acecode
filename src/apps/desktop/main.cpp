@@ -2315,7 +2315,7 @@ int main(int argc, char** argv) {
       }
       window.addEventListener('keydown', function (event) {
         try {
-          if (!event || event.key !== 'F11') return;
+          if (!event || event.key !== 'F11' || event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return;
           event.preventDefault();
           event.stopPropagation();
           if (window.aceDesktop_openDevTools) {

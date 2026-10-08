@@ -1,12 +1,12 @@
 [
   {"title":"开始使用","pages":[
-    {"slug":"index","title":"认识 ACECode","sections":["ACECode 能做什么","桌面端、终端与 Web 如何取舍"]},
+    {"slug":"index","title":"认识 ACECode","sections":["ACECode 能做什么","桌面端、终端与 Web 如何取舍","10 月功能更新"]},
     {"slug":"installation","title":"安装","sections":["Windows","macOS","Linux"]},
     {"slug":"quick-start","title":"快速开始","sections":["配置第一个模型","打开项目与创建任务","完成第一次代码修改"]},
     {"slug":"update-uninstall","title":"更新与卸载"}
   ]},
   {"title":"使用 ACECode","pages":[
-    {"slug":"desktop","title":"桌面端","sections":["界面与导航","文件预览、终端与面板"]},
+    {"slug":"desktop","title":"桌面端","sections":["界面与导航","文件预览、终端与面板","虚拟办公室"]},
     {"slug":"tui","title":"TUI"},
     {"slug":"cli","title":"CLI"},
     {"slug":"web","title":"Web"},

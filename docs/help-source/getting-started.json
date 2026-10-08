@@ -11,13 +11,21 @@
         "id": "surfaces",
         "title": "桌面端、终端与 Web 如何取舍",
         "html": "<div class=\"table-scroll\"><table><thead><tr><th scope=\"col\">入口</th><th scope=\"col\">适合的工作方式</th><th scope=\"col\">从哪里开始</th></tr></thead><tbody><tr><td>桌面端</td><td>在同一个窗口管理工作区、任务、文件预览和面板。</td><td><a href=\"desktop.html\">桌面端指南</a></td></tr><tr><td>TUI</td><td>在本地终端或 SSH 会话中以键盘完成交互。</td><td>进入项目目录，运行 <code>acecode</code>。</td></tr><tr><td>CLI</td><td>脚本或流水线中提交一次任务，获取文本或 JSON 结果。</td><td><code>acecode -p --help</code></td></tr><tr><td>Web</td><td>通过浏览器连接运行 ACECode 的计算机。</td><td>启动 <code>acecode daemon</code>，打开输出的地址。</td></tr></tbody></table></div>\n<p>Web 中的工作区路径指向运行后台服务的计算机。桌面端具有原生文件选择和浏览器集成，直接 Web 不具备所有桌面专属功能。使用 SSH 时可以选择 TUI，也可以在远端运行后台服务后配置<a href=\"network.html\">远程 Web 访问</a>。</p><p>第一次使用，按<a href=\"installation.html\">安装</a>、<a href=\"quick-start.html\">快速开始</a>的顺序完成一个小修改，再按需要阅读后续栏目。</p>"
+      },
+      {
+        "id": "october-updates",
+        "title": "10 月功能更新",
+        "html": "<p>本轮帮助内容依据 2026 年 10 月 1 日至 9 日的功能规格与源码核对，涵盖 v1.0.1 源码中的以下操作。使用旧版本时先核对应用版本；截图保留原有采集状态，控件位置以正文为准。</p>\n<ul><li><a href=\"memory.html\">跨端记忆与可选自动摘要</a>：全局、工作区两种范围，以及设置页管理和 /memory 命令。</li>\n<li><a href=\"conversation.html#side-chat\">多轮侧边聊天</a>：浮窗追问、流式回答和受限只读工具。</li>\n<li><a href=\"swarm.html\">星型与网状蜂群</a>：分层协作、后台任务与子会话记录。</li>\n<li><a href=\"schedules.html\">智能添加定时任务</a>：自然语言创建、执行权限、时间和运行记录。</li>\n<li><a href=\"channels.html\">七种内置消息通道</a>：连接、机主绑定、访问批准和会话切换。</li>\n<li><a href=\"desktop.html#virtual-office\">虚拟办公室</a>：按需开启、跟随会话、置顶与关闭。</li>\n<li><a href=\"reference.html#shortcuts\">快捷键目录</a>、<a href=\"desktop.html#panels\">本地 HTML 预览与路径导航</a>、<a href=\"workspaces.html#organize\">归档搜索和批量管理</a>。</li>\n<li><a href=\"providers.html#openai\">Responses 协议</a>、<a href=\"model-capabilities.html#abilities\">思维深度同步</a>、<a href=\"context-usage.html\">长会话加载与压缩</a>、<a href=\"troubleshoot-context.html\">限流与断流排错</a>。</li>\n<li><a href=\"update-uninstall.html#check-update\">带进度和取消的更新入口</a>、<a href=\"skills.html#install\">内置技能升级</a>。</li></ul>"
       }
     ],
     "sources": [
       "README_CN.md",
       "docs/user-manual.md",
       "src/apps/headless/headless_options.cpp",
-      "docs/agent-browser.md"
+      "docs/agent-browser.md",
+      "web/src/lib/appShortcuts.js",
+      "web/src/components/VirtualOfficeSettings.jsx",
+      "web/src/lib/slashCommands.js"
     ],
     "intro": ""
   },
@@ -99,7 +107,7 @@
       {
         "id": "check-update",
         "title": "检查更新结果",
-        "html": "<p>桌面端可在<strong>设置 &gt; 关于</strong>查看当前版本。安装了 CLI 时，可以执行：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 核对版本</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode --version</code></pre></div>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-08\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：关于页面中的当前版本\"><span class=\"placeholder-id\">GS-08</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>关于页面中的当前版本</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>更新后：查看当前版本，并确认已有模型与任务仍可正常使用。</figcaption></figure>\n        <p>重新打开一个已有任务，检查模型选择与历史记录。若版本仍是旧的，请确认启动的是刚更新的安装位置，而不是电脑上另一份 ACECode。</p>"
+        "html": "<p>通过<strong>检查更新</strong>或<strong>设置 &gt; 关于</strong>检查版本。发现可用更新后，入口位于侧边栏底部、问题反馈按钮左侧；更新中会显示下载进度。下载和安装准备阶段可在更新对话框中取消，开始替换程序文件后不可取消。慢速下载没有固定的 30 秒总时限；如果取消中，等待界面确认结束再重试。</p><p>若当前安装是 MSIX，更新由 Microsoft Store 管理，应用不会直接覆盖包内文件。此说明不表示商店已完成上架；普通安装包继续使用其原有更新方式。</p><p>桌面端可在<strong>设置 &gt; 关于</strong>查看当前版本。安装了 CLI 时，可以执行：</p><div class=\"code-block\"><div class=\"code-heading\"><span>终端 · 核对版本</span><button class=\"copy-button js-only\" type=\"button\" aria-label=\"复制代码\"><svg class=\"icon \" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" aria-hidden=\"true\"><path d=\"M8 8h12v13H8zM16 8V3H3v13h5\"/></svg><span>复制</span></button></div><pre><code>acecode --version</code></pre></div>\n        <figure class=\"screenshot compact\" data-placeholder=\"GS-08\"><div class=\"image-placeholder\" role=\"img\" aria-label=\"截图占位：关于页面中的当前版本\"><span class=\"placeholder-id\">GS-08</span><div class=\"placeholder-content\"><span class=\"placeholder-mark\" aria-hidden=\"true\"></span><span class=\"placeholder-kind\">截图占位</span><strong>关于页面中的当前版本</strong><span>此处将补充实际界面截图</span></div><span class=\"placeholder-ratio\" aria-hidden=\"true\">16 : 9</span></div><figcaption>更新后：查看当前版本，并确认已有模型与任务仍可正常使用。</figcaption></figure>\n        <p>重新打开一个已有任务，检查模型选择与历史记录。若版本仍是旧的，请确认启动的是刚更新的安装位置，而不是电脑上另一份 ACECode。</p>"
       },
       {
         "id": "uninstall",
@@ -118,7 +126,10 @@
       "npm/desktop/README.md",
       "docs/macos-release.md",
       "docs/linux-self-update.md",
-      "web/src/components/UpdateDialog.jsx"
+      "web/src/components/UpdateDialog.jsx",
+      "web/src/components/Sidebar.jsx",
+      "src/adapters/upgrade/upgrade.cpp",
+      "src/adapters/upgrade/apply.cpp"
     ],
     "intro": ""
   }

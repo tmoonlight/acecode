@@ -56,6 +56,22 @@ export function PresentationPreview({ blob, path }) {
     const receiveMessage = async (event) => {
       const message = presentationPreviewMessage(event, frameWindow, channel);
       if (!message || cancelled) return;
+      if (message.status === 'presentation') {
+        frameRef.current?.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'F11', code: 'F11', ctrlKey: true, bubbles: true, cancelable: true,
+        }));
+        return;
+      }
+      if (message.status === 'contextmenu') {
+        const frame = frameRef.current;
+        const rect = frame?.getBoundingClientRect();
+        if (rect) frame.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true,
+          clientX: rect.left + Math.max(0, Math.min(rect.width, message.x)),
+          clientY: rect.top + Math.max(0, Math.min(rect.height, message.y)),
+        }));
+        return;
+      }
       if (Number.isInteger(message.slideIndex)) setSlideIndex(message.slideIndex);
       if (Number.isInteger(message.slideCount)) setSlideCount(message.slideCount);
       if (Number.isFinite(message.zoom)) setZoom(message.zoom);

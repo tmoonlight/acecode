@@ -140,3 +140,28 @@ TEST_F(TurnRecoveryTest, ResponsesReasoningOnlyIsRetriedAndOpaqueStateIsPreserve
     EXPECT_EQ(history.view()[0].reasoning_content, response.reasoning_content);
     EXPECT_TRUE(history.view()[1].metadata.value("empty_response_retry", false));
 }
+
+TEST_F(TurnRecoveryTest, PlaceholderOnlyOutputRetriesThenFailsInsteadOfCompleting) {
+    ChatResponse response;
+    response.content = "  ...\xE2\x8E\xAF\xE2\x8E\xAF\xE2\x8E\xAF";
+    response.finish_reason = "stop";
+    ResponseRecoveryState state;
+    EXPECT_EQ(recovery.resolve(response, state, {}).action, HandleErrorResult::Continue);
+    EXPECT_EQ(recovery.resolve(response, state, {}).action, HandleErrorResult::Continue);
+    const auto exhausted = recovery.resolve(response, state, {});
+    EXPECT_EQ(exhausted.action, HandleErrorResult::Break);
+    EXPECT_EQ(exhausted.finish_status, "error");
+    for (const auto& message : history.view()) {
+        if (message.role == "assistant") EXPECT_TRUE(message.content.empty());
+    }
+}
+
+TEST_F(TurnRecoveryTest, UsefulShortAndSymbolicAnswersAreNotPlaceholders) {
+    for (const std::string content : {"OK", "0", "收到", "-1", "1 + 1 = 2", "-", "[]", "...done", "```\n---\n```"}) {
+        ChatResponse response;
+        response.content = content;
+        ResponseRecoveryState state;
+        EXPECT_EQ(recovery.resolve(response, state, {}).action, HandleErrorResult::Proceed) << content;
+    }
+    EXPECT_TRUE(history.view().empty());
+}

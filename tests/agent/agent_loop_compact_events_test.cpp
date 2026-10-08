@@ -6,6 +6,7 @@
 #include "agent/compaction/compact_prompt.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
+#include "pa/pa_context_budget.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/compact_notice.hpp"
 #include "session/session_manager.hpp"
@@ -35,6 +36,15 @@
 using namespace std::chrono_literals;
 
 namespace {
+
+acecode::AgentLoopServices with_isolated_budget(acecode::AgentLoopServices services) {
+    // The runtime callback owns this test's learner for the loop's lifetime.
+    auto learner = std::make_shared<acecode::pa::ContextBudgetLearner>();
+    services.runtime.context_budget = [learner]() -> acecode::pa::ContextBudgetLearner& {
+        return *learner;
+    };
+    return services;
+}
 
 class CompactEventProvider : public acecode::LlmProvider {
 public:
@@ -121,14 +131,14 @@ acecode::ChatMessage loop_msg(std::string role,
     return message;
 }
 
-void add_history(acecode::AgentLoop& loop, int turns = 5) {
+void add_history(acecode::AgentLoop& loop, int turns = 5, int text_size = 900) {
     for (int i = 0; i < turns; ++i) {
         loop.push_message(loop_msg(
             "user", "old user " + std::to_string(i) + " " +
-                        std::string(900, 'u')));
+                        std::string(text_size, 'u')));
         loop.push_message(loop_msg(
             "assistant", "old assistant " + std::to_string(i) + " " +
-                             std::string(900, 'a')));
+                             std::string(text_size, 'a')));
     }
 }
 
@@ -664,7 +674,7 @@ TEST(AgentLoopCompactEvents, AutoCompactRunsBeforeInitialModelRequest) {
         acecode_test::AgentLoopFixture::configuration("/tmp/auto-compact-events"));
     loop.start();
     loop.set_context_window(100);
-    add_history(loop);
+    add_history(loop, 5, 18000);
 
     const auto events = wait_for_done(
         loop, [&] { loop.submit("trigger auto compact"); });
@@ -902,10 +912,10 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactFallsBackToMechanicalPrune) {
         acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
         acecode_test::AgentLoopFixture::configuration(cwd.string()));
     loop.start();
-    loop.set_context_window(4000);
+    loop.set_context_window(50000);
     // 历史要足够长,机械修剪才有得可丢 —— 这正是与下一个用例的区别:那里只有
     // 两组历史,修剪不动,于是保持「失败即报错」的旧行为。
-    add_history(loop, 20);
+    add_history(loop, 20, 5000);
 
     const auto events = wait_for_done(loop, [&] {
         loop.submit("continue after a failed summarization");
@@ -947,9 +957,9 @@ TEST(AgentLoopCompactEvents, CancelledAutoCompactDoesNotPruneHistory) {
         acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
         acecode_test::AgentLoopFixture::configuration(cwd.string()));
     loop.start();
-    loop.set_context_window(4000);
+    loop.set_context_window(50000);
     // 与机械修剪用例同样长的历史:修剪有得可丢,才能证明这里没丢。
-    add_history(loop, 20);
+    add_history(loop, 20, 5000);
     // 摘要请求发出的那一刻点停止:compact_messages 在响应返回后看到 abort 标记,
     // 以「Compaction cancelled.」返回。
     provider->on_compact_request = [&loop] { loop.abort(); };
@@ -983,7 +993,7 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactIsAtomicAndRetriesOnNextTurn) {
         acecode_test::AgentLoopFixture::configuration("/tmp/auto-compact-failure"));
     loop.start();
     loop.set_context_window(100);
-    add_history(loop, 2);
+    add_history(loop, 2, 45000);
     const auto original_provider_size =
         acecode::provider_relevant_messages(loop.messages()).size();
 
@@ -1023,11 +1033,11 @@ TEST(AgentLoopCompactEvents, ContextOverflowRepairsHistoryAndRetriesSameInputOnc
         acecode::SessionManager session;
         session.start_session(cwd.string(), "stub", "model");
         acecode::AgentLoop loop(
-        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        with_isolated_budget(acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session)),
         acecode_test::AgentLoopFixture::configuration(cwd.string()));
         loop.start();
         loop.set_context_window(1000000);
-        add_history(loop, 2);
+        add_history(loop, 2, 45000);
 
         const auto events = wait_for_done(
             loop, [&] { loop.submit("latest user request"); });
@@ -1067,12 +1077,13 @@ TEST(AgentLoopCompactEvents, ExhaustedHistoryUsesOneEmergencyProfileRetry) {
     register_test_tool("bash", "core shell");
     acecode::PermissionManager permissions;
     acecode::AgentLoop loop(
-        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions),
+        with_isolated_budget(acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions)),
         acecode_test::AgentLoopFixture::configuration("/tmp/emergency-profile"));
     loop.start();
     loop.set_context_window(1000000);
 
-    wait_for_done(loop, [&] { loop.submit("only current input"); });
+    const std::string input = "only current input" + std::string(180000, 'U');
+    wait_for_done(loop, [&] { loop.submit(input); });
 
     ASSERT_EQ(provider->turn_count(), 2);
     ASSERT_EQ(provider->tools_for_turn(0).size(), 3u);
@@ -1125,13 +1136,13 @@ TEST(AgentLoopCompactEvents, RepeatedOverflowStopsAfterFiniteRecoveryStages) {
         acecode::SessionManager session;
         session.start_session(cwd.string(), "stub", "model");
         acecode::AgentLoop loop(
-        acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session),
+        with_isolated_budget(acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session)),
         acecode_test::AgentLoopFixture::configuration(cwd.string()));
         loop.start();
         loop.set_context_window(1000000);
         add_history(loop, 2);
 
-        wait_for_done(loop, [&] { loop.submit("current request"); });
+        wait_for_done(loop, [&] { loop.submit("current request" + std::string(180000, 'U')); });
 
         EXPECT_EQ(provider->turn_count(), 3);
         EXPECT_EQ(request_match_count(

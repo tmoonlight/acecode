@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "pa/pa_overflow_rescue.hpp"
+#include <limits>
 
 namespace pa = acecode::pa;
 
@@ -93,14 +94,14 @@ TEST(PaOverflowRescue, KeepsShrinkingWithoutFurtherRetriesOrRecording) {
 // —— 原样重发失败已经证实拒收是真的。
 TEST(PaOverflowRescue, FallsBackToEmergencyProfileWhenNothingShrinks) {
     pa::RescueState state;
-    step(state, inputs(30000, 2000));
-    step(state, inputs(30000, 2000));
-    const auto shrink = step(state, inputs(30000, 2000));
+    step(state, inputs(60000, 2000));
+    step(state, inputs(60000, 2000));
+    const auto shrink = step(state, inputs(60000, 2000));
     ASSERT_EQ(shrink.action, pa::RescueAction::ShrinkHistory);
     // 调用方发现修剪没有任何改动:
     state.shrink_exhausted = true;
 
-    const auto plan = step(state, inputs(30000, 2000));
+    const auto plan = step(state, inputs(60000, 2000));
     EXPECT_EQ(plan.action, pa::RescueAction::EmergencyProfile);
     // 收缩那一步已经记过账,紧急档不再重复记。
     EXPECT_FALSE(plan.record_rejection);
@@ -118,7 +119,7 @@ TEST(PaOverflowRescue, WaitsWithBackoffAndGivesUpOnlyAfterTheCap) {
 
     const int expected_delays[] = {5000, 10000, 20000, 40000, 60000, 60000};
     for (int i = 0; i < pa::PA_RESCUE_MAX_WAIT_RETRIES; ++i) {
-        const auto plan = step(state, inputs(8000, 500, /*emergency=*/true));
+        const auto plan = step(state, inputs(50000, 500, /*emergency=*/true));
         ASSERT_EQ(plan.action, pa::RescueAction::WaitAndRetry) << "attempt " << i;
         EXPECT_FALSE(plan.record_rejection);
         const int expected = i < 6 ? expected_delays[i] : 60000;
@@ -126,7 +127,7 @@ TEST(PaOverflowRescue, WaitsWithBackoffAndGivesUpOnlyAfterTheCap) {
     }
     EXPECT_EQ(state.wait_retries, pa::PA_RESCUE_MAX_WAIT_RETRIES);
 
-    const auto final_plan = step(state, inputs(8000, 500, /*emergency=*/true));
+    const auto final_plan = step(state, inputs(50000, 500, /*emergency=*/true));
     EXPECT_EQ(final_plan.action, pa::RescueAction::GiveUp);
 }
 
@@ -152,7 +153,7 @@ TEST(PaOverflowRescue, HistoryTargetClampsToOneWhenFixedContextDominates) {
     pa::RescueState state;
     state.same_request_retries = pa::PA_RESCUE_SAME_REQUEST_RETRIES;
 
-    const auto plan = step(state, inputs(20000, 1000));
+    const auto plan = step(state, inputs(80000, 1000));
     ASSERT_EQ(plan.action, pa::RescueAction::ShrinkHistory);
     EXPECT_EQ(plan.target_history_tokens, 1);
 }
@@ -172,4 +173,32 @@ TEST(PaOverflowRescue, WaitScaleZeroDisablesWaiting) {
     EXPECT_EQ(pa::wait_retry_delay_ms(50), 60000);
     EXPECT_EQ(pa::same_request_retry_delay_ms(0), 2000);
     EXPECT_EQ(pa::same_request_retry_delay_ms(1), 5000);
+}
+
+TEST(PaOverflowRescue, SmallRequestsWaitIndefinitelyWithoutShrinkingOrLearning) {
+    pa::RescueState state;
+    const int delays[] = {5000, 10000, 20000, 40000};
+    for (int i = 0; i < 40; ++i) {
+        const auto plan = step(state, inputs(39999, 30000));
+        EXPECT_EQ(plan.action, pa::RescueAction::WaitAndRetry);
+        EXPECT_TRUE(plan.preserve_context);
+        EXPECT_FALSE(plan.record_rejection);
+        EXPECT_EQ(plan.target_history_tokens, 0);
+        EXPECT_EQ(plan.wait_ms, i < 4 ? delays[i] : 60000);
+    }
+    EXPECT_EQ(state.shrink_rounds, 0);
+    EXPECT_EQ(state.same_request_retries, 0);
+    state.wait_retries = std::numeric_limits<int>::max();
+    EXPECT_EQ(step(state, inputs(20000, 10000)).action, pa::RescueAction::WaitAndRetry);
+    EXPECT_EQ(state.wait_retries, std::numeric_limits<int>::max());
+}
+
+TEST(PaOverflowRescue, LargeRecoveryStopsShrinkingOnceRequestFallsBelowFloor) {
+    pa::RescueState state;
+    state.same_request_retries = pa::PA_RESCUE_SAME_REQUEST_RETRIES;
+    EXPECT_EQ(step(state, inputs(40000, 30000)).action, pa::RescueAction::ShrinkHistory);
+    const auto plan = step(state, inputs(34000, 24000));
+    EXPECT_EQ(plan.action, pa::RescueAction::WaitAndRetry);
+    EXPECT_TRUE(plan.preserve_context);
+    EXPECT_FALSE(plan.record_rejection);
 }

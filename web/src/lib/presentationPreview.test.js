@@ -100,6 +100,17 @@ run('presentation messages require the exact frame, source, channel, and status'
   assert.equal(presentationPreviewMessage({ ...valid, data: { ...valid.data, status: 'render' } }, frameWindow, 'channel-1'), null);
 });
 
+run('presentation interaction messages validate their channel and menu coordinates', () => {
+  const frame = {};
+  const data = { source: PRESENTATION_PREVIEW_SOURCE, channel: 'interaction', status: 'presentation' };
+  assert.equal(presentationPreviewMessage({ source: frame, data }, frame, 'interaction').status, 'presentation');
+  assert.equal(presentationPreviewMessage({ source: {}, data }, frame, 'interaction'), null);
+  assert.equal(presentationPreviewMessage({ source: frame, data }, frame, 'another'), null);
+  const event = { source: frame, data: { ...data, status: 'contextmenu', x: 30, y: 50 } };
+  assert.deepEqual(presentationPreviewMessage(event, frame, 'interaction'), { status: 'contextmenu', detail: '', x: 30, y: 50 });
+  assert.equal(presentationPreviewMessage({ ...event, data: { ...event.data, x: Infinity } }, frame, 'interaction'), null);
+});
+
 run('presentation state messages expose only validated slide and zoom values', () => {
   const frameWindow = {};
   const event = {

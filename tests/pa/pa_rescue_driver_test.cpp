@@ -40,7 +40,9 @@ TEST(PaRescueDriver, CancellationDoesNotResumeOrResetTheStream) {
     bool emergency = false;
     EXPECT_FALSE(acecode::pa::run_rescue(host, state, {}, 12000, emergency));
     EXPECT_EQ(host.calls, (std::vector<std::string>{"notice", "waiting", "wait"}));
-    EXPECT_EQ(state.same_request_retries, 1);
+    EXPECT_EQ(state.same_request_retries, 0);
+    EXPECT_EQ(state.wait_retries, 1);
+    EXPECT_FALSE(emergency);
 }
 
 TEST(PaRescueDriver, SuccessfulRepairKeepsPublicationOrderAndChargesRejectionOnce) {
@@ -49,11 +51,11 @@ TEST(PaRescueDriver, SuccessfulRepairKeepsPublicationOrderAndChargesRejectionOnc
     state.active = true;
     state.same_request_retries = acecode::pa::PA_RESCUE_SAME_REQUEST_RETRIES;
     bool emergency = false;
-    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 12000, emergency));
+    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 60000, emergency));
     EXPECT_EQ(host.calls, (std::vector<std::string>{
         "reject", "repair", "repaired", "reset", "progress", "notice"}));
     host.calls.clear();
-    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 11000, emergency));
+    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 50000, emergency));
     EXPECT_EQ(host.calls, (std::vector<std::string>{
         "repair", "repaired", "reset", "progress", "notice"}));
     EXPECT_EQ(state.shrink_rounds, 2);
@@ -67,7 +69,7 @@ TEST(PaRescueDriver, ExhaustedHistoryAdvancesToEmergencyWithinTheSameInvocation)
     state.active = true;
     state.same_request_retries = acecode::pa::PA_RESCUE_SAME_REQUEST_RETRIES;
     bool emergency = false;
-    EXPECT_TRUE(acecode::pa::run_rescue(host, state, {}, 12000, emergency));
+    EXPECT_TRUE(acecode::pa::run_rescue(host, state, {}, 60000, emergency));
     EXPECT_TRUE(emergency);
     EXPECT_TRUE(state.shrink_exhausted);
     EXPECT_EQ(host.calls, (std::vector<std::string>{

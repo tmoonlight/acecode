@@ -20,11 +20,11 @@ int get_auto_compact_threshold(int context_window) {
     const long long automatic =
         static_cast<long long>(context_window) *
         AUTO_COMPACT_CONTEXT_WINDOW_PERCENT / 100;
-    return std::min(
+    return std::max(MIN_AUTO_COMPACT_TOKENS, std::min(
         get_effective_context_window(context_window),
         automatic > std::numeric_limits<int>::max()
             ? std::numeric_limits<int>::max()
-            : static_cast<int>(automatic));
+            : static_cast<int>(automatic)));
 }
 
 bool should_auto_compact(int context_window,

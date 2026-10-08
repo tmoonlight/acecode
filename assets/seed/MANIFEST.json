@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-10-04.1",
+  "bundle_version": "2026-10-09.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -42,13 +42,13 @@
       "name": "acecode-tui-usage",
       "source_id": "acecode:acecode-tui-usage@2026-07-20",
       "relative_path": "acecode/acecode-tui-usage",
-      "skill_md_sha256": "8dc11abf0224872ffa3d98f6d218aac623e5b3bbd383639673fd9cc45f488468"
+      "skill_md_sha256": "cbe94d9b1ec3b445a19ffdc422e4a328438edacdb245daa77520bf8f5f806149"
     },
     {
       "name": "acecode-desktop-usage",
       "source_id": "acecode:acecode-desktop-usage@2026-10-04",
       "relative_path": "acecode/acecode-desktop-usage",
-      "skill_md_sha256": "e67f13bd466c274840be46ab48bcffb8b4c06e61012010ab6cb2ae5670a64485"
+      "skill_md_sha256": "96cc03b4bca81be8db23629f3c4723e73b5ec435e618645281e060c6dacaf0fd"
     },
     {
       "name": "vision-image-reader",

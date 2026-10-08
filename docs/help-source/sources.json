@@ -6,7 +6,10 @@
       "README_CN.md",
       "docs/user-manual.md",
       "src/apps/headless/headless_options.cpp",
-      "docs/agent-browser.md"
+      "docs/agent-browser.md",
+      "web/src/lib/appShortcuts.js",
+      "web/src/components/VirtualOfficeSettings.jsx",
+      "web/src/lib/slashCommands.js"
     ]
   },
   {
@@ -41,7 +44,10 @@
       "npm/desktop/README.md",
       "docs/macos-release.md",
       "docs/linux-self-update.md",
-      "web/src/components/UpdateDialog.jsx"
+      "web/src/components/UpdateDialog.jsx",
+      "web/src/components/Sidebar.jsx",
+      "src/adapters/upgrade/upgrade.cpp",
+      "src/adapters/upgrade/apply.cpp"
     ]
   },
   {
@@ -52,6 +58,11 @@
       "web/src/lib/sidebarNavigation.js",
       "web/src/components/PreviewDetailsPanel.jsx",
       "web/src/components/ConsoleDock.jsx",
+      "web/src/lib/appShortcuts.js",
+      "web/src/components/VirtualOfficeSettings.jsx",
+      "web/src/lib/desktopOfficeController.js",
+      "web/src/components/FileBreadcrumbs.jsx",
+      "web/src/lib/htmlPreview.js",
       "docs/user-manual.md"
     ]
   },
@@ -92,6 +103,8 @@
       "web/src/lib/inputBarState.js",
       "web/src/components/SideChatWindow.jsx",
       "web/src/components/ChatView.jsx",
+      "src/engine/agent/side_question/side_chat_tools.cpp",
+      "web/src/components/ComposerSessionControls.jsx",
       "docs/daemon-api.md"
     ]
   },
@@ -156,6 +169,7 @@
       "web/src/components/model-settings/ModelConnectionCard.jsx",
       "web/src/components/model-settings/ModelSettingsSection.jsx",
       "src/adapters/provider/openai_provider.cpp",
+      "src/adapters/provider/openai_responses_provider.cpp",
       "src/adapters/provider/anthropic_provider.cpp"
     ]
   },
@@ -334,7 +348,9 @@
       "web/src/lib/loops.js",
       "src/host/loop/loop_types.hpp",
       "src/host/loop/loop_scheduler.cpp",
-      "src/host/loop/loop_store.cpp"
+      "src/host/loop/loop_store.cpp",
+      "src/host/loop/scheduled_task_tool.cpp",
+      "assets/seed/skills/acecode/scheduled-task/SKILL.md"
     ]
   },
   {
@@ -451,7 +467,9 @@
       "src/apps/headless/headless_options.cpp",
       "src/base/utils/paths.cpp",
       "docs/daemon-api.md",
-      "src/domain/memory/memory_paths.cpp"
+      "src/domain/memory/memory_paths.cpp",
+      "web/src/lib/appShortcuts.js",
+      "src/apps/tui/input/control_keys.cpp"
     ]
   },
   {

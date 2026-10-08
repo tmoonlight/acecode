@@ -54,8 +54,9 @@ TEST_P(AgentLoopStaticPromptGolden, CompactionInitialSystemEqualsMainRequestByte
     provider->set_model(GetParam().model);
     Harness h(isolation, GetParam().name, provider);
     h.tools.register_tool(h.probe("file_read", true));
-    h.loop->push_message(message("user", std::string(1800, 'U')));
-    h.loop->push_message(message("assistant", std::string(1800, 'A')));
+    const int history_size = GetParam().automatic ? 90000 : 1800;
+    h.loop->push_message(message("user", std::string(history_size, 'U')));
+    h.loop->push_message(message("assistant", std::string(history_size, 'A')));
     h.loop->set_context_window(GetParam().automatic ? 100 : 1000000);
     provider->push_text("main response");
     ASSERT_TRUE(h.perform([loop = h.loop.get()] { loop->submit("new user input"); }));

@@ -27,16 +27,16 @@ PAGES = {
 
 "providers": page("按实际接口协议选择 Provider，再填写服务给出的连接信息。不同服务商的认证方式和可选参数分别配置。", [
     section("openai", "OpenAI 兼容接口",
-        '''<ol><li>进入<strong>设置 &gt; 模型 &gt; 新增模型</strong>，选择自定义 OpenAI 兼容入口，或目录中对应的服务商。</li><li>填写 <strong>Base URL</strong> 和 <strong>API Key</strong>，输入服务实际支持的 <strong>Model ID</strong>。</li><li>需要完整请求地址时，在高级设置中切换<strong>端点模式</strong>。</li><li>保存后选择这个预设，发送简短请求验证。</li></ol>''',
+        '''<ol><li>进入<strong>设置 &gt; 模型 &gt; 新增模型</strong>，选择自定义 OpenAI 兼容入口，或目录中对应的服务商。</li><li>填写 <strong>Base URL</strong> 和 <strong>API Key</strong>，输入服务实际支持的 <strong>Model ID</strong>。</li><li>选择<strong>API 协议</strong>：Chat Completions 或 Responses，必须与接口实际支持的协议一致。需要完整请求地址时，在高级设置中切换<strong>端点模式</strong>。</li><li>保存后选择这个预设，发送简短请求验证。</li></ol>''',
         table(["端点模式", "该填写什么"], [["Base URL", "API 基础地址，例如 <code>https://api.example.com/v1</code>；由客户端构造对应请求端点。"], ["完整端点", "服务要求的完整请求 URL；不要再按基础地址的方式重复拼接路径。"]]),
-        '''<p>这里的示例域名不是可用服务。请复制服务商给出的实际地址；同一平台可能有不同协议的入口。需要额外认证头时，在高级设置填写<strong>自定义请求头 JSON</strong>，保持合法 JSON 对象。</p><p>支持探测时可以点击<strong>探测模型</strong>读取服务返回的模型 ID。无法列出模型的兼容服务仍可手填 Model ID，随后用真实请求验证。</p>''',
+        '''<p>旧 OpenAI 预设默认保持 Chat Completions，不会根据模型名自动改协议。Responses 在 Base URL 模式下追加 <code>/responses</code>，完整端点模式直接使用填写的 URL；只改地址不能替代协议选择。可先点击密钥旁的<strong>检测</strong>验证连接，再保存。</p><p>这里的示例域名不是可用服务。请复制服务商给出的实际地址；同一平台可能有不同协议的入口。需要额外认证头时，在高级设置填写<strong>自定义请求头 JSON</strong>，保持合法 JSON 对象。</p><p>支持探测时可以点击<strong>探测模型</strong>读取服务返回的模型 ID。无法列出模型的兼容服务仍可手填 Model ID，随后用真实请求验证。</p>''',
         figure("MD-03", "自定义兼容接口填写示例", "标出 Base URL、Model ID、隐藏的 API Key 和高级设置中的端点模式。使用 example.com 等占位域名，不展示真实密钥。")),
     section("anthropic", "Anthropic",
         '''<p>选择 Anthropic 协议的 Provider，填写对应 Messages API 的地址、密钥和模型 ID。不要仅因模型名称中包含 Claude 就选择 Anthropic；若服务提供的是 OpenAI 兼容代理，应按它实际提供的协议选择。</p><ol><li>确认账号或代理提供哪种协议和认证方式。</li><li>选择匹配的 Provider，再填入该接口地址与凭据。</li><li>从可用目录选择模型，或填写准确的模型 ID。</li><li>仅在表单支持时配置推理开关、强度或预算。</li><li>保存后先进行一次普通文本请求，再验证工具任务。</li></ol><p>推理字段因模型而异，必需推理的模型不能随意关闭。遇到无效参数错误，先核对该模型的高级设置，而不是不断更换同一地址下的名称。</p>'''),
     section("copilot", "GitHub Copilot",
         '''<p>GitHub Copilot 使用设备登录流程。模型页的<strong>模型连接</strong>卡片提供<strong>连接 GitHub</strong>，认证由该入口管理，模型弹窗不要求手动填写受管端点和密钥。</p><ol><li>点击连接 GitHub，查看设备验证码。</li><li>在打开的系统浏览器中完成 GitHub 授权。</li><li>回到 ACECode，按需要点击<strong>我已完成授权</strong>，确认状态为已连接。</li><li>新增一个 GitHub Copilot 模型预设并保存。</li><li>在任务中选择预设，验证账号可以访问该模型。</li></ol><p>验证码过期或授权未完成时重新发起登录。已连接只表示认证流程成功，实际模型访问仍由账号权限和服务状态决定。需要切换账号时使用连接卡片中的退出连接。</p>''',
         figure("MD-04", "GitHub 设备登录", "展示模型连接卡片中的连接状态、验证码位置和我已完成授权按钮；验证码使用失效的示例值。"))
-], ["web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ModelConnectionCard.jsx", "web/src/components/model-settings/ModelSettingsSection.jsx", "src/adapters/provider/openai_provider.cpp", "src/adapters/provider/anthropic_provider.cpp"]),
+], ["web/src/components/model-settings/ModelProfileDialog.jsx", "web/src/components/model-settings/ModelConnectionCard.jsx", "web/src/components/model-settings/ModelSettingsSection.jsx", "src/adapters/provider/openai_provider.cpp", "src/adapters/provider/openai_responses_provider.cpp", "src/adapters/provider/anthropic_provider.cpp"]),
 
 "manage-models": page("管理可供任务使用的模型预设，并区分新任务默认值与当前任务的模型选择。", [
     section("crud", "添加、编辑与删除",
@@ -55,7 +55,7 @@ PAGES = {
         '''<p>在新增或编辑模型的<strong>高级设置</strong>中查看<strong>上下文窗口 Token</strong>和<strong>最大输出 Token</strong>。窗口影响上下文预算与自动压缩判断；输出限制约束单次生成的规模，两个字段不能互相替代。</p><p>已有目录值时先保留目录提供的参数；需要覆盖时使用服务实际支持的值。接口限制可能比模型家族的宣传窗口更小。服务返回上下文超限时，先压缩历史或减小输入，不要只把本地数字改大。</p>'''),
     section("abilities", "思考、视觉与工具调用",
         table(["能力", "实际用途", "验证方法"], [["推理 / 思考", "按 Provider 支持的字段发送推理开关、强度或预算。", "使用支持推理的模型，检查请求是否正常完成。"], ["视觉", "处理图片内容；可与可用视觉工具配合。", "提交一张内容明确的示例图片并问具体问题。"], ["工具调用", "允许模型发出结构化工具请求来读写文件或执行命令。", "先要求读取一个示例文件，再检查工具记录。"]]),
-        '''<p>只有当前 Provider 支持的配置才会出现在表单中。有些模型要求推理始终启用；有些提供强度选项，有些使用 token 预算。勾选视觉或工具能力只是声明请求方式，不能让不支持该协议的模型自动具备能力。</p><p>权限模式和模型能力分别管理：模型能提出工具调用，不代表所有工具都已安装或所有操作都已获准。</p>''',
+        '''<p>只有当前 Provider 支持的配置才会出现在表单中。有些模型要求推理始终启用；有些提供强度选项，有些使用 token 预算。勾选视觉或工具能力只是声明请求方式，不能让不支持该协议的模型自动具备能力。</p><p>权限模式和模型能力分别管理：模型能提出工具调用，不代表所有工具都已安装或所有操作都已获准。</p><p>模型保存、启动、进入新对话以及刷新模型列表时，会在后台同步可探测模型的思维深度声明，网络失败保留已有配置。支持的模型可在输入区选档，或用 <kbd>Ctrl+Alt+&gt;</kbd> / <kbd>Ctrl+Alt+&lt;</kbd> 逐档增减（macOS 用 Cmd/Option）；到最高或最低档后停止。运行中调整从后续请求生效。用户明确关闭推理的设置不会被同步自动打开。</p>''',
         figure("MD-06", "模型高级设置", "展示上下文窗口、输出限制、能力标识和推理设置；选取确实支持这些字段的 Provider，避免画出实际不存在的选项。")),
     section("probe", "能力探测",
         '''<p>模型表单中的<strong>探测模型</strong>主要获取当前 Provider 返回的模型 ID 与可用元数据。有已保存的本地结果时，<strong>查看探测结果</strong>会打开缓存；需要重新访问服务时点击<strong>重新探测</strong>。</p><ol><li>先填写可用的地址、凭据和必要请求头。</li><li>主动点击探测模型，等待结果。</li><li>用搜索过滤 Model ID；新增时可多选，编辑时选择一个替换当前 ID。</li><li>确认回填后检查参数并保存预设。</li><li>用小请求验证实际需要的文字、视觉或工具功能。</li></ol>''',

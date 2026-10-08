@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { useWorkbenchScroll } from '../lib/useWorkbenchScroll.js';
+import { usePreviewTextZoom } from '../lib/usePreviewTextZoom.js';
 import { clsx } from '../lib/format.js';
 import {
   PREVIEW_TAB_TYPES,
@@ -313,6 +314,7 @@ export function PreviewDetailsPanel({
   sessionChangesReady = true,
   turnChangeSets = [],
   maximized = false,
+  presenting = false,
   busy = false,
   selectionContexts = [],
   sidePanelListCollapsed = false,
@@ -325,6 +327,7 @@ export function PreviewDetailsPanel({
   onEditFileTab,
   onReorderTab,
   onToggleMaximize,
+  onTogglePresentation,
   onToggleSidePanelList,
   onOpenFile,
   onOpenBrowser,
@@ -338,6 +341,7 @@ export function PreviewDetailsPanel({
   onOpenFilePreview,
 }) {
   const tabListRef = useRef(null);
+  const { panelRef, zoom: textZoom } = usePreviewTextZoom(owner);
   const tabDragRef = useRef(null);
   const tabAutoScrollFrameRef = useRef(null);
   const suppressTabClickRef = useRef(false);
@@ -356,6 +360,12 @@ export function PreviewDetailsPanel({
     const handler = (event) => {
       const detail = event.detail || {};
       const { action, target } = detail;
+      if (action === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION) {
+        if (target?.element !== panelRef.current || !onTogglePresentation) return;
+        detail.handled = true;
+        onTogglePresentation();
+        return;
+      }
       if (target?.type !== 'preview-tab') return;
       const tabKey = target.key;
       if (!tabKey) return;
@@ -375,7 +385,7 @@ export function PreviewDetailsPanel({
     };
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
-  }, [onCloseAll, onCloseOthers, onCloseTab, onCloseToRight]);
+  }, [onCloseAll, onCloseOthers, onCloseTab, onCloseToRight, onTogglePresentation, panelRef]);
 
   const renderedBody = useMemo(() => {
     if (!active) return null;
@@ -438,6 +448,7 @@ export function PreviewDetailsPanel({
     const activeCwd = active.type === PREVIEW_TAB_TYPES.FILE ? (active.cwd || cwd) : cwd;
     return (
       <FilePreviewContent
+        textZoom={textZoom}
         key={active.key}
         owner={owner}
         api={api}
@@ -455,7 +466,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -830,7 +841,9 @@ export function PreviewDetailsPanel({
   );
 
   return (
-    <div className="ace-preview-details-panel" data-maximized={maximized ? 'true' : 'false'}>
+    <div ref={panelRef} className="ace-preview-details-panel" data-maximized={maximized ? 'true' : 'false'}
+      data-preview-presentation={onTogglePresentation ? (presenting ? 'active' : 'available') : undefined}
+      style={{ '--ace-preview-text-zoom': textZoom }}>
       <div className="ace-preview-details-tabs">
         <div
           className={clsx(

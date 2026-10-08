@@ -912,6 +912,18 @@ TEST(CompactCore, AutomaticThresholdsMatchCodexPercentages) {
     EXPECT_TRUE(acecode::should_auto_compact(100000, 100, 90000));
 }
 
+TEST(CompactCore, AutomaticCompactionPreservesContextsBelowFortyThousand) {
+    for (const int window : {100, 10404, 39830, 40000}) {
+        EXPECT_EQ(acecode::get_auto_compact_threshold(window), 40000);
+        EXPECT_FALSE(acecode::should_auto_compact(window, 19693, 8173));
+        EXPECT_FALSE(acecode::should_auto_compact(window, 39999, 39999));
+        EXPECT_TRUE(acecode::should_auto_compact(window, 40000, 100));
+        EXPECT_TRUE(acecode::should_auto_compact(window, 100, 40000));
+    }
+    EXPECT_EQ(acecode::get_auto_compact_threshold(128000), 115200);
+    EXPECT_FALSE(acecode::should_auto_compact(0, 50000, 50000));
+}
+
 TEST(CompactCore, ContextOverflowClassificationHandlesProviderShapes) {
     acecode::ProviderErrorInfo explicit_code;
     explicit_code.kind = acecode::ProviderErrorKind::Http;

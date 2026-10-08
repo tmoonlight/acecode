@@ -185,6 +185,15 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
     return overlays;
 }
 
+bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y) {
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        !std::isfinite(x) || !std::isfinite(y) ||
+        width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return false;
+    const double left = 11.0 * width / kDesktopPetSceneWidth;
+    const double top = 112.0 * height / kDesktopPetSceneHeight;
+    return x >= left && x < left + 16.0 && y >= top && y < top + 16.0;
+}
+
 bool desktop_pet_hit_test(double scale, int width, int height,
                           const std::vector<DesktopPetOverlay>& overlays, double x, double y) {
     if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return false;

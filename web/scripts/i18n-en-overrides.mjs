@@ -1,6 +1,9 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '全屏演示': 'Presentation mode',
+  '退出全屏演示': 'Exit presentation mode',
+  '展开详情并隐藏两侧列表，再按一次还原': 'Expand details and hide both sidebars; press again to restore',
   "API 协议": "API protocol",
   "按服务商支持的接口选择；需要 Responses 的模型请在此切换。": "Choose the interface supported by your provider. Select Responses for models that require it.",
   "API 协议无效，请选择 Chat Completions 或 Responses": "Invalid API protocol. Select Chat Completions or Responses.",

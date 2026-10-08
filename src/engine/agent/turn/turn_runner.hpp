@@ -53,7 +53,7 @@ private:
     bool drain_inputs(bool close_if_empty);
     // 丢弃一步损坏的输出(不入历史、不执行工具),清掉界面上的流式草稿并提示。
     void discard_corrupted_output(const ChatResponse& response,
-        const std::string& marker, int attempt, int attempts);
+        const std::string& marker, int attempt, int attempts, bool retrying);
     ToolBatchOutcome execute_tools(TurnContext& turn, const ChatResponse& response,
         const std::shared_ptr<LlmProvider>& provider, const ProgressEmitter& progress);
 

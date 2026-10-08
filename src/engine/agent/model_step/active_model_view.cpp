@@ -1,6 +1,7 @@
 #include "active_model_view.hpp"
 #include "llm/token_estimate.hpp"
 #include "llm/model_family.hpp"
+#include "llm/context_thresholds.hpp"
 #include "pa/pa_context_budget.hpp"
 #include "session/system_notice.hpp"
 #include "session/token_tracker.hpp"
@@ -37,7 +38,8 @@ std::optional<ContextRejectionNotice> ActiveModelView::note_rejected(int request
     const int before = budget.effective_window(provider, model, declared);
     budget.note_rejected(provider, model, request_tokens);
     const int after = budget.effective_window(provider, model, declared);
-    if (after >= before) return std::nullopt;
+    const int threshold = get_auto_compact_threshold(after);
+    if (threshold >= get_auto_compact_threshold(before)) return std::nullopt;
 
     LOG_WARN("[pa] context rejection observed; request_estimated_tokens=" +
              std::to_string(request_tokens) +
@@ -51,9 +53,9 @@ std::optional<ContextRejectionNotice> ActiveModelView::note_rejected(int request
     return ContextRejectionNotice{
         "[智能压缩] 服务端在约 " + std::to_string(request_tokens) +
         " tokens (最大 " + std::to_string(declared) +
-        " tokens) 处拒收了请求，压缩阈值下调至 " + std::to_string(after) +
+        " tokens) 处拒收了请求，压缩阈值下调至 " + std::to_string(threshold) +
         " tokens", make_system_notice_metadata("context_threshold_lowered",
-            {{"tokens", request_tokens}, {"declared", declared}, {"threshold", after}})};
+            {{"tokens", request_tokens}, {"declared", declared}, {"threshold", threshold}})};
 }
 
 void ActiveModelView::note_accepted(
