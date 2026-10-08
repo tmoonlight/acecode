@@ -80,4 +80,8 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
 bool desktop_pet_hit_test(double scale, int width, int height,
                           const std::vector<DesktopPetOverlay>& overlays, double x, double y);
 
+// macOS uses logical points (CSS pixels). The handle's position scales with the
+// viewport, but its 16px target does not; keep this aligned with .grip in the page.
+bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y);
+
 } // namespace acecode::desktop

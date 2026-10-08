@@ -117,6 +117,11 @@ ServerRetryAfterIsHonoredBeyondRateLimitCap、`tests/agent/progress/agent_progre
 
 ### 2. 声明的上下文窗口不准(`pa_context_budget.{hpp,cpp}`)
 
+**2026-10-09 反馈修复约定**:自动压缩最终触发线至少为 40,000 tokens。
+低于该规模的拒收不进入学习器、不摘要或裁剪历史,也不切精简请求档;
+保留完整请求,按 5、10、20、40、60 秒递增后保持 60 秒,无限次重试至成功或用户停止。
+该保护同样覆盖通用上下文错误,并在较大请求收缩到 40k 以下时生效。
+
 **现象**:同一个模型的实际可用上下文会变,常常远小于 `saved_models` 里声明的
 `context_window`。实测出现过上下文占用显示 55% 就被服务端拒绝的情况。
 
@@ -161,7 +166,7 @@ ServerRetryAfterIsHonoredBeyondRateLimitCap、`tests/agent/progress/agent_progre
   跨测试污染:`AgentLoopCompactEvents`(内含构造上下文溢出的用例)跑完后,
   `AgentLoopToolResultStorage` 的一个无关用例开始失败 —— 它断言的 tool 消息被
   提前触发的自动压缩摘要掉了。现在靠可信下限挡住了测试里那些小规模的构造用
-  例,但如果将来有测试构造**真实规模**(≥ 8192 tokens)的溢出,污染会重新出现。
+  例,但如果将来有测试构造**真实规模**(≥ 40000 tokens)的溢出,污染会重新出现。
   届时的正解是把 learner 改成依赖注入(AgentLoop 持指针,默认指向全局单例),
   而不是继续调阈值。
 
@@ -181,6 +186,8 @@ exhausted」。
 **适配**:`handle_provider_error` 里,PA 特征的整体拒收(模型没产出任何输出)
 改走 `AgentLoop::run_pa_overflow_rescue`,决策全在 `pa::next_rescue_step`
 (纯函数),按顺序:
+
+以下四步只适用于仍达到 40k 的请求;低于下限时直接进入上述保留上下文的无限等待。
 
 1. **原样重发** 2 次(2 秒、5 秒)。先当它是抽风:过了就一点上下文都不丢,
    也不给学习器记账。

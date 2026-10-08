@@ -101,7 +101,7 @@ test('会话与工作区右键菜单的每一项都有真实存在的复用图�
 test('侧栏会话行与项目行的右键菜单显示图标', () => {
   const menu = source('components/DesktopContextMenu.jsx');
   assert.match(menu, /const showIcons = !!explicit \|\| !!\(contextTargets\.sessionTarget \|\| contextTargets\.workspaceTarget\);/);
-  assert.match(menu, /const width = showIcons \? ICON_MENU_WIDTH : MENU_WIDTH;/);
+  assert.match(menu, /const width = showIcons \|\| contextTargets\.previewPresentationTarget \? ICON_MENU_WIDTH : MENU_WIDTH;/);
   assert.match(menu, /showIcons,\n/);
   // 没有图标的项用等宽占位,不再拿 list 图标冒充。
   assert.doesNotMatch(menu, /\|\| 'list'\} size=\{16\}/);

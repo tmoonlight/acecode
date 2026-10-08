@@ -55,14 +55,14 @@ acecode::ChatMessage loop_msg(std::string role, std::string content) {
     return message;
 }
 
-void add_history(acecode::AgentLoop& loop, int turns) {
+void add_history(acecode::AgentLoop& loop, int turns, int text_size = 900) {
     for (int i = 0; i < turns; ++i) {
         loop.push_message(loop_msg(
             "user", "old user " + std::to_string(i) + " " +
-                        std::string(900, 'u')));
+                        std::string(text_size, 'u')));
         loop.push_message(loop_msg(
             "assistant", "old assistant " + std::to_string(i) + " " +
-                             std::string(900, 'a')));
+                             std::string(text_size, 'a')));
     }
 }
 
@@ -232,7 +232,7 @@ TEST(AgentLoopPaRescue, RetriesTheSameRequestBeforeTouchingHistory) {
     EXPECT_TRUE(request_contains(h.loop.messages(), "old assistant 0"));
     EXPECT_TRUE(request_contains(h.loop.messages(), "recovered response"));
     EXPECT_FALSE(has_error_event(events));
-    EXPECT_TRUE(has_system_event(events, "先原样重发"));
+    EXPECT_TRUE(has_system_event(events, "保留完整请求"));
     EXPECT_FALSE(has_system_event(events, "次收缩"));
 }
 
@@ -243,7 +243,7 @@ TEST(AgentLoopPaRescue, RetriesTheSameRequestBeforeTouchingHistory) {
 TEST(AgentLoopPaRescue, ShrinksRoundAfterRoundUntilAccepted) {
     RescueWaitGuard wait_guard;
     RescueHarness h("pa_rescue_shrink_rounds");
-    add_history(h.loop, 6);
+    add_history(h.loop, 6, 30000);
     // 原样重发 2 次 + 收缩后重发 2 次,共 5 次被拒,第 6 次被接受。
     h.push_pa_errors(5);
     h.provider->push_text("accepted after shrinking");
@@ -281,7 +281,8 @@ TEST(AgentLoopPaRescue, ClearsToolOutputsInsideTheCurrentTurn) {
     h.provider->push_text("done after clearing");
 
     const auto events = wait_for_done(h.loop, [&] {
-        h.loop.submit("read two big files");
+        // Keep the request above the floor without exceeding tool-output limits.
+        h.loop.submit("read two big files" + std::string(180000, 'U'));
     });
 
     EXPECT_EQ(h.provider->turn_count(), 6);
@@ -321,7 +322,7 @@ TEST(AgentLoopPaRescue, ClearsOldToolOutputsBeforeDroppingEarlierInstructions) {
         {"function", {{"name", "tool_a"}, {"arguments", "{}"}}},
     }});
     h.loop.push_message(old_call);
-    const std::string old_output(60000, 'O');
+    const std::string old_output(200000, 'O');
     acecode::ChatMessage old_result = loop_msg("tool", old_output);
     old_result.tool_call_id = "old-call";
     h.loop.push_message(old_result);
@@ -379,7 +380,7 @@ TEST(AgentLoopPaRescue, FallsBackToEmergencyProfileThenWaits) {
     h.provider->push_text("accepted after waiting");
 
     const auto events = wait_for_done(h.loop, [&] {
-        h.loop.submit("only current input");
+        h.loop.submit("only current input" + std::string(180000, 'U'));
     });
 
     EXPECT_EQ(h.provider->turn_count(), 6);
@@ -408,7 +409,7 @@ TEST(AgentLoopPaRescue, GivesUpOnlyAfterWaitRetriesAreExhausted) {
     h.provider->push_text("must never be requested");
 
     const auto events = wait_for_done(h.loop, [&] {
-        h.loop.submit("only current input");
+        h.loop.submit("only current input" + std::string(180000, 'U'));
     });
 
     EXPECT_EQ(h.provider->turn_count(), expected_requests);
@@ -425,7 +426,7 @@ TEST(AgentLoopPaRescue, GivesUpOnlyAfterWaitRetriesAreExhausted) {
 TEST(AgentLoopPaRescue, RecoversAgainAfterASuccessInTheSameTurn) {
     RescueWaitGuard wait_guard;
     RescueHarness h("pa_rescue_second_episode");
-    add_history(h.loop, 6);
+    add_history(h.loop, 6, 30000);
     register_read_only_tool(h.tools, "tool_a", std::string(3000, 'A'));
     h.push_pa_errors(3);
     h.provider->push_tool_call("tool_a", "{}", "call-a");
@@ -523,4 +524,37 @@ TEST(AgentLoopPaRescue, InterruptTurnWakesRescueWaitPromptly) {
     h.loop.shutdown();
     h.loop.events().unsubscribe(subscription);
     EXPECT_EQ(done_count, 2);
+}
+
+TEST(AgentLoopPaRescue, SmallRequestsKeepHistoryAndToolsBeyondTwelveRetries) {
+    RescueWaitGuard wait_guard;
+    for (const bool generic_error : {false, true}) {
+        RescueHarness h(generic_error ? "small_generic_rejection" : "small_pa_rejection");
+        add_history(h.loop, 3);
+        register_read_only_tool(h.tools, "optional_tool", "unused");
+        auto error = make_pa_overflow_error();
+        if (generic_error) {
+            error.raw_body = R"({"error":{"code":"context_length_exceeded"}})";
+        }
+        for (int i = 0; i < 15; ++i) h.provider->push_error(error);
+        h.provider->push_text("accepted unchanged");
+        const auto events = wait_for_done(h.loop, [&] { h.loop.submit("keep my context"); });
+        ASSERT_EQ(h.provider->turn_count(), 16);
+        const auto first = h.provider->messages_for_turn(0);
+        for (int i = 1; i < 16; ++i) {
+            const auto retry = h.provider->messages_for_turn(i);
+            ASSERT_EQ(first.size(), retry.size());
+            for (std::size_t j = 0; j < first.size(); ++j) {
+                EXPECT_EQ(first[j].role, retry[j].role);
+                EXPECT_EQ(first[j].content, retry[j].content);
+            }
+            EXPECT_EQ(h.provider->tools_for_turn(i).size(), 1u);
+        }
+        EXPECT_FALSE(has_error_event(events));
+        EXPECT_FALSE(has_system_event(events, "次收缩"));
+        EXPECT_FALSE(has_system_event(events, "精简请求档"));
+        EXPECT_TRUE(has_system_event(events, "保留完整请求"));
+        EXPECT_FALSE(acecode::pa::context_budget().has_observation(
+            h.provider->name(), h.provider->model()));
+    }
 }

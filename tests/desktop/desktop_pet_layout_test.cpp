@@ -21,6 +21,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cmath>
+#include <limits>
 #include <vector>
 
 using namespace acecode::desktop;
@@ -272,4 +273,33 @@ TEST(DesktopPetLayout, ControlsOverlayUsesValidationAndSharesOverlayLimit) {
     ASSERT_EQ(overlays.size(), kDesktopPetMaxOverlays);
     EXPECT_EQ(overlays.front(), (DesktopPetOverlay{0.0, 0.0, 1.0, 0.1}));
     EXPECT_EQ(overlays[1], (DesktopPetOverlay{0.0, 0.2, 0.3, 0.4}));
+}
+
+TEST(DesktopPetLayout, MacResizeGripKeepsCssSizeAtFractionalScales) {
+    for (const auto size : {DesktopPetPoint{172, 126}, DesktopPetPoint{430, 315},
+                            DesktopPetPoint{517, 379}, DesktopPetPoint{860, 630}}) {
+        const double left = 11.0 * size.x / 344.0;
+        const double top = 112.0 * size.y / 252.0;
+        EXPECT_TRUE(desktop_pet_resize_grip_hit_test(size.x, size.y, left, top));
+        EXPECT_TRUE(desktop_pet_resize_grip_hit_test(size.x, size.y, left + 15.9, top + 15.9));
+        EXPECT_FALSE(desktop_pet_resize_grip_hit_test(size.x, size.y, left - 0.1, top));
+        EXPECT_FALSE(desktop_pet_resize_grip_hit_test(size.x, size.y, left, top - 0.1));
+        EXPECT_FALSE(desktop_pet_resize_grip_hit_test(size.x, size.y, left + 16, top));
+        EXPECT_FALSE(desktop_pet_resize_grip_hit_test(size.x, size.y, left, top + 16));
+    }
+}
+
+TEST(DesktopPetLayout, MacResizeGripRejectsInvalidOrOutsideCoordinates) {
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(0, 315, 20, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, -1, 20, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(nan, 315, 20, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, inf, 20, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, 315, nan, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, 315, 20, inf));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, 315, -1, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, 315, 430, 145));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(430, 315, 20, 315));
+    EXPECT_FALSE(desktop_pet_resize_grip_hit_test(1, 1, 2, 2));
 }

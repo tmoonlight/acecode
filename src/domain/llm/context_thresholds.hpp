@@ -7,6 +7,8 @@ namespace acecode {
 
 constexpr int EFFECTIVE_CONTEXT_WINDOW_PERCENT = 95;
 constexpr int AUTO_COMPACT_CONTEXT_WINDOW_PERCENT = 90;
+// Below this size, gateway rejection must not cost the user useful context.
+constexpr int MIN_AUTO_COMPACT_TOKENS = 40000;
 
 struct TokenWarningState {
     double percent_left = 100.0;

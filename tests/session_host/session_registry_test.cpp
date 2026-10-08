@@ -578,9 +578,9 @@ acecode::ChatMessage registry_msg(std::string role, std::string content) {
 void add_registry_compactable_history(acecode::AgentLoop& loop) {
     for (int i = 0; i < 5; ++i) {
         loop.push_message(registry_msg(
-            "user", "old user " + std::to_string(i) + " " + std::string(900, 'u')));
+            "user", "old user " + std::to_string(i) + " " + std::string(18000, 'u')));
         loop.push_message(registry_msg(
-            "assistant", "old assistant " + std::to_string(i) + " " + std::string(900, 'a')));
+            "assistant", "old assistant " + std::to_string(i) + " " + std::string(18000, 'a')));
     }
 }
 

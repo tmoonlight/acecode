@@ -12,7 +12,9 @@ void emit_retry(PaRescueHost& host, const ProviderErrorInfo& error, const Rescue
     info.retry_delay_ms = waiting ? scaled_rescue_wait_ms(plan.wait_ms) : 0;
     host.retry(info, waiting,
         waiting ? plan.label : std::string("正在重新发送请求"),
-        waiting ? std::string("服务端报「请求上下文过大」，按 PA 兜底策略等待后重发")
+        waiting ? (plan.preserve_context
+                    ? std::string("保留上下文，持续退避重试，可随时停止")
+                    : std::string("服务端报「请求上下文过大」，按 PA 兜底策略等待后重发"))
                 : std::string{});
 }
 }
@@ -51,10 +53,15 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                     plan.action == pa::RescueAction::WaitAndRetry;
                 const int attempt = waiting_for_recovery
                     ? state.wait_retries : state.same_request_retries;
-                const int max_attempts = waiting_for_recovery
+                const int max_attempts = plan.preserve_context ? 0 : waiting_for_recovery
                     ? pa::PA_RESCUE_MAX_WAIT_RETRIES
                     : pa::PA_RESCUE_SAME_REQUEST_RETRIES;
-                if (!waiting_for_recovery && state.same_request_retries == 1) {
+                if (plan.preserve_context && state.wait_retries == 1) {
+                    host.notice(
+                        "[请求重试] 上下文不足 40000 tokens，保留完整请求，不压缩或删除历史；"
+                        "将按指数退避持续重试，可随时停止。",
+                        make_system_notice_metadata("context_preserved_waiting"));
+                } else if (!waiting_for_recovery && state.same_request_retries == 1) {
                     host.notice(
                         "[智能压缩] 服务端报「请求上下文过大」，先原样重发确认"
                         "是否为瞬时故障；确认拒收后才会收缩历史。",

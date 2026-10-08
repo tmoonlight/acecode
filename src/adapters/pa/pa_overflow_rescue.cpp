@@ -1,8 +1,10 @@
 #include "pa_overflow_rescue.hpp"
+#include "llm/context_thresholds.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <limits>
 
 namespace acecode::pa {
 namespace {
@@ -53,6 +55,17 @@ const char* to_string(RescueAction action) {
 RescuePlan next_rescue_step(const RescueState& state,
                             const RescueInputs& inputs) {
     RescuePlan plan;
+
+    // Check before every mutation, including after an earlier large request
+    // was reduced. A small rejected request is not evidence for a lower budget.
+    if (inputs.request_tokens < MIN_AUTO_COMPACT_TOKENS) {
+        plan.action = RescueAction::WaitAndRetry;
+        plan.preserve_context = true;
+        plan.wait_ms = wait_retry_delay_ms(state.wait_retries);
+        plan.label = "上下文不足 40000 tokens，保留完整请求，" +
+                     seconds_text(plan.wait_ms) + "后重试";
+        return plan;
+    }
 
     // 1. 原样重发。只在 episode 刚开始(还没缩过)且被拒的是正常档请求时做:
     //    已经缩过还被拒,说明不是抽风;紧急档被拒同理。
@@ -124,7 +137,9 @@ void advance_rescue_state(RescueState& state, const RescuePlan& plan) {
             ++state.shrink_rounds;
             break;
         case RescueAction::WaitAndRetry:
-            ++state.wait_retries;
+            if (state.wait_retries < std::numeric_limits<int>::max()) {
+                ++state.wait_retries;
+            }
             break;
         case RescueAction::EmergencyProfile:
         case RescueAction::GiveUp:

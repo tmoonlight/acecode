@@ -968,8 +968,8 @@ TEST(HookAgentLoop, AutoPreCompactContinueFalseStopsBeforeProviderCompact) {
         acecode_test::AgentLoopFixture::configuration("."));
     loop.start();
     loop.set_context_window(100);
-    loop.push_message(acecode::ChatMessage{"user", std::string(900, 'a')});
-    loop.push_message(acecode::ChatMessage{"assistant", std::string(900, 'b')});
+    loop.push_message(acecode::ChatMessage{"user", std::string(90000, 'a')});
+    loop.push_message(acecode::ChatMessage{"assistant", std::string(90000, 'b')});
 
 
     {
@@ -1056,6 +1056,8 @@ TEST(HookAgentLoop, AutoCompactDoesNotConsumeOneShotHookContext) {
         acecode_test::AgentLoopFixture::configuration("."));
     loop.start();
     loop.set_context_window(100);
+    loop.push_message(acecode::ChatMessage{"user", std::string(90000, 'a')});
+    loop.push_message(acecode::ChatMessage{"assistant", std::string(90000, 'b')});
 
 
     {

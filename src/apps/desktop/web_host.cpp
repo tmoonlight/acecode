@@ -1001,13 +1001,13 @@ void install_dev_tools_shortcut(ICoreWebView2Controller* controller) {
                 COREWEBVIEW2_KEY_EVENT_KIND kind{};
                 UINT virtual_key = 0;
                 if (FAILED(args->get_KeyEventKind(&kind)) ||
-                    FAILED(args->get_VirtualKey(&virtual_key))) {
-                    return S_OK;
-                }
-                const bool key_down =
-                    kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN ||
-                    kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-                if (!key_down || virtual_key != VK_F11) return S_OK;
+                    FAILED(args->get_VirtualKey(&virtual_key))) return S_OK;
+                if (virtual_key != VK_F11 ||
+                    (kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN &&
+                     kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)) return S_OK;
+                // Modified F11 belongs to the application; bare F11 opens DevTools.
+                if ((GetKeyState(VK_CONTROL) | GetKeyState(VK_MENU) | GetKeyState(VK_SHIFT) |
+                     GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) return S_OK;
 
                 args->put_Handled(TRUE);
                 ICoreWebView2* core = nullptr;

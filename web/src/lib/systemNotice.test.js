@@ -174,3 +174,13 @@ run('corrupted output retry notice shows the leaked marker and attempt counters'
   assert.ok(english.text.includes('(</arg_value>)'));
   for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
 });
+
+run('small context retry notice preserves context without a retry-count limit', () => {
+  const message = notice('context_preserved_waiting');
+  const cn = presentSystemNotice(message, zh);
+  const english = presentSystemNotice(message, en);
+  assert.match(cn.text, /40000 tokens/);
+  assert.match(cn.text, /不压缩或删除历史/);
+  assert.match(english.text, /until success or cancellation/);
+  for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback|12/);
+});

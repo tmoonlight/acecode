@@ -10,6 +10,7 @@
 #include "agent/transcript/conversation_history.hpp"
 #include "agent/transcript/transcript_writer.hpp"
 #include "pa/pa_quirks.hpp"
+#include "llm/context_thresholds.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/token_tracker.hpp"
 #include "utils/abort_signal.hpp"
@@ -63,7 +64,8 @@ RecoveryDecision ContextOverflowRecovery::resolve(
 
     bool pa_rescue_exhausted = false;
     if (context_overflow && !model_output_seen &&
-        pa::is_context_overflow(result.provider_error_info)) {
+        (request_tokens < MIN_AUTO_COMPACT_TOKENS ||
+         pa::is_context_overflow(result.provider_error_info))) {
         // PA 特征报文走专用兜底(src/pa/pa_overflow_rescue):不设修复次数
         // 上限,缩到底还被拒就等。下面的通用三级恢复链只服务其它 provider。
         PaRescueAdapter host(history_, transcript_, compaction_, retry_, callbacks_,

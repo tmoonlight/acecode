@@ -5,11 +5,15 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { toolIconSvg } from '../src/lib/toolIcons.js';
 const modulePath = process.env.ACE_PLAYWRIGHT_MODULE;
-const { chromium } = await import(modulePath ? pathToFileURL(path.resolve(modulePath)).href : 'playwright');
+const playwright = await import(modulePath ? pathToFileURL(path.resolve(modulePath)).href : 'playwright');
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const output = process.env.ACE_OFFICE_CAPTURE_DIR || fs.mkdtempSync(path.join(os.tmpdir(),'ace-office-browser-'));
 fs.mkdirSync(output,{recursive:true});
-const browser = await chromium.launch({channel:process.env.ACE_BROWSER_CHANNEL || 'msedge',headless:true});
+const browserName = process.env.ACE_OFFICE_BROWSER || 'chromium';
+const macHost = process.env.ACE_OFFICE_HOST === 'mac';
+const browser = await playwright[browserName].launch({
+  ...(browserName === 'chromium' ? {channel:process.env.ACE_BROWSER_CHANNEL || 'msedge'} : {}),headless:true});
+const macChecks=[];
 const errors=[],external=[];
 const actor=(id,extra={})=>({id,root:id==='root',name:id==='root'?'Maestro':id,state:'work',label:'工作中',busy:true,seed:id.length*173,contextKnown:true,contextRatio:.7,contextTokens:7000,contextLimit:10000,transfers:[],...extra});
 const data=(extra={})=>({version:1,follow:true,connected:true,complete:true,seed:137,
@@ -19,9 +23,33 @@ const data=(extra={})=>({version:1,follow:true,connected:true,complete:true,seed
 try {
   const page=await browser.newPage({viewport:{width:688,height:504},deviceScaleFactor:1});
   page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(/^https?:/.test(r.url()))external.push(r.url());});
-  await page.addInitScript(()=>{window.officeActions=[];window.chrome={webview:{postMessage:value=>officeActions.push(value),addEventListener:(type,listener)=>{window.hostMessage=listener;}}};});
+  if (macHost) {
+    const source=fs.readFileSync(path.join(root,'src/apps/desktop/desktop_pet_mac.mm'),'utf8');
+    const shim=source.match(/kBridgeShim = R"JS\(([\s\S]*?)\)JS";/)?.[1];
+    assert.ok(shim,'load the production macOS bridge');
+    await page.addInitScript({content:`
+      window.officeActions=[];
+      window.webkit={messageHandlers:{acePet:{postMessage:value=>officeActions.push(value)}}};
+      ${shim}
+      window.hostMessage=event=>window.__acePetDeliver(event.data);
+      document.addEventListener('pointerdown',event=>window.lastPointerId=event.pointerId,true);
+    `});
+  } else {
+    await page.addInitScript(()=>{window.officeActions=[];window.chrome={webview:{postMessage:value=>officeActions.push(value),addEventListener:(type,listener)=>{window.hostMessage=listener;}}};});
+  }
   await page.goto(pathToFileURL(path.join(root,'assets/desktop_pet/agent_office_pet.html')).href);
   await page.waitForFunction(()=>!!window.AgentOffice&&window.officeActions.includes('ready'));
+  const setReducedMotion=async enabled=>{
+    // WebKit updates existing MediaQueryList objects asynchronously after
+    // emulateMedia; wait for the change before creating animation state.
+    await page.evaluate(value=>{
+      const query=matchMedia('(prefers-reduced-motion: reduce)');
+      window.officeMotionReady=query.matches===value;
+      if(!window.officeMotionReady)query.addEventListener('change',()=>window.officeMotionReady=true,{once:true});
+    },enabled);
+    await page.emulateMedia({reducedMotion:enabled?'reduce':'no-preference'});
+    await page.waitForFunction(()=>window.officeMotionReady);
+  };
   const controlsVisible=()=>page.locator('#officeControls').evaluate(node=>getComputedStyle(node).opacity==='1');
   const lastOverlay=()=>page.evaluate(()=>officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay').at(-1));
   assert.equal(await controlsVisible(),false,'menu starts hidden');
@@ -57,6 +85,55 @@ try {
   await page.evaluate(()=>hostMessage({data:{type:'pet-window-state',pinned:true}}));
   assert.equal(await page.locator('#officePin').getAttribute('aria-pressed'),'true');
   assert.equal(await page.evaluate(()=>AgentOffice.agents.length),0,'production starts without demo workers');
+  if (macHost) {
+    const canvas=page.locator('#cv');
+    const capture=()=>canvas.evaluate(node=>node.hasPointerCapture(window.lastPointerId));
+    const count=message=>page.evaluate(value=>officeActions.filter(action=>action===value).length,message);
+    await canvas.evaluate(node=>{window.canvasClicks=0;node.addEventListener('click',()=>window.canvasClicks++);});
+    await page.mouse.move(344,280);
+    let drags=await count('drag');
+    await page.mouse.down();
+    assert.equal(await capture(),true,'capture immediately on canvas press');
+    await page.mouse.move(-20,280);
+    assert.equal(await count('drag'),drags+1,'crossing outside the canvas still starts drag');
+    await page.mouse.up();
+    assert.equal(await capture(),false,'outside release ends capture');
+    assert.equal(await count('gesture-cancel'),0,'ordinary release is not cancellation');
+    macChecks.push('outside-canvas drag and release');
+
+    await page.mouse.move(344,280);
+    await page.mouse.down();
+    await page.mouse.move(345,280);
+    await canvas.evaluate(node=>node.releasePointerCapture(window.lastPointerId));
+    await page.mouse.move(346,280);
+    assert.equal(await count('gesture-cancel'),1,'lost capture cancels native tracking');
+    await page.mouse.up();
+    await page.mouse.down();
+    await canvas.evaluate(node=>node.dispatchEvent(new PointerEvent('pointercancel',{pointerId:window.lastPointerId,bubbles:true})));
+    assert.equal(await count('gesture-cancel'),2,'pointer cancellation ends native tracking');
+    await page.mouse.up();
+    drags=await count('drag');
+    await page.mouse.down();
+    await page.mouse.move(360,280);
+    await page.mouse.up();
+    assert.equal(await count('drag'),drags+1,'drag works after cancellation');
+    assert.equal(await page.evaluate(()=>window.canvasClicks),0,'drag and cancellation do not select characters');
+    macChecks.push('lost capture, cancellation and next drag');
+
+    await page.mouse.move(344,280);await page.mouse.down();
+    await page.mouse.move(346,280);await page.mouse.up();
+    assert.equal(await page.evaluate(()=>window.canvasClicks),1,'movement below the threshold preserves clicks');
+    assert.equal(await count('drag'),drags+1,'movement below the threshold does not start a drag');
+    macChecks.push('ordinary canvas click');
+
+    await page.mouse.click(344,280,{button:'right'});
+    assert.equal(await capture(),false,'right click is not captured');
+    assert.ok(await count('menu'),'context menu keeps working');
+    await page.locator('#grip').dblclick();
+    assert.ok(await count('resize'),'handle still starts resize');
+    assert.ok(await count('size-reset'),'handle double-click still resets size');
+    macChecks.push('right click and handle double-click');
+  }
   const apply=async snapshot=>{await page.evaluate(value=>window.hostMessage({data:value}),snapshot);await page.waitForTimeout(90);};
   // 以模拟时间推进(走路、信封、等待),不依赖真实帧率;predicate 在页面里求值。
   const advanceUntil=async(predicate,maxMs=20000)=>page.evaluate(({source,maxMs})=>{
@@ -141,7 +218,7 @@ try {
     transfers:[{seq:77,sender:'/root/review',recipient:'/root/test',sender_session_id:'代码审查',type:'MESSAGE'}]})]}));
   assert.ok(await page.evaluate(()=>AgentOffice.envelopes.some(e=>e.from==='代码审查'&&e.to==='回归测试'&&e.label==='消息')),'mesh message envelope');
   // Reduced motion: no walking, but the task hand-off is still shown.
-  await page.emulateMedia({reducedMotion:'reduce'});
+  await setReducedMotion(true);
   await apply(data({agents:[actor('root'),actor('代码审查',{path:'/root/review'}),actor('回归测试',{path:'/root/test'}),actor('文档')]}));
   assert.equal(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='文档').walking),false);
   assert.ok(await page.evaluate(()=>AgentOffice.envelopes.some(e=>e.to==='文档'&&e.label==='任务')),'reduced motion keeps the hand-off');
@@ -149,7 +226,7 @@ try {
   await apply(data({agents:[actor('root'),actor('代码审查',{path:'/root/review'}),actor('回归测试',{path:'/root/test'})]}));
   assert.match(await page.evaluate(()=>AgentOffice.agents.find(a=>a.id==='文档')?.bubble||''),/再见/,'reduced motion says goodbye in place');
   assert.ok(await advanceUntil("!AgentOffice.agents.some(a=>a.id==='文档')",2000),'then leaves without walking');
-  await page.emulateMedia({reducedMotion:'no-preference'});
+  await setReducedMotion(false);
   assert.equal(await page.locator('#officeMembers').isHidden(),true);
   assert.ok((await lastOverlay()).rect?.[3]<.25,'closing members leaves only the compact title hit region');
 
@@ -162,6 +239,16 @@ try {
     assert.ok(bounds.every(r=>r.x>=0&&r.y>=0&&r.right<=width&&r.bottom<=32*width/344+1),JSON.stringify({width,bounds}));
     await page.screenshot({path:path.join(output,`office-size-${width}.png`)});
   }
+  if (macHost) {
+    for (const [width,height] of [[172,126],[430,315],[517,379],[860,630]]) {
+      await page.setViewportSize({width,height});
+      const grip=await page.locator('#grip').boundingBox();
+      assert.equal(grip.width,16);assert.equal(grip.height,16);
+      assert.ok(Math.abs(grip.x-11*width/344)<.05);
+      assert.ok(Math.abs(grip.y-112*height/252)<.05);
+    }
+    macChecks.push('native handle geometry agrees with CSS at four scales');
+  }
   await page.setViewportSize({width:688,height:504});
   await apply(data({connected:false}));
   assert.match(await page.locator('#officeNotice').textContent(),/连接已中断/);
@@ -170,5 +257,5 @@ try {
   assert.match(await page.locator('#officeNotice').textContent(),/发送消息后/);
   assert.ok(await page.evaluate(()=>{const notices=officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay');return Array.isArray(notices.at(-1)?.rect);}), 'native region includes empty-state notice');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  console.log(JSON.stringify({output,checks:70,errors,external},null,2));
+  console.log(JSON.stringify({output,browserName,macHost,checks:70,macChecks,errors,external},null,2));
 } finally {await browser.close();}

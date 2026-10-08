@@ -64,18 +64,18 @@ TEST(PaContextBudget, AcceptedRequestsDoNotWidenTheWindow) {
     EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000), 42500);
 }
 
-// 触发场景:先记下一次 40k 的成功,之后在 30k 处被拒。
+// 触发场景:先记下一次 55k 的成功,之后在 50k 处被拒。
 // 期望行为:那条成功观测被作废。它比新的被拒线还高,说明「那次能过」已经是
 // 历史;留着只会让诊断输出自相矛盾(显示成功规模大于被拒规模)。
 TEST(PaContextBudget, StaleAcceptedObservationIsDroppedOnLowerRejection) {
     ContextBudgetLearner learner;
     learner.note_rejected(kProvider, kModel, 60000);
-    learner.note_accepted(kProvider, kModel, 40000);
-    learner.note_rejected(kProvider, kModel, 30000);
+    learner.note_accepted(kProvider, kModel, 55000);
+    learner.note_rejected(kProvider, kModel, 50000);
 
     const auto snapshot = learner.snapshot();
     ASSERT_EQ(snapshot.size(), 1u);
-    EXPECT_EQ(snapshot[0].lowest_rejected_tokens, 30000);
+    EXPECT_EQ(snapshot[0].lowest_rejected_tokens, 50000);
     EXPECT_EQ(snapshot[0].highest_accepted_tokens, 0);
     EXPECT_EQ(snapshot[0].rejections, 2);
 }
@@ -106,6 +106,21 @@ TEST(PaContextBudget, ImplausiblySmallRejectionsAreNotBelieved) {
     learner.note_rejected(kProvider, kModel, 2726);
     EXPECT_FALSE(learner.has_observation(kProvider, kModel));
     EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000), 128000);
+}
+
+TEST(PaContextBudget, SubFloorRejectionsNeverLowerTheLearnedBudget) {
+    ContextBudgetLearner learner;
+    for (const int tokens : {10000, 12240, 20000, 39999}) {
+        EXPECT_FALSE(observation_is_credible(tokens));
+        learner.note_rejected(kProvider, kModel, tokens);
+    }
+    EXPECT_TRUE(learner.snapshot().empty());
+    learner.note_rejected(kProvider, kModel, 70000);
+    learner.note_rejected(kProvider, kModel, 20000);
+    EXPECT_EQ(learner.effective_window(kProvider, kModel, 128000), 59500);
+    ASSERT_EQ(learner.snapshot().size(), 1u);
+    EXPECT_EQ(learner.snapshot()[0].rejections, 1);
+    EXPECT_TRUE(observation_is_credible(40000));
 }
 
 // 触发场景:先来一条不可信的小规模拒绝,之后才来真实的大规模拒绝。

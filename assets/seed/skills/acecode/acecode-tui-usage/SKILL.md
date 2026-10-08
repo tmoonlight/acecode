@@ -5,6 +5,9 @@ description: "Explain how to use ACECode in a terminal, including the interactiv
 
 # ACECode TUI Usage
 
+Verified against repository source on 2026-10-09. The offline user manual is
+`docs/help/index.html`; its CLI and reference pages distinguish terminal and Desktop controls.
+
 Give instructions for ACECode's terminal surfaces. Keep TUI guidance separate from
 ACECode Desktop guidance, because their commands, controls, and supported features
 are not identical.
@@ -82,12 +85,17 @@ Common options:
 - `--model <model>`: override the configured model.
 - `--permission-mode default|accept-edits|plan|yolo`: select a permission mode.
 - `--max-turns <number>`: cap agent turns.
-- `--disable-tools`: run without built-in tools.
-- `--enable-skills`: enable skill discovery in headless mode.
-- `--enable-mcp`: enable configured MCP servers in headless mode.
+- `--swarm star|mesh|off`: select the session's swarm mode.
+- `--disable-tools <names>`: disable the named built-in tools.
+- `--enable-skills <names>`: enable the named installed skills.
+- `--enable-mcp <names>`: enable the named configured MCP servers.
 
 Headless mode enables normal system tools by default, but skills and MCP are
 disabled unless explicitly enabled.
+
+Names are exact and may be comma-separated. Discover them without starting a model
+request with `acecode -p --list-tools --list-skills --list-mcp`. Listing cannot be
+combined with execution options or a prompt. A bare enable/disable flag is invalid.
 
 ## Use Permission Modes
 
@@ -121,8 +129,8 @@ used only in a deliberately isolated environment.
   `Enter` to add the reference, and `Right` or `Tab` to descend into a folder.
 
 When the model is already working, submitting another message queues it. Use
-`/turn`, not a queued ordinary message, when the intent is to alter the active
-turn at its next model boundary.
+`/turn <guidance>` to interrupt the active turn and submit immediate guidance.
+The Desktop queue card's steer action instead applies at the next model boundary.
 
 ## Cancel or Exit
 
@@ -180,10 +188,17 @@ include:
 
 - `/goal`: create, inspect, pause, resume, edit, or clear a long-running goal.
 - `/plan`: enter Plan mode.
-- `/turn <guidance>`: steer the active main turn at its next model boundary.
+- `/turn <guidance>`: interrupt the active main turn and submit guidance immediately.
 - `/btw <question>` or `/side <question>`: ask a detached one-turn side question.
   These do not steer or replace the active main turn.
+- Side questions may use registered, permitted `file_read`, `grep`, `glob`, and
+  `lsp` tools. They cannot run shell, write, MCP, or subagent tools; a read that
+  requires approval is refused. Desktop's multi-turn floating UI is separate.
 - `/tasks`: list, abort, or clear background subagent tasks.
+- `/swarm star|mesh|off`: select star (one-level delegation), mesh (nested agents
+  with messages and follow-up tasks), or off; `/swarm` displays the current mode.
+  Mode persists with the session. Mesh cannot be disabled while descendants are active.
+  Its default four resident agents include the root, not a lifetime limit of four tasks.
 
 ### Integrations and Project Setup
 
@@ -215,6 +230,43 @@ ACECode discovers skills from project and user locations, including:
 Put each skill in its own directory with a `SKILL.md` file. Use `/skills reload`
 after adding or editing a skill while ACECode is running. Prefer a precise skill
 description so ACECode can select it for the right requests.
+
+Newer packaged seed revisions install missing built-in skills and update unchanged
+managed copies at startup. User-modified or conflicting custom copies are preserved.
+Refresh discovery and check the loaded path before diagnosing an outdated help skill.
+
+## Use Shared Memory
+
+TUI, Desktop/Web, and headless use the same memory system when enabled. Global
+memory lives in `~/.acecode/memory/`; workspace memory in
+`~/.acecode/projects/<workspace-id>/memory/`. ACECode worktrees share their parent
+workspace's memory. A session without a workspace uses global memory only.
+
+- `/memory list`, `/memory view <name>`, and `/memory reload`: inspect or rescan entries.
+- `/memory edit <name>`: open the entry in the configured editor.
+- `/memory forget <name>`: delete the entry and prevent automatic regeneration for
+  the configured tombstone period (default 90 days).
+- `/memory off` / `/memory on`: persistently disable/enable memory for this session.
+- `/memory flush`: immediately extract and consolidate observations when memory
+  summarization is enabled; otherwise explain how to enable it without a model call.
+
+Automatic memory summarization is off by default and makes additional model calls
+when enabled. Desktop's Settings > Personalization > Memory controls it. Idle
+sessions become eligible after about 30 minutes. The model-facing index is a stable
+snapshot until a new session or compaction; `memory_read` reads current disk entries.
+Memory is historical context; verify paths and commands and honor current instructions.
+
+## Model Protocol and Recovery
+
+OpenAI profiles can set `api_protocol` to `chat_completions` (default) or `responses`.
+Select the saved profile with `/model NAME` or `--model NAME`; changing only its URL
+does not convert the protocol. The Desktop model editor exposes API protocol and
+connection testing. Other provider types do not accept the OpenAI-specific option.
+
+For request failures, distinguish transient rate limits from exhausted quota or
+unsupported parameters. Stop can cancel retry waiting; compaction does not cure a
+rate limit. Successful compaction refreshes the context snapshot without deleting
+the visible transcript; failed compaction must not be treated as success.
 
 ## Use MCP Support
 

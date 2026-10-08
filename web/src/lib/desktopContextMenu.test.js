@@ -44,6 +44,28 @@ function ids(items) {
   return items.map((item) => item.id);
 }
 
+test('presentation follows quote in both reading and editing and requires no selection', () => {
+  const previewPresentationTarget = { type: 'preview-presentation', element: {}, active: false };
+  for (const editable of [false, true]) {
+    for (const hasSelection of [false, true]) {
+      const items = buildDesktopContextMenuItems({ editable, hasSelection, allowNativeActions: false,
+        previewTarget: { kind: 'markdown', path: 'guide.md' }, previewPresentationTarget });
+      const actions = ids(items);
+      assert.equal(actions.indexOf(DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION), hasSelection ? 1 : 0);
+      assert.equal(items[hasSelection ? 1 : 0].target, previewPresentationTarget);
+    }
+  }
+  for (const context of [
+    {}, { previewTarget: { kind: 'image' } }, { previewTarget: { kind: 'error' } },
+    { reviewTarget: { kind: 'summary' } }, { mermaidTarget: { source: 'graph LR; A-->B' } },
+    { previewTabTarget: { key: 'tab', tabType: 'browser' } },
+  ]) {
+    assert.equal(ids(buildDesktopContextMenuItems({ ...context, previewPresentationTarget }))
+      .filter(id => id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION).length, 1);
+  }
+  assert.ok(!ids(buildDesktopContextMenuItems()).includes(DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION));
+});
+
 function elementFor(selector, attrs) {
   return {
     closest(requested) {

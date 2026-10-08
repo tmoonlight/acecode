@@ -26,6 +26,9 @@ for (const id of Object.keys(APP_SHORTCUTS)) {
 assert.equal(shortcutLabel('back', false), 'Ctrl+Shift+-');
 assert.equal(shortcutLabel('reasoningUp', true), 'Cmd+Option+>');
 assert.equal(shortcutLabel('console', true), 'Ctrl+`');
+assert.equal(shortcutLabel('previewPresentation', true), 'Ctrl+F11');
+assert.equal(matchAppShortcut({ key: 'F11' }), null);
+assert.equal(matchAppShortcut(key('F11', { shiftKey: true })), null);
 assert.deepEqual(filterShortcuts(shortcutCatalog(false), 'ctrl + shift + -').map((x) => x.id), ['back']);
 assert.deepEqual(filterShortcuts(shortcutCatalog(false), '思维 深度').map((x) => x.id), ['reasoningUp', 'reasoningDown']);
 assert.equal(filterShortcuts(shortcutCatalog(false), '不存在的功能').length, 0);

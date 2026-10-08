@@ -11,8 +11,45 @@
 #include "utils/logger.hpp"
 
 #include <algorithm>
+#include <string_view>
 
 namespace acecode::agent {
+namespace {
+// A deliberately narrow placeholder alphabet. Do not reject useful numeric,
+// mathematical, emoji, or other symbolic answers by requiring letters.
+bool is_placeholder_only(std::string_view text) {
+    constexpr std::string_view separators[] = {
+        "\xE2\x80\xA6", // ellipsis
+        "\xE2\x80\x93", "\xE2\x80\x94", // en/em dash
+        "\xE2\x94\x80", "\xE2\x8E\xAF", // horizontal separators
+    };
+    std::size_t marks = 0;
+    bool ellipsis = false;
+    while (!text.empty()) {
+        if (std::string_view(" \t\r\n").find(text.front()) != std::string_view::npos) {
+            text.remove_prefix(1);
+            continue;
+        }
+        if (text.front() == '.' || text.front() == '-' || text.front() == '_') {
+            ++marks;
+            text.remove_prefix(1);
+            continue;
+        }
+        bool matched = false;
+        for (const auto separator : separators) {
+            if (text.substr(0, separator.size()) == separator) {
+                ellipsis = ellipsis || separator == separators[0];
+                ++marks;
+                text.remove_prefix(separator.size());
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) return false;
+    }
+    return marks >= 3 || ellipsis;
+}
+} // namespace
 using detail::text_tool_call_rejected_persisted_content;
 using detail::text_tool_call_diagnostic_to_json;
 
@@ -116,9 +153,9 @@ ResponseRecoveryResult ResponseRecovery::resolve(
                     *type != "openai_responses_item";
             });
     const bool response_is_blank =
-        !has_content_parts &&
-        response.content.find_first_not_of(" \t\r\n") ==
-            std::string::npos;
+        !has_content_parts && !response.has_tool_calls() &&
+        (response.content.find_first_not_of(" \t\r\n") == std::string::npos ||
+         is_placeholder_only(response.content));
     const bool truncated_by_length =
         response.finish_reason == "length";
 
@@ -128,7 +165,7 @@ ResponseRecoveryResult ResponseRecovery::resolve(
         // 上,同时给事后诊断留证据。不 dispatch 到实时流,避免空气泡。
         ChatMessage empty_msg;
         empty_msg.role = "assistant";
-        empty_msg.content = response.content;
+        empty_msg.content = "";
         empty_msg.reasoning_content =
             response.reasoning_content;
         empty_msg.content_parts = response.content_parts;

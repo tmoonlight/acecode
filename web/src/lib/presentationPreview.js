@@ -178,6 +178,16 @@ export function presentationFrameDocument(rendererSource, channel, scrollbarStyl
         if (event.deltaY === 0) return;
         setZoom(zoom + (event.deltaY < 0 ? 0.1 : -0.1));
       }, { passive: false });
+      window.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        send('contextmenu', '', { x: event.clientX, y: event.clientY });
+      });
+      window.addEventListener('keydown', (event) => {
+        if (event.key !== 'F11' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey
+            || event.isComposing || event.keyCode === 229) return;
+        event.preventDefault();
+        if (!event.repeat) send('presentation');
+      });
       window.addEventListener('message', async (event) => {
         const data = event.data || {};
         if (event.source !== parent || data.source !== source || data.channel !== channel) return;
@@ -228,13 +238,18 @@ export function presentationPreviewMessage(event, frameWindow, channel) {
       || !data
       || data.source !== PRESENTATION_PREVIEW_SOURCE
       || data.channel !== channel
-      || !['ready', 'complete', 'error', 'state'].includes(data.status)) {
+      || !['ready', 'complete', 'error', 'state', 'contextmenu', 'presentation'].includes(data.status)) {
     return null;
   }
   const message = {
     status: data.status,
     detail: typeof data.detail === 'string' ? data.detail : '',
   };
+  if (data.status === 'contextmenu') {
+    if (!Number.isFinite(data.x) || !Number.isFinite(data.y)) return null;
+    message.x = data.x;
+    message.y = data.y;
+  }
   if (Number.isInteger(data.slideIndex) && data.slideIndex >= 0) {
     message.slideIndex = data.slideIndex;
   }

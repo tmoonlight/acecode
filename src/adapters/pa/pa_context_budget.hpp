@@ -11,6 +11,7 @@
 // 只在撞过墙之后才生效,没撞过完全不干预。
 
 #include "pa_adapter.hpp"
+#include "llm/context_thresholds.hpp"
 
 #include <cstdint>
 #include <map>
@@ -49,15 +50,10 @@ constexpr int PA_CONTEXT_BUDGET_SAFETY_PERCENT = 85;
 constexpr int PA_CONTEXT_BUDGET_RELAX_INTERVAL_MINUTES = 15;
 constexpr int PA_CONTEXT_BUDGET_RELAX_PERCENT = 120;
 
-// 一条被拒观测可信的最小规模。低于这个值的请求不可能撑爆任何**能用**的模型
-// —— 光是 system prompt、skill 索引和工具定义就有好几 k。这种拒绝几乎必然
-// 另有原因(服务端自己算错、错误文案被复用到别的失败上),采信它会把窗口砍到
-// 远小于模型真实能力,把会话拖进「永远在压缩」。
-//
-// 所以一条观测只有两种下场:**可信则采信并收敛,不可信则整条丢弃**,没有
-// 「收敛但夹到下限」的中间态 —— 那种中间态正是本适配第一版的 bug:一次
-// 2726 token 的拒绝把声明 128000 的窗口砍到了 8192。
-constexpr int PA_CONTEXT_BUDGET_MIN_CREDIBLE_REJECTION_TOKENS = 8192;
+// 用户约定:低于 40k 的请求被拒时保留上下文并等待,不能学习出更低窗口。
+// 在入口直接丢弃该观测,避免 lowest_rejected 被小规模拒绝持续钉死。
+// 与自动压缩和拒收恢复共用同一条下限。
+constexpr int PA_CONTEXT_BUDGET_MIN_CREDIBLE_REJECTION_TOKENS = MIN_AUTO_COMPACT_TOKENS;
 
 // 这条被拒观测是否值得采信。
 bool observation_is_credible(int rejected_tokens);

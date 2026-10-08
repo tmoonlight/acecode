@@ -2350,19 +2350,27 @@ TEST(AgentLoopTermination, CorruptedOutputIsDiscardedAndRequestedAgainOnce) {
 }
 
 // 场景:重发之后的回复仍然带着模板标记。
-// 期望:只重发一次,第二次按原流程当普通回复收下,回合正常结束,不报错。
-// 连续两次损坏多半是服务端持续异常,再重发只会烧 token、把回合卡住。
-TEST(AgentLoopTermination, CorruptedOutputIsRequestedAgainOnlyOnce) {
+// 期望:重试后仍损坏必须报错停止,不能放行同一回复中的工具或污染历史。
+TEST(AgentLoopTermination, RepeatedCorruptedOutputStopsWithoutExecutingTools) {
     AgentLoopHarness h;
-    h.push_text(kCorruptedReply);
-    h.push_text("still broken <arg_key>x</arg_key>");
+    auto runs = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_counting_tool("probe", runs));
+    h.push_text_with_tool_calls(kCorruptedReply, {probe_call("bad-first")});
+    h.push_text_with_tool_calls("still broken <arg_key>x</arg_key>", {probe_call("bad-retry")});
 
     ASSERT_TRUE(h.submit_and_wait("go"));
     EXPECT_EQ(h.turn_count(), 2);
-    EXPECT_EQ(h.count_by_role("error"), 0);
+    EXPECT_EQ(h.count_by_role("error"), 1);
+    EXPECT_EQ(runs->load(), 0);
     EXPECT_EQ(notice_params_for(h.snapshot_events(),
                                 "response_corrupted_retry").size(), 1u);
-    EXPECT_TRUE(assistant_said(h.persisted_messages(), "still broken"));
+    EXPECT_FALSE(assistant_said(h.persisted_messages(), "still broken"));
+    EXPECT_FALSE(assistant_said(h.persisted_messages(), kCorruptedReply));
+    for (const auto& event : h.snapshot_events()) {
+        if (event.kind == acecode::SessionEventKind::Done) {
+            EXPECT_EQ(event.payload.value("outcome", std::string{}), "error");
+        }
+    }
 }
 
 // 场景:损坏 → 重发得到一次正常的工具调用 → 下一步又损坏 → 再重发得到正常回答。

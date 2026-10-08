@@ -113,6 +113,8 @@ function HighlightedTextEditor({
     preview.addEventListener('scroll', syncFromPreview, { passive: true });
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(align) : null;
     observer?.observe(preview);
+    const codeCell = preview.querySelector('.ace-line-code');
+    if (codeCell) observer?.observe(codeCell);
     return () => {
       preview.removeEventListener('scroll', syncFromPreview);
       observer?.disconnect();
@@ -167,6 +169,7 @@ function HighlightedTextEditor({
 }
 
 export function FilePreviewContent({
+  textZoom = 1,
   owner,
   api,
   cwd,
@@ -661,6 +664,7 @@ export function FilePreviewContent({
               />
             )}
             <SelectionAnnotationOverlay
+              layoutRevision={textZoom}
               hostRef={previewScrollRef}
               contexts={selectionContexts}
               sourcePath={sourcePath}
@@ -695,6 +699,7 @@ export function FilePreviewContent({
               />
             )}
             <SelectionAnnotationOverlay
+              layoutRevision={textZoom}
               hostRef={previewScrollRef}
               contexts={selectionContexts}
               sourcePath={sourcePath}

@@ -6166,6 +6166,23 @@ a.ace-thread-link:focus-visible {
   padding-right: 46px;
 }
 
+/* Detail typography is local: leave tabs, toolbars and other panes at their
+   normal size, and use identical metrics for the source and its editing layer. */
+.ace-preview-details-panel .ace-line-table,
+.ace-preview-details-panel .ace-file-text-editor {
+  font-size: calc(var(--ace-font-size-code-compact) * var(--ace-preview-text-zoom, 1));
+}
+.ace-preview-details-panel .ace-side-markdown-preview {
+  font-size: calc(var(--ace-font-size-body) * var(--ace-preview-text-zoom, 1));
+}
+.ace-preview-details-panel .ace-side-markdown-preview pre {
+  font-size: calc(var(--ace-font-size-code) * var(--ace-preview-text-zoom, 1));
+}
+.ace-preview-details-panel .ace-review-diff .d2h-diff-table {
+  /* diff2html's original table size is 13px at every application font setting. */
+  font-size: calc(13px * var(--ace-preview-text-zoom, 1));
+}
+
 /* Editing is layered into the existing preview surfaces. These rules only
    supply an input/caret; visual content continues to come from the old preview. */
 .ace-side-preview-code.is-editing .ace-preview {

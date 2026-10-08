@@ -8,8 +8,8 @@
 // window.__acePetDeliver 把消息派给页面的 message 监听器,页面代码无需区分平台。
 //
 // macOS 没有 SetWindowRgn:透明区域的点击穿透靠定时检测鼠标是否落在房间轮廓、
-// 控制条或页面上报的浮层里,再切换 ignoresMouseEvents。拖动 / 把手缩放同样由
-// 定时器跟随鼠标,不依赖 WebKit 把鼠标事件交还给窗口。
+// 控制条或页面上报的浮层里,再切换 ignoresMouseEvents。原生按下时即保留鼠标
+// 接收和起点,页面决定拖动 / 缩放后由定时器从原始起点跟随。
 //
 // 坐标:Cocoa 屏幕坐标原点在左下;desktop_pet_layout 按左上原点、设备像素计算。
 // 这里统一换成左上原点的「点」,并把 dpi 固定为 96(1 点 = 1 个逻辑像素,
@@ -82,6 +82,47 @@ constexpr const char* kBridgeShim = R"JS((() => {
     removeEventListener: (type, listener) => { const i = listeners.indexOf(listener); if (i >= 0) listeners.splice(i, 1); },
   };
   window.__acePetDeliver = data => { for (const listener of listeners.slice()) { try { listener({ data }); } catch (e) {} } };
+  // Keep the threshold-crossing move and release on the original element even
+  // when the pointer leaves the canvas before WebKit posts the drag request.
+  let captured = null;
+  let suppressClick = false;
+  document.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    const target = event.target.closest?.('#cv, #grip');
+    if (!target) return;
+    target.setPointerCapture(event.pointerId);
+    captured = { target, id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false };
+    suppressClick = false;
+    // macOS owns the canvas threshold here. WebKit can omit screen coordinates;
+    // client coordinates suffice until the first native window movement.
+    if (target.id === 'cv') event.stopPropagation();
+  }, true);
+  document.addEventListener('pointermove', event => {
+    if (captured?.id !== event.pointerId || captured.target.id !== 'cv') return;
+    event.stopPropagation();
+    if (!(event.buttons & 1) || captured.dragged) return;
+    if (Math.abs(event.clientX - captured.x) + Math.abs(event.clientY - captured.y) < 4) return;
+    captured.dragged = true;
+    suppressClick = true;
+    handler.postMessage('drag');
+  }, true);
+  document.addEventListener('pointerup', event => {
+    if (captured?.id === event.pointerId) captured = null;
+  }, true);
+  document.addEventListener('click', event => {
+    if (!suppressClick || event.target.id !== 'cv') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    suppressClick = false;
+  }, true);
+  const cancel = event => {
+    if (captured?.id !== event.pointerId) return;
+    captured = null;
+    suppressClick = true;
+    handler.postMessage('gesture-cancel');
+  };
+  document.addEventListener('pointercancel', cancel, true);
+  document.addEventListener('lostpointercapture', cancel, true);
 })();)JS";
 
 bool desktop_pet_disabled_by_env() {
@@ -148,6 +189,34 @@ NSRect cocoa_rect(const DesktopPetRect& rect) {
     return NSMakeRect(rect.x, flip_height() - (rect.y + rect.height), rect.width, rect.height);
 }
 
+NSCursor* make_resize_cursor() {
+    // Public AppKit APIs on every supported macOS version. A custom image avoids
+    // relying on WebKit's platform-dependent mapping of CSS nwse-resize.
+    NSImage* image = [NSImage imageWithSize:NSMakeSize(24, 24) flipped:NO
+        drawingHandler:^BOOL(NSRect rect) {
+            (void)rect;
+            NSBezierPath* path = [NSBezierPath bezierPath];
+            [path moveToPoint:NSMakePoint(5, 19)];
+            [path lineToPoint:NSMakePoint(19, 5)];
+            [path moveToPoint:NSMakePoint(5, 12)];
+            [path lineToPoint:NSMakePoint(5, 19)];
+            [path lineToPoint:NSMakePoint(12, 19)];
+            [path moveToPoint:NSMakePoint(12, 5)];
+            [path lineToPoint:NSMakePoint(19, 5)];
+            [path lineToPoint:NSMakePoint(19, 12)];
+            path.lineJoinStyle = NSRoundLineJoinStyle;
+            path.lineCapStyle = NSRoundLineCapStyle;
+            [NSColor.whiteColor setStroke];
+            path.lineWidth = 4;
+            [path stroke];
+            [NSColor.blackColor setStroke];
+            path.lineWidth = 2;
+            [path stroke];
+            return YES;
+        }];
+    return [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(12, 12)];
+}
+
 } // namespace
 
 // GUI 线程上的全部状态;ObjC 回调只持有它的 weak_ptr。
@@ -166,6 +235,8 @@ public:
     void web_process_terminated();
     void poll_hover();
     void poll_gesture();
+    void mouse_event(NSEvent* event);
+    void update_cursor();
     void menu_command(NSInteger command);
     void screens_changed();
 
@@ -184,6 +255,9 @@ private:
     void dock_to_corner();
     void begin_gesture(bool resize);
     void end_gesture();
+    void move_gesture(NSPoint mouse);
+    bool resize_grip_hit(NSPoint mouse) const;
+    void release_cursor();
     void show_menu();
     void load_page();
     double current_scale() const;
@@ -191,6 +265,7 @@ private:
     WebHost& host_;   // DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot_ = {{"follow", true}};
     std::vector<DesktopPetOverlay> overlays_;
+    std::vector<DesktopPetOverlay> foreground_overlays_;
     NSPanel* panel_ = nil;
     WKWebView* webview_ = nil;
     WKUserContentController* content_ = nil;
@@ -200,6 +275,7 @@ private:
     NSTimer* hover_timer_ = nil;
     NSTimer* gesture_timer_ = nil;
     NSTimer* reveal_timer_ = nil;
+    NSCursor* resize_cursor_ = nil;
     double logical_scale_ = 0.0;   // 用户调过的大小,0 = 默认
     bool page_ready_ = false;
     bool revealed_ = false;
@@ -207,6 +283,8 @@ private:
     bool closed_ = false;
     bool resizing_ = false;
     bool dragging_ = false;
+    bool mouse_pressed_ = false;
+    bool owns_cursor_ = false;
     bool pinned_ = true;
     NSPoint gesture_mouse_ = NSZeroPoint;
     DesktopPetRect gesture_start_{};
@@ -218,9 +296,21 @@ using acecode::desktop::PetController;
 
 // 非激活面板:点击不会把 ACECode 主窗口的键盘焦点抢走。
 @interface ACECodeDesktopPetPanel : NSPanel
+- (void)bindController:(const std::weak_ptr<PetController>&)controller;
 @end
 
-@implementation ACECodeDesktopPetPanel
+@implementation ACECodeDesktopPetPanel {
+    std::weak_ptr<PetController> _controller;
+}
+- (void)bindController:(const std::weak_ptr<PetController>&)controller {
+    _controller = controller;
+}
+- (void)sendEvent:(NSEvent*)event {
+    const auto controller = _controller.lock();
+    if (controller) controller->mouse_event(event);
+    [super sendEvent:event];
+    if (controller) controller->poll_hover();
+}
 - (BOOL)canBecomeKeyWindow {
     return NO;
 }
@@ -231,9 +321,39 @@ using acecode::desktop::PetController;
 
 // 面板不会成为 key window,第一下点击就要交给页面,而不是只用来激活窗口。
 @interface ACECodeDesktopPetWebView : WKWebView
+- (void)bindController:(const std::weak_ptr<PetController>&)controller;
 @end
 
-@implementation ACECodeDesktopPetWebView
+@implementation ACECodeDesktopPetWebView {
+    std::weak_ptr<PetController> _controller;
+    NSTrackingArea* _cursorTracking;
+}
+- (void)bindController:(const std::weak_ptr<PetController>&)controller {
+    _controller = controller;
+}
+- (void)updateTrackingAreas {
+    if (_cursorTracking) [self removeTrackingArea:_cursorTracking];
+    [super updateTrackingAreas];
+    // ActiveAlways does not deliver cursorUpdate. Use ordinary tracking events
+    // so the non-key panel also updates its cursor while another app is active.
+    _cursorTracking = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+        options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved |
+                NSTrackingActiveAlways | NSTrackingInVisibleRect | NSTrackingEnabledDuringMouseDrag
+        owner:self userInfo:nil];
+    [self addTrackingArea:_cursorTracking];
+}
+- (void)mouseEntered:(NSEvent*)event {
+    [super mouseEntered:event];
+    if (const auto controller = _controller.lock()) controller->poll_hover();
+}
+- (void)mouseExited:(NSEvent*)event {
+    [super mouseExited:event];
+    if (const auto controller = _controller.lock()) controller->poll_hover();
+}
+- (void)mouseMoved:(NSEvent*)event {
+    [super mouseMoved:event];
+    if (const auto controller = _controller.lock()) controller->update_cursor();
+}
 - (BOOL)acceptsFirstMouse:(NSEvent*)event {
     (void)event;
     return YES;
@@ -348,6 +468,8 @@ bool PetController::start() {
                                 NSWindowCollectionBehaviorIgnoresCycle;
 
     const std::weak_ptr<PetController> weak = weak_from_this();
+    [(ACECodeDesktopPetPanel*)panel_ bindController:weak];
+    resize_cursor_ = make_resize_cursor();
     bridge_ = [[ACECodeDesktopPetBridge alloc] initWithController:weak];
     menu_target_ = [[ACECodeDesktopPetMenuTarget alloc] initWithController:weak];
 
@@ -370,6 +492,7 @@ bool PetController::start() {
         return false;
     }
     webview_.navigationDelegate = bridge_;
+    [(ACECodeDesktopPetWebView*)webview_ bindController:weak];
     webview_.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     webview_.allowsMagnification = NO;
     webview_.allowsBackForwardNavigationGestures = NO;
@@ -432,6 +555,9 @@ void PetController::web_process_terminated() {
     if (closed_) return;
     // WebContent 进程被系统回收后页面是空白的:重新加载,ready 后重发快照。
     LOG_WARN("[desktop-pet] web content process terminated; reloading");
+    end_gesture();
+    overlays_.clear();
+    foreground_overlays_.clear();
     page_ready_ = false;
     load_page();
 }
@@ -472,6 +598,9 @@ void PetController::on_web_message(const std::string& message) {
         begin_gesture(false);
     } else if (message == "resize") {
         begin_gesture(true);
+    } else if (message == "gesture-cancel") {
+        end_gesture();
+        poll_hover();
     } else if (message == "menu") {
         // 回到下一轮事件循环再弹菜单,不在 WebKit 的回调里进入模态菜单循环。
         const std::weak_ptr<PetController> weak = weak_from_this();
@@ -513,6 +642,11 @@ void PetController::office_action(const std::string& message) {
     }
     if (type == "overlay") {
         overlays_ = desktop_pet_overlays_from_message(value);
+        // Bubbles are below the handle and pointer-transparent. Controls and
+        // the member list/notice are above it and must retain their own cursor.
+        auto foreground = value;
+        foreground.erase("bubbles");
+        foreground_overlays_ = desktop_pet_overlays_from_message(foreground);
         return;
     }
     if (type != "select" && type != "follow" && type != "open") return;
@@ -586,12 +720,29 @@ void PetController::screens_changed() {
     apply_placement(scale_desktop_pet(window_rect(), current_scale(), 0.0, 0.0, work_area()));
 }
 
+void PetController::mouse_event(NSEvent* event) {
+    if (closed_ || !panel_ || !revealed_ || !page_ready_) return;
+    if (event.type == NSEventTypeLeftMouseDown) {
+        end_gesture();
+        mouse_pressed_ = true;
+        gesture_mouse_ = [panel_ convertPointToScreen:event.locationInWindow];
+        gesture_start_ = window_rect();
+        panel_.ignoresMouseEvents = NO;
+    } else if (event.type == NSEventTypeLeftMouseUp) {
+        move_gesture([NSEvent mouseLocation]);
+        end_gesture();
+    }
+}
+
 void PetController::begin_gesture(bool resize) {
-    if (!revealed_ || closed_ || dragging_ || resizing_) return;
+    if (!revealed_ || closed_ || !mouse_pressed_ || dragging_ || resizing_) return;
+    // The bridge is asynchronous: a request can arrive after the native up.
+    if (([NSEvent pressedMouseButtons] & 1) == 0) {
+        end_gesture();
+        return;
+    }
     dragging_ = !resize;
     resizing_ = resize;
-    gesture_mouse_ = [NSEvent mouseLocation];
-    gesture_start_ = window_rect();
     panel_.ignoresMouseEvents = NO;
     const std::weak_ptr<PetController> weak = weak_from_this();
     gesture_timer_ = [NSTimer timerWithTimeInterval:kGesturePollSeconds
@@ -602,6 +753,7 @@ void PetController::begin_gesture(bool resize) {
                                                   else [timer invalidate];
                                               }];
     [[NSRunLoop mainRunLoop] addTimer:gesture_timer_ forMode:NSRunLoopCommonModes];
+    poll_gesture();
 }
 
 void PetController::end_gesture() {
@@ -611,6 +763,8 @@ void PetController::end_gesture() {
     if (resizing_) save_logical_scale(logical_scale_);
     dragging_ = false;
     resizing_ = false;
+    mouse_pressed_ = false;
+    release_cursor();
 }
 
 void PetController::poll_gesture() {
@@ -619,10 +773,17 @@ void PetController::poll_gesture() {
         return;
     }
     if (([NSEvent pressedMouseButtons] & 1) == 0) {
+        move_gesture([NSEvent mouseLocation]);
         end_gesture();
+        poll_hover();
         return;
     }
-    const NSPoint mouse = [NSEvent mouseLocation];
+    move_gesture([NSEvent mouseLocation]);
+    update_cursor();
+}
+
+void PetController::move_gesture(NSPoint mouse) {
+    if (closed_ || !panel_ || (!dragging_ && !resizing_)) return;
     // 屏幕坐标 y 向上;换成左上原点后 y 方向取反。
     const double dx = mouse.x - gesture_mouse_.x;
     const double dy = gesture_mouse_.y - mouse.y;
@@ -649,21 +810,68 @@ void PetController::poll_gesture() {
 
 void PetController::poll_hover() {
     if (closed_ || !panel_ || !revealed_) return;
-    if (dragging_ || resizing_) {
-        panel_.ignoresMouseEvents = NO;
+    if (!page_ready_) {
+        panel_.ignoresMouseEvents = YES;
+        release_cursor();
         return;
+    }
+    // Protect the whole press, including the interval before WebKit reports
+    // crossing the drag threshold. Otherwise a fast move enables click-through.
+    if (mouse_pressed_ && ([NSEvent pressedMouseButtons] & 1) != 0) {
+        panel_.ignoresMouseEvents = NO;
+        update_cursor();
+        return;
+    }
+    if (mouse_pressed_) {
+        move_gesture([NSEvent mouseLocation]);
+        end_gesture();
     }
     const NSPoint mouse = [NSEvent mouseLocation];
     const NSRect frame = panel_.frame;
     const double x = mouse.x - frame.origin.x;
     const double y = frame.origin.y + frame.size.height - mouse.y;
     const bool hit = desktop_pet_hit_test(current_scale(), static_cast<int>(frame.size.width),
-                                          static_cast<int>(frame.size.height), overlays_, x, y);
+                                          static_cast<int>(frame.size.height), overlays_, x, y) ||
+                     resize_grip_hit(mouse);
     if (panel_.ignoresMouseEvents == hit) panel_.ignoresMouseEvents = !hit;
+    update_cursor();
+}
+
+bool PetController::resize_grip_hit(NSPoint mouse) const {
+    const NSRect frame = panel_.frame;
+    const double x = mouse.x - frame.origin.x;
+    const double y = frame.origin.y + frame.size.height - mouse.y;
+    if (!desktop_pet_resize_grip_hit_test(frame.size.width, frame.size.height, x, y)) return false;
+    return std::none_of(foreground_overlays_.begin(), foreground_overlays_.end(), [&](const auto& rect) {
+        return x >= rect[0] * frame.size.width && x < rect[2] * frame.size.width &&
+               y >= rect[1] * frame.size.height && y < rect[3] * frame.size.height;
+    });
+}
+
+void PetController::release_cursor() {
+    if (owns_cursor_ && NSCursor.currentCursor == resize_cursor_) [NSCursor.arrowCursor set];
+    owns_cursor_ = false;
+}
+
+void PetController::update_cursor() {
+    if (closed_ || !panel_ || !revealed_ || !page_ready_) {
+        release_cursor();
+        return;
+    }
+    const NSPoint mouse = [NSEvent mouseLocation];
+    const bool hovering = !panel_.ignoresMouseEvents && resize_grip_hit(mouse) &&
+        [NSWindow windowNumberAtPoint:mouse belowWindowWithWindowNumber:0] == panel_.windowNumber;
+    if (resizing_ || (!dragging_ && hovering)) {
+        [resize_cursor_ set];
+        owns_cursor_ = true;
+    } else {
+        release_cursor();
+    }
 }
 
 void PetController::show_menu() {
     if (closed_ || !panel_) return;
+    end_gesture();
     const bool zh = chinese_ui();
     NSMenu* menu = [[NSMenu alloc] initWithTitle:@""];
     menu.autoenablesItems = NO;
@@ -704,6 +912,7 @@ void PetController::menu_command(NSInteger command) {
 
 void PetController::close() {
     if (closed_) return;
+    end_gesture();
     closed_ = true;
     [hover_timer_ invalidate];
     [gesture_timer_ invalidate];
@@ -725,6 +934,7 @@ void PetController::close() {
     panel_ = nil;
     bridge_ = nil;
     menu_target_ = nil;
+    resize_cursor_ = nil;
     if (on_closed) on_closed();
 }
 

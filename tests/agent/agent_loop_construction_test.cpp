@@ -73,7 +73,11 @@ TEST(AgentRuntimeEnvironment, ContextLearnerCanBeIsolatedFromProcessState) {
     environment.context_budget = [learner]() -> acecode::pa::ContextBudgetLearner& { return *learner; };
     acecode::agent::ActiveModelView model(provider, 128000, environment);
     EXPECT_EQ(model.effective_window(), 128000);
-    model.note_rejected(24000);
-    EXPECT_LT(model.effective_window(), 128000);
+    EXPECT_FALSE(model.note_rejected(24000).has_value());
+    EXPECT_EQ(model.effective_window(), 128000);
+    const auto notice = model.note_rejected(46859);
+    ASSERT_TRUE(notice.has_value());
+    EXPECT_EQ(model.effective_window(), 39830);
+    EXPECT_EQ(notice->metadata.at("system_notice").at("params").at("threshold"), 40000);
 }
 }

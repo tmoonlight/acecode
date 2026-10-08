@@ -1310,6 +1310,14 @@ snapshot, rather than a separate overview followed by a start notice. System
 notices start collapsed independently of the general message-collapse setting;
 unrelated notices are never folded into tool activity summaries.
 
+`context_preserved_waiting` means a request below 40,000 estimated tokens was
+rejected for context size and is being retried with its history and tools intact.
+These requests do not lower the learned budget or enter automatic compaction,
+history pruning, or a reduced request profile. Automatic compaction applies a
+40,000-token floor to its final trigger; `context_threshold_lowered.params.threshold`
+reports that final trigger rather than the underlying learned window. Explicit
+manual compaction remains available below the floor.
+
 Compact checkpoints are append-only. Version 2 records the Codex-shaped
 replacement model history together with `window_number`, `first_window_id`,
 `previous_window_id`, and `window_id`. Resume and fork start from the newest
@@ -4948,11 +4956,13 @@ messages. While waiting, the payload is:
   "retry_attempt": 12,
   "retry_delay_ms": 1200000,
   "retry_at_ms": 1783153200000,
-  "retry_max_attempts": -1
+  "retry_max_attempts": 0
 }
 ```
 
-`retry_max_attempts: -1` means the count is unbounded. Immediately before the
+Non-positive `retry_max_attempts` means the count is unbounded (current providers
+use `0`; older events may contain `-1`). Small rejected requests use 5, 10, 20,
+40, then 60-second waits, with no retry-count limit. Immediately before the
 next attempt, another `agent_progress` frame changes `phase` back to
 `model_waiting` (or `compacting`) and sets `retry_delay_ms` to zero. The retry
 wait is cancellable through the existing abort/stop path. A replay also emits
