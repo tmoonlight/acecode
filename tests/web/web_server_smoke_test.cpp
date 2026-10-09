@@ -11949,6 +11949,8 @@ void configure_reasoning_http_model(WebServerFixture& fx) {
     profile.api_key = "test-key";
     profile.model = "reasoning-model";
     profile.models_dev_provider_id = "acemodel";
+    // This fixture's local server implements Chat Completions explicitly.
+    profile.api_protocol = "chat_completions";
     profile.context_window = 128000;
     acecode::ModelReasoningOptions reasoning;
     reasoning.supported = true;

@@ -20,3 +20,7 @@
 HTTP 回归使用本机 fixture，确认实际端点和请求体；浏览器检查使用 fixture API。未发送真实 ACEModel 付费请求。已验证源代码与 Web 构建，未更新当前运行的已安装 Desktop 软件。当前仓库规则忽略 `openspec/` 中新建文件，变更文档保存在本地既定目录中。
 
 构建出现既有共享 Intermediate 目录警告；使用串行构建避免并发链接冲突。未提交或发布本次改动。
+
+## 发布集成补验（2026-10-10）
+
+既有运行中推理设置 HTTP fixture 使用 ACEModel 身份但仅实现 Chat Completions；显式设置其协议为 `chat_completions`，避免继承新的目录默认值。相关 41 项定向回归及 Windows 全量回归通过（6229 通过、9 跳过、0 失败、1 项禁用 benchmark）。

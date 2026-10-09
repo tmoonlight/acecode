@@ -331,7 +331,10 @@ TEST(HookAgentLoop, UserPromptSubmitBlockPreventsPersistenceAndProviderCall) {
         }));
     }
     EXPECT_EQ(provider->turn_count(), 0);
-    EXPECT_TRUE(h.loop->messages().empty());
+    // The blocked input stays out of history; its error remains visible only.
+    ASSERT_EQ(h.loop->messages().size(), 1u);
+    EXPECT_EQ(h.loop->messages()[0].role, "error");
+    EXPECT_TRUE(h.loop->messages()[0].metadata.value("transcript_only", false));
     ASSERT_TRUE(terminal_events->busy.is_object());
     const std::string turn_id =
         terminal_events->done.value("turn_id", std::string{});
