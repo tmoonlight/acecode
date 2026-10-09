@@ -6,7 +6,7 @@
 //   - 抽成纯函数后可单测(不依赖 Crow / 网络栈)
 //
 // id 字段来源(见 src/utils/sha1.hpp 设计注释 + openspec session-fork spec):
-//   - user 消息:走 ChatMessage.uuid(rewind change 持久化的 UUID)
+//   - user / error 消息:有 ChatMessage.uuid 时使用持久化的 UUID
 //   - 其它角色(assistant / tool / system):lazy 算 sha1(role + " " + content + " " + timestamp)
 //     不回写 JSONL,只在序列化时计算
 

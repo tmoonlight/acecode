@@ -19,8 +19,8 @@ class TurnOutcomeRecord;
 class TranscriptWriter {
 public:
     TranscriptWriter(ConversationHistory& history, EventDispatcher& events,
-                     CallbacksSlot& callbacks, TurnOutcomeRecord& outcome)
-        : history_(history), events_(events), callbacks_(callbacks), outcome_(outcome) {}
+                     CallbacksSlot& callbacks, TurnOutcomeRecord& outcome, SessionManager* session = nullptr)
+        : history_(history), events_(events), callbacks_(callbacks), outcome_(outcome), session_(session) {}
     void dispatch_message(const std::string& role, const std::string& content, bool is_tool,
                           nlohmann::json metadata, nlohmann::json content_parts);
     void append_turn_timing_record(SessionManager* session, const std::string& user_message_uuid,
@@ -45,6 +45,7 @@ private:
     EventDispatcher& events_;
     CallbacksSlot& callbacks_;
     TurnOutcomeRecord& outcome_;
+    SessionManager* session_; // Nullable, borrowed from the loop's fixed services.
 };
 
 } // namespace acecode::agent

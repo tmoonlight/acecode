@@ -1298,6 +1298,16 @@ on demand, external-session polling uses `after`, and completion self-healing
 reads only a bounded tail (plus one older page if the user-turn anchor is absent).
 Full export, fork and explicit session references keep the legacy full read.
 
+Conversation error messages (`role: "error"`) are persisted as transcript-only
+records with `metadata.transcript_only: true`, a unique `uuid`, and a timestamp.
+Their `id` is that UUID in both history and `message` events; original text and
+`metadata.provider_error` details are preserved. Clients reconcile these errors
+by ID, so history/event overlap produces one card while separate identical
+failures remain separate cards. Legacy unmarked error events retain sequence
+identity because their content-derived IDs can repeat. These records are visible
+after switching sessions, refresh, and restart, but are excluded from provider
+history and compaction input. Errors lost by older versions are not backfilled.
+
 Visible system messages may include `metadata.system_notice` with
 `{ "version": 1, "code": "goal_started", "params": { "goal": { ... } } }`.
 The stable event code and structured parameters describe the notice; Web and
@@ -2903,11 +2913,12 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 ```
 
 `api_protocol` 仅适用于 `provider:"openai"`，接受 `chat_completions` 或
-`responses`；省略时继续使用 Chat Completions。模型设置的 **API 协议** 下拉框可
+`responses`；省略时，目录身份 `models_dev_provider_id:"acemodel"` 使用 Responses，
+其他 OpenAI 配置继续使用 Chat Completions。模型设置的 **API 协议** 下拉框可
 选择 Responses，保存和连接检测使用同一协议。`base_url` 模式下 Responses 会向
 基础地址追加 `/responses`；`full_url` 模式直接使用给定 URL。协议由该字段决定，
 不会根据 URL 或模型名称自动推断。更新时省略该字段保留原值，传 `null` 清除并恢复
-默认 Chat Completions；切换到其他 Provider 会清除该字段，其他 Provider 显式传入
+该 Provider 的默认协议（ACEModel 为 Responses）；切换到其他 Provider 会清除该字段，其他 Provider 显式传入
 则返回 `UNSUPPORTED_MODEL_OPTION`，未知协议值返回 `INVALID_API_PROTOCOL`。
 
 返回包含 `api_key` 原值的模型配置。校验错误使用 `BAD_JSON`、`BAD_REQUEST` 或
@@ -3093,7 +3104,9 @@ Errors include `COPILOT_AUTH_REQUIRED`, `GROK_AUTH_REQUIRED`,
 `none` 或 `managed`。Custom OpenAI-compatible Provider 明确支持
 `endpoint_modes:["base_url","full_url"]`，并要求 API Key 或兼容的
 `credential_source_name`。一等自营 Provider `acemodel`（展示名 ACEModel）
-使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
+返回 `default_api_protocol:"responses"`，模型设置新增和批量新增时采用该默认值，
+用户可在 **API 协议** 中修改；已有明确协议选择在加载及安装器升级时保持。
+ACEModel 使用与 OpenAI 相同的 OpenAI-compatible 字段，固定 Base URL 为
 `https://ge.bigjuan.xyz/aceapi/v1`，`group` 为 `custom`（Web 再按 id 提到「自营模型」），查询时返回内置
 `starrylight`、`moonlight` 与 `aurora`，三者本地回退 `context_window` 均为 `250000`，且默认返回 `capabilities:["vision","tool_use"]`；模型探测得到的有效服务器值优先。Copilot 与 Grok Coding Plan 使用 `managed`，分别由
 ACECode 的 GitHub/xAI 设备登录与固定受管端点负责认证。普通 `xai` Provider

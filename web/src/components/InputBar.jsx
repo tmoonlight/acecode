@@ -1,7 +1,7 @@
 // 输入框:富文本 composer 自动撑高(最多 8 行) + Enter 发 / Shift+Enter 换行 +
 // 空输入或未编辑的历史项用上下键翻 history。
 //
-// 底部工具栏单独占一行,提交按钮在右侧;空内容仅在可重试末尾用户消息时允许发送。
+// 底部工具栏单独占一行,主按钮在右侧;运行中空草稿显示停止,有内容显示排队。
 //
 // 斜杠命令:value 以 / 开头且无空白时,SlashDropdown 浮层显示在输入框上方。
 // 目标指令显示在加号旁的标签中；其他已确认命令仍在正文中显示原子 token。
@@ -1321,6 +1321,12 @@ export const InputBar = forwardRef(function InputBar({
 
   const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
   const stopControl = getGoalStopControlState({ busy, stopping });
+  const isStopAction = actionState.mode === 'stop';
+  const primaryActionLabel = t(isStopAction && stopping ? stopControl.label : actionState.submitLabel);
+  const stopTitle = t(stopping ? stopControl.title : actionState.submitTitle);
+  const primaryActionTitle = isStopAction && mainComposer
+    ? withAppShortcutHint(stopTitle, 'stop')
+    : isStopAction ? stopTitle : t(actionState.submitTitle);
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
   const hasInlineContexts = otherContextItems.length > 0;
   const capabilityControl = (
@@ -1515,60 +1521,25 @@ export const InputBar = forwardRef(function InputBar({
     </>
   ) : null;
   const submitControls = (
-    <>
-      {stopControl.visible && (
-        <button
-          type="button"
-          onClick={onAbort}
-          disabled={stopControl.disabled}
-          className="px-2 h-7 rounded-md text-[11px] text-danger border border-danger/40 hover:bg-danger-bg transition flex items-center gap-1 disabled:opacity-50 disabled:cursor-wait"
-          title={mainComposer ? withAppShortcutHint(stopControl.title, 'stop') : stopControl.title}
-        >
-          <VsIcon name="stop" size={12} mono={false} />
-          <span>{stopControl.label}</span>
-        </button>
+    <button
+      type="button"
+      onClick={isStopAction ? onAbort : submit}
+      disabled={isStopAction ? stopControl.disabled : !actionState.canSubmit}
+      data-composer-action={actionState.mode}
+      aria-label={primaryActionLabel}
+      className={clsx(
+        'ace-composer-send w-7 h-7 rounded-full flex items-center justify-center transition bg-accent text-white enabled:hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        isStopAction && stopping ? 'disabled:cursor-wait' : 'disabled:cursor-default',
       )}
-      {busy ? (
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!actionState.canSubmit}
-          className={clsx(
-            'ace-composer-send px-2 h-7 rounded-md text-[11px] transition flex items-center gap-1',
-            actionState.canSubmit
-              ? 'bg-accent text-white hover:opacity-90'
-              : 'bg-surface-hi text-fg-mute cursor-default',
-          )}
-          title={actionState.submitTitle}
-        >
-          <VsIcon name="send" size={12} mono={false} className={actionState.canSubmit ? 'ace-icon-on-accent' : ''} />
-          <span>{actionState.submitLabel}</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={submit}
-          disabled={!actionState.canSubmit}
-          data-composer-action={actionState.mode}
-          aria-label={actionState.submitLabel}
-          className={clsx(
-            'ace-composer-send w-7 h-7 rounded-full flex items-center justify-center transition',
-            actionState.canSubmit
-              ? 'bg-accent text-white hover:opacity-90'
-              : 'bg-surface-hi text-fg-mute cursor-default',
-          )}
-          title={actionState.submitTitle}
-        >
-          {/* 队列暂停 + 空输入框:按钮语义是「继续」,图标换成播放三角与横幅上的一致 */}
-          <VsIcon
-            name={actionState.mode === 'resume' ? 'run' : 'send'}
-            size={14}
-            mono={false}
-            className={actionState.canSubmit ? 'ace-icon-on-accent' : ''}
-          />
-        </button>
-      )}
-    </>
+      title={primaryActionTitle}
+    >
+      <VsIcon
+        name={isStopAction ? 'stopFilled' : actionState.mode === 'queue' ? 'queue' : actionState.mode === 'resume' ? 'run' : 'send'}
+        size={14}
+        mono={false}
+        className="ace-icon-on-accent"
+      />
+    </button>
   );
 
   return (

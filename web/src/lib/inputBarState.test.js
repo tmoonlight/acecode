@@ -31,11 +31,31 @@ run('busy 输入使用排队模式并保留中断能力', () => {
   assert.equal(state.canAbort, true);
 });
 
-run('busy 空输入禁用排队但不禁用中断', () => {
-  const state = getInputBarActionState({ value: '   ', busy: true });
-  assert.equal(state.mode, 'queue');
-  assert.equal(state.canSubmit, false);
-  assert.equal(state.canAbort, true);
+run('busy 空草稿显示停止,空回车不提交', () => {
+  for (const value of ['', '   ', '\n\t', '\u3000']) {
+    const state = getInputBarActionState({ value, busy: true });
+    assert.equal(state.mode, 'stop');
+    assert.equal(state.submitLabel, '停止');
+    assert.equal(state.submitTitle, '停止当前任务');
+    assert.equal(state.canSubmit, false);
+    assert.equal(state.canAbort, true);
+  }
+});
+
+run('busy 附件或上下文草稿显示排队,移除后回到停止', () => {
+  const queued = getInputBarActionState({ value: '', busy: true, hasExtras: true });
+  assert.equal(queued.mode, 'queue');
+  assert.equal(queued.canSubmit, true);
+  assert.equal(getInputBarActionState({ value: '', busy: true, hasExtras: false }).mode, 'stop');
+});
+
+run('busy 停止模式不被 disabled 或 submitting 变成发送动作', () => {
+  for (const blocker of [{ disabled: true }, { submitting: true }]) {
+    const state = getInputBarActionState({ value: '', busy: true, ...blocker });
+    assert.equal(state.mode, 'stop');
+    assert.equal(state.canSubmit, false);
+    assert.equal(state.canAbort, true);
+  }
 });
 
 run('仅空闲且末尾用户消息可重试时允许空输入发送', () => {
@@ -106,7 +126,7 @@ run('队列暂停时只有空输入才是「继续」,其它情况沿用原语�
   assert.equal(getInputBarActionState({ value: 'hello', queuePaused: true }).mode, 'send');
   assert.equal(getInputBarActionState({ value: 'hello', queuePaused: true }).submitLabel, '发送');
   assert.equal(getInputBarActionState({ value: '', hasExtras: true, queuePaused: true }).mode, 'send', '附件是可发送内容');
-  assert.equal(getInputBarActionState({ value: '', busy: true, queuePaused: true }).mode, 'queue', '回合运行中不出现继续');
+  assert.equal(getInputBarActionState({ value: '', busy: true, queuePaused: true }).mode, 'stop', '回合运行中空草稿仍然是停止');
   assert.equal(getInputBarActionState({ value: '', queuePaused: true, disabled: true }).canSubmit, false);
   assert.equal(getInputBarActionState({ value: '', queuePaused: true, submitting: true }).canSubmit, false);
   assert.equal(getInputBarActionState({ value: '', queuePaused: false }).mode, 'send', '未暂停时空输入仍是普通发送(不可点)');

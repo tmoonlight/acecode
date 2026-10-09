@@ -1383,6 +1383,50 @@ run('ACEModel reasoning refresh preserves same-model manual capabilities without
   assert.deepEqual(reprobedPayloads.payloads[1].capabilities, ['reasoning']);
 });
 
+run('ACEModel 目录默认 Responses，批量新增和编辑可保留协议选择', () => {
+  const provider = normalizeModelCatalogSummary(sharedCatalogContract.summary).providers
+    .find((item) => item.id === 'acemodel');
+  assert.equal(provider.default_api_protocol, 'responses');
+  assert.equal(modelFieldPolicy(provider).show_api_protocol, true);
+  for (const previousProtocol of ['', 'chat_completions', 'responses']) {
+    const selected = applyCatalogProviderToDraft({
+      ...emptyModelProfileDraft(), api_protocol: previousProtocol,
+    }, provider);
+    assert.equal(selected.api_protocol, 'responses');
+    const draft = { ...selected, name: 'ace', model: 'moonlight,starrylight,aurora', api_key: 'test-key' };
+    const batch = buildModelMutationPayloads(draft, provider);
+    assert.equal(batch.ok, true);
+    assert.equal(batch.payloads.length, 3);
+    assert.deepEqual(batch.payloads.map((item) => item.api_protocol), ['responses', 'responses', 'responses']);
+    assert.equal(applyCatalogProviderToDraft(draft, openRouterProvider).api_protocol, 'chat_completions');
+    assert.equal(applyCatalogProviderToDraft(draft, copilotProvider).api_protocol, '');
+  }
+  for (const protocol of ['chat_completions', 'responses']) {
+    const saved = {
+      name: 'ace', provider: 'openai', model: 'moonlight',
+      models_dev_provider_id: 'acemodel', base_url: provider.base_url,
+      api_key: 'test-key', api_protocol: protocol,
+    };
+    const restored = modelProfileDraftFromSaved(saved);
+    assert.equal(restored.api_protocol, protocol);
+    const result = buildModelMutationPayload(restored, provider, { editing: true });
+    assert.equal(result.ok, true);
+    assert.equal(result.payload.api_protocol, protocol);
+  }
+});
+
+run('目录默认协议拒绝未知值和非 OpenAI 服务商', () => {
+  for (const provider of [
+    { ...customProvider, default_api_protocol: 'auto' },
+    { ...copilotProvider, default_api_protocol: 'responses' },
+    { ...anthropicProvider, default_api_protocol: 'responses' },
+  ]) {
+    assert.throws(() => normalizeModelCatalogSummary({
+      ...catalogFixture(), providers: [provider],
+    }), /default_api_protocol is unsupported/);
+  }
+});
+
 run('Responses 协议贯通保存、编辑及显式切回 Chat Completions', () => {
   const saved = {
     name: 'responses-model', provider: 'openai', model: 'model-id',

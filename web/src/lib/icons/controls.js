@@ -64,6 +64,7 @@ export const controlIcons = {
   PanelLeftFilled: [panel, p('M4.1 3.5h3.4v13H4.1q-1.6 0-1.6-1.6V5.1q0-1.6 1.6-1.6Z', { fill: 'currentColor', stroke: 'none' }), p('M7.5 3.5v13')],
   PanelRight: panelRight,
   PanelRightFilled: [panel, p('M12.5 3.5h3.4q1.6 0 1.6 1.6v9.8q0 1.6-1.6 1.6h-3.4Z', { fill: 'currentColor', stroke: 'none' }), p('M12.5 3.5v13')],
+  Queue: [p('M3 4.5h9M3 9h7M3 13.5h4M16 4.5v9q0 2-2 2h-4m2.5-2.5L10 15.5l2.5 2.5')],
   Refresh: [p('M16.5 8a6.8 6.8 0 0 0-11.4-3.3L3 7M3 3.5V7h3.5M3.5 12a6.8 6.8 0 0 0 11.4 3.3L17 13M13.5 13H17v3.5')],
   RightBar: panelRight,
   Run: [p('M6 3.8q0-.8.7-.4l10 6q.9.6 0 1.2l-10 6q-.7.4-.7-.4Z')],
@@ -73,6 +74,7 @@ export const controlIcons = {
   Search: search,
   Send: [p('M3.4 3.3 17 9.4q1.1.6 0 1.2L3.4 16.7q-.8.4-.6-.5l1.7-5.6q.2-.6 0-1.2L2.8 3.8q-.2-.9.6-.5ZM4.7 10h7')],
   Stop: [r(4, 4, 12, 12, 1.8)],
+  StopFilled: [r(3, 3, 14, 14, 1, { fill: 'currentColor', stroke: 'none' })],
   TerminalReadWrite: [r(2.5, 4.5, 15, 11), p('m5.5 7.5 2.1 2.1q.4.4 0 .8l-2.1 2.1M10.5 12.5h4')],
   WorkspaceMenu: ellipsis,
   // Functional symbols formerly drawn locally in individual components.

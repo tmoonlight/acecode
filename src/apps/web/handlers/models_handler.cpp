@@ -75,8 +75,8 @@ nlohmann::json entry_to_json(const ModelProfile& entry) {
     if (!entry.capabilities.empty()) {
         o["capabilities"] = entry.capabilities;
     }
-    if (entry.api_protocol.has_value()) {
-        o["api_protocol"] = *entry.api_protocol;
+    if (entry.api_protocol.has_value() || model_profile_api_protocol(entry) == "responses") {
+        o["api_protocol"] = model_profile_api_protocol(entry);
     }
     if (entry.endpoint_mode.has_value()) {
         o["endpoint_mode"] = *entry.endpoint_mode;

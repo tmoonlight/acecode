@@ -22,8 +22,18 @@ export function messageKey(role, content) {
   return `${role || ''}\u0000${content || ''}`;
 }
 
+function isPersistedErrorMessage(payload) {
+  return payload?.role === 'error' && payload?.metadata?.transcript_only === true && !!payload?.id;
+}
+
 function messageEventUsesOccurrenceIdentity(payload) {
-  return (payload?.role || 'system') === 'error';
+  return payload?.role === 'error' && !isPersistedErrorMessage(payload);
+}
+
+function replayMessageKey(payload) {
+  return isPersistedErrorMessage(payload)
+    ? `error-id\u0000${payload.id}`
+    : messageKey(payload?.role || 'system', payload?.content || '');
 }
 
 // 回放(REST since=N 补拉 / WS 带游标订阅)时 token / reasoning 先攒着,直到看见
@@ -1221,7 +1231,7 @@ export function applyTranscriptReplayEvents(state, events = []) {
     .map((item) => item.messageId));
   const seenMessages = new Set(next.items
     .filter((item) => item?.kind === 'msg')
-    .map((item) => messageKey(item.role || 'system', item.content || '')));
+    .map((item) => replayMessageKey({ ...item, id: item.messageId })));
   let pendingStreamEvents = [];
   const flushPendingStreamEvents = () => {
     for (const ev of pendingStreamEvents) {
@@ -1249,7 +1259,7 @@ export function applyTranscriptReplayEvents(state, events = []) {
         effects.push(...reduced.effects);
         continue;
       }
-      const key = messageKey(p.role || 'system', p.content || '');
+      const key = replayMessageKey(p);
       if (!occurrenceIdentity && seenMessages.has(key)) {
         pendingStreamEvents = [];
         markEventSeqApplied(next, ev);
@@ -1552,8 +1562,8 @@ export function reduceTranscriptEvent(state, msg) {
       // 原位更新(事件可能带更完整的 content_parts / metadata),不追加,
       // 否则用户气泡出现两次。不同 id 相同文本(用户故意连发)不受影响。
       const incomingMessageId = p.id || '';
-      // provider/runtime error 不属于持久消息。不同回合可能得到完全相同的
-      // role/content/id,必须按事件 seq 分别展示;同一事件重放仍由上方水位拦截。
+      // Persisted errors carry a unique occurrence ID. Legacy errors still use
+      // sequence identity because their content-derived IDs can repeat.
       const existingIndex = incomingMessageId && !messageEventUsesOccurrenceIdentity(p)
         ? next.items.findIndex((item) => item.kind === 'msg' && item.messageId === incomingMessageId)
         : -1;
@@ -1987,7 +1997,7 @@ export function loadTranscriptHistory(state, data = {}) {
   if (typeof data.summary === 'string') next.summary = data.summary;
   if (typeof data.swarm_mode === 'string') next.swarmMode = normalizeSwarmMode(data.swarm_mode);
 
-  const seenMessages = new Set(msgs.map((m) => messageKey(m.role || 'system', m.content || '')));
+  const seenMessages = new Set(msgs.map(replayMessageKey));
   let pendingStreamEvents = [];
   const flushPendingStreamEvents = () => {
     for (const ev of pendingStreamEvents) {
@@ -2007,7 +2017,7 @@ export function loadTranscriptHistory(state, data = {}) {
     if (ev?.type === 'message') {
       const p = ev.payload || {};
       const occurrenceIdentity = messageEventUsesOccurrenceIdentity(p);
-      const key = messageKey(p.role || 'system', p.content || '');
+      const key = replayMessageKey(p);
       if (!occurrenceIdentity && seenMessages.has(key)) {
         pendingStreamEvents = [];
         markEventSeqApplied(next, ev);

@@ -1283,7 +1283,37 @@ TEST(SavedModelsTest, ParseReadonlyFlagDefaultsFalse) {
     EXPECT_TRUE((*parsed)[1].readonly);
 }
 
-// Responses 协议只允许 OpenAI 预设显式选择，缺省仍保留旧协议。
+TEST(SavedModelsTest, AceModelProtocolDefaultsPreserveExplicitOverridesAndIdentity) {
+    for (const auto* model : {"moonlight", "starrylight", "aurora", "new-model"}) {
+        nlohmann::json node = {
+            {"name", model}, {"provider", "openai"}, {"model", model},
+            {"base_url", "https://proxy.example/v1"}, {"api_key", "test-key"},
+            {"models_dev_provider_id", "ACEModel"},
+            {"capabilities_source", "manual"}, {"capabilities", {"tool_use"}},
+        };
+        std::string error;
+        auto parsed = parse_saved_models(nlohmann::json::array({node}), error);
+        ASSERT_TRUE(parsed.has_value()) << error;
+        EXPECT_EQ(parsed->front().api_protocol, "responses");
+        EXPECT_EQ(model_profile_api_protocol(parsed->front()), "responses");
+        EXPECT_EQ(parsed->front().capabilities, (std::vector<std::string>{"tool_use"}));
+        EXPECT_TRUE(validate_saved_models(*parsed, "", error)) << error;
+        for (const auto* protocol : {"chat_completions", "responses"}) {
+            node["api_protocol"] = protocol;
+            parsed = parse_saved_models(nlohmann::json::array({node}), error);
+            ASSERT_TRUE(parsed.has_value()) << error;
+            EXPECT_EQ(model_profile_api_protocol(parsed->front()), protocol);
+        }
+        node.erase("api_protocol");
+        node.erase("models_dev_provider_id");
+        parsed = parse_saved_models(nlohmann::json::array({node}), error);
+        ASSERT_TRUE(parsed.has_value()) << error;
+        EXPECT_FALSE(parsed->front().api_protocol.has_value());
+        EXPECT_EQ(model_profile_api_protocol(parsed->front()), "chat_completions");
+    }
+}
+
+// Explicit Responses is OpenAI-only; ordinary profiles retain Chat Completions.
 TEST(SavedModelsTest, ApiProtocolParsesAndRejectsUnsupportedValuesAndProviders) {
     const nlohmann::json legacy = {
         {"name", "responses-test"}, {"provider", "openai"},

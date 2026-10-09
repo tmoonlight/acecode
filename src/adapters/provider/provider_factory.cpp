@@ -49,7 +49,7 @@ struct EffectiveProviderBuildPlan {
 ProviderRequestOptions request_options_from_entry(const ModelProfile& entry) {
     ProviderRequestOptions options;
     options.endpoint_mode = entry.endpoint_mode.value_or("base_url");
-    options.api_protocol = entry.api_protocol.value_or("chat_completions");
+    options.api_protocol = model_profile_api_protocol(entry);
     options.max_output_tokens = entry.max_output_tokens;
     options.reasoning = entry.reasoning;
     if (entry.provider == "anthropic" && entry.reasoning.has_value()) {

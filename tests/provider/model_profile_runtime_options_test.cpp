@@ -549,6 +549,7 @@ TEST(ModelProfileRuntimeOptions, FactoryForwardsOpenAiEffortThroughActualRequest
     });
     ModelProfile profile;
     profile.name = "explicit-reasoning";
+    profile.api_protocol = "chat_completions";
     profile.provider = "openai";
     profile.base_url = server.base_url();
     profile.api_key = "test-key";

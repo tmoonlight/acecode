@@ -38,7 +38,7 @@ struct ModelProfile {
     std::vector<std::string> capabilities; // 用户声明的能力标签,如 vision/tool_use/web_search
     // Missing on legacy profiles. New profiles use base_url or full_url.
     std::optional<std::string> endpoint_mode;
-    // OpenAI only; omission preserves the legacy Chat Completions protocol.
+    // OpenAI only; omission uses Responses for ACEModel, Chat Completions otherwise.
     std::optional<std::string> api_protocol; // chat_completions | responses
     std::optional<int> max_output_tokens;
     // catalog/manual marks capabilities as authoritative. Missing preserves
@@ -98,6 +98,9 @@ nlohmann::json model_reasoning_options_to_json(
 // model editor. They never inspect or emit credential values.
 bool model_profile_allows_no_api_key(const ModelProfile& profile);
 std::string normalize_model_endpoint_identity(const std::string& value);
+
+// Explicit protocol selections win over the catalog provider's default.
+std::string model_profile_api_protocol(const ModelProfile& profile);
 
 // True only for the generated ACEModel catalog defaults (legacy 200K or
 // current 250K). These values are fallbacks, not manual runtime overrides.

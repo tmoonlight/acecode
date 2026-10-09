@@ -1550,9 +1550,21 @@ TEST(AgentLoopTermination, ProviderErrorDoesNotCreateEmptyAssistantAndNextTurnWo
     EXPECT_EQ(h.last_turn_outcome(), "error");
     EXPECT_EQ(h.last_terminal_busy_outcome(), "error");
 
+    const auto failed_history = h.persisted_messages();
+    auto error = std::find_if(failed_history.begin(), failed_history.end(), [](const auto& message) {
+        return message.role == "error";
+    });
+    ASSERT_NE(error, failed_history.end());
+    EXPECT_TRUE(error->metadata.value("transcript_only", false));
+    EXPECT_FALSE(error->uuid.empty());
+
     h.push_text("ok");
     ASSERT_TRUE(h.submit_and_wait("second"));
     EXPECT_EQ(h.turn_count(), 2);
+    for (const auto& message : h.request_messages_for_turn(1)) {
+        EXPECT_NE(message.role, "error");
+        EXPECT_FALSE(message.metadata.is_object() && message.metadata.value("transcript_only", false));
+    }
     EXPECT_EQ(h.count_by_role("assistant"), 1);
     EXPECT_EQ(h.last_turn_outcome(), "completed");
     EXPECT_EQ(h.last_terminal_busy_outcome(), "completed");

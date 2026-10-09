@@ -327,6 +327,9 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
         if (e.context_window == 200000) e.context_window = 250000;
     }
 
+    if (!e.api_protocol.has_value() && model_profile_api_protocol(e) == "responses") {
+        e.api_protocol = "responses";
+    }
     return e;
 }
 
@@ -688,6 +691,15 @@ nlohmann::json model_reasoning_options_to_json(
     if (options.effort.has_value()) result["effort"] = *options.effort;
     if (options.max_tokens.has_value()) result["max_tokens"] = *options.max_tokens;
     return result;
+}
+
+std::string model_profile_api_protocol(const ModelProfile& profile) {
+    if (profile.api_protocol.has_value()) return *profile.api_protocol;
+    if (profile.provider == "openai" && profile.models_dev_provider_id.has_value() &&
+        is_acemodel_provider_id(*profile.models_dev_provider_id)) {
+        return "responses";
+    }
+    return "chat_completions";
 }
 
 bool model_profile_allows_no_api_key(const ModelProfile& profile) {
