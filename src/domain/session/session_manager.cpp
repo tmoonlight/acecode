@@ -16,7 +16,6 @@
 #include "session_usage_ledger.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"
-#include "utils/scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -340,15 +339,7 @@ bool SessionManager::ensure_created() {
     return true;
 }
 
-bool SessionManager::try_on_message(const ChatMessage& msg) {
-    std::lock_guard<std::mutex> lk(mu_);
-    // Recording an error notice must not replace the storage failure that
-    // caused it, even when that notice also cannot be written to disk.
-    std::string original_error = msg.role == "error" && msg.metadata.is_object() &&
-        msg.metadata.value("transcript_only", false) ? last_error_ : std::string{};
-    ScopeExit preserve_error([this, original_error = std::move(original_error)]() mutable {
-        if (!original_error.empty()) last_error_.swap(original_error);
-    });
+bool SessionManager::try_on_message_locked(const ChatMessage& msg) {
     last_error_.clear();
     if (!started_ || !ensure_created()) return false;
 
