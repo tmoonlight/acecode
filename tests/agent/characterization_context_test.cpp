@@ -244,7 +244,9 @@ TEST(AgentLoopContextGolden, FailedCheckpointAppendKeepsHistoryAndWindowUntilDur
     }
     EXPECT_EQ(h.session->last_error(), "failed to append compact checkpoint");
     const auto history_after = h.loop->messages();
-    ASSERT_EQ(history_after.size(), history_before.size());
+    ASSERT_EQ(history_after.size(), history_before.size() + 1);
+    EXPECT_EQ(history_after.back().role, "error");
+    EXPECT_TRUE(history_after.back().metadata.value("transcript_only", false));
     for (std::size_t i = 0; i < history_before.size(); ++i) {
         SCOPED_TRACE(i);
         EXPECT_EQ(serialize_message(history_after[i]), serialize_message(history_before[i]));

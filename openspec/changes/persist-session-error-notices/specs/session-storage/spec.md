@@ -25,3 +25,8 @@ The system SHALL persist each emitted conversation error notice with its origina
 #### Scenario: Compatibility with legacy transient errors
 - **WHEN** an older daemon emits identical error events without a persisted identity marker
 - **THEN** the client SHALL retain distinct event occurrences and deduplicate replays of the same sequence
+
+#### Scenario: Error notice cannot be written after a storage failure
+- **WHEN** a storage operation fails and recording its error notice also fails
+- **THEN** the system SHALL retain the original storage diagnostic and visible error notice
+- **AND** it SHALL NOT claim the failed operation or error notice was durably saved
