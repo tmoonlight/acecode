@@ -284,6 +284,14 @@ function normalizeCatalogProvider(raw, index) {
   if (!PROVIDER_GROUPS.has(group)) {
     throw contractError(`providers[${index}].group is unsupported`);
   }
+  const defaultApiProtocol = optionalString(
+    value.default_api_protocol,
+    `providers[${index}].default_api_protocol`,
+  );
+  if (defaultApiProtocol && (runtimeProvider !== 'openai'
+      || !MODEL_API_PROTOCOLS.includes(defaultApiProtocol))) {
+    throw contractError(`providers[${index}].default_api_protocol is unsupported`);
+  }
   return {
     id,
     name: requireString(value.name, `providers[${index}].name`),
@@ -294,6 +302,7 @@ function normalizeCatalogProvider(raw, index) {
     auth_mode: authMode,
     endpoint_editable: endpointEditable,
     endpoint_modes: endpointModes,
+    default_api_protocol: defaultApiProtocol,
     model_input: modelInput,
     models_dev_provider_id: requireNullableText(
       value.models_dev_provider_id,
@@ -868,10 +877,11 @@ export function applyCatalogProviderToDraft(draft, provider) {
     model: '',
     base_url: policy.show_base_url ? provider.base_url : '',
     endpoint_mode: provider.endpoint_modes?.[0] || 'base_url',
-    // An explicit provider switch must clear a previously selected Responses
-    // protocol even when both providers share the openai runtime kind.
-    api_protocol: provider.runtime_provider === 'openai' && draft?.api_protocol
-      ? 'chat_completions' : '',
+    // A provider switch uses the new catalog default, even when both
+    // providers share the openai runtime kind.
+    api_protocol: policy.show_api_protocol
+      ? provider.default_api_protocol || (draft?.api_protocol ? 'chat_completions' : '')
+      : '',
     api_key: '',
     has_api_key: false,
     clear_api_key: !!draft?.has_api_key && provider.auth_mode === 'none',

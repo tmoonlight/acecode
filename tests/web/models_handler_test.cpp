@@ -762,6 +762,34 @@ TEST(ModelsHandler, DiscoveryReasoningRequiresCompleteValidEffortDeclaration) {
     EXPECT_EQ(wire.size(), parsed.ids.size());
 }
 
+TEST(ModelsHandler, AceModelListReportsEffectiveProtocolAndHonorsClearedOverride) {
+    AppConfig config;
+    ModelProfile profile;
+    profile.name = "ace-model";
+    profile.provider = "openai";
+    profile.models_dev_provider_id = "acemodel";
+    profile.model = "moonlight";
+    profile.base_url = "https://proxy.example/v1";
+    profile.api_key = "test-key";
+    config.saved_models = {profile};
+    EXPECT_EQ(list_models(config)[0]["api_protocol"], "responses");
+
+    std::string error;
+    auto draft = parse_model_draft({{"name", profile.name}, {"provider", profile.provider},
+        {"model", profile.model}, {"api_protocol", "chat_completions"}}, error);
+    ASSERT_TRUE(draft) << error;
+    ASSERT_EQ(acecode::update_saved_model(config, profile.name, *draft), acecode::SavedModelEditError::OK);
+    EXPECT_EQ(list_models(config)[0]["api_protocol"], "chat_completions");
+    draft = parse_model_draft({{"name", profile.name}, {"provider", profile.provider},
+        {"model", profile.model}, {"api_protocol", nullptr}}, error);
+    ASSERT_TRUE(draft) << error;
+    ASSERT_EQ(acecode::update_saved_model(config, profile.name, *draft), acecode::SavedModelEditError::OK);
+    EXPECT_FALSE(config.saved_models[0].api_protocol.has_value());
+    EXPECT_EQ(list_models(config)[0]["api_protocol"], "responses");
+    config.saved_models[0].models_dev_provider_id.reset();
+    EXPECT_FALSE(list_models(config)[0].contains("api_protocol"));
+}
+
 TEST(ModelsHandler, ProbeReasoningRemovalClearsPriorDeclarationAndAceModelTag) {
     const auto first = parse_openai_models(nlohmann::json::array({
         {{"id", "aurora"}, {"reasoning", {{"supported_efforts", {"high"}}}}},

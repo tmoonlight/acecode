@@ -70,7 +70,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
     , published_loop_config_(std::make_shared<const AgentLoopConfig>(options.config))
     , history_(std::make_unique<agent::ConversationHistory>(busy_))
     , transcript_(std::make_unique<agent::TranscriptWriter>(
-          *history_, events_, callbacks_, *turn_outcome_))
+          *history_, events_, callbacks_, *turn_outcome_, session_manager_))
     , task_queue_(std::make_unique<agent::AgentTaskQueue>(busy_))
     , active_turn_gate_(std::make_unique<agent::ActiveTurnGate>(
           busy_, abort_signal_, turn_interrupt_requested_))

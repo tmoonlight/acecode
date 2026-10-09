@@ -40,6 +40,7 @@ try {
       "name": "starrylight",
       "provider": "openai",
       "model": "starrylight",
+      "api_protocol": "chat_completions",
       "base_url": "https://old.example/v1",
       "api_key": "old-key",
       "capabilities": ["tool_use"],
@@ -75,12 +76,18 @@ try {
         }
     }
     foreach ($profile in @($moon, $aurora)) {
+        if ($profile.api_protocol -ne "responses") {
+            throw "default Responses protocol was not set for $($profile.name)"
+        }
         if ((@($profile.capabilities) -join ",") -ne "vision,tool_use" -or $profile.capabilities_source -ne "catalog") {
             throw "default vision/tool capabilities were not set for $($profile.name)"
         }
     }
     if ((@($star.capabilities) -join ",") -ne "tool_use" -or $star.capabilities_source -ne "manual") {
         throw "manual ACEModel capabilities were overwritten"
+    }
+    if ($star.api_protocol -ne "chat_completions") {
+        throw "explicit Chat Completions selection was overwritten"
     }
     if ($config.default_model_name -ne "moonlight") {
         throw "default model was not seeded"
@@ -98,6 +105,16 @@ try {
     $qwen = $config.saved_models | Where-Object { $_.name -eq "qwen" } | Select-Object -First 1
     if (@($qwen.capabilities).Count -ne 1 -or @($qwen.capabilities)[0] -ne "tool_use") {
         throw "existing qwen capabilities were damaged"
+    }
+    if ($qwen.PSObject.Properties.Name -contains "api_protocol") {
+        throw "unrelated qwen protocol was changed"
+    }
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $seeder -KeyFile $keyFile -ConfigPath $configPath
+    if ($LASTEXITCODE -ne 0) { throw "second seeder run exited $LASTEXITCODE" }
+    $reseeded = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    foreach ($profile in $reseeded.saved_models | Where-Object { $_.PSObject.Properties.Name -contains "models_dev_provider_id" -and $_.models_dev_provider_id -eq "acemodel" }) {
+        $expected = if ($profile.name -eq "starrylight") { "chat_completions" } else { "responses" }
+        if ($profile.api_protocol -ne $expected) { throw "reseed changed explicit protocol for $($profile.name)" }
     }
     Write-Host "[pass] ACEModel seeder writes and upgrades all three profiles"
 }

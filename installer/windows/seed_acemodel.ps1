@@ -108,6 +108,7 @@ function New-AceModelProfile([string]$name, [string]$key) {
     $profile["api_key"] = $key
     $profile["models_dev_provider_id"] = "acemodel"
     $profile["endpoint_mode"] = "base_url"
+    $profile["api_protocol"] = "responses"
     $profile["context_window"] = 250000
     $profile["capabilities"] = @("vision", "tool_use")
     $profile["capabilities_source"] = "catalog"
@@ -129,6 +130,9 @@ function Upsert-AceModel($models, [string]$name, [string]$key) {
             $current["api_key"] = $key
             $current["models_dev_provider_id"] = "acemodel"
             $current["context_window"] = 250000
+            if (-not (Config-HasKey $current "api_protocol") -or [string]::IsNullOrWhiteSpace([string]$current["api_protocol"])) {
+                $current["api_protocol"] = "responses"
+            }
             if (-not (Config-HasKey $current "endpoint_mode") -or [string]::IsNullOrWhiteSpace([string]$current["endpoint_mode"])) {
                 $current["endpoint_mode"] = "base_url"
             }

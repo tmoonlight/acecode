@@ -10,6 +10,7 @@
 #include "session/session_storage.hpp"
 #include "session/turn_timing.hpp"
 #include "utils/logger.hpp"
+#include "utils/uuid.hpp"
 #include <algorithm>
 #include <sstream>
 #include <utility>
@@ -26,6 +27,24 @@ void TranscriptWriter::dispatch_message(const std::string& role,
         // 回合级错误文案的唯一收集点:provider 终止错误 / 压缩失败 / 空回复
         // 耗尽 / hook 拦截都经这里派发,wait_subagent 报 ChildFailed 时带上。
         outcome_.set_error(content);
+        ChatMessage message;
+        message.role = role;
+        message.content = content;
+        message.uuid = generate_uuid_v7();
+        message.timestamp = SessionStorage::now_iso8601();
+        message.metadata = metadata.is_object() ? std::move(metadata) : nlohmann::json::object();
+        message.metadata["transcript_only"] = true;
+        message.content_parts = std::move(content_parts);
+        // Persist before publishing so background failures survive a history
+        // reload even when no client was subscribed. Provider history filters
+        // transcript_only records out of subsequent requests and compaction.
+        history_.append(message);
+        if (session_) session_->on_message(message);
+        if (callbacks.on_message) callbacks.on_message(role, content, is_tool);
+        auto payload = web::chat_message_to_payload_json(message);
+        payload["is_tool"] = is_tool;
+        events_.emit(SessionEventKind::Message, std::move(payload));
+        return;
     }
     if (callbacks.on_message) {
         callbacks.on_message(role, content, is_tool);

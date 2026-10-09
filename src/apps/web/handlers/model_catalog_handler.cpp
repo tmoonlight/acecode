@@ -128,6 +128,10 @@ std::vector<nlohmann::json> provider_descriptors(
         acemodel.id,
         "custom",
         {"base_url"}));
+    ModelProfile acemodel_defaults;
+    acemodel_defaults.provider = "openai";
+    acemodel_defaults.models_dev_provider_id = acemodel.id;
+    result.back()["default_api_protocol"] = model_profile_api_protocol(acemodel_defaults);
     result.push_back(provider_to_json(
         "custom-openai", "Custom OpenAI-compatible API", "openai", "", "",
         "required", true, "manual", "", std::nullopt, "custom",

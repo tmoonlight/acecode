@@ -94,6 +94,37 @@ TEST(ModelConnectionTest, SendsOnlyOneShortPromptAndPreservesRequestOptions) {
     EXPECT_EQ(config.default_model_name, "saved");
 }
 
+TEST(ModelConnectionTest, AceModelDefaultAndExplicitProtocolUseMatchingEndpoints) {
+    std::atomic<int> responses_requests{0};
+    std::atomic<int> chat_requests{0};
+    ModelTestServer upstream([&](httplib::Server& server) {
+        server.Post("/responses", [&](const httplib::Request& request, httplib::Response& response) {
+            ++responses_requests;
+            const auto body = json::parse(request.body);
+            EXPECT_TRUE(body.contains("input"));
+            EXPECT_FALSE(body.contains("messages"));
+            response.set_content(R"({"status":"completed","output":[{"type":"message",
+                "role":"assistant","content":[{"type":"output_text","text":"OK"}]}]})",
+                "application/json");
+        });
+        server.Post("/chat/completions", [&](const httplib::Request&, httplib::Response& response) {
+            ++chat_requests;
+            reply_ok(response);
+        });
+    });
+    auto input = request_for(upstream);
+    input["models_dev_provider_id"] = "acemodel";
+    const auto config = saved_config(upstream);
+    EXPECT_EQ(test_model_connection(input, config).status, 200);
+    input["api_protocol"] = "chat_completions";
+    EXPECT_EQ(test_model_connection(input, config).status, 200);
+    input["api_protocol"] = "responses";
+    EXPECT_EQ(test_model_connection(input, config).status, 200);
+    EXPECT_EQ(responses_requests.load(), 2);
+    EXPECT_EQ(chat_requests.load(), 1);
+    EXPECT_FALSE(config.saved_models[0].api_protocol.has_value());
+}
+
 TEST(ModelConnectionTest, ResolvesCredentialReuseAndEditingWithoutMutation) {
     std::atomic<int> requests{0};
     ModelTestServer upstream([&](httplib::Server& server) {

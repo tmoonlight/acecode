@@ -18,6 +18,7 @@
         "model_input": "catalog",
         "api_key_env": "ACEMODEL_API_KEY",
         "models_dev_provider_id": "acemodel",
+        "default_api_protocol": "responses",
         "group": "custom",
         "endpoint_modes": ["base_url"]
       },

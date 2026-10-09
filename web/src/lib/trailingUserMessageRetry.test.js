@@ -108,12 +108,14 @@ assert.deepEqual(abortState.items.map((item) => item.content), [
 applyAbortEvent('error', { reason: 'later error' });
 assert.equal(retryId(abortState), '', 'a later failure invalidates the stop');
 
-// The two UI actions must share a gate, and the send path must inspect the
+// Submit clicks and Enter must share a gate; only the empty busy stop action
+// bypasses submission. The send path must inspect the
 // latest complete store rather than composer history or a rendered window.
 const inputBar = fs.readFileSync(new URL('../components/InputBar.jsx', import.meta.url), 'utf8');
 assert.match(inputBar, /const submit = \(\) => \{\s*if \(!actionState\.canSubmit\) return;/);
 assert.match(inputBar, /onSubmit=\{submit\}/);
-assert.match(inputBar, /onClick=\{submit\}/);
+assert.match(inputBar, /const isStopAction = actionState\.mode === 'stop';/);
+assert.match(inputBar, /onClick=\{isStopAction \? onAbort : submit\}/);
 const chat = fs.readFileSync(new URL('../components/ChatView.jsx', import.meta.url), 'utf8');
 assert.match(chat, /trailingUserMessageRetryId\(\{\s*sessionId: sid, items, loadState:/);
 assert.match(chat, /const latest = transcript\.getState\(\);/);

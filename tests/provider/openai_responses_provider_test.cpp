@@ -1,4 +1,5 @@
 #include "provider/openai_responses_provider.hpp"
+#include "provider/provider_factory.hpp"
 #include "utils/joining_thread.hpp"
 
 #include <gtest/gtest.h>
@@ -101,6 +102,66 @@ std::vector<StreamEvent> collect(OpenAiResponsesProvider& provider,
     provider.chat_stream({user_message()}, {lookup_tool()},
         [&](const StreamEvent& event) { events.push_back(event); }, abort_flag);
     return events;
+}
+
+TEST(OpenAiResponsesProviderTest, AceModelFactoryDefaultsAndExplicitChatOverride) {
+    std::atomic<int> responses_requests{0};
+    std::atomic<int> chat_requests{0};
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post("/v1/responses", [&](const httplib::Request& request, httplib::Response& response) {
+            ++responses_requests;
+            const auto body = Json::parse(request.body);
+            EXPECT_FALSE(body.contains("messages"));
+            EXPECT_TRUE(body.contains("input"));
+            EXPECT_EQ(body["store"], false);
+            response.set_content(body.value("stream", false) ? completed_stream() : completed().dump(),
+                body.value("stream", false) ? "text/event-stream" : "application/json");
+        });
+        http.Post("/v1/chat/completions", [&](const httplib::Request&, httplib::Response& response) {
+            ++chat_requests;
+            response.set_content(
+                R"({"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]})",
+                "application/json");
+        });
+    });
+    ModelProfile profile;
+    profile.name = "ace-default";
+    profile.provider = "openai";
+    profile.models_dev_provider_id = "acemodel";
+    profile.base_url = server.url();
+    profile.api_key = "test-key";
+    for (const auto* model : {"moonlight", "starrylight", "aurora"}) {
+        profile.model = model;
+        auto provider = create_provider_from_entry(profile);
+        ASSERT_TRUE(provider);
+        EXPECT_EQ(provider->chat({user_message()}, {}).content, "ok");
+        EXPECT_EQ(provider->chat_for_compaction({user_message()}, {}, nullptr).content, "ok");
+        std::string streamed;
+        provider->chat_stream({user_message()}, {}, [&](const StreamEvent& event) {
+            if (event.type == StreamEventType::Delta) streamed += event.content;
+        });
+        EXPECT_EQ(streamed, "ok");
+    }
+    const auto implicit = prepare_provider_construction(profile);
+    ASSERT_TRUE(implicit);
+    profile.api_protocol = "responses";
+    const auto explicit_responses = prepare_provider_construction(profile);
+    ASSERT_TRUE(explicit_responses);
+    EXPECT_EQ(implicit->fingerprint(), explicit_responses->fingerprint());
+    profile.api_protocol = "chat_completions";
+    const auto explicit_chat = prepare_provider_construction(profile);
+    ASSERT_TRUE(explicit_chat);
+    EXPECT_NE(implicit->fingerprint(), explicit_chat->fingerprint());
+    auto provider = explicit_chat->construct().provider;
+    ASSERT_TRUE(provider);
+    EXPECT_EQ(provider->chat({user_message()}, {}).content, "ok");
+    profile.api_protocol.reset();
+    profile.models_dev_provider_id.reset();
+    provider = create_provider_from_entry(profile);
+    ASSERT_TRUE(provider);
+    EXPECT_EQ(provider->chat({user_message()}, {}).content, "ok");
+    EXPECT_EQ(responses_requests.load(), 9);
+    EXPECT_EQ(chat_requests.load(), 2);
 }
 
 int count_events(const std::vector<StreamEvent>& events, StreamEventType type) {

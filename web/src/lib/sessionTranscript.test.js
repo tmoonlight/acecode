@@ -1142,6 +1142,47 @@ run('provider 非 JSON 错误 message 保留原始文本', () => {
   assert.equal(state.items[0].metadata.provider_error.raw_body, rawBody);
 });
 
+run('持久错误切回会话和刷新后保留详情，历史与事件重叠不重复', () => {
+  const error = {
+    id: 'error-451-first', role: 'error', content: '[Error] HTTP 451 quota exhausted',
+    timestamp: '2026-10-10T07:00:00Z',
+    metadata: { transcript_only: true, provider_error: { status_code: 451, raw_body: 'quota exhausted' } },
+  };
+  const user = { id: 'quota-user', role: 'user', content: 'continue' };
+  const ev = { type: 'message', seq: 2, payload: error };
+  let state = loadTranscriptHistory(createTranscriptState(), { messages: [user, error], events: [ev] }).state;
+  assert.deepEqual(state.items.map(item => item.messageId), ['quota-user', error.id]);
+  assert.equal(state.items[1].metadata.provider_error.status_code, 451);
+  state = applyTranscriptReplayEvents(state, [{ ...ev, seq: 3 }]).state;
+  assert.equal(state.items.length, 2);
+  state = reduceTranscriptEvent(state, { ...ev, seq: 4 }).state;
+  assert.equal(state.items.length, 2);
+  state = reduceTranscriptEvent(state, {
+    type: 'transcript_replace', seq: 5, payload: { messages: [user, error] },
+  }).state;
+  assert.equal(state.items[1].role, 'error');
+  const reloaded = loadTranscriptHistory(createTranscriptState(), { messages: [user, error], events: [], busy: false }).state;
+  assert.equal(reloaded.items[1].content, error.content);
+  assert.equal(reloaded.items[1].metadata.provider_error.raw_body, 'quota exhausted');
+  const projected = projectCollapsedTranscriptItems(reloaded.items);
+  assert.ok(projected.some(item => item.kind === 'msg' && item.role === 'error'));
+});
+
+run('持久错误按唯一 ID 保留相同正文的多次失败', () => {
+  const first = { id: 'error-1', role: 'error', content: '[Error] HTTP 451 quota exhausted', metadata: { transcript_only: true } };
+  const second = { ...first, id: 'error-2' };
+  const events = [first, second].map((payload, index) => ({ type: 'message', seq: index + 1, payload }));
+  const live = reduceMany(events);
+  const fromHistory = loadTranscriptHistory(createTranscriptState(), { messages: [first, second], events }).state;
+  const fromReplay = applyTranscriptReplayEvents(
+    loadTranscriptHistory(createTranscriptState(), { messages: [first] }).state, events,
+  ).state;
+  const fromPartialHistory = loadTranscriptHistory(createTranscriptState(), { messages: [first], events }).state;
+  for (const state of [live, fromHistory, fromReplay, fromPartialHistory]) {
+    assert.deepEqual(state.items.map(item => item.messageId), ['error-1', 'error-2']);
+  }
+});
+
 run('provider 错误 message 会结束已有 partial assistant streaming 状态', () => {
   const state = reduceMany([
     { type: 'token', payload: { text: 'partial' }, seq: 1 },

@@ -6,11 +6,10 @@
 namespace acecode::web {
 
 std::string compute_message_id(const ChatMessage& m) {
-    if (m.role == "user" && !m.uuid.empty()) {
+    if ((m.role == "user" || m.role == "error") && !m.uuid.empty()) {
         return m.uuid;
     }
-    // 非 user 消息一律走 sha1(role + " " + content + " " + timestamp)。
-    // user 消息没有 uuid 时也走这条路径(老 session 兼容)。
+    // Other roles and legacy records without UUIDs retain content-based IDs.
     std::string buf;
     buf.reserve(m.role.size() + m.content.size() + m.timestamp.size() + 2);
     buf.append(m.role);
