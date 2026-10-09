@@ -296,6 +296,7 @@ public:
     std::string current_trajectory_path() const;
 
 private:
+    bool try_on_message_locked(const ChatMessage& msg); // Requires mu_.
     void record_recent_activity_locked(const ChatMessage& msg);
     void restore_recent_activity_locked(const SessionMeta& persisted_meta);
     void publish_display_snapshot_locked(); // mu_ held; display_mu_ is a leaf lock.

@@ -15,6 +15,7 @@ See proposal.md for the incident. Agent error messages use `TranscriptWriter::di
 3. Distinguish durable errors by `role=error`, `metadata.transcript_only=true`, and a nonempty ID. Reconcile these by ID in both replay paths; bypass content-only deduplication for different error IDs. Unmarked legacy errors retain occurrence/sequence semantics.
 4. Reuse the existing provider-history filter, and test both the actual next provider request and resumed history. No UI style changes or additional context protocol is required.
 5. When a storage failure causes an error notice, retain that original storage diagnostic while attempting to save the notice. Failed compaction preserves the previous history prefix and context window; its new transcript-only error is visible without pretending the failed checkpoint was stored.
+6. Keep the public checked-append lock and diagnostic guard in the existing session history implementation. Delegate the actual append to a private helper requiring that lock, keeping the main session manager within its established file-size limit without changing append behavior.
 
 ## Risks / Trade-offs
 
