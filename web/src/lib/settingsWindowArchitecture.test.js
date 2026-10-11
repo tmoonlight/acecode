@@ -54,9 +54,9 @@ run('Settings uses a blocking mask and an accessible expandable dialog', () => {
 // 修复前的表现:设置窗口只能点遮罩或关闭按钮关闭,按 Esc 没有任何反应。
 run('Settings window closes on Escape but yields to nested modals', () => {
   const settings = source('components/SettingsPage.jsx');
-  const escapeEffect = between(settings, "if (event.key !== 'Escape'", 'const onMaskClick');
+  const escapeEffect = between(settings, "if (!isDismissShortcut(event)", 'const onMaskClick');
 
-  assert.match(escapeEffect, /event\.defaultPrevented \|\| event\.isComposing\) return;/);
+  assert.match(escapeEffect, /shortcutEventConsumed\(event\) \|\| event\.isComposing\) return;/);
   assert.match(escapeEffect, /document\.querySelector\('\[data-ace-modal-dialog="true"\]'\)\) return;/);
   assert.match(escapeEffect, /close\(\);/);
   assert.match(escapeEffect, /document\.addEventListener\('keydown', onKeyDown\);/);
@@ -73,7 +73,7 @@ run('Settings window closes on Escape but yields to nested modals', () => {
 run('Settings search only swallows Escape while it has a query to clear', () => {
   const search = source('components/SettingsSearch.jsx');
 
-  assert.match(search, /if \(event\.key === 'Escape' && query\) \{ event\.stopPropagation\(\); onQuery\(''\); \}/);
+  assert.match(search, /if \(isDismissShortcut\(event\) && query\) \{ event\.stopPropagation\(\); onQuery\(''\); \}/);
 });
 
 run('Settings panel keeps normal caps and an exact 13px expanded inset', () => {

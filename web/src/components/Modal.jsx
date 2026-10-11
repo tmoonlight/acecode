@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 共享 modal 容器:遮罩 + 居中 + 键盘约定。效率工具中的弹窗立即出现/关闭,
 // 不做进入/退出动画,也不延迟 onClose。
 // 不依赖 bootstrap modal,纯 Tailwind + 内联状态。
@@ -50,7 +51,7 @@ export function Modal({
       const dialog = dialogRef.current;
       const modalDialogs = [...document.querySelectorAll('[data-ace-modal-dialog="true"]')];
       if (!dialog || modalDialogs[modalDialogs.length - 1] !== dialog) return;
-      if (event.key === 'Escape') {
+      if (isDismissShortcut(event)) {
         // 输入法合成中的 Esc 只是取消候选词,不能把对话框一起关掉。
         if (event.isComposing || !dismissOnEscapeRef.current) return;
         event.stopImmediatePropagation();
@@ -117,7 +118,7 @@ export function SlideOver({ children, onClose, width = 380 }) {
 
   useEffect(() => {
     requestAnimationFrame(() => setShow(true));
-    const onKey = (e) => { if (e.key === 'Escape') handleClose(); };
+    const onKey = (e) => { if (isDismissShortcut(e)) handleClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps

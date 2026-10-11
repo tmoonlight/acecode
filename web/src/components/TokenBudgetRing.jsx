@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import {
   useCallback,
   useEffect,
@@ -106,7 +107,7 @@ export function TokenBudgetRing({ budget, className = '' }) {
       closePanel();
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') closePanel();
+      if (isDismissShortcut(event)) closePanel();
     };
     const onViewportChange = () => closePanel();
 

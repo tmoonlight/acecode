@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import {
   useCallback,
   useEffect,
@@ -71,7 +72,7 @@ export function PathReferenceDropdown({
 
   const onKey = useCallback((event) => {
     if (!shouldHandleComposerDropdownKey(event)) return;
-    if (event.key === 'Escape') {
+    if (isDismissShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
       onClose?.();

@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 输入框:富文本 composer 自动撑高(最多 8 行) + Enter 发 / Shift+Enter 换行 +
 // 空输入或未编辑的历史项用上下键翻 history。
 //
@@ -964,7 +965,7 @@ export const InputBar = forwardRef(function InputBar({
   ]);
 
   useImperativeHandle(ref, () => ({
-    focus: () => ta.current?.focus(),
+    focus: (options) => ta.current?.focus(options),
     getElement: () => rootRef.current,
     getComposerContent: () => serializeComposerGoal(
       valueRef.current,
@@ -1181,7 +1182,7 @@ export const InputBar = forwardRef(function InputBar({
       items[nextExpertMenuItemIndex(event.key, currentIndex, items.length)]?.focus();
       return;
     }
-    if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+    if (event.key === 'ArrowLeft' || isDismissShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
       closeExpertSubmenu(true);
@@ -1207,7 +1208,7 @@ export const InputBar = forwardRef(function InputBar({
       closeCapabilityMenu();
     };
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape') return;
+      if (!isDismissShortcut(event)) return;
       if (expertSubmenuOpen) {
         // Mouse-opened submenus leave keyboard events with the editor.
         // Keyboard-opened submenus handle Escape on their focused menu item.
@@ -1280,6 +1281,7 @@ export const InputBar = forwardRef(function InputBar({
     // 这里只处理常规情况。
     if (shouldNavigateInputHistory({
       key: e.key,
+      code: e.code,
       value: draftValue,
       editedSinceHistory,
       historyLength: history.length,
@@ -1294,6 +1296,7 @@ export const InputBar = forwardRef(function InputBar({
       e.preventDefault();
       const next = getNextInputHistoryPointer({
         key: e.key,
+        code: e.code, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey,
         historyLength: history.length,
         historyPointer: histPtr,
       });
@@ -1315,7 +1318,7 @@ export const InputBar = forwardRef(function InputBar({
         }
       }
       setEditedSinceHistory(false);
-      return;
+      return true;
     }
   };
 

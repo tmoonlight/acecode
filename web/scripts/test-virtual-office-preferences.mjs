@@ -9,7 +9,9 @@ const web = fileURLToPath(new URL('../', import.meta.url));
 const modulePath = process.env.ACE_PLAYWRIGHT_MODULE;
 const { chromium } = await import(modulePath ? pathToFileURL(path.resolve(modulePath)).href : 'playwright');
 const output = await fs.mkdtemp(path.join(os.tmpdir(), 'ace-office-preferences-'));
-const html = await fs.readFile(new URL('../../assets/desktop_pet/agent_office_pet.html', import.meta.url), 'utf8');
+const characterScript = await fs.readFile(new URL('../../assets/desktop_pet/office_characters.js', import.meta.url), 'utf8');
+const html = (await fs.readFile(new URL('../../assets/desktop_pet/agent_office_pet.html', import.meta.url), 'utf8'))
+  .replace('<script src="./office_characters.js"></script>', `<script>${characterScript}</script>`);
 const fixture = `
 import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -72,7 +74,8 @@ try {
   const toggle = page.getByRole('switch', { name: '开启虚拟办公室' });
   assert.equal(await toggle.getAttribute('aria-checked'), 'false');
   await page.getByRole('button', { name: 'ACECode 快捷菜单' }).click();
-  const labels = await page.getByRole('menuitem').allTextContents();
+  // Read labels separately from the shortcut badges added to menu items.
+  const labels = await page.getByRole('menuitem').locator('span.truncate').allTextContents();
   assert.ok(labels.indexOf('显示虚拟办公室') === labels.indexOf('设置') + 1);
   assert.ok(labels.indexOf('外观') === labels.indexOf('显示虚拟办公室') + 1);
   assert.equal(await page.getByRole('menuitem', { name: '显示虚拟办公室' }).locator('svg').count(), 1);

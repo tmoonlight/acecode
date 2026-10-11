@@ -82,7 +82,7 @@ test('new expert split control stages Expert Manager without sending and keeps t
   assert.equal((page.match(/role="menuitem"/g) || []).length, 1);
   assert.match(page, />\s*高级模式\s*</);
   assert.match(page, /data-ace-native-overlay="overlap"/);
-  assert.match(page, /event\.key === 'Escape'/);
+  assert.match(page, /isDismissShortcut\(event\)/);
   assert.match(page, /creationMenuButtonRef\.current\?\.focus\(\)/);
   assert.match(page, /document\.addEventListener\('pointerdown'/);
   assert.match(page, /setEditor\(\{ editing: false, form: emptyExpertForm\('agent'\) \}\)/);

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <random>
+#include <future>
 
 namespace fs = std::filesystem;
 using acecode::web::EmbeddedAssetSource;
@@ -42,7 +43,7 @@ TEST(StaticAssets, EmbeddedMapContainsIndexHtml) {
     const auto& m = embedded_asset_map();
     auto it = m.find("index.html");
     ASSERT_NE(it, m.end()) << "index.html 必须被嵌入 — 检查 web/index.html 与 acecode_embed_assets";
-    EXPECT_GT(it->second.second, 0u);
+    EXPECT_GT(it->second.size, 0u);
 }
 
 // 场景: EmbeddedAssetSource 命中 index.html
@@ -60,6 +61,43 @@ TEST(StaticAssets, EmbeddedSourceMisses) {
     EmbeddedAssetSource src;
     EXPECT_FALSE(src.lookup("does-not-exist.js").has_value());
     EXPECT_FALSE(src.lookup("").has_value());
+}
+
+TEST(StaticAssets, GzipNegotiationRespectsQualityAndExplicitExclusions) {
+    using acecode::web::accepts_gzip;
+    for (const auto* header : {"gzip", "br, gzip", "GZip;Q=0.1", "*;q=1", "gzip; q=1.000"}) {
+        EXPECT_TRUE(accepts_gzip(header)) << header;
+    }
+    for (const auto* header : {"", "br", "x-gzip", "gzip;q=0", "gzip;q=0.000, *;q=1",
+                               "gzip;q=broken", "gzip;q=1.1", "gzip;q=0.0001", "*;q=0",
+                               "gzip;q=0, gzip;q=1", "gzip;q"}) {
+        EXPECT_FALSE(accepts_gzip(header)) << header;
+    }
+}
+
+TEST(StaticAssets, EmbeddedGzipAndIdentityShareTheOriginalContent) {
+    EmbeddedAssetSource src;
+    const auto identity = src.lookup("index.html");
+    const auto encoded = src.lookup("index.html", true);
+    ASSERT_TRUE(identity);
+    ASSERT_TRUE(encoded);
+    const auto& stored = embedded_asset_map().at("index.html");
+    EXPECT_EQ(identity->size, stored.decoded_size);
+    EXPECT_FALSE(identity->gzip);
+    EXPECT_EQ(encoded->gzip, stored.gzip);
+    EXPECT_EQ(encoded->size, stored.size);
+    EXPECT_EQ(encoded->data, stored.data);
+    EXPECT_EQ(encoded->vary_accept_encoding, stored.gzip);
+    EXPECT_EQ(identity->content_type, encoded->content_type);
+    if (stored.gzip) {
+        EXPECT_LT(encoded->size, identity->size);
+        EXPECT_EQ(encoded->data[0], 0x1f);
+        EXPECT_EQ(encoded->data[1], 0x8b);
+        ASSERT_TRUE(identity->owned_buffer);
+        EXPECT_NE(identity->owned_buffer->find("<html"), std::string::npos);
+        auto concurrent = std::async(std::launch::async, [&src] { return src.lookup("index.html"); });
+        EXPECT_EQ(concurrent.get()->owned_buffer, identity->owned_buffer);
+    }
 }
 
 namespace {

@@ -27,7 +27,7 @@ run('selection toolbar keeps the exact quote and annotation contract', () => {
   assert.ok(annotationIndex > quoteIndex);
   assert.match(popover, /role="toolbar" aria-label="选中文本操作"/);
   assert.match(popover, /event\.key === 'Enter' && !event\.shiftKey/);
-  assert.match(popover, /event\.key === 'Escape'/);
+  assert.match(popover, /isDismissShortcut\(event\)/);
   assert.match(popover, /maxLength=\{MAX_SELECTION_ANNOTATION_CHARS\}/);
   assert.match(popover, /document\.addEventListener\('pointerdown'/);
 });

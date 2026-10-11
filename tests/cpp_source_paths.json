@@ -13,6 +13,7 @@
   "desktop/splash_screen.cpp": "src/apps/desktop/splash_screen.cpp",
   "desktop/startup_progress.hpp": "src/apps/desktop/startup_progress.hpp",
   "desktop/web_host.cpp": "src/apps/desktop/web_host.cpp",
+  "desktop/web_host_focus.hpp": "src/apps/desktop/web_host_focus.hpp",
   "tool/agent_browser/browser_tools.cpp": "src/adapters/tool/agent_browser/browser_tools.cpp",
   "tool/agent_browser/browser_tools.hpp": "src/adapters/tool/agent_browser/browser_tools.hpp",
   "tool/agent_browser/cdp_client.cpp": "src/adapters/tool/agent_browser/cdp_client.cpp",

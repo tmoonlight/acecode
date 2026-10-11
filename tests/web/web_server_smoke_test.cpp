@@ -54,6 +54,8 @@
 #include "session/session_user_message_search.hpp"
 #include "session/todo_state.hpp"
 #include "session_host/task_suggestion_service.hpp"
+#include "session_host/thread_service.hpp"
+#include "session_host/tools/thread_tools.hpp"
 #include "session_host/memory_command.hpp"
 #include "session_host/memory_runtime.hpp"
 #include "memory/memory_service.hpp"
@@ -3739,6 +3741,66 @@ TEST(WebServerHttp, CreateNoWorkspaceSessionIsListedOutsideWorkspaces) {
     EXPECT_EQ(resumed_entry->cwd, expected_cwd);
 
     std::filesystem::remove_all(no_workspace_project_dir);
+}
+
+// 从无工作区会话调用 AI 创建工具后,侧栏使用的接口必须列出新会话。
+TEST(WebServerHttp, ToolCreatedNoWorkspaceThreadAppearsInSidebarList) {
+    class PersistingClient final : public acecode::LocalSessionClient {
+    public:
+        explicit PersistingClient(acecode::SessionRegistry& registry)
+            : LocalSessionClient(registry), registry_(registry) {}
+        bool send_input(const std::string& id, const std::string& text) override {
+            auto entry = registry_.acquire(id);
+            if (!entry || !entry->sm) return false;
+            acecode::ChatMessage message;
+            message.role = "user";
+            message.content = text;
+            entry->sm->on_message(message);
+            return true;
+        }
+    private:
+        acecode::SessionRegistry& registry_; // Borrowed; fixture owns both.
+    };
+    WebServerFixture fx(true, false, {}, true, {}, {}, false, {},
+        [](acecode::SessionRegistry& registry) {
+            return std::make_unique<PersistingClient>(registry);
+        });
+    auto deps = std::make_shared<acecode::ThreadToolDeps>();
+    deps->service = std::make_shared<acecode::ThreadService>(
+        acecode::ThreadService::Deps{fx.registry.get(), fx.client.get()});
+    acecode::register_codex_thread_tools(fx.tools, deps);
+    acecode::SessionOptions options;
+    options.no_workspace = true;
+    auto caller = fx.registry->acquire(fx.registry->create(options));
+    ASSERT_NE(caller, nullptr);
+    const auto caller_project = acecode::SessionStorage::get_project_dir(caller->cwd);
+    acecode::ToolContext context;
+    context.cwd = caller->cwd;
+    context.session_manager = caller->sm.get();
+    const auto created = fx.tools.execute("create_thread",
+        R"({"prompt":"hello","title":"Created by AI"})", context);
+    ASSERT_TRUE(created.success) << created.output;
+    const auto body = json::parse(created.output);
+    const auto id = body["threadId"].get<std::string>();
+    const auto project = acecode::SessionStorage::get_project_dir(body["cwd"]);
+    for (bool active : {true, false}) {
+        if (!active) fx.client->destroy_session(id);
+        const auto response = cpr::Get(cpr::Url{fx.url("/api/sessions?scope=no-workspace")});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+        const auto rows = json::parse(response.text);
+        const auto found = std::find_if(rows.begin(), rows.end(), [&](const auto& row) {
+            return row.value("id", std::string{}) == id;
+        });
+        ASSERT_NE(found, rows.end());
+        EXPECT_EQ((*found)["title"], "Created by AI");
+        EXPECT_EQ((*found)["no_workspace"], true);
+        EXPECT_EQ((*found)["workspace_hash"], "");
+        EXPECT_EQ((*found)["active"], active);
+    }
+    fx.client->destroy_session(caller->id);
+    caller.reset();
+    std::filesystem::remove_all(project);
+    std::filesystem::remove_all(caller_project);
 }
 
 // 场景:会话列表只在规范 JSONL 已经实际落盘时暴露 session_path。
@@ -8186,6 +8248,99 @@ TEST(WebServerHttp, SkillsListsProjectSkillWithSource) {
         EXPECT_EQ(o["description"], "fixture description");
     }
     EXPECT_TRUE(found);
+}
+
+TEST(WebServerHttp, SkillScanPathsConfigRefreshesDiscoveryAndPersists) {
+    WebServerFixture fx;
+    acecode::SessionOptions options;
+    options.cwd = fx.cwd;
+    const auto session_id = fx.registry->create(options);
+    const auto session_skills = fx.registry->skill_registry_snapshot(session_id);
+    ASSERT_TRUE(session_skills);
+    const auto global = fx.cwd_dir / "custom-global";
+    write_skill_md(global, "configured-skill", "configured path");
+    auto get = cpr::Get(cpr::Url{fx.url("/api/config/skill-paths")});
+    ASSERT_EQ(get.status_code, 200) << get.text;
+    EXPECT_FALSE(json::parse(get.text)["customized"].get<bool>());
+    auto put = [&](const json& body) {
+        return cpr::Put(cpr::Url{fx.url("/api/config/skill-paths")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{body.dump()});
+    };
+    auto saved = put({{"paths", {acecode::path_to_utf8(global)}}});
+    ASSERT_EQ(saved.status_code, 200) << saved.text;
+    EXPECT_TRUE(json::parse(saved.text)["customized"].get<bool>());
+    EXPECT_TRUE(session_skills->find("configured-skill"));
+    EXPECT_EQ(acecode::load_config_from_path((fx.tmp_dir / "config.json").string(), false)
+                  .skills.scan_paths,
+              std::optional<std::vector<std::string>>({acecode::path_to_utf8(global)}));
+    auto list = cpr::Get(cpr::Url{fx.url("/api/skills")});
+    ASSERT_EQ(list.status_code, 200);
+    ASSERT_EQ(json::parse(list.text).size(), 1u);
+    EXPECT_EQ(json::parse(list.text)[0]["name"], "configured-skill");
+    auto body = cpr::Get(cpr::Url{fx.url("/api/skills/configured-skill/body")});
+    EXPECT_EQ(body.status_code, 200) << body.text;
+    EXPECT_EQ(put({{"paths", false}}).status_code, 400);
+    EXPECT_EQ(put({{"paths", json::array()}}).status_code, 200);
+    EXPECT_FALSE(session_skills->find("configured-skill"));
+    EXPECT_TRUE(json::parse(cpr::Get(cpr::Url{fx.url("/api/skills")}).text).empty());
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/skills/configured-skill/body")}).status_code, 404);
+    EXPECT_EQ(put({{"paths", nullptr}}).status_code, 200);
+    get = cpr::Get(cpr::Url{fx.url("/api/config/skill-paths")});
+    EXPECT_FALSE(json::parse(get.text)["customized"].get<bool>());
+}
+
+TEST(WebServerHttp, SkillsRefreshRemovesDeletedDisabledSkillsAndPreservesPreferences) {
+    WebServerFixture fx;
+    const auto global_root = fx.cwd_dir / "custom-global";
+    const auto project_root = fx.cwd_dir / "project-skills";
+    const std::vector<std::pair<std::filesystem::path, std::string>> removed = {
+        {global_root, "deleted-global"}, {project_root, "deleted-project"}};
+    write_skill_md(global_root, "remaining", "keep visible");
+    for (const auto& [root, name] : removed) write_skill_md(root, name, "before delete");
+    auto set_paths = [&](const json& paths) {
+        return cpr::Put(cpr::Url{fx.url("/api/config/skill-paths")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{json{{"paths", paths}}.dump()});
+    };
+    ASSERT_EQ(set_paths({acecode::path_to_utf8(global_root), "project-skills"}).status_code, 200);
+    auto refresh = [&] {
+        const auto response = cpr::Get(cpr::Url{fx.url("/api/skills")});
+        EXPECT_EQ(response.status_code, 200) << response.text;
+        return json::parse(response.text);
+    };
+    for (const auto& [root, name] : removed) {
+        auto response = cpr::Put(cpr::Url{fx.url("/api/skills/" + name)},
+            cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{R"({"enabled":false})"});
+        ASSERT_EQ(response.status_code, 200) << response.text;
+    }
+    auto disabled = refresh();
+    ASSERT_EQ(disabled.size(), 3u);
+    for (const auto& item : disabled) {
+        EXPECT_EQ(item["enabled"].get<bool>(), item["name"] == "remaining");
+    }
+    for (const auto& [root, name] : removed) {
+        ASSERT_TRUE(std::filesystem::remove(root / "general" / name / "SKILL.md"));
+    }
+    auto after_delete = refresh();
+    ASSERT_EQ(after_delete.size(), 1u);
+    EXPECT_EQ(after_delete[0]["name"], "remaining");
+    const auto load_disabled = [&] {
+        return acecode::load_config_from_path((fx.tmp_dir / "config.json").string(), false)
+            .skills.disabled;
+    };
+    const std::vector<std::string> expected_disabled{"deleted-global", "deleted-project"};
+    EXPECT_EQ(load_disabled(), expected_disabled);
+    for (const auto& [root, name] : removed) write_skill_md(root, name, "restored");
+    auto restored = refresh();
+    ASSERT_EQ(restored.size(), 3u);
+    for (const auto& item : restored) {
+        EXPECT_EQ(item["enabled"].get<bool>(), item["name"] == "remaining");
+    }
+    ASSERT_EQ(set_paths(json::array()).status_code, 200);
+    EXPECT_TRUE(refresh().empty());
+    EXPECT_EQ(load_disabled(), expected_disabled);
 }
 
 // 场景: GET /api/skills/root 返回选中 workspace 的有效 skill 目录。

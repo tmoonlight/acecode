@@ -70,6 +70,8 @@
 #  undef Success
 #endif
 
+#include "web_host_focus.hpp"
+
 namespace acecode::desktop {
 
 namespace {
@@ -86,6 +88,8 @@ WebHost::FileDropHandler g_file_drop_handler;
 // main.cpp uses this GUI-thread callback to consume its one-shot open request.
 std::function<void()> g_existing_instance_focus_handler;
 
+using detail::window_focus_handler;
+
 #ifdef __APPLE__
 std::function<void(bool)> g_mac_window_state_handler;
 bool g_mac_last_known_maximized = false;
@@ -98,11 +102,7 @@ MacApplicationReopenImp g_mac_original_reopen_imp = nullptr;
 NSString* const kAceCodeFocusExistingNotification =
     @"dev.acecode.desktop.focusExisting.v1";
 
-NSWindow* mac_window_from_host(webview::webview& w) {
-    auto window_result = w.window();
-    if (!window_result.ok() || !window_result.value()) return nil;
-    return static_cast<NSWindow*>(window_result.value());
-}
+using detail::mac_window_from_host;
 
 void notify_mac_window_state_if_changed(NSWindow* window) {
     if (!window) return;
@@ -112,6 +112,7 @@ void notify_mac_window_state_if_changed(NSWindow* window) {
     if (g_mac_window_state_handler) {
         g_mac_window_state_handler(maximized);
     }
+    if ([window isKeyWindow] && window_focus_handler) window_focus_handler();
 }
 
 bool mac_window_is_fullscreen(NSWindow* window) {
@@ -174,6 +175,7 @@ void notify_mac_window_fullscreen_if_changed(NSWindow* window) {
     if (g_mac_window_fullscreen_handler) {
         g_mac_window_fullscreen_handler(fullscreen);
     }
+    if ([window isKeyWindow] && window_focus_handler) window_focus_handler();
 }
 
 id install_mac_window_fullscreen_observer(webview::webview& w,
@@ -710,11 +712,6 @@ void notify_window_visibility(bool visible) {
     g_last_known_window_visible = visible;
     if (g_window_visibility_handler) g_window_visibility_handler(visible);
 }
-
-// WebView2 does not reliably turn a native top-level activation into a DOM
-// window.focus event. The Desktop main process uses this callback to dispatch
-// an explicit frontend event after the host has completed WM_ACTIVATE handling.
-std::function<void()> g_window_focus_handler;
 
 // 单例联动:第二次启动 acecode-desktop 会向已有 host window 派 focus msg,
 // 让我们把窗口拉前 + 显示。同名 RegisterWindowMessageW 在两端拿到一致 UINT,
@@ -1373,8 +1370,8 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         case WM_ACTIVATE: {
             const LRESULT result = call_host_default_proc(hwnd, msg, wparam, lparam);
             if (LOWORD(wparam) != WA_INACTIVE && !::IsIconic(hwnd) &&
-                g_window_focus_handler) {
-                g_window_focus_handler();
+                window_focus_handler) {
+                window_focus_handler();
             }
             return result;
         }
@@ -1406,13 +1403,17 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             // 拉满整个客户区,所以先让它跑完,再按顶边线让位重新摆放。
             const LRESULT result = call_host_default_proc(hwnd, msg, wparam, lparam);
             resize_webview_widget(hwnd);
+            const bool was_visible = g_last_known_window_visible;
+            const bool maximized = ::IsZoomed(hwnd) != FALSE;
+            const bool state_changed = maximized != g_last_known_maximized;
+            g_last_known_maximized = maximized;
             notify_window_visibility(wparam != SIZE_MINIMIZED);
-            if (g_window_state_handler) {
-                const bool maximized = ::IsZoomed(hwnd) != FALSE;
-                if (maximized != g_last_known_maximized) {
-                    g_last_known_maximized = maximized;
-                    g_window_state_handler(maximized);
-                }
+            if (state_changed && g_window_state_handler) {
+                g_window_state_handler(maximized);
+            }
+            if (wparam != SIZE_MINIMIZED && (state_changed || !was_visible) &&
+                ::GetForegroundWindow() == hwnd && window_focus_handler) {
+                window_focus_handler();
             }
             return result;
         }
@@ -1905,7 +1906,7 @@ extern "C" int linux_window_delete_event(void*, void*, void*) {
     return dispatch_wm_close(g_close_handler) == CloseDispatch::ConsumedByHandler ? 1 : 0;
 }
 
-extern "C" int linux_window_state_event(void*, GdkEventWindowStateCompat* event, void*) {
+extern "C" int linux_window_state_event(void* window, GdkEventWindowStateCompat* event, void*) {
     const bool maximized = event &&
         ((event->new_window_state & kGdkWindowStateMaximized) != 0);
     if (maximized != g_linux_last_known_maximized) {
@@ -1913,6 +1914,12 @@ extern "C" int linux_window_state_event(void*, GdkEventWindowStateCompat* event,
         if (g_linux_window_state_handler) {
             g_linux_window_state_handler(maximized);
         }
+    }
+    if (event && (event->changed_mask & (GDK_WINDOW_STATE_ICONIFIED | GDK_WINDOW_STATE_MAXIMIZED |
+                                      GDK_WINDOW_STATE_FULLSCREEN)) &&
+        !(event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) &&
+        gtk_window_is_active(GTK_WINDOW(window)) && window_focus_handler) {
+        window_focus_handler();
     }
     return 0;
 }
@@ -1933,6 +1940,7 @@ void install_linux_close_handler(webview::webview& w) {
 void install_linux_window_state_handler(webview::webview& w) {
     auto window = w.window();
     if (!window.ok() || !window.value()) return;
+    detail::install_linux_window_focus_handler(w);
     auto& api = gtk_window_api();
     if (!api.load()) return;
     api.signal_connect_data(window.value(),
@@ -2160,16 +2168,10 @@ struct WebHost::Impl {
           center_on_first_show(
               startup_mode == StartupWindowMode::OffscreenUntilReady),
           com(custom_window != nullptr) {
-        // 三段式构造:
-        //   (1) 默认 Loader 路径,优先 offscreen custom_window;失败 → 切
-        //       自管 nullptr 父窗口再试一次(沿用现有降级)。
-        //   (2) (1) 整段还是抛 → 探测 Edge 浏览器 / EdgeWebView Runtime
-        //       自带的 msedgewebview2.exe 目录,通过
-        //       WEBVIEW2_BROWSER_EXECUTABLE_FOLDER 环境变量(WebView2Loader.dll
-        //       公开的覆盖钩子)指过去再试。
-        //   (3) Edge fallback 仍失败或没找到 Edge → 抛 WebHostInitializationError
-        //       给 desktop main。main 还有最后一层 Edge --app=<daemon URL>
-        //       兜底,不能在 WebHost 构造函数里直接 ExitProcess。
+        // 优先使用离屏宿主；失败后切为 webview 自有窗口重试。
+        // 默认 Loader 仍失败时，探测系统 Edge/WebView Runtime 目录，
+        // 通过 WEBVIEW2_BROWSER_EXECUTABLE_FOLDER 重新装载。
+        // 最后抛 WebHostInitializationError，由 main 的 Edge --app 兜底；禁止直接 ExitProcess。
 
         // WebView2 创建之前把默认打底色钉进环境变量。官方文档:仅靠
         // put_DefaultBackgroundColor 属性,首帧之前仍会闪默认白;环境变量是
@@ -2260,6 +2262,7 @@ struct WebHost::Impl {
         configure_mac_window_chrome(*w);
         install_mac_edit_menu(*w);
         mac_focus_observer = install_mac_focus_existing_observer(*w);
+        mac_window_focus = std::make_unique<detail::MacWindowFocusObservers>(*w);
         mac_enter_fullscreen_observer = install_mac_window_fullscreen_observer(
             *w, NSWindowDidEnterFullScreenNotification);
         mac_exit_fullscreen_observer = install_mac_window_fullscreen_observer(
@@ -2298,6 +2301,7 @@ struct WebHost::Impl {
 #endif
 
     ~Impl() {
+        window_focus_handler = {};
 #ifdef _WIN32
         taskbar_badge.reset();
         HWND hwnd = custom_window;
@@ -2315,6 +2319,7 @@ struct WebHost::Impl {
             [[NSDistributedNotificationCenter defaultCenter] removeObserver:mac_focus_observer];
             mac_focus_observer = nil;
         }
+        mac_window_focus.reset();
         if (mac_enter_fullscreen_observer) {
             [[NSNotificationCenter defaultCenter]
                 removeObserver:mac_enter_fullscreen_observer];
@@ -2363,6 +2368,7 @@ struct WebHost::Impl {
 #endif
 #ifdef __APPLE__
     id mac_focus_observer = nil;
+    std::unique_ptr<detail::MacWindowFocusObservers> mac_window_focus;
     id mac_enter_fullscreen_observer = nil;
     id mac_exit_fullscreen_observer = nil;
 #endif
@@ -2500,17 +2506,15 @@ bool WebHost::focus_after_file_drop() {
         ::AttachThreadInput(current_thread, foreground_thread, TRUE) != FALSE;
     set_visible(true);
     if (attached) ::AttachThreadInput(current_thread, foreground_thread, FALSE);
-    if (::GetForegroundWindow() != hwnd) return false;
-
-    auto controller_result = impl_->w->browser_controller();
-    if (!controller_result.ok()) return false;
-    auto* controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
-    return controller && SUCCEEDED(
-        controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC));
+    return focus_active_webview();
 #else
     set_visible(true);
     return true;
 #endif
+}
+
+bool WebHost::focus_active_webview() {
+    return detail::focus_active_webview(*impl_->w);
 }
 
 bool WebHost::open_dev_tools() {
@@ -2740,11 +2744,7 @@ void WebHost::set_window_visibility_handler(WindowVisibilityHandler handler) {
 #endif
 }
 void WebHost::set_window_focus_handler(WindowFocusHandler handler) {
-#ifdef _WIN32
-    g_window_focus_handler = std::move(handler);
-#else
-    (void)handler;
-#endif
+    window_focus_handler = std::move(handler);
 }
 void WebHost::set_existing_instance_focus_handler(
     ExistingInstanceFocusHandler handler) {

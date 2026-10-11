@@ -8,7 +8,6 @@
       "profession": "转化路径设计师"
     }
   ],
-  "avatar": "avatars/opc-conversion-designer.png",
   "created_at": "2026-07-26T06:25:34Z",
   "defaultInitPrompt": "",
   "displayDescription": "把触达、承接和成交串成一条清楚的路径，找出断点并确定最小闭环。",
@@ -36,5 +35,5 @@
     "product": "WorkBuddy",
     "version": "1.0.0"
   },
-  "version": "1.0.0"
+  "version": "1.0.0-acecode.2"
 }

@@ -106,17 +106,9 @@ run('imperative focus retries after an external Slate document replacement', () 
 
 run('desktop Ctrl+Enter inserts a line break while plain Enter still submits', () => {
   const composer = source('components/RichComposer.jsx');
-  const enter = composer.indexOf("event.key === 'Enter'");
-  const desktopCtrlEnter = composer.indexOf('event.ctrlKey && isDesktopShell()', enter);
-  const insertBreak = composer.indexOf('editor.insertBreak()', desktopCtrlEnter);
-  const plainEnter = composer.indexOf('if (!event.shiftKey)', insertBreak);
-  const submit = composer.indexOf('onSubmit?.()', plainEnter);
-
-  assert.ok(enter >= 0);
-  assert.ok(desktopCtrlEnter > enter);
-  assert.ok(insertBreak > desktopCtrlEnter);
-  assert.ok(plainEnter > insertBreak);
-  assert.ok(submit > plainEnter);
+  assert.match(composer, /composerShortcutAction\(event, isDesktopShell\(\)\)/);
+  assert.match(composer, /shortcutAction === 'newline'\) editor\.insertBreak\(\)/);
+  assert.match(composer, /shortcutAction === 'send' && !event\.repeat\) onSubmit\?\.\(\)/);
 });
 
 run('placeholder stays top-aligned without the inset shorthand', () => {

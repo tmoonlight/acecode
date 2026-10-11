@@ -1,3 +1,4 @@
+import { effectiveShortcut, shortcutEventVariants } from './shortcutBindings.js';
 import {
   OFFICE_PREVIEW_ZOOM_DEFAULT,
   OFFICE_PREVIEW_ZOOM_MAX,
@@ -96,6 +97,7 @@ export function presentationFrameDocument(rendererSource, channel, scrollbarStyl
     (() => {
       const source = ${source};
       const channel = ${frameChannel};
+      let presentationKeys = ${JSON.stringify(shortcutEventVariants(effectiveShortcut('previewPresentation')))};
       const viewport = document.getElementById('ace-presentation-viewport');
       const stage = document.getElementById('ace-presentation-stage');
       const root = document.getElementById('ace-presentation-root');
@@ -183,14 +185,19 @@ export function presentationFrameDocument(rendererSource, channel, scrollbarStyl
         send('contextmenu', '', { x: event.clientX, y: event.clientY });
       });
       window.addEventListener('keydown', (event) => {
-        if (event.key !== 'F11' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey
-            || event.isComposing || event.keyCode === 229) return;
+        if (event.isComposing || event.keyCode === 229 || !presentationKeys.some((key) =>
+          key.code === event.code && key.ctrlKey === event.ctrlKey && key.metaKey === event.metaKey
+          && key.altKey === event.altKey && key.shiftKey === event.shiftKey)) return;
         event.preventDefault();
         if (!event.repeat) send('presentation');
       });
       window.addEventListener('message', async (event) => {
         const data = event.data || {};
         if (event.source !== parent || data.source !== source || data.channel !== channel) return;
+        if (data.status === 'shortcuts' && Array.isArray(data.keys)) {
+          presentationKeys = data.keys;
+          return;
+        }
         if (data.status === 'ping') {
           send('ready');
           return;

@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { APP_SHORTCUT_BROWSER_GUARD, appShortcutContextAllows, matchAppShortcut } from './appShortcuts.js';
+import { useShortcutPreferences } from './useShortcutPreferences.js';
 
 // Actions stay with their React owner; one event is consumed at most once.
 export function useAppShortcuts(handlers) {
+  useShortcutPreferences();
   const latest = useRef(handlers);
   latest.current = handlers;
   useEffect(() => {

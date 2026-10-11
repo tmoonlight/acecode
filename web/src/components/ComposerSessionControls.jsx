@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import { loadTier, loadTierTextClass } from '../lib/modelLoad.js';
@@ -251,7 +252,7 @@ export function ComposerSessionControls({
       if (!rootRef.current?.contains(event.target)) setOpenMenu('');
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') setOpenMenu('');
+      if (isDismissShortcut(event)) setOpenMenu('');
     };
     document.addEventListener('pointerdown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);

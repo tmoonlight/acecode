@@ -120,7 +120,7 @@ test('折叠 / 展开两态接到侧栏与选图标网格', () => {
 // 真实点击、焦点和草稿保留由 test-context-image-paste.mjs 覆盖。
 test('收起选图标层保留编辑项目对话框', () => {
   const picker = source('components/WorkspaceIconPicker.jsx');
-  assert.ok(picker.includes("event.key !== 'Escape'"));
+  assert.ok(picker.includes('!isDismissShortcut(event)'));
   const modal = source('components/EditWorkspaceModal.jsx');
   assert.match(modal, /<Modal[\s\S]*?dismissOnBackdrop=\{false\}[\s\S]*?labelledBy="ace-edit-workspace-title"/);
   assert.ok(modal.includes('setPickerOpen((open) => !open)'));

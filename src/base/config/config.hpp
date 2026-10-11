@@ -69,6 +69,8 @@ struct McpServerConfig {
 };
 
 struct SkillsConfig {
+    // Missing/null preserves legacy roots; an explicit array replaces them.
+    std::optional<std::vector<std::string>> scan_paths;
     std::vector<std::string> disabled;       // skill names to hide even if present on disk
     std::vector<std::string> external_dirs;  // extra directories to scan (supports ~ and ${ENV})
     bool reuse_opencode = true;              // reuse opencode-compatible skill roots by default

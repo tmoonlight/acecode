@@ -25,6 +25,25 @@ export function filterSkills(skills, query) {
     s.description.toLowerCase().includes(q));
 }
 
+export const SKILL_PAGE_SIZES = [20, 50, 100];
+export const DEFAULT_SKILL_PAGE_SIZE = 50;
+
+export function isSkillPageSize(value) {
+  return SKILL_PAGE_SIZES.includes(value);
+}
+
+// Filter the complete catalog first, then slice before creating card elements.
+// Clamp to a valid page after refresh/deletion; empty lists retain page 1.
+export function paginateSkills(skills, requestedPage = 1, requestedSize = DEFAULT_SKILL_PAGE_SIZE) {
+  const list = Array.isArray(skills) ? skills : [];
+  const pageSize = isSkillPageSize(requestedSize) ? requestedSize : DEFAULT_SKILL_PAGE_SIZE;
+  const total = list.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(pageCount, Math.max(1, Number.isFinite(requestedPage) ? Math.floor(requestedPage) : 1));
+  const offset = (page - 1) * pageSize;
+  return { items: list.slice(offset, offset + pageSize), page, pageCount, pageSize, total };
+}
+
 // 按来源分成「项目技能」「全局技能」两个列表,保持原有顺序。
 export function groupSkillsBySource(skills) {
   const project = [];

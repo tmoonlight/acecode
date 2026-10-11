@@ -413,12 +413,13 @@ bool install_macos_app_update(const fs::path& installed_bundle,
         NSFileManager* file_manager = [NSFileManager defaultManager];
         NSURL* installed_url = file_url(installed_bundle, YES);
         NSURL* candidate_url = file_url(candidate_bundle, YES);
-        const fs::path temporary_path = applications_dir /
-            (".ACECode-" + std::string([[[NSUUID UUID] UUIDString] UTF8String]) +
-             ".updating.app");
-        const fs::path previous_path = applications_dir /
-            (".ACECode-" + std::string([[[NSUUID UUID] UUIDString] UTF8String]) +
-             ".previous.app");
+        // The old bundle may still own running processes until restart. Keep
+        // its actual app name stable for macOS permission/display-name lookup.
+        MacosAppUpdateWorkspace workspace(applications_dir /
+            (".acecode-update-" + std::string([[[NSUUID UUID] UUIDString] UTF8String])));
+        if (!workspace.create(error)) return false;
+        const fs::path temporary_path = workspace.staged_bundle();
+        const fs::path previous_path = workspace.previous_bundle();
         NSURL* temporary_url = file_url(temporary_path, YES);
         NSURL* previous_url = file_url(previous_path, YES);
         if (!installed_url || !candidate_url || !temporary_url || !previous_url) {
@@ -481,9 +482,7 @@ bool install_macos_app_update(const fs::path& installed_bundle,
             !authenticate_candidate(previous_path, installed_bundle,
                                     expected_version, &final_error)) {
             std::string cleanup_error;
-            const fs::path failed_path = applications_dir /
-                (".ACECode-" + std::string([[[NSUUID UUID] UUIDString] UTF8String]) +
-                 ".failed.app");
+            const fs::path failed_path = workspace.failed_bundle();
             NSURL* failed_url = file_url(failed_path, YES);
             bool moved_failed = failed_url &&
                 move_item(file_manager, installed_url, failed_url, &cleanup_error);

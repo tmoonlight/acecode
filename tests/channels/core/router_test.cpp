@@ -73,6 +73,26 @@ protected:
             switched.emplace_back(id, name);
             return true;
         };
+        deps.set_permission_mode = [this](const std::string& id, const std::string& mode) {
+            mode_changes.emplace_back(id, mode);
+            if (fail_controls) return false;
+            std::lock_guard<std::mutex> lock(sessions.mu);
+            sessions.sessions.at(id).permission_mode = mode;
+            return true;
+        };
+        deps.model_state = [this](const std::string& id) -> std::optional<SessionModelState> {
+            return model_states[id];
+        };
+        deps.set_reasoning_effort = [this](const std::string& id, const std::optional<std::string>& effort,
+                                          std::string* error) -> std::optional<SessionModelState> {
+            effort_changes.emplace_back(id, effort);
+            if (fail_controls || (effort && *effort != "low" && *effort != "high")) {
+                *error = "测试更新失败";
+                return std::nullopt;
+            }
+            model_states[id].reasoning_effort = effort;
+            return model_states[id];
+        };
         deps.expand_skill = [](const std::string&, const std::string& text) { return "[展开]" + text; };
         deps.release_session = [this](const std::string& id, const std::string& key, const std::string& label) {
             if (conversations) conversations->release_session(id, key, label);
@@ -107,6 +127,10 @@ protected:
     AccessControl access;
     std::unique_ptr<Conversations> conversations;
     std::vector<std::pair<std::string, std::string>> switched;
+    std::vector<std::pair<std::string, std::string>> mode_changes;
+    std::vector<std::pair<std::string, std::optional<std::string>>> effort_changes;
+    std::map<std::string, SessionModelState> model_states;
+    bool fail_controls = false;
     int binding_changes = 0;
 };
 
@@ -194,6 +218,98 @@ TEST_F(ChannelRouter, BusySessionRejectsSwitching) {
     EXPECT_TRUE(transport->wait_said("请先 /stop"));
     send("1", "/status", "m4");
     EXPECT_TRUE(transport->wait_said("状态:执行中"));
+}
+
+TEST_F(ChannelRouter, ModeCommandsStayInBoundSessionWhileBusy) {
+    send("1", "/new", "m1");
+    send("2", "/new", "m2");
+    const auto id = bound("2");
+    sessions.set_busy(id, true);
+    send("2", "/mode", "m3");
+    EXPECT_TRUE(transport->wait_said("权限模式:默认权限 (default)"));
+    send("2", "/mode auto", "m4");
+    EXPECT_TRUE(transport->wait_said("已切换权限模式为 自动模式 (auto)"));
+    send("2", "/yolo", "m5");
+    send("2", "/yolo", "m5");
+    EXPECT_TRUE(transport->wait_said("已切换权限模式为 完全访问权限 (yolo)"));
+    send("2", "/status", "m6");
+    EXPECT_TRUE(transport->wait_said("权限模式:完全访问权限 (yolo)"));
+    send("2", "/mode default", "m7");
+    ASSERT_EQ(mode_changes.size(), 3u);
+    EXPECT_EQ(mode_changes[0], std::make_pair(id, std::string("auto")));
+    EXPECT_EQ(mode_changes[1], std::make_pair(id, std::string("yolo")));
+    EXPECT_EQ(mode_changes[2], std::make_pair(id, std::string("default")));
+    EXPECT_TRUE(sessions.input_log().empty());
+    std::lock_guard<std::mutex> lock(sessions.mu);
+    EXPECT_EQ(sessions.sessions.at(bound("1")).permission_mode, "default");
+    EXPECT_TRUE(sessions.sessions.at(id).busy);
+}
+
+TEST_F(ChannelRouter, EffortQueriesChangesResetsAndReportsFailures) {
+    send("1", "/new", "m1");
+    const auto id = bound("1");
+    auto& model = model_states[id];
+    model.provider = "openai";
+    model.reasoning = ModelReasoningOptions{};
+    model.reasoning->supported = true;
+    model.reasoning->enabled = true;
+    model.reasoning->supported_efforts = {"low", "high"};
+    model.reasoning->effort = "low";
+    sessions.set_busy(id, true);
+    send("1", "/effort", "m2");
+    EXPECT_TRUE(transport->wait_said("思考深度:low (模型预设)"));
+    EXPECT_TRUE(transport->wait_said("可用档位: low high"));
+    send("1", "/effort high", "m3");
+    send("1", "/effort high", "m3");
+    EXPECT_TRUE(transport->wait_said("从下一次模型请求起生效"));
+    EXPECT_EQ(model.reasoning_effort, "high");
+    send("1", "/effort invalid", "m4");
+    EXPECT_TRUE(transport->wait_said("测试更新失败"));
+    EXPECT_EQ(model.reasoning_effort, "high");
+    send("1", "/status", "m5");
+    EXPECT_TRUE(transport->wait_said("思考深度:high"));
+    send("1", "/effort default", "m6");
+    EXPECT_TRUE(transport->wait_said("已恢复模型预设思考深度"));
+    EXPECT_FALSE(model.reasoning_effort);
+    ASSERT_EQ(effort_changes.size(), 3u);
+    EXPECT_EQ(effort_changes.back().first, id);
+    EXPECT_FALSE(effort_changes.back().second);
+    EXPECT_TRUE(sessions.input_log().empty());
+    model.reasoning->enabled = false;
+    send("1", "/effort", "m7");
+    EXPECT_TRUE(transport->wait_said("当前模型未启用或不支持 effort 档位"));
+}
+
+TEST_F(ChannelRouter, ControlsRejectUnboundUnauthorizedMalformedAndDeletedSessions) {
+    for (const auto* command : {"/mode auto", "/yolo", "/effort high"}) {
+        send("1", command, std::string("unbound-") + command);
+        send("9", command, std::string("unauthorized-") + command);
+    }
+    EXPECT_TRUE(transport->wait_said("当前还没有会话"));
+    EXPECT_TRUE(sessions.created_log().empty());
+    send("1", "/new", "new");
+    send("1", "/mode bad", "bad-mode");
+    send("1", "/yolo extra", "bad-yolo");
+    send("1", "/effort high low", "bad-effort");
+    const auto id = bound("1");
+    restart();
+    sessions.remove(id);
+    send("1", "/yolo", "deleted");
+    EXPECT_TRUE(transport->wait_said("无法打开当前绑定的会话"));
+    EXPECT_TRUE(mode_changes.empty());
+    EXPECT_TRUE(effort_changes.empty());
+    EXPECT_TRUE(sessions.input_log().empty());
+}
+
+TEST_F(ChannelRouter, FailedModeUpdateDoesNotReportSuccess) {
+    send("1", "/new", "m1");
+    fail_controls = true;
+    send("1", "/yolo", "m2");
+    EXPECT_TRUE(transport->wait_said("切换权限模式失败"));
+    EXPECT_FALSE(transport->said("已切换权限模式"));
+    send("1", "/mode", "m3");
+    EXPECT_TRUE(transport->wait_said("权限模式:默认权限 (default)"));
+    EXPECT_TRUE(sessions.input_log().empty());
 }
 
 // 场景:机主 /sessions 列出全部会话,然后目录里新增一个排在最前面的会话,再 /resume 1。

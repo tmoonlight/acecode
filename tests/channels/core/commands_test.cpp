@@ -27,6 +27,16 @@ TEST(ChannelCommands, ParsesKnownCommands) {
     EXPECT_EQ(resume.argument, "3");
     EXPECT_EQ(parse_command("/models").kind, CommandKind::Model);
     EXPECT_EQ(parse_command("/model gpt-5").argument, "gpt-5");
+    EXPECT_EQ(parse_command("/mode").kind, CommandKind::Mode);
+    EXPECT_EQ(parse_command(" /MODE AUTO ").argument, "auto");
+    EXPECT_EQ(parse_command("/mode accept-edits").argument, "auto");
+    EXPECT_EQ(parse_command("/mode acceptEdits").argument, "auto");
+    EXPECT_EQ(parse_command("/mode default").argument, "default");
+    EXPECT_EQ(parse_command("/mode yolo").argument, "yolo");
+    EXPECT_EQ(parse_command(" /YOLO ").kind, CommandKind::Yolo);
+    EXPECT_EQ(parse_command("/effort").kind, CommandKind::Effort);
+    EXPECT_EQ(parse_command(" /EFFORT HIGH ").argument, "high");
+    EXPECT_EQ(parse_command("/effort default").argument, "default");
     EXPECT_EQ(parse_command("/approve abc").kind, CommandKind::Approve);
     EXPECT_EQ(parse_command("/deny abc").kind, CommandKind::Deny);
     EXPECT_EQ(parse_command("/aq 1 2").kind, CommandKind::Question);
@@ -39,6 +49,7 @@ TEST(ChannelCommands, UnknownSlashTextIsPlainInput) {
     EXPECT_EQ(parse_command("/review 这个文件").kind, CommandKind::None);
     EXPECT_EQ(parse_command("").kind, CommandKind::None);
     EXPECT_EQ(parse_command("/statusbar").kind, CommandKind::None);
+    EXPECT_EQ(parse_command("/yolo-extra").kind, CommandKind::None);
 }
 
 // 场景:命令缺参数或参数格式不对。
@@ -49,6 +60,12 @@ TEST(ChannelCommands, ReportsUsageErrors) {
     EXPECT_FALSE(parse_command("/deny a b").error.empty());
     EXPECT_FALSE(parse_command("/sessions everything").error.empty());
     EXPECT_TRUE(parse_command("/sessions all").error.empty());
+    EXPECT_FALSE(parse_command("/mode invalid").error.empty());
+    EXPECT_FALSE(parse_command("/mode auto yolo").error.empty());
+    EXPECT_FALSE(parse_command("/yolo extra").error.empty());
+    EXPECT_FALSE(parse_command("/effort high low").error.empty());
+    EXPECT_FALSE(parse_command("/effort high\tlow").error.empty());
+    EXPECT_TRUE(parse_command("/effort xhigh").error.empty());
 }
 
 // 场景:会话正在执行时收到各种命令。
@@ -57,7 +74,8 @@ TEST(ChannelCommands, OnlyNewAndResumeWaitForIdle) {
     EXPECT_FALSE(runs_while_busy(CommandKind::New));
     EXPECT_FALSE(runs_while_busy(CommandKind::Resume));
     for (const auto kind : {CommandKind::Help, CommandKind::Status, CommandKind::Stop, CommandKind::Sessions,
-                            CommandKind::Model, CommandKind::Approve, CommandKind::Deny, CommandKind::Question})
+                            CommandKind::Model, CommandKind::Mode, CommandKind::Yolo, CommandKind::Effort,
+                            CommandKind::Approve, CommandKind::Deny, CommandKind::Question})
         EXPECT_TRUE(runs_while_busy(kind));
 }
 
@@ -66,6 +84,10 @@ TEST(ChannelCommands, OnlyNewAndResumeWaitForIdle) {
 TEST(ChannelCommands, HelpAndPromptsAreChinese) {
     EXPECT_EQ(texts::help(true).find("只能在自己创建的会话"), std::string::npos);
     EXPECT_NE(texts::help(false).find("只能在自己创建的会话"), std::string::npos);
+    for (const auto* command : {"/mode", "/yolo", "/effort"}) {
+        EXPECT_NE(texts::help(true).find(command), std::string::npos);
+        EXPECT_NE(texts::help(false).find(command), std::string::npos);
+    }
     const auto prompt = texts::permission_prompt("p1", "bash", "{\"command\":\"ls\"}");
     EXPECT_NE(prompt.find("/approve p1"), std::string::npos);
     EXPECT_NE(prompt.find("/deny p1"), std::string::npos);

@@ -167,7 +167,7 @@ export function TopBar({
           <div ref={sessionActionsRef} className="ace-topbar-session-actions flex items-center empty:hidden" />
           {consoleAvailable && (
             <QuickBtn
-              title={consoleOpen ? '关闭控制台 (Ctrl+`)' : '打开控制台 (Ctrl+`)'}
+              title={withAppShortcutHint(consoleOpen ? '关闭控制台' : '打开控制台', 'console')}
               onClick={onToggleConsole}
               pressed={consoleOpen}
               panelToggle

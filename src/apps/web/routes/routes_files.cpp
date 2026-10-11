@@ -414,6 +414,43 @@ void WebServer::Impl::register_files() {
     }
 
 void WebServer::Impl::register_skills() {
+        CROW_ROUTE(app, "/api/config/skill-paths").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) { return cors_preflight(req); });
+
+        CROW_ROUTE(app, "/api/config/skill-paths").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (!deps.app_config) return with_cors(req, crow::response(503));
+            std::shared_lock<std::shared_mutex> lock(app_config_mu);
+            crow::response response(skill_scan_paths_payload(*deps.app_config).dump());
+            response.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(response));
+        });
+
+        CROW_ROUTE(app, "/api/config/skill-paths").methods(crow::HTTPMethod::PUT)
+        ([this](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            if (auto rej = reject_if_migrating(req)) return std::move(*rej);
+            if (!deps.app_config) return with_cors(req, crow::response(503));
+            const auto body = json::parse(req.body, nullptr, false);
+            std::lock_guard<std::shared_mutex> lock(app_config_mu);
+            auto result = set_skill_scan_paths(body, *deps.app_config, deps.config_path);
+            if (result.ok) {
+                if (deps.skill_registry) {
+                    const auto workspace = compatibility_workspace();
+                    initialize_skill_registry(*deps.skill_registry, *deps.app_config,
+                                              workspace.cwd);
+                }
+                if (deps.session_registry) {
+                    deps.session_registry->refresh_skill_policy(*deps.app_config);
+                }
+            }
+            crow::response response(result.http_status);
+            response.body = result.body.dump();
+            response.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(response));
+        });
+
         CROW_ROUTE(app, "/api/skills/root").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req) {
             return cors_preflight(req);
@@ -438,7 +475,8 @@ void WebServer::Impl::register_skills() {
                 ws = compatibility_workspace();
             }
 
-            auto selected = resolve_skill_root_for_cwd(ws->cwd);
+            std::shared_lock<std::shared_mutex> lock(app_config_mu);
+            auto selected = resolve_skill_root_for_cwd(ws->cwd, deps.app_config);
             json body{
                 {"path", path_to_utf8(selected.path)},
                 {"source", selected.source},

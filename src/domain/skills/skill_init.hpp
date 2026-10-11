@@ -3,7 +3,7 @@
 // 共享 SkillRegistry 初始化逻辑:扫描根目录顺序与 main.cpp 历史实现保持一致,
 // 让 TUI(main.cpp)与 daemon(worker.cpp)看到同一组 skills。
 //
-// 扫描根顺序(first-wins by skill name):
+// 未配置 skills.scan_paths 时的扫描根顺序(first-wins by skill name):
 //   1) project walk — <cwd...>/.acecode/skills,深度优先回溯到 HOME
 //   2) project walk — <cwd...>/.agent/skills,深度优先回溯到 HOME
 //   3) opencode project compat roots — when config.skills.reuse_opencode is true
@@ -22,6 +22,14 @@ namespace acecode {
 class SkillRegistry;
 struct AppConfig;
 
+// Editable default templates (legacy compatibility flags/external dirs apply).
+std::vector<std::string> default_skill_scan_paths(const AppConfig& config);
+
+// Ordered ordinary roots. Explicit scan_paths replaces all legacy roots;
+// relative paths expand along the workspace chain, absolute paths are global.
+std::vector<std::filesystem::path> skill_scan_roots(
+    const AppConfig& config, const std::string& working_dir);
+
 void initialize_skill_registry(SkillRegistry& skill_registry,
                                  const AppConfig& config,
                                  const std::string& working_dir,
@@ -30,12 +38,13 @@ void initialize_skill_registry(SkillRegistry& skill_registry,
                                  const std::optional<std::vector<std::string>>&
                                      expert_allowed = std::nullopt);
 
-// 项目链扫描根(上表 1-3 段):working_dir 沿目录树向上(不含 HOME 本身)。
+// 项目链扫描根(默认上表 1-3 段,自定义时为相对路径条目):
+// working_dir 沿目录树向上(不含 HOME 本身)。
 // 命中这些根的 skill 在 web UI 里归类为「项目技能」。纯枚举,不创建目录。
 std::vector<std::filesystem::path> project_skill_scan_roots(
     const AppConfig& config, const std::string& working_dir);
 
-// 全局扫描根(上表 4-7 段):用户全局目录 + opencode 全局兼容根 + external_dirs。
+// 全局扫描根(默认上表 4-7 段,自定义时为绝对路径条目)。
 // 纯枚举,不创建目录(~/.acecode/skills 的自动创建留在 initialize_skill_registry)。
 std::vector<std::filesystem::path> global_skill_scan_roots(const AppConfig& config);
 

@@ -201,6 +201,32 @@ TEST(UpgradeApply, AppliesStagedUpdateAndKeepsBackup) {
     fs::remove_all(root, ec);
 }
 
+TEST(UpgradeApply, LegacyMacFlatInstallAcceptsOneAppAndSmallForwarder) {
+    const auto root = temp_root("acecode-apply-mac-dedup");
+    const auto install = root / "install";
+    const auto staging = root / "staging";
+    const auto bundle = fs::path("ACECode.app") / "Contents";
+    write_file(install / "acecode", "previous standalone executable");
+    write_file(install / "user-file.txt", "preserved");
+    write_file(staging / "acecode", "small CLI forwarder");
+    write_file(staging / bundle / "MacOS" / "ACECode", "desktop");
+    write_file(staging / bundle / "MacOS" / "acecode-daemon", "single runtime");
+    write_file(staging / bundle / "Resources" / "share" / "acecode" / "models_dev" / "api.json", "{}");
+    std::string error;
+    const auto package = validate_staged_package(staging, "macos-arm64", &error);
+    ASSERT_TRUE(package) << error;
+    EXPECT_EQ(package->content_root, staging);
+    ASSERT_TRUE(apply_staged_update(staging, install, root / "backup", "macos-arm64", &error)) << error;
+    EXPECT_EQ(read_file(install / "acecode"), "small CLI forwarder");
+    EXPECT_EQ(read_file(install / bundle / "MacOS" / "acecode-daemon"), "single runtime");
+    EXPECT_TRUE(fs::exists(install / bundle / "Resources" / "share" / "acecode" / "models_dev" / "api.json"));
+    EXPECT_FALSE(fs::exists(install / "share"));
+    EXPECT_EQ(read_file(install / "user-file.txt"), "preserved");
+    EXPECT_EQ(read_file(root / "backup" / "acecode"), "previous standalone executable");
+    std::error_code ec;
+    fs::remove_all(root, ec);
+}
+
 TEST(UpgradeApply, AllowsSafeUpdateWhenInstallContainsUserDataDirectory) {
     const fs::path root = temp_root("acecode-apply-home-install");
     const fs::path home = root / "home";

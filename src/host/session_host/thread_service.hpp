@@ -20,6 +20,13 @@ struct ThreadScope {
     std::string cwd;
     std::string caller_thread_id;
     SessionManager* caller_manager = nullptr;
+    bool no_workspace = false;
+};
+
+struct ThreadCreateTarget {
+    std::string cwd;
+    std::string workspace_hash;
+    bool no_workspace = false;
 };
 
 struct ThreadWaitTarget {
@@ -44,7 +51,8 @@ struct ThreadServiceResult {
 
 // In-process thread domain service shared by model tools and host surfaces.
 // Discovery reads persistent and active sessions across all ACECode projects.
-// Mutations retain the calling workspace scope. No operation loops back
+// Creation and input delivery support explicit targets; other mutations
+// retain the calling workspace scope. No operation loops back
 // through ACECode's HTTP API.
 class ThreadService {
 public:
@@ -74,12 +82,14 @@ public:
     ThreadServiceResult create(const ThreadScope& scope,
                                const std::string& prompt,
                                const std::string& title = {},
-                               const std::string& model_name = {}) const;
+                               const std::string& model_name = {},
+                               const ThreadCreateTarget& target = {}) const;
     ThreadServiceResult fork(const ThreadScope& scope,
                              const std::string& thread_id = {}) const;
     ThreadServiceResult send(const ThreadScope& scope,
                              const std::string& thread_id,
-                             const std::string& prompt) const;
+                             const std::string& prompt,
+                             const std::string& workspace_hash = {}) const;
     ThreadServiceResult set_title(const ThreadScope& scope,
                                   const std::string& thread_id,
                                   const std::string& title) const;

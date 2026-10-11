@@ -1,5 +1,7 @@
 #include "commands.hpp"
 
+#include "config/vocab/permission_mode.hpp"
+
 #include <algorithm>
 #include <cctype>
 
@@ -35,6 +37,9 @@ Command parse_command(const std::string& raw) {
     else if (name == "/sessions" || name == "/session") command.kind = CommandKind::Sessions;
     else if (name == "/resume") command.kind = CommandKind::Resume;
     else if (name == "/model" || name == "/models") command.kind = CommandKind::Model;
+    else if (name == "/mode") command.kind = CommandKind::Mode;
+    else if (name == "/yolo") command.kind = CommandKind::Yolo;
+    else if (name == "/effort") command.kind = CommandKind::Effort;
     else if (name == "/approve") command.kind = CommandKind::Approve;
     else if (name == "/deny") command.kind = CommandKind::Deny;
     else if (name == "/aq") command.kind = CommandKind::Question;
@@ -49,6 +54,21 @@ Command parse_command(const std::string& raw) {
         const auto lowered = lower(command.argument);
         if (lowered != "more" && lowered != "all" && lowered.rfind("search ", 0) != 0)
             command.error = "用法:/sessions、/sessions more 或 /sessions search <关键词>。";
+    }
+    if (command.kind == CommandKind::Mode && !command.argument.empty()) {
+        auto mode = parse_permission_mode_name(command.argument);
+        if (!mode) mode = parse_permission_mode_name(lower(command.argument));
+        if (!mode || *mode == PermissionMode::Plan)
+            command.error = "用法:/mode [default|auto|yolo]。分别为默认权限、自动模式、完全访问权限。";
+        else
+            command.argument = permission_mode_name(*mode);
+    }
+    if (command.kind == CommandKind::Yolo && !command.argument.empty())
+        command.error = "用法:/yolo。直接切换到完全访问权限,无需参数。";
+    if (command.kind == CommandKind::Effort) {
+        command.argument = lower(command.argument);
+        if (command.argument.find_first_of(" \t\r\n") != std::string::npos)
+            command.error = "用法:/effort [档位|default]。发送 /effort 查看当前模型支持的档位。";
     }
     return command;
 }
@@ -66,6 +86,9 @@ std::string help(bool owner) {
         "/sessions 列出可切换的会话(more 查看更多,search <关键词> 搜索)\n"
         "/resume <编号或会话 ID> 切换到某个会话\n"
         "/model [名称] 查看或切换模型\n"
+        "/mode [default|auto|yolo] 查看或切换默认权限、自动模式、完全访问权限\n"
+        "/yolo 直接切换到完全访问权限(跳过工具权限确认)\n"
+        "/effort [档位|default] 查看或切换思考深度,default 恢复模型预设\n"
         "/approve <编号>、/deny <编号> 处理权限请求\n"
         "/aq 回答提问\n"
         "其它文字会直接发给当前会话。";

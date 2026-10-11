@@ -25,6 +25,22 @@
 
 namespace fs = std::filesystem;
 
+TEST(ExpertAvatarIdentity, ReferencedMembersMatchTheirStandaloneExpert) {
+    acecode::ExpertDefinition team;
+    team.id = "team";
+    team.type = acecode::ExpertType::Team;
+    team.references_existing_experts = true;
+    team.lead_expert_id = "leader";
+    acecode::ExpertDefinition worker;
+    worker.id = "worker";
+    EXPECT_EQ(team.avatar_identity("worker"), worker.avatar_identity());
+    EXPECT_EQ(team.avatar_identity(), "expert:leader");
+    team.references_existing_experts = false;
+    team.lead_agent_id = "leader";
+    EXPECT_EQ(team.avatar_identity(), "expert:team/leader");
+    EXPECT_EQ(team.avatar_identity("worker"), "expert:team/worker");
+}
+
 namespace {
 
 void install_test_provider(

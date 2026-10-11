@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 全局会话搜索面板:服务端增量目录 + 有界正文短批次。
 // 每次打开/查询都有独立 request_id；本地 AbortController 与服务端取消
 // 同时执行，因此 Esc、关闭按钮、遮罩、查询替换和卸载都能真正停止工作。
@@ -366,7 +367,7 @@ export function SearchPalette({
 
   const onRootKeyDown = useCallback((event) => {
     const total = items.length;
-    if (event.key === 'Escape') {
+    if (isDismissShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
       closePalette();

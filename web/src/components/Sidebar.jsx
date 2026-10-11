@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // Sidebar(200px):workspace 分组 → session list。
 //
 // 数据源:
@@ -53,6 +54,8 @@ import {
   unpinSessionId,
 } from '../lib/pinnedSessions.js';
 import { sessionDisplayTitle, withNewSessionDisplayTitles } from '../lib/sessionTitle.js';
+import { useSessionTitleAnimation } from '../lib/useSessionTitleAnimation.js';
+import { SessionTitleText } from './SessionTitleText.jsx';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import { desktopTaskbarBadge, desktopTaskbarBadgeAvailable } from '../lib/desktopTaskbarBadge.js';
 import { usePreference } from '../lib/usePreference.js';
@@ -703,7 +706,7 @@ function SessionHoverCard({
   );
 }
 
-function SidebarSessionTitle({ title }) {
+function SidebarSessionTitle({ title, animation }) {
   const viewportRef = useRef(null);
   const contentRef = useRef(null);
   const [metrics, setMetrics] = useState(() => sidebarTitleMarqueeMetrics(0, 0));
@@ -756,13 +759,14 @@ function SidebarSessionTitle({ title }) {
         'ace-sidebar-session-title-viewport',
         'min-w-0 flex-1',
         metrics.overflowing && 'is-overflowing',
-        metrics.overflowing && 'is-marquee-ready',
+        metrics.overflowing && !animation?.typing && 'is-marquee-ready',
       )}
       data-sidebar-session-title-overflow={metrics.overflowing ? 'true' : 'false'}
+      data-title-typing={animation?.typing ? 'true' : 'false'}
       style={marqueeStyle}
     >
       <span ref={contentRef} className="ace-sidebar-session-title-content">
-        {title}
+        <SessionTitleText title={title} animation={animation} />
       </span>
     </span>
   );
@@ -801,6 +805,7 @@ function SessionRow({
   // 没有就用 summary(最近一条用户消息显示文本的 80 字节截断)。这里不再另拉
   // 消息全文做跑马灯 —— 那会让侧栏 hover 时滚出一段与顶部不一致、且长度不受限的文本。
   const title = sessionDisplayTitle(s, s.name || '');
+  const titleAnimation = useSessionTitleAnimation(s, title);
   const sessionMarker = sidebarSessionMarker(s);
   const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
   // 被 QQ / Telegram 会话绑定的会话显示同一个电脑图标;/rc 的专属行为(换绑动画等)仍只看
@@ -1087,7 +1092,7 @@ function SessionRow({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitRename}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') {
+              if (isDismissShortcut(e)) {
                 e.preventDefault();
                 setEditing(false);
                 setDraft(title);
@@ -1120,7 +1125,7 @@ function SessionRow({
               <VsIcon name="computer" size={18} className="text-accent" />
             </span>
           )}
-          <SidebarSessionTitle title={title} />
+          <SidebarSessionTitle title={title} animation={titleAnimation} />
         </button>
       )}
       <span className="flex w-full min-w-0 items-center justify-end gap-2">
@@ -1552,7 +1557,7 @@ function WorkspaceGroup({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') { e.preventDefault(); commit(); }
-              if (e.key === 'Escape') { setEditing(false); setDraft(ws.name); }
+              if (isDismissShortcut(e)) { setEditing(false); setDraft(ws.name); }
             }}
             onBlur={commit}
             onClick={(e) => e.stopPropagation()}

@@ -10,6 +10,8 @@ assert.equal(searchSettings(entries, 'NODE.JS')[0].label, 'Node.js 工具');
 assert.equal(searchSettings(entries, 'font size')[0].section, 'appearance');
 assert.ok(searchSettings(entries, 'path').length > 3);
 assert.equal(searchSettings(entries, 'upgrade')[0].section, 'config');
+assert.equal(searchSettings(entries, 'Skill 扫描路径')[0].section, 'config');
+assert.equal(searchSettings(entries, 'skill scan paths')[0].label, 'Skill 扫描路径');
 console.log('[pass] bilingual settings search, ranking, cross-section and empty queries');
 
 // 全局搜索面板 → 设置窗口的选中项对齐(settingsSearchResultIndex)。

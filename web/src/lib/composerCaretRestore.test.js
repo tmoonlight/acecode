@@ -287,129 +287,201 @@ run('integrated terminal advertises the desktop focus region contract', () => {
   );
 });
 
-run('desktop composer auto-focus follows focus visibility events and cleans up', () => {
+function focusFixture() {
   const win = eventTarget();
+  const frames = new Map();
+  const timers = new Map();
+  let id = 0;
+  Object.assign(win, {
+    requestAnimationFrame: (fn) => { frames.set(++id, fn); return id; },
+    cancelAnimationFrame: (key) => frames.delete(key),
+    setTimeout: (fn) => { timers.set(++id, fn); return id; },
+    clearTimeout: (key) => timers.delete(key),
+  });
   const documentRef = Object.assign(eventTarget(), {
-    visibilityState: 'visible',
-    querySelector: () => null,
+    visibilityState: 'visible', querySelector: () => null, hasFocus: () => true,
   });
-  let focusCalls = 0;
+  const calls = [];
   const cleanup = bindDesktopComposerAutoFocus({
-    enabled: true,
-    onFocus: () => { focusCalls += 1; },
-    win,
-    documentRef,
+    enabled: true, win, documentRef, onFocus: (guard) => calls.push(guard),
   });
+  const flush = (queue) => { const entries = [...queue.values()]; queue.clear(); entries.forEach(fn => fn()); };
+  return { win, documentRef, calls, cleanup,
+    frame: () => flush(frames), timer: () => flush(timers),
+    restore: () => { flush(frames); flush(frames); },
+  };
+}
 
-  assert.equal(win.listenerCount('focus'), 1);
-  assert.equal(win.listenerCount('pageshow'), 1);
-  assert.equal(win.listenerCount('acecode:desktop-window-focus'), 1);
-  assert.equal(documentRef.listenerCount('focusin'), 1);
-  assert.equal(documentRef.listenerCount('visibilitychange'), 1);
-  win.dispatch('focus');
-  win.dispatch('pageshow');
-  win.dispatch('acecode:desktop-window-focus');
-  assert.equal(focusCalls, 3);
-
-  documentRef.visibilityState = 'hidden';
-  win.dispatch('focus');
-  documentRef.dispatch('visibilitychange');
-  assert.equal(focusCalls, 3);
-
-  documentRef.visibilityState = 'visible';
-  documentRef.dispatch('visibilitychange');
-  assert.equal(focusCalls, 4);
-
-  cleanup();
-  win.dispatch('focus');
-  win.dispatch('acecode:desktop-window-focus');
-  assert.equal(focusCalls, 4);
-  assert.equal(win.listenerCount('focus'), 0);
-  assert.equal(win.listenerCount('acecode:desktop-window-focus'), 0);
-  assert.equal(documentRef.listenerCount('focusin'), 0);
-  assert.equal(documentRef.listenerCount('visibilitychange'), 0);
+run('activation notifications coalesce and cleanup cancels pending restore', () => {
+  const f = focusFixture();
+  f.win.dispatch('focus');
+  f.win.dispatch('pageshow');
+  f.win.dispatch('acecode:desktop-window-focus');
+  f.restore();
+  assert.equal(f.calls.length, 1);
+  f.cleanup();
+  f.timer();
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls[0](), false);
+  for (const type of ['focus', 'blur', 'pageshow', 'acecode:desktop-window-focus']) {
+    assert.equal(f.win.listenerCount(type), 0);
+  }
+  for (const type of ['visibilitychange', 'pointerdown', 'keydown', 'beforeinput', 'input', 'compositionstart', 'compositionend']) {
+    assert.equal(f.documentRef.listenerCount(type), 0);
+  }
 });
 
-run('desktop composer auto-focus preserves expanded terminal ownership on reactivation', () => {
-  const win = eventTarget();
-  const body = element('body');
-  const html = element('html');
-  const documentRef = Object.assign(eventTarget(), {
-    activeElement: body,
-    body,
-    documentElement: html,
-    visibilityState: 'visible',
-    querySelector: () => null,
-  });
-  const terminalInput = terminalFocusTarget();
-  let focusCalls = 0;
-  const cleanup = bindDesktopComposerAutoFocus({
-    enabled: true,
-    onFocus: () => { focusCalls += 1; },
-    win,
-    documentRef,
-  });
-
-  documentRef.activeElement = terminalInput;
-  documentRef.dispatch('focusin', { target: terminalInput });
-  documentRef.activeElement = body;
-  win.dispatch('focus');
-  win.dispatch('acecode:desktop-window-focus');
-  documentRef.dispatch('visibilitychange');
-  assert.equal(focusCalls, 0);
-  cleanup();
+run('activation always returns to chat even after using the terminal', () => {
+  const f = focusFixture();
+  f.documentRef.activeElement = terminalFocusTarget();
+  f.win.dispatch('acecode:desktop-window-focus');
+  f.restore();
+  assert.equal(f.calls.length, 1);
+  f.cleanup();
 });
 
-run('desktop composer auto-focus resumes after focus leaves or closes the terminal', () => {
-  const win = eventTarget();
-  const body = element('body');
-  const html = element('html');
-  const documentRef = Object.assign(eventTarget(), {
-    activeElement: body,
-    body,
-    documentElement: html,
-    visibilityState: 'visible',
-    querySelector: () => null,
-  });
-  let focusCalls = 0;
-  const cleanup = bindDesktopComposerAutoFocus({
-    enabled: true,
-    onFocus: () => { focusCalls += 1; },
-    win,
-    documentRef,
-  });
-
-  const terminalInput = terminalFocusTarget();
-  const composerInput = textarea('draft');
-  documentRef.dispatch('focusin', { target: terminalInput });
-  documentRef.dispatch('focusin', { target: composerInput });
-  win.dispatch('focus');
-  assert.equal(focusCalls, 1);
-
-  const collapsedTerminalInput = terminalFocusTarget({ collapsed: true });
-  documentRef.dispatch('focusin', { target: collapsedTerminalInput });
-  win.dispatch('focus');
-  assert.equal(focusCalls, 2);
-  cleanup();
+run('hidden and background pages never restore from visibility alone', () => {
+  const f = focusFixture();
+  f.documentRef.visibilityState = 'hidden';
+  f.win.dispatch('focus'); f.restore();
+  assert.equal(f.calls.length, 0);
+  f.documentRef.visibilityState = 'visible';
+  f.documentRef.hasFocus = () => false;
+  f.documentRef.dispatch('visibilitychange'); f.restore();
+  assert.equal(f.calls.length, 0);
+  f.documentRef.hasFocus = () => true;
+  f.documentRef.dispatch('visibilitychange'); f.restore();
+  assert.equal(f.calls.length, 1);
+  f.cleanup();
 });
+
+{
+  const f = focusFixture();
+  let nativeCalls = 0;
+  f.win.aceDesktop_focusActiveWebview = () => {
+    nativeCalls += 1;
+    f.documentRef.hasFocus = () => true;
+    return { ok: true };
+  };
+  f.documentRef.visibilityState = 'hidden';
+  f.documentRef.hasFocus = () => false;
+  f.win.dispatch('acecode:desktop-window-focus'); f.restore();
+  assert.equal(nativeCalls, 0);
+  f.documentRef.visibilityState = 'visible';
+  f.documentRef.dispatch('visibilitychange'); f.frame();
+  await Promise.resolve();
+  f.frame();
+  assert.equal(nativeCalls, 1);
+  assert.equal(f.calls.length, 1);
+  f.cleanup();
+  console.log('[pass] native activation arriving before visibility restores the unfocused WebView');
+}
+
+for (const event of ['blur', 'pointerdown', 'keydown', 'beforeinput', 'input', 'compositionstart', 'compositionend', 'visibilitychange']) {
+  run(`${event} cancels delayed focus and the Slate retry guard`, () => {
+    const f = focusFixture();
+    f.win.dispatch('focus'); f.restore();
+    assert.equal(f.calls.length, 1);
+    if (event === 'visibilitychange') f.documentRef.visibilityState = 'hidden';
+    (event === 'blur' ? f.win : f.documentRef).dispatch(event);
+    f.timer();
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls[0](), false);
+    f.cleanup();
+  });
+}
+
+run('a modal opened during the pending restore blocks focus', () => {
+  const f = focusFixture();
+  f.win.dispatch('focus');
+  f.documentRef.querySelector = () => ({ role: 'dialog' });
+  f.restore(); f.timer();
+  assert.equal(f.calls.length, 0);
+  f.cleanup();
+});
+
+run('activation during IME never reaches the native focus bridge and resumes after composition ends', () => {
+  const f = focusFixture();
+  let nativeCalls = 0;
+  f.win.aceDesktop_focusActiveWebview = () => { nativeCalls += 1; return {ok:true}; };
+  f.documentRef.dispatch('compositionstart');
+  f.win.dispatch('acecode:desktop-window-focus');
+  f.win.dispatch('focus');
+  f.restore(); f.timer();
+  assert.equal(nativeCalls, 0);
+  assert.equal(f.calls.length, 0);
+  f.documentRef.dispatch('compositionend');
+  f.documentRef.hasFocus = () => false;
+  f.win.dispatch('acecode:desktop-window-focus');
+  f.frame();
+  assert.equal(nativeCalls, 1);
+  f.cleanup();
+});
+
+run('an already focused document restores chat without repeating native MoveFocus', () => {
+  const f = focusFixture();
+  let nativeCalls = 0;
+  f.win.aceDesktop_focusActiveWebview = () => { nativeCalls += 1; return {ok:true}; };
+  f.win.dispatch('acecode:desktop-window-focus');
+  f.restore();
+  assert.equal(nativeCalls, 0);
+  assert.equal(f.calls.length, 1);
+  f.cleanup();
+});
+
+for (const interruptedBy of ['blur', 'hidden']) {
+  run(`composition interrupted by ${interruptedBy} cannot block the next activation`, () => {
+    const f = focusFixture();
+    f.documentRef.dispatch('compositionstart');
+    if (interruptedBy === 'blur') f.win.dispatch('blur');
+    else {
+      f.documentRef.visibilityState = 'hidden';
+      f.documentRef.dispatch('visibilitychange');
+    }
+    f.documentRef.visibilityState = 'visible';
+    f.win.dispatch('acecode:desktop-window-focus');
+    f.restore();
+    assert.equal(f.calls.length, 1);
+    f.cleanup();
+  });
+}
+
+for (const outcome of ['success', 'background', 'reject', 'cleanup', 'blur', 'modal', 'compositionstart', 'beforeinput']) {
+  const f = focusFixture();
+  let resolve, reject;
+  let nativeCalls = 0;
+  f.win.aceDesktop_focusActiveWebview = () => {
+    nativeCalls += 1;
+    return new Promise((yes, no) => { resolve = yes; reject = no; });
+  };
+  f.documentRef.hasFocus = () => false;
+  f.win.dispatch('acecode:desktop-window-focus'); f.frame();
+  assert.equal(nativeCalls, 1);
+  assert.equal(f.calls.length, 0);
+  f.win.dispatch('focus');
+  if (outcome === 'cleanup') f.cleanup();
+  if (outcome === 'blur') f.win.dispatch('blur');
+  if (outcome === 'compositionstart' || outcome === 'beforeinput') f.documentRef.dispatch(outcome);
+  if (outcome === 'modal') f.documentRef.querySelector = () => ({ role: 'dialog' });
+  if (outcome === 'reject') reject(new Error('closed'));
+  else {
+    f.documentRef.hasFocus = () => true;
+    resolve({ ok: outcome !== 'background' });
+  }
+  await Promise.resolve();
+  f.restore(); f.timer();
+  assert.equal(f.calls.length, outcome === 'success' ? 2 : 0, outcome);
+  assert.equal(nativeCalls, 1);
+  f.cleanup();
+  console.log(`[pass] native focus handoff: ${outcome}`);
+}
 
 run('desktop composer auto-focus does not steal focus through a modal surface', () => {
-  const win = eventTarget();
-  const documentRef = Object.assign(eventTarget(), {
-    visibilityState: 'visible',
-    querySelector: () => ({ role: 'dialog' }),
-  });
-  let focusCalls = 0;
-  const cleanup = bindDesktopComposerAutoFocus({
-    enabled: true,
-    onFocus: () => { focusCalls += 1; },
-    win,
-    documentRef,
-  });
-
-  win.dispatch('focus');
-  assert.equal(focusCalls, 0);
-  cleanup();
+  const f = focusFixture();
+  f.documentRef.querySelector = () => ({ role: 'dialog' });
+  f.win.dispatch('focus'); f.restore();
+  assert.equal(f.calls.length, 0);
+  f.cleanup();
 });
 
 run('desktop composer auto-focus stays inert when disabled', () => {

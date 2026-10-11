@@ -1,8 +1,11 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { VsIcon } from './Icon.jsx';
 import { tr } from '../i18n/index.js';
 import { SESSION_HEADER_CONTEXT_MENU_DELEGATE } from '../lib/desktopContextMenu.js';
+import { useSessionTitleAnimation } from '../lib/useSessionTitleAnimation.js';
+import { SessionTitleText } from './SessionTitleText.jsx';
 
 // 顶栏「重命名」就地编辑:Enter / 失焦提交,Esc 放弃;输入法合成中的 Enter 不提交。
 // 挂载时全选原标题,直接输入即替换。
@@ -29,7 +32,7 @@ function SessionTitleRenameInput({ title, onCommit, onCancel }) {
         if (e.key === 'Enter') {
           e.preventDefault();
           finish(true);
-        } else if (e.key === 'Escape') {
+        } else if (isDismissShortcut(e)) {
           e.preventDefault();
           e.stopPropagation();
           finish(false);
@@ -45,6 +48,8 @@ export function SessionTitleBar({
   titleTarget,
   actionsTarget,
   title,
+  sessionRef,
+  titleReady = true,
   workspaceLabel,
   remoteControlBound,
   renaming = false,
@@ -53,6 +58,7 @@ export function SessionTitleBar({
   labelRef,
   children,
 }) {
+  const titleAnimation = useSessionTitleAnimation(sessionRef, title, titleReady);
   const label = (
     <div ref={labelRef} className="ace-session-title flex items-center gap-2 min-w-0">
       <span className="ace-session-title-text flex min-w-0 items-center gap-1.5">
@@ -63,13 +69,17 @@ export function SessionTitleBar({
         {renaming ? (
           <SessionTitleRenameInput title={title} onCommit={onRenameCommit} onCancel={onRenameCancel} />
         ) : (
-          <span className="text-[13px] font-semibold text-fg truncate" title={title}>{title}</span>
+          <span className="text-[13px] font-semibold text-fg truncate" title={title}>
+            <SessionTitleText title={title} animation={titleAnimation} />
+          </span>
         )}
       </span>
-      <span className="ace-session-workspace shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium border bg-surface-hi text-fg-mute border-transparent"
-        title={workspaceLabel} data-session-workspace-label="true">
-        {workspaceLabel}
-      </span>
+      {workspaceLabel && (
+        <span className="ace-session-workspace shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium border bg-surface-hi text-fg-mute border-transparent"
+          title={workspaceLabel} data-session-workspace-label="true">
+          {workspaceLabel}
+        </span>
+      )}
     </div>
   );
   const actions = <div className="ace-session-title-actions flex items-center gap-1 shrink-0">{children}</div>;

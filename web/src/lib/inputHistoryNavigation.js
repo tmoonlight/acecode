@@ -1,4 +1,5 @@
 import { composerContentFromMessage, composerContentSignature, composerContentText } from './composerContent.js';
+import { isShortcut } from './shortcutBindings.js';
 
 // hasNonTextContent:输入框里还有粘贴块 / 附件等不在编辑器文本里的内容。此时编辑器
 // 为空不代表输入框为空,上箭头不能进入历史(否则几 MB 的粘贴会被历史条目静默替换);
@@ -82,6 +83,7 @@ export function buildComposerHistory({ cwdHistory = [], transcriptItems = [] } =
 
 export function shouldNavigateInputHistory({
   key,
+  code,
   value = '',
   editedSinceHistory = false,
   historyLength = 0,
@@ -92,23 +94,23 @@ export function shouldNavigateInputHistory({
   metaKey = false,
   shiftKey = false,
 } = {}) {
-  if (altKey || ctrlKey || metaKey || shiftKey) return false;
+  const event = { key, code, altKey, ctrlKey, metaKey, shiftKey };
   if (!isInputHistoryNavigationMode({ value, editedSinceHistory, hasNonTextContent, historyPointer })) return false;
-  if (key === 'ArrowUp') return historyLength > 0;
-  if (key === 'ArrowDown') return historyPointer >= 0;
+  if (isShortcut(event, 'historyPrevious')) return historyLength > 0;
+  if (isShortcut(event, 'historyNext')) return historyPointer >= 0;
   return false;
 }
 
-export function getNextInputHistoryPointer({ key, historyLength = 0, historyPointer = -1 } = {}) {
+export function getNextInputHistoryPointer({ key, code, altKey, ctrlKey, metaKey, shiftKey, historyLength = 0, historyPointer = -1 } = {}) {
   const count = Math.max(0, Math.trunc(Number(historyLength) || 0));
   const pointer = Number.isInteger(historyPointer) ? historyPointer : -1;
 
-  if (key === 'ArrowUp') {
+  if (isShortcut({ key, code, altKey, ctrlKey, metaKey, shiftKey }, 'historyPrevious')) {
     if (count === 0) return -1;
     return pointer === -1 ? count - 1 : Math.max(0, pointer - 1);
   }
 
-  if (key === 'ArrowDown') {
+  if (isShortcut({ key, code, altKey, ctrlKey, metaKey, shiftKey }, 'historyNext')) {
     if (pointer < 0) return -1;
     const next = pointer + 1;
     return next >= count ? -1 : next;

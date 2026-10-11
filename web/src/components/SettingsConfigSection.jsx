@@ -7,6 +7,7 @@ import {
 import { desktopUpdateRestartAvailable, requestDesktopUpdateRestart } from '../lib/updateJob.js';
 import { VsIcon } from './Icon.jsx';
 import { Modal } from './Modal.jsx';
+import { SkillScanPathsSettings } from './SkillScanPathsSettings.jsx';
 
 function Status({ label, tone = 'muted' }) {
   return <span className={`ace-settings-status ${tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : 'text-fg-mute'}`}>{label}</span>;
@@ -34,7 +35,7 @@ function PathEditor({ id, label, detail, value = '', onSave, onBrowse, status, d
   );
 }
 
-export function SettingsConfigSection() {
+export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
   const [upgradeUrl, setUpgradeUrl] = useState('');
   const [toolchains, setToolchains] = useState([]);
   const [terminal, setTerminal] = useState(null);
@@ -198,6 +199,7 @@ export function SettingsConfigSection() {
             onSave={(path) => saveTool(field.id, path)} onBrowse={() => browseTool(field.id)} />;
         })}
       </section>
+      <SkillScanPathsSettings focusRequest={skillPathsFocusRequest} disabled={migrating || restartRequired} />
       <section className="ace-settings-group">
         <h3>默认终端</h3><p>用于 Agent 命令和控制台</p>
         <div className="ace-settings-row">

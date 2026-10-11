@@ -1,4 +1,5 @@
 #include "skills_handler.hpp"
+#include "config/config_mutation.hpp"
 
 #include "skills/skill_init.hpp"
 #include "skills/skill_activation.hpp"
@@ -83,11 +84,61 @@ SkillRootSelection select_skill_root(const fs::path& workspace_cwd,
     return {global_norm, "global_acecode", global_norm};
 }
 
-SkillRootSelection resolve_skill_root_for_cwd(const std::string& workspace_cwd_utf8) {
+SkillRootSelection resolve_skill_root_for_cwd(const std::string& workspace_cwd_utf8,
+                                             const AppConfig* config) {
+    if (config && config->skills.scan_paths) {
+        const auto projects = project_skill_scan_roots(*config, workspace_cwd_utf8);
+        const auto globals = global_skill_scan_roots(*config);
+        const fs::path global = globals.empty() ? fs::path{} : globals.front();
+        return {projects.empty() ? global : projects.front(),
+                projects.empty() ? "global_configured" : "project_configured", global};
+    }
     fs::path cwd;
     if (!workspace_cwd_utf8.empty()) cwd = acecode::path_from_utf8(workspace_cwd_utf8);
     const auto global_root = acecode::path_from_utf8(get_acecode_dir()) / "skills";
     return select_skill_root(cwd, global_root, true);
+}
+
+nlohmann::json skill_scan_paths_payload(const AppConfig& config) {
+    const auto defaults = default_skill_scan_paths(config);
+    return {{"paths", config.skills.scan_paths.value_or(defaults)},
+            {"default_paths", defaults},
+            {"customized", config.skills.scan_paths.has_value()}};
+}
+
+SkillToggleResult set_skill_scan_paths(const nlohmann::json& body,
+                                       AppConfig& config,
+                                       const std::string& config_path) {
+    auto invalid = [](const char* message) -> SkillToggleResult {
+        return {false, 400, {{"error", message}}};
+    };
+    if (!body.is_object() || !body.contains("paths")) {
+        return invalid("paths (string array or null) required");
+    }
+    std::optional<std::vector<std::string>> paths;
+    if (!body["paths"].is_null()) {
+        if (!body["paths"].is_array()) return invalid("paths must be a string array or null");
+        paths.emplace();
+        for (const auto& value : body["paths"]) {
+            if (!value.is_string()) return invalid("each scan path must be a string");
+            const auto raw = value.get<std::string>();
+            if (raw.find_first_of(std::string("\0\r\n", 3)) != std::string::npos) {
+                return invalid("scan paths must not contain NUL or line breaks");
+            }
+            const auto begin = raw.find_first_not_of(" \t");
+            if (begin == std::string::npos) return invalid("scan paths must not be blank");
+            paths->push_back(raw.substr(begin, raw.find_last_not_of(" \t") - begin + 1));
+        }
+    }
+    const auto result = mutate_config([paths](AppConfig& candidate, std::string&) {
+        if (candidate.skills.scan_paths == paths) return false;
+        candidate.skills.scan_paths = paths;
+        return true;
+    }, config_path, &config);
+    if (!result.ok) return {false, 500, {{"error", result.error}}};
+    // Keep environment/runtime-only settings in the active config untouched.
+    config.skills.scan_paths = result.config.skills.scan_paths;
+    return {true, 200, skill_scan_paths_payload(config)};
 }
 
 SkillToggleResult set_skill_enabled(const std::string& name,
@@ -146,7 +197,8 @@ nlohmann::json build_skills_payload_with_roots(
     const std::vector<std::string>& disabled_list,
     const SkillUsageStore* skill_usage,
     std::int64_t now_epoch_ms,
-    int idle_days) {
+    int idle_days,
+    const std::vector<fs::path>* ordered_roots) {
     // 扫描时 disabled 置空 —— 禁用中的 skill 也保留完整元数据(描述/来源),
     // 而不是像旧实现那样只剩一个名字。
     std::unordered_set<std::string> project_root_keys;
@@ -156,6 +208,7 @@ nlohmann::json build_skills_payload_with_roots(
 
     std::vector<fs::path> roots = project_roots;
     roots.insert(roots.end(), global_roots.begin(), global_roots.end());
+    if (ordered_roots) roots = *ordered_roots;
 
     SkillRegistry registry;
     registry.set_scan_roots(std::move(roots));
@@ -178,7 +231,6 @@ nlohmann::json build_skills_payload_with_roots(
     }
 
     nlohmann::json arr = nlohmann::json::array();
-    std::unordered_set<std::string> listed;
     for (const auto& s : registry.list()) {
         nlohmann::json o;
         o["name"]        = s.name;
@@ -203,25 +255,6 @@ nlohmann::json build_skills_payload_with_roots(
             o["pinned"]    = false;
             o["dormant"]   = false;
         }
-        listed.insert(s.name);
-        arr.push_back(std::move(o));
-    }
-
-    // 幽灵条目:disabled 里残留、但磁盘上已经找不到的名字。仍然列出,
-    // 让用户能从禁用列表里清掉它。
-    for (const auto& name : disabled_list) {
-        if (listed.count(name)) continue;
-        nlohmann::json o;
-        o["name"]        = name;
-        o["command_key"] = name;
-        o["description"] = "";
-        o["category"]    = "";
-        o["enabled"]     = false;
-        o["source"]      = "";
-        o["useCount"]    = 0;
-        o["lastUsedAt"]  = "";
-        o["pinned"]      = false;
-        o["dormant"]     = false;
         arr.push_back(std::move(o));
     }
     return arr;
@@ -237,13 +270,14 @@ nlohmann::json build_skills_payload(const AppConfig& cfg,
                 std::chrono::system_clock::now().time_since_epoch())
                 .count();
     }
+    const auto roots = skill_scan_roots(cfg, workspace_cwd_utf8);
     return build_skills_payload_with_roots(
         project_skill_scan_roots(cfg, workspace_cwd_utf8),
         global_skill_scan_roots(cfg),
         cfg.skills.disabled,
         skill_usage,
         now_epoch_ms,
-        cfg.skills.idle_days);
+        cfg.skills.idle_days, &roots);
 }
 
 } // namespace acecode::web

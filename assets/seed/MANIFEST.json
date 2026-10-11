@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-10-09.1",
+  "bundle_version": "2026-10-10.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -74,61 +74,61 @@
       "name": "opc-asset-strategist",
       "source_id": "acecode:opc-expert/opc-asset-strategist@2026-07-27",
       "relative_path": "opc-asset-strategist",
-      "expert_json_sha256": "608f10116741d377004b62ce7cb6c928191c7766b298ffc510cbba0687025be2"
+      "expert_json_sha256": "dfbf7c55580bde6430c3bb9e58ea4606225bd8f1a5d3d674fa1be6075cbe92cf"
     },
     {
       "name": "opc-conversion-designer",
       "source_id": "acecode:opc-expert/opc-conversion-designer@2026-07-27",
       "relative_path": "opc-conversion-designer",
-      "expert_json_sha256": "7dde3a19e17feecb0d4189310d856d49789febb1997c4225163bcf24276fc904"
+      "expert_json_sha256": "842b208a4285b12f7807ff1b2d8a9552213e5712bdd7ed699e8599e0ab71d607"
     },
     {
       "name": "opc-dashboard-reviewer",
       "source_id": "acecode:opc-expert/opc-dashboard-reviewer@2026-07-27",
       "relative_path": "opc-dashboard-reviewer",
-      "expert_json_sha256": "5b49d6f450b73e43acd8e41149b7587cd62f73e8fd89c011316b8be9d5fc2f9c"
+      "expert_json_sha256": "9ff4ec1bf71bf447dc4535acdfba0d55c0866a338bbded6288be2458ace3b11d"
     },
     {
       "name": "opc-model-architect",
       "source_id": "acecode:opc-expert/opc-model-architect@2026-07-27",
       "relative_path": "opc-model-architect",
-      "expert_json_sha256": "9191890cc26df6d48366496fb755ec95fc97f037219834e36f543b5c29a50728"
+      "expert_json_sha256": "49ebf21569f13644efbb3c9446638c91a0df10043b89fcf55c16af84924b44dd"
     },
     {
       "name": "opc-mvp-designer",
       "source_id": "acecode:opc-expert/opc-mvp-designer@2026-07-27",
       "relative_path": "opc-mvp-designer",
-      "expert_json_sha256": "9a7f373fd34295a07ee415d136864a298005c1e905637c87f0aea1ce02b121b4"
+      "expert_json_sha256": "54a4a06f588e7412c1a56a05d8f51659c09af665d019043513059c860059fa9a"
     },
     {
       "name": "opc-niche-strategist",
       "source_id": "acecode:opc-expert/opc-niche-strategist@2026-07-27",
       "relative_path": "opc-niche-strategist",
-      "expert_json_sha256": "e9ba654a872c2876719549bbfec3840d1e98156c0ae98c6f661ecd33b080b974"
+      "expert_json_sha256": "b77b8f7cd1170e7474b0b11b4f4516ed5c1dcfebddd580958dfe3b00770af465"
     },
     {
       "name": "opc-resource-auditor",
       "source_id": "acecode:opc-expert/opc-resource-auditor@2026-07-27",
       "relative_path": "opc-resource-auditor",
-      "expert_json_sha256": "6362a865739a5097da0eadf1d502a8c81fffb7ec5021d2eb7ae755e71e5a3a82"
+      "expert_json_sha256": "1367a8949f5777831bd081fb3695d33f8e960e4e201d3bee7b9278d7b801a995"
     },
     {
       "name": "opc-team",
       "source_id": "acecode:opc-expert/opc-team@2026-07-27",
       "relative_path": "opc-team",
-      "expert_json_sha256": "6ce471a322c6e36b4ab9d92ff1a16b5df9fe685a60c25957d2108a293a20c00e"
+      "expert_json_sha256": "9ff9d4e9c487865fa5290a8d4d71ac606a9244cbe3dcad63b6977901d6bcf793"
     },
     {
       "name": "opc-team-lead",
       "source_id": "acecode:opc-expert/opc-team-lead@2026-07-27",
       "relative_path": "opc-team-lead",
-      "expert_json_sha256": "878809e76c8cb2d9c1279da0ca20e8fb97489a8ff19d6c9be35d0205fc219ee5"
+      "expert_json_sha256": "9b5f4fa6f6ab8bf9ecc1b8986c4cd5004a489362657b89fb98ea1eb519f9a864"
     },
     {
       "name": "opc-value-designer",
       "source_id": "acecode:opc-expert/opc-value-designer@2026-07-27",
       "relative_path": "opc-value-designer",
-      "expert_json_sha256": "a8855db067eac7f3bb9d4f2d67902a93b55b0b2b7ebdba03a432a1fa9eab2b1a"
+      "expert_json_sha256": "099b6a67ed9f29a4c9bb2a9b82f62f89a4ea7737100046d9a76c5957dbc50f99"
     }
   ],
   "hooks": [

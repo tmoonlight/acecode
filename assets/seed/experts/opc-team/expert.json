@@ -1,6 +1,6 @@
 {
   "name": "opc-team",
-  "version": "1.0.0-acecode.1",
+  "version": "1.0.0-acecode.2",
   "expertType": "team",
   "displayName": "一人公司专家团",
   "profession": "一人公司共创团队",
@@ -24,7 +24,6 @@
       "opc-dashboard-reviewer"
     ]
   },
-  "avatar": "avatars/team.png",
   "license": "CC-BY-NC-SA-4.0",
   "homepage": "https://github.com/easychen/opc-methodology",
   "upstream": {

@@ -68,16 +68,30 @@ package size, and SHA-256. Native preflight additionally enforces:
   outside App Translocation and other app bundles. Custom directories are
   supported alongside `~/Applications` and `/Applications`.
 
-The updater stages a hidden sibling, validates it, retains a uniquely named previous bundle,
-and rolls back when replacement validation fails. New PKG installations always
+The updater creates a private sibling directory `.acecode-update-<UUID>` with
+`staging/ACECode.app`, `previous/ACECode.app`, and `failed/ACECode.app` slots.
+It validates the staged app, retains the previous bundle, and rolls back when
+replacement validation fails. All copies retain the actual name `ACECode.app`:
+an old process can remain alive until restart, and renaming its bundle to a
+random name can expose that name in macOS permission prompts. The UUID belongs
+to the containing directory, not the application name. Empty containers are
+removed on exit; remaining application copies are preserved. Copies inside an
+update directory cannot be used as self-update installation targets.
+New PKG installations always
 use `~/Applications`; existing `/Applications` installations remain supported
 but are neither relocated nor deleted automatically.
 
 Custom installer locations (including the `~/Apps` fallback) update in place
 without elevation when the current account has permission. Unwritable locations
 require a manual installation or moving the app to a writable folder. Retained
-`.ACECode-<UUID>.previous.app` backups require manual cleanup when no longer
-needed; the updater does not delete unrelated or existing backups.
+`.acecode-update-<UUID>/previous/ACECode.app` backups require manual cleanup
+when no longer needed and their old processes have exited. Historical
+`.ACECode-<UUID>.previous.app` backups are left untouched; the updater does not
+delete unrelated or existing backups. An update executed by an older version
+still uses that version's naming policy. After updating, quit and reopen the
+installed `ACECode.app` to stop running from the old copy. macOS permission
+dialog attribution must be verified on a Mac; portable filesystem tests do not
+prove the text of a system permission dialog.
 
 Older ACECode versions with the two-directory restriction need one manual
 installation of the new version before custom-location self-update is available.

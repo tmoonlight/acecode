@@ -13,7 +13,8 @@
     "ftxui",
     "libzip",
     "nlohmann-json",
-    "sqlite3"
+    "sqlite3",
+    "zlib"
   ],
   "features": {
     "tests": {

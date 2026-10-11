@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Joyride } from 'react-joyride';
 import {
@@ -33,7 +34,7 @@ export function DesktopGuidedTour({ run, hasModel, onDismiss, onAbort }) {
   useEffect(() => {
     if (!run) return undefined;
     const dismissOnEscape = (event) => {
-      if (event.key !== 'Escape' || terminalHandledRef.current) return;
+      if (!isDismissShortcut(event) || terminalHandledRef.current) return;
       terminalHandledRef.current = true;
       event.preventDefault();
       event.stopPropagation();

@@ -704,6 +704,47 @@ TEST_F(DefaultSkillSeederTest, PreservesUserCreatedExpertWithSeededId) {
     EXPECT_FALSE(outcome->acecode_owned);
 }
 
+TEST_F(DefaultSkillSeederTest, PixelPortraitUpgradeRemovesOnlyManagedDefaultImages) {
+    const auto& seed = acecode::default_expert_seeds().front();
+    const auto source = seed_root.parent_path() / "experts" / seed.relative_path;
+    const auto target = home / "experts" / seed.relative_path;
+    auto original = read_json(source / "expert.json");
+    original["avatar"] = "avatars/default.png";
+    write_file(source / "expert.json", original.dump(2) + "\n");
+    write_file(source / "avatars" / "default.png", "old-managed-portrait");
+    ASSERT_TRUE(acecode::reconcile_default_global_skills(home, seed_root).version_written);
+    ASSERT_TRUE(fs::exists(target / "avatars" / "default.png"));
+    original.erase("avatar");
+    write_file(source / "expert.json", original.dump(2) + "\n");
+    fs::remove(source / "avatars" / "default.png");
+    write_seed_version(seed_root, kSeedVersion2);
+    const auto result = acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(result.version_written) << result.error;
+    EXPECT_FALSE(fs::exists(target / "avatars" / "default.png"));
+    EXPECT_FALSE(read_json(target / "expert.json").contains("avatar"));
+}
+
+TEST_F(DefaultSkillSeederTest, PixelPortraitUpgradePreservesUserReplacedImages) {
+    const auto& seed = acecode::default_expert_seeds().front();
+    const auto source = seed_root.parent_path() / "experts" / seed.relative_path;
+    const auto target = home / "experts" / seed.relative_path;
+    auto original = read_json(source / "expert.json");
+    original["avatar"] = "avatars/default.png";
+    write_file(source / "expert.json", original.dump(2) + "\n");
+    write_file(source / "avatars" / "default.png", "old-managed-portrait");
+    ASSERT_TRUE(acecode::reconcile_default_global_skills(home, seed_root).version_written);
+    write_file(target / "avatars" / "default.png", "user-custom-portrait");
+    original.erase("avatar");
+    write_file(source / "expert.json", original.dump(2) + "\n");
+    fs::remove(source / "avatars" / "default.png");
+    write_seed_version(seed_root, kSeedVersion2);
+    const auto result = acecode::reconcile_default_global_skills(home, seed_root);
+    ASSERT_TRUE(result.version_written) << result.error;
+    EXPECT_EQ(read_file(target / "avatars" / "default.png"), "user-custom-portrait");
+    EXPECT_TRUE(read_json(target / "expert.json").contains("avatar"));
+    EXPECT_EQ(count_expert_outcome(result, "preserved_user_modified"), 1u);
+}
+
 TEST_F(DefaultSkillSeederTest, UpdatesPristineAcecodeOwnedSeed) {
     auto first =
         acecode::reconcile_default_global_skills(home, seed_root);

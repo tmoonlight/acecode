@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { isShortcut } from '../lib/shortcutBindings.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { useWorkbenchScroll } from '../lib/useWorkbenchScroll.js';
 import hljs from 'highlight.js/lib/core';
@@ -154,10 +155,7 @@ function HighlightedTextEditor({
       onCompositionEnd={() => setComposing(false)}
       onScroll={(event) => syncScroll(event.currentTarget)}
       onKeyDown={(event) => {
-        if (
-          (event.ctrlKey || event.metaKey)
-          && event.key.toLowerCase() === 's'
-        ) {
+        if (isShortcut(event, 'save')) {
           event.preventDefault();
           if (!event.isComposing && !event.nativeEvent?.isComposing && event.keyCode !== 229) {
             onSave?.();

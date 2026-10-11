@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
@@ -90,7 +91,7 @@ export function UsageHeatmap({ reloadKey = 0 }) {
     if (!tip) return undefined;
     const close = () => setTip(null);
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape' || event.isComposing) return;
+      if (!isDismissShortcut(event) || event.isComposing) return;
       event.preventDefault();
       event.stopPropagation();
       close();

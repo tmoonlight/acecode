@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
@@ -97,7 +98,7 @@ function PreviewAddMenu({
       onClose?.();
     };
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      if (isDismissShortcut(event)) {
         event.preventDefault();
         onClose?.();
         anchorRef.current?.focus();

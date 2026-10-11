@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { deriveTrajectoryLayout } from '../components/trajectory/deepseek/layout.ts';
 
 import {
   buildDeepSeekTrajectory,
@@ -23,6 +24,123 @@ const recorded = (sequence, timestamp, type, payload = {}) => ({
   type,
   source: 'recorded',
   payload,
+});
+
+function liveTurnRecords(count = 4) {
+  const records = [{
+    sequence: null, legacy_index: 0, type: 'legacy_context',
+    payload: { role: 'user', is_meta: true, content: 'request context' },
+  }];
+  const append = (type, payload) => records.push(recorded(records.length, 1000 + records.length, type, payload));
+  for (let turn = 1; turn <= count; turn += 1) {
+    const id = `user-${turn}`;
+    // The daemon writes the user Message before start_user_turn records turn_start.
+    append('message', { role: 'user', id, content: `input ${turn}` });
+    append('turn_start', { turn_id: id, user_message_id: id });
+    append('model_step_start', { step_index: 1 });
+    append('model_request', { step_index: 1, messages: [{ role: 'system', content: `prompt ${turn}` }] });
+    append('model_response', { step_index: 1, content: `answer ${turn}` });
+    append('turn_end', { turn_id: id });
+  }
+  return records;
+}
+
+run('real daemon ordering counts context, input and turn_start as one turn', () => {
+  const records = liveTurnRecords();
+  const projection = buildDeepSeekTrajectory(records);
+  assert.deepEqual(projection.turns.map((turn) => turn.turn), [1, 2, 3, 4]);
+  assert.deepEqual(projection.requests.map((request) => request.turn), [1, 2, 3, 4]);
+  for (const turn of projection.turns) {
+    const cells = turn.groups.flatMap((group) => group.cells);
+    assert.equal(cells.find((cell) => cell.kind === 'user').previewMarkdown, `input ${turn.turn}`);
+    assert.equal(cells.find((cell) => cell.kind === 'message').outputDetail, `answer ${turn.turn}`);
+  }
+});
+
+run('every incremental prefix keeps inputs in their own turn before assistant output', () => {
+  const records = liveTurnRecords();
+  let merged = [];
+  for (const record of records) {
+    merged = mergeTrajectoryRecords(merged, [record]);
+    const projection = buildDeepSeekTrajectory(merged);
+    const turnNumbers = projection.turns.map((turn) => turn.turn);
+    assert.deepEqual(turnNumbers, [...turnNumbers].sort((a, b) => a - b));
+    for (const turn of projection.turns) {
+      const inputs = turn.groups.flatMap((group) => group.cells).filter((cell) => cell.kind === 'user');
+      for (const input of inputs) assert.equal(input.previewMarkdown, `input ${turn.turn}`);
+    }
+    const userCount = merged.filter((r) => r.type === 'message' && r.payload.role === 'user').length;
+    assert.equal(projection.latestTurnNumber, Math.max(1, userCount));
+  }
+});
+
+run('user-first lifecycle aliases and repeated start markers reuse the input turn', () => {
+  const projection = buildDeepSeekTrajectory([
+    recorded(1, 1, 'message', { id: 'user-id', role: 'user', content: 'input' }),
+    recorded(2, 2, 'turn_start', { turn_id: 'turn-id', user_message_id: 'user-id' }),
+    recorded(3, 3, 'turn_start', { turn_id: 'turn-id', user_message_id: 'user-id' }),
+    recorded(4, 4, 'model_request', { step_index: 1 }),
+    recorded(5, 5, 'turn_end', { turn_id: 'turn-id' }),
+    recorded(6, 6, 'turn_end', { turn_id: 'unknown-tail-boundary' }),
+  ]);
+  assert.equal(projection.latestTurnNumber, 1);
+  assert.deepEqual(projection.turns.map((turn) => turn.turn), [1]);
+});
+
+run('inputs from a turn without an assistant never move to a later reply', () => {
+  const records = liveTurnRecords(2).filter((record) => !(record.type === 'model_response' && record.payload.content === 'answer 1'));
+  const projection = buildDeepSeekTrajectory(records);
+  assert.deepEqual(projection.turns.map((turn) => turn.turn), [1, 2]);
+  for (const turn of projection.turns) {
+    const user = turn.groups.flatMap((group) => group.cells).find((cell) => cell.kind === 'user');
+    assert.equal(user.previewMarkdown, `input ${turn.turn}`);
+  }
+});
+
+run('live identity overrides an outdated ordinal before and after trajectory polling', () => {
+  const all = liveTurnRecords(7);
+  const previous = all.slice(0, -6);
+  const live = { turnId: 'user-7', turn: 2, step: 1, blocks: [{ kind: 'text', text: 'stream seven' }] };
+  for (let count = previous.length; count < all.length - 1; count += 1) {
+    const projection = buildDeepSeekTrajectory(all.slice(0, count));
+    const partial = resolveDeepSeekTrajectoryPartial(projection, live);
+    assert.equal(partial.turn, 7);
+    const turns = deriveTrajectoryLayout({ ...projection, partial });
+    assert.deepEqual(turns.map((turn) => turn.turn), [1, 2, 3, 4, 5, 6, 7]);
+    assert.equal(turns.at(-1).groups.at(-1).cells.at(-1).outputDetail, 'stream seven');
+  }
+  assert.equal(resolveDeepSeekTrajectoryPartial(buildDeepSeekTrajectory(all.slice(0, -1)), live), null);
+  assert.equal(resolveDeepSeekTrajectoryPartial(buildDeepSeekTrajectory(all), live), null);
+});
+
+run('failed durable request suppresses a lingering partial even without assistant content', () => {
+  const records = liveTurnRecords(1);
+  records.find((record) => record.type === 'model_response').payload = { step_index: 1, status: 'error', content: '' };
+  assert.equal(resolveDeepSeekTrajectoryPartial(buildDeepSeekTrajectory(records), {
+    turnId: 'user-1', turn: 1, step: 1, blocks: [{ kind: 'text', text: 'old partial' }],
+  }), null);
+});
+
+run('initial context and a tail page without lifecycle identity do not push live output into a phantom turn', () => {
+  const all = liveTurnRecords(1);
+  const live = { turnId: 'user-1', turn: 12, step: 1, blocks: [{ kind: 'text', text: 'live' }] };
+  for (const records of [[], all.slice(0, 1), all.slice(0, 2), all.slice(0, 5), all.slice(3, 5)]) {
+    const projection = buildDeepSeekTrajectory(records);
+    const partial = resolveDeepSeekTrajectoryPartial(projection, live);
+    assert.equal(partial.turn, 1);
+    assert.deepEqual(deriveTrajectoryLayout({ ...projection, partial }).map((turn) => turn.turn), [1]);
+  }
+});
+
+run('steering and synthetic tool input stay in the current user turn', () => {
+  const all = liveTurnRecords(1);
+  all.splice(5, 0,
+    recorded(4.1, 5, 'message', { role: 'user', id: 'steer', content: 'steering', metadata: { turn_steer: true, turn_id: 'user-1' } }),
+    recorded(4.2, 6, 'message', { role: 'user', id: 'tool-input', content: 'tool input', metadata: { synthetic_user_prompt: true } }),
+  );
+  const projection = buildDeepSeekTrajectory(all);
+  assert.deepEqual(projection.turns.map((turn) => turn.turn), [1]);
+  assert.equal(projection.turns[0].groups.flatMap((group) => group.cells).filter((cell) => cell.kind === 'user').length, 3);
 });
 
 run('ACE records project into DeepSeek Message and Step groups', () => {

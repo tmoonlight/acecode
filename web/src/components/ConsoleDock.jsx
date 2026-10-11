@@ -14,7 +14,7 @@ import { sessionWorkbench } from '../lib/sessionWorkbench.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { matchAppShortcut } from '../lib/appShortcuts.js';
+import { matchAppShortcut, withAppShortcutHint } from '../lib/appShortcuts.js';
 import '@xterm/xterm/css/xterm.css';
 
 import { createApi } from '../lib/api.js';
@@ -712,7 +712,7 @@ export function ConsoleDock({ owner, open, height: preferredHeight, onHeightChan
           <button
             type="button"
             className="ace-console-iconbtn"
-            title="收起控制台 (Ctrl+`)"
+            title={withAppShortcutHint('收起控制台', 'console')}
             onClick={() => onToggle(false)}
           >
             <VsIcon name="close" size={14} />

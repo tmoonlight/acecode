@@ -8,6 +8,7 @@ import * as contentModel from './composerContent.js';
 import { composerDraftEditFingerprint } from './composerDraft.js';
 import { withComposerImageAttachments } from './composerImagePresentation.js';
 import { isUserComposerEdit } from './inputHistoryNavigation.js';
+import { composerShortcutAction, shortcutEventConsumed } from './shortcutBindings.js';
 import * as composerModel from './richComposerModel.js';
 import * as composerSelection from './composerSelection.js';
 import { formatSessionReferenceToken } from './sessionReference.js';
@@ -68,6 +69,8 @@ function fixture({ kind = 'path', key = 'Backspace', selected = false } = {}) {
     editor.selection = composerModel.composerSelectionFromPlainTextRange(editor.children, 0, tokens[kind].length);
   }
   Object.assign(context, {
+    composerShortcutAction,
+    shortcutEventConsumed,
     editor,
     disabled: false,
     submitOnEnter: true,

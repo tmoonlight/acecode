@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import {
@@ -34,7 +35,7 @@ export function ExpertComponentsPage({
       }
     };
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      if (isDismissShortcut(event)) {
         event.preventDefault();
         setCreationMenuOpen(false);
         creationMenuButtonRef.current?.focus();

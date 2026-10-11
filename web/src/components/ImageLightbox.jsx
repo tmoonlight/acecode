@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -89,7 +90,7 @@ export function ImageLightbox({ preview, onClose, contextMenuAttrs }) {
   useEffect(() => {
     if (!previewSource) return undefined;
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape') return;
+      if (!isDismissShortcut(event)) return;
       event.preventDefault();
       event.stopPropagation();
       onClose?.();

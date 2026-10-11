@@ -42,7 +42,13 @@ SkillRootSelection select_skill_root(const std::filesystem::path& workspace_cwd,
                                      const std::filesystem::path& global_acecode_skills_root,
                                      bool create_missing_roots);
 
-SkillRootSelection resolve_skill_root_for_cwd(const std::string& workspace_cwd_utf8);
+SkillRootSelection resolve_skill_root_for_cwd(const std::string& workspace_cwd_utf8,
+                                             const AppConfig* config = nullptr);
+
+nlohmann::json skill_scan_paths_payload(const AppConfig& config);
+SkillToggleResult set_skill_scan_paths(const nlohmann::json& body,
+                                       AppConfig& config,
+                                       const std::string& config_path);
 
 // 切换 skill 启停。config_path 空 = 用 save_config 默认路径(~/.acecode/config.json)。
 // lookup_registry:可选的"已知性"校验 registry(如某个 workspace 的临时扫描
@@ -64,15 +70,16 @@ std::optional<std::string> get_skill_body(const std::string& name,
 // disabled),每条带
 //   - enabled:name 不在 disabled 中
 //   - source:"project"(命中 project_roots)/ "global"(其余根)
-// disabled 中磁盘上已不存在的名字(幽灵条目)仍以 enabled=false、source=""
-// 列出,让用户能把它从禁用列表里放出来。
+// 只列出实际扫描到的技能。disabled 中未扫描到的名字不会生成条目;
+// 刷新不清理禁用偏好,以便其他工作区或恢复后的同名技能仍保持禁用。
 nlohmann::json build_skills_payload_with_roots(
     const std::vector<std::filesystem::path>& project_roots,
     const std::vector<std::filesystem::path>& global_roots,
     const std::vector<std::string>& disabled,
     const SkillUsageStore* skill_usage = nullptr,
     std::int64_t now_epoch_ms = 0,
-    int idle_days = 0);
+    int idle_days = 0,
+    const std::vector<std::filesystem::path>* ordered_roots = nullptr);
 
 // 便捷封装:扫描根取自 skill_init 的 project/global 根构成(与
 // initialize_skill_registry 一致),disabled 取自 cfg.skills.disabled。

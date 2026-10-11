@@ -16,6 +16,7 @@ const body = source.replace(imports, '').replace(/^export /gm, '');
 
 function harness() {
   const slots = [], requests = [], retained = [];
+  const listeners = new Set();
   let cursor = 0, effects = [];
   let poll = () => {};
   const changed = (previous, next) => !previous || next.some((value, i) => value !== previous[i]);
@@ -48,12 +49,15 @@ function harness() {
       getMessages: (sid, since) => new Promise((resolve, reject) => requests.push({ sid, since, resolve, reject })),
     }),
     connection: {
-      reconfigure() {}, addEventListener() {}, removeEventListener() {},
+      reconfigure() {},
+      addEventListener(_type, listener) { listeners.add(listener); },
+      removeEventListener(_type, listener) { listeners.delete(listener); },
       retainSession: (sid) => retained.push(sid), releaseSession() {},
     },
   });
   return {
     requests, retained, poll: () => poll(),
+    emit(msg) { for (const listener of listeners) listener({ detail: msg }); },
     render(ref, options = {}) {
       cursor = 0; effects = [];
       const result = hook(ref, { live: true, ...options });
@@ -65,6 +69,34 @@ function harness() {
 }
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
 const history = { messages: [{ role: 'user', content: 'saved history', ts: 1 }], events: [] };
+
+const titles = harness();
+const titleRef = { sessionId: 'title-race', active: true, title: '原标题' };
+titles.render(titleRef);
+titles.requests[0].resolve({ ...history, title: '原标题', busy: false });
+await flush();
+titles.emit({ session_id: 'title-race', type: 'token', seq: 20, payload: { text: 'reply' } });
+titles.emit({ session_id: 'title-race', type: 'session_updated', seq: 19,
+  payload: { title: '自动命名的新标题', title_source: 'generated' } });
+assert.equal(titles.render(titleRef).title, '自动命名的新标题', 'body sequence must not discard an unseen title update');
+titles.emit({ session_id: 'title-race', type: 'session_updated', seq: 18,
+  payload: { title: '更旧的自动标题', title_source: 'generated' } });
+assert.equal(titles.render(titleRef).title, '自动命名的新标题', 'older title events must not undo newer metadata');
+titles.unmount();
+console.log('[pass] title metadata arriving behind body events updates the header without navigation');
+
+const titleRefresh = harness();
+titleRefresh.render(titleRef);
+titleRefresh.requests[0].resolve({ ...history, title: '原标题', busy: true });
+await flush();
+assert.equal(titleRefresh.requests.length, 2, 'busy session requests catch-up');
+titleRefresh.emit({ session_id: 'title-race', type: 'session_updated', seq: 3,
+  payload: { title: '请求发出后生成的新标题', title_source: 'generated' } });
+titleRefresh.requests[1].resolve({ ...history, title: '原标题', busy: false });
+await flush();
+assert.equal(titleRefresh.render(titleRef).title, '请求发出后生成的新标题', 'late history response must not roll back live title');
+titleRefresh.unmount();
+console.log('[pass] in-flight history cannot overwrite a newer generated title');
 
 const h = harness();
 const pending = { sessionId: 's1', resumePending: true };

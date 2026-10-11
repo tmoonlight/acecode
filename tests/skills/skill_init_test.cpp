@@ -211,6 +211,69 @@ TEST_F(SkillInitOpencodeTest, RuntimeAllowlistFlowsThroughInitializer) {
     EXPECT_TRUE(empty.list().empty());
 }
 
+TEST_F(SkillInitOpencodeTest, CustomScanPathsReplaceDefaultsAndPreserveInterleavedPriority) {
+    const auto global = root / "custom-global";
+    write_skill(global, "shared", "global first");
+    write_skill(workspace / "custom-skills", "shared", "project second");
+    write_skill(workspace / "custom-skills", "local", "workspace");
+    write_skill(workspace.parent_path() / "custom-skills", "local", "ancestor");
+    write_skill(workspace / ".acecode/skills", "excluded", "default");
+    acecode::AppConfig cfg;
+    cfg.skills.external_dirs = {(root / "legacy").string()};
+    cfg.skills.scan_paths = std::vector<std::string>{global.string(), "custom-skills"};
+    acecode::SkillRegistry registry;
+    initialize(registry, cfg);
+    ASSERT_TRUE(registry.find("shared"));
+    EXPECT_EQ(registry.find("shared")->description, "global first");
+    ASSERT_TRUE(registry.find("local"));
+    EXPECT_EQ(registry.find("local")->description, "workspace");
+    EXPECT_FALSE(registry.find("excluded"));
+    EXPECT_EQ(acecode::global_skill_scan_roots(cfg), std::vector<fs::path>{global});
+    EXPECT_EQ(acecode::skill_scan_roots(cfg, {}).size(), 1u);
+    EXPECT_TRUE(acecode::project_skill_scan_roots(cfg, {}).empty());
+
+    cfg.skills.scan_paths = std::vector<std::string>{"custom-skills", global.string()};
+    initialize(registry, cfg);
+    EXPECT_EQ(registry.find("shared")->description, "project second");
+    const auto other = home / "other-workspace";
+    fs::create_directories(other);
+    acecode::initialize_skill_registry(registry, cfg, other.string());
+    EXPECT_FALSE(registry.find("local"));
+
+    cfg.skills.scan_paths = std::vector<std::string>{};
+    initialize(registry, cfg);
+    EXPECT_TRUE(registry.list().empty());
+    cfg.skills.scan_paths.reset();
+    initialize(registry, cfg);
+    EXPECT_TRUE(registry.find("excluded"));
+}
+
+TEST_F(SkillInitOpencodeTest, CustomScanPathsExpandGlobalsAndSkipMissingEnvironment) {
+    clear_env_value("XDG_CONFIG_HOME");
+    clear_env_value("XDG_CACHE_HOME");
+    clear_env_value("OPENCODE_CONFIG_DIR");
+    acecode::AppConfig cfg;
+    cfg.skills.scan_paths = std::vector<std::string>{
+        "${ACECODE_DATA_DIR}/skills", "~/.codex/skills",
+        "${XDG_CONFIG_HOME}/opencode/skills", "${XDG_CACHE_HOME}/opencode/skills",
+        "${OPENCODE_CONFIG_DIR}/skills"};
+    EXPECT_EQ(acecode::global_skill_scan_roots(cfg), (std::vector<fs::path>{
+        home / ".acecode/skills", home / ".codex/skills",
+        home / ".config/opencode/skills", home / ".cache/opencode/skills"}));
+    EXPECT_TRUE(acecode::project_skill_scan_roots(cfg, workspace.string()).empty());
+}
+
+TEST_F(SkillInitOpencodeTest, EmptyCustomPathsStillAllowExpertPackageSkills) {
+    const auto expert = root / "expert";
+    write_skill(expert, "bundled", "expert package");
+    acecode::AppConfig cfg;
+    cfg.skills.scan_paths = std::vector<std::string>{};
+    acecode::SkillRegistry registry;
+    acecode::initialize_skill_registry(registry, cfg, workspace.string(), {expert});
+    ASSERT_EQ(registry.list().size(), 1u);
+    EXPECT_TRUE(registry.find("bundled"));
+}
+
 // 场景: project_skill_scan_roots / global_skill_scan_roots 的分界 ——
 // 项目链根只覆盖 workspace 向上到 HOME(不含 HOME 本身),HOME 下的
 // ~/.acecode/skills 与 external_dirs 只出现在全局根里。web 端

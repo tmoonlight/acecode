@@ -36,7 +36,7 @@ run('preview plus menu exposes exactly file, browser and side chat actions', () 
   assert.doesNotMatch(menu, /终端|onOpenTerminal/);
   assert.match(preview, /aria-haspopup="menu"/);
   assert.match(preview, /data-ace-native-overlay="overlap"/);
-  assert.match(preview, /event\.key === 'Escape'/);
+  assert.match(preview, /isDismissShortcut\(event\)/);
 });
 
 run('preview plus button follows the last tab until measured overflow pins it', () => {
@@ -163,7 +163,7 @@ run('editable file details open directly with highlighted source or semantic Mar
   assert.match(markdownEditor, /markdownToSlate\(normalizedValue\)/);
   assert.match(markdownEditor, /slateToMarkdown\(legalDocument\(document\)\)/);
   assert.match(markdownEditor, /compositionRef\.current\.active/);
-  assert.match(markdownEditor, /event\.key\.toLowerCase\(\) === 's'/);
+  assert.match(markdownEditor, /isShortcut\(event, 'save'\)/);
 });
 
 run('editing reuses the original preview chrome without save status or Markdown toolbar', () => {

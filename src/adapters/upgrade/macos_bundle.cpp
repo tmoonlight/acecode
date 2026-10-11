@@ -3,8 +3,14 @@
 #include "utils/encoding.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
+#include <utility>
 #include <vector>
+
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -35,10 +41,62 @@ bool is_complete_bundle_layout(const fs::path& bundle) {
 
 } // namespace
 
+MacosAppUpdateWorkspace::MacosAppUpdateWorkspace(fs::path root)
+    : root_(std::move(root)) {}
+
+MacosAppUpdateWorkspace::~MacosAppUpdateWorkspace() {
+    if (!owns_root_) return;
+    // remove (not remove_all) deliberately leaves every nonempty directory.
+    for (const auto& directory : {staged_bundle().parent_path(),
+            previous_bundle().parent_path(), failed_bundle().parent_path(), root_}) {
+        std::error_code ec;
+        if (is_real_directory(directory)) fs::remove(directory, ec);
+    }
+}
+
+fs::path MacosAppUpdateWorkspace::staged_bundle() const {
+    return root_ / "staging" / "ACECode.app";
+}
+
+fs::path MacosAppUpdateWorkspace::previous_bundle() const {
+    return root_ / "previous" / "ACECode.app";
+}
+
+fs::path MacosAppUpdateWorkspace::failed_bundle() const {
+    return root_ / "failed" / "ACECode.app";
+}
+
+bool MacosAppUpdateWorkspace::create(std::string* error) {
+    if (owns_root_) {
+        if (error) *error = "macOS update directory is already in use";
+        return false;
+    }
+    for (const auto& directory : {root_, staged_bundle().parent_path(),
+            previous_bundle().parent_path(), failed_bundle().parent_path()}) {
+        std::error_code ec;
+#ifdef _WIN32
+        const bool created = fs::create_directory(directory, ec);
+#else
+        // Atomically require a new private directory; never adopt a preexisting
+        // directory or follow a symlink at the selected update root.
+        const bool created = ::mkdir(directory.c_str(), S_IRWXU) == 0;
+        if (!created) ec = std::error_code(errno, std::generic_category());
+#endif
+        if (!created) {
+            if (error) *error = "cannot create private macOS update directory: " +
+                directory.u8string() + ": " +
+                (ec ? ensure_utf8(ec.message()) : "path already exists");
+            return false;
+        }
+        if (directory == root_) owns_root_ = true;
+    }
+    return true;
+}
+
 bool macos_app_install_path_is_safe(const fs::path& bundle, std::string* error) {
     auto reject = [&]() {
         if (error) *error = "macOS self-update requires an absolute real ACECode.app "
-            "with a real parent, outside App Translocation and other app bundles";
+            "with a real parent, outside App Translocation, update copies and other app bundles";
         return false;
     };
     if (!bundle.is_absolute() || bundle != bundle.lexically_normal() ||
@@ -47,7 +105,7 @@ bool macos_app_install_path_is_safe(const fs::path& bundle, std::string* error) 
         std::string name = component.string();
         std::transform(name.begin(), name.end(), name.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (name == "apptranslocation" ||
+        if (name == "apptranslocation" || name.rfind(".acecode-update-", 0) == 0 ||
             fs::path(name).extension() == ".app") return reject();
     }
     std::error_code ec;

@@ -1,3 +1,4 @@
+import { isDismissShortcut, shortcutEventConsumed } from '../lib/shortcutBindings.js';
 import { VirtualOfficeSettings } from './VirtualOfficeSettings.jsx';
 // 浮动设置窗口:mask + 贯通的左栏导航与右栏内容。
 //
@@ -5,7 +6,7 @@ import { VirtualOfficeSettings } from './VirtualOfficeSettings.jsx';
 // 后端真实接入的 section:常规 (权限模式) / 外观 (主题) / 配置 / 个性化 / 技能 / 模型 / 工具。
 // MCP 配置按公共/项目范围通过 API 校验、持久化并应用到运行时。
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '../theme.jsx';
 import { ThemeCards } from './ThemeCards.jsx';
@@ -92,11 +93,15 @@ import {
   getCurrentWebCoreInfo,
 } from '../lib/webCoreInfo.js';
 import {
+  DEFAULT_SKILL_PAGE_SIZE,
+  SKILL_PAGE_SIZES,
   enabledRatioLabel,
   filterSkills,
   groupSkillsBySource,
+  isSkillPageSize,
   normalizeSkillList,
   normalizeWorkspaceList,
+  paginateSkills,
   skillsEnabledSummary,
   workspaceAutoExpand,
 } from '../lib/skillsSettings.js';
@@ -109,6 +114,7 @@ import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 import { loadUiLocale, persistUiLocale } from '../lib/uiLocale.js';
+import { usePreference } from '../lib/usePreference.js';
 import {
   normalizeRemoteWebState,
   remoteWebOriginSurvivesLocalMode,
@@ -197,6 +203,7 @@ export function SettingsPage({
   const [composing, setComposing] = useState(false);
   const [searchIndex, setSearchIndex] = useState(0);
   const [searchNavigation, setSearchNavigation] = useState(0);
+  const [skillPathsFocusRequest, setSkillPathsFocusRequest] = useState(0);
   const contentRef = useRef(null);
   const windowRef = useRef(null);
   const searchEntries = useMemo(() => settingsSearchEntries(developerModeUnlocked), [i18n.language, developerModeUnlocked]);
@@ -285,7 +292,7 @@ export function SettingsPage({
   // defaultPrevented 是给已经消费了这次 Esc 的浮层(菜单等)让路。
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      if (!isDismissShortcut(event) || shortcutEventConsumed(event) || event.isComposing) return;
       if (document.querySelector('[data-ace-modal-dialog="true"]')) return;
       close();
     };
@@ -446,10 +453,15 @@ export function SettingsPage({
               onMessageAutoCollapseChange={onMessageAutoCollapseChange}
             />
           )}
-          {activeNavKey === 'config' && <SettingsConfigSection />}
+          {activeNavKey === 'config' && <SettingsConfigSection skillPathsFocusRequest={skillPathsFocusRequest} />}
           {activeNavKey === 'personalization' && <SectionPersonalization workspaceHash={activeWorkspaceHash} />}
           {activeNavKey === 'virtual-office' && <VirtualOfficeSettings office={office} />}
-          {activeNavKey === 'skills' && <SectionSkills />}
+          {activeNavKey === 'skills' && <SectionSkills onConfigurePaths={() => {
+            setSearchQuery('');
+            setSearchTerm('');
+            setActiveNav(settingsNavIndexForKey('config', developerModeUnlocked));
+            setSkillPathsFocusRequest((value) => value + 1);
+          }} />}
           {activeNavKey === 'mcp' && <SectionMCP />}
           {activeNavKey === 'connectors' && <SectionConnectors />}
           {activeNavKey === 'channels' && <ChannelsSettings />}
@@ -1659,15 +1671,54 @@ function SkillCard({ skill, busyName, onToggle }) {
   );
 }
 
-function SkillCardGrid({ skills, busyName, onToggle }) {
+function SkillPagination({ pagination, onPageChange, label, gridId, position, navRef }) {
+  const { page, pageCount, total } = pagination;
   return (
-    <div
-      data-skill-card-grid="true"
-      className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-    >
-      {skills.map((skill) => (
-        <SkillCard key={skill.name} skill={skill} busyName={busyName} onToggle={onToggle} />
-      ))}
+    <nav ref={navRef} aria-label={label} tabIndex={-1} data-skill-pagination={position}
+      className="flex flex-wrap items-center justify-between gap-2 py-3 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+      <span className="text-[12px] text-fg-mute tabular-nums" aria-live={position === 'top' ? 'polite' : undefined}>
+        {`第 ${page} / ${pageCount} 页，共 ${total} 条`}
+      </span>
+      <div className="flex items-center gap-2">
+        <button type="button" className="ace-settings-button" aria-controls={gridId} disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}>上一页</button>
+        <button type="button" className="ace-settings-button" aria-controls={gridId} disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}>下一页</button>
+      </div>
+    </nav>
+  );
+}
+
+function SkillCardGrid({ skills, busyName, onToggle, pageSize, query, scope, paginationLabel }) {
+  const [position, setPosition] = useState({ query, pageSize, page: 1 });
+  const topPagerRef = useRef(null);
+  const gridId = useId();
+  const requestedPage = position.query === query && position.pageSize === pageSize ? position.page : 1;
+  const pagination = paginateSkills(skills, requestedPage, pageSize);
+  const { page } = pagination;
+  // Render the clamped/reset page immediately, then retain it for later data updates.
+  useEffect(() => {
+    setPosition((previous) => previous.query === query && previous.pageSize === pageSize && previous.page === page
+      ? previous : { query, pageSize, page });
+  }, [query, pageSize, page]);
+  const changePage = (next) => {
+    setPosition({ query, pageSize, page: next });
+    topPagerRef.current?.scrollIntoView({ block: 'start' });
+    topPagerRef.current?.focus({ preventScroll: true });
+  };
+  const controls = { pagination, onPageChange: changePage, label: paginationLabel, gridId };
+  return (
+    <div data-skill-list={scope}>
+      <SkillPagination {...controls} position="top" navRef={topPagerRef} />
+      <div id={gridId}
+        data-skill-card-grid="true"
+        className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
+      >
+        {pagination.items.map((skill) => (
+          <SkillCard key={skill.name} skill={skill} busyName={busyName} onToggle={onToggle} />
+        ))}
+      </div>
+      {pagination.pageCount > 1 && <SkillPagination {...controls} position="bottom" />}
     </div>
   );
 }
@@ -1680,6 +1731,7 @@ function WorkspaceSkillGroup({
   expanded,
   onToggleExpand,
   query,
+  pageSize,
   busyName,
   onToggleSkill,
   onOpenDir,
@@ -1728,11 +1780,12 @@ function WorkspaceSkillGroup({
           )}
           {loaded && shown.length === 0 && (
             <div className="px-3.5 py-3 rounded-md border border-dashed border-border text-[12px] text-fg-mute text-center mb-2">
-              {hasQuery ? '无匹配技能' : '该工作区没有技能;放到项目的 .acecode/skills 目录即可被发现'}
+              {hasQuery ? '无匹配技能' : '该工作区没有技能，可在配置中设置 Skill 扫描路径'}
             </div>
           )}
           {shown.length > 0 && (
-            <SkillCardGrid skills={shown} busyName={busyName} onToggle={onToggleSkill} />
+            <SkillCardGrid skills={shown} busyName={busyName} onToggle={onToggleSkill}
+              pageSize={pageSize} query={query} scope={ws.hash} paginationLabel={`${ws.name} 技能分页`} />
           )}
         </div>
       )}
@@ -1740,7 +1793,8 @@ function WorkspaceSkillGroup({
   );
 }
 
-function SectionSkills() {
+function SectionSkills({ onConfigurePaths }) {
+  const [pageSize, setPageSize] = usePreference('ace.skillsPageSize', DEFAULT_SKILL_PAGE_SIZE, isSkillPageSize);
   const [globalSkills, setGlobalSkills] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   // hash -> 该工作区的项目技能数组;键缺失 = 还没加载完。
@@ -1774,7 +1828,11 @@ function SectionSkills() {
         } catch { /* bridge 兜底失败就当没有工作区 */ }
       }
       setWorkspaces(wsList);
-      if (refresh) setWsSkills({});
+      // Keep loaded groups mounted during refresh so their page can be retained
+      // or clamped when the new catalog arrives.
+      setWsSkills((previous) => Object.fromEntries(
+        wsList.filter((ws) => Object.prototype.hasOwnProperty.call(previous, ws.hash)).map((ws) => [ws.hash, previous[ws.hash]]),
+      ));
       // 后台预取各工作区的项目技能:折叠行的 N/M 计数需要它,展开时也能
       // 即刻渲染。逐个到达逐个填充,失败置空数组避免计数一直显示省略号。
       wsList.forEach((ws) => {
@@ -1834,7 +1892,7 @@ function SectionSkills() {
     try {
       const root = await api.getSkillRoot(wsHash);
       const path = scope === 'global' ? (root?.global_path || '') : (root?.path || '');
-      if (!path) throw new Error('目录路径为空');
+      if (!path) throw new Error('尚未配置此范围的 Skill 扫描路径');
       if (typeof window.aceDesktop_openInExplorer === 'function') {
         const result = parseDesktopBridgeResult(await window.aceDesktop_openInExplorer(path));
         if (!result?.ok) throw new Error(result?.error || 'open failed');
@@ -1869,6 +1927,8 @@ function SectionSkills() {
           <h2 className="text-xl font-bold mb-2">技能</h2>
           <p className="text-[12px] text-fg-mute">
             管理 ACECode 可调用的技能模块。启用后 Agent 在任务中可自动使用。
+            {' '}<a href="#skill-scan-paths" className="text-accent underline underline-offset-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+              onClick={(event) => { event.preventDefault(); onConfigurePaths(); }}>设置 Skill 扫描路径</a>
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -1885,19 +1945,28 @@ function SectionSkills() {
         </div>
       </div>
 
-      <div className="relative mb-5">
-        <VsIcon
-          name="search"
-          size={14}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-mute pointer-events-none"
-        />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="搜索技能名称或描述..."
-          className="w-full h-9 pl-9 pr-3 text-[13px] rounded-md border border-border bg-surface text-fg outline-none focus:border-accent transition"
-        />
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <div className="relative min-w-0 flex-1 basis-48">
+          <VsIcon
+            name="search"
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-mute pointer-events-none"
+          />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="搜索技能名称或描述..."
+            className="w-full h-9 pl-9 pr-3 text-[13px] rounded-md border border-border bg-surface text-fg outline-none focus:border-accent transition"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-[12px] text-fg-mute shrink-0">
+          每页条目数
+          <select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}
+            className="h-9 px-2 text-[13px] rounded-md border border-border bg-surface text-fg outline-none focus:border-accent">
+            {SKILL_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
       </div>
 
       {loading ? (
@@ -1912,7 +1981,8 @@ function SectionSkills() {
             </div>
           )}
           {filteredGlobal.length > 0 && (
-            <SkillCardGrid skills={filteredGlobal} busyName={savingName} onToggle={toggle} />
+            <SkillCardGrid skills={filteredGlobal} busyName={savingName} onToggle={toggle}
+              pageSize={pageSize} query={search} scope="global" paginationLabel="全局技能分页" />
           )}
           <button
             type="button"
@@ -1950,6 +2020,7 @@ function SectionSkills() {
                   setExpanded((prev) => ({ ...prev, [ws.hash]: !prev[ws.hash] }))
                 }
                 query={search}
+                pageSize={pageSize}
                 busyName={savingName}
                 onToggleSkill={(name, v) => toggle(name, v, ws.hash)}
                 onOpenDir={() => openDir('workspace', ws.hash)}

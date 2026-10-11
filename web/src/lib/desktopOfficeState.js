@@ -1,5 +1,6 @@
 import { normalizeTokenBudget } from './tokenBudget.js';
 import { toolActivityVerb, toolIconName, toolIconSvg } from './toolIcons.js';
+import { sessionAvatarIdentity, stableSeed } from './officeCharacters.js';
 
 export const OFFICE_LIMIT = 5;
 export const OFFICE_WORKER_SEATS = 7;
@@ -9,9 +10,7 @@ export const officeSessionRef = value => ({
   workspaceHash: String(value?.workspaceHash || value?.workspace_hash || ''),
 });
 export function stableOfficeSeed(value) {
-  let hash = 2166136261;
-  for (const c of String(value)) hash = Math.imul(hash ^ c.codePointAt(0), 16777619);
-  return hash >>> 0;
+  return stableSeed(value);
 }
 export function recentOffices(sessions = []) {
   const unique = new Map();
@@ -79,12 +78,13 @@ export function officeActor(session, rootId) {
   const context = normalizeTokenBudget({usage: session.token_usage, contextWindow: session.context_window});
   const shownTool = state === 'work' || state === 'wait' || state === 'permission' || phase === 'tool_planning' ? tool : '';
   const path = String(session.agent_path || (root ? '/root' : ''));
+  const avatarIdentity = sessionAvatarIdentity(session);
   return {
     id, root, name: root ? 'Maestro' : String(session.title || session.agent_path?.split('/').pop() || session.summary || 'Agent'),
     path, parentPath: path.includes('/', 1) ? path.slice(0, path.lastIndexOf('/')) : '',
     state, label, detail, tool: shownTool, icon: shownTool ? toolIconName(shownTool) : '',
     iconSvg: shownTool ? toolIconSvg(shownTool) : '', busy,
-    seed: stableOfficeSeed(id), contextKnown: context.known,
+    avatarIdentity, seed: stableOfficeSeed(avatarIdentity || id), contextKnown: context.known,
     contextRatio: context.usedRatio, contextTokens: context.usedTokens, contextLimit: context.limitTokens,
     compactId: String(a.compact_id || ''), seq: Number(a.seq) || 0,
     transfers: Array.isArray(a.transfers) ? a.transfers : [],

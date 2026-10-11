@@ -1,6 +1,6 @@
 {
   "name": "opc-mvp-designer",
-  "version": "1.0.0-acecode.1",
+  "version": "1.0.0-acecode.2",
   "expertType": "agent",
   "displayName": "验真",
   "profession": "MVP实验设计师",
@@ -23,7 +23,6 @@
   "skills": [
     "skills/opc-mvp-designer"
   ],
-  "avatar": "avatars/opc-mvp-designer.png",
   "license": "CC-BY-NC-SA-4.0",
   "homepage": "https://github.com/easychen/opc-methodology",
   "upstream": {

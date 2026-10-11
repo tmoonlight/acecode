@@ -4,6 +4,7 @@
 // 控制台(xterm)的放行名单都从这里取,改键位只改这一个文件。
 
 import { APP_SHORTCUTS, matchAppShortcut } from './appShortcuts.js';
+import { bindingLabel, effectiveShortcut, isCustomShortcut } from './shortcutBindings.js';
 
 export const SEARCH_PALETTE_SHORTCUT = Object.freeze({ key: APP_SHORTCUTS.search.key.toLowerCase(), ctrl: true, meta: true });
 
@@ -26,6 +27,7 @@ function isMacHost(win) {
 
 // 面向用户的按键文案:macOS 显示 ⌘K,其它平台 Ctrl+K。
 export function searchPaletteShortcutLabel(win = typeof window !== 'undefined' ? window : undefined) {
+  if (isCustomShortcut('search')) return bindingLabel(effectiveShortcut('search'), isMacHost(win));
   return isMacHost(win) ? '⌘K' : 'Ctrl+K';
 }
 

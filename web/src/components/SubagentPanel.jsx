@@ -46,6 +46,7 @@ import {
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
+import { SessionPixelAvatar } from './PixelAvatar.jsx';
 
 function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
   const running = task.status === SUBAGENT_TASK_STATUS.RUNNING;
@@ -54,6 +55,7 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
   return (
     <div className="rounded-lg border border-border bg-surface px-3 py-2.5 flex flex-col gap-1 ace-shadow">
       <div className="flex items-start gap-2">
+        <SessionPixelAvatar session={task} />
         <span className="flex-1 min-w-0 text-[12.5px] font-semibold text-fg break-words">
           {taskDisplayTitle(task)}
         </span>

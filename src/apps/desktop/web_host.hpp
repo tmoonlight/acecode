@@ -67,6 +67,9 @@ public:
     // Called once when a file drop is accepted, before asynchronous work.
     // Restore OS keyboard focus without the notification TOPMOST fallback.
     bool focus_after_file_drop();
+
+    // Transfer keyboard focus inside the already-active window; never foreground it.
+    bool focus_active_webview();
     acecode::ClipboardPathsReadResult read_clipboard_paths();
 
     // 注入一段 JS 在每次 navigate 前执行(`window.__ACECODE_INITIAL_*` 之类常量
@@ -146,8 +149,8 @@ public:
     using WindowVisibilityHandler = std::function<void(bool visible)>;
     void set_window_visibility_handler(WindowVisibilityHandler handler);
 
-    // Windows host activation is not guaranteed to surface as a DOM window.focus
-    // event in WebView2. Register a native activation callback so the frontend can
+    // Native activation is not guaranteed to surface as a DOM window.focus
+    // event. Register a GUI-thread activation callback so the frontend can
     // explicitly restore the chat composer focus after the Desktop window returns.
     using WindowFocusHandler = std::function<void()>;
     void set_window_focus_handler(WindowFocusHandler handler);

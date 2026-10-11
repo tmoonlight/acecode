@@ -1,3 +1,4 @@
+import { composerShortcutAction, shortcutEventConsumed } from '../lib/shortcutBindings.js';
 import {
   forwardRef,
   useCallback,
@@ -1151,16 +1152,21 @@ function RichComposerShell({
 
   useImperativeHandle(ref, () => ({
     beginFileTransfer,
-    focus() {
+    focus({ canFocus } = {}) {
       const focusEditor = () => {
+        if (canFocus && !canFocus()) return true;
         if (!editableRef.current?.isConnected) return true;
+        // Native IME owns its live DOM range until compositionend has settled.
+        // Restoring focus here can commit a candidate or reinstall a stale caret.
+        if (compositionStateRef.current.active || compositionStateRef.current.settling
+          || ReactEditor.isComposing(editor)) return true;
         if (!editor.selection) {
           const end = latestTextRef.current.length;
           Transforms.select(editor, composerSelectionFromPlainTextRange(editor.children, end, end));
         }
         // Slate schedules its own timer when operations are pending. That
         // timer's later DOM lookup would escape our catch or outlive this input.
-        if (editor.operations.length > 0) return false;
+        if (editor.operations.length > 0 || renderPendingRef.current) return false;
         ReactEditor.focus(editor);
         return true;
       };
@@ -1305,8 +1311,7 @@ function RichComposerShell({
 
     // Deletes, tag navigation and parent shortcuts all read editor.selection.
     adoptDomSelection();
-    onKeyDown?.(event);
-    if (event.defaultPrevented) return;
+    if (onKeyDown?.(event) === true || shortcutEventConsumed(event)) return;
     if (disabled) {
       event.preventDefault();
       return;
@@ -1334,18 +1339,12 @@ function RichComposerShell({
       }
     }
 
-    if (event.key === 'Enter' && submitOnEnter) {
-      if (event.ctrlKey && isDesktopShell()) {
-        event.preventDefault();
-        editor.insertBreak();
-        return;
-      }
-
-      if (!event.shiftKey) {
-        event.preventDefault();
-        onSubmit?.();
-        return;
-      }
+    const shortcutAction = submitOnEnter && composerShortcutAction(event, isDesktopShell());
+    if (shortcutAction) {
+      event.preventDefault();
+      if (shortcutAction === 'newline') editor.insertBreak();
+      else if (shortcutAction === 'send' && !event.repeat) onSubmit?.();
+      return;
     }
 
     if (

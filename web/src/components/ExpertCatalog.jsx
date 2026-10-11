@@ -12,13 +12,14 @@ import {
 import { clsx } from '../lib/format.js';
 import { Modal } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
+import { PixelAvatar } from './PixelAvatar.jsx';
+import { expertAvatarIdentity } from '../lib/officeCharacters.js';
 
 export function ExpertAvatar({ expert, size = 36, className = '' }) {
   const [imageFailed, setImageFailed] = useState(false);
   const image = String(expert?.avatar_url || '');
   useEffect(() => setImageFailed(false), [image]);
-  const name = String(expert?.display_name || expert?.id || '专');
-  const initial = [...name][0] || '专';
+  const identity = expertAvatarIdentity(expert);
 
   return (
     <span
@@ -37,9 +38,7 @@ export function ExpertAvatar({ expert, size = 36, className = '' }) {
           onError={() => setImageFailed(true)}
         />
       ) : (
-        <span className="text-[13px] font-semibold">
-          {expert?.type === 'team' ? <VsIcon name="extension" size={Math.max(15, size / 2)} /> : initial}
-        </span>
+        <PixelAvatar identity={identity} size={size} />
       )}
     </span>
   );

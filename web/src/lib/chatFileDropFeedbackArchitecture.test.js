@@ -90,7 +90,11 @@ run('desktop file drag activates on entry and acceptance without async foregroun
   const dropFocus = webHost.slice(webHost.indexOf('bool WebHost::focus_after_file_drop()'), webHost.indexOf('bool WebHost::open_dev_tools()'));
   assert.match(dropFocus, /AttachThreadInput\(current_thread, foreground_thread, TRUE\)/);
   assert.match(dropFocus, /AttachThreadInput\(current_thread, foreground_thread, FALSE\)/);
-  assert.match(dropFocus, /MoveFocus\(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC\)/);
+  assert.match(dropFocus, /return focus_active_webview\(\)/);
+  const focusHost = readCppSource('desktop/web_host_focus.hpp');
+  assert.match(focusHost, /GetForegroundWindow\(\) != hwnd/);
+  assert.match(focusHost, /MoveFocus\(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC\)/);
+  assert.doesNotMatch(focusHost, /SetForegroundWindow|AttachThreadInput|HWND_TOPMOST/);
   assert.doesNotMatch(dropFocus, /HWND_TOPMOST|activate_notification_window/);
 });
 

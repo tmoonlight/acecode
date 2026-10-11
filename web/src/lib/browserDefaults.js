@@ -4,6 +4,7 @@
 import { isFindShortcut } from './globalFind.js';
 import { isDesktopShell } from './desktopShellMode.js';
 import { APP_SHORTCUT_BROWSER_GUARD, matchAppShortcut } from './appShortcuts.js';
+import { CONTEXT_SHORTCUTS, isShortcut, isShortcutRecording } from './shortcutBindings.js';
 
 const ZOOM_SHORTCUT_KEYS = new Set(['+', '=', '-', '_', '0']);
 const ZOOM_SHORTCUT_CODES = new Set([
@@ -27,7 +28,8 @@ export function isBrowserZoomShortcut(event) {
 }
 
 export function isBlockedBrowserDefaultShortcut(event) {
-  return event?.key === 'F5' || isBrowserZoomShortcut(event) || isFindShortcut(event);
+  const nativeFind = (event?.ctrlKey || event?.metaKey) && !event?.altKey && event?.key?.toLowerCase() === 'f';
+  return event?.key === 'F5' || isBrowserZoomShortcut(event) || nativeFind || isFindShortcut(event);
 }
 
 export function installBrowserDefaultGuards(target = globalThis.window) {
@@ -48,6 +50,7 @@ export function installBrowserDefaultGuards(target = globalThis.window) {
     if (hasZoomModifier(event)) event.preventDefault();
   };
   const onKeyDown = (event) => {
+    if (isShortcutRecording(event)) return;
     if (renderedSelects && event.key === 'Escape') {
       const select = event.target?.closest?.('select');
       if (select?.matches(':open') && target.getComputedStyle(select).appearance === 'base-select') {
@@ -56,14 +59,15 @@ export function installBrowserDefaultGuards(target = globalThis.window) {
         return;
       }
     }
-    // These two zoom-shaped chords belong to ACECode history navigation.
+    // Configured app chords take priority over browser defaults.
     const shortcut = matchAppShortcut(event);
-    if (shortcut === 'forward' || shortcut === 'back') {
+    const browserDefault = isBlockedBrowserDefaultShortcut(event);
+    if (browserDefault && (shortcut || Object.keys(CONTEXT_SHORTCUTS).some(id => isShortcut(event, id)))) {
       event.preventDefault();
       event[APP_SHORTCUT_BROWSER_GUARD] = true;
       return;
     }
-    if (isBlockedBrowserDefaultShortcut(event)) event.preventDefault();
+    if (browserDefault) event.preventDefault();
   };
 
   const activeCapture = { capture: true, passive: false };
