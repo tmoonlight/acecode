@@ -6,8 +6,28 @@
 
 namespace acecode::upgrade {
 
+// Owns only newly created update directories. Destruction removes empty
+// containers, never application copies needed by a running process or rollback.
+class MacosAppUpdateWorkspace {
+public:
+    explicit MacosAppUpdateWorkspace(std::filesystem::path root);
+    ~MacosAppUpdateWorkspace();
+    MacosAppUpdateWorkspace(const MacosAppUpdateWorkspace&) = delete;
+    MacosAppUpdateWorkspace& operator=(const MacosAppUpdateWorkspace&) = delete;
+
+    bool create(std::string* error = nullptr);
+    std::filesystem::path staged_bundle() const;
+    std::filesystem::path previous_bundle() const;
+    std::filesystem::path failed_bundle() const;
+
+private:
+    std::filesystem::path root_;
+    bool owns_root_ = false;
+};
+
 // Require an absolute, canonical, real ACECode.app and parent; reject App
-// Translocation and bundles nested in another application. Does not check trust.
+// Translocation, update copies and bundles nested in another application.
+// Does not check trust.
 bool macos_app_install_path_is_safe(
     const std::filesystem::path& bundle,
     std::string* error = nullptr);

@@ -234,6 +234,23 @@ TEST_F(ConfigFirstInitTest, RuntimeSkillAllowlistIsNeverPersisted) {
     EXPECT_FALSE(reloaded.skills.allowed.has_value());
 }
 
+TEST_F(ConfigFirstInitTest, SkillScanPathsRoundTripEmptyAndReset) {
+    const auto path = temp_home / ".acecode/config.json";
+    acecode::AppConfig cfg;
+    EXPECT_FALSE(cfg.skills.scan_paths);
+    for (const auto& paths : {std::vector<std::string>{".custom/skills", "~/.codex/skills"},
+                             std::vector<std::string>{}}) {
+        cfg.skills.scan_paths = paths;
+        acecode::save_config(cfg, path.string());
+        auto loaded = acecode::load_config_from_path(path.string(), false);
+        ASSERT_TRUE(loaded.skills.scan_paths);
+        EXPECT_EQ(*loaded.skills.scan_paths, paths);
+    }
+    cfg.skills.scan_paths.reset();
+    acecode::save_config(cfg, path.string());
+    EXPECT_FALSE(acecode::load_config_from_path(path.string(), false).skills.scan_paths);
+}
+
 TEST_F(ConfigFirstInitTest, ExplicitEmptySavedModelsDoesNotSynthesizeCopilot) {
     fs::create_directories(temp_home / ".acecode");
     {

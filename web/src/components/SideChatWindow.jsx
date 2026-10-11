@@ -1,3 +1,4 @@
+import { composerShortcutAction, isDismissShortcut } from '../lib/shortcutBindings.js';
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -240,7 +241,7 @@ export function SideChatWindow({
       }}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === 'Escape' && !isComposing(event)) {
+        if (isDismissShortcut(event) && !isComposing(event)) {
           event.preventDefault();
           onClose?.();
         }
@@ -307,9 +308,19 @@ export function SideChatWindow({
           placeholder="问一个不打断当前任务的问题…"
           onChange={(event) => onDraftChange?.(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !isComposing(event)) {
+            if (isComposing(event)) return;
+            const action = composerShortcutAction(event);
+            if (action === 'send') {
               event.preventDefault();
               if (canSubmit && !event.repeat) onSubmit?.();
+            } else if (action === 'newline') {
+              event.preventDefault();
+              const input = event.currentTarget;
+              const start = input.selectionStart;
+              onDraftChange?.(draft.slice(0, start) + '\n' + draft.slice(input.selectionEnd));
+              requestAnimationFrame(() => textareaRef.current?.setSelectionRange(start + 1, start + 1));
+            } else if (action === 'ignore') {
+              event.preventDefault();
             }
           }}
         />

@@ -8,11 +8,10 @@ Usage:
       --output <ACECode-version-macos-arch-update.zip> [--require-trusted]
 
 Creates a self-update ZIP with Apple's ditto tool. The archive contains the
-complete app plus a root `acecode` copied from its notarized bundled daemon and
-a root `share/acecode` resource tree so standalone CLI installs retain their
-existing flat upgrade path, offline model catalog, and default seed bundle. The
-command extracts into a clean temporary directory and verifies executable
-permissions/resources.
+complete app plus a small root `acecode` copied from its notarized bundled CLI
+forwarder. The daemon, helper and resources exist only inside the app; existing
+flat CLI updaters still find a root executable. The command extracts into a clean
+temporary directory and verifies executable permissions and bundled resources.
 --require-trusted also requires strict signatures, a stapled app ticket, and
 Gatekeeper acceptance; tagged release jobs use this mode after app notarization.
 USAGE
@@ -72,6 +71,16 @@ if [[ ! -d "$app_path" || "$(basename "$app_path")" != "ACECode.app" ]]; then
     exit 1
 fi
 computer_use_helper="$app_path/Contents/MacOS/acecode-computer-use"
+cli_launcher="$app_path/Contents/MacOS/acecode-cli"
+if [[ ! -x "$cli_launcher" || ! -s "$cli_launcher" ]]; then
+    echo "ACECode.app is missing the CLI forwarder: $cli_launcher" >&2
+    exit 1
+fi
+# A copied full daemon would silently restore the old duplicate payload.
+if [[ "$(wc -c < "$cli_launcher" | tr -d '[:space:]')" -gt 262144 ]]; then
+    echo "CLI forwarder exceeds the 256 KiB package budget" >&2
+    exit 1
+fi
 if [[ ! -x "$computer_use_helper" || ! -s "$computer_use_helper" ]]; then
     echo "ACECode.app is missing the Computer Use helper: $computer_use_helper" >&2
     exit 1
@@ -112,22 +121,11 @@ trap cleanup EXIT
 
 /usr/bin/ditto -c -k --keepParent "$app_path" "$temporary_zip"
 # The manifest target is shared by desktop and standalone CLI installations.
-# Reuse the already signed/notarized bundled daemon as the flat CLI payload.
-/usr/bin/ditto "$app_path/Contents/MacOS/acecode-daemon" \
-    "$temporary_root/acecode"
-/usr/bin/ditto "$computer_use_helper" "$temporary_root/acecode-computer-use"
-mkdir -p "$temporary_root/share/acecode"
-/usr/bin/ditto "$models_dev_dir" \
-    "$temporary_root/share/acecode/models_dev"
-/usr/bin/ditto "$seed_dir" \
-    "$temporary_root/share/acecode/seed"
-if [[ -d "$app_path/Contents/Resources/channels" ]]; then
-    /usr/bin/ditto "$app_path/Contents/Resources/channels" "$temporary_root/channels"
-fi
+# Reuse only the signed/notarized tiny launcher. All runtime data stays in the app.
+/usr/bin/ditto "$cli_launcher" "$temporary_root/acecode"
 (
     cd "$temporary_root"
-    /usr/bin/zip -qr "$temporary_zip" acecode acecode-computer-use share
-    if [[ -d channels ]]; then /usr/bin/zip -qr "$temporary_zip" channels; fi
+    /usr/bin/zip -q "$temporary_zip" acecode
 )
 mkdir -p "$verify_root"
 /usr/bin/ditto -x -k "$temporary_zip" "$verify_root"
@@ -137,24 +135,26 @@ app_main="$verified_app/Contents/MacOS/ACECode"
 app_daemon="$verified_app/Contents/MacOS/acecode-daemon"
 verified_cli="$verify_root/acecode"
 verified_app_models="$verified_app/Contents/Resources/share/acecode/models_dev"
-verified_cli_models="$verify_root/share/acecode/models_dev"
 verified_app_seed="$verified_app/Contents/Resources/share/acecode/seed"
-verified_cli_seed="$verify_root/share/acecode/seed"
 if [[ ! -d "$verified_app" || ! -x "$app_main" || ! -x "$app_daemon" ||
-      ! -x "$verified_cli" || ! -x "$verify_root/acecode-computer-use" ||
+      ! -x "$verified_cli" || ! -x "$verified_app/Contents/MacOS/acecode-cli" ||
       ! -x "$verified_app/Contents/MacOS/acecode-computer-use" ]]; then
     echo "Extracted update archive is missing executable ACECode app or CLI binaries." >&2
     exit 1
 fi
-if ! /usr/bin/cmp -s "$verify_root/acecode-computer-use" "$verified_app/Contents/MacOS/acecode-computer-use"; then
-    echo "Extracted Computer Use helpers differ between CLI and app payloads." >&2
+if ! /usr/bin/cmp -s "$verified_cli" "$verified_app/Contents/MacOS/acecode-cli"; then
+    echo "Extracted CLI forwarder differs from the signed app copy." >&2
     exit 1
 fi
+for duplicate in share channels acecode-computer-use; do
+    if [[ -e "$verify_root/$duplicate" ]]; then
+        echo "Duplicated macOS runtime resource: $duplicate" >&2
+        exit 1
+    fi
+done
 for models_dev_file in "${models_dev_files[@]}"; do
-    if [[ ! -f "$verified_app_models/$models_dev_file" ||
-          ! -f "$verified_cli_models/$models_dev_file" ]] ||
-       ! /usr/bin/cmp -s "$verified_app_models/$models_dev_file" \
-           "$verified_cli_models/$models_dev_file"; then
+    if [[ ! -f "$verified_app_models/$models_dev_file" ]] ||
+       ! /usr/bin/cmp -s "$verified_app_models/$models_dev_file" "$models_dev_dir/$models_dev_file"; then
         echo "Extracted update archive has missing or mismatched models.dev resource: $models_dev_file" >&2
         exit 1
     fi
@@ -162,14 +162,11 @@ done
 python3 "$repo_root/scripts/verify_seed_bundle.py" \
     --source "$repo_root/assets/seed" \
     --packaged "$verified_app_seed"
-python3 "$repo_root/scripts/verify_seed_bundle.py" \
-    --source "$repo_root/assets/seed" \
-    --packaged "$verified_cli_seed"
 
 if [[ "$require_trusted" == true ]]; then
     /usr/bin/codesign --verify --deep --strict --verbose=2 "$verified_app"
     /usr/bin/codesign --verify --strict --verbose=2 "$verified_cli"
-    /usr/bin/codesign --verify --strict --verbose=2 "$verify_root/acecode-computer-use"
+    /usr/bin/codesign --verify --strict --verbose=2 "$verified_app/Contents/MacOS/acecode-computer-use"
     xcrun stapler validate "$verified_app"
     /usr/sbin/spctl --assess --type execute --verbose=4 "$verified_app"
 fi

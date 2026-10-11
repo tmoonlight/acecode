@@ -7,7 +7,8 @@ namespace {
 json office_item(const json& source) {
     json item = json::object();
     for (const auto* key : {"id", "active", "status", "workspace_hash", "workspace_name",
-             "parent_session_id", "agent_path", "archived", "no_workspace", "title", "summary",
+             "parent_session_id", "agent_path", "expert_id", "expert_member_id", "expert",
+             "archived", "no_workspace", "title", "summary",
              "last_user_message_at", "last_turn_outcome", "updated_at", "context_window", "token_usage"}) {
         if (source.contains(key)) item[key] = source[key];
     }

@@ -1,6 +1,6 @@
 {
   "name": "opc-resource-auditor",
-  "version": "1.0.0-acecode.1",
+  "version": "1.0.0-acecode.2",
   "expertType": "agent",
   "displayName": "顾盘",
   "profession": "资源盘点师",
@@ -23,7 +23,6 @@
   "skills": [
     "skills/opc-resource-audit"
   ],
-  "avatar": "avatars/opc-resource-auditor.png",
   "license": "CC-BY-NC-SA-4.0",
   "homepage": "https://github.com/easychen/opc-methodology",
   "upstream": {

@@ -12,11 +12,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  DEFAULT_SKILL_PAGE_SIZE,
+  SKILL_PAGE_SIZES,
   enabledRatioLabel,
   filterSkills,
   groupSkillsBySource,
+  isSkillPageSize,
   normalizeSkillList,
   normalizeWorkspaceList,
+  paginateSkills,
   skillsEnabledSummary,
   workspaceAutoExpand,
 } from './skillsSettings.js';
@@ -85,6 +89,55 @@ run('filterSkills 按 description 匹配(用户要求:搜索同时搜描述)', (
 
 run('filterSkills 无命中返回空数组', () => {
   assert.deepEqual(filterSkills(SKILLS, 'nonexistent-keyword'), []);
+});
+
+run('skill pagination defaults to 50 and covers 20/50/100 without gaps', () => {
+  assert.equal(DEFAULT_SKILL_PAGE_SIZE, 50);
+  assert.deepEqual(SKILL_PAGE_SIZES, [20, 50, 100]);
+  const skills = Array.from({ length: 237 }, (_, i) => ({ name: `skill-${i}`, description: '', enabled: i % 2 === 0 }));
+  assert.equal(paginateSkills(skills).items.length, 50);
+  for (const size of SKILL_PAGE_SIZES) {
+    assert.equal(isSkillPageSize(size), true);
+    const all = [];
+    const pageCount = Math.ceil(skills.length / size);
+    for (let page = 1; page <= pageCount; page += 1) {
+      const result = paginateSkills(skills, page, size);
+      assert.equal(result.page, page);
+      assert.equal(result.pageCount, pageCount);
+      assert.equal(result.total, skills.length);
+      assert.ok(result.items.length <= size);
+      all.push(...result.items);
+    }
+    assert.deepEqual(all, skills);
+  }
+  for (const invalid of [0, 1, 25, 200, '50', null, undefined, NaN]) {
+    assert.equal(isSkillPageSize(invalid), false);
+    assert.equal(paginateSkills(skills, 1, invalid).pageSize, 50);
+  }
+});
+
+run('skill pagination clamps after deletion and handles empty catalogs', () => {
+  const skills = Array.from({ length: 51 }, (_, i) => ({ name: `skill-${i}` }));
+  const last = paginateSkills(skills, 9);
+  assert.equal(last.page, 2);
+  assert.deepEqual(last.items, [skills[50]]);
+  const shortened = paginateSkills(skills.slice(0, 30), last.page);
+  assert.equal(shortened.page, 1);
+  assert.equal(shortened.items.length, 30);
+  for (const empty of [[], null, undefined]) {
+    assert.deepEqual(paginateSkills(empty, 9), { items: [], page: 1, pageCount: 1, pageSize: 50, total: 0 });
+  }
+  for (const invalid of [-1, 0, NaN, Infinity]) assert.equal(paginateSkills(skills, invalid).page, 1);
+});
+
+run('skill pagination searches the full catalog and keeps full enabled totals', () => {
+  const skills = Array.from({ length: 120 }, (_, i) => ({ name: `skill-${i}`, description: i === 119 ? 'needle' : '', enabled: true }));
+  assert.equal(paginateSkills(skills).items.some((skill) => skill.description === 'needle'), false);
+  const result = paginateSkills(filterSkills(skills, 'needle'));
+  assert.deepEqual(result.items, [skills[119]]);
+  assert.equal(result.total, 1);
+  assert.equal(skillsEnabledSummary(skills).total, 120);
+  assert.equal(skillsEnabledSummary(skills).enabled, 120);
 });
 
 run('groupSkillsBySource 项目/全局二分并保序', () => {

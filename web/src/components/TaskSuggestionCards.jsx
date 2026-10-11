@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useRef, useState } from 'react';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { VsIcon } from './Icon.jsx';
@@ -83,7 +84,7 @@ function TaskSuggestionCard({ suggestion, state, controller, sourceRef, onOpenSe
       className="pointer-events-auto rounded-xl bg-surface border border-border p-4 text-fg"
       style={{ boxShadow: 'var(--ace-shadow-lg), var(--ace-shadow)' }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !menuOpen && !actionDisabled) {
+        if (isDismissShortcut(event) && !menuOpen && !actionDisabled) {
           event.preventDefault();
           event.stopPropagation();
           dismiss();

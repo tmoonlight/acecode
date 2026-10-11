@@ -145,10 +145,12 @@ if(WIN32 OR APPLE)
         OUTPUT ${ACECODE_DESKTOP_PET_PAGE_CPP}
         COMMAND ${CMAKE_COMMAND}
             -DBIN2CPP_INPUT=${ACECODE_DESKTOP_PET_PAGE}
+            -DBIN2CPP_INLINE_JS=${CMAKE_SOURCE_DIR}/assets/desktop_pet/office_characters.js
             -DBIN2CPP_OUTPUT=${ACECODE_DESKTOP_PET_PAGE_CPP}
             -DBIN2CPP_SYMBOL=desktop_pet_page
             -P ${CMAKE_SOURCE_DIR}/cmake/acecode_bin2cpp.cmake
         DEPENDS ${ACECODE_DESKTOP_PET_PAGE} ${CMAKE_SOURCE_DIR}/cmake/acecode_bin2cpp.cmake
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/office_characters.js
         COMMENT "Embedding the desktop agent office"
         VERBATIM
     )
@@ -251,9 +253,11 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${ACECODE_BUILD_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT "ACECode contributors"
     )
-    add_dependencies(acecode-desktop acecode acecode-computer-use)
+    add_executable(acecode-macos-cli-launcher ${ACECODE_MACOS_CLI_LAUNCHER_SOURCE})
+    add_dependencies(acecode-desktop acecode acecode-computer-use acecode-macos-cli-launcher)
     set_property(TARGET acecode-desktop APPEND PROPERTY
-        LINK_DEPENDS $<TARGET_FILE:acecode> $<TARGET_FILE:acecode-computer-use>)
+        LINK_DEPENDS $<TARGET_FILE:acecode> $<TARGET_FILE:acecode-computer-use>
+            $<TARGET_FILE:acecode-macos-cli-launcher>)
     add_custom_command(TARGET acecode-desktop POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E rm -f
             $<TARGET_FILE_DIR:acecode-desktop>/acecode-desktop
@@ -263,6 +267,9 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:acecode-computer-use>
             $<TARGET_FILE_DIR:acecode-desktop>/acecode-computer-use
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:acecode-macos-cli-launcher>
+            $<TARGET_FILE_DIR:acecode-desktop>/acecode-cli
         COMMAND ${CMAKE_COMMAND} -E rm -rf
             "$<TARGET_BUNDLE_DIR:acecode-desktop>/../acecode-desktop.app"
         COMMENT "Copying acecode daemon into ACECode.app bundle"

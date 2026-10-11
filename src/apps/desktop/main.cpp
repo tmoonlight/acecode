@@ -2053,6 +2053,9 @@ int main(int argc, char** argv) {
         bring_window_foreground();
         return nlohmann::json{{"ok", true}}.dump();
     });
+    host.bind("aceDesktop_focusActiveWebview", [&host](const std::string& /*req*/) -> std::string {
+        return nlohmann::json{{"ok", host.focus_active_webview()}}.dump();
+    });
 #ifdef _WIN32
     host.bind("aceDesktop_setTaskbarBadge", [&host](const std::string& req) -> std::string {
         const auto badge = parse_taskbar_badge_args(req);
@@ -2074,9 +2077,7 @@ int main(int argc, char** argv) {
         return nlohmann::json{{"ok", host.focus_after_file_drop()}}.dump();
     });
 
-    // WM_SIZE 时如果最大化状态变化(被 web_host.cpp 内部 g_last_known_maximized 去重过),
-    // eval 一段 JS 调前端 window.aceDesktop_onMaximizeStateChanged(bool),让 TopBar 切换
-    // 图标。前端没注册回调时静默吞,避免 webview 异常 ts 上报。
+    // 去重后的原生最大化状态同步到 TopBar；前端尚未注册回调时忽略。
     host.set_window_state_change_handler([&host, &agent_browser](bool maximized) {
         agent_browser.refresh_layout();
         const std::string js = std::string(
@@ -2100,9 +2101,7 @@ int main(int argc, char** argv) {
         agent_browser.set_parent_visible(visible);
     });
 
-    // Native window activation does not consistently reach WebView2 as a DOM
-    // focus event. Send an explicit event after WM_ACTIVATE so a visible chat
-    // composer can restore keyboard focus without requiring another click.
+    // Explicit native activation lets the visible composer restore keyboard focus.
     host.set_window_focus_handler([&host, &agent_browser]() {
         agent_browser.set_parent_visible(true);
         host.eval("(function(){try{window.dispatchEvent(new Event("

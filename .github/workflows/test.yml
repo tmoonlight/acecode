@@ -61,6 +61,7 @@ jobs:
         run: |
           python3 tests/scripts/macos_installer_release_test.py
           python3 tests/scripts/macos_portable_package_test.py
+          python3 tests/scripts/macos_update_dedup_test.py
           bash tests/scripts/macos_release_scripts_test.sh
 
   web-tests:

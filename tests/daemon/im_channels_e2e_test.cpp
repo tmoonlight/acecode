@@ -293,6 +293,124 @@ TEST_F(ImChannelsEndToEnd, TelegramValidatesTokenBindsOwnerAndChats) {
         if (info.id == session) EXPECT_TRUE(info.no_workspace);
 }
 
+TEST_F(ImChannelsEndToEnd, TelegramModeCommandsChangeAndPersistBoundSession) {
+    start_host();
+    connect_telegram_as_owner();
+    telegram.push_update(telegram_message(42, "private", 42, 2, "/new"));
+    ASSERT_TRUE(wait_until([&] { return !bound("telegram", "42", "42").empty(); }));
+    const auto id = bound("telegram", "42", "42");
+    auto entry = registry->acquire(id);
+    ASSERT_TRUE(entry);
+    const auto other = client->create_session(SessionOptions{});
+    std::int64_t sequence = 3;
+    for (const auto& item : std::vector<std::pair<std::string, PermissionMode>>{
+             {"/mode auto", PermissionMode::Auto}, {"/yolo", PermissionMode::Yolo},
+             {"/mode default", PermissionMode::Default}}) {
+        telegram.push_update(telegram_message(42, "private", 42, sequence++, item.first));
+        ASSERT_TRUE(wait_until([&] { return entry->perm->mode() == item.second; }));
+        ASSERT_TRUE(wait_until([&] {
+            return SessionStorage::read_meta(SessionStorage::meta_path(
+                SessionStorage::get_project_dir(entry->cwd), id)).permission_mode ==
+                PermissionManager::mode_name(item.second);
+        }));
+        // 状态先更新,回执仍经 Telegram 限速队列发送;逐条等回执再继续。
+        const std::string mode_marker = std::string("(") + PermissionManager::mode_name(item.second) + ")";
+        ASSERT_TRUE(wait_until([&] { return telegram_sent(42, mode_marker); }));
+        EXPECT_EQ(registry->acquire(other)->perm->mode(), PermissionMode::Default);
+        EXPECT_FALSE(model_saw(item.first));
+    }
+    telegram.push_update(telegram_message(42, "private", 42, sequence++, "/help"));
+    const bool help_received = wait_until([&] { return telegram_sent(42, "/effort") && telegram_sent(42, "/yolo"); });
+    if (!help_received) {
+        json sent = json::array();
+        for (const auto& call : telegram.calls_to("sendMessage")) sent.push_back(call.body);
+        ADD_FAILURE() << "Missing command help in Telegram replies: " << sent.dump(2);
+    }
+    telegram.push_update(telegram_message(42, "private", 42, sequence++, "/status"));
+    EXPECT_TRUE(wait_until([&] { return telegram_sent(42, "权限模式:默认权限 (default)"); }));
+}
+
+TEST_F(ImChannelsEndToEnd, TelegramYoloResolvesPendingPermission) {
+    std::atomic<int> calls{0};
+    ToolDef def;
+    def.name = "deploy_preview";
+    def.description = "deploy a preview build";
+    def.parameters = json{{"type", "object"}, {"properties", json::object()}};
+    ASSERT_TRUE(tools.register_tool(ToolImpl{def, [&](const std::string&, const ToolContext&) {
+        ++calls;
+        return ToolResult{"deployed", true};
+    }, false}));
+    start_host();
+    connect_telegram_as_owner();
+    provider->push_tool_call("deploy_preview", "{}", "call-yolo");
+    provider->push_text("部署完成");
+    telegram.push_update(telegram_message(42, "private", 42, 2, "部署一下"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "需要你确认一个操作"); }));
+    EXPECT_EQ(calls.load(), 0);
+    telegram.push_update(telegram_message(42, "private", 42, 3, "/yolo"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "部署完成"); }));
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_EQ(registry->acquire(bound("telegram", "42", "42"))->perm->mode(), PermissionMode::Yolo);
+    EXPECT_FALSE(model_saw("/yolo"));
+}
+
+TEST_F(ImChannelsEndToEnd, TelegramEffortCommandsUseRealModelStateAndPersistOverride) {
+    client.reset();
+    registry.reset();
+    ModelProfile profile;
+    profile.name = "reasoning-test";
+    profile.provider = "openai";
+    profile.model = "channel-test";
+    profile.base_url = "http://127.0.0.1:1/v1";
+    profile.api_key = "test-key";
+    profile.context_window = 128000;
+    profile.capabilities_source = "manual";
+    profile.reasoning = ModelReasoningOptions{};
+    profile.reasoning->supported = true;
+    profile.reasoning->default_enabled = true;
+    profile.reasoning->supported_efforts = {"low", "high"};
+    profile.reasoning->effort = "low";
+    profile.reasoning->default_effort = "low";
+    config.saved_models = {profile};
+    config.default_model_name = profile.name;
+    SessionRegistryDeps deps;
+    deps.tools = &tools;
+    deps.template_permissions = &permissions;
+    deps.config = &config;
+    deps.config_mutex = &config_mu;
+    deps.cwd = workspace;
+    deps.no_workspace_cache_root = path_to_utf8(home / "no-workspace");
+    registry = std::make_unique<SessionRegistry>(deps);
+    client = std::make_unique<LocalSessionClient>(*registry);
+    start_host();
+    connect_telegram_as_owner();
+    telegram.push_update(telegram_message(42, "private", 42, 2, "/new"));
+    ASSERT_TRUE(wait_until([&] { return !bound("telegram", "42", "42").empty(); }));
+    const auto id = bound("telegram", "42", "42");
+    const auto other = client->create_session(SessionOptions{});
+    const auto entry = registry->acquire(id);
+    ASSERT_TRUE(entry);
+    const auto meta_path = SessionStorage::meta_path(SessionStorage::get_project_dir(entry->cwd), id);
+    telegram.push_update(telegram_message(42, "private", 42, 3, "/effort"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "可用档位: low high"); }));
+    telegram.push_update(telegram_message(42, "private", 42, 4, "/effort high"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "已更新思考深度"); }));
+    EXPECT_EQ(registry->current_model_state(id)->reasoning_effort, "high");
+    EXPECT_EQ(SessionStorage::read_meta(meta_path).reasoning_effort, "high");
+    EXPECT_FALSE(registry->current_model_state(other)->reasoning_effort);
+    EXPECT_EQ(config.saved_models.front().reasoning->effort, "low");
+    telegram.push_update(telegram_message(42, "private", 42, 5, "/effort invalid"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "当前模型不支持该 effort 档位"); }));
+    EXPECT_EQ(registry->current_model_state(id)->reasoning_effort, "high");
+    telegram.push_update(telegram_message(42, "private", 42, 6, "/effort default"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "已恢复模型预设思考深度"); }));
+    const auto reset = registry->current_model_state(id);
+    ASSERT_TRUE(reset && reset->reasoning);
+    EXPECT_FALSE(reset->reasoning_effort);
+    EXPECT_EQ(reset->reasoning->effort, "low");
+    EXPECT_FALSE(SessionStorage::read_meta(meta_path).reasoning_effort);
+}
+
 // 场景:机器人在一个未批准的群里被 @,机主在设置页批准该群后再次 @ 提问;群里不 @ 的消息。
 // 期望:未批准时只产生群的待批准请求、不回复;批准后 @ 的提问进入会话并在群里得到答复;
 // 不 @ 的消息被忽略。隐私模式(默认开启)反映在快照里。

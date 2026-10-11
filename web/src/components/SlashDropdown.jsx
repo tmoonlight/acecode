@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // SlashDropdown:输入框敲 / 时弹出的命令补全浮层。
 //
 // 以 InputBar 为锚点智能选择上/下方,8 行理想可视区,空间不足时限高滚动。
@@ -136,7 +137,7 @@ export function SlashDropdown({ items, query, onSelect, onClose }) {
   const onKey = useCallback((event) => {
     if (!shouldHandleComposerDropdownKey(event)) return;
     const total = ranked.length;
-    if (event.key === 'Escape') {
+    if (isDismissShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
       onClose?.();

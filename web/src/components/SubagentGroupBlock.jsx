@@ -12,6 +12,7 @@ import { clsx } from '../lib/format.js';
 import { SUBAGENT_TASK_STATUS, taskDisplayTitle } from '../lib/subagentTasks.js';
 import { ActivityLine } from './ActivityLine.jsx';
 import { VsIcon } from './Icon.jsx';
+import { SessionPixelAvatar } from './PixelAvatar.jsx';
 
 function agentTitle(agent, task) {
   if (task) {
@@ -49,6 +50,7 @@ function AgentRow({ agent, task, onOpen }) {
         )}
         aria-hidden="true"
       />
+      <SessionPixelAvatar session={task} size={20} />
       <span className="flex-1 min-w-0 truncate text-[13px] text-fg">{title}</span>
       {clickable && (
         <VsIcon

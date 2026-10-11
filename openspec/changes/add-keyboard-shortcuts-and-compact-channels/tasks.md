@@ -14,7 +14,25 @@
 - [x] 3.1 Run focused and full Web tests, i18n generation, build, strict OpenSpec validation and diff checks; record results.
 - [x] 3.2 Run browser checks across desktop/narrow, light/dark and keyboard/overlay/IME contexts; record evidence and separate Web proof from installed Desktop verification.
 
-## Validation evidence (2026-10-07)
+## 4. Editable bindings (2026-10-11)
+
+- [x] 4.1 Implement observable persistent overrides, capture/validation/conflict/reset logic; verify default compatibility, modifier collisions and storage failure tests.
+- [x] 4.2 Connect effective bindings to global/contextual handlers, labels, terminal and presentation forwarding; verify old bindings stop working and new bindings act once.
+- [x] 4.3 Add edit icons and recording UI with save/cancel/default controls and localized errors; verify keyboard focus, recording isolation and reload persistence in browser.
+- [x] 4.4 Run focused/full Web tests, production build, i18n, strict OpenSpec and scoped diff checks; record browser evidence and native verification limits.
+
+## Editable-binding validation evidence (2026-10-11)
+
+- All 20 catalog rows expose editable bindings; the history row has independent previous/next editors (21 edit buttons).
+- `pnpm i18n:catalog`, final `pnpm test` (3101 pass records, exit 0), `pnpm build`, strict OpenSpec validation and `git diff --check` passed. The production compatibility scan checked 4524 regex literals with no lookbehind.
+- `node scripts/test-shortcut-editing.mjs` passed recording isolation, cancel, conflicts, reserved keys, immediate replacement, reload persistence, reactive hints, xterm forwarding, cross-window storage updates, failed-write preservation, send/newline/history/find, dismissal and individual reset checks.
+- `node scripts/test-preview-presentation.mjs` passed existing preview regressions plus actual Markdown save rebinding and live sandboxed PPT shortcut updates without reloading slides. Its fixture now derives dirty state from draft/baseline text so saving is actually exercised.
+- Browser screenshots/results: `C:/Users/shao/AppData/Local/Temp/ace-shortcut-editing-Kjdf4t/`; preview regression screenshots: `C:/Users/shao/AppData/Local/Temp/ace-preview-presentation-q65JeG/`.
+- Full-suite/build logs: `%TEMP%/ace-shortcut-edit-web-tests-final.log` and `%TEMP%/ace-shortcut-edit-build-final.log`. Impeccable detector returned no findings; desktop light and narrow dark editor screenshots were inspected.
+- Existing source-based tests were updated to follow the shared matcher; behavior tests retain the default desktop Ctrl+Enter newline contract, IME/keyCode 229 protections and legacy alternate-layout/numpad matching. A remapped desktop newline no longer falls through into sending a message.
+- Browser tests use isolated storage and mocked APIs. No real sessions, channels or credentials were changed. Unrelated dirty work remains preserved; no commit, release or installed Desktop package rebuild was performed.
+
+## Prior validation evidence (2026-10-07)
 
 - Focused Node tests: appShortcuts, channelsSettings, settingsNavigation and browserDefaults passed.
 - `pnpm i18n:catalog`, final `pnpm test`, final `pnpm build`, strict OpenSpec validation and `git diff --check` passed. Build compatibility scan checked 4518 regex literals with no lookbehind.

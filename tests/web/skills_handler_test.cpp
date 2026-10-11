@@ -10,6 +10,7 @@
 
 #include "config/config.hpp"
 #include "skills/skill_registry.hpp"
+#include "skills/skill_init.hpp"
 #include "skills/skill_usage_store.hpp"
 
 #include <algorithm>
@@ -66,6 +67,67 @@ void populate_registry_with_skill(acecode::SkillRegistry& r,
 }
 
 } // namespace
+
+TEST_F(SkillsHandlerTest, ScanPathsMutationValidatesAndPreservesOtherSettings) {
+    acecode::AppConfig disk;
+    disk.skills.disabled = {"keep-disabled"};
+    disk.skills.external_dirs = {"legacy"};
+    disk.skills.reuse_opencode = false;
+    acecode::save_config(disk, cfg_path);
+    acecode::AppConfig active = disk;
+    active.skills.allowed = std::vector<std::string>{"runtime-only"};
+    auto result = acecode::web::set_skill_scan_paths(
+        {{"paths", {"  .custom/skills  ", "~/.codex/skills"}}}, active, cfg_path);
+    ASSERT_TRUE(result.ok) << result.body;
+    EXPECT_TRUE(result.body["customized"]);
+    EXPECT_EQ(result.body["paths"][0], ".custom/skills");
+    auto loaded = acecode::load_config_from_path(cfg_path, false);
+    EXPECT_EQ(loaded.skills.scan_paths, active.skills.scan_paths);
+    EXPECT_EQ(loaded.skills.disabled, disk.skills.disabled);
+    EXPECT_EQ(loaded.skills.external_dirs, disk.skills.external_dirs);
+    EXPECT_FALSE(loaded.skills.reuse_opencode);
+    EXPECT_TRUE(active.skills.allowed);
+
+    const auto before = active.skills.scan_paths;
+    for (const auto& body : {nlohmann::json::object(), nlohmann::json{{"paths", 1}},
+                            nlohmann::json{{"paths", {42}}},
+                            nlohmann::json{{"paths", {" "}}},
+                            nlohmann::json{{"paths", {"line\nbreak"}}}}) {
+        EXPECT_EQ(acecode::web::set_skill_scan_paths(body, active, cfg_path).http_status, 400);
+        EXPECT_EQ(active.skills.scan_paths, before);
+        EXPECT_EQ(acecode::load_config_from_path(cfg_path, false).skills.scan_paths, before);
+    }
+    // A directory where the config file should be forces persistence failure.
+    EXPECT_EQ(acecode::web::set_skill_scan_paths(
+        {{"paths", nlohmann::json::array()}}, active, tmp_root.string()).http_status, 500);
+    EXPECT_EQ(active.skills.scan_paths, before);
+    EXPECT_TRUE(acecode::web::set_skill_scan_paths(
+        {{"paths", nlohmann::json::array()}}, active, cfg_path).ok);
+    ASSERT_TRUE(active.skills.scan_paths);
+    EXPECT_TRUE(active.skills.scan_paths->empty());
+    EXPECT_TRUE(acecode::web::set_skill_scan_paths({{"paths", nullptr}}, active, cfg_path).ok);
+    EXPECT_FALSE(active.skills.scan_paths);
+    EXPECT_FALSE(acecode::load_config_from_path(cfg_path, false).skills.scan_paths);
+}
+
+TEST_F(SkillsHandlerTest, CustomScanPathListingMatchesRegistryPriorityAndDirectoryOpening) {
+    const auto global = tmp_root / "global";
+    const auto workspace = tmp_root / "workspace";
+    write_skill(global, "same", "global wins");
+    write_skill(workspace / "custom", "same", "project loses");
+    acecode::AppConfig cfg;
+    cfg.skills.scan_paths = std::vector<std::string>{global.string(), "custom"};
+    const auto payload = acecode::web::build_skills_payload(cfg, workspace.string());
+    ASSERT_EQ(payload.size(), 1u);
+    EXPECT_EQ(payload[0]["source"], "global");
+    EXPECT_EQ(payload[0]["description"], "global wins");
+    const auto selection = acecode::web::resolve_skill_root_for_cwd(workspace.string(), &cfg);
+    EXPECT_EQ(selection.path, workspace / "custom");
+    EXPECT_EQ(selection.global_path, global);
+    cfg.skills.scan_paths = std::vector<std::string>{};
+    EXPECT_TRUE(acecode::web::build_skills_payload(cfg, workspace.string()).empty());
+    EXPECT_TRUE(acecode::web::resolve_skill_root_for_cwd(workspace.string(), &cfg).path.empty());
+}
 
 // 场景: 把已注册 skill 禁用 → 200 + cfg.skills.disabled 含该 name + 文件回写
 TEST_F(SkillsHandlerTest, DisableEnabledSkillUpdatesConfig) {
@@ -300,21 +362,46 @@ TEST_F(SkillsHandlerTest, BuildSkillsPayloadKeepsMetadataForDisabledSkills) {
     EXPECT_EQ((*off)["source"], "global");
 }
 
-// 场景: disabled 列表里残留一个磁盘上已删除的名字(幽灵条目)→ 仍列出
-// (enabled=false、source=""),这样用户能在 UI 里把它从禁用列表放出来,
-// 而不是永远卡在 config.json 里。
-TEST_F(SkillsHandlerTest, BuildSkillsPayloadListsGhostDisabledEntries) {
+// 禁用偏好不是安装清单:未发现的名字不能补成幽灵条目。
+TEST_F(SkillsHandlerTest, BuildSkillsPayloadOmitsUndiscoveredDisabledEntries) {
     const auto global_root = tmp_root / "home" / ".acecode" / "skills";
     write_skill(global_root, "real-skill", "exists on disk");
 
     auto arr = acecode::web::build_skills_payload_with_roots(
         {}, {global_root}, /*disabled=*/{"deleted-skill"});
 
-    const auto* ghost = find_entry(arr, "deleted-skill");
-    ASSERT_NE(ghost, nullptr);
-    EXPECT_FALSE((*ghost)["enabled"].get<bool>());
-    EXPECT_EQ((*ghost)["source"], "");
-    EXPECT_EQ((*ghost)["description"], "");
+    EXPECT_EQ(find_entry(arr, "deleted-skill"), nullptr);
+    ASSERT_EQ(arr.size(), 1u);
+    EXPECT_NE(find_entry(arr, "real-skill"), nullptr);
+}
+
+TEST_F(SkillsHandlerTest, DeletedDisabledSkillDisappearsAndRestoresDisabled) {
+    const auto project_root = tmp_root / "project";
+    const auto global_root = tmp_root / "global";
+    for (const auto& root : {project_root, global_root}) {
+        SCOPED_TRACE(root.string());
+        const std::string name = root == project_root ? "project-skill" : "global-skill";
+        const std::vector<std::string> disabled{name};
+        write_skill(root, name, "before deletion");
+        const auto refresh = [&] {
+            return acecode::web::build_skills_payload_with_roots(
+                {project_root}, {global_root}, disabled);
+        };
+        auto before = refresh();
+        const auto* present = find_entry(before, name);
+        ASSERT_NE(present, nullptr);
+        EXPECT_FALSE((*present)["enabled"].get<bool>());
+        ASSERT_TRUE(fs::remove(root / "engineering" / name / "SKILL.md"));
+        EXPECT_EQ(find_entry(refresh(), name), nullptr);
+
+        write_skill(root, name, "restored metadata");
+        auto restored = refresh();
+        const auto* found = find_entry(restored, name);
+        ASSERT_NE(found, nullptr);
+        EXPECT_FALSE((*found)["enabled"].get<bool>());
+        EXPECT_EQ((*found)["description"], "restored metadata");
+        EXPECT_EQ((*found)["source"], root == project_root ? "project" : "global");
+    }
 }
 
 // 场景: 项目根与全局根有同名 skill → first-wins(项目优先),payload 里只

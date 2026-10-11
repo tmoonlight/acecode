@@ -1450,10 +1450,6 @@ const ExpertAgent* ExpertDefinition::agent(const std::string& agent_id) const {
     return it == agents.end() ? nullptr : &*it;
 }
 
-const ExpertAgent* ExpertDefinition::selected_agent(const std::string& member_id) const {
-    return agent(member_id.empty() ? lead_agent_id : member_id);
-}
-
 std::vector<fs::path> ExpertDefinition::selected_skill_roots(
     const std::string& member_id) const {
     std::vector<fs::path> roots = skill_roots;
@@ -1841,12 +1837,14 @@ json expert_definition_to_json(const ExpertDefinition& expert,
             {"id", agent.id},
             {"display_name", agent.display_name},
             {"profession", agent.profession},
+            {"avatar_identity", expert.avatar_identity(agent.id)},
         };
         if (include_instructions) item["instructions"] = agent.instructions;
         agents.push_back(std::move(item));
     }
     json result = {
         {"id", expert.id},
+        {"avatar_identity", expert.avatar_identity()},
         {"version", expert.version},
         {"type", to_string(expert.type)},
         {"display_name", expert.display_name},

@@ -3092,9 +3092,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useEffect(() => {
     return bindDesktopComposerAutoFocus({
       enabled: autoFocusOnDesktopWindowFocus,
-      onFocus: () => restoreChatInputFocusSoon(true),
+      onFocus: (canFocus) => inputRef.current?.focus({ canFocus }),
     });
-  }, [autoFocusOnDesktopWindowFocus, restoreChatInputFocusSoon]);
+  }, [autoFocusOnDesktopWindowFocus]);
 
   useLayoutEffect(() => {
     itemsRef.current = renderedItems;
@@ -4486,6 +4486,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // ref → 已加载列表 → 会话 cwd 目录名 的顺序退让;WorkspaceRegistry 默认名就是
   // cwd 的目录名,因此没改过名的工作区第三级兜底与侧栏显示一致。
   const workspaceLabel = useMemo(() => {
+    if (ref?.noWorkspace || ref?.no_workspace) return '';
     const fromRef = String(ref?.workspaceName || ref?.workspace_name || '').trim();
     if (fromRef) return fromRef;
     if (isRealWorkspaceHash(sessionWorkspaceHash)) {
@@ -4494,7 +4495,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       if (name) return name;
     }
     return pathBaseName(ref?.cwd || health?.cwd || '') || '当前项目';
-  }, [health?.cwd, homeWorkspaces, ref?.cwd, ref?.workspaceName, ref?.workspace_name, sessionWorkspaceHash]);
+  }, [health?.cwd, homeWorkspaces, ref?.cwd, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceName, ref?.workspace_name, sessionWorkspaceHash]);
   useEffect(() => () => closeDesktopContextMenu(), [sid]);
   const sessionPath = ref?.sessionPath || ref?.session_path || '';
   const sessionPinned = !!(ref?.pinned || ref?.isPinned || ref?.is_pinned);
@@ -5996,6 +5997,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       )}
       <SessionTitleBar titleTarget={titleTarget} actionsTarget={actionsTarget}
         title={title} workspaceLabel={workspaceLabel} remoteControlBound={remoteControlBound}
+        sessionRef={ref} titleReady={transcriptLoadState === 'loaded'}
         labelRef={sessionTitleLabelRef}
         renaming={headerRenaming && !!sid && !readOnlyExternalSession}
         onRenameCommit={commitHeaderRename}

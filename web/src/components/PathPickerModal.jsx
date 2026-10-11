@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // Web 路径选择器弹窗(openspec add-web-path-picker):浏览 daemon 所在机器的文件系统,
 // 选一个目录(mode='folder')或文件(mode='file')。数据来自 /api/fs/roots 与 /api/fs/list,
 // 纯逻辑在 lib/pathPicker.js,Promise 形态的入口在 lib/pathPickerHost.js。
@@ -346,7 +347,7 @@ export function PathPickerModal({
     if (event.key === 'Enter') {
       event.preventDefault();
       void submitPath();
-    } else if (event.key === 'Escape') {
+    } else if (isDismissShortcut(event)) {
       event.preventDefault();
       event.stopPropagation();
       stopEdit();

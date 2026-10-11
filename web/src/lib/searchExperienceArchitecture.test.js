@@ -102,7 +102,7 @@ run('every search palette exit converges on local abort and server cancellation'
   assert.match(palette, /search\.controller\?\.abort\(\)/);
   assert.match(palette, /api\.cancelSessionSearch\(search\.requestId\)/);
   assert.match(palette, /return \(\) => cancelSearch\(search\)/);
-  assert.match(palette, /event\.key === 'Escape'[\s\S]*closePalette\(\)/);
+  assert.match(palette, /isDismissShortcut\(event\)[\s\S]*closePalette\(\)/);
   assert.match(palette, /onClick=\{closePalette\}/);
   assert.match(palette, /event\.target === event\.currentTarget\) closePalette\(\)/);
   assert.match(palette, /\[open, query, searchRevision, cancelSearch\]/);

@@ -1,7 +1,9 @@
 // Completion menus own only unmodified keys. Modified keys belong to the
+import { isDismissShortcut } from './shortcutBindings.js';
 // composer (selection, word/document navigation, and inserting a line break).
 export function shouldHandleComposerDropdownKey(event) {
   if (!event || event.defaultPrevented) return false;
+  if (isDismissShortcut(event)) return true;
   const nativeEvent = event.nativeEvent || event;
   return !event.shiftKey
     && !event.ctrlKey

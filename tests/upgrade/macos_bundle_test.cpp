@@ -152,6 +152,128 @@ TEST(MacosBundleInstallPath, RejectsUnsafeLocations) {
         root / "alias" / "nested" / "ACECode.app"));
 }
 
+TEST(MacosAppUpdateWorkspace, KeepsAppNamesAndCleansCancelledEmptyWorkspace) {
+    TempDir temp("acecode-macos-update-cancel");
+    const fs::path root = fs::canonical(temp.path()) / ".acecode-update-test";
+    {
+        acecode::upgrade::MacosAppUpdateWorkspace workspace(root);
+        std::string error;
+        ASSERT_TRUE(workspace.create(&error)) << error;
+        for (const auto& app : {workspace.staged_bundle(), workspace.previous_bundle(),
+                               workspace.failed_bundle()}) {
+            EXPECT_EQ(app.filename(), "ACECode.app");
+            EXPECT_EQ(app.parent_path().parent_path(), root);
+            EXPECT_TRUE(fs::is_directory(app.parent_path()));
+#ifndef _WIN32
+            EXPECT_EQ(fs::status(app.parent_path()).permissions() & fs::perms::all,
+                      fs::perms::owner_all);
+#endif
+        }
+        EXPECT_NE(workspace.staged_bundle(), workspace.previous_bundle());
+        EXPECT_NE(workspace.previous_bundle(), workspace.failed_bundle());
+#ifndef _WIN32
+        EXPECT_EQ(fs::status(root).permissions() & fs::perms::all, fs::perms::owner_all);
+#endif
+        EXPECT_FALSE(workspace.create(&error));
+    }
+    EXPECT_FALSE(fs::exists(root));
+}
+
+TEST(MacosAppUpdateWorkspace, DoesNotAdoptExistingDirectoryOrSymlink) {
+    TempDir temp("acecode-macos-update-collision");
+    const fs::path root = fs::canonical(temp.path());
+    const fs::path existing = root / ".acecode-update-existing";
+    fs::create_directory(existing);
+    {
+        acecode::upgrade::MacosAppUpdateWorkspace workspace(existing);
+        std::string error;
+        EXPECT_FALSE(workspace.create(&error));
+        EXPECT_FALSE(error.empty());
+    }
+    EXPECT_TRUE(fs::is_directory(existing));
+    write_file(existing / "sentinel");
+    const fs::path alias = root / ".acecode-update-alias";
+    std::error_code ec;
+    fs::create_directory_symlink(existing, alias, ec);
+    if (ec) GTEST_SKIP() << "directory symlinks unavailable: " << ec.message();
+    {
+        acecode::upgrade::MacosAppUpdateWorkspace workspace(alias);
+        EXPECT_FALSE(workspace.create());
+    }
+    EXPECT_TRUE(fs::is_symlink(alias));
+    EXPECT_TRUE(fs::is_regular_file(existing / "sentinel"));
+    EXPECT_FALSE(fs::exists(existing / "staging"));
+}
+
+TEST(MacosAppUpdateWorkspace, ReplacementRetainsNamedBackupAndRejectsItsSelfUpdate) {
+    TempDir temp("acecode-macos-update-replace");
+    const fs::path parent = fs::canonical(temp.path());
+    const fs::path installed = parent / "ACECode.app";
+    const fs::path root = parent / ".acecode-update-test";
+    create_bundle(installed);
+    write_file(installed / "old-version");
+    fs::path backup;
+    {
+        acecode::upgrade::MacosAppUpdateWorkspace workspace(root);
+        ASSERT_TRUE(workspace.create());
+        create_bundle(workspace.staged_bundle());
+        write_file(workspace.staged_bundle() / "new-version");
+        backup = workspace.previous_bundle();
+        fs::rename(installed, backup);
+        fs::rename(workspace.staged_bundle(), installed);
+        EXPECT_TRUE(acecode::upgrade::macos_app_install_path_is_safe(installed));
+        EXPECT_FALSE(acecode::upgrade::macos_app_install_path_is_safe(backup));
+    }
+    EXPECT_TRUE(fs::is_regular_file(installed / "new-version"));
+    EXPECT_TRUE(fs::is_regular_file(backup / "old-version"));
+    EXPECT_EQ(backup.filename(), "ACECode.app");
+    EXPECT_FALSE(fs::exists(root / "staging"));
+    EXPECT_FALSE(fs::exists(root / "failed"));
+}
+
+TEST(MacosAppUpdateWorkspace, SuccessfulRollbackRestoresOriginalAndCleansContainers) {
+    TempDir temp("acecode-macos-update-rollback");
+    const fs::path parent = fs::canonical(temp.path());
+    const fs::path installed = parent / "ACECode.app";
+    const fs::path root = parent / ".acecode-update-test";
+    create_bundle(installed);
+    write_file(installed / "old-version");
+    {
+        acecode::upgrade::MacosAppUpdateWorkspace workspace(root);
+        ASSERT_TRUE(workspace.create());
+        create_bundle(workspace.staged_bundle());
+        fs::rename(installed, workspace.previous_bundle());
+        fs::rename(workspace.staged_bundle(), installed);
+        // Final validation rejects the new app: isolate it, restore the old
+        // app, then let the installer remove the rejected candidate explicitly.
+        fs::rename(installed, workspace.failed_bundle());
+        fs::rename(workspace.previous_bundle(), installed);
+        fs::remove_all(workspace.failed_bundle());
+    }
+    EXPECT_TRUE(fs::is_regular_file(installed / "old-version"));
+    EXPECT_FALSE(fs::exists(root));
+}
+
+TEST(MacosAppUpdateWorkspace, FailedRollbackPreservesEveryRemainingCopy) {
+    TempDir temp("acecode-macos-update-preserve");
+    const fs::path root = fs::canonical(temp.path()) / ".acecode-update-test";
+    fs::path backup, failed;
+    {
+        acecode::upgrade::MacosAppUpdateWorkspace workspace(root);
+        ASSERT_TRUE(workspace.create());
+        backup = workspace.previous_bundle();
+        failed = workspace.failed_bundle();
+        create_bundle(backup);
+        create_bundle(failed);
+        write_file(backup / "old-version");
+        write_file(failed / "new-version");
+    }
+    EXPECT_TRUE(fs::is_regular_file(backup / "old-version"));
+    EXPECT_TRUE(fs::is_regular_file(failed / "new-version"));
+    EXPECT_EQ(failed.filename(), "ACECode.app");
+    EXPECT_FALSE(fs::exists(root / "staging"));
+}
+
 #ifdef __APPLE__
 TEST(MacosBundleInstaller, UnwritableParentFailsWithoutMutation) {
     if (::geteuid() == 0) GTEST_SKIP() << "root bypasses directory permissions";

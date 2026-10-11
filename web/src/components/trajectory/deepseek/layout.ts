@@ -36,6 +36,8 @@ export interface TrajectoryTurnModel {
 export interface TrajectoryLayoutInput {
   nodes: ConversationSnapshot['nodes']
   eventLocations?: ReadonlyMap<number, ConversationLocation>
+  /** ACECode knows input ownership even before the corresponding assistant arrives. */
+  inputTurns?: ReadonlyMap<number, number>
   partial: ConversationSnapshot['partial']
   runningCalls: ConversationSnapshot['runningCalls']
   requests?: readonly RequestView[]
@@ -137,7 +139,7 @@ function inputCellDetail(node: InputNode): Pick<
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
   const {
-    nodes, eventLocations, partial, runningCalls, requests = [], callSchemas,
+    nodes, eventLocations, inputTurns, partial, runningCalls, requests = [], callSchemas,
   } = input
   const resultByCall = indexResults(nodes)
   const callById = new Map<string, ToolCallBlock>(resultByCall)
@@ -279,8 +281,10 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     if (entry.kind === 'system') {
       const { change, request } = entry
       const turn = change.kind === 'initial'
-        ? firstVisibleTurn(nodes, partial)
-        : enclosingPromptTurn(nodes, change.seq, partial)
+        ? firstVisibleTurn(nodes, partial, inputTurns)
+        : inputTurns !== undefined
+          ? request.turn
+          : enclosingPromptTurn(nodes, change.seq, partial)
       pushMessage(turn, {
         absTime: finiteTime(change.time),
         cell: {
@@ -352,9 +356,10 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
     }
     const { node, nodeIndex: i } = entry
     if (node.kind === 'user') {
-      // user/message has no turn on the wire; enclose it in the next assistant
-      // (or partial) turn, else open the turn after the last assistant.
-      const turn = enclosingUserTurn(followingAssistants[i], partial, lastAssistantTurn)
+      // Prefer known input ownership; generic DeepSeek nodes need the next
+      // assistant (or partial) to infer their turn.
+      const turn = inputTurns?.get(node.seq)
+        ?? enclosingUserTurn(followingAssistants[i], partial, lastAssistantTurn)
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
@@ -400,7 +405,8 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
       continue
     }
     if (node.kind === 'context') {
-      const turn = enclosingUserTurn(followingAssistants[i], partial, lastAssistantTurn)
+      const turn = inputTurns?.get(node.seq)
+        ?? enclosingUserTurn(followingAssistants[i], partial, lastAssistantTurn)
       pushMessage(turn, {
         absTime: finiteTime(node.time),
         cell: {
@@ -919,12 +925,14 @@ function enclosingPromptTurn(
 function firstVisibleTurn(
   nodes: ConversationSnapshot['nodes'],
   partial: ConversationSnapshot['partial'],
+  inputTurns?: ReadonlyMap<number, number>,
 ): number {
   const turns = nodes.flatMap(node =>
     node.kind === 'assistant' && node.turn > 0
       ? [node.turn]
       : [],
   )
+  if (inputTurns !== undefined) turns.push(...inputTurns.values())
   if (partial !== null && partial.turn > 0) turns.push(partial.turn)
   return turns.length === 0 ? 1 : Math.min(...turns)
 }

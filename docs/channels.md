@@ -151,12 +151,15 @@ new one.
 | Command | Effect |
 | --- | --- |
 | `/help` | Commands available to the sender |
-| `/status` | Platform, session, location, model, busy state, pending approvals and questions |
+| `/status` | Platform, session, location, model, permission mode, reasoning effort, busy state, pending approvals and questions |
 | `/stop` | Stop the current turn |
 | `/new` | New session in the bound session's workspace, or a no-workspace session |
 | `/sessions`, `/sessions more`, `/sessions search <text>` | Numbered list of sessions to switch to |
 | `/resume <number or session id>` | Switch the binding; numbers refer to the latest list |
 | `/model [name]` | List saved models, or switch the bound session's model from the next turn |
+| `/mode [default\|auto\|yolo]` | Show or change the bound session's permission mode: default, automatic, or full access (`accept-edits` is an alias for `auto`) |
+| `/yolo` | Switch directly to full access, skipping tool permission prompts and allowing pending permission requests |
+| `/effort [level\|default]` | Show current reasoning effort and supported levels, set a supported level, or restore the model preset with `default` |
 | `/approve <id>`, `/deny <id>` | Decide a permission request once |
 | `/aq ...` | Answer an AskUserQuestion, with the same syntax as `/rc` |
 
@@ -168,6 +171,14 @@ from their own chat. Archived and subagent sessions are never listed. Text that
 starts with `/` is expanded as an opencode or skill command exactly like Web
 input. Plain text sent while a question is pending is handed to that question as
 an interjection.
+
+`/mode`, `/yolo`, and `/effort` apply only to the bound session and work while
+it is busy. Permission changes follow the same rules as Desktop. Effort changes
+take effect on the next model request, including later requests in the current
+turn; the in-flight request is not interrupted. Use `/effort` to see the current
+model's supported levels. Unsupported levels leave the setting unchanged. These
+commands require an existing session (`/new` or a normal message creates one)
+and do not change global defaults.
 
 ### Output And Media
 

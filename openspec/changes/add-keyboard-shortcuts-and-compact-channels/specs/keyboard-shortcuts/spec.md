@@ -4,6 +4,21 @@ Make frequent ACECode Web and Desktop actions discoverable and executable throug
 
 ## ADDED Requirements
 
+### Requirement: Editable persistent bindings
+Each listed shortcut SHALL expose an edit icon after its key display. Recording SHALL capture the new combination without performing any application action. Saving SHALL replace the old binding immediately, update visible hints, and persist across reopening. Cancel SHALL leave the binding unchanged. Restore default SHALL affect only the selected binding. Previous/next history keys SHALL be independently editable.
+
+#### Scenario: Rebind a common action
+- **WHEN** the user edits New session from Ctrl+Alt+N to Ctrl+Alt+J and saves
+- **THEN** only the new chord creates a session, its label updates, and the binding survives reload
+
+#### Scenario: Conflict or persistence failure
+- **WHEN** the chosen chord conflicts with another action, is reserved, or cannot be saved
+- **THEN** an actionable inline message is shown and the old binding remains active
+
+#### Scenario: Contextual shortcut
+- **WHEN** the user edits a sending, newline, history, saving, finding or dismissal binding
+- **THEN** the new chord works in the owning context with existing IME and focus protections
+
 ### Requirement: Searchable shortcut settings
 Settings SHALL expose a 快捷键 section containing both existing and new shortcuts, searchable by action, description and key combination. The search bar SHALL remain visible at the top of the settings content scroll area.
 
@@ -12,7 +27,7 @@ Settings SHALL expose a 快捷键 section containing both existing and new short
 - **THEN** the opaque search bar stays at the top and the list filters to matching shortcuts
 
 ### Requirement: Common application actions
-The application SHALL support Ctrl+Alt+N for a new current-workspace session, Ctrl+Alt+I to focus its input without changing draft text, Ctrl+Alt+B/E for left/right panels, Ctrl+, for settings, Ctrl+/ for shortcut settings, and Ctrl+Shift+. for stopping current work. Existing search, console, find and contextual editing shortcuts SHALL retain their behavior. macOS SHALL display and accept corresponding Cmd/Option bindings except the existing Ctrl+backquote console binding.
+With default bindings, the application SHALL support Ctrl+Alt+N for a new current-workspace session, Ctrl+Alt+I to focus its input without changing draft text, Ctrl+Alt+B/E for left/right panels, Ctrl+, for settings, Ctrl+/ for shortcut settings, and Ctrl+Shift+. for stopping current work. Existing search, console, find and contextual editing shortcuts SHALL retain their behavior until explicitly rebound. macOS SHALL display and accept corresponding Cmd/Option defaults except the existing Ctrl+backquote console binding.
 
 #### Scenario: Navigation history
 - **WHEN** the user presses Ctrl+- or Ctrl+Shift+-
@@ -27,7 +42,7 @@ The application SHALL support Ctrl+Alt+N for a new current-workspace session, Ct
 - **THEN** the corresponding existing action runs once in the active workspace/session and preserves drafts and cancellation behavior
 
 ### Requirement: Incremental reasoning depth
-Ctrl+Alt+> SHALL increase and Ctrl+Alt+< SHALL decrease the active conversation's supported reasoning depth. The physical Period/Comma keys with or without Shift SHALL be accepted. The effective default SHALL be respected, unsupported levels skipped, bounds clamped and in-flight changes guarded.
+With default bindings, Ctrl+Alt+> SHALL increase and Ctrl+Alt+< SHALL decrease the active conversation's supported reasoning depth. The physical Period/Comma keys with or without Shift SHALL be accepted by default. The effective default depth SHALL be respected, unsupported levels skipped, bounds clamped and in-flight changes guarded.
 
 #### Scenario: Running conversation
 - **WHEN** a running conversation changes depth using the keyboard

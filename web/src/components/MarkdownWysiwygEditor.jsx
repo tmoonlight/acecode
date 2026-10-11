@@ -1,3 +1,4 @@
+import { isShortcut } from '../lib/shortcutBindings.js';
 import {
   useCallback,
   useEffect,
@@ -335,7 +336,7 @@ export default function MarkdownWysiwygEditor({
   }, []);
 
   const handleKeyDown = useCallback((event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    if (isShortcut(event, 'save')) {
       event.preventDefault();
       if (
         !disabled

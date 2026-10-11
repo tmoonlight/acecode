@@ -77,7 +77,7 @@ function pickerEscape(win, { open = true, appearance = 'base-select' } = {}) {
   const select = { appearance, matches: () => open };
   Object.defineProperties(event, {
     key: { value: 'Escape' },
-    target: { value: { closest: () => select } },
+    target: { value: { closest: selector => selector === 'select' ? select : null } },
   });
   win.dispatchEvent(event);
   return event;

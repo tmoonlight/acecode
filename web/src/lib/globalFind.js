@@ -1,4 +1,5 @@
 import { markTextMatches, unwrapMarks } from './domTextMarks.js';
+import { isCustomShortcut, isShortcut, isShortcutRecording } from './shortcutBindings.js';
 
 const FIND_HIGHLIGHT = 'ace-global-find-match';
 const FIND_ACTIVE_HIGHLIGHT = 'ace-global-find-active';
@@ -10,7 +11,9 @@ function hasFindModifier(event) {
 }
 
 export function isFindShortcut(event) {
-  if (!event || event.altKey) return false;
+  if (!event || isShortcutRecording(event)) return false;
+  if (isCustomShortcut('find')) return isShortcut(event, 'find');
+  if (event.altKey) return false;
   const key = typeof event.key === 'string' ? event.key.toLowerCase() : '';
   const code = typeof event.code === 'string' ? event.code.toLowerCase() : '';
   if ((key === 'f3' || code === 'f3') && !event.ctrlKey && !event.metaKey) {

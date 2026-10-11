@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../../lib/shortcutBindings.js';
 import { useEffect, useMemo, useState } from 'react';
 import { clsx } from '../../lib/format.js';
 import { formatModelTokenLimit } from '../../lib/modelSettings.js';
@@ -51,7 +52,7 @@ export function ModelProbeDialog({
   };
 
   const blockEscapeDismiss = (event) => {
-    if (event.key !== 'Escape') return;
+    if (!isDismissShortcut(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.nativeEvent?.stopImmediatePropagation?.();

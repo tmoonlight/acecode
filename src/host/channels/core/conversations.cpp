@@ -53,12 +53,42 @@ const char* command_name(CommandKind kind) {
         case CommandKind::Sessions: return "/sessions";
         case CommandKind::Resume: return "/resume";
         case CommandKind::Model: return "/model";
+        case CommandKind::Mode: return "/mode";
+        case CommandKind::Yolo: return "/yolo";
+        case CommandKind::Effort: return "/effort";
         case CommandKind::Approve: return "/approve";
         case CommandKind::Deny: return "/deny";
         case CommandKind::Question: return "/aq";
         case CommandKind::None: break;
     }
     return "(text)";
+}
+
+std::string permission_label(const std::string& mode) {
+    if (mode == "default") return "默认权限 (default)";
+    if (mode == "auto" || mode == "accept-edits") return "自动模式 (auto)";
+    if (mode == "yolo") return "完全访问权限 (yolo)";
+    if (mode == "plan") return "计划模式 (plan)";
+    return mode;
+}
+
+std::string effort_status(const std::optional<SessionModelState>& state, bool list_options) {
+    if (!state || state->deleted) return "思考深度:模型不可用";
+    if (!state->reasoning || !state->reasoning->supported ||
+        !(state->reasoning->mandatory || state->reasoning->enabled.value_or(state->reasoning->default_enabled)) ||
+        state->reasoning->supported_efforts.empty() ||
+        (state->provider != "openai" && state->provider != "anthropic"))
+        return "思考深度:当前模型未启用或不支持 effort 档位";
+    const auto& reasoning = *state->reasoning;
+    std::string text = "思考深度:" + state->reasoning_effort.value_or(
+        reasoning.effort.value_or(reasoning.default_effort.value_or("默认")));
+    if (!state->reasoning_effort) text += " (模型预设)";
+    if (list_options) {
+        text += "\n可用档位:";
+        for (const auto& effort : reasoning.supported_efforts) text += " " + effort;
+        text += "\n用法:/effort <档位>,/effort default 恢复模型预设。";
+    }
+    return text;
 }
 
 } // namespace
@@ -184,6 +214,8 @@ void Conversations::handle_bound_command(const im::Inbound& inbound, const Comma
                                location_label(*record) + "\n模型:" +
                                (info && !info->model_name.empty() ? info->model_name : std::string("默认")) +
                                "\n状态:" + (info && info->busy ? "执行中" : "空闲");
+            text += "\n权限模式:" + (info ? permission_label(info->permission_mode) : "不可用");
+            text += "\n" + effort_status(deps_.model_state ? deps_.model_state(id) : std::nullopt, false);
             const auto permissions = projection->pending_permission_ids();
             for (const auto& request : permissions) text += "\n待确认权限:" + request;
             for (const auto& line : projection->pending_question_texts()) text += "\n" + line;
@@ -210,6 +242,41 @@ void Conversations::handle_bound_command(const im::Inbound& inbound, const Comma
                 return;
             }
             reply(inbound, texts::model_switched(command.argument));
+            return;
+        }
+        case CommandKind::Mode:
+        case CommandKind::Yolo: {
+            if (command.kind == CommandKind::Mode && command.argument.empty()) {
+                const auto info = session_info(id);
+                reply(inbound, "权限模式:" + (info ? permission_label(info->permission_mode) : "不可用") +
+                               "\n用法:/mode default|auto|yolo,或 /yolo 直接切换到完全访问权限。");
+                return;
+            }
+            const auto mode = command.kind == CommandKind::Yolo ? std::string("yolo") : command.argument;
+            if (!deps_.set_permission_mode || !deps_.set_permission_mode(id, mode)) {
+                reply(inbound, texts::turn_failed("切换权限模式失败"));
+                return;
+            }
+            reply(inbound, "已切换权限模式为 " + permission_label(mode) + "。");
+            return;
+        }
+        case CommandKind::Effort: {
+            if (command.argument.empty()) {
+                reply(inbound, effort_status(deps_.model_state ? deps_.model_state(id) : std::nullopt, true));
+                return;
+            }
+            const auto effort = command.argument == "default" ? std::nullopt
+                                                               : std::optional<std::string>(command.argument);
+            std::string error;
+            const auto updated = deps_.set_reasoning_effort ? deps_.set_reasoning_effort(id, effort, &error)
+                                                           : std::nullopt;
+            if (!updated) {
+                reply(inbound, texts::turn_failed(error.empty() ? "切换思考深度失败" : error) + "\n" +
+                               effort_status(deps_.model_state ? deps_.model_state(id) : std::nullopt, true));
+                return;
+            }
+            reply(inbound, std::string(effort ? "已更新思考深度。" : "已恢复模型预设思考深度。") +
+                           "从下一次模型请求起生效。\n" + effort_status(updated, false));
             return;
         }
         case CommandKind::Approve:

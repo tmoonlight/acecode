@@ -35,6 +35,11 @@ struct ConversationDeps {
     std::function<bool(const rc::RcSessionTarget&)> resume_target;
     std::function<std::vector<std::string>()> model_names;
     std::function<bool(const std::string&, const std::string&, std::string*)> switch_model;
+    std::function<bool(const std::string& session_id, const std::string& mode)> set_permission_mode;
+    std::function<std::optional<SessionModelState>(const std::string& session_id)> model_state;
+    std::function<std::optional<SessionModelState>(const std::string& session_id,
+                                                 const std::optional<std::string>& effort,
+                                                 std::string* error)> set_reasoning_effort;
     // 普通文本提交前做技能命令展开(与 Web 输入一致);返回展开后的文本。
     std::function<std::string(const std::string& session_id, const std::string& text)> expand_skill;
     // 某会话即将被 taker 接管:host 让所有平台释放它(跨平台转移绑定)。

@@ -27,7 +27,7 @@ function test(name, fn) {
 // 与顶部标题栏不一致、且长度不受限的文本。
 test('SessionRow measures only its non-editing title viewport', () => {
   const sidebar = source('components/Sidebar.jsx');
-  const titleStart = sidebar.indexOf('function SidebarSessionTitle({ title })');
+  const titleStart = sidebar.indexOf('function SidebarSessionTitle({ title, animation })');
   const rowStart = sidebar.indexOf('\nfunction SessionRow({', titleStart);
   const rowEnd = sidebar.indexOf('\nfunction OpencodeImportSelectAllCheckbox(', rowStart);
   assert.ok(titleStart >= 0 && rowStart > titleStart && rowEnd > rowStart);
@@ -42,8 +42,8 @@ test('SessionRow measures only its non-editing title viewport', () => {
   assert.match(titleComponent, /observer\?\.observe\(content\)/);
   assert.match(titleComponent, /document\.fonts\?\.ready/);
   assert.match(titleComponent, /metrics\.overflowing && 'is-overflowing'/);
-  assert.match(titleComponent, /metrics\.overflowing && 'is-marquee-ready'/);
-  assert.doesNotMatch(titleComponent, /\btitle=\{/);
+  assert.match(titleComponent, /metrics\.overflowing && !animation\?\.typing && 'is-marquee-ready'/);
+  assert.doesNotMatch(titleComponent, /<span[^>]*\btitle=\{/);
   assert.match(row, /const title = sessionDisplayTitle\(s, s\.name \|\| ''\);/);
   assert.match(
     row,
@@ -51,7 +51,7 @@ test('SessionRow measures only its non-editing title viewport', () => {
   );
   assert.match(
     row,
-    /\{editing \? \([\s\S]*?<input[\s\S]*?\) : \([\s\S]*?<SidebarSessionTitle title=\{title\} \/>/,
+    /\{editing \? \([\s\S]*?<input[\s\S]*?\) : \([\s\S]*?<SidebarSessionTitle title=\{title\} animation=\{titleAnimation\} \/>/,
   );
   assert.doesNotMatch(row, /className="block min-w-0 truncate"/);
   assert.doesNotMatch(row, /getMessages\(/);

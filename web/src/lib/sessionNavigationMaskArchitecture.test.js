@@ -133,7 +133,7 @@ run('session navigation mask blocks the viewport and exposes accessible progress
   assert.match(mask, /tabIndex=\{0\}[\s\S]*autoFocus/);
   // Esc 走 onKeyDown 分流到 onCancel,其余按键仍然被吞掉。
   assert.match(mask, /onKeyDown=\{onKeyDown\}/);
-  assert.match(mask, /event\.key === 'Escape'/);
+  assert.match(mask, /isDismissShortcut\(event\)/);
   assert.match(mask, /onCancel\(\)/);
   assert.match(mask, /onPointerDown=\{stopInteraction\}/);
   // 遮罩本身仍然不持有任何计时器 —— 生命周期归 App 管。

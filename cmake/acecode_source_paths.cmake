@@ -5,6 +5,7 @@ set(ACECODE_CHANNEL_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/host/channels/bridge.
 set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/base/pty/winpty_agent_location.cpp")
 set(ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/deepin_window_effects.cpp")
 set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp")
+set(ACECODE_MACOS_CLI_LAUNCHER_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/macos_cli_launcher.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/splash_screen.cpp")
 set(ACECODE_DESKTOP_WEB_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/web_host.cpp")
 set(ACECODE_DESKTOP_PET_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp")

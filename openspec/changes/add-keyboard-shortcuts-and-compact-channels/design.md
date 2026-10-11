@@ -4,7 +4,7 @@ App owns navigation and panels; ChatView owns input, cancellation and reasoning 
 
 ## Goals / Non-Goals
 
-Keep each action's existing handler and lifetime owner. Share shortcut definitions between dispatch, help and terminal forwarding. No rebinding editor, backend protocol change, packaging or release.
+Keep each action's existing handler and lifetime owner. Share shortcut definitions between dispatch, help and terminal forwarding. No backend protocol change, packaging or release.
 
 ## Decisions
 
@@ -25,3 +25,10 @@ Keep each action's existing handler and lifetime owner. Share shortcut definitio
 ## Migration Plan
 
 Ship with the regular Web build; Desktop requires a later embedded bundle rebuild. No stored-data migration. Reverting this change restores the old UI and listeners.
+
+## 2026-10-11: Editable bindings
+
+- Every displayed binding gains an accessible edit icon to its right. A focused recording dialog captures a chord without dispatching it; Save validates conflicts and reserved keys, Cancel leaves the current binding intact, and Restore default resets only the selected action. History exposes separate previous/next bindings within its existing row.
+- Keep defaults immutable and persist validated overrides through the existing preference storage helpers. One observable store supplies dispatch, help, button hints and terminal forwarding; updates apply immediately and storage events synchronize other windows. A failed persistent write leaves the old binding active and reports an error.
+- Contextual send/newline/history/save/find/dismiss handlers consult the same registry while retaining their current focus and IME guards. Do not synthesize keyboard events or create parallel action implementations. Browser-default suppression and sandboxed presentation forwarding follow the effective binding.
+- Record exact physical key and modifiers. Prevent duplicates (including optional-Shift reasoning defaults), standalone modifiers, printable unmodified global shortcuts, focus traversal and known system/browser editing chords. Preserve visible close/cancel controls so recording Escape is safe.

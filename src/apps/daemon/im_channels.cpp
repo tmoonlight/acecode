@@ -57,6 +57,26 @@ std::unique_ptr<channels::core::ChannelHost> make_im_channel_host(ImChannelDeps 
         }
         return registry->switch_model(id, *profile, nullptr, error);
     };
+    conversation.set_permission_mode = [registry](const std::string& id, const std::string& mode) {
+        const auto parsed = PermissionManager::parse_mode_name(mode);
+        return parsed && registry->set_permission_mode(id, *parsed);
+    };
+    conversation.model_state = [registry](const std::string& id) { return registry->current_model_state(id); };
+    conversation.set_reasoning_effort = [registry](const std::string& id,
+                                                  const std::optional<std::string>& effort,
+                                                  std::string* error) -> std::optional<SessionModelState> {
+        const auto result = registry->set_reasoning_effort(id, effort);
+        if (result.status == SessionReasoningStatus::Updated) return result.state;
+        if (error) {
+            switch (result.status) {
+                case SessionReasoningStatus::InvalidEffort: *error = "当前模型不支持该 effort 档位"; break;
+                case SessionReasoningStatus::UnknownSession: *error = "会话不存在"; break;
+                case SessionReasoningStatus::Unavailable: *error = "当前会话模型不可用"; break;
+                default: *error = "更新思考深度失败,原设置已保留"; break;
+            }
+        }
+        return std::nullopt;
+    };
     // 与 Web 输入相同的展开顺序:先 opencode 命令,再技能命令。
     conversation.expand_skill = [config, config_mu, registry](const std::string& id, const std::string& text) {
         if (auto entry = registry->acquire(id); entry && !entry->cwd.empty()) {

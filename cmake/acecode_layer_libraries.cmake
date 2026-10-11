@@ -142,7 +142,7 @@ acecode_set_source_define("${ACECODE_CHANNEL_BRIDGE_SOURCE}"
 acecode_collect_group_sources(_web apps/web)
 acecode_add_layer_library(acecode_web apps ${_web}
     "${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp")
-target_link_libraries(acecode_web PUBLIC acecode_host acecode_crow)
+target_link_libraries(acecode_web PUBLIC acecode_host acecode_crow PRIVATE ZLIB::ZLIB)
 
 acecode_collect_group_sources(_tui apps/tui)
 acecode_add_layer_library(acecode_tui apps ${_tui}
@@ -166,6 +166,7 @@ target_link_libraries(acecode_cli PUBLIC acecode_tui acecode_headless acecode_da
 # Reusable desktop code is application-owned, with only base-layer linkage.
 # Browser hosts and platform shell entry points remain executable-owned.
 set(ACECODE_DESKTOP_BINARY_ONLY_SOURCES
+    ${ACECODE_MACOS_CLI_LAUNCHER_SOURCE}
     ${ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE} ${ACECODE_DESKTOP_LINUX_SOURCE}
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE} ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE}
     ${ACECODE_DESKTOP_MAIN_SOURCE} ${ACECODE_DESKTOP_SPLASH_SOURCE}

@@ -1,3 +1,5 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
+import { shortcutLabel } from '../lib/appShortcuts.js';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import {
@@ -601,7 +603,7 @@ export function DesktopContextMenu() {
     const onKeyDown = (event) => {
       const currentMenu = menuRef.current;
       if (!currentMenu) return;
-      if (event.key === 'Escape') {
+      if (isDismissShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();
         close();
@@ -726,7 +728,7 @@ export function DesktopContextMenu() {
                   : <span className="ace-desktop-context-menu-icon-spacer" aria-hidden="true" />)}
                 <span>{actionLabel(action)}</span>
                 {action.id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION && (
-                  <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">Ctrl+F11</span>
+                  <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('previewPresentation')}</span>
                 )}
               </button>
             </Fragment>

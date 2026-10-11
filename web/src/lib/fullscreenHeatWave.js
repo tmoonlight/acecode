@@ -1,8 +1,9 @@
 import { HEAT_DURATION, MAP_RANGE } from './heatWaveShader.js';
+import { isShortcutRecording } from './shortcutBindings.js';
 import { createHeatWaveRenderer } from './heatWaveRenderer.js';
 
 export function isFullscreenHeatWaveShortcut(event) {
-  return !!(event && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+  return !!(event && !isShortcutRecording(event) && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
     && !event.isComposing && event.keyCode !== 229
     && (event.code === 'KeyO' || event.key?.toLowerCase() === 'o'));
 }

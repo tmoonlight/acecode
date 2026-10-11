@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../../lib/shortcutBindings.js';
 import { useEffect, useRef, useState } from 'react';
 import { reorderSavedModels, savedModelDropTarget } from '../../lib/savedModelOrder.js';
 
@@ -107,7 +108,7 @@ export function useSavedModelReorder({ models, filtered, query, disabled, onReor
       if (pointerEvent.pointerId === pointerId) cancel();
     };
     const key = (keyEvent) => {
-      if (keyEvent.key !== 'Escape') return;
+      if (!isDismissShortcut(keyEvent)) return;
       keyEvent.preventDefault();
       keyEvent.stopPropagation();
       cancel();

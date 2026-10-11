@@ -1,4 +1,5 @@
 #include "thread_service.hpp"
+#include "thread_presentation.hpp"
 #include "session/scoped_subscription.hpp"
 #include "thread_wait_state.hpp"
 #include "agent/transcript/conversation_history.hpp"
@@ -17,6 +18,7 @@
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
+#include "workspace/workspace_registry.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -38,11 +40,13 @@ namespace acecode {
 namespace {
 
 using nlohmann::json;
+using thread_presentation::trim_and_limit;
+using thread_presentation::thread_summary;
+using thread_presentation::compact_wait_event;
 
 constexpr std::size_t kMaxListLimit = 50;
 constexpr std::size_t kMaxTurnLimit = 20;
 constexpr std::size_t kMaxItemChars = 8000;
-constexpr std::size_t kSummaryChars = 240;
 constexpr std::size_t kMaxWaitTargets = 8;
 constexpr int kMaxWaitMs = 120000;
 
@@ -58,22 +62,6 @@ struct ScopedThread {
         return active ? active->sm.get() : nullptr;
     }
 };
-
-std::string trim_and_limit(std::string value,
-                           std::size_t max_chars,
-                           bool* truncated = nullptr) {
-    while (!value.empty() &&
-           std::isspace(static_cast<unsigned char>(value.front()))) {
-        value.erase(value.begin());
-    }
-    while (!value.empty() &&
-           std::isspace(static_cast<unsigned char>(value.back()))) {
-        value.pop_back();
-    }
-    const std::string limited = truncate_utf8_prefix(value, max_chars);
-    if (truncated) *truncated = limited.size() < value.size();
-    return limited;
-}
 
 bool valid_title(const std::string& title) {
     if (title.size() > 160) return false;
@@ -332,64 +320,6 @@ std::optional<std::size_t> parse_cursor_offset(const std::string& cursor) {
     } catch (...) {
         return std::nullopt;
     }
-}
-
-json thread_summary(const SessionMeta& meta,
-                    const SessionInfo* active,
-                    bool pinned,
-                    int pinned_index = 0) {
-    const bool is_active = active != nullptr;
-    const bool busy = active && active->busy;
-    json out{
-        {"threadId", meta.id},
-        {"cwd", meta.cwd},
-        {"noWorkspace", meta.no_workspace},
-        {"title", active && !active->title.empty() ? active->title : meta.title},
-        {"summary", trim_and_limit(
-            active && !active->summary.empty() ? active->summary : meta.summary,
-            kSummaryChars)},
-        {"createdAt", active && !active->created_at.empty()
-                          ? active->created_at : meta.created_at},
-        {"updatedAt", active && !active->updated_at.empty()
-                          ? active->updated_at : meta.updated_at},
-        {"active", is_active},
-        {"busy", busy},
-        {"status", busy ? "running" : "idle"},
-        {"archived", meta.archived},
-        {"pinned", pinned},
-        {"parentThreadId", meta.parent_session_id.empty()
-                               ? json(nullptr) : json(meta.parent_session_id)},
-        {"model", active && !active->model_name.empty()
-                      ? active->model_name : meta.model_preset},
-    };
-    if (pinned_index > 0) out["pinnedIndex"] = pinned_index;
-    return out;
-}
-
-std::string event_kind_name(SessionEventKind kind) {
-    return to_string(kind);
-}
-
-
-json compact_wait_event(const SessionEvent& event) {
-    json out{
-        {"cursor", std::to_string(event.seq)},
-        {"type", event_kind_name(event.kind)},
-    };
-    if (!event.payload.is_object()) return out;
-    for (const char* key : {
-             "busy", "outcome", "reason", "request_id", "title"}) {
-        if (event.payload.contains(key)) out[key] = event.payload[key];
-    }
-    if (event.kind == SessionEventKind::Message) {
-        bool truncated = false;
-        out["role"] = event.payload.value("role", std::string{});
-        out["content"] = trim_and_limit(
-            event.payload.value("content", std::string{}),
-            1200, &truncated);
-        out["truncated"] = truncated;
-    }
-    return out;
 }
 
 std::vector<ChatMessage> completed_history_for_fork(
@@ -764,8 +694,9 @@ ThreadServiceResult ThreadService::create(
     const ThreadScope& scope,
     const std::string& prompt,
     const std::string& title,
-    const std::string& model_name) const {
-    if (!deps_.registry || !deps_.client || scope.cwd.empty()) {
+    const std::string& model_name,
+    const ThreadCreateTarget& target) const {
+    if (!deps_.registry || !deps_.client) {
         return ThreadServiceResult::fail("thread creation is unavailable");
     }
     if (prompt.empty()) return ThreadServiceResult::fail("prompt is required");
@@ -774,6 +705,52 @@ ThreadServiceResult ThreadService::create(
     SessionOptions options;
     options.cwd = scope.cwd;
     options.model_name = model_name;
+    const bool explicit_directory = !target.cwd.empty() || !target.workspace_hash.empty();
+    if ((!target.cwd.empty() && !target.workspace_hash.empty()) ||
+        (target.no_workspace && explicit_directory)) {
+        return ThreadServiceResult::fail(
+            "choose only one of cwd, workspaceHash or noWorkspace:true");
+    }
+    options.no_workspace = target.no_workspace || (!explicit_directory &&
+        (scope.no_workspace || (scope.caller_manager && scope.caller_manager->is_no_workspace())));
+    if (!target.workspace_hash.empty()) {
+        if (!valid_storage_token(target.workspace_hash)) {
+            return ThreadServiceResult::fail("invalid workspaceHash");
+        }
+        const auto workspace = desktop::load_workspace_metadata(
+            projects_directory(), target.workspace_hash);
+        if (!workspace || !desktop::workspace_hash_matches_cwd(
+                target.workspace_hash, workspace->cwd)) {
+            return ThreadServiceResult::fail("workspaceHash does not identify a registered workspace");
+        }
+        options.cwd = workspace->cwd;
+    } else if (!target.cwd.empty()) {
+        options.cwd = target.cwd;
+    }
+    if (!options.no_workspace) {
+        const auto path = path_from_utf8(options.cwd);
+        if (options.cwd.empty() || options.cwd.find('\0') != std::string::npos ||
+            !path.is_absolute()) {
+            return ThreadServiceResult::fail("cwd must be an existing absolute directory");
+        }
+        std::error_code ec;
+        if (!std::filesystem::is_directory(path, ec) || ec) {
+            return ThreadServiceResult::fail("workspace directory is unavailable: " + options.cwd);
+        }
+        if (!target.cwd.empty()) {
+            const auto canonical = std::filesystem::canonical(path, ec);
+            if (ec) return ThreadServiceResult::fail("failed to resolve cwd: " + ec.message());
+            options.cwd = path_to_utf8(canonical);
+        }
+        desktop::WorkspaceRegistry workspaces;
+        const auto workspace = workspaces.register_new(projects_directory(), options.cwd);
+        const auto persisted = desktop::load_workspace_metadata(projects_directory(), workspace.hash);
+        if (!persisted || !persisted->desktop_visible ||
+            !desktop::workspace_hash_matches_cwd(workspace.hash, persisted->cwd)) {
+            return ThreadServiceResult::fail("failed to persist workspace registration");
+        }
+        options.workspace_hash = workspace.hash;
+    }
     std::string id;
     try {
         id = deps_.registry->create(options);
@@ -788,17 +765,21 @@ ThreadServiceResult ThreadService::create(
         return ThreadServiceResult::fail("failed to persist new thread");
     }
     if (!title.empty()) entry->sm->set_session_title(title);
+    const std::string project_dir = entry->sm->current_project_dir();
     if (!deps_.client->send_input(id, prompt)) {
         deps_.client->destroy_session(id);
         std::string ignored;
         SessionStorage::purge_session_files(
-            SessionStorage::get_project_dir(scope.cwd), id, &ignored);
+            project_dir, id, &ignored);
         return ThreadServiceResult::fail("failed to queue initial prompt");
     }
     return ThreadServiceResult::ok(json{
         {"threadId", id},
         {"title", title},
         {"status", "running"},
+        {"cwd", entry->cwd},
+        {"workspaceHash", storage_workspace_hash(project_dir)},
+        {"noWorkspace", entry->no_workspace},
     });
 }
 
@@ -853,25 +834,41 @@ ThreadServiceResult ThreadService::fork(
 ThreadServiceResult ThreadService::send(
     const ThreadScope& scope,
     const std::string& thread_id,
-    const std::string& prompt) const {
+    const std::string& prompt,
+    const std::string& workspace_hash) const {
     if (thread_id.empty()) return ThreadServiceResult::fail("threadId is required");
     if (thread_id == scope.caller_thread_id) {
         return ThreadServiceResult::fail(
             "the calling thread cannot send a message to itself");
     }
     if (prompt.empty()) return ThreadServiceResult::fail("prompt is required");
-    auto scoped = resolve_thread(deps_, scope, thread_id);
-    if (!scoped) {
-        return ThreadServiceResult::fail(
-            "thread is unavailable in the current workspace");
+    std::string error;
+    auto scoped = resolve_discovered_thread(deps_, scope, thread_id, workspace_hash, error);
+    if (!scoped) return ThreadServiceResult::fail(error);
+    const auto expected_hash = storage_workspace_hash(scoped->project_dir);
+    const auto active_matches_target = [&](const std::shared_ptr<SessionEntry>& active) {
+        return active && active->sm &&
+            storage_workspace_hash(active->sm->current_project_dir()) == expected_hash;
+    };
+    if (deps_.registry) {
+        const auto active = deps_.registry->acquire(thread_id);
+        if (active && !active_matches_target(active)) {
+            return ThreadServiceResult::fail("threadId is active in a different workspace");
+        }
     }
     if (!scoped->active) {
         SessionOptions options;
-        options.cwd = scope.cwd;
+        options.cwd = scoped->meta.cwd;
+        options.no_workspace = scoped->meta.no_workspace;
+        options.workspace_hash = options.no_workspace ? std::string{} : expected_hash;
+        if (options.cwd.empty()) return ThreadServiceResult::fail("target thread cwd is unavailable");
         if (!deps_.client ||
             !deps_.client->resume_session(thread_id, options)) {
             return ThreadServiceResult::fail("failed to resume target thread");
         }
+    }
+    if (deps_.registry && !active_matches_target(deps_.registry->acquire(thread_id))) {
+        return ThreadServiceResult::fail("target thread workspace changed before delivery");
     }
     if (!deps_.client || !deps_.client->send_input(thread_id, prompt)) {
         return ThreadServiceResult::fail("failed to queue thread prompt");
@@ -879,6 +876,7 @@ ThreadServiceResult ThreadService::send(
     return ThreadServiceResult::ok(json{
         {"threadId", thread_id},
         {"delivery", "queued"},
+        {"workspaceHash", expected_hash},
     });
 }
 

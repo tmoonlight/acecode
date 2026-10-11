@@ -51,6 +51,7 @@ export function normalizeSubagentTask(session) {
     toolCount: 0,
     lastTool: '',
     model: String(session.model || ''),
+    expert: session.expert || null,
   };
 }
 

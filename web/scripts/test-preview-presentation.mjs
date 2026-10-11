@@ -58,7 +58,7 @@ function Fixture(){
    maximized={p.sidePanelMaximized} presenting={active} onTogglePresentation={toggle}
    sidePanelListCollapsed={p.sidePanelListCollapsed} onToggleSidePanelList={()=>change('sidePanelListCollapsed')}
    onToggleMaximize={()=>change('sidePanelMaximized')} onHide={()=>setVisible(false)} onCloseTab={()=>setVisible(false)}
-   onEditFileTab={(_key,patch)=>setTab(t=>({...t,edit:{...t.edit,...patch}}))} />
+   onEditFileTab={(_key,patch)=>setTab(t=>{const edit={...t.edit,...patch};return {...t,edit:{...edit,dirty:String(edit.text??'')!==String(edit.baselineText??'')}};})} />
  </section>}
  {!p.sidePanelListCollapsed&&<aside id="right" style={{width:140}}>File list</aside>}
  </main>{dialog&&<div role="dialog">Blocking dialog</div>}<DesktopContextMenu/></>;
@@ -154,6 +154,13 @@ try {
  await page.getByRole('button',{name:'查看 Markdown 原文',exact:true}).click();await editor.waitFor();assert.match(await editor.inputValue(),/Draft stays\./);
  await page.getByRole('button',{name:'渲染 Markdown',exact:true}).click();await markdown.waitFor();
  console.log('[pass] Markdown WYSIWYG/source switches, scale and presentation retain unsaved content');
+ const savesBefore=await page.evaluate(()=>window.fixture.saves);
+ assert.deepEqual(await page.evaluate(async()=>{const {shortcutStore,captureShortcut}=await import('/src/lib/shortcutBindings.js');return shortcutStore().save('save',captureShortcut({code:'KeyG',ctrlKey:true,altKey:true}));}),{ok:true});
+ assert.equal(await page.evaluate(()=>window.fixture.tab.edit?.dirty),true,'fixture Markdown remains dirty before save');
+ await markdown.press('Control+s');await settle();assert.equal(await page.evaluate(()=>window.fixture.saves),savesBefore);
+ await markdown.press('Control+Alt+g');await page.waitForFunction(n=>window.fixture.saves===n+1,savesBefore);
+ await page.evaluate(async()=>{(await import('/src/lib/shortcutBindings.js')).shortcutStore().save('save',null);});
+ console.log('[pass] Markdown save uses the custom binding and retires Ctrl+S');
  await page.evaluate(()=>window.fixture.readonly());await page.locator('.ace-side-markdown-preview:not([contenteditable])').waitFor();
  await page.locator('.ace-side-markdown-preview').click({button:'right',position:{x:20,y:50}});await menu.getByRole('menuitem',{name:/全屏演示/}).waitFor();await page.keyboard.press('Escape');
  await page.evaluate(()=>window.fixture.diff());const diff=page.locator('.d2h-diff-table').first();await diff.waitFor();
@@ -166,6 +173,17 @@ try {
  await page.frameLocator('.ace-side-presentation-frame').locator('body').click({button:'right',position:{x:150,y:30}});await menu.getByRole('menuitem',{name:/全屏演示/}).click();await settle();assert.equal((await state()).active,true);await press();
  await page.evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:document.querySelector('iframe').contentWindow,data:{source:'acecode:presentation-preview',channel:'forged',status:'presentation'}})));await settle();assert.equal((await state()).active,false);
  console.log('[pass] real sandbox frame forwards Ctrl+F11 and context menu; forged channel is ignored');
+ await page.evaluate(async()=>{
+  window.savedPresentationFrame=document.querySelector('.ace-side-presentation-frame').contentWindow;
+  const {shortcutStore,captureShortcut}=await import('/src/lib/shortcutBindings.js');
+  shortcutStore().save('previewPresentation',captureShortcut({code:'KeyY',ctrlKey:true,altKey:true}));
+ });await settle();
+ await slide.focus();await press();assert.equal((await state()).active,false);
+ await page.keyboard.press('Control+Alt+y');await settle();assert.equal((await state()).active,true);
+ await slide.focus();await page.keyboard.press('Control+Alt+y');await settle();assert.equal((await state()).active,false);
+ assert.equal(await page.evaluate(()=>window.savedPresentationFrame===document.querySelector('.ace-side-presentation-frame').contentWindow),true);
+ await page.evaluate(async()=>{(await import('/src/lib/shortcutBindings.js')).shortcutStore().save('previewPresentation',null);});await settle();
+ console.log('[pass] live shortcut changes reach the existing sandbox frame without reloading slides');
  for(const p of ['picture.png','slides.pptx','error.txt','loading.txt']){
   await page.evaluate(p=>window.fixture.select(p),p);await settle();
   await page.locator('.ace-preview-details-body').click({button:'right',position:{x:15,y:15}});await menu.getByRole('menuitem',{name:/全屏演示/}).waitFor();await page.keyboard.press('Escape');

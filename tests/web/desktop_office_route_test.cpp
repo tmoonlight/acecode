@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cpr/cpr.h>
 #include "web/server.hpp"
+#include "experts/expert_registry.hpp"
 #include "desktop/daemon_supervisor.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "session_host/local_session_client.hpp"
@@ -12,6 +13,7 @@
 #include "utils/paths.hpp"
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 
 using namespace acecode;
@@ -26,6 +28,7 @@ protected:
     AppConfig cfg;
     ToolExecutor tools;
     desktop::WorkspaceRegistry workspaces;
+    ExpertRegistry experts{home.root() / ".acecode" / "experts"};
     std::unique_ptr<SessionRegistry> registry;
     std::unique_ptr<LocalSessionClient> client;
     std::unique_ptr<web::WebServer> server;
@@ -37,6 +40,7 @@ protected:
         workspaces.register_new(projects, cwd);
         SessionRegistryDeps sessions;
         sessions.cwd = cwd; sessions.tools = &tools;
+        sessions.expert_registry = &experts;
         // Shared with the registry's provider accessor for the fixture lifetime.
         auto provider = std::make_shared<acecode_test::StubLlmProvider>();
         provider->push_text("complete");
@@ -49,6 +53,7 @@ protected:
         deps.sync_model_reasoning = false; deps.token = "office-fixture";
         deps.projects_dir = projects; deps.workspace_registry = &workspaces;
         deps.session_client = client.get(); deps.session_registry = registry.get();
+        deps.expert_registry = &experts;
         server = std::make_unique<web::WebServer>(std::move(deps));
         worker = JoiningThread([this] { server->run(); });
         const auto deadline = std::chrono::steady_clock::now() + 3s;
@@ -80,9 +85,11 @@ protected:
         ADD_FAILURE() << "office catalog did not settle";
         return result;
     }
-    std::string active(const std::string& parent = {}, bool no_workspace = false) {
+    std::string active(const std::string& parent = {}, bool no_workspace = false,
+                       const std::string& expert = {}, const std::string& member = {}) {
         SessionOptions opts;
         opts.cwd = cwd; opts.parent_session_id = parent; opts.no_workspace = no_workspace;
+        opts.expert_id = expert; opts.expert_member_id = member;
         if (!parent.empty()) opts.subagent_depth = 1;
         const auto id = registry->create(opts);
         auto entry = registry->acquire(id);
@@ -130,6 +137,43 @@ TEST_F(DesktopOfficeHttp, SnapshotCarriesRealRuntimeAndRoutesMeshChildToRoot) {
     EXPECT_EQ(result["agents"][1]["activity"]["outcome"], "aborted");
     EXPECT_FALSE(result["selected"].contains("input_draft"));
     EXPECT_FALSE(result["selected"].contains("session_path"));
+}
+
+TEST_F(DesktopOfficeHttp, ExpertMemberIdentitySurvivesOfficeProjection) {
+    const auto experts_root = home.root() / ".acecode" / "experts";
+    const auto write = [](const std::filesystem::path& file, const std::string& text) {
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream(file) << text;
+    };
+    for (const auto* id : {"leader", "worker"}) {
+        write(experts_root / id / "agents" / "lead.md", "# Expert\nHelp the user.\n");
+        write(experts_root / id / "expert.json", json({{"name", id}, {"version", "1.0.0"},
+            {"expertType", "agent"}, {"displayName", id}, {"agentName", "lead"},
+            {"agents", json::array({{{"id", "lead"}, {"path", "agents/lead.md"}}})}}).dump());
+    }
+    write(experts_root / "team" / "expert.json", json({{"name", "team"}, {"version", "1.0.0"},
+        {"expertType", "team"}, {"displayName", "Team"},
+        {"teamInfo", {{"leadExpert", "leader"}, {"memberExperts", json::array({"worker"})}}}}).dump());
+    ASSERT_TRUE(experts.find(cwd, "team").has_value());
+    const auto root = active({}, false, "team");
+    const auto child = active(root, false, "team", "worker");
+    const auto result = snapshot(root);
+    ASSERT_EQ(result["agents"].size(), 2u);
+    EXPECT_EQ(result["selected"]["expert"]["avatar_identity"], "expert:leader");
+    EXPECT_EQ(result["agents"][1]["id"], child);
+    EXPECT_EQ(result["agents"][1]["expert_id"], "team");
+    EXPECT_EQ(result["agents"][1]["expert_member_id"], "worker");
+    EXPECT_EQ(result["agents"][1]["expert"]["avatar_identity"], "expert:worker");
+    const auto catalog = cpr::Get(cpr::Url{url("/api/experts")}, cpr::Timeout{2000});
+    ASSERT_EQ(catalog.status_code, 200);
+    bool found = false;
+    const auto catalog_body = json::parse(catalog.text);
+    for (const auto& expert : catalog_body["experts"]) {
+        if (expert["id"] != "worker") continue;
+        found = true;
+        EXPECT_EQ(expert["avatar_identity"], result["agents"][1]["expert"]["avatar_identity"]);
+    }
+    EXPECT_TRUE(found);
 }
 
 TEST_F(DesktopOfficeHttp, HiddenWorkspaceAndNoWorkspaceAreSelectable) {

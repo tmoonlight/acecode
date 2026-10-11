@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MAX_SELECTION_ANNOTATION_CHARS } from '../lib/selectionChatContext.js';
@@ -109,7 +110,7 @@ export function SelectionActionPopover({
               if (error) setError('');
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') {
+              if (isDismissShortcut(event)) {
                 event.preventDefault();
                 onCancel?.();
               } else if (event.key === 'Enter' && !event.shiftKey) {

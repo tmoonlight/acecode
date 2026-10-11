@@ -748,20 +748,20 @@ export function buildDeepSeekTrajectory(records = []) {
   const turns = [];
   const turnById = new Map();
   const compactions = new Map();
+  const pendingInputs = [];
   let current = null;
   let nextTurn = 1;
   let order = 0;
 
-  const openTurn = (id, forceNew = false) => {
+  const openTurn = (id) => {
     const key = id ? String(id) : '';
-    if (!forceNew && key && turnById.has(key)) {
-      current = turnById.get(key);
-      return current;
+    let turn = key ? turnById.get(key) : current;
+    if (!turn) {
+      turn = makeTurn(nextTurn++, key);
+      turns.push(turn);
+      if (key) turnById.set(key, turn);
     }
-    if (!forceNew && current && (!key || current.id === key)) return current;
-    const turn = makeTurn(nextTurn++, key || `turn-${nextTurn}`);
-    turns.push(turn);
-    if (key) turnById.set(key, turn);
+    turn.inputs.push(...pendingInputs.splice(0));
     current = turn;
     return turn;
   };
@@ -811,37 +811,37 @@ export function buildDeepSeekTrajectory(records = []) {
       continue;
     }
     if (type === 'turn_start') {
-      const turn = openTurn(payload.turn_id || payload.user_message_id, true);
+      // Message is normally recorded before turn_start. Both identify one turn,
+      // including older producers whose turn_id differs from user_message_id.
+      const turn = openTurn(turnById.has(String(payload.user_message_id))
+        ? payload.user_message_id
+        : (payload.turn_id || payload.user_message_id));
       for (const alias of [payload.turn_id, payload.user_message_id]) {
         if (alias) turnById.set(String(alias), turn);
       }
       continue;
     }
     if (type === 'turn_end' || type === 'legacy_turn_end') {
-      openTurn(payload.turn_id || payload.user_message_uuid);
       current = null;
       continue;
     }
     if (type === 'legacy_user_message') {
-      openTurn(payload.uuid || payload.id || `legacy-${record.legacy_index}`, true)
+      openTurn(payload.uuid || payload.id || `legacy-${record.legacy_index}`)
         .inputs.push({ order, record });
       continue;
     }
     if (type === 'message' && payload.role === 'user' && !payload.is_meta) {
       const id = payload.id || payload.uuid || payload.message_id;
-      const turn = openTurn(id);
-      if (!turn.inputs.some((entry) => entry.record?.payload?.role === 'user')) {
-        turn.inputs.push({ order, record });
-      } else if (turn.id !== id) {
-        openTurn(id, true).inputs.push({ order, record });
-      } else {
-        turn.inputs.push({ order, record });
-      }
+      const turn = payload.metadata?.turn_steer
+        ? openTurn(payload.metadata.turn_id || current?.id || id)
+        : (payload.metadata?.synthetic_user_prompt && current ? current : openTurn(id));
+      turn.inputs.push({ order, record });
       continue;
     }
     const input = normalizeInputRecord(record);
     if (input) {
-      (current || openTurn('')).inputs.push({ order, record });
+      // Initial request context is an input to the next turn, not a turn itself.
+      (current?.inputs || pendingInputs).push({ order, record });
       continue;
     }
     if (type === 'legacy_context'
@@ -893,7 +893,9 @@ export function buildDeepSeekTrajectory(records = []) {
     }
   }
 
+  if (pendingInputs.length > 0) openTurn('');
   const nodes = [];
+  const inputTurns = new Map();
   const requests = [];
   const runningCalls = [];
   const callSchemas = new Map();
@@ -903,7 +905,10 @@ export function buildDeepSeekTrajectory(records = []) {
   for (const turn of turns) {
     for (const { record } of turn.inputs.sort((left, right) => left.order - right.order)) {
       const node = runtimeInputNode(record, ++fallback);
-      if (node) nodes.push(node);
+      if (node) {
+        nodes.push(node);
+        inputTurns.set(node.seq, turn.number);
+      }
     }
 
     const steps = [...turn.steps.values()].sort((left, right) => left.order - right.order);
@@ -1058,6 +1063,7 @@ export function buildDeepSeekTrajectory(records = []) {
   requests.sort((left, right) => left.startSeq - right.startSeq);
   const projectedTurns = deriveTrajectoryLayout({
     nodes,
+    inputTurns,
     partial: null,
     runningCalls,
     requests,
@@ -1069,10 +1075,13 @@ export function buildDeepSeekTrajectory(records = []) {
     requestNumbers: buildRequestNumbers(nodes, requests),
     historyStartSeq: finiteNumber(firstRecorded?.sequence) ?? undefined,
     nodes,
+    inputTurns,
+    turnNumbersById: new Map([...turnById].map(([id, turn]) => [id, turn.number])),
     runningCalls,
     requests,
     callSchemas,
     latestTurnNumber: turns.at(-1)?.number,
+    unidentifiedTurnNumber: current?.id === '' ? current.number : undefined,
   };
 }
 
@@ -1080,35 +1089,33 @@ export function buildDeepSeekTrajectory(records = []) {
 export function resolveDeepSeekTrajectoryPartial(projection, livePartial) {
   if (!projection || !livePartial) return null;
   const partialStep = finiteNumber(livePartial.step);
-  const partialTurn = finiteNumber(livePartial.turn);
+  const turnId = String(livePartial.turnId || '');
+  const partialTurn = turnId
+    ? (projection.turnNumbersById?.get(turnId)
+      ?? finiteNumber(projection.unidentifiedTurnNumber)
+      ?? (finiteNumber(projection.latestTurnNumber) ?? 0) + 1)
+    : finiteNumber(livePartial.turn);
   const requests = Array.isArray(projection.requests) ? projection.requests : [];
   const partialRequest = [...requests].reverse().find((request) => (
     request.purpose === 'assistant'
-      && request.status === 'running'
       && (partialTurn === null || request.turn === partialTurn)
       && (partialStep === null || request.step === partialStep)
   ));
-  if (partialRequest === undefined) {
-    if (partialStep === null) return null;
-    return {
-      turn: partialTurn
-        ?? finiteNumber(projection.latestTurnNumber)
-        ?? 1,
-      step: partialStep,
-      blocks: Array.isArray(livePartial.blocks)
-        ? livePartial.blocks.map((block) => ({ ...block }))
-        : [],
-    };
-  }
+  // HTTP may finish a step before the WebSocket clears its token accumulator.
+  if (partialRequest && partialRequest.status !== 'running') return null;
+  const turn = partialRequest?.turn
+    ?? partialTurn
+    ?? finiteNumber(projection.latestTurnNumber)
+    ?? 1;
+  const step = partialRequest?.step ?? partialStep;
   const nodes = Array.isArray(projection.nodes) ? projection.nodes : [];
   if (nodes.some((node) => (
-    node.kind === 'assistant'
-      && node.turn === partialRequest.turn
-      && node.step === partialRequest.step
+    node.kind === 'assistant' && node.turn === turn && node.step === step
   ))) return null;
+  if (step === null) return null;
   return {
-    turn: partialRequest.turn,
-    step: partialRequest.step,
+    turn,
+    step,
     blocks: Array.isArray(livePartial.blocks)
       ? livePartial.blocks.map((block) => ({ ...block }))
       : [],

@@ -282,7 +282,7 @@ export function TrajectoryView({
 
   const projection = useMemo(() => buildDeepSeekTrajectory(records), [records]);
   const {
-    nodes, runningCalls, requests, callSchemas,
+    nodes, inputTurns, runningCalls, requests, callSchemas,
   } = projection;
   const partial = useMemo(
     () => resolveDeepSeekTrajectoryPartial(projection, livePartial),
@@ -293,6 +293,7 @@ export function TrajectoryView({
   const finalized = useMemo(() => {
     const turns = deriveTrajectoryLayout({
       nodes,
+      inputTurns,
       partial: partialTurn === null || partialStep === null
         ? null
         : { turn: partialTurn, step: partialStep, blocks: [] },
@@ -301,7 +302,7 @@ export function TrajectoryView({
       callSchemas,
     });
     return { turns, lastIndex: lastCellIndex(turns) };
-  }, [callSchemas, nodes, partialStep, partialTurn, requests, runningCalls]);
+  }, [callSchemas, inputTurns, nodes, partialStep, partialTurn, requests, runningCalls]);
   const timelinePartialSignature = partialStructureSignature(partial);
   const timelinePartial = useMemo(() => (partial === null
     ? null

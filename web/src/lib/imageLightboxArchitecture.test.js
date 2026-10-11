@@ -30,7 +30,7 @@ run('shared image lightbox owns bounded wheel zoom and captured left drag', () =
   assert.match(component, /aria-label="缩小预览"/);
   assert.match(component, /aria-label="放大预览"/);
   assert.match(component, /aria-label="适应窗口"/);
-  assert.match(component, /event\.key !== 'Escape'/);
+  assert.match(component, /!isDismissShortcut\(event\)/);
 });
 
 run('shared image lightbox retains caller metadata and backdrop boundaries', () => {

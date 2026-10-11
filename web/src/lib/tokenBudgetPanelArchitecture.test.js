@@ -60,7 +60,7 @@ run('token panel anchors to pointer coordinates, bridges hover, and supports pin
   assert.match(component, /showPanel\(\s*'click'/);
   assert.match(component, /resolveTokenBudgetPanelState\(current, geometry, mode\)/);
   assert.match(component, /data-panel-mode=\{panel\?\.mode \|\| undefined\}/);
-  assert.match(component, /event\.key === 'Escape'/);
+  assert.match(component, /isDismissShortcut\(event\)/);
   assert.match(component, /panelRef\.current\?\.contains\(event\.target\)/);
 });
 

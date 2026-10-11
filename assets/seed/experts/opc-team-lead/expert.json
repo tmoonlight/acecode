@@ -1,6 +1,6 @@
 {
   "name": "opc-team-lead",
-  "version": "1.0.0-acecode.1",
+  "version": "1.0.0-acecode.2",
   "expertType": "agent",
   "displayName": "易牧",
   "profession": "首席编排师",
@@ -23,7 +23,6 @@
   "skills": [
     "skills/opc-orchestrator"
   ],
-  "avatar": "avatars/opc-team-lead.png",
   "license": "CC-BY-NC-SA-4.0",
   "homepage": "https://github.com/easychen/opc-methodology",
   "upstream": {

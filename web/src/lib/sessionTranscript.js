@@ -312,7 +312,7 @@ function appendTrajectoryPartialText(next, kind, text) {
   if (!text) return;
   const current = next.trajectoryPartial && typeof next.trajectoryPartial === 'object'
     ? next.trajectoryPartial
-    : { step: null, blocks: [] };
+    : { turnId: next.activeTurnId || '', step: null, blocks: [] };
   const blocks = Array.isArray(current.blocks)
     ? current.blocks.map((block) => ({ ...block }))
     : [];
@@ -388,6 +388,14 @@ function eventSeq(msg) {
 
 function isStaleSequencedEvent(state, msg) {
   const seq = eventSeq(msg);
+  // HTTP catch-up can advance the body watermark before the WebSocket delivers
+  // an unseen rename. Metadata has its own ordering; unrelated tokens cannot
+  // make a title stale. Each field still rejects an older rename/summary.
+  if (msg?.type === 'session_updated' && seq !== null) {
+    const payload = msg.payload || {};
+    if ((Object.prototype.hasOwnProperty.call(payload, 'title') && seq > (state?.titleEventSeq || 0))
+      || (Object.prototype.hasOwnProperty.call(payload, 'summary') && seq > (state?.summaryEventSeq || 0))) return false;
+  }
   return seq !== null && seq <= (state?.lastSeq || 0);
 }
 
@@ -1295,6 +1303,10 @@ export function createTranscriptState(overrides = {}) {
     title: '',
     titleSource: '',
     summary: '',
+    titleEventSeq: 0,
+    summaryEventSeq: 0,
+    titleRevision: 0,
+    summaryRevision: 0,
     // 服务端会话的蜂群模式 off | star | mesh。
     swarmMode: 'off',
     status: 'idle',
@@ -1387,6 +1399,7 @@ export function reduceTranscriptEvent(state, msg) {
     case 'model_step_start': {
       const step = Number(p.step_index);
       next.trajectoryPartial = {
+        turnId: next.activeTurnId || '',
         turn: Math.max(1, (Number(next.turns) || 0) + 1),
         step: Number.isInteger(step) && step > 0 ? step : null,
         blocks: [],
@@ -1780,14 +1793,22 @@ export function reduceTranscriptEvent(state, msg) {
     case 'session_updated': {
       // 显示标题的唯一来源:title(用户改名 / 大模型生成)与 summary(无标题时
       // 的兜底,服务端已截到 80 字节)。侧栏 Sidebar 对同一事件做同样的合并。
-      if (Object.prototype.hasOwnProperty.call(p, 'title')) {
+      const seq = eventSeq(msg);
+      if (Object.prototype.hasOwnProperty.call(p, 'title')
+        && (seq === null || seq > (current.titleEventSeq || 0))) {
         next.title = p.title || '';
         next.titleSource = String(p.title_source || '');
+        next.titleEventSeq = seq ?? current.titleEventSeq;
+        next.titleRevision = (current.titleRevision || 0) + 1;
       }
-      if (Object.prototype.hasOwnProperty.call(p, 'summary')) {
+      if (Object.prototype.hasOwnProperty.call(p, 'summary')
+        && (seq === null || seq > (current.summaryEventSeq || 0))) {
         next.summary = typeof p.summary === 'string' ? p.summary : '';
+        next.summaryEventSeq = seq ?? current.summaryEventSeq;
+        next.summaryRevision = (current.summaryRevision || 0) + 1;
       }
-      if (Object.prototype.hasOwnProperty.call(p, 'swarm_mode')) {
+      if (Object.prototype.hasOwnProperty.call(p, 'swarm_mode')
+        && (seq === null || seq > (current.lastSeq || 0))) {
         next.swarmMode = normalizeSwarmMode(p.swarm_mode);
       }
       break;
@@ -1964,12 +1985,16 @@ export async function fetchCompletedTurnHistory(api, sid, state) {
   return tail;
 }
 
-export function loadTranscriptHistory(state, data = {}) {
+export function loadTranscriptHistory(state, data = {}, requestState = state) {
   const current = state || createTranscriptState();
   let next = createTranscriptState({
     title: current.title || '',
     titleSource: current.titleSource || '',
     summary: current.summary || '',
+    titleEventSeq: current.titleEventSeq || 0,
+    summaryEventSeq: current.summaryEventSeq || 0,
+    titleRevision: current.titleRevision || 0,
+    summaryRevision: current.summaryRevision || 0,
     swarmMode: normalizeSwarmMode(current.swarmMode),
     status: current.status || 'idle',
     isLive: !!current.isLive,
@@ -2051,6 +2076,9 @@ export function loadTranscriptHistory(state, data = {}) {
   if (data.busy === true) {
     next.busy = true;
     next.activeTurnId = String(data.active_turn_id || data.activeTurnId || '');
+    if (next.trajectoryPartial && !next.trajectoryPartial.turnId) {
+      next.trajectoryPartial.turnId = next.activeTurnId;
+    }
     next.status = 'running';
   } else if (data.busy === false && next.status !== 'error') {
     settlePendingAbort(next, {}, data.last_turn_outcome || 'aborted');
@@ -2065,6 +2093,21 @@ export function loadTranscriptHistory(state, data = {}) {
   // Local acceptance is not part of the server event ring yet. A concurrent
   // history refresh must not erase input already acknowledged over HTTP.
   preserveAcceptedInputs(next, current);
+  // A snapshot describes the state when the request was served. A rename that
+  // arrived while it was in flight must survive, including an explicit clear.
+  if ((current.titleRevision || 0) !== (requestState?.titleRevision || 0)
+    && next.titleEventSeq <= current.titleEventSeq) {
+    next.title = current.title;
+    next.titleSource = current.titleSource;
+    next.titleEventSeq = current.titleEventSeq;
+    next.titleRevision = current.titleRevision;
+  }
+  if ((current.summaryRevision || 0) !== (requestState?.summaryRevision || 0)
+    && next.summaryEventSeq <= current.summaryEventSeq) {
+    next.summary = current.summary;
+    next.summaryEventSeq = current.summaryEventSeq;
+    next.summaryRevision = current.summaryRevision;
+  }
   if (current.abortPending && next.busy &&
       (!next.activeTurnId || next.activeTurnId === current.abortTurnId)) {
     next.abortPending = true;
@@ -2182,10 +2225,11 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const pageRequestRef = useRef(null);
   const reloadHistoryTail = useCallback(async () => {
     const scope = historyScopeRef.current;
+    const requestState = store.getState();
     const data = await api.getMessages(sid, { limit: HISTORY_PAGE_SIZE });
     if (historyScopeRef.current !== scope) return null;
     store.commit((previous) => preserveLiveAssistantTailOnLoad(
-      preserveLiveRuntimeOnLoad(loadTranscriptHistory(previous, data).state, previous), previous,
+      preserveLiveRuntimeOnLoad(loadTranscriptHistory(previous, data, requestState).state, previous), previous,
     ));
     return data;
   }, [api, sid, store]);
@@ -2283,6 +2327,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
     ensureSessionOpen(sid);
 
     let off = false;
+    const requestState = store.getState();
     api.getMessages(sid, { limit: HISTORY_PAGE_SIZE }).then((data) => {
       if (off) return;
       loadingHistoryRef.current = false;
@@ -2297,7 +2342,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
       // 读取当前状态、与实时尾巴合并、写回必须是一次原子提交:拆成多步读写会
       // 重新打开“基于过期快照计算”的窗口。
       const nextState = store.commit((prevState) => {
-        const loaded = loadTranscriptHistory(prevState, data || {});
+        const loaded = loadTranscriptHistory(prevState, data || {}, requestState);
         loadEffects = loaded.effects;
         // A recovery audit/live event can arrive after the disk read's fixed
         // boundary but before its response. Reapply it without emitting effects twice.
@@ -2327,6 +2372,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
         busy: !!nextState.busy,
       });
       if (replaySince !== null) {
+        const catchupState = store.getState();
         api.getMessages(sid, replaySince).then((replayData) => {
           if (off) return;
           const replayEvents = Array.isArray(replayData)
@@ -2346,7 +2392,7 @@ export function useSessionTranscript(sessionRef, options = {}) {
           if (loadedSeq === 0 && Array.isArray(replayData?.messages)) {
             let refreshEffects = [];
             store.commit((prevState) => {
-              const refreshed = loadTranscriptHistory(prevState, replayData);
+              const refreshed = loadTranscriptHistory(prevState, replayData, catchupState);
               refreshEffects = refreshed.effects;
               const refreshedState = {
                 ...refreshed.state,

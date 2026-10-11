@@ -22,6 +22,21 @@ namespace acecode::web {
 
 using nlohmann::json;
 
+namespace {
+void append_expert_avatar(json& presentation, const ExpertDefinition& expert,
+                          const std::string& member_id, const std::string& workspace,
+                          const ExpertRegistry& registry, const std::string& cwd) {
+    presentation["avatar_identity"] = expert.avatar_identity(member_id);
+    std::optional<ExpertDefinition> referenced;
+    if (expert.references_existing_experts && (!member_id.empty() || expert.avatar_path.empty())) {
+        referenced = registry.find(cwd, member_id.empty() ? expert.lead_expert_id : member_id);
+    }
+    const auto& portrait = referenced ? *referenced : expert;
+    presentation["avatar_url"] = portrait.avatar_path.empty() ? std::string{}
+        : "/api/experts/" + portrait.id + "/avatar?workspace=" + workspace;
+}
+} // namespace
+
 // =====================================================================
 // Free functions (formerly anonymous-namespace, now shared across route TUs)
 // =====================================================================
@@ -923,12 +938,15 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
             expert_json["display_name"] = s.expert_display_name;
             expert_json["type"] = s.expert_type;
             expert_json["source"] = s.expert_source;
-        } else if (deps.expert_registry && m) {
-            if (auto resolved = deps.expert_registry->find(m->cwd, expert_id)) {
+        }
+        if (deps.expert_registry) {
+            if (auto resolved = deps.expert_registry->find(storage_cwd, expert_id)) {
                 expert_json["display_name"] = resolved->display_name;
                 expert_json["type"] = to_string(resolved->type);
                 expert_json["source"] = resolved->source;
                 expert_json["missing"] = false;
+                append_expert_avatar(expert_json, *resolved, expert_member_id,
+                                     workspace_hash, *deps.expert_registry, storage_cwd);
             } else {
                 expert_json["missing"] = true;
             }
@@ -995,6 +1013,8 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
                 expert_json["type"] = to_string(resolved->type);
                 expert_json["source"] = resolved->source;
                 expert_json["missing"] = false;
+                append_expert_avatar(expert_json, *resolved, m.expert_member_id,
+                                     workspace_hash, *deps.expert_registry, m.cwd);
             }
         }
         o["expert"] = std::move(expert_json);

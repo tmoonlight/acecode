@@ -8,7 +8,9 @@
 
 namespace acecode::channels::core {
 
-enum class CommandKind { None, Help, Status, Stop, New, Sessions, Resume, Model, Approve, Deny, Question };
+enum class CommandKind {
+    None, Help, Status, Stop, New, Sessions, Resume, Model, Mode, Yolo, Effort, Approve, Deny, Question
+};
 
 struct Command {
     CommandKind kind = CommandKind::None;

@@ -1,6 +1,6 @@
 {
   "name": "opc-value-designer",
-  "version": "1.0.0-acecode.1",
+  "version": "1.0.0-acecode.2",
   "expertType": "agent",
   "displayName": "言之",
   "profession": "价值主张设计师",
@@ -23,7 +23,6 @@
   "skills": [
     "skills/opc-value-proposition"
   ],
-  "avatar": "avatars/opc-value-designer.png",
   "license": "CC-BY-NC-SA-4.0",
   "homepage": "https://github.com/easychen/opc-methodology",
   "upstream": {

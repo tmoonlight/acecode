@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isDismissShortcut } from './shortcutBindings.js';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import React from 'react';
@@ -23,7 +24,7 @@ function harness(questions) {
   let request = { request_id: 'r1', session_id: 's1', questions };
   const changed = (before, after) => !before || after.some((value, index) => value !== before[index]);
   const Component = vm.runInNewContext(`${transformed.code}; QuestionPicker;`, {
-    React, clsx, ...helpers, VsIcon: () => null,
+    React, clsx, isDismissShortcut, ...helpers, VsIcon: () => null,
     connection: { sendQuestionAnswer: (payload) => sent.push(JSON.parse(JSON.stringify(payload))) },
     window: { getSelection: () => null },
     requestAnimationFrame: (callback) => callback(),

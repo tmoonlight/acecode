@@ -20,6 +20,8 @@ Deepin 构建是发布任务的必需依赖，不能因已有普通 Linux 包而
 
 调试符号使用 `dev_only.` 文件名前缀；避免方括号等会被 GitHub 改写的字符，使 `SHA256SUMS.txt` 中的文件名与下载名一致。
 
+macOS 更新 ZIP 的运行时与资源只保存在 `ACECode.app` 中。根目录 `acecode` 是从已签名、公证应用的 `Contents/MacOS/acecode-cli` 复制的小型转发程序（上限 256 KiB），让旧版平铺 CLI 更新器仍可安装；它按自身真实路径执行应用内 daemon，资源从应用内解析。禁止再附带根目录 `share`、`channels` 或 `acecode-computer-use`。检查模型目录和种子时使用应用内路径，并验证转发程序与应用内副本一致。普通 macOS 手动便携包保留既有布局。
+
 完整正式版同步到 aupdate 时，验证六类更新 ZIP 和两个 PKG 的版本、大小、哈希及公网下载。Linux 更新 ZIP 使用 `linux-x64-updater-v1`、`linux-arm64-updater-v1` manifest target。PKG 是独立手动下载项，不写入自动更新 manifest。
 
 本地可运行 `python tests/scripts/verify_release_assets_test.py` 验证缺包、空包、重复包和错误版本的阻断逻辑；macOS CI 另验证签名、公证、安装器布局与打包脚本。

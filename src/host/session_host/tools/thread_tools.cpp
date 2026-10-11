@@ -34,6 +34,7 @@ ThreadScope scope_from_context(const ToolContext& ctx) {
     scope.cwd = ctx.cwd;
     scope.caller_manager = ctx.session_manager;
     if (!ctx.session_manager) return scope;
+    scope.no_workspace = ctx.session_manager->is_no_workspace();
     scope.caller_thread_id = ctx.session_manager->current_session_id();
     if (!scope.caller_thread_id.empty()) {
         const auto meta = ctx.session_manager->load_session_meta(
@@ -103,12 +104,22 @@ json object_schema(json properties,
 ToolImpl create_thread_tool(std::shared_ptr<ThreadToolDeps> deps) {
     return make_tool(
         "create_thread",
-        "Create a separate ACECode thread in the current workspace and send "
-        "its initial prompt. Creation is non-blocking and returns threadId.",
+        "Create a separate ACECode thread and queue its initial prompt. "
+        "Omit targets to inherit the caller's workspace or workspace-free "
+        "state. To select a target, pass workspaceHash from list_threads or "
+        "create_workspace, an existing absolute cwd, or noWorkspace:true. "
+        "Directory targets become visible workspaces. Returns threadId, "
+        "cwd, workspaceHash and noWorkspace for locating the new thread.",
         object_schema(json{
             {"prompt", json{{"type", "string"}, {"minLength", 1}}},
             {"title", json{{"type", "string"}, {"maxLength", 160}}},
             {"model", json{{"type", "string"}}},
+            {"workspaceHash", json{{"type", "string"}, {"minLength", 1},
+                {"description", "Registered workspace hash; cannot combine with cwd or noWorkspace:true"}}},
+            {"cwd", json{{"type", "string"}, {"minLength", 1},
+                {"description", "Existing absolute directory; cannot combine with workspaceHash or noWorkspace:true"}}},
+            {"noWorkspace", json{{"type", "boolean"},
+                {"description", "True creates a workspace-free thread; false or omitted inherits unless a directory target is supplied"}}},
         }, json::array({"prompt"})),
         false,
         [deps](const std::string& arguments,
@@ -120,11 +131,25 @@ ToolImpl create_thread_tool(std::shared_ptr<ThreadToolDeps> deps) {
             if (!parser) return error;
             auto prompt = required_arg<std::string>(*parser, "prompt", &error);
             if (!prompt) return error;
+            ThreadCreateTarget target;
+            for (const auto* key : {"cwd", "workspaceHash"}) {
+                const auto value = parser->get<json>(key);
+                if (!value) continue;
+                if (!value->is_string() || value->get<std::string>().empty()) {
+                    return tool_error(std::string(key) + " must be a non-empty string");
+                }
+                (std::string(key) == "cwd" ? target.cwd : target.workspace_hash) =
+                    value->get<std::string>();
+            }
+            if (const auto value = parser->get<json>("noWorkspace")) {
+                if (!value->is_boolean()) return tool_error("noWorkspace must be a boolean");
+                target.no_workspace = value->get<bool>();
+            }
             return service_result(service->create(
                 scope_from_context(ctx),
                 *prompt,
                 parser->get_or<std::string>("title", {}),
-                parser->get_or<std::string>("model", {})));
+                parser->get_or<std::string>("model", {}), target));
         });
 }
 
@@ -225,11 +250,14 @@ ToolImpl read_thread_tool(std::shared_ptr<ThreadToolDeps> deps) {
 ToolImpl send_message_tool(std::shared_ptr<ThreadToolDeps> deps) {
     return make_tool(
         "send_message_to_thread",
-        "Send a follow-up prompt to an existing ACECode thread in the "
-        "background.",
+        "Queue a follow-up prompt to an existing ACECode thread in any "
+        "workspace, including workspace-free threads. Optional workspaceHash "
+        "from create_thread or list_threads locates the storage project and "
+        "disambiguates threadId. Queuing does not answer a pending user question.",
         object_schema(json{
             {"threadId", json{{"type", "string"}, {"minLength", 1}}},
             {"prompt", json{{"type", "string"}, {"minLength", 1}}},
+            {"workspaceHash", json{{"type", "string"}, {"minLength", 1}}},
         }, json::array({"threadId", "prompt"})),
         false,
         [deps](const std::string& arguments,
@@ -244,9 +272,16 @@ ToolImpl send_message_tool(std::shared_ptr<ThreadToolDeps> deps) {
             if (!thread_id) return error;
             auto prompt = required_arg<std::string>(*parser, "prompt", &error);
             if (!prompt) return error;
+            std::string workspace_hash;
+            if (const auto value = parser->get<json>("workspaceHash")) {
+                if (!value->is_string() || value->get<std::string>().empty()) {
+                    return tool_error("workspaceHash must be a non-empty string");
+                }
+                workspace_hash = value->get<std::string>();
+            }
             return service_result(service->send(
                 scope_from_context(ctx),
-                *thread_id, *prompt));
+                *thread_id, *prompt, workspace_hash));
         });
 }
 

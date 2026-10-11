@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 侧栏「扩展」入口:点击向右弹出菜单(未勾选的扩展条目 + 「自定义」),
 // 「自定义」打开对话框,勾选的条目直接固定到侧栏主导航,拖动行调整顺序。
 // 顺序与勾选状态的纯逻辑在 lib/sidebarNavigation.js,这里只负责交互与渲染。
@@ -191,7 +192,7 @@ function SidebarExtensionCustomizer({ prefs, onChange, onClose }) {
       cleanup();
     };
     const key = (keyEvent) => {
-      if (keyEvent.key !== 'Escape' || !drag.active) return;
+      if (!isDismissShortcut(keyEvent) || !drag.active) return;
       // Esc 只撤销这次拖动,不能顺带把对话框关掉。
       keyEvent.preventDefault();
       keyEvent.stopImmediatePropagation();

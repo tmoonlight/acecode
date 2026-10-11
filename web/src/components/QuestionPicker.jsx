@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // AskUserQuestion 内联 picker:停靠在输入框位置(替换 composer 输入区)。
 // 支持单选 / 多选 / 自定义答案 / 多题导航 / 折叠 / 复制 / Enter 快捷键。
 
@@ -237,7 +238,7 @@ export function QuestionPicker({ request, onResolve, originLabel = '', className
     const withCtrl = event.ctrlKey || event.metaKey;
     const ctrlEnter = withCtrl && event.key === 'Enter';
 
-    if (event.key === 'Escape') {
+    if (isDismissShortcut(event)) {
       event.preventDefault();
       if (event.repeat) return;
       if (inTextInput) {

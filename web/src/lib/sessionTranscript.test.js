@@ -916,6 +916,35 @@ run('session_updated 更新 transcript title 与 title_source', () => {
 
 // 触发场景:用户消息落盘,daemon 只推 session_updated{summary}。
 // 期望行为:summary 刷新,已有的 title / title_source 保持。
+run('title and summary order independently without replaying body events or stale swarm state', () => {
+  let state = createTranscriptState({ lastSeq: 30, swarmMode: 'on' });
+  state = reduceTranscriptEvent(state, { type: 'session_updated', seq: 20,
+    payload: { title: '最新标题', title_source: 'generated' } }).state;
+  state = reduceTranscriptEvent(state, { type: 'session_updated', seq: 19,
+    payload: { title: '旧标题', summary: '首次到达的摘要', swarm_mode: 'off' } }).state;
+  assert.equal(state.title, '最新标题');
+  assert.equal(state.summary, '首次到达的摘要');
+  assert.equal(state.swarmMode, 'on');
+  assert.equal(state.lastSeq, 30);
+  const staleBody = reduceTranscriptEvent(state, { type: 'token', seq: 29, payload: { text: 'duplicate' } }).state;
+  assert.equal(staleBody, state);
+  const duplicateTitle = reduceTranscriptEvent(state, { type: 'session_updated', seq: 20, payload: { title: '最新标题' } }).state;
+  assert.equal(duplicateTitle, state);
+});
+
+run('late history preserves a concurrent explicit title clear and summary update', () => {
+  const requestState = createTranscriptState({ title: '原来的标题' });
+  const live = reduceTranscriptEvent(requestState, { type: 'session_updated', seq: 7,
+    payload: { title: '', title_source: 'user-cleared', summary: '新摘要' } }).state;
+  const loaded = loadTranscriptHistory(live, { messages: [], title: '原来的标题', summary: '旧摘要' }, requestState).state;
+  assert.equal(loaded.title, '');
+  assert.equal(loaded.titleSource, 'user-cleared');
+  assert.equal(loaded.summary, '新摘要');
+  assert.equal(transcriptDisplayTitle(loaded, {}), '新摘要');
+  const fresh = loadTranscriptHistory(live, { title: '后来的快照', summary: '后来的摘要' }, live).state;
+  assert.equal(fresh.title, '后来的快照', 'a request started after the update can still adopt a fresh snapshot');
+});
+
 run('session_updated 只带 summary 时刷新 summary,不动 title', () => {
   const state = reduceTranscriptEvent(
     createTranscriptState({ title: '生成的标题', titleSource: 'generated', summary: '旧摘要' }),
@@ -2511,6 +2540,7 @@ run('reasoning 只进入 DeepSeek 轨迹 partial 且不追加到可见 assistant
   assert.equal(state.items[0].role, 'assistant');
   assert.equal(state.items[0].content, 'visible');
   assert.deepEqual(state.trajectoryPartial, {
+    turnId: 'turn-live',
     turn: 1,
     step: 2,
     blocks: [
@@ -2523,6 +2553,18 @@ run('reasoning 只进入 DeepSeek 轨迹 partial 且不追加到可见 assistant
     type: 'busy_changed', payload: { busy: false }, seq: 6,
   }).state;
   assert.equal(ended.trajectoryPartial, null);
+});
+
+run('busy 历史快照为缺少开始事件的轨迹流式回复恢复稳定回合身份', () => {
+  const loaded = loadTranscriptHistory(createTranscriptState(), {
+    messages: [], busy: true, active_turn_id: 'restored-turn', turn_count: 6,
+    events: [
+      { type: 'model_step_start', payload: { step_index: 1 }, seq: 1 },
+      { type: 'token', payload: { text: 'seventh reply' }, seq: 2 },
+    ],
+  }).state;
+  assert.equal(loaded.trajectoryPartial.turnId, 'restored-turn');
+  assert.deepEqual(loaded.trajectoryPartial.blocks, [{ kind: 'text', text: 'seventh reply' }]);
 });
 
 run('transcript_replace 替换可见 transcript 并清理 token usage', () => {

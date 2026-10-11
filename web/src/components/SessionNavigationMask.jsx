@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useTranslation } from 'react-i18next';
 
 export function SessionNavigationMask({ open = false, onCancel }) {
@@ -12,7 +13,7 @@ export function SessionNavigationMask({ open = false, onCancel }) {
   // 这层遮罩吞掉全部指针与键盘输入,一旦上游没能收尾就等于界面死锁。
   // Esc 是用户手里最后一个不依赖任何网络往返的出口。
   const onKeyDown = (event) => {
-    if (event.key === 'Escape' && typeof onCancel === 'function') {
+    if (isDismissShortcut(event) && typeof onCancel === 'function') {
       event.preventDefault();
       event.stopPropagation();
       onCancel();

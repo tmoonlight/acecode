@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { VsIcon } from './Icon.jsx';
 import {
@@ -186,7 +187,7 @@ export function GlobalFindOverlay({
 
   const onInputKeyDown = (event) => {
     if (isComposingInputEvent(event, composingRef.current)) return;
-    if (event.key === 'Escape') {
+    if (isDismissShortcut(event)) {
       event.preventDefault();
       close();
     } else if (event.key === 'Enter') {

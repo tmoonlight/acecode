@@ -926,6 +926,11 @@ static AppConfig load_config_from_path_once(
             }
             if (j.contains("skills") && j["skills"].is_object()) {
                 const auto& sj = j["skills"];
+                if (sj.contains("scan_paths") && sj["scan_paths"].is_array() &&
+                    std::all_of(sj["scan_paths"].begin(), sj["scan_paths"].end(),
+                                [](const auto& value) { return value.is_string(); })) {
+                    cfg.skills.scan_paths = sj["scan_paths"].get<std::vector<std::string>>();
+                }
                 if (sj.contains("disabled") && sj["disabled"].is_array()) {
                     for (const auto& v : sj["disabled"]) {
                         if (v.is_string()) cfg.skills.disabled.push_back(v.get<std::string>());
@@ -2259,12 +2264,13 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
     }
 
     SkillsConfig skills_d;
-    if (!cfg.skills.disabled.empty() ||
+    if (cfg.skills.scan_paths || !cfg.skills.disabled.empty() ||
         !cfg.skills.external_dirs.empty() ||
         cfg.skills.reuse_opencode != skills_d.reuse_opencode ||
         cfg.skills.idle_days != skills_d.idle_days) {
         nlohmann::json sj = nlohmann::json::object();
         if (!cfg.skills.disabled.empty()) sj["disabled"] = cfg.skills.disabled;
+        if (cfg.skills.scan_paths) sj["scan_paths"] = *cfg.skills.scan_paths;
         if (!cfg.skills.external_dirs.empty()) sj["external_dirs"] = cfg.skills.external_dirs;
         if (cfg.skills.reuse_opencode != skills_d.reuse_opencode)
             sj["reuse_opencode"] = cfg.skills.reuse_opencode;

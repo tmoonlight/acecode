@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 // 点击宫格里的 MiniSession 后展开为完整会话覆盖层。
 // 接住整个主区,内嵌一个简化版 ChatView(直接重用 ChatView 组件,有 sessionId 即可)。
 //
@@ -27,7 +28,7 @@ export function ExpandedOverlay({ session, onClose }) {
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.key !== 'Escape') return;
+      if (!isDismissShortcut(event)) return;
       event.preventDefault();
       close();
     };

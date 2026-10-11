@@ -825,12 +825,19 @@ void WebServer::Impl::register_static() {
             auto qpos = path.find('?');
             if (qpos != std::string::npos) path.resize(qpos);
 
+            const bool gzip = accepts_gzip(req.get_header_value("Accept-Encoding"));
+            const auto encoding_headers = [](crow::response& response, const AssetLookupResult& asset) {
+                if (asset.vary_accept_encoding) response.add_header("Vary", "Accept-Encoding");
+                if (asset.gzip) response.add_header("Content-Encoding", "gzip");
+            };
+
             if (!path.empty()) {
-                auto r = assets->lookup(path);
+                auto r = assets->lookup(path, gzip);
                 if (r.has_value()) {
                     crow::response resp(200);
                     resp.body.assign(reinterpret_cast<const char*>(r->data), r->size);
                     resp.add_header("Content-Type", r->content_type);
+                    encoding_headers(resp, *r);
                     if (req.url_params.get("v")) {
                         resp.add_header("Cache-Control", "public, max-age=31536000, immutable");
                     } else {
@@ -842,7 +849,7 @@ void WebServer::Impl::register_static() {
             }
 
             // SPA fallback: 任何不存在的资源都返回 index.html(让前端 hash 路由处理)
-            auto idx = assets->lookup("index.html");
+            auto idx = assets->lookup("index.html", gzip);
             if (!idx.has_value()) {
                 crow::response resp(503);
                 resp.body = "index.html missing — front-end not bundled";
@@ -851,6 +858,7 @@ void WebServer::Impl::register_static() {
             crow::response resp(200);
             resp.body.assign(reinterpret_cast<const char*>(idx->data), idx->size);
             resp.add_header("Content-Type", idx->content_type);
+            encoding_headers(resp, *idx);
             resp.add_header("Cache-Control", "no-cache");
             resp.add_header("Referrer-Policy", "no-referrer");
             return resp;

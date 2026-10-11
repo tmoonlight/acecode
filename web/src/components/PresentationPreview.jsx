@@ -13,11 +13,14 @@ import {
   useOfficePreviewZoom,
 } from './OfficePreviewControls.jsx';
 import { VsIcon } from './Icon.jsx';
+import { effectiveShortcut, shortcutEventVariants } from '../lib/shortcutBindings.js';
+import { useShortcutPreferences } from '../lib/useShortcutPreferences.js';
 
 const RENDERER_READY_TIMEOUT_MS = 10_000;
 const rendererSource = presentationRendererSource(rawRendererSource);
 
 export function PresentationPreview({ blob, path }) {
+  const shortcutPreferences = useShortcutPreferences();
   const frameRef = useRef(null);
   const shellRef = useRef(null);
   const [frameRevision, setFrameRevision] = useState(0);
@@ -57,8 +60,9 @@ export function PresentationPreview({ blob, path }) {
       const message = presentationPreviewMessage(event, frameWindow, channel);
       if (!message || cancelled) return;
       if (message.status === 'presentation') {
+        const [binding] = shortcutEventVariants(effectiveShortcut('previewPresentation'));
         frameRef.current?.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'F11', code: 'F11', ctrlKey: true, bubbles: true, cancelable: true,
+          ...binding, bubbles: true, cancelable: true,
         }));
         return;
       }
@@ -87,6 +91,9 @@ export function PresentationPreview({ blob, path }) {
         return;
       }
       if (message.status !== 'ready' || rendering) return;
+      postPresentationPreviewMessage(frameWindow, channel, 'shortcuts', {
+        keys: shortcutEventVariants(effectiveShortcut('previewPresentation')),
+      });
       rendering = true;
       window.clearTimeout(timeoutId);
       try {
@@ -114,6 +121,12 @@ export function PresentationPreview({ blob, path }) {
       window.removeEventListener('message', receiveMessage);
     };
   }, [blob, channel, frameRevision, setZoom]);
+
+  useEffect(() => {
+    postPresentationPreviewMessage(frameRef.current?.contentWindow, channel, 'shortcuts', {
+      keys: shortcutEventVariants(effectiveShortcut('previewPresentation')),
+    });
+  }, [channel, frameRevision, shortcutPreferences]);
 
   useEffect(() => {
     if (status !== 'complete') return;

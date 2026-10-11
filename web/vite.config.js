@@ -14,7 +14,8 @@ const daemonProxyHeaders = daemonToken ? { 'X-ACECode-Token': daemonToken } : un
 // 用 viteSingleFile 把 JS/CSS 全部 inline 进 index.html — 一来 daemon 只需要
 // serve 单个文件,二来绕开 Crow keep-alive 在多资源连接复用时丢 Content-Type
 // 的已知问题(同一 TCP 连接的第二个请求会回空 body / 空头)。
-// 代价:bundle 不能拆 chunk,首屏 ~250KB(gzip 后 ~70KB),对内嵌部署完全 OK。
+// 代价:bundle 不能拆 chunk。原生资源生成器压缩存储产物,静态资源路由协商
+// gzip 传输;单文件布局仍保留,拆 chunk 需要另行验证上述连接兼容性。
 //
 // dev 模式下跑 `pnpm dev` 起 Vite 5173；/api 与 /ws 默认代理到 127.0.0.1:28080。
 // scripts/dev_web 会为它启动的 Vite 进程设置 ACECODE_DAEMON_PORT，以代理到该工作树的 daemon。

@@ -91,6 +91,7 @@ struct ExpertDefinition {
 
     const ExpertAgent* agent(const std::string& agent_id) const;
     const ExpertAgent* selected_agent(const std::string& member_id = {}) const;
+    std::string avatar_identity(const std::string& member_id = {}) const;
     std::vector<std::filesystem::path> selected_skill_roots(
         const std::string& member_id = {}) const;
     ExpertCapabilityScopes selected_capabilities(

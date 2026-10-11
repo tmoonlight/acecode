@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { clsx } from '../lib/format.js';
 import {
@@ -54,7 +55,7 @@ export function WorkspaceIconPicker({ anchorRef, value, onChange, onClose }) {
   useEffect(() => {
     // Esc 只收起选择层:捕获阶段先拦下,对话框(document 冒泡阶段监听)就不会一起关掉。
     const onKey = (event) => {
-      if (event.key !== 'Escape' || event.isComposing) return;
+      if (!isDismissShortcut(event) || event.isComposing) return;
       event.preventDefault();
       event.stopPropagation();
       onClose?.();

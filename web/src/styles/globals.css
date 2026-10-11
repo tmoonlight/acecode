@@ -2324,6 +2324,44 @@ body {
 .ace-sidebar-session-row {
   position: relative;
 }
+.ace-session-title-transition {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+  white-space: nowrap;
+  text-overflow: inherit;
+}
+.ace-session-title-complete {
+  display: block;
+  overflow: hidden;
+  text-overflow: inherit;
+  transition: none;
+}
+.ace-session-title-transition[data-title-typing="true"] .ace-session-title-complete {
+  opacity: 0;
+}
+.ace-session-title-typing {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ace-session-title-cursor {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: #000;
+  transition: none;
+}
+[data-theme="dark"] .ace-session-title-cursor {
+  outline: 1px solid rgba(255, 255, 255, 0.75);
+  outline-offset: -1px;
+}
 .ace-sidebar-session-title-viewport {
   display: block;
   min-width: 0;

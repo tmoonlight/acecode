@@ -582,6 +582,8 @@ export function createApi(base = null) {
       `/api/skills/${encodeURIComponent(name)}` + (workspaceHash ? '?workspace=' + encodeURIComponent(workspaceHash) : ''),
       {enabled: en}, base),
     getSkillBody:     (name)         => request('GET',    `/api/skills/${encodeURIComponent(name)}/body`, undefined, base),
+    getSkillScanPaths: ()            => request('GET', '/api/config/skill-paths', undefined, base),
+    setSkillScanPaths: (paths)       => request('PUT', '/api/config/skill-paths', { paths }, base),
     getMcp:           (workspace = '') => request('GET', '/api/mcp' + mcpScopeQuery(workspace), undefined, base),
     getMcpSchema:     () => request('GET', '/api/mcp/schema', undefined, base),
     putMcp:           (cfg, workspace = '') => request('PUT', '/api/mcp' + mcpScopeQuery(workspace), cfg, base),

@@ -235,6 +235,14 @@ update their transcript presentation.
 
 ---
 
+### Embedded frontend encoding
+
+Embedded frontend resources negotiate gzip using `Accept-Encoding`. Compressed
+responses include `Content-Encoding: gzip` and `Vary: Accept-Encoding`; clients
+without gzip support (including explicit `gzip;q=0`) receive the original bytes
+with the same content type and cache policy. SPA fallback follows the same rule.
+Development `--static-dir` resources continue to be read from disk on each request.
+
 ## 3. HTTP Endpoint Index
 
 | Method | Path | Purpose |
@@ -565,6 +573,8 @@ disabled, the write is silently ignored.
 只读桌面办公室快照，使用通用鉴权/CORS，响应 `Cache-Control: no-store`。
 `session` 与 `workspace` 可省略；默认选最近办公室。选择子会话时返回它所属的根办公室。
 显式选择不存在或已归档会话返回 `404`，并在可用时附带当前 `offices`。
+
+绑定专家的条目保留 `expert_id`、`expert_member_id` 与 `expert` 展示信息，其中 `expert.avatar_identity` 是目录头像、子 agent 和办公室共用的稳定像素身份。引用式专家团成员使用被引用专家身份，主会话使用主理人身份；内嵌成员使用团队 ID 与成员 ID 的组合。`expert.avatar_url` 继续指向用户配置的头像（没有配置时为空）。这些字段不包含本地文件路径。
 
 ```json
 {
@@ -1071,11 +1081,11 @@ storage directly; they do not call the daemon HTTP API:
 
 | Tool | Behavior |
 |---|---|
-| `create_thread` | create a background thread and queue its initial prompt |
+| `create_thread` | create a thread in the inherited or explicitly selected workspace and queue its initial prompt |
 | `fork_thread` | fork completed persisted history into a new thread |
 | `list_threads` | globally list pinned threads plus cursor-paginated recent threads |
 | `read_thread` | read bounded, cursor-paginated turns from any workspace |
-| `send_message_to_thread` | queue a follow-up prompt |
+| `send_message_to_thread` | queue a follow-up prompt to a thread in any workspace |
 | `wait_threads` | wait for up to eight targets across workspaces using event cursors |
 | `set_thread_title` | rename a thread |
 | `set_thread_pinned` | update the existing pinned-session state |
@@ -1098,7 +1108,36 @@ the next page; it is an offset into the current ordering, not a frozen snapshot.
 `errors` reports incomplete project scans. `read_thread` and each `wait_threads`
 target accept optional `workspaceHash` from the list for direct lookup and
 disambiguation when the same `threadId` exists in multiple projects.
-Creation and mutation tools retain their existing calling-workspace semantics.
+Other mutation tools retain their existing calling-workspace semantics.
+
+`create_thread` accepts required `prompt`, optional `title`/`model`, and an
+optional target: `workspaceHash` for a registered workspace, `cwd` for an
+existing absolute directory, or `noWorkspace:true`. These three target forms
+are mutually exclusive. An omitted target (`noWorkspace:false` also counts as
+omitted) inherits the caller's workspace-free state or working directory.
+Workspace-free threads receive independent cache directories and persist
+`no_workspace:true`, so the no-workspace sidebar list can discover them.
+Directory targets are registered as visible workspaces, preserving existing
+names and other workspace preferences. An explicit `cwd` is canonicalized;
+a workspace hash retains the registered workspace's directory identity.
+Invalid target types, relative/missing/non-directory paths, unknown hashes,
+and conflicting selectors fail without creating a thread or silently falling
+back to the caller's directory.
+
+For example, `create_thread({"cwd":"N:/Users/shao/test333","prompt":"哈哈哈"})`
+returns `{"threadId":"...","title":"","status":"running","cwd":"...",
+"workspaceHash":"...","noWorkspace":false}`. The returned `workspaceHash`
+is the storage project hash, including for workspace-free threads, consistent
+with `list_threads` and `read_thread`. If initial input delivery fails, the
+new thread is destroyed and its files are removed from its actual project.
+
+`send_message_to_thread` accepts optional `workspaceHash` from creation or
+discovery. It locates threads globally and restores inactive targets using
+their own cwd and workspace-free state. Ambiguous ids require a hash; an id
+already active in another project is rejected to prevent misdelivery. A
+successful result is `{"threadId":"...","delivery":"queued","workspaceHash":"..."}`.
+This queues ordinary input; it does not answer or dismiss a pending user
+question, and sending to the calling thread remains invalid.
 
 `delete_thread` also removes search-index and pin records. It may target its
 calling thread, including a cascade whose tree contains the caller. In that
@@ -2672,6 +2711,13 @@ when no main avatar is configured. `state_avatar_urls` contains each state
 that has an effective image: the configured state image, or the main avatar
 when that state is not configured.
 
+Definitions and their `agents` also include `avatar_identity`, a stable key for
+the shared virtual-office pixel portrait. Clients use it when `avatar_url` is
+empty. Session expert presentation carries the corresponding selected member's
+identity and custom avatar URL, so spawning a new session does not change the
+expert's pixel appearance. Built-in experts use pixel portraits; user-supplied
+image and state-image endpoints keep their existing behavior.
+
 `GET /api/experts/:id/avatar?workspace=<hash>` serves the main avatar.
 Appending `&state=working`, `&state=needs_attention`, or `&state=idle` serves
 that state image and falls back to the main avatar if the state file becomes
@@ -2801,10 +2847,43 @@ Returns the effective skill directory:
 }
 ```
 
-`source` is `project_acecode`, `project_agent`, or `global_acecode`.
-`global_path` always points at the user-global skills root
-(`~/.acecode/skills`) regardless of which root was selected as `path`;
-the settings page "open global skills directory" button relies on it.
+With default scanning, `source` is `project_acecode`, `project_agent`, or
+`global_acecode`, and `global_path` points at the active ACECode data
+directory's `skills` folder. With custom scan paths, `path` is the first
+configured project root (or the first global root if none), `global_path`
+is the first global root, and `source` is `project_configured` or
+`global_configured`. An unconfigured scope returns an empty path. Custom
+roots are not created by this request.
+
+### `GET /api/config/skill-paths`
+
+Returns `{ "paths": [".acecode/skills", "${ACECODE_DATA_DIR}/skills"],
+"default_paths": [...], "customized": true }` (illustrative custom list).
+`paths` is the editable effective list; defaults honor legacy
+`skills.reuse_opencode` and `skills.external_dirs`.
+
+### `PUT /api/config/skill-paths`
+
+Body: `{ "paths": [".acecode/skills", "~/.codex/skills"] }`.
+Persists `skills.scan_paths` and refreshes daemon and existing session
+skill registries (session prompt snapshots apply at the control boundary).
+Returns the same shape as GET. Requires normal API authorization; returns
+400 for invalid input, 500 for persistence failure, and 409 during data
+directory migration. Failed validation/persistence leaves active paths intact.
+
+- Missing/null `skills.scan_paths` preserves legacy scanning exactly.
+  PUT `{ "paths": null }` restores this default behavior.
+- An explicit list replaces all ordinary defaults and legacy external roots;
+  an empty list disables ordinary scanning without deleting skills.
+- Entries are searched in list order; first skill name wins. Each relative
+  entry expands from the selected workspace through ancestors, excluding HOME
+  (or up to the filesystem root if HOME is not an ancestor). Global entries
+  remain global when no workspace is selected.
+- Absolute paths, `~`, and `${ENV}` are supported. `${ACECODE_DATA_DIR}` resolves
+  to the active data directory; `${XDG_CONFIG_HOME}` / `${XDG_CACHE_HOME}` fall
+  back to `~/.config` / `~/.cache`. Unset other variables are skipped.
+- Expert package skill roots retain priority. Allow/disable/platform policies
+  and seed installation locations are unchanged.
 
 ### `GET /api/skills?workspace=<hash>`
 
@@ -2831,9 +2910,15 @@ including, HOME) or `"global"` (user-global roots and
 `config.skills.external_dirs`). `workspace` is optional; without it the
 daemon's compatibility workspace (its own cwd) is used.
 
-Disabled config entries whose skill no longer exists on disk (ghost
-entries) are still included with `enabled:false` and `source:""` so the UI
-can release them from `config.skills.disabled`.
+When `skills.scan_paths` is configured, the same ordered resolution used by
+runtime discovery determines duplicate selection; relative entries are
+classified as project roots and absolute entries as global roots.
+
+Only discovered skills are listed. A skill whose `SKILL.md` was deleted or
+whose directory is outside the effective scan scope disappears on refresh,
+even if its name remains in `config.skills.disabled`. Listing does not prune
+disable preferences: a skill restored later (or discovered in another
+workspace) still appears with `enabled:false`.
 
 ### `PUT /api/skills/:name?workspace=<hash>`
 

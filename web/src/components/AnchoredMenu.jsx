@@ -1,3 +1,4 @@
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { anchoredMenuPosition } from '../lib/anchoredMenuPosition.js';
@@ -62,7 +63,7 @@ export function AnchoredMenu({ anchorRef, onClose, children, className = '', wid
       if (!menu.contains(event.target) && !anchor.contains(event.target)) closeRef.current?.();
     };
     const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      if (isDismissShortcut(event)) {
         event.preventDefault();
         event.stopImmediatePropagation();
         closeRef.current?.();

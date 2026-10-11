@@ -40,26 +40,6 @@ function clampOffset(value, max) {
 }
 
 const DESKTOP_WINDOW_FOCUS_EVENT = 'acecode:desktop-window-focus';
-const TERMINAL_FOCUS_REGION_SELECTOR = '[data-ace-focus-region="terminal"]';
-
-function meaningfulFocusElement(element, documentRef) {
-  if (!element) return null;
-  if (element === documentRef?.body || element === documentRef?.documentElement) return null;
-  return element;
-}
-
-function liveTerminalFocusRegion(element) {
-  if (!element || typeof element.closest !== 'function') return null;
-  let region = null;
-  try {
-    region = element.closest(TERMINAL_FOCUS_REGION_SELECTOR);
-  } catch {
-    return null;
-  }
-  if (!region || region.isConnected === false) return null;
-  if (region.getAttribute?.('data-collapsed') === 'true') return null;
-  return region;
-}
 
 function readTextareaSelection(textareaElement) {
   if (!textareaElement) return null;
@@ -157,32 +137,116 @@ export function bindDesktopComposerAutoFocus({
 } = {}) {
   if (!enabled || typeof onFocus !== 'function' || !win || !documentRef) return () => {};
 
-  let lastFocusedElement = meaningfulFocusElement(documentRef.activeElement, documentRef);
-  const rememberFocusOwner = (event) => {
-    const element = meaningfulFocusElement(event?.target || documentRef.activeElement, documentRef);
-    if (element) lastFocusedElement = element;
+  let disposed = false;
+  let generation = 0;
+  let pending = false;
+  let nativeActivationPending = false;
+  let composing = false;
+  let frame = 0;
+  let timer = 0;
+  const cancel = () => {
+    generation += 1;
+    pending = false;
+    nativeActivationPending = false;
+    win.cancelAnimationFrame(frame);
+    win.clearTimeout(timer);
+    frame = timer = 0;
   };
-  const currentFocusOwner = () => (
-    meaningfulFocusElement(documentRef.activeElement, documentRef) || lastFocusedElement
+  const available = () => (
+    !disposed && !composing && documentRef.visibilityState !== 'hidden'
+    && !documentRef.querySelector?.('[role="dialog"], .ace-global-find')
   );
-  const focusIfCurrentWindow = () => {
-    if (documentRef.visibilityState === 'hidden') return;
-    const blockingSurface = documentRef.querySelector?.('[role="dialog"], .ace-global-find');
-    if (blockingSurface) return;
-    if (liveTerminalFocusRegion(currentFocusOwner())) return;
-    onFocus();
+  const focusIfCurrentWindow = (event) => {
+    if (pending) return;
+    const native = event?.type === DESKTOP_WINDOW_FOCUS_EVENT || nativeActivationPending;
+    if (!available()) {
+      // Restore can notify native activation before WebView reports visible.
+      // Keep that intent until visibility catches up; the OS bridge still
+      // rejects it if the user has already switched to another application.
+      if (native && documentRef.visibilityState === 'hidden') nativeActivationPending = true;
+      return;
+    }
+    nativeActivationPending = false;
+    // Native activation may precede DOM focus. The bridge checks the OS window
+    // instead; visibility/pageshow alone must never activate a background page.
+    if (!native && documentRef.hasFocus?.() === false) return;
+    pending = true;
+    const request = ++generation;
+    const current = () => request === generation && available();
+    const canFocus = () => current() && documentRef.hasFocus?.() !== false;
+    const restore = (result) => {
+      if (request !== generation || disposed) return;
+      if (!available()) { cancel(); return; }
+      if (result?.ok === false) { cancel(); return; }
+      frame = win.requestAnimationFrame(() => {
+        frame = 0;
+        if (!canFocus()) { cancel(); return; }
+        onFocus(canFocus);
+        // One bounded retry covers native restore/layout and Slate commit order.
+        // Recheck every time; clicks, typing, blur and cleanup cancel this work.
+        timer = win.setTimeout(() => {
+          timer = 0;
+          if (canFocus()) onFocus(canFocus);
+          pending = false;
+        }, 80);
+      });
+    };
+    frame = win.requestAnimationFrame(() => {
+      frame = 0;
+      if (!current()) { cancel(); return; }
+      // A focused document already receives keyboard input. Repeating MoveFocus
+      // can terminate a newly started IME composition while its promise is pending.
+      if (documentRef.hasFocus?.() === true || typeof win.aceDesktop_focusActiveWebview !== 'function') {
+        restore();
+        return;
+      }
+      try {
+        Promise.resolve(win.aceDesktop_focusActiveWebview()).then(restore, () => {
+          if (current()) cancel();
+        });
+      } catch {
+        cancel();
+      }
+    });
   };
   const onVisibilityChange = () => {
     if (documentRef.visibilityState === 'visible') focusIfCurrentWindow();
+    else onCompositionEnd();
+  };
+  const onCompositionStart = () => {
+    composing = true;
+    cancel();
+  };
+  const onCompositionEnd = () => {
+    composing = false;
+    cancel();
   };
 
-  documentRef.addEventListener('focusin', rememberFocusOwner);
+  // A native blur can end composition without delivering compositionend to a
+  // disappearing editor. Do not leave the next window activation blocked.
+  win.addEventListener('blur', onCompositionEnd);
+  documentRef.addEventListener('pointerdown', cancel, true);
+  documentRef.addEventListener('keydown', cancel, true);
+  // IMEs and native text services can edit without a keydown. MoveFocus during
+  // composition commits the candidate in WebView2, so cancel before the bridge.
+  documentRef.addEventListener('beforeinput', cancel, true);
+  documentRef.addEventListener('input', cancel, true);
+  documentRef.addEventListener('compositionstart', onCompositionStart, true);
+  documentRef.addEventListener('compositionend', onCompositionEnd, true);
   win.addEventListener('focus', focusIfCurrentWindow);
   win.addEventListener('pageshow', focusIfCurrentWindow);
   win.addEventListener(DESKTOP_WINDOW_FOCUS_EVENT, focusIfCurrentWindow);
   documentRef.addEventListener('visibilitychange', onVisibilityChange);
   return () => {
-    documentRef.removeEventListener('focusin', rememberFocusOwner);
+    disposed = true;
+    cancel();
+    win.removeEventListener('blur', onCompositionEnd);
+    documentRef.removeEventListener('pointerdown', cancel, true);
+    documentRef.removeEventListener('keydown', cancel, true);
+    documentRef.removeEventListener('beforeinput', cancel, true);
+    documentRef.removeEventListener('input', cancel, true);
+    documentRef.removeEventListener('compositionstart', onCompositionStart, true);
+    documentRef.removeEventListener('compositionend', onCompositionEnd, true);
     win.removeEventListener('focus', focusIfCurrentWindow);
     win.removeEventListener('pageshow', focusIfCurrentWindow);
     win.removeEventListener(DESKTOP_WINDOW_FOCUS_EVENT, focusIfCurrentWindow);

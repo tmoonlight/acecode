@@ -8,6 +8,8 @@
 #include "session_host/thread_service.hpp"
 #include "session_host/tools/thread_tools.hpp"
 #include "utils/paths.hpp"
+#include "utils/utf8_path.hpp"
+#include "workspace/workspace_registry.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -116,7 +118,266 @@ void persist_thread(const std::string& cwd,
         message("user", content)));
 }
 
+// Keep real registry/storage behavior while recording input without calling a model.
+class ThreadCreation : public ThreadTools {
+protected:
+    class RecordingClient : public acecode::LocalSessionClient {
+    public:
+        explicit RecordingClient(acecode::SessionRegistry& registry)
+            : LocalSessionClient(registry), registry_(registry) {}
+        bool accept_input = true;
+        std::string delivered_id;
+        std::string delivered_project;
+        std::string delivered_prompt;
+        bool send_input(const std::string& id, const std::string& text) override {
+            auto entry = registry_.acquire(id);
+            if (!entry || !entry->sm) return false;
+            delivered_id = id;
+            delivered_project = entry->sm->current_project_dir();
+            delivered_prompt = text;
+            if (!accept_input) return false;
+            entry->sm->on_message(message("user", text));
+            return true;
+        }
+    private:
+        acecode::SessionRegistry& registry_; // Borrowed; fixture destroys client first.
+    };
+
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    std::unique_ptr<acecode::SessionRegistry> registry;
+    std::unique_ptr<RecordingClient> client;
+    std::string caller_cwd;
+
+    void SetUp() override {
+        ThreadTools::SetUp();
+        caller_cwd = workspace("caller");
+        acecode::SessionRegistryDeps deps;
+        deps.tools = &tools;
+        deps.cwd = caller_cwd;
+        deps.template_permissions = &permissions;
+        deps.provider_accessor = [] { return std::shared_ptr<acecode::LlmProvider>{}; };
+        registry = std::make_unique<acecode::SessionRegistry>(std::move(deps));
+        client = std::make_unique<RecordingClient>(*registry);
+        auto thread_deps = std::make_shared<acecode::ThreadToolDeps>();
+        thread_deps->service = std::make_shared<acecode::ThreadService>(
+            acecode::ThreadService::Deps{registry.get(), client.get()});
+        acecode::register_codex_thread_tools(tools, std::move(thread_deps));
+    }
+    void TearDown() override {
+        client.reset();
+        registry.reset();
+        ThreadTools::TearDown();
+    }
+    acecode::ToolResult create(const nlohmann::json& args,
+                              acecode::SessionManager* caller = nullptr) {
+        acecode::ToolContext context;
+        context.cwd = caller_cwd;
+        context.session_manager = caller;
+        return tools.execute("create_thread", args.dump(), context);
+    }
+    std::string projects() const {
+        return acecode::path_to_utf8(acecode::path_from_utf8(acecode::get_acecode_dir()) / "projects");
+    }
+};
+
 } // namespace
+
+TEST_F(ThreadCreation, InheritsWorkspaceFreeCallerWithIndependentVisibleStorage) {
+    acecode::SessionOptions options;
+    options.no_workspace = true;
+    const auto caller_id = registry->create(options);
+    auto caller = registry->acquire(caller_id);
+    ASSERT_NE(caller, nullptr);
+    const auto result = create({{"prompt", "hello"}, {"title", "New file"}}, caller->sm.get());
+    ASSERT_TRUE(result.success) << result.output;
+    const auto body = nlohmann::json::parse(result.output);
+    auto entry = registry->acquire(body["threadId"].get<std::string>());
+    ASSERT_NE(entry, nullptr);
+    EXPECT_TRUE(entry->no_workspace);
+    EXPECT_TRUE(entry->workspace_hash.empty());
+    EXPECT_NE(entry->cwd, caller->cwd);
+    EXPECT_EQ(body["cwd"], entry->cwd);
+    EXPECT_EQ(body["noWorkspace"], true);
+    EXPECT_EQ(body["workspaceHash"], acecode::SessionStorage::compute_project_hash(entry->cwd));
+    const auto listed = acecode::find_no_workspace_session_meta(entry->id);
+    ASSERT_TRUE(listed.has_value());
+    EXPECT_TRUE(listed->no_workspace);
+    EXPECT_EQ(listed->title, "New file");
+    EXPECT_FALSE(acecode::desktop::load_workspace_metadata(
+        projects(), acecode::SessionStorage::compute_project_hash(caller->cwd)).has_value());
+    EXPECT_EQ(client->delivered_prompt, "hello");
+}
+
+TEST_F(ThreadCreation, DefaultDirectoryBecomesVisibleWithoutChangingCaller) {
+    const auto result = create({{"prompt", "hello"}});
+    ASSERT_TRUE(result.success) << result.output;
+    const auto body = nlohmann::json::parse(result.output);
+    EXPECT_EQ(body["cwd"], caller_cwd);
+    EXPECT_EQ(body["noWorkspace"], false);
+    acecode::desktop::WorkspaceRegistry workspaces;
+    workspaces.scan(projects());
+    const auto visible = workspaces.get(body["workspaceHash"].get<std::string>());
+    ASSERT_TRUE(visible.has_value());
+    EXPECT_EQ(visible->cwd, caller_cwd);
+    const auto rows = acecode::SessionStorage::list_session_metadata(
+        acecode::SessionStorage::get_project_dir(caller_cwd));
+    ASSERT_EQ(rows.size(), 1u);
+    EXPECT_EQ(rows[0].id, body["threadId"]);
+    EXPECT_FALSE(rows[0].no_workspace);
+}
+
+TEST_F(ThreadCreation, ExplicitWorkspaceRestoresVisibilityAndPreservesProfile) {
+    const auto target_cwd = workspace("target");
+    acecode::desktop::WorkspaceRegistry workspaces;
+    const auto target = workspaces.register_new(projects(), target_cwd);
+    ASSERT_TRUE(workspaces.set_name(projects(), target.hash, "Custom name"));
+    ASSERT_TRUE(workspaces.hide(projects(), target.hash));
+    acecode::SessionOptions options;
+    options.no_workspace = true;
+    auto caller = registry->acquire(registry->create(options));
+    const auto result = create({{"prompt", "hello target"}, {"workspaceHash", target.hash}}, caller->sm.get());
+    ASSERT_TRUE(result.success) << result.output;
+    const auto body = nlohmann::json::parse(result.output);
+    EXPECT_EQ(body["cwd"], target_cwd);
+    EXPECT_EQ(body["workspaceHash"], target.hash);
+    EXPECT_EQ(body["noWorkspace"], false);
+    const auto persisted = acecode::desktop::load_workspace_metadata(projects(), target.hash);
+    ASSERT_TRUE(persisted.has_value());
+    EXPECT_TRUE(persisted->desktop_visible);
+    EXPECT_EQ(persisted->name, "Custom name");
+    EXPECT_TRUE(caller->no_workspace);
+}
+
+TEST_F(ThreadCreation, ExplicitDirectorySupportsUtf8AndCanonicalPath) {
+    const auto target = root / acecode::path_from_utf8(u8"目标目录");
+    std::filesystem::create_directories(target / "child");
+    const auto cwd = acecode::path_to_utf8(target / "child" / "..");
+    const auto result = create({{"prompt", "hello"}, {"cwd", cwd}});
+    ASSERT_TRUE(result.success) << result.output;
+    const auto body = nlohmann::json::parse(result.output);
+    EXPECT_EQ(body["cwd"], acecode::path_to_utf8(std::filesystem::canonical(target)));
+    const auto visible = acecode::desktop::load_workspace_metadata(
+        projects(), body["workspaceHash"].get<std::string>());
+    ASSERT_TRUE(visible.has_value());
+    EXPECT_TRUE(visible->desktop_visible);
+}
+
+TEST_F(ThreadCreation, ExplicitWorkspaceFreeTargetOverridesCallerDirectory) {
+    const auto result = create({{"prompt", "hello"}, {"noWorkspace", true}});
+    ASSERT_TRUE(result.success) << result.output;
+    const auto body = nlohmann::json::parse(result.output);
+    EXPECT_EQ(body["noWorkspace"], true);
+    EXPECT_NE(body["cwd"], caller_cwd);
+    EXPECT_TRUE(acecode::find_no_workspace_session_meta(body["threadId"]).has_value());
+}
+
+TEST_F(ThreadCreation, RejectsInvalidTargetsWithoutCreatingSessions) {
+    const auto file = root / "file.txt";
+    { std::ofstream output(file); output << "file"; }
+    const std::vector<nlohmann::json> targets{
+        {{"cwd", "relative"}}, {{"cwd", acecode::path_to_utf8(root / "missing")}},
+        {{"cwd", acecode::path_to_utf8(file)}}, {{"cwd", ""}}, {{"cwd", 42}},
+        {{"cwd", nullptr}}, {{"workspaceHash", "../outside"}},
+        {{"workspaceHash", "unknown"}}, {{"workspaceHash", 42}},
+        {{"workspaceHash", ""}}, {{"noWorkspace", "true"}}, {{"noWorkspace", nullptr}},
+        {{"cwd", caller_cwd}, {"workspaceHash", "anything"}},
+        {{"cwd", caller_cwd}, {"noWorkspace", true}},
+        {{"workspaceHash", "anything"}, {"noWorkspace", true}},
+    };
+    for (auto args : targets) {
+        SCOPED_TRACE(args.dump());
+        args["prompt"] = "must not create";
+        EXPECT_FALSE(create(args).success);
+        EXPECT_TRUE(registry->list_active().empty());
+        EXPECT_TRUE(client->delivered_id.empty());
+    }
+}
+
+TEST_F(ThreadCreation, RejectsUnpersistableWorkspaceRegistration) {
+    const auto cwd = workspace("blocked-marker");
+    const auto project = acecode::SessionStorage::get_project_dir(cwd);
+    std::filesystem::create_directories(acecode::path_from_utf8(project) / "workspace.json");
+    const auto result = create({{"prompt", "hello"}, {"cwd", cwd}});
+    EXPECT_FALSE(result.success);
+    EXPECT_TRUE(registry->list_active().empty());
+}
+
+TEST_F(ThreadCreation, FailedInputCleansActualTargetAndPreservesCaller) {
+    acecode::SessionOptions options;
+    options.cwd = caller_cwd;
+    auto caller = registry->acquire(registry->create(options));
+    caller->sm->on_message(message("user", "preserve me"));
+    client->accept_input = false;
+    for (const auto& target : std::vector<nlohmann::json>{
+             {{"cwd", workspace("failed-target")}}, {{"noWorkspace", true}}}) {
+        auto args = target;
+        args["prompt"] = "rejected";
+        const auto result = create(args, caller->sm.get());
+        EXPECT_FALSE(result.success);
+        EXPECT_EQ(registry->acquire(client->delivered_id), nullptr);
+        EXPECT_TRUE(acecode::SessionStorage::find_session_files(
+            client->delivered_project, client->delivered_id).empty());
+        EXPECT_FALSE(acecode::SessionStorage::find_session_files(
+            caller->sm->current_project_dir(), caller->id).empty());
+    }
+}
+
+TEST_F(ThreadCreation, SendsAcrossWorkspacesAndResumesUsingTargetIdentity) {
+    for (const bool no_workspace : {false, true}) {
+        auto args = nlohmann::json{{"prompt", "first"}};
+        if (no_workspace) args["noWorkspace"] = true;
+        else args["cwd"] = workspace("send-target");
+        const auto created = create(args);
+        ASSERT_TRUE(created.success) << created.output;
+        const auto body = nlohmann::json::parse(created.output);
+        const auto id = body["threadId"].get<std::string>();
+        acecode::ToolContext context;
+        context.cwd = caller_cwd;
+        context.session_manager = nullptr;
+        const auto sent = tools.execute("send_message_to_thread",
+            nlohmann::json{{"threadId", id}, {"prompt", "second"}}.dump(), context);
+        ASSERT_TRUE(sent.success) << sent.output;
+        registry->destroy(id);
+        const auto resumed = tools.execute("send_message_to_thread",
+            nlohmann::json{{"threadId", id}, {"prompt", "third"},
+                           {"workspaceHash", body["workspaceHash"]}}.dump(), context);
+        ASSERT_TRUE(resumed.success) << resumed.output;
+        auto active = registry->acquire(id);
+        ASSERT_NE(active, nullptr);
+        EXPECT_EQ(active->cwd, body["cwd"]);
+        EXPECT_EQ(active->no_workspace, no_workspace);
+        EXPECT_EQ(client->delivered_id, id);
+        EXPECT_EQ(client->delivered_prompt, "third");
+        const auto history = active->sm->load_active_messages();
+        EXPECT_TRUE(std::any_of(history.begin(), history.end(), [](const auto& item) {
+            return item.role == "user" && item.content == "third";
+        }));
+    }
+}
+
+TEST_F(ThreadCreation, RejectsAmbiguousOrConflictingActiveIdentity) {
+    const std::string id = "20261011-000000-cafe";
+    const auto other_cwd = workspace("duplicate");
+    persist_thread(caller_cwd, id, {}, "caller project");
+    persist_thread(other_cwd, id, {}, "other project");
+    acecode::ThreadService service({registry.get(), client.get()});
+    acecode::ThreadScope scope;
+    scope.cwd = caller_cwd;
+    const auto ambiguous = service.send(scope, id, "ambiguous");
+    EXPECT_FALSE(ambiguous.success);
+    EXPECT_NE(ambiguous.error.find("workspaceHash"), std::string::npos);
+    acecode::SessionOptions options;
+    options.cwd = caller_cwd;
+    ASSERT_TRUE(registry->resume(id, options));
+    const auto conflict = service.send(scope, id, "wrong project",
+        acecode::SessionStorage::compute_project_hash(other_cwd));
+    EXPECT_FALSE(conflict.success);
+    EXPECT_NE(conflict.error.find("different workspace"), std::string::npos);
+    EXPECT_TRUE(client->delivered_id.empty());
+    scope.caller_thread_id = id;
+    EXPECT_FALSE(service.send(scope, id, "self").success);
+}
 
 TEST_F(ThreadTools, RegistersCodexAlignedIndependentToolNames) {
     acecode::ToolExecutor tools;
@@ -141,6 +402,16 @@ TEST_F(ThreadTools, RegistersCodexAlignedIndependentToolNames) {
     EXPECT_FALSE(tools.is_read_only("repair_thread"));
 
     const auto definitions = tools.get_tool_definitions();
+    for (const char* name : {"create_thread", "send_message_to_thread"}) {
+        const auto definition = std::find_if(definitions.begin(), definitions.end(),
+            [name](const auto& item) { return item.name == name; });
+        ASSERT_NE(definition, definitions.end());
+        EXPECT_TRUE(definition->parameters["properties"].contains("workspaceHash"));
+        if (std::string(name) == "create_thread") {
+            EXPECT_TRUE(definition->parameters["properties"].contains("cwd"));
+            EXPECT_TRUE(definition->parameters["properties"].contains("noWorkspace"));
+        }
+    }
     const auto read = std::find_if(
         definitions.begin(), definitions.end(), [](const auto& definition) {
             return definition.name == "read_thread";
