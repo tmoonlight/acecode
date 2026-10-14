@@ -1,4 +1,4 @@
-name: Recover v1.0.6 macOS complete assets
+name: Recover v1.0.6 Windows x64 asset
 'on':
   push:
     branches:
@@ -7,7 +7,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: recover-v1.0.6-macos-complete
+  group: recover-v1.0.6-windows-x64
   cancel-in-progress: false
 jobs:
   build-web-ui:
@@ -92,22 +92,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - id: macos-x64
-          os: macos-15
-          installer_arch: x64
-          triplet: x64-osx
-          executable: acecode
-          archive_extension: tar.gz
+        - id: windows-x64
+          os: windows-2022
+          triplet: x64-windows-static
+          executable: acecode.exe
+          archive_extension: zip
+          msvc_arch: amd64
           build_desktop: true
-          cmake_extra_args: -DCMAKE_OSX_ARCHITECTURES=x86_64 -DACECODE_BUILD_DESKTOP=ON
-        - id: macos-arm64
-          os: macos-15
-          installer_arch: arm64
-          triplet: arm64-osx
-          executable: acecode
-          archive_extension: tar.gz
-          build_desktop: true
-          cmake_extra_args: -DCMAKE_OSX_ARCHITECTURES=arm64 -DACECODE_BUILD_DESKTOP=ON
+          cmake_extra_args: -DACECODE_BUILD_DESKTOP=ON
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -244,11 +236,13 @@ jobs:
           ${{ matrix.cmake_extra_args }}
     - name: Build
       shell: bash
-      run: cmake --build build --config MinSizeRel --target acecode
+      run: |
+        cmake --build build --config MinSizeRel --target acecode -- /p:CL_MPCount=2 /m:1
     - name: Build desktop
       if: matrix.build_desktop
       shell: bash
-      run: cmake --build build --config MinSizeRel --target acecode-desktop
+      run: |
+        cmake --build build --config MinSizeRel --target acecode-desktop -- /p:CL_MPCount=2 /m:1
     - name: Verify Linux ARMv7 executable
       if: matrix.id == 'linux-armv7'
       shell: bash
@@ -444,21 +438,6 @@ jobs:
       if: runner.os == 'macOS' && steps.macos-release.outputs.enabled == 'true'
       shell: bash
       run: |
-        xcrun() {
-          if [[ "${1:-}" != "stapler" ]]; then
-            command xcrun "$@"
-            return $?
-          fi
-          local result=0
-          for attempt in 1 2 3 4 5 6; do
-            if command xcrun "$@"; then return 0; else result=$?; fi
-            if [[ "$result" != "68" || "$attempt" == "6" ]]; then return "$result"; fi
-            echo "Apple ticket service disconnected (68), retry $attempt/6 in 15 seconds"
-            sleep 15
-          done
-          return "$result"
-        }
-        export -f xcrun
         scripts/macos_codesign.sh \
           --identity "${{ steps.macos-keychain.outputs.identity }}" \
           --keychain "${{ steps.macos-keychain.outputs.keychain }}" \
@@ -500,21 +479,6 @@ jobs:
       id: macos-pkg
       shell: bash
       run: |
-        xcrun() {
-          if [[ "${1:-}" != "stapler" ]]; then
-            command xcrun "$@"
-            return $?
-          fi
-          local result=0
-          for attempt in 1 2 3 4 5 6; do
-            if command xcrun "$@"; then return 0; else result=$?; fi
-            if [[ "$result" != "68" || "$attempt" == "6" ]]; then return "$result"; fi
-            echo "Apple ticket service disconnected (68), retry $attempt/6 in 15 seconds"
-            sleep 15
-          done
-          return "$result"
-        }
-        export -f xcrun
         pkg_path="ACECode-${{ steps.package-version.outputs.version }}-${{ matrix.id }}.pkg"
         scripts/macos_create_pkg.sh \
           --app "build/ACECode.app" \
@@ -590,21 +554,6 @@ jobs:
       id: macos-update
       shell: bash
       run: |
-        xcrun() {
-          if [[ "${1:-}" != "stapler" ]]; then
-            command xcrun "$@"
-            return $?
-          fi
-          local result=0
-          for attempt in 1 2 3 4 5 6; do
-            if command xcrun "$@"; then return 0; else result=$?; fi
-            if [[ "$result" != "68" || "$attempt" == "6" ]]; then return "$result"; fi
-            echo "Apple ticket service disconnected (68), retry $attempt/6 in 15 seconds"
-            sleep 15
-          done
-          return "$result"
-        }
-        export -f xcrun
         unsigned_suffix=""
         trust_args=()
         if [ "${{ steps.macos-release.outputs.enabled }}" = "true" ]; then
@@ -924,4 +873,4 @@ jobs:
           build/ACECode.app.dSYM
           build/acecode-daemon.dSYM
         if-no-files-found: warn
-    timeout-minutes: 60
+    timeout-minutes: 90
