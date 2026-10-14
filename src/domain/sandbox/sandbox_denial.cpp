@@ -181,13 +181,9 @@ std::string suggested_write_root(const SandboxViolation& violation, const Sandbo
     // 已经可写的目录不是「被拒」的原因;deny 名单里的目录不能通过申请变可写。
     if (policy.can_write(candidate)) return {};
     if (policy.resolve_access(candidate) == FsAccess::Deny && !policy.full_disk_read()) return {};
-    for (const auto& denied : policy.denied_paths) {
-        const auto rel = path_from_utf8(candidate).lexically_relative(path_from_utf8(denied));
-        if (!rel.empty() && *rel.begin() != "..") return {};
-    }
-    for (const auto& glob : policy.denied_globs) {
-        if (glob_matches_path(glob, candidate)) return {};
-    }
+    // 候选目录不存在时只是词法形态;is_denied 与 resolve_access 同口径规范化后再比,
+    // 经别名(junction / 符号链接)写的被拒路径也认得出 deny 名单。
+    if (policy.is_denied(candidate)) return {};
     return candidate;
 }
 

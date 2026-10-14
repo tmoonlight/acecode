@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 #include "sandbox/sandbox_denial.hpp"
+#include "sandbox/sandbox_policy.hpp"
+#include "test_support/sandbox/test_support.hpp"
+#include "utils/utf8_path.hpp"
 #include <csignal>
 
 using namespace acecode::sandbox;
@@ -62,12 +65,15 @@ TEST(SandboxDenial, ExtractsDeniedPathAcrossPlatforms) {
 // 场景:给「只放行该目录」算建议目录。期望:被拒路径是文件 → 父目录;已经可写的
 // 目录不建议(不是被拒原因);deny 名单里的目录 / 命中 deny glob 的目录不建议;
 // 相对路径不建议。
+// 条目按 make_sandbox_policy 的约定先规范化(canonical_policy_path):Windows 上 `/work`
+// 按当前盘解析,当前盘有 \work 目录时(本机 C:\work)候选目录会变成 C:\work。
+// 回归:条目曾直接写 `/work`,在存在 C:\work 的机器上「已可写」判不出来,建议成了 "C:\work"。
 TEST(SandboxDenial, SuggestedWriteRootRespectsPolicyAndDenyList) {
     SandboxPolicy policy;
     policy.mode = SandboxMode::WorkspaceWrite;
-    policy.writable_roots = {{"/work", {}}};
-    policy.denied_paths = {"/home/u/.ssh"};
-    policy.denied_globs = {"/home/u/**/.secrets"};
+    policy.writable_roots = {{canonical_policy_path("/work"), {}}};
+    policy.denied_paths = {canonical_policy_path("/home/u/.ssh")};
+    policy.denied_globs = {canonical_policy_path("/home/u") + "/**/.secrets"};
     SandboxViolation v;
     v.path = "/home/u/.cache/pnpm/store.lock";
     EXPECT_EQ(suggested_write_root(v, policy), "/home/u/.cache/pnpm");
@@ -81,6 +87,37 @@ TEST(SandboxDenial, SuggestedWriteRootRespectsPolicyAndDenyList) {
     EXPECT_EQ(suggested_write_root(v, policy), "");
     v.path.clear();
     EXPECT_EQ(suggested_write_root(v, policy), "");
+}
+
+// 场景:命令报 <别名>/.ssh/newdir/key 被拒,其中别名是指向真实家目录的 junction /
+// 符号链接(本机 C:\Users\shao → N:\Users\shao),newdir 还不存在;deny 名单里的 ~/.ssh
+// 是 canonical 的真实路径。另有一个经别名写、但不在 deny 名单里的普通目录。
+// 期望:.ssh 下的目录不给「只放行该目录」建议;普通目录照常建议(修复不能误伤)。
+// 回归:建议逻辑拿词法形态的候选目录和 canonical 的 deny 条目做 lexically_relative,别名
+// 形态对不上,越权确认框里出现「只放行 <别名>/.ssh/newdir」的选项。
+TEST(SandboxDenial, SuggestedWriteRootRejectsDeniedDirectoryReachedThroughAlias) {
+    acecode::sandbox::test::TempTree tree;
+    const auto real_home = tree.dir("real-home");
+    tree.dir("real-home/.ssh");
+    const auto workspace = tree.dir("work");
+    const auto alias_home = tree.root / "alias-home";
+    if (!acecode::sandbox::test::make_directory_alias(real_home, alias_home)) {
+        GTEST_SKIP() << "cannot create a directory alias here";
+    }
+    SandboxPolicyOptions options;
+    options.include_tmpdir = false;
+    options.home_override = acecode::path_to_utf8(alias_home);
+    options.denied_entries = {"~/.ssh"};
+    const auto policy = make_sandbox_policy(
+        SandboxMode::WorkspaceWrite, acecode::path_to_utf8(workspace), options);
+
+    SandboxViolation v;
+    v.path = acecode::path_to_utf8(alias_home / ".ssh" / "newdir" / "key");
+    EXPECT_EQ(suggested_write_root(v, policy), "");
+    v.path = acecode::path_to_utf8(alias_home / ".ssh" / "key");
+    EXPECT_EQ(suggested_write_root(v, policy), "");
+    v.path = acecode::path_to_utf8(alias_home / "projects" / "out.txt");
+    EXPECT_NE(suggested_write_root(v, policy), "") << "deny 名单之外的普通目录照常建议";
 }
 
 // 场景:升级提示文案。期望:后端不拦网络且不做准断网(旧 Windows 语义)时不提网络;
