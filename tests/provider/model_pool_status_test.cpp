@@ -192,3 +192,26 @@ TEST(ModelPoolStatus, FailedRefreshPreservesLastValidSnapshot) {
     EXPECT_EQ(retained->usage_rate, 55);
     EXPECT_EQ(svc.effective_context_window_for("DeepSeek-V4-Flash"), 80000);
 }
+
+// 场景:不传 url 构造服务(daemon / TUI 的实际用法),抓取时用写死的混淆地址。
+// 期望:请求地址的主机与模型网关完全一致(带 .cn),路径是
+// /code_pilot/api/monitor/getModelPoolStatus。
+// 回归点:混淆数组曾漏写 .cn,解码出 wizard-ai.paic.com,内网 DNS 解析不到,
+// daemon 日志每 30 秒一条 "Could not resolve host",模型池负载和有效窗口一直拿不到。
+TEST(ModelPoolStatus, DefaultUrlUsesModelGatewayHost) {
+    const std::string gateway = "https://wizard-ai.paic.com.cn/code_pilot/api";
+    const std::string origin = gateway.substr(0, gateway.find('/', 8));
+    std::string requested;
+    ModelPoolStatusService svc([&requested](const std::string& url) {
+        requested = url;
+        ModelPoolFetchResult r;
+        r.status_code = 200;
+        r.body = kSampleResponse;
+        return r;
+    });
+    ASSERT_TRUE(svc.refresh_once());
+    EXPECT_EQ(requested, acecode::kModelPoolStatusUrl);
+    ASSERT_GT(requested.size(), origin.size());
+    EXPECT_EQ(requested.substr(0, origin.size()), origin);
+    EXPECT_EQ(requested.substr(origin.size()), "/code_pilot/api/monitor/getModelPoolStatus");
+}
