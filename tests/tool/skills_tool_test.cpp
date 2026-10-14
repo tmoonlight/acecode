@@ -194,3 +194,20 @@ TEST_F(SkillsToolTest, ToolContextCwdUsesWorkspaceLocalSkills) {
 }
 
 } // namespace
+
+// 场景:列出全部 skill(正常有结果),结果里带一句「怎么加载全文」的 hint。
+// 期望:hint 用文字描述(调用 skill_view 工具、name 参数填技能名),不出现
+// `skill_view(` 这种伪函数调用写法。
+// 回归:旧 hint 是 `Use skill_view(name=...) ...`,内网 GLM 模型把整段表达式照抄成
+// 工具名,网关转换失败后返回 `skill_view(name="kimi-webbridge")</arg_value>`。
+TEST_F(SkillsToolTest, ListHintDescribesSkillViewInProse) {
+    acecode::SkillRegistry registry;
+    populate_registry_with_two_skills(registry);
+
+    auto out = run_tool(registry);
+
+    ASSERT_TRUE(out.contains("hint"));
+    const std::string hint = out["hint"].get<std::string>();
+    EXPECT_EQ(hint.find("skill_view("), std::string::npos) << hint;
+    EXPECT_NE(hint.find("skill_view tool"), std::string::npos) << hint;
+}

@@ -95,8 +95,9 @@ PromptContextBlock build_skills_index_context_prompt(
         << "- How to use a skill (progressive disclosure):\n";
     if (skill_view_available) {
         oss << "  1) After deciding to use a skill that was not already explicitly "
-            << "injected, call `skill_view(name=\"...\")` and read its full "
-            << "`SKILL.md` completely before taking task actions.\n"
+            << "injected, call the `skill_view` tool with its `name` argument set "
+            << "to the skill name and read the full `SKILL.md` completely before "
+            << "taking task actions.\n"
             << "  2) When `SKILL.md` references another file, load it with "
             << "`skill_view` using the same skill name and referenced relative path.\n";
     } else {

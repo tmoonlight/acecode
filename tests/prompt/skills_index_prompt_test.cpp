@@ -332,6 +332,26 @@ TEST_F(SkillsIndexRegistryTest, PopulatedRegistryRendersBlock) {
     EXPECT_EQ(block.cache_key.rfind("skills:", 0), 0u);
 }
 
+// 触发场景:registry 有 skill,目录块里讲解「决定用某个 skill 后怎么加载」。
+// 期望:用文字描述(调用 skill_view 工具、name 参数填技能名),不出现
+// `skill_view(name=...)` 这类伪函数调用;同样输入渲染两次逐字节相同。
+// 回归:内网 GLM 模型把提示里的 `skill_view(name="...")` 照抄成工具名,网关转换
+// 失败后返回 `skill_view(name="kimi-webbridge")</arg_value>`(2026-10-14 日志)。
+TEST_F(SkillsIndexRegistryTest, LoadingGuidanceUsesProseInsteadOfPseudoCalls) {
+    write_skill_md(temp_root, "review", "review-pr", "Review pull requests",
+                   "Use when the user mentions a PR");
+    acecode::SkillRegistry registry;
+    registry.set_scan_roots({temp_root});
+    registry.scan();
+
+    const auto block = acecode::build_skills_index_context_prompt(&registry, 128000);
+    EXPECT_EQ(block.content.find("skill_view("), std::string::npos) << block.content;
+    EXPECT_NE(block.content.find("`name` argument set to the skill name"),
+              std::string::npos) << block.content;
+    EXPECT_EQ(acecode::build_skills_index_context_prompt(&registry, 128000).content,
+              block.content);
+}
+
 // Codex 的目录发现不依赖专用 skill_view 工具；有 file locator 时即使该
 // 工具被策略隐藏,目录仍应进入模型上下文并指导使用普通文件读取能力。
 TEST_F(SkillsIndexRegistryTest, CatalogRemainsVisibleWithoutSkillViewTool) {

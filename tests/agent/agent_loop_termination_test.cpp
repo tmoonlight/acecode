@@ -2403,6 +2403,218 @@ TEST(AgentLoopTermination, CorruptedOutputAllowanceResetsAfterValidToolStep) {
     EXPECT_TRUE(assistant_said(h.persisted_messages(), "done"));
 }
 
+namespace {
+
+// 2026-10-14 内网 wizard-ai 网关(aicoder-pro = GLM 5.2 FP8)daemon 日志里的真实
+// 坏函数名:服务端没能把模型写的 GLM 工具调用模板转成结构化调用。
+const char* const kGlmBrokenName = "skill_view(name=\"kimi-webbridge\")</arg_value>";
+const char* const kGlmChainedName =
+    "skill_view(name=\"SDD-design-analysis\")<tool_call>skill_view(name=\"kimi-webbridge\")"
+    "<tool_call>skill_view(name=\"SDD-requirement-analysis\")";
+
+acecode::ToolCall named_call(const std::string& name, const std::string& id,
+                             const std::string& args = "{}") {
+    acecode::ToolCall call;
+    call.id = id;
+    call.function_name = name;
+    call.function_arguments = args;
+    return call;
+}
+
+// 落盘历史里不能出现的东西:坏名字、模板标记、坏调用的 id。系统通知与 error 行
+// 只给人看(不是 provider 角色,不发给模型),会复述命中的标记,跳过。
+void expect_history_free_of(const std::vector<ChatMessage>& persisted,
+                            const std::string& bad_id) {
+    for (const auto& msg : persisted) {
+        if (msg.role == "system" || msg.role == "error") continue;
+        EXPECT_EQ(msg.content.find("</arg_value>"), std::string::npos) << msg.content;
+        EXPECT_EQ(msg.content.find("skill_view(name="), std::string::npos) << msg.content;
+        EXPECT_NE(msg.tool_call_id, bad_id);
+        if (msg.tool_calls.is_array()) {
+            for (const auto& call : msg.tool_calls) {
+                EXPECT_NE(call.value("id", std::string{}), bad_id);
+            }
+        }
+    }
+}
+
+} // namespace
+
+// 场景:GLM 网关返回的函数名是 `skill_view(name="kimi-webbridge")</arg_value>`
+// (日志原样),同一回复没有正文;重发后模型正常回答。
+// 期望:与正文损坏走同一条路 —— 整步丢弃(不执行、不入历史,两次请求逐条相同),
+// 发一条 response_corrupted_retry 通知(context=tool_name、marker=</arg_value>),
+// 最终回复正常落盘,没有错误。
+// 回归表现:坏名字被当成 Unknown tool 执行,连同 `[Error] Unknown tool: <坏名字>`
+// 写进历史,下一轮被服务端按 GLM 模板排回提示词,模型照抄,会话
+// 20261014-081557-766b 连续空转 13 轮。
+TEST(AgentLoopTermination, CorruptedToolNameIsDiscardedAndRequestedAgainOnce) {
+    AgentLoopHarness h;
+    h.push_tool_call(kGlmBrokenName, "{}", "bad-1");
+    h.push_text("recovered answer");
+
+    ASSERT_TRUE(h.submit_and_wait("load the webbridge skill"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(h.count_by_role("error"), 0);
+
+    const auto first = h.request_messages_for_turn(0);
+    const auto second = h.request_messages_for_turn(1);
+    ASSERT_EQ(first.size(), second.size()) << "丢弃后原样重发,历史不能多出消息";
+    for (std::size_t i = 0; i < first.size(); ++i) {
+        EXPECT_EQ(first[i].content, second[i].content) << "message " << i;
+    }
+
+    const auto persisted = h.persisted_messages();
+    expect_history_free_of(persisted, "bad-1");
+    EXPECT_TRUE(assistant_said(persisted, "recovered answer"));
+
+    const auto notices = notice_params_for(h.snapshot_events(), "response_corrupted_retry");
+    ASSERT_EQ(notices.size(), 1u);
+    EXPECT_EQ(notices[0].value("context", std::string{}), "tool_name");
+    EXPECT_EQ(notices[0].value("marker", std::string{}), "</arg_value>");
+    EXPECT_EQ(notices[0].value("attempt", 0), 1);
+}
+
+// 场景:同一回复里第一个调用正常(已注册的计数工具),第二个是几段 `<tool_call>`
+// 串在一起的坏名字(日志原样)。
+// 期望:整步丢弃,连正常的那个调用也不执行(同一回复的输出已不可信);
+// 通知的 marker 是 <tool_call>。
+TEST(AgentLoopTermination, ChainedGlmCallNameDiscardsTheWholeStep) {
+    AgentLoopHarness h;
+    auto runs = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_counting_tool("probe", runs));
+    h.push_tool_calls({probe_call("ok-1"), named_call(kGlmChainedName, "bad-2")});
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(runs->load(), 0) << "损坏那一步里的正常调用也不能执行";
+    EXPECT_EQ(h.count_by_role("error"), 0);
+    expect_history_free_of(h.persisted_messages(), "bad-2");
+
+    const auto notices = notice_params_for(h.snapshot_events(), "response_corrupted_retry");
+    ASSERT_EQ(notices.size(), 1u);
+    EXPECT_EQ(notices[0].value("marker", std::string{}), "<tool_call>");
+}
+
+// 场景:网关返回函数名为空、参数 {} 的调用(日志:`synthesized missing tool_call
+// id index=0 tool=''`,finish_reason=stop);重发后正常回答。
+// 期望:同样整步丢弃重发一次,通知 context=tool_name_empty、marker 为空;历史里
+// 没有空名调用,也没有它的 Unknown tool 报错。
+// 回归表现:空名调用被执行成 `[Error] Unknown tool: .`,下一轮又被历史修复连同
+// 报错一起删掉,模型看不到失败,原样重复。
+TEST(AgentLoopTermination, EmptyToolNameIsDiscardedAndRequestedAgainOnce) {
+    AgentLoopHarness h;
+    h.push_tool_call("", "{}", "bad-empty");
+    h.push_text("recovered answer");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(h.count_by_role("error"), 0);
+    const auto persisted = h.persisted_messages();
+    expect_history_free_of(persisted, "bad-empty");
+    for (const auto& msg : persisted) {
+        EXPECT_EQ(msg.content.find("Unknown tool"), std::string::npos) << msg.content;
+    }
+    EXPECT_TRUE(assistant_said(persisted, "recovered answer"));
+
+    const auto notices = notice_params_for(h.snapshot_events(), "response_corrupted_retry");
+    ASSERT_EQ(notices.size(), 1u);
+    EXPECT_EQ(notices[0].value("context", std::string{}), "tool_name_empty");
+    EXPECT_EQ(notices[0].value("marker", std::string{"x"}), "");
+}
+
+// 场景:重发之后网关仍返回坏调用(高峰期服务端持续异常)。
+// 期望:与正文损坏一致,只重发一次;第二次仍损坏就报错停止(error 行说明
+// 「工具调用」损坏),不执行、不写历史,Done 的 outcome 为 error。
+TEST(AgentLoopTermination, RepeatedCorruptedToolCallStopsWithoutExecuting) {
+    AgentLoopHarness h;
+    auto runs = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_counting_tool("probe", runs));
+    h.push_tool_call("", "{}", "bad-first");
+    h.push_tool_calls({probe_call("ok-retry"), named_call(kGlmBrokenName, "bad-retry")});
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(runs->load(), 0);
+    EXPECT_EQ(h.count_by_role("error"), 1);
+    bool saw_tool_call_error = false;
+    for (const auto& msg : h.snapshot_messages()) {
+        if (msg.role == "error" &&
+            msg.content.find("损坏的工具调用") != std::string::npos) {
+            saw_tool_call_error = true;
+        }
+    }
+    EXPECT_TRUE(saw_tool_call_error);
+    EXPECT_EQ(notice_params_for(h.snapshot_events(), "response_corrupted_retry").size(), 1u);
+    expect_history_free_of(h.persisted_messages(), "bad-retry");
+    for (const auto& event : h.snapshot_events()) {
+        if (event.kind == acecode::SessionEventKind::Done) {
+            EXPECT_EQ(event.payload.value("outcome", std::string{}), "error");
+        }
+    }
+}
+
+// 场景:工具名正常(已注册),但参数里漏进了相邻参数的模板(上一个值缺闭合标签时
+// 服务端正则的典型结果:`ls -la\n<arg_key>timeout</arg_key>\n<arg_value>30`)。
+// 期望:同样整步丢弃重发一次,工具不执行,通知 context=tool_arguments、
+// marker=</arg_key>。
+TEST(AgentLoopTermination, CorruptedToolArgumentsAreDiscardedAndRequestedAgainOnce) {
+    AgentLoopHarness h;
+    auto runs = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_counting_tool("probe", runs));
+    const nlohmann::json args = {{"command", "ls -la\n<arg_key>timeout</arg_key>\n<arg_value>30"}};
+    h.push_tool_call("probe", args.dump(), "bad-args");
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(runs->load(), 0);
+    EXPECT_EQ(h.count_by_role("error"), 0);
+    const auto notices = notice_params_for(h.snapshot_events(), "response_corrupted_retry");
+    ASSERT_EQ(notices.size(), 1u);
+    EXPECT_EQ(notices[0].value("context", std::string{}), "tool_arguments");
+    EXPECT_EQ(notices[0].value("marker", std::string{}), "</arg_key>");
+}
+
+// 场景:模型在编辑本来就含这些标记的代码 —— 参数是 ACECode 自己
+// leaked_tool_markup.cpp 里的标记表。
+// 期望:不算损坏,工具照常执行一次,没有重发通知。按子串拦会让这类编辑每次都
+// 被丢弃重发、重发后照样命中,回合直接报错停下。
+TEST(AgentLoopTermination, ArgumentsQuotingTemplateMarkersStillExecute) {
+    AgentLoopHarness h;
+    auto runs = std::make_shared<std::atomic<int>>(0);
+    h.register_tool(create_counting_tool("probe", runs));
+    const nlohmann::json args = {{"old_string",
+        "static constexpr std::string_view kMarkers[] = {\n"
+        "    \"<arg_key>\", \"</arg_key>\", \"<arg_value>\", \"</arg_value>\"};"}};
+    h.push_tool_call("probe", args.dump(), "c-legit");
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    EXPECT_EQ(runs->load(), 1);
+    EXPECT_TRUE(notice_params_for(h.snapshot_events(), "response_corrupted_retry").empty());
+}
+
+// 场景:模型调了一个格式不规范但不像调用表达式的名字 `functions.noop`(不在
+// 工具表里,也不符合工具名字符集)。
+// 期望:不算损坏,照旧走 Unknown tool:执行一次、结果里回显这个名字并列出可用
+// 工具,没有重发通知 —— 只有空名字与调用表达式 / 模板残片才整步丢弃。
+TEST(AgentLoopTermination, MalformedButNonCorruptedNameStillGetsUnknownToolError) {
+    acecode::ScopedModelToolNameMappings none(acecode::ToolProtocolNameMappings{});
+    AgentLoopHarness h;
+    h.push_tool_call("functions.noop", "{}", "c-dotted");
+    h.push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait("go"));
+    EXPECT_EQ(h.turn_count(), 2);
+    const std::string result = first_tool_result_content(h.persisted_messages());
+    EXPECT_NE(result.find("Unknown tool: functions.noop"), std::string::npos) << result;
+    EXPECT_NE(result.find("Available tools:"), std::string::npos) << result;
+    EXPECT_TRUE(notice_params_for(h.snapshot_events(), "response_corrupted_retry").empty());
+}
+
 // 场景:修复上线前落盘的老会话里有一条 assistant 消息整条是文本工具调用(测试
 // stub 不经过 provider 的文本调用恢复,原样返回,等价于旧版本落盘的消息)。
 // 期望:下一回合发给模型的历史里它被换成固定说明,不再出现 <invoke;同一回合

@@ -861,6 +861,26 @@ TEST_F(SystemPromptTest, MemoryGuidanceRoutesRememberRequestsToMemoryWrite) {
     EXPECT_EQ(without_memory.find("# Memory\n"), std::string::npos);
 }
 
+// 场景:工具表里有 skill_view / skills_list,静态提示出「# Skills」段讲怎么加载 skill。
+// 期望:调用方式用文字描述(skill_view 工具、name / file_path 参数),不出现
+// `skill_view(` 这种伪函数调用写法;同样输入两次构建逐字节相同(prompt cache
+// 前缀不变量)。
+// 回归背景(内网 GLM,2026-10-14):提示里写着 `skill_view(name="<name>")`,模型把
+// 整段表达式照抄成工具名,网关转换失败后返回 `skill_view(name="kimi-webbridge")
+// </arg_value>`,被当成 Unknown tool 反复执行。
+TEST_F(SystemPromptTest, SkillGuidanceDescribesToolCallsInProse) {
+    acecode::ScopedModelToolNameMappings none({});
+    acecode::ToolExecutor tools;
+    register_probe_tools(tools, {"skill_view", "skills_list"});
+    const std::string out = acecode::build_system_prompt(tools, temp_home.string());
+
+    EXPECT_NE(out.find("# Skills"), std::string::npos);
+    EXPECT_EQ(out.find("skill_view("), std::string::npos) << out;
+    EXPECT_NE(out.find("`name` argument set to the skill name"), std::string::npos);
+    EXPECT_NE(out.find("`file_path` argument"), std::string::npos);
+    EXPECT_EQ(out, acecode::build_system_prompt(tools, temp_home.string()));
+}
+
 // 场景:模型态是 gpt-5(偏好 apply_patch),工具表里 apply_patch 可用。
 // 期望:出现 apply_patch 指引(相对路径 / 3 行上下文 / @@ 锚点、找不到时重读
 // 而不是绕道 shell)与 "# Model-specific guidance" 段(自主推进、最小改动、脏

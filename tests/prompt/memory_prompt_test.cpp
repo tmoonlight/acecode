@@ -109,6 +109,25 @@ TEST(MemoryPromptTest, BudgetKeepsNewestEntriesAndAddsOmissionNote) {
     EXPECT_EQ(read_file(workspace->dir() / "MEMORY.md"), index_before);
 }
 
+// 场景:工作区有一条记忆,快照的使用说明里讲怎么读全文 / 搜索被省略的条目。
+// 期望:用文字描述(调用 memory_read 工具、name / query 参数),不出现
+// `memory_read(` 这种伪函数调用写法 —— GLM 系模型会把整段表达式照抄成工具名
+// (内网 2026-10-14 的 `skill_view(name="…")</arg_value>` 同一机理)。
+TEST(MemoryPromptTest, UsageNoteDescribesMemoryReadInProse) {
+    MemoryTestHome home("memory-prompt-prose");
+    auto memory = home.service();
+    const std::string project_dir = MemoryTestHome::project_dir(home.workspace_cwd("ws"));
+    write_at(*memory->workspace(project_dir), "build_dir", acecode::MemoryType::Project,
+             "Build into L:/build", "2026-10-01T08:00:00Z");
+
+    const auto block = snapshot(memory, project_dir, 8192, "2026-10-01T12:00:00Z");
+    const auto& text = block.content;
+    ASSERT_FALSE(text.empty());
+    EXPECT_EQ(text.find("memory_read("), std::string::npos) << text;
+    EXPECT_NE(text.find("call the memory_read tool with its name argument"),
+              std::string::npos) << text;
+}
+
 // 场景:两个作用域都没有条目。期望:返回空块,请求中不出现记忆上下文。
 TEST(MemoryPromptTest, EmptyScopesProduceNoBlock) {
     MemoryTestHome home("memory-prompt-empty");
