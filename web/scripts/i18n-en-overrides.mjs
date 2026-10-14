@@ -489,7 +489,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   'EVA 主题下载进度': 'EVA theme download progress',
   '意见反馈': 'Feedback',
   '反馈内容不能超过 10000 字': 'Feedback cannot exceed 10,000 characters',
-  '默认附带近期日志，会话仅在选择后附带。': 'Recent logs are included. A session is attached only when selected.',
+  '默认附带近期日志；选择会话后，同时附带该会话的记录和发给模型的请求原文。': 'Recent logs are included. When you select a session, its transcript and the raw requests sent to the model are attached too.',
   '上传失败:': 'Upload failed: ',
   '保存失败，请检查文件写入权限': 'Could not save. Check file write permissions.',
   '保留': 'Keep',

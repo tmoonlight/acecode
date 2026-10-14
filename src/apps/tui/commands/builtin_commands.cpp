@@ -526,6 +526,9 @@ static void cmd_feedback(CommandContext& ctx, const std::string& raw_args) {
     package_req.feedback_text = feedback_text;
     package_req.session_id = session_id;
     package_req.session_jsonl_path = session_jsonl;
+    // 同时附带这个会话发给模型的请求原文,文件不存在时打包层跳过。
+    package_req.session_trajectory_path =
+        acecode::feedback::session_trajectory_path_for(session_jsonl, session_id);
     package_req.acecode_version = ACECODE_VERSION;
     // TUI feedback carries its own surface log plus the shared daemon log, but not
     // an unrelated Desktop surface log. Missing sources are skipped.

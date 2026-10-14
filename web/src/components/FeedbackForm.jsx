@@ -125,7 +125,7 @@ export function FeedbackForm({ onClose }) {
           <option value={NO_FEEDBACK_SESSION_KEY}>不附带会话</option>
           {sessions.map((item) => <option key={feedbackSessionKey(item)} value={feedbackSessionKey(item)}>{sessionOptionLabel(item)}</option>)}
         </select>
-        <p className="mt-1.5 text-[11px] text-fg-mute">默认附带近期日志，会话仅在选择后附带。</p>
+        <p className="mt-1.5 text-[11px] text-fg-mute">默认附带近期日志；选择会话后，同时附带该会话的记录和发给模型的请求原文。</p>
         {sessionsError && <p role="alert" className="mt-1.5 break-words text-[12px] text-danger">加载会话失败:{sessionsError}</p>}
       </div>
       {submitError && <p role="alert" className="break-words text-[12px] text-danger">上传失败:{submitError}</p>}

@@ -736,3 +736,177 @@ TEST(FeedbackUpload, UploadPackageTreatsSuccessFalseAsFailure) {
     EXPECT_EQ(result.status_code, 200);
     EXPECT_NE(result.error.find("denied"), std::string::npos);
 }
+
+// 触发场景:Desktop 反馈选了一个会话,该会话有 trajectory.jsonl(每次发给模型的
+// 完整请求与返回)。
+// 期望:原文整份进包,条目名是 session/<id>.trajectory.jsonl,排在会话 JSONL 之后;
+// feedback.json 的 trajectory 记录来源路径、原大小、进包字节数且未截断。
+// 背景:排查内网 GLM 乱码时反馈包里没有请求原文,只能靠推断两个客户端发了什么。
+TEST(FeedbackUpload, BuildPackageAttachesSessionTrajectory) {
+    TempDir tmp("acecode_feedback_trajectory");
+    const fs::path project = tmp.root / "project";
+    const fs::path session = project / "sid-traj.jsonl";
+    write_text(session, "{\"role\":\"user\",\"content\":\"hi\"}\n");
+    const std::string trajectory_text =
+        "{\"type\":\"model_request\",\"payload\":{\"model\":\"aicoder-pro\"}}\n"
+        "{\"type\":\"model_response\",\"payload\":{\"finish_reason\":\"stop\"}}\n";
+    const fs::path trajectory =
+        acecode::feedback::session_trajectory_path_for(session, "sid-traj");
+    write_text(trajectory, trajectory_text);
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "desktop";
+    req.session_id = "sid-traj";
+    req.session_jsonl_path = session;
+    req.session_trajectory_path = trajectory;
+    req.output_dir = tmp.root / "out";
+    req.created_at = "2026-10-14T08:18:47Z";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid-traj.trajectory.jsonl"),
+              trajectory_text);
+    ASSERT_GE(result.included_files.size(), 3u);
+    EXPECT_EQ(result.included_files[0], "session/sid-traj.jsonl");
+    EXPECT_EQ(result.included_files[1], "session/sid-traj.trajectory.jsonl");
+    ASSERT_TRUE(result.trajectory.has_value());
+    EXPECT_TRUE(result.trajectory->included);
+    EXPECT_FALSE(result.trajectory->truncated);
+
+    auto metadata = nlohmann::json::parse(
+        read_zip_entry(result.package_path, "feedback.json"));
+    ASSERT_TRUE(metadata.contains("trajectory"));
+    EXPECT_EQ(metadata["trajectory"]["entry_name"], "session/sid-traj.trajectory.jsonl");
+    EXPECT_EQ(metadata["trajectory"]["path"], acecode::path_to_utf8(trajectory));
+    EXPECT_TRUE(metadata["trajectory"]["available"].get<bool>());
+    EXPECT_EQ(metadata["trajectory"]["size_bytes"], trajectory_text.size());
+    EXPECT_EQ(metadata["trajectory"]["tail_bytes"], trajectory_text.size());
+    EXPECT_FALSE(metadata["trajectory"]["truncated"].get<bool>());
+}
+
+// 触发场景:会话从没发过模型请求(或旧版本会话),trajectory.jsonl 不存在。
+// 期望:打包照常成功,不加条目、不进 included_files;feedback.json 记下
+// available=false,让看反馈的人知道是没有这份文件,而不是忘了附带。
+TEST(FeedbackUpload, MissingTrajectoryIsRecordedButDoesNotFailPackage) {
+    TempDir tmp("acecode_feedback_trajectory_missing");
+    const fs::path session = tmp.root / "sid-none.jsonl";
+    write_text(session, "{}\n");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.session_id = "sid-none";
+    req.session_jsonl_path = session;
+    req.session_trajectory_path =
+        acecode::feedback::session_trajectory_path_for(session, "sid-none");
+    req.output_dir = tmp.root / "out";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_FALSE(zip_entry_exists(result.package_path, "session/sid-none.trajectory.jsonl"));
+    for (const auto& name : result.included_files) {
+        EXPECT_EQ(name.find("trajectory"), std::string::npos) << name;
+    }
+    auto metadata = nlohmann::json::parse(
+        read_zip_entry(result.package_path, "feedback.json"));
+    ASSERT_TRUE(metadata.contains("trajectory"));
+    EXPECT_FALSE(metadata["trajectory"]["available"].get<bool>());
+    EXPECT_EQ(metadata["trajectory"]["tail_bytes"], 0);
+}
+
+// 触发场景:长会话的 trajectory.jsonl 超过上限(每条请求都带完整历史和工具清单)。
+// 期望:只保留尾部(最近的请求),并从截断点之后第一个完整行开始 —— 进包的每一行
+// 都能单独解析成 JSON;feedback.json 记 truncated=true 与原始大小。
+TEST(FeedbackUpload, OversizedTrajectoryKeepsNewestCompleteLines) {
+    TempDir tmp("acecode_feedback_trajectory_cap");
+    const fs::path session = tmp.root / "sid-big.jsonl";
+    write_text(session, "{}\n");
+    const std::string line1 = "{\"seq\":1,\"pad\":\"aaaaaaaaaaaaaaaaaaaa\"}\n";
+    const std::string line2 = "{\"seq\":2,\"pad\":\"bbbbbbbbbbbbbbbbbbbb\"}\n";
+    const std::string line3 = "{\"seq\":3,\"pad\":\"cccccccccccccccccccc\"}\n";
+    const fs::path trajectory =
+        acecode::feedback::session_trajectory_path_for(session, "sid-big");
+    write_text(trajectory, line1 + line2 + line3);
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.session_id = "sid-big";
+    req.session_jsonl_path = session;
+    req.session_trajectory_path = trajectory;
+    // 比两行少几个字节:尾部会从第二行中间开始,应被丢到第三行。
+    req.max_trajectory_bytes = line2.size() + line3.size() - 5;
+    req.output_dir = tmp.root / "out";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    const std::string packed =
+        read_zip_entry(result.package_path, "session/sid-big.trajectory.jsonl");
+    EXPECT_EQ(packed, line3);
+    ASSERT_TRUE(result.trajectory.has_value());
+    EXPECT_TRUE(result.trajectory->truncated);
+    EXPECT_EQ(result.trajectory->size_bytes, line1.size() + line2.size() + line3.size());
+    EXPECT_EQ(result.trajectory->tail_bytes, line3.size());
+
+    auto metadata = nlohmann::json::parse(
+        read_zip_entry(result.package_path, "feedback.json"));
+    EXPECT_TRUE(metadata["trajectory"]["truncated"].get<bool>());
+    EXPECT_EQ(metadata["trajectory"]["tail_bytes"], line3.size());
+}
+
+// 触发场景:单条请求记录本身就超过上限(例如一次请求带了巨大的工具输出)。
+// 期望:截下来的尾巴里找不到换行时保留这段残行,而不是打出一个空文件。
+TEST(FeedbackUpload, SingleOversizedTrajectoryRecordKeepsPartialTail) {
+    TempDir tmp("acecode_feedback_trajectory_single");
+    const fs::path session = tmp.root / "sid-one.jsonl";
+    write_text(session, "{}\n");
+    const std::string record = "{\"seq\":1,\"pad\":\"" + std::string(64, 'x') + "\"}";
+    const fs::path trajectory =
+        acecode::feedback::session_trajectory_path_for(session, "sid-one");
+    write_text(trajectory, record);
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.session_id = "sid-one";
+    req.session_jsonl_path = session;
+    req.session_trajectory_path = trajectory;
+    req.max_trajectory_bytes = 20;
+    req.output_dir = tmp.root / "out";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid-one.trajectory.jsonl"),
+              record.substr(record.size() - 20));
+    ASSERT_TRUE(result.trajectory.has_value());
+    EXPECT_TRUE(result.trajectory->truncated);
+    EXPECT_EQ(result.trajectory->tail_bytes, 20u);
+}
+
+// 触发场景:Desktop 反馈选择「不附带会话」,调用方却仍填了 trajectory 路径。
+// 期望:请求原文跟着会话走,不附带会话就不附带原文;feedback.json 里也没有
+// trajectory 键。
+TEST(FeedbackUpload, TrajectoryIsIgnoredWithoutSession) {
+    TempDir tmp("acecode_feedback_trajectory_no_session");
+    const fs::path trajectory = tmp.root / "sid" / "trajectory.jsonl";
+    write_text(trajectory, "{\"type\":\"model_request\"}\n");
+
+    acecode::feedback::FeedbackPackageRequest req;
+    req.source = "desktop";
+    req.session_trajectory_path = trajectory;
+    req.output_dir = tmp.root / "out";
+
+    auto result = acecode::feedback::build_feedback_package(req);
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_FALSE(result.trajectory.has_value());
+    auto metadata = nlohmann::json::parse(
+        read_zip_entry(result.package_path, "feedback.json"));
+    EXPECT_FALSE(metadata.contains("trajectory"));
+}
+
+// 触发场景:Web / TUI 入口只知道会话 JSONL 路径,需要找到同一会话的轨迹文件。
+// 期望:<project>/<id>.jsonl → <project>/<id>/trajectory.jsonl(与
+// SessionTrajectoryStorage::file_path 同一布局);任一参数为空返回空路径。
+TEST(FeedbackUpload, SessionTrajectoryPathForMatchesStorageLayout) {
+    const fs::path project = fs::path("projects") / "31f450dafc695732";
+    EXPECT_EQ(acecode::feedback::session_trajectory_path_for(
+                  project / "20261014-081742-653c.jsonl", "20261014-081742-653c"),
+              project / "20261014-081742-653c" / "trajectory.jsonl");
+    EXPECT_TRUE(acecode::feedback::session_trajectory_path_for({}, "sid").empty());
+    EXPECT_TRUE(acecode::feedback::session_trajectory_path_for(
+                    project / "sid.jsonl", "").empty());
+}

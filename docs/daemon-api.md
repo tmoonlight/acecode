@@ -4686,7 +4686,17 @@ rather than a single newest file: every upgrade log modified within the last
 three days (72 hours) is merged oldest-first into `logs/upgrade.log.tail.txt`,
 truncated as a whole to the same 512 KiB tail; with no upgrade activity in that
 window the entry is omitted. If `session_id` is empty, the package contains
-those logs only. The upload target is derived from `upgrade.base_url`.
+those logs only. When a session is selected, the package also carries that
+session's request trajectory (`<project_dir>/<session_id>/trajectory.jsonl`:
+every model request's full messages and tool list, plus each response's text,
+tool calls and usage) as `session/<session_id>.trajectory.jsonl`. It keeps the
+newest 4 MiB, starting at the first complete line after the cut so every packed
+line is valid JSON; a single record larger than the cap keeps its partial tail.
+A missing trajectory file is skipped without failing the upload. `feedback.json`
+records it under `trajectory` (`entry_name`, `path`, `available`, `size_bytes`,
+`tail_bytes`, `truncated`), and `included_files` lists the entry right after the
+session JSONL when it was packed. Terminal `/feedback` attaches the active
+session's trajectory the same way. The upload target is derived from `upgrade.base_url`.
 
 Success:
 
