@@ -1,3 +1,5 @@
+import { sidebarSessionRoots, sidebarTreeTarget } from './sidebarSessionTree.js';
+
 export const SIDEBAR_SESSION_COLLAPSE_LIMIT = 5;
 
 function sessionId(session) {
@@ -225,7 +227,7 @@ export function sidebarSessionProjection(
   limit = SIDEBAR_SESSION_COLLAPSE_LIMIT,
   total = null,
 ) {
-  const list = Array.isArray(sessions) ? sessions : [];
+  const list = sidebarSessionRoots(Array.isArray(sessions) ? sessions : []);
   const max = sidebarSessionLimit(limit);
   const visibleCount = Math.max(max, sidebarSessionLimit(visibleLimit, max));
   const knownTotal = Number.isFinite(total) && total > list.length ? Math.floor(total) : list.length;
@@ -278,18 +280,22 @@ export function sessionListNeedsRevealExpansion(
   limit = SIDEBAR_SESSION_COLLAPSE_LIMIT,
 ) {
   if (!target?.sessionId) return false;
+  const root = sidebarTreeTarget(sessions, target?.sessionId);
+  const rootTarget = root ? { ...target, sessionId: root.id } : target;
   const projection = sidebarSessionProjection(sessions, visibleLimit, limit);
   if (!projection.collapsible) return false;
   const list = Array.isArray(sessions) ? sessions : [];
   const hasTarget = list.some((session) => sessionMatchesRevealTarget(session, target));
   if (!hasTarget) return false;
-  return !projection.visibleSessions.some((session) => sessionMatchesRevealTarget(session, target));
+  return !projection.visibleSessions.some((session) => sessionMatchesRevealTarget(session, rootTarget));
 }
 
 export function sidebarSessionRevealLimit(sessions = [], target = {}, limit = SIDEBAR_SESSION_COLLAPSE_LIMIT) {
   const batchSize = sidebarSessionLimit(limit);
-  const list = Array.isArray(sessions) ? sessions : [];
-  const targetIndex = list.findIndex((session) => sessionMatchesRevealTarget(session, target));
+  const list = sidebarSessionRoots(Array.isArray(sessions) ? sessions : []);
+  const root = sidebarTreeTarget(sessions, target?.sessionId);
+  const rootTarget = root ? { ...target, sessionId: root.id } : target;
+  const targetIndex = list.findIndex((session) => sessionMatchesRevealTarget(session, rootTarget));
   return Math.max(batchSize, Math.ceil((targetIndex + 1) / batchSize) * batchSize);
 }
 

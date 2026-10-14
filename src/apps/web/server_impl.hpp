@@ -34,6 +34,7 @@
 #include "session/session_serializer.hpp"
 #include "session/session_markdown_export.hpp"
 #include "session/session_storage.hpp"
+#include "session/sidebar_tree.hpp"
 #include "session/todo_state.hpp"
 #include "session/session_usage_ledger.hpp"
 #include "session/session_writer_lease.hpp"
@@ -453,6 +454,16 @@ struct WebServer::Impl {
         bool total_exact = true;
         bool has_more = false;
     };
+
+    mutable std::mutex sidebar_sessions_mu;
+    mutable SidebarMetadataCache sidebar_metadata_cache;
+    nlohmann::json sidebar_session_page(const acecode::desktop::WorkspaceMeta& ws,
+                                        bool no_workspace, int limit,
+                                        std::set<std::string> expanded,
+                                        const std::string& reveal,
+                                        const nlohmann::json& move = {}) const;
+    crow::response handle_sidebar_sessions(const crow::request& req,
+                                           const std::string& workspace_hash);
 
     nlohmann::json sessions_for_workspace(const acecode::desktop::WorkspaceMeta& ws,
                                           bool archived_only = false,

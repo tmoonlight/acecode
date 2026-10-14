@@ -19,7 +19,7 @@ function test(name, fn) {
   }
 }
 
-test('workspace groups wire drag only to ordinary workspace session rows', () => {
+test('workspace and no-workspace groups share scope-isolated tree dragging', () => {
   const sidebar = source('components/Sidebar.jsx');
   const workspaceStart = sidebar.indexOf('function WorkspaceGroup({');
   const noWorkspaceStart = sidebar.indexOf('\nfunction NoWorkspaceSessionGroup(', workspaceStart);
@@ -31,18 +31,19 @@ test('workspace groups wire drag only to ordinary workspace session rows', () =>
   assert.match(workspaceGroup, /workspaceReorderable/);
   assert.match(workspaceGroup, /onWorkspacePointerDown=\{onWorkspacePointerDown\}/);
   assert.match(workspaceGroup, /workspaceDragState\?\.sourceKey === rowKey/);
-  assert.doesNotMatch(noWorkspaceGroup, /workspaceReorderable|onWorkspacePointerDown|workspaceDragState/);
+  assert.match(noWorkspaceGroup, /workspaceReorderable/);
+  assert.match(noWorkspaceGroup, /onWorkspacePointerDown=\{onWorkspacePointerDown\}/);
 
   assert.match(sidebar, /data-sidebar-workspace-session-key=\{workspaceReorderable/);
   assert.match(sidebar, /data-sidebar-workspace-session-workspace=\{workspaceReorderable/);
-  assert.match(sidebar, /workspaceDropTargetForPointer\(clientY, drag\.workspaceHash\)/);
+  assert.match(sidebar, /workspaceDropTargetForPointer\(clientY, drag\.workspaceHash, drag\.sourceId, drag\.lastX\)/);
   assert.match(
     sidebar,
     /\.filter\(\(row\) => row\.dataset\.sidebarWorkspaceSessionWorkspace === workspace\)/,
   );
 });
 
-test('workspace drops update sidebar state while automatic reconciliation stays active', () => {
+test('workspace drops persist the tree while automatic reconciliation stays active', () => {
   const sidebar = source('components/Sidebar.jsx');
   const finishStart = sidebar.indexOf('const finishWorkspaceDrag = useCallback');
   const finishEnd = sidebar.indexOf('\n  const handleWorkspacePointerDown', finishStart);
@@ -51,9 +52,9 @@ test('workspace drops update sidebar state while automatic reconciliation stays 
 
   assert.match(
     finishWorkspaceDrag,
-    /setSessions\(\(prev\) => reorderSidebarWorkspaceSession\(\s*prev,\s*drag\.workspaceHash,\s*drag\.sourceId,\s*drag\.targetId,\s*drag\.placement \|\| 'before'/,
+    /api\.moveSidebarSession\(/,
   );
-  assert.doesNotMatch(finishWorkspaceDrag, /api\.|setPinnedSessions|setPinnedSessionOrder/);
+  assert.doesNotMatch(finishWorkspaceDrag, /setPinnedSessions|setPinnedSessionOrder/);
   assert.match(sidebar, /setSessions\(\(prev\) => retainUnrefreshedSidebarSessions\(prev, incoming,/);
   assert.match(sidebar, /promoteToTop: detail\.reason === 'session-created'/);
 });

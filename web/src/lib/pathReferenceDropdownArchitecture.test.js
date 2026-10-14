@@ -39,7 +39,8 @@ const sessionGroup = source.indexOf("t('pathReference.sessions')");
 assert.ok(fileGroup >= 0 && sessionGroup > fileGroup);
 assert.equal((source.match(/overflow-y-auto/g) || []).length, 1);
 assert.doesNotMatch(source, /grid-cols-2|flex-row[^\n]*pathReference\.sessions/);
-assert.doesNotMatch(source, /updated_at|updatedAt|更新时间/);
+assert.match(source, /showSessionTime = true/);
+assert.match(source, /showSessionTime \? relativeTime\(item\.updated_at \|\| item\.created_at\)/);
 assert.doesNotMatch(source, /bottom-full/);
 
 console.log('ok - path reference dropdown keeps one styled scroll surface with grouped rows');

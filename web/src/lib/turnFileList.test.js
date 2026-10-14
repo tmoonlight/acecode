@@ -5,6 +5,7 @@ import {
   buildTurnFileItems,
   splitTurnFileItems,
   turnFileDisplayPath,
+  turnFileOpenPath,
 } from './turnFileList.js';
 
 function run(name, fn) {
@@ -66,9 +67,48 @@ run('buildTurnFileItems 透传加删行数并生成展示路径', () => {
     { file: 'b.js', totalAdditions: null, totalDeletions: NaN },
   ], 'N:/proj');
   assert.deepEqual(items, [
-    { file: 'N:/proj/a.js', displayPath: 'a.js', additions: 12, deletions: 3 },
-    { file: 'b.js', displayPath: 'b.js', additions: 0, deletions: 0 },
+    { file: 'N:/proj/a.js', openPath: 'N:/proj/a.js', displayPath: 'a.js', additions: 12, deletions: 3 },
+    { file: 'b.js', openPath: 'b.js', displayPath: 'b.js', additions: 0, deletions: 0 },
   ]);
+});
+
+run('turnFileOpenPath 剥掉旧版 worktree 净差异里重复的 worktree 前缀', () => {
+  // 场景:旧版回合净差异在 worktree 会话里按会话原目录相对化,记成
+  // ".acecode/worktrees/ses-1/src/a.cpp";会话 cwd 是 worktree 本身。
+  // 回归:直接拼接得到 ".../worktrees/ses-1/.acecode/worktrees/ses-1/src/a.cpp",
+  // 回合末尾文件卡片点「打开」报文件找不到,「查看变更」却正常。
+  // 期望:剥掉与当前 worktree 重复的前缀,只剩 worktree 内的相对路径。
+  const cwd = 'N:/Users/shao/proj/.acecode/worktrees/ses-1';
+  assert.equal(turnFileOpenPath('.acecode/worktrees/ses-1/src/a.cpp', cwd), 'src/a.cpp');
+  assert.equal(turnFileOpenPath('.acecode\\worktrees\\ses-1\\b.txt', 'N:\\Users\\shao\\proj\\.acecode\\worktrees\\ses-1\\'), 'b.txt');
+  // 盘符路径大小写不敏感
+  assert.equal(turnFileOpenPath('.ACECODE/Worktrees/SES-1/c.js', cwd), 'c.js');
+});
+
+run('turnFileOpenPath 其它路径原样返回', () => {
+  // 场景:新版净差异在 worktree 里是绝对路径;普通会话是相对路径;别的
+  // worktree 的前缀不能误剥。期望:都不改动。
+  const cwd = 'N:/Users/shao/proj/.acecode/worktrees/ses-1';
+  assert.equal(
+    turnFileOpenPath('N:/Users/shao/proj/.acecode/worktrees/ses-1/src/a.cpp', cwd),
+    'N:/Users/shao/proj/.acecode/worktrees/ses-1/src/a.cpp',
+  );
+  assert.equal(turnFileOpenPath('.acecode/worktrees/ses-2/a.cpp', cwd), '.acecode/worktrees/ses-2/a.cpp');
+  assert.equal(turnFileOpenPath('.acecode/worktrees/ses-1/a.cpp', 'N:/Users/shao/proj'), '.acecode/worktrees/ses-1/a.cpp');
+  assert.equal(turnFileOpenPath('src/a.cpp', 'N:/Users/shao/proj'), 'src/a.cpp');
+  assert.equal(turnFileOpenPath('', cwd), '');
+});
+
+run('buildTurnFileItems 旧版 worktree 记录:展示与打开用修正路径,file 保留原始 key', () => {
+  // 场景:worktree 会话的旧记录。期望:displayPath / openPath 都是 worktree 内
+  // 的相对路径;file 保持原值,「查看变更」靠它匹配 diff 组。
+  const cwd = 'N:/Users/shao/proj/.acecode/worktrees/ses-1';
+  const [item] = buildTurnFileItems([
+    { file: '.acecode/worktrees/ses-1/src/a.cpp', totalAdditions: 1, totalDeletions: 0 },
+  ], cwd);
+  assert.equal(item.file, '.acecode/worktrees/ses-1/src/a.cpp');
+  assert.equal(item.openPath, 'src/a.cpp');
+  assert.equal(item.displayPath, 'src/a.cpp');
 });
 
 run('buildTurnFileItems 跳过非法条目,非数组输入返回空数组', () => {
@@ -137,7 +177,7 @@ run('轮次文件入口把稳定 user message UUID 贯穿列表、页签和详�
   const previewDetails = readFileSync(new URL('../components/PreviewDetailsPanel.jsx', import.meta.url), 'utf8');
 
   assert.match(turnFileList, /onOpenChanges\?\.\(item\.file, turnUserMessageId\)/);
-  assert.match(turnFileList, /onOpenFile\?\.\(item\.file\)/);
+  assert.match(turnFileList, /onOpenFile\?\.\(item\.openPath\)/);
   const lists = [...chatView.matchAll(/<TurnFileList\b[^>]*\/>/g)];
   assert.equal(lists.length, 2);
   for (const [list] of lists) {

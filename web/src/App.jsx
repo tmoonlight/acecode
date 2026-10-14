@@ -2359,6 +2359,7 @@ export function App() {
                 previewPresenting={previewPresenting}
                 onTogglePreviewPresentation={togglePreviewPresentation}
                 showAceCodeAvatar={showAceCodeAvatar}
+                showSessionTime={sidebarSessionTime}
                 messageAutoCollapse={messageAutoCollapse}
                 permissionRequests={visiblePermissionEntries}
                 onPermissionDecision={handlePermissionDecision}

@@ -53,7 +53,10 @@ public:
 
     bool can_restore(const std::string& user_message_uuid) const;
     FileCheckpointDiffStats diff_stats(const std::string& user_message_uuid) const;
-    TurnNetDiffRecord build_active_turn_net_diff(const std::string& workspace_root) const;
+    // 文件在 workspace_root 内记相对路径,否则记绝对路径。worktree_root 非空
+    // (会话处于 worktree)时一律记绝对路径,见 turn_diff_display_path。
+    TurnNetDiffRecord build_active_turn_net_diff(const std::string& workspace_root,
+                                                 const std::string& worktree_root = {}) const;
     FileCheckpointRestoreResult rewind_to(const std::string& user_message_uuid) const;
 
     void load_from_messages(const std::string& project_dir,

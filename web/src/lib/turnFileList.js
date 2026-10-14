@@ -41,6 +41,34 @@ export function turnFileDisplayPath(file, cwd) {
   return normFile;
 }
 
+const WORKTREE_DIR_MARKER = '/.acecode/worktrees/';
+
+/**
+ * 打开文件用的路径。旧版回合净差异在 worktree 会话里按会话原目录相对化,
+ * 记成 ".acecode/worktrees/<slug>/src/a.cpp";而 worktree 会话的 cwd 就是
+ * "<主仓>/.acecode/worktrees/<slug>",直接拼接会重复一段,打开时报找不到文件。
+ * 相对路径以当前 worktree 自身的相对位置开头时剥掉这段前缀;其它路径原样返回。
+ * 新记录在 worktree 里一律是绝对路径,不经过这里的修正。
+ *
+ * @param {string} file 变更组的 file 字段
+ * @param {string} cwd 会话工作目录(worktree 会话为 worktree 路径)
+ * @returns {string}
+ */
+export function turnFileOpenPath(file, cwd) {
+  const normFile = normalizeSlashes(file);
+  if (!normFile || normFile.startsWith('/') || isDrivePath(normFile)) return file || '';
+  const normCwd = normalizeSlashes(cwd).replace(/\/+$/, '');
+  const markerIndex = normCwd.toLowerCase().lastIndexOf(WORKTREE_DIR_MARKER);
+  if (markerIndex < 0) return file;
+  const worktreeRel = normCwd.slice(markerIndex + 1);
+  const relativeFile = normFile.replace(/^\.\/+/, '');
+  const caseInsensitive = isDrivePath(normCwd);
+  const fileCmp = caseInsensitive ? relativeFile.toLowerCase() : relativeFile;
+  const prefixCmp = (caseInsensitive ? worktreeRel.toLowerCase() : worktreeRel) + '/';
+  if (!fileCmp.startsWith(prefixCmp)) return file;
+  return relativeFile.slice(prefixCmp.length) || file;
+}
+
 function finiteNumber(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
@@ -49,7 +77,8 @@ function finiteNumber(value) {
 /**
  * @param {Array<{file:string,totalAdditions?:number,totalDeletions?:number}>} groups
  * @param {string} cwd 会话工作目录(相对化展示路径用)
- * @returns {Array<{file:string, displayPath:string, additions:number, deletions:number}>}
+ * @returns {Array<{file:string, openPath:string, displayPath:string, additions:number, deletions:number}>}
+ *   file 是变更组的原始 key(「查看变更」按它匹配 diff 组),openPath 是打开文件用的路径。
  */
 export function buildTurnFileItems(groups, cwd = '') {
   if (!Array.isArray(groups)) return [];
@@ -57,9 +86,11 @@ export function buildTurnFileItems(groups, cwd = '') {
   for (const group of groups) {
     const file = group && typeof group.file === 'string' ? group.file : '';
     if (!file) continue;
+    const openPath = turnFileOpenPath(file, cwd);
     items.push({
       file,
-      displayPath: turnFileDisplayPath(file, cwd),
+      openPath,
+      displayPath: turnFileDisplayPath(openPath, cwd),
       additions: finiteNumber(group.totalAdditions),
       deletions: finiteNumber(group.totalDeletions),
     });

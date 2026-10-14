@@ -91,6 +91,15 @@ function sessionsPath(path, opts = {}) {
   return text ? `${path}?${text}` : path;
 }
 
+function sidebarSessionsPath(hash, opts = {}) {
+  const path = hash ? `/api/workspaces/${encodeURIComponent(hash)}/session-sidebar` : '/api/session-sidebar';
+  const qs = new URLSearchParams();
+  if (Number(opts.limit) > 0) qs.set('limit', String(Math.floor(opts.limit)));
+  if (opts.expanded?.length) qs.set('expanded', JSON.stringify(opts.expanded));
+  if (opts.reveal) qs.set('reveal', String(opts.reveal));
+  return qs.size ? `${path}?${qs}` : path;
+}
+
 function usagePath(opts = {}) {
   const qs = new URLSearchParams();
   if (opts.days != null) qs.set('days', String(opts.days));
@@ -396,6 +405,8 @@ export function createApi(base = null) {
     // 仅 desktop 壳启动的 daemon 注册该端点(native_folder_picker_enabled 同款门控)。
     openInExplorer:   (path)         => request('POST',   '/api/open-in-explorer', { path }, base),
     listSessions:     (opts={})      => request('GET',    sessionsPath('/api/sessions', opts), undefined, base),
+    listSidebarSessions: (hash, opts={}) => request('GET', sidebarSessionsPath(hash, opts), undefined, base),
+    moveSidebarSession: (hash, move, opts={}) => request('POST', sidebarSessionsPath(hash, opts), move, base),
     createSession:    (opts={})      => request('POST',   '/api/sessions', opts, base),
     listTaskSuggestions: (id, options = {}) => request('GET',
       `/api/sessions/${encodeURIComponent(id)}/suggestions`, undefined, base,

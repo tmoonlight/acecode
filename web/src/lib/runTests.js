@@ -271,6 +271,7 @@ import './navigationHistory.test.js';
 import './navigationHistoryHandoffArchitecture.test.js';
 import './gridPinnedSessions.test.js';
 import './sidebarNavigation.test.js';
+import './sidebarSessionTree.test.js';
 import './sidebarNoWorkspacePinningArchitecture.test.js';
 import './sidebarWorkspaceHeadingArchitecture.test.js';
 import './sidebarWorkspaceDragArchitecture.test.js';
