@@ -702,10 +702,12 @@ void SessionUserMessageIndex::prune_removed_sessions() {
 
 bool SessionUserMessageIndex::ensure_project_indexed(
     std::string* error,
-    const std::function<bool()>& should_cancel) {
+    const std::function<bool()>& should_cancel,
+    std::vector<SessionMeta>* listed_metadata) {
+    if (listed_metadata) listed_metadata->clear();
     if (!initialize(error)) return false;
-    for (const auto& meta : SessionStorage::list_session_metadata(
-             project_dir_, should_cancel)) {
+    auto metadata = SessionStorage::list_session_metadata(project_dir_, should_cancel);
+    for (const auto& meta : metadata) {
         if (should_cancel && should_cancel()) {
             set_error(error, "cancelled");
             return false;
@@ -729,6 +731,7 @@ bool SessionUserMessageIndex::ensure_project_indexed(
         return false;
     }
     prune_removed_sessions();
+    if (listed_metadata) *listed_metadata = std::move(metadata);
     return true;
 }
 

@@ -5,6 +5,11 @@
 #include "session/compact_checkpoint.hpp"
 #include "session/request_context_record.hpp"
 #include "session/session_serializer.hpp"
+#include "skills/skill_registry.hpp"
+
+#include <filesystem>
+#include <fstream>
+#include <memory>
 
 TEST(PromptContextCache, CwdChangePreservesSkillAndSessionPins) {
     // cwd 失效只针对 Git;相同内容键下重采的动态文本仍钉住原字节。
@@ -80,6 +85,57 @@ TEST(ApiRequestBuilder, DeferredSkillToolsStaySessionLocalAndRespectPolicyAfterR
     EXPECT_EQ(builder.capture(options, {message}, false).tool_defs.size(), 1u);
     options.tool_policy.builtin_tools = std::unordered_set<std::string>{};
     EXPECT_TRUE(builder.capture(options, {message}, false).tool_defs.empty());
+}
+
+// 触发场景:create_scheduled_task 带 activation_skill + activation_hint 注册,
+// 会话里装着 scheduled-task 技能,但还没加载它(工具表里看不到该工具)。
+// 期望:每次请求的技能索引都单列门控工具和触发说明,模型据此先加载技能;
+// 工具被会话策略隐藏(定时任务执行会话 / 专家收走)时,这一节同步消失,
+// 且 skills_catalog_key 跟着变化,不会复用旧提示。
+TEST(ApiRequestBuilder, SkillIndexAdvertisesGatedToolUntilPolicyHidesIt) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::path(testing::TempDir()) / "acecode-gated-tool-index";
+    fs::remove_all(root);
+    fs::create_directories(root / "scheduled-task");
+    {
+        std::ofstream skill(root / "scheduled-task" / "SKILL.md", std::ios::binary);
+        skill << "---\nname: scheduled-task\ndescription: Create scheduled tasks\n---\n\n# body\n";
+    }
+    auto registry = std::make_shared<acecode::SkillRegistry>();
+    registry->set_scan_roots({root});
+    registry->scan();
+
+    acecode::ToolExecutor tools;
+    acecode::ToolImpl gated;
+    gated.definition.name = "create_scheduled_task";
+    gated.activation_skill = "scheduled-task";
+    gated.activation_hint = "run later or repeatedly (每天 / 建立定时任务)";
+    ASSERT_TRUE(tools.register_tool(gated));
+    acecode::ToolImpl skill_view;
+    skill_view.definition.name = "skill_view";
+    ASSERT_TRUE(tools.register_tool(skill_view));
+
+    acecode::agent::PromptContextCache cache;
+    acecode::agent::ApiRequestBuilder builder(tools, cache);
+    acecode::agent::RequestContextOptions options;
+    options.cwd = testing::TempDir();
+    options.git_config.emplace();
+    options.git_config->enabled = false;
+    options.project_config.emplace();
+    options.project_config->enabled = false;
+    options.skills = registry;
+
+    const auto visible = builder.capture(options, {}, false);
+    EXPECT_NE(visible.skills.content.find(
+        "- `create_scheduled_task` (load skill `scheduled-task`): run later or repeatedly"),
+        std::string::npos);
+    for (const auto& def : visible.tool_defs) EXPECT_NE(def.name, "create_scheduled_task");
+
+    options.tool_policy.hidden_builtin_tools.emplace("create_scheduled_task", "hidden");
+    const auto hidden = builder.capture(options, {}, false);
+    EXPECT_EQ(hidden.skills.content.find("Skill-gated"), std::string::npos);
+    EXPECT_NE(hidden.skills_catalog_key, visible.skills_catalog_key);
+    fs::remove_all(root);
 }
 
 namespace {

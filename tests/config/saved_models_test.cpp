@@ -1375,3 +1375,153 @@ TEST(SavedModelsTest, ApiProtocolRoundTripsAndParticipatesInEquality) {
     std::error_code ec;
     std::filesystem::remove(path, ec);
 }
+
+// 触发场景:saved_models 条目带 sampling 对象(wizard-ai GLM 推荐值),其中有
+// 值为 null 的键和一个拼错的未知键。
+// 期望:四个已知字段按值解析;null 视为未设置;未知键忽略不报错;min_p = 0
+// 是有效值(不能当成未设置丢掉)。
+TEST(SavedModelsTest, SamplingParsesValuesAndTreatsNullAsUnset) {
+    nlohmann::json node = {
+        {"name", "glm"}, {"provider", "openai"}, {"model", "aicoder-pro"},
+        {"base_url", "https://gateway.example/v1"}, {"api_key", "test-key"},
+        {"sampling", {{"temperature", 1}, {"top_p", 0.95}, {"top_k", 20},
+                      {"min_p", 0}, {"topK", 99}}},
+    };
+    std::string error;
+    auto parsed = parse_saved_models(nlohmann::json::array({node}), error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    const auto& sampling = parsed->front().sampling;
+    EXPECT_EQ(sampling.temperature, 1.0);
+    EXPECT_EQ(sampling.top_p, 0.95);
+    EXPECT_EQ(sampling.top_k, 20);
+    ASSERT_TRUE(sampling.min_p.has_value());
+    EXPECT_EQ(*sampling.min_p, 0.0);
+    EXPECT_TRUE(validate_saved_models(*parsed, "", error)) << error;
+
+    node["sampling"] = {{"temperature", nullptr}, {"top_p", 0.8}};
+    parsed = parse_saved_models(nlohmann::json::array({node}), error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    EXPECT_FALSE(parsed->front().sampling.temperature.has_value());
+    EXPECT_EQ(parsed->front().sampling.top_p, 0.8);
+
+    node["sampling"] = nullptr;
+    parsed = parse_saved_models(nlohmann::json::array({node}), error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    EXPECT_TRUE(parsed->front().sampling.empty());
+}
+
+// 触发场景:手改 config.json 写错采样参数的类型或范围。
+// 期望:整条解析失败且错误里带 "sampling",不能静默截断(例如 top_k 1.5 → 1、
+// 超出 int 的 top_k 变成负数)或把越界值原样发给服务端。
+TEST(SavedModelsTest, SamplingRejectsWrongTypesAndOutOfRangeValues) {
+    const nlohmann::json base = {
+        {"name", "glm"}, {"provider", "openai"}, {"model", "aicoder-pro"},
+        {"base_url", "https://gateway.example/v1"}, {"api_key", "test-key"},
+    };
+    const std::vector<nlohmann::json> invalid = {
+        nlohmann::json::array({0.5}),
+        {{"temperature", "1"}},
+        {{"temperature", true}},
+        {{"temperature", -0.1}},
+        {{"temperature", 2.5}},
+        {{"top_p", 0}},
+        {{"top_p", 1.01}},
+        {{"top_k", 0}},
+        {{"top_k", 1.5}},
+        {{"top_k", 3000000000LL}},
+        {{"min_p", -0.01}},
+        {{"min_p", 1.2}},
+    };
+    for (const auto& sampling : invalid) {
+        auto node = base;
+        node["sampling"] = sampling;
+        std::string error;
+        EXPECT_FALSE(parse_saved_models(nlohmann::json::array({node}), error))
+            << sampling.dump();
+        EXPECT_NE(error.find("sampling"), std::string::npos) << error;
+    }
+}
+
+// 触发场景:同一组采样参数配在不同 provider / API 协议的模型上。
+// 期望:能真正发出去的组合才通过校验 —— Chat Completions 四个都行;
+// Responses 不支持 top_k / min_p;Anthropic 不支持 min_p 且 temperature ≤ 1;
+// Copilot / Grok 是托管 provider,一律拒绝。配了却被静默丢弃的组合必须报错。
+TEST(SavedModelsTest, SamplingSupportDependsOnProviderAndProtocol) {
+    std::string error;
+    auto chat = make_valid_openai_profile("chat", "aicoder-pro");
+    chat.sampling.temperature = 1.0;
+    chat.sampling.top_p = 0.95;
+    chat.sampling.top_k = 20;
+    chat.sampling.min_p = 0.0;
+    EXPECT_TRUE(validate_saved_models({chat}, "", error)) << error;
+
+    auto responses = chat;
+    responses.api_protocol = "responses";
+    EXPECT_FALSE(validate_saved_models({responses}, "", error));
+    EXPECT_NE(error.find("sampling"), std::string::npos) << error;
+    responses.sampling.top_k.reset();
+    responses.sampling.min_p.reset();
+    EXPECT_TRUE(validate_saved_models({responses}, "", error)) << error;
+
+    auto anthropic = make_valid_openai_profile("claude", "claude-test");
+    anthropic.provider = "anthropic";
+    anthropic.sampling.temperature = 0.7;
+    anthropic.sampling.top_k = 40;
+    EXPECT_TRUE(validate_saved_models({anthropic}, "", error)) << error;
+    anthropic.sampling.min_p = 0.05;
+    EXPECT_FALSE(validate_saved_models({anthropic}, "", error));
+    EXPECT_NE(error.find("min_p"), std::string::npos) << error;
+    anthropic.sampling.min_p.reset();
+    anthropic.sampling.temperature = 1.5;
+    EXPECT_FALSE(validate_saved_models({anthropic}, "", error));
+    EXPECT_NE(error.find("temperature"), std::string::npos) << error;
+
+    for (const auto* managed : {"copilot", "grok"}) {
+        ModelProfile profile;
+        profile.name = managed;
+        profile.provider = managed;
+        profile.model = "model-id";
+        profile.sampling.temperature = 0.5;
+        EXPECT_FALSE(validate_saved_models({profile}, "", error)) << managed;
+        EXPECT_NE(error.find("managed provider"), std::string::npos) << error;
+    }
+}
+
+// 触发场景:在设置里配好采样参数后保存、重启(重新加载 config.json)。
+// 期望:四个值逐位还原(0.95 不能因为文本往返变成别的 double);
+// model_profiles_equal 感知采样参数变化,否则运行中的会话不会换用新参数。
+TEST(SavedModelsTest, SamplingRoundTripsAndParticipatesInEquality) {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto path = std::filesystem::temp_directory_path() /
+        ("acecode-sampling-profile-" + std::to_string(suffix) + ".json");
+    AppConfig cfg;
+    auto tuned = make_valid_openai_profile("glm", "aicoder-pro");
+    tuned.sampling.temperature = 1.0;
+    tuned.sampling.top_p = 0.95;
+    tuned.sampling.top_k = 20;
+    tuned.sampling.min_p = 0.0;
+    const auto plain = make_valid_openai_profile("plain", "aicoder-pro");
+    cfg.saved_models = {tuned, plain};
+    cfg.default_model_name = tuned.name;
+    save_config(cfg, path.string());
+
+    std::ifstream raw(path);
+    const auto written = nlohmann::json::parse(raw);
+    raw.close();
+    EXPECT_TRUE(written["saved_models"][0].contains("sampling"));
+    EXPECT_FALSE(written["saved_models"][1].contains("sampling"));
+
+    const auto loaded = load_config_from_path(path.string());
+    ASSERT_EQ(loaded.saved_models.size(), 2u);
+    EXPECT_TRUE(model_profiles_equal(tuned, loaded.saved_models[0]));
+    EXPECT_TRUE(loaded.saved_models[1].sampling.empty());
+
+    auto changed = tuned;
+    changed.sampling.top_k = 21;
+    EXPECT_FALSE(model_profiles_equal(tuned, changed));
+    changed = tuned;
+    changed.sampling.min_p.reset();
+    EXPECT_FALSE(model_profiles_equal(tuned, changed));
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}

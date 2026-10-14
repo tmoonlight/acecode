@@ -61,6 +61,7 @@ import './gfmAutolinkCompat.test.js';
 import './editablePreviewSelection.test.js';
 import './previewWorkbenchArchitecture.test.js';
 import './sideChatController.test.js';
+import './sideChatSessions.test.js';
 import './sideChatStream.test.js';
 import './sideChatGeometry.test.js';
 import './editableFileDraft.test.js';

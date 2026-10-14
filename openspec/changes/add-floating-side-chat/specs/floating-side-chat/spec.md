@@ -73,7 +73,7 @@ The UI SHALL show loading from submission, render actual streamed answer text, a
 - **THEN** the UI reports the failure, preserves readable partial output, and releases the input for another attempt
 
 ### Requirement: Conversation lifecycle and compatibility
-Minimizing SHALL hide the window, cancel any active side request and preserve the temporary transcript and draft while the same main session remains selected. Switching sessions or leaving the view SHALL cancel the old side request and discard its temporary state. Late callbacks SHALL NOT affect another request or session. Existing synchronous side-question HTTP and TUI callers SHALL retain their single-turn behavior.
+Minimizing SHALL hide the window, cancel any active side request and preserve the temporary transcript and draft while the same main session remains selected. Switching sessions or leaving the view SHALL cancel the old side request and retain its temporary state separately for that main session under the retention policy. Late callbacks SHALL NOT affect another request or session. Existing synchronous side-question HTTP and TUI callers SHALL retain their single-turn behavior.
 
 #### Scenario: Minimize and reopen
 - **WHEN** the user minimizes and reopens side chat in the same session
@@ -88,6 +88,28 @@ Minimizing SHALL hide the window, cancel any active side request and preserve th
 #### Scenario: Switch sessions during streaming
 - **WHEN** the user switches the main session during a side answer
 - **THEN** the old side request is cancelled and its subsequent events cannot change the new session's side chat
+
+### Requirement: 可配置的侧边聊天存续时间
+设置「常规」SHALL 提供「侧边聊天存续时间」正整数配置，单位分钟、默认 30，并持久化用户选择。每个主会话的侧聊 SHALL 从最后一个回合完成、停止或失败开始计时。切回主会话时 SHALL 使用最新配置检查到期，未到期恢复临时记录、草稿及窗口开闭状态，到期清空该会话侧聊。当前正在查看的侧聊 SHALL NOT 因时间到期自动消失；仅切换、打开、最小化或修改草稿 SHALL NOT 延长最后聊天结束时间。
+
+#### Scenario: 在存续时间内切回
+- **WHEN** 侧聊回答结束后用户切到另一主会话，并在配置时间内切回
+- **THEN** 原侧聊记录、未发送草稿和原窗口开闭状态恢复，追问仍携带原有成功或非空停止回答
+- **AND** 另一主会话的侧聊保持独立
+
+#### Scenario: 达到时间后切回
+- **WHEN** 距最后一次侧聊结束恰好达到或超过配置分钟数，用户切回该主会话
+- **THEN** 原侧聊记录和草稿清空，窗口关闭，重新打开后追问历史为空
+- **AND** 一直停留在该会话直到到期不会自动清空
+
+#### Scenario: 长回答及续聊
+- **WHEN** 侧聊回答生成耗时超过存续时间，随后结束并开始新的侧聊回合
+- **THEN** 生成期间不判断过期，并从最新回合结束重新计时
+- **AND** 切走中断生成时保留部分回答，从停止时开始计时，迟到事件不能更新其他会话
+
+#### Scenario: 修改配置与重新挂载
+- **WHEN** 用户修改存续时间并切回之前的主会话，或聊天视图重新挂载
+- **THEN** 检查使用最新配置，未到期的内存状态仍可恢复；配置在刷新后保留，聊天记录不做磁盘持久化
 
 ### Requirement: Private authenticated streaming transport
 The streaming side interface SHALL require the existing daemon authentication, validate session identity, request identity, text-only roles and bounded payloads, and deliver side output only to the requesting connection. Cancellation and disconnect SHALL release request resources without affecting a main task.

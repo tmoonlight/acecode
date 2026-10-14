@@ -898,6 +898,7 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     if (request_options_.max_output_tokens.has_value()) {
         body["max_tokens"] = *request_options_.max_output_tokens;
     }
+    append_sampling_request_fields(body, request_options_.sampling, true);
     if (request_options_.reasoning_protocol == ReasoningWireProtocol::OpenRouter &&
         request_options_.reasoning.has_value() &&
         request_options_.reasoning->supported) {

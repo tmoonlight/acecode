@@ -158,9 +158,10 @@ std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContext
     const bool spawn_subagent_available =
         tools_.is_allowed("spawn_subagent", &options.tool_policy);
     const auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
+    const auto gated_tools = tools_.skill_gated_tools(&options.tool_policy);
     PromptContextBlock skill_context = build_skills_index_context_prompt(
         options.skills.get(), options.context_window,
-        skill_view_available, skills_list_available, &dormant);
+        skill_view_available, skills_list_available, &dormant, &gated_tools);
     if (!skill_context.content.empty()) {
         ChatMessage skill_system;
         skill_system.role = "system";
@@ -275,15 +276,16 @@ RequestBuildInputs ApiRequestBuilder::capture(
         const bool skills_list_available = tools_.is_allowed("skills_list", &options.tool_policy);
         const bool spawn_subagent_available = tools_.is_allowed("spawn_subagent", &options.tool_policy);
         const auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
+        const auto gated_tools = tools_.skill_gated_tools(&options.tool_policy);
         inputs.skills = build_skills_index_context_prompt(
             options.skills.get(), options.context_window, skill_view_available,
-            skills_list_available, &dormant);
+            skills_list_available, &dormant, &gated_tools);
         const std::set<std::string> no_dormant;
         // Explicit catalog/policy changes must still reach the model. Idle
         // timestamps and other sessions' usage do not change this identity.
         inputs.skills_catalog_key = build_skills_index_context_prompt(
             options.skills.get(), options.context_window, skill_view_available,
-            skills_list_available, &no_dormant).cache_key;
+            skills_list_available, &no_dormant, &gated_tools).cache_key;
         inputs.session = build_session_context_prompt(
             options.cwd, &frozen_memory_snapshot(options), ptr(options.project_config),
             options.skills.get(), options.context_window, ptr(options.custom_config), cache_.cached_git(),

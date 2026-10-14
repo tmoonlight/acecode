@@ -516,6 +516,7 @@ nlohmann::json AnthropicProvider::build_request_body(
     body["max_tokens"] = request_options_.max_output_tokens.value_or(
         kDefaultMaxTokens);
     if (stream) body["stream"] = true;
+    append_sampling_request_fields(body, request_options_.sampling, false);
 
     if (request_options_.reasoning_protocol == ReasoningWireProtocol::Anthropic &&
         request_options_.reasoning.has_value() &&

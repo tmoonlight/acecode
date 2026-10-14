@@ -97,7 +97,9 @@ function sidebarSessionsPath(hash, opts = {}) {
   if (Number(opts.limit) > 0) qs.set('limit', String(Math.floor(opts.limit)));
   if (opts.expanded?.length) qs.set('expanded', JSON.stringify(opts.expanded));
   if (opts.reveal) qs.set('reveal', String(opts.reveal));
-  return qs.size ? `${path}?${qs}` : path;
+  // WebView 110 has URLSearchParams, but not its newer size property.
+  const text = qs.toString();
+  return text ? `${path}?${text}` : path;
 }
 
 function usagePath(opts = {}) {

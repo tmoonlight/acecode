@@ -21,6 +21,16 @@ import { providerDisplayName } from './providerCatalogGroups.js';
 export const MODEL_CATALOG_QUERY_LIMIT = 50;
 export const MODEL_ENDPOINT_MODES = ['base_url', 'full_url'];
 export const MODEL_API_PROTOCOLS = ['chat_completions', 'responses'];
+// 采样参数,全部可选:留空 = 不发送,由服务端决定。top_k / min_p 是 vLLM / SGLang
+// 等推理服务的扩展字段,只有 Chat Completions 会发出;Anthropic 支持 top_k、不支持
+// min_p;Responses 协议两者都不支持。取值范围与后端 validate_model_sampling_ranges 一致。
+export const MODEL_SAMPLING_FIELDS = ['temperature', 'top_p', 'top_k', 'min_p'];
+const SAMPLING_ERROR_CODES = {
+  temperature: 'INVALID_TEMPERATURE',
+  top_p: 'INVALID_TOP_P',
+  top_k: 'INVALID_TOP_K',
+  min_p: 'INVALID_MIN_P',
+};
 import { MODEL_REASONING_EFFORTS } from './modelReasoning.js';
 export { MODEL_REASONING_EFFORTS } from './modelReasoning.js';
 
@@ -388,6 +398,30 @@ export function normalizeProviderModelQuery(payload, expectedProviderId = '') {
   };
 }
 
+function normalizeSampling(value, label) {
+  if (value === undefined || value === null) return {};
+  const object = requireObject(value, label);
+  const output = {};
+  for (const field of MODEL_SAMPLING_FIELDS) {
+    const raw = object[field];
+    if (raw === undefined || raw === null) continue;
+    const integerOnly = field === 'top_k';
+    if (typeof raw !== 'number' || !Number.isFinite(raw)
+        || (integerOnly && !Number.isInteger(raw))) {
+      throw contractError(`${label}.${field} must be ${integerOnly ? 'an integer' : 'a number'}`);
+    }
+    output[field] = raw;
+  }
+  return output;
+}
+
+function samplingDraftFields(sampling = {}) {
+  return Object.fromEntries(MODEL_SAMPLING_FIELDS.map((field) => [
+    field,
+    typeof sampling?.[field] === 'number' ? String(sampling[field]) : '',
+  ]));
+}
+
 export function normalizeSavedModelProfile(raw, index = 0) {
   const value = requireObject(raw, `saved_models[${index}]`);
   const provider = requireString(value.provider, `saved_models[${index}].provider`);
@@ -432,6 +466,7 @@ export function normalizeSavedModelProfile(raw, index = 0) {
         : (() => { throw contractError(`saved_models[${index}].endpoint_mode is unsupported`); })(),
     api_protocol: apiProtocol,
     reasoning: normalizeReasoning(value.reasoning, `saved_models[${index}].reasoning`),
+    sampling: normalizeSampling(value.sampling, `saved_models[${index}].sampling`),
     request_headers: value.request_headers === undefined || value.request_headers === null
       ? undefined
       : isObject(value.request_headers)
@@ -796,6 +831,7 @@ export function emptyModelProfileDraft() {
     capabilities: [],
     capabilities_source: '',
     reasoning: normalizeReasoning(null),
+    ...samplingDraftFields(),
     _catalog_model_metadata: {},
     _model_metadata_overrides: {},
     _active_catalog_model_id: '',
@@ -830,6 +866,7 @@ export function modelProfileDraftFromSaved(raw) {
     capabilities: model.capabilities,
     capabilities_source: model.capabilities_source,
     reasoning: model.reasoning,
+    ...samplingDraftFields(model.sampling),
   };
 }
 
@@ -854,11 +891,59 @@ export function modelFieldPolicy(provider) {
     show_request_headers: supportsHttpOptions,
     show_max_output: !managed,
     show_reasoning: supportsHttpOptions,
+    show_sampling: supportsHttpOptions,
     can_probe: value.runtime_provider === 'copilot'
       || value.runtime_provider === 'grok'
       || value.runtime_provider === 'openai',
     model_input: value.model_input,
   };
+}
+
+// 当前 Provider / API 协议下哪些采样参数会真正发出去;界面只显示这些输入,
+// 请求体也只带这些字段(切换协议后被隐藏的旧值不会发出去)。
+export function modelSamplingFieldSupport(draft, provider) {
+  const none = { temperature: false, top_p: false, top_k: false, min_p: false };
+  if (!provider || !modelFieldPolicy(provider).show_sampling) return none;
+  if (provider.runtime_provider === 'anthropic') {
+    return { temperature: true, top_p: true, top_k: true, min_p: false };
+  }
+  const protocol = draft?.api_protocol || provider.default_api_protocol || 'chat_completions';
+  if (protocol === 'responses') {
+    return { temperature: true, top_p: true, top_k: false, min_p: false };
+  }
+  return { temperature: true, top_p: true, top_k: true, min_p: true };
+}
+
+function samplingFieldValid(field, value, provider) {
+  if (!Number.isFinite(value)) return false;
+  switch (field) {
+    case 'temperature':
+      return value >= 0 && value <= (provider?.runtime_provider === 'anthropic' ? 1 : 2);
+    case 'top_p':
+      return value > 0 && value <= 1;
+    case 'top_k':
+      return Number.isInteger(value) && value > 0 && value <= 2147483647;
+    case 'min_p':
+      return value >= 0 && value <= 1;
+    default:
+      return false;
+  }
+}
+
+function parseSamplingDraft(draft, provider) {
+  const support = modelSamplingFieldSupport(draft, provider);
+  const value = {};
+  for (const field of MODEL_SAMPLING_FIELDS) {
+    if (!support[field]) continue;
+    const raw = String(draft?.[field] ?? '').trim();
+    if (!raw) continue;
+    const parsed = Number(raw);
+    if (!samplingFieldValid(field, parsed, provider)) {
+      return { ok: false, code: SAMPLING_ERROR_CODES[field] };
+    }
+    value[field] = parsed;
+  }
+  return { ok: true, value };
 }
 
 export function isCustomOpenAiCompatibilityProvider(provider) {
@@ -891,6 +976,7 @@ export function applyCatalogProviderToDraft(draft, provider) {
     capabilities: [],
     capabilities_source: '',
     reasoning: normalizeReasoning(null),
+    ...samplingDraftFields(),
     _catalog_model_metadata: {},
     _model_metadata_overrides: {},
     _active_catalog_model_id: '',
@@ -997,6 +1083,8 @@ export function validateModelProfileDraft(draft, provider, { editing = false } =
   if (!contextWindow.ok) return contextWindow;
   const maxOutput = parsePositiveDraftInteger(draft.max_output_tokens, 'INVALID_MAX_OUTPUT_TOKENS');
   if (!maxOutput.ok) return maxOutput;
+  const sampling = parseSamplingDraft(draft, provider);
+  if (!sampling.ok) return sampling;
   const headers = policy.show_request_headers
     ? parseRequestHeadersJson(draft.request_headers_json, draft.provider)
     : { ok: true, headers: undefined };
@@ -1035,6 +1123,7 @@ export function validateModelProfileDraft(draft, provider, { editing = false } =
     max_output_tokens: maxOutput.value,
     request_headers: headers.headers,
     reasoning,
+    sampling: sampling.value,
   };
 }
 
@@ -1107,6 +1196,12 @@ export function buildModelMutationPayload(draft, provider, options = {}) {
   } else if (policy.show_reasoning && options.editing) {
     payload.reasoning = null;
   }
+  // 采样参数整体替换:编辑时全部留空要显式发 null,才能清掉已保存的值。
+  if (policy.show_sampling && Object.keys(validation.sampling).length > 0) {
+    payload.sampling = validation.sampling;
+  } else if (policy.show_sampling && options.editing) {
+    payload.sampling = null;
+  }
   return { ok: true, payload };
 }
 
@@ -1165,6 +1260,7 @@ export function hasAdvancedModelValues(draft) {
       || String(draft?.max_output_tokens || '').trim()
       || draft?.capabilities_source
       || reasoning.supported
+      || MODEL_SAMPLING_FIELDS.some((field) => String(draft?.[field] ?? '').trim())
   );
 }
 

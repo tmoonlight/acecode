@@ -54,7 +54,12 @@ std::string build_loop_system_context(const LoopDefinition& loop,
     out << "You are executing daemon-owned LOOP '" << loop.name << "' (loop_id="
         << loop.id << ", run_id=" << run.id << ").\n"
         << "Complete the coding task autonomously inside the execution root: "
-        << (execution_root.empty() ? "the daemon no-workspace root" : execution_root) << ".\n";
+        << (execution_root.empty() ? "the daemon no-workspace root" : execution_root) << ".\n"
+        << "This run is one execution of the scheduled task; ACECode's scheduler already "
+           "handles timing. Do the task once now. If the task text asks to create a scheduled "
+           "task or describes a schedule (for example \"建立定时任务，每天…\"), that is the "
+           "original creation wording: perform the underlying work and do not create or "
+           "schedule tasks.\n";
     if (loop.permission_mode == "yolo") {
         out << "This LOOP uses Yolo mode. Read access outside the execution root is allowed, "
                "but every write must remain inside the execution root. AskUserQuestion is "

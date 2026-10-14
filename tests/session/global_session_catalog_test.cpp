@@ -2,11 +2,13 @@
 
 #include "session/global_session_catalog.hpp"
 #include "session/global_session_search.hpp"
+#include "session/session_load_metrics.hpp"
 #include "session/session_storage.hpp"
 #include "utils/cwd_hash.hpp"
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <future>
 #include <atomic>
@@ -121,6 +123,53 @@ acecode::GlobalSessionCatalogIndexSnapshot wait_for_index(
     } while (std::chrono::steady_clock::now() < deadline);
     ADD_FAILURE() << "timed out waiting for incremental global-session index";
     return index.snapshot();
+}
+
+// 写一个带一条用户消息的会话(meta + JSONL),供内容搜索用例命中。
+void seed_session_with_message(const ProjectFixture& project,
+                               const std::string& id,
+                               const std::string& updated_at,
+                               const std::string& user_text,
+                               bool archived = false,
+                               const std::string& parent_session_id = {}) {
+    seed_meta(project, id, updated_at, archived, parent_session_id);
+    acecode::SessionStorage::write_messages(
+        acecode::SessionStorage::session_path(project.path.string(), id),
+        {user_message(user_text)});
+}
+
+// 内容搜索的任务列表取自目录索引已发现的项目,所以要先等后台扫描完成。
+void wait_for_catalog_complete(acecode::GlobalSessionSearchService& service,
+                               const std::string& request_id) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    do {
+        if (service.search_sessions(request_id, {}, 50).progress.complete) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    } while (std::chrono::steady_clock::now() < deadline);
+    ADD_FAILURE() << "timed out waiting for global-session catalog";
+}
+
+// 同一 request_id + query 复用同一个任务,反复调用直到所有项目都扫完。
+acecode::GlobalSessionContentSearchPage run_content_search(
+    acecode::GlobalSessionSearchService& service,
+    const std::string& request_id,
+    const std::string& query) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    acecode::GlobalSessionContentSearchPage page;
+    do {
+        page = service.search_user_messages_batch(request_id, query, 50);
+        if (page.complete || page.cancelled) return page;
+    } while (std::chrono::steady_clock::now() < deadline);
+    ADD_FAILURE() << "timed out waiting for content search to finish";
+    return page;
+}
+
+std::vector<std::string> content_result_ids(
+    const acecode::GlobalSessionContentSearchPage& page) {
+    std::vector<std::string> ids;
+    for (const auto& entry : page.entries) ids.push_back(entry.meta.id);
+    std::sort(ids.begin(), ids.end());
+    return ids;
 }
 
 } // namespace
@@ -496,6 +545,122 @@ TEST(GlobalSessionSearchService, ContentBatchesStopAfterCancellation) {
         "content-request", "interruptible-content-needle", 50);
     EXPECT_TRUE(cancelled.cancelled);
     EXPECT_EQ(cancelled.scanned_projects, 0u);
+    service.stop();
+}
+
+// 触发场景:Ctrl+K 全文搜索,同一项目里普通会话、归档会话、子会话的用户消息
+// 都包含查询词;另有两个会话是目录索引扫描完成之后才落盘的(分片里没有它们,
+// 结果要走「按元数据现拼条目」的回退路径),其中一个是归档的。
+// 期望行为:只返回两个未归档的主会话;归档会话与子会话即使正文命中也被排除,
+// 回退路径与目录命中路径给出相同的工作区信息。
+TEST(GlobalSessionSearchService, ContentSearchExcludesArchivedAndChildSessionsMatchedByContent) {
+    TempProjectsRoot root;
+    const auto fixture = project(
+        root, "C:/projects/content-filter", "Content Named", true);
+    seed_session_with_message(fixture, "ordinary", "2026-10-01T01:00:00Z",
+                              "ordinary mentions filter-needle");
+    seed_session_with_message(fixture, "archived", "2026-10-01T02:00:00Z",
+                              "archived mentions filter-needle", true);
+    seed_session_with_message(fixture, "child", "2026-10-01T03:00:00Z",
+                              "child mentions filter-needle", false, "ordinary");
+
+    acecode::GlobalSessionSearchService service(root.path().string());
+    service.start();
+    wait_for_catalog_complete(service, "filter-request");
+
+    // 扫描完成后才出现的会话:不调 invalidate_project,目录分片里查不到。
+    seed_session_with_message(fixture, "late-ordinary", "2026-10-01T04:00:00Z",
+                              "late ordinary mentions filter-needle");
+    seed_session_with_message(fixture, "late-archived", "2026-10-01T05:00:00Z",
+                              "late archived mentions filter-needle", true);
+
+    const auto page = run_content_search(service, "filter-request", "filter-needle");
+    ASSERT_TRUE(page.complete);
+    EXPECT_TRUE(page.errors.empty());
+    EXPECT_EQ(content_result_ids(page),
+              (std::vector<std::string>{"late-ordinary", "ordinary"}));
+    for (const auto& entry : page.entries) {
+        ASSERT_TRUE(entry.content_match.has_value()) << entry.meta.id;
+        EXPECT_EQ(entry.workspace_hash, fixture.hash) << entry.meta.id;
+        EXPECT_EQ(entry.workspace_name, "Content Named") << entry.meta.id;
+        EXPECT_FALSE(entry.meta.archived) << entry.meta.id;
+        EXPECT_TRUE(entry.meta.parent_session_id.empty()) << entry.meta.id;
+    }
+    service.stop();
+}
+
+// 触发场景:目录索引扫描时会话还是普通会话,之后在磁盘上被归档(别的进程归档、
+// 或搜索面板关闭期间后台扫描暂停),目录分片还没刷新。
+// 期望行为:元数据搜索仍按旧分片返回它(这是分片的既有延迟,用作本用例的前提),
+// 但内容搜索以磁盘上的最新元数据为准把它排除 —— 与改动前「每个项目重新枚举
+// 目录再过滤」的语义一致。
+// 回归:若改成「目录分片里找得到就直接采信」,刚归档的会话会漏进全文结果。
+TEST(GlobalSessionSearchService, ContentSearchUsesDiskArchiveStateWhenCatalogShardIsStale) {
+    TempProjectsRoot root;
+    const auto fixture = project(root, "C:/projects/content-stale");
+    seed_session_with_message(fixture, "keep", "2026-10-02T01:00:00Z",
+                              "keep mentions stale-needle");
+    seed_session_with_message(fixture, "flip", "2026-10-02T02:00:00Z",
+                              "flip mentions stale-needle");
+
+    acecode::GlobalSessionSearchService service(root.path().string());
+    service.start();
+    wait_for_catalog_complete(service, "stale-request");
+
+    // 只改磁盘上的 meta,不通知目录索引。
+    seed_meta(fixture, "flip", "2026-10-02T02:00:00Z", /*archived=*/true);
+    const auto metadata = service.search_sessions("stale-request", "title-flip", 10);
+    bool stale_shard_still_lists_flip = false;
+    for (const auto& entry : metadata.entries) {
+        if (entry.meta.id == "flip") stale_shard_still_lists_flip = true;
+    }
+    ASSERT_TRUE(stale_shard_still_lists_flip)
+        << "前提不成立:目录分片已经刷新,本用例测不到分片滞后的场景";
+
+    const auto page = run_content_search(service, "stale-request", "stale-needle");
+    ASSERT_TRUE(page.complete);
+    EXPECT_EQ(content_result_ids(page), (std::vector<std::string>{"keep"}));
+    service.stop();
+}
+
+// 触发场景:索引已是热的,全文搜索扫过两个项目 —— A 有 10 个会话、其中 1 个
+// 命中,B 有 6 个会话、无命中。
+// 期望行为:每个项目的 .meta.json 只被打开一次(刷新内容索引时那一遍),总数
+// 不超过 16。Windows 上会话列表的成本在文件个数,2.8 万会话实测一遍约 3.3 秒。
+// 回归:改动前刷新索引读一遍、过滤命中又整目录读一遍,共 32 次;只做「无命中
+// 跳过第二遍」也还有 26 次,两种都会被这里拦下。
+TEST(GlobalSessionSearchService, ContentSearchOpensEachMetaFileOncePerProject) {
+    constexpr int kMatchingProjectSessions = 10;
+    constexpr int kQuietProjectSessions = 6;
+    TempProjectsRoot root;
+    const auto matching = project(root, "C:/projects/content-io-matching");
+    const auto quiet = project(root, "C:/projects/content-io-quiet");
+    for (int i = 0; i < kMatchingProjectSessions; ++i) {
+        seed_session_with_message(
+            matching, "matching-" + std::to_string(i), "2026-10-03T01:00:00Z",
+            i == 0 ? "only this one has io-needle" : "unrelated text");
+    }
+    for (int i = 0; i < kQuietProjectSessions; ++i) {
+        seed_session_with_message(
+            quiet, "quiet-" + std::to_string(i), "2026-10-03T02:00:00Z",
+            "unrelated text");
+    }
+
+    acecode::GlobalSessionSearchService service(root.path().string());
+    service.start();
+    wait_for_catalog_complete(service, "io-warmup");
+    // 先跑一遍把内容索引建好;建索引要读 JSONL,不在本用例的计数范围内。
+    ASSERT_TRUE(run_content_search(service, "io-warmup", "io-needle").complete);
+
+    // 计数器是线程局部的,后台目录扫描线程的读取不会混进来。
+    const auto before = acecode::session_read_metrics();
+    const auto page = run_content_search(service, "io-measured", "io-needle");
+    const auto opened = (acecode::session_read_metrics() - before).files;
+
+    ASSERT_TRUE(page.complete);
+    EXPECT_EQ(content_result_ids(page), (std::vector<std::string>{"matching-0"}));
+    EXPECT_LE(opened, static_cast<std::uint64_t>(
+        kMatchingProjectSessions + kQuietProjectSessions));
     service.stop();
 }
 

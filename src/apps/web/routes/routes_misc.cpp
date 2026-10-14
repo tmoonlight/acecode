@@ -596,6 +596,10 @@ void WebServer::Impl::register_feedback() {
                 }
                 package_req.session_id = selected_session_id;
                 package_req.session_jsonl_path = session_jsonl;
+                // 同时附带这个会话发给模型的请求原文,文件不存在时打包层跳过。
+                package_req.session_trajectory_path =
+                    acecode::feedback::session_trajectory_path_for(
+                        session_jsonl, selected_session_id);
                 package_req.workspace_hash = meta.no_workspace ? std::string{} : ws.hash;
                 selected_workspace_hash = package_req.workspace_hash;
             }

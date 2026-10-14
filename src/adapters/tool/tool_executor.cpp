@@ -404,6 +404,27 @@ std::vector<RegisteredToolInfo> ToolExecutor::get_registered_tools() const {
     return result;
 }
 
+std::vector<SkillGatedToolInfo> ToolExecutor::skill_gated_tools(
+    const ToolCapabilityPolicy* policy) const {
+    std::vector<SkillGatedToolInfo> result;
+    std::lock_guard<std::mutex> lk(tools_mu_);
+    for (const auto& [name, impl] : tools_) {
+        if (impl.activation_skill.empty() || !tool_allowed_by_policy(impl, policy)) continue;
+        result.push_back({model_tool_name_for_native(name), impl.activation_skill,
+                          impl.activation_hint});
+    }
+    return result;
+}
+
+std::unordered_map<std::string, std::string> ToolExecutor::loop_execution_hidden_tools() const {
+    std::unordered_map<std::string, std::string> result;
+    std::lock_guard<std::mutex> lk(tools_mu_);
+    for (const auto& [name, impl] : tools_) {
+        if (!impl.loop_execution_refusal.empty()) result.emplace(name, impl.loop_execution_refusal);
+    }
+    return result;
+}
+
 bool ToolExecutor::is_allowed(const std::string& name,
                               const ToolCapabilityPolicy* policy) const {
     std::lock_guard<std::mutex> lk(tools_mu_);

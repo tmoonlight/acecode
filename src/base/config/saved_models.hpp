@@ -23,6 +23,21 @@ struct ModelReasoningOptions {
     std::optional<int> max_tokens;
 };
 
+// 采样参数,全部可选;缺省 = 不发送,沿用服务端默认值。
+// top_k / min_p 是 vLLM / SGLang 等推理服务的扩展字段,只有 Chat Completions
+// 协议会发出;Anthropic 支持 top_k、不支持 min_p;Responses 协议两者都不支持。
+struct ModelSamplingOptions {
+    std::optional<double> temperature;
+    std::optional<double> top_p;
+    std::optional<int> top_k;
+    std::optional<double> min_p;
+
+    bool empty() const {
+        return !temperature.has_value() && !top_p.has_value() &&
+               !top_k.has_value() && !min_p.has_value();
+    }
+};
+
 // 一个命名模型条目。自包含 —— 一个 entry 就够 create_provider_from_entry 构造
 // 出一个可用 provider 实例。name 保留前缀 `"("` 给 ACECode 合成的特殊 name
 // (例如 `(session:XXXX)`);user-defined name MUST NOT 以 `(` 开头。
@@ -45,6 +60,7 @@ struct ModelProfile {
     // the legacy capability interpretation.
     std::optional<std::string> capabilities_source;
     std::optional<ModelReasoningOptions> reasoning;
+    ModelSamplingOptions sampling; // openai/anthropic 可选采样参数;空 = 不发送
     std::map<std::string, std::string> request_headers; // openai/anthropic 自定义请求头模板
     // 兼容外部登录器写入的 legacy 管理标记。ACECode 仍允许正常编辑/删除;
     // 成功编辑会用 SavedModelDraft 重建条目并自然清除此标记。
@@ -94,6 +110,21 @@ std::optional<ModelReasoningOptions> parse_model_reasoning_options(
 nlohmann::json model_reasoning_options_to_json(
     const ModelReasoningOptions& options);
 
+// 解析 saved_models 条目 / 编辑草稿里的 "sampling" 对象。值为 null 的键视为
+// 未设置,未知键忽略;类型或取值范围不对时返回 nullopt 并写 err。
+std::optional<ModelSamplingOptions> parse_model_sampling_options(
+    const nlohmann::json& node,
+    std::string& err);
+nlohmann::json model_sampling_options_to_json(
+    const ModelSamplingOptions& options);
+// 只校验取值范围(与 provider 无关):temperature ∈ [0,2]、top_p ∈ (0,1]、
+// top_k ≥ 1、min_p ∈ [0,1]。
+bool validate_model_sampling_ranges(const ModelSamplingOptions& options,
+                                    std::string& err);
+// 按 provider / API 协议校验每个参数是否真能发出去,避免配了却被静默丢弃。
+bool validate_model_sampling_support(const ModelProfile& profile,
+                                     std::string& err);
+
 // Shared credential/endpoint helpers used by config validation and the saved
 // model editor. They never inspect or emit credential values.
 bool model_profile_allows_no_api_key(const ModelProfile& profile);
@@ -111,6 +142,8 @@ bool is_acemodel_catalog_context_fallback(const ModelProfile& profile);
 // without serializing or logging either profile.
 bool model_reasoning_options_equal(const ModelReasoningOptions& left,
                                    const ModelReasoningOptions& right);
+bool model_sampling_options_equal(const ModelSamplingOptions& left,
+                                  const ModelSamplingOptions& right);
 bool model_profiles_equal(const ModelProfile& left,
                           const ModelProfile& right);
 bool saved_model_lists_equal(const std::vector<ModelProfile>& left,

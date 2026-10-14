@@ -973,11 +973,11 @@ function appendProcessedItems(out, items, endItem) {
       }
       processed.push(item);
     } else {
-      // 跨 agent 通知保留为独立行,但不是已处理活动的分段边界。
-      // 摘要锚定首个活动,避免每封邮件都重复显示整回合的持久耗时。
+      // 问答卡片与跨 agent 通知保留为独立行,但不切断已处理活动。
+      // 摘要锚定首个活动,避免每次提问或通知都重复显示整回合耗时。
       const interAgentNotice = item?.kind === 'msg' && item.role === 'system'
         && interAgentEnvelope(item.metadata) !== null;
-      if (!interAgentNotice) flushProcessed();
+      if (!interAgentNotice && !isAskUserQuestionTool(item)) flushProcessed();
       out.push(item);
     }
   }

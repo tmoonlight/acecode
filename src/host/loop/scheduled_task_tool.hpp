@@ -40,6 +40,11 @@ private:
     Clock clock_;
 };
 
+// True when a task prompt still carries the request to create a scheduled task
+// ("建立定时任务，每天…", "/scheduled-task", "create a scheduled task"). Such a prompt
+// would ask every run to schedule again, so AI creation rejects it.
+bool prompt_requests_scheduled_task_creation(const std::string& prompt);
+
 ToolImpl create_scheduled_task_tool(std::weak_ptr<ScheduledTaskService> service);
 
 } // namespace acecode::loop

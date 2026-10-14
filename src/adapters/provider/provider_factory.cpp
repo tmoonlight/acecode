@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <random>
@@ -52,6 +53,7 @@ ProviderRequestOptions request_options_from_entry(const ModelProfile& entry) {
     options.api_protocol = model_profile_api_protocol(entry);
     options.max_output_tokens = entry.max_output_tokens;
     options.reasoning = entry.reasoning;
+    options.sampling = entry.sampling;
     if (entry.provider == "anthropic" && entry.reasoning.has_value()) {
         options.reasoning_protocol = ReasoningWireProtocol::Anthropic;
     } else if (entry.provider == "openai" && entry.reasoning.has_value() &&
@@ -86,6 +88,24 @@ void append_optional_int(std::string& out, const std::optional<T>& value) {
     if (value.has_value()) {
         append_u64(out, static_cast<std::uint64_t>(*value));
     }
+}
+
+void append_optional_double(std::string& out,
+                            const std::optional<double>& value) {
+    append_bool(out, value.has_value());
+    if (!value.has_value()) return;
+    // 按位编码:0.95 与 0.9500000001 必须得到不同指纹,不能先格式化成文本。
+    std::uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(double), "double must be 64-bit");
+    std::memcpy(&bits, &*value, sizeof(bits));
+    append_u64(out, bits);
+}
+
+void append_sampling(std::string& out, const ModelSamplingOptions& sampling) {
+    append_optional_double(out, sampling.temperature);
+    append_optional_double(out, sampling.top_p);
+    append_optional_int(out, sampling.top_k);
+    append_optional_double(out, sampling.min_p);
 }
 
 void append_optional_bool(std::string& out,
@@ -142,6 +162,7 @@ std::string canonical_plan_bytes(const EffectiveProviderBuildPlan& plan) {
         append_u64(out, static_cast<std::uint64_t>(
             plan.request_options.reasoning_protocol));
         append_reasoning(out, plan.request_options.reasoning);
+        append_sampling(out, plan.request_options.sampling);
     }
     append_bool(out, plan.applies_vision_routing);
     if (plan.applies_vision_routing) {
@@ -209,18 +230,20 @@ std::optional<EffectiveProviderBuildPlan> effective_plan_from_entry(
     } else if (entry.provider == "copilot") {
         if (!entry.base_url.empty() || !entry.api_key.empty() ||
             !entry.request_headers.empty() || entry.endpoint_mode.has_value() ||
-            entry.max_output_tokens.has_value() || entry.reasoning.has_value()) {
+            entry.max_output_tokens.has_value() || entry.reasoning.has_value() ||
+            !entry.sampling.empty()) {
             LOG_WARN("[provider_factory] refusing unsupported Copilot endpoint, "
-                     "credential, output, or reasoning customization");
+                     "credential, output, reasoning, or sampling customization");
             return std::nullopt;
         }
     } else if (entry.provider == "grok") {
         if (!entry.base_url.empty() || !entry.api_key.empty() ||
             !entry.request_headers.empty() || entry.endpoint_mode.has_value() ||
             entry.max_output_tokens.has_value() || entry.reasoning.has_value() ||
-            entry.stream_timeout_ms.has_value()) {
+            entry.stream_timeout_ms.has_value() || !entry.sampling.empty()) {
             LOG_WARN("[provider_factory] refusing unsupported Grok endpoint, "
-                     "credential, timeout, output, or reasoning customization");
+                     "credential, timeout, output, reasoning, or sampling "
+                     "customization");
             return std::nullopt;
         }
     } else if (entry.provider == "codex") {

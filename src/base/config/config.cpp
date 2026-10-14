@@ -2693,6 +2693,9 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (e.reasoning.has_value()) {
             ej["reasoning"] = model_reasoning_options_to_json(*e.reasoning);
         }
+        if (!e.sampling.empty()) {
+            ej["sampling"] = model_sampling_options_to_json(e.sampling);
+        }
         if (!e.request_headers.empty()) {
             nlohmann::json headers = nlohmann::json::object();
             for (const auto& [k, v] : e.request_headers) headers[k] = v;

@@ -14,7 +14,7 @@
 ## Decisions
 
 1. Render a nonmodal body portal above the app shell and ordinary overlays, with `data-ace-native-overlay="overlap"`. Use a compact title header with clear and minimize actions, spacious independently scrolling messages, and a 60px bottom input region including borders, with send/stop in the same location. The horizontal-line minimize button hides the window while preserving its session-local transcript and draft; its label is `最小化侧边聊天`. Long drafts scroll within the compact textarea. Match the supplied composition with existing ACECode tokens; avoid a backdrop. Pointer capture handles header drag and eight resize directions; geometry is clamped to viewport with a readable minimum that contracts on narrow screens. Announce native occlusion after geometry changes.
-2. Keep a testable side-chat controller separate from `ChatView`; it owns transcript, draft, active request and epoch. All Web `/side`, `/btw` and menu entries use this one owner. Closing cancels and hides; reopening in the same view retains transcript/draft/geometry. Session changes reset. A synchronous active-request guard prevents double submission; stale callbacks are ignored by request identity. Only completed and stopped nonempty answers enter follow-up history.
+2. Keep a testable side-chat controller separate from `ChatView`; it owns transcript, draft, active request and epoch. All Web `/side`, `/btw` and menu entries use this one owner. Closing cancels and hides; reopening in the same view retains transcript/draft/geometry. Session changes cancel the old request and retain session-isolated state under the configurable retention policy below. A synchronous active-request guard prevents double submission; stale callbacks are ignored by request identity. Only completed and stopped nonempty answers enter follow-up history.
 3. Use a dedicated connection to the existing authenticated `/ws/sessions/<id>` endpoint without `hello` or main subscriptions. Client sends `side_chat_start` payload `{session_id, request_id, question, history:[{role,content}]}` and `side_chat_stop` payload `{request_id}`. Server sends `side_chat_delta` `{request_id,delta}`, `side_chat_reset` `{request_id}`, `side_chat_done` `{request_id,answer,cancelled}`, or `side_chat_error` `{request_id,code,message}`. The API helper returns a cancel function and terminates each connection when finished. Reusing the main subscription was rejected because side lifecycle and errors must remain private.
 4. Server-side provider execution copies the safe main snapshot, appends detached instructions, validated alternating side user/assistant pairs, and the new question. It uses no tools and a request-owned abort flag. Retry clears provisional answer. Validate history role/order/size before model invocation. Own worker lifetime through the server/connection state; disconnect aborts, safe connection identity prevents sends to a recycled pointer, and shutdown joins workers. Existing sync API stays compatible.
 5. Disable the textarea throughout connect/wait/stream/stop acknowledgement, with an accessible progress indicator and enabled stop until requested. Preserve partial text on cancel and errors. Use actual provider deltas rather than simulated character animation. Markdown shares existing parsing/copy behavior; keyboard handling respects IME, Shift+Enter, and Escape inside the window, while underlying main-task keyboard handlers cannot consume float input.
@@ -29,6 +29,15 @@
 Initialize the window at 600 by 620 CSS pixels, contracting only when the viewport cannot contain it. Use a 36px border-box header with 28px clear/minimize buttons. Each toolbar bubble activation places the window's top-left at the button's top-left, then clamps the window inside the visible viewport with the existing 12px margin. Preserve the user's resized dimensions. Menu and slash-command reopening retain the previous position; subsequent drag and viewport resizing continue to use the existing geometry constraints.
 
 ## Risks / Trade-offs
+
+### 侧聊存续时间（2026-10-15）
+
+- 设置 → 常规，在工作模式之后增加「侧边聊天存续时间」数字输入，单位分钟，默认 30，支持正整数；沿用 UI 偏好 hook 持久化配置，修改后下次切回立即使用最新值。
+- 使用页面内存中的会话控制器缓存，按 daemon 端口、工作区与主会话 ID 隔离；聊天内容不写磁盘，刷新或重启后仍为临时状态。空会话不进入缓存。
+- 控制器通过可注入时钟记录最后一个侧聊回合完成、停止或失败的时间；切走中断生成视为停止，并保留非空的部分回答。仅打开窗口、编辑未发送草稿或输入校验失败不启动或延长聊天结束计时。
+- 切回该会话的 layout effect 检查到期：距最后结束时间达到配置分钟数时重置该会话；未到期则恢复回答、追问上下文、草稿和窗口开闭状态。切换、最小化、打开与草稿编辑不续期，正在生成的回合不判断过期。当前会话停留超过时间也不被定时清空。
+- 切走只停止生成，保持原窗口开闭状态以便切回恢复；迟到回调仍由请求身份隔离。明确清空会重置计时与该会话记录，不影响其他会话。
+- 缓存获取时更新 transport 委托，避免恢复控制器持有旧 API 凭证。React StrictMode 的 effect 清理只挂起请求，不丢弃缓存。
 
 - [Large temporary history] → Bound request history and return clear errors without silent truncation or modifying the main context.
 - [Native preview covers DOM] → Use the existing overlap coordinator and notify on mount, move, resize and unmount.

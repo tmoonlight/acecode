@@ -59,6 +59,7 @@ import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
 import { ChannelsSettings } from './ChannelsSettings.jsx';
 import { ShortcutsSettings } from './ShortcutsSettings.jsx';
+import { SideChatRetentionSettings } from './SideChatRetentionSettings.jsx';
 import { MemorySettings } from './MemorySettings.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
 import { lookupErrorMessage } from '../lib/errors.js';
@@ -1015,6 +1016,8 @@ function SectionGeneral({
       </div>
 
       <div className="h-px bg-border my-5" />
+
+      <SideChatRetentionSettings />
 
       <div
         role="switch"

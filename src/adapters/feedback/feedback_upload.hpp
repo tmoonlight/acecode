@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -10,6 +11,9 @@
 namespace acecode::feedback {
 
 constexpr std::size_t kDefaultLogTailBytes = 512 * 1024;
+// 会话请求原文(trajectory.jsonl)的上限。每条 model_request 都带完整历史与工具
+// 清单,长会话能到几十 MB;排查只需要最近几次请求,超限保留尾部。
+constexpr std::size_t kDefaultTrajectoryTailBytes = 4 * 1024 * 1024;
 
 // 反馈附带的升级记录窗口:「最近三天」按文件最后修改时间算,72 小时。
 // 用修改时间而不是文件名里的日期,是因为文件名日期是 UTC 起始日,跨午夜的操作
@@ -47,11 +51,25 @@ struct FeedbackLogInclusion {
     std::size_t tail_bytes = 0;
 };
 
+// 会话请求原文(trajectory.jsonl)的打包结果,写进 feedback.json 的 "trajectory"。
+struct FeedbackTrajectoryInclusion {
+    std::string entry_name;
+    std::string source_path;
+    bool included = false;      // 文件存在且可读(空文件也算)
+    std::uintmax_t size_bytes = 0;  // 原文件大小
+    std::size_t tail_bytes = 0;     // 实际进包的字节数
+    bool truncated = false;         // 超过上限,只保留了尾部
+};
+
 struct FeedbackPackageRequest {
     std::string source;
     std::string feedback_text;
     std::string session_id;
     std::filesystem::path session_jsonl_path;
+    // 可选:该会话的 trajectory.jsonl(每次发给模型的完整请求与返回)。只在附带会话
+    // 时生效;留空或文件不存在都只是不附带,不让打包失败。
+    std::filesystem::path session_trajectory_path;
+    std::size_t max_trajectory_bytes = kDefaultTrajectoryTailBytes;
     std::string workspace_hash;
     std::vector<FeedbackLogSource> logs;
     // 单文件来源之后处理;每个 bundle 产出一个条目、按成员逐个记 metadata。
@@ -74,6 +92,8 @@ struct FeedbackPackageResult {
     bool log_included = false;
     std::size_t log_tail_bytes = 0;
     std::vector<FeedbackLogInclusion> logs;
+    // 请求里给了 trajectory 路径时才有值(不论文件是否存在)。
+    std::optional<FeedbackTrajectoryInclusion> trajectory;
     std::vector<std::string> included_files;
 };
 
@@ -121,6 +141,13 @@ std::vector<FeedbackLogSource> collect_tui_runtime_log_sources(
 std::optional<FeedbackLogBundle> collect_recent_upgrade_log_bundle(
     const std::filesystem::path& logs_dir,
     std::chrono::hours window = kRecentUpgradeLogWindow);
+
+// 由会话 JSONL 路径推出同一会话的 trajectory.jsonl:会话文件是
+// <project_dir>/<id>.jsonl,轨迹在 <project_dir>/<id>/trajectory.jsonl
+// (SessionTrajectoryStorage::file_path)。任一参数为空返回空路径。
+std::filesystem::path session_trajectory_path_for(
+    const std::filesystem::path& session_jsonl_path,
+    const std::string& session_id);
 
 FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& request);
 // Packaged Windows apps require encrypted transport for diagnostic uploads.

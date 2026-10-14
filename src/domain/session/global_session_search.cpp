@@ -408,8 +408,9 @@ GlobalSessionSearchService::search_user_messages_batch(
         const std::string project_dir = job->project_dirs[job->next_project];
         SessionUserMessageIndex search_index(project_dir);
         std::string error;
+        std::vector<SessionMeta> listed_metadata;
         const bool indexed = search_index.ensure_project_indexed(
-            &error, should_cancel);
+            &error, should_cancel, &listed_metadata);
         if (should_cancel() || error == "cancelled") break;
         if (!indexed) {
             job->errors.push_back(GlobalSessionCatalogError{
@@ -422,23 +423,29 @@ GlobalSessionSearchService::search_user_messages_batch(
                 job->errors.push_back(GlobalSessionCatalogError{
                     project_dir, {}, "content-search", error});
             }
-            std::unordered_map<std::string, SessionMeta> metadata;
-            for (auto& meta : SessionStorage::list_session_metadata(
-                     project_dir, should_cancel)) {
-                if (meta.id.empty() || meta.archived ||
-                    !meta.parent_session_id.empty()) {
-                    continue;
+            // 归档 / 子会话的过滤以刷新索引时刚读到的磁盘元数据为准,不要再把
+            // 项目目录枚举一遍(每个 meta 都会被打开第二次)。也不能改用目录
+            // 分片判定:分片可能落后于磁盘(搜索面板关闭时后台扫描暂停、别的
+            // 进程归档只靠定期发现补上),刚归档的会话会漏进内容结果。
+            std::unordered_map<std::string, const SessionMeta*> searchable;
+            if (!matches.empty()) {
+                searchable.reserve(listed_metadata.size());
+                for (const auto& meta : listed_metadata) {
+                    if (meta.id.empty() || meta.archived ||
+                        !meta.parent_session_id.empty()) {
+                        continue;
+                    }
+                    searchable.emplace(meta.id, &meta);
                 }
-                metadata.emplace(meta.id, std::move(meta));
             }
             for (auto& match : matches) {
-                const auto meta = metadata.find(match.session_id);
-                if (meta == metadata.end()) continue;
+                const auto meta = searchable.find(match.session_id);
+                if (meta == searchable.end()) continue;
                 auto known = impl_->index.find_project_session(
                     project_dir, match.session_id);
                 auto entry = known
                     ? std::move(*known)
-                    : fallback_catalog_entry(project_dir, meta->second);
+                    : fallback_catalog_entry(project_dir, *meta->second);
                 entry.content_match = std::move(match);
                 job->matches.push_back(Impl::RawContentMatch{std::move(entry)});
             }

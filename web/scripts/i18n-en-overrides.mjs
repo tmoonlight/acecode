@@ -1,6 +1,9 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '侧边聊天存续时间': 'Side chat retention time',
+  'side chat retention lifetime minutes ttl 侧聊 保留 过期 分钟': 'side chat retention lifetime minutes ttl',
+  '从最后一次侧聊结束开始计时，到期后切回该会话时清空；正在查看时不会自动消失。': 'Starts when the last side chat ends. After this time, returning to the session clears it. It stays visible while you are viewing it.',
   '保存会话分组失败，请重试': 'Could not save the session group. Please try again.',
   '读取会话分组失败，请重试': 'Could not load the session group. Please try again.',
   '修改快捷键': 'Edit shortcut',
@@ -489,7 +492,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   'EVA 主题下载进度': 'EVA theme download progress',
   '意见反馈': 'Feedback',
   '反馈内容不能超过 10000 字': 'Feedback cannot exceed 10,000 characters',
-  '默认附带近期日志，会话仅在选择后附带。': 'Recent logs are included. A session is attached only when selected.',
+  '默认附带近期日志；选择会话后，同时附带该会话的记录和发给模型的请求原文。': 'Recent logs are included. When you select a session, its transcript and the raw requests sent to the model are attached too.',
   '上传失败:': 'Upload failed: ',
   '保存失败，请检查文件写入权限': 'Could not save. Check file write permissions.',
   '保留': 'Keep',
@@ -2122,4 +2125,13 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   "没有找到 cloudflared。先运行 winget install --id Cloudflare.cloudflared 安装后重试,或回到上一步填写自己的公网地址。": "cloudflared was not found. Install it with winget install --id Cloudflare.cloudflared and try again, or go back and enter your own public address.",
   "回调地址已登记。请在 LINE Developers 控制台的 Messaging API 页打开 Use webhook,打开后这里会自动变为已连接。": "The webhook URL is registered. Turn on Use webhook on the Messaging API page of the LINE Developers console; this changes to connected automatically once it is on.",
   "请把你的公网地址转发到本机 http://127.0.0.1:{{p0}},连通后会自动继续。": "Forward your public address to http://127.0.0.1:{{p0}} on this computer. Setup continues automatically once it is reachable.",
+  '采样参数': 'Sampling parameters',
+  '服务端默认': 'Server default',
+  '留空则不发送，由服务端决定。': 'Leave blank to omit the field and use the server default.',
+  'Top K、Min P 是 vLLM、SGLang 等推理服务的扩展参数，官方 OpenAI 接口不支持，按需填写。': 'Top K and Min P are extensions supported by inference servers such as vLLM and SGLang; the official OpenAI API rejects them. Fill them in only when your server supports them.',
+  'Temperature 需在 0 到 2 之间（Anthropic 为 0 到 1）': 'Temperature must be between 0 and 2 (0 to 1 for Anthropic)',
+  'Top P 需大于 0 且不超过 1': 'Top P must be greater than 0 and at most 1',
+  'Top K 需为正整数': 'Top K must be a positive integer',
+  'Min P 需在 0 到 1 之间': 'Min P must be between 0 and 1',
+  '采样参数无效，或当前 Provider / API 协议不支持该参数': 'Invalid sampling parameters, or the current provider or API protocol does not support one of them',
 });

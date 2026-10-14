@@ -14,6 +14,8 @@ struct sqlite3;
 
 namespace acecode {
 
+struct SessionMeta;
+
 struct SessionUserMessageFileSignature {
     bool exists = false;
     std::int64_t mtime = 0;
@@ -110,9 +112,16 @@ public:
     // 的文件级失败只记 warning 不中止(一个坏文件不能挡住整个 workspace
     // 的内容搜索)。随后对索引里 JSONL 已不存在的 session 做孤儿回收,
     // 兜住 purge 之外的删除路径(手工删文件等)。
+    //
+    // listed_metadata 非空时,成功返回后装着本次刷新读到的全部会话元数据
+    // (与 SessionStorage::list_session_metadata 同口径;失败或取消时清空)。
+    // 刷新本来就要把项目里每个 .meta.json 打开一遍,调用方需要按归档 /
+    // 子会话过滤命中结果时直接复用它,不要再枚举一遍目录 —— Windows 上
+    // 会话列表的成本在文件个数,全局内容搜索曾因此把每个 meta 读两遍。
     bool ensure_project_indexed(
         std::string* error = nullptr,
-        const std::function<bool()>& should_cancel = {});
+        const std::function<bool()>& should_cancel = {},
+        std::vector<SessionMeta>* listed_metadata = nullptr);
 
     std::vector<SessionUserMessageSearchResult> search(const std::string& query,
                                                        int limit,

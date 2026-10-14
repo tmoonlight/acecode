@@ -166,12 +166,17 @@ SkillIndexRenderResult format_skills_index_within_budget(
 // Null registry or empty skill list yields an empty block (not sent).
 // `dormant_names` (optional): skill names to hide from the rendered index
 // (dormant skills stay available via explicit mention but are not listed).
+// `gated_tools` (optional): built-in tools hidden until their skill loads.
+// Their skills are never dormant, and a dedicated section lists each tool whose
+// skill is installed with its trigger hint, outside the truncatable catalog.
+// Requires skill_view, the only way a model can load the gating skill.
 PromptContextBlock build_skills_index_context_prompt(
     const SkillRegistry* skills,
     int context_window_tokens,
     bool skill_view_available = true,
     bool skills_list_available = true,
-    const std::set<std::string>* dormant_names = nullptr);
+    const std::set<std::string>* dormant_names = nullptr,
+    const std::vector<SkillGatedToolInfo>* gated_tools = nullptr);
 
 // gitStatus 快照块(openspec add-git-context):把 collector 采集的快照文本
 // 包成带缓存 key 的块。空文本(非仓库/采集失败/disabled)→ 空块不发送。

@@ -30,3 +30,9 @@
 Validation (2026-09-16): geometry tests, full `pnpm test`, `pnpm build`, strict OpenSpec validation and `git diff --check` passed. Browser fixture measured 880x800 initial size and a 36px header; verified toolbar anchoring/clamping, resized dimensions and draft retention on reopen, and 1440px/390px light/dark layouts without page errors. No desktop binary rebuild or live-provider test was performed. Test/build required running outside the sandbox because its MSYS shell could not initialize.
 
 Size revision (2026-09-17): changed initial dimensions to 600x620. Geometry tests, production build, strict OpenSpec validation and scoped diff checks passed. Full Web tests failed in `settingsNavigation.test.js` because the current settings list includes the separately added security center while the expectation does not. No desktop rebuild was performed.
+
+## 6. 侧聊存续时间（2026-10-15）
+
+- [x] 6.1 在常规设置新增分钟配置（默认 30、正整数），接入偏好持久化、设置搜索和中英文文案。
+- [x] 6.2 按主会话缓存侧聊控制器，切走停止并保留，切回按最后聊天结束时间判断过期；覆盖回合结束、停止、失败、草稿、跨会话隔离和迟到回调。
+- [x] 6.3 验证浏览器中的真实设置与聊天切换行为，运行 Web 测试、生产构建、i18n 和 OpenSpec 严格校验，记录验证范围。

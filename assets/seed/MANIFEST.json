@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-10-10.1",
+  "bundle_version": "2026-10-15.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -66,7 +66,7 @@
       "name": "scheduled-task",
       "source_id": "acecode:scheduled-task@2026-10-04",
       "relative_path": "acecode/scheduled-task",
-      "skill_md_sha256": "89354de4dc007479bf5a39aba0179928f6f53b39ead451fddcdbb5c9a65b691e"
+      "skill_md_sha256": "fb18793a5d66f9fe54300a9a00eaa18860aba33caa1e91d80da006dd1fa1d49f"
     }
   ],
   "experts": [

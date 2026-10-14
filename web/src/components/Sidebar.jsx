@@ -60,7 +60,7 @@ import { SessionTitleText } from './SessionTitleText.jsx';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import { desktopTaskbarBadge, desktopTaskbarBadgeAvailable } from '../lib/desktopTaskbarBadge.js';
 import { usePreference } from '../lib/usePreference.js';
-import { sidebarNodeKey, sidebarSessionRoots, sidebarTreeDropTarget } from '../lib/sidebarSessionTree.js';
+import { applySidebarSessionStatuses, mergeSidebarSessionStatuses, sidebarNodeKey, sidebarSessionRoots, sidebarSessionStatusRows, sidebarTreeDropTarget } from '../lib/sidebarSessionTree.js';
 import { createWorkspaceFolderOrderController } from '../lib/workspaceFolderOrder.js';
 import { useWorkspaceFolderReorder } from '../lib/useWorkspaceFolderReorder.js';
 import '../styles/workspaceFolderReorder.css';
@@ -75,7 +75,6 @@ import {
   applyStatusSnapshot,
   applyStatusUpdate,
   mergeSessionStatus,
-  mergeSessionsWithStatus,
   optimisticReadStatus,
   optimisticUnreadStatus,
   statusCursor,
@@ -353,6 +352,7 @@ function workspaceDropTargetForPointer(clientY, workspaceHash, sourceId, clientX
       parent: row.dataset.sidebarTreeParent || '',
       childCount: Number(row.dataset.sidebarTreeChildren) || 0,
       scheduled: row.dataset.sidebarTreeScheduled === 'true',
+      group: row.dataset.sidebarTreeGroup === 'true',
       id: row.dataset.sidebarWorkspaceSessionId,
       dragKey: row.dataset.sidebarWorkspaceSessionKey,
       top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right,
@@ -805,6 +805,7 @@ function SessionRow({
   treeExpanded = false,
   onToggleTree,
 }) {
+  const isGroup = s.sidebar_group === true;
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
   const workspaceHash = s.workspace_hash || s.workspaceHash || '';
@@ -817,12 +818,14 @@ function SessionRow({
   // 侧栏与顶部标题栏显示同一个字段:服务端 title(用户改名 / 大模型生成),
   // 没有就用 summary(最近一条用户消息显示文本的 80 字节截断)。这里不再另拉
   // 消息全文做跑马灯 —— 那会让侧栏 hover 时滚出一段与顶部不一致、且长度不受限的文本。
-  const title = sessionDisplayTitle(s, s.name || '');
+  const title = isGroup ? s.sidebar_group_name || tr('定时任务') : sessionDisplayTitle(s, s.name || '');
   const titleAnimation = useSessionTitleAnimation(s, title);
   const sessionMarker = sidebarSessionMarker(s);
+  const archiveMarkerIcon = sessionMarker === 'loop' ? 'alarm' : sessionMarker === 'worktree' ? 'worktree' : null;
   const hasTreeChildren = !pinned && Number(s.sidebar_child_count) > 0;
   const showTreeArrow = hasTreeChildren && attention !== 'in_progress' && attention !== 'unread';
   const selectRow = () => {
+    if (isGroup) { onToggleTree?.(s); return; }
     onSelect?.(s);
     if (hasTreeChildren) onToggleTree?.(s);
   };
@@ -978,6 +981,7 @@ function SessionRow({
   };
 
   useEffect(() => {
+    if (isGroup) return undefined;
     const handler = (event) => {
       const detail = event.detail || {};
       const { action, target } = detail;
@@ -997,19 +1001,20 @@ function SessionRow({
     };
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
-  }, [onArchive, onSelect, s, title, workspaceHash]);
+  }, [isGroup, onArchive, onSelect, s, title, workspaceHash]);
 
   return (
     <div
       ref={rowRef}
-      data-desktop-session-id={s.id || undefined}
+      data-desktop-session-id={!isGroup ? s.id || undefined : undefined}
+      data-sidebar-group-id={isGroup ? s.id : undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
       data-desktop-session-no-workspace={noWorkspace ? 'true' : undefined}
       data-desktop-session-path={sessionPath || undefined}
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
       data-desktop-session-unread={attention === 'unread' ? 'true' : 'false'}
       data-desktop-session-title={title || undefined}
-      data-desktop-session-archive="true"
+      data-desktop-session-archive={!isGroup ? 'true' : undefined}
       data-remote-control-bound={remoteControlBound ? 'true' : undefined}
       data-channel-bound={channelPlatform || undefined}
       data-sidebar-pinned-key={pinned ? rowKey || undefined : undefined}
@@ -1022,6 +1027,7 @@ function SessionRow({
       data-sidebar-tree-parent={!pinned ? s.sidebar_parent_key || '' : undefined}
       data-sidebar-tree-children={!pinned ? s.sidebar_child_count || 0 : undefined}
       data-sidebar-tree-scheduled={!pinned ? sessionMarker === 'loop' : undefined}
+      data-sidebar-tree-group={!pinned ? isGroup : undefined}
       aria-describedby={hoverCardVisible ? hoverCardId : undefined}
       className={clsx(
         'ace-sidebar-session-row ace-sidebar-tree-row-grid ace-sidebar-primary-text group grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[7px] ml-1.5 mr-0 my-px pl-[3px] pr-[1px] rounded-md text-[14px] transition',
@@ -1181,7 +1187,7 @@ function SessionRow({
             {relativeTime(s.updated_at || s.created_at)}
           </span>
         )}
-        {pinEnabled && (
+        {pinEnabled && !isGroup && (
           <button
             type="button"
             data-sidebar-row-control="true"
@@ -1197,7 +1203,7 @@ function SessionRow({
             <VsIcon name={pinned ? 'pinOff' : 'pin'} size={18} />
           </button>
         )}
-        <button
+        {!isGroup && <button
           type="button"
           data-sidebar-row-control="true"
           onClick={(e) => {
@@ -1207,7 +1213,7 @@ function SessionRow({
           }}
           className={clsx(
             'ace-sidebar-row-hover-action w-[18px] h-7 rounded items-center justify-center shrink-0 text-fg-mute hover:text-fg hover:bg-surface-hi transition',
-            sessionMarker === 'worktree'
+            archiveMarkerIcon
               ? 'flex'
               : 'hidden group-hover:flex group-focus-within:flex',
           )}
@@ -1218,24 +1224,24 @@ function SessionRow({
               ? '工作树会话，归档'
               : '归档'}
         >
-          {sessionMarker === 'worktree' ? (
+          {archiveMarkerIcon ? (
             <span className="relative block w-[18px] h-[18px]" aria-hidden="true">
               <VsIcon
-                name="worktree"
+                name={archiveMarkerIcon}
                 size={18}
-                className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
+                className="ace-sidebar-session-source-icon absolute inset-0 opacity-100 transition-opacity"
               />
               <VsIcon
                 name="archive"
                 size={18}
-                className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                className="ace-sidebar-session-archive-icon absolute inset-0 opacity-0 transition-opacity"
               />
             </span>
           ) : (
             <VsIcon name="archive" size={18} />
           )}
-        </button>
-        {sessionMarker === 'loop' && (
+        </button>}
+        {isGroup && sessionMarker === 'loop' && (
           <VsIcon name="alarm" size={18} alt="定时任务" title="定时任务" className="shrink-0 text-fg-mute" />
         )}
       </span>
@@ -1421,6 +1427,7 @@ function SessionTreeRows({ sessions, expandedGroups, dragState, children }) {
     const open = expandedGroups?.has(key) ? expandedGroups.get(key) : session.sidebar_expanded === true;
     return (
       <div key={session.id} className={clsx('ace-sidebar-session-tree-node',
+        open && 'is-tree-expanded',
         dragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(session), session.id) && 'is-tree-dragging')}
         data-tree-drop={dragState?.targetKey === sidebarSessionDragKey(sessionPinScope(session), session.id) ? dragState.placement : undefined}
         data-sidebar-tree-node={sidebarNodeKey(session)}>
@@ -2476,12 +2483,7 @@ export function Sidebar({
       refreshNoWorkspace: false,
       appendNewSessions,
     }));
-    setStatusBySession((prev) => incoming.reduce((map, session) => applyStatusUpdate(map, {
-      ...session,
-      session_id: session.id,
-      state: session.attention_state || session.read_state,
-      cursor: session.status_cursor,
-    }), prev));
+    setStatusBySession((prev) => applySidebarSessionStatuses(prev, incoming));
     setSessionWorkspacesLoaded([hash], true);
     // 后端截断时 total 只是上界,拿 length 比它会把「已全量」判错;has_more
     // 才是权威信号。
@@ -2541,6 +2543,7 @@ export function Sidebar({
     setSessions(previous => retainUnrefreshedSidebarSessions(previous, incoming, {
       refreshNoWorkspace: true, pinnedByWorkspace: pinnedByWorkspaceRef.current,
     }));
+    setStatusBySession((prev) => applySidebarSessionStatuses(prev, incoming));
   };
   treeReloadRef.current = async (scope) => {
     if (scope !== NO_WORKSPACE_PIN_SCOPE) return loadWorkspaceSessions(scope, { silent: true });
@@ -2825,7 +2828,7 @@ export function Sidebar({
         const noWorkspaceIncoming = (noWorkspaceRaw?.sessions || [])
           .filter(isNoWorkspaceSession)
           .map(normalizeNoWorkspaceSession);
-        if (noWorkspaceRaw) desktopTaskbarBadge.replaceScope('', noWorkspaceIncoming);
+        if (noWorkspaceRaw) desktopTaskbarBadge.replaceScope('', sidebarSessionStatusRows(noWorkspaceIncoming));
         const incomingWorkspaceSessions = perWorkspace.flatMap((item) => (
           (Array.isArray(item.sessions) ? item.sessions : [])
             .filter((session) => !isNoWorkspaceSession(session))
@@ -2850,12 +2853,7 @@ export function Sidebar({
           pinnedByWorkspace: pinnedByWorkspaceRef.current,
           refreshNoWorkspace: !!noWorkspaceRaw,
         }));
-        setStatusBySession((prev) => incoming.reduce((map, s) => applyStatusUpdate(map, {
-          ...s,
-          session_id: s.id,
-          state: s.attention_state || s.read_state,
-          cursor: s.status_cursor,
-        }), prev));
+        setStatusBySession((prev) => applySidebarSessionStatuses(prev, incoming));
         syncRetainedSessionIds(incoming.filter((s) => s.active && s.id).map((s) => s.id));
       }
       catch { /* 鉴权失败不致命 */ }
@@ -3045,7 +3043,7 @@ export function Sidebar({
   }, []);
 
   const renderedSessions = useMemo(
-    () => withNewSessionDisplayTitles(mergeSessionsWithStatus(sessions, statusBySession)),
+    () => withNewSessionDisplayTitles(mergeSidebarSessionStatuses(sessions, statusBySession)),
     [sessions, statusBySession],
   );
   useEffect(() => {

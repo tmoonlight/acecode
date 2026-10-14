@@ -2124,6 +2124,56 @@ run('蜂群通知在实时完成、历史加载和 transcript_replace 中只生�
   }
 });
 
+run('连续 AskUserQuestion 在实时完成、历史加载和 transcript_replace 中只显示一次持久耗时', () => {
+  const user = { id: 'u-ask', role: 'user', content: '清理数据', ts: 1000 };
+  const results = [
+    { items: [{ question: '清理哪些数据?', answer: '只清理 SDK 数据', multiSelect: false }] },
+    { cancelled: true, items: [] },
+    { interjected: true, items: [] },
+  ];
+  for (const name of ['AskUserQuestion', 'renamed_question']) {
+    const messages = [user];
+    const events = [{ type: 'message', payload: user }];
+    results.forEach((result, index) => {
+      const callId = `ask-${index}`;
+      const success = index === 0;
+      const assistant = {
+        id: `a-ask-${index}`, role: 'assistant', content: `处理阶段 ${index + 1}`,
+        ts: 2000 + index * 2000,
+        tool_calls: [persistedToolCall(callId, name, '{"questions":[]}')],
+      };
+      const metadata = { tool_success: success, ask_user_question_result: result };
+      messages.push(assistant, {
+        id: `q-ask-${index}`, role: 'tool', tool_call_id: callId,
+        content: success ? 'answered' : 'cancelled', ts: 3000 + index * 2000, metadata,
+      });
+      events.push(
+        { type: 'message', payload: assistant },
+        { type: 'tool_start', payload: { tool: name, tool_call_id: callId, args: {} } },
+        { type: 'tool_end', payload: { tool: name, tool_call_id: callId, success, output: '', metadata } },
+      );
+    });
+    const final = { id: 'a-ask-final', role: 'assistant', content: 'SDK 数据已清除完毕', ts: 9000 };
+    const timing = turnTimingMessage('u-ask', 54027000);
+    messages.push(final, timing);
+    events.push({ type: 'message', payload: final }, { type: 'message', payload: timing });
+    const live = reduceMany(events);
+    const history = loadTranscriptHistory(createTranscriptState(), { messages, events: [] }).state;
+    const replaced = reduceTranscriptEvent(live, { type: 'transcript_replace', payload: { messages } }).state;
+    for (const state of [live, history, replaced]) {
+      const projected = projectCollapsedTranscriptItems(state.items);
+      const summaries = projected.filter((item) => item.mode === 'processed');
+      assert.equal(summaries.length, 1);
+      assert.equal(summaries[0].title, '已处理 900m 27s');
+      assert.deepEqual(summaries[0].collapsedItems.map((item) => item.content), ['处理阶段 1', '处理阶段 2', '处理阶段 3']);
+      const questions = projected.filter((item) => item.kind === 'tool' && item.tool?.askUserQuestionResult);
+      assert.deepEqual(questions.map((item) => item.tool.askUserQuestionResult), results);
+      assert.equal(projected.filter((item) => item.role === 'user').length, 1);
+      assert.equal(projected.at(-1).content, final.content);
+    }
+  }
+});
+
 run('history load 从 meta 消息恢复 turn_net_diff 并关联用户 item', () => {
   const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
     messages: [

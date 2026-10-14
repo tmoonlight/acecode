@@ -1006,11 +1006,11 @@ run('蜂群通知穿插完成活动时总耗时只显示一次且通知正文保
   }
 });
 
-run('蜂群通知不跨越提问、图片、普通系统行或真实用户回合合并摘要', () => {
+run('蜂群通知不跨越图片、普通系统行或真实用户回合合并摘要', () => {
   const imageTool = tool(6);
   imageTool.tool.attachments = [{ kind: 'image', mime_type: 'image/png', url: '/image.png' }];
   for (const boundary of [
-    askQuestionTool(6), imageTool,
+    imageTool,
     { kind: 'msg', id: 6, role: 'system', content: '/root/worker 发来消息' },
     user(6, 'next turn'),
   ]) {
@@ -1047,16 +1047,13 @@ run('final assistant text 前的 AskUserQuestion 卡片不折叠进已处理', (
     assistant(6, 'Final answer kept'),
   ]);
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'tool', 'activity_summary', 'msg']);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'tool', 'msg']);
   assert.equal(projected[1].mode, 'processed');
-  assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
+  assert.deepEqual(projected[1].coveredItemIds, [2, 3, 5]);
   assert.equal(projected[2].tool.tool, 'AskUserQuestion');
   assert.equal(projected[2].tool.askUserQuestionResult.items.length, 2);
-  assert.equal(projected[3].mode, 'processed');
-  assert.deepEqual(projected[3].coveredItemIds, [5]);
-  assert.equal(projected[4].content, 'Final answer kept');
+  assert.equal(projected[3].content, 'Final answer kept');
   assert.equal(projected[1].collapsedItems.some((item) => item.id === 4), false);
-  assert.equal(projected[3].collapsedItems.some((item) => item.id === 4), false);
 });
 
 run('task_complete 前的 AskUserQuestion 卡片不折叠进已处理', () => {
@@ -1070,17 +1067,14 @@ run('task_complete 前的 AskUserQuestion 卡片不折叠进已处理', () => {
     taskComplete(7, 'all done'),
   ]);
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'tool', 'activity_summary', 'msg', 'completion_summary']);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'tool', 'msg', 'completion_summary']);
   assert.equal(projected[1].mode, 'processed');
-  assert.deepEqual(projected[1].coveredItemIds, [2, 3]);
+  assert.deepEqual(projected[1].coveredItemIds, [2, 3, 5]);
   assert.equal(projected[2].tool.tool, 'AskUserQuestion');
   assert.equal(projected[2].tool.askUserQuestionResult.items.length, 2);
-  assert.equal(projected[3].mode, 'processed');
-  assert.deepEqual(projected[3].coveredItemIds, [5]);
-  assert.equal(projected[4].content, 'Final answer kept');
-  assert.equal(projected[5].title, '总结：all done');
+  assert.equal(projected[3].content, 'Final answer kept');
+  assert.equal(projected[4].title, '总结：all done');
   assert.equal(projected[1].collapsedItems.some((item) => item.id === 4), false);
-  assert.equal(projected[3].collapsedItems.some((item) => item.id === 4), false);
 });
 
 run('无 final assistant 时 AskUserQuestion 卡片也不折叠进已处理', () => {
@@ -1092,15 +1086,69 @@ run('无 final assistant 时 AskUserQuestion 卡片也不折叠进已处理', ()
     taskComplete(5, 'all done'),
   ]);
 
-  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'tool', 'activity_summary', 'completion_summary']);
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'activity_summary', 'tool', 'completion_summary']);
   assert.equal(projected[1].mode, 'processed');
-  assert.deepEqual(projected[1].coveredItemIds, [2]);
+  assert.deepEqual(projected[1].coveredItemIds, [2, 4]);
   assert.equal(projected[2].tool.tool, 'AskUserQuestion');
-  assert.equal(projected[3].mode, 'processed');
-  assert.deepEqual(projected[3].coveredItemIds, [4]);
-  assert.equal(projected[4].title, '总结：all done');
+  assert.equal(projected[3].title, '总结：all done');
   assert.equal(projected[1].collapsedItems.some((item) => item.id === 3), false);
-  assert.equal(projected[3].collapsedItems.some((item) => item.id === 3), false);
+});
+
+run('连续问答与蜂群通知共用一条整回合耗时摘要且问答结果独立可见', () => {
+  const questions = [askQuestionTool(3), askQuestionTool(6), askQuestionTool(8)];
+  questions[1].tool.success = false;
+  questions[1].tool.askUserQuestionResult = { cancelled: true, items: [] };
+  questions[2].tool.askUserQuestionResult = { interjected: true, items: [] };
+  for (const name of ['AskUserQuestion', '', 'renamed_question']) {
+    questions.forEach((item) => {
+      item.tool.tool = name;
+      item.tool.toolCallId = `question-${item.id}`;
+    });
+    const activity = [assistant(2, 'inspect'), tool(4), assistant(7, 'continue'), tool(9)]
+      .map((item) => ({ ...item, turnDurationMs: 54027000 }));
+    const notice = interAgentNotice(5);
+    const prefix = [user(1), activity[0], questions[0], activity[1], notice,
+      questions[1], activity[2], questions[2], activity[3]];
+    for (const ending of [
+      [assistant(10, 'final')],
+      [assistant(10, 'final'), taskComplete(11)],
+      [taskComplete(11)],
+      [assistant(10, 'final'), taskComplete(11), { kind: 'msg', id: 12, role: 'system', content: 'notice' }],
+    ]) {
+      const input = [...prefix, ...ending];
+      const before = structuredClone(input);
+      const projected = projectCollapsedTranscriptItems(input);
+      const summaries = projected.filter((item) => item.mode === 'processed');
+      assert.equal(summaries.length, 1);
+      assert.equal(summaries[0].title, '已处理 900m 27s');
+      assert.deepEqual(summaries[0].coveredItemIds, [2, 4, 7, 9]);
+      assert.deepEqual(summaries[0].collapsedItems, activity);
+      assert.deepEqual(projected.filter((item) => item.kind === 'tool'), questions);
+      assert.deepEqual(projected.filter((item) => item.metadata?.inter_agent), [notice]);
+      assert.equal(summaries[0].detailItems.some((item) => questions.includes(item)), false);
+      assert.equal(projected[1], summaries[0]);
+      assert.deepEqual(input, before);
+    }
+  }
+});
+
+run('连续问答的时间戳兜底只显示一次且不生成空摘要', () => {
+  const questions = [askQuestionTool(3), askQuestionTool(5)];
+  const projected = projectCollapsedTranscriptItems([
+    user(1), tool(2), questions[0], tool(4), questions[1], tool(6), assistant(7, 'final'),
+  ]);
+  assert.deepEqual(projected.filter((item) => item.mode === 'processed').map((item) => item.title), ['已处理 5s']);
+  const noActivity = [user(1), ...questions, assistant(7, 'final')];
+  assert.deepEqual(projectCollapsedTranscriptItems(noActivity), noActivity);
+});
+
+run('运行中或关闭折叠的连续问答保持原有活动顺序', () => {
+  const items = [user(1), tool(2), askQuestionTool(3), tool(4), askQuestionTool(5), tool(6, { isDone: false })];
+  const live = projectCollapsedTranscriptItems(items, { deferTrailingToolSummary: true });
+  assert.equal(live.some((item) => item.mode === 'processed'), false);
+  assert.deepEqual(live.map((item) => item.id), [1, 'activity:tools:2', 3, 'activity:tools:4', 5, 'activity:tools:6']);
+  assert.equal(live.at(-1).mode, 'live');
+  assert.deepEqual(projectCollapsedTranscriptItems(items, { messageAutoCollapse: false }), items);
 });
 
 run('大折叠展开内容保留内部工具小折叠层级', () => {

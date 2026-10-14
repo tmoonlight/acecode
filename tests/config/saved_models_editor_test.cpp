@@ -785,3 +785,97 @@ TEST(SavedModelsEditor, ApiProtocolRejectsInvalidOrUnsupportedDrafts) {
     EXPECT_EQ(add_saved_model(cfg, anthropic), SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
     EXPECT_TRUE(cfg.saved_models.empty());
 }
+
+// 触发场景:设置页新增带采样参数的模型,之后编辑:不提交 sampling、提交新的
+// 一组(只剩 temperature)、提交空对象。
+// 期望:不提交 = 保留原值;提交 = 整体替换(旧的 top_k 不能残留);
+// 提交空 = 清除全部。界面"全部留空再保存"靠的就是最后这条。
+TEST(SavedModelsEditor, SamplingIsReplacedWholesaleAndClearedWhenEmpty) {
+    AppConfig cfg;
+    auto draft = good_openai_draft("glm");
+    acecode::ModelSamplingOptions sampling;
+    sampling.temperature = 1.0;
+    sampling.top_p = 0.95;
+    sampling.top_k = 20;
+    sampling.min_p = 0.0;
+    draft.sampling = sampling;
+    draft.sampling_supplied = true;
+    ASSERT_EQ(add_saved_model(cfg, draft), SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models.front().sampling.top_k, 20);
+
+    auto untouched = good_openai_draft("glm");
+    ASSERT_EQ(update_saved_model(cfg, "glm", untouched), SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models.front().sampling.top_p, 0.95);
+
+    auto replaced = good_openai_draft("glm");
+    acecode::ModelSamplingOptions only_temperature;
+    only_temperature.temperature = 0.3;
+    replaced.sampling = only_temperature;
+    replaced.sampling_supplied = true;
+    ASSERT_EQ(update_saved_model(cfg, "glm", replaced), SavedModelEditError::OK);
+    EXPECT_EQ(cfg.saved_models.front().sampling.temperature, 0.3);
+    EXPECT_FALSE(cfg.saved_models.front().sampling.top_k.has_value());
+
+    auto cleared = good_openai_draft("glm");
+    cleared.sampling.reset();
+    cleared.sampling_supplied = true;
+    ASSERT_EQ(update_saved_model(cfg, "glm", cleared), SavedModelEditError::OK);
+    EXPECT_TRUE(cfg.saved_models.front().sampling.empty());
+}
+
+// 触发场景:提交越界值、provider / 协议不支持的参数、给托管 provider 配采样参数。
+// 期望:前两类返回 INVALID_SAMPLING(前端据此显示采样参数的文案),托管 provider
+// 返回 UNSUPPORTED_MODEL_OPTION;失败时模型列表保持不变。
+TEST(SavedModelsEditor, SamplingRejectsInvalidAndUnsupportedDrafts) {
+    AppConfig cfg;
+    auto out_of_range = good_openai_draft("glm");
+    acecode::ModelSamplingOptions hot;
+    hot.temperature = 3.0;
+    out_of_range.sampling = hot;
+    EXPECT_EQ(add_saved_model(cfg, out_of_range), SavedModelEditError::INVALID_SAMPLING);
+
+    auto responses = good_openai_draft("responses");
+    responses.api_protocol = "responses";
+    acecode::ModelSamplingOptions with_top_k;
+    with_top_k.top_k = 20;
+    responses.sampling = with_top_k;
+    EXPECT_EQ(add_saved_model(cfg, responses), SavedModelEditError::INVALID_SAMPLING);
+
+    auto anthropic = good_anthropic_draft();
+    acecode::ModelSamplingOptions with_min_p;
+    with_min_p.min_p = 0.05;
+    anthropic.sampling = with_min_p;
+    EXPECT_EQ(add_saved_model(cfg, anthropic), SavedModelEditError::INVALID_SAMPLING);
+    EXPECT_TRUE(cfg.saved_models.empty());
+
+    auto managed_cfg = make_cfg_with_one_default();
+    SavedModelDraft copilot;
+    copilot.name = "copilot-tuned";
+    copilot.provider = "copilot";
+    copilot.model = "gpt-4o";
+    acecode::ModelSamplingOptions mild;
+    mild.temperature = 0.5;
+    copilot.sampling = mild;
+    EXPECT_EQ(add_saved_model(managed_cfg, copilot),
+              SavedModelEditError::UNSUPPORTED_MODEL_OPTION);
+    EXPECT_EQ(managed_cfg.saved_models.size(), 1u);
+    // 托管 provider 提交 null(界面隐藏采样区时的形态)不应被拒。
+    copilot.sampling.reset();
+    copilot.sampling_supplied = true;
+    EXPECT_EQ(add_saved_model(managed_cfg, copilot), SavedModelEditError::OK);
+}
+
+// 触发场景:OpenAI 兼容模型配了 min_p,再改成 Anthropic,且请求里没提交 sampling。
+// 期望:换 provider 时清掉采样参数,否则遗留的 min_p 会让这次保存因
+// "Anthropic 不支持 min_p" 失败,用户却看不到这个字段。
+TEST(SavedModelsEditor, ProviderChangeResetsSampling) {
+    AppConfig cfg;
+    auto draft = good_openai_draft("switch");
+    acecode::ModelSamplingOptions sampling;
+    sampling.min_p = 0.05;
+    draft.sampling = sampling;
+    ASSERT_EQ(add_saved_model(cfg, draft), SavedModelEditError::OK);
+    ASSERT_EQ(update_saved_model(cfg, "switch", good_anthropic_draft("switch")),
+              SavedModelEditError::OK);
+    EXPECT_TRUE(cfg.saved_models.front().sampling.empty());
+}

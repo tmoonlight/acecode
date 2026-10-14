@@ -22,7 +22,8 @@ TEST(SidebarTree, LatestCreatedRunRepresentsGroupEvenWhenOlderRunWasUpdated) {
     auto tree = build_sidebar_tree(json::array({old, row("new", "daily", "2026-10-13"), row("normal")}), {});
     EXPECT_EQ(tree.roots.size(), 2u);
     EXPECT_EQ(tree.nodes.at("loop:daily").session_id, "new");
-    EXPECT_EQ(tree.nodes.at("loop:daily").children, std::vector<std::string>{"session:old"});
+    EXPECT_TRUE(tree.nodes.at("loop:daily").group);
+    EXPECT_EQ(tree.nodes.at("loop:daily").children, (std::vector<std::string>{"session:new", "session:old"}));
 }
 
 TEST(SidebarTree, DetachedRunStaysOutsideAfterReloadAndNewRun) {
@@ -35,7 +36,7 @@ TEST(SidebarTree, DetachedRunStaysOutsideAfterReloadAndNewRun) {
     tree = build_sidebar_tree(records, layout);
     EXPECT_TRUE(tree.nodes.at("session:1").parent.empty());
     EXPECT_EQ(tree.nodes.at("loop:daily").session_id, "3");
-    EXPECT_EQ(tree.nodes.at("loop:daily").children, std::vector<std::string>{"session:2"});
+    EXPECT_EQ(tree.nodes.at("loop:daily").children, (std::vector<std::string>{"session:3", "session:2"}));
 }
 
 TEST(SidebarTree, LeafCanMoveBetweenGroupsAndSiblingOrderSurvivesReload) {
@@ -47,7 +48,7 @@ TEST(SidebarTree, LeafCanMoveBetweenGroupsAndSiblingOrderSurvivesReload) {
     ASSERT_TRUE(move_sidebar_node(tree, layout, "session:1", "session:3", "before", error));
     tree = build_sidebar_tree(records, layout);
     EXPECT_EQ(tree.nodes.at("session:1").parent, "loop:b");
-    EXPECT_EQ(tree.nodes.at("loop:b").children, (std::vector<std::string>{"session:1", "session:3"}));
+    EXPECT_EQ(tree.nodes.at("loop:b").children, (std::vector<std::string>{"session:4", "session:1", "session:3"}));
 }
 
 TEST(SidebarTree, ParentMovesAsGroupButCannotBecomeAChild) {
@@ -56,7 +57,7 @@ TEST(SidebarTree, ParentMovesAsGroupButCannotBecomeAChild) {
     std::string error;
     ASSERT_TRUE(move_sidebar_node(tree, layout, "loop:a", "loop:b", "before", error));
     EXPECT_EQ(tree.roots.front(), "loop:a");
-    EXPECT_EQ(tree.nodes.at("loop:a").children.size(), 1u);
+    EXPECT_EQ(tree.nodes.at("loop:a").children.size(), 2u);
     const auto saved = layout;
     EXPECT_FALSE(move_sidebar_node(tree, layout, "loop:a", "loop:b", "inside", error));
     EXPECT_FALSE(move_sidebar_node(tree, layout, "loop:a", "session:3", "before", error));
@@ -91,9 +92,11 @@ TEST(SidebarTree, DetachedScheduledRootAcceptsChildrenAndMissingParentPromotesTh
     ASSERT_TRUE(move_sidebar_node(tree, layout, "session:1", "session:normal", "before", error));
     ASSERT_TRUE(move_sidebar_node(tree, layout, "session:normal", "session:1", "inside", error));
     tree = build_sidebar_tree(records, layout);
-    EXPECT_TRUE(tree.nodes.at("session:1").parent.empty());
+    EXPECT_EQ(tree.nodes.at("session:1").parent, "group:1");
     EXPECT_TRUE(tree.nodes.at("session:1").scheduled);
-    EXPECT_EQ(tree.nodes.at("session:normal").parent, "session:1");
+    EXPECT_EQ(tree.nodes.at("session:normal").parent, "group:1");
+    EXPECT_TRUE(tree.nodes.at("group:1").group);
+    EXPECT_EQ(tree.nodes.at("group:1").loop_id, "daily");
     tree = build_sidebar_tree(json::array({row("2", "daily"), row("normal")}), layout);
     EXPECT_TRUE(tree.nodes.at("session:normal").parent.empty());
 }
@@ -116,24 +119,60 @@ TEST(SidebarTree, RemovingRepresentativeAndInvalidLayoutsKeepAllSurvivors) {
     EXPECT_EQ(tree.nodes.at("loop:a").session_id, "1");
     json layout = {{"parents", {{"session:1", "session:2"}, {"session:2", "session:1"}, {"session:3", "session:2"}}}};
     tree = build_sidebar_tree(json::array({row("1", "a"), row("2", "b"), row("3", "c")}), layout);
-    EXPECT_EQ(tree.nodes.size(), 3u);
+    EXPECT_EQ(std::count_if(tree.nodes.begin(), tree.nodes.end(), [](const auto& entry) { return !entry.second.group; }), 3);
     for (const auto& [key, node] : tree.nodes) {
         if (!node.parent.empty()) EXPECT_TRUE(tree.nodes.at(node.parent).parent.empty());
     }
 }
 
-TEST(SidebarTree, SingleRunGroupCanBeAttachedWithoutCapturingFutureRuns) {
+TEST(SidebarTree, SingleExecutionCanBeAttachedWithoutCapturingFutureRuns) {
     auto records = json::array({row("1", "daily"), row("receiver", "other")});
     json layout;
     auto tree = build_sidebar_tree(records, layout);
     std::string error;
-    ASSERT_TRUE(move_sidebar_node(tree, layout, "loop:daily", "loop:other", "inside", error));
+    EXPECT_FALSE(move_sidebar_node(tree, layout, "loop:daily", "loop:other", "inside", error));
+    ASSERT_TRUE(move_sidebar_node(tree, layout, "session:1", "loop:other", "inside", error));
     EXPECT_EQ(tree.nodes.at("session:1").parent, "loop:other");
     records.push_back(row("2", "daily"));
     tree = build_sidebar_tree(records, layout);
     EXPECT_EQ(tree.nodes.at("loop:daily").session_id, "2");
     EXPECT_EQ(tree.nodes.at("session:1").parent, "loop:other");
-    EXPECT_TRUE(tree.nodes.at("loop:daily").children.empty());
+    EXPECT_EQ(tree.nodes.at("loop:daily").children, std::vector<std::string>{"session:2"});
+}
+
+TEST(SidebarTree, LegacyScheduledParentBecomesAStableManualGroup) {
+    const auto records = json::array({row("anchor", "daily"), row("child"), row("normal")});
+    json layout = {{"parents", {{"session:anchor", ""}, {"session:child", "session:anchor"}, {"session:archived", "session:anchor"}}},
+                   {"orders", {{"", json::array({"session:anchor", "session:normal"})}}}};
+    auto tree = build_sidebar_tree(records, layout);
+    EXPECT_EQ(tree.roots, (std::vector<std::string>{"group:anchor", "session:normal"}));
+    EXPECT_EQ(tree.nodes.at("group:anchor").children.size(), 2u);
+    EXPECT_EQ(tree.nodes.at("session:anchor").parent, "group:anchor");
+    EXPECT_EQ(tree.nodes.at("session:child").parent, "group:anchor");
+    std::string error;
+    ASSERT_TRUE(move_sidebar_node(tree, layout, "session:anchor", "session:normal", "before", error));
+    tree = build_sidebar_tree(records, layout);
+    EXPECT_TRUE(tree.nodes.at("session:anchor").parent.empty());
+    EXPECT_EQ(tree.nodes.at("group:anchor").children, std::vector<std::string>{"session:child"});
+    EXPECT_EQ(layout["version"], 2);
+    EXPECT_EQ(layout["parents"]["session:archived"], "group:anchor");
+    auto restored = records;
+    restored.push_back(row("archived"));
+    tree = build_sidebar_tree(restored, layout);
+    EXPECT_TRUE(tree.nodes.at("session:anchor").parent.empty());
+    EXPECT_EQ(tree.nodes.at("session:archived").parent, "group:anchor");
+}
+
+TEST(SidebarTree, LatestExecutionCanDetachAndGroupKeepsItsIdentity) {
+    const auto records = json::array({row("1", "daily"), row("2", "daily"), row("normal")});
+    json layout;
+    auto tree = build_sidebar_tree(records, layout);
+    std::string error;
+    ASSERT_TRUE(move_sidebar_node(tree, layout, "session:2", "session:normal", "before", error));
+    tree = build_sidebar_tree(records, layout);
+    EXPECT_EQ(tree.nodes.at("loop:daily").session_id, "1");
+    EXPECT_EQ(tree.nodes.at("loop:daily").children, std::vector<std::string>{"session:1"});
+    EXPECT_TRUE(tree.nodes.at("session:2").parent.empty());
 }
 
 TEST(SidebarTree, LayoutPersistenceAndMetadataCacheObserveUpdatesAndDeletion) {

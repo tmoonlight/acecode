@@ -4,6 +4,7 @@
 #include "platform/package_identity.hpp"
 #include "network/proxy_resolver.hpp"
 #include "session/session_storage.hpp"
+#include "session/session_trajectory.hpp"
 #include "upgrade/manifest.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
@@ -362,6 +363,14 @@ std::optional<FeedbackLogBundle> collect_recent_upgrade_log_bundle(
     return bundle;
 }
 
+fs::path session_trajectory_path_for(const fs::path& session_jsonl_path,
+                                     const std::string& session_id) {
+    if (session_jsonl_path.empty() || session_id.empty()) return {};
+    const std::string path = SessionTrajectoryStorage::file_path(
+        path_to_utf8(session_jsonl_path.parent_path()), session_id);
+    return path.empty() ? fs::path{} : path_from_utf8(path);
+}
+
 FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& request) {
     FeedbackPackageResult result;
     const bool has_session = !request.session_id.empty() ||
@@ -493,6 +502,41 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
         }
     }
 
+    // 会话请求原文(trajectory.jsonl):每次 model_request 的完整消息与工具清单、
+    // model_response 的正文 / 工具调用 / 用量。会话 JSONL 看不到发给模型的系统
+    // 提示词和工具定义,跟同一时段别的客户端比对请求时只能靠它。只随会话附带,
+    // 文件不存在不算失败。超限保留尾部(最近的请求),并丢掉被截断的半行,让每一行
+    // 仍是完整 JSON;但如果截完一个换行都没有(单条记录就超限),保留这段残行,
+    // 好过什么都不给。
+    std::optional<FeedbackTrajectoryInclusion> trajectory;
+    std::string trajectory_payload;
+    if (has_session && !request.session_trajectory_path.empty()) {
+        FeedbackTrajectoryInclusion inclusion;
+        inclusion.entry_name = "session/" +
+            sanitize_feedback_filename_component(request.session_id) +
+            ".trajectory.jsonl";
+        inclusion.source_path = path_to_utf8(request.session_trajectory_path);
+        std::error_code size_ec;
+        const auto size = fs::file_size(request.session_trajectory_path, size_ec);
+        std::size_t tail_bytes = 0;
+        if (!size_ec && read_tail(request.session_trajectory_path,
+                                  request.max_trajectory_bytes,
+                                  &trajectory_payload, &tail_bytes)) {
+            inclusion.included = true;
+            inclusion.size_bytes = size;
+            if (tail_bytes < size) {
+                inclusion.truncated = true;
+                const auto newline = trajectory_payload.find('\n');
+                if (newline != std::string::npos &&
+                    newline + 1 < trajectory_payload.size()) {
+                    trajectory_payload.erase(0, newline + 1);
+                }
+            }
+            inclusion.tail_bytes = trajectory_payload.size();
+        }
+        trajectory = std::move(inclusion);
+    }
+
     std::vector<std::string> included_files;
     std::string session_entry;
     if (has_session) {
@@ -500,6 +544,7 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
             "session/" + sanitize_feedback_filename_component(request.session_id) + ".jsonl";
         included_files.push_back(session_entry);
     }
+    if (trajectory && trajectory->included) included_files.push_back(trajectory->entry_name);
     for (const auto& [entry_name, _] : log_payloads) included_files.push_back(entry_name);
     included_files.push_back("feedback.json");
 
@@ -532,6 +577,16 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     if (!log_results.empty()) {
         metadata["log_path"] = log_results.front().source_path;
     }
+    if (trajectory) {
+        metadata["trajectory"] = {
+            {"entry_name", trajectory->entry_name},
+            {"path", trajectory->source_path},
+            {"available", trajectory->included},
+            {"size_bytes", static_cast<std::uint64_t>(trajectory->size_bytes)},
+            {"tail_bytes", static_cast<std::uint64_t>(trajectory->tail_bytes)},
+            {"truncated", trajectory->truncated},
+        };
+    }
 
     const std::string metadata_text = metadata.dump(2);
 
@@ -547,6 +602,9 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     bool ok = true;
     if (has_session) {
         ok = add_file_entry(archive, session_entry, request.session_jsonl_path, &entry_error);
+    }
+    if (ok && trajectory && trajectory->included) {
+        ok = add_buffer_entry(archive, trajectory->entry_name, trajectory_payload, &entry_error);
     }
     for (const auto& [entry_name, content] : log_payloads) {
         if (!ok) break;
@@ -575,6 +633,7 @@ FeedbackPackageResult build_feedback_package(const FeedbackPackageRequest& reque
     result.log_included = log_included;
     result.log_tail_bytes = log_tail_bytes;
     result.logs = std::move(log_results);
+    result.trajectory = std::move(trajectory);
     result.included_files = std::move(included_files);
     return result;
 }

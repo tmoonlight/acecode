@@ -34,7 +34,9 @@ SidebarTree build_sidebar_tree(const json& sessions, const json& layout) {
     const auto& parents = object_field(layout, "parents");
     const auto& orders = object_field(layout, "orders");
     std::map<std::string, json> records;
-    std::map<std::string, std::vector<std::string>> groups;
+    std::map<std::string, std::string> groups;
+    std::map<std::string, std::string> legacy_groups;
+    std::set<std::string> known_loops;
     if (!sessions.is_array()) return tree;
     for (const auto& session : sessions) {
         const auto id = field(session, "id");
@@ -42,54 +44,74 @@ SidebarTree build_sidebar_tree(const json& sessions, const json& layout) {
         const auto key = "session:" + id;
         records[key] = session;
         const auto loop = field(object_field(session, "loop_execution"), "loop_id");
-        tree.nodes[key] = SidebarNode{key, id, !loop.empty(), {}, {}};
-        // An explicit empty parent means detached, including across future runs.
-        if (!loop.empty() && !parents.contains(key)) groups["loop:" + loop].push_back(key);
+        tree.nodes[key] = SidebarNode{key, id, !loop.empty(), false, loop, {}, {}};
+        if (!loop.empty()) known_loops.insert(loop);
+    }
+    for (const auto& [key, value] : parents.items()) {
+        if (!value.is_string()) continue;
+        const auto parent = value.get<std::string>();
+        if (parent.rfind("loop:", 0) == 0 && known_loops.count(parent.substr(5))) {
+            groups[parent] = parent.substr(5);
+        } else if (parent.rfind("session:", 0) == 0 || parent.rfind("group:", 0) == 0) {
+            const auto anchor_key = parent.rfind("group:", 0) == 0 ? "session:" + parent.substr(6) : parent;
+            const auto anchor = tree.nodes.find(anchor_key);
+            if (anchor == tree.nodes.end() || !anchor->second.scheduled) continue;
+            const auto group_key = "group:" + anchor->second.session_id;
+            groups[group_key] = anchor->second.loop_id;
+            if (parent == anchor_key) legacy_groups[anchor_key] = group_key;
+        }
+    }
+    for (auto& [key, node] : tree.nodes) {
+        // An explicit empty parent remains detached across future executions.
+        if (legacy_groups.count(key)) node.parent = legacy_groups.at(key);
+        else if (parents.contains(key)) {
+            node.parent = field(parents, key.c_str());
+            if (legacy_groups.count(node.parent)) node.parent = legacy_groups.at(node.parent);
+            if (!groups.count(node.parent)) node.parent.clear();
+        } else if (node.scheduled) {
+            node.parent = "loop:" + node.loop_id;
+            groups[node.parent] = node.loop_id;
+        }
+    }
+    for (const auto& [key, loop] : groups) {
+        tree.nodes[key] = SidebarNode{key, {}, true, true, loop, {}, {}};
+    }
+    for (const auto& [key, node] : tree.nodes) {
+        if (!node.parent.empty()) tree.nodes.at(node.parent).children.push_back(key);
     }
     const auto newer = [&records](const std::string& a, const std::string& b, const char* clock) {
         const auto at = field(records.at(a), clock);
         const auto bt = field(records.at(b), clock);
         return at != bt ? at > bt : a > b;
     };
-    for (auto& [key, members] : groups) {
-        std::sort(members.begin(), members.end(), [&](const auto& a, const auto& b) {
-            return newer(a, b, "created_at");
-        });
-        const auto head = members.front();
-        auto node = tree.nodes.at(head);
-        tree.nodes.erase(head);
-        node.key = key;
-        records[key] = records.at(head);
-        tree.nodes[key] = std::move(node);
-        for (std::size_t i = 1; i < members.size(); ++i) tree.nodes.at(members[i]).parent = key;
-    }
-    for (auto& [key, node] : tree.nodes) {
-        const auto it = parents.find(key);
-        if (it != parents.end() && it->is_string()) node.parent = it->get<std::string>();
-        const auto parent = tree.nodes.find(node.parent);
-        if (node.parent == key || parent == tree.nodes.end() || !parent->second.scheduled) node.parent.clear();
-        // Scheduled group keys remain roots, even before their next run arrives.
-        if (key.rfind("loop:", 0) == 0) node.parent.clear();
-    }
-    // Damaged/stale layouts cannot introduce cycles or a third level. A node
-    // with dependents stays at the root; missing parents promote their children.
-    std::set<std::string> has_children;
-    for (const auto& [key, node] : tree.nodes) {
-        if (!node.parent.empty()) has_children.insert(node.parent);
-    }
-    for (auto& [key, node] : tree.nodes) {
-        if (has_children.count(key)) node.parent.clear();
-    }
-    for (auto& [key, node] : tree.nodes) {
-        if (!node.parent.empty() && !tree.nodes.at(node.parent).parent.empty()) node.parent.clear();
-        if (node.parent.empty()) tree.roots.push_back(key);
-        else tree.nodes.at(node.parent).children.push_back(key);
+    for (auto it = tree.nodes.begin(); it != tree.nodes.end();) {
+        auto& node = it->second;
+        if (node.group) {
+            if (node.children.empty()) { it = tree.nodes.erase(it); continue; }
+            auto latest = node.children.front();
+            for (const auto& child : node.children) {
+                if (newer(child, latest, "created_at")) latest = child;
+            }
+            node.session_id = tree.nodes.at(latest).session_id;
+            records[node.key] = records.at(latest);
+        }
+        if (node.parent.empty()) tree.roots.push_back(node.key);
+        ++it;
     }
     const auto sort_keys = [&](std::vector<std::string>& keys, const std::string& parent, const char* clock) {
         std::unordered_map<std::string, std::size_t> ranks;
-        const auto it = orders.find(parent);
+        auto it = orders.find(parent);
+        if (it == orders.end()) {
+            for (const auto& [old_key, group_key] : legacy_groups) {
+                if (group_key == parent) { it = orders.find(old_key); break; }
+            }
+        }
         if (it != orders.end() && it->is_array()) {
-            for (const auto& raw : *it) if (raw.is_string()) ranks.emplace(raw.get<std::string>(), ranks.size());
+            for (const auto& raw : *it) if (raw.is_string()) {
+                auto key = raw.get<std::string>();
+                if (parent.empty() && legacy_groups.count(key)) key = legacy_groups.at(key);
+                ranks.emplace(key, ranks.size());
+            }
         }
         std::sort(keys.begin(), keys.end(), [&](const auto& a, const auto& b) {
             const auto ar = ranks.find(a), br = ranks.find(b);
@@ -117,9 +139,9 @@ bool move_sidebar_node(SidebarTree& tree, json& layout,
     }
     auto& from = tree.nodes.at(source);
     const auto& to = tree.nodes.at(target);
-    const auto parent = placement == "inside" ? target : to.parent;
+    auto parent = placement == "inside" ? target : to.parent;
     if ((placement == "inside" && !to.parent.empty()) || parent == source ||
-        (!parent.empty() && !from.children.empty())) {
+        (!parent.empty() && (from.group || !from.children.empty()))) {
         error = "SIDEBAR_TWO_LEVELS_ONLY";
         return false;
     }
@@ -127,33 +149,42 @@ bool move_sidebar_node(SidebarTree& tree, json& layout,
         error = "SIDEBAR_SCHEDULED_PARENT_ONLY";
         return false;
     }
+    if (placement == "inside" && !to.group) {
+        // A detached scheduled session becomes a group header plus its own
+        // real session row. The stable group key also migrates legacy layouts.
+        parent = "group:" + to.session_id;
+        if (!tree.nodes.count(parent)) {
+            tree.nodes[parent] = SidebarNode{parent, to.session_id, true, true, to.loop_id, {}, {}};
+            std::replace(tree.roots.begin(), tree.roots.end(), target, parent);
+        } else erase_key(tree.roots, target);
+        tree.nodes.at(target).parent = parent;
+        tree.nodes.at(parent).children.push_back(target);
+    }
     auto& old_siblings = from.parent.empty() ? tree.roots : tree.nodes.at(from.parent).children;
-    const auto old_parent = from.parent;
-    // A one-run automatic group is still a leaf. Moving it into another root
-    // detaches that execution, leaving future runs free to form their own group.
-    const auto moving_key = !parent.empty() && source.rfind("loop:", 0) == 0
-        ? "session:" + from.session_id : source;
-    auto moving_node = from;
     erase_key(old_siblings, source);
     auto& siblings = parent.empty() ? tree.roots : tree.nodes.at(parent).children;
     auto position = placement == "inside" ? siblings.end() : std::find(siblings.begin(), siblings.end(), target);
     if (position != siblings.end() && placement == "after") ++position;
-    siblings.insert(position, moving_key);
-    if (moving_key != source) {
-        tree.nodes.erase(source);
-        moving_node.key = moving_key;
-        moving_node.parent = parent;
-        tree.nodes[moving_key] = std::move(moving_node);
-    } else {
-        from.parent = parent;
-    }
+    siblings.insert(position, source);
+    from.parent = parent;
     if (!layout.is_object()) layout = json::object();
     if (!layout.contains("parents") || !layout["parents"].is_object()) layout["parents"] = json::object();
     if (!layout.contains("orders") || !layout["orders"].is_object()) layout["orders"] = json::object();
-    layout["version"] = 1;
-    layout["parents"][moving_key] = parent;
-    layout["orders"][old_parent] = old_siblings;
-    layout["orders"][parent] = siblings;
+    // Archived members may be absent from this tree but still carry a legacy
+    // parent key. Normalize those too, or they would reattach a detached anchor.
+    for (auto& entry : layout["parents"].items()) {
+        if (!entry.value().is_string()) continue;
+        const auto old_parent = entry.value().get<std::string>();
+        if (old_parent.rfind("session:", 0) != 0) continue;
+        const auto group_key = "group:" + old_parent.substr(8);
+        if (tree.nodes.count(group_key) && tree.nodes.at(group_key).group) entry.value() = group_key;
+    }
+    layout["version"] = 2;
+    layout["orders"][""] = tree.roots;
+    for (const auto& [key, node] : tree.nodes) {
+        if (node.group) layout["orders"][key] = node.children;
+        else layout["parents"][key] = node.parent;
+    }
     return true;
 }
 
