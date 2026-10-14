@@ -1,6 +1,7 @@
 #include "memory_read_tool.hpp"
 
 #include "memory_tool_scope.hpp"
+#include "llm/tool_protocol_names.hpp"
 
 #include "memory/memory_service.hpp"
 #include "memory/memory_types.hpp"
@@ -165,7 +166,9 @@ ToolImpl create_memory_read_tool(std::shared_ptr<MemoryService> memory) {
             }
             out["found"] = false;
             out["name"] = name;
-            out["hint"] = "Use memory_read() with no args to list available entries.";
+            // 文字描述调用方式,不写伪函数调用(GLM 系模型会把它照抄成工具名)。
+            out["hint"] = "Call " + model_tool_name_for_native("memory_read") +
+                          " without arguments to list available entries.";
             LOG_DEBUG("[memory_read] entry not found: " + name);
             return ToolResult{out.dump(), true};
         }

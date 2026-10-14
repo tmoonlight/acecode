@@ -1,5 +1,6 @@
 #pragma once
 
+#include "llm/tool_call_corruption.hpp"
 #include "llm/tool_protocol_names.hpp"
 
 #include <string>
@@ -165,9 +166,21 @@ public:
     // 模型侧工具名(AgentLoop 从 bundle.tool_defs 取),列出来让模型照抄;
     // 为空(未接线)时回退旧文案。最多列 kMaxListed 个,超出写 (+N more)
     // —— 54 个工具的请求实测存在,100 足以全列,再多只会把结果撑成噪音。
+    // 名字为空或已损坏(调用表达式、夹着模板标记,判定见 llm/tool_call_corruption)
+    // 时不回显:报错会写进历史,原样回显等于再给模型看一遍错误示范(内网 GLM
+    // 2026-10-14,`skill_view(name="…")</arg_value>` 隔两轮又被照抄出来)。
     static std::string unknown_tool(const std::string& name,
                                     const std::vector<std::string>& available) {
-        std::string msg = "[Error] Unknown tool: " + name;
+        std::string msg;
+        if (const auto corruption = diagnose_corrupted_tool_name(name)) {
+            msg = corruption->reason == ToolCallCorruption::Reason::EmptyName
+                ? "[Error] The tool call had no tool name, so nothing was executed"
+                : "[Error] Unknown tool: the requested tool name was malformed (it "
+                  "contained call syntax or template markup instead of a plain tool "
+                  "name), so it is not repeated here";
+        } else {
+            msg = "[Error] Unknown tool: " + name;
+        }
         if (available.empty()) return msg;
         constexpr std::size_t kMaxListed = 100;
         msg += ". Available tools: ";

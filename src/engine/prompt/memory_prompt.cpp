@@ -99,8 +99,9 @@ PromptContextBlock build_memory_snapshot_prompt(const MemorySnapshotSource& sour
         << "Persistent memory saved in earlier sessions. Memories are records of the past, "
         << "not live state: before relying on a file path, command or repository fact from a "
         << "memory, verify it with tools. When a memory conflicts with the user's current "
-        << "instructions, follow the current instructions. Load an entry's full body with "
-        << "memory_read(name=...); memory_read(query=...) also searches entries omitted below.\n\n";
+        << "instructions, follow the current instructions. To load an entry's full body, "
+        << "call the memory_read tool with its name argument set to the entry name; "
+        << "calling it with a query argument instead also searches entries omitted below.\n\n";
     if (!global.empty()) oss << global << "\n";
     if (!workspace.empty()) oss << workspace << "\n";
     block.content = oss.str();

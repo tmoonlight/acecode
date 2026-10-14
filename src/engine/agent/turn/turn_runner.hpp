@@ -4,6 +4,9 @@
 #include "agent/tool_exec/tool_batch_scheduler.hpp"
 #include "turn_finalizer.hpp"
 
+#include <optional>
+#include <string>
+
 namespace acecode::agent {
 class CompactionController;
 struct CompactionInputs;
@@ -51,9 +54,17 @@ private:
     CompactionInputs compaction_inputs(const TurnContext& turn,
         LifetimeRef<TrajectoryRecorder> terminal) const;
     bool drain_inputs(bool close_if_empty);
+    // 一步输出损坏的命中信息:正文里漏出的模板标记,或某个工具调用的名字 / 参数。
+    struct CorruptedOutput {
+        std::string marker;          // 命中的模板标记或调用语法字符,空名字时为空
+        std::string notice_context;  // 空 = 正文;否则是通知文案的 i18next context
+        std::string summary;         // 工具调用损坏的中文说明(通知用),正文损坏为空
+        std::string log_detail;      // 日志里定位用的英文说明
+    };
+    std::optional<CorruptedOutput> find_corrupted_output(const ChatResponse& response) const;
     // 丢弃一步损坏的输出(不入历史、不执行工具),清掉界面上的流式草稿并提示。
     void discard_corrupted_output(const ChatResponse& response,
-        const std::string& marker, int attempt, int attempts, bool retrying);
+        const CorruptedOutput& corrupted, int attempt, int attempts, bool retrying);
     ToolBatchOutcome execute_tools(TurnContext& turn, const ChatResponse& response,
         const std::shared_ptr<LlmProvider>& provider, const ProgressEmitter& progress);
 

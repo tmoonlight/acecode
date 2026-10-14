@@ -119,3 +119,30 @@ TEST(ToolExecutorNameResolution, UnknownToolErrorListsAvailableNames) {
     EXPECT_EQ(text.find("t100,"), std::string::npos);
     EXPECT_NE(text.find("(+3 more)"), std::string::npos);
 }
+
+// 触发场景:内网 GLM 网关没能把模型写的工具调用模板转成结构化调用,函数名是
+// `skill_view(name="kimi-webbridge")</arg_value>`(2026-10-14 日志原样),或干脆为空。
+// 期望行为:Unknown tool 报错不回显坏名字(不出现调用表达式与模板标记),空名字
+// 改说「没有工具名」,仍列出可用工具;ToolExecutor::execute 的未注册分支同样不回显。
+// 回归:旧文案 `[Error] Unknown tool: <坏名字>` 写进历史,下一轮被服务端按模板排回
+// 提示词,模型隔两轮又照抄出同一个坏名字。
+TEST(ToolExecutorNameResolution, UnknownToolErrorDoesNotEchoCorruptedNames) {
+    const std::string broken = "skill_view(name=\"kimi-webbridge\")</arg_value>";
+    const std::string text = acecode::ToolErrors::unknown_tool(broken, {"skill_view", "bash"});
+    EXPECT_EQ(text.find("skill_view(name="), std::string::npos) << text;
+    EXPECT_EQ(text.find("</arg_value>"), std::string::npos) << text;
+    EXPECT_NE(text.find("malformed"), std::string::npos) << text;
+    EXPECT_NE(text.find("Available tools: skill_view, bash"), std::string::npos) << text;
+
+    const std::string empty = acecode::ToolErrors::unknown_tool("", {"bash"});
+    EXPECT_NE(empty.find("no tool name"), std::string::npos) << empty;
+    EXPECT_EQ(empty.find("Unknown tool: ."), std::string::npos) << empty;
+    EXPECT_NE(empty.find("Available tools: bash"), std::string::npos) << empty;
+
+    acecode::ToolExecutor tools;
+    ASSERT_TRUE(tools.register_tool(make_named_tool("bash")));
+    const auto result = tools.execute(broken, "{}");
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.output.find("</arg_value>"), std::string::npos) << result.output;
+    EXPECT_EQ(result.output.find("skill_view(name="), std::string::npos) << result.output;
+}

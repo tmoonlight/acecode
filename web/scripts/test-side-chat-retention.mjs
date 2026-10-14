@@ -66,6 +66,11 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, locale: 'zh-CN' });
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
+    // Playwright's WebSocket mock uses URL.parse, added after Chromium 110.
+    // Keep that test transport usable on the older Desktop WebView baseline.
+    if (!URL.parse) URL.parse = (input, base) => {
+      try { return new URL(input, base); } catch { return null; }
+    };
     window.sideChatNow = Date.now();
     Date.now = () => window.sideChatNow;
   });

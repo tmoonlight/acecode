@@ -347,6 +347,7 @@ nlohmann::json thread_repair_result_to_json(
         {"unexpectedToolResults", result.history_issues.unexpected_tool_results},
         {"duplicateToolResults", result.history_issues.duplicate_tool_results},
         {"emptyAssistantMessages", result.history_issues.empty_assistant_messages},
+        {"malformedCallResults", result.history_issues.malformed_call_results},
         {"malformedRecords", result.load_issues.malformed_complete_records},
         {"ignoredPartialTail", result.load_issues.ignored_partial_tail},
         {"recoveredUnterminatedRecord",

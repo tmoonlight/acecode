@@ -179,3 +179,16 @@ TEST(MemoryReadToolTest, DisabledMemoryRejectsCall) {
     auto j = run(tool, "{}", acecode::ToolContext{}, false);
     EXPECT_NE(j["error"].get<std::string>().find("disabled"), std::string::npos);
 }
+
+// 场景:按名字读取一个不存在的条目,结果带一句「怎么列出可用条目」的 hint。
+// 期望:hint 用文字描述(不带参数调用 memory_read),不出现 `memory_read(` 这种
+// 伪函数调用写法 —— GLM 系模型会把它照抄成工具名(内网 2026-10-14)。
+TEST(MemoryReadToolTest, NotFoundHintDescribesCallInProse) {
+    MemoryTestHome home("memory-read-hint");
+    auto tool = acecode::create_memory_read_tool(home.service());
+    auto j = run(tool, R"({"name":"ghost"})", acecode::ToolContext{});
+    ASSERT_FALSE(j["found"].get<bool>());
+    const std::string hint = j.value("hint", std::string{});
+    EXPECT_EQ(hint.find("memory_read("), std::string::npos) << hint;
+    EXPECT_NE(hint.find("memory_read without arguments"), std::string::npos) << hint;
+}

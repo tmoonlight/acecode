@@ -32,7 +32,9 @@ std::vector<ChatMessage> recovered_provider_messages(
                  " duplicate_results=" +
                  std::to_string(stats.duplicate_tool_results) +
                  " empty_assistants=" +
-                 std::to_string(stats.empty_assistant_messages));
+                 std::to_string(stats.empty_assistant_messages) +
+                 " malformed_results=" +
+                 std::to_string(stats.malformed_call_results));
     }
     return std::move(recovery.messages);
 }
