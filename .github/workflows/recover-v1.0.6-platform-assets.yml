@@ -21,8 +21,9 @@ jobs:
     - name: Verify immutable v1.0.6 source
       shell: bash
       run: |
-        test "$(git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD)" = "e090be90c668f5fce760ed9b04d3f9a677d030eb"
-        git -c safe.directory="$GITHUB_WORKSPACE" diff --exit-code
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        test "$(git rev-parse HEAD)" = "e090be90c668f5fce760ed9b04d3f9a677d030eb"
+        git diff --exit-code
     - name: Check bundled models.dev freshness for release
       if: 'true'
       shell: bash
@@ -129,8 +130,9 @@ jobs:
     - name: Verify immutable v1.0.6 source
       shell: bash
       run: |
-        test "$(git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD)" = "e090be90c668f5fce760ed9b04d3f9a677d030eb"
-        git -c safe.directory="$GITHUB_WORKSPACE" diff --exit-code
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        test "$(git rev-parse HEAD)" = "e090be90c668f5fce760ed9b04d3f9a677d030eb"
+        git diff --exit-code
     - name: Install Deepin build dependencies
       shell: bash
       run: |
