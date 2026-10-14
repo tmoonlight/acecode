@@ -42,6 +42,13 @@ export function normalizeWorkspaceSessionListResponse(data) {
   }
   const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
   const rawTotal = Number(data?.total);
+  if (data?.sidebar_tree === true) {
+    return {
+      sessions, total: Math.max(0, rawTotal || 0), totalExact: true,
+      hasMore: data.has_more === true, sidebarTree: true,
+      visibleRoots: Number(data.visible_roots) || 0,
+    };
+  }
   const total = Number.isFinite(rawTotal) && rawTotal >= sessions.length
     ? Math.floor(rawTotal)
     : sessions.length;

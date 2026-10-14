@@ -5,8 +5,20 @@ export const SESSION_REFERENCE_PREFIX = '@session:';
 export const RECENT_SESSION_REFERENCE_LIMIT = 10;
 export const SESSION_REFERENCE_VERSION = 1;
 export const SESSION_REFERENCE_CACHE_TTL_MS = 60_000;
+// 空查询只要最近会话:服务端对空查询本来就最多给 50 条。
+export const SESSION_REFERENCE_RECENT_FETCH_LIMIT = 50;
+// 有查询词时取服务端按相关度排好的前 100 条(服务端上限),下拉框足够用。
+export const SESSION_REFERENCE_QUERY_LIMIT = 100;
+// 同一个查询词短时间内复用结果:光标在 @ 词里移动、退格又敲回来都不再请求。
+export const SESSION_REFERENCE_QUERY_CACHE_TTL_MS = 15_000;
+const SESSION_REFERENCE_QUERY_CACHE_MAX = 32;
+// daemon 刚启动时全局会话目录还在后台预热,结果不完整;下拉框开着就按这个
+// 间隔重查,直到目录完整。每次重查只是内存过滤,有上限防止无限轮询。
+export const SESSION_REFERENCE_CATALOG_POLL_MS = 250;
+export const SESSION_REFERENCE_CATALOG_MAX_POLLS = 120;
 
 const sessionDataCache = new WeakMap();
+const sessionQueryCache = new WeakMap();
 
 function stringField(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -46,22 +58,60 @@ function safeDecode(value) {
   }
 }
 
+function catalogComplete(data) {
+  return !data?.progress || data.progress.complete !== false;
+}
+
+function hasGlobalSessionSearch(api) {
+  return !!api && typeof api === 'object' && typeof api.listGlobalSessions === 'function';
+}
+
+export function canLoadSessionReferences(api) {
+  return hasGlobalSessionSearch(api)
+    || (!!api && typeof api === 'object' && typeof api.listAllWorkspaceSessions === 'function');
+}
+
+function waitForCatalogPoll(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const finish = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, ms);
+    signal?.addEventListener?.('abort', finish, { once: true });
+  });
+}
+
+// 空查询:最近会话。只需要会话目录,不再顺带请求 /api/workspaces(@ 菜单用不到项目列表)。
 export async function loadSessionReferenceData(api, {
   now = Date.now(),
   ttlMs = SESSION_REFERENCE_CACHE_TTL_MS,
 } = {}) {
-  if (!api || typeof api !== 'object' || typeof api.listAllWorkspaceSessions !== 'function') {
+  if (!canLoadSessionReferences(api)) {
     return { sessions: [], workspaces: [], errors: [] };
   }
   const cached = sessionDataCache.get(api);
   if (cached?.data && now - cached.ts < ttlMs) return cached.data;
   if (cached?.promise) return cached.promise;
-  const promise = Promise.resolve(api.listAllWorkspaceSessions())
+  const request = hasGlobalSessionSearch(api)
+    ? () => api.listGlobalSessions({ limit: SESSION_REFERENCE_RECENT_FETCH_LIMIT })
+    : () => api.listAllWorkspaceSessions();
+  const promise = Promise.resolve(request())
     .then((result) => {
       const data = result && typeof result === 'object'
         ? result
         : { sessions: [], workspaces: [], errors: [] };
-      sessionDataCache.set(api, { ts: Date.now(), data, promise: null });
+      // 目录还在预热时的结果不完整,只保留给本次使用,下一次按键重新取。
+      sessionDataCache.set(api, {
+        ts: catalogComplete(data) ? Date.now() : 0,
+        data,
+        promise: null,
+      });
       return data;
     })
     .catch((error) => {
@@ -73,7 +123,68 @@ export async function loadSessionReferenceData(api, {
 }
 
 export function invalidateSessionReferenceData(api) {
-  if (api && typeof api === 'object') sessionDataCache.delete(api);
+  if (api && typeof api === 'object') {
+    sessionDataCache.delete(api);
+    sessionQueryCache.delete(api);
+  }
+}
+
+function rememberQueryResult(api, query, data) {
+  let cache = sessionQueryCache.get(api);
+  if (!cache) {
+    cache = new Map();
+    sessionQueryCache.set(api, cache);
+  }
+  cache.delete(query);
+  cache.set(query, { ts: Date.now(), data });
+  while (cache.size > SESSION_REFERENCE_QUERY_CACHE_MAX) {
+    cache.delete(cache.keys().next().value);
+  }
+}
+
+// 有查询词:交给服务端在全量会话目录里过滤(已预热的内存目录,毫秒级)。
+// 不能拿空查询的「最近 50 条」在本地过滤 —— 那样更早的会话永远搜不到
+// (实测 2.8 万个会话里,标题完全一致的会话排在第 9726 位,@ 菜单显示「没有匹配」)。
+// 正文全文搜索要逐项目读 meta、开 SQLite,全量一遍要几十秒,不在 @ 菜单里按键触发;
+// 最近一条用户消息已在 summary 里,由这里的元数据检索覆盖,全文搜索留给 Ctrl+K。
+export async function searchSessionReferenceData(api, query, {
+  signal,
+  now = Date.now(),
+  ttlMs = SESSION_REFERENCE_QUERY_CACHE_TTL_MS,
+  pollMs = SESSION_REFERENCE_CATALOG_POLL_MS,
+  maxPolls = SESSION_REFERENCE_CATALOG_MAX_POLLS,
+  onPartial,
+} = {}) {
+  const normalized = String(query || '').trim();
+  // 空查询、或没有服务端检索的旧接口:退回最近会话列表本地过滤。
+  if (!normalized || !hasGlobalSessionSearch(api)) {
+    return loadSessionReferenceData(api, { now });
+  }
+  const cached = sessionQueryCache.get(api)?.get(normalized);
+  if (cached && now - cached.ts < ttlMs) return cached.data;
+
+  let data = { sessions: [], progress: null };
+  for (let poll = 0; poll < Math.max(1, maxPolls); poll += 1) {
+    if (poll > 0) {
+      onPartial?.(data);
+      await waitForCatalogPoll(pollMs, signal);
+      if (signal?.aborted) return data;
+    }
+    const payload = await api.listGlobalSessions({
+      query: normalized,
+      limit: SESSION_REFERENCE_QUERY_LIMIT,
+      signal,
+    });
+    data = {
+      sessions: Array.isArray(payload?.sessions) ? payload.sessions : [],
+      progress: payload?.progress || null,
+    };
+    if (catalogComplete(data)) {
+      rememberQueryResult(api, normalized, data);
+      return data;
+    }
+  }
+  return data;
 }
 
 function normalizedReference(value = {}) {

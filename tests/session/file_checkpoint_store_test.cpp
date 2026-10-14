@@ -278,6 +278,66 @@ TEST(FileCheckpointStore, ActiveTurnNetDiffHandlesCreatedDeletedAndRevertedFiles
     fs::remove_all(project);
 }
 
+// 触发场景:会话处于 worktree(<主仓>/.acecode/worktrees/<slug>),本回合改了
+//   worktree 里的文件,也改了 worktree 之外(主检出)的文件。
+// 期望行为:两者都记绝对路径;worktree 内的文件以传入的 worktree 路径为前缀。
+// 回归:曾经按会话原目录相对化,记成 ".acecode/worktrees/<slug>/src/a.txt",
+//   Web 回合末尾文件卡片点「打开」时前端再拼到 worktree 路径上,报文件找不到;
+//   worktree 外的文件若记成相对原目录,前端会打开 worktree 里的同名文件。
+TEST(FileCheckpointStore, ActiveTurnNetDiffInWorktreeRecordsAbsolutePaths) {
+    auto project = make_temp_dir("turn_net_worktree");
+    auto worktree = project / ".acecode" / "worktrees" / "ses-1";
+    auto inside = worktree / "src" / "a.txt";
+    auto outside = project / "main.txt";
+    write_file(inside, "old\n");
+    write_file(outside, "old\n");
+
+    FileCheckpointStore store;
+    store.set_session((project / "storage").string(), "s1");
+    store.make_snapshot("u1");
+    ASSERT_TRUE(store.track_before_write(inside.string()).has_value());
+    write_file(inside, "new\n");
+    ASSERT_TRUE(store.track_before_write(outside.string()).has_value());
+    write_file(outside, "new\n");
+
+    const auto diff = store.build_active_turn_net_diff(project.string(), worktree.string());
+    EXPECT_TRUE(diff.complete);
+    ASSERT_EQ(diff.files.size(), 2u);
+
+    std::set<std::string> files;
+    for (const auto& file : diff.files) files.insert(file.file);
+    const std::string expected_inside =
+        (worktree / "src" / "a.txt").lexically_normal().generic_string();
+    EXPECT_EQ(files.count(expected_inside), 1u) << "worktree 内文件应以 worktree 路径为前缀";
+    for (const auto& file : diff.files) {
+        EXPECT_TRUE(fs::path(file.file).is_absolute()) << file.file;
+        EXPECT_EQ(file.file.find(".acecode/worktrees/ses-1/.acecode"), std::string::npos)
+            << file.file;
+    }
+
+    fs::remove_all(project);
+}
+
+// 触发场景:普通会话(不在 worktree),worktree_root 为空。
+// 期望行为:与修复前一致,工作目录内的文件仍记相对路径。
+TEST(FileCheckpointStore, ActiveTurnNetDiffWithoutWorktreeKeepsRelativePaths) {
+    auto project = make_temp_dir("turn_net_no_worktree");
+    auto file = project / "src" / "b.txt";
+    write_file(file, "old\n");
+
+    FileCheckpointStore store;
+    store.set_session((project / "storage").string(), "s1");
+    store.make_snapshot("u1");
+    ASSERT_TRUE(store.track_before_write(file.string()).has_value());
+    write_file(file, "new\n");
+
+    const auto diff = store.build_active_turn_net_diff(project.string(), "");
+    ASSERT_EQ(diff.files.size(), 1u);
+    EXPECT_EQ(diff.files[0].file, "src/b.txt");
+
+    fs::remove_all(project);
+}
+
 TEST(FileCheckpointStore, ActiveTurnNetDiffReportsMissingBackupAsIncomplete) {
     auto project = make_temp_dir("turn_net_missing");
     auto file = project / "missing.txt";

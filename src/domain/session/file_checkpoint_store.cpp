@@ -52,9 +52,11 @@ std::optional<std::string> read_binary_file(const fs::path& path, std::string* e
     return s;
 }
 
-std::string turn_diff_display_path(const std::string& tracking_path,
-                                   const std::string& workspace_root) {
-    if (workspace_root.empty()) return tracking_path;
+// tracking_path 在 root 之内时返回相对路径,否则返回空。两侧都先 canonical,
+// 用户目录是 junction 时两侧盘符形态不同也能比上。
+std::optional<fs::path> relative_within_root(const std::string& tracking_path,
+                                             const std::string& root_path) {
+    if (root_path.empty()) return std::nullopt;
 
     std::error_code ec;
     fs::path path = fs::weakly_canonical(path_from_utf8(tracking_path), ec);
@@ -62,16 +64,38 @@ std::string turn_diff_display_path(const std::string& tracking_path,
         ec.clear();
         path = path_from_utf8(tracking_path);
     }
-    fs::path root = fs::weakly_canonical(path_from_utf8(workspace_root), ec);
-    if (ec) root = path_from_utf8(workspace_root);
+    fs::path root = fs::weakly_canonical(path_from_utf8(root_path), ec);
+    if (ec) root = path_from_utf8(root_path);
     path = path.lexically_normal();
     root = root.lexically_normal();
     const fs::path relative = path.lexically_relative(root);
-    if (relative.empty() || relative.is_absolute()) return tracking_path;
+    if (relative.empty() || relative.is_absolute()) return std::nullopt;
     for (const auto& part : relative) {
-        if (part == "..") return tracking_path;
+        if (part == "..") return std::nullopt;
     }
-    return path_to_utf8_generic(relative);
+    return relative;
+}
+
+std::string turn_diff_display_path(const std::string& tracking_path,
+                                   const std::string& workspace_root,
+                                   const std::string& worktree_root) {
+    // 会话在 worktree 里时,前端按 worktree 路径解析相对路径;相对会话原目录
+    // 记录会得到 ".acecode/worktrees/<slug>/..." 并被拼到 worktree 上一次,
+    // 「打开」报找不到文件。这里一律记绝对路径:worktree 内的文件按会话保存的
+    // worktree 路径形态拼出(前端能据此相对化展示),worktree 外的保留原绝对路径
+    // (相对原目录记录会被前端误拼到 worktree 上,打开主检出里的同名文件)。
+    // 绝对路径在 ExitWorktree 之后仍能打开到同一个文件。
+    if (!worktree_root.empty()) {
+        if (auto relative = relative_within_root(tracking_path, worktree_root)) {
+            return path_to_utf8_generic(
+                (path_from_utf8(worktree_root) / *relative).lexically_normal());
+        }
+        return tracking_path;
+    }
+    if (auto relative = relative_within_root(tracking_path, workspace_root)) {
+        return path_to_utf8_generic(*relative);
+    }
+    return tracking_path;
 }
 
 void count_hunk_lines(const std::vector<DiffHunk>& hunks,
@@ -320,7 +344,8 @@ FileCheckpointDiffStats FileCheckpointStore::diff_stats(const std::string& user_
 }
 
 TurnNetDiffRecord FileCheckpointStore::build_active_turn_net_diff(
-    const std::string& workspace_root) const {
+    const std::string& workspace_root,
+    const std::string& worktree_root) const {
     TurnNetDiffRecord record;
     record.user_message_uuid = active_message_uuid_;
     record.complete = true;
@@ -384,7 +409,7 @@ TurnNetDiffRecord FileCheckpointStore::build_active_turn_net_diff(
         }
 
         TurnNetDiffFile file;
-        file.file = turn_diff_display_path(tracking_path, workspace_root);
+        file.file = turn_diff_display_path(tracking_path, workspace_root, worktree_root);
         file.hunks = generate_structured_diff(old_content, new_content, file.file);
         count_hunk_lines(file.hunks, file.additions, file.deletions);
         record.files.push_back(std::move(file));

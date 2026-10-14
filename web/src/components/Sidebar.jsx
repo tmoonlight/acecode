@@ -1,4 +1,5 @@
 import { isDismissShortcut } from '../lib/shortcutBindings.js';
+import { Fragment } from 'react';
 // Sidebar(200px):workspace 分组 → session list。
 //
 // 数据源:
@@ -59,6 +60,7 @@ import { SessionTitleText } from './SessionTitleText.jsx';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import { desktopTaskbarBadge, desktopTaskbarBadgeAvailable } from '../lib/desktopTaskbarBadge.js';
 import { usePreference } from '../lib/usePreference.js';
+import { sidebarNodeKey, sidebarSessionRoots, sidebarTreeDropTarget } from '../lib/sidebarSessionTree.js';
 import { createWorkspaceFolderOrderController } from '../lib/workspaceFolderOrder.js';
 import { useWorkspaceFolderReorder } from '../lib/useWorkspaceFolderReorder.js';
 import '../styles/workspaceFolderReorder.css';
@@ -88,7 +90,6 @@ import {
   expandedSessionListsAfterWorkspaceCollapseAll,
   expandedSessionListsAfterWorkspaceDisclosure,
   nextRemoteControlSurgeRequest,
-  reorderSidebarWorkspaceSession,
   remoteControlSurgeTargetKey,
   sessionListNeedsRevealExpansion,
   sessionMatchesRevealTarget,
@@ -340,16 +341,26 @@ function pinnedDropTargetForPointer(clientY) {
   }));
 }
 
-function workspaceDropTargetForPointer(clientY, workspaceHash) {
+function workspaceDropTargetForPointer(clientY, workspaceHash, sourceId, clientX) {
   if (typeof document === 'undefined') return null;
   const workspace = String(workspaceHash || '');
   const rows = Array.from(document.querySelectorAll('[data-sidebar-workspace-session-key]'))
     .filter((row) => row.dataset.sidebarWorkspaceSessionWorkspace === workspace);
-  return sidebarDropTargetForPointer(clientY, rows, (row) => ({
-    targetWorkspaceHash: workspace,
-    targetId: row.dataset.sidebarWorkspaceSessionId || '',
-    targetKey: row.dataset.sidebarWorkspaceSessionKey || '',
-  }));
+  const entries = rows.map((row) => {
+    const rect = row.getBoundingClientRect();
+    return {
+      key: row.dataset.sidebarTreeKey,
+      parent: row.dataset.sidebarTreeParent || '',
+      childCount: Number(row.dataset.sidebarTreeChildren) || 0,
+      scheduled: row.dataset.sidebarTreeScheduled === 'true',
+      id: row.dataset.sidebarWorkspaceSessionId,
+      dragKey: row.dataset.sidebarWorkspaceSessionKey,
+      top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right,
+    };
+  });
+  if (entries.length && clientX > Math.max(...entries.map(row => row.right)) + 10) return null;
+  const target = sidebarTreeDropTarget(entries, entries.find(row => row.id === sourceId), clientX, clientY);
+  return target ? { ...target, targetWorkspaceHash: workspace, targetId: target.id, targetKey: target.dragKey } : null;
 }
 
 function pinnedOrderItemsFromDom() {
@@ -430,7 +441,7 @@ function startSidebarSessionPointerDrag({
       timeText: drag.timeText,
     });
     updateDragScroll(moveEvent.clientY);
-    updateDragTarget(moveEvent.clientY);
+    updateDragTarget(moveEvent.clientY, moveEvent.clientX);
   }
 
   function onUp(upEvent) {
@@ -791,6 +802,8 @@ function SessionRow({
   importHighlighted = false,
   remoteControlSurgeRequest = null,
   onRemoteControlSurgeCompleted,
+  treeExpanded = false,
+  onToggleTree,
 }) {
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
@@ -807,6 +820,12 @@ function SessionRow({
   const title = sessionDisplayTitle(s, s.name || '');
   const titleAnimation = useSessionTitleAnimation(s, title);
   const sessionMarker = sidebarSessionMarker(s);
+  const hasTreeChildren = !pinned && Number(s.sidebar_child_count) > 0;
+  const showTreeArrow = hasTreeChildren && attention !== 'in_progress' && attention !== 'unread';
+  const selectRow = () => {
+    onSelect?.(s);
+    if (hasTreeChildren) onToggleTree?.(s);
+  };
   const remoteControlBound = Boolean(s.remote_control_bound ?? s.remoteControlBound);
   // 被 QQ / Telegram 会话绑定的会话显示同一个电脑图标;/rc 的专属行为(换绑动画等)仍只看
   // remoteControlBound(openspec add-desktop-im-channels design D12)。
@@ -998,7 +1017,11 @@ function SessionRow({
       data-sidebar-pinned-workspace={pinned ? pinScope || undefined : undefined}
       data-sidebar-workspace-session-key={workspaceReorderable ? rowKey || undefined : undefined}
       data-sidebar-workspace-session-id={workspaceReorderable ? s.id || undefined : undefined}
-      data-sidebar-workspace-session-workspace={workspaceReorderable ? workspaceHash || undefined : undefined}
+      data-sidebar-workspace-session-workspace={workspaceReorderable ? pinScope || undefined : undefined}
+      data-sidebar-tree-key={!pinned ? sidebarNodeKey(s) : undefined}
+      data-sidebar-tree-parent={!pinned ? s.sidebar_parent_key || '' : undefined}
+      data-sidebar-tree-children={!pinned ? s.sidebar_child_count || 0 : undefined}
+      data-sidebar-tree-scheduled={!pinned ? sessionMarker === 'loop' : undefined}
       aria-describedby={hoverCardVisible ? hoverCardId : undefined}
       className={clsx(
         'ace-sidebar-session-row ace-sidebar-tree-row-grid ace-sidebar-primary-text group grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[7px] ml-1.5 mr-0 my-px pl-[3px] pr-[1px] rounded-md text-[14px] transition',
@@ -1007,6 +1030,10 @@ function SessionRow({
         dragging && 'is-dragging',
         dropPlacement === 'before' && 'is-drop-before',
         dropPlacement === 'after' && 'is-drop-after',
+        dropPlacement === 'inside' && 'is-drop-inside',
+        !pinned && s.sidebar_parent_key && 'ace-sidebar-session-tree-child',
+        active && 'is-tree-active',
+        hasTreeChildren && 'has-tree-children',
         !pinned && importHighlighted && 'is-opencode-import-highlight',
         remoteControlBound && 'is-remote-control-bound',
         active
@@ -1052,23 +1079,22 @@ function SessionRow({
           });
         }
       }}
-      onBlurCapture={hoverDetails ? (event) => {
+      onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
-          sessionHoverLifecycle.dispatch({
+          if (hoverDetails) sessionHoverLifecycle.dispatch({
             type: SESSION_HOVER_LIFECYCLE_ACTIONS.KEYBOARD_LEAVE,
             owner: hoverCardId,
           });
         }
-      } : undefined}
-      onPointerDown={pinned
-        ? (event) => onPinnedPointerDown?.(event, s, title)
-        : workspaceReorderable
-          ? (event) => onWorkspacePointerDown?.(event, s, title)
-          : undefined}
+      }}
+      onPointerDown={(event) => {
+        if (pinned) onPinnedPointerDown?.(event, s, title);
+        else if (workspaceReorderable) onWorkspacePointerDown?.(event, s, title);
+      }}
       onClick={(event) => {
         if (event.defaultPrevented) return;
         if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
-        onSelect?.(s);
+        selectRow();
       }}
     >
       {remoteControlSurging && (
@@ -1078,8 +1104,11 @@ function SessionRow({
           onAnimationEnd={() => finishRemoteControlSurge(activeRemoteControlSurgeSequenceRef.current)}
         />
       )}
-      <span className="relative flex w-6 h-7 items-center justify-center shrink-0">
-        <SessionAttentionIndicator attention={attention} meta={meta} />
+      <span className="ace-sidebar-session-tree-indicator relative flex w-6 h-7 items-center justify-center shrink-0">
+        {showTreeArrow
+          ? <VsIcon name="expandRight" size={14} aria-hidden="true"
+              className={clsx('ace-sidebar-session-tree-chevron', treeExpanded && 'is-expanded')} />
+          : <SessionAttentionIndicator attention={attention} meta={meta} />}
       </span>
       {editing ? (
         <form
@@ -1104,7 +1133,8 @@ function SessionRow({
       ) : (
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSelect(s); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectRow(); }}
+          aria-expanded={hasTreeChildren ? treeExpanded : undefined}
           aria-describedby={hoverCardVisible ? hoverCardId : undefined}
           aria-label={remoteControlBound
             ? tr('remoteControl.connectedSessionAria', { title })
@@ -1177,7 +1207,7 @@ function SessionRow({
           }}
           className={clsx(
             'ace-sidebar-row-hover-action w-[18px] h-7 rounded items-center justify-center shrink-0 text-fg-mute hover:text-fg hover:bg-surface-hi transition',
-            sessionMarker
+            sessionMarker === 'worktree'
               ? 'flex'
               : 'hidden group-hover:flex group-focus-within:flex',
           )}
@@ -1188,10 +1218,10 @@ function SessionRow({
               ? '工作树会话，归档'
               : '归档'}
         >
-          {sessionMarker ? (
+          {sessionMarker === 'worktree' ? (
             <span className="relative block w-[18px] h-[18px]" aria-hidden="true">
               <VsIcon
-                name={sessionMarker === 'loop' ? 'alarm' : 'worktree'}
+                name="worktree"
                 size={18}
                 className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
               />
@@ -1205,6 +1235,9 @@ function SessionRow({
             <VsIcon name="archive" size={18} />
           )}
         </button>
+        {sessionMarker === 'loop' && (
+          <VsIcon name="alarm" size={18} alt="定时任务" title="定时任务" className="shrink-0 text-fg-mute" />
+        )}
       </span>
       {hoverCardVisible && (
         <SessionHoverCard
@@ -1382,6 +1415,26 @@ function OpencodeImportDialog({
   );
 }
 
+function SessionTreeRows({ sessions, expandedGroups, dragState, children }) {
+  return sessions.map((session) => {
+    const key = `${sessionPinScope(session)}\u0000${sidebarNodeKey(session)}`;
+    const open = expandedGroups?.has(key) ? expandedGroups.get(key) : session.sidebar_expanded === true;
+    return (
+      <div key={session.id} className={clsx('ace-sidebar-session-tree-node',
+        dragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(session), session.id) && 'is-tree-dragging')}
+        data-tree-drop={dragState?.targetKey === sidebarSessionDragKey(sessionPinScope(session), session.id) ? dragState.placement : undefined}
+        data-sidebar-tree-node={sidebarNodeKey(session)}>
+        {children(session, open)}
+        {open && session.sidebar_children?.length > 0 && (
+          <div className="ace-sidebar-session-tree-children">
+            {session.sidebar_children.map((child) => <Fragment key={child.id}>{children(child, false)}</Fragment>)}
+          </div>
+        )}
+      </div>
+    );
+  });
+}
+
 function WorkspaceGroup({
   ws,
   expanded,
@@ -1415,6 +1468,8 @@ function WorkspaceGroup({
   opencodeImportedHighlightKeys = new Set(),
   remoteControlSurgeRequest = null,
   onRemoteControlSurgeCompleted,
+  expandedSessionGroups,
+  onToggleSessionGroup,
 }) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(ws.name);
@@ -1598,12 +1653,14 @@ function WorkspaceGroup({
             </div>
           ) : (
             <>
-              {projectedSessions.visibleSessions.map((s) => {
+              <SessionTreeRows sessions={projectedSessions.visibleSessions} expandedGroups={expandedSessionGroups} dragState={workspaceDragState}>{(s, treeExpanded) => {
                 const rowKey = sidebarSessionDragKey(ws.hash, s.id);
                 return (
                   <SessionRow
                     key={s.id}
                     s={s}
+                    treeExpanded={treeExpanded}
+                    onToggleTree={onToggleSessionGroup}
                     workspaceReorderable
                     active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
                     pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
@@ -1620,7 +1677,7 @@ function WorkspaceGroup({
                     onRemoteControlSurgeCompleted={onRemoteControlSurgeCompleted}
                   />
                 );
-              })}
+              }}</SessionTreeRows>
               {projectedSessions.collapsible && (
                 <div className="ace-sidebar-tree-row-grid grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[7px] mx-1.5 pl-[3px] pr-[14px]">
                   <span aria-hidden="true" />
@@ -1656,6 +1713,10 @@ function NoWorkspaceSessionGroup({
   pendingQuestionSessionIds,
   remoteControlSurgeRequest = null,
   onRemoteControlSurgeCompleted,
+  expandedSessionGroups,
+  onToggleSessionGroup,
+  onWorkspacePointerDown,
+  workspaceDragState,
 }) {
   const projectedSessions = sidebarSessionProjection(sessions, sessionListVisibleLimit);
 
@@ -1668,10 +1729,16 @@ function NoWorkspaceSessionGroup({
         </div>
       ) : (
         <>
-          {projectedSessions.visibleSessions.map((s) => (
+          <SessionTreeRows sessions={projectedSessions.visibleSessions} expandedGroups={expandedSessionGroups} dragState={workspaceDragState}>{(s, treeExpanded) => (
             <SessionRow
               key={`no-workspace-${s.id}`}
               s={s}
+              treeExpanded={treeExpanded}
+              onToggleTree={onToggleSessionGroup}
+              workspaceReorderable
+              onWorkspacePointerDown={onWorkspacePointerDown}
+              dragging={workspaceDragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(s), s.id)}
+              dropPlacement={workspaceDragState?.targetKey === sidebarSessionDragKey(sessionPinScope(s), s.id) ? workspaceDragState.placement : ''}
               active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
               pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
               pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
@@ -1682,7 +1749,7 @@ function NoWorkspaceSessionGroup({
               remoteControlSurgeRequest={remoteControlSurgeRequest}
               onRemoteControlSurgeCompleted={onRemoteControlSurgeCompleted}
             />
-          ))}
+          )}</SessionTreeRows>
           {projectedSessions.collapsible && (
             <div className="ace-sidebar-tree-row-grid grid grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-x-[7px] mx-1.5 pl-[3px] pr-[14px]">
               <span aria-hidden="true" />
@@ -1776,6 +1843,15 @@ export function Sidebar({
   const [sessionListTotals, setSessionListTotals] = useState(() => new Map());
   const [expanded,    setExpanded]    = useState(new Set());
   const [expandedSessionLists, setExpandedSessionLists] = useState(new Map());
+  const [expandedSessionGroups, setExpandedSessionGroups] = useState(() => new Map());
+  const expandedSessionGroupsRef = useRef(expandedSessionGroups);
+  expandedSessionGroupsRef.current = expandedSessionGroups;
+  const treeNavigationRef = useRef(null);
+  const treeReloadRef = useRef(null);
+  const treeApplyRef = useRef(null);
+  const treeSavingRef = useRef(false);
+  const treeRevisionRef = useRef(0);
+  const treeRevealRequestedRef = useRef('');
   const expandedSessionListsRef = useRef(expandedSessionLists);
   expandedSessionListsRef.current = expandedSessionLists;
   const [sectionExpansion, setSectionExpansion] = usePreference(
@@ -1865,6 +1941,54 @@ export function Sidebar({
     () => sidebarRevealTarget(sessionSelectionIntent?.target || activeRef),
     [activeRef, sessionSelectionIntent],
   );
+  treeNavigationRef.current = selectedRevealTarget;
+  const sidebarTreeOptions = useCallback((scope, limit) => {
+    const prefix = `${scope}\u0000`;
+    const target = treeNavigationRef.current;
+    const targetScope = target?.noWorkspace ? NO_WORKSPACE_PIN_SCOPE : target?.workspaceHash;
+    return {
+      limit,
+      expanded: [...expandedSessionGroupsRef.current].filter(([key, open]) => open && key.startsWith(prefix))
+        .map(([key]) => key.slice(prefix.length)),
+      reveal: targetScope === scope && revealedSessionTargetRef.current !== sidebarRevealTargetKey(target)
+        ? target?.sessionId : undefined,
+    };
+  }, []);
+  const acceptSidebarTreePage = useCallback((scope, page) => {
+    if (!page?.sidebarTree) return;
+    setExpandedSessionGroups((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const session of page.sessions) {
+        if (!session.sidebar_expanded || !session.sidebar_child_count) continue;
+        const key = `${scope}\u0000${sidebarNodeKey(session)}`;
+        if (next.get(key) !== true) { next.set(key, true); changed = true; }
+      }
+      if (changed) expandedSessionGroupsRef.current = next;
+      return changed ? next : prev;
+    });
+    const requestedRoots = (expandedSessionListsRef.current.get(scope) || 5)
+      + normalizePinnedIds(pinnedByWorkspaceRef.current.get(scope) || []).length;
+    if (scope !== NO_WORKSPACE_PIN_SCOPE && page.visibleRoots > requestedRoots) {
+      setExpandedSessionLists((prev) => {
+        const next = new Map(prev).set(scope, Math.ceil(page.visibleRoots / 5) * 5);
+        expandedSessionListsRef.current = next;
+        return next;
+      });
+    }
+  }, []);
+  const toggleSessionGroup = useCallback((session) => {
+    if (suppressSessionClickRef.current || treeSavingRef.current) return;
+    const scope = sessionPinScope(session);
+    const key = `${scope}\u0000${sidebarNodeKey(session)}`;
+    const previous = expandedSessionGroupsRef.current;
+    const open = previous.has(key) ? previous.get(key) : session.sidebar_expanded === true;
+    const next = new Map(previous).set(key, !open);
+    expandedSessionGroupsRef.current = next;
+    setExpandedSessionGroups(next);
+    treeRevisionRef.current += 1;
+    treeReloadRef.current?.(scope);
+  }, []);
   const activeNavigationIdentity = useMemo(
     () => sidebarNavigationIdentity(activeRef),
     [activeRef],
@@ -2163,15 +2287,22 @@ export function Sidebar({
     });
   }, [finishPinnedDrag, folderGestureRef, showSessionTime, updatePinnedDragTarget, updateSessionDragScroll]);
 
-  const updateWorkspaceDragTarget = useCallback((clientY) => {
+  const updateWorkspaceDragTarget = useCallback((clientY, clientX) => {
     const drag = workspaceDragRef.current;
     if (!drag) return;
-    const target = workspaceDropTargetForPointer(clientY, drag.workspaceHash);
-    if (!target) return;
+    drag.lastX = clientX ?? drag.lastX ?? drag.startX;
+    const target = workspaceDropTargetForPointer(clientY, drag.workspaceHash, drag.sourceId, drag.lastX);
+    if (!target) {
+      drag.targetId = '';
+      drag.targetKey = '';
+      setWorkspaceDragState({ sourceKey: drag.sourceKey, targetKey: '', placement: '' });
+      return;
+    }
     drag.targetWorkspaceHash = drag.workspaceHash;
     drag.targetId = target.targetId;
     drag.targetKey = target.targetKey;
     drag.placement = target.placement;
+    drag.targetTreeKey = target.key;
     setWorkspaceDragState({
       sourceKey: drag.sourceKey,
       targetKey: target.targetKey,
@@ -2193,19 +2324,37 @@ export function Sidebar({
         suppressSessionClickRef.current = false;
       }, 80);
     }
-    if (commit && drag.dragging) {
-      setSessions((prev) => reorderSidebarWorkspaceSession(
-        prev,
-        drag.workspaceHash,
-        drag.sourceId,
-        drag.targetId,
-        drag.placement || 'before',
-      ));
+    if (commit && drag.dragging && drag.targetTreeKey && drag.targetId && !treeSavingRef.current) {
+      const source = sessionsRef.current.find(session => session.id === drag.sourceId && sessionPinScope(session) === drag.workspaceHash);
+      if (!source) return;
+      treeSavingRef.current = true;
+      treeRevisionRef.current += 1;
+      workspaceSessionLoadSeqRef.current.set(drag.workspaceHash, (workspaceSessionLoadSeqRef.current.get(drag.workspaceHash) || 0) + 1);
+      const scope = drag.workspaceHash;
+      const opts = sidebarTreeOptions(scope, scope === NO_WORKSPACE_PIN_SCOPE ? 0 : (expandedSessionListsRef.current.get(scope) || 5));
+      api.moveSidebarSession(scope === NO_WORKSPACE_PIN_SCOPE ? '' : scope, {
+        source: sidebarNodeKey(source), target: drag.targetTreeKey, placement: drag.placement,
+      }, opts).then((raw) => {
+        const page = normalizeWorkspaceSessionListResponse(raw);
+        treeApplyRef.current?.(scope, page);
+        const moved = page.sessions.find(row => sidebarNodeKey(row) === sidebarNodeKey(source) || row.id === source.id);
+        const root = moved?.sidebar_parent_key
+          ? page.sessions.find(row => sidebarNodeKey(row) === moved.sidebar_parent_key) : moved;
+        if (root && root.sidebar_rank >= 5) {
+          setExpandedSessionLists(prev => {
+            const next = new Map(prev).set(scope, Math.ceil((root.sidebar_rank + 1) / 5) * 5);
+            expandedSessionListsRef.current = next;
+            return next;
+          });
+        }
+      }).catch(() => {
+        toast({ kind: 'err', text: tr('保存会话分组失败，请重试') });
+      }).finally(() => { treeSavingRef.current = false; });
     }
-  }, []);
+  }, [sidebarTreeOptions]);
 
   const handleWorkspacePointerDown = useCallback((event, session, title) => {
-    if (folderGestureRef.current) return;
+    if (folderGestureRef.current || treeSavingRef.current) return;
     startSidebarSessionPointerDrag({
       showSessionTime,
       event,
@@ -2307,12 +2456,13 @@ export function Sidebar({
   const applyWorkspaceSessionList = useCallback((workspace, page, { appendNewSessions = false } = {}) => {
     const hash = workspace?.hash || '';
     if (!hash) return;
+    acceptSidebarTreePage(hash, page);
     const list = page?.sessions;
     const total = page?.total;
     const incoming = (Array.isArray(list) ? list : [])
       .filter((session) => !isNoWorkspaceSession(session))
       .map((session) => normalizeWorkspaceSession(session, workspace));
-    const knownTotal = Number.isFinite(total) && total >= incoming.length
+    const knownTotal = page?.sidebarTree ? page.total : Number.isFinite(total) && total >= incoming.length
       ? Math.floor(total)
       : incoming.length;
     setSessionListTotals((prev) => {
@@ -2336,7 +2486,7 @@ export function Sidebar({
     // 后端截断时 total 只是上界,拿 length 比它会把「已全量」判错;has_more
     // 才是权威信号。
     markWorkspaceSessionsFullyLoaded(hash, page?.hasMore === false);
-  }, [markWorkspaceSessionsFullyLoaded, setSessionWorkspacesLoaded]);
+  }, [acceptSidebarTreePage, markWorkspaceSessionsFullyLoaded, setSessionWorkspacesLoaded]);
 
   const loadWorkspaceSessions = useCallback(async (hash, { visibleCount, silent = false } = {}) => {
     const workspaceHash = String(hash || '').trim();
@@ -2361,7 +2511,7 @@ export function Sidebar({
     workspaceSessionLoadSeqRef.current.set(workspaceHash, sequence);
     const pagePromise = (async () => {
       return normalizeWorkspaceSessionListResponse(
-        await api.listWorkspaceSessions(workspaceHash, query),
+        await api.listSidebarSessions(workspaceHash, sidebarTreeOptions(workspaceHash, query.limit)),
       );
     })();
     pendingWorkspaceLoadsRef.current.set(workspaceHash, { sequence, query, promise: pagePromise });
@@ -2379,7 +2529,27 @@ export function Sidebar({
         setSessionWorkspaceLoading([workspaceHash], false);
       }
     }
-  }, [applyWorkspaceSessionList, setSessionWorkspaceLoading, workspaces]);
+  }, [applyWorkspaceSessionList, setSessionWorkspaceLoading, sidebarTreeOptions, workspaces]);
+
+  treeApplyRef.current = (scope, page) => {
+    if (scope !== NO_WORKSPACE_PIN_SCOPE) {
+      applyWorkspaceSessionList(workspaces.find(workspace => workspace.hash === scope) || { hash: scope }, page);
+      return;
+    }
+    acceptSidebarTreePage(scope, page);
+    const incoming = page.sessions.filter(isNoWorkspaceSession).map(normalizeNoWorkspaceSession);
+    setSessions(previous => retainUnrefreshedSidebarSessions(previous, incoming, {
+      refreshNoWorkspace: true, pinnedByWorkspace: pinnedByWorkspaceRef.current,
+    }));
+  };
+  treeReloadRef.current = async (scope) => {
+    if (scope !== NO_WORKSPACE_PIN_SCOPE) return loadWorkspaceSessions(scope, { silent: true });
+    const revision = treeRevisionRef.current;
+    try {
+      const data = await api.listSidebarSessions('', sidebarTreeOptions(scope, 0));
+      if (revision === treeRevisionRef.current) treeApplyRef.current(scope, normalizeWorkspaceSessionListResponse(data));
+    } catch { toast({ kind: 'err', text: tr('读取会话分组失败，请重试') }); }
+  };
 
   const toggleSessionListExpanded = useCallback((hash, action) => {
     if (!hash) return;
@@ -2420,6 +2590,8 @@ export function Sidebar({
   }, [togglePinnedSession]);
 
   const refresh = useCallback(async (preferredHash = null) => {
+    if (treeSavingRef.current) return;
+    const treeRevision = treeRevisionRef.current;
     const { activeWorkspaceHash, revealTarget } = refreshSelectionRef.current;
     const revealWorkspaceHash = revealTarget.noWorkspace ? '' : revealTarget.workspaceHash;
     const requestedHash = preferredHash == null
@@ -2495,9 +2667,9 @@ export function Sidebar({
         return {
           workspace,
           ...normalizeWorkspaceSessionListResponse(
-            await api.listWorkspaceSessions(
+            await api.listSidebarSessions(
               workspace.hash,
-              query,
+              sidebarTreeOptions(workspace.hash, query.limit),
             ),
           ),
         };
@@ -2542,7 +2714,7 @@ export function Sidebar({
         workspace.hash,
         startWorkspacePageLoad(workspace),
       ]));
-      const noWorkspaceListPromise = api.listSessions({ scope: 'no-workspace' }).catch(() => null);
+      const noWorkspaceListPromise = api.listSidebarSessions('', sidebarTreeOptions(NO_WORKSPACE_PIN_SCOPE, 0)).catch(() => null);
 
       const pinnedTargets = new Set(pinnedRefreshTargets(withActive, earlyVisibleWorkspaceHashes));
       const [pinnedPairs, noWorkspacePinnedIds] = await Promise.all([
@@ -2636,7 +2808,10 @@ export function Sidebar({
           return { workspace, sequence: request.sequence, result };
         }));
         // 所有等待结束后再检查代次，不能让这里较慢的请求造成旧摘要回写。
-        const noWorkspaceRaw = await noWorkspaceListPromise;
+        const noWorkspaceResponse = await noWorkspaceListPromise;
+        const noWorkspaceRaw = treeRevision === treeRevisionRef.current && noWorkspaceResponse
+          ? normalizeWorkspaceSessionListResponse(noWorkspaceResponse) : null;
+        if (noWorkspaceRaw) acceptSidebarTreePage(NO_WORKSPACE_PIN_SCOPE, noWorkspaceRaw);
         const perWorkspace = settledPages.flatMap(({ workspace, sequence, result }) => {
           if (!result.ok) return [];
           if (sequence !== undefined && !sidebarWorkspacePageIsCurrent(
@@ -2647,10 +2822,10 @@ export function Sidebar({
         refreshedWorkspaceHashes = perWorkspace
           .map((item) => item.workspace?.hash)
           .filter(Boolean);
-        const noWorkspaceIncoming = (Array.isArray(noWorkspaceRaw) ? noWorkspaceRaw : [])
+        const noWorkspaceIncoming = (noWorkspaceRaw?.sessions || [])
           .filter(isNoWorkspaceSession)
           .map(normalizeNoWorkspaceSession);
-        if (Array.isArray(noWorkspaceRaw)) desktopTaskbarBadge.replaceScope('', noWorkspaceIncoming);
+        if (noWorkspaceRaw) desktopTaskbarBadge.replaceScope('', noWorkspaceIncoming);
         const incomingWorkspaceSessions = perWorkspace.flatMap((item) => (
           (Array.isArray(item.sessions) ? item.sessions : [])
             .filter((session) => !isNoWorkspaceSession(session))
@@ -2673,7 +2848,7 @@ export function Sidebar({
         setSessions((prev) => retainUnrefreshedSidebarSessions(prev, incoming, {
           refreshedWorkspaceHashes,
           pinnedByWorkspace: pinnedByWorkspaceRef.current,
-          refreshNoWorkspace: true,
+          refreshNoWorkspace: !!noWorkspaceRaw,
         }));
         setStatusBySession((prev) => incoming.reduce((map, s) => applyStatusUpdate(map, {
           ...s,
@@ -2700,7 +2875,7 @@ export function Sidebar({
       pendingRefreshHashRef.current = '';
       if (pendingHash) setTimeout(() => refresh(pendingHash).catch(() => {}), 0);
     }
-  }, [applyWorkspaceSessionList, markWorkspaceSessionsFullyLoaded, refreshOpencodeImportPreview, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, syncRetainedSessionIds, updateExpanded]);
+  }, [acceptSidebarTreePage, applyWorkspaceSessionList, markWorkspaceSessionsFullyLoaded, refreshOpencodeImportPreview, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, sidebarTreeOptions, syncRetainedSessionIds, updateExpanded]);
   workspaceOrderRefreshRef.current = refresh;
 
   const archiveSession = useCallback(async (session) => {
@@ -2899,6 +3074,27 @@ export function Sidebar({
     () => pinnedSessionsForList(renderedSessions, pinnedByWorkspace, pinnedOrderItems),
     [pinnedByWorkspace, pinnedOrderItems, renderedSessions],
   );
+  useEffect(() => {
+    const target = selectedRevealTarget;
+    if (!target.sessionId) return;
+    const key = sidebarRevealTargetKey(target);
+    if (revealedSessionTargetRef.current === key) return;
+    const row = renderedSessions.find(session => sessionMatchesRevealTarget(session, target));
+    const scope = target.noWorkspace ? NO_WORKSPACE_PIN_SCOPE : target.workspaceHash;
+    if (!scope) return;
+    if (row?.sidebar_parent_key) {
+      const groupKey = `${scope}\u0000${row.sidebar_parent_key}`;
+      if (expandedSessionGroupsRef.current.get(groupKey) !== true) {
+        const next = new Map(expandedSessionGroupsRef.current).set(groupKey, true);
+        expandedSessionGroupsRef.current = next;
+        setExpandedSessionGroups(next);
+        treeReloadRef.current?.(scope);
+      }
+    } else if (!row && treeRevealRequestedRef.current !== key) {
+      treeRevealRequestedRef.current = key;
+      treeReloadRef.current?.(scope);
+    }
+  }, [selectedRevealTarget, renderedSessions]);
   const unpinnedNoWorkspaceSessions = useMemo(
     () => filterPinnedSessions(noWorkspaceSessions, pinnedByWorkspace),
     [noWorkspaceSessions, pinnedByWorkspace],
@@ -2906,7 +3102,7 @@ export function Sidebar({
   const sectionCounts = useMemo(
     () => sidebarSectionCounts({
       pinnedSessions,
-      noWorkspaceSessions: unpinnedNoWorkspaceSessions,
+      noWorkspaceSessions: sidebarSessionRoots(unpinnedNoWorkspaceSessions),
       workspaces,
     }),
     [pinnedSessions, unpinnedNoWorkspaceSessions, workspaces],
@@ -3726,10 +3922,14 @@ export function Sidebar({
                 sessions={unpinnedNoWorkspaceSessions}
                 sessionsLoading={false}
                 sessionListVisibleLimit={expandedSessionLists.get(NO_WORKSPACE_SESSION_LIST_KEY)}
+                expandedSessionGroups={expandedSessionGroups}
+                onToggleSessionGroup={toggleSessionGroup}
+                onWorkspacePointerDown={handleWorkspacePointerDown}
+                workspaceDragState={workspaceDragState}
                 onToggleSessionList={toggleSessionListExpanded}
                 activeId={activeId}
                 activeTarget={selectedRevealTarget}
-                onSelect={(session) => selectSession({ noWorkspace: true }, session)}
+                onSelect={(session) => { if (!suppressSessionClickRef.current) selectSession({ noWorkspace: true }, session); }}
                 onTogglePin={togglePinnedSession}
                 onArchive={archiveSession}
                 onRenameSession={renameSession}
@@ -3790,7 +3990,9 @@ export function Sidebar({
                       onToggle={onToggle}
                       sessions={items}
                       sessionListVisibleLimit={expandedSessionLists.get(ws.hash)}
-                      sessionListTotal={sessionFullyLoadedWorkspaces.has(ws.hash) ? items.length : sessionListTotals.get(ws.hash)}
+                      sessionListTotal={sessionFullyLoadedWorkspaces.has(ws.hash) ? sidebarSessionRoots(items).length : sessionListTotals.get(ws.hash)}
+                      expandedSessionGroups={expandedSessionGroups}
+                      onToggleSessionGroup={toggleSessionGroup}
                       onToggleSessionList={toggleSessionListExpanded}
                       activeId={activeId}
                       activeTarget={selectedRevealTarget}

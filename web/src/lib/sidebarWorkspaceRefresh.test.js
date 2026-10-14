@@ -63,8 +63,8 @@ function fixture({
     revealTarget: { noWorkspace: false, workspaceHash: 'w' },
     api: {
       listWorkspaces: () => workspaceList?.promise || Promise.resolve([workspace, ...otherWorkspaces]),
-      listSessions: () => noWorkspace?.promise || Promise.resolve([]),
-      listWorkspaceSessions: (hash, query) => {
+      listSidebarSessions: (hash, query) => {
+        if (!hash) return noWorkspace?.promise || Promise.resolve([]);
         const request = { hash, query, ...deferred() };
         requests.push(request);
         return request.promise;
@@ -79,6 +79,8 @@ function fixture({
     connection: { subscribeWorkspaceStatus() {} },
     refreshOpencodeImportPreview: async () => {},
     syncRetainedSessionIds() {}, cancelSessionSelection() {}, onOpenHome() {}, onBeforeNavigate: null,
+    acceptSidebarTreePage() {},
+    sidebarTreeOptions: (scope, limit) => ({ limit }),
     setPinnedMap: (value) => { context.pinnedByWorkspaceRef.current = value; },
     setPinnedOrder: (value) => { context.pinnedOrderItemsRef.current = value; },
     updateExpanded: (updater) => { context.expandedRef.current = updater(context.expandedRef.current); },
@@ -92,6 +94,7 @@ function fixture({
     workspaceSessionLoadSeqRef: new Map(),
     pendingWorkspaceLoadsRef: new Map(),
     refreshingRef: false, pendingRefreshHashRef: '',
+    treeSavingRef: false, treeRevisionRef: 0,
     refreshSelectionRef: { activeWorkspaceHash: 'w', revealTarget: { noWorkspace: false, workspaceHash: 'w' } },
     expandedRef: new Set(['w']),
     workspaceCollapseAllRef: false, userCollapsedWorkspacesRef: new Set(),
@@ -389,7 +392,7 @@ test('runtime promotion and internal workspace selection do not change refresh d
 });
 
 test('sidebar default session list is explicitly scoped to no-workspace tasks', () => {
-  assert.match(source, /api.listSessions\(\{ scope: 'no-workspace' \}\)/);
+  assert.match(source, /api.listSidebarSessions\('', sidebarTreeOptions\(NO_WORKSPACE_PIN_SCOPE, 0\)\)/);
   assert.doesNotMatch(source, /api.listSessions\(\)/);
 });
 

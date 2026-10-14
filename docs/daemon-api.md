@@ -794,9 +794,64 @@ rows, so it does not learn the exact post-filter count:
   `sessions.length` against `total` — that comparison is wrong whenever
   `total_exact` is false.
 
-This bound is why the sidebar's collapsed 5-row list is cheap: a workspace with
+This bound keeps legacy flat-list callers cheap: a workspace with
 1400 sessions opens ~13 metadata files instead of all 1400, which on Windows is
 the difference between roughly 7 s and a few ms per request.
+
+### `GET /api/workspaces/:hash/session-sidebar` and `GET /api/session-sidebar`
+
+The second route lists no-workspace sessions only. These opt-in sidebar routes
+exclude archived sessions and background subagents, group scheduled executions
+by their persisted `loop_execution.loop_id`, then paginate root items. Existing
+flat session-list routes retain their original protocol.
+
+- `limit=N`: maximum root items (0/omitted means all). History rows do not count.
+- `expanded`: URL-encoded JSON array of stable node keys whose complete children
+  should be included, e.g. `["loop:task-id"]`.
+- `reveal=session-id`: include the root containing this session, increasing the
+  requested root page when necessary, and expand that root for a history target.
+
+Response: `{sessions, total, total_exact:true, has_more, sidebar_tree:true,
+visible_roots}`. `total` and `visible_roots` count non-pinned roots, while
+`sessions` is a flat array containing those roots, the children of expanded
+roots, and separately pinned rows. Every non-pinned row adds `sidebar_key`,
+`sidebar_parent_key` (empty for roots), `sidebar_child_count`, `sidebar_rank`
+(within siblings), and `sidebar_expanded` to the normal session summary.
+Clients must not compare `sessions.length` with root totals.
+
+Automatic group keys use `loop:<task-id>`; leaf keys use `session:<session-id>`.
+The newest non-detached execution by creation time represents an automatic
+group. Selecting old history does not replace it. Metadata parsing is cached
+by file modification time and size; transcript bodies are never read here.
+
+### `POST /api/workspaces/:hash/session-sidebar` and `POST /api/session-sidebar`
+
+The same query parameters apply. Body:
+
+```json
+{"source":"session:older-run","target":"loop:task-id","placement":"inside"}
+```
+
+`placement` is `before`, `after`, or `inside`. Moves remain within the endpoint's
+scope. Only a scheduled root with `loop_execution.loop_id` (the alarm marker)
+can accept children, including an empty group or a detached scheduled execution.
+Ordinary sessions may reorder or become children but cannot become parents.
+A root with children can only reorder at the root; a child cannot accept
+children. Moving a single-run automatic group into a scheduled parent detaches that
+execution; future scheduled executions form their own automatic group.
+Self moves, stale targets, and third-level relationships return HTTP 409 with
+`SIDEBAR_TARGET_CHANGED` or `SIDEBAR_TWO_LEVELS_ONLY`. An ordinary destination
+parent returns 409/`SIDEBAR_SCHEDULED_PARENT_ONLY`; malformed bodies return 400.
+Save failures return 500/`SIDEBAR_SAVE_FAILED`. Successful moves return the new
+sidebar page and reveal the destination.
+
+Relationships and sibling order are atomically persisted in the scope's
+`sidebar_sessions.json`, separately from task provenance and subagent
+`parent_session_id`. An explicit empty parent keeps a detached execution at the
+root after reload and future runs. Missing or archived parents promote their
+manual children; removing an automatic representative selects the next run.
+Reading a legacy layout that assigns children to an ordinary session promotes
+those children to roots without changing their execution provenance.
 
 ### `POST /api/workspaces/:hash/sessions`
 

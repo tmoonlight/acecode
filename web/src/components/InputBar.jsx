@@ -73,9 +73,10 @@ import {
   unsafeReferencePath,
 } from '../lib/pathReference.js';
 import {
-  loadSessionReferenceData,
+  canLoadSessionReferences,
   rankSessionReferenceCandidates,
   replaceQueryWithSessionReference,
+  searchSessionReferenceData,
 } from '../lib/sessionReference.js';
 import {
   hasNativeContextPicker,
@@ -232,7 +233,7 @@ export const InputBar = forwardRef(function InputBar({
   onRemoveExpert,
   onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
-  pathReferenceApi = null, cwd = '', currentSessionId = '',
+  pathReferenceApi = null, cwd = '', currentSessionId = '', showSessionTime = true,
   fileDropManagedExternally = false, onFileDragActiveChange,
   sessionControls = null,
 }, ref) {
@@ -665,7 +666,7 @@ export const InputBar = forwardRef(function InputBar({
     const { directory, filter } = splitPathReferenceQuery(token.path);
     const pathUnsafe = unsafeReferencePath(token.path);
     const canLoadFiles = !!cwd && !pathUnsafe && typeof pathReferenceApi.listFiles === 'function';
-    const canLoadSessions = typeof pathReferenceApi.listAllWorkspaceSessions === 'function';
+    const canLoadSessions = canLoadSessionReferences(pathReferenceApi);
     const generation = ++mentionGenerationRef.current;
     setPathMention({
       token,
@@ -704,28 +705,36 @@ export const InputBar = forwardRef(function InputBar({
     }
 
     let sessionTimer = 0;
+    const sessionAbort = canLoadSessions && typeof AbortController === 'function'
+      ? new AbortController()
+      : null;
     if (canLoadSessions) {
       const query = String(token.path || '').trim();
+      const rankedSessions = (data) => rankSessionReferenceCandidates({
+        sessions: data?.sessions || [],
+        query,
+        currentSessionId,
+        noWorkspaceLabel: t('pathReference.task'),
+      });
       sessionTimer = window.setTimeout(() => {
-        const listPromise = loadSessionReferenceData(pathReferenceApi);
-        const contentPromise = query && typeof pathReferenceApi.searchSessionUserMessages === 'function'
-          ? Promise.resolve(pathReferenceApi.searchSessionUserMessages(query, 100))
-          : Promise.resolve({ matches: [] });
-        Promise.all([listPromise, contentPromise])
-          .then(([data, content]) => {
+        // 有查询词时由服务端在全量会话目录里过滤;只拿最近会话在本地过滤会漏掉旧会话。
+        searchSessionReferenceData(pathReferenceApi, query, {
+          signal: sessionAbort?.signal,
+          onPartial: (data) => updateMention({
+            sessionItems: rankedSessions(data),
+            sessionLoading: true,
+            sessionError: '',
+          }),
+        })
+          .then((data) => {
             updateMention({
-              sessionItems: rankSessionReferenceCandidates({
-                sessions: data?.sessions || [],
-                contentMatches: Array.isArray(content?.matches) ? content.matches : [],
-                query,
-                currentSessionId,
-                noWorkspaceLabel: t('pathReference.task'),
-              }),
+              sessionItems: rankedSessions(data),
               sessionLoading: false,
               sessionError: '',
             });
           })
           .catch((error) => {
+            if (error?.name === 'AbortError') return;
             updateMention({
               sessionItems: [],
               sessionLoading: false,
@@ -737,6 +746,7 @@ export const InputBar = forwardRef(function InputBar({
 
     return () => {
       if (sessionTimer) window.clearTimeout(sessionTimer);
+      sessionAbort?.abort();
       mentionGenerationRef.current += 1;
     };
   }, [
@@ -1584,6 +1594,7 @@ export const InputBar = forwardRef(function InputBar({
           <PathReferenceDropdown
             fileItems={activePathDropdown.fileItems || []}
             sessionItems={activePathDropdown.sessionItems || []}
+            showSessionTime={showSessionTime}
             fileLoading={!!activePathDropdown.fileLoading}
             sessionLoading={!!activePathDropdown.sessionLoading}
             fileError={activePathDropdown.fileError || ''}

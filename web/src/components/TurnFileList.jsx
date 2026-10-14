@@ -57,8 +57,8 @@ export const TurnFileList = memo(function TurnFileList({
           <button
             type="button"
             className="ace-turn-file-target"
-            onClick={() => onOpenFile?.(item.file)}
-            title={item.file}
+            onClick={() => onOpenFile?.(item.openPath)}
+            title={item.openPath}
           >
             <span className="sr-only"><span>打开文件</span> {item.displayPath}</span>
           </button>

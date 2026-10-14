@@ -125,7 +125,7 @@ test('manual session batches survive late data and count only non-pinned rows at
   const toggle = sidebar.slice(toggleStart, toggleEnd);
   assert.match(toggle, /const collapsing = action === 'collapse'/);
   assert.doesNotMatch(toggle, /\.then\(/);
-  assert.match(sidebar, /sessionListTotal=\{sessionFullyLoadedWorkspaces\.has\(ws\.hash\) \? items\.length : sessionListTotals\.get\(ws\.hash\)\}/);
+  assert.match(sidebar, /sessionListTotal=\{sessionFullyLoadedWorkspaces\.has\(ws\.hash\) \? sidebarSessionRoots\(items\)\.length : sessionListTotals\.get\(ws\.hash\)\}/);
   const controls = [...sidebar.matchAll(/<button\s+type="button"\s+onClick=\{\(\) => onToggleSessionList\?\.[\s\S]*?<\/button>/g)];
   assert.equal(controls.length, 2);
   for (const [control] of controls) {

@@ -45,7 +45,7 @@ test('置顶投影包含任务且普通任务分组只接收未置顶任务', ()
   );
   assert.match(
     sidebar,
-    /sidebarSectionCounts\(\{[\s\S]*?noWorkspaceSessions: unpinnedNoWorkspaceSessions,[\s\S]*?workspaces,/,
+    /sidebarSectionCounts\(\{[\s\S]*?noWorkspaceSessions: sidebarSessionRoots\(unpinnedNoWorkspaceSessions\),[\s\S]*?workspaces,/,
   );
   assert.match(sidebar, /<NoWorkspaceSessionGroup[\s\S]*?sessions=\{unpinnedNoWorkspaceSessions\}/);
   assert.match(sidebar, /<NoWorkspaceSessionGroup[\s\S]*?onTogglePin=\{togglePinnedSession\}/);

@@ -1,6 +1,8 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '保存会话分组失败，请重试': 'Could not save the session group. Please try again.',
+  '读取会话分组失败，请重试': 'Could not load the session group. Please try again.',
   '修改快捷键': 'Edit shortcut',
   '此快捷键已用于“{{p0}}”，请换一组按键。': 'This shortcut is already used by “{{p0}}”. Choose another combination.',
   '无法保存快捷键，请检查本地存储后重试。': 'Could not save the shortcut. Check local storage and try again.',

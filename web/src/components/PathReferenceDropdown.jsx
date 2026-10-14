@@ -12,7 +12,7 @@ import {
   computeAnchoredDropdownLayout,
   DROPDOWN_GAP_PX,
 } from '../lib/dropdownPlacement.js';
-import { clsx } from '../lib/format.js';
+import { clsx, relativeTime } from '../lib/format.js';
 import { shouldHandleComposerDropdownKey } from '../lib/composerDropdownKeyboard.js';
 import {
   PATH_REFERENCE_KEY_ACTION,
@@ -34,6 +34,7 @@ export function PathReferenceDropdown({
   items = [],
   fileItems = null,
   sessionItems = [],
+  showSessionTime = true,
   loading = false,
   fileLoading = null,
   sessionLoading = false,
@@ -283,6 +284,7 @@ export function PathReferenceDropdown({
             ) : sessionError ? (
               <div className="px-3 py-3 text-center text-danger text-[12px]">{sessionError}</div>
             ) : sessions.map((item, index) => {
+              const timeText = showSessionTime ? relativeTime(item.updated_at || item.created_at) : '';
               const selectableIndex = files.length + index;
               const active = selectableIndex === selected;
               return (
@@ -315,6 +317,11 @@ export function PathReferenceDropdown({
                         {item.workspaceName}
                       </span>
                     </span>
+                    {timeText && (
+                      <span className="shrink-0 whitespace-nowrap text-[11px] text-fg-mute">
+                        {timeText}
+                      </span>
+                    )}
                   </button>
                 </div>
               );

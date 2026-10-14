@@ -118,6 +118,16 @@ int project_creation_http_status(ProjectCreationError error) {
 } // namespace
 
 void WebServer::Impl::register_workspaces() {
+        CROW_ROUTE(app, "/api/workspaces/<string>/session-sidebar")
+            .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST, crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string& hash) {
+            return handle_sidebar_sessions(req, hash);
+        });
+        CROW_ROUTE(app, "/api/session-sidebar")
+            .methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST, crow::HTTPMethod::Options)
+        ([this](const crow::request& req) {
+            return handle_sidebar_sessions(req, {});
+        });
         CROW_ROUTE(app, "/api/workspaces/<string>/draft").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);

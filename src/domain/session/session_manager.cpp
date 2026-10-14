@@ -522,7 +522,8 @@ std::optional<TurnNetDiffRecord> SessionManager::finalize_user_turn_net_diff(
     if (!ensure_created()) return std::nullopt;
 
     ensure_file_checkpoints_loaded_locked();
-    TurnNetDiffRecord record = checkpoint_store_.build_active_turn_net_diff(cwd_);
+    TurnNetDiffRecord record = checkpoint_store_.build_active_turn_net_diff(
+        cwd_, worktree_.worktree_path);
     if (record.user_message_uuid != user_message_uuid) {
         record.complete = false;
         record.errors.push_back(
