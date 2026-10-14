@@ -1,4 +1,4 @@
-name: Recover v1.0.6 Deepin assets
+name: Recover v1.0.6 Deepin ARMv7 asset
 'on':
   push:
     branches:
@@ -7,7 +7,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: recover-v1.0.6-deepin
+  group: recover-v1.0.6-deepin-armv7
   cancel-in-progress: false
 jobs:
   build-web-ui:
@@ -97,20 +97,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - id: linux-deepin-x64
-          os: ubuntu-22.04
-          triplet: x64-linux
-          executable: acecode
-          archive_extension: tar.gz
-          build_desktop: true
-          cmake_extra_args: -DACECODE_BUILD_DESKTOP=ON -DACECODE_DEEPIN=ON -DWEBVIEW_WEBKITGTK_API=4.0
-        - id: linux-deepin-arm64
-          os: ubuntu-22.04-arm
-          triplet: arm64-linux
-          executable: acecode
-          archive_extension: tar.gz
-          build_desktop: true
-          cmake_extra_args: -DACECODE_BUILD_DESKTOP=ON -DACECODE_DEEPIN=ON -DWEBVIEW_WEBKITGTK_API=4.0
         - id: linux-deepin-armv7
           os: ubuntu-22.04
           triplet: arm-linux
@@ -178,6 +164,19 @@ jobs:
             qemu-user
           )
         fi
+        # A regional archive CDN keeps returning a cached 404 for this existing file.
+        # Select exactly the APT candidate and verify its signed-index SHA256.
+        ace_candidate="$(apt-cache policy libclang-cpp11 | awk '/Candidate:/{print $2; exit}')"
+        ace_record="$(apt-cache show "libclang-cpp11=$ace_candidate")"
+        ace_package="$(printf '%s\n' "$ace_record" | awk '/^Filename:/{print $2; exit}')"
+        ace_expected="$(printf '%s\n' "$ace_record" | awk '/^SHA256:/{print $2; exit}')"
+        test -n "$ace_package" && test "${#ace_expected}" = "64"
+        ace_cache="/var/cache/apt/archives/$(basename "$ace_package")"
+        curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+          "https://archive.debian.org/debian/$ace_package?acecode-recovery=$GITHUB_RUN_ID" \
+          --output "$ace_cache.acecode-download"
+        printf '%s  %s\n' "$ace_expected" "$ace_cache.acecode-download" | sha256sum --check -
+        mv "$ace_cache.acecode-download" "$ace_cache"
         for ace_attempt in 1 2 3; do
           if apt-get install -y --no-install-recommends "${packages[@]}"; then break; fi
           if [ "$ace_attempt" = "3" ]; then exit 100; fi
