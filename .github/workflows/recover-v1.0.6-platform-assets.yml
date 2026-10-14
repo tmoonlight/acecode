@@ -237,12 +237,12 @@ jobs:
     - name: Build
       shell: bash
       run: |
-        cmake --build build --config MinSizeRel --target acecode -- /p:CL_MPCount=2 /m:1
+        cmake --build build --config MinSizeRel --target acecode --parallel 2
     - name: Build desktop
       if: matrix.build_desktop
       shell: bash
       run: |
-        cmake --build build --config MinSizeRel --target acecode-desktop -- /p:CL_MPCount=2 /m:1
+        cmake --build build --config MinSizeRel --target acecode-desktop --parallel 2
     - name: Verify Linux ARMv7 executable
       if: matrix.id == 'linux-armv7'
       shell: bash
