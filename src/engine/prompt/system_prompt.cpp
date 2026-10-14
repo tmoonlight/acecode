@@ -591,9 +591,11 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
             << "Explicit $SkillName, linked Skill, and slash selections are expanded "
             << "into a complete <skill> instruction fragment for that turn.\n\n";
         if (skill_view_allowed) {
+            // 用文字描述调用方式,不写 `skill_view(name="…")` 这类伪函数调用:
+            // GLM 系模型会把整段表达式照抄成工具名(内网 2026-10-14)。
             oss << "How to invoke:\n"
-                << "- Call `skill_view(name=\"<name>\")` to load the full SKILL.md body before acting on a matching task.\n"
-                << "- Use `skill_view(name=\"<name>\", file_path=\"<relative>\")` to load supporting files (references/, templates/, scripts/, assets/) listed in the skill body.\n";
+                << "- Call the `skill_view` tool with its `name` argument set to the skill name to load the full SKILL.md body before acting on a matching task.\n"
+                << "- To load supporting files (references/, templates/, scripts/, assets/) listed in the skill body, call `skill_view` with the same `name` and set its `file_path` argument to the file's relative path.\n";
         }
         if (skills_list_allowed) {
             oss << "- `skills_list` re-enumerates the full set; use it when the index was truncated or you need to double-check.\n";
@@ -1124,8 +1126,9 @@ PromptContextBlock build_skills_index_context_prompt(
         << "- How to use a skill (progressive disclosure):\n";
     if (skill_view_available) {
         oss << "  1) After deciding to use a skill that was not already explicitly "
-            << "injected, call `skill_view(name=\"...\")` and read its full "
-            << "`SKILL.md` completely before taking task actions.\n"
+            << "injected, call the `skill_view` tool with its `name` argument set "
+            << "to the skill name and read the full `SKILL.md` completely before "
+            << "taking task actions.\n"
             << "  2) When `SKILL.md` references another file, load it with "
             << "`skill_view` using the same skill name and referenced relative path.\n";
     } else {

@@ -1,6 +1,7 @@
 #include "skills_tool.hpp"
 
 #include "config/config.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "skills/skill_init.hpp"
 #include "skills/skill_registry.hpp"
 #include "utils/logger.hpp"
@@ -170,7 +171,10 @@ ToolImpl create_skills_list_tool(SkillRegistry& registry,
                 ? "No skills installed. Add SKILL.md files under ~/.acecode/skills/ or ~/.agent/skills/."
                 : ("No skills in category '" + normalized_category + "'.");
         } else {
-            out["hint"] = "Use skill_view(name=...) to load the full content of a skill.";
+            // 文字描述调用方式,不写伪函数调用(GLM 系模型会把它照抄成工具名)。
+            out["hint"] = "To load a skill's full content, call the " +
+                          model_tool_name_for_native("skill_view") +
+                          " tool with its name argument set to the skill name.";
         }
 
         LOG_DEBUG("[skills_list] requested_category='" + requested_category +

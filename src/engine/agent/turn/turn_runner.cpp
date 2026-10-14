@@ -20,6 +20,7 @@
 #include "agent/turn/turn_outcome.hpp"
 #include "agent/compaction/compact.hpp"
 #include "agent/transcript/transcript_queries.hpp"
+#include "llm/tool_call_corruption.hpp"
 #include "provider/text_tool_call_recovery.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/inter_agent_message.hpp"
@@ -37,12 +38,54 @@ namespace {
 // 输出损坏只重发一次:网关偶发把模板残片吐进输出流,重采通常就好;连续两次
 // 损坏多半是服务端持续异常,停止并报错,绝不放行损坏回复中的工具调用。
 constexpr int kMaxCorruptedOutputRetries = 1;
+
+// 工具调用损坏的中文说明,重发通知与最终报错共用。
+std::string describe_tool_call_corruption(const ToolCallCorruption& corruption) {
+    if (corruption.reason == ToolCallCorruption::Reason::EmptyName) return u8"工具名为空";
+    const std::string field =
+        corruption.field == ToolCallCorruption::Field::Name ? u8"工具名" : u8"工具参数";
+    return field + (corruption.reason == ToolCallCorruption::Reason::CallSyntax
+                        ? u8"混入了调用语法 " : u8"混入了模板标记 ") + corruption.marker;
+}
+
+std::string tool_call_notice_context(const ToolCallCorruption& corruption) {
+    if (corruption.reason == ToolCallCorruption::Reason::EmptyName) return "tool_name_empty";
+    return corruption.field == ToolCallCorruption::Field::Name ? "tool_name" : "tool_arguments";
+}
 } // namespace
 
+std::optional<TurnRunner::CorruptedOutput> TurnRunner::find_corrupted_output(
+    const ChatResponse& response) const {
+    if (const auto marker = find_leaked_tool_argument_markup(response.content)) {
+        return CorruptedOutput{*marker, {}, {},
+                               "leaked template markup " + *marker + " in reply text"};
+    }
+    // 已注册的名字一律不按名字判(MCP 工具名不受字符集约束),参数照查。
+    const auto found = find_corrupted_tool_call(response.tool_calls,
+        [&tools = tools_](const std::string& name) { return tools.has_tool(name); });
+    if (!found) return std::nullopt;
+    const auto& call = response.tool_calls[found->index];
+    const auto& corruption = found->corruption;
+    std::string log_detail = "tool call #" + std::to_string(found->index) + " name='" +
+                             log_truncate(call.function_name, 200) + "' ";
+    if (corruption.reason == ToolCallCorruption::Reason::EmptyName) {
+        log_detail += "has an empty tool name";
+    } else {
+        log_detail += corruption.field == ToolCallCorruption::Field::Name
+            ? "is malformed (" : "has malformed arguments (";
+        log_detail += corruption.reason == ToolCallCorruption::Reason::CallSyntax
+            ? "call syntax " : "template markup ";
+        log_detail += corruption.marker + ")";
+    }
+    log_detail += " arguments=" + log_truncate(call.function_arguments, 200);
+    return CorruptedOutput{corruption.marker, tool_call_notice_context(corruption),
+                           describe_tool_call_corruption(corruption), std::move(log_detail)};
+}
+
 void TurnRunner::discard_corrupted_output(const ChatResponse& response,
-    const std::string& marker, int attempt, int attempts, bool retrying) {
-    LOG_WARN("Corrupted model output: leaked template markup " + marker +
-             " in reply text; discarding the step without running its " +
+    const CorruptedOutput& corrupted, int attempt, int attempts, bool retrying) {
+    LOG_WARN("Corrupted model output: " + corrupted.log_detail +
+             "; discarding the step without running its " +
              std::to_string(response.tool_calls.size()) +
              " tool call(s); retrying=" + (retrying ? "true" : "false") +
              " attempt=" + std::to_string(attempt) + "/" +
@@ -56,19 +99,30 @@ void TurnRunner::discard_corrupted_output(const ChatResponse& response,
         session_ ? session_->load_active_messages() : history_.view();
     events_.emit(SessionEventKind::TranscriptReplace,
         detail::build_transcript_replace_payload(visible, CompactResult{}));
+    const bool tool_call = !corrupted.summary.empty();
     if (!retrying) {
         transcript_.dispatch_message("error",
-            "[输出异常] 模型重试后仍返回损坏的工具模板，已丢弃回复并停止，"
-            "未执行其中的工具调用。请重试或切换模型。",
+            tool_call
+                ? "[输出异常] 模型重试后仍返回损坏的工具调用（" + corrupted.summary +
+                      "），已丢弃回复并停止，未执行其中的工具调用。请重试或切换模型。"
+                : std::string("[输出异常] 模型重试后仍返回损坏的工具模板，已丢弃回复并停止，"
+                              "未执行其中的工具调用。请重试或切换模型。"),
             false, nlohmann::json::object(), nlohmann::json::array());
         return;
     }
+    nlohmann::json params = {
+        {"attempt", attempt}, {"attempts", attempts}, {"marker", corrupted.marker}};
+    // context 是 i18next 的上下文键:Web 据此改用 response_corrupted_retry_<context>
+    // 文案(工具名为空 / 工具名损坏 / 工具参数损坏),不认识的旧客户端回退到基础文案。
+    if (!corrupted.notice_context.empty()) params["context"] = corrupted.notice_context;
+    const std::string what = tool_call
+        ? std::string(u8"模型返回的工具调用已损坏(") + corrupted.summary
+        : std::string(u8"模型回复里混入了工具参数模板标记(") + corrupted.marker;
     transcript_.emit_transcript_system_message(session_,
-        std::string(u8"[输出异常] 模型回复里混入了工具参数模板标记(") + marker +
+        std::string(u8"[输出异常] ") + what +
             u8"),正文与工具调用都不可信,已丢弃并重新请求 " +
             std::to_string(attempt) + "/" + std::to_string(attempts) + u8"…",
-        make_system_notice_metadata("response_corrupted_retry",
-            {{"attempt", attempt}, {"attempts", attempts}, {"marker", marker}}));
+        make_system_notice_metadata("response_corrupted_retry", std::move(params)));
 }
 
 void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal_context,
@@ -285,20 +339,24 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
             break;
         }
 
-        // Phase 4b: 输出损坏 —— 正文里混进了工具参数模板标记(<arg_value> 等)。
-        // 这一步的正文和工具调用都不可信:整条丢弃(不入历史、不执行工具)、
-        // 原样重发一次;重发后仍损坏就停止。反馈 huangyuan816:第一条
-        // 回复是一串数字加 </arg_value>,同一回复里的 bash 命令也夹着乱码,照样
-        // 被执行,之后整个回合跑题。检查放在 has_tool_calls 分支之前,带原生
-        // 工具调用的回复同样拦下。
-        if (const auto marker = find_leaked_tool_argument_markup(
-                provider_result.accumulated.content)) {
+        // Phase 4b: 输出损坏 —— 正文里混进了工具参数模板标记(<arg_value> 等),
+        // 或者工具调用本身坏了(名字为空、名字是调用表达式或夹着模板标记、参数
+        // 里漏进了相邻参数的模板)。这一步的正文和工具调用都不可信:整条丢弃
+        // (不入历史、不执行工具)、原样重发一次;重发后仍损坏就停止。反馈
+        // huangyuan816:第一条回复是一串数字加 </arg_value>,同一回复里的 bash
+        // 命令也夹着乱码,照样被执行,之后整个回合跑题。内网 GLM(2026-10-14):
+        // 网关没能把模型写的工具调用模板转成结构化调用,`skill_view(name="…")
+        // </arg_value>` 这类名字被当成 Unknown tool 执行、写回历史,下一轮又被
+        // 排回提示词,会话 20261014-081557-766b 连续空转 13 轮。检查放在
+        // has_tool_calls 分支之前,带原生工具调用的回复同样拦下;格式正常但不存在
+        // 的工具名不算损坏,照旧走 Unknown tool。
+        if (const auto corrupted = find_corrupted_output(provider_result.accumulated)) {
             const bool retrying = turn.response_recovery.corrupted_output_retries <
                                   kMaxCorruptedOutputRetries;
             if (retrying) {
                 ++turn.response_recovery.corrupted_output_retries;
             }
-            discard_corrupted_output(provider_result.accumulated, *marker,
+            discard_corrupted_output(provider_result.accumulated, *corrupted,
                 turn.response_recovery.corrupted_output_retries,
                 kMaxCorruptedOutputRetries, retrying);
             const std::string status = retrying ? "retry" : "error";

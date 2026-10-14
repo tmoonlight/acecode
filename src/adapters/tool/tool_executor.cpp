@@ -447,7 +447,7 @@ ToolResult ToolExecutor::execute(const std::string& tool_name, const std::string
         auto it = tools_.find(tool_name);
         if (it == tools_.end()) {
             LOG_ERROR("execute: unknown tool '" + tool_name + "'");
-            ToolResult result{"[Error] Unknown tool: " + tool_name, false};
+            ToolResult result{ToolErrors::unknown_tool(tool_name, {}), false};
             ensure_tool_summary(tool_name, arguments_json, result);
             return result;
         }

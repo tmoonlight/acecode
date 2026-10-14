@@ -175,6 +175,34 @@ run('corrupted output retry notice shows the leaked marker and attempt counters'
   for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
 });
 
+// 场景：GLM 网关没能把工具调用模板转成结构化调用，坏的是工具调用本身（名字为空、
+// 名字夹着模板标记、参数里漏进模板），daemon 用同一个 response_corrupted_retry 通知，
+// params.context 区分三种情况。
+// 期望：按 context 选对应文案（不再说「回复里混入了标记」），标题不变；
+// 空名字没有标记可显示，文案里也不能出现空括号。
+run('corrupted tool call retry notice picks the wording by context', () => {
+  const empty = notice('response_corrupted_retry', { attempt: 1, attempts: 1, marker: '', context: 'tool_name_empty' });
+  const name = notice('response_corrupted_retry', { attempt: 1, attempts: 1, marker: '</arg_value>', context: 'tool_name' });
+  const args = notice('response_corrupted_retry', { attempt: 1, attempts: 1, marker: '</arg_key>', context: 'tool_arguments' });
+  const cnEmpty = presentSystemNotice(empty, zh);
+  assert.equal(cnEmpty.title, '输出异常重试中');
+  assert.ok(cnEmpty.text.includes('没有工具名'));
+  assert.doesNotMatch(cnEmpty.text, /（）/);
+  assert.ok(presentSystemNotice(empty, en).text.includes('without a tool name'));
+  const cnName = presentSystemNotice(name, zh);
+  assert.ok(cnName.text.includes('工具名已损坏（混入了 </arg_value>）'));
+  assert.ok(cnName.text.includes('重新请求 1/1'));
+  assert.ok(presentSystemNotice(name, en).text.includes('corrupted tool name (containing </arg_value>)'));
+  assert.ok(presentSystemNotice(args, zh).text.includes('工具参数里混入了工具调用模板标记（</arg_key>）'));
+  assert.ok(presentSystemNotice(args, en).text.includes('tool arguments containing'));
+  for (const message of [empty, name, args]) {
+    for (const t of [zh, en]) {
+      const text = presentSystemNotice(message, t).text;
+      assert.doesNotMatch(text, /\{\{|Original fallback|leaked tool-argument template markup|回复里混入了/);
+    }
+  }
+});
+
 run('small context retry notice preserves context without a retry-count limit', () => {
   const message = notice('context_preserved_waiting');
   const cn = presentSystemNotice(message, zh);
