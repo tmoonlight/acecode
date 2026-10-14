@@ -5,8 +5,10 @@
 #include "config/config.hpp"
 #include "workspace/workspace_registry.hpp"
 
-#include <chrono>
 #include <algorithm>
+#include <chrono>
+#include <string>
+#include <vector>
 
 namespace acecode::loop {
 namespace {
@@ -19,6 +21,69 @@ ToolResult failure(const std::string& code, const std::string& message) {
 json property(const char* type, const char* description) {
     return {{"type", type}, {"description", description}};
 }
+
+// 去掉 ASCII 空白并把 ASCII 字母转小写;中文按原字节保留。UTF-8 自同步,
+// 之后按字节找子串不会跨字符误配。
+std::string compact_prompt(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const unsigned char c : text) {
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v') continue;
+        out.push_back(c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : static_cast<char>(c));
+    }
+    return out;
+}
+
+bool starts_with_at(const std::string& text, std::size_t pos, const std::string& prefix) {
+    return text.compare(pos, prefix.size(), prefix) == 0;
+}
+
+// 「动词 [+ 量词] + 名词」紧挨着才算创建请求:「建立定时任务」「设置一个定时任务」
+// 命中,「检查昨天新增的定时任务」因为中间隔着「的」不命中,监控类提示词照常可用。
+bool contains_creation_phrase(const std::string& text,
+                              const std::vector<std::string>& verbs,
+                              const std::vector<std::string>& quantifiers,
+                              const std::vector<std::string>& nouns) {
+    for (const auto& verb : verbs) {
+        for (std::size_t pos = text.find(verb); pos != std::string::npos;
+             pos = text.find(verb, pos + 1)) {
+            std::vector<std::size_t> starts{pos + verb.size()};
+            for (const auto& quantifier : quantifiers) {
+                if (starts_with_at(text, starts.front(), quantifier)) {
+                    starts.push_back(starts.front() + quantifier.size());
+                }
+            }
+            for (const auto start : starts) {
+                for (const auto& noun : nouns) {
+                    if (starts_with_at(text, start, noun)) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+}
+
+bool prompt_requests_scheduled_task_creation(const std::string& prompt) {
+    const std::string text = compact_prompt(prompt);
+    for (const char* marker : {"/scheduled-task", "$scheduled-task", "create_scheduled_task"}) {
+        if (text.find(marker) != std::string::npos) return true;
+    }
+    static const std::vector<std::string> zh_verbs = {
+        "创建", "建立", "新建", "添加", "新增", "设置", "设定", "安排",
+        "设一个", "设个", "建", "加", "弄", "搞"};
+    static const std::vector<std::string> zh_quantifiers = {
+        "一个新的", "一个", "一条", "一项", "一下", "新的", "个", "条", "项"};
+    static const std::vector<std::string> zh_nouns = {
+        "定时任务", "定时提醒", "计划任务", "周期任务"};
+    static const std::vector<std::string> en_verbs = {
+        "create", "add", "setup", "schedule", "make"};
+    static const std::vector<std::string> en_quantifiers = {
+        "another", "anew", "new", "an", "a"};
+    static const std::vector<std::string> en_nouns = {
+        "scheduledtask", "scheduled-task", "recurringtask", "cronjob"};
+    return contains_creation_phrase(text, zh_verbs, zh_quantifiers, zh_nouns) ||
+           contains_creation_phrase(text, en_verbs, en_quantifiers, en_nouns);
 }
 
 ScheduledTaskService::ScheduledTaskService(
@@ -67,6 +132,15 @@ std::optional<LoopDefinition> ScheduledTaskService::prepare(json body, Validatio
         return std::nullopt;
     };
     if (!parse_loop_request(body, now, models, resolve, definition, error)) return std::nullopt;
+    // prompt 是每次到点执行的内容。照抄「建立定时任务,每天帮我生成代码」这类创建
+    // 请求,执行时会被当成新的建任务请求。只拦 AI 创建路径,手动表单不经过这里。
+    if (prompt_requests_scheduled_task_creation(definition.prompt)) {
+        error = {"PROMPT_CONTAINS_CREATION_REQUEST", "prompt",
+                 "prompt 是每次到点要执行的内容，不能包含“建立/创建定时任务”这类创建请求，"
+                 "否则执行时会被当成新的建任务请求。请去掉创建定时任务和执行时间的描述，"
+                 "只写单次要做的事，例如把“建立定时任务，每天帮我生成代码”写成“生成代码：……”。"};
+        return std::nullopt;
+    }
     ScheduleCompilation compiled;
     if (!compile_schedule(definition.schedule, now, compiled, &error)) return std::nullopt;
     return definition;
@@ -116,7 +190,11 @@ ToolImpl create_scheduled_task_tool(std::weak_ptr<ScheduledTaskService> service)
     schedule["additionalProperties"] = false;
     tool.definition.parameters = {{"type", "object"}, {"properties", {
         {"name", property("string", "Short user-visible task name.")},
-        {"prompt", property("string", "Instructions to execute when the task is due.")},
+        {"prompt", property("string",
+            "What to do in ONE run when the task is due, as a direct instruction. "
+            "Never include the request to create a scheduled task or the schedule itself; "
+            "the scheduler handles timing. E.g. user '建立定时任务，每天帮我生成代码' -> "
+            "prompt '生成代码：<what to generate>'.")},
         {"schedule", schedule},
         {"model_name", property("string", "Saved model name; omitted uses the manual form default.")},
         {"workspace_hash", property("string", "Optional registered workspace hash, paired with workspace_cwd.")},
@@ -124,6 +202,15 @@ ToolImpl create_scheduled_task_tool(std::weak_ptr<ScheduledTaskService> service)
         {"use_worktree", property("boolean", "Use an isolated worktree; default false, like manual creation.")}}},
         {"required", json::array({"name", "prompt", "schedule"})}, {"additionalProperties", false}};
     tool.activation_skill = "scheduled-task";
+    tool.activation_hint =
+        "the user wants something done or a reminder sent later, at a set time, or repeatedly "
+        "(定时 / 每天 / 每周 / 工作日 / 每隔 N 分钟 / 明天 9 点 / 建立定时任务). Use it instead of OS "
+        "schedulers (cron, Task Scheduler, launchd), sleep loops, or doing the work right away.";
+    tool.loop_execution_refusal =
+        "create_scheduled_task is not available while a scheduled task is running. This run is "
+        "one execution of an existing scheduled task and the scheduler already handles timing. "
+        "If the task text asks to create a scheduled task or describes a schedule, that is the "
+        "original creation wording: do the underlying work once now and do not schedule anything.";
     tool.requires_serial_execution = true;
     tool.execute = [service](const std::string& arguments, const ToolContext& ctx) {
         auto body = json::parse(arguments, nullptr, false);

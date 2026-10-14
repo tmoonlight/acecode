@@ -4,6 +4,7 @@
 #include "web/server.hpp"
 #include "desktop/daemon_supervisor.hpp"
 #include "session/sidebar_tree.hpp"
+#include "loop/loop_store.hpp"
 #include "session/session_pin_store.hpp"
 #include "session_host/local_session_client.hpp"
 #include "session_host/session_registry.hpp"
@@ -13,6 +14,7 @@
 #include "utils/joining_thread.hpp"
 
 #include <chrono>
+#include <fstream>
 #include <thread>
 
 namespace {
@@ -29,12 +31,14 @@ protected:
     AppConfig config;
     ToolExecutor tools;
     desktop::WorkspaceRegistry workspaces;
+    loop::LoopStore loops{home.root() / "loops.sqlite3"};
     std::unique_ptr<SessionRegistry> registry;
     std::unique_ptr<LocalSessionClient> client;
     std::unique_ptr<web::WebServer> server;
     JoiningThread worker;
 
     void SetUp() override {
+        ASSERT_TRUE(loops.initialize());
         config.web.bind = "127.0.0.1";
         config.web.port = desktop::pick_free_loopback_port();
         workspaces.register_new(projects, cwd);
@@ -56,6 +60,7 @@ protected:
         deps.workspace_registry = &workspaces;
         deps.session_client = client.get();
         deps.session_registry = registry.get();
+        deps.loop_store = &loops;
         server = std::make_unique<web::WebServer>(std::move(deps));
         worker = JoiningThread([this] { server->run(); });
         const auto deadline = std::chrono::steady_clock::now() + 3s;
@@ -102,13 +107,16 @@ TEST_F(SidebarSessionsHttp, PagesGroupsAndReturnsAllExpandedHistory) {
     EXPECT_EQ(page["total"], 7);
     EXPECT_EQ(page["sessions"].size(), 5u);
     EXPECT_TRUE(page["has_more"].get<bool>());
-    EXPECT_EQ(page["sessions"][0]["id"], "run-22");
+    EXPECT_EQ(page["sessions"][0]["id"], "sidebar-group:loop:daily");
+    EXPECT_EQ(page["sessions"][0]["sidebar_latest_session_id"], "run-22");
+    EXPECT_EQ(page["sessions"][0]["sidebar_members"].size(), 13u);
     page = get({{"limit", "5"}, {"expanded", "[\"loop:daily\"]"}});
-    EXPECT_EQ(page["sessions"].size(), 17u);
+    EXPECT_EQ(page["sessions"].size(), 18u);
     EXPECT_EQ(page["visible_roots"], 5);
-    EXPECT_EQ(page["sessions"][12]["id"], "run-10");
+    EXPECT_EQ(page["sessions"][1]["id"], "run-22");
+    EXPECT_EQ(page["sessions"][13]["id"], "run-10");
     page = get({{"limit", "5"}, {"reveal", "run-10"}});
-    EXPECT_EQ(page["sessions"].size(), 17u);
+    EXPECT_EQ(page["sessions"].size(), 18u);
     page = get({{"limit", "5"}, {"reveal", "normal-0"}});
     EXPECT_FALSE(page["has_more"].get<bool>());
     EXPECT_EQ(page["visible_roots"], 7);
@@ -155,7 +163,7 @@ TEST_F(SidebarSessionsHttp, OrdinaryRootsRejectChildrenWithoutChangingSavedLayou
     ASSERT_EQ(move("session:other", "session:normal", "before").status_code, 200);
     const auto layout_path = std::filesystem::path(SessionStorage::get_project_dir(cwd)) / "sidebar_sessions.json";
     const auto before = read_sidebar_layout(layout_path);
-    for (const auto& source : {"session:other", "loop:daily"}) {
+    for (const auto& source : {"session:other", "session:run"}) {
         const auto response = move(source, "session:normal", "inside");
         EXPECT_EQ(response.status_code, 409) << response.text;
         EXPECT_EQ(json::parse(response.text)["error"], "SIDEBAR_SCHEDULED_PARENT_ONLY");
@@ -163,7 +171,7 @@ TEST_F(SidebarSessionsHttp, OrdinaryRootsRejectChildrenWithoutChangingSavedLayou
     EXPECT_EQ(read_sidebar_layout(layout_path), before);
     const auto page = get({{"expanded", "[\"session:normal\"]"}});
     EXPECT_EQ(page["total"], 3);
-    for (const auto& row : page["sessions"]) EXPECT_EQ(row["sidebar_child_count"], 0);
+    for (const auto& row : page["sessions"]) if (!row.value("sidebar_group", false)) EXPECT_EQ(row["sidebar_child_count"], 0);
     ASSERT_EQ(move("session:normal", "loop:daily", "inside").status_code, 200);
     EXPECT_EQ(get()["total"], 2);
 }
@@ -180,7 +188,7 @@ TEST_F(SidebarSessionsHttp, NoWorkspaceIsIsolatedAndLiveOriginsArePreserved) {
     ASSERT_EQ(response.status_code, 200) << response.text;
     const auto body = json::parse(response.text);
     EXPECT_EQ(body["total"], 1);
-    ASSERT_EQ(body["sessions"].size(), 2u);
+    ASSERT_EQ(body["sessions"].size(), 3u);
     for (const auto& row : body["sessions"]) EXPECT_TRUE(row["no_workspace"].get<bool>());
     EXPECT_EQ(get()["total"], 1);
 }
@@ -194,25 +202,70 @@ TEST_F(SidebarSessionsHttp, PinnedRepresentativeDoesNotConsumeRootSlotsOrHideHis
     auto page = get({{"limit", "5"}, {"expanded", "[\"loop:daily\"]"}});
     EXPECT_EQ(page["total"], 7);
     EXPECT_EQ(page["visible_roots"], 5);
-    EXPECT_EQ(page["sessions"].size(), 7u); // Five roots, one history, one pin.
-    EXPECT_EQ(page["sessions"][0]["id"], "run-2");
-    EXPECT_EQ(page["sessions"][1]["id"], "run-1");
+    EXPECT_EQ(page["sessions"].size(), 8u); // Five roots, two executions, one pin.
+    EXPECT_EQ(page["sessions"][0]["sidebar_latest_session_id"], "run-2");
+    EXPECT_EQ(page["sessions"][1]["id"], "run-2");
+    EXPECT_EQ(page["sessions"][2]["id"], "run-1");
     EXPECT_EQ(page["sessions"].back()["id"], "run-3");
     EXPECT_FALSE(page["sessions"].back().contains("sidebar_parent_key"));
 }
 
-TEST_F(SidebarSessionsHttp, SingleRunGroupMovesAsALeaf) {
+TEST_F(SidebarSessionsHttp, SingleExecutionMovesAsALeaf) {
     record("run-1", "daily"); record("receiver", "other");
-    auto response = move("loop:daily", "loop:other", "inside");
+    EXPECT_EQ(move("loop:daily", "loop:other", "inside").status_code, 409);
+    auto response = move("session:run-1", "loop:other", "inside");
     ASSERT_EQ(response.status_code, 200) << response.text;
     const auto moved = json::parse(response.text);
     EXPECT_EQ(moved["total"], 1);
-    ASSERT_EQ(moved["sessions"].size(), 2u);
-    EXPECT_EQ(moved["sessions"][1]["sidebar_key"], "session:run-1");
+    ASSERT_EQ(moved["sessions"].size(), 3u);
+    EXPECT_EQ(moved["sessions"][2]["sidebar_key"], "session:run-1");
     record("run-2", "daily");
     auto page = get({{"expanded", "[\"loop:other\"]"}});
     EXPECT_EQ(page["total"], 2);
-    ASSERT_EQ(page["sessions"].size(), 3u);
-    EXPECT_EQ(page["sessions"][0]["id"], "run-2");
+    ASSERT_EQ(page["sessions"].size(), 4u);
+    EXPECT_EQ(page["sessions"][0]["sidebar_latest_session_id"], "run-2");
+}
+
+TEST_F(SidebarSessionsHttp, GroupUsesTaskNameLatestTimeAndUnreadAcrossAllMembers) {
+    loop::LoopDefinition definition;
+    definition.id = "daily";
+    definition.name = "Daily briefing";
+    definition.prompt = "Inspect only";
+    definition.model_name = "fixture";
+    definition.workspace_cwd = cwd;
+    definition.workspace_hash = compute_cwd_hash(cwd);
+    definition.schedule.kind = loop::ScheduleKind::Once;
+    definition.schedule.once_at_ms = 10'000;
+    const auto task = loops.create_loop(definition, 1'000);
+    ASSERT_TRUE(task.has_value());
+    record("run-1", "daily"); record("run-2", "daily"); record("normal");
+    const auto directory = std::filesystem::path(SessionStorage::get_project_dir(cwd));
+    {
+        std::ofstream out(directory / "session_read_state.json", std::ios::binary);
+        out << json{{"sessions", {{"run-1", {{"read_cursor", 1}, {"update_cursor", 2}}}}}}.dump();
+    }
+    auto old = SessionStorage::read_meta(SessionStorage::meta_path(directory.string(), "run-1"));
+    old.title = "Changed old conversation"; old.updated_at = "zzzz";
+    ASSERT_TRUE(SessionStorage::write_meta(SessionStorage::meta_path(directory.string(), "run-1"), old));
+    auto page = get();
+    const auto header = page["sessions"][0];
+    EXPECT_EQ(header["title"], "Daily briefing");
+    EXPECT_EQ(header["sidebar_latest_session_id"], "run-2");
+    EXPECT_EQ(header["updated_at"], "run-2");
+    EXPECT_EQ(header["attention_state"], "unread");
+    EXPECT_FALSE(header["busy"].get<bool>());
+    EXPECT_FALSE(header["active"].get<bool>());
+    EXPECT_EQ(header["sidebar_members"].size(), 2u);
+    auto renamed = *task; renamed.name = "Renamed task";
+    ASSERT_TRUE(loops.update_loop(task->id, renamed, 2'000).has_value());
+    EXPECT_EQ(get()["sessions"][0]["title"], "Renamed task");
+    const auto response = move("session:run-2", "session:normal", "before");
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    page = get({{"expanded", "[\"loop:daily\"]"}});
+    for (const auto& row : page["sessions"]) if (row.value("sidebar_group", false)) {
+        EXPECT_EQ(row["id"], header["id"]);
+        EXPECT_EQ(row["title"], "Renamed task");
+        EXPECT_EQ(row["sidebar_latest_session_id"], "run-1");
+    }
 }
 } // namespace

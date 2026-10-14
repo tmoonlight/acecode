@@ -805,6 +805,46 @@ TEST(AgentLoopToolLifecycleEvents, LoopYoloCreateWorkspaceOutsideCwdExecutes) {
     fs::remove_all(cwd);
 }
 
+// 触发场景:定时任务到点执行的会话(loop_execution)里,模型照着任务文本「建立定时
+// 任务，每天帮我生成代码」去调 create_scheduled_task。
+// bug 表现:执行会话弹出权限提问,用户一答就多出一个子定时任务,之后每次执行都可能再派生。
+// 期望:执行会话发给模型的工具表里没有该工具;模型硬调也只拿到工具声明的拒绝文案,
+// 工具本体一次都不执行。对照:普通会话里同一工具照常可见。
+TEST(AgentLoopToolLifecycleEvents, LoopExecutionHidesScheduledTaskCreation) {
+    auto cwd = make_temp_dir("acecode_loop_hides_scheduled_task");
+    std::atomic<int> calls{0};
+    auto tool = make_probe_tool("create_scheduled_task", false, &calls);
+    tool.loop_execution_refusal = "no nested scheduled tasks";
+    const auto offers_tool = [](const std::vector<ToolDef>& defs) {
+        return std::any_of(defs.begin(), defs.end(), [](const ToolDef& def) {
+            return def.name == "create_scheduled_task";
+        });
+    };
+    {
+        ToolLifecycleHarness normal(cwd.string(), PermissionMode::Yolo);
+        normal.tools().register_tool(tool);
+        normal.provider().push_text("done");
+        ASSERT_TRUE(normal.submit_and_wait());
+        EXPECT_TRUE(offers_tool(normal.provider().tools_for_turn(0)));
+    }
+
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo);
+    h.set_loop_execution_policy({true, "loop test"});
+    h.tools().register_tool(tool);
+    h.provider().push_tool_call("create_scheduled_task", "{}", "call-nested-task");
+    h.provider().push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait());
+    EXPECT_FALSE(offers_tool(h.provider().tools_for_turn(0)));
+    const auto ends = h.events_of(SessionEventKind::ToolEnd);
+    ASSERT_EQ(ends.size(), 1u);
+    EXPECT_FALSE(ends[0].payload.value("success", true));
+    EXPECT_NE(ends[0].payload.value("output", std::string{}).find("no nested scheduled tasks"),
+              std::string::npos);
+    EXPECT_EQ(calls.load(), 0);
+    fs::remove_all(cwd);
+}
+
 TEST(AgentLoopToolLifecycleEvents, MutationOutsideCwdStillRejectedBeforeExecution) {
     auto cwd = make_temp_dir("acecode_lifecycle_write_outside");
     std::atomic<int> calls{0};

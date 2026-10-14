@@ -816,13 +816,24 @@ visible_roots}`. `total` and `visible_roots` count non-pinned roots, while
 `sessions` is a flat array containing those roots, the children of expanded
 roots, and separately pinned rows. Every non-pinned row adds `sidebar_key`,
 `sidebar_parent_key` (empty for roots), `sidebar_child_count`, `sidebar_rank`
-(within siblings), and `sidebar_expanded` to the normal session summary.
+(within siblings), and `sidebar_expanded`.
 Clients must not compare `sessions.length` with root totals.
 
-Automatic group keys use `loop:<task-id>`; leaf keys use `session:<session-id>`.
-The newest non-detached execution by creation time represents an automatic
-group. Selecting old history does not replace it. Metadata parsing is cached
-by file modification time and size; transcript bodies are never read here.
+Automatic group keys use `loop:<task-id>`; manual groups anchored to a detached
+scheduled session use `group:<anchor-session-id>`. Real session keys always use
+`session:<session-id>`. Every execution, including the newest, is a child.
+Group headers are presentation nodes with `sidebar_group:true` and the stable
+synthetic `id` `sidebar-group:<sidebar_key>`; never navigate to, subscribe to,
+mark read, pin, or archive that ID as a session. Clicking a header only toggles it.
+`sidebar_group_name` and `title` contain the task name when available (clients
+use a localized scheduled-task fallback otherwise). `sidebar_latest_session_id`
+identifies the member selected by newest creation time; its timestamps supply
+the header time. A rename or navigation to older history never replaces the
+task name. `sidebar_members` contains compact attention snapshots for all members,
+including hidden ones, so clients can aggregate subsequent status events while
+collapsed. Headers are never busy: unread members produce `unread`, otherwise
+`read`, even if a member is running. Metadata parsing is cached by modification
+time and size; neither transcripts nor hidden members' full summaries are read.
 
 ### `POST /api/workspaces/:hash/session-sidebar` and `POST /api/session-sidebar`
 
@@ -836,9 +847,11 @@ The same query parameters apply. Body:
 scope. Only a scheduled root with `loop_execution.loop_id` (the alarm marker)
 can accept children, including an empty group or a detached scheduled execution.
 Ordinary sessions may reorder or become children but cannot become parents.
-A root with children can only reorder at the root; a child cannot accept
-children. Moving a single-run automatic group into a scheduled parent detaches that
-execution; future scheduled executions form their own automatic group.
+A group header can only reorder at the root; a child cannot accept children.
+Moving a single execution into a scheduled group detaches that execution from
+its previous group; future executions still join their task's automatic group.
+Dropping onto a detached scheduled root creates a manual group containing that
+root's real session and the incoming child. Empty group headers disappear.
 Self moves, stale targets, and third-level relationships return HTTP 409 with
 `SIDEBAR_TARGET_CHANGED` or `SIDEBAR_TWO_LEVELS_ONLY`. An ordinary destination
 parent returns 409/`SIDEBAR_SCHEDULED_PARENT_ONLY`; malformed bodies return 400.
@@ -848,10 +861,14 @@ sidebar page and reveal the destination.
 Relationships and sibling order are atomically persisted in the scope's
 `sidebar_sessions.json`, separately from task provenance and subagent
 `parent_session_id`. An explicit empty parent keeps a detached execution at the
-root after reload and future runs. Missing or archived parents promote their
-manual children; removing an automatic representative selects the next run.
+root after reload and future runs. Missing or archived manual anchors promote
+their remaining members; removing the newest automatic execution selects the
+next member for header time without changing its task identity.
 Reading a legacy layout that assigns children to an ordinary session promotes
 those children to roots without changing their execution provenance.
+Legacy scheduled-session parent keys are projected into manual groups with
+the original parent execution included as a child. The next move persists the
+canonical relationships and ordering using layout version 2.
 
 ### `POST /api/workspaces/:hash/sessions`
 

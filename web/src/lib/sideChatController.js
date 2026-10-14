@@ -1,3 +1,5 @@
+import { sideChatRetentionMilliseconds } from './sideChatRetention.js';
+
 export const SIDE_CHAT_QUESTION_MAX_BYTES = 16000;
 export const SIDE_CHAT_HISTORY_MAX_BYTES = 256 * 1024;
 export const SIDE_CHAT_HISTORY_MAX_MESSAGES = 200;
@@ -66,11 +68,12 @@ function validationError(question, history) {
 
 // State ownership stays outside React so submitting, stopping and session
 // changes cannot race stale render closures or late transport callbacks.
-export function createSideChatController({ startStream } = {}) {
+export function createSideChatController({ startStream, now = Date.now } = {}) {
   if (typeof startStream !== 'function') throw new TypeError('startStream is required');
   const listeners = new Set();
   let snapshot = initialSnapshot();
   let active = null;
+  let lastFinishedAt = null;
 
   function publish(patch) {
     snapshot = { ...snapshot, ...patch };
@@ -94,6 +97,7 @@ export function createSideChatController({ startStream } = {}) {
   function finish(request, patch) {
     if (active !== request) return;
     active = null;
+    lastFinishedAt = now();
     request.handle?.dispose();
     updateTurn(request, { ...patch, tools: settledTools(request) }, { busy: false, stopping: false });
   }
@@ -103,6 +107,7 @@ export function createSideChatController({ startStream } = {}) {
     const request = active;
     // Invalidate first: even a synchronous stop acknowledgement is stale.
     active = null;
+    lastFinishedAt = now();
     try { request.handle?.stop(); }
     finally { request.handle?.dispose(); }
     updateTurn(request, { status: 'stopped', tools: settledTools(request) }, { busy: false, stopping: false });
@@ -222,16 +227,28 @@ export function createSideChatController({ startStream } = {}) {
       cancelImmediately();
       publish({ open: false });
     },
+    suspend: cancelImmediately,
+    resume(retentionMinutes) {
+      if (!active && lastFinishedAt !== null
+          && now() - lastFinishedAt >= sideChatRetentionMilliseconds(retentionMinutes)) {
+        controller.reset();
+        return true;
+      }
+      return false;
+    },
     clear() {
       cancelImmediately();
+      lastFinishedAt = null;
       publish({ ...initialSnapshot(), open: snapshot.open });
     },
     reset() {
       cancelImmediately();
+      lastFinishedAt = null;
       publish(initialSnapshot());
     },
     dispose() {
       cancelImmediately();
+      lastFinishedAt = null;
       listeners.clear();
       snapshot = initialSnapshot();
     },

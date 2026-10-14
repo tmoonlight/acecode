@@ -67,7 +67,13 @@ import { ExpertPickerDialog } from './ExpertCatalog.jsx';
 import { QueueCardList } from './QueueCardList.jsx';
 import { TaskSuggestionCards } from './TaskSuggestionCards.jsx';
 import { SideChatWindow } from './SideChatWindow.jsx';
-import { createSideChatController } from '../lib/sideChatController.js';
+import { sideChatSessionKey, sideChatSessions } from '../lib/sideChatSessions.js';
+import { readWithFallback } from '../lib/usePreference.js';
+import {
+  DEFAULT_SIDE_CHAT_RETENTION_MINUTES,
+  isSideChatRetentionMinutes,
+  SIDE_CHAT_RETENTION_KEY,
+} from '../lib/sideChatRetention.js';
 import '../styles/side-chat.css';
 import { GitSessionPill } from './GitSessionPill.jsx';
 import { SessionTitleBar } from './SessionTitleBar.jsx';
@@ -1010,14 +1016,20 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const getQueueSnapshot = useCallback(() => queueStore.getState(), [queueStore]);
   const queueState = useSyncExternalStore(subscribeQueueStore, getQueueSnapshot, getQueueSnapshot);
   const [sideChatAnchor, setSideChatAnchor] = useState(null);
-  const sideChat = useMemo(() => createSideChatController({
-    startStream: (options) => api.streamSideChat(sid, options),
-  }), [api, sid]);
+  const sideChatKey = sideChatSessionKey(ref);
+  const sideChat = useMemo(() => sideChatSessions.get(
+    sideChatKey, (options) => api.streamSideChat(sid, options),
+  ), [api, sid, sideChatKey]);
   const sideChatState = useSyncExternalStore(
     sideChat.subscribe, sideChat.getSnapshot, sideChat.getSnapshot,
   );
-  // Reset cancels the old request at the session boundary and is StrictMode-safe.
-  useLayoutEffect(() => () => sideChat.reset(), [sideChat]);
+  // Expiry is checked on return, before paint; leaving stops only generation.
+  useLayoutEffect(() => {
+    sideChat.resume(readWithFallback(
+      SIDE_CHAT_RETENTION_KEY, DEFAULT_SIDE_CHAT_RETENTION_MINUTES, isSideChatRetentionMinutes,
+    ));
+    return () => sideChat.suspend();
+  }, [sideChat]);
   const turnInterruptInFlightRef = useRef(new Set());
   // GitSessionPill 的待生效意图(worktree 勾选 + 基线分支)。ref 不入 dep:
   // 只在发送首条消息那一刻读取,不驱动渲染。

@@ -1,6 +1,9 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '侧边聊天存续时间': 'Side chat retention time',
+  'side chat retention lifetime minutes ttl 侧聊 保留 过期 分钟': 'side chat retention lifetime minutes ttl',
+  '从最后一次侧聊结束开始计时，到期后切回该会话时清空；正在查看时不会自动消失。': 'Starts when the last side chat ends. After this time, returning to the session clears it. It stays visible while you are viewing it.',
   '保存会话分组失败，请重试': 'Could not save the session group. Please try again.',
   '读取会话分组失败，请重试': 'Could not load the session group. Please try again.',
   '修改快捷键': 'Edit shortcut',

@@ -216,7 +216,7 @@ run('editable previews retain selection, inactive marks and annotation decoratio
 
 run('side chat entries share an isolated floating conversation controller', () => {
   const chat = source('../components/ChatView.jsx');
-  assert.match(chat, /createSideChatController\(\{[\s\S]*?api\.streamSideChat\(sid, options\)/);
+  assert.match(chat, /sideChatSessions\.get\([\s\S]*?api\.streamSideChat\(sid, options\)/);
   assert.match(chat, /sideChat\.submit\(question\)/);
   assert.match(chat, /<SideChatWindow[\s\S]*?onDraftChange=\{sideChat\.setDraft\}/);
   assert.doesNotMatch(chat, /<SideQuestion(?:Composer|Card)/);

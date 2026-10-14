@@ -224,6 +224,20 @@ struct ToolImpl {
     // Model schemas are deferred until this skill has actually loaded in the
     // requesting session. Registration and execution permissions stay separate.
     std::string activation_skill;
+    // One line telling the model when to load activation_skill. The skills
+    // index always lists it, even when the catalog is truncated or the skill
+    // is dormant, so a hidden tool stays discoverable.
+    std::string activation_hint;
+    // Non-empty: hidden from scheduled-task executions (and their child
+    // agents); a call made anyway returns this text.
+    std::string loop_execution_refusal;
+};
+
+// A skill-gated tool that the current policy allows.
+struct SkillGatedToolInfo {
+    std::string name;
+    std::string activation_skill;
+    std::string activation_hint;
 };
 
 struct RegisteredToolInfo {
@@ -279,6 +293,15 @@ public:
 
     // Sanitized registration metadata for runtime-backed capability catalogs.
     std::vector<RegisteredToolInfo> get_registered_tools() const;
+
+    // Skill-gated tools allowed by the policy, in stable name order. Names are
+    // model-facing (tool rewrites applied).
+    std::vector<SkillGatedToolInfo> skill_gated_tools(
+        const ToolCapabilityPolicy* policy = nullptr) const;
+
+    // Native tool name -> refusal text for tools hidden from scheduled-task
+    // executions (ToolImpl::loop_execution_refusal).
+    std::unordered_map<std::string, std::string> loop_execution_hidden_tools() const;
 
     // Central policy predicate shared by schema filtering and AgentLoop's
     // pre-permission rejection path.

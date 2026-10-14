@@ -26,4 +26,10 @@ struct ProviderRequestOptions {
     ModelSamplingOptions sampling;
 };
 
+// Write only configured fields. Anthropic omits min_p; Responses conversion
+// retains only its supported temperature and top_p fields.
+void append_sampling_request_fields(nlohmann::json& body,
+                                    const ModelSamplingOptions& sampling,
+                                    bool supports_min_p);
+
 } // namespace acecode

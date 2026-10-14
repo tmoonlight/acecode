@@ -7,6 +7,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
   const fields = [
     ['general', '界面语言', 'language locale english chinese'],
     ['general', '工作模式', 'work mode coding daily 日常工作 用于编程 进度提示 工具前言 loading'],
+    ['general', '侧边聊天存续时间', 'side chat retention lifetime minutes ttl 侧聊 保留 过期 分钟'],
     ['general', '打开任务完成通知', 'notification completion sound'],
     ['general', '新手指引', 'onboarding getting started tour'],
     ['general', '权限模式', 'permission approval sandbox'],

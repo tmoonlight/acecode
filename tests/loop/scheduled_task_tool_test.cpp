@@ -174,4 +174,68 @@ TEST_F(ScheduledTaskToolTest, IntervalDefaultAndInclusiveDateRangeUseExistingSch
     }
     EXPECT_FALSE(occurrence);
 }
+
+// 触发场景:用户说「建立定时任务，每天帮我生成代码」,模型把原话整句写进 prompt。
+// bug 表现:到点执行时会话把「建立定时任务」当成新请求,又建出一个子定时任务。
+// 期望:AI 创建路径在弹权限提问之前就拒绝(错误码 PROMPT_CONTAINS_CREATION_REQUEST,
+// 提示改写为单次要做的事),不弹窗、不落库。
+TEST_F(ScheduledTaskToolTest, PromptCarryingCreationRequestIsRejectedBeforeAsking) {
+    int questions = 0;
+    auto ctx = context();
+    ctx.ask_user_questions = [this, &questions](const json&) {
+        ++questions;
+        return response("yolo");
+    };
+    auto tool = create_scheduled_task_tool(service);
+    for (const char* prompt : {"建立定时任务，每天帮我生成代码",
+                               "/scheduled-task 每天提醒我喝水",
+                               "Create a scheduled task that backs up the repo"}) {
+        auto args = arguments();
+        args["prompt"] = prompt;
+        const auto result = tool.execute(args.dump(), ctx);
+        ASSERT_FALSE(result.success) << prompt;
+        const auto data = json::parse(result.output);
+        EXPECT_EQ(data["error"], "PROMPT_CONTAINS_CREATION_REQUEST") << prompt;
+        EXPECT_NE(data["message"].get<std::string>().find("只写单次要做的事"), std::string::npos);
+    }
+    EXPECT_EQ(questions, 0);
+    EXPECT_TRUE(store->list_loops().empty());
+
+    // 改写成单次执行内容后照常走权限提问并创建。
+    auto args = arguments();
+    args["prompt"] = "生成代码：每天的数据导出脚本";
+    ASSERT_TRUE(tool.execute(args.dump(), ctx).success);
+    EXPECT_EQ(questions, 1);
+    EXPECT_EQ(store->list_loops().size(), 1u);
+}
+
+// 触发场景:判定「prompt 是否仍带着创建定时任务的请求」。
+// 期望:动词(+量词)紧挨「定时任务」等名词、斜杠技能标记、英文 create a scheduled
+// task 一律命中;提到定时任务但不是要新建的监控 / 汇报 / 提醒类内容不能误伤 ——
+// 例如「检查昨天新增的定时任务」中间隔着「的」,「假设定时任务失败」没有建任务的动词。
+TEST(ScheduledTaskPromptCheck, FlagsCreationRequestsButKeepsOrdinaryTaskText) {
+    for (const char* prompt : {"建立定时任务，每天帮我生成代码", "帮我设置一个定时任务",
+                               "请 创建 定时提醒：早上9点起床", "新建一条计划任务",
+                               "加个定时任务提醒我开会", "$scheduled-task 每周汇总",
+                               "call create_scheduled_task again", "Set up a cron job for backups",
+                               "Schedule another scheduled task"}) {
+        EXPECT_TRUE(prompt_requests_scheduled_task_creation(prompt)) << prompt;
+    }
+    for (const char* prompt : {"生成代码：每天的数据导出脚本", "提醒用户：参加会议",
+                               "检查昨天新增的定时任务运行情况并汇报", "假设定时任务失败就通知我",
+                               "汇总定时任务页面上的失败记录", "Summarize the scheduled task runs",
+                               "Remind me about the meeting"}) {
+        EXPECT_FALSE(prompt_requests_scheduled_task_creation(prompt)) << prompt;
+    }
+}
+
+// 触发场景:create_scheduled_task 是按技能延迟开放的工具。
+// 期望:工具声明了技能索引用的触发说明(含中文触发词),并声明在定时任务执行
+// 会话中隐藏(拒绝文案要求「只做一次底层工作、不再建任务」)。
+TEST(ScheduledTaskPromptCheck, ToolDeclaresActivationHintAndLoopExecutionRefusal) {
+    const auto tool = create_scheduled_task_tool({});
+    EXPECT_EQ(tool.activation_skill, "scheduled-task");
+    EXPECT_NE(tool.activation_hint.find("建立定时任务"), std::string::npos);
+    EXPECT_NE(tool.loop_execution_refusal.find("do not schedule anything"), std::string::npos);
+}
 } // namespace

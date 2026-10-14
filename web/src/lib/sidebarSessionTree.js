@@ -1,3 +1,36 @@
+import { applyStatusUpdate, mergeSessionsWithStatus, sessionAttentionState } from './sessionStatus.js';
+
+export function sidebarSessionStatusRows(sessions = []) {
+  const rows = new Map();
+  for (const session of sessions) {
+    if (!session.sidebar_group) rows.set(session.id, session);
+  }
+  for (const session of sessions) {
+    if (session.sidebar_group) {
+      for (const member of session.sidebar_members || []) rows.set(member.id, { ...rows.get(member.id), ...member });
+    }
+  }
+  return Array.from(rows.values());
+}
+
+export function applySidebarSessionStatuses(statusMap, sessions) {
+  return sidebarSessionStatusRows(sessions).reduce((map, session) => applyStatusUpdate(map, {
+    ...session, session_id: session.id,
+    state: session.attention_state || session.read_state || session.state,
+    cursor: session.status_cursor ?? session.cursor,
+  }), statusMap);
+}
+
+export function mergeSidebarSessionStatuses(sessions, statusMap) {
+  return mergeSessionsWithStatus(sessions, statusMap).map(session => {
+    if (!session.sidebar_group) return session;
+    const unread = (session.sidebar_members || []).some(member => (
+      sessionAttentionState(statusMap?.get(member.id) || member) === 'unread'
+    ));
+    return { ...session, busy: false, status: 'idle', attention_state: unread ? 'unread' : 'read', read_state: unread ? 'unread' : 'read' };
+  });
+}
+
 export function sidebarNodeKey(session) {
   return session?.sidebar_key || `session:${session?.id || ''}`;
 }
@@ -33,7 +66,7 @@ export function validSidebarTreeDrop(source, target, placement, targetParent = n
   const parent = placement === 'inside' ? target.key : target.parent;
   if (placement === 'inside' && target.parent) return false;
   if (parent === source.key) return false;
-  if (parent && source.childCount > 0) return false;
+  if (parent && (source.group || source.childCount > 0)) return false;
   if (parent) {
     const receiver = placement === 'inside' ? target : targetParent;
     if (receiver?.key !== parent || !receiver.scheduled || receiver.parent) return false;

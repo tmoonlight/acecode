@@ -21,6 +21,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -364,6 +365,80 @@ TEST_F(SkillsIndexRegistryTest, CacheKeyTracksSkillSetChanges) {
     registry.reload();
     auto block3 = acecode::build_skills_index_context_prompt(&registry, 128000);
     EXPECT_NE(block1.cache_key, block3.cache_key);
+}
+
+// ---------------------------------------------------------------------------
+// 技能门控的内置工具(create_scheduled_task 等)
+// ---------------------------------------------------------------------------
+
+std::vector<acecode::SkillGatedToolInfo> scheduled_task_gate() {
+    return {{"create_scheduled_task", "scheduled-task",
+             "the user wants something done later or repeatedly (每天 / 建立定时任务)"}};
+}
+
+// 触发场景:门控工具 create_scheduled_task 在工具表里默认不可见,只能靠模型
+// 先加载 scheduled-task 技能。用户反馈「智能添加定时任务的技能经常不触发」。
+// 期望:技能索引里单列「Skill-gated built-in tools」一节,写明工具名、要加载的
+// 技能和触发条件,即使目录部分被截断也照样出现。
+TEST_F(SkillsIndexRegistryTest, GatedToolSectionNamesSkillToolAndHint) {
+    write_skill_md(temp_root, "acecode", "scheduled-task", "Create scheduled tasks");
+    write_skill_md(temp_root, "", "alpha", "First description");
+    acecode::SkillRegistry registry;
+    registry.set_scan_roots({temp_root});
+    registry.scan();
+    const auto gated = scheduled_task_gate();
+
+    auto block = acecode::build_skills_index_context_prompt(
+        &registry, 128000, true, true, nullptr, &gated);
+    EXPECT_NE(block.content.find("### Skill-gated built-in tools"), std::string::npos);
+    EXPECT_NE(block.content.find(
+        "- `create_scheduled_task` (load skill `scheduled-task`): the user wants something"),
+        std::string::npos);
+    EXPECT_NE(block.content.find("每天 / 建立定时任务"), std::string::npos);
+
+    // 门控工具集变化必须反映到 cache_key,否则策略隐藏工具后旧提示仍被复用。
+    const auto plain = acecode::build_skills_index_context_prompt(&registry, 128000);
+    EXPECT_EQ(plain.content.find("Skill-gated"), std::string::npos);
+    EXPECT_NE(plain.cache_key, block.cache_key);
+}
+
+// 触发场景:scheduled-task 用过一次后超过 idle_days 没再用,被判为休眠技能。
+// 休眠技能会从目录里隐藏,自然语言「每天帮我…」就再也触发不了建任务。
+// 期望:门控工具的技能不受休眠影响,仍在目录里;普通休眠技能照常隐藏。
+TEST_F(SkillsIndexRegistryTest, GatedToolSkillIsNeverDormant) {
+    write_skill_md(temp_root, "acecode", "scheduled-task", "Create scheduled tasks");
+    write_skill_md(temp_root, "", "alpha", "First description");
+    acecode::SkillRegistry registry;
+    registry.set_scan_roots({temp_root});
+    registry.scan();
+    const auto gated = scheduled_task_gate();
+    const std::set<std::string> dormant{"scheduled-task", "alpha"};
+
+    auto block = acecode::build_skills_index_context_prompt(
+        &registry, 128000, true, true, &dormant, &gated);
+    EXPECT_NE(block.content.find("- scheduled-task: Create scheduled tasks"), std::string::npos);
+    EXPECT_EQ(block.content.find("alpha: First description"), std::string::npos);
+}
+
+// 触发场景:(1) 用户在设置里禁用了 scheduled-task 技能(registry 里没有它);
+// (2) 专家策略收走了 skill_view,模型无法加载门控技能。
+// 期望:两种情况都不出门控一节 —— 列出一个加载不到的技能只会误导模型。
+TEST_F(SkillsIndexRegistryTest, GatedToolSectionNeedsInstalledSkillAndSkillView) {
+    write_skill_md(temp_root, "", "alpha", "First description");
+    acecode::SkillRegistry registry;
+    registry.set_scan_roots({temp_root});
+    registry.scan();
+    const auto gated = scheduled_task_gate();
+
+    auto missing_skill = acecode::build_skills_index_context_prompt(
+        &registry, 128000, true, true, nullptr, &gated);
+    EXPECT_EQ(missing_skill.content.find("Skill-gated"), std::string::npos);
+
+    write_skill_md(temp_root, "acecode", "scheduled-task", "Create scheduled tasks");
+    registry.reload();
+    auto no_skill_view = acecode::build_skills_index_context_prompt(
+        &registry, 128000, /*skill_view_available=*/false, true, nullptr, &gated);
+    EXPECT_EQ(no_skill_view.content.find("Skill-gated"), std::string::npos);
 }
 
 // ---------------------------------------------------------------------------

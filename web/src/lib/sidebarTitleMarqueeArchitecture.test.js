@@ -44,7 +44,7 @@ test('SessionRow measures only its non-editing title viewport', () => {
   assert.match(titleComponent, /metrics\.overflowing && 'is-overflowing'/);
   assert.match(titleComponent, /metrics\.overflowing && !animation\?\.typing && 'is-marquee-ready'/);
   assert.doesNotMatch(titleComponent, /<span[^>]*\btitle=\{/);
-  assert.match(row, /const title = sessionDisplayTitle\(s, s\.name \|\| ''\);/);
+  assert.match(row, /const title = isGroup \? s\.sidebar_group_name \|\| tr\('定时任务'\) : sessionDisplayTitle\(s, s\.name \|\| ''\);/);
   assert.match(
     row,
     /aria-label=\{remoteControlBound[\s\S]*\? tr\('remoteControl\.connectedSessionAria', \{ title \}\)[\s\S]*: title\}/,

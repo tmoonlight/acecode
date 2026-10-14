@@ -84,11 +84,11 @@ json WebServer::Impl::sidebar_session_page(const acecode::desktop::WorkspaceMeta
     if (move.is_object() && !move.empty()) {
         std::string error;
         const auto source_key = move.value("source", "");
-        const auto source_session = tree.nodes.count(source_key) ? tree.nodes.at(source_key).session_id : std::string{};
         if (!move_sidebar_node(tree, layout, move.value("source", ""), move.value("target", ""),
                                move.value("placement", ""), error)) return {{"error", error}};
         if (!write_sidebar_layout(layout_path, layout, error)) return {{"error", "SIDEBAR_SAVE_FAILED"}, {"detail", error}};
-        const auto& moved = tree.nodes.at(tree.nodes.count(source_key) ? source_key : "session:" + source_session);
+        tree = build_sidebar_tree(summaries, layout);
+        const auto& moved = tree.nodes.at(source_key);
         const auto root = moved.parent.empty() ? moved.key : moved.parent;
         if (!moved.parent.empty()) expanded.insert(moved.parent);
         const auto index = std::find(tree.roots.begin(), tree.roots.end(), root) - tree.roots.begin();
@@ -112,9 +112,42 @@ json WebServer::Impl::sidebar_session_page(const acecode::desktop::WorkspaceMeta
         body["remote_control_bound"] = !remote_control_id.empty() && remote_control_id == id;
         return body;
     };
+    std::map<std::string, std::string> loop_names;
+    if (deps.loop_store) {
+        for (const auto& task : deps.loop_store->list_loops()) loop_names[task.id] = task.name;
+    }
     json sessions = json::array();
     const auto emit = [&](const SidebarNode& node, std::size_t rank) {
         auto body = body_for(node.session_id);
+        if (node.group) {
+            json members = json::array();
+            bool unread = false;
+            for (const auto& key : node.children) {
+                // Collapsed groups need only attention summaries, not the full
+                // session/expert/worktree serialization of every hidden row.
+                const auto& id = tree.nodes.at(key).session_id;
+                const auto active = active_bodies.find(id);
+                const auto scope = no_workspace ? std::string{} : ws.hash;
+                const auto cwd = no_workspace ? std::string{} : active != active_bodies.end()
+                    ? active->second.value("cwd", std::string{}) : by_id.at(id)->cwd;
+                const bool busy = active != active_bodies.end() && active->second.value("busy", false);
+                const auto record = attention_record_for_session(scope, cwd, id, busy);
+                auto status = attention_payload_for_record(id, scope, cwd, record);
+                status["id"] = id;
+                status["status_cursor"] = status["cursor"];
+                status["no_workspace"] = no_workspace;
+                unread = unread || status.value("state", std::string{}) == "unread";
+                members.push_back(std::move(status));
+            }
+            body = {{"id", "sidebar-group:" + node.key}, {"title", loop_names[node.loop_id]},
+                {"sidebar_group", true}, {"sidebar_group_name", loop_names[node.loop_id]},
+                {"sidebar_members", std::move(members)}, {"sidebar_latest_session_id", node.session_id},
+                {"created_at", body.value("created_at", std::string{})}, {"updated_at", body.value("updated_at", std::string{})},
+                {"cwd", body.value("cwd", std::string{})}, {"workspace_hash", no_workspace ? std::string{} : ws.hash},
+                {"no_workspace", no_workspace}, {"active", false}, {"busy", false}, {"status", "idle"},
+                {"attention_state", unread ? "unread" : "read"}, {"read_state", unread ? "unread" : "read"},
+                {"loop_execution", {{"loop_id", node.loop_id}}}};
+        }
         body["sidebar_key"] = node.key;
         body["sidebar_parent_key"] = node.parent;
         body["sidebar_child_count"] = node.children.size();

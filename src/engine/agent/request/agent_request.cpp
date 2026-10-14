@@ -46,6 +46,13 @@ agent::RequestContextSource AgentLoop::capture_request_source() const {
     }
     // 蜂群模式两套协作工具互斥:按本回合捕获的模式隐藏另一套(schema 与执行同一谓词)。
     snapshot.tool_policy.hidden_builtin_tools = swarm_mode_hidden_tools(snapshot.swarm.mode);
+    // 定时任务的执行会话(含其子代理)不能再建定时任务:任务内容里残留的
+    // 「建立定时任务…」会让每次执行再派生新任务。同一谓词管 schema 与执行。
+    if (snapshot.loop.active) {
+        for (auto& [name, refusal] : tools_.loop_execution_hidden_tools()) {
+            snapshot.tool_policy.hidden_builtin_tools.emplace(name, std::move(refusal));
+        }
+    }
     return snapshot;
 }
 

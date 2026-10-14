@@ -16,6 +16,8 @@ struct SidebarNode {
     std::string key;
     std::string session_id;
     bool scheduled = false;
+    bool group = false;
+    std::string loop_id;
     std::string parent;
     std::vector<std::string> children;
 };

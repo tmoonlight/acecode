@@ -2316,10 +2316,23 @@ body {
 }
 /* 会话行右侧是一个槽位,不是两栏:静止时显示日期(或「权限请求 / 等待回复」
    徽标),hover / 键盘聚焦时整块换成置顶与归档图标。两者互斥,所以静止态不给
-   图标预留宽度,标题能多占一截。定时任务 / 工作树会话的标记图标是状态而非
-   悬停操作,始终显示。 */
+   图标预留宽度,标题能多占一截。实际定时 / 工作树会话的来源标记与归档共用
+   一个位置;分组标题的独立闹钟始终显示。 */
 .ace-sidebar-session-row:is(:hover, :focus-within) .ace-sidebar-row-idle-slot {
   display: none;
+}
+/* Keep row actions available before native CSS nesting (WebView 110). */
+.ace-sidebar-session-row:hover .ace-sidebar-row-hover-action,
+.ace-sidebar-session-row:focus-within .ace-sidebar-row-hover-action {
+  display: flex;
+}
+.ace-sidebar-session-row:hover .ace-sidebar-session-source-icon,
+.ace-sidebar-session-row:focus-within .ace-sidebar-session-source-icon {
+  opacity: 0;
+}
+.ace-sidebar-session-row:hover .ace-sidebar-session-archive-icon,
+.ace-sidebar-session-row:focus-within .ace-sidebar-session-archive-icon {
+  opacity: 1;
 }
 .ace-sidebar-session-row {
   position: relative;
@@ -2637,13 +2650,18 @@ body {
 }
 .ace-sidebar-session-tree-node { position: relative; }
 .ace-sidebar-session-tree-children {
-  margin-left: 18px;
-  padding-left: 6px;
-  border-left: 1px solid var(--ace-border);
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
-.ace-sidebar-session-tree-child:not(.is-tree-active) { background: rgba(0, 0, 0, 0.04); }
-[data-theme="dark"] .ace-sidebar-session-tree-child:not(.is-tree-active) { background: rgba(0, 0, 0, 0.20); }
-.ace-sidebar-session-tree-child:not(.is-tree-active):hover { background: var(--ace-surface-hi); }
+.ace-sidebar-session-tree-node.is-tree-expanded { background: var(--ace-accent-bg); border-radius: 6px; }
+.ace-sidebar-session-tree-node.is-tree-expanded .ace-sidebar-session-row.is-tree-active {
+  background: rgba(var(--ace-accent-rgb), 0.18);
+}
+.ace-sidebar-session-tree-node.is-tree-expanded .ace-sidebar-session-row:not(.is-tree-active):hover {
+  background: rgba(var(--ace-accent-rgb), 0.08);
+}
+.ace-sidebar-session-row[data-sidebar-tree-group="true"] .ace-sidebar-row-idle-slot { display: inline; }
 .ace-sidebar-session-tree-chevron { pointer-events: none; }
 .ace-sidebar-session-tree-chevron.is-expanded { transform: rotate(90deg); }
 .ace-sidebar-session-row.is-drop-inside {

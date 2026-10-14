@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { sidebarSessionProjection, sidebarSessionRevealLimit } from './sidebarSessions.js';
 import { normalizeWorkspaceSessionListResponse } from './sidebarWorkspaceSessions.js';
-import { sidebarSessionRoots, sidebarTreeDropTarget, validSidebarTreeDrop } from './sidebarSessionTree.js';
+import { applySidebarSessionStatuses, mergeSidebarSessionStatuses, sidebarSessionRoots, sidebarSessionStatusRows, sidebarTreeDropTarget, validSidebarTreeDrop } from './sidebarSessionTree.js';
+import { applyStatusUpdate } from './sessionStatus.js';
 
 const group = { id: 'new', workspace_hash: 'w', sidebar_key: 'loop:daily', sidebar_rank: 0, sidebar_child_count: 12 };
 const history = Array.from({ length: 12 }, (_, i) => ({
@@ -47,4 +48,28 @@ assert.deepEqual(sidebarTreeDropTarget(targets, child, 60, 82), { ...other, plac
 assert.deepEqual(sidebarTreeDropTarget(targets, child, 60, 140), { ...single, placement: 'inside' });
 assert.deepEqual(sidebarTreeDropTarget(targets, other, 60, 42), { ...child, placement: 'before' });
 assert.equal(sidebarTreeDropTarget(targets, parent, 60, 140), null);
+assert.equal(validSidebarTreeDrop({ ...single, group: true }, parent, 'inside'), false);
+
+const taskGroup = {
+  id: 'sidebar-group:loop:daily', sidebar_group: true, sidebar_group_name: 'Daily task',
+  sidebar_key: 'loop:daily', busy: false, status: 'idle',
+  sidebar_members: [
+    { id: 'older', attention_state: 'unread', busy: false },
+    { id: 'latest', attention_state: 'in_progress', busy: true },
+  ],
+};
+let status = applySidebarSessionStatuses(new Map(), [taskGroup]);
+assert.equal(status.has(taskGroup.id), false, 'group headers are not real session status owners');
+assert.equal(sidebarSessionStatusRows([taskGroup, { id: 'latest', attention_state: 'in_progress', busy: true }]).length, 2);
+let aggregate = mergeSidebarSessionStatuses([taskGroup], status)[0];
+assert.equal(aggregate.attention_state, 'unread');
+assert.equal(aggregate.busy, false);
+status = applyStatusUpdate(status, { id: 'older', state: 'read' });
+aggregate = mergeSidebarSessionStatuses([taskGroup], status)[0];
+assert.equal(aggregate.attention_state, 'read', 'running children do not make their parent spin or turn green');
+assert.equal(aggregate.status, 'idle');
+status = applyStatusUpdate(status, { id: 'latest', state: 'unread' });
+assert.equal(mergeSidebarSessionStatuses([taskGroup], status)[0].attention_state, 'unread', 'collapsed groups update directly from member events');
+status = applyStatusUpdate(status, { id: 'latest', state: 'read' });
+assert.equal(mergeSidebarSessionStatuses([taskGroup], status)[0].attention_state, 'read');
 console.log('[pass] sidebar tree counts roots, reveals history and only accepts children under scheduled roots');

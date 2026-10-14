@@ -5,6 +5,7 @@ import { setImmediate as nextTask } from 'node:timers/promises';
 import { parseSync } from '@babel/core';
 import * as workspaceSessions from './sidebarWorkspaceSessions.js';
 import * as sidebarSessions from './sidebarSessions.js';
+import * as sidebarTree from './sidebarSessionTree.js';
 import * as pinnedSessions from './pinnedSessions.js';
 import * as auxiliaryFetch from './sidebarAuxiliaryFetch.js';
 import { applyStatusUpdate } from './sessionStatus.js';
@@ -57,7 +58,7 @@ function fixture({
   const requests = [];
   const context = vm.createContext({
     Map, Set, Array, Promise, setTimeout,
-    ...workspaceSessions, ...sidebarSessions, ...pinnedSessions, ...auxiliaryFetch,
+    ...workspaceSessions, ...sidebarSessions, ...sidebarTree, ...pinnedSessions, ...auxiliaryFetch,
     applyStatusUpdate,
     workspaces: state.workspaces, activeWorkspaceHash: 'w',
     revealTarget: { noWorkspace: false, workspaceHash: 'w' },

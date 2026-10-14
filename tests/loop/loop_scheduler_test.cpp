@@ -89,6 +89,17 @@ TEST(LoopScheduler, SystemContextContainsYoloBoundaryAndWorktreeHandoff) {
     EXPECT_NE(text.find("Do not use AskUserQuestion"), std::string::npos);
 }
 
+// 触发场景:旧任务的 prompt 里已经带着「建立定时任务，每天帮我生成代码」。
+// bug 表现:执行会话把这句当成新请求,再建一个子定时任务。
+// 期望:执行上下文明确「这是一次执行、计时由调度器负责,任务文本里的建任务 /
+// 时间描述是创建时的原话,只做底层工作、不再建任务」。
+TEST(LoopScheduler, SystemContextTreatsCreationWordingAsOneExecution) {
+    const auto text = build_loop_system_context(sample_loop(), sample_run(), "C:/repo", {});
+    EXPECT_NE(text.find("one execution of the scheduled task"), std::string::npos);
+    EXPECT_NE(text.find("original creation wording"), std::string::npos);
+    EXPECT_NE(text.find("do not create or schedule tasks"), std::string::npos);
+}
+
 TEST(LoopScheduler, DefaultContextPreservesInteractiveQuestions) {
     const auto text = build_loop_system_context(
         sample_loop("default"), sample_run(), "C:/repo", {});

@@ -19,6 +19,41 @@ import {
   sessionTodosPath,
 } from './api.js';
 
+await run('sidebar queries retain expansion, pagination and reveal when URLSearchParams.size is unavailable', async () => {
+  const originalFetch = globalThis.fetch;
+  const OriginalSearchParams = globalThis.URLSearchParams;
+  const calls = [];
+  globalThis.URLSearchParams = class extends OriginalSearchParams {
+    get size() { return undefined; }
+  };
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: new URL(url), options });
+    return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ sessions: [] }) };
+  };
+  try {
+    const api = createApi({ origin: 'http://sidebar.test', token: 'fixture-token' });
+    const options = { limit: 5, expanded: ['loop:每日 / + 简报', 'session:older'], reveal: 'older / + 会话' };
+    await api.listSidebarSessions('工作区 / one', options);
+    await api.listSidebarSessions('', { ...options, limit: 0 });
+    const move = { source: 'session:older', target: 'loop:每日 / + 简报', placement: 'inside' };
+    await api.moveSidebarSession('工作区 / one', move, options);
+    await api.listSidebarSessions('', { limit: 0, expanded: [], reveal: '' });
+    assert.equal(calls[0].url.pathname, '/api/workspaces/' + encodeURIComponent('工作区 / one') + '/session-sidebar');
+    assert.equal(calls[1].url.pathname, '/api/session-sidebar');
+    for (const index of [0, 1, 2]) {
+      assert.deepEqual(JSON.parse(calls[index].url.searchParams.get('expanded')), options.expanded);
+      assert.equal(calls[index].url.searchParams.get('reveal'), options.reveal);
+      assert.equal(calls[index].url.searchParams.get('limit'), index === 1 ? null : '5');
+    }
+    assert.equal(calls[2].options.method, 'POST');
+    assert.deepEqual(JSON.parse(calls[2].options.body), move);
+    assert.equal(calls[3].url.search, '');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.URLSearchParams = OriginalSearchParams;
+  }
+});
+
 await run('local import sends original binary ZIP with authentication and preview digest', async () => {
   const originalFetch = globalThis.fetch;
   try {
