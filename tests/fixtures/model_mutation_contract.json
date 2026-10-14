@@ -18,6 +18,7 @@
       "supported_efforts": ["low", "high"],
       "supports_max_tokens": true,
       "default_effort": "high"
-    }
+    },
+    "sampling": null
   }
 }

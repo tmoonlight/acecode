@@ -369,3 +369,54 @@ TEST(ProviderFactory, FingerprintPublicSurfaceCannotExposeRawSecrets) {
     ASSERT_TRUE(built.provider);
     EXPECT_EQ(built.provider->model(), "test-model");
 }
+
+// 触发场景:在设置里改了某个采样参数(包括从"未设置"改成 0、或只改小数点后
+// 很远的一位),运行中的会话要靠指纹变化才会重建 Provider。
+// 期望:每个字段的增删改都改变指纹;0.95 与 0.9500000001 也必须区分(按位编码,
+// 不能先格式化成文本);采样参数原样进入 Provider 的请求选项。
+TEST(ProviderFactory, FingerprintCoversEverySamplingField) {
+    auto base = openai_profile("https://gateway.example/v1");
+    base.sampling.temperature = 1.0;
+    base.sampling.top_p = 0.95;
+    base.sampling.top_k = 20;
+    base.sampling.min_p = 0.0;
+    const auto expected = fingerprint_for(base);
+
+    const std::vector<std::function<void(ModelProfile&)>> mutations = {
+        [](ModelProfile& p) { p.sampling.temperature = 0.99; },
+        [](ModelProfile& p) { p.sampling.temperature.reset(); },
+        [](ModelProfile& p) { p.sampling.top_p = 0.9500000001; },
+        [](ModelProfile& p) { p.sampling.top_p.reset(); },
+        [](ModelProfile& p) { p.sampling.top_k = 21; },
+        [](ModelProfile& p) { p.sampling.top_k.reset(); },
+        [](ModelProfile& p) { p.sampling.min_p = 0.01; },
+        [](ModelProfile& p) { p.sampling.min_p.reset(); },
+    };
+    for (const auto& mutate : mutations) {
+        auto changed = base;
+        mutate(changed);
+        EXPECT_NE(fingerprint_for(changed), expected);
+    }
+    EXPECT_EQ(fingerprint_for(base), expected);
+
+    const auto provider = create_provider_from_entry(base);
+    const auto compat = std::dynamic_pointer_cast<acecode::OpenAiCompatProvider>(provider);
+    ASSERT_TRUE(compat);
+    EXPECT_EQ(compat->request_options().sampling.top_k, 20);
+    EXPECT_EQ(compat->request_options().sampling.min_p, 0.0);
+}
+
+// 触发场景:绕过配置校验(例如旧数据或直接构造)给托管 provider 塞了采样参数。
+// 期望:工厂拒绝构造,与托管 provider 的其它自定义项一致,不会带着用户以为
+// 生效、其实被托管协议忽略的参数运行。
+TEST(ProviderFactory, ManagedProvidersRefuseSampling) {
+    for (const auto* managed : {"copilot", "grok"}) {
+        ModelProfile profile;
+        profile.name = managed;
+        profile.provider = managed;
+        profile.model = "model-id";
+        profile.sampling.temperature = 0.5;
+        EXPECT_FALSE(acecode::prepare_provider_construction(profile).has_value())
+            << managed;
+    }
+}

@@ -466,7 +466,12 @@ TEST(ModelsHandler, SharedEditPayloadParsesAndClearsSuppliedOverrides) {
     existing.max_output_tokens = 32000;
     existing.endpoint_mode = "base_url";
     existing.request_headers = {{"X-Old", "value"}};
+    // 共享 fixture 带 "sampling": null:编辑器把采样参数全部留空保存时,
+    // 已保存的值必须被清掉。
+    existing.sampling.top_k = 20;
     cfg.saved_models.push_back(existing);
+    EXPECT_TRUE(draft->sampling_supplied);
+    EXPECT_FALSE(draft->sampling.has_value());
 
     EXPECT_EQ(acecode::update_saved_model(
                   cfg, "fixture-openrouter", *draft),
@@ -477,6 +482,7 @@ TEST(ModelsHandler, SharedEditPayloadParsesAndClearsSuppliedOverrides) {
     EXPECT_FALSE(cfg.saved_models[0].max_output_tokens.has_value());
     EXPECT_FALSE(cfg.saved_models[0].endpoint_mode.has_value());
     EXPECT_TRUE(cfg.saved_models[0].request_headers.empty());
+    EXPECT_TRUE(cfg.saved_models[0].sampling.empty());
     ASSERT_TRUE(cfg.saved_models[0].reasoning.has_value());
     EXPECT_EQ(cfg.saved_models[0].reasoning->default_effort, "high");
 }
@@ -868,4 +874,64 @@ TEST(ModelsHandler, ApiProtocolRoundTripAndDraftPresence) {
     invalid["api_protocol"] = 42;
     EXPECT_FALSE(parse_model_draft(invalid, error));
     EXPECT_NE(error.find("api_protocol"), std::string::npos);
+}
+
+// 触发场景:设置页保存模型时提交 sampling —— 一组新值、null(全部留空)、
+// 不提交、类型错误的值。
+// 期望:对象 → supplied 且解析出各字段;null → supplied 但无值(编辑器据此清除);
+// 不提交 → 不 supplied(保留旧值);类型错误 → 解析失败且错误里带 "sampling"。
+TEST(ModelsHandler, ParseDraftHandlesSampling) {
+    const nlohmann::json wire = {
+        {"name", "glm"}, {"provider", "openai"}, {"model", "aicoder-pro"},
+        {"base_url", "https://gateway.example/v1"}, {"api_key", "sk-test"},
+    };
+    std::string error;
+    auto with_values = wire;
+    with_values["sampling"] = {{"temperature", 1}, {"top_p", 0.95},
+                               {"top_k", 20}, {"min_p", 0}};
+    auto draft = parse_model_draft(with_values, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_TRUE(draft->sampling_supplied);
+    ASSERT_TRUE(draft->sampling.has_value());
+    EXPECT_EQ(draft->sampling->top_k, 20);
+    EXPECT_EQ(draft->sampling->min_p, 0.0);
+
+    auto cleared = wire;
+    cleared["sampling"] = nullptr;
+    draft = parse_model_draft(cleared, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_TRUE(draft->sampling_supplied);
+    EXPECT_FALSE(draft->sampling.has_value());
+
+    draft = parse_model_draft(wire, error);
+    ASSERT_TRUE(draft.has_value()) << error;
+    EXPECT_FALSE(draft->sampling_supplied);
+
+    auto invalid = wire;
+    invalid["sampling"] = {{"top_k", "20"}};
+    error.clear();
+    EXPECT_FALSE(parse_model_draft(invalid, error));
+    EXPECT_NE(error.find("sampling"), std::string::npos) << error;
+}
+
+// 触发场景:模型列表 / 保存成功后把条目回给设置页。
+// 期望:配了采样参数才输出 sampling(只含已设置的字段),没配时不输出该键,
+// 编辑弹窗据此回填输入框。
+TEST(ModelsHandler, ProfileToJsonIncludesSamplingOnlyWhenSet) {
+    ModelProfile p;
+    p.name = "glm";
+    p.provider = "openai";
+    p.model = "aicoder-pro";
+    p.base_url = "https://gateway.example/v1";
+    p.api_key = "sk-test";
+    EXPECT_FALSE(profile_to_json(p).contains("sampling"));
+
+    p.sampling.top_p = 0.95;
+    p.sampling.top_k = 20;
+    const auto j = profile_to_json(p);
+    ASSERT_TRUE(j.contains("sampling"));
+    EXPECT_EQ(j["sampling"]["top_p"], 0.95);
+    EXPECT_EQ(j["sampling"]["top_k"], 20);
+    EXPECT_FALSE(j["sampling"].contains("temperature"));
+    EXPECT_FALSE(j["sampling"].contains("min_p"));
 }

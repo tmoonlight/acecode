@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <limits>
@@ -289,6 +290,17 @@ std::optional<ModelProfile> parse_one_entry(const nlohmann::json& node, std::siz
         }
         e.reasoning = std::move(*reasoning);
     }
+    if (node.contains("sampling") && !node["sampling"].is_null()) {
+        std::string sampling_err;
+        auto sampling = parse_model_sampling_options(node["sampling"],
+                                                     sampling_err);
+        if (!sampling.has_value()) {
+            err = "saved_models[" + std::to_string(idx) +
+                  "] has invalid sampling: " + sampling_err;
+            return std::nullopt;
+        }
+        e.sampling = *sampling;
+    }
     if (node.contains("request_headers")) {
         std::ostringstream context;
         context << "saved_models[" << idx << "] (name='" << e.name << "')";
@@ -462,7 +474,7 @@ bool validate_saved_models(const std::vector<ModelProfile>& entries,
                 return false;
             }
             if (e.endpoint_mode.has_value() || e.reasoning.has_value() ||
-                e.max_output_tokens.has_value() ||
+                e.max_output_tokens.has_value() || !e.sampling.empty() ||
                 (e.provider == "grok" && e.stream_timeout_ms.has_value())) {
                 err = "saved_models entry '" + e.name +
                       "' contains unsupported managed provider runtime options";
@@ -501,6 +513,14 @@ bool validate_saved_models(const std::vector<ModelProfile>& entries,
             err = "saved_models entry '" + e.name +
                   "' has invalid max_output_tokens";
             return false;
+        }
+        if (!e.sampling.empty()) {
+            std::string sampling_err;
+            if (!validate_model_sampling_support(e, sampling_err)) {
+                err = "saved_models entry '" + e.name +
+                      "' has invalid sampling: " + sampling_err;
+                return false;
+            }
         }
         if (e.capabilities_source.has_value() &&
             *e.capabilities_source != "catalog" &&
@@ -693,6 +713,112 @@ nlohmann::json model_reasoning_options_to_json(
     return result;
 }
 
+std::optional<ModelSamplingOptions> parse_model_sampling_options(
+    const nlohmann::json& node,
+    std::string& err) {
+    if (!node.is_object()) {
+        err = "sampling must be an object";
+        return std::nullopt;
+    }
+    ModelSamplingOptions result;
+    auto optional_number = [&](const char* key, std::optional<double>& out) {
+        auto it = node.find(key);
+        if (it == node.end() || it->is_null()) return true;
+        if (!it->is_number()) {
+            err = std::string("sampling field '") + key + "' must be a number or null";
+            return false;
+        }
+        out = it->get<double>();
+        return true;
+    };
+    if (!optional_number("temperature", result.temperature) ||
+        !optional_number("top_p", result.top_p) ||
+        !optional_number("min_p", result.min_p)) {
+        return std::nullopt;
+    }
+    if (auto it = node.find("top_k"); it != node.end() && !it->is_null()) {
+        if (!it->is_number_integer()) {
+            err = "sampling field 'top_k' must be an integer or null";
+            return std::nullopt;
+        }
+        // 先按 long long 读,超出 int 的值交给范围校验报错,而不是静默截断。
+        const long long value = it->get<long long>();
+        if (value <= 0 || value > std::numeric_limits<int>::max()) {
+            err = "sampling top_k must be a positive integer";
+            return std::nullopt;
+        }
+        result.top_k = static_cast<int>(value);
+    }
+    if (!validate_model_sampling_ranges(result, err)) return std::nullopt;
+    return result;
+}
+
+nlohmann::json model_sampling_options_to_json(
+    const ModelSamplingOptions& options) {
+    nlohmann::json result = nlohmann::json::object();
+    if (options.temperature.has_value()) result["temperature"] = *options.temperature;
+    if (options.top_p.has_value()) result["top_p"] = *options.top_p;
+    if (options.top_k.has_value()) result["top_k"] = *options.top_k;
+    if (options.min_p.has_value()) result["min_p"] = *options.min_p;
+    return result;
+}
+
+bool validate_model_sampling_ranges(const ModelSamplingOptions& options,
+                                    std::string& err) {
+    if (options.temperature.has_value() &&
+        (!std::isfinite(*options.temperature) || *options.temperature < 0.0 ||
+         *options.temperature > 2.0)) {
+        err = "sampling temperature must be between 0 and 2";
+        return false;
+    }
+    if (options.top_p.has_value() &&
+        (!std::isfinite(*options.top_p) || *options.top_p <= 0.0 ||
+         *options.top_p > 1.0)) {
+        err = "sampling top_p must be greater than 0 and at most 1";
+        return false;
+    }
+    if (options.top_k.has_value() && *options.top_k <= 0) {
+        err = "sampling top_k must be a positive integer";
+        return false;
+    }
+    if (options.min_p.has_value() &&
+        (!std::isfinite(*options.min_p) || *options.min_p < 0.0 ||
+         *options.min_p > 1.0)) {
+        err = "sampling min_p must be between 0 and 1";
+        return false;
+    }
+    return true;
+}
+
+bool validate_model_sampling_support(const ModelProfile& profile,
+                                     std::string& err) {
+    const ModelSamplingOptions& sampling = profile.sampling;
+    if (sampling.empty()) return true;
+    if (!validate_model_sampling_ranges(sampling, err)) return false;
+    if (profile.provider == "anthropic") {
+        if (sampling.min_p.has_value()) {
+            err = "sampling min_p is not supported by Anthropic";
+            return false;
+        }
+        if (sampling.temperature.has_value() && *sampling.temperature > 1.0) {
+            err = "sampling temperature must be between 0 and 1 for Anthropic";
+            return false;
+        }
+        return true;
+    }
+    if (profile.provider == "openai") {
+        // Responses 协议没有 top_k / min_p,转换请求时会被丢掉,这里直接拒绝。
+        if (model_profile_api_protocol(profile) == "responses" &&
+            (sampling.top_k.has_value() || sampling.min_p.has_value())) {
+            err = "sampling top_k and min_p require the chat_completions API protocol";
+            return false;
+        }
+        return true;
+    }
+    err = "sampling is not supported by provider '" + profile.provider + "'";
+    return false;
+}
+
 std::string model_profile_api_protocol(const ModelProfile& profile) {
     if (profile.api_protocol.has_value()) return *profile.api_protocol;
     if (profile.provider == "openai" && profile.models_dev_provider_id.has_value() &&
@@ -770,6 +896,14 @@ bool model_reasoning_options_equal(const ModelReasoningOptions& left,
            left.max_tokens == right.max_tokens;
 }
 
+bool model_sampling_options_equal(const ModelSamplingOptions& left,
+                                  const ModelSamplingOptions& right) {
+    return left.temperature == right.temperature &&
+           left.top_p == right.top_p &&
+           left.top_k == right.top_k &&
+           left.min_p == right.min_p;
+}
+
 bool model_profiles_equal(const ModelProfile& left,
                           const ModelProfile& right) {
     const bool reasoning_equal =
@@ -790,6 +924,7 @@ bool model_profiles_equal(const ModelProfile& left,
            left.max_output_tokens == right.max_output_tokens &&
            left.capabilities_source == right.capabilities_source &&
            reasoning_equal &&
+           model_sampling_options_equal(left.sampling, right.sampling) &&
            left.request_headers == right.request_headers &&
            left.readonly == right.readonly;
 }

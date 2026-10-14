@@ -43,6 +43,9 @@ struct SavedModelDraft {
     bool capabilities_source_supplied = false;
     std::optional<ModelReasoningOptions> reasoning;
     bool reasoning_supplied = false;
+    // 采样参数整体替换:supplied 且为空(或 null)= 清除全部采样参数。
+    std::optional<ModelSamplingOptions> sampling;
+    bool sampling_supplied = false;
     std::map<std::string, std::string> request_headers;
     bool request_headers_supplied = false;
 };
@@ -66,6 +69,7 @@ enum class SavedModelEditError {
     INVALID_MAX_OUTPUT_TOKENS,
     INVALID_CAPABILITIES_SOURCE,
     INVALID_REASONING,
+    INVALID_SAMPLING,       // 采样参数越界,或当前 provider / 协议不支持
     INVALID_CREDENTIAL_SOURCE,
     CREDENTIAL_CONFLICT,
     UNSUPPORTED_MODEL_OPTION,

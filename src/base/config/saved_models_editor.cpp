@@ -38,6 +38,7 @@ const char* to_string(SavedModelEditError e) {
         case SavedModelEditError::INVALID_CAPABILITIES_SOURCE:
             return "INVALID_CAPABILITIES_SOURCE";
         case SavedModelEditError::INVALID_REASONING: return "INVALID_REASONING";
+        case SavedModelEditError::INVALID_SAMPLING: return "INVALID_SAMPLING";
         case SavedModelEditError::INVALID_CREDENTIAL_SOURCE:
             return "INVALID_CREDENTIAL_SOURCE";
         case SavedModelEditError::CREDENTIAL_CONFLICT:
@@ -87,6 +88,12 @@ SavedModelEditError validate_draft_shape(const SavedModelDraft& d) {
     }
     if (d.max_output_tokens.has_value() && *d.max_output_tokens < 0) {
         return SavedModelEditError::INVALID_MAX_OUTPUT_TOKENS;
+    }
+    if (d.sampling.has_value()) {
+        std::string sampling_error;
+        if (!validate_model_sampling_ranges(*d.sampling, sampling_error)) {
+            return SavedModelEditError::INVALID_SAMPLING;
+        }
     }
     std::set<std::string> seen_capabilities;
     for (const auto& tag : d.capabilities) {
@@ -142,6 +149,7 @@ SavedModelEditError validate_draft_shape(const SavedModelDraft& d) {
                            d.endpoint_mode.has_value()) ||
             field_supplied(d.max_output_tokens_supplied,
                            d.max_output_tokens.has_value()) ||
+            (d.sampling.has_value() && !d.sampling->empty()) ||
             field_supplied(d.reasoning_supplied, d.reasoning.has_value()) ||
             (d.provider == "grok" &&
              field_supplied(d.stream_timeout_ms_supplied,
@@ -165,6 +173,7 @@ void reset_provider_specific_fields(ModelProfile& profile) {
     profile.max_output_tokens.reset();
     profile.capabilities_source.reset();
     profile.reasoning.reset();
+    profile.sampling = {};
     profile.request_headers.clear();
 }
 
@@ -223,6 +232,9 @@ ModelProfile merge_profile(const SavedModelDraft& d,
     if (is_new || d.reasoning_supplied || d.reasoning.has_value()) {
         profile.reasoning = d.reasoning;
     }
+    if (is_new || d.sampling_supplied || d.sampling.has_value()) {
+        profile.sampling = d.sampling.value_or(ModelSamplingOptions{});
+    }
     if (is_new || d.request_headers_supplied || !d.request_headers.empty()) {
         profile.request_headers = d.request_headers;
     }
@@ -237,6 +249,7 @@ ModelProfile merge_profile(const SavedModelDraft& d,
         profile.max_output_tokens.reset();
         profile.capabilities_source.reset();
         profile.reasoning.reset();
+        profile.sampling = {};
         profile.request_headers.clear();
     } else if (profile.provider == "grok") {
         // Grok keeps catalog identity/capability metadata, but its connection
@@ -247,6 +260,7 @@ ModelProfile merge_profile(const SavedModelDraft& d,
         profile.endpoint_mode.reset();
         profile.max_output_tokens.reset();
         profile.reasoning.reset();
+        profile.sampling = {};
         profile.request_headers.clear();
     } else if (profile.endpoint_mode != "full_url") {
         profile.base_url = normalize_model_endpoint_identity(profile.base_url);
@@ -340,6 +354,11 @@ SavedModelEditError validate_candidate(const ModelProfile& candidate) {
     if (!validate_saved_models({candidate}, "", error)) {
         if (error.find("reasoning") != std::string::npos) {
             return SavedModelEditError::INVALID_REASONING;
+        }
+        // 必须排在下面 "unsupported" 判断之前:provider / 协议不支持某个采样
+        // 参数的报错文案里也带 "supported"。
+        if (error.find("sampling") != std::string::npos) {
+            return SavedModelEditError::INVALID_SAMPLING;
         }
         if (error.find("full_url") != std::string::npos ||
             error.find("endpoint") != std::string::npos ||

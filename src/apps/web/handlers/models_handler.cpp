@@ -90,6 +90,9 @@ nlohmann::json entry_to_json(const ModelProfile& entry) {
     if (entry.reasoning.has_value()) {
         o["reasoning"] = model_reasoning_options_to_json(*entry.reasoning);
     }
+    if (!entry.sampling.empty()) {
+        o["sampling"] = model_sampling_options_to_json(entry.sampling);
+    }
     if (!entry.request_headers.empty()) {
         o["request_headers"] = entry.request_headers;
     }
@@ -385,6 +388,22 @@ std::optional<SavedModelDraft> parse_model_draft(const nlohmann::json& body,
                 err = "field 'reasoning' is invalid: " + reasoning_error;
             } else {
                 d.reasoning = std::move(*reasoning);
+            }
+        }
+    }
+    if (body.contains("sampling")) {
+        // null / {} 都表示清除;对象整体替换已保存的采样参数。
+        d.sampling_supplied = true;
+        if (body["sampling"].is_null()) {
+            d.sampling.reset();
+        } else {
+            std::string sampling_error;
+            auto sampling = parse_model_sampling_options(body["sampling"],
+                                                         sampling_error);
+            if (!sampling.has_value()) {
+                err = "field 'sampling' is invalid: " + sampling_error;
+            } else {
+                d.sampling = *sampling;
             }
         }
     }

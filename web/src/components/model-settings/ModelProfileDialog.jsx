@@ -13,6 +13,7 @@ import {
   modelAliasProviderName,
   modelFieldPolicy,
   modelNameSuggestion,
+  modelSamplingFieldSupport,
   redactModelDraftSecrets,
   syncAutoModelAlias,
   toggleModelCapability,
@@ -39,6 +40,47 @@ function fieldLabel(id, label, optional = false) {
       {label}
       {optional && <span className="ml-1 font-normal text-fg-mute">可选</span>}
     </label>
+  );
+}
+
+const SAMPLING_INPUTS = [
+  { field: 'temperature', label: 'Temperature', min: 0, step: '0.01' },
+  { field: 'top_p', label: 'Top P', min: 0, max: 1, step: '0.01' },
+  { field: 'top_k', label: 'Top K', min: 1, step: '1' },
+  { field: 'min_p', label: 'Min P', min: 0, max: 1, step: '0.01' },
+];
+
+// 采样参数:只渲染当前 Provider / API 协议真正会发出去的字段。
+function ModelSamplingFields({ draft, provider, support, onPatchDraft }) {
+  const visible = SAMPLING_INPUTS.filter((input) => support[input.field]);
+  if (visible.length === 0) return null;
+  const temperatureMax = provider?.runtime_provider === 'anthropic' ? 1 : 2;
+  return (
+    <fieldset>
+      <legend className="mb-1.5 text-[11px] font-normal text-fg-2">采样参数</legend>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {visible.map((input) => (
+          <div key={input.field}>
+            {fieldLabel(`model-sampling-${input.field}`, input.label, true)}
+            <input
+              id={`model-sampling-${input.field}`}
+              type="number"
+              min={input.min}
+              max={input.field === 'temperature' ? temperatureMax : input.max}
+              step={input.step}
+              value={draft[input.field] ?? ''}
+              onChange={(event) => onPatchDraft({ [input.field]: event.target.value })}
+              className={inputClass()}
+              placeholder="服务端默认"
+            />
+          </div>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] leading-5 text-fg-mute">
+        留空则不发送，由服务端决定。
+        {support.min_p && 'Top K、Min P 是 vLLM、SGLang 等推理服务的扩展参数，官方 OpenAI 接口不支持，按需填写。'}
+      </p>
+    </fieldset>
   );
 }
 
@@ -410,6 +452,7 @@ export function ModelProfileDialog({
   const updateReasoning = (patch) => patchMetadataDraft({
     reasoning: { ...reasoning, ...patch },
   });
+  const samplingSupport = modelSamplingFieldSupport(draft, provider);
   const title = editing ? `编辑模型 · ${originalName}` : '新增模型';
 
   return (
@@ -612,6 +655,13 @@ export function ModelProfileDialog({
                     </div>
                   )}
                 </div>
+
+                <ModelSamplingFields
+                  draft={draft}
+                  provider={provider}
+                  support={samplingSupport}
+                  onPatchDraft={patchDraft}
+                />
 
                 <fieldset>
                   <legend className="mb-1.5 text-[11px] font-normal text-fg-2">模型能力</legend>

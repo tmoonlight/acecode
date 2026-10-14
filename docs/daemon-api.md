@@ -3019,7 +3019,7 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 原值和 `has_api_key` 布尔值，供编辑表单默认遮罩回填；调用方必须把整个响应视为
 敏感数据，日志与错误消息仍不得包含密钥。高级字段有值时会原样返回，包括
 `endpoint_mode`、`api_protocol`、`max_output_tokens`、`capabilities_source`、`reasoning`、
-`request_headers`、`context_window` 与 `stream_timeout_ms`。
+`sampling`、`request_headers`、`context_window` 与 `stream_timeout_ms`。
 
 ### `POST /api/models`
 
@@ -3048,9 +3048,21 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
     "default_effort": "medium",
     "effort": "high",
     "supports_max_tokens": false
-  }
+  },
+  "sampling": {"temperature": 1, "top_p": 0.95, "top_k": 20, "min_p": 0}
 }
 ```
+
+`sampling` 是可选的采样参数对象，四个键都可省略或为 `null`（视为未设置）：
+`temperature` ∈ [0, 2]、`top_p` ∈ (0, 1]、`top_k` 为正整数、`min_p` ∈ [0, 1]。
+未设置的键不会出现在发往模型服务的请求体里，沿用服务端默认值；整个对象省略或
+没有任何已设置的键时，请求体与不支持该功能的版本完全一致。支持范围按 Provider /
+API 协议区分：OpenAI Chat Completions 四个都发送（`top_k` / `min_p` 是 vLLM、
+SGLang 等推理服务的扩展字段，官方 OpenAI 接口会拒绝）；Responses 只支持
+`temperature` / `top_p`；Anthropic 支持 `temperature`（上限 1）、`top_p`、`top_k`，
+不支持 `min_p`；Copilot / Grok 托管 Provider 不接受采样参数。越界值或当前 Provider /
+协议不支持的键返回 `INVALID_SAMPLING`，托管 Provider 返回 `UNSUPPORTED_MODEL_OPTION`。
+响应只返回已设置的键。
 
 `api_protocol` 仅适用于 `provider:"openai"`，接受 `chat_completions` 或
 `responses`；省略时，目录身份 `models_dev_provider_id:"acemodel"` 使用 Responses，
@@ -3075,9 +3087,10 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 路径仍区分大小写。
 
 省略 `base_url`、`context_window`、`stream_timeout_ms`、`capabilities`、
-`endpoint_mode`、`api_protocol`、`max_output_tokens`、`capabilities_source`、`reasoning` 或
-`request_headers` 会保留原值。显式空 `request_headers` 会清空请求头；对应高级
-字段传 `null` 时按各字段合同清除。外部登录器留下的 legacy `readonly:true` 只是
+`endpoint_mode`、`api_protocol`、`max_output_tokens`、`capabilities_source`、`reasoning`、
+`sampling` 或 `request_headers` 会保留原值。显式空 `request_headers` 会清空请求头；
+`sampling` 传入时整体替换（旧值中未出现的键会被清掉），传 `null` 或 `{}` 清除全部
+采样参数，切换到其他 Provider 时同样清除；其余高级字段传 `null` 时按各字段合同清除。外部登录器留下的 legacy `readonly:true` 只是
 兼容元数据，不阻止编辑。响应包含 `api_key` 原值与 `has_api_key`，并仅允许经
 Web 认证的调用方读取。
 

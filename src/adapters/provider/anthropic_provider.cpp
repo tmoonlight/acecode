@@ -516,6 +516,11 @@ nlohmann::json AnthropicProvider::build_request_body(
     body["max_tokens"] = request_options_.max_output_tokens.value_or(
         kDefaultMaxTokens);
     if (stream) body["stream"] = true;
+    // 采样参数只在配置了时发送。Anthropic 不支持 min_p,配置校验已拒绝。
+    const auto& sampling = request_options_.sampling;
+    if (sampling.temperature.has_value()) body["temperature"] = *sampling.temperature;
+    if (sampling.top_p.has_value()) body["top_p"] = *sampling.top_p;
+    if (sampling.top_k.has_value()) body["top_k"] = *sampling.top_k;
 
     if (request_options_.reasoning_protocol == ReasoningWireProtocol::Anthropic &&
         request_options_.reasoning.has_value() &&

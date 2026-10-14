@@ -15,6 +15,7 @@ import {
   modelFieldPolicy,
   modelNameSuggestion,
   modelRowsFromProbe,
+  modelSamplingFieldSupport,
   updateModelReasoningEfforts,
   modelProfileDraftFromSaved,
   normalizeModelCatalogSummary,
@@ -357,6 +358,7 @@ run('切换到 Copilot 清空秘密与端点并隐藏 API Key/Base URL', () => {
     show_request_headers: false,
     show_max_output: false,
     show_reasoning: false,
+    show_sampling: false,
     can_probe: true,
     model_input: 'catalog',
   });
@@ -518,6 +520,7 @@ run('Grok Coding Plan 使用受管路径且 payload 不含端点、密钥或运�
     show_request_headers: false,
     show_max_output: false,
     show_reasoning: false,
+    show_sampling: false,
     can_probe: true,
     model_input: 'catalog',
   });
@@ -1473,4 +1476,130 @@ run('同 OpenAI runtime 切换服务商显式恢复 Chat Completions', () => {
   const result = buildModelMutationPayload({ ...next, model: 'new-model', api_key: 'new-key' }, openRouterProvider, { editing: true });
   assert.equal(result.ok, true);
   assert.equal(result.payload.api_protocol, 'chat_completions');
+});
+
+// 采样参数(wizard-ai GLM 场景:平台推荐 top_p 0.95 / top_k 20 / temperature 1 / min_p 0)。
+function samplingDraft(provider, sampling = {}) {
+  return {
+    ...applyCatalogProviderToDraft(emptyModelProfileDraft(), provider),
+    name: 'glm',
+    model: 'aicoder-pro',
+    api_key: 'sk-test',
+    ...sampling,
+  };
+}
+
+// 触发场景:自定义 OpenAI 兼容 API(Chat Completions)填了四个采样参数。
+// 期望:四个输入都显示,payload.sampling 按数字提交;min_p = 0 也要提交。
+run('采样参数:Chat Completions 显示并提交全部四个字段', () => {
+  const draft = samplingDraft(customProvider, {
+    temperature: '1', top_p: '0.95', top_k: '20', min_p: '0',
+  });
+  assert.deepEqual(modelSamplingFieldSupport(draft, customProvider), {
+    temperature: true, top_p: true, top_k: true, min_p: true,
+  });
+  const built = buildModelMutationPayload(draft, customProvider);
+  assert.equal(built.ok, true);
+  assert.deepEqual(built.payload.sampling, {
+    temperature: 1, top_p: 0.95, top_k: 20, min_p: 0,
+  });
+});
+
+// 触发场景:四个字段都填了,但 API 协议切到 Responses、或 Provider 是 Anthropic。
+// 期望:只提交该协议真正支持的字段(Responses:temperature/top_p;Anthropic 再加
+// top_k),被隐藏的旧值不发,避免后端因"不支持"而拒绝整次保存。
+run('采样参数:Responses 与 Anthropic 只提交各自支持的字段', () => {
+  const all = { temperature: '0.7', top_p: '0.9', top_k: '40', min_p: '0.05' };
+  const responses = samplingDraft(customProvider, { ...all, api_protocol: 'responses' });
+  assert.deepEqual(modelSamplingFieldSupport(responses, customProvider), {
+    temperature: true, top_p: true, top_k: false, min_p: false,
+  });
+  const responsesBuilt = buildModelMutationPayload(responses, customProvider);
+  assert.equal(responsesBuilt.ok, true);
+  assert.deepEqual(responsesBuilt.payload.sampling, { temperature: 0.7, top_p: 0.9 });
+
+  const anthropic = samplingDraft(anthropicProvider, all);
+  const anthropicBuilt = buildModelMutationPayload(anthropic, anthropicProvider);
+  assert.equal(anthropicBuilt.ok, true);
+  assert.deepEqual(anthropicBuilt.payload.sampling, { temperature: 0.7, top_p: 0.9, top_k: 40 });
+});
+
+// 触发场景:Copilot / Grok 这类托管 Provider。
+// 期望:采样区不显示,编辑保存时也不发 sampling 字段(后端会拒绝托管 Provider 的采样参数)。
+run('采样参数:托管 Provider 不显示也不提交', () => {
+  for (const provider of [copilotProvider, grokProvider]) {
+    const draft = {
+      ...applyCatalogProviderToDraft(emptyModelProfileDraft(), provider),
+      name: 'managed',
+      model: 'gpt-4o',
+      temperature: '0.5',
+    };
+    assert.deepEqual(modelSamplingFieldSupport(draft, provider), {
+      temperature: false, top_p: false, top_k: false, min_p: false,
+    });
+    assert.equal(modelFieldPolicy(provider).show_sampling, false);
+    const built = buildModelMutationPayload(draft, provider, { editing: true });
+    assert.equal(built.ok, true);
+    assert.equal(Object.hasOwn(built.payload, 'sampling'), false);
+  }
+});
+
+// 触发场景:用户把采样参数填成越界值或非数字。
+// 期望:保存前就报对应字段的错误码(errors.js 有中文文案),不发请求;
+// Anthropic 的 temperature 上限是 1。
+run('采样参数:越界或格式错误返回对应错误码', () => {
+  const cases = [
+    [customProvider, { temperature: '2.5' }, 'INVALID_TEMPERATURE'],
+    [customProvider, { temperature: 'abc' }, 'INVALID_TEMPERATURE'],
+    [anthropicProvider, { temperature: '1.5' }, 'INVALID_TEMPERATURE'],
+    [customProvider, { top_p: '0' }, 'INVALID_TOP_P'],
+    [customProvider, { top_p: '1.2' }, 'INVALID_TOP_P'],
+    [customProvider, { top_k: '1.5' }, 'INVALID_TOP_K'],
+    [customProvider, { top_k: '0' }, 'INVALID_TOP_K'],
+    [customProvider, { min_p: '2' }, 'INVALID_MIN_P'],
+  ];
+  for (const [provider, sampling, code] of cases) {
+    const result = validateModelProfileDraft(samplingDraft(provider, sampling), provider);
+    assert.equal(result.ok, false, JSON.stringify(sampling));
+    assert.equal(result.code, code, JSON.stringify(sampling));
+  }
+});
+
+// 触发场景:编辑一个已配采样参数的模型 —— 回填、把它们全部清空后保存、新增时不填。
+// 期望:已保存值回填成输入框文本并自动展开高级设置;编辑时全清发 sampling: null
+// (后端据此清除),新增时不填则不带 sampling 字段。
+run('采样参数:回填、编辑清空发 null、新增留空省略', () => {
+  const saved = modelProfileDraftFromSaved({
+    name: 'glm', provider: 'openai', model: 'aicoder-pro',
+    base_url: 'https://gateway.example/v1', api_key: 'sk-test',
+    sampling: { top_p: 0.95, top_k: 20 },
+  });
+  assert.equal(saved.top_p, '0.95');
+  assert.equal(saved.top_k, '20');
+  assert.equal(saved.temperature, '');
+  assert.equal(hasAdvancedModelValues(saved), true);
+
+  const cleared = buildModelMutationPayload(
+    { ...saved, top_p: '', top_k: '' }, customProvider, { editing: true },
+  );
+  assert.equal(cleared.ok, true);
+  assert.equal(cleared.payload.sampling, null);
+
+  const fresh = buildModelMutationPayload(samplingDraft(customProvider), customProvider);
+  assert.equal(fresh.ok, true);
+  assert.equal(Object.hasOwn(fresh.payload, 'sampling'), false);
+});
+
+// 触发场景:后端返回的 saved_models 里 sampling 类型不对(契约被破坏)。
+// 期望:像其它字段一样快速失败,而不是把字符串当数字回填。
+run('采样参数:响应契约校验', () => {
+  const base = {
+    name: 'glm', provider: 'openai', model: 'aicoder-pro',
+    base_url: 'https://gateway.example/v1', api_key: 'sk-test',
+  };
+  assert.deepEqual(normalizeSavedModelList([{ ...base, sampling: { min_p: 0 } }])[0].sampling, { min_p: 0 });
+  assert.deepEqual(normalizeSavedModelList([base])[0].sampling, {});
+  assert.throws(() => normalizeSavedModelList([{ ...base, sampling: { top_k: 1.5 } }]), /top_k/);
+  assert.throws(() => normalizeSavedModelList([{ ...base, sampling: { temperature: '1' } }]), /temperature/);
+  assert.throws(() => normalizeSavedModelList([{ ...base, sampling: [] }]), /sampling/);
 });

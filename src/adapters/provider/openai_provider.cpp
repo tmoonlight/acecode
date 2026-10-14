@@ -898,6 +898,14 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     if (request_options_.max_output_tokens.has_value()) {
         body["max_tokens"] = *request_options_.max_output_tokens;
     }
+    // 采样参数只在用户为这个模型配置了时发送;未配置时请求体与旧版本一致。
+    // top_k / min_p 不是 OpenAI 官方字段(vLLM / SGLang 支持),配置校验已保证
+    // Responses 协议不会带上它们(Responses 转换也只保留 temperature / top_p)。
+    const auto& sampling = request_options_.sampling;
+    if (sampling.temperature.has_value()) body["temperature"] = *sampling.temperature;
+    if (sampling.top_p.has_value()) body["top_p"] = *sampling.top_p;
+    if (sampling.top_k.has_value()) body["top_k"] = *sampling.top_k;
+    if (sampling.min_p.has_value()) body["min_p"] = *sampling.min_p;
     if (request_options_.reasoning_protocol == ReasoningWireProtocol::OpenRouter &&
         request_options_.reasoning.has_value() &&
         request_options_.reasoning->supported) {
