@@ -83,15 +83,29 @@ TEST(SandboxPolicy, GlobMatchingFollowsGitStyleSemantics) {
     EXPECT_FALSE(glob_matches_path("/home/u/[!a]*.key", "/home/u/a1.key"));
 }
 
+namespace {
+
+// 手工拼的策略也要守 make_sandbox_policy 的约定:条目是 canonical 形态
+// (WritableRoot::root 等「已 weakly_canonical」),查询路径由 resolve_access 自己规范化。
+// Windows 上 `/work` 这类无盘符路径按当前盘解析:当前盘恰好有 \work 目录时(本机
+// 2026-09-22 起就有 C:\work)查询变成 C:\work\...,未规范化的条目还是 /work,两侧对不上 ——
+// 旧写法让用例随机器上有没有这个目录时过时不过。
+std::string canon(const std::string& path) { return canonical_policy_path(path); }
+
+} // namespace
+
 // 场景:deny 名单、可写根、只读子路径、可读根共存时的访问判定。期望:最长前缀
 // 命中优先(写根下的 deny 子目录仍 Deny;deny 目录下配置的写根反而可写),同深度
 // deny > write > read;全盘可读时未命中的路径 Read,受限读时 Deny;FullAccess 恒 Write。
+// 回归:条目曾直接写 `/work` 而不经规范化,在存在 C:\work 的 Windows 机器上
+// `/work/src/main.cpp` 判成 Read、`/work/secrets/key` 判成 Read(期望 Write / Deny)。
 TEST(SandboxPolicy, ResolveAccessPrefersDeepestEntryThenDenyWriteRead) {
     SandboxPolicy policy;
     policy.mode = SandboxMode::WorkspaceWrite;
-    policy.writable_roots = {{"/work", {"/work/.acecode/rules"}}, {"/home/u/.cache/allowed", {}}};
-    policy.denied_paths = {"/work/secrets", "/home/u/.cache"};
-    policy.denied_globs = {"/work/**/.env"};
+    policy.writable_roots = {{canon("/work"), {canon("/work/.acecode/rules")}},
+                             {canon("/home/u/.cache/allowed"), {}}};
+    policy.denied_paths = {canon("/work/secrets"), canon("/home/u/.cache")};
+    policy.denied_globs = {canon("/work") + "/**/.env"};
     EXPECT_EQ(policy.resolve_access("/work/src/main.cpp"), FsAccess::Write);
     EXPECT_EQ(policy.resolve_access("/work/.acecode/rules/x.rules"), FsAccess::Read);
     EXPECT_EQ(policy.resolve_access("/work/secrets/key"), FsAccess::Deny);
@@ -101,7 +115,7 @@ TEST(SandboxPolicy, ResolveAccessPrefersDeepestEntryThenDenyWriteRead) {
     EXPECT_EQ(policy.resolve_access("/etc/hosts"), FsAccess::Read) << "全盘可读";
     EXPECT_TRUE(policy.can_read("/etc/hosts"));
     EXPECT_FALSE(policy.can_write("/etc/hosts"));
-    policy.readable_roots = {"/work", "/usr"};
+    policy.readable_roots = {canon("/work"), canon("/usr")};
     EXPECT_EQ(policy.resolve_access("/etc/hosts"), FsAccess::Deny) << "受限读未命中";
     EXPECT_EQ(policy.resolve_access("/usr/lib/libc.so"), FsAccess::Read);
     SandboxPolicy full;
@@ -109,9 +123,48 @@ TEST(SandboxPolicy, ResolveAccessPrefersDeepestEntryThenDenyWriteRead) {
     // 同深度:同一路径既是写根又在 deny 里 → Deny。
     SandboxPolicy tie;
     tie.mode = SandboxMode::WorkspaceWrite;
-    tie.writable_roots = {{"/both", {}}};
-    tie.denied_paths = {"/both"};
+    tie.writable_roots = {{canon("/both"), {}}};
+    tie.denied_paths = {canon("/both")};
     EXPECT_EQ(tie.resolve_access("/both/x"), FsAccess::Deny);
+}
+
+// 场景:家目录经 junction / 符号链接以「别名」出现(本机实况:C:\Users\shao 是指向
+// N:\Users\shao 的 junction)。deny 名单里的 ~/.ssh 已按 canonical 展开成真实路径;
+// 申请(模型的 additional_permissions、会话授权)写的却是 <别名>/.ssh/newdir —— 目录还
+// 不存在,normalize_policy_path 只做词法归一,别名原样留着。
+// 期望:deny 名单仍压过授权 —— 授权被忽略,真实路径与别名路径下都不可写,is_denied
+// 对两种形态都成立。
+// 回归:deny 判定(denied_by)拿未规范化的授权路径和 canonical 的 deny 条目逐字比较,
+// 别名形态对不上,授权进了可写根;又因为「更深的写根压过浅的 deny」,~/.ssh 下的新
+// 目录变成可写。
+TEST(SandboxPolicy, DenyListStillWinsWhenGrantUsesDirectoryAlias) {
+    test::TempTree tree;
+    const auto real_home = tree.dir("real-home");
+    tree.dir("real-home/.ssh");
+    const auto workspace = tree.dir("work");
+    const auto alias_home = tree.root / "alias-home";
+    if (!test::make_directory_alias(real_home, alias_home)) {
+        GTEST_SKIP() << "cannot create a directory alias here";
+    }
+    const std::string alias_grant = normalize_policy_path(path_to_utf8(alias_home / ".ssh" / "newdir"));
+    ASSERT_NE(alias_grant.find("alias-home"), std::string::npos) << "申请路径保持别名形态";
+    const std::string real_newdir = path_to_utf8(fs::weakly_canonical(real_home / ".ssh" / "newdir"));
+
+    SandboxPolicyOptions options;
+    options.include_tmpdir = false;
+    options.home_override = path_to_utf8(alias_home);
+    options.denied_entries = {"~/.ssh"};
+    options.grants.write = {alias_grant};
+    const auto policy = make_sandbox_policy(SandboxMode::WorkspaceWrite, path_to_utf8(workspace), options);
+
+    for (const auto& root : policy.writable_roots) {
+        EXPECT_EQ(root.root.find(".ssh"), std::string::npos) << "deny 名单下的授权进了可写根: " << root.root;
+    }
+    EXPECT_EQ(policy.resolve_access(real_newdir + "/id_rsa"), FsAccess::Deny);
+    EXPECT_EQ(policy.resolve_access(alias_grant + "/id_rsa"), FsAccess::Deny);
+    EXPECT_TRUE(policy.is_denied(alias_grant));
+    EXPECT_TRUE(policy.is_denied(real_newdir));
+    EXPECT_FALSE(policy.is_denied(path_to_utf8(workspace / "src")));
 }
 
 // 场景:make_sandbox_policy 把配置条目、默认 deny 名单、会话授权揉进策略。期望:

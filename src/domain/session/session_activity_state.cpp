@@ -63,7 +63,7 @@ void SessionActivityState::apply(const SessionEvent& event) {
     case SessionEventKind::BusyChanged:
         busy_ = flag(p, "busy"); known_ = true;
         if (busy_) {
-            outcome_.clear(); phase_ = "model_waiting";
+            outcome_.clear(); phase_ = "model_waiting"; reply_.clear();
             label_.clear(); tool_.clear(); detail_.clear(); stream_tail_.clear();
             tools_.clear(); permissions_.clear(); questions_.clear();
             turn_id_ = text(p, "turn_id");
@@ -116,6 +116,11 @@ void SessionActivityState::apply(const SessionEvent& event) {
     case SessionEventKind::QuestionClosed:
         questions_.erase(text(p, "request_id")); break;
     case SessionEventKind::Message: {
+        // Companion pets show the start of the latest reply on a finished session's card.
+        if (text(p, "role") == "assistant" && !flag(p, "is_tool")) {
+            auto reply = text(p, "content");
+            if (!reply.empty()) reply_ = std::move(reply);
+        }
         const auto metadata = p.find("metadata");
         if (metadata == p.end() || !metadata->is_object()) break;
         if (flag(*metadata, "compact_notice_complete")) {
@@ -145,6 +150,6 @@ nlohmann::json SessionActivityState::snapshot() const {
         {"turn_id", turn_id_}, {"outcome", outcome_}, {"phase", phase},
         {"label", label_}, {"tool", tool_}, {"detail", detail_},
         {"text", streaming ? utf8_tail(stream_tail_, kStreamTailBytes) : std::string{}},
-        {"compact_id", compact_id_}, {"transfers", transfers_}};
+        {"reply", reply_}, {"compact_id", compact_id_}, {"transfers", transfers_}};
 }
 } // namespace acecode

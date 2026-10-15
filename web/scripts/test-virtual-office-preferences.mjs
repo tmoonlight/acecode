@@ -26,6 +26,7 @@ let prefs={ok:true,available:true,enabled:false,welcomePending:true};
 window.snapshotRequests=0;window.published=[];window.previewRequests=0;window.retained=new Set();
 window.aceDesktop_getOfficePreferences=async()=>prefs;
 window.aceDesktop_setOfficeEnabled=async enabled=>(prefs={...prefs,enabled,welcomePending:false});
+window.aceDesktop_setPetKind=async petKind=>(prefs={...prefs,petKind});
 window.aceDesktop_claimOfficeWelcome=async()=>{const show=prefs.welcomePending;prefs={...prefs,welcomePending:false};return {...prefs,show};};
 window.aceDesktop_getOfficeState=async()=>({follow:true});
 window.aceDesktop_updateOffice=async value=>{window.published.push(JSON.parse(value));return true;};
@@ -71,14 +72,28 @@ try {
   await page.waitForFunction(() => window.office?.ready);
   assert.equal(await page.evaluate(() => snapshotRequests), 0, 'disabled office never polls');
   assert.equal(await page.evaluate(() => previewRequests), 0, 'preview is lazy');
-  const toggle = page.getByRole('switch', { name: '开启虚拟办公室' });
+  const toggle = page.getByRole('switch', { name: '开启桌面宠物' });
   assert.equal(await toggle.getAttribute('aria-checked'), 'false');
+  assert.deepEqual(await page.getByRole('radio').locator('div.text-fg').allTextContents(), ['虚拟办公室', '大眼回形针', 'rover', '鲸鱼娘']);
+  for (const [label, kind] of [['大眼回形针', 'clippy'], ['rover', 'rover'], ['鲸鱼娘', 'whale'], ['虚拟办公室', 'office']]) {
+    await page.getByRole('radio', { name: label }).click();
+    await page.waitForFunction(value => office.petKind === value, kind);
+    assert.equal(await toggle.getAttribute('aria-checked'), 'false', 'selection does not enable the pet');
+  }
+  for (const [theme, width] of [['light', 1100], ['dark', 1100], ['light', 390]]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+    await page.waitForTimeout(400);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(output, `pets-${theme}-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 1100, height: 800 });
   await page.getByRole('button', { name: 'ACECode 快捷菜单' }).click();
   // Read labels separately from the shortcut badges added to menu items.
   const labels = await page.getByRole('menuitem').locator('span.truncate').allTextContents();
-  assert.ok(labels.indexOf('显示虚拟办公室') === labels.indexOf('设置') + 1);
-  assert.ok(labels.indexOf('外观') === labels.indexOf('显示虚拟办公室') + 1);
-  assert.equal(await page.getByRole('menuitem', { name: '显示虚拟办公室' }).locator('svg').count(), 1);
+  assert.ok(labels.indexOf('显示桌面宠物') === labels.indexOf('设置') + 1);
+  assert.ok(labels.indexOf('外观') === labels.indexOf('显示桌面宠物') + 1);
+  assert.equal(await page.getByRole('menuitem', { name: '显示桌面宠物' }).locator('svg').count(), 1);
   await page.screenshot({ path: path.join(output, 'menu.png') });
   await page.keyboard.press('Escape');
   await page.locator('#invite').click();
@@ -123,14 +138,14 @@ try {
   await page.waitForTimeout(3200);
   assert.equal(await page.evaluate(() => snapshotRequests), requests, 'native close stops polling');
   await page.getByRole('button', { name: 'ACECode 快捷菜单' }).click();
-  await page.getByRole('menuitem', { name: '显示虚拟办公室' }).click();
+  await page.getByRole('menuitem', { name: '显示桌面宠物' }).click();
   await page.waitForFunction(n => snapshotRequests > n, requests);
   assert.equal(await toggle.getAttribute('aria-checked'), 'true', 'menu reopens office and updates setting');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.reload(); await page.waitForFunction(() => window.office?.ready);
   await page.locator('#invite').click();
   await page.getByRole('button', { name: '播放动画' }).waitFor();
-  await page.getByRole('button', { name: '开启虚拟办公室', exact: true }).click();
+  await page.getByRole('button', { name: '开启桌面宠物', exact: true }).click();
   await page.waitForFunction(() => office.enabled && published.length > 0);
   await page.locator('iframe').waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('dialog').count(), 0);

@@ -43,7 +43,7 @@ export const TOPBAR_QUICK_ACTIONS = Object.freeze([
   }),
   Object.freeze({
     id: 'virtual-office',
-    label: '显示虚拟办公室',
+    label: '显示桌面宠物',
     icon: 'office',
     iconSize: 16,
     callback: 'onToggleOffice',

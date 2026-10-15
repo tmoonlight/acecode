@@ -27,7 +27,7 @@ test('settings navigation uses the confirmed Codex-style groups', () => {
       {
         key: 'personal',
         label: '个人',
-        items: ['常规', '外观', '快捷键', '配置', '个性化', '虚拟办公室', '使用情况'],
+        items: ['常规', '外观', '快捷键', '配置', '个性化', '桌面宠物', '使用情况'],
       },
       {
         key: 'integrations',

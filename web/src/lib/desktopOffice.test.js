@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { recentOffices, officeActor, projectDesktopOffice, stableOfficeSeed, fitTail, speechTail } from './desktopOfficeState.js';
+import { recentOffices, officeActor, projectDesktopOffice, projectActivities, stableOfficeSeed, fitTail, fitHead, speechTail } from './desktopOfficeState.js';
 import { createDesktopOfficeController, OFFICE_LIVE_PUBLISH_MS } from './desktopOfficeController.js';
 import { toolActivityVerb, toolIconName, toolIconSvg } from './toolIcons.js';
 import { interfaceIconSvg } from './interfaceIcons.js';
@@ -15,6 +15,43 @@ test('recent five depend only on human send time across workspaces', () => {
   rows.push(session('child',{parent_session_id:'6',last_user_message_at:'2099-01-01'}));
   rows.push(session('empty',{last_user_message_at:''}));
   assert.deepEqual(recentOffices(rows).map(s=>s.id),['6','5','4','3','2']);
+});
+
+// 陪伴宠物的会话卡片(复刻 Codex Mini):运行中、等你处理、失败、完成未读的主会话各一张,
+// 按最近一次发消息时间排序;已读、空闲、子会话、归档都不出现。
+test('companion cards follow Codex Mini: running, waiting, failed and unread results only', () => {
+  const cards = projectActivities([
+    session('run', {title:'等待30秒', status:'running', last_user_message_at:'2026-10-06T10:00:05Z',
+      activity:{busy:true, phase:'responding', text:'收到，再等待 30 秒。'}}),
+    session('ask', {title:'改配置', status:'running', last_user_message_at:'2026-10-06T10:00:04Z',
+      activity:{busy:true, phase:'permission_waiting', tool:'bash'}}),
+    session('done', {title:'等待30秒', attention_state:'unread', last_user_message_at:'2026-10-06T10:00:03Z',
+      activity:{outcome:'completed', reply:'**30 秒**已过。'}}),
+    session('fail', {title:'构建', attention_state:'unread', last_turn_outcome:'error', last_user_message_at:'2026-10-06T10:00:02Z'}),
+    session('read', {title:'看过了', attention_state:'read', activity:{outcome:'completed', reply:'旧结果'}}),
+    session('idle', {title:'空闲'}),
+    session('child', {parent_session_id:'run', status:'running', activity:{busy:true}}),
+    session('old', {archived:true, attention_state:'unread'}),
+  ]);
+  assert.deepEqual(cards.map(c => [c.sessionId, c.status]), [['run','running'],['ask','waiting'],['done','review'],['fail','failed']]);
+  assert.equal(cards[0].body, '收到，再等待 30 秒。');
+  assert.match(cards[1].body, /需要你确认/);
+  assert.equal(cards[2].body, '30 秒已过。', 'finished card shows the start of the reply without Markdown');
+  assert.equal(cards[3].body, '执行失败');
+  assert.notEqual(cards[2].key, projectActivities([session('done', {attention_state:'unread',
+    last_user_message_at:'2026-10-06T11:00:00Z', activity:{outcome:'completed'}})])[0].key, 'a new turn gets a new dismiss key');
+  assert.equal(projectActivities([session('quiet', {attention_state:'unread', activity:{outcome:'completed'}})])[0].body, '已完成');
+  assert.deepEqual(projectActivities([]), []);
+  assert.equal(fitHead('一二三四五六', 6), '一二三…');
+});
+
+// 场景:流式 token 比快照新。期望:运行中卡片显示最新几个字,而不是快照里旧的那段。
+test('companion cards show streamed text newer than the snapshot', () => {
+  const live = new Map([['run', {phase:'responding', seq:9, fromSeq:9, text:'最新的字'}]]);
+  const cards = projectActivities([session('run', {status:'running', activity:{busy:true, phase:'reasoning', seq:3}})], live);
+  assert.equal(cards[0].body, '最新的字');
+  const office = projectDesktopOffice({...snapshot('root'), activities:[session('run', {status:'running', activity:{busy:true}})]});
+  assert.equal(office.activities.length, 1, 'office projection carries the companion cards');
 });
 
 test('main sleeps on completion and wakes; workers leave on completion', () => {
@@ -122,6 +159,98 @@ function fixture(fetchSnapshot) {
   return {controller,publications,retained,released,timers,fire};
 }
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
+
+await check('following a session keeps its layout, actors, live text and subscriptions until the next snapshot', async () => {
+  const pending=deferred(),requests=[];
+  const f=fixture((ref,options)=>{
+    requests.push({ref,signal:options.signal});
+    return ref.sessionId==='a'
+      ? Promise.resolve(snapshot('a',{agents:[session('a'),session('child',{busy:true})]}))
+      : pending.promise;
+  });
+  f.controller.setActive({sessionId:'a'});await f.controller.refresh();
+  f.controller.onEvent({type:'token',session_id:'a',seq:1,payload:{text:'保留当前回复'}});
+  f.fire(OFFICE_LIVE_PUBLISH_MS);
+  const before=f.controller.state;
+  const published=f.publications.length;
+  f.controller.setActive({sessionId:'b',workspaceHash:'other'});
+  const request=f.controller.refresh();
+  assert.deepEqual(f.controller.state,before,'pending selection must preserve the complete rendered snapshot');
+  assert.deepEqual([...f.retained].sort(),['a','child']);assert.deepEqual(f.released,[]);
+  assert.deepEqual(requests.at(-1).ref,{sessionId:'b',workspaceHash:'other'});
+  pending.resolve(snapshot('b',{selected:session('b',{workspace_hash:'other'})}));await request;
+  assert.equal(f.controller.state.selected.sessionId,'b');
+  assert.equal(f.controller.state.selected.workspaceHash,'other');
+  assert.equal(f.controller.state.seed,stableOfficeSeed('b'));
+  assert.deepEqual(f.controller.state.agents.map(a=>a.id),['b']);
+  assert.deepEqual([...f.retained],['b']);assert.deepEqual(f.released.sort(),['a','child']);
+  assert.ok(f.publications.slice(published).every(value=>value.selected),'selection changes never publish an intermediate empty office');
+  f.controller.dispose();assert.equal(f.retained.size,0);assert.equal(f.timers.size,0);
+});
+
+await check('manual selection and follow toggles retain the displayed office while loading', async () => {
+  const b=deferred(),c=deferred();
+  const f=fixture(ref=>ref.sessionId==='b'?b.promise:ref.sessionId==='c'?c.promise:Promise.resolve(snapshot('a')));
+  f.controller.setActive({sessionId:'a'});await f.controller.refresh();
+  const a=f.controller.state;
+  const published=f.publications.length;
+  f.controller.select({sessionId:'b'});const manual=f.controller.refresh();
+  assert.deepEqual(f.controller.state,{...a,follow:false});
+  b.resolve(snapshot('b'));await manual;
+  f.controller.setActive({sessionId:'c'});
+  assert.equal(f.controller.state.selected.sessionId,'b');
+  const before=f.controller.state;
+  f.controller.setFollow(true);const followed=f.controller.refresh();
+  assert.deepEqual(f.controller.state,{...before,follow:true});
+  c.resolve(snapshot('c'));await followed;
+  f.controller.setFollow(false);
+  assert.equal(f.controller.state.selected.sessionId,'c');
+  assert.ok(f.publications.slice(published).every(value=>value.selected));
+  f.controller.dispose();assert.equal(f.timers.size,0);
+});
+
+await check('rapid switches preserve the last office and abort superseded requests', async () => {
+  const b=deferred(),c=deferred(),signals=new Map();
+  const f=fixture((ref,{signal})=>{
+    signals.set(ref.sessionId,signal);
+    return ref.sessionId==='b'?b.promise:ref.sessionId==='c'?c.promise:Promise.resolve(snapshot('a'));
+  });
+  f.controller.setActive({sessionId:'a'});await f.controller.refresh();
+  const published=f.publications.length;
+  f.controller.setActive({sessionId:'b'});const old=f.controller.refresh();
+  f.controller.setActive({sessionId:'c'});const next=f.controller.refresh();
+  assert.equal(signals.get('b').aborted,true);
+  assert.equal(f.controller.state.selected.sessionId,'a');
+  c.resolve(snapshot('c'));await next;
+  const count=f.publications.length;
+  b.resolve(snapshot('b'));await old;
+  assert.equal(f.publications.length,count);
+  assert.equal(f.controller.state.selected.sessionId,'c');assert.deepEqual([...f.retained],['c']);
+  assert.ok(f.publications.slice(published).every(value=>['a','c'].includes(value.selected?.sessionId)));
+  f.controller.dispose();
+});
+
+await check('failed switches preserve the room, while authoritative empty and missing sessions clear it', async () => {
+  for(const result of ['offline','empty','missing']) {
+    const pending=deferred();
+    const f=fixture(ref=>ref.sessionId==='a'?Promise.resolve(snapshot('a')):pending.promise);
+    f.controller.setActive({sessionId:'a'});await f.controller.refresh();
+    const before=f.controller.state;
+    f.controller.select({sessionId:'b'});const request=f.controller.refresh();
+    assert.equal(f.controller.state.selected.sessionId,'a');
+    if(result==='empty')pending.resolve({selected:null,offices:[],agents:[],complete:true});
+    else pending.reject(Object.assign(new Error(result),result==='missing'?{status:404,body:{offices:[]}}:{}));
+    await request;
+    if(result==='offline') {
+      assert.deepEqual(f.controller.state,{...before,follow:false,connected:false});
+      assert.equal(f.retained.has('a'),true);
+    } else {
+      assert.equal(f.controller.state.selected,null);assert.deepEqual(f.controller.state.agents,[]);
+      assert.equal(f.controller.state.seed,stableOfficeSeed('empty-office'));assert.equal(f.retained.size,0);
+    }
+    f.controller.dispose();assert.equal(f.timers.size,0);assert.equal(f.retained.size,0);
+  }
+});
 
 await check('manual choice turns follow off and keeps office fixed', async () => {
   const requests=[];const f=fixture(async ref=>{requests.push(ref.sessionId);return snapshot(ref.sessionId||'recent');});

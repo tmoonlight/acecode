@@ -195,7 +195,7 @@ bool desktop_pet_resize_grip_hit_test(double width, double height, double x, dou
 }
 
 bool desktop_pet_hit_test(double scale, int width, int height,
-                          const std::vector<DesktopPetOverlay>& overlays, double x, double y) {
+                          const std::vector<DesktopPetOverlay>& overlays, double x, double y, bool office) {
     if (width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return false;
     if (!(scale > 0.0)) scale = 1.0;
     for (const auto& overlay : overlays) {
@@ -204,6 +204,7 @@ bool desktop_pet_hit_test(double scale, int width, int height,
             return true;
         }
     }
+    if (!office) return false;
     // 偶奇规则判断点是否在房间多边形里。
     const auto polygon = desktop_pet_hit_polygon(scale);
     bool inside = false;
@@ -212,6 +213,32 @@ bool desktop_pet_hit_test(double scale, int width, int height,
         if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
     }
     return inside;
+}
+
+int desktop_pet_dock_side(const DesktopPetRect& window, const DesktopPetRect& work_area) {
+    if (window.width <= 0 || work_area.width <= 0) return 0;
+    const double center = window.x + window.width / 2.0;
+    const double reach = window.width / 4.0;
+    if (center >= work_area.x + work_area.width - reach) return 1;
+    if (center <= work_area.x + reach) return -1;
+    return 0;
+}
+
+DesktopPetRect dock_desktop_pet(const DesktopPetRect& window, const DesktopPetRect& work_area, int side) {
+    if (side == 0) return window;
+    DesktopPetRect next = window;
+    next.x = side > 0 ? work_area.x + work_area.width - window.width : work_area.x;
+    const int bottom = std::max(work_area.y, work_area.y + work_area.height - window.height);
+    next.y = std::clamp(window.y, work_area.y, bottom);
+    return next;
+}
+
+int DesktopPetDragTracker::move(double x) {
+    if (!std::isfinite(x)) return 0;
+    const double dx = x - anchor_;
+    if (std::abs(dx) < kThreshold) return 0;
+    anchor_ = x;
+    return dx > 0 ? 1 : -1;
 }
 
 } // namespace acecode::desktop

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { toolIconSvg } from '../src/lib/toolIcons.js';
+import { createDesktopOfficeController } from '../src/lib/desktopOfficeController.js';
 const modulePath = process.env.ACE_PLAYWRIGHT_MODULE;
 const playwright = await import(modulePath ? pathToFileURL(path.resolve(modulePath)).href : 'playwright');
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -142,6 +143,52 @@ try {
     return test();
   },{source:predicate,maxMs});
   const present=()=>page.evaluate(()=>AgentOffice.agents.filter(a=>!a.leaving).map(a=>a.id));
+  // Send every controller publication through the real native-page bridge.
+  // A delayed target must keep the rendered room, including on rapid switches.
+  const deferred=()=>{let resolve;const promise=new Promise(done=>{resolve=done;});return {promise,resolve};};
+  const pendingB=deferred(),pendingC=deferred(),published=[];
+  const session=id=>({id,active:true,title:'会话 '+id,last_user_message_at:'2026-10-15T10:00:00Z'});
+  const snapshot=id=>({selected:session(id),offices:[session(id)],agents:[session(id)],complete:true});
+  const switchChecks=[];
+  const controller=createDesktopOfficeController({
+    fetchSnapshot:ref=>ref.sessionId==='b'?pendingB.promise:ref.sessionId==='c'?pendingC.promise:Promise.resolve(snapshot('a')),
+    publish:value=>published.push(value),schedule:()=>0,cancel:()=>{},
+  });
+  const rendered=()=>page.evaluate(()=>({selected:AgentOffice.snapshot.selected?.sessionId,
+    layout:AgentOffice.layoutSignature,agents:AgentOffice.agents.map(a=>({id:a.id,seat:a.seat,look:a.look})),
+    title:document.getElementById('officeNotice').textContent}));
+  const flush=async()=>{const views=[];for(const state of published.splice(0)){await apply(state);views.push(await rendered());}return views;};
+  try {
+    controller.setActive({sessionId:'a'});await controller.refresh();await flush();
+    const original=await rendered();
+    await page.screenshot({path:path.join(output,'office-switch-before.png')});
+    controller.setActive({sessionId:'b'});const oldRequest=controller.refresh();
+    for(const view of await flush())assert.deepEqual(view,original,'followed switch preserves the previous room while waiting');
+    switchChecks.push('followed selection preserves layout, actor and title while loading');
+    controller.select({sessionId:'c'});const latest=controller.refresh();
+    for(const view of await flush())assert.deepEqual(view,original,'manual rapid switch never shows an intermediate empty room');
+    assert.equal(await page.locator('#officeFollow').getAttribute('aria-checked'),'false','manual selection updates follow immediately');
+    switchChecks.push('rapid manual selection preserves the room and updates follow');
+    await page.screenshot({path:path.join(output,'office-switch-pending.png')});
+    pendingC.resolve(snapshot('c'));await latest;await flush();
+    const current=await rendered();
+    assert.equal(current.selected,'c');assert.deepEqual(current.agents.map(a=>a.id),['c']);
+    assert.notEqual(current.layout,original.layout,'target applies its own stable layout');
+    switchChecks.push('target snapshot switches layout and actor together');
+    await page.screenshot({path:path.join(output,'office-switch-after.png')});
+    pendingB.resolve(snapshot('b'));await oldRequest;
+    assert.equal(published.length,0,'late snapshots never reach the renderer');
+    assert.deepEqual(await rendered(),current);
+    switchChecks.push('superseded response never reaches the renderer');
+    controller.setFollow(true);
+    for(const view of await flush())assert.deepEqual(view,current,'enabling follow keeps the room until the active session is ready');
+    await controller.refresh();await flush();
+    assert.equal((await rendered()).selected,'b');
+    switchChecks.push('enabling follow preserves the room until the active snapshot arrives');
+    controller.setActive({sessionId:'a'});await flush();await controller.refresh();await flush();
+    assert.deepEqual(await rendered(),original,'returning to a session restores its original layout and actor');
+    switchChecks.push('returning restores the original layout and actor');
+  } finally {controller.dispose();}
   await apply(data({complete:false}));
   assert.equal(await page.locator('#officeNotice').textContent(),'修复登录流程','selected title replaces the recent-session loading notice');
   await apply(data({complete:false,selected:{sessionId:'root',workspaceHash:'project',title:'当前会话已改名'}}));
@@ -256,6 +303,11 @@ try {
   await apply(data({agents:[],offices:[],selected:null}));
   assert.match(await page.locator('#officeNotice').textContent(),/发送消息后/);
   assert.ok(await page.evaluate(()=>{const notices=officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='overlay');return Array.isArray(notices.at(-1)?.rect);}), 'native region includes empty-state notice');
+  // Double-clicking the room always brings ACECode forward: it opens the shown session, or just activates without one.
+  const lastOpen=async()=>{await page.mouse.dblclick(344,300);return page.evaluate(()=>officeActions.map(raw=>{try{return JSON.parse(raw);}catch{return {};}}).filter(m=>m.type==='open'||m.type==='activate').at(-1));};
+  assert.deepEqual(await lastOpen(),{type:'activate'},'double-click without a session activates the main window');
+  await apply(data({agents:[],selected:{sessionId:'solo',workspaceHash:'project',title:'单人会话'}}));
+  assert.deepEqual(await lastOpen(),{type:'open',session_id:'solo',workspace_hash:'project'},'double-click on the floor opens the shown session');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  console.log(JSON.stringify({output,browserName,macHost,checks:70,macChecks,errors,external},null,2));
+  console.log(JSON.stringify({output,browserName,macHost,checks:70+switchChecks.length,switchChecks,macChecks,errors,external},null,2));
 } finally {await browser.close();}

@@ -78,10 +78,43 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
 // 窗口内一点 (x, y)(设备像素,左上为原点)是否落在桌宠上:房间轮廓或页面上报的可见浮层。
 // 透明区域返回 false,点击应穿透到后面的窗口。
 bool desktop_pet_hit_test(double scale, int width, int height,
-                          const std::vector<DesktopPetOverlay>& overlays, double x, double y);
+                          const std::vector<DesktopPetOverlay>& overlays, double x, double y, bool office = true);
 
 // macOS uses logical points (CSS pixels). The handle's position scales with the
 // viewport, but its 16px target does not; keep this aligned with .grip in the page.
 bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y);
+
+// 鲸鱼娘拖到工作区左/右边缘松手时吸附,改成趴在屏幕边上偷看的样子。
+// 窗口中心离左/右边缘不超过窗口宽度的 1/4(或已越过边缘)返回 -1(左)/ +1(右),否则 0。
+// 1/4 大约是宠物身体碰到屏幕边的位置(身体宽约窗口的 40%,居中)。
+int desktop_pet_dock_side(const DesktopPetRect& window, const DesktopPetRect& work_area);
+
+// 把窗口贴到工作区左(-1)/右(+1)边,竖直方向夹回工作区;side 为 0 时原样返回。
+DesktopPetRect dock_desktop_pet(const DesktopPetRect& window, const DesktopPetRect& work_area, int side);
+
+// 右键菜单「切换宠物」里的四种宠物,顺序与设置页一致;id 与 office.json 的 pet_kind 相同。
+struct DesktopPetKind {
+    const char* id;
+    const char* zh;
+    const char* en;
+};
+inline constexpr std::array<DesktopPetKind, 4> kDesktopPetKinds{{
+    {"office", "虚拟办公室", "Virtual office"},
+    {"clippy", "大眼回形针", "Clippy"},
+    {"rover", "rover", "Rover"},
+    {"whale", "鲸鱼娘", "Whale Girl"},
+}};
+
+// 拖动陪伴宠物时按窗口横向位移判断朝向(仿 Codex:往右拖向右跑,往左拖向左跑)。
+// 相对上次报告的位置累计超过 threshold 才报一次 -1(左)/ +1(右),
+// 小于阈值的抖动与纯竖直移动返回 0;每次报告后以当前位置为新起点。
+struct DesktopPetDragTracker {
+    void begin(double x) { anchor_ = x; }
+    int move(double x);
+
+private:
+    double anchor_ = 0.0;
+    static constexpr double kThreshold = 4.0;
+};
 
 } // namespace acecode::desktop

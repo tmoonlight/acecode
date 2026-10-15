@@ -26,6 +26,7 @@ function fixture(overrides = {}) {
   Object.assign(win, {
     aceDesktop_getOfficePreferences: async () => JSON.stringify(state),
     aceDesktop_setOfficeEnabled: async enabled => (state = { ...state, enabled, welcomePending: false }),
+    aceDesktop_setPetKind: async petKind => (state = { ...state, petKind }),
     aceDesktop_claimOfficeWelcome: async () => {
       const show = state.welcomePending;
       state = { ...state, welcomePending: false };
@@ -77,3 +78,28 @@ function fixture(overrides = {}) {
   unavailable.dispose();
 }
 console.log('[pass] office preferences opt-in, once-only welcome, native close/reopen, race and bridge failures');
+
+{
+  const { store, emit } = fixture();
+  store.start(); await flush();
+  assert.equal(store.getSnapshot().petKind, 'office', 'old hosts default to the office');
+  for (const petKind of ['clippy', 'rover', 'whale', 'office']) {
+    assert.equal((await store.setPetKind(petKind)).ok, true);
+    assert.equal(store.getSnapshot().petKind, petKind);
+    assert.equal(store.getSnapshot().enabled, false, 'choosing a pet does not enable it');
+  }
+  assert.equal((await store.setPetKind('unknown')).ok, false);
+  emit({ ...initial, petKind: {} });
+  assert.equal(store.getSnapshot().petKind, 'office');
+  store.dispose();
+}
+{
+  const { store } = fixture({ aceDesktop_setPetKind: async () => ({ ...initial, ok: false, error: 'save_failed' }) });
+  store.start(); await flush();
+  assert.equal((await store.setPetKind('whale')).ok, false);
+  assert.equal(store.getSnapshot().petKind, 'office');
+  assert.ok(store.getSnapshot().error);
+  assert.equal(store.getSnapshot().busy, false);
+  store.dispose();
+}
+console.log('[pass] desktop pet selection, invalid kinds, old hosts and failed persistence');

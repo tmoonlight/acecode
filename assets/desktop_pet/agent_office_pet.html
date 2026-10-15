@@ -1493,7 +1493,8 @@ $('officeOverflow').addEventListener('click',()=>{
   const list=$('officeMembers');list.hidden=!list.hidden;syncOfficeMembers();
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('officeMembers').hidden=true;reportOfficeRegions();}});
-cv.addEventListener('dblclick',()=>{if(selected)action({type:'open',session_id:selected,workspace_hash:officeSnapshot.selected?.workspaceHash||''});});
+// 双击办公室总会激活 ACECode 主窗口：选中人物时打开其会话，否则打开当前会话，没有会话也把窗口叫到前台
+cv.addEventListener('dblclick',()=>{if(dragged)return;const id=selected||officeSnapshot.selected?.sessionId||'';action(id?{type:'open',session_id:id,workspace_hash:officeSnapshot.selected?.workspaceHash||''}:{type:'activate'});});
 // A stable empty room appears until the first real snapshot; no demo workers.
 buildLayout(1);
 window.AgentOffice={applySnapshot:applyOfficeSnapshot,get snapshot(){return officeSnapshot;},

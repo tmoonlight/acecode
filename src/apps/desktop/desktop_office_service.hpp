@@ -30,6 +30,8 @@ public:
             if (data.is_object()) {
                 enabled_ = data.value("enabled", nlohmann::json()) == true;
                 welcome_seen_ = data.value("welcome_seen", nlohmann::json()) == true;
+                const auto kind = data.value("pet_kind", nlohmann::json());
+                if (kind.is_string() && valid_pet_kind(kind.get<std::string>())) pet_kind_ = kind.get<std::string>();
             }
         }
         enabled_ = enabled_ && available_;
@@ -49,6 +51,13 @@ public:
             if (!self || !args.is_array() || args.size() != 1 || !args[0].is_boolean())
                 return std::string("{\"ok\":false}");
             return self->set_enabled(args[0].get<bool>()).dump();
+        });
+        host_.bind("aceDesktop_setPetKind", [weak](const std::string& request) {
+            const auto self = weak.lock();
+            const auto args = nlohmann::json::parse(request, nullptr, false);
+            if (!self || !args.is_array() || args.size() != 1 || !args[0].is_string())
+                return std::string("{\"ok\":false}");
+            return self->set_pet_kind(args[0].get<std::string>()).dump();
         });
         host_.bind("aceDesktop_claimOfficeWelcome", [weak](const std::string&) {
             const auto self = weak.lock();
@@ -89,7 +98,22 @@ public:
 
     nlohmann::json state() const {
         return {{"ok", true}, {"available", available_}, {"enabled", enabled_},
-                {"welcomePending", available_ && eligible_ && !welcome_seen_}};
+                {"welcomePending", available_ && eligible_ && !welcome_seen_}, {"petKind", pet_kind_}};
+    }
+
+    nlohmann::json set_pet_kind(const std::string& kind) {
+        if (!available_) return failure("unavailable");
+        if (!valid_pet_kind(kind)) return failure("invalid_pet_kind");
+        if (pet_kind_ == kind) return state();
+        const auto previous = pet_kind_;
+        pet_kind_ = kind;
+        if (!save(enabled_, welcome_seen_)) {
+            pet_kind_ = previous;
+            return failure("save_failed");
+        }
+        if (window_ && !window_closed_) window_->set_pet_kind(kind);
+        notify();
+        return state();
     }
 
     nlohmann::json set_enabled(bool enabled) {
@@ -112,9 +136,13 @@ public:
     }
 
 private:
+    static bool valid_pet_kind(const std::string& kind) {
+        return kind == "office" || kind == "clippy" || kind == "rover" || kind == "whale";
+    }
+
     bool save(bool enabled, bool welcome_seen) const {
         return atomic_write_file(path_to_utf8(path_),
-            nlohmann::json{{"enabled", enabled}, {"welcome_seen", welcome_seen}}.dump());
+            nlohmann::json{{"enabled", enabled}, {"welcome_seen", welcome_seen}, {"pet_kind", pet_kind_}}.dump());
     }
 
     nlohmann::json failure(const std::string& error) const {
@@ -143,8 +171,13 @@ private:
             self->window_closed_ = true;
             self->notify(saved ? "" : "save_failed");
         };
+        // The pet's own context menu switches pets through the same persisted path as Settings.
+        window->on_pet_kind = [weak](const std::string& kind) {
+            if (const auto self = weak.lock()) self->set_pet_kind(kind);
+        };
         window_ = window;
         window_closed_ = false;
+        window->set_pet_kind(pet_kind_);
         window->update_snapshot(snapshot_);
         if (window->start()) return true;
         destroy_window();
@@ -155,6 +188,7 @@ private:
         if (!window_) return;
         auto window = std::move(window_);
         window->on_closed = {};
+        window->on_pet_kind = {};
         window->close();
     }
 
@@ -165,6 +199,7 @@ private:
     bool enabled_ = false;
     bool welcome_seen_ = false;
     bool window_closed_ = false;
+    std::string pet_kind_ = "office";
     std::function<std::string()> preview_;
     nlohmann::json snapshot_ = {{"follow", true}};
     // Service owns the window; in-flight native callbacks briefly share it.

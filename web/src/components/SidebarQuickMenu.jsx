@@ -85,7 +85,7 @@ export function SidebarQuickMenu({
                   <span className="w-5 shrink-0 flex items-center justify-center">
                     <VsIcon name={action.icon} size={18} className={checkingUpdates ? 'animate-spin' : ''} />
                   </span>
-                  <span className="flex-1 min-w-0 truncate">{officeAction && office.enabled ? '隐藏虚拟办公室' : action.label}</span>
+                  <span className="flex-1 min-w-0 truncate">{officeAction && office.enabled ? '隐藏桌面宠物' : action.label}</span>
                   {shortcutLabel && (
                     <kbd
                       aria-label={shortcutLabel}

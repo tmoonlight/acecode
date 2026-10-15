@@ -18,5 +18,9 @@ SessionRecentActivity recent_activity_from_messages(const std::vector<ChatMessag
 // Reads backwards using the existing bounded JSONL scanner. Does not rewrite
 // old metadata or load an entire long transcript into memory.
 SessionRecentActivity read_session_recent_activity(const std::string& jsonl_path);
+// First 240 bytes of the latest assistant reply in the current turn, read backwards
+// and stopping at the latest visible user message. Feeds the companion pet's
+// "done" card when the daemon no longer holds the live reply (after a restart).
+std::string read_session_last_reply(const std::string& jsonl_path);
 
 } // namespace acecode

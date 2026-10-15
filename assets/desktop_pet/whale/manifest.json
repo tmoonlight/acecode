@@ -1,0 +1,112 @@
+{
+  "characters": {
+    "whale-girl": {
+      "name": "鲸鱼娘",
+      "credit": "ZipZipPipe",
+      "meta": {
+        "stageSize": 110
+      },
+      "states": {
+        "idle": {
+          "sheet": "idle.png",
+          "frames": 3,
+          "fps": 2,
+          "playback": "blink"
+        },
+        "working": {
+          "sheet": "working.png",
+          "frames": 3,
+          "fps": 3,
+          "playback": "loop"
+        },
+        "celebrate": {
+          "sheet": "celebrate.png",
+          "frames": 3,
+          "fps": 4,
+          "playback": "loop"
+        },
+        "error": {
+          "sheet": "error.png",
+          "frames": 2,
+          "fps": 8,
+          "motion": "shake",
+          "playback": "once"
+        },
+        "disappointed": {
+          "sheet": "disappointed.png",
+          "frames": 2,
+          "fps": 2,
+          "playback": "loop"
+        },
+        "joy": {
+          "sheet": "joy.png",
+          "frames": 2,
+          "fps": 5,
+          "playback": "loop"
+        },
+        "eat": {
+          "sheet": "eat.png",
+          "frames": 3,
+          "fps": 8,
+          "playback": "loop"
+        },
+        "play": {
+          "sheet": "play.png",
+          "frames": 3,
+          "fps": 4,
+          "playback": "loop"
+        },
+        "drag": {
+          "sheet": "drag.png",
+          "frames": 1,
+          "fps": 5,
+          "motion": "tilt",
+          "playback": "loop"
+        },
+        "walk": {
+          "sheet": "walk.png",
+          "frames": 3,
+          "fps": 6,
+          "playback": "pingpong"
+        },
+        "sleep": {
+          "sheet": "sleep.png",
+          "frames": 2,
+          "fps": 1,
+          "playback": "loop"
+        },
+        "wake": {
+          "sheet": "wake.png",
+          "frames": 2,
+          "fps": 3,
+          "playback": "once",
+          "frameMs": [
+            1000,
+            200
+          ]
+        },
+        "welcome": {
+          "sheet": "welcome.png",
+          "frames": 2,
+          "fps": 3,
+          "playback": "loop"
+        },
+        "think": {
+          "sheet": "think.png",
+          "frames": 1,
+          "fps": 2,
+          "motion": "float",
+          "playback": "loop"
+        },
+        "wait": {
+          "sheet": "wait.png",
+          "frames": 1,
+          "fps": 2,
+          "motion": "wiggle",
+          "playback": "loop"
+        }
+      }
+    }
+  },
+  "default": "whale-girl"
+}

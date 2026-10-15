@@ -31,19 +31,19 @@ export function VirtualOfficeWelcome({ office, onClose }) {
     <Modal width={480} onClose={close} dismissOnBackdrop={false} labelledBy="office-welcome-title">
       <div className="p-5">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="office-welcome-title" className="text-xl font-bold">开启虚拟办公室？</h2>
+          <h2 id="office-welcome-title" className="text-xl font-bold">开启桌面宠物？</h2>
           <button type="button" aria-label="关闭" disabled={office.busy} onClick={close}
             className="w-8 h-8 shrink-0 flex items-center justify-center rounded-md text-fg-mute hover:bg-surface-hi hover:text-fg disabled:opacity-60">
             <VsIcon name="close" size={18} />
           </button>
         </div>
-        <p className="text-[13px] text-fg-2 mt-3">打开虚拟办公室，为您的工作增添更多乐趣！</p>
+        <p className="text-[13px] text-fg-2 mt-3">选择一位桌面伙伴，跟随您的会话一起工作。可在设置中切换宠物。</p>
         <div className="relative mt-4 bg-surface-alt rounded-md overflow-hidden" style={{ aspectRatio: '344 / 252' }}>
           {preview ? <iframe ref={frame} srcDoc={preview} onLoad={syncPause} sandbox="allow-scripts"
             title="虚拟办公室预览" aria-hidden="true" tabIndex={-1}
             className="w-full h-full border-0 pointer-events-none" />
             : <div role="status" className="absolute inset-0 flex items-center justify-center text-[12px] text-fg-mute">
-                {previewFailed ? '预览暂时不可用，仍可开启虚拟办公室。' : '正在加载预览…'}
+                {previewFailed ? '预览暂时不可用，仍可开启桌面宠物。' : '正在加载预览…'}
               </div>}
         </div>
         <div className="flex items-center justify-between gap-3 mt-2 text-[11px] text-fg-mute">
@@ -57,7 +57,7 @@ export function VirtualOfficeWelcome({ office, onClose }) {
           <button type="button" onClick={close} disabled={office.busy}
             className="px-3 py-1.5 rounded hover:bg-surface-hi disabled:opacity-60">暂不开启</button>
           <button type="button" onClick={enable} disabled={office.busy} data-ace-dialog-primary
-            className="px-3 py-1.5 bg-accent text-white rounded disabled:opacity-60">开启虚拟办公室</button>
+            className="px-3 py-1.5 bg-accent text-white rounded disabled:opacity-60">开启桌面宠物</button>
         </div>
       </div>
     </Modal>
