@@ -25,7 +25,7 @@ try {
   const page=await browser.newPage({viewport:{width:688,height:504},deviceScaleFactor:1});
   page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(/^https?:/.test(r.url()))external.push(r.url());});
   if (macHost) {
-    const source=fs.readFileSync(path.join(root,'src/apps/desktop/desktop_pet_mac.mm'),'utf8');
+    const source=fs.readFileSync(path.join(root,'src/apps/desktop/desktop_pet_mac_support.hpp'),'utf8');
     const shim=source.match(/kBridgeShim = R"JS\(([\s\S]*?)\)JS";/)?.[1];
     assert.ok(shim,'load the production macOS bridge');
     await page.addInitScript({content:`

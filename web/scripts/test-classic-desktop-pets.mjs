@@ -47,7 +47,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 430, height: 315 } });
   page.on('pageerror', e => errors.push(e.message));
   page.on('request', r => { if (/^https?:/.test(r.url())) external.push(r.url()); });
-  const shim = mac ? fs.readFileSync(path.join(root, 'src/apps/desktop/desktop_pet_mac.mm'), 'utf8')
+  const shim = mac ? fs.readFileSync(path.join(root, 'src/apps/desktop/desktop_pet_mac_support.hpp'), 'utf8')
     .match(/kBridgeShim = R"JS\(([\s\S]*?)\)JS";/)?.[1] : '';
   if (mac) assert.ok(shim);
   await page.addInitScript({ content: `window.actions=[];
