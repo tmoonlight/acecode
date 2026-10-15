@@ -172,16 +172,23 @@ jobs:
           ace_url="${ace_url//\'/}"; ace_url="${ace_url/#http:/https:}"
           ace_out="/var/cache/apt/archives/$ace_file"
           case "$ace_hash" in SHA256:*) ace_sum=sha256sum ;; MD5Sum:*) ace_sum=md5sum ;; *) echo "unknown hash $ace_hash"; exit 100 ;; esac
-          for ace_try in 1 2 3; do
-            if curl --fail --location --retry 3 --connect-timeout 20 --max-time 300 \
-                 "$ace_url?acecode-recovery=$GITHUB_RUN_ID-$ace_try" --output "$ace_out.part" &&
+          # Runner-region CDN nodes can keep a stale 404 even with a fresh query string; the same
+          # file then comes from snapshot.debian.org (buster as of its last LTS month).
+          case "$ace_url" in
+            */debian-security/*) ace_snapshot="https://snapshot.debian.org/archive/debian-security/20240620T000000Z/${ace_url#*/debian-security/}" ;;
+            *) ace_snapshot="https://snapshot.debian.org/archive/debian/20240620T000000Z/${ace_url#*/debian/}" ;;
+          esac
+          ace_ok=0
+          for ace_source in "$ace_url?acecode-recovery=$GITHUB_RUN_ID" "$ace_snapshot" "$ace_snapshot"; do
+            if curl --fail --location --retry 3 --connect-timeout 20 --max-time 600 \
+                 "$ace_source" --output "$ace_out.part" &&
                printf '%s  %s\n' "${ace_hash#*:}" "$ace_out.part" | "$ace_sum" --check --quiet -; then
-              mv "$ace_out.part" "$ace_out"; break
+              mv "$ace_out.part" "$ace_out"; ace_ok=1; break
             fi
             rm -f "$ace_out.part"
-            if [ "$ace_try" = "3" ]; then echo "could not fetch $ace_url"; exit 100; fi
-            sleep 10
+            sleep 5
           done
+          if [ "$ace_ok" != "1" ]; then echo "could not fetch $ace_url"; exit 100; fi
         done < /tmp/ace-uris
         for ace_attempt in 1 2 3; do
           if apt-get install -y --no-install-recommends "${packages[@]}"; then break; fi
