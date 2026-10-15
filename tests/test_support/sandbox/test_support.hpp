@@ -3,6 +3,7 @@
 #include "utils/utf8_path.hpp"
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -31,4 +32,20 @@ struct TempTree {
         std::ofstream(path, std::ios::binary) << text;
     }
 };
+
+// 给 target 目录建一个别名目录:Windows 用 junction(mklink /J,普通用户即可,本机
+// C:\Users\shao → N:\Users\shao 就是这种形态),POSIX 用符号链接。失败返回 false,
+// 调用方 GTEST_SKIP。
+inline bool make_directory_alias(const std::filesystem::path& target,
+                                 const std::filesystem::path& alias) {
+#ifdef _WIN32
+    const std::string cmd = "cmd /d /c mklink /J \"" + acecode::path_to_utf8(alias) + "\" \"" +
+                            acecode::path_to_utf8(target) + "\" >NUL 2>&1";
+    return std::system(cmd.c_str()) == 0 && std::filesystem::exists(alias);
+#else
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(target, alias, ec);
+    return !ec;
+#endif
+}
 }

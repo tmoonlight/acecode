@@ -487,7 +487,10 @@ void expand_denied_entries(const SandboxPolicyOptions& options, const EntryConte
 
 bool denied_by(const std::vector<std::string>& denied_paths, const std::vector<std::string>& denied_globs,
                const std::string& path) {
-    const std::string p = comparable(path);
+    // deny 条目是 canonical 形态,待判路径按 resolve_access 的同一口径先规范化。申请路径
+    // 指向尚不存在的目录时 normalize_policy_path 只做词法归一,经 junction / 符号链接的
+    // 别名(C:\Users\x → N:\Users\x)逐字比较就漏判,~/.ssh 下的新目录会被授权成可写根。
+    const std::string p = comparable(canonical_utf8(path));
     for (const auto& d : denied_paths) {
         if (is_same_or_under(comparable(d), p)) return true;
     }
@@ -498,6 +501,10 @@ bool denied_by(const std::vector<std::string>& denied_paths, const std::vector<s
 }
 
 } // namespace
+
+bool SandboxPolicy::is_denied(const std::string& absolute_path) const {
+    return denied_by(denied_paths, denied_globs, absolute_path);
+}
 
 std::vector<WritableRoot> compute_writable_roots(const std::string& write_root,
                                                  const SandboxPolicyOptions& options) {

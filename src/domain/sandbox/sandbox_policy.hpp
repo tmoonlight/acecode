@@ -57,6 +57,8 @@ struct SandboxPolicy {
     FsAccess resolve_access(const std::string& absolute_path) const;
     bool can_write(const std::string& absolute_path) const;
     bool can_read(const std::string& absolute_path) const;
+    // 路径本身或其祖先在 deny 名单 / deny glob 上(不看可写根)。
+    bool is_denied(const std::string& absolute_path) const;
 };
 
 // AgentLoop 注入到 ToolContext 的"这次 bash 怎么跑":策略 + 用哪个后端 +
