@@ -85,6 +85,17 @@
 ### Requirement: 各表面提供模式入口
 Web/Desktop 输入框的 `+` 菜单 SHALL 提供「蜂群模式（星型）」与「蜂群模式（网状）」两个互斥单选项，选中后输入区 SHALL 显示对应的可移除标签，选择 SHALL 随下一条消息提交并成为会话模式。TUI SHALL 提供 `/swarm` 显示当前模式，`/swarm star|mesh|off` 切换模式，无效参数 SHALL 报错并列出合法值。headless 打印模式 SHALL 提供 `--swarm star|mesh`，缺省为 `off`，无效值 SHALL 以 usage 错误退出。
 
+#### Scenario: Goal 与蜂群一起发送
+- **WHEN** 用户在首页或已有会话选择蜂群模式并提交 Goal
+- **THEN** 前端 SHALL 在启动 Goal 之前确认所选蜂群模式已写入该会话
+- **AND** 模式切换失败时 SHALL 保留输入并且不提交 Goal；没有本地模式变更时 SHALL 沿用服务端模式
+- **AND** Goal 的自动续跑 SHALL 继续使用该会话的蜂群上下文与协作工具
+
+#### Scenario: 首页 Goal 成功后消费草稿
+- **WHEN** 首页 Goal 命令提交成功且导航到新会话，无论回执与导航谁先完成
+- **THEN** SHALL 清空与本次提交匹配的输入文字与引用
+- **AND** SHALL 保留提交期间的新编辑与其它会话草稿，失败时 SHALL 保留原输入
+
 #### Scenario: 菜单单选
 - **WHEN** 用户在 `+` 菜单中已选中「蜂群模式（星型）」，再点击「蜂群模式（网状）」
 - **THEN** 菜单中只有「蜂群模式（网状）」处于选中态
