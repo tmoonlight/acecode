@@ -3457,6 +3457,16 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const hasExtras = payloadHasExtras(requestPayload);
     const route = inputRouteForPayload(requestPayload);
     if (!hasExtras && route.kind === 'builtin') {
+      // /goal 等命令不经过消息接口，必须先应用随输入提交的蜂群选择。
+      // /swarm 同步写入会话模式；失败时不启动后续命令，输入保留供重试。
+      // 显式 /swarm 的参数优先于输入框中的待提交选择。
+      if (typeof requestPayload.swarm_mode === 'string' && route.command.command !== 'swarm') {
+        await executeBuiltinCommand(targetSid, {
+          command: 'swarm',
+          args: requestPayload.swarm_mode,
+          display_text: `/swarm ${requestPayload.swarm_mode}`,
+        });
+      }
       return executeBuiltinCommand(targetSid, route.command);
     }
     const materialized = await materializeWorkspaceDraftPastes(targetSid, payload);
@@ -3730,7 +3740,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               : pending);
           }
           if (isBuiltin) {
-            await executeBuiltinCommand(id, route.command);
+            await sendInputOrBuiltin(id, materializedPayload);
           } else if (explicitHomeSend) {
             applyEvent({ type: 'busy_changed', payload: { busy: true } }, { emitEffects: false });
             const sendPayload = worktreeIntent
@@ -3756,7 +3766,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             }
           }
           if (historyText.trim()) recordInputHistory(historyText);
-          if (!isBuiltin && explicitHomeSend) {
+          if (isBuiltin || explicitHomeSend) {
             setAcceptedHomeSubmission({
               sessionId: id,
               text: submittedComposerText,

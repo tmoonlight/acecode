@@ -262,6 +262,56 @@ TEST(AgentLoopGoal, HiddenGoalContextOmitsDisabledAskUserQuestion) {
     EXPECT_EQ(continuation.find("AskUserQuestion"), std::string::npos);
 }
 
+// 触发：Goal 在 mesh 会话启动并自动续跑。两者应同时提供目标上下文、网状身份
+// 与协作工具；不能因为隐藏 Goal 输入没有 swarm_mode metadata 而退回 off。
+TEST(AgentLoopGoal, MeshToolsAndContextRemainAvailableDuringGoalContinuation) {
+    AgentLoopGoalHarness h("mesh_goal_continuation");
+    h.session_manager().set_swarm_mode("mesh");
+    const std::vector<std::string> mesh_names = {
+        "agent_spawn", "agent_list", "agent_send_message",
+        "agent_followup_task", "agent_wait", "agent_interrupt"};
+    auto register_probe = [&h](const std::string& name) {
+        acecode::ToolImpl tool;
+        tool.definition.name = name;
+        tool.definition.description = "test collaboration tool";
+        tool.definition.parameters = {{"type", "object"}};
+        tool.is_read_only = true;
+        tool.execute = [](const std::string&, const acecode::ToolContext&) {
+            return acecode::ToolResult{"ok", true};
+        };
+        EXPECT_TRUE(h.tools().register_tool(std::move(tool)));
+    };
+    for (const auto& name : mesh_names) register_probe(name);
+    for (const auto* name : {"spawn_subagent", "wait_subagent", "create_thread"}) register_probe(name);
+    h.create_goal();
+    h.provider().push_text("progress; continue collaborating");
+    h.provider().push_tool_call("agent_list", "{}", "mesh-goal-list");
+    h.provider().push_tool_call("update_goal", R"({"status":"complete"})", "mesh-goal-done");
+    h.provider().push_text("completed");
+
+    h.loop().maybe_continue_goal();
+    ASSERT_TRUE(h.wait_until([&h] {
+        const auto goal = h.goal();
+        return goal && goal->status == acecode::ThreadGoalStatus::Complete && !h.loop().is_busy();
+    }, 10s));
+    ASSERT_GE(h.provider().turn_count(), 4);
+    for (int turn = 0; turn < h.provider().turn_count(); ++turn) {
+        SCOPED_TRACE(turn);
+        std::string request;
+        for (const auto& message : h.provider().messages_for_turn(turn)) request += message.content;
+        EXPECT_NE(request.find("<goal_context>"), std::string::npos);
+        EXPECT_NE(request.find("<multi_agent_role>"), std::string::npos);
+        EXPECT_NE(request.find("You are `/root`"), std::string::npos);
+        std::unordered_set<std::string> tools;
+        for (const auto& tool : h.provider().tools_for_turn(turn)) tools.insert(tool.name);
+        for (const auto& name : mesh_names) EXPECT_EQ(tools.count(name), 1u) << name;
+        EXPECT_EQ(tools.count("update_goal"), 1u);
+        EXPECT_EQ(tools.count("spawn_subagent"), 0u);
+        EXPECT_EQ(tools.count("wait_subagent"), 0u);
+        EXPECT_EQ(tools.count("create_thread"), 0u);
+    }
+}
+
 TEST(AgentLoopGoal, DisabledGoalUpdateDoesNotLeakIntoBudgetPrompt) {
     AgentLoopGoalHarness h("goal_update_policy");
     acecode::ToolCapabilityPolicy policy;

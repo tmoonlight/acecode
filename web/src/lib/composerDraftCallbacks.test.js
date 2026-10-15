@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { parseSync, traverse } from '@babel/core';
 import { composerDraftEditFingerprint } from './composerDraft.js';
+import { inputRouteForPayload } from './builtinCommandRouting.js';
 
 // Execute production receipt guards. A stale response must not modify the
 // current editor or its attachment registry, even when its plain text matches.
@@ -11,10 +12,17 @@ const ast = parseSync(source, { configFile: false, babelrc: false, parserOpts: {
 const callbacks = new Map();
 traverse(ast, {
   VariableDeclarator({ node }) {
+    if (node.id.name === 'sendInputOrBuiltin') {
+      const callback = node.init.arguments[0];
+      callbacks.set('send', source.slice(callback.start, callback.end));
+    }
     if (node.id.name === 'clearCurrentSessionDraft') {
       const callback = node.init.arguments[0];
       callbacks.set('clear', source.slice(callback.start, callback.end));
     }
+  },
+  FunctionDeclaration({ node }) {
+    if (node.id.name === 'payloadHasExtras') callbacks.set('hasExtras', source.slice(node.start, node.end));
   },
   CallExpression({ node }) {
     if (node.callee?.name === 'useEffect' && source.slice(node.start, node.end).includes('acceptedHomeSubmission')) {
@@ -142,7 +150,7 @@ run('the actual turn-interruption receipt only clears extras after its matching 
   assert.equal(test.state.extraClears, 1);
 });
 
-function homeFixture({ workspace = 'workspace', attachments = false, failSend = false } = {}) {
+function homeFixture({ workspace = 'workspace', attachments = false, failSend = false, builtin = false } = {}) {
   const submittedContent = attachments
     ? content() : { version: 1, parts: [{ type: 'text', text: 'before after' }] };
   const test = fixture({ activeKey: '', current: submittedContent });
@@ -158,10 +166,15 @@ function homeFixture({ workspace = 'workspace', attachments = false, failSend = 
     submittedComposerContent: submittedContent,
     payloadWithAttachmentIds: (payload) => payload,
     setPendingNewSessionFirstUserMessage() {}, applyEvent() {},
-    isBuiltin: false, explicitHomeSend: true, worktreeIntent: null,
-    hasExtras: attachments, hasSwarmMode: false,
+    isBuiltin: builtin, explicitHomeSend: !builtin, worktreeIntent: null,
+    hasExtras: attachments, hasSwarmMode: builtin,
     composerDirtyRef: { current: true },
     sendInputOrBuiltin: async () => {
+      state.sends += 1;
+      if (failSend) throw new Error('send failed');
+    },
+    executeBuiltinCommand: async () => {
+      state.directCommands += 1;
       if (failSend) throw new Error('send failed');
     },
     submittedHomeDraftWorkspaceHash: workspace,
@@ -178,6 +191,8 @@ function homeFixture({ workspace = 'workspace', attachments = false, failSend = 
     },
   });
   state.homeAccepted = 0;
+  state.sends = 0;
+  state.directCommands = 0;
   const receipt = vm.runInContext(`(${callbacks.get('homeReceipt')})`, context);
   const render = () => {
     // Before the repair there is no replay effect: running the original receipt
@@ -301,4 +316,104 @@ await runHome('a failed home send preserves the submitted text, resources, and h
   assert.equal(test.context.acceptedHomeSubmission, null);
   assert.equal(test.context.composerValueRef.current, 'before after');
   assert.equal(test.state.homeAccepted, 0);
+});
+
+// 触发：在首页同时选择 Goal 与网状蜂群后发送。旧分支保留输入却跳过 builtin 回执清理。
+for (const navigationFirst of [false, true]) {
+  await runHome(`home Goal with swarm clears its draft (navigationFirst=${navigationFirst})`, async () => {
+    const test = homeFixture({ builtin: true, workspace: '' });
+    if (navigationFirst) test.activate();
+    await test.accept();
+    if (!navigationFirst) test.activate();
+    assert.equal(test.context.composerValueRef.current, '');
+    assert.equal(test.state.extraClears, 1);
+    assert.equal(test.state.sends, 1, 'home commands must use the shared sender');
+    assert.equal(test.state.directCommands, 0);
+    assert.equal(test.state.homeAccepted, 1);
+  });
+}
+
+await runHome('home Goal failure retains the input and does not consume either draft', async () => {
+  const test = homeFixture({ builtin: true, failSend: true });
+  await assert.rejects(test.accept(), /send failed/);
+  test.activate();
+  assertUntouched(test);
+  assert.equal(test.state.homeAccepted, 0);
+});
+
+await runHome('a successful home Goal receipt preserves newer edits', async () => {
+  const test = homeFixture({ builtin: true });
+  await test.accept();
+  test.context.composerValueRef.current = 'next objective';
+  test.activate();
+  assertUntouched(test);
+});
+
+function senderFixture(execute) {
+  const sent = [];
+  const context = vm.createContext({
+    inputRouteForPayload,
+    executeBuiltinCommand: execute,
+    materializeWorkspaceDraftPastes: async (_sid, payload) => payload,
+    api: { sendInput: async (sid, payload) => { sent.push({ sid, payload }); } },
+  });
+  vm.runInContext(callbacks.get('hasExtras'), context);
+  return { send: vm.runInContext(`(${callbacks.get('send')})`, context), sent };
+}
+
+// 触发：Goal 走命令接口，旧实现只发送 route.command，丢掉 payload.swarm_mode。
+for (const mode of ['mesh', 'star', 'off']) {
+  await runHome(`Goal waits for ${mode} selection before starting`, async () => {
+    const calls = [];
+    let acceptMode;
+    const modeReceipt = new Promise((resolve) => { acceptMode = resolve; });
+    const test = senderFixture(async (sid, command) => {
+      calls.push({ sid, ...command });
+      if (command.command === 'swarm') await modeReceipt;
+    });
+    const pending = test.send('task-a', { text: '/goal test collaboration', swarm_mode: mode });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, 'swarm');
+    assert.equal(calls[0].args, mode);
+    acceptMode();
+    await pending;
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].sid, 'task-a');
+    assert.equal(calls[1].command, 'goal');
+    assert.equal(calls[1].args, 'test collaboration');
+    assert.equal(test.sent.length, 0);
+  });
+}
+
+await runHome('failed swarm selection prevents Goal from starting', async () => {
+  const calls = [];
+  const test = senderFixture(async (_sid, command) => {
+    calls.push(command.command);
+    throw new Error('tree still running');
+  });
+  await assert.rejects(test.send('task-a', { text: '/goal test', swarm_mode: 'off' }), /tree still running/);
+  assert.deepEqual(calls, ['swarm']);
+});
+
+await runHome('Goal without a local swarm choice preserves the server mode', async () => {
+  const calls = [];
+  const test = senderFixture(async (_sid, command) => { calls.push(command.command); });
+  await test.send('task-a', { text: '/goal test' });
+  assert.deepEqual(calls, ['goal']);
+});
+
+await runHome('explicit swarm commands override the composer choice', async () => {
+  const calls = [];
+  const test = senderFixture(async (_sid, command) => { calls.push(command); });
+  await test.send('task-a', { text: '/swarm off', swarm_mode: 'mesh' });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'swarm');
+  assert.equal(calls[0].args, 'off');
+});
+
+await runHome('ordinary swarm messages still use the message endpoint', async () => {
+  const test = senderFixture(async () => { assert.fail('ordinary input must not execute commands'); });
+  const payload = { text: 'test', swarm_mode: 'mesh' };
+  await test.send('task-a', payload);
+  assert.deepEqual(test.sent, [{ sid: 'task-a', payload }]);
 });

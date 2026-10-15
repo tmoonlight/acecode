@@ -81,3 +81,13 @@
 - [x] 10.3 运行定向测试、Web 全量测试、构建、OpenSpec 严格验证与差异检查，记录结果
 
 验证记录：修复前定向用例复现同一回合 4 条已处理摘要（期望 1 条）；修复后 `transcriptProjection.test.js`、`sessionTranscript.test.js` 通过。`pnpm test` 通过（2981 项），`pnpm build` 及正则兼容检查通过，`openspec validate add-mesh-swarm-mode --strict`、`git diff --check` 通过。Headless Edge 使用实际 TranscriptItems / Message / ActivityLine 组件验证 1280px 浅色折叠态与 720px 深色展开态：1 条已处理、3 条独立通知、全部通知正文和 4 条活动详情可展开，无横向溢出及脚本异常。未重新编译或替换已安装 Desktop。
+
+## 11. Goal 与蜂群同时提交修复（2026-10-15）
+
+- [x] 11.1 统一首页与会话内的内置命令发送，先确认本地蜂群选择生效再执行 Goal；切换失败不得启动 Goal
+- [x] 11.2 首页内置命令成功后清理匹配的已提交草稿，保留失败输入和提交期间的新编辑，补充真实发送/回执回归
+- [x] 11.3 验证 Goal 续跑的网状上下文及工具可见性，运行 Web 全量测试、构建、OpenSpec 严格验证与差异检查并记录结果
+
+验证记录：新增生产回调回归在修复前复现首页 Goal 成功后输入仍为已提交文本；修复后发送顺序、mesh/star/off、显式 `/swarm`、失败保留及新编辑保护共 28 项通过。`pnpm test` 全量通过（3079 条 pass），`pnpm build` 与正则兼容检查通过。新增 C++ 用例 `AgentLoopGoal.MeshToolsAndContextRemainAvailableDuringGoalContinuation` 在 Mac 通过，验证实际 AgentLoop 的 Goal 首轮与续跑请求同时包含目标上下文、网状角色、六个协作工具与 `update_goal`，且隐藏星型/thread 工具。使用现有 CMake 目录定向编译测试对象及生产库，再按该目录原链接参数链接独立测试程序；未宣称原生全量单测通过。OpenSpec 严格验证和差异检查通过。未替换已安装 Desktop，未对用户会话发出测试消息，保留原有 Computer Use 工作区改动。
+
+远端整合复验：本地基线从 `308224bb` 同步到 `e090be90`（v1.0.6，48 个提交），逐段核对唯一重叠文件 `ChatView.jsx`，保留远端快捷键、预览及会话相关更新。合并后 `pnpm test` 通过（3176 条 `[pass]`，另有 Node test runner 3 项通过），`pnpm build`、正则兼容检查、OpenSpec 严格验证、层级/头文件/文件大小/所有权/文档路径检查及差异检查通过；新增 Goal C++ 用例在合并后的源码上语法编译通过，未重跑整合后的原生运行时测试。原有 9 个 Computer Use 未提交文件逐字节校验一致，未纳入本次提交。
