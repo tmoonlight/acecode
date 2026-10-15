@@ -173,11 +173,9 @@ jobs:
           ace_out="/var/cache/apt/archives/$ace_file"
           case "$ace_hash" in SHA256:*) ace_sum=sha256sum ;; MD5Sum:*) ace_sum=md5sum ;; *) echo "unknown hash $ace_hash"; exit 100 ;; esac
           # Runner-region CDN nodes can keep a stale 404 even with a fresh query string; the same
-          # file then comes from snapshot.debian.org (buster as of its last LTS month).
-          case "$ace_url" in
-            */debian-security/*) ace_snapshot="https://snapshot.debian.org/archive/debian-security/20240620T000000Z/${ace_url#*/debian-security/}" ;;
-            *) ace_snapshot="https://snapshot.debian.org/archive/debian/20240620T000000Z/${ace_url#*/debian/}" ;;
-          esac
+          # file then comes from snapshot.debian.org's copy of archive.debian.org itself, which
+          # holds both buster and buster-security (security updates kept landing until mid-2024).
+          ace_snapshot="https://snapshot.debian.org/archive/debian-archive/20251001T000000Z/${ace_url#*://*/}"
           ace_ok=0
           for ace_source in "$ace_url?acecode-recovery=$GITHUB_RUN_ID" "$ace_snapshot" "$ace_snapshot"; do
             if curl --fail --location --retry 3 --connect-timeout 20 --max-time 600 \
