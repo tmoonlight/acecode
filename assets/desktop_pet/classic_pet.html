@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACECode 桌面宠物</title>
+<style>
+:root{--pet-font:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;--pet-font-size:14px;--pet-ink:#27324f;--card:#fff;--card-ghost:#f2f2f2;--card-ghost-2:#e6e6e6;--card-text:#1d1d1f;--card-muted:#555b66;
+  --card-shadow:0 4px 14px rgba(15,20,30,.16),0 1px 3px rgba(15,20,30,.10);--card-button:#e9e9eb;--card-button-hover:#dcdce0;
+  --ok:#16a34a;--warn:#d97706;--danger:#dc2626;--idle:#8a8f98}
+@media(prefers-color-scheme:dark){:root{--card:#2b2d31;--card-ghost:#25272b;--card-ghost-2:#1f2124;--card-text:#f2f2f3;--card-muted:#b4b8c0;
+  --card-shadow:0 4px 14px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3);--card-button:#3a3d42;--card-button-hover:#46494f}}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+body{font:12px/1.35 var(--pet-font);color:var(--pet-ink);user-select:none;-webkit-user-select:none}
+.scene{position:relative;width:100%;height:100%}
+canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pixelated}
+/* Session cards (Codex Mini): collapsed they pile up above the pet's head, a click
+   spreads them into a list; nothing is shown while no session needs attention. */
+/* The padding leaves room for the soft card shadows: the native window region is this
+   box, and Windows clips painting to it, so a shadow running past it is cut off hard. */
+/* Card text is the ACECode transcript body text: same family, size and line height (the main
+   window sends its live values with every snapshot, following its font-size setting). */
+.stack{position:absolute;left:0;right:0;bottom:calc(58% - 10px);z-index:3;padding:12px max(4%,16px) 26px;font:var(--pet-font-size)/1.6 var(--pet-font)}
+.stack.expanded{bottom:auto;top:0;max-height:100%;overflow-y:auto;scrollbar-width:thin}
+.deck{position:relative;isolation:isolate;display:flex;flex-direction:column;gap:6px}
+.stack.collapsed .card:not(:first-child){display:none}
+.stack.collapsed.layers .deck::after,.stack.collapsed.layers-2 .deck::before{content:"";position:absolute;border-radius:1.6em;box-shadow:var(--card-shadow);z-index:-1}
+.stack.collapsed.layers .deck::after{left:4%;right:4%;top:8px;bottom:-7px;background:var(--card-ghost)}
+.stack.collapsed.layers-2 .deck::before{left:8%;right:8%;top:14px;bottom:-13px;background:var(--card-ghost-2);z-index:-2}
+.card{position:relative;display:flex;align-items:center;gap:.6em;min-height:3.3em;padding:.5em .9em .5em 1em;border-radius:1.6em;
+  background:var(--card);color:var(--card-text);box-shadow:var(--card-shadow);cursor:pointer}
+.card:focus-visible{outline:2px solid #4378be;outline-offset:2px}
+.text{flex:1;min-width:0}
+.head{display:flex;align-items:center;gap:.4em;font-weight:700}
+.name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.body{margin-top:.1em;color:var(--card-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.icon{flex:none;width:1.1em;height:1.1em;display:grid;place-items:center}
+.icon svg{width:100%;height:100%}
+.spinner{width:.9em;height:.9em;border:2px solid var(--card-button);border-top-color:var(--idle);border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stop{flex:none;width:2.2em;height:2.2em;border:0;border-radius:50%;background:var(--card-button);display:grid;place-items:center;cursor:pointer;padding:0}
+.stop:hover{background:var(--card-button-hover)}
+.stop i{width:.75em;height:.75em;border-radius:2px;background:var(--idle)}
+.dismiss{position:absolute;left:-.2em;top:-.2em;width:1.4em;height:1.4em;border:0;border-radius:50%;background:var(--card);color:var(--card-text);
+  box-shadow:0 1px 3px rgba(0,0,0,.25);display:none;place-items:center;cursor:pointer;padding:0;font:inherit;font-weight:700;line-height:1}
+.card:hover .dismiss,.card:focus-within .dismiss{display:grid}
+.stack.collapsed.layers .card .dismiss{display:none}
+.grip{position:absolute;left:calc(11 / 344 * 100%);top:calc(112 / 252 * 100%);width:16px;height:16px;cursor:nwse-resize;opacity:0;z-index:2}
+.scene:hover .grip,.scene:focus-within .grip{opacity:1}
+.grip svg{width:100%;height:100%;fill:none;stroke:var(--pet-ink);stroke-width:2}
+.badge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--pet-ink);color:#fff;padding:3px 8px;border-radius:5px;pointer-events:none}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="scene" id="scene">
+  <div class="stack collapsed" id="stack" role="list" aria-label="会话动态" hidden><div class="deck" id="deck"></div></div>
+  <canvas id="cv" width="344" height="252" aria-label="桌面宠物，双击打开 ACECode"></canvas>
+  <div class="grip" id="grip" title="拖动调整大小，双击恢复默认大小"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7L7 2M2 11L11 2M2 15L15 2"/></svg></div>
+  <div class="badge" id="badge" hidden></div>
+</div>
+<script>window.ClassicPetAgents={};window.clippy={ready:(name,data)=>{window.ClassicPetAgents[name.toLowerCase()]=data;}};</script>
+<script src="./classic/clippy/agent.js"></script>
+<script src="./classic/rover/agent.js"></script>
+<script src="./whale/agent.js"></script>
+<script src="./classic_pet.js"></script>
+</body>
+</html>

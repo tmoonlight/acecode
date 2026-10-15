@@ -1,0 +1,83 @@
+{
+  "repository": "https://github.com/vlln/whale-girl",
+  "commit": "9c32d7a39a45148076f8ad2fdaad2dc2420eedb3",
+  "credit": "Character by ZipZipPipe; sprites from vlln/whale-girl",
+  "packing": "Original RGBA pixels, one horizontal sheet per row, in manifest state order. No resampling.",
+  "files": [
+    {
+      "path": "lib/assets/characters/whale-girl/idle.png",
+      "sha256": "167c517559b67414a2ca63b7ca15e0fbb2f6f9b9f49881ba9f8872e18374831d",
+      "bytes": 222748
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/working.png",
+      "sha256": "4e88a4017012894b488d367fb3db4ec27012d41e32b512fd0b0581340e53edae",
+      "bytes": 229457
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/celebrate.png",
+      "sha256": "19409dac7980956fdb592225e881bc52e25bba6ee25b89ae5c98a4f794e2f002",
+      "bytes": 227576
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/error.png",
+      "sha256": "ae5a43051b730e4d6830249d33c92a6c036b4ace0ff886af75c71e4ab7b7f878",
+      "bytes": 146246
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/disappointed.png",
+      "sha256": "3ddebdae4e04b8c429965c7844c4117e4827986af1361e473530761ab27654da",
+      "bytes": 149283
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/joy.png",
+      "sha256": "b30a1faf223a8eb5c816ef18a48498e7195524742427ad9399c031a4012d7a2d",
+      "bytes": 151820
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/eat.png",
+      "sha256": "7d107c43a51243444835c821690dc3a54b35d373fed0f904ad7de09d537da463",
+      "bytes": 227624
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/play.png",
+      "sha256": "bb40c8fd15ae3bfcad401dff190a6700877d23c1a005636976d068ab70cfe7d5",
+      "bytes": 211214
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/drag.png",
+      "sha256": "ccda06aebd20c773f1bc21e2ffd4d73aba304bb7fbcc28e05f8e0914258e9e3f",
+      "bytes": 64818
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/walk.png",
+      "sha256": "a7ce4104c15ead99832669c6ee0560f0aac21b9dd154f04db84f61f0f3fa3e3c",
+      "bytes": 156331
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/sleep.png",
+      "sha256": "0eaef41f9ab268c0f939d7b4a6c56d468cc0ea1bc70134e25fb927e08dbba96c",
+      "bytes": 141754
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/wake.png",
+      "sha256": "6a30558a92244f166c1bcdfabb759fbaa63e44a592ccfa6c498b1746eca6312e",
+      "bytes": 146730
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/welcome.png",
+      "sha256": "f968d7cdd771410c3276864995983523e5eeea6a7bfd2bb66d1134329979672e",
+      "bytes": 131735
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/think.png",
+      "sha256": "a891b570b2f6e18e0b6d187eaee3deb4cfa816904753904685a5244821f27c9e",
+      "bytes": 76358
+    },
+    {
+      "path": "lib/assets/characters/whale-girl/wait.png",
+      "sha256": "37236c6d38f07e6a1800aec6fcefd48c873f7a8662c235e59b202a7a02b33156",
+      "bytes": 73120
+    }
+  ]
+}

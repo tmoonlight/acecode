@@ -275,6 +275,14 @@ TEST(DesktopPetLayout, ControlsOverlayUsesValidationAndSharesOverlayLimit) {
     EXPECT_EQ(overlays[1], (DesktopPetOverlay{0.0, 0.2, 0.3, 0.4}));
 }
 
+TEST(DesktopPetLayout, ClassicPetsUseOnlyReportedSilhouetteAndControls) {
+    const std::vector<DesktopPetOverlay> body{{0.4, 0.5, 0.6, 0.9}};
+    EXPECT_TRUE(desktop_pet_hit_test(1.0, 344, 252, body, 172, 180, false));
+    EXPECT_FALSE(desktop_pet_hit_test(1.0, 344, 252, body, 100, 180, false));
+    EXPECT_TRUE(desktop_pet_hit_test(1.0, 344, 252, body, 100, 180));
+    EXPECT_FALSE(desktop_pet_hit_test(1.0, 344, 252, {}, 172, 180, false));
+}
+
 TEST(DesktopPetLayout, MacResizeGripKeepsCssSizeAtFractionalScales) {
     for (const auto size : {DesktopPetPoint{172, 126}, DesktopPetPoint{430, 315},
                             DesktopPetPoint{517, 379}, DesktopPetPoint{860, 630}}) {
@@ -287,6 +295,71 @@ TEST(DesktopPetLayout, MacResizeGripKeepsCssSizeAtFractionalScales) {
         EXPECT_FALSE(desktop_pet_resize_grip_hit_test(size.x, size.y, left + 16, top));
         EXPECT_FALSE(desktop_pet_resize_grip_hit_test(size.x, size.y, left, top + 16));
     }
+}
+
+// 场景:拖动陪伴宠物时原生每次窗口移动都喂一次横坐标。
+// 期望:累计横移不足 4 像素(手抖、纯竖直拖)不报方向;越过阈值才报左(-1)/右(+1),
+// 报告后以当前位置为新起点,反向拖动立刻换方向。阈值 4 与页面判定拖动开始的距离一致。
+TEST(DesktopPetLayout, DragTrackerReportsHorizontalDirectionPastThreshold) {
+    DesktopPetDragTracker tracker;
+    tracker.begin(100);
+    EXPECT_EQ(tracker.move(103), 0);
+    EXPECT_EQ(tracker.move(100), 0);
+    EXPECT_EQ(tracker.move(104), 1);
+    EXPECT_EQ(tracker.move(107), 0);
+    EXPECT_EQ(tracker.move(112), 1);
+    EXPECT_EQ(tracker.move(108), -1);
+    EXPECT_EQ(tracker.move(105), 0);
+    EXPECT_EQ(tracker.move(103), -1);
+}
+
+// 场景:多屏负坐标与异常输入。
+// 期望:负坐标同样按差值判断方向;NaN / 无穷不改变起点也不报方向,之后的正常移动照常计算。
+TEST(DesktopPetLayout, DragTrackerHandlesNegativeAndInvalidCoordinates) {
+    DesktopPetDragTracker tracker;
+    tracker.begin(-1920);
+    EXPECT_EQ(tracker.move(-1930), -1);
+    EXPECT_EQ(tracker.move(std::numeric_limits<double>::quiet_NaN()), 0);
+    EXPECT_EQ(tracker.move(std::numeric_limits<double>::infinity()), 0);
+    EXPECT_EQ(tracker.move(-1926), 1);
+}
+
+// 场景:1920 宽工作区上把 430 宽的鲸鱼娘窗口拖到不同位置后松手。
+// 期望:窗口中心进入离右边 1/4 窗口宽(107.5)以内或越过右边 → 吸附右边(+1);左边同理(-1);
+// 屏幕中间不吸附;副屏负坐标同样按工作区边界判断;空窗口/空工作区不吸附。
+TEST(DesktopPetLayout, DockSideDependsOnDistanceToTheWorkAreaEdge) {
+    const DesktopPetRect work{0, 0, 1920, 1040};
+    EXPECT_EQ(desktop_pet_dock_side({1500, 600, 430, 315}, work), 0);
+    EXPECT_EQ(desktop_pet_dock_side({1597, 600, 430, 315}, work), 0);   // 中心 1812,离右边 108,差一点
+    EXPECT_EQ(desktop_pet_dock_side({1598, 600, 430, 315}, work), 1);   // 中心 1813,进入 107.5 以内
+    EXPECT_EQ(desktop_pet_dock_side({1700, 600, 430, 315}, work), 1);   // 已越过右边
+    EXPECT_EQ(desktop_pet_dock_side({-150, 600, 430, 315}, work), -1);   // 已越过左边
+    EXPECT_EQ(desktop_pet_dock_side({-107, 600, 430, 315}, work), 0);    // 中心 108
+    EXPECT_EQ(desktop_pet_dock_side({-108, 600, 430, 315}, work), -1);   // 中心 107
+    EXPECT_EQ(desktop_pet_dock_side({200, 600, 430, 315}, work), 0);
+    const DesktopPetRect left_monitor{-1920, 0, 1920, 1040};
+    EXPECT_EQ(desktop_pet_dock_side({-2050, 100, 430, 315}, left_monitor), -1);
+    EXPECT_EQ(desktop_pet_dock_side({-300, 100, 430, 315}, left_monitor), 1);
+    EXPECT_EQ(desktop_pet_dock_side({0, 0, 0, 0}, work), 0);
+    EXPECT_EQ(desktop_pet_dock_side({0, 0, 430, 315}, {0, 0, 0, 0}), 0);
+}
+
+// 场景:吸附时窗口有一部分在工作区外(右边越界、上下越界)。
+// 期望:贴右边时窗口右缘等于工作区右缘,贴左边时左缘等于工作区左缘;竖直位置夹回工作区;
+// side 为 0 时原样返回。
+TEST(DesktopPetLayout, DockingAlignsTheWindowEdgeAndKeepsItOnScreen) {
+    const DesktopPetRect work{0, 40, 1920, 1000};
+    const auto right = dock_desktop_pet({1750, 900, 430, 315}, work, 1);
+    EXPECT_EQ(right.x + right.width, 1920);
+    EXPECT_EQ(right.y, 1040 - 315);
+    EXPECT_EQ(right.width, 430);
+    const auto left = dock_desktop_pet({-150, 0, 430, 315}, work, -1);
+    EXPECT_EQ(left.x, 0);
+    EXPECT_EQ(left.y, 40);
+    const DesktopPetRect same{100, 200, 430, 315};
+    const auto kept = dock_desktop_pet(same, work, 0);
+    EXPECT_EQ(kept.x, 100);
+    EXPECT_EQ(kept.y, 200);
 }
 
 TEST(DesktopPetLayout, MacResizeGripRejectsInvalidOrOutsideCoordinates) {

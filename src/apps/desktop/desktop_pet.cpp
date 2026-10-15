@@ -3,7 +3,9 @@
 
 #include "desktop_pet_layout.hpp"
 #include "desktop_office_service.hpp"
+#include "desktop_pet_resources.hpp"
 #include "version.hpp"
+#include "platform/native_ui/notifications.hpp"
 #include "platform/native_ui/strings.hpp"
 
 #include "utils/encoding.hpp"
@@ -70,6 +72,8 @@ constexpr UINT kMenuHide = 2;
 constexpr UINT kMenuZoomIn = 3;
 constexpr UINT kMenuZoomOut = 4;
 constexpr UINT kMenuResetSize = 5;
+constexpr UINT kMenuPin = 6;
+constexpr UINT kMenuPetKindBase = 100;   // + index into kDesktopPetKinds
 
 std::string hresult_text(HRESULT hr) {
     char buffer[16];
@@ -180,12 +184,13 @@ void enable_per_pixel_alpha(HWND hwnd) {
 // 窗口区域只留房间轮廓、控制条和页面浮层(成员列表 / 提示 / 状态气泡):
 // 透明角落既不绘制也不接收点击,点击会落到后面的窗口。区域同时裁剪绘制,
 // 所以冒出墙顶的气泡必须由页面上报,否则会被切掉。
-void apply_hit_region(HWND hwnd, double scale, const std::vector<DesktopPetOverlay>& overlays = {}) {
+void apply_hit_region(HWND hwnd, double scale, const std::vector<DesktopPetOverlay>& overlays = {}, bool office = true) {
     const auto polygon = desktop_pet_hit_polygon(scale);
     std::vector<POINT> points;
     points.reserve(polygon.size());
     for (const auto& point : polygon) points.push_back(POINT{point.x, point.y});
-    UniqueRegion region(::CreatePolygonRgn(points.data(), static_cast<int>(points.size()), WINDING));
+    UniqueRegion region(office ? ::CreatePolygonRgn(points.data(), static_cast<int>(points.size()), WINDING)
+                               : ::CreateRectRgn(0, 0, 0, 0));
     RECT bounds{};
     ::GetClientRect(hwnd, &bounds);
     for (const auto& overlay : overlays) {
@@ -205,6 +210,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
     explicit PetController(WebHost& owner) : host(owner) {}
     WebHost& host; // Required GUI host; DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot = {{"follow", true}};
+    std::string pet_kind = "office";
     bool page_ready = false;
     std::vector<DesktopPetOverlay> hit_overlays;
     HWND hwnd = nullptr;
@@ -221,12 +227,36 @@ struct PetController : std::enable_shared_from_this<PetController> {
     bool closed = false;
     bool resizing = false;
     bool pinned = true;
+    bool drag_tracking = false;   // 系统标题栏拖动循环进行中,陪伴宠物据此做左右跑动画
+    DesktopPetDragTracker drag_tracker;
+    int docked_side = 0;          // 鲸鱼娘吸附在工作区左(-1)/右(+1)边,0 = 未吸附
     DesktopPetRect resize_start{};
     POINT resize_cursor{};
 
     ~PetController() { close(); }
 
     std::function<void()> on_closed;
+    // 右键菜单选了别的宠物:交给服务保存并切换(服务再回调 set_pet_kind)。
+    std::function<void(const std::string&)> on_pet_kind;
+
+    void set_pet_kind(const std::string& kind) {
+        if (pet_kind == kind) return;
+        const bool same_page = pet_kind != "office" && kind != "office";
+        pet_kind = kind;
+        if (kind != "whale") docked_side = 0;   // 只有鲸鱼娘有趴边偷看的样子
+        if (!webview || closed) return;
+        hit_overlays.clear();
+        if (same_page) publish_character();
+        else {
+            page_ready = false;
+            load_page();
+        }
+    }
+
+    void publish_character() {
+        if (!closed && page_ready && webview && pet_kind != "office")
+            webview->PostWebMessageAsJson(utf8_to_wide(desktop_pet_character(pet_kind).dump()).c_str());
+    }
 
     void update_snapshot(const nlohmann::json& value) {
         office_snapshot = value;
@@ -236,6 +266,58 @@ struct PetController : std::enable_shared_from_this<PetController> {
     void publish_snapshot() {
         if (closed || !page_ready || !webview || !office_snapshot.contains("version")) return;
         webview->PostWebMessageAsJson(utf8_to_wide(office_snapshot.dump()).c_str());
+    }
+
+    // 陪伴宠物页面按拖动方向播放左右跑(仿 Codex);办公室页面不需要。
+    void publish_drag(const char* phase, const char* direction = nullptr) {
+        if (closed || !page_ready || !webview || pet_kind == "office") return;
+        nlohmann::json event = {{"type", "pet-drag"}, {"phase", phase}};
+        if (direction) event["direction"] = direction;
+        webview->PostWebMessageAsJson(utf8_to_wide(event.dump()).c_str());
+    }
+
+    void publish_dock() {
+        if (closed || !page_ready || !webview || pet_kind == "office") return;
+        const nlohmann::json event = {{"type", "pet-dock"},
+            {"side", docked_side < 0 ? "left" : docked_side > 0 ? "right" : ""}};
+        webview->PostWebMessageAsJson(utf8_to_wide(event.dump()).c_str());
+    }
+
+    // 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看。
+    void settle_dock() {
+        const DesktopPetRect work = window_work_area();
+        docked_side = pet_kind == "whale" ? desktop_pet_dock_side(window_rect(), work) : 0;
+        if (docked_side) apply_placement({dock_desktop_pet(window_rect(), work, docked_side), placement.scale});
+        publish_dock();
+    }
+
+    // 缩放后仍然贴着原来那条边。
+    DesktopPetPlacement keep_docked(DesktopPetPlacement next, const DesktopPetRect& work) const {
+        if (docked_side) next.window = dock_desktop_pet(next.window, work, docked_side);
+        return next;
+    }
+
+    // 双击宠物把主窗口叫到前台。点击落在 WebView2 子窗口(浏览器进程)里,本进程不一定拿到
+    // 前台权限:与文件拖放聚焦相同,短暂挂接当前前台线程的输入队列后再激活,随即断开。
+    void activate_main_window() {
+        HWND main = static_cast<HWND>(host.native_window());
+        if (!main) return;
+        const DWORD current_thread = ::GetCurrentThreadId();
+        const DWORD foreground_thread = ::GetWindowThreadProcessId(::GetForegroundWindow(), nullptr);
+        const bool attached = foreground_thread && foreground_thread != current_thread &&
+            ::AttachThreadInput(current_thread, foreground_thread, TRUE) != FALSE;
+        if (!activate_notification_window(main)) LOG_WARN("[desktop-pet] main window activation failed");
+        if (attached) ::AttachThreadInput(current_thread, foreground_thread, FALSE);
+    }
+
+    void set_pinned(bool next) {
+        if (::SetWindowPos(hwnd, next ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)) {
+            pinned = next;
+        } else {
+            LOG_WARN("[desktop-pet] pin update failed: " + std::to_string(::GetLastError()));
+        }
+        publish_window_state();
     }
 
     void publish_window_state() {
@@ -254,14 +336,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
         if (type == "pin") {
             const auto field = value.find("pinned");
             if (field == value.end() || !field->is_boolean()) return;
-            const bool next = field->get<bool>();
-            if (::SetWindowPos(hwnd, next ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
-                               SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)) {
-                pinned = next;
-            } else {
-                LOG_WARN("[desktop-pet] pin update failed: " + std::to_string(::GetLastError()));
-            }
-            publish_window_state();
+            set_pinned(field->get<bool>());
             return;
         }
         if (type == "close") {
@@ -275,10 +350,13 @@ struct PetController : std::enable_shared_from_this<PetController> {
             hit_overlays = std::move(next);
             RECT bounds{};
             ::GetClientRect(hwnd, &bounds);
-            apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlays);
+            apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlays, pet_kind == "office");
             return;
         }
-        if (type != "select" && type != "follow" && type != "open") return;
+        // 双击任何宠物都激活主窗口;带会话时再交给主页面切换到该会话。
+        if (type == "activate" || type == "open") activate_main_window();
+        // stop / read 来自陪伴宠物的会话卡片(停止该会话的回合、把完成结果标为已读)。
+        if (type != "select" && type != "follow" && type != "open" && type != "stop" && type != "read") return;
         host.eval("window.dispatchEvent(new CustomEvent('ace-desktop-office-action',{detail:" +
                   value.dump() + "}));");
     }
@@ -324,7 +402,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
             return false;
         }
         enable_per_pixel_alpha(hwnd);
-        apply_hit_region(hwnd, placement.scale);
+        apply_hit_region(hwnd, placement.scale, {}, pet_kind == "office");
         ::ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         return create_environment();
     }
@@ -430,8 +508,11 @@ struct PetController : std::enable_shared_from_this<PetController> {
                 .Get(),
             &navigation_token);
 
-        const std::string page(reinterpret_cast<const char*>(acecode::desktop_pet_page_data()),
-                               acecode::desktop_pet_page_size());
+        load_page();
+    }
+
+    void load_page() {
+        const std::string page = desktop_pet_html(pet_kind);
         const HRESULT hr = webview->NavigateToString(utf8_to_wide(page).c_str());
         if (FAILED(hr)) {
             LOG_WARN("[desktop-pet] NavigateToString failed: " + hresult_text(hr));
@@ -472,8 +553,10 @@ struct PetController : std::enable_shared_from_this<PetController> {
         if (message == L"ready") {
             page_ready = true;
             reveal();
+            publish_character();
             publish_snapshot();
             publish_window_state();
+            publish_dock();
         } else if (!message.empty() && message.front() == L'{') {
             office_action(message);
         } else if (message == L"drag") {
@@ -532,7 +615,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
         const int dpi = window_dpi();
         const DesktopPetRect work = window_work_area();
         const double scale = clamp_desktop_pet_scale(device_scale, dpi, work);
-        apply_placement(scale_desktop_pet(window_rect(), scale, fx, fy, work));
+        apply_placement(keep_docked(scale_desktop_pet(window_rect(), scale, fx, fy, work), work));
         logical_scale = scale * 96.0 / dpi;
         notify_size(dpi, work);
     }
@@ -590,11 +673,15 @@ struct PetController : std::enable_shared_from_this<PetController> {
         const int dpi = window_dpi();
         const DesktopPetRect work = window_work_area();
         if (!user_moved) dock_to_corner();
-        else apply_placement(scale_desktop_pet(window_rect(), desktop_pet_scale(dpi, work.width, work.height), 1.0, 1.0, work));
+        else apply_placement(keep_docked(scale_desktop_pet(window_rect(), desktop_pet_scale(dpi, work.width, work.height), 1.0, 1.0, work), work));
         notify_size(dpi, work);
     }
 
     void dock_to_corner() {
+        if (docked_side) {
+            docked_side = 0;
+            publish_dock();
+        }
         const HMONITOR monitor = revealed
             ? ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY)
             : primary_monitor();
@@ -614,7 +701,18 @@ struct PetController : std::enable_shared_from_this<PetController> {
         HMENU menu = ::CreatePopupMenu();
         if (!menu) return;
         const bool zh = chinese_ui();
+        // 二级菜单「切换宠物」;子菜单随 DestroyMenu(menu) 一起释放。
+        if (HMENU kinds = ::CreatePopupMenu()) {
+            for (UINT i = 0; i < kDesktopPetKinds.size(); ++i) {
+                const auto& kind = kDesktopPetKinds[i];
+                ::AppendMenuW(kinds, MF_STRING | (pet_kind == kind.id ? MF_CHECKED : 0u), kMenuPetKindBase + i,
+                              utf8_to_wide(zh ? kind.zh : kind.en).c_str());
+            }
+            ::AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(kinds), zh ? L"切换宠物" : L"Switch pet");
+            ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        }
         ::AppendMenuW(menu, MF_STRING, kMenuDock, zh ? L"回到右下角" : L"Move to corner");
+        ::AppendMenuW(menu, MF_STRING | (pinned ? MF_CHECKED : 0u), kMenuPin, zh ? L"保持置顶" : L"Keep on top");
         ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         ::AppendMenuW(menu, MF_STRING, kMenuZoomIn, zh ? L"放大（也可以滚轮）" : L"Zoom in (or scroll)");
         ::AppendMenuW(menu, MF_STRING, kMenuZoomOut, zh ? L"缩小" : L"Zoom out");
@@ -629,7 +727,13 @@ struct PetController : std::enable_shared_from_this<PetController> {
             menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, cursor.x, cursor.y, hwnd, nullptr));
         ::PostMessageW(hwnd, WM_NULL, 0, 0);
         ::DestroyMenu(menu);
-        if (command == kMenuDock) {
+        if (command >= kMenuPetKindBase && command < kMenuPetKindBase + kDesktopPetKinds.size()) {
+            const std::string kind = kDesktopPetKinds[command - kMenuPetKindBase].id;
+            LOG_INFO("[desktop-pet] switched to " + kind + " from context menu");
+            if (kind != pet_kind && on_pet_kind) on_pet_kind(kind);
+        } else if (command == kMenuPin) {
+            set_pinned(!pinned);
+        } else if (command == kMenuDock) {
             user_moved = false;
             dock_to_corner();
         } else if (command == kMenuZoomIn) {
@@ -682,14 +786,30 @@ struct PetController : std::enable_shared_from_this<PetController> {
             RECT bounds{};
             ::GetClientRect(hwnd, &bounds);
             if (controller) controller->put_Bounds(bounds);
-            if (bounds.right > 0) apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlays);
+            if (bounds.right > 0) apply_hit_region(hwnd, bounds.right / static_cast<double>(kDesktopPetSceneWidth), hit_overlays, pet_kind == "office");
             break;
         }
+        case WM_ENTERSIZEMOVE:
+            // 只有 start_drag 的标题栏拖动会进入这个循环(把手缩放用自己的计时器)。
+            drag_tracking = true;
+            docked_side = 0;   // 页面收到 start 就离开趴边姿势
+            drag_tracker.begin(window_rect().x);
+            publish_drag("start");
+            break;
         case WM_MOVE:
             if (controller) controller->NotifyParentWindowPositionChanged();
+            if (drag_tracking) {
+                if (const int direction = drag_tracker.move(window_rect().x))
+                    publish_drag("move", direction < 0 ? "left" : "right");
+            }
             break;
         case WM_EXITSIZEMOVE:
             if (revealed) user_moved = true;
+            if (drag_tracking) {
+                drag_tracking = false;
+                publish_drag("end");
+                settle_dock();
+            }
             break;
         case WM_DPICHANGED:
             handle_dpi_changed(HIWORD(wparam));

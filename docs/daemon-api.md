@@ -581,6 +581,7 @@ disabled, the write is silently ignored.
   "offices": [{"id":"root","workspace_hash":"abc123","title":"Review", "last_user_message_at":"2026-10-06T10:00:00Z"}],
   "selected": {"id":"root","active":true,"status":"idle","last_turn_outcome":"completed","activity":{"known":true,"busy":false,"outcome":"completed","phase":"","tool":"","seq":42}},
   "agents": [{"id":"root"}],
+  "activities": [{"id":"other","workspace_hash":"abc123","title":"等待30秒","status":"idle","attention_state":"unread","activity":{"outcome":"completed","reply":"30 秒已过。"}}],
   "complete": true,
   "connected": true
 }
@@ -590,7 +591,9 @@ disabled, the write is silently ignored.
 
 `selected` 和 `agents` 只传身份、标题、所属工作区、真实状态和当前上下文用量等展示字段；不含输入草稿、原始工具参数、工具输出或历史正文（下文 `activity.detail` / `activity.text` 两个有界展示片段除外）。`agents` 包含根会话和当前 daemon 已装载的直属/网状子会话；网状子会话的 `parent_session_id` 是树根，`agent_path` 保留实际层级。已成功结束的子会话可仍出现在原始快照中，由桌宠投影立即离座。标题/摘要限 240 UTF-8 字节。
 
-运行中条目的 `activity` 来自事件分发器维护的紧凑状态，不依赖有限的重放缓冲：`known`、`busy`、`turn_id`、`outcome`、`phase`、`label`、`tool`、`detail`、`text`、`seq`、`compact_id`、`transfers`。待授权/待回答优先于工具和模型阶段；`outcome` 保留 `completed`/`aborted`/`error` 差别。`transfers` 最多保留 16 个带序号的 agent 间交接标识，不含消息内容。持久化 `last_turn_outcome` 使恢复后的完成主会话继续显示睡眠状态。
+`activities` 是陪伴宠物（回形针 / rover / 鲸鱼娘）的会话卡片来源，复刻 Codex Mini：所有正在运行的主会话，加上结果尚未读过（侧栏同一份 `attention_state=unread`）的主会话，跨工作区、不限最近五个；先按忙碌标志和缓存的已读记录筛选，只有入选的会话才完整序列化。当前 daemon 已不在内存的会话只从最近五个里补未读结果。条目字段同 `offices`，另带 `attention_state` 和 `activity`；客户端按 `last_user_message_at` 排序、最多显示 12 张。打开会话（`mark_session_read`）后该会话的完成卡片随下一次快照消失。`404` 响应同样附带 `activities`。
+
+运行中条目的 `activity` 来自事件分发器维护的紧凑状态，不依赖有限的重放缓冲：`known`、`busy`、`turn_id`、`outcome`、`phase`、`label`、`tool`、`detail`、`text`、`reply`、`seq`、`compact_id`、`transfers`。`reply` 是最近一条助手正文回复的前 240 UTF-8 字节（工具消息不算），回合结束后保留、新回合开始清空，供完成卡片显示。待授权/待回答优先于工具和模型阶段；`outcome` 保留 `completed`/`aborted`/`error` 差别。`transfers` 最多保留 16 个带序号的 agent 间交接标识，不含消息内容。持久化 `last_turn_outcome` 使恢复后的完成主会话继续显示睡眠状态。
 
 流式正文会把 `phase` 置为 `responding`（默认「用于编程」模式下服务端不发该进度，由 token 事件推断），推理片段对应 `reasoning`，`text` 是本段正文或推理最后不超过 160 UTF-8 字节的尾巴，换阶段或开始工具调用即清空；`detail` 是正在运行工具的一行调用预览（`display_override`，为空时取 `command_preview`），最多 120 字节，工具结束清空。桌宠页面在两次快照之间直接用 WebSocket 的 `token` / `reasoning` 事件按 `seq` 叠加实时文字（约 150ms 节流），快照追上后以快照为准。
 
