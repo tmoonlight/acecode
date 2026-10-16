@@ -25,7 +25,7 @@ Reverse engineering Claude Desktop's iOS Simulator feature showed: a Swift helpe
 
 ## Risks / Trade-offs
 
-- Private APIs change with Xcode releases → runtime lookups, explicit errors, version-gated transport; DTUHID path is untested on this machine (Xcode 26.6) and must be verified on Xcode 27.
+- Private APIs change with Xcode releases → runtime lookups, explicit errors, version-gated transport; the opt-in `ios-simulator-live` workflow re-verifies input, orientation, streaming, sandbox and the native view on GitHub's newest Xcode image (Xcode 27.0 verified).
 - Intel readback stalls → affect only the JPEG stream and screenshots; the Desktop native view does not read back.
 - Accessibility translator warm-up: requests right after boot may be empty for a few seconds → retries with backoff up to about 5.6 s.
 - `-setContentsChanged` is private CALayer API (used by WebKit and Simulator); when missing the view reassigns the contents.

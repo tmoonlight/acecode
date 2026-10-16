@@ -30,9 +30,9 @@ In ACECode Desktop on macOS the screen is drawn natively: the simulator's own fr
 
 - The tool uses Apple's private CoreSimulator / SimulatorKit frameworks from your Xcode at runtime (as idb and Xcode's own tools do). Xcode updates can change them; ACECode reports precise errors when something is missing.
 - The helper runs inside a macOS Seatbelt profile: no IP networking, no reading of files under /Users, /Volumes and your home folder except the selected Xcode, the ACECode bundle, simulator data and logs and the simulator preference files, and writes only to simulator data, logs and the temporary/cache folders. If `sandbox-exec` cannot apply the profile (for example when ACECode itself runs inside a sandbox) the helper runs unconfined; Settings shows a warning and the daemon log says why. `ACECODE_IOS_SIM_SANDBOX=0` turns it off for diagnosis.
-- Xcode 27 (CoreSimulator 1155.4+) delivers input through `dtuhidd`; earlier versions use the legacy Indigo channel. Set `ACECODE_IOS_SIM_HID=indigo|dtuhid` to override for diagnosis. The `dtuhidd` messages are covered by unit tests but have not yet been tried against an Xcode 27 simulator.
+- Xcode 27 (CoreSimulator 1155.4+) delivers input through `dtuhidd`; earlier versions use the legacy Indigo channel. Set `ACECODE_IOS_SIM_HID=indigo|dtuhid` to override for diagnosis. Verified on Xcode 27.0 with an iOS 27.0 simulator (GitHub's `xcode-27` image): taps, drags, typing and hardware buttons through `dtuhidd`, the CoreDevice orientation lookup, the live stream, the helper sandbox and the Desktop native view.
 - On Intel Macs, reading the framebuffer waits for the simulator's GPU work, so during long animations the JPEG stream and screenshots can lag (Apple's `simctl io screenshot` behaves the same). Input and the Desktop native view are not affected.
-- Landscape apps are shown upright; on runtimes older than Xcode 27 the orientation comes from Simulator.app's device window setting.
+- Landscape apps are shown upright. Xcode 27 runtimes report the orientation themselves (the lookup is cached and refreshed in the background); on older runtimes it comes from Simulator.app's device window setting.
 
 ## Checking a new Xcode
 

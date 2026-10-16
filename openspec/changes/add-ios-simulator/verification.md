@@ -19,9 +19,18 @@ Environment: Xcode 26.6 (17F113) green-installed at `~/Downloads/Xcode.app`, `xc
 - Panel in a browser with a stubbed macOS bridge: layout carries the canvas rect, corner radius and developer dir; `frames:false` sent once the native view renders (including when the socket connects late); taps map to device points from the native framebuffer; a native failure re-enables frames and JPEG resumes; leaving the session unmounts the view.
 - DTUHID message builders unit tested (`dtuhid_messages_test.cpp`).
 
+## Xcode 27 (GitHub `xcode-27` runner, arm64)
+
+Environment: macOS 27.0.1, Xcode 27.0 (27A266a), iOS 27.0 runtime, iPhone 17e, CoreSimulator 1174.15 (helper selects `dtuhid`). `scripts/ios_simulator/live_check.py` builds the helper, the Seatbelt argv printer and the native view smoke with clang++ and runs the helper sandboxed:
+
+- Tap on the Settings icon opens Settings (frontmost pid changes); a drag scrolls the Settings list (General cell y 391 → off screen); typing `wifi` into the search field gives the accessibility value `'wifi'`; Home returns to SpringBoard — all through dtuhidd.
+- CoreDevice display info answers with `displays[].currentOrientation = rot0` for the primary display (format captured from the real reply); the helper's cached lookup reports `answered: true`.
+- Screenshot, JPEG stream (32–33 frames over the page swipes), sandbox denials (home read, network, home write) and the Desktop native view smoke (SimScreen callbacks path) pass.
+- Findings fixed on the way: unknown/missing orientation strings used to read as portrait; a provider that missed its 2 s window dropped rotation to Simulator.app's setting (absent when Simulator.app is not running) and blocked input every 600 ms; a cold first `describe` could exceed the daemon's 20 s timeout. Rotation now uses a kept connection, a synchronous first lookup and background refreshes; the daemon allows 90 s for the first describe.
+
 ## Not verified
 
-- DTUHID input on a live Xcode 27 / CoreSimulator ≥ 1155.4 simulator (no such toolchain on this machine; the iOS 26.5 runtime has no dtuhidd).
+- Landscape orientation on Xcode 27 (no way to rotate a simulator from CI); the `rotN` parse is the same code path as `rot0`, and older runtimes were verified in landscape locally.
 - The native view inside the full Desktop app on screen (no Screen Recording permission for this session); covered by the smoke, the CARenderer render and the stubbed-bridge panel test.
 - Signed/notarized packages (CI).
 - Automatic panel opening from a real model's `attach` result (covered by frontend unit tests).
