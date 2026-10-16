@@ -221,9 +221,14 @@
     if (hovered && hoverPoint) bodies.push(toWindow([hoverPoint.x - 3, hoverPoint.y - 3, hoverPoint.x + 3, hoverPoint.y + 3]));
     const grip = $('grip');
     grip.hidden = !bodyBounds;
-    if (bodyBounds) {
+    // It follows the animated outline, but holds still under the pointer so it can be grabbed.
+    // It also stays below the collapsed card stack: that box (with its shadow padding) sits above
+    // the grip and would swallow the pointer, and macOS treats it as foreground, not the grip.
+    if (bodyBounds && !grip.matches(':hover')) {
+      const belowCards = stack.hidden || expanded ? 0 : stack.getBoundingClientRect().bottom;
+      const top = Math.max(0, belowCards, bodyBounds[1] * r.height / cv.height - grip.offsetHeight);
       grip.style.left = Math.max(0, bodyBounds[0] * r.width / cv.width - grip.offsetWidth) + 'px';
-      grip.style.top = Math.max(0, bodyBounds[1] * r.height / cv.height - grip.offsetHeight) + 'px';
+      grip.style.top = Math.min(Math.max(0, innerHeight - grip.offsetHeight), top) + 'px';
     }
     // No card, no rectangle: the empty space above the pet stays click-through.
     const message = { type: 'overlay', controls: null,

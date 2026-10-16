@@ -171,7 +171,14 @@ try {
     await page.mouse.move(215, 240);
     await page.waitForFunction(() => ClassicPet.hovered);
     assert.equal((await pet()).animation, expect.jumping, `${kind} jumps on hover`);
-    assert.equal((await overlay()).bubbles.length, 2, 'hovered pet keeps its whole box hit-testable');
+    // 场景:鼠标停在宠物身上(openspec tighten-companion-pet-hit-area)。旧行为:悬停时整张精灵框都拦截点击,
+    // 宠物四周的透明部分也挡住后面的窗口。期望:悬停时仍按轮廓横条上报,只在鼠标下多一个 6×6 画布像素的
+    // 锚点(动作跳开时悬停不闪断);缩放三角形不混在轮廓里,单独作为 grip 上报。
+    const hoverRegion = await overlay(), anchor = hoverRegion.bubbles.at(-1);
+    assert.ok(hoverRegion.bubbles.length > 2, 'hovered pet still reports its silhouette bands, not one sprite box');
+    assert.ok(Math.abs((anchor[2] - anchor[0]) * 344 - 6) < 0.01 && Math.abs((anchor[3] - anchor[1]) * 252 - 6) < 0.01, 'hover anchor is a small square');
+    assert.ok(anchor[0] <= 215 / 430 && anchor[2] >= 215 / 430 && anchor[1] <= 240 / 315 && anchor[3] >= 240 / 315, 'hover anchor sits under the pointer');
+    assert.ok(Array.isArray(hoverRegion.grip), 'the resize grip is reported on its own');
     await page.mouse.click(215, 240);
     assert.equal((await pet()).animation, expect.click, `${kind} reacts to a click`);
     await page.waitForTimeout(500);
@@ -311,9 +318,17 @@ try {
     const gripOpacity = () => page.locator('#grip').evaluate(node => Number(getComputedStyle(node).opacity));
     await page.waitForTimeout(200);
     assert.equal(await gripOpacity(), 0, 'resize handle hidden while hovering the pet');
-    const gripBox = await page.locator('#grip').boundingBox();
-    await page.mouse.move(gripBox.x + 8, gripBox.y + 8);
+    // 三角形跟着动画轮廓的左上角走,量完位置再移过去时它可能已经挪开,所以对准几次;
+    // 一旦鼠标停在上面它就不再移动(bug 表现:三角形一直跟着动作跑,悬停和按住都抓不住)。
+    const onGrip = () => page.evaluate(() => document.getElementById('grip').matches(':hover'));
+    for (let attempt = 0; attempt < 20 && !(await onGrip()); attempt++) {
+      const gripBox = await page.locator('#grip').boundingBox();
+      await page.mouse.move(gripBox.x + 8, gripBox.y + 8);
+    }
+    assert.ok(await onGrip(), 'pointer reaches the resize handle');
     await page.waitForFunction(() => Number(getComputedStyle(document.getElementById('grip')).opacity) === 1);
+    await page.waitForTimeout(1200);
+    assert.ok(await onGrip(), 'the resize handle holds still under the pointer while the pet keeps moving');
     await away();
     await page.waitForTimeout(200);
     assert.equal(await gripOpacity(), 0, 'resize handle hides again once the pointer leaves');
