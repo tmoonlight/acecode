@@ -52,14 +52,21 @@
       sleep: 'sleep', wake: 'wake',
     },
   };
+  // Docked pets peek in from the screen edge. `hidden` canvas px of the art stays past the edge so
+  // they can lean in without revealing where the drawing is cut. `ratio` is how much larger the peek
+  // art is drawn than the sprite frames: it is shown at the frame scale divided by it, so the head
+  // keeps the size it has in every other pose instead of growing at the edge. Whale Girl's art is
+  // about 1.8x (eye height and headband-to-mouth both measure 1.8x); Clippy's and Rover's are made
+  // at sprite resolution (their eyes match the frames' eyes) and, like their frames, are scaled
+  // without smoothing. Their art is narrow, so less of it hides past the edge.
+  const PEEK = {
+    whale: { ratio: 1.8, hidden: 9, smooth: true },
+    clippy: { ratio: 1, hidden: 4, smooth: false },
+    rover: { ratio: 1, hidden: 4, smooth: false },
+  };
+  const peekStyle = () => PEEK[kind] || PEEK.whale;
   // Extra hit margin (canvas px) so moving silhouettes stay clickable without per-frame region updates.
-  // Docked Whale Girl peeks in from the screen edge; PEEK_HIDDEN of the art stays past the edge
-  // so she can lean in without revealing where the drawing is cut.
-  // The peek art is drawn about 1.8 times larger than the sprite frames (eye height and headband-to-
-  // mouth both measure 1.8x), so it is shown at the frame scale divided by that ratio: her head
-  // keeps the size it has in every other pose instead of nearly doubling at the edge.
-  const PEEK_ART_RATIO = 1.8, PEEK_HIDDEN = 9;
-  const MOTION_MARGIN = { float: [0, 4], breathe: [0, 3], shake: [3, 0], wiggle: [8, 0], tilt: [16, 2], peek: [PEEK_HIDDEN + 4, 8] };
+  const MOTION_MARGIN = { float: [0, 4], breathe: [0, 3], shake: [3, 0], wiggle: [8, 0], tilt: [16, 2] };
   const timing = { fidgetMin: 7000, fidgetMax: 16000, sleepAfter: 5 * 60 * 1000, greeting: 6000 };
   // The original agents hold a pose through self-looping branches (Clippy's idle stares ~6s).
   // Once one picture has been shown this long, branches are skipped so the clip moves on.
@@ -68,8 +75,10 @@
   let snapshot = { version: 1, follow: true, connected: false, agents: [], offices: [], selected: null, activities: [] };
   let kind = '', data = null, sheet = null, profile = null, loadRevision = 0, pendingIntro = null;
   let animation = '', frameIndex = 0, flipped = false, motionKind = '', images = null, imageKey = '', imageSince = 0;
-  // Edge docking (Whale Girl only): the peek sheet, which edge, eyes open/closed, lean and bounce.
-  let peek = null, docked = '', peekEyes = 0, peekLean = 0, peekBounce = '', peekBounceAt = 0;
+  // Edge docking (pets with peek art): the peek sheet, which edge, eyes open/closed, lean and bounce.
+  // `windowEdge` is the edge the native window sits on; it becomes `docked` once the pet has peek art,
+  // so a pet switched in (or still loading) while the window is docked peeks from the same edge.
+  let peek = null, docked = '', windowEdge = '', peekEyes = 0, peekLean = 0, peekBounce = '', peekBounceAt = 0;
   let timer = 0, generation = 0, current = null;
   let base = 'idle', variant = '', queue = [], stateKey = '';
   // Session cards: keys already reacted to, cards the user dismissed, and whether the deck is spread out.
@@ -108,9 +117,10 @@
     const [w, h] = data.framesize;
     const frameScale = Math.min(184 / w, 140 / h);
     if (peeking()) {
-      const scale = frameScale / PEEK_ART_RATIO, width = peek.fw * scale, height = peek.fh * scale;
+      const { ratio, hidden } = peekStyle();
+      const scale = frameScale / ratio, width = peek.fw * scale, height = peek.fh * scale;
       return { peek: true, w: peek.fw, h: peek.fh, scale, width, height,
-        x: docked === 'right' ? cv.width - width + PEEK_HIDDEN : -PEEK_HIDDEN, y: cv.height - height - 2 };
+        x: docked === 'right' ? cv.width - width + hidden : -hidden, y: cv.height - height - 2 };
     }
     const width = w * frameScale, height = h * frameScale;
     return { w, h, scale: frameScale, width, height, x: (cv.width - width) / 2, y: cv.height - height - 8 };
@@ -125,9 +135,10 @@
     else if (kindOfMotion === 'wiggle') o.angle = Math.sin(now / 160) * 0.05;
     else if (kindOfMotion === 'peek') {
       // A shy, slow lean in and out; hovering or a waiting session makes her lean in further.
-      const sway = (1 - Math.cos(now / 1900)) * 3;
+      // The sway spans two thirds of the hidden strip, so it never stalls against that limit.
+      const sway = (1 - Math.cos(now / 1900)) * peekStyle().hidden / 3;
       peekLean += ((hovered ? 12 : base === 'waiting' ? 9 : 0) - peekLean) * 0.12;
-      o.dx = (docked === 'right' ? -1 : 1) * Math.min(PEEK_HIDDEN, sway + peekLean);
+      o.dx = (docked === 'right' ? -1 : 1) * Math.min(peekStyle().hidden, sway + peekLean);
       const since = now - peekBounceAt;
       if (peekBounce === 'happy' && since < 900) o.dy = -Math.abs(Math.sin(since / 90)) * 6 * (1 - since / 900);
       else if (peekBounce === 'shake' && since < 700) o.dx += Math.sin(since / 28) * 3 * (1 - since / 700);
@@ -143,7 +154,7 @@
     target.clearRect(0, 0, cv.width, cv.height);
     if (g.peek) {
       target.save();
-      target.imageSmoothingEnabled = true;
+      target.imageSmoothingEnabled = peekStyle().smooth;
       if (o) target.translate(o.dx, o.dy);
       // The art peeks from the right edge; mirror it for the left edge.
       if (docked === 'left') { target.translate(g.x * 2 + g.width, 0); target.scale(-1, 1); }
@@ -188,7 +199,8 @@
       }
       bandCache.set(key, bands);
     }
-    const [mx, my] = MOTION_MARGIN[activeMotion()] || [0, 0];
+    const motion = activeMotion();
+    const [mx, my] = motion === 'peek' ? [peekStyle().hidden + 4, 8] : MOTION_MARGIN[motion] || [0, 0];
     bodyRegions = bands.map(([l, t, r, b]) => [Math.max(0, l - mx), Math.max(0, t - my), Math.min(cv.width, r + mx), Math.min(cv.height, b + my)]);
     bodyBounds = bands.length ? [Math.min(...bands.map(b => b[0])), Math.min(...bands.map(b => b[1])),
       Math.max(...bands.map(b => b[2])), Math.max(...bands.map(b => b[3]))] : null;
@@ -209,9 +221,14 @@
     if (hovered && hoverPoint) bodies.push(toWindow([hoverPoint.x - 3, hoverPoint.y - 3, hoverPoint.x + 3, hoverPoint.y + 3]));
     const grip = $('grip');
     grip.hidden = !bodyBounds;
-    if (bodyBounds) {
+    // It follows the animated outline, but holds still under the pointer so it can be grabbed.
+    // It also stays below the collapsed card stack: that box (with its shadow padding) sits above
+    // the grip and would swallow the pointer, and macOS treats it as foreground, not the grip.
+    if (bodyBounds && !grip.matches(':hover')) {
+      const belowCards = stack.hidden || expanded ? 0 : stack.getBoundingClientRect().bottom;
+      const top = Math.max(0, belowCards, bodyBounds[1] * r.height / cv.height - grip.offsetHeight);
       grip.style.left = Math.max(0, bodyBounds[0] * r.width / cv.width - grip.offsetWidth) + 'px';
-      grip.style.top = Math.max(0, bodyBounds[1] * r.height / cv.height - grip.offsetHeight) + 'px';
+      grip.style.top = Math.min(Math.max(0, innerHeight - grip.offsetHeight), top) + 'px';
     }
     // No card, no rectangle: the empty space above the pet stays click-through.
     const message = { type: 'overlay', controls: null,
@@ -270,7 +287,7 @@
     animation = rest.name; flipped = false; motionKind = ''; frameIndex = 0;
     setFrame(data.animations[rest.name].frames[0]);
   }
-  // ---- Edge peek (docked Whale Girl): blink now and then, happy squint on attention ----
+  // ---- Edge peek (docked pet): blink now and then, happy squint on attention ----
   function setPeekEyes(value) {
     peekEyes = value; frameIndex = value;
     updateBands(); render(); reportRegions();
@@ -302,8 +319,9 @@
     timer = setTimeout(() => { if (token === generation) playPeek(); }, kind === 'happy' ? 900 : 700);
   }
   function setDocked(side, { quiet = false } = {}) {
-    const next_ = side === 'left' || side === 'right' ? side : '';
-    if (next_ === docked || (next_ && !peek)) return;
+    windowEdge = side === 'left' || side === 'right' ? side : '';
+    const next_ = peek ? windowEdge : '';
+    if (next_ === docked) return;
     docked = next_; peekLean = 0; peekBounce = '';
     if (!sheet || quiet) return;
     next();
@@ -422,7 +440,26 @@
     stack.classList.toggle('layers-2', !expanded && cards.length > 2);
     stack.setAttribute('aria-label', cards.length > 1 && !expanded ? `${cards.length} 个会话动态，点击展开` : '会话动态');
     deck.replaceChildren(...cards.map(cardElement));
-    reportRegions();
+    fitStack(); reportRegions();
+  }
+  // The cards keep the transcript font size, but the pet shrinks with the window: below roughly
+  // 280px the collapsed stack would run past the top edge and be cut off. Shrink it just enough
+  // to fit above the pet (not below 9px text), else pin it to the top edge. The spread-out list
+  // scrolls inside the window and keeps the collapsed size.
+  function fitStack() {
+    if (expanded) return;
+    stack.style.removeProperty('--stack-fit');
+    stack.classList.remove('pinned');
+    if (stack.hidden) return;
+    const minFit = Math.min(1, 9 / parseFloat(getComputedStyle(stack).fontSize));
+    let fit = 1;
+    for (let pass = 0; pass < 3; pass++) {
+      const box = stack.getBoundingClientRect();
+      if (box.top >= -0.5 || fit <= minFit) break;
+      fit = Math.max(minFit, fit * box.bottom / box.height);
+      stack.style.setProperty('--stack-fit', fit.toFixed(3));
+    }
+    if (stack.getBoundingClientRect().top < -0.5) stack.classList.add('pinned');
   }
   function setExpanded(value) {
     clearTimeout(collapseTimer);
@@ -508,8 +545,10 @@
   function applyTranscriptFont(font) {
     const root = document.documentElement.style;
     const size = String(font?.size || '').trim(), family = String(font?.family || '').trim();
+    const before = root.cssText;
     if (/^\d+(\.\d+)?px$/.test(size)) root.setProperty('--pet-font-size', size);
     if (family && !/[;{}<>]/.test(family)) root.setProperty('--pet-font', family);
+    if (root.cssText !== before) { fitStack(); reportRegions(); }
   }
   function applySnapshot(value) {
     if (value?.version !== 1 || !Array.isArray(value.agents) || !Array.isArray(value.offices)) return;
@@ -535,14 +574,14 @@
     try { await image.decode(); } catch {
       if (revision === loadRevision) {
         deck.replaceChildren(cardElement({ key: 'load-failed', status: 'failed', title: '宠物素材加载失败', body: '请关闭后重新开启', local: true }));
-        stack.hidden = false; reportRegions();
+        stack.hidden = false; fitStack(); reportRegions();
       }
       return;
     }
     if (revision !== loadRevision) return;
     kind = value.kind; sheet = image; data = window.ClassicPetAgents[kind]; profile = normalizeProfile(PROFILES[kind]);
     peek = peekImage ? { image: peekImage, fw: peekImage.naturalWidth / 2, fh: peekImage.naturalHeight } : null;
-    docked = '';
+    docked = peek ? windowEdge : ''; peekLean = 0; peekBounce = '';
     hovered = false; hoverPoint = null;
     bandCache = new Map(); images = null; base = 'idle'; variant = ''; queue = []; current = null;
     stateKey = ''; sleeping = false; lastFidget = '';
@@ -703,7 +742,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { stopPlayback(); cancelAnimationFrame(rafId); rafId = 0; } else if (sheet) next();
   });
-  window.addEventListener('resize', reportRegions);
+  window.addEventListener('resize', () => { fitStack(); reportRegions(); });
   window.addEventListener('pagehide', () => {
     stopPlayback(); loadRevision++;
     for (const id of [collapseTimer, badgeTimer, fidgetTimer, greetingTimer, dragPauseTimer, dragWatchTimer, hoverOffTimer]) clearTimeout(id);
@@ -722,7 +761,7 @@
     const selected = new URLSearchParams(location.search).get('pet');
     if (PROFILES[selected]) void setCharacter({ kind: selected,
       sprite: selected === 'whale' ? './whale/map.png' : `./classic/${selected}/map.png`,
-      peek: selected === 'whale' ? './whale/peek.png' : undefined });
+      peek: selected === 'whale' ? './whale/peek.png' : `./classic/${selected}/peek.png` });
   }
   reportRegions(); post('ready');
 })();

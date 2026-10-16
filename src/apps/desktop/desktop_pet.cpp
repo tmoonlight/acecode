@@ -229,7 +229,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
     bool pinned = true;
     bool drag_tracking = false;   // 系统标题栏拖动循环进行中,陪伴宠物据此做左右跑动画
     DesktopPetDragTracker drag_tracker;
-    int docked_side = 0;          // 鲸鱼娘吸附在工作区左(-1)/右(+1)边,0 = 未吸附
+    int docked_side = 0;          // 陪伴宠物吸附在工作区左(-1)/右(+1)边,0 = 未吸附
     DesktopPetRect resize_start{};
     POINT resize_cursor{};
 
@@ -243,11 +243,13 @@ struct PetController : std::enable_shared_from_this<PetController> {
         if (pet_kind == kind) return;
         const bool same_page = pet_kind != "office" && kind != "office";
         pet_kind = kind;
-        if (kind != "whale") docked_side = 0;   // 只有鲸鱼娘有趴边偷看的样子
+        if (!desktop_pet_has_edge_peek(kind)) docked_side = 0;   // 虚拟办公室没有趴边偷看的样子
         if (!webview || closed) return;
         hit_overlays.clear();
-        if (same_page) publish_character();
-        else {
+        if (same_page) {
+            publish_character();
+            publish_dock();   // 贴着边换宠物:新宠物接着趴在同一条边上
+        } else {
             page_ready = false;
             load_page();
         }
@@ -283,12 +285,12 @@ struct PetController : std::enable_shared_from_this<PetController> {
         webview->PostWebMessageAsJson(utf8_to_wide(event.dump()).c_str());
     }
 
-    // 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看;
+    // 拖动松手后:陪伴宠物离左/右边足够近就贴到那条边,页面换成趴边偷看;
     // 其它情况把窗口收回工作区,头顶的会话卡片不会被屏幕边截掉。
     void settle_dock() {
         const DesktopPetRect work = window_work_area();
         const DesktopPetRect current = window_rect();
-        docked_side = pet_kind == "whale" ? desktop_pet_dock_side(current, work) : 0;
+        docked_side = desktop_pet_has_edge_peek(pet_kind) ? desktop_pet_dock_side(current, work) : 0;
         const DesktopPetRect next = docked_side ? dock_desktop_pet(current, work, docked_side)
                                                 : keep_desktop_pet_in_work_area(current, work);
         if (next.x != current.x || next.y != current.y) apply_placement({next, placement.scale});
