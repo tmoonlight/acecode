@@ -25,7 +25,9 @@ On 2026-09-21, the user unlocked the desktop and granted Accessibility. The actu
 build/macos-x64-agent-browser-test/tests/computer_use_native_mac_smoke.app/Contents/MacOS/computer_use_native_mac_smoke --run-owned-window
 ```
 
-The fixture operates only on its own disposable windows. The passing native run exercised real screenshot pixels against AX coordinates; protected-field filtering; element and coordinate clicks; Unicode typing; Command, Option, Control and Shift chords; AX value/invoke/toggle; horizontal and vertical scroll; drag and mouse-button release; one-use observations; stale geometry and changed-focus rejection including another window of the same process; sheet and context-menu capture/input; ACE/plain pointer pixels and cleanup; and exact app discovery/launch.
+The fixture operates only on its own disposable windows. The passing native run exercised real screenshot pixels against AX coordinates; protected-field filtering; element and coordinate clicks; Unicode typing; Command, Option, Control and Shift chords; AX value/invoke/toggle; horizontal and vertical scroll; drag and mouse-button release; one-use observations; stale geometry and changed-focus rejection including another window of the same process; sheet and context-menu capture/input; ACE/plain pointer pixels and cleanup in the composed screenshots; and exact app discovery/launch.
+
+**Correction, 2026-09-24:** The pointer assertions above sampled `pointer_composite` output. They did not independently capture the native overlay or verify its visibility to a person on the desktop. They must not be treated as acceptance of the real on-screen pointer. The pointer visibility follow-up in `tasks.md` reopens that coverage.
 
 This run exposed and fixed a real occlusion bug: the system Dock can own a screen-sized transparent backing window. The helper now ignores that specific system-owned backing rectangle while retaining the system-wide AX hit test. The native fixture also verifies that an actual opaque input panel still blocks the click. Fixture improvements include refreshing the bundled helper when its binary changes, checking bitmap samples in their actual color profile, providing the standard Edit menu for Cmd+A, reobserving explicitly reported AX/WindowServer transitions, and waiting for the menu action callback rather than assuming its animation finishes in 150 ms. Input actions are never retried by the fixture.
 
@@ -46,3 +48,19 @@ Local evidence from this run:
 ## Coverage limits
 
 Real mixed-display interactions, additional keyboard layouts, Apple Silicon execution and Developer ID-signed installed-app/TUI permission attribution remain unverified. Single-display Retina interactions passed; negative origins and differing image scales have deterministic tests. Release signing now includes the standalone helper and existing nested-code signing covers its bundled copy; no release signing, notarization or publishing was performed here. Existing Windows native code was preserved, but Windows runtime tests were not executed on this host.
+
+## Pointer visibility follow-up — 2026-09-24
+
+Source inspection confirmed two action-feedback gaps: `press_key`/`type_text` never showed the Mac overlay, and clicks reset their pressed state immediately after posting mouse up, potentially before AppKit rendered a frame. The changes add focused-control feedback, request an immediate overlay redraw and preserve the visual pressed state for the existing Windows backend's 250 ms interval. Actual mouse-up, release and cancellation are not delayed. These are ACECode compatibility fixes, not a claim to reproduce Codex's private cursor implementation. The inspected Codex Mac client contract and remaining differences are recorded in `docs/computer-use.md`.
+
+The native fixture now independently identifies its child helper's on-screen WindowServer window, captures only that overlay with ScreenCaptureKit and checks its pixels, hotspot, foreground preservation and removal. It also clicks through an already-visible overlay and starts keyboard checks with the previous overlay released. Its capture does not use `pointer_composite` or images returned by the Computer Use tool. Optional artifacts include `native-overlay.png` alongside the disposable fixture's images.
+
+Executed checks:
+
+- Rebuilt `acecode-computer-use`, `computer_use_native_mac_smoke`, `acecode_unit_tests` and `acecode-desktop` successfully.
+- All 70 focused tests (`ComputerUse*:*ComputerUse*:*ToolImage*`) passed; the actual-helper lifecycle CTest passed.
+- OpenSpec strict validation and `git diff --check` passed.
+- Build-root, fixture-bundle and desktop-bundle helpers match SHA-256 `ed1626979b51624c66ee73a3f2ac68551f96a9ea4cc25574cde803b23b070f38`.
+- The native fixture returned **77** because the desktop was locked. This is **not** a pass. The newly added independent overlay checks, perceived click feedback and keyboard feedback still require an unlocked run; follow-up tasks 5.3/5.4 remain unchecked pending that acceptance.
+
+Local logs: `/tmp/acecode-macos-pointer-build-20260924.log`, `/tmp/acecode-macos-pointer-fixture-final-20260924.log`, `/tmp/acecode-macos-pointer-unit-20260924.log`, `/tmp/acecode-macos-pointer-lifecycle-20260924.log` and `/tmp/acecode-macos-pointer-native-20260924.log`.

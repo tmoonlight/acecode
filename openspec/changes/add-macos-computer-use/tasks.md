@@ -20,3 +20,11 @@
 - [x] 4.3 Run frontend tests/build, affected package checks, C++ build and relevant regression tests; review final diff and record remaining verification limits honestly.
 
 Native interaction acceptance passed on the authorized Intel Mac on 2026-09-21. See `verification.md` for executed checks and permission/hardware limits.
+
+## 5. Pointer visibility follow-up
+- [x] 5.1 Record the inspected Codex client contract and distinguish it from the independently implemented ACECode native backend; correct the earlier pointer acceptance claim.
+- [x] 5.2 Add independent checks of the helper's actual WindowServer overlay and rendered pixels, including position, input transparency and cleanup, instead of relying only on screenshot composition.
+- [ ] 5.3 Restore visible action feedback for keyboard input and a perceptible click state, using the existing ACECode Windows behavior as the compatibility reference.
+- [ ] 5.4 Build and run the affected regression checks and unlocked native fixture; record any remaining on-screen verification limits explicitly.
+
+2026-09-24: Code for 5.3 is present and all affected builds, 70 focused tests and helper lifecycle checks pass. The real desktop is locked; the native fixture returns 77. Keep 5.3/5.4 pending until the independent overlay checks can execute on the unlocked desktop. See `verification.md`.

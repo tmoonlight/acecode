@@ -8,6 +8,19 @@
 
 本次参考本地 Codex 的 Windows 工具能力与接入方式，自主实现 C++ 原生后端。Codex 仓库中的 MCP 桥接代码不包含其专有 `@oai/sky` 运行时，因此这里不依赖该插件或 JavaScript REPL。
 
+### 与 Codex macOS 实现的关系
+
+2026-09-24 核对了本机 Codex 应用包内 `cua_node/lib/node_modules/@oai/cua/dist/project/cua/sky_js/src/targets/mac/` 的 `client.js`、`get_app_state.js`、`window_result.js` 和 `native-pipe.js`。这些文件是 JavaScript 客户端，使用 `CodexComputerUseIPC-5` 调用独立的 `Codex Computer Use.app` 原生服务；它们不包含原生指针绘制代码。本机 CLI 源码和检查到的应用资源中均未找到该服务的原生实现。
+
+| 核对项 | Codex 客户端中可确认的行为 | ACECode 当前实现 |
+|---|---|---|
+| 观察对象 | 按应用身份请求 skyshot，由原生服务返回截图和文字 | 按窗口请求截图、结构化 AX 控件树和一次性观察标识 |
+| 动作入口 | `ComputerUseIPCAppPerformActionRequest`，包含应用身份与动作 | 现有 `computer_*` 工具，经自有 broker/helper 执行 |
+| 文字操作 | 独立 `type`、`paste`、`selectText`、`setValue` | Unicode 键盘输入、按键组合和 AX 赋值；尚无专用粘贴和按文字选择接口 |
+| 原生指针 | 客户端没有提供渲染、动画或生命周期实现 | ACECode 自行实现 AppKit 悬浮窗和截图合成，视觉反馈以现有 Windows 后端为参照 |
+
+因此当前 macOS 后端属于自主实现，不能称为 Codex 原生代码的移植或完整行为复刻。后续对齐应逐项记录可观察的输入、输出和实际桌面效果；源码不能证明的细节需要对照运行结果验证。
+
 ## 功能
 
 | 工具 | 行为 |
@@ -49,6 +62,7 @@ Windows 组合键支持 Codex 文档中的 keysym 名称和常用别名，例如
 - 设置中的权限区显示“辅助功能”和“屏幕录制”的独立状态。“去授权”会请求对应系统权限并打开系统设置；必须由用户在系统显示的应用条目下授权，再点击“刷新权限”。读取配置、刷新状态和打开工具开关都不会主动弹授权框。不同启动方式可能由系统归属到不同应用；以 macOS 显示的名称为准，权限检查始终在实际 helper 进程内进行。
 - `enabled` 表示用户开启意图，`availability.ready` 表示两项权限均就绪。开关不会伪装成系统授权。没有屏幕录制权限时可返回明确警告及可用的 AX 控件信息，不能生成可用于坐标动作的截图标识；没有辅助功能权限时拒绝观察和输入。
 - 截图只捕获指定窗口，关闭系统光标和窗口阴影；合成 ACE/plain 指针。图片坐标换算到屏幕点坐标，保留 Retina、非整数缩放和负屏幕原点。没有可见操控指针时 `cursor.visible` 为 `false`，不伪造系统光标。
+- 鼠标和 AX 控件动作显示目标指针；按键和文字输入在可见、已验证的焦点控件处显示指针。点击反馈保留 250 ms，不延长真实鼠标按下时间。指针不抢焦点、不拦截输入，释放、取消或回合结束后清除。列举、启动和观察应用本身不会移动系统鼠标或生成点击反馈。
 - 窗口绑定同时核对进程启动身份、CG 窗口几何与 AX 窗口；不能唯一匹配时拒绝输入。弹层必须从窗口的 AX 层级或已验证的前台窗口菜单层级发现，最多返回三个；不以“同一进程”推断无关浮动窗口归属。
 - 输入前检查前台应用、焦点窗口、观察有效期、控件几何、实际窗口遮挡及 AX 命中。键盘还检查具体焦点控件，避免输入到同一应用的另一个窗口。观察标识有效期为 90 秒且只能用于一次输入；失败后也需重新观察。
 - `computer_press_key` 支持 `Cmd+A`、`Option+Left`、`Ctrl+Shift+Tab`、F1–F20、方向键和 Numpad 键等。字符快捷键按当前键盘布局解析，修饰键需显式指定；文字使用 Unicode 输入。滚动量使用像素，`scrollX` 正值向右、`scrollY` 正值向下；Windows 的 120 单位滚轮语义保持不变。
@@ -64,6 +78,8 @@ Windows 构建生成 `acecode-computer-use.exe`，必须与 `acecode.exe` 放在
 macOS 构建生成 `acecode-computer-use`，独立 CLI 包中与 `acecode` 相邻，桌面包中位于 `ACECode.app/Contents/MacOS/`、与 `acecode-daemon` 相邻。CMake 的 `computer_use_runtime` 安装组件、便携包、npm 包和发布签名流程均交付该文件。移动或重新签名应用后，应重新检查系统权限；开发用临时构建路径的授权不等于安装版已授权。
 
 macOS 原生验证目标为 `computer_use_native_mac_smoke`，运行其 `.app/Contents/MacOS/computer_use_native_mac_smoke --run-owned-window`，经真实 broker/helper 操作专用测试窗口；`--observe-owned-window` 只验证观察。缺少权限返回退出码 77，表示未验证。几何和键名解析有独立单测；`tests/computer_use/macos_helper_test.py <helper>` 验证协议上限、互斥租约和父进程退出，不需要输入权限。
+
+macOS 指针检查还独立枚举实际 helper 的 WindowServer 悬浮窗，用 ScreenCaptureKit 单独捕获该窗口，验证颜色、热点位置、焦点保持、点击穿透和释放后的消失；它不以工具返回截图中的合成指针作为桌面可见性的证明。锁屏时返回 77，真实可见性保持未验证。设置 `ACECODE_MAC_FIXTURE_ARTIFACTS` 可保存测试窗口图片和单独捕获的 `native-overlay.png`，不截取其他应用内容。
 
 原生集成验证使用专门的可丢弃窗口：构建 `computer_use_native_smoke`，传入 `--observe-owned-window` 检查窗口发现、应用启动、遮挡截图、缩放、密码字段、弹层归属和控件命中；传入 `--run-owned-window` 继续检查鼠标键盘、控件操作和真实 OLE 拖放。后者需要测试窗口能获得前台焦点，系统搜索菜单等界面可能阻止激活，此时明确失败，不向错误窗口发送输入。可用 `--wait-for-foreground` 等待用户点击测试窗口标题栏后执行，超时自动结束。独立的 `computer_use_broker_smoke` 使用私有假执行器验证超时、取消、并发租约和大响应，不接触桌面。
 

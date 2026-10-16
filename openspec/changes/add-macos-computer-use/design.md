@@ -24,6 +24,14 @@ The existing Windows implementation has a process-wide broker, a native worker, 
 9. A nonactivating mouse-transparent native pointer follows configured ACE/plain style and theme color. Exclude the overlay from target enumeration/hit tests and composite it at most once into returned images. Rendering uses the AppKit main thread.
 10. Build the worker separately from the macOS 11 host targets and only start it on compatible OS versions. Include it alongside the desktop daemon and standalone executable; sign nested code before the outer bundle. Add package presence/architecture checks and document permission ownership for desktop and TUI launches.
 
+## Pointer visibility follow-up
+
+The original fixture sampled a cursor drawn into the returned screenshot by `pointer_composite`. That verifies image composition, not that the native overlay is visible. Acceptance must also discover the helper's on-screen WindowServer window, capture that window independently, and compare its pixels and screen position with the configured pointer and action target. The fixture must verify that the target keeps focus, receives input through the overlay, and that release removes the overlay. A locked desktop cannot satisfy on-screen acceptance.
+
+Keyboard input should provide feedback at the verified focused control, as the existing Windows backend does. Click feedback should remain visibly pressed for the Windows backend's existing 250 ms feedback interval without holding down the real mouse button. Main-thread rendering must flush the overlay, and release/cancellation must still remove it immediately. Listing, launching and observing apps do not imply a pointer action; they must not fabricate a click or move the system mouse.
+
+The local Codex CLI checkout does not contain the native Mac service implementation. The installed Codex application's `@oai/cua` Mac client calls `CodexComputerUseIPC-5`, with app-scoped skyshots and actions delegated to a separately delivered native service. This is reference evidence for an API contract, not evidence of native cursor rendering or its timing. The ACECode implementation keeps its existing window/observation contract and public macOS APIs; compatibility fixes must not be described as porting Codex's private service.
+
 ## Risks / Trade-offs
 
 - TCC attribution can depend on launch path and signing: verify both installed app and terminal paths, record actual grant behavior; never claim a read-only probe proves successful capture/input.

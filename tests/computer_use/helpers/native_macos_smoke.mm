@@ -1,11 +1,14 @@
 #import <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
+#import <ScreenCaptureKit/ScreenCaptureKit.h>
 #include "computer_use/availability.hpp"
 #include "computer_use/runtime.hpp"
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <libproc.h>
+#include <memory>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -201,12 +204,112 @@ void check_pointer_color(const json& state, double red, double green, double blu
         std::to_string(color.redComponent) + "," + std::to_string(color.greenComponent) + "," +
         std::to_string(color.blueComponent) + " at " + std::to_string(x) + "," + std::to_string(y));
 }
+NSArray<NSDictionary*>* pointer_windows() {
+    // Identify only this fixture's real helper, not another app or a pointer
+    // drawn into a tool attachment. No production test hook is involved.
+    NSString* expected = [NSBundle.mainBundle.executablePath.stringByDeletingLastPathComponent
+        stringByAppendingPathComponent:@"acecode-computer-use"];
+    NSArray* windows = CFBridgingRelease(CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+    NSMutableArray* matches = [NSMutableArray new];
+    for (NSDictionary* window in windows) {
+        const pid_t pid = [window[(__bridge NSString*)kCGWindowOwnerPID] intValue];
+        proc_bsdinfo info{};
+        char path[PROC_PIDPATHINFO_MAXSIZE]{};
+        if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, sizeof(info)) != sizeof(info) ||
+            info.pbi_ppid != getpid() || proc_pidpath(pid, path, sizeof(path)) <= 0 ||
+            ![expected isEqualToString:[NSString stringWithUTF8String:path]]) continue;
+        [matches addObject:window];
+    }
+    return matches;
+}
+void check_overlay(ACEInputFixture* fixture, NSView* target, double red, double green, double blue) {
+    require(CGPreflightScreenCaptureAccess(), "Independent overlay capture requires Screen Recording for the fixture launch");
+    NSArray<NSDictionary*>* windows = pointer_windows();
+    require(windows.count == 1, "Exactly one real helper overlay is on the desktop");
+    NSDictionary* overlay = windows.firstObject;
+    const CGWindowID id = [overlay[(__bridge NSString*)kCGWindowNumber] unsignedIntValue];
+    require([overlay[(__bridge NSString*)kCGWindowAlpha] doubleValue] > 0.99, "Native overlay is not transparent at window level");
+    require([overlay[(__bridge NSString*)kCGWindowLayer] integerValue] >= NSStatusWindowLevel, "Native overlay is above normal windows");
+    CGRect bounds{};
+    require(CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)overlay[(__bridge NSString*)kCGWindowBounds], &bounds),
+        "Native overlay has WindowServer geometry");
+    __block NSRect expected;
+    __block bool focused;
+    main_sync(^{
+        expected = [fixture.window convertRectToScreen:[target convertRect:target.bounds toView:nil]];
+        expected.origin.y = NSScreen.screens.firstObject.frame.size.height - NSMaxY(expected);
+        focused = fixture.window.isKeyWindow && NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == getpid();
+    });
+    require(focused, "Native overlay does not steal application or window focus");
+    require(NSPointInRect(NSMakePoint(bounds.origin.x + 10, bounds.origin.y + 10), expected),
+        "Actual overlay hotspot is over the expected fixture control");
+
+    struct Capture {
+        dispatch_semaphore_t ready = dispatch_semaphore_create(0);
+        __strong SCShareableContent* content = nil;
+        __strong NSBitmapImageRep* image = nil;
+        __strong NSError* error = nil;
+    };
+    auto capture = std::make_shared<Capture>();
+    [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:YES
+        completionHandler:^(SCShareableContent* content, NSError* error) {
+            capture->content = content; capture->error = error; dispatch_semaphore_signal(capture->ready);
+        }];
+    require(dispatch_semaphore_wait(capture->ready, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0,
+        "Independent overlay enumeration completes");
+    SCWindow* window = nil;
+    for (SCWindow* candidate in capture->content.windows) if (candidate.windowID == id) window = candidate;
+    require(window && window.isOnScreen, "ScreenCaptureKit independently sees the on-screen helper overlay");
+    SCContentFilter* filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:window];
+    SCStreamConfiguration* config = [SCStreamConfiguration new];
+    config.width = std::lround(bounds.size.width * filter.pointPixelScale);
+    config.height = std::lround(bounds.size.height * filter.pointPixelScale);
+    config.showsCursor = NO;
+    config.ignoreShadowsSingleWindow = YES;
+    if (@available(macOS 14.2, *)) config.includeChildWindows = NO;
+    [SCScreenshotManager captureImageWithFilter:filter configuration:config
+        completionHandler:^(CGImageRef image, NSError* error) {
+            if (image) capture->image = [[NSBitmapImageRep alloc] initWithCGImage:image];
+            capture->error = error; dispatch_semaphore_signal(capture->ready);
+        }];
+    require(dispatch_semaphore_wait(capture->ready, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) == 0 && capture->image,
+        "Independent capture of actual overlay pixels completes");
+    NSBitmapImageRep* image = capture->image;
+    const int x = std::lround(13 * image.pixelsWide / bounds.size.width);
+    const int y = std::lround(20 * image.pixelsHigh / bounds.size.height);
+    NSColor* color = screenshot_pixel(image, x, y);
+    require(color.alphaComponent > 0.9 && std::abs(color.redComponent - red) < 0.08 &&
+        std::abs(color.greenComponent - green) < 0.08 && std::abs(color.blueComponent - blue) < 0.08,
+        "Actual WindowServer overlay pixels match the theme, independently of pointer_composite; got " +
+        std::to_string(color.redComponent) + "," + std::to_string(color.greenComponent) + "," +
+        std::to_string(color.blueComponent) + ", alpha=" + std::to_string(color.alphaComponent));
+    const char* folder = std::getenv("ACECODE_MAC_FIXTURE_ARTIFACTS");
+    if (folder) {
+        NSString* directory = [NSString stringWithUTF8String:folder];
+        require([NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil],
+            "Create optional overlay artifact directory");
+        NSData* png = [image representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        require([png writeToFile:[directory stringByAppendingPathComponent:@"native-overlay.png"] atomically:YES],
+            "Save independently captured helper overlay");
+    }
+}
+void check_overlay_removed() {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (pointer_windows().count != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    require(pointer_windows().count == 0, "Release removes the real WindowServer overlay");
+}
 int run(ACEInputFixture* fixture, bool inputs) {
     try {
         const auto readiness = cu::availability();
         require(readiness.value("supported", false), "macOS 14 or later required");
         if (!readiness.value("ready", false)) {
             std::cerr << "Native fixture not verified; required OS permissions: " << readiness.dump() << '\n';
+            return 77;
+        }
+        if (inputs && !CGPreflightScreenCaptureAccess()) {
+            std::cerr << "Native overlay not verified; independent fixture capture requires Screen Recording.\n";
             return 77;
         }
         __block int native_window;
@@ -264,11 +367,12 @@ int run(ACEInputFixture* fixture, bool inputs) {
         state = observe(window);
         require(state["output"]["screenshots"][0]["cursor"].value("visible", false), "ACE pointer is composed after clicking");
         check_pointer_color(state, 37.0 / 255, 99.0 / 255, 235.0 / 255);
+        check_overlay(fixture, fixture.button, 37.0 / 255, 99.0 / 255, 235.0 / 255);
         check_image(state);
         auto click = coordinate(state, window, "click", element(state, "Count click"));
         call(click); settle();
         main_sync(^{ count = fixture.clicks; });
-        require(count == 2, "Screenshot-coordinate mouse click reaches same button");
+        require(count == 2, "Click passes through the visible native overlay to the same button");
         state = observe(window, false);
         use_element(state, "perform_secondary_action", window, "Count click", {{"secondary_action", "invoke"}});
         main_sync(^{ count = fixture.clicks; });
@@ -285,10 +389,16 @@ int run(ACEInputFixture* fixture, bool inputs) {
         require(value == "native AX value", "Writable AX control updates");
         state = observe(window, false);
         use_element(state, "click", window, "Editable fixture text");
+        call({{"action", "release"}});
+        check_overlay_removed();
         state = observe(window, false);
         auto key = target(state, "press_key", window); key["key"] = "Cmd+A"; call(key); settle();
+        check_overlay(fixture, fixture.field, 37.0 / 255, 99.0 / 255, 235.0 / 255);
+        call({{"action", "release"}});
+        check_overlay_removed();
         state = observe(window, false);
         auto type = target(state, "type_text", window); type["text"] = "ACE \u4e2d\u6587 \U0001f642"; call(type); settle();
+        check_overlay(fixture, fixture.field, 37.0 / 255, 99.0 / 255, 235.0 / 255);
         main_sync(^{ value = fixture.field.stringValue.UTF8String; });
         require(value == "ACE \u4e2d\u6587 \U0001f642", "Unicode keyboard input and Cmd+A preserve text exactly; actual value: " + value);
         const auto press = [&](const char* chord) {
@@ -329,6 +439,7 @@ int run(ACEInputFixture* fixture, bool inputs) {
         state = observe(window);
         require(state["output"]["screenshots"][0]["cursor"].value("visible", false), "Pointer survives appearance updates");
         check_pointer_color(state, 1, 0.4, 0);
+        check_overlay(fixture, fixture.canvas, 1, 0.4, 0);
         check_image(state);
         std::cout << "Passed native scrolling, drag and ACE/plain pointer pixels." << std::endl;
 
@@ -389,6 +500,7 @@ int run(ACEInputFixture* fixture, bool inputs) {
             "; menu events: " + menu_events + "; target: " + element(state, "Fixture menu action").dump());
         std::cout << "Passed owned sheet and context-menu capture/input." << std::endl;
         call({{"action", "release"}});
+        check_overlay_removed();
         state = observe(window);
         require(!state["output"]["screenshots"][0]["cursor"].value("visible", true), "Release removes the pointer from screenshots");
         cu::shutdown();
@@ -407,6 +519,10 @@ int main(int argc, char** argv) {
     }
     @autoreleasepool {
         [NSApplication sharedApplication];
+        if ([NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier isEqualToString:@"com.apple.loginwindow"]) {
+            std::cerr << "Native overlay/input verification requires an unlocked desktop; not verified.\n";
+            return 77;
+        }
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         NSMenu* menu = [NSMenu new];
         NSMenuItem* app = [menu addItemWithTitle:@"Fixture" action:nil keyEquivalent:@""];
