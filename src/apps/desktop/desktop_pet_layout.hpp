@@ -92,6 +92,11 @@ int desktop_pet_dock_side(const DesktopPetRect& window, const DesktopPetRect& wo
 // 把窗口贴到工作区左(-1)/右(+1)边,竖直方向夹回工作区;side 为 0 时原样返回。
 DesktopPetRect dock_desktop_pet(const DesktopPetRect& window, const DesktopPetRect& work_area, int side);
 
+// 拖动松手后没有吸附时把整个窗口收回工作区:窗口一半露在屏幕外时,宠物头顶的会话卡片
+// 会被屏幕边截掉(吸附要求窗口伸出屏幕约 1/4 宽,只蹭到边上松手正好落在这个区间)。
+// 窗口比工作区还大时贴左 / 上边。
+DesktopPetRect keep_desktop_pet_in_work_area(const DesktopPetRect& window, const DesktopPetRect& work_area);
+
 // 右键菜单「切换宠物」里的四种宠物,顺序与设置页一致;id 与 office.json 的 pet_kind 相同。
 struct DesktopPetKind {
     const char* id;

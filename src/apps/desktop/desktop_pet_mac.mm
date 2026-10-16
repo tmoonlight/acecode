@@ -476,11 +476,15 @@ void PetController::publish_dock() {
     deliver({{"type", "pet-dock"}, {"side", docked_side_ < 0 ? "left" : docked_side_ > 0 ? "right" : ""}});
 }
 
-// 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看。
+// 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看;
+// 其它情况把窗口收回可见区域,头顶的会话卡片不会被屏幕边截掉。
 void PetController::settle_dock() {
     const DesktopPetRect work = work_area();
-    docked_side_ = pet_kind_ == "whale" ? desktop_pet_dock_side(window_rect(), work) : 0;
-    if (docked_side_) apply_placement({dock_desktop_pet(window_rect(), work, docked_side_), current_scale()});
+    const DesktopPetRect current = window_rect();
+    docked_side_ = pet_kind_ == "whale" ? desktop_pet_dock_side(current, work) : 0;
+    const DesktopPetRect next = docked_side_ ? dock_desktop_pet(current, work, docked_side_)
+                                             : keep_desktop_pet_in_work_area(current, work);
+    if (next.x != current.x || next.y != current.y) apply_placement({next, current_scale()});
     publish_dock();
 }
 
