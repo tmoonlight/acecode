@@ -252,8 +252,18 @@ json display_info(id device, const std::string& udid) {
     } else {
         raw = "connect failed: " + error;
     }
+    json cached = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_rotation_mu);
+        auto found = g_rotations.find(udid);
+        if (found != g_rotations.end() && found->second.known) {
+            const auto& entry = found->second;
+            cached = {{"rotation", entry.rotation}, {"answered", entry.answered},
+                      {"unsupported", entry.unsupported}, {"failed", entry.failed}};
+        }
+    }
     return {{"rotation", rotation}, {"unsupported", unsupported}, {"raw", raw},
-            {"window_rotation", legacy_window_rotation(udid)}};
+            {"window_rotation", legacy_window_rotation(udid)}, {"cached", cached}};
 }
 
 } // namespace acecode::ios_simulator::helper

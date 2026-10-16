@@ -230,20 +230,6 @@ def check_device(helper, udid, out, developer_dir):
     size = describe.get("result", {})
     width, height = size.get("point_width", 0), size.get("point_height", 0)
     record("describe", describe.get("ok") and width > 0, f"{size.get('name')} {width}x{height} rotation {size.get('rotation')}")
-    # Xcode 27 runtimes answer the CoreDevice display-info request; older ones
-    # report it unsupported and fall back to Simulator.app's window setting.
-    # The helper waits 2 s for a reply, so allow a few tries on a slow VM.
-    for attempt in range(3):
-        display, _ = helper.call("display_info", udid=udid)
-        info = display.get("result", {})
-        with open(os.path.join(out, f"display_info_{attempt}.json"), "w") as f:
-            json.dump(info, f, indent=1)
-        parsed = info.get("unsupported") or info.get("rotation") in (0, 90, 180, 270)
-        if parsed:
-            break
-    record("display info", display.get("ok") and parsed,
-           f"rotation {info.get('rotation')} unsupported {info.get('unsupported')} "
-           f"window {info.get('window_rotation')}")
     shot, png = helper.call("screenshot", udid=udid, format="png", scale=1.0)
     if png:
         with open(os.path.join(out, "home.png"), "wb") as f:
@@ -346,6 +332,23 @@ def check_device(helper, udid, out, developer_dir):
     print(f"stream frames: initial {initial}, total {helper.frames}", flush=True)
     record("JPEG stream delivers frames", stream.get("ok") and helper.frames > 0,
            f"{helper.frames} frames, start {json.dumps(stream)[:160]}")
+    # Xcode 27 runtimes answer the CoreDevice display-info request; older ones
+    # report it unsupported and fall back to Simulator.app's window setting.
+    # display_info also asks over a fresh connection (slow while the guest is
+    # busy); "cached" is what the helper itself has been using all along.
+    parsed = False
+    for attempt in range(3):
+        display, _ = helper.call("display_info", udid=udid)
+        info = display.get("result", {})
+        with open(os.path.join(out, f"display_info_{attempt}.json"), "w") as f:
+            json.dump(info, f, indent=1)
+        cached = info.get("cached") or {}
+        parsed = info.get("unsupported") or info.get("rotation") in (0, 90, 180, 270) or cached.get("answered")
+        if parsed:
+            break
+    record("display info", display.get("ok") and parsed,
+           f"rotation {info.get('rotation')} unsupported {info.get('unsupported')} "
+           f"window {info.get('window_rotation')} cached {json.dumps(cached)}")
     return width, height
 
 
