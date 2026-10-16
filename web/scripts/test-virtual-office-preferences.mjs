@@ -156,17 +156,20 @@ try {
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.locator('iframe').count(), 0);
   // 场景:老用户第一次看到「更多宠物」宣传,此时桌面宠物是关着的。
-  // 期望:只有一句文案和三只新宠物(图 + 名字),不加说明;点一只就切成它并打开宠物,
+  // 期望:主标题「新特性」+ 一行副标题,再加三只新宠物(图 + 名字),不加说明;点一只就切成它并打开宠物,
   // 弹窗关闭;宣传只认领一次。浅色 / 深色、窄屏都不出横向滚动。
   await page.evaluate(() => nativeClose());
   await page.waitForFunction(() => !office.enabled);
   await page.locator('#pets-promo').click();
   const promo = page.getByRole('dialog');
   await promo.waitFor();
-  assert.equal(await promo.locator('h2').textContent(), '增加更多宠物，丰富您快乐工作的每一天');
+  assert.equal(await promo.locator('h2').textContent(), '新特性');
+  assert.deepEqual(await promo.locator('p').allTextContents(), ['增加更多宠物，丰富您快乐工作的每一天'],
+    'the subtitle is the only text besides the title');
+  assert.ok(await promo.locator('h2').evaluate(h => parseFloat(getComputedStyle(h).fontSize))
+    > await promo.locator('p').evaluate(p => parseFloat(getComputedStyle(p).fontSize)), 'title outranks the subtitle');
   assert.deepEqual(await promo.locator('button[aria-pressed]').allTextContents(), ['大眼回形针', 'rover', '鲸鱼娘']);
   assert.equal(await promo.locator('img').count(), 3);
-  assert.equal(await promo.locator('p').count(), 0, 'no explanatory text');
   await page.waitForFunction(() => [...document.querySelectorAll('[role=dialog] img')].every(img => img.complete && img.naturalWidth > 0));
   for (const theme of ['light', 'dark']) for (const width of [1100, 390]) {
     await page.setViewportSize({ width, height: 800 });

@@ -2137,6 +2137,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '桌面宠物': 'Desktop pets',
   '开启桌面宠物': 'Enable desktop pet',
   '开启桌面宠物？': 'Enable a desktop pet?',
+  '新特性': 'New feature',
   '增加更多宠物，丰富您快乐工作的每一天': 'More pets to brighten every working day',
   '显示桌面宠物': 'Show desktop pet',
   '隐藏桌面宠物': 'Hide desktop pet',
