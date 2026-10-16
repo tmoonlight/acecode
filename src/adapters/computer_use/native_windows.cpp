@@ -9,7 +9,7 @@
 #include "pointer_capture.hpp"
 #include "config/vocab/pointer_appearance.hpp"
 #include "utils/base64.hpp"
-
+#include "utils/generated_file_names.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -1085,7 +1085,7 @@ struct NativeBackend::Impl {
                     descriptor["capture_method"] = pixels.method;
                     if (!fallback_reason.empty()) descriptor["fallback_reason"] = fallback_reason;
                     output["screenshots"].push_back(descriptor);
-                    attachments.push_back({{"name", "computer-use-" + id + "-" + std::to_string(index) + ".png"}, {"mime_type", "image/png"},
+                    attachments.push_back({{"name", generated_file_name("computer_use_" + id + "_" + std::to_string(index) + ".png")}, {"mime_type", "image/png"},
                         {"data_url", std::move(data_url)}, {"metadata", {{"computer_use", {{"observation_id", id}, {"screenshot_id", surface.screenshot_id},
                             {"window", reinterpret_cast<std::uintptr_t>(surface.relation.window)}, {"geometry", geometry(index)}, {"cursor", cursor}}}}}});
                 } catch (const NativeError& error) {

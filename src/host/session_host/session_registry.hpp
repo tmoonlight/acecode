@@ -96,6 +96,10 @@ struct SessionEntry {
     // snapshot acquisition, including persistence failure rollback.
     // Never acquire the AgentLoop queue gate while holding this mutex.
     std::mutex model_control_mu;
+    // Explicit task override and effective expert + task overlay. Mutations
+    // after construction hold model_control_mu; resolvers capture by value.
+    ModelSamplingOptions sampling;
+    ModelSamplingOptions effective_sampling;
     std::shared_ptr<SessionModelBinding> model_binding;
     std::shared_ptr<SkillRegistry>       skill_registry;
     // Inputs required to re-apply a changed global Skill policy without

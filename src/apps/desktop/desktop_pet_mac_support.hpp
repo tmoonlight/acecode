@@ -5,6 +5,7 @@
 // 只由 desktop_pet_mac.mm 包含(ObjC++,ARC);从那里拆出来是为了守住单文件 1000 行上限。
 
 #include "desktop_pet_layout.hpp"
+#include "utils/generated_file_names.hpp"
 #include "platform/native_ui/strings.hpp"
 
 #import <AppKit/AppKit.h>
@@ -101,7 +102,7 @@ std::filesystem::path pet_root_dir() {
     const char* path = base ? base.fileSystemRepresentation : nullptr;
     std::filesystem::path root = path ? std::filesystem::path(path)
                                       : std::filesystem::temp_directory_path();
-    return root / "ACECode" / "desktop-pet";
+    return acecode::compatible_generated_path(root / "ACECode", "desktop-pet");
 }
 
 double load_logical_scale() {

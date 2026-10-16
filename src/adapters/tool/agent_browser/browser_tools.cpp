@@ -1117,11 +1117,11 @@ ToolImpl wait_tool() {
 }
 
 std::string safe_file_name(std::string value) {
-    if (value.empty()) value = "browser-screenshot.png";
+    if (value.empty()) value = "browser_screenshot.png";
     value = std::filesystem::path(value).filename().string();
     for (char& ch : value) {
         if (!std::isalnum(static_cast<unsigned char>(ch)) &&
-            ch != '-' && ch != '_' && ch != '.') ch = '-';
+            ch != '-' && ch != '_' && ch != '.') ch = '_';
     }
     if (value.size() < 4 || value.substr(value.size() - 4) != ".png") value += ".png";
     return value;
@@ -1173,7 +1173,7 @@ ToolImpl screenshot_tool() {
                     "Browser returned invalid PNG screenshot data");
             }
             const std::filesystem::path root = context.scratch_dir.empty()
-                ? std::filesystem::temp_directory_path() / "acecode-agent-browser"
+                ? std::filesystem::temp_directory_path() / "acecode_agent_browser"
                 : acecode::path_from_utf8(context.scratch_dir);
             std::error_code filesystem_error;
             std::filesystem::create_directories(root, filesystem_error);

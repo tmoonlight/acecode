@@ -1,4 +1,5 @@
 #include "macos_native.hpp"
+#include "utils/generated_file_names.hpp"
 #import <ImageIO/ImageIO.h>
 
 namespace acecode::computer_use::macos {
@@ -64,7 +65,7 @@ json capture(Surface& surface, const std::string& observation_id, std::size_t in
     descriptor = geometry(surface);
     descriptor.update({{"id", surface.screenshot_id}, {"window", surface.window.id}, {"observation_id", observation_id},
         {"capture_method", "screencapturekit"}, {"relation", surface.relation}, {"cursor", cursor}, {"zIndex", index}});
-    return {{"name", "computer-use-" + surface.screenshot_id + ".png"}, {"mime_type", "image/png"},
+    return {{"name", generated_file_name("computer_use_" + surface.screenshot_id + ".png")}, {"mime_type", "image/png"},
         {"data_url", "data:image/png;base64," + text([data base64EncodedStringWithOptions:0])},
         {"metadata", {{"computer_use", {{"observation_id", observation_id}, {"screenshot_id", surface.screenshot_id},
             {"window", surface.window.id}, {"geometry", geometry(surface)}, {"cursor", cursor}}}}}};

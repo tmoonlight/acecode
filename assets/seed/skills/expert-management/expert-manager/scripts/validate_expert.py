@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -323,6 +324,32 @@ def validate_capabilities(
             seen.add(normalized)
 
 
+def validate_sampling(value: Any, result: ValidationResult, label: str = "sampling") -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        result.error(f"{label} must be an object or null")
+        return
+    fields = {"temperature", "top_p", "top_k", "min_p"}
+    for key, number in value.items():
+        if key not in fields:
+            result.error(f"{label}: unknown field {key}")
+            continue
+        if number is None:
+            continue
+        if type(number) not in (int, float) or (type(number) is float and not math.isfinite(number)):
+            result.error(f"{label}.{key} must be a finite number")
+            continue
+        valid = {
+            "temperature": 0 <= number <= 2,
+            "top_p": 0 < number <= 1,
+            "top_k": type(number) is int and 1 <= number <= 2147483647,
+            "min_p": 0 <= number <= 1,
+        }[key]
+        if not valid:
+            result.error(f"{label}.{key} is outside its supported range")
+
+
 def validate_agent(
     package_root: Path, manifest: dict[str, Any], result: ValidationResult
 ) -> None:
@@ -340,6 +367,7 @@ def validate_agent(
         elif isinstance(entry, dict):
             agent_id = localized_text(entry.get("id"))
             raw_path = localized_text(entry.get("path"))
+            validate_sampling(entry.get("sampling"), result, f"agents[{index}].sampling")
         else:
             result.error(f"expert.json: agents[{index}] must be a path or object")
             continue
@@ -485,6 +513,7 @@ def validate_expert(
     validate_display_fields(manifest, result)
     validate_avatar_and_skills(package_root, manifest, result)
     validate_capabilities(manifest, expert_type, result)
+    validate_sampling(manifest.get("sampling"), result)
 
     if expert_type == "agent":
         validate_agent(package_root, manifest, result)

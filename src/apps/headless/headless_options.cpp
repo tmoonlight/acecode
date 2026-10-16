@@ -80,7 +80,7 @@ bool append_csv_names(const std::string& raw,
 // 无法区分 —— SessionStorage::list_sessions 会把这种文件名当 legacy 数据
 // 隐藏,创建出来的会话在所有列表里隐身,所以 --session-id 直接拒绝。
 bool looks_like_legacy_pid_session_id(const std::string& id) {
-    static const std::regex re(R"(^\d{8}-\d{6}-[0-9a-f]{4}-\d+$)");
+    static const std::regex re(R"(^\d{8}[-_]\d{6}[-_][0-9a-f]{4}[-_]\d+$)");
     return std::regex_match(id, re);
 }
 

@@ -106,6 +106,7 @@ bool macos_app_install_path_is_safe(const fs::path& bundle, std::string* error) 
         std::transform(name.begin(), name.end(), name.begin(),
             [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         if (name == "apptranslocation" || name.rfind(".acecode-update-", 0) == 0 ||
+            name.rfind(".acecode_update_", 0) == 0 ||
             fs::path(name).extension() == ".app") return reject();
     }
     std::error_code ec;

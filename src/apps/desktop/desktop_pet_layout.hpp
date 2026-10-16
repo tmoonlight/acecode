@@ -71,7 +71,7 @@ std::vector<DesktopPetPoint> desktop_pet_hit_polygon(double scale);
 using DesktopPetOverlay = std::array<double, 4>;
 inline constexpr std::size_t kDesktopPetMaxOverlays = 24;
 
-// 解析页面发来的 {"type":"overlay","controls":[...]|null,"rect":[...]|null,"bubbles":[[...],...]}:
+// 解析页面发来的 {"type":"overlay","controls":[...]|null,"rect":[...]|null,"grip":[...]|null,"bubbles":[[...],...]}:
 // 非数字 / 非有限值 / 空矩形整条丢弃,坐标夹到 [0, 1],最多保留 kDesktopPetMaxOverlays 个。
 std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann::json& message);
 
@@ -80,9 +80,10 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
 bool desktop_pet_hit_test(double scale, int width, int height,
                           const std::vector<DesktopPetOverlay>& overlays, double x, double y, bool office = true);
 
-// macOS uses logical points (CSS pixels). The handle's position scales with the
-// viewport, but its 16px target does not; keep this aligned with .grip in the page.
-bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y);
+// macOS uses logical points (CSS pixels). Companions report their visible grip;
+// nullptr retains the Office page's fixed position and 16px target.
+bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y,
+                                      const DesktopPetOverlay* grip = nullptr);
 
 // 鲸鱼娘拖到工作区左/右边缘松手时吸附,改成趴在屏幕边上偷看的样子。
 // 窗口中心离左/右边缘不超过窗口宽度的 1/4(或已越过边缘)返回 -1(左)/ +1(右),否则 0。

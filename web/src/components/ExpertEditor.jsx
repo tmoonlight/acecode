@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import {
   CAPABILITY_KINDS,
   EXPERT_AVATAR_STATES,
+  EXPERT_SAMPLING_INPUTS,
   capabilityOptionsWithSaved,
   collectExpertTags,
   expertPayloadFromForm,
@@ -171,6 +172,35 @@ function BasicEditor({ form, errors, tagSuggestions, update }) {
           />
         </Field>
       )}
+      <fieldset data-expert-sampling="true" className="min-w-0 border-t border-border pt-4 lg:col-span-2">
+        <legend className="px-1 text-[14px] font-semibold text-fg">采样参数（可选）</legend>
+        <p className="mb-3 text-[12px] leading-5 text-fg-mute">
+          {isTeam
+            ? '作为团队默认值；成员自己的采样设置优先，留空的参数继承模型设置。'
+            : '留空的参数继承模型设置；发起子任务时可单独覆盖。'}
+          参数需受所用模型支持。
+        </p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {EXPERT_SAMPLING_INPUTS.map(({ field, label, range, ...constraints }) => (
+            <label key={field} className="block min-w-0 text-[12px] font-normal text-fg-2">
+              <span>{label}</span>
+              <input
+                type="number"
+                {...constraints}
+                value={form.sampling?.[field] ?? ''}
+                onChange={(event) => update('sampling', { ...form.sampling, [field]: event.target.value })}
+                placeholder="继承模型"
+                aria-invalid={!!errors.sampling?.[field]}
+                aria-describedby={`expert-sampling-${field}-hint`}
+                className={clsx(inputClass, 'mt-1.5')}
+              />
+              <span id={`expert-sampling-${field}-hint`} className={clsx('mt-1 block text-[11px]', errors.sampling?.[field] ? 'text-danger' : 'text-fg-mute')}>
+                {errors.sampling?.[field] || range}
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <section
         data-expert-state-avatars="true"
         className="rounded-lg border border-border bg-surface p-3.5 lg:col-span-2"

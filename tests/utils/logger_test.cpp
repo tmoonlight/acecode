@@ -117,7 +117,7 @@ TEST_F(LoggerRotationTest, InitWithRotationCreatesDirAndInitialFile) {
     int matched = 0;
     for (auto& e : fs::directory_iterator(logs_dir)) {
         auto fn = e.path().filename().string();
-        if (fn.rfind("daemon-", 0) == 0 &&
+        if (fn.rfind("daemon_", 0) == 0 &&
             fn.size() > 14 /* daemon-YYYY-MM-DD.log */) {
             matched++;
             auto body = read_file(e.path());
@@ -142,7 +142,7 @@ TEST_F(LoggerRotationTest, TuiRotationUsesTuiDatePrefixWithoutStderrMirror) {
     int matched = 0;
     for (const auto& entry : fs::directory_iterator(logs_dir)) {
         const auto filename = entry.path().filename().string();
-        if (filename.rfind("tui-", 0) == 0 &&
+        if (filename.rfind("tui_", 0) == 0 &&
             filename.size() > 11 /* tui-YYYY-MM-DD.log */) {
             ++matched;
             EXPECT_NE(read_file(entry.path()).find("tui-centralized-line"),
@@ -208,7 +208,7 @@ TEST_F(LoggerRotationTest, ConditionalRotationInitializesOnlyWhenDisabled) {
 }
 
 // 场景: 跨日滚动 — 用 set_clock_for_test 强制把"今天"推到 2099-01-02,
-// 下一条 LOG 应该落在 daemon-2099-01-02.log,前一条仍留在原文件。
+// 下一条 LOG 应该落在 daemon_2099_01_02.log,前一条仍留在原文件。
 // 这是 spec Section 12.2 的核心断言。
 TEST_F(LoggerRotationTest, RotationCreatesNewFileWhenDateAdvances) {
     auto logs_dir = tmp_dir_ / "logs";
@@ -223,8 +223,8 @@ TEST_F(LoggerRotationTest, RotationCreatesNewFileWhenDateAdvances) {
     acecode::Logger::instance().set_clock_for_test([] { return std::string("2099-01-02"); });
     LOG_INFO("today-line");
 
-    auto yesterday_path = logs_dir / "daemon-2099-01-01.log";
-    auto today_path     = logs_dir / "daemon-2099-01-02.log";
+    auto yesterday_path = logs_dir / "daemon_2099_01_01.log";
+    auto today_path     = logs_dir / "daemon_2099_01_02.log";
 
     ASSERT_TRUE(fs::exists(yesterday_path)) << "昨天的文件应该存在";
     ASSERT_TRUE(fs::exists(today_path))     << "今天的文件应该存在";
@@ -278,7 +278,7 @@ TEST_F(LoggerRotationTest, SingleFileModeIgnoresClockOverride) {
     // 不应在 tmp_dir_ 下出现 daemon-*.log 这种产物
     for (auto& e : fs::directory_iterator(tmp_dir_)) {
         auto fn = e.path().filename().string();
-        EXPECT_EQ(fn.rfind("daemon-", 0), std::string::npos)
+        EXPECT_EQ(fn.rfind("daemon_", 0), std::string::npos)
             << "单文件模式不应被 clock 注入误产 daemon-*.log: " << fn;
     }
 }

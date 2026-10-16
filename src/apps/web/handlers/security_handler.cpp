@@ -535,9 +535,9 @@ std::string audit_export_filename(const std::string& format, std::int64_t now_ms
     localtime_r(&seconds, &tm);
 #endif
     char stamp[32];
-    std::snprintf(stamp, sizeof(stamp), "%04d%02d%02d-%02d%02d%02d",
+    std::snprintf(stamp, sizeof(stamp), "%04d%02d%02d_%02d%02d%02d",
                   tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
-    return std::string("acecode-audit-") + stamp + (format == "csv" ? ".csv" : ".jsonl");
+    return std::string("acecode_audit_") + stamp + (format == "csv" ? ".csv" : ".jsonl");
 }
 
 } // namespace acecode::web

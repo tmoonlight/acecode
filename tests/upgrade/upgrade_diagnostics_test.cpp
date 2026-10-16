@@ -82,6 +82,7 @@ TEST_F(UpgradeDiagnostics, RecordsAreFlushedBeforeDestructionAndAppendAcrossAtte
 //      长字符串截到 8192 字节再加 "...[truncated]" 标记,所以断言 < 8300。
 TEST_F(UpgradeDiagnostics, RedactsNestedUrlsAndBoundsErrorStrings) {
     DiagnosticLog log("upgrade", root);
+    EXPECT_EQ(fs::path(log.path()).filename().string().find('-'), std::string::npos);
     log.record("failure", {{"error", "GET HTTPS://user:password@host/pkg?token=secret#fragment failed"},
                            {"urls", {"http://name@host/x?auth=hidden", "https://[::1]/pkg?token=ipv6secret"}},
                            {"long_error", std::string(9000, 'a')}});

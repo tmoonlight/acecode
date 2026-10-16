@@ -86,7 +86,7 @@ inline constexpr unsigned long long kCleanupPromptThresholdBytes = 100ULL * 1024
 // 曾经是 ".acecode-migration-" + 完整 uuid,共 55 字符,正是它把 staging 下的深层路径
 // 先于最终路径顶破 MAX_PATH。现在前缀 + 8 位 hex 共 21 字符。IO 虽然已走扩展长度路径,
 // 短名仍有意义:失败清理、杀软扫描、用户手工查看时路径不会比最终路径先撞线。
-inline constexpr const char* kMigrationStagingPrefix = ".acecode-mig-";
+inline constexpr const char* kMigrationStagingPrefix = ".acecode_mig_";
 
 // kMigrationStagingPrefix + uuid 前 8 位 hex。
 std::string make_migration_staging_name();

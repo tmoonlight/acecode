@@ -3,6 +3,7 @@
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/sha1.hpp"
 
 #include <algorithm>
@@ -46,7 +47,7 @@ std::string temporary_write_root(const std::string& write_root,
         if (c == '\\') c = '/';
     }
     // 保留预期路径,不要在这里跟随专用目录上的 junction;prepare_request 会核验。
-    return path_to_utf8(path_from_utf8(base) / "acecode-sandbox" / sha1_hex(identity));
+    return path_to_utf8(compatible_generated_path(path_from_utf8(base), "acecode-sandbox") / sha1_hex(identity));
 #else
     return base;
 #endif

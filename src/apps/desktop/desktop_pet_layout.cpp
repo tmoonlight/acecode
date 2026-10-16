@@ -176,6 +176,9 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
     if (const auto it = message.find("rect"); it != message.end() && overlay_from_json(*it, rect)) {
         overlays.push_back(rect);
     }
+    if (const auto it = message.find("grip"); it != message.end() && overlay_from_json(*it, rect)) {
+        overlays.push_back(rect);
+    }
     if (const auto it = message.find("bubbles"); it != message.end() && it->is_array()) {
         for (const auto& item : *it) {
             if (overlays.size() >= kDesktopPetMaxOverlays) break;
@@ -185,10 +188,15 @@ std::vector<DesktopPetOverlay> desktop_pet_overlays_from_message(const nlohmann:
     return overlays;
 }
 
-bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y) {
+bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y,
+                                      const DesktopPetOverlay* grip) {
     if (!std::isfinite(width) || !std::isfinite(height) ||
         !std::isfinite(x) || !std::isfinite(y) ||
         width <= 0 || height <= 0 || x < 0 || y < 0 || x >= width || y >= height) return false;
+    if (grip) {
+        return x >= (*grip)[0] * width && x < (*grip)[2] * width &&
+               y >= (*grip)[1] * height && y < (*grip)[3] * height;
+    }
     const double left = 11.0 * width / kDesktopPetSceneWidth;
     const double top = 112.0 * height / kDesktopPetSceneHeight;
     return x >= left && x < left + 16.0 && y >= top && y < top + 16.0;

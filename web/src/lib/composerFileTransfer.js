@@ -1,11 +1,11 @@
 const PASTE_IMAGE_NAMES = {
-  'image/png': 'pasted-image.png',
-  'image/jpeg': 'pasted-image.jpg',
-  'image/jpg': 'pasted-image.jpg',
-  'image/webp': 'pasted-image.webp',
-  'image/gif': 'pasted-image.gif',
-  'image/bmp': 'pasted-image.bmp',
-  'image/tiff': 'pasted-image.tiff',
+  'image/png': 'pasted_image.png',
+  'image/jpeg': 'pasted_image.jpg',
+  'image/jpg': 'pasted_image.jpg',
+  'image/webp': 'pasted_image.webp',
+  'image/gif': 'pasted_image.gif',
+  'image/bmp': 'pasted_image.bmp',
+  'image/tiff': 'pasted_image.tiff',
 };
 
 const DESKTOP_SOURCE_PATH = Symbol.for('acecode.desktopSourcePath');
@@ -110,8 +110,8 @@ function listToArray(list) {
 function fallbackPasteName(file, index) {
   const type = String(file?.type || '').toLowerCase();
   if (PASTE_IMAGE_NAMES[type]) return PASTE_IMAGE_NAMES[type];
-  const suffix = index > 0 ? `-${index + 1}` : '';
-  return `pasted-attachment${suffix}`;
+  const suffix = index > 0 ? `_${index + 1}` : '';
+  return `pasted_attachment${suffix}`;
 }
 
 function ensurePasteFileName(file, index) {

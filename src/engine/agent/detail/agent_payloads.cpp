@@ -1,5 +1,6 @@
 #include "agent_payloads.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "session/session_manager.hpp"
 #include "utils/encoding.hpp"
 #include "prompt/context_usage_breakdown.hpp"
@@ -123,7 +124,7 @@ std::string build_session_scratch_dir(const std::string& cwd,
     const std::string session_id = session_manager->ensure_active_session_id();
     if (session_id.empty()) return {};
     return path_to_utf8(path_from_utf8(cwd) / ".acecode" / "tmp" /
-                        ("session-" + session_id));
+                        generated_file_name("session_" + session_id));
 }
 
 } // namespace acecode::agent::detail

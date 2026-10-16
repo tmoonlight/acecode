@@ -35,8 +35,8 @@ class RuntimeLogAppendTest(unittest.TestCase):
         self.invoke("logger", target, 0, 1)
         self.invoke("trace", target, 0, 1)
         self.assertTrue(target.is_dir())
-        primary = list(target.glob("tui-????-??-??.log"))
-        trace = list(target.glob("tui-input-trace-????-??-??.log"))
+        primary = list(target.glob("tui_????_??_??.log"))
+        trace = list(target.glob("tui_input_trace_????_??_??.log"))
         self.assertEqual(len(primary), 1)
         self.assertEqual(len(trace), 1)
         self.assert_records(primary[0].read_text(), 1, 1)
@@ -67,7 +67,7 @@ class RuntimeLogAppendTest(unittest.TestCase):
     def test_trace_uses_local_date_across_midnight(self):
         result = self.invoke("trace-path", self.root)
         self.assertEqual(result.stdout.splitlines(), [
-            "tui-input-trace-2026-09-20.log", "tui-input-trace-2026-09-21.log"])
+            "tui_input_trace_2026_09_20.log", "tui_input_trace_2026_09_21.log"])
 
     def test_trace_refuses_unconfigured_relative_and_unopenable_paths(self):
         blocked = self.root / "regular-file"

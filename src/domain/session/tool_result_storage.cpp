@@ -2,6 +2,7 @@
 
 #include "llm/tool_icons.hpp"
 #include "utils/encoding.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
@@ -35,7 +36,7 @@ std::string sanitize_tool_call_id(std::string id) {
 std::string tool_result_path(const std::string& tool_results_dir,
                              const std::string& tool_call_id) {
     return path_to_utf8(path_from_utf8(tool_results_dir) /
-                        (sanitize_tool_call_id(tool_call_id) + "-" + generate_uuid_v7() + ".txt"));
+                        generated_file_name(sanitize_tool_call_id(tool_call_id) + "_" + generate_uuid_v7() + ".txt"));
 }
 
 std::string generate_preview(const std::string& content,

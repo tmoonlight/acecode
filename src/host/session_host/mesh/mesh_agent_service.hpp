@@ -20,6 +20,7 @@
 // resume / destroy, which may join agent workers.
 
 #include "session/agent_fork_history.hpp"
+#include "config/saved_models.hpp"
 #include "session/agent_path.hpp"
 #include "session/inter_agent_message.hpp"
 #include "session/scoped_subscription.hpp"
@@ -71,6 +72,7 @@ struct SpawnArgs {
     std::string agent_type;
     std::string model;
     std::optional<std::string> reasoning_effort;
+    std::optional<ModelSamplingOptions> sampling;
     ForkTurns fork;
 };
 

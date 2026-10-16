@@ -133,6 +133,7 @@ private:
     std::string pet_kind_ = "office";
     std::vector<DesktopPetOverlay> overlays_;
     std::vector<DesktopPetOverlay> foreground_overlays_;
+    DesktopPetOverlay resize_grip_{};
     NSPanel* panel_ = nil;
     WKWebView* webview_ = nil;
     WKUserContentController* content_ = nil;
@@ -426,6 +427,7 @@ void PetController::web_process_terminated() {
     end_gesture();
     overlays_.clear();
     foreground_overlays_.clear();
+    resize_grip_ = {};
     page_ready_ = false;
     load_page();
 }
@@ -457,6 +459,7 @@ void PetController::set_pet_kind(const std::string& kind) {
     end_gesture();
     overlays_.clear();
     foreground_overlays_.clear();
+    resize_grip_ = {};
     if (same_page) publish_character();
     else {
         page_ready_ = false;
@@ -566,10 +569,13 @@ void PetController::office_action(const std::string& message) {
     }
     if (type == "overlay") {
         overlays_ = desktop_pet_overlays_from_message(value);
+        const auto grips = desktop_pet_overlays_from_message({{"rect", value.value("grip", nlohmann::json())}});
+        resize_grip_ = grips.empty() ? DesktopPetOverlay{} : grips.front();
         // Bubbles are below the handle and pointer-transparent. Controls and
         // the member list/notice are above it and must retain their own cursor.
         auto foreground = value;
         foreground.erase("bubbles");
+        foreground.erase("grip");
         foreground_overlays_ = desktop_pet_overlays_from_message(foreground);
         return;
     }
@@ -783,7 +789,8 @@ bool PetController::resize_grip_hit(NSPoint mouse) const {
     const NSRect frame = panel_.frame;
     const double x = mouse.x - frame.origin.x;
     const double y = frame.origin.y + frame.size.height - mouse.y;
-    if (!desktop_pet_resize_grip_hit_test(frame.size.width, frame.size.height, x, y)) return false;
+    if (!page_ready_ || !desktop_pet_resize_grip_hit_test(frame.size.width, frame.size.height, x, y,
+                                                        pet_kind_ == "office" ? nullptr : &resize_grip_)) return false;
     return std::none_of(foreground_overlays_.begin(), foreground_overlays_.end(), [&](const auto& rect) {
         return x >= rect[0] * frame.size.width && x < rect[2] * frame.size.width &&
                y >= rect[1] * frame.size.height && y < rect[3] * frame.size.height;

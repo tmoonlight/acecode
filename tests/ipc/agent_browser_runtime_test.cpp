@@ -62,15 +62,23 @@ AgentBrowserRuntimeManifest valid_manifest(const fs::path& root) {
 TEST(AgentBrowserRuntime, PathsKeepPersistentProfileSeparateFromRuntimeFile) {
     TempDir dir;
     EXPECT_EQ(agent_browser_user_data_path(acecode::path_to_utf8(dir.path())),
-              dir.path() / "agent-browser" / "webview2");
+              dir.path() / "agent_browser" / "webview2");
     EXPECT_EQ(agent_browser_macos_profile_identifier_path(
                   acecode::path_to_utf8(dir.path())),
-              dir.path() / "agent-browser" / "macos-profile-id");
+              dir.path() / "agent_browser" / "macos_profile_id");
     EXPECT_EQ(agent_browser_proxy_socket_path(
                   acecode::path_to_utf8(dir.path())),
-              dir.path() / "run" / "agent-browser.sock");
+              dir.path() / "run" / "agent_browser.sock");
     EXPECT_EQ(agent_browser_runtime_manifest_path(acecode::path_to_utf8(dir.path())),
-              dir.path() / "run" / "agent-browser.json");
+              dir.path() / "run" / "agent_browser.json");
+}
+
+TEST(AgentBrowserRuntime, KeepsAnExistingLegacyBrowserProfile) {
+    TempDir dir;
+    fs::create_directories(dir.path() / "agent-browser" / "webview2");
+    EXPECT_EQ(agent_browser_user_data_path(acecode::path_to_utf8(dir.path())),
+              dir.path() / "agent-browser" / "webview2");
+    EXPECT_FALSE(fs::exists(dir.path() / "agent_browser"));
 }
 
 TEST(AgentBrowserRuntime, NormalizesWebAndAbsoluteLocalAddresses) {

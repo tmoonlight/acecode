@@ -2,6 +2,7 @@
 
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/uuid.hpp"
 
 #include <sqlite3.h>
@@ -256,7 +257,7 @@ LoopStore::~LoopStore() {
 }
 
 std::filesystem::path LoopStore::default_database_path() {
-    return path_from_utf8(get_acecode_dir()) / "scheduled-loops.sqlite3";
+    return compatible_generated_path(path_from_utf8(get_acecode_dir()), "scheduled-loops.sqlite3");
 }
 
 bool LoopStore::initialize(StoreError* error) {

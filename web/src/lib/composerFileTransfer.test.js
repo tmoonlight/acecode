@@ -81,7 +81,7 @@ run('unnamed pasted images get a stable filename when File is available', () => 
 
   const files = filesFromClipboardEvent(event);
   assert.equal(files.length, 1);
-  assert.equal(files[0].name, 'pasted-image.png');
+  assert.equal(files[0].name, 'pasted_image.png');
   assert.equal(files[0].type, 'image/png');
 });
 
@@ -154,7 +154,7 @@ const imageClipboard = await readComposerClipboardData({ read: async () => [clip
 })] });
 assert.equal(imageClipboard.files.length, 1);
 assert.equal(imageClipboard.files[0].type, 'image/png');
-assert.equal(imageClipboard.files[0].name, 'pasted-image.png');
+assert.equal(imageClipboard.files[0].name, 'pasted_image.png');
 assert.equal(await imageClipboard.files[0].text(), 'png');
 assert.equal(imageClipboard.getData('text/html'), '');
 console.log('[pass] context clipboard chooses one image representation without duplicate HTML');

@@ -431,11 +431,11 @@ export function simulatorNeedsSettings({ status = null, message = '' } = {}) {
 }
 
 export function simulatorScreenshotFilename(name = '', date = new Date()) {
-  const safe = String(name || 'simulator').replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '') || 'simulator';
+  const safe = String(name || 'simulator').replace(/[-\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '') || 'simulator';
   const pad = (value) => String(value).padStart(2, '0');
   const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
-    + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
-  return `${safe}-${stamp}.png`;
+    + `_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return `${safe}_${stamp}.png`;
 }
 
 export function downloadSimulatorBlob(blob, filename, {

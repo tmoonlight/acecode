@@ -313,6 +313,7 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
                 {"type", "string"},
                 {"description", "Optional selected expert ID from the current "
                                 "team expert. Only a team lead may use it."}}},
+            {"sampling", model_sampling_overrides_schema()},
             {"timeout_seconds", json{
                 {"type", "integer"},
                 {"description", "Optional wait timeout. 0 or omitted = wait "
@@ -351,6 +352,12 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
             args.contains("expert_member") && args["expert_member"].is_string()
                 ? args["expert_member"].get<std::string>() : std::string{};
         const int timeout_seconds = parse_timeout_seconds(args);
+        std::optional<ModelSamplingOptions> sampling;
+        if (args.contains("sampling")) {
+            std::string error;
+            sampling = parse_model_sampling_overrides(args["sampling"], error);
+            if (!sampling) return error_result(error);
+        }
 
         // 深度限制:子代理不能再派生。父会话 id 从注入的 SessionManager 拿。
         std::string parent_id;
@@ -422,6 +429,7 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
             }
         }
         opts.model_name = model_name;
+        opts.sampling = sampling;
         if (opts.model_name.empty() && ctx.session_manager) {
             // Read the live parent selection, including TUI parents outside the
             // registry. An empty preset preserves the configured fallback.

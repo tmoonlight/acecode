@@ -4,6 +4,7 @@
 #include "utils/atomic_file.hpp"
 #include "utils/encoding.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/uuid.hpp"
 
 #include <asio.hpp>
@@ -667,7 +668,7 @@ RemoteWebProxyStatus ManagedRemoteWebProxyController::start_candidate_locked(
 
     const fs::path ready_path =
         acecode::path_from_utf8(runtime_dir_) /
-        ("remote-web-proxy-" + acecode::generate_uuid_v7() + ".json");
+        acecode::generated_file_name("remote_web_proxy_" + acecode::generate_uuid_v7() + ".json");
     const std::string ready_file = acecode::path_to_utf8(ready_path);
     std::error_code filesystem_error;
     fs::create_directories(ready_path.parent_path(), filesystem_error);

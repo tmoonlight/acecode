@@ -3,6 +3,7 @@
 #include "utils/atomic_file.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
@@ -128,8 +129,8 @@ DesktopOpenRequestParseResult parse_desktop_open_request_arguments(
 }
 
 std::string desktop_open_request_path() {
-    return path_to_utf8(
-        path_from_utf8(get_run_dir()) / "desktop-open-request.json");
+    return path_to_utf8(compatible_generated_path(
+        path_from_utf8(get_run_dir()), "desktop-open-request.json"));
 }
 
 bool publish_pending_desktop_open_request(
@@ -174,7 +175,7 @@ std::optional<DesktopOpenRequest> take_pending_desktop_open_request(
     }
 
     fs::path claimed = source;
-    claimed += ".processing-" + generate_uuid();
+    claimed += ".processing_" + generated_file_name(generate_uuid());
     fs::rename(source, claimed, ec);
     if (ec) {
         if (error) {

@@ -57,6 +57,7 @@
 #include "utils/logger.hpp"
 #include "workspace_state.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/uuid.hpp"
 #include "version.hpp"
 
@@ -853,9 +854,8 @@ int main(int argc, char** argv) {
     }
 
     const std::int64_t desktop_owner_pid = acecode::daemon::current_pid();
-    const std::string shared_run_dir = path_to_utf8(
-        path_from_utf8(acecode::get_acecode_dir()) / "run" /
-        path_from_utf8(instance_plan.run_subdirectory));
+    const std::string shared_run_dir = path_to_utf8(acecode::compatible_generated_path(
+        path_from_utf8(acecode::get_acecode_dir()) / "run", instance_plan.run_subdirectory));
     if (!instance_plan.primary) {
         LOG_INFO("[desktop] developer multi-instance startup with isolated daemon runtime");
     }
@@ -2614,7 +2614,7 @@ int main(int argc, char** argv) {
                 files.push_back({value.at("name").get<std::string>(), value.at("data_base64").get<std::string>()});
             }
             const auto stored = acecode::desktop::store_context_data_files(
-                path_to_utf8(path_from_utf8(acecode::get_acecode_dir()) / "composer-files"), files);
+                path_to_utf8(acecode::compatible_generated_path(path_from_utf8(acecode::get_acecode_dir()), "composer-files")), files);
             if (!stored) return nlohmann::json{{"ok", false}, {"error", stored.error}}.dump();
             auto items = nlohmann::json::array();
             for (const auto& item : stored.items) items.push_back(context_item_json(item));

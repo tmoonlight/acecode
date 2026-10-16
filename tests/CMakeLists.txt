@@ -74,9 +74,7 @@ add_executable(acecode_unit_tests ${ACECODE_TEST_SOURCES})
 add_executable(acecode_runtime_log_fixture
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/runtime_log_fixture.cpp
     ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
-target_include_directories(acecode_runtime_log_fixture PRIVATE
-    ${CMAKE_SOURCE_DIR}/external/ftxui/src)
-target_link_libraries(acecode_runtime_log_fixture PRIVATE acecode_include_roots)
+target_link_libraries(acecode_runtime_log_fixture PRIVATE acecode_include_roots ftxui::component)
 if(MSVC)
     set_target_properties(acecode_runtime_log_fixture PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")

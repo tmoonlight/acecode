@@ -48,7 +48,8 @@ struct ScopedSandboxTemp {
     ~ScopedSandboxTemp() {
         std::error_code ec;
         if (owned && !path.empty() &&
-            path.parent_path() == path_from_utf8(system_temp_dir()) / "acecode-sandbox" &&
+            (path.parent_path() == path_from_utf8(system_temp_dir()) / "acecode_sandbox" ||
+             path.parent_path() == path_from_utf8(system_temp_dir()) / "acecode-sandbox") &&
             fs::weakly_canonical(path, ec) == path && !ec) {
             fs::remove_all(path, ec);
         }
@@ -125,7 +126,8 @@ TEST(SandboxBackendWin, DefaultTempWritesWithoutChangingSharedTempAcl) {
     ScopedSandboxTemp temporary(request.policy.temporary_directory);
     const auto shared = path_from_utf8(system_temp_dir());
     ASSERT_NE(temporary.path, shared);
-    ASSERT_EQ(temporary.path.parent_path(), shared / "acecode-sandbox");
+    ASSERT_TRUE(temporary.path.parent_path() == shared / "acecode_sandbox" ||
+                temporary.path.parent_path() == shared / "acecode-sandbox");
     ASSERT_TRUE(temporary.owned);
     const auto shared_before = dacl_snapshot(shared);
     const auto unrelated_before = dacl_snapshot(unrelated);

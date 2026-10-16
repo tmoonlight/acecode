@@ -753,6 +753,47 @@ std::optional<ModelSamplingOptions> parse_model_sampling_options(
     return result;
 }
 
+std::optional<ModelSamplingOptions> parse_model_sampling_overrides(
+    const nlohmann::json& node, std::string& err) {
+    if (node.is_null()) return ModelSamplingOptions{};
+    if (node.is_object()) {
+        for (const auto& item : node.items()) {
+            if (item.key() != "temperature" && item.key() != "top_p" &&
+                item.key() != "top_k" && item.key() != "min_p") {
+                err = "unknown sampling field: " + item.key();
+                return std::nullopt;
+            }
+        }
+    }
+    return parse_model_sampling_options(node, err);
+}
+
+ModelSamplingOptions merge_model_sampling_options(
+    ModelSamplingOptions defaults, const ModelSamplingOptions& overrides) {
+    if (overrides.temperature) defaults.temperature = overrides.temperature;
+    if (overrides.top_p) defaults.top_p = overrides.top_p;
+    if (overrides.top_k) defaults.top_k = overrides.top_k;
+    if (overrides.min_p) defaults.min_p = overrides.min_p;
+    return defaults;
+}
+
+nlohmann::json model_sampling_overrides_schema() {
+    using json = nlohmann::json;
+    return {
+        {"type", json::array({"object", "null"})},
+        {"description", "Optional per-agent sampling overrides. Fields inherit from the "
+                        "selected expert, then the model profile when omitted or null. "
+                        "Only use parameters supported by the selected provider/protocol."},
+        {"additionalProperties", false},
+        {"properties", {
+            {"temperature", {{"type", json::array({"number", "null"})}, {"minimum", 0}, {"maximum", 2}}},
+            {"top_p", {{"type", json::array({"number", "null"})}, {"exclusiveMinimum", 0}, {"maximum", 1}}},
+            {"top_k", {{"type", json::array({"integer", "null"})}, {"minimum", 1}, {"maximum", 2147483647}}},
+            {"min_p", {{"type", json::array({"number", "null"})}, {"minimum", 0}, {"maximum", 1}}},
+        }},
+    };
+}
+
 nlohmann::json model_sampling_options_to_json(
     const ModelSamplingOptions& options) {
     nlohmann::json result = nlohmann::json::object();

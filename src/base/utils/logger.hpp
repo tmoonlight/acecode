@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "append_file.hpp"
+#include "generated_file_names.hpp"
 
 namespace acecode {
 
@@ -68,7 +69,7 @@ public:
         enabled_ = ofs_.is_open();
     }
 
-    // 滚动模式:写入 dir/<base_name>-<YYYY-MM-DD>.log,跨本地午夜
+    // 滚动模式:写入 dir/<base_name>_<YYYY_MM_DD>.log,跨本地午夜
     // 自动滚动到新日期文件。mirror_stderr=true 时每条日志同时写 stderr
     // (foreground 模式)。dir 不存在会被创建。
     void init_with_rotation(const std::string& dir,
@@ -224,7 +225,7 @@ private:
     void open_rotated_locked_(const std::string& date) {
         if (ofs_.is_open()) ofs_.close();
         auto path = path_from_utf8_(rotation_dir_) /
-                    (rotation_base_ + "-" + date + ".log");
+                    generated_file_name(rotation_base_ + "_" + date + ".log");
         ofs_.open(path);
         last_open_date_ = date;
         enabled_ = ofs_.is_open();

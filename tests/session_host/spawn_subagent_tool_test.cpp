@@ -18,6 +18,9 @@
 #include "session_host/session_registry.hpp"
 #include "session/session_storage.hpp"
 #include "session_host/tools/spawn_subagent_tool.hpp"
+#include "session_host/tools/mesh_agent_tools.hpp"
+#include "session_host/mesh/mesh_agent_service.hpp"
+#include "provider/openai_provider.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
 #include "worktree/worktree_manager.hpp"
@@ -197,6 +200,165 @@ struct SubagentFixture {
 
 // 场景: deps 未回填(TUI / registry 尚未构造)→ 报"仅 daemon 可用"而不是
 // 解引用空指针崩溃。
+TEST(AgentSampling, SpawnOverridesPersistAndSurviveReloadAndResume) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    fx.config.saved_models[0].sampling.temperature = 1;
+    fx.config.saved_models[0].sampling.top_p = 0.9;
+    RecordingSessionClient recording;
+    fx.deps->client = &recording;
+    acecode::SessionOptions opts;
+    opts.cwd = fx.cwd.string();
+    opts.swarm_mode = "star";
+    const auto parent_id = fx.registry.create(opts);
+    const auto result = fx.tools.execute("spawn_subagent",
+        R"({"prompt":"sample","wait":false,"sampling":{"temperature":0,"min_p":0}})", fx.ctx_for(parent_id));
+    ASSERT_TRUE(result.success) << result.output;
+    const auto child_id = result.metadata["subagent_session_id"].get<std::string>();
+    auto read_sampling = [&](const std::string& id) {
+        auto provider = std::dynamic_pointer_cast<acecode::OpenAiCompatProvider>(
+            fx.registry.acquire(id)->model_binding->provider_snapshot());
+        EXPECT_NE(provider, nullptr);
+        return provider ? provider->request_options().sampling : acecode::ModelSamplingOptions{};
+    };
+    EXPECT_EQ(read_sampling(child_id).temperature, 0);
+    EXPECT_EQ(read_sampling(child_id).min_p, 0);
+    EXPECT_EQ(read_sampling(child_id).top_p, 0.9);
+    EXPECT_EQ(read_sampling(parent_id).temperature, 1);
+    EXPECT_EQ(fx.config.saved_models[0].sampling.temperature, 1);
+    const auto meta = acecode::SessionStorage::read_meta(acecode::SessionStorage::meta_path(
+        acecode::SessionStorage::get_project_dir(opts.cwd), child_id));
+    EXPECT_EQ(meta.sampling.temperature, 0);
+    EXPECT_FALSE(meta.sampling.top_p);
+    fx.config.saved_models[0].sampling.top_p = 0.7;
+    const auto reloaded = fx.registry.reload_model_profile(child_id, true);
+    ASSERT_TRUE(reloaded && reloaded->ok);
+    EXPECT_EQ(read_sampling(child_id).top_p, 0.7);
+    EXPECT_EQ(read_sampling(child_id).temperature, 0);
+    fx.registry.destroy(child_id);
+    ASSERT_TRUE(fx.registry.resume(child_id, opts));
+    EXPECT_EQ(read_sampling(child_id).temperature, 0);
+    EXPECT_EQ(read_sampling(child_id).min_p, 0);
+    EXPECT_EQ(read_sampling(child_id).top_p, 0.7);
+    EXPECT_EQ(fx.registry.acquire(child_id)->sm->current_sampling_overrides().temperature, 0);
+    fx.registry.shutdown_all();
+}
+
+TEST(AgentSampling, ExpertsAndTaskOverridesMergeAndInvalidSwitchesKeepProvider) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    fx.config.saved_models[0].sampling.top_p = 0.9;
+    acecode::ExpertDraft expert;
+    expert.id = "sampling-reviewer";
+    expert.display_name = "Reviewer";
+    expert.lead = {"lead", "Reviewer", "Review", "Review carefully"};
+    expert.sampling.temperature = 0.4;
+    expert.sampling.top_k = 20;
+    std::string error;
+    ASSERT_TRUE(fx.experts.create_global(expert, &error)) << error;
+    acecode::SessionOptions opts;
+    opts.cwd = fx.cwd.string();
+    opts.expert_id = expert.id;
+    opts.sampling = acecode::ModelSamplingOptions{};
+    opts.sampling->temperature = 0.8;
+    const auto id = fx.registry.create(opts);
+    const auto child = fx.registry.acquire(id);
+    auto get_provider = [&] {
+        return std::dynamic_pointer_cast<acecode::OpenAiCompatProvider>(child->model_binding->provider_snapshot());
+    };
+    ASSERT_NE(get_provider(), nullptr);
+    EXPECT_EQ(get_provider()->request_options().sampling.temperature, 0.8);
+    EXPECT_EQ(get_provider()->request_options().sampling.top_k, 20);
+    EXPECT_EQ(get_provider()->request_options().sampling.top_p, 0.9);
+
+    expert.id = "sampling-writer";
+    expert.sampling.top_k = 40;
+    ASSERT_TRUE(fx.experts.create_global(expert, &error)) << error;
+    const auto switched = fx.registry.switch_expert(id, expert.id);
+    ASSERT_EQ(switched.status, acecode::ExpertSwitchStatus::Accepted);
+    ASSERT_TRUE(switched.applied);
+    EXPECT_EQ(get_provider()->request_options().sampling.top_k, 40);
+    EXPECT_EQ(get_provider()->request_options().sampling.temperature, 0.8);
+    const auto previous = get_provider();
+    fx.config.saved_models[1].api_protocol = "responses";
+    EXPECT_FALSE(fx.registry.switch_model(id, fx.config.saved_models[1], nullptr, &error));
+    EXPECT_NE(error.find("top_k"), std::string::npos);
+    EXPECT_EQ(get_provider(), previous);
+    auto plain_opts = opts;
+    plain_opts.expert_id.clear();
+    plain_opts.sampling.reset();
+    plain_opts.model_name = "parent-current";
+    const auto plain_id = fx.registry.create(plain_opts);
+    const auto invalid = fx.registry.switch_expert(plain_id, expert.id);
+    EXPECT_EQ(invalid.status, acecode::ExpertSwitchStatus::Failed);
+    EXPECT_NE(invalid.error.find("top_k"), std::string::npos);
+    EXPECT_TRUE(fx.registry.acquire(plain_id)->sm->current_expert_id().empty());
+    fx.registry.shutdown_all();
+}
+
+TEST(AgentSampling, InvalidStoredSamplingCannotResumeWithoutItsExpertBinding) {
+    SubagentFixture fx;
+    const auto path = fx.cwd / "invalid.meta.json";
+    { std::ofstream out(path); out << R"({"id":"invalid","sampling":{"top_p":0},"expert_id":"restricted"})"; }
+    EXPECT_TRUE(acecode::SessionStorage::read_meta(path.string()).id.empty());
+}
+
+TEST(AgentSampling, InvalidSpawnSamplingNeverStartsTask) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    fx.config.saved_models[0].api_protocol = "responses";
+    RecordingSessionClient recording;
+    fx.deps->client = &recording;
+    for (const auto& sampling : {R"({"top_k":20})", R"({"temperature":"1"})", R"({"top_p":0})", R"({"unknown":1})"}) {
+        const auto args = nlohmann::json{{"prompt", "invalid"}, {"wait", false},
+            {"sampling", nlohmann::json::parse(sampling)}};
+        const auto result = fx.tools.execute("spawn_subagent", args.dump(), fx.ctx_for(""));
+        EXPECT_FALSE(result.success) << sampling;
+        EXPECT_NE(result.output.find("sampling"), std::string::npos) << result.output;
+        EXPECT_EQ(fx.registry.size(), 0u);
+        EXPECT_TRUE(recording.sent_session_id.empty());
+    }
+}
+
+TEST(AgentSampling, MeshToolExposesSamplingAndPassesItToChildProvider) {
+    SubagentFixture fx(true);
+    fx.configure_models();
+    fx.config.swarm.mesh.expose_model_overrides = false;
+    acecode::mesh::MeshAgentService::Deps deps;
+    deps.registry = &fx.registry;
+    deps.config = &fx.config;
+    deps.experts = &fx.experts;
+    auto service = std::make_shared<acecode::mesh::MeshAgentService>(deps);
+    service->attach();
+    acecode::register_mesh_agent_tools(fx.tools, service, fx.config);
+    acecode::ModelSamplingOptions observed;
+    service->set_on_agent_loaded([&](const std::string& child_id, const std::string&) {
+        const auto child = fx.registry.acquire(child_id);
+        auto provider = std::dynamic_pointer_cast<acecode::OpenAiCompatProvider>(child->model_binding->provider_snapshot());
+        ASSERT_NE(provider, nullptr);
+        observed = provider->request_options().sampling;
+        // Exercise real construction, then keep the submitted turn offline.
+        child->model_binding->install_runtime_snapshot(std::make_shared<EchoStreamProvider>(),
+            child->model_binding->state_snapshot(), child->model_binding->applied_revision());
+    });
+    acecode::SessionOptions opts;
+    opts.cwd = fx.cwd.string();
+    opts.swarm_mode = "mesh";
+    const auto id = fx.registry.create(opts);
+    const auto result = fx.tools.execute("agent_spawn",
+        R"({"task_name":"worker","message":"go","fork_turns":"none","sampling":{"temperature":0,"top_k":20}})", fx.ctx_for(id));
+    ASSERT_TRUE(result.success) << result.output;
+    EXPECT_EQ(observed.temperature, 0);
+    EXPECT_EQ(observed.top_k, 20);
+    const auto size = fx.registry.size();
+    const auto invalid = fx.tools.execute("agent_spawn",
+        R"({"task_name":"bad","message":"go","sampling":{"min_p":2}})", fx.ctx_for(id));
+    EXPECT_FALSE(invalid.success);
+    EXPECT_EQ(fx.registry.size(), size);
+    service->shutdown();
+    fx.registry.shutdown_all();
+}
+
 TEST(SpawnSubagentTool, RejectsWhenDepsMissing) {
     auto empty = std::make_shared<acecode::SubagentToolDeps>();
     auto tool = acecode::create_spawn_subagent_tool(empty);

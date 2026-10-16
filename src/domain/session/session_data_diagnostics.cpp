@@ -51,7 +51,7 @@ nlohmann::json diagnose_session_data(
         result["cancelled"] = true;
         return true;
     };
-    const std::regex canonical("[0-9]{8}-[0-9]{6}-[0-9a-fA-F]{4}\\.jsonl");
+    const std::regex canonical("[0-9]{8}[-_][0-9]{6}[-_][0-9a-fA-F]{4}\\.jsonl");
     for (const auto& workspace : workspaces) {
         if (cancelled()) break;
         // Hashes, never cwd, select directories beneath the supplied root.

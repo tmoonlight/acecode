@@ -2,6 +2,7 @@
 
 #include "utils/atomic_file.hpp"
 #include "utils/constants.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
@@ -58,7 +59,7 @@ std::string ensure_run_dir_for(const std::string& run_dir) {
 }
 
 std::string run_path_for(const std::string& run_dir, const char* fname) {
-    return path_to_utf8(effective_run_dir_path(run_dir) / fname);
+    return path_to_utf8(compatible_generated_path(effective_run_dir_path(run_dir), fname));
 }
 
 std::string run_path(const char* fname) {

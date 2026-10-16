@@ -563,7 +563,7 @@ void Conversations::submit(const im::Inbound& inbound) {
         nlohmann::json saved = nlohmann::json::array();
         std::filesystem::create_directories(deps_.media_dir);
         for (const auto& file : files) {
-            const auto temp = deps_.media_dir / ("in-" + platform::secure_random_token(16));
+            const auto temp = deps_.media_dir / ("in_" + platform::secure_random_token(16));
             std::string error;
             if (!transport->download(file, temp, &error)) {
                 std::error_code ec;

@@ -444,6 +444,13 @@ TEST(HeadlessOptions, RejectsSessionIdShapedLikeLegacyPidFile) {
     auto ok = parse_headless_cli_options({"-p", "--session-id", "foo-123", "go"});
     EXPECT_TRUE(ok.error.empty()) << ok.error;
     EXPECT_EQ(ok.session_id, "foo-123");
+
+    const auto new_id = parse_headless_cli_options(
+        {"-p", "--session-id", "20261016_100000_abcd", "go"});
+    EXPECT_TRUE(new_id.error.empty()) << new_id.error;
+    const auto new_pid = parse_headless_cli_options(
+        {"-p", "--session-id", "20261016_100000_abcd_9999", "go"});
+    EXPECT_FALSE(new_pid.error.empty());
 }
 
 // 场景:is_valid_session_id_token 的边界 —— 恰好 64 字符(合法上限)与

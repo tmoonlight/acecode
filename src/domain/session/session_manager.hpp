@@ -227,6 +227,8 @@ public:
     // reasoning choice; mesh children inherit both from their spawner.
     std::string current_cwd() const;
     std::optional<std::string> current_reasoning_effort() const;
+    bool set_sampling_overrides(ModelSamplingOptions sampling, bool persist_immediately = false);
+    ModelSamplingOptions current_sampling_overrides() const;
 
     // Persist the current expert identity selected for this session.
     void set_expert_binding(std::string expert_id, std::string member_id = {});
@@ -330,6 +332,7 @@ private:
     std::string model_name_;
     std::string model_preset_;
     std::optional<std::string> reasoning_effort_;
+    ModelSamplingOptions sampling_;
     std::string surface_ = "tui";
     bool no_workspace_ = false;
     std::string memory_mode_;  // "off" = 本会话关闭记忆;空 = 开启

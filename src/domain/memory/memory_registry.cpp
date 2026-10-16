@@ -40,7 +40,7 @@ std::string atomic_write(const fs::path& target, const std::string& content) {
     std::mt19937_64 gen(rd());
     auto suffix = std::to_string(gen());
     fs::path tmp = target;
-    tmp += ".tmp-" + suffix;
+    tmp += ".tmp_" + suffix;
 
     {
         std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);

@@ -1,12 +1,12 @@
 #include "theme_store.hpp"
 #include "utils/base64.hpp"
 #include "theme_package.hpp"
-
 #include "utils/semver.hpp"
 #include "image/image_processor.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/sha256.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/uuid.hpp"
 
 #include <algorithm>
@@ -127,7 +127,7 @@ std::string export_filename(const json& definition) {
     }
     while (!name.empty() && (name.back() == ' ' || name.back() == '.')) name.pop_back();
     if (name.empty()) name = definition.at("id").get<std::string>();
-    return "ACECode-" + name + ".zip";
+    return generated_file_name("ACECode_" + name + ".zip");
 }
 
 void replace_file(const fs::path& source, const fs::path& destination) {
@@ -400,7 +400,7 @@ ThemeStore::ThemeStore(fs::path root, UpdateBaseProvider update_base, ThemeTrans
         return upgrade::download_to_file(url, path, 120000, progress, cancel);
     };
     try {
-        auto cached = read_json(root_ / "catalog-v2.json");
+        auto cached = read_json(compatible_generated_path(root_, "catalog-v2.json"));
         if (cached.value("source_base_url", "") == base_ && valid_theme_catalog(cached.at("catalog"))) {
             catalog_ = std::move(cached["catalog"]);
         }
@@ -442,7 +442,7 @@ json ThemeStore::catalog(bool refresh) {
             if (!valid_theme_catalog(parsed))
                 throw ThemeError(503, "THEME_CATALOG_UNAVAILABLE", "Invalid theme catalog response");
             catalog_ = std::move(parsed);
-            write_file(root_ / "catalog-v2.json", json{{"source_base_url", base_}, {"catalog", catalog_}}.dump());
+            write_file(compatible_generated_path(root_, "catalog-v2.json"), json{{"source_base_url", base_}, {"catalog", catalog_}}.dump());
         } catch (const std::exception& error) { offline = true; failure_message = error.what(); }
         catch (...) { offline = true; }
     }
@@ -504,7 +504,7 @@ json ThemeStore::claim_startup_theme() {
     std::error_code ec;
     fs::create_directories(root_, ec);
     if (ec) throw ThemeError(500, "THEME_SAVE_FAILED", "Could not save startup theme attempt");
-    const bool claimed = fs::create_directory(root_ / ".national-day-2026-attempted", ec);
+    const bool claimed = fs::create_directory(compatible_generated_path(root_, ".national-day-2026-attempted"), ec);
     if (ec) throw ThemeError(500, "THEME_SAVE_FAILED", "Could not save startup theme attempt");
     return {{"id", kNationalDayThemeId}, {"claimed", claimed}};
 }
@@ -649,7 +649,7 @@ std::string ThemeStore::image(const std::string& id, const std::string& kind) {
     if (kind != "thumbnail") throw ThemeError(404, "THEME_NOT_INSTALLED", "Theme is not installed");
     const auto e = descriptor(id);
     std::lock_guard<std::mutex> preview_lock(preview_mu_);
-    const auto file = root_ / "previews" / (id + "-" + e.at("version").get<std::string>() + ".png");
+    const auto file = compatible_generated_path(root_ / "previews", id + "-" + e.at("version").get<std::string>() + ".png");
     if (!matches_file(file, e.at("thumbnail"))) {
         fs::create_directories(file.parent_path());
         auto tmp = file; tmp += ".download";
@@ -810,7 +810,7 @@ void ThemeStore::run_export(const std::shared_ptr<ThemeExportJob>& job) {
         if (!job->destination.empty()) {
             update({{"state", "saving"}, {"progress", nullptr}});
             temporary_destination = job->destination;
-            temporary_destination += ".acecode-" + job_id + ".tmp";
+            temporary_destination += ".acecode_" + generated_file_name(job_id) + ".tmp";
             if (fs::exists(temporary_destination)) throw ThemeError(409, "THEME_SAVE_FAILED", "Theme save temporary file already exists");
             std::ofstream output(temporary_destination, std::ios::binary | std::ios::trunc);
             if (!output) throw ThemeError(500, "THEME_SAVE_FAILED", "Could not create theme package", path_to_utf8(job->destination));
@@ -893,7 +893,7 @@ json ThemeStore::remove_local(const std::string& id, const std::function<void()>
             } catch (...) { /* An unidentifiable legacy archive is not safe to claim. */ }
         }
     }
-    const auto quarantine = checked_path(root_, ".deleted-" + generate_uuid_v7());
+    const auto quarantine = checked_path(root_, ".deleted_" + generated_file_name(generate_uuid_v7()));
     std::vector<std::pair<fs::path, fs::path>> moved;
     try {
         fs::create_directory(quarantine);

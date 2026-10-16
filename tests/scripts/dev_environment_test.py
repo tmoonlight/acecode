@@ -139,11 +139,25 @@ class DevEnvironmentTest(unittest.TestCase):
         root = Path("C:/worktrees/my project")
         with patch.object(dev_environment, "current_commit", return_value="abcdef1234567890"):
             runtime = dev_environment.worktree_runtime_dir(root)
-        self.assertEqual(runtime, root / ".acecode/dev-run/my-project-abcdef123456")
+        self.assertEqual(runtime, root / ".acecode/dev_run/my_project_abcdef123456")
 
     def test_noninteractive_target_selection_fails(self):
         with patch.object(dev_environment.sys, "stdin", None):
             self.assertIsNone(dev_environment.choose_target(None))
+
+    def test_existing_legacy_runtime_and_logs_remain_discoverable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "old-project"
+            legacy = root / ".acecode/dev-run/old-project-abcdef123456"
+            legacy.mkdir(parents=True)
+            (legacy / "daemon-worker.log").write_text("old worker", encoding="utf-8")
+            (legacy / "daemon-startup.log").write_text("old startup", encoding="utf-8")
+            with patch.object(dev_environment, "current_commit", return_value="abcdef1234567890"):
+                self.assertEqual(dev_environment.worktree_runtime_dir(root), legacy)
+            self.assertFalse((root / ".acecode/dev_run").exists())
+            detail = dev_environment.worker_failure_detail(legacy, "failed")
+            self.assertIn(str(legacy / "daemon-worker.log"), detail)
+            self.assertIn(str(legacy / "daemon-startup.log"), detail)
 
     def test_sccache_discovery_prefers_usable_path_and_has_install_hint(self):
         completed = subprocess.CompletedProcess([], 0, stdout="sccache 1.0")
@@ -521,12 +535,12 @@ class DevEnvironmentTest(unittest.TestCase):
             run_dir = Path(directory)
             command = ["C:/build/acecode.exe", "daemon", "--foreground"]
             dev_environment.open_worker_log(run_dir, command).close()
-            log = run_dir / "daemon-worker.log"
+            log = run_dir / "daemon_worker.log"
             self.assertIn("spawn: C:/build/acecode.exe daemon --foreground", log.read_text(encoding="utf-8"))
             log.write_text("x" * (dev_environment.WORKER_LOG_MAX_BYTES + 1), encoding="utf-8")
             dev_environment.open_worker_log(run_dir, command).close()
             self.assertLess(log.stat().st_size, dev_environment.WORKER_LOG_MAX_BYTES)
-            self.assertTrue((run_dir / "daemon-worker.log.1").exists())
+            self.assertTrue((run_dir / "daemon_worker.log.1").exists())
 
     def test_spawn_redirects_worker_output_into_the_runtime_log(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -539,8 +553,8 @@ class DevEnvironmentTest(unittest.TestCase):
             options = popen.call_args.kwargs
             self.assertEqual(popen.call_args.args[0], command)
             self.assertEqual(options["stderr"], subprocess.STDOUT)
-            self.assertEqual(Path(options["stdout"].name), run_dir / "daemon-worker.log")
-            self.assertTrue((run_dir / "daemon-worker.log").is_file())
+            self.assertEqual(Path(options["stdout"].name), run_dir / "daemon_worker.log")
+            self.assertTrue((run_dir / "daemon_worker.log").is_file())
 
     def test_worker_exit_fails_before_the_health_timeout(self):
         root = Path("C:/work")
@@ -560,8 +574,8 @@ class DevEnvironmentTest(unittest.TestCase):
              patch.object(dev_environment, "daemon_port", return_value=28080):
             with contextlib.redirect_stderr(io.StringIO()) as output:
                 self.assertIsNone(dev_environment.start_quick_web_daemon(root, candidate, run_dir, 28080))
-        self.assertIn("daemon-worker.log", output.getvalue())
-        self.assertIn("daemon-startup.log", output.getvalue())
+        self.assertIn("daemon_worker.log", output.getvalue())
+        self.assertIn("daemon_startup.log", output.getvalue())
 
     def test_pid_is_alive_reads_the_process_table(self):
         self.assertTrue(dev_environment.pid_is_alive(os.getpid()))

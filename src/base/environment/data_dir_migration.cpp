@@ -327,7 +327,7 @@ MigrationTargetCheck validate_migration_target(const std::string& current_dir,
     }
 
     // 真写一个探针文件确认可写(只读盘 / 权限不足在这里暴露,而不是复制到一半)。
-    const fs::path probe = target_c / ".acecode-write-probe";
+    const fs::path probe = target_c / ".acecode_write_probe";
     {
         std::ofstream ofs(probe, std::ios::binary | std::ios::trunc);
         if (!ofs.is_open()) {
@@ -349,7 +349,7 @@ bool migration_excludes_entry(const fs::path& relative) {
     const std::string first = path_to_utf8(*relative.begin());
     // edge-app-profile:webapp 兼容模式下 Edge --app 的 user-data-dir,每次启动都用全新的
     // PID 子目录并清掉旧的,持续在写又没有要保留的数据,整个排除。
-    if (first == "run" || first == "tmp" || first == "edge-app-profile") return true;
+    if (first == "run" || first == "tmp" || first == "edge-app-profile" || first == "edge_app_profile") return true;
     if (first == kDataDirRedirectFileName && std::distance(relative.begin(), relative.end()) == 1) {
         return true;
     }
@@ -361,7 +361,7 @@ bool migration_excludes_entry(const fs::path& relative) {
     for (auto part = relative.begin(); part != relative.end() && count < 5; ++part) {
         segments[count++] = path_to_utf8(*part);
     }
-    if (count == 5 && segments[0] == "cache" && segments[1] == "no-workspace" &&
+    if (count == 5 && segments[0] == "cache" && (segments[1] == "no-workspace" || segments[1] == "no_workspace") &&
         segments[3] == ".acecode" && segments[4] == "tmp") {
         return true;
     }
