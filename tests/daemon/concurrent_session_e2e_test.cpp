@@ -78,8 +78,8 @@ TEST(SessionConcurrencyE2E, TwoRealSubprocessesProduceCanonicalSessionFiles) {
         << "project_dir should be created by a writer subprocess: "
         << project_dir.string();
 
-    std::regex canonical_re(R"(^\d{8}-\d{6}-[0-9a-f]{4}\.jsonl$)");
-    std::regex pid_re(R"(^\d{8}-\d{6}-[0-9a-f]{4}-\d+\.jsonl$)");
+    std::regex canonical_re(R"(^\d{8}_\d{6}_[0-9a-f]{4}\.jsonl$)");
+    std::regex pid_re(R"(^\d{8}[-_]\d{6}[-_][0-9a-f]{4}[-_]\d+\.jsonl$)");
     std::vector<fs::path> jsonl_paths;
     for (const auto& e : fs::directory_iterator(project_dir)) {
         if (!e.is_regular_file()) continue;
