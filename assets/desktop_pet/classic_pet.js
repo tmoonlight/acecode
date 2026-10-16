@@ -139,6 +139,10 @@
       const sway = (1 - Math.cos(now / 1900)) * peekStyle().hidden / 3;
       peekLean += ((hovered ? 12 : base === 'waiting' ? 9 : 0) - peekLean) * 0.12;
       o.dx = (docked === 'right' ? -1 : 1) * Math.min(peekStyle().hidden, sway + peekLean);
+      // Pixel art drawn without smoothing only changes once the offset crosses a pixel edge, so near
+      // the sway's turning points it would stand still for about two seconds; a small vertical bob a
+      // quarter period apart keeps it moving (the two never slow down together).
+      if (!peekStyle().smooth) o.dy = Math.sin(now / 1900) * 1.5;
       const since = now - peekBounceAt;
       if (peekBounce === 'happy' && since < 900) o.dy = -Math.abs(Math.sin(since / 90)) * 6 * (1 - since / 900);
       else if (peekBounce === 'shake' && since < 700) o.dx += Math.sin(since / 28) * 3 * (1 - since / 700);

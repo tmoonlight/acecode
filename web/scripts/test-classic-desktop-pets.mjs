@@ -326,6 +326,11 @@ try {
       await page.mouse.move(gripBox.x + 8, gripBox.y + 8);
     }
     assert.ok(await onGrip(), 'pointer reaches the resize handle');
+    // 场景:有会话卡片时缩放。bug 表现:三角形落在卡片区域(含阴影留白)下面,鼠标到不了,macOS 也把它当卡片。
+    // 期望:三角形始终在收拢的卡片区域下沿之下。
+    assert.ok(await page.evaluate(() => { const stackBox = document.getElementById('stack');
+      return stackBox.hidden || document.getElementById('grip').getBoundingClientRect().top >= stackBox.getBoundingClientRect().bottom - 0.5; }),
+    'the resize handle stays below the card stack');
     await page.waitForFunction(() => Number(getComputedStyle(document.getElementById('grip')).opacity) === 1);
     await page.waitForTimeout(1200);
     assert.ok(await onGrip(), 'the resize handle holds still under the pointer while the pet keeps moving');
