@@ -22,6 +22,7 @@ constexpr const char* kDisplayInfoAction = "com.apple.coredevice.action.displayi
 struct RotationCache {
     int rotation = 0;
     bool unsupported = false;
+    bool failed = false;  // the provider exists but gave no usable answer
     std::chrono::steady_clock::time_point checked;
 };
 
@@ -42,13 +43,16 @@ xpc_object_t core_device_version() {
     return out;
 }
 
+// Xcode 27 reports displays[].currentOrientation as rot0 / rot90 / rot180 /
+// rot270 (verified on the xcode-27 runner); anything else is no answer.
 int rotation_from(const char* value) {
-    if (!value) return 0;
+    if (!value) return -1;
     const std::string text = value;
+    if (text == "rot0") return 0;
     if (text == "rot90") return 90;
     if (text == "rot180") return 180;
     if (text == "rot270") return 270;
-    return 0;
+    return -1;
 }
 
 // Returns -1 when the provider did not answer. raw receives a description of
@@ -86,6 +90,7 @@ int query_rotation(id device, const std::string& udid, bool& unsupported, std::s
                         xpc_object_t display = xpc_array_get_value(displays, index);
                         if (xpc_get_type(display) != XPC_TYPE_DICTIONARY) continue;
                         const int value = rotation_from(xpc_dictionary_get_string(display, "currentOrientation"));
+                        if (value < 0) continue;
                         if (xpc_dictionary_get_bool(display, "primary") || rotation < 0) rotation = value;
                         if (xpc_dictionary_get_bool(display, "primary")) break;
                     }
@@ -170,6 +175,9 @@ int display_rotation(id device, const std::string& udid) {
         if (found != g_rotations.end()) {
             const auto age = now - found->second.checked;
             if (age < std::chrono::milliseconds(600)) return found->second.rotation;
+            // A provider that timed out is retried every few seconds, not on
+            // every touch: each attempt can block the caller for 2 s.
+            if (found->second.failed && age < std::chrono::seconds(5)) return found->second.rotation;
             if (found->second.unsupported && age < std::chrono::seconds(30)) {
                 const int rotation = legacy_window_rotation(udid);
                 found->second.rotation = rotation;
@@ -184,6 +192,7 @@ int display_rotation(id device, const std::string& udid) {
     entry.checked = now;
     // Only "service unknown" is sticky; a slow answer keeps the last value.
     entry.unsupported = unsupported;
+    entry.failed = !unsupported && rotation < 0;
     if (rotation >= 0) entry.rotation = rotation;
     // No provider, or a reply without a recognizable orientation: use the
     // orientation Simulator.app applied to the device window.

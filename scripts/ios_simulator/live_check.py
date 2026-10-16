@@ -300,24 +300,30 @@ def check_device(helper, udid, out, developer_dir):
         if search is None:
             search = find(tree, lambda n: label_of(n) in ("Toolbar", "工具栏"))
         if search:
-            sx, sy = center(search)
-            tap(helper, udid, sx, sy)
-            time.sleep(1.5)
-            _, before_png = helper.call("screenshot", udid=udid, format="png", scale=0.5)
-            events = []
-            for ch in "wifi":
-                events += [{"usage": LETTER_USAGE[ch], "phase": "down"}, {"usage": LETTER_USAGE[ch], "phase": "up"},
-                           {"delay_ms": 40}]
-            keys, _ = helper.call("keys", udid=udid, events=events)
-            time.sleep(1.5)
-            _, after_png = helper.call("screenshot", udid=udid, format="png", scale=0.5)
+            # A tap while the list is still coasting only stops the scroll;
+            # retry once when typing leaves the screen unchanged.
+            for attempt in range(2):
+                sx, sy = center(search)
+                tap(helper, udid, sx, sy)
+                time.sleep(1.5)
+                _, before_png = helper.call("screenshot", udid=udid, format="png", scale=0.5)
+                events = []
+                for ch in "wifi":
+                    events += [{"usage": LETTER_USAGE[ch], "phase": "down"},
+                               {"usage": LETTER_USAGE[ch], "phase": "up"}, {"delay_ms": 40}]
+                keys, _ = helper.call("keys", udid=udid, events=events)
+                time.sleep(1.5)
+                _, after_png = helper.call("screenshot", udid=udid, format="png", scale=0.5)
+                changed = bool(before_png) and before_png != after_png
+                if changed:
+                    break
+                search = find(ui_tree(helper, udid), lambda n: "field" in str(n.get("role", "")).lower()) or search
             for name, data in (("before_typing.png", before_png), ("after_typing.png", after_png)):
                 with open(os.path.join(out, name), "wb") as f:
                     f.write(data)
             typed = find(ui_tree(helper, udid), lambda n: "wifi" in str(n.get("value", "")).lower())
             # An input method (e.g. Pinyin) keeps the text as marked text with
             # an empty accessibility value; the screen still shows the letters.
-            changed = bool(before_png) and before_png != after_png
             record("keys type into the search field (keyboard input)", keys.get("ok") and (typed is not None or changed),
                    f"value {typed.get('value')!r}" if typed else
                    ("screen changed (after_typing.png), no accessibility value" if changed else "no change"))
