@@ -184,8 +184,10 @@ int display_rotation(id device, const std::string& udid) {
     entry.checked = now;
     // Only "service unknown" is sticky; a slow answer keeps the last value.
     entry.unsupported = unsupported;
-    if (unsupported) entry.rotation = legacy_window_rotation(udid);
-    else if (rotation >= 0) entry.rotation = rotation;
+    if (rotation >= 0) entry.rotation = rotation;
+    // No provider, or a reply without a recognizable orientation: use the
+    // orientation Simulator.app applied to the device window.
+    else entry.rotation = legacy_window_rotation(udid);
     return entry.rotation;
 }
 

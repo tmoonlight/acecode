@@ -230,6 +230,8 @@ def check_device(helper, udid, out, developer_dir):
     record("describe", describe.get("ok") and width > 0, f"{size.get('name')} {width}x{height} rotation {size.get('rotation')}")
     display, _ = helper.call("display_info", udid=udid)
     info = display.get("result", {})
+    with open(os.path.join(out, "display_info.json"), "w") as f:
+        json.dump(info, f, indent=1)
     # Xcode 27 runtimes answer the CoreDevice display-info request; older ones
     # report it unsupported and fall back to Simulator.app's window setting.
     parsed = info.get("unsupported") or info.get("rotation") in (0, 90, 180, 270)
@@ -254,9 +256,16 @@ def check_device(helper, udid, out, developer_dir):
     if not record("Settings icon found", settings is not None):
         return width, height
     x, y = center(settings)
+    frontmost_app = lambda: (lambda t: t if t.get("pid") and t.get("pid") != springboard_pid else None)(
+        ui_tree(helper, udid))
     tap(helper, udid, x, y)
-    opened = wait_for(lambda: (lambda t: t if t.get("pid") and t.get("pid") != springboard_pid else None)(
-        ui_tree(helper, udid)), 15)
+    opened = wait_for(frontmost_app, 20)
+    if not opened:  # a cold runner can still be finishing SpringBoard's launch
+        _, png = helper.call("screenshot", udid=udid, format="png", scale=0.5)
+        with open(os.path.join(out, "settings_first_tap.png"), "wb") as f:
+            f.write(png)
+        tap(helper, udid, x, y)
+        opened = wait_for(frontmost_app, 25)
     record("tap opens Settings (touch input)", bool(opened), f"frontmost pid {(opened or {}).get('pid')}")
     if opened:
         # Settings fills its list a moment after it becomes frontmost.
