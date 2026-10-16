@@ -52,6 +52,30 @@ function fixture(overrides = {}) {
   assert.equal(store.getSnapshot().enabled, true, 'closed office can be reenabled');
   store.dispose();
 }
+// 场景:老用户启动带「更多宠物」宣传的版本,原生状态带 petsPromoPending。
+// 期望:状态透传给界面,认领一次后不再显示;旧版桌面壳没有这个 bridge 时按已看过处理,不报错。
+{
+  let promo = true;
+  const { store } = fixture({
+    aceDesktop_getOfficePreferences: async () => JSON.stringify({ ...initial, welcomePending: false, petsPromoPending: promo }),
+    aceDesktop_claimPetsPromo: async () => {
+      const show = promo;
+      promo = false;
+      return { ...initial, welcomePending: false, petsPromoPending: false, show };
+    },
+  });
+  store.start(); await flush();
+  assert.equal(store.getSnapshot().petsPromoPending, true);
+  assert.equal((await store.claimPetsPromo()).show, true);
+  assert.equal(store.getSnapshot().petsPromoPending, false);
+  assert.equal((await store.claimPetsPromo()).show, false);
+  store.dispose();
+  const older = fixture();
+  older.store.start(); await flush();
+  assert.equal(older.store.getSnapshot().petsPromoPending, false);
+  assert.deepEqual(await older.store.claimPetsPromo(), { ok: true, show: false });
+  older.store.dispose();
+}
 {
   let resolve;
   const { store, emit } = fixture({ aceDesktop_setOfficeEnabled: () => new Promise(r => { resolve = r; }) });

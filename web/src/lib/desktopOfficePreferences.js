@@ -16,7 +16,8 @@ export function parseOfficePreferences(value) {
 
 // One owner for the menu, settings, invitation and native close notifications.
 export function createDesktopOfficePreferences(win) {
-  let state = { ready: false, available: false, enabled: false, petKind: 'office', welcomePending: false, busy: false, error: '' };
+  let state = { ready: false, available: false, enabled: false, petKind: 'office', welcomePending: false, petsPromoPending: false,
+    busy: false, error: '' };
   let revision = 0;
   let disposed = false;
   const listeners = new Set();
@@ -74,5 +75,8 @@ export function createDesktopOfficePreferences(win) {
       return result;
     },
     claimWelcome: () => request('aceDesktop_claimOfficeWelcome'),
+    // An older desktop shell has no pets announcement; treat it as already seen.
+    claimPetsPromo: () => (typeof win?.aceDesktop_claimPetsPromo === 'function'
+      ? request('aceDesktop_claimPetsPromo') : Promise.resolve({ ok: true, show: false })),
   };
 }

@@ -248,6 +248,15 @@ try {
       assert.equal(await page.evaluate(() => ClassicPet.docked), 'right');
       assert.equal((await pet()).animation, 'peek');
       assert.ok(await alphaAt(300, 344) > 500 && await alphaAt(0, 120) === 0, 'peeks in from the right edge');
+      // 场景:贴右边换成偷看图。bug 表现:曾固定画成 170 像素高,头比站着时大将近一倍。
+      // 期望:按常规帧缩放 ÷ 1.8(偷看原画比精灵帧大 1.8 倍)画,300 像素高的原画约 91 像素。
+      const peekHeight = await page.evaluate(() => {
+        const d = document.getElementById('cv').getContext('2d').getImageData(0, 0, 344, 252).data;
+        let top = 252, bottom = -1;
+        for (let y = 0; y < 252; y++) for (let x = 0; x < 344; x++) if (d[(y * 344 + x) * 4 + 3] > 32) { top = Math.min(top, y); bottom = y; break; }
+        return bottom - top + 1;
+      });
+      assert.ok(peekHeight >= 80 && peekHeight <= 100, `peek head matches the standing pose (${peekHeight}px tall)`);
       await page.waitForFunction(() => ClassicPet.peekEyes === 1, null, { timeout: 12000 });
       await page.waitForFunction(() => ClassicPet.peekEyes === 0, null, { timeout: 2000 });
       assert.ok(await longestStill(1500) < 1500, 'docked whale keeps swaying');

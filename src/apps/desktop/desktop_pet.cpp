@@ -283,11 +283,15 @@ struct PetController : std::enable_shared_from_this<PetController> {
         webview->PostWebMessageAsJson(utf8_to_wide(event.dump()).c_str());
     }
 
-    // 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看。
+    // 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看;
+    // 其它情况把窗口收回工作区,头顶的会话卡片不会被屏幕边截掉。
     void settle_dock() {
         const DesktopPetRect work = window_work_area();
-        docked_side = pet_kind == "whale" ? desktop_pet_dock_side(window_rect(), work) : 0;
-        if (docked_side) apply_placement({dock_desktop_pet(window_rect(), work, docked_side), placement.scale});
+        const DesktopPetRect current = window_rect();
+        docked_side = pet_kind == "whale" ? desktop_pet_dock_side(current, work) : 0;
+        const DesktopPetRect next = docked_side ? dock_desktop_pet(current, work, docked_side)
+                                                : keep_desktop_pet_in_work_area(current, work);
+        if (next.x != current.x || next.y != current.y) apply_placement({next, placement.scale});
         publish_dock();
     }
 

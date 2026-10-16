@@ -233,6 +233,14 @@ DesktopPetRect dock_desktop_pet(const DesktopPetRect& window, const DesktopPetRe
     return next;
 }
 
+DesktopPetRect keep_desktop_pet_in_work_area(const DesktopPetRect& window, const DesktopPetRect& work_area) {
+    if (work_area.width <= 0 || work_area.height <= 0) return window;
+    DesktopPetRect next = window;
+    next.x = clamp_origin(window.x, window.width, work_area.x, work_area.width);
+    next.y = clamp_origin(window.y, window.height, work_area.y, work_area.height);
+    return next;
+}
+
 int DesktopPetDragTracker::move(double x) {
     if (!std::isfinite(x)) return 0;
     const double dx = x - anchor_;

@@ -80,6 +80,51 @@ TEST_F(DesktopOfficeServiceTest, WelcomeIsClaimedOnceAcrossRestartsWithoutEnabli
     EXPECT_FALSE(service->state()["enabled"].get<bool>());
 }
 
+// 场景:升级上来的老用户(office.json 已记过 welcome_seen)第一次启动带「更多宠物」宣传的版本。
+// 期望:宣传待展示,认领一次就不再出现(重启后也不出现),认领不改变已开启的宠物与当前宠物。
+TEST_F(DesktopOfficeServiceTest, PetsPromoIsClaimedOnceByUsersWhoAnsweredTheInvitation) {
+    std::filesystem::create_directories(dir);
+    { std::ofstream file(dir / "office.json"); file << R"({"enabled":true,"welcome_seen":true,"pet_kind":"office"})"; }
+    open("1.0.8");
+    EXPECT_FALSE(service->state()["welcomePending"].get<bool>());
+    EXPECT_TRUE(service->state()["petsPromoPending"].get<bool>());
+    const Json first = host.call("aceDesktop_claimPetsPromo");
+    EXPECT_TRUE(first["show"].get<bool>());
+    EXPECT_FALSE(first["petsPromoPending"].get<bool>());
+    EXPECT_FALSE(host.call("aceDesktop_claimPetsPromo")["show"].get<bool>());
+    open("1.0.8");
+    EXPECT_FALSE(host.call("aceDesktop_claimPetsPromo")["show"].get<bool>());
+    EXPECT_TRUE(service->state()["enabled"].get<bool>());
+    EXPECT_EQ(service->state()["petKind"], "office");
+}
+
+// 场景:全新用户。期望:只弹虚拟办公室的开启邀请;认领邀请时一并消耗「更多宠物」宣传,
+// 下次启动不会再弹第二个窗。没看过邀请就在设置里开 / 关宠物,同样视为已经见过所有宠物;
+// 老用户在设置里开关宠物则不影响宣传。
+TEST_F(DesktopOfficeServiceTest, FirstTimeUsersOnlyGetTheInvitation) {
+    open("1.0.8");
+    EXPECT_TRUE(service->state()["welcomePending"].get<bool>());
+    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
+    EXPECT_TRUE(host.call("aceDesktop_claimOfficeWelcome")["show"].get<bool>());
+    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
+    open("1.0.8");
+    EXPECT_FALSE(host.call("aceDesktop_claimPetsPromo")["show"].get<bool>());
+
+    std::filesystem::remove_all(dir);
+    open("1.0.8");
+    ASSERT_TRUE(service->set_enabled(true)["ok"].get<bool>());
+    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
+
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    { std::ofstream file(dir / "office.json"); file << R"({"enabled":true,"welcome_seen":true})"; }
+    open("1.0.8");
+    ASSERT_TRUE(service->set_enabled(false)["ok"].get<bool>());
+    EXPECT_TRUE(service->state()["petsPromoPending"].get<bool>());
+    open("0.9.37", false);
+    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
+}
+
 TEST_F(DesktopOfficeServiceTest, EnablingPersistsAndClosingReopensWithLatestSnapshot) {
     open();
     ASSERT_TRUE(service->set_enabled(true)["ok"].get<bool>());

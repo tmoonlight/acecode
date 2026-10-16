@@ -18,16 +18,18 @@ import {createRoot} from 'react-dom/client';
 import {SidebarQuickMenu} from '/src/components/SidebarQuickMenu.jsx';
 import {VirtualOfficeSettings} from '/src/components/VirtualOfficeSettings.jsx';
 import {VirtualOfficeWelcome} from '/src/components/VirtualOfficeWelcome.jsx';
+import {DesktopPetsPromo} from '/src/components/DesktopPetsPromo.jsx';
 import {useDesktopOffice} from '/src/lib/useDesktopOffice.js';
 import {api} from '/src/lib/api.js';
 import {connection} from '/src/lib/connection.js';
 import '/src/styles/globals.css';
-let prefs={ok:true,available:true,enabled:false,welcomePending:true};
+let prefs={ok:true,available:true,enabled:false,welcomePending:true,petsPromoPending:true};
 window.snapshotRequests=0;window.published=[];window.previewRequests=0;window.retained=new Set();
 window.aceDesktop_getOfficePreferences=async()=>prefs;
 window.aceDesktop_setOfficeEnabled=async enabled=>(prefs={...prefs,enabled,welcomePending:false});
 window.aceDesktop_setPetKind=async petKind=>(prefs={...prefs,petKind});
 window.aceDesktop_claimOfficeWelcome=async()=>{const show=prefs.welcomePending;prefs={...prefs,welcomePending:false};return {...prefs,show};};
+window.aceDesktop_claimPetsPromo=async()=>{const show=prefs.petsPromoPending;prefs={...prefs,petsPromoPending:false};return {...prefs,show};};
 window.aceDesktop_getOfficeState=async()=>({follow:true});
 window.aceDesktop_updateOffice=async value=>{window.published.push(JSON.parse(value));return true;};
 window.aceDesktop_getOfficePreview=async()=>{window.previewRequests++;return ${JSON.stringify(html)};};
@@ -37,12 +39,15 @@ Object.assign(api,{getDesktopOffice:async()=>{window.snapshotRequests++;const s=
 function Fixture(){
  const office=useDesktopOffice({sessionId:'live',workspaceHash:'w'});
  const [welcome,setWelcome]=useState(false);
+ const [promo,setPromo]=useState(false);
  window.office=office;
  return <main className="h-screen p-5 text-fg bg-bg">
   <div className="max-w-[640px] mx-auto"><VirtualOfficeSettings office={office}/>
-  <button id="invite" onClick={async()=>{const r=await office.claimWelcome();if(r.show)setWelcome(true);}}>Preview invitation</button></div>
+  <button id="invite" onClick={async()=>{const r=await office.claimWelcome();if(r.show)setWelcome(true);}}>Preview invitation</button>
+  <button id="pets-promo" onClick={async()=>{const r=await office.claimPetsPromo();if(r.show)setPromo(true);}}>Preview pets</button></div>
   <div className="absolute bottom-4 left-4"><SidebarQuickMenu sidebarWidth={270} office={office}/></div>
   {welcome&&<VirtualOfficeWelcome office={office} onClose={()=>setWelcome(false)}/>}
+  {promo&&<DesktopPetsPromo office={office} onClose={()=>setPromo(false)}/>}
  </main>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -150,7 +155,35 @@ try {
   await page.locator('iframe').waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.locator('iframe').count(), 0);
+  // 场景:老用户第一次看到「更多宠物」宣传,此时桌面宠物是关着的。
+  // 期望:主标题「新特性」+ 一行副标题,再加三只新宠物(图 + 名字),不加说明;点一只就切成它并打开宠物,
+  // 弹窗关闭;宣传只认领一次。浅色 / 深色、窄屏都不出横向滚动。
+  await page.evaluate(() => nativeClose());
+  await page.waitForFunction(() => !office.enabled);
+  await page.locator('#pets-promo').click();
+  const promo = page.getByRole('dialog');
+  await promo.waitFor();
+  assert.equal(await promo.locator('h2').textContent(), '新特性');
+  assert.deepEqual(await promo.locator('p').allTextContents(), ['增加更多宠物，丰富您快乐工作的每一天'],
+    'the subtitle is the only text besides the title');
+  assert.ok(await promo.locator('h2').evaluate(h => parseFloat(getComputedStyle(h).fontSize))
+    > await promo.locator('p').evaluate(p => parseFloat(getComputedStyle(p).fontSize)), 'title outranks the subtitle');
+  assert.deepEqual(await promo.locator('button[aria-pressed]').allTextContents(), ['大眼回形针', 'rover', '鲸鱼娘']);
+  assert.equal(await promo.locator('img').count(), 3);
+  await page.waitForFunction(() => [...document.querySelectorAll('[role=dialog] img')].every(img => img.complete && img.naturalWidth > 0));
+  for (const theme of ['light', 'dark']) for (const width of [1100, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.evaluate(t => { document.documentElement.dataset.theme = t; }, theme);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.screenshot({ path: path.join(output, `pets-promo-${theme}-${width}.png`) });
+  }
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await promo.getByRole('button', { name: '鲸鱼娘' }).click();
+  await page.waitForFunction(() => office.enabled && office.petKind === 'whale');
+  await promo.waitFor({ state: 'detached' });
+  await page.locator('#pets-promo').click();
+  assert.equal(await page.getByRole('dialog').count(), 0, 'the pets announcement is claimed once');
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
-  console.log(JSON.stringify({ ok: true, coverage: 'opt-in, menu ordering, close/reopen, polling teardown, sandbox preview, light/dark, narrow viewport, pause, reduced motion, once-only claim', output }));
+  console.log(JSON.stringify({ ok: true, coverage: 'opt-in, menu ordering, close/reopen, polling teardown, sandbox preview, light/dark, narrow viewport, pause, reduced motion, once-only claim, pets announcement', output }));
 } finally { await browser?.close(); await server.close(); }

@@ -362,6 +362,33 @@ TEST(DesktopPetLayout, DockingAlignsTheWindowEdgeAndKeepsItOnScreen) {
     EXPECT_EQ(kept.y, 200);
 }
 
+// 场景:拖到屏幕边松手但没进入吸附范围(吸附要伸出约 1/4 宽),窗口停在半出屏的位置。
+// bug 表现:宠物头顶的会话卡片被屏幕右边截掉一截(2026-10-16 用户截图,窗口 1229,496 299x219、
+// 工作区只有 1440 宽)。期望:整个窗口收回工作区,尺寸不变;本来就在里面的不动;
+// 比工作区还大时贴左 / 上边;工作区无效时原样返回。
+TEST(DesktopPetLayout, UndockedWindowIsPulledBackInsideTheWorkArea) {
+    const DesktopPetRect work{0, 0, 1440, 852};
+    const auto right = keep_desktop_pet_in_work_area({1229, 496, 299, 219}, work);
+    EXPECT_EQ(right.x + right.width, 1440);
+    EXPECT_EQ(right.y, 496);
+    EXPECT_EQ(right.width, 299);
+    EXPECT_EQ(right.height, 219);
+    const auto corner = keep_desktop_pet_in_work_area({-40, 800, 299, 219}, work);
+    EXPECT_EQ(corner.x, 0);
+    EXPECT_EQ(corner.y, 852 - 219);
+    const auto top = keep_desktop_pet_in_work_area({300, -60, 299, 219}, {0, 40, 1440, 812});
+    EXPECT_EQ(top.y, 40);
+    const auto inside = keep_desktop_pet_in_work_area({600, 300, 299, 219}, work);
+    EXPECT_EQ(inside.x, 600);
+    EXPECT_EQ(inside.y, 300);
+    const auto huge = keep_desktop_pet_in_work_area({100, 100, 2000, 1000}, work);
+    EXPECT_EQ(huge.x, 0);
+    EXPECT_EQ(huge.y, 0);
+    const DesktopPetRect left_monitor{-1920, 0, 1920, 1040};
+    EXPECT_EQ(keep_desktop_pet_in_work_area({-100, 200, 299, 219}, left_monitor).x, -299);
+    EXPECT_EQ(keep_desktop_pet_in_work_area({50, 60, 299, 219}, {0, 0, 0, 0}).x, 50);
+}
+
 TEST(DesktopPetLayout, MacResizeGripRejectsInvalidOrOutsideCoordinates) {
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double inf = std::numeric_limits<double>::infinity();

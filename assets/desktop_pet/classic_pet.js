@@ -55,7 +55,10 @@
   // Extra hit margin (canvas px) so moving silhouettes stay clickable without per-frame region updates.
   // Docked Whale Girl peeks in from the screen edge; PEEK_HIDDEN of the art stays past the edge
   // so she can lean in without revealing where the drawing is cut.
-  const PEEK_HEIGHT = 170, PEEK_HIDDEN = 16;
+  // The peek art is drawn about 1.8 times larger than the sprite frames (eye height and headband-to-
+  // mouth both measure 1.8x), so it is shown at the frame scale divided by that ratio: her head
+  // keeps the size it has in every other pose instead of nearly doubling at the edge.
+  const PEEK_ART_RATIO = 1.8, PEEK_HIDDEN = 9;
   const MOTION_MARGIN = { float: [0, 4], breathe: [0, 3], shake: [3, 0], wiggle: [8, 0], tilt: [16, 2], peek: [PEEK_HIDDEN + 4, 8] };
   const timing = { fidgetMin: 7000, fidgetMax: 16000, sleepAfter: 5 * 60 * 1000, greeting: 6000 };
   // The original agents hold a pose through self-looping branches (Clippy's idle stares ~6s).
@@ -101,14 +104,15 @@
   const peeking = () => Boolean(docked && peek);
   const activeMotion = () => (peeking() ? 'peek' : motionKind || (profile?.breathe ? 'breathe' : ''));
   function geometry() {
+    const [w, h] = data.framesize;
+    const frameScale = Math.min(184 / w, 140 / h);
     if (peeking()) {
-      const height = PEEK_HEIGHT, width = height * peek.fw / peek.fh;
-      return { peek: true, w: peek.fw, h: peek.fh, scale: height / peek.fh, width, height,
+      const scale = frameScale / PEEK_ART_RATIO, width = peek.fw * scale, height = peek.fh * scale;
+      return { peek: true, w: peek.fw, h: peek.fh, scale, width, height,
         x: docked === 'right' ? cv.width - width + PEEK_HIDDEN : -PEEK_HIDDEN, y: cv.height - height - 2 };
     }
-    const [w, h] = data.framesize;
-    const scale = Math.min(184 / w, 140 / h), width = w * scale, height = h * scale;
-    return { w, h, scale, width, height, x: (cv.width - width) / 2, y: cv.height - height - 8 };
+    const width = w * frameScale, height = h * frameScale;
+    return { w, h, scale: frameScale, width, height, x: (cv.width - width) / 2, y: cv.height - height - 8 };
   }
   function offsetAt(now, g) {
     const kindOfMotion = activeMotion();
