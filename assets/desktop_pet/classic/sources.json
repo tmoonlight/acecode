@@ -1,0 +1,31 @@
+{
+  "repository": "https://github.com/clippyjs/clippy.js",
+  "commit": "8bfd1f92c725c6bc3a435d538a77c3302b327c08",
+  "files": [
+    {
+      "file": "clippy/agent.js",
+      "sha256": "d583546a74d9c1d29d7b014e1537169ed9a3e6bd386f9b6220eda88d3a974dad",
+      "bytes": 68377
+    },
+    {
+      "file": "clippy/map.png",
+      "sha256": "880b63ac4d3fa84c78eceb02674c9eaedae032b2d85887539a7f6d107e5801e9",
+      "bytes": 1333530
+    },
+    {
+      "file": "rover/agent.js",
+      "sha256": "89c7e644bda5bfc3e59f3f566506779a49b771a9a93407cd9870e20f6a8121ef",
+      "bytes": 58642
+    },
+    {
+      "file": "rover/map.png",
+      "sha256": "dfa1d61a77f7237dc4cd439fc8b0d14e92608fe89d24cb332ad89f3194433cfa",
+      "bytes": 698394
+    },
+    {
+      "file": "MIT-LICENSE.txt",
+      "sha256": "0b5f294b8e53a73282fef02d0df5aa63583af891b81bcc99651340a6e1ac4d1d",
+      "bytes": 1271
+    }
+  ]
+}

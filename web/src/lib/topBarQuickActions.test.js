@@ -26,7 +26,7 @@ test('top-bar quick actions keep the requested labels and order', () => {
       { id: 'new-loop', label: '定时任务', group: 'navigation' },
       { id: 'find-content', label: '查找内容', group: 'navigation' },
       { id: 'settings', label: '设置', group: 'application' },
-      { id: 'virtual-office', label: '显示虚拟办公室', group: 'application' },
+      { id: 'virtual-office', label: '显示桌面宠物', group: 'application' },
       { id: 'appearance', label: '外观', group: 'application' },
       { id: 'about', label: '关于 ACECode', group: 'application' },
       { id: 'check-updates', label: '检查更新', group: 'application' },

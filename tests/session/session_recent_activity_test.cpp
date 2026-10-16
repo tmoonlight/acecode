@@ -140,3 +140,31 @@ TEST_F(RecentFixture, InternalTurnOutcomePersistsWithoutChangingHumanRecency) {
     manager.resume_session(id);
     EXPECT_EQ(manager.display_snapshot().last_turn_outcome, "completed");
 }
+
+// 场景:会话 JSONL 里依次是 上一轮回复、用户消息、工具调用的助手消息(带说明文字)、最终回复、
+// 回合计时记录,末尾还有一行损坏数据;另一个文件的最后一轮只有用户消息。
+// 期望:倒读拿到本轮最新一条助手正文开头(最多 240 字节,超长时末尾带省略号),跳过损坏行和计时记录;
+// 本轮还没有助手正文时返回空,不会越过最新用户消息拿到上一轮的回复;文件不存在返回空。
+TEST_F(RecentFixture, LastReplyComesFromTheLatestTurnOnly) {
+    const auto file = (root / "reply.jsonl").string();
+    ChatMessage old_reply; old_reply.role = "assistant"; old_reply.content = "上一轮的回复";
+    ASSERT_TRUE(SessionStorage::append_message(file, old_reply));
+    const auto user = input("2026-10-06T09:10:00Z", "等待30秒");
+    ASSERT_TRUE(SessionStorage::append_message(file, user));
+    ChatMessage calling; calling.role = "assistant"; calling.content = "收到，再等待 30 秒。";
+    ASSERT_TRUE(SessionStorage::append_message(file, calling));
+    ChatMessage final_reply; final_reply.role = "assistant"; final_reply.content = std::string(300, 'x');
+    ASSERT_TRUE(SessionStorage::append_message(file, final_reply));
+    ASSERT_TRUE(SessionStorage::append_message(file, make_turn_timing_message(
+        {user.uuid, 1, 2, 1, "completed"}, "2026-10-06T09:13:00Z")));
+    std::ofstream(file, std::ios::app) << "{broken\n";
+    const auto reply = read_session_last_reply(file);
+    EXPECT_LE(reply.size(), 240u);
+    EXPECT_EQ(reply.rfind(std::string(200, 'x'), 0), 0u) << "starts with the latest reply";
+
+    const auto pending = (root / "pending.jsonl").string();
+    ASSERT_TRUE(SessionStorage::append_message(pending, old_reply));
+    ASSERT_TRUE(SessionStorage::append_message(pending, input("2026-10-06T09:20:00Z")));
+    EXPECT_EQ(read_session_last_reply(pending), "");
+    EXPECT_EQ(read_session_last_reply((root / "missing.jsonl").string()), "");
+}

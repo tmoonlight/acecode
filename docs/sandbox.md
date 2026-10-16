@@ -144,7 +144,8 @@ Seatbelt 策略按 Codex `create_seatbelt_command_args_with_profile` 组装：�
 临时加上申请的路径 / 网络）、`require_escalated`（申请沙盒外执行）；旧参数
 `with_escalated_permissions=true` 等价 `require_escalated`。非 `use_default` 必须带非空
 `justification`；`with_additional_permissions` 必须带非空 `additional_permissions`，路径必须是
-绝对路径或 `~` 开头；deny 名单里的路径不能通过申请变可写。`prefix_rule` 是模型建议的可记住
+绝对路径或 `~` 开头；deny 名单里的路径不能通过申请变可写 —— 判定前申请路径与 deny 条目都按真实
+路径规范化，经 junction / 符号链接别名（如 `C:\Users\x` 指向 `N:\Users\x`）写的路径同样被拦。`prefix_rule` 是模型建议的可记住
 前缀，必须覆盖全部命令段且不在禁用名单里才被采用。
 
 请求确认时，`args.permission` 给出原因、批准后的沙盒边界、可记忆前缀、申请的额外权限、

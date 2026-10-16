@@ -5,6 +5,17 @@ import { focusSession } from './desktopNotify.js';
 import { createDesktopOfficeController } from './desktopOfficeController.js';
 import { createDesktopOfficePreferences } from './desktopOfficePreferences.js';
 
+// Companion-pet cards use exactly the transcript body font: the live family and the size
+// chosen by the font-size setting (small / medium / large set --ace-font-size-13 on <html>).
+function transcriptFont() {
+  try {
+    const style = getComputedStyle(document.documentElement);
+    return {size: style.getPropertyValue('--ace-font-size-13').trim(), family: style.getPropertyValue('--font-sans').trim()};
+  } catch {
+    return null;
+  }
+}
+
 export function useDesktopOffice(activeRef) {
   const [preferences] = useState(() => createDesktopOfficePreferences(window));
   const state = useSyncExternalStore(preferences.subscribe, preferences.getSnapshot);
@@ -23,6 +34,12 @@ export function useDesktopOffice(activeRef) {
       if (action.type === 'select') controller?.select(action);
       else if (action.type === 'follow') controller?.setFollow(action.follow);
       else if (action.type === 'open') focusSession(action.workspace_hash, action.session_id);
+      // Companion-pet session cards: ■ stops that session's turn, × on a finished card marks it read.
+      else if (action.type === 'stop' && action.session_id) connection.sendAbort(action.session_id);
+      else if (action.type === 'read' && action.session_id) {
+        connection.markSessionRead({sessionId: action.session_id, workspaceHash: action.workspace_hash || ''});
+        controller?.refresh();
+      }
     };
     const start = async () => {
       let initial = {};
@@ -34,7 +51,7 @@ export function useDesktopOffice(activeRef) {
       controller = createDesktopOfficeController({
         initial, fetchSnapshot: api.getDesktopOffice, fetchModel: api.getSessionModel,
         publish: state => {
-          try {Promise.resolve(window.aceDesktop_updateOffice(JSON.stringify(state))).catch(() => {});} catch {}
+          try {Promise.resolve(window.aceDesktop_updateOffice(JSON.stringify({...state, transcriptFont: transcriptFont()}))).catch(() => {});} catch {}
         },
         retainSession: id => connection.retainSession(id),
         releaseSession: id => connection.releaseSession(id),
@@ -57,5 +74,5 @@ export function useDesktopOffice(activeRef) {
     };
   }, [state.enabled, state.available]);
   useEffect(() => {controllerRef.current?.setActive(activeRef);}, [activeRef]);
-  return { ...state, setEnabled: preferences.setEnabled, claimWelcome: preferences.claimWelcome };
+  return { ...state, setEnabled: preferences.setEnabled, setPetKind: preferences.setPetKind, claimWelcome: preferences.claimWelcome };
 }

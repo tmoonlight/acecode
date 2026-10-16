@@ -11,6 +11,7 @@
 #include "utils/joining_thread.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/paths.hpp"
+#include "session/session_storage.hpp"
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -196,4 +197,31 @@ TEST_F(DesktopOfficeHttp, HiddenWorkspaceAndNoWorkspaceAreSelectable) {
     EXPECT_EQ(result["selected"]["id"], unbound);
     EXPECT_EQ(result["selected"]["workspace_hash"], "");
     EXPECT_TRUE(result["selected"]["no_workspace"].get<bool>());
+}
+
+// 场景:同一工作区有三个已装载会话——结果未读的主会话、已读的主会话、结果未读的子会话。
+// 期望:activities(陪伴宠物的会话卡片来源,复刻 Codex Mini)只列出未读的主会话,
+// 带 attention_state=unread 与 activity;已读会话、子会话都不出现(子会话随主会话)。
+// 回复只写在会话文件里(daemon 重启后内存里没有)时,卡片仍从文件倒读出回复开头。
+TEST_F(DesktopOfficeHttp, ActivitiesListOnlyUnreadOrRunningMainSessions) {
+    const auto unread = active();
+    const auto read = active();
+    const auto child = active(unread);
+    ChatMessage reply; reply.role = "assistant"; reply.content = "30 秒已过。";
+    registry->acquire(unread)->sm->on_message(reply);
+    const auto dir = std::filesystem::path(SessionStorage::get_project_dir(cwd));
+    std::filesystem::create_directories(dir);
+    const json record_unread = {{"read_cursor", 0}, {"update_cursor", 5}, {"updated_at_ms", 1}};
+    const json record_read = {{"read_cursor", 5}, {"update_cursor", 5}, {"updated_at_ms", 1}};
+    std::ofstream(dir / "session_read_state.json") << json{{"sessions",
+        {{unread, record_unread}, {read, record_read}, {child, record_unread}}}}.dump();
+    const auto result = snapshot();
+    ASSERT_TRUE(result.contains("activities") && result["activities"].is_array()) << result.dump();
+    ASSERT_EQ(result["activities"].size(), 1u) << result["activities"].dump();
+    const auto& card = result["activities"][0];
+    EXPECT_EQ(card["id"], unread);
+    EXPECT_EQ(card["attention_state"], "unread");
+    ASSERT_TRUE(card.contains("activity"));
+    EXPECT_EQ(card["activity"].value("reply", std::string{}), "30 秒已过。");
+    EXPECT_FALSE(card.contains("cwd")) << "cards carry display fields only";
 }

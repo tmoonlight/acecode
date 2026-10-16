@@ -106,6 +106,56 @@ export function withLiveActivity(session, entry) {
     text: (continues ? String(a.text || '') : '') + entry.text, tool: '', detail: '', seq: entry.seq}};
 }
 
+// Keep the start of a line (a finished reply reads best from its first words).
+export function fitHead(text, units = 60) {
+  const chars = [...String(text || '').replace(/\s+/g, ' ').trim()];
+  let width = 0, end = 0;
+  while (end < chars.length && width + charUnits(chars[end]) <= units) width += charUnits(chars[end++]);
+  return end < chars.length ? chars.slice(0, end).join('') + '…' : chars.join('');
+}
+const plainMarkdown = text => String(text || '')
+  .replace(/```[\w-]*/g, ' ').replace(/[`*#]+/g, '').replace(/^\s*>\s?/gm, '')
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+
+export const ACTIVITY_LIMIT = 12;
+// Codex Mini session cards: a main session appears while it runs or waits for
+// the user, and after it finishes until its output is read (opening the session
+// marks it read). status: running | waiting | failed | stopped | review.
+export function officeActivity(session) {
+  const id = idOf(session);
+  if (!id || session.parent_session_id || session.archived) return null;
+  const actor = officeActor(session, id);
+  const a = session.activity || {};
+  let status = '', body = '';
+  if (actor.busy) {
+    status = actor.state === 'permission' || actor.state === 'question' ? 'waiting' : 'running';
+    if (actor.state === 'permission') body = actor.detail ? `需要你确认：${actor.detail}` : '需要你确认';
+    else if (actor.state === 'question') body = '有问题等你回答';
+    else if (a.phase === 'responding' && a.text) body = speechTail(a.text, 64);
+    else body = [actor.label, actor.detail].filter(Boolean).join(' · ');
+  } else if (session.attention_state === 'unread') {
+    status = actor.state === 'error' ? 'failed' : actor.state === 'stopped' ? 'stopped' : 'review';
+    const reply = fitHead(plainMarkdown(a.reply), 64);
+    body = status === 'failed' ? '执行失败' : status === 'stopped' ? '已停止' : reply || '已完成';
+  }
+  if (!status) return null;
+  const sortAt = String(session.last_user_message_at || session.updated_at || '');
+  return { ...officeSessionRef(session), title: String(session.title || session.summary || '未命名会话'),
+    status, state: actor.state, body, sortAt,
+    // Dismissing hides one card until the session moves on to another state or turn.
+    key: [id, status, sortAt, String(a.turn_id || '')].join('|') };
+}
+export function projectActivities(sessions = [], live = null) {
+  const cards = new Map();
+  for (const session of sessions || []) {
+    const card = officeActivity(withLiveActivity(session, live?.get(idOf(session))));
+    if (card && !cards.has(card.sessionId)) cards.set(card.sessionId, card);
+  }
+  return [...cards.values()]
+    .sort((a, b) => b.sortAt.localeCompare(a.sortAt) || a.sessionId.localeCompare(b.sessionId))
+    .slice(0, ACTIVITY_LIMIT);
+}
+
 export function projectDesktopOffice(snapshot = {}, { follow = true, connected = true, live = null } = {}) {
   const selected = snapshot.selected || null;
   const rootId = idOf(selected);
@@ -125,6 +175,7 @@ export function projectDesktopOffice(snapshot = {}, { follow = true, connected =
     selected: selected ? { ...officeSessionRef(selected), title: String(selected.title || selected.summary || '未命名会话') } : null,
     seed: stableOfficeSeed(rootId || 'empty-office'),
     agents,
+    activities: projectActivities(snapshot.activities, live),
     completed: actors.filter(actor => !actor.root && actor.state === 'done').map(actor => actor.id),
     overflow: Math.max(0, agents.length - OFFICE_WORKER_SEATS - 1),
   };

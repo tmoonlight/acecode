@@ -4,6 +4,7 @@
 #include "session_serializer.hpp"
 #include "session_user_message_search.hpp"
 #include "turn_timing.hpp"
+#include "utils/encoding.hpp"
 
 namespace acecode {
 namespace {
@@ -44,5 +45,22 @@ SessionRecentActivity read_session_recent_activity(const std::string& jsonl_path
         }
     }
     return result;
+}
+
+std::string read_session_last_reply(const std::string& jsonl_path) {
+    SessionFileReader reader(jsonl_path);
+    if (!reader.valid()) return {};
+    JsonlScanner scanner(reader, true);
+    while (const auto record = scanner.next()) {
+        try {
+            const auto message = deserialize_message(record->text);
+            if (is_recent_user_message(message)) break;
+            if (message.role == "assistant" && !message.content.empty())
+                return truncate_utf8_prefix(message.content, 240);
+        } catch (const nlohmann::json::exception&) {
+            // A damaged line is skipped like in read_session_recent_activity.
+        }
+    }
+    return {};
 }
 } // namespace acecode

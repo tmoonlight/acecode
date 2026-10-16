@@ -21,9 +21,12 @@
 #include "web_host.hpp"
 
 #include "desktop_pet_layout.hpp"
+#include "desktop_pet_mac_support.hpp"
 #include "desktop_office_service.hpp"
+#include "desktop_pet_resources.hpp"
 #include "version.hpp"
 #include "platform/native_ui/strings.hpp"
+#include "tray_icon_win.hpp"
 
 #include "utils/logger.hpp"
 
@@ -68,154 +71,8 @@ constexpr NSTimeInterval kGesturePollSeconds = 1.0 / 60.0;
 constexpr NSTimeInterval kRevealFallbackSeconds = 3.0;
 constexpr std::size_t kMaxActionBytes = 16384;
 
-enum MenuCommand : NSInteger { kMenuDock = 1, kMenuHide, kMenuZoomIn, kMenuZoomOut, kMenuResetSize };
-
-// 页面以 WebView2 的接口写成;这里在文档开始前补一个同名实现。
-constexpr const char* kBridgeShim = R"JS((() => {
-  const listeners = [];
-  const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.acePet;
-  if (!handler) return;
-  window.chrome = window.chrome || {};
-  window.chrome.webview = {
-    postMessage: value => handler.postMessage(typeof value === 'string' ? value : JSON.stringify(value)),
-    addEventListener: (type, listener) => { if (type === 'message') listeners.push(listener); },
-    removeEventListener: (type, listener) => { const i = listeners.indexOf(listener); if (i >= 0) listeners.splice(i, 1); },
-  };
-  window.__acePetDeliver = data => { for (const listener of listeners.slice()) { try { listener({ data }); } catch (e) {} } };
-  // Keep the threshold-crossing move and release on the original element even
-  // when the pointer leaves the canvas before WebKit posts the drag request.
-  let captured = null;
-  let suppressClick = false;
-  document.addEventListener('pointerdown', event => {
-    if (event.button !== 0) return;
-    const target = event.target.closest?.('#cv, #grip');
-    if (!target) return;
-    target.setPointerCapture(event.pointerId);
-    captured = { target, id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false };
-    suppressClick = false;
-    // macOS owns the canvas threshold here. WebKit can omit screen coordinates;
-    // client coordinates suffice until the first native window movement.
-    if (target.id === 'cv') event.stopPropagation();
-  }, true);
-  document.addEventListener('pointermove', event => {
-    if (captured?.id !== event.pointerId || captured.target.id !== 'cv') return;
-    event.stopPropagation();
-    if (!(event.buttons & 1) || captured.dragged) return;
-    if (Math.abs(event.clientX - captured.x) + Math.abs(event.clientY - captured.y) < 4) return;
-    captured.dragged = true;
-    suppressClick = true;
-    handler.postMessage('drag');
-  }, true);
-  document.addEventListener('pointerup', event => {
-    if (captured?.id === event.pointerId) captured = null;
-  }, true);
-  document.addEventListener('click', event => {
-    if (!suppressClick || event.target.id !== 'cv') return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    suppressClick = false;
-  }, true);
-  const cancel = event => {
-    if (captured?.id !== event.pointerId) return;
-    captured = null;
-    suppressClick = true;
-    handler.postMessage('gesture-cancel');
-  };
-  document.addEventListener('pointercancel', cancel, true);
-  document.addEventListener('lostpointercapture', cancel, true);
-})();)JS";
-
-bool desktop_pet_disabled_by_env() {
-    const char* value = std::getenv("ACECODE_DESKTOP_PET");
-    if (!value) return false;
-    const std::string text(value);
-    return text == "0" || text == "off" || text == "false" || text == "no";
-}
-
-bool chinese_ui() {
-    return native_locale().rfind("zh", 0) == 0;
-}
-
-NSString* ns_string(const std::string& value) {
-    NSString* text = [[NSString alloc] initWithBytes:value.data()
-                                              length:value.size()
-                                            encoding:NSUTF8StringEncoding];
-    return text ? text : @"";
-}
-
-// 不放进 ACECode 数据目录:数据目录迁移会把持续写入的文件当成活文件。
-std::filesystem::path pet_root_dir() {
-    NSArray<NSURL*>* urls = [[NSFileManager defaultManager]
-        URLsForDirectory:NSApplicationSupportDirectory inDomains:NSUserDomainMask];
-    NSURL* base = urls.firstObject;
-    const char* path = base ? base.fileSystemRepresentation : nullptr;
-    std::filesystem::path root = path ? std::filesystem::path(path)
-                                      : std::filesystem::temp_directory_path();
-    return root / "ACECode" / "desktop-pet";
-}
-
-double load_logical_scale() {
-    std::ifstream in(pet_root_dir() / "settings.json");
-    if (!in) return 0.0;
-    const auto json = nlohmann::json::parse(in, nullptr, false);
-    if (json.is_discarded() || !json.is_object() || !json.contains("scale") || !json["scale"].is_number()) return 0.0;
-    const double scale = json["scale"].get<double>();
-    return std::isfinite(scale) && scale > 0.0 ? scale : 0.0;
-}
-
-void save_logical_scale(double scale) {
-    std::error_code ec;
-    std::filesystem::create_directories(pet_root_dir(), ec);
-    nlohmann::json json = nlohmann::json::object();
-    if (scale > 0.0) json["scale"] = std::round(scale * 1000.0) / 1000.0;
-    std::ofstream out(pet_root_dir() / "settings.json", std::ios::trunc);
-    if (out) out << json.dump();
-}
-
-// 全局坐标翻转以主屏(菜单栏所在的屏)高度为准。
-CGFloat flip_height() {
-    NSScreen* primary = NSScreen.screens.firstObject;
-    return primary ? primary.frame.size.height : 0.0;
-}
-
-DesktopPetRect top_left_rect(NSRect rect) {
-    return {static_cast<int>(std::lround(rect.origin.x)),
-            static_cast<int>(std::lround(flip_height() - (rect.origin.y + rect.size.height))),
-            static_cast<int>(std::lround(rect.size.width)),
-            static_cast<int>(std::lround(rect.size.height))};
-}
-
-NSRect cocoa_rect(const DesktopPetRect& rect) {
-    return NSMakeRect(rect.x, flip_height() - (rect.y + rect.height), rect.width, rect.height);
-}
-
-NSCursor* make_resize_cursor() {
-    // Public AppKit APIs on every supported macOS version. A custom image avoids
-    // relying on WebKit's platform-dependent mapping of CSS nwse-resize.
-    NSImage* image = [NSImage imageWithSize:NSMakeSize(24, 24) flipped:NO
-        drawingHandler:^BOOL(NSRect rect) {
-            (void)rect;
-            NSBezierPath* path = [NSBezierPath bezierPath];
-            [path moveToPoint:NSMakePoint(5, 19)];
-            [path lineToPoint:NSMakePoint(19, 5)];
-            [path moveToPoint:NSMakePoint(5, 12)];
-            [path lineToPoint:NSMakePoint(5, 19)];
-            [path lineToPoint:NSMakePoint(12, 19)];
-            [path moveToPoint:NSMakePoint(12, 5)];
-            [path lineToPoint:NSMakePoint(19, 5)];
-            [path lineToPoint:NSMakePoint(19, 12)];
-            path.lineJoinStyle = NSRoundLineJoinStyle;
-            path.lineCapStyle = NSRoundLineCapStyle;
-            [NSColor.whiteColor setStroke];
-            path.lineWidth = 4;
-            [path stroke];
-            [NSColor.blackColor setStroke];
-            path.lineWidth = 2;
-            [path stroke];
-            return YES;
-        }];
-    return [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(12, 12)];
-}
+enum MenuCommand : NSInteger { kMenuDock = 1, kMenuHide, kMenuZoomIn, kMenuZoomOut, kMenuResetSize, kMenuPin,
+                               kMenuPetKindBase = 100 /* + index into kDesktopPetKinds */ };
 
 } // namespace
 
@@ -226,7 +83,10 @@ public:
     virtual ~PetController() { close(); }
 
     std::function<void()> on_closed;
+    // 右键菜单选了别的宠物:交给服务保存并切换(服务再回调 set_pet_kind)。
+    std::function<void(const std::string&)> on_pet_kind;
     void update_snapshot(const nlohmann::json& value);
+    void set_pet_kind(const std::string& kind);
     bool start();
     void close();
 
@@ -242,7 +102,13 @@ public:
 
 private:
     void publish_snapshot();
+    void publish_character();
     void deliver(const nlohmann::json& value);
+    void publish_drag(const char* phase, const char* direction = nullptr);
+    void publish_dock();
+    void settle_dock();
+    DesktopPetPlacement keep_docked(DesktopPetPlacement next, const DesktopPetRect& work) const;
+    void set_pinned(bool pinned);
     void office_action(const std::string& message);
     void reveal();
     void apply_placement(const DesktopPetPlacement& next);
@@ -264,6 +130,7 @@ private:
 
     WebHost& host_;   // DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot_ = {{"follow", true}};
+    std::string pet_kind_ = "office";
     std::vector<DesktopPetOverlay> overlays_;
     std::vector<DesktopPetOverlay> foreground_overlays_;
     NSPanel* panel_ = nil;
@@ -283,6 +150,8 @@ private:
     bool closed_ = false;
     bool resizing_ = false;
     bool dragging_ = false;
+    DesktopPetDragTracker drag_tracker_;   // 陪伴宠物按拖动方向播放左右跑动画
+    int docked_side_ = 0;                  // 鲸鱼娘吸附在工作区左(-1)/右(+1)边,0 = 未吸附
     bool mouse_pressed_ = false;
     bool owns_cursor_ = false;
     bool pinned_ = true;
@@ -526,8 +395,7 @@ bool PetController::start() {
 }
 
 void PetController::load_page() {
-    const std::string page(reinterpret_cast<const char*>(acecode::desktop_pet_page_data()),
-                           acecode::desktop_pet_page_size());
+    const std::string page = desktop_pet_html(pet_kind_);
     [webview_ loadHTMLString:ns_string(page) baseURL:nil];
 }
 
@@ -580,6 +448,59 @@ void PetController::deliver(const nlohmann::json& value) {
     [webview_ evaluateJavaScript:ns_string(script) completionHandler:nil];
 }
 
+void PetController::set_pet_kind(const std::string& kind) {
+    if (pet_kind_ == kind) return;
+    const bool same_page = pet_kind_ != "office" && kind != "office";
+    pet_kind_ = kind;
+    if (kind != "whale") docked_side_ = 0;   // 只有鲸鱼娘有趴边偷看的样子
+    if (!webview_ || closed_) return;
+    end_gesture();
+    overlays_.clear();
+    foreground_overlays_.clear();
+    if (same_page) publish_character();
+    else {
+        page_ready_ = false;
+        load_page();
+    }
+}
+
+void PetController::set_pinned(bool pinned) {
+    pinned_ = pinned;
+    panel_.floatingPanel = pinned_;
+    panel_.level = pinned_ ? NSFloatingWindowLevel : NSNormalWindowLevel;
+    deliver({{"type", "pet-window-state"}, {"pinned", pinned_}});
+}
+
+void PetController::publish_dock() {
+    if (closed_ || !page_ready_ || pet_kind_ == "office") return;
+    deliver({{"type", "pet-dock"}, {"side", docked_side_ < 0 ? "left" : docked_side_ > 0 ? "right" : ""}});
+}
+
+// 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看。
+void PetController::settle_dock() {
+    const DesktopPetRect work = work_area();
+    docked_side_ = pet_kind_ == "whale" ? desktop_pet_dock_side(window_rect(), work) : 0;
+    if (docked_side_) apply_placement({dock_desktop_pet(window_rect(), work, docked_side_), current_scale()});
+    publish_dock();
+}
+
+// 缩放后仍然贴着原来那条边。
+DesktopPetPlacement PetController::keep_docked(DesktopPetPlacement next, const DesktopPetRect& work) const {
+    if (docked_side_) next.window = dock_desktop_pet(next.window, work, docked_side_);
+    return next;
+}
+
+void PetController::publish_drag(const char* phase, const char* direction) {
+    if (closed_ || !page_ready_ || pet_kind_ == "office") return;
+    nlohmann::json event = {{"type", "pet-drag"}, {"phase", phase}};
+    if (direction) event["direction"] = direction;
+    deliver(event);
+}
+
+void PetController::publish_character() {
+    if (!closed_ && page_ready_ && pet_kind_ != "office") deliver(desktop_pet_character(pet_kind_));
+}
+
 void PetController::publish_snapshot() {
     if (closed_ || !page_ready_ || !office_snapshot_.contains("version")) return;
     deliver(office_snapshot_);
@@ -590,8 +511,10 @@ void PetController::on_web_message(const std::string& message) {
     if (message == "ready") {
         page_ready_ = true;
         reveal();
+        publish_character();
         publish_snapshot();
         deliver({{"type", "pet-window-state"}, {"pinned", pinned_}});
+        publish_dock();
     } else if (!message.empty() && message.front() == '{') {
         office_action(message);
     } else if (message == "drag") {
@@ -626,10 +549,7 @@ void PetController::office_action(const std::string& message) {
     if (type == "pin") {
         const auto field = value.find("pinned");
         if (field == value.end() || !field->is_boolean()) return;
-        pinned_ = field->get<bool>();
-        panel_.floatingPanel = pinned_;
-        panel_.level = pinned_ ? NSFloatingWindowLevel : NSNormalWindowLevel;
-        deliver({{"type", "pet-window-state"}, {"pinned", pinned_}});
+        set_pinned(field->get<bool>());
         return;
     }
     if (type == "close") {
@@ -649,7 +569,10 @@ void PetController::office_action(const std::string& message) {
         foreground_overlays_ = desktop_pet_overlays_from_message(foreground);
         return;
     }
-    if (type != "select" && type != "follow" && type != "open") return;
+    // 双击任何宠物都激活主窗口(与系统通知点击相同);带会话时再交给主页面切换到该会话。
+    if (type == "activate" || type == "open") mac_bring_window_foreground(host_.native_window());
+    // stop / read 来自陪伴宠物的会话卡片(停止该会话的回合、把完成结果标为已读)。
+    if (type != "select" && type != "follow" && type != "open" && type != "stop" && type != "read") return;
     host_.eval("window.dispatchEvent(new CustomEvent('ace-desktop-office-action',{detail:" +
                value.dump() + "}));");
 }
@@ -683,7 +606,7 @@ void PetController::notify_size() {
 void PetController::apply_scale(double scale, double fx, double fy) {
     const DesktopPetRect work = work_area();
     const double clamped = clamp_desktop_pet_scale(scale, kLogicalDpi, work);
-    apply_placement(scale_desktop_pet(window_rect(), clamped, fx, fy, work));
+    apply_placement(keep_docked(scale_desktop_pet(window_rect(), clamped, fx, fy, work), work));
     logical_scale_ = clamped;
     notify_size();
 }
@@ -701,11 +624,15 @@ void PetController::reset_size() {
     logical_scale_ = 0.0;
     save_logical_scale(0.0);
     if (!user_moved_) dock_to_corner();
-    else apply_placement(scale_desktop_pet(window_rect(), kDefaultLogicalScale, 1.0, 1.0, work_area()));
+    else apply_placement(keep_docked(scale_desktop_pet(window_rect(), kDefaultLogicalScale, 1.0, 1.0, work_area()), work_area()));
     notify_size();
 }
 
 void PetController::dock_to_corner() {
+    if (docked_side_) {
+        docked_side_ = 0;
+        publish_dock();
+    }
     apply_placement(place_desktop_pet(work_area(), kLogicalDpi,
                                       logical_scale_ > 0.0 ? logical_scale_ : kDefaultLogicalScale));
 }
@@ -743,6 +670,11 @@ void PetController::begin_gesture(bool resize) {
     }
     dragging_ = !resize;
     resizing_ = resize;
+    if (dragging_) {
+        docked_side_ = 0;   // 页面收到 start 就离开趴边姿势
+        drag_tracker_.begin(gesture_mouse_.x);
+        publish_drag("start");
+    }
     panel_.ignoresMouseEvents = NO;
     const std::weak_ptr<PetController> weak = weak_from_this();
     gesture_timer_ = [NSTimer timerWithTimeInterval:kGesturePollSeconds
@@ -759,12 +691,17 @@ void PetController::begin_gesture(bool resize) {
 void PetController::end_gesture() {
     [gesture_timer_ invalidate];
     gesture_timer_ = nil;
-    if (dragging_) user_moved_ = true;
+    const bool dropped = dragging_;
+    if (dragging_) {
+        user_moved_ = true;
+        publish_drag("end");
+    }
     if (resizing_) save_logical_scale(logical_scale_);
     dragging_ = false;
     resizing_ = false;
     mouse_pressed_ = false;
     release_cursor();
+    if (dropped && !closed_ && panel_) settle_dock();
 }
 
 void PetController::poll_gesture() {
@@ -788,6 +725,7 @@ void PetController::move_gesture(NSPoint mouse) {
     const double dx = mouse.x - gesture_mouse_.x;
     const double dy = gesture_mouse_.y - mouse.y;
     if (dragging_) {
+        if (const int direction = drag_tracker_.move(mouse.x)) publish_drag("move", direction < 0 ? "left" : "right");
         DesktopPetRect next = gesture_start_;
         next.x += static_cast<int>(std::lround(dx));
         next.y += static_cast<int>(std::lround(dy));
@@ -831,7 +769,7 @@ void PetController::poll_hover() {
     const double x = mouse.x - frame.origin.x;
     const double y = frame.origin.y + frame.size.height - mouse.y;
     const bool hit = desktop_pet_hit_test(current_scale(), static_cast<int>(frame.size.width),
-                                          static_cast<int>(frame.size.height), overlays_, x, y) ||
+                                          static_cast<int>(frame.size.height), overlays_, x, y, pet_kind_ == "office") ||
                      resize_grip_hit(mouse);
     if (panel_.ignoresMouseEvents == hit) panel_.ignoresMouseEvents = !hit;
     update_cursor();
@@ -882,7 +820,25 @@ void PetController::show_menu() {
         item.tag = tag;
         [menu addItem:item];
     };
+    // 二级菜单「切换宠物」,当前宠物打勾。
+    NSMenu* kinds = [[NSMenu alloc] initWithTitle:@""];
+    kinds.autoenablesItems = NO;
+    for (NSInteger i = 0; i < static_cast<NSInteger>(kDesktopPetKinds.size()); ++i) {
+        const auto& kind = kDesktopPetKinds[static_cast<std::size_t>(i)];
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:ns_string(zh ? kind.zh : kind.en)
+                                                      action:@selector(choose:) keyEquivalent:@""];
+        item.target = target;
+        item.tag = kMenuPetKindBase + i;
+        item.state = pet_kind_ == kind.id ? NSControlStateValueOn : NSControlStateValueOff;
+        [kinds addItem:item];
+    }
+    NSMenuItem* switcher = [[NSMenuItem alloc] initWithTitle:(zh ? @"切换宠物" : @"Switch pet") action:nil keyEquivalent:@""];
+    switcher.submenu = kinds;
+    [menu addItem:switcher];
+    [menu addItem:[NSMenuItem separatorItem]];
     add(zh ? @"回到右下角" : @"Move to corner", kMenuDock);
+    add(zh ? @"保持置顶" : @"Keep on top", kMenuPin);
+    menu.itemArray.lastObject.state = pinned_ ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:[NSMenuItem separatorItem]];
     add(zh ? @"放大（也可以滚轮）" : @"Zoom in (or scroll)", kMenuZoomIn);
     add(zh ? @"缩小" : @"Zoom out", kMenuZoomOut);
@@ -894,7 +850,14 @@ void PetController::show_menu() {
 
 void PetController::menu_command(NSInteger command) {
     if (closed_) return;
+    if (command >= kMenuPetKindBase && command < kMenuPetKindBase + static_cast<NSInteger>(kDesktopPetKinds.size())) {
+        const std::string kind = kDesktopPetKinds[static_cast<std::size_t>(command - kMenuPetKindBase)].id;
+        LOG_INFO("[desktop-pet] switched to " + kind + " from context menu");
+        if (kind != pet_kind_ && on_pet_kind) on_pet_kind(kind);
+        return;
+    }
     switch (command) {
+    case kMenuPin: set_pinned(!pinned_); break;
     case kMenuDock:
         user_moved_ = false;
         dock_to_corner();

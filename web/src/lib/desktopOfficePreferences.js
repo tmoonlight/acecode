@@ -1,3 +1,5 @@
+import { normalizeDesktopPetKind } from './desktopPetKinds.js';
+
 export const OFFICE_PREFERENCES_EVENT = 'ace-desktop-office-preferences';
 
 export function isOfficeWelcomeVisible({ requested, blocked, tourPreparing, tourRunning }) {
@@ -9,12 +11,12 @@ export function parseOfficePreferences(value) {
   if (!result || typeof result.available !== 'boolean' || typeof result.enabled !== 'boolean') {
     throw new Error('Invalid office preferences');
   }
-  return result;
+  return { ...result, petKind: normalizeDesktopPetKind(result.petKind) };
 }
 
 // One owner for the menu, settings, invitation and native close notifications.
 export function createDesktopOfficePreferences(win) {
-  let state = { ready: false, available: false, enabled: false, welcomePending: false, busy: false, error: '' };
+  let state = { ready: false, available: false, enabled: false, petKind: 'office', welcomePending: false, busy: false, error: '' };
   let revision = 0;
   let disposed = false;
   const listeners = new Set();
@@ -24,7 +26,7 @@ export function createDesktopOfficePreferences(win) {
     for (const listener of listeners) listener();
   };
   const accept = result => update({ ...result, ready: true,
-    error: result.ok === false ? '无法更新虚拟办公室，请重试。' : '' });
+    error: result.ok === false ? '无法更新桌面宠物，请重试。' : '' });
   const onChange = event => {
     try { const value = parseOfficePreferences(event.detail); revision++; accept(value); } catch {}
   };
@@ -36,7 +38,7 @@ export function createDesktopOfficePreferences(win) {
       if (revision === before) accept(result);
       return result;
     } catch {
-      if (revision === before) update({ ready: true, error: '无法更新虚拟办公室，请重试。' });
+      if (revision === before) update({ ready: true, error: '无法更新桌面宠物，请重试。' });
       return { ok: false };
     }
   }
@@ -61,6 +63,13 @@ export function createDesktopOfficePreferences(win) {
       if (!state.available || state.busy) return { ok: false };
       update({ busy: true, error: '' });
       const result = await request('aceDesktop_setOfficeEnabled', !!enabled);
+      update({ busy: false });
+      return result;
+    },
+    async setPetKind(kind) {
+      if (!state.available || state.busy || normalizeDesktopPetKind(kind) !== kind) return { ok: false };
+      update({ busy: true, error: '' });
+      const result = await request('aceDesktop_setPetKind', kind);
       update({ busy: false });
       return result;
     },

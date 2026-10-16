@@ -105,6 +105,14 @@ ACL 幂等检查不能只按路径缓存。Windows 不隔离网络，Everyone/�
 **权限清单与审批扩展(openspec align-codex-sandboxing)**:`SandboxPolicy` 由 read /
 write / deny 三类条目派生(`config.sandbox.filesystem.*` + 默认 deny 名单 + 会话授权),
 判定「最长前缀优先,同深度 deny > write > read」;Windows 受限令牌管不了读,deny 只拦写。
+**比较两侧必须同口径**:策略条目是 canonical 形态(`make_sandbox_policy` 已 weakly_canonical),
+待判路径(`resolve_access`、`is_denied`、授权过滤 `denied_by`、「只放行该目录」建议)一律先
+`canonical_utf8` 再比 —— 曾经授权与建议拿词法形态比,经 junction 别名(本机 `C:\Users\shao` →
+`N:\Users\shao`)申请 `~/.ssh` 下尚不存在的目录就绕过了 deny 名单。单测里手拼 `SandboxPolicy`
+也要用 `canonical_policy_path` 填条目:Windows 上 `/work` 按当前盘解析,当前盘恰好有 `\work`
+(本机 `C:\work`)时未规范化的条目对不上,用例随机器时过时不过。回归:
+`sandbox_policy_test.cpp::DenyListStillWinsWhenGrantUsesDirectoryAlias`、
+`sandbox_denial_test.cpp::SuggestedWriteRootRejectsDeniedDirectoryReachedThroughAlias`。
 bash 参数是 Codex 同款 `sandbox_permissions=use_default|with_additional_permissions|require_escalated`
 + `additional_permissions` + `prefix_rule`(旧 `with_escalated_permissions` 是别名)。
 决策表新增 `unattended`:active goal 下越权 / 额外权限申请一律 Forbidden(`escalation_unattended`),

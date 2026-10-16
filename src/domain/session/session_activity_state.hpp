@@ -10,8 +10,9 @@ namespace acecode {
 
 // Compact presentation state, updated under the owning dispatcher's mutex.
 // It keeps only short display fragments: the streaming tail of the current
-// model step (bounded) and each running tool's one-line call preview. No
-// transcript, arguments, tool output or service references are retained.
+// model step (bounded), each running tool's one-line call preview and the first
+// 240 bytes of the latest assistant reply (the companion pet's "done" card). No
+// full transcript, arguments, tool output or service references are retained.
 class SessionActivityState {
 public:
     void apply(const SessionEvent& event);
@@ -30,6 +31,7 @@ private:
     std::string tool_;
     std::string detail_;
     std::string stream_tail_;
+    std::string reply_;   // prefix of the latest assistant reply; cleared when a new turn starts
     std::string compact_id_;
     // tool_call_id -> (tool name, call preview)
     std::map<std::string, std::pair<std::string, std::string>> tools_;

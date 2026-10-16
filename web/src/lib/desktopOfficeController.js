@@ -22,16 +22,18 @@ export function createDesktopOfficeController({
     if (disposed || liveTimer !== null) return;
     liveTimer = schedule(() => {liveTimer = null; emit();}, OFFICE_LIVE_PUBLISH_MS);
   };
-  const tracked = id => (snapshot.agents || []).some(session => session.id === id);
+  // Streamed text reaches both office members and companion-pet session cards.
+  const liveSessions = () => [...(snapshot.agents || []), ...(snapshot.activities || [])];
+  const tracked = id => liveSessions().some(session => session.id === id);
   const pruneLive = () => {
     for (const [id, entry] of live) {
-      const session = (snapshot.agents || []).find(item => item.id === id);
+      const session = liveSessions().find(item => item.id === id);
       if (!session || entry.seq <= (Number(session.activity?.seq) || 0)) live.delete(id);
     }
   };
   const syncRetained = () => {
     const wanted = new Set();
-    for (const session of [...(snapshot.offices || []), ...(snapshot.agents || [])]) {
+    for (const session of [...(snapshot.offices || []), ...(snapshot.agents || []), ...(snapshot.activities || [])]) {
       if (session.active && (session.id === snapshot.selected?.id || session.busy || session.status === 'running')) wanted.add(session.id);
     }
     for (const id of retained) if (!wanted.has(id)) {releaseSession(id); retained.delete(id);}
@@ -69,7 +71,8 @@ export function createDesktopOfficeController({
     } catch (error) {
       if (disposed || version !== generation || controller.signal.aborted) return;
       if (error?.status === 404) {
-        selected = {}; snapshot = {...snapshot, selected:null, agents:[], offices:error.body?.offices || snapshot.offices || []};
+        selected = {}; snapshot = {...snapshot, selected:null, agents:[], offices:error.body?.offices || snapshot.offices || [],
+          activities:error.body?.activities || snapshot.activities || []};
         if (follow) active = {};
         live.clear(); syncRetained();
       } else connected = false;
@@ -85,8 +88,9 @@ export function createDesktopOfficeController({
   function change() {
     generation++;
     request?.abort(); request = null; queued = false;
-    snapshot = {...snapshot, selected:null, agents:[]};
-    live.clear(); syncRetained(); emit(); later(0);
+    // Keep the last coherent room until the new snapshot is ready. Publishing
+    // an empty selection here rebuilds the default layout on every switch.
+    emit(); later(0);
   }
   function streamed(message) {
     const id = String(message.session_id || '');

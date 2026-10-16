@@ -7,6 +7,7 @@
 //  6. 流式正文让快照进入「撰写回复」并只保留有限尾巴;
 //  7. 推理与正文各自成段,换阶段时旧尾巴清空;
 //  8. 工具调用带一行调用预览,工具结束后预览清空。
+//  9. 回合结束后仍保留最后一条助手回复的开头(陪伴宠物「已完成」卡片),新回合开始清空。
 #include <gtest/gtest.h>
 #include "session/event_dispatcher.hpp"
 #include "session/session_activity_state.hpp"
@@ -148,4 +149,23 @@ TEST(SessionActivityState, ToolCallCarriesOneLinePreviewUntilItEnds) {
     events.emit(SessionEventKind::ToolStart, {{"tool", "bash"}, {"tool_call_id", "b"},
         {"display_override", ""}, {"command_preview", "npm test"}});
     EXPECT_EQ(events.activity_snapshot()["detail"], "npm test");
+}
+
+// 场景:回合里先有工具消息,再有助手正文回复,然后回合完成;接着开始新回合。
+// 期望:完成后快照的 reply 是助手正文开头(工具消息、用户消息不算),最多 240 字节;
+// 流式尾巴 text 随完成清空但 reply 保留,供陪伴宠物「已完成」卡片显示;新回合开始 reply 清空。
+TEST(SessionActivityState, LatestAssistantReplySurvivesCompletionUntilNextTurn) {
+    EventDispatcher events;
+    events.emit(SessionEventKind::BusyChanged, {{"busy", true}});
+    events.emit(SessionEventKind::Message, {{"role", "user"}, {"content", "等待30秒"}, {"is_tool", false}});
+    events.emit(SessionEventKind::Message, {{"role", "assistant"}, {"content", "调用工具"}, {"is_tool", true}});
+    events.emit(SessionEventKind::Message, {{"role", "assistant"}, {"content", "30 秒已过。"}, {"is_tool", false}});
+    events.emit(SessionEventKind::Done, {{"outcome", "completed"}});
+    auto snapshot = events.activity_snapshot();
+    EXPECT_EQ(snapshot["reply"], "30 秒已过。");
+    EXPECT_EQ(snapshot["text"], "");
+    events.emit(SessionEventKind::Message, {{"role", "assistant"}, {"content", std::string(600, 'a')}, {"is_tool", false}});
+    EXPECT_LE(events.activity_snapshot()["reply"].get<std::string>().size(), 240u);
+    events.emit(SessionEventKind::BusyChanged, {{"busy", true}});
+    EXPECT_EQ(events.activity_snapshot()["reply"], "");
 }
