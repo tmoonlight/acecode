@@ -90,7 +90,7 @@ MVP 明确不处理 shadow root、iframe、canvas、文件上传、弹出标签�
 
 ### 3.1 一次 `browser_click` 是 7 次 IPC 请求
 
-`src/tool/agent_browser/browser_tools.cpp:653-686`：
+`src/adapters/tool/agent_browser/browser_tools.cpp:653-686`：
 
 | # | 调用 | 位置 | 备注 |
 | --- | --- | --- | --- |
@@ -110,7 +110,7 @@ MVP 明确不处理 shadow root、iframe、canvas、文件上传、弹出标签�
 ### 3.2 传输层每个请求新建一条连接
 
 `AgentBrowserCdpClient::request()` 每次调用都完整走一遍：`open_proxy_pipe` /
-`open_proxy_socket`（`src/tool/agent_browser/cdp_client.cpp:551` / `:562`）、写 u32 长度 +
+`open_proxy_socket`（`src/adapters/tool/agent_browser/cdp_client.cpp:551` / `:562`）、写 u32 长度 +
 JSON、读 u32 长度 + JSON、写 1 字节 ack、`close_pipe()`（`:622-627`）。
 
 即：**一次点击建立并拆除 7 条命名管道或 Unix socket**，没有任何连接复用。
@@ -294,7 +294,7 @@ ACECode 已有两处同形状的先例可以复用设计：`spawn_subagent` 的�
 只看墙钟会把模型侧的抖动误判成改造效果。jev 自己也强调它那组数据是「单任务、单
 浏览器配置、三次重复」，不是通用可靠性基准；我们的口径同样要写清样本条件。
 
-改动集中在 `src/tool/agent_browser/browser_tools.cpp` 与 `cdp_client.cpp`，
+改动集中在 `src/adapters/tool/agent_browser/browser_tools.cpp` 与 `cdp_client.cpp`，
 按 AGENTS.md 的命令集跑 `acecode_unit_tests`；杠杆 4 的连接复用需要 Windows 与 macOS
 两端实测，因为传输实现不同（命名管道与 Unix socket）。
 
