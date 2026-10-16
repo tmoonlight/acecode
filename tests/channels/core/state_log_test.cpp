@@ -187,7 +187,9 @@ TEST(ChannelStateLog, CredentialsAndPlatformExtras) {
 
     auto webhook = base;
     webhook["extra"]["webhook"] = true;
-    const auto* blocked = find_line(describe_state_changes(base, webhook),
+    // Keep the vector alive: find_line returns a pointer into it.
+    lines = describe_state_changes(base, webhook);
+    const auto* blocked = find_line(lines,
                                     "a webhook is set for this bot; long polling stays blocked until it is removed in "
                                     "the connect dialog");
     ASSERT_NE(blocked, nullptr);

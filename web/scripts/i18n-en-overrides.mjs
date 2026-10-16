@@ -2195,6 +2195,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '模拟器画面已中断': 'Simulator stream interrupted',
   '模拟器键盘输入': 'Simulator keyboard input',
   '模拟器控制组件缺失，请重新安装完整的 ACECode 安装包': 'The simulator control component is missing. Reinstall the full ACECode package.',
+  '模拟器控制组件未在沙盒中运行：{{p0}}': 'The simulator control component is running without its sandbox: {{p0}}',
   '模拟器屏幕': 'Simulator screen',
   '模拟器设备': 'Simulator devices',
   '模拟器未启动': 'Simulator is not booted',

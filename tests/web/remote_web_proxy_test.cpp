@@ -163,7 +163,15 @@ void assert_round_trip(int proxy_port, EchoServer& echo) {
     for (int attempt = 0; attempt < 40 && echo.peer_address().empty(); ++attempt) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+#ifdef __APPLE__
+    // macOS 的 lo0 只分配 127.0.0.1,代理改用本机的非回环 IPv4 作源地址;
+    // 守护进程照样把它当成需要 token 的远程来源。
+    const std::string peer = echo.peer_address();
+    EXPECT_FALSE(peer.empty());
+    EXPECT_NE(peer.rfind("127.", 0), 0u) << peer;
+#else
     EXPECT_EQ(echo.peer_address(), "127.0.0.2");
+#endif
 }
 
 } // namespace

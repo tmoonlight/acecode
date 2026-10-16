@@ -1,8 +1,6 @@
 #import "sim_core.h"
 #import "private_api.h"
 
-#include "tool/ios_simulator/wire.hpp"
-
 #include <atomic>
 #include <cerrno>
 #include <dlfcn.h>
@@ -18,9 +16,6 @@ bool g_loaded = false;
 void* g_simulator_kit_image = nullptr;
 id g_service_context = nil;
 id g_device_set = nil;
-
-std::mutex g_write_mu;
-std::atomic<int> g_droppable_pending{0};
 
 NSString* const kCoreSimulatorPath = @"/Library/Developer/PrivateFrameworks/CoreSimulator.framework";
 NSString* const kAccessibilityPath =
@@ -39,17 +34,6 @@ bool load_bundle(NSString* path, std::string& error) {
         return false;
     }
     return true;
-}
-
-void write_all(const std::string& bytes) {
-    std::size_t sent = 0;
-    while (sent < bytes.size()) {
-        const auto count = ::write(STDOUT_FILENO, bytes.data() + sent, bytes.size() - sent);
-        if (count > 0) { sent += static_cast<std::size_t>(count); continue; }
-        if (count < 0 && errno == EINTR) continue;
-        // The daemon is gone; there is nobody left to serve.
-        _exit(0);
-    }
 }
 
 id service_device_set() {
@@ -112,7 +96,7 @@ void guarded(const char* code, void (^body)(void)) {
     }
 }
 
-const Environment& load_frameworks(const std::string& developer_dir) {
+const Environment& load_frameworks(const std::string& developer_dir, bool simulator_kit) {
     std::lock_guard<std::mutex> lock(g_env_mu);
     if (g_loaded) return g_env;
     g_env.developer_dir = developer_dir;
@@ -125,6 +109,8 @@ const Environment& load_frameworks(const std::string& developer_dir) {
     g_env.core_simulator_version =
         utf8([NSBundle bundleForClass:device_class].infoDictionary[@"CFBundleVersion"]);
 
+    g_loaded = true;
+    if (!simulator_kit) return g_env;
     NSString* developer = ns(developer_dir);
     NSArray<NSString*>* candidates = @[
         [[developer stringByAppendingPathComponent:@"../SharedFrameworks/SimulatorKit.framework"]
@@ -143,7 +129,6 @@ const Environment& load_frameworks(const std::string& developer_dir) {
     }
     if (!g_env.simulator_kit_loaded && g_env.load_error.empty())
         g_env.load_error = "SimulatorKit.framework was not found in the selected Xcode.";
-    g_loaded = true;
     return g_env;
 }
 
@@ -231,22 +216,6 @@ json list_devices() {
         try { out.push_back(describe_device(device)); } catch (const SimError&) {}
     }
     return out;
-}
-
-void emit(const json& header, const std::string& binary, bool drop_if_busy) {
-    if (drop_if_busy && g_droppable_pending.load() > 2) return;
-    std::string frame;
-    try { frame = wire::encode(header, binary); } catch (const std::exception&) { return; }
-    if (drop_if_busy) g_droppable_pending.fetch_add(1);
-    {
-        std::lock_guard<std::mutex> lock(g_write_mu);
-        write_all(frame);
-    }
-    if (drop_if_busy) g_droppable_pending.fetch_sub(1);
-}
-
-void emit_log(const std::string& level, const std::string& message) {
-    emit({{"event", "log"}, {"level", level}, {"message", message}});
 }
 
 } // namespace acecode::ios_simulator::helper

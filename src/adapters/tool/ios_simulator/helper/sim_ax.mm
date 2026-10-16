@@ -1,5 +1,6 @@
 #import "sim_ax.h"
 #import "sim_core.h"
+#import "sim_output.h"
 #import "private_api.h"
 
 #include <cmath>
@@ -228,9 +229,12 @@ json describe_ui(id device, const std::string& udid, const UiQuery& query) {
         ax.accessibilityEnabled = YES;
         id translation = nil;
         // The guest accessibility server starts on the first request; the
-        // first answers after a boot or app launch are often empty.
-        for (int attempt = 0; attempt < 3 && !translation; ++attempt) {
-            if (attempt) usleep(700 * 1000);
+        // first answers after a boot or app launch are often empty for a few
+        // seconds (observed right after `simctl boot`).
+        constexpr useconds_t kRetryDelaysMs[] = {0, 400, 700, 1000, 1500, 2000};
+        for (useconds_t delay_ms : kRetryDelaysMs) {
+            if (translation) break;
+            if (delay_ms) usleep(delay_ms * 1000);
             translation = query.mode == "point"
                 ? [ax objectAtPoint:CGPointMake(query.x, query.y) displayId:0 bridgeDelegateToken:token]
                 : [ax frontmostApplicationWithDisplayId:0 bridgeDelegateToken:token];

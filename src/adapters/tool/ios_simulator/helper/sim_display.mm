@@ -1,6 +1,7 @@
 #import "sim_display.h"
 #import "sim_core.h"
-#import "private_api.h"
+#import "sim_framebuffer.h"
+#import "sim_output.h"
 
 #import <Accelerate/Accelerate.h>
 #import <ImageIO/ImageIO.h>
@@ -135,57 +136,25 @@ struct StreamState {
 
 class FramebufferDisplay final : public Display, public std::enable_shared_from_this<FramebufferDisplay> {
 public:
-    FramebufferDisplay(id device, id renderable, std::string udid)
-        : device_(device), renderable_(renderable), udid_(std::move(udid)) {
-        token_ = [NSUUID UUID];
-        callback_queue_ = dispatch_queue_create("dev.acecode.ios-sim.display.callbacks", DISPATCH_QUEUE_SERIAL);
+    FramebufferDisplay(id device, std::string udid) : device_(device), udid_(std::move(udid)) {
         encode_queue_ = dispatch_queue_create("dev.acecode.ios-sim.display.encode", DISPATCH_QUEUE_SERIAL);
     }
 
-    ~FramebufferDisplay() override { unregister(); }
-
-    void register_callbacks() {
-        std::weak_ptr<FramebufferDisplay> weak = weak_from_this();
-        id renderable = renderable_;
-        NSUUID* token = token_;
-        auto changed = ^(id surface) {
-            if (auto self = weak.lock()) self->surface_changed(surface);
-        };
-        auto frame = ^{
-            if (auto self = weak.lock()) self->frame_rendered();
-        };
-        bool registered = false;
-        if ([renderable respondsToSelector:@selector(registerScreenCallbacksWithUUID:callbackQueue:frameCallback:
-                                                      surfacesChangedCallback:propertiesChangedCallback:)]) {
-            @try {
-                [(id<ACESimScreen>)renderable registerScreenCallbacksWithUUID:token callbackQueue:callback_queue_
-                    frameCallback:frame surfacesChangedCallback:^(id primary, id masked) { (void)masked; changed(primary); }
-                    propertiesChangedCallback:^(id properties) { (void)properties; }];
-                registered = true;
-                screen_callbacks_ = true;
-            } @catch (NSException*) {
-                @try { [(id<ACESimScreen>)renderable unregisterScreenCallbacksWithUUID:token]; } @catch (NSException*) {}
-            }
-        }
-        if (!registered) {
-            bool surface_ok = false;
-            @try {
-                [(id<ACESimDisplayRenderable>)renderable registerCallbackWithUUID:token ioSurfacesChangeCallback:changed];
-                surface_ok = true;
-            } @catch (NSException*) {}
-            @try {
-                [(id<ACESimDisplayRenderable>)renderable registerCallbackWithUUID:token ioSurfaceChangeCallback:changed];
-                surface_ok = true;
-            } @catch (NSException*) {}
-            @try {
-                [(id<ACESimDisplayRenderable>)renderable registerCallbackWithUUID:token
-                    damageRectanglesCallback:^(NSArray* rects) { (void)rects; frame(); }];
-            } @catch (NSException*) {
-                if (!surface_ok) throw SimError("DISPLAY_UNAVAILABLE", "Could not subscribe to framebuffer updates.");
-            }
-        }
+    void start() {
+        std::weak_ptr<FramebufferDisplay> surface_owner = weak_from_this();
+        std::weak_ptr<FramebufferDisplay> frame_owner = surface_owner;
+        // Callbacks can fire before the constructor returns; they reach the
+        // source only through current_surface(), which waits for this store.
+        auto source = std::make_unique<FramebufferSource>(
+            device_,
+            [surface_owner](id surface) {
+                if (auto self = surface_owner.lock()) self->surface_changed(surface);
+            },
+            [frame_owner]() {
+                if (auto self = frame_owner.lock()) self->schedule(0);
+            });
         std::lock_guard<std::mutex> lock(mu_);
-        surface_ = initial_surface();
+        source_ = std::move(source);
     }
 
     EncodedImage capture(const std::string& format, double scale, double quality) override {
@@ -241,30 +210,14 @@ public:
     }
 
 private:
-    id initial_surface() {
-        id surface = nil;
-        @try { surface = [(id<ACESimDisplayRenderable>)renderable_ framebufferSurface]; } @catch (NSException*) {}
-        if (!surface) {
-            @try { surface = [(id<ACESimDisplayRenderable>)renderable_ ioSurface]; } @catch (NSException*) {}
-        }
-        return surface;
-    }
-
     id current_surface() {
-        {
-            std::lock_guard<std::mutex> lock(mu_);
-            if (surface_) return surface_;
-        }
-        id surface = initial_surface();
         std::lock_guard<std::mutex> lock(mu_);
-        if (!surface_) surface_ = surface;
-        return surface_;
+        return source_ ? source_->surface() : nil;
     }
 
     void surface_changed(id surface) {
         {
             std::lock_guard<std::mutex> lock(mu_);
-            surface_ = surface;
             for (auto& [stream, state] : streams_) state.have_seed = false;
         }
         if (!surface) {
@@ -280,8 +233,6 @@ private:
         schedule(0);
     }
 
-    void frame_rendered() { schedule(0); }
-
     void schedule(double delay_ms) {
         bool expected = false;
         if (!scheduled_.compare_exchange_strong(expected, true)) return;
@@ -296,11 +247,10 @@ private:
     // elapsed and whose surface content changed; reschedules the rest.
     void pump() {
         scheduled_.store(false);
-        id surface = nil;
+        id surface = current_surface();
         std::map<std::uint64_t, StreamState> snapshot;
         {
             std::lock_guard<std::mutex> lock(mu_);
-            surface = surface_;
             snapshot = streams_;
         }
         if (!surface || snapshot.empty()) return;
@@ -352,59 +302,22 @@ private:
         if (next_delay >= 0) schedule(next_delay);
     }
 
-    void unregister() {
-        id renderable = renderable_;
-        NSUUID* token = token_;
-        if (screen_callbacks_) {
-            @try { [(id<ACESimScreen>)renderable unregisterScreenCallbacksWithUUID:token]; } @catch (NSException*) {}
-        }
-        @try { [(id<ACESimDisplayRenderable>)renderable unregisterIOSurfacesChangeCallbackWithUUID:token]; } @catch (NSException*) {}
-        @try { [(id<ACESimDisplayRenderable>)renderable unregisterIOSurfaceChangeCallbackWithUUID:token]; } @catch (NSException*) {}
-        @try { [(id<ACESimDisplayRenderable>)renderable unregisterDamageRectanglesCallbackWithUUID:token]; } @catch (NSException*) {}
-    }
-
     id device_;
-    id renderable_;
     std::string udid_;
     int last_rotation_ = 0;  // encode_queue_ only
-    NSUUID* token_ = nil;
-    dispatch_queue_t callback_queue_ = nil;
     dispatch_queue_t encode_queue_ = nil;
-    bool screen_callbacks_ = false;
     std::atomic<bool> scheduled_{false};
     std::mutex mu_;
-    id surface_ = nil;
     std::map<std::uint64_t, StreamState> streams_;
+    // Last: destroyed (callbacks unregistered and drained) before the rest.
+    std::unique_ptr<FramebufferSource> source_;
 };
-
-id find_main_renderable(id device) {
-    __block id found = nil;
-    __block id fallback = nil;
-    guarded("DISPLAY_UNAVAILABLE", ^{
-        id io = [(id<ACESimDevice>)device io];
-        NSArray* ports = io ? [(id<ACESimDeviceIOClient>)io ioPorts] : nil;
-        for (id port in ports) {
-            id descriptor = [(id<ACESimDeviceIOPort>)port descriptor];
-            if (![descriptor respondsToSelector:@selector(framebufferSurface)] &&
-                ![descriptor respondsToSelector:@selector(ioSurface)]) continue;
-            if (![descriptor respondsToSelector:@selector(state)]) continue;
-            id state = [(id<ACESimDisplayRenderable>)descriptor state];
-            if (![state respondsToSelector:@selector(displayClass)]) continue;
-            if ([(id<ACESimDisplayDescriptorState>)state displayClass] == 0) { found = descriptor; break; }
-            if (!fallback) fallback = descriptor;
-        }
-    });
-    return found ?: fallback;
-}
 
 } // namespace
 
 std::shared_ptr<Display> open_display(id device, const std::string& udid) {
-    if (!device_booted(device)) throw SimError("DEVICE_NOT_BOOTED", "The simulator is not booted.");
-    id renderable = find_main_renderable(device);
-    if (!renderable) throw SimError("DISPLAY_UNAVAILABLE", "Could not find the simulator's main display.");
-    auto display = std::make_shared<FramebufferDisplay>(device, renderable, udid);
-    display->register_callbacks();
+    auto display = std::make_shared<FramebufferDisplay>(device, udid);
+    display->start();
     return display;
 }
 

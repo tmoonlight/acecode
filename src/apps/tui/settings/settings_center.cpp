@@ -2242,24 +2242,24 @@ struct SettingsCenter::Impl {
                 vbox({
                     hbox({
                         text("ACECode") | bold | size(WIDTH, EQUAL, 20),
-                        text(deps.acecode_version),
+                        text(deps.acecode_version) | flex_shrink,
                     }),
                     separator() | color(theme().ui.text_dim),
                     hbox({
                         text("FTXUI") | bold | size(WIDTH, EQUAL, 20),
-                        text(kFtxuiVersion),
+                        text(kFtxuiVersion) | flex_shrink,
                     }),
                     separator() | color(theme().ui.text_dim),
                     hbox({
                         text("Config path") | bold |
                             size(WIDTH, EQUAL, 20),
-                        text(config_path),
+                        text(config_path) | flex_shrink,
                     }),
                     separator() | color(theme().ui.text_dim),
                     hbox({
                         text("Project") | bold | size(WIDTH, EQUAL, 20),
                         text(kProjectUrl) |
-                            color(theme().markdown.link),
+                            color(theme().markdown.link) | flex_shrink,
                     }),
                 }) | border | color(theme().ui.border),
                 hbox({

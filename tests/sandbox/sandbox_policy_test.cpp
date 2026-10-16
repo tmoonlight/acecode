@@ -97,21 +97,23 @@ std::string canon(const std::string& path) { return canonical_policy_path(path);
 // 场景:deny 名单、可写根、只读子路径、可读根共存时的访问判定。期望:最长前缀
 // 命中优先(写根下的 deny 子目录仍 Deny;deny 目录下配置的写根反而可写),同深度
 // deny > write > read;全盘可读时未命中的路径 Read,受限读时 Deny;FullAccess 恒 Write。
+// macOS 的 /home 是 autofs 挂载点,规范化 /home/u 会触发自动挂载查询、两次结果
+// 可能不同(条目与查询对不上),所以用不存在的普通根目录。
 // 回归:条目曾直接写 `/work` 而不经规范化,在存在 C:\work 的 Windows 机器上
 // `/work/src/main.cpp` 判成 Read、`/work/secrets/key` 判成 Read(期望 Write / Deny)。
 TEST(SandboxPolicy, ResolveAccessPrefersDeepestEntryThenDenyWriteRead) {
     SandboxPolicy policy;
     policy.mode = SandboxMode::WorkspaceWrite;
     policy.writable_roots = {{canon("/work"), {canon("/work/.acecode/rules")}},
-                             {canon("/home/u/.cache/allowed"), {}}};
-    policy.denied_paths = {canon("/work/secrets"), canon("/home/u/.cache")};
+                             {canon("/policy-home/u/.cache/allowed"), {}}};
+    policy.denied_paths = {canon("/work/secrets"), canon("/policy-home/u/.cache")};
     policy.denied_globs = {canon("/work") + "/**/.env"};
     EXPECT_EQ(policy.resolve_access("/work/src/main.cpp"), FsAccess::Write);
     EXPECT_EQ(policy.resolve_access("/work/.acecode/rules/x.rules"), FsAccess::Read);
     EXPECT_EQ(policy.resolve_access("/work/secrets/key"), FsAccess::Deny);
     EXPECT_EQ(policy.resolve_access("/work/app/.env"), FsAccess::Deny);
-    EXPECT_EQ(policy.resolve_access("/home/u/.cache/other"), FsAccess::Deny);
-    EXPECT_EQ(policy.resolve_access("/home/u/.cache/allowed/pkg"), FsAccess::Write) << "更深的写根压过浅的 deny";
+    EXPECT_EQ(policy.resolve_access("/policy-home/u/.cache/other"), FsAccess::Deny);
+    EXPECT_EQ(policy.resolve_access("/policy-home/u/.cache/allowed/pkg"), FsAccess::Write) << "更深的写根压过浅的 deny";
     EXPECT_EQ(policy.resolve_access("/etc/hosts"), FsAccess::Read) << "全盘可读";
     EXPECT_TRUE(policy.can_read("/etc/hosts"));
     EXPECT_FALSE(policy.can_write("/etc/hosts"));

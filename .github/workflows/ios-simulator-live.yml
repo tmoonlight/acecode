@@ -1,0 +1,65 @@
+name: ios-simulator-live
+
+# Live check of the iOS Simulator integration on a GitHub-hosted Mac with a
+# booted simulator: real touch / keyboard / button input (dtuhidd on the
+# xcode-27 image, CoreSimulator 1155.4+), screenshots, the JPEG stream, the
+# helper's Seatbelt profile and the Desktop native view. Opt-in: run it
+# manually or push a ci/ios-simulator-live* branch. See
+# scripts/ios_simulator/live_check.py.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner label (xcode-27 covers the dtuhidd transport)
+        default: xcode-27
+      hid:
+        description: Force the HID transport (indigo or dtuhid); empty = automatic
+        default: ''
+  push:
+    branches: ['ci/ios-simulator-live**']
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: nlohmann/json header
+        run: |
+          mkdir -p "$RUNNER_TEMP/json/nlohmann"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/json/nlohmann/json.hpp" \
+            https://github.com/nlohmann/json/releases/download/v3.12.0/json.hpp
+
+      - name: Live check (sandboxed helper)
+        env:
+          HID_TRANSPORT: ${{ inputs.hid }}
+        run: |
+          python3 scripts/ios_simulator/live_check.py \
+            --json-include "$RUNNER_TEMP/json" \
+            --out "$RUNNER_TEMP/ios-sim-live" \
+            ${HID_TRANSPORT:+--hid "$HID_TRANSPORT"}
+
+      - name: Collect crash reports
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios-sim-live/crashes"
+          cp ~/Library/Logs/DiagnosticReports/acecode-ios-sim* \
+             ~/Library/Logs/DiagnosticReports/ios_simulator_view* \
+             "$RUNNER_TEMP/ios-sim-live/crashes/" 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-simulator-live-${{ github.run_id }}
+          path: ${{ runner.temp }}/ios-sim-live

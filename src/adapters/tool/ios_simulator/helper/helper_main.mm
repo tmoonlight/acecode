@@ -6,6 +6,7 @@
 
 #import "sim_ax.h"
 #import "sim_core.h"
+#import "sim_output.h"
 #import "sim_display.h"
 #import "sim_hid.h"
 #import "private_api.h"

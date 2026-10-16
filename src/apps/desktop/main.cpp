@@ -15,6 +15,7 @@
 
 #include "daemon_pool.hpp"
 #include "agent_browser_host.hpp"
+#include "ios_simulator_view.hpp"
 #include "ipc/agent_browser_runtime.hpp"
 #include "context_items.hpp"
 #include "platform/native_ui/context_picker.hpp"
@@ -1111,9 +1112,8 @@ int main(int argc, char** argv) {
                 agent_browser_state_json(state).dump() +
                 "}));}catch(e){}})();");
         },
-        [&host](std::function<void()> task) {
-            host.dispatch(std::move(task));
-        });
+        [&host](std::function<void()> task) { host.dispatch(std::move(task)); });
+    const auto ios_simulator_view = install_ios_simulator_view(host);
     std::atomic<bool> restart_requested{false};
     host.set_title("ACECode");
     host.set_size(kDefaultDesktopWindowWidth, kDefaultDesktopWindowHeight);

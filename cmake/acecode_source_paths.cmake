@@ -13,6 +13,9 @@ set(ACECODE_DESKTOP_PET_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop
 set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_desktop.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_mac.mm")
+set(ACECODE_IOS_SIMULATOR_VIEW_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view.cpp")
+set(ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view_mac.mm")
+set(ACECODE_IOS_SIMULATOR_VIEW_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view_bridge.cpp")
 set(ACECODE_BROWSER_CDP_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/tool/agent_browser/cdp_client.cpp")
 set(ACECODE_BROWSER_POINTER_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/tool/agent_browser/browser_pointer_overlay.cpp")
 set(ACECODE_PROCESS_RESOURCES_SOURCE "${CMAKE_SOURCE_DIR}/src/base/platform/process/unique_resources.cpp")
@@ -32,15 +35,20 @@ set(ACECODE_COMPUTER_USE_MAC_SOURCES
     ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/macos_capture.mm
     ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/macos_input.mm
     ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/macos_pointer.mm)
-# iOS Simulator helper (macOS only): Objective-C++ over Xcode's private
-# CoreSimulator / SimulatorKit, loaded at runtime.
+# iOS Simulator (macOS only): Objective-C++ over Xcode's private
+# CoreSimulator / SimulatorKit, loaded at runtime. The native library is the
+# simulator access shared by the acecode-ios-sim helper and the Desktop
+# shell's zero-copy view; the rest is helper-only.
+set(ACECODE_IOS_SIM_NATIVE_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_core.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_guest.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_framebuffer.mm)
 set(ACECODE_IOS_SIM_HELPER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/helper_main.mm
-    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_core.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_output.mm
     ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_hid.mm
     ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_display.mm
-    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_ax.mm
-    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_guest.mm)
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_ax.mm)
 set(ACECODE_NATIVE_BRIDGE_MAC_SOURCES
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/folder_picker_mac.mm
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_mac.mm)
@@ -86,6 +94,9 @@ set(ACECODE_AGENT_BROWSER_HOST_MAC_SMOKE_SOURCES
     ${ACECODE_BROWSER_CDP_SOURCE})
 set(ACECODE_MACOS_NOTIFICATION_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/macos_notification_smoke.mm)
+set(ACECODE_IOS_SIMULATOR_VIEW_MAC_SMOKE_SOURCES
+    ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/ios_simulator_view_mac_smoke.mm
+    ${ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE})
 
 # 不按当前平台跳过校验：在 Windows configure 时也能发现 .mm 路径拼错。
 acecode_require_sources("shared target source paths"
@@ -102,6 +113,9 @@ acecode_require_sources("shared target source paths"
     ${ACECODE_DESKTOP_LINUX_SOURCE}
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
     ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE}
+    ${ACECODE_IOS_SIMULATOR_VIEW_SOURCE}
+    ${ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE}
+    ${ACECODE_IOS_SIMULATOR_VIEW_BRIDGE_SOURCE}
     ${ACECODE_BROWSER_CDP_SOURCE}
     ${ACECODE_BROWSER_POINTER_SOURCE}
     ${ACECODE_COMPUTER_USE_RUNTIME_SOURCE}
@@ -111,6 +125,8 @@ acecode_require_sources("shared target source paths"
     ${ACECODE_COMPUTER_USE_MAC_MAIN_SOURCE}
     ${ACECODE_COMPUTER_USE_WINDOWS_SOURCES}
     ${ACECODE_COMPUTER_USE_MAC_SOURCES}
+    ${ACECODE_IOS_SIM_NATIVE_SOURCES}
+    ${ACECODE_IOS_SIM_HELPER_SOURCES}
     ${ACECODE_NATIVE_BRIDGE_MAC_SOURCES}
     ${ACECODE_DESKTOP_OBJCXX_SOURCES}
     ${ACECODE_UPGRADE_MAC_SOURCE})
@@ -124,5 +140,6 @@ if(BUILD_TESTING)
         ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
         ${ACECODE_AGENT_BROWSER_POINTER_DEMO_SOURCES}
         ${ACECODE_AGENT_BROWSER_HOST_MAC_SMOKE_SOURCES}
-        ${ACECODE_MACOS_NOTIFICATION_SMOKE_SOURCES})
+        ${ACECODE_MACOS_NOTIFICATION_SMOKE_SOURCES}
+        ${ACECODE_IOS_SIMULATOR_VIEW_MAC_SMOKE_SOURCES})
 endif()

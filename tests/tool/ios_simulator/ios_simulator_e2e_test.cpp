@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 
 #include "tool/ios_simulator/device_consent.hpp"
+#include "tool/ios_simulator/helper_sandbox.hpp"
 #include "tool/ios_simulator/runtime.hpp"
 #include "tool/ios_simulator/tool_actions.hpp"
 #include "utils/state_file.hpp"
@@ -57,6 +58,11 @@ TEST_F(IosSimulatorE2E, AttachScreenshotInspectAndInput) {
     ASSERT_TRUE(attach.success) << attach.output;
     EXPECT_EQ(attach.metadata["ios_simulator"]["udid"], udid_);
     EXPECT_TRUE(device_consent_granted(udid_));
+    // The helper runs inside its Seatbelt profile unless explicitly disabled.
+    if (helper_sandbox_enabled()) {
+        const auto helper = Runtime::instance().status(false)["helper"];
+        EXPECT_TRUE(helper.value("sandboxed", false)) << helper.dump();
+    }
 
     auto shot = run_simulator_action("screenshot", args({}), ctx_);
     ASSERT_TRUE(shot.success) << shot.output;

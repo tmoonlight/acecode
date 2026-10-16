@@ -71,14 +71,18 @@ FetchContent_MakeAvailable(webview)
 # acecode_testable 把 agent/TUI/web assets 全部拖入桌面壳。
 if(APPLE)
     set(ACECODE_AGENT_BROWSER_HOST_SOURCE ${ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE})
-    # The macOS office host is the only ARC translation unit in this target.
+    # The macOS office host and the iOS Simulator view are the ARC
+    # translation units in this target.
     set(ACECODE_DESKTOP_PET_SOURCE ${ACECODE_DESKTOP_PET_MAC_SOURCE})
-    set_source_files_properties(${ACECODE_DESKTOP_PET_MAC_SOURCE}
+    set(ACECODE_IOS_SIMULATOR_VIEW_SOURCE ${ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE})
+    set_source_files_properties(${ACECODE_DESKTOP_PET_MAC_SOURCE} ${ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE}
         PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 endif()
 
 set(ACECODE_DESKTOP_SOURCES
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
+    ${ACECODE_IOS_SIMULATOR_VIEW_SOURCE}
+    ${ACECODE_IOS_SIMULATOR_VIEW_BRIDGE_SOURCE}
     ${ACECODE_DESKTOP_MAIN_SOURCE}
     ${ACECODE_DESKTOP_SPLASH_SOURCE}
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
@@ -114,6 +118,12 @@ target_link_libraries(acecode-desktop PRIVATE
     cpr::cpr
     nlohmann_json::nlohmann_json
 )
+
+if(APPLE)
+    # Zero-copy simulator screen: shares the helper's CoreSimulator access.
+    target_link_libraries(acecode-desktop PRIVATE acecode_ios_sim_native
+        "-framework QuartzCore" "-framework IOSurface")
+endif()
 
 if(ACECODE_DEEPIN)
     # DTK package configs can set directory-wide definitions/includes. Keep

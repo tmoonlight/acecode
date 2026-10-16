@@ -41,9 +41,12 @@ public:
     HelperClient(const HelperClient&) = delete;
     HelperClient& operator=(const HelperClient&) = delete;
 
-    // Spawns the helper for the given Xcode developer directory.
-    bool start(const std::string& helper_path, const std::string& developer_dir, std::string* error);
+    // Spawns the helper for the given Xcode developer directory, inside the
+    // Seatbelt profile from helper_sandbox.hpp when `sandboxed`.
+    bool start(const std::string& helper_path, const std::string& developer_dir, bool sandboxed,
+               std::string* error);
     bool alive() const { return alive_.load(); }
+    bool sandboxed() const { return sandboxed_; }
     const std::string& developer_dir() const { return developer_dir_; }
     void set_listener(HelperEventListener listener);
 
@@ -66,6 +69,7 @@ private:
     void fail_all(const std::string& code, const std::string& message);
 
     std::string developer_dir_;
+    bool sandboxed_ = false;
     platform::PipedProcess process_;
     std::mutex write_mu_;
     std::mutex mu_;

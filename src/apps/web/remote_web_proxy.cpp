@@ -32,6 +32,9 @@
 #include <cerrno>
 #include <csignal>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -164,6 +167,65 @@ bool write_child_state(
     return acecode::atomic_write_file(path, state.dump(), true);
 }
 
+[[maybe_unused]] bool usable_untrusted_source(const asio::ip::address_v4& address) {
+    return !address.is_loopback() && !address.is_unspecified() &&
+        !address.is_multicast();
+}
+
+// The daemon must see proxied connections as untrusted. Windows and Linux
+// route all of 127.0.0.0/8, so the upstream socket binds 127.0.0.2. macOS
+// assigns only 127.0.0.1 to lo0 (EADDRNOTAVAIL); there the source is one of
+// this machine's own non-loopback IPv4 addresses, preferring the one the
+// remote client reached. A non-loopback source is still never trusted: the
+// daemon only listens on 127.0.0.1, so it can only come from this machine.
+bool bind_untrusted_upstream_source(
+    tcp::socket& upstream,
+    const tcp::socket& client) {
+    asio::error_code ec;
+    upstream.bind(
+        tcp::endpoint(
+            asio::ip::make_address_v4(kRemoteWebProxyUpstreamSource), 0),
+        ec);
+    if (!ec) return true;
+#ifdef _WIN32
+    (void)client;
+    return false;  // Windows routes all of 127.0.0.0/8
+#else
+    // asio reports it in its own category, so compare the errno value.
+    if (ec.value() != EADDRNOTAVAIL) return false;
+    std::vector<asio::ip::address_v4> candidates;
+    asio::error_code local_ec;
+    const auto local = client.local_endpoint(local_ec).address();
+    if (!local_ec) {
+        if (local.is_v4()) {
+            candidates.push_back(local.to_v4());
+        } else if (local.to_v6().is_v4_mapped()) {
+            candidates.push_back(
+                asio::ip::make_address_v4(asio::ip::v4_mapped, local.to_v6()));
+        }
+    }
+    ifaddrs* interfaces = nullptr;
+    if (getifaddrs(&interfaces) == 0) {
+        for (auto* entry = interfaces; entry; entry = entry->ifa_next) {
+            if (!entry->ifa_addr || entry->ifa_addr->sa_family != AF_INET) {
+                continue;
+            }
+            const auto* in =
+                reinterpret_cast<const sockaddr_in*>(entry->ifa_addr);
+            candidates.push_back(
+                asio::ip::address_v4(ntohl(in->sin_addr.s_addr)));
+        }
+        freeifaddrs(interfaces);
+    }
+    for (const auto& candidate : candidates) {
+        if (!usable_untrusted_source(candidate)) continue;
+        upstream.bind(tcp::endpoint(candidate, 0), ec);
+        if (!ec) return true;
+    }
+    return false;
+#endif
+}
+
 class ProxyTunnel : public std::enable_shared_from_this<ProxyTunnel> {
 public:
     ProxyTunnel(
@@ -182,11 +244,9 @@ public:
         asio::error_code ec;
         upstream_.open(tcp::v4(), ec);
         if (ec) return finish();
-        upstream_.bind(
-            tcp::endpoint(
-                asio::ip::make_address_v4(kRemoteWebProxyUpstreamSource), 0),
-            ec);
-        if (ec) return finish();
+        if (!bind_untrusted_upstream_source(upstream_, client_)) {
+            return finish();
+        }
 
         auto self = shared_from_this();
         upstream_.async_connect(

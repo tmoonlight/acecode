@@ -19,7 +19,11 @@ export function reconnectDelayMs(attempt = 0) {
 
 // WS URL:/ws/ios-simulator/<udid>[?token=...]。origin 形如 "http://127.0.0.1:28080"
 // 或空(同源,用页面自身的 protocol/host)—— 与控制台 ptyWsUrl 同一套规则。
-export function iosSimulatorWsUrl({ udid, token = '', origin = '', pageProtocol = 'http:', pageHost = '' } = {}) {
+// frames:false asks for input and status only (the Desktop shell draws the
+// screen natively).
+export function iosSimulatorWsUrl({
+  udid, token = '', origin = '', pageProtocol = 'http:', pageHost = '', frames = true,
+} = {}) {
   let proto;
   let host;
   if (origin) {
@@ -29,7 +33,10 @@ export function iosSimulatorWsUrl({ udid, token = '', origin = '', pageProtocol 
     proto = pageProtocol === 'https:' ? 'wss:' : 'ws:';
     host = pageHost;
   }
-  const query = token ? `?token=${encodeURIComponent(token)}` : '';
+  const params = [];
+  if (token) params.push(`token=${encodeURIComponent(token)}`);
+  if (frames === false) params.push('frames=0');
+  const query = params.length ? `?${params.join('&')}` : '';
   return `${proto}//${host}/ws/ios-simulator/${encodeURIComponent(String(udid || ''))}${query}`;
 }
 
