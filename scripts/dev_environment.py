@@ -655,13 +655,18 @@ def vite_options(extra: list[str]) -> list[str]:
 def web_runtime_is_available(root: Path, candidate: BuildCandidate | None, extra: list[str]) -> bool:
     run_dir = selected_web_runtime_dir(root, extra)
     explicit = any(arg == "--run-dir" or arg.startswith("--run-dir=") for arg in extra)
-    if not explicit and run_dir.parent.is_dir():
+    if not explicit:
         # A new commit changes the default run-dir name but an older worker
         # can still hold this build's executable open. Inspect only this
         # worktree's own launcher directories, without stopping any process.
-        prefix = worktree_prefix(root)
-        for previous in sorted(run_dir.parent.iterdir()):
-            if previous.name.startswith(prefix) and (previous / "daemon.pid").exists():
+        prefixes = (worktree_prefix(root), re.sub(r"[^A-Za-z0-9_.-]", "-", root.name) + "-")
+        bases = (run_dir.parent, root / ".acecode" / "dev_run", root / ".acecode" / "dev-run")
+        for base in dict.fromkeys(bases):
+            if not base.is_dir():
+                continue
+            previous = next((path for path in sorted(base.iterdir())
+                             if path.name.startswith(prefixes) and (path / "daemon.pid").exists()), None)
+            if previous is not None:
                 run_dir = previous
                 break
     if not (run_dir / "daemon.pid").exists():

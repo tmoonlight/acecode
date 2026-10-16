@@ -21,3 +21,4 @@
 - layer、文档路径、所有权静态闸门与严格 OpenSpec 验证通过。
 - FTXUI overlay 在 vcpkg 私有构建目录复制源码后修改输入追踪文件名，原子模块保持干净；port-version 为 9。
 - 最终 MinSizeRel CLI 与 Desktop 编译成功，并启动包含改动的新 Desktop 实例；macOS 源码调整未在本机编译或运行。
+- 发布集成复核：修正开发启动器重建前的占用检查，同时扫描 `dev-run` / `dev_run` 和连字符 / 下划线会话目录；覆盖两代目录同时存在且旧目录为空的四种组合，保持仅检查 daemon 身份、不自动停止进程。开发脚本回归通过。无工作区路径断言已同步为 `no_workspace`。

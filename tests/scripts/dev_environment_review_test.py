@@ -201,17 +201,26 @@ class DevelopmentLauncherReviewTest(unittest.TestCase):
         launch.assert_not_called()
 
     def test_runtime_from_previous_commit_also_blocks_rebuild(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
-            candidate = self.make_candidate(root)
-            previous = root / ".acecode/dev-run" / (root.name + "-oldcommit")
-            previous.mkdir(parents=True)
-            (previous / "daemon.pid").write_text("123", encoding="ascii")
-            with patch.object(launcher, "current_commit", return_value="newcommit"), \
-                 patch.object(launcher.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run, \
-                 contextlib.redirect_stderr(io.StringIO()):
-                self.assertFalse(launcher.web_runtime_is_available(root, candidate, []))
-            self.assertEqual(run.call_args.args[0][-1], f"--run-dir={previous}")
+        for base in ("dev-run", "dev_run"):
+            for identity in ("work-tree-oldcommit", "work_tree_oldcommit"):
+                with self.subTest(base=base, identity=identity), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve() / "work-tree"
+                    root.mkdir()
+                    candidate = self.make_candidate(root)
+                    # Both generations can coexist after an upgrade; an empty legacy
+                    # root must not hide a worker using the underscore naming scheme.
+                    for name in ("dev-run", "dev_run"):
+                        (root / ".acecode" / name).mkdir(parents=True)
+                    previous = root / ".acecode" / base / identity
+                    previous.mkdir()
+                    (previous / "daemon.pid").write_text("123", encoding="ascii")
+                    with patch.object(launcher, "current_commit", return_value="newcommit"), \
+                         patch.object(launcher.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                         contextlib.redirect_stderr(io.StringIO()):
+                        self.assertFalse(launcher.web_runtime_is_available(root, candidate, []))
+                    self.assertEqual(run.call_args.args[0][-1], f"--run-dir={previous}")
+                    self.assertEqual(run.call_args.args[0][1:3], ["daemon", "status"])
+                    self.assertEqual((previous / "daemon.pid").read_text(encoding="ascii"), "123")
 
     def test_explicit_runtime_does_not_inspect_other_launcher_daemons(self):
         with tempfile.TemporaryDirectory() as directory:
