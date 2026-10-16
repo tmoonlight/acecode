@@ -142,6 +142,7 @@ void WebServer::Impl::register_routes() {
     register_models();
     register_image_generation();
     register_computer_use();
+    register_ios_simulator();
     register_summary_generation();
     register_tool_rewrites();
     register_memory();

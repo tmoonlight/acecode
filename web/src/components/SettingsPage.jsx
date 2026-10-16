@@ -54,6 +54,7 @@ import { Modal, Toggle } from './Modal.jsx';
 import { ModelSettingsSection } from './model-settings/ModelSettingsSection.jsx';
 import { ImageGenerationSettings } from './ImageGenerationSettings.jsx';
 import { ComputerUseSettings } from './ComputerUseSettings.jsx';
+import { IosSimulatorSettings } from './IosSimulatorSettings.jsx';
 import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
 import { ToolRewriteSettings } from './ToolRewriteSettings.jsx';
 import { SecurityCenterSettings } from './SecurityCenterSettings.jsx';
@@ -2552,6 +2553,7 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
 
       <ImageGenerationSettings onCheckUpdates={onCheckUpdates} />
       <ComputerUseSettings onCheckUpdates={onCheckUpdates} />
+      <IosSimulatorSettings />
       <SummaryGenerationSettings onCheckUpdates={onCheckUpdates} onModelProfileUpdated={onModelProfileUpdated} />
 
       <ToolRewriteSettings onCheckUpdates={onCheckUpdates} />

@@ -19,6 +19,7 @@ import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/de
 import { FilePreviewContent } from './FilePreviewContent.jsx';
 import { FileBreadcrumbs } from './FileBreadcrumbs.jsx';
 import { AgentBrowserPanel } from './AgentBrowserPanel.jsx';
+import { IosSimulatorIcon, IosSimulatorPanel } from './IosSimulatorPanel.jsx';
 import { SessionChangeDetails } from './ChangeReview.jsx';
 import { GitChangeDetails } from './GitChangeReview.jsx';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
@@ -332,6 +333,7 @@ export function PreviewDetailsPanel({
   onToggleSidePanelList,
   onOpenFile,
   onOpenBrowser,
+  onRetargetSimulatorTab,
   onOpenSideChat,
   onHide,
   agentBrowserActive = false,
@@ -401,6 +403,17 @@ export function PreviewDetailsPanel({
         />
       );
     }
+    if (active.type === PREVIEW_TAB_TYPES.SIMULATOR) {
+      return (
+        <IosSimulatorPanel
+          key={active.key}
+          api={api}
+          sessionId={active.sessionId}
+          udid={active.udid || ''}
+          onSelectDevice={(udid, title) => onRetargetSimulatorTab?.(active.key, udid, title)}
+        />
+      );
+    }
     if (active.type === PREVIEW_TAB_TYPES.SESSION_CHANGES) {
       const scopedChanges = resolveSessionChangesTabContent(active, {
         changeGroups,
@@ -467,7 +480,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -859,6 +872,7 @@ export function PreviewDetailsPanel({
               const label = tabLabel(tab);
               const isFileTab = tab.type === PREVIEW_TAB_TYPES.FILE;
               const isBrowserTab = tab.type === PREVIEW_TAB_TYPES.BROWSER;
+              const isSimulatorTab = tab.type === PREVIEW_TAB_TYPES.SIMULATOR;
               const dirty = previewTabHasUnsavedDraft(tab);
               const tabAbsolutePath = isFileTab
                 ? previewAbsolutePath({ cwd: tab.cwd || cwd || '', path: tab.path || '' })
@@ -915,6 +929,9 @@ export function PreviewDetailsPanel({
                   )}
                   {isBrowserTab && (
                     <BrowserTabIcon favicon={tab.favicon} />
+                  )}
+                  {isSimulatorTab && (
+                    <IosSimulatorIcon size={16} className="ace-preview-details-tab-icon" />
                   )}
                   <span className="ace-preview-details-tab-label">{label}</span>
                   <span

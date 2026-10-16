@@ -950,6 +950,7 @@ static AppConfig load_config_from_path_once(
             }
             if (j.contains("memory")) load_memory_config_json(j["memory"], cfg.memory);
             if (j.contains("swarm")) load_swarm_config_json(j["swarm"], cfg.swarm);
+            if (j.contains("ios_simulator")) load_ios_simulator_config_json(j["ios_simulator"], cfg.ios_simulator);
             if (j.contains("project_instructions") && j["project_instructions"].is_object()) {
                 const auto& pj = j["project_instructions"];
                 if (pj.contains("enabled") && pj["enabled"].is_boolean())
@@ -2327,6 +2328,7 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);
         if (auto swj = swarm_config_to_json(cfg.swarm); !swj.empty()) j["swarm"] = std::move(swj);
+        if (auto ios = ios_simulator_config_to_json(cfg.ios_simulator); !ios.empty()) j["ios_simulator"] = std::move(ios);
 
         ProjectInstructionsConfig pi_d;
         nlohmann::json pij = nlohmann::json::object();
@@ -2491,10 +2493,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         }
 
         nlohmann::json summary = nlohmann::json::object();
-        if (cfg.summary_generation.enabled)
-            summary["enabled"] = true;
-        if (!cfg.summary_generation.model_name.empty())
-            summary["model_name"] = cfg.summary_generation.model_name;
+        if (cfg.summary_generation.enabled) summary["enabled"] = true;
+        if (!cfg.summary_generation.model_name.empty()) summary["model_name"] = cfg.summary_generation.model_name;
         if (!summary.empty()) j["summary_generation"] = std::move(summary);
 
         SessionTitleConfig st_d;

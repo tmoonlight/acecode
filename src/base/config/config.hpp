@@ -353,6 +353,18 @@ struct WebSearchConfig {
     int timeout_ms = 8000;      // Per-backend HTTP timeout.
 };
 
+// iOS 模拟器工具(ios_simulator_config.cpp,仅 macOS 生效)。xcode_path 为空 =
+// 自动查找(xcode-select、/Applications、Spotlight);绿色安装的 Xcode 填它的 .app。
+struct IosSimulatorConfig {
+    bool enabled = true;
+    std::string xcode_path;
+    int stream_fps = 30;          // 实时面板帧率 [5, 60]
+    double stream_scale = 0.5;    // 相对物理像素的缩放 [0.25, 1]
+    double stream_quality = 0.7;  // JPEG 质量 [0.3, 0.95]
+};
+void load_ios_simulator_config_json(const nlohmann::json& j, IosSimulatorConfig& out);
+nlohmann::json ios_simulator_config_to_json(const IosSimulatorConfig& cfg);
+
 struct ComputerUseConfig {
     // Desktop control is opt-in, including after loading a legacy config.
     bool enabled = false;
@@ -616,6 +628,7 @@ struct AppConfig {
     WorktreeConfig worktree;                     // worktree 隔离(enter_worktree / --worktree)
     ImageGenerationConfig image_generation;      // 图像生成工具(参见 add-image-generation-tool)
     ComputerUseConfig computer_use;              // Native desktop control, explicitly enabled
+    IosSimulatorConfig ios_simulator;            // Xcode 模拟器控制与实时面板(macOS)
     GitContextConfig git_context;                // git 感知(参见 add-git-context)
     RemoteControlConfig remote_control;          // TUI /remote-control channel 托管
     UpgradeConfig upgrade;                       // explicit self-upgrade command config

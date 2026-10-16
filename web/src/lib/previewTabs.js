@@ -5,6 +5,7 @@ export const PREVIEW_TAB_TYPES = Object.freeze({
   SESSION_CHANGES: 'session-changes',
   GIT_CHANGES: 'git-changes',
   BROWSER: 'browser',
+  SIMULATOR: 'ios-simulator',
 });
 
 export function defaultBrowserTabTitle() {
@@ -14,6 +15,10 @@ export function defaultBrowserTabTitle() {
 export function normalizeBrowserTabTitle(title) {
   const value = String(title ?? '');
   return value.trim() ? value : defaultBrowserTabTitle();
+}
+
+export function defaultSimulatorTabTitle() {
+  return 'iOS 模拟器';
 }
 
 export function normalizeBrowserTabFavicon(favicon) {
@@ -118,10 +123,12 @@ export function visiblePreviewTabs(state, { scopeKey = '', sessionId = '' } = {}
   const browserTabs = Array.isArray(storedBrowserTabs)
     ? storedBrowserTabs
     : (storedBrowserTabs ? [storedBrowserTabs] : []);
+  const simulatorTabs = sessionId ? simulatorTabsForSession(source, sessionId) : [];
   const naturalTabs = [
     ...fileTabs,
     ...(changeTab ? [changeTab] : []),
     ...browserTabs,
+    ...simulatorTabs,
   ];
   return applyVisibleTabOrder(naturalTabs, source.tabOrderByView?.[viewKey(scopeKey, sessionId)]);
 }
@@ -235,6 +242,20 @@ function browserTabKey(pageId) {
 
 function isBrowserTabKey(tabKey) {
   return typeof tabKey === 'string' && tabKey.startsWith('browser:');
+}
+
+// iOS 模拟器页签按 udid 区分;udid 为空的是手动打开、尚未选定设备的选择页。
+function simulatorTabKey(udid) {
+  return `ios-simulator:${udid || ''}`;
+}
+
+function isSimulatorTabKey(tabKey) {
+  return typeof tabKey === 'string' && tabKey.startsWith('ios-simulator:');
+}
+
+// 会话级页签(变更 / 浏览器 / 模拟器)的激活态同时记在 activeTabBySession。
+function isSessionScopedTabKey(tabKey) {
+  return isChangeTabKey(tabKey) || isBrowserTabKey(tabKey) || isSimulatorTabKey(tabKey);
 }
 
 // session-changes 与 git-changes 是同一个「变更」概念的两种数据源(非 git
@@ -585,6 +606,110 @@ export function updateBrowserTabFavicon(state, options = {}) {
   });
 }
 
+export function simulatorTabsForSession(state, sessionId = '') {
+  const stored = sessionId ? state?.simulatorTabsBySession?.[sessionId] : null;
+  return Array.isArray(stored) ? stored : [];
+}
+
+function withSimulatorTabs(source, sessionId, tabs) {
+  const next = { ...(source.simulatorTabsBySession || {}) };
+  if (tabs.length > 0) next[sessionId] = tabs;
+  else delete next[sessionId];
+  return next;
+}
+
+function withSessionActiveTab(source, scopeKey, sessionId, key) {
+  return {
+    activeTabBySession: {
+      ...(source.activeTabBySession || {}),
+      [sessionId]: key,
+    },
+    activeTabByView: {
+      ...(source.activeTabByView || {}),
+      [viewKey(scopeKey, sessionId)]: key,
+    },
+  };
+}
+
+// 打开(或聚焦)某台模拟器的页签。focus=false 只在缺失时补开,不抢当前激活页签。
+export function openSimulatorTab(state, {
+  scopeKey = '',
+  sessionId = '',
+  udid = '',
+  title,
+  focus = true,
+} = {}) {
+  if (!sessionId) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const key = simulatorTabKey(udid);
+  const tabs = simulatorTabsForSession(source, sessionId);
+  const existing = tabs.find((tab) => tab.key === key);
+  const nextTitle = String(title || '').trim();
+  let nextTabs = tabs;
+  if (!existing) {
+    nextTabs = [...tabs, {
+      key,
+      type: PREVIEW_TAB_TYPES.SIMULATOR,
+      sessionId,
+      udid: String(udid || ''),
+      title: nextTitle || defaultSimulatorTabTitle(),
+    }];
+  } else if (nextTitle && existing.title !== nextTitle) {
+    nextTabs = tabs.map((tab) => (tab === existing ? { ...tab, title: nextTitle } : tab));
+  }
+  if (nextTabs === tabs && !focus) return source;
+  return {
+    ...source,
+    simulatorTabsBySession: withSimulatorTabs(source, sessionId, nextTabs),
+    ...(focus ? withSessionActiveTab(source, scopeKey, sessionId, key) : {}),
+  };
+}
+
+// 把一个模拟器页签换成另一台设备(选择页选定设备、工具栏切换设备)。位置与激活态
+// 跟着走;目标设备已有页签时关掉当前这个并聚焦已有的。
+export function retargetSimulatorTab(state, {
+  scopeKey = '',
+  sessionId = '',
+  tabKey = '',
+  udid = '',
+  title,
+} = {}) {
+  if (!sessionId || !tabKey || !udid) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const tabs = simulatorTabsForSession(source, sessionId);
+  const index = tabs.findIndex((tab) => tab.key === tabKey);
+  if (index < 0) return source;
+  const nextKey = simulatorTabKey(udid);
+  if (nextKey === tabKey) return openSimulatorTab(source, { scopeKey, sessionId, udid, title });
+  if (tabs.some((tab) => tab.key === nextKey)) {
+    const closed = closePreviewTab(source, { scopeKey, sessionId, tabKey });
+    return openSimulatorTab(closed, { scopeKey, sessionId, udid, title });
+  }
+  const nextTabs = tabs.slice();
+  nextTabs[index] = {
+    key: nextKey,
+    type: PREVIEW_TAB_TYPES.SIMULATOR,
+    sessionId,
+    udid,
+    title: String(title || '').trim() || defaultSimulatorTabTitle(),
+  };
+  const renameOrder = (orderMap) => Object.fromEntries(Object.entries(orderMap || {})
+    .map(([view, order]) => [view, Array.isArray(order)
+      ? order.map((key) => (key === tabKey ? nextKey : key))
+      : order]));
+  const wasActive = activePreviewTab(source, { scopeKey, sessionId })?.key === tabKey;
+  return {
+    ...source,
+    simulatorTabsBySession: withSimulatorTabs(source, sessionId, nextTabs),
+    tabOrderByView: renameOrder(source.tabOrderByView),
+    ...(wasActive ? withSessionActiveTab(source, scopeKey, sessionId, nextKey) : {}),
+  };
+}
+
+export function closeSimulatorTab(state, { scopeKey = '', sessionId = '', udid = '' } = {}) {
+  return closePreviewTab(state, { scopeKey, sessionId, tabKey: simulatorTabKey(udid) });
+}
+
 // git 级变更详情页签(仿 openSessionChangesTab):同一 session 单页签,
 // 点不同文件只更新 expandedFile + 自增 revision(触发详情栏滚动/展开),
 // cwd/base 决定详情栏拉哪一份 diff。
@@ -823,7 +948,7 @@ export function closePreviewTab(state, { scopeKey = '', sessionId = '', tabKey =
       activeKey,
     );
     nextActiveByView[viewKey(scopeKey, sessionId)] = nextVisibleActive;
-    if (isBrowserTabKey(nextVisibleActive) || isChangeTabKey(nextVisibleActive)) {
+    if (isSessionScopedTabKey(nextVisibleActive)) {
       nextActive[sessionId] = nextVisibleActive;
     } else {
       delete nextActive[sessionId];
@@ -833,6 +958,23 @@ export function closePreviewTab(state, { scopeKey = '', sessionId = '', tabKey =
       browserTabsBySession: nextBrowserTabs,
       activeTabBySession: nextActive,
       activeTabByView: nextActiveByView,
+      tabOrderByView: removeKeysFromOrders(source.tabOrderByView, [tabKey]),
+    };
+  }
+  if (isSimulatorTabKey(tabKey) && sessionId) {
+    const remaining = simulatorTabsForSession(source, sessionId).filter((tab) => tab.key !== tabKey);
+    const nextActive = { ...(source.activeTabBySession || {}) };
+    const nextVisibleActive = nextActiveAfterClose(visibleBeforeClose, tabKey, activeKey);
+    if (isSessionScopedTabKey(nextVisibleActive)) nextActive[sessionId] = nextVisibleActive;
+    else delete nextActive[sessionId];
+    return {
+      ...source,
+      simulatorTabsBySession: withSimulatorTabs(source, sessionId, remaining),
+      activeTabBySession: nextActive,
+      activeTabByView: {
+        ...(source.activeTabByView || {}),
+        [viewKey(scopeKey, sessionId)]: nextVisibleActive,
+      },
       tabOrderByView: removeKeysFromOrders(source.tabOrderByView, [tabKey]),
     };
   }
@@ -849,10 +991,12 @@ export function closeVisiblePreviewTabs(state, { scopeKey = '', sessionId = '' }
 
   const nextChangeTabs = { ...(source.changeTabsBySession || {}) };
   const nextBrowserTabs = { ...(source.browserTabsBySession || {}) };
+  const nextSimulatorTabs = { ...(source.simulatorTabsBySession || {}) };
   const nextActiveBySession = { ...(source.activeTabBySession || {}) };
   if (sessionId) {
     delete nextChangeTabs[sessionId];
     delete nextBrowserTabs[sessionId];
+    delete nextSimulatorTabs[sessionId];
     delete nextActiveBySession[sessionId];
   }
 
@@ -861,6 +1005,7 @@ export function closeVisiblePreviewTabs(state, { scopeKey = '', sessionId = '' }
     fileTabsByView: nextFileTabs,
     changeTabsBySession: nextChangeTabs,
     browserTabsBySession: nextBrowserTabs,
+    simulatorTabsBySession: nextSimulatorTabs,
     activeTabBySession: nextActiveBySession,
     activeTabByView: nextActiveByView,
     tabOrderByView: removeKeysFromOrders(source.tabOrderByView, closedKeys),
@@ -911,7 +1056,7 @@ export function activatePreviewTab(state, { scopeKey = '', sessionId = '', tabKe
   if (!tabKey) return state || {};
   const source = state && typeof state === 'object' ? state : {};
   if (!visiblePreviewTabs(source, { scopeKey, sessionId }).some((tab) => tab.key === tabKey)) return source;
-  if ((isChangeTabKey(tabKey) || isBrowserTabKey(tabKey)) && sessionId) {
+  if (isSessionScopedTabKey(tabKey) && sessionId) {
     return {
       ...source,
       activeTabBySession: {

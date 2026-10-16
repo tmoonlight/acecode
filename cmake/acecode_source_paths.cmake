@@ -32,6 +32,15 @@ set(ACECODE_COMPUTER_USE_MAC_SOURCES
     ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/macos_capture.mm
     ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/macos_input.mm
     ${CMAKE_SOURCE_DIR}/src/adapters/computer_use/macos_pointer.mm)
+# iOS Simulator helper (macOS only): Objective-C++ over Xcode's private
+# CoreSimulator / SimulatorKit, loaded at runtime.
+set(ACECODE_IOS_SIM_HELPER_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/helper_main.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_core.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_hid.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_display.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_ax.mm
+    ${CMAKE_SOURCE_DIR}/src/adapters/tool/ios_simulator/helper/sim_guest.mm)
 set(ACECODE_NATIVE_BRIDGE_MAC_SOURCES
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/folder_picker_mac.mm
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_mac.mm)
