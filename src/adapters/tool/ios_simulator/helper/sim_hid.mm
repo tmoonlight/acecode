@@ -2,6 +2,8 @@
 #import "sim_core.h"
 #import "private_api.h"
 
+#include "tool/ios_simulator/dtuhid_messages.hpp"
+
 #include <cstdlib>
 #include <cstring>
 #include <mach/mach_time.h>
@@ -15,8 +17,6 @@ static_assert(sizeof(ACEIndigoTouch) == 0x70, "Indigo touch layout");
 namespace acecode::ios_simulator::helper {
 namespace {
 
-constexpr const char* kDigitizerService = "com.apple.coredevice.feature.remote.hid.digitizer";
-constexpr const char* kFirstDTUHIDVersion = "1155.4";
 
 bool version_at_least(const std::string& version, const char* minimum) {
     if (version.empty()) return false;
@@ -184,7 +184,7 @@ public:
         std::string last_error;
         for (int attempt = 1; attempt <= 5; ++attempt) {
             bool unsupported = false;
-            id connection = connect_guest_service(device, kDigitizerService, last_error, &unsupported);
+            id connection = connect_guest_service(device, dtuhid::kDigitizerService, last_error, &unsupported);
             if (unsupported) throw SimError("HID_UNAVAILABLE", "This simulator runtime does not provide dtuhidd.");
             if (connection) {
                 xpc_connection_t xpc = (xpc_connection_t)connection;
@@ -207,40 +207,26 @@ public:
     std::string transport() const override { return "dtuhid"; }
 
     void touch(Direction direction, double x, double y, unsigned edge) override {
-        xpc_object_t payload = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_value(payload, "pointOne", point(x, y));
-        xpc_dictionary_set_uint64(payload, "eventType", contact_phase(contact_active_, direction));
-        xpc_dictionary_set_uint64(payload, "edge", edge);
-        xpc_dictionary_set_uint64(payload, "target", 0);
-        send("IndigoDigitizerEvent", payload);
+        const auto phase = contact_.next(direction == Direction::Up);
+        send(dtuhid::kDigitizerEvent, dtuhid::digitizer_payload(unit(x, y), nullptr, phase, edge));
     }
 
     void touch2(Direction direction, double x1, double y1, double x2, double y2) override {
-        xpc_object_t payload = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_value(payload, "pointOne", point(x1, y1));
-        xpc_dictionary_set_value(payload, "pointTwo", point(x2, y2));
-        xpc_dictionary_set_uint64(payload, "eventType", contact_phase(two_finger_active_, direction));
-        xpc_dictionary_set_uint64(payload, "edge", 0);
-        xpc_dictionary_set_uint64(payload, "target", 0);
-        send("IndigoDigitizerEvent", payload);
+        const auto phase = two_fingers_.next(direction == Direction::Up);
+        const auto second = unit(x2, y2);
+        send(dtuhid::kDigitizerEvent, dtuhid::digitizer_payload(unit(x1, y1), &second, phase, 0));
     }
 
     void button(const HidButton& button, Direction direction) override {
         if (button.usage_page == 0)
             throw SimError("HID_UNSUPPORTED", "Apple Pay is a double side-button press on this transport; "
                 "press side_button twice instead.");
-        xpc_object_t payload = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_uint64(payload, "usagePage", button.usage_page);
-        xpc_dictionary_set_uint64(payload, "usageCode", button.usage);
-        xpc_dictionary_set_uint64(payload, "state", direction == Direction::Down ? 1 : 2);
-        send("IndigoButtonEvent", payload);
+        send(dtuhid::kButtonEvent,
+             dtuhid::button_payload(button.usage_page, button.usage, direction == Direction::Down));
     }
 
     void key(std::uint32_t usage, Direction direction) override {
-        xpc_object_t payload = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_uint64(payload, "usageCode", usage);
-        xpc_dictionary_set_uint64(payload, "state", direction == Direction::Down ? 1 : 2);
-        send("IndigoKeyboardButtonEvent", payload);
+        send(dtuhid::kKeyboardEvent, dtuhid::keyboard_payload(usage, direction == Direction::Down));
     }
 
     void flush() override {
@@ -251,23 +237,11 @@ public:
     }
 
 private:
-    static xpc_object_t envelope(const char* type, xpc_object_t payload, bool barrier) {
-        xpc_object_t message = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_string(message, "messageType", type);
-        xpc_dictionary_set_bool(message, "isBarrier", barrier);
-        xpc_dictionary_set_string(message, "featureIdentifier", kDigitizerService);
-        xpc_dictionary_set_value(message, "payload", payload);
-        return message;
-    }
-
     static bool confirm_liveness(xpc_connection_t connection, std::string& error) {
-        xpc_object_t payload = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_uint64(payload, "usageCode", 0);
-        xpc_dictionary_set_uint64(payload, "state", 2);
         dispatch_semaphore_t answered = dispatch_semaphore_create(0);
         __block bool ok = false;
         __block std::string reply_error;
-        xpc_connection_send_message_with_reply(connection, envelope("IndigoKeyboardButtonEvent", payload, true),
+        xpc_connection_send_message_with_reply(connection, dtuhid::liveness_probe(),
             dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(xpc_object_t reply) {
                 if (xpc_get_type(reply) == XPC_TYPE_ERROR) {
                     const char* description = xpc_dictionary_get_string(reply, XPC_ERROR_KEY_DESCRIPTION);
@@ -285,22 +259,12 @@ private:
         return ok;
     }
 
-    xpc_object_t point(double x, double y) const {
-        xpc_object_t value = xpc_dictionary_create(nullptr, nullptr, 0);
-        xpc_dictionary_set_double(value, "x", point_width_ > 0 ? x / point_width_ : 0);
-        xpc_dictionary_set_double(value, "y", point_height_ > 0 ? y / point_height_ : 0);
-        return value;
-    }
-
-    static std::uint64_t contact_phase(bool& active, Direction direction) {
-        if (direction == Direction::Up) { active = false; return 2; }
-        if (active) return 1;
-        active = true;
-        return 0;
+    dtuhid::UnitPoint unit(double x, double y) const {
+        return dtuhid::unit_point(x, y, point_width_, point_height_);
     }
 
     void send(const char* type, xpc_object_t payload) {
-        xpc_connection_send_message(connection_, envelope(type, payload, false));
+        xpc_connection_send_message(connection_, dtuhid::envelope(type, payload, false));
         ++sent_;
         dispatch_semaphore_t done = dispatch_semaphore_create(0);
         xpc_connection_send_barrier(connection_, ^{ dispatch_semaphore_signal(done); });
@@ -310,8 +274,8 @@ private:
     double point_width_;
     double point_height_;
     xpc_connection_t connection_ = nullptr;
-    bool contact_active_ = false;
-    bool two_finger_active_ = false;
+    dtuhid::ContactTracker contact_;
+    dtuhid::ContactTracker two_fingers_;
     std::uint64_t sent_ = 0;
     std::uint64_t drained_ = 0;
 };
@@ -332,7 +296,8 @@ bool lookup_button(const std::string& name, HidButton& out) {
 }
 
 std::string default_transport() {
-    return version_at_least(environment().core_simulator_version, kFirstDTUHIDVersion) ? "dtuhid" : "indigo";
+    return version_at_least(environment().core_simulator_version, dtuhid::kFirstCoreSimulatorVersion) ? "dtuhid"
+                                                                                                        : "indigo";
 }
 
 std::unique_ptr<HidSession> open_hid_session(id device, double point_width, double point_height,

@@ -111,6 +111,11 @@ export function iosSimulatorNotices(status) {
   if (status.helper && status.helper.installed === false) {
     notices.push({ key: 'helper', kind: 'danger', text: '模拟器控制组件缺失，请重新安装完整的 ACECode 安装包' });
   }
+  // The helper normally runs inside its Seatbelt profile; say so only when not.
+  const sandboxNote = String(status.helper?.sandbox_note || '');
+  if (status.helper?.running && status.helper.sandboxed === false && sandboxNote) {
+    notices.push({ key: 'sandbox', kind: 'warn', text: `模拟器控制组件未在沙盒中运行：${sandboxNote}` });
+  }
   return notices;
 }
 

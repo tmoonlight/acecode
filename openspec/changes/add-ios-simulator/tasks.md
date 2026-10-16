@@ -24,5 +24,7 @@
 ## 4. Validation
 - [x] 4.1 Unit tests and frontend tests/build pass.
 - [x] 4.2 End-to-end on a green-installed Xcode 26.6 with booted simulators: describe, screenshot (portrait and landscape), tap, swipe, keyboard, accessibility, stream.
-- [ ] 4.3 Verify the DTUHID path on Xcode 27 / CoreSimulator ≥ 1155.4.
-- [ ] 4.4 Follow-ups: Seatbelt profile for the helper; native zero-copy simulator view in Desktop.
+- [ ] 4.3 Verify the DTUHID path live on Xcode 27 / CoreSimulator ≥ 1155.4 (message builders extracted to `dtuhid_messages.hpp` and unit tested; no Xcode 27 toolchain on the development machine).
+- [x] 4.4 Seatbelt profile for the helper (`helper_sandbox.cpp`, fallback with status note, `ACECODE_IOS_SIM_SANDBOX=0`); unit tests, all helper operations and E2E run sandboxed, negative checks (home read, network, home write) refused.
+- [x] 4.5 Native zero-copy simulator view in Desktop (`acecode_ios_sim_native` shared with the helper, `ios_simulator_view_mac.mm`, bridges, panel `frames` toggle and fallback); layout unit tests, opt-in `ios_simulator_view_mac_smoke`, panel checked in a browser with a stubbed bridge.
+- [x] 4.6 macOS-only unit test failures fixed (remote Web proxy source address on macOS, cross-process claim workers, Crow shutdown race, autofs `/home`, macOS browser tools, settings label width, channel state log).

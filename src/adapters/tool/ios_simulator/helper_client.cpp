@@ -1,5 +1,6 @@
 #include "helper_client.hpp"
 
+#include "helper_sandbox.hpp"
 #include "utils/logger.hpp"
 
 #include <chrono>
@@ -33,7 +34,8 @@ std::string ios_simulator_helper_path() {
 
 HelperClient::~HelperClient() { stop(); }
 
-bool HelperClient::start(const std::string& helper_path, const std::string& developer_dir, std::string* error) {
+bool HelperClient::start(const std::string& helper_path, const std::string& developer_dir, bool sandboxed,
+                         std::string* error) {
     stop();
     platform::SpawnOptions options;
     options.argv = {helper_path, "--developer-dir", developer_dir};
@@ -41,8 +43,11 @@ bool HelperClient::start(const std::string& helper_path, const std::string& deve
         options.argv.push_back("--hid");
         options.argv.push_back(hid);
     }
+    if (sandboxed)
+        options.argv = sandboxed_helper_argv(current_helper_sandbox_paths(helper_path, developer_dir), options.argv);
     if (!process_.start(options, error)) return false;
     developer_dir_ = developer_dir;
+    sandboxed_ = sandboxed;
     alive_.store(true);
     reader_ = JoiningThread(&HelperClient::read_loop, this);
     return true;

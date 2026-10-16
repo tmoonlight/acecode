@@ -110,6 +110,8 @@ private:
     };
 
     std::shared_ptr<HelperClient> ensure_helper(std::string* error);
+    std::shared_ptr<HelperClient> launch_helper(const std::string& path, const std::string& developer_dir,
+                                                bool sandboxed, std::string* error);
     void on_helper_event(const nlohmann::json& header, const std::string& binary);
     void end_streams(const std::string& reason, const std::string& only_udid);
 
@@ -117,6 +119,7 @@ private:
     RuntimeConfig config_;
     std::optional<XcodeResolution> resolution_;
     std::shared_ptr<HelperClient> helper_;
+    std::string sandbox_note_;  // why the running helper is not sandboxed
     std::map<std::string, std::string> session_devices_;
     std::map<std::string, Stream> streams_;              // by udid
     std::map<std::uint64_t, std::string> subscriptions_; // subscription -> udid

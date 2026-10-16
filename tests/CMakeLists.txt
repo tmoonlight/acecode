@@ -264,6 +264,16 @@ if(APPLE)
         MACOSX_BUNDLE_BUNDLE_VERSION "${ACECODE_BUILD_VERSION}"
     )
 
+    # Manual, opt-in check of the Desktop shell's zero-copy iOS Simulator view
+    # against a booted simulator:
+    #   ios_simulator_view_mac_smoke <udid> <Xcode.app>/Contents/Developer
+    add_executable(ios_simulator_view_mac_smoke EXCLUDE_FROM_ALL
+        ${ACECODE_IOS_SIMULATOR_VIEW_MAC_SMOKE_SOURCES})
+    target_compile_options(ios_simulator_view_mac_smoke PRIVATE -fobjc-arc)
+    target_link_libraries(ios_simulator_view_mac_smoke PRIVATE
+        acecode_desktop_support acecode_ios_sim_native acecode_include_roots
+        "-framework AppKit" "-framework QuartzCore" "-framework IOSurface")
+
     # Manual, opt-in runtime check. Run the bundle executable directly so its
     # authorization state and click callback remain visible in the terminal.
     add_executable(acecode_macos_notification_smoke

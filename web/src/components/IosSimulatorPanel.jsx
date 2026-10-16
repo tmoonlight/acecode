@@ -31,6 +31,24 @@ import {
   touchGestureUp,
   wheelDragGesture,
 } from '../lib/iosSimulator.js';
+import {
+  IOS_SIMULATOR_VIEW_STATE_EVENT,
+  hasNativeIosSimulatorView,
+  nativeFrameFromState,
+  nativeSimulatorLayout,
+  nativeSimulatorLayoutSignature,
+  nativeViewRendering,
+  setNativeSimulatorLayout,
+  simulatorDeveloperDir,
+  unmountNativeSimulatorView,
+} from '../lib/iosSimulatorNativeView.js';
+import {
+  NATIVE_SURFACE_OVERLAY_EVENT,
+  nativeSurfaceOcclusionRectsFromClientRects,
+  nativeSurfaceOverlayGeometryByDocument,
+  nativeSurfaceShouldShow,
+  nativeSurfaceViewportRect,
+} from '../lib/agentBrowserSurfaceCoordinator.js';
 import { iosSimulatorErrorMessage } from '../lib/iosSimulatorSettings.js';
 import { requestOpenSetting } from '../lib/settingsNavigation.js';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
@@ -146,6 +164,7 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   const [menuOpen, setMenuOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [reconnectNonce, setReconnectNonce] = useState(0);
+  const [nativeState, setNativeState] = useState(null);
 
   const mountedRef = useRef(true);
   const wsRef = useRef(null);
@@ -164,6 +183,10 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   const autoPickedRef = useRef(false);
   const onSelectDeviceRef = useRef(onSelectDevice);
   onSelectDeviceRef.current = onSelectDevice;
+  const nativeOwnerRef = useRef({});
+  const nativeLayoutRef = useRef('');
+  const nativeFrameRef = useRef(null);
+  const nativeLiveRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -194,6 +217,11 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   }, [api, loadDevices]);
 
   const unsupported = status?.supported === false;
+  // Desktop (macOS) draws the screen natively; the canvas stays for input.
+  const developerDir = simulatorDeveloperDir(status);
+  const nativeAvailable = !!udid && !unsupported && !!developerDir && hasNativeIosSimulatorView();
+  const nativeLive = nativeAvailable && nativeViewRendering(nativeState, udid);
+  nativeLiveRef.current = nativeLive;
 
   // 手动打开的选择页:会话已绑定设备或只有一台已启动设备时直接选中。
   useEffect(() => {
@@ -308,9 +336,16 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
         token: getToken() || '',
         pageProtocol: location.protocol,
         pageHost: location.host,
+        frames: !nativeLiveRef.current,
       }));
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
+      // The native view may have gone live while this socket was connecting.
+      ws.onopen = () => {
+        if (!disposed && wsRef.current === ws && nativeLiveRef.current) {
+          ws.send(JSON.stringify({ type: 'frames', enabled: false }));
+        }
+      };
       ws.onmessage = (event) => {
         if (disposed || wsRef.current !== ws) return;
         if (typeof event.data === 'string') {
@@ -318,6 +353,13 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
           if (message?.type === 'device') {
             deviceRef.current = message.device;
             setDevice(message.device);
+            // Without JPEG frames the native view is the picture: go live now.
+            if (nativeLiveRef.current && nativeFrameRef.current) {
+              attempt = 0;
+              frameRef.current = nativeFrameRef.current;
+              setFrameSize(nativeFrameRef.current);
+              setConn({ phase: 'live', message: '', retrySeconds: 0 });
+            }
           } else if (message?.type === 'ended') {
             stop(ws);
             scheduleReconnect(message.reason || '模拟器画面已结束');
@@ -373,6 +415,42 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
     observer.observe(stage);
     return () => observer.disconnect();
   }, [udid, unsupported]);
+
+  // Native view state comes from the shell (attach, rotation, failures).
+  useEffect(() => {
+    if (!nativeAvailable) return undefined;
+    const onState = (event) => setNativeState(event?.detail || null);
+    window.addEventListener(IOS_SIMULATOR_VIEW_STATE_EVENT, onState);
+    return () => window.removeEventListener(IOS_SIMULATOR_VIEW_STATE_EVENT, onState);
+  }, [nativeAvailable]);
+
+  // While the native view draws, stop the JPEG stream and map input with the
+  // native framebuffer's size and rotation; fall back when it stops.
+  useEffect(() => {
+    const frame = nativeLive ? nativeFrameFromState(nativeState) : null;
+    nativeFrameRef.current = frame;
+    if (frame) {
+      frameRef.current = frame;
+      setFrameSize((prev) => (prev && prev.width === frame.width && prev.height === frame.height
+        && prev.rotation === frame.rotation ? prev : frame));
+    }
+  }, [nativeLive, nativeState]);
+
+  useEffect(() => {
+    send({ type: 'frames', enabled: !nativeLive });
+  }, [nativeLive, send]);
+
+  // One native view per shell: unmount on device change / reconnect / leave.
+  useEffect(() => {
+    if (!nativeAvailable) return undefined;
+    const owner = nativeOwnerRef.current;
+    return () => {
+      nativeLayoutRef.current = '';
+      nativeFrameRef.current = null;
+      setNativeState(null);
+      void unmountNativeSimulatorView(owner);
+    };
+  }, [nativeAvailable, udid, developerDir, reconnectNonce]);
 
   const mapPoint = useCallback((event, clamp) => {
     const canvas = canvasRef.current;
@@ -562,6 +640,68 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
     ? containedImageRect(stageSize.width, stageSize.height, frameSize.width, frameSize.height)
     : null), [frameSize, stageSize.height, stageSize.width]);
   const cornerRadius = displayRect ? deviceCornerRadius(device, displayRect.width, displayRect.height) : 0;
+  const streamLive = conn.phase === 'live' && !!frameSize;
+
+  // Places the native view over the canvas whenever the canvas, overlays or
+  // viewport change. It shows only while the stream is live and no blocking
+  // dialog covers it; menus drawn over the screen are cut out of it.
+  useEffect(() => {
+    if (!nativeAvailable) return undefined;
+    let frameRequest = 0;
+    const sync = () => {
+      frameRequest = 0;
+      const rect = canvasRef.current?.getBoundingClientRect?.() || null;
+      const overlay = rect
+        ? nativeSurfaceOverlayGeometryByDocument(rect, document, window)
+        : { blocking: false, occlusionRects: [] };
+      const visible = !!rect && streamLive && nativeSurfaceShouldShow({
+        pageLive: true,
+        documentVisible: document.visibilityState !== 'hidden' && !document.hidden,
+        surfaceRect: rect,
+        viewportRect: nativeSurfaceViewportRect(window),
+        overlayBlocked: overlay.blocking,
+      });
+      const layout = nativeSimulatorLayout({
+        udid,
+        developerDir,
+        rect,
+        visible,
+        cornerRadius,
+        occlusionRects: visible ? nativeSurfaceOcclusionRectsFromClientRects(rect, overlay.occlusionRects, 1) : [],
+      });
+      const signature = nativeSimulatorLayoutSignature(layout);
+      if (signature === nativeLayoutRef.current) return;
+      nativeLayoutRef.current = signature;
+      void setNativeSimulatorLayout(layout, nativeOwnerRef.current).then((result) => {
+        if (!mountedRef.current) return;
+        if (result?.ok) setNativeState(result);
+        else if (result?.error) setNativeState({ udid, rendering: false, error: result.error });
+      });
+    };
+    const schedule = () => {
+      if (!frameRequest) frameRequest = requestAnimationFrame(sync);
+    };
+    schedule();
+    const mutationObserver = typeof MutationObserver === 'function' ? new MutationObserver(schedule) : null;
+    mutationObserver?.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['aria-hidden', 'class', 'data-ace-native-overlay', 'hidden', 'style'],
+    });
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, true);
+    window.addEventListener(NATIVE_SURFACE_OVERLAY_EVENT, schedule);
+    document.addEventListener('visibilitychange', schedule);
+    return () => {
+      if (frameRequest) cancelAnimationFrame(frameRequest);
+      mutationObserver?.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+      window.removeEventListener(NATIVE_SURFACE_OVERLAY_EVENT, schedule);
+      document.removeEventListener('visibilitychange', schedule);
+    };
+  }, [cornerRadius, developerDir, displayRect, nativeAvailable, streamLive, udid]);
 
   if (unsupported) {
     return (
@@ -607,12 +747,12 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
     );
   }
 
-  const live = conn.phase === 'live' && !!frameSize;
+  const live = streamLive;
   const notBooted = !!listedDevice && !listedDevice.booted;
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface overflow-hidden" data-ios-simulator-panel="stream"
-      data-ios-simulator-phase={conn.phase}>
+      data-ios-simulator-phase={conn.phase} data-ios-simulator-native={nativeLive ? 'live' : undefined}>
       <div className="min-h-[44px] shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-hi">
         <button
           ref={switcherRef}

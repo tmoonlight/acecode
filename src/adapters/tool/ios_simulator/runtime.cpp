@@ -1,6 +1,7 @@
 #include "runtime.hpp"
 
 #include "tool/ios_simulator/device_consent.hpp"
+#include "tool/ios_simulator/helper_sandbox.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
@@ -118,7 +119,9 @@ nlohmann::json Runtime::status(bool refresh) {
                          {"stream_scale", config_.stream_scale}, {"stream_quality", config_.stream_quality}};
         out["helper"] = {{"installed", helper_installed(helper_path)},
                          {"running", helper_ && helper_->alive()},
-                         {"developer_dir", helper_ ? helper_->developer_dir() : std::string()}};
+                         {"developer_dir", helper_ ? helper_->developer_dir() : std::string()},
+                         {"sandboxed", helper_ && helper_->sandboxed()},
+                         {"sandbox_note", sandbox_note_}};
         nlohmann::json bindings = nlohmann::json::object();
         for (const auto& [session, udid] : session_devices_) bindings[session] = udid;
         out["sessions"] = bindings;
@@ -153,23 +156,46 @@ std::shared_ptr<HelperClient> Runtime::ensure_helper(std::string* error) {
         if (error) *error = "acecode-ios-sim is missing beside the ACECode executable; reinstall ACECode for macOS.";
         return nullptr;
     }
-    auto helper = std::make_shared<HelperClient>();
-    helper->set_listener([ref = lifetime_.ref(*this)](const nlohmann::json& header, const std::string& binary) {
-        ref.with([&header, &binary](Runtime& self) { self.on_helper_event(header, binary); });
-    });
-    std::string start_error;
-    if (!helper->start(path, install->developer_dir, &start_error)) {
-        if (error) *error = "Could not start the iOS Simulator helper: " + start_error;
-        return nullptr;
+    std::string sandbox_note;
+    const bool sandboxed = helper_sandbox_enabled(&sandbox_note);
+    auto helper = launch_helper(path, install->developer_dir, sandboxed, error);
+    if (helper && sandboxed) {
+        // sandbox-exec exits at once when the profile cannot be applied, e.g.
+        // when ACECode itself already runs inside a sandbox. The helper still
+        // works unconfined; the status reports it and the log says why.
+        const auto hello = helper->request({{"op", "hello"}}, 15000);
+        if (!hello.ok && hello.error_code == "HELPER_EXITED") {
+            LOG_WARN("[ios-sim] sandbox-exec refused the helper profile; running the helper unsandboxed");
+            helper->stop();
+            sandbox_note = "sandbox-exec could not apply the helper profile";
+            helper = launch_helper(path, install->developer_dir, false, error);
+        }
     }
+    if (!helper) return nullptr;
     std::shared_ptr<HelperClient> retired;
     {
         std::lock_guard<std::mutex> lock(mu_);
         retired = std::move(helper_);
         helper_ = helper;
+        sandbox_note_ = helper->sandboxed() ? std::string() : sandbox_note;
     }
     if (retired) retired->stop();
-    LOG_INFO("[ios-sim] helper started for " + install->developer_dir);
+    LOG_INFO("[ios-sim] helper started for " + install->developer_dir +
+             (helper->sandboxed() ? " (sandboxed)" : " (unsandboxed: " + sandbox_note + ")"));
+    return helper;
+}
+
+std::shared_ptr<HelperClient> Runtime::launch_helper(const std::string& path, const std::string& developer_dir,
+                                                     bool sandboxed, std::string* error) {
+    auto helper = std::make_shared<HelperClient>();
+    helper->set_listener([ref = lifetime_.ref(*this)](const nlohmann::json& header, const std::string& binary) {
+        ref.with([&header, &binary](Runtime& self) { self.on_helper_event(header, binary); });
+    });
+    std::string start_error;
+    if (!helper->start(path, developer_dir, sandboxed, &start_error)) {
+        if (error) *error = "Could not start the iOS Simulator helper: " + start_error;
+        return nullptr;
+    }
     return helper;
 }
 
