@@ -229,7 +229,13 @@ def check_device(helper, udid, out, developer_dir):
     width, height = size.get("point_width", 0), size.get("point_height", 0)
     record("describe", describe.get("ok") and width > 0, f"{size.get('name')} {width}x{height} rotation {size.get('rotation')}")
     display, _ = helper.call("display_info", udid=udid)
-    record("display info", display.get("ok"), json.dumps(display.get("result", {}))[:200])
+    info = display.get("result", {})
+    # Xcode 27 runtimes answer the CoreDevice display-info request; older ones
+    # report it unsupported and fall back to Simulator.app's window setting.
+    parsed = info.get("unsupported") or info.get("rotation") in (0, 90, 180, 270)
+    record("display info", display.get("ok") and parsed,
+           f"rotation {info.get('rotation')} unsupported {info.get('unsupported')} "
+           f"window {info.get('window_rotation')}")
     shot, png = helper.call("screenshot", udid=udid, format="png", scale=1.0)
     if png:
         with open(os.path.join(out, "home.png"), "wb") as f:

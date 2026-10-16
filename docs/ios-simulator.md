@@ -33,3 +33,7 @@ In ACECode Desktop on macOS the screen is drawn natively: the simulator's own fr
 - Xcode 27 (CoreSimulator 1155.4+) delivers input through `dtuhidd`; earlier versions use the legacy Indigo channel. Set `ACECODE_IOS_SIM_HID=indigo|dtuhid` to override for diagnosis. The `dtuhidd` messages are covered by unit tests but have not yet been tried against an Xcode 27 simulator.
 - On Intel Macs, reading the framebuffer waits for the simulator's GPU work, so during long animations the JPEG stream and screenshots can lag (Apple's `simctl io screenshot` behaves the same). Input and the Desktop native view are not affected.
 - Landscape apps are shown upright; on runtimes older than Xcode 27 the orientation comes from Simulator.app's device window setting.
+
+## Checking a new Xcode
+
+The `ios-simulator-live` GitHub workflow (run it manually, or push a `ci/ios-simulator-live*` branch) builds the helper on a hosted Mac — by default GitHub's `xcode-27` image — boots a simulator and checks that taps, drags, typing and hardware buttons really take effect (read back through the accessibility tree), plus screenshots, the live stream, the helper sandbox and the Desktop native view. Locally: `python3 scripts/ios_simulator/live_check.py --json-include <dir containing nlohmann/json.hpp> [--developer-dir …/Contents/Developer]`.
