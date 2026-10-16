@@ -158,6 +158,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     touch "$fake_app/Contents/MacOS/ACECode" \
           "$fake_app/Contents/MacOS/acecode-daemon"
     printf '%s\n' 'fixture helper' > "$fake_app/Contents/MacOS/acecode-computer-use"
+    printf '%s\n' 'fixture simulator helper' > "$fake_app/Contents/MacOS/acecode-ios-sim"
     printf '%s\n' 'fixture CLI forwarder' > "$fake_app/Contents/MacOS/acecode-cli"
     printf '%s\n' '{}' > \
         "$fake_app/Contents/Resources/share/acecode/models_dev/api.json"
@@ -168,6 +169,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     chmod +x "$fake_app/Contents/MacOS/ACECode" \
              "$fake_app/Contents/MacOS/acecode-daemon"
     chmod +x "$fake_app/Contents/MacOS/acecode-computer-use"
+    chmod +x "$fake_app/Contents/MacOS/acecode-ios-sim"
     chmod +x "$fake_app/Contents/MacOS/acecode-cli"
     expect_status 2 "missing app notarization credentials" \
         env -u NOTARYTOOL_PROFILE -u APPLE_ID -u APPLE_TEAM_ID \
@@ -185,6 +187,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     test -x "$temporary_root/extracted-update/ACECode.app/Contents/MacOS/acecode-daemon"
     test -x "$temporary_root/extracted-update/acecode"
     test ! -e "$temporary_root/extracted-update/acecode-computer-use"
+    test ! -e "$temporary_root/extracted-update/acecode-ios-sim"
+    test -x "$temporary_root/extracted-update/ACECode.app/Contents/MacOS/acecode-ios-sim"
     test ! -e "$temporary_root/extracted-update/share"
     cmp "$temporary_root/extracted-update/acecode" \
         "$temporary_root/extracted-update/ACECode.app/Contents/MacOS/acecode-cli"

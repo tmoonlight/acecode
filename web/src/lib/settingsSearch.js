@@ -46,6 +46,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['channels', 'LINE', 'line messaging api channel secret webhook cloudflared 机器人 im channel 消息通道 连接 取消连接'],
     ['tools', '内置工具', 'builtin tools'],
     ['tools', 'Agent 浏览器', 'agent browser'],
+    ['tools', 'iOS 模拟器', 'ios simulator iphone ipad xcode 模拟器 simctl device stream screenshot 设备 画面 帧率 画质'],
     ['tools', '电脑操控（实验性）', 'computer use experimental windows macos accessibility screen recording desktop mouse keyboard screenshot pointer cursor style theme color ace plain 指针 样式 主题色'],
     ['tools', '图像生成', 'image generation drawing'],
     ['tools', '摘要生成', 'summary title generation local model 摘要模型 会话标题'],
@@ -105,6 +106,13 @@ export function settingsSearchResultIndex(results, target) {
   if (byId >= 0) return byId;
   const byLabel = results.findIndex((item) => item.section === target.section && item.label === target.label);
   return byLabel >= 0 ? byLabel : 0;
+}
+
+// 按分区 + 标签找到一条设置(标签可以是中文原文或当前语言的译文)。
+export function findSettingsSearchEntry(entries, { section = '', label = '' } = {}) {
+  if (!Array.isArray(entries) || !label) return null;
+  return entries.find((item) => (!section || item.section === section)
+    && (item.label === label || (item.translations || []).includes(label))) || null;
 }
 
 export function locateSetting(root, result) {

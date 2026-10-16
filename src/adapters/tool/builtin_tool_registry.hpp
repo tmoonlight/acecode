@@ -9,6 +9,7 @@
 #include "file_read_tool.hpp"
 #include "file_write_tool.hpp"
 #include "glob_tool.hpp"
+#include "ios_simulator_tool.hpp"
 #include "goal_tool.hpp"
 #include "tool/image_generate/image_generate_tool.hpp"
 #include "grep_tool.hpp"
@@ -62,6 +63,7 @@ inline void register_session_builtin_tools(ToolExecutor& tools, const AppConfig&
     }
     agent_browser::register_agent_browser_tools(tools);
     refresh_computer_use_tools(tools, config);
+    refresh_ios_simulator_tools(tools, config);
 }
 
 } // namespace acecode

@@ -177,12 +177,17 @@ class VerifyPackageUnitTest(unittest.TestCase):
                                                 platform, ["tui"], 2, "cmake", None, True)
                 self.assertEqual("--component computer_use_runtime" in output.getvalue(),
                                  platform in ("windows", "darwin"))
+                self.assertEqual("--component ios_simulator_runtime" in output.getvalue(),
+                                 platform == "darwin")
 
     def test_macos_computer_use_helper_must_be_executable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             helper = root / "acecode-computer-use"
             helper.write_bytes(b"runtime")
+            simulator = root / "acecode-ios-sim"
+            simulator.write_bytes(b"runtime")
+            simulator.chmod(0o755)
             with mock.patch.object(verify_package, "check_models_dev"), \
                     mock.patch.object(verify_package, "check_seed_bundle"):
                 for mode, failures in ((0o644, 1), (0o755, 0)):
@@ -195,7 +200,7 @@ class VerifyPackageUnitTest(unittest.TestCase):
                         if sys.platform == "win32":
                             access.return_value = bool(mode & 0o111)
                         verify_package.structural_checks(report, root, root, "darwin", ["tui"])
-                        access.assert_called_once_with(helper, verify_package.os.X_OK)
+                        access.assert_any_call(helper, verify_package.os.X_OK)
                     self.assertEqual(report.failed, failures)
 
     def test_staging_path_guard_rejects_protected_paths(self) -> None:
