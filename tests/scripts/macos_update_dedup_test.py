@@ -75,6 +75,8 @@ class MacUpdateDedupTest(unittest.TestCase):
         scripts.mkdir()
         shutil.copytree(ROOT / 'assets/seed', self.root / 'assets/seed')
         shutil.copy2(ROOT / 'scripts/verify_seed_bundle.py', scripts / 'verify_seed_bundle.py')
+        # The update script sources its stapler retry helper from its own directory.
+        shutil.copy2(ROOT / 'scripts/macos_stapler.sh', scripts / 'macos_stapler.sh')
         text = (ROOT / 'scripts/macos_create_update_zip.sh').read_text()
         text = text.replace('/usr/bin/ditto', '"' + str(ditto) + '"')
         self.script = scripts / 'macos_create_update_zip.sh'

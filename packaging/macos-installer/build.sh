@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Production adaptation of the v6 local installer build; never signs the payload.
 set -euo pipefail
+# shellcheck source=scripts/macos_stapler.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)/scripts/macos_stapler.sh"
 usage() {
     printf 'Usage: bash packaging/macos-installer/build.sh --app ACECode.app --output NEW-DIR --arch x64|arm64\n'
 }
@@ -34,7 +36,7 @@ done
 details="$(/usr/bin/codesign -dv --verbose=4 "$source_app" 2>&1)"
 grep -Fxq 'TeamIdentifier=T52GZCH73Y' <<< "$details"
 grep -Fq 'Authority=Developer ID Application:' <<< "$details"
-xcrun stapler validate "$source_app"
+acecode_stapler validate "$source_app"
 /usr/sbin/spctl --assess --type execute "$source_app"
 mkdir -p "$output"
 output="$(cd "$output" && pwd -P)"

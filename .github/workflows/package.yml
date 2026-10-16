@@ -944,23 +944,6 @@ jobs:
               -DACECODE_BUILD_DESKTOP=ON
               -DACECODE_DEEPIN=ON
               -DWEBVIEW_WEBKITGTK_API=4.0
-          - id: linux-deepin-armv7
-            os: ubuntu-22.04
-            triplet: arm-linux
-            executable: acecode
-            archive_extension: tar.gz
-            build_desktop: false
-            cmake_extra_args: >-
-              -DACECODE_BUILD_DESKTOP=OFF
-              -DACECODE_DEEPIN=ON
-              -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/toolchains/linux.cmake"
-              -DVCPKG_TARGET_ARCHITECTURE=arm
-              -DCMAKE_C_COMPILER=clang-11
-              -DCMAKE_CXX_COMPILER=clang++-11
-              -DCMAKE_C_COMPILER_TARGET=arm-linux-gnueabihf
-              -DCMAKE_CXX_COMPILER_TARGET=arm-linux-gnueabihf
-              -DCMAKE_C_STANDARD_INCLUDE_DIRECTORIES=/usr/arm-linux-gnueabihf/include
-              -DCMAKE_CXX_STANDARD_INCLUDE_DIRECTORIES="/usr/arm-linux-gnueabihf/include/c++/8;/usr/arm-linux-gnueabihf/include/c++/8/arm-linux-gnueabihf;/usr/arm-linux-gnueabihf/include"
 
     steps:
       - name: Checkout
@@ -1001,15 +984,6 @@ jobs:
               libqt5x11extras5-dev libqt5svg5-dev libgsettings-qt-dev
               libstartup-notification0-dev libxcb-util0-dev libmtdev-dev
               libegl1-mesa-dev libudev-dev libxi-dev libcups2-dev librsvg2-dev
-            )
-          fi
-          if [ "${{ matrix.id }}" = "linux-deepin-armv7" ]; then
-            packages+=(
-              binutils-arm-linux-gnueabihf
-              clang-11
-              gcc-arm-linux-gnueabihf
-              g++-arm-linux-gnueabihf
-              qemu-user
             )
           fi
           apt-get install -y --no-install-recommends "${packages[@]}"
@@ -1106,40 +1080,14 @@ jobs:
             fi
           fi
 
-      - name: Verify Deepin ARMv7 executable
-        if: matrix.id == 'linux-deepin-armv7'
-        shell: bash
-        run: |
-          export LC_ALL=C
-          elf_header="$(arm-linux-gnueabihf-readelf -h build/acecode)"
-          arm_attributes="$(arm-linux-gnueabihf-readelf -A build/acecode)"
-          program_headers="$(arm-linux-gnueabihf-readelf -l build/acecode)"
-
-          printf '%s\n' "$elf_header"
-          printf '%s\n' "$arm_attributes"
-
-          grep -Eq 'Class:[[:space:]]+ELF32' <<<"$elf_header"
-          grep -Eq 'Machine:[[:space:]]+ARM' <<<"$elf_header"
-          grep -Eq 'Tag_CPU_arch:[[:space:]]+v7' <<<"$arm_attributes"
-          grep -Eq 'Tag_ABI_VFP_args:[[:space:]]+VFP registers' <<<"$arm_attributes"
-          grep -Fq '/lib/ld-linux-armhf.so.3' <<<"$program_headers"
-
-          version_output="$(qemu-arm -L /usr/arm-linux-gnueabihf build/acecode --version)"
-          printf '%s\n' "$version_output"
-          grep -Eq '^acecode v[^[:space:]]+$' <<<"$version_output"
-
       - name: Extract debug symbols
         shell: bash
         run: |
-          binutils_prefix=""
-          if [ "${{ matrix.id }}" = "linux-deepin-armv7" ]; then
-            binutils_prefix="arm-linux-gnueabihf-"
-          fi
-          "${binutils_prefix}objcopy" --only-keep-debug \
+          objcopy --only-keep-debug \
             "build/${{ matrix.executable }}" \
             "build/${{ matrix.executable }}.debug"
-          "${binutils_prefix}strip" --strip-unneeded "build/${{ matrix.executable }}"
-          "${binutils_prefix}objcopy" \
+          strip --strip-unneeded "build/${{ matrix.executable }}"
+          objcopy \
             --add-gnu-debuglink="build/${{ matrix.executable }}.debug" \
             "build/${{ matrix.executable }}"
 

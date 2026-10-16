@@ -20,13 +20,23 @@ class ReleaseAssetsTest(unittest.TestCase):
             path.parent.mkdir()
             path.write_bytes(b"package")
 
-    def test_complete_release_requires_all_eighteen_downloads(self):
+    def test_complete_release_requires_all_seventeen_downloads(self):
         selected = assets.verify_release_assets(self.root, "1.2.3")
-        self.assertEqual(len(selected), 18)
-        for arch in ("x64", "arm64", "armv7"):
+        self.assertEqual(len(selected), 17)
+        for arch in ("x64", "arm64"):
             self.assertIn(f"acecode-linux-deepin-{arch}.tar.gz", self.names)
+        self.assertIn("acecode-linux-armv7.tar.gz", self.names)
         for arch in ("x64", "arm64"):
             self.assertIn(f"ACECode-1.2.3-macos-{arch}.pkg", self.names)
+
+    def test_retired_deepin_armv7_archive_is_rejected(self):
+        # 场景:1.0.7 之后不再发布 Deepin ARMv7(用户决定),但产物目录里混进了一个
+        # acecode-linux-deepin-armv7.tar.gz(旧 run、恢复构建残留)。
+        # 期望:它不在必需清单里,出现时按「意外资产」拒绝发布,而不是被悄悄传上 Release。
+        self.assertNotIn("acecode-linux-deepin-armv7.tar.gz", self.names)
+        (self.root / "acecode-linux-deepin-armv7.tar.gz").write_bytes(b"package")
+        with self.assertRaisesRegex(ValueError, "Unexpected release asset: acecode-linux-deepin-armv7.tar.gz"):
+            assets.verify_release_assets(self.root, "1.2.3")
 
     def test_every_missing_or_empty_asset_blocks_publication(self):
         for name in self.names:
@@ -41,7 +51,7 @@ class ReleaseAssetsTest(unittest.TestCase):
                 path.write_bytes(b"package")
 
     def test_old_linux_archives_cannot_replace_deepin_packages(self):
-        for arch in ("x64", "arm64", "armv7"):
+        for arch in ("x64", "arm64"):
             path = next(self.root.rglob(f"acecode-linux-deepin-{arch}.tar.gz"))
             path.rename(path.with_name(f"acecode-linux-old-{arch}.tar.gz"))
         with self.assertRaises(ValueError) as error:
@@ -75,7 +85,7 @@ class ReleaseAssetsTest(unittest.TestCase):
     def test_non_package_artifacts_do_not_affect_runtime_completeness(self):
         for name in ("acecode.debug", "acecode.pdb", "index.html"):
             (self.root / name).write_bytes(b"auxiliary")
-        self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 18)
+        self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 17)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,16 @@ elif tool == 'xcrun':
         status = os.environ.get('NOTARY_STATUS', 'Accepted')
         if args[2].endswith('.dmg') and os.environ.get('REJECT_DMG'): status = 'Invalid'
         print(json.dumps({'status': status, 'id': 'test-submission'}))
+    elif args[0] == 'stapler':
+        counter = root / 'stapler-attempts'
+        attempt = int(counter.read_text()) + 1 if counter.exists() else 1
+        counter.write_text(str(attempt))
+        if os.environ.get('STAPLER_FATAL'):
+            print('The staple and validate action failed! Error 65.', file=sys.stderr)
+            sys.exit(65)
+        if attempt <= int(os.environ.get('STAPLER_TICKET_FAILURES', '0')):
+            print('CloudKit: The network connection was lost. The validate action failed! Error 68.', file=sys.stderr)
+            sys.exit(68)
 elif tool == 'lipo':
     assert args[1] == '-verify_arch' and args[2] in ('x86_64', 'arm64')
     if os.environ.get('WRONG_ARCH'): sys.exit(1)
@@ -77,7 +87,8 @@ class InstallerReleaseTest(unittest.TestCase):
             path = self.tools / tool
             path.write_text('#!/bin/bash\nexec python3 "$(dirname "$0")/mock.py" ' + tool + ' "$@"\n')
             path.chmod(0o755)
-        for name in ('scripts/macos_create_installer_dmg.sh', 'packaging/macos-installer/build.sh'):
+        for name in ('scripts/macos_create_installer_dmg.sh', 'scripts/macos_stapler.sh',
+                     'packaging/macos-installer/build.sh'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             text = (ROOT / name).read_text()
@@ -91,7 +102,8 @@ class InstallerReleaseTest(unittest.TestCase):
         for name in ('MacOS/ACECode', 'MacOS/acecode-daemon', 'Resources/app.icns', 'Info.plist'):
             (self.app / 'Contents' / name).write_text('original')
         self.output = self.root / 'output/ACECode-1.2.3-macos-x64.dmg'
-        self.env = dict(os.environ, TEST_ROOT=str(self.root), PATH=str(self.tools) + os.pathsep + os.environ['PATH'])
+        self.env = dict(os.environ, TEST_ROOT=str(self.root), PATH=str(self.tools) + os.pathsep + os.environ['PATH'],
+                        ACECODE_STAPLER_RETRY_DELAY='0')
 
     def run_pipeline(self, success=True, arch='x64'):
         result = subprocess.run(['bash', str(self.root / 'scripts/macos_create_installer_dmg.sh'),
@@ -157,6 +169,38 @@ class InstallerReleaseTest(unittest.TestCase):
         self.env['HDIUTIL_FATAL'] = '1'
         calls = self.run_pipeline(success=False)
         self.assertEqual(sum(c[0] == 'hdiutil' for c in calls), 1)
+        self.assertFalse(self.output.exists())
+
+    def test_ticket_service_disconnects_are_retried(self):
+        # 场景:staple/validate 时连 Apple 票据服务(CloudKit)断线,stapler 退出码 68。
+        # v1.0.7 的 macos-x64 正是这样整个 job 失败,重跑三次每次断在不同步骤(v1.0.6 也遇到过)。
+        # 期望:同一条 stapler 命令原样重试,恢复后流水线照常产出 DMG。
+        self.env['STAPLER_TICKET_FAILURES'] = '2'
+        calls = self.run_pipeline()
+        staples = [c for c in calls if c[:2] == ['xcrun', 'stapler']]
+        self.assertGreaterEqual(len(staples), 3)
+        self.assertEqual(staples[0], staples[1])
+        self.assertEqual(staples[1], staples[2])
+        self.assertEqual(self.output.read_text(), 'dmg')
+
+    def test_persistent_ticket_service_errors_stop_without_publishing(self):
+        # 场景:票据服务一直不可用。期望:重试满 ACECODE_STAPLER_ATTEMPTS 次后失败,
+        # 不再继续公证或产出 DMG(第一处 stapler 在构建安装器时校验原始应用)。
+        self.env['STAPLER_TICKET_FAILURES'] = '99'
+        self.env['ACECODE_STAPLER_ATTEMPTS'] = '3'
+        calls = self.run_pipeline(success=False)
+        staples = [c for c in calls if c[:2] == ['xcrun', 'stapler']]
+        self.assertEqual(len(staples), 3)
+        self.assertEqual(len({json.dumps(c) for c in staples}), 1)
+        self.assertFalse(any(c[:3] == ['xcrun', 'notarytool', 'submit'] for c in calls))
+        self.assertFalse(self.output.exists())
+
+    def test_stapler_errors_other_than_ticket_service_are_not_retried(self):
+        # 场景:stapler 因票据缺失、签名无效等原因失败(非 68)。
+        # 期望:不重试,立即失败,避免把真正的签名问题拖成长时间等待。
+        self.env['STAPLER_FATAL'] = '1'
+        calls = self.run_pipeline(success=False)
+        self.assertEqual(sum(c[:2] == ['xcrun', 'stapler'] for c in calls), 1)
         self.assertFalse(self.output.exists())
 
     def test_cli_validation_without_tools(self):
