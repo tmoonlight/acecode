@@ -240,6 +240,20 @@ elseif(APPLE)
     install(TARGETS acecode-computer-use RUNTIME DESTINATION . COMPONENT computer_use_runtime)
 endif()
 
+if(APPLE)
+    # iOS Simulator helper. It is a macOS-only payload: other platforms never
+    # build or package it.
+    add_executable(acecode-ios-sim ${ACECODE_IOS_SIM_HELPER_SOURCES})
+    set_target_properties(acecode-ios-sim PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
+    target_compile_options(acecode-ios-sim PRIVATE -fobjc-arc -mmacosx-version-min=14.0)
+    target_link_options(acecode-ios-sim PRIVATE -mmacosx-version-min=14.0)
+    target_include_directories(acecode-ios-sim PRIVATE ${CMAKE_SOURCE_DIR}/src/adapters)
+    target_link_libraries(acecode-ios-sim PRIVATE nlohmann_json::nlohmann_json
+        "-framework Foundation" "-framework CoreGraphics" "-framework Accelerate"
+        "-framework ImageIO" "-framework IOSurface")
+    install(TARGETS acecode-ios-sim RUNTIME DESTINATION . COMPONENT ios_simulator_runtime)
+endif()
+
 add_executable(acecode
     ${ACECODE_MAIN_SOURCE}
     ${ACECODE_WINDOWS_RESOURCES}
@@ -247,6 +261,9 @@ add_executable(acecode
 target_link_libraries(acecode PRIVATE acecode_cli)
 if(WIN32 OR APPLE)
     add_dependencies(acecode acecode-computer-use)
+endif()
+if(APPLE)
+    add_dependencies(acecode acecode-ios-sim)
 endif()
 
 add_custom_command(TARGET acecode POST_BUILD

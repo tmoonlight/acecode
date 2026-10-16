@@ -70,15 +70,15 @@ const PLATFORMS = [
     ciId: 'macos-x64',
     os: 'darwin',
     cpu: 'x64',
-    files: ['acecode', 'acecode-computer-use', 'ACECode.app', 'share', 'channels'],
-    executables: ['acecode', 'acecode-computer-use'],
+    files: ['acecode', 'acecode-computer-use', 'acecode-ios-sim', 'ACECode.app', 'share', 'channels'],
+    executables: ['acecode', 'acecode-computer-use', 'acecode-ios-sim'],
   },
   {
     ciId: 'macos-arm64',
     os: 'darwin',
     cpu: 'arm64',
-    files: ['acecode', 'acecode-computer-use', 'ACECode.app', 'share', 'channels'],
-    executables: ['acecode', 'acecode-computer-use'],
+    files: ['acecode', 'acecode-computer-use', 'acecode-ios-sim', 'ACECode.app', 'share', 'channels'],
+    executables: ['acecode', 'acecode-computer-use', 'acecode-ios-sim'],
   },
 ];
 
@@ -168,6 +168,9 @@ function buildPlatformPackage(platform, version, inputRoot, outputRoot) {
         (!fs.statSync(src).isFile() || fs.statSync(src).size === 0)) {
       throw new Error(`平台 ${platform.ciId} 的 Computer Use runtime 无效: ${src}`);
     }
+    if (file === 'acecode-ios-sim' && (!fs.statSync(src).isFile() || fs.statSync(src).size === 0)) {
+      throw new Error(`平台 ${platform.ciId} 的 iOS Simulator runtime 无效: ${src}`);
+    }
     if (file === 'channels') {
       const channelDir = path.join(outDir, CHANNEL_RELATIVE_DIR);
       fs.mkdirSync(channelDir, { recursive: true });
@@ -190,6 +193,11 @@ function buildPlatformPackage(platform, version, inputRoot, outputRoot) {
     const bundledHelper = path.join(macosDir, 'acecode-computer-use');
     if (!fs.existsSync(bundledHelper) || !fs.statSync(bundledHelper).isFile() || fs.statSync(bundledHelper).size === 0) {
       throw new Error(`平台 ${platform.ciId} 的 ACECode.app 缺少 Computer Use runtime: ${bundledHelper}`);
+    }
+    const bundledSimulator = path.join(macosDir, 'acecode-ios-sim');
+    if (!fs.existsSync(bundledSimulator) || !fs.statSync(bundledSimulator).isFile() ||
+        fs.statSync(bundledSimulator).size === 0) {
+      throw new Error(`平台 ${platform.ciId} 的 ACECode.app 缺少 iOS Simulator runtime: ${bundledSimulator}`);
     }
     validateModelsDevRegistry(
       path.join(outDir, 'ACECode.app', 'Contents', 'Resources'),

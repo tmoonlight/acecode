@@ -254,10 +254,10 @@ if(APPLE)
         MACOSX_BUNDLE_COPYRIGHT "ACECode contributors"
     )
     add_executable(acecode-macos-cli-launcher ${ACECODE_MACOS_CLI_LAUNCHER_SOURCE})
-    add_dependencies(acecode-desktop acecode acecode-computer-use acecode-macos-cli-launcher)
+    add_dependencies(acecode-desktop acecode acecode-computer-use acecode-ios-sim acecode-macos-cli-launcher)
     set_property(TARGET acecode-desktop APPEND PROPERTY
         LINK_DEPENDS $<TARGET_FILE:acecode> $<TARGET_FILE:acecode-computer-use>
-            $<TARGET_FILE:acecode-macos-cli-launcher>)
+            $<TARGET_FILE:acecode-ios-sim> $<TARGET_FILE:acecode-macos-cli-launcher>)
     add_custom_command(TARGET acecode-desktop POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E rm -f
             $<TARGET_FILE_DIR:acecode-desktop>/acecode-desktop
@@ -267,6 +267,9 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:acecode-computer-use>
             $<TARGET_FILE_DIR:acecode-desktop>/acecode-computer-use
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:acecode-ios-sim>
+            $<TARGET_FILE_DIR:acecode-desktop>/acecode-ios-sim
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:acecode-macos-cli-launcher>
             $<TARGET_FILE_DIR:acecode-desktop>/acecode-cli

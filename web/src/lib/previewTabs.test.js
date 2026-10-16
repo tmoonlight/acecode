@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  PREVIEW_TAB_TYPES,
   activePreviewTab,
   activatePreviewTab,
   closePreviewTab,
@@ -7,13 +8,16 @@ import {
   closePreviewTabsToRight,
   closeVisiblePreviewTabs,
   closeVisiblePreviewTabsConfirmationMessage,
+  closeSimulatorTab,
   defaultBrowserTabTitle,
+  defaultSimulatorTabTitle,
   discardFileTabDraft,
   normalizeBrowserTabFavicon,
   openFileTab,
   openBrowserTab,
   openGitChangesTab,
   openSessionChangesTab,
+  openSimulatorTab,
   previewAbsolutePath,
   previewFileLocation,
   previewScopeKey,
@@ -23,7 +27,9 @@ import {
   refreshPreviewTab,
   reorderPreviewTab,
   resolveSessionChangesTabContent,
+  retargetSimulatorTab,
   sessionWorkingCwd,
+  simulatorTabsForSession,
   syncBrowserTabsForSession,
   transferPreviewTabs,
   updateBrowserTabFavicon,
@@ -984,4 +990,70 @@ run('closing or reconciling a background tab preserves the active file', () => {
   assert.equal(activePreviewTab(state, context).key, activeKey);
   state = closePreviewTab(state, { ...context, tabKey: visiblePreviewTabs(state, context)[1].key });
   assert.equal(activePreviewTab(state, context).key, activeKey);
+});
+
+run('iOS simulator tabs are per session, keyed by udid and follow tool focus rules', () => {
+  const context = { scopeKey: 'workspace-a', sessionId: 's1' };
+  let state = openFileTab({}, { ...context, path: 'main.swift' });
+  const fileKey = activePreviewTab(state, context).key;
+
+  // Background open (a non-attach tool result) adds the tab without stealing focus.
+  state = openSimulatorTab(state, { ...context, udid: 'U1', title: 'iPhone 17', focus: false });
+  assert.deepEqual(visiblePreviewTabs(state, context).map((tab) => tab.key), [fileKey, 'ios-simulator:U1']);
+  assert.equal(activePreviewTab(state, context).key, fileKey);
+  assert.equal(openSimulatorTab(state, { ...context, udid: 'U1', focus: false }), state, 'already open: unchanged');
+
+  // attach focuses it.
+  state = openSimulatorTab(state, { ...context, udid: 'U1' });
+  const simulator = activePreviewTab(state, context);
+  assert.equal(simulator.type, PREVIEW_TAB_TYPES.SIMULATOR);
+  assert.equal(simulator.udid, 'U1');
+  assert.equal(simulator.title, 'iPhone 17');
+  assert.equal(state.activeTabBySession.s1, 'ios-simulator:U1');
+
+  // Other sessions never see it.
+  assert.deepEqual(visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's2' }), []);
+  assert.equal(openSimulatorTab(state, { scopeKey: 'workspace-a', udid: 'U1' }), state, 'needs a session');
+
+  // A manual chooser tab without a device gets the default title, then retargets in place.
+  state = openSimulatorTab(state, { ...context });
+  assert.equal(activePreviewTab(state, context).key, 'ios-simulator:');
+  assert.equal(activePreviewTab(state, context).title, defaultSimulatorTabTitle());
+  state = reorderPreviewTab(state, { ...context, sourceKey: 'ios-simulator:', targetKey: fileKey, placement: 'before' });
+  state = retargetSimulatorTab(state, { ...context, tabKey: 'ios-simulator:', udid: 'U2', title: 'iPad Pro' });
+  assert.deepEqual(visiblePreviewTabs(state, context).map((tab) => tab.key), ['ios-simulator:U2', fileKey, 'ios-simulator:U1']);
+  assert.equal(activePreviewTab(state, context).key, 'ios-simulator:U2');
+  assert.equal(activePreviewTab(state, context).title, 'iPad Pro');
+
+  // Retargeting onto a device that already has a tab closes the old one and focuses the existing tab.
+  state = retargetSimulatorTab(state, { ...context, tabKey: 'ios-simulator:U2', udid: 'U1' });
+  assert.deepEqual(simulatorTabsForSession(state, 's1').map((tab) => tab.udid), ['U1']);
+  assert.equal(activePreviewTab(state, context).key, 'ios-simulator:U1');
+  assert.equal(retargetSimulatorTab(state, { ...context, tabKey: 'ios-simulator:missing', udid: 'U3' }), state);
+
+  // detach closes it and the file tab becomes active again.
+  state = closeSimulatorTab(state, { ...context, udid: 'U1' });
+  assert.deepEqual(visiblePreviewTabs(state, context).map((tab) => tab.key), [fileKey]);
+  assert.equal(activePreviewTab(state, context).key, fileKey);
+  assert.equal(state.simulatorTabsBySession.s1, undefined);
+  assert.equal(state.activeTabBySession.s1, undefined);
+});
+
+run('simulator tabs take part in activation and bulk close like other session tabs', () => {
+  const context = { scopeKey: 'workspace-a', sessionId: 's1' };
+  let state = openBrowserTab({}, { ...context, pageId: 'p1' });
+  state = openSimulatorTab(state, { ...context, udid: 'U1' });
+  state = activatePreviewTab(state, { ...context, tabKey: 'browser:p1' });
+  assert.equal(activePreviewTab(state, context).key, 'browser:p1');
+  state = activatePreviewTab(state, { ...context, tabKey: 'ios-simulator:U1' });
+  assert.equal(state.activeTabBySession.s1, 'ios-simulator:U1');
+  // Closing the active simulator tab falls back to the neighbouring browser tab.
+  const closed = closePreviewTab(state, { ...context, tabKey: 'ios-simulator:U1' });
+  assert.equal(activePreviewTab(closed, context).key, 'browser:p1');
+  assert.equal(closed.activeTabBySession.s1, 'browser:p1');
+  const others = closeOtherPreviewTabs(state, { ...context, tabKey: 'ios-simulator:U1' });
+  assert.deepEqual(visiblePreviewTabs(others, context).map((tab) => tab.key), ['ios-simulator:U1']);
+  const all = closeVisiblePreviewTabs(state, context);
+  assert.deepEqual(visiblePreviewTabs(all, context), []);
+  assert.equal(all.simulatorTabsBySession.s1, undefined);
 });

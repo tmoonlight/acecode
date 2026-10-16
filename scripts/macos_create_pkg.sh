@@ -161,6 +161,11 @@ if [[ ! -x "$computer_use_helper" || ! -s "$computer_use_helper" ]]; then
     echo "Missing Computer Use helper payload: $computer_use_helper" >&2
     exit 1
 fi
+ios_simulator_helper="$app_path/Contents/MacOS/acecode-ios-sim"
+if [[ ! -x "$ios_simulator_helper" || ! -s "$ios_simulator_helper" ]]; then
+    echo "Missing iOS Simulator helper payload: $ios_simulator_helper" >&2
+    exit 1
+fi
 
 architectures="$(/usr/bin/lipo -archs "$app_executable" 2>/dev/null || true)"
 if [[ -z "$architectures" ]]; then
@@ -179,6 +184,10 @@ for architecture in $architectures; do
     esac
     if ! /usr/bin/lipo "$computer_use_helper" -verify_arch "$architecture" >/dev/null 2>&1; then
         echo "Computer Use helper does not support app architecture: $architecture" >&2
+        exit 1
+    fi
+    if ! /usr/bin/lipo "$ios_simulator_helper" -verify_arch "$architecture" >/dev/null 2>&1; then
+        echo "iOS Simulator helper does not support app architecture: $architecture" >&2
         exit 1
     fi
     if [[ -n "$host_architectures" ]]; then

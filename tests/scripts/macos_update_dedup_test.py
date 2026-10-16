@@ -56,7 +56,7 @@ class MacUpdateDedupTest(unittest.TestCase):
         shutil.copytree(ROOT / 'assets/seed', self.resources / 'seed')
         shutil.copytree(ROOT / 'assets/models_dev', self.resources / 'models_dev')
         shutil.copy2(self.launcher, self.macos / 'acecode-cli')
-        for name in ['ACECode', 'acecode-computer-use', 'acecode-daemon']:
+        for name in ['ACECode', 'acecode-computer-use', 'acecode-ios-sim', 'acecode-daemon']:
             p = self.macos / name
             p.write_text('#!/usr/bin/env python3\nimport json, os, sys\n'
                          'print(json.dumps(sys.argv[1:]))\n'
@@ -106,6 +106,8 @@ class MacUpdateDedupTest(unittest.TestCase):
             self.assertEqual(sum(n.endswith('/models_dev/api.json') for n in names), 1)
             self.assertFalse(any(n.startswith(('share/', 'channels/')) for n in names))
             self.assertNotIn('acecode-computer-use', names)
+            self.assertNotIn('acecode-ios-sim', names)
+            self.assertEqual(sum(n.endswith('/MacOS/acecode-ios-sim') for n in names), 1)
             self.assertLess(archive.getinfo('acecode').file_size, 256 * 1024)
         installed = self.extract()
         args = ['two words', '', '中文路径', '--literal=$HOME;echo nope']

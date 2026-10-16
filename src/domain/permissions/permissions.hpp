@@ -207,6 +207,12 @@ public:
             if (tool_name == browser_tool) return true;
         }
 
+        // The iOS Simulator tool only drives a simulated device the user can
+        // watch, and asks once per simulator before its first use (device
+        // consent in tool/ios_simulator). ios_simulator_build runs project
+        // build scripts and keeps the ordinary permission prompt.
+        if (tool_name == "ios_simulator") return true;
+
         // Session-level always-allow for this tool
         {
             std::lock_guard<std::mutex> lk(mu_);

@@ -71,3 +71,16 @@ export function settingsNavIndexForKey(key, developerModeUnlocked = false) {
   if (key === 'developer' && developerModeUnlocked) return SETTINGS_NAV_ITEMS.length;
   return SETTINGS_NAV_INDEX_BY_KEY.get(key) ?? 0;
 }
+
+// 设置窗口外的组件(例如 iOS 模拟器面板里「去设置 Xcode」)请求打开某一条设置。
+// App 监听该事件,按 section + label 找到搜索索引里的条目,走与全局搜索选中设置
+// 相同的定位路径(切到分区、滚动到该项并加波浪下划线)。
+export const OPEN_SETTING_EVENT = 'acecode:open-setting';
+
+export function requestOpenSetting({ section = '', label = '' } = {}, target = globalThis.window) {
+  if (typeof target?.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return false;
+  target.dispatchEvent(new CustomEvent(OPEN_SETTING_EVENT, {
+    detail: { section: String(section || ''), label: String(label || '') },
+  }));
+  return true;
+}

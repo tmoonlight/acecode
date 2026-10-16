@@ -35,8 +35,10 @@ function fixture(t) {
     if (platform.startsWith('windows')) write(dir, 'acecode-computer-use.exe', 'computer-use-runtime');
     if (platform.startsWith('macos')) {
       write(dir, 'acecode-computer-use', 'computer-use-runtime');
+      write(dir, 'acecode-ios-sim', 'ios-simulator-runtime');
       write(dir, 'ACECode.app/Contents/MacOS/ACECode');
       write(dir, 'ACECode.app/Contents/MacOS/acecode-computer-use', 'computer-use-runtime');
+      write(dir, 'ACECode.app/Contents/MacOS/acecode-ios-sim', 'ios-simulator-runtime');
       resources(path.join(dir, 'ACECode.app/Contents/Resources'));
     } else {
       write(dir, platform.startsWith('windows') ? 'acecode-desktop.exe' : 'acecode-desktop');
@@ -69,6 +71,12 @@ test('all six npm platforms preserve bridge assets and exclude runtime state', (
       assert.notEqual(fs.statSync(macHelper).mode & 0o111, 0);
       assert.equal(fs.readFileSync(path.join(output, 'platform', npmPlatform,
         'ACECode.app/Contents/MacOS/acecode-computer-use'), 'utf8'), 'computer-use-runtime');
+      const simulator = path.join(output, 'platform', npmPlatform, 'acecode-ios-sim');
+      assert.equal(fs.readFileSync(simulator, 'utf8'), 'ios-simulator-runtime');
+      assert.notEqual(fs.statSync(simulator).mode & 0o111, 0);
+    } else {
+      // The iOS Simulator helper is a macOS-only payload.
+      assert.equal(fs.existsSync(path.join(output, 'platform', npmPlatform, 'acecode-ios-sim')), false);
     }
     const channel = path.join(output, 'platform', npmPlatform, 'channels/whatsapp');
     assert.deepEqual(fs.readdirSync(channel).sort(), [...assets].sort());
@@ -108,6 +116,14 @@ test('missing macOS Computer Use runtime rejects npm packaging', (t) => {
   const result = run();
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /macos-arm64.*acecode-computer-use/);
+});
+
+test('missing macOS iOS Simulator runtime rejects npm packaging', (t) => {
+  const { input, run } = fixture(t);
+  fs.unlinkSync(path.join(input, 'acecode-macos-x64/ACECode.app/Contents/MacOS/acecode-ios-sim'));
+  const result = run();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /macos-x64.*iOS Simulator runtime/);
 });
 
 test('macOS app bundle must also contain its bridge', (t) => {

@@ -262,6 +262,8 @@ def print_dry_run(repo: Path, build_dir: Path, staging: Path, platform: str,
         components = ["models_dev_registry", "default_seed_bundle"]
         if platform in ("windows", "darwin"):
             components.append("computer_use_runtime")
+        if platform == "darwin":
+            components.append("ios_simulator_runtime")
         for component in components:
             print("  " + " ".join([
                 cmake_command, "--install", str(build_dir), "--config", "MinSizeRel",
@@ -347,6 +349,8 @@ def stage(report: Report, repo: Path, build_dir: Path, staging: Path,
         components = ["models_dev_registry", "default_seed_bundle"]
         if platform in ("windows", "darwin"):
             components.append("computer_use_runtime")
+        if platform == "darwin":
+            components.append("ios_simulator_runtime")
         for component in components:
             if not run_tool(report, f"cmake install {component}",
                             [cmake, "--install", str(build_dir),
@@ -364,6 +368,12 @@ def structural_checks(report: Report, repo: Path, staging: Path,
             report.add("computer use runtime adjacency", "pass")
         else:
             report.add("computer use runtime adjacency", "fail", f"missing or empty {helper}")
+    if platform == "darwin" and "tui" in targets:
+        simulator = staging / "acecode-ios-sim"
+        if simulator.is_file() and simulator.stat().st_size > 0 and os.access(simulator, os.X_OK):
+            report.add("iOS Simulator runtime adjacency", "pass")
+        else:
+            report.add("iOS Simulator runtime adjacency", "fail", f"missing or empty {simulator}")
     if "tui" in targets or platform != "darwin":
         check_models_dev(report, "models_dev registry (staged share/)",
                          staging / "share" / "acecode" / "models_dev",
@@ -377,7 +387,8 @@ def structural_checks(report: Report, repo: Path, staging: Path,
         contents = bundle / "Contents"
         for required in (contents / "MacOS" / "ACECode",
                          contents / "MacOS" / "acecode-daemon",
-                         contents / "MacOS" / "acecode-computer-use"):
+                         contents / "MacOS" / "acecode-computer-use",
+                         contents / "MacOS" / "acecode-ios-sim"):
             if required.is_file() and required.stat().st_size > 0 and os.access(required, os.X_OK):
                 report.add(f"app bundle {required.name}", "pass")
             else:

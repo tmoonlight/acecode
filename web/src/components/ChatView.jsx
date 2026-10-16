@@ -90,6 +90,7 @@ import { TranscriptItems } from './TranscriptItems.jsx';
 import { TranscriptHistoryBoundary } from './TranscriptHistoryBoundary.jsx';
 import { useTranscriptHistory } from '../lib/useTranscriptHistory.js';
 import { PreviewDetailsPanel } from './PreviewDetailsPanel.jsx';
+import { IosSimulatorIcon } from './IosSimulatorPanel.jsx';
 import { Modal } from './Modal.jsx';
 import { CreateProjectModal } from './CreateProjectModal.jsx';
 import { ChangeGlassDock } from './ChangeReview.jsx';
@@ -253,6 +254,7 @@ import {
   closeOtherPreviewTabs,
   closePreviewTab,
   closePreviewTabsToRight,
+  closeSimulatorTab,
   closeVisiblePreviewTabs,
   defaultBrowserTabTitle,
   discardFileTabDraft,
@@ -260,12 +262,15 @@ import {
   openBrowserTab,
   openGitChangesTab,
   openSessionChangesTab,
+  openSimulatorTab,
   previewFileLocation,
   previewScopeKey,
   previewTabContext,
   refreshPreviewTab,
   reorderPreviewTab,
+  retargetSimulatorTab,
   sessionWorkingCwd,
+  simulatorTabsForSession,
   syncBrowserTabsForSession,
   updateGitChangesTab,
   updateFileTabDraft,
@@ -275,6 +280,11 @@ import {
 import {
   pickPreviewFile,
 } from '../lib/desktopPreviewFilePicker.js';
+import {
+  iosSimulatorHostLikelySupported,
+  iosSimulatorTabAction,
+  latestIosSimulatorEvent,
+} from '../lib/iosSimulator.js';
 import {
   editableFileConflict,
   editableFileError,
@@ -5599,6 +5609,64 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     showBrowserPage(agentBrowserActivePageId);
   }, [agentBrowserActivePageId, sessionBrowserPages, showBrowserPage, sid]);
 
+  // iOS 模拟器页签。聚焦打开走 selectPreview(离开未保存文件需确认);不抢焦点的补开
+  // 不切换当前页签,直接写状态。
+  const showSimulatorTab = useCallback((udid = '', title = '', { focus = true } = {}) => {
+    if (!sid) return false;
+    const options = { scopeKey: previewScope, sessionId: sid, udid, title, focus };
+    if (!focus) {
+      setPreviewTabState((prev) => openSimulatorTab(prev, options));
+      return true;
+    }
+    return selectPreview((prev) => openSimulatorTab(prev, options), () => {
+      onRevealPreviewPanel?.();
+      setPreviewPanelHidden(false);
+    });
+  }, [onRevealPreviewPanel, previewScope, selectPreview, setPreviewTabState, sid]);
+
+  // 手动入口:已有模拟器页签就聚焦最近一个;否则打开选择页,由面板按「会话已绑定的
+  // 设备 → 唯一已启动的设备 → 用户选择」确定设备。
+  const openIosSimulatorPreview = useCallback(() => {
+    const existing = simulatorTabsForSession(getPreviewTabState(), sid);
+    const target = existing[existing.length - 1];
+    return showSimulatorTab(target?.udid || '', target?.title || '');
+  }, [getPreviewTabState, showSimulatorTab, sid]);
+
+  const retargetSimulatorPreview = useCallback((tabKey, udid, title) => {
+    if (!sid || !udid) return;
+    setPreviewTabState((prev) => retargetSimulatorTab(prev, {
+      scopeKey: previewScope, sessionId: sid, tabKey, udid, title,
+    }));
+  }, [previewScope, setPreviewTabState, sid]);
+
+  // transcript 里的 ios_simulator 工具结果驱动页签,与上面 Agent 浏览器「每会话已揭示
+  // 集合」同一思路:每个会话首次加载完历史时只记下最近一条结果、不动页签(打开旧会话
+  // 不会弹出模拟器);之后最近一条结果变了 —— 本视图在线期间新到的结果,或切走期间
+  // 新增、切回时随历史载入的结果 —— 才执行:attach 打开并聚焦,其它带 udid 的动作在
+  // 未打开时补开(不抢焦点),detach 关闭。key 是 tool_call_id,重载会话不会变。
+  const latestSimulatorEvent = useMemo(() => latestIosSimulatorEvent(items), [items]);
+  const handledSimulatorEventsRef = useRef(new Map());
+  useEffect(() => {
+    if (!sid || transcriptLoadState !== 'loaded') return;
+    const key = latestSimulatorEvent?.key || '';
+    const handled = handledSimulatorEventsRef.current;
+    if (!handled.has(sid)) {
+      handled.set(sid, key);
+      return;
+    }
+    if (handled.get(sid) === key) return;
+    handled.set(sid, key);
+    const openUdids = simulatorTabsForSession(getPreviewTabState(), sid).map((tab) => tab.udid);
+    const action = iosSimulatorTabAction(latestSimulatorEvent, { openUdids });
+    if (action.type === 'open') {
+      showSimulatorTab(action.udid, action.title, { focus: action.focus });
+    } else if (action.type === 'close') {
+      setPreviewTabState((prev) => closeSimulatorTab(prev, {
+        scopeKey: previewScope, sessionId: sid, udid: action.udid,
+      }));
+    }
+  }, [getPreviewTabState, latestSimulatorEvent, previewScope, setPreviewTabState, showSimulatorTab, sid, transcriptLoadState]);
+
   const openSessionChangePreview = useCallback((filePath, turnUserMessageId = '') => {
     if (!sid || !filePath) return;
     const turnChangeSet = turnUserMessageId
@@ -6081,6 +6149,17 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               <VsIcon name="globe" size={16} />
             </button>
           )}
+          {sid && iosSimulatorHostLikelySupported() && (
+            <button
+              type="button"
+              onClick={openIosSimulatorPreview}
+              className="w-7 h-7 rounded-md bg-surface-hi/0 text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+              title="打开 iOS 模拟器"
+              aria-label="打开 iOS 模拟器"
+            >
+              <IosSimulatorIcon size={16} />
+            </button>
+          )}
           {sid && (
             <button
               ref={sessionMenuButtonRef}
@@ -6485,6 +6564,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onToggleSidePanelList={onToggleSidePanelList}
             onOpenFile={sidePanelCwd ? openPreviewFilePicker : null}
             onOpenBrowser={sid && hasNativeAgentBrowser() ? openBrowserPreview : null}
+            onRetargetSimulatorTab={retargetSimulatorPreview}
             onOpenSideChat={openSideQuestionComposer}
             onHide={hidePreviewPanel}
             agentBrowserActive={agentBrowserActivePageId}

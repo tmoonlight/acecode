@@ -5931,3 +5931,25 @@ a disk session becomes live, and buffers events arriving during its first REST
 load so that an older disk snapshot cannot discard recovery events.
 Repeated `status_subscribe` for the same connection/workspace does not send a
 second snapshot; clients resubscribe once after reconnect.
+
+## 20. iOS Simulator (macOS)
+
+Backs the `ios_simulator` / `ios_simulator_build` tools, Settings > Tools > iOS Simulator and the live simulator panel. On other platforms `status.supported` is `false` and the other routes report an unavailable Xcode. All routes use the normal daemon authentication. See [ios-simulator.md](ios-simulator.md).
+
+| Route | Purpose |
+|---|---|
+| `GET /api/ios-simulator/status[?refresh=1]` | `{supported, enabled, config:{xcode_path, stream_fps, stream_scale, stream_quality}, helper:{installed, running, developer_dir}, sessions:{<session_id>:<udid>}, xcode:{installs[], selected, selected_source, configured_path, configured_error, error, xcode_select_path, core_simulator_version}, device_consent:{<udid>:{name, granted_at}}}`. `refresh=1` reruns discovery including Spotlight. |
+| `PUT /api/config/ios-simulator` | Body: any of `enabled`, `xcode_path` (`""` = automatic), `stream_fps` (5–60), `stream_scale` (0.25–1), `stream_quality` (0.3–0.95). Saves config.json (sparse), applies it and (un)registers the tools; returns the status. `400 {error:"XCODE_INVALID", message}` for an unusable Xcode path. |
+| `POST /api/ios-simulator/xcode/inspect` | `{path}` → `{ok:true, install}` or `{ok:false, message}`. Accepts `…/Xcode.app` or `…/Xcode.app/Contents/Developer`. |
+| `GET /api/ios-simulator/devices[?session=<id>]` | `{devices:[{udid, name, state, booted, runtime, runtime_version, platform, device_type, available, allowed, sessions[]}], error, session_device?}`. |
+| `POST /api/ios-simulator/devices/<udid>/boot`, `/shutdown` | simctl boot (waits for boot completion) / shutdown; returns `{devices}`. |
+| `POST /api/ios-simulator/devices/<udid>/consent` | `{allowed, name}` grants or revokes the agent's permission to control that simulator. |
+| `GET /api/ios-simulator/devices/<udid>/screenshot` | Full-resolution PNG, turned to the interface orientation. |
+
+`WS /ws/ios-simulator/<udid>?token=…` (token rules as `/ws/sessions`):
+
+- Server → client text: `{type:"device", device:{udid, name, state, runtime, device_type, product_family, point_width, point_height, scale, rotation, hid_transport}}`, `{type:"ended", reason}`, `{type:"error", message}`.
+- Server → client binary: `u32le json_length | {type:"frame", seq, width, height, rotation} | JPEG`. Frames are sent when the screen content changes, at most `stream_fps` per second, already turned to the interface orientation. All viewers of one device share one helper stream.
+- Client → server text: `{type:"touch", phase:"down"|"move"|"up", x, y, edge?}` (device points in the frame's orientation), `{type:"button", name}` (`home`, `lock`, `side_button`, `siri`, `volume_up`, `volume_down`), `{type:"key", name}` (e.g. `return`, `cmd+a`), `{type:"type", text}` (keyboard), `{type:"text", text}` (paste; non-ASCII goes through the simulator pasteboard). Panel input does not require device consent: consent gates the agent, not the user.
+
+Tool results of `ios_simulator` carry `metadata.ios_simulator = {action, udid, name, runtime, point_width, point_height, rotation}`; the web UI opens the panel on `attach` and closes it on `detach`.

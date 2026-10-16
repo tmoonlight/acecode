@@ -67,6 +67,9 @@ import { channelStateBindingSignature } from './lib/channelsSettings.js';
 import { beginSessionOpen } from './lib/sessionOpenDiagnostics.js';
 import { usePreference, mergeNextValue, readWithFallback } from './lib/usePreference.js';
 import { sessionWorkbench } from './lib/sessionWorkbench.js';
+import { OPEN_SETTING_EVENT } from './lib/settingsNavigation.js';
+import { findSettingsSearchEntry, settingsSearchEntries } from './lib/settingsSearch.js';
+import { loadDeveloperModeUnlocked } from './lib/developerMode.js';
 import { useWorkbenchState } from './lib/useWorkbenchState.js';
 import {
   appearanceBootstrapPreferences,
@@ -883,6 +886,19 @@ export function App() {
     });
     setShowSettings(true);
   }, []);
+
+  // 设置窗口外的组件请求打开某条设置(如 iOS 模拟器面板的「打开设置」):找得到条目就
+  // 走与搜索选中相同的定位路径,否则只切到所在分区。
+  useEffect(() => {
+    const onOpenSetting = (event) => {
+      const { section = '', label = '' } = event?.detail || {};
+      const entry = findSettingsSearchEntry(settingsSearchEntries(loadDeveloperModeUnlocked()), { section, label });
+      if (entry) handleSelectSetting(entry, entry.label);
+      else openSettingsSection(section || 'general');
+    };
+    window.addEventListener(OPEN_SETTING_EVENT, onOpenSetting);
+    return () => window.removeEventListener(OPEN_SETTING_EVENT, onOpenSetting);
+  }, [handleSelectSetting, openSettingsSection]);
 
   useEffect(() => {
     setSingleLayout((prev) => normalizeSingleLayoutPreference(prev));
