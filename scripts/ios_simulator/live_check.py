@@ -220,21 +220,27 @@ def label_of(node):
 
 
 def check_device(helper, udid, out, developer_dir):
-    hello, _ = helper.call("hello")
+    # First calls load Xcode's frameworks and connect to CoreSimulatorService;
+    # hosted VMs can take most of a minute for that.
+    hello, _ = helper.call("hello", timeout=180)
     info = hello.get("result", {})
     record("helper starts", hello.get("ok"), f"CoreSimulator {info.get('core_simulator_version')} "
            f"transport {info.get('default_hid_transport')}")
-    describe, _ = helper.call("describe", udid=udid)
+    describe, _ = helper.call("describe", udid=udid, timeout=180)
     size = describe.get("result", {})
     width, height = size.get("point_width", 0), size.get("point_height", 0)
     record("describe", describe.get("ok") and width > 0, f"{size.get('name')} {width}x{height} rotation {size.get('rotation')}")
-    display, _ = helper.call("display_info", udid=udid)
-    info = display.get("result", {})
-    with open(os.path.join(out, "display_info.json"), "w") as f:
-        json.dump(info, f, indent=1)
     # Xcode 27 runtimes answer the CoreDevice display-info request; older ones
     # report it unsupported and fall back to Simulator.app's window setting.
-    parsed = info.get("unsupported") or info.get("rotation") in (0, 90, 180, 270)
+    # The helper waits 2 s for a reply, so allow a few tries on a slow VM.
+    for attempt in range(3):
+        display, _ = helper.call("display_info", udid=udid)
+        info = display.get("result", {})
+        with open(os.path.join(out, f"display_info_{attempt}.json"), "w") as f:
+            json.dump(info, f, indent=1)
+        parsed = info.get("unsupported") or info.get("rotation") in (0, 90, 180, 270)
+        if parsed:
+            break
     record("display info", display.get("ok") and parsed,
            f"rotation {info.get('rotation')} unsupported {info.get('unsupported')} "
            f"window {info.get('window_rotation')}")

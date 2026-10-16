@@ -218,7 +218,9 @@ bool Runtime::post(nlohmann::json request) {
 }
 
 std::optional<DeviceInfo> Runtime::describe(const std::string& udid, std::string* error) {
-    auto response = call({{"op", "describe"}, {"udid", udid}}, 20000);
+    // The first describe loads Xcode's frameworks and connects to
+    // CoreSimulatorService; on a cold Mac that alone can take most of a minute.
+    auto response = call({{"op", "describe"}, {"udid", udid}}, 90000);
     if (!response.ok) {
         if (error) *error = response.message;
         return std::nullopt;
