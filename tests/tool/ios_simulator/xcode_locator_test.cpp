@@ -72,7 +72,7 @@ TEST_F(XcodeLocatorTest, InspectsGreenInstallsAndRejectsIncompleteCopies) {
     EXPECT_EQ(install->version, "26.6");
     EXPECT_EQ(install->build, "17F113");
     EXPECT_TRUE(install->simulator_kit);
-    EXPECT_TRUE(inspect_xcode((app / "Contents/Developer").string()).has_value());
+    EXPECT_TRUE(inspect_xcode((app / "Contents/Developer").generic_string()).has_value());
 
     fs::create_directories(root / "Broken.app/Contents");
     std::string why;

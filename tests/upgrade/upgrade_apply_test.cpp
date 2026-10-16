@@ -165,11 +165,11 @@ TEST(UpgradeApply, BuildsAndParsesRunnerArguments) {
               "\"C:/Program Files/ACECode/acecode.exe\"");
 
     auto runner = make_runner_path(1234, "C:/Program Files/ACECode");
-    EXPECT_EQ(runner.parent_path().filename(), ".acecode-update-runner");
+    EXPECT_EQ(runner.parent_path().filename(), ".acecode_update_runner");
 #ifdef _WIN32
-    EXPECT_EQ(runner.filename(), "acecode-update-runner-1234.exe");
+    EXPECT_EQ(runner.filename(), "acecode_update_runner_1234.exe");
 #else
-    EXPECT_EQ(runner.filename(), "acecode-update-runner-1234");
+    EXPECT_EQ(runner.filename(), "acecode_update_runner_1234");
 #endif
 }
 

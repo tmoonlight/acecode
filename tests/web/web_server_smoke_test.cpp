@@ -9224,7 +9224,7 @@ TEST(WebServerHttp, CustomThemeExportProtectsBuiltinsAndDownloadsAuthenticatedZi
     ASSERT_EQ(downloaded.status_code, 200) << downloaded.text;
     EXPECT_EQ(response_header(downloaded, "Content-Type"), "application/zip");
     EXPECT_EQ(response_header(downloaded, "X-Content-Type-Options"), "nosniff");
-    EXPECT_NE(response_header(downloaded, "Content-Disposition").find("filename*=UTF-8''ACECode-"), std::string::npos);
+    EXPECT_NE(response_header(downloaded, "Content-Disposition").find("filename*=UTF-8''ACECode_"), std::string::npos);
     EXPECT_NE(response_header(downloaded, "Cache-Control").find("no-store"), std::string::npos);
     EXPECT_EQ(downloaded.text.substr(0, 2), "PK");
     EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/themes/exports/missing")}).status_code, 404);
@@ -9588,7 +9588,7 @@ TEST(WebServerHttp, DesktopFeedbackUploadsSelectedSessionOnly) {
     ASSERT_EQ(r.status_code, 200) << r.text;
     auto body = json::parse(r.text);
     EXPECT_EQ(body["selected_session_id"], sid);
-    EXPECT_EQ(read_zip_entry(received_zip, "session/" + sid + ".jsonl"),
+    EXPECT_EQ(read_zip_entry(received_zip, "session/20260618_030000_abcf.jsonl"),
               "{\"role\":\"user\",\"content\":\"selected\"}\n");
     EXPECT_FALSE(zip_entry_exists(received_zip, "session/other.jsonl"));
     auto metadata = json::parse(read_zip_entry(received_zip, "feedback.json"));
@@ -9637,8 +9637,8 @@ TEST(WebServerHttp, DesktopFeedbackMaterializesEmptySelectedSession) {
     auto body = json::parse(r.text);
     EXPECT_EQ(body["selected_session_id"], sid);
     EXPECT_TRUE(std::filesystem::is_regular_file(session_jsonl));
-    EXPECT_TRUE(zip_entry_exists(received_zip, "session/" + sid + ".jsonl"));
-    EXPECT_TRUE(read_zip_entry(received_zip, "session/" + sid + ".jsonl").empty());
+    EXPECT_TRUE(zip_entry_exists(received_zip, "session/20260618_031500_abc0.jsonl"));
+    EXPECT_TRUE(read_zip_entry(received_zip, "session/20260618_031500_abc0.jsonl").empty());
 
     std::error_code ec;
     std::filesystem::remove(received_zip, ec);
@@ -9708,7 +9708,7 @@ TEST(WebServerHttp, DesktopFeedbackUploadsNoWorkspaceSessionTranscript) {
     auto body = json::parse(r.text);
     EXPECT_EQ(body["selected_session_id"], sid);
     EXPECT_EQ(body["workspace_hash"], "");
-    EXPECT_EQ(read_zip_entry(received_zip, "session/" + sid + ".jsonl"),
+    EXPECT_EQ(read_zip_entry(received_zip, "session/20260923_170433_bd13.jsonl"),
               "{\"role\":\"user\",\"content\":\"no workspace\"}\n");
     auto metadata = json::parse(read_zip_entry(received_zip, "feedback.json"));
     EXPECT_EQ(metadata["selected_session_id"], sid);
@@ -11904,7 +11904,7 @@ TEST(WebServerHttp, ToolRewritesRoundTripPersistsJsonAndAppliesToProcess) {
     EXPECT_EQ(json::parse(enable.text)["rewrites"]["file_read"], "peek");
     EXPECT_EQ(acecode::model_tool_name_for_native("file_read"), "peek");
     {
-        std::ifstream ifs(fx.tmp_dir / acecode::tool_rewrites::kSettingsFileName);
+        std::ifstream ifs(fx.tmp_dir / "tool_rewrites.json");
         ASSERT_TRUE(ifs.is_open());
         auto saved = json::parse(ifs);
         EXPECT_EQ(saved["enabled"], true);
@@ -13213,7 +13213,7 @@ TEST(SecurityCenterSmoke, AuditRoutesListSummarizeExportAndClear) {
     auto csv = cpr::Get(cpr::Url{fx.url("/api/security/audit/export?format=csv")});
     ASSERT_EQ(csv.status_code, 200) << csv.text;
     EXPECT_NE(csv.header["Content-Type"].find("text/csv"), std::string::npos);
-    EXPECT_NE(csv.header["Content-Disposition"].find("attachment; filename=\"acecode-audit-"), std::string::npos);
+    EXPECT_NE(csv.header["Content-Disposition"].find("attachment; filename=\"acecode_audit_"), std::string::npos);
     EXPECT_EQ(csv.text.rfind("id,ts_ms,category,", 0), 0u);
     EXPECT_NE(csv.text.find("git status"), std::string::npos);
     auto jsonl = cpr::Get(cpr::Url{fx.url("/api/security/audit/export")});
