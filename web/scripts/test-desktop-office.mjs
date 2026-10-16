@@ -58,6 +58,17 @@ try {
   await page.screenshot({path:path.join(output,'office-controls-hidden.png')});
   await page.mouse.move(344,280);
   assert.equal(await controlsVisible(),true,'hover reveals the menu');
+  // 场景:鼠标停在房间里。bug 表现:左上角的缩放三角形跟着整个场景悬停一起出现,看起来一直挂着(用户反馈)。
+  // 期望:只有鼠标移到三角形上才显示,移开就隐藏;隐藏时仍可拖动缩放。
+  const gripOpacity=()=>page.locator('#grip').evaluate(node=>Number(getComputedStyle(node).opacity));
+  await page.waitForTimeout(200);
+  assert.equal(await gripOpacity(),0,'resize handle hidden while hovering the room');
+  const gripBox=await page.locator('#grip').boundingBox();
+  await page.mouse.move(gripBox.x+8,gripBox.y+8);
+  await page.waitForFunction(()=>Number(getComputedStyle(document.getElementById('grip')).opacity)>0.9);
+  await page.mouse.move(344,280);
+  await page.waitForTimeout(200);
+  assert.equal(await gripOpacity(),0,'resize handle hides again once the pointer leaves it');
   assert.ok(Array.isArray((await lastOverlay()).controls),'visible menu supplies a native hit region');
   await page.mouse.move(-10,-10);
   await page.waitForTimeout(550);

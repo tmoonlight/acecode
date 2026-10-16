@@ -21,7 +21,11 @@ canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pi
    box, and Windows clips painting to it, so a shadow running past it is cut off hard. */
 /* Card text is the ACECode transcript body text: same family, size and line height (the main
    window sends its live values with every snapshot, following its font-size setting). */
-.stack{position:absolute;left:0;right:0;bottom:calc(58% - 10px);z-index:3;padding:12px max(4%,16px) 26px;font:var(--pet-font-size)/1.6 var(--pet-font)}
+/* In a small window the cards would run past the top edge: --stack-fit (set by fitStack) shrinks
+   them, down to 9px text, and .pinned holds them at the top edge when even that is too tall. */
+.stack{position:absolute;left:0;right:0;bottom:calc(58% - 10px);z-index:3;padding:calc(12px * var(--stack-fit, 1)) max(4%,16px) calc(26px * var(--stack-fit, 1));
+  font:calc(var(--pet-font-size) * var(--stack-fit, 1))/1.6 var(--pet-font)}
+.stack.collapsed.pinned{bottom:auto;top:0}
 .stack.expanded{bottom:auto;top:0;max-height:100%;overflow-y:auto;scrollbar-width:thin}
 .deck{position:relative;isolation:isolate;display:flex;flex-direction:column;gap:6px}
 .stack.collapsed .card:not(:first-child){display:none}
@@ -34,7 +38,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pi
 .text{flex:1;min-width:0}
 .head{display:flex;align-items:center;gap:.4em;font-weight:700}
 .name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.body{margin-top:.1em;color:var(--card-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* A block box: on an inline span the ellipsis does nothing and long text runs under the stop button. */
+.body{display:block;margin-top:.1em;color:var(--card-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .icon{flex:none;width:1.1em;height:1.1em;display:grid;place-items:center}
 .icon svg{width:100%;height:100%}
 .spinner{width:.9em;height:.9em;border:2px solid var(--card-button);border-top-color:var(--idle);border-radius:50%;animation:spin .9s linear infinite}
@@ -46,8 +51,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pi
   box-shadow:0 1px 3px rgba(0,0,0,.25);display:none;place-items:center;cursor:pointer;padding:0;font:inherit;font-weight:700;line-height:1}
 .card:hover .dismiss,.card:focus-within .dismiss{display:grid}
 .stack.collapsed.layers .card .dismiss{display:none}
-.grip{position:absolute;width:16px;height:16px;cursor:nwse-resize;opacity:0;z-index:2}
-.scene:hover .grip,.scene:focus-within .grip{opacity:1}
+/* The resize handle sits at the top-left of the visible pet (placed by reportRegions) and stays
+   hidden, though still hit-testable, until the pointer is on it. */
+.grip{position:absolute;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;z-index:2}
+.grip:hover{opacity:1}
 .grip svg{width:100%;height:100%;fill:none;stroke:var(--pet-ink);stroke-width:2}
 .badge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--pet-ink);color:#fff;padding:3px 8px;border-radius:5px;pointer-events:none}
 [hidden]{display:none!important}

@@ -324,7 +324,7 @@ TEST(DesktopPetLayout, DragTrackerHandlesNegativeAndInvalidCoordinates) {
     EXPECT_EQ(tracker.move(-1926), 1);
 }
 
-// 场景:1920 宽工作区上把 430 宽的鲸鱼娘窗口拖到不同位置后松手。
+// 场景:1920 宽工作区上把 430 宽的陪伴宠物窗口拖到不同位置后松手。
 // 期望:窗口中心进入离右边 1/4 窗口宽(107.5)以内或越过右边 → 吸附右边(+1);左边同理(-1);
 // 屏幕中间不吸附;副屏负坐标同样按工作区边界判断;空窗口/空工作区不吸附。
 TEST(DesktopPetLayout, DockSideDependsOnDistanceToTheWorkAreaEdge) {
@@ -342,6 +342,21 @@ TEST(DesktopPetLayout, DockSideDependsOnDistanceToTheWorkAreaEdge) {
     EXPECT_EQ(desktop_pet_dock_side({-300, 100, 430, 315}, left_monitor), 1);
     EXPECT_EQ(desktop_pet_dock_side({0, 0, 0, 0}, work), 0);
     EXPECT_EQ(desktop_pet_dock_side({0, 0, 430, 315}, {0, 0, 0, 0}), 0);
+}
+
+// 场景:拖到屏幕边松手 / 右键菜单切换宠物时,判断当前宠物能不能吸附到左右边。
+// bug 表现:吸附曾写死只认 "whale",回形针和 Rover 拖到边上只会被拉回工作区,也没有偷看的样子。
+// 期望:三只陪伴宠物都有趴边偷看素材(peek.png),可以吸附;虚拟办公室、空串、大小写不符的 id 不吸附。
+// 菜单里每加一种陪伴宠物都要配一张 peek.png,循环那段就是提醒。
+TEST(DesktopPetLayout, CompanionPetsHaveEdgePeekButTheOfficeDoesNot) {
+    EXPECT_TRUE(desktop_pet_has_edge_peek("clippy"));
+    EXPECT_TRUE(desktop_pet_has_edge_peek("rover"));
+    EXPECT_TRUE(desktop_pet_has_edge_peek("whale"));
+    EXPECT_FALSE(desktop_pet_has_edge_peek("office"));
+    EXPECT_FALSE(desktop_pet_has_edge_peek(""));
+    EXPECT_FALSE(desktop_pet_has_edge_peek("Whale"));
+    for (const auto& kind : kDesktopPetKinds)
+        EXPECT_EQ(desktop_pet_has_edge_peek(kind.id), std::string_view(kind.id) != "office") << kind.id;
 }
 
 // 场景:吸附时窗口有一部分在工作区外(右边越界、上下越界)。

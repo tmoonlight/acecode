@@ -167,8 +167,10 @@ if(WIN32 OR APPLE)
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/agent.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/map.png
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/peek.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/agent.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/map.png
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/peek.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/agent.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/map.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/peek.png

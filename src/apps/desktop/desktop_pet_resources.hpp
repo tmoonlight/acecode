@@ -14,8 +14,12 @@ const unsigned char* classic_pet_page_data();
 std::size_t classic_pet_page_size();
 const unsigned char* clippy_pet_sprite_data();
 std::size_t clippy_pet_sprite_size();
+const unsigned char* clippy_pet_peek_data();
+std::size_t clippy_pet_peek_size();
 const unsigned char* rover_pet_sprite_data();
 std::size_t rover_pet_sprite_size();
+const unsigned char* rover_pet_peek_data();
+std::size_t rover_pet_peek_size();
 const unsigned char* whale_pet_sprite_data();
 std::size_t whale_pet_sprite_size();
 const unsigned char* whale_pet_peek_data();
@@ -30,16 +34,14 @@ inline std::string desktop_pet_html(std::string_view kind) {
 }
 
 inline nlohmann::json desktop_pet_character(std::string_view kind) {
-    const bool rover = kind == "rover";
-    const auto* data = kind == "whale" ? whale_pet_sprite_data() : rover ? rover_pet_sprite_data() : clippy_pet_sprite_data();
-    const auto size = kind == "whale" ? whale_pet_sprite_size() : rover ? rover_pet_sprite_size() : clippy_pet_sprite_size();
-    nlohmann::json character = {{"type", "pet-character"}, {"kind", kind},
-            {"sprite", "data:image/png;base64," + base64_encode({reinterpret_cast<const char*>(data), size})}};
-    // Edge-peek frames used while Whale Girl is docked to the left/right of the screen.
-    if (kind == "whale") {
-        character["peek"] = "data:image/png;base64," +
-            base64_encode({reinterpret_cast<const char*>(whale_pet_peek_data()), whale_pet_peek_size()});
-    }
-    return character;
+    const bool rover = kind == "rover", whale = kind == "whale";
+    const auto* data = whale ? whale_pet_sprite_data() : rover ? rover_pet_sprite_data() : clippy_pet_sprite_data();
+    const auto size = whale ? whale_pet_sprite_size() : rover ? rover_pet_sprite_size() : clippy_pet_sprite_size();
+    // Edge-peek frames used while the pet is docked to the left/right of the screen.
+    const auto* peek = whale ? whale_pet_peek_data() : rover ? rover_pet_peek_data() : clippy_pet_peek_data();
+    const auto peek_size = whale ? whale_pet_peek_size() : rover ? rover_pet_peek_size() : clippy_pet_peek_size();
+    return {{"type", "pet-character"}, {"kind", kind},
+            {"sprite", "data:image/png;base64," + base64_encode({reinterpret_cast<const char*>(data), size})},
+            {"peek", "data:image/png;base64," + base64_encode({reinterpret_cast<const char*>(peek), peek_size})}};
 }
 } // namespace acecode::desktop

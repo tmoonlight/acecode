@@ -10,6 +10,7 @@
 // 透明角落的点击会落到后面的窗口上。
 
 #include <array>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json_fwd.hpp>
@@ -85,7 +86,7 @@ bool desktop_pet_hit_test(double scale, int width, int height,
 bool desktop_pet_resize_grip_hit_test(double width, double height, double x, double y,
                                       const DesktopPetOverlay* grip = nullptr);
 
-// 鲸鱼娘拖到工作区左/右边缘松手时吸附,改成趴在屏幕边上偷看的样子。
+// 陪伴宠物拖到工作区左/右边缘松手时吸附,改成趴在屏幕边上偷看的样子。
 // 窗口中心离左/右边缘不超过窗口宽度的 1/4(或已越过边缘)返回 -1(左)/ +1(右),否则 0。
 // 1/4 大约是宠物身体碰到屏幕边的位置(身体宽约窗口的 40%,居中)。
 int desktop_pet_dock_side(const DesktopPetRect& window, const DesktopPetRect& work_area);
@@ -110,6 +111,11 @@ inline constexpr std::array<DesktopPetKind, 4> kDesktopPetKinds{{
     {"rover", "rover", "Rover"},
     {"whale", "鲸鱼娘", "Whale Girl"},
 }};
+
+// 有趴边偷看素材(peek.png)、能吸附到屏幕左/右边的宠物:三只陪伴宠物都有,虚拟办公室没有。
+inline bool desktop_pet_has_edge_peek(std::string_view kind) {
+    return kind == "clippy" || kind == "rover" || kind == "whale";
+}
 
 // 拖动陪伴宠物时按窗口横向位移判断朝向(仿 Codex:往右拖向右跑,往左拖向左跑)。
 // 相对上次报告的位置累计超过 threshold 才报一次 -1(左)/ +1(右),
