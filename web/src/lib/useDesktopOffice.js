@@ -74,5 +74,6 @@ export function useDesktopOffice(activeRef) {
     };
   }, [state.enabled, state.available]);
   useEffect(() => {controllerRef.current?.setActive(activeRef);}, [activeRef]);
-  return { ...state, setEnabled: preferences.setEnabled, setPetKind: preferences.setPetKind, claimWelcome: preferences.claimWelcome };
+  return { ...state, setEnabled: preferences.setEnabled, setPetKind: preferences.setPetKind, claimWelcome: preferences.claimWelcome,
+    claimPetsPromo: preferences.claimPetsPromo };
 }
