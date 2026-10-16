@@ -43,6 +43,14 @@ The system SHALL preserve ACE/plain themed pointer appearance, render a nonactiv
 - **WHEN** the user changes pointer style or theme color
 - **THEN** the next render uses the new appearance without enabling control or unnecessarily destroying the current observation
 
+#### Scenario: Visible native action feedback
+- **WHEN** a verified input action targets the fixture's window
+- **THEN** the actual native overlay renders at the action target, keyboard actions show feedback at the focused control, and click feedback remains perceptible without delaying mouse-button release or intercepting input
+
+#### Scenario: Independent overlay acceptance
+- **WHEN** the native pointer fixture runs on an unlocked desktop
+- **THEN** it verifies the actual overlay's WindowServer presence, independently captured pixels, position and removal on release, in addition to checking screenshot composition
+
 ### Requirement: Packaged and verified execution
 The system SHALL include the helper in macOS desktop and standalone distributions, sign nested executables appropriately, and resolve the delivered helper without PATH lookup. Validation SHALL cover deterministic transport and coordinate behavior, actual native fixture interactions and package contents. Unexecuted permission-dependent tests SHALL remain explicitly unverified.
 

@@ -106,6 +106,25 @@ void mouse(CGEventType type, CGPoint point, CGMouseButton button, bool down, int
     if (event) CGEventSetIntegerValueField(event.get(), kCGMouseEventClickState, count);
     post(event.get(), UINT16_MAX, button, down);
 }
+void keyboard_feedback(const Observation& observation) {
+    const CGRect bounds = ax_bounds(observation.focus.get());
+    for (const auto& surface : observation.surfaces) {
+        if (!ax_descendant(observation.focus.get(), surface.window.root.get())) continue;
+        const CGRect visible = CGRectIntersection(bounds, surface.window.rect);
+        if (CGRectIsNull(visible) || CGRectIsEmpty(visible)) continue;
+        const CGPoint point{CGRectGetMidX(visible), CGRectGetMidY(visible)};
+        try {
+            validate_hit(point, surface);
+            pointer_show(point);
+            return;
+        } catch (const Error&) {
+            // Visual feedback must not change keyboard targeting or advertise
+            // a stale/covered control as the action's visible location.
+            break;
+        }
+    }
+    pointer_hide();
+}
 }
 
 KeyChord parse_key_chord(const std::string& value) {
@@ -211,9 +230,10 @@ void input_action(const std::string& action, const json& request, Observation& o
                 ax_check(AXUIElementPerformAction(element.ax.get(), native), "Perform control action");
             }
         }
-        pointer_show(CGPointMake(CGRectGetMidX(element.rect), CGRectGetMidY(element.rect)));
+        pointer_show(CGPointMake(CGRectGetMidX(element.rect), CGRectGetMidY(element.rect)), action == "perform_secondary_action");
     } else if (action == "press_key") {
         const auto chord = parse_key_chord(request.value("key", std::string{}));
+        keyboard_feedback(observation);
         for (auto key : chord.modifiers) {
             Ref<CGEventRef> event(CGEventCreateKeyboardEvent(nullptr, key, true));
             if (event) CGEventSetFlags(event.get(), chord.flags);
@@ -229,6 +249,7 @@ void input_action(const std::string& action, const json& request, Observation& o
             throw Error("invalid_argument", "text must be valid UTF-8 of at most 16 KiB.");
         NSString* value = ns(request["text"].get<std::string>());
         if (!value) throw Error("invalid_text", "Text must contain valid UTF-8.");
+        if (value.length) keyboard_feedback(observation);
         for (NSUInteger offset = 0; offset < value.length;) {
             focus_check(observation, true);
             NSUInteger count = std::min<NSUInteger>(32, value.length - offset);
