@@ -77,7 +77,8 @@
   let dragging = false, dragDir = 0, dragPauseTimer = 0, dragWatchTimer = 0, dragEndedAt = 0;
   let hovered = false, hoverOffTimer = 0, hoverReadyAt = 0, lastClickAt = 0;
   let sleeping = false, lastActivity = performance.now(), fidgetAt = 0, fidgetTimer = 0, lastFidget = '';
-  let greetingUntil = 0, greetingTimer = 0, rafId = 0, bodyRegions = [], spriteRect = null, bandCache = new Map();
+  let greetingUntil = 0, greetingTimer = 0, rafId = 0, bodyRegions = [], bodyBounds = null, bandCache = new Map();
+  let hoverPoint = null;
   let overlayKey = '', badgeTimer = 0;
 
   const pick = list => list[Math.floor(Math.random() * list.length)];
@@ -166,7 +167,6 @@
   function render() {
     if (!sheet || !data) return;
     const g = geometry();
-    spriteRect = g;
     paint(ctx, g, offsetAt(performance.now(), g));
     if (!rafId && continuous()) rafId = requestAnimationFrame(() => { rafId = 0; render(); });
   }
@@ -190,6 +190,8 @@
     }
     const [mx, my] = MOTION_MARGIN[activeMotion()] || [0, 0];
     bodyRegions = bands.map(([l, t, r, b]) => [Math.max(0, l - mx), Math.max(0, t - my), Math.min(cv.width, r + mx), Math.min(cv.height, b + my)]);
+    bodyBounds = bands.length ? [Math.min(...bands.map(b => b[0])), Math.min(...bands.map(b => b[1])),
+      Math.max(...bands.map(b => b[2])), Math.max(...bands.map(b => b[3]))] : null;
   }
   function setFrame(frame) {
     if (!Array.isArray(frame?.images)) return;   // frames without images keep the previous picture
@@ -201,15 +203,20 @@
   function reportRegions() {
     const r = cv.getBoundingClientRect();
     const toWindow = b => [b[0] / cv.width, b[1] / cv.height, b[2] / cv.width, b[3] / cv.height];
-    // While hovered the whole sprite box stays hit-testable (as Codex does), so a jump that changes
-    // the silhouette under a resting pointer cannot flicker the hover on and off.
-    const g = spriteRect;
-    const bodies = hovered && g ? [toWindow([g.x - 4, g.y - 6, g.x + g.width + 4, g.y + g.height + 2])] : bodyRegions.map(toWindow);
-    // The fixed-size native handle uses these same CSS coordinates on both hosts.
-    bodies.push(normalized($('grip').getBoundingClientRect()));
+    const bodies = bodyRegions.map(toWindow);
+    // Keep only a small anchor under a stationary pointer when the animation jumps away.
+    // The rest of the transparent sprite frame remains click-through during hover.
+    if (hovered && hoverPoint) bodies.push(toWindow([hoverPoint.x - 3, hoverPoint.y - 3, hoverPoint.x + 3, hoverPoint.y + 3]));
+    const grip = $('grip');
+    grip.hidden = !bodyBounds;
+    if (bodyBounds) {
+      grip.style.left = Math.max(0, bodyBounds[0] * r.width / cv.width - grip.offsetWidth) + 'px';
+      grip.style.top = Math.max(0, bodyBounds[1] * r.height / cv.height - grip.offsetHeight) + 'px';
+    }
     // No card, no rectangle: the empty space above the pet stays click-through.
     const message = { type: 'overlay', controls: null,
-      rect: stack.hidden ? null : normalized(stack.getBoundingClientRect()), bubbles: bodies };
+      rect: stack.hidden ? null : normalized(stack.getBoundingClientRect()),
+      grip: grip.hidden ? null : normalized(grip.getBoundingClientRect()), bubbles: bodies };
     const key = JSON.stringify(message);
     if (key !== overlayKey && r.width > 0) { overlayKey = key; action(message); }
   }
@@ -536,6 +543,7 @@
     kind = value.kind; sheet = image; data = window.ClassicPetAgents[kind]; profile = normalizeProfile(PROFILES[kind]);
     peek = peekImage ? { image: peekImage, fw: peekImage.naturalWidth / 2, fh: peekImage.naturalHeight } : null;
     docked = '';
+    hovered = false; hoverPoint = null;
     bandCache = new Map(); images = null; base = 'idle'; variant = ''; queue = []; current = null;
     stateKey = ''; sleeping = false; lastFidget = '';
     // A newly shown pet greets instead of celebrating results that were already waiting.
@@ -597,16 +605,19 @@
     const r = cv.getBoundingClientRect();
     return { x: (event.clientX - r.left) * cv.width / r.width, y: (event.clientY - r.top) * cv.height / r.height };
   }
-  function overSprite(event) {
-    const g = spriteRect;
-    if (!g || !images?.length) return false;
+  function overSprite(event, updateAnchor = false) {
     const p = canvasPoint(event);
-    return p.x >= g.x - 4 && p.x <= g.x + g.width + 4 && p.y >= g.y - 6 && p.y <= g.y + g.height + 2;
+    if (bodyRegions.some(([l, t, r, b]) => p.x >= l && p.x < r && p.y >= t && p.y < b)) {
+      if (updateAnchor) hoverPoint = p;
+      return true;
+    }
+    return Boolean(hovered && hoverPoint && Math.abs(p.x - hoverPoint.x) <= 3 && Math.abs(p.y - hoverPoint.y) <= 3);
   }
   function setHovered(value) {
     clearTimeout(hoverOffTimer);
     if (hovered === value) return;
     hovered = value;
+    if (!value) hoverPoint = null;
     reportRegions();
     if (!value || dragging) return;
     const now = performance.now();
@@ -634,7 +645,9 @@
     }
     // The native move loop swallows the release; the next free move ends any stale drag pose.
     if (dragging && !(event.buttons & 1)) endDrag();
-    if (overSprite(event)) setHovered(true); else hoverOff();
+    if (overSprite(event, true)) {
+      setHovered(true); reportRegions();
+    } else hoverOff();
   });
   cv.addEventListener('pointerleave', hoverOff);
   cv.addEventListener('pointerup', event => {
