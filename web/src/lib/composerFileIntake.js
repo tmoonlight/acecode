@@ -25,7 +25,7 @@ async function storeLocalFiles(files, win) {
     for (let offset = 0; offset < bytes.length; offset += 8192) {
       binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
     }
-    payload.push({ name: file.name || 'clipboard-file', data_base64: btoa(binary) });
+    payload.push({ name: file.name || 'clipboard_file', data_base64: btoa(binary) });
   }
   return parseNativeFilesystemItemsResult(await win.aceDesktop_storeContextFiles(payload));
 }

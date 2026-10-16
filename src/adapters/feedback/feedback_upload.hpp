@@ -117,7 +117,7 @@ std::string make_feedback_package_filename(const std::string& session_id,
                                            const std::string& platform = {},
                                            const std::string& computer_name = {},
                                            const std::string& login_name = {});
-// 找 logs_dir 下 "<base_name>-<date>.log" 里最近修改的一个(Logger 的滚动命名)。
+// 找 logs_dir 下新 "<base_name>_<date>.log" / 旧连字符名称里最近修改的日志。
 std::optional<std::filesystem::path> latest_rotated_log_path(
     const std::filesystem::path& logs_dir, const std::string& base_name);
 std::optional<std::filesystem::path> latest_desktop_log_path(
@@ -134,7 +134,7 @@ std::vector<FeedbackLogSource> collect_runtime_log_sources(
 std::vector<FeedbackLogSource> collect_tui_runtime_log_sources(
     const std::filesystem::path& logs_dir);
 
-// 找 logs_dir 下最近 window 内写过的全部 "upgrade-<date>-<pid>.log",按修改时间
+// 找 logs_dir 下最近 window 内写过的全部新旧命名升级日志,按修改时间
 // 从旧到新排成一个合并包(条目名固定 logs/upgrade.log.tail.txt)。窗口内一个都
 // 没有返回 nullopt:更早的升级记录不做兜底,反馈里没有升级条目就意味着这三天
 // 没跑过升级。

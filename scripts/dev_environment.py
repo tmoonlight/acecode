@@ -29,12 +29,12 @@ LAUNCH_TARGETS = ("web", "desktop", "tui")
 PRUNE_TARGET = "prune"
 TARGETS = (*LAUNCH_TARGETS, PRUNE_TARGET)
 CACHE_MARKER = ".acecode-sccache.json"
-WORKER_LOG_NAME = "daemon-worker.log"
+WORKER_LOG_NAME = "daemon_worker.log"
 WORKER_LOG_MAX_BYTES = 1024 * 1024
 PORT_RANGE_START = 28080
 PORT_RANGE_COUNT = 201
 PORT_RANGE_END = PORT_RANGE_START + PORT_RANGE_COUNT - 1
-DAEMON_STARTUP_LOG_NAME = "daemon-startup.log"
+DAEMON_STARTUP_LOG_NAME = "daemon_startup.log"
 
 
 @dataclass(frozen=True)
@@ -477,8 +477,8 @@ def refresh_web_assets(root: Path, force: bool = False) -> bool:
 
 
 def sanitize_identity(name: str, identity: str) -> str:
-    """Build the shared filesystem-safe `<name>-<commit12>` runtime identity."""
-    return re.sub(r"[^A-Za-z0-9_.-]", "-", f"{name}-{identity[:12]}")
+    """Build the shared filesystem-safe `<name>_<commit12>` runtime identity."""
+    return re.sub(r"[^A-Za-z0-9_.]", "_", f"{name}_{identity[:12]}")
 
 
 def safe_identity(root: Path) -> str:
@@ -486,16 +486,20 @@ def safe_identity(root: Path) -> str:
 
 
 def runtime_root(root: Path) -> Path:
-    return root / ".acecode" / "dev-run"
+    legacy = root / ".acecode" / "dev-run"
+    return legacy if legacy.is_dir() else root / ".acecode" / "dev_run"
 
 
 def worktree_runtime_dir(root: Path) -> Path:
-    return runtime_root(root) / safe_identity(root)
+    base = runtime_root(root)
+    legacy_id = re.sub(r"[^A-Za-z0-9_.-]", "-", f"{root.name}-{(current_commit(root) or root.name)[:12]}")
+    legacy = base / legacy_id
+    return legacy if legacy.is_dir() else base / safe_identity(root)
 
 
 def worktree_prefix(root: Path) -> str:
     """Prefix every runtime directory owned by this worktree shares."""
-    return re.sub(r"[^A-Za-z0-9_.-]", "-", root.name) + "-"
+    return re.sub(r"[^A-Za-z0-9_.]", "_", root.name) + "_"
 
 
 def selected_web_runtime_dir(root: Path, extra: list[str]) -> Path:
@@ -651,13 +655,18 @@ def vite_options(extra: list[str]) -> list[str]:
 def web_runtime_is_available(root: Path, candidate: BuildCandidate | None, extra: list[str]) -> bool:
     run_dir = selected_web_runtime_dir(root, extra)
     explicit = any(arg == "--run-dir" or arg.startswith("--run-dir=") for arg in extra)
-    if not explicit and run_dir.parent.is_dir():
+    if not explicit:
         # A new commit changes the default run-dir name but an older worker
         # can still hold this build's executable open. Inspect only this
         # worktree's own launcher directories, without stopping any process.
-        prefix = worktree_prefix(root)
-        for previous in sorted(run_dir.parent.iterdir()):
-            if previous.name.startswith(prefix) and (previous / "daemon.pid").exists():
+        prefixes = (worktree_prefix(root), re.sub(r"[^A-Za-z0-9_.-]", "-", root.name) + "-")
+        bases = (run_dir.parent, root / ".acecode" / "dev_run", root / ".acecode" / "dev-run")
+        for base in dict.fromkeys(bases):
+            if not base.is_dir():
+                continue
+            previous = next((path for path in sorted(base.iterdir())
+                             if path.name.startswith(prefixes) and (path / "daemon.pid").exists()), None)
+            if previous is not None:
                 run_dir = previous
                 break
     if not (run_dir / "daemon.pid").exists():
@@ -744,8 +753,13 @@ def daemon_worker_log_path(runtime_dir: Path) -> Path:
 
 
 def worker_failure_detail(runtime_dir: Path, reason: str) -> str:
-    return (f"{reason}; see {daemon_worker_log_path(runtime_dir)} and "
-            f"{runtime_dir / DAEMON_STARTUP_LOG_NAME}")
+    worker = daemon_worker_log_path(runtime_dir)
+    startup = runtime_dir / DAEMON_STARTUP_LOG_NAME
+    if not worker.exists() and (runtime_dir / "daemon-worker.log").exists():
+        worker = runtime_dir / "daemon-worker.log"
+    if not startup.exists() and (runtime_dir / "daemon-startup.log").exists():
+        startup = runtime_dir / "daemon-startup.log"
+    return f"{reason}; see {worker} and {startup}"
 
 
 def open_worker_log(runtime_dir: Path, command: list[str]):
@@ -906,9 +920,10 @@ def launch_vite(root: Path, daemon_port_number: int, runtime_dir: Path, extra: l
 def prune_candidates(root: Path) -> list[Path]:
     """Runtime directories worth inspecting: the worktree root plus the legacy tree."""
     candidates: list[Path] = []
-    base = runtime_root(root)
-    if base.is_dir() and base.resolve().is_relative_to(root.resolve()):
-        candidates.extend(sorted(path for path in base.iterdir()))
+    for name in ("dev_run", "dev-run"):
+        base = root / ".acecode" / name
+        if base.is_dir() and base.resolve().is_relative_to(root.resolve()):
+            candidates.extend(sorted(path for path in base.iterdir()))
     legacy = root / ".acecode-dev-run"
     if legacy.is_dir() and legacy.resolve().is_relative_to(root.resolve()):
         candidates.append(legacy)
@@ -976,7 +991,7 @@ def prune_worktree_runtime_dirs(root: Path, current: Path) -> int:
     base = runtime_root(root)
     if not base.is_dir() or not base.resolve().is_relative_to(root.resolve()):
         return 0
-    prefix = worktree_prefix(root)
+    prefix = (worktree_prefix(root), re.sub(r"[^A-Za-z0-9_.-]", "-", root.name) + "-")
     stale = [
         previous for previous in sorted(base.iterdir())
         if previous.is_dir() and previous.name != current.name and previous.name.startswith(prefix)

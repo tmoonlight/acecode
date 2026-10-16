@@ -117,6 +117,12 @@ std::optional<ModelSamplingOptions> parse_model_sampling_options(
     std::string& err);
 nlohmann::json model_sampling_options_to_json(
     const ModelSamplingOptions& options);
+// Per-agent overrides: null inherits, unknown fields are rejected.
+std::optional<ModelSamplingOptions> parse_model_sampling_overrides(
+    const nlohmann::json& node, std::string& err);
+ModelSamplingOptions merge_model_sampling_options(
+    ModelSamplingOptions defaults, const ModelSamplingOptions& overrides);
+nlohmann::json model_sampling_overrides_schema();
 // 只校验取值范围(与 provider 无关):temperature ∈ [0,2]、top_p ∈ (0,1]、
 // top_k ≥ 1、min_p ∈ [0,1]。
 bool validate_model_sampling_ranges(const ModelSamplingOptions& options,

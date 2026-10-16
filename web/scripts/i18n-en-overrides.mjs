@@ -1,6 +1,14 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '采样参数（可选）': 'Sampling parameters (optional)',
+  '作为团队默认值；成员自己的采样设置优先，留空的参数继承模型设置。': 'Team defaults. Each member’s own sampling settings take priority. Blank fields inherit model settings.',
+  '留空的参数继承模型设置；发起子任务时可单独覆盖。': 'Blank fields inherit model settings. Each subtask can override them when started.',
+  '参数需受所用模型支持。': 'The selected model must support these parameters.',
+  '继承模型': 'Inherit model',
+  '大于 0，最多 1': 'Greater than 0, at most 1',
+  '正整数': 'A positive integer',
+  '{{p0}}：请输入{{p1}}的数值，或留空继承': '{{p0}}: enter a value in the range {{p1}}, or leave blank to inherit',
   '侧边聊天存续时间': 'Side chat retention time',
   'side chat retention lifetime minutes ttl 侧聊 保留 过期 分钟': 'side chat retention lifetime minutes ttl',
   '从最后一次侧聊结束开始计时，到期后切回该会话时清空；正在查看时不会自动消失。': 'Starts when the last side chat ends. After this time, returning to the session clears it. It stays visible while you are viewing it.',

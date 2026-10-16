@@ -336,9 +336,9 @@ run('panel copy helpers', () => {
   assert.equal(simulatorNeedsSettings({ message: 'device is not booted' }), false);
   assert.equal(
     simulatorScreenshotFilename('iPhone 17 Pro', new Date(2026, 9, 16, 8, 5, 9)),
-    'iPhone-17-Pro-20261016-080509.png',
+    'iPhone_17_Pro_20261016_080509.png',
   );
-  assert.equal(simulatorScreenshotFilename('', new Date(2026, 0, 2, 3, 4, 5)), 'simulator-20260102-030405.png');
+  assert.equal(simulatorScreenshotFilename('', new Date(2026, 0, 2, 3, 4, 5)), 'simulator_20260102_030405.png');
 });
 
 run('screenshot downloads go through a temporary object URL', () => {

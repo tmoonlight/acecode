@@ -17,6 +17,27 @@
 - 不写 `author`。ACECode 只使用 `displayName` 作为专家对外名称；来源和许可
   信息保留在 `NOTICE.md`、`license` 与 `homepage` 中。
 
+## 采样参数（可选）
+
+Agent 和 Team 的 `expert.json` 都可包含：
+
+```json
+"sampling": { "temperature": 0.3, "top_p": 0.95, "top_k": 20, "min_p": 0 }
+```
+
+每个字段独立可选，`null` 表示继承：temperature 为 0 到 2，top_p 大于 0 且不超过 1，
+top_k 为 1 到 2147483647 的整数，min_p 为 0 到 1。数值 0 必须保留。
+包内 `agents` 对象项也可声明 `sampling`，覆盖包级默认值。
+团队引用专家时使用各专家的有效预设，团队默认值补充未设置字段。
+子 agent 发起时传入的 `sampling` 具有最高优先级，模型设置作为最终默认值。
+
+实际运行仍受所选 provider/protocol 限制。Responses 不支持 top_k/min_p，Anthropic
+不支持 min_p 且 temperature 不超过 1。无法生效的设置会在会话启动或切换时被拒绝。
+管理 API 更新时省略 sampling 保留原预设，传 null 或空对象清除全部预设。
+单专家详情返回包含 lead 覆盖后的有效值；显式更新 sampling 时一并清除 lead 的旧覆盖。
+专家团的更新只替换团队默认值，被引用专家的预设保持独立。
+`batch_create.py` 接受同名字段，`validate_expert.py` 校验类型、范围和未知键。
+
 ## Agent 型必需字段
 
 ```json

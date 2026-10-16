@@ -74,9 +74,7 @@ add_executable(acecode_unit_tests ${ACECODE_TEST_SOURCES})
 add_executable(acecode_runtime_log_fixture
     ${CMAKE_CURRENT_SOURCE_DIR}/utils/helpers/runtime_log_fixture.cpp
     ${CMAKE_SOURCE_DIR}/src/base/utils/append_file.cpp)
-target_include_directories(acecode_runtime_log_fixture PRIVATE
-    ${CMAKE_SOURCE_DIR}/external/ftxui/src)
-target_link_libraries(acecode_runtime_log_fixture PRIVATE acecode_include_roots)
+target_link_libraries(acecode_runtime_log_fixture PRIVATE acecode_include_roots ftxui::component)
 if(MSVC)
     set_target_properties(acecode_runtime_log_fixture PROPERTIES
         MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -219,9 +217,9 @@ if(APPLE)
         ${ACECODE_COMPUTER_USE_NATIVE_MAC_SMOKE_SOURCES})
     target_link_libraries(computer_use_native_mac_smoke PRIVATE acecode_include_roots)
     target_link_libraries(computer_use_native_mac_smoke PRIVATE nlohmann_json::nlohmann_json
-        "-framework AppKit" "-framework ApplicationServices")
+        "-framework AppKit" "-framework ApplicationServices" "-framework ScreenCaptureKit")
     target_compile_options(computer_use_native_mac_smoke PRIVATE
-        "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+        "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>" -mmacosx-version-min=14.0)
     set_target_properties(computer_use_native_mac_smoke PROPERTIES
         OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES
         MACOSX_BUNDLE_BUNDLE_NAME "ACECode Computer Use Fixture"

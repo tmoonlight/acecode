@@ -33,6 +33,34 @@ import {
   validateExpertFormFields,
 } from './expertComponents.js';
 
+test('专家采样参数保存与回填保留零值，清空后明确恢复继承', () => {
+  const form = emptyExpertForm();
+  form.displayName = '采样专家';
+  form.instructions = '认真分析任务';
+  form.sampling = { temperature: '0', top_p: '0.95', top_k: '20', min_p: '0' };
+  assert.deepEqual(validateExpertFormFields(form), {});
+  const payload = expertPayloadFromForm(form);
+  assert.deepEqual(payload.sampling, { temperature: 0, top_p: 0.95, top_k: 20, min_p: 0 });
+  const loaded = expertFormFromDetail({ ...payload, agents: [payload.lead], lead_agent_id: 'lead' });
+  assert.deepEqual(loaded.sampling, form.sampling);
+  loaded.sampling = { temperature: '', top_p: ' ', top_k: '', min_p: '' };
+  assert.deepEqual(expertPayloadFromForm(loaded).sampling, {});
+});
+
+test('专家采样字段校验拒绝越界、小数 Top K 和非数字', () => {
+  const valid = { ...emptyExpertForm(), displayName: '专家', instructions: '分析' };
+  for (const [field, value] of [
+    ['temperature', '2.1'], ['temperature', 'NaN'], ['temperature', '-1'],
+    ['top_p', '0'], ['top_p', '1.1'], ['top_k', '1.5'],
+    ['top_k', '2147483648'], ['min_p', '-0.1'],
+  ]) {
+    const errors = validateExpertFormFields({ ...valid, sampling: { [field]: value } });
+    assert.ok(errors.sampling?.[field], `${field}=${value}`);
+  }
+  const team = { ...emptyExpertForm('team'), sampling: { temperature: '0.5' } };
+  assert.deepEqual(expertPayloadFromForm(team).sampling, { temperature: 0.5 });
+});
+
 function test(name, fn) {
   try {
     fn();
@@ -181,6 +209,7 @@ test('expert payload keeps Tags, expertise, prompts and optional scopes separate
     tags: ['开发', 'OPC-一人公司'],
     expertise: ['架构设计', '代码质量'],
     quick_prompts: ['审查当前改动', '给出重构建议'],
+    sampling: {},
     state_avatars: {},
     capabilities: {
       skills: ['code-review'],
@@ -366,6 +395,7 @@ test('expert team payload references selected existing experts and one lead', ()
     tags: ['项目质量'],
     expertise: ['需求拆解', '体验验收'],
     quick_prompts: ['推进这个需求'],
+    sampling: {},
     state_avatars: {},
     lead_expert_id: 'reviewer',
     member_expert_ids: ['tester'],

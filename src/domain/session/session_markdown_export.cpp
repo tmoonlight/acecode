@@ -120,7 +120,7 @@ std::string sanitize_filename_stem(const std::string& preferred,
     std::string result;
     result.reserve(preferred.size());
     for (unsigned char c : preferred) {
-        if (c < 0x20 || c == '<' || c == '>' || c == ':' || c == '"' ||
+        if (c < 0x20 || c == '-' || c == '<' || c == '>' || c == ':' || c == '"' ||
             c == '/' || c == '\\' || c == '|' || c == '?' || c == '*') {
             result.push_back('_');
         } else {
@@ -132,6 +132,7 @@ std::string sanitize_filename_stem(const std::string& preferred,
     }
     if (result.empty()) result = fallback;
     if (result.empty()) result = "session";
+    std::replace(result.begin(), result.end(), '-', '_');
     if (is_reserved_windows_name(result)) result.insert(0, 1, '_');
     return result;
 }

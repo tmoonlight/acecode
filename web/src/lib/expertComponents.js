@@ -1,3 +1,12 @@
+import { MODEL_SAMPLING_FIELDS, normalizeSampling, samplingDraftFields, samplingFieldValid } from './modelSettings.js';
+
+export const EXPERT_SAMPLING_INPUTS = [
+  { field: 'temperature', label: 'Temperature', range: '0–2', min: 0, max: 2, step: '0.01' },
+  { field: 'top_p', label: 'Top P', range: '大于 0，最多 1', min: 0, max: 1, step: '0.01' },
+  { field: 'top_k', label: 'Top K', range: '正整数', min: 1, max: 2147483647, step: '1' },
+  { field: 'min_p', label: 'Min P', range: '0–1', min: 0, max: 1, step: '0.01' },
+];
+
 export const EXPERT_PRIMARY_TABS = Object.freeze([
   Object.freeze({ id: 'agent', label: '专家' }),
   Object.freeze({ id: 'team', label: '专家团' }),
@@ -190,6 +199,7 @@ export function normalizeExperts(value) {
       created_at: String(item.created_at || ''),
       updated_at: String(item.updated_at || ''),
       capabilities: normalizeExpertCapabilities(item.capabilities),
+      sampling: normalizeSampling(item.sampling, 'expert.sampling'),
       agents: Array.isArray(item.agents) ? item.agents.map(normalizeAgent).filter(Boolean) : [],
       references_existing_experts: item.references_existing_experts === true,
       lead_expert_id: String(item.lead_expert_id || item.lead_agent_id || ''),
@@ -283,6 +293,7 @@ export function emptyExpertForm(type = 'agent', initialExpertId = '') {
     instructions: '',
     quickPromptsText: '',
     capabilities: {},
+    sampling: samplingDraftFields(),
     stateAvatars: {},
     stateAvatarUrls: {},
     selectedExpertIds,
@@ -311,6 +322,7 @@ export function expertFormFromDetail(expert) {
     instructions: normalized.type === 'agent' ? String(lead.instructions || '') : '',
     quickPromptsText: (normalized.quick_prompts || []).join('\n'),
     capabilities: normalizeExpertCapabilities(normalized.capabilities),
+    sampling: samplingDraftFields(normalized.sampling),
     stateAvatars: normalizeExpertStateAvatars(normalized.state_avatars),
     stateAvatarUrls: normalizeExpertStateAvatarUrls(normalized.state_avatar_urls),
     selectedExpertIds,
@@ -320,6 +332,14 @@ export function expertFormFromDetail(expert) {
 
 export function validateExpertFormFields(form, selectableExperts) {
   const errors = {};
+  const samplingErrors = {};
+  for (const { field, label, range } of EXPERT_SAMPLING_INPUTS) {
+    const raw = String(form?.sampling?.[field] ?? '').trim();
+    if (raw && !samplingFieldValid(field, Number(raw))) {
+      samplingErrors[field] = `${label}：请输入${range}的数值，或留空继承`;
+    }
+  }
+  if (Object.keys(samplingErrors).length) errors.sampling = samplingErrors;
   if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(String(form?.id || ''))) {
     errors.id = '无法保存，请重新打开后再试';
   }
@@ -355,7 +375,8 @@ export function validateExpertFormFields(form, selectableExperts) {
 }
 
 export function validateExpertForm(form) {
-  return Object.values(validateExpertFormFields(form))[0] || '';
+  const first = Object.values(validateExpertFormFields(form))[0];
+  return typeof first === 'object' ? (Object.values(first)[0] || '') : (first || '');
 }
 
 function capabilitiesPayload(form) {
@@ -374,6 +395,12 @@ export function expertPayloadFromForm(form) {
     tags: normalizeStringList(form.tags),
     expertise: parseLineList(form.expertiseText),
     quick_prompts: parseLineList(form.quickPromptsText),
+    ...(Object.prototype.hasOwnProperty.call(form, 'sampling') ? {
+      sampling: Object.fromEntries(MODEL_SAMPLING_FIELDS.flatMap((field) => {
+        const raw = String(form.sampling?.[field] ?? '').trim();
+        return raw ? [[field, Number(raw)]] : [];
+      })),
+    } : {}),
     ...(stateAvatarsPresent
       ? { state_avatars: normalizeExpertStateAvatars(form.stateAvatars) }
       : {}),

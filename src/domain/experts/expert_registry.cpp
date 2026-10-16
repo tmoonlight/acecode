@@ -347,6 +347,15 @@ std::optional<ExpertDefinition> load_package(const fs::path& package_root,
     }
 
     ExpertDefinition expert;
+    if (const auto sampling = manifest.find("sampling"); sampling != manifest.end()) {
+        std::string sampling_error;
+        auto parsed = parse_model_sampling_overrides(*sampling, sampling_error);
+        if (!parsed) {
+            set_error(error, sampling_error);
+            return std::nullopt;
+        }
+        expert.sampling = *parsed;
+    }
     expert.id = json_text(manifest, "name");
     if (!ExpertRegistry::valid_id(expert.id)) {
         set_error(error, "manifest name is not a valid expert ID");
@@ -540,6 +549,15 @@ std::optional<ExpertDefinition> load_package(const fs::path& package_root,
             }
             expert.agents.push_back({id, display_name, profession,
                                      std::move(document.body), std::move(agent_path), {}});
+            if (entry.is_object() && entry.contains("sampling")) {
+                std::string sampling_error;
+                auto parsed = parse_model_sampling_overrides(entry["sampling"], sampling_error);
+                if (!parsed) {
+                    set_error(error, "Agent " + id + ": " + sampling_error);
+                    return std::nullopt;
+                }
+                expert.agents.back().sampling = *parsed;
+            }
         }
 
         expert.lead_agent_id = json_text(manifest, "agentName");
@@ -651,6 +669,11 @@ std::string agent_markdown(const ExpertAgentDraft& agent);
 json draft_manifest(const ExpertDraft& draft);
 
 bool validate_draft(const ExpertDraft& draft, std::string* error) {
+    std::string sampling_error;
+    if (!validate_model_sampling_ranges(draft.sampling, sampling_error)) {
+        set_error(error, sampling_error);
+        return false;
+    }
     if (!ExpertRegistry::valid_id(draft.id)) {
         set_error(error, "expert ID must use lowercase letters, digits, and hyphens");
         return false;
@@ -823,6 +846,9 @@ json draft_manifest(const ExpertDraft& draft) {
         has_any_capability_scope(draft.capabilities)) {
         result["capabilities"] =
             capability_scopes_to_json(draft.capabilities);
+    }
+    if (!draft.sampling.empty()) {
+        result["sampling"] = model_sampling_options_to_json(draft.sampling);
     }
     if (draft.state_avatars_present || !draft.state_avatars.empty()) {
         result["stateAvatars"] = draft.state_avatars;
@@ -1063,6 +1089,19 @@ bool materialize_draft(const fs::path& root,
         else manifest["capabilities"] = std::move(capabilities);
     } else {
         manifest.erase("capabilities");
+    }
+
+    if (materialized.sampling_present || !materialized.sampling.empty()) {
+        if (materialized.sampling.empty()) manifest.erase("sampling");
+        else manifest["sampling"] = model_sampling_options_to_json(materialized.sampling);
+        // A managed single-expert edit replaces its complete preset, including
+        // a package-authored lead override. Team member presets remain owned
+        // by the referenced experts.
+        if (materialized.type == ExpertType::Agent) {
+            for (auto& agent : manifest["agents"]) {
+                if (agent.is_object() && agent_entry_id(agent) == materialized.lead.id) agent.erase("sampling");
+            }
+        }
     }
 
     if (materialized.state_avatars_present) {
@@ -1411,17 +1450,6 @@ bool validate_team_reference_targets(
 
 } // namespace
 
-bool is_known_expert_avatar_state(std::string_view state) {
-    return std::find(kExpertAvatarStates.begin(), kExpertAvatarStates.end(),
-                     state) != kExpertAvatarStates.end();
-}
-
-bool is_supported_expert_avatar_mime(std::string_view mime) {
-    return mime == "image/png" || mime == "image/jpeg" ||
-           mime == "image/gif" || mime == "image/webp" ||
-           mime == "image/bmp" || mime == "image/x-icon";
-}
-
 bool validate_expert_avatar_file(const std::filesystem::path& path,
                                  std::string* error) {
     std::error_code ec;
@@ -1443,57 +1471,10 @@ bool validate_expert_avatar_file(const std::filesystem::path& path,
     return true;
 }
 
-const ExpertAgent* ExpertDefinition::agent(const std::string& agent_id) const {
-    const auto it = std::find_if(agents.begin(), agents.end(), [&](const ExpertAgent& item) {
-        return item.id == agent_id;
-    });
-    return it == agents.end() ? nullptr : &*it;
-}
-
-std::vector<fs::path> ExpertDefinition::selected_skill_roots(
-    const std::string& member_id) const {
-    std::vector<fs::path> roots = skill_roots;
-    if (const ExpertAgent* selected = selected_agent(member_id)) {
-        for (const auto& root : selected->skill_roots) {
-            if (std::find(roots.begin(), roots.end(), root) == roots.end()) {
-                roots.push_back(root);
-            }
-        }
-    }
-    return roots;
-}
-
-ExpertCapabilityScopes ExpertDefinition::selected_capabilities(
-    const std::string& member_id) const {
-    if (references_existing_experts) {
-        if (const ExpertAgent* selected = selected_agent(member_id)) {
-            return selected->capabilities;
-        }
-    }
-    return capabilities;
-}
-
-bool ExpertDefinition::is_declared_member(const std::string& member_id) const {
-    return type == ExpertType::Team &&
-           std::find(member_agent_ids.begin(), member_agent_ids.end(), member_id) !=
-               member_agent_ids.end();
-}
-
-const char* to_string(ExpertType type) {
-    return type == ExpertType::Team ? "team" : "agent";
-}
-
 ExpertRegistry::ExpertRegistry(fs::path global_root)
     : global_root_(global_root.empty()
                        ? path_from_utf8(get_acecode_dir()) / "experts"
                        : std::move(global_root)) {}
-
-bool ExpertRegistry::valid_id(const std::string& id) {
-    if (id.empty() || id.size() > 64 || id.front() == '-' || id.back() == '-') return false;
-    return std::all_of(id.begin(), id.end(), [](unsigned char ch) {
-        return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
-    });
-}
 
 std::vector<ExpertDefinition> ExpertRegistry::list(
     const std::string& working_dir,
@@ -1572,6 +1553,7 @@ std::vector<ExpertDefinition> ExpertRegistry::list(
             }
             projected.skill_roots = referenced.selected_skill_roots();
             projected.capabilities = referenced.selected_capabilities();
+            projected.sampling = referenced.selected_sampling();
             expert.agents.push_back(std::move(projected));
             return true;
         };
@@ -1744,6 +1726,18 @@ std::optional<ExpertDraft> ExpertRegistry::draft_from_json(const json& value,
         }
     }
 
+    const auto sampling = value.find("sampling");
+    if (sampling != value.end()) {
+        draft.sampling_present = true;
+        std::string sampling_error;
+        auto parsed = parse_model_sampling_overrides(*sampling, sampling_error);
+        if (!parsed) {
+            set_error(error, sampling_error);
+            return std::nullopt;
+        }
+        draft.sampling = *parsed;
+    }
+
     const auto capabilities = value.find("capabilities");
     if (capabilities != value.end()) {
         draft.capabilities_present = true;
@@ -1840,6 +1834,7 @@ json expert_definition_to_json(const ExpertDefinition& expert,
             {"avatar_identity", expert.avatar_identity(agent.id)},
         };
         if (include_instructions) item["instructions"] = agent.instructions;
+        item["sampling"] = model_sampling_options_to_json(expert.selected_sampling(agent.id));
         agents.push_back(std::move(item));
     }
     json result = {
@@ -1864,6 +1859,8 @@ json expert_definition_to_json(const ExpertDefinition& expert,
         {"agents", std::move(agents)},
         {"source", expert.source},
         {"managed_global", expert.managed_global},
+        {"sampling", model_sampling_options_to_json(
+            expert.type == ExpertType::Agent ? expert.selected_sampling() : expert.sampling)},
     };
     if (!expert.references_existing_experts &&
         has_any_capability_scope(expert.capabilities)) {

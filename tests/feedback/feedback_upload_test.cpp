@@ -132,12 +132,12 @@ TEST(FeedbackUpload, BuildPackageIncludesSessionMetadataAndLogTail) {
     ASSERT_TRUE(result.ok) << result.error;
     EXPECT_TRUE(fs::is_regular_file(result.package_path));
     EXPECT_EQ(result.package_filename,
-              "acecode-feedback-20260618-010203-abcd-20260618-010203-windows-x64-QA-BOX-alice-example.zip");
+              "acecode_feedback_20260618_010203_abcd_20260618_010203_windows_x64_QA_BOX_alice_example.zip");
     EXPECT_TRUE(result.log_included);
     EXPECT_EQ(result.log_tail_bytes, 16u);
 
     EXPECT_EQ(read_zip_entry(result.package_path,
-                             "session/20260618-010203-abcd.jsonl"),
+                             "session/20260618_010203_abcd.jsonl"),
               "{\"role\":\"user\",\"content\":\"hello\"}\n");
     EXPECT_EQ(read_zip_entry(result.package_path, "logs/acecode.log.tail.txt"),
               "klmnopqrstuvwxyz");
@@ -177,7 +177,7 @@ TEST(FeedbackUpload, BuildDesktopPackageCanBeLogOnly) {
     ASSERT_TRUE(result.ok) << result.error;
     EXPECT_TRUE(fs::is_regular_file(result.package_path));
     EXPECT_EQ(result.package_filename,
-              "acecode-feedback-desktop-20260618-010203-windows-x64-Desk-tester.zip");
+              "acecode_feedback_desktop_20260618_010203_windows_x64_Desk_tester.zip");
     EXPECT_TRUE(result.log_included);
     EXPECT_EQ(read_zip_entry(result.package_path, "logs/desktop.log.tail.txt"),
               "desktop log line 2\n");
@@ -212,7 +212,7 @@ TEST(FeedbackUpload, BuildDesktopPackageMayIncludeSelectedSession) {
 
     auto result = acecode::feedback::build_feedback_package(req);
     ASSERT_TRUE(result.ok) << result.error;
-    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid-selected.jsonl"),
+    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid_selected.jsonl"),
               "{\"role\":\"user\",\"content\":\"selected\"}\n");
     EXPECT_EQ(read_zip_entry(result.package_path, "logs/desktop.log.tail.txt"),
               "desktop log");
@@ -578,7 +578,7 @@ TEST(FeedbackUpload, DuplicateLogEntryNamesDoNotOverwriteEachOther) {
     EXPECT_EQ(read_zip_entry(result.package_path, "logs/daemon.log.tail.txt.2"), "second");
 }
 
-TEST(FeedbackUpload, LogEntryNameDefaultsToTheSourceFilename) {
+TEST(FeedbackUpload, LogEntryNameUsesUnderscoresForLegacySourceFilename) {
     TempDir tmp("acecode_feedback_default_entry");
     const fs::path log = tmp.root / "daemon-2026-06-18.log";
     write_text(log, "daemon line");
@@ -591,8 +591,24 @@ TEST(FeedbackUpload, LogEntryNameDefaultsToTheSourceFilename) {
     auto result = acecode::feedback::build_feedback_package(req);
     ASSERT_TRUE(result.ok) << result.error;
     EXPECT_EQ(read_zip_entry(result.package_path,
-                             "logs/daemon-2026-06-18.log.tail.txt"),
+                             "logs/daemon_2026_06_18.log.tail.txt"),
               "daemon line");
+}
+
+TEST(FeedbackUpload, DiscoversBothNamingGenerationsAndUsesModificationTime) {
+    TempDir tmp("acecode_feedback_mixed_logs");
+    const auto old_log = tmp.root / "desktop-2099-12-31.log";
+    const auto new_log = tmp.root / "desktop_2026_10_16.log";
+    write_text(old_log, "old");
+    write_text(new_log, "new");
+    fs::last_write_time(old_log, fs::file_time_type::clock::now() - std::chrono::hours(1));
+    fs::last_write_time(new_log, fs::file_time_type::clock::now());
+    const auto latest = acecode::feedback::latest_desktop_log_path(tmp.root);
+    ASSERT_TRUE(latest);
+    EXPECT_EQ(*latest, new_log);
+    EXPECT_EQ(acecode::feedback::make_feedback_package_filename(
+        "old-session-id", "2026-10-16T10:00:00Z", "windows-x64", "QA-BOX", "user-name").find('-'),
+        std::string::npos);
 }
 
 TEST(FeedbackUpload, LatestRotatedLogPathPicksNewestMatchingBase) {
@@ -637,13 +653,13 @@ TEST(FeedbackUpload, PackageFilenameAddsAvailableMachineSuffixFields) {
         acecode::feedback::make_feedback_package_filename(
             "sid", "2026-06-18T01:02:03Z", "windows/x64", "Build Box",
             "\xE7\x94\xA8\xE6\x88\xB7"),
-        "acecode-feedback-sid-20260618-010203-windows-x64-Build-Box"
-        "-xe7x94xa8xe6x88xb7.zip");
+        "acecode_feedback_sid_20260618_010203_windows_x64_Build_Box"
+        "_xe7x94xa8xe6x88xb7.zip");
 
     EXPECT_EQ(
         acecode::feedback::make_feedback_package_filename(
             "sid", "2026-06-18T01:02:03Z", "windows-x64", "", ""),
-        "acecode-feedback-sid-20260618-010203-windows-x64.zip");
+        "acecode_feedback_sid_20260618_010203_windows_x64.zip");
 }
 
 TEST(FeedbackUpload, BuildPackageSucceedsWhenLogIsMissing) {
@@ -764,11 +780,11 @@ TEST(FeedbackUpload, BuildPackageAttachesSessionTrajectory) {
 
     auto result = acecode::feedback::build_feedback_package(req);
     ASSERT_TRUE(result.ok) << result.error;
-    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid-traj.trajectory.jsonl"),
+    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid_traj.trajectory.jsonl"),
               trajectory_text);
     ASSERT_GE(result.included_files.size(), 3u);
-    EXPECT_EQ(result.included_files[0], "session/sid-traj.jsonl");
-    EXPECT_EQ(result.included_files[1], "session/sid-traj.trajectory.jsonl");
+    EXPECT_EQ(result.included_files[0], "session/sid_traj.jsonl");
+    EXPECT_EQ(result.included_files[1], "session/sid_traj.trajectory.jsonl");
     ASSERT_TRUE(result.trajectory.has_value());
     EXPECT_TRUE(result.trajectory->included);
     EXPECT_FALSE(result.trajectory->truncated);
@@ -776,7 +792,7 @@ TEST(FeedbackUpload, BuildPackageAttachesSessionTrajectory) {
     auto metadata = nlohmann::json::parse(
         read_zip_entry(result.package_path, "feedback.json"));
     ASSERT_TRUE(metadata.contains("trajectory"));
-    EXPECT_EQ(metadata["trajectory"]["entry_name"], "session/sid-traj.trajectory.jsonl");
+    EXPECT_EQ(metadata["trajectory"]["entry_name"], "session/sid_traj.trajectory.jsonl");
     EXPECT_EQ(metadata["trajectory"]["path"], acecode::path_to_utf8(trajectory));
     EXPECT_TRUE(metadata["trajectory"]["available"].get<bool>());
     EXPECT_EQ(metadata["trajectory"]["size_bytes"], trajectory_text.size());
@@ -801,7 +817,7 @@ TEST(FeedbackUpload, MissingTrajectoryIsRecordedButDoesNotFailPackage) {
 
     auto result = acecode::feedback::build_feedback_package(req);
     ASSERT_TRUE(result.ok) << result.error;
-    EXPECT_FALSE(zip_entry_exists(result.package_path, "session/sid-none.trajectory.jsonl"));
+    EXPECT_FALSE(zip_entry_exists(result.package_path, "session/sid_none.trajectory.jsonl"));
     for (const auto& name : result.included_files) {
         EXPECT_EQ(name.find("trajectory"), std::string::npos) << name;
     }
@@ -837,7 +853,7 @@ TEST(FeedbackUpload, OversizedTrajectoryKeepsNewestCompleteLines) {
     auto result = acecode::feedback::build_feedback_package(req);
     ASSERT_TRUE(result.ok) << result.error;
     const std::string packed =
-        read_zip_entry(result.package_path, "session/sid-big.trajectory.jsonl");
+        read_zip_entry(result.package_path, "session/sid_big.trajectory.jsonl");
     EXPECT_EQ(packed, line3);
     ASSERT_TRUE(result.trajectory.has_value());
     EXPECT_TRUE(result.trajectory->truncated);
@@ -870,7 +886,7 @@ TEST(FeedbackUpload, SingleOversizedTrajectoryRecordKeepsPartialTail) {
 
     auto result = acecode::feedback::build_feedback_package(req);
     ASSERT_TRUE(result.ok) << result.error;
-    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid-one.trajectory.jsonl"),
+    EXPECT_EQ(read_zip_entry(result.package_path, "session/sid_one.trajectory.jsonl"),
               record.substr(record.size() - 20));
     ASSERT_TRUE(result.trajectory.has_value());
     EXPECT_TRUE(result.trajectory->truncated);

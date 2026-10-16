@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-10-15.1",
+  "bundle_version": "2026-10-16.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
@@ -24,7 +24,7 @@
       "name": "expert-manager",
       "source_id": "acecode:expert-manager@2026-08-09",
       "relative_path": "expert-management/expert-manager",
-      "skill_md_sha256": "804fbfefb9cfb49a047182b82f1f6b6f42eb3ba1f42abb87e412fcaf24ef20a8"
+      "skill_md_sha256": "54250804b66e1e5b8658f7c56a3e4cd1fcd175cdfe2a583e1b2b9017ab0c0dc9"
     },
     {
       "name": "native-mcp",

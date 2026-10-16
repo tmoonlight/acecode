@@ -97,7 +97,7 @@ export function mermaidFamilyFromSource(source) {
 export function mermaidExportFilename(detail, format) {
   const family = mermaidFamilyFromSource(detail?.source);
   const extension = format === 'source' ? 'mmd' : String(format || '').toLowerCase();
-  return `mermaid-${family}.${extension || 'txt'}`;
+  return `mermaid_${family.replace(/-/g, '_')}.${extension || 'txt'}`;
 }
 
 export function mermaidPngDimensions(width, height, {

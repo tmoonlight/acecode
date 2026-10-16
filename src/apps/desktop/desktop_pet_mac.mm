@@ -133,6 +133,7 @@ private:
     std::string pet_kind_ = "office";
     std::vector<DesktopPetOverlay> overlays_;
     std::vector<DesktopPetOverlay> foreground_overlays_;
+    DesktopPetOverlay resize_grip_{};
     NSPanel* panel_ = nil;
     WKWebView* webview_ = nil;
     WKUserContentController* content_ = nil;
@@ -151,7 +152,7 @@ private:
     bool resizing_ = false;
     bool dragging_ = false;
     DesktopPetDragTracker drag_tracker_;   // 陪伴宠物按拖动方向播放左右跑动画
-    int docked_side_ = 0;                  // 鲸鱼娘吸附在工作区左(-1)/右(+1)边,0 = 未吸附
+    int docked_side_ = 0;                  // 陪伴宠物吸附在工作区左(-1)/右(+1)边,0 = 未吸附
     bool mouse_pressed_ = false;
     bool owns_cursor_ = false;
     bool pinned_ = true;
@@ -426,6 +427,7 @@ void PetController::web_process_terminated() {
     end_gesture();
     overlays_.clear();
     foreground_overlays_.clear();
+    resize_grip_ = {};
     page_ready_ = false;
     load_page();
 }
@@ -452,13 +454,16 @@ void PetController::set_pet_kind(const std::string& kind) {
     if (pet_kind_ == kind) return;
     const bool same_page = pet_kind_ != "office" && kind != "office";
     pet_kind_ = kind;
-    if (kind != "whale") docked_side_ = 0;   // 只有鲸鱼娘有趴边偷看的样子
+    if (!desktop_pet_has_edge_peek(kind)) docked_side_ = 0;   // 虚拟办公室没有趴边偷看的样子
     if (!webview_ || closed_) return;
     end_gesture();
     overlays_.clear();
     foreground_overlays_.clear();
-    if (same_page) publish_character();
-    else {
+    resize_grip_ = {};
+    if (same_page) {
+        publish_character();
+        publish_dock();   // 贴着边换宠物:新宠物接着趴在同一条边上
+    } else {
         page_ready_ = false;
         load_page();
     }
@@ -476,12 +481,12 @@ void PetController::publish_dock() {
     deliver({{"type", "pet-dock"}, {"side", docked_side_ < 0 ? "left" : docked_side_ > 0 ? "right" : ""}});
 }
 
-// 拖动松手后:鲸鱼娘离左/右边足够近就贴到那条边,页面换成趴边偷看;
+// 拖动松手后:陪伴宠物离左/右边足够近就贴到那条边,页面换成趴边偷看;
 // 其它情况把窗口收回可见区域,头顶的会话卡片不会被屏幕边截掉。
 void PetController::settle_dock() {
     const DesktopPetRect work = work_area();
     const DesktopPetRect current = window_rect();
-    docked_side_ = pet_kind_ == "whale" ? desktop_pet_dock_side(current, work) : 0;
+    docked_side_ = desktop_pet_has_edge_peek(pet_kind_) ? desktop_pet_dock_side(current, work) : 0;
     const DesktopPetRect next = docked_side_ ? dock_desktop_pet(current, work, docked_side_)
                                              : keep_desktop_pet_in_work_area(current, work);
     if (next.x != current.x || next.y != current.y) apply_placement({next, current_scale()});
@@ -566,10 +571,13 @@ void PetController::office_action(const std::string& message) {
     }
     if (type == "overlay") {
         overlays_ = desktop_pet_overlays_from_message(value);
+        const auto grips = desktop_pet_overlays_from_message({{"rect", value.value("grip", nlohmann::json())}});
+        resize_grip_ = grips.empty() ? DesktopPetOverlay{} : grips.front();
         // Bubbles are below the handle and pointer-transparent. Controls and
         // the member list/notice are above it and must retain their own cursor.
         auto foreground = value;
         foreground.erase("bubbles");
+        foreground.erase("grip");
         foreground_overlays_ = desktop_pet_overlays_from_message(foreground);
         return;
     }
@@ -783,7 +791,8 @@ bool PetController::resize_grip_hit(NSPoint mouse) const {
     const NSRect frame = panel_.frame;
     const double x = mouse.x - frame.origin.x;
     const double y = frame.origin.y + frame.size.height - mouse.y;
-    if (!desktop_pet_resize_grip_hit_test(frame.size.width, frame.size.height, x, y)) return false;
+    if (!page_ready_ || !desktop_pet_resize_grip_hit_test(frame.size.width, frame.size.height, x, y,
+                                                        pet_kind_ == "office" ? nullptr : &resize_grip_)) return false;
     return std::none_of(foreground_overlays_.begin(), foreground_overlays_.end(), [&](const auto& rect) {
         return x >= rect[0] * frame.size.width && x < rect[2] * frame.size.width &&
                y >= rect[1] * frame.size.height && y < rect[3] * frame.size.height;

@@ -1564,7 +1564,7 @@ TEST(SessionRegistry, CreateNoWorkspaceKeepsWorkspaceHashEmpty) {
     EXPECT_TRUE(entry->workspace_hash.empty());
     EXPECT_TRUE(entry->no_workspace);
     EXPECT_TRUE(std::filesystem::is_directory(expected_cwd));
-    EXPECT_EQ(std::filesystem::path(expected_cwd).parent_path().filename().string(), "no-workspace");
+    EXPECT_EQ(std::filesystem::path(expected_cwd).parent_path().filename().string(), "no_workspace");
     ASSERT_NE(entry->loop, nullptr);
     EXPECT_EQ(entry->loop->cwd(), expected_cwd);
 

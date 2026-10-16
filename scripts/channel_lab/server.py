@@ -360,6 +360,8 @@ def make_server(lab, port=0):
 def source_config():
     data_dir = Path(os.environ['USERPROFILE']) / '.acecode'
     redirect = data_dir / 'data-dir.redirect.json'
+    if not redirect.exists():
+        redirect = data_dir / 'data_dir.redirect.json'
     if redirect.exists():
         data_dir = Path(json.loads(redirect.read_text(encoding='utf-8-sig'))['data_dir'])
     return data_dir / 'config.json'

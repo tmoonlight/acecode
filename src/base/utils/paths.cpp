@@ -5,6 +5,7 @@
 #include "encoding.hpp"
 #include "logger.hpp"
 #include "utf8_path.hpp"
+#include "generated_file_names.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -178,7 +179,7 @@ std::string resolve_default_data_dir(RunMode mode) {
 // ── 数据目录重定向指针 ─────────────────────────────────────────────────────
 
 std::string data_dir_redirect_path(const std::string& default_dir) {
-    return path_to_utf8(path_from_utf8(default_dir) / kDataDirRedirectFileName);
+    return path_to_utf8(compatible_generated_path(path_from_utf8(default_dir), kDataDirRedirectFileName));
 }
 
 std::optional<DataDirRedirect> read_data_dir_redirect(const std::string& default_dir) {

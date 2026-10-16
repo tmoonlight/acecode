@@ -4,6 +4,7 @@
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 
 #include <sstream>
 #include <system_error>
@@ -80,7 +81,7 @@ fs::path known_folder_path(REFKNOWNFOLDERID id) {
 }
 
 fs::path edge_user_data_dir_root() {
-    return acecode::path_from_utf8(acecode::get_acecode_dir()) / "edge-app-profile";
+    return acecode::compatible_generated_path(acecode::path_from_utf8(acecode::get_acecode_dir()), "edge-app-profile");
 }
 
 // 准备本次启动专用的干净 user-data-dir:

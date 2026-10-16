@@ -219,7 +219,7 @@ TEST(SecurityHandler, SerializesAuditPageAndSummary) {
     EXPECT_EQ(s["blocked_paths"][0]["path"], "C:/secret");
     EXPECT_EQ(s["blocked_paths"][0]["count"], 1);
 
-    EXPECT_EQ(audit_export_filename("csv", 0).substr(0, 14), "acecode-audit-");
+    EXPECT_EQ(audit_export_filename("csv", 0).substr(0, 14), "acecode_audit_");
     EXPECT_NE(audit_export_filename("csv", 0).find(".csv"), std::string::npos);
     EXPECT_NE(audit_export_filename("jsonl", 0).find(".jsonl"), std::string::npos);
 }

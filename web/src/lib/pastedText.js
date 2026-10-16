@@ -468,14 +468,14 @@ let lastFileStamp = '';
 let fileStampSerial = 0;
 const pad = (value, width = 2) => String(value).padStart(width, '0');
 
-// pasted-text-YYYYMMDD-HHMMSS[_s][-k].txt:ASCII、同一页面内唯一。
+// pasted_text_YYYYMMDD_HHMMSS[_s][_k].txt:ASCII、同一页面内唯一。
 // 同一秒内的第二次粘贴加 _2、_3…(否则 composerFileIdentity 会把两次相同粘贴去重);
 // 多段时 index 为 1..n 的段号,单段传 0。一次粘贴的各段须传同一个 now,且从
 // index 0 或 1 开始按顺序调用(index <= 1 视为新的一次粘贴)。
 export function pastedTextFileName(now = new Date(), index = 0) {
   const date = now instanceof Date ? now : new Date(now);
   const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
-    + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+    + `_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
   if (index <= 1) {
     if (stamp === lastFileStamp) fileStampSerial += 1;
     else {
@@ -484,8 +484,8 @@ export function pastedTextFileName(now = new Date(), index = 0) {
     }
   }
   const serial = fileStampSerial > 1 ? `_${fileStampSerial}` : '';
-  const chunk = index > 0 ? `-${index}` : '';
-  return `pasted-text-${stamp}${serial}${chunk}.txt`;
+  const chunk = index > 0 ? `_${index}` : '';
+  return `pasted_text_${stamp}${serial}${chunk}.txt`;
 }
 
 // 上传请求体里的来源描述,服务端存进附件记录 metadata(origin / pasted_text)。

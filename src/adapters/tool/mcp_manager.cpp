@@ -943,7 +943,7 @@ ToolResult McpManager::invoke(const std::weak_ptr<State>& weak_state,
                         const std::string mime = item.value("mimeType", item.value("mime_type", std::string{"image/png"}));
                         std::string name = item.value("name", std::string{});
                         if (name.empty()) {
-                            name = "mcp-image-" + std::to_string(image_index) + extension_for_mcp_mime(mime);
+                            name = "mcp_image_" + std::to_string(image_index) + extension_for_mcp_mime(mime);
                         }
                         attachments.push_back(nlohmann::json{
                             {"name", name},

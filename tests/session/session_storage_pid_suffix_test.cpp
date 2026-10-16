@@ -38,6 +38,15 @@ void write_meta(const fs::path& path, const std::string& id,
 } // namespace
 
 // 场景:默认 session_path/meta_path 必须写 canonical 文件名,不再带本进程 PID。
+TEST(SessionStoragePidSuffix, UnderscorePidDataIsExcludedAlongsideLegacyFiles) {
+    const auto dir = make_unique_tmp_dir("underscore_pid");
+    const std::string id = "20261016_100000_abcd";
+    write_meta((dir / (id + "_123.meta.json")), id, "2026-10-16T10:00:00Z");
+    std::ofstream(dir / (id + "_123.jsonl")) << "{}\n";
+    EXPECT_TRUE(SessionStorage::list_sessions(dir.u8string()).empty());
+    EXPECT_TRUE(SessionStorage::has_incompatible_pid_session_files(dir.u8string(), id));
+}
+
 TEST(SessionStoragePidSuffix, DefaultPathsAreCanonical) {
     auto dir = make_unique_tmp_dir("default_canonical");
     const std::string id = "20260426-100000-abcd";

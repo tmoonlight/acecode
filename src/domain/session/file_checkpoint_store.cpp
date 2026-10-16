@@ -3,6 +3,7 @@
 #include "utils/diff_utils.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/uuid.hpp"
 
 #include <nlohmann/json.hpp>
@@ -194,7 +195,7 @@ void FileCheckpointStore::reset() {
 
 std::string FileCheckpointStore::checkpoint_dir() const {
     if (project_dir_.empty() || session_id_.empty()) return {};
-    return path_to_utf8(path_from_utf8(project_dir_) / "file-checkpoints" / session_id_);
+    return path_to_utf8(compatible_generated_path(path_from_utf8(project_dir_), "file-checkpoints") / session_id_);
 }
 
 std::string FileCheckpointStore::normalize_tracking_path(const std::string& file_path) const {
@@ -213,7 +214,7 @@ std::string FileCheckpointStore::normalize_tracking_path(const std::string& file
 std::string FileCheckpointStore::backup_path(const std::string& backup_file_name,
                                              const std::string& session_id_override) const {
     const std::string& sid = session_id_override.empty() ? session_id_ : session_id_override;
-    return path_to_utf8(path_from_utf8(project_dir_) / "file-checkpoints" / sid / backup_file_name);
+    return path_to_utf8(compatible_generated_path(path_from_utf8(project_dir_), "file-checkpoints") / sid / backup_file_name);
 }
 
 std::string FileCheckpointStore::make_backup_file_name(
@@ -598,7 +599,7 @@ void FileCheckpointStore::remove_session_backups(
     const std::string& project_dir,
     const std::string& session_id) {
     std::error_code ec;
-    fs::remove_all(path_from_utf8(project_dir) / "file-checkpoints" / session_id, ec);
+    fs::remove_all(compatible_generated_path(path_from_utf8(project_dir), "file-checkpoints") / session_id, ec);
 }
 
 void FileCheckpointStore::enforce_snapshot_cap() {

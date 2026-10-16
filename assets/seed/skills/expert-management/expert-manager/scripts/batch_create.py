@@ -42,6 +42,7 @@ COMMON_INPUT_KEYS = {
     "homepage",
     "avatar",
     "stateAvatars",
+    "sampling",
 }
 AGENT_INPUT_KEYS = COMMON_INPUT_KEYS | {"instructions", "capabilities"}
 TEAM_INPUT_KEYS = COMMON_INPUT_KEYS | {"leadExpert", "memberExperts"}
@@ -67,7 +68,7 @@ def quick_prompts(item: dict[str, Any]) -> list[str]:
 
 
 def copy_optional_metadata(item: dict[str, Any], manifest: dict[str, Any]) -> None:
-    for key in ("license", "homepage"):
+    for key in ("license", "homepage", "sampling"):
         if key in item:
             manifest[key] = item[key]
 

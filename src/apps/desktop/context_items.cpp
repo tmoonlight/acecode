@@ -1,6 +1,7 @@
 #include "context_items.hpp"
 
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/base64.hpp"
 #include "platform/clipboard.hpp"
 #include "utils/uuid.hpp"
@@ -155,13 +156,13 @@ ContextItemsResult store_context_data_files(
                 if (static_cast<unsigned char>(ch) < 32 || std::string("<>:\"|?*").find(ch) != std::string::npos) ch = '_';
             }
             while (!name.empty() && (name.back() == '.' || name.back() == ' ')) name.pop_back();
-            if (name.empty()) name = "clipboard-file";
+            if (name.empty()) name = "clipboard_file";
             // Avoid Windows device filenames while keeping ordinary names intact.
             std::string stem = name.substr(0, name.find('.'));
             std::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
             if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL"
                 || (stem.size() == 4 && (stem.substr(0, 3) == "COM" || stem.substr(0, 3) == "LPT") && stem[3] >= '1' && stem[3] <= '9')) name = '_' + name;
-            const auto folder = root / generate_uuid();
+            const auto folder = root / generated_file_name(generate_uuid());
             if (!fs::create_directory(folder)) throw std::runtime_error("cannot create context data directory");
             created.push_back(folder);
             const auto path = folder / path_from_utf8(name);

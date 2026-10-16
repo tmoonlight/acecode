@@ -3,6 +3,7 @@
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -61,7 +62,7 @@ std::string utc_filename_timestamp() {
 #endif
     std::ostringstream out;
     out << std::put_time(&tm, "%Y%m%dT%H%M%S")
-        << '-' << std::setw(3) << std::setfill('0') << millis.count() << 'Z';
+        << '_' << std::setw(3) << std::setfill('0') << millis.count() << 'Z';
     return out.str();
 }
 
@@ -70,10 +71,10 @@ std::string unique_recovery_filename(const fs::path& config_path,
     const std::uint64_t sequence =
         g_recovery_file_sequence.fetch_add(1, std::memory_order_relaxed);
     std::ostringstream out;
-    out << path_to_utf8(config_path.stem()) << '-' << label << '-'
-        << utc_filename_timestamp() << '-' << process_id() << '-'
+    out << path_to_utf8(config_path.stem()) << '_' << label << '_'
+        << utc_filename_timestamp() << '_' << process_id() << '_'
         << sequence << ".json";
-    return out.str();
+    return generated_file_name(out.str());
 }
 
 std::optional<std::string> read_binary_file(const std::string& path,
@@ -132,16 +133,16 @@ ConfigRecoveryPaths config_recovery_paths(const std::string& config_path) {
     fs::path active = path_from_utf8(config_path);
     fs::path parent = active.parent_path();
     if (parent.empty()) parent = fs::current_path();
-    const fs::path root = parent / "config-backups";
+    const fs::path root = compatible_generated_path(parent, "config-backups");
     const fs::path filename = active.filename().empty()
         ? fs::path("config.json")
         : active.filename();
     return {
         path_to_utf8(root),
-        path_to_utf8(root / "last-good" / filename),
+        path_to_utf8(compatible_generated_path(root, "last-good") / filename),
         path_to_utf8(root / "invalid"),
         path_to_utf8(root / "staging"),
-        path_to_utf8(root / "recovery-notice.json"),
+        path_to_utf8(compatible_generated_path(root, "recovery-notice.json")),
     };
 }
 

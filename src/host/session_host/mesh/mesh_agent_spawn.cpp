@@ -76,6 +76,7 @@ SpawnResult MeshAgentService::spawn(const ToolContext& ctx, const SpawnArgs& arg
         return result;
     }
     SessionOptions opts;
+    opts.sampling = args.sampling;
     if (!args.model.empty()) {
         const auto names = saved_model_names();
         if (std::find(names.begin(), names.end(), args.model) == names.end()) {

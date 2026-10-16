@@ -34,6 +34,9 @@ description: 创建、导入、修改、校验和打包 ACECode 专家组件；�
 - 如果已有资料足够，直接转化，不重复询问资料里已经明确的信息。
 - 高级能力默认保持“继承全局”。只有用户明确要求限制或启用特定 Skill、MCP
   服务器、本地工具时，才写入 `expert.json.capabilities`。
+- 采样参数默认继承模型。用户指定时写入 `expert.json.sampling`，支持
+  `temperature`、`top_p`、`top_k`、`min_p`；批量定义也接受同名对象。
+  不把采样值写成 Agent 指令或未经解析的 frontmatter。具体范围见包格式文档。
 
 ## 开始前检查
 

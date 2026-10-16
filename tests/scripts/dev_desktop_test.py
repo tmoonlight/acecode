@@ -131,7 +131,7 @@ class DevDesktopTest(unittest.TestCase):
             with mock.patch.object(dev_desktop, "desktop_instance_identity",
                                    wraps=dev_desktop.desktop_instance_identity):
                 actual = self._identity_with_commit(repo, identity)
-            self.assertEqual(actual, "my.worktree-0123456789ab")
+            self.assertEqual(actual, "my.worktree_0123456789ab")
             self.assertEqual(re.sub(r"[^A-Za-z0-9_.-]", "-", actual), actual)
 
     def test_desktop_instance_identity_sanitizes_unsafe_worktree_names(self) -> None:
@@ -139,7 +139,7 @@ class DevDesktopTest(unittest.TestCase):
             repo = Path(root_text) / "fix dev launcher+identity"
             repo.mkdir()
             actual = self._identity_with_commit(repo, "a" * 40)
-            self.assertEqual(actual, "fix-dev-launcher-identity-aaaaaaaaaaaa")
+        self.assertEqual(actual, "fix_dev_launcher_identity_aaaaaaaaaaaa")
 
     def _identity_with_commit(self, repo: Path, commit: str) -> str:
         """`desktop_instance_identity` 依赖 git，测试里替换掉 commit 查询。"""
@@ -154,7 +154,7 @@ class DevDesktopTest(unittest.TestCase):
             repo.mkdir()
             self.assertEqual(
                 self._identity_with_commit(repo, None),
-                "detached-detached",
+                "detached_detached",
             )
 
     def test_desktop_environment_injects_process_level_overrides(self) -> None:
@@ -167,7 +167,7 @@ class DevDesktopTest(unittest.TestCase):
             with mock.patch.dict(os.environ, {"ACECODE_TEST_SENTINEL": "kept"}, clear=False):
                 environment, identity = dev_desktop.desktop_environment(repo, web)
 
-            self.assertEqual(identity, "acecode-acecode")
+            self.assertEqual(identity, "acecode_acecode")
             self.assertEqual(environment["ACECODE_DESKTOP_INSTANCE_ID"], identity)
             self.assertEqual(environment["ACECODE_DESKTOP_ALLOW_MULTIPLE_INSTANCES"], "1")
             self.assertEqual(environment["ACECODE_DEV_WEB_DIR"], str(web.resolve()))

@@ -97,7 +97,7 @@ std::string filename_timestamp_from_created_at(const std::string& created_at) {
         }
     }
     if (digits.size() >= 14) {
-        return digits.substr(0, 8) + "-" + digits.substr(8, 6);
+        return digits.substr(0, 8) + "_" + digits.substr(8, 6);
     }
 
     auto now = std::chrono::system_clock::now();
@@ -109,7 +109,7 @@ std::string filename_timestamp_from_created_at(const std::string& created_at) {
     gmtime_r(&t, &tm);
 #endif
     std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y%m%d-%H%M%S");
+    oss << std::put_time(&tm, "%Y%m%d_%H%M%S");
     return oss.str();
 }
 
@@ -148,7 +148,7 @@ std::string default_output_dir() {
     fs::path dir = fs::temp_directory_path(ec);
     if (ec) dir = fs::current_path(ec);
     if (dir.empty()) dir = ".";
-    return path_to_utf8(dir / "acecode-feedback");
+    return path_to_utf8(dir / "acecode_feedback");
 }
 
 std::string trim_ascii_whitespace(std::string value) {
@@ -189,15 +189,17 @@ std::string current_login_name() {
 void append_filename_component(std::string& out, const std::string& value) {
     const std::string trimmed = trim_ascii_whitespace(value);
     if (trimmed.empty()) return;
-    out.push_back('-');
+    out.push_back('_');
     out += sanitize_feedback_filename_component(trimmed);
 }
 
 bool is_rotated_log_filename(const fs::path& path, const std::string& base_name) {
     const std::string name = path.filename().string();
-    const std::string prefix = base_name + "-";
-    return name.rfind(prefix, 0) == 0 &&
-           name.size() > prefix.size() + std::string(".log").size() &&
+    const std::string old_prefix = base_name + "-";
+    std::string new_prefix = base_name + "_";
+    std::replace(new_prefix.begin(), new_prefix.end(), '-', '_');
+    return (name.rfind(old_prefix, 0) == 0 || name.rfind(new_prefix, 0) == 0) &&
+           name.size() > old_prefix.size() + std::string(".log").size() &&
            name.substr(name.size() - 4) == ".log";
 }
 
@@ -226,17 +228,17 @@ std::string sanitize_feedback_filename_component(const std::string& value) {
     const char* hex = "0123456789abcdef";
     for (char ch : value) {
         const unsigned char c = static_cast<unsigned char>(ch);
-        if (std::isalnum(c) != 0 || ch == '-' || ch == '_' || ch == '.') {
+        if (std::isalnum(c) != 0 || ch == '_' || ch == '.') {
             out.push_back(ch);
         } else if (c >= 0x80) {
             out.push_back('x');
             out.push_back(hex[(c >> 4) & 0x0F]);
             out.push_back(hex[c & 0x0F]);
         } else {
-            out.push_back('-');
+            out.push_back('_');
         }
     }
-    while (!out.empty() && (out.front() == '.' || out.front() == '-')) {
+    while (!out.empty() && (out.front() == '.' || out.front() == '_')) {
         out.erase(out.begin());
     }
     if (out.empty()) out = "session";
@@ -249,8 +251,8 @@ std::string make_feedback_package_filename(const std::string& session_id,
                                            const std::string& platform,
                                            const std::string& computer_name,
                                            const std::string& login_name) {
-    std::string filename = "acecode-feedback-" +
-        sanitize_feedback_filename_component(session_id) + "-" +
+    std::string filename = "acecode_feedback_" +
+        sanitize_feedback_filename_component(session_id) + "_" +
         filename_timestamp_from_created_at(created_at);
     append_filename_component(filename, platform);
     append_filename_component(filename, computer_name);

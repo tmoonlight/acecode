@@ -2,6 +2,7 @@
 
 #include "session/tool_result_storage.hpp"
 #include "utils/encoding.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/stream_processing.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
@@ -46,7 +47,7 @@ bool BashOutputCapture::start_file() {
             fail("Failed to locate temporary shell output storage: " + ec.message());
             return false;
         }
-        directory /= "acecode-tool-results";
+        directory /= "acecode_tool_results";
     } else {
         directory = path_from_utf8(tool_results_dir_);
     }
@@ -55,7 +56,7 @@ bool BashOutputCapture::start_file() {
         fail("Failed to create shell output storage: " + ec.message());
         return false;
     }
-    const auto path = directory / ("bash-" + generate_uuid() + ".txt");
+    const auto path = directory / generated_file_name("bash_" + generate_uuid() + ".txt");
     filepath_ = path_to_utf8(path);
     file_.open(path, std::ios::binary | std::ios::out);
     if (!file_) {

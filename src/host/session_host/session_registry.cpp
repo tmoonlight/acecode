@@ -1,4 +1,5 @@
 #include "session_registry.hpp"
+#include "session_model_resolution.hpp"
 #include "session/session_load_metrics.hpp"
 
 #include "session/compact_checkpoint.hpp"
@@ -32,8 +33,8 @@
 #include "utils/cwd_hash.hpp"
 #include "platform/power_inhibitor.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/scope_exit.hpp"
-
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -49,6 +50,11 @@
 namespace acecode {
 
 namespace {
+
+using session_model_detail::snapshot_model_config;
+using session_model_detail::apply_session_reasoning_effort;
+using session_model_detail::apply_session_sampling;
+using session_model_detail::resolve_target_for_name;
 
 std::string session_dir_name_from_id(const std::string& session_id) {
     std::string out;
@@ -160,79 +166,6 @@ struct ResolvedSessionModel {
     std::shared_ptr<LlmProvider> runtime_provider;
     SavedModelsRevision revision = 0;
 };
-
-struct ModelConfigSnapshot {
-    std::shared_ptr<const AppConfig> config;
-    SavedModelsRevision revision = 0;
-};
-
-ModelConfigSnapshot snapshot_model_config(const SessionRegistryDeps& deps) {
-    if (!deps.config) return {};
-    if (deps.config_mutex) {
-        std::shared_lock<std::shared_mutex> lock(*deps.config_mutex);
-        return {
-            std::make_shared<AppConfig>(*deps.config),
-            current_saved_models_revision(),
-        };
-    }
-    return {
-        std::make_shared<AppConfig>(*deps.config),
-        current_saved_models_revision(),
-    };
-}
-
-// Only explicitly enabled effort-capable HTTP routes accept a session choice.
-bool supports_session_reasoning_effort(const ModelProfile& profile,
-                                       const std::string& effort) {
-    if ((profile.provider != "openai" && profile.provider != "anthropic") ||
-        !profile.reasoning.has_value()) return false;
-    const auto& reasoning = *profile.reasoning;
-    return reasoning.supported &&
-        (reasoning.mandatory || reasoning.enabled.value_or(reasoning.default_enabled)) &&
-        !effort.empty() &&
-        std::find(reasoning.supported_efforts.begin(),
-                  reasoning.supported_efforts.end(), effort) != reasoning.supported_efforts.end();
-}
-
-std::optional<std::string> apply_session_reasoning_effort(
-    ModelProfile& profile, const std::optional<std::string>& effort,
-    bool strict = false) {
-    if (!effort.has_value()) return std::nullopt;
-    if (!supports_session_reasoning_effort(profile, *effort)) {
-        if (strict) throw SessionReasoningValidationError();
-        return std::nullopt;
-    }
-    profile.reasoning->enabled = true;
-    profile.reasoning->effort = *effort;
-    profile.reasoning->max_tokens.reset();
-    return effort;
-}
-
-SessionModelResolvedTarget resolve_target_for_name(
-    const SessionRegistryDeps& deps,
-    const std::string& name,
-    const std::optional<std::string>& effort = std::nullopt,
-    bool strict_effort = false) {
-    auto snapshot = snapshot_model_config(deps);
-    SessionModelResolvedTarget target;
-    target.revision = snapshot.revision;
-    target.config = snapshot.config;
-    if (!snapshot.config) return target;
-    const auto found = std::find_if(
-        snapshot.config->saved_models.begin(),
-        snapshot.config->saved_models.end(),
-        [&name](const ModelProfile& candidate) {
-            return candidate.name == name;
-        });
-    if (found != snapshot.config->saved_models.end()) {
-        target.profile = *found;
-        const auto applied = apply_session_reasoning_effort(
-            *target.profile, effort, strict_effort);
-        target.state = session_model_state_from_profile(*snapshot.config, *target.profile);
-        target.state.reasoning_effort = applied;
-    }
-    return target;
-}
 
 ResolvedSessionModel resolve_from_profile(
     std::shared_ptr<const AppConfig> config,
@@ -679,7 +612,7 @@ BuiltinCommandResult execute_plan_builtin(SessionEntry& entry,
 } // namespace
 
 std::string default_no_workspace_cache_root() {
-    return path_to_utf8(path_from_utf8(get_acecode_dir()) / "cache" / "no-workspace");
+    return path_to_utf8(compatible_generated_path(path_from_utf8(get_acecode_dir()) / "cache", "no-workspace"));
 }
 
 std::string no_workspace_session_cwd(const std::string& session_id,
@@ -795,6 +728,10 @@ std::string SessionRegistry::create(const SessionOptions& opts) {
     SessionOptions resolved = with_resolved_workspace(deps_, create_opts, id);
 
     auto entry = make_entry_locked(id, resolved, nullptr);
+    if (!entry->sampling.empty() &&
+        !entry->sm->set_sampling_overrides(entry->sampling, true)) {
+        throw std::runtime_error("session sampling metadata could not be persisted");
+    }
     if (resolved.reasoning_effort) {
         const auto state = entry->model_binding->state_snapshot();
         if (!entry->sm->set_active_model_state(
@@ -877,43 +814,6 @@ SessionRegistry::make_entry_locked(const std::string& id,
         : (opts.workspace_hash.empty()
         ? compute_cwd_hash(entry->cwd)
         : opts.workspace_hash);
-    entry->model_binding = std::make_shared<SessionModelBinding>();
-    if (resolved_model.profile.has_value() && resolved_model.config) {
-        SessionModelResolvedTarget target;
-        target.revision = resolved_model.revision;
-        target.profile = resolved_model.profile;
-        target.config = resolved_model.config;
-        target.state = resolved_model.state;
-        // Saved profiles must revalidate against the live config immediately
-        // before publication, including during initial create/resume. Ad-hoc
-        // `(session:<id>)` profiles stay on the explicit target inside the
-        // binding and never enter this saved-model resolver.
-        auto initial_resolver = [this, effort = resolved_model.state.reasoning_effort,
-                                 strict = opts.reasoning_effort.has_value()](const std::string& name) {
-            return resolve_target_for_name(deps_, name, effort, strict);
-        };
-        const auto installed = entry->model_binding->install_explicit(
-            std::move(target), initial_resolver);
-        if (!installed.ok) {
-            if (opts.reasoning_effort) {
-                throw std::runtime_error("session reasoning provider construction failed");
-            }
-            LOG_WARN("[registry] initial session provider construction failed");
-            entry->model_binding->install_runtime_snapshot(
-                nullptr, resolved_model.state, resolved_model.revision);
-        } else if (!installed.warning.empty()) {
-            LOG_WARN("[registry] " + installed.warning);
-        }
-    } else {
-        entry->model_binding->install_runtime_snapshot(
-            std::move(resolved_model.runtime_provider),
-            resolved_model.state,
-            resolved_model.revision);
-    }
-    const auto initial_model_state = entry->model_binding->state_snapshot();
-    const AppConfig* entry_config = resolved_model.config
-        ? resolved_model.config.get()
-        : deps_.config;
     if (!entry->expert_id.empty()) {
         if (deps_.expert_registry) {
             entry->expert = deps_.expert_registry->find(entry->cwd, entry->expert_id);
@@ -937,6 +837,56 @@ SessionRegistry::make_entry_locked(const std::string& id,
                 "expert member requires a team expert binding");
         }
     }
+    entry->sampling = opts.sampling.value_or(resumed_meta ? resumed_meta->sampling : ModelSamplingOptions{});
+    entry->effective_sampling = merge_model_sampling_options(
+        entry->expert ? entry->expert->selected_sampling(entry->expert_member_id) : ModelSamplingOptions{},
+        entry->sampling);
+    if (resolved_model.profile) {
+        apply_session_sampling(*resolved_model.profile, entry->effective_sampling);
+    } else if (!entry->effective_sampling.empty()) {
+        throw std::invalid_argument("sampling requires a resolvable model profile");
+    }
+    entry->model_binding = std::make_shared<SessionModelBinding>();
+    if (resolved_model.profile.has_value() && resolved_model.config) {
+        SessionModelResolvedTarget target;
+        target.revision = resolved_model.revision;
+        target.profile = resolved_model.profile;
+        target.config = resolved_model.config;
+        target.state = resolved_model.state;
+        // Saved profiles must revalidate against the live config immediately
+        // before publication, including during initial create/resume. Ad-hoc
+        // `(session:<id>)` profiles stay on the explicit target inside the
+        // binding and never enter this saved-model resolver.
+        auto initial_resolver = [this, effort = resolved_model.state.reasoning_effort,
+                                 strict = opts.reasoning_effort.has_value(),
+                                 sampling = entry->effective_sampling](const std::string& name) {
+            return resolve_target_for_name(deps_, name, effort, strict, sampling);
+        };
+        const auto installed = entry->model_binding->install_explicit(
+            std::move(target), initial_resolver);
+        if (!installed.ok) {
+            if (!entry->effective_sampling.empty()) {
+                throw std::runtime_error("session sampling provider construction failed");
+            }
+            if (opts.reasoning_effort) {
+                throw std::runtime_error("session reasoning provider construction failed");
+            }
+            LOG_WARN("[registry] initial session provider construction failed");
+            entry->model_binding->install_runtime_snapshot(
+                nullptr, resolved_model.state, resolved_model.revision);
+        } else if (!installed.warning.empty()) {
+            LOG_WARN("[registry] " + installed.warning);
+        }
+    } else {
+        entry->model_binding->install_runtime_snapshot(
+            std::move(resolved_model.runtime_provider),
+            resolved_model.state,
+            resolved_model.revision);
+    }
+    const auto initial_model_state = entry->model_binding->state_snapshot();
+    const AppConfig* entry_config = resolved_model.config
+        ? resolved_model.config.get()
+        : deps_.config;
     const ExpertCapabilityScopes expert_scopes =
         entry->expert
             ? entry->expert->selected_capabilities(entry->expert_member_id)
@@ -975,6 +925,7 @@ SessionRegistry::make_entry_locked(const std::string& id,
         // 子会话身份写进 meta(lazy:首条消息落盘时随初始 meta 一起写)。
         entry->sm->set_parent_session_id(entry->parent_session_id);
     }
+    entry->sm->set_sampling_overrides(entry->sampling);
     if (opts.inherited_worktree.active()) {
         // 子会话共享父会话的 worktree:身份进 meta(系统提示 / UI / resume 都
         // 以它为准),标 inherited 让 ExitWorktree 拒绝、AgentLoop 据此算写边界。
@@ -1186,6 +1137,7 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     entry_opts.model_name = resolved.model_name;
     entry_opts.permission_mode = resolved.permission_mode;
     entry_opts.reasoning_effort = resolved.reasoning_effort;
+    entry_opts.sampling = resolved.sampling;
 
     entry_opts.inherit_dangerous_mode = resolved.inherit_dangerous_mode;
     entry_opts.expert_id = meta.expert_id;
@@ -1199,6 +1151,7 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     const auto resumed_model = entry->model_binding->state_snapshot();
     entry->sm->set_active_model_state(resumed_model.provider, resumed_model.model,
                                      resumed_model.name, resumed_model.reasoning_effort);
+    if (!entry->sm->set_sampling_overrides(entry->sampling)) return false;
     restore_loop_history(*entry, messages);
     // worktree 会话恢复:meta 记录的 worktree 目录还在就把 AgentLoop 的
     // 工作目录切回去(SessionEntry::cwd / 会话存储位置不动 —— worktree
@@ -1758,6 +1711,21 @@ ExpertSwitchResult SessionRegistry::switch_expert(
     }
 
     auto expert = std::make_shared<ExpertDefinition>(std::move(*resolved));
+    // Fail before enqueueing an incompatible expert. Revalidate again at the
+    // control boundary in case the model changed while this switch was queued.
+    {
+        std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
+        const auto sampling = merge_model_sampling_options(expert->selected_sampling(), entry->sampling);
+        if (!model_sampling_options_equal(sampling, entry->effective_sampling)) {
+            try {
+                const auto state = entry->model_binding->state_snapshot();
+                const auto target = resolve_target_for_name(deps_, state.name, state.reasoning_effort, false, sampling);
+                if (!target.profile) throw std::invalid_argument("sampling requires a resolvable model profile");
+            } catch (const std::invalid_argument& ex) {
+                return {ExpertSwitchStatus::Failed, std::nullopt, ex.what()};
+            }
+        }
+    }
     const ExpertCapabilityScopes expert_scopes =
         expert->selected_capabilities();
     const ToolCapabilityPolicy tool_policy =
@@ -1808,13 +1776,29 @@ ExpertSwitchResult SessionRegistry::switch_expert(
             // A later switch or metadata-only detach superseded this queued
             // intent. Treat it as consumed without touching AgentLoop state.
             if (active.expert_binding_revision != binding_revision) return true;
+            std::lock_guard<std::mutex> model_lock(active.model_control_mu);
+            const auto sampling = merge_model_sampling_options(expert->selected_sampling(), active.sampling);
+            std::optional<SessionModelRuntimeSnapshot> previous_model;
+            if (!model_sampling_options_equal(sampling, active.effective_sampling)) {
+                const auto state = active.model_binding->state_snapshot();
+                SessionModelResolver resolver = [&registry, effort = state.reasoning_effort, sampling](const std::string& name) {
+                    return resolve_target_for_name(registry.deps_, name, effort, false, sampling);
+                };
+                auto target = resolver(state.name);
+                if (!target.profile) return false;
+                previous_model = active.model_binding->runtime_snapshot();
+                const auto installed = active.model_binding->install_explicit(std::move(target), resolver);
+                if (!installed.ok) return false;
+            }
             if (active.sm &&
                 !active.sm->set_expert_binding_and_input_draft(
                     expert->id, {}, draft_text)) {
+                if (previous_model) active.model_binding->install_cloned_snapshot(std::move(*previous_model));
                 LOG_ERROR("[registry] failed to persist expert switch for " +
                           active.id);
                 return false;
             }
+            active.effective_sampling = sampling;
             active.expert_id = expert->id;
             active.expert_member_id.clear();
             active.expert_missing = false;
@@ -1947,14 +1931,21 @@ bool SessionRegistry::switch_model(const std::string& id,
 
     std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
     const auto before = entry->model_binding->state_snapshot();
+    try {
+        auto candidate = profile;
+        apply_session_sampling(candidate, entry->effective_sampling);
+    } catch (const std::invalid_argument& ex) {
+        if (error) *error = ex.what();
+        return false;
+    }
     const auto effort = before.name == profile.name ? before.reasoning_effort : std::nullopt;
     auto config_snapshot = snapshot_model_config(deps_);
     if (!config_snapshot.config) {
         if (error) *error = "config unavailable";
         return false;
     }
-    SessionModelResolver resolver = [this, effort](const std::string& name) {
-        return resolve_target_for_name(deps_, name, effort);
+    SessionModelResolver resolver = [this, effort, sampling = entry->effective_sampling](const std::string& name) {
+        return resolve_target_for_name(deps_, name, effort, false, sampling);
     };
 
     ApplyModelDeps apply_deps;
@@ -1996,8 +1987,8 @@ SessionRegistry::reload_model_profile(const std::string& id, bool force) {
 
     std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
     const auto effort = entry->model_binding->state_snapshot().reasoning_effort;
-    SessionModelResolver resolver = [this, effort](const std::string& name) {
-        return resolve_target_for_name(deps_, name, effort);
+    SessionModelResolver resolver = [this, effort, sampling = entry->effective_sampling](const std::string& name) {
+        return resolve_target_for_name(deps_, name, effort, false, sampling);
     };
 
     auto result = entry->model_binding->ensure_current(
@@ -2026,14 +2017,17 @@ SessionReasoningResult SessionRegistry::set_reasoning_effort(
     // Lock order: model control -> binding -> session metadata; no queue gate.
     std::lock_guard<std::mutex> model_lock(entry->model_control_mu);
     result.state = entry->model_binding->state_snapshot();
-    SessionModelResolver resolver = [this, effort](const std::string& name) {
-        return resolve_target_for_name(deps_, name, effort, true);
+    SessionModelResolver resolver = [this, effort, sampling = entry->effective_sampling](const std::string& name) {
+        return resolve_target_for_name(deps_, name, effort, true, sampling);
     };
     SessionModelResolvedTarget target;
     try {
         target = resolver(result.state.name);
     } catch (const SessionReasoningValidationError& ex) {
         result.status = SessionReasoningStatus::InvalidEffort;
+        result.error = ex.what();
+        return result;
+    } catch (const std::invalid_argument& ex) {
         result.error = ex.what();
         return result;
     }

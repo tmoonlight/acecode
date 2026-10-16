@@ -124,11 +124,11 @@ run('pasted file names are ASCII and unique', () => {
   const now = new Date(2026, 8, 24, 10, 15, 0);
   const first = pastedTextFileName(now, 0);
   const second = pastedTextFileName(now, 0);
-  assert.equal(first, 'pasted-text-20260924-101500.txt');
+  assert.equal(first, 'pasted_text_20260924_101500.txt');
   assert.notEqual(first, second);
   const chunk1 = pastedTextFileName(now, 1);
   const chunk2 = pastedTextFileName(now, 2);
-  assert.ok(chunk1.endsWith('-1.txt') && chunk2.endsWith('-2.txt'));
+  assert.ok(chunk1.endsWith('_1.txt') && chunk2.endsWith('_2.txt'));
   assert.equal(chunk1.slice(0, -6), chunk2.slice(0, -6));
   assert.ok(new Set([first, second, chunk1, chunk2]).size === 4);
   for (const name of [first, second, chunk1, chunk2]) assert.match(name, /^[\x20-\x7e]+$/);

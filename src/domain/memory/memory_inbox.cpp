@@ -6,6 +6,7 @@
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -37,7 +38,7 @@ bool write_atomic(const fs::path& target, const std::string& content, std::strin
     }
     std::random_device rd;
     fs::path tmp = target;
-    tmp += ".tmp-" + std::to_string(std::mt19937_64(rd())());
+    tmp += ".tmp_" + std::to_string(std::mt19937_64(rd())());
     {
         std::ofstream ofs(tmp, std::ios::binary | std::ios::trunc);
         ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
@@ -100,13 +101,15 @@ std::vector<fs::path> json_files_in(const fs::path& dir) {
 
 std::string memory_observation_file_stem(const std::string& session_id,
                                          std::int64_t from, std::int64_t to) {
-    return session_id + "-" + std::to_string(from) + "-" + std::to_string(to);
+    return generated_file_name(session_id) + "_" + std::to_string(from) + "_" + std::to_string(to);
 }
 
 bool write_memory_observation_file(const fs::path& scope_dir, MemoryObservationFile& file,
                                    std::string* error) {
-    const std::string stem = memory_observation_file_stem(file.session_id, file.from, file.to);
-    file.path = memory_inbox_dir(scope_dir) / (stem + ".json");
+    const auto legacy_name = file.session_id + "-" + std::to_string(file.from) +
+        "-" + std::to_string(file.to) + ".json";
+    file.path = compatible_generated_path(memory_inbox_dir(scope_dir), legacy_name);
+    const std::string stem = path_to_utf8(file.path.stem());
     if (file.created_at.empty()) file.created_at = memory_now_iso8601();
     nlohmann::json observations = nlohmann::json::array();
     for (std::size_t i = 0; i < file.observations.size(); ++i) {
@@ -134,8 +137,9 @@ bool write_memory_observation_file(const fs::path& scope_dir, MemoryObservationF
 void remove_memory_observation_file(const fs::path& scope_dir, const std::string& session_id,
                                     std::int64_t from, std::int64_t to) {
     std::error_code ec;
-    fs::remove(memory_inbox_dir(scope_dir) /
-               (memory_observation_file_stem(session_id, from, to) + ".json"), ec);
+    const auto legacy_name = session_id + "-" + std::to_string(from) +
+        "-" + std::to_string(to) + ".json";
+    fs::remove(compatible_generated_path(memory_inbox_dir(scope_dir), legacy_name), ec);
 }
 
 std::vector<MemoryObservationFile> list_memory_inbox(const fs::path& scope_dir) {
@@ -159,7 +163,7 @@ std::size_t count_memory_inbox_observations(const fs::path& scope_dir) {
 bool archive_memory_observation_files(const fs::path& scope_dir,
                                       const std::vector<fs::path>& files,
                                       const std::string& date, std::string* error) {
-    const fs::path target_dir = memory_archive_dir(scope_dir) / date;
+    const fs::path target_dir = compatible_generated_path(memory_archive_dir(scope_dir), date);
     std::error_code ec;
     fs::create_directories(target_dir, ec);
     if (ec) {
@@ -206,7 +210,9 @@ int cleanup_memory_archive(const fs::path& scope_dir, std::int64_t now_seconds, 
     std::vector<fs::path> expired;
     for (auto it = fs::directory_iterator(archive, ec); !ec && it != fs::directory_iterator();
          it.increment(ec)) {
-        const auto day = parse_memory_iso8601(path_to_utf8(it->path().filename()) + "T00:00:00Z");
+        auto date = path_to_utf8(it->path().filename());
+        std::replace(date.begin(), date.end(), '_', '-');
+        const auto day = parse_memory_iso8601(date + "T00:00:00Z");
         if (!day) continue;
         if (now_seconds - *day > static_cast<std::int64_t>(keep_days) * 86400) {
             expired.push_back(it->path());

@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,38 @@ fs::path make_unique_tmp_dir(const std::string& hint) {
 
 // 场景:写一个字段齐全(含 title)的 SessionMeta 到磁盘,再读回,
 // 所有字段必须逐一一致——这是 write_meta / read_meta 的核心契约。
+TEST(SessionStorage, GeneratedIdsUseUnderscores) {
+    EXPECT_TRUE(std::regex_match(SessionStorage::generate_session_id(),
+        std::regex(R"(^[0-9]{8}_[0-9]{6}_[0-9a-f]{4}$)")));
+}
+
+TEST(SessionStorage, MixedSessionNamesKeepTheirIdentityAndHistory) {
+    const auto dir = make_unique_tmp_dir("mixed_naming");
+    const std::vector<std::string> ids = {"20261016-100000-abcd", "20261016_100001_abcd"};
+    for (const auto& id : ids) {
+        SessionMeta meta;
+        meta.id = id;
+        meta.updated_at = "2026-10-16T10:00:00Z";
+        meta.message_count = 1;
+        meta.turn_count = 1;
+        meta.summary = id;
+        SessionStorage::write_meta(SessionStorage::meta_path(dir.u8string(), id), meta);
+        acecode::ChatMessage message;
+        message.role = "user";
+        message.content = id;
+        ASSERT_TRUE(SessionStorage::append_message(SessionStorage::session_path(dir.u8string(), id), message));
+    }
+    const auto sessions = SessionStorage::list_sessions(dir.u8string());
+    ASSERT_EQ(sessions.size(), 2u);
+    for (const auto& id : ids) {
+        const auto messages = SessionStorage::load_messages(SessionStorage::session_path(dir.u8string(), id));
+        ASSERT_EQ(messages.size(), 1u);
+        EXPECT_EQ(messages.front().content, id);
+        EXPECT_EQ(SessionStorage::find_session_files(dir.u8string(), id).size(), 1u);
+    }
+    EXPECT_FALSE(fs::exists(dir / "20261016_100000_abcd.jsonl"));
+}
+
 TEST(SessionStorage, MetaRoundtrip) {
     auto dir = make_unique_tmp_dir("roundtrip");
     auto meta_path = (dir / "20260419-120000-abcd.meta.json").string();

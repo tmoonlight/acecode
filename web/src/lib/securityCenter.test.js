@@ -194,8 +194,8 @@ import {
   assert.deepEqual(auditSummaryCounts({ total: 9, by_decision: { allow: 4, allow_session: 1, deny: 2, forbidden: 1, blocked: 1 } }),
     { total: 9, allowed: 5, denied: 3, blocked: 1 });
   assert.deepEqual(auditSummaryCounts(null), { total: 0, allowed: 0, denied: 0, blocked: 0 });
-  assert.equal(auditExportFilename('csv', new Date(2026, 8, 17, 9, 5, 3)), 'acecode-audit-20260917-090503.csv');
-  assert.equal(auditExportFilename('jsonl', new Date(2026, 0, 1, 0, 0, 0)), 'acecode-audit-20260101-000000.jsonl');
+  assert.equal(auditExportFilename('csv', new Date(2026, 8, 17, 9, 5, 3)), 'acecode_audit_20260917_090503.csv');
+  assert.equal(auditExportFilename('jsonl', new Date(2026, 0, 1, 0, 0, 0)), 'acecode_audit_20260101_000000.jsonl');
 }
 
 // 场景:错误码归一。期望:404 → 不支持,401 → 认证,503+AUDIT_UNAVAILABLE 保留,

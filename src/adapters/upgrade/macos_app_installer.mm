@@ -2,6 +2,7 @@
 #import <Security/Security.h>
 
 #include "macos_app_installer.hpp"
+#include "utils/generated_file_names.hpp"
 #include "diagnostics.hpp"
 
 #include "macos_bundle.hpp"
@@ -416,7 +417,7 @@ bool install_macos_app_update(const fs::path& installed_bundle,
         // The old bundle may still own running processes until restart. Keep
         // its actual app name stable for macOS permission/display-name lookup.
         MacosAppUpdateWorkspace workspace(applications_dir /
-            (".acecode-update-" + std::string([[[NSUUID UUID] UUIDString] UTF8String])));
+            generated_file_name(".acecode_update_" + std::string([[[NSUUID UUID] UUIDString] UTF8String])));
         if (!workspace.create(error)) return false;
         const fs::path temporary_path = workspace.staged_bundle();
         const fs::path previous_path = workspace.previous_bundle();

@@ -66,7 +66,7 @@ TEST(MemoryInboxTest, ObservationFilesAreIdempotentPerRange) {
     const auto inbox = acecode::list_memory_inbox(scope);
     ASSERT_EQ(inbox.size(), 1u);
     EXPECT_EQ(inbox[0].observations.size(), 2u);
-    EXPECT_EQ(inbox[0].observations[1].id, "s1-0-8#1");
+    EXPECT_EQ(inbox[0].observations[1].id, "s1_0_8#1");
     EXPECT_EQ(acecode::count_memory_inbox_observations(scope), 2u);
 }
 
@@ -80,15 +80,35 @@ TEST(MemoryInboxTest, ArchiveMovesFilesAndCleansUpOldDays) {
     ASSERT_TRUE(acecode::write_memory_observation_file(scope, file));
     ASSERT_TRUE(acecode::archive_memory_observation_files(scope, {file.path}, "2026-08-01"));
     EXPECT_FALSE(fs::exists(file.path));
-    EXPECT_TRUE(fs::exists(acecode::memory_archive_dir(scope) / "2026-08-01" / file.path.filename()));
+    EXPECT_TRUE(fs::exists(acecode::memory_archive_dir(scope) / "2026_08_01" / file.path.filename()));
     ASSERT_TRUE(acecode::archive_memory_observation_files(scope, {file.path}, "2026-08-01"));
     fs::create_directories(acecode::memory_archive_dir(scope) / "2026-09-25");
 
     const auto now = acecode::parse_memory_iso8601("2026-10-01T00:00:00Z");
     ASSERT_TRUE(now.has_value());
     EXPECT_EQ(acecode::cleanup_memory_archive(scope, *now, 30), 1);
-    EXPECT_FALSE(fs::exists(acecode::memory_archive_dir(scope) / "2026-08-01"));
+    EXPECT_FALSE(fs::exists(acecode::memory_archive_dir(scope) / "2026_08_01"));
     EXPECT_TRUE(fs::exists(acecode::memory_archive_dir(scope) / "2026-09-25"));
+}
+
+TEST(MemoryInboxTest, LegacyObservationReplayKeepsOneFileAndStableLegacyIds) {
+    MemoryTestHome home("memory_inbox_legacy_naming");
+    const fs::path scope = acecode::get_memory_dir();
+    auto file = observation_file("legacy", 0, 4, 1);
+    ASSERT_TRUE(acecode::write_memory_observation_file(scope, file));
+    const auto new_path = file.path;
+    const auto old_path = file.path.parent_path() / "legacy-0-4.json";
+    fs::rename(new_path, old_path);
+    auto replay = observation_file("legacy", 0, 4, 2);
+    ASSERT_TRUE(acecode::write_memory_observation_file(scope, replay));
+    EXPECT_EQ(replay.path, old_path);
+    EXPECT_FALSE(fs::exists(new_path));
+    const auto files = acecode::list_memory_inbox(scope);
+    ASSERT_EQ(files.size(), 1u);
+    ASSERT_EQ(files.front().observations.size(), 2u);
+    EXPECT_EQ(files.front().observations.front().id, "legacy-0-4#0");
+    acecode::remove_memory_observation_file(scope, "legacy", 0, 4);
+    EXPECT_TRUE(acecode::list_memory_inbox(scope).empty());
 }
 
 // 场景:条目 only_s 只来源于会话 S;shared 来源于 S 与 T;手写条目 manual_note

@@ -48,11 +48,11 @@ TEST(SessionMarkdownExportTest, BuildsMetadataRolesToolCallsAndStructuredContent
 
 TEST(SessionMarkdownExportTest, BuildsSafeSuggestedMarkdownFilename) {
     EXPECT_EQ(session_export::sanitize_filename_stem("CON: invalid? ", "fallback"), "CON_ invalid_");
-    EXPECT_EQ(session_export::sanitize_filename_stem("...", "session-1"), "session-1");
+    EXPECT_EQ(session_export::sanitize_filename_stem("...", "session-1"), "session_1");
     EXPECT_EQ(session_export::suggested_markdown_filename("会话标题", "sid"),
               "会话标题.md");
     EXPECT_EQ(session_export::suggested_markdown_filename("...", "session-1"),
-              "session-1.md");
+              "session_1.md");
 }
 
 TEST(SessionMarkdownExportTest, KeepsVisibleSystemAndErrorRoles) {

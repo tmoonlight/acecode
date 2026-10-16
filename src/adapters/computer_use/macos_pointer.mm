@@ -13,6 +13,7 @@ namespace {
 struct Pointer {
     __strong ACEComputerPointerPanel* panel = nil;
     __strong NSImageView* view = nil;
+    __strong NSTimer* press_timer = nil;
     bool visible = false, pressed = false;
     CGPoint point{};
     std::string style = "ace", color = "#2563eb";
@@ -54,11 +55,33 @@ NSImage* image(const Pointer& pointer) {
         return YES;
     }];
 }
+void render(Pointer& pointer) {
+    pointer.view.image = image(pointer);
+    [pointer.panel displayIfNeeded];
+}
+void clear_press(Pointer& pointer) {
+    [pointer.press_timer invalidate];
+    pointer.press_timer = nil;
+    pointer.pressed = false;
+}
+void press_feedback(Pointer& pointer) {
+    clear_press(pointer);
+    pointer.pressed = true;
+    // Match ACECode's Windows feedback duration, not the physical button hold.
+    // Input down/up may occur within one AppKit display cycle.
+    pointer.press_timer = [NSTimer timerWithTimeInterval:0.25 repeats:NO block:^(NSTimer* timer) {
+        auto& current = state();
+        if (current.press_timer != timer) return;
+        clear_press(current);
+        if (current.visible) render(current);
+    }];
+    [NSRunLoop.mainRunLoop addTimer:pointer.press_timer forMode:NSRunLoopCommonModes];
+}
 }
 void pointer_configure(const std::string& style, const std::string& color) {
     if (!pointer_appearance::valid_style(style) || !pointer_appearance::normalize_color(color)) return;
     main_sync(^{ auto& pointer = state(); pointer.style = style; pointer.color = color;
-        if (pointer.view) pointer.view.image = image(pointer); });
+        if (pointer.view) render(pointer); });
 }
 void pointer_show(CGPoint point, bool pressed) {
     main_sync(^{
@@ -75,15 +98,20 @@ void pointer_show(CGPoint point, bool pressed) {
             pointer.view = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 64, 56)];
             pointer.panel.contentView = pointer.view;
         }
-        pointer.point = point; pointer.pressed = pressed; pointer.visible = true;
-        pointer.view.image = image(pointer);
+        if (pressed) press_feedback(pointer);
+        else if (!CGPointEqualToPoint(pointer.point, point)) clear_press(pointer);
+        pointer.point = point; pointer.visible = true;
         // AppKit has a bottom-left origin; Quartz/AX have a top-left origin.
         const CGFloat top = NSScreen.screens.firstObject.frame.size.height;
         [pointer.panel setFrameOrigin:NSMakePoint(point.x - 10, top - point.y - 46)];
         [pointer.panel orderFrontRegardless];
+        render(pointer);
     });
 }
-void pointer_hide() { main_sync(^{ state().visible = false; [state().panel orderOut:nil]; }); }
+void pointer_hide() {
+    main_sync(^{ auto& pointer = state(); pointer.visible = false;
+        clear_press(pointer); [pointer.panel orderOut:nil]; });
+}
 bool pointer_owns(CGWindowID id) {
     __block bool result = false;
     main_sync(^{ result = state().panel && static_cast<CGWindowID>(state().panel.windowNumber) == id; });

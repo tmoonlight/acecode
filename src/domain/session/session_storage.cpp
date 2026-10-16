@@ -145,11 +145,11 @@ std::string SessionStorage::generate_session_id() {
         << std::setw(4) << (tm_buf.tm_year + 1900)
         << std::setw(2) << (tm_buf.tm_mon + 1)
         << std::setw(2) << tm_buf.tm_mday
-        << '-'
+        << '_'
         << std::setw(2) << tm_buf.tm_hour
         << std::setw(2) << tm_buf.tm_min
         << std::setw(2) << tm_buf.tm_sec
-        << '-';
+        << '_';
 
     // 4 hex random chars
     std::random_device rd;
@@ -308,6 +308,9 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     if (meta.reasoning_effort.has_value()) {
         j["reasoning_effort"] = *meta.reasoning_effort;
     }
+    if (!meta.sampling.empty()) {
+        j["sampling"] = model_sampling_options_to_json(meta.sampling);
+    }
     if (!meta.title.empty()) {
         j["title"] = meta.title;
     }
@@ -408,6 +411,12 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
         if (j.contains("reasoning_effort") && j["reasoning_effort"].is_string()) {
             meta.reasoning_effort = j["reasoning_effort"].get<std::string>();
         }
+        if (j.contains("sampling")) {
+            std::string error;
+            const auto sampling = parse_model_sampling_overrides(j["sampling"], error);
+            if (!sampling) return {};
+            meta.sampling = *sampling;
+        }
         meta.title           = j.value("title",           std::string{});
         meta.title_source    = j.value("title_source",    std::string{});
         if (!meta.title.empty() && meta.title_source.empty()) {
@@ -472,22 +481,22 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
 }
 
 // Canonical filename match:
-//   group 1 = session_id (YYYYMMDD-HHMMSS-XXXX)
+//   group 1 = session_id (new underscores or legacy hyphens)
 static const std::regex& session_filename_regex() {
     static const std::regex re(
-        R"(^(\d{8}-\d{6}-[0-9a-f]{4})\.jsonl$)");
+        R"(^(\d{8}[-_]\d{6}[-_][0-9a-f]{4})\.jsonl$)");
     return re;
 }
 
 static const std::regex& pid_session_filename_regex() {
     static const std::regex re(
-        R"(^(\d{8}-\d{6}-[0-9a-f]{4})-(\d+)\.jsonl$)");
+        R"(^(\d{8}[-_]\d{6}[-_][0-9a-f]{4})[-_](\d+)\.jsonl$)");
     return re;
 }
 
 static const std::regex& pid_meta_filename_regex() {
     static const std::regex re(
-        R"(^(\d{8}-\d{6}-[0-9a-f]{4})-(\d+)\.meta\.json$)");
+        R"(^(\d{8}[-_]\d{6}[-_][0-9a-f]{4})[-_](\d+)\.meta\.json$)");
     return re;
 }
 
@@ -510,7 +519,7 @@ static std::int64_t file_mtime_epoch(const fs::directory_entry& entry) {
     return static_cast<std::int64_t>(ftime.time_since_epoch().count());
 }
 
-// 自动生成的 id 是 YYYYMMDD-HHMMSS-XXXX,但 headless `-p --session-id`
+// 自动生成的 id 是 YYYYMMDD_HHMMSS_XXXX，旧连字符格式仍可读。headless `-p --session-id`
 // 允许调用方自定 [A-Za-z0-9_-]{1,64} 的 id(否则自定 id 会话在 TUI /resume、
 // Web 列表与 -p -c 里全部隐身)。下面这组手写判定就是按这个宽字符集匹配的,
 // 语义与原来的 meta_filename_regex + pid_meta_filename_regex 组合逐字符
@@ -550,7 +559,8 @@ static bool all_lower_hex(std::string_view text) {
 static bool is_pid_suffixed_session_stem(std::string_view stem) {
     constexpr std::size_t kMinLength = 8 + 1 + 6 + 1 + 4 + 1 + 1;
     if (stem.size() < kMinLength) return false;
-    if (stem[8] != '-' || stem[15] != '-' || stem[20] != '-') return false;
+    const auto separator = [](char c) { return c == '-' || c == '_'; };
+    if (!separator(stem[8]) || !separator(stem[15]) || !separator(stem[20])) return false;
     if (!all_ascii_digits(stem.substr(0, 8))) return false;
     if (!all_ascii_digits(stem.substr(9, 6))) return false;
     if (!all_lower_hex(stem.substr(16, 4))) return false;

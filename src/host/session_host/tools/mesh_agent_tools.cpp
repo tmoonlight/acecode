@@ -126,6 +126,7 @@ ToolImpl create_spawn_tool(std::weak_ptr<MeshAgentService> weak, const AppConfig
     const bool expose_model_overrides = config.swarm.mesh.expose_model_overrides;
     json properties = {
         {"message", string_property("Initial plain-text task for the new agent.")},
+        {"sampling", model_sampling_overrides_schema()},
         {"task_name", string_property(
             "Task name for the new agent. Use lowercase letters, digits, and underscores.")},
         {"agent_type", string_property(
@@ -151,7 +152,7 @@ ToolImpl create_spawn_tool(std::weak_ptr<MeshAgentService> weak, const AppConfig
         auto service = weak.lock();
         if (!service) return failure(kUnavailable);
         std::set<std::string> allowed = {"message", "task_name", "agent_type", "fork_turns",
-                                         "fork_context"};
+                                         "fork_context", "sampling"};
         if (expose_model_overrides) allowed.insert({"model", "reasoning_effort"});
         json args;
         if (auto error = parse_object(arguments, allowed, args); !error.empty()) {
@@ -161,6 +162,11 @@ ToolImpl create_spawn_tool(std::weak_ptr<MeshAgentService> weak, const AppConfig
             return failure("fork_context is not supported in MultiAgentV2; use fork_turns instead");
         }
         mesh::SpawnArgs spawn;
+        if (args.contains("sampling")) {
+            std::string error;
+            spawn.sampling = parse_model_sampling_overrides(args["sampling"], error);
+            if (!spawn.sampling) return failure(error);
+        }
         std::string fork_turns;
         std::string effort;
         std::string error;

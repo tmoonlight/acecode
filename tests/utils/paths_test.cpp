@@ -337,7 +337,7 @@ TEST_F(DataDirRedirectTest, CorruptPointerIsIgnored) {
     auto warning = acecode::take_data_dir_resolution_warning();
     ASSERT_TRUE(warning.has_value());
     EXPECT_NE(warning->find("invalid"), std::string::npos) << *warning;
-    EXPECT_NE(warning->find(acecode::kDataDirRedirectFileName), std::string::npos)
+    EXPECT_NE(warning->find(acecode::data_dir_redirect_path(default_dir())), std::string::npos)
         << "告警应带上指针文件路径,便于定位: " << *warning;
 }
 

@@ -462,8 +462,8 @@ export function auditSummaryCounts(summary) {
 // 导出文件名跟着后端的 Content-Disposition 走,拿不到就自己拼一个。
 export function auditExportFilename(format, now = new Date()) {
   const pad = (value) => String(value).padStart(2, '0');
-  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `acecode-audit-${stamp}.${format === 'csv' ? 'csv' : 'jsonl'}`;
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `acecode_audit_${stamp}.${format === 'csv' ? 'csv' : 'jsonl'}`;
 }
 
 // ---------------------------------------------------------------------------

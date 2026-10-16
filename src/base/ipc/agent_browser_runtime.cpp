@@ -4,6 +4,7 @@
 #include "utils/paths.hpp"
 #include "utils/url_encoding.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -99,7 +100,7 @@ std::string normalize_file_url(std::string value) {
 } // namespace
 
 std::filesystem::path agent_browser_root_path(const std::string& acecode_dir) {
-    return data_root(acecode_dir) / "agent-browser";
+    return compatible_generated_path(data_root(acecode_dir), "agent-browser");
 }
 
 std::filesystem::path agent_browser_user_data_path(const std::string& acecode_dir) {
@@ -108,17 +109,17 @@ std::filesystem::path agent_browser_user_data_path(const std::string& acecode_di
 
 std::filesystem::path agent_browser_macos_profile_identifier_path(
     const std::string& acecode_dir) {
-    return agent_browser_root_path(acecode_dir) / "macos-profile-id";
+    return compatible_generated_path(agent_browser_root_path(acecode_dir), "macos-profile-id");
 }
 
 std::filesystem::path agent_browser_proxy_socket_path(
     const std::string& acecode_dir) {
-    return data_root(acecode_dir) / "run" / "agent-browser.sock";
+    return compatible_generated_path(data_root(acecode_dir) / "run", "agent-browser.sock");
 }
 
 std::filesystem::path agent_browser_runtime_manifest_path(
     const std::string& acecode_dir) {
-    return data_root(acecode_dir) / "run" / "agent-browser.json";
+    return compatible_generated_path(data_root(acecode_dir) / "run", "agent-browser.json");
 }
 
 std::optional<std::string> normalize_agent_browser_url(
@@ -227,7 +228,8 @@ std::string validate_agent_browser_runtime_manifest(
     const std::filesystem::path socket_path =
         path_from_utf8(manifest.pipe_name);
     if (!socket_path.is_absolute() ||
-        socket_path.filename() != "agent-browser.sock" ||
+        (socket_path.filename() != "agent-browser.sock" &&
+         socket_path.filename() != "agent_browser.sock") ||
         socket_path.parent_path().filename() != "run") {
         return "agent browser proxy socket is invalid";
     }

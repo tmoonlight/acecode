@@ -1,6 +1,7 @@
 #include "config/config_recovery.hpp"
 #include "config/config.hpp"
 #include "utils/logger.hpp"
+#include "utils/uuid.hpp"
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -19,7 +20,7 @@ public:
     TempRecoveryConfig() {
         static std::atomic<unsigned long long> sequence{0};
         root = fs::temp_directory_path() /
-            ("acecode-config-recovery-test-" +
+            ("acecode_config_recovery_test_" + acecode::generated_file_name(acecode::generate_uuid()) + "_" +
              std::to_string(sequence.fetch_add(1)));
         fs::create_directories(root);
         config = root / "config.json";
@@ -84,15 +85,25 @@ TEST(ConfigRecoveryPersistence, PathsStayBesideExplicitConfig) {
     TempRecoveryConfig temp;
     const auto paths = acecode::config_recovery_paths(temp.config.string());
 
-    EXPECT_EQ(fs::path(paths.root_dir), temp.root / "config-backups");
+    EXPECT_EQ(fs::path(paths.root_dir), temp.root / "config_backups");
     EXPECT_EQ(fs::path(paths.last_good_path),
-              temp.root / "config-backups" / "last-good" / "config.json");
+              temp.root / "config_backups" / "last_good" / "config.json");
     EXPECT_EQ(fs::path(paths.invalid_dir),
-              temp.root / "config-backups" / "invalid");
+              temp.root / "config_backups" / "invalid");
     EXPECT_EQ(fs::path(paths.staging_dir),
-              temp.root / "config-backups" / "staging");
+              temp.root / "config_backups" / "staging");
     EXPECT_EQ(fs::path(paths.notice_path),
-              temp.root / "config-backups" / "recovery-notice.json");
+              temp.root / "config_backups" / "recovery_notice.json");
+}
+
+TEST(ConfigRecoveryPersistence, ReusesLegacySnapshotsWithoutCreatingAnEmptyStore) {
+    TempRecoveryConfig temp;
+    const auto legacy = temp.root / "config-backups" / "last-good" / "config.json";
+    fs::create_directories(legacy.parent_path());
+    { std::ofstream out(legacy); out << "{}"; }
+    const auto paths = acecode::config_recovery_paths(temp.config.string());
+    EXPECT_EQ(fs::path(paths.last_good_path), legacy);
+    EXPECT_FALSE(fs::exists(temp.root / "config_backups"));
 }
 
 TEST(ConfigRecoveryPersistence, SnapshotAndArchivesPreserveExactBytes) {
@@ -126,7 +137,7 @@ TEST(ConfigRecoveryPersistence, SnapshotAndArchivesPreserveExactBytes) {
 
 TEST(ConfigRecoveryPersistence, NoticeReadAndAcknowledgeAreDurableAndIdempotent) {
     TempRecoveryConfig temp;
-    const fs::path invalid = temp.root / "config-backups" / "invalid" /
+    const fs::path invalid = temp.root / "config_backups" / "invalid" /
         "config-invalid.json";
     std::string error;
 
@@ -206,7 +217,7 @@ TEST(ConfigRecoveryLoad, MalformedJsonRestoresSnapshotAndArchivesExactBytes) {
     ASSERT_FALSE(notice.invalid_backup_path.empty());
     EXPECT_EQ(read_bytes(notice.invalid_backup_path), invalid);
     EXPECT_EQ(fs::path(notice.invalid_backup_dir),
-              temp.root / "config-backups" / "invalid");
+              temp.root / "config_backups" / "invalid");
 
     const std::string logs = read_bytes(log_path);
     EXPECT_NE(logs.find("active config rejected"), std::string::npos);

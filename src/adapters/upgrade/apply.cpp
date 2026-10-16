@@ -38,7 +38,7 @@ namespace fs = std::filesystem;
 namespace acecode::upgrade {
 namespace {
 
-constexpr const char* kUpdateRunnerDirName = ".acecode-update-runner";
+constexpr const char* kUpdateRunnerDirName = ".acecode_update_runner";
 
 // 这里的错误文本会经 run_upgrade_command 成为 GUI 升级任务的 job.error。MSVC 的
 // ec.message() 与 path::string() 走 ANSI 代码页(中文 Windows 为 GBK):OS 文本
@@ -326,9 +326,9 @@ fs::path current_executable_path(const std::string& argv0) {
 fs::path make_runner_path(unsigned long pid, const fs::path& install_dir) {
     fs::path runner_dir = install_dir / kUpdateRunnerDirName;
 #ifdef _WIN32
-    return runner_dir / ("acecode-update-runner-" + std::to_string(pid) + ".exe");
+    return runner_dir / ("acecode_update_runner_" + std::to_string(pid) + ".exe");
 #else
-    return runner_dir / ("acecode-update-runner-" + std::to_string(pid));
+    return runner_dir / ("acecode_update_runner_" + std::to_string(pid));
 #endif
 }
 

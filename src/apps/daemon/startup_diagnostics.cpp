@@ -47,7 +47,7 @@ void append_startup_diagnostic(const std::string& message) {
     fs::create_directories(run_dir, ec);
     if (ec) return;
 
-    std::ofstream out(run_dir / "daemon-startup.log",
+    std::ofstream out(run_dir / "daemon_startup.log",
                       std::ios::binary | std::ios::app);
     if (!out.is_open()) return;
     out << local_timestamp() << " elapsed_ms=" << startup_elapsed_ms()

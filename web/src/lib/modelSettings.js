@@ -398,7 +398,7 @@ export function normalizeProviderModelQuery(payload, expectedProviderId = '') {
   };
 }
 
-function normalizeSampling(value, label) {
+export function normalizeSampling(value, label) {
   if (value === undefined || value === null) return {};
   const object = requireObject(value, label);
   const output = {};
@@ -415,7 +415,7 @@ function normalizeSampling(value, label) {
   return output;
 }
 
-function samplingDraftFields(sampling = {}) {
+export function samplingDraftFields(sampling = {}) {
   return Object.fromEntries(MODEL_SAMPLING_FIELDS.map((field) => [
     field,
     typeof sampling?.[field] === 'number' ? String(sampling[field]) : '',
@@ -914,7 +914,7 @@ export function modelSamplingFieldSupport(draft, provider) {
   return { temperature: true, top_p: true, top_k: true, min_p: true };
 }
 
-function samplingFieldValid(field, value, provider) {
+export function samplingFieldValid(field, value, provider) {
   if (!Number.isFinite(value)) return false;
   switch (field) {
     case 'temperature':

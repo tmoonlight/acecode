@@ -79,6 +79,98 @@ acecode::ExpertDraft make_agent(std::string id = "reviewer",
 
 } // namespace
 
+TEST(ExpertRegistry, SamplingPresetsRoundTripPreserveAndClear) {
+    TempDir temp;
+    acecode::ExpertRegistry registry(temp.path / "global");
+    auto draft = make_agent();
+    draft.sampling.temperature = 0.0;
+    draft.sampling.min_p = 0.0;
+    draft.sampling.top_k = 20;
+    std::string error;
+    ASSERT_TRUE(registry.create_global(draft, &error)) << error;
+    auto found = registry.find(temp.path.string(), draft.id);
+    ASSERT_TRUE(found);
+    EXPECT_EQ(found->selected_sampling().temperature, 0.0);
+    auto detail = acecode::expert_definition_to_json(*found, true);
+    detail["lead"] = {{"id", draft.lead.id}, {"instructions", draft.lead.instructions}};
+    EXPECT_EQ(detail["sampling"]["min_p"], 0);
+    auto round_trip = acecode::ExpertRegistry::draft_from_json(detail, &error);
+    ASSERT_TRUE(round_trip) << error;
+    EXPECT_EQ(round_trip->sampling.top_k, 20);
+
+    auto old_client = make_agent();
+    old_client.description = "Edited by old client";
+    ASSERT_TRUE(registry.update_global(draft.id, old_client, &error)) << error;
+    found = registry.find(temp.path.string(), draft.id);
+    ASSERT_TRUE(found);
+    EXPECT_EQ(found->sampling.top_k, 20);
+
+    const auto manifest_path = temp.path / "global" / draft.id / "expert.json";
+    for (const auto& clear : {nlohmann::json(nullptr), nlohmann::json::object()}) {
+        ASSERT_TRUE(registry.update_global(draft.id, draft, &error)) << error;
+        nlohmann::json manifest;
+        { std::ifstream input(manifest_path); input >> manifest; }
+        manifest["agents"][0]["sampling"] = {{"temperature", 0.6}};
+        { std::ofstream output(manifest_path); output << manifest.dump(); }
+        found = registry.find(temp.path.string(), draft.id);
+        ASSERT_TRUE(found);
+        EXPECT_EQ(acecode::expert_definition_to_json(*found, true)["sampling"]["temperature"], 0.6);
+        auto payload = detail;
+        payload["sampling"] = clear;
+        auto parsed = acecode::ExpertRegistry::draft_from_json(payload, &error);
+        ASSERT_TRUE(parsed) << error;
+        ASSERT_TRUE(registry.update_global(draft.id, *parsed, &error)) << error;
+        found = registry.find(temp.path.string(), draft.id);
+        ASSERT_TRUE(found);
+        EXPECT_TRUE(found->sampling.empty());
+        EXPECT_TRUE(found->selected_sampling().empty());
+    }
+    for (const auto& invalid : {nlohmann::json{{"top_k", 1.5}}, nlohmann::json{{"typo", 0.3}}}) {
+        auto payload = detail;
+        payload["sampling"] = invalid;
+        EXPECT_FALSE(acecode::ExpertRegistry::draft_from_json(payload, &error));
+        EXPECT_FALSE(error.empty());
+    }
+}
+
+TEST(ExpertRegistry, TeamProjectsMembersSamplingAndLegacyAgentOverrides) {
+    TempDir temp;
+    acecode::ExpertRegistry registry(temp.path / "global");
+    auto lead = make_agent("coordinator");
+    lead.sampling.temperature = 0.2;
+    auto member = make_agent("reviewer");
+    member.sampling.temperature = 0.4;
+    member.sampling.top_k = 20;
+    std::string error;
+    ASSERT_TRUE(registry.create_global(lead, &error)) << error;
+    ASSERT_TRUE(registry.create_global(member, &error)) << error;
+    acecode::ExpertDraft team;
+    team.id = "sample-team";
+    team.type = acecode::ExpertType::Team;
+    team.display_name = "Sampling team";
+    team.lead_expert_id = lead.id;
+    team.member_expert_ids = {member.id};
+    team.sampling.top_p = 0.8;
+    team.sampling.temperature = 0.9;
+    ASSERT_TRUE(registry.create_global(team, &error)) << error;
+    const auto found = registry.find(temp.path.string(), team.id);
+    ASSERT_TRUE(found);
+    EXPECT_EQ(found->selected_sampling().temperature, 0.2);
+    EXPECT_EQ(found->selected_sampling(member.id).temperature, 0.4);
+    EXPECT_EQ(found->selected_sampling(member.id).top_k, 20);
+    EXPECT_EQ(found->selected_sampling(member.id).top_p, 0.8);
+
+    const auto manifest_path = temp.path / "global" / member.id / "expert.json";
+    nlohmann::json manifest;
+    { std::ifstream input(manifest_path); input >> manifest; }
+    manifest["agents"][0]["sampling"] = {{"temperature", 0}};
+    { std::ofstream output(manifest_path); output << manifest.dump(); }
+    const auto overridden = registry.find(temp.path.string(), team.id);
+    ASSERT_TRUE(overridden);
+    EXPECT_EQ(overridden->selected_sampling(member.id).temperature, 0);
+    EXPECT_EQ(overridden->selected_sampling(member.id).top_k, 20);
+}
+
 TEST(ExpertRegistry, CreatesDiscoversUpdatesAndDeletesGlobalExpert) {
     TempDir temp;
     acecode::ExpertRegistry registry(temp.path / "global");

@@ -3,6 +3,7 @@
 #include "data_dir_migration.hpp"
 
 #include "utils/encoding.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
 #include "utils/uuid.hpp"
@@ -25,6 +26,11 @@ namespace fs = std::filesystem;
 namespace {
 std::shared_mutex write_gate;
 std::atomic<bool> writes_blocked{false};
+
+bool is_data_dir_redirect_file(const fs::path& relative) {
+    return relative == fs::path(kDataDirRedirectFileName) ||
+           relative == fs::path(generated_file_name(kDataDirRedirectFileName));
+}
 }
 std::shared_mutex& data_dir_write_mutex() { return write_gate; }
 bool data_dir_writes_blocked() { return writes_blocked.load(); }
@@ -327,7 +333,7 @@ MigrationTargetCheck validate_migration_target(const std::string& current_dir,
     }
 
     // 真写一个探针文件确认可写(只读盘 / 权限不足在这里暴露,而不是复制到一半)。
-    const fs::path probe = target_c / ".acecode-write-probe";
+    const fs::path probe = target_c / ".acecode_write_probe";
     {
         std::ofstream ofs(probe, std::ios::binary | std::ios::trunc);
         if (!ofs.is_open()) {
@@ -349,8 +355,8 @@ bool migration_excludes_entry(const fs::path& relative) {
     const std::string first = path_to_utf8(*relative.begin());
     // edge-app-profile:webapp 兼容模式下 Edge --app 的 user-data-dir,每次启动都用全新的
     // PID 子目录并清掉旧的,持续在写又没有要保留的数据,整个排除。
-    if (first == "run" || first == "tmp" || first == "edge-app-profile") return true;
-    if (first == kDataDirRedirectFileName && std::distance(relative.begin(), relative.end()) == 1) {
+    if (first == "run" || first == "tmp" || first == "edge-app-profile" || first == "edge_app_profile") return true;
+    if (is_data_dir_redirect_file(relative)) {
         return true;
     }
     // cache/no-workspace/<id>/.acecode/tmp/**:无工作区会话的 ACECODE_TMPDIR(临时脚本、
@@ -361,7 +367,7 @@ bool migration_excludes_entry(const fs::path& relative) {
     for (auto part = relative.begin(); part != relative.end() && count < 5; ++part) {
         segments[count++] = path_to_utf8(*part);
     }
-    if (count == 5 && segments[0] == "cache" && segments[1] == "no-workspace" &&
+    if (count == 5 && segments[0] == "cache" && (segments[1] == "no-workspace" || segments[1] == "no_workspace") &&
         segments[3] == ".acecode" && segments[4] == "tmp") {
         return true;
     }
@@ -465,7 +471,7 @@ MigrationProgress run_data_dir_migration(const std::string& current_dir,
         const fs::path relative = it->path().lexically_relative(source_io);
         if (migration_excludes_entry(relative)) {
             // 指针文件清理时保留,不算旧数据。
-            if (relative != fs::path(kDataDirRedirectFileName)) {
+            if (!is_data_dir_redirect_file(relative)) {
                 left_behind_bytes += measure_left_behind_bytes(it->path());
             }
             if (it->is_directory(ec)) it.disable_recursion_pending();
@@ -802,7 +808,7 @@ std::string cleanup_previous_data_dir(const std::string& previous_dir,
         prefix_key(canonical_or_normal(path_from_utf8(default_dir)));
     std::string first_error;
     for (const auto& entry : fs::directory_iterator(prev_io, ec)) {
-        if (keep_pointer && entry.path().filename() == kDataDirRedirectFileName) continue;
+        if (keep_pointer && is_data_dir_redirect_file(entry.path().filename())) continue;
         std::error_code rm_ec;
         fs::remove_all(entry.path(), rm_ec);
         if (rm_ec && first_error.empty()) {
@@ -849,7 +855,7 @@ DataDirStatus data_dir_status(RunMode mode) {
             // 默认目录只剩指针文件时不算"仍有旧数据"。
             bool has_content = false;
             for (const auto& entry : fs::directory_iterator(prev, ec)) {
-                if (entry.path().filename() == kDataDirRedirectFileName) continue;
+                if (is_data_dir_redirect_file(entry.path().filename())) continue;
                 has_content = true;
                 break;
             }

@@ -3,6 +3,7 @@
 #include "utils/atomic_file.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
+#include "utils/generated_file_names.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -31,7 +32,7 @@ std::string trim_ascii(const std::string& value) {
 } // namespace
 
 std::string settings_path(const std::string& data_dir) {
-    return path_to_utf8(path_from_utf8(data_dir) / kSettingsFileName);
+    return path_to_utf8(compatible_generated_path(path_from_utf8(data_dir), kSettingsFileName));
 }
 
 ToolRewriteSettings default_settings() {

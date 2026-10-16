@@ -192,7 +192,7 @@ ToolResult action_screenshot(const Target& target, const ToolContext& ctx) {
                     std::to_string(height) + " points (" + orientation_name(rotation) +
                     "). 1 image pixel = 1 point; use these coordinates for tap/swipe.";
     result.attachments = json::array({{
-        {"name", "simulator-" + target.device.udid.substr(0, 8) + "-" + std::to_string(stamp) + ".jpg"},
+        {"name", "simulator_" + target.device.udid.substr(0, 8) + "_" + std::to_string(stamp) + ".jpg"},
         {"mime_type", "image/jpeg"},
         {"data_url", "data:image/jpeg;base64," + base64_encode(response.binary)},
     }});

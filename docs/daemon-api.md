@@ -410,7 +410,7 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | DELETE | `/api/memory/:scope/:name?workspace=<hash>` | delete one entry and record a tombstone |
 | POST | `/api/memory/reset` | clear one scope (entries, index, inbox, archive) |
 | GET | `/api/config/tool-rewrites` | read tool rewrite settings plus the built-in tool catalog |
-| PUT | `/api/config/tool-rewrites` | replace tool rewrite settings, persist `tool-rewrites.json`, apply live |
+| PUT | `/api/config/tool-rewrites` | replace tool rewrite settings, persist `tool_rewrites.json`, apply live |
 | GET | `/api/config/tool-preamble` | read the concrete progress text switch (work mode) |
 | PUT | `/api/config/tool-preamble` | set the concrete progress text switch in `config.json`, push to active sessions |
 | GET | `/api/config/sandbox` | read sandbox switches, filesystem lists, defaults and platform probe |
@@ -2827,6 +2827,22 @@ Creating an ID shadowed by a workspace package returns
 returns `409 EXPERT_ALREADY_EXISTS`. Updating or deleting a workspace-sourced
 package also returns `409 WORKSPACE_EXPERT_READ_ONLY`.
 
+Expert definitions and create/update payloads also support `sampling`:
+`{"temperature":0.3,"top_p":0.95,"top_k":20,"min_p":0}`. Each key is optional.
+Updates that omit `sampling` preserve the stored preset; `null` or `{}` clears it.
+For a single expert, the response includes its lead's effective preset; explicit
+updates replace that complete preset, removing any package-authored lead override.
+Team updates change team defaults and leave referenced experts' presets intact.
+Unknown sampling keys, invalid types and out-of-range values are rejected. Generic
+ranges match saved models; actual provider/protocol support is checked when the
+expert is selected or a session is created. A team's preset supplies defaults;
+each referenced expert's preset overrides its fields. The `agents[].sampling`
+response describes the effective expert preset for that member. Session-local
+sampling supplied by `spawn_subagent` or `agent_spawn` has highest priority and
+is persisted independently of saved model settings. Expert switching publishes
+the new sampling settings at the same control boundary as the role; an
+incompatible switch keeps the existing role and provider.
+
 Each of `capabilities.skills`, `capabilities.mcp_servers`, and
 `capabilities.tools` is independently optional:
 
@@ -4156,7 +4172,7 @@ either name. This is an explicit opt-in for audit scenarios; the process
 default is no rewriting.
 
 The data is **not** part of `config.json`. It lives in
-`<data_dir>/tool-rewrites.json` next to `config.json`, shared by the daemon,
+`<data_dir>/tool_rewrites.json` next to `config.json`, shared by the daemon,
 the TUI and headless mode, and is loaded once at startup before tool
 registration:
 
@@ -4427,7 +4443,7 @@ Manifest checks and package transfers do not use a fixed total request timeout.
 Transport, HTTP, and file-write failures are still reported normally.
 
 Checks and upgrades append flushed JSON diagnostic records to the ACECode data
-directory's `logs/upgrade-YYYY-MM-DD-PID.log` (UTC date). Each attempt has an
+directory's `logs/upgrade_YYYY_MM_DD_PID.log` (UTC date). Each attempt has an
 `operation_id`; GUI precheck, worker, and installer records share that id, and
 GUI records also include `job_id`. Records include phase, elapsed milliseconds,
 versions, paths, HTTP/transport status, download byte counts, checksum values,
@@ -4907,7 +4923,7 @@ runtime is not long-path aware: a copied file whose final path reaches 260
 characters may be unreadable at runtime, and completion logs a warning with the
 count and one sample path.
 
-Success atomically publishes the copied directory, writes `data-dir.redirect.json`
+Success atomically publishes the copied directory, writes `data_dir.redirect.json`
 in the platform default data directory, and sets `restart_required:true`. The
 current process continues reading the old root; new turns and authenticated
 mutations are rejected with `409 DATA_DIR_MIGRATION_ACTIVE` until restart.
@@ -5453,7 +5469,7 @@ Resize uses `POST /api/pty/:id/resize`, not the WebSocket.
 ## 14. Scheduled tasks
 
 Scheduled tasks (Chinese UI: “定时任务”, internal identifier: LOOP) is a daemon-owned scheduler. It persists to
-`<acecode_dir>/scheduled-loops.sqlite3` and continues running without an open
+`<acecode_dir>/scheduled_loops.sqlite3` and continues running without an open
 browser. Clients configure friendly period/interval/once fields; the compiled
 schedule expression is internal and is never returned by the API.
 
@@ -5958,3 +5974,5 @@ Backs the `ios_simulator` / `ios_simulator_build` tools, Settings > Tools > iOS 
 `helper.sandboxed` is true while the helper runs inside its Seatbelt profile; `sandbox_note` explains an unconfined helper (`ACECODE_IOS_SIM_SANDBOX=0`, no `sandbox-exec`, or the profile could not be applied).
 
 Tool results of `ios_simulator` carry `metadata.ios_simulator = {action, udid, name, runtime, point_width, point_height, rotation}`; the web UI opens the panel on `attach` and closes it on `detach`.
+
+Runtime-generated names use underscore separators. Existing hyphen-named data remains accessible; see [运行数据命名](runtime_file_naming.md).

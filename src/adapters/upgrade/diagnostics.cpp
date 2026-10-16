@@ -2,6 +2,7 @@
 
 #include "apply.hpp"
 #include "utils/encoding.hpp"
+#include "utils/generated_file_names.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
@@ -99,7 +100,7 @@ DiagnosticLog::DiagnosticLog(const std::string& operation,
         operation_id_ = pid + "-" + now + "-" + std::to_string(++next_operation);
         const auto root = directory.empty()
             ? path_from_utf8(get_acecode_dir()) / "logs" : directory;
-        path_ = root / ("upgrade-" + now.substr(0, 10) + "-" + pid + ".log");
+        path_ = root / generated_file_name("upgrade_" + now.substr(0, 10) + "_" + pid + ".log");
         std::error_code ec;
         std::filesystem::create_directories(root, ec);
         if (ec) {

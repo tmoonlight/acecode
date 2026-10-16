@@ -283,7 +283,8 @@ ExistingDaemonProbeResult inspect_existing_daemon(
 
     // One-release migration for the pre-manifest Desktop daemon.
     const bool legacy_reserved_dir =
-        std::filesystem::path(req.run_dir).filename() == "desktop-shared";
+        (std::filesystem::path(req.run_dir).filename() == "desktop-shared" ||
+         std::filesystem::path(req.run_dir).filename() == "desktop_shared");
     if (!snapshot.desktop_managed.has_value() && !health_managed &&
         legacy_reserved_dir &&
         acecode::daemon::process_is_acecode_daemon(result.pid)) {

@@ -231,7 +231,7 @@ def pick_desktop_build(builds: list[Path], preferred: str | None = None) -> Path
 # ─── 启动 Desktop ───────────────────────────────────────────────────────────
 
 def desktop_instance_identity(project_root: Path) -> str:
-    """Stable `<worktree>-<commit12>` identity, shared with the Web runtime naming."""
+    """Stable `<worktree>_<commit12>` identity, shared with the Web runtime naming."""
     from dev_environment import current_commit, sanitize_identity
 
     commit = current_commit(project_root)

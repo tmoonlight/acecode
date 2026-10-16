@@ -5,6 +5,23 @@
 Multi-Agent V2,openspec `add-mesh-swarm-mode`)。
 对应提交:`dd10b15`(工具内核,daemon)→ `2c20b5b`(Web 后台任务面板 + parent 持久化)→ `35b986f`(TUI 支持)。
 
+## 采样参数
+
+`spawn_subagent` 和网状蜂群的 `agent_spawn` 都接受可选 `sampling`：
+
+```json
+{"sampling":{"temperature":0.3,"top_p":0.95,"top_k":20,"min_p":0}}
+```
+
+四个字段分别覆盖，优先级为：本次发起参数 > 所选专家（成员）预设 > 模型设置。
+未传、`null` 或 `{}` 表示不增加覆盖；字段为 `null` 也表示继承。数值 `0` 不等于空值。
+普通子任务不额外继承父会话的显式采样覆盖，`fork_turns` 只控制历史继承。
+显式覆盖保存到子会话 metadata，恢复、模型重载和后续模型切换时继续使用。
+
+专家编辑器的“采样参数”可保存这些预设。团队设置提供默认值，被引用专家的预设优先；
+子任务仍可逐字段覆盖。旧专家包无需迁移。不受支持的 provider/protocol、错误类型和越界值
+会在启动前报错；例如 Responses 协议不接受 `top_k`、`min_p`。
+
 ## 1. 设计概览
 
 参照 Claude Code 的 Task 工具语义,落在 ACECode 自己的多会话基建上:

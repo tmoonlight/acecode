@@ -37,7 +37,7 @@ constexpr int kNoUpgradeTimeoutMs = 0;
 fs::path unique_update_workspace_dir() {
     const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
     return upgrade_workspace_base_dir() /
-           ("acecode-update-" + std::to_string(current_process_id()) + "-" +
+           ("acecode_update_" + std::to_string(current_process_id()) + "_" +
             std::to_string(ticks));
 }
 

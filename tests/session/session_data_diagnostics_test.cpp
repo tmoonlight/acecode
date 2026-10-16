@@ -21,7 +21,7 @@ TEST(SessionDataDiagnostics, SamplesOnlyFiveLargestInRegisteredWorkspaceWithoutC
     const std::string hash = "0123456789abcdef";
     const std::string secret = "private-message-body-and-path";
     for (int i = 0; i < 7; ++i) {
-        fixture.write(hash, "20260101-000000-000" + std::to_string(i),
+        fixture.write(hash, std::string(i % 2 ? "20260101_000000_000" : "20260101-000000-000") + std::to_string(i),
                       "{\"role\":\"user\",\"content\":\"" + secret + std::string(i, 'x') + "\"}\n");
     }
     fixture.write("fedcba9876543210", "20260101-000000-0000", "unregistered");

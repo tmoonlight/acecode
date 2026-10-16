@@ -54,6 +54,33 @@ ModelSamplingOptions glm_recommended() {
 
 } // namespace
 
+TEST(ModelSamplingOverrides, MergesFieldsWithoutLosingZeroOrMutatingDefaults) {
+    std::string error;
+    const auto defaults = glm_recommended();
+    const auto overrides = acecode::parse_model_sampling_overrides(
+        nlohmann::json{{"temperature", 0}, {"min_p", 0}, {"top_p", nullptr}}, error);
+    ASSERT_TRUE(overrides) << error;
+    const auto merged = acecode::merge_model_sampling_options(defaults, *overrides);
+    EXPECT_EQ(merged.temperature, 0);
+    EXPECT_EQ(merged.min_p, 0);
+    EXPECT_EQ(merged.top_p, 0.95);
+    EXPECT_EQ(merged.top_k, 20);
+    EXPECT_EQ(defaults.temperature, 1);
+    EXPECT_TRUE(acecode::parse_model_sampling_overrides(nullptr, error)->empty());
+}
+
+TEST(ModelSamplingOverrides, RejectsInvalidAndUnknownFields) {
+    for (const auto& value : {
+        R"({"temperature":"0.5"})", R"({"temperature":2.1})",
+        R"({"top_p":0})", R"({"top_k":1.5})", R"({"top_k":2147483648})",
+        R"({"top_k":18446744073709551615})", R"({"min_p":-0.1})",
+        R"({"temperatur":0.5})", R"([])"}) {
+        std::string error;
+        EXPECT_FALSE(acecode::parse_model_sampling_overrides(nlohmann::json::parse(value), error)) << value;
+        EXPECT_FALSE(error.empty()) << value;
+    }
+}
+
 // 触发场景:模型没有配置任何采样参数(所有现有用户的默认状态)。
 // 期望:Chat Completions 请求体里一个采样字段都没有,与加这个功能之前一致。
 TEST(ModelSamplingRequest, OpenAiOmitsSamplingFieldsWhenUnset) {

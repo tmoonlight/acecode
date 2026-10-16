@@ -1,6 +1,7 @@
 #pragma once
 
 #include "llm/llm_provider.hpp"
+#include "config/saved_models.hpp"
 #include "todo_state.hpp"
 #include <cstddef>
 #include <functional>
@@ -58,6 +59,7 @@ struct SessionMeta {
     std::string model;
     std::string model_preset;  // optional saved_models name for this session
     std::optional<std::string> reasoning_effort;  // absent = inherit model profile
+    ModelSamplingOptions sampling; // Explicit session overrides only.
     std::string title;  // optional window title; empty = unset
     // "user" = explicit rename, "user-cleared" = explicit empty title,
     // "generated" = hidden title generator, "legacy" = pre-provenance
@@ -130,7 +132,8 @@ public:
     // Returns first 16 hex chars of a hash of the canonical path.
     static std::string compute_project_hash(const std::string& cwd);
 
-    // Generate a new session ID: YYYYMMDD-HHMMSS-<4 hex random>
+    // Generate a new session ID: YYYYMMDD_HHMMSS_<4 hex random>.
+    // Existing hyphen IDs retain their identity and remain readable.
     static std::string generate_session_id();
 
     // Get the project directory for a given CWD: ~/.acecode/projects/<hash>/

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include "config/saved_models.hpp"
 
 namespace acecode {
 
@@ -55,6 +56,7 @@ struct ExpertAgent {
     std::filesystem::path document_path;
     std::vector<std::filesystem::path> skill_roots;
     ExpertCapabilityScopes capabilities;
+    ModelSamplingOptions sampling;
 };
 
 struct ExpertDefinition {
@@ -77,6 +79,8 @@ struct ExpertDefinition {
     std::string updated_at;
     ExpertCapabilityScopes capabilities;
 
+    ModelSamplingOptions sampling;
+
     std::string lead_agent_id;
     std::vector<ExpertAgent> agents;
     std::vector<std::string> member_agent_ids;
@@ -96,6 +100,7 @@ struct ExpertDefinition {
         const std::string& member_id = {}) const;
     ExpertCapabilityScopes selected_capabilities(
         const std::string& member_id = {}) const;
+    ModelSamplingOptions selected_sampling(const std::string& member_id = {}) const;
     bool is_declared_member(const std::string& member_id) const;
 };
 
@@ -129,6 +134,9 @@ struct ExpertDraft {
     // authoritative either way: omitted managed scope keys mean inheritance,
     // while unknown capability extension keys remain package-owned data.
     bool capabilities_present = false;
+    ModelSamplingOptions sampling;
+    // Omission preserves existing package data; null/{} explicitly clears it.
+    bool sampling_present = false;
     ExpertStateAvatars state_avatars;
     // Omitted preserves package-owned state data; a present object is
     // authoritative for the three known state keys, including explicit clear.

@@ -113,9 +113,9 @@ await test('Mermaid families produce deterministic export filenames', () => {
   ];
   for (const [source, family] of cases) {
     assert.equal(mermaidFamilyFromSource(source), family);
-    assert.equal(mermaidExportFilename({ source }, 'svg'), `mermaid-${family}.svg`);
+    assert.equal(mermaidExportFilename({ source }, 'svg'), `mermaid_${family}.svg`);
   }
-  assert.equal(mermaidExportFilename(detail, 'source'), 'mermaid-flowchart.mmd');
+  assert.equal(mermaidExportFilename(detail, 'source'), 'mermaid_flowchart.mmd');
 });
 
 await test('PNG dimensions prefer 2x but obey dimension and pixel caps', () => {
@@ -131,14 +131,14 @@ await test('PNG dimensions prefer 2x but obey dimension and pixel caps', () => {
 await test('SVG and source export download exact retained artifacts and revoke URLs', async () => {
   const svgHarness = downloadHarness();
   const svgResult = exportMermaidSvg(detail, { BlobType: Blob, ...svgHarness.options });
-  assert.deepEqual(svgResult, { ok: true, filename: 'mermaid-flowchart.svg' });
-  assert.equal(svgHarness.anchors[0].download, 'mermaid-flowchart.svg');
+  assert.deepEqual(svgResult, { ok: true, filename: 'mermaid_flowchart.svg' });
+  assert.equal(svgHarness.anchors[0].download, 'mermaid_flowchart.svg');
   assert.equal(await svgHarness.blobs.get(svgHarness.anchors[0].href).text(), detail.svg);
   assert.deepEqual(svgHarness.revoked, [svgHarness.anchors[0].href]);
 
   const sourceHarness = downloadHarness();
   const sourceResult = exportMermaidSource(detail, { BlobType: Blob, ...sourceHarness.options });
-  assert.deepEqual(sourceResult, { ok: true, filename: 'mermaid-flowchart.mmd' });
+  assert.deepEqual(sourceResult, { ok: true, filename: 'mermaid_flowchart.mmd' });
   assert.equal(await sourceHarness.blobs.get(sourceHarness.anchors[0].href).text(), detail.source);
   assert.deepEqual(sourceHarness.revoked, [sourceHarness.anchors[0].href]);
 });
@@ -198,7 +198,7 @@ await test('PNG export paints the theme, downloads 2x output, and cleans both UR
     ImageType: FakeImage,
     ...harness.options,
   });
-  assert.deepEqual(result, { ok: true, filename: 'mermaid-flowchart.png' });
+  assert.deepEqual(result, { ok: true, filename: 'mermaid_flowchart.png' });
   assert.equal(canvas.width, 320);
   assert.equal(canvas.height, 160);
   assert.deepEqual(drawCalls[0], ['fill', '#333333', 0, 0, 320, 160]);

@@ -164,6 +164,8 @@ struct SessionOptions {
     std::string model_name;
     // Session-local reasoning choice. Missing inherits the saved model profile.
     std::optional<std::string> reasoning_effort;
+    // Per-agent sampling, layered over expert and saved model defaults.
+    std::optional<ModelSamplingOptions> sampling;
 
     // 可选 permission mode override(default / auto / plan / yolo;accept-edits 是 auto 的别名)。
     // 留空 = 用 daemon/TUI 共享默认值。
