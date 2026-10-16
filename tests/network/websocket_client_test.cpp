@@ -151,7 +151,11 @@ TEST(WebSocketClient, ServerShutdownIsReportedAsDisconnect) {
     WebSocketClient client;
     std::string error;
     ASSERT_TRUE(client.connect(local_options(*server), &error)) << error;
+    // Crow 的 stop() 只把关闭帧投递到 io_context 后立刻停掉它,关闭帧能否发出
+    // 取决于调度(macOS 上常发不出去);连接的套接字要等应用析构才释放。
+    // 连同应用一起销毁才等价于「服务端进程退出」。
     server.reset();
+    echo.reset();
     WebSocketMessage message;
     const auto result = client.receive(message, std::chrono::seconds(5), &error);
     EXPECT_TRUE(result == WebSocketRecv::Closed || result == WebSocketRecv::Error);

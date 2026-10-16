@@ -7,7 +7,7 @@ if(CMAKE_HOST_WIN32 AND DEFINED CMAKE_TOOLCHAIN_FILE AND CMAKE_TOOLCHAIN_FILE MA
     set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "Vcpkg target triplet" FORCE)
 endif()
 
-project(acecode VERSION 1.0.8 LANGUAGES C CXX)
+project(acecode VERSION 1.0.9 LANGUAGES C CXX)
 
 include(${CMAKE_SOURCE_DIR}/cmake/acecode_source_guards.cmake)
 
@@ -243,14 +243,18 @@ endif()
 if(APPLE)
     # iOS Simulator helper. It is a macOS-only payload: other platforms never
     # build or package it.
+    add_library(acecode_ios_sim_native STATIC ${ACECODE_IOS_SIM_NATIVE_SOURCES})
+    set_target_properties(acecode_ios_sim_native PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
+    target_compile_options(acecode_ios_sim_native PRIVATE -fobjc-arc -mmacosx-version-min=14.0)
+    target_include_directories(acecode_ios_sim_native PUBLIC ${CMAKE_SOURCE_DIR}/src/adapters)
+    target_link_libraries(acecode_ios_sim_native PUBLIC nlohmann_json::nlohmann_json
+        "-framework Foundation" "-framework IOSurface")
     add_executable(acecode-ios-sim ${ACECODE_IOS_SIM_HELPER_SOURCES})
     set_target_properties(acecode-ios-sim PROPERTIES OBJCXX_STANDARD 17 OBJCXX_STANDARD_REQUIRED YES)
     target_compile_options(acecode-ios-sim PRIVATE -fobjc-arc -mmacosx-version-min=14.0)
     target_link_options(acecode-ios-sim PRIVATE -mmacosx-version-min=14.0)
-    target_include_directories(acecode-ios-sim PRIVATE ${CMAKE_SOURCE_DIR}/src/adapters)
-    target_link_libraries(acecode-ios-sim PRIVATE nlohmann_json::nlohmann_json
-        "-framework Foundation" "-framework CoreGraphics" "-framework Accelerate"
-        "-framework ImageIO" "-framework IOSurface")
+    target_link_libraries(acecode-ios-sim PRIVATE acecode_ios_sim_native
+        "-framework CoreGraphics" "-framework Accelerate" "-framework ImageIO")
     install(TARGETS acecode-ios-sim RUNTIME DESTINATION . COMPONENT ios_simulator_runtime)
 endif()
 

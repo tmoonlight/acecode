@@ -24,6 +24,9 @@ struct SimulatorWsState {
     std::mutex mu;
     crow::websocket::connection* conn = nullptr;  // null once closed; guarded by mu
     std::uint64_t subscription = 0;
+    // False while the Desktop shell draws the screen natively: no JPEG
+    // stream, the socket only carries input and status.
+    bool frames_enabled = true;
     double point_width = 0;
     double point_height = 0;
 };
@@ -39,6 +42,38 @@ std::string browser_frame(const sim::StreamFrame& frame) {
     out += header;
     if (frame.jpeg) out += *frame.jpeg;
     return out;
+}
+
+// Subscribes the socket to the device's JPEG stream (off Crow's IO thread:
+// the first start can take seconds for Xcode discovery and helper start).
+void subscribe_frames(const std::shared_ptr<SimulatorWsState>& state) {
+    std::thread([state] {
+        auto& runtime = sim::Runtime::instance();
+        std::string error;
+        const auto subscription = runtime.subscribe(state->udid, [state](const sim::StreamFrame& frame) {
+            std::lock_guard<std::mutex> lock(state->mu);
+            if (!state->conn) return;
+            if (frame.ended) {
+                state->conn->send_text(json({{"type", "ended"}, {"reason", frame.reason}}).dump());
+                return;
+            }
+            if (frame.rotation == 90 || frame.rotation == 270) {
+                if (state->point_width < state->point_height) std::swap(state->point_width, state->point_height);
+            } else if (state->point_width > state->point_height) {
+                std::swap(state->point_width, state->point_height);
+            }
+            if (state->frames_enabled) state->conn->send_binary(browser_frame(frame));
+        }, &error);
+        bool keep = false;
+        {
+            std::lock_guard<std::mutex> lock(state->mu);
+            keep = state->conn != nullptr && state->frames_enabled && state->subscription == 0;
+            if (keep) state->subscription = subscription;
+            if (state->conn && !subscription)
+                state->conn->send_text(json({{"type", "error"}, {"message", error}}).dump());
+        }
+        if (!keep && subscription) runtime.unsubscribe(subscription);
+    }).detach();
 }
 
 json devices_payload(std::string* error) {
@@ -207,11 +242,13 @@ void WebServer::Impl::register_ios_simulator() {
         return with_cors(req, std::move(image));
     });
 
-    // WS /ws/ios-simulator/<udid>?token=… — server → client: binary frames
-    // (u32le json_length | json | jpeg) and JSON status texts; client → server:
-    // {type:"touch",phase,x,y} | {type:"button",name} | {type:"key",name} |
-    // {type:"type",text} | {type:"text",text}. Points are in the interface
-    // orientation of the last frame.
+    // WS /ws/ios-simulator/<udid>?token=…[&frames=0] — server → client: binary
+    // frames (u32le json_length | json | jpeg) and JSON status texts; client →
+    // server: {type:"touch",phase,x,y} | {type:"button",name} |
+    // {type:"key",name} | {type:"type",text} | {type:"text",text} |
+    // {type:"frames",enabled}. Points are in the interface orientation of the
+    // last frame. frames=0 / enabled:false stop the JPEG stream while the
+    // Desktop shell draws the screen natively.
     CROW_WEBSOCKET_ROUTE(app, "/ws/ios-simulator/<string>")
         .onaccept([this](const crow::request& req, void** userdata) -> bool {
             std::string header_token = req.get_header_value("X-ACECode-Token");
@@ -230,6 +267,7 @@ void WebServer::Impl::register_ios_simulator() {
             if (udid.empty() || udid.size() > 64) return false;
             auto* holder = new std::shared_ptr<SimulatorWsState>(std::make_shared<SimulatorWsState>());
             (*holder)->udid = udid;
+            if (auto frames = req.url_params.get("frames")) (*holder)->frames_enabled = std::string(frames) != "0";
             *userdata = holder;
             return true;
         })
@@ -241,43 +279,23 @@ void WebServer::Impl::register_ios_simulator() {
                 std::lock_guard<std::mutex> lock(state->mu);
                 state->conn = &conn;
             }
-            // Starting the stream can take seconds the first time (Xcode
+            // Device discovery can take seconds the first time (Xcode
             // discovery, helper start); keep it off Crow's IO thread.
             std::thread([state] {
-                auto& runtime = sim::Runtime::instance();
                 std::string error;
-                if (auto info = runtime.describe(state->udid, &error)) {
+                if (auto info = sim::Runtime::instance().describe(state->udid, &error)) {
                     std::lock_guard<std::mutex> lock(state->mu);
                     state->point_width = info->point_width;
                     state->point_height = info->point_height;
                     if (state->conn)
                         state->conn->send_text(json({{"type", "device"}, {"device", sim::to_json(*info)}}).dump());
                 }
-                const auto subscription = runtime.subscribe(state->udid, [state](const sim::StreamFrame& frame) {
-                    std::lock_guard<std::mutex> lock(state->mu);
-                    if (!state->conn) return;
-                    if (frame.ended) {
-                        state->conn->send_text(json({{"type", "ended"}, {"reason", frame.reason}}).dump());
-                        return;
-                    }
-                    if (frame.rotation == 90 || frame.rotation == 270) {
-                        if (state->point_width < state->point_height) std::swap(state->point_width, state->point_height);
-                    } else if (state->point_width > state->point_height) {
-                        std::swap(state->point_width, state->point_height);
-                    }
-                    state->conn->send_binary(browser_frame(frame));
-                }, &error);
-                bool closed = false;
+                bool frames = false;
                 {
                     std::lock_guard<std::mutex> lock(state->mu);
-                    closed = state->conn == nullptr;
-                    if (!closed) {
-                        state->subscription = subscription;
-                        if (!subscription)
-                            state->conn->send_text(json({{"type", "error"}, {"message", error}}).dump());
-                    }
+                    frames = state->conn != nullptr && state->frames_enabled;
                 }
-                if (closed && subscription) runtime.unsubscribe(subscription);
+                if (frames) subscribe_frames(state);
             }).detach();
         })
         .onmessage([](crow::websocket::connection& conn, const std::string& data, bool is_binary) {
@@ -294,14 +312,30 @@ void WebServer::Impl::register_ios_simulator() {
                 if (!std::isfinite(x) || !std::isfinite(y)) return;
                 {
                     std::lock_guard<std::mutex> lock(state->mu);
-                    if (state->point_width > 0) x = std::clamp(x, 0.0, state->point_width);
-                    if (state->point_height > 0) y = std::clamp(y, 0.0, state->point_height);
+                    // Without frames the orientation is not tracked here; the
+                    // helper turns touches itself, so only bound them loosely.
+                    const double bound = std::max(state->point_width, state->point_height);
+                    const double width = state->frames_enabled ? state->point_width : bound;
+                    const double height = state->frames_enabled ? state->point_height : bound;
+                    if (width > 0) x = std::clamp(x, 0.0, width);
+                    if (height > 0) y = std::clamp(y, 0.0, height);
                 }
                 const auto phase = msg.value("phase", std::string("down"));
                 json request = {{"op", "touch"}, {"udid", state->udid}, {"phase", phase == "up" ? "up" : "down"},
                                 {"x", x}, {"y", y}};
                 if (msg.contains("edge") && msg["edge"].is_string()) request["edge"] = msg["edge"];
                 runtime.post(request);
+            } else if (type == "frames") {
+                const bool enabled = msg.value("enabled", true);
+                std::uint64_t dropped = 0;
+                {
+                    std::lock_guard<std::mutex> lock(state->mu);
+                    if (state->frames_enabled == enabled) return;
+                    state->frames_enabled = enabled;
+                    if (!enabled) std::swap(dropped, state->subscription);
+                }
+                if (dropped) runtime.unsubscribe(dropped);
+                if (enabled) subscribe_frames(state);
             } else if (type == "button") {
                 runtime.post({{"op", "button"}, {"udid", state->udid}, {"name", msg.value("name", std::string())}});
             } else if (type == "key") {

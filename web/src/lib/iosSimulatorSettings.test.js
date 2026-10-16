@@ -107,6 +107,13 @@ await run('status notices cover unsupported platforms, Xcode problems and missin
   assert.deepEqual(iosSimulatorNotices(null), []);
   assert.deepEqual(iosSimulatorNotices({ supported: false }).map((notice) => [notice.key, notice.kind]), [['unsupported', 'info']]);
   assert.deepEqual(iosSimulatorNotices(statusFixture()), []);
+  const unconfined = statusFixture();
+  unconfined.helper = { installed: true, running: true, sandboxed: false, sandbox_note: 'disabled by ACECODE_IOS_SIM_SANDBOX=0' };
+  assert.deepEqual(iosSimulatorNotices(unconfined).map((notice) => [notice.key, notice.kind]), [['sandbox', 'warn']]);
+  assert.match(iosSimulatorNotices(unconfined)[0].text, /ACECODE_IOS_SIM_SANDBOX=0/);
+  const sandboxed = statusFixture();
+  sandboxed.helper = { installed: true, running: true, sandboxed: true, sandbox_note: '' };
+  assert.deepEqual(iosSimulatorNotices(sandboxed), []);
   const broken = iosSimulatorNotices(statusFixture({
     xcodePath: '/bad',
     selected: null,

@@ -1,5 +1,6 @@
-// Shared state for the acecode-ios-sim helper: private framework loading,
-// device lookup, ObjC exception containment and the framed stdout writer.
+// Simulator access shared by the acecode-ios-sim helper and the Desktop
+// shell: private framework loading, device lookup, guest services, display
+// rotation and ObjC exception containment.
 #pragma once
 
 #import <Foundation/Foundation.h>
@@ -37,9 +38,11 @@ struct Environment {
     std::string load_error;
 };
 
-// Loads CoreSimulator (required) and SimulatorKit (input) once. Throws SimError
-// when CoreSimulator cannot be loaded.
-const Environment& load_frameworks(const std::string& developer_dir);
+// Loads CoreSimulator (required, fixed system path) once and, when
+// simulator_kit is set, SimulatorKit from the selected Xcode (input
+// injection). The first call wins for the life of the process. Throws
+// SimError when CoreSimulator cannot be loaded.
+const Environment& load_frameworks(const std::string& developer_dir, bool simulator_kit = true);
 const Environment& environment();
 void* simulator_kit_symbol(const char* name);
 bool load_accessibility_framework(std::string& error);
@@ -61,10 +64,5 @@ id connect_guest_service(id device, const char* service, std::string& error, boo
 int display_rotation(id device, const std::string& udid);
 // Uncached display-info probe with the raw provider reply, for diagnostics.
 json display_info(id device, const std::string& udid);
-
-// Framed writer (serialized, safe from any queue). Frames with drop_if_busy
-// are skipped while more than a couple of droppable frames are pending.
-void emit(const json& header, const std::string& binary = {}, bool drop_if_busy = false);
-void emit_log(const std::string& level, const std::string& message);
 
 } // namespace acecode::ios_simulator::helper

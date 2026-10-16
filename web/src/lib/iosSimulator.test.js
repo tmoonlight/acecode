@@ -114,6 +114,11 @@ run('WebSocket URLs follow the page origin and carry the daemon token', () => {
     iosSimulatorWsUrl({ udid: 'a/b', origin: 'http://127.0.0.1:4000', token: 'x' }),
     'ws://127.0.0.1:4000/ws/ios-simulator/a%2Fb?token=x',
   );
+  assert.equal(
+    iosSimulatorWsUrl({ udid: 'ABC', token: 'x', pageHost: 'h', frames: false }),
+    'ws://h/ws/ios-simulator/ABC?token=x&frames=0',
+  );
+  assert.equal(iosSimulatorWsUrl({ udid: 'ABC', pageHost: 'h', frames: false }), 'ws://h/ws/ios-simulator/ABC?frames=0');
 });
 
 run('reconnect backoff doubles from one to eight seconds', () => {

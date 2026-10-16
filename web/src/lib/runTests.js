@@ -218,6 +218,7 @@ import './agentBrowserSurfaceCoordinator.test.js';
 import './agentBrowserArchitecture.test.js';
 import './agentBrowserPages.test.js';
 import './iosSimulator.test.js';
+import './iosSimulatorNativeView.test.js';
 import './previewTabScroll.test.js';
 import './filePreviewKind.test.js';
 import './filePreviewScroll.test.js';

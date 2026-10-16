@@ -30,25 +30,48 @@
 #include <utility>
 #include <vector>
 
+#ifndef _WIN32
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
+#endif
+
 namespace fs = std::filesystem;
 using acecode::test_support::StateFileTest;
 using acecode::test_support::write_raw;
 
 namespace {
 
+#ifdef _WIN32
 std::string quote_arg(const std::string& value) {
     return "\"" + value + "\"";
 }
+#endif
 
 int run_claim_worker(const std::string& state_path,
                      const std::string& key,
                      const std::string& ready_path,
                      const std::string& go_path,
                      const std::string& result_path) {
+#ifndef _WIN32
+    // macOS 的 system() 持进程级互斥锁直到子进程退出,两个线程同时调用会
+    // 串行化:第二个 worker 要等第一个结束才启动,而第一个在等 go,go 又在
+    // 等两个 ready —— 只能 posix_spawn 直接起进程。
+    std::vector<std::string> args{ACECODE_STATE_FILE_CLAIM_WORKER_PATH,
+                                  state_path, key, ready_path, go_path,
+                                  result_path};
+    std::vector<char*> argv;
+    for (auto& arg : args) argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, argv[0], nullptr, nullptr, argv.data(), environ) != 0)
+        return -1;
+    int status = 0;
+    if (waitpid(pid, &status, 0) != pid) return -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+#else
     std::ostringstream command;
-#ifdef _WIN32
     command << "\"";
-#endif
     command
         << quote_arg(ACECODE_STATE_FILE_CLAIM_WORKER_PATH) << " "
         << quote_arg(state_path) << " "
@@ -56,10 +79,9 @@ int run_claim_worker(const std::string& state_path,
         << quote_arg(ready_path) << " "
         << quote_arg(go_path) << " "
         << quote_arg(result_path);
-#ifdef _WIN32
     command << "\"";
-#endif
     return std::system(command.str().c_str());
+#endif
 }
 
 std::pair<int, int> read_claim_result(const fs::path& path) {

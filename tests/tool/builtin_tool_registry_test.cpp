@@ -32,7 +32,8 @@ TEST(BuiltinToolRegistry, RegistersSharedCoreAndPlatformBrowserTools) {
     EXPECT_FALSE(tools.is_read_only("ExitPlanMode"));
     EXPECT_TRUE(tools.is_read_only("show_image"));
     EXPECT_FALSE(tools.has_tool("browser_start"));
-#ifdef _WIN32
+    // Agent Browser 有 Windows(WebView2)与 macOS(WKWebView)两个原生宿主。
+#if defined(_WIN32) || defined(__APPLE__)
     EXPECT_TRUE(tools.has_tool("browser_open"));
     EXPECT_TRUE(tools.has_tool("browser_read_page"));
     EXPECT_TRUE(tools.has_tool("browser_click"));
@@ -50,7 +51,7 @@ TEST(BuiltinToolRegistry, NativeBrowserToolsCanBeUnregisteredAsOneGroup) {
     register_session_builtin_tools(tools, config);
     const std::size_t removed = agent_browser::unregister_agent_browser_tools(tools);
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
     EXPECT_GT(removed, 0u);
 #else
     EXPECT_EQ(removed, 0u);
