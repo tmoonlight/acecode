@@ -175,10 +175,16 @@ TEST(PaOverflowRescue, WaitScaleZeroDisablesWaiting) {
     EXPECT_EQ(pa::same_request_retry_delay_ms(1), 5000);
 }
 
-TEST(PaOverflowRescue, SmallRequestsWaitIndefinitelyWithoutShrinkingOrLearning) {
+// 触发场景:不足 40000 tokens 的请求被反复拒收。
+// 期望行为:保留完整请求(不收缩、不切紧急档、不给学习器记账),按 5、10、20、
+// 40 秒后保持 60 秒退避,最多 PA_RESCUE_MAX_WAIT_RETRIES 次;耗尽后放弃,放弃的
+// plan 仍带 preserve_context,调用方据此给出「历史没动过」的文案。计数饱和时同样放弃。
+// 回归背景(反馈 LINDANDAN069):曾经无限次等待 —— 拒收真正的原因(一张以 base64
+// 发出去的截图)不在估算里,同一个请求原样重发了 830 多次、空等 14 小时。
+TEST(PaOverflowRescue, SmallRequestsWaitUpToTheCapThenGiveUpWithoutShrinkingOrLearning) {
     pa::RescueState state;
     const int delays[] = {5000, 10000, 20000, 40000};
-    for (int i = 0; i < 40; ++i) {
+    for (int i = 0; i < pa::PA_RESCUE_MAX_WAIT_RETRIES; ++i) {
         const auto plan = step(state, inputs(39999, 30000));
         EXPECT_EQ(plan.action, pa::RescueAction::WaitAndRetry);
         EXPECT_TRUE(plan.preserve_context);
@@ -186,11 +192,61 @@ TEST(PaOverflowRescue, SmallRequestsWaitIndefinitelyWithoutShrinkingOrLearning) 
         EXPECT_EQ(plan.target_history_tokens, 0);
         EXPECT_EQ(plan.wait_ms, i < 4 ? delays[i] : 60000);
     }
+    const auto give_up = step(state, inputs(39999, 30000));
+    EXPECT_EQ(give_up.action, pa::RescueAction::GiveUp);
+    EXPECT_TRUE(give_up.preserve_context);
+    EXPECT_FALSE(give_up.record_rejection);
     EXPECT_EQ(state.shrink_rounds, 0);
     EXPECT_EQ(state.same_request_retries, 0);
-    state.wait_retries = std::numeric_limits<int>::max();
-    EXPECT_EQ(step(state, inputs(20000, 10000)).action, pa::RescueAction::WaitAndRetry);
-    EXPECT_EQ(state.wait_retries, std::numeric_limits<int>::max());
+    EXPECT_FALSE(state.rejection_recorded);
+
+    pa::RescueState saturated;
+    saturated.wait_retries = std::numeric_limits<int>::max();
+    EXPECT_EQ(step(saturated, inputs(20000, 10000)).action, pa::RescueAction::GiveUp);
+    EXPECT_EQ(saturated.wait_retries, std::numeric_limits<int>::max());
+}
+
+// 触发场景(反馈 LINDANDAN069 原样):估算 36885 tokens 的请求带着内联截图被拒。
+// 期望行为:第一步撤图片(不等待、不记账),排在小请求等待之前;撤过一次就不再
+// 提议,哪怕调用方仍说带图(撤图失败),之后按小请求规则等待。
+TEST(PaOverflowRescue, InlineImageRejectionWithholdsImagesBeforeWaiting) {
+    pa::RescueState state;
+    auto in = inputs(36885, 29252);
+    in.inline_images = true;
+
+    const auto first = step(state, in);
+    EXPECT_EQ(first.action, pa::RescueAction::WithholdImages);
+    EXPECT_EQ(first.wait_ms, 0);
+    EXPECT_FALSE(first.record_rejection);
+    EXPECT_TRUE(state.images_withheld);
+    EXPECT_EQ(state.wait_retries, 0);
+
+    const auto second = step(state, in);
+    EXPECT_EQ(second.action, pa::RescueAction::WaitAndRetry);
+    EXPECT_TRUE(second.preserve_context);
+}
+
+// 触发场景:大请求带着内联图片被拒,撤图没能撤掉(落盘失败),调用方仍报带图。
+// 期望行为:继续原样重发 → 收缩,但整个过程都不给学习器记账 —— 带图请求的规模
+// 不代表服务端能收多大。
+// 回归背景(反馈 LINDANDAN069):一次带图拒收被记成 43407 tokens 的上限,把
+// aicoder-pro 的压缩阈值从约 13.5 万砍到 4 万,同进程里别的会话也跟着频繁压缩。
+TEST(PaOverflowRescue, InlineImageRejectionNeverChargesTheBudgetLearner) {
+    pa::RescueState state;
+    auto in = inputs(100000, 60000);
+    in.inline_images = true;
+
+    EXPECT_EQ(step(state, in).action, pa::RescueAction::WithholdImages);
+    EXPECT_EQ(step(state, in).action, pa::RescueAction::RetrySameRequest);
+    EXPECT_EQ(step(state, in).action, pa::RescueAction::RetrySameRequest);
+    const auto shrink = step(state, in);
+    EXPECT_EQ(shrink.action, pa::RescueAction::ShrinkHistory);
+    EXPECT_FALSE(shrink.record_rejection);
+    state.shrink_exhausted = true;
+    const auto emergency = step(state, in);
+    EXPECT_EQ(emergency.action, pa::RescueAction::EmergencyProfile);
+    EXPECT_FALSE(emergency.record_rejection);
+    EXPECT_FALSE(state.rejection_recorded);
 }
 
 TEST(PaOverflowRescue, LargeRecoveryStopsShrinkingOnceRequestFallsBelowFloor) {

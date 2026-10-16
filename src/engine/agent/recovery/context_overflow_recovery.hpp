@@ -19,6 +19,9 @@ struct RequestRecoveryState {
     bool emergency_profile = false;
     pa::RescueState pa_episode;
     bool skip_auto_compact_once = false;
+    // 通用恢复链本轮是否已经撤过内联图片。请求被收下时清零,之后再带图被拒
+    // (新的图片进来了)重新撤一次。
+    bool inline_images_withheld = false;
 };
 struct RecoveryDecision {
     HandleErrorResult decision = HandleErrorResult::Proceed;

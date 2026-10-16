@@ -9,6 +9,7 @@ public:
     std::vector<std::string> calls;
     bool allow_wait = true;
     bool repair_succeeds = true;
+    int withheld_images = 1;
     int history_tokens() const override { return 10000; }
     void note_rejection(int) override { calls.push_back("reject"); }
     acecode::ThreadRepairResult repair(const acecode::ThreadRepairOptions& options) override {
@@ -20,6 +21,10 @@ public:
         result.status = repair_succeeds ? acecode::ThreadRepairStatus::Repaired
                                        : acecode::ThreadRepairStatus::HistoryExhausted;
         return result;
+    }
+    int withhold_inline_images() override {
+        calls.push_back("withhold");
+        return withheld_images;
     }
     bool wait(int) override { calls.push_back("wait"); return allow_wait; }
     void reset_stream() override { calls.push_back("reset"); }
@@ -74,4 +79,37 @@ TEST(PaRescueDriver, ExhaustedHistoryAdvancesToEmergencyWithinTheSameInvocation)
     EXPECT_TRUE(state.shrink_exhausted);
     EXPECT_EQ(host.calls, (std::vector<std::string>{
         "reject", "repair", "reset", "progress", "notice"}));
+}
+
+// 触发场景(反馈 LINDANDAN069 原样):估算 36885 tokens、带内联截图的请求被拒。
+// 期望行为:先撤图片、立刻重发 —— 不等待、不发「保留完整请求」通知、不记账;
+// 发布顺序与收缩一致(撤图 → 清流式草稿 → 进度)。
+TEST(PaRescueDriver, InlineImagesAreWithheldBeforeAnyWait) {
+    RecordingHost host;
+    acecode::pa::RescueState state;
+    bool emergency = false;
+    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 36885, emergency, true));
+    EXPECT_EQ(host.calls, (std::vector<std::string>{"withhold", "reset", "progress"}));
+    EXPECT_TRUE(state.images_withheld);
+    EXPECT_EQ(state.wait_retries, 0);
+    EXPECT_FALSE(emergency);
+}
+
+// 触发场景:请求被判带图,但撤图一张也没撤下来(历史里没有图片部件或落盘失败)。
+// 期望行为:同一次调用里立刻换下一招(这里是大请求的原样重发),不白白重发;
+// 图片可能还在请求里,所以后续收缩也不记账。
+TEST(PaRescueDriver, FailedWithholdFallsThroughWithoutChargingTheLearner) {
+    RecordingHost host;
+    host.withheld_images = 0;
+    acecode::pa::RescueState state;
+    bool emergency = false;
+    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 60000, emergency, true));
+    EXPECT_EQ(host.calls, (std::vector<std::string>{
+        "withhold", "notice", "waiting", "wait", "resuming", "reset"}));
+    host.calls.clear();
+    state.same_request_retries = acecode::pa::PA_RESCUE_SAME_REQUEST_RETRIES;
+    ASSERT_TRUE(acecode::pa::run_rescue(host, state, {}, 60000, emergency, true));
+    EXPECT_EQ(host.calls, (std::vector<std::string>{
+        "repair", "repaired", "reset", "progress", "notice"}))
+        << "带图请求的收缩不能先 reject 记账";
 }

@@ -12,6 +12,14 @@ class TranscriptWriter;
 class CompactionController;
 class RetryProgressReporter;
 
+// 把历史里的内联图片换成文件引用(ThreadRepairOptions::withhold_inline_images),
+// 成功时标记历史已修复并发一条用户可见通知。返回撤下的图片数,0 = 没有可撤的
+// 图片或修复失败。PA 兜底与通用超限恢复链共用这一处,文案只有一份。
+int withhold_inline_images_for_retry(ConversationHistory& history,
+                                     TranscriptWriter& transcript,
+                                     CompactionController& compaction,
+                                     SessionManager* session);
+
 // Invocation-scoped adapter, never implemented by or pointed back at AgentLoop.
 // Its fixed nullable session borrow cannot escape the synchronous driver call.
 class PaRescueAdapter final : public pa::PaRescueHost {
@@ -26,6 +34,7 @@ public:
     int history_tokens() const override;
     void note_rejection(int request_tokens) override;
     ThreadRepairResult repair(const ThreadRepairOptions& options) override;
+    int withhold_inline_images() override;
     bool wait(int milliseconds) override;
     void reset_stream() override;
     void history_repaired() override;

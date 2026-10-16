@@ -8,7 +8,13 @@
 // 等待、重发都在 AgentLoop 里执行(run_pa_overflow_rescue)。纯函数,
 // tests/pa/ 直接单测。
 //
-// 请求不足 40k 时优先保留完整请求,无限次可取消的指数退避重试。
+// 被拒的请求带着内联图片时,第一步永远是把图片降级成文件引用再重发(不等待、
+// 不记账):图片的真实开销本地估不准,又最可疑(反馈 LINDANDAN069,见
+// ThreadRepairOptions::withhold_inline_images)。
+// 请求不足 40k 时优先保留完整请求,按指数退避重试,最多 PA_RESCUE_MAX_WAIT_RETRIES
+// 次(约 9.5 分钟)后放弃。曾经是无限次:被拒的真正原因不在估算里(如上面那张
+// 图)时,同一个请求原样重发 830 多次、空等 14 小时,用户后来发的「把截图删掉」
+// 也是排在同一份历史后面一起被拒(用户 2026-10-16 拍板加上限)。
 // 其余请求的策略按顺序走,每一步之后都原样发一次请求;被拒的报文是服务端在准入时就
 // 拦下的,一次往返只要不到一秒,所以多试几档的代价很低:
 //   1. 原样重发 —— 先当它是抽风。重发 PA_RESCUE_SAME_REQUEST_RETRIES 次,过了
@@ -54,6 +60,7 @@ void set_rescue_wait_scale_for_test(double scale);
 int scaled_rescue_wait_ms(int ms);
 
 enum class RescueAction {
+    WithholdImages,    // 把历史里的内联图片换成文件引用后立刻重发
     RetrySameRequest,  // 原样重发,先等 wait_ms
     ShrinkHistory,     // 把会话历史缩到 target_history_tokens 后重发
     EmergencyProfile,  // 改用紧急请求档(剥掉工具定义与注入上下文)重发
@@ -72,6 +79,9 @@ struct RescueState {
     // 已经试过收缩但一点空间都没腾出来:老回合只剩一组、工具输出也清完了。
     // 之后不再提议收缩,直到 episode 结束。
     bool shrink_exhausted = false;
+    // 本 episode 是否已经提议过撤下内联图片。撤过一次(不管撤下几张)就不再提议,
+    // 避免历史里没有可撤的图片时原地打转。
+    bool images_withheld = false;
     // 本 episode 是否已经给 ContextBudgetLearner 记过账。
     bool rejection_recorded = false;
 };
@@ -80,6 +90,12 @@ struct RescueInputs {
     int request_tokens = 0;          // 被拒请求的本地估算规模
     int history_tokens = 0;          // 其中会话历史的部分
     bool emergency_profile = false;  // 被拒的这次请求是否已经是紧急档
+    // 被拒的请求是否把图片以内联图片数据发了出去(当前模型被当作能看图,且
+    // 请求里有图片部件)。为 true 时这次拒收不进学习器:图片的真实开销不在
+    // request_tokens 里,拿它当「服务端能收多大」的证据会把压缩窗口砍到远小于
+    // 真实上限(反馈 LINDANDAN069:一次带图拒收把 aicoder-pro 的压缩阈值从
+    // 13.5 万砍到 4 万,同进程里别的会话也跟着频繁压缩)。
+    bool inline_images = false;
 };
 
 struct RescuePlan {
@@ -91,7 +107,8 @@ struct RescuePlan {
     // 请求没有工具定义与注入上下文,它的规模不代表正常请求能过的上限,记进去
     // 会把压缩窗口砍到远小于真实能力,把会话拖进「永远在压缩」。
     bool record_rejection = false;
-    // Small requests keep all context and wait without a retry-count limit.
+    // 不足 40k 的请求:保留全部上下文,按退避等待重发(WaitAndRetry),等待次数
+    // 耗尽后放弃(GiveUp)。两种情况都置位,调用方据此选择文案。
     bool preserve_context = false;
     std::string label;  // 进度 / 日志文案(中文,给用户看)
 };

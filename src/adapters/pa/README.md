@@ -119,8 +119,11 @@ ServerRetryAfterIsHonoredBeyondRateLimitCap、`tests/agent/progress/agent_progre
 
 **2026-10-09 反馈修复约定**:自动压缩最终触发线至少为 40,000 tokens。
 低于该规模的拒收不进入学习器、不摘要或裁剪历史,也不切精简请求档;
-保留完整请求,按 5、10、20、40、60 秒递增后保持 60 秒,无限次重试至成功或用户停止。
+保留完整请求,按 5、10、20、40、60 秒递增后保持 60 秒重试。
 该保护同样覆盖通用上下文错误,并在较大请求收缩到 40k 以下时生效。
+**2026-10-16 起重试有上限**:最多 `PA_RESCUE_MAX_WAIT_RETRIES`(12)次、约 9.5 分钟,
+耗尽后报错结束回合,历史原样保留(见第 6 条)。原先的「无限次」是 10-09 的用户决定,
+10-16 用户看过 14 小时空转之后改了主意。
 
 **现象**:同一个模型的实际可用上下文会变,常常远小于 `saved_models` 里声明的
 `context_window`。实测出现过上下文占用显示 55% 就被服务端拒绝的情况。
@@ -187,7 +190,9 @@ exhausted」。
 改走 `AgentLoop::run_pa_overflow_rescue`,决策全在 `pa::next_rescue_step`
 (纯函数),按顺序:
 
-以下四步只适用于仍达到 40k 的请求;低于下限时直接进入上述保留上下文的无限等待。
+被拒的请求带着内联图片时,先走第 6 条的「撤图片」再看下面这些。
+以下四步只适用于仍达到 40k 的请求;低于下限时直接进入上述保留上下文的等待
+(最多 12 次)。
 
 1. **原样重发** 2 次(2 秒、5 秒)。先当它是抽风:过了就一点上下文都不丢,
    也不给学习器记账。
@@ -219,3 +224,51 @@ exhausted」。
 `tests/session/thread_repair_test.cpp` 的 `Clears*` 用例(清工具输出)、
 `tests/agent/agent_loop_pa_rescue_test.cpp`(端到端,含截图那种「同回合
 第二次撞墙」的场景)。
+
+### 6. 图片被当作文本撑爆请求(2026-10-16,反馈 LINDANDAN069)
+
+**现象**:会话 20261015-184149-da2c(模型 aicoder-pro)在一次 `browser_screenshot`
+(1494×938 PNG,121KB)之后,每个请求都被拒「请求上下文过大」。截图之前 4.3 万
+token 的请求一直能过,截图之后本地估算只多了约 300 token。兜底先把 43407 记进
+学习器、压缩阈值从约 13.5 万砍到 4 万(同进程里别的 aicoder-pro 会话跟着频繁
+压缩);清掉 9 条旧工具输出后估算 36885,落进「不足 4 万 → 保留完整请求无限等待」,
+原样重发了 830 多次、14 小时。用户插话「继续」「把刚才的截图删掉」都排在同一份
+历史后面一起被拒。
+
+**根因**:请求里 system prompt 写着 `Active model can read images directly: Yes`
+—— aicoder-pro 在 `saved_models` 里带了 `vision` 标签,图片于是以
+`data:image/png;base64,…`(约 16 万字符)发了出去。而本地估算只算附件元数据那
+几百字节,图片对学习器、兜底、压缩触发全部隐形;最近一条工具结果又受保护,收缩
+清不到它。网关具体怎么计这张图看不到(对不支持图片的模型,大概率把 base64 当
+文本),但「加图即被拒」是确定的。**配置层的正解是去掉 aicoder-pro 的「视觉」
+标签**,只留真正的视觉模型 aicoder-default,图片会降级成句柄、由 vision_analyze
+转给视觉模型看。
+
+**适配(三处,都不按模型名判定)**:
+
+1. **估算计入图片**:`token_estimate` 每张图片部件按 `kEstimatedImageTokens`(1600)
+   计。不按 base64 长度 —— 原生看图的服务按像素计费,一张截图 1000~1600 token,
+   按 base64 会把截图多的会话(Computer Use、Agent Browser)几张图就逼进压缩。
+   这次事故里就算按 base64 算(约 7.7 万)也够不到 15 万的声明窗口,真正兜住的是下一条。
+2. **带图被拒先撤图片**:被拒请求带着内联图片(`ActiveModelView::can_read_images()`
+   且请求里有 `type == "image"` 部件)时,PA 兜底第 0 步与通用恢复链的第一步都是
+   `ThreadRepairOptions::withhold_inline_images`:把历史里所有图片部件原地改成
+   `file` 部件、附件元数据打 `inline_image_withheld`,不丢任何消息,立刻重发(不等待、
+   不原样重发)。模型看到的引用文本说明图片已撤下、别用 show_image 挂回去;用户看到
+   `context_images_withheld` 通知,提示检查模型的「视觉」标签。每个 episode 只撤一次,
+   请求被收下后清零。
+3. **带图拒收不进学习器**:`RescueInputs::inline_images` 为真时收缩 / 紧急档都不记账,
+   通用恢复链也不调 `note_rejected` —— 图片的真实开销不在估算里,拿它当上限是假证据。
+
+另外小请求等待加了上限(见第 2 条开头):拒收原因不在规模上时,无限等待只会空转。
+
+**没做**:按 (provider, model) 记住「这个模型收不了图」并自动当成非视觉模型 ——
+那等于在运行期改用户的能力配置;现在靠通知让用户去改标签。
+
+回归测试:`tests/llm/token_estimate_test.cpp`、`tests/session/thread_repair_test.cpp`
+的 `Withhold*` 两条、`tests/session/attachment_prompt_context_test.cpp::WithheldInlineImageTellsModelNotToReattach`、
+`tests/pa/pa_overflow_rescue_test.cpp` 的 `InlineImage*` 与 `SmallRequestsWaitUpToTheCap*`、
+`tests/pa/pa_rescue_driver_test.cpp` 的 `InlineImagesAreWithheldBeforeAnyWait` /
+`FailedWithholdFallsThroughWithoutChargingTheLearner`、
+`tests/agent/agent_loop_pa_rescue_test.cpp` 的 `InlineImageRejectionWithholdsImagesWithoutLoweringTheBudget` /
+`SmallRequestsKeepHistoryAndToolsUntilTheWaitCapThenGiveUp`,前端 `systemNotice.test.js`。

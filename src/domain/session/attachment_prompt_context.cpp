@@ -105,6 +105,24 @@ std::string file_attachment_reference_text(
 
     std::string text = "[Attached file reference]\n" + reference.dump(2);
     text += "\nThe file content is not included in this message.";
+    // 被超限恢复撤下的内联图片:说清楚为什么撤、别再挂回去。否则模型看到的是
+    // 「需要时去读」,转身又用 show_image 把同一张图挂回请求,再被拒、再撤,
+    // 白白空转。文案只取决于附件记录,逐字节稳定(prompt cache 前缀)。
+    const auto withheld = record.metadata.is_object()
+        ? record.metadata.find(kInlineImageWithheldMetadataKey)
+        : record.metadata.end();
+    if (withheld != record.metadata.end() && withheld->is_boolean() &&
+        withheld->get<bool>()) {
+        text +=
+            " This image was withheld: the provider rejected a request that"
+            " carried it as inline image data, so the active model may not be"
+            " able to read images. Do not attach it again (for example with `" +
+            model_tool_name_for_native("show_image") +
+            "`) unless the user asks; if its contents matter, ask the user or"
+            " call `" + model_tool_name_for_native("vision_analyze") +
+            "` with `model_name` set to a vision-capable saved model.";
+        return text;
+    }
     if (read_path.empty()) {
         text += " No readable path is available.";
         return text;

@@ -199,3 +199,33 @@ TEST(AttachmentPromptContext, OrdinaryReferenceTextIsByteIdentical) {
     EXPECT_EQ(acecode::file_attachment_reference_text(source_backed),
               source_expected);
 }
+
+// 触发场景:超限恢复把一张内联图片降级成文件引用(附件元数据带
+// inline_image_withheld)。
+// 期望行为:引用文本说明图片已撤下、别再用 show_image 挂回去,需要看内容时找
+// 用户或用 vision_analyze 指定视觉模型;不出现普通文件那句「需要时去读」。
+// 映射开启时工具名跟着模型侧名走。
+// 回归背景(反馈 LINDANDAN069):若只给普通文件引用,模型看到「需要时去读」会
+// 转身把同一张图再挂回请求,被拒、再撤,来回空转。
+TEST(AttachmentPromptContext, WithheldInlineImageTellsModelNotToReattach) {
+    auto record = base_record();
+    record.name = "browser-screenshot.png";
+    record.kind = "image";
+    record.mime_type = "image/png";
+    record.metadata = {{acecode::kInlineImageWithheldMetadataKey, true}};
+
+    const std::string text = acecode::file_attachment_reference_text(record);
+
+    EXPECT_NE(text.find("[Attached file reference]"), std::string::npos);
+    EXPECT_NE(text.find(R"("attachment_id": "att_reference")"), std::string::npos);
+    EXPECT_NE(text.find("This image was withheld"), std::string::npos);
+    EXPECT_NE(text.find("`show_image`"), std::string::npos);
+    EXPECT_NE(text.find("`vision_analyze` with `model_name`"), std::string::npos);
+    EXPECT_EQ(text.find("only when the task needs the contents"), std::string::npos);
+
+    // 标记不是布尔值(手改出来的坏数据)时按普通文件处理,不抛异常。
+    record.metadata = {{acecode::kInlineImageWithheldMetadataKey, "yes"}};
+    const std::string fallback = acecode::file_attachment_reference_text(record);
+    EXPECT_EQ(fallback.find("This image was withheld"), std::string::npos);
+    EXPECT_NE(fallback.find("only when the task needs the contents"), std::string::npos);
+}

@@ -2,6 +2,7 @@
 
 #include "llm/message_predicates.hpp"
 #include "llm/token_estimate.hpp"
+#include "session/attachment_prompt_context.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
@@ -456,4 +457,105 @@ TEST(ThreadRepair, ApplyAppendsCheckpointWithoutRewritingTranscript) {
 
     std::filesystem::remove_all(project_dir);
     std::filesystem::remove_all(cwd);
+}
+
+namespace {
+
+nlohmann::json image_part(const std::string& id) {
+    return nlohmann::json{
+        {"type", "image"},
+        {"attachment", {
+            {"id", id},
+            {"session_id", "session-images"},
+            {"name", "browser-screenshot.png"},
+            {"kind", "image"},
+            {"mime_type", "image/png"},
+            {"path", "C:/acecode/attachments/" + id + ".png"},
+            {"size_bytes", 121073},
+        }},
+    };
+}
+
+int count_parts_of_type(const std::vector<acecode::ChatMessage>& messages,
+                        const std::string& type) {
+    int count = 0;
+    for (const auto& item : messages) {
+        if (!item.content_parts.is_array()) continue;
+        for (const auto& part : item.content_parts) {
+            if (part.value("type", std::string{}) == type) ++count;
+        }
+    }
+    return count;
+}
+
+} // namespace
+
+// 触发场景:超限恢复要求撤下内联图片,历史里有一条带文字 + 图片的用户消息和一条
+// 带截图的工具结果(浏览器截图那种:正文是截图元数据 JSON,图片在 content_parts)。
+// 期望行为:两张图都原地改成 file 部件、附件元数据打上 inline_image_withheld,
+// 文字部件与工具结果正文原样保留,一条消息都不丢;估算规模随之下降。
+// 回归背景(反馈 LINDANDAN069):不能看图的 aicoder-pro 被误标「视觉」,一张
+// 121KB 截图以 base64 发出去后请求被判超限;旧兜底只会清旧工具输出(最近一条
+// 工具结果受保护,正好就是那张截图),于是一直原样重发,空等了 14 小时。
+TEST(ThreadRepair, WithholdsInlineImagesAsFileReferencesWithoutDroppingMessages) {
+    auto user = message("user", "look at this");
+    user.content_parts = nlohmann::json::array({
+        nlohmann::json{{"type", "text"}, {"text", "look at this"}},
+        image_part("att_user_image"),
+    });
+    acecode::ChatMessage call = message("assistant", "");
+    call.tool_calls = nlohmann::json::array({nlohmann::json{
+        {"id", "shot"},
+        {"type", "function"},
+        {"function", {{"name", "browser_screenshot"}, {"arguments", "{}"}}},
+    }});
+    auto result_msg = message("tool", R"({"ok":true,"width":1494,"height":938})");
+    result_msg.tool_call_id = "shot";
+    result_msg.content_parts = nlohmann::json::array({image_part("att_screenshot")});
+    const std::vector<acecode::ChatMessage> history{user, call, result_msg};
+
+    acecode::ThreadRepairOptions options;
+    options.withhold_inline_images = true;
+    const auto result = acecode::plan_thread_repair(history, options);
+
+    ASSERT_TRUE(result.repaired());
+    EXPECT_EQ(result.withheld_images, 2);
+    EXPECT_EQ(result.pruned_groups, 0);
+    EXPECT_EQ(result.cleared_tool_outputs, 0);
+    ASSERT_EQ(result.replacement_history.size(), history.size());
+    EXPECT_EQ(count_parts_of_type(result.replacement_history, "image"), 0);
+    EXPECT_EQ(count_parts_of_type(result.replacement_history, "file"), 2);
+    EXPECT_EQ(count_parts_of_type(result.replacement_history, "text"), 1);
+    for (const auto& item : result.replacement_history) {
+        if (!item.content_parts.is_array()) continue;
+        for (const auto& part : item.content_parts) {
+            if (part.value("type", std::string{}) != "file") continue;
+            EXPECT_TRUE(part["attachment"]["metadata"].value(
+                acecode::kInlineImageWithheldMetadataKey, false));
+            EXPECT_FALSE(part["attachment"].value("id", std::string{}).empty())
+                << "附件身份必须保留,模型还要靠它找回图片";
+        }
+    }
+    EXPECT_TRUE(contains(result.replacement_history, R"("width":1494)"))
+        << "工具结果正文不能跟着图片一起丢";
+    EXPECT_LT(result.post_tokens, result.pre_tokens);
+}
+
+// 触发场景:只要求撤图片,但历史里根本没有图片部件(文本会话被误判带图)。
+// 期望行为:报告 NoChange,不写 checkpoint —— 调用方据此立刻换下一招,而不是
+// 以为腾出了空间又原样重发同一个请求。
+TEST(ThreadRepair, WithholdingImagesWithoutAnyImageReportsNoChange) {
+    const std::vector<acecode::ChatMessage> history{
+        message("user", "plain request"),
+        message("assistant", "plain answer"),
+        message("user", "current request"),
+    };
+
+    acecode::ThreadRepairOptions options;
+    options.withhold_inline_images = true;
+    const auto result = acecode::plan_thread_repair(history, options);
+
+    EXPECT_EQ(result.status, acecode::ThreadRepairStatus::NoChange);
+    EXPECT_EQ(result.withheld_images, 0);
+    EXPECT_TRUE(result.checkpoint.id.empty());
 }

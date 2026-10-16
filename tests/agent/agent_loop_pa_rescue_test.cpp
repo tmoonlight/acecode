@@ -10,6 +10,8 @@
 #include "pa/pa_overflow_rescue.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
+#include "llm/token_estimate.hpp"
+#include "session/attachment_prompt_context.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_client.hpp"
 #include "session/session_storage.hpp"
@@ -526,7 +528,13 @@ TEST(AgentLoopPaRescue, InterruptTurnWakesRescueWaitPromptly) {
     EXPECT_EQ(done_count, 2);
 }
 
-TEST(AgentLoopPaRescue, SmallRequestsKeepHistoryAndToolsBeyondTwelveRetries) {
+// 触发场景:不足 40000 tokens 的请求(PA 报文与通用超限报文各一遍)被服务端一直拒收。
+// 期望行为:每次重发都与第一次逐条相同、工具表不变(不收缩、不切紧急档、不记账),
+// 等待 PA_RESCUE_MAX_WAIT_RETRIES 次后放弃并给出一条错误,文案说明历史没动过、
+// 原因可能不在规模上;放弃之后不再发请求,历史原样保留。
+// 回归背景(反馈 LINDANDAN069):曾经无限次等待,带着一张以 base64 发出去的截图
+// 原样重发了 830 多次、空等 14 小时,用户插话「把截图删掉」也被同一份历史拖住。
+TEST(AgentLoopPaRescue, SmallRequestsKeepHistoryAndToolsUntilTheWaitCapThenGiveUp) {
     RescueWaitGuard wait_guard;
     for (const bool generic_error : {false, true}) {
         RescueHarness h(generic_error ? "small_generic_rejection" : "small_pa_rejection");
@@ -536,12 +544,13 @@ TEST(AgentLoopPaRescue, SmallRequestsKeepHistoryAndToolsBeyondTwelveRetries) {
         if (generic_error) {
             error.raw_body = R"({"error":{"code":"context_length_exceeded"}})";
         }
-        for (int i = 0; i < 15; ++i) h.provider->push_error(error);
-        h.provider->push_text("accepted unchanged");
+        const int expected_requests = 1 + acecode::pa::PA_RESCUE_MAX_WAIT_RETRIES;
+        for (int i = 0; i < expected_requests; ++i) h.provider->push_error(error);
+        h.provider->push_text("must never be requested");
         const auto events = wait_for_done(h.loop, [&] { h.loop.submit("keep my context"); });
-        ASSERT_EQ(h.provider->turn_count(), 16);
+        ASSERT_EQ(h.provider->turn_count(), expected_requests);
         const auto first = h.provider->messages_for_turn(0);
-        for (int i = 1; i < 16; ++i) {
+        for (int i = 1; i < expected_requests; ++i) {
             const auto retry = h.provider->messages_for_turn(i);
             ASSERT_EQ(first.size(), retry.size());
             for (std::size_t j = 0; j < first.size(); ++j) {
@@ -550,11 +559,102 @@ TEST(AgentLoopPaRescue, SmallRequestsKeepHistoryAndToolsBeyondTwelveRetries) {
             }
             EXPECT_EQ(h.provider->tools_for_turn(i).size(), 1u);
         }
-        EXPECT_FALSE(has_error_event(events));
+        EXPECT_EQ(count_message_events(events, "error", "不足 40000 tokens"), 1);
+        EXPECT_FALSE(request_contains(h.loop.messages(), "must never be requested"));
+        EXPECT_TRUE(request_contains(h.loop.messages(), "old user 0"))
+            << "放弃之前历史一条都不能动";
         EXPECT_FALSE(has_system_event(events, "次收缩"));
         EXPECT_FALSE(has_system_event(events, "精简请求档"));
         EXPECT_TRUE(has_system_event(events, "保留完整请求"));
         EXPECT_FALSE(acecode::pa::context_budget().has_observation(
             h.provider->name(), h.provider->model()));
+    }
+}
+
+namespace {
+
+nlohmann::json screenshot_part() {
+    return nlohmann::json{
+        {"type", "image"},
+        {"attachment", {
+            {"id", "att_1792089969216_5"},
+            {"session_id", "20261015-184149-da2c"},
+            {"name", "browser-screenshot.png"},
+            {"kind", "image"},
+            {"mime_type", "image/png"},
+            {"path", "C:/acecode/attachments/att_1792089969216_5.png"},
+            {"size_bytes", 121073},
+        }},
+    };
+}
+
+bool has_withheld_image_reference(const std::vector<acecode::ChatMessage>& messages) {
+    for (const auto& message : messages) {
+        if (!message.content_parts.is_array()) continue;
+        for (const auto& part : message.content_parts) {
+            if (part.value("type", std::string{}) != "file") continue;
+            const auto attachment = part.find("attachment");
+            if (attachment == part.end() || !attachment->contains("metadata")) continue;
+            if ((*attachment)["metadata"].value(
+                    acecode::kInlineImageWithheldMetadataKey, false)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+} // namespace
+
+// 触发场景(反馈 LINDANDAN069 复现):当前模型被当作能看图(Stub 默认 supports_vision),
+// 历史里有一条带截图的用户消息,请求被拒 —— 一遍是不足 4 万的 PA 报文(走 PA 兜底),
+// 一遍是超过 4 万的通用超限报文(走通用恢复链)。
+// 期望行为:第一次被拒后立刻把截图降级成文件引用再重发,不等待、不原样重发、
+// 不丢任何历史;重发被收下,回合正常结束;发出「张图片改为文件引用」通知;
+// 学习器没有任何观测、没有「压缩阈值下调」。
+// 回归背景:不能看图的 aicoder-pro 被误标「视觉」,截图以 base64 发出,估算 3.7 万
+// 的请求被判超限:旧兜底先把 43407 记成上限、把压缩阈值砍到 4 万(同进程别的
+// 会话跟着频繁压缩),再抱着那张图无限等待。
+TEST(AgentLoopPaRescue, InlineImageRejectionWithholdsImagesWithoutLoweringTheBudget) {
+    RescueWaitGuard wait_guard;
+    for (const bool generic_error : {false, true}) {
+        RescueHarness h(generic_error ? "inline_image_generic" : "inline_image_pa");
+        add_history(h.loop, 2);
+        acecode::ChatMessage shot = loop_msg("user", "please check this screenshot");
+        shot.content_parts = nlohmann::json::array({
+            nlohmann::json{{"type", "text"}, {"text", "please check this screenshot"}},
+            screenshot_part(),
+        });
+        h.loop.push_message(shot);
+        h.loop.push_message(loop_msg("assistant", "screenshot noted"));
+        auto error = make_pa_overflow_error();
+        if (generic_error) {
+            error.raw_body = R"({"error":{"code":"context_length_exceeded"}})";
+        }
+        h.provider->push_error(error);
+        h.provider->push_text("accepted without the image");
+        // 通用报文要超过 4 万才走通用恢复链,否则会被小请求保护接走。
+        const std::string input = generic_error
+            ? "latest request" + std::string(180000, 'U')
+            : std::string("latest request");
+
+        const auto events = wait_for_done(h.loop, [&] { h.loop.submit(input); });
+
+        ASSERT_EQ(h.provider->turn_count(), 2);
+        EXPECT_TRUE(acecode::has_image_parts(h.provider->messages_for_turn(0)));
+        const auto retried = h.provider->messages_for_turn(1);
+        EXPECT_FALSE(acecode::has_image_parts(retried));
+        EXPECT_TRUE(has_withheld_image_reference(retried));
+        EXPECT_TRUE(request_contains(retried, "old user 0")) << "撤图不能连带丢历史";
+        EXPECT_TRUE(request_contains(retried, "please check this screenshot"));
+        EXPECT_TRUE(request_contains(h.loop.messages(), "accepted without the image"));
+        EXPECT_FALSE(has_error_event(events));
+        EXPECT_TRUE(has_system_event(events, "张图片改为文件引用"));
+        EXPECT_FALSE(has_system_event(events, "保留完整请求"));
+        EXPECT_FALSE(has_system_event(events, "先原样重发"));
+        EXPECT_FALSE(has_system_event(events, "压缩阈值下调"));
+        EXPECT_FALSE(acecode::pa::context_budget().has_observation(
+            h.provider->name(), h.provider->model()))
+            << "带图请求的拒收不能进学习器";
     }
 }

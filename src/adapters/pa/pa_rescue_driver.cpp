@@ -13,13 +13,15 @@ void emit_retry(PaRescueHost& host, const ProviderErrorInfo& error, const Rescue
     host.retry(info, waiting,
         waiting ? plan.label : std::string("正在重新发送请求"),
         waiting ? (plan.preserve_context
-                    ? std::string("保留上下文，持续退避重试，可随时停止")
+                    ? std::string("保留上下文，按退避间隔重试（最多 ") +
+                          std::to_string(PA_RESCUE_MAX_WAIT_RETRIES) + " 次），可随时停止"
                     : std::string("服务端报「请求上下文过大」，按 PA 兜底策略等待后重发"))
                 : std::string{});
 }
 }
 bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo& error,
-                int request_tokens, bool& emergency_request_profile) {
+                int request_tokens, bool& emergency_request_profile,
+                bool request_inline_images) {
     if (!state.active) state = pa::RescueState{};
     const int history_tokens = host.history_tokens();
 
@@ -29,6 +31,9 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
         inputs.request_tokens = request_tokens;
         inputs.history_tokens = history_tokens;
         inputs.emergency_profile = emergency_request_profile;
+        // 撤图成功会立刻返回重发,下一次调用由调用方按新请求重新判断;撤图失败
+        // (落盘失败等)时图片还在请求里,这次拒收照旧不能进学习器。
+        inputs.inline_images = request_inline_images;
         const pa::RescuePlan plan = pa::next_rescue_step(state, inputs);
         pa::advance_rescue_state(state, plan);
         LOG_WARN("[pa-rescue] action=" + std::string(pa::to_string(plan.action)) +
@@ -40,6 +45,7 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                  " wait_retries=" + std::to_string(state.wait_retries) +
                  " emergency_profile=" +
                  (emergency_request_profile ? "true" : "false") +
+                 " inline_images=" + (inputs.inline_images ? "true" : "false") +
                  " target_history_tokens=" +
                  std::to_string(plan.target_history_tokens) +
                  " wait_ms=" + std::to_string(plan.wait_ms) +
@@ -53,14 +59,17 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                     plan.action == pa::RescueAction::WaitAndRetry;
                 const int attempt = waiting_for_recovery
                     ? state.wait_retries : state.same_request_retries;
-                const int max_attempts = plan.preserve_context ? 0 : waiting_for_recovery
+                const int max_attempts = waiting_for_recovery
                     ? pa::PA_RESCUE_MAX_WAIT_RETRIES
                     : pa::PA_RESCUE_SAME_REQUEST_RETRIES;
                 if (plan.preserve_context && state.wait_retries == 1) {
                     host.notice(
                         "[请求重试] 上下文不足 40000 tokens，保留完整请求，不压缩或删除历史；"
-                        "将按指数退避持续重试，可随时停止。",
-                        make_system_notice_metadata("context_preserved_waiting"));
+                        "将按指数退避重试（最多 " +
+                        std::to_string(pa::PA_RESCUE_MAX_WAIT_RETRIES) +
+                        " 次），可随时停止。",
+                        make_system_notice_metadata("context_preserved_retrying",
+                            {{"attempts", pa::PA_RESCUE_MAX_WAIT_RETRIES}}));
                 } else if (!waiting_for_recovery && state.same_request_retries == 1) {
                     host.notice(
                         "[智能压缩] 服务端报「请求上下文过大」，先原样重发确认"
@@ -82,6 +91,18 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                 emit_retry(host,
                     error, plan, attempt, max_attempts, false);
                 host.reset_stream();
+                return true;
+            }
+            case pa::RescueAction::WithholdImages: {
+                // 撤不下来(历史里其实没有图片部件、或修复落盘失败)就立刻换下一招,
+                // 不白白重发同一个请求。
+                if (host.withhold_inline_images() <= 0) continue;
+                host.reset_stream();
+                host.progress(nlohmann::json{
+                    {"phase", "context_repair"},
+                    {"label", plan.label},
+                    {"detail", "inline images were replaced with file references"},
+                });
                 return true;
             }
             case pa::RescueAction::ShrinkHistory: {

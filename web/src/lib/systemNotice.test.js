@@ -212,3 +212,32 @@ run('small context retry notice preserves context without a retry-count limit', 
   assert.match(english.text, /until success or cancellation/);
   for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback|12/);
 });
+
+// 场景：不足 40000 tokens 的请求被拒后保留上下文重试（反馈 LINDANDAN069 之后加了次数上限）。
+// 期望：新代码 context_preserved_retrying 的中英文详情都带上限次数，不出现未替换占位符；
+// 旧会话里落盘的 context_preserved_waiting 仍按当时的「持续重试」文案显示（上一条用例）。
+run('small context retry notice shows the retry cap', () => {
+  const message = notice('context_preserved_retrying', { attempts: 12 });
+  const cn = presentSystemNotice(message, zh);
+  const english = presentSystemNotice(message, en);
+  assert.equal(cn.title, '保留上下文，等待重试');
+  assert.match(cn.text, /最多 12 次/);
+  assert.match(english.text, /up to 12 times/);
+  for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
+});
+
+// 场景：带内联图片的请求被服务端判超限，恢复链把图片改成文件引用后重试。
+// 期望：中英文都说明撤下了几张图、文件仍保留，并提示检查模型的「视觉」标签。
+// 回归表现：不能看图的模型被误标视觉时，用户只看到反复的「上下文过大」，不知道是图片的问题。
+run('withheld inline image notice explains the vision tag', () => {
+  const message = notice('context_images_withheld', { images: 1 });
+  const cn = presentSystemNotice(message, zh);
+  const english = presentSystemNotice(message, en);
+  assert.equal(cn.title, '图片已改为文件引用');
+  assert.equal(english.title, 'Images replaced with file references');
+  assert.match(cn.text, /已把 1 张图片改为文件引用/);
+  assert.match(cn.text, /「视觉」标签/);
+  assert.match(english.text, /Replaced 1 image\(s\) with file references/);
+  assert.match(english.text, /Vision tag/);
+  for (const text of [cn.text, english.text]) assert.doesNotMatch(text, /\{\{|Original fallback/);
+});

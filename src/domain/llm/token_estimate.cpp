@@ -19,10 +19,27 @@ std::string truncation_marker(std::size_t removed_tokens) {
 
 } // namespace
 
+std::size_t count_image_parts(const ChatMessage& msg) {
+    if (!msg.content_parts.is_array()) return 0;
+    std::size_t count = 0;
+    for (const auto& part : msg.content_parts) {
+        if (part.is_object() && part.value("type", std::string{}) == "image") {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool has_image_parts(const std::vector<ChatMessage>& messages) {
+    return std::any_of(messages.begin(), messages.end(),
+                       [](const ChatMessage& msg) { return count_image_parts(msg) > 0; });
+}
+
 std::size_t estimate_message_payload_bytes(const ChatMessage& msg) {
     std::size_t bytes = msg.content.size() + msg.reasoning_content.size();
     if (msg.content_parts.is_array() && !msg.content_parts.empty()) {
         bytes += msg.content_parts.dump().size();
+        bytes += count_image_parts(msg) * kEstimatedImageTokens * 4;
     }
     if (!msg.tool_calls.is_null() && !msg.tool_calls.empty()) {
         bytes += msg.tool_calls.dump().size();

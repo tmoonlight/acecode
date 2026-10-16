@@ -47,6 +47,14 @@ struct ThreadRepairOptions {
     // 压缩摘要和助手的纯文本结论;精简完仍超目标才整组丢弃,而且整组丢弃时
     // 保留最新一份压缩摘要。默认关闭(手动修复与通用恢复链保持整组丢弃)。
     bool thin_old_turns_first = false;
+    // 把整段历史里的图片部件(type == "image")换成文件引用部件,附件元数据打上
+    // kInlineImageWithheldMetadataKey。在其它步骤之前执行,单独使用时不丢任何
+    // 消息。超限恢复在「被拒的请求带着内联图片」时先走这一步:图片的真实开销
+    // 本地估算不出来(网关可能把 base64 当文本算),而它又是最可疑的那一块
+    // (反馈 LINDANDAN069:不能看图的模型被误标「视觉」,一张截图让估算 3.7 万
+    // 的请求被判超限,兜底只会清旧工具输出、动不到这张图,空等了 14 小时)。
+    // 图片文件本身保留,引用文本里有路径。
+    bool withhold_inline_images = false;
 };
 
 struct ThreadRepairResult {
@@ -63,6 +71,8 @@ struct ThreadRepairResult {
     int cleared_tool_outputs = 0;
     // thin_old_turns_first 打开时被精简(删掉工具往返、保留用户消息与结论)的老回合数。
     int thinned_groups = 0;
+    // withhold_inline_images 打开时被换成文件引用的图片部件数。
+    int withheld_images = 0;
     std::string reason;
 
     bool repaired() const { return status == ThreadRepairStatus::Repaired; }

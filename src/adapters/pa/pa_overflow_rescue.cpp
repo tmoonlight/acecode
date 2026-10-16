@@ -43,6 +43,7 @@ int scaled_rescue_wait_ms(int ms) {
 
 const char* to_string(RescueAction action) {
     switch (action) {
+        case RescueAction::WithholdImages: return "withhold_images";
         case RescueAction::RetrySameRequest: return "retry_same_request";
         case RescueAction::ShrinkHistory: return "shrink_history";
         case RescueAction::EmergencyProfile: return "emergency_profile";
@@ -56,14 +57,32 @@ RescuePlan next_rescue_step(const RescueState& state,
                             const RescueInputs& inputs) {
     RescuePlan plan;
 
+    // 0. 带内联图片被拒:先撤图片再立刻重发。排在一切之前 —— 原样重发同一张图
+    //    只会被同样拒掉,收缩历史又清不到它(最近一条工具结果受保护,用户消息
+    //    里的图更不会被清),小请求分支则会抱着它一直等。
+    if (inputs.inline_images && !state.images_withheld) {
+        plan.action = RescueAction::WithholdImages;
+        plan.label = "服务端拒收了带图片的请求，改为文字引用后重试";
+        return plan;
+    }
+
     // Check before every mutation, including after an earlier large request
     // was reduced. A small rejected request is not evidence for a lower budget.
     if (inputs.request_tokens < MIN_AUTO_COMPACT_TOKENS) {
-        plan.action = RescueAction::WaitAndRetry;
         plan.preserve_context = true;
-        plan.wait_ms = wait_retry_delay_ms(state.wait_retries);
-        plan.label = "上下文不足 40000 tokens，保留完整请求，" +
-                     seconds_text(plan.wait_ms) + "后重试";
+        if (state.wait_retries < PA_RESCUE_MAX_WAIT_RETRIES) {
+            plan.action = RescueAction::WaitAndRetry;
+            plan.wait_ms = wait_retry_delay_ms(state.wait_retries);
+            plan.label = "上下文不足 40000 tokens，保留完整请求，" +
+                         seconds_text(plan.wait_ms) + "后重试（第 " +
+                         std::to_string(state.wait_retries + 1) + "/" +
+                         std::to_string(PA_RESCUE_MAX_WAIT_RETRIES) + " 次）";
+            return plan;
+        }
+        plan.action = RescueAction::GiveUp;
+        plan.label = "上下文不足 40000 tokens 的请求在 " +
+                     std::to_string(PA_RESCUE_MAX_WAIT_RETRIES) +
+                     " 次等待重试后仍被拒收";
         return plan;
     }
 
@@ -92,8 +111,8 @@ RescuePlan next_rescue_step(const RescueState& state,
                    inputs.history_tokens);
         plan.target_history_tokens =
             static_cast<int>(std::max<long long>(1, target_total - fixed));
-        plan.record_rejection =
-            !state.rejection_recorded && !inputs.emergency_profile;
+        plan.record_rejection = !state.rejection_recorded &&
+            !inputs.emergency_profile && !inputs.inline_images;
         plan.label = "服务端确认拒收，收缩会话历史到约 " +
                      std::to_string(plan.target_history_tokens) +
                      " tokens 后重试（第 " +
@@ -104,7 +123,8 @@ RescuePlan next_rescue_step(const RescueState& state,
     // 3. 紧急档。历史已无可缩,只剩固定部分可剥。
     if (!inputs.emergency_profile) {
         plan.action = RescueAction::EmergencyProfile;
-        plan.record_rejection = !state.rejection_recorded;
+        plan.record_rejection =
+            !state.rejection_recorded && !inputs.inline_images;
         plan.label = "会话历史已无可缩，改用精简请求档（仅核心工具）重试";
         return plan;
     }
@@ -140,6 +160,9 @@ void advance_rescue_state(RescueState& state, const RescuePlan& plan) {
             if (state.wait_retries < std::numeric_limits<int>::max()) {
                 ++state.wait_retries;
             }
+            break;
+        case RescueAction::WithholdImages:
+            state.images_withheld = true;
             break;
         case RescueAction::EmergencyProfile:
         case RescueAction::GiveUp:

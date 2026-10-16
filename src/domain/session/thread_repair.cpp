@@ -1,6 +1,7 @@
 #include "thread_repair.hpp"
 
 #include "session_manager.hpp"
+#include "attachment_prompt_context.hpp"
 #include "llm/message_predicates.hpp"
 #include "llm/token_estimate.hpp"
 #include "utils/uuid.hpp"
@@ -70,8 +71,35 @@ int thin_oldest_turns(std::vector<ChatMessage>& messages,
     return thinned;
 }
 
+// 把图片部件原地改成文件引用部件(附件元数据打标记),返回改了几张。部件位置
+// 不动:用户消息里图片与文字的先后、工具结果里正文与附件的关系都保持原样。
+// 没有附件元数据的坏部件也改成 file,provider 会渲染成「附件不可用」。
+int withhold_inline_images(std::vector<ChatMessage>& messages) {
+    int withheld = 0;
+    for (auto& message : messages) {
+        if (!message.content_parts.is_array()) continue;
+        for (auto& part : message.content_parts) {
+            if (!part.is_object() || part.value("type", std::string{}) != "image") {
+                continue;
+            }
+            part["type"] = "file";
+            const auto attachment = part.find("attachment");
+            if (attachment != part.end() && attachment->is_object()) {
+                auto& metadata = (*attachment)["metadata"];
+                if (!metadata.is_object()) metadata = nlohmann::json::object();
+                metadata[kInlineImageWithheldMetadataKey] = true;
+            }
+            ++withheld;
+        }
+    }
+    return withheld;
+}
+
 std::string repair_reason(const ThreadRepairResult& result) {
     std::vector<std::string> parts;
+    if (result.withheld_images > 0) {
+        parts.push_back("inline images were replaced with file references");
+    }
     if (result.cleared_tool_outputs > 0) {
         parts.push_back("old tool outputs were cleared");
     }
@@ -221,6 +249,11 @@ ThreadRepairResult plan_thread_repair(
         result.pre_tokens > options.target_tokens;
     std::vector<ChatMessage> working = recovered.messages;
 
+    // 第零步:撤下内联图片。它的真实开销估不准,又最可疑,先于一切裁剪。
+    if (options.withhold_inline_images) {
+        result.withheld_images = withhold_inline_images(working);
+    }
+
     // 第一步:清工具输出(与调用参数)。工具输出最占地方又能重新获取,先清它,
     // 老回合里的任务说明与纠正才留得住。
     if (options.clear_tool_outputs && options.target_tokens > 0) {
@@ -274,7 +307,7 @@ ThreadRepairResult plan_thread_repair(
     }
 
     if (keep_from > 0 || result.cleared_tool_outputs > 0 ||
-        result.thinned_groups > 0) {
+        result.thinned_groups > 0 || result.withheld_images > 0) {
         const std::vector<ChatMessage> retained = retained_view(keep_from);
         result.pruned_messages = static_cast<int>(
             recovered.messages.size() - (std::min)(recovered.messages.size(),
@@ -287,7 +320,8 @@ ThreadRepairResult plan_thread_repair(
     const bool recovery_changed = result.history_issues.changed() ||
                                   result.load_issues.recovered();
     if (result.pruned_groups == 0 && result.cleared_tool_outputs == 0 &&
-        result.thinned_groups == 0 && !recovery_changed) {
+        result.thinned_groups == 0 && result.withheld_images == 0 &&
+        !recovery_changed) {
         const bool cannot_meet_target = target_requires_prune ||
             options.force_prune_one_group;
         result.status = cannot_meet_target
@@ -361,6 +395,7 @@ nlohmann::json thread_repair_result_to_json(
         {"prunedGroups", result.pruned_groups},
         {"prunedMessages", result.pruned_messages},
         {"clearedToolOutputs", result.cleared_tool_outputs},
+        {"withheldImages", result.withheld_images},
         {"checkpointId", result.checkpoint.id.empty()
                              ? nlohmann::json(nullptr)
                              : nlohmann::json(result.checkpoint.id)},

@@ -11,6 +11,7 @@
 #include "agent/transcript/transcript_writer.hpp"
 #include "pa/pa_quirks.hpp"
 #include "llm/context_thresholds.hpp"
+#include "llm/token_estimate.hpp"
 #include "session/event_dispatcher.hpp"
 #include "session/token_tracker.hpp"
 #include "utils/abort_signal.hpp"
@@ -35,6 +36,7 @@ RecoveryDecision ContextOverflowRecovery::resolve(
         model.note_accepted(messages_with_system);
         // 服务端收下了这次请求:PA 兜底的这一轮到此结束,后面再被拒是新一轮。
         state.pa_episode = {};
+        state.inline_images_withheld = false;
         return {HandleErrorResult::Proceed, turn_timing_status};
     }
 
@@ -50,6 +52,10 @@ RecoveryDecision ContextOverflowRecovery::resolve(
     const int context_window = declared_window;
     const bool context_overflow =
         is_context_overflow_error(result.provider_error_info);
+    // 图片真的以内联图片数据发了出去(模型被当作能看图,请求里又有图片部件)。
+    // 这种拒收的规模估算不可信:图片在网关那边的开销本地估不出来。
+    const bool inline_images =
+        model.can_read_images() && has_image_parts(messages_with_system);
     LOG_WARN("Provider error before turn completion; " +
              provider_error_summary_for_log(result.provider_error_info) +
              " request_estimated_tokens=" +
@@ -60,7 +66,8 @@ RecoveryDecision ContextOverflowRecovery::resolve(
              " model_output_seen=" +
              (model_output_seen ? "true" : "false") +
              " context_overflow=" +
-             (context_overflow ? "true" : "false"));
+             (context_overflow ? "true" : "false") +
+             " inline_images=" + (inline_images ? "true" : "false"));
 
     bool pa_rescue_exhausted = false;
     if (context_overflow && !model_output_seen &&
@@ -71,16 +78,36 @@ RecoveryDecision ContextOverflowRecovery::resolve(
         PaRescueAdapter host(history_, transcript_, compaction_, retry_, callbacks_,
                              events_, abort_, session, model);
         if (pa::run_rescue(host, state.pa_episode, result.provider_error_info,
-                           request_tokens, emergency_request_profile)) {
+                           request_tokens, emergency_request_profile,
+                           inline_images)) {
             state.skip_auto_compact_once = true;
             return {HandleErrorResult::Continue, turn_timing_status};
         }
         if (abort_.raw()) return {HandleErrorResult::Break, turn_timing_status};
         pa_rescue_exhausted = true;
     } else if (context_overflow && !model_output_seen) {
-        // 先记账再恢复:这一轮已经撞墙了救不回来,但下一轮可以不撞。
-        if (const auto notice = model.note_rejected(request_tokens)) {
-            transcript_.emit_transcript_system_message(session, notice->text, notice->metadata);
+        // 带内联图片被拒:先撤图片再重发,不记账、不裁历史(与 PA 兜底第 0 步同口径)。
+        if (inline_images && !state.inline_images_withheld) {
+            state.inline_images_withheld = true;
+            if (withhold_inline_images_for_retry(history_, transcript_, compaction_,
+                                                 session) > 0) {
+                if (callbacks.on_stream_retry_reset) {
+                    callbacks.on_stream_retry_reset();
+                }
+                events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
+                    {"phase", "context_repair"},
+                    {"label", "Retrying with inline images replaced by file references"},
+                    {"detail", "inline images were replaced with file references"},
+                });
+                return {HandleErrorResult::Continue, turn_timing_status};
+            }
+        }
+        // 先记账再恢复:这一轮已经撞墙了救不回来,但下一轮可以不撞。带图的拒收
+        // 不记 —— 它的规模不代表服务端能收多大。
+        if (!inline_images) {
+            if (const auto notice = model.note_rejected(request_tokens)) {
+                transcript_.emit_transcript_system_message(session, notice->text, notice->metadata);
+            }
         }
         if (recovery_stage == ContextRecoveryStage::Normal) {
             const int history_tokens = estimate_message_tokens(
@@ -155,7 +182,14 @@ RecoveryDecision ContextOverflowRecovery::resolve(
     if (pa_rescue_exhausted) metadata["pa_rescue_exhausted"] = true;
     turn_timing_status = "error";
     std::string display_message = result.provider_error_info.display_message;
-    if (pa_rescue_exhausted) {
+    if (pa_rescue_exhausted && request_tokens < MIN_AUTO_COMPACT_TOKENS) {
+        // 小请求分支放弃:历史一条没动,这时再撞墙多半不是规模问题。
+        display_message +=
+            " 这次请求不足 40000 tokens，已保留完整上下文重试 " +
+            std::to_string(pa::PA_RESCUE_MAX_WAIT_RETRIES) +
+            " 次仍被服务端拒收，本回合放弃。拒收原因可能不在请求规模上（例如模型"
+            "不支持其中的附件），稍后重新发送即可继续。";
+    } else if (pa_rescue_exhausted) {
         display_message +=
             " 服务端在 " + std::to_string(pa::PA_RESCUE_MAX_WAIT_RETRIES) +
             " 次等待重试后仍拒收已缩到最小的请求，本回合放弃；稍后重新发送即可"
