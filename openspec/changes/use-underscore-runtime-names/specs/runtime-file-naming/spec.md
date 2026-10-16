@@ -19,3 +19,12 @@ ACECode MUST continue discovering and reading existing files with hyphen names. 
 #### Scenario: Feedback collects mixed log names
 - **WHEN** old hyphen logs and new underscore logs coexist
 - **THEN** log discovery includes the applicable logs and selects recent files using modification times
+
+#### Scenario: Clean up a relocated data directory
+- **WHEN** the default directory contains either or both generations of the data-directory redirect file
+- **THEN** cleanup preserves both redirect names, keeps the active redirect readable and does not count redirect files as remaining user data
+- **AND** subsequent data migrations exclude both redirect names from copied data
+
+#### Scenario: Rebuild with a daemon from a previous commit
+- **WHEN** an earlier daemon still owns a runtime directory using either naming generation
+- **THEN** the development launcher detects it across both runtime roots and blocks the rebuild without stopping the process

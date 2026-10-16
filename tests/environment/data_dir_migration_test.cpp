@@ -222,6 +222,8 @@ TEST_F(DataDirMigrationTest, ExclusionRules) {
     EXPECT_TRUE(migration_excludes_entry(fs::path("config.json.lock")));
     EXPECT_TRUE(migration_excludes_entry(fs::path("projects") / "a" / ".writer.lock"));
     EXPECT_TRUE(migration_excludes_entry(fs::path(acecode::kDataDirRedirectFileName)));
+    EXPECT_TRUE(migration_excludes_entry(fs::path("data_dir.redirect.json")));
+    EXPECT_FALSE(migration_excludes_entry(fs::path("projects") / "data_dir.redirect.json"));
     EXPECT_FALSE(migration_excludes_entry(fs::path("projects") / "a" / "s.jsonl"));
     EXPECT_FALSE(migration_excludes_entry(fs::path("runbook.md")));
     EXPECT_FALSE(migration_excludes_entry(fs::path("memory")));
@@ -284,6 +286,7 @@ TEST_F(DataDirMigrationTest, MigrationCopiesAndWritesPointer) {
     EXPECT_FALSE(fs::exists(target / "tmp"));
     EXPECT_FALSE(fs::exists(target / "config.json.lock"));
     EXPECT_FALSE(fs::exists(target / acecode::kDataDirRedirectFileName));
+    EXPECT_FALSE(fs::exists(target / "data_dir.redirect.json"));
 
     // 复制字节数 = 被复制文件大小之和(排除项不计)。
     unsigned long long expected = 0;
@@ -365,7 +368,7 @@ TEST_F(DataDirMigrationTest, CleanupPreviousKeepsPointerOnlyInDefaultDir) {
     ASSERT_TRUE(acecode::write_data_dir_redirect(s(default_dir), r));
 
     EXPECT_EQ(cleanup_previous_data_dir(s(default_dir), s(default_dir)), "");
-    EXPECT_TRUE(fs::exists(default_dir / acecode::kDataDirRedirectFileName));
+    EXPECT_TRUE(fs::exists(acecode::path_from_utf8(acecode::data_dir_redirect_path(s(default_dir)))));
     EXPECT_FALSE(fs::exists(default_dir / "config.json"));
     EXPECT_FALSE(fs::exists(default_dir / "projects"));
 
@@ -387,6 +390,26 @@ TEST_F(DataDirMigrationTest, CleanupPreviousKeepsPointerOnlyInDefaultDir) {
     auto back = acecode::read_data_dir_redirect(s(default_dir));
     ASSERT_TRUE(back.has_value());
     EXPECT_FALSE(back->cleanup_pending);
+}
+
+TEST_F(DataDirMigrationTest, CleanupPreservesBothRedirectNamingGenerations) {
+    populate_source(default_dir);
+    write_file(default_dir / acecode::kDataDirRedirectFileName, "{}");
+    acecode::DataDirRedirect redirect;
+    redirect.data_dir = s(root / "elsewhere");
+    redirect.previous_data_dir = s(default_dir);
+    redirect.cleanup_pending = true;
+    ASSERT_TRUE(acecode::write_data_dir_redirect(s(default_dir), redirect));
+    // An older installation still owns the hyphenated pointer when both exist.
+    write_file(default_dir / "data_dir.redirect.json", "{}");
+
+    EXPECT_EQ(cleanup_previous_data_dir(s(default_dir), s(default_dir)), "");
+    EXPECT_TRUE(fs::exists(default_dir / acecode::kDataDirRedirectFileName));
+    EXPECT_TRUE(fs::exists(default_dir / "data_dir.redirect.json"));
+    const auto retained = acecode::read_data_dir_redirect(s(default_dir));
+    ASSERT_TRUE(retained.has_value());
+    EXPECT_EQ(retained->data_dir, redirect.data_dir);
+    EXPECT_FALSE(data_dir_status(acecode::RunMode::User).previous_exists);
 }
 
 // 场景:状态汇总与 100 MB 阈值。
