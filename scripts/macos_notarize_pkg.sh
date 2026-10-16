@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 set +x
+# shellcheck source=scripts/macos_stapler.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/macos_stapler.sh"
 
 usage() {
     cat <<'USAGE'
@@ -123,8 +125,8 @@ if [[ "$notary_status" != "Accepted" ]]; then
 fi
 
 echo "Stapling notarization ticket to $pkg_path"
-xcrun stapler staple "$pkg_path"
-xcrun stapler validate "$pkg_path"
+acecode_stapler staple "$pkg_path"
+acecode_stapler validate "$pkg_path"
 post_staple_signature="$(/usr/sbin/pkgutil --check-signature "$pkg_path" 2>&1)" || {
     printf '%s\n' "$post_staple_signature" >&2
     exit 1

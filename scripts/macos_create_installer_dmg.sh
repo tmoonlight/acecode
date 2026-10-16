@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 set +x
+# shellcheck source=scripts/macos_stapler.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/macos_stapler.sh"
 usage() {
     printf 'Usage: bash scripts/macos_create_installer_dmg.sh --app ACECode.app --output NEW.dmg --arch x64|arm64 --identity APPLICATION-IDENTITY [--keychain PATH] [--keychain-profile NAME]\n'
 }
@@ -55,15 +57,15 @@ notarize() {
         if [[ -n "$submission" ]]; then xcrun notarytool log "$submission" "${auth[@]}" || true; fi
         printf 'Notarization rejected: %s\n' "$status" >&2; exit 1
     fi
-    xcrun stapler staple "$ticket"
-    xcrun stapler validate "$ticket"
+    acecode_stapler staple "$ticket"
+    acecode_stapler validate "$ticket"
 }
 /usr/bin/ditto -c -k --keepParent "$installer" "$work/installer.zip"
 notarize "$work/installer.zip" "$installer"
 /usr/bin/codesign --verify --deep --strict "$installer"
 /usr/sbin/spctl --assess --type execute --verbose=4 "$installer"
 /usr/bin/diff -rq "$app" "$installer/Contents/Resources/ACECode.app"
-xcrun stapler validate "$installer/Contents/Resources/ACECode.app"
+acecode_stapler validate "$installer/Contents/Resources/ACECode.app"
 # The image root contains only the installer, not a misleading Applications link.
 # DiskImages can transiently fail with EBUSY on hosted macOS runners. Keep each
 # attempt separate, capture logs without a pipe, and retry only that error.

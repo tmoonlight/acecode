@@ -11,8 +11,9 @@ def required_asset_names(version):
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version):
         raise ValueError("Invalid release version")
     names = [f"acecode-windows-{arch}.zip" for arch in ("x64", "arm64")]
-    names += [f"acecode-{platform}-{arch}.tar.gz"
-              for platform in ("linux", "linux-deepin") for arch in ("x64", "arm64", "armv7")]
+    names += [f"acecode-linux-{arch}.tar.gz" for arch in ("x64", "arm64", "armv7")]
+    # Deepin ARMv7 stopped shipping after 1.0.7; a stray archive is rejected as unexpected.
+    names += [f"acecode-linux-deepin-{arch}.tar.gz" for arch in ("x64", "arm64")]
     for arch in ("x64", "arm64"):
         names += [f"acecode-macos-{arch}.tar.gz",
                   f"acecode-{version}-linux-{arch}-update.zip",

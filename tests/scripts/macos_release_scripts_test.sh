@@ -40,6 +40,48 @@ for script in "$sign_script" "$pkg_script" "$notarize_pkg_script" \
         bash "$script" --definitely-unknown
 done
 
+stapler_helper="$repo_root/scripts/macos_stapler.sh"
+bash -n "$stapler_helper"
+
+# 场景:stapler 连不上 Apple 票据服务时退出码为 68(v1.0.6 / v1.0.7 的 macos-x64 因此整个
+# job 失败)。期望:acecode_stapler 只对 68 重试,恢复即成功;一直 68 时在上限处放弃并返回 68;
+# 其它退出码一次就返回。用 shell 函数假冒 xcrun,不依赖 macOS。
+(
+    # shellcheck source=../../scripts/macos_stapler.sh
+    source "$stapler_helper"
+    stapler_calls=0
+    stapler_failures=0
+    stapler_code=68
+    xcrun() {
+        stapler_calls=$((stapler_calls + 1))
+        [[ "$1 $2 $3" == "stapler validate fixture.app" ]] || return 99
+        if [[ "$stapler_calls" -le "$stapler_failures" ]]; then return "$stapler_code"; fi
+        return 0
+    }
+    export ACECODE_STAPLER_RETRY_DELAY=0
+
+    stapler_calls=0; stapler_failures=2
+    acecode_stapler validate fixture.app 2>/dev/null
+    [[ "$stapler_calls" -eq 3 ]] || { echo "transient 68 should be retried: $stapler_calls calls" >&2; exit 1; }
+
+    stapler_calls=0; stapler_failures=99; result=0
+    ACECODE_STAPLER_ATTEMPTS=4 acecode_stapler validate fixture.app 2>/dev/null || result=$?
+    [[ "$result" -eq 68 && "$stapler_calls" -eq 4 ]] || {
+        echo "persistent 68 should stop after 4 attempts: exit $result, $stapler_calls calls" >&2; exit 1; }
+
+    stapler_calls=0; stapler_failures=99; stapler_code=65; result=0
+    acecode_stapler validate fixture.app 2>/dev/null || result=$?
+    [[ "$result" -eq 65 && "$stapler_calls" -eq 1 ]] || {
+        echo "non-ticket stapler errors must not be retried: exit $result, $stapler_calls calls" >&2; exit 1; }
+)
+
+# 守卫:新增的 stapler 调用必须走 acecode_stapler,否则一次断线又会让整个发布 job 失败。
+if grep -n 'xcrun stapler' "$repo_root"/scripts/macos_*.sh "$repo_root/packaging/macos-installer/build.sh" |
+        grep -v '/scripts/macos_stapler.sh:'; then
+    echo "Call acecode_stapler from scripts/macos_stapler.sh instead of xcrun stapler" >&2
+    exit 1
+fi
+
 grep -Fq -- '--keychain-profile <name>' "$notarize_pkg_script"
 grep -Fq -- '--keychain-profile <name>' "$notarize_app_script"
 grep -Fq -- '--installer-identity <Developer ID Installer identity>' "$pkg_script"

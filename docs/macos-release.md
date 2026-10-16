@@ -273,6 +273,15 @@ CI creates, notarizes, validates, and uploads the PKG before building the DMG,
 so a later DMG failure leaves the verified PKG available as a workflow artifact.
 Tagged releases still require the complete successful packaging matrix.
 
+Every `stapler staple` / `stapler validate` in the packaging scripts goes through
+`acecode_stapler` from [`macos_stapler.sh`](../scripts/macos_stapler.sh). Exit
+code 68 means Apple's ticket service could not be reached (CloudKit dropped the
+connection or asked the client to back off); it is retried up to six attempts,
+15 seconds apart. Any other stapler failure still stops the job immediately.
+Before this retry existed, v1.0.7's `macos-x64` job failed three runs in a row,
+each time on one dropped connection. The contract test rejects new direct
+`xcrun stapler` calls.
+
 After preparing a trusted payload, an authorized release operator can run:
 
 ```bash

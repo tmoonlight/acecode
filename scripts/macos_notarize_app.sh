@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 set +x
+# shellcheck source=scripts/macos_stapler.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/macos_stapler.sh"
 
 usage() {
     cat <<'USAGE'
@@ -115,8 +117,8 @@ if [[ "$status" != "Accepted" ]]; then
 fi
 
 echo "Stapling notarization ticket to $app_path"
-xcrun stapler staple "$app_path"
-xcrun stapler validate "$app_path"
+acecode_stapler staple "$app_path"
+acecode_stapler validate "$app_path"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$app_path"
 
 echo "Assessing $app_path with Gatekeeper"

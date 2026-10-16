@@ -17,7 +17,7 @@ Deepin 包使用系统 WebKit2GTK **4.0**、Qt **5.11 或更新的 Qt 5**、DTK 
 ## 运行条件
 
 - x64、ARM64：归档包含 `acecode` 和 `acecode-desktop`。
-- ARMv7：延续原流水线的终端/daemon 包，不包含 Desktop。
+- ARMv7：1.0.7 是最后一个 Deepin ARMv7 包（终端/daemon，不含 Desktop）。已下载的版本仍可使用，但不会再有新版本。普通 `acecode-linux-armv7.tar.gz` 按较新的 glibc 构建，不保证能在 GLIBC 2.28 的旧 UOS / Deepin 上运行。
 - 桌面依赖系统 `libwebkit2gtk-4.0.so.37`、`libdtkwidget.so.5`、`libdtkgui.so.5`、Qt 5 及 Deepin `dxcb` 平台插件。使用系统随附的对应运行库，归档不捆绑 Qt、DTK 或 WebKit。
 - 原生窗框效果还要求 `XDG_CURRENT_DESKTOP` 或 `XDG_SESSION_DESKTOP` 含有 `Deepin` 桌面名称，并且窗口实际使用 GDK X11 后端。XWayland 满足这一后端条件，CPU 架构不参与判断。原生 Wayland 跳过 X11 窗框适配。
 - Deepin 的 DPI 修正也受编译开关和上述运行条件限制；有效字体 DPI 大于 96 且缩放参数有效时启用，显示设置改变后实时刷新。
@@ -26,7 +26,7 @@ Deepin 包使用系统 WebKit2GTK **4.0**、Qt **5.11 或更新的 Qt 5**、DTK 
 
 ## 打包与升级
 
-下载文件为 `acecode-linux-deepin-x64.tar.gz`、`acecode-linux-deepin-arm64.tar.gz` 和 `acecode-linux-deepin-armv7.tar.gz`，替代原 `linux-old-*` 系列。普通 `acecode-linux-*` 包继续单独发布。
+下载文件为 `acecode-linux-deepin-x64.tar.gz` 和 `acecode-linux-deepin-arm64.tar.gz`，替代原 `linux-old-*` 系列。普通 `acecode-linux-*` 包继续单独发布。
 
 专用流水线保持 Debian Buster / GLIBC 2.28 基线。`scripts/build_deepin_dtk_sdk.sh` 从固定提交及 SHA-256 校验的源码构建 DTK 5.2 SDK，避免系统仓库更新 Qt 后抬高 ABI 要求。SDK 只用于 CI 链接，不放进发行包。流水线校验 GLIBC 上限、WebKitGTK 4.0、DTK 5 和动态依赖是否齐全。打包前及解包后运行 `scripts/verify_deepin_package.py`，拒绝归档中的 Qt/DTK 运行库和 Qt 插件。
 

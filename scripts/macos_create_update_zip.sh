@@ -22,6 +22,8 @@ output_path=""
 require_trusted=false
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd -- "$script_dir/.." && pwd -P)"
+# shellcheck source=scripts/macos_stapler.sh
+source "$script_dir/macos_stapler.sh"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -167,7 +169,7 @@ if [[ "$require_trusted" == true ]]; then
     /usr/bin/codesign --verify --deep --strict --verbose=2 "$verified_app"
     /usr/bin/codesign --verify --strict --verbose=2 "$verified_cli"
     /usr/bin/codesign --verify --strict --verbose=2 "$verified_app/Contents/MacOS/acecode-computer-use"
-    xcrun stapler validate "$verified_app"
+    acecode_stapler validate "$verified_app"
     /usr/sbin/spctl --assess --type execute --verbose=4 "$verified_app"
 fi
 
