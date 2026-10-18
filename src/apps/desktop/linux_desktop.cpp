@@ -20,8 +20,8 @@ void configure_linux_native_services(void* webview_widget) {
             const std::string url = uri ? uri : "";
             const bool local = url.rfind("http://127.0.0.1:", 0) == 0 ||
                 url.rfind("http://localhost:", 0) == 0 || url.rfind("http://[::1]:", 0) == 0;
-            if (local && webkit_user_media_permission_request_is_for_audio_device(media) &&
-                !webkit_user_media_permission_request_is_for_video_device(media)) {
+            if (local && webkit_user_media_permission_is_for_audio_device(media) &&
+                !webkit_user_media_permission_is_for_video_device(media)) {
                 webkit_permission_request_allow(request);
             } else {
                 webkit_permission_request_deny(request);

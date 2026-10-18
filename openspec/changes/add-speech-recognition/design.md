@@ -19,6 +19,8 @@
 6. 同时只允许一份客户端录音；后端限制并发转写避免堆积。取消接口以请求 ID 标识活动调用。外部识别服务是否真正中止推理由服务自己决定，ACECode 不接受已取消结果。
 7. Mac Desktop 添加麦克风用途说明；检查各 Desktop WebView 权限入口，保持仅主页面用户触发采集。Windows 本地编译和浏览器验证作为当前可执行验收，不将其宣称为 Mac/Linux 真机通过。
 
+2026-10-19 Linux 编译补验：v1.0.10 打包暴露了 WebKitGTK 音视频权限函数名错误。按官方接口更正为 `webkit_user_media_permission_is_for_audio_device` 和 `webkit_user_media_permission_is_for_video_device`，并用独立 CI 直接编译 `linux_desktop.cpp`，在完整依赖构建前检查系统头文件兼容性。原有仅本地页面、仅音频的权限规则保持；此编译检查不证明真实录音或系统权限交互已通过。
+
 ## Risks / Trade-offs
 
 - 麦克风设备属于浏览器所在电脑，本地偏好与后端识别服务配置分离；使用共享连接无关的本机偏好 store。设备列表仅在显式右键菜单时请求，必要时申请麦克风权限以获取真实设备名称，临时授权流立即释放。

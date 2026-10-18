@@ -46,6 +46,28 @@ jobs:
           path: lint-reports
           if-no-files-found: error
 
+  linux-desktop-api:
+    name: linux-desktop-api
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install native WebKit headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ pkg-config libwebkit2gtk-4.1-dev
+
+      - name: Compile native desktop API usage
+        shell: bash
+        run: |
+          g++ -std=c++17 -fsyntax-only \
+            $(pkg-config --cflags webkit2gtk-4.1) \
+            -Isrc/base -Isrc/domain -Isrc/adapters \
+            -Isrc/engine -Isrc/host -Isrc/apps \
+            src/apps/desktop/linux_desktop.cpp
+
   macos-installer-tests:
     name: macos-installer-tests
     runs-on: macos-15
