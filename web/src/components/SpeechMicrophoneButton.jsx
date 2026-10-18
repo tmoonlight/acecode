@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { Toggle } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 import { listSpeechDevices } from '../lib/speechDevices.js';
 import { speechErrorMessage } from '../lib/speechRecognition.js';
+import {
+  closeDesktopContextMenu,
+  CONTEXT_MENU_DELEGATE_EVENT,
+  SPEECH_MICROPHONE_CONTEXT_MENU_DELEGATE,
+} from '../lib/desktopContextMenu.js';
 
 function MicrophoneMenu({ speech, anchorRef, onClose }) {
   const [devices, setDevices] = useState([]);
@@ -53,12 +58,29 @@ export function SpeechMicrophoneButton({ speech, disabled, onBeforeStart }) {
   const anchor = useRef(null);
   const [open, setOpen] = useState(false);
   useEffect(() => { if (disabled || speech.active || !speech.available) setOpen(false); }, [disabled, speech.active, speech.available]);
+  const openMenu = useCallback(() => {
+    closeDesktopContextMenu();
+    if (!disabled && !speech.active && speech.available) setOpen(true);
+  }, [disabled, speech.active, speech.available]);
+  useEffect(() => {
+    const handler = (event) => {
+      const detail = event.detail;
+      if (!detail || detail.handled || detail.name !== SPEECH_MICROPHONE_CONTEXT_MENU_DELEGATE
+        || detail.element !== anchor.current) return;
+      // The global menu owns document capture; claim only this composer's button.
+      detail.handled = true;
+      openMenu();
+    };
+    window.addEventListener(CONTEXT_MENU_DELEGATE_EVENT, handler);
+    return () => window.removeEventListener(CONTEXT_MENU_DELEGATE_EVENT, handler);
+  }, [openMenu]);
   const beginHold = (kind) => { onBeforeStart?.(); speech.beginHold(kind); };
   return <>
     <button ref={anchor} type="button" data-composer-speech="true" aria-label="听写" title="右键配置麦克风"
+      data-desktop-context-menu-delegate={SPEECH_MICROPHONE_CONTEXT_MENU_DELEGATE}
       aria-haspopup="menu" aria-expanded={open} disabled={disabled}
       className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-fg-mute hover:bg-surface-hi hover:text-fg disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
-      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); if (!disabled) setOpen(true); }}
+      onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); openMenu(); }}
       onPointerDown={(event) => {
         if (event.button === 0 && speech.preferences.holdToRecord) { event.preventDefault(); beginHold({ kind: 'pointer', id: event.pointerId }); }
       }}
