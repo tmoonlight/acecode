@@ -15,6 +15,7 @@ import React,{useState,useRef} from 'react';
 import {createRoot} from 'react-dom/client';
 import '/src/styles/globals.css';
 import {InputBar} from '/src/components/InputBar.jsx';
+import {DesktopContextMenu} from '/src/components/DesktopContextMenu.jsx';
 import {SettingsPage} from '/src/components/SettingsPage.jsx';
 import '/src/i18n/index.js';
 import {Toaster} from '/src/components/Toast.jsx';
@@ -72,7 +73,7 @@ function App(){
     onSubmit={text=>window.fixture.sent.push(text)}
     sessionControls={{model:'ACEModel-gpt-6-astra',modelOptions:[model],selectedModelName:model.name,
       onModelChange(){},onRefreshModels(){},permissionMode:'default',reasoningOptions:{label:'极高',items:[]}}}/>
-  </div><button type="button" onClick={()=>{setSettingsNav('shortcuts');setSettingsOpen(true);}}>打开快捷键设置</button><Toaster/>
+  </div><button type="button" onClick={()=>{setSettingsNav('shortcuts');setSettingsOpen(true);}}>打开快捷键设置</button><Toaster/><DesktopContextMenu/>
  </main>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
@@ -197,6 +198,39 @@ try {
   await page.waitForFunction(() => window.fixture.saved().base_url==='http://speech.internal:7777');
   await settings.getByRole('button', { name: '收起', exact: true }).click();
   await page.evaluate(() => window.fixture.settings(false));
+  const microphoneMenu=page.getByRole('menu',{name:'麦克风配置'});
+  const genericMenu=page.locator('.ace-desktop-context-menu');
+  // Include the document capture listener used in production, not only the button's React handler.
+  await page.getByRole('button',{name:'听写',exact:true}).click({button:'right'});
+  await page.waitForFunction(()=>document.querySelector('[aria-label="麦克风配置"],.ace-desktop-context-menu'));
+  assert.equal(await genericMenu.count(),0,'microphone right-click must not open the global Select All menu');
+  await microphoneMenu.waitFor();
+  await page.keyboard.press('Escape');
+  await editor.click({button:'right'});
+  await genericMenu.getByRole('menuitem',{name:'粘贴',exact:true}).waitFor();
+  assert.equal(await genericMenu.getByRole('menuitem',{name:'全选',exact:true}).count(),1,'editor retains the generic editing menu');
+  assert.equal(await microphoneMenu.count(),0);
+  // A context-menu event can arrive without pointerdown first (keyboard/native delegation).
+  await page.locator('[data-composer-speech] svg').dispatchEvent('contextmenu',{bubbles:true,cancelable:true});
+  await microphoneMenu.waitFor();
+  assert.equal(await genericMenu.count(),0,'opening microphone settings closes an existing generic menu');
+  await page.keyboard.press('Escape');
+  for (const theme of ['light','dark']) {
+    await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
+    await page.locator('[data-composer-speech] svg').click({button:'right'});
+    await microphoneMenu.locator('[data-microphone-device]').first().waitFor();
+    assert.equal(await genericMenu.count(),0,'right-clicking the icon reaches the microphone delegate');
+    await microphoneMenu.screenshot({path:path.join(output,`microphone-context-${theme}.png`)});
+    await page.keyboard.press('Escape');
+    await page.locator('[data-composer-speech]').click({button:'right',position:{x:2,y:14}});
+    await microphoneMenu.waitFor();
+    assert.equal(await genericMenu.count(),0,'button padding also belongs to the microphone menu');
+    await editor.click({button:'right'});
+    await genericMenu.getByRole('menuitem',{name:'粘贴',exact:true}).waitFor();
+    assert.equal(await microphoneMenu.count(),0,'editor context menu dismisses the microphone menu');
+    await page.keyboard.press('Escape');
+  }
+  console.log('[pass] real global context-menu delegation: icon, button padding, menu switching and editor actions');
   const start = async () => {
     const before=await page.locator('[data-speech-composer]').boundingBox();
     await editor.click();
@@ -281,7 +315,6 @@ try {
   const microphone=page.getByRole('button',{name:'听写',exact:true});
   assert.equal(await microphone.getAttribute('title'),'右键配置麦克风');
   await microphone.click({button:'right'});
-  const microphoneMenu=page.getByRole('menu',{name:'麦克风配置'});
   await microphoneMenu.waitFor();
   await microphoneMenu.locator('[data-microphone-device]').first().waitFor();
   assert.equal(await microphoneMenu.getByText('Language',{exact:true}).count(),0);

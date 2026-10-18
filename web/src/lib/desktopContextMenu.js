@@ -99,6 +99,7 @@ export const CLOSE_DESKTOP_CONTEXT_MENU_EVENT = 'acecode:close-desktop-context-m
 export const CONTEXT_MENU_DELEGATE_EVENT = 'acecode:context-menu-delegate';
 export const CONTEXT_MENU_DELEGATE_SELECTOR = '[data-desktop-context-menu-delegate]';
 export const SESSION_HEADER_CONTEXT_MENU_DELEGATE = 'session-header';
+export const SPEECH_MICROPHONE_CONTEXT_MENU_DELEGATE = 'speech-microphone';
 
 // Explicit toolbar entry point; native right-click continues through contextmenu.
 export function openDesktopContextMenu(options) {
