@@ -267,7 +267,7 @@ export function ConsoleDock({ owner, open, height: preferredHeight, onHeightChan
     // 让位给应用快捷键,与 VS Code 集成终端默认行为一致。
     term.attachCustomKeyEventHandler((ev) => {
       const shortcut = matchAppShortcut(ev);
-      if (shortcut && !['stop', 'reasoningUp', 'reasoningDown'].includes(shortcut)) return false;
+      if (shortcut && !['stop', 'reasoningUp', 'reasoningDown', 'dictation'].includes(shortcut)) return false;
       return true;
     });
     term.onData((data) => {

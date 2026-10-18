@@ -1870,6 +1870,7 @@ export function Sidebar({
   const refreshSelectionRef = useRef(null);
   const refreshingRef = useRef(false);
   const pendingRefreshHashRef = useRef('');
+  const archiveOperationsRef = useRef(new Set());
   const expandedRef = useRef(new Set());
   const sessionLoadedWorkspacesRef = useRef(new Set());
   const sessionFullyLoadedWorkspacesRef = useRef(new Set());
@@ -2593,7 +2594,7 @@ export function Sidebar({
   }, [togglePinnedSession]);
 
   const refresh = useCallback(async (preferredHash = null) => {
-    if (treeSavingRef.current) return;
+    if (treeSavingRef.current || archiveOperationsRef.current.size > 0) return;
     const treeRevision = treeRevisionRef.current;
     const { activeWorkspaceHash, revealTarget } = refreshSelectionRef.current;
     const revealWorkspaceHash = revealTarget.noWorkspace ? '' : revealTarget.workspaceHash;
@@ -2631,6 +2632,7 @@ export function Sidebar({
         workspaceArr = [{ hash: '__local__', cwd: '', name: '当前会话',
                           daemon_state: 'running', active: true }];
       }
+      if (treeRevision !== treeRevisionRef.current) return;
 
       const availableHashes = new Set(workspaceArr.map((w) => w.hash).filter(Boolean));
       const canAutoExpandWorkspace = (hash) => allowSidebarWorkspaceAutoExpand(hash, {
@@ -2700,7 +2702,7 @@ export function Sidebar({
           sequence,
           query,
           result: settleSidebarWorkspacePage(loadWorkspacePage(workspace, query)).then((result) => {
-            if (result.ok && sidebarWorkspacePageIsCurrent(
+            if (result.ok && treeRevision === treeRevisionRef.current && sidebarWorkspacePageIsCurrent(
               workspaceSessionLoadSeqRef.current.get(workspace.hash), sequence,
             )) {
               applyWorkspaceSessionList(workspace, result.page);
@@ -2741,6 +2743,7 @@ export function Sidebar({
             pinnedByWorkspaceRef.current.get(NO_WORKSPACE_PIN_SCOPE) || [],
           )),
       ]);
+      if (treeRevision !== treeRevisionRef.current) return;
       const nextPinnedMap = new Map();
       for (const [hash, ids] of pinnedPairs) {
         if (hash && ids.length) nextPinnedMap.set(hash, ids);
@@ -2751,6 +2754,7 @@ export function Sidebar({
       setPinnedMap(nextPinnedMap);
       try {
         const orderState = await api.getPinnedSessionOrder();
+        if (treeRevision !== treeRevisionRef.current) return;
         setPinnedOrder(normalizePinnedOrderItems(orderState?.items || []));
       } catch {
         setPinnedOrder(pinnedOrderItemsRef.current);
@@ -2812,11 +2816,12 @@ export function Sidebar({
         }));
         // 所有等待结束后再检查代次，不能让这里较慢的请求造成旧摘要回写。
         const noWorkspaceResponse = await noWorkspaceListPromise;
+        if (treeRevision !== treeRevisionRef.current) return;
         const noWorkspaceRaw = treeRevision === treeRevisionRef.current && noWorkspaceResponse
           ? normalizeWorkspaceSessionListResponse(noWorkspaceResponse) : null;
         if (noWorkspaceRaw) acceptSidebarTreePage(NO_WORKSPACE_PIN_SCOPE, noWorkspaceRaw);
         const perWorkspace = settledPages.flatMap(({ workspace, sequence, result }) => {
-          if (!result.ok) return [];
+          if (!result.ok || treeRevision !== treeRevisionRef.current) return [];
           if (sequence !== undefined && !sidebarWorkspacePageIsCurrent(
             workspaceSessionLoadSeqRef.current.get(workspace.hash), sequence,
           )) return [];
@@ -2876,6 +2881,42 @@ export function Sidebar({
   }, [acceptSidebarTreePage, applyWorkspaceSessionList, markWorkspaceSessionsFullyLoaded, refreshOpencodeImportPreview, setPinnedMap, setPinnedOrder, setSessionWorkspaceLoading, setSessionWorkspacesLoaded, sidebarTreeOptions, syncRetainedSessionIds, updateExpanded]);
   workspaceOrderRefreshRef.current = refresh;
 
+  const invalidateArchiveLists = useCallback((scope) => {
+    // Archive mutates the tree as well as the session list. Old polling and
+    // disclosure requests must not resurrect a row after the mutation.
+    treeRevisionRef.current += 1;
+    workspaceSessionLoadSeqRef.current.set(scope,
+      (workspaceSessionLoadSeqRef.current.get(scope) || 0) + 1);
+  }, []);
+
+  const refreshArchivedScope = useCallback(async (scope) => {
+    const sequence = (workspaceSessionLoadSeqRef.current.get(scope) || 0) + 1;
+    workspaceSessionLoadSeqRef.current.set(scope, sequence);
+    const isCurrent = () => workspaceSessionLoadSeqRef.current.get(scope) === sequence;
+    const noWorkspace = scope === NO_WORKSPACE_PIN_SCOPE;
+    const query = sidebarWorkspaceSessionListQuery({
+      visibleCount: expandedSessionListsRef.current.get(scope),
+      pinnedIds: pinnedByWorkspaceRef.current.get(scope),
+    });
+    try {
+      const data = await api.listSidebarSessions(noWorkspace ? '' : scope,
+        sidebarTreeOptions(scope, noWorkspace ? 0 : query.limit));
+      if (isCurrent()) treeApplyRef.current(scope, normalizeWorkspaceSessionListResponse(data));
+      // A newer request owns the final state if this request was superseded.
+      return true;
+    } catch {
+      return !isCurrent();
+    } finally {
+      if (isCurrent()) setSessionWorkspaceLoading([scope], false);
+    }
+  }, [setSessionWorkspaceLoading, sidebarTreeOptions]);
+
+  const notifyArchiveChanged = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('ace-session-archive-changed', {
+      detail: { source: archiveOperationsRef.current },
+    }));
+  }, []);
+
   const archiveSession = useCallback(async (session) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const noWorkspace = isNoWorkspaceSession(session);
@@ -2883,10 +2924,17 @@ export function Sidebar({
     const pinScope = noWorkspace ? NO_WORKSPACE_PIN_SCOPE : workspaceHash;
     if (!id) return;
     const loadKey = sidebarSessionLoadKey({ sessionId: id, workspaceHash, noWorkspace });
+    if (archiveOperationsRef.current.has(loadKey)) return;
+    archiveOperationsRef.current.add(loadKey);
     sessionLoadPoolRef.current?.invalidate(loadKey);
     if (sessionSelectionIntentRef.current?.loadKey === loadKey) {
       cancelSessionSelection();
     }
+    const removeArchivedRow = () => setSessions((prev) => prev.filter((item) => (
+      sidebarSessionLoadKey({ sessionId: item.id || item.session_id || item.sessionId,
+        workspaceHash: item.workspace_hash || item.workspaceHash || '',
+        noWorkspace: isNoWorkspaceSession(item) }) !== loadKey
+    )));
 
     try {
       if (workspaceHash && workspaceHash !== '__local__') {
@@ -2894,9 +2942,13 @@ export function Sidebar({
       } else {
         await api.archiveSession(id);
       }
+      invalidateArchiveLists(pinScope);
 
       const previousPinned = normalizePinnedIds(pinnedByWorkspaceRef.current.get(pinScope) || []);
       if (pinScope && previousPinned.includes(id)) {
+        // Pinned rows have no backfill. Remove the row together with its pin so
+        // it never flashes in the ordinary list while pin persistence waits.
+        removeArchivedRow();
         const nextPinned = unpinSessionId(previousPinned, id);
         const previousOrder = normalizePinnedOrderItems(pinnedOrderItemsRef.current);
         const nextOrder = unpinPinnedOrderItem(previousOrder, { workspace_hash: pinScope, session_id: id });
@@ -2913,8 +2965,12 @@ export function Sidebar({
       }
 
       desktopTaskbarBadge.removeSession(id);
-      setSessions((prev) => prev.filter((item) => (item.id || item.session_id || item.sessionId) !== id));
-      if (id === activeId) {
+      // Replace the page in one render, including its backfill row. Removing
+      // locally first makes every subsequent workspace move up and then down.
+      if (!await refreshArchivedScope(pinScope)) {
+        removeArchivedRow();
+      }
+      if (sessionMatchesRevealTarget(session, treeNavigationRef.current)) {
         onOpenHome?.(noWorkspace
           ? { noWorkspace: true, name: '不使用工作区' }
           : {
@@ -2924,13 +2980,29 @@ export function Sidebar({
               name: session.workspaceName || session.workspace_name || '',
             });
       }
-      toast({ kind: 'ok', text: '已归档' });
-      window.dispatchEvent(new Event('ace-session-archive-changed'));
-      refresh(workspaceHash).catch(() => {});
+      toast({ kind: 'ok', icon: 'archive', text: tr('已归档的聊天'), duration: 8000, dismissible: true, actions: [
+        { label: tr('查看'), onClick: () => onOpenSettingsSection?.('archived') },
+        {
+          label: tr('撤销'), primary: true, errorText: tr('撤销归档失败：'),
+          onClick: async () => {
+            const restored = workspaceHash && workspaceHash !== '__local__'
+              ? await api.unarchiveWorkspaceSession(workspaceHash, id)
+              : await api.unarchiveSession(id);
+            invalidateArchiveLists(pinScope);
+            if (!await refreshArchivedScope(pinScope)) {
+              setSessions((prev) => upsertSidebarSession(prev, { ...session, ...restored, archived: false }));
+            }
+            notifyArchiveChanged();
+          },
+        },
+      ] });
+      notifyArchiveChanged();
     } catch (e) {
       toast({ kind: 'err', text: '归档失败:' + (e.message || '') });
+    } finally {
+      archiveOperationsRef.current.delete(loadKey);
     }
-  }, [activeId, activeWorkspaceHash, cancelSessionSelection, onOpenHome, refresh, savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
+  }, [activeWorkspaceHash, cancelSessionSelection, invalidateArchiveLists, notifyArchiveChanged, onOpenHome, onOpenSettingsSection, refreshArchivedScope, savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
 
   const renameSession = useCallback(async (session, title) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
@@ -2968,7 +3040,10 @@ export function Sidebar({
   }, [refresh, revealTarget.workspaceHash, revealTarget.noWorkspace]);
 
   useEffect(() => {
-    const handler = () => refresh().catch(() => {});
+    const handler = (event) => {
+      if (event.detail?.source === archiveOperationsRef.current) return;
+      refresh().catch(() => {});
+    };
     window.addEventListener('ace-session-archive-changed', handler);
     return () => window.removeEventListener('ace-session-archive-changed', handler);
   }, [refresh]);

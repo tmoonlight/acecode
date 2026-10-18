@@ -23,8 +23,17 @@
 - [Filtering could accidentally retain hidden destructive targets] -> Use visible results for selected targets and test selection pruning, no matches, and combined filters.
 - [Shared settings CSS removes generic card borders] -> Use semantic list elements for group frames and marked composite controls for filter borders; inspect actual desktop, narrow, and dark renderings.
 - [New Chinese labels can fail localization gates] -> Add English overrides, regenerate the catalog, and review generated changes.
-- [Archives with many sessions remain fully loaded] -> This preserves the current loading contract; memoize local transformations without adding server pagination.
+- [归档很多时一次性挂载导致卡顿] -> 完整元数据仍用于搜索、排序、工作区选项和总数；DOM 按 100 条增量挂载，不新增服务端分页协议。
 
 ## Migration Plan
 
 No data migration is needed. Ship the frontend bundle through the normal build. Reverting these frontend changes restores the previous archive presentation without altering stored sessions.
+
+## 2026-10-18 归档列表分批显示
+
+- 在完整过滤、分组和排序之后，按累计行数切出首批 100 条，跨工作区共用同一个额度；组标题保留完整匹配数量，未加载的空组不挂载。
+- 在设置内容滚动容器内观察列表末尾，接近底部追加 100 条；观察器不可用时用滚动/尺寸事件兜底。每次观察周期只允许追加一批，卸载时清理观察器/事件，尾批加载完移除哨兵。
+- 搜索、工作区或排序变化时重置首批并回到列表顶部，避免旧分页额度导致短暂全量渲染；选择状态只保留新显示范围内的会话。追加批次不自动勾选新行。
+- 全选及批量操作仅作用于已显示的行；取消归档/删除后保持当前加载额度并补齐缺口，外部撤销触发的数据刷新沿用已有生命周期保护。
+- 初始接口仍获取完整元数据，网络/磁盘全量扫描延迟不是本次前端分批显示解决的范围；无工作区请求增加已有的 `scope=no-workspace`，避免读取随后会被前端丢弃的兼容工作区元数据。
+- 用 100/101 边界、跨组 205 条、超过 2,000 条的实际组件浏览器夹具验证挂载数、滚动、搜索、排序、选择及刷新；比较修改前后的 DOM 数量。

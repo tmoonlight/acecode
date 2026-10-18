@@ -54,6 +54,7 @@ function fixture({
     loading: new Set(), loaded: new Set(loaded ? ['w'] : []), fullyLoaded: new Set(),
     totals: new Map(), statuses: new Map(), workspaces: [workspace, ...otherWorkspaces],
     expandedSessionLists: new Map(),
+    retainedSyncs: [],
   };
   const requests = [];
   const context = vm.createContext({
@@ -79,7 +80,7 @@ function fixture({
     desktopTaskbarBadgeAvailable: () => false,
     connection: { subscribeWorkspaceStatus() {} },
     refreshOpencodeImportPreview: async () => {},
-    syncRetainedSessionIds() {}, cancelSessionSelection() {}, onOpenHome() {}, onBeforeNavigate: null,
+    syncRetainedSessionIds(ids) { state.retainedSyncs.push(ids); }, cancelSessionSelection() {}, onOpenHome() {}, onBeforeNavigate: null,
     acceptSidebarTreePage() {},
     sidebarTreeOptions: (scope, limit) => ({ limit }),
     setPinnedMap: (value) => { context.pinnedByWorkspaceRef.current = value; },
@@ -96,6 +97,7 @@ function fixture({
     pendingWorkspaceLoadsRef: new Map(),
     refreshingRef: false, pendingRefreshHashRef: '',
     treeSavingRef: false, treeRevisionRef: 0,
+    archiveOperationsRef: new Set(),
     refreshSelectionRef: { activeWorkspaceHash: 'w', revealTarget: { noWorkspace: false, workspaceHash: 'w' } },
     expandedRef: new Set(['w']),
     workspaceCollapseAllRef: false, userCollapsedWorkspacesRef: new Set(),
@@ -138,7 +140,9 @@ function fixture({
   for (const name of [
     'setSessionWorkspaceLoading', 'setSessionWorkspacesLoaded', 'markWorkspaceSessionsFullyLoaded',
     'applyWorkspaceSessionList', 'loadWorkspaceSessions', 'toggleSessionListExpanded', 'refresh', 'onActivate',
+    'invalidateArchiveLists', 'refreshArchivedScope',
   ]) installCallback(context, name);
+  context.treeApplyRef = { current: (scope, page) => context.applyWorkspaceSessionList({ hash: scope }, page) };
   return { context, state, requests, workspace };
 }
 
@@ -395,6 +399,64 @@ test('runtime promotion and internal workspace selection do not change refresh d
 test('sidebar default session list is explicitly scoped to no-workspace tasks', () => {
   assert.match(source, /api.listSidebarSessions\('', sidebarTreeOptions\(NO_WORKSPACE_PIN_SCOPE, 0\)\)/);
   assert.doesNotMatch(source, /api.listSessions\(\)/);
+});
+
+test('archive replaces a compact page atomically and rejects a pre-archive polling result', async () => {
+  const { context, state, requests } = fixture();
+  const staleRefresh = context.refresh();
+  await nextTask();
+  context.invalidateArchiveLists('w');
+  const replacement = sessions(6).slice(1);
+  const archiveRefresh = context.refreshArchivedScope('w');
+  assert.equal(state.sessions[0].id, 'session-0', 'keep the complete page until its replacement arrives');
+  requests[1].resolve({ sessions: replacement, total: 19, has_more: true });
+  assert.equal(await archiveRefresh, true);
+  assert.equal(state.sessions.length, 5);
+  assert.ok(state.sessions.every(session => session.id !== 'session-0'));
+  requests[0].resolve(compactPage());
+  await staleRefresh;
+  assert.equal(state.sessions.length, 5);
+  assert.ok(state.sessions.every(session => session.id !== 'session-0'));
+  assert.equal(state.totals.get('w'), 19);
+  assert.equal(state.retainedSyncs.length, 0, 'discarded refresh must not release current status subscriptions');
+});
+
+test('concurrent archives keep the newest page when their responses arrive out of order', async () => {
+  const { context, state, requests } = fixture();
+  context.invalidateArchiveLists('w');
+  const first = context.refreshArchivedScope('w');
+  context.invalidateArchiveLists('w');
+  const second = context.refreshArchivedScope('w');
+  requests[1].resolve({ sessions: sessions(7).slice(2), total: 18, has_more: true });
+  await second;
+  requests[0].resolve({ sessions: sessions(6).slice(1), total: 19, has_more: true });
+  await first;
+  assert.equal(state.sessions.length, 5);
+  assert.ok(state.sessions.every(session => !['session-0', 'session-1'].includes(session.id)));
+  assert.equal(state.totals.get('w'), 18);
+});
+
+test('only the latest failed archive refresh requests a local removal fallback', async () => {
+  const { context, requests } = fixture();
+  const first = context.refreshArchivedScope('w');
+  const second = context.refreshArchivedScope('w');
+  requests[0].reject(new Error('old failure'));
+  requests[1].reject(new Error('latest failure'));
+  assert.equal(await first, true);
+  assert.equal(await second, false);
+});
+
+test('archive invalidation also rejects pinned metadata collected before the mutation', async () => {
+  const pinned = deferred();
+  const { context, requests } = fixture({ pinned });
+  const refresh = context.refresh();
+  await nextTask();
+  context.invalidateArchiveLists('w');
+  context.pinnedByWorkspaceRef.current = new Map([['w', []]]);
+  requests[0].resolve(compactPage());
+  pinned.resolve({ session_ids: ['session-0'] });
+  await refresh;
+  assert.deepEqual(context.pinnedByWorkspaceRef.current.get('w'), []);
 });
 
 let failures = 0;

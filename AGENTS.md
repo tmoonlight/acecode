@@ -45,6 +45,7 @@ Canonical root docs are [README.md](README.md), [README_CN.md](README_CN.md), [A
 - `acecode_testable` is an INTERFACE aggregate of the production static libraries. All TUI implementations belong to `acecode_tui`; do not add testable subset lists. Executable entry points and the desktop WebView shell stay outside the aggregate. See `cmake/acecode_layer_libraries.cmake` for source ownership.
 - Daemon/API work usually touches [src/apps/daemon/](src/apps/daemon), [src/apps/web/](src/apps/web), and [src/domain/session/](src/domain/session). Update [docs/daemon-api.md](docs/daemon-api.md) when protocol behavior changes.
 - React/Vite/Tailwind frontend work stays under [web/src/](web/src). Do not edit generated build output directly; regenerate it with the web build.
+- **设置页即时保存规则**：设置页及其配置展开区不设置独立的“保存”“应用”或“取消更改”按钮，除非用户明确要求例外。开关、下拉及单选选项变更后立即持久化；文本和数字输入在失焦或按 Enter 后自动保存，收起配置、切换设置分组和关闭设置时补齐未保存的有效更改。自动保存请求必须串行，保留请求期间的新编辑；失败保留草稿并提供重试，不得假装保存成功。测试连接等操作应先等待自动保存完成。完整设置页中验证交互，不能只用孤立组件截图验收。实现细则见 [.agents/skills/acecode-frontend-style/SKILL.md](.agents/skills/acecode-frontend-style/SKILL.md)。
 - 新增弹框默认规则：有关闭按钮时，点击弹框外部不得关闭（使用 `Modal` 时显式设置 `dismissOnBackdrop={false}`）；没有关闭按钮时，默认允许点击外部关闭。用户特殊指定的行为优先（例如设置对话框）。此规则面向今后的新增弹框，不追溯修改其他既有弹框；2026-10-07 指定的消息通道连接向导与管理弹框按此规则调整。
 - Avoid modifying vendored or submodule trees such as [external/](external), `hermes-agent/`, or `claudecodehaha/` unless the task explicitly targets them.
 

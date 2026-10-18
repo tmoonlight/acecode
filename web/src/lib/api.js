@@ -283,7 +283,7 @@ async function request(method, path, body, base, options = {}) {
   const headers = {};
   const token = baseToken(base);
   if (token) headers['X-ACECode-Token'] = token;
-  if (body !== undefined) headers['Content-Type'] = options.rawBody ? 'application/zip' : 'application/json';
+  if (body !== undefined) headers['Content-Type'] = options.contentType || (options.rawBody ? 'application/zip' : 'application/json');
 
   const rawTimeout = options.timeoutMs;
   const timeoutMs = rawTimeout === undefined
@@ -708,6 +708,13 @@ export function createApi(base = null) {
       request('POST', '/api/memory/reset', memoryResetBody(scope, workspaceHash), base),
     getConnectors: ()                => request('GET',    '/api/config/connectors', undefined, base),
     getImageGeneration: ()           => request('GET', '/api/config/image-generation', undefined, base),
+    getSpeechRecognition: () => request('GET', '/api/config/speech-recognition', undefined, base),
+    getSpeechAvailability: () => request('GET', '/api/speech-recognition', undefined, base),
+    setSpeechRecognition: (config) => request('PUT', '/api/config/speech-recognition', config, base, { keepalive: true }),
+    testSpeechRecognition: (config) => request('POST', '/api/config/speech-recognition/test', config, base, { timeoutMs: 35000 }),
+    transcribeSpeech: (id, audio, options = {}) => request('POST', '/api/speech-recognition/transcriptions/' + encodeURIComponent(id),
+      audio, base, { ...options, rawBody: true, contentType: 'audio/wav' }),
+    cancelSpeech: (id) => request('DELETE', '/api/speech-recognition/transcriptions/' + encodeURIComponent(id), undefined, base, { timeoutMs: 5000 }),
     getComputerUse: ()               => request('GET', '/api/config/computer-use', undefined, base),
     setComputerUse: (config)         => request('PUT', '/api/config/computer-use', config, base, { keepalive: true }),
     requestComputerUsePermission: (permission) => request('POST', '/api/config/computer-use/permissions', { permission }, base),
@@ -827,7 +834,7 @@ export function createApi(base = null) {
       listWorkspaces: () => request('GET', '/api/workspaces', undefined, base),
       listSessions: (hash) => request('GET',
         `/api/workspaces/${encodeURIComponent(hash)}/sessions?archived=1`, undefined, base),
-      listNoWorkspaceSessions: () => request('GET', '/api/sessions?archived=1', undefined, base),
+      listNoWorkspaceSessions: () => request('GET', '/api/sessions?archived=1&scope=no-workspace', undefined, base),
     }),
     searchSessionUserMessages: (query, limit = 50, options = {}) =>
       request(

@@ -1,5 +1,7 @@
 import { sessionDisplayTitle } from './sessionTitle.js';
 
+export const ARCHIVED_SESSION_BATCH_SIZE = 100;
+
 export function archivedSessionWorkspace(item = {}) {
   if (item?.no_workspace || item?.noWorkspace) {
     return { key: '__no_workspace__', name: '无工作区', path: '' };
@@ -58,6 +60,25 @@ export function groupArchivedSessions(items, {
         return sortOrder === 'oldest' ? a.time - b.time : b.time - a.time;
       }).map(({ item }) => item),
     }));
+}
+
+// Slice after filtering and sorting, sharing one row budget across workspaces.
+export function paginateArchivedSessionGroups(groups, limit = ARCHIVED_SESSION_BATCH_SIZE) {
+  const source = Array.isArray(groups) ? groups : [];
+  let remaining = Number.isFinite(limit) && limit > 0
+    ? Math.floor(limit) : ARCHIVED_SESSION_BATCH_SIZE;
+  const total = source.reduce((count, group) => count + group.items.length, 0);
+  const visible = [];
+  let visibleCount = 0;
+  for (const group of source) {
+    if (remaining <= 0) break;
+    const items = group.items.slice(0, remaining);
+    if (items.length === 0) continue;
+    visible.push({ ...group, items, total: group.items.length });
+    visibleCount += items.length;
+    remaining -= items.length;
+  }
+  return { groups: visible, total, visibleCount, hasMore: visibleCount < total };
 }
 
 export function archivedSessionTarget(item = {}) {

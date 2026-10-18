@@ -9,6 +9,7 @@ The archive settings page is a flat list with its batch actions below every sess
 - 工作区分组和筛选选项沿用侧边栏工作区顺序；最近／最早更新时间只决定各工作区内部的会话顺序。
 - Move select all, unarchive selected sessions, and delete selected sessions into the upper-right header; restrict selection and batch operations to current filtered results.
 - Retain single-session actions, localized relative timestamps, shared deletion confirmation, and partial-failure retry behavior.
+- 超过 100 条时只挂载首批 100 条，滚动到列表底部每批追加 100 条；搜索和工作区筛选仍覆盖完整归档元数据。
 
 ## Capabilities
 

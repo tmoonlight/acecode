@@ -1,4 +1,4 @@
 interface:
   display_name: "ACECode Release"
-  short_description: "Release ACECode or a Windows prerelease validation package."
-  default_prompt: "Use /acecode-release to publish a stable ACECode release or a Jenkins Green Windows prerelease validation package."
+  short_description: "Commit, merge recent completed worktrees, and release ACECode."
+  default_prompt: "Use $acecode-release to commit and push all pending code, merge completed worktrees from the last two days, push the integrated result, and publish one stable ACECode version with full GitHub and aupdate verification."

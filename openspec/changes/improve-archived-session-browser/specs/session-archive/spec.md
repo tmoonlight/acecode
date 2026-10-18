@@ -46,7 +46,7 @@ The archive view SHALL show select all/deselect all, unarchive selected sessions
 - **THEN** only visible matching sessions MUST be selected
 - **AND** batch restore and deletion MUST act only on the current selection
 - **AND** changing filters MUST remove selections for sessions no longer visible
-- **AND** sorting MUST preserve selected sessions
+- **AND** sorting MUST preserve selected sessions that remain in the displayed batch
 
 #### Scenario: No available selection
 - **WHEN** no current results are selected or an operation is running
@@ -61,3 +61,23 @@ The archive view SHALL show select all/deselect all, unarchive selected sessions
 - **WHEN** the user deletes one session or the selected sessions
 - **THEN** the existing shared confirmation dialog MUST appear before permanent deletion
 - **AND** cancelling MUST leave the archive unchanged
+
+### Requirement: 大量归档会话分批显示
+归档界面 SHALL 在完整搜索、工作区筛选和组内排序后，首批最多显示 100 条；不足或等于 100 条时 SHALL 一次显示全部。底部滚动加载 SHALL 跨工作区累计计数，分组标题仍显示完整匹配数。
+
+#### Scenario: 滚动追加下一批
+- **WHEN** 匹配归档超过 100 条且用户滚动接近当前列表底部
+- **THEN** 界面 MUST 追加最多 100 条并保留已显示行和选择状态
+- **AND** 相同观察周期 MUST NOT 重复追加，全部加载后 MUST 停止追加
+
+#### Scenario: 搜索和筛选未显示会话
+- **WHEN** 用户修改搜索、工作区或排序条件
+- **THEN** 结果 MUST 基于完整归档元数据重新计算，重置为首批 100 条并回到顶部
+- **AND** 未显示会话的标题 MUST 可被搜索到
+- **AND** 选择范围 MUST 收缩到新显示结果，追加新行 MUST NOT 自动勾选
+
+#### Scenario: 删除与刷新保持加载额度
+- **WHEN** 用户取消归档、删除会话或外部归档事件刷新数据
+- **THEN** 界面 MUST 保留当前累计加载额度，并从剩余结果补齐行
+- **AND** 全选和批量操作 MUST 只作用于已显示会话
+- **AND** 关闭页面 MUST 清理所有滚动加载观察器和事件监听

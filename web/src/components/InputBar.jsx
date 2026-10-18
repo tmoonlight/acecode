@@ -23,6 +23,11 @@ import { ImageLightbox } from './ImageLightbox.jsx';
 import { SwarmModeIcon } from './SwarmModeIcon.jsx';
 import { normalizeSwarmMode, pickSwarmMode, swarmModeLabel } from '../lib/swarmMode.js';
 import { RichComposer } from './RichComposer.jsx';
+import { SpeechRecordingControls } from './SpeechRecordingControls.jsx';
+import { SpeechMicrophoneButton } from './SpeechMicrophoneButton.jsx';
+import { api as defaultApi } from '../lib/api.js';
+import { useSpeechRecognition } from '../lib/useSpeechRecognition.js';
+import { speechErrorMessage } from '../lib/speechRecognition.js';
 import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { PathReferenceDropdown } from './PathReferenceDropdown.jsx';
@@ -617,14 +622,19 @@ export const InputBar = forwardRef(function InputBar({
   };
 
   const submit = () => {
-    if (!actionState.canSubmit) return;
+    if (speech.interceptSubmit()) return;
+    // Recognition publishes editor refs before React necessarily renders the
+    // new draft. Gate and send the same current snapshot, not the old button state.
+    const currentDraft = serializeComposerGoal(valueRef.current, contentRef.current, goalModeRef.current);
+    const currentAction = getInputBarActionState({ value: currentDraft.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
+    if (!currentAction.canSubmit) return;
     // 队列暂停 + 空输入框:这一下是「继续」,不是发送 —— 空内容本来也没什么可发。
-    if (actionState.mode === 'resume') {
+    if (currentAction.mode === 'resume') {
       onResumeQueue?.();
       requestAnimationFrame(() => ta.current?.focus());
       return;
     }
-    onSubmit?.(serializeComposerGoal(valueRef.current, contentRef.current, goalModeRef.current).text);
+    onSubmit?.(currentDraft.text);
     if (!isControlled) updateValue('', composerContentFromText(''), undefined, { goalMode: false });
     setHistPtr(-1);
     setEditedSinceHistory(false);
@@ -1287,6 +1297,11 @@ export const InputBar = forwardRef(function InputBar({
   }, []);
 
   const onKey = (e) => {
+    if (speech.active && isDismissShortcut(e)) {
+      e.preventDefault();
+      speech.cancel();
+      return true;
+    }
     // 下拉打开时,Enter / Tab / Esc / 方向键 由 SlashDropdown 在捕获阶段处理。
     // 这里只处理常规情况。
     if (shouldNavigateInputHistory({
@@ -1333,6 +1348,12 @@ export const InputBar = forwardRef(function InputBar({
   };
 
   const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
+  const speech = useSpeechRecognition({
+    client: pathReferenceApi || defaultApi, scope: fileIntakeScope, editorRef: ta, rootRef, mainComposer,
+    disabled: !!disabled || !!submitting,
+    onSend: () => submit(),
+    onError: (error) => toast({ kind: 'err', text: speechErrorMessage(error) }),
+  });
   const stopControl = getGoalStopControlState({ busy, stopping });
   const isStopAction = actionState.mode === 'stop';
   const primaryActionLabel = t(isStopAction && stopping ? stopControl.label : actionState.submitLabel);
@@ -1534,6 +1555,9 @@ export const InputBar = forwardRef(function InputBar({
     </>
   ) : null;
   const submitControls = (
+    <>
+    {speech.available && <SpeechMicrophoneButton speech={speech} disabled={disabled || submitting || composerComposing}
+      onBeforeStart={() => { setCapabilityOpen(false); setDropdownClosed(true); }} />}
     <button
       type="button"
       onClick={isStopAction ? onAbort : submit}
@@ -1553,6 +1577,7 @@ export const InputBar = forwardRef(function InputBar({
         className="ace-icon-on-accent"
       />
     </button>
+    </>
   );
 
   return (
@@ -1581,6 +1606,7 @@ export const InputBar = forwardRef(function InputBar({
         dragActive && 'is-drag-active',
       )}
       ref={rootRef}
+      data-speech-composer="true"
       data-main-composer={mainComposer ? 'true' : undefined}
       data-native-file-drop-disabled={disabled ? 'true' : undefined}
       onPointerDownCapture={(event) => preserveComposerFocusOnPointerDown(event, rootRef.current)}
@@ -1774,6 +1800,8 @@ export const InputBar = forwardRef(function InputBar({
             }}
           />
         </div>
+        <div className="relative" data-speech-footer="true">
+        <div className={speech.active ? 'invisible pointer-events-none' : undefined} aria-hidden={speech.active || undefined}>
         <ComposerSessionControls
           {...(sessionControls || {})}
           className={isHero ? 'px-2.5 pb-2.5' : 'px-1.5 pb-1'}
@@ -1802,6 +1830,11 @@ export const InputBar = forwardRef(function InputBar({
           pendingExpertName={pendingExpertName}
           pendingExpertType={pendingExpertType}
         />
+        </div>
+        {speech.active && <div className="absolute inset-0">
+          <SpeechRecordingControls speech={speech} className={isHero ? 'px-2.5 pb-2.5' : 'px-1.5 pb-1'} />
+        </div>}
+        </div>
       </div>
       <ImageLightbox preview={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
       {openPasteCard ? (

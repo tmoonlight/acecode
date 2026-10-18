@@ -2272,7 +2272,7 @@ struct WebHost::Impl {
 #else
         w = std::make_unique<webview::webview>(debug, nullptr);
         auto native_window = w->window();
-        set_linux_folder_picker(pick_linux_folder);
+        configure_linux_native_services(w->widget().ok() ? w->widget().value() : nullptr);
         linux_center_on_first_show = true;
         if (native_window.ok() && native_window.value() &&
             startup_mode == StartupWindowMode::OffscreenUntilReady) {

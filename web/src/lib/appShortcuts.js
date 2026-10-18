@@ -31,10 +31,10 @@ export function appShortcutContextAllows(id, target, doc = globalThis.document) 
     if (id === 'search' && overlay.matches?.('[data-search-palette]')) continue;
     return false;
   }
-  if (['reasoningUp', 'reasoningDown', 'stop'].includes(id)) {
+  if (['reasoningUp', 'reasoningDown', 'stop', 'dictation'].includes(id)) {
     if (target?.closest?.('.xterm, [data-side-chat-window], [data-ace-editable-preview-text]')) return false;
     const editor = target?.closest?.('input, textarea, select, [contenteditable="true"]');
-    if (editor && !editor.closest?.('[data-main-composer="true"]')) return false;
+    if (editor && !editor.closest?.(id === 'dictation' ? '[data-speech-composer]' : '[data-main-composer="true"]')) return false;
   }
   return true;
 }
@@ -57,6 +57,7 @@ export function shortcutCatalog(mac = isMacShortcutHost()) {
     ['shortcuts', '界面导航', '打开快捷键页签', '进入快捷键并聚焦搜索栏'],
     ['find', '输入与编辑', '当前会话内查找', '在打开的会话中查找文本'],
     ['send', '输入与编辑', '发送消息', '在消息输入框中生效'],
+    ['dictation', '输入与编辑', '开始／停止录音', '语音识别启用后生效，停止后回填文字'],
     ['newline', '输入与编辑', '输入框换行', '在消息输入框中生效'],
     ['history', '输入与编辑', '浏览输入历史', '输入框为空时向上浏览，历史浏览中可向下返回'],
     ['save', '输入与编辑', '保存正在编辑的文件', '文件编辑器聚焦时生效'],
