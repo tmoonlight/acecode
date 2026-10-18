@@ -11,6 +11,7 @@ const ICONS = {
   arrowRight: 'ArrowRight',
   back: 'Backwards',
   brain: 'Brain',
+  microphone: 'Microphone',
   sparkle: 'Sparkle',
   brightness: 'Brightness',
   bug: 'Bug',

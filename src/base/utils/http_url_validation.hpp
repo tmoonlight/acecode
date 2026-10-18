@@ -8,7 +8,8 @@
 namespace acecode::utils {
 
 inline bool is_valid_http_base_url(std::string_view url,
-                                   bool allow_loopback_http = true) {
+                                   bool allow_loopback_http = true,
+                                   bool allow_remote_http = false) {
     if (url.empty() || url.size() > 2048) return false;
     for (unsigned char c : url) {
         if (c <= 0x20 || c == 0x7f) return false;
@@ -46,7 +47,7 @@ inline bool is_valid_http_base_url(std::string_view url,
             authority.rfind("localhost:", 0) == 0 ||
             authority == "127.0.0.1" || authority.rfind("127.0.0.1:", 0) == 0 ||
             authority == "[::1]" || authority.rfind("[::1]:", 0) == 0;
-        if (!loopback) return false;
+        if (!loopback && !allow_remote_http) return false;
     }
     return true;
 }

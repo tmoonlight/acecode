@@ -53,6 +53,7 @@ import {
 import { Modal, Toggle } from './Modal.jsx';
 import { ModelSettingsSection } from './model-settings/ModelSettingsSection.jsx';
 import { ImageGenerationSettings } from './ImageGenerationSettings.jsx';
+import { SpeechRecognitionSettings } from './SpeechRecognitionSettings.jsx';
 import { ComputerUseSettings } from './ComputerUseSettings.jsx';
 import { IosSimulatorSettings } from './IosSimulatorSettings.jsx';
 import { SummaryGenerationSettings } from './SummaryGenerationSettings.jsx';
@@ -70,9 +71,11 @@ import { PERMISSION_MODES, normalizePermissionMode } from '../lib/permissionMode
 import { sessionDisplayTitle } from '../lib/sessionTitle.js';
 import {
   allArchivedSessionsSelected,
+  ARCHIVED_SESSION_BATCH_SIZE,
   archivedSessionKey,
   archivedSessionTarget,
   groupArchivedSessions,
+  paginateArchivedSessionGroups,
   removeArchivedSessionsByKey,
   retainArchivedSessionSelection,
   selectedArchivedSessions,
@@ -2552,6 +2555,7 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
       </div>
 
       <ImageGenerationSettings onCheckUpdates={onCheckUpdates} />
+      <SpeechRecognitionSettings />
       <ComputerUseSettings onCheckUpdates={onCheckUpdates} />
       <IosSimulatorSettings />
       <SummaryGenerationSettings onCheckUpdates={onCheckUpdates} onModelProfileUpdated={onModelProfileUpdated} />
@@ -2820,6 +2824,7 @@ function HookBadge({ hook }) {
 // ─── 已归档会话 ────────────────────────────────────────────────────────────
 function SectionArchived() {
   const [list, setList] = useState([]);
+  const [externalArchiveRevision, setExternalArchiveRevision] = useState(0);
   const [workspaces, setWorkspaces] = useState([]);
   const [search, setSearch] = useState('');
   const [workspaceKey, setWorkspaceKey] = useState('');
@@ -2830,10 +2835,33 @@ function SectionArchived() {
   const [unarchivingKeys, setUnarchivingKeys] = useState(() => new Set());
   const [deletingKeys, setDeletingKeys] = useState(() => new Set());
   const [purgeConfirmation, setPurgeConfirmation] = useState(null);
+  const [pagination, setPagination] = useState({ key: '', limit: ARCHIVED_SESSION_BATCH_SIZE });
+  const archiveFiltersRef = useRef(null);
+  const loadMoreRef = useRef(null);
+  const paginationKey = JSON.stringify([search, workspaceKey, sortOrder]);
+  // Derive the reset synchronously so a filter change never mounts an old,
+  // potentially very large page before the effect runs.
+  const visibleLimit = pagination.key === paginationKey ? pagination.limit : ARCHIVED_SESSION_BATCH_SIZE;
+
+  useEffect(() => {
+    setPagination({ key: paginationKey, limit: ARCHIVED_SESSION_BATCH_SIZE });
+    const root = archiveFiltersRef.current?.closest('.ace-settings-content');
+    if (root) root.scrollTop = 0;
+  }, [paginationKey]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      // Sidebar toast undo may run while this page is open. This section's own
+      // actions already update its rows, so only reload for external actions.
+      if (event.detail?.source) setExternalArchiveRevision((revision) => revision + 1);
+    };
+    window.addEventListener('ace-session-archive-changed', handler);
+    return () => window.removeEventListener('ace-session-archive-changed', handler);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (externalArchiveRevision === 0) setLoading(true);
     setError('');
     api.listAllArchivedSessions()
       .then(async (result) => {
@@ -2863,15 +2891,49 @@ function SectionArchived() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [externalArchiveRevision]);
 
-  const groups = useMemo(
+  const allGroups = useMemo(
     () => groupArchivedSessions(list, {
       query: search, workspaceKey, sortOrder,
       workspaceOrder: workspaces.map((workspace) => workspace.key),
     }),
     [list, search, workspaceKey, sortOrder, workspaces],
   );
+  const { groups, hasMore } = useMemo(
+    () => paginateArchivedSessionGroups(allGroups, visibleLimit),
+    [allGroups, visibleLimit],
+  );
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    const root = archiveFiltersRef.current?.closest('.ace-settings-content');
+    if (!hasMore || loading || error || !sentinel || !root) return undefined;
+    let advanced = false;
+    const loadMore = () => {
+      if (advanced) return;
+      advanced = true;
+      setPagination({ key: paginationKey, limit: visibleLimit + ARCHIVED_SESSION_BATCH_SIZE });
+    };
+    if (typeof IntersectionObserver === 'function') {
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) loadMore();
+      }, { root, rootMargin: '0px 0px 160px 0px' });
+      observer.observe(sentinel);
+      return () => { advanced = true; observer.disconnect(); };
+    }
+    // Older embedded browsers can use the same scroll root without an observer.
+    const onScroll = () => {
+      if (sentinel.getBoundingClientRect().top <= root.getBoundingClientRect().bottom + 160) loadMore();
+    };
+    root.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    onScroll();
+    return () => {
+      advanced = true;
+      root.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [hasMore, loading, error, paginationKey, visibleLimit]);
   const visibleItems = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const workspaceOptions = useMemo(() => workspaces.map((workspace) => ({
     ...workspace,
@@ -3122,7 +3184,7 @@ function SectionArchived() {
       </div>
 
       {/* Match the scroll container's responsive top padding so no list content shows above the sticky bar. */}
-      <div data-archived-filters className="sticky -top-3 z-10 -mx-4 -mt-3 mb-3 flex flex-wrap items-center gap-2.5 bg-surface px-4 py-3 sm:-top-5 sm:-mx-6 sm:px-6">
+      <div data-archived-filters ref={archiveFiltersRef} className="sticky -top-3 z-10 -mx-4 -mt-3 mb-3 flex flex-wrap items-center gap-2.5 bg-surface px-4 py-3 sm:-top-5 sm:-mx-6 sm:px-6">
         <label data-settings-control className="flex min-w-0 grow-[2] basis-60 items-center gap-2 rounded-md border border-border bg-surface px-3 focus-within:border-accent transition">
           <VsIcon name="search" size={16} className="shrink-0 text-fg-mute" />
           <input
@@ -3191,7 +3253,7 @@ function SectionArchived() {
                 <h3 className="min-w-0 truncate text-[14px] font-semibold" title={group.path || group.key}>
                   {workspaceOptions.find((workspace) => workspace.key === group.key)?.label || group.name}
                 </h3>
-                <span className="ml-auto shrink-0 text-[12px] text-fg-mute">{formatCount(group.items.length, 'sessions')}</span>
+                <span className="ml-auto shrink-0 text-[12px] text-fg-mute">{formatCount(group.total, 'sessions')}</span>
               </div>
               <ul className="overflow-hidden rounded-lg border border-border divide-y divide-border">
                 {group.items.map((item) => {
@@ -3255,6 +3317,7 @@ function SectionArchived() {
               </ul>
             </section>
           ))}
+          {hasMore && <div ref={loadMoreRef} data-archived-load-more aria-hidden="true" className="h-px" />}
         </div>
       )}
       {purgeConfirmation && (

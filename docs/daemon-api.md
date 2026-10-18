@@ -395,6 +395,12 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | PUT | `/api/config/custom-instructions` | write custom instructions |
 | GET | `/api/config/connectors` | read connector settings |
 | GET | `/api/config/image-generation` | read sanitized image generation settings |
+| GET | `/api/config/speech-recognition` | read authenticated speech settings, including the editable key |
+| PUT | `/api/config/speech-recognition` | save speech settings and cancel active recognition |
+| POST | `/api/config/speech-recognition/test` | test a draft configuration with one second of silent WAV |
+| GET | `/api/speech-recognition` | read speech availability without connection details or credentials |
+| POST | `/api/speech-recognition/transcriptions/<id>` | recognize a bounded raw PCM16 WAV body |
+| DELETE | `/api/speech-recognition/transcriptions/<id>` | cancel a recognition request |
 | GET | `/api/config/computer-use` | read computer control availability and pointer appearance |
 | PUT | `/api/config/computer-use` | partially update the switch or pointer appearance |
 | POST | `/api/config/computer-use/permissions` | explicitly request one macOS system permission |
@@ -4074,6 +4080,58 @@ Window observations and PNG attachment metadata include a `cursor` object:
 `hotspot_x`, `hotspot_y`, `width`, and `height`. All dimensions use that
 screenshot's pixels, including when the native window image was resized.
 See [Computer Use](computer-use.md) for native capabilities and platform limits.
+
+### Speech recognition settings and dictation
+
+All speech endpoints use normal API authentication/CORS and `Cache-Control: no-store`.
+`GET /api/config/speech-recognition` returns `enabled` (default false), `protocol`
+(`sensevoice`, `openai`, or `whisper_cpp`), `base_url`, `model`, `api_key`,
+`language` (default `auto`), `timeout_ms` (default 120000),
+`max_recording_seconds` (default 60), `use_proxy` (default false), `configured`,
+and `generation`. The key is returned for the authenticated password editor;
+never log or cache this response. The availability endpoint returns only
+`enabled`, `configured`, both time limits, and `generation`.
+
+`PUT` accepts partial updates. An omitted key is preserved; an empty key clears
+it. Both HTTP and HTTPS service URLs are accepted, including custom ports
+1–65535; credentials, whitespace, query strings and fragments are rejected.
+Timeout must be 5000–600000 ms and maximum recording length 1–300 seconds.
+An empty URL is a valid incomplete draft. OpenAI-compatible configuration also
+requires a model ID before the microphone becomes available. Invalid input
+returns 400 `SPEECH_INVALID_CONFIG`; failed persistence returns 500 `PERSIST_FAILED`
+without changing live state. Successful writes merge the disk configuration,
+increment the generation, cancel active transcription and return the new snapshot.
+
+The settings UI has no separate Save button. Toggles and selects save immediately;
+text/number inputs save on blur or Enter, with remaining edits flushed when
+collapsing or leaving settings. Writes are serialized per connection and preserve
+newer edits; failures retain the draft and offer retry. The connection-test button
+waits for successful automatic saving before testing the current configuration.
+
+`POST /api/config/speech-recognition/test` accepts a partial settings object,
+overlays it on saved settings without saving/enabling them, and transcribes one
+second of silence. Its timeout is capped at 30 seconds. Success is `{"ok":true}`;
+an empty transcript is a valid test result. No recognition runs while merely
+loading or saving settings.
+
+`POST /api/speech-recognition/transcriptions/<id>` takes an `audio/wav` body:
+canonical 44-byte WAV header, 16 kHz mono PCM16, bounded by the configured
+duration and 20 MiB. The ID must contain 1–64 ASCII letters, digits, `_` or `-`.
+At most one dictation is active per daemon. Success returns
+`{"status":"ok","text":"..."}` or `{"status":"no_speech","text":""}`.
+`DELETE` is idempotent and returns `{"cancelled":true}`. Cancellation and daemon
+shutdown stop forwarding and suppress late transcripts. A configuration change
+invalidates requests admitted under an earlier generation.
+
+Errors include 409 `SPEECH_NOT_CONFIGURED` / `SPEECH_CANCELLED`, 429 `SPEECH_BUSY`,
+413/422 `SPEECH_INVALID_AUDIO`, 503 `SPEECH_NOT_READY`, 504 `SPEECH_TIMEOUT`, and
+502 `SPEECH_CONNECTION_FAILED`, `SPEECH_AUTH_FAILED`, `SPEECH_INVALID_RESPONSE`
+or `SPEECH_UPSTREAM_FAILED`. Upstream bodies and credentials are never echoed.
+The backend forwards in-memory multipart audio to SenseVoice
+`/api/transcriptions` (`audio`), OpenAI-compatible `/v1/audio/transcriptions`
+(`file`, `model`) or whisper.cpp `/inference` (`file`). HTTP services work
+without certificates; browser microphone permission separately requires a
+secure context. See [Speech recognition](speech-recognition.md).
 
 ### Image generation settings
 

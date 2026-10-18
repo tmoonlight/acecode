@@ -109,9 +109,15 @@ function New-FixtureAssets {
                 'ACECode.app/Contents/MacOS/acecode-daemon' = "mac-$arch-daemon"
                 'ACECode.app/Contents/Info.plist' = $plist
                 'acecode' = "mac-$arch-cli"
-                'share/acecode/models_dev/api.json' = '{}'
-                'share/acecode/models_dev/MANIFEST.json' = '{}'
-            })
+                'ACECode.app/Contents/MacOS/acecode-cli' = "mac-$arch-cli"
+                'ACECode.app/Contents/Resources/share/acecode/models_dev/api.json' = '{}'
+                'ACECode.app/Contents/Resources/share/acecode/models_dev/MANIFEST.json' = '{}'
+                'ACECode.app/Contents/Resources/share/acecode/models_dev/LICENSE' = 'fixture'
+                'ACECode.app/Contents/Resources/share/acecode/seed/seed.version' = '2026-10-10.1'
+                'ACECode.app/Contents/Resources/share/acecode/seed/MANIFEST.json' = '{}'
+            }) `
+            -ExecutableEntries @('acecode', 'ACECode.app/Contents/MacOS/acecode-cli',
+                'ACECode.app/Contents/MacOS/ACECode', 'ACECode.app/Contents/MacOS/acecode-daemon')
 
         # Minimal XAR header fixture; macOS CI owns signing/notarization checks.
         [System.IO.File]::WriteAllBytes(
@@ -345,7 +351,9 @@ try {
 
     foreach ($scenario in @('missing-updater', 'missing-x64-pkg', 'missing-arm64-pkg',
             'tampered-pkg', 'invalid-pkg', 'missing-pkg-checksum', 'missing-pkg-mime',
-            'missing-windows-helper', 'empty-windows-helper')) {
+            'missing-windows-helper', 'empty-windows-helper',
+            'duplicated-mac-resources', 'different-mac-launcher', 'oversized-mac-launcher',
+            'missing-mac-resource', 'nonexecutable-mac-launcher')) {
         $negativeAssets = Join-Path $testRoot "$scenario-assets"
         Copy-Item -LiteralPath $assets -Destination $negativeAssets -Recurse
         $negativeUpdateDir = Join-Path $testRoot "$scenario-aupdate"
@@ -373,6 +381,41 @@ try {
             } else { 'empty Computer Use runtime' }
         }
         switch ($scenario) {
+            { $_ -in @('duplicated-mac-resources', 'different-mac-launcher', 'oversized-mac-launcher',
+                    'missing-mac-resource', 'nonexecutable-mac-launcher') } {
+                $macName = "ACECode-$version-macos-arm64-update.zip"
+                $macPath = Join-Path $negativeAssets $macName
+                $archive = [System.IO.Compression.ZipFile]::Open($macPath, [System.IO.Compression.ZipArchiveMode]::Update)
+                try {
+                    switch ($scenario) {
+                        'duplicated-mac-resources' {
+                            $null = $archive.CreateEntry('share/acecode/models_dev/api.json')
+                            $expectedError = 'contains duplicated root resources'
+                        }
+                        'missing-mac-resource' {
+                            $archive.GetEntry('ACECode.app/Contents/Resources/share/acecode/seed/seed.version').Delete()
+                            $expectedError = 'is missing required entry'
+                        }
+                        'nonexecutable-mac-launcher' {
+                            $archive.GetEntry('acecode').ExternalAttributes = 0
+                            $expectedError = 'does not preserve executable mode'
+                        }
+                        default {
+                            $archive.GetEntry('acecode').Delete()
+                            $entry = $archive.CreateEntry('acecode')
+                            $stream = $entry.Open()
+                            try {
+                                $bytes = [Text.Encoding]::UTF8.GetBytes($(if ($scenario -eq 'oversized-mac-launcher') { 'x' * 262145 } else { 'different' }))
+                                $stream.Write($bytes, 0, $bytes.Length)
+                            } finally { $stream.Dispose() }
+                            $expectedError = if ($scenario -eq 'oversized-mac-launcher') { 'exceeds 256 KiB' } else { 'differs from signed app launcher' }
+                        }
+                    }
+                } finally { $archive.Dispose() }
+                $newSha = (Get-FileHash -LiteralPath $macPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                $checksums = [IO.File]::ReadAllText($checksumPath) -replace ('(?m)^[0-9a-f]{64}  ' + [regex]::Escape($macName) + '$'), "$newSha  $macName"
+                Write-Utf8NoBom -Path $checksumPath -Text $checksums
+            }
             'missing-updater' {
                 $missingName = "ACECode-$version-macos-arm64-update.zip"
                 [System.IO.File]::Delete((Join-Path $negativeAssets $missingName))

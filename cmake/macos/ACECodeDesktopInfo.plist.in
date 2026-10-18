@@ -38,6 +38,8 @@
   <true/>
   <key>NSScreenCaptureUsageDescription</key>
   <string>ACECode Computer Use captures the windows you ask the agent to operate.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>ACECode records audio when you start dictation and sends it to your configured speech recognition service.</string>
   <key>NSHumanReadableCopyright</key>
   <string>${MACOSX_BUNDLE_COPYRIGHT}</string>
 </dict>

@@ -26,6 +26,10 @@ for (const id of Object.keys(APP_SHORTCUTS)) {
 assert.equal(shortcutLabel('back', false), 'Ctrl+Shift+-');
 assert.equal(shortcutLabel('reasoningUp', true), 'Cmd+Option+>');
 assert.equal(shortcutLabel('console', true), 'Ctrl+`');
+assert.equal(shortcutLabel('dictation', true), 'Ctrl+D');
+assert.equal(shortcutLabel('dictation', false), 'Ctrl+D');
+assert.deepEqual(filterShortcuts(shortcutCatalog(false), '录音').map(row => row.id), ['dictation']);
+assert.equal(appShortcutContextAllows('dictation', {closest: () => null}, {querySelectorAll: () => [{hidden:false,getClientRects:()=>[{}],matches:()=>false}]}), false);
 assert.equal(shortcutLabel('previewPresentation', true), 'Ctrl+F11');
 assert.equal(matchAppShortcut({ key: 'F11' }), null);
 assert.equal(matchAppShortcut(key('F11', { shiftKey: true })), null);

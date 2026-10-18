@@ -22,6 +22,8 @@
 #include "provider/auth/github_auth.hpp"
 #include "provider/auth/xai_auth.hpp"
 #include "config/config.hpp"
+#include "speech/speech_client.hpp"
+#include "test_support/network/crow_test_server.hpp"
 #include "security/audit_log.hpp"
 #include "environment/data_dir_migration.hpp"
 #include "environment/terminal_runtime.hpp"
@@ -13738,4 +13740,48 @@ TEST(WebServerHttp, MemoryBuiltinCommandMatchesSharedText) {
     ctx.session = entry->sm.get();
     EXPECT_EQ(seen, acecode::dispatch_memory_command("list", ctx).text);
     EXPECT_NE(seen.find("[user] prefs"), std::string::npos) << seen;
+}
+
+TEST(SpeechRecognitionSmoke, ConfigAvailabilityAndRealHttpForwarding) {
+    crow::SimpleApp upstream;
+    std::atomic<int> calls{0};
+    CROW_ROUTE(upstream, "/api/transcriptions").methods(crow::HTTPMethod::Post)
+    ([&calls](const crow::request& req) {
+        ++calls;
+        EXPECT_NE(req.body.find("name=\"audio\""), std::string::npos);
+        EXPECT_NE(req.body.find("RIFF"), std::string::npos);
+        EXPECT_EQ(req.get_header_value("Authorization"), "Bearer fixture-speech-key");
+        return crow::response(200, R"({"status":"ok","text":"fixture speech"})");
+    });
+    acecode::test::CrowTestServer service(upstream);
+    WebServerFixture fx;
+    auto initial = cpr::Get(cpr::Url{fx.url("/api/speech-recognition")});
+    ASSERT_EQ(initial.status_code, 200);
+    EXPECT_FALSE(json::parse(initial.text)["enabled"].get<bool>());
+    const auto send = [&](const std::string& audio) {
+        return cpr::Post(cpr::Url{fx.url("/api/speech-recognition/transcriptions/fixture-request")},
+            cpr::Header{{"Content-Type", "audio/wav"}}, cpr::Body{audio});
+    };
+    EXPECT_EQ(send(acecode::speech::silent_wav()).status_code, 409);
+    const auto saved = cpr::Put(cpr::Url{fx.url("/api/config/speech-recognition")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"enabled", true}, {"protocol", "sensevoice"},
+            {"base_url", service.http_base()}, {"api_key", "fixture-speech-key"}}.dump()});
+    ASSERT_EQ(saved.status_code, 200) << saved.text;
+    EXPECT_TRUE(json::parse(saved.text)["configured"].get<bool>());
+    const auto public_state = cpr::Get(cpr::Url{fx.url("/api/speech-recognition")});
+    EXPECT_EQ(public_state.text.find("fixture-speech-key"), std::string::npos);
+    EXPECT_FALSE(json::parse(public_state.text).contains("api_key"));
+    EXPECT_EQ(send("invalid audio").status_code, 422);
+    EXPECT_EQ(calls.load(), 0);
+    const auto result = send(acecode::speech::silent_wav());
+    ASSERT_EQ(result.status_code, 200) << result.text;
+    EXPECT_EQ(json::parse(result.text)["text"], "fixture speech");
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_EQ(cpr::Delete(cpr::Url{fx.url("/api/speech-recognition/transcriptions/fixture-request")}).status_code, 200);
+    const auto disabled = cpr::Put(cpr::Url{fx.url("/api/config/speech-recognition")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"enabled":false})"});
+    ASSERT_EQ(disabled.status_code, 200);
+    EXPECT_EQ(json::parse(disabled.text)["api_key"], "fixture-speech-key");
+    EXPECT_EQ(send(acecode::speech::silent_wav()).status_code, 409);
 }

@@ -30,6 +30,7 @@ function softPolygon(points, radius = .3) {
 const swarmCenters = [[10, 10], [10, 5.7], [13.72, 7.85], [13.72, 12.15], [10, 14.3], [6.28, 12.15], [6.28, 7.85]];
 
 export const controlIcons = {
+  Microphone: [r(7, 2.5, 6, 10, 3), p('M4.5 9.5v.5a5.5 5.5 0 0 0 11 0v-.5M10 15.5v2M7.5 17.5h5')],
   Columns: [panel, p('M10 3.5v13')],
   Add: [p('M10 4v12M4 10h12')],
   AddFolder: [p('M8.5 17H3.8q-1.3 0-1.3-1.3V5.3Q2.5 4 3.8 4h4.3q.5 0 .8.4l1.1 1.7q.3.4.8.4h5.4q1.3 0 1.3 1.3v2.7'), p('M14 11.5v6M11 14.5h6')],

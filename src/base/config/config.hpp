@@ -399,6 +399,24 @@ struct ImageGenerationConfig {
     int timeout_ms = 180000;
 };
 
+// External speech service only; ACECode does not own models or Python workers.
+struct SpeechRecognitionConfig {
+    bool enabled = false;
+    std::string protocol = "sensevoice"; // sensevoice | openai | whisper_cpp
+    std::string base_url;
+    std::string model;
+    std::string api_key;
+    std::string language = "auto";
+    int timeout_ms = 120000;
+    int max_recording_seconds = 60;
+    bool use_proxy = false; // Internal services connect directly by default.
+};
+
+bool apply_speech_recognition_config(SpeechRecognitionConfig& config,
+                                     const nlohmann::json& patch, std::string& error);
+nlohmann::json speech_recognition_config_json(const SpeechRecognitionConfig& config);
+bool speech_recognition_configured(const SpeechRecognitionConfig& config);
+
 // 单个 LSP server 的 config 条目(openspec add-lsp-service)。
 // 名字命中内置 server(clangd / typescript-language-server / pyright /
 // gopls / rust-analyzer)时按字段覆盖内置定义;新名字 = 纯自定义 server,
@@ -627,6 +645,7 @@ struct AppConfig {
     LspConfig lsp;                               // LSP 集成(参见 add-lsp-service)
     WorktreeConfig worktree;                     // worktree 隔离(enter_worktree / --worktree)
     ImageGenerationConfig image_generation;      // 图像生成工具(参见 add-image-generation-tool)
+    SpeechRecognitionConfig speech_recognition;  // External dictation service
     ComputerUseConfig computer_use;              // Native desktop control, explicitly enabled
     IosSimulatorConfig ios_simulator;            // Xcode 模拟器控制与实时面板(macOS)
     GitContextConfig git_context;                // git 感知(参见 add-git-context)

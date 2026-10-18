@@ -49,6 +49,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['tools', 'iOS 模拟器', 'ios simulator iphone ipad xcode 模拟器 simctl device stream screenshot 设备 画面 帧率 画质'],
     ['tools', '电脑操控（实验性）', 'computer use experimental windows macos accessibility screen recording desktop mouse keyboard screenshot pointer cursor style theme color ace plain 指针 样式 主题色'],
     ['tools', '图像生成', 'image generation drawing'],
+    ['tools', '语音识别', 'speech voice dictation microphone sensevoice whisper 录音 听写 麦克风 内网 地址 端口'],
     ['tools', '摘要生成', 'summary title generation local model 摘要模型 会话标题'],
     ['tools', '工具重写', 'tool rewrite rename alias audit'],
     ['security', '沙箱安全', 'sandbox security isolation network access'],

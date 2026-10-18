@@ -4,6 +4,7 @@ const binding = (code, key, extra = {}) => Object.freeze({ code, key, ...extra }
 export const APP_SHORTCUTS = Object.freeze({
   newSession: binding('KeyN', 'N', { alt: true }),
   focusInput: binding('KeyI', 'I', { alt: true }),
+  dictation: binding('KeyD', 'D', { control: true }),
   toggleSidebar: binding('KeyB', 'B', { alt: true }),
   toggleRightPanel: binding('KeyE', 'E', { alt: true }),
   previewPresentation: binding('F11', 'F11', { control: true }),

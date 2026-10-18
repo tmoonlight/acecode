@@ -298,14 +298,21 @@ function Test-ArchiveContents {
                 $required += 'acecode-computer-use.exe'
             }
         } elseif ($Definition.Kind -eq 'macos') {
+            $compactMacLayout = [version]$ReleaseVersion -ge [version]'1.0.4'
+            $resourceRoot = if ($compactMacLayout) { 'ACECode.app/Contents/Resources/share/acecode' } else { 'share/acecode' }
             $required = @(
                 'ACECode.app/Contents/MacOS/ACECode',
                 'ACECode.app/Contents/MacOS/acecode-daemon',
                 'ACECode.app/Contents/Info.plist',
                 'acecode',
-                'share/acecode/models_dev/api.json',
-                'share/acecode/models_dev/MANIFEST.json'
+                "$resourceRoot/models_dev/api.json",
+                "$resourceRoot/models_dev/MANIFEST.json"
             )
+            if ($compactMacLayout) {
+                $required += @('ACECode.app/Contents/MacOS/acecode-cli',
+                    "$resourceRoot/models_dev/LICENSE", "$resourceRoot/seed/seed.version",
+                    "$resourceRoot/seed/MANIFEST.json")
+            }
         } elseif ($Definition.Kind -eq 'linux') {
             $root = "acecode-linux-$($Definition.Arch)"
             $required = @(
@@ -334,6 +341,36 @@ function Test-ArchiveContents {
         }
 
         if ($Definition.Kind -eq 'macos') {
+            if ($compactMacLayout) {
+                foreach ($name in $byName.Keys) {
+                    if ($name -match '^(share|channels)(/|$)|^acecode-computer-use(/|$)') {
+                        throw "$($Definition.Source) contains duplicated root resources: $name"
+                    }
+                }
+                if ($byName['acecode'].Length -gt 262144) {
+                    throw "$($Definition.Source) CLI launcher exceeds 256 KiB."
+                }
+                $launcherHashes = @()
+                foreach ($name in @('acecode', 'ACECode.app/Contents/MacOS/acecode-cli')) {
+                    $stream = $byName[$name].Open()
+                    $digest = [System.Security.Cryptography.SHA256]::Create()
+                    try {
+                        $launcherHashes += [BitConverter]::ToString($digest.ComputeHash($stream))
+                    } finally {
+                        $digest.Dispose()
+                        $stream.Dispose()
+                    }
+                }
+                if ($launcherHashes[0] -cne $launcherHashes[1]) {
+                    throw "$($Definition.Source) root CLI launcher differs from signed app launcher."
+                }
+                foreach ($name in @('acecode', 'ACECode.app/Contents/MacOS/acecode-cli',
+                        'ACECode.app/Contents/MacOS/ACECode', 'ACECode.app/Contents/MacOS/acecode-daemon')) {
+                    if (((Get-ZipEntryMode -Entry $byName[$name]) -band 0x49) -ne 0x49) {
+                        throw "$($Definition.Source) does not preserve executable mode for $name."
+                    }
+                }
+            }
             $stream = $byName['ACECode.app/Contents/Info.plist'].Open()
             try {
                 $reader = New-Object System.IO.StreamReader($stream)

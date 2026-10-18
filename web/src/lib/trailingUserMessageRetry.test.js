@@ -112,7 +112,11 @@ assert.equal(retryId(abortState), '', 'a later failure invalidates the stop');
 // bypasses submission. The send path must inspect the
 // latest complete store rather than composer history or a rendered window.
 const inputBar = fs.readFileSync(new URL('../components/InputBar.jsx', import.meta.url), 'utf8');
-assert.match(inputBar, /const submit = \(\) => \{\s*if \(!actionState\.canSubmit\) return;/);
+// Dictation consumes Enter until recognition completes; committed text then
+// reaches the same existing submission gate.
+assert.match(inputBar, /const submit = \(\) => \{\s*if \(speech\.interceptSubmit\(\)\) return;/);
+assert.match(inputBar, /const currentDraft = serializeComposerGoal\(valueRef\.current, contentRef\.current, goalModeRef\.current\);\s*const currentAction = getInputBarActionState\(\{ value: currentDraft\.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused \}\);\s*if \(!currentAction\.canSubmit\) return;/);
+assert.match(inputBar, /onSubmit\?\.\(currentDraft\.text\)/);
 assert.match(inputBar, /onSubmit=\{submit\}/);
 assert.match(inputBar, /const isStopAction = actionState\.mode === 'stop';/);
 assert.match(inputBar, /onClick=\{isStopAction \? onAbort : submit\}/);

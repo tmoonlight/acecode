@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import {
   allArchivedSessionsSelected,
+  ARCHIVED_SESSION_BATCH_SIZE,
   archivedSessionKey,
   archivedSessionTarget,
   archivedSessionWorkspace,
   groupArchivedSessions,
+  paginateArchivedSessionGroups,
   removeArchivedSessionsByKey,
   retainArchivedSessionSelection,
   selectableArchivedSessionKeys,
@@ -22,6 +24,58 @@ function test(name, fn) {
     throw error;
   }
 }
+
+test('archive batches share a 100-row budget across groups and retain full group counts', () => {
+  const items = Array.from({ length: 205 }, (_, i) => ({ id: `s-${i}`, workspace_hash: i < 5 ? 'a' : 'b' }));
+  const grouped = groupArchivedSessions(items);
+  const snapshot = JSON.stringify(grouped);
+  const first = paginateArchivedSessionGroups(grouped);
+  assert.equal(first.visibleCount, ARCHIVED_SESSION_BATCH_SIZE);
+  assert.equal(first.total, 205);
+  assert.equal(first.hasMore, true);
+  assert.deepEqual(first.groups.map(g => [g.key, g.items.length, g.total]), [['a', 5, 5], ['b', 95, 200]]);
+  const second = paginateArchivedSessionGroups(grouped, 200);
+  assert.equal(second.visibleCount, 200);
+  assert.equal(second.hasMore, true);
+  assert.deepEqual(second.groups[0], first.groups[0]);
+  const last = paginateArchivedSessionGroups(grouped, 300);
+  assert.equal(last.visibleCount, 205);
+  assert.equal(last.hasMore, false);
+  assert.equal(new Set(last.groups.flatMap(g => g.items.map(archivedSessionKey))).size, 205);
+  assert.equal(JSON.stringify(grouped), snapshot);
+});
+
+test('archive batch boundary handles zero, 100, 101 and invalid limits', () => {
+  for (const size of [0, 99, 100, 101]) {
+    const grouped = groupArchivedSessions(Array.from({ length: size }, (_, i) => ({ id: String(i) })));
+    const page = paginateArchivedSessionGroups(grouped);
+    assert.equal(page.visibleCount, Math.min(size, 100));
+    assert.equal(page.hasMore, size > 100);
+    assert.equal(page.groups.length, size ? 1 : 0);
+    for (const limit of [0, -1, NaN, Infinity]) {
+      assert.deepEqual(paginateArchivedSessionGroups(grouped, limit), page);
+    }
+  }
+  assert.deepEqual(paginateArchivedSessionGroups(null), { groups: [], total: 0, visibleCount: 0, hasMore: false });
+});
+
+test('archive batches search the full catalog and select only mounted rows', () => {
+  const items = Array.from({ length: 205 }, (_, i) => ({ id: `s-${i}`, title: `Archive ${i}`, updated_at: i }));
+  const first = paginateArchivedSessionGroups(groupArchivedSessions(items, { sortOrder: 'oldest' }));
+  const shown = first.groups.flatMap(g => g.items);
+  const selected = toggleAllArchivedSessionSelection(shown, new Set());
+  assert.equal(selected.size, 100);
+  const next = paginateArchivedSessionGroups(groupArchivedSessions(items, { sortOrder: 'oldest' }), 200);
+  assert.equal(selectedArchivedSessions(next.groups.flatMap(g => g.items), selected).length, 100);
+  const searched = paginateArchivedSessionGroups(groupArchivedSessions(items, { query: 'Archive 204' }));
+  assert.equal(searched.visibleCount, 1);
+  assert.equal(searched.groups[0].items[0].id, 's-204');
+  assert.equal(retainArchivedSessionSelection(searched.groups[0].items, selected).size, 0);
+  const remaining = removeArchivedSessionsByKey(items, [archivedSessionKey(shown[0])]);
+  const refilled = paginateArchivedSessionGroups(groupArchivedSessions(remaining, { sortOrder: 'oldest' }));
+  assert.equal(refilled.visibleCount, 100);
+  assert.equal(refilled.groups[0].items.at(-1).id, 's-100');
+});
 
 test('archived session identity includes workspace and accepts legacy field names', () => {
   assert.deepEqual(

@@ -319,6 +319,10 @@ struct WebServer::Impl {
     void refresh_computer_use_tool_locked();
     void refresh_ios_simulator_tool_locked();
     std::mutex image_generation_test_mu;
+    std::mutex speech_requests_mu;
+    // Cancellation tokens are shared with owned HTTP work, never with the WebServer.
+    std::unordered_map<std::string, std::shared_ptr<std::atomic<bool>>> speech_requests;
+    std::uint64_t speech_config_generation = 0; // guarded by app_config_mu
     // 串行化 tool-rewrites.json 的读改写(它不在 config.json 里,不受 app_config_mu 管)。
     std::mutex tool_rewrites_mu;
     // 串行化 <data_dir>/rules/*.rules 托管文件的读改写(安全中心 > 命令安全)。
@@ -622,6 +626,7 @@ struct WebServer::Impl {
     // -----------------------------------------------------------------
     void register_routes();
     void register_image_generation();
+    void register_speech_recognition();
     void register_computer_use();
     void register_ios_simulator();
     void register_summary_generation();

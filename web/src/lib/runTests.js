@@ -346,6 +346,7 @@ import './remoteWebArchitecture.test.js';
 // series after the ordinary static-import suites so top-level await cannot
 // leak a temporary English locale into an unrelated presentation test.
 await import('./imageGenerationSettings.test.js');
+await import('./speechRecognition.test.js');
 await import('./summaryGenerationSettings.test.js');
 await import('./computerUseSettings.test.js');
 await import('./computerUsePointerTheme.test.js');

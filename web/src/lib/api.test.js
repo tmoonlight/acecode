@@ -19,6 +19,33 @@ import {
   sessionTodosPath,
 } from './api.js';
 
+await run('archive aggregation scopes its compatibility request to no-workspace metadata', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    calls.push(parsed);
+    const body = parsed.pathname === '/api/workspaces' ? [{ hash: 'workspace', name: 'Project' }]
+      : parsed.pathname === '/api/sessions' ? [{ id: 'task', no_workspace: true }]
+        : [{ id: 'session' }];
+    return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => body };
+  };
+  try {
+    const api = createApi({ origin: 'http://archive.test', token: 'fixture' });
+    const result = await api.listAllArchivedSessions();
+    assert.equal(calls.length, 3);
+    const compatibility = calls.find(url => url.pathname === '/api/sessions');
+    assert.equal(compatibility.searchParams.get('scope'), 'no-workspace');
+    assert.equal(compatibility.searchParams.get('archived'), '1');
+    assert.equal(calls.find(url => url.pathname.endsWith('/workspace/sessions')).searchParams.get('archived'), '1');
+    assert.deepEqual(result.sessions.map(row => row.id), ['session', 'task']);
+    assert.equal(result.sessions[0].workspace_hash, 'workspace');
+    assert.equal(result.sessions[1].no_workspace, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 await run('sidebar queries retain expansion, pagination and reveal when URLSearchParams.size is unavailable', async () => {
   const originalFetch = globalThis.fetch;
   const OriginalSearchParams = globalThis.URLSearchParams;

@@ -3,7 +3,7 @@ import { APP_SHORTCUT_BROWSER_GUARD, appShortcutContextAllows, matchAppShortcut 
 import { useShortcutPreferences } from './useShortcutPreferences.js';
 
 // Actions stay with their React owner; one event is consumed at most once.
-export function useAppShortcuts(handlers) {
+export function useAppShortcuts(handlers, { capture = false } = {}) {
   useShortcutPreferences();
   const latest = useRef(handlers);
   latest.current = handlers;
@@ -24,12 +24,12 @@ export function useAppShortcuts(handlers) {
     };
     window.addEventListener('compositionstart', start, true);
     window.addEventListener('compositionend', end, true);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, capture);
     return () => {
       clearTimeout(settleTimer);
       window.removeEventListener('compositionstart', start, true);
       window.removeEventListener('compositionend', end, true);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, capture);
     };
-  }, []);
+  }, [capture]);
 }

@@ -6,6 +6,7 @@
 #include "mcp_config.hpp"
 #include "model_provider_registry.hpp"
 #include "request_headers.hpp"
+#include "image_generation_config.hpp"
 #include "config/vocab/theme_id.hpp"
 #include "utils/constants.hpp"
 #include "utils/atomic_file.hpp"
@@ -1205,6 +1206,11 @@ static AppConfig load_config_from_path_once(
                 }
             }
 
+            if (j.contains("speech_recognition")) {
+                std::string error;
+                if (!apply_speech_recognition_config(cfg.speech_recognition, j["speech_recognition"], error))
+                    throw std::runtime_error("speech_recognition: " + error);
+            }
             // 图像生成段(openspec add-image-generation-tool)。缺省 → 未配置,
             // 工具不注册。三档模型名允许部分覆盖,未给的沿用默认。
             if (j.contains("image_generation") && j["image_generation"].is_object()) {
@@ -2552,38 +2558,15 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             wsj["timeout_ms"] = cfg.web_search.timeout_ms;
         if (!wsj.empty()) j["web_search"] = wsj;
 
-        ImageGenerationConfig ig_d;
-        nlohmann::json igj = nlohmann::json::object();
-        if (!cfg.image_generation.base_url.empty() &&
-            !utils::is_valid_http_base_url(cfg.image_generation.base_url)) {
-            throw std::runtime_error(
-                "image_generation.base_url must be HTTPS (or loopback HTTP) without "
-                "credentials, query, or fragment");
-        }
-        if (cfg.image_generation.enabled != ig_d.enabled)
-            igj["enabled"] = cfg.image_generation.enabled;
-        if (cfg.image_generation.source != ig_d.source)
-            igj["source"] = cfg.image_generation.source;
-        if (cfg.image_generation.saved_model_name != ig_d.saved_model_name)
-            igj["saved_model_name"] = cfg.image_generation.saved_model_name;
-        if (cfg.image_generation.base_url != ig_d.base_url)
-            igj["base_url"] = cfg.image_generation.base_url;
-        if (cfg.image_generation.api_key != ig_d.api_key)
-            igj["api_key"] = cfg.image_generation.api_key;
-        {
-            nlohmann::json mj = nlohmann::json::object();
-            if (cfg.image_generation.model_standard != ig_d.model_standard)
-                mj["standard"] = cfg.image_generation.model_standard;
-            if (cfg.image_generation.model_high != ig_d.model_high)
-                mj["high"] = cfg.image_generation.model_high;
-            if (cfg.image_generation.model_ultra != ig_d.model_ultra)
-                mj["ultra"] = cfg.image_generation.model_ultra;
-            if (!mj.empty()) igj["models"] = mj;
-        }
-        if (cfg.image_generation.default_quality != ig_d.default_quality)
-            igj["default_quality"] = cfg.image_generation.default_quality;
-        if (cfg.image_generation.timeout_ms != ig_d.timeout_ms)
-            igj["timeout_ms"] = cfg.image_generation.timeout_ms;
+        auto speech = cfg.speech_recognition;
+        std::string speech_error;
+        if (!apply_speech_recognition_config(speech, nlohmann::json::object(), speech_error))
+            throw std::runtime_error("refusing to save speech_recognition: " + speech_error);
+        const auto speech_json = speech_recognition_config_json(speech);
+        if (speech_json != speech_recognition_config_json(SpeechRecognitionConfig{}))
+            j["speech_recognition"] = speech_json;
+
+        const auto igj = image_generation_config_to_json(cfg.image_generation);
         if (!igj.empty()) j["image_generation"] = igj;
 
         nlohmann::json lspj = nlohmann::json::object();
