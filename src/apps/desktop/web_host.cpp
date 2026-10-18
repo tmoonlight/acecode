@@ -1992,7 +1992,7 @@ std::pair<int, int> adjusted_window_size(int width, int height) {
             const int min_value = std::min(preferred_min, max_value);
             return std::max(min_value, std::min(value, max_value));
         };
-        width = clamp_dimension(width, display_width, 80.0, 900);
+        width = clamp_dimension(width, display_width, 80.0, kMinimumDesktopWindowWidth);
         height = clamp_dimension(height, display_height, 120.0, 640);
     }
 #endif

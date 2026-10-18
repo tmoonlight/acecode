@@ -127,9 +127,13 @@ public:
     void request_discovery();
 
     GlobalSessionCatalogIndexSnapshot snapshot() const;
+    // Optional ordering breaks equal-score ties without copying full shards.
+    // Callbacks borrow rows only for this synchronous selection.
     GlobalSessionCatalogSelection select_entries(
         std::size_t max_entries,
-        const std::function<int(const GlobalSessionCatalogEntry&)>& score) const;
+        const std::function<int(const GlobalSessionCatalogEntry&)>& score,
+        const std::function<bool(const GlobalSessionCatalogEntry&,
+                                 const GlobalSessionCatalogEntry&)>& before = {}) const;
     GlobalSessionCatalogProjectSnapshot project_snapshot(
         std::optional<std::uint64_t> known_generation = std::nullopt) const;
     std::optional<GlobalSessionCatalogEntry> find_project_session(

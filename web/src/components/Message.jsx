@@ -36,6 +36,7 @@ import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { extractSessionReferences } from '../lib/sessionReference.js';
+import { basenameForPath } from '../lib/selectionChatContext.js';
 import { DESKTOP_CONTEXT_ACTION_EVENT, DESKTOP_CONTEXT_ACTIONS } from '../lib/desktopContextMenu.js';
 
 export function MessageActions({ messageId, getCopyText, onFork, forkPending = false, forkLoading = false }) {
@@ -248,12 +249,12 @@ function OrderedUserMessageBody({ composerContent, contentParts, onOpenFilePrevi
         }
         if (part.type === 'path') {
           return (
-            <button key={index} type="button" className="ace-cmd-token" title={part.path}
+            <button key={index} type="button" className="ace-cmd-token ace-file-token" title={part.path}
               data-file-path={part.path} data-file-kind={part.directory ? 'directory' : 'file'}
               onClick={() => part.directory ? onLocateInFileTree?.(part.path) : onOpenFilePreview?.(part.path)}>
               {part.directory ? <VsIcon name="folder" size={12} className="ace-cmd-token-glyph" />
                 : <FileTypeIcon path={part.path} size={12} className="ace-cmd-token-glyph" />}
-              <span className="ace-cmd-token-name">{part.path}</span>
+              <span className="ace-cmd-token-name">{basenameForPath(part.path)}</span>
             </button>
           );
         }
@@ -261,7 +262,7 @@ function OrderedUserMessageBody({ composerContent, contentParts, onOpenFilePrevi
         const url = attachment.blob_url || attachment.preview_url || attachment.url || '';
         const imageUrl = isImageAttachment(attachment) ? url : '';
         return (
-          <button key={index} type="button" className="ace-cmd-token" title={attachment.source_path || attachment.name}
+          <button key={index} type="button" className="ace-cmd-token ace-file-token" title={attachment.source_path || attachment.name}
             data-desktop-attachment-id={attachment.id || part.key}
             data-desktop-attachment-name={attachment.name}
             data-desktop-attachment-url={url || undefined}
@@ -273,7 +274,7 @@ function OrderedUserMessageBody({ composerContent, contentParts, onOpenFilePrevi
             data-desktop-attachment-mutable="false"
             onClick={() => previewAttachment(attachment)}>
             <FileTypeIcon path={attachment.name} size={12} className="ace-cmd-token-glyph" />
-            <span className="ace-cmd-token-name">{attachment.name}</span>
+            <span className="ace-cmd-token-name">{basenameForPath(attachment.name)}</span>
           </button>
         );
       })}
@@ -344,7 +345,7 @@ function UserBubble({
         align="right"
       />
       {hasBubbleBody ? (
-        <div className="ace-user-message-bubble ace-chat-message-content px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
+        <div className="ace-user-message-bubble ace-chat-message-content min-w-0 max-w-full px-3.5 py-2 rounded-[14px] rounded-br-[4px] bg-accent-bg border border-accent-soft text-fg text-[13px] leading-[1.5] whitespace-pre-wrap break-words">
           {messagePreview.composerContent ? (
             <OrderedUserMessageBody composerContent={messagePreview.composerContent} contentParts={contentParts}
               onOpenFilePreview={onOpenFilePreview} onLocateInFileTree={onLocateInFileTree} />

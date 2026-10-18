@@ -145,6 +145,8 @@ export function TopBar({
       <div className="ace-topbar-navigation flex items-center gap-1">
         <QuickBtn
           title={withAppShortcutHint(sidebarCollapsed ? '展开项目栏' : '收起项目栏', 'toggleSidebar')}
+          data-sidebar-toggle="left"
+          aria-expanded={!sidebarCollapsed}
           onClick={onToggleSidebar}
           pressed={!sidebarCollapsed}
           panelToggle
@@ -178,6 +180,7 @@ export function TopBar({
           )}
           <QuickBtn
             title={withAppShortcutHint(rightPanelCollapsed ? '展开整个右侧面板' : '收起整个右侧面板', 'toggleRightPanel')}
+            data-sidebar-toggle="right"
             onClick={onToggleRightPanel}
             pressed={!rightPanelCollapsed}
             panelToggle

@@ -306,7 +306,7 @@ run('active refresh forces model reload while home refresh keeps defaults-only b
   assert.doesNotMatch(refreshBody, /createSession|switchModel/);
 });
 
-run('compressed composer controls fall back to one representative SVG icon', () => {
+run('compressed composer controls retain the model name while other controls use icons', () => {
   const component = source('components/ComposerSessionControls.jsx');
   const styles = source('styles/globals.css');
 
@@ -322,13 +322,17 @@ run('compressed composer controls fall back to one representative SVG icon', () 
   assert.match(component, /root\.setAttribute\('data-ultra-compact', 'true'\)/);
   assert.match(component, /window\.addEventListener\('resize', schedule\)/);
   assert.match(component, /data-adaptive-composer-control="true"\s+data-compact=\{compactControls\.has\('model'\) \? 'true' : 'false'\}\s+data-composer-control="model"/);
-  assert.match(styles, /\[data-adaptive-composer-control="true"\]\[data-compact="true"\]\s*\{[^}]*width: 28px !important;[^}]*max-width: 28px !important;/s);
+  assert.match(styles, /\[data-adaptive-composer-control="true"\]\[data-compact="true"\]:not\(\[data-composer-control="model"\]\)\s*\{[^}]*width: 28px !important;[^}]*max-width: 28px !important;/s);
   assert.match(styles, /data-ultra-compact="true"[^}]*data-composer-control="token-budget"[^}]*\{\s*display: none;/s);
   assert.match(styles, /\.ace-composer-adaptive-chip\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
   assert.match(styles, /\.ace-composer-permission-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
-  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
+  assert.doesNotMatch(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
   assert.match(styles, /\.ace-composer-model-glyph\s*\{[^}]*display: inline-flex;/s);
-  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-model-glyph\s*\{[^}]*display: inline-flex;/s);
+  assert.match(styles, /\.ace-composer-model-control\[data-compact="true"\] \.ace-composer-model-chevron\s*\{[^}]*display: none;/s);
+  assert.doesNotMatch(styles, /\.ace-composer-model-(?:label|button)\s*\{[^}]*max-width:/s);
+  assert.match(component, /const modelLabel = selectedModelName \|\| modelMenu\.selectedOption\?\.name \|\| modelMenu\.displayLabel/);
+  assert.match(component, /aria-label=\{modelMenu\.displayLabel\}/);
+  assert.match(component, /element\.getBoundingClientRect\(\)\.width - overflowWidth\(\)/);
 });
 
 run('removable composer chips share the same icon and label scale', () => {

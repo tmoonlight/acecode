@@ -242,6 +242,125 @@ TEST(OpenAiResponsesProviderTest, UsesExactFullUrlAndKeepsMissingReasoningToggle
     EXPECT_EQ(received["reasoning"]["effort"], "none");
 }
 
+TEST(OpenAiResponsesProviderTest, ImageRequestsStayOnLocalFunctionRoundTrip) {
+    std::vector<Json> requests;
+    const ToolDef image_tool{"image_generate", "Generate an image locally", Json{
+        {"type", "object"}, {"properties", {{"prompt", {{"type", "string"}}}}}}};
+    auto call = call_item();
+    call["name"] = image_tool.name;
+    call["arguments"] = R"({"prompt":"a blue circle"})";
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post("/v1/responses", [&](const httplib::Request& request, httplib::Response& response) {
+            const auto body = Json::parse(request.body);
+            requests.push_back(body);
+            const Json allowed{{"type", "allowed_tools"}, {"mode", "auto"}, {"tools", Json::array({
+                Json{{"type", "function"}, {"name", "image_generate"}},
+            })}};
+            EXPECT_EQ(body.value("tool_choice", Json()), allowed);
+            auto output = Json::array();
+            if (body.value("tool_choice", Json()) != allowed) {
+                output.push_back({{"type", "image_generation_call"}, {"status", "completed"}, {"result", "AAAA"}});
+                output.push_back(message_item("Generated."));
+            } else if (requests.size() == 1u) {
+                output.push_back(call);
+            } else {
+                output.push_back(message_item("Local image is attached."));
+            }
+            response.set_content(frame({{"type", "response.completed"}, {"response", completed(output)}}), "text/event-stream");
+        });
+    });
+    OpenAiResponsesProvider provider(server.url(), "", "test-model", 5000);
+    std::vector<StreamEvent> events;
+    provider.chat_stream({user_message("Draw a blue circle")}, {image_tool},
+        [&](const StreamEvent& event) { events.push_back(event); });
+    ASSERT_EQ(count_events(events, StreamEventType::ToolCall), 1);
+    EXPECT_EQ(count_events(events, StreamEventType::Done), 1);
+    const auto emitted = last_event(events, StreamEventType::ToolCall)->tool_call;
+    EXPECT_EQ(emitted.function_name, image_tool.name);
+    ChatMessage assistant;
+    assistant.role = "assistant";
+    assistant.content_parts = last_event(events, StreamEventType::Done)->content_parts;
+    assistant.tool_calls = Json::array({Json{{"id", emitted.id}, {"type", "function"},
+        {"function", {{"name", emitted.function_name}, {"arguments", emitted.function_arguments}}}}});
+    ChatMessage tool_result;
+    tool_result.role = "tool";
+    tool_result.tool_call_id = emitted.id;
+    tool_result.content = "Image saved as an attachment.";
+    events.clear();
+    provider.chat_stream({user_message(), assistant, tool_result}, {image_tool},
+        [&](const StreamEvent& event) { events.push_back(event); });
+    EXPECT_EQ(count_events(events, StreamEventType::ToolCall), 0);
+    EXPECT_EQ(count_events(events, StreamEventType::Done), 1);
+    ASSERT_EQ(requests.size(), 2u);
+    EXPECT_EQ(requests[1]["input"].back()["type"], "function_call_output");
+    EXPECT_EQ(requests[1]["input"].back()["call_id"], emitted.id);
+}
+
+TEST(OpenAiResponsesProviderTest, ToolFreeRequestsExplicitlyDisableGatewayTools) {
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post("/v1/responses", [&](const httplib::Request& request, httplib::Response& response) {
+            const auto body = Json::parse(request.body);
+            EXPECT_EQ(body.value("tool_choice", Json()), "none");
+            response.set_content(body.value("stream", false) ? completed_stream() : completed().dump(),
+                body.value("stream", false) ? "text/event-stream" : "application/json");
+        });
+    });
+    OpenAiResponsesProvider provider(server.url(), "", "test-model", 5000);
+    EXPECT_EQ(provider.chat({user_message()}, {}).content, "ok");
+    std::vector<StreamEvent> events;
+    provider.chat_stream({user_message()}, {}, [&](const StreamEvent& event) { events.push_back(event); });
+    EXPECT_EQ(count_events(events, StreamEventType::Done), 1);
+}
+
+TEST(OpenAiResponsesProviderTest, RejectedAllowlistDoesNotFallBackToUnrestrictedAuto) {
+    std::atomic<int> requests{0};
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post("/v1/responses", [&](const httplib::Request&, httplib::Response& response) {
+            ++requests;
+            response.status = 400;
+            response.set_content(R"({"error":{"param":"tool_choice","message":"allowed_tools is unsupported"}})", "application/json");
+        });
+    });
+    OpenAiResponsesProvider provider(server.url(), "", "test-model", 5000);
+    EXPECT_EQ(provider.chat({user_message()}, {lookup_tool()}).finish_reason, "error");
+    const auto events = collect(provider);
+    EXPECT_EQ(count_events(events, StreamEventType::Error), 1);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 0);
+    EXPECT_EQ(count_events(events, StreamEventType::Done), 0);
+    EXPECT_EQ(requests.load(), 2);
+}
+
+TEST(OpenAiResponsesProviderTest, UnsupportedHostedOutputIsBoundedAndNeverRetried) {
+    std::atomic<int> requests{0};
+    const Json unsupported{{"type", "image_generation_call"}, {"status", "completed"},
+                           {"result", "PRIVATE_IMAGE_BYTES" + std::string(100000, 'A')}};
+    LocalHttpServer server([&](httplib::Server& http) {
+        http.Post("/v1/responses", [&](const httplib::Request& request, httplib::Response& response) {
+            ++requests;
+            const auto body = Json::parse(request.body);
+            const auto output = completed(Json::array({call_item(), unsupported, message_item("Generated.")}));
+            response.set_content(body.value("stream", false)
+                ? frame({{"type", "response.completed"}, {"response", output}}) : output.dump(),
+                body.value("stream", false) ? "text/event-stream" : "application/json");
+        });
+    });
+    OpenAiResponsesProvider provider(server.url(), "", "test-model", 5000);
+    const auto response = provider.chat({user_message()}, {lookup_tool()});
+    EXPECT_EQ(response.finish_reason, "error");
+    EXPECT_TRUE(response.tool_calls.empty());
+    EXPECT_EQ(response.provider_error.raw_body.find("PRIVATE_IMAGE_BYTES"), std::string::npos);
+    const auto events = collect(provider);
+    ASSERT_EQ(count_events(events, StreamEventType::Error), 1);
+    EXPECT_EQ(count_events(events, StreamEventType::ToolCall), 0);
+    EXPECT_EQ(count_events(events, StreamEventType::Done), 0);
+    EXPECT_EQ(count_events(events, StreamEventType::Retry), 0);
+    const auto& error = last_event(events, StreamEventType::Error)->provider_error;
+    EXPECT_FALSE(error.retryable);
+    EXPECT_EQ(error.raw_body.find("PRIVATE_IMAGE_BYTES"), std::string::npos);
+    EXPECT_LT(error.raw_body.size(), 2048u);
+    EXPECT_EQ(requests.load(), 2);
+}
+
 TEST(OpenAiResponsesProviderTest, ReplaysEncryptedReasoningAndOriginalToolCallOnNextTurn) {
     const Json reasoning{{"id", "rs_1"}, {"type", "reasoning"},
         {"encrypted_content", "opaque-encrypted-state"}, {"summary", Json::array()}};

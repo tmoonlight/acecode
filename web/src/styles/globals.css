@@ -1498,7 +1498,7 @@ body {
 .ace-composer-adaptive-chip:not(:disabled):is(:hover, :focus-visible) .ace-composer-chip-remove {
   opacity: 1;
 }
-[data-adaptive-composer-control="true"][data-compact="true"] {
+[data-adaptive-composer-control="true"][data-compact="true"]:not([data-composer-control="model"]) {
   width: 28px !important;
   min-width: 28px;
   max-width: 28px !important;
@@ -1572,11 +1572,9 @@ body {
 }
 .ace-composer-model-button {
   width: 100%;
-  max-width: 176px;
 }
 .ace-composer-model-label {
   min-width: 0;
-  max-width: 132px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1594,16 +1592,14 @@ body {
 .ace-composer-permission-control[data-compact="true"] .ace-composer-permission-button {
   gap: 0;
 }
-.ace-composer-model-control[data-compact="true"] .ace-composer-adaptive-content {
+.ace-composer-model-control[data-compact="true"] .ace-composer-model-glyph,
+.ace-composer-model-control[data-compact="true"] .ace-composer-model-chevron {
   display: none;
 }
 .ace-composer-model-control[data-compact="true"] .ace-composer-model-button {
   padding-right: 4px;
   padding-left: 4px;
   gap: 0;
-}
-.ace-composer-model-control[data-compact="true"] .ace-composer-model-glyph {
-  display: inline-flex;
 }
 .ace-composer-model-load {
   height: 28px;
@@ -1711,12 +1707,6 @@ body {
   }
   .ace-composer-permission-label {
     max-width: 84px;
-  }
-  .ace-composer-model-button {
-    max-width: 132px;
-  }
-  .ace-composer-model-label {
-    max-width: 88px;
   }
 }
 
@@ -4470,7 +4460,7 @@ a.ace-thread-link:focus-visible {
   text-overflow: ellipsis;
 }
 .ace-slate-attachment-tag {
-  max-width: min(320px, calc(100vw - 96px));
+  max-width: min(100%, 320px, calc(100vw - 96px));
 }
 .ace-slate-attachment-tag.is-uploading > .ace-cmd-token {
   opacity: 0.72;
@@ -4538,6 +4528,15 @@ a.ace-thread-link:focus-visible {
 .ace-cmd-token-name {
   color: var(--ace-accent);
   white-space: nowrap;
+}
+.ace-file-token {
+  min-width: 0;
+  max-width: 100%;
+}
+.ace-file-token .ace-cmd-token-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ace-cmd-token:hover,
 .ace-cmd-token:focus-visible {
@@ -5320,7 +5319,7 @@ a.ace-thread-link:focus-visible {
 }
 /* 右侧卡片的左上圆角只给最靠左的那块:预览面板打开时它在前,右侧列表面板
    紧贴其后,圆角与顶边线由预览面板承担,列表面板只保留分隔用的左边线。 */
-.ace-preview-details-shell:not([data-maximized="true"]) ~ .ace-side-panel-shell {
+.ace-preview-details-shell ~ .ace-side-panel-shell {
   border-top-left-radius: 0;
   box-shadow: none;
 }

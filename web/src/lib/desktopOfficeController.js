@@ -13,6 +13,7 @@ export function createDesktopOfficeController({
   let follow = initial.follow !== false, active = {}, selected = initial.selected || {};
   let generation = 0, disposed = false, timer = null, timerDelay = Infinity, request = null;
   let snapshot = {}, connected = true, queued = false, liveTimer = null;
+  let modelRequest = null, modelRequestKey = '', modelContext = null;
   const retained = new Set();
   // session id -> {phase, seq, fromSeq, text}: token/reasoning events newer than the snapshot.
   const live = new Map();
@@ -39,6 +40,32 @@ export function createDesktopOfficeController({
     for (const id of retained) if (!wanted.has(id)) {releaseSession(id); retained.delete(id);}
     for (const id of wanted) if (!retained.has(id)) {retainSession(id); retained.add(id);}
   };
+  const modelKey = session => JSON.stringify([session?.id, session?.workspace_hash || '']);
+  const cancelModel = () => {
+    modelRequest?.abort(); modelRequest = null; modelRequestKey = ''; modelContext = null;
+  };
+  const applyModelWindow = limit => {
+    const id = snapshot.selected.id;
+    snapshot = {...snapshot, selected: {...snapshot.selected, context_window: limit},
+      agents: (snapshot.agents || []).map(agent => agent.id === id ? {...agent, context_window: limit} : agent)};
+  };
+  async function fillModelWindow() {
+    if (!snapshot.selected || snapshot.selected.context_window || !fetchModel || modelRequest) return;
+    const selected = snapshot.selected, key = modelKey(selected), version = generation;
+    const controller = new AbortController();
+    modelRequest = controller; modelRequestKey = key;
+    try {
+      const model = await fetchModel(selected.id, selected.workspace_hash || '', {signal: controller.signal});
+      if (disposed || version !== generation || controller.signal.aborted || modelKey(snapshot.selected) !== key) return;
+      const limit = Number(model?.context_window ?? model?.contextWindow) || 0;
+      if (!Number.isFinite(limit) || limit <= 0 || snapshot.selected.context_window) return;
+      modelContext = {key, limit};
+      // Enrich the current snapshot; never replay the older room/activity that
+      // originally triggered this optional query.
+      applyModelWindow(limit); emit();
+    } catch { /* Unknown context must not block the room or mark it offline. */ }
+    finally {if (modelRequest === controller) modelRequest = null;}
+  }
   function later(delay) {
     if (disposed) return;
     if (timer !== null && timerDelay <= delay) return;
@@ -55,22 +82,19 @@ export function createDesktopOfficeController({
       const wanted = follow && active.sessionId ? active : selected;
       const next = await fetchSnapshot(wanted, {signal: controller.signal});
       if (disposed || version !== generation || controller.signal.aborted) return;
-      // Dormant sessions need their model window; never use lifetime token totals.
-      if (next.selected && !next.selected.context_window && fetchModel) {
-        try {
-          const model = await fetchModel(next.selected.id, next.selected.workspace_hash || '');
-          if (disposed || version !== generation || controller.signal.aborted) return;
-          const limit = Number(model?.context_window ?? model?.contextWindow) || 0;
-          next.selected.context_window = limit;
-          for (const agent of next.agents || []) if (agent.id === next.selected.id) agent.context_window = limit;
-        } catch { /* Unknown context remains unknown until a later snapshot. */ }
-      }
       snapshot = next; connected = true;
+      if (!next.selected || next.selected.context_window ||
+          (modelRequest && modelRequestKey !== modelKey(next.selected)) ||
+          (modelContext && modelContext.key !== modelKey(next.selected))) cancelModel();
+      if (next.selected && !next.selected.context_window && modelContext) applyModelWindow(modelContext.limit);
       if (next.selected) selected = officeSessionRef(next.selected);
       pruneLive(); syncRetained(); emit();
+      // Paper-stack sizing is optional: display the target room immediately.
+      void fillModelWindow();
     } catch (error) {
       if (disposed || version !== generation || controller.signal.aborted) return;
       if (error?.status === 404) {
+        cancelModel();
         selected = {}; snapshot = {...snapshot, selected:null, agents:[], offices:error.body?.offices || snapshot.offices || [],
           activities:error.body?.activities || snapshot.activities || []};
         if (follow) active = {};
@@ -88,6 +112,7 @@ export function createDesktopOfficeController({
   function change() {
     generation++;
     request?.abort(); request = null; queued = false;
+    cancelModel();
     // Keep the last coherent room until the new snapshot is ready. Publishing
     // an empty selection here rebuilds the default layout on every switch.
     emit(); later(0);
@@ -123,6 +148,7 @@ export function createDesktopOfficeController({
     disconnected() {connected = false; emit(); later(500);},
     reconnected() {
       generation++; request?.abort(); request = null; queued = false;
+      cancelModel();
       // Preserve retained subscriptions while recovering: releasing them from
       // an onopen callback would close/reopen an office-only connection forever.
       later(0);
@@ -130,6 +156,7 @@ export function createDesktopOfficeController({
     get state() {return project();},
     dispose() {
       disposed = true; generation++; request?.abort(); request = null;
+      cancelModel();
       if (timer !== null) cancel(timer);
       if (liveTimer !== null) cancel(liveTimer);
       timer = null; liveTimer = null; live.clear();

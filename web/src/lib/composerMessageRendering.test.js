@@ -11,6 +11,7 @@ import * as messageAttachments from './messageAttachments.js';
 import * as desktopContext from './desktopContextMenu.js';
 import { resolveLeadingSlashCommand } from './slashCommands.js';
 import { extractSessionReferences, formatSessionReferenceToken } from './sessionReference.js';
+import { basenameForPath } from './selectionChatContext.js';
 import * as pastedText from './pastedText.js';
 import * as userMessagePreview from './userMessagePreview.js';
 import { clsx } from './format.js';
@@ -38,7 +39,7 @@ const LoaderContext = React.createContext(contextLoader);
 function compile(overrides = {}) {
   return vm.runInNewContext(`${messageCode}; ({ Message, OrderedUserMessageBody });`, {
     React, ...React, ...composerContent, ...composerImagePresentation, ...messageAttachments, ...desktopContext,
-    ...pastedText, ...userMessagePreview, clsx,
+    ...pastedText, ...userMessagePreview, clsx, basenameForPath,
     useTranslation() {}, useSlashCommands: () => ({ commands }), resolveLeadingSlashCommand, extractSessionReferences,
     VsIcon: () => null, CommandGlyph: () => null, FileTypeIcon: () => null,
     ImageLightbox: () => null,
@@ -95,7 +96,7 @@ const render = (props = {}) => renderToStaticMarkup(React.createElement(Message,
 run('sent message keeps references inline in order and shows images as thumbnails above the bubble', () => {
   const html = render({ content: 'wire text', composerContent: ordered, contentParts });
   const bubble = html.indexOf('ace-user-message-bubble');
-  const positions = ['first ', '>review<', ' second ', '>src/a.cpp<', ' third ', '>spec.pdf<', ' last'].map((part) => html.indexOf(part));
+  const positions = ['first ', '>review<', ' second ', '>a.cpp<', ' third ', '>spec.pdf<', ' last'].map((part) => html.indexOf(part));
   assert.ok(positions.every((position, index) => position > bubble && (index === 0 || position > positions[index - 1])));
   assert.equal((html.match(/>diagram.png</g) || []).length, 1);
   assert.ok(html.indexOf('<aside><span>diagram.png</span>') >= 0, 'image goes to the thumbnail strip');

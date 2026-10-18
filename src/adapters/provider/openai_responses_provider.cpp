@@ -154,6 +154,7 @@ std::string OpenAiResponsesProvider::request_url() const {
 }
 
 bool OpenAiResponsesProvider::supports_prompt_cache_key() const {
+    if (is_acemodel_request_endpoint("/responses")) return true;
     const auto url = request_url();
     if (ascii_lower(url.substr(0, 8)) != "https://") return false;
     const auto end = url.find('/', 8);

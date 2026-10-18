@@ -635,9 +635,9 @@ export function createApi(base = null) {
       const query = new URLSearchParams({session: sessionId, workspace: workspaceHash});
       return request('GET', `/api/desktop-office?${query}`, undefined, base, {signal});
     },
-    getSessionModel:  (sid, workspaceHash = '') => {
+    getSessionModel:  (sid, workspaceHash = '', {signal} = {}) => {
       const qs = workspaceHash ? `?workspace=${encodeURIComponent(workspaceHash)}` : '';
-      return request('GET', `/api/sessions/${encodeURIComponent(sid)}/model${qs}`, undefined, base);
+      return request('GET', `/api/sessions/${encodeURIComponent(sid)}/model${qs}`, undefined, base, {signal});
     },
     reloadSessionModel: (sid)       => request('POST',   `/api/sessions/${encodeURIComponent(sid)}/model/reload`, undefined, base),
     setSessionReasoning: (sid, effort) => request('POST', `/api/sessions/${encodeURIComponent(sid)}/reasoning`, { effort }, base),

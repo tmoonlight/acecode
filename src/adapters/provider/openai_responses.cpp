@@ -138,7 +138,8 @@ bool read_message_text(const Json& item, std::string& text) {
     return !item.contains("phase") || item["phase"].is_null() || item["phase"].is_string();
 }
 
-bool read_reasoning_text(const Json& item, std::string& text) {
+bool read_reasoning_text(const Json& item, std::string& text,
+                         std::optional<bool> prefer_raw = std::nullopt) {
     if (!has_array(item, "summary")) return false;
     if (item.contains("encrypted_content") && !item["encrypted_content"].is_null() &&
         !item["encrypted_content"].is_string()) return false;
@@ -155,7 +156,7 @@ bool read_reasoning_text(const Json& item, std::string& text) {
             content += text_field(part, "text");
         }
     }
-    text += content.empty() ? summary : content;
+    text += prefer_raw ? (*prefer_raw ? content : summary) : (content.empty() ? summary : content);
     return true;
 }
 
@@ -224,8 +225,6 @@ Json native_group(const Json& normalized, const ChatMessage* original) {
         const auto& item = part["item"];
         const auto type = text_field(item, "type");
         if (type != "reasoning" && type != "message" && type != "function_call") return {};
-        // Storage is disabled, so a bare reasoning ID cannot be resolved later.
-        if (type == "reasoning" && text_field(item, "encrypted_content").empty()) return {};
         items.push_back(item);
     }
     if (items.empty()) return {};
@@ -242,6 +241,11 @@ Json native_group(const Json& normalized, const ChatMessage* original) {
     if (parsed.content != normalized_text || parsed.content != original->content ||
         !calls_equal(parsed.tool_calls, normalized_calls) ||
         !calls_equal(parsed.tool_calls, original_calls)) return {};
+    // Validate the complete group first. Storage is disabled, so omit only
+    // unresolvable reasoning IDs, preserving the unchanged messages' phases.
+    items.erase(std::remove_if(items.begin(), items.end(), [](const Json& item) {
+        return text_field(item, "type") == "reasoning" && text_field(item, "encrypted_content").empty();
+    }), items.end());
     return items;
 }
 
@@ -357,6 +361,7 @@ Json build_openai_responses_request(const Json& chat_body,
         }
     }
     if (request["input"].empty()) return reject("messages do not contain sendable input");
+    Json allowed_tools = Json::array();
     if (chat_body.contains("tools")) {
         if (!chat_body["tools"].is_array()) return reject("tools must be an array");
         request["tools"] = Json::array();
@@ -369,6 +374,7 @@ Json build_openai_responses_request(const Json& chat_body,
             flattened["type"] = "function";
             flattened["strict"] = false;
             request["tools"].push_back(std::move(flattened));
+            allowed_tools.push_back({{"type", "function"}, {"name", tool["function"]["name"]}});
         }
     }
     if (chat_body.contains("max_completion_tokens")) {
@@ -387,16 +393,28 @@ Json build_openai_responses_request(const Json& chat_body,
         }
         request["reasoning"]["effort"] = chat_body["reasoning_effort"];
     }
-    if (chat_body.contains("tool_choice")) {
-        const auto& choice = chat_body["tool_choice"];
-        if (choice.is_string()) {
-            request["tool_choice"] = choice;
-        } else if (text_field(choice, "type") == "function" && choice.contains("function") &&
-                   !text_field(choice["function"], "name").empty()) {
-            request["tool_choice"] = {{"type", "function"}, {"name", choice["function"]["name"]}};
+    const auto choice = chat_body.value("tool_choice", Json("auto"));
+    if (choice == "none") {
+        request["tool_choice"] = "none";
+    } else if (choice == "auto" || choice == "required") {
+        if (allowed_tools.empty()) {
+            if (choice == "required") return reject("required tool_choice needs an offered function");
+            request["tool_choice"] = "none";
         } else {
-            return reject("unsupported tool_choice");
+            // Gateways may inject hosted tools. Keep automatic selection inside
+            // the client functions that ACECode can execute and account for.
+            request["tool_choice"] = {{"type", "allowed_tools"}, {"mode", choice},
+                                      {"tools", allowed_tools}};
         }
+    } else if (text_field(choice, "type") == "function" && choice.contains("function") &&
+               !text_field(choice["function"], "name").empty()) {
+        const auto selected = Json{{"type", "function"}, {"name", choice["function"]["name"]}};
+        if (std::find(allowed_tools.begin(), allowed_tools.end(), selected) == allowed_tools.end()) {
+            return reject("tool_choice names a function that was not offered");
+        }
+        request["tool_choice"] = selected;
+    } else {
+        return reject("unsupported tool_choice");
     }
     if (chat_body.contains("response_format")) {
         auto format = chat_body["response_format"];
@@ -450,8 +468,15 @@ ChatResponse parse_openai_responses_response(const Json& envelope) {
             }
             result.tool_calls.push_back(std::move(call));
         } else {
-            // Future output types are never turned into local executable calls.
-            continue;
+            // Do not turn an unhandled hosted result into a success sentence,
+            // or copy its potentially large/private payload into diagnostics.
+            const auto display_type = type.size() <= 80 ? type : std::string("<type name exceeds 80 bytes>");
+            const auto message = "Unsupported OpenAI Responses output type: " + display_type +
+                ". ACECode supports client function tools only; check the gateway's tool policy.";
+            auto failure = invalid_response(Json{{"error", {{"code", "unsupported_output_type"},
+                {"message", message}}}}, message, ProviderErrorKind::Unknown);
+            failure.provider_error.retryable = false;
+            return failure;
         }
         result.content_parts.push_back({{"type", "openai_responses_item"}, {"item", item}});
     }
@@ -488,12 +513,17 @@ bool OpenAiResponsesStreamParser::identify_output(const Json& event, const Json*
 
 std::vector<StreamEvent> OpenAiResponsesStreamParser::fail(
         const Json& event, ProviderErrorKind kind, const std::string& message, bool retryable) {
+    auto error = response_error(event, kind, message);
+    error.retryable = error.retryable || retryable;
+    return fail(std::move(error));
+}
+
+std::vector<StreamEvent> OpenAiResponsesStreamParser::fail(ProviderErrorInfo error) {
     if (terminal_) return {};
     accumulated_.finish_reason = "error";
     accumulated_.tool_calls.clear();
     accumulated_.content_parts = Json::array();
-    accumulated_.provider_error = response_error(event, kind, message);
-    accumulated_.provider_error.retryable = accumulated_.provider_error.retryable || retryable;
+    accumulated_.provider_error = std::move(error);
     StreamEvent failure;
     failure.type = StreamEventType::Error;
     failure.error = accumulated_.provider_error.display_message;
@@ -528,6 +558,14 @@ std::vector<StreamEvent> OpenAiResponsesStreamParser::complete(const Json& event
             !prefix_of(state.arguments, text_field(final_item, "arguments"))) {
             return fail(event, ProviderErrorKind::MalformedSse, "OpenAI function arguments changed during streaming");
         }
+        if (expected_status == "completed" && type == "function_call") {
+            for (const char* key : {"call_id", "name"}) {
+                const auto previous = text_field(state.item, key);
+                if (!previous.empty() && previous != text_field(final_item, key)) {
+                    return fail(event, ProviderErrorKind::MalformedSse, "OpenAI function call changed identity");
+                }
+            }
+        }
         if (state.done) {
             // Some gateways omit opaque fields from the terminal snapshot.
             // Only output_item.done is a safe fallback; added can be partial.
@@ -536,18 +574,33 @@ std::vector<StreamEvent> OpenAiResponsesStreamParser::complete(const Json& event
                     final_item[key] = state.item[key];
                 }
             }
-            if (expected_status == "completed" && type == "function_call" &&
-                (text_field(state.item, "call_id") != text_field(final_item, "call_id") ||
-                 text_field(state.item, "name") != text_field(final_item, "name"))) {
-                return fail(event, ProviderErrorKind::MalformedSse, "OpenAI function call changed identity");
-            }
         }
     }
     auto final = parse_openai_responses_response(envelope);
     if (final.provider_error.has_error()) {
-        return fail(event, final.provider_error.kind == ProviderErrorKind::MalformedJson
-            ? ProviderErrorKind::MalformedSse : final.provider_error.kind,
-            final.provider_error.display_message);
+        if (final.provider_error.kind == ProviderErrorKind::MalformedJson) {
+            final.provider_error.kind = ProviderErrorKind::MalformedSse;
+        }
+        return fail(std::move(final.provider_error));
+    }
+    final.reasoning_content.clear();
+    for (std::size_t i = 0; i < envelope["output"].size(); ++i) {
+        const auto& item = envelope["output"][i];
+        if (text_field(item, "type") != "reasoning") continue;
+        const auto state = output_.find(static_cast<int>(i));
+        if (state == output_.end() || !state->second.prefer_raw_reasoning) {
+            read_reasoning_text(item, final.reasoning_content);
+            continue;
+        }
+        std::string raw;
+        std::string summary;
+        read_reasoning_text(item, raw, true);
+        read_reasoning_text(item, summary, false);
+        if (!prefix_of(state->second.raw_reasoning, raw) ||
+            !prefix_of(state->second.summary_reasoning, summary)) {
+            return fail(event, ProviderErrorKind::MalformedSse, "OpenAI reasoning changed during streaming");
+        }
+        final.reasoning_content += *state->second.prefer_raw_reasoning ? raw : summary;
     }
     if (!prefix_of(accumulated_.content, final.content) ||
         !prefix_of(accumulated_.reasoning_content, final.reasoning_content)) {
@@ -613,6 +666,21 @@ std::vector<StreamEvent> OpenAiResponsesStreamParser::consume(const Json& event)
         }
         const auto delta = text_field(event, "delta");
         if (delta.empty()) return {};
+        auto& state = output_[index];
+        const std::string item_type = reasoning_delta ? "reasoning" : "message";
+        const auto previous_type = text_field(state.item, "type");
+        if (!previous_type.empty() && previous_type != item_type) {
+            return fail(event, ProviderErrorKind::MalformedSse, "OpenAI text delta changed output type");
+        }
+        state.item["type"] = item_type;
+        if (reasoning_delta) {
+            const bool raw = type == "response.reasoning_text.delta";
+            (raw ? state.raw_reasoning : state.summary_reasoning) += delta;
+            // A gateway can stream both representations. Display the first
+            // channel for this item, but validate both against the terminal.
+            if (!state.prefer_raw_reasoning) state.prefer_raw_reasoning = raw;
+            if (*state.prefer_raw_reasoning != raw) return {};
+        }
         if (text_delta) accumulated_.content += delta;
         else accumulated_.reasoning_content += delta;
         StreamEvent result;
@@ -634,6 +702,13 @@ std::vector<StreamEvent> OpenAiResponsesStreamParser::consume(const Json& event)
             if (item.contains(key) && !has_string(item, key)) {
                 return fail(event, ProviderErrorKind::MalformedSse, "Malformed OpenAI output item field");
             }
+        }
+        const auto previous_call_id = text_field(state.item, "call_id");
+        const auto previous_name = text_field(state.item, "name");
+        if (item_type == "function_call" &&
+            ((!previous_call_id.empty() && item.contains("call_id") && previous_call_id != text_field(item, "call_id")) ||
+             (!previous_name.empty() && item.contains("name") && previous_name != text_field(item, "name")))) {
+            return fail(event, ProviderErrorKind::MalformedSse, "OpenAI function call changed identity");
         }
         if ((!previous_type.empty() && previous_type != item_type) ||
             (state.done && state.item != item)) {
@@ -664,6 +739,10 @@ std::vector<StreamEvent> OpenAiResponsesStreamParser::consume(const Json& event)
             state.done = true;
         }
         state.item = item;
+        if (item_type == "function_call") {
+            if (!item.contains("call_id") && !previous_call_id.empty()) state.item["call_id"] = previous_call_id;
+            if (!item.contains("name") && !previous_name.empty()) state.item["name"] = previous_name;
+        }
         return {};
     }
     if (type == "response.function_call_arguments.delta" || type == "response.function_call_arguments.done") {
