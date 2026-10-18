@@ -30,4 +30,6 @@
 
 ## 8. Linux 原生编译修正
 - [x] 8.1 将音视频权限查询改为 WebKitGTK 实际导出的 `webkit_user_media_permission_is_for_audio_device` / `webkit_user_media_permission_is_for_video_device`，保留本地页面和仅音频的权限限制。
-- [ ] 8.2 增加独立 Linux 原生 API 编译检查并取得 CI 通过结果；该检查使用系统 WebKitGTK 头文件编译生产代码，不代替真实麦克风交互验收。
+- [x] 8.2 增加独立 Linux 原生 API 编译检查并取得 CI 通过结果；该检查使用系统 WebKitGTK 头文件编译生产代码，不代替真实麦克风交互验收。
+
+验证：GitHub Actions run `39152273460` 的 `linux-desktop-api` job `117748175419` 已通过，实际编译生产 `linux_desktop.cpp` 与系统 WebKitGTK 4.1 头文件。静态检查及 Web 测试/构建亦通过；完整原生回归与发布包检查继续由后续 CI 执行。
