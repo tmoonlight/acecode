@@ -176,9 +176,11 @@ struct GlobalSessionSearchService::Impl {
     struct RecentCache {
         SessionUserMessageFileSignature signature;
         SessionRecentActivity activity;
+        std::uint64_t checked_order = 0;
     };
     std::mutex recent_mu;
     std::unordered_map<std::string, RecentCache> recent_cache;
+    std::uint64_t recent_check_order = 0;
     GlobalSessionCatalogIndex index;
     std::mutex jobs_mu;
     std::unordered_map<std::string, std::shared_ptr<ContentJob>> jobs;
@@ -259,51 +261,85 @@ void GlobalSessionSearchService::stop() {
 
 GlobalSessionSearchPage GlobalSessionSearchService::recent_user_sessions(std::size_t limit) {
     impl_->index.attach_request("desktop-agent-office");
-    auto snapshot = impl_->index.snapshot();
     GlobalSessionSearchPage result;
-    result.progress = snapshot.progress;
-    result.errors = std::move(snapshot.catalog.errors);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
     std::lock_guard<std::mutex> lock(impl_->recent_mu);
-    for (auto& entry : snapshot.catalog.entries) {
-        if (entry.meta.archived || !entry.meta.parent_session_id.empty()) continue;
-        if (entry.active && !entry.active->last_user_message_at.empty()) {
-            entry.meta.last_user_message_at = entry.active->last_user_message_at;
-            entry.meta.last_turn_outcome = entry.active->last_turn_outcome;
-        }
-        if (entry.meta.last_user_message_at.empty()) {
+    // Rank immutable shard rows and copy only the requested offices. snapshot()
+    // copies/merges the entire catalog (including drafts) on every UI refresh.
+    std::vector<std::pair<std::string, Impl::RecentCache*>> legacy;
+    bool collect_legacy = true;
+    const auto user_time = [&](const GlobalSessionCatalogEntry& entry) -> const std::string& {
+        if (entry.active && !entry.active->last_user_message_at.empty())
+            return entry.active->last_user_message_at;
+        if (!entry.meta.last_user_message_at.empty()) return entry.meta.last_user_message_at;
+        const auto path = SessionStorage::session_path(entry.project_dir, entry.meta.id);
+        const auto cached = impl_->recent_cache.find(path);
+        return cached == impl_->recent_cache.end() ? entry.meta.last_user_message_at
+                                                  : cached->second.activity.last_user_message_at;
+    };
+    const auto score = [&](const GlobalSessionCatalogEntry& entry) {
+        if (entry.meta.archived || !entry.meta.parent_session_id.empty()) return 0;
+        if (collect_legacy && entry.meta.last_user_message_at.empty() &&
+            (!entry.active || entry.active->last_user_message_at.empty())) {
             const auto path = SessionStorage::session_path(entry.project_dir, entry.meta.id);
-            const auto signature = session_user_message_file_signature(path);
-            auto cached = impl_->recent_cache.find(path);
-            if (cached == impl_->recent_cache.end() ||
-                cached->second.signature.mtime != signature.mtime ||
-                cached->second.signature.size != signature.size) {
-                if (std::chrono::steady_clock::now() >= deadline) {
-                    result.progress.complete = false;
-                    continue;
-                }
-                try {
-                    Impl::RecentCache value{signature, read_session_recent_activity(path)};
-                    cached = impl_->recent_cache.insert_or_assign(path, std::move(value)).first;
-                } catch (const std::exception& error) {
-                    result.errors.push_back({entry.project_dir, entry.workspace_hash,
-                                             "recent-user-message", error.what()});
-                    continue;
-                }
-            }
-            entry.meta.last_user_message_at = cached->second.activity.last_user_message_at;
-            if (entry.meta.last_turn_outcome.empty()) {
-                entry.meta.last_turn_outcome = cached->second.activity.last_turn_outcome;
+            legacy.emplace_back(path, &impl_->recent_cache[path]);
+        }
+        return user_time(entry).empty() ? 0 : 1;
+    };
+    const auto before = [&](const auto& a, const auto& b) {
+        const auto& a_time = user_time(a);
+        const auto& b_time = user_time(b);
+        if (a_time != b_time) return a_time > b_time;
+        return a.meta.id < b.meta.id;
+    };
+    auto selection = impl_->index.select_entries(limit, score, before);
+    collect_legacy = false;
+
+    // File signatures are IO too. Check a bounded batch, oldest check first,
+    // so cached empty/internal-only records cannot starve later legacy rows.
+    std::sort(legacy.begin(), legacy.end(), [](const auto& a, const auto& b) {
+        if (a.second->checked_order != b.second->checked_order)
+            return a.second->checked_order < b.second->checked_order;
+        return a.first < b.first;
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
+    constexpr std::size_t kLegacyChecksPerRefresh = 32;
+    bool changed = false;
+    for (std::size_t i = 0; i < legacy.size() && i < kLegacyChecksPerRefresh; ++i) {
+        if (std::chrono::steady_clock::now() >= deadline) break;
+        const auto& path = legacy[i].first;
+        auto& cached = *legacy[i].second;
+        const auto signature = session_user_message_file_signature(path);
+        if (!cached.checked_order || cached.signature.mtime != signature.mtime ||
+            cached.signature.size != signature.size) {
+            try {
+                auto activity = read_session_recent_activity(path);
+                changed = changed || activity.last_user_message_at != cached.activity.last_user_message_at ||
+                    activity.last_turn_outcome != cached.activity.last_turn_outcome;
+                cached.activity = std::move(activity);
+                cached.signature = signature;
+            } catch (const std::exception& error) {
+                result.errors.push_back({path, {}, "recent-user-message", error.what()});
             }
         }
-        if (!entry.meta.last_user_message_at.empty()) result.entries.push_back(std::move(entry));
+        cached.checked_order = ++impl_->recent_check_order;
     }
-    std::sort(result.entries.begin(), result.entries.end(), [](const auto& a, const auto& b) {
-        if (a.meta.last_user_message_at != b.meta.last_user_message_at)
-            return a.meta.last_user_message_at > b.meta.last_user_message_at;
-        return a.meta.id < b.meta.id;
-    });
-    if (result.entries.size() > limit) result.entries.resize(limit);
+    if (changed) selection = impl_->index.select_entries(limit, score, before);
+    result.progress = selection.progress;
+    for (const auto& item : legacy) {
+        if (!item.second->checked_order) result.progress.complete = false;
+    }
+    for (auto& error : selection.errors) result.errors.push_back(std::move(error));
+    result.entries = std::move(selection.entries);
+    for (auto& entry : result.entries) {
+        entry.meta.last_user_message_at = user_time(entry);
+        if (entry.active && !entry.active->last_user_message_at.empty()) {
+            entry.meta.last_turn_outcome = entry.active->last_turn_outcome;
+        } else if (entry.meta.last_turn_outcome.empty()) {
+            const auto path = SessionStorage::session_path(entry.project_dir, entry.meta.id);
+            const auto cached = impl_->recent_cache.find(path);
+            if (cached != impl_->recent_cache.end()) entry.meta.last_turn_outcome = cached->second.activity.last_turn_outcome;
+        }
+    }
     return result;
 }
 

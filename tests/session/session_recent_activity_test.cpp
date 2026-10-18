@@ -109,6 +109,81 @@ TEST_F(RecentFixture, GlobalFiveUseUserTimeAcrossProjectsAndExcludeChildrenAndAr
     EXPECT_EQ(result.entries.back().meta.id,"20261006-100001-abcd");
 }
 
+TEST_F(RecentFixture, LegacyBatchesReachLaterRowsAndRecheckChangedFiles) {
+    const auto directory = root / "legacy";
+    fs::create_directories(directory);
+    for (int i = 0; i < 96; ++i) {
+        SessionMeta meta;
+        meta.id = "legacy-" + std::to_string(100 + i);
+        meta.cwd = directory.string();
+        meta.updated_at = "2099-01-01T00:00:00Z";
+        // Empty/internal-only files must not monopolize the recovery budget.
+        auto message = input("2026-10-18T10:00:00Z");
+        if (i != 95) message.metadata = {{"source_tool", "tool_search"}};
+        ASSERT_TRUE(SessionStorage::append_message(SessionStorage::session_path(directory.string(), meta.id), message));
+        ASSERT_TRUE(SessionStorage::write_meta(SessionStorage::meta_path(directory.string(), meta.id), meta));
+    }
+    GlobalSessionSearchService service(root.string());
+    service.start(); service.notify_startup_interaction();
+    GlobalSessionSearchPage result;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    do {
+        result = service.recent_user_sessions();
+        if (result.progress.complete) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
+    ASSERT_TRUE(result.progress.complete);
+    ASSERT_EQ(result.entries.size(), 1u);
+    EXPECT_EQ(result.entries.front().meta.id, "legacy-195");
+
+    ASSERT_TRUE(SessionStorage::append_message(SessionStorage::session_path(directory.string(), "legacy-100"),
+        input("2026-10-18T11:00:00Z")));
+    for (int i = 0; i < 6; ++i) {
+        result = service.recent_user_sessions();
+        if (result.entries.front().meta.id == "legacy-100") break;
+    }
+    ASSERT_EQ(result.entries.size(), 2u);
+    EXPECT_EQ(result.entries.front().meta.id, "legacy-100");
+    service.stop();
+}
+
+TEST_F(RecentFixture, RecentRankingUsesLiveHumanTimeAndKeepsSearchOrdering) {
+    const auto directory = root / "project";
+    fs::create_directories(directory);
+    for (int i = 0; i < 100; ++i) {
+        SessionMeta meta;
+        meta.id = "session-" + std::to_string(100 + i);
+        meta.cwd = directory.string();
+        meta.updated_at = i == 0 ? "2099-01-01T00:00:00Z" : "2026-10-18T00:00:00Z";
+        meta.last_user_message_at = i == 99 ? "2026-10-18T11:00:00Z" : "2026-10-18T10:00:00Z";
+        meta.input_draft = std::string(16384, 'x');
+        ASSERT_TRUE(SessionStorage::write_meta(SessionStorage::meta_path(directory.string(), meta.id), meta));
+    }
+    SessionInfo active;
+    active.id = "session-150"; active.cwd = directory.string(); active.workspace_hash = "project";
+    active.last_user_message_at = "2026-10-18T12:00:00Z";
+    GlobalSessionSearchService service(root.string(), [&active] { return std::vector<SessionInfo>{active}; });
+    service.start(); service.notify_startup_interaction();
+    GlobalSessionSearchPage result;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    do {
+        result = service.recent_user_sessions();
+        if (result.progress.complete) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } while (std::chrono::steady_clock::now() < deadline);
+    ASSERT_TRUE(result.progress.complete);
+    ASSERT_EQ(result.entries.size(), 5u);
+    EXPECT_EQ(result.entries[0].meta.id, "session-150");
+    EXPECT_EQ(result.entries[0].meta.last_user_message_at, active.last_user_message_at);
+    EXPECT_EQ(result.entries[1].meta.id, "session-199");
+    EXPECT_EQ(result.entries[2].meta.id, "session-100");
+    const auto search = service.search_sessions("ordering", "", 5);
+    ASSERT_EQ(search.entries.size(), 5u);
+    EXPECT_EQ(search.entries.front().meta.id, "session-100");
+    EXPECT_TRUE(service.recent_user_sessions(0).entries.empty());
+    service.stop();
+}
+
 TEST_F(RecentFixture, ForkUsesRetainedInputTimeWithoutPretendingItWasSentNow) {
     SessionManager manager;
     manager.start_session(root.string(), "test", "test");

@@ -24,7 +24,8 @@ struct TaskbarBadge;
 
 inline constexpr int kDefaultDesktopWindowWidth = 1280;
 inline constexpr int kDefaultDesktopWindowHeight = 820;
-inline constexpr int kMinimumDesktopWindowWidth = 1170;
+// Allow the responsive Web UI to collapse both sidebars for a narrow transcript.
+inline constexpr int kMinimumDesktopWindowWidth = 480;
 
 class WebHostInitializationError : public std::runtime_error {
 public:

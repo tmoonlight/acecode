@@ -143,8 +143,9 @@ protected:
     ) const;
 
     // Capability seams also let protocol adapters use an explicit policy;
-    // the default implementation recognizes verified official endpoints only.
+    // the default implementation recognizes verified endpoints only.
     virtual bool supports_prompt_cache_key() const;
+    bool is_acemodel_request_endpoint(const std::string& endpoint_suffix) const;
     virtual bool supports_compaction_tool_choice_none() const;
     bool remove_rejected_prompt_cache_key(
         nlohmann::json& body, const std::string& url,

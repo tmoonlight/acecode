@@ -71,6 +71,17 @@ run('layout validation accepts legacy widths without previewPanel', () => {
   assert.equal(validateLayoutWidths(DEFAULT_SINGLE_LAYOUT), true);
 });
 
+run('global popup widths are optional, survive normalization, and reject unusable stored values', () => {
+  const layout = { ...DEFAULT_SINGLE_LAYOUT, sidebarPopup: 320, rightPanelPopup: 720 };
+  assert.equal(validateLayoutWidths(layout), true);
+  assert.deepEqual(normalizeSingleLayoutPreference(layout), layout);
+  for (const key of ['sidebarPopup', 'rightPanelPopup']) {
+    for (const value of [0, -1, '400', NaN, Infinity]) {
+      assert.equal(validateLayoutWidths({ ...layout, [key]: value }), false);
+    }
+  }
+});
+
 run('layout validation accepts legacy widths without subagentPanel', () => {
   assert.equal(validateLayoutWidths({
     sidebar: 270,

@@ -237,6 +237,9 @@ import { notifySessionListChanged } from '../lib/sessionListEvents.js';
 import {
   DEFAULT_SUBAGENT_PANEL_WIDTH,
   MIN_CHAT_WIDTH,
+  MIN_PREVIEW_PANEL_WIDTH,
+  MIN_SIDE_PANEL_WIDTH,
+  MIN_SUBAGENT_PANEL_WIDTH,
   normalizeSubagentPanelWidth,
   solveSingleContentLayout,
   subagentPanelWidthRange,
@@ -293,6 +296,9 @@ import {
 import { createUnsavedFileGuard, runAfterFileApproval } from '../lib/unsavedFileGuard.js';
 import { sessionWorkbench } from '../lib/sessionWorkbench.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
+import { ResponsiveSidebar } from './ResponsiveSidebar.jsx';
+import { clampPopupWidth, popupWidthRange } from '../lib/responsiveSidebars.js';
+import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { transferPreviewTabs } from '../lib/previewTabs.js';
 import {
   AGENT_BROWSER_STATE_EVENT,
@@ -641,7 +647,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
 
-export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, nativeSurfacesVisible = true }) {
+export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const workbenchOwner = sessionWorkbench.ownerFor(ref);
@@ -951,6 +957,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const layoutRef = useRef(null);
   const subagentSplitRef = useRef(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
+  const [popupNavigationCollapsed, setPopupNavigationCollapsed] = useState(null);
+  const rightPopup = responsiveSidebars?.popup === 'right';
+  const rightDocked = !rightPopup && !responsiveSidebars?.rightAutoCollapsed;
+  const reportResponsiveContent = responsiveSidebars?.reportContent;
+  useEffect(() => { setPopupNavigationCollapsed(null); }, [rightPopup, workbenchOwner]);
   const sidePanelResizeActiveRef = useRef(false);
   const previewPanelResizeActiveRef = useRef(false);
   const subagentPanelResizeActiveRef = useRef(false);
@@ -5296,7 +5307,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
 
   const sidePanelMounted = showSidePanel;
-  const sidePanelNavigationCollapsed = sidePanelCollapsed || sidePanelListCollapsed;
   const previewScope = useMemo(
     () => {
       if (!sidePanelFilesEnabled) return sid || '';
@@ -5379,7 +5389,32 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const previewTabsOpen = previewTabs.length > 0;
   // 总开关必须连最大化详情一起隐藏;恢复时仍保留最大化偏好与原页签。
   const previewPanelVisible = previewTabsOpen && !sidePanelCollapsed && !previewPanelHidden;
-  const previewPanelMaximized = sidePanelMaximized && previewPanelVisible;
+  const previewPanelMaximized = sidePanelMaximized && previewPanelVisible && rightDocked;
+  const rightPopupRange = popupWidthRange(layoutWidth, previewPanelVisible ? MIN_PREVIEW_PANEL_WIDTH : MIN_SIDE_PANEL_WIDTH);
+  const rightPopupWidth = clampPopupWidth(rightPanelPopupWidth
+    ?? ((previewPanelVisible ? previewPanelWidth : 0) + (!sidePanelListCollapsed ? sidePanelWidth : 0)), rightPopupRange);
+  const popupNavigationWidth = previewPanelVisible ? Math.min(sidePanelWidth, rightPopupWidth) : rightPopupWidth;
+  const compactRightPopup = rightPopup && previewPanelVisible
+    && rightPopupWidth < MIN_PREVIEW_PANEL_WIDTH + sidePanelWidth;
+  const sidePanelNavigationCollapsed = sidePanelCollapsed || (rightPopup
+    ? (popupNavigationCollapsed ?? (compactRightPopup || sidePanelListCollapsed))
+    : sidePanelListCollapsed);
+  const toggleVisibleSidePanelList = useCallback(() => {
+    if (rightPopup) setPopupNavigationCollapsed(!sidePanelNavigationCollapsed);
+    else onToggleSidePanelList?.();
+  }, [rightPopup, sidePanelNavigationCollapsed, onToggleSidePanelList]);
+  useLayoutEffect(() => {
+    notifyNativeSurfaceOverlayChange();
+  }, [compactRightPopup, sidePanelNavigationCollapsed]);
+  useLayoutEffect(() => {
+    if (rightPopup && !previewPanelVisible && sidePanelNavigationCollapsed) responsiveSidebars.closePopup();
+  }, [rightPopup, previewPanelVisible, sidePanelNavigationCollapsed, responsiveSidebars?.closePopup]);
+  useLayoutEffect(() => {
+    reportResponsiveContent?.({
+      previewAvailable: previewTabsOpen && !previewPanelHidden,
+      subagentOpen: !!sid && subagentPanelOpen,
+    });
+  }, [reportResponsiveContent, previewTabsOpen, previewPanelHidden, sid, subagentPanelOpen]);
   const previewCloseConfirmMessage = previewCloseConfirm
     ? `${previewCloseConfirm.dirtyCount} 个文件有未保存的修改。是否保存后继续？`
     : '';
@@ -5396,11 +5431,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     contentWidth: layoutWidth,
     sidePanelWidth,
     previewPanelWidth,
-    sidePanelVisible: sidePanelMounted,
+    sidePanelVisible: sidePanelMounted && rightDocked,
     sidePanelCollapsed: sidePanelNavigationCollapsed,
-    previewPanelVisible,
+    previewPanelVisible: previewPanelVisible && rightDocked,
     previewPanelMaximized,
     previewPanelAutoFit,
+    minimumChatWidth: responsiveSidebars?.minimumChatWidth,
   }), [
     layoutWidth,
     previewPanelAutoFit,
@@ -5410,12 +5446,17 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     sidePanelNavigationCollapsed,
     sidePanelMounted,
     sidePanelWidth,
+    rightDocked,
+    responsiveSidebars?.minimumChatWidth,
   ]);
   const effectiveChatWidth = layoutWidth > 0 ? contentLayout.chatWidth : 0;
   const effectivePreviewPanelWidth = layoutWidth > 0 ? contentLayout.previewPanelWidth : previewPanelWidth;
   const effectiveSidePanelWidth = layoutWidth > 0 ? contentLayout.sidePanelWidth : sidePanelWidth;
   const renderedSubagentPanelWidth = normalizeSubagentPanelWidth(
-    subagentPanelWidth,
+    responsiveSidebars
+      ? Math.min(subagentPanelWidth, Math.max(MIN_SUBAGENT_PANEL_WIDTH,
+        effectiveChatWidth - responsiveSidebars.transcriptMinimum - 6))
+      : subagentPanelWidth,
     effectiveChatWidth,
   );
   const subagentPanelRange = subagentPanelWidthRange(effectiveChatWidth);
@@ -5449,10 +5490,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       path: location.path,
       line,
     }), () => {
-      if (sidePanelCollapsed) onToggleSidePanel?.();
+      if (!responsiveSidebars?.requestRightPopup(true) && sidePanelCollapsed) onToggleSidePanel?.();
+      setPopupNavigationCollapsed(null);
       setPreviewPanelHidden(false);
     });
-  }, [previewContext, previewScope, selectPreview, sidePanelCwd, sidePanelCollapsed, onToggleSidePanel]);
+  }, [previewContext, previewScope, selectPreview, sidePanelCwd, sidePanelCollapsed, onToggleSidePanel, responsiveSidebars?.requestRightPopup]);
 
   // transcript 里本地文件链接的兜底入口。assistant 气泡在 Message.jsx 里自带
   // 拦截,但同一片区域还有别的 markdown 渲染位置没有各自的拦截器
@@ -5681,10 +5723,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         : changeSummary.fileCount,
       turnUserMessageId,
     }), () => {
-      if (sidePanelCollapsed) onToggleSidePanel?.();
+      if (!responsiveSidebars?.requestRightPopup(true) && sidePanelCollapsed) onToggleSidePanel?.();
+      setPopupNavigationCollapsed(null);
       setPreviewPanelHidden(false);
     });
-  }, [changeSummary.fileCount, onToggleSidePanel, previewScope, selectPreview, sid, sidePanelCollapsed, turnChangeSets]);
+  }, [changeSummary.fileCount, onToggleSidePanel, previewScope, selectPreview, sid, sidePanelCollapsed, turnChangeSets, responsiveSidebars?.requestRightPopup]);
 
   // git 变更点击文件 → 在中间详情栏开/聚焦「变更」页签(复刻会话级变更旧行为)。
   // gitBase 只有从 SidePanel 导航列表点击时才带;详情栏内点文件不带,由
@@ -5698,10 +5741,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       expandedFile: filePath,
       fileCount: gitFileCount,
     }), () => {
-      if (sidePanelCollapsed) onToggleSidePanel?.();
+      if (!responsiveSidebars?.requestRightPopup(true) && sidePanelCollapsed) onToggleSidePanel?.();
+      setPopupNavigationCollapsed(null);
       setPreviewPanelHidden(false);
     });
-  }, [onToggleSidePanel, previewContext, selectPreview, sidePanelCollapsed, sidePanelCwd]);
+  }, [onToggleSidePanel, previewContext, selectPreview, sidePanelCollapsed, sidePanelCwd, responsiveSidebars?.requestRightPopup]);
 
   // SidePanel 切基线时,若「变更」页签已打开则同步其 base(详情栏跟着换比较对象)。
   const updateGitChangeBase = useCallback((gitBase) => {
@@ -6048,10 +6092,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         width: 'auto',
       }
     : {
-        width: Math.max(0, effectivePreviewPanelWidth),
+        width: rightPopup ? rightPopupWidth - (compactRightPopup || sidePanelNavigationCollapsed ? 0 : sidePanelWidth)
+          : Math.max(0, effectivePreviewPanelWidth),
       };
   const sidePanelShellStyle = {
-    width: sidePanelNavigationCollapsed ? 0 : Math.max(0, effectiveSidePanelWidth),
+    width: sidePanelNavigationCollapsed ? 0 : (rightPopup ? popupNavigationWidth
+      : Math.max(0, effectiveSidePanelWidth)),
   };
 
   return (
@@ -6515,7 +6561,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       <ChatFileDropOverlay active={chatFileDropActive} />
       </div>
       )}
-      {previewPanelVisible && !previewPanelMaximized && (
+      <ResponsiveSidebar side="right" popup={rightPopup}
+        onResize={onRightPanelPopupResize} resizeRange={rightPopupRange}
+        hidden={(!previewPanelVisible && sidePanelNavigationCollapsed)
+          || (!!responsiveSidebars?.rightAutoCollapsed && !rightPopup)}
+        style={rightPopup ? { width: rightPopupWidth } : (previewPanelMaximized ? { flex: '1 1 auto' } : undefined)}>
+      {previewPanelVisible && !previewPanelMaximized && rightDocked && (
         <div
           role="separator"
           aria-label="调整预览面板宽度"
@@ -6551,7 +6602,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onTogglePresentation={onTogglePreviewPresentation}
             busy={busy}
             selectionContexts={previewSelectionContexts}
-            sidePanelListCollapsed={sidePanelListCollapsed}
+            sidePanelListCollapsed={sidePanelNavigationCollapsed}
             onActivateTab={activatePreview}
             onCloseTab={closePreview}
             onCloseOthers={closeOtherPreviews}
@@ -6561,14 +6612,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onEditFileTab={updateFilePreviewDraft}
             onReorderTab={reorderPreview}
             onToggleMaximize={onToggleSidePanelMaximized}
-            onToggleSidePanelList={onToggleSidePanelList}
+            onToggleSidePanelList={toggleVisibleSidePanelList}
             onOpenFile={sidePanelCwd ? openPreviewFilePicker : null}
             onOpenBrowser={sid && hasNativeAgentBrowser() ? openBrowserPreview : null}
             onRetargetSimulatorTab={retargetSimulatorPreview}
             onOpenSideChat={openSideQuestionComposer}
             onHide={hidePreviewPanel}
             agentBrowserActive={agentBrowserActivePageId}
-            nativeSurfacesVisible={nativeSurfacesVisible}
+            nativeSurfacesVisible={nativeSurfacesVisible && (rightDocked || rightPopup)}
             onAddBrowserContext={addBrowserContext}
             onSelectChangeFile={openSessionChangePreview}
             onSelectGitChangeFile={openGitChangePreview}
@@ -6646,7 +6697,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       />
       {sidePanelMounted && (
         <>
-          {!sidePanelNavigationCollapsed && (
+          {!sidePanelNavigationCollapsed && rightDocked && (
             <div
               role="separator"
               aria-label="调整右侧栏宽度"
@@ -6660,7 +6711,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             />
           )}
           <div
-            className="ace-side-panel-shell"
+            className={clsx('ace-side-panel-shell', compactRightPopup && 'ace-popup-navigation')}
+            data-ace-native-overlay={compactRightPopup && !sidePanelNavigationCollapsed ? 'overlap' : undefined}
             data-collapsed={sidePanelNavigationCollapsed ? 'true' : 'false'}
             data-maximized="false"
             style={sidePanelShellStyle}
@@ -6678,10 +6730,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               reviewRequest={reviewRequest}
               fileLocateRequest={fileLocateRequest}
               filesEnabled={sidePanelFilesEnabled}
-              width={sidePanelWidth}
-              collapsed={sidePanelListCollapsed}
+              width={rightPopup ? popupNavigationWidth : sidePanelWidth}
+              collapsed={sidePanelNavigationCollapsed}
               busy={busy}
-              onToggleCollapse={onToggleSidePanelList}
+              onToggleCollapse={toggleVisibleSidePanelList}
               onOpenFilePreview={openFilePreview}
               onOpenSessionChangePreview={openSessionChangePreview}
               onOpenGitChangePreview={openGitChangePreview}
@@ -6693,6 +6745,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           </div>
         </>
       )}
+      </ResponsiveSidebar>
       {expertPickerOpen && (
         <ExpertPickerDialog
           workspaceHash={commandWorkspaceHash}

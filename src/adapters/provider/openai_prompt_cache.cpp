@@ -1,5 +1,6 @@
 #include "openai_provider.hpp"
 #include "utils/logger.hpp"
+#include "config/builtin_model_catalog.hpp"
 #include "config/request_headers.hpp"
 
 #include <algorithm>
@@ -118,7 +119,27 @@ void OpenAiCompatProvider::set_prompt_cache_key(const std::string& key) {
 }
 
 bool OpenAiCompatProvider::supports_prompt_cache_key() const {
-    return name() == "openai" && known_cache_key_endpoint(request_url());
+    return name() == "openai" && (known_cache_key_endpoint(request_url()) ||
+        is_acemodel_request_endpoint("/chat/completions"));
+}
+
+bool OpenAiCompatProvider::is_acemodel_request_endpoint(
+    const std::string& endpoint_suffix) const {
+    const auto url = request_url();
+    if (ascii_lower(url.substr(0, 8)) != "https://") return false;
+    const auto authority_end = url.find('/', 8);
+    if (authority_end == std::string::npos) return false;
+    auto authority = ascii_lower(url.substr(8, authority_end - 8));
+    if (authority.size() > 4 && authority.compare(authority.size() - 4, 4, ":443") == 0) {
+        authority.resize(authority.size() - 4);
+    }
+    const auto path_end = url.find_first_of("?#", authority_end);
+    auto path = url.substr(authority_end, path_end - authority_end);
+    if (path.size() < endpoint_suffix.size() ||
+        path.compare(path.size() - endpoint_suffix.size(), endpoint_suffix.size(),
+                     endpoint_suffix) != 0) return false;
+    path.resize(path.size() - endpoint_suffix.size());
+    return is_acemodel_base_url("https://" + authority + path);
 }
 
 bool OpenAiCompatProvider::supports_compaction_tool_choice_none() const {

@@ -43,12 +43,12 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
       });
 
       controls.forEach((element, index) => {
-        element.style.width = '';
+        element.style.width = element.dataset.composerControl === 'model' ? `${desiredWidths[index]}px` : '';
         element.style.flex = `0 0 ${desiredWidths[index]}px`;
       });
       root.getBoundingClientRect();
 
-      const isCrowded = () => {
+      const overflowWidth = () => {
         const rootRect = root.getBoundingClientRect();
         const right = root.querySelector('.ace-composer-session-right');
         const leftControls = [...root.querySelectorAll('.ace-composer-session-left > [data-composer-control]')]
@@ -57,10 +57,16 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
           ? Math.max(...leftControls.map((element) => element.getBoundingClientRect().right))
           : rootRect.left;
         const rightRect = right?.getBoundingClientRect();
-        return root.scrollWidth > root.clientWidth + 1
-          || (rightRect && rightRect.right > rootRect.right + 1)
-          || (rightRect && leftEdge > rightRect.left - 1);
+        const rightItems = right ? [...right.children].map((element) => element.getBoundingClientRect())
+          .filter((rect) => rect.width > 0) : [];
+        const rightWidth = rightItems.length > 0
+          ? Math.max(...rightItems.map((rect) => rect.right)) - Math.min(...rightItems.map((rect) => rect.left))
+          : (rightRect?.width || 0);
+        const gap = Number.parseFloat(getComputedStyle(root).columnGap) || 0;
+        return Math.max(0, root.scrollWidth - root.clientWidth,
+          leftEdge - rootRect.left + gap + rightWidth - rootRect.width);
       };
+      const isCrowded = () => overflowWidth() > 1;
 
       const compactOrder = ['permission', 'expert-pending', 'expert', 'swarm-mode', 'goal', 'model'];
       const nextCompact = new Set();
@@ -70,11 +76,16 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
         if (!element) continue;
         nextCompact.add(controlName);
         element.setAttribute('data-compact', 'true');
-        element.style.flex = '0 0 28px';
+        const width = controlName === 'model'
+          ? Math.max(28, Math.floor(element.getBoundingClientRect().width - overflowWidth()))
+          : 28;
+        if (controlName === 'model') element.style.width = `${width}px`;
+        element.style.flex = `0 0 ${width}px`;
         root.getBoundingClientRect();
       }
       controls.forEach((element) => {
         if (nextCompact.has(element.dataset.composerControl)) return;
+        if (element.dataset.composerControl === 'model') return;
         const contentClipped = [...element.querySelectorAll('.ace-composer-adaptive-content')]
           .some((content) => getComputedStyle(content).display !== 'none'
             && content.scrollWidth > content.clientWidth + 1);
@@ -274,9 +285,7 @@ export function ComposerSessionControls({
     fallbackLabel: model,
   }), [model, modelOptions, selectedModelName]);
   const modelDeleted = modelMenu.displayDeleted || String(model || '').includes('(deleted)');
-  const compactModelLabel = modelDeleted && selectedModelName
-    ? `${selectedModelName} (deleted)`
-    : (selectedModelName || modelMenu.displayLabel);
+  const modelLabel = selectedModelName || modelMenu.selectedOption?.name || modelMenu.displayLabel;
   const canOpenModelMenu = modelOptions.length > 0 || !!onRefreshModels;
   const modelBusy = modelSwitching || modelRefreshing;
 
@@ -479,6 +488,7 @@ export function ComposerSessionControls({
               setOpenMenu((current) => (current === 'model' ? '' : 'model'));
             }}
             title={modelMenu.displayLabel}
+            aria-label={modelMenu.displayLabel}
             aria-haspopup="listbox"
             aria-expanded={openMenu === 'model'}
             className={clsx(
@@ -492,8 +502,8 @@ export function ComposerSessionControls({
               size="sm"
               className="ace-composer-model-glyph"
             />
-            <span className="ace-composer-adaptive-content ace-composer-model-label">{compactModelLabel}</span>
-            <VsIcon name="glyphDown" size={10} className="ace-composer-adaptive-content shrink-0 opacity-75" />
+            <span className="ace-composer-adaptive-content ace-composer-model-label">{modelLabel}</span>
+            <VsIcon name="glyphDown" size={10} className="ace-composer-model-chevron shrink-0 opacity-75" />
           </button>
 
           {openMenu === 'model' && (

@@ -149,9 +149,9 @@ test('mesh workers know their dispatching parent', () => {
   assert.equal(officeActor(session('root'),'root').parentPath,'');
 });
 
-function fixture(fetchSnapshot) {
+function fixture(fetchSnapshot, fetchModel) {
   const publications=[],retained=new Set(),released=[],timers=new Map(),delays=new Map();let timerId=0;
-  const controller=createDesktopOfficeController({fetchSnapshot,publish:value=>publications.push(value),
+  const controller=createDesktopOfficeController({fetchSnapshot,fetchModel,publish:value=>publications.push(value),
     retainSession:id=>retained.add(id),releaseSession:id=>{retained.delete(id);released.push(id);},
     schedule:(fn,delay)=>{timers.set(++timerId,fn);delays.set(timerId,delay);return timerId;},cancel:id=>timers.delete(id)});
   // 只触发指定延迟的计时器(实时文字节流 vs 快照轮询),其余保持挂起。
@@ -159,6 +159,60 @@ function fixture(fetchSnapshot) {
   return {controller,publications,retained,released,timers,fire};
 }
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
+
+await check('slow model lookup never delays switching, polling or live activity', async () => {
+  const pending=deferred();let modelCalls=0,seq=1;
+  const f=fixture(async ref=>snapshot(ref.sessionId,{agents:[session(ref.sessionId,{busy:true,activity:{seq,phase:'reasoning',text:'latest '+seq}})]}),
+    ()=>{modelCalls++;return pending.promise;});
+  f.controller.setActive({sessionId:'a'});
+  let finished=false;
+  const request=f.controller.refresh().then(()=>{finished=true;});
+  await Promise.resolve();await Promise.resolve();
+  assert.equal(f.controller.state.selected?.sessionId,'a','room is published before optional model response');
+  assert.equal(finished,true,'snapshot refresh is not held by model IO');
+  assert.equal(f.controller.state.agents[0].contextKnown,false);
+  seq=2;await f.controller.refresh();
+  assert.equal(modelCalls,1,'one model query per selection while pending');
+  pending.resolve({context_window:1000});await request;await Promise.resolve();
+  assert.equal(f.controller.state.agents[0].contextLimit,1000);
+  assert.equal(f.controller.state.agents[0].detail,'latest 2','enrichment preserves newer activity');
+  seq=3;await f.controller.refresh();
+  assert.equal(modelCalls,1,'reuse the result for subsequent snapshots of this selection');
+  assert.equal(f.controller.state.agents[0].contextLimit,1000);
+  f.controller.dispose();
+});
+
+await check('late model responses cannot overwrite a new selection or an authoritative context window', async () => {
+  const a=deferred(),b=deferred(),requests=[];let known=false;
+  const f=fixture(async ref=>snapshot(ref.sessionId,known?{selected:session(ref.sessionId,{context_window:2000}),
+    agents:[session(ref.sessionId,{context_window:2000})]}:{}),
+    (id,workspace,options)=>{requests.push({id,signal:options.signal});return id==='a'?a.promise:b.promise;});
+  f.controller.setActive({sessionId:'a'});await f.controller.refresh();
+  f.controller.setActive({sessionId:'b'});await f.controller.refresh();
+  assert.equal(requests[0].signal.aborted,true);
+  const count=f.publications.length;
+  a.resolve({context_window:111});await Promise.resolve();
+  assert.equal(f.publications.length,count);assert.equal(f.controller.state.selected.sessionId,'b');
+  known=true;await f.controller.refresh();assert.equal(requests[1].signal.aborted,true);
+  b.resolve({context_window:222});await Promise.resolve();
+  assert.equal(f.controller.state.agents[0].contextLimit,2000);
+  f.controller.dispose();
+});
+
+await check('model failure and disposal leave the displayed office lifecycle intact', async () => {
+  for (const dispose of [false,true]) {
+    const pending=deferred();let signal;
+    const f=fixture(async()=>snapshot('a'),(id,workspace,options)=>{signal=options.signal;return pending.promise;});
+    await f.controller.refresh();const count=f.publications.length;
+    if(dispose)f.controller.dispose();
+    pending.reject(new Error('model unavailable'));await Promise.resolve();
+    assert.equal(f.publications.length,count);
+    assert.equal(f.controller.state.connected,true);
+    if(dispose)assert.equal(signal.aborted,true);
+    else f.controller.dispose();
+    assert.equal(f.retained.size,0);assert.equal(f.timers.size,0);
+  }
+});
 
 await check('following a session keeps its layout, actors, live text and subscriptions until the next snapshot', async () => {
   const pending=deferred(),requests=[];

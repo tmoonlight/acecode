@@ -788,7 +788,9 @@ GlobalSessionCatalogIndexSnapshot GlobalSessionCatalogIndex::snapshot() const {
 
 GlobalSessionCatalogSelection GlobalSessionCatalogIndex::select_entries(
     std::size_t max_entries,
-    const std::function<int(const GlobalSessionCatalogEntry&)>& score) const {
+    const std::function<int(const GlobalSessionCatalogEntry&)>& score,
+    const std::function<bool(const GlobalSessionCatalogEntry&,
+                             const GlobalSessionCatalogEntry&)>& before) const {
     std::vector<std::shared_ptr<const ProjectScanResult>> shard_views;
     GlobalSessionCatalogSelection selection;
     {
@@ -907,8 +909,9 @@ GlobalSessionCatalogSelection GlobalSessionCatalogIndex::select_entries(
         if (value > 0) ranked.push_back({value, &entry});
     }
 
-    const auto ranked_before = [](const auto& a, const auto& b) {
+    const auto ranked_before = [&before](const auto& a, const auto& b) {
         if (a.score != b.score) return a.score > b.score;
+        if (before) return before(*a.entry, *b.entry);
         const std::string a_updated = effective_updated_at(*a.entry).empty()
             ? a.entry->meta.created_at
             : effective_updated_at(*a.entry);

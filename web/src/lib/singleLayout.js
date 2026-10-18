@@ -28,7 +28,9 @@ export function validateLayoutWidths(v) {
     && (v.previewPanelUserSized == null
       || typeof v.previewPanelUserSized === 'boolean')
     && (v.subagentPanel == null
-      || (typeof v.subagentPanel === 'number' && Number.isFinite(v.subagentPanel)));
+      || (typeof v.subagentPanel === 'number' && Number.isFinite(v.subagentPanel)))
+    && ['sidebarPopup', 'rightPanelPopup'].every((key) => v[key] == null
+      || (typeof v[key] === 'number' && Number.isFinite(v[key]) && v[key] > 0));
 }
 
 export function previewPanelWidthIsUserSized(layout) {
@@ -201,6 +203,7 @@ export function solveSingleContentLayout({
   previewPanelVisible = false,
   previewPanelMaximized = false,
   previewPanelAutoFit = false,
+  minimumChatWidth = MIN_CHAT_WIDTH,
 } = {}) {
   const total = Math.max(0, finiteRoundedWidth(contentWidth));
   const sideVisible = !!sidePanelVisible && !sidePanelCollapsed;
@@ -244,10 +247,10 @@ export function solveSingleContentLayout({
     preview = Math.min(preview, balancedPreviewMaximum);
   }
   let chat = availableForChatAndPreview - preview;
-  if (chat < MIN_CHAT_WIDTH) {
+  if (chat < minimumChatWidth) {
     const maxPreviewWithChatMinimum = Math.max(
       MIN_PREVIEW_PANEL_WIDTH,
-      availableForChatAndPreview - MIN_CHAT_WIDTH,
+      availableForChatAndPreview - minimumChatWidth,
     );
     preview = Math.min(preview, maxPreviewWithChatMinimum);
     chat = Math.max(0, availableForChatAndPreview - preview);

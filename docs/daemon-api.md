@@ -3109,6 +3109,14 @@ SGLang 等推理服务的扩展字段，官方 OpenAI 接口会拒绝）；Respo
 该 Provider 的默认协议（ACEModel 为 Responses）；切换到其他 Provider 会清除该字段，其他 Provider 显式传入
 则返回 `UNSUPPORTED_MODEL_OPTION`，未知协议值返回 `INVALID_API_PROTOCOL`。
 
+Responses 的自动工具选择使用 `tool_choice.type:"allowed_tools"` 和 `mode:"auto"`，
+允许列表仅包含本次提供的 ACECode 函数工具；模型仍可直接回答，不会被强制调用工具。
+没有工具的请求显式发送 `tool_choice:"none"`，压缩请求已有的禁用工具策略保持不变。
+兼容网关须支持该标准字段；拒绝时不会退回不受限制的 `auto`。
+网关额外注入的托管生图、搜索等工具不属于 ACECode 本地执行链路；若仍返回未支持的
+输出类型（如 `image_generation_call`），会明确报错，不再丢弃结果后显示文字成功。
+生图应调用已配置的 `image_generate`，才能走本地成本确认、附件保存和展示流程。
+
 返回包含 `api_key` 原值的模型配置。校验错误使用 `BAD_JSON`、`BAD_REQUEST` 或
 `SavedModelEditError` 字符串；持久化失败会回滚内存并返回
 `500 PERSIST_FAILED`。

@@ -5,7 +5,7 @@ import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
 } from '../lib/desktopContextMenu.js';
-import { contextPresentation } from '../lib/selectionChatContext.js';
+import { basenameForPath, contextPresentation } from '../lib/selectionChatContext.js';
 import { clsx } from '../lib/format.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
@@ -102,7 +102,7 @@ export const AttachmentStrip = memo(function AttachmentStrip({
               ) : (
                 <span className="px-2.5 py-2 flex items-center gap-2">
                   <VsIcon name="file" size={15} />
-                  <span className="truncate text-[12px] text-fg">{label}</span>
+                  <span className="truncate text-[12px] text-fg">{basenameForPath(label)}</span>
                 </span>
               )}
             </button>

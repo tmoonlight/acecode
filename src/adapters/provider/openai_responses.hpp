@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,9 @@ private:
     struct OutputState {
         nlohmann::json item = nlohmann::json::object();
         std::string arguments;
+        std::string raw_reasoning;
+        std::string summary_reasoning;
+        std::optional<bool> prefer_raw_reasoning;
         bool arguments_seen = false;
         bool done = false;
     };
@@ -39,6 +43,7 @@ private:
                          const nlohmann::json* item,
                          int& index);
     std::vector<StreamEvent> complete(const nlohmann::json& event);
+    std::vector<StreamEvent> fail(ProviderErrorInfo error);
     std::vector<StreamEvent> fail(const nlohmann::json& event,
                                   ProviderErrorKind kind,
                                   const std::string& message,

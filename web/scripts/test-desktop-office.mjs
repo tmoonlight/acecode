@@ -200,6 +200,23 @@ try {
     assert.deepEqual(await rendered(),original,'returning to a session restores its original layout and actor');
     switchChecks.push('returning restores the original layout and actor');
   } finally {controller.dispose();}
+  const pendingModel=deferred(),modelPublished=[];
+  const slowModelController=createDesktopOfficeController({
+    fetchSnapshot:async()=>snapshot('slow-model'),fetchModel:()=>pendingModel.promise,
+    publish:value=>modelPublished.push(value),schedule:()=>0,cancel:()=>{},
+  });
+  try {
+    const loading=slowModelController.refresh();
+    await Promise.resolve();
+    for(const state of modelPublished.splice(0))await apply(state);
+    const beforeModel=await rendered();
+    assert.equal(beforeModel.selected,'slow-model','optional model request does not hold the target room');
+    assert.deepEqual(beforeModel.agents.map(a=>a.id),['slow-model']);
+    pendingModel.resolve({context_window:128000});await loading;await Promise.resolve();
+    for(const state of modelPublished.splice(0))await apply(state);
+    assert.deepEqual(await rendered(),beforeModel,'paper sizing does not rebuild the room or change its identity');
+    switchChecks.push('slow model enrichment never delays room selection or rebuilds the layout');
+  } finally {slowModelController.dispose();}
   await apply(data({complete:false}));
   assert.equal(await page.locator('#officeNotice').textContent(),'修复登录流程','selected title replaces the recent-session loading notice');
   await apply(data({complete:false,selected:{sessionId:'root',workspaceHash:'project',title:'当前会话已改名'}}));

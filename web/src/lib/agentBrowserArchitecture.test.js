@@ -542,7 +542,7 @@ run('application state explicitly gates the native Agent Browser surface', () =>
   assert.doesNotMatch(app, /&& !visibleQuestionReq/);
   assert.match(app, /nativeSurfacesVisible=\{nativeSurfacesVisible\}/);
   assert.match(chatView, /nativeSurfacesVisible = true/);
-  assert.match(chatView, /<PreviewDetailsPanel[\s\S]*nativeSurfacesVisible=\{nativeSurfacesVisible\}/);
+  assert.match(chatView, /<PreviewDetailsPanel[\s\S]*nativeSurfacesVisible=\{nativeSurfacesVisible && \(rightDocked \|\| rightPopup\)\}/);
   assert.match(preview, /surfaceEnabled=\{nativeSurfacesVisible\}/);
   assert.match(panel, /applicationVisible: surfaceEnabled/);
 });

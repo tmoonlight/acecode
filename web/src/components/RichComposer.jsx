@@ -143,7 +143,7 @@ function PathTagElement({ attributes, children, element, selected }) {
       onDragStart={(event) => event.preventDefault()}
     >
       {children}
-      <span className="ace-cmd-token">
+      <span className="ace-cmd-token ace-file-token">
         {element?.directory
           ? <VsIcon name="folder" size="1em" className="ace-cmd-token-glyph" />
           : <FileTypeIcon path={path} size="1em" className="ace-cmd-token-glyph" glyphClassName="ace-file-type-glyph" />}
@@ -185,7 +185,8 @@ function AttachmentTagElement({
   onRemoveAttachment,
 }) {
   const name = String(element?.name || 'attachment');
-  const label = element?.uploading ? `${name} 上传中` : name;
+  const filename = basenameForPath(name);
+  const label = element?.uploading ? `${filename} 上传中` : filename;
   const previewable = element?.kind === 'image' && !!element?.url;
   const attachmentKey = String(element?.attachmentKey || '');
   return (
@@ -211,7 +212,7 @@ function AttachmentTagElement({
       onDragStart={(event) => event.preventDefault()}
     >
       {children}
-      <span className="ace-cmd-token">
+      <span className="ace-cmd-token ace-file-token">
         <FileTypeIcon path={name} size="1em" className="ace-cmd-token-glyph" glyphClassName="ace-file-type-glyph" />
         <span className="ace-cmd-token-name ace-slate-attachment-name">{label}</span>
         <button

@@ -130,6 +130,202 @@ TEST(OpenAiResponsesTest, ReplaysOrderedNativeGroupWithoutDuplicatingTextOrCalls
     EXPECT_EQ(request.dump().find("openai_responses_item"), std::string::npos);
 }
 
+TEST(OpenAiResponsesTest, LimitsAutomaticAndRequiredChoicesToOfferedClientFunctions) {
+    for (const std::string mode : {"", "auto", "required"}) {
+        auto chat = chat_body();
+        chat["tools"] = Json::array({
+            Json{{"type", "function"}, {"function", {{"name", "image_generate"}, {"parameters", Json::object()}}}},
+            Json{{"type", "function"}, {"function", {{"name", "read"}, {"parameters", Json::object()}}}},
+        });
+        if (!mode.empty()) chat["tool_choice"] = mode;
+        const auto request = acecode::build_openai_responses_request(chat);
+        ASSERT_TRUE(request.contains("tool_choice"));
+        EXPECT_EQ(request["tool_choice"], (Json{{"type", "allowed_tools"},
+            {"mode", mode.empty() ? "auto" : mode}, {"tools", Json::array({
+                Json{{"type", "function"}, {"name", "image_generate"}},
+                Json{{"type", "function"}, {"name", "read"}},
+            })}}));
+    }
+}
+
+TEST(OpenAiResponsesTest, DisablesToolFreeCallsAndPreservesExplicitNone) {
+    auto chat = chat_body();
+    for (bool include_empty_tools : {false, true}) {
+        if (include_empty_tools) chat["tools"] = Json::array();
+        const auto request = acecode::build_openai_responses_request(chat);
+        ASSERT_TRUE(request.contains("tool_choice"));
+        EXPECT_EQ(request["tool_choice"], "none");
+    }
+    chat["tools"] = Json::array({Json{{"type", "function"}, {"function", {{"name", "read"}}}}});
+    chat["tool_choice"] = "none";
+    EXPECT_EQ(acecode::build_openai_responses_request(chat)["tool_choice"], "none");
+}
+
+TEST(OpenAiResponsesTest, RejectsChoicesOutsideOfferedToolSet) {
+    auto chat = chat_body();
+    chat["tool_choice"] = "required";
+    EXPECT_TRUE(acecode::build_openai_responses_request(chat).is_null());
+    chat["tool_choice"] = "unexpected";
+    EXPECT_TRUE(acecode::build_openai_responses_request(chat).is_null());
+    chat["tool_choice"] = {{"type", "function"}, {"function", {{"name", "missing"}}}};
+    EXPECT_TRUE(acecode::build_openai_responses_request(chat).is_null());
+}
+
+TEST(OpenAiResponsesTest, UnsupportedOutputCannotSilentlyBecomeTextOnlySuccess) {
+    for (const auto* type : {"image_generation_call", "web_search_call", "custom_tool_call", "future_output", "rate limit exceeded"}) {
+        const Json unsupported{{"id", "hosted_1"}, {"type", type}, {"status", "completed"},
+                               {"result", "PRIVATE_PAYLOAD" + std::string(100000, 'A')}};
+        const auto wire = envelope(Json::array({function_item(), unsupported, message_item("Generated.")}));
+        const auto response = acecode::parse_openai_responses_response(wire);
+        EXPECT_EQ(response.finish_reason, "error") << type;
+        EXPECT_TRUE(response.tool_calls.empty());
+        EXPECT_TRUE(response.content_parts.empty());
+        EXPECT_FALSE(response.provider_error.retryable);
+        EXPECT_NE(response.provider_error.display_message.find(type), std::string::npos);
+        EXPECT_EQ(response.provider_error.raw_body.find("PRIVATE_PAYLOAD"), std::string::npos);
+        EXPECT_LT(response.provider_error.raw_body.size(), 2048u);
+
+        OpenAiResponsesStreamParser parser;
+        parser.consume({{"type", "response.output_item.done"}, {"output_index", 0}, {"item", function_item()}});
+        parser.consume({{"type", "response.output_item.done"}, {"output_index", 1}, {"item", unsupported}});
+        const auto events = parser.consume({{"type", "response.completed"}, {"response", wire}});
+        const auto* failure = first_event(events, StreamEventType::Error);
+        ASSERT_NE(failure, nullptr) << type;
+        EXPECT_EQ(first_event(events, StreamEventType::Done), nullptr);
+        EXPECT_EQ(first_event(events, StreamEventType::ToolCall), nullptr);
+        EXPECT_TRUE(parser.accumulated().content_parts.empty());
+        EXPECT_FALSE(failure->provider_error.retryable);
+        EXPECT_EQ(failure->provider_error.raw_body.find("PRIVATE_PAYLOAD"), std::string::npos);
+        EXPECT_LT(failure->provider_error.raw_body.size(), 2048u);
+    }
+}
+
+TEST(OpenAiResponsesTest, KeepsMessagePhaseWhenOmittingNonReplayableReasoning) {
+    auto reasoning = reasoning_item();
+    reasoning.erase("encrypted_content");
+    const auto message = message_item("Working.");
+    const auto parsed = acecode::parse_openai_responses_response(envelope(
+        Json::array({reasoning, message, function_item()})));
+    ChatMessage original;
+    original.role = "assistant";
+    original.content = parsed.content;
+    original.content_parts = parsed.content_parts;
+    original.tool_calls = Json::array({chat_function(function_item())});
+    std::vector<ChatMessage> originals{original};
+    auto chat = chat_body();
+    chat["messages"].push_back({{"role", "assistant"}, {"content", original.content},
+                                {"tool_calls", original.tool_calls}});
+    const auto request = acecode::build_openai_responses_request(chat, &originals);
+    ASSERT_EQ(request["input"].size(), 4u);
+    EXPECT_EQ(request["input"][2], message);
+    EXPECT_EQ(request["input"][3], function_item());
+    EXPECT_EQ(request.dump().find("rs_1"), std::string::npos);
+}
+
+TEST(OpenAiResponsesTest, MixedReasoningChannelsDoNotInvalidateToolCompletion) {
+    for (bool raw_first : {false, true}) {
+        OpenAiResponsesStreamParser parser;
+        const auto selected_type = raw_first ? "response.reasoning_text.delta" : "response.reasoning_summary_text.delta";
+        const auto other_type = raw_first ? "response.reasoning_summary_text.delta" : "response.reasoning_text.delta";
+        auto events = parser.consume({{"type", selected_type}, {"output_index", 0}, {"delta", "selected"}});
+        ASSERT_NE(first_event(events, StreamEventType::ReasoningDelta), nullptr);
+        events = parser.consume({{"type", other_type}, {"output_index", 0}, {"delta", "other"}});
+        EXPECT_EQ(first_event(events, StreamEventType::ReasoningDelta), nullptr);
+        auto reasoning = reasoning_item(raw_first ? "other" : "selected complete");
+        reasoning["content"] = Json::array({Json{{"type", "reasoning_text"},
+            {"text", raw_first ? "selected complete" : "other"}}});
+        events = parser.consume(terminal(Json::array({reasoning, function_item()})));
+        EXPECT_EQ(first_event(events, StreamEventType::Error), nullptr);
+        EXPECT_EQ(count_events(events, StreamEventType::ToolCall), 1u);
+        ASSERT_NE(first_event(events, StreamEventType::ReasoningDelta), nullptr);
+        EXPECT_EQ(first_event(events, StreamEventType::ReasoningDelta)->content, " complete");
+        EXPECT_EQ(parser.accumulated().reasoning_content, "selected complete");
+    }
+}
+
+TEST(OpenAiResponsesTest, RejectsFunctionIdentityChangesBeforeItemCompletion) {
+    for (const auto* field : {"name", "call_id"}) {
+        for (bool via_done : {false, true}) {
+            OpenAiResponsesStreamParser parser;
+            auto added = function_item();
+            added["status"] = "in_progress";
+            added["arguments"] = "";
+            parser.consume({{"type", "response.output_item.added"}, {"output_index", 0}, {"item", added}});
+            auto changed = function_item();
+            changed[field] = "changed_identity";
+            const auto events = via_done
+                ? parser.consume({{"type", "response.output_item.done"}, {"output_index", 0}, {"item", changed}})
+                : parser.consume(terminal(Json::array({changed})));
+            EXPECT_NE(first_event(events, StreamEventType::Error), nullptr) << field;
+            EXPECT_EQ(first_event(events, StreamEventType::ToolCall), nullptr);
+            EXPECT_TRUE(parser.consume(terminal(Json::array({changed}))).empty());
+        }
+    }
+}
+
+TEST(OpenAiResponsesTest, ValidatesHiddenReasoningChannelAndSelectsPerItem) {
+    OpenAiResponsesStreamParser changed;
+    changed.consume({{"type", "response.reasoning_summary_text.delta"}, {"output_index", 0}, {"delta", "summary"}});
+    changed.consume({{"type", "response.reasoning_text.delta"}, {"output_index", 0}, {"delta", "raw"}});
+    auto reasoning = reasoning_item("summary");
+    reasoning["content"] = Json::array({Json{{"type", "reasoning_text"}, {"text", "changed"}}});
+    auto events = changed.consume(terminal(Json::array({reasoning, function_item()})));
+    EXPECT_NE(first_event(events, StreamEventType::Error), nullptr);
+    EXPECT_EQ(first_event(events, StreamEventType::ToolCall), nullptr);
+
+    OpenAiResponsesStreamParser separate;
+    separate.consume({{"type", "response.reasoning_summary_text.delta"}, {"output_index", 0}, {"delta", "summary"}});
+    separate.consume({{"type", "response.reasoning_text.delta"}, {"output_index", 1}, {"delta", "raw"}});
+    auto raw = reasoning_item();
+    raw["id"] = "rs_2";
+    raw["content"] = Json::array({Json{{"type", "reasoning_text"}, {"text", "raw"}}});
+    events = separate.consume(terminal(Json::array({reasoning_item("summary"), raw, function_item()})));
+    EXPECT_NE(first_event(events, StreamEventType::Done), nullptr);
+    EXPECT_EQ(separate.accumulated().reasoning_content, "summaryraw");
+}
+
+TEST(OpenAiResponsesTest, FunctionIdentityCanArriveLateButCannotBeClearedThenReplaced) {
+    const Json preliminary{{"id", "fc_call_1"}, {"type", "function_call"}, {"status", "in_progress"}};
+    OpenAiResponsesStreamParser late;
+    late.consume({{"type", "response.output_item.added"}, {"output_index", 0}, {"item", preliminary}});
+    late.consume({{"type", "response.output_item.done"}, {"output_index", 0}, {"item", function_item()}});
+    EXPECT_EQ(count_events(late.consume(terminal(Json::array({function_item()}))), StreamEventType::ToolCall), 1u);
+
+    OpenAiResponsesStreamParser changed;
+    auto known = function_item();
+    known["status"] = "in_progress";
+    changed.consume({{"type", "response.output_item.added"}, {"output_index", 0}, {"item", known}});
+    changed.consume({{"type", "response.output_item.added"}, {"output_index", 0}, {"item", preliminary}});
+    auto renamed = function_item();
+    renamed["name"] = "different";
+    const auto events = changed.consume({{"type", "response.output_item.done"}, {"output_index", 0}, {"item", renamed}});
+    EXPECT_NE(first_event(events, StreamEventType::Error), nullptr);
+}
+
+TEST(OpenAiResponsesTest, UnsupportedOutputDiagnosticHandlesLongUtf8Type) {
+    const Json unsupported{{"type", std::string(79, 'A') + "\xc3\xa9"}, {"result", "PRIVATE_PAYLOAD"}};
+    const auto wire = envelope(Json::array({unsupported}));
+    acecode::ChatResponse response;
+    ASSERT_NO_THROW(response = acecode::parse_openai_responses_response(wire));
+    EXPECT_EQ(response.finish_reason, "error");
+    EXPECT_FALSE(response.provider_error.retryable);
+    EXPECT_EQ(response.provider_error.raw_body.find("PRIVATE_PAYLOAD"), std::string::npos);
+    OpenAiResponsesStreamParser parser;
+    std::vector<StreamEvent> events;
+    ASSERT_NO_THROW(events = parser.consume({{"type", "response.completed"}, {"response", wire}}));
+    ASSERT_NE(first_event(events, StreamEventType::Error), nullptr);
+    EXPECT_FALSE(first_event(events, StreamEventType::Error)->provider_error.retryable);
+}
+
+TEST(OpenAiResponsesTest, ReasoningDeltasMustMatchTheirOwnTerminalItemType) {
+    OpenAiResponsesStreamParser parser;
+    parser.consume({{"type", "response.reasoning_summary_text.delta"}, {"output_index", 0}, {"delta", "selected"}});
+    parser.consume({{"type", "response.reasoning_text.delta"}, {"output_index", 0}, {"delta", "other"}});
+    const auto events = parser.consume(terminal(Json::array({function_item(), reasoning_item("selected")})));
+    EXPECT_NE(first_event(events, StreamEventType::Error), nullptr);
+    EXPECT_EQ(first_event(events, StreamEventType::ToolCall), nullptr);
+}
+
 TEST(OpenAiResponsesTest, StaleNativeCallsCannotUndoCanonicalHistoryRepair) {
     const auto parsed = acecode::parse_openai_responses_response(envelope(
         Json::array({reasoning_item(), message_item("answer"), function_item()})));

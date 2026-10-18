@@ -110,6 +110,9 @@ import { SettingsPage } from './components/SettingsPage.jsx';
 import { WorkspaceCleanupNotice } from './components/WorkspaceCleanupNotice.jsx';
 import { DesktopContextMenu } from './components/DesktopContextMenu.jsx';
 import { usePreviewPresentation } from './lib/usePreviewPresentation.js';
+import { useResponsiveSidebars } from './lib/useResponsiveSidebars.js';
+import { clampPopupWidth, popupWidthRange } from './lib/responsiveSidebars.js';
+import { ResponsiveSidebar } from './components/ResponsiveSidebar.jsx';
 import { Toaster, toast } from './components/Toast.jsx';
 import { SlashCommandsProvider } from './components/SlashCommandsContext.jsx';
 import { FramelessResizeHandles } from './components/FramelessResizeHandles.jsx';
@@ -134,6 +137,7 @@ import { nextHomeLogoEffectEnabled } from './lib/homeLogoEffectPolicy.js';
 import { homeRefFromWorkspace, noHomeWorkspaceOption } from './lib/homeWorkspaceSelection.js';
 import {
   DEFAULT_SINGLE_LAYOUT,
+  MIN_SIDEBAR_WIDTH,
   normalizeSingleLayoutPreference,
   normalizePreviewPanelWidth,
   normalizeSidePanelWidth,
@@ -512,6 +516,14 @@ export function App() {
   });
   const [guidedTourPreparing, setGuidedTourPreparing] = useState(false);
   const [guidedTourRun, setGuidedTourRun] = useState(false);
+  const responsiveSidebars = useResponsiveSidebars({
+    shellRef: singleShellRef,
+    owner: workbenchOwner,
+    enabled: view === 'single' && authState === 'ok' && !guidedTourPreparing && !guidedTourRun,
+    widths: singleLayout,
+    preferences: uiPrefs,
+    previewAutoFit: !previewPanelUserSized,
+  });
   const [guidedTourForced, setGuidedTourForced] = useState(false);
   const guidedTourAutoAttemptedRef = useRef(false);
   const homeLogoActiveSessionId = sessionJumpId(activeRef || {});
@@ -1497,15 +1509,21 @@ export function App() {
   }, [probe]);
 
   const toggleSidePanel = useCallback(() => {
+    if (!responsiveSidebars.canDockRight || responsiveSidebars.popup === 'right') {
+      responsiveSidebars.togglePopup('right');
+      return;
+    }
+    responsiveSidebars.closePopup();
     const approval = rightPanelHidden(uiPrefs, previewPanelVisible) ? true : requestPreviewLeave();
     return runAfterFileApproval(approval, () => {
       setUiPrefs((prev) => toggleRightPanel(prev, previewPanelVisible));
     });
-  }, [previewPanelVisible, requestPreviewLeave, setUiPrefs, uiPrefs]);
+  }, [previewPanelVisible, requestPreviewLeave, setUiPrefs, uiPrefs, responsiveSidebars]);
 
   const revealPreviewPanel = useCallback(() => {
+    if (responsiveSidebars.requestRightPopup(true)) return;
     setUiPrefs(revealRightPanelDetails);
-  }, [setUiPrefs]);
+  }, [setUiPrefs, responsiveSidebars.requestRightPopup]);
 
   const toggleSidePanelList = useCallback(() => {
     setUiPrefs((prev) => ({
@@ -1515,6 +1533,7 @@ export function App() {
   }, [setUiPrefs]);
 
   const revealSidePanelList = useCallback(() => {
+    if (responsiveSidebars.requestRightPopup()) return;
     setUiPrefs((prev) => {
       if (!prev.sidePanelCollapsed && !effectiveSidePanelListCollapsed(prev)) return prev;
       return {
@@ -1523,7 +1542,7 @@ export function App() {
         sidePanelListCollapsed: false,
       };
     });
-  }, [setUiPrefs]);
+  }, [setUiPrefs, responsiveSidebars.requestRightPopup]);
 
   // 最大化 / 还原中间预览面板。沿用旧字段名保存偏好,但 UI 控件已迁到预览面板。
   // 最大化时强制确保右侧 SidePanel 未折叠,符合"右侧文件栏仍然可用"的行为。
@@ -1539,11 +1558,16 @@ export function App() {
   }, [setUiPrefs]);
 
   const toggleProjectSidebar = useCallback(() => {
+    if (!responsiveSidebars.canDockLeft || responsiveSidebars.popup === 'left') {
+      responsiveSidebars.togglePopup('left');
+      return;
+    }
+    responsiveSidebars.closePopup();
     setUiPrefs((prev) => ({
       ...prev,
       sidebarCollapsed: !prev.sidebarCollapsed,
     }));
-  }, [setUiPrefs]);
+  }, [setUiPrefs, responsiveSidebars]);
 
   const openUpdateDialog = useCallback(() => {
     if (!updateJobIsActive(updateJob)
@@ -2022,6 +2046,13 @@ export function App() {
     },
   } : {});
 
+  const setSidebarPopupWidth = useCallback((width) => {
+    setSingleLayout((prev) => width > 0 && prev.sidebarPopup !== width ? { ...prev, sidebarPopup: width } : prev);
+  }, [setSingleLayout]);
+  const setRightPanelPopupWidth = useCallback((width) => {
+    setSingleLayout((prev) => width > 0 && prev.rightPanelPopup !== width ? { ...prev, rightPanelPopup: width } : prev);
+  }, [setSingleLayout]);
+
   const setSidebarWidth = useCallback((nextWidth, shellWidth = 0) => {
     const sidePanelVisible = !sidePanelNavigationCollapsed;
     setSingleLayout((prev) => {
@@ -2222,7 +2253,14 @@ export function App() {
   }
 
   const sidebarCollapsed = view !== 'single'
-    || (projectSidebarCollapsed && !guidedTourPreparing && !guidedTourRun);
+    || ((projectSidebarCollapsed || responsiveSidebars.leftAutoCollapsed)
+      && !guidedTourPreparing && !guidedTourRun);
+  const sidebarPopup = responsiveSidebars.popup === 'left';
+  const rightSidebarPopup = responsiveSidebars.popup === 'right';
+  const sidebarPopupRange = popupWidthRange(responsiveSidebars.shellWidth, MIN_SIDEBAR_WIDTH);
+  const renderedSidebarWidth = sidebarPopup
+    ? clampPopupWidth(singleLayout.sidebarPopup ?? singleLayout.sidebar, sidebarPopupRange)
+    : singleLayout.sidebar;
 
   const nativeSurfacesVisible = !showSettings
     && !desktopAnnouncementOpen
@@ -2277,10 +2315,10 @@ export function App() {
         onToggleConsole={toggleConsoleDock}
         consoleAvailable={consoleAvailable}
         consoleOpen={consoleDock.open}
-        rightPanelCollapsed={rightPanelHidden(uiPrefs, previewPanelVisible)}
+        rightPanelCollapsed={!rightSidebarPopup && (responsiveSidebars.rightAutoCollapsed || rightPanelHidden(uiPrefs, previewPanelVisible))}
         onToggleRightPanel={toggleSidePanel}
-        sidebarCollapsed={sidebarCollapsed}
-        sidebarWidth={singleLayout.sidebar}
+        sidebarCollapsed={sidebarCollapsed && !sidebarPopup}
+        sidebarWidth={sidebarPopup ? 0 : singleLayout.sidebar}
         onToggleSidebar={toggleProjectSidebar}
         onGoBack={goBackActiveRef}
         onGoForward={goForwardActiveRef}
@@ -2294,6 +2332,10 @@ export function App() {
           activeRef?.expertComponents ? 'ace-expert-components-shell' : '',
         ].filter(Boolean).join(' ')}
       >
+        <ResponsiveSidebar side="left" popup={sidebarPopup}
+          hidden={sidebarCollapsed && !sidebarPopup}
+          onResize={setSidebarPopupWidth} resizeRange={sidebarPopupRange}
+          style={{ width: renderedSidebarWidth }}>
         <Sidebar
           activeId={activeId}
           activeRef={activeRef}
@@ -2302,8 +2344,8 @@ export function App() {
           onActiveRemoteControlBoundChange={syncActiveRemoteControlBound}
           onSessionLoadStateChange={setSidebarSessionLoadState}
           sessionLoadResetSequence={sidebarSessionLoadResetSequence}
-          collapsed={sidebarCollapsed}
-          width={singleLayout.sidebar}
+          collapsed={sidebarCollapsed && !sidebarPopup}
+          width={renderedSidebarWidth}
           onOpenHome={openHomeForWorkspace}
           onNewTask={() => openHomeForWorkspace(null, { composerFeedback: true })}
           onNewLoop={openLoopPage}
@@ -2328,6 +2370,7 @@ export function App() {
           pendingQuestionSessionIds={pendingQuestionSessionIdsForSidebar}
           showSessionTime={sidebarSessionTime}
         />
+        </ResponsiveSidebar>
         {view === 'single' && !sidebarCollapsed && (
           <div
             role="separator"
@@ -2372,6 +2415,9 @@ export function App() {
                 health={health}
                 autoFocusOnDesktopWindowFocus={autoFocusChatOnDesktopWindowFocus}
                 showSidePanel
+                responsiveSidebars={responsiveSidebars}
+                rightPanelPopupWidth={singleLayout.rightPanelPopup}
+                onRightPanelPopupResize={setRightPanelPopupWidth}
                 sidePanelWidth={singleLayout.sidePanel}
                 onSidePanelResize={setSidePanelWidth}
                 previewPanelWidth={singleLayout.previewPanel}
@@ -2380,8 +2426,8 @@ export function App() {
                 subagentPanelWidth={singleLayout.subagentPanel ?? DEFAULT_SINGLE_LAYOUT.subagentPanel}
                 onSubagentPanelResize={setSubagentPanelWidth}
                 onPreviewPanelVisibleChange={setPreviewPanelVisible}
-                sidePanelCollapsed={sidePanelCollapsed}
-                sidePanelListCollapsed={sidePanelListCollapsed}
+                sidePanelCollapsed={rightSidebarPopup ? false : sidePanelCollapsed}
+                sidePanelListCollapsed={rightSidebarPopup && rightPanelHidden(uiPrefs, previewPanelVisible) ? false : sidePanelListCollapsed}
                 onToggleSidePanel={toggleSidePanel}
                 onRevealPreviewPanel={revealPreviewPanel}
                 onToggleSidePanelList={toggleSidePanelList}
