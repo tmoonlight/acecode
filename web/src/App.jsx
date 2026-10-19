@@ -10,6 +10,7 @@ import { DesktopPetsPromo } from './components/DesktopPetsPromo.jsx';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, apiConnectionScope, ApiError, createApi } from './lib/api.js';
+import { useStableCallback } from './lib/useStableCallback.js';
 import { computerUseSettingsStore } from './lib/computerUseSettings.js';
 import { observeComputerUsePointerTheme } from './lib/computerUsePointerTheme.js';
 import { useTheme } from './theme.jsx';
@@ -368,21 +369,21 @@ export function App() {
     if (!id) return;
     setRecentExpertIds((current) => recordRecentExpert(current, id));
   }, [setRecentExpertIds]);
-  const loadHomeComposerDraft = useCallback((workspaceHash, client = api) => ({
+  const loadHomeComposerDraft = useStableCallback((workspaceHash, client = api) => ({
     draft: homeDraftStore.read(client, workspaceHash),
     ready: homeDraftStore.load(client, workspaceHash),
-  }), [homeDraftStore]);
-  const updateHomeComposerDraft = useCallback((workspaceHash, text, client = api) => {
+  }));
+  const updateHomeComposerDraft = useStableCallback((workspaceHash, text, client = api) => {
     homeDraftStore.update(client, workspaceHash, text);
-  }, [homeDraftStore]);
-  const acceptHomeComposerDraft = useCallback((workspaceHash, submittedText, client = api) => {
+  });
+  const acceptHomeComposerDraft = useStableCallback((workspaceHash, submittedText, client = api) => {
     void homeDraftStore.accept(client, workspaceHash, submittedText);
-  }, [homeDraftStore]);
+  });
   // 首页粘贴的文件块上传完成时用户已离开首页:在 store 里的最新草稿上回填,
   // 不能用 ChatView 手里的旧快照覆盖期间的编辑。
-  const patchHomeComposerDraft = useCallback((workspaceHash, updater, client = api) => {
+  const patchHomeComposerDraft = useStableCallback((workspaceHash, updater, client = api) => {
     homeDraftStore.patch(client, workspaceHash, updater);
-  }, [homeDraftStore]);
+  });
   useEffect(() => {
     const flush = () => { void homeDraftStore.flush(); };
     const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
@@ -1015,7 +1016,7 @@ export function App() {
     };
   }, [authState]);
 
-  const acknowledgeConfigRecovery = useCallback(async () => {
+  const acknowledgeConfigRecovery = useStableCallback(async () => {
     if (configRecoveryAckBusy) return;
     setConfigRecoveryAckBusy(true);
     try {
@@ -1028,7 +1029,7 @@ export function App() {
       setConfigRecoveryDialogOpen(false);
       setConfigRecoveryNotice(null);
     }
-  }, [configRecoveryAckBusy]);
+  });
 
   const pollUpdateJob = useCallback((jobId) => {
     if (!jobId) return;
@@ -1236,19 +1237,19 @@ export function App() {
   // Ctrl+` toggle 控制台(终端聚焦时 xterm 的 customKeyEventHandler 放行该
   // 组合,事件照常冒泡到 window)。后端 console 不可用时快捷键惰化。
   const consoleAvailable = !!health?.console?.available;
-  const toggleConsoleDock = useCallback(() => {
+  const toggleConsoleDock = useStableCallback(() => {
     if (!consoleAvailable) return;
     setConsoleDock((prev) => ({ ...prev, open: !prev.open }));
-  }, [consoleAvailable, setConsoleDock]);
-  const setConsoleDockHeight = useCallback((next) => {
+  });
+  const setConsoleDockHeight = useStableCallback((next) => {
     setConsoleDock((prev) => ({
       ...prev,
       height: clampDockHeight(next, window.innerHeight),
     }));
-  }, [setConsoleDock]);
-  const setConsoleDockOpen = useCallback((open) => {
+  });
+  const setConsoleDockOpen = useStableCallback((open) => {
     setConsoleDock((prev) => ({ ...prev, open: !!open }));
-  }, [setConsoleDock]);
+  });
 
   const handleSelectSession = useCallback(async (session) => {
     if (!session?.id) return;
@@ -1508,7 +1509,7 @@ export function App() {
     await probe();
   }, [probe]);
 
-  const toggleSidePanel = useCallback(() => {
+  const toggleSidePanel = useStableCallback(() => {
     if (!responsiveSidebars.canDockRight || responsiveSidebars.popup === 'right') {
       responsiveSidebars.togglePopup('right');
       return;
@@ -1518,21 +1519,21 @@ export function App() {
     return runAfterFileApproval(approval, () => {
       setUiPrefs((prev) => toggleRightPanel(prev, previewPanelVisible));
     });
-  }, [previewPanelVisible, requestPreviewLeave, setUiPrefs, uiPrefs, responsiveSidebars]);
+  });
 
-  const revealPreviewPanel = useCallback(() => {
+  const revealPreviewPanel = useStableCallback(() => {
     if (responsiveSidebars.requestRightPopup(true)) return;
     setUiPrefs(revealRightPanelDetails);
-  }, [setUiPrefs, responsiveSidebars.requestRightPopup]);
+  });
 
-  const toggleSidePanelList = useCallback(() => {
+  const toggleSidePanelList = useStableCallback(() => {
     setUiPrefs((prev) => ({
       ...prev,
       sidePanelListCollapsed: !effectiveSidePanelListCollapsed(prev),
     }));
-  }, [setUiPrefs]);
+  });
 
-  const revealSidePanelList = useCallback(() => {
+  const revealSidePanelList = useStableCallback(() => {
     if (responsiveSidebars.requestRightPopup()) return;
     setUiPrefs((prev) => {
       if (!prev.sidePanelCollapsed && !effectiveSidePanelListCollapsed(prev)) return prev;
@@ -1542,11 +1543,11 @@ export function App() {
         sidePanelListCollapsed: false,
       };
     });
-  }, [setUiPrefs, responsiveSidebars.requestRightPopup]);
+  });
 
   // 最大化 / 还原中间预览面板。沿用旧字段名保存偏好,但 UI 控件已迁到预览面板。
   // 最大化时强制确保右侧 SidePanel 未折叠,符合"右侧文件栏仍然可用"的行为。
-  const toggleSidePanelMaximized = useCallback(() => {
+  const toggleSidePanelMaximized = useStableCallback(() => {
     setUiPrefs((prev) => {
       const nextMax = !prev.sidePanelMaximized;
       return {
@@ -1555,9 +1556,9 @@ export function App() {
         sidePanelCollapsed: nextMax ? false : prev.sidePanelCollapsed,
       };
     });
-  }, [setUiPrefs]);
+  });
 
-  const toggleProjectSidebar = useCallback(() => {
+  const toggleProjectSidebar = useStableCallback(() => {
     if (!responsiveSidebars.canDockLeft || responsiveSidebars.popup === 'left') {
       responsiveSidebars.togglePopup('left');
       return;
@@ -1567,9 +1568,9 @@ export function App() {
       ...prev,
       sidebarCollapsed: !prev.sidebarCollapsed,
     }));
-  }, [setUiPrefs, responsiveSidebars]);
+  });
 
-  const openUpdateDialog = useCallback(() => {
+  const openUpdateDialog = useStableCallback(() => {
     if (!updateJobIsActive(updateJob)
         && updateJob?.target_version
         && updateStatus?.latest_version
@@ -1577,9 +1578,9 @@ export function App() {
       setUpdateJob(null);
     }
     setUpdateDialogOpen(true);
-  }, [updateJob, updateStatus]);
+  });
 
-  const checkForUpdates = useCallback(async () => {
+  const checkForUpdates = useStableCallback(async () => {
     if (updateChecking) return;
     setUpdateChecking(true);
     try {
@@ -1612,7 +1613,7 @@ export function App() {
     } finally {
       setUpdateChecking(false);
     }
-  }, [updateChecking, updateJob]);
+  });
 
   const showAboutAceCode = useCallback(async () => {
     const result = await showDesktopAboutDialog();
@@ -1630,7 +1631,7 @@ export function App() {
     });
   }, []);
 
-  const chooseDesktopCloseAction = useCallback(async (behavior) => {
+  const chooseDesktopCloseAction = useStableCallback(async (behavior) => {
     if (desktopCloseBusy) return;
     setDesktopCloseBusy(true);
     const result = await performDesktopCloseChoice({
@@ -1653,9 +1654,9 @@ export function App() {
     setDesktopCloseDialogOpen(false);
     setRememberDesktopCloseChoice(false);
     setDesktopCloseBusy(false);
-  }, [desktopCloseBusy, rememberDesktopCloseChoice]);
+  });
 
-  const startUpdate = useCallback(async () => {
+  const startUpdate = useStableCallback(async () => {
     if (!updateStatus?.update_available || updateStarting || updateJobIsActive(updateJob)) return;
     setUpdateStarting(true);
     try {
@@ -1675,9 +1676,9 @@ export function App() {
     } finally {
       setUpdateStarting(false);
     }
-  }, [pollUpdateJob, updateJob, updateStarting, updateStatus]);
+  });
 
-  const cancelUpdate = useCallback(async () => {
+  const cancelUpdate = useStableCallback(async () => {
     if (!updateJob?.job_id
         || !updateJobIsActive(updateJob)
         || updateJob?.can_cancel === false
@@ -1698,9 +1699,9 @@ export function App() {
     } finally {
       setUpdateCancelling(false);
     }
-  }, [pollUpdateJob, updateCancelling, updateJob]);
+  });
 
-  const restartAfterUpdate = useCallback(async () => {
+  const restartAfterUpdate = useStableCallback(async () => {
     if (updateRestarting
         || updateJob?.state !== 'succeeded'
         || !updateJob?.restart_required) return;
@@ -1711,9 +1712,9 @@ export function App() {
       setUpdateRestarting(false);
       toast({ kind: 'err', text: '自动重启失败:' + (e?.message || '未知错误') });
     }
-  }, [updateJob, updateRestarting]);
+  });
 
-  const openHomeForWorkspace = useCallback((workspace = null, { composerFeedback = false } = {}) => {
+  const openHomeForWorkspace = useStableCallback((workspace = null, { composerFeedback = false } = {}) => {
     const current = activeRefRef.current || {};
     if (composerFeedback && view === 'single' && !sessionJumpId(current)
         && !current?.loop && !current?.expertComponents) {
@@ -1723,13 +1724,13 @@ export function App() {
     const next = homeRefFromWorkspace(target, activeRefRef.current, health);
     void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
     navigateToRef(next);
-  }, [health, navigateToRef, view]);
+  });
 
   const openLoopPage = useCallback(() => {
     navigateToRef({ loop: true });
   }, [navigateToRef]);
 
-  const openExpertComponents = useCallback(() => {
+  const openExpertComponents = useStableCallback(() => {
     const current = activeRefRef.current || {};
     const base = homeRefFromWorkspace(current, current, health);
     navigateToRef({
@@ -1737,9 +1738,9 @@ export function App() {
       home: false,
       expertComponents: true,
     });
-  }, [health, navigateToRef]);
+  });
 
-  const startConversationalExpertCreation = useCallback(() => {
+  const startConversationalExpertCreation = useStableCallback(() => {
     const current = activeRefRef.current || {};
     const base = homeRefFromWorkspace(current, current, health);
     void refreshWorkspaceGitInfo(createApi(base), base).catch(() => {});
@@ -1748,21 +1749,21 @@ export function App() {
       initialDraftText: expertManagerCreationDraft(),
     });
     return true;
-  }, [health, navigateToRef]);
+  });
 
-  const startAiThemeCreation = useCallback(() => {
+  const startAiThemeCreation = useStableCallback(() => {
     const next = aiThemeCreationRef(activeRefRef.current || {}, health);
     setShowSettings(false);
     navigateToRef(next);
-  }, [health, navigateToRef]);
+  });
 
-  const startScheduledTaskCreation = useCallback(() => {
+  const startScheduledTaskCreation = useStableCallback(() => {
     const next = scheduledTaskCreationRef(activeRefRef.current || {}, health);
     void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
     navigateToRef(next);
-  }, [health, navigateToRef]);
+  });
 
-  const dispatchExpertToNewTask = useCallback((expert, prompt = expert?.quick_prompts?.[0] || '') => {
+  const dispatchExpertToNewTask = useStableCallback((expert, prompt = expert?.quick_prompts?.[0] || '') => {
     const expertId = String(expert?.id || '');
     if (!expertId) return false;
     const current = activeRefRef.current || {};
@@ -1777,7 +1778,7 @@ export function App() {
     });
     rememberRecentExpert(expert);
     return true;
-  }, [health, navigateToRef, rememberRecentExpert]);
+  });
 
   const consumeInitialDraftText = useCallback(() => {
     replaceActiveRef((current) => {
@@ -1805,7 +1806,7 @@ export function App() {
     });
   }, [replaceActiveRef]);
 
-  const replaceHomeWorkspace = useCallback((workspace) => {
+  const replaceHomeWorkspace = useStableCallback((workspace) => {
     replaceActiveRef((current) => {
       const next = homeRefFromWorkspace(workspace, current, health);
       if (['ai-theme', 'scheduled-task'].includes(current?.composerDraftScope)) {
@@ -1814,7 +1815,7 @@ export function App() {
       void refreshWorkspaceGitInfo(createApi(next), next).catch(() => {});
       return next;
     });
-  }, [health, replaceActiveRef]);
+  });
 
   const abortGuidedTour = useCallback(() => {
     setGuidedTourRun(false);
@@ -1839,7 +1840,7 @@ export function App() {
     if (openModels) openSettingsSection('models');
   }, [openSettingsSection]);
 
-  const replayGuidedTour = useCallback(async () => {
+  const replayGuidedTour = useStableCallback(async () => {
     setShowSettings(false);
     setSearchOpen(false);
     setGuidedTourRun(false);
@@ -1856,7 +1857,7 @@ export function App() {
     } finally {
       setGuidedTourPreparing(true);
     }
-  }, [health, navigateToRef]);
+  });
 
   useEffect(() => {
     if (guidedTourForced) return;
@@ -1939,7 +1940,7 @@ export function App() {
     if (guidedTourPreparing || guidedTourRun) abortGuidedTour();
   }, [abortGuidedTour, guidedTourHasActiveSession, guidedTourPreparing, guidedTourRun]);
 
-  const createDesktopTraySession = useCallback(async () => {
+  const createDesktopTraySession = useStableCallback(async () => {
     if (!await requestPreviewLeave()) return;
     try {
       const next = await createNewSessionForActiveWorkspace(api, activeRefRef.current, health);
@@ -1963,7 +1964,7 @@ export function App() {
     } catch (e) {
       toast({ kind: 'err', text: '新建会话失败:' + (e.message || '') });
     }
-  }, [health, navigateToRef, requestPreviewLeave]);
+  });
 
   const handleSubagentTasksChange = useCallback((info) => {
     const parentId = info?.parentId || '';
@@ -2053,7 +2054,7 @@ export function App() {
     setSingleLayout((prev) => width > 0 && prev.rightPanelPopup !== width ? { ...prev, rightPanelPopup: width } : prev);
   }, [setSingleLayout]);
 
-  const setSidebarWidth = useCallback((nextWidth, shellWidth = 0) => {
+  const setSidebarWidth = useStableCallback((nextWidth, shellWidth = 0) => {
     const sidePanelVisible = !sidePanelNavigationCollapsed;
     setSingleLayout((prev) => {
       const sidebar = normalizeSidebarWidth(nextWidth, {
@@ -2065,13 +2066,9 @@ export function App() {
       });
       return sidebar === prev.sidebar ? prev : { ...prev, sidebar };
     });
-  }, [
-    previewPanelVisible,
-    setSingleLayout,
-    sidePanelNavigationCollapsed,
-  ]);
+  });
 
-  const setSidePanelWidth = useCallback((nextWidth, contentWidth = 0) => {
+  const setSidePanelWidth = useStableCallback((nextWidth, contentWidth = 0) => {
     setSingleLayout((prev) => {
       const sidePanel = normalizeSidePanelWidth(nextWidth, {
         contentWidth,
@@ -2081,9 +2078,9 @@ export function App() {
       });
       return sidePanel === prev.sidePanel ? prev : { ...prev, sidePanel };
     });
-  }, [previewPanelVisible, setSingleLayout, sidePanelMaximized]);
+  });
 
-  const setPreviewPanelWidth = useCallback((nextWidth, contentWidth = 0) => {
+  const setPreviewPanelWidth = useStableCallback((nextWidth, contentWidth = 0) => {
     const sidePanelVisible = !sidePanelNavigationCollapsed;
     setSingleLayout((prev) => {
       const previewPanel = normalizePreviewPanelWidth(nextWidth, {
@@ -2097,10 +2094,7 @@ export function App() {
       }
       return { ...prev, previewPanel, previewPanelUserSized: true };
     });
-  }, [
-    setSingleLayout,
-    sidePanelNavigationCollapsed,
-  ]);
+  });
 
   const setSubagentPanelWidth = useCallback((nextWidth, contentWidth = 0) => {
     setSingleLayout((prev) => {
@@ -2109,7 +2103,7 @@ export function App() {
     });
   }, [setSingleLayout]);
 
-  const startSidebarResize = useCallback((event) => {
+  const startSidebarResize = useStableCallback((event) => {
     if (view !== 'single') return;
     if (event.button != null && event.button !== 0) return;
     if (sidebarResizeActiveRef.current) return;
@@ -2139,9 +2133,9 @@ export function App() {
     window.addEventListener('pointercancel', onStop, { once: true });
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onStop, { once: true });
-  }, [setSidebarWidth, singleLayout.sidebar, view]);
+  });
 
-  const onSidebarHandleKeyDown = useCallback((event) => {
+  const onSidebarHandleKeyDown = useStableCallback((event) => {
     if (view !== 'single') return;
     const step = event.shiftKey ? 32 : 12;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -2150,7 +2144,7 @@ export function App() {
       const shellWidth = singleShellRef.current?.getBoundingClientRect().width || 0;
       setSidebarWidth(singleLayout.sidebar + delta, shellWidth);
     }
-  }, [setSidebarWidth, singleLayout.sidebar, view]);
+  });
 
   const activeId = activeRef?.sessionId || activeRef?.id || '';
   const openLoopRun = useCallback((run) => {

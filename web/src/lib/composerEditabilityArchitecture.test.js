@@ -96,7 +96,7 @@ run('提问挂起时 composer 整体让位给提问框,不留插话入口', () =
 run('排队卡片的插话在提问挂起时仍走提问插话,不打断回合', () => {
   const chatView = source('components/ChatView.jsx');
   const guideFlow = chatView.slice(
-    chatView.indexOf('const guideQueued = useCallback((queuedId) => {'),
+    chatView.indexOf('const guideQueued = useStableCallback((queuedId) => {'),
     chatView.indexOf('const executeBuiltinCommand = useCallback('),
   );
   assert.ok(guideFlow.includes('api.interjectQuestion(pendingQuestion.sid, {'));

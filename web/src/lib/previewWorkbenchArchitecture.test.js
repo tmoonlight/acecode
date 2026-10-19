@@ -71,7 +71,7 @@ run('preview file action uses the native single-file picker when present and the
   // add-web-path-picker:没有 bridge 时退到 web 路径选择器的文件模式,按钮不再随 bridge 隐藏。
   assert.match(picker, /export async function pickPreviewFile\(/);
   assert.match(picker, /webPicker\(\{ mode: 'file', initialPath: String\(cwd \|\| ''\), purpose: 'preview'/);
-  assert.match(chat, /const openPreviewFilePicker = useCallback\(async/);
+  assert.match(chat, /const openPreviewFilePicker = useStableCallback\(async/);
   assert.match(chat, /pickPreviewFile\(sidePanelCwd, \{ api \}\)/);
   assert.match(chat, /openFilePreview\(picked\.path\)/);
   assert.match(chat, /onOpenFile=\{sidePanelCwd \? openPreviewFilePicker : null\}/);
@@ -92,7 +92,7 @@ run('details close button hides the panel without closing tabs or Browser pages'
   const closeButtonStart = preview.lastIndexOf('<button', closeTitleIndex);
   const closeButtonEnd = preview.indexOf('</button>', closeTitleIndex);
   const closeAction = preview.slice(closeButtonStart, closeButtonEnd);
-  const hideCallback = between(chat, 'const hidePreviewPanel = useCallback', 'const reorderPreview');
+  const hideCallback = between(chat, 'const hidePreviewPanel = useStableCallback', 'const reorderPreview');
 
   assert.match(closeAction, /onClick=\{onHide\}/);
   assert.doesNotMatch(closeAction, /onCloseAll/);

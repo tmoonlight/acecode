@@ -295,6 +295,7 @@ import {
 } from '../lib/editableFileDraft.js';
 import { createUnsavedFileGuard, runAfterFileApproval } from '../lib/unsavedFileGuard.js';
 import { sessionWorkbench } from '../lib/sessionWorkbench.js';
+import { useStableCallback } from '../lib/useStableCallback.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { ResponsiveSidebar } from './ResponsiveSidebar.jsx';
 import { clampPopupWidth, popupWidthRange } from '../lib/responsiveSidebars.js';
@@ -899,7 +900,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const [reviewRequest, setReviewRequest] = useWorkbenchState(workbenchOwner, 'reviewRequest', 0);
   const [fileLocateRequest, setFileLocateRequest] = useWorkbenchState(workbenchOwner, 'fileLocate', () => ({ path: '', token: 0 }));
   const [previewTabState, setPreviewTabState] = useWorkbenchState(workbenchOwner, 'previews', () => ({}));
-  const getPreviewTabState = useCallback(() => sessionWorkbench.get(workbenchOwner, 'previews', () => ({})), [workbenchOwner]);
+  const getPreviewTabState = useStableCallback(() => sessionWorkbench.get(workbenchOwner, 'previews', () => ({})));
   const previewContextRef = useRef(null);
   const previewLeaveRequestRef = useRef(() => true);
   const [previewCloseConfirm, setPreviewCloseConfirm] = useState(null);
@@ -996,9 +997,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const transcriptSwarmMode = normalizeSwarmMode(transcript.swarmMode);
   const [composerSwarmChoice, setComposerSwarmChoice] = useState(null);
   const composerSwarmMode = effectiveSwarmMode(composerSwarmChoice, transcriptSwarmMode);
-  const changeComposerSwarmMode = useCallback((mode) => {
+  const changeComposerSwarmMode = useStableCallback((mode) => {
     setComposerSwarmChoice(reconcileSwarmChoice(normalizeSwarmMode(mode), transcriptSwarmMode));
-  }, [transcriptSwarmMode]);
+  });
   // 服务端确认(或别处切到同一模式)后,本地选择清空,重新跟随服务端。
   useEffect(() => {
     setComposerSwarmChoice((choice) => reconcileSwarmChoice(choice, transcriptSwarmMode));
@@ -1276,16 +1277,16 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     writeDesktopHomeWorkspaceHash(workspaceHash).catch(() => {});
   }, [setHomeWorkspaceSelection]);
 
-  const selectHomeWorkspace = useCallback((workspace) => {
+  const selectHomeWorkspace = useStableCallback((workspace) => {
     const selected = workspace?.noWorkspace ? noHomeWorkspaceOption() : workspace;
     const workspaceHash = String(selected?.hash || '');
     setHomeWorkspaceHash(workspaceHash);
     persistHomeWorkspaceHash(workspaceHash);
     onHomeWorkspaceChange?.(selected);
     setProjectDropdownOpen(false);
-  }, [onHomeWorkspaceChange, persistHomeWorkspaceHash]);
+  });
 
-  const handleProjectCreated = useCallback(async (workspace) => {
+  const handleProjectCreated = useStableCallback(async (workspace) => {
     const option = normalizeWorkspaceOption(workspace, homeWorkspaces.length);
     if (!option?.hash || !option?.cwd) {
       throw new Error('项目已创建，但返回的工作区信息不完整');
@@ -1306,9 +1307,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         ? `已创建项目：${directoryName}（目录名已自动转换）`
         : `已创建项目：${directoryName}`,
     });
-  }, [homeWorkspaces.length, selectHomeWorkspace]);
+  });
 
-  const handleOpenExistingDirectory = useCallback(async () => {
+  const handleOpenExistingDirectory = useStableCallback(async () => {
     setProjectDropdownOpen(false);
     try {
       const workspace = await pickExistingWorkspace({ api });
@@ -1329,7 +1330,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } catch (error) {
       toast({ kind: 'err', text: `打开现有目录失败：${error?.message || ''}` });
     }
-  }, [api, homeWorkspaces.length, selectHomeWorkspace]);
+  });
 
   const selectedHomeWorkspace = useMemo(() => {
     return homeWorkspaceOptionForHash(homeWorkspaces, homeWorkspaceHash);
@@ -1498,7 +1499,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setComposerSwarmChoice(null);
   }, [clearComposerExtras]);
 
-  const createHomeComposerSession = useCallback(async (text, {
+  const createHomeComposerSession = useStableCallback(async (text, {
     createOptions = null,
     firstUserMessageText = '',
     firstUserMessageContent = null,
@@ -1589,9 +1590,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       setHomeSubmitting(false);
     }
-  }, [api, experts, health, homeExpertId, homeModelName, homeReasoningEffort, homeSubmitting, reasoningSwitching, onSessionPromoted, permissionMode, ref, selectedHomeWorkspace, workbenchOwner]);
+  });
 
-  const stageMediaFiles = useCallback((reservedFiles) => {
+  const stageMediaFiles = useStableCallback((reservedFiles) => {
     const stagedItems = [];
     for (const reserved of Array.from(reservedFiles || [])) {
       const { file, identity, localId } = reserved;
@@ -1627,7 +1628,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       }
     }
     return stagedItems;
-  }, [handleComposerChange]);
+  });
 
   const persistMediaFilesToSession = useCallback(async (targetSid, reservedFiles) => {
     const persistOne = async (reserved) => {
@@ -1752,7 +1753,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return results.filter(Boolean);
   }, [api, setComposerValue]);
 
-  const handleMediaFiles = useCallback((files) => {
+  const handleMediaFiles = useStableCallback((files) => {
     const reservedFiles = reserveUniqueComposerFiles(files);
     if (reservedFiles.length === 0) return;
     stageMediaFiles(reservedFiles);
@@ -1761,12 +1762,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       .catch((e) => {
         toast({ kind: 'err', text: '附件上传失败:' + (e?.message || '') });
       });
-  }, [
-    persistMediaFilesToSession,
-    reserveUniqueComposerFiles,
-    sid,
-    stageMediaFiles,
-  ]);
+  });
 
   // ---- 粘贴的文本块(第 2 条反馈 f300) ----------------------------------------
   // 达到折叠阈值的粘贴不进 Slate:小的成为内联块({type:'pasted_text'}),大的
@@ -1776,7 +1772,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   // 文件块的暂存资源:与 stageMediaFiles 同形,另带 paste 描述(与 File 上登记的一致)。
   // replaceId 非空时替换该块(编辑 / 用剪贴板替换),否则追加在末尾。
-  const stagePastedTextFiles = useCallback((reservedFiles, { deferUpload = false, replaceId = '' } = {}) => {
+  const stagePastedTextFiles = useStableCallback((reservedFiles, { deferUpload = false, replaceId = '' } = {}) => {
     const stagedItems = [];
     for (const reserved of Array.from(reservedFiles || [])) {
       const { file, identity, localId } = reserved || {};
@@ -1807,12 +1803,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       : appendPasteFileAttachments(current, stagedItems);
     handleComposerChange(composerValueRef.current, next);
     return stagedItems;
-  }, [handleComposerChange]);
+  });
 
   // 首页粘贴的文件块上传到工作区草稿附件区(各段顺序上传)。完成时仍在同一个首页
   // scope 就直接回填 id + store;已经离开首页则经 App 的草稿 store 回填最新草稿
   // (reconcileHomeDraftUpload:块已删除 / 已发送时不写,不会复活)。
-  const persistPastedTextToWorkspaceDraft = useCallback(async (hash, scope, reservedFiles) => {
+  const persistPastedTextToWorkspaceDraft = useStableCallback(async (hash, scope, reservedFiles) => {
     const uploaded = [];
     let firstError = null;
     for (const reserved of Array.from(reservedFiles || [])) {
@@ -1874,11 +1870,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
     if (firstError) throw firstError;
     return uploaded;
-  }, [api, handleComposerChange, onHomeComposerDraftPatch]);
+  });
 
   // 按当前目标上传粘贴的文件块:会话内 → 会话附件;首页 → 工作区草稿附件区;
   // AI 主题等临时首页(本来就不落盘)不上传,留给发送时的现有流程。
-  const uploadPasteReservations = useCallback((reservedFiles) => {
+  const uploadPasteReservations = useStableCallback((reservedFiles) => {
     const targetSid = sidRef.current;
     let upload;
     if (targetSid) {
@@ -1892,14 +1888,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     upload.catch((error) => {
       toast({ kind: 'err', text: '粘贴的文本上传失败:' + (error?.message || '') });
     });
-  }, [persistMediaFilesToSession, persistPastedTextToWorkspaceDraft]);
+  });
 
   // RichComposer 的 onLargeTextPaste:达到折叠阈值的文本到这里分类。返回 false 表示
   // 不折叠(照常进编辑器)。deferUpload:来自上箭头翻到的旧历史,文件块只在内存暂存、
   // 显示「待上传」,开始编辑或发送时才上传(commitDeferredPastes)。
   // legacyDraft:来自 restoreComposerDraft 的旧长文本折叠,落文件时登记 legacyFoldGuardRef,
   // 在块拿到 id 之前不覆盖服务端草稿里的旧全文。
-  const handleLargeTextPaste = useCallback((text, { deferUpload = false, legacyDraft = false } = {}) => {
+  const handleLargeTextPaste = useStableCallback((text, { deferUpload = false, legacyDraft = false } = {}) => {
     const normalized = normalizePastedText(text);
     const current = composerContentRef.current || composerContentFromText(composerValueRef.current);
     const plan = planPastedTextInsertion(current, normalized);
@@ -1924,11 +1920,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
     uploadPasteReservations(reservedFiles);
     return true;
-  }, [handleComposerChange, releaseDeferredPastes, reserveUniqueComposerFiles, stagePastedTextFiles, uploadPasteReservations]);
+  });
   handleLargeTextPasteRef.current = handleLargeTextPaste;
 
   // 用户在翻出来的旧历史条目上开始编辑(或直接发送):上传仍在输入框里的暂存块。
-  const commitDeferredPastes = useCallback(() => {
+  const commitDeferredPastes = useStableCallback(() => {
     const group = deferredHistoryPasteRef.current;
     if (!group) return false;
     deferredHistoryPasteRef.current = null;
@@ -1945,11 +1941,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     )));
     uploadPasteReservations(live);
     return true;
-  }, [uploadPasteReservations]);
+  });
 
   // 对话框保存 / 用剪贴板替换:删掉原块后按同一套分类在原位置放入新内容(换 key;
   // 落文件则上传新附件、替换引用)。编辑后变短也保持为块 —— 用户是在编辑这个块。
-  const replacePasteBlockText = useCallback((id, text) => {
+  const replacePasteBlockText = useStableCallback((id, text) => {
     const current = composerContentRef.current;
     if (!current) return;
     const normalized = normalizePastedText(text);
@@ -1967,20 +1963,20 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (reservedFiles.length === 0) return;
     stagePastedTextFiles(reservedFiles, { replaceId: id });
     uploadPasteReservations(reservedFiles);
-  }, [handleComposerChange, reserveUniqueComposerFiles, stagePastedTextFiles, uploadPasteReservations]);
+  });
 
   // 卡片「上传失败，点击重试」:取回保留的 File,按当前目标重新上传。
-  const retryPasteUpload = useCallback((key) => {
+  const retryPasteUpload = useStableCallback((key) => {
     const reservedFiles = composerAttachmentFilesForLocalIds(attachmentReservationsRef.current, [key]);
     if (reservedFiles.length === 0) {
       toast({ kind: 'err', text: '粘贴的文本已失效，请删除后重新粘贴' });
       return;
     }
     uploadPasteReservations(reservedFiles);
-  }, [uploadPasteReservations]);
+  });
 
   // 排队消息编辑框里粘贴的大段文本:落文件时上传到当前会话,返回带 id 的附件部件。
-  const uploadPastedTextForQueue = useCallback(async (plan) => {
+  const uploadPastedTextForQueue = useStableCallback(async (plan) => {
     const targetSid = sidRef.current;
     if (!targetSid) throw new Error(tr('composerAttachment.uploadFailed'));
     const parts = [];
@@ -2007,7 +2003,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       });
     }
     return parts;
-  }, [api]);
+  });
 
   // 首页草稿附件 → 会话附件的唯一导入点(sendInputOrBuiltin 开头与 /turn 的
   // interruptTurn 之前)。导入用部件上记下的 store_scope,不能靠发送那一刻的首页
@@ -2055,10 +2051,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return payloadWithImportedPastes(payload, imported);
   }, [api, setComposerValue]);
 
-  const removeComposerAttachment = useCallback((key) => {
+  const removeComposerAttachment = useStableCallback((key) => {
     const next = removeComposerAttachmentReference(composerContentRef.current, key);
     handleComposerChange(composerValueRef.current, next);
-  }, [handleComposerChange]);
+  });
 
   const removeComposerContext = useCallback((key) => {
     setComposerContexts((items) => items.filter((item) => (item.local_id || item.id || item.type) !== key));
@@ -2515,7 +2511,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return () => { cancelled = true; };
   }, [api, modelProfileRevision, ref?.context_window, ref?.deleted, ref?.model, ref?.modelDeleted, ref?.model_deleted, ref?.model_name, ref?.model_preset, ref?.provider, ref?.workspaceHash, sid]);
 
-  const refreshSessionModels = useCallback(async () => {
+  const refreshSessionModels = useStableCallback(async () => {
     if (modelRefreshing || reasoningSwitching) return;
     const targetSid = sid;
     setModelRefreshing(true);
@@ -2559,7 +2555,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       setModelRefreshing(false);
     }
-  }, [api, modelOptions, modelRefreshing, sid, reasoningSwitching]);
+  });
 
   useEffect(() => {
     if (!sid) {
@@ -2615,7 +2611,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
   }, [measureStickyContext]);
 
-  const measureConversationTurn = useCallback((rowMetrics = null) => {
+  const measureConversationTurn = useStableCallback((rowMetrics = null) => {
     const el = scrollRef.current;
     const turnsForRail = conversationTurnsRef.current;
     if (!el || turnsForRail.length === 0) {
@@ -2646,9 +2642,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setActiveConversationTurn((previous) => (
       previous === nextIndex ? previous : nextIndex
     ));
-  }, [sid]);
+  });
 
-  const scheduleTranscriptMeasures = useCallback(() => {
+  const scheduleTranscriptMeasures = useStableCallback(() => {
     if (stickyRafRef.current) {
       cancelAnimationFrame(stickyRafRef.current);
       stickyRafRef.current = 0;
@@ -2664,7 +2660,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       measureStickyContext(rowMetrics);
       measureConversationTurn(rowMetrics);
     });
-  }, [measureConversationTurn, measureStickyContext]);
+  });
 
   const setTailFollowFromAction = useCallback((action) => {
     tailFollowStateRef.current = nextChatTailFollowState(tailFollowStateRef.current, action);
@@ -2737,7 +2733,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
   }, [preserveActivityExpansionAnchor]);
 
-  const beginActivityExpansionAnchor = useCallback((titleElement) => {
+  const beginActivityExpansionAnchor = useStableCallback((titleElement) => {
     historyController.cancelAnchor();
     const container = scrollRef.current;
     cancelActivityExpansionAnchor();
@@ -2765,9 +2761,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       secondFrame: 0,
     };
     return true;
-  }, [cancelActivityExpansionAnchor, cancelTailFollowScroll, historyController, setTailFollowFromAction]);
+  });
 
-  const scheduleTailFollowScroll = useCallback(() => {
+  const scheduleTailFollowScroll = useStableCallback(() => {
     const scrollToBottom = () => {
       if (historyController.hasAnchor()) return false;
       if (activityExpansionAnchorRef.current) return false;
@@ -2791,23 +2787,23 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         scrollToBottom();
       });
     });
-  }, [cancelTailFollowScroll, historyController]);
+  });
 
-  const jumpToChatTail = useCallback(() => {
+  const jumpToChatTail = useStableCallback(() => {
     historyController.cancelAnchor();
     cancelActivityExpansionAnchor();
     setTailFollowFromAction({ type: 'jump_to_tail' });
     scheduleTailFollowScroll();
     scheduleTranscriptMeasures();
-  }, [cancelActivityExpansionAnchor, historyController, scheduleTailFollowScroll, scheduleTranscriptMeasures, setTailFollowFromAction]);
+  });
 
-  const pauseTailFollowForReview = useCallback(() => {
+  const pauseTailFollowForReview = useStableCallback(() => {
     cancelTailFollowScroll();
     if (!busy && transcriptStatus !== 'running') return;
     setTailFollowFromAction({ type: 'review_pause' });
-  }, [busy, cancelTailFollowScroll, setTailFollowFromAction, transcriptStatus]);
+  });
 
-  const handleMessagesScroll = useCallback(() => {
+  const handleMessagesScroll = useStableCallback(() => {
     historyController.onScroll({ pointerActive: scrollActivityRef.current.pointerActive });
     const el = scrollRef.current;
     if (el) {
@@ -2840,29 +2836,29 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       scrollActivityRef.current.prev = metrics;
     }
     scheduleTranscriptMeasures();
-  }, [cancelActivityExpansionAnchor, historyController, scheduleTranscriptMeasures, setTailFollowFromAction]);
+  });
 
   // 滚轮上滚是最明确的"用户想往回看"信号,不等 scroll 事件的启发式判定,
   // 直接暂停跟随(仅回合进行中生效,见 pauseTailFollowForReview 内的门)。
-  const handleMessagesWheel = useCallback((event) => {
+  const handleMessagesWheel = useStableCallback((event) => {
     historyController.onWheel(event);
     cancelActivityExpansionAnchor();
     if (event.deltaY < 0) pauseTailFollowForReview();
-  }, [cancelActivityExpansionAnchor, historyController, pauseTailFollowForReview]);
+  });
 
-  const handleMessagesPointerDown = useCallback(() => {
+  const handleMessagesPointerDown = useStableCallback(() => {
     historyController.onPointerDown();
     cancelActivityExpansionAnchor();
     scrollActivityRef.current.pointerActive = true;
-  }, [cancelActivityExpansionAnchor, historyController]);
+  });
 
-  const handleMessagesKeyDownCapture = useCallback((event) => {
+  const handleMessagesKeyDownCapture = useStableCallback((event) => {
     historyController.onKeyDown(event);
     if (!['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) {
       return;
     }
     cancelActivityExpansionAnchor();
-  }, [cancelActivityExpansionAnchor, historyController]);
+  });
 
   useEffect(() => {
     const clearPointerActive = () => {
@@ -2876,7 +2872,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     };
   }, []);
 
-  const jumpToStickyUserSource = useCallback((context) => {
+  const jumpToStickyUserSource = useStableCallback((context) => {
     const el = scrollRef.current;
     const targetId = String(context?.itemId || '');
     if (!el || !targetId) return;
@@ -2898,9 +2894,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
     requestAnimationFrame(scheduleStickyMeasure);
     window.setTimeout(scheduleStickyMeasure, 220);
-  }, [historyController, scheduleStickyMeasure]);
+  });
 
-  const jumpToConversationTurn = useCallback((turn, index, retried = false) => {
+  const jumpToConversationTurn = useStableCallback((turn, index, retried = false) => {
     historyController.cancelAnchor();
     const el = scrollRef.current;
     const targetId = String(turn?.itemId || '');
@@ -2943,21 +2939,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       scrollTop: el.scrollTop,
     };
     window.requestAnimationFrame(scheduleTranscriptMeasures);
-  }, [expandTranscriptWindow, historyController, pauseTailFollowForReview, scheduleTranscriptMeasures, sid]);
+  });
 
-  const focusChatInput = useCallback((force = false) => {
+  const focusChatInput = useStableCallback((force = false) => {
     if (questionRequest) return;
     if (!force && isEditableElement(document.activeElement)) return;
     inputRef.current?.focus();
-  }, [questionRequest]);
+  });
 
-  const restoreChatInputFocusSoon = useCallback((force = false) => {
+  const restoreChatInputFocusSoon = useStableCallback((force = false) => {
     requestAnimationFrame(() => {
       focusChatInput(force);
       requestAnimationFrame(() => focusChatInput(force));
       window.setTimeout(() => focusChatInput(force), 80);
     });
-  }, [focusChatInput]);
+  });
 
   useEffect(() => {
     if (sid || !stagedExpertDraft.present) return;
@@ -3020,18 +3016,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     busy,
     cancelTailFollowScroll,
     changeDockBottomPadding,
+    historyController,
     permissionRequests,
     renderedItems,
     scheduleTailFollowScroll,
     sid,
   ]);
 
-  const handleTranscriptContentResize = useCallback(() => {
+  const handleTranscriptContentResize = useStableCallback(() => {
     scheduleTranscriptMeasures();
     if (historyController.preserveAnchor()) return;
     if (preserveActivityExpansionAnchor()) return;
     scheduleTailFollowScroll();
-  }, [historyController, preserveActivityExpansionAnchor, scheduleTailFollowScroll, scheduleTranscriptMeasures]);
+  });
 
   useEffect(() => observeChatTailContent(
     transcriptContentRef.current,
@@ -3120,7 +3117,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       cancelAnimationFrame(id);
       if (timer) window.clearTimeout(timer);
     };
-  }, [sid, focusChatInput]);
+    // focusChatInput 身份稳定;列出 questionRequest 让回答完问题后照旧把焦点还给输入框。
+  }, [sid, focusChatInput, questionRequest]);
 
   useEffect(() => {
     return bindDesktopComposerAutoFocus({
@@ -3289,7 +3287,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setHistory((h) => [...h, text]);
   }, [api]);
 
-  const enqueueInput = useCallback((payload) => {
+  const enqueueInput = useStableCallback((payload) => {
     if (!sid) return;
     // cwd 输入历史只记编辑器文本:内联粘贴块的正文不进历史。
     const text = typeof payload === 'string' ? payload : inputHistoryTextForPayload(payload);
@@ -3297,7 +3295,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (text.trim()) recordInputHistory(text);
     // 标题不在本地用消息全文改写:服务端落盘后经 session_updated{summary} 下发
     // 截断后的摘要,顶部与侧栏同源。
-  }, [recordInputHistory, sid, updateQueueState]);
+  });
 
   const cancelQueued = useCallback((queuedId) => {
     updateQueueState((prev) => cancelQueuedInput(prev, queuedId));
@@ -3305,16 +3303,16 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   // 解除「用户中断回合」带来的队列暂停。实际出队仍由下面的 drain effect 在
   // queueState 变化后接管(busy=false 且不再 paused 才会发),这里只改标记。
-  const resumeQueue = useCallback(() => {
+  const resumeQueue = useStableCallback(() => {
     const targetSid = sidRef.current;
     if (!targetSid) return;
     const current = transcript.getState();
     updateQueueState((prev) => resumeQueuedInput(prev, targetSid, {
       afterAbortTurnId: current.abortPending ? (current.abortTurnId || 'pending-stop') : '',
     }));
-  }, [updateQueueState, transcript.getState]);
+  });
 
-  const retryQueued = useCallback((queuedId) => {
+  const retryQueued = useStableCallback((queuedId) => {
     // 点「重试」是用户明确要发这条消息,暂停态一并解除,否则按钮按了没反应。
     updateQueueState((prev) => {
       const next = retryQueuedInput(prev, queuedId);
@@ -3325,7 +3323,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           ? (current.abortTurnId || 'pending-stop') : '',
       }) : next;
     });
-  }, [updateQueueState, transcript.getState]);
+  });
 
   const saveQueuedEdit = useCallback((queuedId, text, composerContent) => {
     const queuedItem = queueStore.getState().items.find(
@@ -3348,7 +3346,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     updateQueueState((prev) => updateQueuedInputContent(prev, queuedId, nextText, { composerContent }));
   }, [queueStore, updateQueueState]);
 
-  const runSideQuestion = useCallback((
+  const runSideQuestion = useStableCallback((
     rawQuestion,
     { command = 'btw', recordHistory = false, historyText = null } = {},
   ) => {
@@ -3373,18 +3371,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       if (entry.trim()) recordInputHistory(entry);
     }
     return started;
-  }, [sideChat, recordInputHistory]);
+  });
 
-  const openSideQuestionComposer = useCallback(() => {
+  const openSideQuestionComposer = useStableCallback(() => {
     if (!sidRef.current) {
       toast({ kind: 'err', text: '请先在已有会话中使用 /btw 或 /side' });
       return;
     }
     setSideChatAnchor(null);
     sideChat.open();
-  }, [sideChat]);
+  });
 
-  const guideQueued = useCallback((queuedId) => {
+  const guideQueued = useStableCallback((queuedId) => {
     const targetSid = sidRef.current;
     const expectedTurnId = String(activeTurnId || '');
     if (!targetSid || !busy || !expectedTurnId) {
@@ -3447,7 +3445,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         toast({ kind: 'err', text: '插话提交失败:' + (e?.message || '未知错误') });
         return false;
       });
-  }, [activeTurnId, api, busy, onQuestionResolve, questionForView, queueStore, updateQueueState]);
+  });
 
   const executeBuiltinCommand = useCallback((targetSid, command) => (
     api.executeCommand(targetSid, command).then((result) => {
@@ -3494,7 +3492,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return api.sendInput(targetSid, materialized);
   }, [api, executeBuiltinCommand, materializeWorkspaceDraftPastes]);
 
-  const submit = useCallback((text) => {
+  const submit = useStableCallback((text) => {
     if (sessionRuntimeUnavailable) return;
     const submittedContent = reconcileComposerContentAttachments(composerContentRef.current, composerAttachments);
     const activeAttachments = submittedContent ? composerContentAttachments(submittedContent, composerAttachments, { sessionId: sid }) : composerAttachments;
@@ -3887,9 +3885,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         }
       })
       .finally(() => setComposerSubmitting(false));
-  }, [sid, busy, activeTurnId, api, homeSubmitting, recordInputHistory, enqueueInput, updateQueueState, applyEvent, sendInputOrBuiltin, executeBuiltinCommand, composerSubmitting, clearCurrentSessionDraft, composerAttachments, composerContexts, composerSwarmChoice, transcriptSwarmMode, clearComposerExtras, createHomeComposerSession, persistMediaFilesToSession, restoreChatInputFocusSoon, setTailFollowFromAction, runSideQuestion, draftWorkspaceHash, homeDraftWorkspaceHash, homeComposerDrafts, onHomeComposerDraftAccepted, ref?.noWorkspace, ref?.no_workspace, ref?.workspaceHash, ref?.workspace_hash, sessionRuntimeUnavailable, retryUserMessageId, transcript.getState, transcriptLoadState, readOnlyExternalSession, commitDeferredPastes, materializeWorkspaceDraftPastes, uploadPasteReservations]);
+  });
 
-  const drainQueuedInput = useCallback(() => {
+  const drainQueuedInput = useStableCallback(() => {
     const targetSid = sidRef.current;
     if (!targetSid || busy || drainRef.current || sessionRuntimeUnavailable) return;
     const current = transcript.getState();
@@ -3935,7 +3933,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       .finally(() => {
         drainRef.current = false;
       });
-  }, [applyEvent, busy, queueStore, sendInputOrBuiltin, setTailFollowFromAction, updateQueueState, sessionRuntimeUnavailable, transcript.getState]);
+  });
 
   const prevBusyRef = useRef(busy);
   useEffect(() => {
@@ -3966,7 +3964,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (wasBusy || !hasSendingQueuedInput(queueState, sid)) {
       drainQueuedInput();
     }
-  }, [busy, drainQueuedInput, lastTurnOutcome, lastTerminalTurnId, queueState, sid, transcriptLoadState, updateQueueState]);
+    // drainQueuedInput 身份稳定;它读到的这些值仍要列出,保持原来「会话恢复可用等变化时
+    // 再试一次出队」的时机(原先靠回调身份变化触发)。
+  }, [applyEvent, busy, drainQueuedInput, lastTurnOutcome, lastTerminalTurnId, queueState, queueStore,
+    sessionRuntimeUnavailable, sid, transcript.getState, transcriptLoadState, updateQueueState]);
 
   useEffect(() => {
     if (!sid || items.length === 0) return;
@@ -3987,7 +3988,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
   }, [items, sid, updateQueueState]);
 
-  const abort = useCallback(() => {
+  const abort = useStableCallback(() => {
     if (!sid) return;
     const current = transcript.getState();
     if (!current.busy || current.abortPending) return;
@@ -4002,12 +4003,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       payload: { turn_id: current.activeTurnId },
       timestamp_ms: Date.now(),
     }, { emitEffects: false });
-  }, [applyEvent, sid, updateQueueState, transcript.getState]);
+  });
 
-  const stopCurrentWork = useCallback(() => {
+  const stopCurrentWork = useStableCallback(() => {
     if (!sid || !busy) return;
     abort();
-  }, [abort, busy, sid]);
+  });
 
   useEffect(() => {
     const onDisconnect = () => {
@@ -4019,7 +4020,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return () => connection.removeEventListener('disconnect', onDisconnect);
   }, [applyEvent, transcript.getState]);
 
-  const runGoalCommand = useCallback(async (action, objective = '') => {
+  const runGoalCommand = useStableCallback(async (action, objective = '') => {
     if (!sid) throw new Error('当前会话不可用');
     const commandLabels = {
       edit: '编辑目标',
@@ -4040,22 +4041,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       toast({ kind: 'err', text: `${label}失败：${error?.message || '未知错误'}` });
       throw error;
     }
-  }, [executeBuiltinCommand, sid]);
+  });
 
-  const editGoal = useCallback(
+  const editGoal = useStableCallback(
     (objective) => runGoalCommand('edit', objective),
-    [runGoalCommand],
   );
-  const changeGoalStatus = useCallback(
+  const changeGoalStatus = useStableCallback(
     (action) => runGoalCommand(action),
-    [runGoalCommand],
   );
-  const clearGoal = useCallback(
+  const clearGoal = useStableCallback(
     () => runGoalCommand('clear'),
-    [runGoalCommand],
   );
 
-  const selectHomeModel = useCallback(async (name) => {
+  const selectHomeModel = useStableCallback(async (name) => {
     const nextName = String(name || '');
     const previousName = String(homeModelName || '');
     if (!nextName || nextName === previousName || modelRefreshing || modelSwitching || reasoningSwitching) return;
@@ -4072,9 +4070,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       setModelSwitching(false);
     }
-  }, [api, homeModelName, modelRefreshing, modelSwitching, reasoningSwitching]);
+  });
 
-  const switchSessionModel = useCallback(async (name) => {
+  const switchSessionModel = useStableCallback(async (name) => {
     const nextName = String(name || '');
     const currentName = selectedModelName(modelState);
     if (!sid || !nextName || nextName === currentName || modelSwitching || reasoningSwitching) return;
@@ -4090,12 +4088,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       setPendingModelName('');
       setModelSwitching(false);
     }
-  }, [api, modelState, modelSwitching, reasoningSwitching, sid]);
+  });
 
-  const changeComposerModel = useCallback((name) => {
+  const changeComposerModel = useStableCallback((name) => {
     if (sid) void switchSessionModel(name);
     else void selectHomeModel(name);
-  }, [selectHomeModel, sid, switchSessionModel]);
+  });
 
   useEffect(() => {
     setHomeReasoningEffort(null);
@@ -4106,7 +4104,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setHomeReasoningEffort((current) => composerReasoningOptions(selected, current)?.selectedEffort ?? null);
   }, [homeModelName, modelOptions]);
 
-  const changeComposerReasoning = useCallback(async (effort) => {
+  const changeComposerReasoning = useStableCallback(async (effort) => {
     if (homeSubmitting || composerSubmitting || reasoningSwitching || modelSwitching || modelRefreshing) return;
     const selected = sid ? modelState : modelOptions.find((option) => option.name === homeModelName);
     const choices = composerReasoningOptions(selected, sid ? undefined : homeReasoningEffort);
@@ -4130,7 +4128,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       if (sidRef.current === targetSid && reasoningRequestRef.current === request) setReasoningSwitching(false);
     }
-  }, [api, composerSubmitting, homeModelName, homeReasoningEffort, homeSubmitting, modelOptions, modelRefreshing, modelState, modelSwitching, reasoningSwitching, sid]);
+  });
 
   const reasoningShortcutPending = useRef(false);
   const shortcutComposerVisible = () => !!inputRef.current?.getElement()?.getClientRects().length
@@ -4154,7 +4152,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     reasoningDown: () => stepReasoning(-1),
   });
 
-  const switchHomeDefaultPermissionMode = useCallback(async (mode) => {
+  const switchHomeDefaultPermissionMode = useStableCallback(async (mode) => {
     const nextMode = normalizePermissionMode(mode);
     const previousMode = normalizePermissionMode(permissionMode);
     if (nextMode === previousMode || permissionSwitching) return;
@@ -4171,9 +4169,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       setPermissionSwitching(false);
     }
-  }, [api, permissionMode, permissionSwitching]);
+  });
 
-  const switchPermissionMode = useCallback(async (mode) => {
+  const switchPermissionMode = useStableCallback(async (mode) => {
     const nextMode = normalizePermissionMode(mode);
     const previousMode = normalizePermissionMode(permissionMode);
     if (!sid || nextMode === previousMode || permissionSwitching) return;
@@ -4191,12 +4189,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       setPermissionSwitching(false);
     }
-  }, [api, onPermissionModeChanged, permissionMode, permissionSwitching, sid]);
+  });
 
-  const changeComposerPermissionMode = useCallback((mode) => {
+  const changeComposerPermissionMode = useStableCallback((mode) => {
     if (sid) void switchPermissionMode(mode);
     else void switchHomeDefaultPermissionMode(mode);
-  }, [sid, switchHomeDefaultPermissionMode, switchPermissionMode]);
+  });
 
   useLayoutEffect(() => {
     const element = layoutRef.current;
@@ -4211,7 +4209,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return () => observer.disconnect();
   }, [sid]);
 
-  const startSidePanelResize = useCallback((event) => {
+  const startSidePanelResize = useStableCallback((event) => {
     if (!showSidePanel || !onSidePanelResize) return;
     if (event.button != null && event.button !== 0) return;
     if (sidePanelResizeActiveRef.current) return;
@@ -4241,9 +4239,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     window.addEventListener('pointercancel', onStop, { once: true });
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onStop, { once: true });
-  }, [onSidePanelResize, showSidePanel, sidePanelWidth]);
+  });
 
-  const onSidePanelHandleKeyDown = useCallback((event) => {
+  const onSidePanelHandleKeyDown = useStableCallback((event) => {
     if (!onSidePanelResize) return;
     const step = event.shiftKey ? 32 : 12;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -4252,9 +4250,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       const contentWidth = layoutRef.current?.getBoundingClientRect().width || 0;
       onSidePanelResize(sidePanelWidth + delta, contentWidth);
     }
-  }, [onSidePanelResize, sidePanelWidth]);
+  });
 
-  const startPreviewPanelResize = useCallback((event) => {
+  const startPreviewPanelResize = useStableCallback((event) => {
     if (!onPreviewPanelResize) return;
     if (event.button != null && event.button !== 0) return;
     if (previewPanelResizeActiveRef.current) return;
@@ -4284,9 +4282,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     window.addEventListener('pointercancel', onStop, { once: true });
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onStop, { once: true });
-  }, [onPreviewPanelResize]);
+  });
 
-  const onPreviewPanelHandleKeyDown = useCallback((event) => {
+  const onPreviewPanelHandleKeyDown = useStableCallback((event) => {
     if (!onPreviewPanelResize) return;
     const step = event.shiftKey ? 32 : 12;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -4295,9 +4293,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       const contentWidth = layoutRef.current?.getBoundingClientRect().width || 0;
       onPreviewPanelResize(renderedPreviewPanelWidthRef.current + delta, contentWidth);
     }
-  }, [onPreviewPanelResize]);
+  });
 
-  const startSubagentPanelResize = useCallback((event) => {
+  const startSubagentPanelResize = useStableCallback((event) => {
     if (!subagentPanelOpen || !sid || !onSubagentPanelResize) return;
     if (event.button != null && event.button !== 0) return;
     if (subagentPanelResizeActiveRef.current) return;
@@ -4330,9 +4328,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     window.addEventListener('pointercancel', onStop, { once: true });
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onStop, { once: true });
-  }, [onSubagentPanelResize, sid, subagentPanelOpen]);
+  });
 
-  const onSubagentPanelHandleKeyDown = useCallback((event) => {
+  const onSubagentPanelHandleKeyDown = useStableCallback((event) => {
     if (!onSubagentPanelResize) return;
     const step = event.shiftKey ? 32 : 12;
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -4344,7 +4342,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         contentWidth,
       );
     }
-  }, [onSubagentPanelResize]);
+  });
 
   useEffect(() => {
     if (!subagentPanelOpen) subagentPanelResizeCleanupRef.current?.();
@@ -4357,7 +4355,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // fork: 调后端 POST /api/sessions/:id/fork,成功后切到新 session(同 ref)。
   // 失败弹 toast 不打断当前 session。新 session 不会自动启 turn,
   // 用户在新 session 自己输入消息才开始。
-  const forkAndSwitch = useCallback(async (messageId) => {
+  const forkAndSwitch = useStableCallback(async (messageId) => {
     const sourceMessageId = messageId == null ? '' : String(messageId);
     if (!sid || !sourceMessageId) return;
     if (!forkActionGuardRef.current.acquire(FORK_ACTION_KEY)) return;
@@ -4430,7 +4428,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       forkActionGuardRef.current.release(FORK_ACTION_KEY);
       setForkingMessageId((current) => (current === sourceMessageId ? '' : current));
     }
-  }, [sid, api, ref, onSessionPromoted]);
+  });
 
   useEffect(() => {
     const handler = (event) => {
@@ -4548,12 +4546,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useEffect(() => { setHeaderRenaming(false); }, [sid]);
   const sessionTitleLabelRef = useRef(null);
   const sessionMenuButtonRef = useRef(null);
-  const startHeaderRename = useCallback(() => {
+  const startHeaderRename = useStableCallback(() => {
     if (!sid || readOnlyExternalSession) return;
     setHeaderRenaming(true);
-  }, [sid, readOnlyExternalSession]);
+  });
   const cancelHeaderRename = useCallback(() => setHeaderRenaming(false), []);
-  const commitHeaderRename = useCallback(async (draft) => {
+  const commitHeaderRename = useStableCallback(async (draft) => {
     setHeaderRenaming(false);
     const targetSid = sid;
     const next = resolveSessionTitleRename(draft, title);
@@ -4580,10 +4578,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } catch (e) {
       toast({ kind: 'err', text: '重命名失败:' + (e?.message || '') });
     }
-  }, [api, applyEvent, ref?.noWorkspace, ref?.no_workspace, sessionWorkspaceHash, sid, title]);
+  });
 
   // 「会话菜单」按钮左键、按钮右键、顶栏其它位置右键共用这一份菜单。
-  const openSessionMenu = useCallback(({ x, y, placement, anchorRect }) => {
+  const openSessionMenu = useStableCallback(({ x, y, placement, anchorRect }) => {
     if (!sid || typeof window === 'undefined') return;
     const button = sessionMenuButtonRef.current;
     const target = readOnlyExternalSession ? button : sidebarSessionContextTarget(sid, sessionWorkspaceHash, button);
@@ -4611,13 +4609,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         [DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION]: startHeaderRename,
       },
     });
-  }, [sessionWorkspaceHash, sid, readOnlyExternalSession, openSideQuestionComposer, onFindInConversation, startHeaderRename]);
-  const openSessionContextMenu = useCallback((event) => {
+  });
+  const openSessionContextMenu = useStableCallback((event) => {
     event.preventDefault();
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     openSessionMenu({ x: rect.right, y: rect.bottom + 4, anchorRect: rect });
-  }, [openSessionMenu]);
+  });
   useEffect(() => {
     if (!sid) return undefined;
     const handler = (event) => {
@@ -4677,7 +4675,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const composerExpertId = sid ? boundExpertId : homeExpertId;
   const composerExpert = displayedExperts.find((expert) => expert.id === composerExpertId)
     || null;
-  const selectComposerExpert = useCallback(async (expert, options = {}) => {
+  const selectComposerExpert = useStableCallback(async (expert, options = {}) => {
     const expertId = String(expert?.id || '');
     if (!expertId) return false;
     const hasDraftText = Object.prototype.hasOwnProperty.call(options, 'draftText');
@@ -4828,17 +4826,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         setExpertSwitching(false);
       }
     }
-  }, [
-    api,
-    onRememberExpert,
-    onSessionExpertChanged,
-    restoreChatInputFocusSoon,
-    sessionExpertId,
-    sessionExpertSnapshot,
-    sid,
-  ]);
+  });
 
-  const detachComposerExpert = useCallback(async () => {
+  const detachComposerExpert = useStableCallback(async () => {
     if (expertDetaching) return false;
     const hasBoundExpert = sid ? !!sessionExpertId : !!homeExpertId;
     if (!hasBoundExpert && !pendingExpertRef.current) return true;
@@ -4881,14 +4871,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       if (sidRef.current === targetSessionId) setExpertDetaching(false);
     }
-  }, [
-    api,
-    expertDetaching,
-    homeExpertId,
-    onSessionExpertChanged,
-    sessionExpertId,
-    sid,
-  ]);
+  });
 
   useEffect(() => {
     if (busy || expertSwitching || !pendingExpert?.confirmed || !sid) return undefined;
@@ -5029,9 +5012,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     sid,
   ]);
 
-  const selectExpertOpeningPrompt = useCallback(async (expert, prompt) => {
+  const selectExpertOpeningPrompt = useStableCallback(async (expert, prompt) => {
     return selectComposerExpert(expert, { draftText: String(prompt || '') });
-  }, [selectComposerExpert]);
+  });
   const currentContextWindow = Number(modelState?.contextWindow || ref?.context_window || ref?.contextWindow || 0) || 0;
   const tokenBudget = useMemo(() => normalizeTokenBudget({
     usage: tokenUsage,
@@ -5209,7 +5192,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setCollapsedMediaKeys(new Set());
   }, [sid]);
 
-  const toggleActivitySummary = useCallback((key, titleElement) => {
+  const toggleActivitySummary = useStableCallback((key, titleElement) => {
     const anchored = beginActivityExpansionAnchor(titleElement);
     if (!anchored) pauseTailFollowForReview();
     flushSync(() => {
@@ -5222,14 +5205,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
     preserveActivityExpansionAnchor();
     scheduleActivityExpansionAnchorMeasure();
-  }, [
-    beginActivityExpansionAnchor,
-    pauseTailFollowForReview,
-    preserveActivityExpansionAnchor,
-    scheduleActivityExpansionAnchorMeasure,
-  ]);
+  });
 
-  const toggleMediaGroup = useCallback((key, titleElement) => {
+  const toggleMediaGroup = useStableCallback((key, titleElement) => {
     const anchored = beginActivityExpansionAnchor(titleElement);
     if (!anchored) pauseTailFollowForReview();
     flushSync(() => {
@@ -5242,33 +5220,28 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
     preserveActivityExpansionAnchor();
     scheduleActivityExpansionAnchorMeasure();
-  }, [
-    beginActivityExpansionAnchor,
-    pauseTailFollowForReview,
-    preserveActivityExpansionAnchor,
-    scheduleActivityExpansionAnchorMeasure,
-  ]);
+  });
 
-  const openReviewPanel = useCallback(() => {
+  const openReviewPanel = useStableCallback(() => {
     if (!showSidePanel || !sid) return;
     if (sidePanelCollapsed || sidePanelListCollapsed) onRevealSidePanelList?.();
     setReviewRequest((n) => n + 1);
-  }, [onRevealSidePanelList, showSidePanel, sid, sidePanelCollapsed, sidePanelListCollapsed]);
+  });
 
-  const locateInFileTree = useCallback((path) => {
+  const locateInFileTree = useStableCallback((path) => {
     if (!showSidePanel || !path) return;
     if (sidePanelCollapsed || sidePanelListCollapsed) onRevealSidePanelList?.();
     setFileLocateRequest((prev) => ({ path, token: (prev.token || 0) + 1 }));
-  }, [onRevealSidePanelList, showSidePanel, sidePanelCollapsed, sidePanelListCollapsed]);
+  });
 
-  const dismissChangeDock = useCallback(() => {
+  const dismissChangeDock = useStableCallback(() => {
     if (!changeDockDismissalKey || !changeSignature) return;
     setDismissedDockSignatures((prev) => dismissChangeDockSignature(
       prev,
       changeDockDismissalKey,
       changeSignature,
     ));
-  }, [changeDockDismissalKey, changeSignature, setDismissedDockSignatures]);
+  });
 
   // 渲染期刷新 ref(纯缓存):submit 提交新一轮对话时经此收起整个 dock。
   dockAutoDismissRef.current = () => {
@@ -5282,7 +5255,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (!completedTurnResultVisible) return;
     dismissChangeDock();
     if (sid) setTodoDockSuppression({ sessionKey: sid, signature: todoSignature });
-  }, [completedTurnResultVisible, dismissChangeDock, sid, todoSignature]);
+  }, [changeDockDismissalKey, changeSignature, completedTurnResultVisible, dismissChangeDock, sid, todoSignature]);
 
   const conversationActivity = useMemo(() => selectConversationActivity({
     foregroundBusy: busy,
@@ -5300,10 +5273,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     subagentTasks.tasks,
   ]);
 
-  const resolveQuestion = useCallback(() => {
+  const resolveQuestion = useStableCallback(() => {
     onQuestionResolve?.();
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [onQuestionResolve]);
+  });
 
 
   const sidePanelMounted = showSidePanel;
@@ -5331,7 +5304,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     () => activePreviewTab(previewTabState, previewContext),
     [previewContext, previewTabState],
   );
-  const requestPreviewApproval = useCallback((getTabs, kind = 'switch') => (
+  const requestPreviewApproval = useStableCallback((getTabs, kind = 'switch') => (
     previewFileGuardRef.current.request({
       kind,
       getTabs,
@@ -5361,20 +5334,20 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         }
       },
     })
-  ), [api, previewContext, setPreviewTabState, sidePanelCwd]);
-  const requestPreviewLeave = useCallback(() => requestPreviewApproval(
+  ));
+  const requestPreviewLeave = useStableCallback(() => requestPreviewApproval(
     () => visiblePreviewTabs(getPreviewTabState(), previewContext),
-  ), [getPreviewTabState, previewContext, requestPreviewApproval]);
+  ));
   previewLeaveRequestRef.current = requestPreviewLeave;
   useLayoutEffect(() => onRegisterPreviewLeaveGuard?.(requestPreviewLeave), [
     onRegisterPreviewLeaveGuard, requestPreviewLeave,
   ]);
-  const requestActiveFileLeave = useCallback(() => {
+  const requestActiveFileLeave = useStableCallback(() => {
     const key = activePreviewTab(getPreviewTabState(), previewContext)?.key;
     return requestPreviewApproval(() => visiblePreviewTabs(getPreviewTabState(), previewContext)
       .filter((tab) => tab.key === key));
-  }, [getPreviewTabState, previewContext, requestPreviewApproval]);
-  const selectPreview = useCallback((producer, afterSelect) => {
+  });
+  const selectPreview = useStableCallback((producer, afterSelect) => {
     if (previewFileGuardRef.current.isPending()) return false;
     const state = getPreviewTabState();
     const current = activePreviewTab(state, previewContext);
@@ -5385,7 +5358,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       afterSelect?.();
       return true;
     });
-  }, [getPreviewTabState, previewContext, requestActiveFileLeave, setPreviewTabState]);
+  });
   const previewTabsOpen = previewTabs.length > 0;
   // 总开关必须连最大化详情一起隐藏;恢复时仍保留最大化偏好与原页签。
   const previewPanelVisible = previewTabsOpen && !sidePanelCollapsed && !previewPanelHidden;
@@ -5399,10 +5372,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const sidePanelNavigationCollapsed = sidePanelCollapsed || (rightPopup
     ? (popupNavigationCollapsed ?? (compactRightPopup || sidePanelListCollapsed))
     : sidePanelListCollapsed);
-  const toggleVisibleSidePanelList = useCallback(() => {
+  const toggleVisibleSidePanelList = useStableCallback(() => {
     if (rightPopup) setPopupNavigationCollapsed(!sidePanelNavigationCollapsed);
     else onToggleSidePanelList?.();
-  }, [rightPopup, sidePanelNavigationCollapsed, onToggleSidePanelList]);
+  });
   useLayoutEffect(() => {
     notifyNativeSurfaceOverlayChange();
   }, [compactRightPopup, sidePanelNavigationCollapsed]);
@@ -5501,7 +5474,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // (ToolBlock 的 task_complete 完成总结、会话摘要),那里的文件链接以前点了
   // 没有任何反应。链接本身已经没有 href(markdown.js 里删掉了),不会跳走,
   // 这里只负责把它们接回预览/文件树。
-  const handleTranscriptFileLink = useCallback((event) => {
+  const handleTranscriptFileLink = useStableCallback((event) => {
     if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
     const anchor = event.target?.closest?.('a[data-file-path]');
     if (!anchor) return;
@@ -5512,10 +5485,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const lineAttr = anchor.getAttribute('data-file-line');
     if (kind === 'directory') locateInFileTree(path);
     else openFilePreview(path, lineAttr ? Number(lineAttr) : null);
-  }, [locateInFileTree, openFilePreview]);
+  });
 
   // 有专用原生文件选择器(Desktop 壳)走原生,否则走 web 路径选择器(add-web-path-picker)。
-  const openPreviewFilePicker = useCallback(async () => {
+  const openPreviewFilePicker = useStableCallback(async () => {
     if (!sidePanelCwd) return;
     try {
       const picked = await pickPreviewFile(sidePanelCwd, { api });
@@ -5523,7 +5496,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } catch (error) {
       toast({ kind: 'err', text: error?.message || '选择器不可用' });
     }
-  }, [api, openFilePreview, sidePanelCwd]);
+  });
 
   const showBrowserPage = useCallback((pageId, title, favicon) => {
     if (!sid || !pageId) return;
@@ -5541,7 +5514,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [onRevealPreviewPanel, previewScope, selectPreview, sid]);
 
   const browserOpenPendingRef = useRef(false);
-  const openBrowserPreview = useCallback(async (url = '') => {
+  const openBrowserPreview = useStableCallback(async (url = '') => {
     if (!sid || !hasNativeAgentBrowser() || browserOpenPendingRef.current) return;
     browserOpenPendingRef.current = true;
     try {
@@ -5582,7 +5555,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       browserOpenPendingRef.current = false;
     }
-  }, [ref, requestActiveFileLeave, showBrowserPage, sid]);
+  });
 
   // 切会话时向 Desktop 对账一次 native 页面池;事件流已经在 App 级持续镜像。
   useEffect(() => {
@@ -5634,7 +5607,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         revealed.delete(pageId);
       }
     }
-  }, [getPreviewTabState, previewContext, previewScope, sessionBrowserPages, showBrowserPage, sid]);
+  }, [getPreviewTabState, previewContext, previewScope, sessionBrowserPages, showBrowserPage, sid, workbenchOwner]);
 
   // Agent 切换默认目标页(browser_open / 显式选页)且有浏览器工具正在执行时,把
   // 那一页的页签激活到前台;目标不属于本会话(显式操作别的会话的页)则不动。
@@ -5653,7 +5626,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   // iOS 模拟器页签。聚焦打开走 selectPreview(离开未保存文件需确认);不抢焦点的补开
   // 不切换当前页签,直接写状态。
-  const showSimulatorTab = useCallback((udid = '', title = '', { focus = true } = {}) => {
+  const showSimulatorTab = useStableCallback((udid = '', title = '', { focus = true } = {}) => {
     if (!sid) return false;
     const options = { scopeKey: previewScope, sessionId: sid, udid, title, focus };
     if (!focus) {
@@ -5664,22 +5637,22 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       onRevealPreviewPanel?.();
       setPreviewPanelHidden(false);
     });
-  }, [onRevealPreviewPanel, previewScope, selectPreview, setPreviewTabState, sid]);
+  });
 
   // 手动入口:已有模拟器页签就聚焦最近一个;否则打开选择页,由面板按「会话已绑定的
   // 设备 → 唯一已启动的设备 → 用户选择」确定设备。
-  const openIosSimulatorPreview = useCallback(() => {
+  const openIosSimulatorPreview = useStableCallback(() => {
     const existing = simulatorTabsForSession(getPreviewTabState(), sid);
     const target = existing[existing.length - 1];
     return showSimulatorTab(target?.udid || '', target?.title || '');
-  }, [getPreviewTabState, showSimulatorTab, sid]);
+  });
 
-  const retargetSimulatorPreview = useCallback((tabKey, udid, title) => {
+  const retargetSimulatorPreview = useStableCallback((tabKey, udid, title) => {
     if (!sid || !udid) return;
     setPreviewTabState((prev) => retargetSimulatorTab(prev, {
       scopeKey: previewScope, sessionId: sid, tabKey, udid, title,
     }));
-  }, [previewScope, setPreviewTabState, sid]);
+  });
 
   // transcript 里的 ios_simulator 工具结果驱动页签,与上面 Agent 浏览器「每会话已揭示
   // 集合」同一思路:每个会话首次加载完历史时只记下最近一条结果、不动页签(打开旧会话
@@ -5709,7 +5682,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
   }, [getPreviewTabState, latestSimulatorEvent, previewScope, setPreviewTabState, showSimulatorTab, sid, transcriptLoadState]);
 
-  const openSessionChangePreview = useCallback((filePath, turnUserMessageId = '') => {
+  const openSessionChangePreview = useStableCallback((filePath, turnUserMessageId = '') => {
     if (!sid || !filePath) return;
     const turnChangeSet = turnUserMessageId
       ? turnChangeSets.find((set) => set.userMessageId === turnUserMessageId)
@@ -5727,12 +5700,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       setPopupNavigationCollapsed(null);
       setPreviewPanelHidden(false);
     });
-  }, [changeSummary.fileCount, onToggleSidePanel, previewScope, selectPreview, sid, sidePanelCollapsed, turnChangeSets, responsiveSidebars?.requestRightPopup]);
+  });
 
   // git 变更点击文件 → 在中间详情栏开/聚焦「变更」页签(复刻会话级变更旧行为)。
   // gitBase 只有从 SidePanel 导航列表点击时才带;详情栏内点文件不带,由
   // openGitChangesTab 保留页签原 base。
-  const openGitChangePreview = useCallback((filePath, gitBase, gitFileCount) => {
+  const openGitChangePreview = useStableCallback((filePath, gitBase, gitFileCount) => {
     if (!previewContext.sessionId || !filePath) return;
     return selectPreview((prev) => openGitChangesTab(prev, {
       ...previewContext,
@@ -5745,15 +5718,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       setPopupNavigationCollapsed(null);
       setPreviewPanelHidden(false);
     });
-  }, [onToggleSidePanel, previewContext, selectPreview, sidePanelCollapsed, sidePanelCwd, responsiveSidebars?.requestRightPopup]);
+  });
 
   // SidePanel 切基线时,若「变更」页签已打开则同步其 base(详情栏跟着换比较对象)。
-  const updateGitChangeBase = useCallback((gitBase) => {
+  const updateGitChangeBase = useStableCallback((gitBase) => {
     if (!previewContext.sessionId) return;
     setPreviewTabState((prev) => updateGitChangesTab(prev, { ...previewContext, base: gitBase || '' }));
-  }, [previewContext]);
+  });
 
-  const activatePreview = useCallback((tabKey) => {
+  const activatePreview = useStableCallback((tabKey) => {
     const tab = previewTabs.find((candidate) => candidate.key === tabKey);
     return selectPreview((prev) => activatePreviewTab(prev, {
       ...previewContext,
@@ -5763,22 +5736,22 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         void selectAgentBrowserPage(tab.pageId);
       }
     });
-  }, [previewContext, previewTabs, selectPreview]);
+  });
 
-  const refreshPreview = useCallback((tabKey) => {
+  const refreshPreview = useStableCallback((tabKey) => {
     setPreviewTabState((prev) => refreshPreviewTab(prev, {
       ...previewContext,
       tabKey,
     }));
-  }, [previewContext]);
+  });
 
-  const updateFilePreviewDraft = useCallback((tabKey, patch) => {
+  const updateFilePreviewDraft = useStableCallback((tabKey, patch) => {
     setPreviewTabState((prev) => updateFileTabDraft(prev, {
       ...previewContext,
       tabKey,
       patch,
     }));
-  }, [previewContext, setPreviewTabState]);
+  });
 
   useEffect(() => {
     const transition = nextAutoPreviewRefresh(previewAutoRefreshRef.current, {
@@ -5790,9 +5763,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     });
     previewAutoRefreshRef.current = transition.state;
     if (transition.tabKey) refreshPreview(transition.tabKey);
-  }, [activePreview, busy, lastUserTurnKey, latestSuccessfulChangedFiles, refreshPreview, sid]);
+  }, [activePreview, busy, lastUserTurnKey, latestSuccessfulChangedFiles, previewContext, refreshPreview, sid]);
 
-  const previewTabsForCloseAction = useCallback((kind, tabKey = '') => {
+  const previewTabsForCloseAction = useStableCallback((kind, tabKey = '') => {
     if (kind === 'all') return previewTabs;
     const index = previewTabs.findIndex((tab) => tab.key === tabKey);
     if (index < 0) return [];
@@ -5800,9 +5773,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (kind === 'others') return previewTabs.filter((tab) => tab.key !== tabKey);
     if (kind === 'right') return previewTabs.slice(index + 1);
     return [];
-  }, [previewTabs]);
+  });
 
-  const performPreviewClose = useCallback((kind, tabKey = '') => {
+  const performPreviewClose = useStableCallback((kind, tabKey = '') => {
     const affected = previewTabsForCloseAction(kind, tabKey);
     if (affected.length === 0) return;
     affected.forEach((tab) => {
@@ -5820,15 +5793,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     if (affected.length >= previewTabs.length && sidePanelMaximized) {
       onToggleSidePanelMaximized?.();
     }
-  }, [
-    onToggleSidePanelMaximized,
-    previewContext,
-    previewTabs.length,
-    previewTabsForCloseAction,
-    sidePanelMaximized,
-  ]);
+  });
 
-  const requestPreviewClose = useCallback((kind, tabKey = '') => {
+  const requestPreviewClose = useStableCallback((kind, tabKey = '') => {
     const affected = previewTabsForCloseAction(kind, tabKey);
     if (affected.length === 0) return;
     const keys = new Set(affected.map((tab) => tab.key));
@@ -5837,42 +5804,36 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         .filter((tab) => keys.has(tab.key)),
       'close',
     ), () => performPreviewClose(kind, tabKey));
-  }, [
-    getPreviewTabState,
-    performPreviewClose,
-    previewContext,
-    previewTabsForCloseAction,
-    requestPreviewApproval,
-  ]);
+  });
 
-  const closePreview = useCallback((tabKey) => {
+  const closePreview = useStableCallback((tabKey) => {
     requestPreviewClose('one', tabKey);
-  }, [requestPreviewClose]);
+  });
 
-  const closeAllPreviews = useCallback(() => {
+  const closeAllPreviews = useStableCallback(() => {
     requestPreviewClose('all');
-  }, [requestPreviewClose]);
+  });
 
-  const closeOtherPreviews = useCallback((tabKey) => {
+  const closeOtherPreviews = useStableCallback((tabKey) => {
     requestPreviewClose('others', tabKey);
-  }, [requestPreviewClose]);
+  });
 
-  const closePreviewsToRight = useCallback((tabKey) => {
+  const closePreviewsToRight = useStableCallback((tabKey) => {
     requestPreviewClose('right', tabKey);
-  }, [requestPreviewClose]);
+  });
 
-  const hidePreviewPanel = useCallback(() => {
+  const hidePreviewPanel = useStableCallback(() => {
     return runAfterFileApproval(requestActiveFileLeave(), () => setPreviewPanelHidden(true));
-  }, [requestActiveFileLeave]);
+  });
 
-  const reorderPreview = useCallback((sourceKey, targetKey, placement) => {
+  const reorderPreview = useStableCallback((sourceKey, targetKey, placement) => {
     setPreviewTabState((prev) => reorderPreviewTab(prev, {
       ...previewContext,
       sourceKey,
       targetKey,
       placement,
     }));
-  }, [previewContext]);
+  });
 
   // Home and auxiliary pages share the same workspace navigation and previews.
   let homeContent = null;

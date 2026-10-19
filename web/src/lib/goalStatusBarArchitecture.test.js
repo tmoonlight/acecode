@@ -63,7 +63,7 @@ run('chat actions use the existing goal command route and retain authoritative e
 run('running-turn interrupt remains separate from goal pause and resume', () => {
   const controls = source('lib/goalControl.js');
   const chatView = source('components/ChatView.jsx');
-  const stopStart = chatView.indexOf('const stopCurrentWork = useCallback');
+  const stopStart = chatView.indexOf('const stopCurrentWork = useStableCallback');
   const stopEnd = chatView.indexOf('const runGoalCommand', stopStart);
   const stopHandler = chatView.slice(stopStart, stopEnd);
 

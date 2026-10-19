@@ -116,14 +116,14 @@ run('ChatView:正文拼接、唯一导入点与按 payload 路由', () => {
   assert.match(normalize, /text: appendPastedTextToSubmission\(sessionReferences\.displayText, content\)/);
   assert.match(normalize, /store: item\.store, store_scope: item\.store_scope/);
 
-  const send = between(chatView, 'const sendInputOrBuiltin = useCallback(', 'const submit = useCallback(');
+  const send = between(chatView, 'const sendInputOrBuiltin = useCallback(', 'const submit = useStableCallback(');
   before(send, 'materializeWorkspaceDraftPastes(', 'api.sendInput(');
   assert.match(send, /inputRouteForPayload\(requestPayload\)/);
 
   const turn = between(chatView, "if (route.kind === 'turn_steer') {", 'const isBuiltin = ');
   before(turn, 'materializeWorkspaceDraftPastes(', 'api.interruptTurn(');
 
-  const submit = between(chatView, 'const submit = useCallback(', 'const drainQueuedInput = useCallback(');
+  const submit = between(chatView, 'const submit = useStableCallback(', 'const drainQueuedInput = useStableCallback(');
   assert.match(submit, /const route = inputRouteForPayload\(payload\)/);
   before(submit, "route.kind === 'paste_too_long'", "route.kind === 'desktop_feedback'");
   before(submit, "route.kind === 'paste_too_long'", "route.kind === 'side_question'");
@@ -134,10 +134,10 @@ run('ChatView:正文拼接、唯一导入点与按 payload 路由', () => {
   // 连同 /turn 被折叠成粘贴块,发出去成了普通消息。
   assert.doesNotMatch(chatView, /recordInputHistory\(route\.display_text\)/);
   assert.match(submit, /recordHistory: true,\s*historyText,/);
-  const side = between(chatView, 'const runSideQuestion = useCallback(', 'const openSideQuestionComposer');
+  const side = between(chatView, 'const runSideQuestion = useStableCallback(', 'const openSideQuestionComposer');
   assert.match(side, /typeof historyText === 'string' \? historyText :/);
 
-  const drain = between(chatView, 'const drainQueuedInput = useCallback(', 'sendInputOrBuiltin(targetSid, sendPayload)');
+  const drain = between(chatView, 'const drainQueuedInput = useStableCallback(', 'sendInputOrBuiltin(targetSid, sendPayload)');
   assert.match(drain, /inputRouteForPayload\(/);
   assert.doesNotMatch(chatView, /inputRouteForText\(/, '所有路由都按 payload 判定');
 
@@ -152,14 +152,14 @@ run('ChatView:正文拼接、唯一导入点与按 payload 路由', () => {
 // 期望行为:persistOne 从 File 上取描述(WeakMap),上传体带 origin/paste,回填资源带 paste;
 // 粘贴分段顺序上传(并发会把服务端峰值内存放大到 GB 级)。
 run('ChatView:上传从 File 取粘贴描述,回填资源带 paste,分段顺序上传', () => {
-  const persist = between(chatView, 'const persistMediaFilesToSession = useCallback(', 'const handleMediaFiles = useCallback(');
+  const persist = between(chatView, 'const persistMediaFilesToSession = useCallback(', 'const handleMediaFiles = useStableCallback(');
   assert.match(persist, /const paste = pastedTextFileMeta\(file\)/);
   assert.match(persist, /\.\.\.\(paste \? pastedTextUploadBody\(paste\) : \{\}\)/);
   assert.match(persist, /timeoutMs: PASTED_TEXT_UPLOAD_TIMEOUT_MS/);
   assert.match(persist, /\{ \.\.\.uploadedItem, preview_url: item\.preview_url \|\| '', \.\.\.\(paste \? \{ paste \} : \{\}\) \}/);
   assert.match(persist, /for \(const index of pasteIndexes\)/);
 
-  const draftUpload = between(chatView, 'const persistPastedTextToWorkspaceDraft = useCallback(', 'const uploadPasteReservations = useCallback(');
+  const draftUpload = between(chatView, 'const persistPastedTextToWorkspaceDraft = useStableCallback(', 'const uploadPasteReservations = useStableCallback(');
   assert.match(draftUpload, /api\.uploadWorkspaceDraftAttachment\(scope,/);
   assert.match(draftUpload, /onHomeComposerDraftPatch\?\.\(hash, \(draft\) => reconcileHomeDraftUpload\(draft, uploadedItem, scope\), api\)/);
   assert.match(app, /onHomeComposerDraftPatch=\{patchHomeComposerDraft\}/);
@@ -178,7 +178,7 @@ run('ChatView:旧长文本折叠的文件块上传完成前不覆盖服务端草
   assert.match(restore, /legacyFoldGuardRef\.current = null/);
   assert.match(restore, /handleLargeTextPasteRef\.current\(storedText, \{ legacyDraft: true \}\)/);
 
-  const classify = between(chatView, 'const handleLargeTextPaste = useCallback(', 'handleLargeTextPasteRef.current = handleLargeTextPaste');
+  const classify = between(chatView, 'const handleLargeTextPaste = useStableCallback(', 'handleLargeTextPasteRef.current = handleLargeTextPaste');
   before(classify, 'if (legacyDraft) legacyFoldGuardRef.current =', 'stagePastedTextFiles(reservedFiles',
     'guard must be registered before staging triggers the home draft write');
 

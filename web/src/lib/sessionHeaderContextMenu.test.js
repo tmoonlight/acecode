@@ -180,7 +180,7 @@ test('ChatView 的按钮左键与顶栏右键共用同一个菜单构造,重命�
   const chat = source('components/ChatView.jsx');
   assert.match(chat, /window\.addEventListener\(CONTEXT_MENU_DELEGATE_EVENT, handler\)/);
   assert.match(chat, /placement: 'pointer'/);
-  assert.match(chat, /const openSessionContextMenu = useCallback\(\(event\) => \{[\s\S]*?openSessionMenu\(/);
+  assert.match(chat, /const openSessionContextMenu = useStableCallback\(\(event\) => \{[\s\S]*?openSessionMenu\(/);
   assert.match(chat, /\[DESKTOP_CONTEXT_ACTIONS\.RENAME_SESSION\]: startHeaderRename/);
   assert.match(chat, /renaming=\{headerRenaming/);
 });

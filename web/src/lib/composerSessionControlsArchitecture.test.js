@@ -146,7 +146,7 @@ run('swarm and expert selections survive submission until explicitly changed', (
 
   const cleanupStart = chatView.indexOf('const clearComposerExtras = useCallback');
   const resetStart = chatView.indexOf('const resetComposerContextSelections = useCallback');
-  const createStart = chatView.indexOf('const createHomeComposerSession = useCallback');
+  const createStart = chatView.indexOf('const createHomeComposerSession = useStableCallback');
   assert.ok(cleanupStart >= 0 && resetStart > cleanupStart && createStart > resetStart);
   const submissionCleanup = chatView.slice(cleanupStart, resetStart);
   assert.doesNotMatch(
@@ -159,8 +159,8 @@ run('swarm and expert selections survive submission until explicitly changed', (
   assert.match(chatView, /resetComposerContextSelections\(\)/);
   assert.doesNotMatch(chatView, /clearComposerExtras\(\{[^)]*preserveSwarm/);
 
-  const submitStart = chatView.indexOf('const submit = useCallback');
-  const drainStart = chatView.indexOf('const drainQueuedInput = useCallback');
+  const submitStart = chatView.indexOf('const submit = useStableCallback');
+  const drainStart = chatView.indexOf('const drainQueuedInput = useStableCallback');
   assert.ok(submitStart >= 0 && drainStart > submitStart);
   assert.doesNotMatch(
     chatView.slice(submitStart, drainStart),
@@ -300,7 +300,7 @@ run('active refresh forces model reload while home refresh keeps defaults-only b
 
   // 触发场景:首页没有 session id;期望仍只刷新模型列表、默认模型和权限,
   // 不能创建会话或调用 session reload。
-  const refreshBody = chatView.match(/const refreshSessionModels = useCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[api,/s)?.[1] || '';
+  const refreshBody = chatView.match(/const refreshSessionModels = useStableCallback\(async \(\) => \{([\s\S]*?)\n  \}, \[api,/s)?.[1] || '';
   assert.match(refreshBody, /api\.getDefaultModel\(\)/);
   assert.match(refreshBody, /api\.getDefaultPermissionMode\(\)/);
   assert.doesNotMatch(refreshBody, /createSession|switchModel/);
