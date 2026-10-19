@@ -3,6 +3,7 @@
 #include "application_icon.hpp"
 #include "external_url.hpp"
 #include "linux_webview_scale_policy.hpp"
+#include "microphone_permission.hpp"
 #include "taskbar_badge_win.hpp"
 #include "tray_icon_win.hpp"
 #include "web_host_close_policy.hpp"
@@ -45,6 +46,7 @@
 #ifdef _WIN32
 #  include <windows.h>
 #  include <wrl.h>  // Microsoft::WRL::Callback,挂 WebView2 事件 handler
+#  include "web_host_browser_win.hpp"
 #endif
 #if !defined(_WIN32) && !defined(__APPLE__)
 #  include "linux_desktop.hpp"
@@ -58,6 +60,7 @@
 #ifdef __APPLE__
 #  include <CoreGraphics/CoreGraphics.h>
 #  import <AppKit/AppKit.h>
+#  import <WebKit/WebKit.h>
 #  include <objc/runtime.h>
 #endif
 
@@ -89,8 +92,50 @@ WebHost::FileDropHandler g_file_drop_handler;
 std::function<void()> g_existing_instance_focus_handler;
 
 using detail::window_focus_handler;
+#ifdef _WIN32
+using detail::log_webview_setting_failure;
+using detail::open_dev_tools_for_core;
+using detail::configure_browser_defaults;
+#endif
 
 #ifdef __APPLE__
+const char kMicrophoneOriginKey = 0;
+
+void mac_request_microphone_permission(id, SEL, WKWebView* view,
+                                      WKSecurityOrigin* origin, WKFrameInfo* frame,
+                                      WKMediaCaptureType type,
+                                      void (^decide)(WKPermissionDecision)) API_AVAILABLE(macos(12.0)) {
+    NSString* trusted = objc_getAssociatedObject(view, &kMicrophoneOriginKey);
+    NSString* host = origin.host;
+    if ([host containsString:@":"] && ![host hasPrefix:@"["]) {
+        host = [NSString stringWithFormat:@"[%@]", host];
+    }
+    NSString* request = origin.port > 0
+        ? [NSString stringWithFormat:@"%@://%@:%ld", origin.protocol, host, static_cast<long>(origin.port)]
+        : [NSString stringWithFormat:@"%@://%@", origin.protocol, host];
+    const bool allow = type == WKMediaCaptureTypeMicrophone && frame.isMainFrame &&
+        trusted && may_grant_desktop_microphone(trusted.UTF8String ?: "",
+            view.URL.absoluteString.UTF8String ?: "", request.UTF8String ?: "");
+    decide(allow ? WKPermissionDecisionGrant : WKPermissionDecisionPrompt);
+}
+
+void install_mac_microphone_permission(webview::webview& host) {
+    if (@available(macOS 12.0, *)) {
+        auto widget = host.widget();
+        if (!widget.ok()) return;
+        auto* view = static_cast<WKWebView*>(widget.value());
+        id delegate = view.UIDelegate;
+        if (!delegate) return;
+        const SEL selector = @selector(webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:);
+        const auto method = protocol_getMethodDescription(@protocol(WKUIDelegate), selector, NO, YES);
+        // Extend the existing delegate; retain its open-panel and window behavior.
+        if (!class_getInstanceMethod(object_getClass(delegate), selector)) {
+            class_addMethod(object_getClass(delegate), selector,
+                reinterpret_cast<IMP>(mac_request_microphone_permission), method.types);
+        }
+    }
+}
+
 std::function<void(bool)> g_mac_window_state_handler;
 bool g_mac_last_known_maximized = false;
 std::function<void(bool)> g_mac_window_fullscreen_handler;
@@ -948,135 +993,6 @@ void refresh_non_client_frame(HWND hwnd) {
                    rect.bottom - rect.top,
                    SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE |
                        SWP_NOSIZE);
-}
-
-void log_webview_setting_failure(const char* operation, HRESULT hr) {
-    LOG_WARN(std::string("[desktop] ") + operation +
-             " failed, hr=" + std::to_string(static_cast<long>(hr)));
-}
-
-bool set_dev_tools_enabled(ICoreWebView2* core, BOOL enabled) {
-    if (!core) return false;
-    ICoreWebView2Settings* settings = nullptr;
-    HRESULT hr = core->get_Settings(&settings);
-    if (FAILED(hr) || !settings) {
-        log_webview_setting_failure("get_Settings for DevTools", hr);
-        return false;
-    }
-    hr = settings->put_AreDevToolsEnabled(enabled);
-    settings->Release();
-    if (FAILED(hr)) {
-        log_webview_setting_failure("put_AreDevToolsEnabled", hr);
-        return false;
-    }
-    return true;
-}
-
-bool open_dev_tools_for_core(ICoreWebView2* core) {
-    if (!core) return false;
-    // webview/webview disables DevTools when constructed with debug=false.
-    // Re-enable it only for ACECode's explicit F11/bridge entry point.
-    if (!set_dev_tools_enabled(core, TRUE)) return false;
-    HRESULT hr = core->OpenDevToolsWindow();
-    if (FAILED(hr)) {
-        log_webview_setting_failure("OpenDevToolsWindow", hr);
-        return false;
-    }
-    return true;
-}
-
-void install_dev_tools_shortcut(ICoreWebView2Controller* controller) {
-    if (!controller) return;
-    using Microsoft::WRL::Callback;
-    EventRegistrationToken token{};
-    HRESULT hr = controller->add_AcceleratorKeyPressed(
-        Callback<ICoreWebView2AcceleratorKeyPressedEventHandler>(
-            [](ICoreWebView2Controller* sender,
-               ICoreWebView2AcceleratorKeyPressedEventArgs* args) -> HRESULT {
-                if (!sender || !args) return S_OK;
-
-                COREWEBVIEW2_KEY_EVENT_KIND kind{};
-                UINT virtual_key = 0;
-                if (FAILED(args->get_KeyEventKind(&kind)) ||
-                    FAILED(args->get_VirtualKey(&virtual_key))) return S_OK;
-                if (virtual_key != VK_F11 ||
-                    (kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN &&
-                     kind != COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN)) return S_OK;
-                // Modified F11 belongs to the application; bare F11 opens DevTools.
-                if ((GetKeyState(VK_CONTROL) | GetKeyState(VK_MENU) | GetKeyState(VK_SHIFT) |
-                     GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) return S_OK;
-
-                args->put_Handled(TRUE);
-                ICoreWebView2* core = nullptr;
-                if (SUCCEEDED(sender->get_CoreWebView2(&core)) && core) {
-                    open_dev_tools_for_core(core);
-                    core->Release();
-                }
-                return S_OK;
-            })
-            .Get(),
-        &token);
-    if (FAILED(hr)) {
-        log_webview_setting_failure("add_AcceleratorKeyPressed for F11 DevTools", hr);
-    }
-}
-
-void configure_browser_defaults(webview::webview& host) {
-    auto controller_result = host.browser_controller();
-    if (!controller_result.ok()) {
-        LOG_WARN("[desktop] browser_controller unavailable; browser defaults not configured");
-        return;
-    }
-    auto* controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
-    if (!controller) return;
-
-    HRESULT hr = controller->put_ZoomFactor(1.0);
-    if (FAILED(hr)) {
-        log_webview_setting_failure("put_ZoomFactor", hr);
-    }
-
-    ICoreWebView2* core = nullptr;
-    hr = controller->get_CoreWebView2(&core);
-    if (FAILED(hr) || !core) {
-        log_webview_setting_failure("get_CoreWebView2", hr);
-        return;
-    }
-    install_dev_tools_shortcut(controller);
-
-    ICoreWebView2Settings* settings = nullptr;
-    hr = core->get_Settings(&settings);
-    core->Release();
-    if (FAILED(hr) || !settings) {
-        log_webview_setting_failure("get_Settings", hr);
-        return;
-    }
-
-    hr = settings->put_IsZoomControlEnabled(FALSE);
-    if (FAILED(hr)) {
-        log_webview_setting_failure("put_IsZoomControlEnabled", hr);
-    }
-
-    ICoreWebView2Settings5* settings5 = nullptr;
-    hr = settings->QueryInterface(IID_PPV_ARGS(&settings5));
-    if (SUCCEEDED(hr) && settings5) {
-        const HRESULT pinch_hr = settings5->put_IsPinchZoomEnabled(FALSE);
-        if (FAILED(pinch_hr)) {
-            log_webview_setting_failure("put_IsPinchZoomEnabled", pinch_hr);
-        }
-        settings5->Release();
-    }
-
-    ICoreWebView2Settings6* settings6 = nullptr;
-    hr = settings->QueryInterface(IID_PPV_ARGS(&settings6));
-    if (SUCCEEDED(hr) && settings6) {
-        const HRESULT swipe_hr = settings6->put_IsSwipeNavigationEnabled(FALSE);
-        if (FAILED(swipe_hr)) {
-            log_webview_setting_failure("put_IsSwipeNavigationEnabled", swipe_hr);
-        }
-        settings6->Release();
-    }
-
-    settings->Release();
 }
 
 // ── 窗口打底色(快速 resize 防黑边)────────────────────────────────────
@@ -2247,7 +2163,7 @@ struct WebHost::Impl {
             // Also cover the WebView-owned fallback window, whose class has no icon.
             apply_host_window_icons(hwnd());
             taskbar_badge = std::make_unique<WindowsTaskbarBadge>(hwnd());
-            configure_browser_defaults(*w);
+            configure_browser_defaults(*w, microphone_origin);
             // 三层打底(host 类刷 / widget 类刷 / WebView2 合成器)统一走默认色。
             // offscreen 路径的 host 类注册时已带刷,这里等价换新;降级路径
             // (webview 库自建 `webview` 类窗口)的 NULL 刷靠这里补上。
@@ -2261,6 +2177,7 @@ struct WebHost::Impl {
         w = std::make_unique<webview::webview>(debug, nullptr);
         configure_mac_window_chrome(*w);
         install_mac_edit_menu(*w);
+        install_mac_microphone_permission(*w);
         mac_focus_observer = install_mac_focus_existing_observer(*w);
         mac_window_focus = std::make_unique<detail::MacWindowFocusObservers>(*w);
         mac_enter_fullscreen_observer = install_mac_window_fullscreen_observer(
@@ -2350,6 +2267,8 @@ struct WebHost::Impl {
     bool center_on_first_show = false;
     ComApartment com{false};
     std::unique_ptr<WindowsTaskbarBadge> taskbar_badge;
+    // Shared with the WebView-owned callback; both access it on the GUI thread.
+    std::shared_ptr<std::string> microphone_origin = std::make_shared<std::string>();
 
     HWND hwnd() const {
         if (custom_window) return custom_window;
@@ -2423,6 +2342,16 @@ void WebHost::set_size(int width, int height) {
 #endif
 }
 void WebHost::navigate(const std::string& url) {
+#ifdef _WIN32
+    *impl_->microphone_origin = desktop_microphone_origin(url);
+#elif defined(__APPLE__)
+    auto widget = impl_->w->widget();
+    if (widget.ok()) {
+        const auto origin = desktop_microphone_origin(url);
+        objc_setAssociatedObject(static_cast<id>(widget.value()), &kMicrophoneOriginKey,
+            [NSString stringWithUTF8String:origin.c_str()], OBJC_ASSOCIATION_COPY_NONATOMIC);
+    }
+#endif
     impl_->w->navigate(url);
 }
 void WebHost::set_visible(bool visible) {
