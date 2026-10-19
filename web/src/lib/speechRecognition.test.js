@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { speechAvailabilityStore, speechDraftValid, speechEnabled, speechErrorCode, speechErrorMessage, speechPayload, speechSettingsStore, SPEECH_DEFAULTS } from './speechRecognition.js';
-import { encodeSpeechWav, captureSpeechAudio } from './speechAudio.js';
+import { encodeSpeechWav, captureSpeechAudio, resampleSpeechAudio } from './speechAudio.js';
 import { createSpeechSession } from './speechSession.js';
 import { createSpeechDeviceStore, listSpeechDevices, speechAudioConstraints, SPEECH_DEVICE_PREFS_KEY } from './speechDevices.js';
 
@@ -161,8 +161,49 @@ assert.equal(speechPayload({ ...configured, api_key: '' }).api_key, '', 'clearin
   assert.equal(view.getUint32(24, true), 16000);
   assert.equal(view.getUint16(22, true), 1);
   assert.equal(view.getUint16(34, true), 16);
-  assert.equal(view.getInt16(44, true), 16384);
+  // 带限降采样的权重归一化后直流增益为 1:常量 0.5 编码后仍是 16384(浮点舍入允许差 1)。
+  assert.ok(Math.abs(view.getInt16(44, true) - 16384) <= 1);
+  assert.ok(Math.abs(view.getInt16(44 + 15999 * 2, true) - 16384) <= 1, '末尾样本按边界延拓,不会淡出');
   assert.throws(() => encodeSpeechWav([], 48000), (error) => error.code === 'SPEECH_NO_SPEECH');
+}
+{
+  const sine = (rate, freq, seconds, amplitude = 0.5) => Float32Array.from({ length: Math.round(rate * seconds) },
+    (_, i) => amplitude * Math.sin(2 * Math.PI * freq * i / rate));
+  // 只看中间部分,避开首尾边界延拓带来的过渡。
+  const rms = (values) => {
+    const middle = values.subarray(Math.floor(values.length * 0.1), Math.floor(values.length * 0.9));
+    return Math.sqrt(middle.reduce((sum, value) => sum + value * value, 0) / middle.length);
+  };
+  const toDb = (ratio) => 20 * Math.log10(ratio);
+
+  // 场景(回归):48 kHz 麦克风里有 12 kHz 的高频噪声(键盘敲击、电流嘶声的典型频段)。
+  // 旧实现按 3 个样本取平均降到 16 kHz,12 kHz 只衰减约 9.5 dB,并折叠成 4 kHz 落进语音频段。
+  // 期望:带限降采样后残留低于 -60 dB。
+  for (const [rate, freq] of [[48000, 12000], [48000, 9500], [44100, 12000], [44100, 9000]]) {
+    const out = resampleSpeechAudio(sine(rate, freq, 1), rate);
+    assert.ok(toDb(rms(out) / rms(sine(rate, freq, 1))) < -60, `${rate} Hz 输入的 ${freq} Hz 噪声应被滤除`);
+  }
+
+  // 场景:人声主要能量所在的 300 Hz–5 kHz。期望:幅度基本不变(±0.1 dB),且波形没有相位延迟,
+  // 与 16 kHz 下直接采样的理想正弦逐点误差小于 0.005。覆盖常见的 48k / 44.1k 以及蓝牙耳机的 8k 上采样。
+  for (const rate of [48000, 44100, 8000]) {
+    for (const freq of rate === 8000 ? [300, 1000, 2500] : [300, 1000, 5000]) {
+      const out = resampleSpeechAudio(sine(rate, freq, 1), rate);
+      const ideal = sine(16000, freq, 1);
+      assert.equal(out.length, 16000);
+      assert.ok(Math.abs(toDb(rms(out) / rms(ideal))) < 0.1, `${rate} Hz 输入的 ${freq} Hz 应保持幅度`);
+      let worst = 0;
+      for (let i = 1600; i < 14400; i += 1) worst = Math.max(worst, Math.abs(out[i] - ideal[i]));
+      assert.ok(worst < 0.005, `${rate} Hz 输入的 ${freq} Hz 逐点误差 ${worst}`);
+    }
+  }
+
+  // 场景:设备本身就是 16 kHz。期望:原样输出,不做任何滤波。
+  const direct = sine(16000, 440, 0.5);
+  assert.deepEqual(resampleSpeechAudio(direct, 16000), direct);
+  // 场景:输出长度与旧实现一致(floor(样本数 × 16000 / 采样率)),后端按 WAV 长度校验最长录音。
+  assert.equal(resampleSpeechAudio(new Float32Array(44101), 44100).length, 16000);
+  assert.equal(resampleSpeechAudio(new Float32Array(2), 48000).length, 0);
 }
 {
   let asked = 0;
