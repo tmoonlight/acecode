@@ -10,6 +10,7 @@ import * as pinnedSessions from './pinnedSessions.js';
 import * as auxiliaryFetch from './sidebarAuxiliaryFetch.js';
 import { applyStatusUpdate } from './sessionStatus.js';
 import { createWorkspaceFolderOrderController } from './workspaceFolderOrder.js';
+import { commitIfChanged, structurallyEqual } from './structuralState.js';
 
 // Execute the production callbacks, including the await boundaries and state
 // setters. Testing only the sequence helper cannot expose a check before a later
@@ -23,7 +24,8 @@ const declarations = component.body.body.flatMap((statement) => statement.declar
 
 function installCallback(context, name) {
   const declaration = declarations.find((node) => node.id.name === name);
-  assert.equal(declaration?.init.callee?.name, 'useCallback', `Missing production callback ${name}`);
+  assert.ok(['useCallback', 'useStableCallback'].includes(declaration?.init.callee?.name),
+    `Missing production callback ${name}`);
   const callback = declaration.init.arguments[0];
   vm.runInContext(`${name} = (${source.slice(callback.start, callback.end)})`, context);
 }
@@ -60,7 +62,7 @@ function fixture({
   const context = vm.createContext({
     Map, Set, Array, Promise, setTimeout,
     ...workspaceSessions, ...sidebarSessions, ...sidebarTree, ...pinnedSessions, ...auxiliaryFetch,
-    applyStatusUpdate,
+    applyStatusUpdate, commitIfChanged,
     workspaces: state.workspaces, activeWorkspaceHash: 'w',
     revealTarget: { noWorkspace: false, workspaceHash: 'w' },
     api: {
@@ -106,18 +108,24 @@ function fixture({
     pinnedByWorkspaceRef: new Map([['w', cachedPinnedIds]]), pinnedOrderItemsRef: [],
   };
   for (const [name, current] of Object.entries(refs)) context[name] = { current };
-  for (const [setter, key, ref] of [
-    ['setSessions', 'sessions', 'sessionsRef'],
-    ['setSessionLoadingWorkspaces', 'loading'],
+  // structural = 生产代码里用 useStructuralState 声明的状态:内容不变时不写入。
+  // state.writes 记录真正写入 React 状态的次数。
+  state.writes = {};
+  for (const [setter, key, ref, structural] of [
+    ['setSessions', 'sessions', 'sessionsRef', true],
+    ['setSessionLoadingWorkspaces', 'loading', undefined, true],
     ['setSessionLoadedWorkspaces', 'loaded', 'sessionLoadedWorkspacesRef'],
     ['setSessionFullyLoadedWorkspaces', 'fullyLoaded', 'sessionFullyLoadedWorkspacesRef'],
-    ['setSessionListTotals', 'totals'],
-    ['setStatusBySession', 'statuses'],
-    ['setWorkspaces', 'workspaces'],
+    ['setSessionListTotals', 'totals', undefined, true],
+    ['setStatusBySession', 'statuses', undefined, true],
+    ['setWorkspaces', 'workspaces', undefined, true],
     ['setExpandedSessionLists', 'expandedSessionLists', 'expandedSessionListsRef'],
   ]) {
     context[setter] = (update) => {
-      state[key] = typeof update === 'function' ? update(state[key]) : update;
+      const next = typeof update === 'function' ? update(state[key]) : update;
+      if (structural && structurallyEqual(state[key], next)) return;
+      state.writes[key] = (state.writes[key] || 0) + 1;
+      state[key] = next;
       if (ref) context[ref].current = state[key];
       if (key === 'workspaces') context.workspaces = state[key];
       if (key === 'fullyLoaded') context.sessionFullyLoadedWorkspaces = state[key];
@@ -387,6 +395,42 @@ test('expansion and subsequent refresh request only the displayed batches', asyn
   await refresh;
   assert.equal(state.sessions.length, 15);
   assert.ok(requests.every(request => Number.isFinite(request.query.limit)));
+});
+
+// 场景:Desktop 挂机,侧栏每 5 秒刷新一次,服务端数据完全没变。
+// 期望:第二轮刷新不写入任何侧栏状态(连 setState 都不调用),各状态仍是第一轮的
+// 同一个引用,React 因此不渲染、也不在 hook 队列里留下 update。
+// 回归 bug:每轮都写回新的 Map / 数组触发渲染,侧栏的 useCallback 把每次渲染的作用域
+// 串成链留在内存里(实测空闲首页每次约 70 KB),渲染进程一两天涨到上限后显示
+// 「内存不足」错误页,只能手动刷新。只在 updater 里返回旧值也不行:React 18 会把这类
+// update 挂在 hook 队列里直到组件下次渲染,组件空闲时队列照样无限增长。
+test('an idle periodic refresh with unchanged data writes no sidebar state', async () => {
+  const { context, state, requests } = fixture();
+  const first = context.refresh();
+  await nextTask();
+  requests[0].resolve(compactPage());
+  await first;
+  const keys = ['sessions', 'statuses', 'totals', 'loading', 'loaded', 'fullyLoaded', 'workspaces', 'expandedSessionLists'];
+  const before = Object.fromEntries(keys.map((key) => [key, state[key]]));
+  const writesBefore = { ...state.writes };
+  const second = context.refresh();
+  await nextTask();
+  assert.equal(requests.length, 2);
+  requests[1].resolve(compactPage());
+  await second;
+  for (const key of keys) assert.equal(state[key], before[key], `${key} must keep its reference`);
+  assert.deepEqual(state.writes, writesBefore, 'an idle refresh must not call any state setter');
+});
+
+// 场景:有人把刷新路径上的状态改回普通 useState。
+// 期望:直接失败 —— 上面那条用例里的测试替身按 useStructuralState 的语义写回,
+// 只有生产声明也是 useStructuralState 时它才代表真实行为。
+test('sidebar refresh state is declared with useStructuralState', () => {
+  for (const name of ['workspaces', 'sessions', 'statusBySession', 'sessionLoadingWorkspaces', 'sessionListTotals', 'activeWorkspaceHash']) {
+    const declaration = declarations.find((node) => (
+      node.id.type === 'ArrayPattern' && node.id.elements[0]?.name === name));
+    assert.equal(declaration?.init.callee?.name, 'useStructuralState', name);
+  }
 });
 
 test('runtime promotion and internal workspace selection do not change refresh dependencies', () => {

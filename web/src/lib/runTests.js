@@ -261,6 +261,8 @@ import './desktopBackgroundProcess.test.js';
 import './desktopCloseBehavior.test.js';
 import './desktopGuidedTour.test.js';
 import './desktopTrayMenu.test.js';
+import './structuralState.test.js';
+import './sidebarStableCallbacksArchitecture.test.js';
 import './opencodeImport.test.js';
 import './updateJob.test.js';
 import './newSession.test.js';

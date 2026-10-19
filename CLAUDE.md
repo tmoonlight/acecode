@@ -722,6 +722,14 @@ JS↔C++ bridge(同进程,webview `bind`,无 HTTP):
 
 设计文档:`docs/desktop-shell/design.md` + `docs/desktop-shell/multi-workspace.md`,change:`openspec/changes/add-desktop-multi-workspace/`。
 
+### Desktop 挂机内存:渲染进程 OOM 的三层处理(2026-10-19)
+
+用户反馈:挂机一两天后解锁屏幕,Desktop 停在 WebView2 的「内存不足」错误页,只能手动刷新。本机现场:主 WebView 渲染进程 10 小时涨到 3.3 GB(上限约 4 GB),CPU 几乎为 0。CDP 堆快照比对(无头 Edge 连同一 daemon,隔几分钟两次快照,看新增且 GC 后仍存活的对象到 GC root 的路径)定位到:
+
+- **主因 —— 侧栏空闲渲染 + 闭包链。** 侧栏 5 秒刷新即使数据没变也把新的 Map / Set / 数组写回状态,每轮渲染好几次;`Sidebar` 里几十个依赖各异的 `useCallback` 在不同渲染里交替重建,V8 让同一次渲染的闭包共享一个作用域,旧回调就把旧渲染的整个作用域(含当时的会话列表)留住,一份接一份连成链 —— 快照里 27 分钟存活了 450 份侧栏作用域,空闲首页每次渲染约留 70 KB。修法是刷新路径上的状态一律「内容没变就不调用 setState」(`lib/structuralState.js`:`useStructuralState` 的 setter 自持最新值 ref;带 ref 同步的 setter 经 `commitIfChanged(ref, setState, updater)`,前提是该状态的每个写入方都同步 ref),空闲时不渲染,链条不再增长。**只在 updater 里返回旧值不够**:React 18 对结果与旧值相同的更新会提前放弃渲染,但 update 对象(连同 updater 闭包捕获的数据)仍挂在 hook 队列里,直到该组件下次渲染才清掉 —— 第一版修复就这样把泄漏换成了队列增长(打开会话的页面约 0.24 MB/分钟,三方 A/B 才看出来)。**别把这些状态改回普通 `useState`、在 setter 里无条件 `new Map(prev)` 或写成 `changed ? next : prev`**;`sidebarWorkspaceRefresh.test.js` 的空闲刷新零写入用例与声明检查守着。活跃使用时(会话状态、标题真有变化)侧栏照样渲染,所以链条本身也断掉了:依赖会变的状态或 props 的 13 个回调改用 `lib/useStableCallback.js`(包装函数只捕获 ref,身份永不变,ref 在 insertion effect 里更新到最新实现),剩下的 `useCallback` 只依赖 setter / ref / 其它稳定回调。**侧栏里不要再写 `useCallback(fn, [会变的状态或 props])`**,`sidebarStableCallbacksArchitecture.test.js` 会解析源码并列出违规的回调名;`useStableCallback` 不能用于渲染期间调用的函数,也不能用于需要靠身份变化触发 effect 重跑的场合。对照实测(隔离 daemon,交替「改工作区名 + 切换未读」6 分钟 60 次):改造前侧栏作用域存活 29 份并持续接链,改造后不再接链。**同类问题在 `ChatView` 与 `App` 里还在**:交替「切换会话 + 切换未读」8 分钟 160 次,ChatView 作用域存活 257 份、App 178 份,GC 后堆 +3.4 MB(约 21 KB/次),侧栏只有个位数 —— 活跃使用时的剩余增长来自这两处。
+- **webview 0.12.0 桥接泄漏。** 库注入的 `_promises[id]` 只写不删,每次 `aceDesktop_*` 调用永久留一条。`web_host.cpp::kBridgeReplyCleanupScript` 在库脚本之后接管同一套 `call` / `onReply`(消息格式不变),回包即删;升级 webview 库时确认上游是否已修。托盘菜单推送(`desktopTrayMenu.js`)相同内容 60 秒内不重复过桥。
+- **兜底 —— 渲染进程退出自动重载。** 主 WebView 此前没接 `ProcessFailed`。现在 `web_host_browser_win.hpp::install_renderer_recovery_handler` 对 RENDER_PROCESS_EXITED 投递 `Reload()`,无响应 / 浏览器进程退出只记日志;10 分钟内最多 3 次,超过保留错误页防崩溃循环(`renderer_recovery.{hpp,cpp}` 纯逻辑)。端到端冒烟 `tests/desktop/renderer_recovery_smoke.py`(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--js-flags=--max-old-space-size=64` 让页面几秒内 OOM,确认自动重载且桥接接管生效);macOS / Linux 尚未接对应事件。
+
 ### Agent Browser 是永久开发宽松浏览器(make-agent-browser-development-permissive)
 
 **这是有意的产品定位,不是漏掉的安全加固。** Agent Browser 用来开发调试,开发环境本来就一堆自签名证书、明文 HTTP、旧 TLS 和内网服务;凡是宿主能覆盖的挡板一律静默放行,**没有开关、没有徽标、没有确认页、没有逐站点例外、没有任何用户可见的策略提示**。看到「怎么不校验证书」时不要顺手加回来 —— 先看这一节。

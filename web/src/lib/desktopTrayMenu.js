@@ -174,6 +174,15 @@ export function buildTrayMenuPayload({
 // 内部 debounce timer + 最后一次 payload。每次调度只保留最新值。
 let _debounceTimer = null;
 let _lastQueuedPayload = null;
+// 侧栏每 5 秒刷新都会推一次,内容多半没变。相同内容在这段时间内不重复过桥;
+// 超时后照样重推一次,兜住 native 侧自行清空缓存(切工作区)的情况。
+const RESEND_UNCHANGED_AFTER_MS = 60_000;
+let _lastSentJson = null;
+let _lastSentAt = 0;
+let _now = () => Date.now();
+export function __setNowForTest(fn) {
+  _now = typeof fn === 'function' ? fn : () => Date.now();
+}
 
 // 把 setTimeout / clearTimeout 注入做成 testable 的可替换 hook(测试中可换 fake clock)。
 let _setTimeout = (fn, ms) => setTimeout(fn, ms);
@@ -194,8 +203,13 @@ function flushNow() {
   if (!p) return;
   const fn = typeof window !== 'undefined' && window.aceDesktop_setTrayMenu;
   if (typeof fn !== 'function') return; // 浏览器模式 / bridge 不在 → no-op
+  const json = JSON.stringify(p);
+  const now = _now();
+  if (json === _lastSentJson && now - _lastSentAt < RESEND_UNCHANGED_AFTER_MS) return;
   try {
-    fn(JSON.stringify(p));
+    fn(json);
+    _lastSentJson = json;
+    _lastSentAt = now;
   } catch (e) {
     // 静默吞掉 — 桥本身在 desktop 端有 try/catch 兜底,这里再抛会污染前端 console。
   }
@@ -231,4 +245,7 @@ export function __resetForTest() {
   if (_debounceTimer != null) _clearTimeout(_debounceTimer);
   _debounceTimer = null;
   _lastQueuedPayload = null;
+  _lastSentJson = null;
+  _lastSentAt = 0;
+  _now = () => Date.now();
 }
