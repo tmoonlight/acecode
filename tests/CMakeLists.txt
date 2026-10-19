@@ -171,6 +171,17 @@ endif()
 # proves that the native Browser host proxies CDP to the exact visible WebView2
 # page without an external debug port or ACECode host bindings in web content.
 if(WIN32 AND ACECODE_BUILD_DESKTOP)
+    add_executable(microphone_permission_smoke EXCLUDE_FROM_ALL
+        ${ACECODE_MICROPHONE_PERMISSION_SMOKE_SOURCES})
+    target_link_libraries(microphone_permission_smoke PRIVATE
+        acecode_include_roots acecode_desktop_support acecode_base_core
+        webview::core nlohmann_json::nlohmann_json
+        ole32 shell32 user32 gdi32 dwmapi)
+    if(MSVC)
+        set_target_properties(microphone_permission_smoke PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+
     add_executable(agent_browser_host_smoke EXCLUDE_FROM_ALL
         ${ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES}
     )

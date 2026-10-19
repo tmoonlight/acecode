@@ -18,6 +18,7 @@
 5. 输入框以会话身份和请求代次约束录音与结果，复用 Slate 异步插入位置；开始录音时保留草稿和标签，取消不回滚用户自行编辑的内容。停止不提交，发送成功后走现有提交/排队逻辑，识别失败和空结果不提交。
 6. 同时只允许一份客户端录音；后端限制并发转写避免堆积。取消接口以请求 ID 标识活动调用。外部识别服务是否真正中止推理由服务自己决定，ACECode 不接受已取消结果。
 7. Mac Desktop 添加麦克风用途说明；检查各 Desktop WebView 权限入口，保持仅主页面用户触发采集。Windows 本地编译和浏览器验证作为当前可执行验收，不将其宣称为 Mac/Linux 真机通过。
+8. 普通浏览器继续由 getUserMedia 触发原生授权，不增加前端确认框。Windows WebView2 和 macOS WKWebView 在宿主层处理麦克风权限：仅允许宿主导航设置的 loopback origin，核对当前页面与请求来源及端口，不扩大到 Agent 浏览器、外部网页或摄像头。WebView2 不持久化这次自动授权；macOS 保留现有 UIDelegate 的文件选择等能力。Linux 保留已有本地音频授权。系统级麦克风隐私授权不由网页层绕过，Edge app 降级模式仍属于普通浏览器权限路径。
 
 2026-10-19 Linux 编译补验：v1.0.10 打包暴露了 WebKitGTK 音视频权限函数名错误。按官方接口更正为 `webkit_user_media_permission_is_for_audio_device` 和 `webkit_user_media_permission_is_for_video_device`，并用独立 CI 直接编译 `linux_desktop.cpp`，在完整依赖构建前检查系统头文件兼容性。原有仅本地页面、仅音频的权限规则保持；此编译检查不证明真实录音或系统权限交互已通过。
 
@@ -70,3 +71,11 @@
 - 麦克风通过现有委托事件按按钮实例认领；打开时关闭通用菜单和待打开任务，保留无全局组件时的按钮处理。
 - 带真实全局菜单的浏览器回归通过：图标和按钮空白区、明暗主题、已有编辑菜单切换、无 pointerdown 的 contextmenu 事件、编辑器粘贴/全选；原设备选择、快捷键编辑、按住/松开、迟到授权、布局稳定和录音完整流程仍通过。
 - `pnpm test`、`pnpm build`、OpenSpec 严格校验及差异检查通过。本轮验证使用 Chromium 模拟音频设备和受控识别 API；未重新构建或替换正在运行的 Desktop。
+
+### Desktop 麦克风授权验证（2026-10-19）
+
+- Windows 接入 WebView2 PermissionRequested，仅对宿主设置且仍在使用的本机 origin 放行麦克风，并设置 SavesInProfile=false。macOS 为现有 WKUIDelegate 添加媒体授权方法，仅对相同来源的主页面麦克风请求返回 Grant；保留文件选择等已有代理方法。普通浏览器和 Edge app 模式继续原生授权，OS 隐私授权保持有效。
+- `microphone_permission_smoke` 编译通过并使用生产 `web_host.cpp` 验证：独立 WebView2 配置目录，仅模拟音频设备，不使用 fake-ui 自动确认；首次和再次采集均获得 live 音轨，同一配置目录重新启动后仍从 prompt 状态开始并再次成功。当前页面内部临时状态会变为 granted，这是 Chromium 的正常状态，不代表永久保存。
+- `DesktopMicrophonePermission` 4 项用例以 MSVC + 仓库 GTest 库单独编译并全部通过，覆盖来源规范化、无 token 保存、伪造 host、端口/协议不匹配和宿主导航后的撤销。总单测目标触发大量无关重编译后已主动停止，不将其记录为全量通过。
+- 为满足现有 web_host.cpp 文件行数限制，将 Windows WebView 设置函数原样提取到 `web_host_browser_win.hpp`，麦克风处理集中在同一宿主适配文件；分层严格检查与 OpenSpec 严格校验通过。
+- 本轮未替换运行中的 Desktop，未执行 macOS/Linux 编译及系统级首次麦克风授权实测。macOS 原生媒体权限方法要求 macOS 12+；系统提示的限制参见 [Apple 媒体采集授权文档](https://developer.apple.com/documentation/bundleresources/requesting-authorization-for-media-capture-on-macos)，WebView2 授权持久化行为参见 [SavesInProfile 文档](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2permissionrequestedeventargs3)。

@@ -26,6 +26,8 @@ API Key 可选，填写后通过 `Authorization: Bearer …` 发送。高级设�
 
 **麦克风权限取决于打开 ACECode 的页面环境。** Desktop 的本机页面、浏览器的 `http://localhost:端口` 或 HTTPS 页面可以请求麦克风；直接在浏览器打开另一台电脑的 `http://内网IP:端口` 通常无法录音。没有证书时可在各电脑使用 ACECode Desktop 或本机 Web，再连接同一个 HTTP 识别服务。系统和浏览器仍需允许麦克风权限。
 
+普通浏览器首次使用时由浏览器弹出原生麦克风授权。原生 Desktop 对 ACECode 自身页面直接处理网页麦克风权限，不额外弹网页确认；操作系统的隐私授权仍需允许（例如 macOS 首次运行的系统提示）。外部网页、摄像头等权限保持原有行为，Edge app 降级模式仍走浏览器授权。
+
 浏览器限制参见 [MDN getUserMedia 安全上下文说明](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia#privacy_and_security)；whisper.cpp 的服务端参数和接口见[官方服务文档](https://github.com/ggml-org/whisper.cpp/blob/master/examples/server/README.md)。
 
 ## 输入框操作
@@ -46,3 +48,5 @@ API Key 可选，填写后通过 `Authorization: Bearer …` 发送。高级设�
 ## 验证边界
 
 浏览器自动化使用模拟麦克风验证真实 WebAudio 采集、WAV 编码和输入框交互；不能代替真实设备授权验证。macOS 的麦克风用途声明和 Linux WebKit 的本机音频权限处理已接入，仍需在对应系统进行真实设备验收。
+
+Windows 原生权限回归：构建 `microphone_permission_smoke`，运行 `python tests/desktop/microphone_permission_smoke.py build/tests/Release/microphone_permission_smoke.exe`。该测试使用生产 WebHost、独立 WebView2 用户目录和模拟音频设备，不启用自动接受权限提示的测试开关，验证首次及再次采集。
