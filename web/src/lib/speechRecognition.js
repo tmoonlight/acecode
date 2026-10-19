@@ -29,9 +29,17 @@ export function speechDraftValid(draft, requireComplete = false) {
   return !requireComplete || (!!value.base_url && (value.protocol !== 'openai' || !!value.model));
 }
 
+// DOMException carries a legacy numeric `code` (NotFoundError = 8,
+// NotSupportedError = 9, ...); only string codes come from ACECode or the API.
+export function speechErrorCode(error) {
+  if (typeof error === 'string') return error;
+  if (typeof error?.code === 'string' && error.code) return error.code;
+  return typeof error?.name === 'string' && error.name ? error.name : '';
+}
+
 export function speechErrorMessage(error) {
-  const code = error?.code || error?.name || error;
-  return ({
+  const code = speechErrorCode(error);
+  const known = ({
     SPEECH_INVALID_CONFIG: '请检查语音识别地址、端口和配置。',
     PERSIST_FAILED: '保存语音识别配置失败，请重试。',
     SPEECH_NOT_CONFIGURED: '请先在设置的工具页配置并启用语音识别。',
@@ -48,11 +56,16 @@ export function speechErrorMessage(error) {
     SPEECH_INSECURE_CONTEXT: '当前网页无法使用麦克风，请使用 ACECode Desktop、localhost 或 HTTPS 页面。',
     SPEECH_UNSUPPORTED: '当前环境不支持麦克风录音，请使用 ACECode Desktop 或支持录音的浏览器。',
     NotAllowedError: '麦克风权限被拒绝，请在系统或浏览器中允许访问。',
-    NotFoundError: '没有找到可用的麦克风。',
+    NotFoundError: '没有找到可用的麦克风，请确认已接入麦克风；远程桌面需开启音频录制重定向。',
     OverconstrainedError: '所选麦克风不可用，请右键重新选择。',
     NotReadableError: '无法读取麦克风，请检查设备是否被其他程序占用。',
     SPEECH_DEVICE_ENDED: '麦克风已断开，请检查设备后重试。',
-  })[code] || '语音识别失败，请重试。';
+  })[code];
+  if (known) return known;
+  // Unmapped failures keep their original name so field reports stay diagnosable.
+  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  const detail = [code, message].filter(Boolean).join(': ').slice(0, 160);
+  return detail ? `语音识别失败（${detail}），请重试。` : '语音识别失败，请重试。';
 }
 
 // Only availability is shared with composers. Credentials stay in the settings
@@ -121,7 +134,7 @@ export function speechSettingsStore(client) {
           if (apiConnectionScope(client) !== scope) return;
           publish({ snapshot, draft: { ...SPEECH_DEFAULTS, ...snapshot } });
           speechAvailabilityStore(client).publish(snapshot);
-        } catch (error) { publish({ error: { code: error?.code || error?.name, action: 'load' } }); }
+        } catch (error) { publish({ error: { code: speechErrorCode(error), message: error?.message, action: 'load' } }); }
         finally { publish({ loading: false }); }
       }).finally(() => { reading = null; });
       return reading;
@@ -149,7 +162,7 @@ export function speechSettingsStore(client) {
             publish({ snapshot, draft });
             speechAvailabilityStore(client).publish(snapshot);
           } catch (error) {
-            publish({ error: { code: error?.code || error?.name, action: 'save' } });
+            publish({ error: { code: speechErrorCode(error), message: error?.message, action: 'save' } });
             return false;
           }
         }

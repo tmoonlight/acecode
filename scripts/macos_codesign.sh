@@ -9,9 +9,13 @@ Usage:
 
 Signs macOS command-line binaries and app bundles with hardened runtime enabled.
 Generic bundles must not contain unsigned nested code. ACECode nested executables
-are signed before the app bundle itself.
+are signed before the app bundle itself. The ACECode app executable and bundle
+carry cmake/macos/ACECodeDesktop.entitlements (microphone access for dictation).
 USAGE
 }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+app_entitlements="$script_dir/../cmake/macos/ACECodeDesktop.entitlements"
 
 identity=""
 keychain=""
@@ -148,6 +152,20 @@ sign_app_executable() {
     fi
 }
 
+# The bundle signature replaces the main executable's, so both carry the
+# entitlements; without them hardened runtime silently denies the microphone.
+sign_with_app_entitlements() {
+    local path="$1"
+
+    if [[ ! -e "$path" ]]; then
+        echo "Missing path to sign: $path" >&2
+        exit 1
+    fi
+
+    echo "Signing $path with $app_entitlements"
+    "${codesign_args[@]}" --entitlements "$app_entitlements" "$path"
+}
+
 sign_extra_app_code() {
     local root="$1"
     local skip_path="${2:-}"
@@ -189,12 +207,21 @@ if [[ -n "$app_path" ]]; then
         exit 1
     fi
 
+    if [[ ! -f "$app_entitlements" ]]; then
+        echo "Missing app entitlements: $app_entitlements" >&2
+        exit 1
+    fi
+
     app_main="$app_path/Contents/MacOS/ACECode"
     app_daemon="$app_path/Contents/MacOS/acecode-daemon"
     sign_app_executable "$app_daemon"
     sign_extra_app_code "$app_path/Contents/MacOS" "$app_main" "$app_daemon"
     sign_extra_app_code "$app_path/Contents/Frameworks"
-    sign_app_executable "$app_main"
-    sign_path "$app_path"
+    if [[ ! -f "$app_main" ]]; then
+        echo "Missing app executable: $app_main" >&2
+        exit 1
+    fi
+    sign_with_app_entitlements "$app_main"
+    sign_with_app_entitlements "$app_path"
     verify_app "$app_path"
 fi

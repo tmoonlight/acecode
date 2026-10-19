@@ -133,6 +133,12 @@ void install_mac_microphone_permission(webview::webview& host) {
             class_addMethod(object_getClass(delegate), selector,
                 reinterpret_cast<IMP>(mac_request_microphone_permission), method.types);
         }
+        // WebKit records which delegate methods exist only inside setUIDelegate:.
+        // webview/webview set the delegate during construction, so reassign it or
+        // getUserMedia never reaches the method added above. The library keeps
+        // its own strong reference; UIDelegate is weak.
+        view.UIDelegate = nil;
+        view.UIDelegate = delegate;
     }
 }
 

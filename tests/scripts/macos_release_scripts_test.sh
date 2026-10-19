@@ -82,6 +82,18 @@ if grep -n 'xcrun stapler' "$repo_root"/scripts/macos_*.sh "$repo_root/packaging
     exit 1
 fi
 
+# 场景:发布包用 hardened runtime 签名。缺 audio-input entitlement 时系统直接拒绝麦克风、
+# 不弹授权框,语音输入在 mac 上立即报「麦克风权限被拒绝」(v1.0.12 现场)。
+# 期望:entitlements 文件声明麦克风权限,签名脚本给 app 主程序与 bundle 都带上它。
+app_entitlements="$repo_root/cmake/macos/ACECodeDesktop.entitlements"
+grep -Fq '<key>com.apple.security.device.audio-input</key>' "$app_entitlements"
+grep -Fq 'app_entitlements="$script_dir/../cmake/macos/ACECodeDesktop.entitlements"' "$sign_script"
+grep -Fq 'sign_with_app_entitlements "$app_main"' "$sign_script"
+grep -Fq 'sign_with_app_entitlements "$app_path"' "$sign_script"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    /usr/bin/plutil -lint "$app_entitlements"
+fi
+
 grep -Fq -- '--keychain-profile <name>' "$notarize_pkg_script"
 grep -Fq -- '--keychain-profile <name>' "$notarize_app_script"
 grep -Fq -- '--installer-identity <Developer ID Installer identity>' "$pkg_script"

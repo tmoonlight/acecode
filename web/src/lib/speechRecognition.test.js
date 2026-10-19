@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { speechAvailabilityStore, speechDraftValid, speechEnabled, speechPayload, speechSettingsStore, SPEECH_DEFAULTS } from './speechRecognition.js';
+import { speechAvailabilityStore, speechDraftValid, speechEnabled, speechErrorCode, speechErrorMessage, speechPayload, speechSettingsStore, SPEECH_DEFAULTS } from './speechRecognition.js';
 import { encodeSpeechWav, captureSpeechAudio } from './speechAudio.js';
 import { createSpeechSession } from './speechSession.js';
 import { createSpeechDeviceStore, listSpeechDevices, speechAudioConstraints, SPEECH_DEVICE_PREFS_KEY } from './speechDevices.js';
@@ -289,5 +289,37 @@ for (const result of [{ status: 'no_speech', text: '' }, { status: 'ok', text: '
   f.response.resolve({ text: 'time limit', status: 'ok' });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(f.events.commits, [{ text: 'time limit', send: false }]);
+}
+// 场景:Windows Desktop 点麦克风,getUserMedia 抛 DOMException NotFoundError(没有可用麦克风,
+// 远程桌面未开音频录制重定向时常见)。
+// 期望:按 name 映射成"没有找到可用的麦克风"。
+// 回归:旧实现先取 error.code,DOMException 的旧式数字码 NotFoundError=8 被当成错误码,
+// 落到兜底文案"语音识别失败，请重试。",用户看不出真实原因。
+{
+  const notFound = new DOMException('Requested device not found', 'NotFoundError');
+  assert.equal(notFound.code, 8);
+  assert.equal(speechErrorCode(notFound), 'NotFoundError');
+  assert.match(speechErrorMessage(notFound), /没有找到可用的麦克风/);
+  // NotAllowedError 的旧式数字码是 0,修复前后都按 name 映射。
+  assert.match(speechErrorMessage(new DOMException('Permission denied', 'NotAllowedError')), /麦克风权限被拒绝/);
+}
+// 场景:后端 ApiError 的 code 是字符串,字符串 code 优先于 name。
+// 期望:SPEECH_CONNECTION_FAILED 走已知文案,纯字符串错误也能识别。
+{
+  const apiError = Object.assign(new Error('HTTP 502'), { code: 'SPEECH_CONNECTION_FAILED' });
+  assert.equal(speechErrorCode(apiError), 'SPEECH_CONNECTION_FAILED');
+  assert.match(speechErrorMessage(apiError), /无法连接语音识别服务/);
+  assert.equal(speechErrorCode('SPEECH_BUSY'), 'SPEECH_BUSY');
+}
+// 场景:未映射的错误(例如 AudioContext 抛 InvalidStateError,数字码 11)。
+// 期望:兜底文案带上原始错误名与消息,现场截图就能定位;没有任何信息时保持原兜底文案。
+{
+  const unknown = new DOMException('The AudioContext was not allowed to start', 'InvalidStateError');
+  assert.equal(speechErrorMessage(unknown), '语音识别失败（InvalidStateError: The AudioContext was not allowed to start），请重试。');
+  assert.equal(speechErrorMessage(null), '语音识别失败，请重试。');
+  assert.equal(speechErrorMessage({}), '语音识别失败，请重试。');
+  // 超长消息截断到 160 字符,避免撑爆 toast。
+  const long = Object.assign(new Error('x'.repeat(500)), { name: 'TypeError' });
+  assert.ok(speechErrorMessage(long).length < 180);
 }
 console.log('speechRecognition tests passed');
