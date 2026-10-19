@@ -139,6 +139,7 @@ import './queueCardItem.test.js';
 import './sessionSubscription.test.js';
 import './connectionStatusSubscriptions.test.js';
 import './sessionTranscript.test.js';
+import './sessionTranscriptToolRows.test.js';
 import './sessionHistoryPaging.test.js';
 import './sessionOpenDiagnostics.test.js';
 import { execFileSync as runHookTest } from 'node:child_process';

@@ -110,7 +110,8 @@ ToolBatchOutcome ToolBatchScheduler::execute(
                 // 的调用不再显示伪行,canonical 的 [Interrupted] 由 Phase 3 落盘。
                 transcript_.dispatch_message("tool_call",
                     "[Tool: " + item.call.function_name + "] " +
-                        item.call.function_arguments, true, nlohmann::json::object(), nlohmann::json::array());
+                        item.call.function_arguments, true,
+                    tool_row_metadata(item.call, idx), nlohmann::json::array());
                 try {
                     slots[idx].outcome = futures.get(item.future_index);
                 } catch (const std::exception& e) {
@@ -124,7 +125,7 @@ ToolBatchOutcome ToolBatchScheduler::execute(
                 }
                 batch.doom_guard.record_result(item.call, slots[idx].outcome->result);
                 goal_.account_usage(session_manager_, 0, false);
-                presenter_.display(item.call, slots[idx].outcome->result);
+                presenter_.display(item.call, slots[idx].outcome->result, idx);
             }
 
             futures.join();
@@ -141,14 +142,15 @@ ToolBatchOutcome ToolBatchScheduler::execute(
         LOG_INFO("Tool call (write): " + tc.function_name + " id=" + tc.id);
 
         transcript_.dispatch_message("tool_call",
-                "[Tool: " + tc.function_name + "] " + tc.function_arguments, true, nlohmann::json::object(), nlohmann::json::array());
+                "[Tool: " + tc.function_name + "] " + tc.function_arguments, true,
+                tool_row_metadata(tc, slot.original_index), nlohmann::json::array());
 
         slot.outcome = lifecycle_.run(batch, tc, slot.original_index, true);
         batch.doom_guard.record_result(tc, slot.outcome->result);
         goal_.account_usage(session_manager_, 0, false);
         // 结果行紧跟派发。调用行在执行前已显示(权限确认弹窗需要上下文),
         // 写工具串行执行,顺序天然成对。
-        presenter_.display(tc, slot.outcome->result);
+        presenter_.display(tc, slot.outcome->result, slot.original_index);
         if (slot.outcome->result.terminate_session_after_turn) {
             LOG_INFO("Stopping remaining write tools after terminal session action");
             break;

@@ -5200,6 +5200,16 @@ the messages snapshot carry the current `swarm_mode` too, plus `agent_path`
 `[Error]`) and `summary` otherwise, in both the session list and the chat
 header; they must not derive a title from message bodies.
 
+Each tool call is also mirrored by two display-only `message` events that are
+never persisted: role `tool_call` (content `[Tool: <name>] <arguments>`) before
+the result is collected, and role `tool_result` (the displayed output) after it.
+Both carry `metadata.tool_call_id`, `metadata.tool_index` and
+`metadata.tool_name`, matching the `tool_start` / `tool_end` payloads of the same
+call, and their `id` is distinct per call even when two calls have identical
+content. Clients pair these rows with the structured tool by `tool_call_id`, and
+de-duplicate replayed rows against history (the persisted `assistant.tool_calls`
+and role `tool` result) by the same id rather than by content.
+
 For a successful `task_complete` call, the `tool_end` payload also includes
 `message_id`, the canonical id of the persisted tool-role result. Live and
 trajectory/replay records use the same id so clients can attach copy, fork, and

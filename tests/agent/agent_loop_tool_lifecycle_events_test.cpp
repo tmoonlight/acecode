@@ -605,6 +605,56 @@ TEST(AgentLoopToolLifecycleEvents, ReadOnlySameNameParallelToolsEmitKeyedStartAn
     fs::remove_all(cwd);
 }
 
+// 回归: 工具调用 / 结果伪行(tool_call / tool_result Message 事件)必须带上与
+// tool_start 相同的 call id,且内容相同的两次调用 id 不同。修复前伪行只有内容
+// 哈希 id、没有 call id:Web 只能按全局顺序猜它属于哪个工具行,同样的命令或
+// 输出还会被当成同一条消息合并,进行中的回合就出现一串只有返回的「Tool」行。
+TEST(AgentLoopToolLifecycleEvents, PseudoToolRowsCarryCallIdentity) {
+    auto cwd = make_temp_dir("acecode_lifecycle_pseudo_rows");
+    std::atomic<int> reads{0};
+    std::atomic<int> writes{0};
+    ToolLifecycleHarness h(cwd.string(), PermissionMode::Yolo);
+    h.tools().register_tool(make_probe_tool("ro_probe", true, &reads));
+    h.tools().register_tool(make_fake_bash_tool(&writes));
+
+    ScriptedResponse tools_turn;
+    tools_turn.tool_calls.push_back({"call-r1", "ro_probe", "{}"});
+    tools_turn.tool_calls.push_back({"call-r2", "ro_probe", "{}"});
+    tools_turn.tool_calls.push_back({"call-w1", "bash", R"({"command":"git status"})"});
+    tools_turn.tool_calls.push_back({"call-w2", "bash", R"({"command":"git status"})"});
+    h.provider().push_response(std::move(tools_turn));
+    h.provider().push_text("done");
+
+    ASSERT_TRUE(h.submit_and_wait());
+    EXPECT_EQ(reads.load(), 2);
+    EXPECT_EQ(writes.load(), 2);
+
+    const std::vector<std::string> expected_ids{"call-r1", "call-r2", "call-w1", "call-w2"};
+    for (const std::string role : {"tool_call", "tool_result"}) {
+        std::vector<std::string> call_ids;
+        std::vector<std::string> message_ids;
+        for (const auto& e : h.events_of(SessionEventKind::Message)) {
+            if (e.payload.value("role", std::string{}) != role) continue;
+            ASSERT_TRUE(e.payload.contains("metadata")) << role;
+            const auto& metadata = e.payload["metadata"];
+            const std::string call_id = metadata.value("tool_call_id", std::string{});
+            call_ids.push_back(call_id);
+            message_ids.push_back(e.payload.value("id", std::string{}));
+            const bool is_read = call_id.rfind("call-r", 0) == 0;
+            EXPECT_EQ(metadata.value("tool_name", std::string{}), is_read ? "ro_probe" : "bash");
+            EXPECT_EQ(metadata.value("tool_index", -1),
+                      static_cast<int>(std::find(expected_ids.begin(), expected_ids.end(), call_id) -
+                                       expected_ids.begin()));
+        }
+        EXPECT_EQ(call_ids, expected_ids) << role;
+        ASSERT_EQ(message_ids.size(), 4u) << role;
+        EXPECT_NE(message_ids[0], message_ids[1]) << role << " identical read rows share an id";
+        EXPECT_NE(message_ids[2], message_ids[3]) << role << " identical bash rows share an id";
+    }
+
+    fs::remove_all(cwd);
+}
+
 // 回归: 工具调用回合的 assistant 文本必须作为 Message 事件下发,给前端一个
 // 权威帧整体替换流式草稿。
 //
