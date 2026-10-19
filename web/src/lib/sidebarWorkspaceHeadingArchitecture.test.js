@@ -75,7 +75,7 @@ test('reopening a collapsed workspace always restores the compact five-row sessi
   const sidebar = source('components/Sidebar.jsx');
   const toggleStart = sidebar.indexOf('const onToggle = (hash) => {');
   const toggleEnd = sidebar.indexOf('\n  const onActivate', toggleStart);
-  const activateStart = sidebar.indexOf('const onActivate = useCallback(async (ws) => {');
+  const activateStart = sidebar.indexOf('const onActivate = useStableCallback(async (ws) => {');
   const activateEnd = sidebar.indexOf('\n  useEffect(() => {\n    const requestId = Number(workspaceActivationRequest', activateStart);
   const collapseStart = sidebar.indexOf('sessionListDisclosureCompactRef.current.add(hash);\n    if (collapsing) {');
   assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
@@ -120,7 +120,7 @@ test('workspace folder clicks only disclose and headings have no selected stylin
 
 test('manual session batches survive late data and count only non-pinned rows at the end', () => {
   const sidebar = source('components/Sidebar.jsx');
-  const toggleStart = sidebar.indexOf('const toggleSessionListExpanded = useCallback(');
+  const toggleStart = sidebar.indexOf('const toggleSessionListExpanded = useStableCallback(');
   const toggleEnd = sidebar.indexOf('\n  useEffect(', toggleStart);
   const toggle = sidebar.slice(toggleStart, toggleEnd);
   assert.match(toggle, /const collapsing = action === 'collapse'/);

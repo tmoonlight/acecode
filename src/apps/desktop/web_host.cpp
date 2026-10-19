@@ -2073,6 +2073,52 @@ WebHost::WebCoreInfo detect_platform_web_core_info() {
 }
 #endif
 
+// webview/webview 0.12.0 注入的桥接脚本把每次 window.aceDesktop_* 调用的
+// resolve/reject 存进闭包里的 _promises 表,onReply 处理完却从不删除。页面
+// 每 5 秒推一次托盘菜单、开着办公室再加每 3 秒一次,挂机几天就是几十万条
+// 永久记录。这里在库脚本之后接管同一套 call / onReply(消息格式不变:
+// {id, method, params} 与 onReply(id, status, result)),回包后立即删除。
+// 升级 webview 库时确认上游是否已修,修了就删掉这段。
+constexpr const char kBridgeReplyCleanupScript[] = R"JS((function () {
+  'use strict';
+  var bridge = window.__webview__;
+  var proto = bridge && Object.getPrototypeOf(bridge);
+  if (!proto || typeof proto.post !== 'function' || proto.__acecodeReplyCleanup) return;
+  var pending = new Map();
+  var sequence = 0;
+  proto.call = function (method) {
+    var id = 'ace' + (++sequence).toString(36) + '-' + Math.random().toString(36).slice(2);
+    var params = Array.prototype.slice.call(arguments, 1);
+    var self = this;
+    return new Promise(function (resolve, reject) {
+      pending.set(id, { resolve: resolve, reject: reject });
+      try {
+        self.post(JSON.stringify({ id: id, method: method, params: params }));
+      } catch (error) {
+        pending.delete(id);
+        reject(error);
+      }
+    });
+  };
+  proto.onReply = function (id, status, result) {
+    var entry = pending.get(id);
+    if (!entry) return;
+    pending.delete(id);
+    if (result !== undefined) {
+      try {
+        result = JSON.parse(result);
+      } catch (error) {
+        entry.reject(new Error('Failed to parse binding result as JSON'));
+        return;
+      }
+    }
+    if (status === 0) entry.resolve(result);
+    else entry.reject(result);
+  };
+  proto.__acecodeReplyCleanup = true;
+})();
+)JS";
+
 } // namespace
 
 struct WebHost::Impl {
@@ -2163,7 +2209,7 @@ struct WebHost::Impl {
             // Also cover the WebView-owned fallback window, whose class has no icon.
             apply_host_window_icons(hwnd());
             taskbar_badge = std::make_unique<WindowsTaskbarBadge>(hwnd());
-            configure_browser_defaults(*w, microphone_origin);
+            configure_browser_defaults(*w, microphone_origin, renderer_lifetime.ref(*w));
             // 三层打底(host 类刷 / widget 类刷 / WebView2 合成器)统一走默认色。
             // offscreen 路径的 host 类注册时已带刷,这里等价换新;降级路径
             // (webview 库自建 `webview` 类窗口)的 NULL 刷靠这里补上。
@@ -2218,6 +2264,9 @@ struct WebHost::Impl {
 #endif
 
     ~Impl() {
+#ifdef _WIN32
+        renderer_lifetime.revoke();
+#endif
         window_focus_handler = {};
 #ifdef _WIN32
         taskbar_badge.reset();
@@ -2278,6 +2327,9 @@ struct WebHost::Impl {
     }
 #endif
     std::unique_ptr<webview::webview> w;
+#ifdef _WIN32
+    LifetimeToken renderer_lifetime;
+#endif
 #if !defined(_WIN32) && !defined(__APPLE__)
     bool linux_center_on_first_show = false;
 #endif
@@ -2294,7 +2346,10 @@ struct WebHost::Impl {
 };
 
 WebHost::WebHost(bool debug, StartupWindowMode startup_mode)
-    : impl_(std::make_unique<Impl>(debug, startup_mode)) {}
+    : impl_(std::make_unique<Impl>(debug, startup_mode)) {
+    // 库的桥接脚本在构造时注入,这里紧随其后,早于页面脚本执行。
+    impl_->w->init(kBridgeReplyCleanupScript);
+}
 WebHost::~WebHost() = default;
 
 void WebHost::set_title(const std::string& title) {

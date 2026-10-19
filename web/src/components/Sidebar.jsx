@@ -159,6 +159,8 @@ import { EditWorkspaceModal } from './EditWorkspaceModal.jsx';
 import { WorkspaceIcon } from './WorkspaceIcon.jsx';
 import { resolveWorkspaceIcon } from '../lib/workspaceIcons.js';
 import { syncSidebarListDivider } from '../lib/sidebarListDivider.js';
+import { commitIfChanged, useStructuralState } from '../lib/structuralState.js';
+import { useStableCallback } from '../lib/useStableCallback.js';
 
 const SIDEBAR_SECTIONS_STORAGE_KEY = 'acecode.sidebarSectionsExpanded.v1';
 const SESSION_DRAG_START_PX = 5;
@@ -1818,7 +1820,13 @@ export function Sidebar({
     activeOwner: activeSessionHoverOwner(sessionHoverState),
     dispatch: dispatchSessionHover,
   }), [sessionHoverState]);
-  const [workspaces,  setWorkspaces]  = useState([]);
+  // 5 秒刷新路径上的状态一律「内容没变就不调用 setState」:空闲时刷新不再触发渲染。
+  // 侧栏的 useCallback 会把每次渲染的作用域串成链留在内存里,挂机一两天就把
+  // 渲染进程撑爆;只在 updater 里返回旧值也不行,React 会把 update 留在队列里
+  // (lib/structuralState.js)。带 ref 的状态经 commitIfChanged 写入,所有写入方都同步 ref。
+  // 依赖会变的状态或 props 的回调一律用 useStableCallback,不用 useCallback(fn, [会变的依赖]):
+  // 后者在不同渲染里交替重建,把旧渲染的作用域串成链(lib/useStableCallback.js)。
+  const [workspaces,  setWorkspaces]  = useStructuralState([]);
   const workspacesRef = useRef(workspaces);
   workspacesRef.current = workspaces;
   const [workspaceOrderSaving, setWorkspaceOrderSaving] = useState(false);
@@ -1840,14 +1848,14 @@ export function Sidebar({
       },
     });
   }
-  const [sessions,    setSessions]    = useState([]);
-  const [statusBySession, setStatusBySession] = useState(() => new Map());
+  const [sessions,    setSessions]    = useStructuralState([]);
+  const [statusBySession, setStatusBySession] = useStructuralState(() => new Map());
   const [pinnedByWorkspace, setPinnedByWorkspace] = useState(() => new Map());
   const [pinnedOrderItems, setPinnedOrderItems] = useState([]);
-  const [sessionLoadingWorkspaces, setSessionLoadingWorkspaces] = useState(() => new Set());
+  const [sessionLoadingWorkspaces, setSessionLoadingWorkspaces] = useStructuralState(() => new Set());
   const [sessionLoadedWorkspaces, setSessionLoadedWorkspaces] = useState(() => new Set());
   const [sessionFullyLoadedWorkspaces, setSessionFullyLoadedWorkspaces] = useState(() => new Set());
-  const [sessionListTotals, setSessionListTotals] = useState(() => new Map());
+  const [sessionListTotals, setSessionListTotals] = useStructuralState(() => new Map());
   const [expanded,    setExpanded]    = useState(new Set());
   const [expandedSessionLists, setExpandedSessionLists] = useState(new Map());
   const [expandedSessionGroups, setExpandedSessionGroups] = useState(() => new Map());
@@ -1866,7 +1874,7 @@ export function Sidebar({
     DEFAULT_SIDEBAR_SECTION_EXPANSION,
     validateSidebarSectionExpansion,
   );
-  const [activeWorkspaceHash, setActiveWorkspaceHash] = useState('');
+  const [activeWorkspaceHash, setActiveWorkspaceHash] = useStructuralState('');
   const refreshSelectionRef = useRef(null);
   const refreshingRef = useRef(false);
   const pendingRefreshHashRef = useRef('');
@@ -1964,16 +1972,18 @@ export function Sidebar({
   }, []);
   const acceptSidebarTreePage = useCallback((scope, page) => {
     if (!page?.sidebarTree) return;
-    setExpandedSessionGroups((prev) => {
-      const next = new Map(prev);
-      let changed = false;
+    // 每轮刷新都会走到这里;没有新展开的分组时不能调用 setState。
+    commitIfChanged(expandedSessionGroupsRef, setExpandedSessionGroups, (prev) => {
+      let next = prev;
       for (const session of page.sessions) {
         if (!session.sidebar_expanded || !session.sidebar_child_count) continue;
         const key = `${scope}\u0000${sidebarNodeKey(session)}`;
-        if (next.get(key) !== true) { next.set(key, true); changed = true; }
+        if (next.get(key) !== true) {
+          if (next === prev) next = new Map(prev);
+          next.set(key, true);
+        }
       }
-      if (changed) expandedSessionGroupsRef.current = next;
-      return changed ? next : prev;
+      return next;
     });
     const requestedRoots = (expandedSessionListsRef.current.get(scope) || 5)
       + normalizePinnedIds(pinnedByWorkspaceRef.current.get(scope) || []).length;
@@ -2052,11 +2062,7 @@ export function Sidebar({
   }, []);
 
   const updateExpanded = useCallback((updater) => {
-    setExpanded((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      expandedRef.current = next;
-      return next;
-    });
+    commitIfChanged(expandedRef, setExpanded, updater);
   }, []);
 
   const toggleSidebarSection = useCallback((sectionId) => {
@@ -2106,23 +2112,17 @@ export function Sidebar({
   }, []);
 
   const setPinnedMap = useCallback((updater) => {
-    setPinnedByWorkspace((prev) => {
+    commitIfChanged(pinnedByWorkspaceRef, setPinnedByWorkspace, (prev) => {
       const rawNext = typeof updater === 'function' ? updater(prev) : updater;
-      const next = rawNext instanceof Map ? new Map(rawNext) : new Map(Object.entries(rawNext || {}));
-      pinnedByWorkspaceRef.current = next;
-      return next;
+      return rawNext instanceof Map ? new Map(rawNext) : new Map(Object.entries(rawNext || {}));
     });
   }, []);
 
   const setOpencodeImportPreview = useCallback((hash, preview) => {
     if (!hash) return;
     const normalized = normalizeOpencodeImportPreview(preview || {});
-    setOpencodeImportPreviews((prev) => {
-      const next = new Map(prev);
-      next.set(hash, normalized);
-      opencodeImportPreviewsRef.current = next;
-      return next;
-    });
+    commitIfChanged(opencodeImportPreviewsRef, setOpencodeImportPreviews,
+      (prev) => new Map(prev).set(hash, normalized));
   }, []);
 
   const refreshOpencodeImportPreview = useCallback(async (ws) => {
@@ -2153,12 +2153,8 @@ export function Sidebar({
   }, []);
 
   const setPinnedOrder = useCallback((updater) => {
-    setPinnedOrderItems((prev) => {
-      const rawNext = typeof updater === 'function' ? updater(prev) : updater;
-      const next = normalizePinnedOrderItems(rawNext);
-      pinnedOrderItemsRef.current = next;
-      return next;
-    });
+    commitIfChanged(pinnedOrderItemsRef, setPinnedOrderItems, (prev) => (
+      normalizePinnedOrderItems(typeof updater === 'function' ? updater(prev) : updater)));
   }, []);
 
   const setPinnedWorkspaceIds = useCallback((workspaceHash, ids) => {
@@ -2278,7 +2274,7 @@ export function Sidebar({
     }
   }, [applyPinnedReorder]);
 
-  const handlePinnedPointerDown = useCallback((event, session, title) => {
+  const handlePinnedPointerDown = useStableCallback((event, session, title) => {
     if (folderGestureRef.current) return;
     startSidebarSessionPointerDrag({
       showSessionTime,
@@ -2293,7 +2289,7 @@ export function Sidebar({
       updateDragScroll: updateSessionDragScroll,
       updateDragTarget: updatePinnedDragTarget,
     });
-  }, [finishPinnedDrag, folderGestureRef, showSessionTime, updatePinnedDragTarget, updateSessionDragScroll]);
+  });
 
   const updateWorkspaceDragTarget = useCallback((clientY, clientX) => {
     const drag = workspaceDragRef.current;
@@ -2361,7 +2357,7 @@ export function Sidebar({
     }
   }, [sidebarTreeOptions]);
 
-  const handleWorkspacePointerDown = useCallback((event, session, title) => {
+  const handleWorkspacePointerDown = useStableCallback((event, session, title) => {
     if (folderGestureRef.current || treeSavingRef.current) return;
     startSidebarSessionPointerDrag({
       showSessionTime,
@@ -2376,7 +2372,7 @@ export function Sidebar({
       updateDragScroll: updateSessionDragScroll,
       updateDragTarget: updateWorkspaceDragTarget,
     });
-  }, [finishWorkspaceDrag, folderGestureRef, showSessionTime, updateSessionDragScroll, updateWorkspaceDragTarget]);
+  });
 
   useEffect(() => () => {
     pinnedDragRef.current?.cleanup?.();
@@ -2386,7 +2382,7 @@ export function Sidebar({
     document.body.classList.remove('ace-sidebar-session-reordering');
   }, []);
 
-  const togglePinnedSession = useCallback(async (session, nextPinned) => {
+  const togglePinnedSession = useStableCallback(async (session, nextPinned) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const pinScope = sessionPinScope(session, activeWorkspaceHash);
     if (!id || !pinScope) return;
@@ -2420,7 +2416,7 @@ export function Sidebar({
       setPinnedOrder(previousOrder);
       toast({ kind: 'err', text: (shouldPin ? '置顶失败:' : '取消置顶失败:') + (e.message || '') });
     }
-  }, [activeWorkspaceHash, savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
+  });
 
   const setSessionWorkspaceLoading = useCallback((hashes, loading) => {
     const normalized = Array.from(new Set(Array.from(hashes || []).filter(Boolean)));
@@ -2438,13 +2434,12 @@ export function Sidebar({
   const setSessionWorkspacesLoaded = useCallback((hashes, loaded) => {
     const normalized = Array.from(new Set(Array.from(hashes || []).filter(Boolean)));
     if (normalized.length === 0) return;
-    setSessionLoadedWorkspaces((prev) => {
+    commitIfChanged(sessionLoadedWorkspacesRef, setSessionLoadedWorkspaces, (prev) => {
       const next = new Set(prev);
       for (const hash of normalized) {
         if (loaded) next.add(hash);
         else next.delete(hash);
       }
-      sessionLoadedWorkspacesRef.current = next;
       return next;
     });
   }, []);
@@ -2452,11 +2447,10 @@ export function Sidebar({
   const markWorkspaceSessionsFullyLoaded = useCallback((hash, fullyLoaded) => {
     const workspaceHash = String(hash || '').trim();
     if (!workspaceHash) return;
-    setSessionFullyLoadedWorkspaces((prev) => {
+    commitIfChanged(sessionFullyLoadedWorkspacesRef, setSessionFullyLoadedWorkspaces, (prev) => {
       const next = new Set(prev);
       if (fullyLoaded) next.add(workspaceHash);
       else next.delete(workspaceHash);
-      sessionFullyLoadedWorkspacesRef.current = next;
       return next;
     });
   }, []);
@@ -2491,7 +2485,7 @@ export function Sidebar({
     markWorkspaceSessionsFullyLoaded(hash, page?.hasMore === false);
   }, [acceptSidebarTreePage, markWorkspaceSessionsFullyLoaded, setSessionWorkspacesLoaded]);
 
-  const loadWorkspaceSessions = useCallback(async (hash, { visibleCount, silent = false } = {}) => {
+  const loadWorkspaceSessions = useStableCallback(async (hash, { visibleCount, silent = false } = {}) => {
     const workspaceHash = String(hash || '').trim();
     if (!workspaceHash) return;
     const workspace = workspaces.find((item) => item.hash === workspaceHash)
@@ -2532,7 +2526,7 @@ export function Sidebar({
         setSessionWorkspaceLoading([workspaceHash], false);
       }
     }
-  }, [applyWorkspaceSessionList, setSessionWorkspaceLoading, sidebarTreeOptions, workspaces]);
+  });
 
   treeApplyRef.current = (scope, page) => {
     if (scope !== NO_WORKSPACE_PIN_SCOPE) {
@@ -2555,7 +2549,7 @@ export function Sidebar({
     } catch { toast({ kind: 'err', text: tr('读取会话分组失败，请重试') }); }
   };
 
-  const toggleSessionListExpanded = useCallback((hash, action) => {
+  const toggleSessionListExpanded = useStableCallback((hash, action) => {
     if (!hash) return;
     const collapsing = action === 'collapse';
     // 手动选择批次优先于当前会话的自动揭示，直到发生新的会话导航。
@@ -2578,7 +2572,7 @@ export function Sidebar({
       visibleCount,
       silent: sessionLoadedWorkspaces.has(hash),
     }).catch(() => {});
-  }, [loadWorkspaceSessions, sessionFullyLoadedWorkspaces, sessionLoadedWorkspaces]);
+  });
 
   useEffect(() => {
     const handler = (event) => {
@@ -2917,7 +2911,7 @@ export function Sidebar({
     }));
   }, []);
 
-  const archiveSession = useCallback(async (session) => {
+  const archiveSession = useStableCallback(async (session) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const noWorkspace = isNoWorkspaceSession(session);
     const workspaceHash = noWorkspace ? '' : (session?.workspace_hash || session?.workspaceHash || activeWorkspaceHash || '');
@@ -3002,9 +2996,9 @@ export function Sidebar({
     } finally {
       archiveOperationsRef.current.delete(loadKey);
     }
-  }, [activeWorkspaceHash, cancelSessionSelection, invalidateArchiveLists, notifyArchiveChanged, onOpenHome, onOpenSettingsSection, refreshArchivedScope, savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
+  });
 
-  const renameSession = useCallback(async (session, title) => {
+  const renameSession = useStableCallback(async (session, title) => {
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const noWorkspace = isNoWorkspaceSession(session);
     const workspaceHash = noWorkspace ? '' : (session?.workspace_hash || session?.workspaceHash || activeWorkspaceHash || '');
@@ -3031,7 +3025,7 @@ export function Sidebar({
     }));
     toast({ kind: 'ok', text: title.trim() ? '已重命名' : '已清除标题' });
     refresh(workspaceHash).catch(() => {});
-  }, [activeWorkspaceHash, refresh]);
+  });
 
   useEffect(() => {
     refresh();
@@ -3335,7 +3329,7 @@ export function Sidebar({
     }
   }, [activeId]);
 
-  const markSessionRead = useCallback((session) => {
+  const markSessionRead = useStableCallback((session) => {
     if (!session?.id) return;
     if (manualUnreadActiveRef.current === session.id) manualUnreadActiveRef.current = '';
     const merged = mergeSessionStatus(session, statusBySession);
@@ -3348,9 +3342,9 @@ export function Sidebar({
     const optimistic = optimisticReadStatus(merged);
     if (optimistic) desktopTaskbarBadge.updateStatus(optimistic);
     if (optimistic) setStatusBySession((prev) => applyStatusUpdate(prev, optimistic));
-  }, [statusBySession]);
+  });
 
-  const markSessionUnread = useCallback((session) => {
+  const markSessionUnread = useStableCallback((session) => {
     if (!session?.id) return;
     const merged = mergeSessionStatus(session, statusBySession);
     if (merged.id === activeId) manualUnreadActiveRef.current = merged.id;
@@ -3361,7 +3355,7 @@ export function Sidebar({
     const optimistic = optimisticUnreadStatus(merged);
     if (optimistic) desktopTaskbarBadge.updateStatus(optimistic);
     if (optimistic) setStatusBySession((prev) => applyStatusUpdate(prev, optimistic));
-  }, [activeId, statusBySession]);
+  });
 
   useEffect(() => {
     if (!activeId) return;
@@ -3420,7 +3414,7 @@ export function Sidebar({
     }
   };
 
-  const onActivate = useCallback(async (ws) => {
+  const onActivate = useStableCallback(async (ws) => {
     if (onBeforeNavigate && !await onBeforeNavigate({ home: true, workspaceHash: ws.hash || '', cwd: ws.cwd || '' })) return;
     cancelSessionSelection();
     workspaceCollapseAllRef.current = false;
@@ -3455,7 +3449,7 @@ export function Sidebar({
         refresh(ws.hash).catch(() => {});
       }
     } catch (e) { toast({ kind: 'err', text: '切换异常:' + (e.message || '') }); }
-  }, [cancelSessionSelection, onBeforeNavigate, onOpenHome, refresh, setSessionWorkspaceLoading, updateExpanded]);
+  });
 
   useEffect(() => {
     const requestId = Number(workspaceActivationRequest?.requestId || 0);
@@ -3608,7 +3602,7 @@ export function Sidebar({
     tick();
   }, [flashOpencodeImportedSessions, refresh, refreshOpencodeImportPreview]);
 
-  const confirmOpencodeImport = useCallback(async () => {
+  const confirmOpencodeImport = useStableCallback(async () => {
     const ws = opencodeImportDialog?.workspace;
     if (!ws?.hash) return;
     const selectedSessionIds = Array.isArray(opencodeImportDialog?.selectedSessionIds)
@@ -3634,7 +3628,7 @@ export function Sidebar({
         ? { ...prev, phase: 'error', error: e.message || '启动导入失败' }
         : prev);
     }
-  }, [opencodeImportDialog, pollOpencodeImportJob]);
+  });
 
   const closeOpencodeImportDialog = useCallback(() => {
     if (opencodeImportPollRef.current) {
@@ -3814,7 +3808,7 @@ export function Sidebar({
     await refresh();
   };
 
-  const openNewTaskInWorkspace = useCallback(async (ws) => {
+  const openNewTaskInWorkspace = useStableCallback(async (ws) => {
     const workspaceHash = ws?.hash || '';
     if (!workspaceHash) return;
     if (onBeforeNavigate && !await onBeforeNavigate({ home: true, workspaceHash, cwd: ws.cwd || '' })) return;
@@ -3835,7 +3829,7 @@ export function Sidebar({
       active: item.hash === workspaceHash,
     })));
     onOpenHome?.(ws, { composerFeedback: true });
-  }, [cancelSessionSelection, onBeforeNavigate, onOpenHome, updateExpanded]);
+  });
 
   const onAddWorkspace = async () => {
     try {
@@ -3848,7 +3842,7 @@ export function Sidebar({
     }
   };
 
-  const collapseAllWorkspaces = useCallback(() => {
+  const collapseAllWorkspaces = useStableCallback(() => {
     workspaceCollapseAllRef.current = true;
     updateExpanded(new Set());
     for (const hash of sidebarWorkspaceListKeys(workspaces)) {
@@ -3858,7 +3852,7 @@ export function Sidebar({
     setExpandedSessionLists((previous) => (
       expandedSessionListsAfterWorkspaceCollapseAll(previous, workspaces)
     ));
-  }, [updateExpanded, workspaces]);
+  });
 
   const sidebarNavCallbacks = {
     onNewTask: () => {

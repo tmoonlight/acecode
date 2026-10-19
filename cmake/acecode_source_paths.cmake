@@ -86,6 +86,9 @@ set(ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES
 set(ACECODE_MICROPHONE_PERMISSION_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/microphone_permission_smoke.cpp
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE})
+set(ACECODE_RENDERER_RECOVERY_SMOKE_SOURCES
+    ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/renderer_recovery_smoke.cpp
+    ${ACECODE_DESKTOP_WEB_HOST_SOURCE})
 set(ACECODE_AGENT_BROWSER_POINTER_DEMO_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/agent_browser_pointer_demo.cpp
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE}

@@ -17,6 +17,7 @@ import {
   SUBTITLE_LIMIT,
   __setTimerFnsForTest,
   __resetTimerFnsForTest,
+  __setNowForTest,
   __peekQueuedPayloadForTest,
   __resetForTest,
 } from './desktopTrayMenu.js';
@@ -227,6 +228,76 @@ run('pushTrayMenu debounce:多次连续调用合并成最后一次 payload', () 
   if (pendingFn) pendingFn();
   assert.equal(captured.length, 1);
   assert.equal(captured[0].recent[0].session_id, 'c');
+
+  global.window = prev;
+  __resetTimerFnsForTest();
+  __resetForTest();
+});
+
+// 场景:侧栏每 5 秒刷新一次,托盘内容没变也会调 pushTrayMenu。webview 0.12.0
+// 的桥接每次调用都留下一条永不释放的 Promise 记录,Desktop 挂机几天会累积成
+// 几十万条。期望:相同内容 60 秒内只过一次桥,内容变化立即推送,超过 60 秒
+// 照样重推一次(native 切工作区时会自行清空托盘缓存)。
+run('pushTrayMenu 相同内容不重复过桥,变化立即推送,60 秒后重推', () => {
+  __resetForTest();
+  let now = 1_000;
+  __setNowForTest(() => now);
+  __setTimerFnsForTest({
+    setTimeout: (fn) => { fn(); return 1; },
+    clearTimeout: () => {},
+  });
+  const captured = [];
+  const prev = global.window;
+  global.window = {
+    aceDesktop_setTrayMenu: (json) => { captured.push(JSON.parse(json)); },
+  };
+  const push = (id) => pushTrayMenu({
+    sessions: [{ id, title: id }],
+    pinnedByWorkspace: new Map(),
+    workspaceName: 'w',
+  });
+
+  push('a');
+  now += 5_000;
+  push('a');
+  now += 5_000;
+  push('a');
+  assert.equal(captured.length, 1);
+
+  push('b');
+  assert.equal(captured.length, 2);
+  assert.equal(captured[1].recent[0].session_id, 'b');
+
+  now += 60_000;
+  push('b');
+  assert.equal(captured.length, 3);
+
+  global.window = prev;
+  __resetTimerFnsForTest();
+  __resetForTest();
+});
+
+// 场景:桥调用抛错(native 侧异常)。期望:不记为已发送,下一次相同内容会重试。
+run('pushTrayMenu 桥调用失败时不记为已发送', () => {
+  __resetForTest();
+  __setTimerFnsForTest({
+    setTimeout: (fn) => { fn(); return 1; },
+    clearTimeout: () => {},
+  });
+  let calls = 0;
+  let fail = true;
+  const prev = global.window;
+  global.window = {
+    aceDesktop_setTrayMenu: () => {
+      calls += 1;
+      if (fail) throw new Error('bridge down');
+    },
+  };
+  const payload = { sessions: [{ id: 'a', title: 'A' }], pinnedByWorkspace: new Map(), workspaceName: 'w' };
+  pushTrayMenu(payload);
+  fail = false;
+  pushTrayMenu(payload);
+  assert.equal(calls, 2);
 
   global.window = prev;
   __resetTimerFnsForTest();

@@ -31,7 +31,7 @@ test('workspace new-task actions route to the shared lazy home entry point', () 
   const sidebar = source('components/Sidebar.jsx');
   const openFlow = section(
     sidebar,
-    'const openNewTaskInWorkspace = useCallback(async (ws) => {',
+    'const openNewTaskInWorkspace = useStableCallback(async (ws) => {',
     '\n  const onAddWorkspace = async',
   );
 
