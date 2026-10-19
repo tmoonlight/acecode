@@ -55,7 +55,16 @@ void ToolResultPresenter::materialize_attachments(ToolResult& result) {
         materialized.warnings.end());
 }
 
-void ToolResultPresenter::display(const ToolCall& tc, const ToolResult& result) {
+nlohmann::json tool_row_metadata(const ToolCall& call, std::size_t tool_index) {
+    return {
+        {"tool_call_id", call.id},
+        {"tool_index", tool_index},
+        {"tool_name", call.function_name},
+    };
+}
+
+void ToolResultPresenter::display(
+    const ToolCall& tc, const ToolResult& result, std::size_t tool_index) {
     const auto callbacks = callbacks_.snapshot();
     std::string display_output = result.output;
     std::string ask_display =
@@ -71,7 +80,8 @@ void ToolResultPresenter::display(const ToolCall& tc, const ToolResult& result) 
         }
         display_output += attachment_fallback;
     }
-    transcript_.dispatch_message("tool_result", display_output, true, nlohmann::json::object(), nlohmann::json::array());
+    transcript_.dispatch_message("tool_result", display_output, true,
+        tool_row_metadata(tc, tool_index), nlohmann::json::array());
     if (callbacks.on_tool_result) {
         ChatMessage call_msg;
         call_msg.role = "tool_call";

@@ -56,6 +56,16 @@ void TranscriptWriter::dispatch_message(const std::string& role,
     ChatMessage tmp;
     tmp.role    = role;
     tmp.content = content;
+    // 工具调用 / 结果伪行不落盘,id 只用于前端去重。带 tool_call_id 时把它并进
+    // id 依据:同样的命令或同样的输出(git status、"OK")若共用内容哈希,前端会把
+    // 后一次调用当成已有消息原位合并,工具行就少了一半、只剩无名的返回。
+    if (metadata.is_object()) {
+        const auto call_id = metadata.find("tool_call_id");
+        if (call_id != metadata.end() && call_id->is_string() &&
+            !call_id->get_ref<const std::string&>().empty()) {
+            tmp.timestamp = "tool_call_id:" + call_id->get<std::string>();
+        }
+    }
     if (content_parts.is_array() && !content_parts.empty()) {
         tmp.content_parts = content_parts;
     }

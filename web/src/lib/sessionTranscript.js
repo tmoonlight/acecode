@@ -37,6 +37,36 @@ function replayMessageKey(payload) {
     : messageKey(payload?.role || 'system', payload?.content || '');
 }
 
+// 工具调用 / 结果伪行:daemon 的 tool_call / tool_result message 事件只为界面
+// 展示、不落盘。新 daemon 在 metadata 里带与 tool_start 相同的 tool_call_id,
+// 投影据此把它们配到结构化工具行上;没有 id 时只能按全局顺序猜,一旦对不上,
+// 结果就成了没有工具名、只有返回的「Tool」行。
+const PSEUDO_TOOL_ROLES = new Set(['tool_call', 'tool_result']);
+
+function itemToolCallId(item) {
+  return String(item?.toolCallId ?? item?.tool_call_id ?? item?.metadata?.tool_call_id ?? '').trim();
+}
+
+function pseudoToolRowCallId(payload) {
+  if (!PSEUDO_TOOL_ROLES.has(payload?.role)) return '';
+  return String(payload?.metadata?.tool_call_id ?? payload?.tool_call_id ?? '').trim();
+}
+
+// 回放去重:这次调用的请求(或结果)是否已经在转录里 —— 历史的 tool_call 包装、
+// 落盘的结果条目、或已收尾的结构化工具行。内容相同的两次调用 id 不同,互不吞并。
+function transcriptHasToolRow(items, role, callId) {
+  return items.some((item) => {
+    if (item?.kind === 'tool') {
+      return role === 'tool_result' && item.tool?.isDone === true
+        && String(item.tool?.toolCallId || '') === callId;
+    }
+    if (item?.kind !== 'msg' || itemToolCallId(item) !== callId) return false;
+    return role === 'tool_call'
+      ? item.role === 'tool_call'
+      : item.role === 'tool_result' || item.role === 'tool';
+  });
+}
+
 // 回放(REST since=N 补拉 / WS 带游标订阅)时 token / reasoning 先攒着,直到看见
 // 能决定它们归属的事件再 flush。旧写法是「遇到任何非流式事件就 flush」,但 daemon
 // 在最后一个 token 与 assistant message 事件之间恒有一条 usage(chat_stream 一返回
@@ -910,24 +940,28 @@ function historyItemsFromMessage(next, m, messageIndex) {
 
   for (let i = 0; i < toolCalls.length; i += 1) {
     const call = normalizePersistedToolCall(toolCalls[i], i);
-    items.push(genericHistoryMessageItem(next, m, {
-      messageId: persistedToolCallMessageId(m, messageIndex, call),
-      role: 'tool_call',
-      content: persistedToolCallContent(call),
-      contentParts: [],
-      metadata: {
-        ...(m?.metadata && typeof m.metadata === 'object' && !Array.isArray(m.metadata) ? m.metadata : {}),
-        tool_call_id: call.toolCallId,
-        tool_index: call.toolIndex,
-      },
-      ts: transcriptTimestampMs(m) || Date.now(),
-      toolCallId: call.toolCallId,
-      toolIndex: call.toolIndex,
-      messageOrdinal: rawOrdinal,
-    }));
+    items.push(persistedToolCallItem(next, m, messageIndex, call, rawOrdinal));
   }
 
   return items;
+}
+
+function persistedToolCallItem(next, m, messageIndex, call, messageOrdinalValue = null) {
+  return genericHistoryMessageItem(next, m, {
+    messageId: persistedToolCallMessageId(m, messageIndex, call),
+    role: 'tool_call',
+    content: persistedToolCallContent(call),
+    contentParts: [],
+    metadata: {
+      ...(m?.metadata && typeof m.metadata === 'object' && !Array.isArray(m.metadata) ? m.metadata : {}),
+      tool_call_id: call.toolCallId,
+      tool_index: call.toolIndex,
+    },
+    ts: transcriptTimestampMs(m) || Date.now(),
+    toolCallId: call.toolCallId,
+    toolIndex: call.toolIndex,
+    messageOrdinal: messageOrdinalValue,
+  });
 }
 
 // 工具前言(add-tool-preamble):assistant 正文里的 <text_preamble> 标签只在实时
@@ -1257,7 +1291,17 @@ export function applyTranscriptReplayEvents(state, events = []) {
       pendingStreamEvents.push(ev);
       continue;
     }
-    if (ev?.type === 'message') {
+    if (ev?.type === 'message' && pseudoToolRowCallId(ev.payload)) {
+      // REST 历史已含这次调用(assistant.tool_calls 展开的包装 / 落盘结果)时,
+      // 回放的伪行是副本:结果伪行与历史的 role:tool 不同名,按内容 key 拦不住,
+      // 曾在切进运行中会话时追加出一串无名「Tool」行。按 call id 判重。
+      const p = ev.payload;
+      if (transcriptHasToolRow(next.items, p.role, pseudoToolRowCallId(p))) {
+        pendingStreamEvents = [];
+        markEventSeqApplied(next, ev);
+        continue;
+      }
+    } else if (ev?.type === 'message') {
       const p = ev.payload || {};
       const occurrenceIdentity = messageEventUsesOccurrenceIdentity(p);
       const incomingMessageId = p.id || '';
@@ -1578,7 +1622,14 @@ export function reduceTranscriptEvent(state, msg) {
       const incomingMessageId = p.id || '';
       // Persisted errors carry a unique occurrence ID. Legacy errors still use
       // sequence identity because their content-derived IDs can repeat.
-      const existingIndex = incomingMessageId && !messageEventUsesOccurrenceIdentity(p)
+      // 实时的工具伪行每条都是一次新调用:旧 daemon 的 id 是内容哈希,同一条
+      // git status 或同样的 "OK" 输出会撞 id,原位合并就把这次调用吞掉了。
+      // 回放帧的去重仍按 id(见 applyTranscriptReplayEvents)。
+      const livePseudoToolRow = PSEUDO_TOOL_ROLES.has(role) && msg?.replayed !== true;
+      // WS 带游标重连的回放帧不经 applyTranscriptReplayEvents,同样按 call id 判重。
+      if (!livePseudoToolRow && pseudoToolRowCallId(p)
+          && transcriptHasToolRow(next.items, role, pseudoToolRowCallId(p))) break;
+      const existingIndex = incomingMessageId && !messageEventUsesOccurrenceIdentity(p) && !livePseudoToolRow
         ? next.items.findIndex((item) => item.kind === 'msg' && item.messageId === incomingMessageId)
         : -1;
       if (existingIndex >= 0) {
@@ -1941,6 +1992,7 @@ export function reduceTranscriptEvent(state, msg) {
 
 
 export const HISTORY_PAGE_SIZE = 200;
+const ORPHAN_TOOL_REPAIR_DELAY_MS = 600;
 
 // Prepending keeps every existing item ID (and therefore the DOM/window anchor).
 // Runtime events remain owned by the live store while disk pages arrive.
@@ -1963,6 +2015,68 @@ export function mergeTranscriptHistoryPage(state, data = {}, direction = 'before
   } else {
     next.historyAfter = data.after || current.historyAfter;
   }
+  return next;
+}
+
+// 兜底:实时转录当前回合里只有返回、没有请求的工具行。结果伪行带着 call id,
+// 但这次调用的 tool_start 与 tool_call 伪行没送到 —— 手机锁屏后重连时缺口超出
+// 事件环,或订阅晚于历史快照。请求(assistant.tool_calls)在调用执行前就已落盘,
+// 用 REST 尾页给这些结果补一条与历史同形的 tool_call 包装,不必等回合结束自愈。
+function currentTurnStartIndex(items) {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (items[i]?.kind === 'msg' && items[i].role === 'user') return i + 1;
+  }
+  return 0;
+}
+
+export function orphanToolResultCallIds(items = []) {
+  const list = Array.isArray(items) ? items : [];
+  const requested = new Set();
+  const results = [];
+  for (let i = currentTurnStartIndex(list); i < list.length; i += 1) {
+    const item = list[i];
+    if (item?.kind === 'tool') {
+      const id = String(item.tool?.toolCallId || '').trim();
+      if (id) requested.add(id);
+      continue;
+    }
+    const id = item?.kind === 'msg' ? itemToolCallId(item) : '';
+    if (!id) continue;
+    if (item.role === 'tool_call') requested.add(id);
+    else if (item.role === 'tool_result' || item.role === 'tool') results.push(id);
+  }
+  return [...new Set(results.filter((id) => !requested.has(id)))];
+}
+
+export function repairOrphanToolRequests(state, messages = []) {
+  const current = state || createTranscriptState();
+  const orphanIds = new Set(orphanToolResultCallIds(current.items));
+  if (orphanIds.size === 0) return current;
+  const calls = new Map();
+  (Array.isArray(messages) ? messages : []).forEach((message, messageIndex) => {
+    if (message?.role !== 'assistant' || !Array.isArray(message.tool_calls)) return;
+    message.tool_calls.forEach((raw, index) => {
+      const call = normalizePersistedToolCall(raw, index);
+      if (call.toolCallId && call.name && orphanIds.has(call.toolCallId)) {
+        calls.set(call.toolCallId, { message, messageIndex, call });
+      }
+    });
+  });
+  if (calls.size === 0) return current;
+
+  const next = cloneState(current);
+  const turnStart = currentTurnStartIndex(current.items);
+  const items = [];
+  current.items.forEach((item, index) => {
+    const isResult = item?.kind === 'msg' && (item.role === 'tool_result' || item.role === 'tool');
+    const found = index >= turnStart && isResult ? calls.get(itemToolCallId(item)) : null;
+    if (found) {
+      items.push(persistedToolCallItem(next, found.message, found.messageIndex, found.call));
+      calls.delete(found.call.toolCallId);
+    }
+    items.push(item);
+  });
+  next.items = items;
   return next;
 }
 
@@ -2040,7 +2154,14 @@ export function loadTranscriptHistory(state, data = {}, requestState = state) {
       pendingStreamEvents.push(ev);
       continue;
     }
-    if (ev?.type === 'message') {
+    if (ev?.type === 'message' && pseudoToolRowCallId(ev.payload)) {
+      const p = ev.payload;
+      if (transcriptHasToolRow(next.items, p.role, pseudoToolRowCallId(p))) {
+        pendingStreamEvents = [];
+        markEventSeqApplied(next, ev);
+        continue;
+      }
+    } else if (ev?.type === 'message') {
       const p = ev.payload || {};
       const occurrenceIdentity = messageEventUsesOccurrenceIdentity(p);
       const key = replayMessageKey(p);
@@ -2241,6 +2362,8 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const historyScopeRef = useRef(null);
   const loadingHistoryRef = useRef(false);
   const pendingHistoryEventsRef = useRef([]);
+  const orphanRepairRef = useRef({ sid, attempted: new Set(), timer: null });
+  if (orphanRepairRef.current.sid !== sid) orphanRepairRef.current = { sid, attempted: new Set(), timer: null };
   sessionRefRef.current = ref;
   const refreshSignatureRef = useRef('');
   // 卡住检测(transcriptLiveWatchdog.js)的可变现场:最近一次收到本会话事件的时间、
@@ -2583,6 +2706,27 @@ export function useSessionTranscript(sessionRef, options = {}) {
     // 已按 port/token/workspaceHash memo)。实时性单独更新,不会取消仍在途的
     // 磁盘加载;成为实时会话时由下方 WebSocket 订阅回放补齐事件。
   }, [api, sid]);
+
+  // 只有返回、没有请求的工具行:稍等片刻(同批结果常连着到)后拉一次 REST 尾页
+  // 补请求。每个 call id 只试一次,尾页里也没有时保留占位,回合结束自愈兜底。
+  // 计时器不随 items 变化重置:流式 token 每帧都改 items,重置会让它永远等不到。
+  useEffect(() => {
+    if (!sid || !isLive || stateSessionIdRef.current !== sid || state.loadState !== 'loaded') return;
+    const repair = orphanRepairRef.current;
+    const pending = orphanToolResultCallIds(state.items).filter((id) => !repair.attempted.has(id));
+    if (pending.length === 0) return;
+    pending.forEach((id) => repair.attempted.add(id));
+    if (repair.timer) return;
+    const scope = historyScopeRef.current;
+    repair.timer = setTimeout(() => {
+      repair.timer = null;
+      if (orphanRepairRef.current !== repair || historyScopeRef.current !== scope) return;
+      api.getMessages(sid, { limit: HISTORY_PAGE_SIZE }).then((data) => {
+        if (orphanRepairRef.current !== repair || historyScopeRef.current !== scope) return;
+        store.commit((current) => repairOrphanToolRequests(current, data?.messages));
+      }).catch(() => {});
+    }, ORPHAN_TOOL_REPAIR_DELAY_MS);
+  }, [api, isLive, sid, state.items, state.loadState, store]);
 
   useEffect(() => {
     if (!sid || stateSessionIdRef.current !== sid || state.loadState !== 'loaded') return undefined;
