@@ -886,6 +886,10 @@ void WebServer::Impl::register_sessions() {
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/sessions/<string>/runtime").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
 
         CROW_ROUTE(app, "/api/sessions/<string>/messages/retry").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
@@ -1332,6 +1336,30 @@ void WebServer::Impl::register_sessions() {
                 return with_cors(req, crow::response(204));
             }
             return purge_session_data(req, compatibility_workspace(), id);
+        });
+
+        // GET /api/sessions/:id/runtime: 前端卡住检测的轻量探针。只读内存,不碰磁盘:
+        // 页面认为回合还在跑、却很久没收到事件时,用它核对服务端是否真的还忙、
+        // 事件 seq 走到了哪、分发器实例是否换过。会话未加载时 active=false、busy=false。
+        CROW_ROUTE(app, "/api/sessions/<string>/runtime").methods(crow::HTTPMethod::GET)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            json body{{"session_id", id}, {"active", false}, {"busy", false}};
+            if (deps.session_registry) {
+                if (auto entry = deps.session_registry->acquire(id)) {
+                    if (entry->loop) {
+                        body["active"] = true;
+                        body["busy"] = entry->loop->is_busy();
+                        const std::string active_turn_id = entry->loop->active_turn_id();
+                        if (!active_turn_id.empty()) body["active_turn_id"] = active_turn_id;
+                        append_session_event_cursor(body, *entry->loop);
+                    }
+                }
+            }
+            crow::response response(body.dump());
+            response.add_header("Content-Type", "application/json");
+            response.add_header("Cache-Control", "no-store");
+            return with_cors(req, std::move(response));
         });
 
         // GET /api/sessions/:id/messages?since=N: 拉历史 + 缓存事件。spec 9.6

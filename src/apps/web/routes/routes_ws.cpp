@@ -195,6 +195,17 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
             if (!parent_session_id.empty()) {
                 ack["payload"]["parent_session_id"] = parent_session_id;
             }
+            // 回执带上服务端当前 seq 与分发器实例号:客户端据此发现自己保存的
+            // seq 属于已经不存在的实例(daemon 重启 / 会话运行实体重建),
+            // 清零游标,不再把新实例的事件当成过期帧丢掉。回放先于回执送达,
+            // 所以这里的 seq 不小于本次回放里的任何一帧。
+            if (deps.session_registry) {
+                if (auto cursor_entry = deps.session_registry->acquire(sid)) {
+                    if (cursor_entry->loop) {
+                        append_session_event_cursor(ack["payload"], *cursor_entry->loop);
+                    }
+                }
+            }
             conn.send_text(ack.dump());
         };
 

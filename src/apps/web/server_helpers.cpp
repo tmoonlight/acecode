@@ -1023,6 +1023,14 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
     return o;
 }
 
+void WebServer::Impl::append_session_event_cursor(json& wrapper, AgentLoop& loop) {
+    // event_seq 是该会话事件分发器当前最大 seq,event_epoch 是分发器实例号:
+    // daemon 重启或会话运行实体重建后 seq 从 1 重新数,前端靠 epoch 变化 /
+    // seq 回退发现手里的游标作废(否则新事件全被当成过期帧丢弃)。
+    wrapper["event_seq"] = loop.events().current_seq();
+    wrapper["event_epoch"] = loop.events().instance_id();
+}
+
 void WebServer::Impl::append_session_runtime_snapshot(json& wrapper,
                                                         const std::string& session_id) const {
     if (session_id.empty()) return;
@@ -1042,6 +1050,8 @@ void WebServer::Impl::append_session_runtime_snapshot(json& wrapper,
                 if (!active_turn_id.empty()) {
                     wrapper["active_turn_id"] = active_turn_id;
                 }
+                // 前端卡住检测拿它与自己已应用到的 seq 对账(见 append_session_event_cursor)。
+                append_session_event_cursor(wrapper, *entry->loop);
             }
             if (entry->sm) {
                 meta = entry->sm->load_session_meta(session_id);

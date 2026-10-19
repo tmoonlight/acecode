@@ -90,6 +90,11 @@ public:
     // 当前最大 seq(用于客户端记录"我看到哪了")。
     std::uint64_t current_seq() const { return seq_counter_.load(); }
 
+    // 本分发器实例的编号,构造时随机生成、之后不变。seq 只在同一实例内单调:
+    // daemon 重启或会话运行实体重建后 seq 会从 1 重新数,客户端靠这个编号发现
+    // 「手里的 seq 属于旧实例」,否则新事件会被当成过期帧全部丢弃。
+    const std::string& instance_id() const { return instance_id_; }
+
     // 测试用: 当前活跃 listener 数。
     std::size_t listener_count() const;
 
@@ -126,6 +131,7 @@ private:
     void push_to_buffer(const SessionEvent& evt, const std::string& coalesce_key = {});
     void erase_buffered_event(std::deque<BufferedEvent>::iterator it);
 
+    const std::string          instance_id_;
     std::atomic<std::uint64_t> seq_counter_{0};
     std::atomic<SubscriptionId> next_sub_id_{1};
     SessionActivityState activity_; // Guarded by mu_, no callbacks or IO.

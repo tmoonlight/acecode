@@ -439,6 +439,7 @@ struct WebServer::Impl {
     nlohmann::json session_info_to_json(const SessionInfo& s, const SessionMeta* m) const;
     nlohmann::json session_meta_to_json(const SessionMeta& m, const std::string& workspace_hash) const;
     void append_session_runtime_snapshot(nlohmann::json& wrapper, const std::string& session_id) const;
+    static void append_session_event_cursor(nlohmann::json& wrapper, AgentLoop& loop);
     ParsedSessionUserInputRequest parse_session_user_input_request(
         const std::string& body,
         const std::string& session_id,

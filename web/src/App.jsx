@@ -479,6 +479,14 @@ export function App() {
     void reconcileAgentBrowserPageStore();
     return dispose;
   }, []);
+  // WS 心跳超时被迫重连时,连接层把现场交给这里报到 daemon 日志([transcript-stall])。
+  // 连接层自己不发 HTTP;base 带着连接当前指向的端口与 token。
+  useEffect(() => {
+    connection.setDiagnosticsReporter((payload, base) => (
+      createApi(base?.port ? base : null).reportTranscriptStall(payload)
+    ));
+    return () => connection.setDiagnosticsReporter(null);
+  }, []);
   const healthRef = useRef(health);
   const subagentIndexRef = useRef(subagentIndex);
   const subagentDirectoryRef = useRef(subagentDirectory);

@@ -1,4 +1,5 @@
 #include "web/server_impl.hpp"
+#include "web/handlers/transcript_stall_report.hpp"
 #include "session/session_data_diagnostics.hpp"
 #include "session/session_load_metrics.hpp"
 
@@ -10,6 +11,8 @@ void WebServer::Impl::register_session_diagnostics() {
     CROW_ROUTE(app, "/api/diagnostics/sessions").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/diagnostics/session-open").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req) { return cors_preflight(req); });
+    CROW_ROUTE(app, "/api/diagnostics/transcript-stall").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req) { return cors_preflight(req); });
 
     CROW_ROUTE(app, "/api/diagnostics/sessions").methods(crow::HTTPMethod::GET)
@@ -57,6 +60,24 @@ void WebServer::Impl::register_session_diagnostics() {
         };
         const auto level = body["elapsed_ms"].get<double>() > 500 ? LogLevel::Warn : LogLevel::Dbg;
         Logger::instance().log(level, __FILE__, __LINE__, "[session-load] " + payload.dump());
+        return with_cors(req, crow::response(204));
+    });
+
+    // 前端实时状态卡住 / WS 心跳超时 / 事件游标被重置时的现场。只记日志,不改状态;
+    // 字段白名单见 transcript_stall_report.hpp。
+    CROW_ROUTE(app, "/api/diagnostics/transcript-stall").methods(crow::HTTPMethod::POST)
+    ([this](const crow::request& req) {
+        if (auto rejected = require_auth(req)) return std::move(*rejected);
+        const auto invalid = [&] {
+            crow::response response(400, R"({"error":"BAD_REQUEST","message":"Invalid transcript-stall report"})");
+            response.add_header("Content-Type", "application/json");
+            return with_cors(req, std::move(response));
+        };
+        if (req.body.size() > 4096) return invalid();
+        const auto body = nlohmann::json::parse(req.body, nullptr, false);
+        const auto report = sanitize_transcript_stall_report(body);
+        if (!report) return invalid();
+        LOG_WARN("[transcript-stall] " + report->dump());
         return with_cors(req, crow::response(204));
     });
 }

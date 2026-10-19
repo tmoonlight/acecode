@@ -355,6 +355,8 @@ export function createApi(base = null) {
   const client = {
     health:           ()             => request('GET',    '/api/health', undefined, base),
     reportSessionOpen: (measurement) => request('POST', '/api/diagnostics/session-open', measurement, base, { timeoutMs: 2000 }),
+    // 实时状态卡住 / WS 心跳超时 / 事件游标重置的现场,daemon 记一行 WARN 日志。
+    reportTranscriptStall: (report) => request('POST', '/api/diagnostics/transcript-stall', report, base, { timeoutMs: 2000 }),
     // 模型池负载快照(每 30s 轮询展示精确匹配 modelPoolName 的负载)。
     modelPoolStatus:  ()             => request('GET',    '/api/model-pool-status', undefined, base),
     // 控制台 PTY(add-console-dock):loopback-only,daemon 端 16 会话上限(429)。
@@ -564,6 +566,14 @@ export function createApi(base = null) {
       sessionMessagesPath(id, since, base, workspaceHash),
       undefined,
       base,
+    ),
+    // 卡住检测的轻量探针:只读 daemon 内存里的 busy / 当前回合 id / 事件游标,不碰磁盘。
+    getSessionRuntime: (id) => request(
+      'GET',
+      `/api/sessions/${encodeURIComponent(id)}/runtime`,
+      undefined,
+      base,
+      { timeoutMs: 5000 },
     ),
     getTrajectory:    (id, options={}) => request(
       'GET',

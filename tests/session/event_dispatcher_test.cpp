@@ -474,3 +474,17 @@ TEST(EventDispatcher, ExplicitZeroReplayIncludesFirstEventWithoutChangingLegacyZ
     dispatcher.unsubscribe_and_wait(a);
     dispatcher.unsubscribe_and_wait(b);
 }
+
+// 场景:daemon 重启或会话运行实体重建后,新分发器的 seq 又从 1 开始。前端只看 seq 时
+// 无从分辨「这是新实例的第 3 帧」还是「旧实例早就过去的第 3 帧」,会把新事件当成
+// 过期帧全部丢掉(界面停在「正在推理」)。期望:每个实例有非空且互不相同的实例号,
+// 同一实例的实例号在 emit 前后保持不变,订阅回执 / 运行状态探针据此让前端发现游标作废。
+TEST(EventDispatcher, InstanceIdIsStableWithinAndDistinctAcrossInstances) {
+    EventDispatcher first;
+    EventDispatcher second;
+    const std::string before = first.instance_id();
+    first.emit(SessionEventKind::Token, {{"text", "a"}});
+    EXPECT_FALSE(before.empty());
+    EXPECT_EQ(first.instance_id(), before);
+    EXPECT_NE(first.instance_id(), second.instance_id());
+}

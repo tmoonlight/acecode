@@ -13785,3 +13785,102 @@ TEST(SpeechRecognitionSmoke, ConfigAvailabilityAndRealHttpForwarding) {
     EXPECT_EQ(json::parse(disabled.text)["api_key"], "fixture-speech-key");
     EXPECT_EQ(send(acecode::speech::silent_wav()).status_code, 409);
 }
+
+// 场景:页面认为回合还在跑、却很久没收到事件,前端卡住检测调用运行状态探针核对。
+// 期望:已加载的会话返回 active/busy、当前事件 seq 与分发器实例号,seq 随 emit 增长;
+// 内存里没有的会话返回 active=false、busy=false 且不带游标(前端按「服务端已空闲」对账)。
+TEST(TranscriptLiveSyncSmoke, RuntimeProbeReportsBusyAndEventCursor) {
+    WebServerFixture fx;
+    acecode::SessionOptions options;
+    options.cwd = fx.cwd;
+    const auto id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_NE(entry->loop, nullptr);
+    auto& events = entry->loop->events();
+    events.emit(acecode::SessionEventKind::Token, {{"text", "a"}});
+
+    auto response = cpr::Get(cpr::Url{fx.url("/api/sessions/" + id + "/runtime")});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    auto body = json::parse(response.text);
+    EXPECT_TRUE(body["active"].get<bool>());
+    EXPECT_FALSE(body["busy"].get<bool>());
+    EXPECT_EQ(body["event_seq"].get<std::uint64_t>(), events.current_seq());
+    EXPECT_EQ(body["event_epoch"], events.instance_id());
+
+    events.emit(acecode::SessionEventKind::Token, {{"text", "b"}});
+    body = json::parse(cpr::Get(cpr::Url{fx.url("/api/sessions/" + id + "/runtime")}).text);
+    EXPECT_EQ(body["event_seq"].get<std::uint64_t>(), events.current_seq());
+
+    const auto missing = json::parse(
+        cpr::Get(cpr::Url{fx.url("/api/sessions/20200101-000000-none/runtime")}).text);
+    EXPECT_FALSE(missing["active"].get<bool>());
+    EXPECT_FALSE(missing["busy"].get<bool>());
+    EXPECT_FALSE(missing.contains("event_seq"));
+}
+
+// 场景:WS 订阅一个已加载的会话(重连时同样走这条)。
+// 期望:subscribe_ack 的 payload 带 event_seq 与 event_epoch,前端据此发现自己保存的
+// seq 属于已不存在的分发器实例(daemon 重启后 seq 从 1 重新数)。
+TEST(TranscriptLiveSyncSmoke, SubscribeAckCarriesEventCursor) {
+    WebServerFixture fx;
+    acecode::SessionOptions options;
+    options.cwd = fx.cwd;
+    const auto id = fx.registry->create(options);
+    auto entry = fx.registry->acquire(id);
+    ASSERT_NE(entry, nullptr);
+    entry->loop->events().emit(acecode::SessionEventKind::Token, {{"text", "a"}});
+    const auto epoch = entry->loop->events().instance_id();
+
+    asio::io_context io;
+    asio::ip::tcp::socket socket(io);
+    asio::error_code error;
+    socket.connect({asio::ip::make_address("127.0.0.1"), static_cast<unsigned short>(fx.port)}, error);
+    ASSERT_FALSE(error) << error.message();
+    const std::string upgrade =
+        "GET /ws/sessions/_multiplex?token=smoke-token HTTP/1.1\r\n"
+        "Host: 127.0.0.1:" + std::to_string(fx.port) + "\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n";
+    asio::write(socket, asio::buffer(upgrade), error);
+    ASSERT_FALSE(error);
+    ASSERT_TRUE(read_ws_upgrade(socket));
+    const auto subscribe = masked_ws_text(json{{"type", "subscribe"},
+        {"payload", {{"session_id", id}, {"since", 0}}}}.dump());
+    asio::write(socket, asio::buffer(subscribe), error);
+    ASSERT_FALSE(error);
+    socket.non_blocking(true, error);
+    std::string received;
+    const auto deadline = std::chrono::steady_clock::now() + 3s;
+    while (std::chrono::steady_clock::now() < deadline && received.find("subscribe_ack") == std::string::npos) {
+        char buffer[4096];
+        const auto size = socket.read_some(asio::buffer(buffer), error);
+        if (!error) received.append(buffer, size);
+        else if (error != asio::error::would_block && error != asio::error::try_again) break;
+        std::this_thread::sleep_for(2ms);
+    }
+    ASSERT_NE(received.find("subscribe_ack"), std::string::npos) << received;
+    EXPECT_NE(received.find("\"event_epoch\":\"" + epoch + "\""), std::string::npos) << received;
+    EXPECT_NE(received.find("\"event_seq\":1"), std::string::npos) << received;
+    socket.close(error);
+}
+
+// 场景:前端上报卡住现场 / 心跳超时。期望:白名单内的上报 204;未知 kind 或带换行的
+// 会话 id 400,不会被写进日志。
+TEST(SessionDiagnosticsSmoke, TranscriptStallReportAcceptsAllowlistAndRejectsInjection) {
+    WebServerFixture fx;
+    const auto send = [&](const json& payload) {
+        return cpr::Post(cpr::Url{fx.url("/api/diagnostics/transcript-stall")},
+                         cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{payload.dump()});
+    };
+    json payload{{"kind", "stall_probe"}, {"session_id", "20260101-000000-abcd"},
+                 {"reason", "server_idle"}, {"action", "resync"}, {"ms_since_event", 21000},
+                 {"server_busy", false}};
+    EXPECT_EQ(send(payload).status_code, 204);
+    EXPECT_EQ(send(json{{"kind", "heartbeat_timeout"}}).status_code, 204);
+    payload["kind"] = "bogus";
+    EXPECT_EQ(send(payload).status_code, 400);
+    payload["kind"] = "stall_probe";
+    payload["session_id"] = "abc\n[ERROR] forged";
+    EXPECT_EQ(send(payload).status_code, 400);
+}

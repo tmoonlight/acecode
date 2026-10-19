@@ -2,6 +2,7 @@
 
 #include "utils/logger.hpp"
 #include "utils/scope_exit.hpp"
+#include "utils/uuid.hpp"
 
 #include <chrono>
 #include <utility>
@@ -66,7 +67,8 @@ bool charge_json(const nlohmann::json& value, std::size_t& remaining) {
 
 EventDispatcher::EventDispatcher(std::size_t buffer_capacity,
                                  std::size_t buffer_byte_capacity)
-    : buffer_capacity_(buffer_capacity == 0 ? 1 : buffer_capacity)
+    : instance_id_(generate_uuid())
+    , buffer_capacity_(buffer_capacity == 0 ? 1 : buffer_capacity)
     , buffer_byte_capacity_(buffer_byte_capacity) {}
 
 std::uint64_t EventDispatcher::emit(SessionEventKind kind, nlohmann::json payload) {
@@ -172,13 +174,22 @@ bool EventDispatcher::deliver_to_subscription(
 void EventDispatcher::deliver_to_listener(
     SubscriptionId id, const EventListener& listener, const SessionEvent& evt) const {
     if (!listener) return;
+    // A bad frame or callback must not strand delivering/catching_up and
+    // leave this subscription accumulating every future event. Keep the
+    // subscription alive so transient serialization failures can recover.
+    // 这条事件对该订阅已经丢了:日志带上事件类型与 seq,排查「界面停在某一帧」
+    // 时才能知道丢的是哪一帧(例如非法 UTF-8 让 JSON 序列化抛异常)。
+    const auto describe = [&] {
+        return "[event_dispatcher] listener failed id=" + std::to_string(id) +
+            " kind=" + to_string(evt.kind) + " seq=" + std::to_string(evt.seq) +
+            (evt.replayed ? " replayed" : "");
+    };
     try {
         listener(evt);
+    } catch (const std::exception& error) {
+        LOG_WARN(describe() + " error=" + error.what());
     } catch (...) {
-        // A bad frame or callback must not strand delivering/catching_up and
-        // leave this subscription accumulating every future event. Keep the
-        // subscription alive so transient serialization failures can recover.
-        LOG_WARN("[event_dispatcher] listener failed id=" + std::to_string(id));
+        LOG_WARN(describe());
     }
 }
 

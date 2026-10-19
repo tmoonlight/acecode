@@ -12,6 +12,7 @@ import { normalizeToolInvocationItems } from './transcriptProjection.js';
 import { createSingleWriterStore } from './singleWriterStore.js';
 import { composerContentFromMessage } from './composerContent.js';
 import { preambleFromProgress, preambleFromToolStart, stripTextPreambleTags } from './toolPreamble.js';
+import { STALL_CHECK_TICK_MS, buildTranscriptStallReport, decideTranscriptStallAction, shouldProbeTranscript } from './transcriptLiveWatchdog.js';
 
 function composerContentFields(message, fallback = null) {
   const content = composerContentFromMessage(message) || composerContentFromMessage(fallback);
@@ -2122,6 +2123,47 @@ export function loadTranscriptHistory(state, data = {}, requestState = state) {
   return { state: next, effects };
 }
 
+// 卡住检测对账:页面认为回合还在跑、服务端却已空闲(或页面漏了事件)时,按服务端
+// 快照重建 transcript。与普通加载的区别:服务端明确空闲时不套 preserveLiveRuntimeOnLoad /
+// preserveLiveAssistantTailOnLoad —— 它们防的是「REST 快照比实时旧」,而这里恰恰是实时
+// 那份停在了旧帧,套上保护会把卡住的运行态和半截草稿原样留下。serverBusy 是探针结果,
+// 用于快照本身不带 busy(会话已从内存卸载)的情况。lastSeq 取服务端当前 seq:空闲时磁盘
+// 历史已是全部,之后从这里重新订阅,不再回放已体现在历史里的旧事件。
+export function reconcileTranscriptWithServer(
+  previous,
+  data = {},
+  requestState = previous,
+  catchupEvents = [],
+  { serverBusy = null } = {},
+) {
+  let next = loadTranscriptHistory(previous, data || {}, requestState).state;
+  if (Array.isArray(catchupEvents) && catchupEvents.length > 0) {
+    next = applyTranscriptReplayEvents(next, catchupEvents).state;
+  }
+  const idle = typeof data?.busy === 'boolean' ? data.busy === false : serverBusy === false;
+  if (idle) {
+    if (isTranscriptActivelyRunning(next)) {
+      next = {
+        ...next,
+        busy: false,
+        activeTurnId: '',
+        status: next.status === 'error' ? 'error' : 'idle',
+        activity: null,
+        trajectoryPartial: null,
+      };
+      finalizeStreaming(next);
+    }
+    const serverSeq = Number(data?.event_seq);
+    const floor = Number.isFinite(serverSeq) && serverSeq >= 0
+      ? serverSeq
+      : (Number(previous?.lastSeq) || 0);
+    next = { ...next, lastSeq: Math.max(Number(next.lastSeq) || 0, floor) };
+  } else {
+    next = preserveLiveAssistantTailOnLoad(preserveLiveRuntimeOnLoad(next, previous), previous);
+  }
+  return { ...next, isLive: !!previous?.isLive, loadState: 'loaded' };
+}
+
 export function canLiveMonitorSession(sessionRef, live = 'auto') {
   const ref = normalizeSessionRef(sessionRef);
   // Optimistic navigation can render a disk-backed session before the daemon
@@ -2201,6 +2243,19 @@ export function useSessionTranscript(sessionRef, options = {}) {
   const pendingHistoryEventsRef = useRef([]);
   sessionRefRef.current = ref;
   const refreshSignatureRef = useRef('');
+  // 卡住检测(transcriptLiveWatchdog.js)的可变现场:最近一次收到本会话事件的时间、
+  // 上次探针时间、是否在探、上次对账针对的服务端状态。不进 store,不触发渲染;
+  // 换会话时整体换新对象,在途探针据对象身份判断自己已过期。
+  const watchdogRef = useRef(null);
+  if (watchdogRef.current?.sid !== sid) {
+    watchdogRef.current = {
+      sid,
+      lastEventAt: Date.now(),
+      lastProbeAt: 0,
+      probing: false,
+      lastResyncKey: '',
+    };
+  }
 
   useEffect(() => { optionsRef.current = options; }, [options]);
 
@@ -2233,6 +2288,107 @@ export function useSessionTranscript(sessionRef, options = {}) {
     ));
     return data;
   }, [api, sid, store]);
+
+  // 按服务端重建当前会话并从新游标重新订阅,等同于「切走再切回」但不清空界面。
+  // resetCursor:服务端分发器换了实例,本地 seq 已作废,先清零再对账。
+  const resyncWithServer = useCallback(async ({ resetCursor = false, serverBusy = null } = {}) => {
+    const scope = historyScopeRef.current;
+    if (!sid || !scope) return false;
+    if (resetCursor) {
+      store.commit((previous) => (previous.lastSeq ? { ...previous, lastSeq: 0 } : previous));
+    }
+    const requestState = store.getState();
+    const data = await api.getMessages(sid, { limit: HISTORY_PAGE_SIZE });
+    if (historyScopeRef.current !== scope) return false;
+    let catchupEvents = [];
+    if (data?.busy === true) {
+      // 回合仍在进行:像首次加载一样补拉事件环,重建进行中的草稿与工具行。
+      const replay = await api.getMessages(sid, 1).catch(() => null);
+      if (historyScopeRef.current !== scope) return false;
+      catchupEvents = Array.isArray(replay)
+        ? replay
+        : (Array.isArray(replay?.events) ? replay.events : []);
+    }
+    const next = store.commit((previous) => reconcileTranscriptWithServer(
+      previous, data, requestState, catchupEvents, { serverBusy },
+    ));
+    const watchdog = watchdogRef.current;
+    if (watchdog?.sid === sid) watchdog.lastEventAt = Date.now();
+    connection.resubscribe?.(sid, {
+      since: next.lastSeq || 0,
+      epoch: typeof data?.event_epoch === 'string' ? data.event_epoch : undefined,
+    });
+    return true;
+  }, [api, sid, store]);
+
+  // 页面认为回合在跑、却很久没收到本会话事件时,向服务端核对一次;对不上就对账。
+  // trigger:'tick'(周期检查)或 'visible'(页面重新可见 / 获得焦点,门槛更低)。
+  const probeLiveState = useCallback(async (trigger) => {
+    const watchdog = watchdogRef.current;
+    if (!sid || !watchdog || watchdog.sid !== sid) return;
+    const before = store.getState();
+    const now = Date.now();
+    if (before.loadState !== 'loaded') return;
+    if (!shouldProbeTranscript({
+      trigger,
+      now,
+      live: liveRef.current,
+      running: isTranscriptActivelyRunning(before),
+      probing: watchdog.probing,
+      lastEventAt: watchdog.lastEventAt,
+      lastProbeAt: watchdog.lastProbeAt,
+    })) return;
+    watchdog.probing = true;
+    watchdog.lastProbeAt = now;
+    const scope = historyScopeRef.current;
+    try {
+      const server = await api.getSessionRuntime(sid).catch(() => null);
+      if (historyScopeRef.current !== scope || watchdogRef.current !== watchdog) return;
+      const current = store.getState();
+      const cursor = connection.sessionCursor?.(sid) || {};
+      const decision = decideTranscriptStallAction({
+        clientRunning: isTranscriptActivelyRunning(current),
+        clientLastSeq: current.lastSeq,
+        clientEpoch: cursor.epoch,
+        server,
+        lastResyncKey: watchdog.lastResyncKey,
+      });
+      if (decision.action === 'none') return;
+      const msSinceEvent = Date.now() - watchdog.lastEventAt;
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[ace-transcript] live state stalled sid=${sid} reason=${decision.reason}`
+        + ` action=${decision.action} quiet_ms=${msSinceEvent}`
+        + ` client_seq=${current.lastSeq || 0} server_seq=${server?.event_seq ?? '?'}`,
+      );
+      api.reportTranscriptStall(buildTranscriptStallReport({
+        kind: 'stall_probe',
+        sessionId: sid,
+        trigger,
+        decision,
+        msSinceEvent,
+        client: {
+          running: true,
+          lastSeq: current.lastSeq,
+          epoch: cursor.epoch,
+          activeTurnId: current.activeTurnId,
+        },
+        server,
+        liveness: connection.liveness?.(),
+        visibility: typeof document !== 'undefined' ? document.visibilityState : '',
+      })).catch(() => {});
+      const resynced = await resyncWithServer({
+        resetCursor: decision.action === 'reset',
+        serverBusy: typeof server?.busy === 'boolean' ? server.busy : null,
+      });
+      // 只在对账真正提交后记 key:请求失败的话,下一个周期还能针对同一状态重试。
+      if (resynced) watchdog.lastResyncKey = decision.key;
+    } catch {
+      // 对账失败不打扰用户:下一个探针周期再试。
+    } finally {
+      watchdog.probing = false;
+    }
+  }, [api, sid, store, resyncWithServer]);
 
   const loadEarlier = useCallback(async (target = null, options = {}) => {
     const result = (value) => options.detailed ? value : value.position ?? null;
@@ -2478,6 +2634,8 @@ export function useSessionTranscript(sessionRef, options = {}) {
       const msg = event.detail || {};
       const msgSid = msg.session_id || msg.payload?.session_id || '';
       if (msgSid && msgSid !== sid) return;
+      const watchdog = watchdogRef.current;
+      if (watchdog?.sid === sid) watchdog.lastEventAt = Date.now();
       applyEvent(msg);
     };
     connection.addEventListener('message', handler);
@@ -2492,6 +2650,64 @@ export function useSessionTranscript(sessionRef, options = {}) {
   }, [applyEvent, isLive, ref?.port, ref?.token, sid]);
 
   const activelyRunning = isTranscriptActivelyRunning(state);
+
+  // 卡住检测只在「实时会话 + 页面认为在跑」时挂计时器,空闲时零开销、零渲染。
+  // 开始计时时把「最近事件时间」拉到现在:运行态可能来自本地合成事件(停止请求等),
+  // 不该一上来就被判成很久没收到事件。
+  useEffect(() => {
+    if (!sid || !isLive || !activelyRunning) return undefined;
+    const watchdog = watchdogRef.current;
+    if (watchdog?.sid === sid) watchdog.lastEventAt = Math.max(watchdog.lastEventAt, Date.now());
+    const tick = () => { void probeLiveState('tick'); };
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void probeLiveState('visible');
+    };
+    const timer = window.setInterval(tick, STALL_CHECK_TICK_MS);
+    const doc = typeof document !== 'undefined' ? document : null;
+    doc?.addEventListener?.('visibilitychange', onVisible);
+    window.addEventListener?.('focus', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      doc?.removeEventListener?.('visibilitychange', onVisible);
+      window.removeEventListener?.('focus', onVisible);
+    };
+  }, [activelyRunning, isLive, probeLiveState, sid]);
+
+  // 订阅回执发现服务端事件分发器换了实例(connection.js 的 session_seq_reset)。只有当
+  // 本 transcript 手里的 seq 确实作废时才对账:页面刚刷新时 transcript 的 seq 来自新实例,
+  // 只是 sessionStorage 里留着旧值,那种情况连接层清零游标就够了。
+  useEffect(() => {
+    if (!sid || !isLive) return undefined;
+    const onSeqReset = (event) => {
+      const detail = event.detail || {};
+      if (detail.sessionId !== sid) return;
+      const current = store.getState();
+      const localSeq = Number(current.lastSeq) || 0;
+      const stale = localSeq > (Number(detail.serverSeq) || 0)
+        || (detail.reason === 'epoch_changed' && localSeq > 0);
+      if (!stale) return;
+      store.commit((previous) => (previous.lastSeq ? { ...previous, lastSeq: 0 } : previous));
+      api.reportTranscriptStall(buildTranscriptStallReport({
+        kind: 'seq_reset',
+        sessionId: sid,
+        decision: { action: 'reset', reason: detail.reason },
+        client: {
+          running: isTranscriptActivelyRunning(current),
+          lastSeq: localSeq,
+          epoch: detail.previousEpoch,
+          activeTurnId: current.activeTurnId,
+        },
+        server: { event_seq: detail.serverSeq, event_epoch: detail.serverEpoch },
+        liveness: connection.liveness?.(),
+      })).catch(() => {});
+      // 首次加载还没落地时不必另起对账:加载结果本身就来自新实例。
+      if (current.loadState === 'loaded') void resyncWithServer().catch(() => {});
+    };
+    connection.addEventListener('session_seq_reset', onSeqReset);
+    return () => connection.removeEventListener('session_seq_reset', onSeqReset);
+  }, [api, isLive, resyncWithServer, sid, store]);
+
   return {
     ...state,
     // 顶部标题栏显示的就是它:与侧栏同一份 sessionDisplayTitle 派生规则,

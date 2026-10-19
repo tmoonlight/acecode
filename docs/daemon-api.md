@@ -301,6 +301,7 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | PUT | `/api/sessions/:id/draft` | write compatibility draft |
 | DELETE | `/api/sessions/:id/todos` | clear compatibility todos |
 | GET | `/api/sessions/:id/messages` | transcript snapshot or event replay |
+| GET | `/api/sessions/:id/runtime` | in-memory busy state and event cursor (live-state watchdog probe) |
 | GET | `/api/sessions/:id/trajectory` | paged durable session trajectory and legacy projection |
 | POST | `/api/sessions/:id/export-markdown` | open Save As and export the visible transcript as Markdown |
 | POST | `/api/sessions/:id/messages` | queue user input |
@@ -1369,6 +1370,8 @@ When `since=0` or omitted **and no pagination/navigation parameters are present*
   "messages": [],
   "busy": false,
   "active_turn_id": "",
+  "event_seq": 128,
+  "event_epoch": "1b2c3d4e-0000-4000-8000-123456789abc",
   "title": "Investigate daemon routes",
   "title_source": "generated",
   "summary": "latest user summary",
@@ -1384,6 +1387,10 @@ When `since=0` or omitted **and no pagination/navigation parameters are present*
 
 Hidden file checkpoints, compact checkpoints, and hidden goal context messages
 are filtered from `messages`.
+
+`event_seq` / `event_epoch` (present while the session is loaded) are the session
+event dispatcher's current `seq` and instance id; see
+[`GET /api/sessions/:id/runtime`](#get-apisessionsidruntime).
 
 Pagination uses the same snapshot fields and filtering. The query parameters are:
 
@@ -1483,6 +1490,34 @@ When `since>0`, returns an event array directly:
 
 If the requested sequence predates the in-memory replay ring, the array can be
 empty. A paged frontend can reload `limit=200`; legacy full-history clients can fall back to `since=0`.
+
+### `GET /api/sessions/:id/runtime`
+
+Lightweight probe used by the Web/Desktop live-state watchdog. Reads memory only
+(no transcript IO) and is safe to call while a turn is running.
+
+```json
+{
+  "session_id": "20261019-101010-abcd",
+  "active": true,
+  "busy": false,
+  "active_turn_id": "turn-uuid",
+  "event_seq": 128,
+  "event_epoch": "1b2c3d4e-0000-4000-8000-123456789abc"
+}
+```
+
+- `active` is false (and `busy` false, cursor fields omitted) when the session is
+  not loaded in this daemon; unknown ids also return this shape with 200.
+- `event_seq` is the current highest event `seq`; `event_epoch` identifies the
+  event dispatcher instance. `seq` restarts at 1 when the daemon restarts or the
+  session runtime is rebuilt, so a cursor is only comparable within one epoch.
+- The frontend probes when a live transcript still shows a running turn but has
+  received no event for 20 s (4 s after the page becomes visible). If the server
+  is idle, or `event_seq` is ahead of the page, or the epoch changed / seq
+  regressed, it reloads the tail page, settles the runtime state from the server
+  and resubscribes with `replay_from_start` from the reconciled cursor. A quiet
+  but healthy turn (busy, same `seq`) is left untouched.
 
 ### `GET /api/sessions/:id/trajectory`
 
@@ -5280,7 +5315,7 @@ All client frames are JSON:
 | Type | Payload | Behavior |
 |---|---|---|
 | `hello` | `{session_id,since}` | legacy bind; ack is `hello_ack` |
-| `subscribe` | `{session_id,since}` | subscribes one session; ack is `subscribe_ack`; may then send child status discovery and seq-less pending permission/question snapshots |
+| `subscribe` | `{session_id,since}` | subscribes one session; ack is `subscribe_ack` (its payload adds `event_seq` / `event_epoch` while the session is loaded); may then send child status discovery and seq-less pending permission/question snapshots |
 | `unsubscribe` | `{session_id}` | unsubscribes; ack is `unsubscribe_ack` |
 | `status_subscribe` | `{workspace_hash}` or `{session_id}` | subscribes workspace attention status and sends snapshot |
 | `status_unsubscribe` | `{workspace_hash}` | unsubscribes; ack is `status_unsubscribe_ack` |
@@ -5290,7 +5325,7 @@ All client frames are JSON:
 | `decision` | `{session_id,request_id,choice}` | responds to permission request; `choice` is `allow`, `deny`, `allow_session`, `allow_scoped`, or `allow_remember` |
 | `question_answer` | `{session_id,request_id,cancelled,answers}` | responds to AskUserQuestion |
 | `abort` | `{session_id}` | requests cancellation of the current turn; completion is confirmed by terminal events |
-| `ping` | `{}` | replies `{"type":"pong"}` |
+| `ping` | `{}` | replies `{"type":"pong"}`. The Web client pings after 20 s without any frame and reconnects when nothing arrives within 10 s of a ping |
 
 `decision` uses `choice`, not `decision`, in the payload.
 
@@ -5494,11 +5529,21 @@ for one session.
 
 ### Reconnect strategy
 
-1. Store the highest processed `seq` per session.
+1. Store the highest processed `seq` per session, together with the
+   `event_epoch` from the last `subscribe_ack` / `hello_ack`.
 2. Reconnect and send `subscribe` with `since:<lastSeq>`.
-3. The daemon replays buffered events with `seq > since`.
-4. If the replay gap is too old, fall back to
+3. The daemon replays buffered events with `seq > since`, then sends the ack.
+   Replayed events always arrive before the ack, so the ack's `event_seq` is never
+   lower than any replayed frame.
+4. If the ack's `event_epoch` differs from the stored one, or the stored `seq` is
+   greater than the ack's `event_seq`, the stored cursor belongs to a dispatcher
+   instance that no longer exists: reset it to 0 and reconcile the transcript from
+   `GET /api/sessions/:id/messages` before trusting `seq` ordering again.
+   Otherwise every new event would be dropped as already seen.
+5. If the replay gap is too old, fall back to
    `GET /api/sessions/:id/messages?since=0`.
+
+Live delivery does not depend on `since`; only replay does.
 
 Seq-less pending `permission_request` and `question_request` snapshots do not
 affect the reconnect cursor; handle them by `request_id`.
@@ -5995,6 +6040,16 @@ session id:
   bytes and fraction. Categories: user, assistant, tool, compact_checkpoint,
   file_checkpoint, turn_net_diff, other. No message content, session title,
   workspace path or referenced file path is returned.
+- `POST /api/diagnostics/transcript-stall` records why a live page went out of
+  sync. Body: required `kind` (`stall_probe` | `seq_reset` | `heartbeat_timeout`)
+  and optional allowlisted fields: `session_id`, `reason`, `action`, `trigger`,
+  `client_epoch`, `server_epoch`, `client_active_turn_id`, `server_active_turn_id`,
+  `ws_state`, `visibility` (tokens of `[A-Za-z0-9-_:.]`, bounded length);
+  `ms_since_event`, `client_last_seq`, `server_event_seq`, `ws_ms_since_message`,
+  `heartbeat_timeouts`, `ms_since_forced_reconnect` (finite, non-negative);
+  `server_busy`, `server_active`, `client_running` (booleans). Unknown fields are
+  dropped; any invalid value rejects the whole report with 400. Success (204) logs
+  one `[transcript-stall]` warning. Clients drop failures.
 - HTTP diagnostics cooperatively stops on shutdown or after ten seconds and
   returns the partial report with `cancelled: true`.
   `acecode diagnose sessions` uses the same statistics and supports Ctrl+C
