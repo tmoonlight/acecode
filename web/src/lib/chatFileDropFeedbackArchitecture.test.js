@@ -100,10 +100,10 @@ run('desktop file drag activates on entry and acceptance without async foregroun
 
 run('ChatView stages home attachments without creating or navigating a session', () => {
   const chatView = source('components/ChatView.jsx');
-  const handleStart = chatView.indexOf('const handleMediaFiles = useCallback((files) => {');
+  const handleStart = chatView.indexOf('const handleMediaFiles = useStableCallback((files) => {');
   const handleEnd = chatView.indexOf('\n\n  const removeComposerAttachment', handleStart);
   const handleFlow = chatView.slice(handleStart, handleEnd);
-  const submitStart = chatView.indexOf('const submit = useCallback((text) => {');
+  const submitStart = chatView.indexOf('const submit = useStableCallback((text) => {');
   const submitEnd = chatView.indexOf('\n\n  const drainQueuedInput', submitStart);
   const submitFlow = chatView.slice(submitStart, submitEnd);
 

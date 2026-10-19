@@ -137,8 +137,8 @@ run('缺少 session 或非空文本时不创建临时行', () => {
 run('架构: 只在主页首发接入临时行并在 session 提升前记录', () => {
   const chat = readFileSync(new URL('../components/ChatView.jsx', import.meta.url), 'utf8')
     .replace(/\r\n?/g, '\n');
-  const createStart = chat.indexOf('const createHomeComposerSession = useCallback');
-  const createEnd = chat.indexOf('const stageMediaFiles = useCallback', createStart);
+  const createStart = chat.indexOf('const createHomeComposerSession = useStableCallback');
+  const createEnd = chat.indexOf('const stageMediaFiles = useStableCallback', createStart);
   const createFlow = chat.slice(createStart, createEnd);
   const homeStart = chat.indexOf('if (!sid) {', chat.indexOf('const isBuiltin ='));
   const activeStart = chat.indexOf('if (composerSubmitting) return;', homeStart);

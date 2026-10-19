@@ -80,5 +80,5 @@ const app = readFileSync(new URL('../App.jsx', import.meta.url), 'utf8');
 assert.match(app, /subscribeModelProfileUpdates\(connection,[\s\S]*?setModelProfileRevision/);
 const chat = readFileSync(new URL('../components/ChatView.jsx', import.meta.url), 'utf8');
 assert.match(chat, /useEffect\(\(\) => \{\s*if \(sid\) return;[\s\S]*?requestSavedModelReasoningSync\(api\);\s*\}, \[api, sid\]\)/);
-assert.match(chat, /const refreshSessionModels = useCallback\(async \(\) => \{[\s\S]*?requestSavedModelReasoningSync\(api\)/);
+assert.match(chat, /const refreshSessionModels = useStableCallback\(async \(\) => \{[\s\S]*?requestSavedModelReasoningSync\(api\)/);
 console.log('modelReasoningSync.test.js: all tests passed');

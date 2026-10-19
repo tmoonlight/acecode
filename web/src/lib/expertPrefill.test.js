@@ -31,7 +31,8 @@ function componentSource(path, name) {
       const node = component.body.body.flatMap((statement) => statement.declarations || [])
         .find((declaration) => declaration.id.name === variable);
       assert.ok(node, `Missing production callback ${variable}`);
-      return text(node.init.callee?.name === 'useCallback' ? node.init.arguments[0] : node.init);
+      const wrapped = ['useCallback', 'useStableCallback'].includes(node.init.callee?.name);
+      return text(wrapped ? node.init.arguments[0] : node.init);
     },
     effects: component.body.body.filter((node) => node.expression?.callee?.name === 'useEffect')
       .map((node) => node.expression.arguments),

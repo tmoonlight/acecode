@@ -30,7 +30,7 @@ test('queue-card and slash interjection both use the immediate interrupt endpoin
   const chat = source('components/ChatView.jsx');
   const guideFlow = section(
     chat,
-    'const guideQueued = useCallback((queuedId) => {',
+    'const guideQueued = useStableCallback((queuedId) => {',
     '\n\n  const executeBuiltinCommand',
   );
   const slashFlow = section(

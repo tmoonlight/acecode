@@ -49,7 +49,7 @@ test('chat fork is single-flight and the originating message owns persistent loa
   const styles = source('styles/globals.css');
   const forkFlow = section(
     chat,
-    'const forkAndSwitch = useCallback(async (messageId) => {',
+    'const forkAndSwitch = useStableCallback(async (messageId) => {',
     '\n\n  useEffect(() => {',
   );
 

@@ -105,7 +105,7 @@ run('updateQueueState 只转发 producer 给 store', () => {
 // 取件与标记 sending 必须原子:拆开时这中间的取消/编辑会被过期快照覆盖。
 run('drainQueuedInput 在单次提交内取件并标记 sending', () => {
   const chatView = source('components/ChatView.jsx');
-  const start = chatView.indexOf('const drainQueuedInput = useCallback');
+  const start = chatView.indexOf('const drainQueuedInput = useStableCallback');
   assert.notEqual(start, -1, '找不到 drainQueuedInput');
   const block = chatView.slice(start, chatView.indexOf('\n  }, [applyEvent, busy,', start));
 
