@@ -1,0 +1,96 @@
+name: refresh-public-downloads
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+    secrets:
+      PUBLIC_SITE_DEPLOY_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing published release tag to verify and synchronize
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-download-catalog
+  cancel-in-progress: false
+
+jobs:
+  synchronize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Validate release tag and deployment credential
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEPLOY_KEY: ${{ secrets.PUBLIC_SITE_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || {
+            echo "::error::A published v<version> tag is required"
+            exit 1
+          }
+          test -n "$DEPLOY_KEY" || {
+            echo "::error::PUBLIC_SITE_DEPLOY_KEY is not configured"
+            exit 1
+          }
+
+      - name: Checkout public website
+        uses: actions/checkout@v4
+        with:
+          repository: tmoonlight/acecode-site
+          ref: main
+          ssh-key: ${{ secrets.PUBLIC_SITE_DEPLOY_KEY }}
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Synchronize published downloads and trigger Pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            # This is the disposable CI website checkout. Refresh against main
+            # after a concurrent website edit, then regenerate only public data.
+            git fetch origin main
+            git checkout -B catalog-sync origin/main
+            python scripts/sync_catalog.py --require-tag "$RELEASE_TAG" --releases-only
+            python -m unittest discover -s scripts -p "test_*.py"
+            node scripts/check_download.mjs
+            git add public/aceupdate.json public/data/release-source.json
+            git diff --cached --check
+            if git diff --cached --quiet; then
+              echo "Public catalog already matches GitHub Releases"
+              exit 0
+            fi
+            git commit -m "Refresh download catalog after $RELEASE_TAG"
+            if git push origin HEAD:main; then
+              echo "Public website updated; Pages deployment is triggered by this push"
+              exit 0
+            fi
+            echo "Website main changed during synchronization; retry $attempt/3"
+          done
+          echo "::error::Could not update the public website"
+          exit 1
+
+      - name: Verify public CDN catalog
+        run: python scripts/wait_for_catalog.py public/aceupdate.json --timeout 900

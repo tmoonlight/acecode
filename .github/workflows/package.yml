@@ -1333,6 +1333,18 @@ jobs:
           make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           files: release-assets/*
 
+  refresh-public-downloads:
+    name: refresh public downloads
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    uses: ./.github/workflows/refresh-public-downloads.yml
+    permissions:
+      contents: read
+    with:
+      release_tag: ${{ github.ref_name }}
+    secrets:
+      PUBLIC_SITE_DEPLOY_KEY: ${{ secrets.PUBLIC_SITE_DEPLOY_KEY }}
+
   publish-npm:
     name: publish npm
     # npm publication is paused for both tagged releases and manual backfills.
