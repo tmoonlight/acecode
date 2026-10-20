@@ -1,4 +1,5 @@
 import { apiConnectionScope } from './api.js';
+import { isDesktopShell } from './desktopShellMode.js';
 
 export const SPEECH_DEFAULTS = Object.freeze({
   enabled: false, protocol: 'sensevoice', base_url: '', model: '', api_key: '',
@@ -37,8 +38,55 @@ export function speechErrorCode(error) {
   return typeof error?.name === 'string' && error.name ? error.name : '';
 }
 
-export function speechErrorMessage(error) {
+// Browsers expose microphones only on HTTPS or loopback pages. An intranet HTTP
+// page works once the browser treats its exact origin as secure, so the message
+// names that origin (location.origin never carries the daemon token).
+export function speechBrowserFamily(userAgent = '') {
+  const ua = String(userAgent || '');
+  if (/\b(?:iPhone|iPad|iPod)\b/.test(ua)) return 'other';
+  if (/\bEdg(?:e|A)?\//.test(ua)) return 'edge';
+  if (/\bFirefox\//.test(ua)) return 'firefox';
+  if (/\b(?:Headless)?(?:Chrome|Chromium)\//.test(ua) && !/\b(?:OPR|Opera)\//.test(ua)) return 'chrome';
+  return 'other';
+}
+
+export function speechPageOrigin(env = globalThis) {
+  try {
+    const origin = env?.location?.origin;
+    return typeof origin === 'string' && /^https?:\/\/[^/?#]+$/.test(origin) ? origin : '';
+  } catch { return ''; }
+}
+
+function speechInsecureContextMessage(env) {
+  const origin = speechPageOrigin(env);
+  if (!origin) return '';
+  const family = speechBrowserFamily(env?.navigator?.userAgent);
+  if (family === 'chrome') {
+    return `浏览器只允许 HTTPS 或本机地址使用麦克风。内网 HTTP 页面可在 Chrome 打开 chrome://flags/#unsafely-treat-insecure-origin-as-secure，填入 ${origin} 并选 Enabled，重启浏览器后生效。`;
+  }
+  if (family === 'edge') {
+    return `浏览器只允许 HTTPS 或本机地址使用麦克风。内网 HTTP 页面可在 Edge 打开 edge://flags/#unsafely-treat-insecure-origin-as-secure，填入 ${origin} 并选 Enabled，重启浏览器后生效。`;
+  }
+  if (family === 'firefox') {
+    return '浏览器只允许 HTTPS 或本机地址使用麦克风。内网 HTTP 页面可在 Firefox 打开 about:config，把 media.devices.insecure.enabled 和 media.getusermedia.insecure.enabled 设为 true，重启浏览器后生效。';
+  }
+  return `浏览器只允许 HTTPS 或本机地址使用麦克风。内网 HTTP 页面请改用 Chrome、Edge 或 Firefox，并把 ${origin} 设为安全来源。`;
+}
+
+function speechDesktopUnsupportedMessage(env) {
+  const ua = String(env?.navigator?.userAgent || '');
+  return /\bLinux\b/.test(ua) && !/\bAndroid\b/.test(ua)
+    ? '当前系统的 WebKitGTK 不支持网页录音，请升级系统的 WebKitGTK（libwebkit2gtk）后重试。'
+    : '当前系统的网页组件不支持麦克风录音，请更新系统后重试。';
+}
+
+export function speechErrorMessage(error, env = globalThis) {
   const code = speechErrorCode(error);
+  if (code === 'SPEECH_INSECURE_CONTEXT') {
+    const guide = speechInsecureContextMessage(env);
+    if (guide) return guide;
+  }
+  if (code === 'SPEECH_UNSUPPORTED' && isDesktopShell(env)) return speechDesktopUnsupportedMessage(env);
   const known = ({
     SPEECH_INVALID_CONFIG: '请检查语音识别地址、端口和配置。',
     PERSIST_FAILED: '保存语音识别配置失败，请重试。',
@@ -66,6 +114,43 @@ export function speechErrorMessage(error) {
   const message = typeof error?.message === 'string' ? error.message.trim() : '';
   const detail = [code, message].filter(Boolean).join(': ').slice(0, 160);
   return detail ? `语音识别失败（${detail}），请重试。` : '语音识别失败，请重试。';
+}
+
+// The insecure-page guide stays up long enough to follow and offers the exact
+// origin to paste: address bars hide the http:// prefix the browser setting needs.
+export function speechErrorToast(error, env = globalThis) {
+  const text = speechErrorMessage(error, env);
+  const copyText = speechErrorCode(error) === 'SPEECH_INSECURE_CONTEXT' ? speechPageOrigin(env) : '';
+  return copyText
+    ? { kind: 'err', text, duration: 20000, dismissible: true, copyText }
+    : { kind: 'err', text, copyText };
+}
+
+// navigator.clipboard is itself limited to secure pages, so the HTTP page that
+// needs this falls back to copying a selected off-screen textarea.
+export async function copySpeechText(text, env = globalThis) {
+  const value = String(text ?? '');
+  const clipboard = env?.navigator?.clipboard;
+  if (env?.isSecureContext !== false && typeof clipboard?.writeText === 'function') {
+    await clipboard.writeText(value);
+    return value;
+  }
+  const doc = env?.document;
+  if (!doc?.body || typeof doc.execCommand !== 'function') throw new Error('clipboard unavailable');
+  const previous = doc.activeElement;
+  const area = doc.createElement('textarea');
+  area.value = value;
+  area.setAttribute('readonly', '');
+  Object.assign(area.style, { position: 'fixed', top: '0', left: '-9999px', opacity: '0' });
+  doc.body.appendChild(area);
+  try {
+    area.select();
+    if (!doc.execCommand('copy')) throw new Error('copy failed');
+  } finally {
+    area.remove();
+    previous?.focus?.();
+  }
+  return value;
 }
 
 // Only availability is shared with composers. Credentials stay in the settings

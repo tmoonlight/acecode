@@ -37,3 +37,10 @@
 ## 9. Desktop 麦克风授权
 - [x] 9.1 普通浏览器保留原生麦克风授权；Windows/macOS Desktop 对自身页面的麦克风请求直接授权，不增加网页权限确认，保留系统隐私限制和其他权限行为。
 - [x] 9.2 覆盖来源、端口和页面变化的权限策略测试，执行 Windows 定向编译/验证并记录未执行的平台真机验证。
+
+## 10. 内网 HTTP Web 与 Linux Desktop
+- [x] 10.1 Linux Desktop 改为只对 native 导航到的可信来源放行纯音频采集（与 Windows/macOS 同一 `may_grant_desktop_microphone` 口径），判定抽成 `decide_linux_media_permission` 并补单测。
+- [x] 10.2 内网 `http://IP:端口` 页面拿不到麦克风是浏览器安全上下文规则，服务端无法绕过；提示按 Chrome / Edge / Firefox 给出把该来源设为安全来源的步骤，并提供「复制本页地址」（HTTP 页面没有 navigator.clipboard，退回 execCommand）。Desktop 内「不支持录音」改为说明系统网页组件的原因。
+- [x] 10.3 文档补充单台浏览器设置与 Chrome/Edge 企业策略 `OverrideSecurityRestrictionsOnInsecureOrigin` 的统一下发方式。
+
+验证：WSL Ubuntu 22.04（WebKitGTK 2.50.4）用生产权限代码与模拟采集设备实测，可信页面能录音、其他端口被拒；`linux_desktop.cpp` 在 webkit2gtk-4.1 / 4.0 下编译通过，`web_host.cpp` 在 Linux 下语法检查通过，权限单测 7 条通过。本机 Edge 155 / Chrome 155 无头实测：内网主机名的 HTTP 页面未设置时报出对应浏览器的设置步骤与完整来源，设置 `--unsafely-treat-insecure-origin-as-secure` 后生产录音代码录到音频，HTTP 页面上复制地址成功。Web 测试与构建通过。未执行：Linux 真实麦克风、Firefox 与企业策略下发的实机验证。

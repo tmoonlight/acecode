@@ -26,7 +26,20 @@ API Key 可选，填写后通过 `Authorization: Bearer …` 发送。高级设�
 
 音频先提交给 ACECode 后端，再由后端调用识别服务，因此浏览器无需直接连接 Mac mini，也无需给识别服务配置浏览器 CORS。
 
-**麦克风权限取决于打开 ACECode 的页面环境。** Desktop 的本机页面、浏览器的 `http://localhost:端口` 或 HTTPS 页面可以请求麦克风；直接在浏览器打开另一台电脑的 `http://内网IP:端口` 通常无法录音。没有证书时可在各电脑使用 ACECode Desktop 或本机 Web，再连接同一个 HTTP 识别服务。系统和浏览器仍需允许麦克风权限。
+**麦克风权限取决于打开 ACECode 的页面环境。** 浏览器只给 HTTPS 页面和本机地址（`localhost`、`127.0.0.1`）提供麦克风，这是浏览器的规则，服务端无法绕过。Desktop 的本机页面、浏览器的 `http://localhost:端口` 或 HTTPS 页面可以直接录音；在浏览器里打开另一台电脑的 `http://内网IP:端口`（例如远程 Web），需要先让浏览器把这个地址当作安全来源，见下一节。系统和浏览器仍需允许麦克风权限。
+
+### 内网 HTTP 页面使用语音
+
+不想配置证书时，可以保持 HTTP，只在浏览器里把 ACECode 的地址加入「安全来源」名单。地址要写完整来源：`http://` + 主机 + 端口，例如 `http://192.168.1.20:28080`，不带路径和 `?token=`。在这类页面上点麦克风，ACECode 会按当前浏览器显示具体步骤，并提供「复制本页地址」按钮（地址栏通常会隐藏 `http://`，手抄容易漏）。
+
+| 浏览器 | 单台设置 | 公司统一下发 |
+| --- | --- | --- |
+| Chrome | 打开 `chrome://flags/#unsafely-treat-insecure-origin-as-secure`，填入地址，选 Enabled，重启浏览器 | 策略 `OverrideSecurityRestrictionsOnInsecureOrigin`（Chrome 69 起）；Windows 注册表 `HKLM\SOFTWARE\Policies\Google\Chrome\OverrideSecurityRestrictionsOnInsecureOrigin`，字符串值名 `1`、`2`…，值为地址 |
+| Edge | 打开 `edge://flags/#unsafely-treat-insecure-origin-as-secure`，其余同 Chrome | 同名策略（Edge 77 起，组策略显示名「Control where security restrictions on insecure origins apply」）；注册表 `HKLM\SOFTWARE\Policies\Microsoft\Edge\OverrideSecurityRestrictionsOnInsecureOrigin` |
+| Firefox | 打开 `about:config`，把 `media.devices.insecure.enabled` 和 `media.getusermedia.insecure.enabled` 都设为 `true`，重启浏览器 | — |
+| Safari / iPhone、iPad 上的浏览器 | 没有可用的设置，请改用 HTTPS，或在电脑上使用 Chrome、Edge、Firefox | — |
+
+多个地址在 flags 里用英文逗号分隔。策略修改后要重启浏览器，可在 `chrome://policy` / `edge://policy` 确认已生效。这个名单会让浏览器对该地址放开所有只限安全页面的能力，只填受信任的内网 ACECode 地址；服务器 IP 或端口变化后需要同步更新。
 
 普通浏览器首次使用时由浏览器弹出原生麦克风授权。原生 Desktop 对 ACECode 自身页面直接处理网页麦克风权限，不额外弹网页确认；操作系统的隐私授权仍需允许（例如 macOS 首次运行的系统提示）。外部网页、摄像头等权限保持原有行为，Edge app 降级模式仍走浏览器授权。
 
@@ -49,6 +62,8 @@ API Key 可选，填写后通过 `Authorization: Bearer …` 发送。高级设�
 
 ## 验证边界
 
-浏览器自动化使用模拟麦克风验证真实 WebAudio 采集、WAV 编码和输入框交互；不能代替真实设备授权验证。macOS 的麦克风用途声明和 Linux WebKit 的本机音频权限处理已接入，仍需在对应系统进行真实设备验收。
+浏览器自动化使用模拟麦克风验证真实 WebAudio 采集、WAV 编码和输入框交互；不能代替真实设备授权验证。macOS 的麦克风用途声明已接入，仍需在 macOS 上做真实设备验收。
+
+Linux Desktop 由系统 WebKitGTK 经 GStreamer 采集声音，与 Windows / macOS 一样只对 ACECode 自己导航到的那个本机页面放行纯音频采集。2026-10-20 在 WSL 的 Ubuntu 22.04（WebKitGTK 2.50.4）上用生产权限代码和 WebKitGTK 模拟采集设备实测：可信页面能录到声音，别的端口的本机页面被拒绝；WSLg 的远程桌面声源不出数据时 `getUserMedia` 会一直等待，那是该环境没有接入麦克风。编译时没有启用媒体流的老版本 WebKitGTK 无法网页录音，Desktop 内会提示升级系统的 WebKitGTK。真实麦克风尚未在 Linux 实机验收。
 
 Windows 原生权限回归：构建 `microphone_permission_smoke`，运行 `python tests/desktop/microphone_permission_smoke.py build/tests/Release/microphone_permission_smoke.exe`。该测试使用生产 WebHost、独立 WebView2 用户目录和模拟音频设备，不启用自动接受权限提示的测试开关，验证首次及再次采集。

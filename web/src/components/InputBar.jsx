@@ -27,7 +27,7 @@ import { SpeechRecordingControls } from './SpeechRecordingControls.jsx';
 import { SpeechMicrophoneButton } from './SpeechMicrophoneButton.jsx';
 import { api as defaultApi } from '../lib/api.js';
 import { useSpeechRecognition } from '../lib/useSpeechRecognition.js';
-import { speechErrorMessage } from '../lib/speechRecognition.js';
+import { copySpeechText, speechErrorToast } from '../lib/speechRecognition.js';
 import { PastedTextCard } from './PastedTextCard.jsx';
 import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { PathReferenceDropdown } from './PathReferenceDropdown.jsx';
@@ -1352,7 +1352,12 @@ export const InputBar = forwardRef(function InputBar({
     client: pathReferenceApi || defaultApi, scope: fileIntakeScope, editorRef: ta, rootRef, mainComposer,
     disabled: !!disabled || !!submitting,
     onSend: () => submit(),
-    onError: (error) => toast({ kind: 'err', text: speechErrorMessage(error) }),
+    onError: (error) => {
+      const { copyText, ...options } = speechErrorToast(error);
+      toast({ ...options, actions: copyText ? [{
+        label: t('复制本页地址'), errorText: t('复制失败：'), onClick: () => copySpeechText(copyText),
+      }] : [] });
+    },
   });
   const stopControl = getGoalStopControlState({ busy, stopping });
   const isStopAction = actionState.mode === 'stop';

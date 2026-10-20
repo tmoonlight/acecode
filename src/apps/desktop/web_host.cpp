@@ -2412,6 +2412,9 @@ void WebHost::navigate(const std::string& url) {
         objc_setAssociatedObject(static_cast<id>(widget.value()), &kMicrophoneOriginKey,
             [NSString stringWithUTF8String:origin.c_str()], OBJC_ASSOCIATION_COPY_NONATOMIC);
     }
+#else
+    auto widget = impl_->w->widget();
+    if (widget.ok()) set_linux_trusted_page_origin(widget.value(), desktop_microphone_origin(url));
 #endif
     impl_->w->navigate(url);
 }

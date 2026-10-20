@@ -50,4 +50,24 @@ inline bool may_grant_desktop_microphone(const std::string& trusted_origin,
         desktop_microphone_origin(request_url) == trusted_origin;
 }
 
+// WebKitGTK capture requests: audio-only capture from the page native code
+// navigated to is allowed; everything else is denied. Other permission kinds
+// keep WebKit's default handling.
+struct LinuxMediaPermissionRequest {
+    bool user_media = false;
+    bool audio = false;
+    bool video = false;
+};
+
+enum class LinuxMediaPermissionDecision { Unhandled, Allow, Deny };
+
+inline LinuxMediaPermissionDecision decide_linux_media_permission(
+        const std::string& trusted_origin, std::string_view current_url,
+        const LinuxMediaPermissionRequest& request) {
+    if (!request.user_media) return LinuxMediaPermissionDecision::Unhandled;
+    const bool allowed = request.audio && !request.video &&
+        may_grant_desktop_microphone(trusted_origin, current_url, current_url);
+    return allowed ? LinuxMediaPermissionDecision::Allow : LinuxMediaPermissionDecision::Deny;
+}
+
 } // namespace acecode::desktop

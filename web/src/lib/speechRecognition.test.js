@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { speechAvailabilityStore, speechDraftValid, speechEnabled, speechErrorCode, speechErrorMessage, speechPayload, speechSettingsStore, SPEECH_DEFAULTS } from './speechRecognition.js';
+import { copySpeechText, speechAvailabilityStore, speechBrowserFamily, speechDraftValid, speechEnabled, speechErrorCode, speechErrorMessage, speechErrorToast, speechPageOrigin, speechPayload, speechSettingsStore, SPEECH_DEFAULTS } from './speechRecognition.js';
 import { encodeSpeechWav, captureSpeechAudio, resampleSpeechAudio } from './speechAudio.js';
 import { createSpeechSession } from './speechSession.js';
 import { createSpeechDeviceStore, listSpeechDevices, speechAudioConstraints, SPEECH_DEVICE_PREFS_KEY } from './speechDevices.js';
@@ -362,5 +362,88 @@ for (const result of [{ status: 'no_speech', text: '' }, { status: 'ok', text: '
   // 超长消息截断到 160 字符,避免撑爆 toast。
   const long = Object.assign(new Error('x'.repeat(500)), { name: 'TypeError' });
   assert.ok(speechErrorMessage(long).length < 180);
+}
+{
+  // 用户代理样本:Windows Chrome / Edge / Firefox、Android Chrome、macOS Safari、iOS 上的 Chrome 与 Edge、Opera。
+  const ua = {
+    chrome: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    edge: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    firefox: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0',
+    android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+    safari: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+    iosChrome: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0 Mobile/15E148 Safari/604.1',
+    iosEdge: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 EdgiOS/141.0 Mobile/15E148 Safari/605.1.15',
+    opera: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 OPR/125.0.0.0',
+  };
+  // 场景:按浏览器给出对应的设置入口。iOS 上的浏览器都是 WebKit 内核、没有可改的开关,Opera 的入口不同,一律归为其他。
+  assert.equal(speechBrowserFamily(ua.chrome), 'chrome');
+  assert.equal(speechBrowserFamily(ua.android), 'chrome');
+  // 无头模式(自动化测试)的 UA 写作 HeadlessChrome/,前面没有单词边界,曾被归为其他浏览器。
+  assert.equal(speechBrowserFamily(ua.chrome.replace('Chrome/', 'HeadlessChrome/')), 'chrome');
+  assert.equal(speechBrowserFamily(ua.edge), 'edge');
+  assert.equal(speechBrowserFamily(ua.firefox), 'firefox');
+  for (const other of [ua.safari, ua.iosChrome, ua.iosEdge, ua.opera, '', undefined]) {
+    assert.equal(speechBrowserFamily(other), 'other', other);
+  }
+
+  // 场景(用户诉求):小企业内网用 http://IP:端口 打开 Web,点麦克风。浏览器只给 HTTPS / 本机页面麦克风,
+  // ACECode 无法从服务端绕过。期望:提示里给出当前浏览器的具体设置入口和要填的完整来源(带 http:// 与端口),
+  // 来源取 location.origin,绝不带上地址栏里的 ?token=。
+  const page = (userAgent) => ({ location: { origin: 'http://192.168.1.20:28080', href: 'http://192.168.1.20:28080/?token=secret' }, navigator: { userAgent } });
+  const chrome = speechErrorMessage({ code: 'SPEECH_INSECURE_CONTEXT' }, page(ua.chrome));
+  assert.match(chrome, /chrome:\/\/flags\/#unsafely-treat-insecure-origin-as-secure/);
+  assert.ok(chrome.includes('http://192.168.1.20:28080'));
+  assert.ok(!chrome.includes('token') && !chrome.includes('secret'));
+  assert.match(speechErrorMessage({ code: 'SPEECH_INSECURE_CONTEXT' }, page(ua.edge)), /edge:\/\/flags\/#unsafely-treat-insecure-origin-as-secure/);
+  const firefox = speechErrorMessage({ code: 'SPEECH_INSECURE_CONTEXT' }, page(ua.firefox));
+  assert.ok(firefox.includes('media.devices.insecure.enabled') && firefox.includes('media.getusermedia.insecure.enabled'));
+  const safari = speechErrorMessage({ code: 'SPEECH_INSECURE_CONTEXT' }, page(ua.safari));
+  assert.ok(safari.includes('Chrome、Edge 或 Firefox') && safari.includes('http://192.168.1.20:28080'));
+  // 拿不到页面来源(非浏览器环境)时退回原来的通用提示。
+  assert.equal(speechErrorMessage({ code: 'SPEECH_INSECURE_CONTEXT' }, {}), '当前网页无法使用麦克风，请使用 ACECode Desktop、localhost 或 HTTPS 页面。');
+  assert.equal(speechPageOrigin({ location: { origin: 'null' } }), '');
+
+  // 场景:设置步骤较长,默认 3.5 秒的 toast 来不及看完;地址栏会隐藏 http://,手抄容易漏。
+  // 期望:这类提示停留 20 秒、可手动关闭,并带上可复制的完整来源;其他错误保持默认展示方式。
+  const insecureToast = speechErrorToast({ code: 'SPEECH_INSECURE_CONTEXT' }, page(ua.chrome));
+  assert.equal(insecureToast.duration, 20000);
+  assert.equal(insecureToast.dismissible, true);
+  assert.equal(insecureToast.copyText, 'http://192.168.1.20:28080');
+  const otherToast = speechErrorToast({ code: 'SPEECH_BUSY' }, page(ua.chrome));
+  assert.equal(otherToast.duration, undefined);
+  assert.equal(otherToast.copyText, '');
+}
+{
+  // 场景(回归):Linux Desktop 的系统 WebKitGTK 不支持网页录音时,旧提示让用户「请使用 ACECode Desktop」,
+  // 而用户此时就在 Desktop 里。期望:Desktop 内说明是系统网页组件的问题,Linux 点名 WebKitGTK;普通浏览器沿用原提示。
+  const linuxDesktop = { __ACECODE_DESKTOP_SHELL__: true, navigator: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15' } };
+  assert.ok(speechErrorMessage({ code: 'SPEECH_UNSUPPORTED' }, linuxDesktop).includes('WebKitGTK'));
+  const windowsDesktop = { __ACECODE_DESKTOP_SHELL__: true, navigator: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/141.0.0.0' } };
+  const windowsText = speechErrorMessage({ code: 'SPEECH_UNSUPPORTED' }, windowsDesktop);
+  assert.ok(!windowsText.includes('WebKitGTK') && !windowsText.includes('ACECode Desktop'));
+  assert.equal(speechErrorMessage({ code: 'SPEECH_UNSUPPORTED' }, { navigator: linuxDesktop.navigator }),
+    '当前环境不支持麦克风录音，请使用 ACECode Desktop 或支持录音的浏览器。');
+}
+{
+  // 场景:安全页面上点「复制本页地址」。期望:走 navigator.clipboard。
+  const written = [];
+  await copySpeechText('http://a:1', { isSecureContext: true, navigator: { clipboard: { writeText: async (text) => { written.push(text); } } } });
+  assert.deepEqual(written, ['http://a:1']);
+
+  // 场景:恰恰是 http://IP 页面需要复制,而浏览器在这类页面上不提供 navigator.clipboard。
+  // 期望:退回「选中隐藏文本框 + execCommand('copy')」,复制后移除文本框并把焦点还给原来的元素。
+  const events = [];
+  const body = { children: [], appendChild(node) { this.children.push(node); node.remove = () => { this.children = this.children.filter((child) => child !== node); }; } };
+  const previous = { focus: () => events.push('refocus') };
+  const doc = {
+    body, activeElement: previous,
+    createElement: () => ({ style: {}, setAttribute() {}, select() { events.push(`select:${this.value}`); } }),
+    execCommand: (command) => { events.push(command); return true; },
+  };
+  await copySpeechText('http://192.168.1.20:28080', { isSecureContext: false, navigator: {}, document: doc });
+  assert.deepEqual(events, ['select:http://192.168.1.20:28080', 'copy', 'refocus']);
+  assert.equal(body.children.length, 0);
+  await assert.rejects(copySpeechText('x', { isSecureContext: false, navigator: {}, document: { ...doc, execCommand: () => false } }));
+  await assert.rejects(copySpeechText('x', { isSecureContext: false, navigator: {} }));
 }
 console.log('speechRecognition tests passed');
