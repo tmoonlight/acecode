@@ -72,3 +72,13 @@
 
 1. 第 2 节「手工」列标待补验的各项与第 3 节界面检查(Windows 真实 Desktop)。
 2. macOS:先在 Mac(或 CI 的 macOS 构建)上编译 `agent_browser_host_mac.mm`,再按第 2 节逐项验收。
+
+## 5. 2026-10-22 发布补验
+
+- Windows 全量：6558 项执行，6546 通过，12 项按外部依赖或平台条件跳过，0 失败；另有 1 项原有禁用测试。
+- 浏览器、会话与升级定向测试：201 项通过；1.0.14 构建后的升级定向测试另有 66 项通过。
+- Web 全量 3323 项通过，生产构建通过；响应式侧栏、46 场景会话树、文件定位与工具展示浏览器回归通过。
+- 真实 WebView2 冒烟输出 `SMOKE_COOKIE_MODES_OK`、`SMOKE_OK` 与 `SMOKE_OWNERSHIP_OK`。
+- macOS x64 / ARM64 的 CLI 与 Desktop 编译通过：[package 预检](https://github.com/tmoonlight/acecode/actions/runs/39806382146)，源码 `0d51a501`。这补齐原第 4 节的 macOS 编译项，行为人工验收仍待补验。
+- 临时用户目录中的 Windows Desktop 已启动至 `ui_ready`；当前自动化接口无法操作该原生窗口，未把这一启动结果当作菜单遮挡及逐项界面验收通过。
+- 发布修复保持原有分层、文件大小及所有权限制；独立辅助模块的拆分没有改变存储或页面行为。

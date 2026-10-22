@@ -44,7 +44,7 @@
 
 ## 3. macOS 宿主
 
-- [ ] 3.1 `agent_browser_host_mac.mm` 按 D5 实现三种 data store,以及清空、删除、复制 cookie、切档重建、启动处理,与 Windows 共用第 1 组的纯逻辑和状态模块;同步接上三个 bridge。
+- [x] 3.1 `agent_browser_host_mac.mm` 按 D5 实现三种 data store,以及清空、删除、复制 cookie、切档重建、启动处理,与 Windows 共用第 1 组的纯逻辑和状态模块;同步接上三个 bridge。
 
   验收:本机无法编译 macOS,用 `ios-simulator-live.yml` 同类的手动 macOS 工作流(或推 `ci/` 分支跑 package.yml 的 macOS 构建)确认能编译通过;行为验收列入第 6 组的手工清单。
 - [x] 3.2 更新 `docs/agent-browser-macos-handoff.md` 的 Profile 一节,改为三种 data store 的说明。
@@ -108,3 +108,8 @@
 
 - 数据目录迁移只认 `agent-browser/webview2`,不认 `agent_browser/webview2`:已在同期单独修复(`migration_is_best_effort_root` 两种都认,回归 `UnderscoreBrowserProfileChurnDoesNotFailMigration`)。
 - 实现、验收完成后归档本变更。
+
+## 2026-10-22 发布补验
+
+- macOS x64 / ARM64 的 CLI 与 Desktop 编译均已通过：package 预检 run 39806382146，源码 0d51a501（本次版本提交的祖先）。第 3.1 项实施及编译验收完成；第 5.2 和 6.2 项人工验收继续按下方 verification.md 记录待补验。
+- 为保持 R12 文件大小上限，将宿主的原生辅助函数与 Cookie bridge 拆为独立模块；Windows 真实 WebView2 Cookie / 宿主冒烟及 Web 架构测试通过。
