@@ -84,6 +84,10 @@ import {
   searchSessionReferenceData,
 } from '../lib/sessionReference.js';
 import {
+  SESSION_REFERENCE_DROP_EVENT,
+  droppableSessionReferences,
+} from '../lib/sessionReferenceDrop.js';
+import {
   hasNativeContextPicker,
   parseNativeContextPickerResult,
 } from '../lib/desktopContextPicker.js';
@@ -808,6 +812,34 @@ export const InputBar = forwardRef(function InputBar({
   }, [pathMention?.token, restorePathCaret, updateValue, value]);
 
   const activePathDropdown = composerSelectionCollapsed ? pathMention : null;
+
+  // 侧栏会话拖到本输入框:在落点插入 @会话 引用,效果同 @ 菜单里选会话。
+  const sessionReferenceDropEnabled = !disabled && canLoadSessionReferences(pathReferenceApi);
+  useEffect(() => {
+    if (!sessionReferenceDropEnabled) return undefined;
+    const onDrop = (event) => {
+      const detail = event.detail;
+      const root = rootRef.current;
+      if (!detail || detail.handled || !root?.contains(detail.target)) return;
+      detail.handled = true;
+      const references = droppableSessionReferences(detail.references, {
+        currentSessionId,
+        text: ta.current?.value ?? '',
+      });
+      if (!references.length) {
+        toast({ text: t('拖入的会话已引用过，或是当前会话') });
+        return;
+      }
+      if (ta.current?.insertSessionReferences?.(references, {
+        clientX: detail.clientX,
+        clientY: detail.clientY,
+      })) {
+        setEditedSinceHistory(true);
+      }
+    };
+    window.addEventListener(SESSION_REFERENCE_DROP_EVENT, onDrop);
+    return () => window.removeEventListener(SESSION_REFERENCE_DROP_EVENT, onDrop);
+  }, [currentSessionId, sessionReferenceDropEnabled, t]);
 
   const handleFileIntake = useCallback((payload, transfer) => {
     if (disabled || !transfer?.isActive()) return Promise.resolve(true);
@@ -1614,6 +1646,7 @@ export const InputBar = forwardRef(function InputBar({
       data-speech-composer="true"
       data-main-composer={mainComposer ? 'true' : undefined}
       data-native-file-drop-disabled={disabled ? 'true' : undefined}
+      data-session-reference-drop={sessionReferenceDropEnabled ? 'true' : undefined}
       onPointerDownCapture={(event) => preserveComposerFocusOnPointerDown(event, rootRef.current)}
       onDragEnter={fileDropManagedExternally ? undefined : handleDragEnter}
       onDragOver={fileDropManagedExternally ? undefined : handleDragOver}

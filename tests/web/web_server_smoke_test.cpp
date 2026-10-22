@@ -5565,6 +5565,169 @@ TEST(WebServerHttp, PinnedSessionVisualOrderIncludesNoWorkspaceTasks) {
     EXPECT_EQ(get_body["items"][0]["session_id"], workspace_session_id);
 }
 
+namespace {
+
+std::string create_batch_test_session(WebServerFixture& fx, const std::string& hash) {
+    auto create = hash.empty()
+        ? cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                    cpr::Header{{"Content-Type", "application/json"}},
+                    cpr::Body{R"({"no_workspace":true})"})
+        : cpr::Post(cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")},
+                    cpr::Header{{"Content-Type", "application/json"}},
+                    cpr::Body{R"({})"});
+    EXPECT_EQ(create.status_code, 201) << create.text;
+    return json::parse(create.text).value("session_id", std::string{});
+}
+
+cpr::Response post_session_batch(WebServerFixture& fx, const std::string& action, const json& items) {
+    return cpr::Post(cpr::Url{fx.url("/api/session-batch")},
+                     cpr::Header{{"Content-Type", "application/json"}},
+                     cpr::Body{json{{"action", action}, {"items", items}}.dump()});
+}
+
+json batch_ws_item(const std::string& hash, const std::string& id) {
+    return json{{"session_id", id}, {"workspace_hash", hash}};
+}
+
+json batch_task_item(const std::string& id) {
+    return json{{"session_id", id}, {"no_workspace", true}};
+}
+
+} // namespace
+
+// 场景:侧栏多选了两个工作区会话、一个无工作区任务和一个已不存在的会话,一次请求批量置顶。
+// 期望:三个真实会话成功、不存在的那项单独失败(整体仍 200);各作用域的置顶文件与
+// 全局视觉顺序一次写好,顺序与选择顺序一致(第一个在最上面)。随后批量取消置顶其中两个,
+// 只剩第一个。回归:批量操作以前逐个发请求,选 20 个就是 40 个往返。
+TEST(WebServerHttp, SessionBatchPinsAndUnpinsAcrossScopesInOneRequest) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    const auto s1 = create_batch_test_session(fx, hash);
+    const auto task = create_batch_test_session(fx, "");
+    const auto s2 = create_batch_test_session(fx, hash);
+    ASSERT_FALSE(s1.empty());
+    ASSERT_FALSE(task.empty());
+    ASSERT_FALSE(s2.empty());
+
+    auto pin = post_session_batch(fx, "pin", json::array({
+        batch_ws_item(hash, s1), batch_task_item(task), batch_ws_item(hash, s2),
+        batch_ws_item(hash, "missing-session"),
+    }));
+    ASSERT_EQ(pin.status_code, 200) << pin.text;
+    const auto pin_body = json::parse(pin.text);
+    EXPECT_EQ(pin_body.value("succeeded", 0), 3);
+    EXPECT_EQ(pin_body.value("failed", 0), 1);
+    EXPECT_FALSE(pin_body["results"][3].value("ok", true));
+
+    auto workspace_pins = cpr::Get(cpr::Url{fx.url("/api/workspaces/" + hash + "/pinned-sessions")});
+    ASSERT_EQ(workspace_pins.status_code, 200) << workspace_pins.text;
+    EXPECT_EQ(json::parse(workspace_pins.text)["session_ids"], json::array({s1, s2}));
+    const auto task_pins = acecode::session_pins::read_pinned_sessions_state(
+        fx.no_workspace_cache_root / "pinned_sessions.json");
+    EXPECT_EQ(task_pins.session_ids, (std::vector<std::string>{task}));
+
+    auto order = cpr::Get(cpr::Url{fx.url("/api/pinned-sessions/order")});
+    ASSERT_EQ(order.status_code, 200) << order.text;
+    const auto items = json::parse(order.text)["items"];
+    ASSERT_EQ(items.size(), 3u);
+    EXPECT_EQ(items[0]["session_id"], s1);
+    EXPECT_EQ(items[1]["session_id"], task);
+    EXPECT_EQ(items[1]["workspace_hash"], "__no_workspace__");
+    EXPECT_EQ(items[2]["session_id"], s2);
+    EXPECT_EQ(pin_body["pinned_order"]["items"], items);
+
+    auto unpin = post_session_batch(fx, "unpin", json::array({
+        batch_ws_item(hash, s2), batch_task_item(task),
+    }));
+    ASSERT_EQ(unpin.status_code, 200) << unpin.text;
+    const auto unpin_body = json::parse(unpin.text);
+    EXPECT_EQ(unpin_body.value("failed", -1), 0);
+    ASSERT_EQ(unpin_body["pinned_order"]["items"].size(), 1u);
+    EXPECT_EQ(unpin_body["pinned_order"]["items"][0]["session_id"], s1);
+}
+
+// 场景:批量归档两个已置顶的工作区会话,再批量取消归档。
+// 期望:归档结果带回会话 meta(archived=true),默认列表不再出现它们,置顶文件与全局
+// 顺序里的这两项在同一次请求里被移除;取消归档后两者回到默认列表。
+TEST(WebServerHttp, SessionBatchArchiveUnpinsAndUnarchiveRestores) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    const auto s1 = create_batch_test_session(fx, hash);
+    const auto s2 = create_batch_test_session(fx, hash);
+    ASSERT_EQ(post_session_batch(fx, "pin", json::array({
+        batch_ws_item(hash, s1), batch_ws_item(hash, s2),
+    })).status_code, 200);
+
+    auto archive = post_session_batch(fx, "archive", json::array({
+        batch_ws_item(hash, s1), batch_ws_item(hash, s2),
+    }));
+    ASSERT_EQ(archive.status_code, 200) << archive.text;
+    const auto archive_body = json::parse(archive.text);
+    EXPECT_EQ(archive_body.value("succeeded", 0), 2);
+    EXPECT_TRUE(archive_body["results"][0]["session"].value("archived", false));
+    ASSERT_TRUE(archive_body.contains("pinned_scopes"));
+    EXPECT_TRUE(archive_body["pinned_scopes"][0]["session_ids"].empty());
+    EXPECT_TRUE(archive_body["pinned_order"]["items"].empty());
+
+    const auto has_session = [&](const std::string& id) {
+        auto list = cpr::Get(cpr::Url{fx.url("/api/workspaces/" + hash + "/sessions")});
+        EXPECT_EQ(list.status_code, 200) << list.text;
+        const auto sessions = json::parse(list.text);
+        return std::any_of(sessions.begin(), sessions.end(),
+            [&](const json& s) { return s.value("id", std::string{}) == id; });
+    };
+    EXPECT_FALSE(has_session(s1));
+    EXPECT_FALSE(has_session(s2));
+
+    auto unarchive = post_session_batch(fx, "unarchive", json::array({
+        batch_ws_item(hash, s1), batch_ws_item(hash, s2),
+    }));
+    ASSERT_EQ(unarchive.status_code, 200) << unarchive.text;
+    EXPECT_EQ(json::parse(unarchive.text).value("succeeded", 0), 2);
+    EXPECT_TRUE(has_session(s1));
+    EXPECT_TRUE(has_session(s2));
+}
+
+// 场景:批量标记未读,再批量标记已读(工作区会话与无工作区任务混合)。
+// 期望:每项结果都带回最新状态载荷,未读后 attention_state=unread,已读后恢复 read。
+TEST(WebServerHttp, SessionBatchMarksReadAndUnreadWithStatuses) {
+    WebServerFixture fx;
+    const std::string hash = acecode::compute_cwd_hash(fx.cwd);
+    const auto s1 = create_batch_test_session(fx, hash);
+    const auto task = create_batch_test_session(fx, "");
+    const auto items = json::array({batch_ws_item(hash, s1), batch_task_item(task)});
+
+    auto unread = post_session_batch(fx, "unread", items);
+    ASSERT_EQ(unread.status_code, 200) << unread.text;
+    const auto unread_body = json::parse(unread.text);
+    ASSERT_EQ(unread_body["results"].size(), 2u);
+    for (const auto& result : unread_body["results"]) {
+        EXPECT_TRUE(result.value("ok", false));
+        EXPECT_EQ(result["status"].value("attention_state", std::string{}), "unread");
+    }
+
+    auto read = post_session_batch(fx, "read", items);
+    ASSERT_EQ(read.status_code, 200) << read.text;
+    const auto read_body = json::parse(read.text);
+    ASSERT_EQ(read_body["results"].size(), 2u);
+    for (const auto& result : read_body["results"]) {
+        EXPECT_EQ(result["status"].value("attention_state", std::string{}), "read");
+    }
+}
+
+// 场景:批量请求的动作名未知、条目为空或会话 id 含路径字符。
+// 期望:400 且不改动任何状态。
+TEST(WebServerHttp, SessionBatchRejectsMalformedRequests) {
+    WebServerFixture fx;
+    EXPECT_EQ(post_session_batch(fx, "delete", json::array({batch_task_item("a")})).status_code, 400);
+    EXPECT_EQ(post_session_batch(fx, "pin", json::array()).status_code, 400);
+    EXPECT_EQ(post_session_batch(fx, "pin", json::array({batch_task_item("../a")})).status_code, 400);
+    auto bad_json = cpr::Post(cpr::Url{fx.url("/api/session-batch")},
+                              cpr::Header{{"Content-Type", "application/json"}},
+                              cpr::Body{"{"});
+    EXPECT_EQ(bad_json.status_code, 400);
+}
+
 // 场景:归档 workspace 会话后,默认列表隐藏它;专用 archived 查询能看到,
 // 取消归档后恢复到默认列表。
 TEST(WebServerHttp, WorkspaceArchiveSessionHidesFromDefaultList) {
@@ -11931,6 +12094,67 @@ TEST(WebServerHttp, ToolRewritesRoundTripPersistsJsonAndAppliesToProcess) {
     ASSERT_EQ(after.status_code, 200) << after.text;
     EXPECT_EQ(json::parse(after.text)["enabled"], false);
     EXPECT_EQ(json::parse(after.text)["rewrites"]["file_read"], "peek");
+}
+
+// 场景:Agent Browser 新标签页「推荐」的 REST 往返。前端上报两次访问(其中一次只是
+// 标题补充)→ 读推荐 → 移除 → 恢复;另有非法地址与远程代理来源(127.0.0.2)。
+// 期望:标题补充不计访问次数;记录落在 config.json 同目录的 agent_browser_top_sites.json;
+// 移除后读不到、恢复后回来;非 http(s) 地址 400;浏览记录不对远程来源开放(403)。
+TEST(WebServerHttp, AgentBrowserTopSitesRoundTripAndStayLocalOnly) {
+    WebServerFixture fx;
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    const auto post = [&](const std::string& path, const json& body) {
+        return cpr::Post(cpr::Url{fx.url(path)}, headers, cpr::Body{body.dump()});
+    };
+
+    ASSERT_EQ(post("/api/agent-browser/visits",
+                   {{"url", "https://a.example/#x"}, {"new_visit", true}}).status_code, 200);
+    ASSERT_EQ(post("/api/agent-browser/visits",
+                   {{"url", "https://a.example/"}, {"title", "Alpha"}, {"new_visit", false}})
+                  .status_code, 200);
+    ASSERT_EQ(post("/api/agent-browser/visits", {{"url", "http://127.0.0.1:5173/"}}).status_code, 200);
+    EXPECT_EQ(post("/api/agent-browser/visits", {{"url", "about:blank"}}).status_code, 400);
+    EXPECT_EQ(cpr::Post(cpr::Url{fx.url("/api/agent-browser/visits")}, headers,
+                        cpr::Body{"{oops"}).status_code, 400);
+
+    const auto listed = cpr::Get(cpr::Url{fx.url("/api/agent-browser/top-sites")},
+                                 cpr::Parameters{{"limit", "4"}});
+    ASSERT_EQ(listed.status_code, 200) << listed.text;
+    const auto sites = json::parse(listed.text)["sites"];
+    ASSERT_EQ(sites.size(), 2u);
+    bool saw_alpha = false;
+    for (const auto& site : sites) {
+        if (site["url"] == "https://a.example/") {
+            saw_alpha = true;
+            EXPECT_EQ(site["title"], "Alpha");
+        } else {
+            EXPECT_EQ(site["title"], "127.0.0.1:5173");
+        }
+    }
+    EXPECT_TRUE(saw_alpha);
+    {
+        std::ifstream ifs(fx.tmp_dir / "agent_browser_top_sites.json");
+        ASSERT_TRUE(ifs.is_open());
+        const auto saved = json::parse(ifs);
+        for (const auto& site : saved["sites"]) {
+            if (site["url"] == "https://a.example/") EXPECT_EQ(site["visit_count"], 1);
+        }
+    }
+
+    ASSERT_EQ(post("/api/agent-browser/top-sites/dismiss", {{"url", "https://a.example/"}}).status_code, 200);
+    auto after_dismiss = json::parse(
+        cpr::Get(cpr::Url{fx.url("/api/agent-browser/top-sites")}).text)["sites"];
+    ASSERT_EQ(after_dismiss.size(), 1u);
+    EXPECT_EQ(after_dismiss[0]["url"], "http://127.0.0.1:5173/");
+    ASSERT_EQ(post("/api/agent-browser/top-sites/restore", {{"url", "https://a.example/"}}).status_code, 200);
+    EXPECT_EQ(json::parse(cpr::Get(cpr::Url{fx.url("/api/agent-browser/top-sites")}).text)["sites"].size(), 2u);
+
+    const auto remote = cpr::Get(cpr::Url{fx.url("/api/agent-browser/top-sites")},
+                                 cpr::Header{{"X-ACECode-Token", "smoke-token"}},
+                                 cpr::Interface{"127.0.0.2"}, cpr::Timeout{3000});
+    if (remote.status_code == 0) GTEST_SKIP() << "本机不能以 127.0.0.2 为源地址发起连接: " << remote.error.message;
+    EXPECT_EQ(remote.status_code, 403) << remote.text;
+    EXPECT_EQ(remote.text.find("a.example"), std::string::npos);
 }
 
 

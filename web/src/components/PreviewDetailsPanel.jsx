@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { useWorkbenchScroll } from '../lib/useWorkbenchScroll.js';
 import { usePreviewTextZoom } from '../lib/usePreviewTextZoom.js';
+import { useAppShortcuts } from '../lib/useAppShortcuts.js';
 import { clsx } from '../lib/format.js';
 import {
   PREVIEW_TAB_TYPES,
@@ -342,6 +343,9 @@ export function PreviewDetailsPanel({
   onSelectChangeFile,
   onSelectGitChangeFile,
   onOpenFilePreview,
+  onLocateFile,
+  browserRecentFiles = [],
+  onReplaceBrowserTabWithFile,
 }) {
   const tabListRef = useRef(null);
   const { panelRef, zoom: textZoom } = usePreviewTextZoom(owner);
@@ -357,12 +361,31 @@ export function PreviewDetailsPanel({
   useWorkbenchScroll(owner, 'previewTabScroll', tabListRef, tabs.length);
   const active = activeTab || tabs[0] || null;
 
+  useAppShortcuts({
+    revealPreviewFile: () => {
+      if (active?.type !== PREVIEW_TAB_TYPES.FILE || !onLocateFile
+          || !panelRef.current?.getClientRects().length) return false;
+      onLocateFile({ cwd: active.cwd || cwd, path: active.path });
+    },
+  });
+
   // 预览标签右键菜单复用全局 DesktopContextMenu:菜单项命中 close_* action 后,
   // 由 DesktopContextMenu 通过 DESKTOP_CONTEXT_ACTION_EVENT 派发回来,这里执行关闭逻辑。
   useEffect(() => {
     const handler = (event) => {
       const detail = event.detail || {};
       const { action, target } = detail;
+      if (action === DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST) {
+        if (detail.handled || !target?.element || !panelRef.current?.contains(target.element)) return;
+        detail.handled = true; // Outside-workspace files are intentionally silent.
+        if (target.type === 'preview-tab') {
+          const tab = tabs.find((item) => item.key === target.key);
+          if (tab?.type === PREVIEW_TAB_TYPES.FILE) onLocateFile?.({ cwd: tab.cwd || cwd, path: tab.path });
+        } else if (target.type === 'preview') {
+          onLocateFile?.({ cwd: target.cwd || cwd, path: target.path });
+        }
+        return;
+      }
       if (action === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION) {
         if (target?.element !== panelRef.current || !onTogglePresentation) return;
         detail.handled = true;
@@ -388,7 +411,7 @@ export function PreviewDetailsPanel({
     };
     window.addEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
     return () => window.removeEventListener(DESKTOP_CONTEXT_ACTION_EVENT, handler);
-  }, [onCloseAll, onCloseOthers, onCloseTab, onCloseToRight, onTogglePresentation, panelRef]);
+  }, [cwd, tabs, onLocateFile, onCloseAll, onCloseOthers, onCloseTab, onCloseToRight, onTogglePresentation, panelRef]);
 
   const renderedBody = useMemo(() => {
     if (!active) return null;
@@ -400,6 +423,10 @@ export function PreviewDetailsPanel({
           agentActive={agentBrowserActive && active.pageId === agentBrowserActive}
           surfaceEnabled={nativeSurfacesVisible}
           onAddContext={onAddBrowserContext}
+          recentFiles={browserRecentFiles}
+          onOpenRecentFile={onReplaceBrowserTabWithFile
+            ? (path) => onReplaceBrowserTabWithFile(active.key, path)
+            : undefined}
         />
       );
     }
@@ -480,7 +507,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, browserRecentFiles, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;

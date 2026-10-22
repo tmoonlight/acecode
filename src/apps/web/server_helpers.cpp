@@ -1405,21 +1405,27 @@ crow::response WebServer::Impl::set_session_archive_state(
     const acecode::desktop::WorkspaceMeta& ws,
     const std::string& id,
     bool archived) {
+    const auto outcome = apply_session_archive_state(ws, id, archived);
+    crow::response r(outcome.status);
+    r.body = outcome.body.dump();
+    r.add_header("Content-Type", "application/json");
+    return with_cors(req, std::move(r));
+}
+
+WebServer::Impl::SessionArchiveOutcome WebServer::Impl::apply_session_archive_state(
+    const acecode::desktop::WorkspaceMeta& ws,
+    const std::string& id,
+    bool archived) {
     auto maybe_meta = find_session_meta_for_workspace(ws, id);
     if (!maybe_meta.has_value()) {
-        crow::response r(404);
-        r.body = R"({"error":"session not found"})";
-        r.add_header("Content-Type", "application/json");
-        return with_cors(req, std::move(r));
+        return {404, json{{"error", "session not found"}}};
     }
 
     SessionMeta meta = *maybe_meta;
     if (archived && !meta.parent_session_id.empty()) {
         // 子会话跟随主会话,没有单独归档(用户决策,见 session_tree_purge.hpp)。
-        crow::response r(409);
-        r.body = R"({"error":"subagent sessions follow their main session and cannot be archived separately"})";
-        r.add_header("Content-Type", "application/json");
-        return with_cors(req, std::move(r));
+        return {409, json{{"error",
+            "subagent sessions follow their main session and cannot be archived separately"}}};
     }
     if (archived && deps.session_client) {
         deps.session_client->destroy_session(id);
@@ -1443,9 +1449,7 @@ crow::response WebServer::Impl::set_session_archive_state(
         global_session_search->invalidate_project(ws.hash);
     }
 
-    crow::response r(session_meta_to_json(meta, ws.hash).dump());
-    r.add_header("Content-Type", "application/json");
-    return with_cors(req, std::move(r));
+    return {200, session_meta_to_json(meta, ws.hash)};
 }
 
 crow::response WebServer::Impl::purge_session_data(
@@ -2320,68 +2324,71 @@ void WebServer::Impl::note_session_event_for_attention(
     if (changed) broadcast_session_status(payload);
 }
 
+std::vector<json> WebServer::Impl::mark_sessions_attention(
+    const std::vector<SessionAttentionMark>& marks,
+    bool read) {
+    // busy 来自会话注册表,在 attention_mu 之外取,避免与 AgentLoop 线程互锁。
+    std::vector<bool> busy(marks.size(), false);
+    if (deps.session_registry) {
+        for (std::size_t i = 0; i < marks.size(); ++i) {
+            if (auto entry = deps.session_registry->acquire(marks[i].session_id)) {
+                busy[i] = entry->loop && entry->loop->is_busy();
+            }
+        }
+    }
+    std::vector<json> payloads(marks.size());
+    std::vector<std::size_t> changed;
+    {
+        std::lock_guard<std::mutex> lk(attention_mu);
+        std::unordered_set<std::string> dirty;
+        const auto now = now_unix_ms();
+        for (std::size_t i = 0; i < marks.size(); ++i) {
+            const auto& mark = marks[i];
+            load_attention_workspace_locked(mark.workspace_hash, mark.cwd);
+            auto& record = attention_by_workspace[mark.workspace_hash][mark.session_id];
+            record.busy = busy[i];
+            const auto before_state = session_attention_state_for(record);
+            const auto before_record = record;
+            bool did_change = false;
+            if (read) {
+                record = mark_session_attention_read(record, mark.cursor, now);
+                did_change = before_state != session_attention_state_for(record) ||
+                             before_record.read_cursor != record.read_cursor;
+            } else {
+                record = mark_session_attention_unread(record, now);
+                // 运行中的会话状态仍是 in_progress,但游标已退回,回合结束后照样显示未读;
+                // 所以这里按游标判断是否变化,而不只看状态。
+                did_change = before_record.read_cursor != record.read_cursor ||
+                             before_record.update_cursor != record.update_cursor;
+            }
+            if (did_change || before_record.updated_at_ms != record.updated_at_ms) {
+                dirty.insert(mark.workspace_hash);
+            }
+            payloads[i] = attention_payload_for_record(
+                mark.session_id, mark.workspace_hash, mark.cwd, record);
+            if (did_change) changed.push_back(i);
+        }
+        for (const auto& workspace_hash : dirty) {
+            save_attention_workspace_locked(workspace_hash);
+        }
+    }
+    for (const auto i : changed) broadcast_session_status(payloads[i]);
+    return payloads;
+}
+
 json WebServer::Impl::mark_session_read_status(
     const std::string& session_id,
     const std::string& workspace_hash,
     const std::string& cwd,
     std::uint64_t cursor) {
-    json payload;
-    bool changed = false;
-    bool current_busy = false;
-    if (deps.session_registry) {
-        if (auto entry = deps.session_registry->acquire(session_id)) {
-            current_busy = entry->loop && entry->loop->is_busy();
-        }
-    }
-    {
-        std::lock_guard<std::mutex> lk(attention_mu);
-        load_attention_workspace_locked(workspace_hash, cwd);
-        auto& record = attention_by_workspace[workspace_hash][session_id];
-        record.busy = current_busy;
-        const auto before_state = session_attention_state_for(record);
-        const auto before_record = record;
-        record = mark_session_attention_read(record, cursor, now_unix_ms());
-        const auto after_state = session_attention_state_for(record);
-        changed = before_state != after_state || before_record.read_cursor != record.read_cursor;
-        if (changed || before_record.updated_at_ms != record.updated_at_ms) {
-            save_attention_workspace_locked(workspace_hash);
-        }
-        payload = attention_payload_for_record(session_id, workspace_hash, cwd, record);
-    }
-    if (changed) broadcast_session_status(payload);
-    return payload;
+    return mark_sessions_attention({{session_id, workspace_hash, cwd, cursor}}, true).front();
 }
 
 json WebServer::Impl::mark_session_unread_status(
     const std::string& session_id,
     const std::string& workspace_hash,
     const std::string& cwd) {
-    json payload;
-    bool changed = false;
-    bool current_busy = false;
-    if (deps.session_registry) {
-        if (auto entry = deps.session_registry->acquire(session_id)) {
-            current_busy = entry->loop && entry->loop->is_busy();
-        }
-    }
-    {
-        std::lock_guard<std::mutex> lk(attention_mu);
-        load_attention_workspace_locked(workspace_hash, cwd);
-        auto& record = attention_by_workspace[workspace_hash][session_id];
-        record.busy = current_busy;
-        const auto before_record = record;
-        record = mark_session_attention_unread(record, now_unix_ms());
-        // 运行中的会话状态仍是 in_progress,但游标已退回,回合结束后照样显示未读;
-        // 所以这里按游标判断是否变化,而不只看状态。
-        changed = before_record.read_cursor != record.read_cursor ||
-                  before_record.update_cursor != record.update_cursor;
-        if (changed || before_record.updated_at_ms != record.updated_at_ms) {
-            save_attention_workspace_locked(workspace_hash);
-        }
-        payload = attention_payload_for_record(session_id, workspace_hash, cwd, record);
-    }
-    if (changed) broadcast_session_status(payload);
-    return payload;
+    return mark_sessions_attention({{session_id, workspace_hash, cwd, 0}}, false).front();
 }
 
 void WebServer::Impl::send_status_snapshot(crow::websocket::connection& conn,

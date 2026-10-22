@@ -188,6 +188,38 @@ bool move_sidebar_node(SidebarTree& tree, json& layout,
     return true;
 }
 
+bool move_sidebar_nodes(SidebarTree& tree, json& layout,
+                        const std::vector<std::string>& sources, const std::string& target,
+                        const std::string& placement, std::string& error) {
+    error.clear();
+    const std::set<std::string> selected(sources.begin(), sources.end());
+    if (sources.empty() || selected.size() != sources.size() || selected.count(target)) {
+        error = "SIDEBAR_TARGET_CHANGED";
+        return false;
+    }
+    for (const auto& source : sources) {
+        const auto found = tree.nodes.find(source);
+        if (found == tree.nodes.end() || selected.count(found->second.parent)) {
+            error = "SIDEBAR_TARGET_CHANGED";
+            return false;
+        }
+    }
+    auto next_tree = tree;
+    auto next_layout = layout;
+    auto ordered = sources;
+    if (placement == "after") std::reverse(ordered.begin(), ordered.end());
+    auto receiver = target;
+    for (const auto& source : ordered) {
+        if (!move_sidebar_node(next_tree, next_layout, source, receiver, placement, error)) return false;
+        // The first insertion can turn a detached scheduled session into a
+        // manual group. Remaining insertions must address that new group.
+        if (placement == "inside") receiver = next_tree.nodes.at(source).parent;
+    }
+    tree = std::move(next_tree);
+    layout = std::move(next_layout);
+    return true;
+}
+
 json read_sidebar_layout(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
     if (!input) return json::object();

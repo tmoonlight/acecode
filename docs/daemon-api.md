@@ -285,6 +285,7 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | PUT | `/api/no-workspace/pinned-sessions` | set pinned no-workspace task ids |
 | GET | `/api/pinned-sessions/order` | read global cross-scope pin order |
 | PUT | `/api/pinned-sessions/order` | set global cross-scope pin order |
+| POST | `/api/session-batch` | pin/unpin/archive/unarchive/read/unread many sessions at once |
 | GET | `/api/sessions` | compatibility session list |
 | GET | `/api/desktop-office?session=<id>&workspace=<hash>` | recent five offices and selected root/agent runtime snapshot |
 | GET | `/api/session-search/sessions?q=...&limit=N&cursor=...&request_id=...` | incremental global session catalog page |
@@ -418,6 +419,9 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | POST | `/api/memory/reset` | clear one scope (entries, index, inbox, archive) |
 | GET | `/api/config/tool-rewrites` | read tool rewrite settings plus the built-in tool catalog |
 | PUT | `/api/config/tool-rewrites` | replace tool rewrite settings, persist `tool_rewrites.json`, apply live |
+| GET | `/api/agent-browser/top-sites?limit=N` | Agent Browser New Tab「推荐」: most visited sites (local clients only) |
+| POST | `/api/agent-browser/visits` | record one Agent Browser page visit or its later title/favicon (local clients only) |
+| POST | `/api/agent-browser/top-sites/dismiss` / `restore` | hide / un-hide one suggested site (local clients only) |
 | GET | `/api/config/tool-preamble` | read the concrete progress text switch (work mode) |
 | PUT | `/api/config/tool-preamble` | set the concrete progress text switch in `config.json`, push to active sessions |
 | GET | `/api/config/sandbox` | read sandbox switches, filesystem lists, defaults and platform probe |
@@ -852,6 +856,13 @@ The same query parameters apply. Body:
 ```json
 {"source":"session:older-run","target":"loop:task-id","placement":"inside"}
 ```
+
+For a batch, replace `source` with `sources`, an ordered nonempty array of
+distinct node keys. The entire batch is validated and saved atomically; a stale,
+duplicate, selected destination or invalid member rejects the batch without
+changing the layout. Relative source order is preserved for all placements.
+An invalid `sources` type returns HTTP 409/`SIDEBAR_INVALID_SOURCES`.
+The response reveals all moved nodes. The single-source body remains supported.
 
 `placement` is `before`, `after`, or `inside`. Moves remain within the endpoint's
 scope. Only a scheduled root with `loop_execution.loop_id` (the alarm marker)
@@ -2459,6 +2470,74 @@ Body:
 
 Normalizes, prunes unavailable pinned items, persists, and echoes the same
 shape as `GET`.
+
+### `POST /api/session-batch`
+
+Applies one sidebar action to many sessions in a single request. Each pin file,
+the global pin order and each workspace attention file are written at most
+once. Items are processed independently: a failing item does not stop the
+others, and the response is `200` with per-item results. Only a malformed
+request (unknown action, empty or oversized `items`, invalid id) returns `400`.
+
+Body:
+
+```json
+{
+  "action": "pin",
+  "items": [
+    {"session_id":"sid-1","workspace_hash":"abc123"},
+    {"session_id":"task-1","no_workspace":true},
+    {"session_id":"sid-2","workspace_hash":"abc123","cursor":42}
+  ]
+}
+```
+
+- `action`: `pin`, `unpin`, `archive`, `unarchive`, `read` or `unread`.
+- `items`: 1–500 entries in visible sidebar order. `session_id` must match
+  `[A-Za-z0-9_-]{1,128}`. No-workspace tasks set `no_workspace:true` (the pin
+  scope `__no_workspace__` is also accepted as `workspace_hash`). Duplicate
+  scope + id pairs are ignored. `cursor` is used only by `read`, with the same
+  meaning as the WebSocket `mark_session_read` cursor.
+
+Semantics:
+
+- `pin` inserts sessions that are not yet pinned at the top in request order
+  (the first item ends up first) and leaves already pinned sessions where they
+  are, both in the scope pin list and in the global order. Sessions that cannot
+  be pinned (missing, archived, subagent) fail with `session cannot be pinned`.
+- `unpin` removes the items from their scope lists and the global order.
+- `archive` / `unarchive` follow the single-item archive routes, including the
+  subagent `409` rule (reported as a per-item error). Archived sessions are
+  removed from pin lists and the global order in the same request.
+- `read` / `unread` follow the WebSocket `mark_session_read` /
+  `mark_session_unread` messages and still broadcast `session_status` for
+  sessions whose state changed.
+
+Response:
+
+```json
+{
+  "action": "pin",
+  "succeeded": 2,
+  "failed": 1,
+  "results": [
+    {"session_id":"sid-1","workspace_hash":"abc123","no_workspace":false,"ok":true},
+    {"session_id":"task-1","workspace_hash":"","no_workspace":true,"ok":true},
+    {"session_id":"gone","workspace_hash":"abc123","no_workspace":false,"ok":false,
+     "error":"session cannot be pinned"}
+  ],
+  "pinned_scopes": [
+    {"pin_scope":"abc123","session_ids":["sid-1","sid-0"]},
+    {"pin_scope":"__no_workspace__","session_ids":["task-1"]}
+  ],
+  "pinned_order": {"items":[{"workspace_hash":"abc123","session_id":"sid-1"}]}
+}
+```
+
+`pinned_scopes` and `pinned_order` are present when pins changed (`pin`,
+`unpin`, `archive`). Archive results carry `session` (the updated session meta,
+same shape as the single archive route); read/unread results carry `status`
+(the `session_status` payload).
 
 ---
 
@@ -4298,6 +4377,30 @@ writes the file atomically, publishes the mapping to the process so the next
 model request uses it, and returns the same shape as GET. Hook matchers accept
 the rewritten names as aliases of the native tool while a rewrite is active.
 
+### Agent Browser New Tab suggestions (most visited sites)
+
+The Desktop Agent Browser's empty page lists suggested sites the way Codex
+Desktop's New Tab does. WebView2 / WKWebView expose no browsing history, so the
+WebUI reports visits and the daemon keeps them in
+`<data_dir>/agent_browser_top_sites.json` (`{version, sites:[{url, title?,
+favicon?, visit_count, last_visit_ms}], blocked:[url]}`, at most 200 sites and
+200 dismissed URLs). Browsing history is private: all four routes return 403
+`{error:"LOCAL_ONLY"}` to anything but a direct loopback client (the remote Web
+proxy's `127.0.0.2` source included); writes return 409
+`DATA_DIR_MIGRATION_ACTIVE` while a data directory migration runs.
+
+- `POST /api/agent-browser/visits` `{url, title?, favicon?, new_visit?=true}`.
+  Only `http(s)` URLs are accepted (400 `BAD_URL` otherwise); the `#fragment` is
+  dropped. `new_visit:true` counts a navigation; `false` only fills in the title
+  or favicon of an existing entry. Favicons are `http(s)` URLs or `data:image/`
+  URLs up to 64 KiB; anything else is ignored. Returns `{ok, changed}`.
+- `GET /api/agent-browser/top-sites?limit=N` (default 4, max 12) returns
+  `{sites:[{url, title, favicon?}]}`, dismissed URLs excluded, ordered by
+  `visit_count × recency weight` (1.0 within 4 days, 0.7 within 14, 0.5 within
+  31, 0.3 within 90, else 0.1). An empty title falls back to the host.
+- `POST /api/agent-browser/top-sites/dismiss` / `restore` `{url}` hide or un-hide
+  one suggestion; later visits do not un-hide it.
+
 ### Tool preamble / concrete progress text (`openspec add-tool-preamble`)
 
 Settings > General > Work mode: "适合日常工作" (daily) turns it on, "用于编程"
@@ -5004,8 +5107,10 @@ removes only private staging, preserves the source and existing target files,
 and re-enables writes. A pointer-write failure retains the copied target for recovery.
 The staging directory is a sibling of the target named `.acecode-mig-<8 hex>`.
 
-`agent-browser/webview2` (the Desktop Agent Browser profile, open and written for
-the whole Desktop lifetime) is copied best-effort: it is enumerated separately and
+`agent_browser/webview2` (the Desktop Agent Browser profile, open and written for
+the whole Desktop lifetime; installations that already had the legacy
+`agent-browser/webview2` keep that name, and both are recognized) is copied
+best-effort: it is enumerated separately and
 tolerates entries vanishing mid-walk, skips rebuildable caches (`Cache`,
 `Code Cache`, `GPUCache`, `GrShaderCache`, `GraphiteDawnCache`, `DawnCache`,
 `DawnGraphiteCache`, `DawnWebGPUCache`, `ShaderCache`, `Crashpad`) and `lockfile` /

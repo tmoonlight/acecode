@@ -12,6 +12,7 @@
 #include "security/audit_log.hpp"
 #include "skills/skill_registry.hpp"
 #include "skills/skill_usage_store.hpp"
+#include "session_host/agent_browser_store_lifecycle.hpp"
 #include "session_host/memory_runtime.hpp"
 #include "workspace/workspace_registry.hpp"
 #include "utils/paths.hpp"
@@ -53,6 +54,7 @@ bool TuiServices::initialize(const InteractiveCliOptions& cli, const std::string
     workspace_tool_deps->projects_dir = projects;
     register_workspace_tools(*tools, workspace_tool_deps);
     skill_usage = std::make_shared<SkillUsageStore>(get_acecode_dir() + "/.skill_usage_state.json");
+    agent_browser_stores = std::make_unique<AgentBrowserStoreLifecycle>();
     return true;
 }
 }

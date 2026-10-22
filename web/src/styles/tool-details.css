@@ -1,0 +1,12 @@
+.ace-tool-diff-with-metadata {
+  overflow: hidden;
+  border: 1px solid var(--ace-border);
+  border-radius: 12px;
+  background: var(--ace-surface);
+}
+
+.ace-tool-diff-with-metadata .d2h-file-wrapper {
+  margin-bottom: 0;
+  border: 0;
+  border-radius: 0;
+}

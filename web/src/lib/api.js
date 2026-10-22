@@ -459,6 +459,11 @@ export function createApi(base = null) {
       request('GET', '/api/pinned-sessions/order', undefined, base),
     setPinnedSessionOrder: (items=[]) =>
       request('PUT', '/api/pinned-sessions/order', { items }, base),
+    // 侧栏多选批量操作:action = pin | unpin | archive | unarchive | read | unread,
+    // items = [{ session_id, workspace_hash, no_workspace, cursor? }]。一次请求完成,
+    // 逐项结果在 results 里;置顶类动作还带回 pinned_scopes / pinned_order。
+    batchSessions: (action, items=[]) =>
+      request('POST', '/api/session-batch', { action, items }, base),
     destroySession:   (id)           => request('DELETE', `/api/sessions/${encodeURIComponent(id)}`, undefined, base),
     getSessionDraft:  (id, workspaceHash = '') =>
       request('GET', sessionDraftPath(id, workspaceHash), undefined, base),
@@ -749,6 +754,12 @@ export function createApi(base = null) {
       { config, confirm_cost: true }, base, { timeoutMs: 615000 }),
     getToolRewrites: ()              => request('GET', '/api/config/tool-rewrites', undefined, base),
     setToolRewrites: (settings)      => request('PUT', '/api/config/tool-rewrites', settings, base, { keepalive: true }),
+    // Agent Browser 新标签页「推荐」(常访问网站):访问由 App 级记录器上报。
+    getAgentBrowserTopSites: (limit = 4) => request('GET',
+      `/api/agent-browser/top-sites?limit=${encodeURIComponent(limit)}`, undefined, base),
+    recordAgentBrowserVisit: (visit) => request('POST', '/api/agent-browser/visits', visit, base),
+    dismissAgentBrowserTopSite: (url) => request('POST', '/api/agent-browser/top-sites/dismiss', { url }, base),
+    restoreAgentBrowserTopSite: (url) => request('POST', '/api/agent-browser/top-sites/restore', { url }, base),
     // 安全中心(Settings > 编码 > 安全中心,openspec add-security-center)。
     getSandboxSettings: ()           => request('GET', '/api/config/sandbox', undefined, base),
     setSandboxSettings: (settings)   => request('PUT', '/api/config/sandbox', settings, base),

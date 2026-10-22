@@ -33,6 +33,8 @@ import {
   nativeSurfaceViewportRect,
   nextAgentBrowserLayoutRequest,
 } from '../lib/agentBrowserSurfaceCoordinator.js';
+import { AgentBrowserMoreMenu } from './AgentBrowserMoreMenu.jsx';
+import { AgentBrowserNewTab } from './AgentBrowserNewTab.jsx';
 import { NavigationArrowIcon, RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
@@ -60,6 +62,8 @@ export function AgentBrowserPanel({
   agentActive = false,
   surfaceEnabled = true,
   onAddContext,
+  recentFiles = [],
+  onOpenRecentFile,
 }) {
   const viewportRef = useRef(null);
   const addressFocusedRef = useRef(false);
@@ -307,6 +311,16 @@ export function AgentBrowserPanel({
     return result;
   }, [pageId]);
 
+  const navigateTo = useCallback(async (url) => {
+    const result = await runAgentBrowserBridgeAction(
+      'aceDesktop_agentBrowserNavigate',
+      { page_id: pageId, url },
+    );
+    if (result?.ok === false) {
+      toast({ kind: 'err', text: result.error || '无法打开该地址' });
+    }
+  }, [pageId]);
+
   const submitAddress = useCallback(async (event) => {
     event.preventDefault();
     const normalized = normalizeAgentBrowserAddress(address);
@@ -314,14 +328,8 @@ export function AgentBrowserPanel({
       toast({ kind: 'err', text: '请输入 http 或 https 地址' });
       return;
     }
-    const result = await runAgentBrowserBridgeAction(
-      'aceDesktop_agentBrowserNavigate',
-      { page_id: pageId, url: normalized },
-    );
-    if (result?.ok === false) {
-      toast({ kind: 'err', text: result.error || '无法打开该地址' });
-    }
-  }, [address, pageId]);
+    await navigateTo(normalized);
+  }, [address, navigateTo]);
 
   const toggleSharing = useCallback(async () => {
     const shared = !state.shared_with_agent;
@@ -360,6 +368,14 @@ export function AgentBrowserPanel({
       toast({ kind: 'err', text: result.error || '无法打开开发者工具' });
     }
   }, [pageId]);
+
+  const statusSurface = (
+    <AgentBrowserStatusSurface
+      surface={surface}
+      onRetry={() => runAction('aceDesktop_agentBrowserReload')}
+      onGoBack={() => runAction('aceDesktop_agentBrowserGoBack')}
+    />
+  );
 
   return (
     <div
@@ -452,82 +468,89 @@ export function AgentBrowserPanel({
             type="button"
             className="ace-agent-browser-toolbar-button"
             disabled={!state.ready}
-            title="将控制台日志添加到聊天"
-            aria-label="将控制台日志添加到聊天"
-            onClick={addConsoleLogs}
-          >
-            <VsIcon name="Output" size={17} />
-          </button>
-          <button
-            type="button"
-            className="ace-agent-browser-toolbar-button"
-            disabled={!state.ready}
             title="切换开发者工具"
             aria-label="切换开发者工具"
             onClick={openDevTools}
           >
             <VsIcon name="DeveloperTools" size={17} />
           </button>
+          <AgentBrowserMoreMenu
+            pageId={pageId}
+            ready={state.ready}
+            onAddConsoleLogs={addConsoleLogs}
+          />
         </div>
       </div>
       <div className={clsx('ace-agent-browser-frame', agentActive && 'is-agent-active')}>
         <div ref={viewportRef} className="ace-agent-browser-native-viewport">
-          {!nativePageVisible && (
-            <div
-              className="ace-agent-browser-status"
-              data-browser-surface={surface.kind}
-              data-tone={surface.tone}
-              role={surface.role}
-              aria-live={surface.role === 'alert' ? 'assertive' : 'polite'}
-            >
-              <VsIcon
-                name={surface.icon}
-                size={50}
-                className={clsx(
-                  'ace-agent-browser-status-icon',
-                  surface.kind === 'loading' && 'is-loading',
-                )}
-              />
-              <div className="ace-agent-browser-status-title">
-                {surface.title}
-              </div>
-              <div className="ace-agent-browser-status-detail">
-                {surface.detail}
-              </div>
-              {surface.diagnostic && (
-                <pre
-                  className="ace-agent-browser-status-diagnostic"
-                  aria-label="NSError"
-                >
-                  {surface.diagnostic}
-                </pre>
-              )}
-              {surface.canRetry && (
-                <div className="ace-agent-browser-status-actions">
-                  <button
-                    type="button"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-medium text-white transition hover:opacity-90"
-                    onClick={() => runAction('aceDesktop_agentBrowserReload')}
-                  >
-                    <RefreshIcon size={14} />
-                    重试
-                  </button>
-                  {surface.canGoBack && (
-                    <button
-                      type="button"
-                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-3 text-[12px] font-medium text-fg-2 transition hover:bg-surface-hi hover:text-fg"
-                      onClick={() => runAction('aceDesktop_agentBrowserGoBack')}
-                    >
-                      <NavigationArrowIcon direction="back" size={14} />
-                      返回上一页
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+          {surface.kind === 'empty' && (
+            <AgentBrowserNewTab
+              recentFiles={recentFiles}
+              onNavigate={navigateTo}
+              onOpenRecentFile={onOpenRecentFile}
+              fallback={statusSurface}
+            />
           )}
+          {!nativePageVisible && surface.kind !== 'empty' && statusSurface}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AgentBrowserStatusSurface({ surface, onRetry, onGoBack }) {
+  return (
+    <div
+      className="ace-agent-browser-status"
+      data-browser-surface={surface.kind}
+      data-tone={surface.tone}
+      role={surface.role}
+      aria-live={surface.role === 'alert' ? 'assertive' : 'polite'}
+    >
+      <VsIcon
+        name={surface.icon}
+        size={50}
+        className={clsx(
+          'ace-agent-browser-status-icon',
+          surface.kind === 'loading' && 'is-loading',
+        )}
+      />
+      <div className="ace-agent-browser-status-title">
+        {surface.title}
+      </div>
+      <div className="ace-agent-browser-status-detail">
+        {surface.detail}
+      </div>
+      {surface.diagnostic && (
+        <pre
+          className="ace-agent-browser-status-diagnostic"
+          aria-label="NSError"
+        >
+          {surface.diagnostic}
+        </pre>
+      )}
+      {surface.canRetry && (
+        <div className="ace-agent-browser-status-actions">
+          <button
+            type="button"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-[12px] font-medium text-white transition hover:opacity-90"
+            onClick={onRetry}
+          >
+            <RefreshIcon size={14} />
+            重试
+          </button>
+          {surface.canGoBack && (
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface px-3 text-[12px] font-medium text-fg-2 transition hover:bg-surface-hi hover:text-fg"
+              onClick={onGoBack}
+            >
+              <NavigationArrowIcon direction="back" size={14} />
+              返回上一页
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

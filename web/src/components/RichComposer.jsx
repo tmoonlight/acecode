@@ -44,6 +44,7 @@ import {
   composerDocumentFromContent,
   composerSkillTag,
   composerPathTag,
+  composerSessionTagForReference,
   composerDocumentFromText,
   composerInlineTagRanges,
   composerPlainTextRangeFromSelection,
@@ -1153,6 +1154,54 @@ function RichComposerShell({
 
   useImperativeHandle(ref, () => ({
     beginFileTransfer,
+    // 侧栏会话拖入:在松手位置插入会话标签(落在标签上时插在它后面),落点不在
+    // 编辑区内时插在当前光标处,没有光标时插在末尾。每个标签后跟一个空格,与 @ 菜单一致。
+    insertSessionReferences(references = [], { clientX, clientY } = {}) {
+      if (disabledRef.current) return false;
+      const tags = references.map(composerSessionTagForReference).filter(Boolean);
+      if (!tags.length) return false;
+      // 不调 ensureLegalEditorDocument:它会把选区重置到末尾,用户原来的光标就丢了。
+      let point = null;
+      const editable = editableRef.current;
+      if (editable && Number.isFinite(clientX) && Number.isFinite(clientY)) {
+        const hit = editable.ownerDocument.elementFromPoint(clientX, clientY);
+        if (hit && editable.contains(hit)) {
+          try {
+            const tagElement = hit.closest('[data-composer-inline-tag]');
+            point = tagElement
+              ? composerTagSelection(editor, ReactEditor.findPath(editor, ReactEditor.toSlateNode(editor, tagElement))).focus
+              : ReactEditor.findEventRange(editor, { target: hit, clientX, clientY }).focus;
+          } catch {
+            point = null;
+          }
+        }
+      }
+      const end = latestTextRef.current.length;
+      const atEnd = () => composerSelectionFromPlainTextRange(editor.children, end, end);
+      try {
+        Transforms.select(editor, point ? { anchor: point, focus: point } : editor.selection || atEnd());
+      } catch {
+        // 外部草稿同步后残留的旧选区可能已失效。
+        Transforms.select(editor, atEnd());
+      }
+      const start = currentPlainSelection(editor.children, editor.selection).start;
+      const before = composerTextFromDocument(editor.children).slice(0, start);
+      HistoryEditor.withNewBatch(editor, () => {
+        if (Range.isExpanded(editor.selection)) Transforms.delete(editor);
+        if (before && !/\s$/.test(before)) editor.insertText(' ');
+        for (const tag of tags) {
+          Transforms.insertNodes(editor, tag);
+          Transforms.move(editor);
+          editor.insertText(' ');
+        }
+      });
+      try {
+        ReactEditor.focus(editor);
+      } catch {
+        // 插入后 Slate 的 DOM 映射可能还差一帧;焦点不是必需的。
+      }
+      return true;
+    },
     focus({ canFocus } = {}) {
       const focusEditor = () => {
         if (canFocus && !canFocus()) return true;

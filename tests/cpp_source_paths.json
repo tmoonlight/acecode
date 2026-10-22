@@ -18,5 +18,10 @@
   "tool/agent_browser/browser_tools.hpp": "src/adapters/tool/agent_browser/browser_tools.hpp",
   "tool/agent_browser/cdp_client.cpp": "src/adapters/tool/agent_browser/cdp_client.cpp",
   "tool/agent_browser/pointer_overlay.cpp": "src/adapters/tool/agent_browser/browser_pointer_overlay.cpp",
-  "tool/tool_executor.hpp": "src/adapters/tool/tool_executor.hpp"
+  "tool/tool_executor.hpp": "src/adapters/tool/tool_executor.hpp",
+  "desktop/agent_browser_cookie_bridge.cpp": "src/apps/desktop/agent_browser_cookie_bridge.cpp",
+  "desktop/agent_browser_windows_helpers.cpp": "src/apps/desktop/agent_browser_windows_helpers.cpp",
+  "desktop/agent_browser_windows_helpers.hpp": "src/apps/desktop/agent_browser_windows_helpers.hpp",
+  "desktop/agent_browser_macos_helpers.mm": "src/apps/desktop/agent_browser_macos_helpers.mm",
+  "desktop/agent_browser_macos_helpers.hpp": "src/apps/desktop/agent_browser_macos_helpers.hpp"
 }

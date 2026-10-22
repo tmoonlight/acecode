@@ -1,4 +1,12 @@
 import { normalizeTreePath, normalizeWorkspaceRelativePath } from './fileTreeChangeStatus.js';
+import { fileBreadcrumbs } from './fileBreadcrumbs.js';
+
+// Preview cwd may be an external file's parent; only the actual workspace
+// decides whether revealing it may change the file list.
+export function previewFileLocatePlan({ workspaceCwd = '', cwd = workspaceCwd, path = '' } = {}) {
+  const location = fileBreadcrumbs({ workspaceCwd, cwd, path });
+  return location ? fileTreeLocatePlan(location.relativePath) : null;
+}
 
 export function pathAncestors(path) {
   const parts = normalizeTreePath(path).split('/').filter(Boolean);

@@ -212,8 +212,8 @@ std::uintmax_t measure_left_behind_bytes(const fs::path& io_path) {
     return total;
 }
 
-// 尽力复制子树(agent-browser/webview2)的容错遍历:用栈 + directory_iterator(ec) 手动
-// 走,任何一层出错只记日志然后继续。不能交给主枚举的 recursive_directory_iterator:浏览器
+// 尽力复制子树(Agent Browser 的 WebView2 profile,见 migration_is_best_effort_root)的
+// 容错遍历:用栈 + directory_iterator(ec) 手动走,任何一层出错只记日志然后继续。不能交给主枚举的 recursive_directory_iterator:浏览器
 // 在枚举中途删掉子目录时 increment 会报错,整个迁移随之失败。结果按 relative 排序,保证
 // 父目录在子项之前、主库排在它的 -wal / -shm / -journal 之前(快照后才能跳过旁路文件)。
 // 被跳过的可再生缓存与排除项不复制,但其大小累加进 left_behind_bytes。
@@ -377,7 +377,11 @@ bool migration_excludes_entry(const fs::path& relative) {
 }
 
 bool migration_is_best_effort_root(const fs::path& relative) {
-    return path_to_utf8_generic(relative) == "agent-browser/webview2";
+    // 运行数据改用下划线命名后,新装环境是 agent_browser/webview2;升级前已有连字符目录的
+    // 安装沿用 agent-browser/webview2(compatible_generated_path)。两种都要认,否则新装用户
+    // 的 profile 走严格复制,Desktop 开着时浏览器删改文件就让迁移整体失败。
+    const std::string generic = path_to_utf8_generic(relative);
+    return generic == "agent-browser/webview2" || generic == "agent_browser/webview2";
 }
 
 bool migration_skips_rebuildable_browser_entry(const fs::path& relative) {
@@ -456,7 +460,7 @@ MigrationProgress run_data_dir_migration(const std::string& current_dir,
     using Item = MigrationItem;
     std::vector<Item> regular;
     std::vector<Item> sqlite;
-    std::vector<Item> best_effort;  // agent-browser/webview2 子树,容错遍历得到
+    std::vector<Item> best_effort;  // Agent Browser profile 子树,容错遍历得到
     // 最终路径 >= MAX_PATH 的文件:迁移能复制过去,但运行期普通 API 读不到,只告警留痕。
     std::size_t over_max_path_files = 0;
     std::string over_max_path_sample;
@@ -525,7 +529,7 @@ MigrationProgress run_data_dir_migration(const std::string& current_dir,
     std::set<std::string> snapshots;
     std::vector<std::string> skipped_samples;
     // 复制一个条目,返回空串 = 继续,非空 = 整个迁移失败的原因。
-    // best_effort(仅 agent-browser/webview2 子树):源端读不到时不失败 —— not-found(浏览器
+    // best_effort(仅 Agent Browser profile 子树):源端读不到时不失败 —— not-found(浏览器
     // 在枚举与复制之间删掉了临时文件)视为正常、不计数,其它错误(共享冲突、拒绝访问)计入
     // skipped_files;无论成败都推进进度,进度条能走满。目标端建目录失败仍然整体失败。
     auto copy_one = [&](const Item& item, bool best_effort) -> std::string {

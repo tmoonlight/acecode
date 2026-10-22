@@ -451,15 +451,15 @@ export class AceConnection extends EventTarget {
   sendQuestionAnswer(payload)      { this._send({ type: 'question_answer', payload }); }
   sendAbort(sessionId=this.sessionId) { return this._send({ type: 'abort', payload: { session_id: sessionId } }); }
   markSessionRead({ sessionId=this.sessionId, workspaceHash='', cursor=0 } = {}) {
-    if (!sessionId) return;
-    this._send({
+    if (!sessionId) return false;
+    return this._send({
       type: 'mark_session_read',
       payload: { session_id: sessionId, workspace_hash: workspaceHash || '', cursor: cursor || 0 },
     });
   }
   markSessionUnread({ sessionId=this.sessionId, workspaceHash='' } = {}) {
-    if (!sessionId) return;
-    this._send({
+    if (!sessionId) return false;
+    return this._send({
       type: 'mark_session_unread',
       payload: { session_id: sessionId, workspace_hash: workspaceHash || '' },
     });

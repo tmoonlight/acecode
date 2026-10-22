@@ -46,6 +46,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['channels', 'LINE', 'line messaging api channel secret webhook cloudflared 机器人 im channel 消息通道 连接 取消连接'],
     ['tools', '内置工具', 'builtin tools'],
     ['tools', 'Agent 浏览器', 'agent browser'],
+    ['tools', '保留 Cookie', 'agent browser cookie cookies keep sign in login session 登录 登录状态 记住登录 浏览器 网站数据 清除浏览数据 共享 按会话 退出时清除 until quit shared per session'],
     ['tools', 'iOS 模拟器', 'ios simulator iphone ipad xcode 模拟器 simctl device stream screenshot 设备 画面 帧率 画质'],
     ['tools', '电脑操控（实验性）', 'computer use experimental windows macos accessibility screen recording desktop mouse keyboard screenshot pointer cursor style theme color ace plain 指针 样式 主题色'],
     ['tools', '图像生成', 'image generation drawing'],

@@ -1,7 +1,9 @@
 #include "agent_browser_host.hpp"
 
+#include "agent_browser_cookie_jars.hpp"
 #include "agent_browser_navigation_state.hpp"
 #include "ipc/agent_browser_runtime.hpp"
+#include "ipc/agent_browser_store_state.hpp"
 #include "window_chrome.hpp"
 
 #include "platform/process/os_process.hpp"
@@ -22,6 +24,7 @@
 #include <mutex>
 #include "utils/joining_thread.hpp"
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -42,616 +45,14 @@
 #  include <webview/webview.h>
 #endif
 
+#include "agent_browser_windows_helpers.hpp"
+#include "agent_browser_host_common.hpp"
+
 namespace acecode::desktop {
-namespace {
-
-std::int64_t now_unix_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
-void assign_error(std::string* target, const std::string& value) {
-    if (target) *target = value;
-}
-
-std::string agent_browser_title_or_default(std::string title) {
-    return title.find_first_not_of(" \t\r\n") == std::string::npos
-        ? std::string(kAgentBrowserDefaultTitle)
-        : std::move(title);
-}
-
+using namespace agent_browser_common;
 #ifdef _WIN32
-constexpr std::size_t kAgentBrowserMaxConsoleEntries = 1000;
-constexpr std::size_t kAgentBrowserMaxConsoleEntryBytes = 16 * 1024;
-constexpr std::size_t kAgentBrowserMaxFaviconBytes = 256 * 1024;
-constexpr char kAgentBrowserElementPickerKey[] =
-    "__acecodeAgentBrowserElementPickerV1";
-
-bool valid_agent_browser_favicon(const std::string& value) {
-    if (value.empty() || value.size() > kAgentBrowserMaxFaviconBytes) {
-        return false;
-    }
-    return value.rfind("https://", 0) == 0 ||
-        value.rfind("http://", 0) == 0 ||
-        value.rfind("data:image/", 0) == 0;
-}
-
-const char* agent_browser_favicon_expression() {
-    return R"JS((async () => {
-  const maxDataUrlLength = 256 * 1024;
-  const links = [...document.querySelectorAll('link[rel][href]')];
-  const icon = links.find((link) => String(link.rel || '').toLowerCase().split(/\s+/).includes('icon'));
-  let href = icon?.href || '';
-  if (!href && (location.protocol === 'http:' || location.protocol === 'https:')) {
-    href = new URL('/favicon.ico', location.href).href;
-  }
-  if (!href) return '';
-  try {
-    const parsed = new URL(href, location.href);
-    if (!['http:', 'https:', 'data:'].includes(parsed.protocol)) return '';
-    href = parsed.href;
-  } catch (_) {
-    return '';
-  }
-  if (href.startsWith('data:')) {
-    return href.startsWith('data:image/') && href.length <= maxDataUrlLength ? href : '';
-  }
-  if (new URL(href).origin !== location.origin) {
-    return href.length <= 4096 ? href : '';
-  }
-  try {
-    const response = await fetch(href, { credentials: 'include', cache: 'force-cache' });
-    if (!response.ok) return href.length <= 4096 ? href : '';
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (declaredLength > 128 * 1024) return href.length <= 4096 ? href : '';
-    const blob = await response.blob();
-    if (!String(blob.type || '').toLowerCase().startsWith('image/') || blob.size > 128 * 1024) {
-      return href.length <= 4096 ? href : '';
-    }
-    const dataUrl = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(blob);
-    });
-    return dataUrl.length <= maxDataUrlLength ? dataUrl : (href.length <= 4096 ? href : '');
-  } catch (_) {
-    return href.length <= 4096 ? href : '';
-  }
-})())JS";
-}
-
-// 可以交给操作系统打开的外部 scheme。http/https/file/about 由 WebView 自己承载;
-// javascript/data/blob 不代表外部应用,edge/devtools 是引擎内部页面。
-bool agent_browser_external_handoff_candidate(const std::string& uri) {
-    const auto colon = uri.find(':');
-    if (colon == std::string::npos || colon == 0) return false;
-    std::string scheme = uri.substr(0, colon);
-    std::transform(scheme.begin(), scheme.end(), scheme.begin(),
-                   [](unsigned char ch) {
-                       return static_cast<char>(std::tolower(ch));
-                   });
-    if (std::isalpha(static_cast<unsigned char>(scheme.front())) == 0) {
-        return false;
-    }
-    static const char* const blocked[] = {
-        "http", "https", "file", "about", "javascript", "data", "blob",
-        "edge", "devtools", "ws", "wss",
-    };
-    for (const char* name : blocked) {
-        if (scheme == name) return false;
-    }
-    return true;
-}
-
-const char* agent_browser_web_error_kind(
-    COREWEBVIEW2_WEB_ERROR_STATUS status) {
-    switch (status) {
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_COMMON_NAME_IS_INCORRECT:
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_EXPIRED:
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CLIENT_CERTIFICATE_CONTAINS_ERRORS:
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_REVOKED:
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CERTIFICATE_IS_INVALID:
-        return "certificate";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_SERVER_UNREACHABLE:
-        return "server_unreachable";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
-        return "timeout";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_ERROR_HTTP_INVALID_SERVER_RESPONSE:
-        return "invalid_response";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
-        return "connection_aborted";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
-        return "connection_reset";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
-        return "disconnected";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
-        return "cannot_connect";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_HOST_NAME_NOT_RESOLVED:
-        return "name_not_resolved";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED:
-        return "cancelled";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_REDIRECT_FAILED:
-        return "redirect_failed";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_VALID_AUTHENTICATION_CREDENTIALS_REQUIRED:
-        return "authentication_required";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_VALID_PROXY_AUTHENTICATION_REQUIRED:
-        return "proxy_authentication_required";
-    case COREWEBVIEW2_WEB_ERROR_STATUS_UNEXPECTED_ERROR:
-    case COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN:
-    default:
-        return "unexpected";
-    }
-}
-
-const char* agent_browser_process_failure_kind(
-    COREWEBVIEW2_PROCESS_FAILED_KIND kind,
-    COREWEBVIEW2_PROCESS_FAILED_REASON reason) {
-    const bool top_level_failure =
-        kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED ||
-        kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED ||
-        kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE;
-    if (!top_level_failure) return "";
-    if (reason == COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY) {
-        return "out_of_memory";
-    }
-    if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE ||
-        reason == COREWEBVIEW2_PROCESS_FAILED_REASON_UNRESPONSIVE) {
-        return "unresponsive";
-    }
-    if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED) {
-        return "browser_process_exited";
-    }
-    if (kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED) {
-        return "render_process_exited";
-    }
-    return "";
-}
-
-std::string clip_agent_browser_text(std::string value,
-                                    std::size_t max_bytes) {
-    if (value.size() <= max_bytes) return value;
-    value.resize(max_bytes);
-    value += "\n[truncated]";
-    return value;
-}
-
-std::string cdp_remote_object_text(const nlohmann::json& object) {
-    if (!object.is_object()) return object.dump();
-    if (object.contains("value") && !object["value"].is_null()) {
-        return object["value"].is_string()
-            ? object["value"].get<std::string>()
-            : object["value"].dump();
-    }
-    if (object.contains("unserializableValue") &&
-        object["unserializableValue"].is_string()) {
-        return object["unserializableValue"].get<std::string>();
-    }
-    if (object.contains("description") && object["description"].is_string()) {
-        return object["description"].get<std::string>();
-    }
-    return object.value("type", std::string("value"));
-}
-
-const char* agent_browser_element_picker_expression() {
-    return R"JS((() => {
-  const key = '__acecodeAgentBrowserElementPickerV1';
-  const previous = globalThis[key];
-  if (previous && typeof previous.cancel === 'function') previous.cancel();
-  return new Promise((resolve) => {
-    const root = document.documentElement || document.body;
-    if (!root) { resolve({ cancelled: true }); return; }
-    let finished = false;
-    let commitPending = false;
-    let dragStart = null;
-    let dragTarget = null;
-    let highlighted = null;
-    const host = document.createElement('div');
-    host.setAttribute('data-acecode-element-picker', '');
-    host.style.cssText = 'position:fixed;inset:0;width:0;height:0;z-index:2147483647;pointer-events:none';
-    const shadow = host.attachShadow({ mode: 'closed' });
-    const styleNode = document.createElement('style');
-    styleNode.textContent = `
-      .box{display:none;position:fixed;box-sizing:border-box;border:2px solid #0e70c0;background:rgba(14,112,192,.14);pointer-events:none;z-index:2}
-      .label{display:none;position:fixed;max-width:70vw;padding:3px 6px;border-radius:3px;background:#0e70c0;color:#fff;font:11px/16px "Segoe UI",sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,.22)}
-      .drag{display:none;position:fixed;box-sizing:border-box;border:1px dashed #0e70c0;background:rgba(14,112,192,.08);pointer-events:none;z-index:1}
-    `;
-    const box = document.createElement('div'); box.className = 'box';
-    const label = document.createElement('div'); label.className = 'label';
-    const drag = document.createElement('div'); drag.className = 'drag';
-    shadow.append(styleNode, box, drag, label);
-    root.appendChild(host);
-
-    const cursor = document.createElement('style');
-    cursor.setAttribute('data-acecode-element-picker-cursor', '');
-    cursor.textContent = '*{cursor:default!important}';
-    (document.head || root).appendChild(cursor);
-
-    const clip = (value, limit) => {
-      const text = String(value == null ? '' : value);
-      return text.length > limit ? `${text.slice(0, limit)}\n[truncated]` : text;
-    };
-    const elementAt = (x, y) => {
-      const values = document.elementsFromPoint(x, y);
-      return values.find((value) => value !== host && !host.contains(value));
-    };
-    const commonAncestor = (values) => {
-      const unique = [...new Set(values.filter(Boolean))];
-      if (!unique.length) return null;
-      let chain = [];
-      for (let node = unique[0]; node; node = node.parentElement) chain.unshift(node);
-      for (let i = 1; i < unique.length && chain.length; i += 1) {
-        const other = [];
-        for (let node = unique[i]; node; node = node.parentElement) other.unshift(node);
-        let index = 0;
-        while (index < chain.length && index < other.length && chain[index] === other[index]) index += 1;
-        chain = chain.slice(0, index);
-      }
-      return chain[chain.length - 1] || null;
-    };
-    const regionTarget = (left, top, width, height) => {
-      const right = left + width;
-      const bottom = top + height;
-      const centerX = left + width / 2;
-      const centerY = top + height / 2;
-      return commonAncestor([
-        elementAt(left, top), elementAt(right, top), elementAt(left, bottom),
-        elementAt(right, bottom), elementAt(centerX, top), elementAt(centerX, bottom),
-        elementAt(left, centerY), elementAt(right, centerY), elementAt(centerX, centerY),
-      ]);
-    };
-    const selectorName = (element) => {
-      if (!element) return '';
-      const tag = String(element.tagName || 'element').toLowerCase();
-      const id = element.id ? `#${element.id}` : '';
-      const classes = [...element.classList].slice(0, 4).map((name) => `.${name}`).join('');
-      return `${tag}${id}${classes}`;
-    };
-    const render = (element) => {
-      highlighted = element || null;
-      if (!element) { box.style.display = 'none'; label.style.display = 'none'; return; }
-      const rect = element.getBoundingClientRect();
-      box.style.display = 'block';
-      box.style.left = `${rect.left}px`; box.style.top = `${rect.top}px`;
-      box.style.width = `${Math.max(0, rect.width)}px`; box.style.height = `${Math.max(0, rect.height)}px`;
-      label.textContent = `${selectorName(element)}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
-      label.style.display = 'block';
-      label.style.left = `${Math.max(2, Math.min(rect.left, innerWidth - 180))}px`;
-      label.style.top = `${Math.max(2, rect.top >= 24 ? rect.top - 22 : rect.bottom + 2)}px`;
-    };
-    const collect = (element) => {
-      const rect = element.getBoundingClientRect();
-      const attributes = {};
-      [...element.attributes].slice(0, 100).forEach((attr) => { attributes[attr.name] = clip(attr.value, 2048); });
-      const computed = getComputedStyle(element);
-      const computedStyles = {};
-      const cssLines = [];
-      for (let i = 0; i < computed.length && i < 200; i += 1) {
-        const name = computed[i];
-        const value = clip(computed.getPropertyValue(name), 512);
-        computedStyles[name] = value;
-        cssLines.push(`${name}: ${value};`);
-      }
-      const ancestors = [];
-      for (let node = element; node && ancestors.length < 16; node = node.parentElement) {
-        ancestors.unshift({
-          tagName: String(node.tagName || '').toLowerCase(),
-          id: clip(node.id || '', 512),
-          classNames: [...node.classList].slice(0, 12).map((name) => clip(name, 256)),
-        });
-      }
-      return {
-        url: location.href,
-        title: document.title,
-        name: selectorName(element),
-        tagName: String(element.tagName || '').toLowerCase(),
-        outerHTML: clip(element.outerHTML || '', 40000),
-        innerText: clip(element.innerText || element.textContent || '', 20000),
-        attributes,
-        computedStyle: clip(cssLines.join('\n'), 40000),
-        computedStyles,
-        ancestors,
-        bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-        dimensions: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
-      };
-    };
-    const listeners = [
-      ['pointermove', onPointerMove], ['pointerdown', onPointerDown],
-      ['pointerup', onPointerUp], ['click', suppress], ['contextmenu', suppress],
-      ['keydown', onKeyDown], ['scroll', onViewportChange], ['resize', onViewportChange],
-    ];
-    function cleanup() {
-      listeners.forEach(([name, handler]) => window.removeEventListener(name, handler, true));
-      cursor.remove(); host.remove();
-      try { delete globalThis[key]; } catch (_) { globalThis[key] = undefined; }
-    }
-    function finish(value) {
-      if (finished) return;
-      finished = true; cleanup(); resolve(value);
-    }
-    function suppress(event) {
-      event.preventDefault(); event.stopImmediatePropagation();
-    }
-    function onPointerMove(event) {
-      suppress(event);
-      if (commitPending) return;
-      if (!dragStart) { render(elementAt(event.clientX, event.clientY)); return; }
-      const left = Math.min(dragStart.x, event.clientX);
-      const top = Math.min(dragStart.y, event.clientY);
-      const width = Math.abs(event.clientX - dragStart.x);
-      const height = Math.abs(event.clientY - dragStart.y);
-      if (width < 4 && height < 4) return;
-      drag.style.display = 'block'; drag.style.left = `${left}px`; drag.style.top = `${top}px`;
-      drag.style.width = `${width}px`; drag.style.height = `${height}px`;
-      render(regionTarget(left, top, width, height));
-    }
-    function onPointerDown(event) {
-      if (commitPending) { suppress(event); return; }
-      if (event.button !== 0) { suppress(event); return; }
-      dragStart = { x: event.clientX, y: event.clientY };
-      dragTarget = elementAt(event.clientX, event.clientY);
-      cursor.textContent = '*{cursor:crosshair!important}';
-      suppress(event);
-    }
-    function onPointerUp(event) {
-      if (!dragStart) { suppress(event); return; }
-      const start = dragStart; dragStart = null;
-      const width = Math.abs(event.clientX - start.x);
-      const height = Math.abs(event.clientY - start.y);
-      const target = width < 4 && height < 4
-        ? (dragTarget || elementAt(event.clientX, event.clientY))
-        : regionTarget(Math.min(start.x, event.clientX), Math.min(start.y, event.clientY), width, height);
-      dragTarget = null; suppress(event);
-      if (target) {
-        const selection = { cancelled: false, element: collect(target) };
-        commitPending = true;
-        requestAnimationFrame(() => finish(selection));
-      }
-    }
-    function onKeyDown(event) {
-      if (event.key === 'Escape') { suppress(event); finish({ cancelled: true }); }
-    }
-    function onViewportChange() { if (highlighted) render(highlighted); }
-    listeners.forEach(([name, handler]) => window.addEventListener(name, handler, true));
-    const controller = { cancel: () => finish({ cancelled: true }) };
-    try { Object.defineProperty(globalThis, key, { configurable: true, value: controller }); }
-    catch (_) { globalThis[key] = controller; }
-  });
-})())JS";
-}
-
-constexpr wchar_t kAgentBrowserWidgetClassName[] =
-    L"ACECodeAgentBrowserWidget";
-
-HWND create_agent_browser_widget(HWND parent) {
-    const HINSTANCE instance = ::GetModuleHandleW(nullptr);
-    WNDCLASSEXW window_class{};
-    window_class.cbSize = sizeof(window_class);
-    window_class.hInstance = instance;
-    window_class.lpfnWndProc = ::DefWindowProcW;
-    window_class.lpszClassName = kAgentBrowserWidgetClassName;
-    window_class.hCursor =
-        ::LoadCursorW(nullptr, reinterpret_cast<LPCWSTR>(IDC_ARROW));
-    window_class.hbrBackground =
-        reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-    if (!::RegisterClassExW(&window_class) &&
-        ::GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
-        return nullptr;
-    }
-
-    // Keep the parent HWND visible while WebView2 creates controllers. A
-    // hidden parent can leave a controller permanently unpainted on some
-    // WebView2 runtimes. The parked 1x1 child is outside the client area and
-    // therefore cannot cover the main ACECode WebView.
-    return ::CreateWindowExW(
-        WS_EX_CONTROLPARENT | WS_EX_NOPARENTNOTIFY,
-        kAgentBrowserWidgetClassName,
-        L"",
-        WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | WS_VISIBLE,
-        -1,
-        -1,
-        1,
-        1,
-        parent,
-        nullptr,
-        instance,
-        nullptr);
-}
-
-void park_agent_browser_widget(HWND widget) {
-    if (!widget || !::IsWindow(widget)) return;
-    ::SetWindowPos(widget,
-                   HWND_TOP,
-                   -1,
-                   -1,
-                   1,
-                   1,
-                   SWP_NOACTIVATE | SWP_SHOWWINDOW);
-}
-
-void hide_agent_browser_widget(HWND widget) {
-    if (!widget || !::IsWindow(widget)) return;
-    ::SetWindowPos(widget,
-                   nullptr,
-                   0,
-                   0,
-                   0,
-                   0,
-                   SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE |
-                       SWP_NOZORDER | SWP_HIDEWINDOW);
-}
-
-// 页面给的 bounds 是主 WebView 视口坐标,而 Agent Browser 子窗口挂在宿主窗口
-// 上。两者原点通常重合;Win10 非最大化时主 WebView 下移了 1px 给自绘顶边线
-// (web_host.cpp resize_webview_widget),这里要把偏移加回来,否则整块往上错位。
-POINT main_web_content_origin(HWND parent) {
-    POINT origin{0, 0};
-    HWND widget = ::FindWindowExW(parent, nullptr, kWebViewWidgetClassName, nullptr);
-    RECT rect{};
-    if (!widget || !::GetWindowRect(widget, &rect)) return origin;
-    origin.x = rect.left;
-    origin.y = rect.top;
-    ::MapWindowPoints(HWND_DESKTOP, parent, &origin, 1);
-    return origin;
-}
-
-bool apply_agent_browser_widget_region(
-    HWND widget,
-    int width,
-    int height,
-    const std::vector<AgentBrowserOcclusionRect>& occlusions) {
-    if (!widget || !::IsWindow(widget)) return false;
-    if (occlusions.empty()) {
-        return ::SetWindowRgn(widget, nullptr, TRUE) != 0;
-    }
-
-    HRGN visible_region = ::CreateRectRgn(0, 0, width, height);
-    if (!visible_region) return false;
-    for (const auto& occlusion : occlusions) {
-        const int left = (std::max)(0, (std::min)(width, occlusion.x));
-        const int top = (std::max)(0, (std::min)(height, occlusion.y));
-        const int right = (std::max)(left, (std::min)(
-            width, occlusion.x + occlusion.width));
-        const int bottom = (std::max)(top, (std::min)(
-            height, occlusion.y + occlusion.height));
-        if (right <= left || bottom <= top) continue;
-
-        HRGN hole = ::CreateRectRgn(left, top, right, bottom);
-        if (!hole) {
-            ::DeleteObject(visible_region);
-            return false;
-        }
-        const int combine_result =
-            ::CombineRgn(visible_region, visible_region, hole, RGN_DIFF);
-        ::DeleteObject(hole);
-        if (combine_result == ERROR) {
-            ::DeleteObject(visible_region);
-            return false;
-        }
-    }
-
-    // SetWindowRgn takes ownership only on success.
-    if (::SetWindowRgn(widget, visible_region, TRUE) == 0) {
-        ::DeleteObject(visible_region);
-        return false;
-    }
-    return true;
-}
-
-std::string hresult_text(HRESULT result) {
-    return "HRESULT 0x" + [] (unsigned long value) {
-        constexpr char digits[] = "0123456789ABCDEF";
-        std::string output(8, '0');
-        for (int index = 7; index >= 0; --index) {
-            output[static_cast<std::size_t>(index)] = digits[value & 0xF];
-            value >>= 4;
-        }
-        return output;
-    }(static_cast<unsigned long>(result));
-}
-
-bool proxy_aborted(const std::atomic<bool>& stopping,
-                   std::chrono::steady_clock::time_point deadline) {
-    return stopping.load() || std::chrono::steady_clock::now() >= deadline;
-}
-
-bool pipe_transfer(HANDLE pipe,
-                   void* buffer,
-                   std::size_t size,
-                   bool write,
-                   const std::atomic<bool>& stopping,
-                   std::chrono::steady_clock::time_point deadline) {
-    std::size_t offset = 0;
-    while (offset < size && !proxy_aborted(stopping, deadline)) {
-        OVERLAPPED operation{};
-        operation.hEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (!operation.hEvent) return false;
-        const DWORD chunk = static_cast<DWORD>((std::min)(
-            size - offset, static_cast<std::size_t>(1024u * 1024u)));
-        DWORD transferred = 0;
-        BOOL started = write
-            ? ::WriteFile(pipe,
-                          static_cast<const char*>(buffer) + offset,
-                          chunk, &transferred, &operation)
-            : ::ReadFile(pipe,
-                         static_cast<char*>(buffer) + offset,
-                         chunk, &transferred, &operation);
-        DWORD operation_error = started ? ERROR_SUCCESS : ::GetLastError();
-        bool pending_io = false;
-        if (!started && operation_error == ERROR_IO_PENDING) {
-            pending_io = true;
-            while (!proxy_aborted(stopping, deadline)) {
-                const DWORD wait = ::WaitForSingleObject(operation.hEvent, 50);
-                if (wait == WAIT_OBJECT_0) {
-                    started = ::GetOverlappedResult(
-                        pipe, &operation, &transferred, FALSE);
-                    operation_error = started ? ERROR_SUCCESS : ::GetLastError();
-                    break;
-                }
-                if (wait == WAIT_FAILED) {
-                    operation_error = ::GetLastError();
-                    break;
-                }
-            }
-        }
-        if (!started || proxy_aborted(stopping, deadline)) {
-            if (pending_io) {
-                ::CancelIoEx(pipe, &operation);
-                ::WaitForSingleObject(operation.hEvent, INFINITE);
-            }
-            ::CloseHandle(operation.hEvent);
-            if (!stopping.load() &&
-                std::chrono::steady_clock::now() < deadline) {
-                LOG_WARN(
-                    std::string("[agent-browser] proxy pipe ") +
-                    (write ? "write" : "read") + " failed (Windows error " +
-                    std::to_string(operation_error) + ")");
-            }
-            return false;
-        }
-        ::CloseHandle(operation.hEvent);
-        if (transferred == 0) return false;
-        offset += transferred;
-    }
-    return offset == size;
-}
-
-bool connect_pipe(HANDLE pipe,
-                  const std::atomic<bool>& stopping) {
-    OVERLAPPED operation{};
-    operation.hEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (!operation.hEvent) return false;
-    BOOL connected = ::ConnectNamedPipe(pipe, &operation);
-    const DWORD error = connected ? ERROR_SUCCESS : ::GetLastError();
-    bool pending_io = false;
-    if (!connected && error == ERROR_PIPE_CONNECTED) connected = TRUE;
-    if (!connected && error == ERROR_IO_PENDING) {
-        pending_io = true;
-        while (!stopping.load()) {
-            const DWORD wait = ::WaitForSingleObject(operation.hEvent, 50);
-            if (wait == WAIT_OBJECT_0) {
-                DWORD transferred = 0;
-                connected = ::GetOverlappedResult(
-                    pipe, &operation, &transferred, FALSE);
-                break;
-            }
-            if (wait == WAIT_FAILED) break;
-        }
-    }
-    if (!connected) {
-        if (pending_io) {
-            ::CancelIoEx(pipe, &operation);
-            ::WaitForSingleObject(operation.hEvent, INFINITE);
-        }
-    }
-    ::CloseHandle(operation.hEvent);
-    return connected != FALSE && !stopping.load();
-}
+using namespace agent_browser_windows;
 #endif
-
-} // namespace
-
 struct AgentBrowserHost::Impl
     : public std::enable_shared_from_this<AgentBrowserHost::Impl> {
     struct PendingProxyCall {
@@ -667,9 +68,12 @@ struct AgentBrowserHost::Impl
     std::string acecode_dir;
     StateHandler state_handler;
     DispatchHandler dispatch_handler;
+    StorageEventHandler storage_handler;
     mutable std::mutex state_mutex;
     AgentBrowserState host_state;
     bool parent_surface_visible = true;
+    // 「保留 Cookie」档位;启动时从状态文件读取,之后只在 UI 线程上改。
+    AgentBrowserCookieMode cookie_mode = AgentBrowserCookieMode::Shared;
 
 #ifdef _WIN32
     struct QueuedCdpCall {
@@ -720,6 +124,15 @@ struct AgentBrowserHost::Impl
             kAgentBrowserContentStateEmpty;
         std::string favicon_before_navigation;
         std::vector<QueuedCdpCall> queued_cdp;
+        // 当前 controller 所在的 cookie 存储(建 controller 时按档位与 owner 决定)。
+        AgentBrowserCookieStoreKey store;
+        // 存储准备好(按会话存储的先清空 / 从父会话复制做完)之前,CDP 调用与
+        // 地址栏导航都要排队,否则会落在还没准备好的存储上。
+        bool store_prepared = false;
+        // 切档重建时记下的地址,新 controller 就绪后导航回去。
+        std::string restore_url;
+        // 每次(重新)创建 controller 自增;迟到的旧 controller 回调按它丢弃。
+        std::uint64_t controller_generation = 0;
     };
 
     Microsoft::WRL::ComPtr<ICoreWebView2Environment> environment;
@@ -733,6 +146,17 @@ struct AgentBrowserHost::Impl
     std::string proxy_pipe_name;
     std::string proxy_auth_token;
     std::atomic<bool> proxy_stopping{false};
+    // 退出即清档:InPrivate Profile 在最后一个使用者关闭后就会销毁,用一个隐藏
+    // 页面把它保活到 Desktop 退出或切离该档(规格:关掉所有页面再打开仍保持登录)。
+    std::shared_ptr<ProfileLease> until_quit_keepalive;
+    bool until_quit_keepalive_requested = false;
+    // 本次运行建过 controller 的存储(浏览器进程可能还占着它的目录)。
+    std::unordered_set<std::string> loaded_store_ids;
+    // 本次运行已经准备好的按会话存储,以及正在准备的(等待者回调)。
+    std::unordered_set<std::string> prepared_session_stores;
+    std::unordered_map<std::string, std::vector<StoreDone>> session_store_waiters;
+    // 启动时状态文件里还挂着「共享存储待清空」,environment 就绪后补清。
+    bool startup_shared_wipe_pending = false;
     acecode::JoiningThread proxy_thread;
 #endif
 
@@ -768,6 +192,8 @@ struct AgentBrowserHost::Impl
             directory.clear();
         }
         for (const auto& page : remaining) teardown_page(page);
+        until_quit_keepalive_requested = false;
+        until_quit_keepalive.reset();
         environment.Reset();
         if (browser_widget && ::IsWindow(browser_widget)) {
             ::DestroyWindow(browser_widget);
@@ -779,6 +205,13 @@ struct AgentBrowserHost::Impl
 
     void emit_state(const AgentBrowserState& state) const {
         if (state_handler) state_handler(state);
+    }
+
+    void emit_storage_event(AgentBrowserStorageEvent event) const {
+        if (event.cookie_mode.empty()) {
+            event.cookie_mode = agent_browser_cookie_mode_name(cookie_mode);
+        }
+        if (storage_handler) storage_handler(event);
     }
 
     AgentBrowserState state(const std::string& requested_page = {}) const {
@@ -972,6 +405,7 @@ struct AgentBrowserHost::Impl
             fail("failed to create Agent Browser profile: " + ec.message());
             return;
         }
+        run_startup_store_tasks(user_data_path);
         auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
         const HRESULT browser_arguments_result =
             options->put_AdditionalBrowserArguments(
@@ -997,6 +431,48 @@ struct AgentBrowserHost::Impl
             fail("failed to start Agent Browser WebView2 environment (" +
                  hresult_text(result) + ")");
         }
+    }
+
+    // WebView2 把命名 Profile 放在 <user-data>/EBWebView/WV2Profile_<ProfileName>。
+    // 目录名由会话 id 的哈希派生,不会越出用户数据目录。
+    // 建 environment 之前:此时 Desktop 是单实例、还没有浏览器进程占用这些目录,
+    // 待清空与待删除的按会话存储直接删目录(比逐个开隐藏页面清空快得多)。
+    void run_startup_store_tasks(const std::filesystem::path& user_data_path) {
+        const AgentBrowserStoreState state = read_agent_browser_store_state();
+        cookie_mode = effective_agent_browser_cookie_mode(state.cookie_mode);
+        startup_shared_wipe_pending = state.shared_wipe_pending;
+        std::vector<std::string> removed;
+        for (const auto* list : {&state.pending_wipe, &state.pending_deletions}) {
+            for (const auto& session_id : *list) {
+                if (std::find(removed.begin(), removed.end(), session_id) != removed.end()) {
+                    continue;
+                }
+                if (remove_session_profile_directory(user_data_path, session_id)) {
+                    removed.push_back(session_id);
+                }
+            }
+        }
+        if (!removed.empty()) {
+            const auto drop = [&removed](std::vector<std::string>& values) {
+                values.erase(
+                    std::remove_if(values.begin(), values.end(),
+                                   [&removed](const std::string& value) {
+                                       return std::find(removed.begin(), removed.end(),
+                                                        value) != removed.end();
+                                   }),
+                    values.end());
+            };
+            update_agent_browser_store_state([&drop](AgentBrowserStoreState& current) {
+                drop(current.pending_wipe);
+                drop(current.pending_deletions);
+                drop(current.session_stores);
+                return true;
+            });
+            LOG_INFO("[agent-browser] removed " + std::to_string(removed.size()) +
+                     " session cookie store(s) at startup");
+        }
+        LOG_INFO(std::string("[agent-browser] cookie mode: ") +
+                 agent_browser_cookie_mode_name(cookie_mode));
     }
 
     bool publish_proxy() {
@@ -1043,6 +519,10 @@ struct AgentBrowserHost::Impl
             state.ready = true;
             state.error.clear();
         });
+        if (startup_shared_wipe_pending) {
+            startup_shared_wipe_pending = false;
+            clear_shared_store_and_mark_done();
+        }
         std::vector<std::shared_ptr<Page>> pending_pages;
         {
             std::lock_guard<std::mutex> lock(state_mutex);
@@ -1086,29 +566,75 @@ struct AgentBrowserHost::Impl
         return page->id;
     }
 
+    // 按存储键建 controller。共享存储沿用无选项的默认 Profile(升级前的登录数据
+    // 就在那里);其它存储走 ControllerOptions 选命名 Profile / InPrivate。
     void begin_create_controller(const std::shared_ptr<Page>& page) {
         if (!page || page->creation_started || page->closing || !environment) return;
         page->creation_started = true;
+        page->store_prepared = false;
+        page->store = agent_browser_cookie_store_key(cookie_mode, page->state.owner);
+        const std::uint64_t generation = ++page->controller_generation;
+        if (page->store.kind == AgentBrowserCookieStoreKind::UntilQuit) {
+            ensure_until_quit_keepalive();
+        }
         const auto weak = weak_from_this();
         const std::string page_id = page->id;
         auto completed = Microsoft::WRL::Callback<
             ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-            [weak, page_id](HRESULT result,
-                            ICoreWebView2Controller* value) -> HRESULT {
+            [weak, page_id, generation](HRESULT result,
+                                        ICoreWebView2Controller* value) -> HRESULT {
                 if (const auto self = weak.lock()) {
-                    self->controller_created(page_id, result, value);
+                    self->controller_created(page_id, generation, result, value);
                 } else if (value) {
                     value->Close();
                 }
                 return S_OK;
             });
         park_agent_browser_widget(browser_widget);
-        const HRESULT result = environment->CreateCoreWebView2Controller(
-            browser_widget, completed.Get());
+        const HRESULT result = create_controller_for_store(environment, browser_widget, page->store, completed.Get());
         if (FAILED(result)) {
             page_failed(page, "failed to create Agent Browser controller (" +
                               hresult_text(result) + ")");
         }
+    }
+
+    void ensure_until_quit_keepalive() {
+        if (until_quit_keepalive || until_quit_keepalive_requested || !environment) return;
+        until_quit_keepalive_requested = true;
+        AgentBrowserCookieStoreKey key;
+        key.kind = AgentBrowserCookieStoreKind::UntilQuit;
+        const auto weak = weak_from_this();
+        auto completed = Microsoft::WRL::Callback<
+            ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+            [weak](HRESULT result, ICoreWebView2Controller* value) -> HRESULT {
+                const auto self = weak.lock();
+                if (!self || !self->until_quit_keepalive_requested ||
+                    FAILED(result) || !value) {
+                    if (value) value->Close();
+                    if (self && FAILED(result)) {
+                        self->until_quit_keepalive_requested = false;
+                        LOG_WARN("[agent-browser] until-quit keepalive failed (" +
+                                 hresult_text(result) + ")");
+                    }
+                    return S_OK;
+                }
+                auto lease = std::make_shared<ProfileLease>();
+                lease->controller = value;
+                lease->controller->put_IsVisible(FALSE);
+                self->until_quit_keepalive = std::move(lease);
+                return S_OK;
+            });
+        const HRESULT result = create_controller_for_store(environment, browser_widget, key, completed.Get());
+        if (FAILED(result)) {
+            until_quit_keepalive_requested = false;
+            LOG_WARN("[agent-browser] failed to start until-quit keepalive (" +
+                     hresult_text(result) + ")");
+        }
+    }
+
+    void release_until_quit_keepalive() {
+        until_quit_keepalive_requested = false;
+        until_quit_keepalive.reset();
     }
 
     void page_failed(const std::shared_ptr<Page>& page,
@@ -1130,10 +656,11 @@ struct AgentBrowserHost::Impl
     }
 
     void controller_created(const std::string& page_id,
+                            std::uint64_t generation,
                             HRESULT result,
                             ICoreWebView2Controller* value) {
         auto page = find_page(page_id);
-        if (!page || page->closing) {
+        if (!page || page->closing || page->controller_generation != generation) {
             if (value) value->Close();
             return;
         }
@@ -1181,6 +708,26 @@ struct AgentBrowserHost::Impl
         }
         install_events(page);
         install_console_capture(page);
+        const auto weak = weak_from_this();
+        prepare_page_store(page, [weak, page_id, generation](bool ok,
+                                                             const std::string& error) {
+            const auto self = weak.lock();
+            if (!self) return;
+            const auto ready_page = self->find_page(page_id);
+            if (!ready_page || ready_page->closing ||
+                ready_page->controller_generation != generation) {
+                return;
+            }
+            if (!ok) {
+                self->page_failed(ready_page, error);
+                return;
+            }
+            self->finish_page_ready(ready_page);
+        });
+    }
+
+    void finish_page_ready(const std::shared_ptr<Page>& page) {
+        page->store_prepared = true;
         apply_bounds(page);
         update_page(page, [](AgentBrowserState& state) {
             state.ready = true;
@@ -1193,7 +740,201 @@ struct AgentBrowserHost::Impl
             // 排队的调用在入队时已经解析到这一页,显式 page_id 下 owner 不参与。
             call_cdp_on_ui(page->id, {}, call.method, call.params, call.pending);
         }
-        LOG_INFO("[agent-browser] page ready: " + page->id);
+        if (!page->restore_url.empty() && page->webview) {
+            const std::string url = std::move(page->restore_url);
+            page->restore_url.clear();
+            const HRESULT navigated =
+                page->webview->Navigate(acecode::utf8_to_wide(url).c_str());
+            if (FAILED(navigated)) {
+                LOG_WARN("[agent-browser] failed to restore " + page->id +
+                         " after cookie store change (" + hresult_text(navigated) + ")");
+            }
+        }
+        LOG_INFO("[agent-browser] page ready: " + page->id + " (store " +
+                 page->store.id() + ")");
+    }
+
+    // ---- cookie 存储:取 Profile、清空、复制、准备 ----
+
+    std::shared_ptr<Page> live_page_in_store(const AgentBrowserCookieStoreKey& key) const {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        for (const auto& [id, page] : pages) {
+            if (!page->closing && page->webview && page->store == key) return page;
+        }
+        return nullptr;
+    }
+
+    std::vector<AgentBrowserPageStoreBinding> page_store_bindings() const {
+        std::vector<AgentBrowserPageStoreBinding> bindings;
+        std::lock_guard<std::mutex> lock(state_mutex);
+        for (const std::string& id : directory.ordered_page_ids()) {
+            const auto found = pages.find(id);
+            if (found == pages.end() || found->second->closing) continue;
+            bindings.push_back({id, found->second->state.owner, found->second->store});
+        }
+        return bindings;
+    }
+
+    // 拿到某份存储的 Profile:优先借用该存储里活着的页面,否则建一个隐藏的临时
+    // controller(lease 交给回调,异步操作完成前由回调持有)。
+    void with_profile(const AgentBrowserCookieStoreKey& key, ProfileCallback callback) {
+        if (const auto page = live_page_in_store(key)) {
+            if (const auto profile = profile_of(page->webview)) {
+                callback(profile, {}, nullptr);
+                return;
+            }
+        }
+        if (!environment) {
+            callback(nullptr, "Agent Browser environment is not ready", nullptr);
+            return;
+        }
+        auto lease = std::make_shared<ProfileLease>();
+        auto completed = Microsoft::WRL::Callback<
+            ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+            [lease, callback](HRESULT result, ICoreWebView2Controller* value) -> HRESULT {
+                if (FAILED(result) || !value) {
+                    callback(nullptr,
+                             "failed to open Agent Browser cookie store (" +
+                                 hresult_text(result) + ")",
+                             nullptr);
+                    return S_OK;
+                }
+                lease->controller = value;
+                lease->controller->put_IsVisible(FALSE);
+                if (FAILED(lease->controller->get_CoreWebView2(&lease->webview)) ||
+                    !lease->webview) {
+                    callback(nullptr, "failed to open Agent Browser cookie store", nullptr);
+                    return S_OK;
+                }
+                const auto profile = profile_of(lease->webview);
+                callback(profile,
+                         profile ? std::string()
+                                 : std::string("WebView2 runtime does not expose profiles"),
+                         lease);
+                return S_OK;
+            });
+        const HRESULT result = create_controller_for_store(environment, browser_widget, key, completed.Get());
+        if (FAILED(result)) {
+            callback(nullptr,
+                     "failed to open Agent Browser cookie store (" + hresult_text(result) + ")",
+                     nullptr);
+        }
+    }
+
+    void clear_store(const AgentBrowserCookieStoreKey& key, StoreDone done) {
+        with_profile(key, [done](const Microsoft::WRL::ComPtr<ICoreWebView2Profile>& profile,
+                                 const std::string& error,
+                                 const std::shared_ptr<ProfileLease>& lease) {
+            if (!profile) {
+                done(false, error);
+                return;
+            }
+            clear_profile(profile, lease, done);
+        });
+    }
+
+    // 切到「退出即清」或启动补清:清空共享存储,成功后撤掉状态里的待清空标记。
+    void clear_shared_store_and_mark_done() {
+        clear_store(AgentBrowserCookieStoreKey{}, [](bool ok, const std::string& error) {
+            if (!ok) {
+                LOG_WARN("[agent-browser] failed to clear shared cookie store: " + error);
+                return;
+            }
+            update_agent_browser_store_state([](AgentBrowserStoreState& state) {
+                if (!state.shared_wipe_pending) return false;
+                state.shared_wipe_pending = false;
+                return true;
+            });
+            LOG_INFO("[agent-browser] shared cookie store cleared");
+        });
+    }
+
+    // 分叉会话第一次建存储:把父会话存储里的全部 cookie 复制进来。复制失败不阻断
+    // 页面(子会话只是从未登录开始),只记日志。
+    void seed_store_cookies(const std::string& parent_session_id,
+                            const Microsoft::WRL::ComPtr<ICoreWebView2>& target_webview,
+                            const std::function<void()>& done) {
+        const auto target = cookie_manager_of(profile_of(target_webview));
+        if (!target) {
+            LOG_WARN("[agent-browser] cannot seed forked cookie store: no cookie manager");
+            done();
+            return;
+        }
+        AgentBrowserCookieStoreKey parent;
+        parent.kind = AgentBrowserCookieStoreKind::Session;
+        parent.session_id = parent_session_id;
+        with_profile(parent, [target, done, parent_session_id](
+                                 const Microsoft::WRL::ComPtr<ICoreWebView2Profile>& profile,
+                                 const std::string& error,
+                                 const std::shared_ptr<ProfileLease>& lease) {
+            const auto source = cookie_manager_of(profile);
+            if (!source) {
+                LOG_WARN("[agent-browser] cannot read parent cookie store " +
+                         parent_session_id + ": " + error);
+                done();
+                return;
+            }
+            copy_profile_cookies(source, target, lease, parent_session_id, done);
+        });
+    }
+
+    // 页面的 controller 建好之后、对外可用之前:按会话存储第一次被用到时按状态文件
+    // 先清空(待清空)/ 从父会话复制(分叉),再登记。同一存储并发建多页时只做一次。
+    void prepare_page_store(const std::shared_ptr<Page>& page, StoreDone done) {
+        const AgentBrowserCookieStoreKey key = page->store;
+        loaded_store_ids.insert(key.id());
+        if (key.kind != AgentBrowserCookieStoreKind::Session ||
+            prepared_session_stores.count(key.session_id) != 0) {
+            done(true, {});
+            return;
+        }
+        auto& waiters = session_store_waiters[key.session_id];
+        waiters.push_back(std::move(done));
+        if (waiters.size() > 1) return;
+
+        const std::string session_id = key.session_id;
+        const AgentBrowserSessionStorePreparation preparation =
+            prepare_agent_browser_session_store(session_id, read_agent_browser_store_state());
+        const auto weak = weak_from_this();
+        const auto finish = [weak, session_id](bool ok, const std::string& error) {
+            const auto self = weak.lock();
+            if (!self) return;
+            if (ok) {
+                self->prepared_session_stores.insert(session_id);
+                if (!update_agent_browser_store_state([&session_id](AgentBrowserStoreState& state) {
+                        apply_agent_browser_session_store_preparation(session_id, state);
+                        return true;
+                    })) {
+                    LOG_WARN("[agent-browser] failed to record cookie store " + session_id);
+                }
+            }
+            auto pending = std::move(self->session_store_waiters[session_id]);
+            self->session_store_waiters.erase(session_id);
+            for (auto& waiter : pending) waiter(ok, error);
+        };
+        const std::string seed_from = preparation.seed_from;
+        const auto webview = page->webview;
+        const auto seed_then_finish = [weak, seed_from, webview, finish]() {
+            const auto self = weak.lock();
+            if (!self) return;
+            if (seed_from.empty()) {
+                finish(true, {});
+                return;
+            }
+            self->seed_store_cookies(seed_from, webview, [finish] { finish(true, {}); });
+        };
+        if (!preparation.wipe_first) {
+            seed_then_finish();
+            return;
+        }
+        clear_profile(profile_of(webview), nullptr,
+                      [seed_then_finish, finish](bool ok, const std::string& error) {
+                          if (!ok) {
+                              finish(false, error);
+                              return;
+                          }
+                          seed_then_finish();
+                      });
     }
 
     void append_console_log(const std::shared_ptr<Page>& page,
@@ -1987,6 +1728,220 @@ struct AgentBrowserHost::Impl
         return true;
     }
 
+    // 切档后页面换存储:关掉旧 controller,用同一个 page id、owner 与共享标记在新
+    // 存储里重建,并导航回原地址。期间的 CDP 调用排队,就绪后照常执行。
+    void rebuild_page_on_ui(const std::shared_ptr<Page>& page) {
+        if (!page || page->closing) return;
+        std::string url;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            url = page->state.url;
+        }
+        teardown_page(page);
+        page->creation_started = false;
+        page->store_prepared = false;
+        page->navigation = AgentBrowserNavigationTracker{};
+        page->external_handoff_uri.clear();
+        page->current_navigation_uri.clear();
+        ++page->element_selection_generation;
+        ++page->favicon_generation;
+        page->restore_url = (url.empty() || url == "about:blank") ? std::string() : url;
+        const bool restoring = !page->restore_url.empty();
+        update_page(page, [restoring](AgentBrowserState& state) {
+            state.ready = false;
+            state.loading = restoring;
+            state.visible = false;
+            state.can_go_back = false;
+            state.can_go_forward = false;
+            state.element_selection_active = false;
+            state.failure_kind.clear();
+            state.error.clear();
+            state.diagnostic.clear();
+            state.content_state = restoring ? kAgentBrowserContentStateLoading
+                                            : kAgentBrowserContentStateEmpty;
+        });
+        apply_bounds(page);
+        begin_create_controller(page);
+    }
+
+    bool set_cookie_mode_on_ui(const std::string& name, std::string* error) {
+        const auto mode = agent_browser_cookie_mode_from_name(name);
+        if (!mode) {
+            assign_error(error, "unknown Agent Browser cookie mode: " + name);
+            return false;
+        }
+        const AgentBrowserCookieModeSwitch plan =
+            plan_agent_browser_cookie_mode_switch(cookie_mode, *mode);
+        // 档位相同也写一次:状态里可能是空(从未选过)或别的版本写入的未知值。
+        const bool persisted = update_agent_browser_store_state(
+            [&mode, &plan](AgentBrowserStoreState& state) {
+                state.cookie_mode = agent_browser_cookie_mode_name(*mode);
+                if (plan.mark_session_stores_for_wipe) {
+                    state.pending_wipe.insert(state.pending_wipe.end(),
+                                              state.session_stores.begin(),
+                                              state.session_stores.end());
+                }
+                if (plan.clear_shared_now) state.shared_wipe_pending = true;
+                return true;
+            });
+        if (!persisted) {
+            assign_error(error, "failed to save the Agent Browser cookie setting");
+            return false;
+        }
+        if (!plan.changed) return true;
+
+        const AgentBrowserCookieMode previous = cookie_mode;
+        cookie_mode = *mode;
+        if (plan.mark_session_stores_for_wipe) prepared_session_stores.clear();
+        // 先把页面搬进新存储;清空走临时 controller,与页面互不影响。
+        const auto rebuild = agent_browser_pages_to_rebuild(page_store_bindings(), cookie_mode);
+        for (const auto& page_id : rebuild) {
+            rebuild_page_on_ui(find_page(page_id));
+        }
+        if (plan.clear_shared_now) clear_shared_store_and_mark_done();
+        if (plan.release_until_quit_store) release_until_quit_keepalive();
+        LOG_INFO(std::string("[agent-browser] cookie mode ") +
+                 agent_browser_cookie_mode_name(previous) + " -> " +
+                 agent_browser_cookie_mode_name(cookie_mode) + "; rebuilt " +
+                 std::to_string(rebuild.size()) + " page(s)");
+        AgentBrowserStorageEvent event;
+        event.type = "cookie_mode_changed";
+        emit_storage_event(std::move(event));
+        return true;
+    }
+
+    // 清除该页当前所用存储的全部网站数据,完成后重新加载同一存储里的页面。
+    bool clear_browsing_data_on_ui(const std::string& page_id, std::string* error) {
+        const auto page = find_page(page_id);
+        if (!page || page->closing) {
+            assign_error(error, "Agent Browser page was not found");
+            return false;
+        }
+        if (!environment) {
+            assign_error(error, "Agent Browser is still starting");
+            return false;
+        }
+        const AgentBrowserCookieStoreKey key = page->creation_started
+            ? page->store : agent_browser_cookie_store_key(cookie_mode, page->state.owner);
+        const auto weak = weak_from_this();
+        clear_store(key, [weak, key, page_id](bool ok, const std::string& clear_error) {
+            const auto self = weak.lock();
+            if (!self) return;
+            if (ok) {
+                std::vector<std::shared_ptr<Page>> reload;
+                {
+                    std::lock_guard<std::mutex> lock(self->state_mutex);
+                    for (const auto& [id, candidate] : self->pages) {
+                        if (!candidate->closing && candidate->webview &&
+                            candidate->store == key) {
+                            reload.push_back(candidate);
+                        }
+                    }
+                }
+                for (const auto& candidate : reload) candidate->webview->Reload();
+                LOG_INFO("[agent-browser] browsing data cleared: " + key.id());
+            } else {
+                LOG_WARN("[agent-browser] failed to clear browsing data for " + key.id() +
+                         ": " + clear_error);
+            }
+            AgentBrowserStorageEvent event;
+            event.type = "browsing_data_cleared";
+            event.ok = ok;
+            event.store = key.id();
+            event.page_id = page_id;
+            event.error = clear_error;
+            self->emit_storage_event(std::move(event));
+        });
+        return true;
+    }
+
+    // daemon 永久删除会话后:关闭该根会话的页面并删除它的按会话存储。本次运行没
+    // 加载过的存储直接删目录;加载过的由 WebView2 删除 Profile(浏览器进程占着
+    // 目录),状态里的记录留到下次启动删目录时再撤。
+    void process_store_tasks_on_ui() {
+        const AgentBrowserStoreState state = read_agent_browser_store_state();
+        if (state.pending_deletions.empty()) return;
+        const auto user_data_path = agent_browser_user_data_path(acecode_dir);
+        std::vector<std::string> finished;
+        for (const auto& session_id : state.pending_deletions) {
+            for (const auto& page_id :
+                 agent_browser_pages_of_root_session(page_store_bindings(), session_id)) {
+                close_page_on_ui(page_id, nullptr, nullptr);
+            }
+            prepared_session_stores.erase(session_id);
+            AgentBrowserCookieStoreKey key;
+            key.kind = AgentBrowserCookieStoreKind::Session;
+            key.session_id = session_id;
+            if (loaded_store_ids.erase(key.id()) != 0) {
+                delete_loaded_store(key);
+                continue;
+            }
+            if (remove_session_profile_directory(user_data_path, session_id)) {
+                finished.push_back(session_id);
+            }
+        }
+        if (!finished.empty()) {
+            update_agent_browser_store_state([&finished](AgentBrowserStoreState& current) {
+                const auto drop = [&finished](std::vector<std::string>& values) {
+                    values.erase(
+                        std::remove_if(values.begin(), values.end(),
+                                       [&finished](const std::string& value) {
+                                           return std::find(finished.begin(), finished.end(),
+                                                            value) != finished.end();
+                                       }),
+                        values.end());
+                };
+                drop(current.pending_deletions);
+                drop(current.session_stores);
+                drop(current.pending_wipe);
+                return true;
+            });
+        }
+        for (const auto& session_id : finished) {
+            AgentBrowserStorageEvent event;
+            event.type = "session_store_deleted";
+            event.store = "session:" + session_id;
+            emit_storage_event(std::move(event));
+        }
+    }
+
+    void delete_loaded_store(const AgentBrowserCookieStoreKey& key) {
+        const auto weak = weak_from_this();
+        with_profile(key, [weak, key](const Microsoft::WRL::ComPtr<ICoreWebView2Profile>& profile,
+                                      const std::string& error,
+                                      const std::shared_ptr<ProfileLease>& lease) {
+            const auto report = [weak, key](bool ok, const std::string& message) {
+                const auto self = weak.lock();
+                if (!self) return;
+                AgentBrowserStorageEvent event;
+                event.type = "session_store_deleted";
+                event.ok = ok;
+                event.store = key.id();
+                event.error = message;
+                self->emit_storage_event(std::move(event));
+            };
+            if (!profile) {
+                LOG_WARN("[agent-browser] cannot open cookie store " + key.id() +
+                         " for deletion: " + error);
+                report(false, error);
+                return;
+            }
+            Microsoft::WRL::ComPtr<ICoreWebView2Profile8> profile8;
+            if (SUCCEEDED(profile.As(&profile8)) && profile8 &&
+                SUCCEEDED(profile8->Delete())) {
+                LOG_INFO("[agent-browser] deleted cookie store " + key.id());
+                report(true, {});
+                return;
+            }
+            // 老运行时没有 Profile 删除接口:先清空数据,目录留给下次启动删除。
+            clear_profile(profile, lease, [key, report](bool ok, const std::string& message) {
+                LOG_INFO("[agent-browser] cleared deleted cookie store " + key.id() +
+                         (ok ? std::string() : ": " + message));
+                report(ok, message);
+            });
+        });
+    }
+
     void apply_bounds(const std::shared_ptr<Page>& page) {
         if (!page) return;
         const int width = (std::max)(0, page->requested_bounds.width);
@@ -2056,7 +2011,7 @@ struct AgentBrowserHost::Impl
                         const std::string& input,
                         std::string* error) {
         auto page = find_page(page_id);
-        if (!page || !page->webview) {
+        if (!page || !page->webview || !page->store_prepared) {
             assign_error(error, "Agent Browser page is still starting");
             return false;
         }
@@ -2242,7 +2197,7 @@ struct AgentBrowserHost::Impl
             return;
         }
         if (!require_agent_shared_page(page, page_id, pending)) return;
-        if (!page->webview) {
+        if (!page->webview || !page->store_prepared) {
             std::string host_error;
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
@@ -2311,6 +2266,12 @@ struct AgentBrowserHost::Impl
         const std::string requested_page = request.value("page_id", "");
         const AgentBrowserPageOwner owner = parse_agent_browser_page_owner(
             request.contains("owner") ? request["owner"] : nlohmann::json());
+        if (operation == "drain_store_tasks") {
+            // 提醒本身不带数据,要做的事都在状态文件里(daemon 写入的待删除会话)。
+            process_store_tasks_on_ui();
+            finish_proxy_call(pending, {{"ok", true}, {"result", nlohmann::json::object()}});
+            return;
+        }
         if (operation == "create_page") {
             const std::string page_id = create_page_on_ui(true, owner, true);
             finish_proxy_call(pending,
@@ -2417,7 +2378,8 @@ struct AgentBrowserHost::Impl
         const std::string operation = request.value("operation", "cdp");
         if (operation != "cdp" && operation != "create_page" &&
             operation != "claim_page" &&
-            operation != "close_page" && operation != "select_page") {
+            operation != "close_page" && operation != "select_page" &&
+            operation != "drain_store_tasks") {
             return {{"ok", false},
                     {"error", "Agent Browser proxy operation is invalid"}};
         }
@@ -2827,6 +2789,42 @@ void AgentBrowserHost::hide(const std::string& page_id) {
 #else
     (void)page_id;
 #endif
+}
+
+std::string AgentBrowserHost::cookie_mode() const {
+    return agent_browser_cookie_mode_name(
+        impl_ ? impl_->cookie_mode : AgentBrowserCookieMode::Shared);
+}
+
+bool AgentBrowserHost::set_cookie_mode(const std::string& mode, std::string* error) {
+#ifdef _WIN32
+    return impl_ && impl_->set_cookie_mode_on_ui(mode, error);
+#else
+    (void)mode;
+    assign_error(error, "Agent Browser is unavailable on this platform");
+    return false;
+#endif
+}
+
+bool AgentBrowserHost::clear_browsing_data(const std::string& page_id,
+                                           std::string* error) {
+#ifdef _WIN32
+    return impl_ && impl_->clear_browsing_data_on_ui(page_id, error);
+#else
+    (void)page_id;
+    assign_error(error, "Agent Browser is unavailable on this platform");
+    return false;
+#endif
+}
+
+void AgentBrowserHost::process_store_tasks() {
+#ifdef _WIN32
+    if (impl_) impl_->process_store_tasks_on_ui();
+#endif
+}
+
+void AgentBrowserHost::set_storage_event_handler(StorageEventHandler handler) {
+    if (impl_) impl_->storage_handler = std::move(handler);
 }
 
 } // namespace acecode::desktop

@@ -16,6 +16,7 @@ import { createdFileSource } from './createdFileSource.js';
 import { normalizeAttachmentList } from './messageAttachments.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { shellCommandPresentation } from './shellCommandPresentation.js';
+import { canonicalTranscriptTool, presentTool } from './toolPresentation.js';
 import {
   questionFeedbackForItem,
   questionFeedbackForTool,
@@ -64,7 +65,8 @@ const { ToolBlock } = vm.runInNewContext(`${toolTransformed.code}; ({ ToolBlock 
   React, ...React, ...format,
   compactOneLinePreview, createdFileSource, normalizeAttachmentList,
   fallbackToolSummary, questionFeedbackForTool, QuestionFeedbackCard,
-  shellCommandPresentation,
+  shellCommandPresentation, canonicalTranscriptTool, presentTool,
+  ToolDetailMetadata: () => null,
   useTranslation: () => ({ t: (text) => text }),
   renderMarkdown: () => '',
   VsIcon: () => null,

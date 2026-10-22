@@ -36,7 +36,7 @@ test('workspace and no-workspace groups share scope-isolated tree dragging', () 
 
   assert.match(sidebar, /data-sidebar-workspace-session-key=\{workspaceReorderable/);
   assert.match(sidebar, /data-sidebar-workspace-session-workspace=\{workspaceReorderable/);
-  assert.match(sidebar, /workspaceDropTargetForPointer\(clientY, drag\.workspaceHash, drag\.sourceId, drag\.lastX\)/);
+  assert.match(sidebar, /workspaceDropTargetForPointer\(clientY, drag\.workspaceHash, drag\.sourceId, drag\.lastX, drag\.entries\.map/);
   assert.match(
     sidebar,
     /\.filter\(\(row\) => row\.dataset\.sidebarWorkspaceSessionWorkspace === workspace\)/,

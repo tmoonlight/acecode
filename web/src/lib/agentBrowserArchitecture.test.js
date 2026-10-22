@@ -1,4 +1,4 @@
-import { readCppSource, cppSourcePath } from './cppSourcePaths.testHelper.js';
+import { readCppSource as readSingleCppSource, cppSourcePath } from './cppSourcePaths.testHelper.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -6,6 +6,16 @@ import { fileURLToPath } from 'node:url';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(srcRoot, '..', '..');
+
+
+function readCppSource(relativePath) {
+  const helpers = {
+    'desktop/main.cpp': ['desktop/agent_browser_cookie_bridge.cpp'],
+    'desktop/agent_browser_host.cpp': ['desktop/agent_browser_windows_helpers.cpp', 'desktop/agent_browser_windows_helpers.hpp'],
+    'desktop/agent_browser_host_mac.mm': ['desktop/agent_browser_macos_helpers.mm', 'desktop/agent_browser_macos_helpers.hpp'],
+  };
+  return [relativePath, ...(helpers[relativePath] || [])].map(readSingleCppSource).join('\n');
+}
 
 function source(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -139,11 +149,16 @@ run('Agent Browser collaboration chrome mirrors the VS Code page actions', () =>
   const host = readCppSource('desktop/agent_browser_host.cpp');
   const desktop = readCppSource('desktop/main.cpp');
 
+  const moreMenu = source('web/src/components/AgentBrowserMoreMenu.jsx');
+
   assert.match(panel, /ace-agent-browser-share-toggle/);
   assert.match(panel, /正在与智能体共享/);
   assert.match(panel, /将元素添加到聊天/);
-  assert.match(panel, /将控制台日志添加到聊天/);
   assert.match(panel, /切换开发者工具/);
+  // 控制台日志进聊天从工具栏移进「⋮」菜单;工具栏不再有单独按钮。
+  assert.match(panel, /<AgentBrowserMoreMenu[\s\S]*onAddConsoleLogs=\{addConsoleLogs\}/);
+  assert.doesNotMatch(panel, /title="将控制台日志添加到聊天"/);
+  assert.match(moreMenu, /将控制台日志添加到聊天/);
   assert.doesNotMatch(panel, /ace-agent-browser-error/);
   assert.doesNotMatch(styles, /\.ace-agent-browser-error/);
 
@@ -156,6 +171,43 @@ run('Agent Browser collaboration chrome mirrors the VS Code page actions', () =>
   assert.match(desktop, /aceDesktop_agentBrowserGetConsoleLogs/);
   assert.match(desktop, /aceDesktop_agentBrowserToggleElementSelection/);
   assert.match(desktop, /aceDesktop_agentBrowserToggleDevTools/);
+});
+
+run('Agent Browser cookie storage modes reach the toolbar menu and settings', () => {
+  const moreMenu = source('web/src/components/AgentBrowserMoreMenu.jsx');
+  const settings = source('web/src/components/SettingsPage.jsx');
+  const cookieMode = source('web/src/lib/agentBrowserCookieMode.js');
+  const header = readCppSource('desktop/agent_browser_host.hpp');
+  const host = readCppSource('desktop/agent_browser_host.cpp');
+  const desktop = readCppSource('desktop/main.cpp');
+
+  // 三个 bridge 与存储事件:Desktop 注册、前端封装同名调用。
+  for (const name of [
+    'aceDesktop_agentBrowserGetCookieMode',
+    'aceDesktop_agentBrowserSetCookieMode',
+    'aceDesktop_agentBrowserClearBrowsingData',
+  ]) {
+    assert.match(desktop, new RegExp(`"${name}"`), name);
+    assert.match(cookieMode, new RegExp(name), name);
+  }
+  assert.match(desktop, /acecode:agent-browser-storage/);
+  assert.match(cookieMode, /acecode:agent-browser-storage/);
+  assert.match(header, /set_storage_event_handler/);
+
+  // 菜单走 AnchoredMenu(自带原生页面遮挡登记);子菜单是 role="menu" 的浮层,
+  // 清除确认走共享 Modal 且「清除」是默认操作。
+  assert.match(moreMenu, /<AnchoredMenu/);
+  assert.match(moreMenu, /role="menu"\s+aria-label="保留 Cookie"/);
+  assert.match(moreMenu, /role="menuitemradio"/);
+  assert.match(moreMenu, /<Modal[\s\S]*data-ace-dialog-primary="true"/);
+  assert.match(moreMenu, /清除浏览数据/);
+  assert.match(settings, /useAgentBrowserCookieMode\(\)/);
+
+  // 共享档沿用无选项的默认 Profile,升级后已有登录不丢;命名 Profile 只给另外两档。
+  assert.match(host, /if \(key\.kind == AgentBrowserCookieStoreKind::Shared\) \{\s*return environment->CreateCoreWebView2Controller/);
+  assert.match(host, /CreateCoreWebView2ControllerWithOptions/);
+  // 退出即清档的保活页(实测不保活时关掉所有页面就丢 cookie)。
+  assert.match(host, /ensure_until_quit_keepalive\(\)/);
 });
 
 run('Agent Browser mouse-producing tools show one non-blocking AI pointer at exact input coordinates', () => {

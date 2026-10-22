@@ -26,7 +26,16 @@
 
 - [x] 6.1 将所有字号的 transcript 折叠阈值统一降至 350 CSS px，保留 64 px 恢复缓冲；更新边界与真实页面验证，完成 Web 测试、构建及严格校验。
 
+## 7. 自动折叠仅作用于左栏
+
+- [x] 7.1 按 2026-10-20 用户要求取消右栏自动折叠及响应式浮层触发，左栏按包含右侧占宽的 transcript 预算判断，保留 350 px 阈值、64 px 恢复缓冲及偏好记忆。
+- [x] 7.2 更新纯逻辑和真实 App 验证，覆盖右栏始终服从手动开关、详情/子对话占宽、左栏浮层调宽与刷新；完成 Web 测试、构建及严格校验。
+
 ## 验证记录
+
+以下记录按实施阶段保留；第 7 节覆盖此前关于右栏自动折叠及浮层的约定。
+
+- 仅左栏自动折叠补验（2026-10-20）：纯逻辑逐像素验证右栏不自动折叠，左栏计入实际显示的右侧导航、详情和子对话占宽，手动关闭右侧内容后释放预算。真实 App 验证右栏开启时左栏在窗口 906/905 px 保持/折叠，970 px 恢复；右栏关闭时边界为 626/625 px，690 px 恢复。右栏窄窗口手动展开正常占位，详情草稿在缩放中保留，手动关闭仍触发既有未保存确认。四种开关组合、刷新、工作台切换、左栏指针/键盘调宽和取消均通过；已检查详情正常占位和左栏浮层截图。完整 `pnpm test`、`pnpm build`、`node scripts/test-responsive-sidebars.mjs`、严格 OpenSpec 校验与 diff 检查通过。截图目录：系统临时目录下 `ace-responsive-sidebars-J7weXZ`。未重建或重启 Desktop。
 
 - 最终 `pnpm test`、`pnpm build` 均退出 0；构建扫描 4541 个正则，无旧 WebView 不兼容的 lookbehind。`openspec validate adapt-sidebars-to-transcript-width --strict` 与 `git diff --check` 通过。
 - `node src/lib/responsiveSidebars.test.js`：通过。覆盖逐像素缩小、自定义左栏宽度、恢复余量、四种开关组合及预览/子对话占宽。

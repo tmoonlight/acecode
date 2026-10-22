@@ -86,6 +86,7 @@ const ACTION_LABELS = {
   [DESKTOP_CONTEXT_ACTIONS.COPY_FILE_DIFF]: '复制此文件 diff',
   [DESKTOP_CONTEXT_ACTIONS.COPY_ALL_DIFFS]: '复制全部 diff',
   [DESKTOP_CONTEXT_ACTIONS.LOCATE_IN_FILE_TREE]: '在文件树中定位',
+  [DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST]: '在文件列表展示',
   [DESKTOP_CONTEXT_ACTIONS.EXPAND_ALL_DIFFS]: '展开全部 diff',
   [DESKTOP_CONTEXT_ACTIONS.COLLAPSE_ALL_DIFFS]: '折叠全部 diff',
   [DESKTOP_CONTEXT_ACTIONS.COPY_MESSAGE_TEXT]: '复制消息',
@@ -729,6 +730,9 @@ export function DesktopContextMenu() {
                 <span>{actionLabel(action)}</span>
                 {action.id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION && (
                   <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('previewPresentation')}</span>
+                )}
+                {action.id === DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST && (
+                  <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('revealPreviewFile')}</span>
                 )}
               </button>
             </Fragment>

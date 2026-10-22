@@ -268,10 +268,10 @@ run('新建文件展开源码框，覆盖和编辑仍保留专用 diff', () => {
 
   assert.match(
     toolBlockSource,
-    /createdFile \? \(\s*<CreatedFileFrame source=\{createdFile\} \/>\s*\) : diffHtml \? \(/,
+    /createdFile \? \(\s*<CreatedFileFrame source=\{createdFile\} metadata=\{detailMetadata\} \/>\s*\) : diffHtml \? \(/,
   );
   assert.match(toolBlockSource, /if \(createdFile \|\| !diffText\) return '';/);
-  assert.match(toolBlockSource, /className="ace-diff ace-tool-diff"/);
+  assert.match(toolBlockSource, /clsx\('ace-diff ace-tool-diff',/);
   assert.doesNotMatch(toolBlockSource, /<ToolTextFrame text=\{diffText\}/);
   assert.match(stylesSource, /\.ace-tool-created-code\s*\{/);
   assert.match(stylesSource, /:root:not\(\[data-theme="dark"\]\) \.ace-tool-created-code \.hljs-keyword/);

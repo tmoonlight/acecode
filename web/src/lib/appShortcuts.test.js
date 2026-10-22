@@ -3,6 +3,10 @@ import { APP_SHORTCUTS, appShortcutContextAllows, filterShortcuts, matchAppShort
 import { nextReasoningEffort } from './modelReasoning.js';
 
 const key = (code, extra = {}) => ({ code, ctrlKey: true, ...extra });
+assert.equal(matchAppShortcut(key('BracketLeft')), 'revealPreviewFile');
+assert.equal(matchAppShortcut(key('BracketLeft', { shiftKey: true })), null);
+assert.equal(shortcutLabel('revealPreviewFile', false), 'Ctrl+[');
+assert.equal(shortcutLabel('revealPreviewFile', true), 'Ctrl+[');
 assert.equal(matchAppShortcut(key('Minus')), 'forward');
 assert.equal(matchAppShortcut(key('Minus', { key: '_', shiftKey: true })), 'back');
 assert.equal(matchAppShortcut(key('Minus', { altKey: true })), null);
@@ -38,6 +42,8 @@ assert.deepEqual(filterShortcuts(shortcutCatalog(false), '思维 深度').map((x
 assert.equal(filterShortcuts(shortcutCatalog(false), '不存在的功能').length, 0);
 const overlay = (selector, show = true) => ({ matches: (s) => s.includes(selector), getClientRects: () => show ? [{}] : [] });
 const doc = (...overlays) => ({ querySelectorAll: () => overlays });
+assert.equal(appShortcutContextAllows('revealPreviewFile', null, doc(overlay('dialog'))), false);
+assert.equal(appShortcutContextAllows('revealPreviewFile', { closest: () => ({}) }, doc()), true);
 assert.equal(appShortcutContextAllows('newSession', null, doc(overlay('dialog'))), false);
 assert.equal(appShortcutContextAllows('newSession', null, doc(overlay('dialog', false))), true);
 assert.equal(appShortcutContextAllows('shortcuts', null, doc(overlay('[data-settings-mask]'))), true);

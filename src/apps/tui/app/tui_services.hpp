@@ -8,6 +8,7 @@ namespace acecode {
 struct InteractiveCliOptions;
 class HookManager; class ToolExecutor; class SkillRegistry; class MemoryRuntime;
 class McpManager; class SkillUsageStore; struct WorkspaceToolDeps;
+class AgentBrowserStoreLifecycle;
 namespace desktop { class WorkspaceRegistry; }
 }
 namespace acecode::tui {
@@ -31,6 +32,8 @@ public:
     std::shared_ptr<WorkspaceToolDeps> workspace_tool_deps;
     // Shared with UI state and session skill callbacks, persisted at one store.
     std::shared_ptr<SkillUsageStore> skill_usage;
+    // TUI 删除 / 分叉会话时给 Desktop 记 Agent Browser cookie 存储待办。
+    std::unique_ptr<AgentBrowserStoreLifecycle> agent_browser_stores;
     std::optional<std::string> cwd_model_override;
     ModelProfile initial_model;
 };

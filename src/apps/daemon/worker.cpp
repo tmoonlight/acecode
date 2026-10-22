@@ -62,6 +62,7 @@
 #include "tool/glob_tool.hpp"
 #include "tool/goal_tool.hpp"
 #include "daemon_memory.hpp"
+#include "session_host/agent_browser_store_lifecycle.hpp"
 #include "session_host/memory_runtime.hpp"
 #include "tool/skill_view_tool.hpp"
 #include "tool/skills_tool.hpp"
@@ -440,6 +441,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     // 先于 ToolExecutor 构造 —— 工具持有它的服务,析构顺序要反过来。
     auto memory_runtime = acecode::create_memory_runtime(
         cfg_mut, acecode::get_acecode_dir(), acecode::MemorySurface::Daemon);
+    // Agent Browser 按会话 cookie 存储:会话永久删除 / 分叉时给 Desktop 记待办。
+    acecode::AgentBrowserStoreLifecycle agent_browser_stores;
 
     acecode::ToolExecutor tools;
     acecode::register_session_builtin_tools(tools, cfg_mut);

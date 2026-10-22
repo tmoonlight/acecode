@@ -1300,7 +1300,8 @@ body {
 }
 /* The file drop target keeps the accent ring: it is a transient affordance,
    not a resting state. Same specificity as hover / focus, later, so it wins. */
-.ace-composer-card.is-drag-active {
+.ace-composer-card.is-drag-active,
+.ace-composer-card.is-session-reference-drop {
   border-color: var(--ace-accent);
   box-shadow: 0 0 0 2px rgba(var(--ace-accent-rgb), 0.15);
 }
@@ -2638,18 +2639,60 @@ body {
 .ace-sidebar-workspace-session-row.is-drop-after::after {
   bottom: -2px;
 }
+/* 会话树连线。竖线与父行展开箭头的尖端同列:行左外边距 6 + 内边距 3 + 箭头列 24 的一半
+   = 21px,减 0.5 让 1px 线居中。父行在箭头尖下方画一段起点;子行整体右移 18 + 6 = 24px,
+   所以子行坐标里竖线在 -3.5px。非末行的竖线贯穿整行,拐角只负责从竖线上弯出去,
+   否则拐角那段圆弧与下一段竖线之间会断开。行高随字号变化,纵向一律按百分比定位。 */
 .ace-sidebar-session-tree-node { position: relative; }
 .ace-sidebar-session-tree-children {
-  margin: 0;
+  margin: 0 0 0 18px;
   padding: 0;
   border: 0;
 }
-.ace-sidebar-session-tree-node.is-tree-expanded { background: var(--ace-accent-bg); border-radius: 6px; }
-.ace-sidebar-session-tree-node.is-tree-expanded .ace-sidebar-session-row.is-tree-active {
-  background: rgba(var(--ace-accent-rgb), 0.18);
+.ace-sidebar-session-tree-node:has(> .ace-sidebar-session-tree-children) > .ace-sidebar-session-row:not(.is-drop-after)::after {
+  content: "";
+  position: absolute;
+  left: 14.5px;
+  top: calc(50% + 4px);
+  bottom: -2px;
+  border-left: 1px solid var(--ace-border);
+  pointer-events: none;
 }
-.ace-sidebar-session-tree-node.is-tree-expanded .ace-sidebar-session-row:not(.is-tree-active):hover {
-  background: rgba(var(--ace-accent-rgb), 0.08);
+.ace-sidebar-session-tree-child { position: relative; }
+.ace-sidebar-session-tree-child:not(.is-drop-before)::before {
+  content: "";
+  position: absolute;
+  left: -3.5px;
+  top: -1px;
+  width: 12.5px;
+  height: calc(50% + 1px);
+  border-left: 1px solid var(--ace-border);
+  border-bottom: 1px solid var(--ace-border);
+  border-bottom-left-radius: 6px;
+  pointer-events: none;
+}
+/* 没有未读点 / 运行指示时,分支一直连到标题前;有指示时停在指示之前。 */
+.ace-sidebar-session-tree-child:has(> .ace-sidebar-session-tree-indicator:empty):not(.is-drop-before)::before {
+  width: 30.5px;
+}
+.ace-sidebar-session-tree-child:not(:last-child):not(.is-drop-after)::after {
+  content: "";
+  position: absolute;
+  left: -3.5px;
+  top: -1px;
+  bottom: -2px;
+  border-left: 1px solid var(--ace-border);
+  pointer-events: none;
+}
+.ace-sidebar-session-row.is-multi-selected {
+  background: var(--ace-surface-hi);
+}
+.ace-sidebar-session-row.is-multi-selected.is-tree-active {
+  background: var(--ace-accent-bg);
+}
+.ace-sidebar-session-row {
+  user-select: none;
+  -webkit-user-select: none;
 }
 .ace-sidebar-session-row[data-sidebar-tree-group="true"] .ace-sidebar-row-idle-slot { display: inline; }
 .ace-sidebar-session-tree-chevron { pointer-events: none; }
@@ -2687,6 +2730,44 @@ body {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
   font-size: 12px;
   pointer-events: none;
+}
+.ace-sidebar-session-drag-stack {
+  position: fixed;
+  z-index: 80;
+  pointer-events: none;
+}
+.ace-sidebar-session-drag-stack .ace-sidebar-session-drag-ghost {
+  position: relative;
+  z-index: auto;
+  width: 100%;
+  margin-bottom: 4px;
+  padding-left: 10px;
+}
+/* 拖到输入框上方时,拖动预览下方提示松手会插入 @会话 引用。 */
+.ace-sidebar-session-drag-hint {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ace-accent);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+.ace-sidebar-session-drag-count {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  z-index: 1;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--ace-fg);
+  color: var(--ace-bg);
+  text-align: center;
+  font-size: 12px;
 }
 @font-face {
   font-family: "ace-seti";
@@ -3184,7 +3265,8 @@ body {
   --ace-composer-hover-shadow: 0 18px 46px rgba(0, 0, 0, 0.12);
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.08);
 }
-.ace-inputbar-hero-card.is-drag-active {
+.ace-inputbar-hero-card.is-drag-active,
+.ace-inputbar-hero-card.is-session-reference-drop {
   box-shadow:
     0 0 0 2px rgba(var(--ace-accent-rgb), 0.15),
     0 18px 46px rgba(0, 0, 0, 0.08);
@@ -3201,7 +3283,8 @@ body {
   --ace-composer-hover-shadow: 0 18px 46px rgba(0, 0, 0, 0.42);
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
 }
-[data-theme="dark"] .ace-inputbar-hero-card.is-drag-active {
+[data-theme="dark"] .ace-inputbar-hero-card.is-drag-active,
+[data-theme="dark"] .ace-inputbar-hero-card.is-session-reference-drop {
   box-shadow:
     0 0 0 2px rgba(var(--ace-accent-rgb), 0.15),
     0 18px 46px rgba(0, 0, 0, 0.32);
@@ -5285,6 +5368,245 @@ a.ace-thread-link:focus-visible {
   gap: 8px;
   margin-top: 7px;
 }
+/* Agent Browser 新标签页(版式照 Codex 的 New Tab):推荐 = 常访问网站,
+   最近 = 本会话改过的文件。Codex 的「工具」区不做。 */
+.ace-agent-browser-newtab {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 32px 20px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  user-select: none;
+}
+.ace-agent-browser-newtab-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+}
+.ace-agent-browser-newtab-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.ace-agent-browser-newtab-section[data-section="recent"] {
+  gap: 12px;
+}
+.ace-agent-browser-newtab-heading {
+  margin: 0;
+  color: var(--ace-fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+.ace-agent-browser-newtab-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ace-agent-browser-newtab-scroll-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ace-agent-browser-newtab-icon-button {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ace-fg-2);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ace-agent-browser-newtab-icon-button:hover:not(:disabled) {
+  background: var(--ace-surface-hi);
+  color: var(--ace-fg);
+}
+.ace-agent-browser-newtab-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.ace-agent-browser-newtab-icon-button:focus-visible,
+.ace-agent-browser-newtab-site-link:focus-visible,
+.ace-agent-browser-newtab-recent-button:focus-visible {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: -2px;
+}
+.ace-agent-browser-newtab-sites {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+.ace-agent-browser-newtab-sites::-webkit-scrollbar {
+  display: none;
+}
+.ace-agent-browser-newtab-site {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 128px;
+}
+.ace-agent-browser-newtab-site-link {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ace-fg);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.ace-agent-browser-newtab-site:hover .ace-agent-browser-newtab-site-link {
+  background: var(--ace-surface-hi);
+}
+.ace-agent-browser-newtab-favicon {
+  display: flex;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-newtab-favicon img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.ace-agent-browser-newtab-site-title {
+  width: 100%;
+  overflow: hidden;
+  font-size: 13px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ace-agent-browser-newtab-dismiss {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  opacity: 0;
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .ace-agent-browser-newtab-site:hover .ace-agent-browser-newtab-dismiss {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+@media (hover: none) {
+  .ace-agent-browser-newtab-dismiss {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.ace-agent-browser-newtab-site:has(:focus-visible) .ace-agent-browser-newtab-dismiss {
+  opacity: 1;
+  pointer-events: auto;
+}
+.ace-agent-browser-newtab-recents {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  overflow-anchor: none;
+  list-style: none;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - var(--recent-row-height, 0px) / 2), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--recent-row-height, 0px) / 2), transparent);
+}
+.ace-agent-browser-newtab-recents::-webkit-scrollbar {
+  display: none;
+}
+.ace-agent-browser-newtab-recents[data-interacted="true"] {
+  scroll-snap-type: y mandatory;
+}
+.ace-agent-browser-newtab-recents[data-at-bottom="true"] {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.ace-agent-browser-newtab-recent {
+  scroll-snap-align: start;
+  border-bottom: 1px solid var(--ace-border);
+  border-radius: 12px;
+}
+.ace-agent-browser-newtab-recent:hover,
+.ace-agent-browser-newtab-recent:focus-within {
+  border-bottom-color: transparent;
+  background: var(--ace-surface-hi);
+}
+.ace-agent-browser-newtab-recent:has(+ .ace-agent-browser-newtab-recent:hover),
+.ace-agent-browser-newtab-recent:has(+ .ace-agent-browser-newtab-recent:focus-within) {
+  border-bottom-color: transparent;
+}
+.ace-agent-browser-newtab-recent-button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ace-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.ace-agent-browser-newtab-recent-icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--ace-surface);
+  box-shadow: 0 0 0 1px var(--ace-border);
+  color: var(--ace-fg-mute);
+}
+.ace-agent-browser-newtab-recent-text {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+}
+.ace-agent-browser-newtab-recent-name,
+.ace-agent-browser-newtab-recent-kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ace-agent-browser-newtab-recent-name {
+  font-size: 13px;
+}
+.ace-agent-browser-newtab-recent-kind,
+.ace-agent-browser-newtab-recent-time {
+  color: var(--ace-fg-mute);
+  font-size: 12px;
+}
+.ace-agent-browser-newtab-recent-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 @media (prefers-reduced-motion: reduce) {
   .ace-agent-browser-frame.is-agent-active {
     --ace-browser-shared-angle: 315deg;
@@ -6048,6 +6370,25 @@ a.ace-thread-link:focus-visible {
 }
 .ace-file-row[data-desktop-file-selected="true"]:not([data-review-status]) {
   color: var(--ace-accent);
+}
+.ace-file-row.ace-file-locate-highlight {
+  overflow: hidden;
+  animation: ace-file-locate-highlight 760ms ease-out;
+}
+.ace-file-locate-highlight .ace-file-leaf-content {
+  transform-origin: left center;
+  animation: ace-file-locate-scale 760ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes ace-file-locate-highlight {
+  0%, 65% { background-color: rgba(var(--ace-accent-rgb), 0.32); }
+  100% { background-color: rgba(var(--ace-accent-rgb), 0.16); }
+}
+@keyframes ace-file-locate-scale {
+  0%, 100% { transform: scale(1); }
+  28% { transform: scale(1.06); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-file-locate-highlight .ace-file-leaf-content { animation: none; }
 }
 .ace-file-name {
   flex: 1 1 auto;

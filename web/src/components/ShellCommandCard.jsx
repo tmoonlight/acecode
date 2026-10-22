@@ -5,7 +5,7 @@ import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { VsIcon } from './Icon.jsx';
 import '../styles/shell-command-card.css';
 
-export function ShellCommandCard({ presentation, expanded, onToggle, running, failed, status, contextAttrs }) {
+export function ShellCommandCard({ presentation, expanded, onToggle, running, failed, status, contextAttrs, transcript = false, showCommand = true }) {
   const { command, output, copyText } = presentation;
   const commandRef = useRef(null);
   const outputRef = useRef(null);
@@ -33,9 +33,10 @@ export function ShellCommandCard({ presentation, expanded, onToggle, running, fa
       className="ace-shell-command-card"
       data-shell-command-card="true"
       data-expanded={expanded ? 'true' : 'false'}
+      data-transcript={transcript ? 'true' : undefined}
       style={{ '--ace-shell-preview-lines': SHELL_PREVIEW_LINES }}
     >
-      <button
+      {!transcript && <button
         type="button"
         className="ace-shell-card-header"
         onClick={onToggle}
@@ -49,13 +50,14 @@ export function ShellCommandCard({ presentation, expanded, onToggle, running, fa
           {status}
         </span>
         <VsIcon name="expandDown" size={14} className="ace-shell-card-chevron" style={{ transform: `rotate(${expanded ? 180 : 0}deg)` }} />
-      </button>
+      </button>}
       <CopyableCodeFrame text={copyText} className="ace-shell-card-body">
-        <div className={clsx('ace-shell-card-command', !expanded && clipped.command && 'is-clipped')}>
+        {transcript && status}
+        {showCommand && <div className={clsx('ace-shell-card-command', !expanded && clipped.command && 'is-clipped')}>
           <pre ref={commandRef} className="ace-shell-card-code">
             {command ? <><span className="text-fg-mute">$ </span>{command}</> : <span className="text-fg-mute">命令未记录</span>}
           </pre>
-        </div>
+        </div>}
         {output && (
           <div className={clsx('ace-shell-card-output', !expanded && clipped.output && 'is-clipped')}>
             <pre ref={outputRef} className="ace-shell-card-code">{output}</pre>
