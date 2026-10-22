@@ -7,6 +7,7 @@
 //
 // 没有 sessionId 时显示 Codex 风格新任务主页(首条消息提交时才创建 session)。
 
+import { previewFileLocatePlan } from '../lib/fileTreeLocate.js';
 import {
   Component,
   Suspense,
@@ -105,6 +106,10 @@ import {
   latestTurnSuccessfulChangedFiles,
   summarizeChangeGroups,
 } from '../lib/sessionChanges.js';
+import {
+  collectAgentBrowserRecentFiles,
+  recentFilesSignature,
+} from '../lib/agentBrowserRecentFiles.js';
 import { forkRestoredPrompt } from '../lib/sessionFork.js';
 import { stableBySignature } from '../lib/changeReviewStability.js';
 import {
@@ -5136,6 +5141,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     { signature: changeSignature, value: changeMessages },
   );
   const stableChangeMessages = changeMessagesStableRef.current.value;
+  // Agent Browser 新标签页的「最近」:本会话改过的文件。同样按签名稳定引用,
+  // 流式期间不让预览面板每帧重建。
+  const rawBrowserRecentFiles = useMemo(() => collectAgentBrowserRecentFiles(items), [items]);
+  const browserRecentFilesStableRef = useRef(null);
+  browserRecentFilesStableRef.current = stableBySignature(
+    browserRecentFilesStableRef.current,
+    { signature: recentFilesSignature(rawBrowserRecentFiles), value: rawBrowserRecentFiles },
+  );
+  const browserRecentFiles = browserRecentFilesStableRef.current.value;
   const changeDockDismissalKey = useMemo(
     () => dockDismissalKey(ref, sid),
     [ref?.workspaceHash, sid],
@@ -5231,7 +5245,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const locateInFileTree = useStableCallback((path) => {
     if (!showSidePanel || !path) return;
     if (sidePanelCollapsed || sidePanelListCollapsed) onRevealSidePanelList?.();
-    setFileLocateRequest((prev) => ({ path, token: (prev.token || 0) + 1 }));
+    setFileLocateRequest((prev) => ({ path, includeSelf: true, token: (prev.token || 0) + 1 }));
+  });
+
+  const locatePreviewFile = useStableCallback(({ cwd, path }) => {
+    if (!showSidePanel || sessionIsNoWorkspace) return;
+    const plan = previewFileLocatePlan({ workspaceCwd: sidePanelCwd, cwd, path });
+    if (!plan) return;
+    onRevealSidePanelList?.();
+    setPopupNavigationCollapsed(false);
+    setFileLocateRequest((prev) => ({
+      path: plan.selectedPath, includeSelf: false, emphasize: true,
+      token: (prev.token || 0) + 1,
+    }));
   });
 
   const dismissChangeDock = useStableCallback(() => {
@@ -5808,6 +5834,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const closePreview = useStableCallback((tabKey) => {
     requestPreviewClose('one', tabKey);
+  });
+
+  // 新标签页「最近」里点文件:用文件预览替换这个空白浏览器页签(Codex 同款),
+  // 文件页签打开成功后才关掉浏览器页,不会留下空白页。
+  const replaceBrowserTabWithFile = useStableCallback(async (tabKey, path) => {
+    const opened = await openFilePreview(path);
+    if (opened && tabKey) closePreview(tabKey);
   });
 
   const closeAllPreviews = useStableCallback(() => {
@@ -6585,6 +6618,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onSelectChangeFile={openSessionChangePreview}
             onSelectGitChangeFile={openGitChangePreview}
             onOpenFilePreview={openFilePreview}
+            browserRecentFiles={browserRecentFiles}
+            onLocateFile={locatePreviewFile}
+            onReplaceBrowserTabWithFile={sidePanelCwd ? replaceBrowserTabWithFile : undefined}
           />
         </div>
       )}

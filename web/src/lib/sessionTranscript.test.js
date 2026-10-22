@@ -1672,7 +1672,8 @@ run('history load 后 Created tool result 从匹配调用恢复工具名并保�
   const tool = activity?.collapsedItems?.find((item) => item.kind === 'tool')?.tool;
   assert.ok(tool);
   assert.equal(tool.tool, 'file_write');
-  assert.equal(tool.args, null);
+  assert.deepEqual(tool.args, { file_path: 'src/index.html', content: '<h1>Hello</h1>' });
+  assert.equal(loaded.items.find(item => item.kind === 'tool').tool.args, null);
   assert.deepEqual(createdFileSource(tool), {
     path: 'src/index.html',
     content: '<h1>Hello</h1>',

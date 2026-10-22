@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { VsIcon } from './Icon.jsx';
 import { clsx } from '../lib/format.js';
 
@@ -10,6 +11,8 @@ import { clsx } from '../lib/format.js';
 export function ActivityLine({
   label = '',
   detail = '',
+  detailSeparator = null,
+  onDetailOverflowChange,
   icon = null,
   running = false,
   spinnerStatic = false,
@@ -24,6 +27,17 @@ export function ActivityLine({
   preserveLabel = false,
   className = '',
 }) {
+  const detailRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!onDetailOverflowChange) return undefined;
+    const element = detailRef.current;
+    const measure = () => onDetailOverflowChange(!!element && element.scrollWidth > element.clientWidth + 1);
+    measure();
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [detail, label, onDetailOverflowChange]);
   const interactive = expandable && typeof onToggle === 'function';
   const activityLabel = label || '正在处理';
   const liveCopyClassName = live ? 'ace-activity-line-live-copy' : '';
@@ -48,7 +62,7 @@ export function ActivityLine({
         preserveLabel ? 'shrink-0' : 'min-w-0 max-w-[62%] truncate',
         liveCopyClassName,
       )}>
-        {activityLabel}
+        {activityLabel}{detail && detailSeparator !== null ? detailSeparator : ''}
         {live && (
           <span className="ace-activity-line-shimmer-sweep" aria-hidden="true">
             <span className="ace-activity-line-shimmer-highlight">{activityLabel}</span>
@@ -56,8 +70,8 @@ export function ActivityLine({
         )}
       </span>
       {detail && (
-        <span className="min-w-0 truncate text-fg-mute" title={String(detail)}>
-          · {detail}
+        <span ref={detailRef} className="min-w-0 truncate text-fg-mute" title={String(detail)} data-activity-detail="true">
+          {detailSeparator === null ? '· ' : ''}{detail}
         </span>
       )}
       {expandable && (

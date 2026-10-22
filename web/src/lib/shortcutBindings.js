@@ -8,6 +8,7 @@ export const APP_SHORTCUTS = Object.freeze({
   toggleSidebar: binding('KeyB', 'B', { alt: true }),
   toggleRightPanel: binding('KeyE', 'E', { alt: true }),
   previewPresentation: binding('F11', 'F11', { control: true }),
+  revealPreviewFile: binding('BracketLeft', '[', { control: true }),
   settings: binding('Comma', ','), shortcuts: binding('Slash', '/'),
   stop: binding('Period', '.', { shift: true }),
   forward: binding('Minus', '-'), back: binding('Minus', '-', { shift: true }),

@@ -76,7 +76,16 @@ bridge；`src/apps/desktop/main.cpp` 也已为 `__APPLE__` 开启相同 bindings
    target 做 availability 检查。Apple 将 identifier data store 定义为 profile
    用的独立持久化 store：
    <https://developer.apple.com/documentation/webkit/wkwebsitedatastore/init(foridentifier:)>
-3. 所有页面配置复用同一个隔离 persistent data store，但每页保留独立 history/DOM。
+   **「保留 Cookie」三档**（openspec add-agent-browser-cookie-modes D5）在此基础上按档位
+   选 store：共享（默认）就是上面这个固定 UUID 的 store，升级不掉登录；退出即清用宿主
+   持有的 `nonPersistentDataStore`（持有到切离该档或退出，所以关掉所有页面也不丢）；
+   按会话用 `agent_browser_session_store_uuid(根会话 id)` 派生的 UUID 调
+   `dataStoreForIdentifier:`。清空走 `removeDataOfTypes:allWebsiteDataTypes`，删除会话
+   存储先释放 store 再 `removeDataStoreForIdentifier:`（WebKit 仍占用时失败，记录留到
+   下次启动），分叉复制用 `httpCookieStore getAllCookies:` + `setCookie:`。切档时存储
+   变了的页面拆掉 WKWebView、用同一个 page id 在新 store 里重建并导航回原地址；按会话
+   store 第一次被用到时先清空 / 复制，期间命令排队、页面不报 ready。
+3. 同一档位下各页面复用对应的 data store，但每页保留独立 history/DOM。
    设置 `WKNavigationDelegate`/`WKUIDelegate`，把 URL、title、loading、历史能力、
    新窗口和 JavaScript dialog 连同 page id 映射到现有 `AgentBrowserState`。
    `target=_blank` 在发起请求的同一个 WKWebView 中加载。保留 WKWebView 的标准网页
@@ -191,6 +200,9 @@ Windows 的 Developer Tools 按钮使用 WebView2 `OpenDevToolsWindow`。WKWebVi
   composer 上方引用区；加载失败不出现红色条。
 - [ ] `ToggleDevTools` 在没有公开 WebKit API 时返回明确 unsupported，不使用私有 API。
 - [ ] Profile 重启后登录保留，Safari Profile 和 ACECode 主 UI storage 不被复用。
+- [ ] 「保留 Cookie」三档：按会话互不可见、子代理沿用根会话；退出即清关掉所有页面后仍
+  登录、重启后消失；切到退出即清立即清空共享与按会话存储；清除浏览数据只影响当前存储；
+  永久删除会话后其 store 被删除；分叉会话第一次打开浏览器时带着父会话的登录。
 - [ ] 任意页面中不存在 `aceDesktop_*`、daemon token 或任意文件读取能力。
 - [ ] inactive tab、modal、窗口最小化/隐藏、resize、Retina/非 Retina 屏幕切换不遮挡 UI。
 - [ ] `browser_open` 自动创建新页；其它 tool 锁定调用开始时的 page id。只有目标页显示

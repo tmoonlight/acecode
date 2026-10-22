@@ -7,7 +7,6 @@ import {
 } from './toolSummaryFallback.js';
 import { isImageAttachment, normalizeAttachmentList } from './messageAttachments.js';
 import { questionFeedbackForItem } from './questionFeedback.js';
-import { isShellCommand } from './shellCommandPresentation.js';
 import { mergeLegacyGoalNotices } from './systemNotice.js';
 import { interAgentEnvelope } from './interAgentMessage.js';
 
@@ -734,9 +733,9 @@ function suppressStructuredToolWrappers(items) {
       if (!extras) return item;
       const call = extras.find(isToolCallTranscriptMessage);
       const invocation = call ? parseLegacyToolCall(call.content, transcriptToolName(call)) : null;
-      // 历史结构化结果没有 args，配对后先恢复命令，再移除调用包装。
+      // 历史结构化结果没有 args，配对后恢复工具身份和参数，再移除调用包装。
       // 已有实时参数优先，且不修改原始消息或其它工具的专用展示。
-      const restored = invocation && (isShellCommand(item.tool) || isShellCommand({ tool: invocation.toolName }))
+      const restored = invocation
         ? { ...item, tool: {
             ...item.tool,
             tool: item.tool.tool || invocation.toolName,
@@ -821,7 +820,7 @@ function makeLegacyInvocationItem(call, result, betweenItems) {
       elapsed: 0,
       summary,
       output: legacyInvocationContent(call, result),
-      ...(isShellCommand({ tool: toolName }) && !invocation.malformed
+      ...(!invocation.malformed
         ? { resultOutput: legacyResultText(result) } : {}),
       hunks: [],
       attachments: [],

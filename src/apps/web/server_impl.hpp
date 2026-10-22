@@ -494,6 +494,15 @@ struct WebServer::Impl {
                                               const acecode::desktop::WorkspaceMeta& ws,
                                               const std::string& id,
                                               bool archived);
+    // 归档 / 取消归档的核心逻辑,单项路由与批量接口共用。body 成功时是会话 meta,
+    // 失败时是 {"error": ...}。
+    struct SessionArchiveOutcome {
+        int status = 200;
+        nlohmann::json body;
+    };
+    SessionArchiveOutcome apply_session_archive_state(const acecode::desktop::WorkspaceMeta& ws,
+                                                      const std::string& id,
+                                                      bool archived);
     // 永久删除已归档主会话,连同它的全部子会话;子会话不能单独删(409)。
     crow::response purge_session_data(const crow::request& req,
                                       const acecode::desktop::WorkspaceMeta& ws,
@@ -590,6 +599,16 @@ struct WebServer::Impl {
     // 订阅需发现、发现需广播」的死锁)。订阅 id 保存在 Impl 中并在析构时
     // 显式 unsubscribe,避免 WebServer 先于 SessionRegistry 析构时留下悬空回调。
     void track_subagent(const std::string& child_session_id);
+    // 批量标记已读 / 未读:一次加锁,每个 workspace 的 attention 文件只写一次,
+    // 状态变化的会话照常广播 session_status。返回值与 marks 一一对应。
+    struct SessionAttentionMark {
+        std::string session_id;
+        std::string workspace_hash;
+        std::string cwd;
+        std::uint64_t cursor = 0;
+    };
+    std::vector<nlohmann::json> mark_sessions_attention(
+        const std::vector<SessionAttentionMark>& marks, bool read);
     nlohmann::json mark_session_read_status(const std::string& session_id,
                                              const std::string& workspace_hash,
                                              const std::string& cwd,
@@ -632,6 +651,7 @@ struct WebServer::Impl {
     void register_ios_simulator();
     void register_summary_generation();
     void register_tool_rewrites();
+    void register_agent_browser();
     void register_memory();
     void register_tool_preamble();
     void register_security();
@@ -641,6 +661,8 @@ struct WebServer::Impl {
     void register_usage();
     void register_workspaces();
     void register_pinned_sessions();
+    void register_session_batch();
+    crow::response handle_session_batch(const crow::request& req);
     void register_sessions();
     void register_desktop_office();
     void register_task_suggestions();

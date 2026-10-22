@@ -1,6 +1,10 @@
 import { resolveLeadingSlashCommand } from './slashCommands.js';
 import { normalizeReferencePath } from './pathReference.js';
-import { sessionReferenceTokenAt } from './sessionReference.js';
+import {
+  formatSessionReferenceToken,
+  parseSessionReferenceToken,
+  sessionReferenceTokenAt,
+} from './sessionReference.js';
 import { normalizeComposerContent } from './composerContent.js';
 
 export const COMPOSER_PARAGRAPH = 'paragraph';
@@ -154,6 +158,14 @@ function composerSessionTag(token, reference) {
     workspaceName: reference?.workspace_name || '',
     children: [{ text: '' }],
   };
+}
+
+// 由会话(@ 菜单候选或从侧栏拖入的会话)构造输入框里的会话标签,序列化结果与
+// @ 菜单插入的 @session: 令牌逐字节一致;无效会话返回 null。
+export function composerSessionTagForReference(session) {
+  const token = formatSessionReferenceToken(session, { trailingSpace: false });
+  const reference = token ? parseSessionReferenceToken(token) : null;
+  return reference ? composerSessionTag(token, reference) : null;
 }
 
 export function composerAttachmentTag(attachment, index = 0) {

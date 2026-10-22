@@ -1,15 +1,9 @@
-// 工具调用块:统一保留工具执行行，Shell 仅在展开详情时使用命令/输出卡片。
-//   - 进度模式: tool_start 之后,显示 5-line tail + 状态行(行数/字节/已耗时)
-//   - summary 模式: tool_end 后,绿/红 chip(icon · verb · object · metrics)
-//   - 失败折叠: success=false 时 summary 行下显示前 3 行 stderr,可展开看完整 output
-// 用户点 chip 可切换"展开/收起"。task_complete 用 Done: <summary> 渲染。
-//
-// hunks 字段(file_edit / file_write):新建文件直接展示可复制源码，覆盖和编辑
-// 继续走 diff2html。其余普通文本展开内容统一套 ToolTextFrame。
+// 工具行只展示本地化动作与精简对象。参数、统计和结果位于展开详情，
+// 新文件源码、diff、问答和 Shell 保留各自内容渲染器；复制使用完整原文。
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { clsx, formatBytes, formatCount, formatElapsed } from '../lib/format.js';
+import { clsx } from '../lib/format.js';
 import { hunksToUnifiedDiff } from '../lib/diff.js';
 import { compactOneLinePreview } from '../lib/compactMessagePreview.js';
 import { createdFileSource } from '../lib/createdFileSource.js';
@@ -17,6 +11,7 @@ import { normalizeAttachmentList } from '../lib/messageAttachments.js';
 import { renderMarkdown } from '../lib/markdown.js';
 import { highlightSourceForFile } from '../lib/sourceCodeHighlight.js';
 import { fallbackToolSummary } from '../lib/toolSummaryFallback.js';
+import { canonicalTranscriptTool, presentTool } from '../lib/toolPresentation.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { normalizeTaskCompleteMarkdown } from '../lib/taskCompleteSummary.js';
 import { questionFeedbackForTool } from '../lib/questionFeedback.js';
@@ -30,20 +25,27 @@ import { ActivityLine } from './ActivityLine.jsx';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { QuestionFeedbackCard } from './QuestionFeedbackCard.jsx';
 import { ShellCommandCard } from './ShellCommandCard.jsx';
+import { ToolDetailMetadata } from './ToolDetailMetadata.jsx';
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 import * as Diff2Html from 'diff2html';
 
-function ToolTextFrame({ text = '', children = null }) {
+function ToolTextFrame({ text = '', children = null, metadata = null }) {
   const copyText = String(text ?? '');
-  if (!copyText && !children) return null;
+  if (!copyText && !children && !metadata) return null;
+  if (!copyText && !children) return (
+    <div className="ace-tool-output-frame overflow-hidden rounded-xl border border-border bg-surface" data-tool-output-frame="true">
+      {metadata}
+    </div>
+  );
   return (
     <CopyableCodeFrame
       text={copyText}
       className="ace-tool-output-frame overflow-hidden rounded-xl border border-border bg-surface"
       data-tool-output-frame="true"
     >
-      {children || (
+      {metadata}
+      {children || (copyText && (
         <pre
           className="m-0 max-h-[280px] overflow-auto whitespace-pre-wrap break-words px-5 py-3 pr-12 font-mono text-fg-2"
           style={{ fontSize: 'var(--ace-font-size-code)', lineHeight: 1.55 }}
@@ -51,12 +53,12 @@ function ToolTextFrame({ text = '', children = null }) {
         >
           {copyText}
         </pre>
-      )}
+      ))}
     </CopyableCodeFrame>
   );
 }
 
-function CreatedFileFrame({ source }) {
+function CreatedFileFrame({ source, metadata }) {
   const highlighted = useMemo(
     () => highlightSourceForFile(source.path, source.content),
     [source.content, source.path],
@@ -72,6 +74,7 @@ function CreatedFileFrame({ source }) {
       data-created-file-source="true"
       data-code-lang={highlighted.language || undefined}
     >
+      {metadata}
       <pre data-code-copy-source="true">
         <code
           className={codeClassName}
@@ -79,36 +82,6 @@ function CreatedFileFrame({ source }) {
         />
       </pre>
     </CopyableCodeFrame>
-  );
-}
-
-function MetricList({ metrics }) {
-  if (!metrics || !metrics.length) return null;
-  return (
-    <span className="text-fg-mute shrink-0 whitespace-nowrap tabular-nums">
-      {metrics.map((m, i) => {
-        // file_edit / file_write 的加删行数(label 恒为 "+" / "-",见
-        // src/tool/file_edit_tool.cpp)按 diff 惯例渲染成 +12 / -3 并着红绿;
-        // 其余 metrics 保持 label=value 的通用格式。
-        const label = String(m.label ?? '');
-        if (label === '+' || label === '-') {
-          return (
-            <span key={i}>
-              {' '}
-              <span className={label === '+' ? 'ace-change-add' : 'ace-change-del'}>
-                {label}{m.value}
-              </span>
-            </span>
-          );
-        }
-        return (
-          <span key={i}>
-            {' · '}
-            <span>{m.label}={m.value}</span>
-          </span>
-        );
-      })}
-    </span>
   );
 }
 
@@ -139,6 +112,7 @@ function askUserQuestionItems(result) {
 }
 
 function AskUserQuestionDetails({ items }) {
+  const { t } = useTranslation();
   return (
     <div className="ace-qa-inline-list w-full min-w-0 max-w-[88%] pb-2 pl-5 pt-0.5">
       {items.map((item, index) => (
@@ -147,20 +121,12 @@ function AskUserQuestionDetails({ items }) {
             {index + 1}. {item.question}
           </div>
           <div className="ace-qa-answer mt-0.5 text-[13px] leading-snug break-words">
-            {item.unanswered ? <span className="text-fg-mute">未作答</span> : item.answer}
+            {item.unanswered ? <span className="text-fg-mute">{t('toolTranscript.unanswered')}</span> : item.answer}
           </div>
         </div>
       ))}
     </div>
   );
-}
-
-function joinTooltipParts(...parts) {
-  const text = parts
-    .map((part) => String(part || '').trim())
-    .filter(Boolean)
-    .join('\n\n');
-  return text || undefined;
 }
 
 function metricText(metrics, label) {
@@ -218,6 +184,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     && success !== false
     && askUserQuestionItems(askUserQuestionResult).length > 0;
   const [expanded, setExpanded] = useState(shouldExpandAskResult);
+  const [detailClipped, setDetailClipped] = useState(false);
   useEffect(() => {
     if (shouldExpandAskResult) setExpanded(true);
   }, [shouldExpandAskResult]);
@@ -250,7 +217,8 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   const liveElapsed = liveProgress && startedAtMs
     ? Math.max(elapsedSeconds, computedElapsed)
     : (elapsedSeconds || (wasLiveProgressRef.current ? computedElapsed : 0));
-  const shellPresentation = useMemo(() => shellCommandPresentation(entry), [entry]);
+  const presentation = presentTool(entry, translate, { elapsed: liveElapsed });
+  const shellPresentation = useMemo(() => shellCommandPresentation({ ...entry, tool: canonicalTranscriptTool(entry) }), [entry]);
   const bashCommand = shellPresentation?.command || '';
   const outputPreview = useMemo(
     () => compactOneLinePreview(output || askUserQuestionOutput || currentPartial || tailLines.join('\n') || bashCommand || title || displayOverride || tool),
@@ -259,12 +227,12 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
 
   const createdFile = useMemo(() => createdFileSource({
     success,
-    tool,
+    tool: presentation.tool,
     args,
     summary,
     hunks,
     displayOverride,
-  }), [args, displayOverride, hunks, success, summary, tool]);
+  }), [args, displayOverride, hunks, success, summary, presentation.tool]);
 
   // diff2html 渲染:先把 hunks 转 unified diff,再交给 diff2html。空 hunks 时
   // 不构造,避免每次 render 浪费。
@@ -287,7 +255,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     }
   }, [createdFile, diffText]);
 
-  const fullOutput = output || askUserQuestionOutput || diffText || tailLines.join('\n') || currentPartial || '';
+  const fullOutput = presentation.output || askUserQuestionOutput || diffText || tailLines.join('\n') || currentPartial || '';
   const fullToolOutput = shellPresentation?.copyText ?? fullOutput;
   const visibleOutput = expanded ? fullToolOutput : (shellPresentation?.command ?? (outputPreview || currentPartial || tailLines.join('\n') || ''));
   const taskCompleteText = isTaskComplete
@@ -297,13 +265,12 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     () => ({ __html: renderMarkdown(taskCompleteText) }),
     [taskCompleteText],
   );
-  const toolName = bashCommand
-    ? [summary?.verb || title || tool || 'bash', bashCommand].filter(Boolean).join(' · ')
-    : (title || displayOverride || tool || summary?.object || 'tool');
-  const summaryLabel = summary
-    ? [summary.verb, bashCommand || summary.object].filter(Boolean).join(' · ')
-    : '';
-  const buttonTooltip = joinTooltipParts(summaryLabel || toolName, fullToolOutput);
+  const toolName = presentation.label + (presentation.detail ? presentation.separator + presentation.detail : '');
+  const buttonTooltip = presentation.fullObject || toolName;
+  const toggleLabel = translate(expanded ? 'toolTranscript.collapse' : 'toolTranscript.expand');
+  // Diff headers already own the complete file path and addition/deletion counts.
+  const detailFields = diffHtml ? presentation.fields.filter(field => !['path', '+', '-'].includes(field.key)) : presentation.fields;
+  const detailMetadata = detailFields.length ? <ToolDetailMetadata fields={detailFields} /> : null;
   const toolContextAttrs = {
     'data-desktop-tool-id': contextIdRef.current,
     'data-desktop-tool-name': toolName,
@@ -354,13 +321,12 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     return (
       <div
         className="ace-tool-activity min-w-0"
-        title={joinTooltipParts('Done', taskCompleteText)}
+        title={presentation.label}
         {...toolContextAttrs}
       >
         <ActivityLine
           icon={<VsIcon name="ok" size={13} mono={false} className="text-ok" />}
-          label="Done"
-          detail={compactOneLinePreview(taskCompleteText)}
+          label={translate('toolTranscript.names.task_complete')}
           preserveLabel
         />
         <div
@@ -379,9 +345,9 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
       onToggle={toggleExpanded}
       running={liveProgress}
       failed={isDone && success === false}
-      status={isDone
-        ? <MetricList metrics={completedSummary.metrics} />
-        : <span className="tabular-nums">{formatElapsed(liveElapsed)}</span>}
+      transcript
+      showCommand={detailClipped || bashCommand !== presentation.detail}
+      status={detailMetadata}
     />
   );
 
@@ -407,19 +373,19 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         >
           <ActivityLine
             icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={!askCancelled} className={askCancelled ? 'text-fg-mute' : 'text-ok'} />}
-            label={completedSummary.verb || title || tool || 'AskUserQuestion'}
-            detail={completedSummary.object || ''}
-            trailing={liveElapsed > 0 ? <span className="tabular-nums">{formatElapsed(liveElapsed)}</span> : null}
+            label={presentation.label}
+            detail={presentation.detail}
+            detailSeparator={presentation.separator}
             preserveLabel
             expandable={!askCancelled && askItems.length > 0}
             expanded={askExpanded}
             onToggle={!askCancelled && askItems.length > 0 ? toggleExpanded : undefined}
-            title={askCancelled ? undefined : (askExpanded ? '收起详情' : '展开详情')}
-            ariaLabel={askCancelled ? undefined : (askExpanded ? '收起详情' : '展开详情')}
+            title={askCancelled ? undefined : toggleLabel}
+            ariaLabel={askCancelled ? undefined : toggleLabel}
           />
           {askCancelled ? (
             <div className="max-w-[88%] pb-1 pl-5 text-[12px] text-fg-mute">{translate('用户已取消回答')}</div>
-          ) : askExpanded ? <AskUserQuestionDetails items={askItems} /> : null}
+          ) : askExpanded ? <>{detailMetadata}<AskUserQuestionDetails items={askItems} /></> : null}
         </div>
       );
     }
@@ -439,33 +405,29 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
       >
         <ActivityLine
           icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
-          label={completedSummary.verb || title || tool || '工具完成'}
-          detail={bashCommand || completedSummary.object || ''}
-          trailing={(
-            <>
-              <MetricList metrics={completedSummary.metrics} />
-              {!ok && output && <span className="max-w-48 truncate" title={output}>· {outputPreview}</span>}
-              {liveElapsed > 0 && <span className="tabular-nums">{formatElapsed(liveElapsed)}</span>}
-            </>
-          )}
+          label={presentation.label}
+          detail={presentation.detail}
+          detailSeparator={presentation.separator}
+          onDetailOverflowChange={shellPresentation ? setDetailClipped : undefined}
           preserveLabel
+          trailing={!ok ? <span className="text-danger">{translate('toolTranscript.failed')}</span> : null}
           expandable
           expanded={expanded}
           onToggle={toggleExpanded}
-          title={buttonTooltip || (expanded ? '收起' : '展开')}
-          ariaLabel={expanded ? '收起' : '展开'}
+          title={buttonTooltip || toggleLabel}
+          ariaLabel={toggleLabel}
         />
-        {expanded && (shellDetails || createdFile || diffHtml || fullToolOutput) && (
+        {expanded && (shellDetails || createdFile || diffHtml || fullToolOutput || detailMetadata) && (
           <div className={clsx('w-full min-w-0 pb-2 pt-1', !shellDetails && 'max-w-[88%]')}>
             {shellDetails || (createdFile ? (
-              <CreatedFileFrame source={createdFile} />
+              <CreatedFileFrame source={createdFile} metadata={detailMetadata} />
             ) : diffHtml ? (
-              <div
-                className="ace-diff ace-tool-diff"
-                dangerouslySetInnerHTML={{ __html: diffHtml }}
-              />
+              <div className={clsx('ace-diff ace-tool-diff', detailMetadata && 'ace-tool-diff-with-metadata')}>
+                {detailMetadata}
+                <div dangerouslySetInnerHTML={{ __html: diffHtml }} />
+              </div>
             ) : (
-              <ToolTextFrame text={fullToolOutput} />
+              <ToolTextFrame text={fullToolOutput} metadata={detailMetadata} />
             ))}
           </div>
         )}
@@ -481,15 +443,13 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
 
   // 进度模式
   const hidden = Math.max(0, totalLines - tailLines.length);
-  // 工具刚启动、还没有任何可展示内容(无 bash 命令 / tail 输出 / partial)时,
-  // 展开区渲染出来只有一圈 padding 的空框(高度就几个像素),观感像 bug。
-  // 此时干脆不提供展开:箭头不显示、点击不响应,等有内容后恢复展开能力。
+  // 参数、统计或输出至少有一项时才提供展开，避免出现空框。
   const progressFrameText = [
-    hidden > 0 ? `... +${hidden} 行已折叠` : '',
+    hidden > 0 ? translate('toolTranscript.foldedLines', { count: hidden }) : '',
     tailLines.join('\n'),
     currentPartial,
   ].filter(Boolean).join('\n');
-  const hasExpandableContent = !!(shellDetails || progressFrameText);
+  const hasExpandableContent = !!(shellDetails || progressFrameText || detailMetadata);
   return (
     <div
       className="ace-tool-activity min-w-0"
@@ -501,25 +461,20 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         preferIconWhileRunning
         icon={<ToolSummaryIcon tool={tool} icon={genericSummary.icon} ok />}
         spinnerStatic={!liveProgress}
-        label={genericSummary.verb || title || displayOverride || tool || '正在执行工具'}
-        detail={bashCommand || genericSummary.object || ''}
-        trailing={(
-          <>
-            <span>{totalLines} 行</span>
-            <span>{formatBytes(totalBytes)}</span>
-            <span>{formatElapsed(liveElapsed)}</span>
-          </>
-        )}
+        label={presentation.label}
+        detail={presentation.detail}
+        detailSeparator={presentation.separator}
+        onDetailOverflowChange={shellPresentation ? setDetailClipped : undefined}
         preserveLabel
         expandable={hasExpandableContent}
         expanded={expanded}
         onToggle={hasExpandableContent ? toggleExpanded : undefined}
-        title={buttonTooltip || outputPreview || (hasExpandableContent ? (expanded ? '收起' : '展开') : undefined)}
-        ariaLabel={hasExpandableContent ? (expanded ? '收起' : '展开') : undefined}
+        title={buttonTooltip || (hasExpandableContent ? toggleLabel : undefined)}
+        ariaLabel={hasExpandableContent ? toggleLabel : undefined}
       />
       {expanded && hasExpandableContent && (
         <div className={clsx('w-full min-w-0 pb-1.5 pt-1', !shellDetails && 'max-w-[88%]')}>
-          {shellDetails || <ToolTextFrame text={progressFrameText} />}
+          {shellDetails || <ToolTextFrame text={progressFrameText} metadata={detailMetadata} />}
         </div>
       )}
     </div>

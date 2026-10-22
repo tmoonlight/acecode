@@ -246,6 +246,12 @@ TEST_F(DataDirMigrationTest, ExclusionRules) {
     EXPECT_FALSE(migration_is_best_effort_root(fs::path("agent-browser") / "macos-profile-id"));
     EXPECT_FALSE(migration_is_best_effort_root(fs::path("agent-browser")));
     EXPECT_FALSE(migration_is_best_effort_root(fs::path("agent-browser") / "webview2" / "Default"));
+    // 新装环境的目录是下划线形式 agent_browser/webview2(运行数据命名规则,只有旧的
+    // 连字符目录已存在时才沿用旧名),同样是尽力复制子树的根;边界规则与连字符形式一致。
+    EXPECT_TRUE(migration_is_best_effort_root(fs::path("agent_browser") / "webview2"));
+    EXPECT_FALSE(migration_is_best_effort_root(fs::path("agent_browser") / "macos_profile_id"));
+    EXPECT_FALSE(migration_is_best_effort_root(fs::path("agent_browser")));
+    EXPECT_FALSE(migration_is_best_effort_root(fs::path("agent_browser") / "webview2" / "Default"));
 
     // 可再生缓存与锁文件跳过;登录态相关的库与配置不跳过。
     EXPECT_TRUE(migration_skips_rebuildable_browser_entry(fs::path("Cache")));
@@ -593,8 +599,10 @@ namespace {
 
 // 造一个最小的 WebView2 profile(Desktop 的 Agent Browser user data):配置、会话库、
 // 可再生缓存与锁文件。DIPS 用非 SQLite 内容,走原始复制路径。
-fs::path populate_browser_profile(const fs::path& data_dir) {
-    const fs::path profile = data_dir / "agent-browser" / "webview2";
+// root_name 是数据根下 Agent Browser 目录的名字:旧装机 agent-browser,新装机 agent_browser。
+fs::path populate_browser_profile(const fs::path& data_dir,
+                                  const std::string& root_name = "agent-browser") {
+    const fs::path profile = data_dir / root_name / "webview2";
     write_file(profile / "Local State", R"({"browser":{}})");
     write_file(profile / "lockfile", "");
     write_file(profile / "Default" / "Preferences", R"({"profile":{}})");
@@ -663,6 +671,41 @@ TEST_F(DataDirMigrationTest, BrowserProfileChurnDoesNotFailMigration) {
     EXPECT_FALSE(fs::exists(moved / "lockfile"));
     EXPECT_FALSE(fs::exists(moved / "Default" / "Local Storage" / "leveldb" / "LOCK"));
     // 进度条要能走满:尽力子树的字节无论成败都计入 copied。
+    EXPECT_EQ(result.copied_bytes, result.total_bytes);
+}
+
+// 场景:新装环境(2026-10-16 起运行数据改用下划线命名)的 Agent Browser 目录是
+// agent_browser/webview2,Desktop 开着,profile 在迁移过程中持续变动 —— 与上一条用例相同的
+// 追加写 / 新建临时文件 / 删除已清点文件。
+// 期望:与连字符目录完全一致 —— 迁移成功并写指针,缓存与锁文件不复制,被删文件不计入
+// skipped_files。
+// bug 表现:修复前尽力复制只认 agent-browser/webview2,下划线目录被当成普通文件严格复检,
+// 迁移报「source changed during migration: agent_browser/webview2/...」失败,新装用户只要
+// Desktop 开着就迁移不了数据目录。
+TEST_F(DataDirMigrationTest, UnderscoreBrowserProfileChurnDoesNotFailMigration) {
+    populate_source(default_dir);
+    const fs::path profile = populate_browser_profile(default_dir, "agent_browser");
+    bool churned = false;
+    const fs::path target = root / "moved";
+    const auto result = run_data_dir_migration(s(default_dir), s(default_dir), s(target),
+        [&](unsigned long long, unsigned long long) {
+            if (churned) return;
+            churned = true;
+            append_file(profile / "Default" / "DIPS-shm", "more shared memory");
+            write_file(profile / "Default" / "new.tmp", "tmp");
+            fs::remove(profile / "Default" / "Preferences");
+        });
+    ASSERT_EQ(result.state, "done") << result.error;
+    EXPECT_TRUE(churned);
+    EXPECT_EQ(result.skipped_files, 0u);
+    EXPECT_TRUE(acecode::read_data_dir_redirect(s(default_dir)).has_value());
+    const fs::path moved = target / "agent_browser" / "webview2";
+    EXPECT_TRUE(fs::exists(moved / "Local State"));
+    EXPECT_TRUE(fs::exists(moved / "Default" / "DIPS"));
+    EXPECT_TRUE(fs::exists(moved / "Default" / "Local Storage" / "leveldb" / "000003.log"));
+    EXPECT_FALSE(fs::exists(moved / "Default" / "Cache"));
+    EXPECT_FALSE(fs::exists(moved / "Default" / "Code Cache"));
+    EXPECT_FALSE(fs::exists(moved / "lockfile"));
     EXPECT_EQ(result.copied_bytes, result.total_bytes);
 }
 

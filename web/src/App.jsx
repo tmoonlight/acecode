@@ -24,6 +24,7 @@ import {
   installAgentBrowserPageListener,
   reconcileAgentBrowserPageStore,
 } from './lib/agentBrowserPages.js';
+import { installAgentBrowserVisitRecorder } from './lib/agentBrowserTopSites.js';
 import { loadUiLocale } from './lib/uiLocale.js';
 import { installNativeFileDropRouter } from './lib/macNativeFileDrag.js';
 import {
@@ -479,6 +480,10 @@ export function App() {
     void reconcileAgentBrowserPageStore();
     return dispose;
   }, []);
+  // 新标签页「推荐」的访问记录同样在 App 级上报,不依赖当前会话。
+  useEffect(() => installAgentBrowserVisitRecorder(
+    (visit) => api.recordAgentBrowserVisit(visit),
+  ), []);
   // WS 心跳超时被迫重连时,连接层把现场交给这里报到 daemon 日志([transcript-stall])。
   // 连接层自己不发 HTTP;base 带着连接当前指向的端口与 token。
   useEffect(() => {

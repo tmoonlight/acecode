@@ -52,6 +52,7 @@ export function shortcutCatalog(mac = isMacShortcutHost()) {
     ['toggleSidebar', '界面导航', '展开／收起左侧项目栏', '切换项目和会话列表的显示'],
     ['toggleRightPanel', '界面导航', '展开／收起右侧面板', '切换文件及预览面板的显示'],
     ['previewPresentation', '界面导航', '全屏演示', '展开详情并隐藏两侧列表，再按一次还原'],
+    ['revealPreviewFile', '界面导航', '在文件列表展示', '定位当前工作区内的活动文件并高亮'],
     ['console', '界面导航', '展开／收起控制台', '控制台可用时生效'],
     ['settings', '界面导航', '打开设置', '打开设置窗口'],
     ['shortcuts', '界面导航', '打开快捷键页签', '进入快捷键并聚焦搜索栏'],

@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { pruneSidebarSelection, reorderSidebarSelection, selectSidebarRange, sidebarSelectionKey } from './sidebarSessionSelection.js';
+
+const visible = ['w:a', 'w:b', 'w:c', 'x:a'];
+let state = selectSidebarRange({ anchor: '', keys: new Set() }, visible, 'w:b');
+state = selectSidebarRange(state, visible, 'x:a', { shiftKey: true });
+assert.deepEqual([...state.keys], ['w:b', 'w:c', 'x:a']);
+assert.equal(state.anchor, 'w:b');
+state = selectSidebarRange(state, visible, 'w:a', { shiftKey: true });
+assert.deepEqual([...state.keys], ['w:a', 'w:b']);
+state = selectSidebarRange(state, visible, 'w:c', { ctrlKey: true });
+assert.deepEqual([...state.keys], ['w:a', 'w:b', 'w:c']);
+state = selectSidebarRange(state, visible, 'w:b', { metaKey: true });
+assert.deepEqual([...state.keys], ['w:a', 'w:c']);
+state = pruneSidebarSelection(state, ['w:c', 'x:a']);
+assert.equal(state.anchor, '');
+assert.deepEqual([...state.keys], ['w:c']);
+assert.equal(pruneSidebarSelection(state, visible), state);
+state = selectSidebarRange(state, visible, 'x:a', { shiftKey: true });
+assert.deepEqual([...state.keys], ['x:a']);
+assert.notEqual(sidebarSelectionKey({ id: 'same', workspace_hash: 'w' }), sidebarSelectionKey({ id: 'same', no_workspace: true }));
+assert.equal(sidebarSelectionKey({ id: 'group', workspace_hash: 'w', sidebar_group: true }), '');
+const keyOf = item => item;
+assert.deepEqual(reorderSidebarSelection(visible, ['w:c', 'w:a'], 'x:a', 'after', keyOf), ['w:b', 'x:a', 'w:a', 'w:c']);
+assert.deepEqual(reorderSidebarSelection(visible, ['w:b', 'w:c'], 'w:a', 'before', keyOf), ['w:b', 'w:c', 'w:a', 'x:a']);
+assert.equal(reorderSidebarSelection(visible, ['w:a', 'missing'], 'x:a', 'after', keyOf), visible);
+assert.equal(reorderSidebarSelection(visible, ['w:a'], 'w:a', 'after', keyOf), visible);
+console.log('sidebarSessionSelection tests passed');

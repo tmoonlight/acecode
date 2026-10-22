@@ -13,8 +13,8 @@
 // profile)、指针文件本身、任何 *.lock,以及 cache/no-workspace/<id>/.acecode/tmp(无工作区
 // 会话的 ACECODE_TMPDIR,可再生;代价是旧目录删除后历史里对这些 scratch 文件的别名引用失效)。
 //
-// 尽力复制:agent-browser/webview2 是 Desktop 启动即建立、持续在写的 WebView2 profile,
-// 迁移又只能从 Desktop 发起,它会让变更复检每次都失败。所以这个子树单独容错遍历、跳过
+// 尽力复制:agent_browser/webview2(旧装机沿用 agent-browser/webview2)是 Desktop 启动即
+// 建立、持续在写的 WebView2 profile,迁移又只能从 Desktop 发起,它会让变更复检每次都失败。所以这个子树单独容错遍历、跳过
 // 可再生缓存,复制失败(not-found 除外)只计入 skipped_files,且不参与变更复检;其它路径
 // 仍然严格失败。
 //
@@ -123,7 +123,8 @@ MigrationTargetCheck validate_migration_target(const std::string& current_dir,
 // 其它产出文件照常复制)。
 bool migration_excludes_entry(const std::filesystem::path& relative);
 
-// 相对数据根的路径是否恰好是尽力复制子树的根(generic 形态 == "agent-browser/webview2")。
+// 相对数据根的路径是否恰好是尽力复制子树的根(generic 形态为 "agent_browser/webview2",
+// 或升级前已存在的旧名 "agent-browser/webview2")。
 bool migration_is_best_effort_root(const std::filesystem::path& relative);
 
 // 尽力复制子树里可以直接跳过的可再生条目:任一路径段是 Chromium 缓存目录(Cache、

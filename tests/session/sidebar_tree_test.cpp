@@ -16,6 +16,55 @@ json row(const std::string& id, const std::string& loop = {}, const std::string&
             {"loop_execution", {{"loop_id", loop}}}};
 }
 
+TEST(SidebarTree, BatchKeepsOrderForBeforeAfterAndInsideAcrossReload) {
+    const auto records = json::array({row("1", "a"), row("2", "a"), row("3", "b"), row("normal")});
+    for (const auto& placement : {"before", "after", "inside"}) {
+        json layout;
+        auto tree = build_sidebar_tree(records, layout);
+        std::string error;
+        ASSERT_TRUE(move_sidebar_nodes(tree, layout, {"session:2", "session:1"}, "loop:b", placement, error));
+        tree = build_sidebar_tree(records, layout);
+        const auto& siblings = std::string(placement) == "inside" ? tree.nodes.at("loop:b").children : tree.roots;
+        auto first = std::find(siblings.begin(), siblings.end(), "session:2");
+        ASSERT_NE(first, siblings.end());
+        ASSERT_NE(first + 1, siblings.end());
+        EXPECT_EQ(*(first + 1), "session:1");
+        if (std::string(placement) == "after") EXPECT_EQ(*(first - 1), "loop:b");
+    }
+}
+
+TEST(SidebarTree, InvalidBatchDoesNotPartiallyChangeTreeOrLayout) {
+    const auto records = json::array({row("1", "a"), row("2", "a"), row("3", "b"), row("normal")});
+    json layout;
+    auto tree = build_sidebar_tree(records, layout);
+    const auto roots = tree.roots;
+    const auto children = tree.nodes.at("loop:a").children;
+    std::string error;
+    for (const auto& sources : std::vector<std::vector<std::string>>{
+        {}, {"session:1", "missing"}, {"session:1", "session:1"},
+        {"session:1", "loop:b"}, {"session:1", "loop:a"},
+        {"session:normal", "loop:a"},
+    }) {
+        EXPECT_FALSE(move_sidebar_nodes(tree, layout, sources, "loop:b", "inside", error));
+        EXPECT_TRUE(layout.is_null());
+        EXPECT_EQ(tree.roots, roots);
+        EXPECT_EQ(tree.nodes.at("loop:a").children, children);
+        EXPECT_TRUE(tree.nodes.at("session:normal").parent.empty());
+    }
+}
+
+TEST(SidebarTree, BatchIntoDetachedRunCreatesOnlyOneManualGroup) {
+    const auto records = json::array({row("1"), row("2"), row("run", "a"), row("normal")});
+    json layout;
+    auto tree = build_sidebar_tree(records, layout);
+    std::string error;
+    ASSERT_TRUE(move_sidebar_node(tree, layout, "session:run", "session:normal", "before", error));
+    ASSERT_TRUE(move_sidebar_nodes(tree, layout, {"session:2", "session:1"}, "session:run", "inside", error));
+    tree = build_sidebar_tree(records, layout);
+    EXPECT_EQ(tree.nodes.at("group:run").children,
+              (std::vector<std::string>{"session:run", "session:2", "session:1"}));
+}
+
 TEST(SidebarTree, LatestCreatedRunRepresentsGroupEvenWhenOlderRunWasUpdated) {
     auto old = row("old", "daily", "2026-10-11");
     old["updated_at"] = "2026-10-14";

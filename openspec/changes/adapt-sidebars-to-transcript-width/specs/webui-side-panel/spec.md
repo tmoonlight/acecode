@@ -2,11 +2,15 @@
 
 ### Requirement: Side panel layout in single-session view
 
-Web UI 单会话视图 (`view === 'single'`) SHALL 提供右侧导航面板及详情预览，默认导航宽度 280 CSS px，允许使用用户保存的栏宽。是否正常占位 SHALL 服从 transcript 优先的响应式布局与用户保存的开关；窄窗口展开 SHALL 使用 popup。Grid4 / Grid9 视图下 SHALL NOT 显示该面板。
+Web UI 单会话视图 (`view === 'single'`) SHALL 提供右侧导航面板及详情预览，默认导航宽度 280 CSS px，允许使用用户保存的栏宽。是否正常占位 SHALL 服从用户保存的手动开关，SHALL NOT 因窗口缩放自动收起或变为 popup。Grid4 / Grid9 视图下 SHALL NOT 显示该面板。
 
 #### Scenario: 单会话视图渲染右侧面板
-- **WHEN** 用户进入单会话视图且已开启右侧面板、空间充足
+- **WHEN** 用户进入单会话视图且已开启右侧面板
 - **THEN** ChatView 右侧按保存宽度显示导航和已打开的详情
+
+#### Scenario: 窄窗口手动开关
+- **WHEN** 用户缩小窗口，随后手动收起或展开右侧面板
+- **THEN** 缩放不改变其显示状态；手动操作更新既有偏好，展开后正常占位且不触发 popup
 
 #### Scenario: 切到 4 宫格隐藏面板
 - **WHEN** 用户从单会话视图切到 4 宫格视图

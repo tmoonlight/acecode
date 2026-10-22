@@ -32,6 +32,10 @@ SidebarTree build_sidebar_tree(const nlohmann::json& sessions,
 bool move_sidebar_node(SidebarTree& tree, nlohmann::json& layout,
                        const std::string& source, const std::string& target,
                        const std::string& placement, std::string& error);
+// All sources move in caller order, or neither tree nor layout is changed.
+bool move_sidebar_nodes(SidebarTree& tree, nlohmann::json& layout,
+                        const std::vector<std::string>& sources, const std::string& target,
+                        const std::string& placement, std::string& error);
 nlohmann::json read_sidebar_layout(const std::filesystem::path& path);
 bool write_sidebar_layout(const std::filesystem::path& path,
                           const nlohmann::json& layout, std::string& error);

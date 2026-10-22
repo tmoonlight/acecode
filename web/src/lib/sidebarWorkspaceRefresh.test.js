@@ -98,7 +98,7 @@ function fixture({
     workspaceSessionLoadSeqRef: new Map(),
     pendingWorkspaceLoadsRef: new Map(),
     refreshingRef: false, pendingRefreshHashRef: '',
-    treeSavingRef: false, treeRevisionRef: 0,
+    treeSavingRef: false, treeRevisionRef: 0, batchOperationRef: false,
     archiveOperationsRef: new Set(),
     refreshSelectionRef: { activeWorkspaceHash: 'w', revealTarget: { noWorkspace: false, workspaceHash: 'w' } },
     expandedRef: new Set(['w']),

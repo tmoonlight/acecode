@@ -359,7 +359,8 @@
     "sources": [
       "docs/agent-browser.md",
       "web/src/components/PreviewDetailsPanel.jsx",
-      "web/src/components/SettingsPage.jsx"
+      "web/src/components/SettingsPage.jsx",
+      "web/src/components/AgentBrowserMoreMenu.jsx"
     ]
   },
   {

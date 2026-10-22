@@ -69,9 +69,23 @@ struct AgentBrowserState {
     std::string selected_element_json;
 };
 
+// cookie 存储相关的异步结果(切档、清除浏览数据、删除会话存储)。清除 / 删除是
+// WebView2 / WebKit 的异步操作,同步 bridge 只能返回「已开始」,结果经它回推前端。
+struct AgentBrowserStorageEvent {
+    // "cookie_mode_changed" | "browsing_data_cleared" | "session_store_deleted"
+    std::string type;
+    bool ok = true;
+    std::string cookie_mode;  // 事件发生时的档位名
+    std::string store;        // 存储键:shared / until_quit / session:<id>
+    std::string page_id;      // 由某一页触发时(清除浏览数据)
+    std::string error;
+};
+
 // Native browser pages hosted in a dedicated child HWND above the ACECode main
 // WebView. Each page owns its own controller/history while all pages share one
-// isolated WebView2 environment/Profile.
+// isolated WebView2 environment. Pages use the WebView2 Profile chosen by the
+// cookie storage mode (agent_browser_cookie_jars.hpp): the default Profile for
+// shared, one InPrivate Profile for until_quit, one Profile per root session.
 // It intentionally exposes no host objects or web-message bridge to pages.
 // The daemon-side agent reaches this exact page through the authenticated
 // Desktop proxy published by agent_browser_runtime; no external CDP port is
@@ -80,6 +94,7 @@ class AgentBrowserHost {
 public:
     using StateHandler = std::function<void(const AgentBrowserState&)>;
     using DispatchHandler = std::function<void(std::function<void()>)>;
+    using StorageEventHandler = std::function<void(const AgentBrowserStorageEvent&)>;
 
     AgentBrowserHost(void* parent_window,
                      std::int64_t desktop_pid,
@@ -128,6 +143,18 @@ public:
     void set_parent_visible(bool visible);
     void refresh_layout();
     void hide(const std::string& page_id = {});
+
+    // 「保留 Cookie」档位:"until_quit" / "shared" / "per_session"(没选过 = shared)。
+    std::string cookie_mode() const;
+    // 切换档位并持久化;存储变了的已打开页面按原 page id 与 URL 在新存储里重建。
+    // 切到 until_quit 会清空已保存的 cookie。未知档位名返回 false。
+    bool set_cookie_mode(const std::string& mode, std::string* error = nullptr);
+    // 清除该页面当前所用存储的全部网站数据(异步,结果经存储事件回报)。
+    bool clear_browsing_data(const std::string& page_id,
+                             std::string* error = nullptr);
+    // 处理状态文件里待删除的会话存储(daemon 永久删除会话后经代理提醒)。
+    void process_store_tasks();
+    void set_storage_event_handler(StorageEventHandler handler);
 
 private:
     struct Impl;

@@ -106,115 +106,103 @@ try {
   g = await resize(906);
   assert.equal(g.left.visible, true); assert.equal(g.right.visible, true); assert.equal(g.transcript.width, 350);
   g = await resize(905);
-  assert.equal(g.left.visible, true); assert.equal(g.right.visible, false);
-  g = await resize(969); assert.equal(g.right.visible, false);
-  g = await resize(970); assert.equal(g.right.visible, true);
+  assert.equal(g.left.visible, false); assert.equal(g.right.visible, true); assert.equal(g.popup, null);
+  g = await resize(969); assert.equal(g.left.visible, false); assert.equal(g.right.visible, true);
+  g = await resize(970); assert.equal(g.left.visible, true);
+  await right.click(); await settle();
   g = await resize(626);
   assert.equal(g.left.visible, true); assert.equal(g.right.visible, false); assert.equal(g.transcript.width, 350);
   g = await resize(625); assert.equal(g.left.visible, false);
   g = await resize(689); assert.equal(g.left.visible, false);
   g = await resize(690); assert.equal(g.left.visible, true);
   g = await resize(600);
-  assert.equal(g.left.visible, false); assert.equal(g.right.visible, false); assert.ok(g.transcript.width >= 350, JSON.stringify(g));
-  await page.screenshot({ path: path.join(output, '600-transcript.png') });
-  for (const side of ['left', 'right']) {
-    const button = side === 'left' ? left : right;
-    const before = await geometry(); await button.click(); await settle(); g = await geometry();
-    assert.equal(g.popup, side); assert.equal(g.transcript.width, before.transcript.width);
-    await page.locator(`[data-sidebar-popup="${side}"]`).click({ position: { x: 30, y: 10 } });
-    assert.equal((await geometry()).popup, side);
-    await page.locator('[data-conversation-find-root]').click({ position: { x: side === 'left' ? 450 : 20, y: 180 } });
-    await settle(); assert.equal((await geometry()).popup, null);
-    await button.click(); await settle(); await page.keyboard.press('Escape'); await settle();
-    assert.equal((await geometry()).popup, null); assert.equal(await button.evaluate(e => e === document.activeElement), true);
-    if (side === 'right') {
-      await right.click(); await settle();
-      await page.locator('[data-sidebar-popup="right"]').getByRole('button', { name: '收起列表面板', exact: true }).click();
-      await settle(); assert.equal((await geometry()).popup, null);
-      assert.equal(await right.getAttribute('aria-expanded'), 'false');
-    }
-  }
-  await left.click(); await settle(); await right.click(); await settle(); assert.equal((await geometry()).popup, 'right');
-  await right.click(); await settle(); assert.equal((await geometry()).popup, null);
+  assert.equal(g.left.visible, false); assert.equal(g.right.visible, false);
+  const beforePopup = await geometry();
+  await left.click(); await settle(); g = await geometry();
+  assert.equal(g.popup, 'left'); assert.equal(g.transcript.width, beforePopup.transcript.width);
+  await page.locator('[data-sidebar-popup="left"]').click({ position: { x: 30, y: 10 } });
+  assert.equal((await geometry()).popup, 'left');
+  await page.locator('[data-conversation-find-root]').click({ position: { x: 450, y: 180 } });
+  await settle(); assert.equal((await geometry()).popup, null);
+  await left.click(); await settle(); await page.keyboard.press('Escape'); await settle();
+  assert.equal((await geometry()).popup, null); assert.equal(await left.evaluate(e => e === document.activeElement), true);
+  await left.click(); await settle(); await right.click(); await settle(); g = await geometry();
+  assert.equal(g.popup, null); assert.equal(g.right.visible, true); assert.equal(g.left.visible, false);
   assert.deepEqual(await prefs(), initial);
+  g = await resize(480); assert.equal(g.right.visible, true); assert.equal(g.popup, null);
+  await page.screenshot({ path: path.join(output, '480-right-manual.png') });
   g = await resize(1920); assert.equal(g.left.visible, true); assert.equal(g.right.visible, true);
-  console.log('[pass] production App collapses right then left, popup does not squeeze transcript, outside/Escape/toggle/mutual exclusion preserve preferences');
+  console.log('[pass] only left collapses at 350px; right stays docked and narrow-window toggles persist without a popup');
 
   for (const leftClosed of [false, true]) for (const rightClosed of [false, true]) {
     g = await geometry(); if (g.left.visible === leftClosed) await left.click(); if (g.right.visible === rightClosed) await right.click(); await settle();
     const saved = await prefs();
-    await resize(600); await left.click(); await settle(); await right.click(); await settle();
+    await resize(600); await left.click(); await settle();
+    assert.equal((await geometry()).popup, 'left');
+    assert.equal((await geometry()).right.visible, !rightClosed);
     await resize(1920); g = await geometry();
-    assert.equal(g.left.visible, !leftClosed, JSON.stringify({ g, prefs: await prefs(), saved }));
-    assert.equal(g.right.visible, !rightClosed, JSON.stringify({ g, prefs: await prefs(), saved }));
+    assert.equal(g.left.visible, !leftClosed); assert.equal(g.right.visible, !rightClosed);
     assert.deepEqual(await prefs(), saved);
     await resize(600);
     await page.evaluate(() => history.replaceState(null, '', '/?open=resize-session&workspace=fixture'));
     await page.reload({ waitUntil: 'commit' });
     await page.locator('[data-conversation-find-root]').waitFor(); await settle();
+    assert.equal((await geometry()).right.visible, !rightClosed);
     await resize(1920); g = await geometry();
     assert.equal(g.left.visible, !leftClosed); assert.equal(g.right.visible, !rightClosed);
     assert.deepEqual(await prefs(), saved);
   }
-  console.log('[pass] all four open/closed combinations survive popup, resize and reload');
+  console.log('[pass] all four manual states survive left popup, resize and reload');
 
-  // Opening a real file changes the right-hand width requirement without resize.
   await left.click(); await right.click(); await settle();
-  // Exercise the shared Desktop editor in Chromium without starting a native shell.
   await page.evaluate(() => { window.__ACECODE_DESKTOP_SHELL__ = true; });
   await page.locator('[data-file-path="source.js"]').first().click();
-  await page.locator('.ace-preview-details-shell').waitFor(); await settle();
   const editor = page.locator('.ace-file-text-editor');
   await editor.waitFor(); await editor.fill('export const edited = 123;\n');
-  await editor.evaluate(e => { e.setSelectionRange(5, 10); window.responsiveSavedEditor = e; });
+  await editor.evaluate(e => { window.responsiveSavedEditor = e; });
   const beforePreviewResize = await prefs();
-  g = await resize(1300); assert.equal(g.right.visible, false); assert.ok(g.transcript.width >= 350);
-  await right.click(); await settle();
-  assert.equal((await geometry()).popup, 'right');
-  assert.equal(await editor.inputValue(), 'export const edited = 123;\n');
-  assert.equal(await editor.evaluate(e => e === window.responsiveSavedEditor), true);
-  await page.screenshot({ path: path.join(output, '1300-preview-popup.png') });
-  g = await resize(800); assert.equal(g.popup, 'right'); assert.ok(g.right.right <= 800);
-  await resize(600); await editor.waitFor();
-  const expandList = page.locator('.ace-preview-details-panel').getByRole('button', { name: '展开列表面板', exact: true });
-  await expandList.click(); await settle();
-  assert.equal(await page.locator('.ace-popup-navigation').isVisible(), true);
-  await page.locator('.ace-popup-navigation').getByRole('button', { name: '收起列表面板', exact: true }).click();
-  await settle(); assert.equal((await geometry()).popup, 'right');
-  assert.equal(await editor.isVisible(), true);
-  await page.locator('[data-conversation-find-root]').click({ position: { x: 5, y: 150 } }); await settle();
-  assert.equal((await geometry()).popup, null);
-  g = await resize(1920); assert.equal(g.right.visible, true);
-  assert.equal(await editor.inputValue(), 'export const edited = 123;\n');
-  assert.equal(await editor.evaluate(e => e === window.responsiveSavedEditor), true);
+  g = await resize(1300);
+  assert.equal(g.left.visible, false); assert.equal(g.right.visible, true); assert.ok(g.transcript.width >= 350);
+  for (const width of [1100, 800, 480, 1300]) {
+    g = await resize(width);
+    assert.equal(g.left.visible, false); assert.equal(g.right.visible, true); assert.equal(g.popup, null);
+    assert.equal(await editor.evaluate(e => e === window.responsiveSavedEditor), true);
+    assert.equal(await editor.inputValue(), 'export const edited = 123;\n');
+  }
   assert.deepEqual(await prefs(), beforePreviewResize);
-  console.log('[pass] real preview width, compact popup navigation, editor DOM and unsaved draft survive responsive transitions');
+  await page.screenshot({ path: path.join(output, '1300-preview-docked.png') });
+  await resize(800); await right.click(); await settle();
+  const unsavedDialog = page.getByRole('dialog');
+  await unsavedDialog.getByRole('button', { name: '取消', exact: true }).click(); await settle();
+  assert.equal((await geometry()).right.visible, true);
+  assert.equal(await editor.inputValue(), 'export const edited = 123;\n');
+  await editor.fill('export const answer = 42;\n'); await settle();
+  await right.click(); await settle();
+  assert.equal((await geometry()).right.visible, false);
+  assert.equal((await geometry()).left.visible, true);
+  await right.click(); await settle();
+  assert.equal((await geometry()).right.visible, true); assert.equal((await geometry()).left.visible, false);
+  assert.equal((await geometry()).popup, null); assert.equal(await editor.inputValue(), 'export const answer = 42;\n');
+  assert.deepEqual(await prefs(), beforePreviewResize);
+  console.log('[pass] right details remain docked during resize; manual close releases space for left; editor and draft survive');
 
-  // A left-sidebar menu is a React portal outside the popup's DOM subtree.
-  await resize(600); await left.click(); await settle();
+  await left.click(); await settle();
   await page.getByRole('button', { name: 'ACECode 快捷菜单', exact: true }).click();
   const menu = page.locator('[data-shortcut-menu="true"]'); await menu.waitFor();
   await menu.dispatchEvent('pointerdown', { bubbles: true, pointerId: 1 });
   assert.equal((await geometry()).popup, 'left');
   await page.keyboard.press('Escape'); await settle(); assert.equal((await geometry()).popup, 'left');
   await page.keyboard.press('Escape'); await settle(); assert.equal((await geometry()).popup, null);
-  console.log('[pass] portal menu interaction and nested Escape keep the sidebar alive until the outer dismissal');
+  console.log('[pass] portal menu and nested Escape preserve the left popup');
 
   for (const theme of ['light', 'dark']) {
     await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
-    for (const width of [1920, 1100, 800, 320]) {
-      g = await resize(width); assert.equal(g.overflow, false, JSON.stringify(g));
-      assert.ok(g.transcript.width >= Math.min(350, width - 6) - 1, JSON.stringify(g));
-      if (width === 320) {
-        await right.click(); await settle(); g = await geometry();
-        assert.ok(g.right.right <= width && g.right.x >= 0, JSON.stringify(g));
-      }
+    for (const width of [1920, 1100, 800]) {
+      g = await resize(width); assert.equal(g.right.visible, true); assert.equal(g.popup, null);
+      assert.equal(g.overflow, false, JSON.stringify(g));
       await page.screenshot({ path: path.join(output, `${theme}-${width}.png`) });
-      if (g.popup) { await page.keyboard.press('Escape'); await settle(); }
     }
   }
-  console.log('[pass] light/dark at 1920, 1100, 800 and 320 CSS pixels keep transcript and popup inside the viewport');
-
   await resize(1920);
   await page.getByRole('button', { name: '最大化预览面板', exact: true }).click(); await settle();
   assert.equal((await geometry()).transcript.visible, false);
@@ -223,21 +211,23 @@ try {
   assert.equal((await geometry()).transcript.visible, true);
   await resize(1920); await editor.fill('export const answer = 42;\n'); await settle();
   await page.getByRole('button', { name: '隐藏详情面板', exact: true }).click(); await settle();
-  await resize(1000);
+  await resize(1200);
   await page.getByRole('button', { name: '后台任务', exact: true }).click(); await settle();
-  g = await geometry(); assert.equal(g.right.visible, false); assert.equal(g.left.visible, false);
+  g = await geometry(); assert.equal(g.right.visible, true); assert.equal(g.left.visible, false);
   assert.ok(g.transcript.width >= 350, JSON.stringify(g));
   await page.getByRole('button', { name: '后台任务', exact: true }).click(); await settle();
-  console.log('[pass] explicit preview maximization remains usable and child transcript pressure collapses sidebars');
+  assert.equal((await geometry()).left.visible, true);
+  console.log('[pass] explicit maximization is unchanged; child transcript pressure collapses only left');
 
   const originalOwnerPrefs = await prefs();
-  await resize(600); await right.click(); await settle();
+  await resize(600); await left.click(); await settle();
   await page.evaluate(() => window.aceDesktop_focusSessionFromBridge('resize-other', 'fixture'));
   await settle(); assert.equal((await geometry()).popup, null);
   assert.deepEqual(await prefs(), originalOwnerPrefs);
   await page.evaluate(() => window.aceDesktop_focusSessionFromBridge('resize-session', 'fixture'));
   await settle(); assert.equal((await geometry()).popup, null);
-  console.log('[pass] changing workbench owners discards temporary popup without changing the original owner preferences');
+  assert.equal((await geometry()).right.visible, true);
+  console.log('[pass] workbench changes clear only temporary popup state');
   }
 
   // Exercise the actual popup edges; floating preferences must never change
@@ -281,61 +271,35 @@ try {
   await left.click(); await settle();
   console.log('[pass] left popup supports drag/keyboard, remains floating even at 160px, and starts clamped drags without jumping');
 
-  await right.click(); await settle();
-  const initialRightWidth = (await geometry()).right.width;
-  g = await dragPopup('right', -120); assert.equal(g.right.width, initialRightWidth + 120); assert.equal(g.right.right, 600);
-  assert.equal(await page.locator('.ace-side-panel-shell').evaluate(e => e.getBoundingClientRect().width), g.right.width);
-  await page.locator('[data-popup-resize="right"]').focus(); await page.keyboard.press('ArrowLeft'); await settle();
-  const filePopupWidth = (await geometry()).right.width;
-  assert.equal(filePopupWidth, initialRightWidth + 132);
-  await right.click(); await right.click(); await settle(); assert.equal((await geometry()).right.width, filePopupWidth);
-  console.log('[pass] navigation-only popup expands its content with the outer frame and remembers the selected width');
-
-  await page.evaluate(() => { window.__ACECODE_DESKTOP_SHELL__ = true; });
-  await page.locator('[data-file-path="source.js"]').first().click();
-  const resizeEditor = page.locator('.ace-file-text-editor'); await resizeEditor.waitFor();
-  await resizeEditor.fill('export const resizedDraft = 321;\n');
-  await resizeEditor.evaluate(e => { window.popupResizeEditor = e; });
-  g = await resize(1300);
-  const detailStartWidth = g.right.width;
-  g = await dragPopup('right', -160); assert.equal(g.right.width, detailStartWidth + 160); assert.equal(g.right.right, 1300);
-  assert.equal(await resizeEditor.evaluate(e => e === window.popupResizeEditor), true);
-  assert.equal(await resizeEditor.inputValue(), 'export const resizedDraft = 321;\n');
-  await page.screenshot({ path: path.join(output, 'detail-popup-resized.png') });
-  assert.deepEqual(withoutPopupWidths(await prefs()), withoutPopupWidths(resizeBase));
-
-  // Closing or cancelling in the middle of a captured drag releases all state.
-  let handle = page.locator('[data-popup-resize="right"]');
+  // Cancelling a captured left drag must not leak resize listeners or preferences.
+  await left.click(); await settle();
+  let handle = page.locator('[data-popup-resize="left"]');
   let box = await handle.boundingBox();
   await page.mouse.move(box.x + 4, box.y + 160); await page.mouse.down();
   await page.keyboard.press('Escape'); await settle();
   assert.equal((await geometry()).popup, null);
   assert.equal(await page.evaluate(() => document.body.classList.contains('ace-resizing')), false);
-  const afterClose = await prefs(); await page.mouse.move(box.x - 80, box.y + 160); await page.mouse.up(); await settle();
+  const afterClose = await prefs(); await page.mouse.move(box.x + 80, box.y + 160); await page.mouse.up(); await settle();
   assert.deepEqual(await prefs(), afterClose);
-  await right.click(); await settle();
-  handle = page.locator('[data-popup-resize="right"]'); box = await handle.boundingBox();
+  await left.click(); await settle();
+  handle = page.locator('[data-popup-resize="left"]'); box = await handle.boundingBox();
   await handle.evaluate(e => e.addEventListener('pointerdown', event => { window.popupDragPointer = event.pointerId; }, { once: true }));
   await page.mouse.move(box.x + 4, box.y + 160); await page.mouse.down();
   await handle.dispatchEvent('pointercancel', { bubbles: true, pointerId: await page.evaluate(() => window.popupDragPointer) });
   assert.equal(await page.evaluate(() => document.body.classList.contains('ace-resizing')), false);
-  const afterCancel = await prefs(); await page.mouse.move(box.x - 80, box.y + 160); await page.mouse.up(); await settle();
-  assert.deepEqual(await prefs(), afterCancel); assert.equal((await geometry()).popup, 'right');
-  console.log('[pass] preview drag preserves transcript and draft; Escape and pointercancel release capture and listeners');
+  const afterCancel = await prefs(); await page.mouse.move(box.x + 80, box.y + 160); await page.mouse.up(); await settle();
+  assert.deepEqual(await prefs(), afterCancel); assert.equal((await geometry()).popup, 'left');
+  console.log('[pass] Escape and pointercancel release left-popup capture and listeners');
 
   const savedPopupPrefs = await prefs();
-  const savedPopupWidth = (await geometry()).right.width;
-  g = await resize(480); assert.equal(g.right.width, 456); assert.deepEqual(await prefs(), savedPopupPrefs);
-  g = await resize(900); assert.equal(g.right.width, savedPopupWidth);
   await page.evaluate(() => history.replaceState(null, '', '/?open=resize-session&workspace=fixture'));
   await page.reload({ waitUntil: 'commit' }); await page.locator('[data-conversation-find-root]').waitFor(); await settle();
-  await right.click(); await settle(); assert.equal((await geometry()).right.width, savedPopupWidth);
-  assert.deepEqual(await prefs(), savedPopupPrefs);
-  await resize(600);
+  assert.equal((await geometry()).right.visible, true);
   await left.click(); await settle(); assert.equal((await geometry()).left.width, 436);
-  g = await resize(1920); assert.equal(g.popup, null); assert.equal(g.left.width, 270);
+  assert.deepEqual(await prefs(), savedPopupPrefs);
+  g = await resize(1920); assert.equal(g.popup, null); assert.equal(g.left.width, 270); assert.equal(g.right.visible, true);
   assert.deepEqual(withoutPopupWidths(await prefs()), withoutPopupWidths(resizeBase));
-  console.log('[pass] popup widths persist across reload and temporary viewport clamps without changing docked widths or open/closed preferences');
+  console.log('[pass] left popup width persists without changing docked widths or either manual open/closed preference');
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ output, status: 'passed' }));
 } catch (error) {

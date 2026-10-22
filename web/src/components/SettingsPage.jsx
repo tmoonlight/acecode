@@ -28,6 +28,12 @@ import { SettingsConfigSection } from './SettingsConfigSection.jsx';
 import { FeedbackForm } from './FeedbackForm.jsx';
 import { SettingsSearch, SettingsSearchResults } from './SettingsSearch.jsx';
 import { settingsSearchEntries, searchSettings, locateSetting, settingsSearchResultIndex } from '../lib/settingsSearch.js';
+import {
+  AGENT_BROWSER_COOKIE_MODES,
+  agentBrowserCookieModeOption,
+  setAgentBrowserCookieMode,
+} from '../lib/agentBrowserCookieMode.js';
+import { useAgentBrowserCookieMode } from '../lib/useAgentBrowserCookieMode.js';
 import { openExternalUrl } from '../lib/externalUrl.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import {
@@ -2553,6 +2559,7 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
           {nativeBrowserAvailable ? '可用' : '仅 Windows Desktop'}
         </span>
       </div>
+      <AgentBrowserCookieSettings />
 
       <ImageGenerationSettings onCheckUpdates={onCheckUpdates} />
       <SpeechRecognitionSettings />
@@ -2562,6 +2569,70 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
 
       <ToolRewriteSettings onCheckUpdates={onCheckUpdates} />
     </>
+  );
+}
+
+// Agent 浏览器「保留 Cookie」三档,与浏览器工具栏「⋮」菜单共用同一个 store。
+// 只在 Desktop 提供 cookie bridge 时显示。
+function AgentBrowserCookieSettings() {
+  const cookie = useAgentBrowserCookieMode();
+  if (!cookie.supported) return null;
+  const currentMode = cookie.pending || cookie.mode;
+
+  const choose = async (mode) => {
+    if (mode === cookie.mode || cookie.pending) return;
+    const option = agentBrowserCookieModeOption(mode);
+    const result = await setAgentBrowserCookieMode(mode);
+    if (result?.ok !== true) {
+      toast({ kind: 'err', text: result?.error || '无法保存 Cookie 设置' });
+      return;
+    }
+    toast({
+      kind: 'ok',
+      text: mode === 'until_quit'
+        ? `Cookie 已改为「${option.label}」,已保存的 Cookie 已清除`
+        : `Cookie 已改为「${option.label}」`,
+    });
+  };
+
+  return (
+    <div className="mb-4 pl-3.5">
+      <div className="text-[13px] font-medium mt-1 mb-0.5">保留 Cookie</div>
+      <p className="text-[11px] text-fg-mute mb-2">
+        Agent 浏览器里登录网站后,登录状态保存多久、各会话之间是否共用。切到「退出时清除」会删除已保存的 Cookie。
+      </p>
+      <div role="radiogroup" aria-label="保留 Cookie">
+        {AGENT_BROWSER_COOKIE_MODES.map((option) => {
+          const selected = option.value === currentMode;
+          return (
+            <div
+              key={option.value}
+              role="radio"
+              aria-checked={selected}
+              aria-disabled={cookie.pending ? true : undefined}
+              tabIndex={0}
+              onClick={() => void choose(option.value)}
+              onKeyDown={(event) => {
+                if (event.key === ' ' || event.key === 'Enter') {
+                  event.preventDefault();
+                  void choose(option.value);
+                }
+              }}
+              className={clsx(
+                'flex items-center justify-between px-3.5 py-2.5 rounded-md border mb-2 cursor-pointer hover:bg-surface-hi transition',
+                selected ? 'border-accent bg-accent-bg' : 'border-border bg-surface',
+              )}
+            >
+              <div>
+                <div className="text-[13px] font-medium">{option.label}</div>
+                <div className="text-[11px] text-fg-mute mt-0.5">{option.hint}</div>
+              </div>
+              {selected && <span className="w-2.5 h-2.5 rounded-full bg-accent shrink-0" />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

@@ -149,8 +149,9 @@ test('预览选区把引用到聊天放在第一行', () => {
     hasSelection: true,
     previewTarget: { type: 'preview', path: 'README.md', kind: 'markdown' },
   });
-  assert.deepEqual(ids(items).slice(0, 4), [
+  assert.deepEqual(ids(items).slice(0, 5), [
     DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT,
+    DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST,
     DESKTOP_CONTEXT_ACTIONS.REFRESH_DETAILS,
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_TEXT,
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_METADATA,
@@ -166,6 +167,7 @@ test('可编辑预览仍保留引用到聊天并同时提供文本编辑动作',
   });
   assert.deepEqual(ids(items), [
     DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT,
+    DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST,
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
     DESKTOP_CONTEXT_ACTIONS.COPY,
     DESKTOP_CONTEXT_ACTIONS.PASTE,
@@ -184,6 +186,7 @@ test('图片预览显示复制图片动作且非图片预览不显示', () => {
     },
   });
   assert.deepEqual(ids(imageItems), [
+    DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST,
     DESKTOP_CONTEXT_ACTIONS.REFRESH_DETAILS,
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_IMAGE,
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_TEXT,
@@ -809,6 +812,7 @@ test('contextTargetsFromElement 提取各类目标', () => {
   assert.equal(contextTargetsFromElement(file).fileTarget.canAddContext, true);
 
   const preview = elementFor(PREVIEW_TARGET_SELECTOR, {
+    'data-desktop-preview-cwd': 'C:/repo',
     'data-desktop-preview-path': 'shots/result.png',
     'data-desktop-preview-kind': 'image',
     'data-desktop-preview-content-type': 'image/png',
@@ -816,6 +820,8 @@ test('contextTargetsFromElement 提取各类目标', () => {
   });
   assert.deepEqual(contextTargetsFromElement(preview).previewTarget, {
     type: 'preview',
+    element: preview,
+    cwd: 'C:/repo',
     path: 'shots/result.png',
     kind: 'image',
     size: '',

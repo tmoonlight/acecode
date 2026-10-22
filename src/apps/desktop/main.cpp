@@ -15,6 +15,7 @@
 
 #include "daemon_pool.hpp"
 #include "agent_browser_host.hpp"
+#include "agent_browser_cookie_bridge.hpp"
 #include "ios_simulator_view.hpp"
 #include "ipc/agent_browser_runtime.hpp"
 #include "context_items.hpp"
@@ -43,7 +44,6 @@
 #include "web_host.hpp"
 #include "web_host_close_policy.hpp"
 #include "workspace/workspace_registry.hpp"
-
 #ifdef ACECODE_DEEPIN
 #include "deepin_window_effects.hpp"
 #endif
@@ -1113,6 +1113,7 @@ int main(int argc, char** argv) {
                 "}));}catch(e){}})();");
         },
         [&host](std::function<void()> task) { host.dispatch(std::move(task)); });
+    acecode::desktop::install_agent_browser_cookie_bridge(host, agent_browser);
     const auto ios_simulator_view = install_ios_simulator_view(host);
     std::atomic<bool> restart_requested{false};
     host.set_title("ACECode");

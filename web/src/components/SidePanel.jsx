@@ -123,10 +123,15 @@ function TreeArrowIcon({ open }) {
 // effect 竞争(loadDir('') 守卫读到旧 treeCache 直接 bail,父级 setTreeCache(new Map())
 // 又跑得更晚把刚拉的根清掉)在这个数据结构下不复存在。
 function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setExpandedDirs,
-                    selectedPath, selectedPathRevision = 0, onPickFile, onRefreshTree, refreshToken, reviewStatusByPath }) {
+                    selectedPath, selectedPathRevision = 0, highlightPath = '', visible = true,
+                    onPickFile, onRefreshTree, refreshToken, reviewStatusByPath }) {
   const [loading, setLoading] = useState(new Set()); // cwd/path request key 集合
   const [errors, setErrors]   = useState(new Map()); // cwd/path request key → 错误文案
   const treeRef = useRef(null);
+  const highlightedRowRef = useRef(null);
+  useEffect(() => () => {
+    highlightedRowRef.current?.classList.remove('ace-file-locate-highlight');
+  }, []);
   useWorkbenchScroll(owner, `treeScroll:${cwd}`, treeRef, treeCache.size > 0);
   const treeCacheRef = useRef(treeCache);
   const inFlightRequestsRef = useRef(new Set());
@@ -135,6 +140,7 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
   const selectedNormalizedPath = normalizeTreePath(selectedPath);
   const revealKey = JSON.stringify([selectedNormalizedPath, selectedPathRevision]);
   const revealedSelectionRef = useRef(sessionWorkbench.get(owner, `treeReveal:${cwd}`, ''));
+  const highlightedRequestRef = useRef(sessionWorkbench.get(owner, `treeHighlight:${cwd}`, 0));
   const selectedParentPath = selectedNormalizedPath ? treeParentPath(selectedNormalizedPath) : '';
   const selectedParentGuideIndex = selectedParentPath
     ? selectedParentPath.split('/').filter(Boolean).length - 1
@@ -269,24 +275,40 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
   }, [loadDir, onPickFile, onRefreshTree, setExpandedDirs]);
 
   useLayoutEffect(() => {
-    if (!selectedNormalizedPath) return;
+    if (!selectedNormalizedPath || !visible) return;
     if (revealedSelectionRef.current === revealKey) return;
-    const tree = treeRef.current;
-    if (!tree) return;
-    const row = Array.from(tree.querySelectorAll('[data-desktop-file-path]'))
-      .find((node) => normalizeTreePath(node.getAttribute('data-desktop-file-path')) === selectedNormalizedPath);
-    if (!row) return;
-    revealedSelectionRef.current = revealKey;
-    sessionWorkbench.set(owner, `treeReveal:${cwd}`, revealKey);
-    const treeRect = tree.getBoundingClientRect();
-    const rowRect = row.getBoundingClientRect();
-    const margin = 8;
-    if (rowRect.top < treeRect.top) {
-      tree.scrollTop = Math.max(0, tree.scrollTop + rowRect.top - treeRect.top - margin);
-    } else if (rowRect.bottom > treeRect.bottom) {
-      tree.scrollTop = Math.max(0, tree.scrollTop + rowRect.bottom - treeRect.bottom + margin);
-    }
-  }, [selectedNormalizedPath, revealKey, treeCache, expandedDirs, owner, cwd]);
+    // Wait for the list to finish mounting/showing. Do not consume the request
+    // during a cancelled mount (including React's StrictMode effect replay).
+    const frame = requestAnimationFrame(() => {
+      const tree = treeRef.current;
+      if (!tree) return;
+      const row = Array.from(tree.querySelectorAll('[data-desktop-file-path]'))
+        .find((node) => normalizeTreePath(node.getAttribute('data-desktop-file-path')) === selectedNormalizedPath);
+      if (!row) return;
+      const treeRect = tree.getBoundingClientRect();
+      if (!treeRect.width || !treeRect.height) return;
+      highlightedRowRef.current?.classList.remove('ace-file-locate-highlight');
+      const rowRect = row.getBoundingClientRect();
+      const margin = 20;
+      if (rowRect.top < treeRect.top + margin) {
+        tree.scrollTop = Math.max(0, tree.scrollTop + rowRect.top - treeRect.top - margin);
+      } else if (rowRect.bottom > treeRect.bottom - margin) {
+        tree.scrollTop = Math.max(0, tree.scrollTop + rowRect.bottom - treeRect.bottom + margin);
+      }
+      revealedSelectionRef.current = revealKey;
+      sessionWorkbench.set(owner, `treeReveal:${cwd}`, revealKey);
+      if (highlightPath && normalizeTreePath(highlightPath) === selectedNormalizedPath
+          && highlightedRequestRef.current !== selectedPathRevision) {
+        // Commit removal before restarting, including repeated requests for one row.
+        void row.offsetWidth;
+        row.classList.add('ace-file-locate-highlight');
+        highlightedRowRef.current = row;
+        highlightedRequestRef.current = selectedPathRevision;
+        sessionWorkbench.set(owner, `treeHighlight:${cwd}`, selectedPathRevision);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selectedNormalizedPath, selectedPathRevision, revealKey, treeCache, expandedDirs, owner, cwd, highlightPath, visible]);
 
   // 递归渲染 — 每个目录的子项展开时插入到该目录节点之后
   const renderEntries = (parentPath, depth) => {
@@ -360,6 +382,9 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
               isActive && 'bg-accent-soft text-accent',
             )}
             onClick={() => isDir ? toggleDir(e.path) : onPickFile(e)}
+            onAnimationEnd={(event) => {
+              if (event.target === event.currentTarget) event.currentTarget.classList.remove('ace-file-locate-highlight');
+            }}
             title={reviewStatus ? `${e.path} - ${statusTitle}` : e.path}
           >
             <TreeIndent depth={depth} activeGuideIndex={activeGuideIndex} />
@@ -587,14 +612,15 @@ export function SidePanel({
     setActiveTab('changes');
   }, [reviewRequest]);
 
-  const lastFileLocateToken = useRef(fileLocateRequest?.token || 0);
+  const lastFileLocateToken = useRef(sessionWorkbench.get(owner, `fileLocateApplied:${cwd}`, 0));
   useEffect(() => {
     const token = Number(fileLocateRequest?.token || 0);
     const path = fileLocateRequest?.path || '';
     if (!token || token === lastFileLocateToken.current || !path || !filesEnabled) return;
-    lastFileLocateToken.current = token;
-    const plan = fileTreeLocatePlan(path, cwd, { includeSelf: true });
+    const plan = fileTreeLocatePlan(path, cwd, { includeSelf: fileLocateRequest.includeSelf !== false });
     if (!plan) return;
+    lastFileLocateToken.current = token;
+    sessionWorkbench.set(owner, `fileLocateApplied:${cwd}`, token);
     setActiveTab('files');
     setSelectedPath(plan.selectedPath);
     setExpandedDirs((prev) => {
@@ -602,7 +628,7 @@ export function SidePanel({
       for (const dir of plan.expandedDirs) next.add(dir);
       return next;
     });
-  }, [cwd, fileLocateRequest, filesEnabled, setExpandedDirs]);
+  }, [owner, cwd, fileLocateRequest, filesEnabled, setExpandedDirs]);
 
   const lastSelectedChange = useRef([selectedChangeFile, selectedChangeFileRevision]);
   useEffect(() => {
@@ -737,6 +763,8 @@ export function SidePanel({
             setExpandedDirs={setExpandedDirs}
             selectedPath={selectedPath}
             selectedPathRevision={fileLocateRequest?.token || 0}
+            highlightPath={fileLocateRequest?.emphasize ? fileLocateRequest.path : ''}
+            visible={!collapsed}
             onPickFile={onPickFile}
             onRefreshTree={refreshFileTree}
             refreshToken={fileRefreshToken}

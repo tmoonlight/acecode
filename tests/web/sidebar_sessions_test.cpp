@@ -100,6 +100,28 @@ protected:
     }
 };
 
+TEST_F(SidebarSessionsHttp, BatchMovePersistsOrderAndRejectsPartialOrMalformedRequests) {
+    record("run-1", "a"); record("run-2", "a"); record("receiver", "b");
+    const auto post = [&](const json& sources) {
+        return cpr::Post(cpr::Url{url(endpoint())}, cpr::Header{{"Content-Type", "application/json"}},
+            cpr::Body{json{{"sources", sources}, {"target", "loop:b"}, {"placement", "inside"}}.dump()},
+            cpr::Timeout{3000});
+    };
+    auto response = post(json::array({"session:run-2", "session:run-1"}));
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    const auto page = get({{"expanded", "[\"loop:b\"]"}});
+    ASSERT_EQ(page["sessions"].size(), 4u);
+    EXPECT_EQ(page["sessions"][2]["id"], "run-2");
+    EXPECT_EQ(page["sessions"][3]["id"], "run-1");
+    const auto layout_path = std::filesystem::path(SessionStorage::get_project_dir(cwd)) / "sidebar_sessions.json";
+    const auto saved = read_sidebar_layout(layout_path);
+    for (const auto& sources : {json::array({"session:run-1", "missing"}), json::array(),
+                               json::array({"session:run-1", 42}), json("wrong")}) {
+        EXPECT_EQ(post(sources).status_code, 409);
+        EXPECT_EQ(read_sidebar_layout(layout_path), saved);
+    }
+}
+
 TEST_F(SidebarSessionsHttp, PagesGroupsAndReturnsAllExpandedHistory) {
     for (int i = 10; i < 23; ++i) record("run-" + std::to_string(i), "daily");
     for (int i = 0; i < 6; ++i) record("normal-" + std::to_string(i));

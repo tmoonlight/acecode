@@ -24,16 +24,31 @@ flowchart LR
   favicon 也只显示在对应 `page_id` 页签上，无图标或图标加载失败时回退到 Browser
   地球图标。后台页面更新标题或图标不会抢占当前页签。每页有独立 URL、DOM、历史
   记录和加载状态。
-- 新页内容区由 React 显示极简 Browser welcome，不再向 WebView2 导航一张伪造的
-  空白 HTML。输入地址后，原生 controller 在加载期间保持隐藏，只有成功加载的真实
-  网页才会覆盖到该内容区。
+- 新页内容区由 React 显示新标签页，不再向 WebView2 导航一张伪造的空白 HTML。
+  版式照 Codex 桌面版的 New Tab（不做它最上方的「工具」区）：
+  - **推荐**：常访问网站，一行最多 4 个（图标 + 标题，无标题显示主机名），点击在当前
+    页打开；悬停出现 × 可移除，提示条里能「撤销」。数据来自 ACECode 自己记的访问：
+    App 级记录器（`lib/agentBrowserTopSites.js`）在页面加载完成（`content_state=live`）
+    时把访问报给 daemon，地址变化才计一次访问，刷新同一地址不计，标题 / 图标后到只做
+    补充；前端加载前就已打开的页面先用 `aceDesktop_agentBrowserListPages` 打底，
+    不会因刷新或切工作区重复计数。daemon 存在 `<data_dir>/agent_browser_top_sites.json`
+    （Desktop 每次启动端口会变，localStorage 跨启动保不住），按「访问次数 × 最近访问
+    时间分档权重」排序（Firefox frecency 的 4 / 14 / 31 / 90 天分档），接口只给本机直连。
+  - **最近**：本会话改过的文件（与「会话变更」同一来源），每行「图标 + 文件名 + 类型 +
+    时间」，最多显示 6 行，上下箭头整页滚动；点开后用文件预览替换这个空白页签。持久化的
+    工具消息没有时间戳，历史改动显示所在回合用户消息的时间，实时改动显示工具事件时间。
+  - 两块都为空时退回原来的 Browser welcome 提示。
+  输入地址后，原生 controller 在加载期间保持隐藏，只有成功加载的真实网页才会覆盖到
+  该内容区。
 - 地址栏支持 `http://`、`https://`、`about:blank`；裸域名自动补
   `https://`；无 scheme 且包含空格的文本使用 Bing 搜索。
 - 后退、前进、刷新和网页本身的导航只作用于当前页签绑定的 WebView2 页面。
 - 地址栏右侧的“与智能体共享”按页控制 Agent 是否可以经 Desktop 代理访问该页。用户
   手工创建的新页默认不共享；`browser_open` 创建的新页默认共享。关闭共享后，Agent
   对该页的 claim、选择、关闭和 CDP 命令都会以 `page_not_shared_with_agent` 拒绝。
-- 地址栏后的操作区可以把网页元素或当前页控制台日志添加到聊天。元素选择使用网页内
+- 地址栏后的操作区可以把网页元素或当前页控制台日志添加到聊天（“将元素添加到聊天”是
+  独立按钮，控制台日志在最右侧「⋮」菜单里，同一菜单还有「保留 Cookie」与「清除浏览
+  数据」，见「Cookie 存储」）。元素选择使用网页内
   高亮，单击选取元素，`Esc` 取消；Windows 还支持拖拽选取共同祖先，并返回 HTML path
   与计算样式。macOS 首版返回 URL、标题、元素名/属性、outer HTML、尺寸和可见文本，
   暂不做跨 closed shadow root 或拖拽共同祖先选择。控制台附件是点击当时的当前页快照。
@@ -66,9 +81,10 @@ flowchart LR
   有历史时提供“返回上一页”；WebView2/Chromium 自带错误文档始终保持隐藏。
 
 浏览器 Profile 与 ACECode 主 UI、Edge/Safari Profile 隔离并持久化：Windows 位于
-`<acecode-dir>/agent-browser/webview2`；macOS 把固定 data-store UUID 保存在
-`<acecode-dir>/agent-browser/macos-profile-id`，实际网页数据由系统 WebKit 对应的
-identifier data store 管理。在 Browser 页签中完成的登录会在 Desktop 重启后保留。
+`<acecode-dir>/agent_browser/webview2`；macOS 把固定 data-store UUID 保存在
+`<acecode-dir>/agent_browser/macos_profile_id`，实际网页数据由系统 WebKit 对应的
+identifier data store 管理。升级前已经存在 `agent-browser/` 目录的安装继续沿用连字符旧名
+（见 [运行数据命名](runtime_file_naming.md)）。在 Browser 页签中完成的登录会在 Desktop 重启后保留。
 
 ## Agent 工具
 
@@ -161,6 +177,47 @@ macOS 的交互工具（click/fill/type/press/hover/drag/scroll）额外暴露
 - **已知限制**：非显示页面的 WebView2 处于隐藏状态，Chromium 会节流定时器；后台
   会话里的 `browser_screenshot` 是否总能出帧需要按站点实测。
 
+## Cookie 存储
+
+复刻 Claude 桌面版内置浏览器的「Keep cookies」（openspec
+add-agent-browser-cookie-modes）。浏览器工具栏最右侧「⋮」菜单与「设置 > 工具 >
+Agent 浏览器」都能切换三档，默认**共享**：
+
+| 档位 | Windows（WebView2） | macOS（WKWebView） |
+|---|---|---|
+| 退出时清除 | 命名 InPrivate Profile `acecode-until-quit`，外加一个隐藏保活页 | 宿主持有的 `nonPersistentDataStore` |
+| 共享（默认） | 默认 Profile（无选项建 controller，升级前的登录数据就在这里） | 固定 UUID 的 identifier store |
+| 按会话 | 命名 Profile `s-<SHA-256(根会话 id) 前 24 位>` | 由根会话 id 派生 UUID 的 identifier store |
+
+- 子代理用根会话（`owner.root_session_id`）那份；没有 owner 的页面一律用共享存储。
+- 档位存在 `state.json` 的 `agent_browser` 段（`src/base/ipc/agent_browser_store_state.hpp`），
+  只由 Desktop 写；daemon / TUI 只往里追加「待删除」「待复制」记录。
+- **切档**：存储变了的已打开页面用原 page id、owner、共享标记在新存储里重建并导航回
+  原地址（后退历史会丢）。切到退出时清除会立即清空共享存储（完成前挂着
+  `shared_wipe_pending`，异常退出后下次启动补清），所有按会话存储打「待清空」标记：
+  下次启动在建 environment 之前删目录，本次运行里若又被用到就先清空再用。共享与按会话
+  互切不删任何数据。
+- **清除浏览数据**：清当前页所用的那份存储（`ClearBrowsingDataAll` /
+  `removeDataOfTypes`），完成后重新加载同一存储里的页面；同步 bridge 只返回「已开始」，
+  结果经 `acecode:agent-browser-storage` 事件回报。
+- **会话删除与分叉**：永久删除会话（归档不算）后 daemon / TUI 记待删除并经
+  `drain_store_tasks` 提醒 Desktop；Desktop 关掉该根会话的页面，本次运行加载过的存储用
+  `ICoreWebView2Profile8::Delete`（macOS `removeDataStoreForIdentifier:`），没加载过的
+  直接删目录。分叉成功后记一条复制记录，子会话第一次打开浏览器时（按会话档）从父会话
+  存储复制当时的全部 cookie，之后两边互不影响。Desktop 没开时这些都在下次启动处理。
+- **实测的 WebView2 行为**（2026-10-21，`tests/desktop/helpers/agent_browser_cookie_smoke.cpp`）：
+  命名 Profile 的目录是 `EBWebView/WV2Profile_<名字>`；InPrivate Profile 在最后一个页面
+  关闭后就会丢数据，所以退出时清除档必须有保活页；没有过期时间的会话 cookie 在 Desktop
+  重启后丢失（Claude 用的 Electron 同样 `persist_session_cookies = false`），网站登录时
+  要勾「记住我」才能跨重启保持登录。
+- 回归：`tests/desktop/agent_browser_cookie_jars_test.cpp`、
+  `tests/ipc/agent_browser_store_state_test.cpp`、
+  `tests/session_host/agent_browser_store_lifecycle_test.cpp`、
+  `tests/session/session_fork_listener_test.cpp`、Windows 冒烟
+  `agent_browser_cookie_smoke`（`SMOKE_COOKIE_MODES_OK`，需要能访问 example.com），前端
+  `agentBrowserCookieMode.test.js`、`submenuPosition.test.js` 与
+  `agentBrowserArchitecture.test.js` 的 cookie 一条。
+
 ## 运行时和安全边界
 
 - Desktop 只创建本机 IPC；请求必须携带 manifest 中的随机令牌。Windows 使用随机命名
@@ -175,6 +232,11 @@ macOS 的交互工具（click/fill/type/press/hover/drag/scroll）额外暴露
   Desktop 按 `page_id` 找到现有用户页面，再 dispatch 到 UI 线程；Windows 调用
   `CallDevToolsProtocolMethod`，macOS 映射到公开 WKWebView API 或命名 content world。
   一次工具调用首次选定页面后保持锁定，不会另建 target、误连其它浏览器或切页串页。
+- 代理操作：`cdp`（默认）、`create_page`、`claim_page`、`select_page`、`close_page`，
+  以及 `drain_store_tasks`。最后一个不带页面与参数，只是提醒 Desktop 处理 `state.json`
+  里 daemon / TUI 记下的 cookie 存储待办（永久删除会话后删除它的按会话存储，见下文
+  「Cookie 存储」）；成功回 `{"ok":true,"result":{}}`。旧版 Desktop 回复「operation is
+  invalid」，daemon 只记 debug 日志，待办留到 Desktop 下次启动时处理。协议版本不变。
 - Agent Browser 不注册 `aceDesktop_*` binding、host object 或 web-message
   handler。任意网页无法取得主 ACECode UI 的 daemon token、localStorage 或
   native bridge。

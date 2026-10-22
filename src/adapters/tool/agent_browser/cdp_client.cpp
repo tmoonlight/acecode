@@ -516,6 +516,15 @@ bool AgentBrowserCdpClient::close_page(
     return error.empty();
 }
 
+bool AgentBrowserCdpClient::drain_store_tasks(
+    std::chrono::milliseconds timeout,
+    const std::atomic<bool>* abort_flag,
+    std::string& error) {
+    request("drain_store_tasks", "", nlohmann::json::object(), timeout,
+            abort_flag, error);
+    return error.empty();
+}
+
 nlohmann::json AgentBrowserCdpClient::command(
     const std::string& method,
     const nlohmann::json& params,

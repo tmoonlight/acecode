@@ -7,6 +7,7 @@
 #include "permissions/permissions.hpp"
 #include "session_serializer.hpp"
 #include "fork_attachment_context.hpp"
+#include "session_fork_listeners.hpp"
 #include "session_rewind.hpp"
 #include "session_title_text.hpp"
 #include "session_user_message_search.hpp"
@@ -1012,6 +1013,9 @@ std::string SessionManager::fork_session_to_new_id(
         }
     }
 
+    if (!forked_from_id.empty()) {
+        notify_session_forked(project_dir_, new_session_id, forked_from_id);
+    }
     return new_session_id;
 }
 

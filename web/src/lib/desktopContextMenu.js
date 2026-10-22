@@ -7,6 +7,7 @@ import {
 export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
   OPEN_IN_EXPLORER: 'open_in_explorer',
   LOCATE_FILE: 'locate_file',
+  SHOW_IN_FILE_LIST: 'show_in_file_list',
   PIN_SESSION: 'pin_session',
   UNPIN_SESSION: 'unpin_session',
   MARK_SESSION_READ: 'mark_session_read',
@@ -291,6 +292,9 @@ export function buildDesktopContextMenuItems({
     if (previewPresentationTarget) {
       addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
     }
+    if (previewTarget) {
+      addAction(items, DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST, previewTarget, { group: GROUPS.CONTENT });
+    }
     return finalizeContextMenuItems(items, allowNativeActions);
   }
 
@@ -303,6 +307,7 @@ export function buildDesktopContextMenuItems({
       addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
     }
     if (previewTabTarget.tabType === 'file') {
+      addAction(items, DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST, previewTabTarget, { group: GROUPS.FILE });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH, previewTabTarget, { group: GROUPS.FILE, enabled: !!previewTabTarget.absolutePath });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH, previewTabTarget, { group: GROUPS.FILE, enabled: !!previewTabTarget.relativePath });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER, { path: previewTabTarget.absolutePath, kind: 'file' }, { group: GROUPS.CONTENT, enabled: !!previewTabTarget.absolutePath });
@@ -316,6 +321,11 @@ export function buildDesktopContextMenuItems({
   }
   if (previewPresentationTarget) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
+  }
+
+  // File navigation remains available while editing the displayed file.
+  if (previewTarget) {
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST, previewTarget, { group: GROUPS.CONTENT });
   }
 
   if (!editable) {
@@ -585,6 +595,8 @@ export function previewTargetFromElement(target) {
   if (!path) return null;
   return {
     type: 'preview',
+    element: el,
+    cwd: getAttr(el, 'data-desktop-preview-cwd', 'desktopPreviewCwd'),
     path,
     kind: getAttr(el, 'data-desktop-preview-kind', 'desktopPreviewKind') || 'text',
     size: getAttr(el, 'data-desktop-preview-size', 'desktopPreviewSize'),
@@ -600,6 +612,7 @@ export function previewTabTargetFromElement(target) {
   if (!key) return null;
   return {
     type: 'preview-tab',
+    element: el,
     key,
     tabType: getAttr(el, 'data-desktop-preview-tab-type', 'desktopPreviewTabType') || 'file',
     relativePath: getAttr(el, 'data-desktop-preview-tab-path', 'desktopPreviewTabPath'),

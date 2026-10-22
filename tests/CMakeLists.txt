@@ -213,6 +213,26 @@ if(WIN32 AND ACECODE_BUILD_DESKTOP)
         )
     endif()
 
+    # Opt-in: cookie storage modes (shared / until_quit / per_session) against a
+    # real WebView2 runtime and https://example.com. Prints SMOKE_COOKIE_MODES_OK.
+    add_executable(agent_browser_cookie_smoke EXCLUDE_FROM_ALL
+        ${ACECODE_AGENT_BROWSER_COOKIE_SMOKE_SOURCES}
+    )
+    target_link_libraries(agent_browser_cookie_smoke PRIVATE acecode_include_roots)
+    target_link_libraries(agent_browser_cookie_smoke PRIVATE
+        acecode_desktop_support
+        acecode_base_core
+        webview::core
+        cpr::cpr
+        nlohmann_json::nlohmann_json
+        ole32 user32 ws2_32
+    )
+    if(MSVC)
+        set_target_properties(agent_browser_cookie_smoke PROPERTIES
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        )
+    endif()
+
     # Manual visual/runtime demo for the exact AI pointer overlay used by
     # mouse tools and synthetic events from browser_evaluate. It runs in an
     # isolated native WebView2 host so it never takes over the user's active

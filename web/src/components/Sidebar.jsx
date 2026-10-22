@@ -35,6 +35,8 @@ import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
   SESSION_PIN_TOGGLE_EVENT,
+  CONTEXT_MENU_DELEGATE_EVENT,
+  openDesktopContextMenu,
 } from '../lib/desktopContextMenu.js';
 import { relativeTime, clsx, formatCount } from '../lib/format.js';
 import { preserveComposerFocusOnPointerDown } from '../lib/composerCaretRestore.js';
@@ -48,8 +50,6 @@ import {
   pinSessionId,
   pinPinnedOrderItem,
   pinnedSessionsForList,
-  reorderPinnedOrderItems,
-  reorderPinnedSessionId,
   sessionPinScope,
   unpinPinnedOrderItem,
   unpinSessionId,
@@ -60,7 +60,16 @@ import { SessionTitleText } from './SessionTitleText.jsx';
 import { pushTrayMenu } from '../lib/desktopTrayMenu.js';
 import { desktopTaskbarBadge, desktopTaskbarBadgeAvailable } from '../lib/desktopTaskbarBadge.js';
 import { usePreference } from '../lib/usePreference.js';
-import { applySidebarSessionStatuses, mergeSidebarSessionStatuses, sidebarNodeKey, sidebarSessionRoots, sidebarSessionStatusRows, sidebarTreeDropTarget } from '../lib/sidebarSessionTree.js';
+import { applySidebarSessionStatuses, mergeSidebarSessionStatuses, sidebarNodeKey, sidebarSessionRoots, sidebarSessionStatusRows, sidebarTreeDropTarget, validSidebarTreeDrop } from '../lib/sidebarSessionTree.js';
+import { reorderSidebarSelection, sidebarSelectionKey } from '../lib/sidebarSessionSelection.js';
+import { sessionBatchItems, sessionBatchOutcome, sessionBatchScopes } from '../lib/sidebarSessionBatch.js';
+import {
+  SESSION_REFERENCE_DROP_ACTIVE_CLASS,
+  dispatchSessionReferenceDrop,
+  sessionReferenceDropTargetAt,
+  sessionReferencesFromEntries,
+} from '../lib/sessionReferenceDrop.js';
+import { SidebarSessionSelectionContext, useSidebarSessionSelection } from '../lib/useSidebarSessionSelection.js';
 import { createWorkspaceFolderOrderController } from '../lib/workspaceFolderOrder.js';
 import { useWorkspaceFolderReorder } from '../lib/useWorkspaceFolderReorder.js';
 import '../styles/workspaceFolderReorder.css';
@@ -332,9 +341,13 @@ function sidebarDropTargetForPointer(clientY, rows, targetForRow) {
   return null;
 }
 
-function pinnedDropTargetForPointer(clientY) {
+function pinnedDropTargetForPointer(clientY, clientX) {
   if (typeof document === 'undefined') return null;
   const rows = Array.from(document.querySelectorAll('[data-sidebar-pinned-key]'));
+  if (rows.length && (clientX < rows[0].getBoundingClientRect().left - 10
+    || clientX > rows[0].getBoundingClientRect().right + 10)) return null;
+  const hit = document.elementFromPoint(clientX, clientY)?.closest('[data-sidebar-workspace-session-key], [data-desktop-workspace-id]');
+  if (hit) return null;
   return sidebarDropTargetForPointer(clientY, rows, (row) => ({
     targetWorkspaceHash: row.dataset.sidebarPinnedWorkspace || '',
     targetId: row.dataset.sidebarPinnedId || '',
@@ -342,9 +355,13 @@ function pinnedDropTargetForPointer(clientY) {
   }));
 }
 
-function workspaceDropTargetForPointer(clientY, workspaceHash, sourceId, clientX) {
+function workspaceDropTargetForPointer(clientY, workspaceHash, sourceId, clientX, sources = []) {
   if (typeof document === 'undefined') return null;
   const workspace = String(workspaceHash || '');
+  const hit = document.elementFromPoint(clientX, clientY)?.closest('[data-sidebar-pinned-key], [data-sidebar-workspace-session-key], [data-desktop-workspace-id]');
+  if (hit?.hasAttribute('data-sidebar-pinned-key')
+    || (hit?.dataset.sidebarWorkspaceSessionWorkspace && hit.dataset.sidebarWorkspaceSessionWorkspace !== workspace)
+    || (hit?.dataset.desktopWorkspaceId && hit.dataset.desktopWorkspaceId !== workspace)) return null;
   const rows = Array.from(document.querySelectorAll('[data-sidebar-workspace-session-key]'))
     .filter((row) => row.dataset.sidebarWorkspaceSessionWorkspace === workspace);
   const entries = rows.map((row) => {
@@ -360,8 +377,15 @@ function workspaceDropTargetForPointer(clientY, workspaceHash, sourceId, clientX
       top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right,
     };
   });
-  if (entries.length && clientX > Math.max(...entries.map(row => row.right)) + 10) return null;
+  if (entries.length && (clientX < Math.min(...entries.map(row => row.left)) - 10
+    || clientX > Math.max(...entries.map(row => row.right)) + 10)) return null;
   const target = sidebarTreeDropTarget(entries, entries.find(row => row.id === sourceId), clientX, clientY);
+  if (target && sources.length) {
+    const parent = entries.find(row => row.key === target.parent);
+    if (sources.some(source => !validSidebarTreeDrop(
+      entries.find(row => row.id === source.id), target, target.placement, parent,
+    ))) return null;
+  }
   return target ? { ...target, targetWorkspaceHash: workspace, targetId: target.id, targetKey: target.dragKey } : null;
 }
 
@@ -377,6 +401,8 @@ function startSidebarSessionPointerDrag({
   event,
   session,
   title,
+  entries = [{ session }],
+  sessionReferences = [],
   showSessionTime = true,
   dragRef,
   conflictingDragRef,
@@ -386,7 +412,7 @@ function startSidebarSessionPointerDrag({
   updateDragScroll,
   updateDragTarget,
 }) {
-  if (event.button !== 0 || dragRef.current || conflictingDragRef?.current) return;
+  if (event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey || dragRef.current || conflictingDragRef?.current) return;
   if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
 
   const workspaceHash = sessionPinScope(session);
@@ -403,10 +429,22 @@ function startSidebarSessionPointerDrag({
     // Best effort; window-level listeners below still own cleanup.
   }
 
+  // 拖到输入框上方时切换成「引用」:高亮输入框、不再计算侧栏内的排序落点。
+  const setComposerTarget = (drag, target) => {
+    if (drag.composerTarget === target) return;
+    drag.composerTarget?.classList.remove(SESSION_REFERENCE_DROP_ACTIVE_CLASS);
+    drag.composerTarget = target;
+    target?.classList.add(SESSION_REFERENCE_DROP_ACTIVE_CLASS);
+  };
+
   const cleanup = () => {
+    if (dragRef.current) setComposerTarget(dragRef.current, null);
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', onCancel);
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('blur', onBlur);
+    pointerTarget.removeEventListener('lostpointercapture', onCancel);
     try {
       pointerTarget.releasePointerCapture?.(pointerId);
     } catch {
@@ -424,6 +462,7 @@ function startSidebarSessionPointerDrag({
     document.body.classList.add('ace-sidebar-session-reordering');
     setDragState({
       sourceKey: drag.sourceKey,
+      sourceKeys: drag.sourceKeys,
       targetKey: drag.sourceKey,
       placement: 'before',
     });
@@ -435,13 +474,26 @@ function startSidebarSessionPointerDrag({
     if (!drag || moveEvent.pointerId !== pointerId) return;
     if (!beginDragIfNeeded(moveEvent)) return;
     moveEvent.preventDefault();
+    const composer = drag.sessionReferences.length
+      ? sessionReferenceDropTargetAt(document, moveEvent.clientX, moveEvent.clientY) : null;
+    setComposerTarget(drag, composer);
     setDragGhost({
-      left: drag.rect.left,
+      left: moveEvent.clientX - drag.offsetX,
       top: moveEvent.clientY - drag.offsetY,
       width: drag.rect.width,
       title: drag.title,
       timeText: drag.timeText,
+      titles: drag.titles,
+      count: drag.entries.length,
+      referenceCount: composer ? drag.sessionReferences.length : 0,
     });
+    if (composer) {
+      drag.targetId = '';
+      drag.targetKey = '';
+      drag.targetTreeKey = '';
+      setDragState({ sourceKey: drag.sourceKey, sourceKeys: drag.sourceKeys, targetKey: '', placement: '' });
+      return;
+    }
     updateDragScroll(moveEvent.clientY);
     updateDragTarget(moveEvent.clientY, moveEvent.clientX);
   }
@@ -450,6 +502,13 @@ function startSidebarSessionPointerDrag({
     const drag = dragRef.current;
     if (!drag || upEvent.pointerId !== pointerId) return;
     if (drag.dragging) upEvent.preventDefault();
+    const composer = drag.dragging ? drag.composerTarget : null;
+    if (composer) {
+      const references = drag.sessionReferences;
+      finishDrag(false);
+      dispatchSessionReferenceDrop(composer, references, { clientX: upEvent.clientX, clientY: upEvent.clientY });
+      return;
+    }
     finishDrag(true);
   }
 
@@ -458,11 +517,21 @@ function startSidebarSessionPointerDrag({
     if (!drag || cancelEvent.pointerId !== pointerId) return;
     finishDrag(false);
   }
+  function onKeyDown(keyEvent) {
+    if (keyEvent.key !== 'Escape') return;
+    keyEvent.preventDefault();
+    finishDrag(false);
+  }
+  function onBlur() { finishDrag(false); }
 
   dragRef.current = {
     workspaceHash,
     sourceId,
     sourceKey,
+    entries,
+    sessionReferences,
+    composerTarget: null,
+    sourceKeys: entries.map(entry => sidebarSessionDragKey(sessionPinScope(entry.session), entry.session.id)),
     targetWorkspaceHash: workspaceHash,
     targetId: sourceId,
     targetKey: sourceKey,
@@ -470,8 +539,11 @@ function startSidebarSessionPointerDrag({
     startX: event.clientX,
     startY: event.clientY,
     offsetY: event.clientY - rect.top,
+    offsetX: event.clientX - rect.left,
     rect,
     title,
+    titles: entries.slice(0, 3).map(entry => entry.session.sidebar_group
+      ? entry.session.sidebar_group_name || title : sessionDisplayTitle(entry.session, entry.session.name || '')),
     timeText: showSessionTime
       ? relativeTime(session.updated_at || session.created_at)
       : '',
@@ -481,6 +553,9 @@ function startSidebarSessionPointerDrag({
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onCancel);
+  window.addEventListener('keydown', onKeyDown);
+  window.addEventListener('blur', onBlur);
+  pointerTarget.addEventListener('lostpointercapture', onCancel);
 }
 
 function hasDesktopBridge() {
@@ -808,6 +883,9 @@ function SessionRow({
   onToggleTree,
 }) {
   const isGroup = s.sidebar_group === true;
+  const selection = useContext(SidebarSessionSelectionContext);
+  const selectionKey = sidebarSelectionKey(s);
+  const selected = !!selection?.keys.has(selectionKey);
   const attention = s.attention_state || s.read_state || 'read';
   const meta = attentionMeta(attention);
   const workspaceHash = s.workspace_hash || s.workspaceHash || '';
@@ -826,7 +904,8 @@ function SessionRow({
   const archiveMarkerIcon = sessionMarker === 'loop' ? 'alarm' : sessionMarker === 'worktree' ? 'worktree' : null;
   const hasTreeChildren = !pinned && Number(s.sidebar_child_count) > 0;
   const showTreeArrow = hasTreeChildren && attention !== 'in_progress' && attention !== 'unread';
-  const selectRow = () => {
+  const selectRow = (event) => {
+    if (selection && !selection.click(event, s)) return;
     if (isGroup) { onToggleTree?.(s); return; }
     onSelect?.(s);
     if (hasTreeChildren) onToggleTree?.(s);
@@ -1008,6 +1087,9 @@ function SessionRow({
   return (
     <div
       ref={rowRef}
+      data-sidebar-selection-key={selectionKey || undefined}
+      data-sidebar-selected={selected ? 'true' : undefined}
+      data-desktop-context-menu-delegate={!isGroup ? 'sidebar-session-selection' : undefined}
       data-desktop-session-id={!isGroup ? s.id || undefined : undefined}
       data-sidebar-group-id={isGroup ? s.id : undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
@@ -1041,6 +1123,7 @@ function SessionRow({
         dropPlacement === 'inside' && 'is-drop-inside',
         !pinned && s.sidebar_parent_key && 'ace-sidebar-session-tree-child',
         active && 'is-tree-active',
+        selected && 'is-multi-selected',
         hasTreeChildren && 'has-tree-children',
         !pinned && importHighlighted && 'is-opencode-import-highlight',
         remoteControlBound && 'is-remote-control-bound',
@@ -1102,7 +1185,7 @@ function SessionRow({
       onClick={(event) => {
         if (event.defaultPrevented) return;
         if (event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
-        selectRow();
+        selectRow(event);
       }}
     >
       {remoteControlSurging && (
@@ -1141,7 +1224,8 @@ function SessionRow({
       ) : (
         <button
           type="button"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectRow(); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectRow(e); }}
+          aria-pressed={isGroup ? undefined : selected}
           aria-expanded={hasTreeChildren ? treeExpanded : undefined}
           aria-describedby={hoverCardVisible ? hoverCardId : undefined}
           aria-label={remoteControlBound
@@ -1430,7 +1514,8 @@ function SessionTreeRows({ sessions, expandedGroups, dragState, children }) {
     return (
       <div key={session.id} className={clsx('ace-sidebar-session-tree-node',
         open && 'is-tree-expanded',
-        dragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(session), session.id) && 'is-tree-dragging')}
+        (dragState?.sourceKeys?.includes(sidebarSessionDragKey(sessionPinScope(session), session.id))
+          || dragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(session), session.id)) && 'is-tree-dragging')}
         data-tree-drop={dragState?.targetKey === sidebarSessionDragKey(sessionPinScope(session), session.id) ? dragState.placement : undefined}
         data-sidebar-tree-node={sidebarNodeKey(session)}>
         {children(session, open)}
@@ -1674,7 +1759,7 @@ function WorkspaceGroup({
                     active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
                     pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
                     pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
-                    dragging={workspaceDragState?.sourceKey === rowKey}
+                    dragging={workspaceDragState?.sourceKeys?.includes(rowKey) || workspaceDragState?.sourceKey === rowKey}
                     dropPlacement={workspaceDragState?.targetKey === rowKey ? workspaceDragState.placement : ''}
                     onWorkspacePointerDown={onWorkspacePointerDown}
                     onSelect={onSelect}
@@ -1746,7 +1831,8 @@ function NoWorkspaceSessionGroup({
               onToggleTree={onToggleSessionGroup}
               workspaceReorderable
               onWorkspacePointerDown={onWorkspacePointerDown}
-              dragging={workspaceDragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(s), s.id)}
+              dragging={workspaceDragState?.sourceKeys?.includes(sidebarSessionDragKey(sessionPinScope(s), s.id))
+                || workspaceDragState?.sourceKey === sidebarSessionDragKey(sessionPinScope(s), s.id)}
               dropPlacement={workspaceDragState?.targetKey === sidebarSessionDragKey(sessionPinScope(s), s.id) ? workspaceDragState.placement : ''}
               active={sessionMatchesRevealTarget(s, activeTarget) || (!activeTarget?.sessionId && s.id === activeId)}
               pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
@@ -1902,6 +1988,8 @@ export function Sidebar({
   const pinnedDragRef = useRef(null);
   const workspaceDragRef = useRef(null);
   const suppressSessionClickRef = useRef(false);
+  const batchOperationRef = useRef(false);
+  const sessionSelection = useSidebarSessionSelection(sidebarScrollRef, sessions, suppressSessionClickRef);
   const [pinnedDragState, setPinnedDragState] = useState(null);
   const [workspaceDragState, setWorkspaceDragState] = useState(null);
   const [sessionDragGhost, setSessionDragGhost] = useState(null);
@@ -2178,61 +2266,71 @@ export function Sidebar({
   const applyPinnedReorder = useCallback(async ({
     workspaceHash,
     sourceId,
+    sourceItems,
     targetWorkspaceHash,
     targetId,
     placement,
   }) => {
-    if (!workspaceHash || !sourceId || !targetWorkspaceHash || !targetId) return;
-    const previousPinned = normalizePinnedIds(pinnedByWorkspaceRef.current.get(workspaceHash) || []);
+    if (!workspaceHash || !sourceId || !targetWorkspaceHash || !targetId || treeSavingRef.current || batchOperationRef.current) return;
+    const previousMap = new Map(pinnedByWorkspaceRef.current);
     const previousOrder = normalizePinnedOrderItems(pinnedOrderItemsRef.current);
     const baseOrder = pinnedOrderItemsFromDom();
     const currentOrder = baseOrder.length ? baseOrder : previousOrder;
-    const sourceItem = { workspace_hash: workspaceHash, session_id: sourceId };
     const targetItem = { workspace_hash: targetWorkspaceHash, session_id: targetId };
-    const nextOrder = reorderPinnedOrderItems(currentOrder, sourceItem, targetItem, placement);
-
-    const sameWorkspace = workspaceHash === targetWorkspaceHash;
-    const nextPinned = sameWorkspace
-      ? reorderPinnedSessionId(previousPinned, sourceId, targetId, placement)
-      : previousPinned;
-    const pinnedChanged = !sameStringArray(previousPinned, nextPinned);
+    const sources = sourceItems || [{ workspace_hash: workspaceHash, session_id: sourceId }];
+    const orderKey = item => sidebarSessionDragKey(item.workspace_hash, item.session_id);
+    const nextOrder = reorderSidebarSelection(currentOrder, sources.map(orderKey), orderKey(targetItem), placement, orderKey);
     const orderChanged = !samePinnedOrderItems(currentOrder, nextOrder);
-    if (!pinnedChanged && !orderChanged) return;
+    if (!orderChanged) return;
+    const scopes = [...new Set(sources.map(item => item.workspace_hash))];
+    const updates = scopes.map(scope => {
+      const previous = normalizePinnedIds(previousMap.get(scope) || []);
+      const ordered = nextOrder.filter(item => item.workspace_hash === scope).map(item => item.session_id);
+      return { scope, previous, next: [...ordered, ...previous.filter(id => !ordered.includes(id))] };
+    }).filter(item => !sameStringArray(item.previous, item.next));
 
-    if (pinnedChanged) setPinnedWorkspaceIds(workspaceHash, nextPinned);
-    if (orderChanged) setPinnedOrder(nextOrder);
+    treeSavingRef.current = true;
+    treeRevisionRef.current += 1;
+    updates.forEach(item => setPinnedWorkspaceIds(item.scope, item.next));
+    setPinnedOrder(nextOrder);
+    const savedScopes = [];
     try {
-      const saves = [];
-      if (pinnedChanged) saves.push(savePinnedScopeIds(workspaceHash, nextPinned));
-      if (orderChanged) saves.push(api.setPinnedSessionOrder(nextOrder));
-      const results = await Promise.all(saves);
-      let resultIndex = 0;
-      if (pinnedChanged) {
-        const saved = results[resultIndex++];
-        setPinnedWorkspaceIds(workspaceHash, normalizePinnedIds(saved?.session_ids || nextPinned));
+      for (const item of updates) {
+        const saved = await savePinnedScopeIds(item.scope, item.next);
+        savedScopes.push(item);
+        setPinnedWorkspaceIds(item.scope, normalizePinnedIds(saved?.session_ids || item.next));
       }
-      if (orderChanged) {
-        const saved = results[resultIndex++];
-        setPinnedOrder(normalizePinnedOrderItems(saved?.items || nextOrder));
-      }
+      const saved = await api.setPinnedSessionOrder(nextOrder);
+      setPinnedOrder(normalizePinnedOrderItems(saved?.items || nextOrder));
     } catch (e) {
-      if (pinnedChanged) setPinnedWorkspaceIds(workspaceHash, previousPinned);
-      if (orderChanged) setPinnedOrder(previousOrder);
+      for (const item of savedScopes) {
+        await savePinnedScopeIds(item.scope, item.previous).catch(() => {});
+      }
+      updates.forEach(item => setPinnedWorkspaceIds(item.scope, item.previous));
+      setPinnedOrder(previousOrder);
       toast({ kind: 'err', text: '置顶排序失败:' + (e.message || '') });
+    } finally {
+      treeSavingRef.current = false;
     }
   }, [savePinnedScopeIds, setPinnedOrder, setPinnedWorkspaceIds]);
 
-  const updatePinnedDragTarget = useCallback((clientY) => {
+  const updatePinnedDragTarget = useCallback((clientY, clientX) => {
     const drag = pinnedDragRef.current;
     if (!drag) return;
-    const target = pinnedDropTargetForPointer(clientY);
-    if (!target) return;
+    const target = pinnedDropTargetForPointer(clientY, clientX);
+    if (!target || drag.sourceKeys.includes(target.targetKey) || drag.entries.some(entry => !entry.pinned)) {
+      drag.targetId = '';
+      drag.targetKey = '';
+      setPinnedDragState({ sourceKey: drag.sourceKey, sourceKeys: drag.sourceKeys, targetKey: '', placement: '' });
+      return;
+    }
     drag.targetWorkspaceHash = target.targetWorkspaceHash;
     drag.targetId = target.targetId;
     drag.targetKey = target.targetKey;
     drag.placement = target.placement;
     setPinnedDragState({
       sourceKey: drag.sourceKey,
+      sourceKeys: drag.sourceKeys,
       targetKey: target.targetKey,
       placement: target.placement,
     });
@@ -2267,6 +2365,7 @@ export function Sidebar({
       applyPinnedReorder({
         workspaceHash: drag.workspaceHash,
         sourceId: drag.sourceId,
+        sourceItems: drag.entries.map(entry => ({ workspace_hash: sessionPinScope(entry.session), session_id: entry.session.id })),
         targetWorkspaceHash: drag.targetWorkspaceHash || drag.workspaceHash,
         targetId: drag.targetId,
         placement: drag.placement || 'before',
@@ -2274,13 +2373,23 @@ export function Sidebar({
     }
   }, [applyPinnedReorder]);
 
+  const workspaceNameForHash = useStableCallback(hash => (
+    workspaces.find(workspace => workspace.hash === hash)?.name || ''
+  ));
+
   const handlePinnedPointerDown = useStableCallback((event, session, title) => {
-    if (folderGestureRef.current) return;
+    if (folderGestureRef.current || treeSavingRef.current || batchOperationRef.current
+      || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey
+      || event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
+    clearSessionHover();
+    const entries = sessionSelection.dragEntries(session, true);
     startSidebarSessionPointerDrag({
       showSessionTime,
       event,
       session,
       title,
+      entries,
+      sessionReferences: sessionReferencesFromEntries(entries, { workspaceNameFor: workspaceNameForHash }),
       dragRef: pinnedDragRef,
       conflictingDragRef: workspaceDragRef,
       finishDrag: finishPinnedDrag,
@@ -2295,11 +2404,14 @@ export function Sidebar({
     const drag = workspaceDragRef.current;
     if (!drag) return;
     drag.lastX = clientX ?? drag.lastX ?? drag.startX;
-    const target = workspaceDropTargetForPointer(clientY, drag.workspaceHash, drag.sourceId, drag.lastX);
+    const compatible = drag.entries.every(entry => !entry.pinned && sessionPinScope(entry.session) === drag.workspaceHash);
+    const target = compatible
+      ? workspaceDropTargetForPointer(clientY, drag.workspaceHash, drag.sourceId, drag.lastX, drag.entries.map(entry => entry.session)) : null;
     if (!target) {
       drag.targetId = '';
       drag.targetKey = '';
-      setWorkspaceDragState({ sourceKey: drag.sourceKey, targetKey: '', placement: '' });
+      drag.targetTreeKey = '';
+      setWorkspaceDragState({ sourceKey: drag.sourceKey, sourceKeys: drag.sourceKeys, targetKey: '', placement: '' });
       return;
     }
     drag.targetWorkspaceHash = drag.workspaceHash;
@@ -2309,6 +2421,7 @@ export function Sidebar({
     drag.targetTreeKey = target.key;
     setWorkspaceDragState({
       sourceKey: drag.sourceKey,
+      sourceKeys: drag.sourceKeys,
       targetKey: target.targetKey,
       placement: target.placement,
     });
@@ -2329,7 +2442,8 @@ export function Sidebar({
       }, 80);
     }
     if (commit && drag.dragging && drag.targetTreeKey && drag.targetId && !treeSavingRef.current) {
-      const source = sessionsRef.current.find(session => session.id === drag.sourceId && sessionPinScope(session) === drag.workspaceHash);
+      const sources = drag.entries.map(entry => entry.session);
+      const source = sources[0];
       if (!source) return;
       treeSavingRef.current = true;
       treeRevisionRef.current += 1;
@@ -2337,7 +2451,8 @@ export function Sidebar({
       const scope = drag.workspaceHash;
       const opts = sidebarTreeOptions(scope, scope === NO_WORKSPACE_PIN_SCOPE ? 0 : (expandedSessionListsRef.current.get(scope) || 5));
       api.moveSidebarSession(scope === NO_WORKSPACE_PIN_SCOPE ? '' : scope, {
-        source: sidebarNodeKey(source), target: drag.targetTreeKey, placement: drag.placement,
+        ...(sources.length > 1 ? { sources: sources.map(sidebarNodeKey) } : { source: sidebarNodeKey(source) }),
+        target: drag.targetTreeKey, placement: drag.placement,
       }, opts).then((raw) => {
         const page = normalizeWorkspaceSessionListResponse(raw);
         treeApplyRef.current?.(scope, page);
@@ -2358,12 +2473,18 @@ export function Sidebar({
   }, [sidebarTreeOptions]);
 
   const handleWorkspacePointerDown = useStableCallback((event, session, title) => {
-    if (folderGestureRef.current || treeSavingRef.current) return;
+    if (folderGestureRef.current || treeSavingRef.current || batchOperationRef.current
+      || event.button !== 0 || event.shiftKey || event.ctrlKey || event.metaKey
+      || event.target?.closest?.('[data-sidebar-row-control="true"], input, textarea, select')) return;
+    clearSessionHover();
+    const entries = sessionSelection.dragEntries(session, false);
     startSidebarSessionPointerDrag({
       showSessionTime,
       event,
       session,
       title,
+      entries,
+      sessionReferences: sessionReferencesFromEntries(entries, { workspaceNameFor: workspaceNameForHash }),
       dragRef: workspaceDragRef,
       conflictingDragRef: pinnedDragRef,
       finishDrag: finishWorkspaceDrag,
@@ -2382,13 +2503,15 @@ export function Sidebar({
     document.body.classList.remove('ace-sidebar-session-reordering');
   }, []);
 
-  const togglePinnedSession = useStableCallback(async (session, nextPinned) => {
+  const togglePinnedSession = useStableCallback(async (session, nextPinned, { silent = false, batch = false } = {}) => {
+    if ((batchOperationRef.current && !batch) || treeSavingRef.current) return false;
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const pinScope = sessionPinScope(session, activeWorkspaceHash);
-    if (!id || !pinScope) return;
+    if (!id || !pinScope) return false;
 
     const previous = normalizePinnedIds(pinnedByWorkspaceRef.current.get(pinScope) || []);
     const shouldPin = typeof nextPinned === 'boolean' ? nextPinned : !previous.includes(id);
+    if (shouldPin === previous.includes(id)) return true;
     const next = shouldPin ? pinSessionId(previous, id) : unpinSessionId(previous, id);
     const previousOrder = normalizePinnedOrderItems(pinnedOrderItemsRef.current);
     const orderItem = { workspace_hash: pinScope, session_id: id };
@@ -2407,14 +2530,16 @@ export function Sidebar({
       const savedOrder = await api.setPinnedSessionOrder(nextOrder);
       setPinnedWorkspaceIds(pinScope, normalizePinnedIds(saved?.session_ids || next));
       setPinnedOrder(normalizePinnedOrderItems(savedOrder?.items || nextOrder));
-      toast({ kind: 'ok', text: shouldPin ? '已置顶' : '已取消置顶' });
+      if (!silent) toast({ kind: 'ok', text: shouldPin ? '已置顶' : '已取消置顶' });
+      return true;
     } catch (e) {
       if (pinStateSaved) {
-        savePinnedScopeIds(pinScope, previous).catch(() => {});
+        await savePinnedScopeIds(pinScope, previous).catch(() => {});
       }
       setPinnedWorkspaceIds(pinScope, previous);
       setPinnedOrder(previousOrder);
-      toast({ kind: 'err', text: (shouldPin ? '置顶失败:' : '取消置顶失败:') + (e.message || '') });
+      if (!silent) toast({ kind: 'err', text: (shouldPin ? '置顶失败:' : '取消置顶失败:') + (e.message || '') });
+      return false;
     }
   });
 
@@ -2588,7 +2713,7 @@ export function Sidebar({
   }, [togglePinnedSession]);
 
   const refresh = useCallback(async (preferredHash = null) => {
-    if (treeSavingRef.current || archiveOperationsRef.current.size > 0) return;
+    if (treeSavingRef.current || batchOperationRef.current || archiveOperationsRef.current.size > 0) return;
     const treeRevision = treeRevisionRef.current;
     const { activeWorkspaceHash, revealTarget } = refreshSelectionRef.current;
     const revealWorkspaceHash = revealTarget.noWorkspace ? '' : revealTarget.workspaceHash;
@@ -2911,14 +3036,15 @@ export function Sidebar({
     }));
   }, []);
 
-  const archiveSession = useStableCallback(async (session) => {
+  const archiveSession = useStableCallback(async (session, { silent = false, batch = false } = {}) => {
+    if ((batchOperationRef.current && !batch) || treeSavingRef.current) return false;
     const id = session?.id || session?.sessionId || session?.session_id || '';
     const noWorkspace = isNoWorkspaceSession(session);
     const workspaceHash = noWorkspace ? '' : (session?.workspace_hash || session?.workspaceHash || activeWorkspaceHash || '');
     const pinScope = noWorkspace ? NO_WORKSPACE_PIN_SCOPE : workspaceHash;
-    if (!id) return;
+    if (!id) return false;
     const loadKey = sidebarSessionLoadKey({ sessionId: id, workspaceHash, noWorkspace });
-    if (archiveOperationsRef.current.has(loadKey)) return;
+    if (archiveOperationsRef.current.has(loadKey)) return false;
     archiveOperationsRef.current.add(loadKey);
     sessionLoadPoolRef.current?.invalidate(loadKey);
     if (sessionSelectionIntentRef.current?.loadKey === loadKey) {
@@ -2974,7 +3100,7 @@ export function Sidebar({
               name: session.workspaceName || session.workspace_name || '',
             });
       }
-      toast({ kind: 'ok', icon: 'archive', text: tr('已归档的聊天'), duration: 8000, dismissible: true, actions: [
+      if (!silent) toast({ kind: 'ok', icon: 'archive', text: tr('已归档的聊天'), duration: 8000, dismissible: true, actions: [
         { label: tr('查看'), onClick: () => onOpenSettingsSection?.('archived') },
         {
           label: tr('撤销'), primary: true, errorText: tr('撤销归档失败：'),
@@ -2991,8 +3117,10 @@ export function Sidebar({
         },
       ] });
       notifyArchiveChanged();
+      return true;
     } catch (e) {
-      toast({ kind: 'err', text: '归档失败:' + (e.message || '') });
+      if (!silent) toast({ kind: 'err', text: '归档失败:' + (e.message || '') });
+      return false;
     } finally {
       archiveOperationsRef.current.delete(loadKey);
     }
@@ -3334,28 +3462,201 @@ export function Sidebar({
     if (manualUnreadActiveRef.current === session.id) manualUnreadActiveRef.current = '';
     const merged = mergeSessionStatus(session, statusBySession);
     const cursor = statusCursor(merged);
-    connection.markSessionRead({
+    if (connection.markSessionRead({
       sessionId: merged.id,
       workspaceHash: merged.workspace_hash || '',
       cursor,
-    });
+    }) === false) return false;
     const optimistic = optimisticReadStatus(merged);
     if (optimistic) desktopTaskbarBadge.updateStatus(optimistic);
     if (optimistic) setStatusBySession((prev) => applyStatusUpdate(prev, optimistic));
+    return true;
   });
 
   const markSessionUnread = useStableCallback((session) => {
     if (!session?.id) return;
     const merged = mergeSessionStatus(session, statusBySession);
-    if (merged.id === activeId) manualUnreadActiveRef.current = merged.id;
-    connection.markSessionUnread({
+    if (connection.markSessionUnread({
       sessionId: merged.id,
       workspaceHash: merged.workspace_hash || '',
-    });
+    }) === false) return false;
+    if (merged.id === activeId) manualUnreadActiveRef.current = merged.id;
     const optimistic = optimisticUnreadStatus(merged);
     if (optimistic) desktopTaskbarBadge.updateStatus(optimistic);
     if (optimistic) setStatusBySession((prev) => applyStatusUpdate(prev, optimistic));
+    return true;
   });
+
+  const applySessionBatchPins = useStableCallback((outcome) => {
+    for (const [scope, ids] of outcome.pinnedScopes) setPinnedWorkspaceIds(scope, ids);
+    if (outcome.pinnedOrder) setPinnedOrder(outcome.pinnedOrder);
+  });
+
+  const applySessionBatchStatuses = useStableCallback((action, outcome) => {
+    const statuses = outcome.statuses;
+    if (!statuses.length) return;
+    const ids = new Set(outcome.succeeded.map(({ entry }) => entry.session.id));
+    if (action === 'unread' && ids.has(activeId)) manualUnreadActiveRef.current = activeId;
+    if (action === 'read' && ids.has(manualUnreadActiveRef.current)) manualUnreadActiveRef.current = '';
+    statuses.forEach(status => desktopTaskbarBadge.updateStatus(status));
+    setStatusBySession(prev => statuses.reduce((map, status) => applyStatusUpdate(map, status), prev));
+  });
+
+  // 归档后的列表收尾:每个作用域只刷新一次。已置顶的行没有补位,与置顶一起立刻移除,
+  // 免得在普通列表里闪一下(同单项归档)。
+  const finishSessionBatchArchive = useStableCallback(async (outcome) => {
+    const archived = outcome.succeeded.map(({ entry }) => entry);
+    const loadKeyOf = item => sidebarSessionLoadKey({
+      sessionId: item.id || item.session_id || item.sessionId,
+      workspaceHash: item.workspace_hash || item.workspaceHash || '',
+      noWorkspace: isNoWorkspaceSession(item),
+    });
+    const removeRows = (rows) => {
+      const keys = new Set(rows.map(entry => loadKeyOf(entry.session)));
+      if (keys.size) setSessions(prev => prev.filter(item => !keys.has(loadKeyOf(item))));
+    };
+    removeRows(archived.filter(entry => entry.pinned));
+    applySessionBatchPins(outcome);
+    if (!archived.length) return;
+    archived.forEach(entry => desktopTaskbarBadge.removeSession(entry.session.id));
+    const scopes = sessionBatchScopes(archived);
+    scopes.forEach(scope => invalidateArchiveLists(scope));
+    const refreshed = await Promise.all(scopes.map(scope => refreshArchivedScope(scope)));
+    if (refreshed.some(ok => !ok)) removeRows(archived);
+    const revealed = archived.find(entry => sessionMatchesRevealTarget(entry.session, treeNavigationRef.current));
+    if (revealed) {
+      const session = revealed.session;
+      onOpenHome?.(isNoWorkspaceSession(session)
+        ? { noWorkspace: true, name: '不使用工作区' }
+        : {
+            hash: session.workspace_hash || session.workspaceHash || '',
+            workspaceHash: session.workspace_hash || session.workspaceHash || '',
+            cwd: session.cwd || '',
+            name: session.workspaceName || session.workspace_name || '',
+          });
+    }
+    notifyArchiveChanged();
+    if (outcome.failed.length) return;
+    toast({ kind: 'ok', icon: 'archive', text: tr('已归档 {{count}} 个会话', { count: archived.length }), duration: 8000, dismissible: true, actions: [
+      { label: tr('查看'), onClick: () => onOpenSettingsSection?.('archived') },
+      {
+        label: tr('撤销'), primary: true, errorText: tr('撤销归档失败：'),
+        onClick: async () => {
+          const restored = await api.batchSessions('unarchive', sessionBatchItems('unarchive', archived));
+          scopes.forEach(scope => invalidateArchiveLists(scope));
+          const ok = await Promise.all(scopes.map(scope => refreshArchivedScope(scope)));
+          if (ok.some(item => !item)) {
+            const restoredOutcome = sessionBatchOutcome(restored, archived);
+            setSessions(prev => restoredOutcome.succeeded.reduce((list, { entry, result }) => (
+              upsertSidebarSession(list, { ...entry.session, ...(result.session || {}), archived: false })
+            ), prev));
+          }
+          notifyArchiveChanged();
+        },
+      },
+    ] });
+  });
+
+  const runSessionBatch = useStableCallback(async (action, entries) => {
+    if (batchOperationRef.current || treeSavingRef.current || !entries.length) return;
+    batchOperationRef.current = true;
+    treeRevisionRef.current += 1;
+    const archiving = action === 'archive';
+    const archiveKeys = [];
+    if (archiving) {
+      for (const { session } of entries) {
+        const loadKey = sidebarSessionLoadKey({
+          sessionId: session.id,
+          workspaceHash: isNoWorkspaceSession(session) ? '' : (session.workspace_hash || session.workspaceHash || ''),
+          noWorkspace: isNoWorkspaceSession(session),
+        });
+        archiveKeys.push(loadKey);
+        archiveOperationsRef.current.add(loadKey);
+        sessionLoadPoolRef.current?.invalidate(loadKey);
+        if (sessionSelectionIntentRef.current?.loadKey === loadKey) cancelSessionSelection();
+      }
+    }
+    try {
+      const response = await api.batchSessions(action, sessionBatchItems(action, entries, {
+        cursorFor: session => statusCursor(mergeSessionStatus(session, statusBySession)),
+      }));
+      const outcome = sessionBatchOutcome(response, entries);
+      if (archiving) await finishSessionBatchArchive(outcome);
+      else if (action === 'read' || action === 'unread') applySessionBatchStatuses(action, outcome);
+      else applySessionBatchPins(outcome);
+      if (outcome.failedKeys.length) sessionSelection.retain(outcome.failedKeys);
+      if (outcome.failed.length || !archiving) {
+        toast({
+          kind: outcome.failed.length ? 'err' : 'ok',
+          text: outcome.failed.length
+            ? tr('批量操作：成功 {{success}} 项，失败 {{failed}} 项', { success: outcome.succeeded.length, failed: outcome.failed.length })
+            : tr('已处理 {{count}} 个会话', { count: entries.length }),
+        });
+      }
+    } catch (e) {
+      sessionSelection.retain(entries.map(entry => entry.key));
+      toast({ kind: 'err', text: tr('批量操作失败：') + (e?.message || '') });
+    } finally {
+      batchOperationRef.current = false;
+      archiveKeys.forEach(key => archiveOperationsRef.current.delete(key));
+      if (action === 'pin' || action === 'unpin') {
+        for (const scope of sessionBatchScopes(entries)) {
+          treeReloadRef.current?.(scope);
+        }
+      }
+    }
+  });
+
+  const handleSelectionContextMenu = useStableCallback((event) => {
+    const detail = event.detail;
+    if (detail?.name !== 'sidebar-session-selection' || !sidebarScrollRef.current?.contains(detail.element)) return;
+    clearSessionHover();
+    const key = detail.element.dataset.sidebarSelectionKey;
+    const selected = sessionSelection.entries();
+    if (!selected.some(entry => entry.key === key)) {
+      const session = sessionsRef.current.find(item => sidebarSelectionKey(item) === key);
+      if (session) sessionSelection.selectOnly(session);
+      return; // The existing single-session menu owns this row.
+    }
+    if (selected.length < 2) return;
+    detail.handled = true;
+    const allPinned = selected.every(entry => entry.pinned);
+    const anyPinned = selected.some(entry => entry.pinned);
+    const unread = entry => mergeSessionStatus(entry.session, statusBySession).attention_state === 'unread';
+    const allUnread = selected.every(unread);
+    const anyUnread = selected.some(unread);
+    const item = (action, label, icon) => ({
+      id: `sidebar-batch-${action}`, label: `${tr(label)} (${selected.length})`, icon,
+      enabled: !batchOperationRef.current && !treeSavingRef.current,
+      onSelect: () => runSessionBatch(action, selected),
+    });
+    openDesktopContextMenu({
+      x: detail.x, y: detail.y, placement: 'pointer', target: detail.element,
+      trigger: detail.element.querySelector('.ace-sidebar-session-title-button'),
+      includeContextActions: false,
+      leadingItems: [
+        item(allPinned ? 'unpin' : 'pin', allPinned ? '取消置顶' : '置顶', allPinned ? 'pinOff' : 'pin'),
+        ...(!allPinned && anyPinned ? [item('unpin', '取消置顶', 'pinOff')] : []),
+        item(allUnread ? 'read' : 'unread', allUnread ? '标记为已读' : '标记为未读', allUnread ? 'check' : 'StatusNotStarted'),
+        ...(!allUnread && anyUnread ? [item('read', '标记为已读', 'check')] : []),
+        { ...item('archive', '归档', 'archive'), separatorBefore: true },
+      ],
+    });
+  });
+  useEffect(() => {
+    window.addEventListener(CONTEXT_MENU_DELEGATE_EVENT, handleSelectionContextMenu);
+    return () => window.removeEventListener(CONTEXT_MENU_DELEGATE_EVENT, handleSelectionContextMenu);
+  }, [handleSelectionContextMenu]);
+
+  const clearSidebarSelection = useStableCallback((event) => {
+    if (event.key === 'Escape' && !event.defaultPrevented && !pinnedDragRef.current && !workspaceDragRef.current) {
+      sessionSelection.clear();
+    }
+  });
+  useEffect(() => {
+    window.addEventListener('keydown', clearSidebarSelection);
+    return () => window.removeEventListener('keydown', clearSidebarSelection);
+  }, [clearSidebarSelection]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -3893,6 +4194,7 @@ export function Sidebar({
     <>
       <SessionHoverLifecycleContext.Provider value={sessionHoverContextValue}>
       <SidebarSessionTimeContext.Provider value={showSessionTime}>
+      <SidebarSessionSelectionContext.Provider value={sessionSelection}>
       <aside
         data-tour-target="sidebar"
         data-collapsed={collapsed ? 'true' : 'false'}
@@ -3941,6 +4243,11 @@ export function Sidebar({
             ref={sidebarScrollRef}
             className="ace-sidebar-scroll flex-1 overflow-y-auto pb-2"
             onScroll={handleSidebarListScroll}
+            onPointerDown={(event) => {
+              if (event.button === 0 && !event.target?.closest?.('.ace-sidebar-session-row, button, input, textarea, select')) {
+                sessionSelection.clear();
+              }
+            }}
           >
             <SidebarSectionHeader
               sectionId={SIDEBAR_SECTION_IDS.PINNED}
@@ -3961,7 +4268,7 @@ export function Sidebar({
                       active={sessionMatchesRevealTarget(s, selectedRevealTarget) || (!selectedRevealTarget.sessionId && s.id === activeId)}
                       pendingPermission={sessionHasPendingPermission(s, pendingPermissionSessionIds)}
                       pendingQuestion={sessionHasPendingQuestion(s, pendingQuestionSessionIds)}
-                      dragging={pinnedDragState?.sourceKey === rowKey}
+                      dragging={pinnedDragState?.sourceKeys?.includes(rowKey) || pinnedDragState?.sourceKey === rowKey}
                       dropPlacement={pinnedDragState?.targetKey === rowKey ? pinnedDragState.placement : ''}
                       onPinnedPointerDown={handlePinnedPointerDown}
                       onSelect={(session) => {
@@ -4095,20 +4402,31 @@ export function Sidebar({
               </div>
             )}
           </div>
-          {sessionDragGhost && (
+          {sessionDragGhost && createPortal(
             <div
-              className="ace-sidebar-session-drag-ghost"
+              className="ace-sidebar-session-drag-stack"
               data-ace-native-overlay="overlap"
+              aria-hidden="true"
               style={{
                 left: sessionDragGhost.left,
                 top: sessionDragGhost.top,
                 width: sessionDragGhost.width,
               }}
             >
-              <span className="w-2 shrink-0" aria-hidden="true" />
-              <span className="flex-1 min-w-0 truncate">{sessionDragGhost.title}</span>
-              <span className="text-[10px] text-fg-mute shrink-0">{sessionDragGhost.timeText}</span>
-            </div>
+              {sessionDragGhost.count > 1 && <span className="ace-sidebar-session-drag-count">{sessionDragGhost.count}</span>}
+              {sessionDragGhost.titles.map((title, index) => (
+                <div className="ace-sidebar-session-drag-ghost" key={index} style={{ marginLeft: index * 5 }}>
+                  <VsIcon name="chat" size={16} className="shrink-0 text-fg-mute" />
+                  <span className="flex-1 min-w-0 truncate">{title}</span>
+                  {sessionDragGhost.count === 1 && <span className="text-[10px] text-fg-mute shrink-0">{sessionDragGhost.timeText}</span>}
+                </div>
+              ))}
+              {sessionDragGhost.referenceCount > 0 && (
+                <div className="ace-sidebar-session-drag-hint" data-session-reference-drop-hint="true">
+                  {tr('松开以引用 {{count}} 个会话', { count: sessionDragGhost.referenceCount })}
+                </div>
+              )}
+            </div>, document.body
           )}
         </div>
         <div className="ace-sidebar-footer shrink-0 pl-[9px] pr-1.5 py-2 flex items-center gap-1">
@@ -4188,6 +4506,7 @@ export function Sidebar({
         </div>
       </div>
       </aside>
+      </SidebarSessionSelectionContext.Provider>
       </SidebarSessionTimeContext.Provider>
       </SessionHoverLifecycleContext.Provider>
       {folderReorder.drag && createPortal(

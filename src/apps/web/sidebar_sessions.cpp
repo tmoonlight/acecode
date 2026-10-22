@@ -83,16 +83,31 @@ json WebServer::Impl::sidebar_session_page(const acecode::desktop::WorkspaceMeta
     auto tree = build_sidebar_tree(summaries, layout);
     if (move.is_object() && !move.empty()) {
         std::string error;
-        const auto source_key = move.value("source", "");
-        if (!move_sidebar_node(tree, layout, move.value("source", ""), move.value("target", ""),
-                               move.value("placement", ""), error)) return {{"error", error}};
+        std::vector<std::string> sources;
+        if (move.contains("sources")) {
+            if (!move["sources"].is_array()) return {{"error", "SIDEBAR_INVALID_SOURCES"}};
+            for (const auto& source : move["sources"]) {
+                if (!source.is_string()) return {{"error", "SIDEBAR_INVALID_SOURCES"}};
+                sources.push_back(source.get<std::string>());
+            }
+        } else if (move.contains("source") && move["source"].is_string()) {
+            sources.push_back(move["source"].get<std::string>());
+        }
+        if (!move.contains("target") || !move["target"].is_string()
+            || !move.contains("placement") || !move["placement"].is_string()) {
+            return {{"error", "SIDEBAR_INVALID_PLACEMENT"}};
+        }
+        if (!move_sidebar_nodes(tree, layout, sources, move["target"].get<std::string>(),
+                                move["placement"].get<std::string>(), error)) return {{"error", error}};
         if (!write_sidebar_layout(layout_path, layout, error)) return {{"error", "SIDEBAR_SAVE_FAILED"}, {"detail", error}};
         tree = build_sidebar_tree(summaries, layout);
-        const auto& moved = tree.nodes.at(source_key);
-        const auto root = moved.parent.empty() ? moved.key : moved.parent;
-        if (!moved.parent.empty()) expanded.insert(moved.parent);
-        const auto index = std::find(tree.roots.begin(), tree.roots.end(), root) - tree.roots.begin();
-        if (limit > 0) limit = std::max(limit, static_cast<int>((index / 5 + 1) * 5));
+        for (const auto& source : sources) {
+            const auto& moved = tree.nodes.at(source);
+            const auto root = moved.parent.empty() ? moved.key : moved.parent;
+            if (!moved.parent.empty()) expanded.insert(moved.parent);
+            const auto index = std::find(tree.roots.begin(), tree.roots.end(), root) - tree.roots.begin();
+            if (limit > 0) limit = std::max(limit, static_cast<int>((index / 5 + 1) * 5));
+        }
     }
     for (const auto& [key, node] : tree.nodes) {
         if (reveal.empty() || node.session_id != reveal) continue;
@@ -195,8 +210,9 @@ crow::response WebServer::Impl::handle_sidebar_sessions(const crow::request& req
         }
         const auto* raw_reveal = req.url_params.get("reveal");
         const auto move = req.method == crow::HTTPMethod::POST ? json::parse(req.body) : json{};
-        if (!move.is_null() && (!move.is_object() || !move.contains("source") || !move.contains("target") || !move.contains("placement"))) {
-            return respond(400, {{"error", "source, target and placement required"}});
+        if (!move.is_null() && (!move.is_object() || (!move.contains("source") && !move.contains("sources"))
+            || !move.contains("target") || !move.contains("placement"))) {
+            return respond(400, {{"error", "source or sources, target and placement required"}});
         }
         auto body = sidebar_session_page(ws, no_workspace, parse_session_list_limit(req.url_params.get("limit")),
                                          std::move(expanded), raw_reveal ? raw_reveal : "", move);

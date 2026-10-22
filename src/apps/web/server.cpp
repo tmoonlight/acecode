@@ -136,6 +136,7 @@ void WebServer::Impl::register_routes() {
     register_usage();
     register_workspaces();
     register_pinned_sessions();
+    register_session_batch();
     register_sessions();
     register_desktop_office();
     register_task_suggestions();
@@ -146,6 +147,7 @@ void WebServer::Impl::register_routes() {
     register_ios_simulator();
     register_summary_generation();
     register_tool_rewrites();
+    register_agent_browser();
     register_memory();
     register_tool_preamble();
     register_security();

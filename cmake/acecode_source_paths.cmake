@@ -4,15 +4,19 @@ set(ACECODE_UPGRADE_MANIFEST_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/upgrade/ma
 set(ACECODE_CHANNEL_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/host/channels/bridge.cpp")
 set(ACECODE_WINPTY_AGENT_LOCATION_SOURCE "${CMAKE_SOURCE_DIR}/src/base/pty/winpty_agent_location.cpp")
 set(ACECODE_DEEPIN_WINDOW_EFFECTS_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/deepin_window_effects.cpp")
-set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp")
+set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_cookie_bridge.cpp")
 set(ACECODE_MACOS_CLI_LAUNCHER_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/macos_cli_launcher.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/splash_screen.cpp")
 set(ACECODE_DESKTOP_WEB_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/web_host.cpp")
 set(ACECODE_DESKTOP_PET_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp")
 set(ACECODE_DESKTOP_PET_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet_mac.mm")
 set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_desktop.cpp")
-set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp")
-set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_mac.mm")
+set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_windows_helpers.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_common.cpp")
+set(ACECODE_AGENT_BROWSER_HOST_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host_mac.mm"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_macos_helpers.mm")
 set(ACECODE_IOS_SIMULATOR_VIEW_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view.cpp")
 set(ACECODE_IOS_SIMULATOR_VIEW_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view_mac.mm")
 set(ACECODE_IOS_SIMULATOR_VIEW_BRIDGE_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/ios_simulator_view_bridge.cpp")
@@ -81,6 +85,10 @@ set(ACECODE_COMPUTER_USE_NATIVE_MAC_SMOKE_SOURCES
     ${ACECODE_COMPUTER_USE_PROCESS_SOURCE})
 set(ACECODE_AGENT_BROWSER_HOST_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/agent_browser_host_smoke.cpp
+    ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
+    ${ACECODE_BROWSER_CDP_SOURCE})
+set(ACECODE_AGENT_BROWSER_COOKIE_SMOKE_SOURCES
+    ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/agent_browser_cookie_smoke.cpp
     ${ACECODE_AGENT_BROWSER_HOST_SOURCE}
     ${ACECODE_BROWSER_CDP_SOURCE})
 set(ACECODE_MICROPHONE_PERMISSION_SMOKE_SOURCES

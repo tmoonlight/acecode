@@ -34,33 +34,28 @@ export function solveResponsiveSidebars({
   const active = enabled && shellWidth > 0
     && !(preferences.sidePanelMaximized && previewAvailable && rightWanted);
   const leftWidth = widths.sidebar || DEFAULT_SINGLE_LAYOUT.sidebar;
-  // A manually closed workspace opens with its navigation visible. Predict
-  // that space too, otherwise expand could squeeze the transcript immediately.
-  const listCollapsed = rightWanted && !!preferences.sidePanelListCollapsed;
-  const fitsRight = (available, required) => solveSingleContentLayout({
+  // Only the left sidebar responds to transcript pressure. Account for the
+  // right workspace's manual visibility when predicting the expanded layout.
+  const fitsWithLeft = (available, required) => solveSingleContentLayout({
     contentWidth: available,
     sidePanelWidth: widths.sidePanel,
     previewPanelWidth: widths.previewPanel,
-    sidePanelCollapsed: listCollapsed,
-    previewPanelVisible: previewAvailable,
+    sidePanelVisible: rightWanted,
+    sidePanelCollapsed: !!preferences.sidePanelListCollapsed,
+    previewPanelVisible: rightWanted && previewAvailable,
     previewPanelAutoFit: previewAutoFit,
     minimumChatWidth: required,
   }).chatWidth >= required;
 
-  const leftAutoCollapsed = active && shellWidth - leftWidth
-    < minimumChatWidth + (previous.leftAutoCollapsed ? SIDEBAR_RESTORE_MARGIN : 0);
+  const leftAutoCollapsed = active && !fitsWithLeft(
+    shellWidth - leftWidth,
+    minimumChatWidth + (previous.leftAutoCollapsed ? SIDEBAR_RESTORE_MARGIN : 0),
+  );
   const leftDocked = leftWanted && !leftAutoCollapsed;
-  const rightAutoCollapsed = active && ((leftWanted && leftAutoCollapsed) || !fitsRight(
-    shellWidth - (leftDocked ? leftWidth : 0),
-    minimumChatWidth + (previous.rightAutoCollapsed ? SIDEBAR_RESTORE_MARGIN : 0),
-  ));
-  const rightDocked = rightWanted && !rightAutoCollapsed;
-  const canDockLeft = !active || (!leftAutoCollapsed && (!rightDocked || leftWanted
-    || fitsRight(shellWidth - leftWidth, minimumChatWidth)));
   return {
     active, transcriptMinimum, minimumChatWidth,
-    leftAutoCollapsed, rightAutoCollapsed, leftDocked, rightDocked,
-    canDockLeft, canDockRight: !rightAutoCollapsed,
+    leftAutoCollapsed, leftDocked, canDockLeft: !leftAutoCollapsed,
+    rightAutoCollapsed: false, rightDocked: rightWanted, canDockRight: true,
   };
 }
 

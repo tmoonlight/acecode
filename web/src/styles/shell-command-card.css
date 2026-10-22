@@ -42,6 +42,16 @@
 .ace-shell-card-body { padding: 4px 12px 12px; }
 .ace-shell-card-command { padding-right: 24px; color: var(--ace-fg-2); }
 .ace-shell-card-output { margin-top: 12px; color: var(--ace-fg-mute); }
+.ace-shell-command-card[data-transcript="true"] .ace-shell-card-body { padding: 0; }
+.ace-shell-command-card[data-transcript="true"] .ace-shell-card-command,
+.ace-shell-command-card[data-transcript="true"] .ace-shell-card-output {
+  margin: 0;
+  padding: 12px 16px;
+  padding-right: 48px;
+}
+.ace-shell-command-card[data-transcript="true"] .ace-shell-card-command + .ace-shell-card-output {
+  border-top: 1px solid var(--ace-border);
+}
 .ace-shell-card-command,
 .ace-shell-card-output { position: relative; min-width: 0; }
 

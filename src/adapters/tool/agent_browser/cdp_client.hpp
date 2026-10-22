@@ -54,6 +54,11 @@ public:
     bool close_page(std::chrono::milliseconds timeout,
                     const std::atomic<bool>* abort_flag,
                     std::string& error);
+    // 提醒 Desktop 处理状态文件里的 cookie 存储待办(永久删除会话后的存储删除)。
+    // 不带数据;旧版 Desktop 不认识这个操作时返回 false 与它的报错。
+    bool drain_store_tasks(std::chrono::milliseconds timeout,
+                           const std::atomic<bool>* abort_flag,
+                           std::string& error);
 
     nlohmann::json command(
         const std::string& method,

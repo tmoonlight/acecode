@@ -16,6 +16,16 @@ assert.equal(searchSettings(entries, '侧边聊天存续时间')[0].section, 'ge
 assert.equal(searchSettings(entries, 'side chat retention')[0].label, '侧边聊天存续时间');
 console.log('[pass] bilingual settings search, ranking, cross-section and empty queries');
 
+// Agent 浏览器「保留 Cookie」(add-agent-browser-cookie-modes)。
+// 触发场景:用户想找「怎么让浏览器记住登录」,搜 cookie / 登录 / 清除浏览数据。
+// 期望:都能命中「工具」分区里的「保留 Cookie」,且排在第一位。
+for (const query of ['cookie', '登录', '清除浏览数据', '保留 Cookie']) {
+  const hit = searchSettings(entries, query)[0];
+  assert.equal(hit?.section, 'tools', query);
+  assert.equal(hit?.label, '保留 Cookie', query);
+}
+console.log('[pass] agent browser cookie setting is searchable by cookie and sign-in words');
+
 // 全局搜索面板 → 设置窗口的选中项对齐(settingsSearchResultIndex)。
 // 触发场景:用户在 Ctrl+K 面板里搜 'path',从 8 条设置命中里选了不是第一条的「工作空间路径」。
 // 期望:设置窗口用同一个查询重跑后,选中下标指向同一条(按 id 对齐);

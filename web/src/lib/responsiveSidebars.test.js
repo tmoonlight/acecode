@@ -32,50 +32,48 @@ run('resizing either popup never changes the docked layout decision', () => {
   }
 });
 
-run('transcript pressure collapses right first then left, including a wide custom left bar', () => {
+run('transcript pressure only collapses the left sidebar, including a wide custom left bar', () => {
   for (const sidebar of [160, 270, 360]) {
     const widths = { ...DEFAULT_SINGLE_LAYOUT, sidebar };
     let previous = solve(1920, { widths });
     assert.equal(previous.leftDocked, true);
     assert.equal(previous.rightDocked, true);
-    let rightCollapsed = false;
     for (let width = 1920; width >= 320; width -= 1) {
       previous = solve(width, { widths, previous });
-      if (previous.rightAutoCollapsed) rightCollapsed = true;
-      if (previous.leftAutoCollapsed) {
-        assert.ok(rightCollapsed);
-        assert.equal(previous.rightDocked, false);
-      }
+      assert.equal(previous.rightAutoCollapsed, false);
+      assert.equal(previous.rightDocked, true);
+      assert.equal(previous.canDockRight, true);
       const transcript = width - (previous.leftDocked ? sidebar : 0)
-        - (previous.rightDocked ? widths.sidePanel : 0) - 6;
-      assert.ok(transcript >= Math.min(350, width - 6));
+        - widths.sidePanel - 6;
+      assert.ok(transcript >= Math.min(350, width - widths.sidePanel - 6));
     }
   }
 });
 
-run('every font size keeps docked sidebars at 350px of transcript and collapses below it', () => {
+run('left collapse uses 350px of transcript with either manual right-panel state for every font size', () => {
   for (const fontSize of ['small', 'medium', 'large']) {
-    const rightThreshold = 270 + 280 + 350 + 6;
-    assert.equal(solve(rightThreshold, { fontSize }).rightDocked, true);
-    assert.equal(solve(rightThreshold - 1, { fontSize }).rightDocked, false);
-    const leftThreshold = 270 + 350 + 6;
-    assert.equal(solve(leftThreshold, { fontSize }).leftDocked, true);
-    assert.equal(solve(leftThreshold - 1, { fontSize }).leftDocked, false);
+    for (const sidePanelCollapsed of [false, true]) {
+      const options = { fontSize, preferences: { ...defaults.preferences, sidePanelCollapsed } };
+      const threshold = 270 + (sidePanelCollapsed ? 0 : 280) + 350 + 6;
+      assert.equal(solve(threshold, options).leftDocked, true);
+      assert.equal(solve(threshold - 1, options).leftDocked, false);
+      assert.equal(solve(threshold - 1, options).rightDocked, !sidePanelCollapsed);
+    }
   }
 });
 
 run('restore uses predicted expanded geometry plus hysteresis, without oscillation', () => {
   const threshold = 270 + 280 + 356;
   let state = solve(threshold - 1);
-  assert.equal(state.rightDocked, false);
+  assert.equal(state.leftDocked, false);
   for (let i = 0; i < 30; i++) {
     state = solve(threshold + (i % 2 ? 1 : -1), { previous: state });
-    assert.equal(state.rightDocked, false);
+    assert.equal(state.leftDocked, false);
   }
   state = solve(threshold + SIDEBAR_RESTORE_MARGIN, { previous: state });
-  assert.equal(state.rightDocked, true);
+  assert.equal(state.leftDocked, true);
   state = solve(threshold, { previous: state });
-  assert.equal(state.rightDocked, true);
+  assert.equal(state.leftDocked, true);
 });
 
 run('all persisted open/closed combinations survive shrink, grow and a fresh load', () => {
@@ -86,7 +84,7 @@ run('all persisted open/closed combinations survive shrink, grow and a fresh loa
     for (const width of [1100, 800, 500, 320, 500, 800, 1100, 1920]) {
       previous = solve(width, { ...options, previous });
       if (sidebarCollapsed) assert.equal(previous.leftDocked, false);
-      if (sidePanelCollapsed) assert.equal(previous.rightDocked, false);
+      assert.equal(previous.rightDocked, !sidePanelCollapsed);
     }
     assert.equal(previous.leftDocked, !sidebarCollapsed);
     assert.equal(previous.rightDocked, !sidePanelCollapsed);
@@ -95,9 +93,11 @@ run('all persisted open/closed combinations survive shrink, grow and a fresh loa
 });
 
 run('previews and subagent transcripts contribute real width, while auto-fit can retain readable chat', () => {
-  assert.equal(solve(1300).rightDocked, true);
-  assert.equal(solve(1300, { previewAvailable: true }).rightDocked, false);
-  assert.equal(solve(1200, { subagentOpen: true }).rightDocked, false);
+  assert.equal(solve(1300).leftDocked, true);
+  assert.equal(solve(1300, { previewAvailable: true }).leftDocked, false);
+  assert.equal(solve(1300, { previewAvailable: true }).rightDocked, true);
+  assert.equal(solve(1200, { subagentOpen: true }).leftDocked, false);
+  assert.equal(solve(1200, { subagentOpen: true }).rightDocked, true);
   const state = solve(1920, { previewAvailable: true, previewAutoFit: true });
   assert.equal(state.rightDocked, true);
   const layout = solveSingleContentLayout({ contentWidth: 1920 - 270, previewPanelVisible: true,
@@ -105,13 +105,25 @@ run('previews and subagent transcripts contribute real width, while auto-fit can
   assert.ok(layout.chatWidth - 6 >= 350);
 });
 
-run('a closed panel cannot expand in place unless its predicted width fits', () => {
+run('only the left panel requires enough width to expand in place', () => {
   const preferences = { sidebarCollapsed: true, sidePanelCollapsed: true };
   assert.equal(solve(600, { preferences }).canDockLeft, false);
-  assert.equal(solve(600, { preferences }).canDockRight, false);
+  assert.equal(solve(600, { preferences }).canDockRight, true);
   assert.equal(solve(1920, { preferences }).canDockLeft, true);
   assert.equal(solve(1920, { preferences }).canDockRight, true);
   assert.equal(solve(900, { preferences: { ...preferences, sidePanelCollapsed: false } }).canDockLeft, false);
+});
+
+run('manually hidden right content reserves no width, while visible details still count', () => {
+  const closed = { ...defaults.preferences, sidePanelCollapsed: true };
+  assert.equal(solve(700, { preferences: closed, previewAvailable: true }).leftDocked, true);
+  const listClosed = { ...defaults.preferences, sidePanelListCollapsed: true };
+  assert.equal(solve(700, { preferences: listClosed }).leftDocked, true);
+  assert.equal(solve(1000, { preferences: listClosed, previewAvailable: true }).leftDocked, false);
+  assert.equal(solve(1100, { preferences: listClosed, previewAvailable: true }).leftDocked, true);
+  const stale = solve(480, { previous: { rightAutoCollapsed: true } });
+  assert.equal(stale.rightAutoCollapsed, false);
+  assert.equal(stale.rightDocked, true);
 });
 
 run('explicit maximized preview and disabled layout retain their existing behavior', () => {
@@ -127,7 +139,8 @@ run('the native window minimum allows reaching a transcript-only layout for ever
   const minimum = Number(header.match(/kMinimumDesktopWindowWidth\s*=\s*(\d+)/)?.[1]);
   assert.ok(minimum > 0, 'read the production native window minimum');
   for (const sidebar of [160, 270, 360]) {
-    const state = solve(minimum, { widths: { ...DEFAULT_SINGLE_LAYOUT, sidebar } });
+    const state = solve(minimum, { widths: { ...DEFAULT_SINGLE_LAYOUT, sidebar },
+      preferences: { ...defaults.preferences, sidePanelCollapsed: true } });
     assert.equal(state.leftDocked, false, `native minimum ${minimum} must allow the ${sidebar}px left sidebar to collapse`);
     assert.equal(state.rightDocked, false, 'native resizing must reach a transcript-only layout');
   }
