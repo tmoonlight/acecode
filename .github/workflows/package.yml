@@ -998,7 +998,7 @@ jobs:
       - name: Set up CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: '3.29.x'
+          cmake-version: '3.29.9'
 
       - name: Build pinned DTK 5 SDK
         if: matrix.build_desktop
