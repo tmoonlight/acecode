@@ -3050,6 +3050,7 @@ body {
   inset: 0 0 0 var(--ace-home-sidebar-width, 0px);
   background-color: var(--ace-home-background-color, var(--ace-bg));
   background-image: var(--ace-home-background-image);
+  background-blend-mode: var(--ace-home-background-blend, normal);
   background-position: right top;
   background-size: cover;
   background-repeat: no-repeat;
@@ -3084,6 +3085,7 @@ body {
   inset: 0;
   z-index: -1;
   background-image: var(--ace-session-background-image);
+  background-blend-mode: var(--ace-session-background-blend, normal);
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
@@ -3092,6 +3094,7 @@ body {
 [data-theme-user-message-background="true"] .ace-user-message-bubble {
   background-color: var(--ace-user-message-background-color, var(--ace-accent-bg));
   background-image: var(--ace-user-message-background-image);
+  background-blend-mode: var(--ace-user-message-background-blend, normal);
   background-position: right bottom;
   background-size: var(--ace-user-message-background-size, 720px auto);
   background-repeat: no-repeat;

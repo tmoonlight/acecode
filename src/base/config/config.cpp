@@ -229,6 +229,18 @@ bool is_valid_web_ui_font_size(const std::string& font_size) {
            font_size == "large";
 }
 
+bool is_valid_web_ui_theme_variant(const std::string& variant) {
+    if (variant.empty()) return true;
+    if (variant.size() > 24 || variant.front() == '-' || variant.back() == '-') return false;
+    char previous = 0;
+    for (const char c : variant) {
+        const bool word = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+        if (!word && (c != '-' || previous == '-')) return false;
+        previous = c;
+    }
+    return true;
+}
+
 nlohmann::json connectors_to_json(const std::vector<ConnectorConfig>& connectors) {
     nlohmann::json items = nlohmann::json::array();
     for (const auto& connector : connectors) {
@@ -499,6 +511,9 @@ std::vector<std::string> validate_config(const AppConfig& cfg) {
     }
     if (!is_valid_web_ui_font_size(cfg.web_ui.font_size)) {
         errors.push_back("web_ui.font_size must be one of: small, medium, large");
+    }
+    if (!is_valid_web_ui_theme_variant(cfg.web_ui.theme_variant)) {
+        errors.push_back("web_ui.theme_variant must be empty or a lowercase variant ID");
     }
     if (cfg.web.remote_port < 0 || cfg.web.remote_port > 65535) {
         errors.push_back(
@@ -1082,6 +1097,24 @@ static AppConfig load_config_from_path_once(
                                 uij["sidebar_session_time"].get<bool>();
                         } else {
                             LOG_WARN("[config] invalid 'web_ui.sidebar_session_time', using true");
+                        }
+                    }
+                    if (uij.contains("theme_variant")) {
+                        if (uij["theme_variant"].is_string() &&
+                            is_valid_web_ui_theme_variant(
+                                uij["theme_variant"].get<std::string>())) {
+                            cfg.web_ui.theme_variant =
+                                uij["theme_variant"].get<std::string>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.theme_variant', using the theme default");
+                        }
+                    }
+                    if (uij.contains("theme_effects")) {
+                        if (uij["theme_effects"].is_boolean()) {
+                            cfg.web_ui.theme_effects =
+                                uij["theme_effects"].get<bool>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.theme_effects', using true");
                         }
                     }
                 }
@@ -2330,6 +2363,10 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             web_uij["sidebar_session_time"] = cfg.web_ui.sidebar_session_time;
         if (cfg.web_ui.message_auto_collapse != web_ui_d.message_auto_collapse)
             web_uij["message_auto_collapse"] = cfg.web_ui.message_auto_collapse;
+        if (cfg.web_ui.theme_variant != web_ui_d.theme_variant)
+            web_uij["theme_variant"] = cfg.web_ui.theme_variant;
+        if (cfg.web_ui.theme_effects != web_ui_d.theme_effects)
+            web_uij["theme_effects"] = cfg.web_ui.theme_effects;
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);

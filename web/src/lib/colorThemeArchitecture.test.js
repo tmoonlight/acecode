@@ -54,9 +54,11 @@ run('ThemeProvider preserves the ordinary mode independently of installed themes
     theme,
     /COLOR_THEME_STORAGE_KEY,\s*initialAppearance\.colorTheme,\s*isValidColorTheme/,
   );
+  // The original context fields stay first; theme variants/motion for HUD
+  // themes are appended after them.
   assert.match(
     theme,
-    /value=\{\{ theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme \}\}/,
+    /value=\{\{\s*theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme,\s*themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,\s*themeVariantOptions: variantOptions, activeThemeVariant,\s*\}\}/,
   );
 });
 
@@ -69,7 +71,7 @@ run('ThemeProvider applies both root attributes before native background sync', 
   assert.ok(modeAttribute >= 0);
   assert.ok(colorAttribute > modeAttribute);
   assert.ok(nativeSync > colorAttribute);
-  assert.match(theme, /\}, \[colorTheme, theme, installedTheme\]\);/);
+  assert.match(theme, /\}, \[colorTheme, theme, installedTheme, themeVariant, themeEffects\]\);/);
 });
 
 run('Appearance settings separate color cards from the dark-mode toggle', () => {

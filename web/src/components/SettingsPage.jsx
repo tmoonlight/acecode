@@ -189,13 +189,23 @@ export function SettingsPage({
   onSidebarSessionTimeChange = () => {},
   messageAutoCollapse = true,
   onMessageAutoCollapseChange = () => {},
+  onThemeVariantChange,
+  onThemeEffectsChange,
 }) {
   const {
     theme,
     colorTheme,
     set: setThemeCache,
     setColorTheme: setColorThemeCache,
+    themeEffects,
+    themeChrome,
+    themeVariantOptions,
+    activeThemeVariant,
+    setThemeVariant: setThemeVariantCache,
+    setThemeEffects: setThemeEffectsCache,
   } = useTheme();
+  const setThemeVariant = onThemeVariantChange || setThemeVariantCache;
+  const setThemeEffects = onThemeEffectsChange || setThemeEffectsCache;
   const setTheme = onThemeChange || setThemeCache;
   const setColorTheme = onColorThemeChange || setColorThemeCache;
   const [developerModeUnlocked, setDeveloperModeUnlocked] = useState(loadDeveloperModeUnlocked);
@@ -462,6 +472,12 @@ export function SettingsPage({
               onSidebarSessionTimeChange={onSidebarSessionTimeChange}
               messageAutoCollapse={messageAutoCollapse}
               onMessageAutoCollapseChange={onMessageAutoCollapseChange}
+              themeVariantOptions={themeVariantOptions}
+              activeThemeVariant={activeThemeVariant}
+              onThemeVariantChange={setThemeVariant}
+              themeChrome={themeChrome}
+              themeEffects={themeEffects}
+              onThemeEffectsChange={setThemeEffects}
             />
           )}
           {activeNavKey === 'config' && <SettingsConfigSection skillPathsFocusRequest={skillPathsFocusRequest} />}
@@ -1393,6 +1409,12 @@ function SectionAppearance({
   onSidebarSessionTimeChange,
   messageAutoCollapse,
   onMessageAutoCollapseChange,
+  themeVariantOptions = [],
+  activeThemeVariant = null,
+  onThemeVariantChange = () => {},
+  themeChrome = null,
+  themeEffects = true,
+  onThemeEffectsChange = () => {},
 }) {
   return (
     <>
@@ -1403,6 +1425,47 @@ function SectionAppearance({
         <ThemeLibraryActions downloads={themeDownloads} />
       </div>
       <ThemeCards options={COLOR_THEME_OPTIONS} selected={colorTheme} onSelect={setColorTheme} downloads={themeDownloads} onCreateAiTheme={onCreateAiTheme} />
+
+      {themeVariantOptions.length > 0 && <>
+      <div className="h-px bg-border my-5" />
+      <div className="text-[14px] font-semibold mb-1">主题风格</div>
+      <p className="text-[12px] text-fg-mute mb-3">切换当前主题的配色风格</p>
+      <div className="ace-theme-variant-options grid grid-cols-3 gap-3 max-w-md">
+        {themeVariantOptions.map((option) => {
+          const active = activeThemeVariant === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={active}
+              data-theme-variant-option={option.id}
+              onClick={() => onThemeVariantChange(option.id)}
+              className={clsx(
+                'relative p-3 rounded-lg border text-left transition',
+                active ? 'border-accent border-2 bg-accent-bg' : 'border-border bg-surface hover:border-accent/50',
+              )}
+            >
+              <div className="flex gap-1 mb-2">
+                {option.swatches.map((color, index) => (
+                  <span key={index} className="w-5 h-5 rounded border border-border" style={{ background: color }} />
+                ))}
+              </div>
+              <div className="text-[13px] font-semibold truncate">{option.name}</div>
+              {active && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-accent" />}
+            </button>
+          );
+        })}
+      </div>
+      </>}
+      {themeChrome && (
+        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-md bg-surface border border-border mt-3 mb-2 max-w-md">
+          <div className="min-w-0">
+            <div className="text-[13px] font-normal">动态效果</div>
+            <div className="text-[11px] text-fg-mute mt-0.5">播放开屏扫描、风格切换过场和霓虹闪烁等主题动画</div>
+          </div>
+          <Toggle on={themeEffects} onChange={onThemeEffectsChange} ariaLabel="主题动态效果" />
+        </div>
+      )}
 
       {!isInstalledColorTheme(colorTheme) && <>
       <div className="h-px bg-border my-5" />

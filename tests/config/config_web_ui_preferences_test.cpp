@@ -292,6 +292,78 @@ TEST(ConfigWebUiPreferencesMessageAutoCollapse, DisabledRoundTripsAndDefaultIsOm
     std::filesystem::remove(path, ec);
 }
 
+// 场景:主题风格 ID 的格式校验(配置文件、REST 与前端共用同一规则)。
+// 期望:空串表示主题默认风格;只接受 1-24 位小写字母数字、单个连字符分隔的词。
+// 大写、首尾或连续连字符、超长、非 ASCII 都拒绝——它会直接写进 HTML 属性。
+TEST(ConfigWebUiPreferencesThemeVariant, ValidatorAcceptsOnlyLowercaseSlugs) {
+    EXPECT_TRUE(is_valid_web_ui_theme_variant(""));
+    EXPECT_TRUE(is_valid_web_ui_theme_variant("red"));
+    EXPECT_TRUE(is_valid_web_ui_theme_variant("cyan-2"));
+    EXPECT_TRUE(is_valid_web_ui_theme_variant(std::string(24, 'a')));
+    EXPECT_FALSE(is_valid_web_ui_theme_variant(std::string(25, 'a')));
+    // "\xE7\xBA\xA2" 是 UTF-8 的「红」:非 ASCII 风格名同样拒绝。
+    for (const char* bad : {"Red", "-red", "red-", "red--cyan", "red cyan", "red_cyan", "\xE7\xBA\xA2", "red\n"}) {
+        EXPECT_FALSE(is_valid_web_ui_theme_variant(bad)) << bad;
+    }
+}
+
+// 场景:旧配置没有新字段 / 新字段合法 / 新字段被手改坏。
+// 期望:缺省为默认风格 + 动效开启;合法值读入;坏值逐项回退默认并只记警告,
+// 不能连带其它外观字段一起失效(外观整体判失败会把主题回退成蓝色)。
+TEST(ConfigWebUiPreferencesThemeVariant, LoaderReadsValidValuesAndIgnoresInvalidOnes) {
+    {
+        const AppConfig defaults;
+        EXPECT_EQ(defaults.web_ui.theme_variant, "");
+        EXPECT_TRUE(defaults.web_ui.theme_effects);
+    }
+    const auto path = temp_config_path("theme-variant");
+    write_json(path, {{"web_ui", {{"color_theme", "orange"}, {"theme_variant", "cyan"}, {"theme_effects", false}}}});
+    {
+        const AppConfig cfg = load_config_from_path(path.string());
+        EXPECT_EQ(cfg.web_ui.theme_variant, "cyan");
+        EXPECT_FALSE(cfg.web_ui.theme_effects);
+        EXPECT_EQ(cfg.web_ui.color_theme, "orange");
+    }
+    write_json(path, {{"web_ui", {{"color_theme", "orange"}, {"theme_variant", "Cyan"}, {"theme_effects", "off"}}}});
+    {
+        const AppConfig cfg = load_config_from_path(path.string());
+        EXPECT_EQ(cfg.web_ui.theme_variant, "");
+        EXPECT_TRUE(cfg.web_ui.theme_effects);
+        EXPECT_EQ(cfg.web_ui.color_theme, "orange");
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+// 场景:保存配置时风格与动效保持稀疏写盘。
+// 期望:默认值(空风格、动效开)不出现在 config.json;非默认值写盘后能原样读回,
+// 切回默认后整个 web_ui 段再次消失。
+TEST(ConfigWebUiPreferencesThemeVariant, SaveIsSparseAndRoundTrips) {
+    const auto path = temp_config_path("theme-variant-save");
+    AppConfig cfg;
+    cfg.web_ui.theme_variant = "yellow";
+    cfg.web_ui.theme_effects = false;
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        const auto saved = nlohmann::json::parse(input);
+        EXPECT_EQ(saved["web_ui"]["theme_variant"], "yellow");
+        EXPECT_EQ(saved["web_ui"]["theme_effects"], false);
+    }
+    const auto loaded = load_config_from_path(path.string());
+    EXPECT_EQ(loaded.web_ui.theme_variant, "yellow");
+    EXPECT_FALSE(loaded.web_ui.theme_effects);
+    cfg.web_ui.theme_variant.clear();
+    cfg.web_ui.theme_effects = true;
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        EXPECT_FALSE(nlohmann::json::parse(input).contains("web_ui"));
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 TEST(ConfigWebUiPreferencesSave, DownloadedThemePreservesOrdinaryDarkPreference) {
     const auto path = temp_config_path("eva-theme");
     AppConfig cfg;

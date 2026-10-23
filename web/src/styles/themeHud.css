@@ -1,0 +1,766 @@
+/* HUD chrome for theme packages that declare `"chrome": {"style": "hud"}`.
+ *
+ * Every rule is scoped to :root[data-theme-chrome="hud"], so other themes are
+ * untouched. Packages still carry only data: shapes, lines and motion live
+ * here and take their colors from the palette variables (--ace-accent for
+ * lines, --ace-send-bg as the secondary/focus color).
+ *
+ * Panels get cut corners from gradient-drawn frames on ::after. Containers
+ * that may host popovers (the composer) keep their own box unclipped and
+ * paint the clipped fill on ::before instead.
+ */
+
+:root[data-theme-chrome="hud"] {
+  --hud-cut: 10px;
+  --hud-line: rgba(var(--ace-accent-rgb), .62);
+  --hud-hot: var(--ace-accent);
+  --hud-alt: var(--ace-send-bg);
+  --hud-alt-rgb: var(--ace-send-bg-rgb);
+}
+
+/* ── Shared cut-corner frame (top-left and bottom-right corners) ────────── */
+:root[data-theme-chrome="hud"] :is(
+  .ace-user-message-bubble,
+  .ace-copyable-code,
+  .ace-turn-files,
+  .ace-tool-activity,
+  .ace-home-hint-card,
+  .ace-home-project-row,
+  .ace-sidebar-session-row
+)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  --f: var(--hud-frame, var(--hud-line));
+  --h: var(--hud-frame-hot, var(--hud-hot));
+  --c: var(--hud-cut);
+  background:
+    linear-gradient(var(--h), var(--h)) left var(--c) top 0 / var(--hud-hot-len, 34px) 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right var(--c) bottom 0 / var(--hud-hot-len, 34px) 2px no-repeat,
+    linear-gradient(var(--f), var(--f)) right 0 top 0 / calc(100% - var(--c)) 1px no-repeat,
+    linear-gradient(var(--f), var(--f)) left 0 bottom 0 / calc(100% - var(--c)) 1px no-repeat,
+    linear-gradient(var(--f), var(--f)) left 0 bottom 0 / 1px calc(100% - var(--c)) no-repeat,
+    linear-gradient(var(--f), var(--f)) right 0 top 0 / 1px calc(100% - var(--c)) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .6px), var(--f) 0 calc(50% + .6px), transparent 0) left top / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .6px), var(--f) 0 calc(50% + .6px), transparent 0) right bottom / var(--c) var(--c) no-repeat;
+}
+
+/* ── Window frame ─────────────────────────────────────────────────────── */
+:root[data-theme-chrome="hud"] .ace-app-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  --c: 16px;
+  --f: rgba(var(--ace-accent-rgb), .5);
+  --h: var(--ace-accent);
+  background:
+    linear-gradient(var(--h), var(--h)) left var(--c) top 0 / 88px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right var(--c) bottom 0 / 88px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right 0 top var(--c) / 2px 56px no-repeat,
+    linear-gradient(var(--h), var(--h)) left 0 bottom var(--c) / 2px 56px no-repeat,
+    linear-gradient(var(--f), var(--f)) left var(--c) top 0 / calc(100% - 2 * var(--c)) 1px no-repeat,
+    linear-gradient(var(--f), var(--f)) left var(--c) bottom 0 / calc(100% - 2 * var(--c)) 1px no-repeat,
+    linear-gradient(var(--f), var(--f)) left 0 top var(--c) / 1px calc(100% - 2 * var(--c)) no-repeat,
+    linear-gradient(var(--f), var(--f)) right 0 top var(--c) / 1px calc(100% - 2 * var(--c)) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .7px), var(--f) 0 calc(50% + .7px), transparent 0) left top / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - .7px), var(--f) 0 calc(50% + .7px), transparent 0) right top / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - .7px), var(--f) 0 calc(50% + .7px), transparent 0) left bottom / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .7px), var(--f) 0 calc(50% + .7px), transparent 0) right bottom / var(--c) var(--c) no-repeat;
+}
+
+/* ── Title bar and sidebar ────────────────────────────────────────────── */
+:root[data-theme-chrome="hud"] .ace-topbar {
+  box-shadow: inset 0 -1px 0 rgba(var(--ace-accent-rgb), .38);
+}
+:root[data-theme-chrome="hud"] .ace-topbar::before {
+  border-right-color: rgba(var(--ace-accent-rgb), .6);
+}
+:root[data-theme-chrome="hud"] .ace-sidebar {
+  background:
+    repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .32) 0 2px, transparent 2px 9px) right 7px top 14px / 2px calc(100% - 28px) no-repeat,
+    linear-gradient(180deg, rgba(var(--ace-accent-rgb), .07), transparent 26%, transparent 74%, rgba(var(--ace-accent-rgb), .05)),
+    var(--ace-shell-bg);
+  box-shadow:
+    inset -1px 0 0 rgba(var(--ace-accent-rgb), .6),
+    inset -18px 0 26px -24px rgba(var(--ace-accent-rgb), .9);
+}
+:root[data-theme-chrome="hud"] .ace-sidebar :is(.ace-sidebar-fixed-nav, .ace-sidebar-footer) .ace-icon {
+  color: var(--ace-accent);
+}
+:root[data-theme-chrome="hud"] .ace-brand-logo {
+  filter: drop-shadow(0 0 5px rgba(var(--ace-logo-color-rgb, var(--ace-accent-rgb)), .55));
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-section-text {
+  letter-spacing: .06em;
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-section-header {
+  position: relative;
+}
+/* Small bracket before each section heading. */
+:root[data-theme-chrome="hud"] .ace-sidebar-section-header::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  width: 6px;
+  height: 12px;
+  margin-top: -6px;
+  border: 1px solid rgba(var(--ace-accent-rgb), .7);
+  border-right: 0;
+  pointer-events: none;
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-session-row {
+  position: relative;
+  border-radius: 0;
+  --hud-cut: 7px;
+  --hud-hot-len: 16px;
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-session-row::after {
+  opacity: 0;
+  transition: opacity .14s ease;
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-session-row:hover::after {
+  opacity: .55;
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-session-row[data-desktop-session-pinned="true"]::after {
+  opacity: .8;
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-session-row.is-tree-active {
+  color: var(--hud-alt);
+  background: linear-gradient(90deg, rgba(var(--hud-alt-rgb), .17), rgba(var(--hud-alt-rgb), .04) 70%, transparent);
+}
+:root[data-theme-chrome="hud"] .ace-sidebar-session-row.is-tree-active::after {
+  opacity: 1;
+  --hud-frame: rgba(var(--hud-alt-rgb), .85);
+  --hud-frame-hot: var(--hud-alt);
+  filter: drop-shadow(0 0 3px rgba(var(--hud-alt-rgb), .75));
+}
+
+/* ── Conversation panel: left ruler and right tick marks ──────────────── */
+:root[data-theme-chrome="hud"] .ace-session-panel::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: 18px;
+  left: 10px;
+  width: 9px;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(var(--ace-accent-rgb), .55), rgba(var(--ace-accent-rgb), .55)) left 0 top 0 / 9px 2px no-repeat,
+    linear-gradient(rgba(var(--ace-accent-rgb), .55), rgba(var(--ace-accent-rgb), .55)) left 0 bottom 0 / 9px 2px no-repeat,
+    repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .45) 0 1px, transparent 1px 48px) left 0 top 0 / 9px 100% no-repeat,
+    repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .3) 0 1px, transparent 1px 8px) left 0 top 0 / 5px 100% no-repeat;
+}
+
+/* ── User message: cut-corner plate with a user glyph ─────────────────── */
+:root[data-theme-chrome="hud"] .ace-user-message-bubble {
+  position: relative;
+  border-radius: 0;
+  border-color: transparent;
+  padding-left: 36px;
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+  --hud-frame: rgba(var(--ace-accent-rgb), .8);
+}
+:root[data-theme-chrome="hud"] .ace-user-message-bubble::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 11px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  background: var(--ace-accent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='5' r='3.2' fill='none' stroke='black' stroke-width='1.6'/%3E%3Cpath d='M2.5 15c.6-3.1 2.7-4.8 5.5-4.8s4.9 1.7 5.5 4.8' fill='none' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='5' r='3.2' fill='none' stroke='black' stroke-width='1.6'/%3E%3Cpath d='M2.5 15c.6-3.1 2.7-4.8 5.5-4.8s4.9 1.7 5.5 4.8' fill='none' stroke='black' stroke-width='1.6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* ── Code blocks: header strip that shows the fence language ──────────── */
+:root[data-theme-chrome="hud"] .ace-copyable-code {
+  --hud-cut: 9px;
+  --hud-hot-len: 56px;
+  padding-top: 30px;
+  background: var(--ace-code-bg);
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+}
+:root[data-theme-chrome="hud"] .ace-copyable-code::before {
+  content: attr(data-code-lang);
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  padding-left: 18px;
+  font: 600 11px/1 ui-monospace, "Cascadia Code", Consolas, monospace;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ace-fg-2);
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(135deg, rgba(var(--ace-accent-rgb), .16) 0 2px, transparent 2px 6px) right 52px center / 64px 10px no-repeat,
+    linear-gradient(rgba(var(--ace-accent-rgb), .12), rgba(var(--ace-accent-rgb), .04));
+  border-bottom: 1px solid rgba(var(--ace-accent-rgb), .32);
+}
+:root[data-theme-chrome="hud"] .ace-copyable-code > pre,
+:root[data-theme-chrome="hud"] .ace-copyable-code .hljs {
+  background: transparent !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+}
+:root[data-theme-chrome="hud"] .ace-copyable-code .ace-code-copy-btn,
+:root[data-theme-chrome="hud"] .ace-copyable-code .ace-code-actions {
+  top: 3px;
+  z-index: 2;
+}
+/* Syntax colors follow the variant: keys in the accent, values in the
+   secondary color. Both stay above 4.5:1 on every variant's code-bg. */
+:root[data-theme-chrome="hud"] .hljs { color: var(--ace-code-fg); }
+:root[data-theme-chrome="hud"] :is(.hljs-keyword, .hljs-selector-tag, .hljs-name, .hljs-type, .hljs-attr, .hljs-attribute, .hljs-selector-class, .hljs-selector-id, .hljs-template-tag, .hljs-variable.language_) { color: var(--ace-accent); }
+:root[data-theme-chrome="hud"] :is(.hljs-string, .hljs-number, .hljs-literal, .hljs-regexp, .hljs-symbol, .hljs-built_in, .hljs-meta, .hljs-selector-attr, .hljs-selector-pseudo) { color: var(--ace-send-bg); }
+:root[data-theme-chrome="hud"] :is(.hljs-title, .hljs-title.function_, .hljs-title.class_, .hljs-section) { color: var(--ace-fg); }
+:root[data-theme-chrome="hud"] :is(.hljs-comment, .hljs-quote) { color: var(--ace-fg-mute); font-style: italic; }
+
+/* ── Tool rows and changed-file summary ───────────────────────────────── */
+:root[data-theme-chrome="hud"] .ace-turn-files {
+  position: relative;
+  padding: 8px 10px 6px;
+  background: rgba(var(--ace-surface-rgb), .72);
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+  --hud-frame: rgba(var(--ace-accent-rgb), .45);
+}
+:root[data-theme-chrome="hud"] .ace-turn-file-row {
+  border-radius: 0;
+  border-color: rgba(var(--ace-accent-rgb), .22);
+  background: transparent;
+}
+/* Each tool call is its own boxed row (auto-collapse off). The fill sits on
+   ::before so expanded details are never clipped. */
+:root[data-theme-chrome="hud"] .ace-tool-activity {
+  position: relative;
+  isolation: isolate;
+  /* Same right edge as the assistant text (.ace-chat-row-assistant-gutter). */
+  max-width: 88%;
+  margin: 3px 0;
+  padding: 1px 8px;
+  --hud-cut: 7px;
+  --hud-hot-len: 18px;
+  --hud-frame: rgba(var(--ace-accent-rgb), .3);
+  --hud-frame-hot: rgba(var(--ace-accent-rgb), .8);
+}
+:root[data-theme-chrome="hud"] .ace-tool-activity::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(var(--ace-surface-rgb), .55);
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+}
+:root[data-theme-chrome="hud"] .ace-tool-activity:hover {
+  --hud-frame: rgba(var(--ace-accent-rgb), .6);
+}
+:root[data-theme-chrome="hud"] .ace-activity-line-processed {
+  box-shadow: inset 0 -1px 0 rgba(var(--ace-accent-rgb), .22);
+}
+:root[data-theme-chrome="hud"] .ace-activity-line-label {
+  letter-spacing: .04em;
+}
+
+/* ── Composer: notched top edge, chamfered bottom corners ─────────────── */
+:root[data-theme-chrome="hud"] .ace-composer-card {
+  --n: 6px;
+  --c: 12px;
+  --w: min(150px, 22%);
+  isolation: isolate;
+  background: transparent !important;
+  border-color: transparent !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+:root[data-theme-chrome="hud"] .ace-composer-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(var(--ace-surface-rgb), var(--hud-composer-opacity, .9));
+  clip-path: polygon(
+    0 var(--n), calc(50% - var(--w)) var(--n), calc(50% - var(--w) + var(--n)) 0,
+    calc(50% + var(--w) - var(--n)) 0, calc(50% + var(--w)) var(--n), 100% var(--n),
+    100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)));
+}
+:root[data-theme-chrome="hud"] .ace-inputbar-hero-card::before {
+  --hud-composer-opacity: var(--ace-home-composer-opacity, .9);
+}
+:root[data-theme-chrome="hud"] .ace-composer-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  --l: rgba(var(--ace-accent-rgb), .66);
+  --h: var(--ace-accent);
+  background:
+    linear-gradient(var(--h), var(--h)) left 0 top var(--n) / 52px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right 0 top var(--n) / 52px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) center top / 96px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) left var(--c) bottom 0 / 34px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right var(--c) bottom 0 / 34px 2px no-repeat,
+    linear-gradient(var(--l), var(--l)) left 0 top var(--n) / calc(50% - var(--w)) 1px no-repeat,
+    linear-gradient(var(--l), var(--l)) right 0 top var(--n) / calc(50% - var(--w)) 1px no-repeat,
+    linear-gradient(var(--l), var(--l)) center top / calc(2 * var(--w) - 2 * var(--n)) 1px no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0) calc(50% - var(--w) + var(--n) / 2) 0 / var(--n) var(--n) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0) calc(50% + var(--w) - var(--n) / 2) 0 / var(--n) var(--n) no-repeat,
+    linear-gradient(var(--l), var(--l)) left 0 top var(--n) / 1px calc(100% - var(--n) - var(--c)) no-repeat,
+    linear-gradient(var(--l), var(--l)) right 0 top var(--n) / 1px calc(100% - var(--n) - var(--c)) no-repeat,
+    linear-gradient(var(--l), var(--l)) left var(--c) bottom 0 / calc(100% - 2 * var(--c)) 1px no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0) left bottom / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0) right bottom / var(--c) var(--c) no-repeat;
+}
+:root[data-theme-chrome="hud"] .ace-composer-card:focus-within::after {
+  --l: rgba(var(--ace-accent-rgb), .95);
+  filter: drop-shadow(0 0 4px rgba(var(--ace-accent-rgb), .55));
+}
+/* The send button keeps the secondary color even while empty (dimmed), as in
+   the reference; the stop action switches to the accent so it reads as busy. */
+:root[data-theme-chrome="hud"] .ace-composer-send {
+  background-color: var(--ace-send-bg);
+  color: var(--ace-send-fg);
+}
+:root[data-theme-chrome="hud"] .ace-composer-send:disabled {
+  opacity: .45;
+}
+:root[data-theme-chrome="hud"] .ace-composer-send:not(:disabled) {
+  box-shadow: 0 0 0 1px rgba(var(--hud-alt-rgb), .55), 0 0 12px rgba(var(--hud-alt-rgb), .65);
+}
+:root[data-theme-chrome="hud"] .ace-composer-send[data-composer-action="stop"] {
+  background-color: var(--ace-accent);
+  color: var(--ace-bg);
+  box-shadow: 0 0 0 1px rgba(var(--ace-accent-rgb), .6), 0 0 12px rgba(var(--ace-accent-rgb), .7);
+}
+:root[data-theme-chrome="hud"] .ace-composer-permission-button {
+  border-radius: 0;
+}
+
+/* ── Home ─────────────────────────────────────────────────────────────── */
+:root[data-theme-chrome="hud"] .ace-home-title {
+  letter-spacing: .04em;
+  text-shadow: 0 0 14px rgba(var(--ace-accent-rgb), .55), 0 0 2px rgba(var(--ace-accent-rgb), .6);
+}
+:root[data-theme-chrome="hud"] .ace-home-content > .ace-home-logo::before,
+:root[data-theme-chrome="hud"] .ace-home-content > .ace-home-logo::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* The dark-mode logo glow also lives on ::before (translate, mask, gradient);
+   reset all of it so the ring is centred and the glow does not double up. */
+:root[data-theme-chrome="hud"] .ace-home-content > .ace-home-logo::before {
+  width: 78px;
+  height: 78px;
+  margin: -39px 0 0 -39px;
+  transform: none;
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+  border: 1px dashed rgba(var(--ace-accent-rgb), .55);
+}
+:root[data-theme-chrome="hud"] .ace-home-content > .ace-home-logo::after {
+  width: 96px;
+  height: 96px;
+  margin: -48px 0 0 -48px;
+  background: conic-gradient(var(--ace-accent) 0 38deg, transparent 0 120deg, var(--ace-accent) 0 142deg, transparent 0 240deg, var(--ace-accent) 0 252deg, transparent 0);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px) calc(100% - .5px), transparent 100%);
+  mask: radial-gradient(closest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px) calc(100% - .5px), transparent 100%);
+  opacity: .85;
+}
+:root[data-theme-chrome="hud"] .ace-home-hint-card,
+:root[data-theme-chrome="hud"] .ace-home-project-row {
+  position: relative;
+  border-radius: 0;
+  border-color: transparent;
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+  --hud-frame: rgba(var(--ace-accent-rgb), .42);
+}
+:root[data-theme-chrome="hud"] .ace-home-hint-card .ace-icon {
+  color: var(--ace-accent);
+}
+:root[data-theme-chrome="hud"] .ace-home-hint-card:hover {
+  background-color: rgba(var(--ace-accent-rgb), .1);
+  --hud-frame: rgba(var(--ace-accent-rgb), .85);
+}
+:root[data-theme-chrome="hud"] .ace-home-project-row {
+  --hud-cut: 6px;
+  --hud-hot-len: 14px;
+}
+
+/* ── Diffs (diff2html, every .ace-diff: tool rows, change list, review) ──
+   diff2html reads its colors from --d2h-* variables; derive them all from the
+   palette so the light defaults (yellow "changed" pairs, pink/green word
+   highlights, grey headers) never show inside a HUD theme. */
+:root[data-theme-chrome="hud"] {
+  --d2h-bg-color: var(--ace-code-bg);
+  --d2h-border-color: rgba(var(--ace-accent-rgb), .38);
+  --d2h-dim-color: var(--ace-fg-mute);
+  --d2h-line-border-color: rgba(var(--ace-accent-rgb), .14);
+  --d2h-file-header-bg-color: rgba(var(--ace-accent-rgb), .09);
+  --d2h-file-header-border-color: rgba(var(--ace-accent-rgb), .32);
+  --d2h-empty-placeholder-bg-color: rgba(var(--ace-fg-mute-rgb), .06);
+  --d2h-empty-placeholder-border-color: rgba(var(--ace-accent-rgb), .14);
+  --d2h-selected-color: rgba(var(--ace-send-bg-rgb), .18);
+  --d2h-ins-bg-color: rgba(var(--ace-ok-rgb), .1);
+  --d2h-ins-border-color: rgba(var(--ace-ok-rgb), .35);
+  --d2h-ins-highlight-bg-color: rgba(var(--ace-ok-rgb), .32);
+  --d2h-ins-label-color: var(--ace-ok);
+  --d2h-del-bg-color: rgba(var(--ace-danger-rgb), .1);
+  --d2h-del-border-color: rgba(var(--ace-danger-rgb), .35);
+  --d2h-del-highlight-bg-color: rgba(var(--ace-danger-rgb), .34);
+  --d2h-del-label-color: var(--ace-danger);
+  --d2h-change-del-color: rgba(var(--ace-danger-rgb), .1);
+  --d2h-change-ins-color: rgba(var(--ace-ok-rgb), .1);
+  --d2h-info-bg-color: rgba(var(--ace-accent-rgb), .07);
+  --d2h-info-border-color: rgba(var(--ace-accent-rgb), .22);
+  --d2h-change-label-color: var(--ace-accent);
+  --d2h-moved-label-color: var(--ace-send-bg);
+}
+:root[data-theme-chrome="hud"] .ace-diff {
+  --hud-cut: 8px;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-wrapper {
+  border-color: var(--d2h-border-color);
+  border-radius: 0;
+  background: var(--ace-code-bg);
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-header {
+  background:
+    linear-gradient(var(--ace-accent), var(--ace-accent)) left var(--hud-cut) top 0 / 42px 2px no-repeat,
+    var(--d2h-file-header-bg-color);
+  color: var(--ace-fg);
+  border-color: var(--d2h-file-header-border-color);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-name {
+  color: var(--ace-fg);
+  letter-spacing: .02em;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-name-wrapper svg,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-icon {
+  fill: var(--ace-accent);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-tag {
+  background: transparent;
+  border-radius: 0;
+  padding: 0 5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-changed-tag { color: var(--ace-accent); border-color: var(--ace-accent); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-added-tag { color: var(--ace-ok); border-color: var(--ace-ok); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-deleted-tag { color: var(--ace-danger); border-color: var(--ace-danger); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-moved-tag { color: var(--ace-send-bg); border-color: var(--ace-send-bg); }
+/* Code stays in the code color for readability; the +/- markers, the
+   left rail and the tinted rows carry the change state. */
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-line, .d2h-code-side-line, .d2h-cntx) {
+  color: var(--ace-code-fg);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-cntx {
+  background: var(--ace-code-bg);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-ins,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-ins.d2h-change {
+  background: var(--d2h-ins-bg-color);
+  color: var(--ace-code-fg);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-del,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-del.d2h-change {
+  background: var(--d2h-del-bg-color);
+  color: var(--ace-fg-2);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-ins .d2h-code-line-prefix { color: var(--ace-ok); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-del .d2h-code-line-prefix { color: var(--ace-danger); }
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-line, .d2h-code-side-line) :is(ins, del) {
+  color: var(--ace-fg);
+  border-radius: 0;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-info {
+  background: var(--d2h-info-bg-color);
+  color: var(--ace-fg-mute);
+  border-color: var(--d2h-info-border-color);
+  letter-spacing: .04em;
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber) {
+  background: rgba(var(--ace-surface-rgb), .65);
+  color: var(--ace-fg-mute);
+  border-color: var(--d2h-line-border-color);
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber).d2h-ins {
+  background: rgba(var(--ace-ok-rgb), .14);
+  color: var(--ace-ok);
+  box-shadow: inset 2px 0 0 var(--ace-ok);
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber).d2h-del {
+  background: rgba(var(--ace-danger-rgb), .14);
+  color: var(--ace-danger);
+  box-shadow: inset 2px 0 0 var(--ace-danger);
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber).d2h-info {
+  background: var(--d2h-info-bg-color);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-emptyplaceholder,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-code-side-emptyplaceholder {
+  background: var(--d2h-empty-placeholder-bg-color);
+  border-color: var(--d2h-empty-placeholder-border-color);
+}
+
+/* Neon accents are bright: dark text keeps solid accent buttons readable. */
+:root[data-theme-chrome="hud"] .bg-accent.text-white {
+  color: var(--ace-bg);
+}
+
+/* ── Motion (only while the theme's effects switch is on) ─────────────── */
+@keyframes ace-hud-spin { to { transform: rotate(360deg); } }
+@keyframes ace-hud-spin-back { to { transform: rotate(-360deg); } }
+@keyframes ace-hud-flicker {
+  0%, 89%, 91.5%, 94%, 100% { opacity: 1; }
+  90% { opacity: .78; }
+  92.5% { opacity: .9; }
+  93% { opacity: .7; }
+}
+@keyframes ace-hud-pulse {
+  0%, 100% { opacity: .78; }
+  50% { opacity: 1; }
+}
+@keyframes ace-hud-glitch {
+  0% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
+  20% { transform: translate(-2px, 0); clip-path: inset(0 0 58% 0); }
+  40% { transform: translate(2px, 0); clip-path: inset(42% 0 0 0); }
+  60% { transform: translate(-1px, 0); clip-path: inset(20% 0 30% 0); }
+  80% { transform: translate(1px, 0); clip-path: inset(0 0 0 0); }
+  100% { transform: translate(0, 0); clip-path: inset(0 0 0 0); }
+}
+@keyframes ace-hud-title-in {
+  0% { opacity: 0; transform: translateY(3px); }
+  30% { opacity: .9; }
+  38% { opacity: .2; }
+  52% { opacity: 1; }
+  60% { opacity: .5; }
+  100% { opacity: 1; transform: none; }
+}
+/* Registered so the runner position interpolates; only the first background
+   layer reads it, the frame layers stay put. */
+@property --ace-hud-run {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: -30%;
+}
+@keyframes ace-hud-composer-run {
+  from { --ace-hud-run: -30%; }
+  to { --ace-hud-run: 130%; }
+}
+
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-home-content > .ace-home-logo::before {
+  animation: ace-hud-spin 18s linear infinite;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-home-content > .ace-home-logo::after {
+  animation: ace-hud-spin-back 9s linear infinite;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-home-title {
+  animation: ace-hud-title-in .9s ease-out both;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-session-panel::before {
+  will-change: opacity;
+  animation: ace-hud-flicker 11s linear infinite;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"][data-theme-wallpaper="true"] .ace-app-shell[data-home-wallpaper="true"]::before {
+  will-change: opacity;
+  animation: ace-hud-flicker 15s linear 2s infinite;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-sidebar-session-row.is-tree-active::after {
+  animation: ace-hud-pulse 2.6s ease-in-out infinite;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"] :is(.ace-sidebar-session-row, .ace-home-hint-card):hover::after {
+  animation: ace-hud-glitch .32s steps(2, end) 1;
+}
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-composer-card:focus-within::after,
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-composer-card:has(.ace-composer-send[data-composer-action="stop"])::after {
+  background-image:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, .85), transparent),
+    linear-gradient(var(--h), var(--h)), linear-gradient(var(--h), var(--h)), linear-gradient(var(--h), var(--h)),
+    linear-gradient(var(--h), var(--h)), linear-gradient(var(--h), var(--h)),
+    linear-gradient(var(--l), var(--l)), linear-gradient(var(--l), var(--l)), linear-gradient(var(--l), var(--l)),
+    linear-gradient(to bottom right, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0),
+    linear-gradient(to bottom left, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0),
+    linear-gradient(var(--l), var(--l)), linear-gradient(var(--l), var(--l)), linear-gradient(var(--l), var(--l)),
+    linear-gradient(to bottom left, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0),
+    linear-gradient(to bottom right, transparent calc(50% - .6px), var(--l) 0 calc(50% + .6px), transparent 0);
+  background-position:
+    var(--ace-hud-run) 100%,
+    left 0 top var(--n), right 0 top var(--n), center top, left var(--c) bottom 0, right var(--c) bottom 0,
+    left 0 top var(--n), right 0 top var(--n), center top,
+    calc(50% - var(--w) + var(--n) / 2) 0, calc(50% + var(--w) - var(--n) / 2) 0,
+    left 0 top var(--n), right 0 top var(--n), left var(--c) bottom 0,
+    left bottom, right bottom;
+  background-size:
+    22% 2px,
+    52px 2px, 52px 2px, 96px 2px, 34px 2px, 34px 2px,
+    calc(50% - var(--w)) 1px, calc(50% - var(--w)) 1px, calc(2 * var(--w) - 2 * var(--n)) 1px,
+    var(--n) var(--n), var(--n) var(--n),
+    1px calc(100% - var(--n) - var(--c)), 1px calc(100% - var(--n) - var(--c)), calc(100% - 2 * var(--c)) 1px,
+    var(--c) var(--c), var(--c) var(--c);
+  background-repeat: no-repeat;
+  animation: ace-hud-composer-run 2.4s linear infinite;
+}
+
+/* ── Motion layer (components/HudEffects.jsx) ─────────────────────────── */
+.ace-hud-effects {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ace-hud-effects-top {
+  z-index: 2147483000;
+}
+/* A soft band drifting down the window; transform-only so it stays on the
+   compositor and never repaints the page underneath. */
+.ace-hud-sweep {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 160px;
+  background: linear-gradient(to bottom, transparent, rgba(var(--ace-accent-rgb), .05) 70%, rgba(var(--ace-accent-rgb), .11) 96%, transparent);
+  transform: translateY(-180px);
+  will-change: transform;
+  animation: ace-hud-sweep 36s linear infinite;
+}
+/* One pass takes 6s, then the band waits off-screen for a 30s cooldown. */
+@keyframes ace-hud-sweep {
+  0% { transform: translateY(-180px); }
+  16.667%, 100% { transform: translateY(100vh); }
+}
+.ace-hud-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+}
+.ace-hud-boot {
+  background: rgba(var(--ace-bg-rgb), .55);
+  animation: ace-hud-boot-veil 1.3s steps(12, end) forwards;
+}
+@keyframes ace-hud-boot-veil {
+  0% { opacity: 1; }
+  20% { opacity: .55; }
+  26% { opacity: .9; }
+  48% { opacity: .35; }
+  56% { opacity: .6; }
+  100% { opacity: 0; }
+}
+.ace-hud-boot-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--ace-accent);
+  box-shadow: 0 0 12px 2px rgba(var(--ace-accent-rgb), .8), 0 -40px 60px rgba(var(--ace-accent-rgb), .18);
+  animation: ace-hud-boot-scan .95s cubic-bezier(.45, 0, .2, 1) forwards;
+}
+@keyframes ace-hud-boot-scan {
+  from { transform: translateY(0); opacity: 1; }
+  92% { opacity: 1; }
+  to { transform: translateY(100vh); opacity: 0; }
+}
+.ace-hud-boot-label,
+.ace-hud-switch-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--ace-accent);
+  font: 600 12px/1.2 ui-monospace, "Cascadia Code", Consolas, monospace;
+  letter-spacing: .32em;
+  text-shadow: 0 0 10px rgba(var(--ace-accent-rgb), .7);
+}
+.ace-hud-boot-label strong,
+.ace-hud-switch-name {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: .2em;
+  color: var(--ace-fg);
+}
+.ace-hud-boot-label {
+  animation: ace-hud-label-flicker 1.3s linear forwards;
+}
+@keyframes ace-hud-label-flicker {
+  0%, 12% { opacity: 0; }
+  16% { opacity: 1; }
+  20% { opacity: .2; }
+  26%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.ace-hud-switch {
+  background: rgba(var(--ace-bg-rgb), .62);
+  animation: ace-hud-switch-veil 1.05s ease-out forwards;
+}
+@keyframes ace-hud-switch-veil {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.ace-hud-switch-bars i {
+  position: absolute;
+  left: -10%;
+  width: 120%;
+  height: 7px;
+  background: rgba(var(--ace-accent-rgb), .55);
+  box-shadow: 4px 0 0 rgba(var(--hud-alt-rgb, var(--ace-accent-rgb)), .45), -4px 0 0 rgba(255, 255, 255, .25);
+  animation: ace-hud-bar .5s steps(5, end) 2;
+}
+.ace-hud-switch-bars i:nth-child(1) { top: 18%; height: 3px; animation-delay: .02s; }
+.ace-hud-switch-bars i:nth-child(2) { top: 41%; height: 11px; animation-delay: .08s; }
+.ace-hud-switch-bars i:nth-child(3) { top: 63%; height: 5px; animation-delay: .04s; }
+.ace-hud-switch-bars i:nth-child(4) { top: 82%; height: 2px; animation-delay: .12s; }
+@keyframes ace-hud-bar {
+  0% { transform: translateX(-6%); opacity: .9; }
+  25% { transform: translateX(5%); opacity: .3; }
+  50% { transform: translateX(-3%); opacity: 1; }
+  75% { transform: translateX(8%); opacity: .4; }
+  100% { transform: translateX(0); opacity: 0; }
+}
+.ace-hud-switch-card {
+  padding: 18px 34px 16px;
+  background: rgba(var(--ace-surface-rgb), .92);
+  clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+  box-shadow: inset 0 0 0 1px rgba(var(--ace-accent-rgb), .8);
+  animation: ace-hud-card-glitch .45s steps(3, end) 1;
+}
+@keyframes ace-hud-card-glitch {
+  0% { transform: translate(-50%, -50%) skewX(-14deg); clip-path: inset(40% 0 40% 0); }
+  50% { transform: translate(-49%, -50%) skewX(6deg); clip-path: inset(10% 0 22% 0); }
+  100% { transform: translate(-50%, -50%); }
+}
+.ace-hud-switch-icon {
+  width: 40px;
+  height: 35px;
+  color: var(--ace-accent);
+  filter: drop-shadow(0 0 6px rgba(var(--ace-accent-rgb), .8));
+}
+/* While the agent runs, the bottom-edge runner speeds up: a live data stream. */
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-composer-card:has(.ace-composer-send[data-composer-action="stop"])::after {
+  animation-duration: .9s;
+}

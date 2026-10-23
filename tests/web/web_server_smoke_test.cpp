@@ -9095,6 +9095,39 @@ TEST(WebServerHttp, UiPreferencesMessageAutoCollapseRoundTrips) {
     EXPECT_TRUE(fx.cfg.web_ui.message_auto_collapse);
 }
 
+// 场景:设置页切换主题风格(红/青/黄)与动态效果开关。
+// 期望:GET 默认返回空风格 + 动效开;单字段 PUT 只改自己且落盘,其它外观值不动;
+// 格式不合法的风格 ID 或非布尔动效值整笔 400,内存配置保持原值。
+TEST(WebServerHttp, UiPreferencesThemeVariantAndEffectsRoundTrip) {
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/ui-preferences")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    {
+        const auto initial = json::parse(cpr::Get(url).text);
+        EXPECT_EQ(initial["theme_variant"], "");
+        EXPECT_EQ(initial["theme_effects"], true);
+    }
+    auto variant = cpr::Put(url, headers, cpr::Body{R"({"theme_variant":"cyan"})"});
+    ASSERT_EQ(variant.status_code, 200) << variant.text;
+    EXPECT_EQ(json::parse(variant.text)["theme_variant"], "cyan");
+    EXPECT_EQ(fx.cfg.web_ui.theme_variant, "cyan");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "medium");
+    auto effects = cpr::Put(url, headers, cpr::Body{R"({"theme_effects":false})"});
+    ASSERT_EQ(effects.status_code, 200) << effects.text;
+    EXPECT_EQ(json::parse(effects.text)["theme_variant"], "cyan");
+    EXPECT_EQ(json::parse(effects.text)["theme_effects"], false);
+    const auto saved = acecode::load_config_from_path((fx.tmp_dir / "config.json").u8string());
+    EXPECT_EQ(saved.web_ui.theme_variant, "cyan");
+    EXPECT_FALSE(saved.web_ui.theme_effects);
+    for (const char* body : {R"({"theme_variant":"Cyan"})", R"({"theme_variant":"a--b"})",
+                             R"({"theme_variant":7})", R"({"theme_effects":"on","theme_variant":"red"})"}) {
+        auto rejected = cpr::Put(url, headers, cpr::Body{body});
+        EXPECT_EQ(rejected.status_code, 400) << body << " " << rejected.text;
+    }
+    EXPECT_EQ(fx.cfg.web_ui.theme_variant, "cyan");
+    EXPECT_FALSE(fx.cfg.web_ui.theme_effects);
+}
+
 TEST(WebServerHttp, UiPreferencesMessageAutoCollapseRollsBackOnSaveFailure) {
     WebServerFixture fx;
     std::filesystem::create_directories(fx.tmp_dir / "config.json");

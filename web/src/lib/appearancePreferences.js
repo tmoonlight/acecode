@@ -15,6 +15,8 @@ export const DEFAULT_APPEARANCE_PREFERENCES = Object.freeze({
   fontSize: DEFAULT_FONT_SIZE,
   sidebarSessionTime: true,
   messageAutoCollapse: true,
+  themeVariant: '',
+  themeEffects: true,
 });
 
 const FONT_SIZE_SET = new Set(FONT_SIZE_VALUES);
@@ -49,6 +51,24 @@ function inputMessageAutoCollapse(value) {
   return (value?.message_auto_collapse ?? value?.messageAutoCollapse) !== false;
 }
 
+// Variant IDs come from the selected theme package; an empty string means its
+// first (default) variant. Unknown IDs are kept and resolved by the renderer.
+export function validThemeVariantId(value) {
+  return value === '' || (typeof value === 'string' && value.length <= 24
+    && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value));
+}
+
+function inputThemeVariant(value) {
+  const variant = value?.theme_variant ?? value?.themeVariant;
+  return validThemeVariantId(variant) ? variant : '';
+}
+
+// Theme motion defaults on; only an explicit false turns it off. Older daemons
+// that do not return the key keep the default instead of failing the parse.
+function inputThemeEffects(value) {
+  return (value?.theme_effects ?? value?.themeEffects) !== false;
+}
+
 export function effectiveAppearanceTheme(value, scope = globalThis) {
   return value === 'light' || value === 'dark'
     ? value
@@ -71,6 +91,8 @@ export function normalizeAppearancePreferences(value, scope = globalThis) {
       : DEFAULT_APPEARANCE_PREFERENCES.fontSize,
     sidebarSessionTime: inputSidebarSessionTime(value),
     messageAutoCollapse: inputMessageAutoCollapse(value),
+    themeVariant: inputThemeVariant(value),
+    themeEffects: inputThemeEffects(value),
   };
 }
 
@@ -89,6 +111,8 @@ export function parseAppearancePreferences(value, scope = globalThis) {
     fontSize,
     sidebarSessionTime: inputSidebarSessionTime(value),
     messageAutoCollapse: inputMessageAutoCollapse(value),
+    themeVariant: inputThemeVariant(value),
+    themeEffects: inputThemeEffects(value),
   };
 }
 
@@ -112,6 +136,12 @@ export function mergeAppearancePreferences(current, patch, scope = globalThis) {
     messageAutoCollapse: patch?.messageAutoCollapse
       ?? patch?.message_auto_collapse
       ?? current?.messageAutoCollapse,
+    themeVariant: patch?.themeVariant
+      ?? patch?.theme_variant
+      ?? current?.themeVariant,
+    themeEffects: patch?.themeEffects
+      ?? patch?.theme_effects
+      ?? current?.themeEffects,
   }, scope);
 }
 
@@ -124,6 +154,8 @@ export function appearancePreferencesToApi(value, scope = globalThis) {
     font_size: normalized.fontSize,
     sidebar_session_time: normalized.sidebarSessionTime,
     message_auto_collapse: normalized.messageAutoCollapse,
+    theme_variant: normalized.themeVariant,
+    theme_effects: normalized.themeEffects,
   };
 }
 

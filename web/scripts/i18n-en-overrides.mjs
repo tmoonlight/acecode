@@ -1,6 +1,12 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  // Settings > Appearance: variants and motion for themes with the HUD chrome.
+  '主题风格': 'Theme style',
+  '切换当前主题的配色风格': 'Switch the color style of the current theme',
+  '动态效果': 'Motion effects',
+  '播放开屏扫描、风格切换过场和霓虹闪烁等主题动画': 'Play theme animations such as the startup scan, style-switch transition and neon flicker',
+  '主题动态效果': 'Theme motion effects',
   // Conversation find (Ctrl+F) when a very long session is only partly loaded.
   '只搜索了最近 {{p0}} 条消息': 'Searched only the latest {{p0}} messages',
   '在文件列表展示': 'Show in file list',

@@ -3719,7 +3719,9 @@ Returns:
   "color_theme": "blue",
   "font_size": "medium",
   "sidebar_session_time": true,
-  "message_auto_collapse": true
+  "message_auto_collapse": true,
+  "theme_variant": "",
+  "theme_effects": true
 }
 ```
 
@@ -3733,6 +3735,15 @@ for compatibility and is always normalized to `false`.
 configurations. When `false`, main and subagent conversations display messages
 without activity/turn folding; individual tool calls remain collapsible.
 The preference is persisted and included in the Desktop appearance bootstrap.
+
+`theme_variant` selects a variant inside the active theme package (see
+[themes.md](themes.md#hud-外观与多风格)). It is empty or 1-24 lowercase ASCII
+letters/digits joined by single hyphens; empty means the package's first
+variant, and an ID the active theme does not declare also falls back to it.
+`theme_effects` (default `true`) turns the motion of HUD-chrome themes on or
+off and does not follow the OS reduced-motion setting. Both are persisted,
+included in the Desktop appearance bootstrap, and rejected with `400` when
+malformed.
 
 ### `PUT /api/config/ui-preferences`
 

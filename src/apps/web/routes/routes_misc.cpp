@@ -2194,6 +2194,22 @@ void WebServer::Impl::register_ui_preferences() {
                                     "sidebar_session_time must be a boolean");
                 }
             }
+            if (body.contains("theme_variant")) {
+                has_supported_field = true;
+                if (!body["theme_variant"].is_string() ||
+                    !is_valid_web_ui_theme_variant(
+                        body["theme_variant"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "theme_variant must be empty or a lowercase variant ID");
+                }
+            }
+            if (body.contains("theme_effects")) {
+                has_supported_field = true;
+                if (!body["theme_effects"].is_boolean()) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "theme_effects must be a boolean");
+                }
+            }
             if (!has_supported_field) {
                 return json_err(400, "BAD_REQUEST",
                                 "no supported UI preference field was provided");
@@ -2233,6 +2249,14 @@ void WebServer::Impl::register_ui_preferences() {
             if (body.contains("sidebar_session_time")) {
                 deps.app_config->web_ui.sidebar_session_time =
                     body["sidebar_session_time"].get<bool>();
+            }
+            if (body.contains("theme_variant")) {
+                deps.app_config->web_ui.theme_variant =
+                    body["theme_variant"].get<std::string>();
+            }
+            if (body.contains("theme_effects")) {
+                deps.app_config->web_ui.theme_effects =
+                    body["theme_effects"].get<bool>();
             }
             try {
                 if (!deps.config_path.empty()) {

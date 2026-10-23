@@ -637,6 +637,20 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 
 **中断回合后队列暂停,不自动出队。** 曾经的 bug:排了一堆消息后点停止,busy 一翻 false,ChatView 的 drain effect 就把下一条排队消息发了出去 —— 用户刚说「停」界面却替他继续。现在队列状态多一份按会话的 `paused`(`chatInputQueue.js::pauseQueuedInput / resumeQueuedInput / queuedInputPause`),`shouldDrainQueuedInput` 带 `paused` 时拒绝 drain;暂停有两条入口:(1) 本端点停止 —— `ChatView::abort()` **先** `pauseQueuedInput` 再本地应用 `turn_aborted`,顺序反了 drain effect 会先看到 busy=false 把下一条发出去;(2) TUI / 其它标签页 / IM 通道发起的中断只以 `outcome=aborted` 的 `busy_changed` / `done` 到达,靠 transcript reducer 新增的 `lastTurnOutcome`(`'' | completed | error | aborted`,新回合开始清空,只在真正的 busy→false 转换上按 outcome 记;本地 `turn_aborted` 直接记 aborted,服务端补发的 busy_changed(false) 到达时 wasBusy 已 false 不覆盖)+ `shouldPauseQueuedInputAfterAbort` 在 drain effect 里兜底。界面:`QueueCardList` 顶部横幅「由于你中断了当前响应,队列已暂停」+「继续」(`queueCardItem.js::buildQueuePausedBanner`);输入栏空输入 + 暂停时发送按钮变「继续」(`inputBarState.js` 的 `mode='resume'`,压过「重发末尾用户消息」,图标换播放三角,`InputBar::submit` 走 `onResumeQueue` 而不是 `onSubmit`)。解除暂停只认用户明确动作:点「继续」/ 空输入按发送 / 再次发送或排队一条新消息(新消息先走,旧排队随后照常出队)/ 重试失败卡片;删掉最后一张卡片时暂停标记顺带清除,避免一个看不见的暂停态把之后的排队卡住。`pauseQueuedInput` 对没有待发送消息的会话是 no-op。回归:`chatInputQueue.test.js` 的暂停一组、`inputBarState.test.js` 的「继续」两条、`queueCardItem.test.js` 的横幅两条、`sessionTranscript.test.js` 的 `lastTurnOutcome` 两条。
 
+### Web UI: HUD 主题外观与多风格(荒坂公司主题,2026-10-24)
+
+**这是创意工坊主题专用能力,默认不启用:用户不安装并选用 HUD 主题就完全不生效。用户拍板:不写进版本更新记录(`aceupdate.json` 的 `notes`、Release 说明),发版整理更新内容时跳过这部分提交。**
+
+主题包顶层可选 `chrome:{style:"hud"}` 与 `variants:[{id,name,colors(28),appearance?,tint?}]`(2–6 项,第一项为默认),格式见 [docs/themes.md](docs/themes.md#hud-外观与多风格)。**两个字段刻意放顶层、`appearance` 不加键**:C++ `valid_theme_definition`、已部署工坊的 `WorkshopPackage.cs` 都拒绝未知 appearance 键却忽略未知顶层键,放进 appearance 会让旧版 ACECode 和线上工坊整包拒收。前端 `themePackages.js` 对二者「不认识就忽略」(`themeChromeStyle` / `themeVariants` 全有或全无),不影响旧主题。
+
+- **样式全在 `web/src/styles/themeHud.css`**,每条选择器必须以 `:root[data-theme-chrome="hud"]` 开头(或是只在 HUD 下挂载的 `.ace-hud-*` 动效层类名),动画还必须带 `[data-theme-effects="on"]`;`themeHud.test.js` 解析 CSS 守着这两条。它随应用常驻加载,一条没加作用域的规则就会改到所有主题。
+- 切角:无弹层的元素(用户气泡、代码块、首页卡片)直接 `clip-path`;可能挂下拉/悬浮卡片的容器(输入框 `.ace-composer-card`、工具行 `.ace-tool-activity`)把裁切底色放 `::before`,容器本身不裁,否则会把弹层切掉。框线统一画在 `::after` 的渐变层上(`--hud-frame` / `--hud-cut` 覆盖)。
+- **背景染色**:`tint` 让三张背景按 CSS `background-blend-mode: color` 染色(保留亮度、换色相),一套图对应全部风格;`themeCssProperties(..., {tint})` 插入同色渐变层并给出 `--ace-*-background-blend`,无 tint 时输出与旧版逐字一致。用户消息气泡里图片之外的底色同样被染,图片顶部纯色与 `user_message_background_color` 亮度相同才无接缝。
+- 首页 logo 的 `::before` 被暗色主题规则占着(translate、径向光晕、遮罩),HUD 重新启用它时必须把 `transform/background/mask` 显式清掉,否则环偏移两次、留下一团光斑。
+- 动效层 `components/HudEffects.jsx`(ThemeProvider 用 props 渲染,别改成 useTheme——会形成 theme.jsx ↔ HudEffects 循环引用):扫描光带 z-index 90 在弹窗下,开屏/切换过场单独一层 z-index 2147483000 盖在设置窗口之上(否则在设置里切风格看不到过场)。触发判断在 `lib/hudEffects.js`,开屏后 1.5 秒内的风格变化视为 daemon 恢复已保存风格,不再叠过场;每个 burst 自带计时器。Agent 运行中靠发送按钮的 `data-composer-action="stop"` 用 `:has()` 加速输入框流光。
+- 风格与动效开关存 `config.json` 的 `web_ui.theme_variant` / `web_ui.theme_effects`,走 `/api/config/ui-preferences` 与 Desktop 首帧注入(端口每次启动都变,不能只靠 localStorage)。动效**不**跟随系统减少动态效果(用户常在 RDP 里用,见陪伴宠物同款决定),以开关为准。亮色强调色(黄/青)上白字不可读,HUD 下 `.bg-accent.text-white` 改用 `--ace-bg`。
+- 素材生成脚本与打包流程不在仓库里:徽标几何取自 Wikimedia Commons 的 CC0 `Arasaka_logo_lite.png`(浏览器里距离变换量出),首页天际线由 Codex 生成后嵌入发光徽标。回归:`web/src/lib/themeHud.test.js`、`colorThemeArchitecture.test.js`、`appearancePreferences.test.js`、`tests/config/config_web_ui_preferences_test.cpp` 的 ThemeVariant 三条、`web_server_smoke_test.cpp::UiPreferencesThemeVariantAndEffectsRoundTrip`。
+
 ### Web UI: 粘贴的文本块(fix-feedback-0924 第 2 条)
 
 起因(LIUXIN557 f300):一条 2460 万字符的粘贴原样进了用户气泡、回合滚动条和吸顶条,切进会话必然卡死。用户不接受输入限长,决定:达到 20 行 / 2000 字符的粘贴变成输入框上方的卡片(点开在单独文本框编辑);很大的粘贴落文件、消息里只带引用。
