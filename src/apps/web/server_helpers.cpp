@@ -101,6 +101,8 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
         {"font_size", cfg.font_size},
         {"sidebar_session_time", cfg.sidebar_session_time},
         {"message_auto_collapse", cfg.message_auto_collapse},
+        {"theme_variant", cfg.theme_variant},
+        {"theme_effects", cfg.theme_effects},
     };
 }
 

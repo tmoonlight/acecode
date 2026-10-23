@@ -221,6 +221,11 @@ struct WebUiPreferencesConfig {
     bool sidebar_session_time = true;
     // Collapse conversation activity; false keeps only individual tools foldable.
     bool message_auto_collapse = true;
+    // Variant ID inside the selected theme package (empty = its first variant).
+    // The renderer falls back to the default when the active theme lacks it.
+    std::string theme_variant;
+    // Motion for themes that declare an animated chrome style; default on.
+    bool theme_effects = true;
 };
 
 struct ModelsDevConfig {
@@ -687,6 +692,8 @@ bool is_valid_ui_locale(const std::string& locale);
 bool is_valid_web_ui_theme(const std::string& theme);
 bool is_valid_web_ui_color_theme(const std::string& color_theme);
 bool is_valid_web_ui_font_size(const std::string& font_size);
+// Empty, or 1-24 chars of lowercase ASCII words joined by single hyphens.
+bool is_valid_web_ui_theme_variant(const std::string& variant);
 
 nlohmann::json connectors_to_json(const std::vector<ConnectorConfig>& connectors);
 bool parse_connectors_json(const nlohmann::json& value,

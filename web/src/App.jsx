@@ -250,6 +250,10 @@ export function App() {
     prepareTheme,
     forgetTheme,
     themeMode,
+    themeVariant,
+    themeEffects,
+    setThemeVariant,
+    setThemeEffects,
   } = useTheme();
   const initialAppearance = useMemo(() => initialAppearancePreferences(), []);
   const bootstrapAppearance = useMemo(() => appearanceBootstrapPreferences(), []);
@@ -407,12 +411,14 @@ export function App() {
   const applyAppearance = useCallback((next) => {
     setTheme(next.theme);
     setColorTheme(next.colorTheme);
+    setThemeVariant(next.themeVariant);
+    setThemeEffects(next.themeEffects);
     setUiPrefs({
       fontSize: next.fontSize,
       sidebarSessionTime: next.sidebarSessionTime,
       messageAutoCollapse: next.messageAutoCollapse,
     });
-  }, [setColorTheme, setTheme, setUiPrefs]);
+  }, [setColorTheme, setTheme, setThemeEffects, setThemeVariant, setUiPrefs]);
   // The persistence controller outlives individual renders. Keep its callback
   // current so a later appearance choice is compared against the latest UI
   // preferences rather than the values from the controller's first render.
@@ -427,6 +433,8 @@ export function App() {
         fontSize,
         sidebarSessionTime,
         messageAutoCollapse: bootstrapAppearance?.messageAutoCollapse ?? messageAutoCollapse,
+        themeVariant: bootstrapAppearance?.themeVariant ?? themeVariant,
+        themeEffects: bootstrapAppearance?.themeEffects ?? themeEffects,
       },
       apply: (next) => applyAppearanceRef.current(next),
       save: (payload) => api.setUiPreferences(payload),
@@ -2519,6 +2527,8 @@ export function App() {
             onSidebarSessionTimeChange={(next) => changeAppearance({ sidebarSessionTime: next })}
             messageAutoCollapse={messageAutoCollapse}
             onMessageAutoCollapseChange={(next) => changeAppearance({ messageAutoCollapse: next })}
+            onThemeVariantChange={(next) => changeAppearance({ themeVariant: next })}
+            onThemeEffectsChange={(next) => changeAppearance({ themeEffects: next })}
           />
         )}
         <ThemeDownloadFailureDialog failure={themeDownloads.failure} onClose={() => themeDownloads.controller.dismissFailure()} />

@@ -72,6 +72,37 @@ AI 主题使用 `ai-<slug>` 标识，允许小写 ASCII 字母、数字及短横
 
 草稿存放在 `themes/drafts`；安装后的文件位于 `themes/<id>/<version>/`，通过原子更新 `installed.json` 发布；新 ZIP 位于 `themes/exports/<id>/<version>.zip`。旧版平铺 ZIP 在验证包内主题 ID、版本和内容后仍可复用，删除也按实际归属核验，避免 ID 与版本拼接相似时误删其它主题。确认绑定配色及图片哈希，修改内容后必须重新确认。工具和列表字段详见 [Daemon API](daemon-api.md#ai-theme-workflow-tool)。
 
+## HUD 外观与多风格
+
+主题包可以在顶层（与 `colors`、`appearance` 同级）声明两个可选字段：
+
+```json
+"chrome": {"style": "hud"},
+"variants": [
+  {"id": "red", "name": "荒坂红", "colors": {"…": "完整 28 色"}},
+  {"id": "cyan", "name": "公共区青", "colors": {"…": "完整 28 色"}, "tint": "#22CCF2", "appearance": {"logo_color": "#2BD3F5"}},
+  {"id": "yellow", "name": "限制区黄", "colors": {"…": "完整 28 色"}, "tint": "#F2E022"}
+]
+```
+
+- `chrome.style` 目前只有 `hud`。切角面板、霓虹描边、侧栏刻度、会话标尺、带凸台的输入框、代码块标题条和语法配色都由 ACECode 自带的样式（`web/src/styles/themeHud.css`）实现，颜色取自当前配色：线条用 `accent`，选中态与发送按钮用 `send-bg`。主题包仍然只含数据，不含 CSS、HTML 或脚本；不认识的 style 直接忽略，按普通主题显示。
+- `variants` 为 2–6 项，全部合法才生效，任意一项有问题就整组忽略，避免悄悄改变默认项。第一项是默认风格，应与顶层 `colors` 一致；每项都带完整 28 色。`appearance` 按键覆盖顶层外观，`tint` 让三张背景图按 CSS `color` 混合染色：保留图片明暗，换成 tint 的色相，所以一套图片就能对应全部风格。不带 tint 的风格按原图显示。
+- 染色作用于整块背景区域，包括用户消息气泡里图片之外的底色。只要图片顶部纯色与 `user_message_background_color` 亮度一致，长消息就不会出现接缝。
+- 兼容性：两个字段都在顶层，旧版 ACECode 和已部署的工坊校验都会忽略它们，旧版显示为默认风格的普通主题；`appearance` 没有新增键。
+- 设置 → 外观：当前主题带风格时显示「主题风格」，声明 HUD 时显示「动态效果」开关。选择保存在 `config.json` 的 `web_ui.theme_variant` / `web_ui.theme_effects`（见 [Daemon API](daemon-api.md#get-apiconfigui-preferences)），Desktop 首帧注入，换端口不会丢。
+- 动效只在 HUD 主题且「动态效果」开启时运行：
+  - 主题生效时的一次开屏扫描；
+  - 切换风格时的故障横条和三角警告过场，显示在设置窗口之上；
+  - 缓慢下移的扫描光带；
+  - 会话水印与首页壁纸的霓虹闪烁；
+  - 首页图标外的瞄准环转动；
+  - 选中任务的呼吸光；
+  - 悬停时的抖动；
+  - 输入框聚焦时沿底边的流光，Agent 运行中流光加速。
+
+  动画只用 transform、opacity 或小面积重绘，不跟随系统的「减少动态效果」设置（远程桌面关闭窗口动画时会误报），以设置里的开关为准。
+- 工坊里的「荒坂公司」主题就是用这个格式制作的。
+
 ## Built-in National Day theme
 
 The built-in `national-day-2026` theme is the approved ACECode-created

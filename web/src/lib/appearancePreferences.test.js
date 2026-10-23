@@ -10,6 +10,9 @@ import {
   systemThemeFallback,
 } from './appearancePreferences.js';
 
+// 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开。
+const THEME_STYLE_DEFAULTS = Object.freeze({ themeVariant: '', themeEffects: true });
+
 async function run(name, fn) {
   try {
     await fn();
@@ -22,7 +25,7 @@ async function run(name, fn) {
 
 await run('failed automatic theme persistence silently restores the original new or upgraded appearance', async () => {
   for (const colorTheme of ['blue', 'orange', 'ai-existing']) {
-    const initial = { theme: 'system', colorTheme, fontSize: 'large', sidebarSessionTime: false, messageAutoCollapse: true };
+    const initial = { theme: 'system', colorTheme, fontSize: 'large', sidebarSessionTime: false, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS };
     const applied = [], errors = [], saves = [];
     const expected = appearancePreferencesToApi(initial);
     const controller = createAppearancePersistenceController({ initial,
@@ -50,7 +53,7 @@ await run('appearance defaults preserve system preference, blue, and medium', ()
     fontSize: 'medium',
     // 侧栏时间是产品默认开的显示项:空输入必须归一成 true,否则升级用户
     // 一进来就发现时间列没了。
-    sidebarSessionTime: true, messageAutoCollapse: true,
+    sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS,
   });
   // 只有显式 false 才关;缺键、null、非布尔值都按开处理,免得旧 daemon 的
   // 半截报文把这一列意外关掉。
@@ -77,13 +80,13 @@ await run('desktop bootstrap is normalized before first render', () => {
     theme: 'light',
     colorTheme: 'orange',
     fontSize: 'large',
-    sidebarSessionTime: true, messageAutoCollapse: true,
+    sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS,
   });
   assert.deepEqual(appearanceBootstrapPreferences(scope), {
     theme: 'light',
     colorTheme: 'orange',
     fontSize: 'large',
-    sidebarSessionTime: true, messageAutoCollapse: true,
+    sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS,
   });
 });
 
@@ -108,6 +111,8 @@ await run('API serialization sends a complete compatibility snapshot', () => {
     font_size: 'small',
     sidebar_session_time: true,
     message_auto_collapse: true,
+    theme_variant: '',
+    theme_effects: true,
   });
 });
 
@@ -150,7 +155,7 @@ await run('canonical restore wins only before a local user mutation', async () =
     theme: 'dark',
     colorTheme: 'orange',
     fontSize: 'small',
-    sidebarSessionTime: true, messageAutoCollapse: true,
+    sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS,
   });
   assert.equal(applied.length, 3);
 });
@@ -171,7 +176,7 @@ await run('color and font changes preserve a canonical system theme preference',
     theme: 'system',
     colorTheme: 'orange',
     fontSize: 'large',
-    sidebarSessionTime: true, messageAutoCollapse: true,
+    sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS,
   });
 });
 
@@ -186,8 +191,8 @@ await run('failed latest save rolls back to the last confirmed appearance', asyn
   });
   await controller.change({ theme: 'dark', colorTheme: 'orange' });
   assert.deepEqual(applied, [
-    { theme: 'dark', colorTheme: 'orange', fontSize: 'medium', sidebarSessionTime: true, messageAutoCollapse: true },
-    { theme: 'light', colorTheme: 'blue', fontSize: 'medium', sidebarSessionTime: true, messageAutoCollapse: true },
+    { theme: 'dark', colorTheme: 'orange', fontSize: 'medium', sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS },
+    { theme: 'light', colorTheme: 'blue', fontSize: 'medium', sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS },
   ]);
   assert.deepEqual(errors, ['disk full']);
 });
@@ -216,13 +221,13 @@ await run('rapid changes serialize saves and keep the newest snapshot', async ()
     theme: 'dark',
     colorTheme: 'orange',
     fontSize: 'medium',
-    sidebarSessionTime: true, messageAutoCollapse: true,
+    sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS,
   });
 });
 
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 const deletionTick = () => new Promise((resolve) => setImmediate(resolve));
-const localAppearance = { theme: 'dark', colorTheme: 'ai-night', fontSize: 'medium', sidebarSessionTime: true, messageAutoCollapse: true };
+const localAppearance = { theme: 'dark', colorTheme: 'ai-night', fontSize: 'medium', sidebarSessionTime: true, messageAutoCollapse: true, ...THEME_STYLE_DEFAULTS };
 
 await run('消息自动折叠缺省开启，关闭值经启动注入、API、其它偏好修改后保持', async () => {
   const canonical = { theme: 'system', color_theme: 'blue', font_size: 'medium', message_auto_collapse: false };

@@ -42,6 +42,72 @@ export function validThemeDefinition(value) {
         && typeof value[key].sha256 === 'string' && /^[a-f0-9]{64}$/i.test(value[key].sha256)));
 }
 
+// Optional chrome/variants live at the top level so older clients and the
+// published workshop validator keep accepting the package and simply render
+// the default palette. Unknown or malformed values are ignored, never applied.
+export const THEME_CHROME_STYLES = Object.freeze(['hud']);
+export const MAX_THEME_VARIANTS = 6;
+const VARIANT_KEYS = new Set(['id', 'name', 'colors', 'appearance', 'tint']);
+
+export function themeChromeStyle(definition) {
+  const chrome = definition?.chrome;
+  if (!chrome || typeof chrome !== 'object' || Array.isArray(chrome)) return null;
+  return THEME_CHROME_STYLES.includes(chrome.style) ? chrome.style : null;
+}
+
+export function validThemeVariant(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (!Object.keys(value).every((key) => VARIANT_KEYS.has(key))) return false;
+  const name = typeof value.name === 'string' ? value.name.trim() : '';
+  return typeof value.id === 'string' && value.id.length <= 24 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.id)
+    && !!name && [...name].length <= 24 && !/[\u0000-\u001f\u007f]/.test(value.name)
+    && !!value.colors && typeof value.colors === 'object' && !Array.isArray(value.colors)
+    && Object.keys(value.colors).length === THEME_COLOR_KEYS.length
+    && THEME_COLOR_KEYS.every((key) => validThemeHexColor(value.colors[key]))
+    && (!Object.hasOwn(value, 'appearance') || validThemeAppearance(value.appearance))
+    && (!Object.hasOwn(value, 'tint') || validThemeHexColor(value.tint));
+}
+
+// All-or-nothing: a partly broken list would change which choice is default.
+export function themeVariants(definition) {
+  const list = definition?.variants;
+  if (!Array.isArray(list) || list.length < 2 || list.length > MAX_THEME_VARIANTS) return [];
+  const ids = new Set();
+  for (const variant of list) {
+    if (!validThemeVariant(variant) || ids.has(variant.id)) return [];
+    ids.add(variant.id);
+  }
+  return list;
+}
+
+// The first variant is the default; a stale or foreign ID falls back to it.
+export function selectThemeVariant(definition, variantId) {
+  const variants = themeVariants(definition);
+  if (!variants.length) return null;
+  return variants.find((variant) => variant.id === variantId) || variants[0];
+}
+
+// Returns the definition that rendering uses: the selected variant replaces
+// the palette and overlays its appearance keys; everything else is unchanged.
+export function resolveThemeVariant(definition, variantId) {
+  const variant = selectThemeVariant(definition, variantId);
+  if (!variant) return definition;
+  const appearance = { ...(definition.appearance || {}), ...(variant.appearance || {}) };
+  return {
+    ...definition,
+    colors: variant.colors,
+    ...(Object.keys(appearance).length ? { appearance } : {}),
+  };
+}
+
+export function themeVariantOptions(definition) {
+  return themeVariants(definition).map((variant) => ({
+    id: variant.id,
+    name: variant.name.trim(),
+    swatches: [variant.colors.bg, variant.colors.accent, variant.colors['send-bg']],
+  }));
+}
+
 export function resolveThemeAppearance(definition) {
   if (!validThemeDefinition(definition)) throw new Error('主题配色数据无效');
   const appearance = definition.appearance || {};
@@ -82,8 +148,11 @@ export async function loadThemeResources(definition, readImage, createUrl = (blo
   return item;
 }
 
-export function themeCssProperties(definition, backgroundUrl, extraUrls = {}) {
+export function themeCssProperties(definition, backgroundUrl, extraUrls = {}, { tint = null } = {}) {
   if (!validThemeDefinition(definition)) throw new Error('主题配色数据无效');
+  // A variant tint keeps each artwork's luminance and takes the tint's hue
+  // (CSS "color" blending), so one set of images serves every variant.
+  const tintLayer = validThemeHexColor(tint) ? `linear-gradient(${tint}, ${tint}), ` : '';
   const result = {};
   for (const key of THEME_COLOR_KEYS) {
     const hex = definition.colors[key];
@@ -109,19 +178,24 @@ export function themeCssProperties(definition, backgroundUrl, extraUrls = {}) {
     if (typeof url !== 'string' || !url.startsWith('blob:') || /["()\s]/.test(url)) continue;
     const opacity = overrides[`${key}_opacity`];
     const veil = opacity === undefined ? '' : `linear-gradient(rgba(${rgb(color)}, ${1 - opacity}), rgba(${rgb(color)}, ${1 - opacity})), `;
-    result[`--ace-${resource.region}-background-image`] = `${veil}url("${url}")`;
+    result[`--ace-${resource.region}-background-image`] = `${veil}${tintLayer}url("${url}")`;
+    if (tintLayer) result[`--ace-${resource.region}-background-blend`] = veil ? 'normal, color, normal' : 'color, normal';
     if (resource.region === 'user-message') {
       // A shared artwork width keeps decorations identical in every message.
-      // Only the color veil stretches with the bubble; artwork is cropped.
-      result['--ace-user-message-background-size'] = veil ? '100% 100%, 720px auto' : '720px auto';
+      // Only the color veil (and tint) stretch with the bubble; artwork is cropped.
+      const fill = (veil ? '100% 100%, ' : '') + (tintLayer ? '100% 100%, ' : '');
+      result['--ace-user-message-background-size'] = `${fill}720px auto`;
     }
   }
   return result;
 }
 
-export function applyInstalledTheme(root, definition, backgroundUrl, extraUrls = {}) {
-  const properties = definition ? themeCssProperties(definition, backgroundUrl, extraUrls) : {};
-  const appearance = definition ? resolveThemeAppearance(definition) : null;
+export function applyInstalledTheme(root, definition, backgroundUrl, extraUrls = {}, { variant = '', effects = true } = {}) {
+  const selected = definition ? selectThemeVariant(definition, variant) : null;
+  const effective = definition ? resolveThemeVariant(definition, variant) : null;
+  const chrome = definition ? themeChromeStyle(definition) : null;
+  const properties = effective ? themeCssProperties(effective, backgroundUrl, extraUrls, { tint: selected?.tint }) : {};
+  const appearance = effective ? resolveThemeAppearance(effective) : null;
   const hasBackground = !!properties['--ace-home-background-image'];
   const attributes = {
     'data-installed-theme': definition?.id,
@@ -131,6 +205,9 @@ export function applyInstalledTheme(root, definition, backgroundUrl, extraUrls =
     'data-theme-extend-to-titlebar': hasBackground ? String(appearance.extendToTitlebar) : null,
     'data-theme-titlebar-controls': hasBackground && appearance.whiteTitlebarControls ? 'white' : null,
     'data-theme-logo-color': appearance?.logoColor ? 'custom' : null,
+    'data-theme-chrome': chrome,
+    'data-theme-variant': selected?.id || null,
+    'data-theme-effects': chrome ? (effects === false ? 'off' : 'on') : null,
   };
   for (const [key, value] of Object.entries(properties)) root.style.setProperty(key, value);
   for (const [key, value] of Object.entries(attributes)) {
