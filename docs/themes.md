@@ -79,9 +79,9 @@ AI 主题使用 `ai-<slug>` 标识，允许小写 ASCII 字母、数字及短横
 ```json
 "chrome": {"style": "hud"},
 "variants": [
-  {"id": "red", "name": "荒坂红", "colors": {"…": "完整 28 色"}},
-  {"id": "cyan", "name": "公共区青", "colors": {"…": "完整 28 色"}, "tint": "#22CCF2", "appearance": {"logo_color": "#2BD3F5"}},
-  {"id": "yellow", "name": "限制区黄", "colors": {"…": "完整 28 色"}, "tint": "#F2E022"}
+  {"id": "red", "name": "荒坂", "colors": {"…": "完整 28 色"}},
+  {"id": "cyan", "name": "公共区", "colors": {"…": "完整 28 色"}, "tint": "#22CCF2", "appearance": {"logo_color": "#2BD3F5"}},
+  {"id": "yellow", "name": "限制区", "colors": {"…": "完整 28 色"}, "tint": "#F2E022"}
 ]
 ```
 
@@ -101,7 +101,6 @@ AI 主题使用 `ai-<slug>` 标识，允许小写 ASCII 字母、数字及短横
   - 输入框聚焦时沿底边的流光，Agent 运行中流光加速。
 
   动画只用 transform、opacity 或小面积重绘，不跟随系统的「减少动态效果」设置（远程桌面关闭窗口动画时会误报），以设置里的开关为准。
-- 工坊里的「荒坂公司」主题就是用这个格式制作的。
 
 ## Built-in National Day theme
 

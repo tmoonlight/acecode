@@ -25,9 +25,9 @@ function hudTheme(extra = {}) {
     appearance: { logo_color: '#FF3B48', home_title_color: '#F6ECEA', extend_to_titlebar: true },
     chrome: { style: 'hud' },
     variants: [
-      { id: 'red', name: '荒坂红', colors: RED },
-      { id: 'cyan', name: '公共区青', colors: CYAN, tint: '#22CCF2', appearance: { logo_color: '#2BD3F5' } },
-      { id: 'yellow', name: '限制区黄', colors: YELLOW, tint: '#F2E022' },
+      { id: 'red', name: '荒坂', colors: RED },
+      { id: 'cyan', name: '公共区', colors: CYAN, tint: '#22CCF2', appearance: { logo_color: '#2BD3F5' } },
+      { id: 'yellow', name: '限制区', colors: YELLOW, tint: '#F2E022' },
     ],
     ...extra,
   };
@@ -85,11 +85,11 @@ await run('variant selection falls back to the first entry', () => {
   assert.equal(selectThemeVariant(hudTheme(), 'missing').id, 'red');
   assert.equal(selectThemeVariant(hudTheme({ variants: undefined }), 'cyan'), null);
   assert.deepEqual(themeVariantOptions(hudTheme()).map((o) => [o.id, o.name, o.swatches]), [
-    ['red', '荒坂红', ['#110000', '#FF4D57', '#7DE7ED']],
-    ['cyan', '公共区青', ['#001111', '#2BD3F5', '#FF5A6E']],
-    ['yellow', '限制区黄', ['#111100', '#F7E733', '#2BD3F5']],
+    ['red', '荒坂', ['#110000', '#FF4D57', '#7DE7ED']],
+    ['cyan', '公共区', ['#001111', '#2BD3F5', '#FF5A6E']],
+    ['yellow', '限制区', ['#111100', '#F7E733', '#2BD3F5']],
   ]);
-  assert.equal(hudVariantLabel(themeVariantOptions(hudTheme()), 'yellow'), '限制区黄');
+  assert.equal(hudVariantLabel(themeVariantOptions(hudTheme()), 'yellow'), '限制区');
   assert.equal(hudVariantLabel(null, 'yellow'), '');
 });
 

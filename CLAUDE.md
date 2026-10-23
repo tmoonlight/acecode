@@ -639,6 +639,8 @@ SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-pane
 
 ### Web UI: HUD 主题外观与多风格(荒坂公司主题,2026-10-24)
 
+**这是创意工坊主题专用能力,默认不启用:用户不安装并选用 HUD 主题就完全不生效。用户拍板:不写进版本更新记录(`aceupdate.json` 的 `notes`、Release 说明),发版整理更新内容时跳过这部分提交。**
+
 主题包顶层可选 `chrome:{style:"hud"}` 与 `variants:[{id,name,colors(28),appearance?,tint?}]`(2–6 项,第一项为默认),格式见 [docs/themes.md](docs/themes.md#hud-外观与多风格)。**两个字段刻意放顶层、`appearance` 不加键**:C++ `valid_theme_definition`、已部署工坊的 `WorkshopPackage.cs` 都拒绝未知 appearance 键却忽略未知顶层键,放进 appearance 会让旧版 ACECode 和线上工坊整包拒收。前端 `themePackages.js` 对二者「不认识就忽略」(`themeChromeStyle` / `themeVariants` 全有或全无),不影响旧主题。
 
 - **样式全在 `web/src/styles/themeHud.css`**,每条选择器必须以 `:root[data-theme-chrome="hud"]` 开头(或是只在 HUD 下挂载的 `.ace-hud-*` 动效层类名),动画还必须带 `[data-theme-effects="on"]`;`themeHud.test.js` 解析 CSS 守着这两条。它随应用常驻加载,一条没加作用域的规则就会改到所有主题。

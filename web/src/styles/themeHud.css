@@ -401,6 +401,124 @@
   --hud-hot-len: 14px;
 }
 
+/* ── Diffs (diff2html, every .ace-diff: tool rows, change list, review) ──
+   diff2html reads its colors from --d2h-* variables; derive them all from the
+   palette so the light defaults (yellow "changed" pairs, pink/green word
+   highlights, grey headers) never show inside a HUD theme. */
+:root[data-theme-chrome="hud"] {
+  --d2h-bg-color: var(--ace-code-bg);
+  --d2h-border-color: rgba(var(--ace-accent-rgb), .38);
+  --d2h-dim-color: var(--ace-fg-mute);
+  --d2h-line-border-color: rgba(var(--ace-accent-rgb), .14);
+  --d2h-file-header-bg-color: rgba(var(--ace-accent-rgb), .09);
+  --d2h-file-header-border-color: rgba(var(--ace-accent-rgb), .32);
+  --d2h-empty-placeholder-bg-color: rgba(var(--ace-fg-mute-rgb), .06);
+  --d2h-empty-placeholder-border-color: rgba(var(--ace-accent-rgb), .14);
+  --d2h-selected-color: rgba(var(--ace-send-bg-rgb), .18);
+  --d2h-ins-bg-color: rgba(var(--ace-ok-rgb), .1);
+  --d2h-ins-border-color: rgba(var(--ace-ok-rgb), .35);
+  --d2h-ins-highlight-bg-color: rgba(var(--ace-ok-rgb), .32);
+  --d2h-ins-label-color: var(--ace-ok);
+  --d2h-del-bg-color: rgba(var(--ace-danger-rgb), .1);
+  --d2h-del-border-color: rgba(var(--ace-danger-rgb), .35);
+  --d2h-del-highlight-bg-color: rgba(var(--ace-danger-rgb), .34);
+  --d2h-del-label-color: var(--ace-danger);
+  --d2h-change-del-color: rgba(var(--ace-danger-rgb), .1);
+  --d2h-change-ins-color: rgba(var(--ace-ok-rgb), .1);
+  --d2h-info-bg-color: rgba(var(--ace-accent-rgb), .07);
+  --d2h-info-border-color: rgba(var(--ace-accent-rgb), .22);
+  --d2h-change-label-color: var(--ace-accent);
+  --d2h-moved-label-color: var(--ace-send-bg);
+}
+:root[data-theme-chrome="hud"] .ace-diff {
+  --hud-cut: 8px;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-wrapper {
+  border-color: var(--d2h-border-color);
+  border-radius: 0;
+  background: var(--ace-code-bg);
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-header {
+  background:
+    linear-gradient(var(--ace-accent), var(--ace-accent)) left var(--hud-cut) top 0 / 42px 2px no-repeat,
+    var(--d2h-file-header-bg-color);
+  color: var(--ace-fg);
+  border-color: var(--d2h-file-header-border-color);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-name {
+  color: var(--ace-fg);
+  letter-spacing: .02em;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-file-name-wrapper svg,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-icon {
+  fill: var(--ace-accent);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-tag {
+  background: transparent;
+  border-radius: 0;
+  padding: 0 5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-changed-tag { color: var(--ace-accent); border-color: var(--ace-accent); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-added-tag { color: var(--ace-ok); border-color: var(--ace-ok); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-deleted-tag { color: var(--ace-danger); border-color: var(--ace-danger); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-moved-tag { color: var(--ace-send-bg); border-color: var(--ace-send-bg); }
+/* Code stays in the code color for readability; the +/- markers, the
+   left rail and the tinted rows carry the change state. */
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-line, .d2h-code-side-line, .d2h-cntx) {
+  color: var(--ace-code-fg);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-cntx {
+  background: var(--ace-code-bg);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-ins,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-ins.d2h-change {
+  background: var(--d2h-ins-bg-color);
+  color: var(--ace-code-fg);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-del,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-del.d2h-change {
+  background: var(--d2h-del-bg-color);
+  color: var(--ace-fg-2);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-ins .d2h-code-line-prefix { color: var(--ace-ok); }
+:root[data-theme-chrome="hud"] .ace-diff .d2h-del .d2h-code-line-prefix { color: var(--ace-danger); }
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-line, .d2h-code-side-line) :is(ins, del) {
+  color: var(--ace-fg);
+  border-radius: 0;
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-info {
+  background: var(--d2h-info-bg-color);
+  color: var(--ace-fg-mute);
+  border-color: var(--d2h-info-border-color);
+  letter-spacing: .04em;
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber) {
+  background: rgba(var(--ace-surface-rgb), .65);
+  color: var(--ace-fg-mute);
+  border-color: var(--d2h-line-border-color);
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber).d2h-ins {
+  background: rgba(var(--ace-ok-rgb), .14);
+  color: var(--ace-ok);
+  box-shadow: inset 2px 0 0 var(--ace-ok);
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber).d2h-del {
+  background: rgba(var(--ace-danger-rgb), .14);
+  color: var(--ace-danger);
+  box-shadow: inset 2px 0 0 var(--ace-danger);
+}
+:root[data-theme-chrome="hud"] .ace-diff :is(.d2h-code-linenumber, .d2h-code-side-linenumber).d2h-info {
+  background: var(--d2h-info-bg-color);
+}
+:root[data-theme-chrome="hud"] .ace-diff .d2h-emptyplaceholder,
+:root[data-theme-chrome="hud"] .ace-diff .d2h-code-side-emptyplaceholder {
+  background: var(--d2h-empty-placeholder-bg-color);
+  border-color: var(--d2h-empty-placeholder-border-color);
+}
+
 /* Neon accents are bright: dark text keeps solid accent buttons readable. */
 :root[data-theme-chrome="hud"] .bg-accent.text-white {
   color: var(--ace-bg);
@@ -522,11 +640,12 @@
   background: linear-gradient(to bottom, transparent, rgba(var(--ace-accent-rgb), .05) 70%, rgba(var(--ace-accent-rgb), .11) 96%, transparent);
   transform: translateY(-180px);
   will-change: transform;
-  animation: ace-hud-sweep 11s linear infinite;
+  animation: ace-hud-sweep 36s linear infinite;
 }
+/* One pass takes 6s, then the band waits off-screen for a 30s cooldown. */
 @keyframes ace-hud-sweep {
   0% { transform: translateY(-180px); }
-  70%, 100% { transform: translateY(100vh); }
+  16.667%, 100% { transform: translateY(100vh); }
 }
 .ace-hud-burst {
   position: absolute;
