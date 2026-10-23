@@ -4345,6 +4345,26 @@ a.ace-thread-link:focus-visible {
   opacity: .34;
   cursor: default;
 }
+/* 超长会话只加载了最近一部分历史时,浮层下方的范围提示。 */
+.ace-global-find-note {
+  position: fixed;
+  top: 47px;
+  right: clamp(18px, 4vw, 54px);
+  z-index: 700;
+  max-width: min(340px, calc(100vw - 36px));
+  padding: 3px 10px;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.6);
+  border-radius: 999px;
+  background: rgba(var(--ace-surface-rgb), 0.9);
+  color: var(--ace-fg-mute);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.24);
+  backdrop-filter: blur(18px) saturate(1.24);
+  pointer-events: none;
+}
 
 .ace-chat-tail-progress {
   --ace-chat-tail-dot-lift: -3px;

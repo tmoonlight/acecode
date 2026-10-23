@@ -35,6 +35,36 @@ run('global find is controlled and searches only the conversation root', () => {
   assert.match(overlay, /placeholder="搜索当前对话内容"/);
 });
 
+run('长会话查找:等全部历史加载完再收集,匹配失效就地重收,浮层自带错误边界', () => {
+  // 场景:长会话 Ctrl+F 会逐页加载全部历史,期间对话区不断重绘。
+  // 期望:(1) ChatView 把加载任务经 waitUntil 交回浮层,浮层加载中不收集匹配;
+  // (2) 跳转前发现匹配失效就重新收集;(3) 浮层出错只重置自己,不卸载整个 App。
+  // 回归:三者都没有时,旧匹配的偏移在重绘后越界,setEnd 抛 IndexSizeError,
+  // 页面整体空白(2026-10-23 现场)。
+  const chatView = source('components/ChatView.jsx');
+  const overlay = source('components/GlobalFindOverlay.jsx');
+  assert.match(
+    chatView,
+    /event\?\.detail\?\.waitUntil\?\.\(\s*expandTranscriptWindow\(\{ loadAll: true, maxItems: FIND_HISTORY_ITEM_LIMIT \}\)\s*\.then\(\(\) => conversationFindScope\(getTranscriptState\(\)\)\),\s*\)/,
+  );
+  assert.match(chatView, /addEventListener\(CONVERSATION_FIND_OPEN_EVENT, handler\)/);
+  assert.match(overlay, /requestConversationFindContent\(window\)/);
+  assert.match(overlay, /contentLoading \? \[\] : collectFindMatches\(resolveFindRoot\(\), query\)/);
+  assert.match(overlay, /findMatchesNeedRecollect\(matches\)/);
+  // 超长会话只加载最近一部分(FIND_HISTORY_ITEM_LIMIT 条),浮层要如实提示搜索范围。
+  assert.match(overlay, /setSearchScope\(scope\)/);
+  assert.match(overlay, /const partialScope = !contentLoading && searchScope\?\.partial \? searchScope : null;/);
+  assert.match(overlay, /\{`只搜索了最近 \$\{partialScope\.messageCount\} 条消息`\}/);
+  assert.match(overlay, /className="ace-global-find-note" data-ace-native-overlay="overlap"/);
+  assert.match(overlay, /class GlobalFindBoundary extends Component/);
+  assert.match(overlay, /static getDerivedStateFromError\(\)/);
+  assert.match(overlay, /componentDidCatch\(error\) \{\s*clearFindHighlights\(document\);/);
+  assert.match(
+    overlay,
+    /export function GlobalFindOverlay\(props\) \{\s*return \(\s*<GlobalFindBoundary resetKey=\{props\.scopeKey \|\| ''\}>\s*<GlobalFindOverlayContent \{\.\.\.props\} \/>/,
+  );
+});
+
 run('global find closes only when a pointer starts outside the overlay', () => {
   const overlay = source('components/GlobalFindOverlay.jsx');
   assert.match(

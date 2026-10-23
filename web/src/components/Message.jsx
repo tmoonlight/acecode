@@ -9,6 +9,7 @@ import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } f
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { renderMarkdownBlocks } from '../lib/markdown.js';
+import { useStreamingRenderThrottle } from '../lib/useStreamingRenderThrottle.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { clsx, relativeTime } from '../lib/format.js';
 import { presentSystemNotice } from '../lib/systemNotice.js';
@@ -391,6 +392,28 @@ function UserBubble({
   );
 }
 
+// 流式中还没闭合的尾部代码块。结构与 markdown.js 的 fence 渲染一致(闭合后
+// 换成高亮版本时不跳版),代码是单个文本节点,追加内容只改它的值。
+function StreamingCodeBlock({ lang, text }) {
+  return (
+    <div className="ace-md-block">
+      <div className="ace-copyable-code" data-code-copy-frame="true" data-code-lang={lang || undefined}>
+        <button type="button" className="ace-code-copy-btn" data-code-copy-button="true" title="复制代码" aria-label="复制代码">
+          <span
+            className="ace-icon"
+            style={{ width: 14, height: 14, '--ace-icon-url': "url('/vs-icons/Copy.svg')" }}
+            data-monochrome="true"
+            aria-hidden="true"
+          />
+        </button>
+        <pre className={lang ? 'hljs' : undefined}>
+          <code className={lang ? `hljs language-${lang}` : undefined} data-code-copy-source="true">{text}</code>
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 function AssistantBubble({
   content,
   contentParts,
@@ -411,7 +434,12 @@ function AssistantBubble({
   // 块的 HTML 字符串变化,前缀块被 React 的字符串比较跳过,DOM 保持不动。
   // 整树替换会销毁浏览器滚动锚点并造成高度瞬时振荡 —— 那是 desktop
   // (WebView2)上流式出字时消息区上下跳动的主要来源。
-  const blocks = useMemo(() => renderMarkdownBlocks(content || ''), [content]);
+  // 流式期间限频重渲染,未闭合的尾部代码块只更新一个文本节点(见 renderMarkdownBlocks)。
+  const renderedContent = useStreamingRenderThrottle(content || '', !!streaming);
+  const blocks = useMemo(
+    () => renderMarkdownBlocks(renderedContent, { streaming: !!streaming }),
+    [renderedContent, streaming],
+  );
   const chrome = assistantChromeState({ showAceCodeAvatar, continuation });
   const handleMarkdownClick = useCallback(async (event) => {
     // 1) 本地文件链接 → 在中间详情页开预览。必须拦下默认导航,否则相对 href 会跳到
@@ -461,13 +489,15 @@ function AssistantBubble({
           className="ace-md ace-chat-message-content text-[13px] text-fg leading-[1.6] py-0.5"
           onClick={handleMarkdownClick}
         >
-          {blocks.map((block) => (
+          {blocks.map((block) => (block.openFence ? (
+            <StreamingCodeBlock key={block.key} lang={block.openFence.lang} text={block.openFence.text} />
+          ) : (
             <div
               key={block.key}
               className="ace-md-block"
               dangerouslySetInnerHTML={{ __html: block.html }}
             />
-          ))}
+          )))}
         </div>
         <AttachmentStrip
           contentParts={contentParts}

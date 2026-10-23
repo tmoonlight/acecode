@@ -95,3 +95,18 @@ const unread = (id, fields = {}) => ({ id, attention_state: 'unread', ...fields 
 }
 
 console.log('desktopTaskbarBadge tests passed');
+
+{
+  const { badge, calls } = harness();
+  const read = { id: 'restored', attention_state: 'read', cursor: 7, read_cursor: 7, timestamp_ms: 100 };
+  const manual = unread('restored', { cursor: 7, read_cursor: 6, manual_unread: true, timestamp_ms: 200 });
+  badge.replaceScope('', [read]);
+  badge.replaceScope('', [manual]);
+  badge.flush();
+  assert.equal(calls.at(-1).count, 1, 'a newer manual unread snapshot restores tray/taskbar indicators');
+  badge.replaceScope('', [read]);
+  assert.equal(badge.count(), 1, 'an older list cannot erase manual unread');
+  badge.replaceScope('', [{ ...read, timestamp_ms: 300 }]);
+  badge.flush();
+  assert.deepEqual(calls.at(-1), { count: 0 }, 'a newer read snapshot clears both indicators');
+}

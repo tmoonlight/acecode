@@ -152,9 +152,15 @@ import { trailingUserMessageRetryId } from '../lib/trailingUserMessageRetry.js';
 import { createSingleWriterStore } from '../lib/singleWriterStore.js';
 import { projectCollapsedTranscriptItems } from '../lib/transcriptProjection.js';
 import {
+  INITIAL_TAIL_ITEMS,
   reconcileTranscriptWindowAnchorKey,
   windowTranscriptItems,
 } from '../lib/transcriptWindow.js';
+import {
+  CONVERSATION_FIND_OPEN_EVENT,
+  FIND_HISTORY_ITEM_LIMIT,
+  conversationFindScope,
+} from '../lib/globalFind.js';
 import { buildComposerHistoryEntries } from '../lib/inputHistoryNavigation.js';
 import {
   completedTurnSelfHealEnabled,
@@ -1147,18 +1153,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 尾部窗口(渐进虚拟化,见 lib/transcriptWindow.js):大会话初始只渲染
   // 最近的一段投影行,DOM 行数从数百降到 ≤ INITIAL_TAIL_ITEMS。窗口状态
   // 用「首个可见行的稳定 key」锚定;anchorKey === undefined 表示该会话
-  // 还没初始化,anchorKey === null 表示显式全量视图。render-phase 协调
+  // 还没初始化,anchorKey === null 表示全量视图。render-phase 协调
   // 必须在当前投影切片前完成;useEffect 会先全量渲染一遍,虚拟化就白做了。
-  const [transcriptWindow, setTranscriptWindow] = useState({ sid: '', anchorKey: undefined });
-  const storedWindowAnchorKey = transcriptWindow.sid === sid
-    ? transcriptWindow.anchorKey
-    : undefined;
+  // 停在底部跟随时窗口封顶(新会话也一样),pinned = 用户主动展开过,
+  // 回到底部或新回合开始时由 setTailFollowFromAction 解除。
+  const [transcriptWindow, setTranscriptWindow] = useState({ sid: '', anchorKey: undefined, pinned: false });
+  const storedWindow = transcriptWindow.sid === sid ? transcriptWindow : null;
+  const windowPinned = storedWindow?.pinned === true;
   const windowAnchorKey = reconcileTranscriptWindowAnchorKey(
     renderedItems,
-    storedWindowAnchorKey,
+    storedWindow ? storedWindow.anchorKey : undefined,
+    INITIAL_TAIL_ITEMS,
+    { capTail: !!storedWindow && !windowPinned && shouldAutoFollowChatTail(tailFollowStateRef.current) },
   );
   if (transcriptWindow.sid !== sid || transcriptWindow.anchorKey !== windowAnchorKey) {
-    setTranscriptWindow({ sid, anchorKey: windowAnchorKey });
+    setTranscriptWindow({ sid, anchorKey: windowAnchorKey, pinned: windowPinned });
   }
   const { visible: windowedItems, hiddenCount: windowHiddenCount } = useMemo(
     () => windowTranscriptItems(renderedItems, windowAnchorKey),
@@ -1180,12 +1189,20 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const revealEarlierTranscript = historyController.reveal;
   const expandTranscriptWindow = historyController.expand;
   // 会话内查找(Ctrl+F)在 DOM 文本上搜索,窗口外的行搜不到 —— find 打开
-  // 时直接全量展开(GlobalFindOverlay 广播的事件)。
+  // 时直接全量展开(GlobalFindOverlay 广播的事件)。长会话要逐页拉历史,
+  // 拉到 FIND_HISTORY_ITEM_LIMIT 条就停;把这个任务交回浮层,它等加载完再
+  // 收集匹配,并按兑现的搜索范围提示「只搜索了最近 N 条消息」。
+  const getTranscriptState = transcript.getState;
   useEffect(() => {
-    const handler = () => expandTranscriptWindow({ loadAll: true });
-    window.addEventListener('acecode:conversation-find-open', handler);
-    return () => window.removeEventListener('acecode:conversation-find-open', handler);
-  }, [expandTranscriptWindow]);
+    const handler = (event) => {
+      event?.detail?.waitUntil?.(
+        expandTranscriptWindow({ loadAll: true, maxItems: FIND_HISTORY_ITEM_LIMIT })
+          .then(() => conversationFindScope(getTranscriptState())),
+      );
+    };
+    window.addEventListener(CONVERSATION_FIND_OPEN_EVENT, handler);
+    return () => window.removeEventListener(CONVERSATION_FIND_OPEN_EVENT, handler);
+  }, [expandTranscriptWindow, getTranscriptState]);
   const lastUserTurnKey = useMemo(() => {
     for (let index = rawItems.length - 1; index >= 0; index -= 1) {
       const item = rawItems[index];
@@ -2668,7 +2685,15 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   });
 
   const setTailFollowFromAction = useCallback((action) => {
-    tailFollowStateRef.current = nextChatTailFollowState(tailFollowStateRef.current, action);
+    const previous = tailFollowStateRef.current;
+    const next = nextChatTailFollowState(previous, action);
+    tailFollowStateRef.current = next;
+    // 用户回到底部(滚回尾部 / 跳到底部 / 新回合)后,之前主动展开的窗口
+    // 不再保留,跟随时恢复封顶。
+    if (next === CHAT_TAIL_FOLLOW_STATE.FOLLOWING
+      && (previous !== next || action?.type === 'jump_to_tail' || action?.type === 'new_turn')) {
+      setTranscriptWindow((current) => (current.pinned ? { ...current, pinned: false } : current));
+    }
   }, []);
 
   const cancelTailFollowScroll = useCallback(() => {

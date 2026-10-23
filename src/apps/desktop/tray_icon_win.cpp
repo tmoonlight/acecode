@@ -8,6 +8,7 @@
 #include "application_icon.hpp"
 #include "tray_menu_layout.hpp"
 #include "tray_menu_popup_model.hpp"
+#include "tray_unread_icon_win.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
@@ -150,13 +151,13 @@ namespace {
 
 constexpr wchar_t kTrayWndClass[] = L"ACECodeDesktopTrayWindow";
 constexpr UINT kTrayIconUid = 0xACEC; // 任意常量,保持稳定即可
-constexpr wchar_t kAppIconResourceName[] = L"IDI_ICON1";
-constexpr int kAppIconResourceId = 1;
 
 UINT g_tray_callback_msg = 0; // 由 RegisterWindowMessageW 注册,避免与其他 WM_USER 撞号
 HWND g_tray_window = nullptr;
 NOTIFYICONDATAW g_nid{};
 bool g_icon_added = false;
+TrayUnreadIconState g_tray_icon_state;
+UINT g_taskbar_created_msg = 0;
 
 constexpr wchar_t kTrayPopupWndClass[] = L"ACECodeDesktopTrayPopupWindow";
 constexpr UINT kTrayPopupDismissMessage = WM_APP + 0x351;
@@ -1543,51 +1544,6 @@ bool show_custom_tray_popup(HWND owner,
     return true;
 }
 
-HICON load_app_icon_for_tray() {
-    // acecode.rc.in 把 acecode.ico 编成 IDI_ICON1。旧构建里 IDI_ICON1 可能是
-    // 命名资源,新构建里是数字资源(1),所以两种都试一遍。
-    HINSTANCE hinst = ::GetModuleHandleW(nullptr);
-    int sx = ::GetSystemMetrics(SM_CXSMICON);
-    int sy = ::GetSystemMetrics(SM_CYSMICON);
-    if (HICON ic = static_cast<HICON>(::LoadImageW(
-            hinst, kAppIconResourceName, IMAGE_ICON, sx, sy, LR_DEFAULTCOLOR))) {
-        LOG_INFO("[desktop] tray icon: loaded named small frame via LoadImageW " +
-                 std::to_string(sx) + "x" + std::to_string(sy));
-        return ic;
-    }
-    if (HICON ic = static_cast<HICON>(::LoadImageW(
-            hinst, MAKEINTRESOURCEW(kAppIconResourceId), IMAGE_ICON, sx, sy, LR_DEFAULTCOLOR))) {
-        LOG_INFO("[desktop] tray icon: loaded small frame via LoadImageW " +
-                 std::to_string(sx) + "x" + std::to_string(sy));
-        return ic;
-    }
-    int lx = ::GetSystemMetrics(SM_CXICON);
-    int ly = ::GetSystemMetrics(SM_CYICON);
-    if (HICON ic = static_cast<HICON>(::LoadImageW(
-            hinst, kAppIconResourceName, IMAGE_ICON, lx, ly, LR_DEFAULTCOLOR))) {
-        LOG_WARN("[desktop] tray icon: small frame load failed, fell back to "
-                 "named large frame (will be downscaled by shell)");
-        return ic;
-    }
-    if (HICON ic = static_cast<HICON>(::LoadImageW(
-            hinst, MAKEINTRESOURCEW(kAppIconResourceId), IMAGE_ICON, lx, ly, LR_DEFAULTCOLOR))) {
-        LOG_WARN("[desktop] tray icon: small frame load failed, fell back to "
-                 "large frame (will be downscaled by shell)");
-        return ic;
-    }
-    if (HICON ic = ::LoadIconW(hinst, kAppIconResourceName)) {
-        LOG_WARN("[desktop] tray icon: LoadImageW failed, fell back to named LoadIconW");
-        return ic;
-    }
-    if (HICON ic = ::LoadIconW(hinst, MAKEINTRESOURCEW(kAppIconResourceId))) {
-        LOG_WARN("[desktop] tray icon: LoadImageW failed, fell back to LoadIconW");
-        return ic;
-    }
-    LOG_ERROR("[desktop] tray icon: app icon resource missing, using IDI_APPLICATION");
-    // 32512 = IDI_APPLICATION 数值常量。
-    return ::LoadIconW(nullptr, MAKEINTRESOURCEW(32512));
-}
-
 // 自定义 popup 创建失败时保留一个最小原生菜单兜底,保证 session/action 命令
 // 仍可用。正常路径不进入这里。
 void append_layout_to_native_fallback(HMENU menu, const TrayMenuLayout& layout) {
@@ -1669,6 +1625,13 @@ void show_context_menu(HWND hwnd) {
 }
 
 LRESULT CALLBACK tray_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    if (g_taskbar_created_msg && msg == g_taskbar_created_msg) {
+        if (g_icon_added) g_tray_icon_state.refresh(g_nid, g_tray_icon_state.unread(), true);
+        return 0;
+    }
+    if (g_icon_added && (msg == WM_DPICHANGED || msg == WM_DISPLAYCHANGE || msg == WM_SETTINGCHANGE)) {
+        g_tray_icon_state.refresh(g_nid, g_tray_icon_state.unread());
+    }
     if (msg == g_tray_callback_msg && g_tray_callback_msg != 0) {
         // tray icon 事件。lparam 低 WORD 是事件类型
         // (WM_LBUTTONUP / WM_RBUTTONUP 等)。具体见 Shell_NotifyIcon 文档。
@@ -1749,6 +1712,7 @@ bool init_tray_icon(TrayClickHandler on_show,
     }
 
     g_tray_callback_msg = ::RegisterWindowMessageW(L"ACECode_TrayMessage_v1");
+    g_taskbar_created_msg = ::RegisterWindowMessageW(L"TaskbarCreated");
     g_on_show = std::move(on_show);
     g_on_quit = std::move(on_quit);
 
@@ -1757,10 +1721,9 @@ bool init_tray_icon(TrayClickHandler on_show,
     g_nid.uID = kTrayIconUid;
     g_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     g_nid.uCallbackMessage = g_tray_callback_msg;
-    g_nid.hIcon = load_app_icon_for_tray();
     wcsncpy_s(g_nid.szTip, L"ACECode", _TRUNCATE);
 
-    if (!::Shell_NotifyIconW(NIM_ADD, &g_nid)) {
+    if (!g_tray_icon_state.refresh(g_nid, false, true)) {
         LOG_WARN("[desktop] tray: Shell_NotifyIconW NIM_ADD failed");
         ::DestroyWindow(g_tray_window);
         g_tray_window = nullptr;
@@ -1772,12 +1735,19 @@ bool init_tray_icon(TrayClickHandler on_show,
     return true;
 }
 
+bool set_tray_icon_unread(bool unread) {
+    if (!g_icon_added || g_tray_icon_state.unread() == unread) return true;
+    return g_tray_icon_state.refresh(g_nid, unread);
+}
+
 void shutdown_tray_icon() {
     close_tray_popup();
     if (g_icon_added) {
         ::Shell_NotifyIconW(NIM_DELETE, &g_nid);
         g_icon_added = false;
     }
+    g_tray_icon_state.clear();
+    g_nid.hIcon = nullptr;
     if (g_tray_window) {
         ::DestroyWindow(g_tray_window);
         g_tray_window = nullptr;

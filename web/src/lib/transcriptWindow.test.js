@@ -6,6 +6,7 @@ import {
 } from './sessionTranscript.js';
 import { projectCollapsedTranscriptItems } from './transcriptProjection.js';
 import {
+  FOLLOW_MAX_ITEMS,
   INITIAL_TAIL_ITEMS,
   REVEAL_CHUNK_ITEMS,
   initialWindowAnchorKey,
@@ -236,6 +237,70 @@ run('transcript_replace 大转短时即使旧 key 仍存在也显示全部 100 �
   assert.equal(afterWindow.visible.length, 100);
 });
 
+// 回归测试(WebView 长时间跑 Agent 后渲染进程涨到 1–2 GB):用户停在底部跟随时,
+// 窗口随回合增长必须封顶。旧实现锚点一旦选定就不再移动,一直开着的会话每回合的
+// DOM 都留在页面上。
+// 场景:已锚定的窗口可见行超过 FOLLOW_MAX_ITEMS。
+// 期望:capTail 时重选尾部锚点(可见行回到初始窗口附近),不跟随时保持原锚点。
+run('跟随尾部时已锚定窗口超过上限就重选尾部锚点', () => {
+  const items = makeItems(600, { persisted: true });
+  const oldAnchor = transcriptWindowItemKey(items[102]);
+  assert.equal(items[102].role, 'user');
+  assert.equal(reconcileTranscriptWindowAnchorKey(items, oldAnchor), oldAnchor);
+
+  const capped = reconcileTranscriptWindowAnchorKey(items, oldAnchor, INITIAL_TAIL_ITEMS, { capTail: true });
+  assert.equal(capped, initialWindowAnchorKey(items));
+  const { visible, hiddenCount } = windowTranscriptItems(items, capped);
+  assert.ok(visible.length >= INITIAL_TAIL_ITEMS && visible.length <= FOLLOW_MAX_ITEMS, `visible=${visible.length}`);
+  assert.equal(hiddenCount + visible.length, items.length);
+});
+
+// 场景:可见行超过初始窗口,但没超过上限(余量区间)。
+// 期望:capTail 也不动锚点 —— 否则每来一行都裁一次,窗口边界来回跳。
+run('可见行在余量区间内时不裁剪', () => {
+  const items = makeItems(600, { persisted: true });
+  const anchorIdx = items.length - 150;
+  assert.equal(items[anchorIdx].role, 'user');
+  const anchor = transcriptWindowItemKey(items[anchorIdx]);
+  assert.equal(
+    reconcileTranscriptWindowAnchorKey(items, anchor, INITIAL_TAIL_ITEMS, { capTail: true }),
+    anchor,
+  );
+});
+
+// 场景:打开时不足一个窗口的会话(含新建会话)被定成全量视图 null,之后越聊越长。
+// 期望:不跟随 / 用户主动展开(capTail=false)时保持全量;跟随且超过上限时开始裁剪。
+// 回归 bug 表现:新建会话永远停在全量视图,DOM 无限增长。
+run('全量视图在跟随且超过上限时也会封顶', () => {
+  const small = makeItems(80, { persisted: true });
+  assert.equal(reconcileTranscriptWindowAnchorKey(small, undefined, INITIAL_TAIL_ITEMS, { capTail: true }), null);
+
+  const grown = makeItems(FOLLOW_MAX_ITEMS + 30, { persisted: true });
+  assert.equal(reconcileTranscriptWindowAnchorKey(grown, null), null);
+  const capped = reconcileTranscriptWindowAnchorKey(grown, null, INITIAL_TAIL_ITEMS, { capTail: true });
+  assert.equal(typeof capped, 'string');
+  assert.ok(windowTranscriptItems(grown, capped).hiddenCount > 0);
+
+  const withinMargin = makeItems(FOLLOW_MAX_ITEMS - 10, { persisted: true });
+  assert.equal(reconcileTranscriptWindowAnchorKey(withinMargin, null, INITIAL_TAIL_ITEMS, { capTail: true }), null);
+});
+
+// 场景:新会话一直停在底部跟随,每回合追加 6 行,连续 100 回合;每次渲染都按
+// ChatView 的方式把上一次的锚点交回协调。
+// 期望:任何时刻可见行都不超过上限,并且确实裁掉过(隐藏行 > 0)。
+run('持续增长并跟随时可见行始终有上限', () => {
+  let anchor;
+  let maxVisible = 0;
+  for (let turn = 1; turn <= 100; turn += 1) {
+    const items = makeItems(turn * 6, { persisted: true });
+    anchor = reconcileTranscriptWindowAnchorKey(items, anchor, INITIAL_TAIL_ITEMS, { capTail: true });
+    const { visible } = windowTranscriptItems(items, anchor);
+    maxVisible = Math.max(maxVisible, visible.length);
+  }
+  assert.ok(maxVisible <= FOLLOW_MAX_ITEMS, `maxVisible=${maxVisible}`);
+  assert.ok(windowTranscriptItems(makeItems(600, { persisted: true }), anchor).hiddenCount > 0);
+});
+
 // 架构守护:ChatView 的 transcript 行渲染必须走窗口化列表,不能退回全量 map。
 const chatViewSource = (await import('node:fs')).readFileSync(
   new URL('../components/ChatView.jsx', import.meta.url),
@@ -252,4 +317,19 @@ run('架构: ChatView 行渲染使用 windowedItems,保留揭示入口与滚动�
       < chatViewSource.indexOf('windowTranscriptItems(renderedItems, windowAnchorKey)'),
     'ChatView 必须先协调 key,再切片当前 render',
   );
+});
+
+// 架构守护:ChatView 必须在跟随尾部且窗口未被用户主动展开时才传 capTail;
+// 「显示更早 / 显示全部」(查找、跳转也走这里)要标记 pinned,回到底部再解除。
+// 少了 pinned,查找展开全量后的下一次渲染就会把结果裁掉;少了解除,
+// 用户展开过一次后窗口又会无限增长。
+const historySource = (await import('node:fs')).readFileSync(
+  new URL('./useTranscriptHistory.js', import.meta.url),
+  'utf8',
+);
+run('架构: 封顶只在跟随且未主动展开时生效', () => {
+  assert.match(chatViewSource, /capTail: !!storedWindow && !windowPinned && shouldAutoFollowChatTail\(tailFollowStateRef\.current\)/);
+  assert.match(chatViewSource, /setTranscriptWindow\(\{ sid, anchorKey: windowAnchorKey, pinned: windowPinned \}\)/);
+  assert.match(chatViewSource, /current\.pinned \? \{ \.\.\.current, pinned: false \} : current/);
+  assert.equal((historySource.match(/pinned: true/g) || []).length, 2);
 });

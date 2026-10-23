@@ -3451,15 +3451,20 @@ export function Sidebar({
   // 的 effect 立刻改回已读(否则菜单点了等于没点)。切走再回来照常自动已读。
   // 这个 effect 必须声明在自动已读的 effect 之前,切换会话的同一次提交里先清掉标记。
   const manualUnreadActiveRef = useRef('');
+  const manualUnreadRevisionRef = useRef(0);
   useEffect(() => {
     if (manualUnreadActiveRef.current && manualUnreadActiveRef.current !== activeId) {
       manualUnreadActiveRef.current = '';
+      manualUnreadRevisionRef.current += 1;
     }
   }, [activeId]);
 
   const markSessionRead = useStableCallback((session) => {
     if (!session?.id) return;
-    if (manualUnreadActiveRef.current === session.id) manualUnreadActiveRef.current = '';
+    if (manualUnreadActiveRef.current === session.id) {
+      manualUnreadActiveRef.current = '';
+      manualUnreadRevisionRef.current += 1;
+    }
     const merged = mergeSessionStatus(session, statusBySession);
     const cursor = statusCursor(merged);
     if (connection.markSessionRead({
@@ -3476,11 +3481,18 @@ export function Sidebar({
   const markSessionUnread = useStableCallback((session) => {
     if (!session?.id) return;
     const merged = mergeSessionStatus(session, statusBySession);
+    const previousManualUnread = manualUnreadActiveRef.current;
+    if (merged.id === activeId) {
+      manualUnreadActiveRef.current = merged.id;
+      manualUnreadRevisionRef.current += 1;
+    }
     if (connection.markSessionUnread({
       sessionId: merged.id,
       workspaceHash: merged.workspace_hash || '',
-    }) === false) return false;
-    if (merged.id === activeId) manualUnreadActiveRef.current = merged.id;
+    }) === false) {
+      manualUnreadActiveRef.current = previousManualUnread;
+      return false;
+    }
     const optimistic = optimisticUnreadStatus(merged);
     if (optimistic) desktopTaskbarBadge.updateStatus(optimistic);
     if (optimistic) setStatusBySession((prev) => applyStatusUpdate(prev, optimistic));
@@ -3496,7 +3508,6 @@ export function Sidebar({
     const statuses = outcome.statuses;
     if (!statuses.length) return;
     const ids = new Set(outcome.succeeded.map(({ entry }) => entry.session.id));
-    if (action === 'unread' && ids.has(activeId)) manualUnreadActiveRef.current = activeId;
     if (action === 'read' && ids.has(manualUnreadActiveRef.current)) manualUnreadActiveRef.current = '';
     statuses.forEach(status => desktopTaskbarBadge.updateStatus(status));
     setStatusBySession(prev => statuses.reduce((map, status) => applyStatusUpdate(map, status), prev));
@@ -3561,6 +3572,17 @@ export function Sidebar({
     if (batchOperationRef.current || treeSavingRef.current || !entries.length) return;
     batchOperationRef.current = true;
     treeRevisionRef.current += 1;
+    // WS status broadcasts can arrive before the HTTP response. Protect the
+    // current chat before sending, and never reapply the guard after navigation.
+    const previousManualUnread = manualUnreadActiveRef.current;
+    const protectedUnreadId = action === 'unread' && entries.some(({ session }) => session.id === activeId)
+      ? activeId : '';
+    if (protectedUnreadId) {
+      manualUnreadActiveRef.current = protectedUnreadId;
+      manualUnreadRevisionRef.current += 1;
+    }
+    const unreadRevision = manualUnreadRevisionRef.current;
+    let protectedUnreadSucceeded = false;
     const archiving = action === 'archive';
     const archiveKeys = [];
     if (archiving) {
@@ -3581,6 +3603,7 @@ export function Sidebar({
         cursorFor: session => statusCursor(mergeSessionStatus(session, statusBySession)),
       }));
       const outcome = sessionBatchOutcome(response, entries);
+      protectedUnreadSucceeded = outcome.succeeded.some(({ entry }) => entry.session.id === protectedUnreadId);
       if (archiving) await finishSessionBatchArchive(outcome);
       else if (action === 'read' || action === 'unread') applySessionBatchStatuses(action, outcome);
       else applySessionBatchPins(outcome);
@@ -3597,6 +3620,12 @@ export function Sidebar({
       sessionSelection.retain(entries.map(entry => entry.key));
       toast({ kind: 'err', text: tr('批量操作失败：') + (e?.message || '') });
     } finally {
+      if (protectedUnreadId && !protectedUnreadSucceeded && manualUnreadActiveRef.current === protectedUnreadId
+        && manualUnreadRevisionRef.current === unreadRevision) {
+        manualUnreadActiveRef.current = previousManualUnread;
+        // Removing a ref-only guard must also recheck any status received while waiting.
+        setStatusBySession(prev => new Map(prev));
+      }
       batchOperationRef.current = false;
       archiveKeys.forEach(key => archiveOperationsRef.current.delete(key));
       if (action === 'pin' || action === 'unpin') {
@@ -3658,13 +3687,16 @@ export function Sidebar({
     return () => window.removeEventListener('keydown', clearSidebarSelection);
   }, [clearSidebarSelection]);
 
+  const lastAutoReadSessionRef = useRef('');
   useEffect(() => {
     if (!activeId) return;
-    if (manualUnreadActiveRef.current === activeId) return;
     const session = sessions.find((s) => s.id === activeId);
     if (!session) return;
+    const navigated = !!lastAutoReadSessionRef.current && lastAutoReadSessionRef.current !== activeId;
+    lastAutoReadSessionRef.current = activeId;
+    if (manualUnreadActiveRef.current === activeId) return;
     const merged = mergeSessionStatus(session, statusBySession);
-    if (merged.attention_state === 'unread') markSessionRead(merged);
+    if (merged.attention_state === 'unread' && (!merged.manual_unread || navigated)) markSessionRead(merged);
   }, [activeId, sessions, statusBySession, markSessionRead]);
 
   // 会话右键菜单(侧栏行 / 会话菜单按钮 / 顶栏右键)里的「标记为已读 / 未读」。

@@ -74,10 +74,12 @@ function escapeHtml(s) {
 }
 
 const SOURCE_LINES_ENV = '__acecodeSourceLines';
+const STREAMING_ENV = '__acecodeStreaming';
 
-function markdownEnv(source) {
+function markdownEnv(source, { streaming = false } = {}) {
   return {
     [SOURCE_LINES_ENV]: String(source || '').replace(/\r\n?/g, '\n').split('\n'),
+    [STREAMING_ENV]: streaming,
   };
 }
 
@@ -124,6 +126,22 @@ function highlightCode(str, lang, cacheable = true) {
   return result;
 }
 
+// 流式中还没闭合的代码块:保留语言 class(样式一致),但不做高亮。逐 token
+// 整块重新高亮会每次重建几百个 span,闭合后再一次性高亮。
+function registeredLang(lang) {
+  const norm = normalizeLang(lang);
+  return norm && hljs.getLanguage(norm) ? norm : '';
+}
+
+function plainCode(str, lang) {
+  return { lang: registeredLang(lang), html: escapeHtml(str) };
+}
+
+function fenceLang(token) {
+  const info = String(token.info || '').trim();
+  return info ? info.split(/\s+/g)[0] : '';
+}
+
 const md = new MarkdownIt({
   html: false,        // 禁 raw HTML(XSS 防御)
   linkify: true,      // 自动链接化带 scheme 的 URL / mailto(见下方 fuzzyLink)
@@ -161,8 +179,7 @@ md.linkify.add('thread:', {
 
 md.renderer.rules.fence = (tokens, idx, _options, env) => {
   const token = tokens[idx];
-  const info = String(token.info || '').trim();
-  const lang = info ? info.split(/\s+/g)[0] : '';
+  const lang = fenceLang(token);
   const normalizedLang = normalizeLang(lang);
   if (normalizedLang === 'mermaid'
       && String(token.content || '').trim()
@@ -174,7 +191,10 @@ md.renderer.rules.fence = (tokens, idx, _options, env) => {
       + `<pre class="ace-mermaid-source"><code data-code-copy-source="true" data-mermaid-source="true">${source}</code></pre>`
       + `</div>\n`;
   }
-  const highlighted = highlightCode(token.content, lang, isCompleteFence(token, env));
+  const complete = isCompleteFence(token, env);
+  const highlighted = env?.[STREAMING_ENV] && !complete
+    ? plainCode(token.content, lang)
+    : highlightCode(token.content, lang, complete);
   const preClass = highlighted.lang ? ' class="hljs"' : '';
   const codeClass = highlighted.lang ? ` class="hljs language-${escapeHtml(highlighted.lang)}"` : '';
   const langAttr = highlighted.lang ? ` data-code-lang="${escapeHtml(highlighted.lang)}"` : '';
@@ -277,11 +297,15 @@ export function renderMarkdownInline(src) {
 // 全文只 parse 一次再按块分组交给 renderer,reference link([ref]: url)
 // 等跨块状态经 env 全局生效,块序列的 HTML 拼接与 renderMarkdown 全文
 // 渲染逐字节一致。
-export function renderMarkdownBlocks(src) {
+//
+// streaming = 消息仍在流式输出:未闭合的代码块不高亮;若它就是最后一个顶层
+// 块,返回 { key, openFence: { lang, text } } 而不是 html,由 Message.jsx 渲染
+// 成单个文本节点 —— 每次追加只改这个文本节点,不再整块替换 innerHTML。
+export function renderMarkdownBlocks(src, { streaming = false } = {}) {
   if (!src) return [];
   const text = String(src);
   try {
-    const env = markdownEnv(text);
+    const env = markdownEnv(text, { streaming });
     const tokens = md.parse(text, env);
     const groups = [];
     let group = [];
@@ -295,10 +319,14 @@ export function renderMarkdownBlocks(src) {
       }
     }
     if (group.length) groups.push(group); // 防御:不平衡 token 流也不丢内容
-    return groups.map((groupTokens, index) => ({
-      key: index,
-      html: md.renderer.render(groupTokens, md.options, env),
-    }));
+    return groups.map((groupTokens, index) => {
+      const only = groupTokens.length === 1 ? groupTokens[0] : null;
+      if (streaming && index === groups.length - 1 && only?.type === 'fence'
+          && !isCompleteFence(only, env)) {
+        return { key: index, openFence: { lang: registeredLang(fenceLang(only)), text: only.content } };
+      }
+      return { key: index, html: md.renderer.render(groupTokens, md.options, env) };
+    });
   } catch {
     return [{ key: 0, html: `<p>${escapeHtml(text)}</p>` }];
   }

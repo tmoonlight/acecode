@@ -11,6 +11,18 @@ import {
   workspaceHasUnread,
 } from './sessionStatus.js';
 
+run('手动未读在快照中恢复，并在显式已读后清除', () => {
+  const snapshot = applyStatusSnapshot(new Map(), { sessions: [
+    { session_id: 'restored', state: 'unread', manual_unread: true, cursor: 5, read_cursor: 4 },
+    { session_id: 'legacy', state: 'unread', cursor: 3 },
+  ] });
+  assert.equal(mergeSessionStatus({ id: 'restored' }, snapshot).manual_unread, true);
+  assert.equal(snapshot.get('legacy').manual_unread, false);
+  assert.equal(optimisticUnreadStatus({ id: 'new' }).manual_unread, true);
+  assert.equal(optimisticReadStatus(snapshot.get('restored')).manual_unread, false);
+  assert.equal(optimisticReadStatus({ id: 'busy', busy: true, manual_unread: true }).manual_unread, false);
+});
+
 function run(name, fn) {
   try {
     fn();

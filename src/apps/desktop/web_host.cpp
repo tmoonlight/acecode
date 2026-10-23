@@ -2530,7 +2530,8 @@ bool WebHost::open_dev_tools() {
 
 bool WebHost::set_taskbar_badge(const TaskbarBadge& badge) {
 #ifdef _WIN32
-    return impl_->taskbar_badge && impl_->taskbar_badge->set(badge);
+    const bool tray_updated = set_tray_icon_unread(badge.count > 0);
+    return impl_->taskbar_badge && impl_->taskbar_badge->set(badge) && tray_updated;
 #else
     (void)badge;
     return false;

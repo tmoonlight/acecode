@@ -53,7 +53,7 @@ const payload=(opts={})=>{
  const rows=[];
  function emit(node,parent,rank){const latest=node.group?node.children.reduce((a,b)=>(b.created||'')>(a.created||'')?b:a):node;
   rows.push({id:node.id,title:node.title,workspace_hash:'w',cwd:'/fixture',active:!node.group,created_at:latest.created||'2026-10-13T09:00:00Z',updated_at:latest.created||'2026-10-13T09:00:00Z',
-  attention_state:node.state||'read',busy:node.state==='in_progress',
+  attention_state:node.state||'read',manual_unread:!!node.manual_unread,busy:node.state==='in_progress',
   ...(node.worktree?{worktree:node.worktree}:{}),
   ...(node.group?{sidebar_group:true,sidebar_group_name:node.title,sidebar_latest_session_id:latest.id,
    sidebar_members:node.children.map(child=>({id:child.id,state:child.state||'read',busy:child.state==='in_progress',workspace_hash:'w',cwd:'/fixture'}))}:{}),
@@ -110,7 +110,13 @@ Object.assign(api,{
  },
 });
 for(const name of ['reconfigure','retainSession','releaseSession','subscribeWorkspaceStatus','unsubscribeWorkspaceStatus'])connection[name]=()=>{};
-connection.markSessionRead=payload=>window.reads.push(payload);
+connection.markSessionRead=payload=>{
+ window.reads.push(payload);
+ const found=locate('session:'+payload.sessionId);
+ if(found){found.node.state='read';found.node.manual_unread=false;persist();}
+ connection.dispatchEvent(new CustomEvent('message',{detail:{type:'mark_session_read_ack',payload:{session_id:payload.sessionId,state:'read',manual_unread:false,timestamp_ms:Date.now()}}}));
+ return true;
+};
 connection.markSessionUnread=payload=>{window.unreads.push(payload);return true;};
 connection.retainSession=id=>window.retained.push(id);
 // Exercise the production URL builder; mocking listSidebarSessions itself hides
@@ -134,10 +140,18 @@ window.fetch=async(input,options={})=>{
    pins=pins.filter(id=>!archived.has(id));localStorage.setItem('tree-pins',JSON.stringify(pins));
   }else if(action==='read'||action==='unread'){
    for(const result of results){
-    const status={session_id:result.session_id,workspace_hash:'w',cwd:'/fixture',state:action==='read'?'read':'unread',timestamp_ms:Date.now()};
+    const status={session_id:result.session_id,workspace_hash:'w',cwd:'/fixture',state:action==='read'?'read':'unread',manual_unread:action==='unread',timestamp_ms:Date.now()};
+    if(window.failReadBatch){result.ok=false;result.error='fixture failed';continue;}
     result.status=status;
+    const found=locate('session:'+result.session_id);
+    if(found){found.node.state=status.state;found.node.manual_unread=status.manual_unread;}
+    // Exercise both old-daemon payloads and the real WS-before-HTTP ordering.
+    const broadcast={...status};if(window.legacyBatchBroadcast)delete broadcast.manual_unread;
+    connection.dispatchEvent(new CustomEvent('message',{detail:{type:'session_status',payload:broadcast}}));
     (action==='read'?window.reads:window.unreads).push(status);
    }
+   persist();
+   await new Promise(resolve=>setTimeout(resolve,120));
   }
   body={action,results,pinned_scopes:[{pin_scope:'w',session_ids:pins}],pinned_order:{items:pinOrder}};
  }
@@ -151,7 +165,7 @@ window.fetch=async(input,options={})=>{
  return new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}});
 };
 function App(){
- const [active,setActive]=useState(null);
+ const [active,setActive]=useState(()=>JSON.parse(localStorage.getItem('restore-active')||'null'));
  window.fixture={roots:()=>roots,select:(id)=>setActive({sessionId:id,workspaceHash:'w',active:true}),
   attention(id,state){const found=locate('session:'+id);if(found)found.node.state=state;connection.dispatchEvent(new CustomEvent('message',{detail:{type:'session_status',payload:{session_id:id,workspace_hash:'w',cwd:'/fixture',state,timestamp_ms:Date.now()}}}));},
   addRun(){const root=roots.find(item=>item.key==='loop:daily');root.children.unshift({id:'run-next',key:'session:run-next',loopId:root.loopId,title:'每日简报：新执行',created:'2026-10-14T09:00:00Z',children:[]});persist();window.dispatchEvent(new CustomEvent(SESSION_LIST_CHANGED_EVENT,{detail:{workspaceHash:'w'}}));}};
@@ -387,9 +401,11 @@ try {
   await page.keyboard.press('Escape');await page.keyboard.press('Escape');await expectCount(0);
   await select('run-new');await clickWith('old-2','Shift');await expectCount(4);
   const readCount=await page.evaluate(()=>window.reads.length);
+  await page.evaluate(()=>{window.legacyBatchBroadcast=true;});
   await row('old-1').click({button:'right'});
   await page.getByRole('menuitem',{name:'标记为未读 (4)',exact:true}).click();
   await page.waitForFunction(()=>window.unreads.length===4);
+  await page.waitForTimeout(220);
   assert.equal(await row('run-new').getAttribute('data-desktop-session-unread'),'true');
   assert.equal(await page.evaluate(()=>window.reads.length),readCount,'active manually unread session stays unread');
   await row('old-1').click({button:'right'});
@@ -494,5 +510,26 @@ try {
   await page.waitForTimeout(3600);
   await page.screenshot({path:path.join(output,'narrow-multiselect.png'),animations:'disabled'});
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({result:'PASS',browser:browser.version(),output,scenarios:46}));
+  // Restore the selected chat with durable manual unread, then explicitly open it.
+  await page.evaluate(()=>{
+    localStorage.clear();
+    localStorage.setItem('tree-fixture',JSON.stringify([{key:'session:n1',id:'n1',title:'恢复未读',state:'unread',manual_unread:true,children:[]},{key:'session:n2',id:'n2',title:'其他会话',children:[]}]));
+    localStorage.setItem('restore-active',JSON.stringify({sessionId:'n1',workspaceHash:'w',active:true}));
+  });
+  await page.reload();await row('n1').waitFor();await page.waitForTimeout(250);
+  assert.equal(await row('n1').getAttribute('data-desktop-session-unread'),'true');
+  assert.equal(await page.evaluate(()=>window.reads.length),0,'startup restore preserves manual unread');
+  await select('n1');
+  await page.waitForFunction(()=>window.reads.length===1);
+  assert.equal(await row('n1').getAttribute('data-desktop-session-unread'),'false');
+  // A failed batch must release the pre-request guard for later live output.
+  await clickWith('n2','Control');await expectCount(2);
+  await page.evaluate(()=>{window.failReadBatch=true;});
+  await row('n2').click({button:'right'});
+  await page.getByRole('menuitem',{name:'标记为未读 (2)',exact:true}).click();
+  await page.getByText('批量操作：成功 0 项，失败 2 项',{exact:true}).waitFor();
+  await page.evaluate(()=>window.fixture.attention('n1','unread'));
+  await page.waitForFunction(()=>window.reads.length===2);
+  assert.deepEqual(errors,[]);
+  console.log(JSON.stringify({result:'PASS',browser:browser.version(),output,scenarios:49}));
 } finally { await browser?.close(); await server.close(); }

@@ -205,6 +205,12 @@ TEST_F(SidebarSessionsHttp, NoWorkspaceIsIsolatedAndLiveOriginsArePreserved) {
     const auto first = registry->create(options);
     const auto second = registry->create(options);
     ASSERT_NE(first, second);
+    const auto marked = cpr::Post(cpr::Url{url("/api/session-batch")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"action", "unread"}, {"items", json::array({
+            {{"session_id", first}, {"no_workspace", true}}
+        })}}.dump()});
+    ASSERT_EQ(marked.status_code, 200) << marked.text;
     const auto response = cpr::Get(cpr::Url{url("/api/session-sidebar")},
         cpr::Parameters{{"expanded", "[\"loop:detached\"]"}}, cpr::Timeout{3000});
     ASSERT_EQ(response.status_code, 200) << response.text;
@@ -212,6 +218,17 @@ TEST_F(SidebarSessionsHttp, NoWorkspaceIsIsolatedAndLiveOriginsArePreserved) {
     EXPECT_EQ(body["total"], 1);
     ASSERT_EQ(body["sessions"].size(), 3u);
     for (const auto& row : body["sessions"]) EXPECT_TRUE(row["no_workspace"].get<bool>());
+    EXPECT_EQ(body["sessions"][0]["attention_state"], "unread");
+    for (const auto& row : body["sessions"]) {
+        if (row.value("id", std::string{}) == first) EXPECT_EQ(row["manual_unread"], true);
+    }
+    const auto collapsed = cpr::Get(cpr::Url{url("/api/session-sidebar")});
+    ASSERT_EQ(collapsed.status_code, 200);
+    const auto group = json::parse(collapsed.text)["sessions"][0];
+    EXPECT_EQ(group["attention_state"], "unread");
+    for (const auto& member : group["sidebar_members"]) {
+        if (member.value("id", std::string{}) == first) EXPECT_EQ(member["manual_unread"], true);
+    }
     EXPECT_EQ(get()["total"], 1);
 }
 

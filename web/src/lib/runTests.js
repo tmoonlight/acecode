@@ -57,6 +57,7 @@ import './shellCommandPresentation.test.js';
 import './toolPresentation.test.js';
 import './sourceCodeHighlight.test.js';
 import './markdownBlocks.test.js';
+import './useStreamingRenderThrottle.test.js';
 import './markdownCjkEmphasis.test.js';
 import './markdownColorSwatches.test.js';
 import './markdownHighlightCache.test.js';

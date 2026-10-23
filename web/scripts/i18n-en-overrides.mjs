@@ -1,6 +1,8 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  // Conversation find (Ctrl+F) when a very long session is only partly loaded.
+  '只搜索了最近 {{p0}} 条消息': 'Searched only the latest {{p0}} messages',
   '在文件列表展示': 'Show in file list',
   '定位当前工作区内的活动文件并高亮': 'Locate and highlight the active file in the current workspace',
   // Agent Browser New Tab page (mirrors Codex Desktop's Suggested / Recents).

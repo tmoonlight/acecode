@@ -14,6 +14,7 @@ import { themeLogoDataUrl, themeLogoPalette, themeLogoRgb } from './brandLogoCol
 import * as logoPerformance from './interactiveHomeLogoPerformance.js';
 import { HOME_LOGO_SHADER_ENABLED } from './homeLogoEffectPolicy.js';
 import { renderMarkdownBlocks } from './markdown.js';
+import { useStreamingRenderThrottle } from './useStreamingRenderThrottle.js';
 import { assistantChromeState } from './assistantAvatarDisplay.js';
 import { presentSystemNotice } from './systemNotice.js';
 import { tr } from '../i18n/index.js';
@@ -234,7 +235,7 @@ const activityLineComponent = await compiledComponent('../components/ActivityLin
 await run('actual messages restrict custom wallpaper to user text and preserve assistant, attachment and system surfaces', () => {
   const Message = messageComponent({
     useTranslation: () => ({ t: tr }), useSlashCommands: () => ({ commands: [] }),
-    resolveLeadingSlashCommand: () => null, renderMarkdownBlocks, assistantChromeState,
+    resolveLeadingSlashCommand: () => null, renderMarkdownBlocks, useStreamingRenderThrottle, assistantChromeState,
     presentSystemNotice, clsx, VsIcon: () => null, userMessageTextPreview,
     ActivityLine: activityLineComponent({ clsx, VsIcon: () => null }),
     AttachmentStrip: ({ align }) => React.createElement('span', { 'data-attachment-align': align }, 'Attachment'),

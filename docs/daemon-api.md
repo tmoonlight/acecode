@@ -5639,6 +5639,14 @@ Workspace status snapshot:
 }
 ```
 
+Attention payloads, session lists and snapshots also include `manual_unread`
+(boolean, default `false` for legacy state). Explicit unread sets it and explicit
+read clears it, including while a turn is running. Read cursors and this flag are
+persisted for workspace and no-workspace sessions. Restoring the currently open
+chat after a restart does not consume manual unread; actively opening the chat
+or explicitly marking it read does. Windows Desktop uses the same global unread
+root-task count for the taskbar badge and the tray icon's lower-right red dot.
+
 Live attention updates use `type:"session_status"` with the same payload shape
 for one session.
 

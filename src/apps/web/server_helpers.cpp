@@ -953,7 +953,7 @@ json WebServer::Impl::session_info_to_json(const SessionInfo& s, const SessionMe
         }
         o["expert"] = std::move(expert_json);
     }
-    append_attention_fields(o, s.id, workspace_hash, cwd, s.busy);
+    append_attention_fields(o, s.id, workspace_hash, storage_cwd, s.busy);
     return o;
 }
 
@@ -1019,7 +1019,7 @@ json WebServer::Impl::session_meta_to_json(const SessionMeta& m, const std::stri
         }
         o["expert"] = std::move(expert_json);
     }
-    append_attention_fields(o, m.id, effective_workspace_hash, effective_cwd, false);
+    append_attention_fields(o, m.id, effective_workspace_hash, m.cwd, false);
     return o;
 }
 
@@ -1981,7 +1981,7 @@ std::string WebServer::Impl::attention_store_path_for_cwd(const std::string& cwd
 
 void WebServer::Impl::load_attention_workspace_locked(const std::string& workspace_hash,
                                                         const std::string& cwd) const {
-    if (workspace_hash.empty()) return;
+    if (workspace_hash.empty() || cwd.empty()) return;
     attention_workspace_cwds[workspace_hash] = cwd;
     if (loaded_attention_workspaces.count(workspace_hash)) return;
     loaded_attention_workspaces.insert(workspace_hash);
@@ -1999,6 +1999,7 @@ void WebServer::Impl::load_attention_workspace_locked(const std::string& workspa
             r.read_cursor = it.value().value("read_cursor", static_cast<std::uint64_t>(0));
             r.update_cursor = it.value().value("update_cursor", static_cast<std::uint64_t>(0));
             r.updated_at_ms = it.value().value("updated_at_ms", static_cast<std::int64_t>(0));
+            r.manual_unread = it.value().value("manual_unread", false);
             records[it.key()] = r;
         }
     } catch (const std::exception& e) {
@@ -2028,6 +2029,7 @@ void WebServer::Impl::save_attention_workspace_locked(const std::string& workspa
                 {"read_cursor", record.read_cursor},
                 {"update_cursor", record.update_cursor},
                 {"updated_at_ms", record.updated_at_ms},
+                {"manual_unread", record.manual_unread},
             };
         }
     }
@@ -2119,8 +2121,9 @@ SessionAttentionRecord WebServer::Impl::attention_record_for_session(
     const std::string& session_id,
     bool busy) const {
     std::lock_guard<std::mutex> lk(attention_mu);
-    load_attention_workspace_locked(workspace_hash, cwd);
-    auto record = attention_by_workspace[workspace_hash][session_id];
+    const auto storage_key = compute_cwd_hash(cwd);
+    load_attention_workspace_locked(storage_key, cwd);
+    auto record = attention_by_workspace[storage_key][session_id];
     record.busy = busy;
     return record;
 }
@@ -2134,7 +2137,7 @@ json WebServer::Impl::attention_payload_for_record(
     json payload;
     payload["session_id"] = session_id;
     payload["workspace_hash"] = workspace_hash;
-    if (!cwd.empty()) payload["cwd"] = cwd;
+    if (!workspace_hash.empty() && !cwd.empty()) payload["cwd"] = cwd;
     payload["state"] = to_string(state);
     payload["attention_state"] = to_string(state);
     payload["read_state"] = to_string(state);
@@ -2142,6 +2145,7 @@ json WebServer::Impl::attention_payload_for_record(
     payload["cursor"] = record.update_cursor;
     payload["update_cursor"] = record.update_cursor;
     payload["read_cursor"] = record.read_cursor;
+    payload["manual_unread"] = record.manual_unread;
     payload["timestamp_ms"] = record.updated_at_ms > 0 ? record.updated_at_ms : now_unix_ms();
     if (deps.session_registry) {
         if (auto entry = deps.session_registry->acquire(session_id);
@@ -2169,6 +2173,8 @@ void WebServer::Impl::append_attention_fields(json& o,
     o["status_cursor"] = payload["cursor"];
     o["update_cursor"] = payload["update_cursor"];
     o["read_cursor"] = payload["read_cursor"];
+    o["manual_unread"] = payload["manual_unread"];
+    o["timestamp_ms"] = payload["timestamp_ms"];
 }
 
 std::optional<acecode::desktop::WorkspaceMeta> WebServer::Impl::resolve_session_workspace(
@@ -2190,6 +2196,11 @@ std::optional<acecode::desktop::WorkspaceMeta> WebServer::Impl::resolve_session_
     }
     if (!workspace_hash_hint.empty()) {
         if (auto ws = resolve_workspace(workspace_hash_hint)) return ws;
+    }
+    if (auto meta = find_no_workspace_session_meta(session_id)) {
+        acecode::desktop::WorkspaceMeta ws;
+        ws.cwd = meta->cwd;
+        return ws;
     }
     return compatibility_workspace();
 }
@@ -2296,8 +2307,9 @@ void WebServer::Impl::note_session_event_for_attention(
     bool changed = false;
     {
         std::lock_guard<std::mutex> lk(attention_mu);
-        load_attention_workspace_locked(workspace_hash, cwd);
-        auto& record = attention_by_workspace[workspace_hash][session_id];
+        const auto storage_key = compute_cwd_hash(cwd);
+        load_attention_workspace_locked(storage_key, cwd);
+        auto& record = attention_by_workspace[storage_key][session_id];
         const auto before_state = session_attention_state_for(record);
         const auto before_record = record;
         const auto cursor = evt.timestamp_ms > 0
@@ -2312,7 +2324,7 @@ void WebServer::Impl::note_session_event_for_attention(
             record.busy != before_record.busy) {
             // 热路径:每个 token 都会走到这里,只标脏。见 Impl 里
             // kAttentionFlushIntervalMs 附近对写放大的说明。
-            attention_dirty_workspaces.insert(workspace_hash);
+            attention_dirty_workspaces.insert(storage_key);
         }
         if (changed) {
             // 状态跃迁 / busy 翻转 = 回合边界,一个回合只有几次,立即落盘
@@ -2344,8 +2356,9 @@ std::vector<json> WebServer::Impl::mark_sessions_attention(
         const auto now = now_unix_ms();
         for (std::size_t i = 0; i < marks.size(); ++i) {
             const auto& mark = marks[i];
-            load_attention_workspace_locked(mark.workspace_hash, mark.cwd);
-            auto& record = attention_by_workspace[mark.workspace_hash][mark.session_id];
+            const auto storage_key = compute_cwd_hash(mark.cwd);
+            load_attention_workspace_locked(storage_key, mark.cwd);
+            auto& record = attention_by_workspace[storage_key][mark.session_id];
             record.busy = busy[i];
             const auto before_state = session_attention_state_for(record);
             const auto before_record = record;
@@ -2361,8 +2374,9 @@ std::vector<json> WebServer::Impl::mark_sessions_attention(
                 did_change = before_record.read_cursor != record.read_cursor ||
                              before_record.update_cursor != record.update_cursor;
             }
+            did_change = did_change || before_record.manual_unread != record.manual_unread;
             if (did_change || before_record.updated_at_ms != record.updated_at_ms) {
-                dirty.insert(mark.workspace_hash);
+                dirty.insert(storage_key);
             }
             payloads[i] = attention_payload_for_record(
                 mark.session_id, mark.workspace_hash, mark.cwd, record);
@@ -2407,6 +2421,8 @@ void WebServer::Impl::send_status_snapshot(crow::websocket::connection& conn,
         item["cursor"] = s.value("status_cursor", static_cast<std::uint64_t>(0));
         item["update_cursor"] = s.value("update_cursor", static_cast<std::uint64_t>(0));
         item["read_cursor"] = s.value("read_cursor", static_cast<std::uint64_t>(0));
+        item["manual_unread"] = s.value("manual_unread", false);
+        item["timestamp_ms"] = s.value("timestamp_ms", static_cast<std::int64_t>(0));
         sessions.push_back(std::move(item));
     }
     json msg;

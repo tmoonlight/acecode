@@ -33,6 +33,7 @@ json WebServer::Impl::sidebar_session_page(const acecode::desktop::WorkspaceMeta
     const auto pins = session_pins::read_pinned_sessions_state(pin_path).session_ids;
     const std::set<std::string> pinned(pins.begin(), pins.end());
     std::map<std::string, json> active_bodies;
+    std::map<std::string, std::string> active_storage_cwds;
     std::map<std::string, SessionMeta> active_metadata;
     const auto acceptable = [&](const SessionMeta& meta) {
         return !meta.archived && meta.parent_session_id.empty() && meta.no_workspace == no_workspace;
@@ -59,6 +60,7 @@ json WebServer::Impl::sidebar_session_page(const acecode::desktop::WorkspaceMeta
                 }
             }
             active_bodies[session.id] = session_info_to_json(session, found == by_id.end() ? nullptr : found->second);
+            active_storage_cwds[session.id] = session.cwd;
         }
     }
     std::set<std::string> ids;
@@ -143,8 +145,8 @@ json WebServer::Impl::sidebar_session_page(const acecode::desktop::WorkspaceMeta
                 const auto& id = tree.nodes.at(key).session_id;
                 const auto active = active_bodies.find(id);
                 const auto scope = no_workspace ? std::string{} : ws.hash;
-                const auto cwd = no_workspace ? std::string{} : active != active_bodies.end()
-                    ? active->second.value("cwd", std::string{}) : by_id.at(id)->cwd;
+                const auto& cwd = active != active_bodies.end()
+                    ? active_storage_cwds.at(id) : by_id.at(id)->cwd;
                 const bool busy = active != active_bodies.end() && active->second.value("busy", false);
                 const auto record = attention_record_for_session(scope, cwd, id, busy);
                 auto status = attention_payload_for_record(id, scope, cwd, record);

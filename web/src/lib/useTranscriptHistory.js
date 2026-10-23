@@ -20,14 +20,16 @@ export function useTranscriptHistory(options) {
     onReview: () => latest.current.onReview(),
     afterPaint,
     loadPage: () => options.loadEarlier(null, { detailed: true, silent: true }),
+    // 用户主动展开的窗口带 pinned:停在底部跟随时的自动封顶会跳过它,
+    // 直到用户回到底部或发出新消息(ChatView 解除)。
     revealLocal: () => {
       const current = latest.current;
       current.setWindow((previous) => previous.sid === options.sid && previous.anchorKey
-        ? { sid: options.sid, anchorKey: revealEarlierAnchorKey(current.items, previous.anchorKey) }
+        ? { sid: options.sid, anchorKey: revealEarlierAnchorKey(current.items, previous.anchorKey), pinned: true }
         : previous);
     },
     showAll: () => latest.current.setWindow((previous) => previous.sid === options.sid
-      ? { sid: options.sid, anchorKey: null } : previous),
+      ? { sid: options.sid, anchorKey: null, pinned: true } : previous),
   }), [options.sid, options.loadEarlier]);
   useLayoutEffect(() => {
     controller.activate();

@@ -95,8 +95,10 @@ export function createTaskbarBadgeController({
       if (!status) continue;
       const old = previous?.get(status.session_id);
       // A list request can finish after a newer read acknowledgement or result.
-      const newer = old && (old.cursor > status.cursor ||
-        (old.read_cursor > status.read_cursor && old.read_cursor >= status.cursor));
+      const newer = old && (old.timestamp_ms && status.timestamp_ms
+        ? old.timestamp_ms > status.timestamp_ms
+        : (old.cursor > status.cursor ||
+          (old.read_cursor > status.read_cursor && old.read_cursor >= status.cursor)));
       next.set(status.session_id, newer ? old : status);
     }
     scopes.set(key, next);

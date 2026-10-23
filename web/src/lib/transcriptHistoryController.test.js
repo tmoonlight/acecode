@@ -149,3 +149,61 @@ console.log('[pass] errors, cursor reset and no progress stop automatic retry');
   assert.equal(reset.phases.at(-1), 'idle', 'retry clears a reset notice even when the rewritten history is short');
   console.log('[pass] touch intent and exhausted reset recovery');
 }
+// 查找(Ctrl+F)用的「全部加载」带上限:每页 200 条,模拟一个还有很多页的会话。
+function loadAllFixture({ items = 200, totalPages = 100 } = {}) {
+  const page = () => Array.from({ length: 200 }, () => ({ kind: 'msg' }));
+  const state = {
+    loadState: 'loaded', hiddenCount: 0, historyBefore: 'p0', historyHasMore: true,
+    items: Array.from({ length: items }, () => ({ kind: 'msg' })),
+  };
+  let pages = 0, shown = 0;
+  const controller = createTranscriptHistoryController({
+    getViewport: () => null,
+    getBoundary: () => null,
+    getSnapshot: () => state,
+    onPhase() {}, onReview() {},
+    afterPaint: async () => {},
+    revealLocal() {},
+    showAll: () => { shown++; },
+    loadPage: async () => {
+      pages++;
+      state.items = [...page(), ...state.items];
+      state.historyBefore = `p${pages}`;
+      state.historyHasMore = pages < totalPages;
+      return { status: 'loaded' };
+    },
+  });
+  return { state, controller, get pages() { return pages; }, get shown() { return shown; } };
+}
+{
+  // 场景:6 万条记录的会话里按 Ctrl+F,查找带上限 1000 条请求全部加载。
+  // 期望:已加载条目达到 1000 条就停止拉更早的页(200→1000 共拉 4 页),
+  // 已加载的照常全部展开,historyHasMore 保持 true 供浮层提示「只搜索了最近 N 条」。
+  // 回归:不设上限时逐页拉完整个会话,实测渲染进程涨到 4.5 GB 仍未加载完。
+  const f = loadAllFixture();
+  await f.controller.expand({ loadAll: true, maxItems: 1000 });
+  assert.equal(f.pages, 4);
+  assert.equal(f.state.items.length, 1000);
+  assert.equal(f.state.historyHasMore, true);
+  assert.equal(f.shown, 1);
+  console.log('[pass] 查找的全部加载达到上限即停止拉取并展开已加载部分');
+}
+{
+  // 场景:用户之前已经手动往上翻了很多页,已加载条目超过上限后再按 Ctrl+F。
+  // 期望:一页都不再拉,直接展开已加载的全部条目。
+  const f = loadAllFixture({ items: 1200 });
+  await f.controller.expand({ loadAll: true, maxItems: 1000 });
+  assert.equal(f.pages, 0);
+  assert.equal(f.shown, 1);
+  console.log('[pass] 已加载条目超过上限时查找不再拉取历史');
+}
+{
+  // 场景:顶部「显示全部」按钮不带上限,会话总共 5 页。
+  // 期望:行为不变,一直拉到没有更早的历史为止。
+  const f = loadAllFixture({ totalPages: 5 });
+  await f.controller.expand({ loadAll: true });
+  assert.equal(f.pages, 5);
+  assert.equal(f.state.historyHasMore, false);
+  assert.equal(f.shown, 1);
+  console.log('[pass] 不带上限的全部加载仍然拉到历史末尾');
+}

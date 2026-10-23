@@ -5715,6 +5715,102 @@ TEST(WebServerHttp, SessionBatchMarksReadAndUnreadWithStatuses) {
     }
 }
 
+TEST(WebServerHttp, ReadStateSurvivesRestartForWorkspaceAndOfflineNoWorkspaceSessions) {
+    const auto test_home = std::filesystem::temp_directory_path() /
+        ("acecode_read_state_home_" + std::to_string(std::random_device{}()));
+    RemoveTreeOnExit cleanup{test_home};
+    ScopedHomeOverride home(test_home);
+    WebServerFixture fx;
+    const auto hash = acecode::compute_cwd_hash(fx.cwd);
+    const auto session = create_batch_test_session(fx, hash);
+    const auto unread_task = create_batch_test_session(fx, "");
+    const auto read_task = create_batch_test_session(fx, "");
+    std::vector<std::filesystem::path> state_paths;
+    for (const auto& id : {session, unread_task, read_task}) {
+        auto entry = fx.registry->acquire(id);
+        ASSERT_NE(entry, nullptr);
+        acecode::ChatMessage message;
+        message.role = "user";
+        message.content = "persist read state fixture";
+        entry->sm->on_message(message);
+        entry->sm->finalize();
+        state_paths.push_back(acecode::path_from_utf8(
+            acecode::SessionStorage::get_project_dir(entry->cwd)) / "session_read_state.json");
+    }
+    const auto all = json::array({batch_ws_item(hash, session), batch_task_item(unread_task), batch_task_item(read_task)});
+    ASSERT_EQ(post_session_batch(fx, "unread", all).status_code, 200);
+    ASSERT_EQ(post_session_batch(fx, "read", json::array({batch_task_item(read_task)})).status_code, 200);
+    for (const auto& path : state_paths) {
+        ASSERT_TRUE(std::filesystem::is_regular_file(path)) << path;
+    }
+    EXPECT_NE(state_paths[1], state_paths[2]);
+
+    const auto restart = [&] {
+        fx.server->stop();
+        if (fx.server_thread.joinable()) fx.server_thread.join();
+        *fx.channel_broadcast = nullptr;
+        fx.server.reset();
+        // A new server without a runtime registry must reconstruct everything
+        // from disk, including the no-workspace session's real storage cwd.
+        acecode::web::WebServerDeps deps;
+        deps.web_cfg = &fx.cfg.web;
+        deps.daemon_cfg = &fx.cfg.daemon;
+        deps.app_config = &fx.cfg;
+        deps.app_config_mutex = &fx.app_config_mu;
+        deps.cwd = fx.cwd;
+        deps.token = "smoke-token";
+        deps.projects_dir = fx.projects_dir.string();
+        deps.no_workspace_cache_root = fx.no_workspace_cache_root.string();
+        deps.workspace_registry = fx.workspace_registry.get();
+        fx.server = std::make_unique<acecode::web::WebServer>(std::move(deps));
+        fx.server_thread = std::thread([&fx] { fx.server->run(); });
+        const auto deadline = std::chrono::steady_clock::now() + 3s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (cpr::Get(cpr::Url{fx.url("/api/health")}, cpr::Timeout{100}).status_code == 200) return;
+            std::this_thread::sleep_for(10ms);
+        }
+        FAIL() << "Restarted server did not listen";
+    };
+    const auto listed = [&](const std::string& route, const std::string& id) {
+        const auto response = cpr::Get(cpr::Url{fx.url(route)});
+        EXPECT_EQ(response.status_code, 200) << response.text;
+        for (const auto& item : json::parse(response.text)) {
+            if (item.value("id", std::string{}) == id) return item;
+        }
+        ADD_FAILURE() << "Missing session " << id;
+        return json::object();
+    };
+    restart();
+    const auto workspace_route = "/api/workspaces/" + hash + "/sessions";
+    const auto task_route = "/api/sessions?scope=no-workspace";
+    EXPECT_EQ(listed(workspace_route, session)["manual_unread"], true);
+    const auto restored = listed(task_route, unread_task);
+    EXPECT_EQ(restored["attention_state"], "unread");
+    EXPECT_EQ(restored["manual_unread"], true);
+    EXPECT_EQ(restored["workspace_hash"], "");
+    EXPECT_EQ(restored["cwd"], "");
+    EXPECT_EQ(listed(task_route, read_task)["attention_state"], "read");
+    // Marking an unloaded task must find its meta instead of writing to the
+    // daemon's compatibility workspace. Persist this change across another restart.
+    ASSERT_EQ(post_session_batch(fx, "read", json::array({batch_task_item(unread_task)})).status_code, 200);
+    ASSERT_EQ(post_session_batch(fx, "unread", json::array({batch_task_item(read_task)})).status_code, 200);
+    // Legacy workspace files have no manual_unread field, but retain their cursor state.
+    {
+        std::ifstream input(state_paths[0]);
+        auto state = json::parse(input);
+        input.close();
+        state["sessions"][session].erase("manual_unread");
+        write_text(state_paths[0], state.dump());
+    }
+    restart();
+    EXPECT_EQ(listed(task_route, unread_task)["attention_state"], "read");
+    EXPECT_EQ(listed(task_route, unread_task)["manual_unread"], false);
+    EXPECT_EQ(listed(task_route, read_task)["manual_unread"], true);
+    const auto legacy = listed(workspace_route, session);
+    EXPECT_EQ(legacy["attention_state"], "unread");
+    EXPECT_EQ(legacy["manual_unread"], false);
+}
+
 // 场景:批量请求的动作名未知、条目为空或会话 id 含路径字符。
 // 期望:400 且不改动任何状态。
 TEST(WebServerHttp, SessionBatchRejectsMalformedRequests) {

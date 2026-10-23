@@ -97,7 +97,7 @@ void WebServer::Impl::register_desktop_office() {
         for (const auto& session : active) {
             if (!session.parent_session_id.empty() || !listed.insert(session.id).second) continue;
             const auto scope = session.no_workspace ? std::string{} : session.workspace_hash;
-            const auto cwd = session.no_workspace ? std::string{} : session.cwd;
+            const auto& cwd = session.cwd;
             const auto record = attention_record_for_session(scope, cwd, session.id, session.busy);
             if (!session.busy && session_attention_state_for(record) != SessionAttentionState::Unread) continue;
             add_activity(session_info_to_json(session, nullptr), session.id);

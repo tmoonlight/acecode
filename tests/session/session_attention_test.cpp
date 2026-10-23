@@ -128,3 +128,15 @@ TEST(SessionAttention, MarkUnreadOnBusySessionSurfacesAfterTurnEnds) {
     r.busy = false;
     EXPECT_EQ(session_attention_state_for(r), SessionAttentionState::Unread);
 }
+
+TEST(SessionAttention, ManualUnreadIntentSurvivesOutputAndClearsOnExplicitRead) {
+    auto record = mark_session_attention_unread(SessionAttentionRecord{}, 1000);
+    ASSERT_TRUE(record.manual_unread);
+    record = apply_session_attention_event(record, acecode::SessionEventKind::Token,
+        nlohmann::json{{"text", "later"}}, 5, 2000);
+    EXPECT_TRUE(record.manual_unread);
+    record.busy = true;
+    record = mark_session_attention_read(record, 0, 3000);
+    EXPECT_FALSE(record.manual_unread);
+    EXPECT_EQ(record.read_cursor, record.update_cursor);
+}

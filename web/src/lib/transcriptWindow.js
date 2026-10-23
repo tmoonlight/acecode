@@ -11,7 +11,9 @@
 //   - 持久化 messageId 优先,并与 reducer 临时 item id 分别命名空间,
 //     因此 transcript_replace 重建 item id 时仍能定位同一消息;
 //   - 流式追加发生在尾部,锚点不动,窗口自然增长,用户正在读的行不会
-//     因为新消息到达而被顶出窗口;
+//     因为新消息到达而被顶出窗口;但用户停在底部跟随、且没有主动展开过
+//     时,可见行超过 FOLLOW_MAX_ITEMS 就把锚点挪回最近 INITIAL_TAIL_ITEMS
+//     行(见 reconcileTranscriptWindowAnchorKey 的 capTail);
 //   - 锚点只选 user 行(user 行不参与活动折叠),窗口边界落在回合边界
 //     上,首行永远是一条完整的用户消息;
 //   - 底层切片在锚点找不到时仍 fail-open 成全量渲染,但 ChatView 会先
@@ -21,6 +23,10 @@
 
 export const INITIAL_TAIL_ITEMS = 120;
 export const REVEAL_CHUNK_ITEMS = 240;
+// 跟随尾部时窗口的上限。不封顶时,一直开着的会话每个回合的 DOM 都留在页面上
+// (实测带代码块的回答每回合数千个节点),长时间跑 Agent 会把 WebView 渲染进程
+// 撑到 1–2 GB。上限比初始窗口多留 60 行余量,免得每来一行就裁一次。
+export const FOLLOW_MAX_ITEMS = 180;
 
 function isUserRow(item) {
   return !!item && item.kind === 'msg' && item.role === 'user';
@@ -62,18 +68,31 @@ export function initialWindowAnchorKey(items, tailCount = INITIAL_TAIL_ITEMS) {
 }
 
 // 在当前 render 切片前协调窗口状态:
-// undefined = 尚未初始化 / 空 transcript;null = 显式全量视图。
+// undefined = 尚未初始化 / 空 transcript;null = 全量视图(打开时条目不多,
+// 或用户显式展开)。
+//
+// capTail = 用户停在底部跟随,且窗口没有被用户主动展开(显示更早 / 显示全部 /
+// 查找 / 跳转)。此时可见行超过 maxItems 就重选尾部锚点 —— 裁掉的是视口上方
+// 的行,停在底部的用户看不到变化,仍可经「显示更早」找回。打开时不足一个
+// 窗口的会话(含新建会话)同样适用,否则它会永远停在全量视图。
 export function reconcileTranscriptWindowAnchorKey(
   items,
   anchorKey,
   tailCount = INITIAL_TAIL_ITEMS,
+  { capTail = false, maxItems = FOLLOW_MAX_ITEMS } = {},
 ) {
   const list = Array.isArray(items) ? items : [];
   if (list.length === 0) return undefined;
   if (list.length <= tailCount) return null;
-  if (anchorKey === null) return null;
-  if (typeof anchorKey === 'string' && anchorIndex(list, anchorKey) >= 0) {
-    return anchorKey;
+  const overCap = (visibleCount) => capTail && visibleCount > Math.max(maxItems, tailCount);
+  if (anchorKey === null) {
+    return overCap(list.length) ? initialWindowAnchorKey(list, tailCount) : null;
+  }
+  if (typeof anchorKey === 'string') {
+    const idx = anchorIndex(list, anchorKey);
+    if (idx >= 0) {
+      return overCap(list.length - idx) ? initialWindowAnchorKey(list, tailCount) : anchorKey;
+    }
   }
   return initialWindowAnchorKey(list, tailCount);
 }

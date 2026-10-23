@@ -62,6 +62,11 @@ bool init_tray_icon(TrayClickHandler on_show,
 // 这里都做了。
 void shutdown_tray_icon();
 
+#ifdef _WIN32
+// UI thread only, like init/shutdown. A missing tray is a supported no-op.
+bool set_tray_icon_unread(bool unread);
+#endif
+
 #if !defined(_WIN32) && !defined(__APPLE__)
 // Keep native GTK tray text at the system size when UOS WebView scaling
 // temporarily normalizes this process's GTK font DPI.

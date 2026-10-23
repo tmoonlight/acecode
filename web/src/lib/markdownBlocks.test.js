@@ -129,3 +129,55 @@ run('unclosed streaming code fence stays consistent with whole render', () => {
   assert.ok(tail.includes('language-cpp'), tail);
   assert.ok(tail.includes('main'), tail);
 });
+
+// 回归测试(WebView 长时间跑 Agent 后渲染进程涨到 1–2 GB):流式中尾部未闭合
+// 的代码块必须交给 React 渲染成单个文本节点,不能每个 token 都整块重新高亮、
+// 整块替换 innerHTML —— 那会反复创建几百个 span,把 Blink 的 DOM 堆撑大。
+// 期望:streaming 模式下最后一块是 openFence(语言归一、原文不转义),前面的块
+// 与非流式 HTML 逐字节一致;非流式调用保持旧行为。
+run('streaming tail open fence becomes a plain text block', () => {
+  const src = '前一段。\n\n```ts\nconst a = 1 < 2;\nconst b = "x";';
+  const streamingBlocks = renderMarkdownBlocks(src, { streaming: true });
+  const normalBlocks = renderMarkdownBlocks(src);
+  assert.equal(streamingBlocks.length, normalBlocks.length);
+  const tail = streamingBlocks[streamingBlocks.length - 1];
+  assert.equal(tail.html, undefined);
+  assert.deepEqual(tail.openFence, { lang: 'typescript', text: 'const a = 1 < 2;\nconst b = "x";' });
+  assert.equal(streamingBlocks[0].html, normalBlocks[0].html);
+  assert.ok(normalBlocks[normalBlocks.length - 1].html.includes('hljs-keyword'));
+});
+
+// 场景:流式中代码块已经闭合(后面还在输出正文),或语言 highlight.js 不认识。
+// 期望:已闭合的块照常高亮、走 html;未知语言的未闭合块 lang 为空,样式退回
+// 普通 <pre><code>,和非流式渲染的选择一致。
+run('streaming keeps closed fences highlighted and drops unknown languages', () => {
+  const closed = renderMarkdownBlocks('```js\nlet x = 1;\n```\n\n正在输出', { streaming: true });
+  assert.ok(closed[0].html.includes('hljs-keyword'), closed[0].html);
+  assert.equal(closed[closed.length - 1].openFence, undefined);
+
+  const unknown = renderMarkdownBlocks('```foolang\nabc', { streaming: true });
+  assert.deepEqual(unknown[0].openFence, { lang: '', text: 'abc' });
+});
+
+// 场景:未闭合代码块嵌在列表里(不是独立的尾块),只能整块走 html。
+// 期望:流式时它不高亮(没有 hljs-* span),但保留 language class;
+// 非流式同一段仍高亮,完成后的消息不受影响。
+run('streaming renders nested open fences without highlight spans', () => {
+  const src = '- 第一步\n\n  ```cpp\n  int main() { return 0; }';
+  const streamingHtml = renderMarkdownBlocks(src, { streaming: true }).map((b) => b.html).join('');
+  assert.ok(streamingHtml.includes('language-cpp'), streamingHtml);
+  assert.ok(!streamingHtml.includes('hljs-'), streamingHtml);
+  const normalHtml = renderMarkdownBlocks(src).map((b) => b.html).join('');
+  assert.ok(normalHtml.includes('hljs-'), normalHtml);
+});
+
+// 架构守护:AssistantBubble 必须对流式内容限频后再切块,并把 openFence 交给
+// StreamingCodeBlock 渲染成文本节点;去掉任何一环,流式出字就会回到逐 token
+// 全文解析 + 整块替换 DOM。
+run('assistant bubble throttles streaming markdown and renders open fence as text', () => {
+  const message = source('components/Message.jsx');
+  assert.match(message, /useStreamingRenderThrottle\(content \|\| '', !!streaming\)/);
+  assert.match(message, /renderMarkdownBlocks\(renderedContent, \{ streaming: !!streaming \}\)/);
+  assert.match(message, /block\.openFence \? \(\s*<StreamingCodeBlock/);
+  assert.match(message, /data-code-copy-source="true">\{text\}<\/code>/);
+});

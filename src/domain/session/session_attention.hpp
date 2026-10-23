@@ -21,6 +21,7 @@ struct SessionAttentionRecord {
     std::uint64_t update_cursor = 0;
     std::uint64_t read_cursor = 0;
     std::int64_t updated_at_ms = 0;
+    bool manual_unread = false;
 };
 
 const char* to_string(SessionAttentionState state);

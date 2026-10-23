@@ -43,7 +43,7 @@ export function createTranscriptHistoryController(options) {
     previousTop = el.scrollTop;
     return true;
   };
-  const run = ({ all = false, compensate = true } = {}) => {
+  const run = ({ all = false, compensate = true, maxItems = 0 } = {}) => {
     if (!active) return Promise.resolve();
     if (pending) return pending;
     const snapshot = options.getSnapshot();
@@ -54,6 +54,10 @@ export function createTranscriptHistoryController(options) {
     }
     const epoch = generation;
     const current = () => active && generation === epoch;
+    // 全部加载可以设上限(查找用):已加载条目达到上限就不再拉更早的页,
+    // 已有的照常全部展开。超长会话逐页拉完会把渲染进程撑到数 GB。
+    const limitReached = () => maxItems > 0
+      && (options.getSnapshot().items?.length || 0) >= maxItems;
     armed = false;
     if (compensate) {
       options.onReview();
@@ -70,6 +74,7 @@ export function createTranscriptHistoryController(options) {
           options.revealLocal();
         } else {
           while (current() && options.getSnapshot().historyHasMore) {
+            if (all && limitReached()) break;
             const before = options.getSnapshot().historyBefore;
             const result = await options.loadPage();
             if (!current()) return;
@@ -117,10 +122,10 @@ export function createTranscriptHistoryController(options) {
   };
   return {
     reveal: () => run(),
-    async expand({ loadAll = false, compensateScroll = false } = {}) {
+    async expand({ loadAll = false, compensateScroll = false, maxItems = 0 } = {}) {
       if (pending) await pending;
       if (!active) return;
-      if (loadAll) return run({ all: true, compensate: compensateScroll });
+      if (loadAll) return run({ all: true, compensate: compensateScroll, maxItems });
       cancelAnchor();
       options.showAll();
     },

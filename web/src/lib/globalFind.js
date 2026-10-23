@@ -4,7 +4,53 @@ import { isCustomShortcut, isShortcut, isShortcutRecording } from './shortcutBin
 const FIND_HIGHLIGHT = 'ace-global-find-match';
 const FIND_ACTIVE_HIGHLIGHT = 'ace-global-find-active';
 
+export const CONVERSATION_FIND_OPEN_EVENT = 'acecode:conversation-find-open';
+
+// 查找时最多加载到这么多条对话记录(transcript 条目)就停止拉更早的历史。
+// 实测 6 万条记录的会话:不设上限逐页拉 8 分钟到约 3 万行时 JS 堆 1.5 GB、
+// 渲染进程 4.5 GB 仍未拉完;上限 5000 条(24 页)约 6 秒加载完,JS 堆约 250 MB。
+export const FIND_HISTORY_ITEM_LIMIT = 5000;
+
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+
+// 查找实际覆盖的范围:还有更早的历史没加载时为部分搜索,并给出已加载的消息条数。
+export function conversationFindScope(state) {
+  const items = Array.isArray(state?.items) ? state.items : [];
+  return {
+    partial: state?.historyHasMore === true,
+    messageCount: items.reduce((count, item) => count + (item?.kind === 'msg' ? 1 : 0), 0),
+  };
+}
+
+function mergeFindScopes(results) {
+  for (const result of results) {
+    const scope = result.status === 'fulfilled' ? result.value : null;
+    if (scope?.partial) return { partial: true, messageCount: Number(scope.messageCount) || 0 };
+  }
+  return { partial: false, messageCount: 0 };
+}
+
+// 广播「打开查找」,并收集监听方经 detail.waitUntil 交回的任务(ChatView 借此
+// 交回「加载全部历史」的 Promise,兑现值为 conversationFindScope)。查找在 DOM
+// 文本上执行,内容还在分页加载时收集到的匹配会被随后的重绘作废,所以调用方要等
+// ready 之后再收集;ready 兑现为合并后的搜索范围。
+export function requestConversationFindContent(target = globalThis.window) {
+  const pending = [];
+  const EventCtor = target?.CustomEvent || globalThis.CustomEvent;
+  if (target?.dispatchEvent && EventCtor) {
+    target.dispatchEvent(new EventCtor(CONVERSATION_FIND_OPEN_EVENT, {
+      detail: {
+        waitUntil(task) {
+          if (task && typeof task.then === 'function') pending.push(task);
+        },
+      },
+    }));
+  }
+  return {
+    loading: pending.length > 0,
+    ready: Promise.allSettled(pending).then(mergeFindScopes),
+  };
+}
 
 function hasFindModifier(event) {
   return !!(event && (event.ctrlKey || event.metaKey));
@@ -120,19 +166,47 @@ export function collectFindMatches(root, query) {
   let node = walker.nextNode();
   while (node) {
     for (const match of findMatchesInText(node.nodeValue, query)) {
-      matches.push({ node, start: match.start, end: match.end });
+      matches.push({ node, start: match.start, end: match.end, query });
     }
     node = walker.nextNode();
   }
   return matches;
 }
 
+// 匹配记录的是「文字节点 + 字符偏移」。高亮会把节点切短(splitText),对话记录
+// 重绘又会把 <mark> 连同节点一起换掉,所以偏移只在节点仍在文档里、长度够、
+// 文字也还对得上时才可用。
+function matchOffsetsUsable(match) {
+  const node = match?.node;
+  if (!node || node.nodeType !== 3 || node.isConnected === false) return false;
+  const { start, end } = match;
+  if (!Number.isInteger(start) || !Number.isInteger(end)) return false;
+  const text = String(node.nodeValue || '');
+  if (start < 0 || end <= start || end > text.length) return false;
+  if (match.query == null) return true;
+  return text.slice(start, end).toLocaleLowerCase()
+    === String(match.query).toLocaleLowerCase();
+}
+
+export function isFindMatchStale(match) {
+  if (match?.mark) return !match.mark.isConnected;
+  return !matchOffsetsUsable(match);
+}
+
+export function findMatchesNeedRecollect(matches) {
+  return Array.isArray(matches) && matches.some(isFindMatchStale);
+}
+
 function rangeForMatch(match, doc = globalThis.document) {
-  if (!match?.node || !doc?.createRange) return null;
-  const range = doc.createRange();
-  range.setStart(match.node, match.start);
-  range.setEnd(match.node, match.end);
-  return range;
+  if (!doc?.createRange || !matchOffsetsUsable(match)) return null;
+  try {
+    const range = doc.createRange();
+    range.setStart(match.node, match.start);
+    range.setEnd(match.node, match.end);
+    return range;
+  } catch {
+    return null;
+  }
 }
 
 export function clearFindHighlights(doc = globalThis.document) {

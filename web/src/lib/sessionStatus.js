@@ -39,6 +39,7 @@ export function normalizeStatusPayload(payload = {}) {
     status_cursor: cursor,
     update_cursor: updateCursor,
     read_cursor: readCursor,
+    manual_unread: payload.manual_unread === true,
     timestamp_ms: Number(payload.timestamp_ms ?? 0) || 0,
   };
 }
@@ -95,6 +96,7 @@ export function optimisticUnreadStatus(session = {}) {
     read_state: busy ? 'in_progress' : 'unread',
     busy,
     read_cursor: readCursor,
+    manual_unread: true,
     cursor: updateCursor,
     update_cursor: updateCursor,
     timestamp_ms: Date.now(),
@@ -103,11 +105,12 @@ export function optimisticUnreadStatus(session = {}) {
 
 export function optimisticReadStatus(session = {}) {
   const state = sessionAttentionState(session);
-  if (state === 'in_progress') return normalizeStatusPayload({ ...session, state });
+  if (state === 'in_progress') return normalizeStatusPayload({ ...session, state, manual_unread: false });
   const cursor = statusCursor(session);
   return normalizeStatusPayload({
     ...session,
     state: 'read',
+    manual_unread: false,
     attention_state: 'read',
     read_state: 'read',
     busy: false,

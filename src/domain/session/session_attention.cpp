@@ -85,6 +85,7 @@ SessionAttentionRecord mark_session_attention_read(
     std::int64_t timestamp_ms) {
     const std::uint64_t effective_cursor = cursor == 0 ? record.update_cursor : cursor;
     record.read_cursor = std::max(record.read_cursor, effective_cursor);
+    record.manual_unread = false;
     record.updated_at_ms = std::max(record.updated_at_ms, timestamp_ms);
     return record;
 }
@@ -92,6 +93,7 @@ SessionAttentionRecord mark_session_attention_read(
 SessionAttentionRecord mark_session_attention_unread(
     SessionAttentionRecord record,
     std::int64_t timestamp_ms) {
+    record.manual_unread = true;
     if (record.update_cursor == 0) record.update_cursor = 1;
     if (record.read_cursor >= record.update_cursor) {
         record.read_cursor = record.update_cursor - 1;
