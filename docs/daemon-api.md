@@ -377,7 +377,8 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | GET | `/api/config/desktop-multi-instance` | read global desktop multi-instance preference |
 | PUT | `/api/config/desktop-multi-instance` | save global desktop multi-instance preference |
 | PUT | `/api/config/ui-preferences` | write UI preferences |
-| GET | `/api/themes` | downloadable catalogue plus installed local AI themes |
+| GET | `/api/themes` | built-in and dynamic workshop catalogues plus installed local AI themes |
+| GET | `/api/themes/workshop/<key>/thumbnail` | authenticated proxy for a public workshop PNG thumbnail |
 | POST | `/api/themes/first-run` | legacy compatibility: durably claim the one-time National Day startup attempt |
 | POST | `/api/themes/import/preview` | validate a raw theme ZIP and return a read-only preview |
 | POST | `/api/themes/import?sha256=<digest>` | import the same previewed ZIP after confirmation |
@@ -3825,6 +3826,25 @@ metadata whose URL uses the authenticated `/api/themes/<id>/images/thumbnail`
 endpoint. Their IDs match `^ai-[a-z0-9]+(?:-[a-z0-9]+)*$` and are at most 64
 characters. Definitions accept light or dark mode and all 28 HEX tokens. The
 definition and image routes work offline. Built-in IDs cannot be overwritten.
+
+Workshop discovery reads every public `/api/themes?page=N` page from the update
+host at its effective port plus 10000 (82 → 10082, 1234 → 11234), retaining the
+HTTP/HTTPS scheme and clearing the update path. `source:"workshop"` entries use
+dynamic `ai-*` IDs, names, versions, swatches and a content-addressed `key`.
+Each ID appears once, at its highest public semantic version, merged with local
+`installed`, `installed_version` and `update_available` state. `package` includes
+the exact bytes, SHA-256 and a daemon-constructed workshop download URL.
+The thumbnail proxy accepts only a 64-character hex key and constructs the
+resource URL from the current configured host; remote arbitrary URLs are ignored.
+
+`refresh=1` updates both catalogues. Workshop failure returns `workshop_error`
+without reusing old remote offers; installed themes remain as local entries.
+Workshop installs recheck the public list and the confirmed package metadata,
+then reuse the local import validation and atomic transaction. A withdrawn theme
+cannot be newly installed; an existing installation remains usable offline.
+Settings refreshes discovery on open, window focus and update-source changes.
+Deleting an installed workshop theme leaves its public offer available to install
+again. Pending/rejected submissions are never advertised by the public API.
 
 Schema version 1 definitions may also include an `appearance` object:
 

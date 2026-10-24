@@ -201,6 +201,16 @@ Use a new version if any approved artwork or palette changes after publication.
 
 ## Independent publication
 
+The Appearance theme grid also reads approved themes dynamically from the
+independent workshop. Its address uses the update server's effective port plus
+10000 (for example, 82 → 10082). Opening Settings, returning from the workshop,
+or changing the update source refreshes the list. All public pages are read;
+the newest semantic version of each theme ID appears as one card with its local
+installation state. Select a card to download, verify, install and apply it;
+there is no manual ZIP import step. Workshop updates use the same confirmation
+and progress flow as built-in downloads. Installed themes remain usable offline
+or after withdrawal. A workshop connection failure shows a retry action.
+
 The current aupdate root is `J:/jenkins_green/aupdate`, publicly served at
 `http://2017studio.imwork.net:82/aupdate/`. Copy the versioned ZIP and thumbnail
 under `themes/eva-01/1.0.2/`, verify the public downloads against their SHA-256

@@ -201,9 +201,10 @@ TEST_F(ThemeStoreTest, LegacyMirrorFallsBackOnlyWhenExpandedCatalogIsMissing) {
     };
     ThemeStore store(root / "cache", "https://example.com/aupdate/", io);
     EXPECT_EQ(store.catalog()["themes"][0]["id"], "eva-01");
-    ASSERT_EQ(urls.size(), 2u);
+    ASSERT_EQ(urls.size(), 3u);
     EXPECT_EQ(urls[0], "https://example.com/aupdate/themes/catalog-v2.json");
     EXPECT_EQ(urls[1], "https://example.com/aupdate/themes/catalog.json");
+    EXPECT_EQ(urls[2], "https://example.com:10443/api/themes?page=1");
     EXPECT_EQ(downloads.load(), 0);
 }
 

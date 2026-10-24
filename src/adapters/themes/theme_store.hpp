@@ -31,6 +31,7 @@ bool valid_theme_definition(const nlohmann::json& definition);
 bool valid_theme_colors(const nlohmann::json& colors);
 bool valid_theme_appearance(const nlohmann::json& appearance);
 bool valid_theme_catalog(const nlohmann::json& catalog);
+std::string theme_workshop_base(const std::string& update_base);
 // Fixed resource names only; optional images must also be declared in the definition.
 std::map<std::string, std::string> theme_image_files(const nlohmann::json& definition);
 
@@ -56,6 +57,7 @@ public:
     nlohmann::json definition(const std::string& id) const;
     bool installed(const std::string& id) const;
     std::string image(const std::string& id, const std::string& kind);
+    std::string workshop_thumbnail(const std::string& key);
     nlohmann::json start(const std::string& id, const nlohmann::json& consent);
     nlohmann::json job() const;
     nlohmann::json cancel();
@@ -85,6 +87,8 @@ private:
     std::mutex start_mu_;
     std::mutex preview_mu_;
     nlohmann::json catalog_;
+    nlohmann::json workshop_;
+    nlohmann::json workshop_error_;
     nlohmann::json job_ = {{"state", "idle"}};
     std::atomic<bool> cancel_{false};
     acecode::JoiningThread worker_;
@@ -98,6 +102,7 @@ private:
     void install(nlohmann::json entry);
     void update_job(const nlohmann::json& patch);
     nlohmann::json local_catalog() const;
+    nlohmann::json fetch_workshop(const std::string& base);
 };
 
 } // namespace acecode::themes

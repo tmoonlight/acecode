@@ -54,6 +54,8 @@ void WebServer::Impl::register_themes() {
     ([this](const crow::request& req) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/themes/job/cancel").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req) { return cors_preflight(req); });
+    CROW_ROUTE(app, "/api/themes/workshop/<string>/thumbnail").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/themes/<string>").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/themes/<string>/install").methods(crow::HTTPMethod::Options)
@@ -73,6 +75,22 @@ void WebServer::Impl::register_themes() {
     ([this, respond](const crow::request& req) {
         if (auto rejected = require_auth(req)) return std::move(*rejected);
         return respond(req, [&] { return theme_store->catalog(req.url_params.get("refresh") != nullptr); });
+    });
+    CROW_ROUTE(app, "/api/themes/workshop/<string>/thumbnail").methods(crow::HTTPMethod::GET)
+    ([this, respond](const crow::request& req, const std::string& key) {
+        if (auto rejected = require_auth(req)) return std::move(*rejected);
+        try {
+            crow::response response(200);
+            response.body = theme_store->workshop_thumbnail(key);
+            response.add_header("Content-Type", "image/png");
+            response.add_header("Cache-Control", "private, no-store");
+            response.add_header("X-Content-Type-Options", "nosniff");
+            return with_cors(req, std::move(response));
+        } catch (const themes::ThemeError& error) {
+            return respond(req, [&]() -> json { throw error; });
+        } catch (...) {
+            return respond(req, []() -> json { throw themes::ThemeError(502, "THEME_PREVIEW_FAILED", "Could not load workshop thumbnail"); });
+        }
     });
     CROW_ROUTE(app, "/api/themes/job").methods(crow::HTTPMethod::GET)
     ([this, respond](const crow::request& req) {

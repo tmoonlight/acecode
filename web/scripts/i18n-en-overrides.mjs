@@ -1,6 +1,10 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '已安装': 'Installed',
+  '未安装': 'Not installed',
+  '下载{{p0}}主题': 'Download {{p0}} theme',
+  '暂时无法获取工坊主题，请检查网络后重试': 'Could not load workshop themes. Check your connection and try again.',
   // Settings > Appearance: variants and motion for themes with the HUD chrome.
   '主题风格': 'Theme style',
   '切换当前主题的配色风格': 'Switch the color style of the current theme',
