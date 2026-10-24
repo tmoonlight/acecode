@@ -184,10 +184,8 @@ await run('appearance preferences carry the theme variant and motion switch', ()
   for (const id of ['Red', '-red', 'a--b', 'x'.repeat(25), 7, null]) assert.equal(validThemeVariantId(id), false);
 });
 
-// 场景:themeHud.css 的作用范围。期望:每条规则要么限定在 :root[data-theme-chrome="hud"] 下,
-// 要么是只在 HUD 主题里挂载的动效层类名(.ace-hud-*);动画规则还必须要求动效开关为 on。
-// 回归意义:这份样式随应用常驻加载,一条没加作用域的选择器就会改到所有主题。
-await run('themeHud.css only styles HUD themes', () => {
+// 把 themeHud.css 拆成规则前导与选择器列表(跳过 @keyframes 等 at-rule 内部)。
+function hudCssRules() {
   const css = read('../styles/themeHud.css').replace(/\/\*[\s\S]*?\*\//g, '');
   const blocks = [];
   let depth = 0; let start = 0; let atRule = [];
@@ -201,10 +199,21 @@ await run('themeHud.css only styles HUD themes', () => {
       if (atRule.length && atRule[atRule.length - 1] === depth) atRule.pop();
     } else if (css[i] === ';' && !atRule.length && depth === 0) start = i + 1;
   }
-  assert.ok(blocks.length > 40, `parsed ${blocks.length} rules`);
   const selectors = blocks.flatMap((prelude) => prelude.split(/,(?![^(]*\))/).map((s) => s.trim()).filter(Boolean));
+  return { css, blocks, selectors };
+}
+
+// 场景:themeHud.css 的作用范围。期望:每条规则要么限定在 :root[data-theme-chrome="hud"] 下
+// (滚动条部件规则用等价的 html[data-theme-chrome="hud"] 前缀,原因见下一条),要么是只在 HUD
+// 主题里挂载的动效层类名(.ace-hud-*);动画规则还必须要求动效开关为 on。
+// 回归意义:这份样式随应用常驻加载,一条没加作用域的选择器就会改到所有主题。
+await run('themeHud.css only styles HUD themes', () => {
+  const { css, blocks, selectors } = hudCssRules();
+  assert.ok(blocks.length > 40, `parsed ${blocks.length} rules`);
   for (const selector of selectors) {
-    const scoped = selector.startsWith(':root[data-theme-chrome="hud"]') || /^\.ace-hud-[a-z-]+/.test(selector);
+    const scoped = selector.startsWith(':root[data-theme-chrome="hud"]')
+      || /^\.ace-hud-[a-z-]+/.test(selector)
+      || (selector.startsWith('html[data-theme-chrome="hud"] ') && selector.includes('::-webkit-scrollbar'));
     assert.ok(scoped, `unscoped selector: ${selector}`);
   }
   for (const prelude of blocks) {
@@ -212,6 +221,17 @@ await run('themeHud.css only styles HUD themes', () => {
     if (/animation(-name)?\s*:/.test(body) && !prelude.includes('.ace-hud-')) {
       assert.match(prelude, /\[data-theme-effects="on"\]/, `animation without effects gate: ${prelude.slice(0, 80)}`);
     }
+  }
+});
+
+// 场景:HUD 滚动条规则的选择器前缀。期望:凡是带 ::-webkit-scrollbar 的规则都用 html[...] 前缀,
+// 不用 :root[...]。回归:Chromium(Edge 155 / WebView2 实测)在祖先部分含 :root 且滚动条部件带
+// :vertical / :horizontal / :hover 时整条规则不生效,滑块只剩透明底色,滚动条在界面上整个消失。
+await run('themeHud.css scrollbar rules avoid the :root prefix', () => {
+  const scrollbarSelectors = hudCssRules().selectors.filter((s) => s.includes('::-webkit-scrollbar'));
+  assert.ok(scrollbarSelectors.length >= 10, `found ${scrollbarSelectors.length} scrollbar selectors`);
+  for (const selector of scrollbarSelectors) {
+    assert.ok(selector.startsWith('html[data-theme-chrome="hud"] '), `scrollbar rule must use the html prefix: ${selector}`);
   }
 });
 

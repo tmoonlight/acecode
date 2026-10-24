@@ -26,7 +26,9 @@
   .ace-tool-activity,
   .ace-home-hint-card,
   .ace-home-project-row,
-  .ace-sidebar-session-row
+  .ace-sidebar-session-row,
+  .ace-conversation-turn-page-button,
+  .ace-conversation-turn-preview
 )::after {
   content: "";
   position: absolute;
@@ -79,9 +81,10 @@
 :root[data-theme-chrome="hud"] .ace-topbar::before {
   border-right-color: rgba(var(--ace-accent-rgb), .6);
 }
+/* The dashed rail along the sidebar edge is the session list's scrollbar
+   track (see Scrollbars below), so the thumb runs on it instead of over it. */
 :root[data-theme-chrome="hud"] .ace-sidebar {
   background:
-    repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .32) 0 2px, transparent 2px 9px) right 7px top 14px / 2px calc(100% - 28px) no-repeat,
     linear-gradient(180deg, rgba(var(--ace-accent-rgb), .07), transparent 26%, transparent 74%, rgba(var(--ace-accent-rgb), .05)),
     var(--ace-shell-bg);
   box-shadow:
@@ -140,7 +143,7 @@
   filter: drop-shadow(0 0 3px rgba(var(--hud-alt-rgb), .75));
 }
 
-/* ── Conversation panel: left ruler and right tick marks ──────────────── */
+/* ── Conversation panel: left ruler (hidden while turn navigation shows) ─ */
 :root[data-theme-chrome="hud"] .ace-session-panel::after {
   content: "";
   position: absolute;
@@ -155,6 +158,177 @@
     linear-gradient(rgba(var(--ace-accent-rgb), .55), rgba(var(--ace-accent-rgb), .55)) left 0 bottom 0 / 9px 2px no-repeat,
     repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .45) 0 1px, transparent 1px 48px) left 0 top 0 / 9px 100% no-repeat,
     repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .3) 0 1px, transparent 1px 8px) left 0 top 0 / 5px 100% no-repeat;
+}
+/* The turn navigation sits on the same strip and brings its own spine. */
+:root[data-theme-chrome="hud"] .ace-session-panel:has(.ace-conversation-turn-scrubber)::after {
+  content: none;
+}
+
+/* ── Scrollbars: pointed thumbs; the long lists run them on a rail ────── */
+:root[data-theme-chrome="hud"] {
+  --ace-scrollbar-thumb-color: rgba(var(--ace-accent-rgb), .5);
+  --ace-scrollbar-thumb-hover-color: rgba(var(--ace-accent-rgb), .92);
+}
+/* Scrollbar part rules are prefixed with html[...] rather than :root[...]:
+   Chromium drops a whole rule whose ancestor part uses :root once the
+   scrollbar part carries :vertical / :horizontal / :hover (checked against
+   Edge 155 / WebView2). The type selector keeps the same scope.
+
+   A body plus two triangular tips. Every layer starts on a whole pixel, so the
+   translucent pieces never overlap or leave a seam. Thin thumbs are 4px wide
+   (2px tips); the transcript thumb is 6px wide (3px tips). */
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background-color: transparent;
+  background-repeat: no-repeat;
+}
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb:vertical {
+  background-image:
+    conic-gradient(from 135deg at 50% 0, var(--ace-scrollbar-visible-thumb) 0 90deg, transparent 0),
+    linear-gradient(var(--ace-scrollbar-visible-thumb), var(--ace-scrollbar-visible-thumb)),
+    conic-gradient(from -45deg at 50% 100%, var(--ace-scrollbar-visible-thumb) 0 90deg, transparent 0);
+  background-position: left 0 top 0, left 0 top 2px, left 0 bottom 0;
+  background-size: 100% 2px, 100% calc(100% - 4px), 100% 2px;
+}
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb:horizontal {
+  background-image:
+    conic-gradient(from 45deg at 0 50%, var(--ace-scrollbar-visible-thumb) 0 90deg, transparent 0),
+    linear-gradient(var(--ace-scrollbar-visible-thumb), var(--ace-scrollbar-visible-thumb)),
+    conic-gradient(from 225deg at 100% 50%, var(--ace-scrollbar-visible-thumb) 0 90deg, transparent 0);
+  background-position: left 0 top 0, left 2px top 0, right 0 top 0;
+  background-size: 2px 100%, calc(100% - 4px) 100%, 2px 100%;
+}
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb:vertical:hover,
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb:vertical:active {
+  background-image:
+    conic-gradient(from 135deg at 50% 0, var(--ace-scrollbar-thumb-hover-color) 0 90deg, transparent 0),
+    linear-gradient(var(--ace-scrollbar-thumb-hover-color), var(--ace-scrollbar-thumb-hover-color)),
+    conic-gradient(from -45deg at 50% 100%, var(--ace-scrollbar-thumb-hover-color) 0 90deg, transparent 0);
+}
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb:horizontal:hover,
+html[data-theme-chrome="hud"] ::-webkit-scrollbar-thumb:horizontal:active {
+  background-image:
+    conic-gradient(from 45deg at 0 50%, var(--ace-scrollbar-thumb-hover-color) 0 90deg, transparent 0),
+    linear-gradient(var(--ace-scrollbar-thumb-hover-color), var(--ace-scrollbar-thumb-hover-color)),
+    conic-gradient(from 225deg at 100% 50%, var(--ace-scrollbar-thumb-hover-color) 0 90deg, transparent 0);
+}
+html[data-theme-chrome="hud"] .ace-chat-transcript-scroll::-webkit-scrollbar-thumb {
+  border-width: 2px;
+}
+html[data-theme-chrome="hud"] .ace-chat-transcript-scroll::-webkit-scrollbar-thumb:vertical {
+  background-position: left 0 top 0, left 0 top 3px, left 0 bottom 0;
+  background-size: 100% 3px, 100% calc(100% - 6px), 100% 3px;
+}
+html[data-theme-chrome="hud"] .ace-chat-transcript-scroll::-webkit-scrollbar-thumb:horizontal {
+  background-position: left 0 top 0, left 3px top 0, right 0 top 0;
+  background-size: 3px 100%, calc(100% - 6px) 100%, 3px 100%;
+}
+/* Rails centered under the thumb: the sidebar keeps its dashed edge line
+   (12px track, thumb centered at 6px), the transcript gets a ruler with end
+   caps (10px track, thumb centered at 5px). */
+html[data-theme-chrome="hud"] .ace-sidebar-scroll::-webkit-scrollbar-track:vertical {
+  background:
+    repeating-linear-gradient(to bottom, rgba(var(--ace-accent-rgb), .3) 0 2px, transparent 2px 9px) left 5px top 0 / 2px 100% no-repeat;
+}
+html[data-theme-chrome="hud"] .ace-chat-transcript-scroll::-webkit-scrollbar-track:vertical {
+  background:
+    linear-gradient(rgba(var(--ace-accent-rgb), .55), rgba(var(--ace-accent-rgb), .55)) left 1px top 0 / 8px 2px no-repeat,
+    linear-gradient(rgba(var(--ace-accent-rgb), .55), rgba(var(--ace-accent-rgb), .55)) left 1px bottom 0 / 8px 2px no-repeat,
+    repeating-linear-gradient(to bottom, transparent 0 31px, rgba(var(--ace-accent-rgb), .3) 31px 32px) left 2px top 0 / 6px 100% no-repeat,
+    linear-gradient(rgba(var(--ace-accent-rgb), .14), rgba(var(--ace-accent-rgb), .14)) left 4px top 0 / 2px 100% no-repeat;
+}
+
+/* ── Conversation turn navigation: diamonds on a spine ───────────────── */
+/* Each hit zone draws its slice of the spine (zones are contiguous between
+   the first and last marker). Markers are centered at 13px in the 26px zone. */
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit {
+  border-radius: 0;
+  background: linear-gradient(rgba(var(--ace-accent-rgb), .3), rgba(var(--ace-accent-rgb), .3)) left 12px top 0 / 2px 100% no-repeat;
+}
+/* End caps 9px beyond the outer markers. They move with the marker shift (the
+   expanded marker pushes its neighbors apart), so they ride on ::before
+   instead of the zone background. */
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit:nth-child(1 of .ace-conversation-turn-scrubber-hit)::before,
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit:nth-last-child(1 of .ace-conversation-turn-scrubber-hit)::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  width: 10px;
+  height: 9px;
+  pointer-events: none;
+  transform: translate3d(0, var(--ace-conversation-turn-marker-shift-y), 0);
+  transition: transform 420ms cubic-bezier(.34, 1.56, .64, 1);
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit:nth-child(1 of .ace-conversation-turn-scrubber-hit)::before {
+  top: calc(50% - 9px);
+  background:
+    linear-gradient(rgba(var(--ace-accent-rgb), .6), rgba(var(--ace-accent-rgb), .6)) left 0 top 0 / 10px 1px no-repeat,
+    linear-gradient(rgba(var(--ace-accent-rgb), .3), rgba(var(--ace-accent-rgb), .3)) left 4px top 0 / 2px 100% no-repeat;
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit:nth-last-child(1 of .ace-conversation-turn-scrubber-hit)::before {
+  top: 50%;
+  background:
+    linear-gradient(rgba(var(--ace-accent-rgb), .6), rgba(var(--ace-accent-rgb), .6)) left 0 bottom 0 / 10px 1px no-repeat,
+    linear-gradient(rgba(var(--ace-accent-rgb), .3), rgba(var(--ace-accent-rgb), .3)) left 4px top 0 / 2px 100% no-repeat;
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-dot {
+  border-radius: 0;
+  background: var(--ace-bg);
+  box-shadow: inset 0 0 0 1px rgba(var(--ace-accent-rgb), .75);
+  opacity: 1;
+  transform: translate3d(0, var(--ace-conversation-turn-marker-shift-y), 0) rotate(45deg) scale(1);
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit[data-active="true"] .ace-conversation-turn-scrubber-dot {
+  background: var(--hud-alt);
+  box-shadow: 0 0 6px rgba(var(--hud-alt-rgb), .85);
+  transform: translate3d(0, var(--ace-conversation-turn-marker-shift-y), 0) rotate(45deg) scale(1.3);
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit[data-expanded="true"] .ace-conversation-turn-scrubber-dot {
+  background: var(--hud-alt);
+  box-shadow: 0 0 0 2px rgba(var(--hud-alt-rgb), .22), 0 0 10px rgba(var(--hud-alt-rgb), .8);
+  transform: translate3d(0, var(--ace-conversation-turn-marker-shift-y), 0) rotate(45deg) scale(1.7);
+}
+/* The current turn gets a pointer toward the conversation. */
+:root[data-theme-chrome="hud"] .ace-conversation-turn-scrubber-hit[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 19px;
+  width: 7px;
+  height: 1px;
+  background: var(--hud-alt);
+  box-shadow: 0 0 4px rgba(var(--hud-alt-rgb), .8);
+  pointer-events: none;
+  transform: translate3d(0, var(--ace-conversation-turn-marker-shift-y), 0);
+  transition: transform 420ms cubic-bezier(.34, 1.56, .64, 1);
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-page-button {
+  --hud-cut: 5px;
+  --hud-hot-len: 6px;
+  border-radius: 0;
+  color: var(--ace-accent);
+  background: rgba(var(--ace-bg-rgb), .82);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-page-button:hover:not(:disabled) {
+  --hud-frame: rgba(var(--ace-accent-rgb), .95);
+  color: var(--ace-accent);
+  background: rgba(var(--ace-accent-rgb), .16);
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-page-button:focus-visible {
+  --hud-frame: var(--hud-alt);
+  --hud-frame-hot: var(--hud-alt);
+  color: var(--hud-alt);
+  box-shadow: none;
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-preview {
+  border: 0;
+  border-radius: 0;
+  background: rgba(var(--ace-surface-rgb), .95);
+  clip-path: polygon(var(--hud-cut) 0, 100% 0, 100% calc(100% - var(--hud-cut)), calc(100% - var(--hud-cut)) 100%, 0 100%, 0 var(--hud-cut));
+}
+:root[data-theme-chrome="hud"] .ace-conversation-turn-preview-question {
+  border-bottom: 1px dashed rgba(var(--ace-accent-rgb), .35);
 }
 
 /* ── User message: cut-corner plate with a user glyph ─────────────────── */
@@ -582,7 +756,8 @@
   will-change: opacity;
   animation: ace-hud-flicker 15s linear 2s infinite;
 }
-:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-sidebar-session-row.is-tree-active::after {
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-sidebar-session-row.is-tree-active::after,
+:root[data-theme-chrome="hud"][data-theme-effects="on"] .ace-conversation-turn-scrubber-hit[data-active="true"]::after {
   animation: ace-hud-pulse 2.6s ease-in-out infinite;
 }
 :root[data-theme-chrome="hud"][data-theme-effects="on"] :is(.ace-sidebar-session-row, .ace-home-hint-card):hover::after {
