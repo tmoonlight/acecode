@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
 import { createThemeDownloadController } from './themePackages.js';
+import { UPGRADE_CONFIG_CHANGED_EVENT } from './themeImports.js';
 
 export function useThemeDownloads({ enabled, prepare, apply, remove, forget }) {
   const callbacks = useRef({ prepare, apply, remove, forget });
@@ -18,6 +19,17 @@ export function useThemeDownloads({ enabled, prepare, apply, remove, forget }) {
     controller.activate();
     return () => controller.dispose();
   }, [controller]);
-  useEffect(() => { if (enabled) void controller.refresh(); }, [controller, enabled]);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const refresh = () => { void controller.refresh(); };
+    const changed = () => { controller.invalidateCatalog(); refresh(); };
+    refresh();
+    window.addEventListener('focus', refresh);
+    window.addEventListener(UPGRADE_CONFIG_CHANGED_EVENT, changed);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener(UPGRADE_CONFIG_CHANGED_EVENT, changed);
+    };
+  }, [controller, enabled]);
   return { ...state, controller };
 }

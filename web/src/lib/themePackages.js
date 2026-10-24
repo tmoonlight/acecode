@@ -221,7 +221,7 @@ export function applyInstalledTheme(root, definition, backgroundUrl, extraUrls =
 }
 
 export function themeDownloadConsent(entry) {
-  if (!isDownloadableColorTheme(entry?.id) || !Number.isSafeInteger(entry?.package?.bytes)
+  if (!(isDownloadableColorTheme(entry?.id) || (isAiColorTheme(entry?.id) && entry.source === 'workshop')) || !Number.isSafeInteger(entry?.package?.bytes)
       || entry.package.bytes <= 0 || !/^[a-f0-9]{64}$/i.test(entry.package.sha256)
       || typeof entry.version !== 'string') throw new Error('暂时无法获取主题下载大小，请重试');
   return { confirm_download: true, version: entry.version, bytes: entry.package.bytes, sha256: entry.package.sha256 };
@@ -244,6 +244,7 @@ export function themeErrorText(error) {
   if (code === 'THEME_INVALID_PACKAGE') return '主题包校验失败，请重新下载';
   if (code === 'THEME_NOT_INSTALLED') return '主题资源尚未下载或已损坏，请重新下载';
   if (code === 'THEME_CATALOG_UNAVAILABLE') return '暂时无法获取主题信息，请检查网络后重试';
+  if (code === 'THEME_WORKSHOP_UNAVAILABLE') return '暂时无法获取工坊主题，请检查网络后重试';
   if (code === 'THEME_DOWNLOAD_BUSY') return '主题正在下载，请稍候';
   if (code === 'THEME_SAVE_FAILED') return '无法保存主题资源，请检查文件写入权限';
   return '主题下载或应用失败，请重试';
@@ -259,7 +260,7 @@ export function themeFailure(error, fallbackPath = '') {
 export function localThemeEntries(catalog) {
   const seen = new Set();
   return (Array.isArray(catalog?.themes) ? catalog.themes : []).filter((entry) => {
-    if (!isAiColorTheme(entry?.id) || entry.source !== 'local' || entry.installed !== true
+    if (!isAiColorTheme(entry?.id) || !['local', 'workshop'].includes(entry.source) || entry.installed !== true
         || typeof entry.name !== 'string' || !entry.name.trim() || seen.has(entry.id)) return false;
     seen.add(entry.id);
     return true;
@@ -275,10 +276,10 @@ export function releaseThemeResource(cache, id, revoke = (url) => URL.revokeObje
 // The controller outlives Settings. A later selection revokes an older
 // download's automatic application, while the useful local install can finish.
 export function createThemeDownloadController({ api, prepare, apply, remove = (id) => api.deleteTheme(id), forget, onChange, wait = () => new Promise((resolve) => setTimeout(resolve, 400)) }) {
-  let active = true, revision = 0, polling = null, intent = null;
+  let active = true, revision = 0, catalogRevision = 0, polling = null, intent = null;
   let startup = null, userIntent = false;
   const removedIds = new Set();
-  let state = { entry: null, entries: [], localEntries: [], deletingId: '', loading: false, error: '', failure: null, job: { state: 'idle' } };
+  let state = { entry: null, entries: [], localEntries: [], workshopEntries: [], workshopError: '', deletingId: '', loading: false, error: '', failure: null, job: { state: 'idle' } };
   const patch = (value) => { state = { ...state, ...value }; if (active) onChange?.(state); };
   const report = (error, notify = false, path = state.entry?.package?.url || state.entry?.package?.path || '', silent = false) => {
     if (silent) return;
@@ -286,18 +287,24 @@ export function createThemeDownloadController({ api, prepare, apply, remove = (i
     patch({ error: failure.message, ...(notify ? { failure } : {}) });
   };
   const consumeJob = async (job, notify = false) => {
+    const finishedActive = themeJobActive(state.job) && state.job.id === job.id && state.job.version === job.version;
     job = { automatic: state.job.automatic === true && state.job.id === job.id, ...job };
     patch({ job });
     if (job.state === 'completed') {
+      if (removedIds.has(job.id)) return;
+      catalogRevision += 1;
       // A passive refresh can replay completion of an older version. It must
       // not clear an update offered by a newer catalogue.
-      const updated = (entry) => entry?.id === job.id ? {
+      const updated = (entry) => entry?.id === job.id && (entry.installed || finishedActive) ? {
         ...entry,
         installed: true,
         installed_version: job.version || entry.installed_version,
         update_available: job.version === entry.version ? false : entry.update_available,
       } : entry;
-      patch({ entry: updated(state.entry), entries: state.entries.map(updated), error: '' });
+      const workshopEntries = state.workshopEntries.map(updated);
+      patch({ entry: updated(state.entry), entries: state.entries.map(updated), workshopEntries, loading: false,
+        localEntries: [...state.localEntries.filter((entry) => !workshopEntries.some((remote) => remote.id === entry.id)),
+          ...workshopEntries.filter((entry) => entry.installed)], error: '' });
       const pending = intent;
       if (pending && pending.revision === revision && pending.id === job.id && pending.version === job.version) {
         intent = null;
@@ -330,23 +337,41 @@ export function createThemeDownloadController({ api, prepare, apply, remove = (i
     state: () => state,
     dismissFailure() { patch({ failure: null }); },
     activate() { active = true; },
-    dispose() { active = false; revision += 1; intent = null; },
+    dispose() { active = false; revision += 1; catalogRevision += 1; intent = null; },
     async refresh({ notify = false, id = EVA_THEME_ID, silent = false } = {}) {
+      const requestRevision = ++catalogRevision;
       const notifyFailure = notify || themeJobActive(state.job);
       patch({ loading: true });
       try {
         const catalog = await api.getThemes(true);
+        if (!active || requestRevision !== catalogRevision) return null;
         const entries = (catalog?.themes || []).filter((item) => isDownloadableColorTheme(item.id));
+        const workshopEntries = (catalog?.themes || []).filter((item) => isAiColorTheme(item.id) && item.source === 'workshop');
         const entry = entries.find((item) => item.id === EVA_THEME_ID) || null;
         // Local themes remain available when the remote catalogue is offline.
         // An installed EVA descriptor can also lack download metadata offline.
-        for (const item of entries) if (!item.installed && item.available !== false) themeDownloadConsent(item);
-        patch({ entry, entries, localEntries: localThemeEntries(catalog).filter((item) => !removedIds.has(item.id)), loading: false,
+        for (const item of [...entries, ...workshopEntries]) if (!item.installed && item.available !== false) themeDownloadConsent(item);
+        patch({ entry, entries, workshopEntries, workshopError: catalog.workshop_error ? themeErrorText(catalog.workshop_error.error) : '',
+          localEntries: localThemeEntries(catalog).filter((item) => !removedIds.has(item.id)), loading: false,
           error: catalog.catalog_error && !silent && (notify || !state.job.automatic) ? themeErrorText(catalog.catalog_error.error) : '' });
-        await consumeJob(catalog.job || { state: 'idle' }, themeJobActive(state.job));
+        try { await consumeJob(catalog.job || { state: 'idle' }, themeJobActive(state.job)); }
+        catch (error) { if (active) report(error, true, undefined, state.job.automatic); }
         if (themeJobActive(state.job)) void poll();
-        return entries.find((item) => item.id === id) || null;
-      } catch (error) { patch({ loading: false }); report(error, notifyFailure, undefined, silent || (!notify && state.job.automatic)); return null; }
+        return [...entries, ...workshopEntries].find((item) => item.id === id) || null;
+      } catch (error) {
+        if (active && requestRevision === catalogRevision) {
+          this.invalidateCatalog();
+          patch({ loading: false }); report(error, notifyFailure, undefined, silent || (!notify && state.job.automatic));
+        }
+        return null;
+      }
+    },
+    invalidateCatalog() {
+      catalogRevision += 1;
+      patch({ entry: null, entries: [], workshopEntries: [], workshopError: '', localEntries: state.localEntries.map((entry) => {
+        const { package: unusedPackage, key: unusedKey, ...local } = entry;
+        return { ...local, source: 'local', version: entry.installed_version || entry.version, update_available: false };
+      }) });
     },
     applyStartupTheme(expectedAppearance) {
       if (startup) return startup;
@@ -415,9 +440,11 @@ export function createThemeDownloadController({ api, prepare, apply, remove = (i
         const result = await remove(id);
         if (result?.deleted !== true || result.id !== id) throw new Error('删除主题返回了无效结果，请刷新后重试');
         removedIds.add(id);
+        catalogRevision += 1;
         if (intent?.id === id) intent = null;
         forget?.(id);
-        patch({ localEntries: state.localEntries.filter((item) => item.id !== id) });
+        patch({ localEntries: state.localEntries.filter((item) => item.id !== id),
+          workshopEntries: state.workshopEntries.map((item) => item.id === id ? { ...item, installed: false, installed_version: '', update_available: false } : item) });
         // Removing a local theme succeeds offline; never await the remote
         // catalogue before removing its card and releasing its image.
         void this.refresh();
@@ -426,10 +453,12 @@ export function createThemeDownloadController({ api, prepare, apply, remove = (i
     },
     async install(entry, { automatic = false, expectedAppearance } = {}) {
       if (!automatic) userIntent = true;
+      catalogRevision += 1;
+      removedIds.delete(entry.id);
       const selected = ++revision;
       intent = { id: entry.id, version: entry.version, revision: selected, automatic, expectedAppearance };
       try {
-        patch({ error: '', failure: null, job: { id: entry.id, state: 'downloading', bytes_downloaded: 0, bytes_total: entry.package.bytes, automatic } });
+        patch({ loading: false, error: '', failure: null, job: { id: entry.id, state: 'downloading', bytes_downloaded: 0, bytes_total: entry.package.bytes, automatic } });
         const consent = themeDownloadConsent(entry);
         const job = await api.installTheme(entry.id, automatic ? { ...consent, automatic: true } : consent);
         // Even a very fast install is observed by polling once so the same

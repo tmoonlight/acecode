@@ -9,6 +9,81 @@ async function run(name, fn) { await fn(); console.log(`[pass] ${name}`); }
 const entry = { id: 'eva-01', version: '1.0.0', installed: false, package: { bytes: 2000000, sha256: 'a'.repeat(64) } };
 const pending = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+await run('workshop themes are discovered dynamically and use the existing verified install and apply flow', async () => {
+  const remote = { ...entry, id: 'ai-dynamic-workshop', name: 'Dynamic theme', source: 'workshop' };
+  const f = fixture(remote);
+  await f.controller.refresh();
+  assert.equal(f.controller.state().workshopEntries[0].id, remote.id);
+  assert.deepEqual(f.controller.state().localEntries, []);
+  await f.controller.install(remote);
+  assert.equal(f.requests[0].id, remote.id);
+  assert.equal(f.requests[0].consent.sha256, remote.package.sha256);
+  f.complete(); await tick();
+  assert.deepEqual(f.applies, [remote.id]);
+  assert.equal(f.controller.state().workshopEntries[0].installed, true);
+  assert.equal(f.controller.state().localEntries[0].id, remote.id);
+  f.controller.dispose();
+});
+
+await run('newer workshop refresh wins and offline refresh preserves installed themes without stale offers', async () => {
+  const first = pending(), second = pending();
+  const remote = { ...entry, id: 'ai-workshop', name: 'Remote', source: 'workshop', installed: true, installed_version: '1.0.0' };
+  let calls = 0;
+  const controller = createThemeDownloadController({ api: { getThemes: () => ++calls === 1 ? first.promise : second.promise }, prepare() {}, apply() {} });
+  const older = controller.refresh();
+  controller.invalidateCatalog();
+  const newer = controller.refresh();
+  second.resolve({ themes: [remote] }); await newer;
+  first.resolve({ themes: [{ ...remote, id: 'ai-stale' }] }); await older;
+  assert.deepEqual(controller.state().workshopEntries.map((item) => item.id), ['ai-workshop']);
+  controller.invalidateCatalog();
+  assert.deepEqual(controller.state().workshopEntries, []);
+  assert.equal(controller.state().localEntries[0].source, 'local');
+  assert.equal(controller.state().localEntries[0].package, undefined);
+  controller.dispose();
+});
+
+await run('withdrawn themes disappear while installed themes and workshop errors remain available', async () => {
+  const remote = { ...entry, id: 'ai-workshop', name: 'Remote', source: 'workshop' };
+  let catalog = { themes: [remote] };
+  const controller = createThemeDownloadController({ api: { getThemes: async () => catalog }, prepare() {}, apply() {} });
+  await controller.refresh();
+  catalog = { themes: [] };
+  await controller.refresh();
+  assert.deepEqual(controller.state().workshopEntries, []);
+  catalog = { themes: [{ ...remote, source: 'local', installed: true }], workshop_error: { error: 'THEME_WORKSHOP_UNAVAILABLE' } };
+  await controller.refresh();
+  assert.equal(controller.state().localEntries[0].id, remote.id);
+  assert.match(controller.state().workshopError, /工坊/);
+  controller.dispose();
+});
+
+await run('an old completed job cannot resurrect an uninstalled workshop theme', async () => {
+  const remote = { ...entry, id: 'ai-workshop', name: 'Remote', source: 'workshop', installed: false };
+  const controller = createThemeDownloadController({ api: { getThemes: async () => ({ themes: [remote],
+    job: { id: remote.id, version: remote.version, state: 'completed' } }) }, prepare() {}, apply() {} });
+  await controller.refresh();
+  assert.equal(controller.state().workshopEntries[0].installed, false);
+  assert.deepEqual(controller.state().localEntries, []);
+  controller.dispose();
+});
+
+await run('an in-flight catalog cannot roll back a completed installation', async () => {
+  const remote = { ...entry, id: 'ai-workshop', name: 'Remote', source: 'workshop' };
+  const f = fixture(remote);
+  await f.controller.refresh();
+  const pendingCatalog = pending();
+  f.api.getThemes = () => pendingCatalog.promise;
+  const refreshing = f.controller.refresh();
+  await f.controller.install(remote);
+  f.complete(); await tick();
+  pendingCatalog.resolve({ themes: [remote], job: { state: 'idle' } });
+  await refreshing;
+  assert.equal(f.controller.state().workshopEntries[0].installed, true);
+  assert.deepEqual(f.applies, [remote.id]);
+  f.controller.dispose();
+});
 function fixture(themeEntry = entry) {
   const completion = pending(), applies = [], applyOptions = [], prepared = [], preparations = [], requests = [];
   let currentJob = { id: themeEntry.id, version: themeEntry.version, state: 'downloading', bytes_total: 2000000, bytes_downloaded: 20 };

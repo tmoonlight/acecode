@@ -20,6 +20,7 @@
 #include <set>
 #include <vector>
 #include <zip.h>
+#include <curl/curl.h>
 
 namespace acecode::themes {
 namespace fs = std::filesystem;
@@ -307,6 +308,29 @@ std::map<std::string, std::string> unpack_import(const std::string& bytes) {
 }
 } // namespace
 
+std::string theme_workshop_base(const std::string& update_base) {
+    std::unique_ptr<CURLU, decltype(&curl_url_cleanup)> url(curl_url(), curl_url_cleanup);
+    const auto invalid = [] { return ThemeError(400, "THEME_WORKSHOP_ADDRESS_INVALID", "Invalid workshop address in update configuration"); };
+    if (!url || update_base.find('\0') != std::string::npos ||
+        curl_url_set(url.get(), CURLUPART_URL, update_base.c_str(), CURLU_DISALLOW_USER) != CURLUE_OK) throw invalid();
+    const auto part = [&](CURLUPart key, unsigned flags = 0) {
+        char* raw = nullptr;
+        const auto status = curl_url_get(url.get(), key, &raw, flags);
+        std::unique_ptr<char, decltype(&curl_free)> value(raw, curl_free);
+        if (status != CURLUE_OK) throw invalid();
+        return std::string(value.get());
+    };
+    const auto scheme = part(CURLUPART_SCHEME);
+    if (scheme != "http" && scheme != "https") throw invalid();
+    const auto port = std::stoi(part(CURLUPART_PORT, CURLU_DEFAULT_PORT));
+    if (port < 1 || port > 55535) throw invalid();
+    if (curl_url_set(url.get(), CURLUPART_PORT, std::to_string(port + 10000).c_str(), 0) != CURLUE_OK ||
+        curl_url_set(url.get(), CURLUPART_PATH, "/", 0) != CURLUE_OK ||
+        curl_url_set(url.get(), CURLUPART_QUERY, nullptr, 0) != CURLUE_OK ||
+        curl_url_set(url.get(), CURLUPART_FRAGMENT, nullptr, 0) != CURLUE_OK) throw invalid();
+    return part(CURLUPART_URL);
+}
+
 ThemeError::ThemeError(int status, std::string code, const std::string& message, std::string path)
     : std::runtime_error(message), status(status), code(std::move(code)), path(std::move(path)) {}
 
@@ -417,10 +441,13 @@ ThemeStore::~ThemeStore() {
 
 json ThemeStore::catalog(bool refresh) {
     std::lock_guard<std::mutex> fetch_lock(catalog_mu_);
-    const auto current_base = theme_base(update_base_());
+    const auto update_base = update_base_();
+    const auto current_base = theme_base(update_base);
     if (base_ != current_base) {
         base_ = current_base;
         catalog_ = nullptr;
+        workshop_ = nullptr;
+        workshop_error_ = nullptr;
     }
     bool offline = false;
     auto catalog_url = base_ + "catalog-v2.json";
@@ -446,8 +473,19 @@ json ThemeStore::catalog(bool refresh) {
         } catch (const std::exception& error) { offline = true; failure_message = error.what(); }
         catch (...) { offline = true; }
     }
+    if (refresh || workshop_.is_null()) {
+        workshop_error_ = nullptr;
+        try { workshop_ = fetch_workshop(theme_workshop_base(update_base)); }
+        catch (const std::exception&) {
+            // Do not keep remote offers which might have been withdrawn.
+            workshop_ = json::array();
+            workshop_error_ = {{"error", "THEME_WORKSHOP_UNAVAILABLE"},
+                {"message", "Could not load workshop themes"}};
+        }
+    }
     const auto local_themes = local_catalog();
-    if (catalog_.is_null() && local_themes.empty() && !installed("eva-01") && !installed(kNationalDayThemeId))
+    if (catalog_.is_null() && local_themes.empty() && workshop_.empty() && !workshop_error_.is_null() &&
+        !installed("eva-01") && !installed(kNationalDayThemeId))
         throw ThemeError(503, "THEME_CATALOG_UNAVAILABLE", failure_message, catalog_url);
     auto result = catalog_.is_null() ? json{{"schema_version", 1}, {"themes", json::array()}} : catalog_;
     for (const auto* id : {kNationalDayThemeId, "eva-01"}) {
@@ -481,7 +519,23 @@ json ThemeStore::catalog(bool refresh) {
         entry["package"]["url"] = base_ + entry["package"]["path"].get<std::string>();
         entry["thumbnail"]["url"] = base_ + entry["thumbnail"]["path"].get<std::string>();
     }
-    for (const auto& entry : local_themes) result["themes"].push_back(entry);
+    std::set<std::string> workshop_ids;
+    for (auto entry : workshop_) {
+        const auto id = entry.at("id").get<std::string>();
+        workshop_ids.insert(id);
+        auto local = std::find_if(local_themes.begin(), local_themes.end(),
+            [&](const json& value) { return value.at("id") == id; });
+        entry["installed"] = local != local_themes.end();
+        entry["installed_version"] = local == local_themes.end() ? "" : local->at("version").get<std::string>();
+        const auto installed_version = upgrade::parse_sem_version(entry["installed_version"].get<std::string>());
+        const auto remote_version = upgrade::parse_sem_version(entry["version"].get<std::string>());
+        entry["update_available"] = installed_version && remote_version &&
+            upgrade::compare_sem_version(*remote_version, *installed_version) > 0;
+        result["themes"].push_back(std::move(entry));
+    }
+    for (const auto& entry : local_themes)
+        if (!workshop_ids.count(entry.at("id").get<std::string>())) result["themes"].push_back(entry);
+    if (!workshop_error_.is_null()) result["workshop_error"] = workshop_error_;
     result["offline"] = offline;
     if (offline) result["catalog_error"] = {{"error", "THEME_CATALOG_UNAVAILABLE"},
         {"message", failure_message}, {"error_path", catalog_url}};
@@ -490,12 +544,71 @@ json ThemeStore::catalog(bool refresh) {
 }
 
 json ThemeStore::descriptor(const std::string& id) {
-    if (!is_downloadable_theme(id)) throw ThemeError(404, "THEME_NOT_FOUND", "Unknown theme");
-    const auto entries = catalog().at("themes");
+    if (!is_downloadable_theme(id) && !is_local_theme(id)) throw ThemeError(404, "THEME_NOT_FOUND", "Unknown theme");
+    // A workshop installation must still be public and match the confirmed offer.
+    const auto entries = catalog(is_local_theme(id)).at("themes");
     for (const auto& entry : entries) {
         if (entry.at("id") == id && entry.contains("package")) return entry;
     }
     throw ThemeError(503, "THEME_CATALOG_UNAVAILABLE", "Theme catalog is unavailable", base_ + "catalog-v2.json");
+}
+
+json ThemeStore::fetch_workshop(const std::string& base) {
+    std::map<std::string, json> latest;
+    std::size_t received = 0;
+    for (std::size_t page = 1; ; ++page) {
+        const auto response = transport_.fetch(base + "api/themes?page=" + std::to_string(page));
+        if (response.status_code != 200 || !response.error.empty() || response.body.size() > 256 * 1024)
+            throw ThemeError(503, "THEME_WORKSHOP_UNAVAILABLE", "Workshop catalog request failed");
+        const auto data = json::parse(response.body);
+        if (!data.at("themes").is_array() || !data.at("total").is_number_unsigned() ||
+            !data.at("page_size").is_number_unsigned() || data.at("page") != page)
+            throw ThemeError(503, "THEME_WORKSHOP_UNAVAILABLE", "Invalid workshop pagination");
+        const auto total = data.at("total").get<std::size_t>();
+        const auto size = data.at("page_size").get<std::size_t>();
+        const auto& items = data.at("themes");
+        if (total > 10000 || size < 1 || size > 100 || items.size() > size || received + items.size() > total ||
+            (items.empty() && received < total))
+            throw ThemeError(503, "THEME_WORKSHOP_UNAVAILABLE", "Invalid workshop pagination");
+        for (const auto& item : items) {
+            const auto id = item.at("id").get<std::string>();
+            const auto version = item.at("version").get<std::string>();
+            const auto name = item.at("name").get<std::string>();
+            const auto key = item.at("key").get<std::string>();
+            const json package = {{"bytes", item.at("bytes")}, {"sha256", item.at("sha256")}};
+            if (item.at("status") != "approved" || !is_local_theme(id) || !version_ok(version) ||
+                !upgrade::parse_sem_version(version) || name.empty() || name.size() > 256 ||
+                !hex(key, 64) || item.at("sha256") != key || !asset_ok(package, kMaxPackageBytes) ||
+                !item.at("swatches").is_array() || item.at("swatches").size() != 3 ||
+                (item.at("mode") != "dark" && item.at("mode") != "light"))
+                throw ThemeError(503, "THEME_WORKSHOP_UNAVAILABLE", "Invalid workshop theme");
+            for (const auto& color : item.at("swatches"))
+                if (!hex(color, 7, true)) throw ThemeError(503, "THEME_WORKSHOP_UNAVAILABLE", "Invalid workshop swatch");
+            auto found = latest.find(id);
+            if (found != latest.end() && upgrade::compare_sem_version(*upgrade::parse_sem_version(version),
+                *upgrade::parse_sem_version(found->second.at("version").get<std::string>())) <= 0) continue;
+            json entry = {{"id", id}, {"name", name}, {"version", version}, {"mode", item.at("mode")},
+                {"source", "workshop"}, {"available", true}, {"key", key},
+                {"swatches", item.at("swatches")}, {"package", package}};
+            entry["package"]["url"] = base + "api/themes/" + key + "/download";
+            latest[id] = std::move(entry);
+        }
+        received += items.size();
+        if (received >= total) break;
+        if (items.size() != size || page >= 10000)
+            throw ThemeError(503, "THEME_WORKSHOP_UNAVAILABLE", "Incomplete workshop catalog");
+    }
+    json entries = json::array();
+    for (auto& [id, entry] : latest) entries.push_back(std::move(entry));
+    return entries;
+}
+
+std::string ThemeStore::workshop_thumbnail(const std::string& key) {
+    if (!hex(key, 64)) throw ThemeError(400, "THEME_INVALID_ID", "Invalid workshop key");
+    const auto response = transport_.fetch(theme_workshop_base(update_base_()) + "api/themes/" + key + "/thumbnail");
+    if (response.status_code != 200 || !response.error.empty() || response.body.size() > kMaxPackageBytes || !png(response.body))
+        throw ThemeError(502, "THEME_PREVIEW_FAILED", "Could not load workshop thumbnail");
+    return response.body;
 }
 
 json ThemeStore::claim_startup_theme() {
@@ -869,6 +982,10 @@ std::string ThemeStore::export_download(const std::string& job_id) const {
 
 json ThemeStore::remove_local(const std::string& id, const std::function<void()>& commit) {
     require_local(id);
+    std::lock_guard<std::mutex> start_lock(start_mu_);
+    const auto active_job = job();
+    if (busy(active_job) && active_job.value("id", "") == id)
+        throw ThemeError(409, "THEME_BUSY", "Theme installation is in progress");
     std::lock_guard<std::recursive_mutex> lock(local_state_->mutex);
     if (local_state_->active_exports.count(id)) throw ThemeError(409, "THEME_BUSY", "Theme export is in progress");
     definition(id);
@@ -961,13 +1078,24 @@ json ThemeStore::cancel() { cancel_.store(true); return job(); }
 void ThemeStore::install(json entry) {
     const auto id = entry.at("id").get<std::string>();
     const auto version = entry.at("version").get<std::string>();
-    const auto staging = root_ / id / (version + ".staging");
+    const bool workshop = entry.value("source", "") == "workshop";
+    // Workshop imports own their staging directory under the shared local lock.
+    const auto staging = root_ / id / (version + (workshop ? ".workshop.staging" : ".staging"));
     const auto archive = root_ / id / (version + ".download");
     const auto download_url = entry.at("package").at("url").get<std::string>();
     auto failure_path = download_url;
     const auto expected = entry.at("package").at("bytes").get<std::uintmax_t>();
-    auto cleanup = [&] { std::error_code ec; fs::remove(archive, ec); fs::remove_all(staging, ec); };
+    bool paths_checked = !workshop;
+    auto cleanup = [&] {
+        if (!paths_checked) return;
+        std::error_code ec; fs::remove(archive, ec); fs::remove_all(staging, ec);
+    };
     try {
+        if (workshop) {
+            checked_path(root_, archive.lexically_relative(root_));
+            checked_path(root_, staging.lexically_relative(root_));
+            paths_checked = true;
+        }
         failure_path = path_to_utf8(archive);
         fs::create_directories(archive.parent_path());
         cleanup();
@@ -986,7 +1114,15 @@ void ThemeStore::install(json entry) {
         }
         // Keep the existing built-in download checks for its original images;
         // local imports and newly supported optional backgrounds are decoded.
-        validate_theme_files(definition, files, false);
+        validate_theme_files(definition, files, workshop);
+        if (workshop) {
+            if (cancel_.load()) throw ThemeError(499, "THEME_CANCELLED", "Theme download cancelled");
+            // Reuse local import's immutable transaction, export lock and full ZIP validation.
+            import_archive(read_file(archive, kMaxPackageBytes), entry.at("package").at("sha256"));
+            update_job({{"state", "completed"}, {"bytes_downloaded", expected}});
+            cleanup();
+            return;
+        }
         failure_path = path_to_utf8(staging);
         for (const auto& [name, bytes] : files) write_file(staging / name, bytes);
         if (cancel_.load()) throw ThemeError(499, "THEME_CANCELLED", "Theme download cancelled");

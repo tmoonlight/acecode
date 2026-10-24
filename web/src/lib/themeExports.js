@@ -5,7 +5,7 @@ const EXPORT_STATES = new Set(['preparing', 'compressing', 'saving', 'completed'
 export const EMPTY_THEME_EXPORT = Object.freeze({ status: 'idle', entry: null, job: null, filename: '', hadCompression: false, cancelling: false, canCancel: true, error: null });
 
 export function canManageTheme(entry) {
-  return isAiColorTheme(entry?.id) && entry.source === 'local' && entry.installed === true;
+  return isAiColorTheme(entry?.id) && ['local', 'workshop'].includes(entry.source) && entry.installed === true;
 }
 
 export function themeExportFilename(entry) {

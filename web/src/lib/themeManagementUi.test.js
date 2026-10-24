@@ -32,6 +32,21 @@ function components(states = {}) {
 const local = { id: 'ai-eva', name: 'EVA 初号机 · 自定义', source: 'local', installed: true, version: '1.0.0', swatches: ['#ABCDEF', '#FFFFFF', '#123456'] };
 const options = [{ key: 'blue', label: '蓝色' }, { key: 'orange', label: '橙色' }];
 const props = { options, selected: local.id, onSelect() {}, onCreateAiTheme() {}, downloads: { localEntries: [local], entry: { installed: true } } };
+await run('dynamic workshop card renders before installation and installed IDs appear once', () => {
+  const { ThemeCards } = components();
+  const remote = { ...local, source: 'workshop', installed: false, key: 'a'.repeat(64), name: '工坊动态主题' };
+  const html = renderToStaticMarkup(React.createElement(ThemeCards, { ...props, selected: 'blue',
+    downloads: { localEntries: [local], workshopEntries: [remote], job: { state: 'idle' } } }));
+  assert.equal((html.match(/data-theme-id="ai-eva"/g) || []).length, 1);
+  assert.match(html, /工坊动态主题/);
+  assert.match(html, /未安装/);
+  assert.doesNotMatch(html, /导出主题|删除主题/);
+  const installed = renderToStaticMarkup(React.createElement(ThemeCards, { ...props,
+    downloads: { localEntries: [local], workshopEntries: [{ ...remote, installed: true, update_available: true }], job: { state: 'idle' } } }));
+  assert.equal((installed.match(/data-theme-id="ai-eva"/g) || []).length, 1);
+  assert.match(installed, /可更新/);
+  assert.match(installed, /导出主题/);
+});
 function descendants(element) {
   if (!React.isValidElement(element)) return [];
   return [element, ...React.Children.toArray(element.props.children).flatMap(descendants)];
