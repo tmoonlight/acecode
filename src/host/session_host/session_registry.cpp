@@ -1975,6 +1975,9 @@ std::optional<SessionModelReloadResult>
 SessionRegistry::reload_model_profile(const std::string& id, bool force) {
     auto entry = acquire(id);
     if (!entry) return std::nullopt;
+    // 先把手改过的 config.json 读进来。它要拿配置写锁,必须在 model_control_mu
+    // 之外调用:持 model_control_mu 的一方会在同一把锁下读配置。
+    if (deps_.sync_model_config) deps_.sync_model_config();
     if (!entry->model_binding || !deps_.config) {
         SessionModelReloadResult result;
         result.ok = false;

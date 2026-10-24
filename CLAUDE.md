@@ -418,10 +418,22 @@ published only after a structurally changed `saved_models` list has persisted
 and the running `AppConfig` has been replaced under `app_config_mu`; no-op,
 validation, persistence, and live-apply failures do not advance it. Startup
 loading and a separate `acecode configure` process do not manufacture a
-revision: an external edit must first be loaded into the running daemon (for
-example by connector refresh). Readers copy the config and acquire the matching
-revision while holding the shared config lock so an old list cannot be labeled
-with a new revision.
+revision: an external edit reaches the running daemon through the disk refresh
+below. Readers copy the config and acquire the matching revision while holding
+the shared config lock so an old list cannot be labeled with a new revision.
+
+**手改 config.json 即时生效(运行中的 daemon)。** `config/model_config_refresh.cpp` 的
+`refresh_model_config_if_changed` 在文件字节与上次读取不同时，按启动加载的规则重读
+`saved_models` / `default_model_name` / `default_permission_mode`(悬空默认退到第一条，只改内存不回写)，
+经 `publish_live_saved_models` 推进 revision。两个入口:`SessionRegistryDeps::sync_model_config`
+(worker 接线;`reload_model_profile` 开头调用，覆盖网页 / IM / 定时任务 / 子代理的每次发消息与会话里的
+「刷新模型列表」),以及 `GET /api/models`(首页与会话的刷新都取它的列表)。半截或非法文件只记一次日志、保留
+当前配置。`refresh_default_session_preferences_from_config`(新建会话、`GET /api/config/default-model`)
+现在同样发布 revision —— 以前它只把磁盘内容写进内存不推进 revision,已打开的会话一直拿旧 key 调用;
+首页刷新时它与 `GET /api/models` 并发，列表接口读到的还是旧内存，要点第二次才出新模型。TUI 主会话不经过
+SessionRegistry,仍需重启或 `/model` 才读入手改。回归:`web_server_smoke_test.cpp` 的
+`ApiKeyEditedByHandInConfigJson*` / `ApiKeyChangedFromSettings*` / `ModelListRefreshShowsProfilesRecreated*`
+四条(假 OpenAI 服务按 Authorization 判 key,401 不重试)、`default_session_preferences_test.cpp` 的三条。
 
 Every active TUI/daemon session owns a `SessionModelBinding`. It is the only
 session Provider publication seam and owns the `shared_ptr<LlmProvider>` slot,

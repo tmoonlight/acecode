@@ -10,6 +10,7 @@
 #include "web/handlers/channels_handler.hpp"
 #include "channels/core/host.hpp"
 #include "session_status_routing.hpp"
+#include "config/model_config_refresh.hpp"
 #include "config/saved_models_revision.hpp"
 #include "prompt/context_usage_breakdown.hpp"
 #include "session/session_user_message_search.hpp"
@@ -2473,14 +2474,24 @@ void WebServer::Impl::refresh_default_session_preferences_for_new_session() {
     refresh_default_session_preferences_for_new_session_locked();
 }
 
+void WebServer::Impl::sync_model_config_from_disk_locked() {
+    if (!deps.app_config) return;
+    const auto revision = current_saved_models_revision();
+    refresh_model_config_if_changed(*deps.app_config, deps.config_path);
+    // 图片生成可能复用某个模型连接,模型配置变了就同步刷新工具。
+    if (current_saved_models_revision() != revision) refresh_image_generation_tool_locked();
+}
+
 void WebServer::Impl::refresh_default_session_preferences_for_new_session_locked() {
     if (!deps.app_config) return;
+    const auto revision = current_saved_models_revision();
     std::string err;
     if (!refresh_default_session_preferences_from_config(
             *deps.app_config, deps.config_path, &err)) {
         LOG_WARN("[web] failed to refresh default session preferences: " + err);
         return;
     }
+    if (current_saved_models_revision() != revision) refresh_image_generation_tool_locked();
     if (deps.session_registry) {
         auto parsed = parse_permission_mode_name(deps.app_config->default_permission_mode);
         deps.session_registry->set_default_permission_mode(

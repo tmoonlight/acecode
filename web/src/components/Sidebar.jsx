@@ -1195,6 +1195,7 @@ function SessionRow({
           onAnimationEnd={() => finishRemoteControlSurge(activeRemoteControlSurgeSequenceRef.current)}
         />
       )}
+      {!pinned && s.sidebar_parent_key && <span className="ace-sidebar-session-tree-connector" aria-hidden="true" />}
       <span className="ace-sidebar-session-tree-indicator relative flex w-6 h-7 items-center justify-center shrink-0">
         {showTreeArrow
           ? <VsIcon name="expandRight" size={14} aria-hidden="true"

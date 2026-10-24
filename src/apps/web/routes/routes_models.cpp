@@ -123,12 +123,14 @@ void WebServer::Impl::register_models() {
             return with_cors(req, std::move(response));
         });
 
-        // GET /api/models: 返回 saved_models
+        // GET /api/models: 返回 saved_models。「刷新模型列表」靠它取列表,
+        // 先读入手改过的 config.json,点一次就能看到磁盘上的新配置。
         CROW_ROUTE(app, "/api/models").methods(crow::HTTPMethod::GET)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
             if (!deps.app_config) return crow::response(503);
-            std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
+            std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
+            sync_model_config_from_disk_locked();
             auto arr = list_models(*deps.app_config);
             crow::response r(arr.dump());
             r.add_header("Content-Type", "application/json");

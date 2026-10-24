@@ -3177,6 +3177,12 @@ cannot be disabled and return `409 {"error":"HOOK_MANAGED"}`.
 `endpoint_mode`、`api_protocol`、`max_output_tokens`、`capabilities_source`、`reasoning`、
 `sampling`、`request_headers`、`context_window` 与 `stream_timeout_ms`。
 
+返回前会检查 `config.json`：内容与上次读取不同（例如用户直接手改了文件）时，先把
+`saved_models`、`default_model_name` 与 `default_permission_mode` 读进运行中的 daemon，
+模型列表有结构变化就推进 saved-model revision，已打开的会话在下一条消息前换用新配置。
+文件不是合法 JSON 或校验失败时只记一次日志，保留当前配置。输入框的「刷新模型列表」
+按钮依赖这一点：点一次就能看到磁盘上的新配置。
+
 ### `POST /api/models`
 
 新增模型配置。请求体为 saved model draft，例如：
@@ -3524,7 +3530,10 @@ the session Provider.
 ### `POST /api/sessions/:id/model/reload`
 
 Forces the requested active session to re-resolve its selected saved-model
-profile and compare the effective Provider construction inputs. A successful
+profile and compare the effective Provider construction inputs. Like every
+ordinary message send, it first reloads `config.json` when the file's bytes
+changed since the last check, so hand edits (for example a new API key) are
+picked up without a daemon restart. A successful
 request returns HTTP 200 with the existing public model-state shape nested in
 an outcome envelope:
 

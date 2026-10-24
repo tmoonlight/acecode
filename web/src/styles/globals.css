@@ -2639,50 +2639,29 @@ body {
 .ace-sidebar-workspace-session-row.is-drop-after::after {
   bottom: -2px;
 }
-/* 会话树连线。竖线与父行展开箭头的尖端同列:行左外边距 6 + 内边距 3 + 箭头列 24 的一半
-   = 21px,减 0.5 让 1px 线居中。父行在箭头尖下方画一段起点;子行整体右移 18 + 6 = 24px,
-   所以子行坐标里竖线在 -3.5px。非末行的竖线贯穿整行,拐角只负责从竖线上弯出去,
-   否则拐角那段圆弧与下一段竖线之间会断开。行高随字号变化,纵向一律按百分比定位。 */
+/* 会话树只在末项画圆角收尾。竖线与父行箭头同列:6 + 3 + 24 / 2 - 0.5 = 20.5px;
+   子行右移 18 + 6 = 24px,所以行内偏移为 -3.5px。相邻直线覆盖行间距以保持连续。
+   独立装饰元素不占用拖拽插入线的伪元素;末项高度随行高变化,不依赖固定字号。 */
 .ace-sidebar-session-tree-node { position: relative; }
 .ace-sidebar-session-tree-children {
   margin: 0 0 0 18px;
   padding: 0;
   border: 0;
 }
-.ace-sidebar-session-tree-node:has(> .ace-sidebar-session-tree-children) > .ace-sidebar-session-row:not(.is-drop-after)::after {
-  content: "";
+.ace-sidebar-session-tree-child { position: relative; }
+.ace-sidebar-session-tree-connector {
   position: absolute;
-  left: 14.5px;
-  top: calc(50% + 4px);
+  left: -3.5px;
+  top: -1px;
   bottom: -2px;
   border-left: 1px solid var(--ace-border);
   pointer-events: none;
 }
-.ace-sidebar-session-tree-child { position: relative; }
-.ace-sidebar-session-tree-child:not(.is-drop-before)::before {
-  content: "";
-  position: absolute;
-  left: -3.5px;
-  top: -1px;
+.ace-sidebar-session-tree-child:last-child > .ace-sidebar-session-tree-connector {
+  bottom: 50%;
   width: 12.5px;
-  height: calc(50% + 1px);
-  border-left: 1px solid var(--ace-border);
   border-bottom: 1px solid var(--ace-border);
   border-bottom-left-radius: 6px;
-  pointer-events: none;
-}
-/* 没有未读点 / 运行指示时,分支一直连到标题前;有指示时停在指示之前。 */
-.ace-sidebar-session-tree-child:has(> .ace-sidebar-session-tree-indicator:empty):not(.is-drop-before)::before {
-  width: 30.5px;
-}
-.ace-sidebar-session-tree-child:not(:last-child):not(.is-drop-after)::after {
-  content: "";
-  position: absolute;
-  left: -3.5px;
-  top: -1px;
-  bottom: -2px;
-  border-left: 1px solid var(--ace-border);
-  pointer-events: none;
 }
 .ace-sidebar-session-row.is-multi-selected {
   background: var(--ace-surface-hi);

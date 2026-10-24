@@ -626,6 +626,8 @@ struct WebServer::Impl {
     // -----------------------------------------------------------------
     void refresh_default_session_preferences_for_new_session();
     void refresh_default_session_preferences_for_new_session_locked();
+    // 内容有变时把 config.json 的模型配置读进内存(手改即时生效);调用方持写锁。
+    void sync_model_config_from_disk_locked();
     std::optional<crow::response> parse_session_options(const crow::request& req,
                                                          const acecode::desktop::WorkspaceMeta& ws,
                                                          SessionOptions& opts);

@@ -8,6 +8,7 @@ import { desktopUpdateRestartAvailable, requestDesktopUpdateRestart } from '../l
 import { VsIcon } from './Icon.jsx';
 import { Modal } from './Modal.jsx';
 import { SkillScanPathsSettings } from './SkillScanPathsSettings.jsx';
+import { UPGRADE_CONFIG_CHANGED_EVENT } from '../lib/themeImports.js';
 
 function Status({ label, tone = 'muted' }) {
   return <span className={`ace-settings-status ${tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : 'text-fg-mute'}`}>{label}</span>;
@@ -120,6 +121,7 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
       const saved = await api.setUpgradeConfig({ base_url: baseUrl });
       lastUpgrade.current = saved.base_url || baseUrl;
       setUpgradeUrl(lastUpgrade.current);
+      window.dispatchEvent(new Event(UPGRADE_CONFIG_CHANGED_EVENT));
     });
   };
 

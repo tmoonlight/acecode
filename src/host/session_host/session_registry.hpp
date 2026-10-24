@@ -126,6 +126,11 @@ struct SessionRegistryDeps {
     // writes. TUI/test adapters may leave it null when config is immutable or
     // externally serialized.
     std::shared_mutex*               config_mutex = nullptr;
+    // Optional: reload model profiles from config.json (hand edits) into the
+    // live config before a session checks the saved-models revision. Runs
+    // before each ordinary send and each model reload; must take config_mutex
+    // itself. The daemon wires refresh_model_config_if_changed.
+    std::function<void()>            sync_model_config;
     PromptConfigProvider             prompt_config; // Optional owned snapshot publisher (TUI).
     const SkillRegistry*             skill_registry = nullptr;
     const ExpertRegistry*            expert_registry = nullptr;

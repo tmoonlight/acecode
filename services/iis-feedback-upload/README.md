@@ -1,5 +1,7 @@
 # ACECode IIS upload service and theme workshop
 
+> 2026-10-24：此目录保留历史实现。当前主题工坊已拆为独立项目 `N:\Users\shao\acecode-workshop`，使用 HTTP 10082、根路径 `/` 和 `/admin`。当前文件站与反馈部署源为 `N:\Users\shao\Documents\Codex\2026-09-22\iis-login`；请使用两个项目各自的发布脚本，勿用本目录历史脚本覆盖现行部署。下文记录原共享实现。
+
 This component lets existing ACECode releases upload feedback to an IIS-hosted
 update directory without any client change. It adds one ASP.NET 4 handler for
 `POST /aupdate/`. The same assembly serves `/aupdate/workshop`; existing updater

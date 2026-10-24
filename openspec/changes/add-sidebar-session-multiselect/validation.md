@@ -21,3 +21,12 @@
 普通会话树批量移动保持同一工作区或无工作区范围；置顶区域可以跨范围排序。分组标题维持单组拖动和折叠，范围多选只覆盖可见真实会话。
 
 本轮未编译或重启 Desktop/daemon 产品程序，浏览器回归和源码测试不表示运行中程序已加载。未提交、推送或发布。已有 CLAUDE、Agent Browser、响应式侧栏及数据目录迁移修改保留；docs/daemon-api.md 仅追加本次批量移动协议说明。
+
+## 2026-10-24 连接线样式修正
+
+- 根据用户参考图移除中间子项的横向分支和父项箭头下的接线，竖线连续贯穿子项，仅末项向右圆角收尾。线条使用独立装饰元素，不与拖动插入线共用伪元素。
+- `pnpm test`、`pnpm build` 通过；构建检查 4570 个正则字面量，无 lookbehind。
+- `node scripts/test-sidebar-session-tree.mjs` 通过，Chromium 153.0.8010.12，共 49 个既有回归场景。已人工检查亮色、暗色、390px 窄屏与批量拖动截图，连续竖线和末项收尾正常。
+- 截图目录：`C:/Users/shao/AppData/Local/Temp/ace-sidebar-connector-20261024/`。
+- Impeccable detector 仍为 12 条修改区域外的 CSS 建议，Sidebar 和本次连接线修改区域没有检测项。`openspec validate add-sidebar-session-multiselect --strict` 与 `git diff --check` 通过。
+- 仅修改 Sidebar、连接线 CSS 和本 change 文档，保留已有无关修改。未编译或重启 Desktop/daemon，运行中程序是否加载新样式不在本次验证范围。

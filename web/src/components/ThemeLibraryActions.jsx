@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal } from './Modal.jsx';
 import { toast } from './Toast.jsx';
 import { api } from '../lib/api.js';
-import { themeWorkshopUrl, validateThemeImportFile, themeImportError } from '../lib/themeImports.js';
+import { observeThemeWorkshopUrl, validateThemeImportFile, themeImportError } from '../lib/themeImports.js';
 import { themePackageSize } from '../lib/themePackages.js';
 
 const actionClass = 'inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md border border-border bg-surface text-[12px] hover:bg-surface-hi disabled:opacity-50';
@@ -16,13 +16,9 @@ export function ThemeLibraryActions({ downloads }) {
   const [url, setUrl] = useState('');
   const [linkError, setLinkError] = useState('');
   const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    let active = true;
-    setLinkError('');
-    api.getUpgradeConfig().then((config) => { if (active) setUrl(themeWorkshopUrl(config.base_url)); })
-      .catch((error) => { if (active) setLinkError(error.message || '无法读取主题工坊地址，请重试'); });
-    return () => { active = false; };
-  }, [retry]);
+  useEffect(() => observeThemeWorkshopUrl({
+    loadConfig: () => api.getUpgradeConfig(), onUrl: setUrl, onError: setLinkError,
+  }), [retry]);
   return <>
     <div className="flex flex-wrap items-start gap-2">
       <button className={actionClass} type="button" onClick={() => setOpen(true)}><LibraryIcon />本地导入</button>

@@ -3,10 +3,37 @@ export const MAX_THEME_IMPORT_BYTES = 16 * 1024 * 1024;
 export function themeWorkshopUrl(baseUrl) {
   const url = new URL(String(baseUrl || '').trim());
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('主题工坊地址无效，请检查更新源设置');
-  url.pathname = `${url.pathname.replace(/\/+$/, '')}/workshop`;
+  const port = url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80;
+  if (port < 1 || port > 55535) throw new Error('主题工坊地址无效，请检查更新源设置');
+  url.port = String(port + 10000);
+  url.pathname = '/';
   url.search = '';
   url.hash = '';
   return url.href;
+}
+
+export const UPGRADE_CONFIG_CHANGED_EVENT = 'ace-upgrade-config-changed';
+
+export function observeThemeWorkshopUrl({ loadConfig, onUrl, onError, target = globalThis.window }) {
+  let revision = 0;
+  const refresh = () => {
+    const request = ++revision;
+    onUrl('');
+    onError('');
+    Promise.resolve().then(loadConfig).then((config) => {
+      if (request === revision) onUrl(themeWorkshopUrl(config.base_url));
+    }).catch((error) => {
+      if (request === revision) onError(error.message || '无法读取主题工坊地址，请重试');
+    });
+  };
+  target?.addEventListener(UPGRADE_CONFIG_CHANGED_EVENT, refresh);
+  target?.addEventListener('focus', refresh);
+  refresh();
+  return () => {
+    ++revision;
+    target?.removeEventListener(UPGRADE_CONFIG_CHANGED_EVENT, refresh);
+    target?.removeEventListener('focus', refresh);
+  };
 }
 
 export function validateThemeImportFile(file) {

@@ -30,6 +30,7 @@
 #include "pty/pty_session_registry.hpp"
 #include "environment/toolchains.hpp"
 #include "config/config_recovery.hpp"
+#include "config/model_config_refresh.hpp"
 #include "config/saved_models.hpp"
 #include "config/saved_models_revision.hpp"
 #include "permissions/permissions.hpp"
@@ -601,6 +602,14 @@ struct WebServerFixture {
         deps.no_workspace_cache_root = no_workspace_cache_root.string();
         deps.config = registry_provider ? nullptr : &cfg;
         deps.config_mutex = registry_provider ? nullptr : &app_config_mu;
+        if (!registry_provider) {
+            // 与 worker.cpp 相同接线:发消息 / 刷新会话模型前读入手改过的 config.json。
+            deps.sync_model_config = [config = &cfg, mu = &app_config_mu,
+                                      path = (tmp_dir / "config.json").string()] {
+                std::lock_guard<std::shared_mutex> lock(*mu);
+                acecode::refresh_model_config_if_changed(*config, path);
+            };
+        }
         deps.expert_registry = expert_registry.get();
         deps.template_permissions = &template_perm;
         deps.hook_manager = hook_manager.get();
@@ -11624,6 +11633,427 @@ TEST(WebServerHttp, ConnectorSavedModelRefreshPublishesOnlyStructuralChanges) {
 
     fx.server->refresh_saved_models_from_disk();
     EXPECT_EQ(acecode::current_saved_models_revision(), before + 1);
+}
+
+// ---------------------------------------------------------------------------
+// 大模型 API Key 与模型列表跟随 config.json 变化(两个用户场景)。
+// 假的 OpenAI 兼容服务按 Authorization 头判定 key:认识的 key 回一句话,其它
+// 一律 401(报文与 OpenAI 的 invalid_api_key 同形)。每个场景各有两条入口:
+// 直接手改 config.json,以及走设置页接口(设置页同样落盘到 config.json)。
+// ---------------------------------------------------------------------------
+namespace {
+
+// 按 key 判定的假 OpenAI 兼容服务,记录每次请求实际带的 key,测试据此判断
+// 会话用的是哪个 key、401 有没有被重试。回复正文带上请求里的 model,用来
+// 区分调用的是哪个模型配置。
+class KeyCheckingModelServer {
+public:
+    explicit KeyCheckingModelServer(std::vector<std::string> valid_keys)
+        : valid_keys_(std::move(valid_keys)),
+          server_([this](httplib::Server& server) {
+              server.Post("/v1/chat/completions",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      handle(request, response);
+                  });
+          }) {}
+
+    std::string base_url() const { return server_.base_url() + "v1"; }
+
+    std::size_t requests_with_key(const std::string& key) const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return static_cast<std::size_t>(std::count(keys_.begin(), keys_.end(), key));
+    }
+
+private:
+    void handle(const httplib::Request& request, httplib::Response& response) {
+        const std::string auth = request.get_header_value("Authorization");
+        const std::string bearer = "Bearer ";
+        const std::string key = auth.rfind(bearer, 0) == 0 ? auth.substr(bearer.size()) : auth;
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            keys_.push_back(key);
+        }
+        if (std::find(valid_keys_.begin(), valid_keys_.end(), key) == valid_keys_.end()) {
+            response.status = 401;
+            response.set_content(
+                R"({"error":{"message":"Incorrect API key provided.","type":"invalid_request_error","param":null,"code":"invalid_api_key"}})",
+                "application/json");
+            return;
+        }
+        const auto body = json::parse(request.body, nullptr, false);
+        const std::string model = body.is_object() ? body.value("model", std::string{}) : std::string{};
+        const json chunk = {{"choices", json::array({{
+            {"delta", {{"content", "reply from " + model}}}, {"finish_reason", "stop"}
+        }})}};
+        response.set_content("data: " + chunk.dump() + "\n\ndata: [DONE]\n\n", "text/event-stream");
+    }
+
+    const std::vector<std::string> valid_keys_;
+    mutable std::mutex mu_;
+    std::vector<std::string> keys_;
+    // 最后构造:服务线程启动时上面的成员都已就绪;析构时它最先停。
+    LocalUpdateServer server_;
+};
+
+acecode::ModelProfile key_check_profile(const std::string& name,
+                                        const std::string& base_url,
+                                        const std::string& api_key,
+                                        const std::string& model) {
+    acecode::ModelProfile profile;
+    profile.name = name;
+    profile.provider = "openai";
+    profile.base_url = base_url;
+    profile.api_key = api_key;
+    profile.model = model;
+    profile.api_protocol = "chat_completions";
+    // 显式窗口:不触发后台 /models 探测,假服务只收到聊天请求。
+    profile.context_window = 128000;
+    return profile;
+}
+
+std::filesystem::path fixture_config_path(const WebServerFixture& fx) {
+    return fx.tmp_dir / "config.json";
+}
+
+// 把 fixture 的模型配置换成给定列表并写进 config.json,相当于 daemon 用这份
+// config.json 启动。自动标题会额外调用模型,这里关掉,免得干扰按 key 计数。
+void install_models_and_write_config(WebServerFixture& fx,
+                                     std::vector<acecode::ModelProfile> models,
+                                     const std::string& default_name) {
+    std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+    fx.cfg.saved_models = std::move(models);
+    fx.cfg.default_model_name = default_name;
+    fx.cfg.session_title.enabled = false;
+    acecode::save_config(fx.cfg, fixture_config_path(fx).string());
+}
+
+// 像用户用编辑器那样直接改 config.json:读出 JSON 交给 edit 修改,再整份写回。
+// 不经过任何 ACECode 接口,运行中的 daemon 只能从磁盘上发现这次修改。
+void edit_config_json_by_hand(const WebServerFixture& fx,
+                              const std::function<void(json&)>& edit) {
+    const auto path = fixture_config_path(fx);
+    json config = json::parse(read_text(path));
+    edit(config);
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << config.dump(2);
+}
+
+void set_api_key_in_config_json(json& config, const std::string& name, const std::string& api_key) {
+    for (auto& model : config["saved_models"]) {
+        if (model.value("name", std::string{}) == name) model["api_key"] = api_key;
+    }
+}
+
+// 一条 OpenAI 兼容模型配置的 JSON:既是 config.json 里 saved_models 的条目,
+// 也是设置页 POST / PUT /api/models 的请求体。
+json openai_model_json(const std::string& name, const std::string& base_url,
+                       const std::string& api_key, const std::string& model) {
+    return {{"name", name}, {"provider", "openai"}, {"base_url", base_url},
+            {"api_key", api_key}, {"model", model},
+            {"api_protocol", "chat_completions"}, {"context_window", 128000}};
+}
+
+std::string create_session_with_model(WebServerFixture& fx, const std::string& model_name) {
+    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                             cpr::Header{{"Content-Type", "application/json"}},
+                             cpr::Body{json{{"model", model_name}}.dump()},
+                             cpr::Timeout{5000});
+    if (created.status_code != 201) {
+        ADD_FAILURE() << "create session failed: " << created.status_code << " " << created.text;
+        return {};
+    }
+    return json::parse(created.text).value("session_id", std::string{});
+}
+
+struct ChatTurnOutcome {
+    int http_status = 0;
+    bool completed = false;
+    bool failed = false;
+    std::chrono::milliseconds elapsed{0};
+    std::string reply;  // 本回合新增的 assistant 正文;失败时为空
+};
+
+// 在会话里发一条消息(与网页输入框同一个接口)并等这一回合结束。
+ChatTurnOutcome chat_in_session(WebServerFixture& fx, const std::string& sid,
+                                const std::string& text) {
+    ChatTurnOutcome outcome;
+    auto entry = fx.registry->acquire(sid);
+    if (!entry || !entry->loop) return outcome;
+    const auto history_before = entry->loop->messages().size();
+    const auto started = std::chrono::steady_clock::now();
+    auto posted = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+                            cpr::Header{{"Content-Type", "application/json"}},
+                            cpr::Body{json{{"text", text}}.dump()},
+                            cpr::Timeout{5000});
+    outcome.http_status = posted.status_code;
+    if (posted.status_code != 202) return outcome;
+    // 控制任务排在已入队的回合之后执行,它完成即说明这条消息的回合已经结束。
+    auto drained = entry->loop->enqueue_control([] { return true; });
+    outcome.completed = drained.wait_for_completion(30s);
+    outcome.elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    outcome.failed = entry->loop->last_turn_failed();
+    const auto history = entry->loop->messages();
+    for (std::size_t i = history_before; i < history.size(); ++i) {
+        if (history[i].role == "assistant" && !history[i].content.empty()) {
+            outcome.reply = history[i].content;
+        }
+    }
+    return outcome;
+}
+
+struct ModelRefreshOutcome {
+    int list_status = 0;
+    std::vector<std::string> names;
+    int reload_status = 0;        // 仅会话里点
+    std::string reload_outcome;   // 仅会话里点
+    std::string default_name;     // 仅首页点
+};
+
+// 模拟输入框模型菜单里的「刷新模型列表」按钮(ChatView::refreshSessionModels):
+// 会话里点 = GET /api/models + POST /api/sessions/:id/model/reload;
+// 首页(sid 为空)点 = GET /api/models + GET /api/config/default-model。
+// 前端并发发出这些请求,列表只取 GET /api/models 的结果;这里让它先完成 ——
+// 这是并发下会出现的顺序之一,列表接口不能指望别的请求先把磁盘读进来。
+ModelRefreshOutcome click_refresh_model_list(WebServerFixture& fx, const std::string& sid) {
+    ModelRefreshOutcome outcome;
+    auto models = cpr::Get(cpr::Url{fx.url("/api/models")}, cpr::Timeout{5000});
+    outcome.list_status = models.status_code;
+    if (models.status_code == 200) {
+        for (const auto& item : json::parse(models.text)) {
+            outcome.names.push_back(item.value("name", std::string{}));
+        }
+    }
+    if (!sid.empty()) {
+        auto reload = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/model/reload")},
+                                cpr::Timeout{5000});
+        outcome.reload_status = reload.status_code;
+        if (reload.status_code == 200) {
+            outcome.reload_outcome = json::parse(reload.text).value("outcome", std::string{});
+        }
+    } else {
+        auto current = cpr::Get(cpr::Url{fx.url("/api/config/default-model")}, cpr::Timeout{5000});
+        if (current.status_code == 200) {
+            outcome.default_name = json::parse(current.text).value("name", std::string{});
+        }
+    }
+    return outcome;
+}
+
+} // namespace
+
+// 触发场景(用户场景 1,手改入口):config.json 里填正确的 API Key,开会话 A 聊天
+// 成功;接着直接手改 config.json 把 key 改错,在会话 A 里继续聊;再改回正确的 key
+// 继续聊。期望:改错后的下一条消息就用上错误的 key,服务端 401,回合立即失败
+// (401 不重试:服务端只收到一次错误 key 的请求,几秒内结束);改回后下一条消息
+// 恢复成功。若运行中的 daemon 不重读手改后的 config.json,会话 A 会一直拿旧 key
+// 调用,改错了也照样成功,用户以为改动生效其实没有。
+TEST(WebServerHttp, ApiKeyEditedByHandInConfigJsonAppliesToNextMessageOfOpenSession) {
+    const std::string good_key = "sk-acecode-good-key";
+    const std::string wrong_key = "sk-acecode-wrong-key";
+    KeyCheckingModelServer upstream({good_key});
+    WebServerFixture fx;
+    install_models_and_write_config(
+        fx, {key_check_profile("key-check", upstream.base_url(), good_key, "key-check-model")},
+        "key-check");
+    const std::string sid = create_session_with_model(fx, "key-check");
+    ASSERT_FALSE(sid.empty());
+
+    // 1. 正确的 key:会话 A 调用成功。
+    const auto first = chat_in_session(fx, sid, "第一轮:正确的 key");
+    ASSERT_EQ(first.http_status, 202);
+    ASSERT_TRUE(first.completed);
+    EXPECT_FALSE(first.failed);
+    EXPECT_EQ(first.reply, "reply from key-check-model");
+    EXPECT_EQ(upstream.requests_with_key(good_key), 1u);
+
+    // 2. 手改 config.json 把 key 改错,会话 A 继续聊:必须立刻失败。
+    edit_config_json_by_hand(fx, [&](json& config) {
+        set_api_key_in_config_json(config, "key-check", wrong_key);
+    });
+    const auto second = chat_in_session(fx, sid, "第二轮:key 已改错");
+    ASSERT_EQ(second.http_status, 202);
+    ASSERT_TRUE(second.completed);
+    EXPECT_TRUE(second.failed) << "key 改错后会话 A 仍调用成功,说明没有用上新 key";
+    EXPECT_EQ(second.reply, "");
+    EXPECT_EQ(upstream.requests_with_key(wrong_key), 1u) << "错误的 key 应恰好请求一次(401 不重试)";
+    EXPECT_EQ(upstream.requests_with_key(good_key), 1u) << "key 改错后不应再用旧 key";
+    EXPECT_LT(second.elapsed, 5s);
+
+    // 3. 改回正确的 key,会话 A 继续聊:恢复成功。
+    edit_config_json_by_hand(fx, [&](json& config) {
+        set_api_key_in_config_json(config, "key-check", good_key);
+    });
+    const auto third = chat_in_session(fx, sid, "第三轮:key 已改回");
+    ASSERT_EQ(third.http_status, 202);
+    ASSERT_TRUE(third.completed);
+    EXPECT_FALSE(third.failed);
+    EXPECT_EQ(third.reply, "reply from key-check-model");
+    EXPECT_EQ(upstream.requests_with_key(good_key), 2u);
+    EXPECT_EQ(upstream.requests_with_key(wrong_key), 1u);
+}
+
+// 触发场景(用户场景 1,设置页入口):三步同上,但 key 在设置页里保存
+// (PUT /api/models/<name>,设置页写 config.json 并发布给运行中的 daemon)。
+// 期望与手改一致:改错立即 401 失败且不重试,改回立即恢复。
+TEST(WebServerHttp, ApiKeyChangedFromSettingsAppliesToNextMessageOfOpenSession) {
+    const std::string good_key = "sk-acecode-good-key";
+    const std::string wrong_key = "sk-acecode-wrong-key";
+    KeyCheckingModelServer upstream({good_key});
+    WebServerFixture fx;
+    install_models_and_write_config(
+        fx, {key_check_profile("key-check", upstream.base_url(), good_key, "key-check-model")},
+        "key-check");
+    const std::string sid = create_session_with_model(fx, "key-check");
+    ASSERT_FALSE(sid.empty());
+    const auto save_key_in_settings = [&](const std::string& api_key) {
+        return cpr::Put(cpr::Url{fx.url("/api/models/key-check")},
+                        cpr::Header{{"Content-Type", "application/json"}},
+                        cpr::Body{openai_model_json("key-check", upstream.base_url(),
+                                                   api_key, "key-check-model").dump()},
+                        cpr::Timeout{5000});
+    };
+
+    const auto first = chat_in_session(fx, sid, "第一轮:正确的 key");
+    ASSERT_TRUE(first.completed);
+    EXPECT_FALSE(first.failed);
+    EXPECT_EQ(first.reply, "reply from key-check-model");
+
+    const auto wrong_saved = save_key_in_settings(wrong_key);
+    ASSERT_EQ(wrong_saved.status_code, 200) << wrong_saved.text;
+    EXPECT_NE(read_text(fixture_config_path(fx)).find(wrong_key), std::string::npos);
+    const auto second = chat_in_session(fx, sid, "第二轮:key 已改错");
+    ASSERT_TRUE(second.completed);
+    EXPECT_TRUE(second.failed);
+    EXPECT_EQ(second.reply, "");
+    EXPECT_EQ(upstream.requests_with_key(wrong_key), 1u);
+    EXPECT_EQ(upstream.requests_with_key(good_key), 1u);
+    EXPECT_LT(second.elapsed, 5s);
+
+    const auto good_saved = save_key_in_settings(good_key);
+    ASSERT_EQ(good_saved.status_code, 200) << good_saved.text;
+    const auto third = chat_in_session(fx, sid, "第三轮:key 已改回");
+    ASSERT_TRUE(third.completed);
+    EXPECT_FALSE(third.failed);
+    EXPECT_EQ(third.reply, "reply from key-check-model");
+    EXPECT_EQ(upstream.requests_with_key(good_key), 2u);
+    EXPECT_EQ(upstream.requests_with_key(wrong_key), 1u);
+}
+
+// 触发场景(用户场景 2,手改入口):daemon 运行中、会话 A 开着,先把 config.json
+// 里的大模型配置全部删掉,再写进一套全新的配置,然后点输入框模型菜单里的
+// 「刷新模型列表」(会话里点一次、首页点一次)。期望:点一次就只列出新的这一套,
+// 旧的消失,默认模型是新设的那个;会话 A 能切到新模型并调用成功(新配置真的
+// 可用,不只是名字出现在列表里)。
+TEST(WebServerHttp, ModelListRefreshShowsProfilesRecreatedByHandInConfigJson) {
+    KeyCheckingModelServer upstream({"sk-old", "sk-new-a", "sk-new-b"});
+    WebServerFixture fx;
+    install_models_and_write_config(
+        fx,
+        {key_check_profile("old-a", upstream.base_url(), "sk-old", "old-model-a"),
+         key_check_profile("old-b", upstream.base_url(), "sk-old", "old-model-b")},
+        "old-a");
+    const std::string sid = create_session_with_model(fx, "old-a");
+    ASSERT_FALSE(sid.empty());
+    const auto warmup = chat_in_session(fx, sid, "旧配置先聊一句");
+    ASSERT_TRUE(warmup.completed);
+    EXPECT_FALSE(warmup.failed);
+
+    // 1. 删除全部大模型配置。
+    edit_config_json_by_hand(fx, [](json& config) {
+        config["saved_models"] = json::array();
+        config.erase("default_model_name");
+    });
+    // 2. 建立一套新的配置。
+    edit_config_json_by_hand(fx, [&](json& config) {
+        config["saved_models"] = json::array({
+            openai_model_json("new-a", upstream.base_url(), "sk-new-a", "new-model-a"),
+            openai_model_json("new-b", upstream.base_url(), "sk-new-b", "new-model-b"),
+        });
+        config["default_model_name"] = "new-a";
+    });
+
+    // 3. 会话 A 里点「刷新模型列表」。
+    const std::vector<std::string> expected{"new-a", "new-b"};
+    const auto in_session = click_refresh_model_list(fx, sid);
+    ASSERT_EQ(in_session.list_status, 200);
+    EXPECT_EQ(in_session.names, expected);
+    EXPECT_EQ(in_session.reload_status, 200);
+
+    // 4. 首页点「刷新模型列表」:列表同样只有新的,默认模型是新设的那个。
+    const auto on_home = click_refresh_model_list(fx, "");
+    ASSERT_EQ(on_home.list_status, 200);
+    EXPECT_EQ(on_home.names, expected);
+    EXPECT_EQ(on_home.default_name, "new-a");
+
+    // 5. 会话 A 切到刷新出来的新模型并聊天:用的是新配置的 key 与模型。
+    auto switched = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/model")},
+                              cpr::Header{{"Content-Type", "application/json"}},
+                              cpr::Body{R"({"name":"new-b"})"}, cpr::Timeout{5000});
+    ASSERT_EQ(switched.status_code, 200) << switched.text;
+    const auto after = chat_in_session(fx, sid, "用新配置聊一句");
+    ASSERT_TRUE(after.completed);
+    EXPECT_FALSE(after.failed);
+    EXPECT_EQ(after.reply, "reply from new-model-b");
+    EXPECT_EQ(upstream.requests_with_key("sk-new-b"), 1u);
+}
+
+// 触发场景(用户场景 2,设置页入口):同样先删光、再建一套新的,但通过设置页
+// 接口完成(DELETE / POST /api/models、设为默认),然后点「刷新模型列表」。
+// 期望与手改一致:只列出新的一套、默认是新设的,会话 A 切过去能调用成功。
+TEST(WebServerHttp, ModelListRefreshShowsProfilesRecreatedFromSettings) {
+    KeyCheckingModelServer upstream({"sk-old", "sk-new-a", "sk-new-b"});
+    WebServerFixture fx;
+    install_models_and_write_config(
+        fx,
+        {key_check_profile("old-a", upstream.base_url(), "sk-old", "old-model-a"),
+         key_check_profile("old-b", upstream.base_url(), "sk-old", "old-model-b")},
+        "old-a");
+    const std::string sid = create_session_with_model(fx, "old-a");
+    ASSERT_FALSE(sid.empty());
+    const auto warmup = chat_in_session(fx, sid, "旧配置先聊一句");
+    ASSERT_TRUE(warmup.completed);
+    EXPECT_FALSE(warmup.failed);
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+
+    for (const char* name : {"old-a", "old-b"}) {
+        auto removed = cpr::Delete(cpr::Url{fx.url(std::string("/api/models/") + name)},
+                                   cpr::Timeout{5000});
+        ASSERT_EQ(removed.status_code, 200) << name << ": " << removed.text;
+    }
+    auto empty = cpr::Get(cpr::Url{fx.url("/api/models")}, cpr::Timeout{5000});
+    ASSERT_EQ(empty.status_code, 200);
+    EXPECT_TRUE(json::parse(empty.text).empty()) << empty.text;
+
+    for (const auto& [name, key, model] : std::vector<std::array<std::string, 3>>{
+             {"new-a", "sk-new-a", "new-model-a"}, {"new-b", "sk-new-b", "new-model-b"}}) {
+        auto added = cpr::Post(cpr::Url{fx.url("/api/models")}, headers,
+                               cpr::Body{openai_model_json(name, upstream.base_url(), key, model).dump()},
+                               cpr::Timeout{5000});
+        ASSERT_EQ(added.status_code, 200) << name << ": " << added.text;
+    }
+    auto made_default = cpr::Post(cpr::Url{fx.url("/api/config/default-model")}, headers,
+                                  cpr::Body{R"({"name":"new-a"})"}, cpr::Timeout{5000});
+    ASSERT_EQ(made_default.status_code, 200) << made_default.text;
+
+    const std::vector<std::string> expected{"new-a", "new-b"};
+    const auto in_session = click_refresh_model_list(fx, sid);
+    ASSERT_EQ(in_session.list_status, 200);
+    EXPECT_EQ(in_session.names, expected);
+    EXPECT_EQ(in_session.reload_status, 200);
+    const auto on_home = click_refresh_model_list(fx, "");
+    ASSERT_EQ(on_home.list_status, 200);
+    EXPECT_EQ(on_home.names, expected);
+    EXPECT_EQ(on_home.default_name, "new-a");
+
+    auto switched = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/model")}, headers,
+                              cpr::Body{R"({"name":"new-b"})"}, cpr::Timeout{5000});
+    ASSERT_EQ(switched.status_code, 200) << switched.text;
+    const auto after = chat_in_session(fx, sid, "用新配置聊一句");
+    ASSERT_TRUE(after.completed);
+    EXPECT_FALSE(after.failed);
+    EXPECT_EQ(after.reply, "reply from new-model-b");
+    EXPECT_EQ(upstream.requests_with_key("sk-new-b"), 1u);
 }
 
 TEST(WebServerHttp, PostModelsTestAuthenticatesAndDoesNotSaveDraft) {

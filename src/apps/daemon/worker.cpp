@@ -9,6 +9,7 @@
 #include "utils/scope_exit.hpp"
 #include "channels/runtime.hpp"
 #include "session/session_serializer.hpp"
+#include "config/model_config_refresh.hpp"
 
 #include "platform/native_ui/folder_picker.hpp"
 #include "platform/native_ui/context_picker.hpp"
@@ -480,12 +481,19 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     if (opts.dangerous) template_perm.set_dangerous(true);
 
     std::shared_mutex app_config_mu;
+    const std::string config_path =
+        acecode::path_to_utf8(acecode::path_from_utf8(acecode::get_acecode_dir()) / "config.json");
     acecode::SessionRegistryDeps reg_deps;
     reg_deps.provider_accessor    = provider_accessor;
     reg_deps.tools                = &tools;
     reg_deps.cwd                  = cwd;
     reg_deps.config               = &cfg_mut;
     reg_deps.config_mutex         = &app_config_mu;
+    // 发消息 / 刷新会话模型前读入手改过的 config.json(改 key、增删模型即时生效)。
+    reg_deps.sync_model_config = [&cfg_mut, &app_config_mu, config_path] {
+        std::lock_guard<std::shared_mutex> lock(app_config_mu);
+        acecode::refresh_model_config_if_changed(cfg_mut, config_path);
+    };
     reg_deps.skill_registry       = &skill_registry;
     reg_deps.expert_registry      = &expert_registry;
     reg_deps.memory               = memory_runtime;
@@ -565,9 +573,6 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     if (loop_store_ready && loop_scheduler.running()) {
         tools.register_tool(acecode::loop::create_scheduled_task_tool(scheduled_task_service));
     }
-
-    const std::string config_path =
-        acecode::path_to_utf8(acecode::path_from_utf8(acecode::get_acecode_dir()) / "config.json");
 
     // 控制台 PTY 注册表(add-console-dock):启动期探测一次 backend,
     // 析构时 stop_all 杀掉全部 shell(栈对象,server.run() 返回后回收)。
