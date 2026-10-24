@@ -13510,11 +13510,13 @@ std::vector<acecode::ChatMessage> wait_for_user_messages(
     std::vector<acecode::ChatMessage> users;
     const auto deadline = std::chrono::steady_clock::now() + 10s;
     while (std::chrono::steady_clock::now() < deadline) {
-        users.clear();
-        for (const auto& message : entry.loop->messages()) {
-            if (acecode::is_real_user_message(message)) users.push_back(message);
-        }
-        if (users.size() >= expected_count && !entry.loop->is_busy()) break;
+        const bool idle = entry.loop->try_run_idle_control([&] {
+            users.clear();
+            for (const auto& message : entry.loop->messages()) {
+                if (acecode::is_real_user_message(message)) users.push_back(message);
+            }
+        });
+        if (idle && users.size() >= expected_count) break;
         std::this_thread::sleep_for(10ms);
     }
     return users;
