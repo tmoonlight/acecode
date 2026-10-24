@@ -50,6 +50,7 @@ TEST(ConfigUpgrade, DefaultsNormalizeAndValidate) {
     acecode::AppConfig cfg;
     EXPECT_EQ(cfg.upgrade.base_url, "http://2017studio.imwork.net:82/aupdate/");
     EXPECT_EQ(cfg.upgrade.timeout_ms, 30000);
+    EXPECT_FALSE(cfg.upgrade.auto_update);
     EXPECT_EQ(acecode::normalize_upgrade_base_url(" https://u.test/base "),
               "https://u.test/base/");
     EXPECT_TRUE(acecode::is_valid_upgrade_base_url("http://u.test/base"));
@@ -78,12 +79,13 @@ TEST(ConfigUpgrade, LoadConfigReadsUpgradeAndEnvOverride) {
     fs::create_directories(temp_home / ".acecode");
     {
         std::ofstream ofs(temp_home / ".acecode" / "config.json");
-        ofs << R"({"upgrade":{"base_url":"https://file.example.test/root","timeout_ms":45000}})";
+        ofs << R"({"upgrade":{"base_url":"https://file.example.test/root","timeout_ms":45000,"auto_update":true}})";
     }
 
     acecode::AppConfig cfg = acecode::load_config();
     EXPECT_EQ(cfg.upgrade.base_url, "https://env.example.test/update/");
     EXPECT_EQ(cfg.upgrade.timeout_ms, 45000);
+    EXPECT_TRUE(cfg.upgrade.auto_update);
 
     clear_env_value("ACECODE_UPGRADE_BASE_URL");
     if (had_previous_home) set_env_value(kHomeEnvName, previous_home);

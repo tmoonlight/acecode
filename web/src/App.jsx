@@ -137,6 +137,8 @@ import {
 } from './lib/consoleDock.js';
 import { createHomeComposerDraftStore } from './lib/homeComposerDraftStore.js';
 import { nextHomeLogoEffectEnabled } from './lib/homeLogoEffectPolicy.js';
+import { useHomeIntentPrompts } from './lib/useHomeIntentPrompts.js';
+import { homeIntentPromptRef } from './lib/homeIntentPrompts.js';
 import { homeRefFromWorkspace, noHomeWorkspaceOption } from './lib/homeWorkspaceSelection.js';
 import {
   DEFAULT_SINGLE_LAYOUT,
@@ -187,6 +189,7 @@ import {
   setDesktopCloseBehavior,
   subscribeDesktopCloseRequest,
 } from './lib/desktopCloseBehavior.js';
+import { useAppUpdates } from './lib/useAppUpdates.js';
 import {
   desktopUpdateRestartAvailable,
   requestDesktopUpdateRestart,
@@ -264,6 +267,7 @@ export function App() {
   useEffect(() => installNativeFileDropRouter(), []);
 
   const [authState, setAuthState] = useState('checking'); // 'checking' | 'ok' | 'need-token'
+  const homeIntentState = useHomeIntentPrompts(api, authState === 'ok');
   const computerUseScope = apiConnectionScope(api);
   useEffect(() => {
     if (authState !== 'ok') return undefined;
@@ -324,13 +328,12 @@ export function App() {
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [conversationFindRequest, setConversationFindRequest] = useState(0);
   const [workspaceActivationRequest, setWorkspaceActivationRequest] = useState(null);
-  const [updateStatus, setUpdateStatus] = useState(null);
-  const [updateStarting, setUpdateStarting] = useState(false);
+  const {
+    updateStatus, updateJob, updateStarting, updateChecking, updateDialogOpen, updateFailed,
+    setUpdateJob, setUpdateDialogOpen, openUpdateDialog, checkForUpdates, startUpdate,
+  } = useAppUpdates(authState);
   const [updateCancelling, setUpdateCancelling] = useState(false);
-  const [updateChecking, setUpdateChecking] = useState(false);
   const [updateRestarting, setUpdateRestarting] = useState(false);
-  const [updateJob, setUpdateJob] = useState(null);
-  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [singleLayout, setSingleLayout] = usePreference(
     SINGLE_LAYOUT_STORAGE_KEY, DEFAULT_SINGLE_LAYOUT, validateLayoutWidths);
   const previewPanelUserSized = previewPanelWidthIsUserSized(singleLayout);
@@ -522,7 +525,6 @@ export function App() {
     });
   }
   const navHistoryRef = useRef(navHistory);
-  const updatePollRef = useRef(0);
   const desktopModeRef = useRef(desktopUiMode());
   const startupOpenTargetRef = useRef(
     typeof window === 'undefined' ? null : openSessionTargetFromSearch(window.location.search),
@@ -1058,75 +1060,6 @@ export function App() {
     }
   });
 
-  const pollUpdateJob = useCallback((jobId) => {
-    if (!jobId) return;
-    if (updatePollRef.current) window.clearTimeout(updatePollRef.current);
-    let failures = 0;
-    const tick = async () => {
-      try {
-        const job = await api.getUpdateJob(jobId);
-        failures = 0;
-        setUpdateJob(job);
-        if (updateJobIsActive(job)) {
-          updatePollRef.current = window.setTimeout(tick, 350);
-          return;
-        }
-        updatePollRef.current = 0;
-        setUpdateDialogOpen(true);
-        if (job?.state === 'succeeded') {
-          toast({
-            kind: 'ok',
-            text: desktopUpdateRestartAvailable()
-              ? '升级安装完成，可立即重启 ACECode'
-              : '升级安装完成，请完全退出并重新启动 ACECode',
-          });
-        } else if (job?.state === 'failed') {
-          toast({ kind: 'err', text: '升级失败:' + (job.error || '未知错误') });
-        } else if (job?.state === 'cancelled') {
-          toast({ kind: 'info', text: '升级已取消，当前安装未修改' });
-        }
-      } catch (e) {
-        failures += 1;
-        if (failures < 5) {
-          updatePollRef.current = window.setTimeout(tick, 600);
-          return;
-        }
-        updatePollRef.current = 0;
-        setUpdateJob((prev) => ({
-          ...(prev || { job_id: jobId }),
-          state: 'failed',
-          error: e?.message || '无法获取升级进度',
-        }));
-        setUpdateDialogOpen(true);
-      }
-    };
-    tick();
-  }, []);
-
-  useEffect(() => () => {
-    if (updatePollRef.current) window.clearTimeout(updatePollRef.current);
-  }, []);
-
-  useEffect(() => {
-    if (authState !== 'ok') return undefined;
-    let cancelled = false;
-    Promise.allSettled([api.getUpdateStatus(), api.getLatestUpdateJob()])
-      .then(([statusResult, jobResult]) => {
-        if (cancelled) return;
-        setUpdateStatus(statusResult.status === 'fulfilled' ? statusResult.value : null);
-        if (jobResult.status !== 'fulfilled') return;
-        const job = jobResult.value;
-        setUpdateJob(job);
-        if (updateJobIsActive(job)) {
-          setUpdateDialogOpen(true);
-          pollUpdateJob(job.job_id);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authState, pollUpdateJob]);
-
   useEffect(() => {
     if (authState !== 'ok' || !desktopGuidedTourModeEligible(desktopModeRef.current)) {
       return undefined;
@@ -1614,51 +1547,6 @@ export function App() {
     }));
   });
 
-  const openUpdateDialog = useStableCallback(() => {
-    if (!updateJobIsActive(updateJob)
-        && updateJob?.target_version
-        && updateStatus?.latest_version
-        && updateJob.target_version !== updateStatus.latest_version) {
-      setUpdateJob(null);
-    }
-    setUpdateDialogOpen(true);
-  });
-
-  const checkForUpdates = useStableCallback(async () => {
-    if (updateChecking) return;
-    setUpdateChecking(true);
-    try {
-      const status = await api.getUpdateStatus();
-      if (!['available', 'up_to_date', 'store_managed'].includes(status?.status)) {
-        throw new Error(
-          status?.error
-          || (status?.status ? `更新服务返回状态 ${status.status}` : '更新服务返回无效响应'),
-        );
-      }
-      setUpdateStatus(status);
-      if (status.status === 'store_managed') {
-        setUpdateJob(null);
-        setUpdateDialogOpen(true);
-        return;
-      }
-      const keepCurrentJob = updateJobIsActive(updateJob)
-        || (updateJob?.state === 'succeeded' && updateJob?.restart_required);
-      if (!keepCurrentJob) {
-        const staleTarget = updateJob?.target_version
-          && status?.latest_version
-          && updateJob.target_version !== status.latest_version;
-        if (status.status === 'up_to_date' || staleTarget) {
-          setUpdateJob(null);
-        }
-      }
-      setUpdateDialogOpen(true);
-    } catch (e) {
-      toast({ kind: 'err', text: '检查更新失败:' + (e?.message || '未知错误') });
-    } finally {
-      setUpdateChecking(false);
-    }
-  });
-
   const showAboutAceCode = useCallback(async () => {
     const result = await showDesktopAboutDialog();
     if (!result?.ok) openSettingsSection('about');
@@ -1700,28 +1588,6 @@ export function App() {
     setDesktopCloseBusy(false);
   });
 
-  const startUpdate = useStableCallback(async () => {
-    if (!updateStatus?.update_available || updateStarting || updateJobIsActive(updateJob)) return;
-    setUpdateStarting(true);
-    try {
-      const job = await api.startUpdate();
-      setUpdateJob(job);
-      setUpdateDialogOpen(true);
-      pollUpdateJob(job?.job_id);
-    } catch (e) {
-      if (e?.code === 'UPDATE_IN_PROGRESS' && e?.body?.job) {
-        const job = e.body.job;
-        setUpdateJob(job);
-        setUpdateDialogOpen(true);
-        pollUpdateJob(job.job_id);
-        return;
-      }
-      toast({ kind: 'err', text: '启动升级失败:' + (e?.message || '') });
-    } finally {
-      setUpdateStarting(false);
-    }
-  });
-
   const cancelUpdate = useStableCallback(async () => {
     if (!updateJob?.job_id
         || !updateJobIsActive(updateJob)
@@ -1732,7 +1598,6 @@ export function App() {
     try {
       const job = await api.cancelUpdate(updateJob.job_id);
       setUpdateJob(job);
-      pollUpdateJob(job?.job_id || updateJob.job_id);
     } catch (e) {
       if (e?.code === 'UPDATE_NOT_CANCELLABLE' && e?.body?.job) {
         setUpdateJob(e.body.job);
@@ -1824,12 +1689,17 @@ export function App() {
     return true;
   });
 
+  const selectHomeIntentPrompt = useStableCallback((item, workspace) => {
+    navigateToRef(homeIntentPromptRef(item, workspace, activeRefRef.current, health));
+  });
+
   const consumeInitialDraftText = useCallback(() => {
     replaceActiveRef((current) => {
-      if (!current || !Object.prototype.hasOwnProperty.call(current, 'initialDraftText')) {
+      if (!current || (!Object.prototype.hasOwnProperty.call(current, 'initialDraftText')
+          && !Object.prototype.hasOwnProperty.call(current, 'initialHomePrompt'))) {
         return current;
       }
-      const { initialDraftText: _consumed, ...next } = current;
+      const { initialDraftText: _consumed, initialHomePrompt: _homePrompt, ...next } = current;
       return next;
     });
   }, [replaceActiveRef]);
@@ -2408,6 +2278,7 @@ export function App() {
           updateChecking={updateChecking}
           updateStatus={updateStatus}
           updateStarting={updateStarting}
+          updateFailed={updateFailed}
           updateRunning={updateJobIsActive(updateJob)}
           updateReady={updateJob?.state === 'succeeded' && !!updateJob?.restart_required}
           updateProgress={updateJobProgress(updateJob)}
@@ -2443,6 +2314,8 @@ export function App() {
                 actionsTarget={sessionActionsTarget}
                 sessionRef={activeRef}
                 homeLogoEffectEnabled={homeLogoEffectEnabled}
+                homeIntentSuggestions={homeIntentState.suggestions}
+                onHomeIntentPrompt={selectHomeIntentPrompt}
                 homeComposerDrafts={homeComposerDrafts}
                 onHomeComposerDraftLoad={loadHomeComposerDraft}
                 homeComposerAttentionRequest={homeComposerAttentionRequest}

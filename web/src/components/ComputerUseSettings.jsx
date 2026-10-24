@@ -57,7 +57,7 @@ export function ComputerUseSettings({ onCheckUpdates }) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-[13px] font-normal">电脑操控（实验性）</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">开启后，Agent 可查看窗口并操作鼠标、键盘和应用控件</div>
+
           {snapshot && !supported && <div className="text-[11px] text-fg-mute mt-0.5">电脑操控支持 Windows 和 macOS 14 及以上版本</div>}
         </div>
         <button type="button" className="px-1.5 py-0.5 text-[11px] hover:underline disabled:opacity-50"
@@ -105,11 +105,11 @@ export function ComputerUseSettings({ onCheckUpdates }) {
       </div>}
       {expanded && <div id={configId} className="border-t border-border px-3.5 py-3">
         <div className="text-[13px] font-normal mb-1">指针样式</div>
-        <p className="text-[11px] text-fg-mute mb-3">指针颜色跟随当前主题色</p>
+
         <div role="radiogroup" aria-label="指针样式" className="grid grid-cols-2 gap-3 max-w-md">
           {[
-            { value: 'ace', label: 'ACE 标记', description: '主题色箭头，右下角显示 ACE' },
-            { value: 'plain', label: '纯色指针', description: '仅显示主题色箭头' },
+            { value: 'ace', label: 'ACE 标记' },
+            { value: 'plain', label: '纯色指针' },
           ].map((option) => {
             const selected = snapshot?.pointer_style === option.value;
             return <label key={option.value} data-settings-surface="true"
@@ -119,7 +119,6 @@ export function ComputerUseSettings({ onCheckUpdates }) {
                 onChange={() => { void store.setPointerStyle(option.value); }} />
               <div className="h-24 flex items-center justify-center"><PointerPreview marked={option.value === 'ace'} /></div>
               <div className="text-[13px] font-normal text-fg">{option.label}</div>
-              <div className="text-[11px] text-fg-mute mt-0.5">{option.description}</div>
               {selected && <span aria-hidden="true" className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-accent" />}
             </label>;
           })}

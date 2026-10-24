@@ -94,6 +94,8 @@ json update_job_to_json(const UpdateJobStatus& status) {
         {"percent", percent},
         {"restart_required", status.restart_required},
         {"cancel_requested", status.cancel_requested},
+        {"automatic", status.automatic},
+        {"automatic_failures", status.automatic_failures},
         {"can_cancel", update_job_can_cancel(status)},
     };
     if (status.bytes_total) out["bytes_total"] = *status.bytes_total;
@@ -1375,7 +1377,7 @@ void WebServer::Impl::register_ui_preferences() {
             return with_cors(req, std::move(r));
         });
 
-        // POST /api/update/start: explicit user-triggered GUI update job.
+        // POST /api/update/start: manual or opted-in automatic GUI update job.
         CROW_ROUTE(app, "/api/update/start").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1394,6 +1396,27 @@ void WebServer::Impl::register_ui_preferences() {
                 response.add_header("Content-Type", "application/json");
                 response.body = dump_update_json(body);
                 return with_cors(req, std::move(response));
+            };
+
+            bool automatic = false;
+            if (!req.body.empty()) {
+                const auto body = json::parse(req.body, nullptr, false);
+                if (!body.is_object() ||
+                    (body.contains("automatic") && !body["automatic"].is_boolean())) {
+                    crow::response r(400);
+                    r.add_header("Content-Type", "application/json");
+                    r.body = json{{"error", "BAD_REQUEST"},
+                                  {"message", "expected {automatic: boolean}"}}.dump();
+                    return with_cors(req, std::move(r));
+                }
+                automatic = body.value("automatic", false);
+            }
+            auto automatic_disabled = [&]() {
+                crow::response r(409);
+                r.add_header("Content-Type", "application/json");
+                r.body = json{{"error", "AUTO_UPDATE_DISABLED"},
+                              {"message", "automatic updates are disabled"}}.dump();
+                return with_cors(req, std::move(r));
             };
 
             {
@@ -1417,10 +1440,11 @@ void WebServer::Impl::register_ui_preferences() {
             AppConfig config_snapshot;
             {
                 std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
-                result = acecode::upgrade::check_for_update(*deps.app_config,
-                                                            ACECODE_VERSION, diagnostics.get());
+                if (automatic && !deps.app_config->upgrade.auto_update) return automatic_disabled();
                 config_snapshot = *deps.app_config;
             }
+            result = acecode::upgrade::check_for_update(config_snapshot,
+                                                        ACECODE_VERSION, diagnostics.get());
             if (!result.update_available()) {
                 const bool no_compatible_package =
                     result.status ==
@@ -1444,7 +1468,10 @@ void WebServer::Impl::register_ui_preferences() {
             initial.bytes_total = result.package_size;
             initial.log_path = diagnostics->path();
             initial.log_error = diagnostics->error();
+            initial.automatic = automatic;
             {
+                std::shared_lock<std::shared_mutex> config_lock(app_config_mu);
+                if (automatic && !deps.app_config->upgrade.auto_update) return automatic_disabled();
                 std::lock_guard<std::mutex> lock(update_job_runtime->mu);
                 if (auto response = pending_restart()) return std::move(*response);
                 if (update_job_runtime->current &&
@@ -1456,6 +1483,10 @@ void WebServer::Impl::register_ui_preferences() {
                         {"message", "an update job is already running"},
                         {"job", update_job_to_json(*update_job_runtime->current)}});
                     return with_cors(req, std::move(r));
+                }
+                if (update_job_runtime->current &&
+                    update_job_runtime->current->target_version == initial.target_version) {
+                    initial.automatic_failures = update_job_runtime->current->automatic_failures;
                 }
                 update_job_runtime->current = initial;
                 update_job_runtime->diagnostics = diagnostics;
@@ -1546,8 +1577,10 @@ void WebServer::Impl::register_ui_preferences() {
                     job.phase = "complete";
                     job.restart_required = true;
                     job.error.clear();
+                    job.automatic_failures = 0;
                 } else {
                     job.state = "failed";
+                    if (job.automatic) job.automatic_failures = (std::min)(3, job.automatic_failures + 1);
                     job.restart_required = false;
                     job.error = diagnostics->with_location(error.empty() ? "update failed" : error);
                 }
@@ -1561,6 +1594,7 @@ void WebServer::Impl::register_ui_preferences() {
                 auto& job = *runtime->current;
                 job.state = "failed";
                 job.error = diagnostics->with_location(start_error);
+                if (job.automatic) job.automatic_failures = (std::min)(3, job.automatic_failures + 1);
                 job.log_error = diagnostics->error();
                 crow::response r(500);
                 r.add_header("Content-Type", "application/json");
@@ -1927,7 +1961,7 @@ void WebServer::Impl::register_ui_preferences() {
             return with_cors(req, std::move(r));
         });
 
-        // PUT /api/config/upgrade body {base_url:string}.
+        // PUT /api/config/upgrade: partial URL / automatic installation settings.
         CROW_ROUTE(app, "/api/config/upgrade").methods(crow::HTTPMethod::PUT)
         ([this](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -1946,17 +1980,21 @@ void WebServer::Impl::register_ui_preferences() {
                 return json_err(400, "BAD_JSON", std::string("invalid JSON body: ") + e.what());
             }
             if (!body.is_object() ||
-                !body.contains("base_url") ||
-                !body["base_url"].is_string()) {
-                return json_err(400, "BAD_REQUEST", "expected {base_url: string}");
+                (!body.contains("base_url") && !body.contains("auto_update")) ||
+                (body.contains("base_url") && !body["base_url"].is_string()) ||
+                (body.contains("auto_update") && !body["auto_update"].is_boolean())) {
+                return json_err(400, "BAD_REQUEST", "expected base_url: string and/or auto_update: boolean");
             }
 
             std::lock_guard<std::shared_mutex> config_lock(app_config_mu);
             SettingsMutationOptions options;
             options.config_path = deps.config_path;
             options.live_config = deps.app_config;
-            const auto result = set_upgrade_base_url(
-                body["base_url"].get<std::string>(),
+            const auto result = set_upgrade_settings(
+                body.contains("base_url")
+                    ? std::optional<std::string>(body["base_url"].get<std::string>()) : std::nullopt,
+                body.contains("auto_update")
+                    ? std::optional<bool>(body["auto_update"].get<bool>()) : std::nullopt,
                 options);
             if (!result.ok) {
                 const bool validation =

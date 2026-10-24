@@ -53,11 +53,12 @@ ACECode 只使用两套字体栈,统一由 `web/src/styles/globals.css` 的 Tail
 
 ## 3. 一级分组(同 section 里的分组标题 + 描述)
 
-主标题 + 灰色描述,主标题 → 描述 → 内容 之间是 `mb-1` / `mb-3`:
+**Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.**
+
+默认只显示分组标题，以间距、对齐和控件本身解释结构。只有影响决策、非显而易见的行为或错误恢复才补充一句简短说明，不复述标题、开关或预览，不改为默认 tooltip。必要说明使用 `text-[12px] text-fg-mute mb-3`。
 
 ```jsx
-<div className="text-[14px] font-semibold mb-1">权限模式</div>
-<p className="text-[12px] text-fg-mute mb-3">控制 Agent 调用工具时的确认行为</p>
+<div className="text-[14px] font-semibold mb-3">权限模式</div>
 {/* 行卡片 / 卡片网格 */}
 ```
 
@@ -69,13 +70,12 @@ ACECode 只使用两套字体栈,统一由 `web/src/styles/globals.css` 的 Tail
 <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
   <div>
     <div className="text-[13px] font-normal text-fg">最大轮次</div>
-    <div className="text-[11px] text-fg-mute mt-0.5">单次 agent loop 的最大迭代数</div>
   </div>
   {/* 右侧:Toggle / 小 input / status pill / 下拉 / 按钮 */}
 </div>
 ```
 
-- 左侧主标 13px normal + fg、副描述 11px fg-mute、行间 `mt-0.5`
+- 左侧主标 13px normal + fg；必要的副描述才使用 11px fg-mute 和 `mt-0.5`，不默认添加。
 - 卡片间隙 `mb-2`,padding `px-3.5 py-2.5`
 - 圆角 `rounded-md`,描边 `border-border`,底色 `bg-surface`
 
@@ -262,9 +262,9 @@ section 内不同子分组之间:
 写新 settings section / 类似管理面板时:
 
 - [ ] H2 用 `text-xl font-bold mb-5`
-- [ ] 一级分组标题 `text-[14px] font-semibold mb-1` + 描述 `text-[12px] text-fg-mute mb-3`
+- [ ] 一级分组只保留明确标题与合适间距；必要描述使用 `text-[12px] text-fg-mute mb-3`
 - [ ] 仅主标题、一级标题可加粗；字段、卡片、选项、导航及更深层标题均为 400，强调使用文字颜色
-- [ ] 配置项用 § 4 行卡片(左 13px normal + fg / 11px fg-mute,右 toggle/input/pill)
+- [ ] 配置项用 § 4 行卡片(左 13px normal + fg,右 toggle/input/pill)，不默认添加次级描述
 - [ ] 多选一用 § 4.1 row-radio,多选卡用 § 5 grid
 - [ ] input 走 § 6.0 / § 6.1 模板
 - [ ] 状态指示走 § 8 绿点

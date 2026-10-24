@@ -2216,6 +2216,7 @@ std::vector<SessionInfo> SessionRegistry::list_active() const {
             info.turn_count = display.turn_count;
             info.last_user_message_at = display.last_user_message_at;
             info.last_turn_outcome = display.last_turn_outcome;
+            info.model_activated_at_ms = display.model_activated_at_ms;
             info.last_token_usage = display.last_token_usage;
             info.session_token_usage = display.session_token_usage;
             const auto& worktree = display.worktree;

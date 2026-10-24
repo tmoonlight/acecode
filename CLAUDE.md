@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## UI 文案强约束
+
+**Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.**
+
+遵守 [AGENTS.md 的 UI 文案强约束](AGENTS.md#ui-文案强约束)：通过分组、间距、对齐和明确命名表达界面关系；不默认添加次级标签、描述或 tooltip，保留必要的决策信息、错误恢复和无障碍名称。
+
 ## src 分层搬迁交付记录
 
 2026-09-29 用户最新决定:取消等待 06:00 候选窗口,一期现已完成约定的 Windows 验收,立即提交并 push。原公告中的最早开始时间由本条覆盖;通过受保护 master 所需的 PR 完成交付,九个旧 ref/worktree 与已批准的补验安排保持。

@@ -1892,6 +1892,7 @@ export function Sidebar({
   updateStarting = false,
   updateRunning = false,
   updateReady = false,
+  updateFailed = false,
   updateProgress = 0,
   onStartUpdate,
   pendingPermissionSessionIds = new Set(),
@@ -4201,16 +4202,24 @@ export function Sidebar({
   const appVersionLabel = typeof appVersion === 'string' && appVersion.trim()
     ? formatProgramVersion(appVersion.trim())
     : '';
-  const updateAvailable = !!updateStatus?.update_available;
+  const updateAvailable = !!updateStatus?.update_available || updateRunning || updateReady;
   const boundedUpdateProgress = Number.isFinite(Number(updateProgress))
     ? Math.max(0, Math.min(100, Math.round(Number(updateProgress))))
     : 0;
-  const updateLabel = updateReady ? '已更新' : updateRunning ? '更新中' : '更新';
+  const updateLabel = updateReady ? '已更新' : updateRunning ? '更新中' : updateFailed ? '更新失败' : '新版本';
+  const [updatePageVisible, setUpdatePageVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const changed = () => setUpdatePageVisible(!document.hidden);
+    document.addEventListener('visibilitychange', changed);
+    return () => document.removeEventListener('visibilitychange', changed);
+  }, []);
   const updateTitle = updateAvailable
     ? updateReady
       ? '升级已安装，点击查看重启选项'
       : updateRunning
       ? `升级正在进行，${boundedUpdateProgress}%，点击查看进度`
+      : updateFailed
+      ? '自动更新失败，点击重试'
       : `发现新版 v${updateStatus.latest_version || ''}, 点击升级`
     : '';
   const workspaceForSession = (session) => {
@@ -4494,6 +4503,7 @@ export function Sidebar({
               className={clsx(
                 'ace-sidebar-update-button relative h-6 shrink-0 min-w-[44px] overflow-hidden px-3 rounded-full text-[12px] font-semibold leading-none shadow-sm transition',
                 updateRunning ? 'bg-transparent text-accent' : 'bg-accent text-white',
+                !updateRunning && !updateReady && !updateStarting && updatePageVisible && 'ace-sidebar-update-attention',
                 'hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20',
                 updateStarting && 'opacity-60 cursor-not-allowed hover:opacity-60',
               )}

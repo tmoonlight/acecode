@@ -4,7 +4,7 @@ export const SETTINGS_NAV_GROUPS = [
     label: '个人',
     items: [
       { key: 'general', label: '常规', icon: 'settings' },
-      { key: 'appearance', label: '外观', icon: 'brightness' },
+      { key: 'appearance', label: '外观', icon: 'palette' },
       { key: 'shortcuts', label: '快捷键', icon: 'keyboard' },
       { key: 'config', label: '配置', icon: 'terminal' },
       { key: 'personalization', label: '个性化', icon: 'eye' },

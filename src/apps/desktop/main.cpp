@@ -304,13 +304,8 @@ void show_error(const std::string& msg) {
 }
 #endif
 
-fs::path path_from_utf8(const std::string& path) {
-    return acecode::path_from_utf8(path);
-}
-
-std::string path_to_utf8(const fs::path& path) {
-    return acecode::path_to_utf8(path);
-}
+using acecode::path_from_utf8;
+using acecode::path_to_utf8;
 
 std::string append_query_param(const std::string& url,
                                const std::string& key,

@@ -68,9 +68,10 @@ export function resolveHomeWorkspaceHash({
   return '';
 }
 
-export function homeWorkspaceOptionForHash(options = [], hash = '') {
+export function homeWorkspaceOptionForHash(options = [], hash = '', explicitOption = null) {
   if (!hash) return noHomeWorkspaceOption();
   return (Array.isArray(options) ? options : []).find((w) => w?.hash === hash)
+    || (explicitOption?.hash === hash && !explicitOption.noWorkspace ? explicitOption : null)
     || noHomeWorkspaceOption();
 }
 

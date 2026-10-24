@@ -184,10 +184,8 @@ export function MemorySettings({ workspaceHash = '' }) {
 
   return (
     <section data-memory-settings="true" aria-busy={settingsLoading || settingsBusy || overviewLoading}>
-      <div className="text-[14px] font-semibold mb-1">记忆</div>
-      <p className="text-[12px] text-fg-mute mb-3">
-        让 ACECode 在会话之间记住你的偏好、反馈和项目背景。会话中也可以用 /memory 查看和整理记忆。
-      </p>
+      <div className="text-[14px] font-semibold mb-3">记忆</div>
+
 
       {settingsError && (
         <div role="alert" className="mb-2 text-[12px] text-danger">
@@ -203,9 +201,7 @@ export function MemorySettings({ workspaceHash = '' }) {
         <div className="min-w-0">
           <div className="text-[13px] font-normal">使用记忆</div>
           <div className="text-[11px] text-fg-mute mt-0.5">
-            {settings && !settings.enabled
-              ? '已关闭：新会话不会注入记忆上下文，也不会提供记忆工具；已有记忆仍保留在磁盘上'
-              : '新会话会读取已保存的记忆，并可以用记忆工具记录偏好和经验'}
+            新会话生效；关闭不会删除已有记忆。
           </div>
         </div>
         <Toggle on={!!settings?.enabled} disabled={controls.enabledDisabled} ariaLabel="使用记忆"
@@ -216,7 +212,7 @@ export function MemorySettings({ workspaceHash = '' }) {
         <div className="min-w-0">
           <div className="text-[13px] font-normal">记忆摘要</div>
           <div className="text-[11px] text-fg-mute mt-0.5">
-            会话闲置后自动提炼经验并整合成记忆；开启后会额外调用模型
+            闲置时自动整理记忆，会额外调用模型。
           </div>
           {controls.summaryHint && (
             <div className={clsx('text-[11px] mt-0.5', controls.summaryHintTone === 'warn' ? 'text-warn' : 'text-fg-mute')}>
@@ -231,9 +227,7 @@ export function MemorySettings({ workspaceHash = '' }) {
       <div className={rowClass}>
         <div className="min-w-0">
           <label htmlFor="memory-summary-model" className="block text-[13px] font-normal">摘要模型</label>
-          <div className="text-[11px] text-fg-mute mt-0.5">
-            提炼和整合记忆时调用的模型；「当前模型」沿用会话正在使用的模型
-          </div>
+
           {modelUnavailable && (
             <div role="status" className="text-[11px] text-warn mt-0.5">所选摘要模型已不存在，请重新选择</div>
           )}
@@ -302,9 +296,6 @@ export function MemorySettings({ workspaceHash = '' }) {
               </button>
             </div>
           </div>
-          <p className="text-[12px] text-fg-mute mb-3">
-            Agent 记下的记忆与记忆摘要整合出的记忆，按最近更新排列；点击条目可以查看和编辑。
-          </p>
 
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
             <div role="tablist" aria-label="记忆作用域" className="flex items-center gap-1">

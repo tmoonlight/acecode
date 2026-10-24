@@ -133,8 +133,7 @@ export function ThemeCards({ options, selected, onSelect, downloads, onCreateAiT
         <div className="ace-theme-card ace-ai-theme-action">
           <button type="button" className="ace-theme-card-choice" onClick={onCreateAiTheme}>
             <VsIcon name="MagicWand" className="ace-ai-theme-wand" size={29} />
-            <span className="ace-theme-card-name">AI主题</span>
-            <span className="ace-ai-theme-description">描述灵感，生成专属主题</span>
+            <span className="ace-theme-card-name">AI 创建主题</span>
             <VsIcon name="arrowRight" className="ace-ai-theme-arrow" size={21} />
           </button>
         </div>

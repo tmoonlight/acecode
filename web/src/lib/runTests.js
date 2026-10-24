@@ -1,4 +1,6 @@
 import './desktopOffice.test.js';
+import './automaticUpdates.test.js';
+import './upgradeSettings.test.js';
 import './officeCharacters.test.js';
 import './htmlPreview.test.js';
 import './desktopOfficePreferences.test.js';
@@ -6,6 +8,8 @@ import './questionPicker.test.js';
 import './turnCancellation.test.js';
 import './modelReasoningSync.test.js';
 import './homeComposerDraftStore.test.js';
+import './homeIntentPrompts.test.js';
+import './composerPromptReplacement.test.js';
 import './homeComposerDraftLifecycle.test.js';
 import './composerGoal.test.js';
 import './developerMode.test.js';

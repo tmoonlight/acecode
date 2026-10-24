@@ -3014,7 +3014,6 @@ body {
 .ace-ai-theme-action .ace-theme-card-choice { color: var(--ace-accent); padding-right: 40px; }
 .ace-ai-theme-action .ace-theme-card-choice:hover { background: var(--ace-accent-soft); }
 .ace-ai-theme-wand { flex: 0 0 29px; margin-bottom: 3px; }
-.ace-ai-theme-description { font-size: 11px; margin-top: 3px; line-height: 1.4; }
 .ace-ai-theme-arrow { position: absolute; right: 15px; bottom: 16px; }
 .ace-theme-card-state { font-size: 11px; color: var(--ace-fg-mute); margin-top: 3px; }
 .ace-theme-card-download { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; padding: 16px; font-size: 11px; line-height: 1.5; color: white; background: rgb(0 0 0 / .58); }
@@ -3303,11 +3302,32 @@ body {
   gap: 12px;
 }
 .ace-home-hint-card {
+  min-width: 0;
   text-align: left;
   border: 1px solid var(--ace-border-soft);
   border-radius: 10px;
   background: var(--ace-surface);
   padding: 12px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.ace-home-hint-card:hover {
+  border-color: var(--ace-accent);
+}
+.ace-home-hint-card:focus-visible {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: 3px;
+}
+.ace-home-hint-card:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.ace-home-hint-workspace {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 @media (max-width: 640px) {
   .ace-home-hints {
@@ -7969,4 +7989,29 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+}
+
+/* Two quick polish passes each minute; the remaining cycle is idle. */
+.ace-sidebar-update-attention::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
+  opacity: 0;
+  transform: translateX(-100%);
+  animation: ace-update-polish 60s linear 60s infinite;
+}
+@keyframes ace-update-polish {
+  0% { opacity: 0; transform: translateX(-100%); }
+  0.01% { opacity: 1; transform: translateX(-100%); }
+  0.6% { opacity: 1; transform: translateX(100%); }
+  0.61% { opacity: 0; transform: translateX(100%); }
+  0.8% { opacity: 0; transform: translateX(-100%); }
+  0.81% { opacity: 1; transform: translateX(-100%); }
+  1.4% { opacity: 1; transform: translateX(100%); }
+  1.41%, 100% { opacity: 0; transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-sidebar-update-attention::after { animation: none; }
 }

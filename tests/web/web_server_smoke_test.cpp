@@ -10750,6 +10750,95 @@ TEST(WebServerHttp, ComputerUsePermissionRequestsRequireAuthenticationAndOneKnow
     EXPECT_FALSE(fx.tools.has_tool("computer_click"));
 }
 
+TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefresh) {
+    std::mutex request_mutex;
+    std::vector<json> requests;
+    std::atomic<bool> invalid{false};
+    LocalUpdateServer upstream([&](httplib::Server& server) {
+        server.Post("/v1/chat/completions", [&](const httplib::Request& request, httplib::Response& response) {
+            const auto body = json::parse(request.body);
+            {
+                std::lock_guard<std::mutex> lock(request_mutex);
+                requests.push_back(body);
+            }
+            const std::string content = invalid.load() ? "invalid" : json{
+                {"suggestions", json::array({{{"category", "execution"}, {"title", "Finish tests"},
+                    {"description", "Check the remaining cases"}, {"prompt", "Finish the remaining tests."},
+                    {"source_index", 0}, {"workspace", {{"cwd", "invented"}}}}})}
+            }.dump();
+            response.set_content(json{{"choices", json::array({
+                {{"message", {{"role", "assistant"}, {"content", content}}}, {"finish_reason", "stop"}}
+            })}}.dump(), "application/json");
+        });
+    });
+    WebServerFixture fx;
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        for (const auto* name : {"intent-summary", "intent-last"}) {
+            acecode::ModelProfile profile;
+            profile.name = name; profile.provider = "openai"; profile.model = name;
+            profile.base_url = upstream.base_url() + "v1"; profile.api_key = "local-test-key";
+            fx.cfg.saved_models.push_back(profile);
+        }
+        fx.cfg.summary_generation.model_name = "intent-summary";
+        fx.cfg.summary_generation.enabled = false;
+    }
+    const auto project = fx.projects_dir / "intent_scope";
+    std::filesystem::create_directories(project);
+    for (int index = 0; index < 7; ++index) {
+        acecode::SessionMeta meta;
+        meta.id = "intent_" + std::to_string(index); meta.cwd = fx.cwd;
+        meta.last_user_message_at = "2026-10-24T10:0" + std::to_string(index) + ":00Z";
+        meta.updated_at = meta.last_user_message_at; meta.created_at = meta.last_user_message_at;
+        meta.model_preset = "intent-last"; meta.model_activated_at_ms = index + 1;
+        meta.archived = index == 6;
+        ASSERT_TRUE(acecode::SessionStorage::write_meta(acecode::SessionStorage::meta_path(project.string(), meta.id), meta));
+        acecode::ChatMessage message; message.role = "user"; message.content = "Visible input " + std::to_string(index);
+        message.timestamp = meta.last_user_message_at;
+        ASSERT_TRUE(acecode::SessionStorage::append_message(acecode::SessionStorage::session_path(project.string(), meta.id), message));
+    }
+    const auto url = cpr::Url{fx.url("/api/home/intent-prompts")};
+    const cpr::Header denied{{"Origin", "http://localhost:5173"}};
+    EXPECT_EQ(cpr::Get(url, denied).status_code, 401);
+    EXPECT_EQ(cpr::Post(url, denied, cpr::Body{"{}"}).status_code, 401);
+    EXPECT_EQ(cpr::Post(url, cpr::Body{R"({"force":"yes"})"}).status_code, 400);
+    EXPECT_EQ(cpr::Get(url).header.at("Cache-Control"), "no-store");
+    const auto first = cpr::Post(url, cpr::Body{"{}"}, cpr::Timeout{10000});
+    ASSERT_EQ(first.status_code, 200) << first.text;
+    const auto generated = json::parse(first.text);
+    EXPECT_EQ(generated["error"], "") << first.text;
+    ASSERT_EQ(generated["suggestions"].size(), 1u) << first.text;
+    EXPECT_EQ(generated["model"], "intent-summary");
+    EXPECT_EQ(generated["suggestions"][0]["source_session_id"], "intent_5");
+    EXPECT_EQ(generated["suggestions"][0]["workspace"]["hash"], "intent_scope");
+    EXPECT_EQ(generated["suggestions"][0]["workspace"]["cwd"], fx.cwd);
+    {
+        std::lock_guard<std::mutex> lock(request_mutex);
+        ASSERT_EQ(requests.size(), 1u);
+        EXPECT_EQ(requests[0]["model"], "intent-summary");
+        EXPECT_TRUE(!requests[0].contains("tools") || requests[0]["tools"].empty());
+        const auto sources = json::parse(requests[0]["messages"][1]["content"].get<std::string>());
+        ASSERT_EQ(sources.size(), 5u);
+        EXPECT_EQ(sources[0]["session_id"], "intent_5");
+        EXPECT_EQ(sources[4]["session_id"], "intent_1");
+    }
+    ASSERT_EQ(cpr::Post(url, cpr::Body{"{}"}).status_code, 200);
+    { std::lock_guard<std::mutex> lock(request_mutex); EXPECT_EQ(requests.size(), 1u); }
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        fx.cfg.summary_generation.model_name.clear();
+    }
+    const auto fallback = cpr::Post(url, cpr::Body{R"({"force":true})"}, cpr::Timeout{10000});
+    ASSERT_EQ(fallback.status_code, 200) << fallback.text;
+    EXPECT_EQ(json::parse(fallback.text)["model"], "intent-last");
+    invalid.store(true);
+    const auto failed = cpr::Post(url, cpr::Body{R"({"force":true})"}, cpr::Timeout{10000});
+    ASSERT_EQ(failed.status_code, 200);
+    EXPECT_EQ(json::parse(failed.text)["error"], "INVALID_RESPONSE");
+    EXPECT_EQ(json::parse(failed.text)["suggestions"], generated["suggestions"]);
+    EXPECT_TRUE(fx.registry->list_active().empty());
+}
+
 TEST(WebServerHttp, SummaryGenerationSettingsPersistAndControlTitleModelLive) {
     std::atomic<bool> requested_summary_model{false};
     std::atomic<bool> requested_chinese_title{false};
@@ -11000,6 +11089,57 @@ TEST(WebServerHttp, ImageGenerationTestUsesDraftAndStandardWithoutSavingOrLeakin
     const auto get = cpr::Get(cpr::Url{fx.url("/api/config/image-generation")});
     EXPECT_EQ(get.status_code, 200);
     EXPECT_EQ(calls.load(), 2);
+}
+
+TEST(WebServerHttp, AutomaticUpdateConfigAndConsecutiveFailures) {
+    LocalUpdateServer update_server([](httplib::Server& s) {
+        s.Get("/aceupdate.json", [](const httplib::Request&, httplib::Response& res) {
+            res.set_content(update_manifest_for("9.9.9"), "application/json");
+        });
+    });
+    auto calls = std::make_shared<std::atomic<int>>(0);
+    WebServerFixture fx(true, false, {}, true,
+        [calls](const acecode::AppConfig&, acecode::upgrade::UpgradeProgressCallback,
+                acecode::upgrade::UpgradeCancelCheck, std::string* error) {
+            const int attempt = ++*calls;
+            if (attempt <= 3) { *error = "simulated install failure"; return 1; }
+            return 0;
+        });
+    fx.cfg.upgrade.base_url = update_server.base_url();
+    auto start = [&]() {
+        return cpr::Post(cpr::Url{fx.url("/api/update/start")},
+                         cpr::Header{{"Content-Type", "application/json"}},
+                         cpr::Body{R"({"automatic":true})"});
+    };
+    EXPECT_FALSE(json::parse(cpr::Get(cpr::Url{fx.url("/api/config/upgrade")}).text)["auto_update"].get<bool>());
+    auto disabled = start();
+    ASSERT_EQ(disabled.status_code, 409);
+    EXPECT_EQ(json::parse(disabled.text)["error"], "AUTO_UPDATE_DISABLED");
+    EXPECT_EQ(calls->load(), 0);
+    const auto enabled = cpr::Put(cpr::Url{fx.url("/api/config/upgrade")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"auto_update":true})"});
+    ASSERT_EQ(enabled.status_code, 200) << enabled.text;
+    EXPECT_EQ(json::parse(enabled.text)["base_url"], update_server.base_url());
+    const auto invalid = cpr::Put(cpr::Url{fx.url("/api/config/upgrade")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{R"({"auto_update":"true"})"});
+    EXPECT_EQ(invalid.status_code, 400);
+    for (int attempt = 1; attempt <= 4; ++attempt) {
+        const auto response = start();
+        ASSERT_EQ(response.status_code, 202) << response.text;
+        json job;
+        for (int i = 0; i < 200; ++i) {
+            job = json::parse(cpr::Get(cpr::Url{fx.url("/api/update/job")}).text);
+            if (job["state"] == "failed" || job["state"] == "succeeded") break;
+            std::this_thread::sleep_for(5ms);
+        }
+        EXPECT_EQ(job["automatic"], true);
+        EXPECT_EQ(job["state"], attempt <= 3 ? "failed" : "succeeded");
+        EXPECT_EQ(job["automatic_failures"], attempt <= 3 ? attempt : 0);
+    }
+    auto repeated = start();
+    ASSERT_EQ(repeated.status_code, 202);
+    EXPECT_EQ(json::parse(repeated.text)["started"], false);
+    EXPECT_EQ(calls->load(), 4);
 }
 
 TEST(WebServerHttp, UpdatePrecheckFailureIncludesReasonAndPersistentLog) {

@@ -34,7 +34,9 @@ const KEEP = {
     applyAppearance: '作为 useRef 的初值',
   },
 };
-const MIN_STABLE = { Sidebar: 13, ChatView: 100, App: 34 };
+// Three update callbacks now live in the external update controller, outside
+// App's render closure. Keep the guard for the remaining App callbacks.
+const MIN_STABLE = { Sidebar: 13, ChatView: 100, App: 31 };
 const FILES = { Sidebar: '../components/Sidebar.jsx', ChatView: '../components/ChatView.jsx', App: '../App.jsx' };
 
 function report(name) {

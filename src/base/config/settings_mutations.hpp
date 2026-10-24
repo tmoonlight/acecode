@@ -4,6 +4,7 @@
 #include "saved_models_editor.hpp"
 
 #include <functional>
+#include <optional>
 #include <string>
 
 namespace acecode {
@@ -62,6 +63,11 @@ SettingsMutationResult set_tui_theme(
 
 SettingsMutationResult set_upgrade_base_url(
     const std::string& base_url,
+    const SettingsMutationOptions& options = {});
+
+SettingsMutationResult set_upgrade_settings(
+    const std::optional<std::string>& base_url,
+    std::optional<bool> auto_update,
     const SettingsMutationOptions& options = {});
 
 SettingsMutationResult set_custom_instructions(

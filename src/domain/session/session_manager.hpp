@@ -35,6 +35,7 @@ struct SessionDisplaySnapshot {
     std::string agent_path;   // mesh child path; empty for roots
     std::string last_user_message_at;
     std::string last_turn_outcome;
+    std::int64_t model_activated_at_ms = 0;
 };
 
 class SessionManager {
@@ -331,6 +332,7 @@ private:
     std::string provider_name_;
     std::string model_name_;
     std::string model_preset_;
+    std::int64_t model_activated_at_ms_ = 0;
     std::optional<std::string> reasoning_effort_;
     ModelSamplingOptions sampling_;
     std::string surface_ = "tui";

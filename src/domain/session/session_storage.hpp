@@ -124,6 +124,7 @@ struct SessionMeta {
     std::string agent_path;
     std::string last_user_message_at; // ISO 8601; human input, not background activity.
     std::string last_turn_outcome; // completed | aborted | error; empty = unknown/pending.
+    std::int64_t model_activated_at_ms = 0; // Successful selection/use, independent of UI edits.
 };
 
 class SessionStorage {

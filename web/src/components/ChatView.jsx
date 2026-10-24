@@ -234,6 +234,7 @@ import { requestSavedModelReasoningSync } from '../lib/modelReasoningSync.js';
 import { normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
 import { ATTACHMENT_HARD_LIMIT_BYTES, normalizeImageFile } from '../lib/imageNormalize.js';
 import { VsIcon } from './Icon.jsx';
+import { HomeIntentPromptCards } from './HomeIntentPromptCards.jsx';
 import { commandWorkspaceHashForInput } from '../lib/slashCommandWorkspace.js';
 import { consoleCwdForContext } from '../lib/consoleDock.js';
 import {
@@ -660,7 +661,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
 
-export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, nativeSurfacesVisible = true }) {
+export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const workbenchOwner = sessionWorkbench.ownerFor(ref);
@@ -1088,7 +1089,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 从头就是死的:cwd 为空 → openFilePreview 直接 return,用户点自己刚生成的
   // 文件毫无反应。no-workspace 会话的文件同样在磁盘上,同样应该能预览。
   const homePanelWorkspace = !sid && !children
-    ? homeWorkspaceOptionForHash(homeWorkspaces, homeWorkspaceHash)
+    ? homeWorkspaceOptionForHash(homeWorkspaces, homeWorkspaceHash,
+      ref?.homeWorkspaceExplicit ? fallbackWorkspaceOption(ref, health) : null)
     : null;
   const sessionIsNoWorkspace = homePanelWorkspace
     ? !!homePanelWorkspace.noWorkspace
@@ -1356,8 +1358,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   });
 
   const selectedHomeWorkspace = useMemo(() => {
-    return homeWorkspaceOptionForHash(homeWorkspaces, homeWorkspaceHash);
-  }, [homeWorkspaceHash, homeWorkspaces]);
+    return homeWorkspaceOptionForHash(homeWorkspaces, homeWorkspaceHash,
+      ref?.homeWorkspaceExplicit ? fallbackWorkspaceOption(ref, health) : null);
+  }, [homeWorkspaceHash, homeWorkspaces, ref, health]);
 
   const commandWorkspaceHash = useMemo(() => commandWorkspaceHashForInput({
     activeRef: ref,
@@ -3006,6 +3009,24 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     onInitialDraftConsumed,
     restoreChatInputFocusSoon,
   ]);
+
+  useEffect(() => {
+    if (sid || !ref?.initialHomePrompt) return undefined;
+    let cancelled = false;
+    const loading = onHomeComposerDraftLoad?.(homeDraftWorkspaceHash, api);
+    void Promise.resolve(loading?.ready ?? homeComposerDraft(homeComposerDrafts, homeDraftWorkspaceHash)).then((draft) => {
+      if (cancelled) return;
+      // The draft store returns its latest revision. Replace through Slate so
+      // Ctrl+Z restores the previous text/references as one editor operation.
+      if (!inputRef.current?.replacePrompt(ref.initialHomePrompt, draft)) return;
+      draftEditVersionRef.current += 1;
+      composerDirtyRef.current = true;
+      onInitialDraftConsumed?.();
+      restoreChatInputFocusSoon(true);
+    });
+    return () => { cancelled = true; };
+  }, [sid, ref?.initialHomePrompt, homeDraftWorkspaceHash, api, onHomeComposerDraftLoad,
+    onInitialDraftConsumed, restoreChatInputFocusSoon]);
 
   useEffect(() => {
     if (composerSubmitting || !restoreComposerFocusAfterSubmitRef.current) return;
@@ -5905,12 +5926,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const homeProjectLabel = homeWorkspaces.find(w => w.hash === homeWorkspaceHash)?.name
       || selectedHomeWorkspace?.name
       || '当前项目';
-    const homeHints = [
-      { icon: 'edit', title: '编辑代码', desc: '让 Agent 帮你重构、修 bug、加测试' },
-      { icon: 'searchSparkle', title: '探索代码库', desc: '问“这个函数在哪里被调用”' },
-      { icon: 'run', title: '运行命令', desc: 'bash / npm / git 等 Agent 会逐步确认' },
-      { icon: 'lightbulb', title: '使用 Skills', desc: '预定义工作流，从侧边栏开启' },
-    ];
     homeContent = (
       <div
         className="ace-home-drop-scope ace-chat-file-drop-scope flex-1 min-h-0 min-w-0 flex flex-col bg-surface"
@@ -6073,16 +6088,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               onIntentChange={handleGitPillIntentChange}
             />
             </div>
-            {/* 暂时隐藏首页底部四个快捷提示卡片，保留数据和渲染代码便于恢复。 */}
-            <div className="ace-home-hints hidden" aria-hidden="true">
-              {homeHints.map((c) => (
-                <div key={c.title} className="ace-home-hint-card">
-                  <VsIcon name={c.icon} size={22} className="mb-1" />
-                  <div className="text-[13px] font-semibold mb-0.5">{c.title}</div>
-                  <div className="text-[11px] text-fg-mute leading-relaxed">{c.desc}</div>
-                </div>
-              ))}
-            </div>
+            <HomeIntentPromptCards suggestions={homeIntentSuggestions} disabled={homeSubmitting}
+              onSelect={(item) => onHomeIntentPrompt?.(item, selectedHomeWorkspace)} />
           </div>
         </div>
 

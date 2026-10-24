@@ -20,6 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseSync, traverse } from '@babel/core';
 
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,21 +40,29 @@ function run(name, fn) {
 
 run('提交在途只走 submitting,绝不并进 InputBar 的 disabled', () => {
   const chatView = source('components/ChatView.jsx');
+  const openingTags = [];
+  traverse(parseSync(chatView, { configFile: false, babelrc: false, parserOpts: { plugins: ['jsx'] } }), {
+    JSXOpeningElement({ node }) {
+      if (node.name?.name === 'InputBar') openingTags.push(chatView.slice(node.start, node.end));
+    },
+  });
+  assert.ok(openingTags.length >= 2);
+  const composerInputs = openingTags.join('\n');
 
   // 会话 composer 与主页 composer 两处都不能再把 *Submitting 并进 disabled。
   assert.doesNotMatch(
-    chatView,
+    composerInputs,
     /disabled=\{[^}]*composerSubmitting[^}]*\}/,
     'composerSubmitting 进 disabled 会让编辑区在发送期间变成只读',
   );
   assert.doesNotMatch(
-    chatView,
+    composerInputs,
     /disabled=\{[^}]*homeSubmitting[^}]*\}/,
     'homeSubmitting 进 disabled 会让主页输入框在建会话期间变成只读',
   );
 
   assert.doesNotMatch(
-    chatView,
+    composerInputs,
     /disabled=\{[^}]*reasoningSwitching[^}]*\}/,
     'reasoning mutation must disable submission without making the editor read-only',
   );

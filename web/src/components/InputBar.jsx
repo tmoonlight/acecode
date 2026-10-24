@@ -1038,6 +1038,27 @@ export const InputBar = forwardRef(function InputBar({
       updateValue(editor.text, editor.content, undefined, { goalMode: editor.goalMode });
       ta.current?.setComposerContent?.(editor.content);
     },
+    replacePrompt: (text, previousDraft) => {
+      if (!ta.current?.setComposerContent) return false;
+      if (previousDraft) {
+        const content = normalizeComposerContent(previousDraft.composer_content)
+          || composerContentFromText(previousDraft.text || '', previousDraft.attachments || []);
+        const previous = projectComposerGoal(previousDraft.text || '', content);
+        // A newly selected workspace may still be hydrating. Establish that
+        // workspace's draft first; never reset history on subsequent clicks.
+        if (valueRef.current !== previous.text
+            || composerContentSignature(contentRef.current) !== composerContentSignature(previous.content)) {
+          updateValue(previous.text, previous.content, undefined, { goalMode: previous.goalMode });
+          ta.current.setComposerContent(composerContentWithoutImages(previous.content));
+        }
+      }
+      // Publish through the editor's ordinary onChange/local-echo path. A
+      // parent-only value replacement would discard the newly recorded undo.
+      ta.current.setComposerContent(composerContentFromText(text), { undoable: true });
+      setHistPtr(-1);
+      setEditedSinceHistory(true);
+      return true;
+    },
     clear: () => {
       const content = composerContentFromText('');
       updateValue('', content, undefined, { goalMode: false });

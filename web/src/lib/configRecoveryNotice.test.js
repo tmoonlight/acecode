@@ -61,7 +61,7 @@ run('App shows only the blocking recovery modal and keeps notice failures silent
     path.join(srcRoot, 'components', 'ConfigRecoveryDialog.jsx'), 'utf8');
   const recoveryFlow = app.slice(
     app.indexOf('api.getConfigRecoveryNotice()'),
-    app.indexOf('const pollUpdateJob'),
+    app.indexOf('\n  });', app.indexOf('const acknowledgeConfigRecovery')),
   );
 
   assert.match(app, /normalizeConfigRecoveryNotice/);
