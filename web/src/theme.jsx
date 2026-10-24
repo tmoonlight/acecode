@@ -11,12 +11,13 @@ import { usePreference } from './lib/usePreference.js';
 import { api } from './lib/api.js';
 import {
   EVA_THEME_ID, applyInstalledTheme, loadThemeResources, releaseThemeResource, resolveThemeVariant,
-  revokeThemeResources, resolveThemeAppearance, selectThemeVariant, themeChromeStyle, themeVariantOptions,
-  validThemeDefinition,
+  revokeThemeResources, resolveThemeAppearance, selectThemeVariant, themeChromeStyle, themeSoundStyle,
+  themeVariantOptions, validThemeDefinition,
 } from './lib/themePackages.js';
 import { pushWindowBackgroundColor } from './lib/desktopWindowBackground.js';
 import { desktopTaskbarBadge } from './lib/desktopTaskbarBadge.js';
 import { HudEffects } from './components/HudEffects.jsx';
+import { ThemeSoundLayer } from './components/ThemeSoundLayer.jsx';
 import {
   effectiveAppearanceTheme,
   initialAppearancePreferences,
@@ -33,6 +34,7 @@ import {
 const STORAGE_KEY = 'ace.theme';
 const THEME_VARIANT_STORAGE_KEY = 'ace.themeVariant';
 const THEME_EFFECTS_STORAGE_KEY = 'ace.themeEffects';
+const THEME_SOUNDS_STORAGE_KEY = 'ace.themeSounds';
 const NO_VARIANTS = Object.freeze([]);
 const ThemeCtx = createContext({
   theme: 'light',
@@ -40,7 +42,9 @@ const ThemeCtx = createContext({
   appearance: null,
   themeVariant: '',
   themeEffects: true,
+  themeSounds: true,
   themeChrome: null,
+  themeSoundStyle: null,
   themeVariantOptions: NO_VARIANTS,
   activeThemeVariant: null,
   toggle: () => {},
@@ -48,6 +52,7 @@ const ThemeCtx = createContext({
   setColorTheme: () => {},
   setThemeVariant: () => {},
   setThemeEffects: () => {},
+  setThemeSounds: () => {},
   prepareTheme: async () => {},
   forgetTheme: () => {},
 });
@@ -79,6 +84,11 @@ export function ThemeProvider({ children }) {
   const [themeEffects, setThemeEffectsPreference] = usePreference(
     THEME_EFFECTS_STORAGE_KEY,
     initialAppearance.themeEffects,
+    isValidEffects,
+  );
+  const [themeSounds, setThemeSoundsPreference] = usePreference(
+    THEME_SOUNDS_STORAGE_KEY,
+    initialAppearance.themeSounds,
     isValidEffects,
   );
   const [systemTheme, setSystemTheme] = useState(() => effectiveAppearanceTheme('system'));
@@ -162,6 +172,7 @@ export function ThemeProvider({ children }) {
   const activeTheme = installedTheme?.id === colorTheme ? installedTheme : null;
   const appearance = installedTheme ? resolveThemeAppearance(resolveThemeVariant(installedTheme, themeVariant)) : null;
   const themeChrome = activeTheme ? themeChromeStyle(activeTheme) : null;
+  const soundStyle = activeTheme ? themeSoundStyle(activeTheme) : null;
   const variantOptions = useMemo(() => (activeTheme ? themeVariantOptions(activeTheme) : NO_VARIANTS), [activeTheme]);
   const activeThemeVariant = activeTheme ? selectThemeVariant(activeTheme, themeVariant)?.id || null : null;
   const theme = installedTheme?.mode || (colorTheme === EVA_THEME_ID ? 'light' : themeMode === 'system' ? systemTheme : themeMode);
@@ -199,12 +210,17 @@ export function ThemeProvider({ children }) {
     (value) => setThemeEffectsPreference(value !== false),
     [setThemeEffectsPreference],
   );
+  const setThemeSounds = useCallback(
+    (value) => setThemeSoundsPreference(value !== false),
+    [setThemeSoundsPreference],
+  );
 
   return (
     <ThemeCtx.Provider value={{
       theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme,
       themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,
       themeVariantOptions: variantOptions, activeThemeVariant,
+      themeSounds, setThemeSounds, themeSoundStyle: soundStyle,
     }}>
       {children}
       <HudEffects
@@ -213,6 +229,12 @@ export function ThemeProvider({ children }) {
         colorTheme={colorTheme}
         variant={activeThemeVariant}
         variantOptions={variantOptions}
+      />
+      <ThemeSoundLayer
+        style={soundStyle}
+        muted={!themeSounds}
+        colorTheme={colorTheme}
+        variant={activeThemeVariant}
       />
     </ThemeCtx.Provider>
   );

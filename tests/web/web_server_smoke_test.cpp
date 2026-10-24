@@ -9137,6 +9137,24 @@ TEST(WebServerHttp, UiPreferencesThemeVariantAndEffectsRoundTrip) {
     EXPECT_FALSE(fx.cfg.web_ui.theme_effects);
 }
 
+// 场景:标题栏的主题静音按钮。期望:GET 默认 theme_sounds=true;单字段 PUT false
+// 只改这一项并落盘,风格与动效不动;非布尔值整笔 400,内存配置保持静音。
+TEST(WebServerHttp, UiPreferencesThemeSoundsRoundTrip) {
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/ui-preferences")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    EXPECT_EQ(json::parse(cpr::Get(url).text)["theme_sounds"], true);
+    auto muted = cpr::Put(url, headers, cpr::Body{R"({"theme_sounds":false})"});
+    ASSERT_EQ(muted.status_code, 200) << muted.text;
+    EXPECT_EQ(json::parse(muted.text)["theme_sounds"], false);
+    EXPECT_EQ(json::parse(muted.text)["theme_effects"], true);
+    EXPECT_FALSE(fx.cfg.web_ui.theme_sounds);
+    EXPECT_FALSE(acecode::load_config_from_path((fx.tmp_dir / "config.json").u8string()).web_ui.theme_sounds);
+    auto rejected = cpr::Put(url, headers, cpr::Body{R"({"theme_sounds":"on"})"});
+    EXPECT_EQ(rejected.status_code, 400) << rejected.text;
+    EXPECT_FALSE(fx.cfg.web_ui.theme_sounds);
+}
+
 TEST(WebServerHttp, UiPreferencesMessageAutoCollapseRollsBackOnSaveFailure) {
     WebServerFixture fx;
     std::filesystem::create_directories(fx.tmp_dir / "config.json");

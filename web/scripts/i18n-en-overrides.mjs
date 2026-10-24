@@ -11,6 +11,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '动态效果': 'Motion effects',
   '播放开屏扫描、风格切换过场和霓虹闪烁等主题动画': 'Play theme animations such as the startup scan, style-switch transition and neon flicker',
   '主题动态效果': 'Theme motion effects',
+  '关闭主题音效': 'Mute theme sounds',
+  '开启主题音效': 'Unmute theme sounds',
   // Conversation find (Ctrl+F) when a very long session is only partly loaded.
   '只搜索了最近 {{p0}} 条消息': 'Searched only the latest {{p0}} messages',
   '在文件列表展示': 'Show in file list',

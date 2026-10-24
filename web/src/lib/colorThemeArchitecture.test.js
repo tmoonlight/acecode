@@ -55,10 +55,10 @@ run('ThemeProvider preserves the ordinary mode independently of installed themes
     /COLOR_THEME_STORAGE_KEY,\s*initialAppearance\.colorTheme,\s*isValidColorTheme/,
   );
   // The original context fields stay first; theme variants/motion for HUD
-  // themes are appended after them.
+  // themes and the theme sound switch are appended after them.
   assert.match(
     theme,
-    /value=\{\{\s*theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme,\s*themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,\s*themeVariantOptions: variantOptions, activeThemeVariant,\s*\}\}/,
+    /value=\{\{\s*theme, themeMode, colorTheme, appearance, toggle, set, setColorTheme, prepareTheme, forgetTheme,\s*themeVariant, themeEffects, setThemeVariant, setThemeEffects, themeChrome,\s*themeVariantOptions: variantOptions, activeThemeVariant,\s*themeSounds, setThemeSounds, themeSoundStyle: soundStyle,\s*\}\}/,
   );
 });
 

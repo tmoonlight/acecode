@@ -335,6 +335,33 @@ TEST(ConfigWebUiPreferencesThemeVariant, LoaderReadsValidValuesAndIgnoresInvalid
     std::filesystem::remove(path, ec);
 }
 
+// 场景:主题音效开关(标题栏静音按钮写的 web_ui.theme_sounds)。
+// 期望:旧配置没有这个键时默认开;false 读入后保存只写这一项、能原样读回;
+// 手改成非布尔值时回退为开并只记警告,同段的其它外观值照常读入。
+TEST(ConfigWebUiPreferencesThemeVariant, ThemeSoundsDefaultsOnAndRoundTrips) {
+    EXPECT_TRUE(AppConfig{}.web_ui.theme_sounds);
+    const auto path = temp_config_path("theme-sounds");
+    write_json(path, {{"web_ui", {{"color_theme", "orange"}, {"theme_sounds", false}}}});
+    {
+        const AppConfig cfg = load_config_from_path(path.string());
+        EXPECT_FALSE(cfg.web_ui.theme_sounds);
+        EXPECT_TRUE(cfg.web_ui.theme_effects);
+        save_config(cfg, path.string());
+        std::ifstream input(path);
+        const auto saved = nlohmann::json::parse(input);
+        EXPECT_EQ(saved["web_ui"]["theme_sounds"], false);
+        EXPECT_FALSE(saved["web_ui"].contains("theme_effects"));
+    }
+    write_json(path, {{"web_ui", {{"color_theme", "orange"}, {"theme_sounds", "muted"}}}});
+    {
+        const AppConfig cfg = load_config_from_path(path.string());
+        EXPECT_TRUE(cfg.web_ui.theme_sounds);
+        EXPECT_EQ(cfg.web_ui.color_theme, "orange");
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 // 场景:保存配置时风格与动效保持稀疏写盘。
 // 期望:默认值(空风格、动效开)不出现在 config.json;非默认值写盘后能原样读回,
 // 切回默认后整个 web_ui 段再次消失。

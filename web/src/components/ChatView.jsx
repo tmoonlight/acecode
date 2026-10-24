@@ -97,6 +97,7 @@ import { CreateProjectModal } from './CreateProjectModal.jsx';
 import { ChangeGlassDock } from './ChangeReview.jsx';
 import { TurnFileList } from './TurnFileList.jsx';
 import { toast } from './Toast.jsx';
+import { playThemeSound } from '../lib/themeSounds.js';
 import { clsx, formatBytes } from '../lib/format.js';
 import {
   aggregateHunksFromMessages,
@@ -4026,6 +4027,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
       return;
     }
+    playThemeSound('stop');
     // 请求成功发出后保持 busy，等待服务端确认，期间新输入仍进入可见队列。
     updateQueueState((prev) => pauseQueuedInput(prev, sid));
     applyEvent({

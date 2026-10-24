@@ -91,6 +91,14 @@
     inset -1px 0 0 rgba(var(--ace-accent-rgb), .6),
     inset -18px 0 26px -24px rgba(var(--ace-accent-rgb), .9);
 }
+/* Theme mute button: lit while the theme's sounds are on. */
+:root[data-theme-chrome="hud"] .ace-topbar-sound-toggle[data-theme-sounds="on"] {
+  color: var(--ace-accent);
+  filter: drop-shadow(0 0 4px rgba(var(--ace-accent-rgb), .55));
+}
+:root[data-theme-chrome="hud"] .ace-topbar-sound-toggle[data-theme-sounds="off"] {
+  color: var(--ace-fg-mute);
+}
 :root[data-theme-chrome="hud"] .ace-sidebar :is(.ace-sidebar-fixed-nav, .ace-sidebar-footer) .ace-icon {
   color: var(--ace-accent);
 }

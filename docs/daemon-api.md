@@ -3731,7 +3731,8 @@ Returns:
   "sidebar_session_time": true,
   "message_auto_collapse": true,
   "theme_variant": "",
-  "theme_effects": true
+  "theme_effects": true,
+  "theme_sounds": true
 }
 ```
 
@@ -3751,9 +3752,10 @@ The preference is persisted and included in the Desktop appearance bootstrap.
 letters/digits joined by single hyphens; empty means the package's first
 variant, and an ID the active theme does not declare also falls back to it.
 `theme_effects` (default `true`) turns the motion of HUD-chrome themes on or
-off and does not follow the OS reduced-motion setting. Both are persisted,
-included in the Desktop appearance bootstrap, and rejected with `400` when
-malformed.
+off and does not follow the OS reduced-motion setting. `theme_sounds` (default
+`true`) is the title bar's mute button for themes that declare sound effects.
+All three are persisted, included in the Desktop appearance bootstrap, and
+rejected with `400` when malformed.
 
 ### `PUT /api/config/ui-preferences`
 

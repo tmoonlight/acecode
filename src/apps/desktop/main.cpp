@@ -2274,6 +2274,7 @@ int main(int argc, char** argv) {
         {"message_auto_collapse", desktop_cfg.web_ui.message_auto_collapse},
         {"theme_variant", desktop_cfg.web_ui.theme_variant},
         {"theme_effects", desktop_cfg.web_ui.theme_effects},
+        {"theme_sounds", desktop_cfg.web_ui.theme_sounds},
     }.dump();
     const std::string startup_bootstrap = startup_timeline.snapshot_json();
     host.init_script(acecode::desktop::locale_bootstrap_script(

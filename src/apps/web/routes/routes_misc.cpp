@@ -2210,6 +2210,13 @@ void WebServer::Impl::register_ui_preferences() {
                                     "theme_effects must be a boolean");
                 }
             }
+            if (body.contains("theme_sounds")) {
+                has_supported_field = true;
+                if (!body["theme_sounds"].is_boolean()) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "theme_sounds must be a boolean");
+                }
+            }
             if (!has_supported_field) {
                 return json_err(400, "BAD_REQUEST",
                                 "no supported UI preference field was provided");
@@ -2257,6 +2264,10 @@ void WebServer::Impl::register_ui_preferences() {
             if (body.contains("theme_effects")) {
                 deps.app_config->web_ui.theme_effects =
                     body["theme_effects"].get<bool>();
+            }
+            if (body.contains("theme_sounds")) {
+                deps.app_config->web_ui.theme_sounds =
+                    body["theme_sounds"].get<bool>();
             }
             try {
                 if (!deps.config_path.empty()) {

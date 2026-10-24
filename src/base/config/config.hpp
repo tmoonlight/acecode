@@ -226,6 +226,9 @@ struct WebUiPreferencesConfig {
     std::string theme_variant;
     // Motion for themes that declare an animated chrome style; default on.
     bool theme_effects = true;
+    // Sound effects for themes that declare a sound style; default on. The
+    // title bar's mute button writes this.
+    bool theme_sounds = true;
 };
 
 struct ModelsDevConfig {

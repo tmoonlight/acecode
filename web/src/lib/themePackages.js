@@ -46,6 +46,9 @@ export function validThemeDefinition(value) {
 // published workshop validator keep accepting the package and simply render
 // the default palette. Unknown or malformed values are ignored, never applied.
 export const THEME_CHROME_STYLES = Object.freeze(['hud']);
+// "sounds": {"style": "hud"} turns on the synthesized sound set of that name
+// (lib/themeSounds.js); the package itself carries no audio files.
+export const THEME_SOUND_STYLES = Object.freeze(['hud']);
 export const MAX_THEME_VARIANTS = 6;
 const VARIANT_KEYS = new Set(['id', 'name', 'colors', 'appearance', 'tint']);
 
@@ -53,6 +56,12 @@ export function themeChromeStyle(definition) {
   const chrome = definition?.chrome;
   if (!chrome || typeof chrome !== 'object' || Array.isArray(chrome)) return null;
   return THEME_CHROME_STYLES.includes(chrome.style) ? chrome.style : null;
+}
+
+export function themeSoundStyle(definition) {
+  const sounds = definition?.sounds;
+  if (!sounds || typeof sounds !== 'object' || Array.isArray(sounds)) return null;
+  return THEME_SOUND_STYLES.includes(sounds.style) ? sounds.style : null;
 }
 
 export function validThemeVariant(value) {

@@ -6,7 +6,7 @@ import { SESSION_HEADER_CONTEXT_MENU_DELEGATE } from '../lib/desktopContextMenu.
 import { shouldInsetMacTopBar } from '../lib/desktopShellMode.js';
 import { withSearchPaletteShortcutHint } from '../lib/searchPaletteShortcut.js';
 import { withAppShortcutHint } from '../lib/appShortcuts.js';
-import { NavigationArrowIcon, PanelToggleIcon, VsIcon } from './Icon.jsx';
+import { NavigationArrowIcon, PanelToggleIcon, ThemeSoundIcon, VsIcon } from './Icon.jsx';
 import { isTopBarDragBackdrop, isTopBarDragExcludedTarget, topBarWindowControlAt, topBarWindowDragAction } from '../lib/topBarWindowDrag.js';
 import {
   WindowControls,
@@ -64,6 +64,9 @@ export function TopBar({
   canGoForward = false,
   sessionTitleRef,
   sessionActionsRef,
+  themeSoundStyle = null,
+  themeSoundsOn = true,
+  onToggleThemeSounds,
 }) {
   const { framelessDesktop, isMaximized, isFullscreen } = useFramelessWindowState();
   const topBarRef = useRef(null);
@@ -162,6 +165,18 @@ export function TopBar({
         <QuickBtn title={withSearchPaletteShortcutHint('搜索任务')} onClick={onOpenSearch}>
           <VsIcon name="search" size={16} />
         </QuickBtn>
+        {/* Only themes that declare sound effects get the mute button. */}
+        {themeSoundStyle && (
+          <QuickBtn
+            title={themeSoundsOn ? '关闭主题音效' : '开启主题音效'}
+            onClick={onToggleThemeSounds}
+            data-theme-sound-toggle="true"
+            data-theme-sounds={themeSoundsOn ? 'on' : 'off'}
+            className="ace-topbar-sound-toggle"
+          >
+            <ThemeSoundIcon muted={!themeSoundsOn} size={16} />
+          </QuickBtn>
+        )}
       </div>
       <div ref={sessionTitleRef} className="ace-topbar-session-title min-w-0 flex-1" />
       <div className="ace-topbar-controls ml-auto flex items-center shrink-0">

@@ -104,6 +104,7 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
         {"message_auto_collapse", cfg.message_auto_collapse},
         {"theme_variant", cfg.theme_variant},
         {"theme_effects", cfg.theme_effects},
+        {"theme_sounds", cfg.theme_sounds},
     };
 }
 

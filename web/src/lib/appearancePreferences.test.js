@@ -11,7 +11,7 @@ import {
 } from './appearancePreferences.js';
 
 // 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开。
-const THEME_STYLE_DEFAULTS = Object.freeze({ themeVariant: '', themeEffects: true });
+const THEME_STYLE_DEFAULTS = Object.freeze({ themeVariant: '', themeEffects: true, themeSounds: true });
 
 async function run(name, fn) {
   try {
@@ -113,6 +113,7 @@ await run('API serialization sends a complete compatibility snapshot', () => {
     message_auto_collapse: true,
     theme_variant: '',
     theme_effects: true,
+    theme_sounds: true,
   });
 });
 

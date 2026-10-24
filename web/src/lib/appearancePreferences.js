@@ -17,6 +17,7 @@ export const DEFAULT_APPEARANCE_PREFERENCES = Object.freeze({
   messageAutoCollapse: true,
   themeVariant: '',
   themeEffects: true,
+  themeSounds: true,
 });
 
 const FONT_SIZE_SET = new Set(FONT_SIZE_VALUES);
@@ -69,6 +70,11 @@ function inputThemeEffects(value) {
   return (value?.theme_effects ?? value?.themeEffects) !== false;
 }
 
+// Sound effects of themes that declare them; same default-on rule.
+function inputThemeSounds(value) {
+  return (value?.theme_sounds ?? value?.themeSounds) !== false;
+}
+
 export function effectiveAppearanceTheme(value, scope = globalThis) {
   return value === 'light' || value === 'dark'
     ? value
@@ -93,6 +99,7 @@ export function normalizeAppearancePreferences(value, scope = globalThis) {
     messageAutoCollapse: inputMessageAutoCollapse(value),
     themeVariant: inputThemeVariant(value),
     themeEffects: inputThemeEffects(value),
+    themeSounds: inputThemeSounds(value),
   };
 }
 
@@ -113,6 +120,7 @@ export function parseAppearancePreferences(value, scope = globalThis) {
     messageAutoCollapse: inputMessageAutoCollapse(value),
     themeVariant: inputThemeVariant(value),
     themeEffects: inputThemeEffects(value),
+    themeSounds: inputThemeSounds(value),
   };
 }
 
@@ -142,6 +150,9 @@ export function mergeAppearancePreferences(current, patch, scope = globalThis) {
     themeEffects: patch?.themeEffects
       ?? patch?.theme_effects
       ?? current?.themeEffects,
+    themeSounds: patch?.themeSounds
+      ?? patch?.theme_sounds
+      ?? current?.themeSounds,
   }, scope);
 }
 
@@ -156,6 +167,7 @@ export function appearancePreferencesToApi(value, scope = globalThis) {
     message_auto_collapse: normalized.messageAutoCollapse,
     theme_variant: normalized.themeVariant,
     theme_effects: normalized.themeEffects,
+    theme_sounds: normalized.themeSounds,
   };
 }
 

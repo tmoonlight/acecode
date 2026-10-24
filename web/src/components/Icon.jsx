@@ -263,6 +263,39 @@ export function CommandGlyph({ kind = 'skill', command = '', size = 12, classNam
   );
 }
 
+// Speaker glyph for the theme mute button (the VS icon set has none).
+export function ThemeSoundIcon({ muted = false, size = 16, className = '', ...props }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      data-muted={muted ? 'true' : 'false'}
+      {...props}
+    >
+      <path d="M2.5 6.1h2.3L8.2 3.3v9.4L4.8 9.9H2.5z" fill="currentColor" fillOpacity="0.18" />
+      {muted ? (
+        <>
+          <path d="M10.7 6.3l3.4 3.4" />
+          <path d="M14.1 6.3l-3.4 3.4" />
+        </>
+      ) : (
+        <>
+          <path d="M10.5 6.2a2.6 2.6 0 0 1 0 3.6" />
+          <path d="M12.3 4.5a5 5 0 0 1 0 7" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 export function NavigationArrowIcon({ direction = 'back', size = 16, className = '', ...props }) {
   return (
     <VsIcon

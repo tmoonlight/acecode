@@ -1105,6 +1105,14 @@ static AppConfig load_config_from_path_once(
                             LOG_WARN("[config] invalid 'web_ui.theme_effects', using true");
                         }
                     }
+                    if (uij.contains("theme_sounds")) {
+                        if (uij["theme_sounds"].is_boolean()) {
+                            cfg.web_ui.theme_sounds =
+                                uij["theme_sounds"].get<bool>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.theme_sounds', using true");
+                        }
+                    }
                 }
             }
             if (j.contains("models_dev") && j["models_dev"].is_object()) {
@@ -2355,6 +2363,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             web_uij["theme_variant"] = cfg.web_ui.theme_variant;
         if (cfg.web_ui.theme_effects != web_ui_d.theme_effects)
             web_uij["theme_effects"] = cfg.web_ui.theme_effects;
+        if (cfg.web_ui.theme_sounds != web_ui_d.theme_sounds)
+            web_uij["theme_sounds"] = cfg.web_ui.theme_sounds;
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);

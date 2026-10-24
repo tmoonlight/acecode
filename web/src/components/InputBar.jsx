@@ -106,6 +106,7 @@ import {
   nextExpertMenuItemIndex,
   placeExpertSubmenu,
 } from '../lib/expertMenuPosition.js';
+import { playThemeSound } from '../lib/themeSounds.js';
 
 const MAX_ROWS = 8;
 const LINE_HEIGHT = 20; // 与 leading-[20px] 对齐
@@ -634,10 +635,12 @@ export const InputBar = forwardRef(function InputBar({
     if (!currentAction.canSubmit) return;
     // 队列暂停 + 空输入框:这一下是「继续」,不是发送 —— 空内容本来也没什么可发。
     if (currentAction.mode === 'resume') {
+      playThemeSound('send');
       onResumeQueue?.();
       requestAnimationFrame(() => ta.current?.focus());
       return;
     }
+    playThemeSound(currentAction.mode === 'queue' ? 'queue' : 'send');
     onSubmit?.(currentDraft.text);
     if (!isControlled) updateValue('', composerContentFromText(''), undefined, { goalMode: false });
     setHistPtr(-1);

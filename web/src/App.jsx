@@ -40,6 +40,7 @@ import {
   notificationBodyFromEvent,
   shouldNotifySessionCompletion,
 } from './lib/desktopNotify.js';
+import { playThemeSound } from './lib/themeSounds.js';
 import { createNewSessionForActiveWorkspace } from './lib/newSession.js';
 import { refreshWorkspaceGitInfo } from './lib/gitInfoCache.js';
 import {
@@ -252,8 +253,11 @@ export function App() {
     themeMode,
     themeVariant,
     themeEffects,
+    themeSounds,
+    themeSoundStyle,
     setThemeVariant,
     setThemeEffects,
+    setThemeSounds,
   } = useTheme();
   const initialAppearance = useMemo(() => initialAppearancePreferences(), []);
   const bootstrapAppearance = useMemo(() => appearanceBootstrapPreferences(), []);
@@ -413,12 +417,13 @@ export function App() {
     setColorTheme(next.colorTheme);
     setThemeVariant(next.themeVariant);
     setThemeEffects(next.themeEffects);
+    setThemeSounds(next.themeSounds);
     setUiPrefs({
       fontSize: next.fontSize,
       sidebarSessionTime: next.sidebarSessionTime,
       messageAutoCollapse: next.messageAutoCollapse,
     });
-  }, [setColorTheme, setTheme, setThemeEffects, setThemeVariant, setUiPrefs]);
+  }, [setColorTheme, setTheme, setThemeEffects, setThemeSounds, setThemeVariant, setUiPrefs]);
   // The persistence controller outlives individual renders. Keep its callback
   // current so a later appearance choice is compared against the latest UI
   // preferences rather than the values from the controller's first render.
@@ -435,6 +440,7 @@ export function App() {
         messageAutoCollapse: bootstrapAppearance?.messageAutoCollapse ?? messageAutoCollapse,
         themeVariant: bootstrapAppearance?.themeVariant ?? themeVariant,
         themeEffects: bootstrapAppearance?.themeEffects ?? themeEffects,
+        themeSounds: bootstrapAppearance?.themeSounds ?? themeSounds,
       },
       apply: (next) => applyAppearanceRef.current(next),
       save: (payload) => api.setUiPreferences(payload),
@@ -1308,6 +1314,17 @@ export function App() {
   useEffect(() => {
     const monitor = notificationMonitorRef.current;
     const context = notificationContextRef.current;
+    // Theme sounds follow live events only: replayed frames (switching into a
+    // running session, reconnecting) must not re-announce old prompts.
+    const soundedPrompts = new Set();
+    const playPromptSound = (msg, payload) => {
+      if (msg.replayed === true) return;
+      const key = `${msg.type}:${payload.request_id || msg.seq || ''}`;
+      if (soundedPrompts.has(key)) return;
+      if (soundedPrompts.size > 200) soundedPrompts.clear();
+      soundedPrompts.add(key);
+      playThemeSound('alert');
+    };
 
     const rememberCurrentTitle = (sessionId) => {
       const current = activeRefRef.current || {};
@@ -1358,6 +1375,7 @@ export function App() {
       if (!sessionId) return;
       const key = notificationEventKey(type, sessionId, msg, payload);
       if (!monitor.markSeen(key)) return;
+      if (type === 'completion' && msg.replayed !== true) playThemeSound('complete');
       rememberCurrentTitle(sessionId);
       const workspaceHash = payload.workspace_hash
         || msg.workspace_hash
@@ -1476,6 +1494,7 @@ export function App() {
         if (payload.busy === true) monitor.retain(sessionId);
       }
       if (msg.type === 'permission_request') {
+        playPromptSound(msg, payload);
         if (sessionId) monitor.retain(sessionId);
         const ownerSessionId = conversationOwnerForSession(sessionId, payload);
         setPermReqs((prev) => pushPermissionRequest(prev, payload, {
@@ -1489,6 +1508,7 @@ export function App() {
         }));
       }
       if (msg.type === 'question_request') {
+        playPromptSound(msg, payload);
         if (sessionId) monitor.retain(sessionId);
         const ownerSessionId = conversationOwnerForSession(sessionId, payload);
         setQuestionReqs((prev) => addPendingQuestionRequest(prev, payload, {
@@ -1509,6 +1529,9 @@ export function App() {
       const permissionTimeoutDiagnostic = msg.type === 'error'
         && payload.reason === 'permission_timeout'
         && !!payload.request_id;
+      if (msg.type === 'error' && sessionId && !permissionTimeoutDiagnostic && msg.replayed !== true) {
+        playThemeSound('error');
+      }
       if ((msg.type === 'error' || msg.type === 'turn_aborted')
           && sessionId
           && !permissionTimeoutDiagnostic) {
@@ -2339,6 +2362,14 @@ export function App() {
         onGoForward={goForwardActiveRef}
         canGoBack={navHistory.back.length > 0}
         canGoForward={navHistory.forward.length > 0}
+        themeSoundStyle={themeSoundStyle}
+        themeSoundsOn={themeSounds}
+        onToggleThemeSounds={() => {
+          const next = !themeSounds;
+          // The sound module still reads "muted" until the next render.
+          if (next) playThemeSound('toggle', { force: true });
+          changeAppearance({ themeSounds: next });
+        }}
       />
       <div
         ref={singleShellRef}
