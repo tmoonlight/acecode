@@ -798,6 +798,21 @@ html[data-theme-chrome="hud"] .ace-chat-transcript-scroll::-webkit-scrollbar-tra
     1px calc(100% - var(--n) - var(--c)), 1px calc(100% - var(--n) - var(--c)), calc(100% - 2 * var(--c)) 1px,
     var(--c) var(--c), var(--c) var(--c);
   background-repeat: no-repeat;
+  /* The runner (first layer) travels only along the straight bottom edge:
+     the padding insets the content box by the corner size, and only that
+     layer is positioned and clipped by it. Padding leaves the padding box,
+     and so every frame layer, unchanged. */
+  padding: 0 var(--c);
+  background-origin:
+    content-box,
+    padding-box, padding-box, padding-box, padding-box, padding-box,
+    padding-box, padding-box, padding-box, padding-box, padding-box,
+    padding-box, padding-box, padding-box, padding-box, padding-box;
+  background-clip:
+    content-box,
+    border-box, border-box, border-box, border-box, border-box,
+    border-box, border-box, border-box, border-box, border-box,
+    border-box, border-box, border-box, border-box, border-box;
   animation: ace-hud-composer-run 2.4s linear infinite;
 }
 
