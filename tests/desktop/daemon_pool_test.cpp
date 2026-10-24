@@ -14,6 +14,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -444,15 +445,18 @@ TEST(DaemonPool, AttachedDaemonStopsWhenKeepAliveIsDisabled) {
 }
 
 TEST(DaemonPool, IncompatibleManagedDaemonIsStoppedBeforeReplacementSpawn) {
+    // A normal mock PID can belong to an unrelated process on a busy runner.
+    const auto stopped_pid = (std::numeric_limits<int>::max)();
+    ASSERT_FALSE(acecode::daemon::is_pid_alive(stopped_pid));
     auto state = std::make_shared<MockSupervisor::SharedState>();
     DaemonPool pool;
     pool.set_supervisor_factory_for_test([&] {
         return std::unique_ptr<IDaemonSupervisor>(new MockSupervisor(state));
     });
-    pool.set_existing_daemon_probe_for_test([](const ActivateRequest&) {
+    pool.set_existing_daemon_probe_for_test([stopped_pid](const ActivateRequest&) {
         ExistingDaemonProbeResult existing;
         existing.action = ExistingDaemonAction::Replace;
-        existing.pid = 4242;
+        existing.pid = stopped_pid;
         existing.guid = "old-guid";
         existing.reason = "protocol mismatch";
         return existing;
