@@ -1147,6 +1147,9 @@ static AppConfig load_config_from_path_once(
                     if (uj.contains("timeout_ms") && uj["timeout_ms"].is_number_integer()) {
                         cfg.upgrade.timeout_ms = uj["timeout_ms"].get<int>();
                     }
+                    if (uj.contains("auto_update") && uj["auto_update"].is_boolean()) {
+                        cfg.upgrade.auto_update = uj["auto_update"].get<bool>();
+                    }
                 }
             }
             if (j.contains("network") && j["network"].is_object()) {
@@ -2672,6 +2675,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             upj["base_url"] = normalize_upgrade_base_url(cfg.upgrade.base_url);
         if (cfg.upgrade.timeout_ms != up_d.timeout_ms)
             upj["timeout_ms"] = cfg.upgrade.timeout_ms;
+        if (cfg.upgrade.auto_update != up_d.auto_update)
+            upj["auto_update"] = cfg.upgrade.auto_update;
         if (!upj.empty()) j["upgrade"] = upj;
     }
 

@@ -226,6 +226,7 @@ void SessionManager::start_session(const std::string& cwd,
     provider_name_ = provider;
     model_name_ = model;
     model_preset_ = model_preset;
+    model_activated_at_ms_ = 0;
     reasoning_effort_.reset();
     sampling_ = {};
     surface_ = surface.empty() ? "unknown" : surface;
@@ -303,6 +304,8 @@ bool SessionManager::ensure_created() {
     created_ = true;
     finalized_ = false;
 
+    if (model_activated_at_ms_ == 0) model_activated_at_ms_ = usage_now_unix_ms();
+
     // Write initial metadata
     SessionMeta meta;
     meta.id = session_id_;
@@ -313,6 +316,7 @@ bool SessionManager::ensure_created() {
     meta.provider = provider_name_;
     meta.model = model_name_;
     meta.model_preset = model_preset_;
+    meta.model_activated_at_ms = model_activated_at_ms_;
     meta.reasoning_effort = reasoning_effort_;
     meta.sampling = sampling_;
     meta.title = pending_title_;
@@ -658,6 +662,7 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         adopt_swarm_identity_locked(meta);
         reasoning_effort_ = meta.reasoning_effort;
         sampling_ = meta.sampling;
+        model_activated_at_ms_ = meta.model_activated_at_ms;
         if (model_preset_.empty()) {
             model_preset_ = meta.model_preset;
         }
@@ -986,6 +991,7 @@ std::string SessionManager::fork_session_to_new_id(
     meta.provider        = provider_name_;
     meta.model           = model_name_;
     meta.model_preset    = model_preset_;
+    meta.model_activated_at_ms = model_activated_at_ms_;
     meta.reasoning_effort = reasoning_effort_;
     meta.sampling = sampling_;
     meta.title           = title;
@@ -1167,6 +1173,7 @@ bool SessionManager::update_meta(
     meta.provider = provider_name_;
     meta.model = model_name_;
     meta.model_preset = model_preset_;
+    meta.model_activated_at_ms = model_activated_at_ms_;
     meta.reasoning_effort = reasoning_effort_;
     meta.sampling = sampling_;
     meta.title = pending_title_;
@@ -1501,6 +1508,7 @@ void SessionManager::set_input_draft(std::string draft, nlohmann::json composer_
         meta.provider = provider_name_;
         meta.model = model_name_;
         meta.model_preset = model_preset_;
+        meta.model_activated_at_ms = model_activated_at_ms_;
         meta.reasoning_effort = reasoning_effort_;
         meta.sampling = sampling_;
         meta.title = pending_title_;

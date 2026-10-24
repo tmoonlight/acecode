@@ -4623,7 +4623,7 @@ Persists the default and updates the in-memory session registry default.
 Returns:
 
 ```json
-{"base_url":"https://example.com/acecode"}
+{"base_url":"https://example.com/acecode/","auto_update":false}
 ```
 
 ### `PUT /api/config/upgrade`
@@ -4634,7 +4634,9 @@ Body:
 {"base_url":"https://example.com/acecode"}
 ```
 
-Normalizes and validates a non-empty HTTP(S) base URL.
+Accepts a partial object containing `base_url` and/or boolean `auto_update`.
+Normalizes and validates a non-empty HTTP(S) base URL and preserves omitted
+fields. Automatic installation defaults to false, including for old configs.
 
 ### `GET /api/update/status`
 
@@ -4719,6 +4721,22 @@ with U+FFFD instead of failing the request, so a failed job with such text in
 `error` keeps polling successfully.
 
 ### `POST /api/update/start`
+
+An optional JSON body `{"automatic":true}` marks an automatic installation.
+It is rejected with `409 AUTO_UPDATE_DISABLED` unless the persisted setting
+is enabled, checked again after the manifest request. Empty bodies keep manual
+behavior. Jobs return `automatic` and `automatic_failures` (0–3). The latter
+counts consecutive automatic installation failures for the same target in the
+current daemon lifetime; successful installation or a new target resets it.
+Precheck and progress-query failures are not installation failures.
+
+The GUI keeps the startup check and then checks every independently randomized
+10–120 minutes regardless of this setting. Automatic check failures are silent
+and preserve the last valid status. Automatic installation does not open a
+dialog or restart the app. Success shows `更新已完成，重启后生效`; failure is
+silent until three consecutive failures change the sidebar label to `更新失败`.
+Manual retry remains available. Progress transport errors retry without
+synthesizing a failed installation.
 
 Checks for an update and starts one daemon-managed background update job. The
 job reuses the normal upgrade engine without creating a console window. Returns
@@ -6262,3 +6280,21 @@ Backs the `ios_simulator` / `ios_simulator_build` tools, Settings > Tools > iOS 
 Tool results of `ios_simulator` carry `metadata.ios_simulator = {action, udid, name, runtime, point_width, point_height, rotation}`; the web UI opens the panel on `attach` and closes it on `detach`.
 
 Runtime-generated names use underscore separators. Existing hyphen-named data remains accessible; see [运行数据命名](runtime_file_naming.md).
+
+## 主页意图提示
+
+`GET /api/home/intent-prompts` 返回当前进程缓存；`POST /api/home/intent-prompts`
+接收 `{ "force": false }`，到期时生成建议。`force: true` 用于 Ctrl+Y 调试刷新。
+两者均遵循标准认证。响应包含 `suggestions`、`model`、`refreshing`、`error`、
+`generated_at_ms` 和 `next_refresh_at_ms`。并发 POST 合并，`refreshing: true`
+时客户端可短暂读取状态直至完成，不重复 POST。常规刷新周期为 30 分钟。
+
+建议包含 `category`（writing / exploration / execution / thinking）、`title`、
+`description`、`prompt`、`source_session_id`、`workspace: {hash,cwd,name,noWorkspace}`。
+来源是最近真实用户活动的最多 5 个非运行、非归档主会话；最多返回 4 条建议。
+后端绑定工作区，不采信模型输出的路径。点击只预填草稿及选择工作区。
+
+模型优先使用 `summary_generation.model_name`，未选择时采用最近成功生效的
+会话模型（元数据 `model_activated_at_ms`；旧记录按最后用户消息兼容）。
+摘要模型已选择但无效不静默回退。`MODEL_UNAVAILABLE`、`TIMEOUT`、
+`GENERATION_FAILED`、`INVALID_RESPONSE` 均保留旧结果。推断不创建会话、不调用工具。

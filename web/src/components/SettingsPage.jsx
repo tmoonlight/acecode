@@ -1065,7 +1065,7 @@ function SectionGeneral({
       >
         <div>
           <div className="text-[13px] font-normal">打开任务完成通知</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">仅在 ACECode 窗口失去焦点且主任务完成时发送系统通知</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">仅在窗口失焦时通知</div>
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <Toggle
@@ -1188,7 +1188,6 @@ function SectionGeneral({
       <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>
           <div className="text-[13px] font-normal">默认打开目标</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">默认打开文件和文件夹的位置</div>
         </div>
         <select
           value={openTarget}
@@ -1203,7 +1202,6 @@ function SectionGeneral({
       <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>
           <div className="text-[13px] font-normal">最大轮次</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">单次 agent loop 的最大迭代数</div>
         </div>
         <input
           type="number"
@@ -1226,9 +1224,6 @@ function SectionGeneral({
         <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
           <div>
             <div className="text-[13px] font-normal">关闭窗口时</div>
-            <div className="text-[11px] text-fg-mute mt-0.5">
-              点击窗口右上角关闭按钮时执行的操作
-            </div>
           </div>
           <select
             value={closeBehavior}
@@ -1271,9 +1266,6 @@ function SectionGeneral({
             <div className="text-[13px] font-normal">
               退出 ACECode 后继续运行后台进程
             </div>
-            <div className="text-[11px] text-fg-mute mt-0.5">
-              开启后，真正退出桌面应用时，后台任务和待处理交互仍会继续运行
-            </div>
           </div>
           <div onClick={(event) => event.stopPropagation()}>
             <Toggle
@@ -1294,9 +1286,6 @@ function SectionGeneral({
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-[13px] font-normal">远程 Web 模式</div>
-            <div className="text-[11px] text-fg-mute mt-0.5 max-w-lg">
-              开启后会启动独立的反向代理进程，daemon 仍仅监听 127.0.0.1
-            </div>
           </div>
           <Toggle
             on={remoteWeb.configuredEnabled}
@@ -1387,7 +1376,7 @@ function SectionGeneral({
         )}
 
         <div className="text-[11px] text-fg-mute mt-3 leading-relaxed">
-          系统防火墙、路由器或云安全组可能仍需放行代理端口。公网访问仍建议使用可信 VPN，并在上游配置 HTTPS。
+          连接失败时请检查端口放行；公网访问请使用 VPN 和 HTTPS。
         </div>
       </div>
     </>
@@ -1421,15 +1410,15 @@ function SectionAppearance({
       <h2 className="text-xl font-bold mb-5">外观</h2>
 
       <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-        <div><div className="text-[14px] font-semibold mb-1">主题</div><p className="text-[12px] text-fg-mute">选择界面的主色风格</p></div>
+        <div className="text-[14px] font-semibold">主题</div>
         <ThemeLibraryActions downloads={themeDownloads} />
       </div>
       <ThemeCards options={COLOR_THEME_OPTIONS} selected={colorTheme} onSelect={setColorTheme} downloads={themeDownloads} onCreateAiTheme={onCreateAiTheme} />
 
       {themeVariantOptions.length > 0 && <>
       <div className="h-px bg-border my-5" />
-      <div className="text-[14px] font-semibold mb-1">主题风格</div>
-      <p className="text-[12px] text-fg-mute mb-3">切换当前主题的配色风格</p>
+      <div className="text-[14px] font-semibold mb-3">主题风格</div>
+
       <div className="ace-theme-variant-options grid grid-cols-3 gap-3 max-w-md">
         {themeVariantOptions.map((option) => {
           const active = activeThemeVariant === option.id;
@@ -1461,7 +1450,6 @@ function SectionAppearance({
         <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-md bg-surface border border-border mt-3 mb-2 max-w-md">
           <div className="min-w-0">
             <div className="text-[13px] font-normal">动态效果</div>
-            <div className="text-[11px] text-fg-mute mt-0.5">播放开屏扫描、风格切换过场和霓虹闪烁等主题动画</div>
           </div>
           <Toggle on={themeEffects} onChange={onThemeEffectsChange} ariaLabel="主题动态效果" />
         </div>
@@ -1472,7 +1460,6 @@ function SectionAppearance({
       <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 max-w-md">
         <div>
           <div className="text-[13px] font-normal">暗黑模式</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">使用深色背景，关闭后使用浅色背景</div>
         </div>
         <Toggle
           on={theme === 'dark'}
@@ -1509,7 +1496,6 @@ function SectionAppearance({
       <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 max-w-md">
         <div>
           <div className="text-[13px] font-normal">显示任务时间</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">在任务列表每一行右侧显示最近活动时间，关闭后仍可在悬停卡片里查看</div>
         </div>
         <Toggle
           on={sidebarSessionTime}
@@ -1562,7 +1548,6 @@ function SectionAbout({ health }) {
       <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>
           <div className="text-[13px] font-normal">当前版本</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">ACECode 桌面 / TUI / Daemon 同版本号</div>
         </div>
         <span className="text-[12px] text-fg-2">{programVersionLabel}</span>
       </div>
@@ -1570,7 +1555,6 @@ function SectionAbout({ health }) {
       <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div className="min-w-0">
           <div className="text-[13px] font-normal">Web 核心</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">当前桌面 WebView / 浏览器渲染核心</div>
         </div>
         <div className="min-w-0 max-w-[62%] text-right">
           <div
@@ -1649,10 +1633,10 @@ function SectionPersonalization({ workspaceHash = '' }) {
     <>
       <h2 className="text-xl font-bold mb-5">个性化</h2>
 
-      <div className="text-[14px] font-semibold mb-1">自定义指令</div>
-      <p className="text-[12px] text-fg-mute mb-3">为你的项目向 ACECode 提供额外说明和上下文</p>
+      <div className="text-[14px] font-semibold mb-3">自定义指令</div>
+
       <p className="text-[12px] text-fg-mute mb-3">
-        提示:自定义指令会参与每次请求的提示词上下文,频繁修改可能降低提示词缓存命中率。
+        频繁修改会降低提示词缓存命中率。
       </p>
 
       <textarea
@@ -2001,11 +1985,8 @@ function SectionSkills({ onConfigurePaths }) {
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h2 className="text-xl font-bold mb-2">技能</h2>
-          <p className="text-[12px] text-fg-mute">
-            管理 ACECode 可调用的技能模块。启用后 Agent 在任务中可自动使用。
-            {' '}<a href="#skill-scan-paths" className="text-accent underline underline-offset-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-              onClick={(event) => { event.preventDefault(); onConfigurePaths(); }}>设置 Skill 扫描路径</a>
-          </p>
+          <a href="#skill-scan-paths" className="text-[12px] text-accent underline underline-offset-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+            onClick={(event) => { event.preventDefault(); onConfigurePaths(); }}>设置 Skill 扫描路径</a>
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <span className="text-[12px] text-fg-mute tabular-nums">{summary.label}</span>
@@ -2074,7 +2055,7 @@ function SectionSkills({ onConfigurePaths }) {
 
           <div className="text-[14px] font-semibold mb-1">工作区 Skill 目录</div>
           <p className="text-[12px] text-fg-mute mb-3">
-            每个工作区可拥有独立的 Skill,仅在该工作区的会话中生效。
+            仅在对应工作区生效。
           </p>
           {workspaces.length === 0 && (
             <div className="px-3.5 py-3 rounded-md border border-dashed border-border text-[12px] text-fg-mute text-center">
@@ -2330,10 +2311,7 @@ function SectionMCP() {
           项目配置与全局配置叠加，同名服务器以项目配置为准。
         </p>
       )}
-      <div className="text-[14px] font-semibold mb-1">服务器配置</div>
-      <p className="text-[12px] text-fg-mute mb-3">
-        直接编辑 JSON 配置 MCP 服务器连接(stdio / sse / http)
-      </p>
+      <div className="text-[14px] font-semibold mb-3">服务器配置</div>
 
       <textarea
         value={text}
@@ -2521,7 +2499,6 @@ function SectionConnectors() {
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h2 className="text-xl font-bold mb-2">插件</h2>
-          <p className="text-[12px] text-fg-mute">config.json 中配置的插件</p>
         </div>
         <button
           type="button"
@@ -2603,10 +2580,7 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
     <>
       <h2 className="text-xl font-bold mb-5">工具</h2>
 
-      <div className="text-[14px] font-semibold mb-1">内置工具</div>
-      <p className="text-[12px] text-fg-mute mb-3">
-        配置 Agent 可以使用的内置工具。
-      </p>
+      <div className="text-[14px] font-semibold mb-3">内置工具</div>
 
       <div className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2">
         <div data-settings-surface="true" className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
@@ -2777,16 +2751,13 @@ function SectionHooks() {
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
           <h2 className="text-xl font-bold mb-2">钩子</h2>
-          <p className="text-[12px] text-fg-mute">
-            通过配置和已启用的插件管理生命周期钩子。
-            <button
-              type="button"
-              onClick={() => openExternalUrl('https://developers.openai.com/codex/hooks')}
-              className="ml-2 text-accent hover:underline"
-            >
-              了解更多
-            </button>
-          </p>
+          <button
+            type="button"
+            onClick={() => openExternalUrl('https://developers.openai.com/codex/hooks')}
+            className="text-[12px] text-accent hover:underline"
+          >
+            了解更多
+          </button>
         </div>
         <button
           type="button"

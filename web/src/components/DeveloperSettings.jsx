@@ -43,11 +43,11 @@ export function DeveloperSettings() {
     <div>
       <h2 className="text-xl font-bold mb-5">开发者模式</h2>
       <div className="text-[14px] font-semibold mb-1">桌面启动</div>
-      <p className="text-[12px] text-fg-mute mb-3">用于同时运行多个 ACECode 桌面实例，方便开发和调试 ACECode。</p>
+
       <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>
           <div className="text-[13px] font-normal text-fg">允许多进程启动</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">全局生效。开启后，新启动的桌面实例可与已有实例同时运行；关闭后不影响已打开的实例。</div>
+          <div className="text-[11px] text-fg-mute mt-0.5">仅影响新启动的实例。</div>
         </div>
         <Toggle on={enabled} onChange={save} disabled={!loaded || busy} ariaLabel="允许多进程启动" />
       </div>

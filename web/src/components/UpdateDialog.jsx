@@ -95,21 +95,15 @@ export function UpdateDialog({
         : 'ACECode 升级';
   const subtitle = storeManaged
     ? '请在 Microsoft Store 的“库”中获取 ACECode 更新。'
-    : mode === 'confirm'
-    ? '升级期间可以继续查看当前页面，请勿重复启动升级。'
-    : mode === 'up_to_date'
-      ? '当前安装的 ACECode 已是最新版本。'
-      : mode === 'cancelled'
-        ? '当前安装没有被修改，可以稍后重新升级。'
-      : phaseLabel;
+    : '';
 
   return (
     <Modal onClose={onClose} width={560} dismissOnBackdrop={!active}>
       <div className="px-5 py-4 border-b border-border">
         <div className="text-[15px] font-semibold text-fg">{title}</div>
-        <div className="mt-1 text-[12px] text-fg-mute">
+        {subtitle && <div className="mt-1 text-[12px] text-fg-mute">
           {subtitle}
-        </div>
+        </div>}
       </div>
 
       <div className="max-h-[calc(100vh-10rem)] overflow-y-auto px-5 py-5">
@@ -141,9 +135,7 @@ export function UpdateDialog({
         {!storeManaged && releaseHistory.length > 0 && (
           <section className="mt-5" aria-label="版本更新记录">
             <div className="text-[14px] font-semibold text-fg">版本更新记录</div>
-            <div className="mt-1 text-[11px] text-fg-mute">
-              来自升级服务的历次版本说明
-            </div>
+
             <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-surface-alt">
               {releaseHistory.map((release, index) => {
                 const publishedDate = formatUpdatePublishedDate(release.published_at);

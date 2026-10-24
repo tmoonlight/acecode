@@ -51,7 +51,6 @@ export function SummaryGenerationSettings({ onCheckUpdates, onModelProfileUpdate
               </span>
             </span>
           </div>
-          <div className="text-[11px] text-fg-mute mt-0.5">协助用户总结当前会话的摘要</div>
         </div>
         <button type="button" className="px-1.5 py-0.5 text-[11px] hover:underline disabled:opacity-50"
           disabled={!snapshot || loading} aria-expanded={expanded} aria-controls="summary-generation-config"

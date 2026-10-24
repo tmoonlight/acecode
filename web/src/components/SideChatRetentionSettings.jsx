@@ -19,7 +19,7 @@ export function SideChatRetentionSettings() {
       <div className="flex-1 min-w-0">
         <label htmlFor={inputId} className="text-[13px] font-normal text-fg">侧边聊天存续时间</label>
         <p id={`${inputId}-description`} className="text-[11px] text-fg-mute mt-0.5">
-          从最后一次侧聊结束开始计时，到期后切回该会话时清空；正在查看时不会自动消失。
+          侧聊结束后计时；到期切回时清空，浏览期间保留。
         </p>
       </div>
       <div className="flex items-center gap-2 shrink-0">

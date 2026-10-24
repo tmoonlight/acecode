@@ -8,7 +8,7 @@ import { desktopUpdateRestartAvailable, requestDesktopUpdateRestart } from '../l
 import { VsIcon } from './Icon.jsx';
 import { Modal } from './Modal.jsx';
 import { SkillScanPathsSettings } from './SkillScanPathsSettings.jsx';
-import { UPGRADE_CONFIG_CHANGED_EVENT } from '../lib/themeImports.js';
+import { UpgradeSettings } from './UpgradeSettings.jsx';
 
 function Status({ label, tone = 'muted' }) {
   return <span className={`ace-settings-status ${tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : 'text-fg-mute'}`}>{label}</span>;
@@ -37,7 +37,6 @@ function PathEditor({ id, label, detail, value = '', onSave, onBrowse, status, d
 }
 
 export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
-  const [upgradeUrl, setUpgradeUrl] = useState('');
   const [toolchains, setToolchains] = useState([]);
   const [terminal, setTerminal] = useState(null);
   const [directory, setDirectory] = useState(null);
@@ -47,19 +46,14 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
-  const lastUpgrade = useRef('');
   const operation = useRef(false);
   const mounted = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
-    Promise.allSettled([api.getUpgradeConfig(), api.getToolchainConfig(), api.getTerminalConfig(), api.getDataDirectory()])
-      .then(([upgrade, tools, shell, dir]) => {
+    Promise.allSettled([api.getToolchainConfig(), api.getTerminalConfig(), api.getDataDirectory()])
+      .then(([tools, shell, dir]) => {
         if (!mounted.current) return;
-        if (upgrade.status === 'fulfilled') {
-          lastUpgrade.current = upgrade.value.base_url || '';
-          setUpgradeUrl(lastUpgrade.current);
-        }
         if (tools.status === 'fulfilled') setToolchains(tools.value.toolchains || []);
         if (shell.status === 'fulfilled') setTerminal(shell.value);
         if (dir.status === 'fulfilled') {
@@ -67,7 +61,7 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
           setJob(dir.value.migration);
           if (dir.value.migration?.state === 'failed') setError(migrationFailureMessage(dir.value.migration));
         }
-        const failed = [upgrade, tools, shell, dir].find((result) => result.status === 'rejected');
+        const failed = [tools, shell, dir].find((result) => result.status === 'rejected');
         if (failed) setError(environmentError(failed.reason));
         setBusy('');
       });
@@ -111,18 +105,6 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
     try { await action(); if (mounted.current && !['migrate', 'restart', 'refresh'].includes(name)) setSaved(true); return true; }
     catch (err) { if (mounted.current) setError(environmentError(err)); return false; }
     finally { operation.current = false; if (mounted.current) setBusy(''); }
-  };
-
-  const saveUpgradeUrl = async () => {
-    const baseUrl = upgradeUrl.trim();
-    if (baseUrl === lastUpgrade.current) return;
-    if (!/^https?:\/\//i.test(baseUrl)) { setError('升级服务 URL 必须使用 http 或 https'); return; }
-    await perform('upgrade', async () => {
-      const saved = await api.setUpgradeConfig({ base_url: baseUrl });
-      lastUpgrade.current = saved.base_url || baseUrl;
-      setUpgradeUrl(lastUpgrade.current);
-      window.dispatchEvent(new Event(UPGRADE_CONFIG_CHANGED_EVENT));
-    });
   };
 
   const saveTool = (id, dir) => perform(id, async () => {
@@ -183,15 +165,7 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
           window.dispatchEvent(new Event('ace-console-config-changed'));
         })}><VsIcon name="refresh" size={15} />{busy === 'detect' ? '检测中…' : '重新检测'}</button>
       </div>
-      <section className="ace-settings-group">
-        <h3>升级服务</h3>
-        <div className="ace-settings-row">
-          <label className="ace-settings-label" htmlFor="upgrade-service-url">升级服务 URL</label>
-          <div className="ace-settings-value"><input id="upgrade-service-url" value={upgradeUrl} disabled={disabled}
-            onChange={(event) => setUpgradeUrl(event.target.value)} onBlur={() => { void saveUpgradeUrl(); }}
-            onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></div>
-        </div>
-      </section>
+      <UpgradeSettings disabled={migrating || restartRequired} />
       <section className="ace-settings-group">
         <h3>工作空间依赖项</h3><p>为 Agent 指定工具目录，留空使用系统 PATH</p>
         {TOOLCHAIN_FIELDS.map((field) => {
@@ -203,7 +177,7 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
       </section>
       <SkillScanPathsSettings focusRequest={skillPathsFocusRequest} disabled={migrating || restartRequired} />
       <section className="ace-settings-group">
-        <h3>默认终端</h3><p>用于 Agent 命令和控制台</p>
+        <h3>默认终端</h3>
         <div className="ace-settings-row">
           <label className="ace-settings-label" htmlFor="terminal-type">终端类型</label>
           <div className="ace-settings-value"><select id="terminal-type" value={selected} disabled={disabled || !terminal}
@@ -220,7 +194,7 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
         {fallback && <p className="break-words text-warn">{resolved.program} · {resolved.fallback_reason}</p>}
       </section>
       <section className="ace-settings-group">
-        <h3>工作空间路径</h3><p>会话、记忆、技能等数据的存储位置</p>
+        <h3>工作空间路径</h3>
         <PathEditor id="workspace-current-path" label="当前路径" value={directory?.effective_dir || ''}
           readOnly disabled={disabled || !directory} onBrowse={changeDirectory} />
         {pending !== null && !migrating && !restartRequired && <div className="ace-settings-row items-start">

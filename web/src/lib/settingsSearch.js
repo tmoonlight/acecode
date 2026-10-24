@@ -23,6 +23,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['appearance', '消息自动折叠', '会话 conversation messages auto collapse fold expand tools'],
     ['shortcuts', '搜索快捷键', 'keyboard shortcuts hotkeys 快捷键 键盘 搜索 前进 后退 思维深度 Ctrl Alt Cmd'],
     ['config', '升级服务 URL', 'upgrade update service url'],
+    ['config', '自动更新', 'automatic update upgrade'],
     ['config', 'Skill 扫描路径', 'skill skills scan search paths directories 技能 扫描 搜索 路径 目录'],
     ['config', 'Python 工具', 'python uv ruff mypy path directory'],
     ['config', 'Node.js 工具', 'node nodejs npm pnpm tsx path directory'],

@@ -29,16 +29,15 @@ run('general settings keeps remote Web mode as its final card', () => {
   assert.ok(remoteIndex > backgroundIndex);
   assert.ok(appearanceIndex > remoteIndex);
   assert.match(page, />远程 Web 模式</);
-  assert.match(page, /启动独立的反向代理进程/);
-  assert.match(page, /daemon 仍仅监听 127\.0\.0\.1/);
+  assert.match(page, /ariaLabel="远程 Web 模式"/);
   assert.match(page, />\s*复制连接\s*</);
 });
 
 run('remote Web card preserves token warning and network safety guidance', () => {
   const page = source('components/SettingsPage.jsx');
   assert.match(page, /此连接包含访问 Token，请勿将此连接公开给别人。/);
-  assert.match(page, /系统防火墙、路由器或云安全组可能仍需放行代理端口/);
-  assert.match(page, /可信 VPN，并在上游配置 HTTPS/);
+  assert.match(page, /连接失败时请检查端口放行/);
+  assert.match(page, /公网访问请使用 VPN 和 HTTPS/);
   assert.match(page, /copyTextToSystemClipboard\(connection\.url\)/);
 });
 

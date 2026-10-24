@@ -329,6 +329,7 @@ function replaceEditorDocument(editor, nextDocument, {
   selection = null,
   selectEnd = true,
   clearHistory = false,
+  undoable = false,
 } = {}) {
   const replacementDocument = legalComposerDocument(nextDocument);
   const nextText = composerTextFromDocument(replacementDocument);
@@ -346,9 +347,11 @@ function replaceEditorDocument(editor, nextDocument, {
 
   let replaced = false;
   try {
-    HistoryEditor.withoutSaving(editor, () => {
+    const applyReplacement = () => {
       Editor.withoutNormalizing(editor, () => {
-        safeDeselectEditor(editor);
+        // Keep the original selection in the undo batch for user-triggered
+        // replacements. External draft hydration still resets without saving.
+        if (!undoable) safeDeselectEditor(editor);
         const previousRootCount = Array.isArray(editor.children) ? editor.children.length : 0;
         // Insert first so the Slate root is never empty, even while switching
         // from a corrupted or empty draft.
@@ -358,13 +361,15 @@ function replaceEditorDocument(editor, nextDocument, {
         }
         Transforms.select(editor, slateSelection);
       });
-    });
+    };
+    if (undoable) HistoryEditor.withNewBatch(editor, applyReplacement);
+    else HistoryEditor.withoutSaving(editor, applyReplacement);
     replaced = true;
   } catch {
     ensureLegalEditorDocument(editor, { selectEnd });
   }
 
-  if (clearHistory && HistoryEditor.isHistoryEditor(editor)) {
+  if (clearHistory && !undoable && HistoryEditor.isHistoryEditor(editor)) {
     editor.history.undos.splice(0);
     editor.history.redos.splice(0);
   }
@@ -1259,10 +1264,10 @@ function RichComposerShell({
     getComposerContent() {
       return composerContentFromDocument(editor.children);
     },
-    setComposerContent(content, { selectEnd = true } = {}) {
+    setComposerContent(content, { selectEnd = true, undoable = false } = {}) {
       cancelFileTransfers();
       const document = composerDocumentFromContent(content, commandsRef.current, attachmentsRef.current);
-      replaceEditorDocument(editor, document, { selectEnd, clearHistory: true });
+      replaceEditorDocument(editor, document, { selectEnd, clearHistory: !undoable, undoable });
       publishDocument();
       publishSelection(editor.selection);
       return composerContentFromDocument(editor.children);

@@ -1,6 +1,7 @@
 #include "session_manager.hpp"
 #include "session_recent_activity.hpp"
 #include "turn_timing.hpp"
+#include "session_usage_ledger.hpp"
 #include "session_history_page.hpp"
 #include "utils/logger.hpp"
 #include "utils/scope_exit.hpp"
@@ -37,6 +38,7 @@ void SessionManager::record_recent_activity_locked(const ChatMessage& msg) {
     if (is_recent_user_message(msg)) {
         last_user_message_at_ = msg.timestamp.empty() ? SessionStorage::now_iso8601() : msg.timestamp;
         last_turn_outcome_.clear();
+        model_activated_at_ms_ = usage_now_unix_ms();
     } else if (is_turn_timing_message(msg)) {
         last_turn_outcome_ = decode_turn_timing(msg.metadata.at("turn_timing"))->status;
     }
@@ -56,7 +58,7 @@ void SessionManager::publish_display_snapshot_locked() {
     SessionDisplaySnapshot snapshot{
         pending_title_, title_source_, last_user_summary_, turn_count_,
         last_token_usage_, session_token_usage_, worktree_, swarm_mode_, agent_path_,
-        last_user_message_at_, last_turn_outcome_,
+        last_user_message_at_, last_turn_outcome_, model_activated_at_ms_,
     };
     std::lock_guard<std::mutex> lock(display_mu_);
     display_snapshot_ = std::move(snapshot);

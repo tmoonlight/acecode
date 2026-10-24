@@ -94,6 +94,11 @@ function fixture(workspaceHash = 'workspace-a') {
   });
   const scope = {
     ...refs, api, homeRefFromWorkspace, aiThemeCreationRef, scheduledTaskCreationRef, health: {}, homeComposerDraft, composerDraftFingerprint,
+    inputRef: { current: { replacePrompt(text) {
+      composer = text;
+      changeDraft(route.workspaceHash || '', text);
+      return true;
+    } } },
     createApi: () => api, refreshWorkspaceGitInfo: async () => {},
     navigateToRef: navigate, replaceActiveRef: navigate,
     rememberRecentExpert() {}, onRememberExpert() {},
@@ -134,7 +139,7 @@ function fixture(workspaceHash = 'workspace-a') {
       refs.composerValueRef.current = composer;
       refs.draftSessionKeyRef.current = draftSessionKey;
       const context = {
-        ...scope, sid, draftSessionKey, draftWorkspaceHash: workspace,
+        ...scope, sid, ref: route, draftSessionKey, draftWorkspaceHash: workspace,
         homeComposerDrafts: drafts,
         homeDraftWorkspaceHash: sid ? '' : homeDraftWorkspace,
         stagedExpertDraft: expertDispatchDraftFromRef(route),
@@ -182,6 +187,18 @@ function fixture(workspaceHash = 'workspace-a') {
 
 const expert = { id: 'expert-a', quick_prompts: ['first prompt', 'second prompt', 'third prompt'] };
 const cases = [
+  ['home intent replaces in the source workspace through the editor and is consumed only once', async () => {
+    const view = fixture();
+    view.navigate({ ...homeRefFromWorkspace({ workspaceHash: 'workspace-b' }), initialHomePrompt: 'next task' });
+    await nextTask(0); view.render();
+    assert.equal(view.text, 'next task');
+    assert.equal(view.route.workspaceHash, 'workspace-b');
+    assert.equal(view.route.initialHomePrompt, undefined);
+    assert.equal(view.drafts['workspace-a'], 'older draft A');
+    view.edit('edited next task'); view.render();
+    assert.equal(view.text, 'edited next task');
+    assert.equal(view.consumed, 1);
+  }],
   ['scheduled task callback prefills an isolated editable skill draft without creating or sending', () => {
     const view = fixture();
     view.createScheduled();

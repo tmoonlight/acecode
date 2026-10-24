@@ -215,16 +215,25 @@ SettingsMutationResult set_tui_theme(
 SettingsMutationResult set_upgrade_base_url(
     const std::string& base_url,
     const SettingsMutationOptions& options) {
+    return set_upgrade_settings(base_url, std::nullopt, options);
+}
+
+SettingsMutationResult set_upgrade_settings(
+    const std::optional<std::string>& base_url,
+    std::optional<bool> auto_update,
+    const SettingsMutationOptions& options) {
     return run_mutation(
-        [base_url](AppConfig& cfg, std::string& error) {
+        [base_url, auto_update](AppConfig& cfg, std::string& error) {
             const std::string normalized =
-                normalize_upgrade_base_url(base_url);
+                normalize_upgrade_base_url(base_url.value_or(cfg.upgrade.base_url));
             if (!is_valid_upgrade_base_url(normalized)) {
                 error = "upgrade service URL must use http or https";
                 return false;
             }
-            if (cfg.upgrade.base_url == normalized) return false;
+            const bool enabled = auto_update.value_or(cfg.upgrade.auto_update);
+            if (cfg.upgrade.base_url == normalized && cfg.upgrade.auto_update == enabled) return false;
             cfg.upgrade.base_url = normalized;
+            cfg.upgrade.auto_update = enabled;
             return true;
         },
         options);

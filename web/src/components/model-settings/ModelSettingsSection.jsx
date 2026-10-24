@@ -556,9 +556,6 @@ export function ModelSettingsSection({ onModelProfileUpdated, addOnly = false, o
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-[16px] font-semibold text-fg">模型</h2>
-            <p className="mt-1 max-w-[680px] text-[12px] leading-5 text-fg-mute">
-              快速找到、配置并维护聊天使用的模型连接。Provider 决定可用字段，预设保存后才会出现在会话模型选择器中。
-            </p>
             {catalogMeta && (
               <div className="mt-1 text-[10px] text-fg-mute">{`目录状态：${catalogMeta}`}</div>
             )}

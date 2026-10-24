@@ -30,6 +30,7 @@
 #include "session/session_client.hpp"
 #include "session_host/session_registry.hpp"
 #include "session_host/task_suggestion_service.hpp"
+#include "session_host/home_intent_prompts.hpp"
 #include "session/session_rewind.hpp"
 #include "session/session_serializer.hpp"
 #include "session/session_markdown_export.hpp"
@@ -245,6 +246,8 @@ struct UpdateJobStatus {
     std::string log_error;
     bool restart_required = false;
     bool cancel_requested = false;
+    bool automatic = false;
+    int automatic_failures = 0;
 };
 
 struct UpdateJobRuntime {
@@ -299,6 +302,7 @@ struct WebServer::Impl {
     std::shared_mutex& app_config_mu;
 
     std::atomic<bool> shutdown_requested{false};
+    HomeIntentPromptCache home_intent_prompts;
     mutable std::mutex listener_state_mu;
     std::string effective_bind;
     int effective_port = 0;
@@ -652,6 +656,7 @@ struct WebServer::Impl {
     void register_computer_use();
     void register_ios_simulator();
     void register_summary_generation();
+    void register_home_intent_prompts();
     void register_tool_rewrites();
     void register_agent_browser();
     void register_memory();

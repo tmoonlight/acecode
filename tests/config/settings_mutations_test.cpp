@@ -53,6 +53,25 @@ acecode::SavedModelDraft model_draft(std::string name) {
 
 } // namespace
 
+TEST(SettingsMutations, AutomaticUpdatePartialPatchPreservesUrlAndCanBeDisabled) {
+    SettingsMutationTempDir temp;
+    acecode::AppConfig live;
+    live.upgrade.base_url = "https://updates.example/";
+    live.upgrade.timeout_ms = 45000;
+    auto options = options_for(temp, &live);
+    ASSERT_TRUE(acecode::set_upgrade_settings(std::nullopt, true, options).ok);
+    EXPECT_TRUE(acecode::load_config_from_path(temp.config_path()).upgrade.auto_update);
+    ASSERT_TRUE(acecode::set_upgrade_base_url("https://new.example", options).ok);
+    EXPECT_TRUE(live.upgrade.auto_update);
+    ASSERT_TRUE(acecode::set_upgrade_settings(std::nullopt, false, options).ok);
+    auto saved = acecode::load_config_from_path(temp.config_path());
+    EXPECT_FALSE(saved.upgrade.auto_update);
+    EXPECT_EQ(saved.upgrade.base_url, "https://new.example/");
+    EXPECT_EQ(saved.upgrade.timeout_ms, 45000);
+    EXPECT_FALSE(acecode::set_upgrade_settings("ftp://invalid", true, options).ok);
+    EXPECT_FALSE(live.upgrade.auto_update);
+}
+
 TEST(SettingsMutations, ScalarPatchPreservesLatestUnrelatedFields) {
     SettingsMutationTempDir temp;
     acecode::AppConfig initial;

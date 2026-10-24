@@ -71,7 +71,7 @@ await run('production theme cards render only two custom management links with n
   assert.equal((html.match(/>导出主题<\/button>/g) || []).length, 1);
   assert.equal((html.match(/>删除主题<\/button>/g) || []).length, 1);
   assert.match(html, /使用中/);
-  assert.match(html, /AI主题/);
+  assert.match(html, /AI 创建主题/);
   const { LocalThemeCard } = components();
   const tree = LocalThemeCard({ entry: local, selected: true, onSelect() {}, onExport() {}, onDelete() {} });
   const buttons = descendants(tree).filter((node) => node.type === 'button');

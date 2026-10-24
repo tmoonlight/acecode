@@ -74,6 +74,7 @@ void route_exception_handler(crow::response& res) {
 
 WebServer::Impl::~Impl() {
     const bool already_stopping = shutdown_requested.exchange(true);
+    home_intent_prompts.shutdown();
     if (model_reasoning_sync) model_reasoning_sync->stop();
     if (global_session_search) global_session_search->stop();
     stop_side_chat_workers();
@@ -146,6 +147,7 @@ void WebServer::Impl::register_routes() {
     register_computer_use();
     register_ios_simulator();
     register_summary_generation();
+    register_home_intent_prompts();
     register_tool_rewrites();
     register_agent_browser();
     register_memory();
@@ -238,6 +240,7 @@ int WebServer::run() {
 
 void WebServer::stop() {
     if (!impl_) return;
+    impl_->home_intent_prompts.shutdown();
     if (impl_->shutdown_requested.exchange(true)) return;
     if (impl_->model_reasoning_sync) impl_->model_reasoning_sync->stop();
     impl_->stop_side_chat_workers();

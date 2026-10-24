@@ -514,6 +514,7 @@ struct RemoteControlConfig {
 struct UpgradeConfig {
     std::string base_url = "http://2017studio.imwork.net:82/aupdate/";
     int timeout_ms = 30000;
+    bool auto_update = false;
 };
 
 // Native session notification settings shared by supported application

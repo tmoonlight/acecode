@@ -16,6 +16,7 @@ inline SessionMeta catalog_meta_from_active(const SessionInfo& active) {
     meta.provider = active.provider;
     meta.model = active.model;
     meta.model_preset = active.model_name;
+    meta.model_activated_at_ms = active.model_activated_at_ms;
     meta.title = active.title;
     meta.title_source = active.title_source;
     meta.message_count = active.message_count;

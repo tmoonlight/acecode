@@ -96,11 +96,14 @@ run('Settings panel keeps normal caps and an exact 13px expanded inset', () => {
 run('upgrade URL and personalization editors save on blur without save buttons', () => {
   const settings = source('components/SettingsPage.jsx');
   const config = source('components/SettingsConfigSection.jsx');
+  const upgrade = source('components/UpgradeSettings.jsx');
+  const upgradeStore = source('lib/upgradeSettings.js');
   const personalization = between(settings, 'function SectionPersonalization(', '// ─── 技能');
 
-  assert.match(config, /onBlur=\{\(\) => \{ void saveUpgradeUrl\(\); \}\}/);
-  assert.match(config, /api\.setUpgradeConfig\(\{ base_url: baseUrl \}\)/);
-  assert.doesNotMatch(config, /onClick=\{saveUpgradeUrl\}/);
+  assert.match(config, /<UpgradeSettings/);
+  assert.match(upgrade, /onBlur=\{\(\) => \{ void store.save\(\); \}\}/);
+  assert.match(upgradeStore, /client\.setUpgradeConfig\(patch\)/);
+  assert.doesNotMatch(upgrade, />保存<|>应用<|>取消更改</);
   assert.match(personalization, /onBlur=\{\(\) => \{ void save\(\); \}\}/);
   assert.match(personalization, /api\.setCustomInstructions\(\{ text: candidate \}\)/);
   assert.doesNotMatch(personalization, /onClick=\{save\}/);

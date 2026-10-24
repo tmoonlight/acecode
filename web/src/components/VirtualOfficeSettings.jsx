@@ -12,9 +12,7 @@ export function VirtualOfficeSettings({ office }) {
       <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>
           <div className="text-[13px] font-normal text-fg">开启桌面宠物</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">
-            {office?.available ? '选择一位桌面伙伴，跟随您的会话一起工作。' : '桌面宠物支持 Windows 和 macOS 桌面版。'}
-          </div>
+          {!office?.available && <div className="text-[11px] text-fg-mute mt-0.5">桌面宠物支持 Windows 和 macOS 桌面版。</div>}
         </div>
         <Toggle ariaLabel="开启桌面宠物" on={!!office?.enabled}
           disabled={!office?.available || office.busy} onChange={office?.setEnabled} />
@@ -31,7 +29,6 @@ export function VirtualOfficeSettings({ office }) {
                 : <VsIcon name={pet.id === 'office' ? 'office' : 'smiley'} size={48} className="text-fg-mute" />}
             </div>
             <div className="text-[13px] font-normal text-fg">{pet.label}</div>
-            <div className="text-[11px] text-fg-mute mt-1">{pet.description}</div>
             {selected && <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-accent" />}
           </button>;
         })}

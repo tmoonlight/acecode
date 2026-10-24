@@ -55,7 +55,6 @@ export function ToolRewriteSettings({ onCheckUpdates }) {
             <div className="text-[14px] font-normal">工具重写</div>
             <HelpTip>某些特殊审计场景，您可能需要重写工具，请确保您知道您在做什么才勾选此选项。</HelpTip>
           </div>
-          <div className="text-[12px] text-fg-mute mt-0.5">开启工具重写，并对之后的模型请求生效</div>
         </div>
         <Toggle on={!!draft?.enabled} disabled={!snapshot || loading} ariaLabel="启用工具重写"
           onChange={(enabled) => { store.setEnabled(enabled); void store.flush(); }} />

@@ -109,7 +109,8 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
 }
 
 json upgrade_config_to_json(const UpgradeConfig& cfg) {
-    return json{{"base_url", normalize_upgrade_base_url(cfg.base_url)}};
+    return json{{"base_url", normalize_upgrade_base_url(cfg.base_url)},
+                {"auto_update", cfg.auto_update}};
 }
 
 json update_check_to_json(const acecode::upgrade::UpdateCheckResult& result) {

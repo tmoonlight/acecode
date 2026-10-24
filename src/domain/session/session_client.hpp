@@ -285,6 +285,7 @@ struct SessionInfo {
     std::string worktree_branch;
     std::string last_user_message_at;
     std::string last_turn_outcome;
+    std::int64_t model_activated_at_ms = 0;
 };
 
 // ----- AskUserQuestion 回应(client→server) -----
