@@ -61,6 +61,8 @@ public:
     std::string platform() const override { return options_.platform; }
     Capabilities capabilities() const override;
     void start(TransportCallbacks callbacks) override;
+    // 只作用于下一次 initialize;之后崩溃重启都按自动恢复报告。
+    void set_user_initiated(bool user_initiated) override;
     void stop() override;
     TransportStatus status() const override;
     SendResult send_text(const Address& to, const std::string& text, const nlohmann::json& reply_context) override;
@@ -120,10 +122,11 @@ private:
     std::vector<std::pair<std::string, nlohmann::json>> early_events_;  // 初始化完成前到达的事件
     std::mutex event_mu_;  // 串行化事件处理(reader 与初始化后的补发)
 
-    mutable std::mutex mu_;  // status_、capabilities_、settings_
+    mutable std::mutex mu_;  // status_、capabilities_、settings_、user_initiated_
     TransportStatus status_;
     Capabilities capabilities_;
     nlohmann::json settings_;
+    bool user_initiated_ = false;
 };
 
 } // namespace acecode::im::plugin

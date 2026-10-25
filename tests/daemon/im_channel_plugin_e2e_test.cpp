@@ -224,6 +224,8 @@ TEST_F(ImChannelPluginEndToEnd, SelfChatAndGroupDelegateRoundTrip) {
 
     ASSERT_TRUE(wait_until([&] { return platform().value("state", "") == "connected"; })) << platform().dump() << frames();
     EXPECT_EQ(platform().value("display_name", ""), "Zhang San");
+    // 用户在卡片上点了连接:插件收到的 initialize 带 reason=user。
+    EXPECT_NE(frames().find(R"("reason":"user")"), std::string::npos) << frames();
     ASSERT_TRUE(wait_until([&] { return model_saw("hello"); }));
     ASSERT_TRUE(wait_until([&] { return sent("private", "me", "你好,我在"); }));
 

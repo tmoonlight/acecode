@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 #ifndef _WIN32
 #include <pthread.h>
 #include <signal.h>
@@ -154,6 +155,11 @@ void PluginTransport::start(TransportCallbacks callbacks) {
     supervisor_ = acecode::JoiningThread(&PluginTransport::supervise_loop, this);
 }
 
+void PluginTransport::set_user_initiated(bool user_initiated) {
+    std::lock_guard<std::mutex> lock(mu_);
+    user_initiated_ = user_initiated;
+}
+
 void PluginTransport::stop() {
     if (!running_.load()) return;
     stopping_ = true;
@@ -241,14 +247,17 @@ bool PluginTransport::run_process_once() {
     writer_ = acecode::JoiningThread(&PluginTransport::write_loop, this);
 
     nlohmann::json settings;
+    bool user_initiated = false;
     {
         std::lock_guard<std::mutex> lock(mu_);
         settings = settings_;
+        user_initiated = std::exchange(user_initiated_, false);
     }
     try {
         const auto result = request("initialize",
                                     {{"protocol_version", kProtocolVersion},
                                      {"platform", options_.platform},
+                                     {"reason", user_initiated ? "user" : "auto"},
                                      {"settings", settings}},
                                     options_.initialize_timeout);
         const auto version = result.is_object() ? result.value("protocol_version", 0) : 0;

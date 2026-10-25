@@ -235,6 +235,28 @@ TEST_F(PluginTransportTest, CrashIsDetectedWhileAChildProcessHoldsThePipe) {
     EXPECT_EQ(start_count(), 2);
 }
 
+// 场景:用户在设置页打开通道(set_user_initiated(true)),插件第一次启动后崩溃被重启;另一次是自动恢复。
+// 期望:第一次 initialize 带 reason=user,崩溃重启后的 initialize 带 reason=auto;未设置时也是 auto。
+// 插件据此只在用户明确打开时重建自己的长连接,自动恢复时不去抢别处登录的账号。
+TEST_F(PluginTransportTest, InitializeReasonIsUserOnlyForTheFirstStartAfterTheUserConnects) {
+    PluginTransportOptions options;
+    options.platform = "example";
+    options.command = ACECODE_FAKE_CHANNEL_PLUGIN_PATH;
+    options.args = {"--log", path_to_utf8(dir / "frames.log"), "--counter", path_to_utf8(dir / "starts.log"),
+                    "--crash-times", "1", "--no-inbound"};
+    options.cwd = path_to_utf8(dir);
+    options.initial_backoff = std::chrono::milliseconds(50);
+    options.max_backoff = std::chrono::milliseconds(200);
+    transport = std::make_unique<PluginTransport>(std::move(options));
+    transport->set_user_initiated(true);
+    transport->start({});
+    ASSERT_TRUE(wait_until([this] { return transport->status().state == LinkState::Connected; }));
+    std::vector<std::string> reasons;
+    for (const auto& frame : read_log(dir / "frames.log"))
+        if (frame.value("method", std::string{}) == "initialize") reasons.push_back(frame["params"].value("reason", ""));
+    EXPECT_EQ(reasons, (std::vector<std::string>{"user", "auto"}));
+}
+
 // 场景:插件给的入站地址不合法(私聊 chat 与 sender 不同、缺 message_id)。
 // 期望:解析拒绝,不交给核心。
 TEST(PluginInboundParse, RejectsInvalidAddresses) {

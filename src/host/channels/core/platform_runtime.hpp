@@ -90,8 +90,8 @@ public:
     void publish_state();
 
 private:
-    // 以下两个只在持有 ops_mu_ 时调用。
-    void connect_locked();
+    // 以下两个只在持有 ops_mu_ 时调用。user_initiated:用户在设置页打开了通道。
+    void connect_locked(bool user_initiated = false);
     void disconnect_locked();
     void worker_loop();
     void try_takeover();

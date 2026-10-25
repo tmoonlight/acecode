@@ -63,7 +63,7 @@ them.
 
 | Method | Params | Result | Timeout |
 | --- | --- | --- | --- |
-| `initialize` | `protocol_version` (1), `platform`, `settings` | `protocol_version`, `capabilities` | 30 s |
+| `initialize` | `protocol_version` (1), `platform`, `reason`, `settings` | `protocol_version`, `capabilities` | 30 s |
 | `configure` | `settings` | `{}` | 10 s |
 | `send_text` | `address`, `text` (Markdown), `reply_context` | `outcome`: `sent` / `held` / `failed`, `error` | 60 s |
 | `send_file` | `address`, `path`, `name`, `mime_type`, `reply_context` | as `send_text` | 120 s |
@@ -71,6 +71,12 @@ them.
 | `action` | `name`, `args` | any object | 120 s |
 | `shutdown` | `{}` | `{}` | 3 s |
 | `set_typing` (notification) | `address`, `on` | none | — |
+
+`reason` is `user` when the user has just turned the card on, and `auto` when
+the daemon restores the connection at startup or restarts the process after a
+failure. A plugin that keeps a long-lived connection outside its own process can
+use `user` to open a fresh one, and should not take an account back from another
+client on `auto`.
 
 `settings` currently holds `watched_groups`: the group IDs the user wants
 delegated. Only emit group messages for these groups. `configure` sends the new

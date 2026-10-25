@@ -122,7 +122,7 @@ void PlatformRuntime::stop() {
     running_ = false;
 }
 
-void PlatformRuntime::connect_locked() {
+void PlatformRuntime::connect_locked(bool user_initiated) {
     {
         std::lock_guard<std::mutex> lock(mu_);
         if (transport_) return;
@@ -159,6 +159,7 @@ void PlatformRuntime::connect_locked() {
     callbacks.on_status = [ref = lifetime_.ref(*this), weak](const im::TransportStatus&) {
         ref.with([&weak](PlatformRuntime& runtime) { runtime.on_transport_status(weak); });
     };
+    transport->set_user_initiated(user_initiated);
     transport->start(std::move(callbacks));
     {
         std::lock_guard<std::mutex> lock(queue_mu_);
@@ -341,7 +342,7 @@ void PlatformRuntime::set_enabled(bool enabled) {
             // 鉴权失败等致命错误后已停止重试:再次打开开关即重新连接。
             const auto current = slot_->get();
             if (current && current->status().retry_stopped) disconnect_locked();
-            connect_locked();
+            connect_locked(true);
         } else {
             store_.update_config([](PlatformConfig& config) { config.enabled = false; });
             disconnect_locked();

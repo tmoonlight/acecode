@@ -109,6 +109,9 @@ public:
     virtual Capabilities capabilities() const = 0;
     // 非阻塞:启动内部线程后立即返回。重复调用无副作用。
     virtual void start(TransportCallbacks callbacks) = 0;
+    // start() 之前调用:这次连接是用户在设置页打开通道(true)还是启动时自动恢复(false)。
+    // 外部平台插件据此决定是否重建连接;内置平台不关心。
+    virtual void set_user_initiated(bool user_initiated) { (void)user_initiated; }
     // 阻塞直到内部线程全部退出;之后不再回调。
     virtual void stop() = 0;
     virtual TransportStatus status() const = 0;
