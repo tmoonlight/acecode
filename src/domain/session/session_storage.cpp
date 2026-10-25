@@ -815,6 +815,31 @@ SessionStorage::MetadataPage SessionStorage::list_session_metadata_page(
     return page;
 }
 
+std::vector<SessionStorage::MetaFileStamp> SessionStorage::list_meta_files(
+    const std::string& project_dir,
+    const std::function<bool()>& should_cancel) {
+    bool cancelled = false;
+    auto candidates = collect_meta_candidates(
+        path_from_utf8(project_dir), /*need_mtime=*/true, should_cancel, cancelled);
+    std::vector<MetaFileStamp> files;
+    files.reserve(candidates.size());
+    for (auto& candidate : candidates) {
+        MetaFileStamp file;
+        file.meta_path = path_to_utf8(candidate.path);
+        if (candidate.mtime != 0) file.modified_ms = file_time_ticks_to_unix_ms(candidate.mtime);
+        files.push_back(std::move(file));
+    }
+    return files;
+}
+
+std::int64_t SessionStorage::file_time_ticks_to_unix_ms(std::int64_t ticks) {
+    using namespace std::chrono;
+    const fs::file_time_type modified{fs::file_time_type::duration(ticks)};
+    const auto system_time = system_clock::now() +
+        duration_cast<system_clock::duration>(modified - fs::file_time_type::clock::now());
+    return duration_cast<milliseconds>(system_time.time_since_epoch()).count();
+}
+
 std::vector<SessionMeta> SessionStorage::list_sessions(
     const std::string& project_dir) {
     auto sessions = list_session_metadata(project_dir);

@@ -30,7 +30,7 @@ import { SettingsSearch, SettingsSearchResults } from './SettingsSearch.jsx';
 import { settingsSearchEntries, searchSettings, locateSetting, settingsSearchResultIndex } from '../lib/settingsSearch.js';
 import {
   AGENT_BROWSER_COOKIE_MODES,
-  agentBrowserCookieModeOption,
+  hasAgentBrowserCookieBridge,
   setAgentBrowserCookieMode,
 } from '../lib/agentBrowserCookieMode.js';
 import { useAgentBrowserCookieMode } from '../lib/useAgentBrowserCookieMode.js';
@@ -2575,6 +2575,8 @@ function SectionConnectors() {
 
 function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
   const nativeBrowserAvailable = typeof globalThis?.aceDesktop_agentBrowserGetState === 'function';
+  const [browserExpanded, setBrowserExpanded] = useState(false);
+  const browserConfigId = useId();
 
   return (
     <>
@@ -2582,21 +2584,24 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
 
       <div className="text-[14px] font-semibold mb-3">内置工具</div>
 
-      <div className="flex items-center gap-3 px-3.5 py-3 rounded-md bg-surface border border-border mb-2">
-        <div data-settings-surface="true" className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
-          <VsIcon name="globe" size={20} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-normal">Agent 浏览器</div>
-          <div className="text-[11px] text-fg-mute mt-0.5">
-            这是一个内嵌浏览器。
+      <div className="bg-surface border border-border mb-2">
+        <div className="flex items-center gap-3 px-3.5 py-3 border border-border">
+          <div data-settings-surface="true" className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
+            <VsIcon name="globe" size={20} />
           </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-normal">Agent 浏览器</div>
+            {!nativeBrowserAvailable && <div className="text-[11px] text-fg-mute mt-0.5">仅 Windows Desktop</div>}
+          </div>
+          <button type="button" className="px-1.5 py-0.5 text-[11px] hover:underline disabled:opacity-50"
+            disabled={!hasAgentBrowserCookieBridge()} aria-expanded={browserExpanded} aria-controls={browserConfigId}
+            onClick={() => setBrowserExpanded((value) => !value)}>{browserExpanded ? '收起' : '配置'}</button>
+          <span className="inline-flex w-9 h-5 items-center justify-center shrink-0 text-[11px] rounded-full border border-border bg-surface-alt text-fg-mute">
+            {nativeBrowserAvailable ? '可用' : '不可用'}
+          </span>
         </div>
-        <span className={`text-[11px] px-2 py-1 rounded-full border border-border bg-surface-alt ${nativeBrowserAvailable ? 'text-success' : 'text-fg-mute'}`}>
-          {nativeBrowserAvailable ? '可用' : '仅 Windows Desktop'}
-        </span>
+        <AgentBrowserCookieSettings id={browserConfigId} expanded={browserExpanded} />
       </div>
-      <AgentBrowserCookieSettings />
 
       <ImageGenerationSettings onCheckUpdates={onCheckUpdates} />
       <SpeechRecognitionSettings />
@@ -2611,64 +2616,42 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
 
 // Agent 浏览器「保留 Cookie」三档,与浏览器工具栏「⋮」菜单共用同一个 store。
 // 只在 Desktop 提供 cookie bridge 时显示。
-function AgentBrowserCookieSettings() {
+function AgentBrowserCookieSettings({ id, expanded }) {
   const cookie = useAgentBrowserCookieMode();
-  if (!cookie.supported) return null;
+  const radioName = useId();
+  if (!cookie.supported || !expanded) return null;
   const currentMode = cookie.pending || cookie.mode;
 
-  const choose = async (mode) => {
+  const choose = async (mode, input) => {
     if (mode === cookie.mode || cookie.pending) return;
-    const option = agentBrowserCookieModeOption(mode);
     const result = await setAgentBrowserCookieMode(mode);
+    requestAnimationFrame(() => {
+      const doc = input?.ownerDocument;
+      if (input?.isConnected && doc.hasFocus() && doc.activeElement === doc.body) {
+        input.focus({ preventScroll: true });
+      }
+    });
     if (result?.ok !== true) {
       toast({ kind: 'err', text: result?.error || '无法保存 Cookie 设置' });
       return;
     }
-    toast({
-      kind: 'ok',
-      text: mode === 'until_quit'
-        ? `Cookie 已改为「${option.label}」,已保存的 Cookie 已清除`
-        : `Cookie 已改为「${option.label}」`,
-    });
   };
 
   return (
-    <div className="mb-4 pl-3.5">
-      <div className="text-[13px] font-medium mt-1 mb-0.5">保留 Cookie</div>
-      <p className="text-[11px] text-fg-mute mb-2">
-        Agent 浏览器里登录网站后,登录状态保存多久、各会话之间是否共用。切到「退出时清除」会删除已保存的 Cookie。
-      </p>
-      <div role="radiogroup" aria-label="保留 Cookie">
-        {AGENT_BROWSER_COOKIE_MODES.map((option) => {
-          const selected = option.value === currentMode;
-          return (
-            <div
-              key={option.value}
-              role="radio"
-              aria-checked={selected}
-              aria-disabled={cookie.pending ? true : undefined}
-              tabIndex={0}
-              onClick={() => void choose(option.value)}
-              onKeyDown={(event) => {
-                if (event.key === ' ' || event.key === 'Enter') {
-                  event.preventDefault();
-                  void choose(option.value);
-                }
-              }}
-              className={clsx(
-                'flex items-center justify-between px-3.5 py-2.5 rounded-md border mb-2 cursor-pointer hover:bg-surface-hi transition',
-                selected ? 'border-accent bg-accent-bg' : 'border-border bg-surface',
-              )}
-            >
-              <div>
-                <div className="text-[13px] font-medium">{option.label}</div>
-                <div className="text-[11px] text-fg-mute mt-0.5">{option.hint}</div>
-              </div>
-              {selected && <span className="w-2.5 h-2.5 rounded-full bg-accent shrink-0" />}
-            </div>
-          );
-        })}
-      </div>
+    <div id={id} className="border-t border-border py-3" aria-busy={!!cookie.pending}>
+      <fieldset disabled={!!cookie.pending} role="radiogroup" aria-label="保留 Cookie" aria-describedby={`${id}-hint`} className="min-w-0">
+        <legend className="text-[13px] font-normal mb-1">保留 Cookie</legend>
+        <p id={`${id}-hint`} className="text-[11px] text-fg-mute mb-2">
+          切换到“退出时清除”会立即清除已保存的 Cookie。
+        </p>
+        {AGENT_BROWSER_COOKIE_MODES.map((option) => (
+          <label key={option.value} className="flex items-center gap-2 py-1.5 text-[13px] font-normal cursor-pointer">
+            <input type="radio" name={radioName} value={option.value} checked={option.value === currentMode}
+              onChange={(event) => void choose(option.value, event.currentTarget)} className="w-4 h-4 shrink-0 accent-accent" />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </fieldset>
     </div>
   );
 }

@@ -551,4 +551,11 @@ void GlobalSessionSearchService::request_discovery() {
     impl_->index.request_discovery();
 }
 
+std::optional<std::vector<GlobalSessionCatalogEntry>>
+GlobalSessionSearchService::cached_project_entries(
+    const std::string& project_dir,
+    std::int64_t signature) const {
+    return impl_->index.cached_project_entries(project_dir, signature);
+}
+
 } // namespace acecode

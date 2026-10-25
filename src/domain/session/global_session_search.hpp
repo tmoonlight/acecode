@@ -66,6 +66,11 @@ public:
     void invalidate_project(const std::string& workspace_hash);
     void request_discovery();
 
+    // Prewarmed rows of one project; see GlobalSessionCatalogIndex.
+    std::optional<std::vector<GlobalSessionCatalogEntry>> cached_project_entries(
+        const std::string& project_dir,
+        std::int64_t signature) const;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

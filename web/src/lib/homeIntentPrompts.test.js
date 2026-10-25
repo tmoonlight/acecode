@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   DEFAULT_HOME_INTENT_PROMPTS, HOME_INTENT_CATEGORIES, HOME_INTENT_REFRESH_MS,
-  createHomeIntentController, homeIntentPromptRef,
+  createHomeIntentController, homeIntentErrorMessage, homeIntentPromptRef,
   isHomeIntentRefreshShortcut, normalizeHomeIntentPrompts,
 } from './homeIntentPrompts.js';
 import { homeWorkspaceOptionForHash } from './homeWorkspaceSelection.js';
@@ -43,6 +43,35 @@ await test('four editable defaults and the original SVG mapping', () => {
   assert.deepEqual(DEFAULT_HOME_INTENT_PROMPTS.map((x) => HOME_INTENT_CATEGORIES[x.category].icon),
     ['edit', 'searchSparkle', 'run', 'lightbulb']);
   assert.ok(DEFAULT_HOME_INTENT_PROMPTS.every((item) => item.prompt.length > 30));
+});
+
+// 场景：模型建议生成失败时首页展示默认卡片。
+// 期望：每张默认卡片都有标题下方的灰色说明。
+// 回归：说明字段曾被删掉，首页卡片只剩粗体标题。
+await test('default cards keep a one-line description under the title', () => {
+  for (const item of DEFAULT_HOME_INTENT_PROMPTS) {
+    assert.equal(typeof item.description, 'string');
+    assert.ok(item.description.trim().length > 0, item.title);
+    assert.notEqual(item.description, item.title);
+  }
+});
+
+// 场景：手动按 Ctrl+Y 刷新失败，失败可能来自服务端错误码、请求超时或旧版 daemon 没有该接口。
+// 期望：每种原因给出能指导下一步的提示；只有模型请求失败时才让用户检查模型。
+// 回归：曾经所有失败都提示「请检查模型配置」，实际多为超时或 daemon 过旧(404)。
+await test('failure messages follow the error code', () => {
+  const messages = ['TIMEOUT', 'MODEL_UNAVAILABLE', 'GENERATION_FAILED', 'INVALID_RESPONSE']
+    .map((code) => homeIntentErrorMessage(code));
+  assert.equal(new Set(messages).size, 4);
+  assert.ok(messages[0].includes('超时'));
+  assert.ok(messages[1].includes('摘要生成'));
+  assert.equal(homeIntentErrorMessage({ status: 408, code: 'TIMEOUT' }), messages[0]);
+  const stale = homeIntentErrorMessage({ status: 404, message: 'HTTP 404: 404 Not Found' });
+  assert.ok(stale.includes('重启'));
+  const unknown = homeIntentErrorMessage(new Error('offline'));
+  assert.ok(!messages.includes(unknown) && unknown !== stale);
+  assert.equal(homeIntentErrorMessage('__proto__'), unknown);
+  assert.ok(messages.slice(0, 2).concat(stale, unknown).every((text) => !text.includes('检查')));
 });
 
 await test('validates generated categories and explicit workspace identity', () => {
@@ -112,7 +141,7 @@ await test('sleep wake catches up once and errors preserve earlier cards', async
   f.api.refreshHomeIntentPrompts = async () => { throw new Error('offline'); };
   await f.controller.refresh();
   assert.equal(f.controller.snapshot().suggestions[0].prompt, generated.prompt);
-  assert.deepEqual(f.errors, ['offline']);
+  assert.deepEqual(f.errors.map((error) => error.message), ['offline']);
   await f.controller.wake();
   assert.equal(f.errors.length, 1);
   f.controller.dispose();
@@ -136,6 +165,22 @@ await test('dispose aborts reads and ignores their late results', async () => {
   resolve(f.response()); await pending;
   assert.equal(f.controller.snapshot().suggestions.length, 0);
   assert.equal(f.timers.size, 0);
+});
+
+// 场景：另一个窗口发起的生成一直没结束，本窗口手动刷新后持续轮询。
+// 期望：服务端两段预算(找会话 30 秒 + 模型 60 秒)之内不判超时；超过 120 秒后
+// 上报带 TIMEOUT 码的错误，提示文案与服务端超时一致。
+await test('manual refresh polling past the limit reports a timeout code', async () => {
+  const f = fixture();
+  f.api.refreshHomeIntentPrompts = async () => ({ ...f.response(), refreshing: true });
+  f.api.getHomeIntentPrompts = async () => ({ ...f.response(), refreshing: true });
+  await f.controller.refresh();
+  for (let i = 0; i < 62; i += 1) await f.tick(1500);
+  assert.equal(f.errors.length, 0);
+  for (let i = 0; i < 30 && !f.errors.length; i += 1) await f.tick(1500);
+  assert.equal(f.errors.length, 1);
+  assert.equal(homeIntentErrorMessage(f.errors[0]), homeIntentErrorMessage('TIMEOUT'));
+  f.controller.dispose();
 });
 
 await test('manual refresh reports a failure delivered by another windows pending request', async () => {

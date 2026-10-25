@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiConnectionScope } from './api.js';
-import { createHomeIntentController, isHomeIntentRefreshShortcut } from './homeIntentPrompts.js';
+import { createHomeIntentController, homeIntentErrorMessage, isHomeIntentRefreshShortcut } from './homeIntentPrompts.js';
 import { toast } from '../components/Toast.jsx';
 
 export function useHomeIntentPrompts(api, enabled) {
@@ -10,7 +10,7 @@ export function useHomeIntentPrompts(api, enabled) {
     if (!enabled) return undefined;
     setState({ suggestions: [] });
     const controller = createHomeIntentController({ api, onChange: setState,
-      onError: () => toast({ kind: 'err', text: '主页提示刷新失败，请检查模型配置后按 Ctrl+Y 重试' }) });
+      onError: (error) => toast({ kind: 'err', text: homeIntentErrorMessage(error) }) });
     const wake = () => { if (!document.hidden) void controller.wake(); };
     // TODO(home-intent-prompts): Remove Ctrl+Y after validating intent generation.
     // Capture before Slate/browser redo; one key press must not edit the draft.

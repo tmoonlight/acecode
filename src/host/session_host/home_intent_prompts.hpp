@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -13,11 +14,60 @@
 namespace acecode {
 
 constexpr std::int64_t kHomeIntentRefreshMs = 30 * 60 * 1000;
+// A transcript's last user message is never meaningfully newer than its metadata
+// update; persisted data shows one-second rounding differences, so allow more.
+constexpr std::int64_t kHomeIntentActivitySlackMs = 10 * 60 * 1000;
 
+// Reads the last user-message time of a session whose metadata predates
+// last_user_message_at ("" when it has none). nullopt stops the ranking (cancelled).
+using HomeIntentActivityReader =
+    std::function<std::optional<std::string>(const GlobalSessionCatalogEntry&)>;
+
+// Without a reader such sessions count as inactive. With one, a session is read
+// only while its metadata update time could still place it in the needed prefix.
 std::vector<GlobalSessionCatalogEntry> select_home_intent_sessions(
-    const GlobalSessionCatalog& catalog);
+    const GlobalSessionCatalog& catalog, const HomeIntentActivityReader& read = {});
 std::optional<ModelProfile> resolve_home_intent_model(
-    const AppConfig& config, const GlobalSessionCatalog& catalog);
+    const AppConfig& config, const GlobalSessionCatalog& catalog,
+    const HomeIntentActivityReader& read = {});
+
+// Finding and reading sessions has its own budget, so a cold directory scan
+// cannot spend the time reserved for the model call.
+constexpr std::int64_t kHomeIntentPrepareBudgetMs = 30 * 1000;
+constexpr std::int64_t kHomeIntentModelBudgetMs = 60 * 1000;
+
+// Last-write times below are Unix ms. Metadata is replaced by rename, so no
+// timestamp stored under a directory or in a file is newer; 0 means unknown,
+// which is loaded before ranking can stop.
+struct HomeIntentSessionFile {
+    std::int64_t modified_ms = 0;
+    std::function<std::optional<GlobalSessionCatalogEntry>()> read;
+};
+
+struct HomeIntentProjectContents {
+    std::vector<GlobalSessionCatalogEntry> rows; // Already known, e.g. prewarmed index rows.
+    std::vector<HomeIntentSessionFile> files;    // Read only while they can still matter.
+};
+
+struct HomeIntentProject {
+    std::int64_t modified_ms = 0;
+    std::function<HomeIntentProjectContents()> open; // Must not throw across threads.
+};
+
+struct HomeIntentCandidates {
+    GlobalSessionCatalog catalog; // Rows that were loaded; the rest were ruled out or not reached.
+    std::size_t loaded_projects = 0;
+    std::size_t read_files = 0;
+    bool settled = false;         // False when stopped before everything unloaded was ruled out.
+};
+
+// Opens projects and reads metadata files newest first, one parallel batch at a
+// time, until nothing unloaded can hold one of the five sources or a newer
+// fallback model.
+HomeIntentCandidates load_home_intent_candidates(
+    const AppConfig& config, std::vector<HomeIntentProject> projects,
+    const HomeIntentActivityReader& read, const std::function<bool()>& stopped,
+    std::size_t batch_size = 8);
 nlohmann::json home_intent_source(const GlobalSessionCatalogEntry& entry);
 std::vector<ChatMessage> home_intent_messages(const nlohmann::json& sources,
                                             const std::string& locale);

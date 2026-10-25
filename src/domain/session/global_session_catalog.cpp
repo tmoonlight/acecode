@@ -114,6 +114,50 @@ ProjectDiscoveryResult discover_project_paths(
     return result;
 }
 
+// The workspace a project directory describes, read once per project.
+struct ProjectWorkspace {
+    std::string project_dir;
+    std::string workspace_hash;
+    bool known = false;
+    std::string cwd;
+    std::string name;
+    bool visible = false;
+};
+
+ProjectWorkspace project_workspace(const fs::path& project_path) {
+    ProjectWorkspace result;
+    result.project_dir = path_to_utf8(project_path);
+    result.workspace_hash = path_to_utf8(project_path.filename());
+    auto workspace = desktop::load_workspace_metadata(
+        path_to_utf8(project_path.parent_path()), result.workspace_hash);
+    if (workspace &&
+        desktop::workspace_hash_matches_cwd(result.workspace_hash, workspace->cwd)) {
+        result.known = true;
+        result.cwd = workspace->cwd;
+        result.name = workspace->name;
+        result.visible = workspace->desktop_visible;
+    }
+    return result;
+}
+
+GlobalSessionCatalogEntry project_entry(const ProjectWorkspace& workspace,
+                                        SessionMeta meta) {
+    GlobalSessionCatalogEntry entry;
+    entry.project_dir = workspace.project_dir;
+    entry.workspace_hash = meta.no_workspace ? std::string{} : workspace.workspace_hash;
+    entry.meta = std::move(meta);
+    if (!entry.meta.no_workspace) {
+        entry.workspace_cwd = workspace.known && !workspace.cwd.empty()
+            ? workspace.cwd
+            : entry.meta.cwd;
+        entry.workspace_name = workspace.known && !workspace.name.empty()
+            ? workspace.name
+            : desktop::default_workspace_name(entry.workspace_cwd);
+        entry.workspace_visible = workspace.known && workspace.visible;
+    }
+    return entry;
+}
+
 ProjectScanResult scan_project(const fs::path& project_path,
                                const GlobalSessionCatalogOptions& options) {
     ProjectScanResult result;
@@ -121,14 +165,9 @@ ProjectScanResult scan_project(const fs::path& project_path,
         result.cancelled = true;
         return result;
     }
-    const std::string project_dir = path_to_utf8(project_path);
-    const std::string workspace_hash = path_to_utf8(project_path.filename());
-    const std::string projects_dir = path_to_utf8(project_path.parent_path());
-    auto workspace = desktop::load_workspace_metadata(projects_dir, workspace_hash);
-    if (workspace &&
-        !desktop::workspace_hash_matches_cwd(workspace_hash, workspace->cwd)) {
-        workspace.reset();
-    }
+    const auto workspace = project_workspace(project_path);
+    const std::string& project_dir = workspace.project_dir;
+    const std::string& workspace_hash = workspace.workspace_hash;
 
     std::vector<SessionMeta> metas;
     try {
@@ -198,19 +237,7 @@ ProjectScanResult scan_project(const fs::path& project_path,
             continue;
         }
 
-        GlobalSessionCatalogEntry entry;
-        entry.project_dir = project_dir;
-        entry.workspace_hash = effective_hash;
-        entry.meta = std::move(meta);
-        if (!entry.meta.no_workspace) {
-            entry.workspace_cwd = workspace && !workspace->cwd.empty()
-                ? workspace->cwd
-                : entry.meta.cwd;
-            entry.workspace_name = workspace && !workspace->name.empty()
-                ? workspace->name
-                : desktop::default_workspace_name(entry.workspace_cwd);
-            entry.workspace_visible = workspace && workspace->desktop_visible;
-        }
+        auto entry = project_entry(workspace, std::move(meta));
         auto match = matches_by_id.find(entry.meta.id);
         if (match != matches_by_id.end()) {
             entry.content_match = std::move(match->second);
@@ -987,6 +1014,90 @@ GlobalSessionCatalogIndex::find_project_session(
         if (entry.meta.id == session_id) return entry;
     }
     return std::nullopt;
+}
+
+std::optional<std::vector<GlobalSessionCatalogEntry>>
+GlobalSessionCatalogIndex::cached_project_entries(
+    const std::string& project_dir,
+    std::int64_t signature) const {
+    std::shared_ptr<const ProjectScanResult> shard;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mu);
+        // A changed directory is queued as dirty by the next discovery; until
+        // then the recorded signature differs from the caller's fresh listing.
+        if (signature == 0 || impl_->dirty_projects.count(project_dir)) return std::nullopt;
+        const auto recorded = impl_->project_signatures.find(project_dir);
+        if (recorded == impl_->project_signatures.end() || recorded->second != signature) {
+            return std::nullopt;
+        }
+        const auto found = impl_->shards.find(project_dir);
+        if (found == impl_->shards.end() || !found->second) return std::nullopt;
+        shard = found->second;
+    }
+    return shard->entries;
+}
+
+std::vector<GlobalSessionProject> discover_global_session_projects(
+    const std::string& projects_dir,
+    const std::function<bool()>& should_cancel) {
+    auto discovery = discover_project_paths(projects_dir, should_cancel);
+    std::vector<GlobalSessionProject> projects;
+    projects.reserve(discovery.paths.size());
+    for (const auto& path : discovery.paths) {
+        GlobalSessionProject project;
+        project.project_dir = path_to_utf8(path);
+        const auto signature = discovery.directory_signatures.find(project.project_dir);
+        if (signature != discovery.directory_signatures.end()) {
+            project.signature = signature->second;
+            project.modified_ms = SessionStorage::file_time_ticks_to_unix_ms(signature->second);
+        }
+        projects.push_back(std::move(project));
+    }
+    return projects;
+}
+
+std::vector<GlobalSessionCatalogEntry> scan_global_session_project(
+    const std::string& project_dir,
+    const std::function<bool()>& should_cancel) {
+    GlobalSessionCatalogOptions options;
+    options.should_cancel = should_cancel;
+    auto result = scan_project(path_from_utf8(project_dir), options);
+    if (result.cancelled) return {};
+    return std::move(result.entries);
+}
+
+GlobalSessionProjectReader::GlobalSessionProjectReader(const std::string& project_dir) {
+    const auto workspace = project_workspace(path_from_utf8(project_dir));
+    project_dir_ = workspace.project_dir;
+    workspace_hash_ = workspace.workspace_hash;
+    workspace_known_ = workspace.known;
+    workspace_cwd_ = workspace.cwd;
+    workspace_name_ = workspace.name;
+    workspace_visible_ = workspace.visible;
+}
+
+std::vector<SessionStorage::MetaFileStamp> GlobalSessionProjectReader::list(
+    const std::function<bool()>& should_cancel) const {
+    return SessionStorage::list_meta_files(project_dir_, should_cancel);
+}
+
+std::optional<GlobalSessionCatalogEntry> GlobalSessionProjectReader::read(
+    const std::string& meta_path) const {
+    SessionMeta meta;
+    try {
+        meta = SessionStorage::read_meta(meta_path);
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (meta.id.empty() || meta.archived || !meta.parent_session_id.empty()) return std::nullopt;
+    ProjectWorkspace workspace;
+    workspace.project_dir = project_dir_;
+    workspace.workspace_hash = workspace_hash_;
+    workspace.known = workspace_known_;
+    workspace.cwd = workspace_cwd_;
+    workspace.name = workspace_name_;
+    workspace.visible = workspace_visible_;
+    return project_entry(workspace, std::move(meta));
 }
 
 } // namespace acecode

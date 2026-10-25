@@ -749,7 +749,8 @@ export function createApi(base = null) {
       `/api/ios-simulator/devices/${encodeURIComponent(udid)}/screenshot`, undefined, base,
       { responseType: 'blob', timeoutMs: 45000 }),
     getHomeIntentPrompts: (opts = {}) => request('GET', '/api/home/intent-prompts', undefined, base, opts),
-    refreshHomeIntentPrompts: (force = false, opts = {}) => request('POST', '/api/home/intent-prompts', { force }, base, { timeoutMs: 75000, ...opts }),
+    // 服务端:找会话最多 30 秒 + 模型调用单独 60 秒。
+    refreshHomeIntentPrompts: (force = false, opts = {}) => request('POST', '/api/home/intent-prompts', { force }, base, { timeoutMs: 110000, ...opts }),
     getSummaryGeneration: ()         => request('GET', '/api/config/summary-generation', undefined, base),
     setSummaryGeneration: (config)   => request('PUT', '/api/config/summary-generation', config, base, { keepalive: true }),
     setImageGeneration: (config)     => request('PUT', '/api/config/image-generation', config, base, { keepalive: true }),

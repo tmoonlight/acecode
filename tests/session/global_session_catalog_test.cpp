@@ -433,6 +433,66 @@ TEST(GlobalSessionCatalogIndex, RefreshesOnlyInvalidatedProjectShard) {
     index.stop();
 }
 
+// 场景：首页任务建议按目录修改时间由新到旧查找会话，并复用后台目录索引已经扫过的项目，
+// 避免每次刷新重扫全部项目目录(本机 2.4 万个，冷缓存要 30 多秒)。
+// 期望：目录列表按修改时间从新到旧，带可与索引对照的签名和 Unix 毫秒时间；单项目扫描与
+// 索引口径一致(不含归档会话)；只有签名与索引记录一致时才返回索引里的行，目录在索引
+// 之后又被写过(签名不同)、签名未知或索引尚未扫描时都不复用。
+TEST(GlobalSessionCatalogIndex, CachedProjectRowsRequireMatchingDirectorySignature) {
+    TempProjectsRoot root;
+    const auto older = project(root, "C:/projects/cache-older");
+    const auto newer = project(root, "C:/projects/cache-newer");
+    seed_meta(older, "older-session", "2026-08-23T01:00:00Z");
+    seed_meta(older, "older-archived", "2026-08-23T01:30:00Z", true);
+    seed_meta(newer, "newer-session", "2026-08-23T02:00:00Z");
+    const auto file_now = fs::file_time_type::clock::now();
+    fs::last_write_time(older.path, file_now - std::chrono::hours(2));
+    fs::last_write_time(newer.path, file_now - std::chrono::hours(1));
+
+    const auto listed = acecode::discover_global_session_projects(root.path().string());
+    ASSERT_EQ(listed.size(), 2u);
+    EXPECT_EQ(fs::path(listed[0].project_dir).filename().string(), newer.hash);
+    EXPECT_EQ(fs::path(listed[1].project_dir).filename().string(), older.hash);
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    EXPECT_NEAR(static_cast<double>(now_ms - listed[0].modified_ms), 3600000.0, 60000.0);
+    EXPECT_NEAR(static_cast<double>(now_ms - listed[1].modified_ms), 7200000.0, 60000.0);
+
+    const auto scanned = acecode::scan_global_session_project(listed[1].project_dir);
+    ASSERT_EQ(scanned.size(), 1u);
+    EXPECT_EQ(scanned[0].meta.id, "older-session");
+
+    // 逐个文件读取(大目录只读最新几份)与整目录扫描得到同样的行：归档会话同样不返回。
+    const acecode::GlobalSessionProjectReader reader(listed[1].project_dir);
+    const auto files = reader.list();
+    ASSERT_EQ(files.size(), 2u);
+    std::vector<acecode::GlobalSessionCatalogEntry> read_rows;
+    for (const auto& file : files) {
+        EXPECT_GT(file.modified_ms, now_ms - 600000);
+        EXPECT_LE(file.modified_ms, now_ms + 1000);
+        if (auto row = reader.read(file.meta_path)) read_rows.push_back(std::move(*row));
+    }
+    ASSERT_EQ(read_rows.size(), 1u);
+    EXPECT_EQ(read_rows[0].meta.id, scanned[0].meta.id);
+    EXPECT_EQ(read_rows[0].workspace_hash, scanned[0].workspace_hash);
+    EXPECT_EQ(read_rows[0].workspace_cwd, scanned[0].workspace_cwd);
+    EXPECT_EQ(read_rows[0].workspace_name, scanned[0].workspace_name);
+    EXPECT_EQ(read_rows[0].project_dir, scanned[0].project_dir);
+
+    acecode::GlobalSessionCatalogIndex index(root.path().string());
+    EXPECT_FALSE(index.cached_project_entries(listed[1].project_dir, listed[1].signature));
+    ASSERT_TRUE(index.attach_request("cache-search"));
+    index.start();
+    wait_for_index(index, [](const auto& snapshot) { return snapshot.progress.complete; });
+    const auto cached = index.cached_project_entries(listed[1].project_dir, listed[1].signature);
+    ASSERT_TRUE(cached);
+    ASSERT_EQ(cached->size(), 1u);
+    EXPECT_EQ((*cached)[0].meta.id, "older-session");
+    EXPECT_FALSE(index.cached_project_entries(listed[1].project_dir, listed[1].signature + 1));
+    EXPECT_FALSE(index.cached_project_entries(listed[1].project_dir, 0));
+    index.stop();
+}
+
 TEST(GlobalSessionCatalogIndex, PreservesGlobalFilteringAndActiveMerge) {
     TempProjectsRoot root;
     const auto hidden = project(root, "C:/projects/index-hidden", "Hidden", false);

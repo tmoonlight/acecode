@@ -87,6 +87,13 @@ struct GlobalSessionCatalogSelection {
     bool truncated = false;
 };
 
+// A project directory as listed, before any of its metadata is read.
+struct GlobalSessionProject {
+    std::string project_dir;
+    std::int64_t signature = 0;   // Last-write ticks; the index cache key, 0 when unknown.
+    std::int64_t modified_ms = 0; // The same time in Unix ms, 0 when unknown.
+};
+
 struct GlobalSessionCatalogProjectSnapshot {
     GlobalSessionCatalogProgress progress;
     std::uint64_t project_generation = 0;
@@ -139,6 +146,11 @@ public:
     std::optional<GlobalSessionCatalogEntry> find_project_session(
         const std::string& project_dir,
         const std::string& session_id) const;
+    // Committed top-level, non-archived rows of one project, only when the
+    // index's scan still matches this directory signature (not dirty/stale).
+    std::optional<std::vector<GlobalSessionCatalogEntry>> cached_project_entries(
+        const std::string& project_dir,
+        std::int64_t signature) const;
 
 private:
     struct Impl;
@@ -157,5 +169,37 @@ GlobalSessionCatalog build_global_session_catalog(
     const std::string& projects_dir,
     const std::vector<SessionInfo>& active_sessions = {},
     const GlobalSessionCatalogOptions& options = {});
+
+// One directory listing: project paths, most recently modified first. Session
+// metadata is replaced by rename, so a directory's last-write time is never
+// older than a timestamp persisted inside it.
+std::vector<GlobalSessionProject> discover_global_session_projects(
+    const std::string& projects_dir,
+    const std::function<bool()>& should_cancel = {});
+
+// Top-level, non-archived rows of one project, as the index stores them.
+// Returns no rows when cancelled part-way.
+std::vector<GlobalSessionCatalogEntry> scan_global_session_project(
+    const std::string& project_dir,
+    const std::function<bool()>& should_cancel = {});
+
+// The rows scan_global_session_project returns, read one metadata file at a
+// time, so a caller can stop after the newest files of a large project.
+class GlobalSessionProjectReader {
+public:
+    explicit GlobalSessionProjectReader(const std::string& project_dir);
+    std::vector<SessionStorage::MetaFileStamp> list(
+        const std::function<bool()>& should_cancel = {}) const;
+    // nullopt for unreadable, archived or child sessions.
+    std::optional<GlobalSessionCatalogEntry> read(const std::string& meta_path) const;
+
+private:
+    std::string project_dir_;
+    std::string workspace_hash_;
+    bool workspace_known_ = false;
+    std::string workspace_cwd_;
+    std::string workspace_name_;
+    bool workspace_visible_ = false;
+};
 
 } // namespace acecode

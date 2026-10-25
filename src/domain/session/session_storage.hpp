@@ -215,6 +215,20 @@ public:
         const std::function<bool(const SessionMeta&)>& accept = {},
         const std::function<bool()>& should_cancel = {});
 
+    // A canonical .meta.json listed without opening it. Metadata is replaced by
+    // rename on every write, so no timestamp stored inside is newer than
+    // modified_ms (Unix ms, 0 when unknown).
+    struct MetaFileStamp {
+        std::string meta_path;
+        std::int64_t modified_ms = 0;
+    };
+    static std::vector<MetaFileStamp> list_meta_files(
+        const std::string& project_dir,
+        const std::function<bool()>& should_cancel = {});
+
+    // std::filesystem last-write ticks as Unix ms (C++17 has no portable cast).
+    static std::int64_t file_time_ticks_to_unix_ms(std::int64_t ticks);
+
     // Canonical session file record used by resume/web history paths.
     struct SessionFileCandidate {
         std::string jsonl_path;

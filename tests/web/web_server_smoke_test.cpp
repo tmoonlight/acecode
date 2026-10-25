@@ -10839,6 +10839,58 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
     EXPECT_TRUE(fx.registry->list_active().empty());
 }
 
+// 场景：会话元数据是旧格式(没有 last_user_message_at)，最近一条用户消息只记在 JSONL 里。
+// 期望：刷新接口经按需读取拿到活动时间，照常把这些会话按活动时间排序后发给模型。
+// 回归：旧实现在请求里补算全部旧会话，真实数据(2.8 万个)在 60 秒内读不完，一直 TIMEOUT。
+TEST(WebServerHttp, HomeIntentPromptsReadLegacyActivityFromTranscript) {
+    std::mutex request_mutex;
+    std::vector<json> requests;
+    LocalUpdateServer upstream([&](httplib::Server& server) {
+        server.Post("/v1/chat/completions", [&](const httplib::Request& request, httplib::Response& response) {
+            {
+                std::lock_guard<std::mutex> lock(request_mutex);
+                requests.push_back(json::parse(request.body));
+            }
+            response.set_content(json{{"choices", json::array({
+                {{"message", {{"role", "assistant"}, {"content", R"({"suggestions":[]})"}}}, {"finish_reason", "stop"}}
+            })}}.dump(), "application/json");
+        });
+    });
+    WebServerFixture fx;
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        acecode::ModelProfile profile;
+        profile.name = "intent-summary"; profile.provider = "openai"; profile.model = "intent-summary";
+        profile.base_url = upstream.base_url() + "v1"; profile.api_key = "local-test-key";
+        fx.cfg.saved_models.push_back(profile);
+        fx.cfg.summary_generation.model_name = "intent-summary";
+    }
+    const auto project = fx.projects_dir / "legacy_scope";
+    std::filesystem::create_directories(project);
+    const std::vector<std::array<const char*, 3>> sessions = {
+        {"legacy_old", "2026-09-01T00:05:00Z", "2026-09-01T00:00:00Z"},
+        {"legacy_recent", "2026-10-24T10:30:00Z", "2026-10-24T10:20:00Z"},
+    };
+    for (const auto& [id, updated_at, user_at] : sessions) {
+        acecode::SessionMeta meta;
+        meta.id = id; meta.cwd = fx.cwd; meta.created_at = user_at; meta.updated_at = updated_at;
+        ASSERT_TRUE(acecode::SessionStorage::write_meta(acecode::SessionStorage::meta_path(project.string(), meta.id), meta));
+        acecode::ChatMessage message; message.role = "user"; message.content = std::string("Visible input ") + id;
+        message.timestamp = user_at;
+        ASSERT_TRUE(acecode::SessionStorage::append_message(acecode::SessionStorage::session_path(project.string(), meta.id), message));
+    }
+    const auto response = cpr::Post(cpr::Url{fx.url("/api/home/intent-prompts")}, cpr::Body{R"({"force":true})"},
+                                    cpr::Timeout{10000});
+    ASSERT_EQ(response.status_code, 200) << response.text;
+    EXPECT_EQ(json::parse(response.text)["error"], "") << response.text;
+    std::lock_guard<std::mutex> lock(request_mutex);
+    ASSERT_EQ(requests.size(), 1u);
+    const auto sources = json::parse(requests[0]["messages"][1]["content"].get<std::string>());
+    ASSERT_EQ(sources.size(), 2u);
+    EXPECT_EQ(sources[0]["session_id"], "legacy_recent");
+    EXPECT_EQ(sources[1]["session_id"], "legacy_old");
+}
+
 TEST(WebServerHttp, SummaryGenerationSettingsPersistAndControlTitleModelLive) {
     std::atomic<bool> requested_summary_model{false};
     std::atomic<bool> requested_chinese_title{false};
