@@ -14,8 +14,10 @@
 #include "channels/core/projection.hpp"
 #include "channels/core/store.hpp"
 #include "remote_control/rc_session_navigation.hpp"
+#include "session/channel_delegate.hpp"
 #include "session/session_client.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -47,11 +49,21 @@ struct ConversationDeps {
                        const std::string& taker_label)> release_session;
     std::function<void()> on_bindings_changed;
     std::filesystem::path media_dir;  // 入站附件的临时下载目录
+    // 群聊代答(D5):写入 / 清除会话的 channel_delegate meta(不活动的值 = 清除)。
+    std::function<void(const std::string& session_id, const ChannelDelegate& delegate)> set_delegate;
+    // 测试注入:轮询用的单调时钟与本地时区偏移(分钟);为空时取系统值。
+    std::function<std::chrono::steady_clock::time_point()> clock;
+    std::function<int()> utc_offset_minutes;
 };
 
 struct HandleOutcome {
     std::optional<PendingRequest> pending_created;
     bool owner_claimed = false;
+};
+
+struct GroupSendResult {
+    bool ok = false;
+    std::string error;
 };
 
 class Conversations {
@@ -74,6 +86,16 @@ public:
     std::vector<std::string> bound_session_ids() const;
     static std::string label_for(const im::Address& address);
 
+    // 群聊代答(D5)。poll_groups 与 handle() 在同一线程串行调用:到点且有他人新消息、
+    // 会话空闲时把缓冲汇总成一条用户消息提交。
+    void poll_groups();
+    // 设置变化后:移除不再关注的群的绑定,刷新其余代答会话的 meta。
+    void apply_group_settings(const GroupWatchSettings& previous, const GroupWatchSettings& next);
+    // 发群工具的入口;session_id 不是本平台的代答会话时返回空。
+    std::optional<GroupSendResult> send_to_group(const std::string& session_id, const std::string& text);
+    static constexpr std::size_t kMaxGroupSendChars = 2000;
+    static constexpr int kMaxGroupSendsPerDigest = 5;
+
 private:
     void dispatch(const im::Inbound& inbound, bool owner);
     void reply(const im::Inbound& inbound, const std::string& text);
@@ -89,6 +111,14 @@ private:
     std::optional<SessionInfo> session_info(const std::string& session_id) const;
     std::vector<rc::RcSessionTarget> visible_sessions(const std::string& key, bool owner,
                                                       const std::optional<std::string>& query) const;
+    void ingest_group(const im::Inbound& inbound);
+    std::chrono::steady_clock::time_point now() const;
+    ChannelDelegate delegate_for(const BindingRecord& record, const GroupWatchSettings& settings) const;
+    std::optional<BindingRecord> delegate_binding_for_session(const std::string& session_id) const;
+    // 找到或新建该群的代答会话;会话已被删除时换一个新会话。
+    BindingRecord ensure_delegate_binding(const std::string& account, const std::string& chat,
+                                          const std::string& chat_name);
+    void drop_delegate_binding(const BindingRecord& record);
 
     std::string platform_;
     ChannelStore& store_;
@@ -98,6 +128,11 @@ private:
     mutable std::mutex mu_;
     std::map<std::string, std::shared_ptr<Projection>> projections_;
     std::map<std::string, std::vector<rc::RcSessionTarget>> snapshots_;
+
+    mutable std::mutex groups_mu_;
+    std::map<std::string, GroupBuffer> groups_;           // 群 id → 自上次汇总以来的消息
+    std::map<std::string, int> group_sends_;              // 代答会话 → 本次汇总后已发条数
+    std::chrono::steady_clock::time_point next_poll_{};  // 两次检查之间至少隔几秒
 };
 
 } // namespace acecode::channels::core

@@ -36,5 +36,7 @@ struct RequestContextSource {
     ToolCapabilityPolicy tool_policy;
     LoopExecutionPolicy loop;
     SwarmContext swarm;
+    // 群聊代答会话的系统提示补充(channel_delegate.hpp);普通会话为空。
+    std::string delegate_context;
 };
 } // namespace acecode::agent

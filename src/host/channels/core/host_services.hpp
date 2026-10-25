@@ -8,6 +8,7 @@
 #include "im/discord/discord_transport.hpp"
 #include "im/feishu/feishu_transport.hpp"
 #include "im/line/line_transport.hpp"
+#include "im/plugin/plugin_transport.hpp"
 #include "im/qqbot/qq_bind.hpp"
 #include "im/qqbot/qq_transport.hpp"
 #include "im/telegram/tg_transport.hpp"
@@ -60,6 +61,8 @@ struct HostServices {
     std::function<void(im::feishu::FeishuTransportOptions&)> tune_feishu;
     // LINE 测试还要在这里换掉 cloudflared(tunnel.locate / launch)等。
     std::function<void(im::line::LineTransportOptions&)> tune_line;
+    // 外部平台插件:测试缩短退避与超时。
+    std::function<void(im::plugin::PluginTransportOptions&)> tune_plugin;
 };
 
 } // namespace acecode::channels::core

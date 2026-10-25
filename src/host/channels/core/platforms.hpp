@@ -5,6 +5,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,8 +15,16 @@ namespace acecode::channels::core {
 //   Scan  扫码绑定时平台给出扫码人(QQ、微信);拿不到时退回“10 分钟内第一个私聊的人”
 //   Link  一次性深链接(Telegram https://t.me/<机器人>?start=<码>)
 //   Code  一次性 6 位绑定码,机主私聊机器人发送这串数字(飞书、钉钉、Discord、LINE)
-// 三种方式之外,平台还没有机主时批准第一个私聊请求,对方也会成为机主。
-enum class OwnerBinding { Scan, Link, Code };
+//   Self  插件登录的就是用户本人的账号:只接受“自己发给自己”的私聊,命中即机主
+// 前三种方式之外,平台还没有机主时批准第一个私聊请求,对方也会成为机主。
+enum class OwnerBinding { Scan, Link, Code, Self };
+
+// 外部平台插件(openspec add-channel-platform-plugins D1):清单所在目录、要启动的程序与参数。
+struct PluginLaunch {
+    std::string manifest_dir;       // UTF-8 绝对路径;子进程的工作目录
+    std::string command;            // UTF-8 绝对路径
+    std::vector<std::string> args;  // ${manifest_dir} 已替换
+};
 
 struct CredentialField {
     std::string key;
@@ -34,9 +43,30 @@ struct PlatformSpec {
     bool principals_scoped_to_account = false;  // 用户 id 按机器人隔离:换机器人时清空机主与授权名单
     OwnerBinding owner_binding = OwnerBinding::Code;
     bool scan_bind = false;                     // 有扫码绑定流程(QQ、微信)
+    // 外部平台插件:由清单注册,传输层是插件子进程。内置平台为空。
+    std::optional<PluginLaunch> plugin;
+    bool watched_groups = false;  // 支持群聊代答(D5)
 };
 
+// 内置平台在前,插件平台在后;插件只在宿主构造前注册一次,之后不再变化。
 const std::vector<PlatformSpec>& platform_specs();
+// 替换已注册的插件平台。与内置平台或彼此重名的条目跳过(返回值不含它们)。
+std::vector<std::string> register_plugin_platforms(std::vector<PlatformSpec> plugins);
+// 平台名是否符合插件清单的命名规则(也是 Address::platform 的字符集)。
+bool valid_platform_name(const std::string& name);
+bool is_builtin_platform(const std::string& name);
+
+// 测试用:构造时注册给定插件,析构时恢复之前的插件列表。
+class ScopedPluginPlatforms {
+public:
+    explicit ScopedPluginPlatforms(std::vector<PlatformSpec> plugins);
+    ~ScopedPluginPlatforms();
+    ScopedPluginPlatforms(const ScopedPluginPlatforms&) = delete;
+    ScopedPluginPlatforms& operator=(const ScopedPluginPlatforms&) = delete;
+
+private:
+    std::vector<PlatformSpec> previous_;
+};
 // 未知平台返回 nullptr。
 const PlatformSpec* find_platform_spec(const std::string& name);
 std::vector<std::string> platform_names();

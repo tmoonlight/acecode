@@ -78,6 +78,10 @@ public:
     void set_owner(const std::string& principal, const std::string& name);
     nlohmann::json action(const std::string& name, const nlohmann::json& args);
     im::TransportStatus transport_status() const;
+    // 群聊代答设置(D5):校验后保存,刷新代答会话,群列表变了就通知插件。不支持时抛异常。
+    void set_settings(const nlohmann::json& body);
+    // session_id 不是本平台的代答会话时返回空。
+    std::optional<GroupSendResult> send_to_group(const std::string& session_id, const std::string& text);
 
     bool release_session(const std::string& session_id, const std::string& except_key, const std::string& label);
     std::vector<std::string> bound_session_ids() const;
@@ -91,6 +95,7 @@ private:
     void disconnect_locked();
     void worker_loop();
     void try_takeover();
+    void poll_groups();
     void on_inbound(im::Inbound inbound);
     // 传输层状态变化;source 已不是当前连接(被替换的旧连接)时忽略。
     void on_transport_status(const std::weak_ptr<im::Transport>& source);

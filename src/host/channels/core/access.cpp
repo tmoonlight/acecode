@@ -83,6 +83,21 @@ AccessResult AccessControl::evaluate(const PlatformConfig& config, const im::Inb
     result.principal = principal_for(inbound.address);
     result.owner = !config.owner.empty() && config.owner == result.principal;
 
+    // 本人账号模型(插件平台):登录的就是用户本人,只接受“自己发给自己”的私聊,命中即机主;
+    // 群消息由群聊代答单独处理,不走这里。
+    if (const auto* spec = find_platform_spec(inbound.address.platform);
+        spec && spec->owner_binding == OwnerBinding::Self) {
+        if (inbound.address.kind == im::ChatKind::Private && !inbound.address.account.empty() &&
+            inbound.address.sender == inbound.address.account) {
+            result.owner = true;
+            result.decision = AccessDecision::Allow;
+            result.reason = "own account";
+        } else {
+            result.reason = "not the logged-in account, ignored";
+        }
+        return result;
+    }
+
     if (inbound.address.kind == im::ChatKind::Private) {
         if (config.has_access(result.principal)) {
             result.decision = AccessDecision::Allow;

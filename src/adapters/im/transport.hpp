@@ -22,8 +22,8 @@ enum class ChatKind { Private, Group };
 
 // 一个 IM 会话的位置。群聊按“群 + 发言人”区分(QQ 的群成员身份按群隔离)。
 struct Address {
-    std::string platform;  // "qq" / "telegram"
-    std::string account;   // QQ AppID / Telegram 机器人 id
+    std::string platform;  // "qq" / "telegram" / 插件平台名
+    std::string account;   // QQ AppID / Telegram 机器人 id / 插件平台登录的本人账号
     ChatKind kind = ChatKind::Private;
     std::string chat;      // 私聊:对方 id;群聊:群 id
     std::string sender;    // 发言人 id(私聊时与 chat 相同)
@@ -55,6 +55,9 @@ struct Inbound {
     std::string quote_text;     // 被引用消息的文字(可空)
     std::string sender_name;    // 展示名(可空),只用于设置页的待批准请求
     std::string start_code;     // Telegram `/start <码>` 的参数(机主绑定码)
+    std::string chat_name;      // 群名(可空),群聊代答的汇总与会话标题用
+    bool from_self = false;     // 用户本人账号发出的消息(本人账号模型的插件平台)
+    std::int64_t timestamp_ms = 0;  // 平台给出的发送时间;0 = 未知
     std::vector<Attachment> attachments;
     nlohmann::json reply_context = nlohmann::json::object();  // 平台私有的回复定位信息
 };

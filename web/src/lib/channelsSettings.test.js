@@ -31,6 +31,11 @@ import {
   qrSvgModel,
   telegramWebhookBlocked,
   wizardSteps,
+  groupWatchDraft,
+  groupWatchPayload,
+  delegateRows,
+  isPluginPlatformName,
+  pluginChannelCards,
 } from './channelsSettings.js';
 
 function run(name, fn) {
@@ -382,4 +387,71 @@ run('Sidebar 用 channelBoundPlatform 显示通道绑定图标', () => {
   assert.match(sidebar, /data-channel-session-icon=\{channelPlatform\}/);
   assert.match(sidebar, /remoteControlBound && 'is-remote-control-bound'/);
   assert.doesNotMatch(sidebar, /channelPlatform && 'is-remote-control-bound'/);
+});
+
+// 外部平台插件(openspec add-channel-platform-plugins)的快照样例:本人账号、声明了群聊代答。
+const PLUGIN = {
+  platform: 'example',
+  plugin: true,
+  label: 'Example IM',
+  configured: true,
+  enabled: true,
+  state: 'failed',
+  retry_stopped: true,
+  login_required: true,
+  account: 'me',
+  display_name: '张三',
+  group_watch: { groups: ['g1', 'g2'], poll_interval_s: 300, prefix: '[AI] ', prompt: '只回答排期' },
+  bindings: [{ key: 'k1', label: 'Example IM 群聊', chat: 'g1', session_id: 's-9', delegate: true, chat_name: '项目群' }],
+};
+
+// 场景:快照里带一个插件平台,随后 WS 推来它的新状态;另有一个快照里没有的陌生平台事件。
+// 期望:插件平台进入 plugins 列表与卡片(排在内置平台之后、标题用清单 label);已知插件的事件被合并,
+// 陌生平台的事件被忽略。
+run('插件平台进入快照、卡片与 WS 合并', () => {
+  const state = normalizeChannelsSnapshot({ platforms: [TELEGRAM, PLUGIN] });
+  assert.deepEqual(state.plugins, ['example']);
+  assert.equal(state.platforms.example.label, 'Example IM');
+  assert.equal(state.platforms.example.groupWatch.pollIntervalS, 300);
+  assert.deepEqual(pluginChannelCards(state).map((card) => card.title), ['Example IM']);
+  const next = applyChannelsEvent(state, { type: 'channels_state', payload: { ...PLUGIN, state: 'connected', login_required: false } });
+  assert.equal(next.platforms.example.state, 'connected');
+  const ignored = applyChannelsEvent(next, { type: 'channels_state', payload: { ...PLUGIN, platform: 'stranger' } });
+  assert.equal(ignored, next);
+  assert.equal(isPluginPlatformName('example'), true);
+  assert.equal(isPluginPlatformName('telegram'), false);
+  assert.equal(isPluginPlatformName('Bad_Name'), false);
+});
+
+// 场景:插件报告需要登录(被别处登录踢下线);用户点「连接」。
+// 期望:卡片状态为「需要登录」并给出 login 操作;插件平台连接不走向导。
+run('插件平台需要登录时卡片给出登录操作', () => {
+  const state = normalizeChannelsSnapshot({ platforms: [PLUGIN] });
+  const view = channelCardView(state.platforms.example);
+  assert.equal(view.status.text, '需要登录');
+  assert.equal(view.status.action, 'login');
+  assert.equal(connectNeedsWizard({ ...state.platforms.example, enabled: false }), false);
+});
+
+// 场景:打开群聊代答表单、改成用逗号和中文逗号分隔的群 ID、填了过短的间隔、过长的前缀。
+// 期望:草稿按每行一个回显;合法时生成去重后的请求体;非法时给出与后端一致的原因。
+run('群聊代答表单的草稿与校验', () => {
+  const state = normalizeChannelsSnapshot({ platforms: [PLUGIN] });
+  const draft = groupWatchDraft(state.platforms.example);
+  assert.equal(draft.groups, ['g1', 'g2'].join(String.fromCharCode(10)));
+  assert.equal(draft.pollIntervalS, '300');
+  const ok = groupWatchPayload({ ...draft, groups: 'g1, g3，g1', prompt: '  只回答排期  ' });
+  assert.deepEqual(ok.body, { groups: ['g1', 'g3'], poll_interval_s: 300, prefix: '[AI] ', prompt: '只回答排期' });
+  assert.match(groupWatchPayload({ ...draft, pollIntervalS: '10' }).error, /30 秒/);
+  assert.match(groupWatchPayload({ ...draft, prefix: 'x'.repeat(33) }).error, /32/);
+  assert.match(groupWatchPayload({ ...draft, groups: 'g<1>' }).error, /群聊 ID/);
+  assert.deepEqual(delegateRows(state.platforms.example).map((row) => row.title), ['项目群']);
+});
+
+// 场景:侧栏渲染被插件平台绑定的会话(daemon 在 channel_bound 里给出 label)。
+// 期望:插件平台名也认,提示文字用 daemon 给的展示名。
+run('侧栏认插件平台的绑定并用展示名', () => {
+  assert.equal(channelBoundPlatform({ channel_bound: { platform: 'example', label: 'Example IM' } }), 'example');
+  assert.equal(channelBoundLabel('example', 'Example IM'), '已绑定到 Example IM');
+  assert.equal(channelBoundLabel('qq'), '已绑定到 QQ');
 });

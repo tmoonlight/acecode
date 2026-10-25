@@ -125,6 +125,12 @@ std::shared_ptr<Projection> Conversations::projection_for(const std::string& key
 
 HandleOutcome Conversations::handle(const im::Inbound& inbound) {
     HandleOutcome outcome;
+    // 本人账号模型的群消息只进群聊代答缓冲:不解析命令、不走配对审批,不在群里回复。
+    if (const auto* spec = find_platform_spec(platform_);
+        spec && spec->owner_binding == OwnerBinding::Self && inbound.address.kind == im::ChatKind::Group) {
+        ingest_group(inbound);
+        return outcome;
+    }
     const auto config = store_.config();
     const auto access = access_.evaluate(config, inbound, AccessControl::Clock::now());
     outcome.pending_created = access.created;
@@ -480,6 +486,12 @@ bool Conversations::release_session(const std::string& session_id, const std::st
     for (const auto& record : store_.bindings()) {
         const auto key = record.address.key();
         if (record.session_id != session_id || key == except_key) continue;
+        if (record.delegate) {
+            // 代答会话被别处接管:群里不发任何通知,下次汇总时为该群另建会话。
+            drop_delegate_binding(record);
+            released = true;
+            continue;
+        }
         std::shared_ptr<Projection> projection;
         {
             std::lock_guard<std::mutex> lock(mu_);
@@ -595,6 +607,7 @@ void Conversations::submit(const im::Inbound& inbound) {
 void Conversations::restore() {
     for (const auto& record : store_.bindings()) {
         if (!transport_->get()) return;
+        if (record.delegate) continue;  // 代答会话没有出站投影:回复正文绝不发到群里
         try {
             ensure_projection(record);
         } catch (const SessionMissing&) {
@@ -633,6 +646,10 @@ nlohmann::json Conversations::bindings_json() const {
                             {"no_workspace", record.no_workspace},
                             {"cwd", record.cwd},
                             {"workspace_hash", record.workspace_hash}};
+        if (record.delegate) {
+            item["delegate"] = true;
+            item["chat_name"] = record.chat_name;
+        }
         if (const auto projection = projection_for(record.address.key())) {
             const auto stats = projection->stats();
             item["sent"] = stats.outbound_sent;
@@ -648,6 +665,240 @@ std::vector<std::string> Conversations::bound_session_ids() const {
     std::vector<std::string> ids;
     for (const auto& record : store_.bindings()) ids.push_back(record.session_id);
     return ids;
+}
+
+// ---- 群聊代答(D5) ----
+
+std::chrono::steady_clock::time_point Conversations::now() const {
+    return deps_.clock ? deps_.clock() : std::chrono::steady_clock::now();
+}
+
+void Conversations::ingest_group(const im::Inbound& inbound) {
+    const auto config = store_.config();
+    const auto& chat = inbound.address.chat;
+    if (!config.group_watch.watches(chat)) {
+        LOG_DEBUG("[channels/" + platform_ + "] group " + chat + " is not watched, ignored");
+        return;
+    }
+    GroupMessage message;
+    message.message_id = inbound.message_id;
+    message.at_ms = inbound.timestamp_ms > 0 ? inbound.timestamp_ms : now_wall_ms();
+    message.sender = inbound.address.sender;
+    message.sender_name = inbound.sender_name;
+    message.text = inbound.text;
+    for (const auto& attachment : inbound.attachments) {
+        const char* label = attachment.kind == im::AttachmentKind::Image ? "[图片]"
+                            : attachment.kind == im::AttachmentKind::Voice
+                                ? "[语音]"
+                                : (attachment.kind == im::AttachmentKind::Video ? "[视频]" : "[文件]");
+        message.text += (message.text.empty() ? "" : " ") + std::string(label);
+        if (!attachment.transcript.empty()) message.text += " " + attachment.transcript;
+    }
+    if (!inbound.quote_text.empty()) message.text = "[引用:" + inbound.quote_text + "] " + message.text;
+    if (message.text.empty()) return;
+    message.from_self = inbound.from_self;
+    message.mentioned = inbound.mentioned && !inbound.from_self;
+    std::lock_guard<std::mutex> lock(groups_mu_);
+    auto [it, created] = groups_.try_emplace(chat);
+    if (created) it->second.last_flush = now();
+    if (!inbound.chat_name.empty()) it->second.chat_name = inbound.chat_name;
+    it->second.add(std::move(message));
+}
+
+ChannelDelegate Conversations::delegate_for(const BindingRecord& record, const GroupWatchSettings& settings) const {
+    ChannelDelegate delegate;
+    delegate.platform = platform_;
+    delegate.chat = record.address.chat;
+    delegate.chat_name = record.chat_name;
+    delegate.prompt = settings.prompt;
+    if (const auto transport = transport_->get()) delegate.user_name = transport->status().display_name;
+    return delegate;
+}
+
+std::optional<BindingRecord> Conversations::delegate_binding_for_session(const std::string& session_id) const {
+    for (const auto& record : store_.bindings())
+        if (record.delegate && record.session_id == session_id) return record;
+    return std::nullopt;
+}
+
+void Conversations::drop_delegate_binding(const BindingRecord& record) {
+    store_.erase_binding(record.address.key());
+    // 先确保会话已载入,meta 里的代答身份才能清掉;否则以后打开它仍按代答会话收窄工具。
+    rc::RcSessionTarget target;
+    target.session_id = record.session_id;
+    target.cwd = record.cwd;
+    target.workspace_hash = record.workspace_hash;
+    target.no_workspace = record.no_workspace;
+    if (deps_.set_delegate && deps_.resume_target && deps_.resume_target(target))
+        deps_.set_delegate(record.session_id, ChannelDelegate{});
+    {
+        std::lock_guard<std::mutex> lock(groups_mu_);
+        group_sends_.erase(record.session_id);
+    }
+    if (deps_.on_bindings_changed) deps_.on_bindings_changed();
+}
+
+BindingRecord Conversations::ensure_delegate_binding(const std::string& account, const std::string& chat,
+                                                     const std::string& chat_name) {
+    im::Address address;
+    address.platform = platform_;
+    address.account = account;
+    address.kind = im::ChatKind::Group;
+    address.chat = chat;
+    address.sender = account;  // 群级会话键:与普通群聊的“群 + 发言人”键不冲突
+    if (auto existing = store_.binding(address.key()); existing && existing->delegate) {
+        rc::RcSessionTarget target;
+        target.session_id = existing->session_id;
+        target.cwd = existing->cwd;
+        target.workspace_hash = existing->workspace_hash;
+        target.no_workspace = existing->no_workspace;
+        if (deps_.resume_target && deps_.resume_target(target)) {
+            if (!chat_name.empty() && existing->chat_name != chat_name) {
+                existing->chat_name = chat_name;
+                store_.put_binding(*existing);
+            }
+            return *existing;
+        }
+        LOG_INFO("[channels/" + platform_ + "] delegate session of group " + chat + " is gone, creating a new one");
+        drop_delegate_binding(*existing);
+    }
+    auto record = create_binding(address, std::nullopt);
+    record.delegate = true;
+    record.chat_name = chat_name;
+    store_.put_binding(record);
+    LOG_INFO("[channels/" + platform_ + "] group " + chat + " bound to delegate session " + record.session_id);
+    if (deps_.on_bindings_changed) deps_.on_bindings_changed();
+    return record;
+}
+
+void Conversations::poll_groups() {
+    const auto current = now();
+    {
+        std::lock_guard<std::mutex> lock(groups_mu_);
+        if (current < next_poll_) return;
+        next_poll_ = current + std::chrono::seconds(5);
+    }
+    const auto transport = transport_->get();
+    if (!transport) return;
+    const auto status = transport->status();
+    if (status.state != im::LinkState::Connected || status.account.empty()) return;
+    const auto config = store_.config();
+    const auto interval = std::chrono::seconds(config.group_watch.poll_interval_s);
+
+    for (const auto& chat : config.group_watch.groups) {
+        std::deque<GroupMessage> messages;
+        std::size_t omitted = 0;
+        std::string chat_name;
+        {
+            std::lock_guard<std::mutex> lock(groups_mu_);
+            auto [it, created] = groups_.try_emplace(chat);
+            auto& buffer = it->second;
+            if (created) buffer.last_flush = current;
+            if (!buffer.has_others() || current - buffer.last_flush < interval) continue;
+            messages = buffer.messages();
+            omitted = buffer.omitted();
+            chat_name = buffer.chat_name;
+        }
+        try {
+            const auto record = ensure_delegate_binding(status.account, chat, chat_name);
+            const auto info = session_info(record.session_id);
+            if (info && info->busy) continue;  // 会话还在处理上一批:等下一次
+            if (deps_.set_delegate) deps_.set_delegate(record.session_id, delegate_for(record, config.group_watch));
+            const int offset = deps_.utc_offset_minutes ? deps_.utc_offset_minutes() : local_utc_offset_minutes();
+            UserInput input;
+            input.text = build_group_digest(record.chat_name, messages, omitted, offset);
+            input.display_text = group_digest_display(record.chat_name, messages.size());
+            input.metadata["channel"] = {{"platform", platform_},
+                                         {"address", record.address.to_json()},
+                                         {"group_watch", true}};
+            {
+                std::lock_guard<std::mutex> lock(groups_mu_);
+                group_sends_[record.session_id] = 0;
+            }
+            if (!deps_.sessions->send_input(record.session_id, input)) {
+                LOG_WARN("[channels/" + platform_ + "] group digest rejected by session " + record.session_id);
+                continue;
+            }
+            LOG_INFO("[channels/" + platform_ + "] group " + chat + " digest submitted (" +
+                     std::to_string(messages.size()) + " message(s))");
+            std::lock_guard<std::mutex> lock(groups_mu_);
+            auto& buffer = groups_[chat];
+            buffer.consume(messages.size());
+            buffer.last_flush = current;
+            buffer.flushed_once = true;
+        } catch (const std::exception& e) {
+            LOG_WARN("[channels/" + platform_ + "] group " + chat + " digest failed: " + e.what());
+        }
+    }
+}
+
+void Conversations::apply_group_settings(const GroupWatchSettings& previous, const GroupWatchSettings& next) {
+    for (const auto& record : store_.bindings()) {
+        if (!record.delegate) continue;
+        if (!next.watches(record.address.chat)) {
+            LOG_INFO("[channels/" + platform_ + "] group " + record.address.chat + " no longer watched");
+            drop_delegate_binding(record);
+            continue;
+        }
+        if (previous.prompt != next.prompt && deps_.set_delegate) {
+            rc::RcSessionTarget target;
+            target.session_id = record.session_id;
+            target.cwd = record.cwd;
+            target.workspace_hash = record.workspace_hash;
+            target.no_workspace = record.no_workspace;
+            if (deps_.resume_target && deps_.resume_target(target))
+                deps_.set_delegate(record.session_id, delegate_for(record, next));
+        }
+    }
+    std::lock_guard<std::mutex> lock(groups_mu_);
+    for (auto it = groups_.begin(); it != groups_.end();) {
+        if (next.watches(it->first)) ++it;
+        else it = groups_.erase(it);
+    }
+}
+
+std::optional<GroupSendResult> Conversations::send_to_group(const std::string& session_id, const std::string& text) {
+    const auto record = delegate_binding_for_session(session_id);
+    if (!record) return std::nullopt;
+    GroupSendResult result;
+    std::size_t chars = 0;
+    for (const unsigned char c : text)
+        if ((c & 0xC0) != 0x80) ++chars;
+    if (text.find_first_not_of(" \t\r\n") == std::string::npos) {
+        result.error = "消息内容为空";
+        return result;
+    }
+    if (chars > kMaxGroupSendChars) {
+        result.error = "单条消息最多 2000 字,请精简后再发";
+        return result;
+    }
+    {
+        std::lock_guard<std::mutex> lock(groups_mu_);
+        if (group_sends_[session_id] >= kMaxGroupSendsPerDigest) {
+            result.error = "本次汇总已经发了 5 条消息,等下一次群消息汇总再发";
+            return result;
+        }
+    }
+    const auto transport = transport_->get();
+    if (!transport || transport->status().state != im::LinkState::Connected) {
+        result.error = "消息通道未连接";
+        return result;
+    }
+    const auto prefix = store_.config().group_watch.prefix;
+    const auto sent = transport->send_text(record->address, prefix + text, nlohmann::json::object());
+    if (!sent.ok()) {
+        result.error = sent.error.empty() ? std::string("发送失败") : sent.error;
+        LOG_WARN("[channels/" + platform_ + "] group message to " + record->address.chat + " failed: " + result.error);
+        return result;
+    }
+    {
+        std::lock_guard<std::mutex> lock(groups_mu_);
+        ++group_sends_[session_id];
+    }
+    LOG_INFO("[channels/" + platform_ + "] group message sent to " + record->address.chat + " (" +
+             std::to_string(text.size()) + " bytes)");
+    result.ok = true;
+    return result;
 }
 
 } // namespace acecode::channels::core

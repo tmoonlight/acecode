@@ -1,5 +1,7 @@
 #include "channels/core/platforms.hpp"
 
+#include <algorithm>
+
 namespace acecode::channels::core {
 namespace {
 
@@ -78,12 +80,65 @@ std::vector<PlatformSpec> build_specs() {
     return specs;
 }
 
-} // namespace
-
-const std::vector<PlatformSpec>& platform_specs() {
+const std::vector<PlatformSpec>& builtin_specs() {
     static const std::vector<PlatformSpec> specs = build_specs();
     return specs;
 }
+
+// 插件只在宿主构造前注册(daemon 启动、测试用例开头),之后只读,读者不加锁。
+std::vector<PlatformSpec>& registered_plugins() {
+    static std::vector<PlatformSpec> plugins;
+    return plugins;
+}
+
+std::vector<PlatformSpec>& combined_specs() {
+    static std::vector<PlatformSpec> specs = builtin_specs();
+    return specs;
+}
+
+void rebuild_combined() {
+    auto specs = builtin_specs();
+    for (const auto& plugin : registered_plugins()) specs.push_back(plugin);
+    combined_specs() = std::move(specs);
+}
+
+} // namespace
+
+const std::vector<PlatformSpec>& platform_specs() { return combined_specs(); }
+
+bool valid_platform_name(const std::string& name) {
+    if (name.size() < 2 || name.size() > 32 || name[0] < 'a' || name[0] > 'z') return false;
+    for (const char c : name) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
+    }
+    return true;
+}
+
+bool is_builtin_platform(const std::string& name) {
+    for (const auto& spec : builtin_specs())
+        if (spec.name == name) return true;
+    return false;
+}
+
+std::vector<std::string> register_plugin_platforms(std::vector<PlatformSpec> plugins) {
+    std::vector<PlatformSpec> accepted;
+    std::vector<std::string> names;
+    for (auto& plugin : plugins) {
+        if (!plugin.plugin || !valid_platform_name(plugin.name) || is_builtin_platform(plugin.name)) continue;
+        if (std::find(names.begin(), names.end(), plugin.name) != names.end()) continue;
+        names.push_back(plugin.name);
+        accepted.push_back(std::move(plugin));
+    }
+    registered_plugins() = std::move(accepted);
+    rebuild_combined();
+    return names;
+}
+
+ScopedPluginPlatforms::ScopedPluginPlatforms(std::vector<PlatformSpec> plugins) : previous_(registered_plugins()) {
+    register_plugin_platforms(std::move(plugins));
+}
+
+ScopedPluginPlatforms::~ScopedPluginPlatforms() { register_plugin_platforms(std::move(previous_)); }
 
 const PlatformSpec* find_platform_spec(const std::string& name) {
     for (const auto& spec : platform_specs())

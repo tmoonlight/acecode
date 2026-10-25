@@ -52,16 +52,23 @@ TEST(ImAddress, JsonRoundTripAndRejectsUnknownKind) {
 }
 
 // 场景:校验来自平台的地址。
-// 期望:私聊要求 chat 与 sender 相同;未知平台、空 id、含空格或换行的 id 一律无效;
-// 钉钉 base64 形式的会话 id(含 + / =)与 $:LWCP_v1:$ 形式的发送人 id、微信 …@im.wechat 有效。
+// 期望:私聊要求 chat 与 sender 相同;平台名不合命名规则(大写、下划线、空、超长)、空 id、
+// 含空格或换行的 id 一律无效;钉钉 base64 形式的会话 id(含 + / =)与 $:LWCP_v1:$ 形式的发送人 id、
+// 微信 …@im.wechat 有效。外部平台插件在运行时注册,平台名只按命名规则校验
+// (openspec add-channel-platform-plugins D2),所以合规的陌生名字也有效。
 TEST(ImAddress, ValidationRejectsMalformedAddresses) {
     EXPECT_TRUE(private_chat().valid());
     auto mismatched = private_chat();
     mismatched.sender = "43";
     EXPECT_FALSE(mismatched.valid());
-    auto unknown = private_chat();
-    unknown.platform = "whatsapp";
-    EXPECT_FALSE(unknown.valid());
+    auto plugin = private_chat();
+    plugin.platform = "example-im";
+    EXPECT_TRUE(plugin.valid());
+    for (const char* name : {"Example", "my_im", "", "x", "-im", "a123456789012345678901234567890123"}) {
+        auto malformed = private_chat();
+        malformed.platform = name;
+        EXPECT_FALSE(malformed.valid()) << name;
+    }
     auto spaced = private_chat();
     spaced.chat = spaced.sender = "a b";
     EXPECT_FALSE(spaced.valid());

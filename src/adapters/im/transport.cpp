@@ -50,10 +50,12 @@ Address Address::from_json(const nlohmann::json& value) {
 }
 
 bool Address::valid() const {
-    static const char* const kPlatforms[] = {"qq", "weixin", "feishu", "dingtalk", "telegram", "discord", "line"};
-    bool known = false;
-    for (const char* name : kPlatforms) known = known || platform == name;
-    if (!known) return false;
+    // 平台名同时用作数据目录名:内置平台与外部插件平台共用同一条命名规则
+    // (channels/core/platforms.cpp valid_platform_name)。
+    if (platform.size() < 2 || platform.size() > 32 || platform[0] < 'a' || platform[0] > 'z') return false;
+    for (const char c : platform) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
+    }
     if (!simple_id(account, 128) || !simple_id(chat, 128) || !simple_id(sender, 128)) return false;
     if (!thread.empty() && !simple_id(thread, 64)) return false;
     return kind == ChatKind::Group || chat == sender;

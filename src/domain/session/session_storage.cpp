@@ -382,6 +382,7 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     if (!meta.surface.empty()) j["surface"] = meta.surface;
     if (!meta.swarm_mode.empty() && meta.swarm_mode != "off") j["swarm_mode"] = meta.swarm_mode;
     if (!meta.agent_path.empty()) j["mesh_agent"] = {{"path", meta.agent_path}};
+    if (meta.channel_delegate.active()) j["channel_delegate"] = channel_delegate_to_json(meta.channel_delegate);
 
     std::error_code ec;
     fs::create_directories(path_from_utf8(meta_path).parent_path(), ec);
@@ -476,6 +477,7 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
         if (j.contains("mesh_agent") && j["mesh_agent"].is_object()) {
             meta.agent_path = j["mesh_agent"].value("path", std::string{});
         }
+        if (j.contains("channel_delegate")) meta.channel_delegate = channel_delegate_from_json(j["channel_delegate"]);
     } catch (...) {
         // Return empty meta on parse failure
     }

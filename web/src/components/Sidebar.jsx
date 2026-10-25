@@ -914,6 +914,7 @@ function SessionRow({
   // 被 QQ / Telegram 会话绑定的会话显示同一个电脑图标;/rc 的专属行为(换绑动画等)仍只看
   // remoteControlBound(openspec add-desktop-im-channels design D12)。
   const channelPlatform = remoteControlBound ? '' : channelBoundPlatform(s);
+  const channelLabel = channelBoundLabel(channelPlatform, (s.channel_bound ?? s.channelBound)?.label);
   const hoverDetails = sessionHoverDetails(s);
   const hasHoverDetails = Boolean(hoverDetails);
   const hoverCardId = useId();
@@ -1231,7 +1232,7 @@ function SessionRow({
           aria-describedby={hoverCardVisible ? hoverCardId : undefined}
           aria-label={remoteControlBound
             ? tr('remoteControl.connectedSessionAria', { title })
-            : channelPlatform ? `${title},${channelBoundLabel(channelPlatform)}` : title}
+            : channelPlatform ? `${title},${channelLabel}` : title}
           className="ace-sidebar-session-title-button ace-sidebar-tree-content flex min-w-0 w-full items-center gap-1.5 px-0 py-[4.5px] bg-transparent text-left cursor-pointer"
         >
           {remoteControlBound && (
@@ -1243,7 +1244,7 @@ function SessionRow({
             />
           )}
           {channelPlatform && (
-            <span className="inline-flex shrink-0" title={channelBoundLabel(channelPlatform)}
+            <span className="inline-flex shrink-0" title={channelLabel}
               data-channel-session-icon={channelPlatform}>
               <VsIcon name="computer" size={18} className="text-accent" />
             </span>

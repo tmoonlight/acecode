@@ -6,6 +6,7 @@
 #include "web/handlers/channels_handler.hpp"
 
 #include "channels/core/host.hpp"
+#include "channels/core/platforms.hpp"
 
 #include <chrono>
 #include <functional>
@@ -116,6 +117,31 @@ void WebServer::Impl::register_channels() {
     ([this, gate, run](const crow::request& req, const std::string& platform) {
         if (auto rejected = gate(req)) return std::move(*rejected);
         return run(req, [this, &platform] { return deps.channel_host->owner_link(platform); });
+    });
+
+    // 群聊代答设置(插件平台声明了 watched_groups 才可用,openspec add-channel-platform-plugins D5)。
+    CROW_ROUTE(app, "/api/channels/<string>/settings").methods(crow::HTTPMethod::PUT)
+    ([this, gate, run, respond, parse_body](const crow::request& req, const std::string& platform) {
+        if (auto rejected = gate(req)) return std::move(*rejected);
+        const auto body = parse_body(req);
+        if (!body.is_object()) return respond(req, 400, channel_error_body("BAD_REQUEST", "请求体必须是 JSON 对象"));
+        return run(req, [this, &platform, &body] {
+            deps.channel_host->platform(platform).set_settings(body);
+            return deps.channel_host->snapshot();
+        });
+    });
+
+    // 插件报告需要登录时,卡片上的「登录」交给插件的 login 操作(D6)。
+    CROW_ROUTE(app, "/api/channels/<string>/login").methods(crow::HTTPMethod::POST)
+    ([this, gate, run](const crow::request& req, const std::string& platform) {
+        if (auto rejected = gate(req)) return std::move(*rejected);
+        return run(req, [this, &platform] {
+            const auto* spec = channels::core::find_platform_spec(platform);
+            if (!spec) throw std::invalid_argument("未知的消息通道平台");
+            if (!spec->plugin) throw std::runtime_error("该平台不需要单独登录");
+            deps.channel_host->platform(platform).action("login", json::object());
+            return deps.channel_host->snapshot();
+        });
     });
 
     CROW_ROUTE(app, "/api/channels/telegram/remove-webhook").methods(crow::HTTPMethod::POST)

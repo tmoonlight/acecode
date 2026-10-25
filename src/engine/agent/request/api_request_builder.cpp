@@ -135,6 +135,11 @@ std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions&
         system_prompt += options.loop_context;
         system_prompt += "\n</loop-execution>";
     }
+    if (!options.delegate_context.empty()) {
+        system_prompt += "\n\n<group-delegate>\n";
+        system_prompt += options.delegate_context;
+        system_prompt += "\n</group-delegate>";
+    }
     return system_prompt;
 }
 

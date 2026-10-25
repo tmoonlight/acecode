@@ -1,7 +1,9 @@
 #include "im_channels.hpp"
 
+#include "channels/core/plugin_platforms.hpp"
 #include "config/config.hpp"
 #include "platform/process/os_process.hpp"
+#include "utils/logger.hpp"
 #include "remote_control/session_channel_binder.hpp"
 #include "session_host/session_registry.hpp"
 #include "skills/skill_command_expander.hpp"
@@ -90,6 +92,9 @@ std::unique_ptr<channels::core::ChannelHost> make_im_channel_host(ImChannelDeps 
         }
         return text;
     };
+    conversation.set_delegate = [registry](const std::string& id, const ChannelDelegate& delegate) {
+        if (auto entry = registry->acquire(id); entry && entry->sm) entry->sm->set_channel_delegate(delegate);
+    };
     services.broadcast = std::move(deps.broadcast);
     services.current_pid = [] { return static_cast<std::int64_t>(current_pid()); };
     services.endpoints = std::move(deps.endpoints);
@@ -98,6 +103,16 @@ std::unique_ptr<channels::core::ChannelHost> make_im_channel_host(ImChannelDeps 
     if (deps.tune_services) deps.tune_services(services);
     const auto root = deps.root.empty() ? im_channels_root() : deps.root;
     return std::make_unique<channels::core::ChannelHost>(root, std::move(services));
+}
+
+std::filesystem::path im_channel_plugins_root() { return path_from_utf8(get_acecode_dir()) / "connectors"; }
+
+std::vector<std::string> register_im_channel_plugins(const std::filesystem::path& connectors_root) {
+    auto scanned = channels::core::scan_plugin_platforms(connectors_root);
+    for (const auto& error : scanned.errors) LOG_WARN("[channels] plugin manifest skipped: " + error);
+    const auto names = channels::core::register_plugin_platforms(std::move(scanned.platforms));
+    for (const auto& name : names) LOG_INFO("[channels] plugin platform registered: " + name);
+    return names;
 }
 
 } // namespace acecode::daemon

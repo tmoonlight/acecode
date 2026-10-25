@@ -224,6 +224,9 @@ public:
     void set_mesh_agent_path(std::string agent_path);
     std::string current_swarm_mode() const;
     std::string current_agent_path() const;
+    // 消息通道群聊代答身份(channel_delegate.hpp);不活动的值表示清除。只在变化时写 meta。
+    void set_channel_delegate(ChannelDelegate delegate);
+    ChannelDelegate current_channel_delegate() const;
     // Session cwd (workspace or no-workspace cache dir) and the session-local
     // reasoning choice; mesh children inherit both from their spawner.
     std::string current_cwd() const;
@@ -385,6 +388,7 @@ private:
     WorktreeSessionInfo worktree_;
     std::string swarm_mode_;
     std::string agent_path_;
+    ChannelDelegate channel_delegate_;
     void write_swarm_identity_locked(SessionMeta& meta) const;
     void adopt_swarm_identity_locked(const SessionMeta& meta);
     void ensure_file_checkpoints_loaded_locked() const;

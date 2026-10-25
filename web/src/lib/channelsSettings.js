@@ -46,6 +46,35 @@ export function isChannelPlatform(platform) {
   return CHANNEL_PLATFORMS.includes(platform);
 }
 
+// 外部平台插件(openspec add-channel-platform-plugins):名字来自连接器目录里的清单,
+// 与 daemon 的 valid_platform_name 同一规则。
+const PLUGIN_NAME = /^[a-z][a-z0-9-]{1,31}$/;
+export function isPluginPlatformName(platform) {
+  return typeof platform === 'string' && PLUGIN_NAME.test(platform) && !CHANNEL_PLATFORMS.includes(platform);
+}
+
+// 群聊代答设置的取值范围,与 daemon 的 GroupWatchSettings 一致。
+export const GROUP_WATCH_LIMITS = {
+  defaultPollIntervalS: 120,
+  minPollIntervalS: 30,
+  maxPollIntervalS: 86400,
+  maxGroups: 20,
+  maxPrefixChars: 32,
+  maxPromptChars: 4000,
+};
+
+function normalizeGroupWatch(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const source = object(raw);
+  const interval = Number(source.poll_interval_s);
+  return {
+    groups: array(source.groups).map(text).filter(Boolean),
+    pollIntervalS: Number.isFinite(interval) && interval > 0 ? Math.floor(interval) : GROUP_WATCH_LIMITS.defaultPollIntervalS,
+    prefix: text(source.prefix),
+    prompt: text(source.prompt),
+  };
+}
+
 export function emptyChannelPlatform(platform) {
   return {
     platform,
@@ -66,6 +95,10 @@ export function emptyChannelPlatform(platform) {
     contacts: [],
     pending: [],
     bindings: [],
+    plugin: false,
+    label: '',
+    loginRequired: false,
+    groupWatch: null,
   };
 }
 
@@ -123,8 +156,14 @@ export function normalizeChannelPlatform(raw) {
         sent: count(binding.sent),
         failed: count(binding.failed),
         dropped: count(binding.dropped),
+        delegate: binding.delegate === true,
+        chatName: text(binding.chat_name),
       };
     }).filter((binding) => binding.key && binding.sessionId),
+    plugin: source.plugin === true,
+    label: text(source.label),
+    loginRequired: source.login_required === true,
+    groupWatch: normalizeGroupWatch(source.group_watch),
   };
 }
 
@@ -145,25 +184,32 @@ export function normalizeBind(raw) {
 export function normalizeChannelsSnapshot(raw) {
   const source = object(raw);
   const platforms = {};
+  const plugins = [];
   for (const platform of CHANNEL_PLATFORMS) platforms[platform] = emptyChannelPlatform(platform);
   for (const item of array(source.platforms)) {
     const normalized = normalizeChannelPlatform(item);
-    if (isChannelPlatform(normalized.platform)) platforms[normalized.platform] = normalized;
+    if (isChannelPlatform(normalized.platform)) {
+      platforms[normalized.platform] = normalized;
+    } else if (normalized.plugin && isPluginPlatformName(normalized.platform) && !plugins.includes(normalized.platform)) {
+      platforms[normalized.platform] = normalized;
+      plugins.push(normalized.platform);
+    }
   }
   const rawBinds = object(source.binds);
   const binds = {};
   for (const platform of SCAN_PLATFORMS) binds[platform] = normalizeBind({ platform, ...object(rawBinds[platform]) });
-  return { platforms, binds };
+  return { platforms, binds, plugins };
 }
 
 // WS 事件合并:channels_state 替换单个平台快照,channels_bind 更新该平台的扫码状态;
-// 无关事件原样返回同一个对象(调用方可据此跳过重渲染)。
+// 无关事件原样返回同一个对象(调用方可据此跳过重渲染)。插件平台只更新快照里已有的那几个。
 export function applyChannelsEvent(state, envelope) {
   const message = object(envelope);
   const payload = object(message.payload);
   if (message.type === 'channels_state') {
     const platform = normalizeChannelPlatform(payload);
-    if (!isChannelPlatform(platform.platform)) return state;
+    const known = isChannelPlatform(platform.platform) || array(state?.plugins).includes(platform.platform);
+    if (!known) return state;
     return { ...state, platforms: { ...state.platforms, [platform.platform]: platform } };
   }
   if (message.type === 'channels_bind' && SCAN_PLATFORMS.includes(payload.platform)) {
@@ -185,6 +231,15 @@ export function channelCards() {
     card('discord', 'Discord', '私信机器人或在服务器频道里 @它 下达指令,结果回到频道。'),
     card('line', 'LINE', '在 LINE 私聊或群里 @机器人 下达指令,结果回到聊天窗口。'),
   ];
+}
+
+// 插件平台的卡片排在内置平台之后,按快照里的顺序。
+export function pluginChannelCards(state) {
+  return array(state?.plugins).map((platform) => {
+    const item = object(state?.platforms?.[platform]);
+    const title = text(item.label) || platform;
+    return { platform, title, plugin: true, description: `在 ${title} 里给自己发消息即可使用 ACECode。` };
+  });
 }
 
 const DISCORD_PERMISSIONS = '274878008320';  // 查看频道、发消息、读历史、附件、在子区发消息
@@ -385,6 +440,8 @@ export function channelCardView(platform, busy = false) {
 function cardStatus(item) {
   if (item.state === 'error') return { tone: 'danger', text: '通道数据异常,详情见日志' };
   if (!item.enabled) return null;
+  // 插件报告需要登录(例如账号在别处登录被踢下线):登录之前不能继续使用。
+  if (item.plugin && item.loginRequired) return { tone: 'warn', text: '需要登录', action: 'login' };
   switch (item.state) {
     case 'connected':
       return { tone: 'ok', text: item.displayName ? `已连接 · ${item.displayName}` : '已连接' };
@@ -406,7 +463,61 @@ function cardStatus(item) {
 // 点「连接」:还没配好(没有凭据,或还没有机主)时打开分步向导,已经配好的直接连接。
 export function connectNeedsWizard(platform) {
   const item = platform || emptyChannelPlatform('');
+  if (item.plugin) return false;  // 插件自己负责登录,连接即打开开关
   return !item.configured || !item.owner || scanLoginExpired(item);
+}
+
+// 群聊代答表单的草稿:群 ID 每行一个,间隔以秒为单位。
+export function groupWatchDraft(platform) {
+  const watch = platform?.groupWatch || normalizeGroupWatch({});
+  return {
+    groups: watch.groups.join('\n'),
+    pollIntervalS: String(watch.pollIntervalS),
+    prefix: watch.prefix,
+    prompt: watch.prompt,
+  };
+}
+
+function chars(value) {
+  return Array.from(text(value)).length;
+}
+
+function splitGroups(value) {
+  const seen = [];
+  for (const part of text(value).split(/[\s,，;；]+/)) {
+    const id = part.trim();
+    if (id && !seen.includes(id)) seen.push(id);
+  }
+  return seen;
+}
+
+// 校验并生成请求体;不合法时返回 { error }。规则与 daemon 一致,后端仍会再校验。
+export function groupWatchPayload(draft) {
+  const source = object(draft);
+  const groups = splitGroups(source.groups);
+  if (groups.length > GROUP_WATCH_LIMITS.maxGroups) return { error: `最多设置 ${GROUP_WATCH_LIMITS.maxGroups} 个群聊` };
+  const bad = groups.find((id) => !/^[A-Za-z0-9\-_.:@+/=$]{1,128}$/.test(id));
+  if (bad) return { error: `群聊 ID 只能包含字母、数字和 - _ . : @ + / = $:${bad}` };
+  const interval = Number(text(source.pollIntervalS).trim());
+  if (!Number.isInteger(interval) || interval < GROUP_WATCH_LIMITS.minPollIntervalS || interval > GROUP_WATCH_LIMITS.maxPollIntervalS) {
+    return { error: '轮询间隔需在 30 秒到 24 小时之间' };
+  }
+  const prefix = text(source.prefix);
+  if (/[\r\n]/.test(prefix)) return { error: '消息前缀不能换行' };
+  if (chars(prefix) > GROUP_WATCH_LIMITS.maxPrefixChars) return { error: `消息前缀最多 ${GROUP_WATCH_LIMITS.maxPrefixChars} 个字` };
+  const prompt = text(source.prompt).trim();
+  if (chars(prompt) > GROUP_WATCH_LIMITS.maxPromptChars) return { error: `代答提示词最多 ${GROUP_WATCH_LIMITS.maxPromptChars} 个字` };
+  return { body: { groups, poll_interval_s: interval, prefix, prompt } };
+}
+
+// 卡片管理框里列出的代答会话(每个群一个)。
+export function delegateRows(platform) {
+  return array(platform?.bindings).filter((binding) => binding.delegate).map((binding) => ({
+    key: binding.key,
+    sessionId: binding.sessionId,
+    title: binding.chatName || binding.chat,
+    subtitle: binding.chatName ? binding.chat : '',
+  }));
 }
 
 // 微信的登录凭据会在腾讯侧失效:平台停止重试后只能重新扫码,重连旧凭据没有意义。
@@ -642,17 +753,20 @@ export function qrSvgModel(content, errorCorrection = 'M') {
 export function channelBoundPlatform(session) {
   const bound = object(session?.channel_bound ?? session?.channelBound);
   const platform = text(bound.platform);
-  return isChannelPlatform(platform) ? platform : '';
+  if (isChannelPlatform(platform)) return platform;
+  // 插件平台由 daemon 同时给出展示名;没有 label 的未知平台名(如旧的 whatsapp 标记)不认。
+  return isPluginPlatformName(platform) && text(bound.label) ? platform : '';
 }
 
-export function channelBoundLabel(platform) {
-  return platform ? `已绑定到 ${channelPlatformTitle(platform)}` : '';
+// label:daemon 给出的平台展示名(插件平台取清单里的 label);缺省按内置平台名。
+export function channelBoundLabel(platform, label = '') {
+  return platform ? `已绑定到 ${text(label) || channelPlatformTitle(platform)}` : '';
 }
 
 // 所有平台绑定的会话 id 集合(排序后的字符串,便于比较是否变化)。
 export function channelBindingSignature(state) {
   const ids = [];
-  for (const platform of CHANNEL_PLATFORMS) {
+  for (const platform of [...CHANNEL_PLATFORMS, ...array(state?.plugins)]) {
     for (const binding of array(state?.platforms?.[platform]?.bindings)) ids.push(`${platform}:${binding.sessionId}`);
   }
   return ids.sort().join('|');
@@ -661,7 +775,7 @@ export function channelBindingSignature(state) {
 // 单个 channels_state 事件里的绑定签名;侧栏据此判断要不要立即刷新。
 export function channelStateBindingSignature(payload) {
   const platform = normalizeChannelPlatform(payload);
-  if (!isChannelPlatform(platform.platform)) return null;
+  if (!isChannelPlatform(platform.platform) && !(platform.plugin && isPluginPlatformName(platform.platform))) return null;
   return platform.bindings.map((binding) => binding.sessionId).sort().join('|');
 }
 

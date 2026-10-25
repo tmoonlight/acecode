@@ -114,7 +114,8 @@ void annotate_channel_bound(nlohmann::json& rows, const std::map<std::string, st
     for (auto& row : rows) {
         if (!row.is_object() || !row.contains("id") || !row["id"].is_string()) continue;
         const auto it = bound.find(row["id"].get<std::string>());
-        if (it != bound.end()) row["channel_bound"] = {{"platform", it->second}};
+        if (it != bound.end())
+            row["channel_bound"] = {{"platform", it->second}, {"label", channels::core::platform_label(it->second)}};
     }
 }
 

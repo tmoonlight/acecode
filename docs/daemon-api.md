@@ -6210,6 +6210,51 @@ session id:
 
 `qr_url` is the QR code content for the phone; it is never logged.
 
+### Plugin platforms
+
+`openspec add-channel-platform-plugins`. Platforms registered from
+`<data_dir>/connectors/*/channel-platform.json` at daemon startup appear in
+`GET /api/channels` after the built-in platforms and use the same routes; the
+plugin protocol is in [channel-platform-plugin.md](channel-platform-plugin.md).
+Their snapshot items add:
+
+```json
+{
+  "platform": "example",
+  "plugin": true,
+  "label": "Example IM",
+  "account_model": "self",
+  "login_required": false,
+  "configured": true,
+  "group_watch": {"groups": ["g1"], "poll_interval_s": 120, "prefix": "", "prompt": ""},
+  "bindings": [
+    {"key": "...", "label": "Example IM 群聊", "chat": "g1", "sender": "me", "session_id": "sid",
+     "delegate": true, "chat_name": "Project group"}
+  ]
+}
+```
+
+`configured` is always true (plugins have no credentials); `POST .../enabled`
+starts or stops the plugin process. `group_watch` is present only when the
+manifest declares `watched_groups`. Bindings with `delegate: true` are group
+delegate sessions; they have no outbound projection. Session list rows bound to
+any platform carry `channel_bound: {"platform", "label"}`.
+
+### `PUT /api/channels/:platform/settings`
+
+Body `{"groups": [..] | "one\nper line", "poll_interval_s": 30..86400,
+"prefix": "<=32 chars, no line breaks", "prompt": "<=4000 chars"}`. At most 20
+group IDs (letters, digits and `- _ . : @ + / = $`). Missing fields take their
+defaults. Saving unbinds groups that were removed (their sessions lose
+`channel_delegate`), refreshes the delegate prompt of the others and, when the
+group list changed, sends `configure` to a running plugin. Platforms without
+`watched_groups` return 400.
+
+### `POST /api/channels/:platform/login`
+
+Forwards `action("login")` to the plugin (up to 120 s). Built-in platforms
+return 400; a stopped plugin returns 400 `通道未连接`.
+
 ## Session loading diagnostics
 
 - `POST /api/diagnostics/session-open` accepts `session_id`, nonnegative

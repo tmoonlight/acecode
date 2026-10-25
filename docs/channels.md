@@ -266,6 +266,45 @@ tests never contact
 Tencent or Telegram. Real-account acceptance is tracked in the change's
 `verification.md`.
 
+## Plugin Channels
+
+A connector package can add its own platform card next to the built-in ones.
+The package puts a `channel-platform.json` manifest and the plugin program in
+`<data dir>/connectors/<dir>/`; the daemon registers it at startup, so the card
+exists only while the package is installed. The plugin runs as a child process
+and implements the IM side (login, connection, message store); ACECode keeps the
+same routing, commands, session binding and projection as for built-in
+platforms. The manifest and protocol are in
+[channel-platform-plugin.md](channel-platform-plugin.md).
+
+Plugins use the **own account** model: the plugin is signed in as you, there is
+no bot, and only messages you send to yourself reach a session. There is no
+setup wizard; **Connect** turns the card on and the plugin handles sign-in. When
+the plugin reports that you must sign in again (for example after another client
+took over your account), the card shows **Sign in required** and a **Sign in**
+button, and the channel stays unusable until you sign in.
+
+A plugin that declares `watched_groups` adds **Group chat delegate** to the
+card's **Manage** dialog: group IDs, poll interval, message prefix and a delegate
+prompt. Messages in those groups are collected and, once per interval when
+someone else has written, handed to a dedicated session as one summary. That
+session acts on your behalf with read-only tools only and can post to the group
+only through `send_to_group_chat` (with your prefix, default none); its ordinary
+replies stay in ACECode. Mentions of you are marked and answered first. The
+delegate prompt decides what may be sent and which requests it answers.
+
+Plugin data lives under `<data dir>/channels/<name>/` like the built-in
+platforms; the delegate settings are the `group_watch` section of its
+`config.json`.
+
+```sh
+acecode_unit_tests --gtest_filter='PluginManifest.*:PluginTransportTest.*:GroupWatch*:GroupDelegate.*:AgentLoopChannelDelegate.*:ImChannelPluginEndToEnd.*'
+```
+
+`ImChannelPluginEndToEnd.*` runs the production wiring with a real session
+registry and a scripted model against `fake_channel_plugin`, a test plugin
+built with the unit tests.
+
 ## WhatsApp
 
 WhatsApp uses a personal account linked by QR. C++ routing lives

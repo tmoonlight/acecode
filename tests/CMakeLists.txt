@@ -384,6 +384,16 @@ target_link_libraries(fake_lsp_server PRIVATE
 )
 add_dependencies(acecode_unit_tests fake_lsp_server)
 
+# 测试辅助的外部平台插件:消息通道插件传输层走真实进程与 stdio 管道
+# (openspec add-channel-platform-plugins)。
+add_executable(fake_channel_plugin
+    ${CMAKE_CURRENT_SOURCE_DIR}/channels/helpers/fake_channel_plugin.cpp
+)
+target_link_libraries(fake_channel_plugin PRIVATE
+    nlohmann_json::nlohmann_json
+)
+add_dependencies(acecode_unit_tests fake_channel_plugin)
+
 # JSONL stdout process probe: links the production writer directly so tests can
 # verify flush/backpressure/broken-pipe behavior through a real OS pipe without
 # starting a provider-backed headless session.
@@ -404,6 +414,7 @@ target_compile_definitions(acecode_unit_tests PRIVATE
     ACECODE_REMOTE_WEB_PROXY_CHILD_PATH="$<TARGET_FILE:remote_web_proxy_test_child>"
     ACECODE_MCP_STDIO_TEST_SERVER_PATH="$<TARGET_FILE:mcp_stdio_test_server>"
     ACECODE_FAKE_LSP_SERVER_PATH="$<TARGET_FILE:fake_lsp_server>"
+    ACECODE_FAKE_CHANNEL_PLUGIN_PATH="$<TARGET_FILE:fake_channel_plugin>"
     ACECODE_HEADLESS_JSONL_DRIVER_PATH="$<TARGET_FILE:headless_jsonl_process_driver>"
 )
 

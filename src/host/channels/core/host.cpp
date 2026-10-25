@@ -222,6 +222,13 @@ std::map<std::string, std::string> ChannelHost::bound_sessions() const {
     return out;
 }
 
+GroupSendResult ChannelHost::send_to_group(const std::string& session_id, const std::string& text) {
+    for (const auto& name : platform_names()) {
+        if (auto result = runtimes_.at(name)->send_to_group(session_id, text)) return *result;
+    }
+    return {false, "本会话没有绑定消息通道的群聊"};
+}
+
 void ChannelHost::release_across(const std::string& session_id, const std::string& taker_key,
                                  const std::string& label) {
     for (const auto& name : platform_names()) runtimes_.at(name)->release_session(session_id, taker_key, label);

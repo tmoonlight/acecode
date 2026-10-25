@@ -1,5 +1,7 @@
 #include "channels/core/platform_adapters.hpp"
 
+#include "channels/core/platforms.hpp"
+
 #include "im/dingtalk/dingtalk_api.hpp"
 #include "channels/core/line_webhook_server.hpp"
 #include "im/discord/discord_api.hpp"
@@ -8,6 +10,7 @@
 #include "im/qqbot/qq_api.hpp"
 #include "im/telegram/tg_api.hpp"
 #include "im/weixin/weixin_api.hpp"
+#include "im/plugin/plugin_transport.hpp"
 #include "utils/logger.hpp"
 
 #include <mutex>
@@ -411,10 +414,27 @@ BindRunner qq_bind_runner(const HostServices& services) {
     };
 }
 
+std::shared_ptr<im::Transport> make_plugin(const PlatformSpec& spec, const PlatformConfig& config,
+                                           const HostServices& services) {
+    im::plugin::PluginTransportOptions options;
+    options.platform = spec.name;
+    options.command = spec.plugin->command;
+    options.args = spec.plugin->args;
+    options.cwd = spec.plugin->manifest_dir;
+    options.settings = plugin_settings_payload(config);
+    if (services.tune_plugin) services.tune_plugin(options);
+    return std::make_shared<im::plugin::PluginTransport>(std::move(options));
+}
+
 } // namespace
+
+nlohmann::json plugin_settings_payload(const PlatformConfig& config) {
+    return {{"watched_groups", config.group_watch.groups}};
+}
 
 std::shared_ptr<im::Transport> make_platform_transport(const std::string& platform, const PlatformConfig& config,
                                                        ChannelStore& store, const HostServices& services) {
+    if (const auto* spec = find_platform_spec(platform); spec && spec->plugin) return make_plugin(*spec, config, services);
     if (platform == "qq") return make_qq(config, services);
     if (platform == "weixin") return make_weixin(config, store, services);
     if (platform == "feishu") return make_feishu(config, services);
@@ -427,6 +447,9 @@ std::shared_ptr<im::Transport> make_platform_transport(const std::string& platfo
 
 nlohmann::json validate_platform_credentials(const std::string& platform, const nlohmann::json& credentials,
                                              const HostServices& services, std::string* error) {
+    // 插件平台没有凭据:登录由插件自己完成。
+    if (const auto* spec = find_platform_spec(platform); spec && spec->plugin)
+        return credentials.is_object() ? credentials : nlohmann::json::object();
     if (platform == "qq") return validate_qq(credentials, services, error);
     if (platform == "weixin") return validate_weixin(credentials, error);
     if (platform == "feishu") return validate_feishu(credentials, services, error);

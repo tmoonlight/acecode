@@ -796,6 +796,11 @@ export function createApi(base = null) {
     revokeChannelAccess: (platform, principal) =>
       request('DELETE', `/api/channels/${encodeURIComponent(platform)}/access/${encodeURIComponent(principal)}`,
         undefined, base),
+    // 外部平台插件(openspec add-channel-platform-plugins):群聊代答设置与插件登录。
+    setChannelSettings: (platform, settings) =>
+      request('PUT', `/api/channels/${encodeURIComponent(platform)}/settings`, settings, base),
+    loginChannel: (platform) =>
+      request('POST', `/api/channels/${encodeURIComponent(platform)}/login`, {}, base, { timeoutMs: 130000 }),
     getUpgradeConfig: ()             => request('GET',    '/api/config/upgrade', undefined, base),
     setUpgradeConfig: (cfg)          => request('PUT',    '/api/config/upgrade', cfg, base),
     getToolchainConfig: () => request('GET', '/api/config/toolchains', undefined, base),

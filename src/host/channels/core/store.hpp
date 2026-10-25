@@ -5,6 +5,7 @@
 //   state.json  —— 会话绑定、每个 IM 会话创建过的会话、去重回执、平台游标;运行时写入。
 // 文件结构不合法时 load() 抛异常:拒绝启动该平台并把原因显示在页面上,绝不静默重置。
 
+#include "channels/core/group_watch.hpp"
 #include "im/transport.hpp"
 
 #include <nlohmann/json.hpp>
@@ -27,6 +28,9 @@ struct BindingRecord {
     std::string workspace_hash;
     bool no_workspace = true;
     std::int64_t updated_at_ms = 0;
+    // 群聊代答会话(D5):没有出站投影,只有 send_to_group_chat 能往群里发消息。
+    bool delegate = false;
+    std::string chat_name;
 };
 
 struct AccessEntry {
@@ -40,6 +44,7 @@ struct PlatformConfig {
     nlohmann::json credentials = nlohmann::json::object();
     std::string owner;  // 机主的 principal;空 = 还没有机主
     std::vector<AccessEntry> access;
+    GroupWatchSettings group_watch;  // 只有声明了 watched_groups 的平台才会用到
 
     bool has_access(const std::string& principal) const;
     const AccessEntry* find_access(const std::string& principal) const;

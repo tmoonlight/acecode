@@ -14,9 +14,12 @@
 
 namespace acecode::channels::core {
 
-// 未知平台返回 nullptr。
+// 未知平台返回 nullptr。插件平台(PlatformSpec::plugin)创建插件子进程传输层。
 std::shared_ptr<im::Transport> make_platform_transport(const std::string& platform, const PlatformConfig& config,
                                                        ChannelStore& store, const HostServices& services);
+
+// 交给插件的设置(initialize / configure 的 settings):目前只有关注的群列表。
+nlohmann::json plugin_settings_payload(const PlatformConfig& config);
 
 // 成功返回要保存的凭据(去空白,可能补上机器人 id 等派生字段);失败返回 null 并写 error(不含凭据)。
 nlohmann::json validate_platform_credentials(const std::string& platform, const nlohmann::json& credentials,

@@ -2,6 +2,7 @@
 
 #include "llm/llm_provider.hpp"
 #include "config/saved_models.hpp"
+#include "channel_delegate.hpp"
 #include "todo_state.hpp"
 #include <cstddef>
 #include <functional>
@@ -122,6 +123,8 @@ struct SessionMeta {
     // parent_session_id 恒为树根会话 id(界面归属、冒泡与级联删除都按它走),
     // 真实父子关系由路径表达。根会话与非网状会话为空,序列化省略。
     std::string agent_path;
+    // 消息通道的群聊代答身份(channel_delegate.hpp);普通会话不活动,序列化省略。
+    ChannelDelegate channel_delegate;
     std::string last_user_message_at; // ISO 8601; human input, not background activity.
     std::string last_turn_outcome; // completed | aborted | error; empty = unknown/pending.
     std::int64_t model_activated_at_ms = 0; // Successful selection/use, independent of UI edits.

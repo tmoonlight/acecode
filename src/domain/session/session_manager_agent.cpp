@@ -41,14 +41,30 @@ std::optional<std::string> SessionManager::current_reasoning_effort() const {
     return reasoning_effort_;
 }
 
+void SessionManager::set_channel_delegate(ChannelDelegate delegate) {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (!delegate.active()) delegate = ChannelDelegate{};
+    if (channel_delegate_ == delegate) return;
+    channel_delegate_ = std::move(delegate);
+    if (created_) update_meta();
+}
+
+ChannelDelegate SessionManager::current_channel_delegate() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return channel_delegate_;
+}
+
+// 群聊代答身份与蜂群身份一样随 meta 写出、随 resume 读回,共用这两个写读点。
 void SessionManager::write_swarm_identity_locked(SessionMeta& meta) const {
     meta.swarm_mode = swarm_mode_;
     meta.agent_path = agent_path_;
+    meta.channel_delegate = channel_delegate_;
 }
 
 void SessionManager::adopt_swarm_identity_locked(const SessionMeta& meta) {
     swarm_mode_ = meta.swarm_mode == "off" ? std::string{} : meta.swarm_mode;
     agent_path_ = meta.agent_path;
+    channel_delegate_ = meta.channel_delegate;
 }
 
 } // namespace acecode

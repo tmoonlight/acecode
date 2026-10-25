@@ -53,6 +53,9 @@ public:
     // 会话 id → 平台名;会话列表的 channel_bound 字段用它。
     std::map<std::string, std::string> bound_sessions() const;
 
+    // send_to_group_chat 工具的入口:按会话找到所属平台的群聊代答绑定并发送。
+    GroupSendResult send_to_group(const std::string& session_id, const std::string& text);
+
 private:
     void release_across(const std::string& session_id, const std::string& taker_key, const std::string& label);
     void publish_all();

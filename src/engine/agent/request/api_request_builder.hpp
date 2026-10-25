@@ -36,6 +36,7 @@ struct RequestContextOptions {
     bool loop_active = false;
     SwarmContext swarm;
     std::string loop_context;
+    std::string delegate_context;
     SystemPromptWorktreeState worktree;
     SystemPromptEnvironment environment;
     SystemPromptSandboxState sandbox;

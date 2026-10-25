@@ -58,16 +58,21 @@ BindingRecord binding_from_json(const nlohmann::json& value) {
     record.workspace_hash = value.value("workspace_hash", std::string{});
     record.no_workspace = value.value("no_workspace", true);
     record.updated_at_ms = value.value("updated_at_ms", std::int64_t{0});
+    record.delegate = value.value("delegate", false);
+    record.chat_name = value.value("chat_name", std::string{});
     return record;
 }
 
 nlohmann::json binding_to_json(const BindingRecord& record) {
-    return {{"address", record.address.to_json()},
-            {"session_id", record.session_id},
-            {"cwd", record.cwd},
-            {"workspace_hash", record.workspace_hash},
-            {"no_workspace", record.no_workspace},
-            {"updated_at_ms", record.updated_at_ms}};
+    nlohmann::json value{{"address", record.address.to_json()},
+                         {"session_id", record.session_id},
+                         {"cwd", record.cwd},
+                         {"workspace_hash", record.workspace_hash},
+                         {"no_workspace", record.no_workspace},
+                         {"updated_at_ms", record.updated_at_ms}};
+    if (record.delegate) value["delegate"] = true;
+    if (!record.chat_name.empty()) value["chat_name"] = record.chat_name;
+    return value;
 }
 
 void validate_state(const nlohmann::json& state) {
@@ -79,7 +84,7 @@ void validate_state(const nlohmann::json& state) {
     for (const auto& [key, value] : state["bindings"].items()) {
         const auto record = binding_from_json(value);
         if (!record.address.valid() || record.address.key() != key || !session_id_ok(record.session_id) ||
-            !safe_text(record.cwd, 4096) || !safe_text(record.workspace_hash, 128))
+            !safe_text(record.cwd, 4096) || !safe_text(record.workspace_hash, 128) || !safe_text(record.chat_name, 512))
             throw std::runtime_error("通道状态文件里的会话绑定无效");
     }
     for (const auto& [key, value] : state["created"].items()) {
@@ -127,11 +132,13 @@ nlohmann::json config_to_json(const PlatformConfig& config) {
     nlohmann::json access = nlohmann::json::array();
     for (const auto& entry : config.access)
         access.push_back({{"principal", entry.principal}, {"name", entry.name}, {"approved_at_ms", entry.approved_at_ms}});
-    return {{"version", 1},
-            {"enabled", config.enabled},
-            {"credentials", config.credentials},
-            {"owner", config.owner},
-            {"access", access}};
+    nlohmann::json out{{"version", 1},
+                       {"enabled", config.enabled},
+                       {"credentials", config.credentials},
+                       {"owner", config.owner},
+                       {"access", access}};
+    if (!config.group_watch.is_default()) out["group_watch"] = group_watch_settings_to_json(config.group_watch);
+    return out;
 }
 
 PlatformConfig config_from_json(const nlohmann::json& value) {
@@ -156,6 +163,12 @@ PlatformConfig config_from_json(const nlohmann::json& value) {
         entry.approved_at_ms = item.value("approved_at_ms", std::int64_t{0});
         if (!principal_ok(entry.principal) || !safe_text(entry.name, 200)) throw std::runtime_error("通道授权名单无效");
         config.access.push_back(std::move(entry));
+    }
+    if (const auto it = value.find("group_watch"); it != value.end()) {
+        std::string error;
+        auto settings = parse_group_watch_settings(*it, &error);
+        if (!settings) throw std::runtime_error("群聊代答设置无效:" + error);
+        config.group_watch = std::move(*settings);
     }
     return config;
 }

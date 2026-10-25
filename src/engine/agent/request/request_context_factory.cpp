@@ -47,6 +47,7 @@ RequestContextOptions RequestContextFactory::options(
     options.can_read_images = model.can_read_images();
     options.loop_active = source_.loop.active;
     options.loop_context = source_.loop.system_context;
+    options.delegate_context = source_.delegate_context;
     options.swarm = source_.swarm;
     options.environment = source_.runtime.prompt_environment();
     options.sandbox.description = security_.sandbox_prompt_description(session_manager_);

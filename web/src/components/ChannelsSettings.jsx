@@ -19,12 +19,16 @@ import {
   credentialPlaceholder,
   credentialsPayload,
   discordInviteUrl,
+  groupWatchDraft,
+  groupWatchPayload,
+  GROUP_WATCH_LIMITS,
   initialWizardStep,
   normalizeBind,
   normalizeChannelsSnapshot,
   ownerStepView,
   pendingRows,
   platformSetup,
+  pluginChannelCards,
   qrSvgModel,
   savedBotSummary,
 } from '../lib/channelsSettings.js';
@@ -97,10 +101,11 @@ function PendingList({ requests, busy, onDecide }) {
   ));
 }
 
-function ChannelCard({ card, platform, busy, onConnect, onDisconnect, onManage }) {
+function ChannelCard({ card, platform, busy, onConnect, onDisconnect, onManage, onLogin }) {
   const view = channelCardView(platform, busy);
   const pending = pendingRows(platform);
   const connect = view.button.action === 'connect';
+  const login = view.status?.action === 'login';
   return (
     <article data-channel-card={card.platform} className="flex min-w-0 flex-col rounded-lg border border-border bg-surface p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -115,6 +120,10 @@ function ChannelCard({ card, platform, busy, onConnect, onDisconnect, onManage }
             管理
             {pending.length > 0 && <span aria-hidden="true" className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-warn" />}
           </button>
+          {login && (
+            <button type="button" data-channel-login disabled={!!busy}
+              className={clsx(primaryButtonClass, 'h-7 w-20 px-0')} onClick={onLogin}>登录</button>
+          )}
           <button type="button" data-channel-connect disabled={view.button.disabled}
             className={clsx(connect ? primaryButtonClass : secondaryButtonClass, 'h-7 w-20 px-0')}
             onClick={connect ? onConnect : onDisconnect}>
@@ -651,6 +660,88 @@ function ManageDialog({ platformKey, platform, busy, onRevoke, onChangeBot, onFi
   );
 }
 
+// 外部平台插件(openspec add-channel-platform-plugins):没有机器人、凭据与机主绑定,
+// 管理框只有连接状态、需要登录时的「登录」,以及声明了群聊代答的平台的设置表单。
+function PluginManageDialog({ platformKey, platform, busy, run, onClose }) {
+  const titleId = `ace-channels-manage-${platformKey}`;
+  const title = platform.label || platformKey;
+  const view = channelCardView(platform, busy);
+  const [draft, setDraft] = useState(() => groupWatchDraft(platform));
+  const [formError, setFormError] = useState('');
+  const change = (key) => (event) => {
+    const value = event.target.value;
+    setDraft((prev) => ({ ...prev, [key]: value }));
+    setFormError('');
+  };
+  const save = async () => {
+    const result = groupWatchPayload(draft);
+    if (result.error) {
+      setFormError(result.error);
+      return;
+    }
+    const ok = await run(`${platformKey}-settings`, () => api.setChannelSettings(platformKey, result.body), setFormError);
+    if (ok) toast({ kind: 'ok', text: '已保存' });
+  };
+  return (
+    <Modal onClose={onClose} width={520} labelledBy={titleId} dismissOnBackdrop={false}>
+      <div className="p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <ChannelPlatformIcon platform={platformKey} size={20} box="h-8 w-8" />
+          <div id={titleId} className="flex-1 text-[15px] font-semibold">{`管理 ${title}`}</div>
+          <button type="button" className={iconButtonClass} aria-label="关闭" onClick={onClose}>
+            <VsIcon name="close" size={14} />
+          </button>
+        </div>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <StatusPill tone={view.status?.tone} text={view.status?.text || '未连接'} />
+          {view.status?.action === 'login' && (
+            <button type="button" data-channel-login className={primaryButtonClass} disabled={!!busy}
+              onClick={() => run(`${platformKey}-login`, () => api.loginChannel(platformKey))}>登录</button>
+          )}
+        </div>
+        {platform.groupWatch && (
+          <form data-channel-group-watch className="flex flex-col gap-3"
+            onSubmit={(event) => { event.preventDefault(); save(); }}>
+            <div className="text-[12px] font-semibold">群聊代答</div>
+            <label className="flex flex-col gap-1 text-[12px]">
+              <span>群聊 ID</span>
+              <textarea rows={3} className={clsx(inputClass, 'h-auto py-1.5 font-mono')} value={draft.groups}
+                placeholder="每行一个" onChange={change('groups')} />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1 text-[12px]">
+                <span>轮询间隔(秒)</span>
+                <input type="number" className={inputClass} min={GROUP_WATCH_LIMITS.minPollIntervalS}
+                  max={GROUP_WATCH_LIMITS.maxPollIntervalS} value={draft.pollIntervalS} onChange={change('pollIntervalS')} />
+              </label>
+              <label className="flex flex-col gap-1 text-[12px]">
+                <span>消息前缀</span>
+                <input type="text" className={inputClass} maxLength={GROUP_WATCH_LIMITS.maxPrefixChars}
+                  value={draft.prefix} placeholder="不加" onChange={change('prefix')} />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1 text-[12px]">
+              <span>代答提示词</span>
+              <textarea rows={6} className={clsx(inputClass, 'h-auto py-1.5')} value={draft.prompt}
+                maxLength={GROUP_WATCH_LIMITS.maxPromptChars} onChange={change('prompt')} />
+            </label>
+            {formError && <InlineError text={formError} />}
+            <WizardFooter>
+              <button type="button" className={secondaryButtonClass} onClick={onClose}>关闭</button>
+              <button type="submit" data-ace-dialog-primary="true" className={primaryButtonClass} disabled={!!busy}>保存</button>
+            </WizardFooter>
+          </form>
+        )}
+        {!platform.groupWatch && (
+          <WizardFooter>
+            <button type="button" data-ace-dialog-primary="true" className={primaryButtonClass} onClick={onClose}>完成</button>
+          </WizardFooter>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export function ChannelsSettings() {
   const [state, setState] = useState(() => normalizeChannelsSnapshot(null));
   const [loading, setLoading] = useState(true);
@@ -739,10 +830,11 @@ export function ChannelsSettings() {
         </div>
       ) : (
         <div data-channel-cards="true" className="grid grid-cols-1 gap-3 min-[1100px]:grid-cols-2">
-          {channelCards().map((card) => (
+          {[...channelCards(), ...pluginChannelCards(state)].map((card) => (
             <ChannelCard key={card.platform} card={card} platform={state.platforms[card.platform]} busy={busy}
               onConnect={() => connect(card.platform)}
               onDisconnect={() => run(`${card.platform}-toggle`, () => api.setChannelEnabled(card.platform, false))}
+              onLogin={() => run(`${card.platform}-login`, () => api.loginChannel(card.platform))}
               onManage={() => setManaging(card.platform)} />
           ))}
         </div>
@@ -754,7 +846,11 @@ export function ChannelsSettings() {
           onDecide={(request, approve) => decide(wizard.platform, request, approve)}
           onClose={() => setWizard(null)} />
       )}
-      {managing && (
+      {managing && state.platforms[managing]?.plugin && (
+        <PluginManageDialog key={managing} platformKey={managing} platform={state.platforms[managing]} busy={busy}
+          run={run} onClose={() => setManaging('')} />
+      )}
+      {managing && !state.platforms[managing]?.plugin && (
         <ManageDialog platformKey={managing} platform={state.platforms[managing]} busy={busy}
           onDecide={(request, approve) => decide(managing, request, approve)}
           onFix={() => {

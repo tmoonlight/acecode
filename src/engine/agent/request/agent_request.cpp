@@ -53,6 +53,23 @@ agent::RequestContextSource AgentLoop::capture_request_source() const {
             snapshot.tool_policy.hidden_builtin_tools.emplace(name, std::move(refusal));
         }
     }
+    // 群聊代答会话:群成员的发言会进入本会话,只保留只读内置工具与发群工具(与专家策略
+    // 取交集),MCP 工具一律不开放;普通会话隐藏发群工具。同一谓词管 schema 与执行。
+    const ChannelDelegate delegate =
+        session_manager_ ? session_manager_->current_channel_delegate() : ChannelDelegate{};
+    if (delegate.active()) {
+        snapshot.delegate_context = build_channel_delegate_system_context(delegate);
+        std::unordered_set<std::string> allowed;
+        for (const auto& name : channel_delegate_builtin_tools()) {
+            if (!snapshot.tool_policy.builtin_tools || snapshot.tool_policy.builtin_tools->count(name) != 0)
+                allowed.insert(name);
+        }
+        snapshot.tool_policy.builtin_tools = std::move(allowed);
+        snapshot.tool_policy.mcp_servers = std::unordered_set<std::string>{};
+    } else {
+        snapshot.tool_policy.hidden_builtin_tools.emplace(
+            kSendToGroupChatToolName, "send_to_group_chat is only available in channel group-delegate sessions.");
+    }
     return snapshot;
 }
 

@@ -2,6 +2,7 @@
 #include "worker.hpp"
 #include "daemon_shutdown_sequence.hpp"
 #include "im_channels.hpp"
+#include "channels/core/group_chat_tool.hpp"
 #include "rc_session_catalog.hpp"
 #include "platform/termination_signal.hpp"
 #include "ipc/runtime_files_guard.hpp"
@@ -530,6 +531,8 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     acecode::channels::Runtime channel_runtime(std::move(channel_deps));
     // 消息通道(QQ / Telegram):WS 推送等 WebServer 建好后再接上(宿主声明在 server 之前)。
     auto im_broadcast = std::make_shared<acecode::channels::core::Broadcast>();
+    // 外部平台插件(连接器增量包里的 channel-platform.json)要先注册,宿主按平台表建运行时。
+    register_im_channel_plugins(im_channel_plugins_root());
     auto im_channels = make_im_channel_host(
         {&registry, &client, &cfg_mut, &app_config_mu,
          [projects_dir, &client](const std::optional<std::string>& query) {
@@ -538,6 +541,11 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
          [im_broadcast](const std::string& type, const nlohmann::json& payload) {
              if (*im_broadcast) (*im_broadcast)(type, payload);
          }});
+    // 群聊代答的发群工具;宿主在会话全部停止之后才析构(关闭顺序 ImChannels 只 stop)。
+    tools.register_tool(acecode::channels::core::create_send_to_group_chat_tool(
+        [host = im_channels.get()](const std::string& session_id, const std::string& text) {
+            return host->send_to_group(session_id, text);
+        }));
     subagent_deps->registry = &registry;
     subagent_deps->client   = &client;
     subagent_deps->config   = &cfg_mut;

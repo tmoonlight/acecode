@@ -1,5 +1,6 @@
 #include "platform_runtime.hpp"
 
+#include "channels/core/platform_adapters.hpp"
 #include "channels/core/platforms.hpp"
 #include "channels/core/state_log.hpp"
 #include "channels/owner_lock.hpp"
@@ -231,6 +232,7 @@ void PlatformRuntime::worker_loop() {
         if (queue_.empty()) {
             lock.unlock();
             try_takeover();
+            poll_groups();
             continue;
         }
         auto inbound = std::move(queue_.front());
@@ -247,6 +249,8 @@ void PlatformRuntime::worker_loop() {
                 continue;
             }
         }
+        // 群消息源源不断时工作线程不会空闲超时,这里也检查一次轮询(内部限频)。
+        poll_groups();
         if (outcome.pending_created && services_.broadcast) {
             const auto& request = *outcome.pending_created;
             services_.broadcast("channels_request", {{"platform", platform_},
@@ -257,6 +261,53 @@ void PlatformRuntime::worker_loop() {
         }
         if (outcome.pending_created || outcome.owner_claimed) publish_state();
     }
+}
+
+void PlatformRuntime::poll_groups() {
+    const auto* spec = find_platform_spec(platform_);
+    if (!spec || !spec->watched_groups) return;
+    std::lock_guard<std::mutex> process(process_mu_);
+    if (!slot_->get()) return;
+    try {
+        conversations_->poll_groups();
+    } catch (const std::exception& e) {
+        LOG_ERROR("[channels/" + platform_ + "] group poll failed: " + e.what());
+    }
+}
+
+void PlatformRuntime::set_settings(const nlohmann::json& body) {
+    const auto* spec = find_platform_spec(platform_);
+    if (!spec || !spec->watched_groups) throw std::runtime_error("该平台不支持群聊代答");
+    ensure_loaded();
+    std::string error;
+    const auto next = parse_group_watch_settings(body, &error);
+    if (!next) throw std::runtime_error(error);
+    GroupWatchSettings previous;
+    {
+        std::lock_guard<std::mutex> ops(ops_mu_);
+        previous = store_.config().group_watch;
+        store_.update_config([&next](PlatformConfig& config) { config.group_watch = *next; });
+    }
+    {
+        std::lock_guard<std::mutex> process(process_mu_);
+        conversations_->apply_group_settings(previous, *next);
+    }
+    if (const auto transport = slot_->get(); transport && previous.groups != next->groups) {
+        try {
+            transport->action("configure", plugin_settings_payload(store_.config()));
+        } catch (const std::exception& e) {
+            LOG_WARN("[channels/" + platform_ + "] plugin configure failed: " + e.what());
+        }
+    }
+    LOG_INFO("[channels/" + platform_ + "] group delegate settings saved (" + std::to_string(next->groups.size()) +
+             " group(s), every " + std::to_string(next->poll_interval_s) + " s)");
+    publish_state();
+}
+
+std::optional<GroupSendResult> PlatformRuntime::send_to_group(const std::string& session_id, const std::string& text) {
+    const auto* spec = find_platform_spec(platform_);
+    if (!spec || !spec->watched_groups) return std::nullopt;
+    return conversations_->send_to_group(session_id, text);
 }
 
 // 待命时由工作线程空闲轮询:持有者退出后接管连接。
@@ -511,6 +562,14 @@ nlohmann::json PlatformRuntime::snapshot() const {
     out["pending"] = pending;
     out["owner_window"] = access_.owner_window_open(now);
     out["bindings"] = conversations_->bindings_json();
+    if (const auto* spec = find_platform_spec(platform_); spec && spec->plugin) {
+        out["plugin"] = true;
+        out["label"] = spec->label;
+        out["account_model"] = "self";
+        out["login_required"] = status.extra.is_object() && status.extra.value("login_required", false);
+    }
+    if (const auto* spec = find_platform_spec(platform_); spec && spec->watched_groups)
+        out["group_watch"] = group_watch_settings_to_json(config.group_watch);
     return out;
 }
 

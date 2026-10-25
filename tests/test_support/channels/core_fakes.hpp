@@ -243,6 +243,7 @@ public:
             ++starts;
             status_.state = im::LinkState::Connected;
             status_.account = account;
+            status_.display_name = display_name;
             status_.extra = extra;
             snapshot = status_;
         }
@@ -339,6 +340,7 @@ public:
     }
 
     std::string account = "100";
+    std::string display_name;
     nlohmann::json extra = nlohmann::json::object();
     int fail_sends = 0;
     bool download_ok = true;

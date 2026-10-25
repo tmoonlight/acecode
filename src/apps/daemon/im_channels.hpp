@@ -44,4 +44,9 @@ std::filesystem::path im_channels_root();
 
 std::unique_ptr<channels::core::ChannelHost> make_im_channel_host(ImChannelDeps deps);
 
+// 外部平台插件清单所在的连接器目录 <data_dir>/connectors(openspec add-channel-platform-plugins D1)。
+std::filesystem::path im_channel_plugins_root();
+// 扫描清单并注册插件平台,必须在 make_im_channel_host 之前调用;返回注册成功的平台名。
+std::vector<std::string> register_im_channel_plugins(const std::filesystem::path& connectors_root);
+
 } // namespace acecode::daemon
