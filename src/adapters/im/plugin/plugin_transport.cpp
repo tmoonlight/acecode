@@ -15,6 +15,11 @@ namespace {
 
 // 一次子进程稳定运行这么久之后再退出,退避从头开始。
 constexpr auto kStableRun = std::chrono::seconds(60);
+// reader 每次最多等这么久就回头看一眼是否该退出;supervisor 按这个间隔检查插件进程是否已退出。
+constexpr int kReadPollMs = 100;
+constexpr auto kExitPoll = std::chrono::milliseconds(200);
+// 初始化完成前最多先存这么多事件;正常插件此时只有一两条状态与入站。
+constexpr std::size_t kMaxEarlyEvents = 256;
 
 std::string str(const nlohmann::json& object, const char* key) {
     if (!object.is_object()) return {};
@@ -220,6 +225,7 @@ bool PluginTransport::run_process_once() {
         failure_.clear();
         pending_.clear();
         writes_.clear();
+        early_events_.clear();
     }
     if (!process_.start(spawn, &error)) {
         std::lock_guard<std::mutex> lock(io_mu_);
@@ -267,13 +273,22 @@ bool PluginTransport::run_process_once() {
             std::lock_guard<std::mutex> lock(io_mu_);
             initialized_ = alive_;
         }
+        flush_early_events();
     } catch (const std::exception& e) {
         fail_process(std::string("插件初始化失败:") + e.what());
     }
 
-    {
-        std::unique_lock<std::mutex> lock(io_mu_);
-        io_cv_.wait(lock, [this] { return !alive_ || stopping_.load(); });
+    // 插件拉起的常驻子进程会继承 stdout 写端,插件退出后管道不一定 EOF;
+    // 所以这里周期性地看插件进程本身是否已退出。
+    for (;;) {
+        {
+            std::unique_lock<std::mutex> lock(io_mu_);
+            if (io_cv_.wait_for(lock, kExitPoll, [this] { return !alive_ || stopping_.load(); })) break;
+        }
+        if (process_.wait_exit(0)) {
+            fail_process("插件进程已退出");
+            break;
+        }
     }
     if (stopping_.load()) {
         // 正常关闭:先请插件自己收尾,再关 stdin,限时等它退出。
@@ -318,7 +333,9 @@ void PluginTransport::read_loop() {
             std::lock_guard<std::mutex> lock(io_mu_);
             if (!alive_) break;
         }
-        const auto count = process_.read_stdout(bytes, sizeof(bytes));
+        bool timed_out = false;
+        const auto count = process_.read_stdout_for(bytes, sizeof(bytes), kReadPollMs, &timed_out);
+        if (timed_out) continue;  // 回到循环顶部检查进程是否已被判定退出
         if (count <= 0) {
             fail_process("插件进程已退出");
             break;
@@ -392,7 +409,44 @@ void PluginTransport::handle_frame(const nlohmann::json& frame) {
     }
     const auto event = str(frame, "event");
     if (event.empty()) throw std::runtime_error("unrecognized frame");
-    handle_event(event, frame.value("params", nlohmann::json::object()));
+    dispatch_event(event, frame.value("params", nlohmann::json::object()));
+}
+
+void PluginTransport::dispatch_event(const std::string& event, const nlohmann::json& params) {
+    // 插件回复 initialize 后紧接着就报状态、推入站;supervisor 那时可能还没处理完 initialize
+    // 结果(能力、就绪标记)。初始化完成前的事件按到达顺序先存着,完成后再依次处理,外部看到
+    // 「已连接」时能力与就绪状态一定已经就位。event_mu_ 让补发与后来的事件不会交错。
+    std::lock_guard<std::mutex> order(event_mu_);
+    std::vector<std::pair<std::string, nlohmann::json>> backlog;
+    {
+        std::lock_guard<std::mutex> lock(io_mu_);
+        if (!initialized_) {
+            if (early_events_.size() < kMaxEarlyEvents) early_events_.emplace_back(event, params);
+            return;
+        }
+        backlog.swap(early_events_);
+    }
+    for (const auto& [name, early] : backlog) handle_event_logged(name, early);
+    handle_event(event, params);
+}
+
+void PluginTransport::flush_early_events() {
+    std::lock_guard<std::mutex> order(event_mu_);
+    std::vector<std::pair<std::string, nlohmann::json>> backlog;
+    {
+        std::lock_guard<std::mutex> lock(io_mu_);
+        if (!initialized_) return;
+        backlog.swap(early_events_);
+    }
+    for (const auto& [name, early] : backlog) handle_event_logged(name, early);
+}
+
+void PluginTransport::handle_event_logged(const std::string& event, const nlohmann::json& params) {
+    try {
+        handle_event(event, params);
+    } catch (const std::exception& e) {
+        LOG_WARN("[channels/" + options_.platform + "] plugin event rejected: " + e.what());
+    }
 }
 
 void PluginTransport::handle_event(const std::string& event, const nlohmann::json& params) {

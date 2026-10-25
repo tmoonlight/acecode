@@ -5,8 +5,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstring>
 #include <map>
+#include <thread>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -18,8 +20,8 @@
 #include <windows.h>
 #else
 #include <cerrno>
-#include <chrono>
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/wait.h>
@@ -310,6 +312,44 @@ long PipedProcess::read_stdout(char* buf, std::size_t len) {
         if (n < 0 && errno == EINTR) continue;
         if (n < 0) return -1;
         return static_cast<long>(n);
+    }
+#endif
+}
+
+long PipedProcess::read_stdout_for(char* buf, std::size_t len, int timeout_ms, bool* timed_out) {
+    if (timed_out) *timed_out = false;
+    if (!stdout_read_) return 0;
+#ifdef _WIN32
+    // 匿名管道没有带超时的同步读;先看管道里有没有数据,没有就短睡再看。
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    auto nap = std::chrono::milliseconds(2);
+    for (;;) {
+        DWORD available = 0;
+        if (!PeekNamedPipe(stdout_read_.get(), nullptr, 0, nullptr, &available, nullptr)) {
+            const DWORD err = GetLastError();
+            if (err == ERROR_BROKEN_PIPE || err == ERROR_HANDLE_EOF) return 0;
+            return -1;
+        }
+        if (available > 0) return read_stdout(buf, std::min<std::size_t>(len, available));
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            if (timed_out) *timed_out = true;
+            return 0;
+        }
+        std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(nap, deadline - now));
+        nap = std::min(nap * 2, std::chrono::milliseconds(50));
+    }
+#else
+    pollfd fd{stdout_read_.get(), POLLIN, 0};
+    for (;;) {
+        const int ready = ::poll(&fd, 1, timeout_ms);
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0) return -1;
+        if (ready == 0) {
+            if (timed_out) *timed_out = true;
+            return 0;
+        }
+        return read_stdout(buf, len);
     }
 #endif
 }

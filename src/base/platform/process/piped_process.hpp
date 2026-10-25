@@ -41,6 +41,10 @@ public:
     // 阻塞读 stdout。>0 = 读到的字节数;0 = EOF(子进程退出/管道关闭);
     // <0 = 读错误。只允许单一 reader 线程调用。
     long read_stdout(char* buf, std::size_t len);
+    // 同 read_stdout,但最多等 timeout_ms:没有数据时返回 0 并置 *timed_out = true。
+    // 子进程拉起的常驻孙进程可能继承 stdout 写端,子进程退出后管道也不会 EOF;
+    // 需要能按自己的停止条件退出的 reader 用这个。
+    long read_stdout_for(char* buf, std::size_t len, int timeout_ms, bool* timed_out);
 
     bool write_stdin(const char* data, std::size_t len, std::string* error);
     // 关闭 stdin 写端(LSP exit 之后让 server 观察到 EOF)。

@@ -85,6 +85,9 @@ private:
     void write_loop();
     void handle_frame(const nlohmann::json& frame);
     void handle_event(const std::string& event, const nlohmann::json& params);
+    void dispatch_event(const std::string& event, const nlohmann::json& params);
+    void flush_early_events();
+    void handle_event_logged(const std::string& event, const nlohmann::json& params);
     void fail_process(const std::string& reason);
     // 失败时抛 std::runtime_error(消息可直接展示)。
     nlohmann::json request(const std::string& method, const nlohmann::json& params, std::chrono::milliseconds timeout);
@@ -114,6 +117,8 @@ private:
     std::uint64_t next_id_ = 1;
     std::map<std::uint64_t, std::shared_ptr<Pending>> pending_;
     std::deque<std::string> writes_;
+    std::vector<std::pair<std::string, nlohmann::json>> early_events_;  // 初始化完成前到达的事件
+    std::mutex event_mu_;  // 串行化事件处理(reader 与初始化后的补发)
 
     mutable std::mutex mu_;  // status_、capabilities_、settings_
     TransportStatus status_;

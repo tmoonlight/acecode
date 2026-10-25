@@ -212,6 +212,29 @@ TEST_F(PluginTransportTest, StopSendsShutdownAndReturnsPromptly) {
     EXPECT_TRUE(logged(dir / "frames.log", "shutdown"));
 }
 
+// 场景:插件启动时拉起了一个常驻子进程(真实插件会拉起自己的后台服务),子进程继承了插件的
+// stdout 写端;然后用户点「取消连接」。
+// 期望:插件响应 shutdown 退出后 stop 就返回,不等那个子进程。
+// 回归:reader 一直阻塞在读 stdout 上等 EOF,而写端还在子进程手里,stop 卡到子进程退出为止;
+// 真进程联调时「取消连接」的请求挂了两分钟以上。子进程睡 15 秒,远大于 5 秒的断言门槛。
+TEST_F(PluginTransportTest, StopDoesNotWaitForAChildProcessHoldingThePipe) {
+    start({"--no-inbound", "--spawn-holder", "15000"});
+    ASSERT_TRUE(wait_until([this] { return transport->status().state == LinkState::Connected; }));
+    const auto began = std::chrono::steady_clock::now();
+    transport->stop();
+    EXPECT_LT(std::chrono::steady_clock::now() - began, std::chrono::seconds(5));
+    EXPECT_EQ(transport->status().state, LinkState::Stopped);
+}
+
+// 场景:插件拉起常驻子进程后崩溃退出(回复 initialize 后立刻退出),子进程仍持有 stdout 写端。
+// 期望:传输层照样发现插件退出并重启,第二次启动正常连接。
+// 回归:只靠管道 EOF 判断退出时,崩溃要等子进程也退出才被发现,期间通道一直显示已连接却收发不了。
+TEST_F(PluginTransportTest, CrashIsDetectedWhileAChildProcessHoldsThePipe) {
+    start({"--crash-times", "1", "--no-inbound", "--spawn-holder", "15000"});
+    ASSERT_TRUE(wait_until([this] { return start_count() >= 2 && transport->status().state == LinkState::Connected; }));
+    EXPECT_EQ(start_count(), 2);
+}
+
 // 场景:插件给的入站地址不合法(私聊 chat 与 sender 不同、缺 message_id)。
 // 期望:解析拒绝,不交给核心。
 TEST(PluginInboundParse, RejectsInvalidAddresses) {

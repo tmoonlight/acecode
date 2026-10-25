@@ -9,16 +9,25 @@
 //   --version <N>          initialize 报告的协议版本(默认 1)
 //   --login-required       初始化后报告需要登录;收到 action login 后再报告已连接
 //   --no-inbound           初始化后不主动发入站消息
+//   --spawn-holder <毫秒>  启动时拉起一个继承 stdin/stdout 的子进程,睡这么久再退出
+//                          (模拟插件拉起的常驻服务:插件退出后管道写端仍被它持有)
+//   --hold <毫秒>          只睡这么久就退出,不读写任何东西(--spawn-holder 拉起的子进程用)
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
+#include <process.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace {
@@ -34,7 +43,23 @@ struct Options {
     int version = 1;
     bool login_required = false;
     bool inbound = true;
+    std::string spawn_holder_ms;
 };
+
+// 拉起一个继承标准句柄的子进程;它不碰管道,只是让写端在插件退出后仍然打开。
+void spawn_holder(const char* self, const std::string& ms) {
+#ifdef _WIN32
+    // _spawnv 按空格拼命令行,程序路径要自己加引号。
+    const std::string quoted = std::string("\"") + self + "\"";
+    const char* args[] = {quoted.c_str(), "--hold", ms.c_str(), nullptr};
+    _spawnv(_P_NOWAIT, self, args);
+#else
+    if (::fork() == 0) {
+        ::execl(self, self, "--hold", ms.c_str(), static_cast<char*>(nullptr));
+        ::_exit(127);
+    }
+#endif
+}
 
 void emit(const json& frame) {
     // argv 在 Windows 上按 ANSI 代码页解码,中文参数可能不是合法 UTF-8;替换掉而不是让 dump 抛异常退出。
@@ -106,7 +131,16 @@ int main(int argc, char** argv) {
         else if (arg == "--version") options.version = std::stoi(next());
         else if (arg == "--login-required") options.login_required = true;
         else if (arg == "--no-inbound") options.inbound = false;
+        else if (arg == "--spawn-holder") options.spawn_holder_ms = next();
+        else if (arg == "--hold") {
+            // 换到临时目录再睡:继承来的 cwd 是测试的临时目录,占着它测试就删不掉。
+            std::error_code ec;
+            std::filesystem::current_path(std::filesystem::temp_directory_path(ec), ec);
+            std::this_thread::sleep_for(std::chrono::milliseconds(std::stoi(next())));
+            return 0;
+        }
     }
+    if (!options.spawn_holder_ms.empty()) spawn_holder(argv[0], options.spawn_holder_ms);
     const int started = start_count(options);
 
     std::string line;
