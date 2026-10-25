@@ -386,6 +386,7 @@ bool SessionManager::try_on_message_locked(const ChatMessage& msg) {
     }
 
     update_meta(SessionStorage::now_iso8601());
+    if (parent_session_id_.empty()) note_session_conversation_message(msg);
     return true;
 }
 

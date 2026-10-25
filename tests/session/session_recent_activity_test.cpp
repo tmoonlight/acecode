@@ -76,6 +76,56 @@ TEST_F(RecentFixture, ManagerPersistsOnlyHumanRecencyAndKeepsItOnResume) {
     std::error_code ec; fs::remove_all(directory, ec);
 }
 
+// The generation gate follows new visible content, not timestamps, metadata,
+// tool traffic, history rewrites or merely reopening an existing conversation.
+TEST_F(RecentFixture, ConversationRevisionTracksOnlyNewMainSessionMessages) {
+    SessionManager manager;
+    auto revision = session_conversation_activity_revision();
+    const auto user = input("2026-10-26T09:10:00Z");
+    EXPECT_FALSE(manager.try_on_message(user));
+    manager.start_session(root.string(), "test", "test");
+    EXPECT_EQ(session_conversation_activity_revision(), revision);
+    ASSERT_TRUE(manager.try_on_message(user));
+    EXPECT_EQ(session_conversation_activity_revision(), ++revision);
+    auto reply = user; reply.role = "assistant"; reply.content = "New answer";
+    ASSERT_TRUE(manager.try_on_message(reply));
+    EXPECT_EQ(session_conversation_activity_revision(), ++revision);
+    // Two submissions with the same timestamp and text are still new activity.
+    ASSERT_TRUE(manager.try_on_message(user));
+    EXPECT_EQ(session_conversation_activity_revision(), ++revision);
+    manager.set_session_title("renamed");
+    const auto id = manager.current_session_id();
+    manager.load_active_messages();
+    manager.resume_session(id);
+    ASSERT_TRUE(manager.replace_active_messages({user, reply}));
+    EXPECT_EQ(session_conversation_activity_revision(), revision);
+    for (const char* role : {"tool", "system", "error"}) {
+        auto internal = reply; internal.role = role;
+        ASSERT_TRUE(manager.try_on_message(internal));
+    }
+    auto reasoning = reply; reasoning.content.clear(); reasoning.reasoning_content = "Internal reasoning";
+    ASSERT_TRUE(manager.try_on_message(reasoning));
+    auto hidden = user; hidden.metadata = {{"hidden_goal_context", true}};
+    ASSERT_TRUE(manager.try_on_message(hidden));
+    hidden.metadata = {{"source_tool", "tool_search"}};
+    ASSERT_TRUE(manager.try_on_message(hidden));
+    hidden.metadata = {{"inter_agent", {{"type", "MESSAGE"}, {"sender", "/root/a"}, {"recipient", "/root"}}}};
+    ASSERT_TRUE(manager.try_on_message(hidden));
+    auto compact = reply; compact.is_compact_summary = true;
+    ASSERT_TRUE(manager.try_on_message(compact));
+    auto meta = reply; meta.is_meta = true;
+    ASSERT_TRUE(manager.try_on_message(meta));
+    EXPECT_EQ(session_conversation_activity_revision(), revision);
+    SessionManager child;
+    child.start_session(root.string(), "test", "test");
+    child.set_parent_session_id(id);
+    ASSERT_TRUE(child.try_on_message(user));
+    ASSERT_TRUE(child.try_on_message(reply));
+    EXPECT_EQ(session_conversation_activity_revision(), revision);
+    ASSERT_TRUE(manager.try_on_message(reply));
+    EXPECT_EQ(session_conversation_activity_revision(), revision + 1);
+}
+
 TEST_F(RecentFixture, GlobalFiveUseUserTimeAcrossProjectsAndExcludeChildrenAndArchive) {
     for (int i = 0; i < 8; ++i) {
         const auto directory = root / (i % 2 == 0 ? "project-a" : "project-b");

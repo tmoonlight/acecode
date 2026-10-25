@@ -1,7 +1,4 @@
 import { useDesktopOffice } from './lib/useDesktopOffice.js';
-import { isOfficeWelcomeVisible } from './lib/desktopOfficePreferences.js';
-import { VirtualOfficeWelcome } from './components/VirtualOfficeWelcome.jsx';
-import { DesktopPetsPromo } from './components/DesktopPetsPromo.jsx';
 // 顶层 App:鉴权 gate(401 → TokenPrompt)+ 主壳。
 //
 // 视觉对齐设计稿方向 C:顶部 41px TopBar + 270px Sidebar + 主区(单会话/4宫格/9宫格)
@@ -280,11 +277,6 @@ export function App() {
 
   const [activeRef,    setActiveRef]    = useState(null);
   const office = useDesktopOffice(activeRef);
-  const [officeWelcomeOpen, setOfficeWelcomeOpen] = useState(false);
-  const officeWelcomeAttempted = useRef(false);
-  const [petsPromoOpen, setPetsPromoOpen] = useState(false);
-  const petsPromoAttempted = useRef(false);
-  const desktopAnnouncementOpen = officeWelcomeOpen || petsPromoOpen;
   const workbenchOwner = sessionWorkbench.ownerFor(activeRef);
   const [sessionTitleTarget, setSessionTitleTarget] = useState(null);
   const [sessionActionsTarget, setSessionActionsTarget] = useState(null);
@@ -561,36 +553,10 @@ export function App() {
   const configRecoveryBlocking = (
     authState === 'ok' && !configRecoveryNoticeChecked
   ) || recoveryNoticeBlocksStartup(configRecoveryNotice, configRecoveryDialogOpen);
-  const officeInvitationBlocked = showSettings || showFeedback || searchOpen || updateDialogOpen
+  const guidedTourBlocked = showSettings || showFeedback || searchOpen || updateDialogOpen
     || desktopCloseDialogOpen
     || configRecoveryBlocking
     || questionReqs.length > 0;
-  // A tour that started while the native welcome claim was pending finishes first.
-  // Blocking it with the queued invitation would make both surfaces wait forever.
-  const officeWelcomeVisible = isOfficeWelcomeVisible({ requested: officeWelcomeOpen,
-    blocked: officeInvitationBlocked, tourPreparing: guidedTourPreparing, tourRunning: guidedTourRun });
-  const petsPromoVisible = isOfficeWelcomeVisible({ requested: petsPromoOpen,
-    blocked: officeInvitationBlocked, tourPreparing: guidedTourPreparing, tourRunning: guidedTourRun });
-  const guidedTourBlocked = officeInvitationBlocked || officeWelcomeVisible || petsPromoVisible;
-
-  useEffect(() => {
-    if (officeWelcomeAttempted.current || !office.welcomePending || authState !== 'ok' || !health
-        || officeInvitationBlocked || guidedTourPreparing || guidedTourRun) return;
-    officeWelcomeAttempted.current = true;
-    void office.claimWelcome().then(result => {
-      if (result.ok && result.show) setOfficeWelcomeOpen(true);
-    });
-  }, [office.welcomePending, office.claimWelcome, authState, health, officeInvitationBlocked, guidedTourPreparing, guidedTourRun]);
-  // "More pets" is announced once to users who already answered the invitation above.
-  useEffect(() => {
-    if (petsPromoAttempted.current || office.welcomePending || !office.petsPromoPending || officeWelcomeOpen
-        || authState !== 'ok' || !health || officeInvitationBlocked || guidedTourPreparing || guidedTourRun) return;
-    petsPromoAttempted.current = true;
-    void office.claimPetsPromo().then(result => {
-      if (result.ok && result.show) setPetsPromoOpen(true);
-    });
-  }, [office.welcomePending, office.petsPromoPending, office.claimPetsPromo, officeWelcomeOpen, authState, health,
-    officeInvitationBlocked, guidedTourPreparing, guidedTourRun]);
   useEffect(() => { if (office.error) toast({ kind: 'err', text: office.error }); }, [office.error]);
 
   useEffect(() => initInactiveSelection(), []);
@@ -2171,7 +2137,6 @@ export function App() {
     : singleLayout.sidebar;
 
   const nativeSurfacesVisible = !showSettings
-    && !desktopAnnouncementOpen
     && !showFeedback
     && !searchOpen
     && !updateDialogOpen
@@ -2190,7 +2155,6 @@ export function App() {
     desktopMode: desktopModeRef.current,
     chatVisible: view === 'single' && !activeRef?.loop && !activeRef?.expertComponents,
     blockingSurfaceOpen: showSettings || showFeedback || searchOpen || updateDialogOpen
-      || desktopAnnouncementOpen
       || desktopCloseDialogOpen || configRecoveryBlocking
       || !!visibleQuestionReq || guidedTourPreparing || guidedTourRun,
   });
@@ -2200,7 +2164,7 @@ export function App() {
     loop: !!activeRef?.loop,
     showSettings: showSettings || showFeedback,
     searchOpen,
-    updateDialogOpen: updateDialogOpen || desktopCloseDialogOpen || configRecoveryBlocking || desktopAnnouncementOpen,
+    updateDialogOpen: updateDialogOpen || desktopCloseDialogOpen || configRecoveryBlocking,
     permissionOpen: false,
     questionOpen: !!visibleQuestionReq,
     guidedTourPreparing,
@@ -2496,12 +2460,6 @@ export function App() {
         onDismiss={dismissGuidedTour}
         onAbort={abortGuidedTour}
       />
-      {officeWelcomeVisible && (
-        <VirtualOfficeWelcome office={office} onClose={() => setOfficeWelcomeOpen(false)} />
-      )}
-      {petsPromoVisible && (
-        <DesktopPetsPromo office={office} onClose={() => setPetsPromoOpen(false)} />
-      )}
       <SessionNavigationMask
         open={sessionNavigationPending}
         onCancel={cancelSessionNavigation}

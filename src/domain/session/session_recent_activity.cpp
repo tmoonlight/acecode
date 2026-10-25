@@ -5,9 +5,12 @@
 #include "session_user_message_search.hpp"
 #include "turn_timing.hpp"
 #include "utils/encoding.hpp"
+#include <atomic>
 
 namespace acecode {
 namespace {
+std::atomic<std::uint64_t> conversation_activity_revision{0};
+
 bool consume(const ChatMessage& message, SessionRecentActivity& result) {
     if (result.last_turn_outcome.empty() && is_turn_timing_message(message)) {
         result.last_turn_outcome = decode_turn_timing(message.metadata.at("turn_timing"))->status;
@@ -22,6 +25,17 @@ bool is_recent_user_message(const ChatMessage& message) {
     const auto tool = message.metadata.is_object() ? message.metadata.find("source_tool") : message.metadata.end();
     const bool tool_injected = tool != message.metadata.end() && tool->is_string() && !tool->get_ref<const std::string&>().empty();
     return !tool_injected && is_searchable_visible_user_message(message) && !mesh::is_inter_agent_message(message);
+}
+
+std::uint64_t session_conversation_activity_revision() {
+    return conversation_activity_revision.load();
+}
+
+void note_session_conversation_message(const ChatMessage& message) {
+    if (message.is_meta || message.is_compact_summary || !message.subtype.empty()) return;
+    const bool reply = message.role == "assistant" &&
+        (!message.content.empty() || (message.content_parts.is_array() && !message.content_parts.empty()));
+    if (is_recent_user_message(message) || reply) ++conversation_activity_revision;
 }
 
 SessionRecentActivity recent_activity_from_messages(const std::vector<ChatMessage>& messages) {

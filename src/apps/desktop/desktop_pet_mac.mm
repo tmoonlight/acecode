@@ -24,7 +24,6 @@
 #include "desktop_pet_mac_support.hpp"
 #include "desktop_office_service.hpp"
 #include "desktop_pet_resources.hpp"
-#include "version.hpp"
 #include "platform/native_ui/strings.hpp"
 #include "tray_icon_win.hpp"
 
@@ -920,11 +919,7 @@ struct DesktopPet::Impl : DesktopOfficeService<WebHost, PetController> {
 };
 
 DesktopPet::DesktopPet(WebHost& host) {
-    impl_ = std::make_shared<Impl>(host, pet_root_dir() / "office.json", ACECODE_VERSION,
-        !desktop_pet_disabled_by_env(), [] {
-            return std::string(reinterpret_cast<const char*>(acecode::desktop_pet_page_data()),
-                               acecode::desktop_pet_page_size());
-        });
+    impl_ = std::make_shared<Impl>(host, pet_root_dir() / "office.json", !desktop_pet_disabled_by_env());
     impl_->bind_bridge();
 }
 

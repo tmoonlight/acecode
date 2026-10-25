@@ -386,19 +386,25 @@ std::optional<json> parse_home_intent_prompts(const std::string& content, const 
     return result;
 }
 
-json HomeIntentPromptCache::snapshot() const {
+json HomeIntentPromptCache::snapshot(std::uint64_t activity_revision) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return {{"suggestions", suggestions_}, {"model", model_}, {"error", error_},
             {"generated_at_ms", generated_at_ms_}, {"next_refresh_at_ms", next_refresh_at_ms_},
-            {"refreshing", !!request_}};
+            {"refreshing", !!request_},
+            {"generated", generated_activity_revision_ == activity_revision}};
 }
 
-std::shared_ptr<std::atomic<bool>> HomeIntentPromptCache::begin(bool force, std::int64_t now_ms) {
+std::shared_ptr<std::atomic<bool>> HomeIntentPromptCache::begin(
+    bool force, std::int64_t now_ms, std::uint64_t activity_revision) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopped_ || request_ || (!force && now_ms < next_refresh_at_ms_)) return {};
-    request_ = std::make_shared<std::atomic<bool>>(false);
-    error_.clear();
+    // Even a cache-only check advances the deadline: clients schedule their
+    // next POST from this value and must not spin on an expired deadline.
     next_refresh_at_ms_ = now_ms + kHomeIntentRefreshMs;
+    if (!force && generated_activity_revision_ == activity_revision) return {};
+    request_ = std::make_shared<std::atomic<bool>>(false);
+    request_activity_revision_ = activity_revision;
+    error_.clear();
     return request_;
 }
 
@@ -412,6 +418,8 @@ void HomeIntentPromptCache::finish(const std::shared_ptr<std::atomic<bool>>& req
         suggestions_ = suggestions;
         model_ = model;
         generated_at_ms_ = now_ms;
+        // New messages during generation remain uncovered by this result.
+        generated_activity_revision_ = request_activity_revision_;
     }
     request_.reset();
 }

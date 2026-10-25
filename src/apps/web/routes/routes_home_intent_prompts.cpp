@@ -52,7 +52,7 @@ void WebServer::Impl::register_home_intent_prompts() {
     CROW_ROUTE(app, "/api/home/intent-prompts").methods(crow::HTTPMethod::GET)
     ([this, respond](const crow::request& req) {
         if (auto rejected = require_auth(req)) return std::move(*rejected);
-        return respond(req, 200, home_intent_prompts.snapshot());
+        return respond(req, 200, home_intent_prompts.snapshot(session_conversation_activity_revision()));
     });
     CROW_ROUTE(app, "/api/home/intent-prompts").methods(crow::HTTPMethod::POST)
     ([this, respond](const crow::request& req) {
@@ -63,8 +63,9 @@ void WebServer::Impl::register_home_intent_prompts() {
         if (!body.is_object() || (body.contains("force") && !body["force"].is_boolean()))
             return respond(req, 400, {{"error", "BAD_REQUEST"}});
         const bool force = body.value("force", false);
-        auto cancellation = home_intent_prompts.begin(force, now_unix_ms());
-        if (!cancellation) return respond(req, 200, home_intent_prompts.snapshot());
+        auto cancellation = home_intent_prompts.begin(force, now_unix_ms(), session_conversation_activity_revision());
+        if (!cancellation)
+            return respond(req, 200, home_intent_prompts.snapshot(session_conversation_activity_revision()));
         // Shutdown and the model deadline set `cancellation`; preparation stops on
         // its own deadline and keeps what it found. No async closure borrows Impl,
         // session services, config locks or a live conversation provider.
@@ -244,7 +245,7 @@ void WebServer::Impl::register_home_intent_prompts() {
         const auto line = "[home-intent] " + report.dump(-1, ' ', false, json::error_handler_t::replace);
         if (error.empty()) LOG_INFO(line);
         else LOG_WARN(line);
-        return respond(req, 200, home_intent_prompts.snapshot());
+        return respond(req, 200, home_intent_prompts.snapshot(session_conversation_activity_revision()));
     });
 }
 } // namespace acecode::web

@@ -10836,6 +10836,7 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
     EXPECT_EQ(generated["error"], "") << first.text;
     ASSERT_EQ(generated["suggestions"].size(), 1u) << first.text;
     EXPECT_EQ(generated["model"], "intent-summary");
+    EXPECT_EQ(generated["generated"], true);
     EXPECT_EQ(generated["suggestions"][0]["source_session_id"], "intent_5");
     EXPECT_EQ(generated["suggestions"][0]["workspace"]["hash"], "intent_scope");
     EXPECT_EQ(generated["suggestions"][0]["workspace"]["cwd"], fx.cwd);
@@ -10864,6 +10865,70 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
     EXPECT_EQ(json::parse(failed.text)["error"], "INVALID_RESPONSE");
     EXPECT_EQ(json::parse(failed.text)["suggestions"], generated["suggestions"]);
     EXPECT_TRUE(fx.registry->list_active().empty());
+}
+
+TEST(WebServerHttp, HomeIntentPromptsGeneratedStateResetsOnlyForNewConversationContent) {
+    WebServerFixture fx;
+    acecode::SessionManager conversation;
+    conversation.start_session(fx.cwd, "test", "test");
+    acecode::ChatMessage user; user.role = "user"; user.content = "Review the pending work";
+    user.timestamp = acecode::SessionStorage::now_iso8601();
+    ASSERT_TRUE(conversation.try_on_message(user));
+    // The HTTP fixture uses a separate projects root from SessionManager.
+    // Seed its source while real appends below exercise the shared activity gate.
+    const auto source_dir = fx.projects_dir / "intent_activity";
+    std::filesystem::create_directories(source_dir);
+    const auto meta = conversation.load_session_meta(conversation.current_session_id());
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(
+        acecode::SessionStorage::meta_path(source_dir.string(), meta.id), meta));
+    ASSERT_TRUE(acecode::SessionStorage::append_message(
+        acecode::SessionStorage::session_path(source_dir.string(), meta.id), user));
+    acecode::ChatMessage reply; reply.role = "assistant"; reply.content = "Here is the next step";
+    std::atomic<int> calls{0};
+    std::atomic<bool> reply_during_generation{false};
+    LocalUpdateServer upstream([&](httplib::Server& server) {
+        server.Post("/v1/chat/completions", [&](const httplib::Request&, httplib::Response& response) {
+            ++calls;
+            if (reply_during_generation.load()) conversation.on_message(reply);
+            response.set_content(json{{"choices", json::array({
+                {{"message", {{"role", "assistant"}, {"content", R"({"suggestions":[]})"}}},
+                 {"finish_reason", "stop"}}
+            })}}.dump(), "application/json");
+        });
+    });
+    {
+        std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        acecode::ModelProfile profile;
+        profile.name = "intent-activity"; profile.provider = "openai"; profile.model = profile.name;
+        profile.base_url = upstream.base_url() + "v1"; profile.api_key = "local-test-key";
+        fx.cfg.saved_models.push_back(profile);
+        fx.cfg.summary_generation.model_name = profile.name;
+    }
+    const auto url = cpr::Url{fx.url("/api/home/intent-prompts")};
+    const auto refresh = [&](bool force) {
+        const auto response = cpr::Post(url, cpr::Body{json{{"force", force}}.dump()}, cpr::Timeout{10000});
+        EXPECT_EQ(response.status_code, 200) << response.text;
+        return json::parse(response.text);
+    };
+    const auto generated = refresh(false);
+    EXPECT_EQ(generated["error"], "");
+    EXPECT_EQ(generated["generated"], true);
+    EXPECT_EQ(calls.load(), 1);
+    conversation.set_session_title("renamed");
+    conversation.resume_session(conversation.current_session_id());
+    EXPECT_EQ(json::parse(cpr::Get(url).text)["generated"], true);
+    EXPECT_EQ(refresh(false)["generated"], true);
+    EXPECT_EQ(calls.load(), 1);
+    ASSERT_TRUE(conversation.try_on_message(reply));
+    EXPECT_EQ(json::parse(cpr::Get(url).text)["generated"], false);
+    EXPECT_EQ(refresh(false)["generated"], false); // Still within the cooldown.
+    EXPECT_EQ(calls.load(), 1);
+    EXPECT_EQ(refresh(true)["generated"], true);
+    ASSERT_TRUE(conversation.try_on_message(user));
+    EXPECT_EQ(json::parse(cpr::Get(url).text)["generated"], false);
+    reply_during_generation.store(true);
+    EXPECT_EQ(refresh(true)["generated"], false); // Do not swallow an in-flight reply.
+    EXPECT_EQ(calls.load(), 3);
 }
 
 // 场景：会话元数据是旧格式(没有 last_user_message_at)，最近一条用户消息只记在 JSONL 里。

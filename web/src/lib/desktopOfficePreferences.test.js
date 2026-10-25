@@ -1,37 +1,16 @@
 import assert from 'node:assert/strict';
-import { createDesktopOfficePreferences, isOfficeWelcomeVisible, OFFICE_PREFERENCES_EVENT } from './desktopOfficePreferences.js';
-import { shouldPrepareDesktopGuidedTour } from './desktopGuidedTour.js';
-
-// Native claiming may finish after the ordinary first-run tour starts preparing.
-// A queued invitation must let that tour finish before taking its turn.
-{
-  const tour = { mode: 'shell', authState: 'ok', startupNavigationSettled: true, hasActiveSession: false };
-  const queued = { requested: true, blocked: false, tourPreparing: true, tourRunning: false };
-  assert.equal(isOfficeWelcomeVisible(queued), false);
-  assert.equal(shouldPrepareDesktopGuidedTour({ ...tour, blocked: isOfficeWelcomeVisible(queued) }), true,
-    'a welcome claimed during preparation cannot deadlock the guided tour');
-  assert.equal(isOfficeWelcomeVisible({ ...queued, tourPreparing: false, tourRunning: true }), false);
-  const visible = isOfficeWelcomeVisible({ ...queued, tourPreparing: false });
-  assert.equal(visible, true, 'welcome appears once the tour finishes or is dismissed');
-  assert.equal(shouldPrepareDesktopGuidedTour({ ...tour, blocked: visible }), false,
-    'a visible invitation protects its focus from the tour');
-  assert.equal(isOfficeWelcomeVisible({ ...queued, tourPreparing: false, blocked: true }), false);
-}
+import { createDesktopOfficePreferences, OFFICE_PREFERENCES_EVENT } from './desktopOfficePreferences.js';
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const initial = { ok: true, available: true, enabled: false, welcomePending: true };
+const initial = { ok: true, available: true, enabled: false };
 function fixture(overrides = {}) {
   const win = new EventTarget();
   let state = { ...initial };
   Object.assign(win, {
     aceDesktop_getOfficePreferences: async () => JSON.stringify(state),
-    aceDesktop_setOfficeEnabled: async enabled => (state = { ...state, enabled, welcomePending: false }),
+    aceDesktop_setOfficeEnabled: async enabled => (state = { ...state, enabled }),
     aceDesktop_setPetKind: async petKind => (state = { ...state, petKind }),
-    aceDesktop_claimOfficeWelcome: async () => {
-      const show = state.welcomePending;
-      state = { ...state, welcomePending: false };
-      return { ...state, show };
-    }, ...overrides,
+    ...overrides,
   });
   const store = createDesktopOfficePreferences(win);
   const emit = detail => { const event = new Event(OFFICE_PREFERENCES_EVENT); event.detail = detail; win.dispatchEvent(event); };
@@ -42,46 +21,40 @@ function fixture(overrides = {}) {
   const { store, emit } = fixture();
   store.start(); await flush();
   assert.equal(store.getSnapshot().enabled, false);
-  assert.equal((await store.claimWelcome()).show, true);
-  assert.equal((await store.claimWelcome()).show, false);
   await store.setEnabled(true);
   assert.equal(store.getSnapshot().enabled, true);
-  emit({ ...initial, enabled: false, welcomePending: false });
+  emit({ ...initial, enabled: false });
   assert.equal(store.getSnapshot().enabled, false, 'native close synchronizes menu and switch');
   await store.setEnabled(true);
   assert.equal(store.getSnapshot().enabled, true, 'closed office can be reenabled');
   store.dispose();
 }
-// 场景:老用户启动带「更多宠物」宣传的版本,原生状态带 petsPromoPending。
-// 期望:状态透传给界面,认领一次后不再显示;旧版桌面壳没有这个 bridge 时按已看过处理,不报错。
+// Legacy hosts may still report pending announcements. They must not enter UI state.
 {
-  let promo = true;
-  const { store } = fixture({
-    aceDesktop_getOfficePreferences: async () => JSON.stringify({ ...initial, welcomePending: false, petsPromoPending: promo }),
-    aceDesktop_claimPetsPromo: async () => {
-      const show = promo;
-      promo = false;
-      return { ...initial, welcomePending: false, petsPromoPending: false, show };
-    },
+  let claims = 0;
+  const legacy = { ...initial, welcomePending: true, petsPromoPending: true };
+  const { store, emit } = fixture({
+    aceDesktop_getOfficePreferences: async () => JSON.stringify(legacy),
+    aceDesktop_claimOfficeWelcome: async () => { claims++; return legacy; },
+    aceDesktop_claimPetsPromo: async () => { claims++; return legacy; },
   });
   store.start(); await flush();
-  assert.equal(store.getSnapshot().petsPromoPending, true);
-  assert.equal((await store.claimPetsPromo()).show, true);
-  assert.equal(store.getSnapshot().petsPromoPending, false);
-  assert.equal((await store.claimPetsPromo()).show, false);
+  assert.equal('welcomePending' in store.getSnapshot(), false);
+  assert.equal('petsPromoPending' in store.getSnapshot(), false);
+  emit({ ...legacy, enabled: true, petKind: 'whale' });
+  assert.equal(store.getSnapshot().enabled, true);
+  assert.equal(store.getSnapshot().petKind, 'whale');
+  assert.equal('welcomePending' in store.getSnapshot(), false);
+  assert.equal('petsPromoPending' in store.getSnapshot(), false);
+  assert.equal(claims, 0);
   store.dispose();
-  const older = fixture();
-  older.store.start(); await flush();
-  assert.equal(older.store.getSnapshot().petsPromoPending, false);
-  assert.deepEqual(await older.store.claimPetsPromo(), { ok: true, show: false });
-  older.store.dispose();
 }
 {
   let resolve;
   const { store, emit } = fixture({ aceDesktop_setOfficeEnabled: () => new Promise(r => { resolve = r; }) });
   store.start(); await flush();
   const pending = store.setEnabled(true);
-  emit({ ...initial, enabled: false, welcomePending: false });
+  emit({ ...initial, enabled: false });
   resolve({ ...initial, enabled: true }); await pending;
   assert.equal(store.getSnapshot().enabled, false, 'late enable response does not undo a native close');
   assert.equal(store.getSnapshot().busy, false);
@@ -101,7 +74,7 @@ function fixture(overrides = {}) {
   assert.equal(unavailable.getSnapshot().ready, true);
   unavailable.dispose();
 }
-console.log('[pass] office preferences opt-in, once-only welcome, native close/reopen, race and bridge failures');
+console.log('[pass] office preferences opt-in, legacy announcement flags ignored, native close/reopen, race and bridge failures');
 
 {
   const { store, emit } = fixture();
@@ -120,7 +93,9 @@ console.log('[pass] office preferences opt-in, once-only welcome, native close/r
 {
   const { store } = fixture({ aceDesktop_setPetKind: async () => ({ ...initial, ok: false, error: 'save_failed' }) });
   store.start(); await flush();
-  assert.equal((await store.setPetKind('whale')).ok, false);
+  const result = await store.setPetKind('whale');
+  assert.equal(result.ok, false);
+  assert.equal(result.error, 'save_failed');
   assert.equal(store.getSnapshot().petKind, 'office');
   assert.ok(store.getSnapshot().error);
   assert.equal(store.getSnapshot().busy, false);

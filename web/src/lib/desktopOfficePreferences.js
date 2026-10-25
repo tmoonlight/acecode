@@ -2,21 +2,18 @@ import { normalizeDesktopPetKind } from './desktopPetKinds.js';
 
 export const OFFICE_PREFERENCES_EVENT = 'ace-desktop-office-preferences';
 
-export function isOfficeWelcomeVisible({ requested, blocked, tourPreparing, tourRunning }) {
-  return requested && !blocked && !tourPreparing && !tourRunning;
-}
-
 export function parseOfficePreferences(value) {
   const result = typeof value === 'string' ? JSON.parse(value) : value;
   if (!result || typeof result.available !== 'boolean' || typeof result.enabled !== 'boolean') {
     throw new Error('Invalid office preferences');
   }
-  return { ...result, petKind: normalizeDesktopPetKind(result.petKind) };
+  return { ok: result.ok, available: result.available, enabled: result.enabled,
+    petKind: normalizeDesktopPetKind(result.petKind), error: result.error };
 }
 
-// One owner for the menu, settings, invitation and native close notifications.
+// One owner for the menu, settings and native close notifications.
 export function createDesktopOfficePreferences(win) {
-  let state = { ready: false, available: false, enabled: false, petKind: 'office', welcomePending: false, petsPromoPending: false,
+  let state = { ready: false, available: false, enabled: false, petKind: 'office',
     busy: false, error: '' };
   let revision = 0;
   let disposed = false;
@@ -74,9 +71,5 @@ export function createDesktopOfficePreferences(win) {
       update({ busy: false });
       return result;
     },
-    claimWelcome: () => request('aceDesktop_claimOfficeWelcome'),
-    // An older desktop shell has no pets announcement; treat it as already seen.
-    claimPetsPromo: () => (typeof win?.aceDesktop_claimPetsPromo === 'function'
-      ? request('aceDesktop_claimPetsPromo') : Promise.resolve({ ok: true, show: false })),
   };
 }

@@ -9,45 +9,31 @@ const web = fileURLToPath(new URL('../', import.meta.url));
 const modulePath = process.env.ACE_PLAYWRIGHT_MODULE;
 const { chromium } = await import(modulePath ? pathToFileURL(path.resolve(modulePath)).href : 'playwright');
 const output = await fs.mkdtemp(path.join(os.tmpdir(), 'ace-office-preferences-'));
-const characterScript = await fs.readFile(new URL('../../assets/desktop_pet/office_characters.js', import.meta.url), 'utf8');
-const html = (await fs.readFile(new URL('../../assets/desktop_pet/agent_office_pet.html', import.meta.url), 'utf8'))
-  .replace('<script src="./office_characters.js"></script>', `<script>${characterScript}</script>`);
 const fixture = `
-import React,{useState} from 'react';
+import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {SidebarQuickMenu} from '/src/components/SidebarQuickMenu.jsx';
 import {VirtualOfficeSettings} from '/src/components/VirtualOfficeSettings.jsx';
-import {VirtualOfficeWelcome} from '/src/components/VirtualOfficeWelcome.jsx';
-import {DesktopPetsPromo} from '/src/components/DesktopPetsPromo.jsx';
 import {useDesktopOffice} from '/src/lib/useDesktopOffice.js';
 import {api} from '/src/lib/api.js';
 import {connection} from '/src/lib/connection.js';
 import '/src/styles/globals.css';
-let prefs={ok:true,available:true,enabled:false,welcomePending:true,petsPromoPending:true};
-window.snapshotRequests=0;window.published=[];window.previewRequests=0;window.retained=new Set();
+let prefs={ok:true,available:true,enabled:false};
+window.snapshotRequests=0;window.published=[];window.retained=new Set();
 window.aceDesktop_getOfficePreferences=async()=>prefs;
-window.aceDesktop_setOfficeEnabled=async enabled=>(prefs={...prefs,enabled,welcomePending:false});
+window.aceDesktop_setOfficeEnabled=async enabled=>(prefs={...prefs,enabled});
 window.aceDesktop_setPetKind=async petKind=>(prefs={...prefs,petKind});
-window.aceDesktop_claimOfficeWelcome=async()=>{const show=prefs.welcomePending;prefs={...prefs,welcomePending:false};return {...prefs,show};};
-window.aceDesktop_claimPetsPromo=async()=>{const show=prefs.petsPromoPending;prefs={...prefs,petsPromoPending:false};return {...prefs,show};};
 window.aceDesktop_getOfficeState=async()=>({follow:true});
 window.aceDesktop_updateOffice=async value=>{window.published.push(JSON.parse(value));return true;};
-window.aceDesktop_getOfficePreview=async()=>{window.previewRequests++;return ${JSON.stringify(html)};};
 window.nativeClose=()=>{prefs={...prefs,enabled:false};window.dispatchEvent(new CustomEvent('ace-desktop-office-preferences',{detail:prefs}));};
 Object.assign(connection,{retainSession:id=>window.retained.add(id),releaseSession:id=>window.retained.delete(id)});
 Object.assign(api,{getDesktopOffice:async()=>{window.snapshotRequests++;const s={id:'live',title:'当前工作',active:true,busy:true,workspace_hash:'w'};return {selected:s,agents:[s],offices:[s],complete:true};},getSessionModel:async()=>({})});
 function Fixture(){
  const office=useDesktopOffice({sessionId:'live',workspaceHash:'w'});
- const [welcome,setWelcome]=useState(false);
- const [promo,setPromo]=useState(false);
  window.office=office;
  return <main className="h-screen p-5 text-fg bg-bg">
-  <div className="max-w-[640px] mx-auto"><VirtualOfficeSettings office={office}/>
-  <button id="invite" onClick={async()=>{const r=await office.claimWelcome();if(r.show)setWelcome(true);}}>Preview invitation</button>
-  <button id="pets-promo" onClick={async()=>{const r=await office.claimPetsPromo();if(r.show)setPromo(true);}}>Preview pets</button></div>
+  <div className="max-w-[640px] mx-auto"><VirtualOfficeSettings office={office}/></div>
   <div className="absolute bottom-4 left-4"><SidebarQuickMenu sidebarWidth={270} office={office}/></div>
-  {welcome&&<VirtualOfficeWelcome office={office} onClose={()=>setWelcome(false)}/>}
-  {promo&&<DesktopPetsPromo office={office} onClose={()=>setPromo(false)}/>}
  </main>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
@@ -76,7 +62,8 @@ try {
   await page.goto(url);
   await page.waitForFunction(() => window.office?.ready);
   assert.equal(await page.evaluate(() => snapshotRequests), 0, 'disabled office never polls');
-  assert.equal(await page.evaluate(() => previewRequests), 0, 'preview is lazy');
+  assert.equal(await page.getByRole('dialog').count(), 0);
+  assert.equal(await page.locator('iframe').count(), 0);
   const toggle = page.getByRole('switch', { name: '开启桌面宠物' });
   assert.equal(await toggle.getAttribute('aria-checked'), 'false');
   assert.deepEqual(await page.getByRole('radio').locator('div.text-fg').allTextContents(), ['虚拟办公室', '大眼回形针', 'rover', '鲸鱼娘']);
@@ -101,38 +88,6 @@ try {
   assert.equal(await page.getByRole('menuitem', { name: '显示桌面宠物' }).locator('svg').count(), 1);
   await page.screenshot({ path: path.join(output, 'menu.png') });
   await page.keyboard.press('Escape');
-  await page.locator('#invite').click();
-  await page.getByRole('dialog').waitFor();
-  const frame = await page.locator('iframe').elementHandle().then(e => e.contentFrame());
-  await frame.waitForFunction(() => window.AgentOffice?.agents.length === 3);
-  assert.equal(await page.locator('iframe').getAttribute('sandbox'), 'allow-scripts');
-  assert.equal(await frame.evaluate(() => !!window.aceDesktop_updateOffice), false);
-  assert.equal(await page.evaluate(() => snapshotRequests), 0, 'demo does not enable live subscriptions');
-  await page.mouse.click(10, 10);
-  assert.equal(await page.getByRole('dialog').count(), 1, 'backdrop does not dismiss');
-  for (const theme of ['light', 'dark']) for (const width of [1100, 390]) {
-    await page.setViewportSize({ width, height: 800 });
-    await page.evaluate(t => { document.documentElement.dataset.theme = t; }, theme);
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-    await page.screenshot({ path: path.join(output, `welcome-${theme}-${width}.png`) });
-  }
-  await page.getByRole('button', { name: '暂停动画' }).click();
-  const canvas = frame.locator('#cv');
-  const frozen = await canvas.screenshot();
-  await page.waitForTimeout(300);
-  assert.deepEqual(await canvas.screenshot(), frozen, 'pause freezes canvas rendering');
-  await page.getByRole('button', { name: '播放动画' }).click();
-  await page.waitForTimeout(400);
-  assert.notDeepEqual(await canvas.screenshot(), frozen, 'resume animates');
-  const detached = page.waitForEvent('framedetached', { predicate: value => value === frame });
-  await page.getByRole('button', { name: '暂不开启', exact: true }).click();
-  await detached;
-  await page.locator('iframe').waitFor({ state: 'detached' });
-  assert.equal(await page.locator('iframe').count(), 0, 'dismissal destroys the preview iframe');
-  assert.ok(frame.isDetached(), 'the sandbox frame is detached');
-  assert.equal(await toggle.getAttribute('aria-checked'), 'false');
-  await page.locator('#invite').click();
-  assert.equal(await page.getByRole('dialog').count(), 0, 'acknowledged invitation is not repeated');
   await toggle.click();
   await page.waitForFunction(() => window.published.at(-1)?.selected?.title === '当前工作');
   assert.equal(await page.evaluate(() => published.at(-1).selected.title), '当前工作');
@@ -146,44 +101,58 @@ try {
   await page.getByRole('menuitem', { name: '显示桌面宠物' }).click();
   await page.waitForFunction(n => snapshotRequests > n, requests);
   assert.equal(await toggle.getAttribute('aria-checked'), 'true', 'menu reopens office and updates setting');
-  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.reload(); await page.waitForFunction(() => window.office?.ready);
-  await page.locator('#invite').click();
-  await page.getByRole('button', { name: '播放动画' }).waitFor();
-  await page.getByRole('button', { name: '开启桌面宠物', exact: true }).click();
-  await page.waitForFunction(() => office.enabled && published.length > 0);
-  await page.locator('iframe').waitFor({ state: 'detached' });
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.locator('iframe').count(), 0);
-  // 场景:老用户第一次看到「更多宠物」宣传,此时桌面宠物是关着的。
-  // 期望:主标题「新特性」+ 一行副标题,再加三只新宠物(图 + 名字),不加说明;点一只就切成它并打开宠物,
-  // 弹窗关闭;宣传只认领一次。浅色 / 深色、窄屏都不出横向滚动。
-  await page.evaluate(() => nativeClose());
-  await page.waitForFunction(() => !office.enabled);
-  await page.locator('#pets-promo').click();
-  const promo = page.getByRole('dialog');
-  await promo.waitFor();
-  assert.equal(await promo.locator('h2').textContent(), '新特性');
-  assert.deepEqual(await promo.locator('p').allTextContents(), ['增加更多宠物，丰富您快乐工作的每一天'],
-    'the subtitle is the only text besides the title');
-  assert.ok(await promo.locator('h2').evaluate(h => parseFloat(getComputedStyle(h).fontSize))
-    > await promo.locator('p').evaluate(p => parseFloat(getComputedStyle(p).fontSize)), 'title outranks the subtitle');
-  assert.deepEqual(await promo.locator('button[aria-pressed]').allTextContents(), ['大眼回形针', 'rover', '鲸鱼娘']);
-  assert.equal(await promo.locator('img').count(), 3);
-  await page.waitForFunction(() => [...document.querySelectorAll('[role=dialog] img')].every(img => img.complete && img.naturalWidth > 0));
-  for (const theme of ['light', 'dark']) for (const width of [1100, 390]) {
-    await page.setViewportSize({ width, height: 800 });
-    await page.evaluate(t => { document.documentElement.dataset.theme = t; }, theme);
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-    await page.screenshot({ path: path.join(output, `pets-promo-${theme}-${width}.png`) });
-  }
-  await page.setViewportSize({ width: 1100, height: 800 });
-  await promo.getByRole('button', { name: '鲸鱼娘' }).click();
-  await page.waitForFunction(() => office.enabled && office.petKind === 'whale');
-  await promo.waitFor({ state: 'detached' });
-  await page.locator('#pets-promo').click();
-  assert.equal(await page.getByRole('dialog').count(), 0, 'the pets announcement is claimed once');
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
-  console.log(JSON.stringify({ ok: true, coverage: 'opt-in, menu ordering, close/reopen, polling teardown, sandbox preview, light/dark, narrow viewport, pause, reduced motion, once-only claim, pets announcement', output }));
+
+  // Exercise the production App with fresh-install and upgrade flags from an older shell.
+  for (const welcomePending of [true, false]) {
+    const startup = await browser.newPage({ viewport: { width: 1100, height: 800 } });
+    startup.on('pageerror', e => errors.push(e.message));
+    await startup.addInitScript(welcome => {
+      class FixtureWebSocket extends EventTarget {
+        static OPEN = 1; static CLOSED = 3;
+        constructor() { super(); this.readyState = 1; setTimeout(() => {
+          this.onopen?.({}); this.dispatchEvent(new Event('open'));
+        }, 0); }
+        send() {} close() { this.readyState = 3; }
+      }
+      window.WebSocket = FixtureWebSocket;
+      window.petCalls = { preferences: 0, claims: 0, previews: 0 };
+      const prefs = { ok: true, available: true, enabled: false,
+        welcomePending: welcome, petsPromoPending: !welcome };
+      window.aceDesktop_getOfficePreferences = async () => { window.petCalls.preferences++; return prefs; };
+      window.aceDesktop_claimOfficeWelcome = window.aceDesktop_claimPetsPromo = async () => {
+        window.petCalls.claims++; return { ...prefs, show: true };
+      };
+      window.aceDesktop_getOfficePreview = async () => { window.petCalls.previews++; return '<html><head></head></html>'; };
+    }, welcomePending);
+    await startup.route('**/api/**', async route => {
+      const { pathname } = new URL(route.request().url());
+      let data = {};
+      if (pathname === '/api/health') data = { status: 'ok', version: '99.0.0', cwd: 'C:/fixture' };
+      else if (pathname === '/api/config/ui-preferences') data = { theme: 'light', color_theme: 'blue', font_size: 'medium' };
+      else if (pathname === '/api/workspaces' || pathname.endsWith('/sessions') || pathname.endsWith('/session-sidebar')) data = [];
+      else if (pathname.includes('models')) data = { models: [], profiles: [] };
+      else if (pathname.includes('history')) data = { items: [], history: [] };
+      else if (pathname.includes('commands')) data = { commands: [] };
+      else if (pathname.includes('skills')) data = { skills: [] };
+      else if (pathname.includes('experts')) data = { experts: [] };
+      else if (pathname.includes('subagents')) data = { tasks: [] };
+      else if (pathname.includes('loops') || pathname.includes('/pty') || pathname.includes('/themes')) data = [];
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
+    });
+    await startup.goto(`http://127.0.0.1:${server.httpServer.address().port}/`);
+    await startup.locator('[data-tour-target="home-composer"]').waitFor();
+    await startup.waitForFunction(() => window.petCalls.preferences > 0);
+    await startup.waitForTimeout(500);
+    assert.equal(await startup.locator('#office-welcome-title, #pets-promo-title').count(), 0);
+    assert.deepEqual(await startup.evaluate(() => [petCalls.claims, petCalls.previews]), [0, 0]);
+    await startup.screenshot({ path: path.join(output, welcomePending ? 'startup-new.png' : 'startup-upgrade.png') });
+    await startup.close();
+  }
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ ok: true, coverage: 'production App startup with fresh and upgrade flags, opt-in, menu ordering, close/reopen, polling teardown, light/dark, narrow viewport, pet selection', output }));
 } finally { await browser?.close(); await server.close(); }

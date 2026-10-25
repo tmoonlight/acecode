@@ -1,7 +1,6 @@
 #pragma once
 
 #include "utils/atomic_file.hpp"
-#include "utils/semver.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -18,19 +17,13 @@ namespace acecode::desktop {
 template <typename Host, typename Window>
 class DesktopOfficeService : public std::enable_shared_from_this<DesktopOfficeService<Host, Window>> {
 public:
-    DesktopOfficeService(Host& host, std::filesystem::path path, const std::string& version,
-                         bool available, std::function<std::string()> preview)
-        : host_(host), path_(std::move(path)), available_(available), preview_(std::move(preview)) {
-        const auto current = upgrade::parse_sem_version(version);
-        const auto minimum = upgrade::parse_sem_version("0.9.37");
-        eligible_ = current && minimum && upgrade::compare_sem_version(*current, *minimum) >= 0;
+    DesktopOfficeService(Host& host, std::filesystem::path path, bool available)
+        : host_(host), path_(std::move(path)), available_(available) {
         std::ifstream in(path_);
         if (in) {
             const auto data = nlohmann::json::parse(in, nullptr, false);
             if (data.is_object()) {
                 enabled_ = data.value("enabled", nlohmann::json()) == true;
-                welcome_seen_ = data.value("welcome_seen", nlohmann::json()) == true;
-                pets_promo_seen_ = data.value("pets_promo_seen", nlohmann::json()) == true;
                 const auto kind = data.value("pet_kind", nlohmann::json());
                 if (kind.is_string() && valid_pet_kind(kind.get<std::string>())) pet_kind_ = kind.get<std::string>();
             }
@@ -60,33 +53,6 @@ public:
                 return std::string("{\"ok\":false}");
             return self->set_pet_kind(args[0].get<std::string>()).dump();
         });
-        host_.bind("aceDesktop_claimOfficeWelcome", [weak](const std::string&) {
-            const auto self = weak.lock();
-            if (!self) return std::string("{\"ok\":false}");
-            const bool show = self->state()["welcomePending"];
-            // A first-time user meets every pet through this invitation, so the later
-            // "more pets" announcement is consumed with it rather than shown on the next launch.
-            if (show && !self->save(self->enabled_, true, true)) return self->failure("save_failed").dump();
-            if (show) self->welcome_seen_ = self->pets_promo_seen_ = true;
-            auto result = self->state();
-            result["show"] = show;
-            return result.dump();
-        });
-        // One-time announcement of the companion pets for users who already answered the invitation.
-        host_.bind("aceDesktop_claimPetsPromo", [weak](const std::string&) {
-            const auto self = weak.lock();
-            if (!self) return std::string("{\"ok\":false}");
-            const bool show = self->state()["petsPromoPending"];
-            if (show && !self->save(self->enabled_, self->welcome_seen_, true)) return self->failure("save_failed").dump();
-            if (show) self->pets_promo_seen_ = true;
-            auto result = self->state();
-            result["show"] = show;
-            return result.dump();
-        });
-        host_.bind("aceDesktop_getOfficePreview", [weak](const std::string&) {
-            const auto self = weak.lock();
-            return self && self->available_ ? nlohmann::json(self->preview_()).dump() : std::string("null");
-        });
         host_.bind("aceDesktop_getOfficeState", [weak](const std::string&) {
             const auto self = weak.lock();
             return self ? self->snapshot_.dump() : std::string("{}");
@@ -112,8 +78,7 @@ public:
 
     nlohmann::json state() const {
         return {{"ok", true}, {"available", available_}, {"enabled", enabled_},
-                {"welcomePending", available_ && eligible_ && !welcome_seen_},
-                {"petsPromoPending", available_ && welcome_seen_ && !pets_promo_seen_}, {"petKind", pet_kind_}};
+                {"petKind", pet_kind_}};
     }
 
     nlohmann::json set_pet_kind(const std::string& kind) {
@@ -122,7 +87,7 @@ public:
         if (pet_kind_ == kind) return state();
         const auto previous = pet_kind_;
         pet_kind_ = kind;
-        if (!save(enabled_, welcome_seen_)) {
+        if (!save(enabled_)) {
             pet_kind_ = previous;
             return failure("save_failed");
         }
@@ -133,18 +98,13 @@ public:
 
     nlohmann::json set_enabled(bool enabled) {
         if (!available_) return failure("unavailable");
-        // Turning pets on or off before ever seeing the invitation means the user already
-        // found every pet in Settings; the "more pets" announcement would be news to no one.
-        const bool promo_seen = pets_promo_seen_ || !welcome_seen_;
-        if (!save(enabled, true, promo_seen)) return failure("save_failed");
-        welcome_seen_ = true;
-        pets_promo_seen_ = promo_seen;
+        if (!save(enabled)) return failure("save_failed");
         enabled_ = enabled;
         if (enabled && (!window_ || window_closed_)) {
             destroy_window();
             if (!open_window()) {
                 enabled_ = false;
-                (void)save(false, true);
+                (void)save(false);
                 notify("open_failed");
                 return failure("open_failed");
             }
@@ -159,11 +119,9 @@ private:
         return kind == "office" || kind == "clippy" || kind == "rover" || kind == "whale";
     }
 
-    bool save(bool enabled, bool welcome_seen) const { return save(enabled, welcome_seen, pets_promo_seen_); }
-    bool save(bool enabled, bool welcome_seen, bool pets_promo_seen) const {
+    bool save(bool enabled) const {
         return atomic_write_file(path_to_utf8(path_),
-            nlohmann::json{{"enabled", enabled}, {"welcome_seen", welcome_seen},
-                           {"pets_promo_seen", pets_promo_seen}, {"pet_kind", pet_kind_}}.dump());
+            nlohmann::json{{"enabled", enabled}, {"pet_kind", pet_kind_}}.dump());
     }
 
     nlohmann::json failure(const std::string& error) const {
@@ -187,7 +145,7 @@ private:
             const auto closed = weak_window.lock();
             if (!self || !closed || self->window_ != closed) return;
             self->enabled_ = false;
-            const bool saved = self->save(false, self->welcome_seen_);
+            const bool saved = self->save(false);
             // Keep the controller alive until the next toggle, outside its callback.
             self->window_closed_ = true;
             self->notify(saved ? "" : "save_failed");
@@ -216,13 +174,9 @@ private:
     Host& host_; // Borrowed; service is destroyed before the GUI host.
     std::filesystem::path path_;
     bool available_ = false;
-    bool eligible_ = false;
     bool enabled_ = false;
-    bool welcome_seen_ = false;
-    bool pets_promo_seen_ = false;
     bool window_closed_ = false;
     std::string pet_kind_ = "office";
-    std::function<std::string()> preview_;
     nlohmann::json snapshot_ = {{"follow", true}};
     // Service owns the window; in-flight native callbacks briefly share it.
     std::shared_ptr<Window> window_;

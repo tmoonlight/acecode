@@ -122,6 +122,31 @@ await test('loads cache then refreshes every half hour without homepage dependen
   assert.equal(f.timers.size, 0);
 });
 
+// The backend owns the activity gate; an idle check returns cached suggestions
+// with a future deadline. The controller must not turn it into a tight retry.
+await test('generated cache schedules only one lightweight check per idle interval', async () => {
+  const f = fixture();
+  f.api.getHomeIntentPrompts = async () => {
+    f.calls.push('read'); return { ...f.response(), generated: true };
+  };
+  f.api.refreshHomeIntentPrompts = async (force) => {
+    f.calls.push(force ? 'force' : 'cache-check'); return { ...f.response(), generated: true };
+  };
+  await f.controller.start();
+  for (let cycle = 0; cycle < 5; cycle += 1) {
+    await f.tick(HOME_INTENT_REFRESH_MS);
+    await f.tick();
+    await f.controller.wake();
+    assert.equal(f.calls.length, cycle + 2);
+    assert.equal(f.controller.snapshot().generated, true);
+  }
+  assert.equal(f.calls.filter((call) => call === 'cache-check').length, 5);
+  await f.controller.refresh();
+  assert.equal(f.calls.at(-1), 'force');
+  assert.equal(f.controller.snapshot().suggestions[0].prompt, generated.prompt);
+  f.controller.dispose();
+});
+
 await test('manual refresh is immediate and concurrent presses deduplicate', async () => {
   const f = fixture(); let resolve;
   f.api.refreshHomeIntentPrompts = (force) => { f.calls.push(force); return new Promise((r) => { resolve = r; }); };

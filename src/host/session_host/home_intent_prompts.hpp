@@ -80,8 +80,9 @@ std::optional<nlohmann::json> parse_home_intent_prompts(
 class HomeIntentPromptCache {
 public:
     ~HomeIntentPromptCache() { shutdown(); }
-    nlohmann::json snapshot() const;
-    std::shared_ptr<std::atomic<bool>> begin(bool force, std::int64_t now_ms);
+    nlohmann::json snapshot(std::uint64_t activity_revision) const;
+    std::shared_ptr<std::atomic<bool>> begin(bool force, std::int64_t now_ms,
+                                           std::uint64_t activity_revision);
     void finish(const std::shared_ptr<std::atomic<bool>>& request,
                 const nlohmann::json& suggestions, const std::string& model,
                 const std::string& error, std::int64_t now_ms);
@@ -93,6 +94,8 @@ private:
     std::string error_;
     std::int64_t generated_at_ms_ = 0;
     std::int64_t next_refresh_at_ms_ = 0;
+    std::optional<std::uint64_t> generated_activity_revision_;
+    std::uint64_t request_activity_revision_ = 0;
     bool stopped_ = false;
     // Shared by the host, synchronous HTTP waiter, timeout and provider worker.
     std::shared_ptr<std::atomic<bool>> request_;

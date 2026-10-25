@@ -50,85 +50,69 @@ protected:
         std::error_code ec;
         std::filesystem::remove_all(dir, ec);
     }
-    void open(const std::string& version = "0.9.37", bool available = true) {
+    void open(bool available = true) {
         service.reset(); host.bindings.clear();
-        service = std::make_shared<Service>(host, dir / "office.json", version, available,
-                                           [] { return "<html>offline preview</html>"; });
+        service = std::make_shared<Service>(host, dir / "office.json", available);
         service->bind_bridge();
     }
 };
 
-TEST_F(DesktopOfficeServiceTest, DefaultsOffAndVersionGateIncludesLaterVersions) {
-    for (const auto* version : {"0.9.35", "0.9.36", "0.9.37-pre.1", "invalid"}) {
-        open(version);
-        EXPECT_FALSE(service->state()["welcomePending"].get<bool>());
+TEST_F(DesktopOfficeServiceTest, DefaultsOffWithoutStartupAnnouncementsOrWrites) {
+    for (int restart = 0; restart < 2; ++restart) {
+        open();
         EXPECT_FALSE(service->state()["enabled"].get<bool>());
-    }
-    for (const auto* version : {"0.9.37", "0.9.38", "1.0.0"}) {
-        open(version);
-        EXPECT_TRUE(service->state()["welcomePending"].get<bool>());
+        EXPECT_EQ(service->state()["petKind"], "office");
+        EXPECT_FALSE(service->state().contains("welcomePending"));
+        EXPECT_FALSE(service->state().contains("petsPromoPending"));
+        EXPECT_EQ(host.bindings.count("aceDesktop_claimOfficeWelcome"), 0u);
+        EXPECT_EQ(host.bindings.count("aceDesktop_claimPetsPromo"), 0u);
+        EXPECT_EQ(host.bindings.count("aceDesktop_getOfficePreview"), 0u);
+        EXPECT_FALSE(std::filesystem::exists(dir / "office.json"));
     }
     EXPECT_EQ(FakeWindow::starts, 0);
 }
 
-TEST_F(DesktopOfficeServiceTest, WelcomeIsClaimedOnceAcrossRestartsWithoutEnabling) {
-    open();
-    EXPECT_TRUE(host.call("aceDesktop_claimOfficeWelcome")["show"].get<bool>());
-    EXPECT_FALSE(host.call("aceDesktop_claimOfficeWelcome")["show"].get<bool>());
-    open("0.10.0");
-    EXPECT_FALSE(host.call("aceDesktop_claimOfficeWelcome")["show"].get<bool>());
-    EXPECT_FALSE(service->state()["enabled"].get<bool>());
-}
-
-// 场景:升级上来的老用户(office.json 已记过 welcome_seen)第一次启动带「更多宠物」宣传的版本。
-// 期望:宣传待展示,认领一次就不再出现(重启后也不出现),认领不改变已开启的宠物与当前宠物。
-TEST_F(DesktopOfficeServiceTest, PetsPromoIsClaimedOnceByUsersWhoAnsweredTheInvitation) {
+TEST_F(DesktopOfficeServiceTest, LegacyAnnouncementFlagsPreserveUserPreferencesWithoutPrompts) {
     std::filesystem::create_directories(dir);
-    { std::ofstream file(dir / "office.json"); file << R"({"enabled":true,"welcome_seen":true,"pet_kind":"office"})"; }
-    open("1.0.8");
-    EXPECT_FALSE(service->state()["welcomePending"].get<bool>());
-    EXPECT_TRUE(service->state()["petsPromoPending"].get<bool>());
-    const Json first = host.call("aceDesktop_claimPetsPromo");
-    EXPECT_TRUE(first["show"].get<bool>());
-    EXPECT_FALSE(first["petsPromoPending"].get<bool>());
-    EXPECT_FALSE(host.call("aceDesktop_claimPetsPromo")["show"].get<bool>());
-    open("1.0.8");
-    EXPECT_FALSE(host.call("aceDesktop_claimPetsPromo")["show"].get<bool>());
-    EXPECT_TRUE(service->state()["enabled"].get<bool>());
-    EXPECT_EQ(service->state()["petKind"], "office");
-}
-
-// 场景:全新用户。期望:只弹虚拟办公室的开启邀请;认领邀请时一并消耗「更多宠物」宣传,
-// 下次启动不会再弹第二个窗。没看过邀请就在设置里开 / 关宠物,同样视为已经见过所有宠物;
-// 老用户在设置里开关宠物则不影响宣传。
-TEST_F(DesktopOfficeServiceTest, FirstTimeUsersOnlyGetTheInvitation) {
-    open("1.0.8");
-    EXPECT_TRUE(service->state()["welcomePending"].get<bool>());
-    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
-    EXPECT_TRUE(host.call("aceDesktop_claimOfficeWelcome")["show"].get<bool>());
-    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
-    open("1.0.8");
-    EXPECT_FALSE(host.call("aceDesktop_claimPetsPromo")["show"].get<bool>());
-
-    std::filesystem::remove_all(dir);
-    open("1.0.8");
-    ASSERT_TRUE(service->set_enabled(true)["ok"].get<bool>());
-    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
-
-    std::filesystem::remove_all(dir);
-    std::filesystem::create_directories(dir);
-    { std::ofstream file(dir / "office.json"); file << R"({"enabled":true,"welcome_seen":true})"; }
-    open("1.0.8");
-    ASSERT_TRUE(service->set_enabled(false)["ok"].get<bool>());
-    EXPECT_TRUE(service->state()["petsPromoPending"].get<bool>());
-    open("0.9.37", false);
-    EXPECT_FALSE(service->state()["petsPromoPending"].get<bool>());
+    for (const bool enabled : {false, true}) {
+        for (const auto& flags : {Json::object(), Json{{"welcome_seen", false}},
+                                 Json{{"welcome_seen", true}},
+                                 Json{{"welcome_seen", true}, {"pets_promo_seen", false}},
+                                 Json{{"welcome_seen", true}, {"pets_promo_seen", true}}}) {
+            service.reset();
+            Json stored = flags;
+            stored["enabled"] = enabled;
+            stored["pet_kind"] = "whale";
+            { std::ofstream file(dir / "office.json"); file << stored.dump(); }
+            for (int restart = 0; restart < 2; ++restart) {
+                open();
+                const Json state = host.call("aceDesktop_getOfficePreferences");
+                EXPECT_EQ(state["enabled"], enabled);
+                EXPECT_EQ(state["petKind"], "whale");
+                EXPECT_FALSE(state.contains("welcomePending"));
+                EXPECT_FALSE(state.contains("petsPromoPending"));
+                EXPECT_EQ(host.bindings.count("aceDesktop_claimOfficeWelcome"), 0u);
+                EXPECT_EQ(host.bindings.count("aceDesktop_claimPetsPromo"), 0u);
+                if (enabled) EXPECT_EQ(FakeWindow::current->pet_kind, "whale");
+                std::ifstream file(dir / "office.json");
+                EXPECT_EQ(Json::parse(file), stored);
+            }
+            ASSERT_TRUE(service->set_pet_kind("clippy")["ok"].get<bool>());
+            {
+                std::ifstream file(dir / "office.json");
+                const Json saved = Json::parse(file);
+                EXPECT_EQ(saved, (Json{{"enabled", enabled}, {"pet_kind", "clippy"}}));
+            }
+            open();
+            EXPECT_EQ(service->state()["enabled"], enabled);
+            EXPECT_EQ(service->state()["petKind"], "clippy");
+        }
+    }
 }
 
 TEST_F(DesktopOfficeServiceTest, EnablingPersistsAndClosingReopensWithLatestSnapshot) {
     open();
     ASSERT_TRUE(service->set_enabled(true)["ok"].get<bool>());
-    EXPECT_FALSE(service->state()["welcomePending"].get<bool>());
     const Json snapshot = {{"version", 1}, {"agents", Json::array()}, {"offices", Json::array()},
                            {"selected", {{"sessionId", "current"}}}};
     EXPECT_EQ(host.call("aceDesktop_updateOffice", Json::array({snapshot.dump()})), true);
@@ -167,8 +151,6 @@ TEST_F(DesktopOfficeServiceTest, SaveFailureAndOpenFailureDoNotReportSuccess) {
     open();
     EXPECT_FALSE(service->set_enabled(true)["ok"].get<bool>());
     EXPECT_EQ(FakeWindow::starts, 0);
-    EXPECT_FALSE(host.call("aceDesktop_claimOfficeWelcome")["ok"].get<bool>());
-    EXPECT_TRUE(service->state()["welcomePending"].get<bool>());
     std::filesystem::remove(dir / "office.json.tmp");
     FakeWindow::fail = true;
     EXPECT_FALSE(service->set_enabled(true)["ok"].get<bool>());
@@ -177,15 +159,12 @@ TEST_F(DesktopOfficeServiceTest, SaveFailureAndOpenFailureDoNotReportSuccess) {
 }
 
 TEST_F(DesktopOfficeServiceTest, DisabledEnvironmentAndInvalidMessagesAreRejected) {
-    open("0.9.37", false);
-    EXPECT_FALSE(service->state()["welcomePending"].get<bool>());
+    open(false);
     EXPECT_FALSE(service->set_enabled(true)["ok"].get<bool>());
-    EXPECT_EQ(host.call("aceDesktop_getOfficePreview"), nullptr);
     open(); service->set_enabled(true);
     EXPECT_FALSE(host.call("aceDesktop_setOfficeEnabled", Json::array({"true"}))["ok"].get<bool>());
     EXPECT_EQ(host.call("aceDesktop_updateOffice", Json::array({"{}"})), false);
     EXPECT_EQ(host.call("aceDesktop_updateOffice", Json::array({"not json"})), false);
-    EXPECT_EQ(host.call("aceDesktop_getOfficePreview"), "<html>offline preview</html>");
 }
 
 TEST_F(DesktopOfficeServiceTest, PetSelectionPersistsIndependentlyAndUpdatesTheCurrentWindow) {
@@ -245,7 +224,7 @@ TEST_F(DesktopOfficeServiceTest, PetSelectionRejectsInvalidValuesAndRollsBackSav
     EXPECT_EQ(service->state()["petKind"], "office");
     EXPECT_EQ(FakeWindow::current->pet_kind, "office");
     std::filesystem::remove(dir / "office.json.tmp");
-    open("1.0.0", false);
+    open(false);
     EXPECT_FALSE(service->set_pet_kind("clippy")["ok"].get<bool>());
 }
 } // namespace

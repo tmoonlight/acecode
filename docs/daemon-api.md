@@ -6355,8 +6355,15 @@ Runtime-generated names use underscore separators. Existing hyphen-named data re
 `GET /api/home/intent-prompts` 返回当前进程缓存；`POST /api/home/intent-prompts`
 接收 `{ "force": false }`，到期时生成建议。`force: true` 用于 Ctrl+Y 调试刷新。
 两者均遵循标准认证。响应包含 `suggestions`、`model`、`refreshing`、`error`、
-`generated_at_ms` 和 `next_refresh_at_ms`。并发 POST 合并，`refreshing: true`
-时客户端可短暂读取状态直至完成，不重复 POST。常规刷新周期为 30 分钟。
+`generated`、`generated_at_ms` 和 `next_refresh_at_ms`。并发 POST 合并，`refreshing: true`
+时客户端可短暂读取状态直至完成，不重复 POST。常规刷新检查周期为 30 分钟。
+
+`generated: true` 表示当前主会话活动已成功生成过建议（包含空建议）。仅当主会话
+成功记入新的真实用户提问或助手可见回复时重置为 false；工具、思考、元数据修改、
+草稿和历史读取/恢复/重写不重置。自动 POST 同时检查截止时间和该状态；已生成时
+不扫描会话、不调用模型，仅返回缓存并将下次检查推迟 30 分钟。此状态与缓存共用
+进程生命周期，多窗口共享；`force: true` 可主动绕过时间与活动限制。生成过程中
+到达的新消息仍保持待生成，失败保留旧建议及旧成功版本。
 
 建议包含 `category`（writing / exploration / execution / thinking）、`title`、
 `description`、`prompt`、`source_session_id`、`workspace: {hash,cwd,name,noWorkspace}`。

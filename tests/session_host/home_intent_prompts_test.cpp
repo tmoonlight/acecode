@@ -413,21 +413,77 @@ TEST(HomeIntentPrompts, WorkspaceComesFromSourceAndNoWorkspaceNeverLeaksCwd) {
 
 TEST(HomeIntentPrompts, CacheDeduplicatesKeepsFailureAndIgnoresShutdownResults) {
     HomeIntentPromptCache cache;
-    const auto first = cache.begin(false, 100);
+    const auto first = cache.begin(false, 100, 0);
     ASSERT_TRUE(first);
-    EXPECT_FALSE(cache.begin(true, 101));
+    EXPECT_FALSE(cache.begin(true, 101, 0));
     cache.finish(first, json::array({draft()}), "last", "", 110);
-    EXPECT_FALSE(cache.begin(false, 100 + kHomeIntentRefreshMs - 1));
-    const auto retry = cache.begin(true, 111);
+    EXPECT_FALSE(cache.begin(false, 100 + kHomeIntentRefreshMs - 1, 0));
+    const auto retry = cache.begin(true, 111, 0);
     ASSERT_TRUE(retry);
     cache.finish(retry, json::array(), "summary", "INVALID_RESPONSE", 112);
-    EXPECT_EQ(cache.snapshot()["suggestions"].size(), 1u);
-    EXPECT_EQ(cache.snapshot()["model"], "last");
-    const auto running = cache.begin(true, 113);
+    EXPECT_EQ(cache.snapshot(0)["suggestions"].size(), 1u);
+    EXPECT_EQ(cache.snapshot(0)["model"], "last");
+    EXPECT_EQ(cache.snapshot(0)["generated"], true);
+    const auto running = cache.begin(true, 113, 0);
     ASSERT_TRUE(running); cache.shutdown(); EXPECT_TRUE(running->load());
     cache.finish(running, json::array(), "summary", "", 114);
-    EXPECT_EQ(cache.snapshot()["suggestions"].size(), 1u);
-    EXPECT_FALSE(cache.begin(true, 115));
+    EXPECT_EQ(cache.snapshot(0)["suggestions"].size(), 1u);
+    EXPECT_FALSE(cache.begin(true, 115, 0));
+}
+
+// Empty suggestions are still a successful generation. Idle timers and other
+// windows must neither launch inference nor spin on an expired deadline.
+TEST(HomeIntentPrompts, GeneratedActivitySkipsIdleCyclesUntilNewMessage) {
+    HomeIntentPromptCache cache;
+    EXPECT_EQ(cache.snapshot(7)["generated"], false);
+    const auto first = cache.begin(false, 100, 7);
+    ASSERT_TRUE(first);
+    cache.finish(first, json::array(), "summary", "", 110);
+    for (int cycle = 1; cycle <= 5; ++cycle) {
+        const auto now = 100 + cycle * kHomeIntentRefreshMs;
+        EXPECT_FALSE(cache.begin(false, now, 7));
+        EXPECT_EQ(cache.snapshot(7)["generated"], true);
+        EXPECT_EQ(cache.snapshot(7)["next_refresh_at_ms"], now + kHomeIntentRefreshMs);
+        EXPECT_FALSE(cache.begin(false, now, 7)); // A second window.
+    }
+    EXPECT_EQ(cache.snapshot(8)["generated"], false);
+    EXPECT_FALSE(cache.begin(false, 100 + 6 * kHomeIntentRefreshMs - 1, 8));
+    const auto next = cache.begin(false, 100 + 6 * kHomeIntentRefreshMs, 8);
+    ASSERT_TRUE(next);
+    cache.finish(next, json::array({draft()}), "summary", "", 111 + 6 * kHomeIntentRefreshMs);
+    EXPECT_EQ(cache.snapshot(8)["generated"], true);
+}
+
+TEST(HomeIntentPrompts, ActivityDuringGenerationRemainsPendingAndFailureDoesNotCoverIt) {
+    HomeIntentPromptCache cache;
+    const auto first = cache.begin(false, 100, 1);
+    ASSERT_TRUE(first);
+    EXPECT_FALSE(cache.begin(true, 105, 2));
+    cache.finish(first, json::array({draft()}), "summary", "", 110);
+    EXPECT_EQ(cache.snapshot(2)["generated"], false);
+    const auto retry = cache.begin(false, 100 + kHomeIntentRefreshMs, 2);
+    ASSERT_TRUE(retry);
+    cache.finish(retry, json::array(), "summary", "INVALID_RESPONSE", 110 + kHomeIntentRefreshMs);
+    EXPECT_EQ(cache.snapshot(2)["generated"], false);
+    EXPECT_EQ(cache.snapshot(2)["suggestions"].size(), 1u);
+    EXPECT_TRUE(cache.begin(false, 100 + 2 * kHomeIntentRefreshMs, 2));
+}
+
+TEST(HomeIntentPrompts, ManualRefreshBypassesGeneratedStateAndCancelledResultDoesNotCoverActivity) {
+    HomeIntentPromptCache cache;
+    const auto first = cache.begin(false, 100, 0);
+    ASSERT_TRUE(first);
+    cache.finish(first, json::array({draft()}), "summary", "", 110);
+    const auto forced = cache.begin(true, 111, 0);
+    ASSERT_TRUE(forced);
+    cache.finish(forced, json::array(), "summary", "", 112);
+    EXPECT_EQ(cache.snapshot(0)["generated"], true);
+    const auto cancelled = cache.begin(true, 113, 1);
+    ASSERT_TRUE(cancelled);
+    cancelled->store(true);
+    cache.finish(cancelled, json::array({draft()}), "summary", "", 114);
+    EXPECT_EQ(cache.snapshot(1)["generated"], false);
+    EXPECT_TRUE(cache.snapshot(1)["suggestions"].empty());
 }
 
 TEST_F(HomeIntentFixture, SnapshotIncludesVisibleTailButNoToolsOrReasoning) {
