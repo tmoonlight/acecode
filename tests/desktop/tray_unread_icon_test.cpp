@@ -60,8 +60,10 @@ TEST(TrayUnreadIcon, ReleasesIconsAndHandlesInvalidInputs) {
     const auto before = ::GetGuiResources(::GetCurrentProcess(), GR_GDIOBJECTS);
     const auto user_before = ::GetGuiResources(::GetCurrentProcess(), GR_USEROBJECTS);
     for (int i = 0; i < 200; ++i) ASSERT_TRUE(create_tray_unread_icon(original, 24));
-    EXPECT_EQ(::GetGuiResources(::GetCurrentProcess(), GR_GDIOBJECTS), before);
-    EXPECT_EQ(::GetGuiResources(::GetCurrentProcess(), GR_USEROBJECTS), user_before);
+    // Process-wide graphics caches can release older objects during this loop.
+    // A decrease is harmless; leaked per-icon objects would grow after 200 calls.
+    EXPECT_LE(::GetGuiResources(::GetCurrentProcess(), GR_GDIOBJECTS), before);
+    EXPECT_LE(::GetGuiResources(::GetCurrentProcess(), GR_USEROBJECTS), user_before);
 }
 
 TEST(TrayUnreadIcon, CanSetClearAndShutDownNativeTray) {
