@@ -101,6 +101,75 @@ TEST_F(ThemeImportTest, ExistingVersionIsIdempotentButCannotBeOverwritten) {
     EXPECT_NE(store.definition("ai-example")["name"], "Conflicting");
 }
 
+// 最小的 Ogg Opus 开头:第一页的第一个包是 OpusHead(偏移 28),足够通过格式检查。
+std::string fake_ogg_opus(char fill = '\1') {
+    return "OggS" + std::string(24, '\0') + "OpusHead" + std::string(32, fill);
+}
+
+json sound_asset(const std::string& bytes) {
+    return {{"bytes", bytes.size()}, {"sha256", acecode::sha256_hex(bytes)}};
+}
+
+// 场景:主题包在 sounds.files 里声明两段录音,包内带 sound-click.ogg / sound-boot.ogg。
+// 期望:预览与导入都通过;安装后能按事件名取回原字节,未声明的事件 404;
+// 导入时生成的本地导出包里也带着录音,再次预览仍通过(导出→再导入不会丢声音)。
+TEST_F(ThemeImportTest, DeclaredSoundsSurviveImportAndExport) {
+    ThemeStore store(root / "themes", "https://unused.invalid");
+    const auto click = fake_ogg_opus('\1');
+    const auto boot = fake_ogg_opus('\2');
+    definition["sounds"] = {{"style", "hud"}, {"files", {{"click", sound_asset(click)}, {"boot", sound_asset(boot)}}}};
+    const auto bytes = package({{"theme.json", definition.dump()}, {"background.png", png}, {"thumbnail.png", png},
+        {"sound-click.ogg", click}, {"sound-boot.ogg", boot}});
+    EXPECT_EQ(store.preview_import(bytes)["theme"]["sounds"], definition["sounds"]);
+    store.import_archive(bytes, acecode::sha256_hex(bytes));
+    EXPECT_EQ(store.sound("ai-example", "click"), click);
+    EXPECT_EQ(store.sound("ai-example", "boot"), boot);
+    EXPECT_THROW(store.sound("ai-example", "alert"), ThemeError);
+    EXPECT_THROW(store.sound("ai-example", "../theme.json"), ThemeError);
+    std::ifstream exported(root / "themes" / "exports" / "ai-example" / "1.0.0.zip", std::ios::binary);
+    const std::string archive{std::istreambuf_iterator<char>(exported), std::istreambuf_iterator<char>()};
+    EXPECT_EQ(store.preview_import(archive)["theme"]["sounds"], definition["sounds"]);
+}
+
+// 场景:声音文件与声明不一致的各种包。
+// 期望:未声明的 sound-*.ogg、声明了却缺文件、字节被改过、不是 Ogg Opus、清单外的事件名
+// (文件名或声明里)、超过 512 KiB 的声明、空的 files 对象一律拒收,且什么都不安装。
+// 回归意义:声音文件由 daemon 原样交给页面解码,包里只能出现声明过且校验过的那几个文件。
+TEST_F(ThemeImportTest, SoundsMustBeDeclaredIntactAndOggOpus) {
+    ThemeStore store(root / "themes", "");
+    const auto click = fake_ogg_opus();
+    ThemePackageFiles files = {{"theme.json", definition.dump()}, {"background.png", png},
+        {"thumbnail.png", png}, {"sound-click.ogg", click}};
+    EXPECT_THROW(store.preview_import(package(files)), ThemeError);
+    definition["sounds"] = {{"style", "hud"}, {"files", {{"click", sound_asset(click)}}}};
+    files["theme.json"] = definition.dump();
+    EXPECT_NO_THROW(store.preview_import(package(files)));
+    files["sound-click.ogg"] = fake_ogg_opus('\3');
+    EXPECT_THROW(store.preview_import(package(files)), ThemeError);
+    const std::string wav = "RIFF" + std::string(60, '\0');
+    definition["sounds"]["files"]["click"] = sound_asset(wav);
+    files["theme.json"] = definition.dump();
+    files["sound-click.ogg"] = wav;
+    EXPECT_THROW(store.preview_import(package(files)), ThemeError);
+    definition["sounds"]["files"] = {{"click", sound_asset(click)}};
+    files["theme.json"] = definition.dump();
+    files["sound-click.ogg"] = click;
+    files["sound-beep.ogg"] = click;
+    EXPECT_THROW(store.preview_import(package(files)), ThemeError);
+    files.erase("sound-beep.ogg");
+    files.erase("sound-click.ogg");
+    EXPECT_THROW(store.preview_import(package(files)), ThemeError);
+    definition["sounds"]["files"] = {{"beep", sound_asset(click)}};
+    EXPECT_FALSE(valid_theme_definition(definition));
+    definition["sounds"]["files"] = {{"click", {{"bytes", 512 * 1024 + 1}, {"sha256", std::string(64, 'a')}}}};
+    EXPECT_FALSE(valid_theme_definition(definition));
+    definition["sounds"]["files"] = json::object();
+    EXPECT_FALSE(valid_theme_definition(definition));
+    definition["sounds"] = {{"style", "hud"}};
+    EXPECT_TRUE(valid_theme_definition(definition));
+    EXPECT_FALSE(store.installed("ai-example"));
+}
+
 TEST(ThemeWorkshopAddress, UsesEffectivePortAndRejectsUnsafeAddresses) {
     EXPECT_EQ(theme_workshop_base("http://host:82/aupdate/?x=1#part"), "http://host:10082/");
     EXPECT_EQ(theme_workshop_base("http://host:1234/custom"), "http://host:11234/");

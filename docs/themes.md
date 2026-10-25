@@ -49,7 +49,7 @@
 
 ## 本地主题协议
 
-AI 主题使用 `ai-<slug>` 标识，允许小写 ASCII 字母、数字及短横线，总长度不超过 64；不会覆盖蓝色、橙色或 EVA 内置主题。`theme.json` 沿用 `schema_version: 1`，包含名称、明暗模式、28 项十六进制颜色，以及背景和缩略图的大小与 SHA-256。旧主题包的 `theme.json`、`background.png`、`thumbnail.png` 三个根文件保持不变；可选增加声明过的 `session-background.png` 和 `user-message-background.png`，分别对应 `session_background` 和 `user_message_background` 元数据。主题包不包含可执行 CSS、HTML、SVG 或应用代码；矢量源稿通过 Browser 输出 PNG 后安装。
+AI 主题使用 `ai-<slug>` 标识，允许小写 ASCII 字母、数字及短横线，总长度不超过 64；不会覆盖蓝色、橙色或 EVA 内置主题。`theme.json` 沿用 `schema_version: 1`，包含名称、明暗模式、28 项十六进制颜色，以及背景和缩略图的大小与 SHA-256。旧主题包的 `theme.json`、`background.png`、`thumbnail.png` 三个根文件保持不变；可选增加声明过的 `session-background.png` 和 `user-message-background.png`，分别对应 `session_background` 和 `user_message_background` 元数据；还可以带声明过的 `sound-<事件>.ogg` 录音（见下文「主题音效」）。主题包不包含可执行 CSS、HTML、SVG 或应用代码；矢量源稿通过 Browser 输出 PNG 后安装。
 
 可选顶层 `appearance` 接受以下参数；颜色只允许 `#RRGGBB`，通顶只允许 boolean，不透明度只允许 0–1 的有限数值，不接受未声明字段或 CSS：
 
@@ -104,7 +104,15 @@ AI 主题使用 `ai-<slug>` 标识，允许小写 ASCII 字母、数字及短横
 
 ### 主题音效
 
-顶层再加 `"sounds": {"style": "hud"}` 就开启 ACECode 自带的同名音效（`web/src/lib/themeSounds.js`，Web Audio 实时合成，主题包里不放音频文件；旧版与工坊同样当作未知键忽略）。只有声明了音效的主题，标题栏左上角（搜索按钮右侧）才显示静音按钮，开关存 `config.json` 的 `web_ui.theme_sounds`（默认开）。
+顶层再加 `"sounds": {"style": "hud"}` 就开启 ACECode 自带的同名音效（`web/src/lib/themeSounds.js`，Web Audio 实时合成；旧版与工坊同样当作未知键忽略）。只有声明了音效的主题，标题栏左上角（搜索按钮右侧）才显示静音按钮，开关存 `config.json` 的 `web_ui.theme_sounds`（默认开）。
+
+主题也可以自带录音，替换部分或全部合成音：
+
+```json
+"sounds": {"style": "hud", "files": {"click": {"bytes": 997, "sha256": "…"}, "boot": {"bytes": 7901, "sha256": "…"}}}
+```
+
+每个声明的事件在包根目录放一个 `sound-<事件>.ogg`（Ogg Opus，单个不超过 512 KiB），事件名只能是 `click`、`select`、`toggle`、`send`、`queue`、`stop`、`complete`、`alert`、`error`、`boot`、`switch`。录音必须与声明一一对应、字节与 SHA-256 一致，否则整包拒收。daemon 经 `GET /api/themes/<id>/sounds/<事件>` 提供录音，页面在主题生效时就下载解码；没声明录音的事件照常用 `style` 的合成音，录音解码失败的事件也退回合成音，所以 `files` 必须和 `style` 一起出现。录音在打包时就调好响度，播放时不再经过合成音的压缩器。带录音的包需要同样支持录音的 ACECode 与工坊；旧版会把多出来的文件当作未知资源拒收。
 
 | 时机 | 音效 |
 |---|---|

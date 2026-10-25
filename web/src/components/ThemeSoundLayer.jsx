@@ -7,14 +7,14 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { hudBurstForChange } from '../lib/hudEffects.js';
 import { configureThemeSounds, installThemeSoundInteractions, playThemeSound } from '../lib/themeSounds.js';
 
-export function ThemeSoundLayer({ style, muted, colorTheme, variant }) {
+export function ThemeSoundLayer({ style, muted, samples = null, colorTheme, variant }) {
   const active = !!style && !muted;
   const previous = useRef(null);
   const bootAt = useRef(0);
 
   useLayoutEffect(() => {
-    configureThemeSounds({ style, muted });
-  }, [style, muted]);
+    configureThemeSounds({ style, muted, samples });
+  }, [style, muted, samples]);
   useEffect(() => () => configureThemeSounds({ style: null }), []);
 
   useEffect(() => (active ? installThemeSoundInteractions(globalThis.document) : undefined), [active]);

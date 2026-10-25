@@ -182,8 +182,9 @@ std::string theme_base(std::string update_base) {
 
 std::map<std::string, std::string> unpack_archive(zip_t* archive) {
     const auto count = archive ? zip_get_num_entries(archive, 0) : 0;
-    if (count < 3 || count > 5) {
-        throw ThemeError(422, "THEME_INVALID_PACKAGE", "Theme archive must contain three to five declared resources");
+    // theme.json, two to four images and up to eleven declared sounds.
+    if (count < 3 || count > 16) {
+        throw ThemeError(422, "THEME_INVALID_PACKAGE", "Theme archive must contain only its declared resources");
     }
     std::map<std::string, std::string> files;
     std::size_t total = 0;
@@ -196,11 +197,12 @@ std::map<std::string, std::string> unpack_archive(zip_t* archive) {
             throw ThemeError(422, "THEME_INVALID_PACKAGE", "Invalid archive metadata");
         }
         const std::string name = info.name;
+        const bool sound = detail::theme_sound_file_name(name);
         const auto limit = name == "theme.json" ? 32 * 1024 :
-            name == "thumbnail.png" ? kMaxPreviewBytes : kMaxPackageBytes;
+            name == "thumbnail.png" ? kMaxPreviewBytes : sound ? detail::kMaxSoundBytes : kMaxPackageBytes;
         const auto type = (attributes >> 16) & 0170000;
         if ((name != "theme.json" && name != "background.png" && name != "thumbnail.png" &&
-             name != "session-background.png" && name != "user-message-background.png") ||
+             name != "session-background.png" && name != "user-message-background.png" && !sound) ||
             files.count(name) || !info.size || info.size > limit ||
             ((os == ZIP_OPSYS_UNIX || os == ZIP_OPSYS_OS_X) && type && type != 0100000)) {
             throw ThemeError(422, "THEME_INVALID_PACKAGE", "Unsupported theme archive entry");
@@ -483,9 +485,9 @@ json ThemeStore::definition(const std::string& id) const {
         if (d.at("id") == id && valid_theme_definition(d) &&
             d.at("version") == dir.filename().string()) {
             bool complete = true;
-            for (const auto& [kind, name] : theme_image_files(d)) {
+            for (const auto& [name, asset] : theme_resource_assets(d)) {
                 if (is_local_theme(id)) checked_path(root_, dir.lexically_relative(root_) / name);
-                if (!matches_file(dir / name, d.at(kind))) complete = false;
+                if (!matches_file(dir / name, asset)) complete = false;
             }
             if (complete) return d;
         }
@@ -537,8 +539,8 @@ json ThemeStore::import_archive(const std::string& archive_bytes, const std::str
         throw ThemeError(409, "THEME_IMPORT_CHANGED", "Theme ZIP changed; preview it again before importing");
     const auto files = unpack_import(archive_bytes);
     ThemePackageFiles extra;
-    for (const auto* name : {"session-background.png", "user-message-background.png"})
-        if (files.count(name)) extra.emplace(name, files.at(name));
+    for (const auto& [name, bytes] : files)
+        if (name != "theme.json" && name != "background.png" && name != "thumbnail.png") extra.emplace(name, bytes);
     return install_local(json::parse(files.at("theme.json")), files.at("background.png"), files.at("thumbnail.png"), extra);
 }
 
@@ -620,6 +622,14 @@ std::string ThemeStore::image(const std::string& id, const std::string& kind) {
         write_file(file, bytes);
     }
     return read_file(file, kMaxPreviewBytes);
+}
+
+std::string ThemeStore::sound(const std::string& id, const std::string& name) {
+    std::lock_guard<std::recursive_mutex> lock(local_state_->mutex);
+    const auto sounds = theme_sound_files(definition(id));
+    const auto found = sounds.find(name);
+    if (found == sounds.end()) throw ThemeError(404, "THEME_NOT_FOUND", "Theme does not declare this sound");
+    return read_file(installed_directory(id) / found->second, detail::kMaxSoundBytes);
 }
 
 std::shared_ptr<ThemeExportJob> ThemeStore::find_export(const std::string& job_id) const {
@@ -723,7 +733,7 @@ void ThemeStore::run_export(const std::shared_ptr<ThemeExportJob>& job) {
             const auto directory = installed_directory(id);
             std::uintmax_t total = 0;
             std::vector<std::string> names = {"theme.json"};
-            for (const auto& entry : theme_image_files(d)) names.push_back(entry.second);
+            for (const auto& entry : theme_resource_assets(d)) names.push_back(entry.first);
             for (const auto& name : names) {
                 const auto limit = name == "theme.json" ? 32 * 1024 : kMaxPackageBytes;
                 auto bytes = read_file(checked_path(root_, directory.lexically_relative(root_) / name), limit);
@@ -980,8 +990,8 @@ void ThemeStore::install(json entry) {
                 try {
                     const auto old = read_json(destination / "theme.json");
                     complete = valid_theme_definition(old) && old.at("id") == id && old.at("version") == version;
-                    if (complete) for (const auto& [kind, name] : theme_image_files(old))
-                        if (!matches_file(destination / name, old.at(kind))) complete = false;
+                    if (complete) for (const auto& [name, asset] : theme_resource_assets(old))
+                        if (!matches_file(destination / name, asset)) complete = false;
                 } catch (...) {}
                 if (complete) throw ThemeError(409, "THEME_VERSION_CONFLICT", "Theme version already exists with different content");
                 // Repair only an incomplete installation using the declared, validated

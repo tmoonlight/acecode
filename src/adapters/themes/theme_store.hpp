@@ -34,6 +34,10 @@ bool valid_theme_catalog(const nlohmann::json& catalog);
 std::string theme_workshop_base(const std::string& update_base);
 // Fixed resource names only; optional images must also be declared in the definition.
 std::map<std::string, std::string> theme_image_files(const nlohmann::json& definition);
+// Optional Ogg Opus sound effects declared under sounds.files: sound name -> sound-<name>.ogg.
+std::map<std::string, std::string> theme_sound_files(const nlohmann::json& definition);
+// Every declared resource besides theme.json: file name -> its {bytes, sha256} record.
+std::map<std::string, nlohmann::json> theme_resource_assets(const nlohmann::json& definition);
 
 struct ThemeTransport {
     std::function<upgrade::HttpTextResult(const std::string&)> fetch;
@@ -57,6 +61,7 @@ public:
     nlohmann::json definition(const std::string& id) const;
     bool installed(const std::string& id) const;
     std::string image(const std::string& id, const std::string& kind);
+    std::string sound(const std::string& id, const std::string& name);
     std::string workshop_thumbnail(const std::string& key);
     nlohmann::json start(const std::string& id, const nlohmann::json& consent);
     nlohmann::json job() const;

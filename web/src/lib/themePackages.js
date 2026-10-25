@@ -47,8 +47,14 @@ export function validThemeDefinition(value) {
 // the default palette. Unknown or malformed values are ignored, never applied.
 export const THEME_CHROME_STYLES = Object.freeze(['hud']);
 // "sounds": {"style": "hud"} turns on the synthesized sound set of that name
-// (lib/themeSounds.js); the package itself carries no audio files.
+// (lib/themeSounds.js). "sounds.files" may add recordings for some events as
+// sound-<name>.ogg (Ogg Opus) in the package; the style still covers the rest.
 export const THEME_SOUND_STYLES = Object.freeze(['hud']);
+export const THEME_SOUND_NAMES = Object.freeze([
+  'click', 'select', 'toggle', 'send', 'queue', 'stop',
+  'complete', 'alert', 'error', 'boot', 'switch',
+]);
+const MAX_THEME_SOUND_BYTES = 512 * 1024;
 // "window": {"shape": "chamfer"} cuts the Windows desktop window's corners to
 // match the HUD frame (lib/desktopWindowShape.js); other platforms ignore it.
 export const THEME_WINDOW_SHAPES = Object.freeze(['chamfer']);
@@ -71,6 +77,19 @@ export function themeSoundStyle(definition) {
   const sounds = definition?.sounds;
   if (!sounds || typeof sounds !== 'object' || Array.isArray(sounds)) return null;
   return THEME_SOUND_STYLES.includes(sounds.style) ? sounds.style : null;
+}
+
+// Event names the package ships a recording for. Only with a known style, so
+// the mute button and the fallback sounds always come with it.
+export function themeSoundFiles(definition) {
+  if (!themeSoundStyle(definition)) return [];
+  const files = definition.sounds.files;
+  if (!files || typeof files !== 'object' || Array.isArray(files)) return [];
+  return THEME_SOUND_NAMES.filter((name) => {
+    const asset = files[name];
+    return Number.isSafeInteger(asset?.bytes) && asset.bytes > 0 && asset.bytes <= MAX_THEME_SOUND_BYTES
+      && typeof asset.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(asset.sha256);
+  });
 }
 
 export function validThemeVariant(value) {

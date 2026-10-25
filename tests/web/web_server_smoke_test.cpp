@@ -9509,6 +9509,32 @@ TEST(WebServerHttp, CustomThemeImportPreviewsBeforeInstallingAndRequiresMatching
     EXPECT_NE(fx.cfg.web_ui.color_theme, "ai-example");
 }
 
+// 场景:导入一个在 sounds.files 里声明了 click 录音的自定义主题,页面按事件名取声音。
+// 期望:/api/themes/<id>/sounds/click 返回包里的原字节、Content-Type 为 audio/ogg 且不缓存;
+// 主题没声明的事件、清单外的名字都是 404,不会读到别的文件。
+TEST(WebServerHttp, CustomThemeServesDeclaredSounds) {
+    WebServerFixture fx;
+    const auto png = theme_test::png();
+    const std::string ogg = "OggS" + std::string(24, '\0') + "OpusHead" + std::string(32, '\1');
+    auto definition = theme_test::definition(png);
+    definition["sounds"] = {{"style", "hud"},
+        {"files", {{"click", {{"bytes", ogg.size()}, {"sha256", acecode::sha256_hex(ogg)}}}}}};
+    acecode::themes::ThemeStore source(fx.tmp_dir / "sound-source", "https://unused.invalid");
+    const auto packaged = source.install_local(definition, png, png, {{"sound-click.ogg", ogg}});
+    std::ifstream input(path_from_utf8(packaged.at("package_path")), std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    const cpr::Header headers{{"Origin", "http://localhost:5173"}, {"Content-Type", "application/zip"}, {"X-ACECode-Token", "smoke-token"}};
+    const auto imported = cpr::Post(cpr::Url{fx.url("/api/themes/import?sha256=" + acecode::sha256_hex(bytes))}, headers, cpr::Body{bytes});
+    ASSERT_EQ(imported.status_code, 200) << imported.text;
+    auto sound = cpr::Get(cpr::Url{fx.url("/api/themes/ai-example/sounds/click")});
+    ASSERT_EQ(sound.status_code, 200) << sound.text;
+    EXPECT_EQ(sound.text, ogg);
+    EXPECT_EQ(sound.header["Content-Type"], "audio/ogg");
+    EXPECT_EQ(sound.header["Cache-Control"], "private, no-store");
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/themes/ai-example/sounds/boot")}).status_code, 404);
+    EXPECT_EQ(cpr::Get(cpr::Url{fx.url("/api/themes/ai-example/sounds/theme.json")}).status_code, 404);
+}
+
 TEST(WebServerHttp, CustomThemeExportProtectsBuiltinsAndDownloadsAuthenticatedZip) {
     WebServerFixture fx;
     const auto png = theme_test::png();

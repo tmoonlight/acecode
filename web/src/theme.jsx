@@ -11,8 +11,8 @@ import { usePreference } from './lib/usePreference.js';
 import { api } from './lib/api.js';
 import {
   EVA_THEME_ID, applyInstalledTheme, loadThemeResources, releaseThemeResource, resolveThemeVariant,
-  revokeThemeResources, resolveThemeAppearance, selectThemeVariant, themeChromeStyle, themeSoundStyle,
-  themeVariantOptions, themeWindowShape, validThemeDefinition,
+  revokeThemeResources, resolveThemeAppearance, selectThemeVariant, themeChromeStyle, themeSoundFiles,
+  themeSoundStyle, themeVariantOptions, themeWindowShape, validThemeDefinition,
 } from './lib/themePackages.js';
 import { pushWindowBackgroundColor } from './lib/desktopWindowBackground.js';
 import { pushWindowShape } from './lib/desktopWindowShape.js';
@@ -174,6 +174,16 @@ export function ThemeProvider({ children }) {
   const appearance = installedTheme ? resolveThemeAppearance(resolveThemeVariant(installedTheme, themeVariant)) : null;
   const themeChrome = activeTheme ? themeChromeStyle(activeTheme) : null;
   const soundStyle = activeTheme ? themeSoundStyle(activeTheme) : null;
+  const soundSamples = useMemo(() => {
+    const names = activeTheme ? themeSoundFiles(activeTheme) : [];
+    if (!names.length) return null;
+    const { id, version } = activeTheme;
+    return {
+      key: `${id}@${version}`,
+      names,
+      load: async (name) => (await api.readThemeSound(id, name, version)).arrayBuffer(),
+    };
+  }, [activeTheme]);
   const variantOptions = useMemo(() => (activeTheme ? themeVariantOptions(activeTheme) : NO_VARIANTS), [activeTheme]);
   const activeThemeVariant = activeTheme ? selectThemeVariant(activeTheme, themeVariant)?.id || null : null;
   const theme = installedTheme?.mode || (colorTheme === EVA_THEME_ID ? 'light' : themeMode === 'system' ? systemTheme : themeMode);
@@ -236,6 +246,7 @@ export function ThemeProvider({ children }) {
       <ThemeSoundLayer
         style={soundStyle}
         muted={!themeSounds}
+        samples={soundSamples}
         colorTheme={colorTheme}
         variant={activeThemeVariant}
       />

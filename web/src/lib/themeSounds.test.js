@@ -1,7 +1,7 @@
 // 主题音效:配方完整性、主题包声明、静音门控、节流、点击目标判定、交互监听与接线。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { THEME_SOUND_STYLES, themeSoundStyle } from './themePackages.js';
+import { THEME_SOUND_STYLES, themeSoundFiles, themeSoundStyle } from './themePackages.js';
 import {
   THEME_SOUND_NAMES, THEME_SOUND_RECIPES, configureThemeSounds, createThemeSoundThrottle,
   installThemeSoundInteractions, playThemeSound, resetThemeSoundsForTest, scheduleThemeSound,
@@ -103,6 +103,82 @@ await run('packages declare sounds with a known style only', () => {
     assert.equal(themeSoundStyle({ sounds }), null, JSON.stringify(sounds));
   }
   assert.equal(themeSoundStyle(null), null);
+});
+
+// 场景:主题包在 sounds.files 里声明自带的录音(包内 sound-<名>.ogg)。
+// 期望:只认已知风格下、名字在音效清单里、bytes(1 字节到 512 KiB)与 sha256 都合法的条目,
+// 按清单顺序返回;没有已知风格时一律不认 —— 静音按钮与解码失败时的回退音都来自风格。
+await run('packages declare recordings for known events only', () => {
+  const asset = { bytes: 900, sha256: 'a'.repeat(64) };
+  assert.deepEqual(themeSoundFiles({ sounds: { style: 'hud', files: { boot: asset, click: asset } } }), ['click', 'boot']);
+  assert.deepEqual(themeSoundFiles({ sounds: { style: 'hud', files: {
+    beep: asset,
+    select: { bytes: 0, sha256: 'a'.repeat(64) },
+    toggle: { bytes: 512 * 1024 + 1, sha256: 'a'.repeat(64) },
+    send: { bytes: 900, sha256: 'xyz' },
+    stop: { bytes: 900 },
+  } } }), []);
+  assert.deepEqual(themeSoundFiles({ sounds: { files: { click: asset } } }), []);
+  assert.deepEqual(themeSoundFiles({ sounds: { style: 'hud', files: [asset] } }), []);
+  assert.deepEqual(themeSoundFiles({ sounds: { style: 'hud' } }), []);
+  assert.deepEqual(themeSoundFiles(null), []);
+});
+
+// 场景:主题自带录音,其中一个解码失败、一个还在下载解码。
+// 期望:有录音的事件播录音(音源挂的是录音缓冲,不创建振荡器),没声明录音的事件照常用合成音;
+// 解码失败的事件回退合成音;还在解码时先不出声,就绪后再播录音(不先响一声合成音)。
+// 同一主题版本重复配置不重新下载;换主题版本(key 变)才重新加载;关掉音效主题时丢弃录音。
+await run('theme recordings replace synthesized sounds', async () => {
+  resetThemeSoundsForTest();
+  const { scope, log } = fakeAudioScope();
+  scope.OfflineAudioContext = class {
+    decodeAudioData(data) {
+      return data.fail ? Promise.reject(new Error('corrupt')) : Promise.resolve({ duration: 0.1, recording: data.name });
+    }
+  };
+  const loads = [];
+  let releaseSend;
+  const load = (name) => {
+    loads.push(name);
+    if (name === 'send') return new Promise((resolve) => { releaseSend = () => resolve({ name }); });
+    return Promise.resolve({ name, fail: name === 'error' });
+  };
+  const samples = { key: 'ai-x@1.0.0', names: ['click', 'error', 'send'], load };
+  configureThemeSounds({ style: 'hud', muted: false, samples, scope });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const oscillators = () => log.sources.filter((source) => source.kind === 'tone').length;
+
+  let before = oscillators();
+  assert.equal(playThemeSound('click', { scope }), true);
+  assert.equal(log.sources.at(-1).buffer?.recording, 'click');
+  assert.equal(oscillators(), before);
+
+  assert.equal(playThemeSound('select', { scope }), true);
+  assert.ok(oscillators() > before, 'select has no recording and is synthesized');
+
+  before = oscillators();
+  assert.equal(playThemeSound('error', { scope }), true);
+  assert.ok(oscillators() > before, 'undecodable recording falls back');
+
+  const count = log.sources.length;
+  assert.equal(playThemeSound('send', { scope }), true);
+  assert.equal(log.sources.length, count, 'nothing plays before the recording is ready');
+  releaseSend();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(log.sources.at(-1).buffer?.recording, 'send');
+  assert.equal(log.sources.length, count + 1);
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  configureThemeSounds({ style: 'hud', muted: true, samples: { ...samples }, scope });
+  await settle();
+  assert.equal(loads.length, 3);
+  configureThemeSounds({ style: 'hud', muted: false, samples: { ...samples, key: 'ai-x@1.0.1' }, scope });
+  await settle();
+  assert.equal(loads.length, 6);
+  configureThemeSounds({ style: null, samples, scope });
+  configureThemeSounds({ style: 'hud', muted: false, samples, scope });
+  await settle();
+  assert.equal(loads.length, 9);
 });
 
 // 场景:没有声明音效的主题 / 静音 / 已开启。
@@ -238,7 +314,8 @@ await run('title bar, provider and event sources are wired', () => {
   assert.match(topBar, /\{themeSoundStyle && \(/);
   assert.match(topBar, /data-theme-sound-toggle="true"/);
   const provider = read('../theme.jsx');
-  assert.match(provider, /<ThemeSoundLayer[\s\S]*style=\{soundStyle\}[\s\S]*muted=\{!themeSounds\}/);
+  assert.match(provider, /<ThemeSoundLayer[\s\S]*style=\{soundStyle\}[\s\S]*muted=\{!themeSounds\}[\s\S]*samples=\{soundSamples\}/);
+  assert.match(provider, /api\.readThemeSound\(id, name, version\)/);
   const inputBar = read('../components/InputBar.jsx');
   assert.match(inputBar, /playThemeSound\(currentAction\.mode === 'queue' \? 'queue' : 'send'\)/);
   assert.match(read('../components/ChatView.jsx'), /sendAbort\(sid\)\) \{[\s\S]*?\}\s*playThemeSound\('stop'\)/);

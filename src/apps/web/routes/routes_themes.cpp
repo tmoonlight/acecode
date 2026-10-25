@@ -62,6 +62,8 @@ void WebServer::Impl::register_themes() {
     ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/themes/<string>/images/<string>").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&, const std::string&) { return cors_preflight(req); });
+    CROW_ROUTE(app, "/api/themes/<string>/sounds/<string>").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req, const std::string&, const std::string&) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/themes/<string>/export").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/themes/exports/<string>").methods(crow::HTTPMethod::Options)
@@ -231,6 +233,22 @@ void WebServer::Impl::register_themes() {
             return respond(req, [&]() -> json { throw e; });
         } catch (...) {
             return respond(req, []() -> json { throw themes::ThemeError(502, "THEME_PREVIEW_FAILED", "Could not load theme image"); });
+        }
+    });
+    CROW_ROUTE(app, "/api/themes/<string>/sounds/<string>").methods(crow::HTTPMethod::GET)
+    ([this, respond](const crow::request& req, const std::string& id, const std::string& name) {
+        if (auto rejected = require_auth(req)) return std::move(*rejected);
+        try {
+            crow::response response(200);
+            response.body = theme_store->sound(id, name);
+            response.add_header("Content-Type", "audio/ogg");
+            response.add_header("Cache-Control", "private, no-store");
+            response.add_header("X-Content-Type-Options", "nosniff");
+            return with_cors(req, std::move(response));
+        } catch (const themes::ThemeError& e) {
+            return respond(req, [&]() -> json { throw e; });
+        } catch (...) {
+            return respond(req, []() -> json { throw themes::ThemeError(500, "THEME_OPERATION_FAILED", "Could not load theme sound"); });
         }
     });
 }

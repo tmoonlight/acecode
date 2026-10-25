@@ -387,6 +387,7 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | GET | `/api/themes/<id>` | verified locally installed theme definition |
 | POST | `/api/themes/<id>/install` | download a theme after size/hash confirmation |
 | GET | `/api/themes/<id>/images/<kind>` | theme thumbnail or installed background |
+| GET | `/api/themes/<id>/sounds/<name>` | an installed theme's declared `sound-<name>.ogg` recording (`audio/ogg`, not cached; 404 when the theme does not declare it) |
 | POST | `/api/themes/<id>/export` | prepare a custom theme ZIP, optionally saving through the native picker |
 | GET | `/api/themes/exports/<job_id>` | read theme export/packing progress |
 | POST | `/api/themes/exports/<job_id>/cancel` | cancel the matching theme export job |

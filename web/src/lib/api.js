@@ -693,6 +693,7 @@ export function createApi(base = null) {
     importTheme: (file, digest) => request('POST', `/api/themes/import?sha256=${encodeURIComponent(digest)}`, file, base, { rawBody: true }),
     cancelThemeInstall: () => request('POST', '/api/themes/job/cancel', {}, base),
     readThemeImage: (id, kind, version = '') => request('GET', `/api/themes/${encodeURIComponent(id)}/images/${encodeURIComponent(kind)}${version ? `?version=${encodeURIComponent(version)}` : ''}`, undefined, base, { responseType: 'blob' }),
+    readThemeSound: (id, name, version = '') => request('GET', `/api/themes/${encodeURIComponent(id)}/sounds/${encodeURIComponent(name)}${version ? `?version=${encodeURIComponent(version)}` : ''}`, undefined, base, { responseType: 'blob' }),
     exportTheme: (id, { native_save = false } = {}) => request('POST', `/api/themes/${encodeURIComponent(id)}/export`, { native_save }, base, { timeoutMs: native_save ? NO_TIMEOUT : DEFAULT_REQUEST_TIMEOUT_MS }),
     getThemeExport: (jobId) => request('GET', `/api/themes/exports/${encodeURIComponent(jobId)}`, undefined, base),
     cancelThemeExport: (jobId) => request('POST', `/api/themes/exports/${encodeURIComponent(jobId)}/cancel`, {}, base),

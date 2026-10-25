@@ -1,17 +1,16 @@
-// Theme sound effects. A package only declares `"sounds": {"style": "hud"}`;
-// every sound is synthesized here with Web Audio, so theme ZIPs stay
-// images-only and older clients and the workshop just see an unknown key.
+// Theme sound effects. A package declares `"sounds": {"style": "hud"}` and
+// every event gets a sound synthesized here with Web Audio. `sounds.files`
+// replaces some of them with recordings shipped in the package (Ogg Opus,
+// served by the daemon); a recording that cannot be decoded falls back to the
+// synthesized sound.
 //
 // Nothing plays unless the active theme declares a known style and the
 // title-bar mute button is off: components/ThemeSoundLayer.jsx configures this
 // module, call sites only call playThemeSound(name).
 
-import { THEME_SOUND_STYLES } from './themePackages.js';
+import { THEME_SOUND_NAMES, THEME_SOUND_STYLES } from './themePackages.js';
 
-export const THEME_SOUND_NAMES = Object.freeze([
-  'click', 'select', 'toggle', 'send', 'queue', 'stop',
-  'complete', 'alert', 'error', 'boot', 'switch',
-]);
+export { THEME_SOUND_NAMES };
 
 // Voice helpers. Times are seconds from the sound's start, gains are peak
 // amplitudes; each recipe's `level` scales its whole bus.
@@ -133,12 +132,16 @@ export function themeSoundForTarget(target) {
   return 'click';
 }
 
-const state = { style: null, muted: true };
+const state = { style: null, muted: true, samples: null };
 let throttle = createThemeSoundThrottle();
 
-export function configureThemeSounds({ style = null, muted = false } = {}) {
+// `samples` = { key, names, load(name) -> Promise<ArrayBuffer> } for the
+// recordings of the active theme; the same key keeps the decoded set.
+export function configureThemeSounds({ style = null, muted = false, samples = null, scope = globalThis } = {}) {
   state.style = THEME_SOUND_STYLES.includes(style) ? style : null;
   state.muted = muted !== false;
+  const key = state.style && samples?.key ? samples.key : null;
+  if (key !== (state.samples?.key ?? null)) state.samples = key ? loadSamples(samples, scope) : null;
 }
 
 export function themeSoundsEnabled() {
@@ -149,8 +152,10 @@ export function themeSoundsEnabled() {
 export function resetThemeSoundsForTest() {
   state.style = null;
   state.muted = true;
+  state.samples = null;
   throttle = createThemeSoundThrottle();
   engine = null;
+  decoder = null;
 }
 
 // Returns whether the sound was handed to the audio engine. `force` plays
@@ -159,7 +164,38 @@ export function playThemeSound(name, { force = false, scope = globalThis } = {})
   if (!state.style || (state.muted && !force)) return false;
   const recipe = THEME_SOUND_RECIPES[state.style]?.[name];
   if (!recipe || !throttle.allow(name)) return false;
-  return startSound(recipe, scope);
+  const sample = state.samples?.entries.get(name);
+  return sample && !sample.failed ? startSample(sample, recipe, scope) : startSound(recipe, scope);
+}
+
+// Recordings are fetched and decoded as soon as the theme is active, before
+// any user gesture, so the first click already has its buffer.
+function loadSamples(samples, scope) {
+  const entries = new Map();
+  for (const name of samples.names || []) {
+    if (!THEME_SOUND_NAMES.includes(name) || entries.has(name)) continue;
+    const entry = { buffer: null, failed: false };
+    entry.ready = Promise.resolve()
+      .then(() => samples.load(name))
+      .then((data) => decodeSample(data, scope))
+      .then((buffer) => { entry.buffer = buffer; }, () => { entry.failed = true; });
+    entries.set(name, entry);
+  }
+  return { key: samples.key, entries };
+}
+
+let decoder = null;
+
+function decodeSample(data, scope) {
+  if (!decoder) {
+    const Offline = scope?.OfflineAudioContext || scope?.webkitOfflineAudioContext;
+    if (!Offline) return Promise.reject(new Error('Audio decoding is unavailable'));
+    decoder = new Offline(1, 1, 48000);
+  }
+  return new Promise((resolve, reject) => {
+    const result = decoder.decodeAudioData(data, resolve, reject);
+    if (typeof result?.then === 'function') result.then(resolve, reject);
+  });
 }
 
 // Recipe levels are tuned against this master and the compressor's automatic
@@ -178,7 +214,12 @@ function audioEngine(scope) {
   if (!Context || scope?.navigator?.userActivation?.hasBeenActive === false) return null;
   try {
     const ctx = new Context({ latencyHint: 'interactive' });
-    engine = { ctx, output: createThemeSoundOutput(ctx, ctx.destination) };
+    // Recordings are level-matched when the package is built and skip the
+    // synthesizer's master gain and compressor.
+    const samples = ctx.createGain();
+    samples.gain.value = 1;
+    samples.connect(ctx.destination);
+    engine = { ctx, output: createThemeSoundOutput(ctx, ctx.destination), samples };
   } catch {
     return null;
   }
@@ -200,21 +241,49 @@ export function createThemeSoundOutput(ctx, destination) {
   return master;
 }
 
-function startSound(recipe, scope) {
-  const current = audioEngine(scope);
-  if (!current) return false;
-  const { ctx, output } = current;
+function whenRunning(ctx, play) {
   if (ctx.state === 'running') {
-    scheduleThemeSound(ctx, output, recipe, ctx.currentTime + 0.005);
+    play(ctx.currentTime + 0.005);
     return true;
   }
   const requested = Date.now();
   Promise.resolve(ctx.resume?.()).then(() => {
-    if (ctx.state === 'running' && Date.now() - requested <= RESUME_GRACE_MS) {
-      scheduleThemeSound(ctx, output, recipe, ctx.currentTime + 0.005);
-    }
+    if (ctx.state === 'running' && Date.now() - requested <= RESUME_GRACE_MS) play(ctx.currentTime + 0.005);
   }).catch(() => {});
   return true;
+}
+
+function startSound(recipe, scope) {
+  const current = audioEngine(scope);
+  if (!current) return false;
+  return whenRunning(current.ctx, (at) => scheduleThemeSound(current.ctx, current.output, recipe, at));
+}
+
+// A recording still decoding plays only if it is ready within the grace
+// window; one that failed to decode falls back to the synthesized sound.
+function startSample(sample, recipe, scope) {
+  const current = audioEngine(scope);
+  if (!current) return false;
+  const play = (buffer) => whenRunning(current.ctx, (at) => scheduleThemeSample(current.ctx, current.samples, buffer, at));
+  if (sample.buffer) return play(sample.buffer);
+  const requested = Date.now();
+  sample.ready.then(() => {
+    if (Date.now() - requested > RESUME_GRACE_MS) return;
+    if (sample.buffer) play(sample.buffer);
+    else startSound(recipe, scope);
+  });
+  return true;
+}
+
+export function scheduleThemeSample(ctx, destination, buffer, startAt = ctx.currentTime) {
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(destination);
+  source.onended = () => {
+    try { source.disconnect(); } catch { /* already gone */ }
+  };
+  source.start(startAt);
+  return startAt + buffer.duration;
 }
 
 const noiseBuffers = new WeakMap();
