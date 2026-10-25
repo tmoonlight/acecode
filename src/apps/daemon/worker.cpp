@@ -75,6 +75,7 @@
 #include "tool/web_search/backend_router.hpp"
 #include "tool/web_search/region_detector.hpp"
 #include "tool/web_search/web_search_tool.hpp"
+#include "image/image_processor.hpp"
 #include "network/proxy_resolver.hpp"
 #include "remote_control/session_channel_binder.hpp"
 #include "utils/logger.hpp"
@@ -225,6 +226,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
         return 3;
     }
 
+    image::set_model_image_compression_enabled(cfg.image_compression.enabled);
     // 代理解析器初始化 —— 必须在第一个 cpr 调用前完成。daemon 路径无 TUI,
     // 横幅写到日志(LOG_INFO)。
     network::proxy_resolver().init(cfg.network);

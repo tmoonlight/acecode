@@ -5,11 +5,17 @@
 //   - 视觉模型能拿到真实 image_url part;
 //   - 非视觉模型拿到句柄文本而非图片,且 fallback 措辞随是否存在视觉模型变化;
 //   - 非图片附件(text-like / PDF / SVG / 误标成 image 的非图片)只产生按需读取引用,
-//     永远不内联正文或产生 image_url。
+//     永远不内联正文或产生 image_url;
+//   - 「压缩图片」开启时发压缩版并附说明文字,关闭时原图原样发送;请求体预算只在
+//     开关开启且模型能看图时生效。
 #include <gtest/gtest.h>
 
+#include "image/image_processor.hpp"
+#include "provider/model_image_payload.hpp"
 #include "provider/openai_provider.hpp"
+#include "session/attachment_model_image.hpp"
 #include "session/attachment_store.hpp"
+#include "utils/base64.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <filesystem>
@@ -217,6 +223,110 @@ TEST(OpenAiContentParts, MislabeledNonImageDowngradedToFile) {
 
     auto content = acecode::openai_content_for_message(msg, /*model_has_vision=*/true, true);
     EXPECT_FALSE(has_image_url(content)) << content.dump(2);
+}
+
+namespace {
+
+// 「压缩图片」是进程级开关,用例结束必须恢复,否则会影响同进程里的其它用例。
+struct ScopedImageCompression {
+    bool previous = acecode::image::model_image_compression_enabled();
+    explicit ScopedImageCompression(bool enabled) {
+        acecode::image::set_model_image_compression_enabled(enabled);
+    }
+    ~ScopedImageCompression() { acecode::image::set_model_image_compression_enabled(previous); }
+};
+
+std::string gradient_ppm(int width, int height) {
+    std::string bytes = "P6\n" + std::to_string(width) + " " + std::to_string(height) + "\n255\n";
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            bytes.push_back(static_cast<char>((x * 255) / std::max(1, width - 1)));
+            bytes.push_back(static_cast<char>((y * 255) / std::max(1, height - 1)));
+            bytes.push_back(static_cast<char>(32));
+        }
+    }
+    return bytes;
+}
+
+std::string first_image_url(const nlohmann::json& content) {
+    for (const auto& part : content) {
+        if (part.value("type", std::string{}) == "image_url") {
+            return part["image_url"].value("url", std::string{});
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+// 场景:「压缩图片」开启,视觉模型收到一张 2400x300 的图片附件(存入时不触发
+// 原有的 10 MB / 2560 px 规范化)。
+// 期望:image_url 发的是压缩版(长边 2000),图片前面有一段说明原尺寸与压缩后尺寸
+// 的文字;用户写的 "look" 仍在。
+TEST(OpenAiContentParts, CompressionSendsCompressedImageWithNote) {
+    ScopedImageCompression compression(true);
+    acecode::clear_attachment_model_image_cache_for_tests();
+    auto dir = temp_project("compressed");
+    const std::string project_dir = acecode::path_to_utf8(dir);
+    const std::string original = gradient_ppm(2400, 300);
+    auto record = save(project_dir, "wide.png", "image/png", original);
+
+    auto content = acecode::openai_content_for_message(
+        image_part_message(record), /*model_has_vision=*/true, false);
+
+    const std::string text = collect_text(content);
+    EXPECT_NE(text.find("look"), std::string::npos);
+    EXPECT_NE(text.find("2400x300"), std::string::npos) << text;
+    EXPECT_NE(text.find("-> 2000x250"), std::string::npos) << text;
+    const std::string url = first_image_url(content);
+    ASSERT_FALSE(url.empty()) << content.dump(2);
+    EXPECT_NE(url, "data:image/png;base64," + acecode::base64_encode(original));
+    acecode::clear_attachment_model_image_cache_for_tests();
+    fs::remove_all(dir);
+}
+
+// 场景:「压缩图片」关闭,同一张 2400x300 的图片。
+// 期望:回到原有行为 —— 原图字节原样发送,没有压缩说明文字。
+TEST(OpenAiContentParts, CompressionOffSendsOriginalImage) {
+    ScopedImageCompression compression(false);
+    acecode::clear_attachment_model_image_cache_for_tests();
+    auto dir = temp_project("uncompressed");
+    const std::string project_dir = acecode::path_to_utf8(dir);
+    const std::string original = gradient_ppm(2400, 300);
+    auto record = save(project_dir, "wide.png", "image/png", original);
+
+    auto content = acecode::openai_content_for_message(
+        image_part_message(record), /*model_has_vision=*/true, false);
+
+    EXPECT_EQ(collect_text(content).find("Image compressed"), std::string::npos);
+    EXPECT_EQ(first_image_url(content),
+              "data:image/png;base64," + acecode::base64_encode(original));
+    fs::remove_all(dir);
+}
+
+// 场景:请求体预算的生效条件。一张图片附件,快照文件不存在,所以发送体积按记录里的
+// 60 MiB 估算(超过 OpenAI 兼容协议 47 MiB 的触发线)。
+// 期望:「压缩图片」关闭或模型不能看图时消息原样;两者都满足时这张图被换成文件引用。
+TEST(OpenAiContentParts, ImageBudgetRequiresCompressionAndVision) {
+    std::vector<acecode::ChatMessage> messages;
+    acecode::AttachmentRecord record;
+    record.id = "att_budget";
+    record.name = "a.png";
+    record.mime_type = "image/png";
+    record.path = "missing.png";
+    record.size_bytes = 60u * 1024u * 1024u;
+    messages.push_back(image_part_message(record));
+    const auto before = messages.front().content_parts;
+    const auto project = [&](bool compression, bool vision) {
+        ScopedImageCompression scoped(compression);
+        acecode::ImageRequestBudget budget;
+        return acecode::recover_provider_history_with_image_budget(
+            messages, budget, acecode::kOpenAiCompatMaxRequestBytes, vision).messages;
+    };
+    EXPECT_EQ(project(false, true).front().content_parts, before);
+    EXPECT_EQ(project(true, false).front().content_parts, before);
+    const auto budgeted = project(true, true);
+    EXPECT_EQ(budgeted.front().content_parts[1].value("type", std::string{}), "file");
 }
 
 // 分类源头:attachment_kind_for_mime 把 SVG 归为 file,其它图片仍为 image。

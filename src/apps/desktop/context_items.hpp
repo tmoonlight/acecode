@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <nlohmann/json_fwd.hpp>
 
 namespace acecode::desktop {
 
@@ -37,6 +38,9 @@ struct ContextItemsResult {
 // absolute path and are never traversed.
 ContextItemsResult materialize_context_items(
     const std::vector<std::string>& paths);
+
+nlohmann::json context_item_json(const ContextItem& item);
+nlohmann::json context_items_json(const std::vector<std::string>& paths);
 
 struct ContextDataFile {
     std::string name;

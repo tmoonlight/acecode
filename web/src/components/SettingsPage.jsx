@@ -15,6 +15,7 @@ import { isInstalledColorTheme } from '../lib/colorTheme.js';
 import { localePreference } from '../i18n/index.js';
 import { api } from '../lib/api.js';
 import { normalizeToolPreambleState } from '../lib/toolPreamble.js';
+import { imageCompressionEnabled, imageCompressionUpdate } from '../lib/imageCompression.js';
 import {
   WORK_MODES,
   WORK_MODE_CODING,
@@ -582,6 +583,39 @@ function SectionGeneral({
       toast({ kind: 'err', text: '工作模式切换失败:' + (e?.message || '') });
     } finally {
       setWorkModeBusy(false);
+    }
+  };
+  // 「压缩图片」= daemon 的 image_compression.enabled(见 lib/imageCompression.js)。
+  // 打开设置页时读一次;切换时 PUT,以响应为准,失败回滚并提示。
+  const [imageCompression, setImageCompression] = useState(true);
+  const [imageCompressionBusy, setImageCompressionBusy] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    api.getImageCompression()
+      .then((state) => {
+        if (!cancelled) setImageCompression(imageCompressionEnabled(state));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setImageCompressionBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+  const switchImageCompression = async (next) => {
+    if (imageCompressionBusy || next === imageCompression) return;
+    const body = imageCompressionUpdate(next);
+    if (!body) return;
+    const previous = imageCompression;
+    setImageCompression(next);
+    setImageCompressionBusy(true);
+    try {
+      const state = await api.setImageCompression(body);
+      setImageCompression(imageCompressionEnabled(state));
+    } catch (e) {
+      setImageCompression(previous);
+      toast({ kind: 'err', text: '压缩图片设置保存失败:' + (e?.message || '') });
+    } finally {
+      setImageCompressionBusy(false);
     }
   };
   const [openTarget, setOpenTarget] = useState('vscode');
@@ -1209,6 +1243,34 @@ function SectionGeneral({
           onChange={(e) => setMaxTurns(Number(e.target.value) || 50)}
           className="w-20 h-7 px-2 text-[12px] text-center rounded-md border border-border bg-surface-alt text-fg outline-none focus:border-accent transition"
         />
+      </div>
+      <div
+        role="switch"
+        aria-checked={imageCompression}
+        tabIndex={0}
+        onClick={() => switchImageCompression(!imageCompression)}
+        onKeyDown={(event) => {
+          if (event.key === ' ' || event.key === 'Enter') {
+            event.preventDefault();
+            switchImageCompression(!imageCompression);
+          }
+        }}
+        className={clsx(
+          'flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 transition',
+          'cursor-pointer hover:bg-surface-hi',
+          imageCompressionBusy && 'opacity-75 cursor-wait',
+        )}
+      >
+        <div>
+          <div className="text-[13px] font-normal">压缩图片</div>
+        </div>
+        <div onClick={(event) => event.stopPropagation()}>
+          <Toggle
+            on={imageCompression}
+            disabled={imageCompressionBusy}
+            onChange={switchImageCompression}
+          />
+        </div>
       </div>
       <div className="flex items-center justify-between px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2">
         <div>

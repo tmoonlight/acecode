@@ -123,6 +123,21 @@ std::string file_attachment_reference_text(
             "` with `model_name` set to a vision-capable saved model.";
         return text;
     }
+    // 图片预算撤下的较早图片(grok-build 同款措辞):说明它已不可见、别凭记忆
+    // 描述;真要再看就重新打开,预算会再从更早的图片里腾地方。
+    const auto budget_withheld = record.metadata.is_object()
+        ? record.metadata.find(kImageBudgetWithheldMetadataKey)
+        : record.metadata.end();
+    if (budget_withheld != record.metadata.end() && budget_withheld->is_boolean() &&
+        budget_withheld->get<bool>()) {
+        text +=
+            " This earlier image was removed to keep the request within its size"
+            " limit and is no longer visible. Do not describe or reason about its"
+            " contents from memory; if you need to see it again, open it with `" +
+            model_tool_name_for_native("show_image") +
+            "` or ask the user to share it again.";
+        return text;
+    }
     if (read_path.empty()) {
         text += " No readable path is available.";
         return text;

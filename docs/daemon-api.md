@@ -426,6 +426,8 @@ Development `--static-dir` resources continue to be read from disk on each reque
 | POST | `/api/agent-browser/top-sites/dismiss` / `restore` | hide / un-hide one suggested site (local clients only) |
 | GET | `/api/config/tool-preamble` | read the concrete progress text switch (work mode) |
 | PUT | `/api/config/tool-preamble` | set the concrete progress text switch in `config.json`, push to active sessions |
+| GET | `/api/config/image-compression` | read the 压缩图片 switch |
+| PUT | `/api/config/image-compression` | set the 压缩图片 switch in `config.json`; applies to the next model request |
 | GET | `/api/config/sandbox` | read sandbox switches, filesystem lists, defaults and platform probe |
 | PUT | `/api/config/sandbox` | save sandbox switches / lists to `config.json`, push to active sessions |
 | GET | `/api/security/exec-rules` | list `<data_dir>/rules/*.rules` (managed files editable) |
@@ -4493,6 +4495,27 @@ them when rendering history.
 `sidecar_model` / `sidecar_wait_ms` keys are ignored. Success writes
 `agent_loop.tool_preamble` to `config.json`, pushes the new config to every
 active session and returns the GET shape.
+
+### Image compression
+
+Settings > General > 压缩图片 (default on). While on, images sent to a model
+are compressed with grok-build's limits (at most 1.5 MB, long side 2000 px,
+2,408,448 pixels; PNG and JPEG candidates, the long side shrinks by a quarter
+until one fits; Computer Use screenshots keep their size), and each compressed
+image is preceded by a note naming its original and compressed size. Stored session
+attachments are not modified; the compressed bytes are cached next to the
+snapshot (`<snapshot>.model-v1.json` / `.bin`). Once a request body reaches its
+cap minus 3 MiB (50 MiB for OpenAI-compatible protocols, 30,000,000 bytes for
+Anthropic), the oldest images become file references until the body is at half
+the cap, and later requests keep removing the same images until the body grows
+to the trigger again.
+
+`GET /api/config/image-compression` returns `{enabled}`.
+`PUT /api/config/image-compression` is a patch: `{enabled: bool}`. A non-boolean
+`enabled` returns 400 `BAD_REQUEST` with `message`. Success writes
+`image_compression` to `config.json`, applies to the next model request in this
+daemon and returns the GET shape. Other daemons pick the change up before their
+next message send.
 
 ### Security center (`openspec add-security-center`)
 

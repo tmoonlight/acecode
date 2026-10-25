@@ -13,6 +13,7 @@
 #include "provider/model_context_resolver.hpp"
 #include "provider/session_model_binding.hpp"
 #include "session_host/apply_model_to_session.hpp"
+#include "image/image_processor.hpp"
 #include "network/proxy_resolver.hpp"
 #include "skills/default_skill_startup.hpp"
 #include "skills/skill_init.hpp"
@@ -36,6 +37,7 @@
 namespace acecode::tui {
 
 static void initialize_proxy_runtime(const AppConfig& config) {
+    image::set_model_image_compression_enabled(config.image_compression.enabled);
     // 必须在任何 cpr 调用之前完成(下面 initialize_registry 可能触发 models.dev
     // 拉取)。失败也不应阻塞启动 —— ProxyResolver 内部所有探测都是 soft-fail。
     network::proxy_resolver().init(config.network);

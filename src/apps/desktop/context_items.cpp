@@ -1,5 +1,7 @@
 #include "context_items.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include "utils/utf8_path.hpp"
 #include "utils/generated_file_names.hpp"
 #include "utils/base64.hpp"
@@ -184,6 +186,38 @@ ContextItemsResult store_context_data_files(
         }
     }
     return result;
+}
+
+nlohmann::json context_item_json(const acecode::desktop::ContextItem& item) {
+    nlohmann::json value{
+        {"kind", item.kind == acecode::desktop::ContextItemKind::Folder
+            ? "folder" : "file"},
+        {"path", item.path},
+        {"name", item.name},
+    };
+    if (item.kind == acecode::desktop::ContextItemKind::File) {
+        value["mime_type"] = item.mime_type;
+        value["size_bytes"] = item.size_bytes;
+        if (item.reference_only) {
+            value["reference_only"] = true;
+        } else {
+            value["data_base64"] = acecode::base64_encode(item.bytes);
+        }
+    }
+    return value;
+}
+
+nlohmann::json context_items_json(const std::vector<std::string>& paths) {
+    auto materialized = acecode::desktop::materialize_context_items(paths);
+    if (!materialized) {
+        return nlohmann::json{{"ok", false}, {"error", materialized.error}};
+    }
+
+    nlohmann::json items = nlohmann::json::array();
+    for (const auto& item : materialized.items) {
+        items.push_back(context_item_json(item));
+    }
+    return nlohmann::json{{"ok", true}, {"items", std::move(items)}};
 }
 
 } // namespace acecode::desktop

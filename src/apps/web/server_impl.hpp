@@ -652,6 +652,7 @@ struct WebServer::Impl {
     // -----------------------------------------------------------------
     void register_routes();
     void register_image_generation();
+    void register_image_compression();
     void register_speech_recognition();
     void register_computer_use();
     void register_ios_simulator();

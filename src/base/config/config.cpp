@@ -1297,6 +1297,11 @@ static AppConfig load_config_from_path_once(
                         igj["timeout_ms"].get<int>(), 30000, 600000);
                 }
             }
+            if (j.contains("image_compression") && j["image_compression"].is_object()) {
+                const auto& icj = j["image_compression"];
+                if (icj.contains("enabled") && icj["enabled"].is_boolean())
+                    cfg.image_compression.enabled = icj["enabled"].get<bool>();
+            }
 
             // LSP 段(openspec add-lsp-service)。缺省 → enabled=true、无覆盖。
             // 自定义 server(名字不在内置集合)的 command 校验推迟到注册表合并层
@@ -2606,6 +2611,9 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
 
         const auto igj = image_generation_config_to_json(cfg.image_generation);
         if (!igj.empty()) j["image_generation"] = igj;
+        if (cfg.image_compression != ImageCompressionConfig{}) {
+            j["image_compression"] = {{"enabled", cfg.image_compression.enabled}};
+        }
 
         nlohmann::json lspj = nlohmann::json::object();
         if (!cfg.lsp.enabled) lspj["enabled"] = false;

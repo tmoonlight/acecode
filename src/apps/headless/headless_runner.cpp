@@ -17,6 +17,7 @@
 #include "hooks/hook_config.hpp"
 #include "hooks/hook_manager.hpp"
 #include "lsp/lsp_service.hpp"
+#include "image/image_processor.hpp"
 #include "network/proxy_resolver.hpp"
 #include "permissions/permissions.hpp"
 #include "session_host/local_session_client.hpp"
@@ -433,6 +434,7 @@ int run_print_mode(const HeadlessCliOptions& opts) {
                                      : opts.permission_mode;
 
     // ---- 网络 / 惰性子系统(与 daemon worker.cpp 同序) ----
+    image::set_model_image_compression_enabled(cfg.image_compression.enabled);
     network::proxy_resolver().init(cfg.network);
 
     // 「工具重写」先于 register_headless_tools 发布(与 daemon / TUI 同一份文件)。

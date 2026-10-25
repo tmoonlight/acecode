@@ -2,6 +2,10 @@
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   'AI 创建主题': 'Create theme with AI',
+  '复制文件名': 'Copy filename',
+  '绝对路径': 'Absolute path',
+  '文件名': 'Filename',
+  '文件夹名': 'Folder name',
   '侧聊结束后计时；到期切回时清空，浏览期间保留。': 'Starts when the side chat ends. Clears on return after expiry; stays while viewing.',
   '仅影响新启动的实例。': 'Applies to newly started instances only.',
   '仅在窗口失焦时通知': 'Notify only when the window is unfocused',
@@ -348,6 +352,10 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   // 具体进度提示(openspec add-tool-preamble):设置 > 常规 > 工作模式
   '工作模式切换失败:': 'Failed to switch work mode:',
   'work mode coding daily 日常工作 用于编程 进度提示 工具前言 loading': 'work mode coding daily progress status loading',
+  // 设置 > 常规 > 压缩图片
+  '压缩图片': 'Compress images',
+  '压缩图片设置保存失败:': 'Failed to save image compression setting:',
+  'compress images image compression screenshot size bandwidth traffic 图片压缩 截图 流量 体积': 'compress images image compression screenshot size bandwidth traffic',
   '标记为已读': 'Mark as read',
   '标记为未读': 'Mark as unread',
   '打开项目菜单，选择已有工作区或添加本地代码目录，让 ACECode 知道从哪里开始；也可以选择“不使用工作区”处理通用任务。': 'Open the project menu to pick an existing workspace or add a local code folder so ACECode knows where to start; choose "No workspace" for general tasks.',

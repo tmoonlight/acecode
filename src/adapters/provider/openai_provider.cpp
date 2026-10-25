@@ -1,4 +1,5 @@
 #include "openai_provider.hpp"
+#include "model_image_payload.hpp"
 #include "retry_policy.hpp"
 #include "stream_diagnostic_capture.hpp"
 #include "dsml_tool_call_recovery.hpp"
@@ -697,16 +698,6 @@ void push_openai_text_part(nlohmann::json& parts, const std::string& text) {
     parts.push_back(nlohmann::json{{"type", "text"}, {"text", text}});
 }
 
-// 判定一条附件是否应当作为 provider 图片 part 发送。以 MIME 为权威依据:
-// SVG(矢量 XML)被排除,误标成 image 但 MIME 非图片的附件返回 false,从而
-// 在序列化层兜底降级为文件句柄(route-attachments-by-capability D3)。
-bool record_is_vision_image(const AttachmentRecord& record) {
-    const std::string mime =
-        ascii_lower(attachment_mime_for_name(record.name, record.mime_type));
-    if (mime == "image/svg+xml") return false;
-    return mime.rfind("image/", 0) == 0;
-}
-
 std::string computer_screenshot_label(const AttachmentRecord& record) {
     const auto provenance = computer_use_image_provenance(record.metadata);
     return provenance.empty() ? std::string{} :
@@ -795,16 +786,20 @@ static nlohmann::json openai_content_for_message_impl(const ChatMessage& msg,
                 continue;
             }
 
+            // 「压缩图片」:需要压缩时发压缩版(原图不动),否则照旧读取 + 规范化。
+            const auto compressed = compressed_model_image(*record);
             std::string error;
-            auto bytes = read_attachment_bytes(*record, kMaxAttachmentBytes, &error);
+            auto bytes = compressed ? std::optional<std::string>(compressed->bytes)
+                                    : read_attachment_bytes(*record, kMaxAttachmentBytes, &error);
             if (!bytes.has_value()) {
                 image_error(error.empty() ? record->name : error);
                 continue;
             }
 
-            std::string provider_mime = record->mime_type;
+            std::string provider_mime = compressed ? compressed->mime_type : record->mime_type;
             std::string provider_bytes = *bytes;
-            auto normalized = image::normalize_image_bytes(provider_bytes, provider_mime);
+            auto normalized = compressed ? image::ImageNormalizeResult{}
+                                         : image::normalize_image_bytes(provider_bytes, provider_mime);
             if (normalized.attempted) {
                 LOG_INFO("[provider] image normalization"
                          " name=" + record->name +
@@ -837,6 +832,7 @@ static nlohmann::json openai_content_for_message_impl(const ChatMessage& msg,
             // a separate image sink; user/Anthropic content preserves ordering.
             auto& destination = image_content ? *image_content : parts;
             push_openai_text_part(destination, source_label);
+            if (compressed) push_openai_text_part(destination, compressed->note);
             destination.push_back(nlohmann::json{
                 {"type", "image_url"},
                 {"image_url", {
@@ -954,7 +950,8 @@ nlohmann::json OpenAiCompatProvider::build_request_body(
     int repaired_tool_arguments = 0;
     int dropped_malformed_tool_calls = 0;
     int dropped_empty_assistant_tool_messages = 0;
-    const auto recovered_history = recover_provider_history(messages);
+    const auto recovered_history = recover_provider_history_with_image_budget(
+        messages, image_request_budget_, kOpenAiCompatMaxRequestBytes, model_has_vision_);
     for (const auto& msg : recovered_history.messages) {
         const bool valid_role = (msg.role == "system" || msg.role == "user" ||
                                  msg.role == "assistant" || msg.role == "tool");

@@ -1,4 +1,5 @@
 #include "anthropic_provider.hpp"
+#include "model_image_payload.hpp"
 #include "retry_policy.hpp"
 #include "openai_provider.hpp"
 #include "stream_diagnostic_capture.hpp"
@@ -6,7 +7,6 @@
 #include "network/proxy_resolver.hpp"
 #include "session/attachment_prompt_context.hpp"
 #include "session/attachment_store.hpp"
-#include "session/session_history_recovery.hpp"
 #include "utils/logger.hpp"
 #include "utils/sha1.hpp"
 
@@ -554,7 +554,8 @@ nlohmann::json AnthropicProvider::build_request_body(
     int dropped_tool_calls = 0;
     int dropped_invalid_role = 0;
 
-    const auto recovered_history = recover_provider_history(messages);
+    const auto recovered_history = recover_provider_history_with_image_budget(
+        messages, image_request_budget_, kAnthropicMaxRequestBytes, model_has_vision_);
     for (const auto& msg : recovered_history.messages) {
         if (msg.role == "system") {
             const std::string text = textual_content_parts(msg);

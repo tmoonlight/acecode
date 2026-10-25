@@ -2222,6 +2222,18 @@ body {
 .ace-desktop-context-menu-danger:focus-visible {
   background: var(--ace-danger-bg);
 }
+/* 二级菜单:宽度随文字,展开期间触发项保持高亮。 */
+.ace-desktop-context-menu.ace-desktop-context-submenu {
+  width: max-content;
+  min-width: 132px;
+}
+.ace-desktop-context-menu-item.is-submenu-open {
+  background: var(--ace-surface-hi);
+}
+.ace-desktop-context-menu-chevron {
+  margin-left: auto;
+  color: var(--ace-fg-mute);
+}
 
 /* Shared rounded icons; static markup can still use the public SVG masks. */
 .ace-icon {

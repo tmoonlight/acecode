@@ -88,6 +88,7 @@ export function SideChatWindow({
   onClear,
   onClose,
   onFileLink,
+  fileLinkCwd = '',
 }) {
   const titleId = useId();
   const dialogRef = useRef(null);
@@ -282,6 +283,10 @@ export function SideChatWindow({
       <div
         ref={transcriptRef}
         className="ace-side-chat-transcript ace-scrollbar"
+        // 文件链接右键可复制路径、在资源管理器中显示;不提供「添加到会话」,
+        // 那会把文件塞进主会话的输入框。
+        data-file-link-root="true"
+        data-file-link-cwd={fileLinkCwd}
         aria-label="侧边聊天记录"
         onScroll={(event) => {
           const element = event.currentTarget;

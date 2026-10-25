@@ -610,6 +610,17 @@ struct NetworkConfig {
     bool proxy_probe_enabled = true;     // 总开关:false = 完全跳过探测,等价旧行为
 };
 
+// 「压缩图片」(设置 > 常规):发给模型的图片按 grok-build 的上限压缩,请求体逼近
+// 上限时较早的图片换成文件引用。会话里存的原图不动;关闭后恢复原样发送。
+struct ImageCompressionConfig {
+    bool enabled = true;
+
+    bool operator==(const ImageCompressionConfig& other) const {
+        return enabled == other.enabled;
+    }
+    bool operator!=(const ImageCompressionConfig& other) const { return !(*this == other); }
+};
+
 struct FeaturesConfig {
     // Codex-compatible hooks are enabled by default. Users can set
     // features.hooks=false to disable discovery and execution.
@@ -654,6 +665,7 @@ struct AppConfig {
     LspConfig lsp;                               // LSP 集成(参见 add-lsp-service)
     WorktreeConfig worktree;                     // worktree 隔离(enter_worktree / --worktree)
     ImageGenerationConfig image_generation;      // 图像生成工具(参见 add-image-generation-tool)
+    ImageCompressionConfig image_compression;    // 发给模型的图片压缩与请求体预算
     SpeechRecognitionConfig speech_recognition;  // External dictation service
     ComputerUseConfig computer_use;              // Native desktop control, explicitly enabled
     IosSimulatorConfig ios_simulator;            // Xcode 模拟器控制与实时面板(macOS)

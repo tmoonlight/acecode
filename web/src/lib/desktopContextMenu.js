@@ -1,4 +1,5 @@
 import { normalizeTreePath } from './fileTreeChangeStatus.js';
+import { fileLinkTargetFromElement } from './fileLinkContextMenu.js';
 import {
   MERMAID_EXPORT_TARGET_SELECTOR,
   mermaidExportTargetFromElement,
@@ -35,6 +36,8 @@ export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
   CLOSE_ALL_PREVIEW_TABS: 'close_all_preview_tabs',
   COPY_RELATIVE_PATH: 'copy_relative_path',
   COPY_ABSOLUTE_PATH: 'copy_absolute_path',
+  COPY_FILE_NAME: 'copy_file_name',
+  COPY_SUBMENU: 'copy_submenu',
   ADD_FILE_CONTEXT: 'add_file_context',
   ADD_DIRECTORY_CONTEXT: 'add_directory_context',
   ADD_SELECTION_CONTEXT: 'add_selection_context',
@@ -225,6 +228,8 @@ function actionDescriptor(id, target = null, opts = {}) {
     danger: !!opts.danger,
     confirm: opts.confirm || '',
     separatorBefore: !!opts.separatorBefore,
+    ...(opts.label ? { label: opts.label } : {}),
+    ...(Array.isArray(opts.children) ? { children: opts.children } : {}),
   };
 }
 
@@ -245,8 +250,14 @@ export function canRunContextMenuAction(action, { allowNativeActions = true } = 
   return allowNativeActions || !isNativeOnlyContextMenuAction(action);
 }
 
+// 二级菜单的子项同样过滤;子项全被滤掉时连同触发项一起去掉。
 export function filterContextMenuItemsForRuntime(items = [], { allowNativeActions = true } = {}) {
-  return items.filter((item) => canRunContextMenuAction(item, { allowNativeActions }));
+  return items
+    .filter((item) => canRunContextMenuAction(item, { allowNativeActions }))
+    .map((item) => (Array.isArray(item?.children)
+      ? { ...item, children: filterContextMenuItemsForRuntime(item.children, { allowNativeActions }) }
+      : item))
+    .filter((item) => !Array.isArray(item?.children) || item.children.length > 0);
 }
 
 export function withMenuSeparators(items = []) {
@@ -282,6 +293,7 @@ export function buildDesktopContextMenuItems({
   mermaidTarget = null,
   previewTabTarget = null,
   previewPresentationTarget = null,
+  fileLinkTarget = null,
 } = {}) {
   const items = [];
 
@@ -312,6 +324,45 @@ export function buildDesktopContextMenuItems({
       addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH, previewTabTarget, { group: GROUPS.FILE, enabled: !!previewTabTarget.relativePath });
       addAction(items, DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER, { path: previewTabTarget.absolutePath, kind: 'file' }, { group: GROUPS.CONTENT, enabled: !!previewTabTarget.absolutePath });
     }
+    return finalizeContextMenuItems(items, allowNativeActions);
+  }
+
+  // 对话里的文件链接只给针对这个文件的操作(仿 Claude 桌面版):添加到会话、
+  // 复制 ▸ 绝对路径 / 文件名、在资源管理器中显示。
+  if (!editable && fileLinkTarget) {
+    const directory = fileLinkTarget.kind === 'directory';
+    if (fileLinkTarget.canAddContext) {
+      addAction(
+        items,
+        directory ? DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT : DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT,
+        fileLinkTarget,
+        { group: GROUPS.FILE },
+      );
+    }
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_SUBMENU, fileLinkTarget, {
+      group: GROUPS.FILE,
+      children: [
+        actionDescriptor(DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH, fileLinkTarget, {
+          label: '绝对路径',
+          enabled: !!fileLinkTarget.absolutePath,
+        }),
+        actionDescriptor(DESKTOP_CONTEXT_ACTIONS.COPY_FILE_NAME, fileLinkTarget, {
+          label: directory ? '文件夹名' : '文件名',
+          enabled: !!fileLinkTarget.name,
+        }),
+      ],
+    });
+    addAction(
+      items,
+      DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+      { path: fileLinkTarget.absolutePath, kind: fileLinkTarget.kind },
+      {
+        group: GROUPS.CONTENT,
+        enabled: !!fileLinkTarget.absolutePath,
+        ...(directory ? {} : { label: '在资源管理器中显示' }),
+      },
+    );
+    if (hasSelection) addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY, null, { group: GROUPS.GENERIC });
     return finalizeContextMenuItems(items, allowNativeActions);
   }
 
@@ -709,6 +760,7 @@ export function contextTargetsFromElement(target) {
     toolTarget: toolTargetFromElement(target),
     attachmentTarget: attachmentTargetFromElement(target),
     mermaidTarget: mermaidTargetFromElement(target),
+    fileLinkTarget: fileLinkTargetFromElement(target),
   };
 }
 

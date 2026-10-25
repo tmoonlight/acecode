@@ -3,11 +3,13 @@
 #include "utils/logger.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <climits>
 #include <cstdlib>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 #define STBI_NO_STDIO
@@ -104,7 +106,168 @@ std::string summarize_dimensions(const ImageInfo& info) {
     return oss.str();
 }
 
+std::atomic<bool> g_model_image_compression_enabled{true};
+
+std::string encode_jpeg_at_quality(const unsigned char* pixels,
+                                   int width,
+                                   int height,
+                                   int quality) {
+    std::string out;
+    const int ok = stbi_write_jpg_to_func(
+        write_bytes_callback, &out, width, height, 4, pixels, quality);
+    if (!ok) out.clear();
+    return out;
+}
+
+// Scales the long side to `side` and rounds both sides like grok-build's resize
+// (the image crate's resize_dimensions), never below one pixel.
+std::pair<int, int> fit_long_side(int width, int height, int side) {
+    const int long_side = std::max(width, height);
+    if (side >= long_side) return {width, height};
+    const double ratio = static_cast<double>(side) / static_cast<double>(long_side);
+    return {std::max(1, static_cast<int>(std::lround(width * ratio))),
+            std::max(1, static_cast<int>(std::lround(height * ratio)))};
+}
+
+// Largest long side whose rounded output stays within max_pixels.
+int area_capped_side(int width, int height, std::uint64_t max_pixels) {
+    const int long_side = std::max(width, height);
+    const double scale = std::sqrt(static_cast<double>(max_pixels) /
+                                   (static_cast<double>(width) * static_cast<double>(height)));
+    int side = std::clamp(static_cast<int>(std::floor(long_side * scale)), 1, long_side);
+    while (side > 1) {
+        const auto [w, h] = fit_long_side(width, height, side);
+        if (static_cast<std::uint64_t>(w) * static_cast<std::uint64_t>(h) <= max_pixels) break;
+        --side;
+    }
+    return side;
+}
+
 } // namespace
+
+bool model_image_compression_enabled() {
+    return g_model_image_compression_enabled.load(std::memory_order_relaxed);
+}
+
+void set_model_image_compression_enabled(bool enabled) {
+    g_model_image_compression_enabled.store(enabled, std::memory_order_relaxed);
+}
+
+ModelImageCompression compress_image_for_model(std::string_view bytes,
+                                               std::string_view mime_type,
+                                               bool keep_dimensions,
+                                               const ModelImageLimits& limits) {
+    ModelImageCompression result;
+    if (!is_supported_raster_image_mime(mime_type)) {
+        result.error = "unsupported image mime";
+        return result;
+    }
+    std::string probe_error;
+    const auto info = probe_image_info(bytes, &probe_error);
+    if (!info.has_value()) {
+        result.error = probe_error.empty() ? "unsupported image format" : probe_error;
+        return result;
+    }
+    result.input = *info;
+    result.output = *info;
+
+    const std::uint64_t pixel_count = static_cast<std::uint64_t>(info->width) *
+        static_cast<std::uint64_t>(info->height);
+    const bool exceeded_size = bytes.size() > limits.max_bytes;
+    const bool exceeded_dimensions = !keep_dimensions &&
+        (info->width > limits.max_side || info->height > limits.max_side ||
+         pixel_count > limits.max_pixels);
+    if (!exceeded_size && !exceeded_dimensions) {
+        result.outcome = ModelImageOutcome::Unchanged;
+        return result;
+    }
+    if (pixel_count > kImageNormalizeMaxPixels) {
+        result.error = "image pixel count exceeds normalization cap";
+        return result;
+    }
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* decoded = stbi_load_from_memory(
+        reinterpret_cast<const stbi_uc*>(bytes.data()),
+        static_cast<int>(bytes.size()),
+        &width,
+        &height,
+        &channels,
+        4);
+    if (!decoded || width <= 0 || height <= 0) {
+        const char* reason = stbi_failure_reason();
+        result.error = reason ? reason : "image decode failed";
+        if (decoded) stbi_image_free(decoded);
+        return result;
+    }
+
+    // JPEG would flatten real transparency, so such images only get PNG candidates.
+    const bool alpha = has_real_alpha(decoded, width, height);
+    const int long_side = std::max(width, height);
+    int side = keep_dimensions ? long_side : std::min(limits.max_side, long_side);
+    if (!keep_dimensions && pixel_count > limits.max_pixels) {
+        side = std::min(side, area_capped_side(width, height, limits.max_pixels));
+    }
+
+    std::vector<unsigned char> resized;
+    for (;;) {
+        const auto [out_width, out_height] = fit_long_side(width, height, side);
+        const unsigned char* pixels = decoded;
+        if (out_width != width || out_height != height) {
+            resized.resize(static_cast<std::size_t>(out_width) *
+                           static_cast<std::size_t>(out_height) * 4u);
+            if (!stbir_resize_uint8_srgb(decoded, width, height, 0, resized.data(),
+                                         out_width, out_height, 0, STBIR_RGBA)) {
+                stbi_image_free(decoded);
+                result.error = "image resize failed";
+                return result;
+            }
+            pixels = resized.data();
+        }
+
+        std::string png = encode_png(pixels, out_width, out_height);
+        if (png.size() > limits.max_bytes) png.clear();
+        std::string jpeg;
+        if (!alpha) {
+            for (int quality : limits.jpeg_quality_steps) {
+                auto candidate = encode_jpeg_at_quality(pixels, out_width, out_height, quality);
+                if (!candidate.empty() && candidate.size() <= limits.max_bytes) {
+                    jpeg = std::move(candidate);
+                    break;
+                }
+            }
+        }
+
+        if (!png.empty() || !jpeg.empty()) {
+            const bool use_png = !png.empty() && (jpeg.empty() || png.size() <= jpeg.size());
+            result.outcome = ModelImageOutcome::Compressed;
+            result.bytes = use_png ? std::move(png) : std::move(jpeg);
+            result.mime_type = use_png ? "image/png" : "image/jpeg";
+            result.output = {out_width, out_height, 4, alpha && use_png};
+            stbi_image_free(decoded);
+            LOG_INFO("[image-compress] compressed"
+                     " original_size=" + std::to_string(bytes.size()) +
+                     " output_size=" + std::to_string(result.bytes.size()) +
+                     " output_mime=" + result.mime_type +
+                     " input_dims=" + summarize_dimensions(result.input) +
+                     " output_dims=" + summarize_dimensions(result.output) +
+                     " keep_dimensions=" + std::string(keep_dimensions ? "1" : "0"));
+            return result;
+        }
+        if (keep_dimensions || side <= limits.min_side) {
+            stbi_image_free(decoded);
+            result.outcome = ModelImageOutcome::CouldNotFit;
+            result.error = "could not fit under " + std::to_string(limits.max_bytes) +
+                           " bytes (last long side " + std::to_string(side) + "px)";
+            LOG_INFO("[image-compress] kept original reason=" + result.error +
+                     " original_size=" + std::to_string(bytes.size()));
+            return result;
+        }
+        side = side * 3 / 4;
+    }
+}
 
 bool is_supported_raster_image_mime(std::string_view mime_type) {
     const std::string mime = ascii_lower(std::string(mime_type));

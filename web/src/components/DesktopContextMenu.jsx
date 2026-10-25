@@ -20,6 +20,7 @@ import {
   withMenuSeparators,
 } from '../lib/desktopContextMenu.js';
 import { exportMermaidAsset } from '../lib/mermaidExport.js';
+import { submenuPosition } from '../lib/submenuPosition.js';
 import { selectionContextFromWindowSelection } from '../lib/selectionChatContext.js';
 import { copyImageToSystemClipboard, copyTextToSystemClipboard } from '../lib/systemClipboard.js';
 import { isDesktopShell, isWebappCompat } from '../lib/desktopShellMode.js';
@@ -70,6 +71,8 @@ const ACTION_LABELS = {
   [DESKTOP_CONTEXT_ACTIONS.CLOSE_ALL_PREVIEW_TABS]: '全部关闭',
   [DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH]: '复制相对路径',
   [DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH]: '复制绝对路径',
+  [DESKTOP_CONTEXT_ACTIONS.COPY_FILE_NAME]: '复制文件名',
+  [DESKTOP_CONTEXT_ACTIONS.COPY_SUBMENU]: '复制',
   [DESKTOP_CONTEXT_ACTIONS.ADD_FILE_CONTEXT]: '添加到会话',
   [DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT]: '添加到会话',
   [DESKTOP_CONTEXT_ACTIONS.ADD_SELECTION_CONTEXT]: '引用到聊天',
@@ -367,6 +370,9 @@ async function runAction(
     case DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH:
       await copyTextWithToast(actionTarget?.absolutePath || actionTarget?.path || '');
       break;
+    case DESKTOP_CONTEXT_ACTIONS.COPY_FILE_NAME:
+      await copyTextWithToast(actionTarget?.name || '');
+      break;
     case DESKTOP_CONTEXT_ACTIONS.COPY_MESSAGE_TEXT:
       await copyTextWithToast(actionTarget?.text || '');
       break;
@@ -451,8 +457,13 @@ function actionLabel(action) {
 export function DesktopContextMenu() {
   const [menu, setMenuState] = useState(null);
   const [pendingConfirm, setPendingConfirm] = useState(null);
+  const [openSubmenuId, setOpenSubmenuIdState] = useState('');
   const menuRef = useRef(null);
   const menuElementRef = useRef(null);
+  const submenuElementRef = useRef(null);
+  const openSubmenuIdRef = useRef('');
+  // 键盘打开二级菜单时,定位完成后把焦点移到第一项。
+  const focusSubmenuOnOpenRef = useRef(false);
   const reopenTimerRef = useRef(0);
   const targetRef = useRef(null);
   const lastSelectionRef = useRef({ target: null, text: '' });
@@ -460,10 +471,16 @@ export function DesktopContextMenu() {
   // 可以展示和执行资源管理器、DevTools 等 native-only 动作。
   const allowNativeActions = useMemo(() => isDesktopShell() || isWebappCompat(), []);
 
+  const setOpenSubmenuId = useCallback((id) => {
+    openSubmenuIdRef.current = id;
+    setOpenSubmenuIdState(id);
+  }, []);
+
   const setMenu = useCallback((nextMenu) => {
     menuRef.current = nextMenu;
     setMenuState(nextMenu);
-  }, []);
+    setOpenSubmenuId('');
+  }, [setOpenSubmenuId]);
 
   const clearReopenTimer = useCallback(() => {
     if (!reopenTimerRef.current) return;
@@ -604,16 +621,50 @@ export function DesktopContextMenu() {
     const onKeyDown = (event) => {
       const currentMenu = menuRef.current;
       if (!currentMenu) return;
+      const menuElement = menuElementRef.current;
+      const submenuElement = submenuElementRef.current;
+      const active = document.activeElement;
+      const inSubmenu = !!(submenuElement && active && submenuElement.contains(active));
+      // 关闭二级菜单,返回它的触发项(交还焦点用)。
+      const closeSubmenu = () => {
+        const id = openSubmenuIdRef.current;
+        setOpenSubmenuId('');
+        return id ? menuElement?.querySelector(`[data-context-submenu-trigger="${id}"]`) : null;
+      };
+      const submenuTriggerId = menuElement?.contains(active)
+        ? active?.getAttribute?.('data-context-submenu-trigger') || ''
+        : '';
       if (isDismissShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();
+        // 先退一级:二级菜单开着时只关它,与系统菜单一致。
+        if (openSubmenuIdRef.current) {
+          const trigger = closeSubmenu();
+          if (inSubmenu) trigger?.focus();
+          return;
+        }
         close();
         currentMenu.trigger?.focus();
       } else if (event.key === 'Tab') {
         close();
         currentMenu.trigger?.focus();
+      } else if (event.key === 'ArrowRight' && submenuTriggerId) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (openSubmenuIdRef.current === submenuTriggerId) {
+          submenuElement?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+        } else {
+          focusSubmenuOnOpenRef.current = true;
+          setOpenSubmenuId(submenuTriggerId);
+        }
+      } else if (event.key === 'ArrowLeft' && inSubmenu) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSubmenu()?.focus();
       } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-        const buttons = [...(menuElementRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])];
+        // 只在焦点所在的那一级里移动,主菜单不跳进二级菜单。
+        const scope = inSubmenu ? submenuElement : menuElement;
+        const buttons = [...(scope?.querySelectorAll(':scope > [role="menuitem"]:not(:disabled)') || [])];
         if (!buttons.length) return;
         event.preventDefault();
         event.stopPropagation();
@@ -650,7 +701,7 @@ export function DesktopContextMenu() {
       window.removeEventListener('resize', close);
       clearReopenTimer();
     };
-  }, [allowNativeActions, clearReopenTimer, close, openWithSwitchGap]);
+  }, [allowNativeActions, clearReopenTimer, close, openWithSwitchGap, setOpenSubmenuId]);
 
   useLayoutEffect(() => {
     notifyNativeSurfaceOverlayChange();
@@ -671,7 +722,129 @@ export function DesktopContextMenu() {
     }
   }, [menu, setMenu]);
 
+  // 二级菜单挂在主菜单里(fixed 定位,不受主菜单滚动裁切),按主菜单与触发项的实际
+  // 位置摆放:优先向右展开,右边放不下才放左边。
+  useLayoutEffect(() => {
+    const submenu = submenuElementRef.current;
+    const menuElement = menuElementRef.current;
+    if (!menu || !openSubmenuId || !submenu || !menuElement) return undefined;
+    const trigger = menuElement.querySelector(`[data-context-submenu-trigger="${openSubmenuId}"]`);
+    if (!trigger) return undefined;
+    const rect = submenu.getBoundingClientRect();
+    const position = submenuPosition({
+      menuRect: menuElement.getBoundingClientRect(),
+      itemRect: trigger.getBoundingClientRect(),
+      submenuWidth: rect.width,
+      submenuHeight: rect.height,
+      viewportWidth: document.documentElement.clientWidth,
+      viewportHeight: window.innerHeight,
+      preferredSide: 'right',
+    });
+    Object.assign(submenu.style, {
+      left: `${position.left}px`,
+      top: `${position.top}px`,
+      visibility: 'visible',
+    });
+    if (focusSubmenuOnOpenRef.current) {
+      focusSubmenuOnOpenRef.current = false;
+      submenu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+    }
+    notifyNativeSurfaceOverlayChange();
+    return () => notifyNativeSurfaceOverlayChange();
+  }, [menu, openSubmenuId]);
+
   if (!menu && !pendingConfirm) return null;
+
+  const selectItem = async (action) => {
+    if (typeof action === 'object' && action.enabled === false) return;
+    const target = targetRef.current;
+    const selectedText = menu.selectedText || '';
+    const selectionContext = menu.selectionContext || null;
+    const richComposerSelection = menu.richComposerSelection || null;
+    close();
+    menu.trigger?.focus();
+    if (typeof action === 'object' && action.confirm) {
+      setPendingConfirm({
+        action,
+        target,
+        selectedText,
+        selectionContext,
+        richComposerSelection,
+      });
+      return;
+    }
+    await runAction(
+      action,
+      target,
+      selectedText,
+      selectionContext,
+      richComposerSelection,
+      { allowNativeActions },
+    );
+  };
+
+  const renderMenuItem = (action, { nested = false } = {}) => {
+    const id = typeof action === 'string' ? action : action.id;
+    const children = typeof action === 'object' && Array.isArray(action.children) ? action.children : null;
+    const submenuOpen = !!children && openSubmenuId === id;
+    return (
+      <Fragment key={id}>
+        {action.separatorBefore && <div role="separator" className="ace-desktop-context-menu-separator" />}
+        <button
+          type="button"
+          role="menuitem"
+          disabled={typeof action === 'object' && action.enabled === false}
+          aria-haspopup={children ? 'menu' : undefined}
+          aria-expanded={children ? String(submenuOpen) : undefined}
+          data-context-submenu-trigger={children ? id : undefined}
+          className={[
+            'ace-desktop-context-menu-item',
+            typeof action === 'object' && action.danger ? 'ace-desktop-context-menu-danger' : '',
+            submenuOpen ? 'is-submenu-open' : '',
+          ].filter(Boolean).join(' ')}
+          // 悬停主菜单的其它项收起二级菜单;二级菜单里的项不动它。
+          onMouseEnter={nested ? undefined : () => setOpenSubmenuId(children ? id : '')}
+          onClick={children
+            ? (event) => {
+                // detail 为 0 = 键盘(Enter / 空格)触发,打开后把焦点移进去。
+                if (event.detail === 0) {
+                  if (openSubmenuIdRef.current === id) {
+                    submenuElementRef.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+                  } else {
+                    focusSubmenuOnOpenRef.current = true;
+                  }
+                }
+                setOpenSubmenuId(id);
+              }
+            : () => selectItem(action)}
+        >
+          {!nested && menu.showIcons && (action.icon || CONTEXT_ACTION_ICONS[action.id]
+            ? <VsIcon name={action.icon || CONTEXT_ACTION_ICONS[action.id]} size={16} />
+            : <span className="ace-desktop-context-menu-icon-spacer" aria-hidden="true" />)}
+          <span>{actionLabel(action)}</span>
+          {action.id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION && (
+            <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('previewPresentation')}</span>
+          )}
+          {action.id === DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST && (
+            <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('revealPreviewFile')}</span>
+          )}
+          {children && <VsIcon name="expandRight" size={14} className="ace-desktop-context-menu-chevron" />}
+        </button>
+        {submenuOpen && (
+          <div
+            ref={submenuElementRef}
+            role="menu"
+            aria-label={actionLabel(action)}
+            className="ace-desktop-context-menu ace-desktop-context-submenu"
+            data-ace-native-overlay="overlap"
+            style={{ left: 0, top: 0, visibility: 'hidden' }}
+          >
+            {children.map((child) => renderMenuItem(child, { nested: true }))}
+          </div>
+        )}
+      </Fragment>
+    );
+  };
 
   return (
     <>
@@ -685,58 +858,7 @@ export function DesktopContextMenu() {
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
-          {menu.items.map((action) => (
-            <Fragment key={typeof action === 'string' ? action : action.id}>
-              {action.separatorBefore && <div role="separator" className="ace-desktop-context-menu-separator" />}
-              <button
-                type="button"
-                role="menuitem"
-                disabled={typeof action === 'object' && action.enabled === false}
-                className={[
-                  'ace-desktop-context-menu-item',
-                  typeof action === 'object' && action.danger ? 'ace-desktop-context-menu-danger' : '',
-                ].filter(Boolean).join(' ')}
-                onClick={async () => {
-                  if (typeof action === 'object' && action.enabled === false) return;
-                  const target = targetRef.current;
-                  const selectedText = menu.selectedText || '';
-                  const selectionContext = menu.selectionContext || null;
-                  const richComposerSelection = menu.richComposerSelection || null;
-                  close();
-                  menu.trigger?.focus();
-                  if (typeof action === 'object' && action.confirm) {
-                    setPendingConfirm({
-                      action,
-                      target,
-                      selectedText,
-                      selectionContext,
-                      richComposerSelection,
-                    });
-                    return;
-                  }
-                  await runAction(
-                    action,
-                    target,
-                    selectedText,
-                    selectionContext,
-                    richComposerSelection,
-                    { allowNativeActions },
-                  );
-                }}
-              >
-                {menu.showIcons && (action.icon || CONTEXT_ACTION_ICONS[action.id]
-                  ? <VsIcon name={action.icon || CONTEXT_ACTION_ICONS[action.id]} size={16} />
-                  : <span className="ace-desktop-context-menu-icon-spacer" aria-hidden="true" />)}
-                <span>{actionLabel(action)}</span>
-                {action.id === DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION && (
-                  <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('previewPresentation')}</span>
-                )}
-                {action.id === DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST && (
-                  <span className="ml-auto pl-4 text-fg-mute" aria-hidden="true">{shortcutLabel('revealPreviewFile')}</span>
-                )}
-              </button>
-            </Fragment>
-          ))}
+          {menu.items.map((action) => renderMenuItem(action))}
         </div>
       )}
       {pendingConfirm && (

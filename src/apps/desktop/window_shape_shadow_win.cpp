@@ -176,7 +176,7 @@ void ChamferShadowWindows::update(HWND owner, int cut, const ShadowStyle& style,
         }
         const auto& strip = layout[i];
         if (redraw) {
-            present_layered(window, strip, rect, [&](std::uint32_t* pixels) { fill(pixels, strip); });
+            present_layered(window, strip, rect, [fill, strip](std::uint32_t* pixels) { fill(pixels, strip); });
         } else if (batch) {
             batch = ::DeferWindowPos(batch, window, nullptr, rect.left + strip.x, rect.top + strip.y, 0, 0,
                                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
@@ -184,12 +184,12 @@ void ChamferShadowWindows::update(HWND owner, int cut, const ShadowStyle& style,
         if (!::IsWindowVisible(window)) to_show.push_back(window);
     };
     for (std::size_t i = 0; i < windows_.size(); ++i) {
-        place(windows_[i], strips, i, render_shadow, [&](std::uint32_t* pixels, const ShadowStrip& strip) {
+        place(windows_[i], strips, i, render_shadow, [width, height, cut, style](std::uint32_t* pixels, const ShadowStrip& strip) {
             render_chamfer_shadow(pixels, strip, width, height, cut, style);
         });
     }
     for (std::size_t i = 0; i < grips_.size(); ++i) {
-        place(grips_[i], grip_strips, i, render_grips, [&](std::uint32_t* pixels, const ShadowStrip& strip) {
+        place(grips_[i], grip_strips, i, render_grips, [width, height, cut, grip, reach](std::uint32_t* pixels, const ShadowStrip& strip) {
             render_chamfer_grip_mask(pixels, strip, width, height, cut, grip, reach);
         });
     }

@@ -1,6 +1,7 @@
 #include "model_config_refresh.hpp"
 
 #include "config/vocab/permission_mode.hpp"
+#include "image/image_processor.hpp"
 #include "saved_models_revision.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
@@ -79,6 +80,18 @@ bool apply_default_session_preferences_bytes(AppConfig& cfg,
         if (error) *error = "config root must be a JSON object";
         return false;
     }
+
+    // 「压缩图片」:Desktop 每个工作区一个 daemon,设置页只改了当前那个;其它
+    // daemon(以及手改 config.json)在下一次发消息前从这里跟上。
+    ImageCompressionConfig image_compression;
+    if (j.contains("image_compression") && j["image_compression"].is_object()) {
+        const auto& icj = j["image_compression"];
+        if (icj.contains("enabled") && icj["enabled"].is_boolean()) {
+            image_compression.enabled = icj["enabled"].get<bool>();
+        }
+    }
+    cfg.image_compression = image_compression;
+    image::set_model_image_compression_enabled(image_compression.enabled);
 
     AppConfig next = cfg;
     if (j.contains("saved_models")) {

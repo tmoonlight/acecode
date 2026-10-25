@@ -53,7 +53,7 @@
 #include "platform/process/os_process.hpp"
 #include "ipc/runtime_files.hpp"
 #include "platform/clipboard.hpp"
-#include "utils/base64.hpp"
+#include "utils/lifetime_token.hpp"
 #include "utils/cwd_hash.hpp"
 #include "utils/encoding.hpp"
 #include "utils/logger.hpp"
@@ -135,38 +135,6 @@ nlohmann::json agent_browser_state_json(
         if (!selected.is_discarded()) result["selected_element"] = selected;
     }
     return result;
-}
-
-nlohmann::json context_item_json(const acecode::desktop::ContextItem& item) {
-    nlohmann::json value{
-        {"kind", item.kind == acecode::desktop::ContextItemKind::Folder
-            ? "folder" : "file"},
-        {"path", item.path},
-        {"name", item.name},
-    };
-    if (item.kind == acecode::desktop::ContextItemKind::File) {
-        value["mime_type"] = item.mime_type;
-        value["size_bytes"] = item.size_bytes;
-        if (item.reference_only) {
-            value["reference_only"] = true;
-        } else {
-            value["data_base64"] = acecode::base64_encode(item.bytes);
-        }
-    }
-    return value;
-}
-
-nlohmann::json context_items_json(const std::vector<std::string>& paths) {
-    auto materialized = acecode::desktop::materialize_context_items(paths);
-    if (!materialized) {
-        return nlohmann::json{{"ok", false}, {"error", materialized.error}};
-    }
-
-    nlohmann::json items = nlohmann::json::array();
-    for (const auto& item : materialized.items) {
-        items.push_back(context_item_json(item));
-    }
-    return nlohmann::json{{"ok", true}, {"items", std::move(items)}};
 }
 
 struct ContextPickerFolderReference {
@@ -1095,6 +1063,7 @@ int main(int argc, char** argv) {
 #endif
     }
     WebHost& host = *host_storage;
+    acecode::LifetimeToken host_lifetime;
     startup_progress_host = &host;
     mark_startup("webhost_create_end");
     AgentBrowserHost agent_browser(
@@ -2049,12 +2018,16 @@ int main(int argc, char** argv) {
     // 主题声明了异形窗口("window": {"shape": "chamfer"})时前端推送
     // [{"shape":"chamfer","glow":"#rrggbb"}],换成别的主题推 {"shape":"none"}。
     // 普通主题从不调用,窗口保持原样。
-    host.bind("aceDesktop_setWindowShape", [&](const std::string& req) -> std::string {
+    host.bind("aceDesktop_setWindowShape", [host_ref = host_lifetime.ref(host)](const std::string& req) -> std::string {
         const auto request = parse_window_shape_request(req);
         if (!request) {
             return nlohmann::json{{"ok", false}, {"error", "expect [{\"shape\":\"chamfer\"|\"none\"}]"}}.dump();
         }
-        return nlohmann::json{{"ok", host.set_window_shape(request->chamfer, request->glow_rgb)}}.dump();
+        bool ok = false;
+        host_ref.with([&ok, request](WebHost& current_host) {
+            ok = current_host.set_window_shape(request->chamfer, request->glow_rgb);
+        });
+        return nlohmann::json{{"ok", ok}}.dump();
     });
     host.bind("aceDesktop_focusWindow", [&](const std::string& /*req*/) -> std::string {
         bring_window_foreground();

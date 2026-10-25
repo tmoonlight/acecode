@@ -13,6 +13,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['general', '权限模式', 'permission approval sandbox'],
     ['general', '默认打开目标', 'default open target editor'],
     ['general', '最大轮次', 'max turns limit'],
+    ['general', '压缩图片', 'compress images image compression screenshot size bandwidth traffic 图片压缩 截图 流量 体积'],
     ['general', '后台进程状态', 'background daemon process'],
     ['general', '关闭窗口时', 'close window tray exit'],
     ['general', '远程 Web 模式', 'remote web network port bind'],

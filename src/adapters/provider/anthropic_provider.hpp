@@ -3,6 +3,7 @@
 #include "llm/llm_provider.hpp"
 #include "provider_request_options.hpp"
 #include "config/config.hpp"
+#include "session/image_request_budget.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -109,6 +110,7 @@ private:
     int stream_timeout_ms_ = OpenAiConfig::kDefaultStreamTimeoutMs;
     bool model_has_vision_ = true;
     bool any_vision_model_available_ = false;
+    mutable ImageRequestBudget image_request_budget_;
 };
 
 } // namespace acecode

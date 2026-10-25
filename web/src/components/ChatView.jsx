@@ -6274,6 +6274,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           onKeyDownCapture={handleMessagesKeyDownCapture}
           onClick={handleTranscriptFileLink}
           onKeyDown={handleTranscriptFileLink}
+          data-file-link-root="true"
+          data-file-link-cwd={sidePanelCwd}
+          data-file-link-attach="true"
           className="ace-chat-transcript-scroll h-full overflow-y-auto pl-[35px] pr-3.5 py-3"
           style={changeDockBottomPadding > 0 ? { paddingBottom: changeDockBottomPadding } : undefined}
         >
@@ -6473,6 +6476,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         onClear={sideChat.clear}
         onClose={sideChat.close}
         onFileLink={handleTranscriptFileLink}
+        fileLinkCwd={sidePanelCwd}
       />
       <QueueCardList
         items={visibleQueuedItems}

@@ -32,6 +32,7 @@
 #include "config/config_recovery.hpp"
 #include "config/model_config_refresh.hpp"
 #include "config/saved_models.hpp"
+#include "image/image_processor.hpp"
 #include "config/saved_models_revision.hpp"
 #include "permissions/permissions.hpp"
 #include "desktop/daemon_supervisor.hpp"
@@ -12174,6 +12175,151 @@ TEST(WebServerHttp, ApiKeyChangedFromSettingsAppliesToNextMessageOfOpenSession) 
     EXPECT_EQ(third.reply, "reply from key-check-model");
     EXPECT_EQ(upstream.requests_with_key(good_key), 2u);
     EXPECT_EQ(upstream.requests_with_key(wrong_key), 1u);
+}
+
+namespace {
+
+// 记下每次聊天请求的请求体,回一句固定的流式回复。
+class RecordingModelServer {
+public:
+    RecordingModelServer()
+        : server_([this](httplib::Server& server) {
+              server.Post("/v1/chat/completions",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      {
+                          std::lock_guard<std::mutex> lock(mu_);
+                          bodies_.push_back(json::parse(request.body, nullptr, false));
+                      }
+                      const json chunk = {{"choices", json::array({{
+                          {"delta", {{"content", "seen"}}}, {"finish_reason", "stop"}
+                      }})}};
+                      response.set_content("data: " + chunk.dump() + "\n\ndata: [DONE]\n\n",
+                                           "text/event-stream");
+                  });
+          }) {}
+
+    std::string base_url() const { return server_.base_url() + "v1"; }
+
+    json last_body() const {
+        std::lock_guard<std::mutex> lock(mu_);
+        return bodies_.empty() ? json() : bodies_.back();
+    }
+
+private:
+    mutable std::mutex mu_;
+    std::vector<json> bodies_;
+    LocalUpdateServer server_;
+};
+
+std::string wide_gradient_ppm() {
+    std::string bytes = "P6\n2400 300\n255\n";
+    for (int y = 0; y < 300; ++y) {
+        for (int x = 0; x < 2400; ++x) {
+            bytes.push_back(static_cast<char>((x * 255) / 2399));
+            bytes.push_back(static_cast<char>((y * 255) / 299));
+            bytes.push_back(static_cast<char>(48));
+        }
+    }
+    return bytes;
+}
+
+// 请求体里所有消息的 image_url 与文字部件(工具结果的图片也挂在 user 消息里)。
+void collect_request_parts(const json& body, std::vector<std::string>& urls, std::string& text) {
+    if (!body.is_object() || !body.contains("messages")) return;
+    for (const auto& message : body["messages"]) {
+        if (!message.contains("content") || !message["content"].is_array()) continue;
+        for (const auto& part : message["content"]) {
+            const std::string type = part.value("type", std::string{});
+            if (type == "image_url") urls.push_back(part["image_url"].value("url", std::string{}));
+            if (type == "text") text += part.value("text", std::string{}) + "\n";
+        }
+    }
+}
+
+bool send_and_wait(WebServerFixture& fx, const std::string& sid, const json& body) {
+    auto entry = fx.registry->acquire(sid);
+    if (!entry || !entry->loop) return false;
+    auto posted = cpr::Post(cpr::Url{fx.url("/api/sessions/" + sid + "/messages")},
+                            cpr::Header{{"Content-Type", "application/json"}},
+                            cpr::Body{body.dump()}, cpr::Timeout{5000});
+    if (posted.status_code != 202) {
+        ADD_FAILURE() << posted.status_code << " " << posted.text;
+        return false;
+    }
+    return entry->loop->enqueue_control([] { return true; }).wait_for_completion(30s);
+}
+
+} // namespace
+
+// 触发场景(「压缩图片」端到端):视觉模型会话里上传一张 2400x300 的图片并发消息,
+// 然后在设置页关掉「压缩图片」(PUT /api/config/image-compression)再发一条纯文字。
+// 期望:开启时发给模型服务的请求里是压缩版(长边 2000)并带「原尺寸 -> 压缩后尺寸」
+// 的说明,会话里保存的原图不变;关闭后 config.json 落盘 enabled:false,下一次请求里
+// 同一张历史图片按原图发送、没有压缩说明 —— 开关对下一次请求立即生效,不用重启。
+TEST(WebServerHttp, CompressImagesSwitchControlsImagesSentToModel) {
+    const bool previous_switch = acecode::image::model_image_compression_enabled();
+    acecode::image::set_model_image_compression_enabled(true);
+    acecode::ScopeExit restore_switch([previous_switch] {
+        acecode::image::set_model_image_compression_enabled(previous_switch);
+    });
+    RecordingModelServer upstream;
+    WebServerFixture fx;
+    auto profile = key_check_profile("vision-check", upstream.base_url(), "sk-vision", "vision-model");
+    profile.capabilities = {"vision"};
+    install_models_and_write_config(fx, {profile}, "vision-check");
+    const std::string sid = create_session_with_model(fx, "vision-check");
+    ASSERT_FALSE(sid.empty());
+
+    const std::string original = wide_gradient_ppm();
+    auto upload = cpr::Post(
+        cpr::Url{fx.url("/api/sessions/" + sid + "/attachments")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"name", "wide.png"}, {"mime_type", "image/png"},
+                       {"data_base64", acecode::base64_encode(original)}}.dump()},
+        cpr::Timeout{10000});
+    ASSERT_EQ(upload.status_code, 201) << upload.text;
+    const std::string attachment_id = json::parse(upload.text)["attachment"]["id"].get<std::string>();
+    const std::string original_url = "data:image/png;base64," + acecode::base64_encode(original);
+
+    ASSERT_TRUE(send_and_wait(fx, sid, {{"text", "describe this"},
+                                        {"attachments", json::array({json{{"id", attachment_id}}})}}));
+    {
+        std::vector<std::string> urls;
+        std::string text;
+        collect_request_parts(upstream.last_body(), urls, text);
+        ASSERT_EQ(urls.size(), 1u) << upstream.last_body().dump().substr(0, 2000);
+        EXPECT_NE(urls[0], original_url) << "开启「压缩图片」时不应发送原图";
+        EXPECT_LT(urls[0].size(), original_url.size());
+        EXPECT_NE(text.find("2400x300"), std::string::npos) << text;
+        EXPECT_NE(text.find("-> 2000x250"), std::string::npos) << text;
+    }
+    auto blob = cpr::Get(cpr::Url{fx.url("/api/sessions/" + sid + "/attachments/" + attachment_id + "/blob")});
+    ASSERT_EQ(blob.status_code, 200);
+    EXPECT_EQ(blob.text, original) << "会话里保存的原图不能被改写";
+
+    auto turned_off = cpr::Put(cpr::Url{fx.url("/api/config/image-compression")},
+                               cpr::Header{{"Content-Type", "application/json"}},
+                               cpr::Body{R"({"enabled":false})"}, cpr::Timeout{5000});
+    ASSERT_EQ(turned_off.status_code, 200) << turned_off.text;
+    EXPECT_FALSE(json::parse(turned_off.text).value("enabled", true));
+    {
+        std::ifstream in(fixture_config_path(fx), std::ios::binary);
+        const auto saved = json::parse(in);
+        EXPECT_FALSE(saved.at("image_compression").value("enabled", true));
+    }
+    auto read_back = cpr::Get(cpr::Url{fx.url("/api/config/image-compression")}, cpr::Timeout{5000});
+    ASSERT_EQ(read_back.status_code, 200);
+    EXPECT_FALSE(json::parse(read_back.text).value("enabled", true));
+
+    ASSERT_TRUE(send_and_wait(fx, sid, {{"text", "and again"}}));
+    {
+        std::vector<std::string> urls;
+        std::string text;
+        collect_request_parts(upstream.last_body(), urls, text);
+        ASSERT_EQ(urls.size(), 1u);
+        EXPECT_EQ(urls[0], original_url) << "关闭后历史图片应按原图发送";
+        EXPECT_EQ(text.find("Image compressed"), std::string::npos) << text;
+    }
 }
 
 // 触发场景(用户场景 2,手改入口):daemon 运行中、会话 A 开着,先把 config.json
