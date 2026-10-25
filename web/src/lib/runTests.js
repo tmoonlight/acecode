@@ -42,6 +42,7 @@ import './themeImports.test.js';
 import './themeSurfaces.test.js';
 import './themeHud.test.js';
 import './themeSounds.test.js';
+import './desktopWindowShape.test.js';
 import './themeExports.test.js';
 import './themeManagementUi.test.js';
 import './aiThemeCreation.test.js';

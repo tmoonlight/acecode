@@ -96,28 +96,33 @@ export function FramelessResizeHandles() {
         aria-hidden="true"
       />
 
-      {/* Corners */}
+      {/* Corners. A theme with a chamfered window moves them onto the cut
+          edge (globals.css, [data-window-shape="chamfer"]). */}
       <div
         onMouseDown={makeStartResize('top-left')}
         className="absolute left-0 top-0 pointer-events-auto cursor-[nwse-resize]"
+        data-frameless-resize-corner="top-left"
         style={{ width: RESIZE_CORNER_SIZE_PX, height: RESIZE_CORNER_SIZE_PX }}
         aria-hidden="true"
       />
       <div
         onMouseDown={makeStartResize('top-right')}
         className="absolute right-0 top-0 pointer-events-auto cursor-[nesw-resize]"
+        data-frameless-resize-corner="top-right"
         style={{ width: RESIZE_CORNER_SIZE_PX, height: RESIZE_CORNER_SIZE_PX }}
         aria-hidden="true"
       />
       <div
         onMouseDown={makeStartResize('bottom-left')}
         className="absolute left-0 bottom-0 pointer-events-auto cursor-[nesw-resize]"
+        data-frameless-resize-corner="bottom-left"
         style={{ width: RESIZE_CORNER_SIZE_PX, height: RESIZE_CORNER_SIZE_PX }}
         aria-hidden="true"
       />
       <div
         onMouseDown={makeStartResize('bottom-right')}
         className="absolute right-0 bottom-0 pointer-events-auto cursor-[nwse-resize]"
+        data-frameless-resize-corner="bottom-right"
         style={{ width: RESIZE_CORNER_SIZE_PX, height: RESIZE_CORNER_SIZE_PX }}
         aria-hidden="true"
       />

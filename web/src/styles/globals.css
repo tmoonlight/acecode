@@ -1877,6 +1877,27 @@ body {
 .ace-sidebar-footer {
   border-top: 1px solid var(--ace-border);
 }
+/* 主题切角窗口(Windows 桌面壳确认生效后才有 data-window-shape):四个角被切掉
+   16px。角上的缩放命中块放大到 28px,按 clip-path 只留沿两条边各 6px 的一段与
+   斜边内侧约 7px 宽的一条(x + y < 26),中间不挡内容;切掉的缺口与窗口外侧一圈
+   由桌面壳的透明把手窗口接住(window_shape.hpp::chamfer_resize_zone,同样沿边
+   延伸 28px),两边连成一片,在原来的角上按下照样能拖。 */
+:root[data-window-shape="chamfer"] [data-frameless-resize-corner] {
+  width: 28px !important;
+  height: 28px !important;
+}
+:root[data-window-shape="chamfer"] [data-frameless-resize-corner="top-left"] {
+  clip-path: polygon(0 0, 28px 0, 28px 6px, 20px 6px, 6px 20px, 6px 28px, 0 28px);
+}
+:root[data-window-shape="chamfer"] [data-frameless-resize-corner="top-right"] {
+  clip-path: polygon(28px 0, 0 0, 0 6px, 8px 6px, 22px 20px, 22px 28px, 28px 28px);
+}
+:root[data-window-shape="chamfer"] [data-frameless-resize-corner="bottom-left"] {
+  clip-path: polygon(0 28px, 28px 28px, 28px 22px, 20px 22px, 6px 8px, 6px 0, 0 0);
+}
+:root[data-window-shape="chamfer"] [data-frameless-resize-corner="bottom-right"] {
+  clip-path: polygon(28px 28px, 0 28px, 0 22px, 8px 22px, 22px 8px, 22px 0, 28px 0);
+}
 .ace-desktop-frameless-topbar {
   user-select: none;
   /* macOS native fullscreen removes the traffic-light inset after AppKit's

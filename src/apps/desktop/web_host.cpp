@@ -10,6 +10,7 @@
 #include "webview2_runtime_probe.hpp"
 #include "window_background.hpp"
 #include "window_chrome.hpp"
+#include "window_shape.hpp"
 #include "window_size.hpp"
 
 #ifdef ACECODE_DEEPIN
@@ -47,6 +48,7 @@
 #  include <windows.h>
 #  include <wrl.h>  // Microsoft::WRL::Callback,挂 WebView2 事件 handler
 #  include "web_host_browser_win.hpp"
+#  include "window_shape_shadow_win.hpp"
 #endif
 #if !defined(_WIN32) && !defined(__APPLE__)
 #  include "linux_desktop.hpp"
@@ -898,8 +900,26 @@ std::uint32_t windows_build_number() {
     return build;
 }
 
+// 主题切角窗口(主题包 "window": {"shape": "chamfer"})。只由前端在当前主题声明
+// 切角时经 aceDesktop_setWindowShape 打开;没打开时下面所有分支都不走,窗口行为
+// 与普通主题完全一样。打开后:非最大化时去掉左/右/下的隐形缩放边(客户区 = 整个
+// 窗口,否则系统把区域外的缩放边也算进可见边界,贴边分屏会留缝),按切角设置
+// 窗口区域,系统阴影随之消失,由 g_chamfer_shadow 的分层窗口补画;缩放靠页面
+// 四边四角的拖拽条(FramelessResizeHandles)。最大化时恢复矩形、隐藏阴影。
+struct WindowShapeState {
+    bool chamfer = false;
+    std::optional<std::uint32_t> glow_rgb;
+    bool region_set = false;
+    int region_width = -1;
+    int region_height = -1;
+    int region_cut = -1;
+};
+WindowShapeState g_window_shape;
+ChamferShadowWindows g_chamfer_shadow;
+
 int top_border_inset(HWND hwnd) {
     if (!hwnd || !::IsWindow(hwnd)) return 0;
+    if (g_window_shape.chamfer) return 0;
     SelfDrawnTopBorderLayoutInput input;
     input.supported = windows_needs_self_drawn_top_border(windows_build_number());
     if (!input.supported) return 0;
@@ -986,6 +1006,77 @@ void resize_webview_widget(HWND hwnd) {
     const int inset = std::clamp(top_border_inset(hwnd), 0, std::max(0, height));
     ::MoveWindow(widget, 0, inset, width, height - inset, TRUE);
     if (inset > 0) invalidate_top_border(hwnd);
+}
+
+int window_shape_cut(HWND hwnd) {
+    return chamfer_cut_px(kChamferCutDip, static_cast<int>(::GetDpiForWindow(hwnd)));
+}
+
+void apply_window_shape_region(HWND hwnd) {
+    auto& shape = g_window_shape;
+    if (!shape.chamfer || ::IsZoomed(hwnd)) {
+        if (shape.region_set) {
+            ::SetWindowRgn(hwnd, nullptr, TRUE);
+            shape.region_set = false;
+        }
+        return;
+    }
+    if (::IsIconic(hwnd)) return;
+    RECT rect{};
+    if (!::GetWindowRect(hwnd, &rect)) return;
+    const int width = rect.right - rect.left;
+    const int height = rect.bottom - rect.top;
+    const int cut = window_shape_cut(hwnd);
+    if (shape.region_set && width == shape.region_width && height == shape.region_height &&
+        cut == shape.region_cut) {
+        return;
+    }
+    HRGN region = ::CreateRectRgn(0, 0, 0, 0);
+    if (!region) return;
+    for (const auto& rect_part : chamfer_region_rects(width, height, cut)) {
+        if (HRGN part = ::CreateRectRgn(rect_part.left, rect_part.top, rect_part.right, rect_part.bottom)) {
+            ::CombineRgn(region, region, part, RGN_OR);
+            ::DeleteObject(part);
+        }
+    }
+    // SetWindowRgn takes ownership only on success.
+    if (!::SetWindowRgn(hwnd, region, TRUE)) {
+        ::DeleteObject(region);
+        return;
+    }
+    shape.region_set = true;
+    shape.region_width = width;
+    shape.region_height = height;
+    shape.region_cut = cut;
+}
+
+ShadowStyle window_shadow_style(HWND hwnd) {
+    const UINT dpi = ::GetDpiForWindow(hwnd);
+    ShadowStyle style;
+    style.margin = std::max(1, dpi_scale(kChamferShadowMarginDip, dpi));
+    style.offset_y = std::max(1, dpi_scale(kChamferShadowOffsetDip, dpi));
+    style.active = g_top_border_active;
+    if (g_window_shape.glow_rgb) {
+        const std::uint32_t rgb = *g_window_shape.glow_rgb;
+        style.glow_r = static_cast<std::uint8_t>((rgb >> 16) & 0xFF);
+        style.glow_g = static_cast<std::uint8_t>((rgb >> 8) & 0xFF);
+        style.glow_b = static_cast<std::uint8_t>(rgb & 0xFF);
+        style.glow_width = std::max(1, dpi_scale(3, dpi));
+    }
+    return style;
+}
+
+void update_window_shape_shadow(HWND hwnd) {
+    if (g_window_shape.chamfer && ::IsWindowVisible(hwnd) && !::IsIconic(hwnd) && !::IsZoomed(hwnd)) {
+        // 外侧把手与切角时去掉的隐形缩放边一样厚,角上沿边延伸到与页面里的角把手相接。
+        const UINT dpi = ::GetDpiForWindow(hwnd);
+        const int grip = ::GetSystemMetricsForDpi(SM_CXFRAME, dpi) +
+                         ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+        g_chamfer_shadow.update(hwnd, window_shape_cut(hwnd), window_shadow_style(hwnd), grip,
+                                dpi_scale(kChamferCornerReachDip, dpi));
+    } else {
+        g_chamfer_shadow.hide();
+    }
 }
 
 void refresh_non_client_frame(HWND hwnd) {
@@ -1270,6 +1361,9 @@ LRESULT frameless_nc_calc(HWND hwnd, WPARAM wparam, LPARAM lparam) {
     if ((style & WS_THICKFRAME) == 0) {
         return 0;
     }
+    if (g_window_shape.chamfer && !::IsZoomed(hwnd)) {
+        return 0;
+    }
 
     const UINT dpi = ::GetDpiForWindow(hwnd);
     const int frame_x = ::GetSystemMetricsForDpi(SM_CXFRAME, dpi);
@@ -1307,7 +1401,14 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
         case WM_NCACTIVATE:
             g_top_border_active = wparam != FALSE;
             invalidate_top_border(hwnd);
+            if (g_window_shape.chamfer) update_window_shape_shadow(hwnd);
             return call_host_default_proc(hwnd, msg, wparam, lparam);
+        case WM_WINDOWPOSCHANGED: {
+            // 默认处理会派生 WM_SIZE / WM_MOVE;之后窗口矩形已是最终值,阴影再跟上。
+            const LRESULT result = call_host_default_proc(hwnd, msg, wparam, lparam);
+            if (g_window_shape.chamfer) update_window_shape_shadow(hwnd);
+            return result;
+        }
         case WM_PAINT:
             if (paint_top_border(hwnd)) return 0;
             break;
@@ -1325,6 +1426,7 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             // 拉满整个客户区,所以先让它跑完,再按顶边线让位重新摆放。
             const LRESULT result = call_host_default_proc(hwnd, msg, wparam, lparam);
             resize_webview_widget(hwnd);
+            apply_window_shape_region(hwnd);
             const bool was_visible = g_last_known_window_visible;
             const bool maximized = ::IsZoomed(hwnd) != FALSE;
             const bool state_changed = maximized != g_last_known_maximized;
@@ -1360,6 +1462,7 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
                                SWP_NOZORDER | SWP_NOACTIVATE);
             }
             resize_webview_widget(hwnd);
+            apply_window_shape_region(hwnd);
             return 0;
         case WM_CLOSE:
             // close handler 返回 true 表示已消化(隐藏到托盘),不要 DestroyWindow。
@@ -1373,6 +1476,7 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             ::DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
+            g_chamfer_shadow.destroy();
             if (previous_host_window_proc(hwnd)) {
                 LRESULT result = ::CallWindowProcW(previous_host_window_proc(hwnd), hwnd, msg, wparam, lparam);
                 ::PostQuitMessage(0);
@@ -2553,6 +2657,54 @@ bool WebHost::set_background_color(const std::string& color_text) {
     return false;
 #endif
 }
+bool WebHost::set_window_shape(bool chamfer, std::optional<std::uint32_t> glow_rgb) {
+#ifdef _WIN32
+    HWND hwnd = impl_->hwnd();
+    if (!hwnd || !::IsWindow(hwnd)) return false;
+    g_window_shape.glow_rgb = glow_rgb;
+    if (chamfer == g_window_shape.chamfer) {
+        if (chamfer) update_window_shape_shadow(hwnd);
+        return true;
+    }
+    // 切换前后保持可见区域不动:打开时窗口收到原来的客户区,关闭时把隐形缩放边加回去。
+    const bool resizable_frame = !::IsZoomed(hwnd) && !::IsIconic(hwnd);
+    RECT target{};
+    if (resizable_frame) {
+        if (chamfer) {
+            ::GetClientRect(hwnd, &target);
+            ::MapWindowPoints(hwnd, nullptr, reinterpret_cast<POINT*>(&target), 2);
+        } else {
+            ::GetWindowRect(hwnd, &target);
+            const UINT dpi = ::GetDpiForWindow(hwnd);
+            const int frame_x = ::GetSystemMetricsForDpi(SM_CXFRAME, dpi) +
+                                ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            const int frame_y = ::GetSystemMetricsForDpi(SM_CYFRAME, dpi) +
+                                ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+            target.left -= frame_x;
+            target.right += frame_x;
+            target.bottom += frame_y;
+        }
+    }
+    g_window_shape.chamfer = chamfer;
+    if (!chamfer) apply_window_shape_region(hwnd);
+    if (resizable_frame) {
+        ::SetWindowPos(hwnd, nullptr, target.left, target.top, target.right - target.left,
+                       target.bottom - target.top, SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE);
+    } else {
+        refresh_non_client_frame(hwnd);
+    }
+    resize_webview_widget(hwnd);
+    apply_window_shape_region(hwnd);
+    update_window_shape_shadow(hwnd);
+    return true;
+#else
+    // 只做了 Windows;macOS / Linux 返回 false,前端据此不改缩放角。
+    (void)chamfer;
+    (void)glow_rgb;
+    return false;
+#endif
+}
+
 bool WebHost::start_window_drag(const PointerEvent& event) {
 #ifdef _WIN32
     (void)event;

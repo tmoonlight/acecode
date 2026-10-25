@@ -12,9 +12,10 @@ import { api } from './lib/api.js';
 import {
   EVA_THEME_ID, applyInstalledTheme, loadThemeResources, releaseThemeResource, resolveThemeVariant,
   revokeThemeResources, resolveThemeAppearance, selectThemeVariant, themeChromeStyle, themeSoundStyle,
-  themeVariantOptions, validThemeDefinition,
+  themeVariantOptions, themeWindowShape, validThemeDefinition,
 } from './lib/themePackages.js';
 import { pushWindowBackgroundColor } from './lib/desktopWindowBackground.js';
+import { pushWindowShape } from './lib/desktopWindowShape.js';
 import { desktopTaskbarBadge } from './lib/desktopTaskbarBadge.js';
 import { HudEffects } from './components/HudEffects.jsx';
 import { ThemeSoundLayer } from './components/ThemeSoundLayer.jsx';
@@ -192,6 +193,8 @@ export function ThemeProvider({ children }) {
     // 桌面壳,native 换窗口打底色(快速 resize 的新暴露区域随主题,不闪黑/白)。
     // 非桌面壳环境内部 no-op。
     pushWindowBackgroundColor();
+    // 只有声明了异形窗口的主题会让桌面壳切角;其它主题不发桥接(或恢复矩形)。
+    pushWindowShape(installedTheme?.id === colorTheme ? themeWindowShape(installedTheme) : null);
     desktopTaskbarBadge.refresh();
     return clearInstalledTheme;
   }, [colorTheme, theme, installedTheme, themeVariant, themeEffects]);

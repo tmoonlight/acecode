@@ -10,6 +10,7 @@
 //
 // 所有方法必须在主线程上调(WebHost::run 之前 bind 安全)。
 
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <stdexcept>
@@ -96,6 +97,12 @@ public:
     // 推送,启动默认为浅色 body 底色(window_background.hpp)。GUI 主线程 only
     // (bind 回调天然满足)。
     bool set_background_color(const std::string& color_text);
+
+    // 主题异形窗口:chamfer=true 把窗口四角按 45° 切掉(与 HUD 外框斜边重合),
+    // 并用分层窗口补画阴影;glow_rgb(0xRRGGBB)给阴影加一圈主题色辉光。
+    // 只有当前主题声明了切角才会打开,false 恢复普通矩形窗口。只实现了
+    // Windows,其它平台返回 false。GUI 主线程 only。
+    bool set_window_shape(bool chamfer, std::optional<std::uint32_t> glow_rgb);
 
     bool set_taskbar_badge(const TaskbarBadge& badge);
 

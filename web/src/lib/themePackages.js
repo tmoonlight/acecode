@@ -49,6 +49,9 @@ export const THEME_CHROME_STYLES = Object.freeze(['hud']);
 // "sounds": {"style": "hud"} turns on the synthesized sound set of that name
 // (lib/themeSounds.js); the package itself carries no audio files.
 export const THEME_SOUND_STYLES = Object.freeze(['hud']);
+// "window": {"shape": "chamfer"} cuts the Windows desktop window's corners to
+// match the HUD frame (lib/desktopWindowShape.js); other platforms ignore it.
+export const THEME_WINDOW_SHAPES = Object.freeze(['chamfer']);
 export const MAX_THEME_VARIANTS = 6;
 const VARIANT_KEYS = new Set(['id', 'name', 'colors', 'appearance', 'tint']);
 
@@ -56,6 +59,12 @@ export function themeChromeStyle(definition) {
   const chrome = definition?.chrome;
   if (!chrome || typeof chrome !== 'object' || Array.isArray(chrome)) return null;
   return THEME_CHROME_STYLES.includes(chrome.style) ? chrome.style : null;
+}
+
+export function themeWindowShape(definition) {
+  const windowShape = definition?.window;
+  if (!windowShape || typeof windowShape !== 'object' || Array.isArray(windowShape)) return null;
+  return THEME_WINDOW_SHAPES.includes(windowShape.shape) ? windowShape.shape : null;
 }
 
 export function themeSoundStyle(definition) {

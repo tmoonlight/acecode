@@ -43,6 +43,7 @@
 #include "url_builder.hpp"
 #include "web_host.hpp"
 #include "web_host_close_policy.hpp"
+#include "window_shape.hpp"
 #include "workspace/workspace_registry.hpp"
 #ifdef ACECODE_DEEPIN
 #include "deepin_window_effects.hpp"
@@ -2044,6 +2045,16 @@ int main(int argc, char** argv) {
             return nlohmann::json{{"ok", false}, {"error", "expect [\"#rrggbb\"]"}}.dump();
         }
         return nlohmann::json{{"ok", host.set_background_color(color)}}.dump();
+    });
+    // 主题声明了异形窗口("window": {"shape": "chamfer"})时前端推送
+    // [{"shape":"chamfer","glow":"#rrggbb"}],换成别的主题推 {"shape":"none"}。
+    // 普通主题从不调用,窗口保持原样。
+    host.bind("aceDesktop_setWindowShape", [&](const std::string& req) -> std::string {
+        const auto request = parse_window_shape_request(req);
+        if (!request) {
+            return nlohmann::json{{"ok", false}, {"error", "expect [{\"shape\":\"chamfer\"|\"none\"}]"}}.dump();
+        }
+        return nlohmann::json{{"ok", host.set_window_shape(request->chamfer, request->glow_rgb)}}.dump();
     });
     host.bind("aceDesktop_focusWindow", [&](const std::string& /*req*/) -> std::string {
         bring_window_foreground();

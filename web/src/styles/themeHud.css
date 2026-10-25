@@ -73,6 +73,26 @@
     linear-gradient(to bottom left, transparent calc(50% - .7px), var(--f) 0 calc(50% + .7px), transparent 0) left bottom / var(--c) var(--c) no-repeat,
     linear-gradient(to bottom right, transparent calc(50% - .7px), var(--f) 0 calc(50% + .7px), transparent 0) right bottom / var(--c) var(--c) no-repeat;
 }
+/* With a chamfered desktop window the corner diagonals sit on the window's cut
+   edge, where the outer half of the line would be clipped; shift them inward
+   (top corners toward the end of their gradient, bottom ones toward the start)
+   while still covering the pixels whose centres lie on the cut, so no dark
+   seam shows between the window edge and the line. */
+:root[data-theme-chrome="hud"][data-window-shape="chamfer"] .ace-app-shell::after {
+  background:
+    linear-gradient(var(--h), var(--h)) left var(--c) top 0 / 88px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right var(--c) bottom 0 / 88px 2px no-repeat,
+    linear-gradient(var(--h), var(--h)) right 0 top var(--c) / 2px 56px no-repeat,
+    linear-gradient(var(--h), var(--h)) left 0 bottom var(--c) / 2px 56px no-repeat,
+    linear-gradient(var(--f), var(--f)) left var(--c) top 0 / calc(100% - 2 * var(--c)) 1px no-repeat,
+    linear-gradient(var(--f), var(--f)) left var(--c) bottom 0 / calc(100% - 2 * var(--c)) 1px no-repeat,
+    linear-gradient(var(--f), var(--f)) left 0 top var(--c) / 1px calc(100% - 2 * var(--c)) no-repeat,
+    linear-gradient(var(--f), var(--f)) right 0 top var(--c) / 1px calc(100% - 2 * var(--c)) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - .4px), var(--f) 0 calc(50% + 1px), transparent 0) left top / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - .4px), var(--f) 0 calc(50% + 1px), transparent 0) right top / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - 1px), var(--f) 0 calc(50% + .4px), transparent 0) left bottom / var(--c) var(--c) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - 1px), var(--f) 0 calc(50% + .4px), transparent 0) right bottom / var(--c) var(--c) no-repeat;
+}
 
 /* ── Title bar and sidebar ────────────────────────────────────────────── */
 :root[data-theme-chrome="hud"] .ace-topbar {
