@@ -381,6 +381,7 @@ export function buildDesktopContextMenuItems({
 
   if (!editable) {
     if (sessionTarget) {
+      const workspacePath = sessionTarget.noWorkspace ? '' : sessionTarget.workspacePath || '';
       addAction(items, sessionTarget.pinned ? DESKTOP_CONTEXT_ACTIONS.UNPIN_SESSION : DESKTOP_CONTEXT_ACTIONS.PIN_SESSION, sessionTarget);
       addAction(items, sessionTarget.unread ? DESKTOP_CONTEXT_ACTIONS.MARK_SESSION_READ : DESKTOP_CONTEXT_ACTIONS.MARK_SESSION_UNREAD, sessionTarget);
       addAction(items, DESKTOP_CONTEXT_ACTIONS.RENAME_SESSION, sessionTarget);
@@ -390,8 +391,8 @@ export function buildDesktopContextMenuItems({
       addAction(
         items,
         DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
-        { path: sessionTarget.sessionPath, kind: 'file' },
-        { enabled: !!sessionTarget.sessionPath },
+        { path: workspacePath, kind: 'workspace' },
+        { enabled: !!workspacePath },
       );
       if (sessionTarget.canArchive) {
         addAction(items, DESKTOP_CONTEXT_ACTIONS.ARCHIVE_SESSION, sessionTarget, {
@@ -592,6 +593,7 @@ export function sessionTargetFromElement(target) {
     type: 'session',
     sessionId,
     workspaceHash: getAttr(el, 'data-desktop-session-workspace', 'desktopSessionWorkspace'),
+    workspacePath: getAttr(el, 'data-desktop-session-workspace-path', 'desktopSessionWorkspacePath'),
     noWorkspace: boolAttr(el, 'data-desktop-session-no-workspace', 'desktopSessionNoWorkspace'),
     title: getAttr(el, 'data-desktop-session-title', 'desktopSessionTitle'),
     sessionPath: getAttr(el, 'data-desktop-session-path', 'desktopSessionPath'),

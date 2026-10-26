@@ -1094,6 +1094,7 @@ function SessionRow({
       data-desktop-session-id={!isGroup ? s.id || undefined : undefined}
       data-sidebar-group-id={isGroup ? s.id : undefined}
       data-desktop-session-workspace={workspaceHash || undefined}
+      data-desktop-session-workspace-path={noWorkspace ? undefined : s.cwd || undefined}
       data-desktop-session-no-workspace={noWorkspace ? 'true' : undefined}
       data-desktop-session-path={sessionPath || undefined}
       data-desktop-session-pinned={pinned ? 'true' : 'false'}
