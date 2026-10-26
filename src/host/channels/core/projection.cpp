@@ -1,6 +1,7 @@
 #include "projection.hpp"
 
 #include "channels/core/commands.hpp"
+#include "channels/core/paging.hpp"
 #include "remote_control/rc_session_navigation.hpp"
 #include "remote_control/session_channel_binder.hpp"
 #include "session/attachment_store.hpp"
@@ -173,6 +174,61 @@ void Projection::say(const std::string& text, const nlohmann::json& reply_contex
     enqueue_text_locked(text, reply_context);
 }
 
+std::vector<std::string> Projection::capture_system_messages(const std::function<void()>& run) {
+    {
+        std::lock_guard<std::recursive_mutex> lock(mu_);
+        capture_thread_ = std::this_thread::get_id();
+        captured_.clear();
+    }
+    // 不持锁执行:命令可能等待会话工作线程,而那个线程投递事件时要拿本对象的锁。
+    try {
+        run();
+    } catch (...) {
+        std::lock_guard<std::recursive_mutex> lock(mu_);
+        capture_thread_ = {};
+        captured_.clear();
+        throw;
+    }
+    std::lock_guard<std::recursive_mutex> lock(mu_);
+    capture_thread_ = {};
+    auto captured = std::move(captured_);
+    captured_.clear();
+    return captured;
+}
+
+void Projection::relay_next_notice(std::map<std::string, std::string> codes,
+                                   std::chrono::steady_clock::time_point deadline) {
+    std::lock_guard<std::recursive_mutex> lock(mu_);
+    relay_codes_ = std::move(codes);
+    relay_deadline_ = deadline;
+}
+
+void Projection::system_message_locked(const nlohmann::json& payload) {
+    const auto content = payload.value("content", std::string{});
+    if (capture_thread_ == std::this_thread::get_id()) {
+        if (!content.empty()) captured_.push_back(content);
+        return;
+    }
+    if (relay_codes_.empty()) return;
+    if (std::chrono::steady_clock::now() > relay_deadline_) {
+        relay_codes_.clear();
+        return;
+    }
+    std::string code;
+    const auto meta = payload.value("metadata", nlohmann::json::object());
+    if (meta.is_object() && meta.contains("system_notice") && meta["system_notice"].is_object())
+        code = meta["system_notice"].value("code", std::string{});
+    const auto it = relay_codes_.find(code);
+    if (it == relay_codes_.end()) return;
+    // 映射值里的 {} 换成通知原文(截到 300 字),为空时直接用原文。
+    auto text = it->second.empty() ? std::string("{}") : it->second;
+    const auto slot = text.find("{}");
+    if (slot != std::string::npos) text.replace(slot, 2, one_line(content, 300));
+    relay_codes_.clear();
+    flush_locked();
+    enqueue_text_locked(text, reply_context_);
+}
+
 void Projection::emit_question_action(const rc::ChannelQuestionAction& action) {
     std::lock_guard<std::recursive_mutex> lock(mu_);
     if (action.outbound_texts.empty()) return;
@@ -215,8 +271,9 @@ void Projection::on_event(const SessionEvent& event) {
         const auto transport = deps_.transport->get();
         const bool batch = transport && transport->capabilities().batch_turn_output;
         switch (event.kind) {
-            case SessionEventKind::Message:
-                if (p.value("role", std::string{}) == "user") {
+            case SessionEventKind::Message: {
+                const auto role = p.value("role", std::string{});
+                if (role == "user") {
                     flush_locked();
                     reply_context_ = nlohmann::json::object();
                     const auto meta = p.value("metadata", nlohmann::json::object());
@@ -225,7 +282,12 @@ void Projection::on_event(const SessionEvent& event) {
                     sent_attachments_.clear();
                     return;
                 }
+                if (role == "system") {
+                    system_message_locked(p);
+                    return;
+                }
                 break;
+            }
             case SessionEventKind::BusyChanged:
                 if (p.value("busy", false)) {
                     set_typing(true);

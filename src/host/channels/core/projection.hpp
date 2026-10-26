@@ -16,12 +16,14 @@
 #include "remote_control/remote_control_hub.hpp"
 #include "session/session_client.hpp"
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -71,6 +73,13 @@ public:
     }
     void emit_question_action(const rc::ChannelQuestionAction& action);
 
+    // 内置命令(/lsp、/goal 等)的结果以会话系统消息发出,且在调用线程上同步投递:
+    // 执行 run 期间本线程收到的系统消息被收集返回,不进出站队列。
+    std::vector<std::string> capture_system_messages(const std::function<void()>& run);
+    // 异步完成的命令(/compact、/memory flush):之后第一条代码在 codes 里的系统通知转发到 IM,
+    // 映射值非空时用它代替通知原文;转发一次即失效,deadline 之后也失效。
+    void relay_next_notice(std::map<std::string, std::string> codes, std::chrono::steady_clock::time_point deadline);
+
     rc::RemoteControlStats stats() const { return hub_.stats(); }
 
 private:
@@ -78,6 +87,7 @@ private:
     void enqueue_text_locked(const std::string& text, const nlohmann::json& reply_context);
     void flush_locked();
     void permission_locked(const nlohmann::json& request);
+    void system_message_locked(const nlohmann::json& payload);
     void set_typing(bool on);
 
     BindingRecord record_;
@@ -94,6 +104,10 @@ private:
     std::set<std::string> closed_permissions_;
     std::vector<std::string> closed_order_;
     std::set<std::string> sent_attachments_;
+    std::thread::id capture_thread_;
+    std::vector<std::string> captured_;
+    std::map<std::string, std::string> relay_codes_;
+    std::chrono::steady_clock::time_point relay_deadline_{};
 };
 
 } // namespace acecode::channels::core

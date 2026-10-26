@@ -8,6 +8,7 @@
 #include "session_host/local_session_client.hpp"
 #include "session/session_storage.hpp"
 #include "session_host/session_registry.hpp"
+#include "session_host/swarm_command.hpp"
 #include "test_support/agent/stub_provider.hpp"
 #include "test_support/im/fake_dingtalk_server.hpp"
 #include "test_support/im/fake_discord_server.hpp"
@@ -922,6 +923,47 @@ TEST_F(ImChannelsEndToEnd, LineOwnerCodeBindsAndRepliesWithReplyToken) {
     ASSERT_TRUE(wait_until([&] { return replied("收到,我是 ACECode"); }));
     EXPECT_TRUE(model_saw("你好"));
     EXPECT_TRUE(line->calls_to("POST", "/v2/bot/message/push").empty());
+}
+
+// 场景:机主在 Telegram 里用 Desktop 同名命令的简写:/sw 查看蜂群模式、/sw mesh 切换、/b 旁问,
+// 再 /n 新建会话、@ref 列出可引用的会话,发「总结@1」引用第一个会话。
+// 期望(真实 SessionRegistry):内置命令的输出(会话系统消息)作为回复发回 IM 且不进模型;
+// 旁问由模型回答后发回,不写进会话;@1 把第一个会话的近期对话拼进交给模型的用户消息。
+// 回归:IM 命令以前只有会话切换与权限类,没有 Desktop 的 /swarm、/btw,也不能 @ 引用会话。
+TEST_F(ImChannelsEndToEnd, TelegramDesktopCommandsAndSessionReferences) {
+    start_host();
+    connect_telegram_as_owner();
+    provider->push_text("第一个会话的结论是先修登录");
+    telegram.push_update(telegram_message(42, "private", 42, 2, "讨论一下登录问题"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "第一个会话的结论是先修登录"); }));
+    const auto first = bound("telegram", "42", "42");
+    ASSERT_FALSE(first.empty());
+
+    telegram.push_update(telegram_message(42, "private", 42, 3, "/sw"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "Swarm mode:"); }));
+    telegram.push_update(telegram_message(42, "private", 42, 4, "/sw mesh"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, swarm_command_applied_text(SwarmMode::Mesh)); }));
+    EXPECT_EQ(registry->swarm_mode(first).value_or(SwarmMode::Off), SwarmMode::Mesh);
+    EXPECT_FALSE(model_saw("/sw"));
+
+    const int turns_before_side = provider->turn_count();
+    provider->push_text("旁问的回答:还在第一步");
+    telegram.push_update(telegram_message(42, "private", 42, 5, "/b 现在到哪一步了"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "旁问的回答:还在第一步"); }));
+    EXPECT_GT(provider->turn_count(), turns_before_side);
+
+    telegram.push_update(telegram_message(42, "private", 42, 6, "/n"));
+    ASSERT_TRUE(wait_until([&] {
+        const auto id = bound("telegram", "42", "42");
+        return !id.empty() && id != first;
+    }));
+    telegram.push_update(telegram_message(42, "private", 42, 7, "@ref"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "可引用的会话"); }));
+    provider->push_text("引用之后的答复");
+    telegram.push_update(telegram_message(42, "private", 42, 8, "总结@1"));
+    ASSERT_TRUE(wait_until([&] { return telegram_sent(42, "引用之后的答复"); }));
+    EXPECT_TRUE(model_saw("Referenced ACECode session context"));
+    EXPECT_TRUE(model_saw("第一个会话的结论是先修登录"));
 }
 
 } // namespace

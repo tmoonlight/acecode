@@ -3,6 +3,8 @@
 #include "channels/core/conversations.hpp"
 #include "test_support/channels/core_fakes.hpp"
 
+#include <atomic>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 
@@ -94,6 +96,21 @@ protected:
             return model_states[id];
         };
         deps.expand_skill = [](const std::string&, const std::string& text) { return "[展开]" + text; };
+        deps.list_skills = [this](const std::string&) { return skills; };
+        deps.side_question = [this](const std::string& id, const std::string& question,
+                                    SideChatCancellation& cancellation) {
+            return side ? side(id, question, cancellation) : SideQuestionResult{};
+        };
+        deps.reference_sessions = [this](const std::string&, const std::vector<rc::RcSessionTarget>& targets,
+                                          const std::string& text,
+                                          std::string*) -> std::optional<SessionReferenceExpansion> {
+            referenced.push_back(targets);
+            SessionReferenceExpansion expansion;
+            expansion.text = "[引用 " + std::to_string(targets.size()) + " 个会话]\n" + text;
+            for (const auto& target : targets) expansion.meta.push_back({{"session_id", target.session_id}});
+            return expansion;
+        };
+        deps.utc_offset_minutes = [] { return 480; };
         deps.release_session = [this](const std::string& id, const std::string& key, const std::string& label) {
             if (conversations) conversations->release_session(id, key, label);
         };
@@ -131,6 +148,9 @@ protected:
     std::vector<std::pair<std::string, std::optional<std::string>>> effort_changes;
     std::map<std::string, SessionModelState> model_states;
     bool fail_controls = false;
+    std::vector<SkillListing> skills;
+    std::function<SideQuestionResult(const std::string&, const std::string&, SideChatCancellation&)> side;
+    std::vector<std::vector<rc::RcSessionTarget>> referenced;
     int binding_changes = 0;
 };
 
@@ -512,6 +532,271 @@ TEST_F(ChannelRouter, StrangerGetsPairingNotice) {
     EXPECT_EQ(outcome.pending_created->principal, "user:9");
     EXPECT_TRUE(transport->wait_said("还没有被授权"));
     EXPECT_TRUE(sessions.created_log().empty());
+}
+
+// ---- 与 Desktop 对齐的命令、分页与 @编号 引用 ----
+
+std::string two_digits(int value) {
+    char buffer[8];
+    std::snprintf(buffer, sizeof(buffer), "%02d", value);
+    return buffer;
+}
+
+// 场景:机主有 25 个会话,用简写 /s 列出,/mr 翻页,/s 3 直接看第三页,再 /r 15 切换。
+// 期望:每页 10 条、编号跨页连续;/r 15 切到列表里第 15 个会话(不是当前页的第 5 个)。
+// 回归:旧版 /sessions 只列 10 条,/sessions more 一次性列 50 条,超出单条消息长度。
+TEST_F(ChannelRouter, SessionListPaginatesWithContinuousNumbers) {
+    for (int i = 1; i <= 25; ++i)
+        sessions.add_session("s-" + two_digits(i), "C:/work/p", "hash-p", false, "会话 " + two_digits(i));
+    send("1", "/s", "m1");
+    ASSERT_TRUE(transport->wait_said("第 1/3 页"));
+    EXPECT_TRUE(transport->said("1. 会话 01"));
+    EXPECT_FALSE(transport->said("11. 会话 11"));
+    send("1", "/mr", "m2");
+    ASSERT_TRUE(transport->wait_said("11. 会话 11"));
+    EXPECT_TRUE(transport->said("第 2/3 页"));
+    send("1", "/s 3", "m3");
+    ASSERT_TRUE(transport->wait_said("21. 会话 21"));
+    EXPECT_TRUE(transport->said("(最后一页)"));
+    send("1", "/mr", "m4");
+    EXPECT_TRUE(transport->wait_said("已经是最后一页"));
+    send("1", "/r 15", "m5");
+    EXPECT_EQ(bound("1"), "s-15");
+}
+
+// 场景:/s 后面直接跟关键词(不再需要 search),以及旧写法 /sessions search。
+// 期望:两种写法都按关键词搜索,标题里标明搜索词,/r 编号对应搜索结果。
+TEST_F(ChannelRouter, SessionSearchAcceptsBareKeyword) {
+    sessions.add_session("a-1", "C:/work/a", "hash-a", false, "登录页面");
+    sessions.add_session("b-1", "C:/work/b", "hash-b", false, "支付接口");
+    send("1", "/s 支付", "m1");
+    ASSERT_TRUE(transport->wait_said("匹配「支付」的会话"));
+    EXPECT_TRUE(transport->said("1. 支付接口"));
+    EXPECT_FALSE(transport->said("登录页面"));
+    send("1", "/r 1", "m2");
+    EXPECT_EQ(bound("1"), "b-1");
+    send("1", "/sessions search 登录", "m3");
+    EXPECT_TRUE(transport->wait_said("1. 登录页面"));
+}
+
+// 场景:没有任何可翻页的输出时发送 /mr。
+// 期望:回复「没有可以翻页的内容」,不新建会话。
+TEST_F(ChannelRouter, MoreWithoutPagedOutput) {
+    send("1", "/mr", "m1");
+    EXPECT_TRUE(transport->wait_said("没有可以翻页的内容"));
+    EXPECT_TRUE(sessions.created_log().empty());
+}
+
+// 场景:会话里有 13 个技能,发送 /sk、/sk 关键词、/sk 9。
+// 期望:按名称排序分页列出(每行 /技能名 — 描述);关键词同时匹配名称和描述;页码越界时提示总页数。
+TEST_F(ChannelRouter, SkillsListPaginatesAndFilters) {
+    for (int i = 1; i <= 12; ++i) skills.push_back({"skill-" + two_digits(i), "描述 " + two_digits(i)});
+    skills.push_back({"review", "代码审查"});
+    send("1", "/new", "m0");
+    send("1", "/sk", "m1");
+    ASSERT_TRUE(transport->wait_said("可用技能"));
+    EXPECT_TRUE(transport->said("1. /review — 代码审查"));
+    EXPECT_TRUE(transport->said("第 1/2 页"));
+    send("1", "/sk 审查", "m2");
+    ASSERT_TRUE(transport->wait_said("匹配「审查」的技能"));
+    send("1", "/sk 9", "m3");
+    EXPECT_TRUE(transport->wait_said("只有 2 页"));
+}
+
+// 场景:先 @ref 列出可引用的会话,再发「对比@1和@2的结论」(中文常不加空格)。
+// 期望:当前会话不出现在可引用列表里;两个会话按列表编号被引用,交给模型的文本带上引用上下文,
+// 界面显示的文字把 @编号 换成会话标题,metadata.session_references 记录被引用的会话。
+TEST_F(ChannelRouter, RefMentionsExpandReferencedSessions) {
+    sessions.add_session("r-1", "C:/work/r", "hash-r", false, "需求讨论");
+    sessions.add_session("r-2", "C:/work/r", "hash-r", false, "接口设计");
+    send("1", "/new", "m0");
+    const auto current = bound("1");
+    send("1", "@ref", "m1");
+    ASSERT_TRUE(transport->wait_said("可引用的会话"));
+    EXPECT_TRUE(transport->said("1. 需求讨论"));
+    EXPECT_TRUE(transport->said("2. 接口设计"));
+    EXPECT_FALSE(transport->said("会话 " + current));
+    send("1", "对比@1和@2的结论", "m2");
+    ASSERT_EQ(referenced.size(), 1u);
+    ASSERT_EQ(referenced[0].size(), 2u);
+    EXPECT_EQ(referenced[0][0].session_id, "r-1");
+    EXPECT_EQ(referenced[0][1].session_id, "r-2");
+    const auto inputs = sessions.input_log();
+    ASSERT_EQ(inputs.size(), 1u);
+    const auto& input = inputs[0].second;
+    EXPECT_EQ(input.text, "[引用 2 个会话]\n对比@「需求讨论」和@「接口设计」的结论");
+    EXPECT_EQ(input.display_text, "对比@「需求讨论」和@「接口设计」的结论");
+    ASSERT_TRUE(input.metadata.contains("session_references"));
+    EXPECT_EQ(input.metadata["session_references"].size(), 2u);
+}
+
+// 场景:没发过 @ref 时消息里出现「@3 点开会」这类文字。
+// 期望:当作普通文字原样提交,不报错也不引用任何会话。
+TEST_F(ChannelRouter, RefMentionWithoutListingIsPlainText) {
+    sessions.add_session("r-1", "C:/work/r", "hash-r", false, "需求讨论");
+    send("1", "@3 点开会", "m1");
+    EXPECT_TRUE(referenced.empty());
+    const auto inputs = sessions.input_log();
+    ASSERT_EQ(inputs.size(), 1u);
+    EXPECT_EQ(inputs[0].second.text, "@3 点开会");
+}
+
+// 场景:@ref 列表只有 1 个会话,用户却写了 @9;以及一次引用超过 5 个会话。
+// 期望:回复说明原因,这条消息不提交给会话(避免模型拿到错误的上下文)。
+TEST_F(ChannelRouter, RefMentionOutOfRangeIsRejected) {
+    for (int i = 1; i <= 6; ++i)
+        sessions.add_session("r-" + std::to_string(i), "C:/work/r", "hash-r", false, "会话 " + two_digits(i));
+    send("1", "/new", "m0");
+    send("1", "@ref", "m1");
+    ASSERT_TRUE(transport->wait_said("可引用的会话"));
+    send("1", "看看 @9", "m2");
+    EXPECT_TRUE(transport->wait_said("没有第 9 个会话"));
+    send("1", "@1 @2 @3 @4 @5 @6 一起看", "m3");
+    EXPECT_TRUE(transport->wait_said("一次最多引用 5 个会话"));
+    EXPECT_TRUE(sessions.input_log().empty());
+    EXPECT_TRUE(referenced.empty());
+}
+
+// 场景:/l(/lsp)在 daemon 里执行,结果以会话系统消息同步发出。
+// 期望:系统消息作为命令回复发回 IM;请求带命令名与参数。
+TEST_F(ChannelRouter, BuiltinOutputIsRepliedFromSystemMessages) {
+    send("1", "/new", "m0");
+    sessions.builtin = [this](const std::string& id, const BuiltinCommandRequest&) {
+        sessions.system(id, "LSP: clangd connected", "lsp_status");
+        return BuiltinCommandResult{BuiltinCommandStatus::Accepted, "ok"};
+    };
+    send("1", "/l", "m1");
+    EXPECT_TRUE(transport->wait_said("LSP: clangd connected"));
+    ASSERT_EQ(sessions.builtins.size(), 1u);
+    EXPECT_EQ(sessions.builtins[0].second.name, "lsp");
+    send("1", "/sb off", "m2");
+    ASSERT_EQ(sessions.builtins.size(), 2u);
+    EXPECT_EQ(sessions.builtins[1].second.name, "sandbox");
+    EXPECT_EQ(sessions.builtins[1].second.args, "off");
+}
+
+// 场景:内置命令输出很长(例如 /me list 列出大量记忆)。
+// 期望:分页回复,第一页带页脚,/mr 看到后面的内容。
+TEST_F(ChannelRouter, LongBuiltinOutputIsPaged) {
+    send("1", "/new", "m0");
+    std::string long_text;
+    for (int i = 0; i < 300; ++i) long_text += "记忆条目 " + std::to_string(i) + "\n";
+    sessions.builtin = [this, long_text](const std::string& id, const BuiltinCommandRequest&) {
+        sessions.system(id, long_text, "memory_status");
+        return BuiltinCommandResult{BuiltinCommandStatus::Accepted, "ok"};
+    };
+    send("1", "/me list", "m1");
+    ASSERT_TRUE(transport->wait_said("记忆条目 0"));
+    EXPECT_TRUE(transport->said("发送 /mr 看下一页"));
+    EXPECT_FALSE(transport->said("记忆条目 299"));
+    for (int i = 0; i < 10 && !transport->said("记忆条目 299"); ++i) send("1", "/mr", "more-" + std::to_string(i));
+    EXPECT_TRUE(transport->wait_said("记忆条目 299"));
+}
+
+// 场景:/c 开始压缩(结果异步),之后会话先发「压缩中」再发「已压缩」(含很长的摘要),然后又自动压缩一次。
+// 期望:命令立刻回复已开始;只转发第一条完成通知,且用简短文字代替摘要原文。
+TEST_F(ChannelRouter, CompactRelaysCompletionOnce) {
+    send("1", "/new", "m0");
+    const auto id = bound("1");
+    sessions.builtin = [](const std::string&, const BuiltinCommandRequest&) {
+        return BuiltinCommandResult{BuiltinCommandStatus::Accepted, "queued"};
+    };
+    send("1", "/c", "m1");
+    ASSERT_TRUE(transport->wait_said("已开始压缩对话上下文"));
+    sessions.system(id, "Compacting conversation...", "context_compacting");
+    sessions.system(id, "很长的摘要正文", "context_compacted");
+    ASSERT_TRUE(transport->wait_said("已压缩对话上下文。"));
+    sessions.system(id, "第二次摘要", "context_compacted");
+    sessions.assistant(id, "后续回复");
+    ASSERT_TRUE(transport->wait_said("后续回复"));
+    int relayed = 0;
+    for (const auto& text : transport->texts()) relayed += text == "已压缩对话上下文。";
+    EXPECT_EQ(relayed, 1);
+    EXPECT_FALSE(transport->said("很长的摘要正文"));
+    EXPECT_FALSE(transport->said("Compacting conversation"));
+}
+
+// 场景:/g 设置目标(没有同步输出),/sw 收到当前 daemon 不支持的回复。
+// 期望:参数原样交给 daemon;无输出时给出简短确认;不支持时如实告知。
+TEST_F(ChannelRouter, BuiltinAcksAndUnsupportedCommands) {
+    send("1", "/new", "m0");
+    sessions.builtin = [](const std::string&, const BuiltinCommandRequest& request) {
+        if (request.name == "swarm") return BuiltinCommandResult{BuiltinCommandStatus::UnsupportedCommand, ""};
+        return BuiltinCommandResult{BuiltinCommandStatus::Accepted, "completed"};
+    };
+    send("1", "/g 修好登录", "m1");
+    EXPECT_TRUE(transport->wait_said("已更新线程目标"));
+    ASSERT_FALSE(sessions.builtins.empty());
+    EXPECT_EQ(sessions.builtins[0].second.args, "修好登录");
+    send("1", "/sw mesh", "m2");
+    EXPECT_TRUE(transport->wait_said("当前 ACECode 不支持 /swarm"));
+}
+
+// 场景:已授权的普通联系人发送 /me(全局记忆属于机主)。
+// 期望:拒绝且不调用 daemon。
+TEST_F(ChannelRouter, MemoryIsOwnerOnly) {
+    send("2", "你好", "m1");
+    send("2", "/me", "m2");
+    EXPECT_TRUE(transport->wait_said("只有机主可以管理记忆"));
+    EXPECT_TRUE(sessions.builtins.empty());
+}
+
+// 场景:会话空闲时发 /t 补充说明,随后会话开始执行一个回合时再发。
+// 期望:空闲时提示直接发消息;执行中按当前回合 id 加入补充说明,不新开回合。
+TEST_F(ChannelRouter, TurnSteersOnlyTheRunningTurn) {
+    send("1", "/new", "m0");
+    const auto id = bound("1");
+    send("1", "/t 先别改测试", "m1");
+    EXPECT_TRUE(transport->wait_said("当前没有正在执行的回合"));
+    EXPECT_TRUE(sessions.steers.empty());
+    sessions.set_active_turn(id, "turn-9");
+    send("1", "/t 先别改测试", "m2");
+    ASSERT_EQ(sessions.steers.size(), 1u);
+    EXPECT_EQ(sessions.steers[0].turn_id, "turn-9");
+    EXPECT_EQ(sessions.steers[0].input.text, "先别改测试");
+    EXPECT_TRUE(transport->wait_said("已把补充说明加入当前回合"));
+    EXPECT_TRUE(sessions.input_log().empty());
+}
+
+// 场景:/b 旁问。
+// 期望:在后台回答并发回 IM,不作为对话消息提交给会话。
+TEST_F(ChannelRouter, SideQuestionIsAnsweredInBackground) {
+    side = [](const std::string&, const std::string& question, SideChatCancellation&) {
+        SideQuestionResult result;
+        result.status = SideQuestionStatus::Ok;
+        result.question = question;
+        result.answer = "答案是 42";
+        return result;
+    };
+    send("1", "/new", "m0");
+    send("1", "/b 现在进度如何", "m1");
+    EXPECT_TRUE(transport->wait_said("答案是 42"));
+    EXPECT_TRUE(transport->said("旁问:现在进度如何"));
+    EXPECT_TRUE(sessions.input_log().empty());
+}
+
+// 场景:旁问还在等模型时,通道断开(用户在设置页取消连接)。
+// 期望:正在进行的旁问被取消,断开不会卡住等它答完,也不再往 IM 发回答。
+// 回归:旁问若在平台工作线程上同步执行,断开连接要等到模型返回(可能几十秒)。
+TEST_F(ChannelRouter, ShutdownCancelsRunningSideQuestion) {
+    std::atomic<bool> started{false};
+    side = [&started](const std::string&, const std::string&, SideChatCancellation& cancellation) {
+        started = true;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!cancellation.aborted.load() && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        SideQuestionResult result;
+        result.status = SideQuestionStatus::Ok;
+        result.answer = "不该出现的回答";
+        return result;
+    };
+    send("1", "/new", "m0");
+    send("1", "/b 慢问题", "m1");
+    ASSERT_TRUE(wait_until([&] { return started.load(); }));
+    const auto begin = std::chrono::steady_clock::now();
+    conversations->shutdown();
+    EXPECT_LT(std::chrono::steady_clock::now() - begin, std::chrono::seconds(3));
+    EXPECT_FALSE(transport->said("不该出现的回答"));
 }
 
 } // namespace

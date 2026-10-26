@@ -2,14 +2,20 @@
 
 // IM 内命令解析(纯逻辑)与中文提示文案(im-channels spec「IM 内命令」)。
 // 识别的命令不会作为对话内容提交给模型;不认识的 /xxx 照普通文本处理(可能是技能命令)。
+// 每个命令都有不超过两个字母的简写(/sessions = /s),简写与全名等价。
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace acecode::channels::core {
 
 enum class CommandKind {
-    None, Help, Status, Stop, New, Sessions, Resume, Model, Mode, Yolo, Effort, Approve, Deny, Question
+    None, Help, Status, Stop, New, Sessions, Resume, Model, Mode, Yolo, Effort, Approve, Deny, Question,
+    // 与 Desktop 输入框相同的命令
+    Compact, Init, Goal, Plan, Turn, Side, Lsp, Sandbox, Memory, Swarm,
+    // IM 专有:技能列表、翻页、可引用会话列表(@ref)
+    Skills, More, RefList
 };
 
 struct Command {
@@ -22,6 +28,20 @@ Command parse_command(const std::string& text);
 
 // 会话忙碌时能否立即执行;/new 与 /resume 需要先 /stop 或等待完成。
 bool runs_while_busy(CommandKind kind);
+
+// 日志与提示里用的全名(带斜杠,@ref 为 "@ref")。
+const char* command_name(CommandKind kind);
+// 与 Desktop 同名、交给 daemon 内置命令执行的命令名(不带斜杠);其它命令返回空。
+const char* builtin_command_name(CommandKind kind);
+
+// 消息正文里的会话引用「@编号」:@ 前不是 ASCII 字母数字(或 . _ - @),后面是 1–3 位数字,
+// 再往后不是 ASCII 字母数字。
+struct SessionRefMention {
+    std::size_t offset = 0;  // '@' 的字节位置
+    std::size_t length = 0;  // 含 '@'
+    std::size_t index = 0;   // 编号(1 起)
+};
+std::vector<SessionRefMention> find_session_ref_mentions(const std::string& text);
 
 namespace texts {
 

@@ -44,26 +44,6 @@ std::string read_file(const std::filesystem::path& path) {
     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 }
 
-const char* command_name(CommandKind kind) {
-    switch (kind) {
-        case CommandKind::Help: return "/help";
-        case CommandKind::Status: return "/status";
-        case CommandKind::Stop: return "/stop";
-        case CommandKind::New: return "/new";
-        case CommandKind::Sessions: return "/sessions";
-        case CommandKind::Resume: return "/resume";
-        case CommandKind::Model: return "/model";
-        case CommandKind::Mode: return "/mode";
-        case CommandKind::Yolo: return "/yolo";
-        case CommandKind::Effort: return "/effort";
-        case CommandKind::Approve: return "/approve";
-        case CommandKind::Deny: return "/deny";
-        case CommandKind::Question: return "/aq";
-        case CommandKind::None: break;
-    }
-    return "(text)";
-}
-
 std::string permission_label(const std::string& mode) {
     if (mode == "default") return "默认权限 (default)";
     if (mode == "auto" || mode == "accept-edits") return "自动模式 (auto)";
@@ -187,10 +167,12 @@ void Conversations::dispatch(const im::Inbound& inbound, bool owner) {
     switch (command.kind) {
         case CommandKind::Help: reply(inbound, texts::help(owner)); return;
         case CommandKind::Sessions: list_sessions(inbound, owner, command.argument); return;
+        case CommandKind::RefList: show_session_list(inbound, owner, command.argument, true); return;
+        case CommandKind::More: more(inbound, command.argument); return;
         case CommandKind::Resume: resume(inbound, owner, command.argument); return;
         case CommandKind::New: new_session(inbound); return;
         case CommandKind::None: submit(inbound); return;
-        default: handle_bound_command(inbound, command); return;
+        default: handle_bound_command(inbound, command, owner); return;
     }
 }
 
@@ -200,7 +182,7 @@ std::optional<SessionInfo> Conversations::session_info(const std::string& sessio
     return std::nullopt;
 }
 
-void Conversations::handle_bound_command(const im::Inbound& inbound, const Command& command) {
+void Conversations::handle_bound_command(const im::Inbound& inbound, const Command& command, bool owner) {
     const auto record = store_.binding(inbound.address.key());
     if (!record) {
         reply(inbound, texts::no_binding());
@@ -208,7 +190,19 @@ void Conversations::handle_bound_command(const im::Inbound& inbound, const Comma
     }
     const auto projection = ensure_projection(*record);
     const auto& id = record->session_id;
+    if (*builtin_command_name(command.kind)) {
+        // 全局记忆属于机主:其他联系人看不到也改不了。
+        if (command.kind == CommandKind::Memory && !owner) {
+            reply(inbound, "只有机主可以管理记忆。");
+            return;
+        }
+        run_builtin(inbound, id, projection, command);
+        return;
+    }
     switch (command.kind) {
+        case CommandKind::Turn: steer(inbound, id, command.argument); return;
+        case CommandKind::Side: ask_side(inbound, id, command.argument); return;
+        case CommandKind::Skills: list_skills(inbound, id, command.argument); return;
         case CommandKind::Stop:
             deps_.sessions->abort(id);
             reply(inbound, texts::stop_requested());
@@ -331,28 +325,7 @@ std::vector<rc::RcSessionTarget> Conversations::visible_sessions(const std::stri
 }
 
 void Conversations::list_sessions(const im::Inbound& inbound, bool owner, const std::string& argument) {
-    std::optional<std::string> query;
-    std::size_t limit = rc::kRcSessionRecentLimit;
-    std::string lowered = argument;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (lowered.rfind("search ", 0) == 0) {
-        query = argument.substr(7);
-        limit = rc::kRcSessionSearchLimit;
-    } else if (lowered == "more" || lowered == "all") {
-        limit = 50;
-    }
-    auto targets = visible_sessions(inbound.address.key(), owner, query);
-    if (targets.size() > limit) targets.resize(limit);
-    {
-        std::lock_guard<std::mutex> lock(mu_);
-        snapshots_[inbound.address.key()] = targets;
-    }
-    if (targets.empty()) {
-        reply(inbound, owner ? "没有可切换的会话。" : "你还没有通过这里创建过会话。");
-        return;
-    }
-    reply(inbound, rc::format_rc_session_listing(targets, "可切换的会话(发送 /resume <编号> 切换):"));
+    show_session_list(inbound, owner, argument, false);
 }
 
 void Conversations::resume(const im::Inbound& inbound, bool owner, const std::string& argument) {
@@ -370,20 +343,17 @@ void Conversations::resume(const im::Inbound& inbound, bool owner, const std::st
         std::vector<rc::RcSessionTarget> snapshot;
         {
             std::lock_guard<std::mutex> lock(mu_);
-            const auto it = snapshots_.find(key);
-            if (it != snapshots_.end()) snapshot = it->second;
+            const auto it = session_lists_.find(key);
+            if (it != session_lists_.end()) snapshot = it->second.targets;
         }
-        if (snapshot.empty()) {
-            snapshot = visible_sessions(key, owner, std::nullopt);
-            if (snapshot.size() > rc::kRcSessionRecentLimit) snapshot.resize(rc::kRcSessionRecentLimit);
-        }
+        if (snapshot.empty()) snapshot = build_session_list(key, owner, std::nullopt, false).targets;
         target = rc::select_rc_session_snapshot(snapshot, std::stoul(argument));
     } else {
         for (const auto& candidate : visible_sessions(key, true, std::nullopt))
             if (candidate.session_id == argument) target = candidate;
     }
     if (!target) {
-        reply(inbound, "没有找到这个会话。先发送 /sessions 查看可切换的会话。");
+        reply(inbound, "没有找到这个会话。先发送 /s 查看可切换的会话。");
         return;
     }
     if (!owner) {
@@ -537,6 +507,9 @@ void Conversations::submit(const im::Inbound& inbound) {
         }
     }
     if (text.empty() && files.empty()) return;
+    std::vector<rc::RcSessionTarget> referenced;
+    if (!resolve_session_mentions(inbound, session_id, text, referenced)) return;
+    const auto display = text;  // @编号 已换成会话标题
     if (!inbound.quote_text.empty())
         text = "[引用的消息]\n" + inbound.quote_text + "\n[引用结束]\n" + text;
 
@@ -554,6 +527,14 @@ void Conversations::submit(const im::Inbound& inbound) {
             UserInput interjection;
             interjection.text = text;
             interjection.metadata["channel"] = channel;
+            if (!referenced.empty()) {
+                const auto expanded = with_references(inbound, session_id, referenced, text);
+                if (!expanded) return;
+                interjection.text = expanded->text;
+                interjection.display_text = display;
+                interjection.metadata["session_references"] = expanded->meta;
+                interjection.metadata["display_text"] = display;
+            }
             const auto result = deps_.sessions->interject_question(session_id, *request_id, interjection);
             const auto outcome = result.accepted() ? QuestionResponseStatus::Accepted : QuestionResponseStatus::Closed;
             projection->emit_question_action(
@@ -568,6 +549,15 @@ void Conversations::submit(const im::Inbound& inbound) {
     input.text = deps_.expand_skill && !text.empty() && text[0] == '/' ? deps_.expand_skill(session_id, text) : text;
     input.display_text = inbound.text.empty() ? text : inbound.text;
     input.metadata["channel"] = channel;
+    if (!referenced.empty()) {
+        // 与 Web 相同:技能命令展开之后,再把被引用会话的上下文拼在前面。
+        const auto expanded = with_references(inbound, session_id, referenced, input.text);
+        if (!expanded) return;
+        input.text = expanded->text;
+        input.display_text = display;
+        input.metadata["session_references"] = expanded->meta;
+        input.metadata["display_text"] = display;
+    }
     if (!files.empty()) {
         const auto transport = transport_->get();
         if (!transport) throw std::runtime_error("通道未连接");
@@ -618,11 +608,14 @@ void Conversations::restore() {
 }
 
 void Conversations::shutdown() {
+    stop_tasks();
     std::map<std::string, std::shared_ptr<Projection>> projections;
     {
         std::lock_guard<std::mutex> lock(mu_);
         projections.swap(projections_);
-        snapshots_.clear();
+        session_lists_.clear();
+        ref_lists_.clear();
+        pagers_.clear();
     }
     for (auto& [key, projection] : projections) projection->stop();
 }

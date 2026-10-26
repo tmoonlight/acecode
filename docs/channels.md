@@ -148,20 +148,43 @@ binding and tells the previous chat. If a bound session was permanently deleted,
 the bot says so and suggests `/new` or `/sessions` instead of silently starting a
 new one.
 
+Every command has a short form of at most two letters (in parentheses); both
+spellings behave the same.
+
 | Command | Effect |
 | --- | --- |
-| `/help` | Commands available to the sender |
-| `/status` | Platform, session, location, model, permission mode, reasoning effort, busy state, pending approvals and questions |
-| `/stop` | Stop the current turn |
-| `/new` | New session in the bound session's workspace, or a no-workspace session |
-| `/sessions`, `/sessions more`, `/sessions search <text>` | Numbered list of sessions to switch to |
-| `/resume <number or session id>` | Switch the binding; numbers refer to the latest list |
-| `/model [name]` | List saved models, or switch the bound session's model from the next turn |
-| `/mode [default\|auto\|yolo]` | Show or change the bound session's permission mode: default, automatic, or full access (`accept-edits` is an alias for `auto`) |
-| `/yolo` | Switch directly to full access, skipping tool permission prompts and allowing pending permission requests |
-| `/effort [level\|default]` | Show current reasoning effort and supported levels, set a supported level, or restore the model preset with `default` |
-| `/approve <id>`, `/deny <id>` | Decide a permission request once |
+| `/help` (`/h`) | Commands available to the sender |
+| `/status` (`/st`) | Platform, session, location, model, permission mode, reasoning effort, busy state, pending approvals and questions |
+| `/stop` (`/x`) | Stop the current turn |
+| `/new` (`/n`) | New session in the bound session's workspace, or a no-workspace session |
+| `/sessions` (`/s`) `[keyword\|page]` | Numbered, paged list of sessions to switch to; a keyword searches (`search <text>` and `more` still work) |
+| `/resume` (`/r`) `<number or session id>` | Switch the binding; numbers refer to the latest list and continue across pages |
+| `@ref` (`@r`) `[keyword\|page]` | Numbered, paged list of sessions that can be referenced; then write `@<number>` in a message (up to 5) to attach that session's recent conversation, as with `@` in Desktop |
+| `/more` (`/mr`) `[page]` | Next (or given) page of the latest paged reply |
+| `/turn` (`/t`) `<text>` | Add guidance to the running turn without interrupting it |
+| `/btw` (`/b`, `/side`) `<question>` | Side question about the current context, answered in the background with read-only tools; nothing is added to the session |
+| `/compact` (`/c`) | Compact the conversation; the chat is told when it finishes |
+| `/init` (`/i`) | Analyze the project and write `AGENTS.md` |
+| `/goal` (`/g`) `[...]` | Same as Desktop `/goal` |
+| `/plan` (`/p`) `[task]` | Same as Desktop `/plan` |
+| `/swarm` (`/sw`) `[star\|mesh\|off]` | Show or switch swarm mode |
+| `/skills` (`/sk`) `[keyword\|page]` | Paged list of skills and project commands; send `/<name>` to use one |
+| `/model` (`/m`) `[name]` | List saved models, or switch the bound session's model from the next turn |
+| `/mode` (`/pm`) `[default\|auto\|yolo]` | Show or change the bound session's permission mode: default, automatic, or full access (`accept-edits` is an alias for `auto`) |
+| `/yolo` (`/y`) | Switch directly to full access, skipping tool permission prompts and allowing pending permission requests |
+| `/effort` (`/e`) `[level\|default]` | Show current reasoning effort and supported levels, set a supported level, or restore the model preset with `default` |
+| `/sandbox` (`/sb`) `[on\|off]` | Same as Desktop `/sandbox` |
+| `/memory` (`/me`) `[...]` | Same as Desktop `/memory`; owner only, because memory is global |
+| `/lsp` (`/l`) | Language server status |
+| `/approve` (`/a`) `<id>`, `/deny` (`/d`) `<id>` | Decide a permission request once |
 | `/aq ...` | Answer an AskUserQuestion, with the same syntax as `/rc` |
+
+Lists hold at most 10 rows and about 1800 bytes per message; long command
+output is split the same way, and `/more` pages through the latest one.
+`@<number>` only counts after `@ref` has been sent in that chat, so ordinary text
+such as "@3 meeting" is left alone. Desktop commands run in the daemon exactly
+as when typed in Desktop and their output is sent back as the reply; `/feedback`
+and `/remote-control` are Desktop-only.
 
 Commands are never sent to the model. While a session is busy `/new` and
 `/resume` are refused; other commands run at once and plain messages queue as

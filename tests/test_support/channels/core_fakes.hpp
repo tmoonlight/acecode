@@ -110,8 +110,21 @@ public:
         emit(id, SessionEventKind::QuestionClosed, {{"request_id", request_id}, {"reason", "interjected"}});
         return {TurnSteerStatus::Accepted, "turn-1", {}};
     }
-    BuiltinCommandResult execute_builtin_command(const std::string&, const BuiltinCommandRequest&) override {
-        return {};
+    // 内置命令:测试经 builtin 编排结果(可在其中同步 emit 系统消息,模拟真实会话的输出方式)。
+    BuiltinCommandResult execute_builtin_command(const std::string& id, const BuiltinCommandRequest& request) override {
+        std::function<BuiltinCommandResult(const std::string&, const BuiltinCommandRequest&)> handler;
+        {
+            std::lock_guard<std::mutex> lock(mu);
+            builtins.emplace_back(id, request);
+            handler = builtin;
+        }
+        return handler ? handler(id, request) : BuiltinCommandResult{};
+    }
+    TurnSteerResult steer_input(const std::string& id, const std::string& expected_turn_id,
+                                const UserInput& input) override {
+        std::lock_guard<std::mutex> lock(mu);
+        steers.push_back({id, expected_turn_id, input});
+        return {steer_status, expected_turn_id, steer_status == TurnSteerStatus::Accepted ? "" : "steer refused"};
     }
     void respond_permission(const std::string& id, const PermissionDecision& decision) override {
         {
@@ -152,6 +165,17 @@ public:
     }
     void assistant(const std::string& id, const std::string& text) {
         emit(id, SessionEventKind::Message, {{"role", "assistant"}, {"content", text}});
+    }
+    // 会话系统消息(内置命令的结果、压缩完成等),code 写进 metadata.system_notice。
+    void system(const std::string& id, const std::string& text, const std::string& code = {}) {
+        nlohmann::json metadata = nlohmann::json::object();
+        if (!code.empty()) metadata["system_notice"] = {{"version", 1}, {"code", code}};
+        emit(id, SessionEventKind::Message, {{"role", "system"}, {"content", text}, {"metadata", metadata}});
+    }
+    void set_active_turn(const std::string& id, const std::string& turn_id) {
+        std::lock_guard<std::mutex> lock(mu);
+        sessions[id].busy = !turn_id.empty();
+        sessions[id].active_turn_id = turn_id;
     }
     void add_session(const std::string& id, const std::string& cwd, const std::string& workspace_hash,
                      bool no_workspace, const std::string& title) {
@@ -218,6 +242,15 @@ public:
     std::vector<std::pair<std::string, UserInput>> inputs;
     std::vector<Interjection> interjections;
     std::vector<std::pair<std::string, PermissionDecision>> decisions;
+    std::function<BuiltinCommandResult(const std::string&, const BuiltinCommandRequest&)> builtin;
+    std::vector<std::pair<std::string, BuiltinCommandRequest>> builtins;
+    struct Steer {
+        std::string session_id;
+        std::string turn_id;
+        UserInput input;
+    };
+    std::vector<Steer> steers;
+    TurnSteerStatus steer_status = TurnSteerStatus::Accepted;
     std::map<std::string, std::map<SubscriptionId, EventListener>> listeners;
 };
 

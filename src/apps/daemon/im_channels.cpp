@@ -5,14 +5,19 @@
 #include "platform/process/os_process.hpp"
 #include "utils/logger.hpp"
 #include "remote_control/session_channel_binder.hpp"
+#include "session/session_history_page.hpp"
+#include "session/session_storage.hpp"
 #include "session_host/session_registry.hpp"
+#include "skills/opencode_command.hpp"
 #include "skills/skill_command_expander.hpp"
 #include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 #include "web/handlers/models_handler.hpp"
 #include "web/handlers/opencode_command_expander.hpp"
+#include "web/session_reference_context.hpp"
 
 #include <mutex>
+#include <set>
 
 namespace acecode::daemon {
 
@@ -91,6 +96,66 @@ std::unique_ptr<channels::core::ChannelHost> make_im_channel_host(ImChannelDeps 
             if (skill.expanded) return skill.text;
         }
         return text;
+    };
+    conversation.side_question = [registry](const std::string& id, const std::string& question,
+                                            SideChatCancellation& cancellation) {
+        // 与 Desktop 侧边对话同一个只读工具循环;IM 不需要流式进度。
+        return registry->stream_side_chat(id, question, {}, cancellation, {}, {}).response;
+    };
+    conversation.list_skills = [config, config_mu, registry](const std::string& id) {
+        std::vector<channels::core::SkillListing> listing;
+        std::set<std::string> seen;
+        if (auto skills = registry->skill_registry_snapshot(id)) {
+            for (const auto& skill : skills->list())
+                if (seen.insert(skill.name).second) listing.push_back({skill.name, skill.description});
+        }
+        // 项目命令与技能一样以 /名称 调用(Desktop 下拉里也列在一起)。
+        if (auto entry = registry->acquire(id); entry && !entry->no_workspace && !entry->cwd.empty()) {
+            AppConfig snapshot;
+            {
+                std::shared_lock<std::shared_mutex> lock(*config_mu);
+                snapshot = *config;
+            }
+            for (const auto& command : load_opencode_commands(snapshot, entry->cwd))
+                if (!is_web_reserved_builtin_command(command.name) && seen.insert(command.name).second)
+                    listing.push_back({command.name, command.description});
+        }
+        return listing;
+    };
+    conversation.reference_sessions =
+        [](const std::string& current_id, const std::vector<rc::RcSessionTarget>& targets, const std::string& text,
+           std::string* error) -> std::optional<channels::core::SessionReferenceExpansion> {
+        std::vector<web::ResolvedSessionReference> resolved;
+        for (const auto& target : targets) {
+            if (target.session_id == current_id) continue;
+            web::ResolvedSessionReference item;
+            item.descriptor.session_id = target.session_id;
+            item.descriptor.no_workspace = target.no_workspace;
+            item.descriptor.workspace_hash = target.no_workspace ? std::string{} : target.workspace_hash;
+            item.descriptor.title = target.title.empty() ? target.summary : target.title;
+            item.descriptor.workspace_name = target.no_workspace ? std::string("Task") : target.workspace_label;
+            try {
+                // 只读最近一页:拼进提示词的部分本来就有上限(每个会话 24 KiB),不必整份读入大会话。
+                const auto files = SessionStorage::find_session_files(SessionStorage::get_project_dir(target.cwd),
+                                                                      target.session_id);
+                if (!files.empty()) {
+                    SessionHistoryRequest request;
+                    request.limit = kHistoryDefaultLimit;
+                    for (auto& row : load_session_history_page(files.front().jsonl_path, request).messages)
+                        item.messages.push_back(std::move(row.message));
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("[channels] cannot read referenced session " + target.session_id + ": " + e.what());
+                if (error) *error = "读取会话「" + item.descriptor.title + "」失败";
+                return std::nullopt;
+            }
+            resolved.push_back(std::move(item));
+        }
+        const auto context = web::build_session_reference_prompt_context(resolved);
+        channels::core::SessionReferenceExpansion expansion;
+        expansion.text = web::build_session_reference_augmented_prompt(context, text);
+        expansion.meta = context.meta;
+        return expansion;
     };
     conversation.set_delegate = [registry](const std::string& id, const ChannelDelegate& delegate) {
         if (auto entry = registry->acquire(id); entry && entry->sm) entry->sm->set_channel_delegate(delegate);
