@@ -233,6 +233,7 @@ test('未置顶会话目标显示会话动作', () => {
       sessionId: 's1',
       title: 'T',
       sessionPath: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+      workspacePath: 'C:/repo',
       pinned: false,
       canArchive: true,
     },
@@ -249,16 +250,44 @@ test('未置顶会话目标显示会话动作', () => {
   ]);
   assert.deepEqual(
     items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER).target,
-    { path: 'C:/Users/test/.acecode/projects/hash/s1.jsonl', kind: 'file' },
+    { path: 'C:/repo', kind: 'workspace' },
   );
 });
 
-test('尚未落盘的会话保留禁用的资源管理器动作', () => {
+test('尚未落盘的会话仍可打开所属工作区', () => {
   const explorer = buildDesktopContextMenuItems({
-    sessionTarget: { sessionId: 's1', title: 'T', sessionPath: '' },
+    sessionTarget: { sessionId: 's1', title: 'T', workspacePath: 'C:/repo', sessionPath: '' },
   }).find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER);
-  assert.equal(explorer.enabled, false);
-  assert.deepEqual(explorer.target, { path: '', kind: 'file' });
+  assert.equal(explorer.enabled, true);
+  assert.deepEqual(explorer.target, { path: 'C:/repo', kind: 'workspace' });
+});
+
+test('无工作区或缺失工作区路径不回退到 JSONL 存储目录', () => {
+  for (const scope of [{}, { workspacePath: '' }, { noWorkspace: true, workspacePath: 'C:/stale' }]) {
+    const explorer = buildDesktopContextMenuItems({
+      sessionTarget: {
+        sessionId: 's1',
+        sessionPath: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+        ...scope,
+      },
+    }).find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER);
+    assert.equal(explorer.enabled, false);
+    assert.deepEqual(explorer.target, { path: '', kind: 'workspace' });
+  }
+});
+
+test('会话菜单只使用所属工作区，不使用 worktree 执行目录', () => {
+  const explorer = buildDesktopContextMenuItems({
+    sessionTarget: {
+      sessionId: 's1',
+      workspacePath: 'N:/项目/原工作区',
+      working_cwd: 'N:/worktrees/task',
+      worktree: { path: 'N:/worktrees/task' },
+      sessionPath: 'N:/Users/test/.acecode/projects/hash/s1.jsonl',
+    },
+  }).find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER);
+  assert.equal(explorer.enabled, true);
+  assert.deepEqual(explorer.target, { path: 'N:/项目/原工作区', kind: 'workspace' });
 });
 
 test('descriptor metadata includes label keys, disabled states, and scoped confirmations', () => {
@@ -742,12 +771,13 @@ test('右键目标显式保留无工作区任务身份', () => {
   assert.equal(pin.target.workspaceHash, '');
 });
 
-test('右键目标提取 session JSONL path', () => {
+test('右键目标区分会话工作区目录与 JSONL 路径', () => {
   const element = elementFor(SESSION_PIN_TARGET_SELECTOR, {
     'data-desktop-session-id': 's1',
     'data-desktop-session-workspace': 'w1',
     'data-desktop-session-title': 'Session 1',
     'data-desktop-session-path': 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+    'data-desktop-session-workspace-path': 'C:/repo',
     'data-desktop-session-pinned': 'false',
     'data-desktop-session-unread': 'true',
     'data-desktop-session-archive': 'true',
@@ -759,6 +789,7 @@ test('右键目标提取 session JSONL path', () => {
     noWorkspace: false,
     title: 'Session 1',
     sessionPath: 'C:/Users/test/.acecode/projects/hash/s1.jsonl',
+    workspacePath: 'C:/repo',
     pinned: false,
     unread: true,
     canArchive: true,

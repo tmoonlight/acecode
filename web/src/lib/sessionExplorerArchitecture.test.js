@@ -15,12 +15,12 @@ function test(name, fn) {
   }
 }
 
-test('所有共享会话右键入口都携带规范 JSONL 路径', () => {
+test('所有共享会话右键入口都携带所属工作区目录并排除无工作区会话', () => {
   const sidebar = source('../components/Sidebar.jsx');
   const chatView = source('../components/ChatView.jsx');
   const miniSession = source('../components/MiniSession.jsx');
 
-  assert.match(sidebar, /data-desktop-session-path=\{sessionPath \|\| undefined\}/);
-  assert.match(chatView, /data-desktop-session-path=\{sessionPath \|\| undefined\}/);
-  assert.match(miniSession, /data-desktop-session-path=\{sessionPath \|\| undefined\}/);
+  assert.match(sidebar, /data-desktop-session-workspace-path=\{noWorkspace \? undefined : s\.cwd \|\| undefined\}/);
+  assert.match(chatView, /data-desktop-session-workspace-path=\{sessionIsNoWorkspace \? undefined : ref\?\.cwd \|\| undefined\}/);
+  assert.match(miniSession, /data-desktop-session-workspace-path=\{noWorkspace \? undefined : session\.cwd \|\| undefined\}/);
 });

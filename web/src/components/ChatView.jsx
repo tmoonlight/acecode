@@ -6240,6 +6240,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               type="button"
               data-desktop-session-id={readOnlyExternalSession ? undefined : sid || undefined}
               data-desktop-session-workspace={sessionWorkspaceHash || undefined}
+              data-desktop-session-workspace-path={sessionIsNoWorkspace ? undefined : ref?.cwd || undefined}
+              data-desktop-session-no-workspace={sessionIsNoWorkspace ? 'true' : undefined}
               data-desktop-session-path={sessionPath || undefined}
               data-desktop-session-pinned={sessionPinned ? 'true' : 'false'}
               data-desktop-session-title={title || undefined}
