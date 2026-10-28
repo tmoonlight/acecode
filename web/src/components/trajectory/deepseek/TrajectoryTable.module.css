@@ -1843,3 +1843,325 @@
     );
   }
 }
+
+/* Upstream inspector additions; retain ACECode theme and WebView fallbacks above. */
+.eventColumn:where(:lang(zh)) {
+  width: 84px;
+}
+
+.kindSlot:where(:lang(zh)) {
+  width: 44px;
+}
+
+@supports (mask-image: linear-gradient(#000, transparent)) {
+  .overviewPreview[data-scroll-more] { mask-image: linear-gradient(to bottom, #000 calc(100% - 12px), transparent); }
+}
+
+.programDescription {
+  flex: none;
+  margin: 0;
+  padding: 8px 14px 2px;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.programIcon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.programSummary {
+  margin-left: 5px;
+  font-family: var(--dsw-font-family);
+}
+
+.detailBodyProgram,
+.programPanel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.programPanel {
+  flex: 1;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.programActions {
+  display: inline-flex;
+  flex: none;
+  height: 16px;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding-right: 14px;
+}
+
+.programLanguage {
+  padding-right: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font: 11px/16px var(--ds-font-family-code);
+}
+
+.programAction {
+  display: inline-flex;
+  box-sizing: border-box;
+  width: 20px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.programAction:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.programAction[aria-pressed='true'] {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.programAction[data-state='failed'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.programAction:focus-visible {
+  outline: 1px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -1px;
+}
+
+.programContent {
+  min-width: 0;
+  min-height: 0;
+}
+
+.programPanel > .programContent {
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.programSource {
+  margin: 0 !important;
+  border-radius: 0;
+  background: var(--dsw-alias-bg-layer-1);
+  --dsl-code-block-line-white-space: pre;
+}
+
+.programSource :where(pre) {
+  padding: 2px 14px 8px;
+  overflow: visible;
+  border-radius: 0;
+  background: var(--dsw-alias-bg-layer-1) !important;
+  font: 12px/16px var(--ds-font-family-code);
+  overflow-wrap: normal;
+  word-break: normal;
+  tab-size: 2;
+}
+
+.programSource pre code > :global(.line) {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+}
+
+.programContent[data-wrap='true'] .programSource {
+  --dsl-code-block-line-white-space: pre-wrap;
+}
+
+.programContent[data-wrap='true'] .programSource pre code > :global(.line) {
+  width: auto;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.programOutput {
+  margin: 0;
+  padding: 2px 14px 8px;
+  color: var(--dsw-alias-label-primary);
+  font: 12px/16px var(--ds-font-family-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.programError::first-line {
+  color: var(--dsw-alias-state-error-primary);
+  font-weight: 600;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']),
+.markdownPayload > div:not([data-markdown-variant='compact']) {
+  gap: 8px;
+  font: var(--dsw-font-xs-13);
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) h1,
+.markdownPayload > div:not([data-markdown-variant='compact']) h1 {
+  font: 600 16px/22px var(--dsw-font-family);
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) h2,
+.markdownPayload > div:not([data-markdown-variant='compact']) h2 {
+  font: 600 15px/22px var(--dsw-font-family);
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) :where(h3, h4, h5, h6),
+.markdownPayload > div:not([data-markdown-variant='compact']) :where(h3, h4, h5, h6) {
+  font: 600 14px/20px var(--dsw-font-family);
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) :not(pre) > code,
+.markdownPayload > div:not([data-markdown-variant='compact']) :not(pre) > code {
+  font: 12px/18px var(--ds-font-family-code);
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) table,
+.markdownPayload > div:not([data-markdown-variant='compact']) table {
+  font: var(--dsw-font-xs-13);
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) > :first-child {
+  margin-top: 0;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) > :last-child {
+  margin-bottom: 0;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) :where(h1, h2, h3) {
+  margin: 12px 0 6px;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) :where(h4, h5, h6) {
+  margin: 10px 0 5px;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) :where(p, ul, ol) {
+  margin: 8px 0;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) li:not(:first-child) {
+  margin-top: 3px;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) blockquote {
+  margin-top: 8px;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) hr {
+  margin: 14px 0;
+}
+
+.markdownPreview > div:not([data-markdown-variant='compact']) > :global(.md-code-block) {
+  margin: 10px 0;
+}
+
+.attachments {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 14px 14px;
+  padding: 0;
+  gap: 8px;
+  list-style: none;
+}
+
+.attachmentsPreview {
+  margin-block: 6px 8px;
+  gap: 6px;
+}
+
+.attachmentRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  gap: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+}
+
+.attachmentIcon {
+  display: grid;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+}
+
+.attachmentInfo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  gap: 3px;
+}
+
+.attachmentName {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentMetadata {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachmentDisclosure {
+  margin-block: 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md, 6px);
+}
+
+.attachmentDisclosure > summary {
+  padding: 8px;
+  cursor: pointer;
+}
+
+.attachmentDisclosure > summary .attachmentName {
+  display: block;
+}
+
+.attachmentDisclosure > summary:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 2px;
+}
+
+.attachmentDisclosure > pre {
+  padding: 0 8px 8px;
+}
+
+.toolUpdatePayload {
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.compactMarkdown > div {
+  --dsw-font-markdown-base: 13px/20px var(--dsw-font-family);
+  --dsw-font-markdown-base-strong: 600 13px/20px var(--dsw-font-family);
+  --dsw-font-markdown-h1: 600 13px/20px var(--dsw-font-family);
+  --dsw-font-markdown-h2: 600 13px/20px var(--dsw-font-family);
+  --dsw-font-markdown-h3: 600 13px/20px var(--dsw-font-family);
+  --dsw-font-markdown-h4: 600 13px/20px var(--dsw-font-family);
+  font: 13px/20px var(--dsw-font-family);
+}
+.compactMarkdown :where(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6) { margin-block: 4px; }
+.markdownPreview .compactMarkdown :where(h1, h2, h3, h4, h5, h6),
+.markdownPayload .compactMarkdown :where(h1, h2, h3, h4, h5, h6) { font: 600 13px/20px var(--dsw-font-family); }
+.attachmentThumbnail { display: flex; flex: 0 0 48px; width: 48px; height: 48px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.attachmentThumbnail img { width: 100%; height: 100%; object-fit: contain; }
+.loadingDot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--dsw-alias-state-business-primary); }

@@ -1,4 +1,5 @@
 import './desktopOffice.test.js';
+import './trajectoryInspection.test.js';
 import './automaticUpdates.test.js';
 import './upgradeSettings.test.js';
 import './officeCharacters.test.js';

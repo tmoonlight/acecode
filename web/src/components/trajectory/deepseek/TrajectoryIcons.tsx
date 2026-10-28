@@ -33,3 +33,16 @@ export const IconUserOutline16 = ({ size = 16, className }: IconProps) => (
 export const IconSparkle16 = ({ size = 16, className }: IconProps) => (
   <VsIcon name="Sparkle" size={size} className={className} />
 )
+
+export const IconCheckOutlineRegular = IconCheckOutline16
+export const IconChevronRightOutlineRegular = IconChevronRightOutline14
+export const IconCopyOutlineRegular = IconCopyOutline16
+export const IconSettingsOutlineRegular = IconSettingsOutline16
+export const IconUserOutlineRegular = IconUserOutline16
+export const IconSparkleRegular = IconSparkle16
+export const IconCodeOutlineRegular = ({ size = 16, className }: IconProps) => (
+  <VsIcon name="code" size={size} className={className} />
+)
+export const IconWrapLinesOutlineRegular = ({ size = 16, className }: IconProps) => (
+  <VsIcon name="wordWrap" size={size} className={className} />
+)

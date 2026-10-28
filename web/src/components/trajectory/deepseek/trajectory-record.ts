@@ -1,6 +1,8 @@
 /** Shared trajectory record data and formatting contracts. */
 
 import type { HTMLAttributes } from 'react'
+import type { TrajectoryAttachment } from './trajectory-attachments.ts'
+import { trajectoryEnglish, type TrajectoryTranslate } from './locales.ts'
 
 export interface ConversationPromptSnapshot {
   system: string
@@ -38,6 +40,8 @@ export interface TrajectorySourceBlock {
   content: string
   imageSrc?: string
   imageAlt?: string
+  attachment?: TrajectoryAttachment
+  file?: TrajectoryAttachment
   callId?: string
   toolName?: string
 }
@@ -66,6 +70,7 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   inputDetail?: string
   /** Complete system-prompt/tool-catalog state introduced by a SYSTEM record. */
   promptDetail?: ConversationPromptSnapshot
+  systemPromptDetail?: string
   /** System-prompt/tool-catalog state replaced by a SYSTEM update. */
   previousPromptDetail?: ConversationPromptSnapshot
   /** Full assistant/tool result content for the details panel. */
@@ -86,6 +91,7 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   resultPreviewMarkdown?: string
   /** Tool call id used to link message source blocks to tool records. */
   callId?: string
+  toolName?: string
   /** Tool-only result failure state. */
   isError?: boolean
   /** Own duration in seconds, or `null` when no duration is known. */
@@ -123,10 +129,10 @@ export function trajectoryRecordId(cell: TrajectoryCellProps): string {
  * @param milliseconds - Duration in milliseconds, or `null` when absent.
  * @returns `—` when unknown, otherwise an integer-millisecond label.
  */
-export function formatDurationMillis(milliseconds: number | null): string {
+export function formatDurationMillis(milliseconds: number | null, t: TrajectoryTranslate = trajectoryEnglish): string {
   if (milliseconds === null || !Number.isFinite(milliseconds)) return '—'
   const integer = String(Math.round(milliseconds))
-  return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} ms`
+  return t('unit.milliseconds', { value: integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',') })
 }
 
 /**
@@ -134,6 +140,6 @@ export function formatDurationMillis(milliseconds: number | null): string {
  * @param seconds - Duration seconds, or `null` when absent.
  * @returns `—` when unknown, otherwise an integer-millisecond label.
  */
-export function formatElapsedSeconds(seconds: number | null): string {
-  return formatDurationMillis(seconds === null ? null : seconds * 1000)
+export function formatElapsedSeconds(seconds: number | null, t: TrajectoryTranslate = trajectoryEnglish): string {
+  return formatDurationMillis(seconds === null ? null : seconds * 1000, t)
 }

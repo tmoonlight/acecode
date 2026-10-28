@@ -390,6 +390,7 @@ run('live reasoning and text resolve to DeepSeek partial without rebuilding dura
   assert.deepEqual(partial, {
     turn: 1,
     step: 1,
+    timing: { stepStartTime: 1010, firstTokenTime: null },
     blocks: [
       { kind: 'reasoning', text: 'checking' },
       { kind: 'text', text: 'answering' },
@@ -466,7 +467,9 @@ run('aborted partial content becomes DeepSeek interrupted assistant evidence', (
   assert.equal(assistant.seq, 5.1);
   assert.equal(assistant.time, 1030);
   assert.equal(projection.requests[0].status, 'error');
-  assert.equal('resultSeq' in projection.requests[0], false);
+  assert.equal(projection.requests[0].resultSeq, assistant.seq);
+  assert.equal(projection.turns[0].groups.flatMap(group => group.cells)
+    .find(cell => cell.kind === 'message' && !cell.requestOnly).isError, true);
 });
 
 run('retry responses remain failed request runs instead of completed runs', () => {

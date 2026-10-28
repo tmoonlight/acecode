@@ -4,8 +4,9 @@
 // plain fallback for everything else. Chrome (language banner + copy) matches
 // deepsuite `@deepseek/md` code blocks; token colors stay on `--shiki-*`.
 
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
+import type { CSSProperties } from 'react'
 import { writeClipboard } from '../clipboard.ts'
 import { grammarLoadCount, highlightToHtml, subscribeGrammarLoaded } from './highlight.ts'
 import css from './CodeBlock.module.css'
@@ -17,14 +18,17 @@ export interface CodeBlockProps {
   lang?: string | undefined
   /** Extra class merged onto the wrapper (callers position; this component draws). */
   className?: string | undefined
+  lineNumbers?: boolean
+  showHeader?: boolean
   /** Copy-button idle label; the owner passes localized copy (this package is cordis-free, so copy arrives via props). */
   copyLabel?: string | undefined
   /** Copy-button label during the post-copy confirmation window. */
   copiedLabel?: string | undefined
 }
 
-export function CodeBlock({ code, lang, className, copyLabel = '复制', copiedLabel = '复制成功' }: CodeBlockProps) {
+export function CodeBlock({ code, lang, className, lineNumbers = false, showHeader = true, copyLabel = '复制', copiedLabel = '复制成功' }: CodeBlockProps) {
   const trimmed = code.endsWith('\n') ? code.slice(0, -1) : code
+  const sourceLines = lineNumbers ? trimmed.split('\n') : undefined
   // Re-render when a lazy grammar finishes loading, so a fence that showed plain
   // text while its language's grammar imported picks up highlighting. The
   // snapshot value is opaque; only its change across renders drives the memo.
@@ -47,7 +51,9 @@ export function CodeBlock({ code, lang, className, copyLabel = '复制', copiedL
 
   const body = html === undefined
     ? (
-      <pre className={css.plain}><code>{trimmed}</code></pre>
+      <pre className={css.plain}><code>{sourceLines === undefined ? trimmed : sourceLines.map((line, index) => (
+        <Fragment key={index}>{index > 0 && '\n'}<span className="line">{line}</span></Fragment>
+      ))}</code></pre>
     )
     : (
   // shiki's output is a static span tree it generated from `code` (no user
@@ -57,8 +63,9 @@ export function CodeBlock({ code, lang, className, copyLabel = '复制', copiedL
     )
 
   return (
-    <div ref={rootRef} className={clsx(css.block, 'md-code-block', className)}>
-      <div className={css.bannerWrap}>
+    <div ref={rootRef} className={clsx(css.block, lineNumbers && css.numbered, 'md-code-block', className)}
+      style={lineNumbers ? { '--dsl-code-block-line-number-width': `${String(sourceLines?.length ?? 1).length}ch` } as CSSProperties : undefined}>
+      {showHeader && <div className={css.bannerWrap}>
         <div className={css.banner}>
           <div className={css.infostring}>{lang ?? ''}</div>
           <div className={css.action}>
@@ -67,7 +74,7 @@ export function CodeBlock({ code, lang, className, copyLabel = '复制', copiedL
             </button>
           </div>
         </div>
-      </div>
+      </div>}
       {body}
     </div>
   )

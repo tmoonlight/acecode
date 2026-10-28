@@ -10,6 +10,7 @@ import {
   resolveDeepSeekTrajectoryPartial,
   trajectoryRecordKey,
 } from '../../lib/trajectoryModel.js';
+import { trajectoryHistoryWindow, TRAJECTORY_HISTORY_PAGE_NODES } from '../../lib/trajectoryHistoryWindow.js';
 import { TrajectorySearchIndex } from './deepseek/trajectory-search-index.ts';
 import { trajectoryRecordId } from './deepseek/trajectory-record.ts';
 import { TrajectoryTable } from './deepseek/TrajectoryTable.tsx';
@@ -112,6 +113,8 @@ export function TrajectoryView({
   const previousBusyRef = useRef(busy);
   const pollRef = useRef(null);
   const loadOlderRef = useRef(() => Promise.resolve(false));
+  const [historyTailSeq, setHistoryTailSeq] = useState(undefined);
+  const [historyNodeLimit, setHistoryNodeLimit] = useState(TRAJECTORY_HISTORY_PAGE_NODES);
 
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -135,6 +138,8 @@ export function TrajectoryView({
     setTimelineSelection(null);
     setSearchQuery('');
     setSelectedTimelineIndex(null);
+    setHistoryTailSeq(undefined);
+    setHistoryNodeLimit(TRAJECTORY_HISTORY_PAGE_NODES);
     setTimelineRecordSelection(null);
     setTimelineRecordFocus(null);
 
@@ -280,16 +285,31 @@ export function TrajectoryView({
     if (changed && active && api && sessionId) pollRef.current?.('poll');
   }, [active, api, busy, sessionId]);
 
-  const projection = useMemo(() => buildDeepSeekTrajectory(records), [records]);
-  const {
-    nodes, inputTurns, runningCalls, requests, callSchemas,
-  } = projection;
+  const projection = useMemo(() => buildDeepSeekTrajectory(records, { includeLayout: false }), [records]);
+  const historyWindow = useMemo(() => trajectoryHistoryWindow(
+    projection.nodes, projection.requests, historyTailSeq, historyNodeLimit,
+  ), [projection, historyTailSeq, historyNodeLimit]);
+  const { nodes, requests } = historyWindow;
+  const { inputTurns, runningCalls, callSchemas } = projection;
+  const hasEarlierHistory = historyWindow.startIndex > 0 || hasOlderRecords;
+  useEffect(() => { setHistoryTailSeq(historyWindow.tailSeq); }, [historyWindow.tailSeq]);
+  useEffect(() => {
+    if (!inspectCallId || historyWindow.startIndex === 0) return;
+    const index = projection.nodes.findIndex(node => node.kind === 'assistant'
+      ? node.blocks.some(block => block.kind === 'tool-call' && block.callId === inspectCallId)
+      : node.kind === 'tool-result' && node.callId === inspectCallId);
+    if (index >= 0 && index < historyWindow.startIndex) {
+      setHistoryNodeLimit(limit => limit + historyWindow.startIndex - index);
+    }
+  }, [inspectCallId, projection.nodes, historyWindow.startIndex]);
   const partial = useMemo(
     () => resolveDeepSeekTrajectoryPartial(projection, livePartial),
     [livePartial, projection],
   );
   const partialTurn = partial?.turn ?? null;
   const partialStep = partial?.step ?? null;
+  const partialStartedAt = partial?.timing?.stepStartTime ?? null;
+  const partialFirstTokenAt = partial?.timing?.firstTokenTime ?? null;
   const finalized = useMemo(() => {
     const turns = deriveTrajectoryLayout({
       nodes,
@@ -309,8 +329,9 @@ export function TrajectoryView({
     : {
         turn: partial.turn,
         step: partial.step,
+        timing: { stepStartTime: partialStartedAt, firstTokenTime: partialFirstTokenAt },
         blocks: partial.blocks.map((block) => timelineBlock(block)),
-      }), [partialStep, partialTurn, timelinePartialSignature]);
+      }), [partialStep, partialTurn, partialStartedAt, partialFirstTokenAt, timelinePartialSignature]);
   const timelineTurns = useMemo(
     () => appendTrajectoryPartialLayout(finalized.turns, timelinePartial, finalized.lastIndex),
     [finalized, timelinePartial],
@@ -380,8 +401,15 @@ export function TrajectoryView({
     [timelineMode, timelineSelection, timelineTurns],
   );
   const loadEarlierHistory = useCallback(
-    () => loadOlderRef.current(),
-    [],
+    () => {
+      if (historyWindow.startIndex > 0) {
+        setHistoryNodeLimit(limit => limit + TRAJECTORY_HISTORY_PAGE_NODES);
+        return Promise.resolve(true);
+      }
+      setHistoryNodeLimit(limit => limit + TRAJECTORY_HISTORY_PAGE_NODES);
+      return loadOlderRef.current();
+    },
+    [historyWindow.startIndex],
   );
 
   const collapsibleTurnIds = useMemo(
@@ -476,7 +504,7 @@ export function TrajectoryView({
         turns={timelineTurns}
         mode={timelineMode}
         range={timelineSelection}
-        hasEarlierRecords={hasOlderRecords}
+        hasEarlierRecords={hasEarlierHistory}
         onLoadEarlier={loadEarlierHistory}
         selectedIndex={selectedTimelineIndex}
         searchMatchIndexes={searchMatchIndexes}
@@ -505,8 +533,8 @@ export function TrajectoryView({
           recordFocus={timelineRecordFocus}
           historyLoading={historyLoading}
           olderHistoryLoading={olderHistoryLoading}
-          historyStartSeq={projection.historyStartSeq}
-          hasOlderRecords={hasOlderRecords}
+          historyStartSeq={nodes[0]?.seq ?? projection.historyStartSeq}
+          hasOlderRecords={hasEarlierHistory}
           onLoadOlder={loadEarlierHistory}
           onClearSelection={() => setTimelineSelection(null)}
           collapsedTurns={collapsedTurns}

@@ -90,6 +90,8 @@ function makeStep(number, order) {
     tools: [],
     toolByKey: new Map(),
     retries: [],
+    lastAttemptError: undefined,
+    ended: null,
   };
 }
 
@@ -517,8 +519,16 @@ function promptChange(previous, current, seq, time) {
 function normalizedRequestStatus(step) {
   const responseStatus = String(step.response?.payload?.status || '');
   const finishReason = String(step.finish?.payload?.reason || '');
+  // A provider attempt can fail while the same request is still retrying.
+  // A rejected/finished model step remains a failed historical request.
+  if (!step.finish && !step.ended && step.retries.length > 0
+      && (!step.response || ['retry', 'error', 'failed'].includes(responseStatus))) return 'running';
   const failed = ['error', 'failed', 'aborted', 'cancelled', 'retry', 'empty_response_retry', 'text_tool_call_retry'];
+  if (['empty_response_retry', 'text_tool_call_retry', 'retry'].includes(finishReason)) return 'error';
+  // Finishing/cancelling tools does not undo a successful model response.
+  if (['complete', 'completed'].includes(responseStatus)) return 'complete';
   if (failed.includes(responseStatus) || failed.includes(finishReason)) return 'error';
+  if (!step.response && step.ended) return 'error';
   if (!step.response && !step.finish) return 'running';
   return 'complete';
 }
@@ -565,9 +575,10 @@ function runtimeAssistantNode(step, turnNumber, fallback) {
   const request = step.request?.payload || {};
   const startedAt = timestampOf(step.start || step.request);
   const firstTokenTime = timestampOf(step.firstOutput);
-  const completedAt = timestampOf(step.finish || responseRecord);
-  const usage = runtimeUsage(response.usage || step.finish?.payload?.usage);
   const status = normalizedRequestStatus(step);
+  const completedAt = timestampOf(status === 'error' ? step.finish || responseRecord : responseRecord);
+  const usage = runtimeUsage(response.usage || step.finish?.payload?.usage);
+  if (status === 'running') return null;
   const interruptionEvidence = blocks.some((block) => {
     if (block.kind === 'text' || block.kind === 'reasoning') return block.text.trim() !== '';
     return true;
@@ -583,6 +594,8 @@ function runtimeAssistantNode(step, turnNumber, fallback) {
       step: step.number,
       blocks,
       interrupted: true,
+      ...(usage ? { usage } : {}),
+      timing: { stepStartTime: startedAt, firstTokenTime, completedTime: completedAt },
     };
   }
   return {
@@ -743,7 +756,7 @@ function buildRequestNumbers(nodes, requests) {
  * Translate ACECode's append-only trajectory records into the exact grouped
  * ledger contract consumed by DeepSeek Harness's trajectory components.
  */
-export function buildDeepSeekTrajectory(records = []) {
+export function buildDeepSeekTrajectory(records = [], { includeLayout = true } = {}) {
   const ordered = mergeTrajectoryRecords([], records);
   const turns = [];
   const turnById = new Map();
@@ -822,6 +835,9 @@ export function buildDeepSeekTrajectory(records = []) {
       continue;
     }
     if (type === 'turn_end' || type === 'legacy_turn_end') {
+      if (current) {
+        for (const step of current.steps.values()) step.ended = record;
+      }
       current = null;
       continue;
     }
@@ -859,8 +875,11 @@ export function buildDeepSeekTrajectory(records = []) {
       const step = ensureStep(turn, payload.step_index, order);
       if (type === 'model_step_start') step.start = record;
       if (type === 'model_request') step.request = record;
-      if (type === 'model_first_output') step.firstOutput = record;
-      if (type === 'model_response') step.response = record;
+      if (type === 'model_first_output') step.firstOutput ??= record;
+      if (type === 'model_response') {
+        step.response = record;
+        if (payload.error !== undefined) step.lastAttemptError = payload.error;
+      }
       if (type === 'model_step_finish') step.finish = record;
       continue;
     }
@@ -998,19 +1017,21 @@ export function buildDeepSeekTrajectory(records = []) {
         const startedAt = timestampOf(step.start || requestRecord);
         const completedAt = status === 'running'
           ? null
-          : (assistant?.time ?? timestampOf(step.finish || step.response));
+          : (assistant?.time ?? timestampOf(step.response || step.finish || step.ended));
         const responsePayload = step.response?.payload || {};
         const provider = requestPayload.provider || responsePayload.provider;
         const model = requestPayload.model || responsePayload.model;
         const retry = step.retries.at(-1)?.payload;
         const errorValue = responsePayload.error ?? step.finish?.payload?.error
-          ?? (status === 'error' ? step.finish?.payload?.reason : undefined);
+          ?? step.lastAttemptError
+          ?? (status === 'error' ? step.finish?.payload?.reason ?? 'Interrupted before a response was recorded' : undefined);
         const usage = runtimeUsage(responsePayload.usage || step.finish?.payload?.usage);
         requests.push({
           purpose: 'assistant',
           startSeq: requestSeq,
           startedAt: startedAt ?? requestTime,
           completedAt,
+          firstTokenTime: timestampOf(step.firstOutput),
           status,
           turn: turn.number,
           step: step.number,
@@ -1021,10 +1042,14 @@ export function buildDeepSeekTrajectory(records = []) {
             ? { requestConfig: runtimeRequestConfig(requestPayload) }
             : {}),
           ...(usage === undefined ? {} : { usage }),
-          ...(assistant === null || assistant.interrupted === true
+          ...(assistant === null
             ? {}
             : { resultSeq: assistant.seq }),
-          ...(errorValue === undefined ? {} : { error: safeJson(errorValue) }),
+          ...(errorValue === undefined ? {} : {
+            error: typeof errorValue === 'object' && errorValue !== null
+              ? errorValue.display_message || errorValue.message || safeJson(errorValue)
+              : safeJson(errorValue),
+          }),
           ...(retry?.retry_attempt === undefined ? {} : { retry: retry.retry_attempt }),
           ...(retry?.retry_max_attempts === undefined
             ? {}
@@ -1061,14 +1086,14 @@ export function buildDeepSeekTrajectory(records = []) {
 
   nodes.sort((left, right) => left.seq - right.seq);
   requests.sort((left, right) => left.startSeq - right.startSeq);
-  const projectedTurns = deriveTrajectoryLayout({
+  const projectedTurns = includeLayout ? deriveTrajectoryLayout({
     nodes,
     inputTurns,
     partial: null,
     runningCalls,
     requests,
     callSchemas,
-  });
+  }) : [];
   const firstRecorded = ordered.find((record) => finiteNumber(record?.sequence) !== null);
   return {
     turns: projectedTurns,
@@ -1116,6 +1141,10 @@ export function resolveDeepSeekTrajectoryPartial(projection, livePartial) {
   return {
     turn,
     step,
+    timing: {
+      stepStartTime: finiteNumber(partialRequest?.startedAt ?? livePartial.timing?.stepStartTime),
+      firstTokenTime: finiteNumber(partialRequest?.firstTokenTime ?? livePartial.timing?.firstTokenTime),
+    },
     blocks: Array.isArray(livePartial.blocks)
       ? livePartial.blocks.map((block) => ({ ...block }))
       : [],
