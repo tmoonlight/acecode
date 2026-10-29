@@ -1686,9 +1686,14 @@ export function App() {
     });
   }, [replaceActiveRef]);
 
-  const replaceHomeWorkspace = useStableCallback((workspace) => {
+  const replaceHomeWorkspace = useStableCallback((workspace, draftWorkspaceHash) => {
     replaceActiveRef((current) => {
       const next = homeRefFromWorkspace(workspace, current, health);
+      // The dropdown changes the send target, not the draft being edited.
+      // Sidebar navigation creates a fresh ref and still opens that workspace's draft.
+      if (typeof draftWorkspaceHash === 'string') {
+        next.homeDraftWorkspaceHash = draftWorkspaceHash;
+      }
       if (['ai-theme', 'scheduled-task'].includes(current?.composerDraftScope)) {
         next.composerDraftScope = current.composerDraftScope;
       }

@@ -1118,11 +1118,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const explicitHomeDraftWorkspaceHash = !sid && ref?.homeWorkspaceExplicit
     ? (isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '')
     : null;
-  const homeDraftWorkspaceHash = homeComposerScopedWorkspace(sid
-    ? ''
-    : (explicitHomeDraftWorkspaceHash ?? (
-        isRealWorkspaceHash(homeWorkspaceHash) ? homeWorkspaceHash : ''
-      )), sid ? '' : ref?.composerDraftScope);
+  const homeDraftWorkspaceHash = !sid && typeof ref?.homeDraftWorkspaceHash === 'string'
+    ? ref.homeDraftWorkspaceHash
+    : homeComposerScopedWorkspace(sid
+      ? ''
+      : (explicitHomeDraftWorkspaceHash ?? (
+          isRealWorkspaceHash(homeWorkspaceHash) ? homeWorkspaceHash : ''
+        )), sid ? '' : ref?.composerDraftScope);
   composerValueRef.current = composerValue;
   composerContentRef.current = composerContent;
   composerAttachmentsRef.current = composerAttachments;
@@ -1307,7 +1309,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const workspaceHash = String(selected?.hash || '');
     setHomeWorkspaceHash(workspaceHash);
     persistHomeWorkspaceHash(workspaceHash);
-    onHomeWorkspaceChange?.(selected);
+    onHomeWorkspaceChange?.(selected, homeDraftWorkspaceHash);
     setProjectDropdownOpen(false);
   });
 

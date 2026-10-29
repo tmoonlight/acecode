@@ -34,6 +34,10 @@ function transferableRef(ref) {
   if (ref.home && ['ai-theme', 'scheduled-task'].includes(ref.composerDraftScope)) {
     out.composerDraftScope = ref.composerDraftScope;
   }
+  if (ref.home && typeof ref.homeDraftWorkspaceHash === 'string'
+      && ref.homeDraftWorkspaceHash.length <= MAX_IDENTITY_LENGTH) {
+    out.homeDraftWorkspaceHash = ref.homeDraftWorkspaceHash;
+  }
 
   if (workspaceHash) out.workspaceHash = workspaceHash;
   if (sessionId) out.sessionId = sessionId;
@@ -111,6 +115,8 @@ export function navigationKey(ref) {
     refValue(ref, 'contextId', 'context_id'),
     refValue(ref, 'cwd'),
     type === 'home' ? refValue(ref, 'composerDraftScope') : '',
+    type === 'home' && typeof ref.homeDraftWorkspaceHash === 'string'
+      ? `draft:${ref.homeDraftWorkspaceHash}` : '',
   ].join(SEP);
 }
 
