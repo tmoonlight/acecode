@@ -395,15 +395,11 @@ export function applySelectionSourceDecorations(root, {
   sourceText = '',
   contentRevision = '',
   rendered = false,
+  groups = groupSelectionDecorations(
+    contexts, sourcePath, rendered ? 'rendered' : 'source', contentRevision,
+  ),
 } = {}) {
   clearSelectionSourceDecorations(root);
-  const currentView = rendered ? 'rendered' : 'source';
-  const groups = groupSelectionDecorations(
-    contexts,
-    sourcePath,
-    currentView,
-    contentRevision,
-  );
   const normalizedSource = normalizeSelectionSourceText(sourceText);
   const renderedIndex = rendered ? renderedPreviewTextIndex(root) : null;
   const targetText = rendered ? renderedIndex.text : normalizedSource;

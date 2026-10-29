@@ -44,6 +44,13 @@ export function GitChangeDetails({
     replacePatches({});
   }, [replacePatches]);
 
+  const invalidatePatches = useCallback(() => {
+    patchRequestTokensRef.current.clear();
+    // 保留已展示的 patch；新请求到达前不切换成 loading 并卸载选区。
+    replacePatches(Object.fromEntries(Object.entries(patchesRef.current)
+      .map(([path, patch]) => [path, { ...patch, stale: true }])));
+  }, [replacePatches]);
+
   const fetchList = useCallback((force = false) => {
     const targetCwd = cwdRef.current;
     const targetBase = baseRef.current;
@@ -105,6 +112,7 @@ export function GitChangeDetails({
     fetchList(false);
     return () => {
       listRequestTokenRef.current = null;
+      patchRequestTokensRef.current.clear();
     };
   }, [base, cwd, fetchList, resetPatches]);
 
@@ -114,9 +122,9 @@ export function GitChangeDetails({
     previousReloadRevisionRef.current = reloadRevision;
     if (previous === reloadRevision || !cwdRef.current || !baseRef.current) return;
     changesCache.markStale(cwdRef.current);
-    resetPatches();
+    invalidatePatches();
     fetchList(true);
-  }, [fetchList, reloadRevision, resetPatches]);
+  }, [fetchList, reloadRevision, invalidatePatches]);
 
   const previousBusyRef = useRef(busy);
   useEffect(() => {
@@ -124,27 +132,28 @@ export function GitChangeDetails({
     previousBusyRef.current = busy;
     if (!wasBusy || busy || !cwdRef.current) return;
     changesCache.markStale(cwdRef.current);
-    resetPatches();
+    invalidatePatches();
     fetchList(true);
-  }, [busy, fetchList, resetPatches]);
+  }, [busy, fetchList, invalidatePatches]);
 
   useEffect(() => {
     const handler = (event) => {
       const changedCwd = event?.detail?.cwd || '';
       if (changedCwd && changedCwd !== cwdRef.current) return;
       changesCache.markStale(cwdRef.current);
-      resetPatches();
+      invalidatePatches();
       fetchList(true);
     };
     window.addEventListener(GIT_STATE_CHANGED_EVENT, handler);
     return () => window.removeEventListener(GIT_STATE_CHANGED_EVENT, handler);
-  }, [fetchList, resetPatches]);
+  }, [fetchList, invalidatePatches]);
 
   const loadPatch = useCallback((path, force = false) => {
     const targetCwd = cwdRef.current;
     const targetBase = baseRef.current;
     if (!path || !targetCwd || !targetBase) return;
-    if (!force && patchesRef.current[path] !== undefined) return;
+    const previous = patchesRef.current[path];
+    if (!force && previous !== undefined && !previous.stale) return;
 
     if (!force) {
       const cached = changesCache.getPatch(targetCwd, targetBase, path);
@@ -161,7 +170,9 @@ export function GitChangeDetails({
     patchRequestTokensRef.current.set(path, requestToken);
     replacePatches({
       ...patchesRef.current,
-      [path]: {},
+      [path]: previous && Object.prototype.hasOwnProperty.call(previous, 'text')
+        ? { text: previous.text }
+        : {},
     });
     api.gitFileDiff(targetCwd, path, targetBase)
       .then((result) => {

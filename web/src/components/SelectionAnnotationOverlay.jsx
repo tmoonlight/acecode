@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
+import { stableBySignature } from '../lib/changeReviewStability.js';
 import {
   applySelectionSourceDecorations,
   applyInactiveSourceSelection,
@@ -83,6 +84,17 @@ export function SelectionAnnotationOverlay({
   const frameRef = useRef(0);
   const [appliedGroups, setAppliedGroups] = useState([]);
   const [markers, setMarkers] = useState([]);
+  // 流式消息会生成等值的新 contexts。只按当前文件实际装饰内容更新，
+  // 避免 clear/apply 拆建 mark 时移除浏览器选区所在的文本节点。
+  const decorationGroupsRef = useRef(null);
+  const nextGroups = groupSelectionDecorations(
+    contexts, sourcePath, rendered ? 'rendered' : 'source', contentRevision,
+  );
+  decorationGroupsRef.current = stableBySignature(decorationGroupsRef.current, {
+    signature: JSON.stringify(nextGroups),
+    value: nextGroups,
+  });
+  const decorationGroups = decorationGroupsRef.current.value;
 
   useLayoutEffect(() => {
     const host = hostRef?.current;
@@ -96,12 +108,7 @@ export function SelectionAnnotationOverlay({
       const marks = Array.from(
         host.querySelectorAll?.('[data-selection-decoration-id]') || [],
       );
-      groups = groupSelectionDecorations(
-        contexts,
-        sourcePath,
-        rendered ? 'rendered' : 'source',
-        contentRevision,
-      ).map((group) => ({
+      groups = decorationGroups.map((group) => ({
         ...group,
         anchor: resolveSelectionAnchor(targetText, group.context),
         marks: marks.filter(
@@ -110,7 +117,7 @@ export function SelectionAnnotationOverlay({
       }));
     } else {
       groups = applySelectionSourceDecorations(host, {
-        contexts,
+        groups: decorationGroups,
         sourcePath,
         sourceText,
         contentRevision,
@@ -127,7 +134,7 @@ export function SelectionAnnotationOverlay({
     };
   }, [
     contentRevision,
-    contexts,
+    decorationGroups,
     hostRef,
     inactiveRange,
     managedDecorations,

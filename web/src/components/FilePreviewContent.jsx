@@ -200,6 +200,8 @@ export function FilePreviewContent({
   const previewScrollRef = useRef(null);
   useWorkbenchScroll(owner, `fileScroll:${cwd}:${path}`, previewScrollRef, state.status === 'ok');
   const loadedIdentityRef = useRef('');
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const pendingScrollSnapshotRef = useRef(null);
   const handledFocusRequestRef = useRef('');
   const editStateRef = useRef(editState);
@@ -271,8 +273,16 @@ export function FilePreviewContent({
     let cancelled = false;
     let objectUrl = '';
     const nextKind = filePreviewKind(path);
+    const keepLoadedText = reloadingSameFile
+      && stateRef.current.status === 'ok'
+      && stateRef.current.kind === nextKind
+      && (nextKind === 'text' || nextKind === 'markdown');
     setImagePreview(null);
-    setState({ status: 'loading', kind: nextKind, text: '', error: null, lang: '', size: 0, previewUrl: '', contentType: '', blob: null });
+    if (keepLoadedText) {
+      pendingScrollSnapshotRef.current = null;
+    } else {
+      setState({ status: 'loading', kind: nextKind, text: '', error: null, lang: '', size: 0, previewUrl: '', contentType: '', blob: null });
+    }
 
     if (nextKind === 'unsupported') {
       pendingScrollSnapshotRef.current = null;
@@ -335,9 +345,25 @@ export function FilePreviewContent({
       };
     }
 
+    const currentEdit = editStateRef.current;
+    const preserveNewerEdit = (diskText, error = null) => {
+      const latest = editStateRef.current;
+      // 后台读取期间仍可编辑/保存；迟到的读取不能覆盖新草稿或保存后的基线。
+      if (latest?.readId !== currentEdit?.readId) return true;
+      if (!latest?.dirty) return false;
+      onEditStateChangeRef.current?.({
+        externalChanged: latest.externalChanged
+          || (diskText != null && diskText !== latest.baselineText),
+        error: error ? editableFileError(error, '读取失败') : (latest.error || ''),
+      });
+      return true;
+    };
     const showTextPreview = (text, size = text.length) => {
       if (cancelled) return;
-      setState({
+      if (keepLoadedText && stateRef.current.text !== text && previewScrollRef.current) {
+        pendingScrollSnapshotRef.current = captureFilePreviewScroll(previewScrollRef.current);
+      }
+      const next = {
         status: 'ok',
         kind: nextKind,
         text,
@@ -347,9 +373,16 @@ export function FilePreviewContent({
         previewUrl: '',
         contentType: '',
         blob: null,
-      });
+      };
+      setState(previous => (
+        previous.status === 'ok' && previous.kind === next.kind
+          && previous.text === next.text && previous.size === next.size
+          && previous.lang === next.lang ? previous : next
+      ));
     };
     const readOnlyPreview = (editableError = null) => api.readFile(cwd, path).then((text) => {
+      if (cancelled) return;
+      if (preserveNewerEdit(text, editableError)) return;
       showTextPreview(text);
       if (editableError) {
         onEditStateChangeRef.current?.({
@@ -362,6 +395,7 @@ export function FilePreviewContent({
       }
     }).catch((err) => {
       if (cancelled) return;
+      if (preserveNewerEdit(null, err)) return;
       pendingScrollSnapshotRef.current = null;
       let msg = '读取失败';
       let extraSize = 0;
@@ -381,7 +415,6 @@ export function FilePreviewContent({
       setState({ status: 'error', kind: nextKind, text: '', error: msg, lang: '', size: extraSize, previewUrl: '', contentType: '', blob: null });
     });
 
-    const currentEdit = editStateRef.current;
     if ((nextKind === 'text' || nextKind === 'markdown') && isDesktopShell()) {
       if (currentEdit?.dirty) {
         const baselineText = String(currentEdit.baselineText ?? '');
@@ -393,10 +426,12 @@ export function FilePreviewContent({
       api.readEditableFile(cwd, path).then((result) => {
         if (cancelled) return;
         const text = String(result?.text ?? '');
+        if (preserveNewerEdit(text)) return;
         showTextPreview(text, Number(result?.size || text.length));
         onEditStateChangeRef.current?.(editableStatePatch(result));
       }).catch((error) => {
         if (cancelled) return;
+        if (preserveNewerEdit(null, error)) return;
         void readOnlyPreview(error);
       });
       return () => { cancelled = true; };
@@ -429,8 +464,8 @@ export function FilePreviewContent({
     }
   }, [api, cwd, path]);
 
-  // 同一文件重新读取时，loading 会临时卸载滚动容器。新 DOM 落地后在布局
-  // 阶段恢复位置，并按新内容高度/宽度钳制，避免空文件或大幅删减后越界。
+  // 同一文本文件后台读取不卸载正文；仅实际内容变化时恢复提交前的滚动位置。
+  // 按新内容高度/宽度钳制，避免空文件或大幅删减后越界。
   useLayoutEffect(() => {
     if (state.status !== 'ok') return;
     const snapshot = pendingScrollSnapshotRef.current;
