@@ -25,6 +25,6 @@
 
 ## 验证
 
-`node src/lib/trajectoryModel.test.js`、`node src/lib/trajectoryInspection.test.js`、`node scripts/test-trajectory-turn-order.mjs`、`node scripts/test-trajectory-inspector.mjs`、`pnpm test`、`pnpm build`。
+从仓库根目录执行：`node web/src/lib/trajectoryModel.test.js`、`node web/src/lib/trajectoryInspection.test.js`、`node web/scripts/test-trajectory-turn-order.mjs`、`node web/scripts/test-trajectory-inspector.mjs`、`pnpm --dir web test`、`pnpm --dir web build`。
 
 浏览器脚本可通过 `ACE_PLAYWRIGHT_MODULE` 指定 Playwright 模块路径，`ACE_CHROMIUM_EXECUTABLE` 指定已有 Chromium；截图写入系统临时目录。完整验收记录见 `openspec/changes/sync-deepseek-trajectory-updates/verification.md`。源码及 Web 构建验收不代表已安装 Desktop 已替换或重启。
