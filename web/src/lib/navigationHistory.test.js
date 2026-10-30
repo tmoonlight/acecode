@@ -53,31 +53,6 @@ run('sameNavigationRef ignores display-only fields', () => {
   );
 });
 
-run('home navigation distinguishes the carried draft from the destination workspace draft', () => {
-  const destination = { home: true, workspaceHash: 'w2' };
-  const carried = { ...destination, homeDraftWorkspaceHash: '' };
-  assert.equal(sameNavigationRef(destination, carried), false);
-  assert.equal(sameNavigationRef(carried, { ...carried, workspaceName: 'Renamed' }), true);
-  const history = pushNavigation({ back: [], forward: [] }, carried, destination);
-  assert.deepEqual(goBack(history, destination).activeRef, carried);
-});
-
-run('home draft origins round-trip without leaking into session refs', () => {
-  const back = ['', 'w1', '__ai_theme__:w1', '__scheduled_task__:w1'].map(homeDraftWorkspaceHash => ({
-    home: true, workspaceHash: 'w2', homeDraftWorkspaceHash,
-  }));
-  const result = deserializeNavigationHistory(serializeNavigationHistory({
-    back,
-    forward: [{ sessionId: 's1', homeDraftWorkspaceHash: 'w1' }],
-  }));
-  assert.deepEqual(result.back, back);
-  assert.deepEqual(result.forward, [{ sessionId: 's1' }]);
-  const oversized = deserializeNavigationHistory(serializeNavigationHistory({
-    back: [{ home: true, homeDraftWorkspaceHash: 'x'.repeat(2049) }], forward: [],
-  }));
-  assert.deepEqual(oversized.back, [{ home: true }]);
-});
-
 run('pushNavigation records current ref and clears forward stack', () => {
   const current = { workspaceHash: 'w1', sessionId: 'a' };
   const next = { workspaceHash: 'w1', sessionId: 'b' };

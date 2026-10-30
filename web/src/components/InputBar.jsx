@@ -243,7 +243,7 @@ export const InputBar = forwardRef(function InputBar({
   onRemoveExpert,
   onOpenExpertComponents,
   selectionPreview = null, onPinSelectionPreview,
-  pathReferenceApi = null, cwd = '', currentSessionId = '', showSessionTime = true,
+  pathReferenceApi = null, cwd = '', currentSessionId = '', draftRevision = 0, showSessionTime = true,
   fileDropManagedExternally = false, onFileDragActiveChange,
   sessionControls = null,
 }, ref) {
@@ -283,6 +283,7 @@ export const InputBar = forwardRef(function InputBar({
   const fileInputRef = useRef(null);
   const fileIntakeQueueRef = useRef(Promise.resolve());
   const fileIntakeScope = JSON.stringify([cwd, currentSessionId]);
+  const composerSyncKey = JSON.stringify([fileIntakeScope, draftRevision]);
   const fileIntakeScopeRef = useRef(fileIntakeScope);
   if (fileIntakeScopeRef.current !== fileIntakeScope) {
     fileIntakeScopeRef.current = fileIntakeScope;
@@ -1831,7 +1832,7 @@ export const InputBar = forwardRef(function InputBar({
           <RichComposer
             ref={ta}
             value={value}
-            syncKey={fileIntakeScope}
+            syncKey={composerSyncKey}
             commands={commands}
             composerContent={editorContent}
             attachments={editorAttachmentItems}

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'vite';
@@ -6,8 +7,45 @@ import { createServer } from 'vite';
 const web = fileURLToPath(new URL('../', import.meta.url));
 const { chromium } = await import(process.env.ACE_PLAYWRIGHT_MODULE
   ? pathToFileURL(path.resolve(process.env.ACE_PLAYWRIGHT_MODULE)).href : 'playwright');
+// Restore a draft while React still exposes the last acknowledged value. This
+// deterministically exercises the local-echo filter used during fast switches.
+const fixture = `
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { InputBar } from '/src/components/InputBar.jsx';
+import '/src/styles/globals.css';
+function Fixture() {
+  const [draft, setDraft] = useState({ text: '', revision: 0 });
+  window.restoreDraft = text => setDraft(previous => ({ text, revision: previous.revision + 1 }));
+  return <InputBar value={draft.text} composerContent={null} draftRevision={draft.revision}
+    onChange={text => { window.lastLocalInput = text; }} />;
+}
+createRoot(document.getElementById('root')).render(<Fixture />);
+`;
+const virtual = path.join(web, '__home-draft-sync.jsx').replaceAll('\\', '/');
+const html = `<html><body><div id="root"></div><script type="module">
+import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window);
+window.$RefreshReg$=()=>{}; window.$RefreshSig$=()=>type=>type;
+window.__vite_plugin_react_preamble_installed__=true;</script>
+<script type="module" src="/__home-draft-sync.jsx"></script></body></html>`;
+const baseline = process.argv.includes('--baseline');
+const baselineSources = new Map(baseline ? [
+  'src/components/InputBar.jsx', 'src/components/ChatView.jsx', 'src/App.jsx',
+].map(relative => [path.join(web, relative).replaceAll('\\', '/'),
+  execFileSync('git', ['show', '509a8008:web/' + relative], { cwd: web, encoding: 'utf8' })]) : []);
 const server = await createServer({ root: web, logLevel: 'error',
-  server: { host: '127.0.0.1', port: 0, open: false, hmr: false } });
+  plugins: [{ name: 'home-draft-sync-fixture', enforce: 'pre',
+    resolveId(id) { if (id === '/__home-draft-sync.jsx') return virtual; },
+    load(id) {
+      const file = id.replaceAll('\\', '/');
+      if (file === virtual) return fixture;
+      return baselineSources.get(file);
+    },
+    configureServer(vite) { vite.middlewares.use((req, res, next) => {
+      if (req.url?.split('?')[0] !== '/__home-draft-sync') return next();
+      res.setHeader('Content-Type', 'text/html'); res.end(html);
+    }); },
+  }], server: { host: '127.0.0.1', port: 0, open: false, hmr: false } });
 const workspaces = [
   { hash: 'workspace-a', name: 'Project A', cwd: '/fixture/a', active: true },
   { hash: 'workspace-b', name: 'Project B', cwd: '/fixture/b' },
@@ -67,9 +105,11 @@ try {
   const editor = page.locator('[data-ace-rich-composer]');
   const expectText = async text => {
     await page.waitForFunction(expected => {
-      const input = document.querySelector('[data-ace-rich-composer]');
+      const input = document.querySelector('[data-ace-rich-composer]')?.cloneNode(true);
+      input?.querySelectorAll('[data-slate-placeholder]').forEach(node => node.remove());
       return input?.textContent.replaceAll('\uFEFF', '').trim() === expected;
-    }, text, { timeout: 10000 });
+    }, text, { timeout: 10000 }).catch(async error => { console.error('expected', text, 'actual', await editor.textContent()); throw error; });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   };
   const chooseWorkspace = async name => {
     await page.locator('[data-tour-target="home-workspace"]').click();
@@ -77,65 +117,101 @@ try {
     await page.waitForFunction(expected => document.querySelector('.ace-home-project-select')?.textContent.trim() === expected, name);
   };
   const openWorkspaceDraft = index => page.locator('[data-sidebar-workspace-new-task]').nth(index).click();
-  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/`);
+  const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
+  await page.goto(`${origin}/__home-draft-sync`);
+  await editor.fill('Local edit before switching');
+  await expectText('Local edit before switching');
+  await page.evaluate(() => window.restoreDraft(''));
+  await expectText('');
+  await editor.fill('Next workspace edit');
+  await expectText('Next workspace edit');
+  await page.evaluate(() => window.restoreDraft('Local edit before switching'));
+  await expectText('Local edit before switching');
+  console.log('[pass] explicit draft restoration replaces stale local echoes, including empty drafts');
+
+  await page.goto(`${origin}/`);
   await expectText('Personal draft');
   await chooseWorkspace('Project A');
-  await expectText('Personal draft');
-  await editor.fill('Personal draft edited');
+  await expectText('Project A draft');
+  await editor.fill('Project A edited');
   await chooseWorkspace('Project B');
-  await expectText('Personal draft edited');
+  await expectText('Project B draft');
+  await editor.fill('Project B edited');
   await chooseWorkspace('无工作区');
-  await expectText('Personal draft edited');
-  console.log('[pass] home dropdown preserves the active draft across workspace and no-workspace targets');
+  await expectText('Personal draft');
+  await editor.fill('Personal edited');
+  for (let i = 0; i < 3; i += 1) {
+    await chooseWorkspace('Project A');
+    await expectText('Project A edited');
+    await chooseWorkspace('Project B');
+    await expectText('Project B edited');
+    await chooseWorkspace('无工作区');
+    await expectText('Personal edited');
+  }
+  await chooseWorkspace('Project B');
+  await editor.fill('');
+  await chooseWorkspace('Project A');
+  await expectText('Project A edited');
+  await chooseWorkspace('Project B');
+  await expectText('');
+  await editor.fill('Personal edited');
+  await editor.press('End');
+  await editor.pressSequentially(' extra');
+  await chooseWorkspace('无工作区');
+  await expectText('Personal edited');
+  await chooseWorkspace('Project B');
+  await expectText('Personal edited extra');
+  await editor.fill('Project B edited');
+  await chooseWorkspace('无工作区');
+  await expectText('Personal edited');
+  console.log('[pass] dropdown restores independent drafts across workspaces and no workspace');
 
   await openWorkspaceDraft(0);
-  await expectText('Project A draft');
+  await expectText('Project A edited');
+  await openWorkspaceDraft(1);
+  await expectText('Project B edited');
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
+  await expectText('Personal edited');
+  console.log('[pass] sidebar and dropdown restore the same workspace drafts');
+
   holdLoads = true;
+  await chooseWorkspace('Project A');
+  await expectText('Project A edited');
   await chooseWorkspace('Project B');
-  await expectText('Project A draft');
-  await editor.fill('Project A newest edit');
+  await expectText('Project B edited');
+  await editor.fill('Project B newest');
   assert.ok(heldLoads.length > 0, 'the delayed draft request must actually run');
   holdLoads = false;
-  for (const release of heldLoads.splice(0)) release();
+  for (const release of heldLoads.splice(0).reverse()) release();
   await page.waitForTimeout(400);
-  await expectText('Project A newest edit');
+  await expectText('Project B newest');
+  await chooseWorkspace('Project A');
+  await expectText('Project A edited');
   await chooseWorkspace('无工作区');
-  await expectText('Project A newest edit');
-  console.log('[pass] late draft hydration cannot overwrite edits after changing the target workspace');
+  await expectText('Personal edited');
+  console.log('[pass] delayed draft responses cannot cross workspaces or overwrite newer edits');
 
   await chooseWorkspace('Project B');
-  await openWorkspaceDraft(1);
-  await expectText('Project B draft');
-  await openWorkspaceDraft(0);
-  await expectText('Project A newest edit');
-  await page.getByRole('button', { name: '新建任务', exact: true }).click();
-  await expectText('Personal draft edited');
-  assert.equal(drafts.get(draftPath('workspace-b')).text, 'Project B draft');
-  assert.equal(drafts.get(draftPath('workspace-a')).text, 'Project A newest edit');
-  assert.equal(drafts.get(draftPath('')).text, 'Personal draft edited');
-  console.log('[pass] sidebar navigation restores each independent draft without overwriting destination drafts');
-
-  await chooseWorkspace('Project B');
+  await expectText('Project B newest');
   const creation = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname.endsWith('/sessions'));
   await editor.press('Enter');
   await creation;
   await page.getByText(/新建会话失败:.*fixture create failure/).waitFor();
-  await expectText('Personal draft edited');
+  await expectText('Project B newest');
   assert.deepEqual(createRequests, ['/api/workspaces/workspace-b/sessions']);
-  assert.equal(drafts.get(draftPath('workspace-b')).text, 'Project B draft');
-  console.log('[pass] submission uses the selected workspace and a failed request preserves the carried draft');
+  console.log('[pass] failed submission preserves the selected workspace draft');
 
   failCreation = false;
   const cleared = page.waitForResponse(response => response.request().method() === 'DELETE'
     && new URL(response.url()).pathname.endsWith('/draft'));
   await editor.press('Enter');
   await cleared;
-  assert.deepEqual(clearedDrafts, [draftPath('')]);
-  assert.equal(drafts.get(draftPath('workspace-b')).text, 'Project B draft');
-  assert.equal(drafts.get(draftPath('workspace-a')).text, 'Project A newest edit');
+  assert.deepEqual(clearedDrafts, [draftPath('workspace-b')]);
+  assert.equal(drafts.get(draftPath('')).text, 'Personal edited');
+  assert.equal(drafts.get(draftPath('workspace-a')).text, 'Project A edited');
   assert.deepEqual(errors, []);
-  console.log('[pass] successful submission clears the source draft and preserves other workspace drafts');
+  console.log('[pass] successful submission clears only the selected workspace draft');
   await page.goto('about:blank');
 } finally {
   for (const release of heldLoads.splice(0)) release();

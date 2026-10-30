@@ -987,6 +987,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   );
   const [composerAttachments, setComposerAttachments] = useState([]);
   const [composerContent, setComposerContent] = useState(null);
+  const [composerDraftRevision, setComposerDraftRevision] = useState(0);
   const composerContentRef = useRef(null);
   const composerAttachmentsRef = useRef([]);
   const homeDraftWorkspaceHashRef = useRef('');
@@ -1118,13 +1119,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const explicitHomeDraftWorkspaceHash = !sid && ref?.homeWorkspaceExplicit
     ? (isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '')
     : null;
-  const homeDraftWorkspaceHash = !sid && typeof ref?.homeDraftWorkspaceHash === 'string'
-    ? ref.homeDraftWorkspaceHash
-    : homeComposerScopedWorkspace(sid
-      ? ''
-      : (explicitHomeDraftWorkspaceHash ?? (
-          isRealWorkspaceHash(homeWorkspaceHash) ? homeWorkspaceHash : ''
-        )), sid ? '' : ref?.composerDraftScope);
+  const homeDraftWorkspaceHash = homeComposerScopedWorkspace(sid
+    ? ''
+    : (explicitHomeDraftWorkspaceHash ?? (
+        isRealWorkspaceHash(homeWorkspaceHash) ? homeWorkspaceHash : ''
+      )), sid ? '' : ref?.composerDraftScope);
   composerValueRef.current = composerValue;
   composerContentRef.current = composerContent;
   composerAttachmentsRef.current = composerAttachments;
@@ -1306,11 +1305,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   const selectHomeWorkspace = useStableCallback((workspace) => {
     const selected = workspace?.noWorkspace ? noHomeWorkspaceOption() : workspace;
+    setProjectDropdownOpen(false);
+    // Navigation owns the workspace and its draft. In particular, a pending
+    // file-leave guard must not change the dropdown ahead of the active ref.
+    if (onHomeWorkspaceChange) return onHomeWorkspaceChange(selected);
     const workspaceHash = String(selected?.hash || '');
     setHomeWorkspaceHash(workspaceHash);
     persistHomeWorkspaceHash(workspaceHash);
-    onHomeWorkspaceChange?.(selected, homeDraftWorkspaceHash);
-    setProjectDropdownOpen(false);
   });
 
   const handleProjectCreated = useStableCallback(async (workspace) => {
@@ -1494,6 +1495,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setComposerAttachments(resources);
     composerAttachmentsRef.current = resources;
     setComposerValue(foldLegacy ? '' : storedText, content);
+    // Commit the restoration identity with its value. A draft may match an
+    // earlier local echo (including the empty draft) and still must replace it.
+    setComposerDraftRevision((revision) => revision + 1);
     if (foldLegacy) handleLargeTextPasteRef.current(storedText, { legacyDraft: true });
   }, [setComposerValue]);
 
@@ -5959,6 +5963,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
                   attentionRequest={homeComposerAttentionRequest}
                   pathReferenceApi={api}
                   currentSessionId=""
+                  draftRevision={composerDraftRevision}
                   cwd={selectedHomeWorkspace?.cwd || ''}
                   expertOptions={recentExperts}
                   selectedExpertId={composerExpertId}

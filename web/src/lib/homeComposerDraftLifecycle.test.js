@@ -5,13 +5,13 @@ import { parseSync, traverse } from '@babel/core';
 import { composerDraftFingerprint } from './composerDraft.js';
 import { homeComposerDraft } from './homeComposerDrafts.js';
 
-function effectSource(path, marker) {
+function effectSource(path, marker, hook = 'useEffect') {
   const source = readFileSync(new URL(path, import.meta.url), 'utf8');
   const ast = parseSync(source, { configFile: false, babelrc: false, parserOpts: { plugins: ['jsx'] } });
   let found;
   traverse(ast, {
     CallExpression({ node }) {
-      if (node.callee?.name !== 'useEffect') return;
+      if (node.callee?.name !== hook) return;
       const setup = node.arguments[0];
       const text = source.slice(setup.start, setup.end);
       if (text.includes(marker)) found = text;
@@ -23,6 +23,28 @@ function effectSource(path, marker) {
 
 const restoration = effectSource('../components/ChatView.jsx', 'api.getSessionDraft(targetSid');
 const lifecycle = effectSource('../App.jsx', "window.addEventListener('pagehide', flush)");
+const selectWorkspace = effectSource('../components/ChatView.jsx',
+  'const selected = workspace?.noWorkspace', 'useStableCallback');
+
+{
+  let release;
+  const navigation = new Promise(resolve => { release = resolve; });
+  const selected = [], localChanges = [];
+  const choose = vm.runInNewContext(`(${selectWorkspace})`, {
+    noHomeWorkspaceOption: () => ({ hash: '', noWorkspace: true }),
+    onHomeWorkspaceChange: workspace => { selected.push(workspace); return navigation; },
+    setProjectDropdownOpen() {},
+    setHomeWorkspaceHash: value => localChanges.push(value),
+    persistHomeWorkspaceHash: value => localChanges.push(value),
+  });
+  const result = choose({ hash: 'b' });
+  assert.deepEqual(selected, [{ hash: 'b' }]);
+  assert.deepEqual(localChanges, [], 'a pending navigation must not change the visible workspace or preference');
+  release(false);
+  assert.equal(await result, false);
+  assert.deepEqual(localChanges, [], 'cancelled navigation retains the workspace that owns the current draft');
+  console.log('[pass] the workspace dropdown waits for navigation instead of separating the target from its draft');
+}
 
 function fixture() {
   let resolve;

@@ -151,7 +151,8 @@ run('composer external sync is composition-safe, generation-aware, and semantic'
 
   assert.ok(effectStart >= 0);
   assert.ok(effectEnd > effectStart);
-  assert.match(inputBar, /syncKey=\{fileIntakeScope\}/);
+  assert.match(inputBar, /syncKey=\{composerSyncKey\}/);
+  assert.match(inputBar, /composerSyncKey = JSON\.stringify\(\[fileIntakeScope, draftRevision\]\)/);
   assert.match(inputBar, /fileIntakeScope = JSON\.stringify\(\[cwd, currentSessionId\]\)/);
   assert.doesNotMatch(inputBar, /<RichComposer[\s\S]*?key=\{currentSessionId\}/);
   assert.match(composer, /syncIdentityRef\.current\.generation \+ 1/);
