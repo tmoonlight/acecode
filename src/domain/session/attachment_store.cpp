@@ -93,6 +93,11 @@ void set_error(std::string* error, std::string value) {
 
 } // namespace
 
+std::string session_attachments_dir(const std::string& project_dir,
+                                    const std::string& session_id) {
+    return path_to_utf8(attachments_dir(project_dir, session_id));
+}
+
 std::string attachment_blob_url(const std::string& session_id,
                                 const std::string& attachment_id) {
     return "/api/sessions/" + session_id + "/attachments/" + attachment_id + "/blob";

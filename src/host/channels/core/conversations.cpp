@@ -1,6 +1,7 @@
 #include "conversations.hpp"
 
 #include "channels/core/platforms.hpp"
+#include "image/image_processor.hpp"
 #include "platform/crypto/secure_random.hpp"
 #include "session/attachment_store.hpp"
 #include "session/output_attachments.hpp"
@@ -20,6 +21,17 @@ namespace {
 struct SessionMissing : std::runtime_error {
     SessionMissing() : std::runtime_error("session missing") {}
 };
+
+std::string image_name_for_mime(const std::string& name, const std::string& mime_type) {
+    const std::string ext = mime_type == "image/png"    ? ".png"
+                            : mime_type == "image/jpeg" ? ".jpg"
+                            : mime_type == "image/gif"  ? ".gif"
+                            : mime_type == "image/webp" ? ".webp"
+                                                        : ".bmp";
+    auto path = path_from_utf8(name);
+    path.replace_extension(path_from_utf8(ext));
+    return path_to_utf8(path);
+}
 
 bool all_digits(const std::string& text) {
     return !text.empty() && std::all_of(text.begin(), text.end(), [](char c) { return c >= '0' && c <= '9'; });
@@ -576,15 +588,30 @@ void Conversations::submit(const im::Inbound& inbound) {
             const auto bytes = read_file(temp);
             std::error_code ec;
             std::filesystem::remove(temp, ec);
-            const auto name = file.name.empty() ? std::string(file.kind == im::AttachmentKind::Image ? "image.jpg" : "file")
-                                                : file.name;
+            auto name = file.name.empty() ? std::string(file.kind == im::AttachmentKind::Image ? "image.jpg" : "file")
+                                          : file.name;
+            auto mime_type = file.mime_type;
+            // 平台给的类型不一定准(对象 key 没有扩展名、手机端发的图),图片按文件头识别。
+            if (const auto sniffed = image::image_mime_from_bytes(bytes);
+                file.kind == im::AttachmentKind::Image && !sniffed.empty() && sniffed != mime_type) {
+                mime_type = sniffed;
+                name = image_name_for_mime(name, sniffed);
+            }
             const auto stored = save_attachment(SessionStorage::get_project_dir(record->cwd), session_id, name,
-                                                file.mime_type, bytes, &error);
+                                                mime_type, bytes, &error);
             if (!stored) {
                 reply(inbound, texts::turn_failed(error));
                 continue;
             }
             input.content_parts.push_back(attachment_content_part(*stored));
+            if (stored->kind == "image") {
+                // 能看图的模型收到的是图片本身,没有本地路径;告诉它路径,才能截取局部再发回聊天。
+                input.content_parts.push_back(
+                    {{"type", "text"},
+                     {"text", "[Image saved at " + stored->path +
+                                  " ; to show the user part of it, call show_image with this path and crop]"}});
+                input.metadata["display_text"] = input.display_text;
+            }
             saved.push_back(attachment_to_json(*stored));
         }
         if (!saved.empty()) input.metadata["attachments"] = saved;

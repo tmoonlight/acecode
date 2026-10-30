@@ -4,6 +4,7 @@
 #include "permissions/permissions.hpp"
 #include "agent/boundary/workspace_boundary.hpp"
 #include "permissions/shell_write_guard.hpp"
+#include "session/attachment_store.hpp"
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "utils/logger.hpp"
@@ -30,6 +31,15 @@ bool PathAccessPolicy::is_cwd_validation_exempt(const std::string& tool_name, co
         return true;
     }
     if (!session_manager_) return false;
+    // 本会话自己的附件(IM 发来的图片等)只读工具都能读,比如 show_image 截取局部发回给用户。
+    if (tools_.is_read_only(tool_name)) {
+        const auto session_id = session_manager_->current_session_id();
+        const auto project_dir = session_manager_->current_project_dir();
+        if (!session_id.empty() && !project_dir.empty() &&
+            PathValidator(session_attachments_dir(project_dir, session_id), false).validate(path).empty()) {
+            return true;
+        }
+    }
     return session_manager_->is_plan_file_path(path);
 }
 

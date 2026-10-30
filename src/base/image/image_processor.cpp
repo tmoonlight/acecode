@@ -494,4 +494,96 @@ ImageNormalizeResult normalize_image_bytes(
     return result;
 }
 
+std::string image_mime_from_bytes(std::string_view bytes) {
+    const auto starts = [&](std::string_view prefix, std::size_t offset = 0) {
+        return bytes.size() >= offset + prefix.size() && bytes.substr(offset, prefix.size()) == prefix;
+    };
+    if (starts(std::string_view("\x89PNG\r\n\x1a\n", 8))) return "image/png";
+    if (starts(std::string_view("\xFF\xD8\xFF", 3))) return "image/jpeg";
+    if (starts("GIF87a") || starts("GIF89a")) return "image/gif";
+    if (starts("RIFF") && starts("WEBP", 8)) return "image/webp";
+    if (starts("BM") && bytes.size() >= 26) return "image/bmp";
+    return {};
+}
+
+ImageCropResult crop_image_bytes(std::string_view bytes,
+                                 const ImageCropRegion& region,
+                                 std::size_t max_png_bytes) {
+    ImageCropResult result;
+    if (region.width <= 0 || region.height <= 0) {
+        result.error = "crop width and height must be positive";
+        return result;
+    }
+    auto info = probe_image_info(bytes, &result.error);
+    if (!info.has_value()) return result;
+    result.input = *info;
+    if (static_cast<std::uint64_t>(info->width) * static_cast<std::uint64_t>(info->height) >
+        kImageNormalizeMaxPixels) {
+        result.error = "image is too large to crop";
+        return result;
+    }
+
+    // Clamp in 64-bit so a huge width or a negative origin cannot overflow.
+    const std::int64_t left = std::max<std::int64_t>(0, region.x);
+    const std::int64_t top = std::max<std::int64_t>(0, region.y);
+    const std::int64_t right =
+        std::min<std::int64_t>(info->width, static_cast<std::int64_t>(region.x) + region.width);
+    const std::int64_t bottom =
+        std::min<std::int64_t>(info->height, static_cast<std::int64_t>(region.y) + region.height);
+    if (left >= right || top >= bottom) {
+        result.error = "crop region is outside the " + std::to_string(info->width) + "x" +
+                       std::to_string(info->height) + " image";
+        return result;
+    }
+    result.region = {static_cast<int>(left), static_cast<int>(top),
+                     static_cast<int>(right - left), static_cast<int>(bottom - top)};
+
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    stbi_uc* decoded = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(bytes.data()),
+                                             static_cast<int>(bytes.size()), &width, &height,
+                                             &channels, 4);
+    if (!decoded || width != info->width || height != info->height) {
+        const char* reason = stbi_failure_reason();
+        result.error = reason ? reason : "image decode failed";
+        if (decoded) stbi_image_free(decoded);
+        return result;
+    }
+    const int out_width = result.region.width;
+    const int out_height = result.region.height;
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(out_width) *
+                                      static_cast<std::size_t>(out_height) * 4u);
+    for (int row = 0; row < out_height; ++row) {
+        const auto* src = decoded + ((static_cast<std::size_t>(result.region.y + row) *
+                                      static_cast<std::size_t>(width)) +
+                                     static_cast<std::size_t>(result.region.x)) * 4u;
+        std::copy(src, src + static_cast<std::size_t>(out_width) * 4u,
+                  pixels.begin() + static_cast<std::ptrdiff_t>(
+                                       static_cast<std::size_t>(row) *
+                                       static_cast<std::size_t>(out_width) * 4u));
+    }
+    stbi_image_free(decoded);
+
+    const bool alpha = has_real_alpha(pixels.data(), out_width, out_height);
+    std::string encoded = encode_png(pixels.data(), out_width, out_height);
+    std::string mime = "image/png";
+    if (!alpha && (encoded.empty() || encoded.size() > max_png_bytes)) {
+        std::string jpeg = encode_jpeg(pixels.data(), out_width, out_height, 90, max_png_bytes);
+        if (!jpeg.empty()) {
+            encoded = std::move(jpeg);
+            mime = "image/jpeg";
+        }
+    }
+    if (encoded.empty()) {
+        result.error = "image encode failed";
+        return result;
+    }
+    result.ok = true;
+    result.bytes = std::move(encoded);
+    result.mime_type = std::move(mime);
+    result.output = {out_width, out_height, 4, alpha};
+    return result;
+}
+
 } // namespace acecode::image

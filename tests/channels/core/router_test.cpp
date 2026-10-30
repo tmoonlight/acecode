@@ -498,7 +498,8 @@ TEST_F(ChannelRouter, VoiceTranscriptsAndUnsupportedMedia) {
 }
 
 // 场景:联系人发来一张图片并附带文字。
-// 期望:图片下载后导入会话附件,与文字一起提交(content_parts 含文字与图片,metadata 记录附件)。
+// 期望:图片下载后导入会话附件,与文字一起提交(content_parts 依次为文字、图片、图片本地路径的说明,
+// metadata 记录附件);界面显示的仍是用户原话。路径说明让能看图的模型可以用 show_image 截取局部发回。
 TEST_F(ChannelRouter, ImagesAreImportedAsSessionAttachments) {
     auto photo = message(private_address("1"), "看看这张图", "m1");
     im::Attachment image;
@@ -510,9 +511,36 @@ TEST_F(ChannelRouter, ImagesAreImportedAsSessionAttachments) {
     send(photo);
     const auto inputs = sessions.input_log();
     ASSERT_EQ(inputs.size(), 1u);
-    EXPECT_EQ(inputs[0].second.content_parts.size(), 2u);
+    const auto& parts = inputs[0].second.content_parts;
+    ASSERT_EQ(parts.size(), 3u);
+    EXPECT_EQ(parts[1].value("type", ""), "image");
+    const auto saved_path = parts[1]["attachment"].value("path", std::string{});
+    ASSERT_FALSE(saved_path.empty());
+    EXPECT_NE(parts[2].value("text", "").find("Image saved at " + saved_path), std::string::npos);
+    EXPECT_EQ(inputs[0].second.metadata.value("display_text", std::string{}), "看看这张图");
     ASSERT_TRUE(inputs[0].second.metadata.contains("attachments"));
     EXPECT_EQ(inputs[0].second.metadata["attachments"].size(), 1u);
+}
+
+// 场景:平台把一张 PNG 报成 photo.jpg / image/jpeg(插件只能从对象 key 猜类型,手机端发的图常没有扩展名)。
+// 期望:下载后按文件头识别,附件存为 image/png、名字改成 photo.png,模型收到的图片类型与内容一致。
+// 回归:以前直接用平台给的类型,类型与内容不符的图片发给模型时会被服务端拒收。
+TEST_F(ChannelRouter, ImageTypeFollowsTheFileSignature) {
+    transport->download_bytes = std::string("\x89PNG\r\n\x1a\n", 8) + std::string(32, '\0');
+    auto photo = message(private_address("1"), "", "m1");
+    im::Attachment image;
+    image.kind = im::AttachmentKind::Image;
+    image.name = "photo.jpg";
+    image.mime_type = "image/jpeg";
+    image.remote_ref = "file-1";
+    photo.attachments.push_back(image);
+    send(photo);
+    const auto inputs = sessions.input_log();
+    ASSERT_EQ(inputs.size(), 1u);
+    ASSERT_TRUE(inputs[0].second.metadata.contains("attachments"));
+    const auto& saved = inputs[0].second.metadata["attachments"][0];
+    EXPECT_EQ(saved.value("mime_type", std::string{}), "image/png");
+    EXPECT_EQ(saved.value("name", std::string{}), "photo.png");
 }
 
 // 场景:机主撤销某联系人的授权时,该联系人绑定的会话正在执行。

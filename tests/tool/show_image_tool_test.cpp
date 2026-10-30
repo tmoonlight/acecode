@@ -160,3 +160,86 @@ TEST(ShowImageTool, DirectoryAndUnsupportedFormatAreRejected) {
     EXPECT_NE(svg_result.output.find("supported formats"), std::string::npos);
     EXPECT_FALSE(svg_result.has_attachments());
 }
+
+namespace {
+
+// 4x2 的 PPM 内容;stb 按内容识别格式,所以可以存成 .png 交给 show_image。
+std::string ppm_image_4x2() {
+    std::string bytes = "P6\n4 2\n255\n";
+    for (int i = 0; i < 8; ++i) {
+        bytes.push_back(static_cast<char>(10 + i * 30));
+        bytes.push_back(static_cast<char>(200 - i * 20));
+        bytes.push_back(static_cast<char>(i * 7));
+    }
+    return bytes;
+}
+
+} // namespace
+
+// 场景:模型看过一张截图后,只想把其中一块区域给用户看(IM 通道里会作为图片发回聊天)。
+// 期望:带 crop 时附件是截出来的 PNG(data URL,不依赖临时文件),名字是「原名-crop.png」,
+// 摘要带截取尺寸,能正常存进会话附件库;原图文件不变。
+TEST(ShowImageTool, CropShowsOnlyTheRequestedRegion) {
+    TempTree temp;
+    const fs::path image = temp.path / "screen.png";
+    write_file(image, ppm_image_4x2());
+
+    acecode::ToolContext context;
+    context.cwd = acecode::path_to_utf8(temp.path);
+    const auto result = acecode::create_show_image_tool().execute(
+        nlohmann::json{
+            {"image_path", "screen.png"},
+            {"crop", {{"x", 1}, {"y", 0}, {"width", 2}, {"height", 2}}},
+        }.dump(),
+        context);
+
+    ASSERT_TRUE(result.success) << result.output;
+    ASSERT_EQ(result.attachments.size(), 1u);
+    EXPECT_EQ(result.attachments[0]["name"], "screen-crop.png");
+    EXPECT_EQ(result.attachments[0]["mime_type"], "image/png");
+    EXPECT_EQ(result.attachments[0].value("data_url", std::string{}).rfind("data:image/png;base64,", 0), 0u);
+    EXPECT_FALSE(result.attachments[0].contains("path"));
+    EXPECT_NE(result.output.find("cropped to 2x2 at 1,0 of 4x2"), std::string::npos);
+    ASSERT_TRUE(result.summary.has_value());
+    ASSERT_FALSE(result.summary->metrics.empty());
+    EXPECT_EQ(result.summary->metrics.back().second, "2x2");
+
+    const auto materialized = acecode::materialize_output_attachments(
+        result.attachments,
+        acecode::path_to_utf8(temp.path / "attachment-store"),
+        "session-show-image-crop",
+        {},
+        context.cwd);
+    ASSERT_TRUE(materialized.warnings.empty())
+        << nlohmann::json(materialized.warnings).dump();
+    ASSERT_EQ(materialized.attachments.size(), 1u);
+    EXPECT_EQ(materialized.attachments[0]["mime_type"], "image/png");
+    EXPECT_EQ(fs::file_size(image), ppm_image_4x2().size());
+}
+
+// 场景:crop 缺字段、区域整个落在图外。
+// 期望:都报 crop 参数错误且不产生附件;图外的错误里带原图尺寸,模型可以据此重试。
+TEST(ShowImageTool, InvalidCropFailsWithoutAttachment) {
+    TempTree temp;
+    const fs::path image = temp.path / "screen.png";
+    write_file(image, ppm_image_4x2());
+    acecode::ToolContext context;
+    context.cwd = acecode::path_to_utf8(temp.path);
+
+    const auto missing = acecode::create_show_image_tool().execute(
+        nlohmann::json{{"image_path", "screen.png"}, {"crop", {{"x", 0}, {"y", 0}}}}.dump(),
+        context);
+    EXPECT_FALSE(missing.success);
+    EXPECT_NE(missing.output.find("crop"), std::string::npos);
+    EXPECT_FALSE(missing.has_attachments());
+
+    const auto outside = acecode::create_show_image_tool().execute(
+        nlohmann::json{
+            {"image_path", "screen.png"},
+            {"crop", {{"x", 10}, {"y", 0}, {"width", 2}, {"height", 2}}},
+        }.dump(),
+        context);
+    EXPECT_FALSE(outside.success);
+    EXPECT_NE(outside.output.find("4x2"), std::string::npos);
+    EXPECT_FALSE(outside.has_attachments());
+}

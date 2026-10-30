@@ -47,6 +47,10 @@ struct ImageNormalizeResult {
 
 bool is_supported_raster_image_mime(std::string_view mime_type);
 
+// Image type from the file signature (PNG, JPEG, GIF, WebP, BMP); empty when
+// the bytes are none of these. Platforms do not always report the real type.
+std::string image_mime_from_bytes(std::string_view bytes);
+
 std::optional<ImageInfo> probe_image_info(std::string_view bytes,
                                           std::string* error = nullptr);
 
@@ -93,6 +97,31 @@ ModelImageCompression compress_image_for_model(
     std::string_view mime_type,
     bool keep_dimensions = false,
     const ModelImageLimits& limits = {});
+
+struct ImageCropRegion {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+struct ImageCropResult {
+    bool ok = false;
+    std::string bytes;
+    std::string mime_type;
+    ImageInfo input;
+    ImageInfo output;
+    ImageCropRegion region;  // after clamping to the image
+    std::string error;
+};
+
+// Cuts a rectangle given in source pixels out of an image. The region is
+// clamped to the image; a region that misses the image is an error. The crop
+// is PNG so pixels stay exact; an opaque crop whose PNG is larger than
+// max_png_bytes is re-encoded as JPEG.
+ImageCropResult crop_image_bytes(std::string_view bytes,
+                                 const ImageCropRegion& region,
+                                 std::size_t max_png_bytes = 8u * 1024u * 1024u);
 
 // Process-wide "压缩图片" switch (config image_compression.enabled). Read on
 // every request so a settings change applies to the next model call.

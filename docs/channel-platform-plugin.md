@@ -142,6 +142,17 @@ With `account: self`, only private messages where `sender` equals the account
 user's messages from the replies ACECode sent back, and marking those replies, is
 the plugin's job.
 
+`attachments` items are `{kind, name, mime_type, size, remote_ref, transcript}`.
+`kind` is `image`, `file`, `voice` or `video`; `remote_ref` is whatever the
+plugin needs to fetch the content later, and `download` receives the same item
+back together with a local `dest` path to write. Images and files go into the
+session as attachments (up to `max_download_bytes`); voice is accepted only
+with a `transcript`, video is answered as unsupported. ACECode identifies the
+image type from the downloaded bytes, so `mime_type` may be a guess. Images the
+agent shows (for example `show_image`, optionally with `crop`) are sent back
+through `send_file` with a local `path`; a plugin must not report them again as
+`inbound`.
+
 Group messages (`kind: group`) go to group delegation only. `mentioned` means
 the message mentions the user; `from_self` marks messages the user sent from
 another client. Do not emit messages ACECode itself sent through `send_text`.

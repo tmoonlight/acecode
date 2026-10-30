@@ -24,6 +24,10 @@ struct AttachmentRecord {
 
 constexpr std::size_t kMaxAttachmentBytes = 25u * 1024u * 1024u;
 
+// 会话附件目录(UTF-8):<project_dir>/attachments/<session_id>。
+std::string session_attachments_dir(const std::string& project_dir,
+                                    const std::string& session_id);
+
 std::string attachment_blob_url(const std::string& session_id,
                                 const std::string& attachment_id);
 std::string attachment_kind_for_mime(const std::string& mime_type,
