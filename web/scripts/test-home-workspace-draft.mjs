@@ -15,7 +15,7 @@ import { createRoot } from 'react-dom/client';
 import { InputBar } from '/src/components/InputBar.jsx';
 import '/src/styles/globals.css';
 function Fixture() {
-  const [draft, setDraft] = useState({ text: '', revision: 0 });
+  const [draft, setDraft] = useState({ text: 'Saved target draft', revision: 0 });
   window.restoreDraft = text => setDraft(previous => ({ text, revision: previous.revision + 1 }));
   return <InputBar value={draft.text} composerContent={null} draftRevision={draft.revision}
     onChange={text => { window.lastLocalInput = text; }} />;
@@ -59,6 +59,7 @@ const drafts = new Map([
 const heldLoads = [];
 const createRequests = [];
 const clearedDrafts = [];
+const draftWrites = [];
 let failCreation = true;
 let holdLoads = false;
 let browser;
@@ -88,7 +89,11 @@ try {
       return;
     }
     if (url.pathname.endsWith('/draft')) {
-      if (request.method() === 'PUT') drafts.set(url.pathname, request.postDataJSON());
+      if (request.method() === 'PUT') {
+        const draft = request.postDataJSON();
+        draftWrites.push({ path: url.pathname, draft });
+        drafts.set(url.pathname, draft);
+      }
       json = drafts.get(url.pathname) || { text: '' };
       if (holdLoads && request.method() === 'GET') {
         await new Promise(resolve => heldLoads.push(resolve));
@@ -119,6 +124,13 @@ try {
   const openWorkspaceDraft = index => page.locator('[data-sidebar-workspace-new-task]').nth(index).click();
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   await page.goto(`${origin}/__home-draft-sync`);
+  await expectText('Saved target draft');
+  await editor.fill('');
+  await expectText('');
+  await page.evaluate(() => window.restoreDraft('Saved target draft'));
+  await expectText('Saved target draft');
+  console.log('[pass] restoring a nonempty target draft cannot leave the editor blank');
+
   await editor.fill('Local edit before switching');
   await expectText('Local edit before switching');
   await page.evaluate(() => window.restoreDraft(''));
@@ -131,8 +143,20 @@ try {
 
   await page.goto(`${origin}/`);
   await expectText('Personal draft');
+  holdLoads = true;
+  const coldLoad = page.waitForRequest(request => request.method() === 'GET'
+    && new URL(request.url()).pathname === draftPath('workspace-a'));
   await chooseWorkspace('Project A');
+  await coldLoad;
+  await expectText('');
+  assert.equal(drafts.get(draftPath('workspace-a')).text, 'Project A draft');
+  assert.ok(heldLoads.length > 0, 'the uncached target draft request must be held');
+  holdLoads = false;
+  for (const release of heldLoads.splice(0)) release();
   await expectText('Project A draft');
+  assert.equal(draftWrites.some(({ path, draft }) => path === draftPath('workspace-a') && !draft.text), false,
+    'the temporary blank editor must never overwrite the saved target draft');
+  console.log('[pass] a cold workspace load restores its saved text after the temporary blank state');
   await editor.fill('Project A edited');
   await chooseWorkspace('Project B');
   await expectText('Project B draft');
