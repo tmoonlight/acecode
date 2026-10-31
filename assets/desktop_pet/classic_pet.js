@@ -39,7 +39,8 @@
       idle: 'Idle', breathe: true,
       fidgets: ['Sports', 'Cooking', 'Shopping', 'Books', 'Money', 'Celebrity', 'Travel', 'LookUp', 'LookUpLeft', 'Acknowledge'],
       greet: ['Show', 'Greet'], jumping: 'Pleased', click: 'ClickedOn', drag: 'Surprised',
-      dragLeft: { name: 'GestureLeft', hold: 6 }, dragRight: { name: 'GestureLeft', hold: 6, flip: true },
+      // Rover's GestureLeft (Grok video, 12 fps) holds its pointing pose from frame 10 to 29.
+      dragLeft: { name: 'GestureLeft', hold: 10 }, dragRight: { name: 'GestureLeft', hold: 10, flip: true },
       running: { think: ['Thinking'], type: ['Writing'], work: ['Searching', 'ImageSearching', 'Books'], compact: ['Books'], retry: ['Searching'] },
       attention: 'GetAttention', waiting: 'GetAttentionMinor', failed: ['Embarrassed'], review: ['Congratulate', 'CharacterSucceeds'],
     },
@@ -658,7 +659,8 @@
       try { await candidate.decode(); peekImage = candidate; } catch { /* docking just stays unavailable */ }
     }
     // The opening frames of the greeting and the idle loop decode before the pet appears.
-    const raw = PROFILES[value.kind], agent = window.ClassicPetAgents[value.kind];
+    // A pet animated from new footage (Rover) brings its own timing table instead of agent.js.
+    const raw = PROFILES[value.kind], agent = nextArt.agent || window.ClassicPetAgents[value.kind];
     const first = [raw.idle, raw.greet].flat().map(spec => (typeof spec === 'string' ? spec : spec?.name))
       .flatMap(name => sheetsAhead(nextArt, agent.animations[name]?.frames || []));
     try { await loadAll(nextArt, first); } catch {

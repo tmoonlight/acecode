@@ -145,8 +145,10 @@ def main():
     parser.add_argument("--only", default="")
     parser.add_argument("--quality", type=int, default=75)
     args = parser.parse_args()
-    for kind in PETS:
-        if not args.only or kind in args.only.split(","):
+    for kind, spec in PETS.items():
+        if spec.get("replaced_by"):
+            print(f"{kind}: skipped, its frames come from {spec['replaced_by']}")
+        elif not args.only or kind in args.only.split(","):
             assemble(args.root, args.work, kind, args.quality)
 
 
