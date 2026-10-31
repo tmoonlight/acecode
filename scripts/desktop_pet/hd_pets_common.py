@@ -15,7 +15,7 @@ PETS = {
                "describe": "Clippy, the classic Microsoft Office paperclip assistant with big eyes and eyebrows, "
                            "usually standing on a sheet of yellow lined paper (keep the paper whenever it is there). "
                            "3D-rendered cartoon look, silver-blue metal wire."},
-    # Rover's shipped frames come from Grok videos (grok_rover_*.py); this redraw pipeline skips him.
+    # Rover is pixel art animated from Grok videos (grok_rover_*.py); this redraw pipeline skips him.
     "rover": {"dir": "classic/rover", "scale": 5, "output_scale": 4.5, "cols": 3, "rows": 3,
               "ref_resample": Image.NEAREST, "replaced_by": "grok_rover_assemble.py",
               "describe": "Rover, the classic yellow cartoon search dog with a red collar and a small round tag. "

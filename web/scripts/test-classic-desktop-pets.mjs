@@ -274,6 +274,18 @@ try {
     });
     const [minPeek, maxPeek] = expect.peekHeight;
     assert.ok(peekHeight >= minPeek && peekHeight <= maxPeek, `${kind} peek head matches the standing pose (${peekHeight}px tall)`);
+    if (kind === 'rover') {
+      // 场景:像素画宠物(Rover)贴边偷看。bug 表现:像素画先按整数倍放大到临时画布再平滑缩小,临时画布
+      // 只清了本次区域,平滑采样会多读一行,上一帧(更大的坐姿帧)残留的像素在偷看图底下画出一整行细线。
+      // 期望:偷看图最底下一行和它上面几行一样宽,没有横跨的细线。
+      const bottomRows = await page.evaluate(() => {
+        const c = document.getElementById('cv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        const count = y => { let n = 0; for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 0) n++; return n; };
+        let y = c.height - 1; while (y > 0 && !count(y)) y--;
+        return Array.from({ length: 6 }, (_, i) => count(y - 5 + i));
+      });
+      assert.ok(bottomRows.at(-1) <= Math.max(...bottomRows.slice(0, -1)) + 4, `no stray line under the pixel-art peek: ${bottomRows}`);
+    }
     await page.waitForFunction(() => ClassicPet.peekEyes === 1, null, { timeout: 12000 });
     await page.waitForFunction(() => ClassicPet.peekEyes === 0, null, { timeout: 2000 });
     // 场景:像素宠物藏在屏幕外的只有 4 像素。bug 表现:摇摆幅度固定 0~6 像素时,超过 4 的那段被截住,

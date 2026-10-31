@@ -39,7 +39,7 @@
       idle: 'Idle', breathe: true,
       fidgets: ['Sports', 'Cooking', 'Shopping', 'Books', 'Money', 'Celebrity', 'Travel', 'LookUp', 'LookUpLeft', 'Acknowledge'],
       greet: ['Show', 'Greet'], jumping: 'Pleased', click: 'ClickedOn', drag: 'Surprised',
-      // Rover's GestureLeft (Grok video, 12 fps) holds its pointing pose from frame 10 to 29.
+      // Rover's pixel-art GestureLeft (Grok video, 12 fps) holds its pointing pose from frame 9 to 24.
       dragLeft: { name: 'GestureLeft', hold: 10 }, dragRight: { name: 'GestureLeft', hold: 10, flip: true },
       running: { think: ['Thinking'], type: ['Writing'], work: ['Searching', 'ImageSearching', 'Books'], compact: ['Books'], retry: ['Searching'] },
       attention: 'GetAttention', waiting: 'GetAttentionMinor', failed: ['Embarrassed'], review: ['Congratulate', 'CharacterSucceeds'],
@@ -117,7 +117,8 @@
   // ---- Rendering ----
   const normalized = r => [r.left / innerWidth, r.top / innerHeight, r.right / innerWidth, r.bottom / innerHeight];
   const peeking = () => Boolean(docked && peek);
-  const activeMotion = () => (peeking() ? 'peek' : motionKind || (profile?.breathe ? 'breathe' : ''));
+  // Breathing squashes the picture by fractions of a pixel, which makes pixel art shimmer row by row.
+  const activeMotion = () => (peeking() ? 'peek' : motionKind || (profile?.breathe && !art?.pixelArt ? 'breathe' : ''));
   function geometry() {
     const [w, h] = art.framesize;
     const frameScale = Math.min(184 / w, 140 / h);
@@ -155,11 +156,29 @@
     }
     return o;
   }
+  // Pixel art (Rover) is first enlarged to the next whole multiple with nearest-neighbour, then smoothed
+  // down to its real size ("sharp bilinear"): every art pixel stays an even, crisp square at any window
+  // scale, where plain nearest-neighbour would mix one- and two-pixel-wide columns.
+  const pixelCanvas = document.createElement('canvas'), pixelCtx = pixelCanvas.getContext('2d');
+  function drawArt(target, image, sx, sy, sw, sh, dx, dy, dw, dh) {
+    if (!art?.pixelArt) { target.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh); return; }
+    const n = Math.max(1, Math.ceil(Math.abs(target.getTransform().a) * dw / sw - 0.01));
+    if (pixelCanvas.width < sw * n || pixelCanvas.height < sh * n) {
+      pixelCanvas.width = Math.max(pixelCanvas.width, sw * n); pixelCanvas.height = Math.max(pixelCanvas.height, sh * n);
+    }
+    // Clear it all: smoothing samples one pixel past the copied area, where an earlier, larger frame may linger.
+    pixelCtx.clearRect(0, 0, pixelCanvas.width, pixelCanvas.height);
+    pixelCtx.imageSmoothingEnabled = false;
+    pixelCtx.drawImage(image, sx, sy, sw, sh, 0, 0, sw * n, sh * n);
+    target.imageSmoothingQuality = 'low';
+    target.drawImage(pixelCanvas, 0, 0, sw * n, sh * n, dx, dy, dw, dh);
+    target.imageSmoothingQuality = 'high';
+  }
   function paint(target, g, o) {
     // Scene units to the target's pixels (device pixels on screen, 1:1 on the scratch copy).
     target.setTransform(target.canvas.width / SCENE_W, 0, 0, target.canvas.height / SCENE_H, 0, 0);
     target.clearRect(0, 0, SCENE_W, SCENE_H);
-    // All pets are high-resolution art drawn at or below its own size: always smooth.
+    // High-resolution art is drawn at or below its own size: always smooth (pixel art: see drawArt).
     target.imageSmoothingEnabled = true;
     target.imageSmoothingQuality = 'high';
     if (g.peek) {
@@ -167,7 +186,7 @@
       if (o) target.translate(o.dx, o.dy);
       // The art peeks from the right edge; mirror it for the left edge.
       if (docked === 'left') { target.translate(g.x * 2 + g.width, 0); target.scale(-1, 1); }
-      target.drawImage(peek.image, peekEyes * peek.fw, 0, peek.fw, peek.fh, g.x, g.y, g.width, g.height);
+      drawArt(target, peek.image, peekEyes * peek.fw, 0, peek.fw, peek.fh, g.x, g.y, g.width, g.height);
       target.restore();
       return;
     }
@@ -182,7 +201,7 @@
     // ([sheet, x, y, width, height, offset x, offset y], in HD frame pixels) on its sheet.
     for (const [sx, sy] of images) {
       const hd = art.frames[sx + ',' + sy], image = hd && art.images.get(hd[0]);
-      if (image) target.drawImage(image, hd[1], hd[2], hd[3], hd[4],
+      if (image) drawArt(target, image, hd[1], hd[2], hd[3], hd[4],
         g.x + hd[5] * g.scale, g.y + hd[6] * g.scale, hd[3] * g.scale, hd[4] * g.scale);
     }
     target.restore();

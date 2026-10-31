@@ -23,12 +23,13 @@ import grok_media  # noqa: E402
 
 CANVAS, BOX = 720, 540   # video canvas; the original sprite frame occupies the bottom-centre BOX square
 COMMON = (
-    " Same yellow cartoon dog character as in the reference frame (Rover, the Windows XP search dog): same design, "
-    "colours and proportions throughout, a smooth glossy 3D cartoon render. Static locked-off camera: no camera "
-    "movement, no zoom, no cuts. He stays on his sitting spot unless told otherwise. The background stays perfectly "
-    "flat, uniform chroma-key green for the whole clip: no shadows, floor, horizon, lighting changes, particles, other "
-    "objects or text. Nothing on him or his props is green. Any prop he uses is held in his paws and disappears "
-    "before the end, and he ends in exactly the same sitting pose as the first frame."
+    " Same character as the reference frame - a yellow cartoon puppy drawn as 2D PIXEL ART - in every frame: keep "
+    "exactly the same pixel-art style, chunky square pixels, limited flat palette and dark outline; no 3D look, no "
+    "smooth shading, no blur. Static locked-off camera: no camera movement, no zoom, no cuts. He stays on his sitting "
+    "spot unless told otherwise. The background stays perfectly flat, uniform chroma-key green for the whole clip: "
+    "no shadows, floor, horizon, lighting changes, particles, other objects or text. Nothing on him or his props is "
+    "green; props are pixel art too. Any prop he uses is held in his paws and disappears before the end, and he ends "
+    "in exactly the same sitting pose as the first frame."
 )
 # name: (seconds, action). Durations follow the original Microsoft Agent animations (1-4 s, idle a 6 s loop).
 CLIPS = {
@@ -100,8 +101,10 @@ def generate(name, base, work, attempts):
         arguments["first_frame"] = arguments["last_frame"] = base
     for attempt in range(1, attempts + 1):
         started = time.time()
-        result = grok_media.run("reference_to_video", arguments, work / "runs" / f"{name}-{attempt}",
-                                work / "logs" / f"{name}-{attempt}.txt")
+        # Short run folder: the CLI saves under a folder named after the encoded working directory, and the
+        # longer animation names pushed that path past Windows' 260-character limit ("persist ... failed").
+        run_dir = work / "runs" / f"{list(CLIPS).index(name):02d}{attempt}"
+        result = grok_media.run("reference_to_video", arguments, run_dir, work / "logs" / f"{name}-{attempt}.txt")
         if result:
             shutil.copyfile(result, target)
             log(f"{name}: ok in {time.time() - started:.0f}s (attempt {attempt})")
@@ -114,12 +117,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=pathlib.Path, required=True, help="approved sitting pose on green (square)")
     parser.add_argument("--work", type=pathlib.Path, required=True)
+    parser.add_argument("--canvas", action="store_true", help="--base is already the full video canvas")
     parser.add_argument("--jobs", type=int, default=6)
     parser.add_argument("--attempts", type=int, default=2)
     parser.add_argument("--only", default="")
     args = parser.parse_args()
     (args.work / "logs").mkdir(parents=True, exist_ok=True)
-    base = os.path.normpath(str(padded_base(args.base, args.work / "base_padded.png").resolve()))
+    if args.canvas:   # already laid out on the video canvas (the pixel-art base from grok_rover_pixel_base.py)
+        shutil.copyfile(args.base, args.work / "base_padded.png")
+    else:
+        padded_base(args.base, args.work / "base_padded.png")
+    base = os.path.normpath(str((args.work / "base_padded.png").resolve()))
     names = [name for name in CLIPS if not args.only or name in args.only.split(",")]
     with concurrent.futures.ThreadPoolExecutor(args.jobs) as pool:
         results = dict(zip(names, pool.map(lambda n: generate(n, base, args.work, args.attempts), names)))

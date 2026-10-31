@@ -1,7 +1,7 @@
 """Redraw Clippy's edge-peek art (two frames: eyes open / blinking) at the HD frame scale.
 
 Whale Girl's peek art is already drawn at high resolution and is kept; only its size ratio changes. Rover's
-is made with Grok (grok_rover_peek.py).
+is pixel art (rover_pixel_peek.py).
 """
 
 import argparse
@@ -39,7 +39,7 @@ def main():
     parser.add_argument("--root", type=pathlib.Path, required=True, help="assets/desktop_pet")
     parser.add_argument("--work", type=pathlib.Path, required=True)
     args = parser.parse_args()
-    for kind in ("clippy",):   # Rover's peek art: grok_rover_peek.py
+    for kind in ("clippy",):   # Rover's peek art: rover_pixel_peek.py
         spec = PETS[kind]
         folder = args.root / spec["dir"]
         source = folder / "peek.png"
