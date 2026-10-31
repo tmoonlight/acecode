@@ -168,6 +168,11 @@ if(WIN32 OR APPLE)
 
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(ACECODE_CLASSIC_PET_CPP "${CMAKE_BINARY_DIR}/generated/classic_pet_embedded.cpp")
+    # HD frame tables and animation sheets (scripts/desktop_pet/hd_assemble.py output).
+    file(GLOB ACECODE_CLASSIC_PET_HD CONFIGURE_DEPENDS
+        "${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/hd/*"
+        "${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/hd/*"
+        "${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/hd/*")
     add_custom_command(
         OUTPUT ${ACECODE_CLASSIC_PET_CPP}
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/embed_desktop_pet.py"
@@ -176,14 +181,12 @@ if(WIN32 OR APPLE)
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.html
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/agent.js
-            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/map.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/peek.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/agent.js
-            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/map.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/peek.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/agent.js
-            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/map.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/peek.png
+            ${ACECODE_CLASSIC_PET_HD}
         COMMENT "Embedding Clippy, Rover and Whale Girl desktop pets"
         VERBATIM
     )

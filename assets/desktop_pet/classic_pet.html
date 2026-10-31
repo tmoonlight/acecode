@@ -14,7 +14,7 @@
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
 body{font:12px/1.35 var(--pet-font);color:var(--pet-ink);user-select:none;-webkit-user-select:none}
 .scene{position:relative;width:100%;height:100%}
-canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pixelated}
+canvas{display:block;width:100%;height:100%;touch-action:none}
 /* Session cards (Codex Mini): collapsed they pile up above the pet's head, a click
    spreads them into a list; nothing is shown while no session needs attention. */
 /* The padding leaves room for the soft card shadows: the native window region is this
@@ -71,6 +71,9 @@ canvas{display:block;width:100%;height:100%;touch-action:none;image-rendering:pi
 <script src="./classic/clippy/agent.js"></script>
 <script src="./classic/rover/agent.js"></script>
 <script src="./whale/agent.js"></script>
+<script src="./classic/clippy/hd/frames.js"></script>
+<script src="./classic/rover/hd/frames.js"></script>
+<script src="./whale/hd/frames.js"></script>
 <script src="./classic_pet.js"></script>
 </body>
 </html>

@@ -43,9 +43,15 @@ const EXPECT = {
 };
 const mac = process.env.ACE_OFFICE_HOST === 'mac';
 const folder = kind => (kind === 'whale' ? 'whale' : `classic/${kind}`);
-const dataUri = file => 'data:image/png;base64,' + fs.readFileSync(path.join(assets, file)).toString('base64');
-// What the native host sends for each pet (desktop_pet_character): sprite sheet + edge-peek sheet.
-const character = kind => ({ type: 'pet-character', kind, sprite: dataUri(`${folder(kind)}/map.png`), peek: dataUri(`${folder(kind)}/peek.png`) });
+const dataUri = (file, mime = 'image/png') => `data:${mime};base64,` + fs.readFileSync(path.join(assets, file)).toString('base64');
+// HD sheet count of a pet, from its generated frame table (hd/frames.js).
+const sheetCount = kind => {
+  const table = fs.readFileSync(path.join(assets, folder(kind), 'hd/frames.js'), 'utf8');
+  return JSON.parse(table.slice(table.indexOf('= {') + 2, table.lastIndexOf(';'))).sheets.length;
+};
+// What the native host sends for each pet (desktop_pet_character): HD animation sheets + edge-peek sheet.
+const character = kind => ({ type: 'pet-character', kind, peek: dataUri(`${folder(kind)}/peek.png`),
+  sheets: Array.from({ length: sheetCount(kind) }, (_, i) => dataUri(`${folder(kind)}/hd/sheet-${String(i).padStart(2, '0')}.webp`, 'image/webp')) });
 const browser = await chromium.launch({ channel: process.env.ACE_BROWSER_CHANNEL || 'msedge', headless: true });
 const errors = [], external = [], checked = [];
 try {
@@ -91,7 +97,7 @@ try {
     assert.match(await page.locator('.card').first().textContent(), /你好，我是.*双击/);
     assert.equal(await page.locator('#controls, #sessions, #follow, #pin, #close').count(), 0, 'companion pets have no toolbar');
     // Clippy's arrival starts from an empty frame, so wait for the first drawn picture.
-    await page.waitForFunction(() => document.getElementById('cv').getContext('2d').getImageData(0, 0, 344, 252).data.some((v, i) => i % 4 === 3 && v > 0));
+    await page.waitForFunction(() => { const c = document.getElementById('cv'); return c.getContext('2d').getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 === 3 && v > 0); });
     assert.ok((await overlay()).bubbles.length > 1 && (await overlay()).bubbles.length < 22);
     await waitAnimation(expect.think);
     assert.equal((await pet()).base, 'running');
@@ -247,9 +253,11 @@ try {
 
     // Docking: every companion pet has edge-peek art. Docked it peeks in from that edge, blinks,
     // squints happily when hovered, and picking it up restores the full figure.
+    // Columns x0..x1 of rows 150..240 in scene units (the canvas holds device pixels), counted in scene pixels.
     const alphaAt = (x0, x1) => page.evaluate(([a, b]) => {
-      const d = document.getElementById('cv').getContext('2d').getImageData(a, 150, b - a, 90).data;
-      let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 32) n++; return n;
+      const c = document.getElementById('cv'), k = c.width / 344, ky = c.height / 252;
+      const d = c.getContext('2d').getImageData(Math.round(a * k), Math.round(150 * ky), Math.round((b - a) * k), Math.round(90 * ky)).data;
+      let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 32) n++; return n / (k * ky);
     }, [x0, x1]);
     await send({ type: 'pet-dock', side: 'right' });
     assert.equal(await page.evaluate(() => ClassicPet.docked), 'right');
@@ -259,10 +267,10 @@ try {
     // 期望:偷看图按常规帧缩放 ÷ 原画倍数画,头和其它姿势一样大 —— 鲸鱼娘原画大 1.8 倍,
     // 300 像素高约 91 像素;回形针 / Rover 的原画就是精灵分辨率,75 / 56 行按 1.48 / 1.75 倍约 111 / 98 像素。
     const peekHeight = await page.evaluate(() => {
-      const d = document.getElementById('cv').getContext('2d').getImageData(0, 0, 344, 252).data;
-      let top = 252, bottom = -1;
-      for (let y = 0; y < 252; y++) for (let x = 0; x < 344; x++) if (d[(y * 344 + x) * 4 + 3] > 32) { top = Math.min(top, y); bottom = y; break; }
-      return bottom - top + 1;
+      const c = document.getElementById('cv'), w = c.width, h = c.height, d = c.getContext('2d').getImageData(0, 0, w, h).data;
+      let top = h, bottom = -1;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (d[(y * w + x) * 4 + 3] > 32) { top = Math.min(top, y); bottom = y; break; }
+      return Math.round((bottom - top + 1) * 252 / h);   // in scene units
     });
     const [minPeek, maxPeek] = expect.peekHeight;
     assert.ok(peekHeight >= minPeek && peekHeight <= maxPeek, `${kind} peek head matches the standing pose (${peekHeight}px tall)`);
@@ -297,7 +305,8 @@ try {
       assert.equal(states.length, 15);
       for (const state of states) {
         await page.evaluate(name => ClassicPet.play(name), state);
-        assert.ok(await page.evaluate(() => document.getElementById('cv').getContext('2d').getImageData(0, 0, 344, 252).data.some((v, i) => i % 4 === 3 && v > 0)), state);
+        await page.waitForFunction(name => ClassicPet.animation === name, state);
+        assert.ok(await page.evaluate(() => { const c = document.getElementById('cv'); return c.getContext('2d').getImageData(0, 0, c.width, c.height).data.some((v, i) => i % 4 === 3 && v > 0); }), state);
       }
     }
 
@@ -354,6 +363,10 @@ try {
       await page.setViewportSize({ width, height: Math.round(width * 252 / 344) });
       await page.mouse.move(-10, -10); await page.waitForTimeout(1100);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width);
+      // 场景:把宠物放大(用户反馈「清晰度太低,350 像素也要清晰无锯齿」)。bug 表现:画布固定 344×252,
+      // 再按像素放大到窗口大小,精灵图本身又只有 124×93 / 80×80,放大后满是锯齿。
+      // 期望:画布始终等于窗口的设备像素,高清帧(Codex 重画)按需缩小平滑绘制。
+      assert.equal(await page.evaluate(() => document.getElementById('cv').width), width, `${kind} canvas holds device pixels at ${width}px`);
       // 场景:用滚轮 / 把手把宠物缩小。bug 表现:卡片保持对话正文字号,宠物却跟着窗口缩小,
       // 窗口宽度低于约 280 时卡片顶端跑出窗口被切掉;正文又是行内元素,长句压到停止按钮下面
       // (用户反馈「缩小到一定程度会显示不全」)。期望:卡片整张留在窗口里,放不下时按需缩小
@@ -371,6 +384,22 @@ try {
     }
     await page.setViewportSize({ width: 430, height: 315 });
     checked.push(kind);
+  }
+
+  // 场景:高分屏(缩放 200%)。bug 表现:画布只有 344×252 个像素,浏览器再把它放大两倍,线条发虚带锯齿。
+  // 期望:画布按设备像素分配(430 宽窗口 → 860 像素),高清帧的分辨率不低于实际绘制大小。
+  {
+    const hiDpi = await browser.newPage({ viewport: { width: 430, height: 315 }, deviceScaleFactor: 2 });
+    await hiDpi.addInitScript({ content: `window.chrome={webview:{postMessage:()=>{},addEventListener:(type,listener)=>{window.hostMessage=listener;}}};` });
+    await hiDpi.goto('about:blank');
+    await hiDpi.setContent(html);
+    await hiDpi.evaluate(data => hostMessage({ data }), snapshot());
+    await hiDpi.evaluate(data => hostMessage({ data }), character('clippy'));
+    await hiDpi.waitForFunction(() => ClassicPet.kind === 'clippy');
+    assert.deepEqual(await hiDpi.evaluate(() => [document.getElementById('cv').width, document.getElementById('cv').height]), [860, 630]);
+    // 回形针帧在 344 宽场景里画 184 个单位宽,2 倍屏即 368 设备像素;高清帧宽 496,只会缩小。
+    assert.ok(await hiDpi.evaluate(() => window.ClassicPetHD.clippy.framesize[0] >= 184 * 2), 'HD frames are never blown up on a 2x screen');
+    await hiDpi.close();
   }
 
   // 场景:窗口贴着屏幕边时换宠物,或者页面刚打开、素材还在解码时宿主就发来了贴边消息。
@@ -398,5 +427,5 @@ try {
   assert.equal(await page.evaluate(() => ClassicPet.docked), '', 'after being picked up a new pet stands normally');
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
   console.log(JSON.stringify({ ok: true, host: mac ? 'mac-shim' : 'windows', checked,
-    coverage: 'offline decoding, greeting, all 15 whale states, running/waiting/failed/success states, idle never still, random preset actions, session card deck (collapse/expand/open/stop/dismiss, nothing when idle), transcript font, edge docking for all three pets (peek, blink, hover, left/right, pick up, switch while docked), hover jump, click reaction, double-click activate, drag directions, sleep/wake, keeps moving under reduce motion, silhouette, right-click menu, three sizes', output }));
+    coverage: 'offline decoding, HD frames on a device-pixel canvas (1x/2x), greeting, all 15 whale states, running/waiting/failed/success states, idle never still, random preset actions, session card deck (collapse/expand/open/stop/dismiss, nothing when idle), transcript font, edge docking for all three pets (peek, blink, hover, left/right, pick up, switch while docked), hover jump, click reaction, double-click activate, drag directions, sleep/wake, keeps moving under reduce motion, silhouette, right-click menu, three sizes', output }));
 } finally { await browser.close(); }

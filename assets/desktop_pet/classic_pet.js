@@ -8,9 +8,12 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const cv = $('cv'), ctx = cv.getContext('2d'), scene = $('scene'), stack = $('stack'), deck = $('deck');
+  // Layout units: the scene is laid out on a 344×252 grid (geometry, hit bands, motion margins), while the
+  // canvas itself holds the window's real device pixels, so the high-resolution art is never blown up.
+  const SCENE_W = 344, SCENE_H = 252;
   // Silhouette bands are measured on an unmoved copy so per-frame motion never reflows the window region.
   const scratch = document.createElement('canvas');
-  scratch.width = cv.width; scratch.height = cv.height;
+  scratch.width = SCENE_W; scratch.height = SCENE_H;
   const sctx = scratch.getContext('2d', { willReadFrequently: true });
   const post = value => window.chrome?.webview?.postMessage(value);
   const action = value => post(JSON.stringify(value));
@@ -52,20 +55,20 @@
       sleep: 'sleep', wake: 'wake',
     },
   };
-  // Docked pets peek in from the screen edge. `hidden` canvas px of the art stays past the edge so
+  // Docked pets peek in from the screen edge. `hidden` scene px of the art stays past the edge so
   // they can lean in without revealing where the drawing is cut. `ratio` is how much larger the peek
-  // art is drawn than the sprite frames: it is shown at the frame scale divided by it, so the head
-  // keeps the size it has in every other pose instead of growing at the edge. Whale Girl's art is
-  // about 1.8x (eye height and headband-to-mouth both measure 1.8x); Clippy's and Rover's are made
-  // at sprite resolution (their eyes match the frames' eyes) and, like their frames, are scaled
-  // without smoothing. Their art is narrow, so less of it hides past the edge.
+  // art is drawn than the animation frames: it is shown at the frame scale divided by it, so the head
+  // keeps the size it has in every other pose instead of growing at the edge. Whale Girl's peek art
+  // is 0.9x her HD frames (1.8x the original 256px frames: eye height and headband-to-mouth both
+  // measure 1.8x); Clippy's and Rover's are redrawn at their HD frame scale. Their art is narrow,
+  // so less of it hides past the edge.
   const PEEK = {
-    whale: { ratio: 1.8, hidden: 9, smooth: true },
-    clippy: { ratio: 1, hidden: 4, smooth: false },
-    rover: { ratio: 1, hidden: 4, smooth: false },
+    whale: { ratio: 0.9, hidden: 9 },
+    clippy: { ratio: 1, hidden: 4 },
+    rover: { ratio: 1, hidden: 4 },
   };
   const peekStyle = () => PEEK[kind] || PEEK.whale;
-  // Extra hit margin (canvas px) so moving silhouettes stay clickable without per-frame region updates.
+  // Extra hit margin (scene px) so moving silhouettes stay clickable without per-frame region updates.
   const MOTION_MARGIN = { float: [0, 4], breathe: [0, 3], shake: [3, 0], wiggle: [8, 0], tilt: [16, 2] };
   const timing = { fidgetMin: 7000, fidgetMax: 16000, sleepAfter: 5 * 60 * 1000, greeting: 6000 };
   // The original agents hold a pose through self-looping branches (Clippy's idle stares ~6s).
@@ -73,7 +76,8 @@
   const MAX_HOLD_MS = 1200;
 
   let snapshot = { version: 1, follow: true, connected: false, agents: [], offices: [], selected: null, activities: [] };
-  let kind = '', data = null, sheet = null, profile = null, loadRevision = 0, pendingIntro = null;
+  // `art`: the loaded pet's HD frames (see makeArt); `data` its animation timing from agent.js.
+  let kind = '', data = null, art = null, profile = null, loadRevision = 0, pendingIntro = null;
   let animation = '', frameIndex = 0, flipped = false, motionKind = '', images = null, imageKey = '', imageSince = 0;
   // Edge docking (pets with peek art): the peek sheet, which edge, eyes open/closed, lean and bounce.
   // `windowEdge` is the edge the native window sits on; it becomes `docked` once the pet has peek art,
@@ -114,16 +118,16 @@
   const peeking = () => Boolean(docked && peek);
   const activeMotion = () => (peeking() ? 'peek' : motionKind || (profile?.breathe ? 'breathe' : ''));
   function geometry() {
-    const [w, h] = data.framesize;
+    const [w, h] = art.framesize;
     const frameScale = Math.min(184 / w, 140 / h);
     if (peeking()) {
       const { ratio, hidden } = peekStyle();
       const scale = frameScale / ratio, width = peek.fw * scale, height = peek.fh * scale;
       return { peek: true, w: peek.fw, h: peek.fh, scale, width, height,
-        x: docked === 'right' ? cv.width - width + hidden : -hidden, y: cv.height - height - 2 };
+        x: docked === 'right' ? SCENE_W - width + hidden : -hidden, y: SCENE_H - height - 2 };
     }
     const width = w * frameScale, height = h * frameScale;
-    return { w, h, scale: frameScale, width, height, x: (cv.width - width) / 2, y: cv.height - height - 8 };
+    return { w, h, scale: frameScale, width, height, x: (SCENE_W - width) / 2, y: SCENE_H - height - 8 };
   }
   function offsetAt(now, g) {
     const kindOfMotion = activeMotion();
@@ -139,10 +143,6 @@
       const sway = (1 - Math.cos(now / 1900)) * peekStyle().hidden / 3;
       peekLean += ((hovered ? 12 : base === 'waiting' ? 9 : 0) - peekLean) * 0.12;
       o.dx = (docked === 'right' ? -1 : 1) * Math.min(peekStyle().hidden, sway + peekLean);
-      // Pixel art drawn without smoothing only changes once the offset crosses a pixel edge, so near
-      // the sway's turning points it would stand still for about two seconds; a small vertical bob a
-      // quarter period apart keeps it moving (the two never slow down together).
-      if (!peekStyle().smooth) o.dy = Math.sin(now / 1900) * 1.5;
       const since = now - peekBounceAt;
       if (peekBounce === 'happy' && since < 900) o.dy = -Math.abs(Math.sin(since / 90)) * 6 * (1 - since / 900);
       else if (peekBounce === 'shake' && since < 700) o.dx += Math.sin(since / 28) * 3 * (1 - since / 700);
@@ -155,10 +155,14 @@
     return o;
   }
   function paint(target, g, o) {
-    target.clearRect(0, 0, cv.width, cv.height);
+    // Scene units to the target's pixels (device pixels on screen, 1:1 on the scratch copy).
+    target.setTransform(target.canvas.width / SCENE_W, 0, 0, target.canvas.height / SCENE_H, 0, 0);
+    target.clearRect(0, 0, SCENE_W, SCENE_H);
+    // All pets are high-resolution art drawn at or below its own size: always smooth.
+    target.imageSmoothingEnabled = true;
+    target.imageSmoothingQuality = 'high';
     if (g.peek) {
       target.save();
-      target.imageSmoothingEnabled = peekStyle().smooth;
       if (o) target.translate(o.dx, o.dy);
       // The art peeks from the right edge; mirror it for the left edge.
       if (docked === 'left') { target.translate(g.x * 2 + g.width, 0); target.scale(-1, 1); }
@@ -168,19 +172,23 @@
     }
     if (!images?.length) return;
     target.save();
-    // Whale Girl is downscaled artwork; the classic agents are upscaled pixel art.
-    target.imageSmoothingEnabled = g.scale < 1;
     if (o) {
       target.translate(o.px, o.py); target.rotate(o.angle); target.scale(1, o.sy);
       target.translate(o.dx - o.px, o.dy - o.py);
     }
     if (flipped) { target.translate(g.x * 2 + g.width, 0); target.scale(-1, 1); }
-    for (const [sx, sy] of images) target.drawImage(sheet, sx, sy, g.w, g.h, g.x, g.y, g.width, g.height);
+    // Frames are listed by their original sprite offset; the HD table gives the trimmed picture
+    // ([sheet, x, y, width, height, offset x, offset y], in HD frame pixels) on its sheet.
+    for (const [sx, sy] of images) {
+      const hd = art.frames[sx + ',' + sy], image = hd && art.images.get(hd[0]);
+      if (image) target.drawImage(image, hd[1], hd[2], hd[3], hd[4],
+        g.x + hd[5] * g.scale, g.y + hd[6] * g.scale, hd[3] * g.scale, hd[4] * g.scale);
+    }
     target.restore();
   }
   const continuous = () => !document.hidden && Boolean(activeMotion()) && (peeking() || Boolean(images?.length));
   function render() {
-    if (!sheet || !data) return;
+    if (!art || !data) return;
     const g = geometry();
     paint(ctx, g, offsetAt(performance.now(), g));
     if (!rafId && continuous()) rafId = requestAnimationFrame(() => { rafId = 0; render(); });
@@ -191,13 +199,13 @@
     if (!bands) {
       // Narrow horizontal bands follow the visible silhouette instead of the whole window.
       paint(sctx, g, null);
-      const pixels = sctx.getImageData(0, 0, cv.width, cv.height).data;
+      const pixels = sctx.getImageData(0, 0, SCENE_W, SCENE_H).data;
       bands = [];
       for (let top = Math.max(0, Math.floor(g.y)); top < g.y + g.height; top += 8) {
-        const bottom = Math.min(cv.height, top + 8);
-        let left = cv.width, right = 0;
-        for (let py = top; py < bottom; py++) for (let px = Math.max(0, Math.floor(g.x)); px < Math.min(cv.width, g.x + g.width); px++) {
-          if (pixels[(py * cv.width + px) * 4 + 3] > 32) { left = Math.min(left, px); right = Math.max(right, px + 1); }
+        const bottom = Math.min(SCENE_H, top + 8);
+        let left = SCENE_W, right = 0;
+        for (let py = top; py < bottom; py++) for (let px = Math.max(0, Math.floor(g.x)); px < Math.min(SCENE_W, g.x + g.width); px++) {
+          if (pixels[(py * SCENE_W + px) * 4 + 3] > 32) { left = Math.min(left, px); right = Math.max(right, px + 1); }
         }
         if (right > left) bands.push([left, top, right, bottom]);
       }
@@ -205,7 +213,7 @@
     }
     const motion = activeMotion();
     const [mx, my] = motion === 'peek' ? [peekStyle().hidden + 4, 8] : MOTION_MARGIN[motion] || [0, 0];
-    bodyRegions = bands.map(([l, t, r, b]) => [Math.max(0, l - mx), Math.max(0, t - my), Math.min(cv.width, r + mx), Math.min(cv.height, b + my)]);
+    bodyRegions = bands.map(([l, t, r, b]) => [Math.max(0, l - mx), Math.max(0, t - my), Math.min(SCENE_W, r + mx), Math.min(SCENE_H, b + my)]);
     bodyBounds = bands.length ? [Math.min(...bands.map(b => b[0])), Math.min(...bands.map(b => b[1])),
       Math.max(...bands.map(b => b[2])), Math.max(...bands.map(b => b[3]))] : null;
   }
@@ -218,7 +226,7 @@
   }
   function reportRegions() {
     const r = cv.getBoundingClientRect();
-    const toWindow = b => [b[0] / cv.width, b[1] / cv.height, b[2] / cv.width, b[3] / cv.height];
+    const toWindow = b => [b[0] / SCENE_W, b[1] / SCENE_H, b[2] / SCENE_W, b[3] / SCENE_H];
     const bodies = bodyRegions.map(toWindow);
     // Keep only a small anchor under a stationary pointer when the animation jumps away.
     // The rest of the transparent sprite frame remains click-through during hover.
@@ -230,8 +238,8 @@
     // the grip and would swallow the pointer, and macOS treats it as foreground, not the grip.
     if (bodyBounds && !grip.matches(':hover')) {
       const belowCards = stack.hidden || expanded ? 0 : stack.getBoundingClientRect().bottom;
-      const top = Math.max(0, belowCards, bodyBounds[1] * r.height / cv.height - grip.offsetHeight);
-      grip.style.left = Math.max(0, bodyBounds[0] * r.width / cv.width - grip.offsetWidth) + 'px';
+      const top = Math.max(0, belowCards, bodyBounds[1] * r.height / SCENE_H - grip.offsetHeight);
+      grip.style.left = Math.max(0, bodyBounds[0] * r.width / SCENE_W - grip.offsetWidth) + 'px';
       grip.style.top = Math.min(Math.max(0, innerHeight - grip.offsetHeight), top) + 'px';
     }
     // No card, no rectangle: the empty space above the pet stays click-through.
@@ -242,19 +250,93 @@
     if (key !== overlayKey && r.width > 0) { overlayKey = key; action(message); }
   }
 
+  // ---- HD art: sheets decode on demand around the playhead ----
+  // The redrawn frames total tens of megapixels per pet (Rover's idle alone has 330 frames), far too
+  // much to keep decoded, so the sheets follow playback order and only those holding the next AHEAD
+  // frames of the playing clip are decoded; the least recently used ones go above the budget.
+  const AHEAD = 16, SHEET_BUDGET = 16e6;
+  function makeArt(name, sources) {
+    const hd = window.ClassicPetHD?.[name];
+    if (!hd || !Array.isArray(sources) || sources.length !== hd.sheets.length) return null;
+    return { ...hd, sources, images: new Map(), loading: new Map(), used: new Map() };
+  }
+  const framesOf = name => (name && data?.animations[name]?.frames) || [];
+  function sheetsAhead(target, frames, from = 0) {
+    const sheets = new Set();
+    for (let k = 0; k < Math.min(AHEAD, frames.length); k++) {
+      for (const [sx, sy] of frames[(from + k) % frames.length].images || []) {
+        const hd = target.frames[sx + ',' + sy];
+        if (hd) sheets.add(hd[0]);
+      }
+    }
+    return [...sheets];
+  }
+  const loaded = (target, sheets) => sheets.every(index => target.images.has(index));
+  const loadAll = (target, sheets) => Promise.all(sheets.map(index => loadSheet(target, index)));
+  function loadSheet(target, index) {
+    target.used.set(index, performance.now());
+    if (target.images.has(index)) return Promise.resolve();
+    let pending = target.loading.get(index);
+    if (!pending) {
+      const image = new Image();
+      image.src = target.sources[index];
+      pending = image.decode().then(() => {
+        target.loading.delete(index);
+        target.images.set(index, image);
+        trimSheets(target);
+      }, error => { target.loading.delete(index); throw error; });
+      target.loading.set(index, pending);
+    }
+    return pending;
+  }
+  function trimSheets(target) {
+    if (target !== art) return;   // a pet still loading keeps everything until it is shown
+    // Never drop what is on screen, what plays next, or the start of the idle loop the pet returns to.
+    const keep = new Set([...sheetsAhead(target, framesOf(animation), frameIndex), ...sheetsAhead(target, framesOf(profile?.idle?.name))]);
+    for (const [sx, sy] of images || []) { const hd = target.frames[sx + ',' + sy]; if (hd) keep.add(hd[0]); }
+    const size = index => target.sheets[index][0] * target.sheets[index][1];
+    let pixels = [...target.images.keys()].reduce((sum, index) => sum + size(index), 0);
+    const old = [...target.images.keys()].filter(index => !keep.has(index)).sort((a, b) => target.used.get(a) - target.used.get(b));
+    for (const index of old) {
+      if (pixels <= SHEET_BUDGET) break;
+      target.images.delete(index); pixels -= size(index);
+    }
+  }
+
   // ---- Playback ----
   function stopPlayback() { clearTimeout(timer); timer = 0; generation++; current = null; }
-  function play(spec, done) {
+  // `pending`: the state of this same clip while its sheets were decoding (exit / release requests carry over).
+  function play(spec, done, pending = null) {
     const clip = spec && typeof spec === 'object' && data?.animations[spec.name] ? spec : clipOf(spec);
     stopPlayback();
-    if (!clip || !sheet) return;
+    if (!clip || !art) return;
     const frames = data.animations[clip.name].frames;
-    const token = generation, state = current = { clip, exit: false, release: false };
+    const token = generation, state = current = { clip, exit: Boolean(pending?.exit), release: Boolean(pending?.release) };
     animation = clip.name; flipped = Boolean(clip.flip);
     motionKind = data.animations[clip.name].motion || '';
+    // The sheets of its first frames decode first (milliseconds); the previous picture stays up meanwhile.
+    const opening = sheetsAhead(art, frames);
+    if (!pending && !loaded(art, opening)) {
+      const target = art;
+      loadAll(target, opening).then(() => { if (token === generation && art === target) play(spec, done, state); },
+        () => {
+          // A sheet that cannot be decoded takes its animation out of rotation instead of retrying forever.
+          if (art === target) delete data.animations[clip.name];
+          if (token === generation) { current = null; done?.(); }
+        });
+      return;
+    }
     if (!frames?.length) { timer = setTimeout(() => { if (token === generation) done?.(); }, 100); return; }
     let index = 0, steps = 0, repeats = 0, started = performance.now();
-    const show = i => { frameIndex = i; setFrame(frames[i]); };
+    const show = i => {
+      frameIndex = i;
+      const target = art, own = sheetsAhead(target, [frames[i]]);
+      // Keep decoding ahead of the playhead; a frame whose sheet is not ready yet (a branch jumping
+      // far ahead) holds the previous picture until it is.
+      loadAll(target, sheetsAhead(target, frames, i)).catch(() => {});
+      if (loaded(target, own)) setFrame(frames[i]);
+      else loadAll(target, own).then(() => { if (token === generation && frameIndex === i) setFrame(frames[i]); }, () => {});
+    };
     const schedule = () => {
       const frame = frames[index];
       timer = setTimeout(() => {
@@ -287,7 +369,7 @@
     cancelAnimationFrame(rafId); rafId = 0;
     if (peeking()) { setPeekEyes(0); return; }
     const rest = clipOf('RestPose') || profile?.idle;
-    if (!rest) return;
+    if (!rest || !loaded(art, sheetsAhead(art, framesOf(rest.name).slice(0, 1)))) return;
     animation = rest.name; flipped = false; motionKind = ''; frameIndex = 0;
     setFrame(data.animations[rest.name].frames[0]);
   }
@@ -327,7 +409,7 @@
     const next_ = peek ? windowEdge : '';
     if (next_ === docked) return;
     docked = next_; peekLean = 0; peekBounce = '';
-    if (!sheet || quiet) return;
+    if (!art || quiet) return;
     next();
   }
   function planFidget() {
@@ -345,7 +427,7 @@
   }
   // Decides what plays after every clip, so the pet always continues with another animation.
   function next() {
-    if (!sheet || !profile) return;
+    if (!art || !profile) return;
     if (document.hidden) { still(); return; }
     if (peeking()) { playPeek(); return; }
     if (dragging) { playDrag(); return; }
@@ -371,9 +453,9 @@
   }
   // A transient reaction (hover / click) replaces the current clip, then the pet continues its state.
   function react(clip) {
-    if (peeking()) { wake(); if (sheet && !document.hidden) peekReact('happy'); return; }
+    if (peeking()) { wake(); if (art && !document.hidden) peekReact('happy'); return; }
     const waking = wake();
-    if (!sheet || dragging || document.hidden) return;
+    if (!art || dragging || document.hidden) return;
     if (waking && clip) queue.unshift(clip);
     if (waking || clip) play(waking || clip, next);
   }
@@ -394,7 +476,7 @@
     const cards = [];
     if (kind && performance.now() < greetingUntil)
       cards.push({ key: 'greeting', status: 'info', title: `你好，我是${NAMES[kind]}`, body: '双击我就能打开 ACECode', local: true });
-    if (sheet && !snapshot.connected) cards.push({ key: 'offline', status: 'info', title: '连接已中断', body: '正在重新连接…', local: true });
+    if (art && !snapshot.connected) cards.push({ key: 'offline', status: 'info', title: '连接已中断', body: '正在重新连接…', local: true });
     return cards.concat(sessionCards());
   }
   function cardElement(card) {
@@ -527,7 +609,7 @@
     if (peeking()) {
       // Docked she keeps peeking; results get a happy squint or a little shake.
       queue = [];
-      if (dragging || !sheet) return;
+      if (dragging || !art) return;
       if (finished) peekReact('happy');
       else if (failed) peekReact('shake');
       else if (!current) playPeek();
@@ -539,7 +621,7 @@
     else if (base === 'waiting' && !wasWaiting && profile.attention) queue.push(profile.attention);
     if (waking) queue.unshift(waking);
     if (base === 'idle') planFidget();
-    if (dragging || !sheet) return;
+    if (dragging || !art) return;
     // Only the busy phase changed: let the current work animation finish before switching.
     if (variantOnly && !queue.length && current) { current.exit = true; return; }
     next();
@@ -563,19 +645,23 @@
     for (const key of dismissed) if (!live.has(key)) dismissed.delete(key);
     renderCards(); syncState();
   }
+  // value.sheets: the HD sheets of hd/frames.js in order (data: URLs from the native host).
   async function setCharacter(value) {
-    if (!PROFILES[value?.kind] || typeof value.sprite !== 'string') return;
+    const nextArt = PROFILES[value?.kind] ? makeArt(value.kind, value.sheets) : null;
+    if (!nextArt) return;
     const revision = ++loadRevision;
     stopPlayback();
-    const image = new Image();
-    image.src = value.sprite;
     let peekImage = null;
     if (typeof value.peek === 'string') {
       const candidate = new Image();
       candidate.src = value.peek;
       try { await candidate.decode(); peekImage = candidate; } catch { /* docking just stays unavailable */ }
     }
-    try { await image.decode(); } catch {
+    // The opening frames of the greeting and the idle loop decode before the pet appears.
+    const raw = PROFILES[value.kind], agent = window.ClassicPetAgents[value.kind];
+    const first = [raw.idle, raw.greet].flat().map(spec => (typeof spec === 'string' ? spec : spec?.name))
+      .flatMap(name => sheetsAhead(nextArt, agent.animations[name]?.frames || []));
+    try { await loadAll(nextArt, first); } catch {
       if (revision === loadRevision) {
         deck.replaceChildren(cardElement({ key: 'load-failed', status: 'failed', title: '宠物素材加载失败', body: '请关闭后重新开启', local: true }));
         stack.hidden = false; fitStack(); reportRegions();
@@ -583,7 +669,10 @@
       return;
     }
     if (revision !== loadRevision) return;
-    kind = value.kind; sheet = image; data = window.ClassicPetAgents[kind]; profile = normalizeProfile(PROFILES[kind]);
+    // Only animations whose frames were all redrawn are playable.
+    kind = value.kind; art = nextArt;
+    data = { ...agent, animations: Object.fromEntries(Object.entries(agent.animations).filter(([name]) => art.animations[name])) };
+    profile = normalizeProfile(PROFILES[kind]);
     peek = peekImage ? { image: peekImage, fw: peekImage.naturalWidth / 2, fh: peekImage.naturalHeight } : null;
     docked = peek ? windowEdge : ''; peekLean = 0; peekBounce = '';
     hovered = false; hoverPoint = null;
@@ -612,13 +701,13 @@
     setDocked('', { quiet: true });   // picked up from the edge: back to the full figure
     dragging = true; dragDir = 0;
     wake(); armDragWatch();
-    if (sheet && !document.hidden) playDrag();
+    if (art && !document.hidden) playDrag();
   }
   function setDragDir(direction) {
     if (!dragging || direction === dragDir) return;
     const leaving = current;
     dragDir = direction;
-    if (!sheet || document.hidden) return;
+    if (!art || document.hidden) return;
     // Finish looking back to the front before resting; the clip then continues through next().
     if (direction === 0 && leaving && Number.isInteger(leaving.clip.hold)) { leaving.release = true; return; }
     if (leaving && leaving.clip === dragClip()) return;   // same pose: keep it running, no restart
@@ -637,7 +726,7 @@
     if (!dragging) return;
     dragging = false; dragDir = 0; dragEndedAt = performance.now();
     lastActivity = dragEndedAt;
-    if (silent || !sheet) return;
+    if (silent || !art) return;
     if (document.hidden) { still(); return; }
     if (current && Number.isInteger(current.clip.hold)) current.release = true;
     else next();
@@ -646,7 +735,7 @@
   // ---- Pointer interaction ----
   function canvasPoint(event) {
     const r = cv.getBoundingClientRect();
-    return { x: (event.clientX - r.left) * cv.width / r.width, y: (event.clientY - r.top) * cv.height / r.height };
+    return { x: (event.clientX - r.left) * SCENE_W / r.width, y: (event.clientY - r.top) * SCENE_H / r.height };
   }
   function overSprite(event, updateAnchor = false) {
     const p = canvasPoint(event);
@@ -744,9 +833,24 @@
   }
   window.chrome?.webview?.addEventListener('message', onMessage);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { stopPlayback(); cancelAnimationFrame(rafId); rafId = 0; } else if (sheet) next();
+    if (document.hidden) { stopPlayback(); cancelAnimationFrame(rafId); rafId = 0; } else if (art) next();
   });
-  window.addEventListener('resize', () => { fitStack(); reportRegions(); });
+  // The canvas holds device pixels: follow window size and display scaling (moving to another monitor).
+  function fitCanvas() {
+    const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.round(r.width * dpr)), height = Math.max(1, Math.round(r.height * dpr));
+    if (cv.width === width && cv.height === height) return;
+    cv.width = width; cv.height = height;
+    render();
+  }
+  let resolution = null;
+  function watchResolution() {
+    resolution?.removeEventListener('change', watchResolution);
+    resolution = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    resolution.addEventListener('change', watchResolution);
+    fitCanvas();
+  }
+  window.addEventListener('resize', () => { fitCanvas(); fitStack(); reportRegions(); });
   window.addEventListener('pagehide', () => {
     stopPlayback(); loadRevision++;
     for (const id of [collapseTimer, badgeTimer, fidgetTimer, greetingTimer, dragPauseTimer, dragWatchTimer, hoverOffTimer]) clearTimeout(id);
@@ -763,9 +867,9 @@
   // Browser-only fixture/asset inspection also works without a native host.
   if (!window.chrome?.webview) {
     const selected = new URLSearchParams(location.search).get('pet');
-    if (PROFILES[selected]) void setCharacter({ kind: selected,
-      sprite: selected === 'whale' ? './whale/map.png' : `./classic/${selected}/map.png`,
-      peek: selected === 'whale' ? './whale/peek.png' : `./classic/${selected}/peek.png` });
+    const folder = selected === 'whale' ? './whale' : `./classic/${selected}`;
+    if (PROFILES[selected]) void setCharacter({ kind: selected, peek: `${folder}/peek.png`,
+      sheets: (window.ClassicPetHD?.[selected]?.sheets || []).map((_, i) => `${folder}/hd/sheet-${String(i).padStart(2, '0')}.webp`) });
   }
-  reportRegions(); post('ready');
+  watchResolution(); reportRegions(); post('ready');
 })();
