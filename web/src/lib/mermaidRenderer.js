@@ -1,4 +1,3 @@
-import mermaid from 'mermaid';
 import { mermaidTheme, mermaidThemeVariables } from './mermaidTheme.js';
 import { registerMermaidExportTarget } from './mermaidExport.js';
 import { dispatchMermaidPreview } from './mermaidPreview.js';
@@ -280,8 +279,24 @@ export function sanitizeMermaidSvg(svg, {
 
 let nextRenderId = 1;
 
+// mermaid 连同它的图布局依赖约 3 MB,是整个前端最大的一块;按需加载,只在正文里
+// 第一次出现通过了 inspectMermaidSource 的图表时才拉取。加载失败不缓存失败结果,
+// 下一张图重试。
+let mermaidRuntimePromise = null;
+export function loadMermaidRuntime() {
+  if (!mermaidRuntimePromise) {
+    mermaidRuntimePromise = import('mermaid')
+      .then((module) => module.default || module)
+      .catch((error) => {
+        mermaidRuntimePromise = null;
+        throw error;
+      });
+  }
+  return mermaidRuntimePromise;
+}
+
 export function createMermaidRenderAdapter({
-  runtime = mermaid,
+  runtime = null,
   DOMParserType = globalThis.DOMParser,
   XMLSerializerType = globalThis.XMLSerializer,
 } = {}) {
@@ -291,11 +306,12 @@ export function createMermaidRenderAdapter({
     const inspected = inspectMermaidSource(source);
     if (!inspected.ok) return null;
     try {
-      runtime.initialize(mermaidConfig(theme));
-      const parsed = await runtime.parse(inspected.source, { suppressErrors: true });
+      const engine = runtime || await loadMermaidRuntime();
+      engine.initialize(mermaidConfig(theme));
+      const parsed = await engine.parse(inspected.source, { suppressErrors: true });
       if (parsed === false) return null;
       const id = `ace-mermaid-${nextRenderId++}`;
-      const rendered = await runtime.render(id, inspected.source);
+      const rendered = await engine.render(id, inspected.source);
       return sanitizeMermaidSvg(rendered?.svg, { DOMParserType, XMLSerializerType });
     } catch {
       return null;

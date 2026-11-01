@@ -4,14 +4,17 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor
 import gzip
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,7 +77,8 @@ def main():
                 expected = (ROOT / 'web/dist/index.html').read_bytes().replace(
                     b'__VERSION__', version.encode('utf-8'))
                 assert original == expected, 'embedded page is stale or truncated'
-                assert len(compressed) < len(original) // 2
+                # index.html 只剩入口引用,gzip 后省不到一半;压缩比在下面的入口 chunk 上验。
+                assert len(compressed) < len(original)
                 with ThreadPoolExecutor(max_workers=4) as pool:
                     for headers, data in pool.map(fetch, ['', 'identity', 'gzip;q=0', '*;q=1, gzip;q=0']):
                         assert headers.get('Content-Encoding') is None
@@ -90,6 +94,52 @@ def main():
                     icon = gzip.decompress(icon)
                 assert icon == (ROOT / 'web/dist' / asset).read_bytes()
                 assert headers.get('Cache-Control') == 'public, max-age=31536000, immutable'
+
+                # ETag 重新验证:index.html 的 gzip 表示带自己的 ETag,带回来就 304。
+                etag = compressed_headers.get('ETag')
+                assert etag and etag.startswith('"') and etag.endswith('"'), etag
+                request = urllib.request.Request(url + '/', headers={'Accept-Encoding': 'gzip',
+                                                                    'If-None-Match': etag})
+                try:
+                    with urllib.request.urlopen(request, timeout=15) as response:
+                        raise AssertionError(f'expected 304, got {response.status}')
+                except urllib.error.HTTPError as error:
+                    assert error.code == 304, error.code
+                    assert error.headers.get('ETag') == etag
+                    assert error.headers.get('Cache-Control') == 'no-cache'
+                    assert error.read() == b''
+
+                # Vite 产物按内容哈希命名,从 index.html 的入口引用里取一个 chunk,
+                # 必须是 immutable 且 Content-Type 是 JavaScript。
+                chunks = re.findall(rb'src="(/assets/[^"]+\.js)"', original)
+                assert chunks, 'index.html has no /assets/ entry chunk'
+                chunk_path = chunks[0].decode('ascii')
+                headers, chunk = fetch('gzip', chunk_path)
+                if headers.get('Content-Encoding') == 'gzip':
+                    assert len(chunk) < len(gzip.decompress(chunk)) // 2
+                    chunk = gzip.decompress(chunk)
+                assert chunk == (ROOT / 'web/dist' / chunk_path.lstrip('/')).read_bytes()
+                assert headers.get('Content-Type') == 'application/javascript; charset=utf-8'
+                assert headers.get('Cache-Control') == 'public, max-age=31536000, immutable'
+                assert headers.get('ETag')
+
+                # 同一条 keep-alive 连接上连续取 index / chunk / 图标 / /api/health:
+                # Crow 的 catchall 路由曾污染同一连接的下一个响应(空 body、丢 Content-Type)。
+                connection = http.client.HTTPConnection('127.0.0.1', port, timeout=15)
+                try:
+                    for path, content_type in [('/', 'text/html; charset=utf-8'),
+                                               (chunk_path, 'application/javascript; charset=utf-8'),
+                                               ('/vs-icons/Copy.svg', 'image/svg+xml'),
+                                               ('/api/health', 'application/json'),
+                                               ('/', 'text/html; charset=utf-8')]:
+                        connection.request('GET', path, headers={'Accept-Encoding': 'identity'})
+                        response = connection.getresponse()
+                        body = response.read()
+                        assert response.status == 200, (path, response.status)
+                        assert content_type in (response.getheader('Content-Type') or ''), path
+                        assert body, path
+                finally:
+                    connection.close()
 
                 if args.playwright_module:
                     script = '''
@@ -110,7 +160,7 @@ try {
                                    text=True, encoding='utf-8',
                                    env={**env, 'PROBE_PLAYWRIGHT': args.playwright_module,
                                         'PROBE_URL': url}, check=True, timeout=50)
-                print(json.dumps({'http_checks': 8, 'identity_bytes': len(original),
+                print(json.dumps({'http_checks': 15, 'identity_bytes': len(original),
                                   'gzip_bytes': len(compressed),
                                   'sha256': hashlib.sha256(original).hexdigest()}))
             finally:

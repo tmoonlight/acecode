@@ -1,11 +1,14 @@
 #include "static_assets.hpp"
 
 #include "utils/logger.hpp"
+#include "utils/sha1.hpp"
 #include "utils/utf8_path.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <zlib.h>
 
@@ -77,7 +80,41 @@ bool positive_quality(std::string_view value) {
     return positive;
 }
 
+// 强 ETag:`"<内容标识>"`,gzip 表示带 `-gzip` 后缀。标识只要求同一字节序列恒定、
+// 不同字节序列几乎不撞,不承担安全职责。
+std::string strong_etag(const std::string& identity, bool gzip) {
+    std::string tag;
+    tag.reserve(identity.size() + 8);
+    tag += '"';
+    tag += identity;
+    if (gzip) tag += "-gzip";
+    tag += '"';
+    return tag;
+}
+
+std::string_view strip_weak_prefix(std::string_view tag) {
+    if (tag.size() >= 2 && (tag[0] == 'W' || tag[0] == 'w') && tag[1] == '/') {
+        return tag.substr(2);
+    }
+    return tag;
+}
+
 } // namespace
+
+bool etag_matches_if_none_match(std::string_view if_none_match, std::string_view etag) {
+    etag = trim(etag);
+    if (etag.empty()) return false;
+    const auto wanted = strip_weak_prefix(etag);
+    while (!if_none_match.empty()) {
+        const auto comma = if_none_match.find(',');
+        const auto candidate = trim(if_none_match.substr(0, comma));
+        if (candidate == "*") return true;
+        if (!candidate.empty() && strip_weak_prefix(candidate) == wanted) return true;
+        if (comma == std::string_view::npos) break;
+        if_none_match.remove_prefix(comma + 1);
+    }
+    return false;
+}
 
 bool accepts_gzip(std::string_view header) {
     std::optional<bool> gzip, wildcard;
@@ -128,6 +165,17 @@ std::optional<AssetLookupResult> EmbeddedAssetSource::lookup(const std::string& 
     r.gzip = asset.gzip && accept_gzip;
     r.data = asset.data;
     r.size = asset.size;
+    {
+        // 嵌入资源在进程生命周期内不变,存储字节哈希一次即可;identity 表示由同一份
+        // 存储字节解压而来,所以两种表示共用同一个哈希、只差后缀。
+        std::lock_guard<std::mutex> lock(decoded_mutex_);
+        auto hashed = content_hashes_.find(path);
+        if (hashed == content_hashes_.end()) {
+            const std::string stored(reinterpret_cast<const char*>(asset.data), asset.size);
+            hashed = content_hashes_.emplace(path, sha1_hex(stored).substr(0, 20)).first;
+        }
+        r.etag = strong_etag(hashed->second, r.gzip);
+    }
     if (asset.gzip && !accept_gzip) {
         std::lock_guard<std::mutex> lock(decoded_mutex_);
         auto cached = decoded_.find(path);
@@ -188,6 +236,15 @@ std::optional<AssetLookupResult> FileSystemAssetSource::lookup(const std::string
     r.data           = reinterpret_cast<const unsigned char*>(buf->data());
     r.size           = buf->size();
     r.owned_buffer   = buf;
+    // 开发模式每次请求都重读文件,验证器用「大小-修改时间」而不是整份内容哈希
+    // (nginx / Apache 同款做法);时间戳拿不到就不给 ETag,浏览器照常全量请求。
+    const auto modified = fs::last_write_time(canon, ec);
+    if (!ec) {
+        std::ostringstream identity;
+        identity << std::hex << buf->size() << '-'
+                 << std::hex << static_cast<long long>(modified.time_since_epoch().count());
+        r.etag = strong_etag(identity.str(), false);
+    }
     return r;
 }
 

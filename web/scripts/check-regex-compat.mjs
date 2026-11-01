@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Scans the built frontend bundle (web/dist/index.html) for regex literals
-// that use lookbehind assertions `(?<=...)` / `(?<!...)`.
+// Scans the built frontend bundle (web/dist/index.html plus every JS chunk
+// under web/dist/assets/) for regex literals that use lookbehind assertions
+// `(?<=...)` / `(?<!...)`.
 //
 // Legacy WebKit engines (Safari < 16.4, e.g. the WKWebView on macOS 12)
 // cannot compile lookbehind. Regex literals are compiled when the enclosing
@@ -10,19 +11,31 @@
 // Run automatically after `pnpm build`. Exits non-zero when a lookbehind
 // regex literal is found.
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const distPath = resolve(root, 'dist/index.html');
+const assetsDir = resolve(root, 'dist/assets');
 
-let html;
+// Lazily loaded chunks are parsed by the same engine when they arrive, so a
+// lookbehind in any of them still blanks the feature that imports it.
+const sources = [];
 try {
-  html = readFileSync(distPath, 'utf8');
+  sources.push({ name: 'dist/index.html', text: readFileSync(distPath, 'utf8') });
 } catch {
   console.error(`[check-regex-compat] cannot read ${distPath}; run \`pnpm build\` first`);
   process.exit(1);
+}
+let chunkNames = [];
+try {
+  chunkNames = readdirSync(assetsDir).filter((name) => name.endsWith('.js')).sort();
+} catch {
+  chunkNames = [];
+}
+for (const name of chunkNames) {
+  sources.push({ name: `dist/assets/${name}`, text: readFileSync(join(assetsDir, name), 'utf8') });
 }
 
 // Tokenizer that walks the bundle and extracts regex literals while skipping
@@ -106,14 +119,21 @@ function extractRegexLiterals(src) {
   return found;
 }
 
-const literals = extractRegexLiterals(html);
-const offenders = literals.filter(({ pattern }) => /\(\?<[=!]/.test(pattern));
+let scanned = 0;
+const offenders = [];
+for (const { name, text } of sources) {
+  const literals = extractRegexLiterals(text);
+  scanned += literals.length;
+  for (const literal of literals) {
+    if (/\(\?<[=!]/.test(literal.pattern)) offenders.push({ ...literal, name });
+  }
+}
 
-console.log(`[check-regex-compat] scanned ${literals.length} regex literals in dist/index.html`);
+console.log(`[check-regex-compat] scanned ${scanned} regex literals in ${sources.length} bundle file(s)`);
 if (offenders.length > 0) {
   console.error(`[check-regex-compat] FAIL: ${offenders.length} regex literal(s) use lookbehind, which breaks legacy WebKit (Safari < 16.4):`);
-  for (const { pattern, flags } of offenders.slice(0, 10)) {
-    console.error(`  /${pattern.slice(0, 120)}/${flags}`);
+  for (const { name, pattern, flags } of offenders.slice(0, 10)) {
+    console.error(`  ${name}: /${pattern.slice(0, 120)}/${flags}`);
   }
   process.exit(1);
 }

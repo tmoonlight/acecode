@@ -27,6 +27,9 @@ struct AssetLookupResult {
     std::size_t                 size = 0;
     bool gzip = false;
     bool vary_accept_encoding = false;
+    // 强 ETag(含引号),按当前表示形式区分:gzip 表示在哈希后带 `-gzip` 后缀,
+    // 浏览器按 Vary: Accept-Encoding 分别缓存两种表示时各自对得上。空 = 不支持。
+    std::string                 etag;
     // Shared by the source cache and in-flight responses; immutable after publication.
     std::shared_ptr<const std::string> owned_buffer;
 };
@@ -48,6 +51,8 @@ private:
     mutable std::mutex decoded_mutex_;
     // Shared immutable decoded assets are retained for identity-only clients.
     mutable std::map<std::string, std::shared_ptr<const std::string>> decoded_;
+    // 每个资源存储字节的内容哈希,首次查询时算一次;gzip / identity 两种表示共用。
+    mutable std::map<std::string, std::string> content_hashes_;
 };
 
 class FileSystemAssetSource : public AssetSource {
@@ -70,6 +75,10 @@ struct EmbeddedAsset {
 const std::map<std::string, EmbeddedAsset>& embedded_asset_map();
 
 bool accepts_gzip(std::string_view accept_encoding);
+
+// If-None-Match 按 RFC 7232 §3.2 的弱比较匹配:逗号分隔的列表、`*` 匹配任何表示、
+// `W/` 前缀忽略。etag 为空一律不匹配(没有验证器就不能回 304)。pure helper,易测。
+bool etag_matches_if_none_match(std::string_view if_none_match, std::string_view etag);
 
 // 工厂:根据 web.static_dir 决定走嵌入还是磁盘。空 = 嵌入。non-empty +
 // 路径不存在 → 抛 std::runtime_error,worker.cpp 启动期捕获后 fail-fast。

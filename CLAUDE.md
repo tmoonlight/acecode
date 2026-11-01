@@ -611,9 +611,13 @@ Classic/legacy conhost also enables a conservative TUI layout via `should_use_co
 
 `acecode daemon start` → `http://localhost:28080/` 浏览器界面。前端代码在 `web/`(顶层),build 期通过 `cmake/acecode_embed_assets.cmake` 扫描整个目录,把每个文件 hex 编码后写到 `${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp`(单文件,字节数组 + `embedded_asset_map()` static map),由 `acecode_web` 静态库编译并链入 `acecode` 二进制 — daemon 自带前端,无外部 CDN / npm 依赖。`web.static_dir` 为非空时改走 `FileSystemAssetSource`(开发模式,改文件即生效)。
 
+**静态资源缓存(2026-11-01 起)。** 每个静态响应都带强 ETag(嵌入资源按存储字节 SHA-1 算一次、gzip 表示加 `-gzip` 后缀;`static_dir` 资源用「大小-mtime」),`If-None-Match` 命中按 RFC 7232 弱比较回 304(`static_assets.cpp::etag_matches_if_none_match`)。`assets/` 下的 Vite 产物按内容哈希命名,回 `public, max-age=31536000, immutable`;其它路径(index.html / 图标 / 主题 / SPA 兜底)回 `no-cache`,浏览器每次带 ETag 来问、没变就不下载。此前只有 `no-cache` 没有验证器,Desktop 每次切工作区(整页导航)都全量重下整个前端。Desktop 每次启动 daemon 端口都变,HTTP 缓存按 origin 隔离,所以跨启动不命中、同一次运行里切来切去才命中。回归:`web_server_smoke_test.cpp` 的 `StaticAssetsRevalidateWithEtag` / `HashedAssetsAreImmutableWhileNamedAssetsRevalidate`、`static_assets_test.cpp` 的 `IfNoneMatch*` / `*Etag*` 三条、`tests/scripts/embedded_frontend_http_test.py`。
+
 ### Web UI: 前端目录
 
-栈是 **React 18 + Vite 5 + Tailwind v4**(*不是* 原生 Web Components,旧版 CLAUDE.md 描述已过时)。`vite-plugin-singlefile` 把所有 JS/CSS 内联到单个 `dist/index.html`,然后被嵌入资源管线吃掉。`pnpm install && pnpm build` 是必经一步(CI 与本地都跑)。
+栈是 **React 18 + Vite 5 + Tailwind v4**(*不是* 原生 Web Components,旧版 CLAUDE.md 描述已过时)。`pnpm install && pnpm build` 是必经一步(CI 与本地都跑)。
+
+**产物是多文件、按需加载(2026-11-01 起,此前是 `vite-plugin-singlefile` 单文件 13.4 MB)。** `dist/index.html` 只有入口引用,JS / CSS / 字体按内容哈希落到 `dist/assets/<name>-<hash>.<ext>`,首屏只加载入口 chunk + `vendor`(react / slate / markdown-it / hljs / i18n 等启动路径上一定会执行的包,见 `vite.config.js` 的 `EAGER_VENDOR_PACKAGES`,**按需加载的库不要加进去**)。按需加载的边界:mermaid(`lib/mermaidRenderer.js::loadMermaidRuntime`,只在正文出现通过检查的图表时拉)、trajectory 视图(ChatView 的 `lazy()`,shiki / katex / mdast 都在它的 chunk 里)、office 预览与 Markdown 所见即所得编辑器(`FilePreviewContent.jsx` 顶部的 lazy / 动态 import)、控制台(App.jsx 第一次展开才挂载,之后保持挂载)、新手引导(第一次真正开始才挂载)。单文件布局当年是为了绕开 Crow 1.3.2 catchall 路由污染同一 keep-alive 连接下一个请求的问题;静态路由早已按层数显式注册,`/assets/<file>` 不经过 catchall,`web_server_smoke_test.cpp::StaticAssetsKeepAliveConnectionServesEverySequentialResponse` 在同一连接上连续取 index / chunk / 图标 / `/api/health` 守着。`scripts/check-regex-compat.mjs` 扫 index.html 加全部 `dist/assets/*.js`。新加大库时先想它属于哪个按需边界,别让它静态 import 进 ChatView / App。
 
 ```
 web/

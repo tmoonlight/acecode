@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isShortcut } from '../lib/shortcutBindings.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { useWorkbenchScroll } from '../lib/useWorkbenchScroll.js';
 import hljs from 'highlight.js/lib/core';
-import { renderAsync } from 'docx-preview';
-import 'x-data-spreadsheet/dist/xspreadsheet.css';
-import 'x-data-spreadsheet/dist/xspreadsheet.js';
 import { ApiError } from '../lib/api.js';
 import { isDesktopShell } from '../lib/desktopShellMode.js';
 import { langForFile } from '../lib/lang.js';
 import { renderMarkdown } from '../lib/markdown.js';
-import { parseWorkbookArrayBuffer } from '../lib/officePreview.js';
 import {
   officePreviewFitZoom,
   officePreviewLogicalSize,
@@ -41,15 +37,26 @@ import {
 } from '../lib/filePreviewScroll.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
-import MarkdownWysiwygEditor from './MarkdownWysiwygEditor.jsx';
 import {
   OfficePreviewControls,
   useOfficePreviewZoom,
 } from './OfficePreviewControls.jsx';
-import { PresentationPreview } from './PresentationPreview.jsx';
 import { SelectionAnnotationOverlay } from './SelectionAnnotationOverlay.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
+
+// Office 预览与 Markdown 所见即所得编辑器各自拖着大块第三方库(pptx2html 渲染器
+// 源码、xlsx、x-data-spreadsheet、docx-preview、mdast/micromark),只在打开对应
+// 类型的文件时才需要;全部按需加载,首屏包里不带。
+const MarkdownWysiwygEditor = lazy(() => import('./MarkdownWysiwygEditor.jsx'));
+const PresentationPreview = lazy(() => import('./PresentationPreview.jsx')
+  .then((module) => ({ default: module.PresentationPreview })));
+const loadDocxRenderer = () => import('docx-preview').then((module) => module.renderAsync);
+const loadSpreadsheetRuntime = () => Promise.all([
+  import('../lib/officePreview.js'),
+  import('x-data-spreadsheet/dist/xspreadsheet.css'),
+  import('x-data-spreadsheet/dist/xspreadsheet.js'),
+]).then(([office]) => office.parseWorkbookArrayBuffer);
 
 function escapeHtml(s) {
   return String(s)
@@ -586,7 +593,9 @@ export function FilePreviewContent({
   if (state.kind === 'presentation') {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
-        <PresentationPreview blob={state.blob} path={path} />
+        <Suspense fallback={<div className="ace-empty-state">加载中...</div>}>
+          <PresentationPreview blob={state.blob} path={path} />
+        </Suspense>
       </div>
     );
   }
@@ -676,19 +685,21 @@ export function FilePreviewContent({
         {showMarkdownRendered ? (
           <>
             {editing ? (
-              <MarkdownWysiwygEditor
-                value={previewText}
-                disabled={activeEdit.saving}
-                hostRef={previewScrollRef}
-                selectionContexts={selectionContexts}
-                sourcePath={sourcePath}
-                contentRevision={sourceContentRevision}
-                onChange={(text) => {
-                  setState((previous) => ({ ...previous, text, size: text.length }));
-                  onEditStateChangeRef.current?.({ text, error: '' });
-                }}
-                onSave={saveEditing}
-              />
+              <Suspense fallback={<div className="ace-empty-state">加载中...</div>}>
+                <MarkdownWysiwygEditor
+                  value={previewText}
+                  disabled={activeEdit.saving}
+                  hostRef={previewScrollRef}
+                  selectionContexts={selectionContexts}
+                  sourcePath={sourcePath}
+                  contentRevision={sourceContentRevision}
+                  onChange={(text) => {
+                    setState((previous) => ({ ...previous, text, size: text.length }));
+                    onEditStateChangeRef.current?.({ text, error: '' });
+                  }}
+                  onSave={saveEditing}
+                />
+              </Suspense>
             ) : (
               <div
                 ref={previewScrollRef}
@@ -808,16 +819,19 @@ function WordPreview({ blob, path }) {
     let fitObserver = null;
     setError('');
     host.replaceChildren();
-    renderAsync(blob, host, host, {
-      className: 'ace-docx-preview-doc',
-      inWrapper: true,
-      ignoreWidth: false,
-      ignoreHeight: false,
-      breakPages: true,
-      renderHeaders: true,
-      renderFooters: true,
-      renderFootnotes: true,
-      renderEndnotes: true,
+    loadDocxRenderer().then((renderAsync) => {
+      if (cancelled) return undefined;
+      return renderAsync(blob, host, host, {
+        className: 'ace-docx-preview-doc',
+        inWrapper: true,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        breakPages: true,
+        renderHeaders: true,
+        renderFooters: true,
+        renderFootnotes: true,
+        renderEndnotes: true,
+      });
     }).then(() => {
       if (cancelled) return;
       const scheduleFit = () => {
@@ -916,7 +930,10 @@ function SpreadsheetPreview({ blob, path }) {
 
     const render = async () => {
       try {
-        const buffer = await blob.arrayBuffer();
+        const [buffer, parseWorkbookArrayBuffer] = await Promise.all([
+          blob.arrayBuffer(),
+          loadSpreadsheetRuntime(),
+        ]);
         if (cancelled) return;
         const data = parseWorkbookArrayBuffer(buffer);
         const factory = window.x_spreadsheet;

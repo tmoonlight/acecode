@@ -24,6 +24,7 @@
 #include "config/config.hpp"
 #include "speech/speech_client.hpp"
 #include "test_support/network/crow_test_server.hpp"
+#include "web/static_assets.hpp"
 #include "security/audit_log.hpp"
 #include "environment/data_dir_migration.hpp"
 #include "environment/terminal_runtime.hpp"
@@ -1157,6 +1158,176 @@ std::string response_header(const cpr::Response& r, const std::string& name) {
 
 // 场景: /api/health 是无 token 探活路径,loopback 总是 200,返回 JSON 含
 // guid/pid/port/version/cwd/uptime_seconds 这 6 个字段(spec 9.2)。
+namespace {
+
+// 嵌入资源表里第一个 Vite 产物 chunk(assets/<name>-<hash>.js);前端没构建时为空。
+std::string first_embedded_hashed_chunk() {
+    for (const auto& [name, asset] : acecode::web::embedded_asset_map()) {
+        if (name.rfind("assets/", 0) == 0 && name.size() > 3 &&
+            name.compare(name.size() - 3, 3, ".js") == 0) {
+            return name;
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+// 触发场景:浏览器第二次打开页面(Desktop 切工作区是整页导航)时带上次的 ETag 来问。
+// 曾经 index.html 只回 no-cache 没有验证器,每次整页加载都全量重下 13 MB 的单文件
+// 前端。期望行为:200 带强 ETag;If-None-Match 命中回 304 且无 body、仍带
+// ETag / Cache-Control;gzip 与 identity 两种表示的 ETag 不同(各自对得上);
+// 弱比较接受 W/ 前缀与列表;不认识的 ETag 照常 200;SPA 兜底与 / 同一份验证器。
+TEST(WebServerHttp, StaticAssetsRevalidateWithEtag) {
+    WebServerFixture fx;
+    const cpr::Header identity{{"Accept-Encoding", "identity"}};
+    auto first = cpr::Get(cpr::Url{fx.url("/")}, identity);
+    ASSERT_EQ(first.status_code, 200);
+    const std::string etag = first.header["ETag"];
+    ASSERT_FALSE(etag.empty());
+    EXPECT_EQ(etag.front(), '"');
+    EXPECT_EQ(etag.back(), '"');
+    EXPECT_EQ(first.header["Cache-Control"], "no-cache");
+    EXPECT_FALSE(first.text.empty());
+
+    auto revalidated = cpr::Get(cpr::Url{fx.url("/")},
+                                cpr::Header{{"Accept-Encoding", "identity"},
+                                            {"If-None-Match", etag}});
+    EXPECT_EQ(revalidated.status_code, 304);
+    EXPECT_TRUE(revalidated.text.empty());
+    EXPECT_EQ(revalidated.header["ETag"], etag);
+    EXPECT_EQ(revalidated.header["Cache-Control"], "no-cache");
+    EXPECT_EQ(revalidated.header["Referrer-Policy"], "no-referrer");
+
+    auto weak_list = cpr::Get(cpr::Url{fx.url("/")},
+                              cpr::Header{{"Accept-Encoding", "identity"},
+                                          {"If-None-Match", "\"stale\", W/" + etag}});
+    EXPECT_EQ(weak_list.status_code, 304);
+
+    auto stale = cpr::Get(cpr::Url{fx.url("/")},
+                          cpr::Header{{"Accept-Encoding", "identity"},
+                                      {"If-None-Match", "\"stale\""}});
+    EXPECT_EQ(stale.status_code, 200);
+    EXPECT_EQ(stale.text, first.text);
+
+    auto gzipped = cpr::Get(cpr::Url{fx.url("/")},
+                            cpr::Header{{"Accept-Encoding", "gzip"},
+                                        {"If-None-Match", etag}});
+    if (gzipped.header["Content-Encoding"] == "gzip") {
+        // identity 的 ETag 对 gzip 表示不算命中,回 200 并给出 gzip 自己的 ETag。
+        EXPECT_EQ(gzipped.status_code, 200);
+        EXPECT_NE(gzipped.header["ETag"], etag);
+        EXPECT_EQ(gzipped.header["Vary"], "Accept-Encoding");
+        auto gz_again = cpr::Get(cpr::Url{fx.url("/")},
+                                 cpr::Header{{"Accept-Encoding", "gzip"},
+                                             {"If-None-Match", gzipped.header["ETag"]}});
+        EXPECT_EQ(gz_again.status_code, 304);
+        EXPECT_EQ(gz_again.header["Vary"], "Accept-Encoding");
+    }
+
+    auto spa = cpr::Get(cpr::Url{fx.url("/sessions/not-a-real-route")}, identity);
+    EXPECT_EQ(spa.status_code, 200);
+    EXPECT_EQ(spa.header["ETag"], etag);
+    auto spa_cached = cpr::Get(cpr::Url{fx.url("/sessions/not-a-real-route")},
+                               cpr::Header{{"Accept-Encoding", "identity"},
+                                           {"If-None-Match", etag}});
+    EXPECT_EQ(spa_cached.status_code, 304);
+}
+
+// 触发场景:前端拆成按内容哈希命名的 chunk(assets/<name>-<hash>.js)后,浏览器
+// 第一次加载把它们存进缓存。期望行为:assets/ 下的文件回 immutable(一年内不再问),
+// 名字固定的资源(图标)仍是 no-cache + ETag;旧的 ?v= 入口保持 immutable。
+TEST(WebServerHttp, HashedAssetsAreImmutableWhileNamedAssetsRevalidate) {
+    WebServerFixture fx;
+    const cpr::Header identity{{"Accept-Encoding", "identity"}};
+    auto icon = cpr::Get(cpr::Url{fx.url("/vs-icons/Copy.svg")}, identity);
+    ASSERT_EQ(icon.status_code, 200);
+    EXPECT_EQ(icon.header["Content-Type"], "image/svg+xml");
+    EXPECT_EQ(icon.header["Cache-Control"], "no-cache");
+    ASSERT_FALSE(icon.header["ETag"].empty());
+    auto icon_cached = cpr::Get(cpr::Url{fx.url("/vs-icons/Copy.svg")},
+                                cpr::Header{{"Accept-Encoding", "identity"},
+                                            {"If-None-Match", icon.header["ETag"]}});
+    EXPECT_EQ(icon_cached.status_code, 304);
+
+    auto versioned = cpr::Get(cpr::Url{fx.url("/vs-icons/Copy.svg?v=fixture")}, identity);
+    ASSERT_EQ(versioned.status_code, 200);
+    EXPECT_EQ(versioned.header["Cache-Control"], "public, max-age=31536000, immutable");
+
+    const std::string chunk = first_embedded_hashed_chunk();
+    if (chunk.empty()) {
+        GTEST_SKIP() << "embedded frontend has no assets/ chunk (web/dist not built)";
+    }
+    auto chunk_response = cpr::Get(cpr::Url{fx.url("/" + chunk)}, identity);
+    ASSERT_EQ(chunk_response.status_code, 200) << chunk;
+    EXPECT_EQ(chunk_response.header["Content-Type"], "application/javascript; charset=utf-8");
+    EXPECT_EQ(chunk_response.header["Cache-Control"], "public, max-age=31536000, immutable");
+    EXPECT_FALSE(chunk_response.header["ETag"].empty());
+    EXPECT_FALSE(chunk_response.text.empty());
+}
+
+// 触发场景:前端拆成多个文件后,浏览器在同一条 keep-alive 连接上连续请求
+// index.html、/assets/ 下的 chunk、图标、/api/health,再回到 index.html。
+// Crow 1.3.2 的 catchall 路由曾污染同一连接上的下一个请求(第二个响应
+// Content-Length:0、丢 Content-Type),这正是前端此前整包 inline 进 index.html
+// 的原因;静态路由改成按层数显式注册后这条链路必须一直通。
+// 期望行为:同一连接上每个响应都带正确 Content-Type 与完整 body,顺序无关。
+TEST(WebServerHttp, StaticAssetsKeepAliveConnectionServesEverySequentialResponse) {
+    WebServerFixture fx;
+    httplib::Client client("127.0.0.1", fx.port);
+    client.set_keep_alive(true);
+    client.set_connection_timeout(5, 0);
+    client.set_read_timeout(10, 0);
+    const httplib::Headers identity{{"Accept-Encoding", "identity"}};
+
+    auto index = client.Get("/", identity);
+    ASSERT_TRUE(index) << httplib::to_string(index.error());
+    EXPECT_EQ(index->status, 200);
+    EXPECT_EQ(index->get_header_value("Content-Type"), "text/html; charset=utf-8");
+    ASSERT_FALSE(index->body.empty());
+
+    const std::string chunk = first_embedded_hashed_chunk();
+    if (!chunk.empty()) {
+        auto chunk_response = client.Get("/" + chunk, identity);
+        ASSERT_TRUE(chunk_response) << httplib::to_string(chunk_response.error());
+        EXPECT_EQ(chunk_response->status, 200) << chunk;
+        EXPECT_EQ(chunk_response->get_header_value("Content-Type"),
+                  "application/javascript; charset=utf-8");
+        EXPECT_FALSE(chunk_response->body.empty());
+    }
+
+    auto icon = client.Get("/vs-icons/Copy.svg", identity);
+    ASSERT_TRUE(icon) << httplib::to_string(icon.error());
+    EXPECT_EQ(icon->status, 200);
+    EXPECT_EQ(icon->get_header_value("Content-Type"), "image/svg+xml");
+    EXPECT_FALSE(icon->body.empty());
+
+    auto health = client.Get("/api/health", identity);
+    ASSERT_TRUE(health) << httplib::to_string(health.error());
+    EXPECT_EQ(health->status, 200);
+    EXPECT_NE(health->get_header_value("Content-Type").find("application/json"), std::string::npos);
+    EXPECT_TRUE(json::parse(health->body).contains("guid"));
+
+    auto deep_fallback = client.Get("/a/b/c/d/e/deep-spa-route", identity);
+    ASSERT_TRUE(deep_fallback) << httplib::to_string(deep_fallback.error());
+    EXPECT_EQ(deep_fallback->status, 200);
+    EXPECT_EQ(deep_fallback->get_header_value("Content-Type"), "text/html; charset=utf-8");
+    EXPECT_EQ(deep_fallback->body, index->body);
+
+    auto again = client.Get("/", identity);
+    ASSERT_TRUE(again) << httplib::to_string(again.error());
+    EXPECT_EQ(again->status, 200);
+    EXPECT_EQ(again->get_header_value("Content-Type"), "text/html; charset=utf-8");
+    EXPECT_EQ(again->body, index->body);
+
+    auto health_again = client.Get("/api/health", identity);
+    ASSERT_TRUE(health_again) << httplib::to_string(health_again.error());
+    EXPECT_EQ(health_again->status, 200);
+    EXPECT_NE(health_again->get_header_value("Content-Type").find("application/json"),
+              std::string::npos);
+    EXPECT_TRUE(json::parse(health_again->body).contains("guid"));
+}
+
 TEST(WebServerHttp, HealthEndpointReturnsBasicMetadata) {
     WebServerFixture fx;
     auto r = cpr::Get(cpr::Url{fx.url("/api/health")});

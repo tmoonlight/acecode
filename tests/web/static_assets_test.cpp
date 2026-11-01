@@ -100,6 +100,49 @@ TEST(StaticAssets, EmbeddedGzipAndIdentityShareTheOriginalContent) {
     }
 }
 
+// 触发场景:浏览器带 If-None-Match 重新验证缓存。RFC 7232 §3.2 规定用弱比较:
+// 列表里任意一项命中即可、`W/` 前缀忽略、`*` 匹配任何表示;没有验证器时不能回 304。
+// 期望行为:只有 ETag 完全一致(忽略 W/)才算命中;gzip 表示的 `-gzip` 后缀不与
+// identity 表示混淆,空 ETag 永远不命中。
+TEST(StaticAssets, IfNoneMatchUsesWeakComparisonOverTheWholeList) {
+    using acecode::web::etag_matches_if_none_match;
+    EXPECT_TRUE(etag_matches_if_none_match("\"abc\"", "\"abc\""));
+    EXPECT_TRUE(etag_matches_if_none_match("W/\"abc\"", "\"abc\""));
+    EXPECT_TRUE(etag_matches_if_none_match("\"other\", \"abc\"", "\"abc\""));
+    EXPECT_TRUE(etag_matches_if_none_match("  \"abc\"  ,\"other\"", "\"abc\""));
+    EXPECT_TRUE(etag_matches_if_none_match("*", "\"abc\""));
+    EXPECT_FALSE(etag_matches_if_none_match("\"abc-gzip\"", "\"abc\""));
+    EXPECT_FALSE(etag_matches_if_none_match("\"abc\"", "\"abc-gzip\""));
+    EXPECT_FALSE(etag_matches_if_none_match("", "\"abc\""));
+    EXPECT_FALSE(etag_matches_if_none_match("\"other\"", "\"abc\""));
+    EXPECT_FALSE(etag_matches_if_none_match("*", ""));
+    EXPECT_FALSE(etag_matches_if_none_match("\"abc\"", ""));
+}
+
+// 触发场景:同一个嵌入资源被反复查询,且按 Accept-Encoding 分别取 gzip / identity 表示。
+// 期望行为:ETag 是带引号的强验证器,同一表示多次查询恒定,两种表示只差 `-gzip` 后缀
+// (浏览器按 Vary: Accept-Encoding 分开缓存,各自重新验证都能对上)。
+TEST(StaticAssets, EmbeddedEtagIsStableAndDistinguishesEncodings) {
+    EmbeddedAssetSource src;
+    const auto identity = src.lookup("index.html");
+    const auto again = src.lookup("index.html");
+    const auto encoded = src.lookup("index.html", true);
+    ASSERT_TRUE(identity);
+    ASSERT_TRUE(again);
+    ASSERT_TRUE(encoded);
+    ASSERT_GE(identity->etag.size(), 3u);
+    EXPECT_EQ(identity->etag.front(), '"');
+    EXPECT_EQ(identity->etag.back(), '"');
+    EXPECT_EQ(identity->etag, again->etag);
+    if (encoded->gzip) {
+        EXPECT_NE(encoded->etag, identity->etag);
+        const std::string expected = identity->etag.substr(0, identity->etag.size() - 1) + "-gzip\"";
+        EXPECT_EQ(encoded->etag, expected);
+    } else {
+        EXPECT_EQ(encoded->etag, identity->etag);
+    }
+}
+
 namespace {
 
 class FsSourceTest : public ::testing::Test {
@@ -135,6 +178,26 @@ TEST_F(FsSourceTest, LookupFiles) {
     auto r2 = src.lookup("sub/bar.css");
     ASSERT_TRUE(r2.has_value());
     EXPECT_EQ(r2->content_type, "text/css; charset=utf-8");
+}
+
+// 触发场景:开发模式(web.static_dir)下文件被重新构建,大小或修改时间变化。
+// 期望行为:磁盘资源的 ETag 带引号、同一文件未改时恒定、内容改写后变化,
+// 否则浏览器拿旧 ETag 来问会错误地收到 304、一直看到旧前端。
+TEST_F(FsSourceTest, EtagFollowsFileContent) {
+    FileSystemAssetSource src(root.string());
+    const auto before = src.lookup("foo.txt");
+    const auto same = src.lookup("foo.txt");
+    ASSERT_TRUE(before);
+    ASSERT_TRUE(same);
+    ASSERT_GE(before->etag.size(), 3u);
+    EXPECT_EQ(before->etag.front(), '"');
+    EXPECT_EQ(before->etag.back(), '"');
+    EXPECT_EQ(before->etag, same->etag);
+
+    write_file(root / "foo.txt", "hello, rebuilt");
+    const auto after = src.lookup("foo.txt");
+    ASSERT_TRUE(after);
+    EXPECT_NE(after->etag, before->etag);
 }
 
 // 场景: 不存在的文件 → nullopt

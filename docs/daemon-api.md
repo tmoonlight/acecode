@@ -235,13 +235,28 @@ update their transcript presentation.
 
 ---
 
-### Embedded frontend encoding
+### Embedded frontend encoding and caching
 
 Embedded frontend resources negotiate gzip using `Accept-Encoding`. Compressed
 responses include `Content-Encoding: gzip` and `Vary: Accept-Encoding`; clients
 without gzip support (including explicit `gzip;q=0`) receive the original bytes
 with the same content type and cache policy. SPA fallback follows the same rule.
 Development `--static-dir` resources continue to be read from disk on each request.
+
+Every static response carries a strong `ETag`. Embedded resources hash their
+stored bytes once per process; the gzip representation appends `-gzip` so the
+two representations a browser keeps under `Vary: Accept-Encoding` revalidate
+independently. `--static-dir` resources derive the tag from file size and
+modification time. A request whose `If-None-Match` matches (weak comparison,
+`W/` prefix ignored, `*` accepted) receives `304 Not Modified` with no body and
+the same `ETag`, `Cache-Control`, `Vary` and `Referrer-Policy` headers.
+
+Cache policy depends on the path. Vite output under `/assets/` is named by
+content hash, so it is served with `Cache-Control: public, max-age=31536000,
+immutable`; a `?v=` query keeps the same immutable policy for any path.
+Everything else (`index.html`, icons, themes, SPA fallback) is `no-cache`, which
+makes browsers revalidate with the `ETag` on every navigation and skip the
+download when nothing changed.
 
 ## 3. HTTP Endpoint Index
 
@@ -5915,6 +5930,9 @@ The daemon also serves the built frontend:
   `404`.
 - Static responses send `Referrer-Policy: no-referrer`, so a bootstrap
   `?token=` URL is not propagated as a referrer.
+- Static responses send an `ETag` and answer a matching `If-None-Match` with
+  `304`; `/assets/*` (content-hashed Vite output) is `immutable`, everything
+  else is `no-cache`. See "Embedded frontend encoding and caching" in section 2.
 
 ---
 

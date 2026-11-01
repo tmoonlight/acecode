@@ -4,7 +4,7 @@ import { useDesktopOffice } from './lib/useDesktopOffice.js';
 // 视觉对齐设计稿方向 C:顶部 41px TopBar + 270px Sidebar + 主区(单会话/4宫格/9宫格)
 // 会话控制内嵌在聊天输入框。所有面板/弹框作为 overlay 渲染在主区之上。
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, apiConnectionScope, ApiError, createApi } from './lib/api.js';
 import { useStableCallback } from './lib/useStableCallback.js';
@@ -118,8 +118,13 @@ import { SlashCommandsProvider } from './components/SlashCommandsContext.jsx';
 import { FramelessResizeHandles } from './components/FramelessResizeHandles.jsx';
 import { GlobalFindOverlay } from './components/GlobalFindOverlay.jsx';
 import { canOpenConversationFind } from './lib/globalFind.js';
-import { ConsoleDock } from './components/ConsoleDock.jsx';
-import { DesktopGuidedTour } from './components/DesktopGuidedTour.jsx';
+// 控制台停靠区带着 xterm,新手引导带着 react-joyride,都只在用户第一次打开时才需要;
+// 按需加载,首屏包里不带。两者一旦挂载就保持挂载:控制台关闭后 tab 与 PTY 连接要
+// 继续活着,引导结束后 Joyride 自己收掉遮罩。
+const ConsoleDock = lazy(() => import('./components/ConsoleDock.jsx')
+  .then((module) => ({ default: module.ConsoleDock })));
+const DesktopGuidedTour = lazy(() => import('./components/DesktopGuidedTour.jsx')
+  .then((module) => ({ default: module.DesktopGuidedTour })));
 import { DesktopCloseDialog } from './components/DesktopCloseDialog.jsx';
 import { ConfigRecoveryDialog } from './components/ConfigRecoveryDialog.jsx';
 import { UpdateDialog } from './components/UpdateDialog.jsx';
@@ -363,6 +368,12 @@ export function App() {
   const [consoleDock, setConsoleDock] = useWorkbenchState(workbenchOwner, 'consoleDock', () => ({
     ...readWithFallback(CONSOLE_DOCK_STORAGE_KEY, DEFAULT_CONSOLE_DOCK, validateConsoleDock), open: false,
   }));
+  // 第一次展开才挂载控制台(连同 xterm 的代码一起按需加载),之后保持挂载,
+  // 收起时 tab 与 PTY 连接照旧活着。
+  const [consoleDockMounted, setConsoleDockMounted] = useState(false);
+  useEffect(() => {
+    if (consoleDock.open) setConsoleDockMounted(true);
+  }, [consoleDock.open]);
   const [recentExpertIds, setRecentExpertIds] = usePreference(
     RECENT_EXPERTS_STORAGE_KEY,
     DEFAULT_RECENT_EXPERT_IDS,
@@ -538,6 +549,8 @@ export function App() {
   });
   const [guidedTourPreparing, setGuidedTourPreparing] = useState(false);
   const [guidedTourRun, setGuidedTourRun] = useState(false);
+  // 新手引导第一次真正开始时才挂载(连同 react-joyride 一起按需加载),之后保持挂载。
+  const [guidedTourMounted, setGuidedTourMounted] = useState(false);
   const responsiveSidebars = useResponsiveSidebars({
     shellRef: singleShellRef,
     owner: workbenchOwner,
@@ -2351,16 +2364,18 @@ export function App() {
               anchorSelector="[data-session-content-loading-anchor='true']"
             />
           </div>
-          {consoleAvailable && (
-            <ConsoleDock
-              owner={workbenchOwner}
-              open={consoleDock.open}
-              height={consoleDock.height}
-              onHeightChange={setConsoleDockHeight}
-              onToggle={setConsoleDockOpen}
-              consoleInfo={health?.console}
-              preferredCwd={preferredConsoleCwd}
-            />
+          {consoleAvailable && consoleDockMounted && (
+            <Suspense fallback={null}>
+              <ConsoleDock
+                owner={workbenchOwner}
+                open={consoleDock.open}
+                height={consoleDock.height}
+                onHeightChange={setConsoleDockHeight}
+                onToggle={setConsoleDockOpen}
+                consoleInfo={health?.console}
+                preferredCwd={preferredConsoleCwd}
+              />
+            </Suspense>
           )}
         </div>
         {showFeedback && <FeedbackForm onClose={() => setShowFeedback(false)} />}
@@ -2454,12 +2469,16 @@ export function App() {
           setRememberDesktopCloseChoice(false);
         }}
       />
-      <DesktopGuidedTour
-        run={guidedTourRun && !guidedTourBlocked}
-        hasModel={guidedTourState.hasModel}
-        onDismiss={dismissGuidedTour}
-        onAbort={abortGuidedTour}
-      />
+      {guidedTourMounted && (
+        <Suspense fallback={null}>
+          <DesktopGuidedTour
+            run={guidedTourRun && !guidedTourBlocked}
+            hasModel={guidedTourState.hasModel}
+            onDismiss={dismissGuidedTour}
+            onAbort={abortGuidedTour}
+          />
+        </Suspense>
+      )}
       <SessionNavigationMask
         open={sessionNavigationPending}
         onCancel={cancelSessionNavigation}

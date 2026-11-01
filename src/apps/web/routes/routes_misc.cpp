@@ -832,25 +832,43 @@ void WebServer::Impl::register_static() {
             if (qpos != std::string::npos) path.resize(qpos);
 
             const bool gzip = accepts_gzip(req.get_header_value("Accept-Encoding"));
-            const auto encoding_headers = [](crow::response& response, const AssetLookupResult& asset) {
-                if (asset.vary_accept_encoding) response.add_header("Vary", "Accept-Encoding");
-                if (asset.gzip) response.add_header("Content-Encoding", "gzip");
+
+            // 缓存策略分两档:
+            //   - Vite 产物 assets/<name>-<hash>.<ext> 按内容哈希命名,内容一变文件名就变,
+            //     浏览器一年内不必再问(immutable);`?v=` 是旧的显式版本化入口,同样处理。
+            //   - 其它路径(index.html、图标、主题、SPA 兜底)名字固定,回 no-cache 让
+            //     浏览器每次带 If-None-Match 来问,内容没变就 304 不发 body。
+            //     曾经这里只有 no-cache 没有 ETag,浏览器每次整页加载(Desktop 切工作区
+            //     是整页导航)都全量重下 13 MB 的单文件前端。
+            const auto cache_control_for = [&req](const std::string& asset_path) -> const char* {
+                if (asset_path.rfind("assets/", 0) == 0 || req.url_params.get("v")) {
+                    return "public, max-age=31536000, immutable";
+                }
+                return "no-cache";
+            };
+            const auto respond_with_asset = [&req](const AssetLookupResult& asset,
+                                                   const char* cache_control) -> crow::response {
+                const bool not_modified = etag_matches_if_none_match(
+                    req.get_header_value("If-None-Match"), asset.etag);
+                crow::response resp(not_modified ? 304 : 200);
+                if (!not_modified) {
+                    resp.body.assign(reinterpret_cast<const char*>(asset.data), asset.size);
+                    resp.add_header("Content-Type", asset.content_type);
+                    if (asset.gzip) resp.add_header("Content-Encoding", "gzip");
+                }
+                // 304 也要带 Vary / ETag / Cache-Control(RFC 7232 §4.1),否则浏览器
+                // 会用 304 上缺失的头覆盖缓存条目的元数据。
+                if (asset.vary_accept_encoding) resp.add_header("Vary", "Accept-Encoding");
+                if (!asset.etag.empty()) resp.add_header("ETag", asset.etag);
+                resp.add_header("Cache-Control", cache_control);
+                resp.add_header("Referrer-Policy", "no-referrer");
+                return resp;
             };
 
             if (!path.empty()) {
                 auto r = assets->lookup(path, gzip);
                 if (r.has_value()) {
-                    crow::response resp(200);
-                    resp.body.assign(reinterpret_cast<const char*>(r->data), r->size);
-                    resp.add_header("Content-Type", r->content_type);
-                    encoding_headers(resp, *r);
-                    if (req.url_params.get("v")) {
-                        resp.add_header("Cache-Control", "public, max-age=31536000, immutable");
-                    } else {
-                        resp.add_header("Cache-Control", "no-cache");
-                    }
-                    resp.add_header("Referrer-Policy", "no-referrer");
-                    return resp;
+                    return respond_with_asset(*r, cache_control_for(path));
                 }
             }
 
@@ -861,20 +879,13 @@ void WebServer::Impl::register_static() {
                 resp.body = "index.html missing — front-end not bundled";
                 return resp;
             }
-            crow::response resp(200);
-            resp.body.assign(reinterpret_cast<const char*>(idx->data), idx->size);
-            resp.add_header("Content-Type", idx->content_type);
-            encoding_headers(resp, *idx);
-            resp.add_header("Cache-Control", "no-cache");
-            resp.add_header("Referrer-Policy", "no-referrer");
-            return resp;
+            return respond_with_asset(*idx, "no-cache");
         };
 
-        // 显式 / 路由 — 不能让 / 走 CATCHALL,因为 Crow 1.3.2 master 在 catchall
-        // 处理后会污染同 keep-alive 连接的下个请求(残留 connection 小写 header,
-        // 下一个响应回 Content-Length:0、丢 Content-Type)。复现:同 socket
-        // GET / 然后 GET /api/health → 第二个回空。绕过办法是把 / 拦在 catchall
-        // 之前,走 explicit handler,catchall 仅用作未知深路径兜底。
+        // 显式 / 路由:/ 与 1~4 段路径都走显式 handler,catchall 只兜 >4 段的深路径。
+        // 历史上 / 走 catchall 时会污染同一 keep-alive 连接的下一个请求(下一个响应
+        // Content-Length:0、丢 Content-Type),根因见下面 catchall 处的说明;前端曾因此
+        // 把整包 inline 进 index.html。现在 catchall 本身也修了,显式路由照旧保留。
         CROW_ROUTE(app, "/")
         ([serve_path](const crow::request& req) {
             return serve_path(req, "/");
@@ -897,9 +908,18 @@ void WebServer::Impl::register_static() {
         });
 
         // 未列举层数的兜底(>4 段)。/ 由上面 explicit 路由处理。
+        //
+        // 必须用 (request, response&) 这个 void 签名,不能返回 crow::response:
+        // Crow 1.3.2 的 Router::handle 在 catchall handler 返回后会无条件再调一次
+        // res.end()。返回值签名的包装器已经在 handler 里 end() 并同步写出、clear()
+        // 了 res,第二次 end() 把这个已清空的 res 标成 completed;同一条 keep-alive
+        // 连接上的下一个请求一进来就被当成「已完成」,跳过 handler 直接发出空响应
+        // (Content-Length:0、没有 Content-Type)。void 签名的包装器原样透传、不 end(),
+        // 完成只发生在 Router 的那一次。回归:web_server_smoke_test.cpp::
+        // StaticAssetsKeepAliveConnectionServesEverySequentialResponse(深路径之后再取 /)。
         CROW_CATCHALL_ROUTE(app)
-        ([serve_path](const crow::request& req) {
-            return serve_path(req, std::string(req.url));
+        ([serve_path](const crow::request& req, crow::response& res) {
+            res = serve_path(req, std::string(req.url));
         });
     }
 
