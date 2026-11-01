@@ -894,6 +894,84 @@ TEST(SessionRegistry, SideQuestionReadsFilesWithReadOnlyToolsOnly) {
     std::filesystem::remove_all(cwd, ec);
 }
 
+// 场景:用户在侧边对话里确认「发到主会话」,主会话此时空闲。期望:以这条消息开始
+// 新一轮,落盘的用户消息给模型的正文带来源说明、界面显示原文、带 side_chat 标记;
+// 不存在的会话报 UnknownSession。回归:侧边对话没有任何把结论交给主会话的途径。
+TEST(LocalSessionClient, SideChatMessageStartsATurnWhenTheMainSessionIsIdle) {
+    auto cwd = temp_cwd("side_chat_send_idle");
+    TestFixture fx;
+    fx.provider = std::make_shared<SideQuestionStubProvider>();
+    LocalSessionClient client(fx.registry);
+    SessionOptions opts;
+    opts.cwd = cwd.string();
+    const auto id = fx.registry.create(opts);
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+
+    EXPECT_EQ(client.send_side_chat_message("missing", "x").status,
+              acecode::SideChatDelivery::UnknownSession);
+
+    std::mutex event_mu;
+    std::condition_variable event_cv;
+    bool done = false;
+    auto sub = entry->loop->events().subscribe([&](const SessionEvent& event) {
+        if (event.kind != SessionEventKind::Done) return;
+        {
+            std::lock_guard<std::mutex> lk(event_mu);
+            done = true;
+        }
+        event_cv.notify_all();
+    });
+    const auto delivery = client.send_side_chat_message(id, "改用 B 方案");
+    EXPECT_EQ(delivery.status, acecode::SideChatDelivery::Started);
+    {
+        std::unique_lock<std::mutex> lk(event_mu);
+        ASSERT_TRUE(event_cv.wait_for(lk, 5s, [&] { return done; }));
+    }
+    entry->loop->events().unsubscribe(sub);
+
+    const auto messages = entry->loop->messages();
+    const auto user = std::find_if(messages.begin(), messages.end(), [](const auto& message) {
+        return message.role == "user";
+    });
+    ASSERT_NE(user, messages.end());
+    EXPECT_EQ(user->content.rfind("(Sent by the user from a side chat", 0), 0u) << user->content;
+    EXPECT_NE(user->content.find("改用 B 方案"), std::string::npos);
+    EXPECT_TRUE(user->metadata.value("side_chat", false));
+    EXPECT_EQ(user->metadata.value("display_text", ""), "改用 B 方案");
+
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(cwd, ec);
+}
+
+// 场景:主会话正在跑一个回合(模型请求卡着),此时从侧边对话发来消息。
+// 期望:插进当前回合(Steered),不另开回合排队。回归:发过去的话要等主会话跑完
+// 整个回合才被看到,纠偏来得太晚。
+TEST(LocalSessionClient, SideChatMessageSteersTheRunningTurn) {
+    auto cwd = temp_cwd("side_chat_send_busy");
+    TestFixture fx;
+    auto provider = std::make_shared<BlockingProvider>();
+    fx.provider = provider;
+    LocalSessionClient client(fx.registry);
+    SessionOptions opts;
+    opts.cwd = cwd.string();
+    const auto id = fx.registry.create(opts);
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+
+    entry->loop->submit("long task");
+    ASSERT_TRUE(provider->wait_for_started(5s));
+    ASSERT_FALSE(entry->loop->active_turn_id().empty());
+    EXPECT_EQ(client.send_side_chat_message(id, "顺便检查一下日志").status,
+              acecode::SideChatDelivery::Steered);
+
+    provider->release();
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(cwd, ec);
+}
+
 TEST(LocalSessionClient, GoalCreatePersistsVisibleAuditBeforeHiddenContext) {
     auto cwd = temp_cwd("goal_audit_create");
     TestFixture fx;

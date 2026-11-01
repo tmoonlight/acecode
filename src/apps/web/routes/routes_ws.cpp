@@ -1,6 +1,7 @@
 // routes_ws.cpp — Route registrations extracted from server.cpp
 #include "web/server_impl.hpp"
 #include "web/handlers/side_chat_handler.hpp"
+#include "utils/uuid.hpp"
 
 namespace acecode::web {
 
@@ -76,7 +77,8 @@ void WebServer::Impl::handle_ws_message(crow::websocket::connection& conn, const
 
     // Side connections are private and deliberately do not send hello or
     // subscribe to the main event stream.
-    if (type == "side_chat_start" || type == "side_chat_stop") {
+    if (type == "side_chat_start" || type == "side_chat_stop" ||
+        type == "side_chat_send_decision") {
         handle_side_chat_message(conn, state, type, payload);
         return;
     }
@@ -501,6 +503,17 @@ void WebServer::Impl::handle_side_chat_message(
         state->side_chat.stop(request_id);
         return;
     }
+    if (type == "side_chat_send_decision") {
+        // 迟到 / 重复的作答(请求已结束、卡片已作答)静默忽略:窗口那边自会收到
+        // 这次发送的最终结果或请求结束帧。
+        const auto decision = parse_side_chat_send_decision(payload);
+        if (!decision.error.empty()) {
+            send_error("INVALID_SIDE_CHAT_SEND", decision.error);
+            return;
+        }
+        state->side_chat.decide(decision);
+        return;
+    }
     auto request = parse_side_chat_start(payload);
     if (!request.error.empty()) {
         send_error("INVALID_SIDE_CHAT", request.error);
@@ -544,7 +557,7 @@ void WebServer::Impl::handle_side_chat_message(
     side_chat_workers.push_back(worker);
     try {
         worker->thread = std::thread([this, connection, state, worker,
-                                     request = std::move(request)]() {
+                                     request = std::move(request)]() mutable {
             const auto send = [&](const std::string& frame_type, json frame_payload, bool final) {
                 frame_payload["request_id"] = worker->request->request_id;
                 const auto text = json{{"type", frame_type}, {"payload", std::move(frame_payload)}}
@@ -559,6 +572,63 @@ void WebServer::Impl::handle_side_chat_message(
                 });
             };
             try {
+                // Resolve the same ownership-checked attachments, image parts and
+                // session references as main input, without submitting a main turn.
+                const auto resolve_input = [&](const json& input, std::string& text,
+                                               json& parts) {
+                    auto parsed = parse_session_user_input_request(input.dump(), request.session_id, false);
+                    if (!parsed.ok) {
+                        send("side_chat_error", {{"code", "INVALID_SIDE_CHAT"}, {"message", parsed.error}}, true);
+                        return false;
+                    }
+                    text = std::move(parsed.input.text);
+                    parts = std::move(parsed.input.content_parts);
+                    return true;
+                };
+                bool valid = true;
+                if (!request.input.is_null()) {
+                    request.options.prepared_input = true;
+                    valid = resolve_input(request.input, request.question, request.options.content_parts);
+                }
+                for (std::size_t index = 0; valid && index < request.history.size(); ++index) {
+                    if (!request.history_inputs[index].is_null()) {
+                        valid = resolve_input(request.history_inputs[index], request.history[index].content,
+                                              request.history[index].content_parts);
+                    }
+                }
+                if (!valid) {
+                    worker->finished.store(true);
+                    return;
+                }
+                // 侧边模型要发到主会话:先把草稿推给窗口等用户确认(可改写),确认后
+                // 按主会话状态送达,结果同时推给窗口与回填给模型。
+                const auto send_to_main = [&](const ToolCall& call, const std::string& message,
+                                              const std::atomic<bool>*) -> ToolResult {
+                    if (!deps.session_client) {
+                        return {"[Error] Sending to the main session is unavailable here.", false};
+                    }
+                    const std::string send_id = "send-" + generate_uuid();
+                    worker->request->send_gate.open(send_id);
+                    send("side_chat_send_request", {{"send_id", send_id}, {"call_id", call.id},
+                                                    {"message", message}}, false);
+                    const auto decision =
+                        worker->request->send_gate.wait(worker->request->cancellation.aborted);
+                    if (!decision) {
+                        return {"The side chat stopped before the user answered; nothing was sent.",
+                                false};
+                    }
+                    if (!decision->send) {
+                        send("side_chat_send_result", {{"send_id", send_id}, {"status", "cancelled"}},
+                             false);
+                        return {"The user chose not to send this message to the main session.", true};
+                    }
+                    const auto delivery = deps.session_client->send_side_chat_message(
+                        request.session_id, decision->message);
+                    send("side_chat_send_result", {{"send_id", send_id},
+                                                   {"status", side_chat_delivery_name(delivery.status)},
+                                                   {"message", delivery.message}}, false);
+                    return side_chat_send_tool_result(delivery, decision->message != message);
+                };
                 auto result = deps.session_registry->stream_side_chat(
                     request.session_id, request.question, request.history,
                     worker->request->cancellation, [&](const std::string& delta, bool reset) {
@@ -567,7 +637,7 @@ void WebServer::Impl::handle_side_chat_message(
                     }, [&](const SideChatToolEvent& tool) {
                         send("side_chat_tool", {{"call_id", tool.call_id}, {"name", tool.name},
                              {"target", tool.target}, {"status", tool.status}}, false);
-                    });
+                    }, send_to_main, request.options);
                 if (result.response.status == SideQuestionStatus::Ok) {
                     send("side_chat_done", {{"answer", result.response.answer},
                                             {"cancelled", result.cancelled}}, true);

@@ -13,6 +13,7 @@
 #include "provider/model_context_resolver.hpp"
 #include "provider/model_resolver.hpp"
 #include "provider/provider_factory.hpp"
+#include "provider/summary_model_fallback.hpp"
 #include "session/session_storage.hpp"
 #include "utils/encoding.hpp"
 #include "utils/joining_thread.hpp"
@@ -185,55 +186,82 @@ AppConfig app_config(State& state) {
 // 无工具、非流式语义的一次模型调用;用 chat_stream 只为能在停止时中断。
 std::string call_model(State& state, const std::optional<SessionMeta>& meta,
                        const std::string& system, const std::string& user,
-                       std::string& model_name, std::string& error, bool& overflow) {
+                       std::string& model_name, std::string& error, bool& overflow,
+                       const std::function<bool(const std::string&, std::string&)>& validate) {
     const AppConfig cfg = app_config(state);
-    if (state.host.complete) {
+    if (state.host.complete && cfg.saved_models.empty()) {
         model_name = cfg.memory.summary.model_name.empty()
             ? (meta ? meta->model_preset : std::string{}) : cfg.memory.summary.model_name;
         return state.host.complete(model_name, system, user, error, overflow);
     }
-    const auto profile = resolve_summary_profile(cfg, meta);
-    if (!profile) {
-        error = "no model is configured for memory summarization";
-        return {};
-    }
-    model_name = profile->name;
-    auto provider = create_provider_from_entry(*profile, &cfg);
-    if (!provider) {
-        error = "cannot create the memory summarization provider";
-        return {};
-    }
-    if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(provider)) copilot->try_silent_auth();
-    ChatMessage system_msg;
-    system_msg.role = "system";
-    system_msg.content = system;
-    ChatMessage user_msg;
-    user_msg.role = "user";
-    user_msg.content = user;
-    std::string text;
-    ProviderErrorInfo provider_error;
-    std::string stream_error;
-    provider->chat_stream({system_msg, user_msg}, {},
-        [&text, &provider_error, &stream_error](const StreamEvent& event) {
-            if (event.type == StreamEventType::Delta) text += event.content;
-            if (event.type == StreamEventType::Error) {
-                stream_error = event.error.empty() ? "provider error" : event.error;
-                provider_error = event.provider_error;
+    std::string output;
+    bool any_overflow = false;
+    const auto recovered = SummaryModelFallback(cfg, cfg.memory.summary.model_name, resolve_summary_profile(cfg, meta)).run(
+        [&](const ModelProfile& profile) {
+            error.clear();
+            overflow = false;
+            model_name = profile.name;
+            if (state.host.complete) {
+                output = state.host.complete(model_name, system, user, error, overflow);
+                any_overflow = any_overflow || overflow;
+                return error.empty() && validate(output, error);
             }
-        },
-        &state.abort);
-    if (!stream_error.empty()) {
-        error = stream_error;
-        overflow = is_context_overflow_error(provider_error) || is_context_overflow_error(stream_error);
+            auto provider = create_provider_from_entry(profile, &cfg);
+            if (!provider) {
+                error = "cannot create the memory summarization provider";
+                return false;
+            }
+            if (!provider->supports_tool_free_chat()) return false;
+            if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(provider)) copilot->try_silent_auth();
+            ChatMessage system_msg;
+            system_msg.role = "system";
+            system_msg.content = system;
+            ChatMessage user_msg;
+            user_msg.role = "user";
+            user_msg.content = user;
+            std::string text;
+            ProviderErrorInfo provider_error;
+            std::string stream_error;
+            bool completed = false;
+            provider->chat_stream({system_msg, user_msg}, {},
+                [&text, &provider_error, &stream_error, &completed](const StreamEvent& event) {
+                    if (event.type == StreamEventType::Retry) { text.clear(); stream_error.clear(); completed = false; }
+                    if (event.type == StreamEventType::Delta) text += event.content;
+                    if (event.type == StreamEventType::Done) {
+                        completed = true;
+                        if (event.finish_reason == "error" || event.finish_reason == "cancelled") stream_error = "provider error";
+                    }
+                    if (event.type == StreamEventType::Error) {
+                        stream_error = event.error.empty() ? "provider error" : event.error;
+                        provider_error = event.provider_error;
+                    }
+                },
+                &state.abort);
+            if (!stream_error.empty()) {
+                error = stream_error;
+                overflow = is_context_overflow_error(provider_error) || is_context_overflow_error(stream_error);
+                any_overflow = any_overflow || overflow;
+                return false;
+            }
+            if (!completed || text.empty()) { error = "empty or incomplete summary response"; return false; }
+            output = std::move(text);
+            return validate(output, error);
+    }, &state.abort);
+    if (!recovered) {
+        overflow = any_overflow;
+        if (error.empty()) error = "no usable model for memory summarization";
         return {};
     }
-    return text;
+    error.clear();
+    overflow = false;
+    return output;
 }
 
 int context_window_for(State& state, const std::optional<SessionMeta>& meta) {
     const AppConfig cfg = app_config(state);
-    if (const auto profile = resolve_summary_profile(cfg, meta)) {
-        return resolve_model_profile_context_window_nonblocking(cfg, *profile, cfg.context_window);
+    const SummaryModelFallback fallback(cfg, cfg.memory.summary.model_name, resolve_summary_profile(cfg, meta));
+    if (!fallback.candidates().empty()) {
+        return resolve_model_profile_context_window_nonblocking(cfg, fallback.candidates().front(), cfg.context_window);
     }
     return cfg.context_window > 0 ? cfg.context_window : 128000;
 }
@@ -295,9 +323,9 @@ ExtractionOutcome run_extraction(State& state, const ExtractionCandidate& candid
 
     const std::optional<SessionMeta> meta = candidate.meta;
     const int divisor = std::max(1, state.budget_divisor[candidate.session_id]);
-    const std::size_t window = static_cast<std::size_t>(std::max(context_window_for(state, meta), 8000));
+    const std::size_t window = static_cast<std::size_t>(std::max(context_window_for(state, meta), 1024));
     // 预算 = 摘要模型窗口的 60%;按约 3 字节 / token 换算(中文偏多字节)。
-    const std::size_t budget = std::max<std::size_t>(window * 60 / 100 * 3 / divisor, 4000);
+    const std::size_t budget = std::max<std::size_t>(window * 60 / 100 * 3 / divisor, 512);
     const std::string transcript = render_memory_transcript(items, budget);
 
     std::string error;
@@ -305,7 +333,11 @@ ExtractionOutcome run_extraction(State& state, const ExtractionCandidate& candid
     const std::string output = call_model(
         state, meta, memory_extraction_system_prompt(),
         memory_extraction_user_prompt(candidate.session_id, from, to, transcript),
-        outcome.model_name, error, overflow);
+        outcome.model_name, error, overflow, [](const std::string& text, std::string& invalid) {
+            const auto parsed = parse_memory_extraction_output(text);
+            if (!parsed.ok) invalid = "invalid extraction output: " + parsed.error;
+            return parsed.ok;
+        });
     MemoryExtractionParse parsed;
     if (error.empty()) {
         parsed = parse_memory_extraction_output(output);
@@ -453,12 +485,23 @@ ConsolidationOutcome run_consolidation(State& state, MemoryScope scope,
     registry->reload();
     const auto entries = registry->list();
     const auto tombstones = store.tombstones(scope_key, now);
+    MemoryPlanContext context;
+    context.entries = entries;
+    context.tombstones = tombstones;
+    for (const auto& file : batch) {
+        for (const auto& obs : file.observations) context.observation_ids.insert(obs.id);
+    }
     std::string error;
     bool overflow = false;
     std::string model_name;
     const std::string output = call_model(
         state, model_hint, memory_consolidation_system_prompt(),
-        memory_consolidation_user_prompt(scope, entries, batch, tombstones), model_name, error, overflow);
+        memory_consolidation_user_prompt(scope, entries, batch, tombstones), model_name, error, overflow,
+        [&context](const std::string& text, std::string& invalid) {
+            const auto parsed = parse_memory_consolidation_plan(text);
+            invalid = parsed.ok ? validate_memory_plan(parsed.operations, context) : parsed.error;
+            return invalid.empty();
+        });
     MemoryPlanParse plan;
     if (error.empty()) {
         plan = parse_memory_consolidation_plan(output);
@@ -468,12 +511,6 @@ ConsolidationOutcome run_consolidation(State& state, MemoryScope scope,
         }
     }
     if (error.empty()) {
-        MemoryPlanContext context;
-        context.entries = entries;
-        context.tombstones = tombstones;
-        for (const auto& file : batch) {
-            for (const auto& obs : file.observations) context.observation_ids.insert(obs.id);
-        }
         const std::string invalid = validate_memory_plan(plan.operations, context);
         if (!invalid.empty()) error = "rejected consolidation plan: " + invalid;
     }

@@ -48,4 +48,20 @@ Initialize the window at 600 by 620 CSS pixels, contracting only when the viewpo
 
 ## Migration Plan
 
+### 2026-10-31 复用完整输入框
+
+按用户追加要求，移除侧聊专用 textarea，直接使用 InputBar/RichComposer。只通过显式 props 隐藏权限与加号；拖入文件、会话引用、图片、粘贴、编辑历史、模型菜单及键盘行为由共享组件负责。提取主会话已有的提交规范化和附件上传步骤供两处调用，不另造拖放处理。
+
+临时侧聊控制器持有结构化 composer content、附件资源、文本历史、排队提交快照和模型/推理选择。收起、切换或组件重挂载不丢草稿；清空、到期和销毁释放本地资源并使在途上传回填失效。上传失败保留可重试资源；提交时绑定模型和附件快照，不清空随后输入的新草稿。主会话草稿持久化位置保持独立，侧聊在销毁前保留完整草稿。
+
+私有 WS 增加与主输入相同的 input 对象（附件 ID、会话引用、composer_content），历史用户消息保存相同的 input。服务器逐条复用 parse_session_user_input_request 校验和解析，禁止 worktree 副作用并保留图片 content_parts；不接受客户端提供的已解析附件路径。独立模型使用已有 saved-model resolver 和 provider factory 创建请求自有 provider，默认选中打开侧聊时的主模型，切换仅影响后续侧聊请求，主会话 provider/配置/历史不变。
+
+### 2026-10-31 入口与输入修订
+
+侧聊从会话菜单移到「打开浏览器」左侧，使用原有 chat SVG 和 aria-pressed 表达开闭状态；开启仍复用既有控制器，收起仍保留记录与草稿并停止侧聊请求。浮窗开启时放在工具栏下方，避免挡住 toggle。此决定替代旧的轨迹按钮前入口与顶部重合锚点。
+
+输入区取消固定 60px 总高度，至少可见三行并随内容增长，到上限后内部滚动；Enter 与 Shift+Enter 沿用主会话快捷键配置并保留 IME 保护。提取主会话发送按钮为共享组件，统一圆形强调色、图标、停止中的禁用状态及无障碍名称。自动焦点不再移到停止按钮，键盘主动导航仍有可见焦点。
+
+生成和等待停止时继续编辑；主按钮按 getInputBarActionState 切换发送、停止、排队和继续。队列由侧聊控制器按主会话持有，通过微任务在成功结束后启动下一条，重新校验历史大小并保留新草稿。停止、失败、收起和切换会话暂停队列，主动继续或发送新消息才恢复；空闲时新消息先发，再恢复旧队列；取消条目、清空、到期和迟到回调都不能意外启动请求。此修订替代旧的生成中禁用输入要求。
+
 Ship frontend and daemon together. Retire the two inline Web components when all entries use the float; retain the synchronous HTTP endpoint for existing clients. Validate focused backend/controller/API cases, the full Web test suite and production build, OpenSpec strict validation, and browser checks across desktop/narrow viewports and light/dark themes.

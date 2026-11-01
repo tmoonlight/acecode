@@ -6,6 +6,11 @@ import {
   sideChatRetentionMilliseconds,
 } from './sideChatRetention.js';
 
+async function runAsync(name, fn) {
+  await fn();
+  console.log(`[pass] side chat retention: ${name}`);
+}
+
 function run(name, fn) {
   fn();
   console.log(`[pass] side chat retention: ${name}`);
@@ -87,7 +92,7 @@ run('expiry starts at completion, stays visible until return and includes the ex
   assert.equal(chat.getSnapshot().turns.length, 1, 'no background timeout clears the visible chat');
   chat.suspend();
   assert.equal(get('session').resume(30), true);
-  assert.deepEqual(chat.getSnapshot(), { open: false, turns: [], draft: '', busy: false, stopping: false });
+  assert.deepEqual(chat.getSnapshot(), { open: false, turns: [], draft: '', busy: false, stopping: false, queued: [], queuePaused: false, composerContent: null, attachments: [], inputHistory: [], modelName: '', reasoningEffort: null });
   chat.open();
   chat.submit('fresh question');
   assert.deepEqual(requests[1].history, []);
@@ -229,4 +234,45 @@ run('restoring a controller refreshes the transport delegate', () => {
   chat.submit('question');
   assert.equal(oldCalls, 0);
   assert.equal(newCalls, 1);
+});
+
+await runAsync('queued follow-ups remain isolated and paused across session switches', async () => {
+  const { get, requests } = setup();
+  const a = get('a');
+  const b = get('b');
+  a.submit('a first');
+  a.setDraft('a queued');
+  a.submitDraft();
+  a.suspend();
+  b.submit('b first');
+  b.setDraft('b queued');
+  b.submitDraft();
+  requests[1].onDone({ answer: 'b answer' });
+  await Promise.resolve();
+  assert.equal(requests[2].question, 'b queued');
+  assert.equal(a.getSnapshot().queued[0].text, 'a queued');
+  assert.equal(a.getSnapshot().queuePaused, true);
+  assert.equal(get('a'), a);
+  a.resume(30);
+  await Promise.resolve();
+  assert.equal(requests.length, 3, 'returning does not send paused messages');
+});
+
+// 场景:同一会话的侧边对话在 API 地址 / 凭据变化后被重新取出,然后用户把回答
+// 发到主会话。期望:用的是最新一次传入的发送函数,不会往旧 daemon 发。
+await runAsync('restoring a controller refreshes the send-to-main delegate', async () => {
+  const store = createSideChatSessionStore();
+  const sentTo = [];
+  const handle = { stop() {}, dispose() {} };
+  store.get('same', () => handle, () => { sentTo.push('old'); return { delivery: 'started' }; });
+  const chat = store.get('same', (options) => {
+    options.onDone({ answer: 'answer', cancelled: false });
+    return handle;
+  }, () => { sentTo.push('new'); return { delivery: 'started' }; });
+  chat.submit('question');
+  const turnId = chat.getSnapshot().turns[0].id;
+  assert.equal(chat.startSendToMain(turnId), true);
+  chat.confirmSend(chat.getSnapshot().turns[0].sends[0].id);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(sentTo, ['new']);
 });

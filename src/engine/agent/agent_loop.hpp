@@ -206,12 +206,15 @@ public:
     void prime_side_question_context();
     SideQuestionResult ask_side_question(const std::string& question);
     // Streams a detached side answer. The model may call the read-only built-in
-    // tools (side_chat_tools.hpp); on_tool reports each call's progress.
+    // tools (side_chat_tools.hpp); on_tool reports each call's progress. A
+    // non-empty send_to_main also offers the "send to main session" tool.
     SideChatResult stream_side_chat(const std::string& question,
                                     const std::vector<SideChatMessage>& history,
                                     SideChatCancellation& cancellation,
                                     const SideChatStreamCallback& callback,
-                                    const SideChatToolCallback& on_tool = {});
+                                    const SideChatToolCallback& on_tool = {},
+                                    const SideChatMainSessionSender& send_to_main = {},
+                                    const SideChatInputOptions& input = {});
     using SideQuestionCallback =
         std::function<void(SideQuestionResult)>;
     // Runs the detached provider call without blocking the TUI thread. Worker
@@ -371,7 +374,7 @@ private:
     agent::RequestContextOptions request_context_options(
         const std::shared_ptr<LlmProvider>& provider) const;
     void publish_side_question_context(const std::vector<ChatMessage>& messages);
-    SideChatToolset side_chat_toolset();
+    SideChatToolset side_chat_toolset(const SideChatMainSessionSender& send_to_main = {});
     void require_before_start(const char* operation) const;
     void reload_exec_rules();
     void release_computer_use_session(const std::string& session_id) const;

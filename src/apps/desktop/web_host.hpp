@@ -183,10 +183,10 @@ public:
     // 用于托盘 "退出" 菜单等需要无条件退出的入口。
     void request_quit();
 
-    // 注册「系统文件拖放」handler。Windows 拦截 WebView2 的 file:// 导航、macOS
-    // swizzle WKWebView 拖放后,把拖入文件的完整路径回传给这里(Windows 为
-    // file:// URI、macOS 为本地路径,前端纯函数统一归一化);macOS 同时附带
-    // WebView bounds 内的归一化释放点。Linux/WebKitGTK 由前端直接读
+    // 注册「系统文件拖放」handler。Windows 经 WebMessage additional objects、
+    // 旧 Runtime 的原生 OLE 接收层或 file:// 导航兜底回传路径；macOS 经
+    // WKWebView 拖放回传。OLE 接收层和 macOS 附带 WebView bounds 内的
+    // 归一化释放点。Linux/WebKitGTK 由前端直接读
     // text/uri-list,不调本 handler。必须在 run() 之前注册。
     struct FileDropLocation {
         double x_ratio = 0.0;

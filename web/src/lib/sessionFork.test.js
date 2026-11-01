@@ -64,7 +64,7 @@ async function verifyForkDraftLifecycle(dirty, activateDestination = true) {
     draftEditVersionRef: { current: 0 }, draftLastSavedRef: { current: {} },
     draftSaveQueueRef: { current: new Map() },
     draftSessionKeyRef: { current: 'workspace:source' },
-    setDraftReadyKey() {}, setComposerSubmitting() {},
+    setDraftReadyKey() {}, setDraftLoadFailedKey() {}, setComposerSubmitting() {},
     setComposerValue(text) { composer = text; },
     restoreComposerDraft(draft) { composer = draft.text; },
     normalizeComposerContent, reconcileComposerContentAttachments, composerDraftFingerprint,

@@ -34,7 +34,8 @@ public:
                           SideChatCancellation& cancellation,
                           const SideChatStreamCallback& callback,
                           const SideChatToolset& tools = {},
-                          const SideChatToolCallback& on_tool = {});
+                          const SideChatToolCallback& on_tool = {},
+                          const SideChatInputOptions& input = {});
     void stop_requests();
     void join();
 

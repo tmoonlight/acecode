@@ -9,6 +9,7 @@ import { isImageAttachment, normalizeAttachmentList } from './messageAttachments
 import { questionFeedbackForItem } from './questionFeedback.js';
 import { mergeLegacyGoalNotices } from './systemNotice.js';
 import { interAgentEnvelope } from './interAgentMessage.js';
+import { wrapUpFromTool } from './nextStepBox.js';
 
 function isUserMessage(item) {
   return item?.kind === 'msg' && item.role === 'user';
@@ -491,6 +492,11 @@ function taskCompleteSummaryMarkdownText(item) {
   const object = rawSummaryText(summary.object);
   if (object && cleanSummaryText(object).toLowerCase() !== 'task') return object;
 
+  // 新版 task_complete 的输出是写给模型的回执,recap 在 metadata.wrap_up 里。
+  const recap = rawSummaryText(tool.metadata?.wrap_up?.recap);
+  if (recap) return recap;
+  if (tool.metadata?.wrap_up) return '已完成';
+
   const output = rawSummaryText(tool.output);
   if (output) return output;
 
@@ -510,6 +516,7 @@ function makeCompletionSummaryItem(item) {
     messageId: item?.messageId || '',
     title: `总结：${titleSummary}`,
     summary,
+    wrapUp: wrapUpFromTool(item?.tool),
     sourceItem: item,
     coveredItemIds: coveredIds([item]),
     ts: itemTimestamp(item) || Date.now(),

@@ -1749,7 +1749,7 @@ export function reduceTranscriptEvent(state, msg) {
         totalLines: 0,
         totalBytes: 0,
         elapsed: 0,
-        summary: p.is_task_complete ? { object: (p.args && p.args.summary) || '完成' } : null,
+        summary: p.is_task_complete ? { object: (p.args && (p.args.summary || p.args.recap)) || '完成' } : null,
         output: '',
         hunks: [],
         attachments: [],

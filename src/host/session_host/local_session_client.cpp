@@ -148,6 +148,32 @@ TurnSteerResult LocalSessionClient::steer_input(
     return entry->loop->steer_input(expected_turn_id, input);
 }
 
+// 侧边对话的消息以用户身份进主会话:给模型的正文前加一行来源说明(侧边对话不在
+// 主会话记录里,模型要知道这是用户在别处想好的话),界面显示原文并带
+// metadata.side_chat 标记。运行中的回合优先插话(不打断,下一步读到);回合在
+// 这期间结束、或当前回合不接受插话时,退回普通发送。
+SideChatDeliveryResult LocalSessionClient::send_side_chat_message(
+    const std::string& session_id, const std::string& text) {
+    UserInput input;
+    input.text = "(Sent by the user from a side chat about this session.)\n\n" + text;
+    input.display_text = text;
+    input.metadata = nlohmann::json{{"side_chat", true}};
+    auto entry = registry_.acquire(session_id);
+    if (!entry || !entry->loop) {
+        LOG_WARN("[client] send_side_chat_message on unknown session " + session_id);
+        return {SideChatDelivery::UnknownSession, "unknown session"};
+    }
+    const std::string turn_id = entry->loop->active_turn_id();
+    if (!turn_id.empty() && entry->loop->steer_input(turn_id, input).accepted()) {
+        return {SideChatDelivery::Steered, {}};
+    }
+    const bool busy = entry->loop->is_busy();
+    if (!send_input(session_id, input)) {
+        return {SideChatDelivery::Unavailable, "the main session cannot accept messages right now"};
+    }
+    return {busy ? SideChatDelivery::Queued : SideChatDelivery::Started, {}};
+}
+
 TurnSteerResult LocalSessionClient::interrupt_turn(
     const std::string& session_id,
     const std::string& expected_turn_id,

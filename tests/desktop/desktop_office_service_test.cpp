@@ -175,18 +175,18 @@ TEST_F(DesktopOfficeServiceTest, PetSelectionPersistsIndependentlyAndUpdatesTheC
     EXPECT_EQ(FakeWindow::starts, 0);
     ASSERT_TRUE(service->set_enabled(true)["ok"].get<bool>());
     EXPECT_EQ(FakeWindow::current->pet_kind, "clippy");
-    for (const auto* kind : {"rover", "whale", "office"}) {
+    for (const auto* kind : {"rover", "whale", "mini", "office"}) {
         ASSERT_TRUE(host.call("aceDesktop_setPetKind", Json::array({kind}))["ok"].get<bool>());
         EXPECT_EQ(FakeWindow::current->pet_kind, kind);
         EXPECT_EQ(FakeWindow::starts, 1);
     }
-    service->set_pet_kind("whale");
+    service->set_pet_kind("mini");
     FakeWindow::current->close();
     open();
-    EXPECT_EQ(service->state()["petKind"], "whale");
+    EXPECT_EQ(service->state()["petKind"], "mini");
     EXPECT_FALSE(service->state()["enabled"].get<bool>());
     service->set_enabled(true);
-    EXPECT_EQ(FakeWindow::current->pet_kind, "whale");
+    EXPECT_EQ(FakeWindow::current->pet_kind, "mini");
 }
 
 // 场景:用户在宠物自己的右键菜单「切换宠物」里选了鲸鱼娘,之后重启 ACECode。

@@ -363,7 +363,9 @@ public:
                                     const std::vector<SideChatMessage>& history,
                                     SideChatCancellation& cancellation,
                                     const SideChatStreamCallback& callback,
-                                    const SideChatToolCallback& on_tool = {});
+                                    const SideChatToolCallback& on_tool = {},
+                                    const SideChatMainSessionSender& send_to_main = {},
+                                    const SideChatInputOptions& input = {});
 
     // Resolve persisted metadata to displayable model state without activating
     // the session. Used by web endpoints for inactive disk sessions.

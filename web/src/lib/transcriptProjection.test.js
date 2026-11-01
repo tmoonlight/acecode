@@ -1243,6 +1243,37 @@ run('task_complete markdown 摘要保留原文给渲染层', () => {
   assert.equal(projected[1].title, '总结：**完成** - `README.md` - docs 已更新');
 });
 
+// 场景:新版 task_complete 带「下一步」框(metadata.wrap_up),工具输出是写给模型的回执。
+// 期望:折叠方式不变(最终消息 + 完成总结);完成总结带上规范化的 wrapUp 供框使用;
+// summary 指标缺失时用 wrap_up.recap,绝不把「Shown in the next-step box.」当总结显示。
+run('task_complete 下一步框:完成总结带 wrapUp,回执不当总结显示', () => {
+  const completed = taskComplete(3, 'task');
+  completed.messageId = 'done-3';
+  completed.tool.output = 'Shown in the next-step box.';
+  completed.tool.metadata = {
+    wrap_up: { recap: '修好了,还没提交。', box: true, ask: '现在提交吗?', actions: [{ label: '提交' }, { label: '先不提交' }] },
+  };
+  const projected = projectCollapsedTranscriptItems([user(1), assistant(2, 'Final answer kept'), completed]);
+
+  assert.deepEqual(projected.map((item) => item.kind), ['msg', 'msg', 'completion_summary']);
+  assert.equal(projected[2].summary, '修好了,还没提交。');
+  assert.deepEqual(projected[2].wrapUp, {
+    recap: '修好了,还没提交。', box: true, ask: '现在提交吗?', actions: ['提交', '先不提交'], blocked: false,
+  });
+
+  const receiptOnly = taskComplete(5, 'task');
+  receiptOnly.tool.output = 'Nothing is pending, so no box is drawn.';
+  receiptOnly.tool.metadata = { wrap_up: {} };
+  const fallback = projectCollapsedTranscriptItems([user(4), receiptOnly]);
+  assert.equal(fallback[1].summary, '已完成');
+  assert.equal(fallback[1].wrapUp.box, false);
+
+  // 旧会话没有 wrap_up:wrapUp 为 null,其余行为不变。
+  const legacy = projectCollapsedTranscriptItems([user(6), taskComplete(7, 'all done')]);
+  assert.equal(legacy[1].wrapUp, null);
+  assert.equal(legacy[1].summary, 'all done');
+});
+
 run('complete task 摘要形态不计入工具并显示 summary metric', () => {
   const projected = projectCollapsedTranscriptItems([
     user(1),

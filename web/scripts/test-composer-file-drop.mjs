@@ -20,7 +20,9 @@ import {createRoot} from 'react-dom/client';
 import {InputBar} from '/src/components/InputBar.jsx';
 import {SlashCommandsProvider} from '/src/components/SlashCommandsContext.jsx';
 import {composerContentText} from '/src/lib/composerContent.js';
+import {installNativeFileDropRouter} from '/src/lib/macNativeFileDrag.js';
 import '/src/styles/globals.css';
+installNativeFileDropRouter();
 function Fixture() {
  const ref = useRef();
  const [value, setValue] = useState('');
@@ -33,6 +35,7 @@ function Fixture() {
   seedContent:(content,records)=>{setAttachments(records);ref.current.setComposerContent(content);},
   content:()=>ref.current.getComposerContent(), get value(){return composerContentText(ref.current?.getComposerContent());}};
  return <main style={{padding:80}}><input id="outside" aria-label="Other input"/>
+  <div className="ace-console-term" data-tab-id="fixture-console" style={{height:40}}>Terminal drop target</div>
   <SlashCommandsProvider><InputBar ref={ref} value={value} composerContent={content} disabled={disabled} attachments={attachments}
    onChange={(text,next)=>{setValue(text);setContent(next);}} cwd={cwd} currentSessionId={sessionId}
    onMediaFiles={files=>window.uploads.push(files.map(file=>file.name))}/></SlashCommandsProvider>
@@ -43,8 +46,8 @@ createRoot(document.getElementById('root')).render(<Fixture/>);
 const html = `<html><body><div id="root"></div><script type="module">
 const mode = new URLSearchParams(location.search).get('mode') || 'windows';
 window.__ACECODE_DESKTOP_SHELL__ = mode !== 'browser';
-window.__ACECODE_OS__ = mode === 'browser' ? 'windows' : mode;
-window.__ACECODE_NATIVE_FILE_DROP__ = ['windows','macos'].includes(mode);
+window.__ACECODE_OS__ = mode === 'browser' || mode === 'windows-legacy' ? 'windows' : mode;
+window.__ACECODE_NATIVE_FILE_DROP__ = ['windows','windows-legacy','macos'].includes(mode);
 window.focusAttempts = 0; window.nativeActive = false; window.genericFocusAttempts = 0;
 window.uploads = []; window.materializations = []; window.materializeDelay = false;
 window.clipboardPaths = []; window.clipboardError = ''; window.clipboardReads = 0;
@@ -70,7 +73,10 @@ if(mode !== 'browser') window.aceDesktop_storeContextFiles = async files => {
  window.savedFiles.push(...files);
  return {ok:true,items:files.map(file=>item('C:/local-cache/' + file.name))};
 };
-window.chrome.webview = {postMessageWithAdditionalObjects:()=>{window.nativePosted=true;}};
+window.chrome ||= {};
+window.chrome.webview = mode === 'windows-legacy' ? {} : {postMessageWithAdditionalObjects:()=>{window.nativePosted=true;}};
+window.consoleDrops = [];
+window.__aceConsoleAcceptFileDrop = payload => window.consoleDrops.push(payload);
 import RefreshRuntime from '/@react-refresh';
 RefreshRuntime.injectIntoGlobalHook(window);
 window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;
@@ -97,6 +103,7 @@ let failed = 0;
 try {
   await server.listen();
   browser = await chromium.launch({ headless: true, ...(process.env.ACE_CHROMIUM_EXECUTABLE ? { executablePath: process.env.ACE_CHROMIUM_EXECUTABLE } : {}) });
+  console.log('Browser: ' + browser.version());
   const page = await browser.newPage();
   await page.route('**/api/**', route => route.fulfill({ contentType: 'application/json', body: '{"commands":[],"skills":[]}' }));
   const errors = [];
@@ -162,6 +169,56 @@ try {
       assert.equal((await state()).general, 0, 'file drop must avoid notification foreground fallback');
     });
   }
+  const nativeDropAt = (selector, paths) => page.locator(selector).evaluate((element, paths) => {
+    const rect = element.getBoundingClientRect();
+    return window.__aceRouteNativeFileDrop({paths, location:{
+      xRatio:(rect.left + rect.width / 2) / window.innerWidth,
+      yRatio:(rect.top + rect.height / 2) / window.innerHeight,
+    }});
+  }, paths);
+  await run('legacy native hover reaches the composer and clears after leaving', async () => {
+    await reset('windows-legacy');
+    await editor.evaluate(element => {
+      const rect = element.getBoundingClientRect();
+      window.__aceRouteNativeFileDrag({xRatio:(rect.left+20)/innerWidth,yRatio:(rect.top+10)/innerHeight});
+    });
+    assert.equal((await state()).attempts, 1);
+    await page.waitForFunction(()=>document.querySelector('.ace-composer-card').classList.contains('is-drag-active'));
+    assert.equal(await page.locator('.ace-composer-card').evaluate(element=>element.classList.contains('is-drag-active')), true);
+    await page.evaluate(()=>window.__aceRouteNativeFileDrag(null));
+    await page.waitForFunction(()=>!document.querySelector('.ace-composer-card').classList.contains('is-drag-active'));
+    assert.equal(await page.locator('.ace-composer-card').evaluate(element=>element.classList.contains('is-drag-active')), false);
+    assert.equal((await state()).materializations.length, 0);
+  });
+  await run('WebView2 110 native OLE paths create tags without additional objects or DOM hover', async () => {
+    await reset('windows-legacy'); await seed('before ');
+    assert.equal(await page.evaluate(()=>typeof window.chrome.webview.postMessageWithAdditionalObjects), 'undefined');
+    const paths = ['C:/fixture/中文 notes.txt', '//server/share/second.txt', 'C:/fixture/folder/'];
+    assert.equal(await nativeDropAt('[data-ace-rich-composer]', paths), true);
+    await tags().nth(2).waitFor();
+    assert.deepEqual((await content()).parts.filter(part=>part.type==='path').map(part=>part.path), paths);
+    assert.equal(await page.evaluate(()=>window.savedFiles.length), 0);
+    assert.equal((await state()).uploads.length, 0);
+    assert.equal((await state()).materializations.length, 1);
+    assert.equal(await page.evaluate(()=>window.consoleDrops.length), 0);
+    const before = (await state()).text;
+    await page.keyboard.type('next'); assert.equal((await state()).text, before + 'next');
+    await page.keyboard.press('ArrowLeft'); await page.keyboard.type('X');
+    assert.equal((await state()).text, before + 'nexXt');
+  });
+  await run('WebView2 110 native drop routes terminal paths once and rejects other controls', async () => {
+    await reset('windows-legacy');
+    const paths = ['C:/fixture/notes.txt'];
+    assert.equal(await nativeDropAt('.ace-console-term', paths), true);
+    assert.deepEqual(await page.evaluate(()=>window.consoleDrops), [{paths,nativeLocation:true,tabId:'fixture-console'}]);
+    assert.equal(await tags().count(), 0);
+    assert.equal((await state()).materializations.length, 0);
+    assert.equal(await nativeDropAt('#outside', paths), false);
+    await page.evaluate(()=>window.fixture.setDisabled(true));
+    await page.waitForFunction(()=>document.querySelector('[data-ace-rich-composer]').getAttribute('aria-disabled')==='true');
+    assert.equal(await nativeDropAt('[data-ace-rich-composer]', paths), false);
+    assert.equal((await state()).materializations.length, 0);
+  });
   await run('asynchronous path resolution never reactivates a window the user left', async () => {
     await reset(); await drag();
     await page.evaluate(()=>{window.materializeDelay=true;});

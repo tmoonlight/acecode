@@ -166,6 +166,23 @@ if(WIN32 OR APPLE)
     )
     target_sources(acecode-desktop PRIVATE ${ACECODE_DESKTOP_PET_PAGE_CPP})
 
+    set(ACECODE_MINI_PET_PAGE "${CMAKE_SOURCE_DIR}/assets/desktop_pet/mini_pet.html")
+    set(ACECODE_MINI_PET_CPP "${CMAKE_BINARY_DIR}/generated/mini_pet_embedded.cpp")
+    add_custom_command(
+        OUTPUT ${ACECODE_MINI_PET_CPP}
+        COMMAND ${CMAKE_COMMAND}
+            -DBIN2CPP_INPUT=${ACECODE_MINI_PET_PAGE}
+            -DBIN2CPP_INLINE_JS=${CMAKE_SOURCE_DIR}/assets/desktop_pet/pet_cards.js
+            -DBIN2CPP_OUTPUT=${ACECODE_MINI_PET_CPP}
+            -DBIN2CPP_SYMBOL=mini_pet_page
+            -P ${CMAKE_SOURCE_DIR}/cmake/acecode_bin2cpp.cmake
+        DEPENDS ${ACECODE_MINI_PET_PAGE} ${CMAKE_SOURCE_DIR}/cmake/acecode_bin2cpp.cmake
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/pet_cards.js
+        COMMENT "Embedding the mini desktop navigation pet"
+        VERBATIM
+    )
+    target_sources(acecode-desktop PRIVATE ${ACECODE_MINI_PET_CPP})
+
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(ACECODE_CLASSIC_PET_CPP "${CMAKE_BINARY_DIR}/generated/classic_pet_embedded.cpp")
     # HD frame tables and animation sheets (scripts/desktop_pet/hd_assemble.py output).
@@ -180,6 +197,7 @@ if(WIN32 OR APPLE)
         DEPENDS ${CMAKE_SOURCE_DIR}/scripts/embed_desktop_pet.py
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.html
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.js
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/pet_cards.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/agent.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/peek.png
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/rover/agent.js
@@ -191,6 +209,18 @@ if(WIN32 OR APPLE)
         VERBATIM
     )
     target_sources(acecode-desktop PRIVATE ${ACECODE_CLASSIC_PET_CPP})
+    if(WIN32)
+        add_executable(mini_pet_input_smoke EXCLUDE_FROM_ALL
+            ${ACECODE_MINI_PET_INPUT_SMOKE_SOURCES}
+            ${ACECODE_DESKTOP_PET_PAGE_CPP} ${ACECODE_MINI_PET_CPP} ${ACECODE_CLASSIC_PET_CPP})
+        target_link_libraries(mini_pet_input_smoke PRIVATE acecode_include_roots
+            acecode_desktop_support acecode_base_core webview::core cpr::cpr
+            nlohmann_json::nlohmann_json ole32 shell32 user32 gdi32 dwmapi)
+        if(MSVC)
+            set_target_properties(mini_pet_input_smoke PROPERTIES
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        endif()
+    endif()
 endif()
 
 if(UNIX AND NOT APPLE)

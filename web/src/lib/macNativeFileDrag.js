@@ -86,9 +86,34 @@ export function routeNativeFileDrop(payload, win = globalThis.window, doc = glob
 
 export function installNativeFileDropRouter(win = globalThis.window, doc = globalThis.document) {
   if (!win) return () => {};
+  let dragTarget = null;
+  const leave = () => {
+    if (dragTarget) dragTarget.dispatchEvent(new win.DragEvent('dragleave', { bubbles: true }));
+    dragTarget = null;
+  };
+  const drag = (location) => {
+    const point = nativeFileDropViewportPoint(location, { width: win.innerWidth, height: win.innerHeight });
+    const hit = point && doc?.elementFromPoint?.(point.x, point.y);
+    const scope = nativeFileDropTarget(hit);
+    const target = scope?.kind === 'composer' ? scope.element
+      : scope?.kind === 'console' ? hit.closest('.ace-console-term') : null;
+    if (target !== dragTarget) leave();
+    if (!target || typeof win.DataTransfer !== 'function' || typeof win.DragEvent !== 'function') return;
+    const dataTransfer = new win.DataTransfer();
+    // Hover only: the native drop carries the real paths separately. Never
+    // dispatch a synthetic file drop or upload this placeholder File.
+    dataTransfer.items.add(new win.File([], 'native-file'));
+    const init = { bubbles: true, cancelable: true, dataTransfer, clientX: point.x, clientY: point.y };
+    if (!dragTarget) target.dispatchEvent(new win.DragEvent('dragenter', init));
+    dragTarget = target;
+    target.dispatchEvent(new win.DragEvent('dragover', init));
+  };
   const handler = (payload) => routeNativeFileDrop(payload, win, doc);
   win.__aceRouteNativeFileDrop = handler;
+  win.__aceRouteNativeFileDrag = drag;
   return () => {
+    leave();
+    if (win.__aceRouteNativeFileDrag === drag) delete win.__aceRouteNativeFileDrag;
     if (win.__aceRouteNativeFileDrop !== handler) return;
     try { delete win.__aceRouteNativeFileDrop; }
     catch { win.__aceRouteNativeFileDrop = undefined; }

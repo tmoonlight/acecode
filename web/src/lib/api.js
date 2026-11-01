@@ -412,6 +412,9 @@ export function createApi(base = null) {
     listSidebarSessions: (hash, opts={}) => request('GET', sidebarSessionsPath(hash, opts), undefined, base),
     moveSidebarSession: (hash, move, opts={}) => request('POST', sidebarSessionsPath(hash, opts), move, base),
     createSession:    (opts={})      => request('POST',   '/api/sessions', opts, base),
+    followUpPrompt: (id, completionKey) => request('POST',
+      `/api/sessions/${encodeURIComponent(id)}/follow-up-prompt`, { completion_key: completionKey }, base,
+      { timeoutMs: 20000 }),
     listTaskSuggestions: (id, options = {}) => request('GET',
       `/api/sessions/${encodeURIComponent(id)}/suggestions`, undefined, base,
       { signal: options.signal, timeoutMs: 10000 }),
@@ -560,6 +563,9 @@ export function createApi(base = null) {
     // 同步跑一次完整模型往返(SessionRegistry::ask_side_question),按 LLM 计时。
     askSideQuestion:  (id, question) => request('POST',   `/api/sessions/${encodeURIComponent(id)}/side-question`, { question }, base,
       { timeoutMs: LLM_ROUNDTRIP_TIMEOUT_MS }),
+    // 侧边对话里用户确认后发到主会话:运行中插入当前回合,空闲开始新一轮。
+    sendSideChatToMain: (id, message) => request('POST',
+      `/api/sessions/${encodeURIComponent(id)}/side-chat/send`, { message }, base),
     streamSideChat: (id, options) => createSideChatStream({
       ...options,
       sessionId: id,

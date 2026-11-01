@@ -153,6 +153,7 @@ struct ProviderStreamCollector::Call {
             // 透传服务端上报的 finish_reason(可能为空 — 部分兼容网关不发)。
             // 非空才覆盖,保持 "stop" 兜底默认值。
             std::lock_guard<std::mutex> lk(resp_mu);
+            completed = true;
             if (!evt.finish_reason.empty()) {
                 result.accumulated.finish_reason = evt.finish_reason;
             }
@@ -186,6 +187,7 @@ struct ProviderStreamCollector::Call {
             {
                 std::lock_guard<std::mutex> lk(resp_mu);
                 result.accumulated = ChatResponse{};
+                completed = false;
                 result.accumulated.finish_reason = "stop";
             }
             reasoning_bytes = 0;
@@ -252,6 +254,7 @@ struct ProviderStreamCollector::Call {
     bool first_output_recorded = false;
     bool reasoning_title_found = false;
     bool step_text_started = false;
+    bool completed = false;
     llm::TextPreambleScanner text_preamble_scanner_;
     LifetimeToken lifetime; // first destroyed; all callback state outlives revoke
 };
@@ -305,6 +308,14 @@ ProviderCallResult ProviderStreamCollector::collect(
         final_usage = result.accumulated.usage;
     }
     result.provider_attempt = provider_attempt;
+    if (call.completed && !result.provider_error_seen && !abort_.raw().load() &&
+        !result.accumulated.provider_error.has_error() &&
+        result.accumulated.finish_reason != "error" &&
+        result.accumulated.finish_reason != "cancelled" &&
+        (result.accumulated.content.find_first_not_of(" \r\n\t") != std::string::npos ||
+         result.accumulated.has_tool_calls())) {
+        provider->record_successful_chat();
+    }
     if (!result.provider_error_seen &&
         !abort_.raw().load() &&
         final_usage.has_data) {

@@ -24,4 +24,8 @@ std::optional<std::string> generate_auto_session_title(
     const std::string& visible_text,
     const AppConfig& cfg);
 
+std::optional<std::string> generate_auto_session_title_with_fallback(
+    const ModelProfile& contextual, const std::string& visible_text, const AppConfig& cfg,
+    const std::function<bool()>& stopped = {});
+
 } // namespace acecode

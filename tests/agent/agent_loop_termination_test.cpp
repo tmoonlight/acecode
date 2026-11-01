@@ -1352,12 +1352,16 @@ TEST(AgentLoopTermination, TerminalSessionActionRunsAfterDoneAndStopsLaterWrites
     EXPECT_FALSE(turn_timings_from(persisted).empty());
 }
 
+// 场景:task_complete 带超长 summary 收尾。延迟发出的 ToolEnd(实时与轨迹)的
+// message_id 必须指向实际落盘的 canonical tool-result,否则从完成总结分叉会找不到消息。
+// task_complete 仿 wrap_up 之后,工具输出是写给模型的简短回执,不再回显 summary,
+// 超长 summary 也不会触发「超长输出落盘」替换;summary 原文留在 metadata.wrap_up 里。
 TEST(AgentLoopTermination, TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult) {
     TempHomeGuard temp_home("acecode-task-complete-message-id");
     AgentLoopHarness h(temp_home.root().string(), {}, nullptr, true);
 
-    h.push_task_complete(std::string(
-        acecode::TOOL_RESULT_DEFAULT_MAX_BYTES + 1024, 'x'));
+    const std::string summary(acecode::TOOL_RESULT_DEFAULT_MAX_BYTES + 1024, 'x');
+    h.push_task_complete(summary);
 
     ASSERT_TRUE(h.submit_and_wait("finish with a large summary"));
     const auto messages = h.persisted_session_messages();
@@ -1366,7 +1370,9 @@ TEST(AgentLoopTermination, TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResu
             return message.role == "tool" && message.tool_call_id == "c-done";
         });
     ASSERT_NE(tool_result, messages.rend());
-    EXPECT_TRUE(acecode::is_persisted_output_message(tool_result->content));
+    EXPECT_FALSE(acecode::is_persisted_output_message(tool_result->content));
+    EXPECT_LT(tool_result->content.size(), 1024u);
+    EXPECT_EQ(tool_result->metadata["wrap_up"]["recap"], summary);
 
     const auto events = h.snapshot_events();
     const auto tool_end = std::find_if(

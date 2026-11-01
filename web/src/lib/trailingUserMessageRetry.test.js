@@ -118,8 +118,10 @@ assert.match(inputBar, /const submit = \(\) => \{\s*if \(speech\.interceptSubmit
 assert.match(inputBar, /const currentDraft = serializeComposerGoal\(valueRef\.current, contentRef\.current, goalModeRef\.current\);\s*const currentAction = getInputBarActionState\(\{ value: currentDraft\.text, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused \}\);\s*if \(!currentAction\.canSubmit\) return;/);
 assert.match(inputBar, /onSubmit\?\.\(currentDraft\.text\)/);
 assert.match(inputBar, /onSubmit=\{submit\}/);
-assert.match(inputBar, /const isStopAction = actionState\.mode === 'stop';/);
-assert.match(inputBar, /onClick=\{isStopAction \? onAbort : submit\}/);
+assert.match(inputBar, /<ComposerActionButton[\s\S]*?onSubmit=\{submit\}[\s\S]*?onStop=\{onAbort\}/);
+const actionButton = fs.readFileSync(new URL('../components/ComposerActionButton.jsx', import.meta.url), 'utf8');
+assert.match(actionButton, /const isStop = actionState\.mode === 'stop';/);
+assert.match(actionButton, /onClick=\{isStop \? onStop : onSubmit\}/);
 const chat = fs.readFileSync(new URL('../components/ChatView.jsx', import.meta.url), 'utf8');
 assert.match(chat, /trailingUserMessageRetryId\(\{\s*sessionId: sid, items, loadState:/);
 assert.match(chat, /const latest = transcript\.getState\(\);/);

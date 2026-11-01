@@ -2,6 +2,7 @@
 
 #include "agent/side_question/side_chat.hpp"
 #include "web/handlers/side_chat_handler.hpp"
+#include "agent/side_question/side_question_service.hpp"
 
 #include <future>
 
@@ -491,6 +492,134 @@ TEST(SideChat, StopDuringToolExecutionEndsWithoutAnotherModelCall) {
     EXPECT_EQ(provider->calls, 1);
 }
 
+// 场景:Web 侧边对话带上「发到主会话」工具,模型照用户要求调用它。期望:指令把它
+// 和只读工具分开讲(只在用户要求时用、每条都要用户确认、主会话看不到侧边对话),
+// 调用交给工具集执行,结果回填后模型继续作答。
+TEST(SideChat, SendToMainToolIsDescribedSeparatelyAndItsResultFeedsBack) {
+    auto provider = std::make_shared<SideStreamProvider>();
+    provider->expect_no_tools = false;
+    provider->emit = [&](const auto& callback, auto*) {
+        if (provider->calls == 1) {
+            tool_call(callback, "call_send", acecode::kSideChatSendToMainTool,
+                      R"({"message":"改用 B 方案"})");
+            done_with_tool_calls(callback);
+            return;
+        }
+        event(callback, StreamEventType::Delta, "已经转告主会话。");
+        event(callback, StreamEventType::Done);
+    };
+    std::vector<acecode::ToolCall> executed;
+    auto tools = read_toolset(executed, "Sent to the main session.");
+    tools.definitions.push_back({acecode::kSideChatSendToMainTool, "send", nlohmann::json{{"type", "object"}}});
+    tools.can_send_to_main = true;
+    acecode::SideChatCancellation cancellation;
+    const auto result = acecode::run_side_chat(provider, main_context(), "告诉主会话改用 B", {},
+                                               cancellation, {}, tools);
+    EXPECT_EQ(result.response.status, SideQuestionStatus::Ok);
+    EXPECT_EQ(result.response.answer, "已经转告主会话。");
+    ASSERT_EQ(executed.size(), 1u);
+    EXPECT_EQ(executed[0].function_name, acecode::kSideChatSendToMainTool);
+    const auto& instruction = provider->requests[0][1].content;
+    EXPECT_NE(instruction.find("only these read-only tools: file_read."), std::string::npos) << instruction;
+    EXPECT_NE(instruction.find("unless you call send_to_main_session"), std::string::npos);
+    EXPECT_NE(instruction.find("The user confirms each message"), std::string::npos);
+    // 回归:用户在侧边对话里要「写个文件」,模型只回「这里只读,请去主会话再说一次」。
+    // 做不了的事要主动交给主会话,而不是把用户推回去。
+    EXPECT_NE(instruction.find("creating or editing files"), std::string::npos);
+    EXPECT_NE(instruction.find("do not tell them to ask the main session themselves"),
+              std::string::npos);
+    EXPECT_EQ(provider->requests[1].back().content, "Sent to the main session.");
+}
+
+// 场景:侧边窗口回送「发到主会话」的作答。期望:send / cancel 两种合法;send 必须带
+// 非空且不超限的正文;id 缺失或作答类型不认识一律报错。
+TEST(SideChatProtocol, ParsesSendDecisions) {
+    using nlohmann::json;
+    auto send = acecode::web::parse_side_chat_send_decision(
+        json{{"request_id", "r1"}, {"send_id", "s1"}, {"decision", "send"}, {"message", "改用 B"}});
+    EXPECT_TRUE(send.error.empty());
+    EXPECT_TRUE(send.send);
+    EXPECT_EQ(send.message, "改用 B");
+    auto cancel = acecode::web::parse_side_chat_send_decision(
+        json{{"request_id", "r1"}, {"send_id", "s1"}, {"decision", "cancel"}});
+    EXPECT_TRUE(cancel.error.empty());
+    EXPECT_FALSE(cancel.send);
+    for (const auto& invalid : {
+             json{{"request_id", "r1"}, {"decision", "send"}, {"message", "x"}},
+             json{{"request_id", "r1"}, {"send_id", "s1"}, {"decision", "maybe"}},
+             json{{"request_id", "r1"}, {"send_id", "s1"}, {"decision", "send"}, {"message", " "}},
+             json{{"request_id", "r1"}, {"send_id", "s1"}, {"decision", "send"},
+                  {"message", std::string(acecode::kMaxSideQuestionBytes + 1, 'x')}},
+             json::array()}) {
+        EXPECT_FALSE(acecode::web::parse_side_chat_send_decision(invalid).error.empty()) << invalid.dump();
+    }
+}
+
+// 场景:侧边模型的发送请求在等用户作答。期望:只认当前这一张卡片的作答(过期 id、
+// 重复作答都不算);用户停止侧边对话或连接关闭时等待立刻结束且不发送。
+// 回归:没有这道闸,用户来不及确认消息就已经进了主会话。
+TEST(SideChatProtocol, SendGateWaitsForTheMatchingAnswerAndStopsOnCancel) {
+    using namespace std::chrono_literals;
+    {
+        acecode::web::SideChatSendGate gate;
+        std::atomic<bool> aborted{false};
+        gate.open("s1");
+        EXPECT_FALSE(gate.resolve("stale", true, "x"));
+        auto waiting = std::async(std::launch::async, [&] { return gate.wait(aborted); });
+        EXPECT_EQ(waiting.wait_for(30ms), std::future_status::timeout);
+        EXPECT_TRUE(gate.resolve("s1", true, "改用 B"));
+        EXPECT_FALSE(gate.resolve("s1", false, ""));
+        ASSERT_EQ(waiting.wait_for(2s), std::future_status::ready);
+        const auto decision = waiting.get();
+        ASSERT_TRUE(decision.has_value());
+        EXPECT_TRUE(decision->send);
+        EXPECT_EQ(decision->message, "改用 B");
+    }
+    {
+        acecode::web::SideChatSendGate gate;
+        std::atomic<bool> aborted{false};
+        gate.open("s1");
+        auto waiting = std::async(std::launch::async, [&] { return gate.wait(aborted); });
+        aborted.store(true);
+        ASSERT_EQ(waiting.wait_for(2s), std::future_status::ready);
+        EXPECT_FALSE(waiting.get().has_value());
+    }
+    {
+        acecode::web::SideChatConnectionState connection;
+        auto request = connection.start("r1");
+        ASSERT_TRUE(request);
+        request->send_gate.open("s1");
+        acecode::web::SideChatSendDecision other;
+        other.request_id = "other";
+        other.send_id = "s1";
+        other.send = true;
+        other.message = "x";
+        EXPECT_FALSE(connection.decide(other));
+        auto waiting = std::async(std::launch::async, [&] {
+            return request->send_gate.wait(request->cancellation.aborted);
+        });
+        connection.close();
+        ASSERT_EQ(waiting.wait_for(2s), std::future_status::ready);
+        EXPECT_FALSE(waiting.get().has_value());
+    }
+}
+
+// 场景:送达结果回填给侧边模型。期望:三种送达各有明确说法(插入当前回合 / 开新一轮 /
+// 排队),用户改写过要说明;送达失败是错误结果并带原因。
+TEST(SideChatProtocol, SendResultTellsTheModelHowTheMessageWasDelivered) {
+    using acecode::SideChatDelivery;
+    const auto steered = acecode::web::side_chat_send_tool_result({SideChatDelivery::Steered, {}}, false);
+    EXPECT_TRUE(steered.success);
+    EXPECT_NE(steered.output.find("next step"), std::string::npos);
+    const auto started = acecode::web::side_chat_send_tool_result({SideChatDelivery::Started, {}}, true);
+    EXPECT_NE(started.output.find("new turn"), std::string::npos);
+    EXPECT_NE(started.output.find("edited"), std::string::npos);
+    const auto failed = acecode::web::side_chat_send_tool_result(
+        {SideChatDelivery::Unavailable, "migration in progress"}, false);
+    EXPECT_FALSE(failed.success);
+    EXPECT_NE(failed.output.find("migration in progress"), std::string::npos);
+}
+
 TEST(SideChatProtocol, ParsesTextHistoryAndRejectsInjectedFieldsOrMalformedTypes) {
     using nlohmann::json;
     const json valid{{"request_id", "r1"}, {"session_id", "s1"}, {"question", "next"},
@@ -506,6 +635,50 @@ TEST(SideChatProtocol, ParsesTextHistoryAndRejectsInjectedFieldsOrMalformedTypes
     auto oversized = valid;
     oversized["request_id"] = std::string(129, 'x');
     EXPECT_FALSE(acecode::web::parse_side_chat_start(oversized).error.empty());
+}
+
+TEST(SideChatProtocol, RichInputUsesDescriptorsAndRejectsResolvedPathsAndWorktreeIntent) {
+    using nlohmann::json;
+    const json input{{"text", ""}, {"attachments", {{{"id", "image-1"}}}}};
+    json payload{{"request_id", "r"}, {"session_id", "s"}, {"question", ""},
+                 {"input", input}, {"model_name", "vision"}, {"reasoning_effort", "high"},
+                 {"history", {{{"role", "user"}, {"content", ""}, {"input", input}},
+                              {{"role", "assistant"}, {"content", "a picture"}}}}};
+    auto parsed = acecode::web::parse_side_chat_start(payload);
+    ASSERT_TRUE(parsed.error.empty()) << parsed.error;
+    EXPECT_EQ(parsed.options.model_name, "vision");
+    EXPECT_EQ(parsed.options.reasoning_effort, "high");
+    ASSERT_EQ(parsed.history_inputs.size(), 2u);
+    EXPECT_EQ(parsed.history_inputs[0], input);
+    for (const auto* key : {"content_parts", "worktree", "metadata"}) {
+        auto invalid = payload;
+        invalid["input"][key] = json::object();
+        EXPECT_FALSE(acecode::web::parse_side_chat_start(invalid).error.empty());
+    }
+    payload["history"][1]["input"] = input;
+    EXPECT_FALSE(acecode::web::parse_side_chat_start(payload).error.empty());
+}
+
+TEST(SideChat, RichHistoryAndImageOnlyInputReachAnIndependentProvider) {
+    auto main = std::make_shared<SideStreamProvider>();
+    auto side = std::make_shared<SideStreamProvider>();
+    side->emit = [](const auto& callback, auto*) { event(callback, acecode::StreamEventType::Delta, "answer"); event(callback, acecode::StreamEventType::Done); };
+    acecode::agent::SideQuestionService service([main] { return main; });
+    service.publish(main_context());
+    acecode::SideChatInputOptions input;
+    input.provider_override = side;
+    input.prepared_input = true;
+    input.content_parts = nlohmann::json::array({{{"type", "image"}, {"attachment", {{"id", "new-image"}}}}});
+    acecode::SideChatMessage previous{"user", "previous"};
+    previous.content_parts = nlohmann::json::array({{{"type", "image"}, {"attachment", {{"id", "old-image"}}}}});
+    acecode::SideChatCancellation cancellation;
+    const auto result = service.stream("", {previous, {"assistant", "old answer"}}, cancellation, {}, {}, {}, input);
+    ASSERT_EQ(result.response.status, acecode::SideQuestionStatus::Ok);
+    EXPECT_EQ(main->calls, 0);
+    EXPECT_EQ(side->calls, 1);
+    ASSERT_GE(side->received.size(), 3u);
+    EXPECT_EQ(side->received.back().content_parts, input.content_parts);
+    EXPECT_EQ(side->received[side->received.size() - 3].content_parts, previous.content_parts);
 }
 
 TEST(SideChatProtocol, ConnectionAllowsOnlyOneActiveRequestAndStopsOnlyMatchingId) {

@@ -20,6 +20,7 @@
 #include "session/session_manager.hpp"
 #include "session/session_storage.hpp"
 #include "session_host/memory_scheduler.hpp"
+#include "provider/summary_model_fallback.hpp"
 #include "test_support/memory/memory_test_home.hpp"
 #include "utils/utf8_path.hpp"
 
@@ -269,6 +270,39 @@ TEST(MemorySchedulerTest, ModelFollowsSummarySetting) {
     scheduler.tick();
     ASSERT_EQ(h.calls.size(), 2u);
     EXPECT_EQ(h.calls[1].model, "S");
+}
+
+TEST(MemorySchedulerTest, InvalidSummarySilentlyUsesLastSuccessfulChatAndReusesIt) {
+    MemoryTestHome home("memory-sched-fallback");
+    SchedulerHarness h(home);
+    h.make_session();
+    auto cfg = h.memory->config();
+    cfg.summary.model_name = "broken";
+    h.memory->update_config(cfg);
+    acecode::AppConfig app;
+    for (const auto* name : {"broken", "working", "default"}) {
+        acecode::ModelProfile profile;
+        profile.name = name; profile.provider = "openai"; profile.model = name;
+        app.saved_models.push_back(profile);
+    }
+    app.default_model_name = "default";
+    acecode::remember_successful_chat_model(acecode::summary_model_identity(app.saved_models[1]),
+                                           acecode::summary_model_state_path());
+    auto host = h.host();
+    host.app_config = [app] { return app; };
+    std::vector<std::string> calls;
+    host.complete = [&calls](const std::string& name, const auto&, const auto&, std::string&, bool&) {
+        calls.push_back(name);
+        return name == "working" ? R"({"outcome":"noop","observations":[]})" : "invalid";
+    };
+    acecode::MemorySummaryScheduler scheduler(h.memory, host);
+    scheduler.tick();
+    EXPECT_EQ(calls, (std::vector<std::string>{"broken", "working"}));
+    h.make_session();
+    scheduler.tick();
+    ASSERT_EQ(calls.size(), 3u);
+    EXPECT_EQ(calls.back(), "working");
+    EXPECT_TRUE(acecode::read_memory_summary_status(*h.memory, h.project_dir).last_error.empty());
 }
 
 // 场景:模型输出的观察里含令牌;之后会话继续了新的对话并再次闲置。

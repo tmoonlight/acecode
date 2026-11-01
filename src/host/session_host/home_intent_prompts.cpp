@@ -1,6 +1,7 @@
 #include "home_intent_prompts.hpp"
 
 #include "config/model_provider_registry.hpp"
+#include "provider/summary_model_fallback.hpp"
 #include "session/jsonl_scanner.hpp"
 #include "session/session_recent_activity.hpp"
 #include "session/session_serializer.hpp"
@@ -205,8 +206,10 @@ std::vector<GlobalSessionCatalogEntry> select_home_intent_sessions(
 std::optional<ModelProfile> resolve_home_intent_model(const AppConfig& config, const GlobalSessionCatalog& catalog,
                                                       const HomeIntentActivityReader& read) {
     // The selected summary model is independent of auto-title's enabled switch.
-    if (!config.summary_generation.model_name.empty()) return profile_named(config, config.summary_generation.model_name);
-    return fallback_model(config, catalog, read).profile;
+    const SummaryModelFallback fallback(config, config.summary_generation.model_name,
+                                        fallback_model(config, catalog, read).profile);
+    if (fallback.candidates().empty()) return std::nullopt;
+    return fallback.candidates().front();
 }
 
 HomeIntentCandidates load_home_intent_candidates(

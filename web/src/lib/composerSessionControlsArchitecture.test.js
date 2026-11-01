@@ -133,7 +133,7 @@ run('swarm and expert selections survive submission until explicitly changed', (
   assert.match(chatView, /const \[composerSwarmChoice, setComposerSwarmChoice\] = useState\(null\)/);
   assert.match(chatView, /effectiveSwarmMode\(composerSwarmChoice, transcriptSwarmMode\)/);
   assert.match(chatView, /swarmModeForSubmission\(composerSwarmChoice, transcriptSwarmMode\)/);
-  assert.match(chatView, /if \(swarmMode\) payload\.swarm_mode = swarmMode/);
+  assert.match(source('lib/composerSubmission.js'), /if \(swarmMode\) payload\.swarm_mode = swarmMode/);
   assert.match(chatView, /swarmMode: composerSwarmMode/);
   assert.match(chatView, /const explicitHomeSend = !isBuiltin && \(hasExtras \|\| hasSwarmMode/);
   assert.match(chatView, /preserveExtras: hasExtras \|\| hasSwarmMode/);
@@ -277,12 +277,13 @@ run('model settings and refresh use independent model-menu header actions', () =
   );
 });
 
-run('both composer variants deep-link model settings through the app callback', () => {
+run('main and side composer variants deep-link model settings through the app callback', () => {
   const app = source('App.jsx');
   const chatView = source('components/ChatView.jsx');
   const callbackProps = chatView.match(/^\s+onOpenModelSettings,$/gm) || [];
 
   assert.equal(callbackProps.length, 2);
+  assert.match(chatView, /onOpenModelSettings: onOpenModelSettings \? \(\) => \{\s+sideChat\.close\(\);\s+onOpenModelSettings\(\);/);
   assert.match(app, /onOpenModelSettings=\{\(\) => openSettingsSection\('models'\)\}/);
 });
 

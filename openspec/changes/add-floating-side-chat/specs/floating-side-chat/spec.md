@@ -4,8 +4,32 @@ Provide a movable, resizable side conversation above the ACECode application so 
 
 ## ADDED Requirements
 
+### Requirement: Reuse the rich composer
+Side chat SHALL reuse the main InputBar and RichComposer, hiding only the permission selector and plus control. It SHALL support the same file, image and session-reference drop/paste/edit behavior and attachment-only submission. Its model and reasoning controls SHALL select the provider for subsequent side requests without changing the main session.
+
+#### Scenario: Drop content into side chat
+- **WHEN** a user drops a file, image or another session into the side composer
+- **THEN** the shared editor represents and submits it using the main composer's attachment/reference contract
+- **AND** the main composer and draft are unchanged
+
+### Requirement: Retain complete side drafts until destruction
+The side controller SHALL preserve rich content, attachment resources, queued submissions, input history and model selection through hiding, session switching and remounting. Clear, expiry or destruction SHALL release temporary resources and invalidate late uploads. Failed uploads SHALL remain recoverable. Queued submissions SHALL snapshot content and model, retaining newer edits.
+
+#### Scenario: Restore a rich draft
+- **WHEN** a side draft containing text, file/image attachments and a session reference is hidden and reopened before expiry
+- **THEN** its editor content, resources and model selection are restored
+- **AND** a late upload after clear or expiry cannot recreate the destroyed draft
+
+### Requirement: Resolve rich side inputs through shared boundaries
+The server SHALL resolve side input and historical user inputs through the main input parser, verifying attachment ownership and session references and retaining multimodal content. It SHALL NOT write the side discussion into main history or permit worktree creation. Explicit model selection SHALL use a request-owned provider and fail clearly when unavailable.
+
+#### Scenario: Follow up on an image with a different model
+- **WHEN** a user sends an image, completes the side turn and selects another model for a follow-up
+- **THEN** the selected provider receives the image in the isolated side history
+- **AND** the main provider remains unchanged
+
 ### Requirement: Application-wide floating conversation
-The Web and Desktop UI SHALL open side chat from `/side`, `/btw`, the existing side-chat menu, or a speech-bubble SVG button in the top-right session toolbar in a floating window above the application surfaces. The floating header SHALL contain the conversation title and top-right clear and minimize actions, in that order. The minimize action SHALL use a horizontal-line icon and an accessible label describing minimization. The window SHALL support dragging, resizing on all edges and corners, independent transcript scrolling, and a fixed bottom input region totaling 60px including borders. Long drafts SHALL scroll inside the textarea without expanding that region. It SHALL remain usable within the current viewport and use the application's theme.
+The Web/Desktop UI SHALL open a themed floating side conversation above application surfaces through `/side`, `/btw`, menus and the session-toolbar SVG toggle. Its header SHALL show title, clear and minimize actions, using an accessible horizontal-line minimize icon. The window SHALL support dragging, eight-way resizing, independent transcript scrolling and viewport constraints.
 
 #### Scenario: Open and resize above the workbench
 - **WHEN** the user opens side chat with the sidebar and preview visible
@@ -17,15 +41,15 @@ The Web and Desktop UI SHALL open side chat from `/side`, `/btw`, the existing s
 - **THEN** the empty floating conversation opens and focuses its input
 
 #### Scenario: Open from the session toolbar
-- **WHEN** the user clicks the speech-bubble button before the trajectory button in the session toolbar
-- **THEN** the same side-chat window opens, preserving existing side history and the main composer draft
+- **WHEN** the user clicks the speech-bubble toggle immediately left of the browser button in the session toolbar
+- **THEN** the same side-chat window toggles open or closed, preserving existing side history and both composer drafts; its pressed state SHALL match visibility
 
 ### Requirement: Initial size and toolbar placement
-The window SHALL initialize at 600 by 620 CSS pixels, limited by the visible viewport, and use a compact 36px header. Each activation of the toolbar bubble SHALL align the window's top-left with the button's top-left, clamping inside the viewport when necessary. Toolbar reopening SHALL preserve user-resized dimensions. Other entry points SHALL preserve the previous position.
+The window SHALL initialize at 600 by 620 CSS pixels, limited by the visible viewport, and use a compact 36px header. Opening from the toolbar bubble SHALL place the window below the button, clamping inside the viewport and shrinking its height when necessary to keep the toggle reachable. Toolbar reopening SHALL preserve user-resized dimensions when they fit. Other entry points SHALL preserve the previous position.
 
 #### Scenario: Open at the toolbar button
 - **WHEN** the user activates the toolbar bubble with enough space to its right and below
-- **THEN** the window's left and top match the button's left and top
+- **THEN** the window's left aligns with the button and its top is below the button
 - **AND** its initial size is 600 by 620 CSS pixels
 
 #### Scenario: Open near a viewport edge
@@ -46,31 +70,56 @@ The system SHALL answer each side question using a safe main-session context sna
 - **AND** the main task remains available without changing its provider behavior
 
 ### Requirement: Read-only tools in side chat
-Streaming side chat and the single-turn TUI `/btw` / `/side` and HTTP side questions SHALL offer the model only the read-only built-in tools `file_read`, `grep`, `glob` and `lsp` that the session has registered and its capability policy allows, and SHALL never offer shell, write, sub-agent or MCP tools. The daemon SHALL execute each call only after configured Deny rules, the main session's path validation and the dangerous-path check, refuse any call that would require a confirmation prompt, and leave the main agent's read state unchanged. Each call SHALL be shown as a tool row at the position where it happened. Tool calls written as plain text SHALL be discarded and corrected rather than displayed.
+Streaming side chat and the single-turn TUI `/btw` / `/side` and HTTP side questions SHALL offer the model only the read-only built-in tools `file_read`, `grep`, `glob` and `lsp` that the session has registered and its capability policy allows, and SHALL never offer shell, write, sub-agent or MCP tools. Each call SHALL pass configured Deny rules, the main session's path validation and the dangerous-path check, and SHALL leave the main agent's read state unchanged.
 
 #### Scenario: Read a file to answer
 - **WHEN** a side question needs a file that is not in the main context
-- **THEN** the model reads it through `file_read`, a tool row shows the path, and the answer continues after the result
+- **THEN** the model reads it through `file_read` and the answer continues after the result
 - **AND** the main agent's later read of that file returns its content rather than an unchanged-file stub
+
+### Requirement: Side chat tool call presentation
+Each side chat tool call SHALL be shown as a tool row at the position where it happened. Tool calls written as plain text SHALL be discarded and corrected rather than displayed, and calls that would require a confirmation prompt SHALL be refused.
 
 #### Scenario: Model attempts a shell command
 - **WHEN** the model calls `bash` or writes a tool call as angle-bracket text
 - **THEN** nothing is executed, the markup is not shown, and the model is told that only the read-only tools are available
 
+### Requirement: Confirmed sending to the main session
+The floating side chat SHALL let the user pass a message to the main session through the side model's `send_to_main_session` tool or a send action on a completed side answer, which prefills its question and answer. The user SHALL review and may edit the message, and nothing SHALL be delivered before the user confirms.
+
+#### Scenario: Decline or stop before confirming
+- **WHEN** the user declines the drafted message, or stops or closes the side chat while it awaits confirmation
+- **THEN** nothing reaches the main session and the side model is told so
+
+### Requirement: Delivery into the main session
+A confirmed side chat message SHALL be added to the main session's running turn and read at its next model step without interrupting it; when no turn accepts it, it SHALL start or queue a new turn. It SHALL appear in the main session as a user message marked as coming from the side chat, and the side chat SHALL show how it was delivered.
+
+#### Scenario: Relay a correction while the main agent works
+- **WHEN** the main session is running and the user asks the side chat to tell the main agent to change approach
+- **THEN** after confirmation the main agent reads the message at its next step
+- **AND** the side chat reports that it was added to the current turn
+
+### Requirement: Quote main-session text into the side chat
+The user SHALL be able to send selected main-session text into the side chat input as a quote.
+
+#### Scenario: Ask about selected main-session text
+- **WHEN** the user selects text in the main transcript and sends it to the side chat
+- **THEN** the side chat opens with the selection quoted in its input and the cursor after it
+
 ### Requirement: Streaming progress and cancellation
-The UI SHALL show loading from submission, render actual streamed answer text, and provide a stop control for the active side request. The input SHALL be disabled from submission until completion, failure, or cancellation. Stopping SHALL cancel only the side model request and retain text already produced. Retried provider attempts SHALL replace provisional text rather than concatenate failed attempts.
+The UI SHALL show loading and actual streamed output, with a stop control that cancels only the active side request and retains partial text. Retried attempts SHALL replace provisional text. The input SHALL remain editable while generating or stopping. Concurrent requests SHALL be prevented, and failure SHALL preserve partial output and pause the queue.
 
 #### Scenario: Waiting and streaming
 - **WHEN** a side request is waiting for its first token or producing answer text
-- **THEN** loading is visible, typing and duplicate submission are disabled, and stop remains available
+- **THEN** loading is visible, editing remains available, concurrent side requests are prevented, and stop remains available with an empty draft
 
 #### Scenario: Stop then continue
 - **WHEN** the user stops an answer and subsequently asks another question
-- **THEN** generation stops, partial text remains readable, the input becomes available, and the new request works independently
+- **THEN** generation stops, partial text remains readable, queued messages pause, the input remains available, and the new request works independently
 
 #### Scenario: Failure or disconnection
 - **WHEN** the provider fails or the stream disconnects unexpectedly
-- **THEN** the UI reports the failure, preserves readable partial output, and releases the input for another attempt
+- **THEN** the UI reports the failure, preserves readable partial output, and pauses queued messages and keeps the input available for another attempt
 
 ### Requirement: Conversation lifecycle and compatibility
 Minimizing SHALL hide the window, cancel any active side request and preserve the temporary transcript and draft while the same main session remains selected. Switching sessions or leaving the view SHALL cancel the old side request and retain its temporary state separately for that main session under the retention policy. Late callbacks SHALL NOT affect another request or session. Existing synchronous side-question HTTP and TUI callers SHALL retain their single-turn behavior.
@@ -117,3 +166,37 @@ The streaming side interface SHALL require the existing daemon authentication, v
 #### Scenario: Invalid or concurrent input
 - **WHEN** a client sends invalid history or starts a second side request on the same active connection
 - **THEN** the daemon returns a structured error without starting another provider call
+
+### Requirement: Side composer queue and keyboard focus
+Side chat SHALL send queued questions serially after success, using current history and preserving newer drafts. Stop, failure, minimizing or session switching SHALL pause the queue. Reopening alone SHALL NOT resume it. Explicit continuation or a new submission SHALL resume it; a new idle submission SHALL run before older queued items. Users SHALL be able to cancel items. Queues SHALL stay isolated per main session and be discarded on clear or expiry.
+
+#### Scenario: Continue writing while an answer streams
+- **WHEN** a user submits a follow-up while a side answer is running
+- **THEN** the follow-up is queued and the composer clears for further writing
+- **AND** successful completion starts the queued question with the preceding answer in history without clearing a newer draft
+
+#### Scenario: Stop with pending questions
+- **WHEN** the user stops, minimizes or leaves a side conversation with queued questions
+- **THEN** pending questions remain paused and are not sent by reopening the window alone
+- **AND** with an empty idle draft the primary button offers continuation, while each queued item can be cancelled
+
+#### Scenario: Send from the multiline input
+- **WHEN** the user presses the configured newline shortcut or confirms IME composition
+- **THEN** the input remains multiline and no question is sent by composition confirmation
+- **AND** after a normal submission the input retains focus without an automatic ring around the stop button
+
+### Requirement: Shared composer action and multiline input
+Main and side composers SHALL share primary-button styles, icons and action selection: idle sends, busy with an empty draft stops, busy with text queues, and idle with an empty draft and paused queue resumes. Stop acknowledgement SHALL disable repeated stopping. The side editor SHALL use the main rich composer's multiline size, growth and internal scrolling rules.
+
+#### Scenario: Submit while stop acknowledgement is pending
+- **WHEN** the user explicitly queues a new question during stop acknowledgement
+- **THEN** it waits for the current request to end before the queue resumes
+- **AND** no simultaneous side request is created
+
+### Requirement: Preserve composer keyboard focus
+The side input SHALL retain focus after sending without automatically focusing the stop button. Keyboard navigation SHALL retain a visible focus indicator. IME confirmation SHALL NOT submit; configured send and newline shortcuts SHALL match the main composer, and empty Enter while busy SHALL NOT stop generation.
+
+#### Scenario: Send without focusing stop
+- **WHEN** a user sends from the side input or clicks its send button
+- **THEN** focus remains in or returns to the textarea while the primary button becomes stop
+- **AND** the stop button has no automatic focus ring, but keyboard navigation can still focus it visibly

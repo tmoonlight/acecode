@@ -159,4 +159,39 @@ TEST(SideChatTools, DenyRulesAndWorkspaceBoundaryRefuseWithoutPrompting) {
     EXPECT_NE(inside.output.find("a.txt"), std::string::npos) << inside.output;
 }
 
+// 场景:Web 侧边对话提供了「发到主会话」通道。期望:工具表多出
+// send_to_main_session;模型调用时消息与调用本身原样交给通道(确认与送达由它负责),
+// 空消息直接报错不打扰用户;没有通道时(TUI /btw)这个工具不存在、调用按不可用处理。
+TEST(SideChatTools, SendToMainToolForwardsToTheSenderOnlyWhenProvided) {
+    SideChatToolsFixture fx;
+    std::vector<std::pair<std::string, std::string>> sent;
+    auto toolset = acecode::agent::build_side_chat_toolset(
+        fx.tools, fx.permissions, *fx.boundary, nullptr, {},
+        [&](const acecode::ToolCall& call, const std::string& message, const std::atomic<bool>*) {
+            sent.emplace_back(call.id, message);
+            return acecode::ToolResult{"Sent to the main session.", true};
+        });
+    EXPECT_TRUE(toolset.can_send_to_main);
+    EXPECT_EQ(names(toolset),
+              (std::vector<std::string>{"file_read", "glob", "grep", "send_to_main_session"}));
+
+    const auto ok = toolset.execute({"call_send", "send_to_main_session",
+                                     R"({"message":"改用 B 方案"})"}, nullptr);
+    EXPECT_TRUE(ok.success);
+    ASSERT_EQ(sent.size(), 1u);
+    EXPECT_EQ(sent[0], (std::pair<std::string, std::string>{"call_send", "改用 B 方案"}));
+
+    const auto empty = toolset.execute({"call_empty", "send_to_main_session", R"({"message":"  "})"},
+                                       nullptr);
+    EXPECT_FALSE(empty.success);
+    EXPECT_EQ(sent.size(), 1u);
+
+    auto without = fx.build();
+    EXPECT_FALSE(without.can_send_to_main);
+    const auto refused = without.execute({"call_send", "send_to_main_session",
+                                          R"({"message":"x"})"}, nullptr);
+    EXPECT_FALSE(refused.success);
+    EXPECT_NE(refused.output.find("not available"), std::string::npos);
+}
+
 } // namespace

@@ -146,6 +146,38 @@ struct SideQuestionResult {
 
 constexpr std::size_t kMaxSideQuestionBytes = 16000;
 
+// 侧边对话发到主会话的结果:Steered = 主会话正在运行,插入当前回合、下一步读到;
+// Started = 主会话空闲,以这条消息开始新一轮;Queued = 主会话在忙但当前回合不接受
+// 插话,排到下一轮。消息在主会话里是带 metadata.side_chat 的用户消息。
+enum class SideChatDelivery {
+    Steered,
+    Started,
+    Queued,
+    UnknownSession,
+    Unavailable,
+};
+
+struct SideChatDeliveryResult {
+    SideChatDelivery status = SideChatDelivery::Unavailable;
+    std::string message;
+
+    bool delivered() const {
+        return status == SideChatDelivery::Steered || status == SideChatDelivery::Started ||
+               status == SideChatDelivery::Queued;
+    }
+};
+
+inline const char* side_chat_delivery_name(SideChatDelivery status) {
+    switch (status) {
+    case SideChatDelivery::Steered: return "steered";
+    case SideChatDelivery::Started: return "started";
+    case SideChatDelivery::Queued: return "queued";
+    case SideChatDelivery::UnknownSession: return "unknown_session";
+    case SideChatDelivery::Unavailable: break;
+    }
+    return "unavailable";
+}
+
 // ----- Session 创建参数 -----
 
 struct SessionOptions {
@@ -406,6 +438,15 @@ public:
             {},
             "active-turn steering is unavailable",
         };
+    }
+
+    // Deliver a message the user sent from the side chat: steer it into the
+    // running turn, otherwise start (or queue) a new turn with it.
+    virtual SideChatDeliveryResult send_side_chat_message(const std::string& session_id,
+                                                          const std::string& text) {
+        (void)session_id;
+        (void)text;
+        return {SideChatDelivery::Unavailable, "sending to the main session is unavailable"};
     }
 
     // Abort the matching active turn after atomically promising the input as a

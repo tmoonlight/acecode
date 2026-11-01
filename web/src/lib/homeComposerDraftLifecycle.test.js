@@ -58,7 +58,7 @@ function fixture() {
     pendingForkComposerRef: { current: null },
     composerDirtyRef: { current: false }, draftLastSavedRef: { current: null },
     draftSessionKeyRef: { current: '' }, draftSaveQueueRef: { current: new Map() },
-    setDraftReadyKey() {}, setComposerSubmitting() {}, homeComposerDraft, composerDraftFingerprint,
+    setDraftReadyKey() {}, setDraftLoadFailedKey() {}, setComposerSubmitting() {}, homeComposerDraft, composerDraftFingerprint,
     onHomeComposerDraftLoad: () => ({ draft: { text: 'memory draft' }, ready }),
     restoreComposerDraft(draft) { values.push(draft.text); },
   };

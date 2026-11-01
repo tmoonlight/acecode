@@ -47,7 +47,15 @@ export function createSideChatGeometry(viewport = {}) {
 }
 
 export function anchorSideChatGeometry(rect, anchor, viewport) {
-  return clampSideChatGeometry({ ...rect, left: anchor.left, top: anchor.top }, viewport);
+  // Keep the toolbar toggle reachable when the window must shrink to fit.
+  const area = bounds(viewport);
+  const top = clamp(finite(anchor.top, area.top), area.top, area.bottom - area.minHeight);
+  return clampSideChatGeometry({
+    ...rect,
+    left: anchor.left,
+    top,
+    height: Math.min(rect.height, area.bottom - top),
+  }, viewport);
 }
 
 export function moveSideChatGeometry(rect, deltaX, deltaY, viewport) {

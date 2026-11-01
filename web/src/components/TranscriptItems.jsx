@@ -9,6 +9,7 @@ import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
 import { CONVERSATION_ACTIVITY_KIND } from '../lib/conversationActivity.js';
+import { hasNextStepQuestion } from '../lib/nextStepBox.js';
 import { clsx, relativeTime } from '../lib/format.js';
 import {
   DEFAULT_TRANSCRIPT_CAPABILITIES,
@@ -138,6 +139,7 @@ export function CompletionSummaryBlock({
   forkPending = false,
   forkLoading = false,
   showFooter = true,
+  showQuestion = false,
 }) {
   const summaryText = completionSummaryText(item);
   const html = useMemo(() => ({ __html: renderMarkdown(summaryText) }), [summaryText]);
@@ -165,6 +167,15 @@ export function CompletionSummaryBlock({
         onClick={handleMarkdownClick}
         dangerouslySetInnerHTML={html}
       />
+      {/* 「下一步」框已结束(历史回合 / 已关闭)时,问题以静态文字留在总结下面。 */}
+      {showQuestion && item?.wrapUp?.ask && (
+        <div
+          className="mt-1 text-[13px] leading-[1.6] text-fg-2 break-words"
+          data-next-step-question="settled"
+        >
+          {item.wrapUp.ask}
+        </div>
+      )}
       {showFooter && (
         <div className="min-h-6 flex items-center gap-1">
           <MessageActions
@@ -237,6 +248,7 @@ function TranscriptItem({
   showAceCodeAvatar,
   messageAutoCollapse,
   annotationPresentations,
+  activeNextStepItemId,
 }) {
   const renderKind = transcriptRenderKind(item);
 
@@ -275,6 +287,7 @@ function TranscriptItem({
             && forkingMessageId !== ''
             && forkingMessageId === String(item.messageId || '')}
           showFooter={!nested && capabilities.showMessageFooters && directive?.showFooter === true}
+          showQuestion={hasNextStepQuestion(item) && item.id !== activeNextStepItemId}
         />
       </div>
     );
@@ -436,6 +449,7 @@ export function TranscriptItems({
   messageAutoCollapse = true,
   annotationPresentations,
   renderBeforeItem,
+  activeNextStepItemId = '',
 }) {
   const list = Array.isArray(items) ? items : EMPTY_ITEMS;
   const generatedDirectives = useMemo(
@@ -478,6 +492,7 @@ export function TranscriptItems({
           showAceCodeAvatar={showAceCodeAvatar}
           messageAutoCollapse={messageAutoCollapse}
           annotationPresentations={annotationPresentations}
+          activeNextStepItemId={activeNextStepItemId}
         />
       </Fragment>
     );

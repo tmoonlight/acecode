@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 
 namespace acecode {
 
@@ -22,16 +23,39 @@ constexpr int kMaxSideChatTextToolCallCorrections = 2;
 struct SideChatMessage {
     std::string role;
     std::string content;
+    nlohmann::json content_parts;
 };
 
-// 侧边对话可用的只读工具。definitions 是发给模型的工具表(模型侧名);execute
-// 收到模型原样给出的调用,由提供方负责白名单、权限规则与路径校验
-// (AgentLoop::side_chat_toolset)。为空 = 不带工具,模型请求工具即失败。
+struct SideChatInputOptions {
+    nlohmann::json content_parts;
+    bool prepared_input = false;
+    std::string model_name;
+    std::optional<std::string> reasoning_effort;
+    // Shared with this request's stream/cancellation only; never installed in the main binding.
+    std::shared_ptr<LlmProvider> provider_override;
+};
+
+// 侧边对话把消息发到主会话的工具(对齐 Claude 侧边会话的 SendMessage to parent)。
+// 只在调用方提供发送通道时出现(Web 侧边对话);名字不参与「工具重写」。
+inline constexpr const char* kSideChatSendToMainTool = "send_to_main_session";
+
+// 发送通道:实现负责先让用户在侧边窗口确认(可改写内容),再按主会话状态送达;
+// 返回值原样回填给模型。call 是模型的这次调用,界面据 call.id 把确认卡片挂到工具行上。
+using SideChatMainSessionSender =
+    std::function<ToolResult(const ToolCall& call, const std::string& message,
+                             const std::atomic<bool>* abort_flag)>;
+
+// 侧边对话可用的工具:只读内置工具,外加可选的「发到主会话」。definitions 是发给
+// 模型的工具表(模型侧名);execute 收到模型原样给出的调用,由提供方负责白名单、
+// 权限规则与路径校验(AgentLoop::side_chat_toolset)。为空 = 不带工具,模型请求
+// 工具即失败。
 struct SideChatToolset {
     std::vector<ToolDef> definitions;
     std::function<ToolResult(const ToolCall& call, const std::atomic<bool>* abort_flag)> execute;
     // 模型侧名 → 原生名,只用于界面展示;为空时原样使用模型侧名。
     std::function<std::string(const std::string& model_name)> native_name;
+    // definitions 里含 kSideChatSendToMainTool。
+    bool can_send_to_main = false;
     bool enabled() const { return !definitions.empty() && static_cast<bool>(execute); }
 };
 
@@ -86,6 +110,7 @@ SideChatResult run_side_chat(
     SideChatCancellation& cancellation,
     const SideChatStreamCallback& callback,
     const SideChatToolset& tools = {},
-    const SideChatToolCallback& on_tool = {});
+    const SideChatToolCallback& on_tool = {},
+    const SideChatInputOptions& input = {});
 
 } // namespace acecode

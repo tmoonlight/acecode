@@ -177,6 +177,20 @@ TEST(ClassifySessionEvent, TaskCompleteForwardsSummaryFullText) {
     EXPECT_EQ(no_summary.kind, OutboundEventAction::Kind::None);
 }
 
+// 场景:task_complete 带「下一步」框的问题与回复按钮(字段名用 Claude 的 recap)。
+// 期望:IM 没有按钮可点,问题与按钮文字接在总结后面一起发出,用户直接回复文字。
+TEST(ClassifySessionEvent, TaskCompleteForwardsNextStepQuestion) {
+    const auto action = classify_session_event(
+        SessionEventKind::ToolStart,
+        {{"tool", "task_complete"},
+         {"is_task_complete", true},
+         {"args", {{"recap", "修好了,还没提交。"},
+                   {"ask", "现在提交吗?"},
+                   {"actions", nlohmann::json::array({{{"label", "提交"}}, {{"label", "先不提交"}}})}}}});
+    ASSERT_EQ(action.kind, OutboundEventAction::Kind::AssistantText);
+    EXPECT_EQ(action.text, "修好了,还没提交。\n\n现在提交吗? (提交 / 先不提交)");
+}
+
 // 需求①:Error → reason 原样回传,按字符(码点)截断到 300。
 TEST(ClassifySessionEvent, ErrorForwardsReasonTruncatedTo300Codepoints) {
     const auto short_err = classify_session_event(

@@ -5,11 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ACECode 桌面宠物</title>
 <style>
-:root{--pet-font:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;--pet-font-size:14px;--pet-ink:#27324f;--card:#fff;--card-ghost:#f2f2f2;--card-ghost-2:#e6e6e6;--card-text:#1d1d1f;--card-muted:#555b66;
-  --card-shadow:0 4px 14px rgba(15,20,30,.16),0 1px 3px rgba(15,20,30,.10);--card-button:#e9e9eb;--card-button-hover:#dcdce0;
-  --ok:#16a34a;--warn:#d97706;--danger:#dc2626;--idle:#8a8f98}
-@media(prefers-color-scheme:dark){:root{--card:#2b2d31;--card-ghost:#25272b;--card-ghost-2:#1f2124;--card-text:#f2f2f3;--card-muted:#b4b8c0;
-  --card-shadow:0 4px 14px rgba(0,0,0,.45),0 1px 3px rgba(0,0,0,.3);--card-button:#3a3d42;--card-button-hover:#46494f}}
 *{box-sizing:border-box}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
 body{font:12px/1.35 var(--pet-font);color:var(--pet-ink);user-select:none;-webkit-user-select:none}
@@ -32,25 +27,6 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .stack.collapsed.layers .deck::after,.stack.collapsed.layers-2 .deck::before{content:"";position:absolute;border-radius:1.6em;box-shadow:var(--card-shadow);z-index:-1}
 .stack.collapsed.layers .deck::after{left:4%;right:4%;top:8px;bottom:-7px;background:var(--card-ghost)}
 .stack.collapsed.layers-2 .deck::before{left:8%;right:8%;top:14px;bottom:-13px;background:var(--card-ghost-2);z-index:-2}
-.card{position:relative;display:flex;align-items:center;gap:.6em;min-height:3.3em;padding:.5em .9em .5em 1em;border-radius:1.6em;
-  background:var(--card);color:var(--card-text);box-shadow:var(--card-shadow);cursor:pointer}
-.card:focus-visible{outline:2px solid #4378be;outline-offset:2px}
-.text{flex:1;min-width:0}
-.head{display:flex;align-items:center;gap:.4em;font-weight:700}
-.name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-/* A block box: on an inline span the ellipsis does nothing and long text runs under the stop button. */
-.body{display:block;margin-top:.1em;color:var(--card-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.icon{flex:none;width:1.1em;height:1.1em;display:grid;place-items:center}
-.icon svg{width:100%;height:100%}
-.spinner{width:.9em;height:.9em;border:2px solid var(--card-button);border-top-color:var(--idle);border-radius:50%;animation:spin .9s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.stop{flex:none;width:2.2em;height:2.2em;border:0;border-radius:50%;background:var(--card-button);display:grid;place-items:center;cursor:pointer;padding:0}
-.stop:hover{background:var(--card-button-hover)}
-.stop i{width:.75em;height:.75em;border-radius:2px;background:var(--idle)}
-.dismiss{position:absolute;left:-.2em;top:-.2em;width:1.4em;height:1.4em;border:0;border-radius:50%;background:var(--card);color:var(--card-text);
-  box-shadow:0 1px 3px rgba(0,0,0,.25);display:none;place-items:center;cursor:pointer;padding:0;font:inherit;font-weight:700;line-height:1}
-.card:hover .dismiss,.card:focus-within .dismiss{display:grid}
-.stack.collapsed.layers .card .dismiss{display:none}
 /* The resize handle sits at the top-left of the visible pet (placed by reportRegions) and stays
    hidden, though still hit-testable, until the pointer is on it. */
 .grip{position:absolute;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;z-index:2}
@@ -74,6 +50,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script src="./classic/clippy/hd/frames.js"></script>
 <script src="./classic/rover/hd/frames.js"></script>
 <script src="./whale/hd/frames.js"></script>
+<script src="./pet_cards.js"></script>
 <script src="./classic_pet.js"></script>
 </body>
 </html>

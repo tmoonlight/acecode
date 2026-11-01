@@ -2,11 +2,13 @@ import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { anchoredMenuPosition } from '../lib/anchoredMenuPosition.js';
+import { useOverlayLayer } from './OverlayLayerContext.jsx';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 
 // Own placement and dismissal together so menus escape clipped ancestors while
 // still following their trigger as the window, content, or dock changes size.
 export function AnchoredMenu({ anchorRef, onClose, children, className = '', width, maxHeightRatio = 1, preferredPlacement = 'below', ...props }) {
+  const zIndex = useOverlayLayer();
   const menuRef = useRef(null);
   const updatePositionRef = useRef(null);
   const closeRef = useRef(onClose);
@@ -119,7 +121,7 @@ export function AnchoredMenu({ anchorRef, onClose, children, className = '', wid
       data-ace-native-overlay="overlap"
       data-shortcut-menu="true"
       className={`ace-anchored-menu ace-scrollbar ${className}`}
-      style={{ position: 'fixed', top: 0, left: 0, width, visibility: 'hidden' }}
+      style={{ position: 'fixed', top: 0, left: 0, width, visibility: 'hidden', zIndex }}
     >
       {children}
     </div>,

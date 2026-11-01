@@ -14,6 +14,7 @@ import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { clsx } from '../lib/format.js';
+import { useOverlayLayer } from './OverlayLayerContext.jsx';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import {
   dialogEnterAction,
@@ -30,6 +31,7 @@ export function Modal({
   layerClassName = 'z-[200]',
   labelledBy,
 }) {
+  const zIndex = useOverlayLayer();
   const dialogRef = useRef(null);
   const closeRef = useRef(onClose);
   const dismissOnEscapeRef = useRef(dismissOnEscape);
@@ -88,7 +90,7 @@ export function Modal({
     <div
       data-ace-native-overlay="blocking"
       className={clsx('fixed inset-0 flex items-center justify-center p-4', layerClassName)}
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.35)' }}
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.35)', zIndex }}
       onClick={() => dismissOnBackdrop && handleClose()}
     >
       <div

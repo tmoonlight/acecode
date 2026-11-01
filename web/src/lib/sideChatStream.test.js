@@ -7,7 +7,7 @@ function run(name, fn) {
   catch (error) { console.error(`[fail] side chat stream: ${name}`); throw error; }
 }
 
-function setup() {
+function setup(overrides = {}) {
   const sockets = [];
   const timers = new Map();
   const events = [];
@@ -30,8 +30,11 @@ function setup() {
     onDelta: (delta) => events.push(['delta', delta]),
     onReset: () => events.push(['reset']),
     onTool: (tool) => events.push(['tool', tool]),
+    onSendRequest: (request) => events.push(['send_request', request]),
+    onSendResult: (result) => events.push(['send_result', result]),
     onDone: (result) => events.push(['done', result]),
     onError: (error) => events.push(['error', error]),
+    ...overrides,
   };
   const handle = createSideChatStream(options, dependencies);
   return {
@@ -61,6 +64,17 @@ run('private connection starts one side request without hello or main subscripti
     payload: { session_id: 'session / one', request_id: 'request-one', question: 'question', history: [] },
   }]);
   assert.equal(timers.size, 0);
+});
+
+run('rich inputs and per-request model choices travel on the private stream', () => {
+  const input = { text: '', attachments: [{ id: 'image' }], composer_content: { version: 1, parts: [] } };
+  const history = [{ role: 'user', content: '', input }, { role: 'assistant', content: 'a picture' }];
+  const { socket } = setup({ input, history, modelName: 'vision', reasoningEffort: 'high' });
+  socket.open();
+  assert.deepEqual(socket.sent[0].payload.input, input);
+  assert.deepEqual(socket.sent[0].payload.history, history);
+  assert.equal(socket.sent[0].payload.model_name, 'vision');
+  assert.equal(socket.sent[0].payload.reasoning_effort, 'high');
 });
 
 run('deltas, retry reset and authoritative completion are delivered privately', () => {
@@ -100,6 +114,31 @@ run('tool progress is forwarded and reset keeps text written before the tool cal
     ['reset'],
     ['done', { answer: 'before', cancelled: true }],
   ]);
+});
+
+// 场景:侧边模型请求「发到主会话」。期望:确认请求与结果帧原样转给界面;
+// 用户作答经同一条私有连接回给 daemon,拒绝时不带正文;格式错误的请求按协议错误处理。
+run('send-to-main requests, decisions and results travel on the private socket', () => {
+  const { handle, socket, events } = setup();
+  socket.open();
+  socket.message('side_chat_send_request', {
+    request_id: 'request-one', send_id: 's1', call_id: 'c1', message: '改用 B 方案',
+  });
+  assert.equal(handle.respondSend('s1', true, '请改用 B 方案'), true);
+  assert.equal(handle.respondSend('s2', false), true);
+  socket.message('side_chat_send_result', { request_id: 'request-one', send_id: 's1', status: 'steered' });
+  assert.deepEqual(events, [
+    ['send_request', { sendId: 's1', callId: 'c1', message: '改用 B 方案' }],
+    ['send_result', { sendId: 's1', status: 'steered', message: '' }],
+  ]);
+  assert.deepEqual(socket.sent.slice(1), [
+    { type: 'side_chat_send_decision', payload: { request_id: 'request-one', send_id: 's1', decision: 'send', message: '请改用 B 方案' } },
+    { type: 'side_chat_send_decision', payload: { request_id: 'request-one', send_id: 's2', decision: 'cancel' } },
+  ]);
+  socket.message('side_chat_send_request', { request_id: 'request-one', send_id: 's3' });
+  assert.equal(events.at(-1)[0], 'error');
+  assert.equal(events.at(-1)[1].code, 'SIDE_CHAT_PROTOCOL_ERROR');
+  assert.equal(handle.respondSend('s3', true, 'x'), false);
 });
 
 run('malformed tool progress is a protocol error', () => {

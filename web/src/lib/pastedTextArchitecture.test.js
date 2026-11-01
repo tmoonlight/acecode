@@ -112,7 +112,7 @@ run('PastedTextDialog:不受控 textarea + Modal + 编辑过后 Esc 不关', () 
 // 期望行为:草稿附件 id 在进入任何会话请求之前经唯一导入点复制成会话附件;路由看
 // 整个 payload(编辑器为空、只有粘贴块时一律普通消息)。
 run('ChatView:正文拼接、唯一导入点与按 payload 路由', () => {
-  const normalize = between(chatView, 'function normalizeComposerPayload(', 'function pastedTextFilesForPlan(');
+  const normalize = source('./composerSubmission.js');
   assert.match(normalize, /text: appendPastedTextToSubmission\(sessionReferences\.displayText, content\)/);
   assert.match(normalize, /store: item\.store, store_scope: item\.store_scope/);
 
@@ -154,8 +154,9 @@ run('ChatView:正文拼接、唯一导入点与按 payload 路由', () => {
 run('ChatView:上传从 File 取粘贴描述,回填资源带 paste,分段顺序上传', () => {
   const persist = between(chatView, 'const persistMediaFilesToSession = useCallback(', 'const handleMediaFiles = useStableCallback(');
   assert.match(persist, /const paste = pastedTextFileMeta\(file\)/);
-  assert.match(persist, /\.\.\.\(paste \? pastedTextUploadBody\(paste\) : \{\}\)/);
-  assert.match(persist, /timeoutMs: PASTED_TEXT_UPLOAD_TIMEOUT_MS/);
+  const upload = source('./composerAttachmentUpload.js');
+  assert.match(upload, /\.\.\.\(paste \? pastedTextUploadBody\(paste\) : \{\}\)/);
+  assert.match(upload, /timeoutMs: PASTED_TEXT_UPLOAD_TIMEOUT_MS/);
   assert.match(persist, /\{ \.\.\.uploadedItem, preview_url: item\.preview_url \|\| '', \.\.\.\(paste \? \{ paste \} : \{\}\) \}/);
   assert.match(persist, /for \(const index of pasteIndexes\)/);
 

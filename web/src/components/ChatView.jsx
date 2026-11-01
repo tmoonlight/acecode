@@ -61,6 +61,8 @@ import {
 } from '../lib/composerAttachmentReservations.js';
 import { ActivityLine } from './ActivityLine.jsx';
 import { InputBar } from './InputBar.jsx';
+import { normalizeComposerPayload } from '../lib/composerSubmission.js';
+import { uploadComposerAttachment } from '../lib/composerAttachmentUpload.js';
 import InteractiveHomeLogo from './InteractiveHomeLogo.jsx';
 import { SelectionActionPopover } from './SelectionActionPopover.jsx';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
@@ -81,6 +83,8 @@ import { SessionTitleBar } from './SessionTitleBar.jsx';
 import { LspIndicator } from './LspIndicator.jsx';
 import { QuestionPicker } from './QuestionPicker.jsx';
 import { PermissionCard } from './PermissionCard.jsx';
+import { NextStepCard } from './NextStepCard.jsx';
+import { useFollowUpPrompt } from '../lib/useFollowUpPrompt.js';
 import { StickyUserContext } from './StickyUserContext.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 import { SessionContentLoading } from './SessionContentLoading.jsx';
@@ -188,7 +192,6 @@ import {
   createPendingNewSessionFirstUserMessage,
   withPendingNewSessionFirstUserMessage,
 } from '../lib/newSessionFirstUserMessage.js';
-import { extractSessionReferences } from '../lib/sessionReference.js';
 import {
   DEFAULT_HOME_WORKSPACE_SELECTION,
   HOME_WORKSPACE_SELECTION_STORAGE_KEY,
@@ -232,7 +235,6 @@ import { composerReasoningOptions, nextReasoningEffort } from '../lib/modelReaso
 import { useAppShortcuts } from '../lib/useAppShortcuts.js';
 import { requestSavedModelReasoningSync } from '../lib/modelReasoningSync.js';
 import { normalizePermissionMode, permissionModeOption } from '../lib/permissionMode.js';
-import { ATTACHMENT_HARD_LIMIT_BYTES, normalizeImageFile } from '../lib/imageNormalize.js';
 import { VsIcon } from './Icon.jsx';
 import { HomeIntentPromptCards } from './HomeIntentPromptCards.jsx';
 import { commandWorkspaceHashForInput } from '../lib/slashCommandWorkspace.js';
@@ -309,6 +311,12 @@ import {
 import { createUnsavedFileGuard, runAfterFileApproval } from '../lib/unsavedFileGuard.js';
 import { sessionWorkbench } from '../lib/sessionWorkbench.js';
 import { useStableCallback } from '../lib/useStableCallback.js';
+import {
+  activeNextStep,
+  readDismissedNextSteps,
+  withDismissedNextStep,
+  writeDismissedNextSteps,
+} from '../lib/nextStepBox.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { ResponsiveSidebar } from './ResponsiveSidebar.jsx';
 import { clampPopupWidth, popupWidthRange } from '../lib/responsiveSidebars.js';
@@ -428,30 +436,6 @@ function fileToBase64(file) {
 }
 
 // swarmMode: 要随这条消息写给服务端的会话级蜂群模式(swarmModeForSubmission),null = 不写。
-function normalizeComposerPayload(text, attachments = [], contexts = [], swarmMode = null, composerContent = null) {
-  const sessionReferences = extractSessionReferences(String(text || ''));
-  const content = reconcileComposerContentAttachments(composerContent, attachments);
-  const payload = {
-    // 消息正文 = 编辑器文本 + 内联粘贴块(以 "\n\n" 拼在编辑器内容之后);文件块不进
-    // 正文,走 attachments → [Attached file reference]。
-    text: appendPastedTextToSubmission(sessionReferences.displayText, content),
-    // 首页草稿附件(粘贴的文件块)留在 attachments 里并带 store / store_scope:这样
-    // payloadHasExtras 原样就把「只有文件块」「/compact + 文件块」算作 extras;发送前
-    // 由 materializeWorkspaceDraftPastes 这一个导入点复制成会话附件。
-    attachments: attachments
-      .filter((item) => item && !item.uploading && item.id)
-      .map((item) => (item.store === WORKSPACE_DRAFT_STORE && item.store_scope
-        ? { id: item.id, store: item.store, store_scope: item.store_scope }
-        : { id: item.id })),
-    contexts: contexts.map(normalizeComposerContext).filter(Boolean),
-  };
-  if (sessionReferences.references.length > 0) {
-    payload.session_references = sessionReferences.references;
-  }
-  if (swarmMode) payload.swarm_mode = swarmMode;
-  if (content) payload.composer_content = content;
-  return payload;
-}
 
 // 粘贴文本分类结果为文件块时,按字节区间造 File(一次 TextEncoder 编码,各段直接
 // subarray,不再重复编码);描述挂在 File 上(WeakMap),任何持有 File 的路径都能取回。
@@ -1024,6 +1008,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const retrySubmissionRef = useRef(null);
   useEffect(() => () => { retrySubmissionRef.current = null; }, [sid, api]);
   const [draftReadyKey, setDraftReadyKey] = useState('');
+  const [draftLoadFailedKey, setDraftLoadFailedKey] = useState('');
   const [acceptedHomeSubmission, setAcceptedHomeSubmission] = useState(null);
   const draftEditVersionRef = useRef(0);
   const draftSessionKeyRef = useRef('');
@@ -1054,8 +1039,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const [sideChatAnchor, setSideChatAnchor] = useState(null);
   const sideChatKey = sideChatSessionKey(ref);
   const sideChat = useMemo(() => sideChatSessions.get(
-    sideChatKey, (options) => api.streamSideChat(sid, options),
+    sideChatKey,
+    (options) => api.streamSideChat(sid, options),
+    (message) => api.sendSideChatToMain(sid, message),
+    (file) => uploadComposerAttachment(api, sid, file),
   ), [api, sid, sideChatKey]);
+  // 递增即让侧边输入框重新获得焦点(主会话「发到侧边对话」之后)。
+  const [sideChatFocusRequest, setSideChatFocusRequest] = useState(0);
   const sideChatState = useSyncExternalStore(
     sideChat.subscribe, sideChat.getSnapshot, sideChat.getSnapshot,
   );
@@ -1116,6 +1106,12 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const queuePause = useMemo(() => queuedInputPause(queueState, sid), [queueState, sid]);
   const draftWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '';
   const draftSessionKey = sid ? `${draftWorkspaceHash}:${sid}` : '';
+  const followUpPrompt = useFollowUpPrompt({
+    sessionRef: ref, transcript, api,
+    enabled: !readOnlyExternalSession && !sessionRuntimeUnavailable && nativeSurfacesVisible,
+    draftReady: !!sid && draftReadyKey === draftSessionKey && draftLoadFailedKey !== draftSessionKey,
+    draft: { text: composerValue, content: composerContent, attachments: composerAttachments, contexts: composerContexts },
+  });
   const explicitHomeDraftWorkspaceHash = !sid && ref?.homeWorkspaceExplicit
     ? (isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '')
     : null;
@@ -1676,34 +1672,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           : item
       )));
       try {
-        const persistAttachment = sourceReference
-          ? api.createSessionAttachmentReference(targetSid, {
-              name: file.name || 'attachment',
-              mime_type: file.type || '',
-              source_path: sourceReference.sourcePath,
-              reference_only: true,
-            })
-          : normalizeImageFile(file)
-            .then((normalized) => {
-              if (normalized.file.size > ATTACHMENT_HARD_LIMIT_BYTES) {
-                throw new Error('附件超过 25MiB，且无法压缩到限制内');
-              }
-              return normalized;
-            })
-            .then(({ file: uploadFile }) => fileToBase64(uploadFile)
-              .then((dataBase64) => ({ uploadFile, dataBase64 })))
-            .then(({ uploadFile, dataBase64 }) => {
-              const uploadName = uploadFile.name || file.name || 'attachment';
-              const uploadMime = uploadFile.type || file.type || '';
-              return api.uploadSessionAttachment(targetSid, {
-                name: uploadName,
-                mime_type: uploadMime,
-                data_base64: dataBase64,
-                ...(sourcePath ? { source_path: sourcePath } : {}),
-                ...(paste ? pastedTextUploadBody(paste) : {}),
-              }, paste ? { timeoutMs: PASTED_TEXT_UPLOAD_TIMEOUT_MS } : {});
-            });
-        const result = await Promise.resolve(persistAttachment);
+        const result = await uploadComposerAttachment(api, targetSid, file);
         const attachment = result?.attachment || {};
         if (!attachment.id) {
           throw new Error(tr('composerAttachment.missingId'));
@@ -2368,6 +2337,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const forkDraft = pendingForkComposerRef.current;
     pendingForkComposerRef.current = null;
     setDraftReadyKey('');
+    setDraftLoadFailedKey('');
     if (!preserveComposerInput) setComposerSubmitting(false);
 
     if (!targetSid || !targetKey) {
@@ -2418,6 +2388,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       })
       .catch(() => {
         if (cancelled || draftSessionKeyRef.current !== targetKey) return;
+        setDraftLoadFailedKey(targetKey);
         draftLastSavedRef.current = { key: targetKey, text: '' };
         setDraftReadyKey(targetKey);
       });
@@ -3438,6 +3409,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
     setSideChatAnchor(null);
     sideChat.open();
+  });
+
+  // 选中主会话里的文字 →「发到侧边对话」:以引用块放进侧边输入框,接着写问题
+  // (对齐 Claude 的 Send to side chat)。
+  const sendSelectionToSideChat = useStableCallback(() => {
+    const context = selectionAction?.context;
+    const text = String(context?.text || context?.selected_text || '').trim();
+    if (!sidRef.current || !text) {
+      toast({ kind: 'err', text: '没有可发送的选中文本' });
+      return;
+    }
+    setSideChatAnchor(null);
+    sideChat.insertQuote(text);
+    setSideChatFocusRequest((value) => value + 1);
+    dismissSelectionAction();
   });
 
   const guideQueued = useStableCallback((queuedId) => {
@@ -4640,7 +4626,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   });
 
   // 「会话菜单」按钮左键、按钮右键、顶栏其它位置右键共用这一份菜单。
-  const openSessionMenu = useStableCallback(({ x, y, placement, anchorRect }) => {
+  const openSessionMenu = useStableCallback(({ x, y, placement }) => {
     if (!sid || typeof window === 'undefined') return;
     const button = sessionMenuButtonRef.current;
     const target = readOnlyExternalSession ? button : sidebarSessionContextTarget(sid, sessionWorkspaceHash, button);
@@ -4651,13 +4637,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       y,
       placement,
       leadingItems: [
-        ...(!readOnlyExternalSession ? [{
-          id: 'side_chat', label: '侧边聊天', icon: 'chat', group: 'session-view',
-          onSelect: () => {
-            openSideQuestionComposer();
-            setSideChatAnchor({ left: anchorRect.left, top: anchorRect.top });
-          },
-        }] : []),
         ...(onFindInConversation ? [{
           id: 'find_conversation', label: '查找', icon: 'search', group: 'session-view',
           onSelect: onFindInConversation,
@@ -4703,6 +4682,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     : (ref?.model_name || ref?.model_preset || ref?.model || (modelListEmptyLoaded ? noModelLabel : '加载中'));
   const currentModelLabel = modelDisplayLabel(modelState, currentModelFallback);
   const currentModelName = modelSelectValue(modelState, pendingModelName);
+  useEffect(() => {
+    if (sideChatState.open && !sideChatState.modelName && currentModelName) {
+      sideChat.setModel(currentModelName, modelState?.reasoning_effort ?? null);
+    }
+  }, [sideChat, sideChatState.open, sideChatState.modelName, currentModelName, modelState?.reasoning_effort]);
   const homeModelFallback = !homeModelName && modelListEmptyLoaded ? noModelLabel : (homeModelName || '加载中');
   const selectedHomeModel = modelOptions.find((option) => option.name === homeModelName);
   const homeModelLabel = modelDisplayLabel(
@@ -5091,6 +5075,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return normalized ? [normalized, ...modelOptions] : modelOptions;
   }, [modelOptions, modelState]);
   // 当前/首屏模型的池负载(按 model id 精确匹配 modelPoolName;未命中 → null)。
+  const sideChatModel = displayedModelOptions.find((model) => model.name === sideChatState.modelName) || modelState;
+
   const currentModelLoad = useMemo(
     () => pickModelLoad(poolModels, modelState?.model),
     [poolModels, modelState],
@@ -5173,6 +5159,47 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
     return { before, tail };
   }, [renderedItems, turnChangeSets]);
+  // 回合末尾的「下一步」框(task_complete 的问题与回复按钮):最后一项是带问题的
+  // 完成总结、回合已结束、会话可发消息时才可操作。
+  const [dismissedNextSteps, setDismissedNextSteps] = useState(readDismissedNextSteps);
+  const [nextStepSendingKey, setNextStepSendingKey] = useState('');
+  const nextStep = useMemo(() => activeNextStep(renderedItems, {
+    busy,
+    interactive: !!sid && !readOnlyExternalSession && !sessionRuntimeUnavailable,
+    dismissed: dismissedNextSteps,
+  }), [busy, dismissedNextSteps, readOnlyExternalSession, renderedItems, sessionRuntimeUnavailable, sid]);
+  const dismissNextStep = useStableCallback((key) => {
+    setDismissedNextSteps((prev) => {
+      const next = withDismissedNextStep(prev, key);
+      writeDismissedNextSteps(next);
+      return next;
+    });
+  });
+  // 点按钮 = 把按钮文字作为用户回复发出,不动输入框里的草稿与附件。
+  const replyToNextStep = useStableCallback((key, label) => {
+    const targetSid = sidRef.current;
+    const text = String(label || '').trim();
+    if (!targetSid || !text || nextStepSendingKey || composerSubmitting) return;
+    const payload = {
+      text,
+      client_message_id: `input-${targetSid}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`,
+    };
+    setNextStepSendingKey(key);
+    setTailFollowFromAction({ type: 'new_turn' });
+    dockAutoDismissRef.current();
+    applyEvent({ type: 'busy_changed', payload: { busy: true } }, { emitEffects: false });
+    api.sendInput(targetSid, payload)
+      .then(() => {
+        if (sidRef.current === targetSid) applyEvent(acceptedUserInputEvent(payload), { emitEffects: false });
+      })
+      .catch((e) => {
+        toast({ kind: 'err', text: '发送失败:' + (e?.message || '') });
+        if (sidRef.current === targetSid) {
+          applyEvent({ type: 'busy_changed', payload: { busy: false } }, { emitEffects: false });
+        }
+      })
+      .finally(() => setNextStepSendingKey(''));
+  });
   const rawChangeGroups = useMemo(() => aggregateHunksFromMessages(changeMessages), [changeMessages]);
   const changeSignature = useMemo(() => changeGroupsSignature(rawChangeGroups), [rawChangeGroups]);
   // 引用稳定化:流式期间每个 WS 帧 items 都换新引用,rawChangeGroups 即使内容
@@ -6219,6 +6246,31 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               )}
             </button>
           )}
+          {sid && !readOnlyExternalSession && (
+            <button
+              type="button"
+              onClick={(event) => {
+                if (sideChat.getSnapshot().open) {
+                  sideChat.close();
+                } else {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  openSideQuestionComposer();
+                  setSideChatAnchor({ left: rect.left, top: rect.bottom + 8 });
+                }
+              }}
+              className={clsx(
+                'w-7 h-7 rounded-md flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+                sideChatState.open
+                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
+                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
+              )}
+              title="侧边聊天"
+              aria-label="侧边聊天"
+              aria-pressed={sideChatState.open}
+            >
+              <VsIcon name="chat" size={16} />
+            </button>
+          )}
           {sid && hasNativeAgentBrowser() && (
             <button
               type="button"
@@ -6318,6 +6370,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onLocateInFileTree={locateInFileTree}
             showAceCodeAvatar={showAceCodeAvatar}
             annotationPresentations={selectionAnnotationPresentations}
+            activeNextStepItemId={nextStep?.itemId || ''}
             renderBeforeItem={(it) => (
               (turnFileListPlacement.before.get(it.id) || []).map((set) => (
                 <div
@@ -6360,6 +6413,21 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               />
             </div>
           ))}
+          {!busy && nextStep && (
+            <div
+              key={`next-step-${nextStep.key}`}
+              className="ace-chat-row flex flex-col ace-chat-row-assistant-gutter"
+              data-chat-row="true"
+              data-chat-kind="next_step"
+            >
+              <NextStepCard
+                step={nextStep}
+                sending={nextStepSendingKey === nextStep.key}
+                onReply={(label) => replyToNextStep(nextStep.key, label)}
+                onDismiss={() => dismissNextStep(nextStep.key)}
+              />
+            </div>
+          )}
           {permissionRequests.map((request) => (
             <div
               key={`permission-${request.request_id}`}
@@ -6480,12 +6548,53 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         {...sideChatState}
         anchor={sideChatAnchor}
         onDraftChange={sideChat.setDraft}
-        onSubmit={() => sideChat.submit()}
+        onSubmit={sideChat.submitDraft}
         onStop={sideChat.stop}
+        onCancelQueued={sideChat.cancelQueued}
+        onResumeQueue={sideChat.resumeQueue}
+        composerProps={{
+          pathReferenceApi: api,
+          cwd: sidePanelCwd,
+          currentSessionId: sid,
+          composerContent: sideChatState.composerContent,
+          attachments: sideChatState.attachments,
+          history: sideChatState.inputHistory.map((entry) => entry.text),
+          historyEntries: sideChatState.inputHistory,
+          onMediaFiles: sideChat.addFiles,
+          onRemoveAttachment: sideChat.removeAttachment,
+          onLargeTextPaste: (text) => sideChat.paste(text),
+          onReplacePasteBlock: (id, text) => sideChat.paste(text, id),
+          onRetryPasteUpload: sideChat.retryUpload,
+          onRetryAttachment: sideChat.retryUpload,
+          attachmentTextLoader: api.readAttachmentText,
+          submitting: composerContentAttachments(sideChatState.composerContent, sideChatState.attachments)
+            .some((item) => item.uploading || item.upload_error || !item.id),
+          sessionControls: {
+            showPermission: false,
+            model: sideChatState.modelName || currentModelLabel,
+            modelOptions: displayedModelOptions,
+            selectedModelName: sideChatState.modelName || currentModelName,
+            modelRefreshing,
+            onRefreshModels: refreshSessionModels,
+            onOpenModelSettings: onOpenModelSettings ? () => {
+              sideChat.close();
+              onOpenModelSettings();
+            } : undefined,
+            onModelChange: (name) => sideChat.setModel(name),
+            reasoningOptions: composerReasoningOptions(sideChatModel, sideChatState.reasoningEffort),
+            onReasoningChange: (effort) => sideChat.setModel(sideChatState.modelName || currentModelName, effort),
+          },
+        }}
         onClear={sideChat.clear}
         onClose={sideChat.close}
         onFileLink={handleTranscriptFileLink}
         fileLinkCwd={sidePanelCwd}
+        mainBusy={busy}
+        onSendEdit={sideChat.editSend}
+        onSendConfirm={sideChat.confirmSend}
+        onSendCancel={sideChat.cancelSend}
+        onStartSend={sideChat.startSendToMain}
+        focusRequest={sideChatFocusRequest}
       />
       <QueueCardList
         items={visibleQueuedItems}
@@ -6522,6 +6631,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             showSessionTime={showSessionTime}
             ref={inputRef}
             mainComposer
+            followUpPrompt={followUpPrompt}
             pathReferenceApi={api}
             currentSessionId={sid}
             cwd={sidePanelCwd}
@@ -6729,6 +6839,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             toast({ kind: 'err', text: '没有可引用的选中文本' });
           }
         }}
+        onSendToSideChat={sid ? sendSelectionToSideChat : undefined}
         onStartAnnotation={() => {
           setSelectionAction((prev) => (prev ? { ...prev, mode: 'annotation' } : prev));
         }}

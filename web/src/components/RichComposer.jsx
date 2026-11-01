@@ -531,6 +531,30 @@ function replaceComposerTextPreservingReferences(editor, nextText, commands, rep
   return composerContentFromDocument(editor.children);
 }
 
+function ComposerPlaceholder({ attributes, children, className, suggested, onHeight }) {
+  const nodeRef = useRef(null);
+  const attach = useCallback((node) => {
+    nodeRef.current = node;
+    if (typeof attributes.ref === 'function') attributes.ref(node);
+    else if (attributes.ref) attributes.ref.current = node;
+  }, [attributes.ref]);
+  useLayoutEffect(() => {
+    const node = nodeRef.current;
+    if (!suggested || !node) return;
+    const measure = () => onHeight(Math.ceil(node.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [children, suggested, onHeight]);
+  return (
+    <span {...attributes} ref={attach} className={className}
+      style={suggested ? { ...attributes.style, opacity: 1 } : attributes.style}>
+      {children}
+    </span>
+  );
+}
+
 function RichComposerShell({
   value,
   composerContent = null,
@@ -540,7 +564,10 @@ function RichComposerShell({
   attachments = [],
   disabled,
   placeholder,
+  suggestedPlaceholder = false,
   'aria-label': ariaLabel,
+  'aria-description': ariaDescription,
+  'aria-keyshortcuts': ariaKeyShortcuts,
   className,
   placeholderClassName,
   style,
@@ -620,6 +647,7 @@ function RichComposerShell({
   const handledPasteEventsRef = useRef(new WeakSet());
   const pasteBeforeInputGuardRef = useRef(0);
   const [syncRevision, setSyncRevision] = useState(0);
+  const [suggestionHeight, setSuggestionHeight] = useState(0);
   const selectionRef = useRef({
     start: latestTextRef.current.length,
     end: latestTextRef.current.length,
@@ -862,6 +890,10 @@ function RichComposerShell({
     onChange?.(text, content);
     onComposerContentChange?.(content);
   }, [editor, onChange, onComposerContentChange]);
+  const publishDocumentRef = useRef(publishDocument);
+  publishDocumentRef.current = publishDocument;
+  // The document an external sync already published; its delayed Slate report is skipped.
+  const externallyPublishedDocumentRef = useRef(null);
 
   const cancelFileTransfers = useCallback(() => {
     for (const transfer of pendingFileTransfersRef.current) transfer.dispose();
@@ -1032,6 +1064,14 @@ function RichComposerShell({
     }
     synchronizeComposerLeadingCommand(editor, commandsRef.current);
     latestTextRef.current = composerTextFromDocument(editor.children);
+    if (replacesText) {
+      // Slate reports these operations in a microtask. By then a parent effect
+      // in this same flush may have set a newer value (clearing a submitted
+      // draft), and the late report would write the replaced text back over it.
+      // Publish now, while the parent still holds the value it gave us.
+      publishDocumentRef.current();
+      externallyPublishedDocumentRef.current = editor.children;
+    }
     publishSelection(editor.selection);
   }, [
     activeSyncGeneration, attachmentSignature, cancelFileTransfers, commandSignature, editor,
@@ -1039,8 +1079,13 @@ function RichComposerShell({
   ]);
 
   const handleValueChange = useCallback(() => {
+    const externallyPublished = externallyPublishedDocumentRef.current;
+    externallyPublishedDocumentRef.current = null;
     setSyncRevision((revision) => revision + 1);
     publishSelection(editor.selection);
+    // Any later operation (such as a keystroke batched into the same report)
+    // replaces the document, so it is still published.
+    if (externallyPublished === editor.children) return;
     publishDocument();
   }, [editor, publishDocument, publishSelection]);
 
@@ -1335,16 +1380,18 @@ function RichComposerShell({
     />
   ), [onPreviewAttachment, removeAttachment]);
   const renderPlaceholder = useCallback(({ attributes, children }) => (
-    <span
-      {...attributes}
+    <ComposerPlaceholder
+      attributes={attributes}
+      suggested={suggestedPlaceholder}
+      onHeight={setSuggestionHeight}
       className={clsx(
         'ace-rich-composer-placeholder pointer-events-none font-sans text-fg-mute',
         placeholderClassName,
       )}
     >
       {children}
-    </span>
-  ), [placeholderClassName]);
+    </ComposerPlaceholder>
+  ), [placeholderClassName, suggestedPlaceholder]);
 
   const handleKeyDown = useCallback((event) => {
     if (
@@ -1660,11 +1707,17 @@ function RichComposerShell({
         ref={editableRef}
         data-ace-rich-composer="true"
         aria-label={ariaLabel || placeholder}
+        aria-description={ariaDescription}
+        aria-keyshortcuts={ariaKeyShortcuts}
         aria-disabled={disabled ? 'true' : undefined}
         readOnly={disabled}
         placeholder={placeholder}
         className={className}
-        style={style}
+        style={suggestedPlaceholder ? {
+          ...style,
+          minHeight: Math.min(Number(style?.maxHeight) || Infinity,
+            Math.max(Number(style?.minHeight) || 0, suggestionHeight)),
+        } : style}
         renderElement={renderElement}
         renderPlaceholder={renderPlaceholder}
         onKeyDown={handleKeyDown}

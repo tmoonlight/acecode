@@ -11,19 +11,23 @@ export function sideChatSessionKey(ref = {}) {
 export function createSideChatSessionStore({ now = Date.now } = {}) {
   const sessions = new Map();
   return {
-    get(key, startStream) {
-      if (!key) return createSideChatController({ startStream, now });
+    get(key, startStream, sendToMain, uploadAttachment) {
+      if (!key) return createSideChatController({ startStream, sendToMain, uploadAttachment, now });
       let entry = sessions.get(key);
       if (!entry) {
-        entry = { startStream };
+        entry = { startStream, sendToMain, uploadAttachment };
         entry.controller = createSideChatController({
           now,
           startStream: (options) => entry.startStream(options),
+          sendToMain: (message) => entry.sendToMain(message),
+          uploadAttachment: (file) => entry.uploadAttachment(file),
         });
         sessions.set(key, entry);
       }
       // A session can be restored after its API credentials have changed.
       entry.startStream = startStream;
+      entry.sendToMain = sendToMain;
+      entry.uploadAttachment = uploadAttachment;
       return entry.controller;
     },
   };

@@ -12,11 +12,11 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { clsx } from '../lib/format.js';
-import { getGoalStopControlState } from '../lib/goalControl.js';
 import { getInputBarActionState } from '../lib/inputBarState.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { SelectionAnnotationBadge } from './SelectionAnnotationBadge.jsx';
 import { ComposerSessionControls } from './ComposerSessionControls.jsx';
+import { ComposerActionButton } from './ComposerActionButton.jsx';
 import { ExpertAvatar, compactExpertSummary } from './ExpertCatalog.jsx';
 import { GoalStatusBar } from './GoalStatusBar.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
@@ -33,7 +33,6 @@ import { PastedTextDialog } from './PastedTextDialog.jsx';
 import { PathReferenceDropdown } from './PathReferenceDropdown.jsx';
 import { SlashDropdown } from './SlashDropdown.jsx';
 import { toast } from './Toast.jsx';
-import { withAppShortcutHint } from '../lib/appShortcuts.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { getNextInputHistoryPointer, isUserComposerEdit, shouldNavigateInputHistory } from '../lib/inputHistoryNavigation.js';
 import { filesFromTransfer, hasFileTransfer } from '../lib/composerFileTransfer.js';
@@ -223,6 +222,7 @@ export const InputBar = forwardRef(function InputBar({
   disabled, submitting = false, canRetryLastUserMessage = false,
   queuePaused = false, onResumeQueue,
   placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, stopping = false, goal = null, mainComposer = false,
+  followUpPrompt = null,
   onGoalEdit, onGoalStatusChange, onGoalClear,
   history = [], historyEntries = [], variant = 'default', attentionRequest = 0,
   value: controlledValue, onChange,
@@ -230,6 +230,7 @@ export const InputBar = forwardRef(function InputBar({
   attachments = EMPTY_COMPOSER_ATTACHMENTS, contexts = [], annotationPresentations = null,
   onMediaFiles, onRemoveAttachment, onRemoveContext,
   onLargeTextPaste, onReplacePasteBlock, onRetryPasteUpload, onCommitDeferredPastes,
+  onRetryAttachment,
   attachmentTextLoader,
   swarmMode = 'off', onSwarmModeChange,
   expertOptions = [],
@@ -246,6 +247,8 @@ export const InputBar = forwardRef(function InputBar({
   pathReferenceApi = null, cwd = '', currentSessionId = '', draftRevision = 0, showSessionTime = true,
   fileDropManagedExternally = false, onFileDragActiveChange,
   sessionControls = null,
+  showAddControl = true,
+  'aria-label': ariaLabel,
 }, ref) {
   const { t } = useTranslation();
   const isControlled = controlledValue != null;
@@ -1361,6 +1364,27 @@ export const InputBar = forwardRef(function InputBar({
     }
     // 下拉打开时,Enter / Tab / Esc / 方向键 由 SlashDropdown 在捕获阶段处理。
     // 这里只处理常规情况。
+    if (ghostPrompt && !e.defaultPrevented && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const prompt = ghostPrompt;
+        followUpPrompt?.consume();
+        updateValue(prompt);
+        setEditedSinceHistory(true);
+        const scope = fileIntakeScopeRef.current;
+        queueMicrotask(() => {
+          if (fileIntakeScopeRef.current === scope && valueRef.current === prompt) {
+            ta.current?.setSelectionRange(prompt.length, prompt.length);
+          }
+        });
+        return true;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        followUpPrompt?.consume();
+        return true;
+      }
+    }
     if (shouldNavigateInputHistory({
       key: e.key,
       code: e.code,
@@ -1416,14 +1440,18 @@ export const InputBar = forwardRef(function InputBar({
       }] : [] });
     },
   });
-  const stopControl = getGoalStopControlState({ busy, stopping });
-  const isStopAction = actionState.mode === 'stop';
-  const primaryActionLabel = t(isStopAction && stopping ? stopControl.label : actionState.submitLabel);
-  const stopTitle = t(stopping ? stopControl.title : actionState.submitTitle);
-  const primaryActionTitle = isStopAction && mainComposer
-    ? withAppShortcutHint(stopTitle, 'stop')
-    : isStopAction ? stopTitle : t(actionState.submitTitle);
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
+  const ghostPrompt = mainComposer && !disabled && !submitting && !busy && !stopping
+    && !draftValue && !hasExtras && !goalMode && !speech.active && !composerComposing
+    && !showDropdown && !activePathDropdown && !capabilityOpen && !expertSubmenuOpen
+    ? followUpPrompt?.prompt || '' : '';
+  // A draft edit (including non-text input) consumes this completion even if
+  // its request has not returned. Clearing the draft cannot resurrect it.
+  useEffect(() => {
+    if (followUpPrompt?.key && (draftValue || hasExtras || goalMode || speech.active || composerComposing)) {
+      followUpPrompt.consume();
+    }
+  }, [followUpPrompt?.key, followUpPrompt?.consume, draftValue, hasExtras, goalMode, speech.active, composerComposing]);
   const hasInlineContexts = otherContextItems.length > 0;
   const capabilityControl = (
     <div ref={capabilityMenuRef} className="relative shrink-0 flex items-center">
@@ -1620,25 +1648,13 @@ export const InputBar = forwardRef(function InputBar({
     <>
     {speech.available && <SpeechMicrophoneButton speech={speech} disabled={disabled || submitting || composerComposing}
       onBeforeStart={() => { setCapabilityOpen(false); setDropdownClosed(true); }} />}
-    <button
-      type="button"
-      onClick={isStopAction ? onAbort : submit}
-      disabled={isStopAction ? stopControl.disabled : !actionState.canSubmit}
-      data-composer-action={actionState.mode}
-      aria-label={primaryActionLabel}
-      className={clsx(
-        'ace-composer-send w-7 h-7 rounded-full flex items-center justify-center transition bg-accent text-white enabled:hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-        isStopAction && stopping ? 'disabled:cursor-wait' : 'disabled:cursor-default',
-      )}
-      title={primaryActionTitle}
-    >
-      <VsIcon
-        name={isStopAction ? 'stopFilled' : actionState.mode === 'queue' ? 'queue' : actionState.mode === 'resume' ? 'run' : 'send'}
-        size={14}
-        mono={false}
-        className="ace-icon-on-accent"
-      />
-    </button>
+    <ComposerActionButton
+      actionState={actionState}
+      stopping={stopping}
+      mainComposer={mainComposer}
+      onSubmit={submit}
+      onStop={onAbort}
+    />
     </>
   );
 
@@ -1770,6 +1786,12 @@ export const InputBar = forwardRef(function InputBar({
             })}
           </div>
         )}
+        {onRetryAttachment && activeAttachmentItems.filter((item) => item.upload_error && !item.paste).map((item) => (
+          <div key={item.local_id || item.id} role="alert" className="px-3 pt-2 flex items-center gap-2 text-[12px] text-danger">
+            <span className="min-w-0 flex-1 truncate">{item.upload_error}</span>
+            <button type="button" className="shrink-0 hover:underline" onClick={() => onRetryAttachment(item.local_id || item.id)}>重试</button>
+          </div>
+        ))}
         {pasteCards.length > 0 && (
           <div
             data-composer-pasted-text-strip="true"
@@ -1830,6 +1852,9 @@ export const InputBar = forwardRef(function InputBar({
         )}
         <div className={clsx('relative', isHero && 'ace-inputbar-hero-editor')}>
           <RichComposer
+            aria-label={ariaLabel || placeholder}
+            aria-description={ghostPrompt ? `${ghostPrompt} ${t('按 Tab 接受推荐，按 Esc 忽略')}` : undefined}
+            aria-keyshortcuts={ghostPrompt ? 'Tab Escape' : undefined}
             ref={ta}
             value={value}
             syncKey={composerSyncKey}
@@ -1849,7 +1874,8 @@ export const InputBar = forwardRef(function InputBar({
             onLargeTextPaste={onLargeTextPaste ? handleEditorLargeTextPaste : undefined}
             allowNativeFilesystemDrop={NATIVE_FILE_DROP}
             disabled={disabled}
-            placeholder={placeholder}
+            placeholder={ghostPrompt || placeholder}
+            suggestedPlaceholder={!!ghostPrompt}
             className={clsx(
               'ace-rich-composer-input relative w-full bg-transparent border-0 outline-none leading-[20px] font-sans text-fg whitespace-pre-wrap break-words',
               'aria-disabled:opacity-50 aria-disabled:cursor-not-allowed',
@@ -1868,7 +1894,7 @@ export const InputBar = forwardRef(function InputBar({
         <ComposerSessionControls
           {...(sessionControls || {})}
           className={isHero ? 'px-2.5 pb-2.5' : 'px-1.5 pb-1'}
-          addControl={capabilityControl}
+          addControl={showAddControl ? capabilityControl : null}
           goalMode={goalMode}
           goalDisabled={disabled}
           onDisableGoal={() => changeGoalMode(false)}

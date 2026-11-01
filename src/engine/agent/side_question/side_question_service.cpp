@@ -119,11 +119,12 @@ SideChatResult SideQuestionService::stream(
     SideChatCancellation& cancellation,
     const SideChatStreamCallback& callback,
     const SideChatToolset& tools,
-    const SideChatToolCallback& on_tool) {
-    auto provider = state_->provider ? state_->provider() : nullptr;
+    const SideChatToolCallback& on_tool,
+    const SideChatInputOptions& input) {
+    auto provider = input.provider_override ? input.provider_override : (state_->provider ? state_->provider() : nullptr);
     InFlightRequest<State> registration(*state_, cancellation);
     return run_side_chat(std::move(provider), snapshot(), question, history,
-                         cancellation, callback, tools, on_tool);
+                         cancellation, callback, tools, on_tool, input);
 }
 
 bool SideQuestionService::ask_async(std::string question, Callback callback,
