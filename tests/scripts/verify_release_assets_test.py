@@ -87,6 +87,21 @@ class ReleaseAssetsTest(unittest.TestCase):
             (self.root / name).write_bytes(b"auxiliary")
         self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 17)
 
+    def test_every_platform_enforces_its_size_budget_at_the_boundary(self):
+        limits = assets.asset_size_limits("1.2.3")
+        self.assertEqual(set(limits), set(self.names))
+        for name in self.names:
+            with self.subTest(name=name):
+                path = next(self.root.rglob(name))
+                with path.open("r+b") as stream:
+                    stream.truncate(limits[name])
+                self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 17)
+                with path.open("r+b") as stream:
+                    stream.truncate(limits[name] + 1)
+                with self.assertRaisesRegex(ValueError, "exceeds size budget"):
+                    assets.verify_release_assets(self.root, "1.2.3")
+                path.write_bytes(b"package")
+
 
 if __name__ == "__main__":
     unittest.main()

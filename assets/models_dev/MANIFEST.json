@@ -1,8 +1,8 @@
 {
-  "upstream_remote": "https://models.dev/api.json",
-  "generated_at": "2026-09-29T15:22:20Z",
   "acecode_sync_script_version": 2,
-  "provider_count": 225,
-  "model_count": 8276,
-  "content_sha256": "c15f595df8bb18459ba75eddfb1176ce94da870da1d1bec8d6c6895845f09fc1"
+  "upstream_remote": "https://models.dev/api.json",
+  "generated_at": "2026-11-01T11:31:44Z",
+  "provider_count": 235,
+  "content_sha256": "0e9583eb69482f067f07e957572a8567f11feeb6f5886e7a637e0e222c6da996",
+  "model_count": 8940
 }
