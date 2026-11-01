@@ -4,6 +4,12 @@ import { connection } from './connection.js';
 import { focusSession } from './desktopNotify.js';
 import { createDesktopOfficeController } from './desktopOfficeController.js';
 import { createDesktopOfficePreferences } from './desktopOfficePreferences.js';
+import { createMiniTaskController } from './miniTaskController.js';
+import { captureMiniSpeechAudio } from './miniSpeechAudio.js';
+import { speechAvailabilityStore } from './speechRecognition.js';
+import { speechDeviceStore } from './speechDevices.js';
+import { notifySessionListChanged } from './sessionListEvents.js';
+import { readComposerSendAppearance } from './composerActionAppearance.js';
 
 // Companion-pet cards use exactly the transcript body font: the live family and the size
 // chosen by the font-size setting (small / medium / large set --ace-font-size-13 on <html>).
@@ -26,6 +32,24 @@ export function useDesktopOffice(activeRef) {
   useEffect(() => {
     if (!state.enabled || !state.available || typeof window.aceDesktop_updateOffice !== 'function') return undefined;
     let disposed = false, controller = null;
+    let latest = { version: 1, connected: false, agents: [], offices: [], activities: [] };
+    let mini = null;
+    const publish = () => {
+      if (disposed) return;
+      try { Promise.resolve(window.aceDesktop_updateOffice(JSON.stringify({ ...latest,
+        transcriptFont: transcriptFont(), composerAppearance: readComposerSendAppearance(), mini: mini?.getSnapshot() }))).catch(() => {}); } catch {}
+    };
+    if (state.petKind === 'mini') mini = createMiniTaskController({
+      client: api, getContext: () => current.current || {}, capture: captureMiniSpeechAudio, publish,
+      getSpeechConfig: async () => {
+        const store = speechAvailabilityStore(api);
+        await store.load();
+        return { ...store.getSnapshot(), device_id: speechDeviceStore().getSnapshot().deviceId };
+      },
+      onCreated: ref => notifySessionListChanged({ reason: 'session-created', sessionId: ref.sessionId,
+        workspaceHash: ref.workspaceHash || '', noWorkspace: !!ref.noWorkspace, session: { ...ref, id: ref.sessionId } }),
+      refresh: () => controller?.refresh(),
+    });
     const onMessage = event => controller?.onEvent(event.detail || {});
     const onOpen = () => controller?.reconnected();
     const onDisconnect = () => controller?.disconnected();
@@ -34,6 +58,7 @@ export function useDesktopOffice(activeRef) {
       if (action.type === 'select') controller?.select(action);
       else if (action.type === 'follow') controller?.setFollow(action.follow);
       else if (action.type === 'open') focusSession(action.workspace_hash, action.session_id);
+      else if (action.type?.startsWith('mini-')) void mini?.handle(action);
       // Companion-pet session cards: ■ stops that session's turn, × on a finished card marks it read.
       else if (action.type === 'stop' && action.session_id) connection.sendAbort(action.session_id);
       else if (action.type === 'read' && action.session_id) {
@@ -51,7 +76,7 @@ export function useDesktopOffice(activeRef) {
       controller = createDesktopOfficeController({
         initial, fetchSnapshot: api.getDesktopOffice, fetchModel: api.getSessionModel,
         publish: state => {
-          try {Promise.resolve(window.aceDesktop_updateOffice(JSON.stringify({...state, transcriptFont: transcriptFont()}))).catch(() => {});} catch {}
+          latest = state; mini?.observeActivities(state.activities); publish();
         },
         retainSession: id => connection.retainSession(id),
         releaseSession: id => connection.releaseSession(id),
@@ -66,13 +91,13 @@ export function useDesktopOffice(activeRef) {
     window.addEventListener('ace-desktop-office-action', onAction);
     void start();
     return () => {
-      disposed = true; controller?.dispose(); controllerRef.current = null;
+      disposed = true; mini?.dispose(); controller?.dispose(); controllerRef.current = null;
       connection.removeEventListener('message', onMessage);
       connection.removeEventListener('open', onOpen);
       connection.removeEventListener('disconnect', onDisconnect);
       window.removeEventListener('ace-desktop-office-action', onAction);
     };
-  }, [state.enabled, state.available]);
+  }, [state.enabled, state.available, state.petKind]);
   useEffect(() => {controllerRef.current?.setActive(activeRef);}, [activeRef]);
   return { ...state, setEnabled: preferences.setEnabled, setPetKind: preferences.setPetKind };
 }

@@ -211,6 +211,7 @@ export function ComposerSessionControls({
   modelLoad = null,
   tokenBudget = null,
   permissionMode = 'default',
+  showPermission = true,
   permissionSwitching = false,
   onPermissionModeChange,
   swarmMode = 'off',
@@ -315,13 +316,13 @@ export function ComposerSessionControls({
       className={clsx('ace-composer-session-footer', className)}
     >
       <div className="ace-composer-session-left">
-        <div
+        {addControl && <div
           data-composer-control="add-context"
           className="shrink-0"
           onPointerDown={() => setOpenMenu('')}
         >
           {addControl}
-        </div>
+        </div>}
 
         {goalMode && (
           <ComposerSelectionTag
@@ -390,7 +391,7 @@ export function ComposerSessionControls({
           </ComposerSelectionTag>
         )}
 
-        <div
+        {showPermission && <div
           data-adaptive-composer-control="true"
           data-compact={compactControls.has('permission') ? 'true' : 'false'}
           data-composer-control="permission"
@@ -454,7 +455,7 @@ export function ComposerSessionControls({
               })}
             </div>
           )}
-        </div>
+        </div>}
 
         <div
           data-composer-control="selected-contexts"

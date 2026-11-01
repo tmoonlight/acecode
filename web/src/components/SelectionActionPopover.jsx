@@ -9,6 +9,7 @@ export function SelectionActionPopover({
   snapshot,
   mode = 'actions',
   onQuote,
+  onSendToSideChat,
   onStartAnnotation,
   onSubmitAnnotation,
   onCancel,
@@ -142,6 +143,12 @@ export function SelectionActionPopover({
             <VsIcon name="edit" size={13} />
             <span>批注</span>
           </button>
+          {onSendToSideChat && (
+            <button type="button" onClick={onSendToSideChat}>
+              <VsIcon name="ChatBubble" size={13} />
+              <span>发到侧边对话</span>
+            </button>
+          )}
         </div>
       )}
     </div>

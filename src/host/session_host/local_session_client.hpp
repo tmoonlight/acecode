@@ -41,6 +41,8 @@ public:
     TurnSteerResult steer_input(const std::string& session_id,
                                 const std::string& expected_turn_id,
                                 const UserInput& input) override;
+    SideChatDeliveryResult send_side_chat_message(const std::string& session_id,
+                                                  const std::string& text) override;
     TurnSteerResult interrupt_turn(const std::string& session_id,
                                    const std::string& expected_turn_id,
                                    const UserInput& input) override;

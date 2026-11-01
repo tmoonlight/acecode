@@ -10,6 +10,7 @@ function source(path) {
 
 const inputBar = source('../components/InputBar.jsx');
 const chatView = source('../components/ChatView.jsx');
+const submission = source('./composerSubmission.js');
 
 // 有查询词时必须交给服务端全局目录检索(searchSessionReferenceData),不能只拿
 // 空查询的最近 50 条在本地过滤 —— 曾因此搜不到 36 天前、标题完全一致的会话。
@@ -26,10 +27,10 @@ assert.match(inputBar, /replaceQueryWithSessionReference\(value, pathMention\.to
 assert.match(inputBar, /fileItems=\{activePathDropdown\.fileItems \|\| \[\]\}/);
 assert.match(inputBar, /sessionItems=\{activePathDropdown\.sessionItems \|\| \[\]\}/);
 assert.match(chatView, /currentSessionId=\{sid\}/);
-assert.match(chatView, /extractSessionReferences\(String\(text \|\| ''\)\)/);
+assert.match(submission, /extractSessionReferences\(String\(text \|\| ''\)\)/);
 // 消息正文以会话引用转换后的编辑器文本为底,内联粘贴块拼在其后(粘贴材料不做引用转换)。
-assert.match(chatView, /text: appendPastedTextToSubmission\(sessionReferences\.displayText, content\)/);
-assert.match(chatView, /payload\.session_references = sessionReferences\.references/);
+assert.match(submission, /text: appendPastedTextToSubmission\(sessionReferences\.displayText, content\)/);
+assert.match(submission, /payload\.session_references = sessionReferences\.references/);
 assert.match(chatView, /Array\.isArray\(payload\?\.session_references\)/);
 
 assert.equal(zhCN.pathReference.files, '文件');

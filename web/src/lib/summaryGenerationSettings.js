@@ -77,10 +77,6 @@ export function summaryGenerationSettingsStore(client) {
           const submittedModels = state.snapshot.models;
           const patch = summaryGenerationPatch(submitted, state.snapshot);
           if (!Object.keys(patch).length) continue;
-          if (submitted.enabled && !state.snapshot.models.some((model) => model.name === submitted.model_name)) {
-            publish({ error: { code: 'SUMMARY_MODEL_REQUIRED', action: 'save' } });
-            return false;
-          }
           publish({ saving: true, error: null });
           try {
             requireConnection();

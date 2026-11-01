@@ -16,13 +16,16 @@ assert.deepEqual(anchorSideChatGeometry(initial, { left: 120, top: 40 }, viewpor
   left: 120, top: 40, width: 600, height: 620,
 });
 assert.deepEqual(anchorSideChatGeometry(initial, { left: 1200, top: 850 }, viewport), {
-  left: 668, top: 268, width: 600, height: 620,
+  left: 668, top: 628, width: 600, height: 260,
 });
 assert.deepEqual(anchorSideChatGeometry({ ...initial, width: 420, height: 360 }, { left: 120, top: 40 }, viewport), {
   left: 120, top: 40, width: 420, height: 360,
 });
 assert.deepEqual(anchorSideChatGeometry(initial, { left: 420, top: 210 }, { left: 73, top: 180, width: 390, height: 350 }), {
-  left: 85, top: 192, width: 366, height: 326,
+  left: 85, top: 210, width: 366, height: 308,
+});
+assert.deepEqual(anchorSideChatGeometry(initial, { left: 340, top: 56 }, { width: 390, height: 600 }), {
+  left: 12, top: 56, width: 366, height: 532,
 });
 
 assert.deepEqual(moveSideChatGeometry(initial, 9000, -9000, viewport), {

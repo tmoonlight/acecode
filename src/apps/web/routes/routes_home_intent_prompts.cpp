@@ -3,6 +3,7 @@
 #include "platform/locale.hpp"
 #include "provider/provider_factory.hpp"
 #include "provider/copilot_provider.hpp"
+#include "provider/summary_model_fallback.hpp"
 #include "session/session_recent_activity.hpp"
 #include "utils/abandonable_call.hpp"
 #include "utils/joining_thread.hpp"
@@ -203,32 +204,44 @@ void WebServer::Impl::register_home_intent_prompts() {
                 JoiningThread model_timeout([cancellation](StopToken stop) {
                     if (!stop.wait_for(std::chrono::milliseconds(kHomeIntentModelBudgetMs))) cancellation->store(true);
                 });
-                model_name = profile->name;
                 const auto locale = desktop::resolve_ui_locale(config.ui.locale, desktop::detect_system_locale_tag());
                 auto messages = home_intent_messages(sources, locale);
-                const auto response = run_abandonable<ChatResponse>(
-                    [profile = *profile, config = std::move(config), messages = std::move(messages), cancellation]() mutable {
-                        auto provider = create_provider_from_entry(profile, &config);
-                        if (!provider) throw std::runtime_error("provider unavailable");
-                        if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(provider)) copilot->try_silent_auth();
-                        // Compaction's tool-free adapter also supports providers
-                        // which need a special path for requests without tools.
-                        return provider->chat_for_compaction(messages, {}, cancellation.get());
-                    }, cancellation.get());
+                const auto recovered = SummaryModelFallback(config, config.summary_generation.model_name, profile).run(
+                    [&](const ModelProfile& candidate) {
+                        const auto response = run_abandonable<ChatResponse>(
+                        [profile = candidate, config, messages, cancellation]() mutable {
+                            if (profile.provider == "openai") {
+                                profile.stream_timeout_ms = (std::min)(profile.stream_timeout_ms.value_or(config.session_title.timeout_ms),
+                                                                       config.session_title.timeout_ms);
+                            }
+                            auto provider = create_provider_from_entry(profile, &config);
+                            if (!provider) throw std::runtime_error("provider unavailable");
+                            if (!provider->supports_tool_free_chat()) throw std::runtime_error("tool-free requests unavailable");
+                            if (auto copilot = std::dynamic_pointer_cast<CopilotProvider>(provider)) copilot->try_silent_auth();
+                            // Compaction's tool-free adapter also supports providers
+                            // which need a special path for requests without tools.
+                            return provider->chat_for_compaction(messages, {}, cancellation.get());
+                        }, cancellation.get());
+                        if (!response || cancellation->load()) error = "TIMEOUT";
+                        else if (response->finish_reason == "error" || response->provider_error.has_error() || response->has_tool_calls()) {
+                            error = "GENERATION_FAILED";
+                            report["tool_calls"] = response->has_tool_calls();
+                            report["provider_error"] = provider_error_kind_name(response->provider_error.kind);
+                            report["http_status"] = response->provider_error.status_code;
+                        } else if (auto parsed = parse_home_intent_prompts(response->content, sources)) {
+                            suggestions = std::move(*parsed);
+                            error.clear();
+                            return true;
+                        } else {
+                            error = "INVALID_RESPONSE";
+                            report["response_bytes"] = response->content.size();
+                        }
+                        return false;
+                }, cancellation.get());
                 model_timeout.request_stop();
                 report["model_ms"] = since(model_started);
-                if (!response || cancellation->load()) error = "TIMEOUT";
-                else if (response->finish_reason == "error" || response->has_tool_calls()) {
-                    error = "GENERATION_FAILED";
-                    report["tool_calls"] = response->has_tool_calls();
-                    report["provider_error"] = provider_error_kind_name(response->provider_error.kind);
-                    report["http_status"] = response->provider_error.status_code;
-                } else if (auto parsed = parse_home_intent_prompts(response->content, sources)) {
-                    suggestions = std::move(*parsed);
-                } else {
-                    error = "INVALID_RESPONSE";
-                    report["response_bytes"] = response->content.size();
-                }
+                if (recovered) model_name = recovered->name;
+                else if (error.empty()) error = "GENERATION_FAILED";
             }
         } catch (...) {
             // Provider diagnostics may contain credentials or transcript text.

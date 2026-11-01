@@ -6,6 +6,7 @@
 #include "openai_provider.hpp"
 #include "openai_responses_provider.hpp"
 #include "vision_capability.hpp"
+#include "summary_model_fallback.hpp"
 #include "config/config.hpp"
 #include "config/model_provider_registry.hpp"
 #include "utils/logger.hpp"
@@ -322,10 +323,13 @@ std::shared_ptr<LlmProvider> construct_from_plan(
 struct PreparedProviderConstruction::Impl {
     EffectiveProviderBuildPlan plan;
     ProviderConstructionFingerprint fingerprint;
+    std::string success_identity;
+    std::string success_state_path;
 
     Impl(EffectiveProviderBuildPlan value,
-         ProviderConstructionFingerprint token)
-        : plan(std::move(value)), fingerprint(std::move(token)) {}
+         ProviderConstructionFingerprint token, const ModelProfile& profile, const AppConfig* config)
+        : plan(std::move(value)), fingerprint(std::move(token)),
+          success_identity(summary_model_identity(profile, config)), success_state_path(summary_model_state_path()) {}
 };
 
 ProviderConstructionFingerprint::ProviderConstructionFingerprint(
@@ -355,8 +359,13 @@ PreparedProviderConstruction::fingerprint() const noexcept {
 }
 
 ProviderConstructionResult PreparedProviderConstruction::construct() const {
+    auto provider = construct_from_plan(impl_->plan);
+    if (provider) provider->set_successful_chat_observer(
+        [identity = impl_->success_identity, path = impl_->success_state_path] {
+            remember_successful_chat_model(identity, path);
+        });
     return {
-        construct_from_plan(impl_->plan),
+        std::move(provider),
         impl_->fingerprint,
     };
 }
@@ -370,7 +379,7 @@ std::optional<PreparedProviderConstruction> prepare_provider_construction(
         fingerprint_digest_for_plan(*plan));
     return PreparedProviderConstruction(
         std::make_unique<PreparedProviderConstruction::Impl>(
-            std::move(*plan), std::move(fingerprint)));
+            std::move(*plan), std::move(fingerprint), entry, config));
 }
 
 std::optional<ProviderConstructionResult> create_provider_construction(

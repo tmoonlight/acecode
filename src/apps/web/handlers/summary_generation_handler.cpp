@@ -41,10 +41,9 @@ bool apply_summary_generation_settings(AppConfig& config,
     const bool exists = !next.model_name.empty() && std::any_of(
         config.saved_models.begin(), config.saved_models.end(),
         [&](const ModelProfile& profile) { return profile.name == next.model_name; });
-    // A removed reference can still be disabled or cleared. A newly selected
-    // reference, or any enabled override, must point to a saved model.
-    if (!exists && (next.enabled ||
-        (!next.model_name.empty() && next.model_name != config.summary_generation.model_name))) {
+    // Empty or previously removed references use automatic runtime fallback.
+    // Reject only a newly submitted, unknown explicit model name.
+    if (!exists && !next.model_name.empty() && next.model_name != config.summary_generation.model_name) {
         error = "choose an existing summary model";
         return false;
     }

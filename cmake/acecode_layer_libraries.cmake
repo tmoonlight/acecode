@@ -111,7 +111,7 @@ if(NOT WIN32 AND NOT APPLE)
 endif()
 acecode_add_layer_library(acecode_adapters adapters ${_adapters})
 target_link_libraries(acecode_adapters PUBLIC acecode_domain acecode_base_host
-    PRIVATE libzip::zip mcp)
+    PRIVATE libzip::zip mcp unofficial::sqlite3::sqlite3)
 target_include_directories(acecode_adapters PRIVATE
     "${CMAKE_SOURCE_DIR}/external/cpp-mcp/include"
     "${CMAKE_SOURCE_DIR}/external/cpp-mcp/common")

@@ -56,32 +56,25 @@ export function SummaryGenerationSettings({ onCheckUpdates, onModelProfileUpdate
           disabled={!snapshot || loading} aria-expanded={expanded} aria-controls="summary-generation-config"
           onClick={() => setExpanded((value) => !value)}>{expanded ? '收起' : '配置'}</button>
         <Toggle on={!!draft?.enabled} disabled={!snapshot || loading} ariaLabel="启用摘要生成"
-          onChange={(enabled) => {
-            if (enabled && !hasModel) setExpanded(true);
-            update('enabled', enabled);
-          }} />
+          onChange={(enabled) => update('enabled', enabled)} />
       </div>
 
       {error && <div role="alert" className="px-3.5 pb-3 text-[12px] text-danger">
         {errorMessage}
         {error.code === 'SUMMARY_SETTINGS_UNSUPPORTED' && onCheckUpdates &&
           <button type="button" onClick={onCheckUpdates} className="ml-2 text-accent hover:underline">检查更新</button>}
-        {error.code !== 'SUMMARY_MODEL_REQUIRED' &&
-          <button type="button" onClick={() => error.action === 'load' ? store.load() : store.flush()}
-            disabled={loading || saving} className="ml-2 hover:underline">重试</button>}
+        <button type="button" onClick={() => error.action === 'load' ? store.load() : store.flush()}
+          disabled={loading || saving} className="ml-2 hover:underline">重试</button>
       </div>}
-      {draft?.model_name && !hasModel && !error &&
-        <div role="status" className="px-3.5 pb-3 text-[12px] text-warn">所选摘要模型不可用，请重新选择模型</div>}
 
       {expanded && draft && <div id="summary-generation-config" className="border-t border-border px-3.5 py-3">
         <label htmlFor="summary-generation-model" className="block mb-1 text-[12px] text-fg-mute">摘要模型</label>
         <div className="flex flex-wrap items-center gap-2">
           <select id="summary-generation-model" value={draft.model_name} disabled={loading}
-            aria-invalid={!!draft.enabled && !hasModel}
             className="min-w-0 flex-1 h-8 px-2 rounded-md text-[12px] border border-border bg-surface-alt text-fg outline-none focus:border-accent disabled:opacity-50"
             onChange={(event) => update('model_name', event.target.value)}>
-            <option value="" disabled>选择摘要模型</option>
-            {draft.model_name && !hasModel && <option value={draft.model_name} disabled>{draft.model_name} · 模型不可用</option>}
+            <option value="">自动</option>
+            {draft.model_name && !hasModel && <option value={draft.model_name} disabled>{draft.model_name}</option>}
             {snapshot.models.map((model) => <option key={model.name} value={model.name}>{model.name}</option>)}
           </select>
           <button type="button" onClick={() => setAddingModel(true)} disabled={loading || saving}

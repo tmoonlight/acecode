@@ -144,11 +144,13 @@ function metricText(metrics, label) {
   return '';
 }
 
-function taskCompleteDisplayText(summary, output) {
+function taskCompleteDisplayText(summary, output, metadata) {
   const metricSummary = metricText(summary?.metrics, 'summary');
   if (metricSummary) return metricSummary;
   const object = String(summary?.object ?? '').trim();
   if (object && object.toLowerCase() !== 'task') return object;
+  // 新版 task_complete 的输出是写给模型的回执,不显示给用户。
+  if (metadata?.wrap_up) return String(metadata.wrap_up.recap ?? '').trim() || '完成';
   const outputText = String(output ?? '').trim();
   return outputText || '完成';
 }
@@ -178,6 +180,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
     output = '',
     hunks = [],
     attachments = [],
+    metadata = null,
     askUserQuestionResult = null,
   } = entry || {};
   const shouldExpandAskResult = isDone
@@ -259,7 +262,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
   const fullToolOutput = shellPresentation?.copyText ?? fullOutput;
   const visibleOutput = expanded ? fullToolOutput : (shellPresentation?.command ?? (outputPreview || currentPartial || tailLines.join('\n') || ''));
   const taskCompleteText = isTaskComplete
-    ? normalizeTaskCompleteMarkdown(taskCompleteDisplayText(summary, output), '完成')
+    ? normalizeTaskCompleteMarkdown(taskCompleteDisplayText(summary, output, metadata), '完成')
     : '';
   const taskCompleteHtml = useMemo(
     () => ({ __html: renderMarkdown(taskCompleteText) }),

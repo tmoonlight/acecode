@@ -78,6 +78,32 @@ TEST_F(StreamCollectorTest, RetainedCallbackCannotAccessCompletedRequest) {
     EXPECT_EQ(*deltas, "first");
 }
 
+TEST_F(StreamCollectorTest, OnlyCompletedSuccessfulConversationUpdatesBackup) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    auto successes = std::make_shared<int>(0);
+    provider->set_successful_chat_observer([successes] { ++*successes; });
+    provider->push_text("answer");
+    collector.collect(provider, {}, progress, 1, sink, nullptr);
+    EXPECT_EQ(*successes, 1);
+    provider->push_text("  \n");
+    collector.collect(provider, {}, progress, 2, sink, nullptr);
+    acecode::StreamEvent partial;
+    partial.type = acecode::StreamEventType::Delta;
+    partial.content = "partial";
+    provider->push_events({partial});
+    collector.collect(provider, {}, progress, 3, sink, nullptr);
+    acecode::ProviderErrorInfo error;
+    error.kind = acecode::ProviderErrorKind::Http;
+    error.display_message = "failed";
+    provider->push_error(error, true, "partial");
+    collector.collect(provider, {}, progress, 4, sink, nullptr);
+    EXPECT_EQ(*successes, 1);
+    abort.flag_for_legacy_api().store(true);
+    provider->push_text("cancelled answer");
+    collector.collect(provider, {}, progress, 5, sink, nullptr);
+    EXPECT_EQ(*successes, 1);
+}
+
 TEST_F(StreamCollectorTest, UsageIsRetainedBeforeAConsumerThrows) {
     // 上层恢复在回调异常后仍能读取已计入的用量,不会被栈展开清空。
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();

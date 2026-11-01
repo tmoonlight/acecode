@@ -378,14 +378,19 @@ TEST_F(SystemPromptTest, PromptCacheDiagnosticsSeparatePromptContextAndTools) {
 
 // 场景:prompt 必须包含 "# Task completion protocol" 段 + 工具名,
 // 并且明确 AskUserQuestion 不是"交还控制权"的工具。
+// task_complete 仿 Claude 桌面版 wrap_up:做了实事的回合在最终消息之后调用,
+// 问题与 1–2 个回复按钮只在轮到用户决定时给;最终消息必须写全,recap 不能代替它。
 TEST_F(SystemPromptTest, TaskCompletionProtocolAppears) {
     acecode::ToolExecutor tools;
     std::string out = acecode::build_system_prompt(tools, temp_home.string());
     EXPECT_NE(out.find("# Task completion protocol"), std::string::npos);
     EXPECT_NE(out.find("task_complete"), std::string::npos);
     EXPECT_NE(out.find("AskUserQuestion"), std::string::npos);
-    EXPECT_NE(out.find("The summary is rendered as Markdown"), std::string::npos);
-    EXPECT_NE(out.find("collapsing everything into one long line"), std::string::npos);
+    EXPECT_NE(out.find("call `task_complete` after your final message"), std::string::npos);
+    EXPECT_NE(out.find("one question with 1-2 reply buttons"), std::string::npos);
+    EXPECT_NE(out.find("Skip it for short answers"), std::string::npos);
+    EXPECT_NE(out.find("its short recap never replaces the final message"), std::string::npos);
+    EXPECT_EQ(out.find("This is NOT required"), std::string::npos);
     // 反对 "should I proceed?" 类 prose 问题
     EXPECT_NE(out.find("Should I proceed"), std::string::npos);
     // 必须说清 AskUserQuestion 不是终止器,是辅助决策工具

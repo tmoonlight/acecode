@@ -17,11 +17,13 @@ inline constexpr const char* kSideChatReadOnlyTools[] = {"file_read", "grep", "g
 // 每次调用依次过:白名单 → 权限规则(Deny 命中即拒,侧边对话没有确认通道)→
 // 与主会话同一套路径校验 → 危险路径拒绝,然后在旁路读取作用域里执行,不碰
 // 主代理的读取基线与重复读取缓存。返回的回调借用全部引用,只能在调用方持有
-// 会话期间同步使用。
+// 会话期间同步使用。send_to_main 非空时另外放出「发到主会话」工具,调用直接
+// 转给它(用户确认与送达都由它负责)。
 SideChatToolset build_side_chat_toolset(ToolExecutor& tools,
                                         PermissionManager& permissions,
                                         WorkspaceBoundary& boundary,
                                         SessionManager* session,
-                                        const ToolCapabilityPolicy& session_policy);
+                                        const ToolCapabilityPolicy& session_policy,
+                                        const SideChatMainSessionSender& send_to_main = {});
 
 } // namespace acecode::agent

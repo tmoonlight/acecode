@@ -366,7 +366,7 @@ TEST(HomeIntentPrompts, SummarySelectionWinsEvenWhenAutoTitleDisabled) {
     ASSERT_TRUE(resolve_home_intent_model(cfg, catalog));
     EXPECT_EQ(resolve_home_intent_model(cfg, catalog)->name, "summary");
     cfg.summary_generation.model_name = "deleted";
-    EXPECT_FALSE(resolve_home_intent_model(cfg, catalog));
+    ASSERT_TRUE(resolve_home_intent_model(cfg, catalog));
 }
 
 TEST(HomeIntentPrompts, FallbackUsesActualActivationNotDefaultOrRenameOrBusyFilter) {
@@ -380,7 +380,7 @@ TEST(HomeIntentPrompts, FallbackUsesActualActivationNotDefaultOrRenameOrBusyFilt
     catalog.entries = {older, recent};
     ASSERT_TRUE(resolve_home_intent_model(cfg, catalog));
     EXPECT_EQ(resolve_home_intent_model(cfg, catalog)->name, "last");
-    EXPECT_FALSE(resolve_home_intent_model(cfg, {}));
+    EXPECT_TRUE(resolve_home_intent_model(cfg, {}));
 }
 
 TEST(HomeIntentPrompts, RejectsInvalidCategorySourceCountAndShape) {

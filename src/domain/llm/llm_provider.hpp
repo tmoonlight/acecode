@@ -326,7 +326,17 @@ public:
 
     virtual bool authenticate() { return true; }
 
+    // Install once during construction, before publishing this provider. The
+    // observer owns its identity snapshot and cannot retain the provider.
+    void set_successful_chat_observer(std::function<void()> observer) {
+        successful_chat_observer_ = std::move(observer);
+    }
+    void record_successful_chat() const noexcept {
+        try { if (successful_chat_observer_) successful_chat_observer_(); } catch (...) {}
+    }
+
 private:
+    std::function<void()> successful_chat_observer_;
     ProviderRetryWaiter retry_waiter_;
 };
 

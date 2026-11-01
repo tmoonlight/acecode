@@ -10952,12 +10952,18 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
     std::mutex request_mutex;
     std::vector<json> requests;
     std::atomic<bool> invalid{false};
+    std::atomic<bool> reject_summary{false};
     LocalUpdateServer upstream([&](httplib::Server& server) {
         server.Post("/v1/chat/completions", [&](const httplib::Request& request, httplib::Response& response) {
             const auto body = json::parse(request.body);
             {
                 std::lock_guard<std::mutex> lock(request_mutex);
                 requests.push_back(body);
+            }
+            if (reject_summary.load() && body.value("model", "") == "intent-summary") {
+                response.status = 400;
+                response.set_content(R"({"error":{"message":"model unavailable"}})", "application/json");
+                return;
             }
             const std::string content = invalid.load() ? "invalid" : json{
                 {"suggestions", json::array({{{"category", "execution"}, {"title", "Finish tests"},
@@ -10970,8 +10976,11 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
         });
     });
     WebServerFixture fx;
+    ScopedHomeOverride isolated_home(fx.tmp_dir / "home");
     {
         std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
+        fx.cfg.saved_models.clear();
+        fx.cfg.default_model_name = "intent-last";
         for (const auto* name : {"intent-summary", "intent-last"}) {
             acecode::ModelProfile profile;
             profile.name = name; profile.provider = "openai"; profile.model = name;
@@ -11023,6 +11032,15 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
     }
     ASSERT_EQ(cpr::Post(url, cpr::Body{"{}"}).status_code, 200);
     { std::lock_guard<std::mutex> lock(request_mutex); EXPECT_EQ(requests.size(), 1u); }
+    auto successful_chat = acecode::create_auto_title_provider(fx.cfg.saved_models.back(), fx.cfg);
+    ASSERT_TRUE(successful_chat);
+    successful_chat->record_successful_chat();
+    reject_summary.store(true);
+    const auto recovered = cpr::Post(url, cpr::Body{R"({"force":true})"}, cpr::Timeout{10000});
+    ASSERT_EQ(recovered.status_code, 200) << recovered.text;
+    EXPECT_EQ(json::parse(recovered.text)["model"], "intent-last");
+    EXPECT_EQ(json::parse(recovered.text)["error"], "");
+    reject_summary.store(false);
     {
         std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
         fx.cfg.summary_generation.model_name.clear();
@@ -11040,6 +11058,7 @@ TEST(WebServerHttp, HomeIntentPromptsUseSummaryThenLastModelAndRetainFailedRefre
 
 TEST(WebServerHttp, HomeIntentPromptsGeneratedStateResetsOnlyForNewConversationContent) {
     WebServerFixture fx;
+    ScopedHomeOverride isolated_home(fx.tmp_dir / "home");
     acecode::SessionManager conversation;
     conversation.start_session(fx.cwd, "test", "test");
     acecode::ChatMessage user; user.role = "user"; user.content = "Review the pending work";
@@ -11120,6 +11139,7 @@ TEST(WebServerHttp, HomeIntentPromptsReadLegacyActivityFromTranscript) {
         });
     });
     WebServerFixture fx;
+    ScopedHomeOverride isolated_home(fx.tmp_dir / "home");
     {
         std::lock_guard<std::shared_mutex> lock(fx.app_config_mu);
         acecode::ModelProfile profile;
@@ -11233,7 +11253,7 @@ TEST(WebServerHttp, SummaryGenerationSettingsPersistAndControlTitleModelLive) {
     ASSERT_EQ(cpr::Put(url, headers, cpr::Body{R"({"enabled":true})"}).status_code, 200);
     ASSERT_EQ(cpr::Delete(cpr::Url{fx.url("/api/models/local-summary")}).status_code, 200);
     EXPECT_FALSE(json::parse(cpr::Get(url).text)["configured"].get<bool>());
-    EXPECT_FALSE(acecode::resolve_auto_title_profile(fx.cfg, "fixture-copilot", fx.cwd));
+    EXPECT_TRUE(acecode::resolve_auto_title_profile(fx.cfg, "fixture-copilot", fx.cwd));
     EXPECT_EQ(cpr::Put(url, headers, cpr::Body{R"({"enabled":false})"}).status_code, 200);
 }
 
@@ -11242,7 +11262,7 @@ TEST(WebServerHttp, SummaryGenerationRejectsInvalidAndFailedWrites) {
     const auto url = cpr::Url{fx.url("/api/config/summary-generation")};
     const cpr::Header headers{{"Content-Type", "application/json"}};
     for (const auto* patch : {"{", "[]", R"({"enabled":"yes"})",
-        R"({"enabled":true})", R"({"model_name":"gone"})"}) {
+        R"({"model_name":"gone"})"}) {
         EXPECT_EQ(cpr::Put(url, headers, cpr::Body{patch}).status_code, 400);
         EXPECT_FALSE(fx.cfg.summary_generation.enabled);
         EXPECT_TRUE(fx.cfg.summary_generation.model_name.empty());
@@ -11251,6 +11271,50 @@ TEST(WebServerHttp, SummaryGenerationRejectsInvalidAndFailedWrites) {
     EXPECT_EQ(cpr::Put(url, headers,
         cpr::Body{R"({"enabled":true,"model_name":"fixture-copilot"})"}).status_code, 500);
     EXPECT_FALSE(fx.cfg.summary_generation.enabled);
+}
+
+TEST(WebServerHttp, SummaryGenerationFallsBackAndRemembersSuccessfulReplacement) {
+    std::atomic<int> rejected{0};
+    std::atomic<int> accepted{0};
+    LocalUpdateServer upstream([&](httplib::Server& server) {
+        server.Post("/v1/chat/completions", [&](const httplib::Request& request, httplib::Response& response) {
+            if (json::parse(request.body).value("model", "") == "broken") {
+                ++rejected;
+                response.status = 400;
+                response.set_content(R"({"error":{"message":"unknown model"}})", "application/json");
+                return;
+            }
+            ++accepted;
+            response.set_content(json{{"choices", json::array({
+                {{"message", {{"role", "assistant"}, {"content", "Recovered title"}}}, {"finish_reason", "stop"}}
+            })}}.dump(), "application/json");
+        });
+    });
+    WebServerFixture fx;
+    ScopedHomeOverride isolated_home(fx.tmp_dir / "home");
+    acecode::AppConfig cfg;
+    for (const auto* name : {"broken", "backup"}) {
+        acecode::ModelProfile profile;
+        profile.name = name; profile.provider = "openai"; profile.model = name;
+        profile.base_url = upstream.base_url() + "v1"; profile.api_key = "local-test-key";
+        cfg.saved_models.push_back(profile);
+    }
+    cfg.summary_generation = {true, "broken"};
+    auto chat = acecode::create_auto_title_provider(cfg.saved_models[1], cfg);
+    ASSERT_TRUE(chat);
+    // Exercise the observer installed with the immutable provider connection.
+    chat->record_successful_chat();
+    EXPECT_EQ(acecode::generate_auto_session_title_with_fallback(cfg.saved_models[0], "Fix tests", cfg), "Recovered title");
+    EXPECT_EQ(rejected.load(), 1);
+    EXPECT_EQ(accepted.load(), 1);
+    EXPECT_EQ(acecode::generate_auto_session_title_with_fallback(cfg.saved_models[0], "Next task", cfg), "Recovered title");
+    EXPECT_EQ(rejected.load(), 1);
+    EXPECT_EQ(accepted.load(), 2);
+    EXPECT_FALSE(acecode::generate_auto_session_title_with_fallback(
+        cfg.saved_models[0], "Cancelled task", cfg, [] { return true; }));
+    EXPECT_EQ(accepted.load(), 2);
+    cfg.summary_generation.model_name.clear();
+    EXPECT_EQ(acecode::resolve_auto_title_profile(cfg, "broken", "")->name, "backup");
 }
 
 TEST(WebServerHttp, ImageGenerationSettingsPersistSecretsAndRefreshToolsLive) {

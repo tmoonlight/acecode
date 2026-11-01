@@ -243,6 +243,15 @@ TEST(ToolRowFormatTest, TaskCompleteMarkdownPrefersRawSummaryMetric) {
         "- output fallback");
 }
 
+// 场景:task_complete 带了「下一步」框的问题(ask 指标)。TUI 没有框和按钮。
+// 期望:问题加粗接在总结后面,用户直接在输入框回答;不能因为没有框就丢掉问题。
+TEST(ToolRowFormatTest, TaskCompleteMarkdownAppendsNextStepQuestion) {
+    auto msg = make_msg("tool_result", "Shown in the next-step box.");
+    msg.summary = ToolSummary{
+        "complete", "task", {{"summary", "修好了,还没提交。"}, {"ask", "现在提交吗?"}}, "D"};
+    EXPECT_EQ(task_complete_summary_markdown(msg), "修好了,还没提交。\n\n**现在提交吗?**");
+}
+
 // ---- compute_tool_call_dots ----
 
 // 场景:最常见的串行执行 —— call → result 成对相邻。

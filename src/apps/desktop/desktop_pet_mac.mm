@@ -60,21 +60,6 @@ std::size_t desktop_pet_page_size();
 } // namespace acecode
 
 namespace acecode::desktop {
-namespace {
-
-constexpr int kLogicalDpi = 96;
-constexpr double kDefaultLogicalScale = 1.25;   // 约 430×315 点,与 Windows 150% 下的逻辑大小相当
-constexpr double kZoomStep = 1.1;
-constexpr NSTimeInterval kHoverPollSeconds = 1.0 / 30.0;
-constexpr NSTimeInterval kGesturePollSeconds = 1.0 / 60.0;
-constexpr NSTimeInterval kRevealFallbackSeconds = 3.0;
-constexpr std::size_t kMaxActionBytes = 16384;
-
-enum MenuCommand : NSInteger { kMenuDock = 1, kMenuHide, kMenuZoomIn, kMenuZoomOut, kMenuResetSize, kMenuPin,
-                               kMenuPetKindBase = 100 /* + index into kDesktopPetKinds */ };
-
-} // namespace
-
 // GUI 线程上的全部状态;ObjC 回调只持有它的 weak_ptr。
 class PetController : public std::enable_shared_from_this<PetController> {
 public:
@@ -98,6 +83,7 @@ public:
     void update_cursor();
     void menu_command(NSInteger command);
     void screens_changed();
+    bool accepts_mini_input() const { return mini_input_; }
 
 private:
     void publish_snapshot();
@@ -108,6 +94,9 @@ private:
     void settle_dock();
     DesktopPetPlacement keep_docked(DesktopPetPlacement next, const DesktopPetRect& work) const;
     void set_pinned(bool pinned);
+    void set_mini_input(bool active);
+    void set_mini_popup(bool active, const std::string& request_id = {});
+    double preferred_scale() const { return desktop_pet_preferred_scale(pet_kind_, logical_scale_, kDefaultLogicalScale); }
     void office_action(const std::string& message);
     void reveal();
     void apply_placement(const DesktopPetPlacement& next);
@@ -130,6 +119,10 @@ private:
     WebHost& host_;   // DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot_ = {{"follow", true}};
     std::string pet_kind_ = "office";
+    bool mini_input_ = false;
+    bool mini_popup_ = false;
+    bool mini_layout_pending_ = false;
+    DesktopPetRect mini_compact_;
     std::vector<DesktopPetOverlay> overlays_;
     std::vector<DesktopPetOverlay> foreground_overlays_;
     DesktopPetOverlay resize_grip_{};
@@ -181,7 +174,8 @@ using acecode::desktop::PetController;
     if (controller) controller->poll_hover();
 }
 - (BOOL)canBecomeKeyWindow {
-    return NO;
+    const auto controller = _controller.lock();
+    return controller && controller->accepts_mini_input() ? YES : NO;
 }
 - (BOOL)canBecomeMainWindow {
     return NO;
@@ -306,9 +300,9 @@ void PetController::update_snapshot(const nlohmann::json& value) {
 }
 
 bool PetController::start() {
-    logical_scale_ = load_logical_scale();
+    logical_scale_ = load_logical_scale(pet_kind_);
     const DesktopPetPlacement placement = place_desktop_pet(
-        work_area(), kLogicalDpi, logical_scale_ > 0.0 ? logical_scale_ : kDefaultLogicalScale);
+        work_area(), kLogicalDpi, preferred_scale());
 
     panel_ = [[ACECodeDesktopPetPanel alloc]
         initWithContentRect:cocoa_rect(placement.window)
@@ -451,10 +445,16 @@ void PetController::deliver(const nlohmann::json& value) {
 
 void PetController::set_pet_kind(const std::string& kind) {
     if (pet_kind_ == kind) return;
-    const bool same_page = pet_kind_ != "office" && kind != "office";
+    if (mini_popup_) set_mini_popup(false);
+    set_mini_input(false);
+    const bool resize_kind = kind == "mini" || pet_kind_ == "mini";
+    const bool same_page = desktop_pet_shares_page(pet_kind_, kind);
     pet_kind_ = kind;
+    if (resize_kind) logical_scale_ = load_logical_scale(kind);
     if (!desktop_pet_has_edge_peek(kind)) docked_side_ = 0;   // 虚拟办公室没有趴边偷看的样子
     if (!webview_ || closed_) return;
+    if (resize_kind && revealed_)
+        apply_placement(resize_desktop_pet(window_rect(), kLogicalDpi, work_area(), preferred_scale()));
     end_gesture();
     overlays_.clear();
     foreground_overlays_.clear();
@@ -506,7 +506,7 @@ void PetController::publish_drag(const char* phase, const char* direction) {
 }
 
 void PetController::publish_character() {
-    if (!closed_ && page_ready_ && pet_kind_ != "office") deliver(desktop_pet_character(pet_kind_));
+    if (!closed_ && page_ready_ && desktop_pet_has_edge_peek(pet_kind_)) deliver(desktop_pet_character(pet_kind_));
 }
 
 void PetController::publish_snapshot() {
@@ -523,6 +523,7 @@ void PetController::on_web_message(const std::string& message) {
         publish_snapshot();
         deliver({{"type", "pet-window-state"}, {"pinned", pinned_}});
         publish_dock();
+        if (mini_popup_) set_mini_popup(true);
     } else if (!message.empty() && message.front() == '{') {
         office_action(message);
     } else if (message == "drag") {
@@ -547,6 +548,40 @@ void PetController::on_web_message(const std::string& message) {
     }
 }
 
+void PetController::set_mini_popup(bool active, const std::string& request_id) {
+    if (pet_kind_ != "mini" || !panel_ || closed_) return;
+    if (active && !mini_popup_) mini_compact_ = window_rect();
+    const auto work = work_area();
+    if (active || mini_popup_) {
+        mini_popup_ = active;
+        mini_layout_pending_ = true;
+        panel_.alphaValue = 0.0;
+        overlays_.clear(); foreground_overlays_.clear();
+        const auto target = active ? work : keep_desktop_pet_in_work_area(mini_compact_, work);
+        [panel_ setFrame:cocoa_rect(target) display:YES];
+    }
+    nlohmann::json message = {{"type", "mini-popup-layout"}, {"expanded", active}, {"request_id", request_id}};
+    if (active && work.width > 0 && work.height > 0)
+        message["anchor"] = {{"left", double(mini_compact_.x - work.x) / work.width},
+            {"top", double(mini_compact_.y - work.y) / work.height},
+            {"width", double(mini_compact_.width) / work.width}, {"height", double(mini_compact_.height) / work.height}};
+    deliver(message);
+}
+
+void PetController::set_mini_input(bool active) {
+    if (active && mini_popup_) set_mini_popup(false);
+    mini_input_ = active && pet_kind_ == "mini";
+    if (!panel_) return;
+    panel_.becomesKeyOnlyIfNeeded = !mini_input_;
+    if (mini_input_) {
+        [panel_ makeKeyWindow];
+        [panel_ makeFirstResponder:webview_];
+        deliver({{"type", "mini-input-focus"}});
+    } else if (panel_.isKeyWindow) {
+        [panel_ resignKeyWindow];
+    }
+}
+
 void PetController::office_action(const std::string& message) {
     if (message.size() > kMaxActionBytes) return;
     const auto value = nlohmann::json::parse(message, nullptr, false);
@@ -554,6 +589,18 @@ void PetController::office_action(const std::string& message) {
     const auto type_field = value.find("type");
     if (type_field == value.end() || !type_field->is_string()) return;
     const auto type = type_field->get<std::string>();
+    if (message.size() > 16384 && !desktop_pet_is_mini_action(type)) return;
+    if (type == "mini-input") {
+        const auto active = value.find("active");
+        if (pet_kind_ == "mini" && active != value.end() && active->is_boolean()) set_mini_input(active->get<bool>());
+        return;
+    }
+    if (type == "mini-popup") {
+        const auto active = value.find("expanded"), request = value.find("request_id");
+        if (active != value.end() && active->is_boolean() && request != value.end() && request->is_string())
+            set_mini_popup(active->get<bool>(), request->get<std::string>().substr(0, 100));
+        return;
+    }
     if (type == "pin") {
         const auto field = value.find("pinned");
         if (field == value.end() || !field->is_boolean()) return;
@@ -569,6 +616,8 @@ void PetController::office_action(const std::string& message) {
         return;
     }
     if (type == "overlay") {
+        const auto popup = value.find("popup");
+        if (pet_kind_ == "mini" && (popup == value.end() || !popup->is_boolean() || popup->get<bool>() != mini_popup_)) return;
         overlays_ = desktop_pet_overlays_from_message(value);
         const auto grips = desktop_pet_overlays_from_message({{"rect", value.value("grip", nlohmann::json())}});
         resize_grip_ = grips.empty() ? DesktopPetOverlay{} : grips.front();
@@ -578,12 +627,18 @@ void PetController::office_action(const std::string& message) {
         foreground.erase("bubbles");
         foreground.erase("grip");
         foreground_overlays_ = desktop_pet_overlays_from_message(foreground);
+        if (mini_layout_pending_) {
+            mini_layout_pending_ = false;
+            panel_.alphaValue = revealed_ ? 1.0 : 0.0;
+        }
         return;
     }
     // 双击任何宠物都激活主窗口(与系统通知点击相同);带会话时再交给主页面切换到该会话。
-    if (type == "activate" || type == "open") mac_bring_window_foreground(host_.native_window());
+    if (desktop_pet_action_activates_main(type))
+        mac_bring_window_foreground(host_.native_window());
     // stop / read 来自陪伴宠物的会话卡片(停止该会话的回合、把完成结果标为已读)。
-    if (type != "select" && type != "follow" && type != "open" && type != "stop" && type != "read") return;
+    if (type != "select" && type != "follow" && type != "open" && type != "stop" && type != "read" &&
+        !(pet_kind_ == "mini" && desktop_pet_is_mini_action(type))) return;
     host_.eval("window.dispatchEvent(new CustomEvent('ace-desktop-office-action',{detail:" +
                value.dump() + "}));");
 }
@@ -609,7 +664,7 @@ void PetController::apply_placement(const DesktopPetPlacement& next) {
 }
 
 void PetController::notify_size() {
-    const double base = kDefaultLogicalScale;
+    const double base = desktop_pet_preferred_scale(pet_kind_, 0.0, kDefaultLogicalScale);
     const int percent = static_cast<int>(std::lround(current_scale() / base * 100.0));
     deliver("size " + std::to_string(percent));
 }
@@ -623,32 +678,36 @@ void PetController::apply_scale(double scale, double fx, double fy) {
 }
 
 void PetController::zoom_by(int steps, double fx, double fy) {
+    if (mini_popup_) set_mini_popup(false);
     if (!revealed_ || closed_ || steps == 0) return;
     // 停在右下角时锚在右下角(缩放后还贴着角);拖动过之后以鼠标所在点为中心。
     if (!user_moved_) { fx = 1.0; fy = 1.0; }
     apply_scale(current_scale() * std::pow(kZoomStep, steps), fx, fy);
-    save_logical_scale(logical_scale_);
+    save_logical_scale(logical_scale_, pet_kind_);
 }
 
 void PetController::reset_size() {
+    if (mini_popup_) set_mini_popup(false);
     if (!revealed_ || closed_) return;
     logical_scale_ = 0.0;
-    save_logical_scale(0.0);
+    save_logical_scale(0.0, pet_kind_);
     if (!user_moved_) dock_to_corner();
-    else apply_placement(keep_docked(scale_desktop_pet(window_rect(), kDefaultLogicalScale, 1.0, 1.0, work_area()), work_area()));
+    else apply_placement(keep_docked(scale_desktop_pet(window_rect(), preferred_scale(), 1.0, 1.0, work_area()), work_area()));
     notify_size();
 }
 
 void PetController::dock_to_corner() {
+    if (mini_popup_) set_mini_popup(false);
     if (docked_side_) {
         docked_side_ = 0;
         publish_dock();
     }
     apply_placement(place_desktop_pet(work_area(), kLogicalDpi,
-                                      logical_scale_ > 0.0 ? logical_scale_ : kDefaultLogicalScale));
+                                      preferred_scale()));
 }
 
 void PetController::screens_changed() {
+    if (mini_popup_) set_mini_popup(false);
     if (closed_ || !revealed_) return;
     if (!user_moved_) {
         dock_to_corner();
@@ -674,6 +733,7 @@ void PetController::mouse_event(NSEvent* event) {
 
 void PetController::begin_gesture(bool resize) {
     if (!revealed_ || closed_ || !mouse_pressed_ || dragging_ || resizing_) return;
+    if (mini_popup_) { set_mini_popup(false); gesture_start_ = window_rect(); }
     // The bridge is asynchronous: a request can arrive after the native up.
     if (([NSEvent pressedMouseButtons] & 1) == 0) {
         end_gesture();
@@ -707,7 +767,7 @@ void PetController::end_gesture() {
         user_moved_ = true;
         publish_drag("end");
     }
-    if (resizing_) save_logical_scale(logical_scale_);
+    if (resizing_) save_logical_scale(logical_scale_, pet_kind_);
     dragging_ = false;
     resizing_ = false;
     mouse_pressed_ = false;
@@ -820,6 +880,7 @@ void PetController::update_cursor() {
 }
 
 void PetController::show_menu() {
+    if (mini_popup_) set_mini_popup(false);
     if (closed_ || !panel_) return;
     end_gesture();
     const bool zh = chinese_ui();

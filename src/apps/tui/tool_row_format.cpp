@@ -248,12 +248,16 @@ bool is_task_complete_result(const TuiState::Message& msg,
 
 std::string task_complete_summary_markdown(const TuiState::Message& msg) {
     if (msg.summary.has_value()) {
+        std::string summary;
+        std::string ask;
         for (const auto& metric : msg.summary->metrics) {
-            if (ascii_lower(trim_ascii_whitespace(metric.first)) == "summary" &&
-                has_non_whitespace(metric.second)) {
-                return metric.second;
-            }
+            const std::string key = ascii_lower(trim_ascii_whitespace(metric.first));
+            if (!has_non_whitespace(metric.second)) continue;
+            if (key == "summary" && summary.empty()) summary = metric.second;
+            if (key == "ask" && ask.empty()) ask = metric.second;
         }
+        // TUI 没有 Web 的「下一步」框:问题接在总结后面,用户直接在输入框回答。
+        if (!summary.empty()) return ask.empty() ? summary : summary + "\n\n**" + ask + "**";
 
         const auto& object = msg.summary->object;
         if (has_non_whitespace(object) &&

@@ -2,6 +2,7 @@
 
 #include "session_host/session_registry.hpp"
 #include "session/system_notice.hpp"
+#include "tool/task_complete_tool.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
@@ -150,19 +151,17 @@ OutboundEventAction classify_session_event(SessionEventKind kind,
     }
 
     if (kind == SessionEventKind::ToolStart) {
-        // 工具调用一律不出站,唯一例外:task_complete —— 把它的 summary 全文
-        // 作为文本回传(不是 "[工具] …" 摘要、不是 JSON 串)。
+        // 工具调用一律不出站,唯一例外:task_complete —— 把它的 summary 全文(带「下一步」
+        // 框的问题与按钮文字)作为文本回传(不是 "[工具] …" 摘要、不是 JSON 串)。
         const bool is_task_complete =
             payload.value("is_task_complete", false) ||
             payload.value("tool", std::string{}) == "task_complete";
         if (!is_task_complete) return action;  // 其余工具:抑制
         if (!payload.contains("args") || !payload["args"].is_object()) return action;
-        const auto& args = payload["args"];
-        if (!args.contains("summary") || !args["summary"].is_string()) return action;
-        std::string summary = args["summary"].get<std::string>();
-        if (summary.empty() || is_blank(summary)) return action;
+        std::string text = task_complete_plain_text(payload["args"].dump());
+        if (text.empty()) return action;
         action.kind = OutboundEventAction::Kind::AssistantText;
-        action.text = std::move(summary);
+        action.text = std::move(text);
         return action;
     }
 

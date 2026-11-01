@@ -71,12 +71,14 @@ TEST(SummaryGeneration, OverrideWinsAndPreservesFullProviderConfiguration) {
     EXPECT_EQ(resolve_auto_title_profile(config, "legacy", "")->name, "chat");
 }
 
-TEST(SummaryGeneration, MissingEnabledModelNeverFallsBackToChat) {
+TEST(SummaryGeneration, MissingEnabledModelFallsBackToChat) {
     auto config = summary_config();
     config.session_title.model_name = "legacy";
     for (const auto* name : {"deleted", ""}) {
         config.summary_generation = {true, name};
-        EXPECT_FALSE(resolve_auto_title_profile(config, "chat", ""));
+        const auto selected = resolve_auto_title_profile(config, "chat", "");
+        ASSERT_TRUE(selected);
+        EXPECT_EQ(selected->name, "chat");
     }
 }
 
@@ -92,7 +94,7 @@ TEST(SummaryGeneration, PublicSettingsAndAtomicValidation) {
     EXPECT_EQ(before.dump().find("fixture-secret"), std::string::npos);
     for (const auto& patch : std::vector<json>{
         json::array(), {{"enabled", "true"}}, {{"model_name", 2}},
-        {{"model_name", "missing"}}, {{"model_name", ""}},
+        {{"model_name", "missing"}},
         {{"enabled", false}, {"api_key", "never-echo-this"}},
     }) {
         EXPECT_FALSE(apply_summary_generation_settings(config, patch, error));
@@ -102,6 +104,8 @@ TEST(SummaryGeneration, PublicSettingsAndAtomicValidation) {
     }
     EXPECT_EQ(config.default_model_name, "chat");
     EXPECT_TRUE(config.session_title.enabled);
+    EXPECT_TRUE(apply_summary_generation_settings(config, {{"model_name", ""}}, error));
+    EXPECT_TRUE(config.summary_generation.enabled);
 }
 
 TEST(SummaryGeneration, DeletedReferenceCanBeDisabledAndSelectionRetained) {
@@ -112,8 +116,8 @@ TEST(SummaryGeneration, DeletedReferenceCanBeDisabledAndSelectionRetained) {
     std::string error;
     ASSERT_TRUE(apply_summary_generation_settings(config, {{"enabled", false}}, error));
     EXPECT_EQ(config.summary_generation.model_name, "summary");
-    EXPECT_FALSE(apply_summary_generation_settings(config, {{"enabled", true}}, error));
-    EXPECT_FALSE(config.summary_generation.enabled);
+    EXPECT_TRUE(apply_summary_generation_settings(config, {{"enabled", true}}, error));
+    EXPECT_TRUE(config.summary_generation.enabled);
     EXPECT_TRUE(apply_summary_generation_settings(config, {{"model_name", "chat"}}, error));
     EXPECT_TRUE(apply_summary_generation_settings(config, {{"enabled", true}}, error));
 }

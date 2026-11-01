@@ -67,4 +67,44 @@ void SessionRegistry::refresh_skill_policy(const AppConfig& config) {
     }
 }
 
+std::size_t SessionRegistry::refresh_sandbox_config(const SandboxConfig& sandbox) {
+    auto snapshot = std::make_shared<SandboxConfig>(sandbox);
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+    std::size_t queued = 0;
+    for (const auto& entry : targets) {
+        const auto receipt = enqueue_entry_control(entry,
+            [snapshot](SessionRegistry&, SessionEntry& active) {
+                active.loop->set_sandbox_config(*snapshot);
+                return true;
+            });
+        (void)receipt;
+        ++queued;
+    }
+    return queued;
+}
+
+std::size_t SessionRegistry::refresh_tool_preamble_config(const ToolPreambleConfig& cfg) {
+    std::vector<std::shared_ptr<SessionEntry>> targets;
+    {
+        std::lock_guard<std::mutex> lk(mu_);
+        targets.reserve(entries_.size());
+        for (const auto& [id, entry] : entries_) {
+            (void)id;
+            if (entry && entry->loop) targets.push_back(entry);
+        }
+    }
+    for (const auto& entry : targets) {
+        entry->loop->set_tool_preamble_config(cfg);
+    }
+    return targets.size();
+}
+
 } // namespace acecode

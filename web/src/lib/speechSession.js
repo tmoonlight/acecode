@@ -55,7 +55,9 @@ export function createSpeechSession({ capture, transcribe, cancelRequest, onStat
       publish({ phase: 'transcribing' });
       releaseOwner();
       try {
-        const audio = session.recorder.stop();
+        const stopped = session.recorder.stop();
+        const audio = stopped && typeof stopped.then === 'function' ? await stopped : stopped;
+        if (!current(session)) return;
         session.recorder = null;
         const result = await transcribe(session.id, audio, {
           signal: session.controller.signal, timeoutMs: session.config.timeout_ms + 10000,

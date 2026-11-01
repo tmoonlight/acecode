@@ -353,10 +353,44 @@ TEST(DesktopPetLayout, CompanionPetsHaveEdgePeekButTheOfficeDoesNot) {
     EXPECT_TRUE(desktop_pet_has_edge_peek("rover"));
     EXPECT_TRUE(desktop_pet_has_edge_peek("whale"));
     EXPECT_FALSE(desktop_pet_has_edge_peek("office"));
+    EXPECT_FALSE(desktop_pet_has_edge_peek("mini"));
     EXPECT_FALSE(desktop_pet_has_edge_peek(""));
     EXPECT_FALSE(desktop_pet_has_edge_peek("Whale"));
     for (const auto& kind : kDesktopPetKinds)
-        EXPECT_EQ(desktop_pet_has_edge_peek(kind.id), std::string_view(kind.id) != "office") << kind.id;
+        EXPECT_EQ(desktop_pet_has_edge_peek(kind.id), std::string_view(kind.id) != "office" && std::string_view(kind.id) != "mini") << kind.id;
+}
+
+TEST(DesktopPetLayout, MiniIsValidButRequiresItsOwnPage) {
+    EXPECT_TRUE(desktop_pet_valid_kind("mini"));
+    EXPECT_FALSE(desktop_pet_valid_kind("Mini"));
+    EXPECT_FALSE(desktop_pet_valid_kind("unknown"));
+    for (const auto& from : kDesktopPetKinds) {
+        for (const auto& to : kDesktopPetKinds) {
+            const bool same = std::string_view(from.id) == to.id;
+            const bool animated = desktop_pet_has_edge_peek(from.id) && desktop_pet_has_edge_peek(to.id);
+            EXPECT_EQ(desktop_pet_shares_page(from.id, to.id), same || animated);
+        }
+    }
+}
+
+TEST(DesktopPetLayout, MiniInputActionsNeverActivateMainWindow) {
+    for (const auto* type : {"mini-input", "mini-submit", "mini-record-start", "mini-record-stop",
+                             "mini-record-cancel", "mini-file-begin", "mini-file-chunk", "mini-file-end", "mini-file-remove"})
+        EXPECT_FALSE(desktop_pet_action_activates_main(type)) << type;
+    EXPECT_TRUE(desktop_pet_action_activates_main("open"));
+    EXPECT_TRUE(desktop_pet_action_activates_main("activate"));
+    EXPECT_TRUE(desktop_pet_is_mini_action("mini-submit"));
+    EXPECT_FALSE(desktop_pet_is_mini_action("mini-unknown"));
+}
+
+TEST(DesktopPetLayout, MiniDefaultsToComposerLogicalScaleAndKeepsSeparateZoom) {
+    EXPECT_DOUBLE_EQ(desktop_pet_preferred_scale("mini", 0.0), 1.0);
+    EXPECT_DOUBLE_EQ(desktop_pet_preferred_scale("mini", 0.0, 1.25), 1.0);
+    EXPECT_DOUBLE_EQ(desktop_pet_preferred_scale("mini", 0.8), 0.8);
+    EXPECT_DOUBLE_EQ(desktop_pet_preferred_scale("rover", 0.0), 0.0);
+    EXPECT_DOUBLE_EQ(desktop_pet_preferred_scale("rover", 0.0, 1.25), 1.25);
+    EXPECT_STREQ(desktop_pet_scale_file("mini"), "mini-settings.json");
+    EXPECT_STREQ(desktop_pet_scale_file("rover"), "settings.json");
 }
 
 // 场景:吸附时窗口有一部分在工作区外(右边越界、上下越界)。

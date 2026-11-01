@@ -1307,11 +1307,12 @@ int main(int argc, char** argv) {
         bool expected = false;
         if (!page_ready_notified.compare_exchange_strong(expected, true)) return;
         startup_splash_open = false;
-        splash.close();
-        host.set_visible(true);
+        // 先在启动浮窗上播完 'A>' 收尾,再显示主窗口;回调可能在浮窗的绘制线程上触发,
+        // 经 dispatch 回到主线程。
+        splash.finish([&host] { host.dispatch([&host] { host.set_visible(true); }); });
     };
 
-    // 前端首屏完成后关闭 Win32 透明 logo splash,再把屏幕外的主窗口移回前台。
+    // 前端首屏完成后让启动浮窗收尾,再把屏幕外的主窗口移回前台。
     host.bind("aceDesktop_pageReady", [&](const std::string& /*req*/) -> std::string {
         mark_startup("dom_ready", "frontend");
         close_splash_once();
@@ -2202,8 +2203,8 @@ int main(int argc, char** argv) {
     // navigate 前注入 JS: hook console + window 错误事件 → 全部转发回 native。
     // 故意不 hook console.log / console.info,避免噪音(可在前端代码里需要时
     // 显式调 aceDesktop_logFromWeb('info', ...))。
-    // 系统文件拖放。macOS 附带实际释放坐标,由前端 router 命中唯一目标；
-    // Windows 与旧 bridge 保持路径数组 + 最近 hover 的兼容行为。Linux 由前端
+    // 系统文件拖放。macOS 和 Windows 旧 Runtime 的 OLE 接收层附带释放坐标，
+    // 由前端 router 命中唯一目标；其余 bridge 保留路径数组 + 最近 hover。Linux 由前端
     // text/uri-list 进入同一个 filesystem-item materialize bridge。
     host.set_file_drop_handler([&host](
                                    std::vector<std::string> paths,
@@ -2761,6 +2762,8 @@ int main(int argc, char** argv) {
 
     // 5. Run the GUI message loop.
     host.run();
+    // 浮窗收尾的回调引用 host,在 host 析构前停掉它。
+    splash.close();
 
     // 6. quit:写 last_active + stop_all
     {

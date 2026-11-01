@@ -328,6 +328,8 @@ download when nothing changed.
 | GET | `/api/sessions/:id/attachments/:attachment_id/blob` | download attachment bytes |
 | POST | `/api/sessions/:id/commands` | run daemon builtin slash command |
 | POST | `/api/sessions/:id/side-question` | run isolated one-turn `/btw` question |
+| POST | `/api/sessions/:id/follow-up-prompt` | generate one tool-free composer suggestion for a completed turn |
+| POST | `/api/sessions/:id/side-chat/send` | send a side chat message to the main session (steer or new turn) |
 | PUT | `/api/sessions/:id/expert` | switch the active session expert for subsequent turns |
 | DELETE | `/api/sessions/:id/expert` | clear the persisted/UI expert binding without rebuilding live context |
 | GET | `/api/experts` | list expert components for a workspace |
@@ -1948,6 +1950,30 @@ input is **not** committed; clients should fall back to the ordinary send or
 queue path. `400 QUESTION_REQUEST_ID_REQUIRED` is returned when `request_id`
 is missing. All other codes match `/turn/steer`.
 
+### `POST /api/sessions/:id/follow-up-prompt`
+
+Requests an optional next user message for an active, idle session. The body is
+`{"completion_key":"<user_message_uuid>:<completed_at_ms>"}`, using the latest
+persisted `turn_timing` record with `status: "completed"`. Loading/running,
+aborted and failed turns are ineligible. The server checks the identity both
+before and after generation and returns `409 STALE_COMPLETION` if it changed.
+Invalid keys return 400; unknown active sessions return 404.
+
+A successful response is `{"completion_key":"...","prompt":"Run the tests."}`.
+The prompt can be empty when context or a usable model answer is unavailable.
+Generation uses bounded recent visible messages, the summary-model fallback
+chain (with the current session model as context), a separate tool-free provider
+request and a 15-second model budget. It does not call tools, append messages,
+change the main provider or start a turn. No transcript/provider text is included
+in errors. Before calling this endpoint, clients wait for successful current-session
+draft restoration and skip that completion if there is unsent text (including
+whitespace), structured draft content, attachments or context. Clearing that draft
+does not backfill a skipped request; historical chat messages do not count as drafts.
+Clients deduplicate by backend/workspace/session/completion for their
+application lifetime, ignore stale responses and only turn the suggestion into
+draft content after explicit acceptance. Existing side-question and task-card
+endpoints keep their behavior.
+
 ### `POST /api/sessions/:id/side-question`
 
 Runs one isolated `/btw` or `/side` side question against the active session's
@@ -2048,10 +2074,27 @@ Start a request with:
 }
 ```
 
-`request_id` must contain 1–128 UTF-8 bytes; `question` is limited to 16,000
-UTF-8 bytes. Optional `history` contains at most 200 messages and 256 KiB of
-combined content, alternating nonempty text-only `user`/`assistant` pairs.
-No tool, system, attachment, or additional message fields are accepted.
+`request_id` must contain 1–128 UTF-8 bytes. Legacy text-only `question` is
+limited to 16,000 UTF-8 bytes. Rich clients also supply `input`, using the main
+input contract: `text`, `attachments` (stored attachment IDs), `contexts`,
+`session_references`, and `composer_content`. Input objects are bounded to 2 MiB;
+resolved current text is bounded to 256 KiB. Attachment-only input is valid.
+The shared main-input parser resolves ownership-checked file/image attachments
+and session references without submitting a main turn. Worktree intent and raw
+resolved `content_parts`/metadata are rejected.
+
+Optional `history` contains at most 200 messages and 256 KiB of resolved text,
+alternating `user`/`assistant` pairs. A historical user message may include its
+original `input`; the server resolves it through the same parser, preserving
+images for follow-ups. Assistant messages accept only text role/content. Tool
+and system messages and other additional message fields are rejected.
+
+Optional `model_name` selects a saved profile for this side request; optional
+`reasoning_effort` uses the profile's supported settings. The provider is owned
+by the side request and never installed into the main session. Invalid or
+unavailable choices return `SIDE_CHAT_MODEL_UNAVAILABLE`. Omitting `model_name`
+preserves the legacy main-provider snapshot behavior. Queued clients snapshot
+the model and rich input at submission time.
 Clients include successful answers and nonempty stopped answers in subsequent
 history; failed or empty stopped turns stay local to the floating transcript.
 
@@ -2090,6 +2133,54 @@ answer stays readable Markdown.
 that step's preceding `side_chat_tool` frames stays. `side_chat_done` includes
 the authoritative accumulated answer. On error, clients retain already received
 text for display but exclude the failed turn from follow-up context.
+
+#### Sending to the main session
+
+The streaming side chat model also has a `send_to_main_session(message)` tool,
+for when the user asks it to pass something to the main agent (the main agent
+cannot see the side conversation). Nothing is delivered until the user
+confirms. The tool call first reports `side_chat_tool` (`running`), then:
+
+```json
+{"type":"side_chat_send_request","payload":{"request_id":"unique-request-id","send_id":"send-…","call_id":"call_1","message":"Drafted message"}}
+```
+
+The client answers on the same connection, with the possibly edited text:
+
+```json
+{"type":"side_chat_send_decision","payload":{"request_id":"unique-request-id","send_id":"send-…","decision":"send","message":"Edited message"}}
+{"type":"side_chat_send_decision","payload":{"request_id":"unique-request-id","send_id":"send-…","decision":"cancel"}}
+```
+
+The tool waits until it gets an answer or the side request ends (stop or
+disconnect). Then the daemon delivers the message and reports the outcome to
+both the window and the model:
+
+```json
+{"type":"side_chat_send_result","payload":{"request_id":"unique-request-id","send_id":"send-…","status":"steered","message":""}}
+```
+
+`status` is `steered` (the main session was running a turn; the message is
+added to that turn and read at its next model step, without interrupting it),
+`started` (the main session was idle and starts a new turn), `queued` (the main
+session is busy with work that does not accept steering; the message runs as
+its next turn), `cancelled` (the user declined), or `unknown_session` /
+`unavailable` with `message` explaining why. Decisions with an unknown
+`send_id` or for a finished request are ignored; malformed ones return
+`INVALID_SIDE_CHAT_SEND`.
+
+The delivered message is a user message in the main session. Its model-facing
+content starts with a line noting it came from the user's side chat;
+`metadata.display_text` holds the text as sent and `metadata.side_chat` is
+`true`, which the Web UI shows as "From side chat". The same delivery is
+available without a model call, for the side window's "send to main session"
+action on an answer:
+
+```text
+POST /api/sessions/:id/side-chat/send   {"message": "…"}
+200 {"delivery": "steered" | "started" | "queued"}
+400 INVALID_SIDE_CHAT_SEND · 404 UNKNOWN_SESSION · 503 SIDE_CHAT_SEND_UNAVAILABLE
+```
 
 Send `{"type":"side_chat_stop","payload":{"request_id":"unique-request-id"}}`
 to cancel only that side request, including its retry backoff. The terminal
@@ -4198,8 +4289,9 @@ are included. Reads and writes require the normal API authentication and return
 `Cache-Control: no-store`.
 
 `PUT /api/config/summary-generation` accepts a partial object containing only
-`enabled` (boolean) and `model_name` (string). Enabling requires an existing
-saved model. Invalid patches return `400 BAD_REQUEST`; malformed JSON returns
+`enabled` (boolean) and `model_name` (string). An empty model name enables automatic
+selection; an existing removed reference can be retained. Newly submitted unknown
+model names and invalid patches return `400 BAD_REQUEST`; malformed JSON returns
 `400 BAD_JSON`. Atomic persistence failures return `500 PERSIST_FAILED` and do
 not change the live configuration. Unrelated settings are preserved by reloading
 the latest disk configuration inside the config mutation lock.
@@ -4207,8 +4299,14 @@ the latest disk configuration inside the config mutation lock.
 When enabled, subsequent automatic-title attempts use this model before all
 session, workspace, default and legacy `session_title.model_name` selections.
 Each daemon title request captures its configuration before running. A removed
-summary model gives `configured: false` and title generation skips that attempt
-without substituting another model. Disabling retains `model_name` and restores
+summary model gives `configured: false` and generation silently tries the last
+successful conversation model, then contextual/default/other saved models. Failed
+requests also use this fallback; a successful replacement is reused until the
+preferred configuration changes or the replacement fails. Runtime success records
+contain opaque connection identities, not credentials or transcript content.
+The same recovery policy applies to home intent generation and enabled memory
+summaries (which retain their own preferred-model setting).
+Disabling retains `model_name` and restores
 the previous title-resolution behavior, including the legacy override. This
 setting does not change the conversation model or disable automatic titles.
 
@@ -5419,6 +5517,24 @@ For a successful `task_complete` call, the `tool_end` payload also includes
 trajectory/replay records use the same id so clients can attach copy, fork, and
 other message actions to the completion summary without relying on its
 synthetic display id.
+
+The same `tool_end` payload (and the persisted role `tool` result's `metadata`)
+carries the normalized "next step" box in `metadata.wrap_up`:
+
+```json
+{"recap": "Fixed the null check; nothing committed.", "box": true,
+ "ask": "Commit now?", "actions": [{"label": "Commit"}, {"label": "Not now"}],
+ "blocked": false}
+```
+
+`recap` is the turn summary (also the `summary` metric of `tool_summary`).
+`box`, `ask` and `actions` are present only when the box shows a question: a
+non-empty `ask` with a valid first reply button, or `blocked: true`. At most two
+buttons are kept, the first is the recommendation, and labels that start with
+`/` or `!` or carry invisible characters are dropped. Clients send a clicked
+label as an ordinary user message. The result `output` is a short receipt for
+the model, not text for the user; older sessions without `wrap_up` keep using
+the summary metric.
 
 Completed tool text above the per-result limit (30,000 bytes for Bash, 50,000
 bytes for other tools) is saved under the session's `tool-results` directory

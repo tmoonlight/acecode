@@ -25,7 +25,14 @@ export function VirtualOfficeSettings({ office }) {
             disabled={!office?.available || office.busy} onClick={() => office?.setPetKind?.(pet.id)}
             className={`relative p-3 rounded-lg border text-left transition disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 ${selected ? 'border-accent bg-accent-bg' : 'border-border bg-surface hover:bg-surface-hi'}`}>
             <div className="h-24 mb-3 flex items-center justify-center" aria-hidden="true">
-              {preview ? <img src={preview} alt="" className="max-w-full max-h-full object-contain" />
+              {pet.id === 'mini' ? <div className="flex items-center w-full max-w-[118px] rounded-full bg-bg shadow-md px-1 py-2.5">
+                {['M10 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-4M12 13l-4 1 1-4 9-8a2 2 0 0 1 3 3Z',
+                  'M5 10v4m4-9v14m4-11v8m4-6v4m3-3v2',
+                  'M9 20a3 3 0 0 0 6 0M19 9a7 7 0 0 0-14 0c0 7-2 7-2 9h18c0-2-2-2-2-9Z'].map((path, index) => <span key={index}
+                  className={`flex flex-1 min-w-0 items-center justify-center px-1 ${index ? 'border-l border-border' : ''}`}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d={path} /></svg>
+                </span>)}
+              </div> : preview ? <img src={preview} alt="" className="max-w-full max-h-full object-contain" />
                 : <VsIcon name={pet.id === 'office' ? 'office' : 'smiley'} size={48} className="text-fg-mute" />}
             </div>
             <div className="text-[13px] font-normal text-fg">{pet.label}</div>

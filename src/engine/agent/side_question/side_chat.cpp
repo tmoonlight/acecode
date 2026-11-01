@@ -33,23 +33,44 @@ std::string join_names(const std::vector<std::string>& names) {
 // 主会话的系统提示列着 bash / 写文件等全部工具,侧边对话只放出只读子集。不把
 // 「哪些能用、其它都不能用」说死,模型会照着主会话历史去调 bash —— 没有工具表时
 // 它就把调用写成尖括号正文,这正是这里要修的现象。
-std::string side_chat_instruction(const std::vector<std::string>& tool_names) {
+std::string side_chat_instruction(const std::vector<std::string>& read_tool_names,
+                                  bool can_send_to_main) {
     std::string text =
         "The following messages are a separate, read-only side conversation "
         "about the main conversation above. Answer the latest side question "
         "using both contexts. Do not continue the main task or claim that you "
         "changed files or session state.";
-    if (tool_names.empty()) {
+    if (read_tool_names.empty() && !can_send_to_main) {
         return text + " Do not call tools. Answer directly.";
     }
+    if (!read_tool_names.empty()) {
+        text += " In this side conversation you may call only these read-only tools: " +
+            join_names(read_tool_names) +
+            ". Use them only when the answer needs information that is not "
+            "already in the context.";
+    }
+    if (can_send_to_main) {
+        // 侧边对话做不了的事(写文件、跑命令、继续任务)要主动交给主会话,而不是
+        // 让用户自己再去主会话说一遍 —— 每条都要用户确认才送达,所以主动提议是安全的。
+        // 主会话看不到侧边对话,发过去的话必须自成一体(对齐 Claude 侧边会话的
+        // SendMessage to parent)。
+        text += std::string(" Nothing you write here reaches the main session unless you call ") +
+            kSideChatSendToMainTool +
+            ". When the user wants something this side chat cannot do itself, such "
+            "as creating or editing files, running commands, or continuing the task, "
+            "do not tell them to ask the main session themselves: call it with a "
+            "self-contained request so the main agent does it. Also call it when the "
+            "user asks you to pass something to the main agent. The main agent cannot "
+            "see this side conversation, so include every detail it needs. The user "
+            "confirms each message before it is delivered, so proposing one is safe; "
+            "after the result, tell the user briefly what happened. Do not use it for "
+            "questions you can answer here.";
+    }
     return text +
-        " In this side conversation you may call only these read-only tools: " +
-        join_names(tool_names) +
-        ". Every other tool mentioned above (shell commands, file edits, "
-        "sub-agents and so on) is unavailable here. Use the read-only tools "
-        "only when the answer needs information that is not already in the "
-        "context, call them through the native tool-calling interface, never "
-        "write tool calls as text, and finish with a direct answer.";
+        " Every other tool mentioned above (shell commands, file edits, "
+        "sub-agents and so on) is unavailable here. Call tools through the "
+        "native tool-calling interface, never write tool calls as text, and "
+        "finish with a direct answer.";
 }
 
 std::string text_tool_call_correction(const TextToolCallDiagnostic& diagnostic,
@@ -60,10 +81,10 @@ std::string text_tool_call_correction(const TextToolCallDiagnostic& diagnostic,
                "executed. Answer the side question directly in plain text.";
     }
     return build_text_tool_call_correction_prompt(diagnostic, tool_names) +
-        "\nOnly these read-only tools exist in this side conversation: " +
+        "\nOnly these tools exist in this side conversation: " +
         join_names(tool_names) +
-        ". Shell commands and file edits are not available; use a read-only "
-        "tool or answer from the context you already have.";
+        ". Shell commands and file edits are not available; use one of these "
+        "tools or answer from the context you already have.";
 }
 
 // 新一步的正文与上一步之间空一行,让各步拼成的回答在 Markdown 里分段。
@@ -145,7 +166,7 @@ std::string validate_side_chat_history(const std::vector<SideChatMessage>& histo
         if (message.role != (index % 2 == 0 ? "user" : "assistant")) {
             return "history must alternate user and assistant messages";
         }
-        if (trim_side_text(message.content).empty()) return "history messages must not be empty";
+        if (trim_side_text(message.content).empty() && message.content_parts.empty()) return "history messages must not be empty";
         if (message.content.size() > kMaxSideChatHistoryBytes - bytes) {
             return "history exceeds 256 KiB";
         }
@@ -175,13 +196,14 @@ SideChatResult run_side_chat(
     SideChatCancellation& cancellation,
     const SideChatStreamCallback& callback,
     const SideChatToolset& tools,
-    const SideChatToolCallback& on_tool) {
+    const SideChatToolCallback& on_tool,
+    const SideChatInputOptions& input) {
     SideChatResult result;
     auto& response = result.response;
     response.question = trim_side_text(question);
     response.error = validate_side_chat_history(history);
-    if (response.error.empty() && (response.question.empty() ||
-        response.question.size() > kMaxSideQuestionBytes)) {
+    if (response.error.empty() && ((response.question.empty() && input.content_parts.empty()) ||
+        response.question.size() > (input.prepared_input ? kMaxSideChatHistoryBytes : kMaxSideQuestionBytes))) {
         response.error = response.question.empty() ? "question required" : "question too long";
     }
     if (!response.error.empty()) {
@@ -213,24 +235,31 @@ SideChatResult run_side_chat(
 
     const bool tools_enabled = tools.enabled();
     std::vector<std::string> tool_names;
+    std::vector<std::string> read_tool_names;
     if (tools_enabled) {
-        for (const auto& definition : tools.definitions) tool_names.push_back(definition.name);
+        for (const auto& definition : tools.definitions) {
+            tool_names.push_back(definition.name);
+            if (definition.name != kSideChatSendToMainTool) read_tool_names.push_back(definition.name);
+        }
     }
     const std::vector<ToolDef> request_tools = tools_enabled ? tools.definitions : std::vector<ToolDef>{};
 
     ChatMessage instruction;
     instruction.role = "system";
-    instruction.content = side_chat_instruction(tool_names);
+    instruction.content =
+        side_chat_instruction(read_tool_names, tools_enabled && tools.can_send_to_main);
     context.push_back(std::move(instruction));
     for (const auto& previous : history) {
         ChatMessage message;
         message.role = previous.role;
         message.content = previous.content;
+        message.content_parts = previous.content_parts;
         context.push_back(std::move(message));
     }
     ChatMessage message;
     message.role = "user";
     message.content = response.question;
+    message.content_parts = input.content_parts;
     context.push_back(std::move(message));
 
     auto& answer = response.answer;
@@ -396,6 +425,7 @@ SideChatResult run_side_chat(
         response.error = "side-question response was empty";
     }
     response.status = response.error.empty() ? SideQuestionStatus::Ok : SideQuestionStatus::Failed;
+    if (!result.cancelled && response.status == SideQuestionStatus::Ok) provider->record_successful_chat();
     return result;
 }
 

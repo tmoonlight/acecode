@@ -416,8 +416,8 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "what you changed, what the user needs to know, and any remaining items.\n"
         << "- Lead with the answer or action, not the reasoning.\n";
     if (task_complete_allowed) {
-        oss << "- If you call `task_complete`, make the assistant message immediately "
-            << "before it the complete summary.\n";
+        oss << "- When you call `task_complete`, write that final message in full before "
+            << "it; its short recap never replaces the final message.\n";
     }
     oss
         << "- Never split important information across multiple mid-turn messages "
@@ -565,10 +565,12 @@ std::string build_system_prompt(const ToolExecutor& tools, const std::string& cw
         << "stop writing, the user has to type the next message. So make sure your "
         << "reply is the final answer or the natural end of the task.\n";
     if (task_complete_allowed) {
-        oss << "- Optionally, at the end of a multi-step task, you may call `task_complete` "
-            << "with a completion summary. This is NOT required — a plain text reply works too. "
-            << "The summary is rendered as Markdown, so use short paragraphs or bullets for "
-            << "multi-part results instead of collapsing everything into one long line.\n";
+        oss << "- At the end of every turn in which you changed files, ran commands, or "
+            << "completed multi-step work, call `task_complete` after your final message: "
+            << "a short recap and, when the next move is the user's call (a choice of "
+            << "approach, a go-ahead, an approval), one question with 1-2 reply buttons, "
+            << "recommendation first. Skip it for short answers, pure conversation, or a "
+            << "brief read-and-explain turn.\n";
     }
     if (ask_user_allowed) {
         oss << "- `AskUserQuestion` is a tool for multi-choice decisions mid-task "

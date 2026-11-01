@@ -253,9 +253,10 @@ struct InputHistoryConfig {
 // removed for being more disruptive than helpful (chit-chat regressions,
 // model-give-up risk; see hermes-agent #7915).
 //
-// `task_complete` remains an OPTIONAL explicit terminator: the model can
-// call it with a `summary` to render a compact "Done: <summary>" row. It is
-// not required — a plain text reply also ends the loop cleanly.
+// `task_complete` remains an explicit terminator: after the final message of a
+// turn that did real work, the model calls it with a short `summary` and, when
+// the next move is the user's, an `ask` with 1-2 reply buttons (Web draws the
+// "next step" box). A plain text reply also ends the loop cleanly.
 //
 // `AskUserQuestion` is NEVER a terminator (its tool_result feeds back to
 // the model and the loop continues, exactly like any other tool).

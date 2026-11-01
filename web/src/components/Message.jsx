@@ -306,6 +306,7 @@ function UserBubble({
   forkLoading,
   showFooter,
   annotationPresentations,
+  fromSideChat = false,
 }) {
   // 正文内联渲染的附件不再进缩略图条;图片部件不在正文里,照常留在缩略图条。
   const inlineReferences = (composerContent?.parts || [])
@@ -340,6 +341,12 @@ function UserBubble({
   }, [fullTextOpen, composerContent, content]);
   return (
     <div className="self-end min-w-0 max-w-[70%] flex flex-col items-end gap-0.5 group">
+      {fromSideChat && (
+        <span className="ace-user-message-origin flex items-center gap-1 text-[11.5px] text-fg-mute">
+          <VsIcon name="ChatBubble" size={12} />
+          <span>来自侧边对话</span>
+        </span>
+      )}
       <AttachmentStrip
         contentParts={remainingParts}
         annotationPresentations={annotationPresentations}
@@ -636,7 +643,8 @@ export const Message = memo(function Message({
                         forkPending={forkPending}
                         forkLoading={forkLoading}
                         showFooter={showFooter}
-                        annotationPresentations={annotationPresentations} />;
+                        annotationPresentations={annotationPresentations}
+                        fromSideChat={metadata?.side_chat === true} />;
   }
   if (role === 'assistant') {
     return <AssistantBubble content={content} contentParts={contentParts}

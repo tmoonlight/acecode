@@ -17,9 +17,14 @@ export function createSideChatStream({
   requestId,
   question,
   history = [],
+  input,
+  modelName,
+  reasoningEffort,
   onDelta,
   onReset,
   onTool,
+  onSendRequest,
+  onSendResult,
   onDone,
   onError,
 }, dependencies = {}) {
@@ -77,6 +82,21 @@ export function createSideChatStream({
       try { send('side_chat_stop', { request_id: requestId }); }
       catch { done({ answer, cancelled: true }); }
     },
+    // 回答侧边模型的「发到主会话」请求;send 为 true 时 message 是确认后的正文。
+    respondSend(sendId, confirmed, message = '') {
+      if (finished || socket?.readyState !== 1) return false;
+      try {
+        send('side_chat_send_decision', {
+          request_id: requestId,
+          send_id: sendId,
+          decision: confirmed ? 'send' : 'cancel',
+          ...(confirmed ? { message } : {}),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
     dispose() {
       if (finished) return;
       finished = true;
@@ -100,6 +120,8 @@ export function createSideChatStream({
           request_id: requestId,
           question,
           history,
+          ...(input ? { input } : {}),
+          ...(modelName ? { model_name: modelName, ...(reasoningEffort != null ? { reasoning_effort: reasoningEffort } : {}) } : {}),
         });
       } catch {
         fail('SIDE_CHAT_CONNECTION_ERROR', '旁路聊天连接失败，请重试。');
@@ -152,6 +174,28 @@ export function createSideChatStream({
             name: typeof payload.name === 'string' ? payload.name : '',
             target: typeof payload.target === 'string' ? payload.target : '',
             status: payload.status,
+          });
+          break;
+        case 'side_chat_send_request':
+          if (typeof payload.send_id !== 'string' || typeof payload.message !== 'string') {
+            fail('SIDE_CHAT_PROTOCOL_ERROR', '旁路聊天响应格式错误，请重试。');
+            return;
+          }
+          onSendRequest?.({
+            sendId: payload.send_id,
+            callId: typeof payload.call_id === 'string' ? payload.call_id : '',
+            message: payload.message,
+          });
+          break;
+        case 'side_chat_send_result':
+          if (typeof payload.send_id !== 'string' || typeof payload.status !== 'string') {
+            fail('SIDE_CHAT_PROTOCOL_ERROR', '旁路聊天响应格式错误，请重试。');
+            return;
+          }
+          onSendResult?.({
+            sendId: payload.send_id,
+            status: payload.status,
+            message: typeof payload.message === 'string' ? payload.message : '',
           });
           break;
         case 'side_chat_done':

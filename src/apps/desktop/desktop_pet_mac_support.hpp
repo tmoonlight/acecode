@@ -21,6 +21,21 @@
 namespace acecode::desktop {
 namespace {
 
+constexpr int kLogicalDpi = 96;
+constexpr double kDefaultLogicalScale = 1.25;   // 约 430×315 点,与 Windows 150% 下的逻辑大小相当
+constexpr double kZoomStep = 1.1;
+constexpr NSTimeInterval kHoverPollSeconds = 1.0 / 30.0;
+constexpr NSTimeInterval kGesturePollSeconds = 1.0 / 60.0;
+constexpr NSTimeInterval kRevealFallbackSeconds = 3.0;
+constexpr std::size_t kMaxActionBytes = 512 * 1024;
+
+enum MenuCommand : NSInteger { kMenuDock = 1, kMenuHide, kMenuZoomIn, kMenuZoomOut, kMenuResetSize, kMenuPin,
+                               kMenuPetKindBase = 100 /* + index into kDesktopPetKinds */ };
+
+} // namespace
+
+namespace {
+
 // 页面以 WebView2 的接口写成;这里在文档开始前补一个同名实现。
 constexpr const char* kBridgeShim = R"JS((() => {
   const listeners = [];
@@ -105,8 +120,8 @@ std::filesystem::path pet_root_dir() {
     return acecode::compatible_generated_path(root / "ACECode", "desktop-pet");
 }
 
-double load_logical_scale() {
-    std::ifstream in(pet_root_dir() / "settings.json");
+double load_logical_scale(std::string_view kind) {
+    std::ifstream in(pet_root_dir() / desktop_pet_scale_file(kind));
     if (!in) return 0.0;
     const auto json = nlohmann::json::parse(in, nullptr, false);
     if (json.is_discarded() || !json.is_object() || !json.contains("scale") || !json["scale"].is_number()) return 0.0;
@@ -114,12 +129,12 @@ double load_logical_scale() {
     return std::isfinite(scale) && scale > 0.0 ? scale : 0.0;
 }
 
-void save_logical_scale(double scale) {
+void save_logical_scale(double scale, std::string_view kind) {
     std::error_code ec;
     std::filesystem::create_directories(pet_root_dir(), ec);
     nlohmann::json json = nlohmann::json::object();
     if (scale > 0.0) json["scale"] = std::round(scale * 1000.0) / 1000.0;
-    std::ofstream out(pet_root_dir() / "settings.json", std::ios::trunc);
+    std::ofstream out(pet_root_dir() / desktop_pet_scale_file(kind), std::ios::trunc);
     if (out) out << json.dump();
 }
 

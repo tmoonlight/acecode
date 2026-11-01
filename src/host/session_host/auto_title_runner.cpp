@@ -3,16 +3,10 @@
 #include "agent/agent_loop.hpp"
 #include "utils/logger.hpp"
 namespace acecode {
-static std::optional<std::string> generate_title(ModelProfile profile,
-    const std::string& text, const AppConfig& config) {
-    auto provider = create_auto_title_provider(std::move(profile), config);
-    if (!provider) return std::nullopt;
-    return generate_auto_session_title(*provider, text, config);
-}
 AutoTitleRunner::AutoTitleRunner(ConfigProvider config, SessionManager& session,
     AgentLoop& agent, Applied applied, Generate generate)
     : config_(std::move(config)), session_(session), agent_(agent), applied_(std::move(applied)),
-      generate_(generate ? std::move(generate) : Generate(generate_title)) {}
+      generate_(std::move(generate)) {}
 AutoTitleRunner::~AutoTitleRunner() {
     shutting_down_.store(true);
     lifetime_.revoke();
@@ -58,7 +52,9 @@ void AutoTitleRunner::execute(std::string session_id, std::string text, ModelPro
     const AppConfig& config) {
     bool applied = false;
     try {
-        auto title = generate_(std::move(profile), text, config);
+        auto title = generate_ ? generate_(std::move(profile), text, config)
+            : generate_auto_session_title_with_fallback(profile, text, config,
+                [this] { return shutting_down_.load(); }); // Synchronous borrow under lifetime_.
         if (title && !title->empty()
             && session_.try_set_generated_session_title_for_session(session_id, *title)) {
             applied = true;

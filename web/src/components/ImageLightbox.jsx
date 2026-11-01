@@ -15,6 +15,7 @@ import {
 } from '../lib/mermaidExport.js';
 import { notifyNativeSurfaceOverlayChange } from '../lib/agentBrowserSurfaceCoordinator.js';
 import { VsIcon } from './Icon.jsx';
+import { useOverlayLayer } from './OverlayLayerContext.jsx';
 
 const FIT_TRANSFORM = Object.freeze({ scale: 1, x: 0, y: 0 });
 const EMPTY_METRICS = Object.freeze({
@@ -34,6 +35,7 @@ function sameMetrics(left, right) {
 }
 
 export function ImageLightbox({ preview, onClose, contextMenuAttrs }) {
+  const zIndex = useOverlayLayer();
   const lightboxRef = useRef(null);
   const viewportRef = useRef(null);
   const imageRef = useRef(null);
@@ -219,6 +221,7 @@ export function ImageLightbox({ preview, onClose, contextMenuAttrs }) {
     <div
       ref={lightboxRef}
       className="fixed inset-0 z-[80] bg-black/70"
+      style={{ zIndex }}
       data-ace-native-overlay="blocking"
       data-mermaid-export-target={mermaidExport ? 'true' : undefined}
       role="dialog"

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utils/atomic_file.hpp"
+#include "desktop_pet_layout.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -116,7 +117,7 @@ public:
 
 private:
     static bool valid_pet_kind(const std::string& kind) {
-        return kind == "office" || kind == "clippy" || kind == "rover" || kind == "whale";
+        return desktop_pet_valid_kind(kind);
     }
 
     bool save(bool enabled) const {

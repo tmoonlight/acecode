@@ -171,7 +171,6 @@ export function MemorySettings({ workspaceHash = '' }) {
   const controls = memorySettingsControls(settings, { loading: settingsLoading, busy: settingsBusy });
   const modelName = settings?.summary.model_name || '';
   const modelOptions = memorySummaryModelOptions(modelNames, modelName, { loaded: modelsLoaded });
-  const modelUnavailable = modelOptions.some((option) => option.unavailable && option.value === modelName);
   const tabs = memoryScopeTabs(overview, { workspaceHash: hash, workspaceUnknown });
   const scope = resolveMemoryScope(requestedScope, tabs);
   const workspaceTab = tabs.find((tab) => tab.scope === MEMORY_SCOPE_WORKSPACE);
@@ -228,16 +227,12 @@ export function MemorySettings({ workspaceHash = '' }) {
         <div className="min-w-0">
           <label htmlFor="memory-summary-model" className="block text-[13px] font-normal">摘要模型</label>
 
-          {modelUnavailable && (
-            <div role="status" className="text-[11px] text-warn mt-0.5">所选摘要模型已不存在，请重新选择</div>
-          )}
         </div>
         <select id="memory-summary-model" value={modelName} disabled={controls.summaryDisabled}
-          aria-invalid={modelUnavailable}
           onChange={(event) => { void changeSetting('summary.model_name', event.target.value); }}
           className={selectClass}>
           {modelOptions.map((option) => (option.unavailable
-            ? <option key={option.value} value={option.value} disabled>{option.label} · 模型不可用</option>
+            ? <option key={option.value} value={option.value} disabled>{option.label}</option>
             : <option key={option.value || '__current_model__'} value={option.value}>{option.label}</option>))}
         </select>
       </div>

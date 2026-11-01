@@ -138,14 +138,12 @@ run('ChatView stages home attachments without creating or navigating a session',
 
 run('Desktop ordinary-file references bypass image normalization and Base64 upload', () => {
   const chatView = source('components/ChatView.jsx');
-  const persistence = chatView.match(
-    /const persistAttachment = sourceReference[\s\S]*?await Promise\.resolve\(persistAttachment\)/,
-  )?.[0] || '';
-
-  assert.match(persistence, /api\.createSessionAttachmentReference\(targetSid, \{[\s\S]*reference_only: true/);
-  assert.match(persistence, /:\s*normalizeImageFile\(file\)[\s\S]*fileToBase64\(uploadFile\)/);
+  assert.match(chatView, /uploadComposerAttachment\(api, targetSid, file\)/);
+  const persistence = source('lib/composerAttachmentUpload.js');
+  assert.match(persistence, /api\.createSessionAttachmentReference\(sessionId, \{[\s\S]*reference_only: true/);
+  assert.match(persistence, /normalizeImageFile\(file\)[\s\S]*readAsDataURL\(uploadFile\)/);
   assert.ok(
-    persistence.indexOf('createSessionAttachmentReference') < persistence.indexOf('normalizeImageFile'),
+    persistence.indexOf('createSessionAttachmentReference') < persistence.indexOf('await normalizeImageFile'),
   );
 });
 

@@ -6,6 +6,7 @@
 #include "provider/cwd_model_override.hpp"
 #include "provider/model_resolver.hpp"
 #include "provider/provider_factory.hpp"
+#include "provider/summary_model_fallback.hpp"
 #include "utils/logger.hpp"
 
 #include <cctype>
@@ -79,11 +80,10 @@ std::optional<ModelProfile> resolve_auto_title_profile(
     const std::string& session_model_name,
     const std::string& cwd) {
     if (cfg.summary_generation.enabled) {
-        auto profile = explicit_profile(cfg, cfg.summary_generation.model_name);
-        if (!profile) {
-            LOG_WARN("[auto_title] configured summary model is unavailable; skipping title generation");
-        }
-        return profile;
+        const SummaryModelFallback fallback(cfg, cfg.summary_generation.model_name,
+                                            explicit_profile(cfg, session_model_name));
+        if (fallback.candidates().empty()) return std::nullopt;
+        return fallback.candidates().front();
     }
     if (!cfg.session_title.model_name.empty()) {
         if (auto profile = explicit_profile(cfg, cfg.session_title.model_name)) {
@@ -124,6 +124,22 @@ std::optional<std::string> generate_auto_session_title(
         visible_text,
         cfg.session_title.max_input_bytes,
         desktop::resolve_ui_locale(cfg.ui.locale, desktop::detect_system_locale_tag()));
+}
+
+std::optional<std::string> generate_auto_session_title_with_fallback(
+    const ModelProfile& contextual, const std::string& visible_text, const AppConfig& cfg,
+    const std::function<bool()>& stopped) {
+    const auto preferred = cfg.summary_generation.enabled ? cfg.summary_generation.model_name
+        : (cfg.session_title.model_name.empty() ? contextual.name : cfg.session_title.model_name);
+    std::optional<std::string> title;
+    const auto recovered = SummaryModelFallback(cfg, preferred, contextual).run([&](const ModelProfile& profile) {
+        if (stopped && stopped()) return false;
+        auto provider = create_auto_title_provider(profile, cfg);
+        if (!provider || !provider->supports_tool_free_chat()) return false;
+        title = generate_auto_session_title(*provider, visible_text, cfg);
+        return title && !title->empty() && !(stopped && stopped());
+    });
+    return recovered ? title : std::nullopt;
 }
 
 } // namespace acecode

@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mini</title>
+<style>
+:root {
+  --mini-scale: 1;
+  --mini-control-size: 28px;
+  --mini-icon-size: 14px;
+  --mini-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+  --mini-surface: #fff;
+  --mini-ink: #202123;
+  --mini-muted: #6b6b6b;
+  --mini-line: #eeeeef;
+  --mini-hover: #f5f5f5;
+  --mini-accent: #0873d4;
+  --mini-shadow: 0 calc(7px * var(--mini-scale)) calc(24px * var(--mini-scale)) rgba(0, 0, 0, .16),
+    0 calc(2px * var(--mini-scale)) calc(7px * var(--mini-scale)) rgba(0, 0, 0, .04);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { font-family: var(--mini-font); color: var(--mini-ink); user-select: none; -webkit-user-select: none; }
+button { font: inherit; color: inherit; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button:focus-visible { outline: 2px solid var(--mini-accent); outline-offset: -4px; }
+[hidden] { display: none !important; }
+.toolbar-wrap { position: absolute; top: 0; left: 50%; transform: translateX(-50%); padding: calc(20px * var(--mini-scale)); }
+.toolbar { width: calc(3 * var(--mini-control-size)); height: var(--mini-control-size); display: flex; align-items: center;
+  border-radius: var(--mini-control-size); background: var(--mini-surface); box-shadow: var(--mini-shadow); touch-action: none; }
+.nav-button { position: relative; display: grid; place-items: center; flex: 1; height: 100%; padding: 0; background: transparent; border-radius: inherit; }
+.nav-button:hover { background: var(--mini-hover); }
+.nav-button svg { width: var(--mini-icon-size); height: var(--mini-icon-size); fill: none; stroke: currentColor;
+  stroke-width: 1.85; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.separator { width: 1px; height: 50%; background: var(--mini-line); flex: none; }
+.count { position: absolute; top: calc(5px * var(--mini-scale)); right: calc(5px * var(--mini-scale)); min-width: calc(14px * var(--mini-scale));
+  height: calc(14px * var(--mini-scale)); padding: 0 calc(3px * var(--mini-scale)); border-radius: calc(7px * var(--mini-scale));
+  background: var(--mini-accent); color: var(--mini-surface); font-size: calc(9px * var(--mini-scale)); font-weight: 600;
+  line-height: calc(14px * var(--mini-scale)); text-align: center; pointer-events: none; }
+.notifications { position: absolute; overflow-y: auto; overscroll-behavior: contain; padding: 20px;
+  scrollbar-width: none; }
+.notifications::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.cards { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; }
+.grip { position: absolute; left: calc(12px * var(--mini-scale)); top: calc(21px * var(--mini-scale)); width: 16px; height: 16px;
+  opacity: 0; padding: 0; cursor: nwse-resize; background: transparent; }
+.grip:hover, .grip:focus-visible { opacity: 1; }
+.grip svg { width: 100%; height: 100%; fill: none; stroke: var(--mini-muted); stroke-width: 1.5; }
+.toolbar.recording { width: calc(2 * var(--mini-control-size)); }
+.record-dot { width: calc(.75 * var(--mini-control-size)); height: calc(.75 * var(--mini-control-size)); border-radius: 50%; background: var(--mini-hover); display: grid; place-items: center; }
+.record-dot::after { content: ''; width: calc(.35 * var(--mini-control-size)); height: calc(.35 * var(--mini-control-size)); border-radius: 50%; background: var(--mini-ink); }
+.nav-button[aria-busy="true"] .record-dot { border: 2px solid var(--mini-line); border-top-color: var(--mini-ink); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .nav-button[aria-busy="true"] .record-dot { animation: none; } }
+.composer-wrap { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: calc(370px * var(--mini-scale)); padding: calc(20px * var(--mini-scale)); }
+.composer { display: flex; gap: calc(8px * var(--mini-scale)); align-items: center; padding: calc(8px * var(--mini-scale));
+  min-height: calc(40px * var(--mini-scale)); border-radius: calc(24px * var(--mini-scale)); background: var(--mini-surface); box-shadow: var(--mini-shadow); }
+.composer input[type="text"] { flex: 1; min-width: 0; width: 0; border: 0; outline: none; background: transparent; color: var(--mini-ink);
+  font: calc(13px * var(--mini-scale))/1.5 var(--mini-font); caret-color: var(--mini-accent); user-select: text; -webkit-user-select: text; }
+.composer input::placeholder { color: var(--mini-muted); }
+.composer-button { display: grid; place-items: center; flex: none; width: var(--mini-control-size); height: var(--mini-control-size);
+  padding: 0; border-radius: 50%; background: var(--mini-hover); }
+.composer-button:not(.send) svg { width: 70%; height: 70%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.send { background: var(--mini-send-background, var(--mini-accent)); color: var(--mini-send-color, var(--mini-surface)); }
+.send svg { width: var(--mini-icon-size); height: var(--mini-icon-size); }
+.send:not(:disabled):hover { opacity: .9; }
+.send:focus-visible { outline-offset: 2px; }
+button:disabled { cursor: default; opacity: .45; }
+.send:disabled { opacity: var(--mini-send-disabled-opacity, 1); background-color: var(--mini-send-disabled-background, var(--mini-accent)); color: var(--mini-send-disabled-color, var(--mini-surface)); }
+.attachments { display: flex; flex-wrap: wrap; gap: calc(5px * var(--mini-scale)); padding: calc(8px * var(--mini-scale)) 0 0;
+  max-height: calc(100vh - 150px * var(--mini-scale)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--mini-line) transparent; }
+.attachment { display: flex; max-width: 100%; min-width: 0; align-items: center; gap: 4px; border-radius: 12px; background: var(--mini-surface);
+  font-size: calc(12px * var(--mini-scale)); padding: 4px 8px; }
+.attachment span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attachment button { padding: 0 3px; background: transparent; }
+.error { position: absolute; left: calc(20px * var(--mini-scale)); right: calc(20px * var(--mini-scale)); padding: calc(12px * var(--mini-scale));
+  max-height: 55%; overflow: auto; border-radius: calc(18px * var(--mini-scale)); background: var(--mini-surface); box-shadow: var(--mini-shadow);
+  font-size: calc(13px * var(--mini-scale)); overflow-wrap: anywhere; }
+.voice-recovery { margin-top: calc(6px * var(--mini-scale)); }
+.recovery-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mini-muted); }
+.recovery-actions { display: flex; gap: calc(12px * var(--mini-scale)); margin-top: calc(6px * var(--mini-scale)); }
+.recovery-actions button { background: transparent; padding: 2px; color: var(--mini-accent); }
+</style>
+</head>
+<body>
+<div class="toolbar-wrap" id="toolbar-wrap">
+  <nav class="toolbar" id="toolbar" aria-label="mini 导航">
+    <button class="nav-button" id="compose" type="button" aria-label="新建会话">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-4"/><path d="m12 13-4 1 1-4 9-9a2.1 2.1 0 0 1 3 3Z" transform="translate(-.5 1)"/></svg>
+    </button>
+    <span class="separator" id="first-separator" aria-hidden="true"></span>
+    <button class="nav-button" id="voice" type="button" aria-label="语音输入">
+      <svg id="waveform" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4m4-9v14m4-11v8m4-6v4m3-3v2"/></svg>
+      <span class="record-dot" id="record-dot" aria-hidden="true" hidden></span>
+    </button>
+    <span class="separator" id="second-separator" aria-hidden="true"></span>
+    <button class="nav-button" id="notifications-toggle" type="button" aria-label="展开会话动态" aria-expanded="false" aria-controls="notifications">
+      <svg id="bell" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 20a3 3 0 0 0 6 0M19 9a7 7 0 0 0-14 0c0 7-2 7-2 9h18c0-2-2-2-2-9ZM12 2V1"/></svg>
+      <svg id="chevron" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="m5 9 7 7 7-7"/></svg>
+      <span class="count" id="count" hidden aria-hidden="true"></span>
+    </button>
+  </nav>
+  <button class="grip" id="grip" type="button" aria-label="调整 mini 大小">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7 7 2M2 11 11 2M2 15 15 2"/></svg>
+  </button>
+</div>
+<div class="composer-wrap" id="composer-wrap" hidden>
+  <form class="composer" id="composer" aria-label="新建任务">
+    <button class="composer-button" id="attach" type="button" aria-label="添加附件"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    <input id="draft" type="text" placeholder="开始新聊天" aria-label="任务内容" maxlength="100000" autocomplete="off">
+    <button class="composer-button send" id="send" type="submit" aria-label="发送任务" disabled></button>
+  </form>
+  <input id="files" type="file" multiple hidden>
+  <div class="attachments" id="attachments" hidden></div>
+</div>
+<div class="error" id="error" role="alert" hidden><span id="error-text"></span>
+  <div class="voice-recovery" id="voice-recovery" hidden><div class="recovery-text" id="recovery-text"></div>
+    <div class="recovery-actions"><button type="button" id="retry-voice">重试录音任务</button><button type="button" id="cancel-voice">取消</button></div>
+  </div>
+</div>
+<section class="notifications pet-activity-cards" id="notifications" aria-label="会话动态" hidden>
+  <div class="cards" id="cards" role="list"></div>
+  <div id="empty" role="status"></div>
+</section>
+<script src="./pet_cards.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const post = value => window.chrome?.webview?.postMessage(value);
+  const action = value => post(JSON.stringify(value));
+  let snapshot = { connected: false, activities: [] }, expanded = false, overlayKey = '', scale = 1;
+  let mini = {}, mode = 'nav', requestId = '', receipt = '', waiting = false, localVoice = false, localError = '';
+  let appliedRecovery = '', composing = false;
+  let voiceRecovery = null, voiceRetryId = '';
+  const localFiles = new Map();
+  const attachmentRows = new Map();
+  const newId = () => globalThis.crypto?.randomUUID?.() || `mini-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let press = null, suppressClick = false;
+  const rows = new Map();
+  const dismissed = new Set();
+  let appearance = null, appearanceIcon = '', popupLayout = null, popupWanted = false, popupAwaiting = false, popupRequest = '';
+  const emptyCard = PetActivityCards.create({ key: 'empty', status: 'info', title: '暂无会话动态', body: '', local: true });
+  $('empty').append(emptyCard.element);
+  const cards = () => {
+    if (!snapshot.connected) return [];
+    const unique = new Map();
+    for (const card of [...snapshot.activities, ...(mini.pendingTasks || [])])
+      if (card && typeof card.sessionId === 'string' && card.sessionId && !unique.has(card.sessionId)) unique.set(card.sessionId, card);
+    return [...unique.values()].filter(card => !dismissed.has(card.key || card.sessionId));
+  };
+
+  function applyAppearance(value = appearance) {
+    if (value && typeof value === 'object') appearance = value;
+    const ratio = (Number(appearance?.pixelRatio) || devicePixelRatio || 1) / (devicePixelRatio || 1);
+    const root = document.documentElement.style;
+    root.setProperty('--mini-control-size', `${(Number(appearance?.size) || 28) * ratio * scale}px`);
+    root.setProperty('--mini-icon-size', `${(Number(appearance?.iconSize) || 14) * ratio * scale}px`);
+    if (!appearance) return;
+    for (const [key, token] of [['background','background'],['color','color'],['disabledBackground','disabled-background'],
+      ['disabledColor','disabled-color'],['disabledOpacity','disabled-opacity']])
+      if (typeof appearance[key] === 'string') root.setProperty(`--mini-send-${token}`, appearance[key]);
+    $('send').style.backgroundImage = appearance.backgroundImage || 'none';
+    $('send').style.boxShadow = appearance.boxShadow || 'none';
+    $('send').style.borderRadius = appearance.borderRadius || '50%';
+    if (typeof appearance.iconSvg === 'string' && appearanceIcon !== appearance.iconSvg) {
+      appearanceIcon = appearance.iconSvg;
+      // This markup is generated by the application's canonical interfaceIconSvg.
+      $('send').innerHTML = appearanceIcon;
+      $('send').querySelector('svg')?.setAttribute('aria-hidden', 'true');
+    }
+  }
+  function compactFrame() {
+    return popupLayout ? { left: popupLayout.left * innerWidth, top: popupLayout.top * innerHeight,
+      width: popupLayout.width * innerWidth, height: popupLayout.height * innerHeight }
+      : { left: 0, top: 0, width: innerWidth, height: innerHeight };
+  }
+  function layoutPopup() {
+    const frame = compactFrame(), toolbar = $('toolbar-wrap');
+    if (popupLayout) {
+      const width = toolbar.getBoundingClientRect().width, height = toolbar.getBoundingClientRect().height;
+      const center = Math.max(width / 2, Math.min(frame.left + frame.width / 2, innerWidth - width / 2));
+      toolbar.style.left = `${center}px`;
+      toolbar.style.top = `${Math.max(0, Math.min(frame.top, innerHeight - height))}px`;
+    } else { toolbar.style.removeProperty('left'); toolbar.style.removeProperty('top'); }
+    if (!expanded) return;
+    const panel = $('notifications');
+    panel.style.width = `${Math.max(1, Math.min(frame.width, innerWidth - 16))}px`;
+    panel.style.maxHeight = 'none';
+    const size = PetActivityCards.placePopup($('toolbar').getBoundingClientRect(),
+      { width: panel.getBoundingClientRect().width, height: panel.scrollHeight },
+      { width: innerWidth, height: innerHeight }, 10 * scale);
+    panel.style.left = `${size.left}px`; panel.style.top = `${size.top}px`;
+    panel.style.width = `${size.width}px`; panel.style.maxHeight = `${size.height}px`;
+    panel.dataset.direction = size.upward ? 'up' : 'down';
+    panel.dataset.clamped = String(size.clamped);
+  }
+  function syncPopupSurface() {
+    if (popupWanted === expanded) return;
+    popupWanted = expanded; popupAwaiting = true; popupRequest = newId();
+    action({ type: 'mini-popup', expanded, request_id: popupRequest });
+  }
+
+  function bounds(element, padding = 0) {
+    const rect = element.getBoundingClientRect();
+    return [Math.max(0, rect.left - padding) / innerWidth, Math.max(0, rect.top - padding) / innerHeight,
+      Math.min(innerWidth, rect.right + padding) / innerWidth, Math.min(innerHeight, rect.bottom + padding) / innerHeight];
+  }
+  function reportRegions() {
+    if (!innerWidth || !innerHeight) return;
+    const message = { type: 'overlay', popup: !!popupLayout, controls: bounds($(mode === 'compose' ? 'composer-wrap' : 'toolbar-wrap'), 12 * scale),
+      grip: mode === 'compose' ? null : bounds($('grip')),
+      rect: expanded ? bounds($('notifications'), 12 * scale) : null,
+      bubbles: $('error').hidden ? [] : [bounds($('error'), 24 * scale)] };
+    const key = JSON.stringify(message);
+    if (key !== overlayKey) { overlayKey = key; action(message); }
+  }
+  function render() {
+    const list = cards(), count = list.length;
+    const recording = mode !== 'compose' && (localVoice || mini.speechPhase && mini.speechPhase !== 'idle');
+    $('toolbar-wrap').hidden = mode === 'compose';
+    $('composer-wrap').hidden = mode !== 'compose';
+    $('toolbar').classList.toggle('recording', !!recording);
+    $('waveform').toggleAttribute('hidden', !!recording);
+    $('record-dot').hidden = !recording;
+    $('first-separator').hidden = !!recording;
+    $('second-separator').hidden = !!recording;
+    $('notifications-toggle').hidden = !!recording;
+    $('voice').setAttribute('aria-label', recording ? '停止录音并发送' : '录音');
+    $('voice').setAttribute('aria-busy', String(mini.speechPhase === 'transcribing' || !!mini.sending));
+    $('voice').disabled = !!voiceRecovery || (!snapshot.connected && !recording) || !!mini.sending || mini.speechPhase === 'transcribing';
+    $('compose').disabled = !!mini.sending;
+    $('draft').disabled = waiting || !!mini.sending;
+    $('attach').disabled = !snapshot.connected || waiting || !!mini.sending;
+    const filesReady = [...localFiles.values()].every(file => file.ready);
+    $('send').disabled = waiting || !!mini.sending || !filesReady || (!snapshot.connected) || (!$('draft').value.trim() && !localFiles.size);
+    $('composer').setAttribute('aria-busy', String(waiting || !!mini.sending));
+    if (recording || mode === 'compose') expanded = false;
+    syncPopupSurface();
+    $('count').textContent = count > 99 ? '99+' : String(count);
+    $('count').hidden = expanded || !count;
+    $('bell').toggleAttribute('hidden', expanded);
+    $('chevron').toggleAttribute('hidden', !expanded);
+    $('notifications-toggle').setAttribute('aria-expanded', String(expanded));
+    $('notifications-toggle').setAttribute('aria-label', expanded ? '收起会话动态' : `展开会话动态${count ? `，${count} 条待处理` : ''}`);
+    $('notifications').hidden = !expanded;
+    const live = new Set(list.map(card => card.sessionId));
+    for (const [id, row] of rows) if (!live.has(id)) { row.element.remove(); rows.delete(id); }
+    list.forEach((card, index) => {
+      let row = rows.get(card.sessionId);
+      if (!row) {
+        row = PetActivityCards.create(card, {
+          open: value => {
+            action({ type: 'open', session_id: value.sessionId, workspace_hash: value.workspaceHash || '' });
+            if (PetActivityCards.results.includes(value.status)) dismissed.add(value.key || value.sessionId);
+            setExpanded(false);
+          },
+          stop: value => action({ type: 'stop', session_id: value.sessionId, workspace_hash: value.workspaceHash || '' }),
+          dismiss: value => {
+            dismissed.add(value.key || value.sessionId);
+            if (PetActivityCards.results.includes(value.status)) action({ type: 'read', session_id: value.sessionId, workspace_hash: value.workspaceHash || '' });
+            render();
+          },
+          collapse: () => setExpanded(false),
+        });
+        rows.set(card.sessionId, row);
+      }
+      row.update({ ...card, title: card.title || '未命名会话' });
+      const current = $('cards').children[index];
+      if (current !== row.element) $('cards').insertBefore(row.element, current || null);
+    });
+    $('empty').hidden = list.length > 0;
+    emptyCard.update({ key: 'empty', status: 'info', local: true,
+      title: snapshot.connected ? '暂无会话动态' : '连接已中断', body: snapshot.connected ? '' : '正在重新连接…' });
+    layoutPopup();
+    const error = localError || mini.error || voiceRecovery?.error || '';
+    $('error').hidden = !error;
+    $('error-text').textContent = error;
+    $('voice-recovery').hidden = !voiceRecovery;
+    $('recovery-text').textContent = voiceRecovery?.text || '';
+    $('retry-voice').disabled = waiting || !!mini.sending || localVoice || !snapshot.connected;
+    $('cancel-voice').disabled = !!mini.sending;
+    const headerBottom = $(mode === 'compose' ? 'composer-wrap' : 'toolbar-wrap').getBoundingClientRect().bottom;
+    $('error').style.top = `${headerBottom}px`;
+    $('error').style.maxHeight = `${Math.max(0, innerHeight - headerBottom - 24 * scale)}px`;
+    reportRegions();
+  }
+  function setMode(value) {
+    mode = value; expanded = false;
+    action({ type: 'mini-input', active: value === 'compose' });
+    render();
+    if (value === 'compose') $('draft').focus({ preventScroll: true });
+  }
+  function renderAttachments() {
+    $('attachments').hidden = !localFiles.size;
+    for (const [id, row] of attachmentRows) if (!localFiles.has(id)) { row.chip.remove(); attachmentRows.delete(id); }
+    for (const file of localFiles.values()) {
+      let row = attachmentRows.get(file.id);
+      if (!row) {
+        const chip = document.createElement('div'), label = document.createElement('span'), remove = document.createElement('button');
+        chip.className = 'attachment'; remove.type = 'button'; remove.textContent = '×';
+        remove.addEventListener('click', () => {
+          localFiles.delete(file.id); requestId = ''; action({ type: 'mini-file-remove', id: file.id }); renderAttachments(); render();
+        });
+        chip.append(label, remove); $('attachments').append(chip);
+        row = { chip, label, remove }; attachmentRows.set(file.id, row);
+      }
+      row.label.textContent = file.name; row.chip.setAttribute('aria-busy', String(!file.ready));
+      row.remove.setAttribute('aria-label', `移除 ${file.name}`); row.remove.disabled = waiting;
+    }
+  }
+  function applyMini(value) {
+    mini = value && typeof value === 'object' ? value : {};
+    for (const file of mini.files || []) if (localFiles.has(file.id)) Object.assign(localFiles.get(file.id), file);
+    if (mini.lastSubmission?.requestId && mini.lastSubmission.requestId !== receipt) {
+      receipt = mini.lastSubmission.requestId;
+      if (requestId === receipt) {
+        waiting = false; requestId = ''; $('draft').value = ''; localFiles.clear(); setMode('nav');
+      }
+      if (localVoice || voiceRetryId === receipt || voiceRecovery?.requestId === receipt) {
+        localVoice = false; voiceRetryId = ''; voiceRecovery = null; setMode('nav');
+      }
+    }
+    if (mini.activeRequestId === requestId && !mini.sending) waiting = false;
+    if (mini.recovery && mini.recovery.requestId !== appliedRecovery) {
+      appliedRecovery = mini.recovery.requestId;
+      voiceRecovery = { ...mini.recovery, error: mini.error || '录音任务发送失败。' };
+      localVoice = false; setMode('nav');
+    } else if (mini.error && mini.speechPhase === 'idle') localVoice = false;
+    renderAttachments();
+  }
+  function setExpanded(value) {
+    if (!value && $('notifications').contains(document.activeElement)) $('notifications-toggle').focus({ preventScroll: true });
+    expanded = value; render();
+  }
+  function resize() {
+    if (popupAwaiting) return;
+    const frame = compactFrame();
+    scale = Math.max(.25, Math.min(frame.width / 344, frame.height / 252));
+    document.documentElement.style.setProperty('--mini-scale', String(scale));
+    applyAppearance();
+    render();
+  }
+  $('compose').addEventListener('click', () => {
+    if (localVoice || mini.speechPhase !== 'idle') action({ type: 'mini-record-cancel' });
+    localVoice = false; localError = ''; setMode('compose');
+  });
+  $('voice').addEventListener('click', () => {
+    localError = '';
+    if (localVoice || mini.speechPhase && mini.speechPhase !== 'idle') action({ type: 'mini-record-stop' });
+    else { localVoice = true; expanded = false; action({ type: 'mini-record-start' }); }
+    render();
+  });
+  $('draft').addEventListener('input', () => { requestId = ''; localError = ''; render(); });
+  $('draft').addEventListener('compositionstart', () => { composing = true; });
+  $('draft').addEventListener('compositionend', () => { setTimeout(() => { composing = false; }, 0); });
+  $('draft').addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (composing || event.isComposing || event.keyCode === 229)) event.preventDefault();
+  });
+  $('composer').addEventListener('submit', event => {
+    event.preventDefault();
+    if (composing || $('send').disabled) return;
+    requestId ||= newId(); waiting = true; localError = '';
+    action({ type: 'mini-submit', request_id: requestId, text: $('draft').value, files: [...localFiles.keys()] });
+    render();
+  });
+  $('attach').addEventListener('click', () => $('files').click());
+  $('retry-voice').addEventListener('click', () => {
+    if (!voiceRecovery || $('retry-voice').disabled) return;
+    voiceRetryId = voiceRecovery.requestId; localVoice = true;
+    action({ type: 'mini-submit', request_id: voiceRetryId, text: voiceRecovery.text, files: [] });
+    setMode('nav');
+  });
+  $('cancel-voice').addEventListener('click', () => {
+    voiceRecovery = null; voiceRetryId = ''; localVoice = false;
+    action({ type: 'mini-record-cancel' }); render();
+  });
+  $('files').addEventListener('change', async event => {
+    const selected = [...event.target.files]; event.target.value = '';
+    for (const file of selected) {
+      if (localFiles.size >= 10 || [...localFiles.values()].reduce((sum, item) => sum + item.size, file.size) > 25 * 1024 * 1024) {
+        localError = '附件总大小不能超过 25MiB。'; render(); break;
+      }
+      const id = newId(); localFiles.set(id, { id, name: file.name, size: file.size, ready: false }); requestId = '';
+      renderAttachments(); render();
+      action({ type: 'mini-file-begin', id, name: file.name, mime: file.type, size: file.size });
+      try {
+        const data = await new Promise((resolve, reject) => {
+          const reader = new FileReader(); reader.onerror = () => reject(reader.error);
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.readAsDataURL(file);
+        });
+        for (let offset = 0; offset < data.length && localFiles.has(id); offset += 131072) {
+          action({ type: 'mini-file-chunk', id, offset, data: data.slice(offset, offset + 131072) });
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        if (localFiles.has(id)) action({ type: 'mini-file-end', id });
+      } catch { localError = '附件读取失败，请重新选择。'; render(); }
+    }
+  });
+  $('notifications-toggle').addEventListener('click', () => setExpanded(!expanded));
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || composing || event.isComposing) return;
+    event.preventDefault();
+    if (mode === 'compose') setMode('nav');
+    else if (localVoice || mini.speechPhase && mini.speechPhase !== 'idle') {
+      action({ type: 'mini-record-cancel' }); localVoice = false; render();
+    } else if (expanded) setExpanded(false);
+  });
+  $('toolbar').addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    suppressClick = false;
+    press = { id: event.pointerId, x: event.clientX, y: event.clientY, target: event.target };
+    event.target.setPointerCapture?.(event.pointerId);
+  });
+  $('toolbar').addEventListener('pointermove', event => {
+    if (!press || press.id !== event.pointerId || Math.hypot(event.clientX - press.x, event.clientY - press.y) < 5) return;
+    const started = press; press = null; suppressClick = true;
+    started.target.releasePointerCapture?.(started.id);
+    if (expanded) setExpanded(false);
+    post('drag');
+  });
+  const cancelGesture = () => {
+    if (press) { press = null; post('gesture-cancel'); }
+  };
+  $('toolbar').addEventListener('pointerup', () => { press = null; });
+  $('toolbar').addEventListener('pointercancel', cancelGesture);
+  $('toolbar').addEventListener('lostpointercapture', cancelGesture);
+  $('toolbar').addEventListener('click', event => {
+    if (suppressClick && event.detail) { suppressClick = false; event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
+  document.addEventListener('contextmenu', event => { event.preventDefault(); press = null; post('menu'); });
+  $('grip').addEventListener('pointerdown', event => { if (event.button === 0) { event.preventDefault(); post('resize'); } });
+  $('grip').addEventListener('dblclick', event => { event.preventDefault(); post('size-reset'); });
+  $('grip').addEventListener('keydown', event => {
+    if (!['ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) return;
+    event.preventDefault(); post(event.key === 'Enter' ? 'size-reset' : `zoom ${event.key === 'ArrowUp' ? 1 : -1} 0.5 0.2`);
+  });
+  $('toolbar').addEventListener('wheel', event => {
+    if (!event.deltaY) return;
+    event.preventDefault();
+    const frame = compactFrame();
+    post(`zoom ${event.deltaY < 0 ? 1 : -1} ${((event.clientX - frame.left) / frame.width).toFixed(3)} ${((event.clientY - frame.top) / frame.height).toFixed(3)}`);
+  }, { passive: false });
+  window.chrome?.webview?.addEventListener('message', event => {
+    let value = event.data;
+    if (typeof value === 'string') { try { value = JSON.parse(value); } catch { return; } }
+    if (value?.type === 'mini-popup-layout') {
+      if (value.request_id && value.request_id !== popupRequest) return;
+      if (value.expanded && (!value.anchor || !['left','top','width','height'].every(key => Number.isFinite(value.anchor[key])))) return;
+      popupLayout = value.expanded ? value.anchor : null;
+      document.documentElement.dataset.miniPopup = String(!!popupLayout);
+      expanded = popupWanted = value.expanded === true; popupAwaiting = false;
+      resize(); return;
+    }
+    if (value?.type === 'mini-input-focus') { if (mode === 'compose') $('draft').focus({ preventScroll: true }); return; }
+    if (!value || value.version !== 1) return;
+    snapshot = { connected: value.connected === true, activities: Array.isArray(value.activities) ? value.activities : [] };
+    PetActivityCards.applyTranscriptFont(value.transcriptFont);
+    applyAppearance(value.composerAppearance);
+    applyMini(value.mini);
+    const liveKeys = new Set([...snapshot.activities, ...(mini.pendingTasks || [])].map(card => card.key || card.sessionId));
+    for (const key of dismissed) if (!liveKeys.has(key)) dismissed.delete(key);
+    render();
+  });
+  window.addEventListener('resize', resize);
+  new ResizeObserver(reportRegions).observe($('notifications'));
+  new ResizeObserver(reportRegions).observe($('composer-wrap'));
+  resize(); render(); post('ready');
+})();
+</script>
+</body>
+</html>

@@ -147,8 +147,8 @@ std::filesystem::path pet_user_data_dir() {
 }
 
 // 用户调过的大小(逻辑倍数,与 DPI 无关);0 表示没调过,用默认整数倍。
-double load_logical_scale() {
-    std::ifstream in(pet_root_dir() / L"settings.json");
+double load_logical_scale(std::string_view kind) {
+    std::ifstream in(pet_root_dir() / desktop_pet_scale_file(kind));
     if (!in) return 0.0;
     const auto json = nlohmann::json::parse(in, nullptr, false);
     if (json.is_discarded() || !json.is_object() || !json.contains("scale") || !json["scale"].is_number()) return 0.0;
@@ -156,12 +156,12 @@ double load_logical_scale() {
     return std::isfinite(scale) && scale > 0.0 ? scale : 0.0;
 }
 
-void save_logical_scale(double scale) {
+void save_logical_scale(double scale, std::string_view kind) {
     std::error_code ec;
     std::filesystem::create_directories(pet_root_dir(), ec);
     nlohmann::json json = nlohmann::json::object();
     if (scale > 0.0) json["scale"] = std::round(scale * 1000.0) / 1000.0;
-    std::ofstream out(pet_root_dir() / L"settings.json", std::ios::trunc);
+    std::ofstream out(pet_root_dir() / desktop_pet_scale_file(kind), std::ios::trunc);
     if (out) out << json.dump();
 }
 
@@ -210,6 +210,9 @@ struct PetController : std::enable_shared_from_this<PetController> {
     WebHost& host; // Required GUI host; DesktopPet is destroyed before this host.
     nlohmann::json office_snapshot = {{"follow", true}};
     std::string pet_kind = "office";
+    bool mini_input = false;
+    bool mini_popup = false;
+    DesktopPetRect mini_compact;
     bool page_ready = false;
     std::vector<DesktopPetOverlay> hit_overlays;
     HWND hwnd = nullptr;
@@ -240,10 +243,16 @@ struct PetController : std::enable_shared_from_this<PetController> {
 
     void set_pet_kind(const std::string& kind) {
         if (pet_kind == kind) return;
-        const bool same_page = pet_kind != "office" && kind != "office";
+        if (mini_popup) set_mini_popup(false);
+        set_mini_input(false);
+        const bool resize_kind = kind == "mini" || pet_kind == "mini";
+        const bool same_page = desktop_pet_shares_page(pet_kind, kind);
         pet_kind = kind;
+        if (resize_kind) logical_scale = load_logical_scale(kind);
         if (!desktop_pet_has_edge_peek(kind)) docked_side = 0;   // 虚拟办公室没有趴边偷看的样子
         if (!webview || closed) return;
+        if (resize_kind && revealed)
+            apply_placement(resize_desktop_pet(window_rect(), window_dpi(), window_work_area(), preferred_scale()));
         hit_overlays.clear();
         if (same_page) {
             publish_character();
@@ -255,7 +264,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
     }
 
     void publish_character() {
-        if (!closed && page_ready && webview && pet_kind != "office")
+        if (!closed && page_ready && webview && desktop_pet_has_edge_peek(pet_kind))
             webview->PostWebMessageAsJson(utf8_to_wide(desktop_pet_character(pet_kind).dump()).c_str());
     }
 
@@ -331,13 +340,63 @@ struct PetController : std::enable_shared_from_this<PetController> {
         webview->PostWebMessageAsJson(utf8_to_wide(state.dump()).c_str());
     }
 
+    double preferred_scale() const { return desktop_pet_preferred_scale(pet_kind, logical_scale); }
+
+    void set_mini_popup(bool active, const std::string& request_id = {}) {
+        if (pet_kind != "mini" || !hwnd || closed) return;
+        if (active && !mini_popup) mini_compact = window_rect();
+        const auto work = window_work_area();
+        if (active || mini_popup) {
+            mini_popup = active;
+            hit_overlays.clear();
+            apply_hit_region(hwnd, placement.scale, {}, false);
+            const auto target = active ? work : keep_desktop_pet_in_work_area(mini_compact, work);
+            if (!active) placement.window = target;
+            ::SetWindowPos(hwnd, nullptr, target.x, target.y, target.width, target.height,
+                           SWP_NOACTIVATE | SWP_NOZORDER);
+        }
+        if (!page_ready || !webview) return;
+        nlohmann::json message = {{"type", "mini-popup-layout"}, {"expanded", active}, {"request_id", request_id}};
+        if (active && work.width > 0 && work.height > 0)
+            message["anchor"] = {{"left", double(mini_compact.x - work.x) / work.width},
+                {"top", double(mini_compact.y - work.y) / work.height},
+                {"width", double(mini_compact.width) / work.width}, {"height", double(mini_compact.height) / work.height}};
+        webview->PostWebMessageAsJson(utf8_to_wide(message.dump()).c_str());
+    }
+
+    void set_mini_input(bool active) {
+        if (active && mini_popup) set_mini_popup(false);
+        mini_input = active && pet_kind == "mini";
+        if (!hwnd) return;
+        const LONG_PTR style = ::GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        ::SetWindowLongPtrW(hwnd, GWL_EXSTYLE, mini_input ? style & ~WS_EX_NOACTIVATE : style | WS_EX_NOACTIVATE);
+        if (mini_input && controller && webview) {
+            ::SetForegroundWindow(hwnd);
+            ::SetFocus(hwnd);
+            controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+            webview->PostWebMessageAsJson(L"{\"type\":\"mini-input-focus\"}");
+        }
+    }
+
     void office_action(const std::wstring& message) {
-        if (message.size() > 16384) return;
+        if (message.size() > 512 * 1024) return;
         const auto value = nlohmann::json::parse(wide_to_utf8(message), nullptr, false);
         if (!value.is_object()) return;
         const auto type_field = value.find("type");
         if (type_field == value.end() || !type_field->is_string()) return;
         const auto type = type_field->get<std::string>();
+        if (message.size() > 16384 && !desktop_pet_is_mini_action(type)) return;
+        if (type == "mini-input") {
+            const auto active = value.find("active");
+            if (pet_kind == "mini" && active != value.end() && active->is_boolean()) set_mini_input(active->get<bool>());
+            return;
+        }
+        if (type == "mini-popup") {
+            const auto active = value.find("expanded"), request = value.find("request_id");
+            if (active != value.end() && active->is_boolean() && request != value.end() && request->is_string())
+                set_mini_popup(active->get<bool>(), request->get<std::string>().substr(0, 100));
+            return;
+        }
         if (type == "pin") {
             const auto field = value.find("pinned");
             if (field == value.end() || !field->is_boolean()) return;
@@ -350,6 +409,8 @@ struct PetController : std::enable_shared_from_this<PetController> {
             return;
         }
         if (type == "overlay") {
+            const auto popup = value.find("popup");
+            if (pet_kind == "mini" && (popup == value.end() || !popup->is_boolean() || popup->get<bool>() != mini_popup)) return;
             auto next = desktop_pet_overlays_from_message(value);
             if (next == hit_overlays) return;
             hit_overlays = std::move(next);
@@ -359,9 +420,10 @@ struct PetController : std::enable_shared_from_this<PetController> {
             return;
         }
         // 双击任何宠物都激活主窗口;带会话时再交给主页面切换到该会话。
-        if (type == "activate" || type == "open") activate_main_window();
+        if (desktop_pet_action_activates_main(type)) activate_main_window();
         // stop / read 来自陪伴宠物的会话卡片(停止该会话的回合、把完成结果标为已读)。
-        if (type != "select" && type != "follow" && type != "open" && type != "stop" && type != "read") return;
+        if (type != "select" && type != "follow" && type != "open" && type != "stop" && type != "read" &&
+            !(pet_kind == "mini" && desktop_pet_is_mini_action(type))) return;
         host.eval("window.dispatchEvent(new CustomEvent('ace-desktop-office-action',{detail:" +
                   value.dump() + "}));");
     }
@@ -369,8 +431,8 @@ struct PetController : std::enable_shared_from_this<PetController> {
     bool start() {
         const HMONITOR monitor = primary_monitor();
         const DesktopPetRect work = work_area_of(monitor);
-        logical_scale = load_logical_scale();
-        placement = place_desktop_pet(work, monitor_dpi(monitor), logical_scale);
+        logical_scale = load_logical_scale(pet_kind);
+        placement = place_desktop_pet(work, monitor_dpi(monitor), preferred_scale());
 
         HINSTANCE instance = ::GetModuleHandleW(nullptr);
         WNDCLASSEXW window_class{};
@@ -562,6 +624,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
             publish_snapshot();
             publish_window_state();
             publish_dock();
+            if (mini_popup) set_mini_popup(true);
         } else if (!message.empty() && message.front() == L'{') {
             office_action(message);
         } else if (message == L"drag") {
@@ -611,7 +674,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
     // 缩放后告诉页面当前是默认大小的百分之几,页面闪一下提示。
     void notify_size(int dpi, const DesktopPetRect& work) {
         if (!webview) return;
-        const double base = desktop_pet_scale(dpi, work.width, work.height);
+        const double base = pet_kind == "mini" ? dpi / 96.0 : desktop_pet_scale(dpi, work.width, work.height);
         const int percent = static_cast<int>(std::lround(placement.scale / base * 100.0));
         webview->PostWebMessageAsString((L"size " + std::to_wstring(percent)).c_str());
     }
@@ -626,15 +689,17 @@ struct PetController : std::enable_shared_from_this<PetController> {
     }
 
     void zoom_by(int steps, double fx, double fy) {
+        if (mini_popup) set_mini_popup(false);
         if (!revealed || closed || steps == 0) return;
         const double current = window_rect().width / static_cast<double>(kDesktopPetSceneWidth);
         // 停在右下角时锚在右下角(缩放后还贴着角);拖动过之后以鼠标所在点为中心。
         if (!user_moved) { fx = 1.0; fy = 1.0; }
         apply_scale(current * std::pow(kZoomStep, steps), fx, fy);
-        save_logical_scale(logical_scale);
+        save_logical_scale(logical_scale, pet_kind);
     }
 
     void start_resize() {
+        if (mini_popup) set_mini_popup(false);
         if (!revealed || closed || resizing) return;
         resizing = true;
         resize_start = window_rect();
@@ -668,21 +733,23 @@ struct PetController : std::enable_shared_from_this<PetController> {
     void finish_resize() {
         ::KillTimer(hwnd, kResizeTimer);
         resizing = false;
-        save_logical_scale(logical_scale);
+        save_logical_scale(logical_scale, pet_kind);
     }
 
     void reset_size() {
+        if (mini_popup) set_mini_popup(false);
         if (!revealed || closed) return;
         logical_scale = 0.0;
-        save_logical_scale(0.0);
+        save_logical_scale(0.0, pet_kind);
         const int dpi = window_dpi();
         const DesktopPetRect work = window_work_area();
         if (!user_moved) dock_to_corner();
-        else apply_placement(keep_docked(scale_desktop_pet(window_rect(), desktop_pet_scale(dpi, work.width, work.height), 1.0, 1.0, work), work));
+        else apply_placement(keep_docked(scale_desktop_pet(window_rect(), pet_kind == "mini" ? dpi / 96.0 : desktop_pet_scale(dpi, work.width, work.height), 1.0, 1.0, work), work));
         notify_size(dpi, work);
     }
 
     void dock_to_corner() {
+        if (mini_popup) set_mini_popup(false);
         if (docked_side) {
             docked_side = 0;
             publish_dock();
@@ -690,10 +757,11 @@ struct PetController : std::enable_shared_from_this<PetController> {
         const HMONITOR monitor = revealed
             ? ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY)
             : primary_monitor();
-        apply_placement(place_desktop_pet(work_area_of(monitor), monitor_dpi(monitor), logical_scale));
+        apply_placement(place_desktop_pet(work_area_of(monitor), monitor_dpi(monitor), preferred_scale()));
     }
 
     void start_drag() {
+        if (mini_popup) set_mini_popup(false);
         if (!hwnd) return;
         // 与主窗口的 WebHost::start_window_drag 相同:放开 WebView2 子窗口的鼠标捕获,
         // 交给系统的标题栏拖动循环,按钮松开时循环自己结束。
@@ -702,6 +770,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
     }
 
     void show_menu() {
+        if (mini_popup) set_mini_popup(false);
         if (!hwnd) return;
         HMENU menu = ::CreatePopupMenu();
         if (!menu) return;
@@ -754,11 +823,12 @@ struct PetController : std::enable_shared_from_this<PetController> {
     }
 
     void handle_dpi_changed(int dpi) {
+        if (mini_popup) set_mini_popup(false);
         const HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY);
         const DesktopPetRect work = work_area_of(monitor);
         if (!revealed) {
             // 还在屏幕外:只换尺寸,位置等 reveal 时按主屏算。
-            const DesktopPetPlacement next = place_desktop_pet(work_area_of(primary_monitor()), dpi, logical_scale);
+            const DesktopPetPlacement next = place_desktop_pet(work_area_of(primary_monitor()), dpi, preferred_scale());
             placement.scale = next.scale;
             placement.window.width = next.window.width;
             placement.window.height = next.window.height;
@@ -774,9 +844,9 @@ struct PetController : std::enable_shared_from_this<PetController> {
             apply_placement(resize_desktop_pet(
                 {current.left, current.top, current.right - current.left,
                  current.bottom - current.top},
-                dpi, work, logical_scale));
+                dpi, work, preferred_scale()));
         } else {
-            apply_placement(place_desktop_pet(work, dpi, logical_scale));
+            apply_placement(place_desktop_pet(work, dpi, preferred_scale()));
         }
     }
 
@@ -786,7 +856,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
             close();
             return 0;
         case WM_MOUSEACTIVATE:
-            return MA_NOACTIVATE;
+            return mini_input ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_SIZE: {
             RECT bounds{};
             ::GetClientRect(hwnd, &bounds);
@@ -820,9 +890,11 @@ struct PetController : std::enable_shared_from_this<PetController> {
             handle_dpi_changed(HIWORD(wparam));
             return 0;
         case WM_DISPLAYCHANGE:
+            if (mini_popup) set_mini_popup(false);
             if (revealed && !user_moved) dock_to_corner();
             break;
         case WM_SETTINGCHANGE:
+            if (wparam == SPI_SETWORKAREA && mini_popup) set_mini_popup(false);
             if (wparam == SPI_SETWORKAREA && revealed && !user_moved) dock_to_corner();
             break;
         case WM_TIMER:

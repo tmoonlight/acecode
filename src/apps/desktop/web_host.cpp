@@ -49,6 +49,7 @@
 #  include <wrl.h>  // Microsoft::WRL::Callback,挂 WebView2 事件 handler
 #  include "web_host_browser_win.hpp"
 #  include "web_host_chrome_win.hpp"
+#  include "web_host_legacy_file_drop_win.hpp"
 #endif
 #if !defined(_WIN32) && !defined(__APPLE__)
 #  include "linux_desktop.hpp"
@@ -961,9 +962,9 @@ void apply_window_background(webview::webview& host,
 // objects 发回来。ICoreWebView2File::get_Path 给 native-confirmed absolute path,
 // 不信任页面自己拼的 path 字符串,也不会把多选拆成若干不完整的导航事件。
 //
-// 旧 Runtime / bridge 不可用时仍保留 file:// NavigationStarting / NewWindowRequested
-// 拦截:至少防整页跳转 / 打开文件,并为历史单文件拖放提供兼容兜底。新窗口中的
-// http(s) 继续交给系统默认浏览器,普通同页导航不受影响。
+// Runtime 113 之前由 OLE 适配器直接读取 CF_HDROP，复用同一批次回调。
+// 同时保留 file:// NavigationStarting / NewWindowRequested 拦截以防整页跳转。
+// 新窗口中的 http(s) 继续交给系统默认浏览器,普通同页导航不受影响。
 constexpr wchar_t kWindowsFilesystemDropMessage[] =
     L"acecode:native-filesystem-drop:v1";
 
@@ -2165,6 +2166,7 @@ struct WebHost::Impl {
     ~Impl() {
 #ifdef _WIN32
         renderer_lifetime.revoke();
+        legacy_file_drop.reset();
 #endif
         window_focus_handler = {};
 #ifdef _WIN32
@@ -2227,6 +2229,7 @@ struct WebHost::Impl {
 #endif
     std::unique_ptr<webview::webview> w;
 #ifdef _WIN32
+    std::unique_ptr<detail::LegacyWindowsFileDrop> legacy_file_drop;
     LifetimeToken renderer_lifetime;
 #endif
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -2720,6 +2723,13 @@ void WebHost::set_file_drop_handler(FileDropHandler handler) {
     g_file_drop_handler = std::move(handler);
 #ifdef _WIN32
     install_win_webview_navigation_handlers(*impl_->w);
+    if (!impl_->legacy_file_drop) {
+        impl_->legacy_file_drop = detail::install_legacy_windows_file_drop(
+            *impl_->w, impl_->renderer_lifetime,
+            [](std::vector<std::string> paths, FileDropContext context) {
+                if (g_file_drop_handler) g_file_drop_handler(std::move(paths), context);
+            });
+    }
 #elif defined(__APPLE__)
     install_mac_file_drop(*impl_->w);
 #endif

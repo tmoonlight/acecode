@@ -20,6 +20,7 @@
 #include "provider/model_context_resolver.hpp"
 #include "provider/model_pool_status.hpp"
 #include "provider/model_resolver.hpp"
+#include "provider/provider_factory.hpp"
 #include "config/saved_models_revision.hpp"
 #include "skills/skill_init.hpp"
 #include "gitinfo/git_context_core.hpp"
@@ -1474,10 +1475,10 @@ void SessionRegistry::start_auto_title_attempt(const std::string& id,
             if (title_generator) {
                 title = title_generator(text);
             } else if (profile.has_value()) {
-                auto provider = create_auto_title_provider(std::move(*profile), *cfg);
-                if (provider) {
-                    title = generate_auto_session_title(*provider, text, *cfg);
-                }
+                title = generate_auto_session_title_with_fallback(*profile, text, *cfg, [ref] {
+                    bool stopped = true;
+                    return !ref.with([&](SessionRegistry& registry) { stopped = registry.shutting_down_.load(); }) || stopped;
+                });
             }
         } catch (const std::exception& e) {
             LOG_WARN("[registry] auto session title generation failed: " +
@@ -1542,46 +1543,6 @@ ControlEnqueueReceipt SessionRegistry::enqueue_entry_control(
             });
             return succeeded;
         });
-}
-
-std::size_t SessionRegistry::refresh_sandbox_config(const SandboxConfig& sandbox) {
-    auto snapshot = std::make_shared<SandboxConfig>(sandbox);
-    std::vector<std::shared_ptr<SessionEntry>> targets;
-    {
-        std::lock_guard<std::mutex> lk(mu_);
-        targets.reserve(entries_.size());
-        for (const auto& [id, entry] : entries_) {
-            (void)id;
-            if (entry && entry->loop) targets.push_back(entry);
-        }
-    }
-    std::size_t queued = 0;
-    for (const auto& entry : targets) {
-        const auto receipt = enqueue_entry_control(entry,
-            [snapshot](SessionRegistry&, SessionEntry& active) {
-                active.loop->set_sandbox_config(*snapshot);
-                return true;
-            });
-        (void)receipt;
-        ++queued;
-    }
-    return queued;
-}
-
-std::size_t SessionRegistry::refresh_tool_preamble_config(const ToolPreambleConfig& cfg) {
-    std::vector<std::shared_ptr<SessionEntry>> targets;
-    {
-        std::lock_guard<std::mutex> lk(mu_);
-        targets.reserve(entries_.size());
-        for (const auto& [id, entry] : entries_) {
-            (void)id;
-            if (entry && entry->loop) targets.push_back(entry);
-        }
-    }
-    for (const auto& entry : targets) {
-        entry->loop->set_tool_preamble_config(cfg);
-    }
-    return targets.size();
 }
 
 std::size_t SessionRegistry::refresh_exec_rules() {
@@ -2112,7 +2073,9 @@ SideChatResult SessionRegistry::stream_side_chat(
     const std::vector<SideChatMessage>& history,
     SideChatCancellation& cancellation,
     const SideChatStreamCallback& callback,
-    const SideChatToolCallback& on_tool) {
+    const SideChatToolCallback& on_tool,
+    const SideChatMainSessionSender& send_to_main,
+    const SideChatInputOptions& input) {
     // Keep the entry and loop alive until the provider returns, including when
     // the main session is removed while its detached request is streaming.
     auto entry = acquire(id);
@@ -2122,7 +2085,24 @@ SideChatResult SessionRegistry::stream_side_chat(
         result.response.error = "unknown session";
         return result;
     }
-    return entry->loop->stream_side_chat(question, history, cancellation, callback, on_tool);
+    auto options = input;
+    if (!input.model_name.empty()) {
+        try {
+            auto target = resolve_target_for_name(deps_, input.model_name, input.reasoning_effort, true);
+            if (target.profile && target.config) {
+                options.provider_override = create_provider_from_entry(*target.profile, target.config.get());
+            }
+            if (!options.provider_override) throw std::runtime_error("side model unavailable");
+        } catch (...) {
+            SideChatResult result;
+            result.response.status = SideQuestionStatus::ProviderUnavailable;
+            result.response.error = "Selected side chat model is unavailable or its reasoning setting is invalid";
+            result.code = "SIDE_CHAT_MODEL_UNAVAILABLE";
+            return result;
+        }
+    }
+    return entry->loop->stream_side_chat(question, history, cancellation, callback, on_tool,
+                                         send_to_main, options);
 }
 
 bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {

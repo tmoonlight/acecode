@@ -1,4 +1,4 @@
-import { composerShortcutAction, isDismissShortcut } from '../lib/shortcutBindings.js';
+import { isDismissShortcut } from '../lib/shortcutBindings.js';
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -16,6 +16,9 @@ import {
   resizeSideChatGeometry,
 } from '../lib/sideChatGeometry.js';
 import { VsIcon } from './Icon.jsx';
+import { InputBar } from './InputBar.jsx';
+import { AttachmentStrip } from './AttachmentStrip.jsx';
+import { OverlayLayerContext } from './OverlayLayerContext.jsx';
 import { toast } from './Toast.jsx';
 
 const RESIZE_DIRECTIONS = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'];
@@ -33,33 +36,141 @@ const SideChatMarkdown = memo(function SideChatMarkdown({ text, onMarkdownIntera
   );
 });
 
-function SideChatToolRow({ tool }) {
+const SEND_STATUS_LABELS = {
+  steered: '已插入主会话当前回合',
+  started: '已发到主会话',
+  queued: '已排到主会话下一轮',
+  cancelled: '未发送',
+};
+
+// 「发到主会话」确认卡片:可编辑内容,确认后才送达;主会话运行中时按钮写明会插入当前回合。
+function SideChatSendCard({ send, mainBusy, onEdit, onConfirm, onCancel }) {
+  const editable = send.status === 'pending';
   return (
-    <li className="ace-side-chat-tool" data-tool-status={tool.status}>
-      {tool.status === 'running'
-        ? <span className="ace-spinner" aria-hidden="true" />
-        : <span className="ace-side-chat-tool-dot" aria-hidden="true" />}
-      <span className="ace-side-chat-tool-verb">{sideChatToolVerb(tool.name)}</span>
-      {tool.target && <span className="ace-side-chat-tool-target" title={tool.target}>{tool.target}</span>}
+    <section className="ace-side-chat-send" data-send-status={send.status} aria-label="发到主会话">
+      {editable ? (
+        <textarea
+          className="ace-scrollbar"
+          value={send.text}
+          rows={3}
+          autoFocus
+          aria-label="发到主会话的内容"
+          onChange={(event) => onEdit?.(send.id, event.target.value)}
+        />
+      ) : (
+        <div className="ace-side-chat-send-text">{send.text}</div>
+      )}
+      {editable ? (
+        <div className="ace-side-chat-send-actions">
+          <button type="button" onClick={() => onCancel?.(send.id)}>取消</button>
+          <button
+            type="button"
+            className="is-primary"
+            disabled={!send.text.trim()}
+            onClick={() => onConfirm?.(send.id)}
+          >
+            {mainBusy ? '插入当前回合' : '发送'}
+          </button>
+        </div>
+      ) : (
+        <div
+          className="ace-side-chat-send-status"
+          role={send.status === 'failed' ? 'alert' : 'status'}
+        >
+          {send.status === 'sending' && <span className="ace-spinner" aria-hidden="true" />}
+          <span>
+            {send.status === 'sending'
+              ? '正在发送…'
+              : send.status === 'failed'
+                ? (send.error || '发送失败')
+                : SEND_STATUS_LABELS[send.status]}
+          </span>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SideChatToolRow({ tool, send, sendProps }) {
+  return (
+    <li className="ace-side-chat-tool-item">
+      <div className="ace-side-chat-tool" data-tool-status={tool.status}>
+        {tool.status === 'running'
+          ? <span className="ace-spinner" aria-hidden="true" />
+          : <span className="ace-side-chat-tool-dot" aria-hidden="true" />}
+        <span className="ace-side-chat-tool-verb">{sideChatToolVerb(tool.name)}</span>
+        {tool.target && <span className="ace-side-chat-tool-target" title={tool.target}>{tool.target}</span>}
+      </div>
+      {send && <SideChatSendCard send={send} {...sendProps} />}
     </li>
   );
 }
 
-const SideChatTurn = memo(function SideChatTurn({ turn, onMarkdownInteraction }) {
+const SideChatTurn = memo(function SideChatTurn({
+  turn,
+  onMarkdownInteraction,
+  mainBusy = false,
+  onSendEdit,
+  onSendConfirm,
+  onSendCancel,
+  onStartSend,
+}) {
   const answer = String(turn.answer || '');
   const parts = useMemo(() => sideChatTurnParts(turn), [turn]);
   const generating = turn.status === 'loading' || turn.status === 'streaming';
+  const sends = turn.sends || [];
+  const toolIds = useMemo(() => new Set((turn.tools || []).map((tool) => tool.id)), [turn.tools]);
+  const sendByCall = useMemo(
+    () => new Map(sends.filter((send) => send.callId).map((send) => [send.callId, send])),
+    [sends],
+  );
+  const looseSends = sends.filter((send) => !send.callId || !toolIds.has(send.callId));
+  const sendProps = { mainBusy, onEdit: onSendEdit, onConfirm: onSendConfirm, onCancel: onSendCancel };
+  const settled = turn.status === 'success' || turn.status === 'stopped';
+  const handoffOpen = sends.some((send) => send.origin === 'user'
+    && (send.status === 'pending' || send.status === 'sending'));
+  const copyAnswer = async () => {
+    try {
+      await copyTextToClipboard(answer);
+      toast({ kind: 'ok', text: '已复制回答' });
+    } catch (error) {
+      toast({ kind: 'err', text: '复制失败:' + (error?.message || '') });
+    }
+  };
   return (
     <article className="ace-side-chat-turn" data-side-chat-status={turn.status}>
-      <div className="ace-side-chat-question">{turn.question}</div>
+      <div className="ace-side-chat-question">
+        {turn.question}
+        <AttachmentStrip attachments={turn.attachments || []} align="right" />
+      </div>
       <div className="ace-side-chat-answer">
         {parts.map((part) => (part.kind === 'tools' ? (
           <ul key={part.key} className="ace-side-chat-tools" aria-label="只读工具调用">
-            {part.tools.map((tool) => <SideChatToolRow key={tool.id} tool={tool} />)}
+            {part.tools.map((tool) => (
+              <SideChatToolRow key={tool.id} tool={tool} send={sendByCall.get(tool.id)} sendProps={sendProps} />
+            ))}
           </ul>
         ) : (
           <SideChatMarkdown key={part.key} text={part.text} onMarkdownInteraction={onMarkdownInteraction} />
         )))}
+        {looseSends.map((send) => <SideChatSendCard key={send.id} send={send} {...sendProps} />)}
+        {settled && answer.trim() && (
+          <div className="ace-side-chat-answer-actions">
+            <button type="button" aria-label="复制回答" title="复制回答" onClick={copyAnswer}>
+              <VsIcon name="copy" size={14} />
+            </button>
+            {onStartSend && !handoffOpen && (
+              <button
+                type="button"
+                aria-label="发到主会话"
+                title="发到主会话"
+                onClick={() => onStartSend(turn.id)}
+              >
+                <VsIcon name="ArrowUpRight" size={14} />
+              </button>
+            )}
+          </div>
+        )}
         {generating && (
           <div className="ace-side-chat-progress" role="status">
             <span className="ace-spinner" aria-hidden="true" />
@@ -82,19 +193,29 @@ export function SideChatWindow({
   draft = '',
   busy = false,
   stopping = false,
+  queued = [],
+  queuePaused = false,
+  composerProps = {},
+  onResumeQueue,
   onDraftChange,
   onSubmit,
   onStop,
+  onCancelQueued,
   onClear,
   onClose,
   onFileLink,
   fileLinkCwd = '',
+  mainBusy = false,
+  onSendEdit,
+  onSendConfirm,
+  onSendCancel,
+  onStartSend,
+  focusRequest = 0,
 }) {
   const titleId = useId();
   const dialogRef = useRef(null);
   const textareaRef = useRef(null);
   const closeRef = useRef(null);
-  const stopRef = useRef(null);
   const transcriptRef = useRef(null);
   const pointerRef = useRef(null);
   const followingRef = useRef(true);
@@ -102,9 +223,6 @@ export function SideChatWindow({
   const focusWithinRef = useRef(false);
   const [geometry, setGeometry] = useState(() => createSideChatGeometry(nativeSurfaceViewportRect()));
   const [interacting, setInteracting] = useState(false);
-  const locked = busy || stopping;
-  const canSubmit = !locked && !!String(draft).trim();
-
   useLayoutEffect(() => {
     if (!open) return undefined;
     setGeometry((current) => anchor
@@ -144,15 +262,16 @@ export function SideChatWindow({
     };
   }, [open]);
 
-  useLayoutEffect(() => {
-    if (!open || !focusWithinRef.current) return;
-    // Disabling a focused textarea otherwise leaves focus on body, where Escape
-    // can reach the main task's stop shortcut while a side answer is running.
-    const target = locked
-      ? (stopping ? closeRef.current : stopRef.current)
-      : textareaRef.current;
-    target?.focus({ preventScroll: true });
-  }, [open, locked, stopping]);
+  // 主会话里「发到侧边对话」后,把光标放到引用之后,直接接着写问题。
+  useEffect(() => {
+    if (!open || !focusRequest) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const input = textareaRef.current;
+      if (!input || input.disabled) return;
+      input.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, focusRequest]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -241,6 +360,7 @@ export function SideChatWindow({
         if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusWithinRef.current = false;
       }}
       onKeyDown={(event) => {
+        if (!event.currentTarget.contains(event.target) || event.defaultPrevented) return;
         event.stopPropagation();
         if (isDismissShortcut(event) && !isComposing(event)) {
           event.preventDefault();
@@ -296,57 +416,53 @@ export function SideChatWindow({
         {turns.length === 0 ? (
           <div className="ace-side-chat-empty">围绕当前会话继续聊，不会打断主任务，也不会加入主会话。</div>
         ) : turns.map((turn) => (
-          <SideChatTurn key={turn.id} turn={turn} onMarkdownInteraction={handleMarkdownInteraction} />
+          <SideChatTurn
+            key={turn.id}
+            turn={turn}
+            onMarkdownInteraction={handleMarkdownInteraction}
+            mainBusy={mainBusy}
+            onSendEdit={onSendEdit}
+            onSendConfirm={onSendConfirm}
+            onSendCancel={onSendCancel}
+            onStartSend={onStartSend}
+          />
         ))}
       </div>
-      <form className="ace-side-chat-composer" onSubmit={(event) => {
-        event.preventDefault();
-        if (canSubmit) onSubmit?.();
-      }}>
-        <textarea
+      {queued.length > 0 && (
+        <div className="ace-side-chat-queue ace-scrollbar" role="list" aria-label="排队中的待发送消息">
+          {queued.map((item) => (
+            <div key={item.id} role="listitem" className="ace-queue-card flex items-center gap-2 px-3 py-2 text-[13px]">
+              <span className="min-w-0 flex-1 truncate" title={item.text}>{item.text}</span>
+              <span className="shrink-0 text-[11px] text-fg-mute">{queuePaused ? '已暂停' : '排队中'}</span>
+              <button
+                type="button"
+                className="ace-queue-card-close shrink-0 w-6 h-6 rounded flex items-center justify-center"
+                aria-label="取消排队"
+                onClick={() => onCancelQueued?.(item.id)}
+              >
+                <VsIcon name="close" size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="ace-side-chat-composer">
+        <InputBar
+          {...composerProps}
           ref={textareaRef}
-          className="ace-scrollbar"
-          value={draft}
-          rows={1}
-          disabled={locked}
           aria-label="侧边聊天问题"
           placeholder="问一个不打断当前任务的问题…"
-          onChange={(event) => onDraftChange?.(event.target.value)}
-          onKeyDown={(event) => {
-            if (isComposing(event)) return;
-            const action = composerShortcutAction(event);
-            if (action === 'send') {
-              event.preventDefault();
-              if (canSubmit && !event.repeat) onSubmit?.();
-            } else if (action === 'newline') {
-              event.preventDefault();
-              const input = event.currentTarget;
-              const start = input.selectionStart;
-              onDraftChange?.(draft.slice(0, start) + '\n' + draft.slice(input.selectionEnd));
-              requestAnimationFrame(() => textareaRef.current?.setSelectionRange(start + 1, start + 1));
-            } else if (action === 'ignore') {
-              event.preventDefault();
-            }
-          }}
+          value={draft}
+          onChange={onDraftChange}
+          onSubmit={onSubmit}
+          busy={busy}
+          stopping={stopping}
+          onAbort={onStop}
+          queuePaused={queuePaused}
+          onResumeQueue={onResumeQueue}
+          showAddControl={false}
         />
-        {locked ? (
-          <button
-            ref={stopRef}
-            type="button"
-            className="ace-side-chat-action"
-            aria-label={stopping ? '正在停止…' : '停止生成'}
-            title={stopping ? '正在停止…' : '停止生成'}
-            disabled={stopping}
-            onClick={onStop}
-          >
-            {stopping ? <span className="ace-spinner" aria-hidden="true" /> : <VsIcon name="stop" size={16} />}
-          </button>
-        ) : (
-          <button type="submit" className="ace-side-chat-action" aria-label="发送" title="发送" disabled={!canSubmit}>
-            <VsIcon name="send" size={16} />
-          </button>
-        )}
-      </form>
+      </div>
       {RESIZE_DIRECTIONS.map((direction) => (
         <div
           key={direction}
@@ -359,7 +475,8 @@ export function SideChatWindow({
       ))}
     </section>
   );
-  return typeof document === 'undefined' ? windowElement : createPortal(windowElement, document.body);
+  const content = <OverlayLayerContext.Provider value={2147483100}>{windowElement}</OverlayLayerContext.Provider>;
+  return typeof document === 'undefined' ? content : createPortal(content, document.body);
 }
 
 export default SideChatWindow;

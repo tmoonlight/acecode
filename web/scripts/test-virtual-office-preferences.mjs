@@ -14,6 +14,7 @@ import React from 'react';
 import {createRoot} from 'react-dom/client';
 import {SidebarQuickMenu} from '/src/components/SidebarQuickMenu.jsx';
 import {VirtualOfficeSettings} from '/src/components/VirtualOfficeSettings.jsx';
+import {SettingsPage} from '/src/components/SettingsPage.jsx';
 import {useDesktopOffice} from '/src/lib/useDesktopOffice.js';
 import {api} from '/src/lib/api.js';
 import {connection} from '/src/lib/connection.js';
@@ -30,7 +31,10 @@ Object.assign(connection,{retainSession:id=>window.retained.add(id),releaseSessi
 Object.assign(api,{getDesktopOffice:async()=>{window.snapshotRequests++;const s={id:'live',title:'当前工作',active:true,busy:true,workspace_hash:'w'};return {selected:s,agents:[s],offices:[s],complete:true};},getSessionModel:async()=>({})});
 function Fixture(){
  const office=useDesktopOffice({sessionId:'live',workspaceHash:'w'});
+ const [fullSettings,setFullSettings]=React.useState(false);
+ window.openFullSettings=setFullSettings;
  window.office=office;
+ if(fullSettings)return <SettingsPage office={office} onClose={()=>setFullSettings(false)} initialNavKey="virtual-office"/>;
  return <main className="h-screen p-5 text-fg bg-bg">
   <div className="max-w-[640px] mx-auto"><VirtualOfficeSettings office={office}/></div>
   <div className="absolute bottom-4 left-4"><SidebarQuickMenu sidebarWidth={270} office={office}/></div>
@@ -66,8 +70,8 @@ try {
   assert.equal(await page.locator('iframe').count(), 0);
   const toggle = page.getByRole('switch', { name: '开启桌面宠物' });
   assert.equal(await toggle.getAttribute('aria-checked'), 'false');
-  assert.deepEqual(await page.getByRole('radio').locator('div.text-fg').allTextContents(), ['虚拟办公室', '大眼回形针', 'rover', '鲸鱼娘']);
-  for (const [label, kind] of [['大眼回形针', 'clippy'], ['rover', 'rover'], ['鲸鱼娘', 'whale'], ['虚拟办公室', 'office']]) {
+  assert.deepEqual(await page.getByRole('radio').locator('div.text-fg').allTextContents(), ['虚拟办公室', '大眼回形针', 'rover', '鲸鱼娘', 'mini']);
+  for (const [label, kind] of [['大眼回形针', 'clippy'], ['rover', 'rover'], ['鲸鱼娘', 'whale'], ['mini', 'mini'], ['虚拟办公室', 'office']]) {
     await page.getByRole('radio', { name: label }).click();
     await page.waitForFunction(value => office.petKind === value, kind);
     assert.equal(await toggle.getAttribute('aria-checked'), 'false', 'selection does not enable the pet');
@@ -101,6 +105,25 @@ try {
   await page.getByRole('menuitem', { name: '显示桌面宠物' }).click();
   await page.waitForFunction(n => snapshotRequests > n, requests);
   assert.equal(await toggle.getAttribute('aria-checked'), 'true', 'menu reopens office and updates setting');
+  await page.evaluate(() => openFullSettings(true));
+  await page.locator('.ace-settings-content').waitFor();
+  await page.getByRole('radio', {name:'mini',exact:true}).click();
+  await page.waitForFunction(() => office.petKind === 'mini');
+  for (const [theme,width] of [['light',1100],['dark',1100],['light',390]]) {
+    await page.setViewportSize({width,height:800});
+    await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
+    await page.waitForTimeout(450);
+    assert.equal(await page.getByRole('radio', {name:'mini',exact:true}).getAttribute('aria-checked'),'true');
+    await page.getByRole('radio', {name:'mini',exact:true}).scrollIntoViewIfNeeded();
+    assert.ok(await page.getByRole('radio', {name:'mini',exact:true}).evaluate(element => {
+      const preview = element.querySelector('[aria-hidden="true"] > div');
+      return preview.getBoundingClientRect().width <= element.clientWidth - 24;
+    }), 'mini preview fits the full settings card');
+    await page.screenshot({path:path.join(output,`full-settings-${theme}-${width}.png`)});
+  }
+  await page.evaluate(() => openFullSettings(false));
+  await page.evaluate(() => openFullSettings(true));
+  assert.equal(await page.getByRole('radio', {name:'mini',exact:true}).getAttribute('aria-checked'),'true','full settings preserves the saved selection across close/reopen');
   await page.reload(); await page.waitForFunction(() => window.office?.ready);
   assert.equal(await page.getByRole('dialog').count(), 0);
   assert.equal(await page.locator('iframe').count(), 0);

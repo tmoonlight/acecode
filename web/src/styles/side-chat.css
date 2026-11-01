@@ -55,8 +55,7 @@
 }
 
 .ace-side-chat-clear,
-.ace-side-chat-close,
-.ace-side-chat-action {
+.ace-side-chat-close {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -78,15 +77,13 @@
 }
 
 .ace-side-chat-clear:hover,
-.ace-side-chat-close:hover,
-.ace-side-chat-action:not(:disabled):hover {
+.ace-side-chat-close:hover {
   background: var(--ace-surface-hi);
   color: var(--ace-fg);
 }
 
 .ace-side-chat-clear:focus-visible,
-.ace-side-chat-close:focus-visible,
-.ace-side-chat-action:focus-visible {
+.ace-side-chat-close:focus-visible {
   outline: 2px solid var(--ace-accent);
   outline-offset: 2px;
 }
@@ -196,6 +193,138 @@
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
+.ace-side-chat-send {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 4px;
+  border: 1px solid var(--ace-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--ace-surface);
+}
+
+.ace-side-chat-send textarea {
+  width: 100%;
+  min-height: 64px;
+  max-height: 180px;
+  resize: vertical;
+  border: 0;
+  padding: 0;
+  outline: none;
+  color: var(--ace-fg);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ace-side-chat-send-text {
+  max-height: 120px;
+  overflow: auto;
+  color: var(--ace-fg-mute);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ace-side-chat-send-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.ace-side-chat-send-actions button {
+  border: 1px solid var(--ace-border);
+  border-radius: 7px;
+  padding: 4px 12px;
+  color: var(--ace-fg);
+  background: transparent;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.ace-side-chat-send-actions button:hover:not(:disabled) {
+  background: var(--ace-surface-hi);
+}
+
+.ace-side-chat-send-actions button.is-primary {
+  border-color: var(--ace-accent);
+  color: var(--ace-bg);
+  background: var(--ace-accent);
+}
+
+.ace-side-chat-send-actions button.is-primary:hover:not(:disabled) {
+  background: var(--ace-accent);
+  opacity: 0.9;
+}
+
+.ace-side-chat-send-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ace-side-chat-send-actions button:focus-visible {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: 2px;
+}
+
+.ace-side-chat-send-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ace-fg-mute);
+  font-size: 12px;
+}
+
+.ace-side-chat-send[data-send-status="failed"] .ace-side-chat-send-status {
+  color: var(--ace-danger);
+}
+
+.ace-side-chat-answer-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.ace-side-chat-turn:hover .ace-side-chat-answer-actions,
+.ace-side-chat-answer-actions:focus-within {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .ace-side-chat-answer-actions {
+    opacity: 1;
+  }
+}
+
+.ace-side-chat-answer-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  color: var(--ace-fg-mute);
+  background: transparent;
+  cursor: pointer;
+}
+
+.ace-side-chat-answer-actions button:hover {
+  color: var(--ace-fg);
+  background: var(--ace-surface-hi);
+}
+
+.ace-side-chat-answer-actions button:focus-visible {
+  outline: 2px solid var(--ace-accent);
+  outline-offset: 2px;
+}
+
 .ace-side-chat-progress,
 .ace-side-chat-status,
 .ace-side-chat-error {
@@ -217,60 +346,23 @@
 }
 
 .ace-side-chat-composer {
-  display: flex;
   flex: 0 0 auto;
-  box-sizing: border-box;
-  align-items: center;
-  gap: 8px;
-  /* 44px including borders plus two 8px margins: a 60px bottom region. */
-  height: 44px;
-  margin: 8px 12px;
-  border: 1px solid var(--ace-border);
-  border-radius: 14px;
-  padding: 4px 10px 4px 14px;
-  background: var(--ace-surface);
-  box-shadow: var(--ace-shadow);
-  transition: border-color 120ms;
-}
-
-.ace-side-chat-composer:focus-within {
-  border-color: var(--ace-accent);
-}
-
-.ace-side-chat-composer textarea {
-  display: block;
-  flex: 1 1 auto;
-  width: 100%;
   min-width: 0;
-  height: 26px;
-  min-height: 0;
-  margin: 0;
-  border: 0;
-  padding: 0;
-  outline: none;
-  background: transparent;
-  color: var(--ace-fg);
-  font: inherit;
-  line-height: 26px;
-  resize: none;
+  border-radius: 0 0 14px 14px;
+}
+
+.ace-side-chat-composer .ace-inputbar-layer {
+  border-radius: inherit;
+}
+
+.ace-side-chat-queue {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 25%;
+  margin: 0 12px;
   overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.ace-side-chat-composer textarea::placeholder {
-  color: var(--ace-fg-mute);
-}
-
-.ace-side-chat-composer textarea:disabled {
-  color: var(--ace-fg-mute);
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.ace-side-chat-action:disabled {
-  color: var(--ace-fg-mute);
-  cursor: default;
-  opacity: 0.55;
 }
 
 .ace-side-chat-resize {

@@ -481,15 +481,7 @@
   }
 
   // ---- Session cards and mood (Codex Mini) ----
-  const ICONS = {
-    review: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="var(--ok)"/><path d="m4.6 8.3 2.2 2.2 4.6-4.8" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    failed: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="var(--danger)"/><path d="M8 4.2v4.6M8 11.3v.1" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg>',
-    waiting: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="var(--warn)"/><path d="M8 4.2v4.6M8 11.3v.1" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg>',
-    stopped: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="var(--idle)"/><rect x="5.3" y="5.3" width="5.4" height="5.4" rx="1" fill="#fff"/></svg>',
-    info: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="var(--idle)"/><path d="M8 7.2v4.4M8 4.6v.1" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg>',
-  };
-  const STATUS_TEXT = { running: '运行中', waiting: '需要你处理', review: '已完成', failed: '失败', stopped: '已停止' };
-  const RESULT = ['review', 'failed', 'stopped'];
+  const RESULT = window.PetActivityCards.results;
   const sessionCards = () => (snapshot.connected ? snapshot.activities || [] : []).filter(card => !dismissed.has(card.key));
   // Shown cards: the brief first-appearance greeting, a reconnect notice, then real sessions.
   function shownCards() {
@@ -500,38 +492,10 @@
     return cards.concat(sessionCards());
   }
   function cardElement(card) {
-    const el = document.createElement('div');
-    el.className = 'card'; el.tabIndex = 0; el.dataset.key = card.key; el.dataset.status = card.status;
-    el.setAttribute('role', 'listitem');
-    const label = STATUS_TEXT[card.status];
-    el.setAttribute('aria-label', [card.title, label, card.body].filter(Boolean).join('，'));
-    el.title = card.local ? '' : `${card.title}\n${card.body}\n点击打开这个会话`;
-    const icon = card.status === 'running' ? '<i class="spinner"></i>' : ICONS[card.status] || '';
-    el.innerHTML = `<span class="icon">${icon}</span><span class="text"><span class="head"><span class="name"></span></span><span class="body"></span></span>`;
-    el.querySelector('.name').textContent = card.title;
-    el.querySelector('.body').textContent = card.body || label || '';
-    if (card.status === 'running') {
-      const stop = document.createElement('button');
-      stop.type = 'button'; stop.className = 'stop'; stop.title = '停止这个会话'; stop.setAttribute('aria-label', `停止「${card.title}」`);
-      stop.innerHTML = '<i></i>';
-      stop.addEventListener('click', event => {
-        event.stopPropagation();
-        action({ type: 'stop', session_id: card.sessionId, workspace_hash: card.workspaceHash || '' });
-      });
-      el.appendChild(stop);
-    }
-    const close = document.createElement('button');
-    close.type = 'button'; close.className = 'dismiss'; close.textContent = '×';
-    close.title = RESULT.includes(card.status) ? '标为已读并移除' : '暂时隐藏';
-    close.setAttribute('aria-label', `移除「${card.title}」`);
-    close.addEventListener('click', event => { event.stopPropagation(); dismissCard(card); });
-    el.appendChild(close);
-    el.addEventListener('click', () => activateCard(card));
-    el.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateCard(card); }
-      else if (event.key === 'Escape') setExpanded(false);
-    });
-    return el;
+    return window.PetActivityCards.create(card, {
+      open: activateCard, dismiss: dismissCard, collapse: () => setExpanded(false),
+      stop: value => action({ type: 'stop', session_id: value.sessionId, workspace_hash: value.workspaceHash || '' }),
+    }).element;
   }
   function renderCards() {
     const cards = shownCards();
@@ -649,12 +613,7 @@
   // Card text uses exactly the ACECode transcript body font (family and size follow the
   // main window's font-size setting); the defaults below match its medium setting.
   function applyTranscriptFont(font) {
-    const root = document.documentElement.style;
-    const size = String(font?.size || '').trim(), family = String(font?.family || '').trim();
-    const before = root.cssText;
-    if (/^\d+(\.\d+)?px$/.test(size)) root.setProperty('--pet-font-size', size);
-    if (family && !/[;{}<>]/.test(family)) root.setProperty('--pet-font', family);
-    if (root.cssText !== before) { fitStack(); reportRegions(); }
+    if (window.PetActivityCards.applyTranscriptFont(font)) { fitStack(); reportRegions(); }
   }
   function applySnapshot(value) {
     if (value?.version !== 1 || !Array.isArray(value.agents) || !Array.isArray(value.offices)) return;

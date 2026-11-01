@@ -12,6 +12,7 @@
 #include "session/global_session_catalog.hpp"
 #include "session/session_rewind.hpp"
 #include "session/session_trajectory.hpp"
+#include "session_host/follow_up_prompt.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>
@@ -928,6 +929,10 @@ void WebServer::Impl::register_sessions() {
             return cors_preflight(req);
         });
         CROW_ROUTE(app, "/api/sessions/<string>/side-question").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/sessions/<string>/side-chat/send").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
@@ -2289,9 +2294,100 @@ void WebServer::Impl::register_sessions() {
             return with_cors(req, std::move(r));
         });
 
+        // POST /api/sessions/:id/side-chat/send body {message}: the user sends a
+        // message from the side chat to the main session (the side window's
+        // "send to main session" action). A running turn reads it at its next
+        // step; an idle session starts a new turn. Response {delivery}.
+        CROW_ROUTE(app, "/api/sessions/<string>/side-chat/send").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const auto reply = [&](int status, json body) {
+                crow::response r(status);
+                r.body = body.dump(-1, ' ', false, json::error_handler_t::replace);
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            };
+            if (!deps.session_client) {
+                return reply(503, {{"error", "SESSION_CLIENT_UNAVAILABLE"},
+                                   {"message", "session client unavailable"}});
+            }
+            std::string message;
+            try {
+                const auto body = json::parse(req.body);
+                if (body.is_object() && body.contains("message") && body["message"].is_string()) {
+                    message = body["message"].get<std::string>();
+                }
+            } catch (...) {}
+            if (message.find_first_not_of(" \t\r\n") == std::string::npos ||
+                message.size() > kMaxSideQuestionBytes) {
+                return reply(400, {{"error", "INVALID_SIDE_CHAT_SEND"},
+                                   {"message", "message must contain 1 to 16000 bytes"}});
+            }
+            const auto delivery = deps.session_client->send_side_chat_message(id, message);
+            if (delivery.delivered()) {
+                return reply(200, {{"delivery", side_chat_delivery_name(delivery.status)}});
+            }
+            if (delivery.status == SideChatDelivery::UnknownSession) {
+                return reply(404, {{"error", "UNKNOWN_SESSION"}, {"message", "unknown session"}});
+            }
+            return reply(503, {{"error", "SIDE_CHAT_SEND_UNAVAILABLE"},
+                               {"message", delivery.message}});
+        });
+
+        // Optional composer suggestion; no tools or main-session mutation.
+        CROW_ROUTE(app, "/api/sessions/<string>/follow-up-prompt").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& id) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const auto reply = [&](int status, const json& body) {
+                crow::response response(status, body.dump());
+                response.add_header("Content-Type", "application/json");
+                response.add_header("Cache-Control", "no-store");
+                return with_cors(req, std::move(response));
+            };
+            const auto body = json::parse(req.body, nullptr, false);
+            if (!body.is_object() || !body.contains("completion_key") ||
+                !body["completion_key"].is_string()) {
+                return reply(400, {{"error", "INVALID_COMPLETION_KEY"}});
+            }
+            const auto key = body["completion_key"].get<std::string>();
+            if (key.empty() || key.size() > 256) return reply(400, {{"error", "INVALID_COMPLETION_KEY"}});
+            if (!deps.session_registry || !deps.app_config) {
+                return reply(503, {{"error", "FOLLOW_UP_UNAVAILABLE"}});
+            }
+            // The synchronous handler retains the entry. Detached provider work
+            // receives owned context/config only and cannot access this entry.
+            const auto entry = deps.session_registry->acquire(id);
+            if (!entry || !entry->loop || !entry->sm) return reply(404, {{"error", "UNKNOWN_SESSION"}});
+            const auto path = SessionStorage::session_path(SessionStorage::get_project_dir(entry->cwd), id);
+            try {
+                if (entry->loop->is_busy()) return reply(409, {{"error", "STALE_COMPLETION"}});
+                const auto context = read_follow_up_context(path);
+                if (!context || context->completion_key != key || entry->loop->is_busy()) {
+                    return reply(409, {{"error", "STALE_COMPLETION"}});
+                }
+                AppConfig config;
+                {
+                    std::shared_lock<std::shared_mutex> lock(app_config_mu);
+                    config = *deps.app_config;
+                }
+                const auto model = entry->model_binding ? entry->model_binding->state_snapshot().name : std::string{};
+                const auto prompt = generate_session_follow_up_prompt(config, model, *context);
+                const auto latest = read_follow_up_context(path);
+                if (entry->loop->is_busy() || !latest || latest->completion_key != key ||
+                    deps.session_registry->acquire(id) != entry) {
+                    return reply(409, {{"error", "STALE_COMPLETION"}});
+                }
+                return reply(200, {{"completion_key", key}, {"prompt", prompt.value_or("")}});
+            } catch (const std::exception&) {
+                // This optional assistance never produces a transcript error or
+                // exposes provider responses/configuration to the browser.
+                return reply(200, {{"completion_key", key}, {"prompt", ""}});
+            }
+        });
+
         // POST /api/sessions/:id/side-question: `/btw` one-turn side question.
         // The registry reads AgentLoop's detached provider-facing snapshot and
-        // calls the current model without tools. No transcript/event/busy state
+        // runs the read-only side chat tool loop. No transcript/event/busy state
         // is mutated by this request.
         CROW_ROUTE(app, "/api/sessions/<string>/side-question").methods(crow::HTTPMethod::POST)
         ([this](const crow::request& req, const std::string& id) {

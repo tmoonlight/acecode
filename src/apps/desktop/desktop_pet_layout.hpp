@@ -99,22 +99,54 @@ DesktopPetRect dock_desktop_pet(const DesktopPetRect& window, const DesktopPetRe
 // 窗口比工作区还大时贴左 / 上边。
 DesktopPetRect keep_desktop_pet_in_work_area(const DesktopPetRect& window, const DesktopPetRect& work_area);
 
-// 右键菜单「切换宠物」里的四种宠物,顺序与设置页一致;id 与 office.json 的 pet_kind 相同。
+// 右键菜单「切换宠物」,顺序与设置页一致;id 与 office.json 的 pet_kind 相同。
 struct DesktopPetKind {
     const char* id;
     const char* zh;
     const char* en;
 };
-inline constexpr std::array<DesktopPetKind, 4> kDesktopPetKinds{{
+inline constexpr std::array<DesktopPetKind, 5> kDesktopPetKinds{{
     {"office", "虚拟办公室", "Virtual office"},
     {"clippy", "大眼回形针", "Clippy"},
     {"rover", "rover", "Rover"},
     {"whale", "鲸鱼娘", "Whale Girl"},
+    {"mini", "mini", "mini"},
 }};
+
+inline bool desktop_pet_valid_kind(std::string_view kind) {
+    for (const auto& entry : kDesktopPetKinds) if (kind == entry.id) return true;
+    return false;
+}
 
 // 有趴边偷看素材(peek.png)、能吸附到屏幕左/右边的宠物:三只陪伴宠物都有,虚拟办公室没有。
 inline bool desktop_pet_has_edge_peek(std::string_view kind) {
     return kind == "clippy" || kind == "rover" || kind == "whale";
+}
+
+// Only animated companions share a page and can replace their art in place.
+inline bool desktop_pet_shares_page(std::string_view from, std::string_view to) {
+    return from == to || (desktop_pet_has_edge_peek(from) && desktop_pet_has_edge_peek(to));
+}
+
+// Background mini input must never activate the main application window.
+inline bool desktop_pet_action_activates_main(std::string_view type) {
+    return type == "activate" || type == "open";
+}
+
+// Mini controls use the same logical pixels as the main composer by default.
+// Character pets retain their legacy integer/platform default and scale file.
+inline double desktop_pet_preferred_scale(std::string_view kind, double saved, double platform_default = 0.0) {
+    return saved > 0.0 ? saved : kind == "mini" ? 1.0 : platform_default;
+}
+
+inline const char* desktop_pet_scale_file(std::string_view kind) {
+    return kind == "mini" ? "mini-settings.json" : "settings.json";
+}
+
+inline bool desktop_pet_is_mini_action(std::string_view type) {
+    return type == "mini-submit" || type == "mini-record-start" || type == "mini-record-stop" ||
+           type == "mini-record-cancel" || type == "mini-file-begin" || type == "mini-file-chunk" ||
+           type == "mini-file-end" || type == "mini-file-remove";
 }
 
 // 拖动陪伴宠物时按窗口横向位移判断朝向(仿 Codex:往右拖向右跑,往左拖向左跑)。
