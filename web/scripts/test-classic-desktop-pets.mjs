@@ -409,7 +409,7 @@ try {
     await hiDpi.evaluate(data => hostMessage({ data }), character('clippy'));
     await hiDpi.waitForFunction(() => ClassicPet.kind === 'clippy');
     assert.deepEqual(await hiDpi.evaluate(() => [document.getElementById('cv').width, document.getElementById('cv').height]), [860, 630]);
-    // 回形针帧在 344 宽场景里画 184 个单位宽,2 倍屏即 368 设备像素;高清帧宽 496,只会缩小。
+    // 回形针帧在 344 宽场景里画 184 个单位宽,2 倍屏即 368 设备像素;高清帧宽 372,只会缩小。
     assert.ok(await hiDpi.evaluate(() => window.ClassicPetHD.clippy.framesize[0] >= 184 * 2), 'HD frames are never blown up on a 2x screen');
     await hiDpi.close();
   }

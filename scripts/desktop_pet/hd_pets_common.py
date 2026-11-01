@@ -9,9 +9,13 @@ from PIL import Image, ImageFilter
 
 PETS = {
     # scale: reference / fitting size relative to the original sprite frame; output_scale: shipped HD frame
-    # size (defaults to scale). Clippy's 496px and Rover's 360px frames stay at or above their drawn size
-    # up to the same window zoom (184 vs 140 scene units wide). cols/rows: frames per Codex grid.
-    "clippy": {"dir": "classic/clippy", "scale": 4, "cols": 3, "rows": 3, "ref_resample": Image.NEAREST,
+    # size (defaults to scale). cols/rows: frames per Codex grid. alpha_quality: WebP alpha precision
+    # (default 100, lossless). Clippy ships at 3x (372px wide, drawn 184 scene units wide: at least its
+    # drawn size up to the default window at 160% display scaling, ~460px at 200%) with alpha_quality 50:
+    # the lossless alpha of the 4x frames was more than a third of the bytes, and 50 keeps a dozen edge
+    # levels, which look the same once the frame is scaled down (8.9 MB -> about 5 MB).
+    "clippy": {"dir": "classic/clippy", "scale": 4, "output_scale": 3, "alpha_quality": 50, "cols": 3, "rows": 3,
+               "ref_resample": Image.NEAREST,
                "describe": "Clippy, the classic Microsoft Office paperclip assistant with big eyes and eyebrows, "
                            "usually standing on a sheet of yellow lined paper (keep the paper whenever it is there). "
                            "3D-rendered cartoon look, silver-blue metal wire."},

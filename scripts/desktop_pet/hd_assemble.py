@@ -116,7 +116,8 @@ def assemble(root, work, kind, quality):
                 table[f"{xy[0]},{xy[1]}"] = None
         for image, spots in pack(drawn):
             index = len(sheets)
-            image.save(out / f"sheet-{index:02d}.webp", "WEBP", quality=quality, method=6)
+            image.save(out / f"sheet-{index:02d}.webp", "WEBP", quality=quality,
+                       alpha_quality=spec.get("alpha_quality", 100), method=6)
             sheets.append(list(image.size))
             for xy, (sx, sy) in spots.items():
                 _, dx, dy = frames[xy]
