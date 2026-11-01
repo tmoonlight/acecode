@@ -128,9 +128,16 @@ jobs:
       - name: Build web UI
         run: pnpm build
 
+      - name: Upload frontend for native integration tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-web-dist
+          path: web/dist
+          if-no-files-found: error
+
   unit-tests:
     name: unit-tests (linux-x64)
-    needs: layer-lint
+    needs: [layer-lint, web-tests]
     runs-on: ubuntu-22.04
     env:
       VCPKG_BINARY_SOURCES: clear;default,readwrite
@@ -139,6 +146,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Download frontend for native integration tests
+        uses: actions/download-artifact@v4
+        with:
+          name: test-web-dist
+          path: web/dist
 
       - name: Install build tools
         shell: bash
