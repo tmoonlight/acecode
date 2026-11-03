@@ -232,7 +232,7 @@ inline void configure_browser_defaults(webview::webview& host,
         return;
     }
 
-    hr = settings->put_IsZoomControlEnabled(FALSE);
+    hr = settings->put_IsZoomControlEnabled(TRUE);
     if (FAILED(hr)) {
         log_webview_setting_failure("put_IsZoomControlEnabled", hr);
     }

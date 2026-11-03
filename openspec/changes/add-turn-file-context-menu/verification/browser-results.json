@@ -1,0 +1,5 @@
+{
+  "checks": "card hit targets, labels/order, copy path/text/empty, binary failure, Explorer dispatch, cancel Save as, preview/diff independence, folding, translated dark narrow layout, keyboard dismissal, browser binary download",
+  "pageErrors": [],
+  "requestCount": 5
+}

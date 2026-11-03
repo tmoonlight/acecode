@@ -661,6 +661,7 @@ struct WebServerFixture {
         wdeps.workspace_registry = workspace_registry.get();
         wdeps.native_folder_picker_enabled = native_folder_picker_enabled;
         wdeps.native_folder_picker = std::move(native_folder_picker);
+        wdeps.native_file_save_picker = native_save_file_picker;
         wdeps.native_save_file_picker = std::move(native_save_file_picker);
         wdeps.open_in_explorer = std::move(open_in_explorer);
         wdeps.remote_web_hosts = std::move(remote_web_hosts);
@@ -5417,6 +5418,80 @@ TEST(WebServerHttp, FilesBlobEndpointServesPdfPreview) {
         (upper != pdf.header.end() ? upper->second : "");
     EXPECT_NE(content_type.find("application/pdf"), std::string::npos)
         << "content-type: " << content_type;
+}
+
+TEST(WebServerHttp, FilesDownloadPreservesArbitraryBinaryBytes) {
+    WebServerFixture fx;
+    const std::string bytes("\0\xff\r\nraw\x80", 9);
+    { std::ofstream out(fx.cwd_dir / "result.bin", std::ios::binary); out.write(bytes.data(), bytes.size()); }
+    auto preview = cpr::Get(cpr::Url{fx.url("/api/files/blob")},
+        cpr::Parameters{{"cwd", fx.cwd}, {"path", "result.bin"}});
+    EXPECT_EQ(preview.status_code, 415);
+    auto download = cpr::Get(cpr::Url{fx.url("/api/files/blob")},
+        cpr::Parameters{{"cwd", fx.cwd}, {"path", "result.bin"}, {"download", "1"}});
+    ASSERT_EQ(download.status_code, 200) << download.text;
+    EXPECT_EQ(download.text, bytes);
+    EXPECT_EQ(download.header["Content-Disposition"], "attachment");
+    EXPECT_EQ(download.header["Content-Type"], "application/octet-stream");
+}
+
+TEST(WebServerHttp, FilesExportPreservesBytesAndPickerFilename) {
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("acecode_file_export_" + std::to_string(std::random_device{}()));
+    RemoveTreeOnExit cleanup{directory};
+    std::filesystem::create_directories(directory);
+    const auto destination = directory / "copy.bin";
+    WebServerFixture fx(WebServerFixture::NativeSavePickerTag{},
+        [destination](const std::string& name) {
+            EXPECT_EQ(name, "source.bin");
+            return acecode::web::NativeSaveFilePickResult{acecode::path_to_utf8(destination), {}};
+        });
+    const std::string bytes("\0\xff\r\nraw\x80", 9);
+    { std::ofstream out(fx.cwd_dir / "source.bin", std::ios::binary); out.write(bytes.data(), bytes.size()); }
+    { std::ofstream out(destination); out << "previous contents"; }
+    auto result = cpr::Post(cpr::Url{fx.url("/api/files/export")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"cwd", fx.cwd}, {"path", "source.bin"}}.dump()});
+    ASSERT_EQ(result.status_code, 200) << result.text;
+    EXPECT_FALSE(json::parse(result.text)["cancelled"].get<bool>());
+    EXPECT_EQ(json::parse(result.text)["filename"], "copy.bin");
+    std::ifstream input(destination, std::ios::binary);
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), bytes);
+}
+
+TEST(WebServerHttp, FilesExportCancellationAndInvalidSourceDoNotWrite) {
+    WebServerFixture fx(WebServerFixture::NativeSavePickerTag{},
+        [](const std::string& name) {
+            EXPECT_EQ(name, "source.txt");
+            return acecode::web::NativeSaveFilePickResult{};
+        });
+    { std::ofstream out(fx.cwd_dir / "source.txt"); out << "unchanged"; }
+    const auto export_file = [&](const json& body) {
+        return cpr::Post(cpr::Url{fx.url("/api/files/export")},
+            cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{body.dump()});
+    };
+    auto cancelled = export_file({{"cwd", fx.cwd}, {"path", "source.txt"}});
+    ASSERT_EQ(cancelled.status_code, 200) << cancelled.text;
+    EXPECT_TRUE(json::parse(cancelled.text)["cancelled"].get<bool>());
+    EXPECT_EQ(export_file({{"cwd", fx.cwd}, {"path", "missing.txt"}}).status_code, 404);
+    EXPECT_EQ(export_file({{"cwd", fx.cwd}, {"path", "."}}).status_code, 404);
+    EXPECT_EQ(export_file({{"cwd", fx.cwd}, {"path", 42}}).status_code, 400);
+    std::ifstream input(fx.cwd_dir / "source.txt");
+    EXPECT_EQ(std::string(std::istreambuf_iterator<char>(input), {}), "unchanged");
+}
+
+TEST(WebServerHttp, FilesExportRejectsUnavailablePickerAndInvalidDestination) {
+    WebServerFixture unavailable;
+    EXPECT_EQ(cpr::Post(cpr::Url{unavailable.url("/api/files/export")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"cwd", unavailable.cwd}, {"path", "file.txt"}}.dump()}).status_code, 501);
+    WebServerFixture invalid(WebServerFixture::NativeSavePickerTag{},
+        [](const std::string&) { return acecode::web::NativeSaveFilePickResult{"relative.txt", {}}; });
+    { std::ofstream out(invalid.cwd_dir / "source.txt"); out << "original"; }
+    auto result = cpr::Post(cpr::Url{invalid.url("/api/files/export")},
+        cpr::Header{{"Content-Type", "application/json"}},
+        cpr::Body{json{{"cwd", invalid.cwd}, {"path", "source.txt"}}.dump()});
+    EXPECT_EQ(result.status_code, 400) << result.text;
 }
 
 // /api/files/blob serves modern Office files for browser rendering while

@@ -279,6 +279,7 @@ try {
   await windowLocator.locator('[data-composer-control="model"] button').click();
   await windowLocator.locator('.ace-composer-model-settings').click();
   await page.locator('[data-settings-window]').waitFor();
+  await windowLocator.waitFor({ state: 'detached' });
   assert.equal(await windowLocator.count(), 0);
   await settings(false);
   await open();

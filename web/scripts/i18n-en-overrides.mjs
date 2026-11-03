@@ -1,6 +1,13 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '另存为...': 'Save as...',
+  '复制路径': 'Copy path',
+  '复制文件内容': 'Copy file contents',
+  '在资源管理器中打开': 'Open in Explorer',
+  '已开始下载': 'Download started',
+  '文件已保存': 'File saved',
+  '另存为失败:': 'Save as failed: ',
   '按 Tab 接受推荐，按 Esc 忽略': 'Press Tab to accept the suggestion or Escape to dismiss it',
   '请先打开会话输入框，再使用语音输入。': 'Open a conversation composer before using voice input.',
   '附件上传失败': 'Attachment upload failed',

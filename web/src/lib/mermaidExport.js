@@ -1,3 +1,6 @@
+import { downloadBlob as downloadMermaidBlob, revokeObjectUrl } from './downloadBlob.js';
+export { downloadMermaidBlob };
+
 export const MERMAID_EXPORT_TARGET_SELECTOR = '[data-mermaid-export-target="true"]';
 export const MAX_MERMAID_EXPORT_SOURCE_BYTES = 64 * 1024;
 export const MAX_MERMAID_EXPORT_SVG_BYTES = 4 * 1024 * 1024;
@@ -133,48 +136,6 @@ export function mermaidPngDimensions(width, height, {
   };
 }
 
-function revokeObjectUrl(urlApi, url) {
-  if (!url) return;
-  try {
-    urlApi?.revokeObjectURL?.(url);
-  } catch {
-    // Object URL cleanup is best effort during document teardown.
-  }
-}
-
-export function downloadMermaidBlob(blob, filename, {
-  document: doc = globalThis.document,
-  URLApi = globalThis.URL,
-  schedule = globalThis.setTimeout?.bind(globalThis),
-} = {}) {
-  if (!blob || !filename || typeof doc?.createElement !== 'function'
-      || typeof URLApi?.createObjectURL !== 'function') {
-    return failed('download unavailable');
-  }
-
-  let objectUrl = '';
-  let anchor = null;
-  try {
-    objectUrl = URLApi.createObjectURL(blob);
-    if (!objectUrl) return failed('download URL unavailable');
-    anchor = doc.createElement('a');
-    anchor.href = objectUrl;
-    anchor.download = filename;
-    anchor.style.display = 'none';
-    (doc.body || doc.documentElement)?.append?.(anchor);
-    anchor.click();
-    anchor.remove?.();
-    anchor = null;
-    const cleanup = () => revokeObjectUrl(URLApi, objectUrl);
-    if (typeof schedule === 'function') schedule(cleanup, 0);
-    else cleanup();
-    return { ok: true, filename };
-  } catch (error) {
-    try { anchor?.remove?.(); } catch { /* best effort */ }
-    revokeObjectUrl(URLApi, objectUrl);
-    return failed(error);
-  }
-}
 
 function blobFor(text, type, BlobType) {
   if (typeof BlobType !== 'function') return null;

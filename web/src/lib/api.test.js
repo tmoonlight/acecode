@@ -2136,3 +2136,24 @@ await run('session reasoning mutation encodes the session ID and sends explicit 
     assert.equal(reset.reasoning_effort, null);
   } finally { globalThis.fetch = original; }
 });
+
+await run('file API preserves token, Unicode path and raw bytes; export waits for the picker', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const bytes = new Blob(['\0raw\r\n']);
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: new URL(url), options });
+    return { ok: true, status: 200, headers: { get: () => 'application/json' },
+      json: async () => ({ ok: true, cancelled: true }), blob: async () => bytes };
+  };
+  try {
+    const client = createApi({ origin: 'http://file.test', token: 'test-token' });
+    assert.equal(await client.readFileBlob('N:/project', '文件.bin', { download: true }), bytes);
+    assert.equal(calls[0].url.searchParams.get('download'), '1');
+    assert.equal(calls[0].url.searchParams.get('path'), '文件.bin');
+    assert.equal(calls[0].options.headers['X-ACECode-Token'], 'test-token');
+    assert.deepEqual(await client.exportFile('N:/project', '文件.bin'), { ok: true, cancelled: true });
+    assert.equal(calls[1].url.pathname, '/api/files/export');
+    assert.deepEqual(JSON.parse(calls[1].options.body), { cwd: 'N:/project', path: '文件.bin' });
+  } finally { globalThis.fetch = originalFetch; }
+});

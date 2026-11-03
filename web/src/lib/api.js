@@ -949,8 +949,11 @@ export function createApi(base = null) {
 
     // SidePanel browser-native previews use an authenticated binary fetch. A
     // plain <img>/<object data="/api/..."> cannot attach the daemon token header.
-    readFileBlob: async (cwd, path) => {
-      const qs = `?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+    exportFile: (cwd, path) => request('POST', '/api/files/export', { cwd, path }, base, { timeoutMs: NO_TIMEOUT }),
+
+    readFileBlob: async (cwd, path, { download = false } = {}) => {
+      const qs = `?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`
+        + (download ? '&download=1' : '');
       const headers = {};
       const token = baseToken(base);
       if (token) headers['X-ACECode-Token'] = token;

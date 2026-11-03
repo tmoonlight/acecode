@@ -245,14 +245,15 @@ FolderPickOutcome pick_folder_outcome(void* parent_hwnd) {
 
 SaveFilePickOutcome pick_save_file_outcome(
     void* parent_hwnd,
-    const std::string& suggested_filename) {
+    const std::string& suggested_filename,
+    bool all_files) {
     SaveFilePickOutcome outcome;
     const bool theme_zip = suggested_filename.size() >= 4 &&
         suggested_filename.compare(suggested_filename.size() - 4, 4, ".zip") == 0;
-    const auto fail = [&outcome, theme_zip](const std::string& stage) {
+    const auto fail = [&outcome, theme_zip, all_files](const std::string& stage) {
         LOG_WARN("[folder_picker] save dialog failed at " + stage);
         outcome.error = std::string(
-            native_string(theme_zip ? DesktopStringId::ThemeExportSaveFailed : DesktopStringId::SessionExportSaveFailed));
+            native_string(all_files ? DesktopStringId::FileSaveFailed : theme_zip ? DesktopStringId::ThemeExportSaveFailed : DesktopStringId::SessionExportSaveFailed));
     };
 
     const HRESULT hr_init = ::CoInitializeEx(
@@ -285,17 +286,17 @@ SaveFilePickOutcome pick_save_file_outcome(
     }
 
     const std::wstring title = acecode::utf8_to_wide(std::string(native_string(
-        theme_zip ? DesktopStringId::ThemeExportSaveTitle : DesktopStringId::SessionExportSaveTitle)));
+        all_files ? DesktopStringId::FileSaveTitle : theme_zip ? DesktopStringId::ThemeExportSaveTitle : DesktopStringId::SessionExportSaveTitle)));
     const std::wstring file_type = acecode::utf8_to_wide(
-        std::string(native_string(theme_zip ? DesktopStringId::ThemeExportZipType : DesktopStringId::SessionExportMarkdownType)));
+        std::string(native_string(all_files ? DesktopStringId::AllFilesType : theme_zip ? DesktopStringId::ThemeExportZipType : DesktopStringId::SessionExportMarkdownType)));
     const std::wstring suggested = acecode::utf8_to_wide(suggested_filename);
     const COMDLG_FILTERSPEC filters[] = {
-        {file_type.c_str(), theme_zip ? L"*.zip" : L"*.md"},
+        {file_type.c_str(), all_files ? L"*.*" : (theme_zip ? L"*.zip" : L"*.md")},
     };
     dialog->SetTitle(title.c_str());
     dialog->SetFileTypes(1, filters);
     dialog->SetFileTypeIndex(1);
-    dialog->SetDefaultExtension(theme_zip ? L"zip" : L"md");
+    if (!all_files) dialog->SetDefaultExtension(theme_zip ? L"zip" : L"md");
     if (!suggested.empty()) dialog->SetFileName(suggested.c_str());
 
     HWND requested_parent = reinterpret_cast<HWND>(parent_hwnd);
@@ -493,21 +494,22 @@ std::optional<std::string> pick_folder(void* parent) {
 
 SaveFilePickOutcome pick_save_file_outcome(
     void* /*parent*/,
-    const std::string& suggested_filename) {
+    const std::string& suggested_filename,
+    bool all_files) {
     SaveFilePickOutcome outcome;
     std::string path;
     const bool theme_zip = suggested_filename.size() >= 4 &&
         suggested_filename.compare(suggested_filename.size() - 4, 4, ".zip") == 0;
     const std::string title = std::string(
-        native_string(theme_zip ? DesktopStringId::ThemeExportSaveTitle : DesktopStringId::SessionExportSaveTitle));
+        native_string(all_files ? DesktopStringId::FileSaveTitle : theme_zip ? DesktopStringId::ThemeExportSaveTitle : DesktopStringId::SessionExportSaveTitle));
     const std::string file_type = std::string(
-        native_string(theme_zip ? DesktopStringId::ThemeExportZipType : DesktopStringId::SessionExportMarkdownType));
+        native_string(all_files ? DesktopStringId::AllFilesType : theme_zip ? DesktopStringId::ThemeExportZipType : DesktopStringId::SessionExportMarkdownType));
     const std::string suggestion = suggested_filename.empty()
         ? std::string("session.md")
         : suggested_filename;
     const std::string zenity_title = "--title=" + title;
     const std::string zenity_filename = "--filename=" + suggestion;
-    const std::string pattern = theme_zip ? "*.zip" : "*.md";
+    const std::string pattern = all_files ? "*" : (theme_zip ? "*.zip" : "*.md");
     const std::string zenity_filter = "--file-filter=" + file_type + " | " + pattern;
     auto zenity = run_folder_picker_command({
         "zenity",

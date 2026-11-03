@@ -43,6 +43,15 @@
   user-select: none;
 }
 
+.ace-side-chat-window[data-motion] {
+  will-change: transform, opacity;
+}
+
+/* 缩回按钮的途中不再接收点击,落点处的按钮能立即再次打开。 */
+.ace-side-chat-window[data-motion="exit"] {
+  pointer-events: none;
+}
+
 .ace-side-chat-window[data-interacting="true"] .ace-side-chat-header {
   cursor: grabbing;
 }

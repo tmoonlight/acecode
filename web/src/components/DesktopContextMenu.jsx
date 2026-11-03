@@ -20,6 +20,7 @@ import {
   withMenuSeparators,
 } from '../lib/desktopContextMenu.js';
 import { exportMermaidAsset } from '../lib/mermaidExport.js';
+import { saveFileAs, readFileActionText } from '../lib/fileActions.js';
 import { submenuPosition } from '../lib/submenuPosition.js';
 import { selectionContextFromWindowSelection } from '../lib/selectionChatContext.js';
 import { copyImageToSystemClipboard, copyTextToSystemClipboard } from '../lib/systemClipboard.js';
@@ -42,6 +43,8 @@ const MENU_ROW_HEIGHT = 30;
 const MENU_PADDING = 8;
 
 const ACTION_LABELS = {
+  [DESKTOP_CONTEXT_ACTIONS.SAVE_FILE_AS]: '另存为...',
+  [DESKTOP_CONTEXT_ACTIONS.COPY_FILE_CONTENTS]: '复制文件内容',
   [DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER]: '打开文件夹',
   [DESKTOP_CONTEXT_ACTIONS.LOCATE_FILE]: '在资源管理器中显示',
   [DESKTOP_CONTEXT_ACTIONS.PIN_SESSION]: '置顶',
@@ -213,8 +216,8 @@ async function copySelectionFromTarget(target, rememberedText = '') {
   document.execCommand('copy');
 }
 
-async function copyTextWithToast(text, label = '已复制') {
-  const result = await copyTextToSystemClipboard(text);
+async function copyTextWithToast(text, label = '已复制', options) {
+  const result = await copyTextToSystemClipboard(text, undefined, options);
   if (result?.ok) {
     toast({ kind: 'ok', text: label });
   } else {
@@ -326,6 +329,22 @@ async function runAction(
   }
 
   switch (action) {
+    case DESKTOP_CONTEXT_ACTIONS.SAVE_FILE_AS:
+      try {
+        const result = await saveFileAs(actionTarget, { native: allowNativeActions });
+        if (!result?.ok) throw new Error(result?.error || 'save unavailable');
+        if (!result.cancelled) toast({ kind: 'ok', text: result.downloaded ? '已开始下载' : '文件已保存' });
+      } catch (error) {
+        toast({ kind: 'err', text: '另存为失败:' + (error?.body?.error || error?.message || '') });
+      }
+      break;
+    case DESKTOP_CONTEXT_ACTIONS.COPY_FILE_CONTENTS:
+      try {
+        await copyTextWithToast(await readFileActionText(actionTarget), '已复制', { allowEmpty: true });
+      } catch (error) {
+        toast({ kind: 'err', text: '复制失败:' + (error?.body?.error || error?.message || '') });
+      }
+      break;
     case DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER:
       await openTargetInExplorer(actionTarget);
       break;

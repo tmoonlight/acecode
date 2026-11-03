@@ -53,6 +53,8 @@ export const TurnFileList = memo(function TurnFileList({
         <div
           key={item.file}
           className="ace-turn-file-row"
+          data-desktop-turn-file-path={item.openPath}
+          data-desktop-turn-file-cwd={cwd}
         >
           <button
             type="button"
