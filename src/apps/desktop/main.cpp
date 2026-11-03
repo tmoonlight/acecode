@@ -43,6 +43,7 @@
 #include "url_builder.hpp"
 #include "web_host.hpp"
 #include "web_host_close_policy.hpp"
+#include "window_bounds_state.hpp"
 #include "window_shape.hpp"
 #include "workspace/workspace_registry.hpp"
 #ifdef ACECODE_DEEPIN
@@ -1083,6 +1084,7 @@ int main(int argc, char** argv) {
     std::atomic<bool> restart_requested{false};
     host.set_title("ACECode");
     host.set_size(kDefaultDesktopWindowWidth, kDefaultDesktopWindowHeight);
+    host.restore_window_bounds(read_desktop_window_bounds());
 
     // 系统托盘与 native 通知各自初始化。通知不再依赖 tray message HWND,
     // 因此托盘被策略禁用或创建失败时,会话完成提醒仍然可用。
@@ -2765,7 +2767,8 @@ int main(int argc, char** argv) {
     // 浮窗收尾的回调引用 host,在 host 析构前停掉它。
     splash.close();
 
-    // 6. quit:写 last_active + stop_all
+    // 6. quit:写 last_active + 窗口位置 + stop_all
+    if (const auto bounds = host.last_window_bounds()) write_desktop_window_bounds(*bounds);
     {
         std::lock_guard<std::mutex> lk(active_mu);
         if (!active_hash_dynamic.empty()) {

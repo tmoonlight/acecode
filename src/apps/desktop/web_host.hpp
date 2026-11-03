@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 #include "platform/clipboard.hpp"
+#include "window_size.hpp"
 
 namespace acecode::desktop {
 
@@ -60,6 +61,10 @@ public:
 
     void set_title(const std::string& title);
     void set_size(int width, int height);
+    // 上次退出时的主窗口位置和尺寸,首次 set_visible(true) 时套用;目前只有 Windows 生效。
+    void restore_window_bounds(std::optional<SavedDesktopWindowBounds> bounds);
+    // 窗口销毁时记下的位置,run() 返回后读取;窗口从未显示过时为空。
+    std::optional<SavedDesktopWindowBounds> last_window_bounds() const;
     void navigate(const std::string& url);
 
     // 显示/隐藏 native 窗口。注意:启动路径不要用 hide-before-navigate。

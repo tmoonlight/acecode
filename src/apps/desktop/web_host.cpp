@@ -50,6 +50,7 @@
 #  include "web_host_browser_win.hpp"
 #  include "web_host_chrome_win.hpp"
 #  include "web_host_legacy_file_drop_win.hpp"
+#  include "window_placement_win.hpp"
 #endif
 #if !defined(_WIN32) && !defined(__APPLE__)
 #  include "linux_desktop.hpp"
@@ -111,6 +112,9 @@ using detail::resize_webview_widget;
 using detail::apply_window_shape_region;
 using detail::update_window_shape_shadow;
 using detail::refresh_non_client_frame;
+using detail::monitor_dpi;
+using detail::monitor_work_rect;
+using detail::g_window_bounds;
 #endif
 
 #ifdef __APPLE__
@@ -799,44 +803,6 @@ LRESULT call_host_default_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam
 }
 
 
-UINT monitor_dpi(HMONITOR monitor) {
-    if (monitor) {
-        if (HMODULE shcore = ::LoadLibraryW(L"Shcore.dll")) {
-            using GetDpiForMonitorFn = HRESULT(WINAPI*)(HMONITOR, int, UINT*, UINT*);
-            auto get_dpi = reinterpret_cast<GetDpiForMonitorFn>(
-                ::GetProcAddress(shcore, "GetDpiForMonitor"));
-            UINT dpi_x = 96;
-            UINT dpi_y = 96;
-            if (get_dpi && SUCCEEDED(get_dpi(monitor, 0, &dpi_x, &dpi_y)) &&
-                dpi_x > 0) {
-                ::FreeLibrary(shcore);
-                return dpi_x;
-            }
-            ::FreeLibrary(shcore);
-        }
-    }
-
-    HDC hdc = ::GetDC(nullptr);
-    const int fallback_dpi = hdc ? ::GetDeviceCaps(hdc, LOGPIXELSX) : 96;
-    if (hdc) ::ReleaseDC(nullptr, hdc);
-    return fallback_dpi > 0 ? static_cast<UINT>(fallback_dpi) : 96U;
-}
-
-RECT monitor_work_rect(HMONITOR monitor) {
-    RECT fallback{
-        0,
-        0,
-        ::GetSystemMetrics(SM_CXSCREEN),
-        ::GetSystemMetrics(SM_CYSCREEN),
-    };
-    if (!monitor) return fallback;
-
-    MONITORINFO info{};
-    info.cbSize = sizeof(info);
-    if (!::GetMonitorInfoW(monitor, &info)) return fallback;
-    return info.rcWork;
-}
-
 void apply_minimum_track_size(HWND hwnd, MINMAXINFO* info) {
     if (!info) return;
     HMONITOR monitor = reinterpret_cast<HMONITOR>(
@@ -1266,6 +1232,9 @@ LRESULT CALLBACK host_window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpa
             ::DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
+            if (g_window_bounds.shown) {
+                g_window_bounds.on_destroy = detail::capture_window_bounds(hwnd);
+            }
             g_chamfer_shadow.destroy();
             if (previous_host_window_proc(hwnd)) {
                 LRESULT result = ::CallWindowProcW(previous_host_window_proc(hwnd), hwnd, msg, wparam, lparam);
@@ -2215,6 +2184,7 @@ struct WebHost::Impl {
     RECT target_monitor{};
     HWND custom_window = nullptr;
     bool center_on_first_show = false;
+    std::optional<SavedDesktopWindowBounds> saved_bounds;
     ComApartment com{false};
     std::unique_ptr<WindowsTaskbarBadge> taskbar_badge;
     // Shared with the WebView-owned callback; both access it on the GUI thread.
@@ -2298,6 +2268,20 @@ void WebHost::set_size(int width, int height) {
 #endif
 #endif
 }
+void WebHost::restore_window_bounds(std::optional<SavedDesktopWindowBounds> bounds) {
+#ifdef _WIN32
+    impl_->saved_bounds = bounds;
+#else
+    (void)bounds;
+#endif
+}
+std::optional<SavedDesktopWindowBounds> WebHost::last_window_bounds() const {
+#ifdef _WIN32
+    return g_window_bounds.on_destroy;
+#else
+    return std::nullopt;
+#endif
+}
 void WebHost::navigate(const std::string& url) {
 #ifdef _WIN32
     *impl_->microphone_origin = desktop_microphone_origin(url);
@@ -2318,20 +2302,27 @@ void WebHost::set_visible(bool visible) {
 #ifdef _WIN32
     HWND hwnd = impl_->hwnd();
     if (!hwnd) return;
+    bool show_maximized = false;
     if (visible && impl_->center_on_first_show) {
         // Re-read rcWork at the last possible moment so taskbar size/position
         // changes during startup are reflected in the first visible rectangle.
         HMONITOR monitor =
             startup_monitor_for_window(hwnd, impl_->target_monitor);
         const RECT live_work_area = monitor_work_rect(monitor);
-        fit_native_window_to_work_area(
-            hwnd, live_work_area, monitor_dpi(monitor), /*center=*/true);
+        if (impl_->saved_bounds) {
+            show_maximized = detail::apply_saved_window_bounds(
+                hwnd, *impl_->saved_bounds, live_work_area, monitor_dpi(monitor));
+        } else {
+            fit_native_window_to_work_area(
+                hwnd, live_work_area, monitor_dpi(monitor), /*center=*/true);
+        }
         impl_->target_monitor = live_work_area;
         impl_->center_on_first_show = false;
         ::RemovePropW(hwnd, kHostWindowStartupMonitorProperty);
     }
-    ::ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);
+    ::ShowWindow(hwnd, visible ? (show_maximized ? SW_SHOWMAXIMIZED : SW_SHOW) : SW_HIDE);
     if (visible) {
+        g_window_bounds.shown = true;
         ::UpdateWindow(hwnd);
         ::SetForegroundWindow(hwnd);
     }

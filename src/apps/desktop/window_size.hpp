@@ -100,4 +100,66 @@ inline WindowRect fit_centered_desktop_window_rect_to_safe_work_area(
     };
 }
 
+// 上次退出时的窗口:非最大化时的外框(屏幕物理像素,按普通边框口径,即含
+// 隐形缩放边、不含切角主题的收缩)+ 当时窗口所在显示器的 DPI + 是否最大化。
+struct SavedDesktopWindowBounds {
+    WindowRect rect;
+    int dpi = 96;
+    bool maximized = false;
+};
+
+// 外框比用户看得见的窗口多出的隐形缩放边(Windows 无标题栏窗口左/右/下各一条)。
+struct WindowFrameInsets {
+    int left = 0;
+    int top = 0;
+    int right = 0;
+    int bottom = 0;
+};
+
+struct DesktopWindowMonitor {
+    WindowRect work_area;
+    int dpi = 96;
+};
+
+// 保存的外框去掉隐形缩放边后完全落在工作区里,才算没超出可视范围。
+inline bool desktop_window_visible_in_work_area(WindowRect outer,
+                                                WindowFrameInsets invisible_frame,
+                                                WindowRect work_area) {
+    const long long left = static_cast<long long>(outer.left) + invisible_frame.left;
+    const long long top = static_cast<long long>(outer.top) + invisible_frame.top;
+    const long long right = static_cast<long long>(outer.right) - invisible_frame.right;
+    const long long bottom = static_cast<long long>(outer.bottom) - invisible_frame.bottom;
+    if (right <= left || bottom <= top) return false;
+    if (work_area.right <= work_area.left || work_area.bottom <= work_area.top) return false;
+    return left >= work_area.left && top >= work_area.top &&
+           right <= work_area.right && bottom <= work_area.bottom;
+}
+
+// 决定首次显示时的窗口外框。保存的窗口仍完整可见、且所在显示器 DPI 没变 →
+// 原样恢复位置和尺寸;否则走启动时原有的逻辑:把保存的尺寸按回退显示器的
+// DPI 换算后,收进安全工作区并居中。
+inline WindowRect place_saved_desktop_window(const SavedDesktopWindowBounds& saved,
+                                             WindowFrameInsets invisible_frame,
+                                             DesktopWindowMonitor saved_monitor,
+                                             DesktopWindowMonitor fallback_monitor) {
+    if (saved.dpi > 0 && saved.dpi == saved_monitor.dpi &&
+        desktop_window_visible_in_work_area(saved.rect, invisible_frame,
+                                            saved_monitor.work_area)) {
+        return saved.rect;
+    }
+    const int saved_dpi = saved.dpi > 0 ? saved.dpi : 96;
+    const int target_dpi = fallback_monitor.dpi > 0 ? fallback_monitor.dpi : 96;
+    auto scale = [&](int extent) {
+        const long long scaled = static_cast<long long>(extent) * target_dpi / saved_dpi;
+        return static_cast<int>(std::min<long long>(
+            std::numeric_limits<int>::max(), std::max<long long>(1, scaled)));
+    };
+    const WindowSize size{
+        scale(normalized_window_extent(saved.rect.left, saved.rect.right)),
+        scale(normalized_window_extent(saved.rect.top, saved.rect.bottom)),
+    };
+    return fit_centered_desktop_window_rect_to_safe_work_area(
+        size, fallback_monitor.work_area, target_dpi);
+}
+
 } // namespace acecode::desktop
