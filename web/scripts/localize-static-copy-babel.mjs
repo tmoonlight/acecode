@@ -106,19 +106,41 @@ function isUseMemoCall(path) {
         && callee.property.name === 'useMemo'));
 }
 
-function preserveInlineJsxSpacing(types, expression, rawText) {
-  // Babel/React preserves a same-line space beside an expression, while
-  // indentation-only whitespace around line breaks is discarded. JSXText is
-  // replaced by one expression container here, so carry those meaningful
-  // inline edge spaces into the resulting string explicitly.
-  const leadingSpace = /^[\t ]+[^\r\n]/u.test(rawText);
-  const trailingSpace = /[^\r\n][\t ]+$/u.test(rawText);
+// The text React receives for one JSXText child, using Babel's own JSX
+// whitespace rule (esbuild applies the same rule in the production build):
+// whitespace touching a line break is dropped, so only spaces on the same
+// line as the copy survive at either edge.
+export function renderedJsxText(types, rawText) {
+  const fragment = types.jsxFragment(
+    types.jsxOpeningFragment(),
+    types.jsxClosingFragment(),
+    [types.jsxText(rawText)],
+  );
+  return types.react.buildChildren(fragment)[0]?.value ?? '';
+}
+
+// The edges around the catalog text inside the rendered child, e.g. the space
+// in `文件位置： {path}`. Indentation around line breaks yields no edge.
+export function jsxTextEdges(types, rawText, text) {
+  const rendered = renderedJsxText(types, rawText);
+  const start = text ? rendered.indexOf(text) : -1;
+  if (start < 0) return { leading: '', trailing: '' };
+  return {
+    leading: rendered.slice(0, start),
+    trailing: rendered.slice(start + text.length),
+  };
+}
+
+function preserveInlineJsxSpacing(types, expression, rawText, text) {
+  // JSXText is replaced by one expression container here, so carry the edges
+  // React would have rendered into the resulting string explicitly.
+  const { leading, trailing } = jsxTextEdges(types, rawText, text);
   let result = expression;
-  if (leadingSpace) {
-    result = types.binaryExpression('+', types.stringLiteral(' '), result);
+  if (leading) {
+    result = types.binaryExpression('+', types.stringLiteral(leading), result);
   }
-  if (trailingSpace) {
-    result = types.binaryExpression('+', result, types.stringLiteral(' '));
+  if (trailing) {
+    result = types.binaryExpression('+', result, types.stringLiteral(trailing));
   }
   return result;
 }
@@ -155,7 +177,7 @@ export default function localizeStaticCopyBabelPlugin({ types }) {
         assertNotEagerModuleTranslation(path);
         state.acecodeLocalized = true;
         path.replaceWith(types.jsxExpressionContainer(
-          preserveInlineJsxSpacing(types, call, path.node.value),
+          preserveInlineJsxSpacing(types, call, path.node.value, text),
         ));
         path.skip();
       },

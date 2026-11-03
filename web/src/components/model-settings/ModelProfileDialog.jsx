@@ -77,7 +77,7 @@ function ModelSamplingFields({ draft, provider, support, onPatchDraft }) {
         ))}
       </div>
       <p className="mt-1.5 text-[11px] leading-5 text-fg-mute">
-        留空则不发送，由服务端决定。
+        留空则不发送，由服务端决定。{' '}
         {support.min_p && 'Top K、Min P 是 vLLM、SGLang 等推理服务的扩展参数，官方 OpenAI 接口不支持，按需填写。'}
       </p>
     </fieldset>

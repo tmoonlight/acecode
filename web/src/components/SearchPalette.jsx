@@ -495,7 +495,7 @@ export function SearchPalette({
         )}
         {!searchError && partialErrors.length > 0 && (
           <div className="px-3 py-1.5 text-[11px] text-warning bg-warning-soft/30 border-b border-border shrink-0">
-            部分搜索数据加载失败：
+            部分搜索数据加载失败：{' '}
             {partialErrors.map((error) => error.name || error.hash || error.stage).filter(Boolean).join(', ')}
           </div>
         )}
