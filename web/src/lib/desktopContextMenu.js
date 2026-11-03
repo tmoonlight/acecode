@@ -1,11 +1,13 @@
 import { normalizeTreePath } from './fileTreeChangeStatus.js';
-import { fileLinkTargetFromElement } from './fileLinkContextMenu.js';
+import { fileLinkTargetFromElement, resolveFileLinkAbsolutePath } from './fileLinkContextMenu.js';
 import {
   MERMAID_EXPORT_TARGET_SELECTOR,
   mermaidExportTargetFromElement,
 } from './mermaidExport.js';
 
 export const DESKTOP_CONTEXT_ACTIONS = Object.freeze({
+  SAVE_FILE_AS: 'save_file_as',
+  COPY_FILE_CONTENTS: 'copy_file_contents',
   OPEN_IN_EXPLORER: 'open_in_explorer',
   LOCATE_FILE: 'locate_file',
   SHOW_IN_FILE_LIST: 'show_in_file_list',
@@ -88,6 +90,7 @@ export const SESSION_PIN_TARGET_SELECTOR = '[data-desktop-session-id]';
 export const SESSION_TARGET_SELECTOR = '[data-desktop-session-id]';
 export const WORKSPACE_TARGET_SELECTOR = '[data-desktop-workspace-id]';
 export const FILE_TARGET_SELECTOR = '[data-desktop-file-path]';
+export const TURN_FILE_TARGET_SELECTOR = '[data-desktop-turn-file-path]';
 export const PREVIEW_TARGET_SELECTOR = '[data-desktop-preview-path]';
 export const PREVIEW_TAB_TARGET_SELECTOR = '[data-desktop-preview-tab-key]';
 export const REVIEW_TARGET_SELECTOR = '[data-desktop-review-kind]';
@@ -294,8 +297,20 @@ export function buildDesktopContextMenuItems({
   previewTabTarget = null,
   previewPresentationTarget = null,
   fileLinkTarget = null,
+  turnFileTarget = null,
 } = {}) {
   const items = [];
+
+  if (!editable && turnFileTarget) {
+    const enabled = !!turnFileTarget.absolutePath;
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.SAVE_FILE_AS, turnFileTarget, { enabled });
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH, turnFileTarget, { enabled, label: '复制路径' });
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY_FILE_CONTENTS, turnFileTarget, { enabled });
+    addAction(items, DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
+      { path: turnFileTarget.absolutePath, kind: 'file' },
+      { enabled, label: '在资源管理器中打开' });
+    return finalizeContextMenuItems(items, allowNativeActions);
+  }
 
   if (!editable && mermaidTarget) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.EXPORT_MERMAID_PNG, mermaidTarget, { group: GROUPS.CONTENT });
@@ -641,6 +656,15 @@ export function fileTargetFromElement(target) {
   };
 }
 
+export function turnFileTargetFromElement(target) {
+  const el = closest(target, TURN_FILE_TARGET_SELECTOR);
+  if (!el) return null;
+  const path = getAttr(el, 'data-desktop-turn-file-path');
+  if (!path) return null;
+  const cwd = getAttr(el, 'data-desktop-turn-file-cwd');
+  return { type: 'turn-file', path, cwd, absolutePath: resolveFileLinkAbsolutePath(cwd, path) };
+}
+
 export function previewTargetFromElement(target) {
   const el = closest(target, PREVIEW_TARGET_SELECTOR);
   if (!el) return null;
@@ -755,6 +779,7 @@ export function contextTargetsFromElement(target) {
     sessionTarget: sessionTargetFromElement(target),
     workspaceTarget: workspaceTargetFromElement(target),
     fileTarget: fileTargetFromElement(target),
+    turnFileTarget: turnFileTargetFromElement(target),
     previewTarget: previewTargetFromElement(target),
     previewTabTarget: previewTabTargetFromElement(target),
     reviewTarget: reviewTargetFromElement(target),

@@ -51,6 +51,14 @@ Size revision (2026-09-17): changed initial dimensions to 600x620. Geometry test
 - [x] 8.3 侧聊传输及后端复用主输入解析，支持图片、文件与会话引用的多轮上下文；按请求选择模型和推理强度而不修改主会话。
 - [x] 8.4 运行前端与针对性原生测试、构建及 OpenSpec 校验，浏览器验证拖入、草稿恢复、模型菜单和隔离，记录实测边界。
 
+## 9. 展开与收起动画（2026-11-03 集成验收）
+
+- [x] 9.1 从当前会话工具栏按钮展开、最小化时缩回按钮；按钮不可见时原地淡入淡出，支持反向操作接续和减少动态效果。
+- [x] 9.2 保留会话切换、草稿和排队状态的既有语义；收起动画完成后卸载，清理被取消的动画和帧回调。
+- [x] 9.3 运行动效纯逻辑测试、Web 全量测试及构建，并验证真实 ChatView/SettingsPage 的打开、收起、会话切换、富输入、模型设置、窄屏和明暗主题。
+
+第 9 节验证：`pnpm test`、`pnpm build` 和 `node scripts/test-side-chat-retention.mjs` 通过。浏览器测试在打开模型设置后等待收起动画完成再断言窗口卸载，避免依赖旧的立即卸载时序。截图位于系统临时目录 `ace-side-chat-retention-iVHVSg`；API/WebSocket 和桌面桥接仍使用测试替身。
+
 第 8 节验证（2026-10-31）：Web 全量 `pnpm test`、`pnpm build`、严格 OpenSpec 与 `git diff --check` 通过。Windows Release `acecode_unit_tests` 构建成功，`SideChat*.*:SideQuestionService.*:SessionRegistry.SideQuestion*` 共 41 项通过，覆盖富输入协议、图片历史、独立 provider、取消及原有只读工具隔离。共享输入框 `test-composer-file-drop.mjs` 通过；真实 ChatView 的 `test-side-chat-retention.mjs` 验证文件/图片/会话拖入、完整草稿恢复、主草稿隔离、模型/推理切换、历史附件、长文本粘贴编辑、预览/菜单/编辑弹窗层级、模型设置入口及明暗窄屏。截图目录为系统临时目录 `ace-side-chat-retention-r9ibzO`，设计检测无发现。浏览器 API/WebSocket 与桌面文件系统桥接使用测试替身，未调用真实模型或重启桌面；本轮原生构建目标是单元测试。
 
 验证（2026-10-31）：`pnpm test`、`pnpm build`、`pnpm i18n:audit`、`openspec validate add-floating-side-chat --strict` 和 `git diff --check` 通过。`test-composer-actions.mjs` 验证共享主按钮全部动作与键盘焦点；`test-side-chat-retention.mjs` 在真实 ChatView/SettingsPage 中验证入口顺序、toggle、草稿、多行增长/滚动、IME、发送/排队/停止/继续、会话隔离和存续，覆盖 1440px/390px 明暗主题。测试夹具使用与应用一致的稳定空权限列表，修正旧夹具触发的滚动 effect 更新循环。截图位于系统临时目录 `ace-side-chat-retention-s9fFrt`。设计检测无发现。使用模拟 API/WebSocket 验证前端，未调用真实模型、重建桌面二进制或重启桌面。

@@ -27,6 +27,8 @@ void WebServer::Impl::register_files() {
         ([this](const crow::request& req) {
             return cors_preflight(req);
         });
+        CROW_ROUTE(app, "/api/files/export").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req) { return cors_preflight(req); });
 
         // 把 FileError 序列化为 (status_code, json) — 共用给两个端点。
         // err.message 透出到 body.detail 便于浏览器 network tab 排查;不会泄露
@@ -345,7 +347,61 @@ void WebServer::Impl::register_files() {
             return with_cors(req, std::move(r));
         });
 
-        // GET /api/files/blob?cwd=<abs>&path=<rel>
+        CROW_ROUTE(app, "/api/files/export").methods(crow::HTTPMethod::POST)
+        ([this, error_response](const crow::request& req) {
+            if (auto rej = require_auth(req)) return std::move(*rej);
+            const auto respond = [this, &req](int status, const json& body) {
+                crow::response r(status, body.dump());
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            };
+            if (!deps.native_folder_picker_enabled || !deps.native_file_save_picker) {
+                return respond(501, {{"error", "native save-file picker unavailable"}});
+            }
+            const auto body = json::parse(req.body, nullptr, false);
+            if (!body.is_object() || !body.contains("cwd") || !body["cwd"].is_string() ||
+                !body.contains("path") || !body["path"].is_string() ||
+                body["cwd"].get<std::string>().empty() || body["path"].get<std::string>().empty()) {
+                return respond(400, {{"error", "cwd and path parameters required"}});
+            }
+            const auto validated = resolve_preview_path(
+                body["cwd"].get<std::string>(), body["path"].get<std::string>());
+            if (std::holds_alternative<FileError>(validated)) {
+                return error_response(req, std::get<FileError>(validated));
+            }
+            const auto source = std::get<std::filesystem::path>(validated);
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(source, ec) || ec) {
+                return respond(404, {{"error", "source file not found"}});
+            }
+            // Check readability before showing a dialog; do not retain a file handle
+            // while waiting for the user's choice.
+            if (!std::ifstream(source, std::ios::binary)) {
+                return respond(500, {{"error", "failed to open file"}});
+            }
+            const auto picked = deps.native_file_save_picker(path_to_utf8(source.filename()));
+            if (!picked.error.empty()) return respond(500, {{"error", picked.error}});
+            if (!picked.path || picked.path->empty()) {
+                return respond(200, {{"ok", true}, {"cancelled", true}});
+            }
+            const auto destination = path_from_utf8(*picked.path);
+            if (!destination.is_absolute() || destination.filename().empty() ||
+                !std::filesystem::is_directory(destination.parent_path(), ec) || ec) {
+                return respond(400, {{"error", "destination directory unavailable"}});
+            }
+            ec.clear();
+            const bool same_file = std::filesystem::equivalent(source, destination, ec);
+            if (!same_file) {
+                ec.clear();
+                std::filesystem::copy_file(source, destination,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) return respond(500, {{"error", "unable to save file"}, {"detail", ec.message()}});
+            }
+            return respond(200, {{"ok", true}, {"cancelled", false},
+                {"filename", path_to_utf8(destination.filename())}});
+        });
+
+        // GET /api/files/blob?cwd=<abs>&path=<rel>[&download=1]
         CROW_ROUTE(app, "/api/files/blob").methods(crow::HTTPMethod::GET)
         ([this, error_response](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
@@ -361,7 +417,10 @@ void WebServer::Impl::register_files() {
                 return with_cors(req, std::move(r));
             }
 
-            auto mime = preview_blob_mime(path_q);
+            const bool download = req.url_params.get("download") &&
+                std::string(req.url_params.get("download")) == "1";
+            auto mime = download ? std::optional<std::string>("application/octet-stream")
+                                 : preview_blob_mime(path_q);
             if (!mime.has_value()) {
                 crow::response r(415);
                 r.body = R"({"error":"unsupported file type"})";
@@ -407,6 +466,7 @@ void WebServer::Impl::register_files() {
 
             crow::response r(std::move(body));
             r.add_header("Content-Type", *mime);
+            if (download) r.add_header("Content-Disposition", "attachment");
             r.add_header("Cache-Control", "no-cache");
             r.add_header("X-Content-Type-Options", "nosniff");
             return with_cors(req, std::move(r));

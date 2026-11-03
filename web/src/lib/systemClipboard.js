@@ -10,9 +10,10 @@ function parseBridgeResult(value) {
 export async function copyTextToSystemClipboard(
   text,
   win = typeof window !== 'undefined' ? window : undefined,
+  { allowEmpty = false } = {},
 ) {
   const value = String(text ?? '');
-  if (!value) return { ok: false, error: 'text required' };
+  if (!value && !allowEmpty) return { ok: false, error: 'text required' };
 
   let bridgeError = '';
   const bridge = win && typeof win.aceDesktop_writeClipboardText === 'function'

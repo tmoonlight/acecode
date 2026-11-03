@@ -38,7 +38,8 @@ struct SaveFilePickOutcome {
 };
 SaveFilePickOutcome pick_save_file_outcome(
     void* parent_hwnd,
-    const std::string& suggested_filename);
+    const std::string& suggested_filename,
+    bool all_files = false);
 std::optional<std::string> pick_save_file(
     void* parent_hwnd,
     const std::string& suggested_filename);

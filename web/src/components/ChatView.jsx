@@ -1037,6 +1037,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const getQueueSnapshot = useCallback(() => queueStore.getState(), [queueStore]);
   const queueState = useSyncExternalStore(subscribeQueueStore, getQueueSnapshot, getQueueSnapshot);
   const [sideChatAnchor, setSideChatAnchor] = useState(null);
+  const sideChatToggleRef = useRef(null);
   const sideChatKey = sideChatSessionKey(ref);
   const sideChat = useMemo(() => sideChatSessions.get(
     sideChatKey,
@@ -6248,6 +6249,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           )}
           {sid && !readOnlyExternalSession && (
             <button
+              ref={sideChatToggleRef}
               type="button"
               onClick={(event) => {
                 if (sideChat.getSnapshot().open) {
@@ -6595,6 +6597,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         onSendCancel={sideChat.cancelSend}
         onStartSend={sideChat.startSendToMain}
         focusRequest={sideChatFocusRequest}
+        launcherRef={sideChatToggleRef}
+        motionKey={sideChatKey}
       />
       <QueueCardList
         items={visibleQueuedItems}

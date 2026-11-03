@@ -350,6 +350,7 @@ download when nothing changed.
 | GET | `/api/files` | list directory |
 | GET | `/api/files/content` | read text file |
 | GET | `/api/files/blob` | read previewable binary file |
+| POST | `/api/files/export` | save a file through the native Save as dialog |
 | GET / PUT | `/api/files/editable` | read or safely save a Desktop workspace text file |
 | GET | `/api/fs/roots` | browsable roots for the Web path picker |
 | GET | `/api/fs/list` | list any absolute directory for the Web path picker |
@@ -2695,7 +2696,25 @@ does not require either target to be a registered workspace, but still requires
 daemon authentication and remains subject to the 5 MiB text cap, binary sniff,
 filesystem permissions, and read-only response behavior.
 
-### `GET /api/files/blob?cwd=<abs>&path=<rel-or-abs>`
+### `POST /api/files/export`
+
+Authenticated request `{ "cwd": "<abs>", "path": "<rel-or-abs>" }`.
+Uses the same path resolution as file preview, including allowed absolute
+files outside the workspace. Requires the native file save picker (501 when
+unavailable). The picker suggests the original filename and allows all file
+types; the destination comes exclusively from the user's native dialog.
+Copies current bytes without encoding conversion or a JavaScript size cap.
+Returns `{ "ok": true, "cancelled": false, "filename": "..." }`, or
+`{ "ok": true, "cancelled": true }` without writing when cancelled.
+Missing sources return 404; invalid destinations return 400; picker/read/write
+failures return 500. Saving to the same file is a successful no-op.
+
+### `GET /api/files/blob?cwd=<abs>&path=<rel-or-abs>[&download=1]`
+
+With `download=1`, accepts any file type and returns the original bytes as
+`application/octet-stream` with `Content-Disposition: attachment`. Authentication,
+path resolution, and the existing 20 MiB limit remain the same. Without this
+flag, the preview MIME allowlist remains unchanged.
 
 Returns raw bytes for browser-native preview types:
 

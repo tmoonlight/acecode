@@ -18,6 +18,15 @@ function run(name, fn) {
   }
 }
 
+await run('system clipboard can explicitly copy an empty file without changing default empty-input behavior', async () => {
+  const calls = [];
+  const win = { aceDesktop_writeClipboardText: async text => { calls.push(text); return { ok: true }; } };
+  assert.equal((await copyTextToSystemClipboard('', win)).ok, false);
+  assert.deepEqual(calls, []);
+  assert.equal((await copyTextToSystemClipboard('', win, { allowEmpty: true })).ok, true);
+  assert.deepEqual(calls, ['']);
+});
+
 await run('system clipboard uses desktop bridge first', async () => {
   const calls = [];
   const result = await copyTextToSystemClipboard('1BEA-E219', {

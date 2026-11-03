@@ -118,6 +118,8 @@ struct WebServerDeps {
     // 会话导出等显式写盘操作使用的原生“另存为”回调。参数是预填文件名,
     // 返回值是用户确认的完整文件路径;空 path + 空 error 表示取消。
     std::function<NativeSaveFilePickResult(const std::string&)> native_save_file_picker;
+    // Same picker in unrestricted file mode; preserves arbitrary names/extensions.
+    std::function<NativeSaveFilePickResult(const std::string&)> native_file_save_picker;
     // POST /api/dialog/pick-file(设置页「浏览」终端程序):原生单文件选择对话框。
     // 返回值同 save picker:有 path = 选中;空 path + 空 error = 取消。null = 501。
     std::function<NativeSaveFilePickResult()> native_open_file_picker;

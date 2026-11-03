@@ -15,6 +15,11 @@ import {
   moveSideChatGeometry,
   resizeSideChatGeometry,
 } from '../lib/sideChatGeometry.js';
+import {
+  SIDE_CHAT_LAUNCHER_PULSE,
+  sideChatMotionPlan,
+  usableSideChatLauncherRect,
+} from '../lib/sideChatMotion.js';
 import { VsIcon } from './Icon.jsx';
 import { InputBar } from './InputBar.jsx';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
@@ -23,6 +28,9 @@ import { toast } from './Toast.jsx';
 
 const RESIZE_DIRECTIONS = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'];
 const isComposing = (event) => event.isComposing || event.nativeEvent?.isComposing || event.keyCode === 229;
+const prefersReducedMotion = () => Boolean(
+  window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches,
+);
 
 const SideChatMarkdown = memo(function SideChatMarkdown({ text, onMarkdownInteraction }) {
   const html = useMemo(() => ({ __html: renderMarkdown(text) }), [text]);
@@ -211,6 +219,10 @@ export function SideChatWindow({
   onSendCancel,
   onStartSend,
   focusRequest = 0,
+  // 顶栏「侧边聊天」按钮:打开时从它放大出来,最小化时缩回它。
+  launcherRef = null,
+  // 会话切换时窗口直接出现 / 消失,不播动画。
+  motionKey = '',
 }) {
   const titleId = useId();
   const dialogRef = useRef(null);
@@ -223,6 +235,24 @@ export function SideChatWindow({
   const focusWithinRef = useRef(false);
   const [geometry, setGeometry] = useState(() => createSideChatGeometry(nativeSurfaceViewportRect()));
   const [interacting, setInteracting] = useState(false);
+  // open 关闭后窗口还要留到缩回按钮的动画播完,所以挂载与否单独记。
+  const [rendered, setRendered] = useState(open);
+  const [motion, setMotion] = useState(null);
+  const [presence, setPresence] = useState({ open, motionKey });
+  const interruptedMotionRef = useRef(null);
+  if (presence.open !== open || presence.motionKey !== motionKey) {
+    const sameSession = presence.motionKey === motionKey;
+    setPresence({ open, motionKey });
+    if (open) {
+      setRendered(true);
+      setMotion(sameSession && !presence.open ? 'enter' : null);
+    } else if (sameSession && rendered) {
+      setMotion('exit');
+    } else {
+      setRendered(false);
+      setMotion(null);
+    }
+  }
   useLayoutEffect(() => {
     if (!open) return undefined;
     setGeometry((current) => anchor
@@ -244,10 +274,86 @@ export function SideChatWindow({
   }, [open, anchor]);
 
   useLayoutEffect(() => {
-    if (!open) return undefined;
+    if (!rendered) return undefined;
     notifyNativeSurfaceOverlayChange();
     return () => notifyNativeSurfaceOverlayChange();
-  }, [open, geometry]);
+  }, [rendered, geometry]);
+
+  // 打开:等几何位置定下来(锚定到按钮下方是后一次同步渲染)再在首帧绘制前起动画;
+  // 最小化:缩回按钮,播完才卸载。动画被反向操作打断时,从当前画面接着播。
+  useLayoutEffect(() => {
+    const element = dialogRef.current;
+    if (!motion) {
+      interruptedMotionRef.current = null;
+      return undefined;
+    }
+    const kind = motion;
+    if (!element || typeof element.animate !== 'function' || document.hidden) {
+      interruptedMotionRef.current = null;
+      if (kind === 'exit') setRendered(false);
+      setMotion(null);
+      return undefined;
+    }
+    const interrupted = interruptedMotionRef.current;
+    interruptedMotionRef.current = null;
+    let animation = null;
+    let frame = 0;
+    let disposed = false;
+    const start = () => {
+      frame = 0;
+      element.style.removeProperty('opacity');
+      const launcher = launcherRef?.current;
+      const launcherRect = launcher?.isConnected
+        ? usableSideChatLauncherRect(launcher.getBoundingClientRect(), nativeSurfaceViewportRect())
+        : null;
+      const plan = sideChatMotionPlan(kind, {
+        box: element.getBoundingClientRect(),
+        launcherRect,
+        currentRect: interrupted?.rect,
+        currentOpacity: interrupted?.opacity,
+        reducedMotion: prefersReducedMotion(),
+      });
+      animation = element.animate(plan.keyframes, {
+        duration: plan.duration,
+        easing: plan.easing,
+        fill: kind === 'exit' ? 'forwards' : 'none',
+      });
+      animation.onfinish = () => {
+        if (disposed) return;
+        if (kind === 'exit') {
+          if (plan.usesLauncher) {
+            launcher?.animate?.(SIDE_CHAT_LAUNCHER_PULSE.keyframes, {
+              duration: SIDE_CHAT_LAUNCHER_PULSE.duration,
+              easing: SIDE_CHAT_LAUNCHER_PULSE.easing,
+            });
+          }
+          setRendered(false);
+        } else {
+          // 动画期间窗口外接矩形是缩放后的,播完再让原生浏览器 / 模拟器按完整窗口让位。
+          notifyNativeSurfaceOverlayChange();
+        }
+        setMotion(null);
+      };
+    };
+    if (kind === 'enter') {
+      element.style.opacity = '0';
+      frame = window.requestAnimationFrame(start);
+    } else {
+      start();
+    }
+    return () => {
+      disposed = true;
+      if (frame) window.cancelAnimationFrame(frame);
+      if (animation?.playState === 'running') {
+        interruptedMotionRef.current = {
+          rect: element.getBoundingClientRect(),
+          opacity: Number(window.getComputedStyle(element).opacity),
+        };
+      }
+      animation?.cancel();
+      element.style.removeProperty('opacity');
+    };
+  }, [motion]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -343,7 +449,7 @@ export function SideChatWindow({
     onLostPointerCapture: endPointer,
   };
 
-  if (!open) return null;
+  if (!rendered) return null;
   const windowElement = (
     <section
       ref={dialogRef}
@@ -353,6 +459,7 @@ export function SideChatWindow({
       data-ace-native-overlay="overlap"
       data-side-chat-window="true"
       data-interacting={interacting ? 'true' : undefined}
+      data-motion={motion || undefined}
       className="ace-side-chat-window"
       style={geometry}
       onFocusCapture={() => { focusWithinRef.current = true; }}
