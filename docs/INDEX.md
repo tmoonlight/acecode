@@ -40,3 +40,7 @@
 ## 复盘
 
 - [postmortem-file-link-preview.md](postmortem-file-link-preview.md)：AI 生成的文件链接点不开 —— 渲染、编码、路径、数据传递四层缺陷的定位过程与回归防线。
+
+## 归档
+
+- [archive/claude-md-2026-11-04.md](archive/claude-md-2026-11-04.md):根目录 CLAUDE.md 在 2026-11-04 精简前的全文,各子系统的实现记忆、踩过的坑与回归测试清单,只读不更新;当前规则以根目录 [CLAUDE.md](../CLAUDE.md) 为准。

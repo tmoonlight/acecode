@@ -1,564 +1,117 @@
 # CLAUDE.md
 
+Implementation memory for coding agents working in this repository. 用户向的安装与运行模式看 [README.md](README.md),稳定结构看 [ARCHITECTURE.md](ARCHITECTURE.md),贡献者规则、构建命令与 src 分层搬迁交付记录看 [AGENTS.md](AGENTS.md)。
+
+**本文件只留每次都必须看到的规则和索引。** 2026-11-04 之前积累的全文(每个子系统的设计决定、踩过的坑、回归测试清单,约 18 万字)原样归档在 [docs/archive/claude-md-2026-11-04.md](docs/archive/claude-md-2026-11-04.md),不再改动。下面各条末尾的「归档:xxx」是该段在归档里的小节标题或加粗首句;**改动某个模块之前,先到归档里搜对应小节再动手**,别只凭这里的一句话摘要。新的详细记录写进对应的 docs 主题文档,这里只加一行摘要加链接;本文件曾超过 project_instructions 的单文件上限 256 KiB,ACECode 自己加载时会被截断,别让它再长回去。
+
 ## UI 文案强约束
 
 **Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.**
 
-遵守 [AGENTS.md 的 UI 文案强约束](AGENTS.md#ui-文案强约束)：通过分组、间距、对齐和明确命名表达界面关系；不默认添加次级标签、描述或 tooltip，保留必要的决策信息、错误恢复和无障碍名称。
-
-## src 分层搬迁交付记录
-
-2026-09-29 用户最新决定:取消等待 06:00 候选窗口,一期现已完成约定的 Windows 验收,立即提交并 push。原公告中的最早开始时间由本条覆盖;通过受保护 master 所需的 PR 完成交付,九个旧 ref/worktree 与已批准的补验安排保持。
-
-2026-09-28 公告:按 [重构设计 D3 / §8.3](openspec/changes/refactor20260927-restructure-src-layers/design.md),P3-02 候选冻结窗口为 **2026-09-29 06:00–18:00(Asia/Taipei,UTC+08:00)**。最早开始时间保留至少一天的公告期;只有 P2 全部验收、P3-01 演练通过后才进入窗口,未满足时顺延并更新本公告。
-
-2026-09-29 已完成主线搬迁并解除冻结:[PR #87](https://github.com/tmoonlight/acecode/pull/87) 已合入 master,post-src-layout 指向 1483069f2b97cde11953da1e5e15c8601e71f464。pre-src-layout、机械提交 blame 登记和 Windows 验收记录均已完成。九个旧 ref/worktree 保留原状,迁移另行安排;不得将保留误记为弃用。
-
-2026-09-28 D27(用户最新指令,优先于 D26 和旧的逐任务流程):剩余一期全部在当前 master 检出实施,先完成全部实现,最后集中做 Windows 本机全量验收,完成后一起提交并 push;中途不新建任务分支/worktree、不逐任务提交/推送、不跑跨端 CI。过程中只做必要的编辑/迁移一致性核对;实施状态与验收状态分别记录。跨端补验暂留后续安排,一期实现范围与 D6–D9 行为约定保持。详情见 restructure-src-layers/design.md D27。
-
-2026-09-29 用户补充决定:P3-03 的九个旧分支保留原状,迁移另行安排;不推进或删除原 ref/worktree,不标记弃用,不阻塞本次主线一期交付。
-
-2026-09-29 验收范围补充(用户确认):人工专项后补,本次按 Windows 自动化及已完成实测交付;未执行的人工项目继续记录,不宣称通过,不阻塞本次主线交付。
-
-2026-09-29 交付收尾最新指令(用户确认):发完后确保 CI/CD 已启动即关机,结果明天查看。正常触发 test,在最终 master 上启动 refactor-matrix(全量及 Deepin)和 package 分支构建验证;此前暂停跨端 CI 的安排由本条覆盖。人工专项与旧分支迁移仍按已批准范围后补。
-
-2026-09-28 D26:一期剩余任务的验收只做 Windows 本机(design.md §7.4 轻量协议:静态闸门 + 复用目录的 Ninja 增量构建 + 用例清单 / target 快照对照,内容改动再跑 `python scripts/refactor/run_fast_tests.py --profile fast`),不 dispatch refactor-matrix、不等 test.yml;macOS / Linux / Deepin 与 package.yml 推迟到 tasks.md 5.4「多平台补验」一次做完。
-
-源码采用 base / domain / adapters / engine / host / apps 六组。[分层说明](docs/architecture/src-layout.md)定义放置规则,[src/layers.tsv](src/layers.tsv)定义依赖闸门。项目头使用模块根形式,共享测试头使用 test_support 完整前缀,禁止父目录 include。实现与验收状态分别记录在四个 refactor20260927 change 中。
-
-映射版本: refactor20260927/P3, src_layout_map.tsv SHA-256 17990beaa768f4d7de19c9a6df5d3fabfe0db1ba915eaee64fef5dd02bf5c459。原 ref/worktree 保留,旧路径不留转发头;按映射生成 patch、处理语义冲突并通过 migrate_branch.py --check 后才允许合入。
-
-Implementation m emory for coding agents working in this repository. For user-facing setup and run modes, use [README.md](README.md). For stable structure, use[ARCHITECTURE.md](ARCHITECTURE.md). For contributor rules, use [AGENTS.md](AGENTS.md).
+遵守 [AGENTS.md 的 UI 文案强约束](AGENTS.md#ui-文案强约束):通过分组、间距、对齐和明确命名表达界面关系;不默认添加次级标签、描述或 tooltip,保留必要的决策信息、错误恢复和无障碍名称。
 
 ## Project-Level Agent Overrides
 
 The Superpowers plugin is disabled for this repository. Do not invoke or follow `superpowers:*` skills, including `superpowers:using-superpowers`, unless the user explicitly re-enables Superpowers for a specific turn.
 
-## Current Runtime Surfaces
-
-P2-05 状态存储边界:`utils/state_file` 仅管理通用 JSON 读写、跨进程文件锁与原子更新;模型探测缓存属于 `provider/model_probe_cache`,搜索地区缓存属于 `tool/web_search/region_cache`,桌面活跃 / 首页工作区记录属于 `desktop/workspace_state`,TUI 命令用量属于 `tui/slash_command_usage`。各模块复用同步事务,保留 `state.json` 字段与原有失败返回语义。
-
-ACECode ships one main executable with terminal TUI and daemon subcommands, plus an optional desktop shell target.
-
-- TUI mode starts from [CLI main](src/apps/cli/main.cpp), configures provider/tools/commands, runs the FTXUI loop, and posts worker callbacks back into the UI event queue.
-- Daemon mode starts from [src/apps/daemon/cli.cpp](src/apps/daemon/cli.cpp), converges on `worker.cpp::run_worker`, writes runtime files, then serves [src/apps/web/](src/apps/web) routes and WebSocket events.
-- Headless print mode (`acecode -p "<prompt>"`, openspec add-headless-print-mode) starts from `src/apps/cli/command_dispatch.cpp::dispatch_non_tui_command` → [src/apps/headless/headless_runner.cpp](src/apps/headless/headless_runner.cpp) — worker.cpp bootstrap 的精简复刻(无 run/ 文件、无心跳、无 Crow),会话走 SessionRegistry 正常落盘可 resume。进程级标记 `headless::active()`(src/domain/permissions/interaction_mode.hpp) 有两个消费点:AgentLoop 权限门(默认自动拒绝并给模型解释文案,`--yolo` 全放行且不弹权限确认)与 AskUserQuestion(自动应答,优先于 goal unattended 分支);spawn_subagent 子会话同进程自动继承。stdout 只出最终 assistant 文本;退出码 0/1/64/130。Windows 下 -p 分支经 `CommandLineToArgvW` 重建 UTF-8 argv。**连续对话**(每轮新进程、磁盘续接,对齐 claude -p 家族一):`-c/--continue` 接当前 cwd 最近普通会话(跳过 subagent 子会话);`--resume <id>` 接指定会话 —— print 模式下 id 必填(裸 `--resume` 会把位置参数 prompt 吞成 id,与 TUI 语义刻意不同),显式给出的 `--model`/`--permission-mode` 覆盖会话保存值(`SessionRegistry::resume` 透传 + `make_entry_locked` 显式优先,web resume 不传这两个字段不受影响);`--session-id <id>` 自定新会话 id(`SessionOptions::preset_session_id`,字符集 `[A-Za-z0-9-_]{1,64}` 防路径穿越,撞已有 id 报错提示改用 --resume);`--output-format json` 成败都输出单个 `{"type":"result","session_id",...}` 对象供脚本链式调用。帮助:顶层 `acecode --help`(src/apps/cli/command_dispatch.cpp `print_top_level_help`)+ `acecode -p --help`(`headless_options.cpp::print_mode_help`)。
-- Headless capability policy (`openspec add-headless-tool-selection`, `add-headless-capability-discovery`):`-p` 新会话未传模型时走默认模型(resume 未传时沿用会话模型)、未传权限时固定 `default`、未传 `--max-turns` 时强制无限(不继承全局 cap)。工具面默认保留当前配置下实际注册的系统工具,Skill/MCP 均为空;`--disable-tools` 精确移除系统工具,`--enable-skills` 写入 runtime-only `SkillsConfig::allowed` 并只在非空时注册 `skills_list/skill_view`,`--enable-mcp` 先过滤本地 `mcp_servers` 副本再启动 runtime。三个参数都支持重复/逗号/等号形式,未知或全局 disabled 名称在 provider 前 exit 64。`--list-tools` 复用默认 headless 工具注册链并列出真正可被 `--disable-tools` 接受的 Builtin 名,`--list-skills` 列当前 cwd 真正可被 `--enable-skills` 接受的 Skill 名与描述,`--list-mcp` 列配置中未 disabled 的 MCP server 名；三者可组合且无需 prompt,发现分支在 stdin、startup hooks、model/session/LSP/MCP runtime 之前退出,不执行工具,与任何执行参数混用时报 usage error。SessionRegistry per-entry skill registry、skill tools、slash expansion 与 spawn_subagent 都复用本次过滤后的 config/executor；allowlist 不落盘。
-- Web UI code lives in [web/src/](web/src), builds with React 18, Vite, Tailwind v4, `markdown-it`, `highlight.js`, and `diff2html`, then gets embedded from `web/dist/` by CMake.
-- Desktop mode is opt-in through `-DACECODE_BUILD_DESKTOP=ON`; [src/apps/desktop/](src/apps/desktop) manages workspace registry, daemon pool, webview host, tray, notifications, and bridge calls.
-
-## Build And Verification Notes
-
-Settings environment configuration is implemented in `src/base/environment/` and
-`src/apps/web/routes/routes_environment.cpp`. `bootstrap.cpp` runs after config loading
-in TUI, daemon (including Windows service) and headless startup; headless does not
-persist automatic detection. Terminal launch probes feed one runtime snapshot for
-the Agent command tool, prompt guidance and new console terminals. Validate and
-save a complete console draft before publishing that snapshot.
-
-`toolchains.cpp` preserves the original process PATH and rebuilds its configured
-prefix on each save, so clearing a directory restores original system entries.
-First-launch detection is recorded in `state.json`; explicit re-detection uses the
-original PATH and skips Windows Store Python aliases.
-
-`paths.cpp` reads `data-dir.redirect.json` from the platform default root and caches
-the effective root until restart. Migration copies to private staging, snapshots
-SQLite with its backup API, validates the source/target again and then writes the
-pointer. It refuses busy sessions, open PTYs and other live daemons. The shared
-write gate remains closed after success until restart; failure reopens it and
-resumes the scheduler. Never delete a failed validation target or the live root.
-Backup deletion verifies the pointer and preserves it when cleaning the default root.
-
-**数据目录迁移的几条铁律(fix-feedback-0924 第 1 条,YTB 反馈:迁移出错后界面卡死 / 迁移必然失败)。**
-(1) OS 错误文本(`ec.message()` / `e.what()`)先单独经 `migration_os_error_text` / `ensure_utf8` 转 UTF-8 再拼接 —— 不要对拼好的整串转,整串里的 UTF-8 中文路径会被按 GBK 重解成乱码;`routes_environment.cpp::json_response` 的 `dump(..., error_handler_t::replace)` 是出口兜底,不能去掉(曾经 GBK 的「系统找不到指定的路径」让 /migration 每次轮询都 500,前端永远停在「迁移中」)。前端轮询由 `migrationPollOutcome` 给出动作、组件函数式 `setJob`,连续 3 次失败就停并标 unknown。构造非法 UTF-8 测试数据时注意 GBK「一」= `D2 BB` 恰好是合法 UTF-8。
-(2) `to_extended_length_path`(`\\?\`)只用于迁移与清理的文件 IO,绝不进 JSON / 指针 / 日志;SQLite 打开 ≥240 字符才换扩展形式(同进程两种形式打开同一 WAL 库会分裂 winShmNode);staging 名是 `.acecode-mig-` + 8 hex。运行期仍不是 longPathAware。
-(3) Agent Browser profile(新装 `agent_browser/webview2`,旧装机沿用 `agent-browser/webview2`,`migration_is_best_effort_root` 两种都认;运行数据改下划线命名时漏过这里,新装用户 Desktop 开着就迁移失败,以后再改运行数据名字要把 `data_dir_migration.cpp` 里按目录名判定的几处一起改)Desktop 启动即创建、持续写,只能「尽力复制 + 不参与变更复检」,SQLite 仍优先 backup;`edge-app-profile/` 整个排除;已快照主库的 `-wal/-shm/-journal` 都不复制(热 journal 会把快照回滚坏)。排除 `cache/no-workspace/<id>/.acecode/tmp` 的代价:删旧目录后历史里对 scratch 的引用失效。`previous_size_bytes` 含未复制但留在旧目录的数据。
-(4) 「其他实例」判定只在已被证明 PID 复用时放行(`evaluate_daemon_pid_holder`,与 daemon_pool 同口径,身份未知一律拦);每个拒绝分支都记日志(SESSIONS_BUSY 带 `busy_session_ids()`)。redirect 解析告警发生在日志初始化之前,由 worker / TUI / headless / Windows 服务四处在 `init_with_rotation` 之后调 `log_deferred_data_dir_resolution_warning()` 补记。
-
-The Settings shell uses open groups in `globals.css`; user-provided Claude-style
-references supersede the older boxed-card guidance for this surface.
-`settingsSearch.js` indexes bilingual labels and aliases; SettingsPage locates the
-rendered label and applies an accent-colored wavy underline without rewriting React
-text nodes. The new path row is mounted only after Change is activated.
-
-Use the command set in [AGENTS.md](AGENTS.md) as the source of truth. Important local facts:
-
-- `acecode_testable` is a source-free INTERFACE aggregate over production static libraries.
-- `acecode` links `acecode_cli`, which assembles the TUI, headless and daemon libraries. The whole TUI belongs to `acecode_tui`; no testable subset list remains.
-- `cmake/acecode_layer_libraries.cmake` defines library ownership; configure-time guards and the File API check in CI validate coverage and dependency boundaries.
-- `acecode_unit_tests` is available when `BUILD_TESTING=ON`.
-- `acecode-desktop` is only created when desktop building is enabled.
-- Rebuild [web/](web) with `pnpm build` before configuring CMake when embedded frontend assets need to change.
-- Windows builds require libcurl 8.14 or newer for TLS behavior and use UTF-8 compile options.
-
-## Agent Loop And Tools
-
-### Auto 模式与 exec 沙盒
-
-`PermissionMode::Auto` 的规范名称是 `auto`；旧的 `accept-edits` / `acceptEdits`
-仅作为输入别名，统一走 `PermissionManager::parse_mode_name`。
-`src/domain/sandbox/exec_permission.hpp` 组合命令分类、全局/项目规则及会话前缀，
-`exec_decision` 输出是否确认和实际执行边界；`AgentLoop` 是唯一审批入口，
-`bash_tool` 只执行已注入的 `ToolContext::exec_sandbox`，不得自行取消沙盒重试。
-规则 forbidden 优先于 yolo/dangerous。文件工具不得改写 exec 规则。
-
-Windows 使用免管理员 WRITE_RESTRICTED 令牌；合成 SID 绑定完整策略和模式，
-禁止共用写身份给只读模式或其它工作区。敏感路径需保护新建、删除和祖先改名，
-ACL 幂等检查不能只按路径缓存。Windows 不隔离网络，Everyone/登录 SID 写权限
-是已知限制。macOS 使用 Seatbelt，Linux 使用系统 bubblewrap。
-`/sandbox [on|off]` 与配置、升级协议详见 [docs/sandbox.md](docs/sandbox.md)。
-
-**权限清单与审批扩展(openspec align-codex-sandboxing)**:`SandboxPolicy` 由 read /
-write / deny 三类条目派生(`config.sandbox.filesystem.*` + 默认 deny 名单 + 会话授权),
-判定「最长前缀优先,同深度 deny > write > read」;Windows 受限令牌管不了读,deny 只拦写。
-**比较两侧必须同口径**:策略条目是 canonical 形态(`make_sandbox_policy` 已 weakly_canonical),
-待判路径(`resolve_access`、`is_denied`、授权过滤 `denied_by`、「只放行该目录」建议)一律先
-`canonical_utf8` 再比 —— 曾经授权与建议拿词法形态比,经 junction 别名(本机 `C:\Users\shao` →
-`N:\Users\shao`)申请 `~/.ssh` 下尚不存在的目录就绕过了 deny 名单。单测里手拼 `SandboxPolicy`
-也要用 `canonical_policy_path` 填条目:Windows 上 `/work` 按当前盘解析,当前盘恰好有 `\work`
-(本机 `C:\work`)时未规范化的条目对不上,用例随机器时过时不过。回归:
-`sandbox_policy_test.cpp::DenyListStillWinsWhenGrantUsesDirectoryAlias`、
-`sandbox_denial_test.cpp::SuggestedWriteRootRejectsDeniedDirectoryReachedThroughAlias`。
-bash 参数是 Codex 同款 `sandbox_permissions=use_default|with_additional_permissions|require_escalated`
-+ `additional_permissions` + `prefix_rule`(旧 `with_escalated_permissions` 是别名)。
-决策表新增 `unattended`:active goal 下越权 / 额外权限申请一律 Forbidden(`escalation_unattended`),
-**不能**回到「Prompt 再被 goal 自动放行」—— 那是 0.9.15 里模型只要声明越权就能出沙盒的漏洞。
-审批决策五个:`allow` / `allow_session` / `allow_scoped`(只放行上次被拒路径所在目录,留在
-沙盒里)/ `allow_remember`(写 `<data_dir>/rules/default.rules` 或 `default.sandboxed.rules`)/ `deny`;
-协议字符串在 `session_client.hpp`,TUI 选项由 `confirm_question.cpp::build_confirm_options` 按
-payload 动态生成。拒绝分类 `classify_sandbox_violation` 抽路径进 `metadata.sandbox_violation`,
-AgentLoop 记 `last_sandbox_violation_` 给下一次越权确认提供 `scoped_write_root`。Windows 断网只是
-准断网环境(代理指向死端口 + ssh/scp 桩),子进程挂 Job Object 杀树但**不设 KILL_ON_JOB_CLOSE**
-也**不能设 SILENT_BREAKAWAY_OK**(孙进程会静默脱离 Job)。`windows_backend=mxc` 是微软 MXC
-(AppContainer)的口子,`sandbox_backend_mxc_win.cpp` 探测恒不可用。配置里的普通 Deny 规则对
-文件工具只弹确认,仅 priority ≥ 1000 的内置保护规则与 yolo 硬拒绝。
-会话级探测结论是粘性的:prepare / 启动失败经 `mark_unavailable` 把后端标成不可用,
-`/sandbox on` 会 `reset_probe()` 让它重新读取进程级探测,这是唯一不重启的恢复入口。
-goal 无人值守下 bash 的 Prompt 决策与其它写工具一样自动放行,但执行沙盒仍取
-`ExecDecision::sandbox`(auto 下危险命令留在 workspace-write 里),Forbidden 不受影响;
-回归 `agent_loop_goal_test.cpp::UnattendedGoalAutoApprovesDangerousBashInsideSandbox`。
-
-**安全中心(openspec add-security-center)**:设置 > 编码 > 安全中心 = 沙箱开关 / 文件安全
-(三张清单)/ 命令安全(托管规则文件)/ 审计中心,是上面这套模型的界面,不改判定语义。
-审计存储 `src/domain/security/audit_log.hpp` 是进程级单例 SQLite(`<data_dir>/security/audit.sqlite3`,
-上限 20000 条),三个入口(worker / TUI main / headless)启动时 `configure`;**唯一记录入口是
-AgentLoop 审批门**里的 `audit_gate` / `record_audit`,每个「决定已作出」的分支记一条(bash 每次
-决策、写文件工具与其它需确认工具的决策、沙盒拒绝 category=sandbox 且 target 只放被拒路径、
-remember / 授权 category=rule);**只读工具的自动放行不记**,否则每回合几十条读把日志淹掉。
-AgentLoop 经 `set_audit_sink` 注入接收器,单测用 lambda 收集不碰磁盘。REST 在
-`routes_security.cpp` + `handlers/security_handler.cpp`(纯函数):`/api/config/sandbox` 写
-config.json 后经 `SessionRegistry::refresh_sandbox_config` 对活跃会话 `enqueue_control` 下发;
-`/api/security/exec-rules` 只整体重写 `default.rules` / `default.sandboxed.rules` 两个托管文件
-(`write_rules_file` 先 parse 往返校验再原子落盘,注释与 match / not_match 丢弃;禁用前缀名单
-同样约束界面上的 allow 规则),其它 `*.rules` 只读;`/api/security/audit*` 列表 / 汇总 / 导出 /
-清空。前端 `lib/securityCenter.js` 纯逻辑 + `components/SecurityCenterSettings.jsx`;新中文文案
-先补 `i18n-en-overrides.mjs` 再 `pnpm i18n:catalog`。Windows 受限令牌管不了读,界面如实标注
-读清单 / 黑名单只拦写。
-
-`image_generate` uses `config.image_generation` and supports generation and
-editing through the Images API. Settings > Tools > Image generation owns its
-configuration; it is not a chat-model entry. Saving settings refreshes the shared
-tool registry, including changes to a reused model connection. In-flight image
-requests retain their original snapshot. The settings test action explicitly
-generates one standard-quality image and must never run on load or save.
-
-**智能定时任务(`create_scheduled_task`,只在 daemon 注册)的两道闸。** 该工具按 `activation_skill=scheduled-task` 延迟开放,模型只能先从技能索引发现技能。用户反馈「技能经常不触发、触发了又建出子定时任务」(提示词「建立定时任务，每天帮我生成代码」被整句写进任务内容,到点执行时再建一个),现在:(1) 技能索引对所有带 `ToolImpl::activation_hint` 的门控工具单列「Skill-gated built-in tools」一节(`ToolExecutor::skill_gated_tools` 按会话策略过滤,需要 `skill_view` 且技能已安装),不受目录截断影响,门控技能也不进休眠;(2) 带 `ToolImpl::loop_execution_refusal` 的工具在 `loop.active` 会话(定时任务执行及其子代理)里经 `capture_request_source` 并入 `hidden_builtin_tools`,schema 与执行同一谓词,旧任务的坏 prompt 也不会再派生;(3) AI 创建时 `prompt_requests_scheduled_task_creation`(手写扫描「动词[+量词]紧挨定时任务」、`/scheduled-task` 等标记)拒绝仍带创建请求的 prompt(`PROMPT_CONTAINS_CREATION_REQUEST`,在权限提问之前),手动表单不经过它;执行上下文 `build_loop_system_context` 也说明任务文本里的建任务 / 时间描述只是创建时的原话。**不要**把隐藏改成只靠提示词:执行会话里权限提问会照常弹给用户,一答就建出子任务。回归:`scheduled_task_tool_test.cpp` 的 Prompt* 两条、`agent_loop_tool_lifecycle_events_test.cpp::LoopExecutionHidesScheduledTaskCreation`、`skills_index_prompt_test.cpp` 的 GatedTool* 三条、`api_request_builder_test.cpp::SkillIndexAdvertisesGatedToolUntilPolicyHidesIt`、`loop_scheduler_test.cpp::SystemContextTreatsCreationWordingAsOneExecution`。
-
-[AgentLoop](src/engine/agent/agent_loop.hpp) is the public facade. [TurnRunner](src/engine/agent/turn/turn_runner.cpp) owns the multi-turn state machine; [TurnFinalizer](src/engine/agent/turn/turn_finalizer.cpp) owns ordered completion. Fixed dependencies enter through [AgentLoopServices](src/engine/agent/agent_loop_services.hpp); event-backed prompters are installed before explicit start(). A text-only assistant reply ends the loop. `task_complete` is an explicit terminator that renders a concise completion row. `AskUserQuestion` is not a terminator; its answer returns as a tool result.
-
-**`task_complete` = Claude 桌面版 wrap_up 的「下一步」框(只做了 Web)。** 参数 `summary`(别名 `recap`,两三句小结)+ 可选 `ask` / `actions`(1–2 个回复按钮,第一个是推荐项)/ `blocked`;系统提示要求做了实事的回合在最终消息**之后**调用(它仍是终止信号,与 Claude「先调用再写结束语」的顺序相反 —— 这样折叠投影「最终消息 + 完成总结」原样不动)。规范化在 `task_complete_tool.cpp::parse_task_complete_call`:框只在「ask 非空且第一个按钮有效」或 blocked 时显示;以 `/`、`!` 开头或含零宽 / 变体选择符等看不见字符的按钮丢弃,推荐项被丢弃时其余按钮和问题一起丢(blocked 除外);按钮文字截到 24 码点,summary / ask 超长只在回执里提醒、不截断(旧会话长总结照常显示)。结果写 `metadata.wrap_up`(daemon-api 有格式),工具 `output` 改成写给模型的回执(「Shown in the next-step box.」+ 下一次的建议),**不再回显 summary** —— 所以 Web(`transcriptProjection` / `ToolBlock`)在 summary 指标缺失时取 `wrap_up.recap`,绝不能退回显示 output。Web:`lib/nextStepBox.js` 纯逻辑,完成总结项带 `wrapUp`;只有 transcript 最后一项是带问题的完成总结、回合已结束、会话可发消息时,`NextStepCard` 画在 transcript 末尾(文件列表之后),点按钮直接 `sendInput` 按钮文字(不动输入框草稿);× 关闭按完成总结消息 id 记 localStorage(200 条);历史回合与关闭后问题以静态文字留在完成总结里。没有框的表面:TUI 把 `ask` 指标加粗接在总结后面,远程通道(`session_channel_binder`)经 `task_complete_plain_text` 把问题与按钮文字接在总结后面发出。回归:`tests/tool/task_complete_tool_test.cpp`、`agent_loop_termination_test.cpp::TaskCompleteLiveMessageIdMatchesBudgetedCanonicalResult`、`tool_row_format_test.cpp::TaskCompleteMarkdownAppendsNextStepQuestion`、`session_channel_binder_test.cpp::TaskCompleteForwardsNextStepQuestion`,前端 `nextStepBox.test.js`、`transcriptProjection.test.js` 的「下一步框」一条。 `config.agent_loop.max_iterations` is an optional hard cap; `0` or omitted means unlimited.
-
-**输出损坏重发一次(`<arg_value>`、坏工具调用)。** 两类都说明网关把模板残片吐进了输出流,这一步的正文与同一回复里的全部工具调用都不可信:(1) 回复正文里(代码块与行内代码之外)出现工具参数模板标记 `<arg_key>` / `<arg_value>` 及闭合标签(`find_leaked_tool_argument_markup`);(2) 工具调用本身坏了([tool_call_corruption.hpp](src/domain/llm/tool_call_corruption.hpp)):名字为空,或名字不符合 `^[A-Za-z0-9_-]{1,64}$` 且夹着 GLM 模板标记(`<tool_call>` / `<arg_key>` / `<arg_value>` 及闭合)或调用语法(括号、方括号、引号、等号),已注册的名字不按名字判;参数只认模板残片的**结构**(值以 `</arg_value>` 结尾、`</arg_key>` 后紧跟 `<arg_value>`、`</arg_value>` 后紧跟下一段模板、键名带标记、非 JSON 且含标记)。**不要**把参数检查改成子串一出现就拦:编辑本来就含这些标记的文件(ACECode 自己的源码和测试)会被每次丢弃重发、重发后照样命中而报错停下。命中后:TurnRunner 在执行工具之前整条丢弃(不入历史、不执行)、清掉 TUI / Web 的流式草稿、发 `response_corrupted_retry` 通知后原样重发(工具调用损坏的通知带 `context` = `tool_name_empty` / `tool_name` / `tool_arguments`,Web 按 i18next context 选 `response_corrupted_retry_<context>` 文案);每步连续最多 1 次(`ResponseRecoveryState::corrupted_output_retries`,产出有效工具批次后清零),重发后仍损坏就报错停止。格式正常但不存在的名字(`Bash`、`functions.x`)不算损坏,照旧走 Unknown tool;`ToolErrors::unknown_tool` 对空名字 / 损坏名字不回显原名。`</think>` 刻意不算 —— 把推理写进正文的模型会合法输出它(用户拍板:think 残片不处理)。起因:反馈 huangyuan816,坏回复里的 bash 命令也夹着乱码照样执行,之后整个回合答非所问;内网 wizard-ai 网关 aicoder-pro(GLM 5.2 FP8,2026-10-14)高峰期没能把模型写的工具调用模板转成结构化调用,`skill_view(name="kimi-webbridge")</arg_value>` 这类名字被当成 Unknown tool 执行,坏名字连同回显它的报错写回历史,又被服务端按模板排回提示词,会话 20261014-081557-766b 连续空转 13 轮。
-
-旧会话里已经落盘的坏调用由历史投影兜底(`recover_provider_history`,幂等、只由内容决定):空名 / 损坏名的调用从投影里去掉;它的报错结果换成一条 `kMalformedToolCallNote`(user 角色 + `hidden_goal_context`,放在这组工具结果之后,相邻的合并成一条),请求不再以孤立的 assistant 消息结尾,模型也看得到调用失败;没有落盘结果的坏调用照旧只去掉。转换数记进 `[session-recovery]` 日志的 `malformed_results`。提示词与工具输出里不要写 `skill_view(name="…")`、`memory_read(name=...)` 这类伪函数调用 —— GLM 会把整段表达式照抄成工具名,一律用文字描述(「调用 skill_view 工具,name 参数填技能名」)。回归:`tests/llm/tool_call_corruption_test.cpp`、`agent_loop_termination_test.cpp` 的 `Corrupted*` / `EmptyToolName*` / `ArgumentsQuotingTemplateMarkersStillExecute`、`session_history_recovery_test.cpp` 的 `*NotExecutedNote*` 组、`tool_executor_name_resolution_test.cpp::UnknownToolErrorDoesNotEchoCorruptedNames`,前端 `systemNotice.test.js`。
-
-`agent_loop.question_policy`(`ask` 默认 / `deny` / `timeout`,CLI `--question-policy` 覆盖只写运行时字段不落盘)控制 AskUserQuestion 应答:deny 不弹 UI 直接返回「自行决策并继续」自动应答;timeout 等 `question_timeout_seconds`(默认 60,[5,3600])秒后自动采纳每题第一选项(output/metadata 标注自动采纳)。YOLO 只跳过工具权限确认,不改变提问策略;active goal 将每次 AskUserQuestion 覆盖为 30 秒 timeout,正常弹 UI,超时采纳推荐项。daemon 通过 `AskUserQuestionPrompter::prompt` 的 per-call timeout override 实现 goal 动态覆盖。见 openspec/changes/add-ask-question-policy。
-
-**提问期间的插话(question interjection)。** AskUserQuestion 挂起时用户没作答而是直接发了文本,三端统一走 `AgentLoop::interject_question(request_id, input)`(REST `POST /api/sessions/:id/questions/interject`,`SessionClient::interject_question`):在 `active_turn_mu_` 下先把该 request 经 prompter `notify_response({cancelled:true, interjected:true})` 收掉(first-wins,已不挂起 → `TurnSteerStatus::NoPendingQuestion`,输入**不**提交,调用方退回普通路径),再把文本压进 `pending_turn_inputs_`(同回合 soft steer,metadata `question_interjection` / `question_request_id`)。worker 要等工具批次收割完才 drain,所以模型看到的顺序恒为 tool_call → tool_result(`[User interjected] …看下一条 user 消息`,success=true,metadata `ask_user_question_result.interjected`)→ 插话 user 消息,回合不 abort、不开新回合、没有 `<turn_aborted>` 标记;`question_closed.reason=interjected`。**不要**改成走 `interrupt_turn`:那会把回合打断并给模型「工具可能部分执行」的错误前提。曾经的时序问题就是它要修的:Web 提问期间输入框被禁用,用户只能先点取消,工具立刻返回 declined 错误、模型带着「用户拒答」自作主张继续,那句话排在队列里要等本回合结束才作为新回合送达;IM 通道里非 `/aq` 文本直接 `send_input` 排在被阻塞的回合后面,问题却还在等,双方互相等到超时。接线:Web `ChatView::submit` 在 `questionForView` 存在时优先调 `api.interjectQuestion`(目标是问题所属会话,子代理的问题路由回子会话;`QuestionPicker` 挂载时若输入框正在输入不抢焦点);IM `session_channel_binder` 对非 `/aq` 文本先 `ChannelQuestionBridge::begin_interjection()` 再锁外调 `interject_question`,失败回退 `send_input`。TUI overlay 期间 composer 不可达,没有这条路径。`interjected` 与 `cancelled` 同时为 true,只认 cancelled 的旧调用方(image_generate 费用确认、theme_create)把它当普通拒绝。回归:`tests/agent/agent_loop_question_interjection_test.cpp`、`ask_user_question_prompter_test.cpp::InterjectedResponseClosesWithInterjectedReason`、`ask_user_question_tool_test.cpp::InterjectedResponseWinsOverCancelled`、`channel_question_bridge_test.cpp` 两条、`session_channel_binder_test.cpp::PlainTextDuringPendingQuestionInterjectsInsteadOfQueueing`、`web_server_smoke_test.cpp::QuestionInterjectResolvesPendingQuestionInSameTurn`,前端 `composerEditabilityArchitecture.test.js`(此前未注册进 runTests.js,现已登记)。
-
-Core tools are registered for both TUI and daemon paths: `bash`, `file_read`, `file_write`, `file_edit`, `grep`, `glob`, `task_complete`, `AskUserQuestion`, skill tools, memory tools, optional `web_search`, and MCP tools. `ToolResult` can carry summaries and hunks so TUI/web resume can render useful compact rows instead of raw output folds.
-
-**侧边对话只放只读工具(side chat read-only tools)。** Web/Desktop 浮动侧边对话曾不带工具表,模型照着主会话历史把 `bash` 调用写成尖括号正文显示出来。现在 `run_side_chat`(`src/engine/agent/side_question/side_chat.cpp`)是一个小工具循环:工具集由 `side_chat_tools.cpp::build_side_chat_toolset` 组装,白名单 `file_read` / `grep` / `glob` / `lsp` 与会话专家策略取交集、MCP 一律不放(**不要**改成按 `is_read_only` 筛 —— spawn_subagent / AskUserQuestion / goal 工具也带这个免确认标记);每次调用过 Deny 规则 → 主会话同款 `PathAccessPolicy` → 危险路径,凡是要弹确认的一律拒绝(侧边对话没有确认通道),并在 `MtimeTracker::DetachedReadScope` 里执行 —— 否则侧边读过的文件,主代理再读只拿到「未变化」短桩,或不读就能编辑。最多 8 轮工具;正文里的文本工具调用丢弃并纠正(最多 2 次),绝不显示。协议:`side_chat_tool` 帧报工具进度,`side_chat_reset` 只丢弃当前这一步的正文(工具之前的正文保留),前端 `sideChatTurnParts` 按工具发生位置把回答切成「正文 / 工具行」。TUI `/btw` / `/side` 与同步 HTTP `/side-question` 走同一个循环(`SideQuestionService::run_question`,无追问历史、无流式回调):结果的 `tools_used` 由 TUI 经 `side_question_tools_note` 显示在回答前,HTTP 原样返回;Codex 原生 provider 自带工具运行时,一律拒绝。`stop_requests` 会取消在途的旁路请求(含 Web 流式),关会话不用等完整个工具循环。**和主会话通信(仿 Claude 桌面版):** Claude 的浮动侧边对话本身完全只读、不能回传(它靠 `/btw` 开的完整子会话 + `SendMessage(to: parent)` 通信,我们没做子会话);这里在浮动侧边对话上补了三条:(1) Web 侧边模型多一个 `send_to_main_session` 工具(TUI `/btw` 与同步 HTTP 没有),调用时 daemon 推 `side_chat_send_request`、在 `SideChatSendGate` 上等窗口回 `side_chat_send_decision`(可改写,停止 / 断开即放弃),**用户确认之前绝不送达**;(2) 侧边回答上的「发到主会话」按钮预填「问 / 答」走 `POST /api/sessions/:id/side-chat/send`;(3) 主会话选中文字「发到侧边对话」以引用块进侧边输入框。两条送达都走 `LocalSessionClient::send_side_chat_message`:有可插话的回合就 `steer_input`(下一步读到,不打断 —— 用户拍板),否则普通 `send_input`(空闲开新一轮,忙则排队);消息给模型的正文前加一行来源说明,`metadata.display_text` 存原文、`metadata.side_chat` 让主会话气泡显示「来自侧边对话」。回归:`tests/agent/side_chat_test.cpp`、`tests/agent/side_question/side_chat_tools_test.cpp`、`side_question_service_test.cpp::StopRequestsCancelsInFlightQuestion`、`session_registry_test.cpp::SideQuestionReadsFilesWithReadOnlyToolsOnly` / `SideChatMessage*`、`side_chat_test.cpp` 的 `SendToMain*` 与 `SideChatProtocol.*Send*`、`side_chat_tools_test.cpp::SendToMainToolForwardsToTheSenderOnlyWhenProvided`、`mtime_tracker_test.cpp::DetachedReadScope*`、前端 `sideChatController` / `sideChatStream` / `sideChatSessions` 测试。
-
-`spawn_subagent` / `wait_subagent` are registered in both daemon (`worker.cpp`) and TUI (via `src/apps/tui/subagent_host.{hpp,cpp}` — SessionRegistry/LocalSessionClient have no web dependency, so the TUI process instantiates them directly; the TUI main session lives outside the registry, so its permission mode reaches children through `SubagentToolDeps::fallback_permissions`, and `on_spawn` lets the host register tasks + subscribe child events): a sub-agent is a normal SessionRegistry session (isolated context) created with the parent's cwd and permission mode. `spawn_subagent(prompt, wait=true)` blocks until the child turn finishes and returns its final assistant reply into the parent context; `wait=false` is fire-and-forget for pipeline handoff, joined later via `wait_subagent(session_id)`. Prompts starting with `/` go through the same skill-command expansion as Web input. Sub-agents cannot spawn further sub-agents (`SessionEntry::subagent_depth`). Implementation: [src/host/session_host/tools/spawn_subagent_tool.cpp](src/host/session_host/tools/spawn_subagent_tool.cpp); deps are late-bound via shared_ptr because ToolExecutor is constructed before SessionRegistry in worker.cpp.
-
-**TUI surface**: the right sidebar's "Background Tasks" section lists running sub-agents only (● title + elapsed; removed the moment the child turn ends — user decision); `/tasks [list|abort <id>]` is the operation entry (no `clear`: sub-agent sessions have no lifecycle of their own, see below). TUI exit cleanup (`cleanup_old_sessions`) counts only main sessions against `max_sessions` and deletes children together with their main session; orphans whose parent is gone count as main sessions. A child's `permission_request` is queued (`TuiState::remote_confirm_queue`) and pumped into the confirm overlay when free (origin-labelled; the answer routes back via `SubagentHost::respond_permission`). AskUserQuestion needs no bridging — children share the TUI ToolExecutor, so the TUI ask tool runs directly; it now queues on `TuiState::overlay_cv` until the confirm/ask overlay is free and sets `ask_origin_label` when the caller is a sub-agent. `on_tool_confirm` in tui/app/tui_agent_bridge.cpp queues on the same cv, so concurrent overlay claims (main confirm / child ask / remote pump) serialize instead of clobbering each other.
-
-Full subagent reference (design, wire protocol, Web panel, TUI bridging, test map): [docs/subagents.md](docs/subagents.md).
-
-Sub-agent sessions are **hidden from normal session lists** and surfaced only in the parent session's Web「后台任务」panel: the child meta persists `parent_session_id` (survives daemon restart; resume restores `subagent_depth=1` so the depth limit keeps holding), `GET /api/sessions` excludes them by default, `?parent=<id>` queries them. **Children always follow their main session (user decision — analysis needs the full context):** there is no per-child archive or delete anywhere. The panel has no clear/archive button and TUI `/tasks` has no `clear`; the archive routes and `set_thread_archived` refuse to archive a child (409 / tool error; unarchive stays allowed to clear legacy flags); `?purge=1` and `delete_thread` refuse a child (409 / tool error); `?parent=` lists every child regardless of a legacy `archived` flag. Permanently deleting an archived main session cascades to all its children through `domain/session/session_tree_purge` (`session_tree_delete_order`: children first, main last — shared by the Web purge, the TUI settings center and `delete_thread`); any running child → 409. The panel's read-only transcript passes the parent's `workspaceHash`: the Desktop daemon serves many workspaces and an unloaded child (after a Desktop restart or a mesh eviction) is otherwise 404 SESSION_NOT_FOUND. Frontend: `web/src/lib/subagentTasks.js` (pure state, Node tests) + `lib/useSubagentTasks.js` (REST list + WS increments + retainSession for running children so their permission/question requests reach App-level listeners even with the panel closed) + `components/SubagentPanel.jsx` (overlay inside ChatView's message area: running/settled card groups, per-card stop, read-only transcript that shares the main conversation's `projectCollapsedTranscriptItems` projection and `TranscriptItems` renderer, with AskUserQuestion rows filtered out through the projection seam). A running child's `permission_request` pops the global PermissionModal and its `question_request` renders in the parent's QuestionPicker (payloads carry the child `session_id`, so answers route back automatically); both show a「来自后台任务:<title>」origin label.
-
-**蜂群模式（网状）(openspec add-mesh-swarm-mode,复刻 Codex Multi-Agent V2,全文见 [docs/subagents.md](docs/subagents.md) §9)。** 蜂群模式是会话级三态 `off | star | mesh`(`SessionMeta.swarm_mode`,入口:消息体 `swarm_mode`、`/swarm`、headless `--swarm`),AgentLoop 每回合从 SessionManager 读,切换只影响下一回合。两套协作工具互斥:`swarm_mode_hidden_tools` → `ToolCapabilityPolicy::hidden_builtin_tools`(schema 与执行同一谓词),mesh 隐藏 `spawn_subagent` / `wait_subagent` / thread 工具,off / star 隐藏六个 `agent_*`。网状子 agent 的 `parent_session_id` 恒为**根** id(扁平,面板 / 权限冒泡 / purge 全复用星型通道),真实层级是 `SessionMeta.agent_path`(`/root/a/b`),树目录落在根会话目录的 `mesh_agents.json`。服务 `host/session_host/mesh/MeshAgentService` 在 worker / TUI(`SubagentHost`,TUI 主会话是外部根)/ headless 各一份,工具只捕获 `weak_ptr`。几条别改回去的语义:(1) 邮件一律进 AgentLoop 邮箱(`engine/agent/mailbox`),每次模型请求前并入;**子 agent 完成回报不唤醒空闲的父 agent**(Codex 原样),只有 `agent_followup_task` / NEW_TASK 唤醒;interrupted 回合不回报。(2) 信封落盘为 **user 角色** + `metadata.inter_agent`(有意偏离 Codex 的 assistant 角色:连续 assistant 在 Anthropic / DeepSeek 上会被拒),NEW_TASK 算真实用户消息、其余是内部上下文,TUI / Web 都转成系统提示行,别让它变成用户气泡(会开出假回合、触发「重发末尾用户消息」)。(3) 驻留上限 `swarm.mesh.max_concurrent_agents` 默认 4 **含根**,满了按 LRU 换出已结束的子 agent(`registry.destroy`,发消息时 `resume` 恢复),都在跑就报 `agent thread limit reached`。(4) Web 输入框芯片 = 服务端模式 + 未提交的本地选择,**只有二者不同才随消息提交 `swarm_mode`**(`web/src/lib/swarmMode.js`):每条消息都带会把 `/swarm` 刚切的模式改回去,网状树里有 agent 在跑时还会直接 409。回归:`tests/session_host/mesh_agent_service_test.cpp`(真实 SessionRegistry + 脚本化 provider 跑整棵树)、`tests/agent/agent_loop_mesh_mailbox_test.cpp`、`swarmMode.test.js` / `interAgentMessage.test.js`。
-
-`bash_tool` streams cleaned output, polls abort state, truncates very large output, and supports POSIX `stdin_inputs`. File tools should preserve checkpoint hooks by calling `track_file_write_before` before mutating files.
-
-**Prompt cache prefix invariant**:`RequestContextFactory::build()` 每次采样迭代都跑一遍,所以**注入到最后一条真实 user 消息之前的内容必须内容驱动** —— 输入不变就逐字节不变。任何随时间/随请求变化的东西进了那个位置,同一回合内每次工具往返都会把缓存前缀从注入点截断,后面整条尾巴(user 消息 + 全部 assistant/tool 消息)全价重算;工具越多损失越大。曾经的 `[当前环境状态]` 块带秒级时间戳,正好踩中这条。现在 cwd 与日期(只到天,`current_prompt_date`)留在静态 system prompt 的 `# Environment` 里,只在工作目录或日期变化时改变。守护测试:`agent_loop_termination_test.cpp::RequestPrefixIsByteStableAcrossIterationsInATurn`(逐条比对相邻两次请求的公共前缀)+ `system_prompt_test.cpp` 的两个 byte-stable 用例。同理,`cached_context_for_api` 按 cache_key pin 住 session context 内容、git 快照按会话缓存、`ToolExecutor::tools_` 用 `std::map` 保证工具顺序、Anthropic 合成 tool_call_id 走内容哈希 —— 都是为同一条不变量服务的,改动这些地方前先想清楚会不会打穿前缀。
-
-跨 provider 的 usage 口径:`prompt_tokens` = 本次请求的**全部**输入 token,`cache_read_tokens` 是它的子集。Anthropic 原生把 `input_tokens` 与 cache 读写分开报,`AnthropicProvider::merge_usage` 负责合并成上述口径(对流式的多个 usage 节点幂等),否则上下文占用会少算、缓存命中率也算不对。TUI token chip 显示会话累计缓存命中率,Web 上下文用量面板显示最近一次请求的缓存命中率;provider 报了 usage 但没有缓存计数时显示 0% 而不是隐藏 —— 这正是「缓存没生效」需要被看见的场景。
-
-MCP 工具调用同样响应 abort:`McpManager::invoke` 把阻塞的 JSON-RPC 调用放进 detached 工作线程,本线程 100ms 轮询 `ctx.abort_flag`,置位立即返回 `[Aborted]`(迟到响应整体丢弃,工作线程最多活到 cpp-mcp 内部 60s 超时)。不加这层时,慢 MCP 工具(实测 windows-mcp Snapshot 30+ 秒)会让停止请求在整个调用期间失效 —— 表现为「点停止提示已终止,busy 却持续到工具自己返回」。回归测试:`tests/tool/mcp_manager_test.cpp::AbortDuringSlowToolCallReturnsQuickly`(test server `--call-delay-ms`)。
-
-**视觉能力必须在四个面同源,别只接序列化层。** `model_has_vision`(来自 saved model 的 `vision` 能力标签)一度只有一个消费点 —— `openai_provider` 的序列化层,决定图片是发原图还是降级成文字句柄。工具注册、skill 索引、system prompt 三处都不知道这一位,于是**主模型自己能看图时,它没有任何信号知道自己能看**:工具表里摆着 `vision_analyze`、skill 索引里摆着 vision-image-reader,两者的触发条件都写成「当前模型不能可靠看图时」—— 这是个要模型自我评估的软条件,它评估不了,保守起见就调了。实测会话 20260830-024351-9599:主模型 `Aurora-aurora` 带 vision 标签、图片也确实发到了它手上,它却先 `skill_view` 再 `vision_analyze`,而子调用从候选里挑中的还是它自己,绕一圈用同一个模型看了同一张图,白烧约 5k token;用户说「你自己就能识图」之后它直接看图,一次成功。
-
-现在这一位从 `LlmProvider::supports_vision()`(基类默认 true fail-open,`OpenAICompatProvider` 返回 `model_has_vision_`)统一发散到四处:
-
-- **序列化层**(原有):`openai_content_for_message` 决定图片发原图还是降级成句柄文本。
-- **system prompt**:`# Environment` 多一行 `- Active model can read images directly: Yes|No`,后跟一句硬指令(Yes 时禁止调 `vision_analyze` / 加载该 skill,No 时指向 `vision_analyze`)。它只随模型切换变化,留在可缓存的静态前缀里不打穿 prompt cache。
-- **工具描述 + 执行门**:`vision_analyze` 的描述指向上面那一行的字面值而不是「不能可靠看图时」。执行时按 `(provider, model id)` 把当前模型从候选里剔除 —— **按 name 比会漏判**,同一个真实模型经常在 `saved_models` 里有多条别名(实测 `aurora` 与 `Aurora-aurora` 同指 openai/aurora)。当前模型自己能看图时隐式路径直接拒 `ACTIVE_MODEL_HAS_VISION`(在构造 provider 之前),显式点名自己同样拒,显式点名**另一个**视觉模型放行(要第二意见是合理的)。
-- **skill**:`vision-image-reader` 的 frontmatter description 把硬条件放在**最前面** —— skill 索引按预算从尾部截断,写在后面的关键条件会被切掉。
-
-`ToolContext` 的 `active_provider_name` / `active_model_id` / `active_model_can_read_images` 由 `ToolContextFactory::for_tool` 填;为空 = 未接线,一律 fail-open 维持旧行为(漏接线不该让唯一的视觉模型凭空消失)。**不要**改成「没 vision 就不注册 `vision_analyze`」:工具注册在启动时一次性完成(`tui/app/tui_runtime_init.cpp` / `worker.cpp` / `headless_runner.cpp` 各一次),而 `apply_model_to_session` 根本不碰 ToolExecutor,按启动模型 gate 会让用户中途 `/model` 切到无视觉模型后工具补不回来。磁盘上的图片对有视觉的主模型不是死路 —— `show_image` 会把文件挂成 `content_parts`,下一轮它就看得见。回归测试:`tests/tool/vision_subagent_tool_test.cpp` 的 7 个自调用防护用例 + `tests/prompt/system_prompt_test.cpp` 的三条 Environment 用例。改 `assets/seed/` 下的 skill 内容要同步 bump `assets/seed/seed.version` 与 `assets/seed/MANIFEST.json`(bundle_version + 该 skill 的 `skill_md_sha256`),`tests/skills/default_skill_seeder_test.cpp` 里硬编码的 bundle 版本也要跟着改。
-
-**「压缩图片」(设置 > 常规,`config.image_compression.enabled`,默认开)按 grok-build 实现,只在发送层生效。** 起因:无状态协议每次请求(含回合内每次工具往返)都把历史里所有图片 base64 重发,而入库规范化只处理 ≥10 MB / 长边 >2560 的图,普通截图原样重发,请求流量很大。开关开启时,唯一的图片序列化点 `openai_content_for_message_impl`(OpenAI 兼容 / Anthropic / Responses 共用)经 `provider/model_image_payload::compressed_model_image` → `session/attachment_model_image` 取压缩版(新逻辑都放在 `model_image_payload`,`openai_provider.cpp` / `anthropic_provider.cpp` 有 R12 行数上限,只留调用点):`image::compress_image_for_model` 照搬 grok-build 参数(≤1.5 MB、长边 2000、2,408,448 像素、最小边 512、JPEG 质量 88→32;PNG 与 JPEG 候选取较小且放得下的,都放不下就长边乘 3/4 重试,绝不放大;真实透明度只出 PNG),图片前加一句「原尺寸 → 压缩后尺寸」的说明。**快照原图不改**(有意偏离 grok-build 的入口替换):压缩结果进进程内 LRU(64 MB)并写 `<快照>.model-v1.json` / `.bin` 附属文件,重启不重算,关掉开关就恢复发原图;改压缩参数要同时升 `kSidecarVersion` 与后缀。带 `computer_use` 元数据的截图只按字节重编码、尺寸不变(点击坐标依赖像素尺寸,序列化处还会核对 geometry)。请求体预算 `session/image_request_budget` 经 `recover_provider_history_with_image_budget` 在两个 `build_request_body` 里作用于历史投影副本:达到「上限 − 3 MiB」(OpenAI 兼容 50 MiB、Anthropic 30,000,000)时从最旧的图开始换成文件引用(元数据 `image_budget_withheld`,引用文案说明它已不可见),降到上限一半。**第二处有意偏离**:provider 记住最新被换掉的那张图(低水位标记),之后的请求换掉同一批、前缀不变,直到再次长到触发线 —— grok-build 每次对完整历史无状态计算,过线后每加一张图就多换一张旧图,缓存前缀每回合都变。开关关闭时两者都不生效,行为与改动前逐字节一致;其它 daemon 在下一次发消息前经 `refresh_model_config_if_changed` 跟上。回归:`tests/image/model_image_compression_test.cpp`、`tests/session/image_request_budget_test.cpp`、`tests/session/attachment_model_image_test.cpp`、`openai_content_parts_test.cpp` 的 `Compression*` / `ImageBudget*`、`config_image_compression_test.cpp`、`image_compression_handler_test.cpp`、`web_server_smoke_test.cpp::CompressImagesSwitchControlsImagesSentToModel`(端到端:上传 → 请求体 → 设置页关开关 → 下一次请求发原图),前端 `imageCompression.test.js`。
-
-### GPT 系模型适配:apply_patch + 模型族提示(add-gpt-apply-patch-adaptation)
-
-起因是用户实测「接 ChatGPT / GPT-5 效果很挫」:GPT-5 / gpt-5-codex 家族是用 Codex 的 `apply_patch` 补丁语言训练的,对 `file_edit` 的 old_string 精确匹配不熟,反复失败后退化成 shell heredoc 写文件。做法对齐 opencode(`tool/registry.ts::usePatch` + `session/system.ts::provider()`):按模型 id 分发编辑工具与系统提示。
-
-- **判定只看模型 id,不看 provider 名**(`src/domain/llm/model_family.{hpp,cpp}`,P2-02 起在 domain 层的 llm 模块):`model_prefers_apply_patch` = 小写后「含 `gpt-` 且不含 `gpt-4`、不含 `oss`」或「含 `codex`」;`detect_model_family` 另分 Anthropic / Gemini / GptLegacy(gpt-4* / o 系)。PA 网关 / OpenAI 兼容代理转发 GPT-5 时 provider 名是 `openai`,只有 id 可信。
-- **三个编辑工具始终注册,只裁模型侧定义表。** `AgentLoop` 每次组装请求(常规与紧急档两条分支之后)调 `filter_tool_definitions_for_model(bundle.tool_defs, prefers)`:偏好 apply_patch 就去掉 `file_edit` / `file_write`(按当前「工具重写」映射后的名字),否则去掉 `apply_patch`;apply_patch 被 expert 能力策略滤掉时回退保留 edit/write,system prompt 的 `apply_patch_mode` 用同一条件(`guidance_allows("apply_patch")`),两边一致。**不要**改成按启动模型注册 —— 与视觉那一节同一个理由:`/model` 中途切换不重建 ToolExecutor;历史 / 别名调用靠 `resolve_model_tool_name_to_native` fail-open 继续可执行。
-- **系统提示按模型族分支**:`build_system_prompt` 尾参数 `SystemPromptModelState`(AgentLoop::system_prompt_model_state,两处调用都传)。apply_patch 模式下 file_edit / file_write 的所有指引不出,换成 apply_patch 指引(相对路径 / 3 行上下文 / `@@` 锚点 / 找不到就重读而不是绕道 shell),cmd / PowerShell 指引里「多行内容用哪个工具」也改口(`get_shell_guidance` 的 `multiline_tool` 参数);GPT / GptCodex 家族追加 `# Model-specific guidance`(取自 opencode gpt.txt / codex.txt 中不与 ACECode 冲突的部分)。非 GPT 模型输出逐字节不变,`system_prompt_test.cpp::NonGptModelStateIsByteIdenticalToLegacyPrompt` 守着。
-- **`apply_patch` 工具**(`src/adapters/tool/apply_patch_format.{hpp,cpp}` 纯逻辑 + `apply_patch_tool.{hpp,cpp}` IO):语义对齐 codex-rs / opencode `patch/index.ts`(信封、Add / Delete / Update / Move to、`@@` 锚点、`*** End of File`、四级容错匹配 精确 → 去尾空白 → 去两端空白 → Unicode 标点归一、倒序应用),偏离处:结尾换行按原文(上游总补一个);Add 拒绝覆盖非空文件(与 file_edit 空 old_string 同款);未知行前缀报带行号的错而不是静默吞。**先全量校验再落盘**,同一补丁多段 Update 同一文件靠内存 overlay 串起来(GPT 常这么输出)。不要求先 `file_read`(Codex / opencode 同款),但落盘后 `record_write` 记基线、Delete / Move 源 `invalidate_agent_read_state`;Delete / Move 源也要过 `track_file_write_before`,否则 /rewind 恢复不了被删文件。参数名 `input`(Codex function tool 同名),`patchText` / `patch` 别名 fail-open。
-- **一次结果多文件**:`DiffHunk::file`(空 = 沿用 summary.object,file_edit / file_write 不填);codec 只在非空时输出 `file` 并附 per-hunk `additions` / `deletions`(Web 聚合器多文件时 message 级 +N/-M 无法归属),TUI `render_diff_view` 在 file 变化处插文件标题行,Web `hunksToUnifiedDiff` 按 file 重新输出 `--- a/ +++ b/` 头。`metadata.files[]` 给 UI / hooks;全部路径在 scratch 下才置 `exclude_from_turn_change_summary`。
-- **权限门按路径集合走**:`apply_patch::extract_target_paths(args, cwd)`(Add / Update / Delete 路径 + Move 目标),AgentLoop 对每条路径过 exec-rules 保护、Deny 规则(`.env` / `.git/**` / `.acecode/rules/**` 三处规则表都加了 apply_patch)、`should_auto_allow`、写边界、危险路径确认;Plan 模式要求全部路径都是计划文件;任一路径不过整份补丁不执行,确认框只弹一次(列全部文件)。hooks 的 `apply_patch` matcher 同时命中原生 `apply_patch`。
-- **表面只扫 header 行**:调用行预览(`build_tool_call_preview`)、TUI 确认框、Web 权限弹窗(`permissionToolPreview.js::patchFileHeaders`)用 `summarize_patch_headers`,不做完整解析,预览不该因为补丁格式错误而消失。resume(`session_resume_restore`)为补丁写过的文件补 MtimeTracker 基线,`restore_file_tool_state_from_messages` 多了 cwd 参数解析相对路径。
-- 回归测试:`tests/llm/model_family_test.cpp`、`tests/tool/{apply_patch_format,apply_patch_tool}_test.cpp`、`tests/agent/agent_loop_apply_patch_test.cpp`(StubLlmProvider 现在支持 `set_model` 切模型族)、`system_prompt_test.cpp` 的 Gpt* 四条、`permissions_test.cpp::ApplyPatchFollowsFileEditSemantics`、`tool_call_preview_test.cpp::ApplyPatch*`、Web `permissionToolPreview` / `sessionChanges` 测试。**没做**:Responses API 原生 `apply_patch` 工具类型 / custom tool + Lark grammar(要动 provider 协议层),opencode 其它模型族(beast / gemini / kimi)的整套提示。
-
-### 模型侧工具名与「工具重写」(tool_protocol_names / tool_rewrites)
-
-工具有两个名字:**原生名**(`file_read` / `file_write` / `file_edit` / `TodoWrite`,ToolExecutor 注册的 id,会话 JSONL、权限、hooks payload、TUI/Web 行都用它)和**模型侧名**(发给 provider 的工具表、历史 `tool_calls[].function.name`、system prompt、工具描述与错误/守卫文案里出现的名字)。两者之间的映射由 [src/domain/llm/tool_protocol_names.cpp](src/domain/llm/tool_protocol_names.cpp) 持有,是**进程级可动态发布**的(`set_model_tool_name_mappings`,读多写少,shared_ptr 快照),**默认为空 = 不重写**。曾经的四条 OpenCode 别名(read/write/edit/todowrite)是编译期常量、永远生效,现在只作为 `default_model_tool_name_mappings()` 种子。
-
-映射的唯一来源是 **「工具重写」**(Settings > 工具 > 工具重写),数据刻意**不进 config.json**,单独存 `<data_dir>/tool-rewrites.json`([src/adapters/tool/tool_rewrites.cpp](src/adapters/tool/tool_rewrites.cpp):`{version, enabled, rewrites:{native:public}}`,文件缺失 = 关闭 + 种子)。三个入口(worker.cpp / main.cpp / headless_runner.cpp)都在**注册工具之前**调 `tool_rewrites::load_and_apply(get_acecode_dir())`,因为 `register_tool` 的模型侧名冲突检查用的就是当前映射。REST `GET/PUT /api/config/tool-rewrites`(`routes_tool_rewrites.cpp` + `handlers/tool_rewrites_handler.cpp`)整体替换、原子落盘、立即发布;前端 `web/src/lib/toolRewrites.js`(纯逻辑 + store,Node 测试)+ `components/ToolRewriteSettings.jsx`。
-
-改这块要守住的几条(都是复盘时踩出来的):
-
-- **给模型看的文案里的工具名一律动态取**(`model_tool_name_for_native("file_read")`),不要写死:工具描述与参数 schema 的 `description` 在 `translate_tool_definitions_for_model` 里整词重写(`rewrite_model_facing_text`,边界 `[A-Za-z0-9_]`,单遍最长匹配不链式);执行期生成的文案(`utils/tool_errors.hpp`、file_read 的 unchanged stub、doom guard、attachment 提示、text_file_buffer 的编码错误)各自在生成时取名。**绝不能**对工具输出正文做整词重写 —— 文件内容里的 `file_read` 是数据。守卫测试:`tool_protocol_names_test.cpp::BuiltinToolDescriptionsUseModelFacingNamesWhenMapped`、`ToolErrorTextsFollowActiveMapping`、`system_prompt_test` 的映射开/关两组用例。按文案识别错误类型的地方(doom guard 的 `is_retryable_precondition_failure`)只匹配不含工具名的前缀。
-- **发给 provider 的历史只有一个入口** `src/engine/agent/request/provider_history.cpp::model_facing_provider_messages`(修复 + 改名)。主请求与 side-question 都走它;再加新的「构造 provider 消息」路径也必须走它,否则模型看到它工具表里没有的原生名 —— 这在 `9f89d6a0` 已经漏过一次。
-- 入站解析 `ToolExecutor::resolve_model_tool_name_to_native` 是 fail-open:精确原生名优先,别名只在对应 handler 已注册时生效,未知名原样透传。所以映射开关切换、老会话、模型自己混用两套名字都不会断。
-- `get_model_tool_definitions` 翻译失败(运行期映射与注册表冲突)时**回退原生定义**而不是空表 —— 空表意味着模型零工具静默运行。
-- hooks 的 matcher 别名表(`hook_runtime.cpp::alias_matches` / `canonical_hook_match_value`)除 Claude Code 风格的 `Write` / `Edit` 外,也经 `native_tool_name_for_public_alias` 接受当前生效的模型侧名。
-- 校验规则一份(`validate_model_tool_name_mappings` + `validate_settings_against_tools`):public 名匹配 `^[A-Za-z0-9_-]{1,64}$`、唯一、不等于任何注册工具名或其它映射的原生名(否则 resolve 先命中真工具)。前端 `validateToolRewriteDraft` 只是即时反馈,后端仍会再校验。
-- 测试里改映射用 RAII `ScopedModelToolNameMappings`,它是进程级共享状态,忘记恢复会污染同进程的其它用例。
-
-### 具体进度提示(原「工具前言」,add-tool-preamble)
-
-设置 > 常规 > 工作模式:「适合日常工作」= 开,「用于编程」= 关(默认)。配置键沿用 `config.agent_loop.tool_preamble.enabled`(旧的 `mode` / `sidecar_*` 键加载时忽略),工作模式**不单独落 localStorage**,以 daemon 配置为准(`web/src/lib/workMode.js`,设置页 `SectionGeneral` 读 / 写 `/api/config/tool-preamble`)。开发者模式里的旧入口已删。**用户拍板的形态**:loading 只说正在做什么、用现在进行时、**不带参数**(参数照常留在工具行,Web `ToolBlock` 与 TUI 进度头都不再替换成前言);尽量不出现「正在推理」这类笼统文案;文案**不依赖模型配合**。
-
-前三版都被否掉,别做回去:v1「先说一句话再调工具」(文本先变气泡、按批次拆成一摞标题行);v2「每次调用必填 `preamble` 参数」(强迫模型每次写一句);v3「正文 `<text_preamble>` 标签」(grok-4.7 不照做,用户会话 20260925-053811-55cc 12 个工具步零标签;业界的 tool preamble 本来就是普通用户可见消息,不是标签)。v3 期间为了压住裸文本进度句删过的系统提示「# Sharing progress updates」一节已**逐字恢复**,系统提示与这个开关无关(`build_system_prompt` 的 `prompt_tool_preamble` 参数已删)。
-
-- **文案全部由 daemon 生成**(`src/engine/tool_preamble/tool_preamble.cpp` 纯逻辑,优先级):① 本模型步推理摘要的第一对 `**加粗**`(GPT / Codex 天然带,只对本步有效;推理首句兜底已删 —— grok 的推理是英文原始思维链,首句永远是 "The user wants me to…");② 工具模板 `batch_activity_label`(按原生工具名分类:读取 / 搜索代码 / 查找文件 / 运行命令 / 修改 / 写入 / 网页 / 浏览器 / 子任务 / 技能 / 待办 / 图片…,同类计数,两类用「并」,三类及以上取前两类加「等」,MCP 与未列出的工具归「调用工具」);③ 场景文案:回合开头 `kInitialActivityLabel`(正在分析你的请求),一批工具跑完按这批第一类工具 `after_batch_activity_label`(正在分析文件内容 / 搜索结果 / 命令输出 / 检查修改结果…),正文开始流出 `kRespondingActivityLabel`(正在撰写回复)。`batch_activity_kind` 按工具类型给 read / write,透传给界面,读放大镜 / 写笔触效果留空。
-- **只在一个口子替换**:`run_agent_with_input` 的 `emit_agent_progress` 调 `concrete_activity_for_phase(phase)`,对 `model_waiting` / `reasoning` / `preamble` / `responding` / `tool_planning` / `tool_running` 换 label、清 detail、挂 `preamble{title,source,kind}`,并经 `announce_activity` 去重后回调 `on_thinking_title`(TUI 等待短语);权限 / 提问 / 压缩 / 重试不换。各发射点仍传旧文案,关闭时原样发出。状态(全在 `tool_preamble_mu_` 下):本步加粗标题 `phase_preamble_`、本步已流出的工具 `step_planned_tools_`(ToolCallDelta 经 `note_planned_tool` 记)、执行中批次 `current_batch_activity_`、本回合上一批 `last_batch_tools_`;每次 provider 调用(含重试)开头 `reset_activity_for_step`,回合首尾 `reset_activity_for_turn`。`resolve_tool_preamble_for_step` 定批次文案(标题 > 模板),写 `metadata.tool_preamble` 并随 `tool_start.preamble*` 下发。
-- **历史标签只剥不用**:v3 落盘的正文里还有 `<text_preamble>`,`TextPreambleScanner` / `strip_text_preamble_tags`(C++)与 `stripTextPreambleTags`(JS)照旧从 token 流、Message 帧、TUI 行、回放、Web 历史里剥掉,但不再当文案。
-- **Web**:一段活动一条 `activity_summary`,实时行标题 = 正在运行工具的 `tool.preamble`(已含数量,此时不再追加「正在运行 N 个工具」与 activity.detail),工具都跑完时退回 `activity.label`(daemon 的场景文案);落定后与关闭态同形。
-- 回归测试:`tests/tool_preamble/tool_preamble_test.cpp`(模板 / 场景文案 / kind / 加粗 / 扫描器)、`tests/agent/agent_loop_tool_preamble_test.cpp`(笼统文案不出现且 detail 为空、加粗标题只管本步、准备调用阶段的模板、写工具进度头保留工具行、历史标签只剥不用、关闭时旧文案)、`config_tool_preamble_test`、`tool_preamble_handler_test`、`session_replay_tool_preamble_test`;前端 `toolPreamble` / `workMode` / `transcriptProjectionToolPreamble` / `sessionTranscriptToolPreamble`。
-
-### Thread Goals(/goal,复刻 Codex ext/goal)
-
-每 session 至多一个 goal,存项目级 `state.sqlite3`(`src/domain/session/thread_goal_store.cpp`)。状态机:`active / paused / blocked / usage_limited / budget_limited / complete`,仅 `active` 参与自动 continuation(`AgentLoop::maybe_continue_goal`,空闲时注入 hidden `goal_context` user 消息开新回合;Plan mode 下不触发)。模型工具 `get_goal` / `create_goal` / `update_goal(complete|blocked)`;`/goal` 命令双端注册(TUI `goal_command.cpp`,daemon builtin 在 `session_registry.cpp`)。
-
-**Goal interaction mode**:`AgentLoop::goal_unattended_active()` = 当前会话(或子代理的父会话)有 `active` goal 且非 Plan mode。为 true 时写工具权限门自动放行(bash 的 exec Prompt 也放行,但沿用决策表的批准后沙盒,见「Auto 模式与 exec 沙盒」),AskUserQuestion 仍弹出提问组件,但固定等待 30 秒;超时后自动采纳每题第一个(推荐)选项并继续。Plan mode 只读约束优先。
-
-**Turn error 停 goal**:provider 终止错误 / 连续空回复耗尽 / provider 缺失 → `stop_active_goal_after_turn_error`(429 → `usage_limited`,其余 → `blocked`),防止 continuation 对同一错误无限重试烧 token;`/goal resume` 恢复。用户 abort → `paused`。
-
-**In-turn steering**:budget 耗尽转 `budget_limited` 时与 `/goal edit` 改 objective 时,置 pending 标记,worker 在下一次模型请求前(`maybe_inject_goal_steering`)注入 budget_limit wrap-up / objective_updated 提示(hidden_goal_context user 消息);回合外的 pending 标记在下一回合开始时丢弃。无 provider usage 时估算入账覆盖所有轮(含纯工具调用轮),否则 budget_limited 永不触发。
-
-## Sessions And Persistence
-
-[src/domain/session/](src/domain/session) persists canonical conversation messages as one `<session-id>.jsonl` file with one `<session-id>.meta.json` sidecar per session. Runtime-only display fields are not serialized. Resume paths adopt the canonical JSONL directly and rebuild TUI pseudo-rows, tool previews, summaries, and diffs from persisted messages and metadata; they must not copy history into PID-suffixed files.
-
-Old `<session-id>-<pid>.jsonl` / `<session-id>-<pid>.meta.json` files are unsupported experimental data. The project has not shipped a compatibility guarantee for them; if detected, tell users to delete the old project session data under `~/.acecode/projects` instead of migrating it.
-
-Canonical shared transcripts are protected by a lightweight writer lease under the project session directory. TUI and daemon session activation acquire the lease, refresh it after writes, and release it on session end/finalize. Stale leases are recoverable when the owner PID is dead or the heartbeat timestamp is old.
-
-**会话标题有两份且内存那份优先(改名回滚的坑)**:`SessionRegistry::list_active()` 报的是 `SessionManager` 内存里的 title,`session_info_to_json` 让它盖过磁盘 meta。所以任何**只写磁盘**的改名都会被内存那份盖掉:活跃会话的下一次 `update_meta()` 把旧标题写回去,列表也立刻显示旧标题 —— 用户看到的就是「重命名无效」。两条路径会走到只写磁盘:(1) `set_session_title_response` 的 workspace 归属判定失败(`no_workspace` 会话永远匹配不上任何 workspace,cwd 形态不同也匹配不上),(2) Desktop 每个 workspace 一个 daemon、只有 active 的那个服务 UI,改别的 workspace 的会话时落到的是没有这份内存的 daemon。修法两端都在:web 层在磁盘分支后按 id 同步本进程的活跃 entry;`SessionManager::update_meta` 写前调 `adopt_foreign_user_title_locked()`,除本进程正在提交的显式用户改名外都采纳磁盘上的 `user`/`user-cleared` 标题,因此已手动命名过的会话也能继续跨 daemon 改名;`session_info_to_json` 里磁盘 user 标题压过旧的内存标题。回归测试:`tests/session/session_title_test.cpp` + `tests/web/web_server_smoke_test.cpp` 的 title 用例。
-
-P2-07 将可复用的文本逻辑归回实际模块:标题清洗与空输入判定在 `src/domain/session/session_title_text.{hpp,cpp}`,终端标题 OS 调用仍在 `src/base/platform/terminal/terminal_title.hpp`;`/init` 的共享提示词在 `src/engine/prompt/init_prompt.hpp`,LSP 状态格式化与子命令分发在 `src/adapters/lsp/lsp_status_text.hpp`。TUI 命令层仅负责注册与交互适配,会话宿主直接依赖这些共享接口。
-
-**会话显示标题只有一个字段,前端不许从消息正文现推。** 侧栏、顶部标题栏、网格卡片、搜索面板、托盘菜单显示的都是 `sessionDisplayTitle(session)`:服务端 `title`(用户改名 / 大模型生成,generated 的 `[Error]` 标题忽略)优先,否则 `summary`。`summary` 由 `SessionStorage::summarize_user_message_text` 从最近一条可见用户消息的**显示文本**(`metadata.display_text` 优先于 `content`,`SessionStorage::visible_user_message_text`)折成单行、UTF-8 安全截到 80 字节 + "..."; `SessionManager` 的内存值与 `list_sessions` 补齐旧 meta 走同一实现。实时同步只有一条路:用户消息落盘后 AgentLoop 发 `session_updated{summary}`(`emit_session_summary_updated`,正常回合与 soft-steer 插话都发),大模型标题就绪时 SessionRegistry 发 `session_updated{title,title_source}`,`list_active` 与 `GET /messages?since=0` 快照都带这三个字段;Web 的 transcript store(`transcriptDisplayTitle`)与 Sidebar 列表对同一事件做同样的合并。两条被删掉的歧路别再加回来:(1) transcript 加载历史后用 `titleFromMessages` 把**最后一条 user 消息全文**当顶部标题 —— 会话 20260923-163126-e7e3 的首条消息是 `@session` 引用展开后的 9k 字符长文,顶部标题就是它、长度不受限,侧栏却显示 80 字节的 `summary`,而 `summary` 又是按展开后的 `content` 截的 "Referenced ACECode session context follows...";(2) 侧栏 hover 跑马灯再拉整份消息把标题「水合」成全文(`sidebarFullTitle.js`,已删)。ChatView 发送时也不再本地改写标题。回归:`tests/session/session_summary_test.cpp`、`tests/agent/agent_loop_session_summary_event_test.cpp`、前端 `sessionTitleSingleSourceArchitecture.test.js` + `sessionTranscript.test.js` 的「会话显示标题」组。
-
-Rewind support uses per-user-turn checkpoints. `SessionManager::track_file_write_before` is the hook file-mutating tools call so `/rewind` can restore file state.
-
-**会话列表的成本在文件个数,不在数据量。** 一个项目目录里每个会话一个 `.meta.json`,总字节可能只有几百 KB,但 `list_session_metadata()` 会把它们逐个 open/parse —— Windows 上每次 open/close 都过一遍杀软,实测 1428 个文件冷缓存要 **7.3 秒**(热缓存 55ms),而这些文件加起来才 421KB。所以侧边栏折叠列表这种「只要最新 5 行」的场景必须走 `SessionStorage::list_session_metadata_page(project_dir, limit, accept)`:它先只枚举文件名 + mtime(Windows 的 FindNextFile 顺带返回,不产生额外 syscall),按 mtime 降序后只打开 `limit + max(8, limit)` 个文件,最后按 `updated_at` 重排截断(多读的那段 margin 就是给 mtime 与 updated_at 的细微偏差留的容错)。同一目录 604 会话实测:冷缓存 3087ms → **71ms**,热缓存 25ms → 1.2ms。
-
-配套的三条,改这块前都要一起看:
-
-- **`accept` 拒掉的条目不占 limit 名额**,否则一串归档会话就能把整页挤空,侧边栏会显示成「这个 workspace 没有会话」。
-- **`sessions_for_workspace` 里活跃会话逐个点读自己那一个 meta**(`read_meta(meta_path(dir, id))`),不要为了给它们配 meta 而把整个目录读一遍 —— 那正是这条路径原来 100% 的耗时来源。行先攒成 (updated_at, id, body) 再统一排序截断:旧实现按「active 一段 + disk 一段」的拼接顺序截断,取出来的前 N 条并不是最新的 N 条。
-- **那个 `dir` 必须由会话自己的 cwd 推导,不能用调用方 workspace 的 cwd。** 会话 meta 的落盘目录恒为 `get_project_dir(该会话的 cwd)`(`SessionManager::ensure_created` 就是这么定 `project_dir_` 的),而**一个 daemon 经 routes_workspaces 服务多个 workspace** —— 侧栏切项目不换进程,`compatibility_workspace()` 始终是进程 cwd。拿进程 cwd 去读别的 workspace 的会话 meta 只会读到空,而 `SessionRegistry::list_active()` 出于热路径考虑本来就不填 `created_at`/`updated_at`(靠这次点读补),于是这两个字段静默变成空串。实测症状:Web「后台任务」面板卡片耗时**永远停在 00s**(前端 `taskElapsedSeconds` 在 `createdAtMs` 为 0 时直接 return 0,每秒 tick 也推不动),`GET /api/sessions?parent=<id>` 整个返回 `[]` 而同一时刻 `GET /api/workspaces/<hash>/sessions?parent=<id>` 返回完整两条。同理,后台任务查询的**磁盘枚举**要用父会话 cwd 的 project_dir,否则已结束的子任务在面板里整个消失。这是 junction 教训(见 LSP 一节)的同族问题 —— 凡是拿路径当 key 的地方,两侧形态必须同源。回归测试:`web_server_smoke_test.cpp::SubagentQueryReadsMetaFromSessionOwnWorkspace`。注意该用例必须给子会话补一条消息才有意义 —— meta 是 lazy 落盘的,只 create 不发消息时磁盘上根本没有 meta,测到的就不是「读错目录」。
-- **截断后 `total` 只是上界**(目录里的候选文件数),精确总数拿不到。REST 因此多回 `total_exact` 与 `has_more`,前端判断「是否已全量加载」只能看 `has_more`;拿 `sessions.length >= total` 比会在上界下判错,展开时该补的有界请求就被跳过了。
-- 文件名判定(`is_canonical_meta_filename`)是手写字符扫描而不是 `std::regex` —— 上千条目的目录里每项跑两次正则的开销已经能量到。改它要同时守住:PID 后缀的旧实验数据必须排除,headless `--session-id` 的自定义 id 字符集必须接受。
-
-回归测试:[tests/session/session_metadata_page_test.cpp](tests/session/session_metadata_page_test.cpp)(其中 `BoundedPageStopsReadingOnceItHasEnough` 的 `accepted <= 13` 就是「没退化成读全部再截断」的哨兵)+ `tests/web/session_list_handler_test.cpp` + `web_server_smoke_test.cpp::WorkspaceSessionListLimitReturnsEnvelope`。
-
-**首页任务建议(`/api/home/intent-prompts`)不在请求里补算全部旧会话。** 本机 97% 的会话元数据早于 `last_user_message_at`,旧实现在 60 秒预算里逐个倒扫 2.8 万个 JSONL,模型请求发不出去,首页一直是默认卡片,手动刷新只报「检查模型配置」。现在 `select_home_intent_sessions` / `resolve_home_intent_model` 经 `HomeIntentActivityReader` 按需读取:以 `updated_at + kHomeIntentActivitySlackMs`(10 分钟;真实数据里最后用户消息比 `updated_at` 晚 1 秒的情况存在)为上界,只读还可能排进前列的会话,结果与全量补算逐项一致(实测读取 1 次)。每次刷新在 daemon 日志写一行 `[home-intent]`(结果码、失败阶段、各阶段耗时、读取数,不含会话与模型内容);前端 `homeIntentErrorMessage` 按错误码提示,404 = daemon 比 `static_dir` 前端旧。**也不再整库扫目录**(旧实现 `build_global_session_catalog` 扫 2.4 万个项目目录,冷缓存 34 秒,和模型共用 60 秒):元数据一律经 rename 落盘,所以目录 / `.meta.json` 的修改时间不早于里面任何时间戳。`load_home_intent_candidates` 把「未打开的项目目录」和「未读的元数据文件」按修改时间放进同一个队列,从新到旧成批并行加载,前 5 个来源与兜底模型都确定后即停;项目先查后台目录索引 `cached_project_entries`(签名与目录修改时间一致、未标脏、目录 10 秒内没被写过才复用),未命中只列文件名与修改时间(`GlobalSessionProjectReader`,与索引同口径,不含归档会话 —— 兜底模型因此不再来自归档会话),大目录(实测 5063 个会话)只读最新几份。目录修改时间必须按路径读(`fs::last_write_time(path)`),目录枚举缓存的时间对目录可能滞后。找会话预算 30 秒(超时用已找到的继续),模型调用另计 60 秒;前端请求超时 110 秒、他窗轮询上限 120 秒。实测冷索引首次刷新读 50 个文件 / 1.4 秒,索引预热后 32/40 个项目命中。回归:`home_intent_prompts_test.cpp` 的 `LegacyActivity*` / `LazyActivity*` / `Cancelled*` / `ModelFallbackReads*` / `Loading*` / `LargeProject*` / `FallbackModelKeepsLoading*` / `Stopped*` / `Duplicate*`、`global_session_catalog_test.cpp::CachedProjectRowsRequireMatchingDirectorySignature`、`web_server_smoke_test.cpp::HomeIntentPromptsReadLegacyActivityFromTranscript`、前端 `homeIntentPrompts.test.js`。
-
-**旧全量列表继续兼容。** 侧栏使用 `GET /api/sessions?scope=no-workspace`，展开工作区按当前可见行数加 5 再加置顶数请求，周期刷新保持该界限；父会话查询只读父会话的工作区并默认限制 100 条。WS 首次状态订阅仍需要工作区快照，客户端和服务端均去重，重连后才重新订阅。
-
-**侧边栏卡顿的第二个来源:请求条数,不是单个请求的耗时。** 侧边栏有个 5 秒的 `setInterval(refresh)`,而 `refresh()` 里对**全部** workspace 各扇出一次 `pinned-sessions`(还是 `await Promise.all`,阻塞后续)和一次 `opencode-import`。14 个 workspace 就是 28 个请求/轮,浏览器对同一域名只有 6 条并发连接 —— 实测页面开着 30 秒发了 **220 个 API 请求**,`pinned-sessions` 84 次累计 8974ms、`opencode-import` 84 次累计 7660ms,而**每个请求的 `responseStart - startTime` 几乎等于它的总耗时**,即 400ms+ 全是排队,服务端处理只要十几毫秒。用户点击展开时那个几毫秒的会话列表请求排在一百多个请求后面,表现就是侧边栏长时间停在「加载中...」。
-
-诊断这类问题不要看服务端日志,要看 `performance.getEntriesByType('resource')`:按路径分组数 count 与 totalMs,再比 `responseStart - startTime` 与 `duration` —— 两者接近就说明是排队而非服务端慢,这时优化端点本身是白费力气,要减的是**条数**。
-
-三处已修(`web/src/lib/sidebarAuxiliaryFetch.js` 是纯函数 + Node 单测):
-
-- **`pinned-sessions` 只对可见 workspace 重取**,折叠的沿用 `pinnedByWorkspaceRef` 缓存值 —— 注意是「沿用」不是「清空」,否则展开时置顶标记会闪一下。
-- **`opencode-import` 首轮全探、之后只重探可见的**。它探的是「这个目录有没有 opencode 数据可导入」,近乎静态,5 秒一次对全部 workspace 重探纯属浪费;新出现的 workspace 仍会补探一次,导入提示不会丢。
-- **`session_ids_for_workspace` 曾用 `list_sessions()`** —— 它只需要 id 与 archived,却让 `enrich_meta_from_messages` 逐个打开 JSONL(单个 workspace 实测 523MB),而且把同一个目录扫了两遍。现在只对置顶 ID 点读对应 meta；无置顶时零元数据读取。侧栏有界会话页先显示，置顶标记与排序随后合并。
-
-**`WorkspaceRegistry::scan()` 的负缓存。** `~/.acecode/projects` 下每个用过的 cwd 都留一个 hash 目录,实测 **16568 个**,而带 `workspace.json` 的只有 34 个。拆开测:枚举全部目录连 mtime 只要 **12.8ms**,逐个探 `workspace.json` 却要 **267ms** —— 95% 的时间花在对一万六千个目录做 `fs::exists`。而 `/api/workspaces` 与 `/api/pinned-sessions/order` 每轮 refresh 各调一次 scan。
-
-现在每次仍完整枚举目录(可见性语义不变),但以**每个 hash 目录自身的 mtime**为键缓存结论,连「这个目录没有 marker」也缓存。实测 `/api/workspaces` 285ms → **12.4ms**,`/api/pinned-sessions/order` 300ms → **30ms**。
-
-改这块必须守住的三条:
-
-- **不能只比 mtime。** 文件系统时间戳有粒度(Windows 实测约 15ms),若某目录在上次扫描后的同一个 tick 内被写入,mtime 不会变 —— 而且此后再也不会变,那次写入被**永久**漏掉。所以最近 `kFreshDirectoryWindow`(2 秒)内动过的目录一律不信任缓存。曾经的纯 mtime 版本直接打穿了既有回归 `RescanFindsWorkspaceRegisteredByAnotherInstance`。
-- **父目录 mtime 不能替代子目录 mtime。** 在已有 hash 目录里新建 `workspace.json` 不会改 `projects_dir` 的 mtime,只会改那个 hash 目录的。所以缓存键必须是每个 hash 目录自己的时间戳。
-- **写路径主动失效。** `register_new` / `set_name` / `hide` 都 `dir_probes_.erase(hash)`。写盘走 atomic_file 的 tmp+rename、rename 本就会推进目录 mtime,这层只是不把可见性正确性押在文件系统的时间戳行为上。
-
-回归测试:`tests/workspace/workspace_registry_test.cpp` 的 `WorkspaceRegistryProbeCache.*`(其中 `MarkerAddedLaterIsStillPickedUp` 就是负缓存不能挡住后补 marker 的哨兵)+ `web/src/lib/sidebarAuxiliaryFetch.test.js`。
-
-Daemon session multiplexing uses `SessionRegistry`. Each session entry owns its own `SessionManager`, `PermissionManager`, `AgentLoop`, async permission prompter, and question prompter. `EventDispatcher` gives each emitted event a monotonic sequence number and keeps a bounded replay ring.
-
-### Worktree 隔离(EnterWorktree / ExitWorktree / --worktree,复刻 Claude Code)
-
-worktree 落在**主仓根**的 `.acecode/worktrees/<slug>`,分支 `worktree-<flatten(slug)>`(嵌套 slug `a/b` 扁平化成 `a+b`,避免 git ref D/F 冲突与目录嵌套删除)。基线:origin/<默认分支> 本地已有直接用(大仓库不白跑 fetch),否则 fetch(`GIT_TERMINAL_PROMPT=0` 防凭据挂死),再回退当前 HEAD;`git worktree add -B` 顺带复位孤儿分支。同名 worktree fast-resume 复用。分层:[src/domain/worktree/worktree_core.{hpp,cpp}](src/domain/worktree/worktree_core.hpp) 纯逻辑(slug 校验/命名/PR 引用解析/.worktreeinclude gitignore 子集匹配器,无 git 依赖可单测),[src/domain/worktree/worktree_manager.{hpp,cpp}](src/domain/worktree/worktree_manager.hpp) git 子进程层(复用 `run_hook_process`)。
-
-工具 `EnterWorktree` / `ExitWorktree`([src/adapters/tool/worktree_tool.cpp](src/adapters/tool/worktree_tool.cpp))经 `builtin_tool_registry` 双端注册;工具描述写死"仅用户明确提到 worktree 才可调用"。会话切换 = `AgentLoop::set_cwd`(经 `ToolContext::switch_session_cwd` 回调注入,重建 PathValidator;**会话存储位置不动** —— worktree 是同一项目的临时工作区)。状态 `WorktreeSessionInfo` 挂在 `SessionManager` 并持久化到 meta 的 `worktree_session` 字段(inactive 省略,老 meta 兼容);TUI/daemon resume 都会恢复进 worktree(目录已被外部删除则清状态)。system prompt 的 `# Environment` 会标出当前是否在会话 worktree 里;合回 master/main 或"回到主干"必须再调 `ExitWorktree`,git merge/checkout 不算退出,Desktop 图标也不会消失。`ExitWorktree remove` 的安全门 fail-closed:`count_worktree_changes` 数不清(git 失败/缺基线)或有未提交文件/新提交时拒绝,必须 `discard_changes:true`。
-
-CLI `--worktree [name]` / `-w`(TUI):启动即建 worktree,name 可为 PR 引用(`#123` / GitHub PR URL → fetch `pull/N/head`,slug=`pr-N`);此时 worktree 就是项目根(日志/workspace/会话存储都在里面),与工具中途进入的 throwaway 语义不同。TUI 退出时:无变更静默删除,有变更(或数不清)保留并提示,`--resume` 恢复进去。新建 worktree 的后处理:`core.hooksPath` 指回主仓(.husky 优先)、`config.worktree.symlink_directories` symlink、`.worktreeinclude`(gitignore 语法)声明的 gitignored 文件拷贝(`ls-files --directory` 折叠目录 + 按需展开,防大仓库全量遍历)。`config.worktree.sparse_paths` 走 sparse-checkout cone 模式。**未复刻**(有意偏离):tmux 集成(POSIX-only)、WorktreeCreate/Remove hook 替换 VCS、交互式退出对话框(现为"有变更即保留"的安全默认)。spawn_subagent 也不复刻 Claude Code 的 `isolation: worktree`(子代理各建 worktree),子会话**共享父会话的 worktree 并继承写边界**,见下段。测试:[tests/worktree/](tests/worktree/)(core 纯逻辑 + 真实 git 集成 + 工具端到端)。
-
-**写边界与子代理继承(fix-subagent-write-boundary)。** 起因是一次线上排障:同事的 LOOP 在 worktree 里派了 5 个子代理,IM 模块那个把改动写进了主 checkout。根因有三条,都是"隔离只罩住一个会话对象、不随会话树传递":(1) `spawn_subagent` 只把 `ctx.cwd`(worktree 路径)当普通 cwd 交给子会话,`loop_execution` / WorktreeSessionInfo 都不传,子会话的系统提示说自己 "Session worktree: inactive";(2) `is_cwd_validation_exempt` 让 Yolo 会话跳过全部路径校验,只有 LOOP 主会话被补回一道 `PathValidator(cwd_)` 边界,子会话继承了 Yolo 却不是 LOOP 会话,两头都不沾;(3) 项目指令加载器从 worktree 一路向上走到 HOME,把主 checkout 的 AGENTS.md 再加载一遍并带上绝对路径 Source 头,等于把主仓路径喂给模型。现在:`AgentLoop::write_root()`(会话 worktree > LOOP 策略 > 继承的 `inherited_write_root_`)非空即有写边界,Yolo 不再免除,只有 dangerous 整体放行;文件工具报 `Write boundary blocked`,bash 走 `permissions/shell_write_guard.hpp` 的可证明写目标守卫(Windows 上两侧先 weakly_canonical,junction 形态不同不误拦)。`spawn_subagent` 让子会话共享父会话的 worktree(`SessionOptions::inherited_worktree`,meta `worktree_session.inherited=true`,`entry->cwd` 取 `original_cwd` 与父会话同 project dir,AgentLoop cwd 切进 worktree)、继承 LOOP 策略与 `ToolContext::write_root`;`EnterWorktree` / `ExitWorktree` 对继承者拒绝;`wait_subagent` 用 `AgentLoop::last_turn_failed()` 把夭折的子会话报成 ChildFailed 而不是 completed;指令加载器在 linked worktree 根(`.git` 指针含 `/.git/worktrees/`)止步。事后兜底:spawn 在父会话处于 worktree 时记主 checkout 的 `git status --porcelain` 快照,wait 结束比对并把 worktree 之外新出现的路径附进结果(`metadata.workspace_touched`);LOOP 调度器对建了 worktree 的 run 做同样的事,结果进 `loop_runs.workspace_touched`(schema v3),Web 循环页显示警告。**守卫不是沙箱**:`cd 主仓 && node fix.js` 这类动态写入只能靠事后检测发现;进程级沙箱落地后 bash 守卫可退役,但文件工具那道边界要留 —— 它们在 daemon 进程内执行,沙箱管不到(Codex 的 apply_patch 绕过 `--add-dir` 就是同一个洞)。回归测试见 [docs/subagents.md](docs/subagents.md) 的测试地图。
-
-### 多文件夹项目(「编辑项目」,仿 Codex)
-
-侧栏项目右键「编辑项目」→ `EditWorkspaceModal`:名称 + 图标(`WorkspaceIconPicker`,30 个图标 × 8 色,只做图标页签)+「源文件夹」。主文件夹 = `workspace.json` 的 `cwd`,不可移除;附加文件夹存 `extra_folders`,图标存 `icon:{id,color}`(未设置时省略,侧栏保留展开 / 折叠两态文件夹图标)。保存走 `PUT /api/workspaces/:hash`(Desktop 与网页模式同一路),「移除本地项目」Desktop 走 `aceDesktop_removeWorkspace`、网页模式走 `DELETE /api/workspaces/:hash`;「添加文件夹」Desktop 走 `aceDesktop_pickFolder`(只选目录不注册项目 —— `aceDesktop_addWorkspace` 会注册,不能复用),网页模式走 web 路径选择器。纯逻辑在 `web/src/lib/workspaceProfile.js` / `workspaceIcons.js` / `workspaceFolderPicker.js`。
-
-- **写 workspace.json 一律先读盘再改**(`latest_workspace_meta`):Desktop 与 daemon 各持一份 `WorkspaceRegistry` 缓存,拿缓存写回会把另一进程刚存的图标 / 附加文件夹冲掉(`set_name` / `hide` / `update_profile` 都走这条)。回归:`workspace_profile_test.cpp::RenameAndHideFromStaleRegistryPreserveProfile`。
-- **附加文件夹 = 附加工作目录**:`AgentLoop::refresh_workspace_folders()` 每回合开头从会话 project dir(SessionManager 的,worktree 会话的 cwd 不能用)读 `load_workspace_folders`,已删除的目录过滤掉;系统提示 `# Environment` 列出(静态前缀,无附加文件夹时逐字节不变)、`path_validation_error` / 输出附件校验把它们当工作目录放行、bash 写边界守卫与沙箱可写根(`SandboxRuntime::set_workspace_writable_roots`,`configure()` 不清它)同步放开。
-- **写边界不能被附加文件夹打穿**:有 `write_root()`(worktree / LOOP / 继承)时,`writable_workspace_folders()` 去掉与主文件夹互为包含的项(主仓子目录或上级目录),系统提示把它们单列为本会话只读。回归:`agent_loop_workspace_folders_test.cpp::WorktreeBoundaryDropsFolderOverlappingMainCheckout`。
-
-## Skills, Memory, And Project Instructions
-
-P2-06 module boundaries: generic YAML frontmatter lives in `src/base/utils/frontmatter.*`; TUI skill command registration lives in `src/apps/tui/commands/skill_commands.*`; reusable command expansion lives under `src/domain/skills/`. Provider-dependent hook payload builders live in `src/engine/agent/hook_bridge/hook_events.*`, while `src/domain/hooks/hook_payload.*` owns the generic startup payload and `src/domain/hooks/hook_seeds.*` owns read-only hook seed definitions.
-
-[src/domain/skills/](src/domain/skills) discovers `SKILL.md` files from configured global, project, and external skill directories. Skill metadata is read from YAML frontmatter at startup; full bodies are loaded lazily through skill invocation or the `skill_view` tool.
-
-Proactive skill discovery (`inject-skill-index-into-context`): a compact skill index (name + description + optional `whenToUse` frontmatter, grouped by category) is injected each request into the session-context system-reminder built by `build_session_context_prompt` — the same per-request, never-persisted block that carries project instructions and the memory index. Budget is 1% of the context window in chars (4 chars/token, 8000-char fallback), 250 chars per entry (UTF-8-safe truncation); over budget degrades to names-only, then tail-cut with a `(+N more — call skills_list)` marker. The static `# Skills` prompt section points at this index ("err on the side of loading"); `skills_list` remains the fallback enumerator only. Without this index the model has zero visibility into installed skills and never invokes them proactively.
-
-**记忆(openspec unify-memory-system)。** TUI、daemon、headless 都经 `create_memory_runtime`([src/host/session_host/memory_runtime.cpp](src/host/session_host/memory_runtime.cpp))拿到同一个 `MemoryService`([src/domain/memory/](src/domain/memory)):全局作用域 `<data_dir>/memory/`,工作区作用域 `get_project_dir(会话 cwd)/memory/`(与会话存储同一 hash,worktree 会话归主工作区,子会话与父会话同目录)。作用域一律按**会话**项目目录解析(工具经 `ToolContext::session_manager`,请求经 `RequestContextFactory`),不用进程 cwd —— daemon 一个进程服务多个工作区。
-
-- 存储:`MemoryRegistry` 按目录实例化,写入先重扫磁盘,再在状态库 `<data_dir>/memory/state.sqlite3` 的 `BEGIN IMMEDIATE`(`MemoryWriteLock`)里完成,锁序固定「跨进程写锁 → 进程内 mu_」。写入口统一 `redact_secrets`(手写扫描,别换 `std::regex`)。frontmatter 保留未知字段、补 `created_at` / `updated_at` / `source` / `source_sessions`;读回时去掉 frontmatter 之后那一个空行,否则每次系统改写正文前都多攒一行。
-- 注入是**按会话冻结的快照**:`ApiRequestBuilder::frozen_memory_snapshot` 以「会话 id|项目目录|开关」为 key 存进 `PromptContextCache`,只在压缩 / 线程修复(`invalidate_memory_snapshot`,挂在两处 `compact_generation_` 自增点)或 key 变化时按磁盘重建 —— 会话中途写入不打穿 prompt cache。记忆关闭(配置或 `/memory off`,meta `memory_mode: off`)时快照为空、模型侧工具表滤掉两个记忆工具、静态提示不出 `# Memory` 指引;工具本身始终注册(headless `--list-tools` / `--disable-tools` 能看到)。
-- `/memory` 只有一份文本实现 `dispatch_memory_command`:TUI 命令与 daemon 内置命令白名单(含网页 `builtin_command_handler` / `/api/commands`)都调它,网页的 `edit` 改为指向设置页。设置走 `set_memory_settings`(`/api/config/memory` 与 TUI 设置中心 `memory_settings_section` 共用);本进程经 `MemoryRuntime::update_config` 立即生效,其他进程由调度器每分钟按 `config.json` 修改时间重读。
-- 记忆摘要(默认关)`MemorySummaryScheduler` 只在 daemon / TUI 跑:闲置会话(排除子会话、headless(meta `surface`)、关了记忆的会话)→ 提炼观察进 `inbox/<会话>-<from>-<to>.json`(写成功才推进位置,重放覆盖同名文件)→ 满 20 条或最早超 24 小时整合:JSON 计划 create / update / merge / delete 每项都要引用本批观察,`source: manual`(含没有 source 的旧条目)只读,墓碑 90 天内不得复活;计划先存为待应用、再在写锁内应用,失败整批回滚,成功后本批观察整体归档。永久删除会话经 `notify_session_purged`(`purge_session_files` 成功后)撤回只来源于它的摘要条目。测试经 `MemorySchedulerHost::complete` / `now_ms` 注入假模型与时钟。模型输出经 `parse_model_json` 容错取出 JSON 对象(跳过 `</think>` 之前的内容、代码围栏和正文里夹带的推理文字),仍无效时日志记一段输出样本;实测会把推理写进正文的模型不加这层会让每次提炼都判无效。`/memory flush` 的完成报告在 daemon 用 `emit_transcript_system_message` 写进对话记录,刷新或重新打开会话后仍可见。
-
-记忆在 TUI、daemon(桌面版 / Web)与 headless 都接线:daemon 曾经 `memory_registry = nullptr`,桌面会话既没有索引注入也没有 `memory_read` / `memory_write`,用户让模型「记住」时它只能把经验写进子目录 CLAUDE.md / `.acecode/MEMORY.md` 这类不会被自动加载的文件(反馈 LINDANDAN069)。每个工作区一个 daemon 加上 TUI 会同时写同一个目录,所以 `MemoryRegistry::upsert` / `remove` 写前按磁盘重扫、`memory_read` 读前重扫 —— 拿启动时的旧缓存重写 MEMORY.md 会把别的进程后来写的条目当成已删除丢掉。静态 system prompt 在记忆开启时带一段 `# Memory` 指引(「记住」一律走 `memory_write`,别另写笔记文件)。headless(`-p`)同样注册两个记忆工具,但不跑记忆摘要。
-
-`file_read` 的「文件未变」去重(`MtimeTracker` 的已读观测)按会话 id 分区:进程级单例曾经不分会话,daemon 里别的会话或子代理读过同一文件,本会话第一次读就只拿到占位。摘要压缩与各种线程修复(`CompactionController::mark_history_repaired`)之后清空观测,因为之前的读取结果可能已被清成占位符。
-
-[src/domain/project_instructions/](src/domain/project_instructions) loads configured project-instruction filenames from the global config directory and then from the project hierarchy, outer-first, subject to per-file and aggregate byte caps. The repository root intentionally keeps only canonical docs; do not add duplicate root instruction files for this repository.
-
-## Daemon And Web UI
-
-Daemon startup writes pid, port, guid, token, and heartbeat files under `<data_dir>/run/`. Runtime file writes are atomic where practical, and daemon tokens are owner-only on supported platforms.
-
-[src/apps/web/server.cpp](src/apps/web/server.cpp) registers health, sessions, messages, skills, MCP, model, history, files, commands, fork, and static asset routes. WebSocket payloads use envelopes with `type`, `seq`, `timestamp_ms`, and `payload`.
-
-Loopback requests bypass daemon token auth. Non-loopback requests require `X-ACECode-Token` or `?token=`, and non-loopback dangerous mode is rejected. Keep [docs/daemon-api.md](docs/daemon-api.md) in sync for protocol changes.
-
-远程 Web 代理连 daemon 时把上游源地址绑到 `127.0.0.2`,让 daemon 把转发进来的请求当成需要 token 的来源。macOS 的 lo0 只分配 127.0.0.1,绑定报 EADDRNOTAVAIL(asio 用自己的 `asio.system` 类别,要比 errno 值而不是 `std::errc`);此时改用本机的非回环 IPv4(优先远程客户端连进来的那个接口地址)作源地址。daemon 只听 127.0.0.1,这类来源只可能来自本机,照样要 token;代价是经代理的控制台(PTY)在 macOS 上被 loopback 门拒绝(Windows / Linux 上 127.0.0.2 仍算 loopback)。在此之前 macOS 上的远程 Web 是完全不通的。回归:`remote_web_proxy_test.cpp`、`web_server_smoke_test.cpp` 的两条真实代理用例。
-
-The frontend has pure helpers under [web/src/lib/](web/src/lib) with Node-based tests. Prefer adding data-shaping logic there rather than embedding it directly in components.
-
-### 消息通道(QQ / 微信 / 飞书 / 钉钉 / Telegram / Discord / LINE,openspec add-desktop-im-channels)
-
-用户文档 [docs/channels.md](docs/channels.md),接口 [docs/daemon-api.md](docs/daemon-api.md) 第 19 节。分三层,方向只能向下:`src/adapters/im/<平台>/` 是平台传输层(QQ 官方机器人 v2 网关、微信 iLink 长轮询、飞书长连接、钉钉 Stream、Telegram 长轮询、Discord 网关、LINE webhook),不认识会话;`src/host/channels/core/` 是核心(存储、访问与配对、命令、出站投影、会话路由、平台运行时、宿主);`src/apps/daemon/im_channels.cpp` 装配(worker.cpp 已接近 1000 行上限,装配与 `/rc` 共用的 `rc_session_catalog` 都拆在外面)。WhatsApp(`src/host/channels/*.cpp` 其余文件)不经过这套核心。
-
-- **平台清单只有一张表** `core/platforms.cpp`(`PlatformSpec`:凭据字段与是否密钥 / 可手填、账号字段、群成员身份是否按群隔离、换机器人是否清空机主与授权、机主绑定方式 Scan / Link / Code)。运行时、宿主、Web 接口、快照的 `credentials_public`(非密钥原样、密钥只给尾号)都按这张表走;认识各平台传输层类型的只有 `core/platform_adapters.cpp`(创建传输层、联网校验凭据、扫码流程),测试改地址走 `HostEndpoints`。加平台 = 加一行描述 + 一个 adapters 分支 + `Address::valid` 放行平台名。
-- **机主绑定三种**:QQ / 微信扫码时带出扫码人;Telegram 用 `/start <码>` 链接;飞书、钉钉、Discord、LINE 在连上之后由 `owner-link` 发 6 位一次性绑定码(`AccessControl::issue_owner_pin`,10 分钟、一次有效、码存在期间错 10 次作废),私聊发送这串数字即成为机主,这条消息不进会话。
-- **新代码过 R15 所有权检查(CI `check_ownership --strict --final`):** 不写裸 `std::thread`,线程用 `JoiningThread(&Class::method, this)`;存起来的回调捕获 `lifetime_.ref(*this)`,`LifetimeToken` 声明为最后一个成员、析构函数体先 `stop()`;同步回调用具名捕获,不要 `[&]` / `[this]`。未跟踪的新文件不在 lint 范围里,本地要用临时索引把它们加进去再跑。
-- **锁:** `PlatformRuntime` 的 `ops_mu_` 串行化开关 / 改凭据 / 接管 / 停止,`process_mu_` 让入站处理与断开互斥,`mu_` 只护状态字段;调 `transport->stop()` 时不能持 `mu_`(传输线程的 `on_status` 要拿它)。传输层在自己的锁外回调 `on_status`,快照在本对象锁外读 `transport->status()`,两边不会互锁。
-- **只给本机:** 路由用 `is_trusted_local_client_address`,远程 Web 代理转发进来的 `127.0.0.2` 也是 403;`WebServer::broadcast_local_event` 只推给 `WsConnState::trusted_local` 的连接 —— `channels_bind` 带扫码二维码内容。凭据只回尾号,二维码内容与密钥不写日志。
-- **会话列表 `channel_bound:{platform}`** 由 `sessions_for_workspace` 统一标注,侧栏显示与 `/rc` 相同的电脑图标;`/rc` 的换绑动画等专属行为仍只看 `remote_control_bound`,别把两者合并。
-- **连接后由工作线程为已有绑定恢复出站投影**(`Conversations::restore`),否则重启后在 Desktop 里输入的回复不会发到 IM。QQ 换 AppID 时清空机主与授权名单(用户 openid 按机器人隔离),并丢弃旧机器人下的绑定。
-- **QQ:** 全进程单调 `msg_seq`;被动回复额度按入站 msg_id 记账,被拒先降级主动消息,再被拒才暂存(只在内存,下一条入站时先补发);Markdown 被拒后改纯文本且不再尝试;超过直传上限的文件改发文字说明。扫码协议见 `qq_bind.hpp` 文件头(腾讯 connector 无开源许可,只参照协议)。
-- **Telegram:** update offset 存 `state.json` 游标,重启不重复处理;409 分 webhook(等用户在页面确认移除)与另一个轮询方(60 秒后重试)两种。
-- **Telegram 在 getMe 成功后就置已连接**,不要改回等第一次长轮询返回 —— 没有新消息时真实平台要等满 25 秒,设置页会一直停在“连接中”。
-- **设置页只给简要状态,细节写日志**(2026-10-05 验收反馈,仿 WorkBuddy「远程通道」):两列卡片、单色聊天图标、「连接 / 取消连接」按钮;没有凭据或没有机主时「连接」打开三步向导(创建机器人 → 连接 → 绑定机主),配好的直接连。失败原因、隐私模式、暂存待补发、绑定与收发计数由 `core/state_log.cpp` 在每次 `publish_state` 比较前后快照写进 daemon 日志(`[channels/<平台>]` 前缀,凭据尾号也不写);入站判定原因(`AccessResult::reason`)、IM 命令、QQ 扫码各阶段与发送回退在各自位置记日志。前端 `channelsSettings.test.js` 有守卫断言页面不渲染这些细节,别加回页面。`ChannelHost::publish_all` 也走 `publish_state`,否则绑定变化不进日志。
-- **微信(iLink)**:凭据全部来自扫码(`weixin_login`,二维码编码 `qrcode_img_content` 而不是 32 位令牌),设置页不能手填,校验只查齐全不联网。轮询游标与每个联系人的 `context_token` 存在 store 的 `values`(`weixin_cursor` / `weixin_context_tokens`,换机器人随 `clear_transport_state` 清掉);主动发送(Desktop 里输入的回复)也要带 context_token。-14 = 登录失效 → Failed 且停止重试,设置页点「连接」直接回到扫码。只有私聊。CDN 媒体 AES-128-ECB,上传结果在响应头 `x-encrypted-param`(`im::HttpResponse::headers` 键已小写)。
-- **钉钉 Stream**:校验 = 取 access token + 试注册一次 Stream(票据丢弃),能分出凭据错 / 应用未发布或没开 Stream 模式。每条入站要 ACK;回复优先用消息带来的 sessionWebhook,过期后走机器人 OpenAPI(要检查 errcode,HTTP 200 也可能失败)。同一应用每条消息只投给随机一个连接,靠核心的按账号文件锁保证只有一个 ACECode 在连。
-- **飞书长连接**:protobuf 帧(`feishu_frame`),每个事件帧都要 ACK,分片按 sum/seq 重组;飞书要求长连接**在线时**才能保存「使用长连接接收事件」,所以机器人未发布 / 未就绪只在 `extra.bot_warning` 里提示、不判校验失败,连接步骤的清单告诉用户回后台保存订阅、加 `im.message.receive_v1` 并发布。`domain`=lark 走 open.larksuite.com,测试经 `HostEndpoints::feishu_base` 覆盖。握手失败的响应头(`Handshake-Status` 等)`WebSocketClient` 拿不到,403 / 连接数超限目前按可重试处理。飞书、钉钉都按集群模式把事件随机分给同一应用的某个连接,同一应用接在别的工具上会被分走消息。
-- **LINE**:唯一要公网回调的平台。回调端口是 `core/line_webhook_server`(独立 Crow 应用,只监听 127.0.0.1,只有 webhook / health / media 三条路由,**绝不复用 daemon 主端口** —— 本机请求在主端口免 token,经隧道进来的也是本机地址);端口第一次由系统分配后存 cursor `line_listen_port` 沿用。公网地址留空 → 起 cloudflared 快速隧道(找不到时 `extra.cloudflared_missing`,设置页提示 winget 安装),每次连接用 PUT 重新登记 webhook;控制台的 Use webhook 只能手动开,没开时停在 Retrying(`extra.webhook_active=false`,设置页给出该做什么)。回复令牌 50 秒内免费用 reply,否则 push(计月额度,额度用完暂存到下一条消息再补发);机器人不能发文件,图片走回调端口的临时链接。
-- **Discord**:校验时 `/applications/@me` 报 Message Content Intent 关着就直接拒绝保存(否则网关 4014);保存时带回 `bot_id` / `application_id`(设置页邀请链接用)。优先 Resume,Identify 每 24 小时有上限,计数经 `on_identify_ledger` 存两个 cursor 跨重启保留;4004 / 4010–4014 停止重试。服务器频道与线程算群,@ 或回复机器人才处理;不 ping @everyone。
-- **IM 命令与 Desktop 对齐**(`core/commands.cpp` 唯一命令表,每个命令带不超过两个字母的简写;实现在 `core/conversation_commands.cpp`):/compact /init /goal /plan /lsp /sandbox /memory /swarm 经 `execute_builtin_command` 交给 daemon,结果是会话系统消息,在调用线程上同步投递,`Projection::capture_system_messages` 按线程 id 截获后作为回复发回(别改成按时间窗口收集,会把别处的系统消息混进来);/compact、/memory flush 的异步完成经 `relay_next_notice` 只转发一次。列表与长输出一律经 `core/paging` 分页(每页 10 条 / 约 1800 字节,编号跨页连续,/more 翻页)。/btw 在 Conversations 自己的后台线程上跑(`stream_side_chat`,断开连接时取消),不能放回平台工作线程:会挡住 /stop 和断开。@ref 列出可引用会话,消息里的 @编号 只在发过 @ref 后才解析(否则「@3 点开会」被误伤),daemon 侧读被引用会话最近一页历史并复用 Web 的 `session_reference_context`。/memory 只给机主(全局记忆)。回归:`router_test.cpp` 的分页 / RefMention* / Builtin* / SideQuestion* 组、`ImChannelsEndToEnd.TelegramDesktopCommandsAndSessionReferences`。
-- **会话执行中也能切换(/new、/resume 不再要求先 /stop)**:换绑时旧会话仍忙,`Conversations::retire_projection`(`core/conversation_background.cpp`)把旧投影 `move_to_background`:之后不再转发正文 / 权限 / 提问,只在回合结束(`busy_changed(false)` / `done`,按 outcome 说已完成 / 已停止 / 执行出错)与第一次停下等确认时各发一条提示,带 `/r <会话 ID>`;切走时的回复说明转到后台与待确认数。后台投影按会话 id 存 `background_`(上限 8,超出停掉最早的),重新绑定(`ensure_projection` 开头)、被别处接管(`release_session`)、断开时停掉;结束提示发出 2 分钟后在下一次入站时清理 —— 别在发出提示后立刻 stop,`RemoteControlHub::disable` 会丢掉队列里还没发出的提示。后台投影 stop 时不关「正在输入」(那个 IM 会话已归别的会话)。`/history`(`/hi [1–20]`)回看当前会话最近几轮:daemon 从 JSONL 末尾按页往前读到够轮数(最多 5 页),`core/history_text` 排版,最新的一轮在前,只放用户文字与助手文字,工具调用只计次数,隐藏目标上下文 / 压缩摘要 / 蜂群信封不显示。回归:`router_test.cpp` 的 `SwitchingAwayFromBusySessionKeepsItInBackground` / `BackgroundSessionReportsWaitingAndStop` / `HistoryShowsRecentTurnsNewestFirst`、`history_text_test.cpp`。
-- **Telegram 群隐私模式开启时 @机器人 的消息照常送达**(BotFather 默认即开启,正好符合“群里只处理 @”);关闭后机器人收到群里全部消息,仍只处理 @ 它的。早期 spec 把这条写反了,已更正。
-- **外部平台插件**(openspec add-channel-platform-plugins,协议 [docs/channel-platform-plugin.md](docs/channel-platform-plugin.md)):daemon **只在启动时**扫描 `<data_dir>/connectors/*/channel-platform.json` 注册成平台(装包后要重启),名字不能与内置平台重名,`Address::valid` 的平台名因此只按字符集校验。插件是子进程,stdio JSON lines(`im/plugin/plugin_transport`,退避重启);插件常会拉起自己的常驻服务,服务继承了插件的 stdout 写端,插件退出后管道**不会 EOF** —— 所以 reader 用 `PipedProcess::read_stdout_for` 带超时读,supervisor 每 200ms 查一次插件进程是否已退出,别改回阻塞读等 EOF(停止会卡到那个服务退出,「取消连接」请求挂住,崩溃也发现不了);插件回复 initialize 后马上报状态、推入站,初始化完成前的事件按序缓存、完成后补发(`dispatch_event`),外部看到「已连接」时能力与就绪标记已就位;`initialize.params.reason` 只有用户在卡片上打开开关后的第一次启动是 `user`(`PlatformRuntime::set_enabled(true)` → `Transport::set_user_initiated`,用完即清),daemon 启动恢复与崩溃重启都是 `auto` —— 插件据此决定是否重建它进程外的长连接、是否把被别处登录顶掉的账号抢回来,别把崩溃重启也报成 `user`(会在后台反复抢账号);只支持本人账号 `OwnerBinding::Self`:只收 `sender == account` 的私聊,发送人即机主,没有向导和绑定码,`status` 报需要登录时卡片出「登录」(`POST /api/channels/<p>/login` → `action("login")`)。声明 `watched_groups` 的插件,群消息进 `GroupBuffer`,到轮询间隔且有**别人**发言、会话空闲才汇总成一条用户消息交给每群一个的代答会话(meta `channel_delegate`,无工作区,不建出站投影 —— 普通回复绝不发进群);代答会话只给只读白名单工具 + `send_to_group_chat`(前缀、2000 字、每次汇总 5 条)、MCP 关闭,非代答会话隐藏该工具。@本人只做标记和优先级,同样等轮询。产品相关的名字一律只出现在连接器包里,ChannelBoundaryGuard 守着。回归:`ImChannelPluginEndToEnd.*`(假插件 `tests/channels/helpers/fake_channel_plugin.cpp`)、`PluginTransportTest.*`、`GroupWatch*` / `GroupDelegate.*`、`AgentLoopChannelDelegate.*`。
-- 回归:`tests/daemon/im_channels_e2e_test.cpp`(生产装配 + 真实 SessionRegistry / 脚本化模型 + 真实传输层对假平台,覆盖验收清单里不依赖真实账号的部分)、`tests/im/`、`tests/network/websocket_client_test.cpp`、`tests/platform/aes_gcm_test.cpp`、`tests/channels/core/`(核心用内存版 SessionClient 与假传输层,宿主测试含两个宿主争同一把锁;`state_log_test.cpp` 守着日志内容与“不写凭据”)、`tests/web/channels_handler_test.cpp`、`web_server_smoke_test.cpp` 的 `ChannelRoutesRejectNonLocalClients` 等三条,前端 `channelsSettings.test.js` 与 `desktopNotify.test.js`。各平台假服务在 `tests/test_support/im/fake_*_server.hpp`(端到端测试只在用到的用例里创建微信 / 飞书 / 钉钉 / Discord / LINE 假服务,传输层参数经 `ImChannelDeps::tune_services` 调整),所有测试都不连真实平台。
+## 源码分层与构建
+
+- 源码分 base / domain / adapters / engine / host / apps 六组,依赖只能向下。放置规则看 [docs/architecture/src-layout.md](docs/architecture/src-layout.md),依赖闸门是 [src/layers.tsv](src/layers.tsv)。项目头用模块根形式(`"utils/paths.hpp"`),共享测试头用 `test_support` 完整前缀,禁止父目录 include,旧路径不留转发头。业务状态归所属模块(模型探测缓存在 provider、搜索地区缓存在 tool/web_search、桌面工作区记录在 desktop、TUI 命令用量在 tui),`utils/state_file` 只做通用 JSON 事务。
+- 2026-09-29 搬迁已完成(PR #87 合入 master),九个旧 ref/worktree 保留原状、不标弃用;映射版本 refactor20260927/P3。各阶段决定看 AGENTS.md「src 分层搬迁交付记录」与 `openspec/changes/refactor20260927-*`。
+- `acecode_testable` 是无源文件的 INTERFACE 聚合;`acecode` 链 `acecode_cli`(TUI / headless / daemon);整个 TUI 属于 `acecode_tui`,没有 testable 子集;`cmake/acecode_layer_libraries.cmake` 定义库归属,configure 期守卫与 CI 的 File API 检查校验覆盖和依赖边界;`acecode_unit_tests` 需 `BUILD_TESTING=ON`;`acecode-desktop` 只在 `-DACECODE_BUILD_DESKTOP=ON` 时创建。
+- 改嵌入前端先在 [web/](web) `pnpm build`,再重新 configure CMake(嵌入发生在 configure 期,`web.static_dir` 非空时改走文件系统)。Windows 需 libcurl ≥ 8.14,UTF-8 编译选项。
+- CI(test.yml)跑五类静态闸门:`check_layers`、`check_file_size`、`check_ownership --strict --final`(新代码不写裸 `std::thread`,用 `JoiningThread`;存起来的回调捕获 `lifetime_.ref(*this)`,`LifetimeToken` 是最后一个成员、析构先 `stop()`;不写 `[&]` / `[this]`;未跟踪的新文件要用临时索引加进去才会被 lint)、`check_doc_paths`(所有 .md 里出现的 `src/` / `tests/` 路径必须真实存在)、`validate_map`。
+- 设置 > 环境(`src/base/environment/`,`routes_environment.cpp`):`bootstrap.cpp` 在 TUI / daemon / headless 配置加载后运行,headless 不落盘自动检测;`toolchains.cpp` 保留原始 PATH、每次保存重建前缀。
+- **数据目录迁移**(`paths.cpp` 读 `data-dir.redirect.json`):先复制到私有 staging、SQLite 走 backup API、再次校验后才写指针;拒绝忙会话 / 开着的 PTY / 其它活 daemon;成功后共享写闸门关到重启;**绝不删除**失败的校验目标或活动根。四条铁律:OS 错误文本先单独 `ensure_utf8` 再拼接,`json_response` 的 `error_handler_t::replace` 兜底不能去;`\\?\` 扩展路径只用于文件 IO,不进 JSON / 指针 / 日志;Agent Browser profile 只能尽力复制,已快照主库的 `-wal/-shm/-journal` 不复制;「其他实例」只在证明 PID 复用时放行,每个拒绝分支记日志。归档:数据目录迁移的几条铁律。
+
+## 运行面(入口)
+
+- **TUI**:[src/apps/cli/main.cpp](src/apps/cli/main.cpp) → [TuiApp](src/apps/tui/app/tui_app.hpp),FTXUI 循环,worker 回调投回 UI 事件队列。TUI 主会话不在 SessionRegistry 里。
+- **Daemon**:[src/apps/daemon/cli.cpp](src/apps/daemon/cli.cpp) → `worker.cpp::run_worker`(已近 1000 行上限,装配往外拆),写 `<data_dir>/run/` 运行文件,服务 [src/apps/web/](src/apps/web) 路由与 WebSocket。
+- **Headless**(`acecode -p "<prompt>"`):`command_dispatch.cpp::dispatch_non_tui_command` → [headless_runner.cpp](src/apps/headless/headless_runner.cpp),无 run/ 文件、无心跳、无 Crow,会话正常落盘可 resume。`headless::active()` 两个消费点:权限门(默认自动拒绝并给模型解释,`--yolo` 全放行)与 AskUserQuestion 自动应答。`-c` 接最近会话,`--resume <id>` 在 print 模式 id 必填,`--session-id` 自定 id,`--output-format json` 成败都出单个 result 对象;未传模型走默认模型、权限固定 default、`--max-turns` 默认无限;`--disable-tools` / `--enable-skills` / `--enable-mcp` 与 `--list-tools` / `--list-skills` / `--list-mcp`,未知名称 exit 64。归档:Current Runtime Surfaces。
+- **Desktop**:[src/apps/desktop/](src/apps/desktop),每个 workspace 一个 daemon 子进程(独立端口 / token / Job Object),webview 经同进程 bridge 调用,daemon 内部零改动。见 [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md)。
+- 进程级服务(工具重写加载、审计库、记忆运行时、LSP、代理探测、数据目录告警补记)在 worker.cpp / TUI main.cpp / headless_runner.cpp 各自接线;新增进程级服务要逐个入口核对,别只接 daemon。工具注册在三处启动时各做一次,`/model` 中途切换不重建 ToolExecutor。
+
+## Agent Loop 与工具
+
+- [AgentLoop](src/engine/agent/agent_loop.hpp) 是门面;[TurnRunner](src/engine/agent/turn/turn_runner.cpp) 管多轮状态机,[TurnFinalizer](src/engine/agent/turn/turn_finalizer.cpp) 管有序收尾;固定依赖经 [AgentLoopServices](src/engine/agent/agent_loop_services.hpp) 注入,事件型 prompter 在显式 start() 前装好。纯文本回复结束回合;`AskUserQuestion` 不是终止符。`config.agent_loop.max_iterations` 0 = 无限。
+- **`task_complete`** 是显式终止符,也是 Web 的「下一步」框:参数 `summary`(别名 `recap`)+ 可选 `ask` / `actions`(1 到 2 个按钮,第一个是推荐项)/ `blocked`,规范化在 `task_complete_tool.cpp::parse_task_complete_call`,结果写 `metadata.wrap_up`;工具 output 不再回显 summary,Web(`lib/nextStepBox.js`)取 `wrap_up.recap`,绝不能退回显示 output;TUI / IM 把问题接在总结后面。归档:task_complete = Claude 桌面版 wrap_up。
+- 核心工具双端注册:bash / file_read / file_write / file_edit / grep / glob / task_complete / AskUserQuestion / skill / memory / 可选 web_search / MCP;`ToolResult` 可带 summary 与 hunks 让 TUI / Web resume 渲染紧凑行。`bash_tool` 流式清洗输出、轮询 abort、截断超大输出、支持 POSIX `stdin_inputs`;文件工具改文件前调 `track_file_write_before`。
+- **Prompt cache 前缀不变量**:注入到最后一条真实 user 消息之前的内容必须内容驱动、逐字节稳定(cwd 与只到天的日期留在静态 system prompt;会话上下文按 cache_key pin;git 快照按会话缓存;工具表 `std::map` 定序;Anthropic 合成 tool_call_id 用内容哈希)。守护:`agent_loop_termination_test.cpp::RequestPrefixIsByteStableAcrossIterationsInATurn`。usage 口径:`prompt_tokens` 含全部输入,`cache_read_tokens` 是子集;有 usage 没缓存计数显示 0% 而不是隐藏。归档:Prompt cache prefix invariant。
+- **权限与沙盒**:`PermissionMode::Auto` 规范名 `auto`(`accept-edits` 只是输入别名);`exec_decision` 决定是否确认与执行边界,AgentLoop 是唯一审批入口,`bash_tool` 只执行注入的 `exec_sandbox`、不得自行取消沙盒重试;规则 forbidden 优先于 yolo / dangerous;active goal 下越权与额外权限申请一律 Forbidden(`escalation_unattended`),不能回到「Prompt 再被 goal 放行」。清单判定「最长前缀优先,同深度 deny > write > read」,**比较两侧都先 `canonical_utf8`**(junction 别名曾绕过 deny),单测手拼策略也用 `canonical_policy_path`。审批决策五个:allow / allow_session / allow_scoped / allow_remember / deny。Windows 用免管理员 WRITE_RESTRICTED 令牌、不隔离网络、受限令牌管不了读;子进程挂 Job Object 但**不设 KILL_ON_JOB_CLOSE 也不设 SILENT_BREAKAWAY_OK**;macOS Seatbelt,Linux bubblewrap;探测结论粘性,`/sandbox on` 是唯一不重启的恢复入口。详见 [docs/sandbox.md](docs/sandbox.md)。归档:Auto 模式与 exec 沙盒。
+- **安全中心 / 审计**:审计 SQLite 唯一记录点是 AgentLoop 审批门(`audit_gate` / `record_audit`),每个「决定已作出」的分支记一条,只读工具的自动放行不记;`/api/security/exec-rules` 只整体重写 `default.rules` / `default.sandboxed.rules` 两个托管文件。归档:安全中心。
+- **工具名两套**:原生名(注册 id、JSONL、权限、hooks)与模型侧名([tool_protocol_names.cpp](src/domain/llm/tool_protocol_names.cpp),由「工具重写」`<data_dir>/tool-rewrites.json` 动态发布,默认空 = 不重写)。给模型看的文案里工具名一律 `model_tool_name_for_native(...)` 动态取;**绝不对工具输出正文做整词重写**;发给 provider 的历史只有一个入口 `provider_history.cpp::model_facing_provider_messages`;入站解析 fail-open;翻译失败回退原生定义而不是空表;hooks matcher 也接受当前模型侧名;测试用 RAII `ScopedModelToolNameMappings`。归档:模型侧工具名与「工具重写」。
+- **输出损坏重发一次**:正文(代码块外)泄漏 `<arg_key>` / `<arg_value>` 模板标记,或工具调用名字为空 / 不合法且夹着模板标记([tool_call_corruption.hpp](src/domain/llm/tool_call_corruption.hpp)),整条丢弃、清流式草稿、发 `response_corrupted_retry` 后原样重发,每步最多 1 次;**参数检查只认模板残片的结构,不要改成子串一出现就拦**(编辑 ACECode 自己的源码会被反复丢弃);`</think>` 刻意不算。旧会话里的坏调用由 `recover_provider_history` 投影兜底。提示词与工具输出里不写 `skill_view(name="…")` 这类伪函数调用,GLM 会照抄成工具名。归档:输出损坏重发一次。
+- **视觉能力四面同源**:`LlmProvider::supports_vision()` 发散到序列化层、system prompt `# Environment` 的 `Active model can read images directly` 行、`vision_analyze` 的描述与执行门(按 `(provider, model id)` 剔除当前模型,**不按 name**)、skill frontmatter 首句。`ToolContext` 的 active_* 为空一律 fail-open。**不要**改成「没 vision 就不注册 `vision_analyze`」。改 `assets/seed/` 要同步 `seed.version` / `MANIFEST.json` 与 `default_skill_seeder_test.cpp`。归档:视觉能力必须在四个面同源。
+- **GPT 系 apply_patch**:判定只看模型 id(`model_family.cpp::model_prefers_apply_patch`),不看 provider 名;三个编辑工具始终注册、只裁模型侧定义表(`filter_tool_definitions_for_model`),system prompt 按模型族分支,非 GPT 模型输出逐字节不变(`system_prompt_test.cpp::NonGptModelStateIsByteIdenticalToLegacyPrompt`);`apply_patch` 先全量校验再落盘,权限门按路径集合走,Delete / Move 源也要 `track_file_write_before`;表面只扫 header 行。归档:GPT 系模型适配。
+- **具体进度提示(工具前言 v4)**:文案全部由 daemon 生成(`engine/tool_preamble/`:推理加粗标题 > 工具模板 > 场景文案),loading 只说正在做什么、不带参数、不依赖模型配合;开关 `agent_loop.tool_preamble.enabled`(设置 > 常规 > 工作模式);只在 `emit_agent_progress` 一个口子替换。前三版(先说一句话 / 必填参数 / `<text_preamble>` 标签)都被否,别做回去;历史标签只剥不用。归档:具体进度提示。
+- **提问**:`agent_loop.question_policy` ask / deny / timeout(`question_timeout_seconds` 默认 60);YOLO 不改提问策略;active goal 覆盖为 30 秒超时采纳推荐项。**提问期间的插话**走 `AgentLoop::interject_question`(同回合 soft steer,tool_result 标 interjected,`question_closed.reason=interjected`),**不要**改成 `interrupt_turn`。归档:提问期间的插话。
+- **侧边对话只放只读工具**(`side_chat.cpp` 小工具循环):白名单 `file_read` / `grep` / `glob` / `lsp` 与会话策略取交集,MCP 一律不放,**不要**改成按 `is_read_only` 筛;凡要弹确认的一律拒绝;在 `MtimeTracker::DetachedReadScope` 里执行;Web 侧边多一个 `send_to_main_session`,用户确认之前绝不送达,送达走 `send_side_chat_message`(有可插话回合就 steer,否则普通 send)。归档:侧边对话只放只读工具。
+- **子代理 / 蜂群**:`spawn_subagent` / `wait_subagent` 双端注册,子会话是普通 SessionRegistry 会话(父 cwd + 权限模式),不能再派子代理;子会话从会话列表隐藏、始终跟随主会话(无单独归档 / 删除,主会话永久删除才级联);蜂群 `off | star | mesh` 两套工具互斥,邮件进 AgentLoop 邮箱,信封落盘为 user 角色 + `metadata.inter_agent`,子 agent 完成不唤醒空闲父 agent,Web 芯片只在与服务端模式不同时才随消息提交 `swarm_mode`。全文 [docs/subagents.md](docs/subagents.md)。
+- **写边界**:`AgentLoop::write_root()`(会话 worktree > LOOP 策略 > 继承)非空即有边界,Yolo 不免除,只有 dangerous 放行;子会话共享父会话 worktree 并继承写边界;bash 走 `shell_write_guard` 可证明写目标守卫(**守卫不是沙箱**,事后用 `workspace_touched` 快照兜底);附加文件夹不能打穿写边界。归档:写边界与子代理继承、多文件夹项目。
+- **Worktree**:落在主仓根 `.acecode/worktrees/<slug>`,分支 `worktree-<flatten(slug)>`;`EnterWorktree` / `ExitWorktree` 只在用户明确提到 worktree 时可调,会话存储位置不动;合回主干必须再调 `ExitWorktree`;`ExitWorktree remove` fail-closed;`--worktree [name]` 时 worktree 就是项目根。纯逻辑 [worktree_core](src/domain/worktree/worktree_core.hpp),git 层 [worktree_manager](src/domain/worktree/worktree_manager.hpp)。归档:Worktree 隔离。
+- **Goal**:每会话至多一个,存项目级 `state.sqlite3`,只有 `active` 自动 continuation(Plan mode 不触发);unattended 下写工具自动放行、bash 仍取决策表沙盒;provider 终止错误把 goal 转 usage_limited(429)/ blocked,用户 abort 转 paused。归档:Thread Goals。
+- **定时任务两道闸**:`create_scheduled_task` 按 `activation_skill` 延迟开放并在技能索引单列「Skill-gated built-in tools」;`loop.active` 会话里经 `loop_execution_refusal` 并入 `hidden_builtin_tools`;AI 创建时拒绝仍带「建定时任务」字样的 prompt。**不要**把隐藏改成只靠提示词。归档:智能定时任务。
+- **MCP 调用响应 abort**:`McpManager::invoke` 放工作线程、100ms 轮询 abort,置位立即返回。`image_generate` 配置属于 Settings > Tools,测试动作绝不在加载 / 保存时跑。
+- **重试与超限**:429 文案明确说额度 / 余额用完按硬配额不重试(`retry_policy.cpp::is_hard_quota_message`);上下文超限识别含 LiteLLM / vLLM 文案;压缩连续超限时逐步加大删除量;只有图片的 user 消息压缩后保留占位文字。归档:其它反馈修复备忘。
+- **PA 内网适配**([src/adapters/pa/](src/adapters/pa/README.md)):只按报文特征判定,不硬编码地址 / 模型名,通用路径只留兜底调用点。五条:中文超限文案兜底(故意不限状态码)→ 上下文预算学习器收敛到观测拒收规模的 85% → 随机拒收走 `run_pa_overflow_rescue` 绝不终止回合 → **限流文案(请求频率 / 过于频繁 / 限流)绝不当超限**,排在超限判定之前 → 带内联图片被拒先撤图(`withhold_inline_images`)且不进学习器。**改之前读 README 里的三条坑**(观测要么可信要么整条丢弃;model 为空不记不查;观测表是进程级单例)。归档:PA 内网模型服务适配。
+- **图片**:「压缩图片」只在发送层生效(`model_image_payload::compressed_model_image` → LRU + `.model-v1` sidecar),快照原图不改;请求体预算把最旧的图换成文件引用并记低水位,前缀不变;`computer_use` 截图只重编码不改尺寸。图片附件一律走快照 + 缩略图,**栅格图不要做成 `@路径` 引用**。归档:「压缩图片」、图片附件一律走快照。
+
+## 会话与持久化
+
+- [src/domain/session/](src/domain/session) 每会话一个 `<id>.jsonl` + `<id>.meta.json`;运行期显示字段不序列化;resume 直接采用 JSONL 重建伪行、预览、摘要、diff,不复制成 PID 后缀文件(旧 `<id>-<pid>.*` 是不支持的实验数据,让用户删);writer lease 守共享 transcript,owner PID 死或心跳过期可回收。`/rewind` 用每用户回合检查点。
+- Daemon 多会话靠 `SessionRegistry`,每个 entry 自带 SessionManager / PermissionManager / AgentLoop / 异步权限与提问 prompter;`EventDispatcher` 给事件单调 seq 与有界回放环。
+- **标题两份,内存优先**:`list_active()` 报内存 title 并盖过磁盘 meta,只写磁盘的改名会被盖回;`SessionManager::update_meta` 写前 `adopt_foreign_user_title_locked()`。**显示标题只有一个字段** `sessionDisplayTitle`(title > summary),前端不许从消息正文现推;`summary` 由 `summarize_user_message_text` 取显示文本折单行截 80 字节,实时同步只有 `session_updated` 一条路。归档:会话标题有两份、会话显示标题只有一个字段。
+- **列表成本在文件个数**:只要最新几行时必须走 `list_session_metadata_page(project_dir, limit, accept)`(先枚举文件名 + mtime,只打开 `limit + max(8, limit)` 个);`accept` 拒掉的不占名额;活跃会话逐个点读自己的 meta;**`dir` 必须由会话自己的 cwd 推导**(一个 daemon 服务多个 workspace;后台任务面板曾因此停在 00s);`total` 只是上界,前端看 `has_more`;`is_canonical_meta_filename` 手写扫描不用 regex。归档:会话列表的成本在文件个数。
+- **侧栏卡顿第二来源是请求条数**:`pinned-sessions` / `opencode-import` 只对可见 workspace 重取(`sidebarAuxiliaryFetch.js`);诊断看 `performance.getEntriesByType('resource')` 的排队时间,不看服务端日志。`WorkspaceRegistry::scan()` 按每个 hash 目录自身 mtime 负缓存,2 秒内动过的不信缓存,写路径主动失效。归档:侧边栏卡顿的第二个来源、WorkspaceRegistry::scan() 的负缓存。
+- **首页任务建议**(`/api/home/intent-prompts`)按需读取、不整库扫目录,目录修改时间按路径读,找会话预算 30 秒。归档:首页任务建议。
+- **历史按页访问**:首次 `messages?limit=200`,`before` 前插保留 id 与滚动位置,游标含字节位置 / 行指纹 / 文件身份,替换失效返回 409 后重载尾页;`load_active_messages` 锁内只打开文件、锁外解析;`list_active` 锁内只复制 entry 引用。归档:会话历史按页访问、读取与恢复的锁边界。
+- **记忆**:三端经 `create_memory_runtime` 拿同一个 `MemoryService`,作用域按会话项目目录解析(不用进程 cwd);写入先重扫磁盘再在 `state.sqlite3` 事务里完成,写入口 `redact_secrets`;注入是按会话冻结的快照(不打穿 prompt cache);`/memory` 只有一份文本实现;摘要调度器只在 daemon / TUI。「记住」一律走 `memory_write`。归档:记忆(openspec unify-memory-system)。
+- **Skills 与项目指令**:`SKILL.md` frontmatter 启动读、正文懒加载;技能索引每请求注入 session-context(预算 1% 上下文窗口),没有它模型永远不会主动调技能;`/<skill>` 在 Web 与 TUI 都换成 `build_skill_invocation_hint` 的轻量提示,不注入正文。项目指令加载 outer-first、在 linked worktree 根止步;仓库根只留规范文档,别加重复的根指令文件。
+- `file_read` 的「文件未变」去重按会话 id 分区,压缩与线程修复后清空观测;JSONL 的非搜索追加走 `append_non_searchable_locked`,否则搜索索引整份重建。
+
+## Daemon 与 Web
+
+- Daemon 启动写 pid / port / guid / token / heartbeat 到 `<data_dir>/run/`;loopback 免 token,非 loopback 要 `X-ACECode-Token`,非 loopback 拒 dangerous。协议改动同步 [docs/daemon-api.md](docs/daemon-api.md)。远程 Web 代理把上游源地址绑到 `127.0.0.2`,macOS 退到本机非回环 IPv4。
+- `app_config_mu` 是 shared_mutex:只读快照共享、写路径独占,恢复路由不把全量 IO 包在配置锁内;`SessionRegistry::resume` 的 `resume_inflight_` 单飞。Attention 落盘节流(flusher 线程合并写,只有状态跃迁同步落盘),别改回逐事件写。daemon 线程清单见归档:Maintenance Notes。
+- **模型配置**:手改 config.json 即时生效(`refresh_model_config_if_changed`,入口 `sync_model_config` 与 `GET /api/models`);saved_models 结构变化才推进进程级 revision;`SessionModelBinding` 是唯一的会话 Provider 发布缝,AgentLoop 回合开始捕获快照;重建门是进程加盐的构造计划指纹,`unresolvable` 保留当前 Provider。`sampling` 按 provider / 协议校验,会静默丢弃的值算校验错误。归档:Model Profiles And Context Windows。
+- **cwd 一律以 UTF-8 `std::string` 传递**,别用 `fs::path` 当参数类型接它(MSVC 隐式转换按 GBK 解码,中文目录算错 hash 或抛异常);内部需要时用 `path_from_utf8`。Desktop 托管的 daemon stderr 指向 NUL,只写 stderr 的诊断等于没有;路由逃逸异常收成 JSON 500 并记日志。归档:cwd 一律以 UTF-8。
+- **HTTP / WS 增量**:`/<skill>` 命令在 `POST messages` 里经 `try_expand_skill_command` 展开;`/api/commands` builtins 硬编码 init + compact;`/api/files*` 走 cwd 白名单 + weakly_canonical 防越权;`/api/fs/*` 已鉴权即可只读浏览全盘且**不 canonical**(经 junction 会注册出两个 workspace hash),`ec.message()` 入 JSON 前 `ensure_utf8`;fork 复制前缀到新会话、不继承 checkpoints;Web 路径选择器在无 Desktop bridge 时一律 web 弹窗。完整表格见归档:HTTP / WS 协议增量。
+- **消息通道**(QQ / 微信 / 飞书 / 钉钉 / Telegram / Discord / LINE):三层 `adapters/im/<平台>` → `host/channels/core` → `apps/daemon/im_channels.cpp`,方向只能向下;平台清单只有一张表 `core/platforms.cpp`,认识传输层类型的只有 `core/platform_adapters.cpp`;只给本机(`is_trusted_local_client_address`,127.0.0.2 也 403);凭据只回尾号、不写日志;设置页只给简要状态,细节由 `core/state_log.cpp` 写 daemon 日志,前端测试守着不渲染细节;外部平台插件只在启动扫描 `<data_dir>/connectors/`,stdio JSON lines,reader 带超时读。各平台的坑看 [docs/channels.md](docs/channels.md) 与归档:消息通道。
+- **Web 前端**:React 18 + Vite 5 + Tailwind v4,`pnpm build` 后重新 configure;产物多 chunk 按需加载(`EAGER_VENDOR_PACKAGES` 别加按需库),`/assets/<file>` 不经过 Crow catchall,静态资源强 ETag + `assets/` immutable。数据整形逻辑放 [web/src/lib/](web/src/lib) 纯函数 + Node 测试,不塞进组件。新中文文案先补 `i18n-en-overrides.mjs` 再 `pnpm i18n:catalog`。
+- **实时 transcript 是单写者 store**(`singleWriterStore.js`,`commit(producer)` 唯一写入口,hook 内无 useState;排队输入同一个 store);回放去重只认 `replayed` 帧,`STREAM_NEUTRAL_EVENT_TYPES` 不 flush token;工具伪行按 call id 配对;尾部窗口 120 行、跟随时封顶 180,`pinned` 别去掉;卡住兜底三层(WS 心跳 / 事件游标带实例号 / `transcriptLiveWatchdog`)。详见 [docs/web-chat/transcript-state.md](docs/web-chat/transcript-state.md) 与归档:实时 transcript 状态是单写者、事件回放去重、工具伪行按 call id 配对、Transcript 尾部窗口、实时状态卡住的兜底。
+- **流式渲染**:`renderMarkdownBlocks` 分块 + `useStreamingRenderThrottle` 100ms 降频,未闭合代码块不高亮;`.ace-chat-transcript-scroll` 关 overflow-anchor。归档:流式渲染防跳动。
+- **交互约定**:对话框键盘走 `components/Modal.jsx` + `lib/dialogKeyboard.js`(Esc / Tab 循环 / Enter 默认操作 / auto-repeat Enter 拦下),不要手写 `fixed inset-0` 遮罩;排队卡片在 transcript 外(`QueueCardList`),中断后队列暂停不自动出队;粘贴 ≥ 20 行 / 2000 字符折成卡片、≥ 128 KiB 落文件;`@` 会话引用有查询词必须走服务端 `q=`;侧栏拖进输入框 = @ 引用;Slate 选区在 compositionstart 前 `adoptDomSelection`。归档:对话框键盘约定、排队卡片栈、粘贴的文本块、`@` 会话引用、输入框光标。
+- **搜索与批量**:`Ctrl+K` 快捷键只有一个定义点 `lib/searchPaletteShortcut.js`(xterm 要放行);前端纯聚合所有 workspace,后端零路由变更;侧栏多选批量操作只发一次 `POST /api/session-batch`。
+- **git 感知**:`/api/git/info` 必须走 `gitInfoCache.js`(一次 spawn 5~7 个 git),`GitSessionPill` 用 `pillCouldRender` 在请求前短路;`src/domain/gitinfo/` 的 ref 名进 prompt / REST / argv 前过 `is_safe_ref_name`;SidePanel「变更」tab 在 git 仓库走 git 级视图。归档:git 感知三件套。
+- **HUD 主题**(荒坂,工坊专用、默认不启用,**不写进版本更新记录**):`themeHud.css` 每条选择器以 `:root[data-theme-chrome="hud"]` 开头(滚动条部件用 `html[...]`),`themeHud.test.js` 守着;音效 / 异形窗口 / 背景染色只影响声明它们的主题;动效不跟随系统「减少动态效果」(用户常在 RDP 里用)。归档:HUD 主题外观与多风格。
 
 ## Desktop Shell
 
-The desktop shell runs a webview against workspace-local daemon processes. It does not change daemon internals; each daemon still serves one current working directory. Workspace switching currently uses whole-page navigation so browser origin follows the active loopback port.
+- 每 workspace 一个 daemon:`workspace_registry`(`src/base/workspace/`)/ `daemon_pool` / `pick_active` / `web_host` / `tray_icon_win` / `notifications_win`;切 workspace 走整页 navigate(跨端口 CORS);webapp 兼容模式(WebView2 不可用或 `--webapp`)用托盘 + 消息循环托住进程,别用 `WaitForSingleObject(msedge)` 当生命周期;单实例互斥 `Local\ACECode-Desktop-Singleton-v1`;关窗默认隐藏到托盘(`desktop.close_to_tray`)。bridge 函数清单(`aceDesktop_*`)与通知抑制规则看 [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md) 与归档:Desktop shell + multi-workspace。
+- 写 workspace.json 一律先读盘再改(`latest_workspace_meta`),Desktop 与 daemon 各持一份缓存。托盘 / 通知 / toast 的 controller 窗口**不能用 HWND_MESSAGE**。
+- **窗口细节**:启动浮窗由独立绘制线程播动画(`splash_animation.cpp` 纯函数);窗口位置跨启动记忆(`window_placement_win.cpp` + `place_saved_desktop_window`,普通边框口径);Win10 顶边 1px 线由宿主窗口自画(别用 `DwmExtendFrameIntoClientArea`,别画在网页里);Ctrl+滚轮缩放只走 `aceDesktop_zoomFactor`,WebView2 `IsZoomControlEnabled` 保持 FALSE;主题异形窗口全部挂在 `g_window_shape.chamfer` 上。归档:启动浮窗动画、主窗口位置跨启动记忆、Win10 顶边、Ctrl+滚轮页面缩放、异形窗口。
+- **挂机 OOM 三层**:侧栏空闲刷新「内容没变就不 setState」(`structuralState.js`;React 18 相同值更新仍留队列);Sidebar / ChatView / App 里**不要再写 `useCallback(fn, [会变的状态或 props])`**,用 `useStableCallback`(三条边界见归档),`stableCallbacksArchitecture.test.js` 守着;webview 桥接 `_promises` 泄漏由 `kBridgeReplyCleanupScript` 接管;渲染进程退出自动 Reload(10 分钟最多 3 次)。归档:Desktop 挂机内存。
+- **Agent Browser**:永久开发宽松浏览器(证书 / SmartScreen / 旧 TLS 一律静默放行,**没有开关没有提示**,边界由 `agentBrowserArchitecture.test.js` 扫整个 `src/`);导航状态按最终结果决定(`agent_browser_navigation_state.cpp`,重试全页最多一次);页面归属落在 host 的 `agent_browser_page_directory`,联结键只有 `session_id`,带 owner 的建页不改显示页;前端页签唯一来源 `agentBrowserPages.js`;Cookie 三档 shared / per_session / until_quit(until_quit 要隐藏保活 controller,切档不用 `Profile8::Delete`,跨进程状态在 `state.json` 的 `agent_browser` 段);新标签页推荐由 daemon 存 `agent_browser_top_sites.json`。全文 [docs/agent-browser.md](docs/agent-browser.md) 与归档:Agent Browser 四节。
+- **iOS 模拟器**(仅 macOS):helper `acecode-ios-sim` 运行期 dlsym 私有框架、跑在 Seatbelt 里;Xcode 自动发现、不用 `xcrun`;帧缓冲必须同步加锁;HID 按 CoreSimulator 版本分 Indigo / dtuhid;Desktop 原生零拷贝视图只加载系统路径的 CoreSimulator。见 [docs/ios-simulator.md](docs/ios-simulator.md) 与归档:iOS 模拟器。别在用户 Mac 上跑 lldb。
+- **控制台(ConsoleDock)**:`src/base/pty/` 四后端 ConPty / Winpty / Pipe / PosixPty;ConPTY 读循环要 PeekNamedPipe 轮询,spawn 时 `STARTF_USESTDHANDLES` + 三个 NULL 句柄;`/ws/pty` loopback 硬限制;xterm `attachCustomKeyEventHandler` 放行 ``Ctrl+` `` 与 Ctrl+K。归档:控制台停靠区。
+- **Windows 弹框三层**:`notification_backend_policy`(auto / system / custom 纯判定表)→ `notifications_win.cpp` 注册表探测 + 运行期粘性降级 → `custom_toast_win.cpp` 自绘(独立线程消息循环,per-pixel alpha 要 `apply_rounded_alpha`)。归档:Windows 弹框。
 
-Key modules:
+## TUI
 
-- `workspace_registry` (lives in `src/base/workspace/workspace_registry.{hpp,cpp}` since refactor20260927 P2-04; shared with daemon, TUI and headless): persisted workspace list and names.
-- `daemon_pool`: per-workspace daemon process management.
-- `web_host`: native webview wrapper and bridge binding.
-- `tray_icon_win` and `notifications_win`: Windows tray and notification integration (`notifications*` and `custom_toast*` now live in `src/base/platform/native_ui/`, refactor20260927 P2-03).
-- `custom_toast_win` and `notification_backend_policy`: the self-drawn toast fallback and the backend decision it hangs off.
+- 工具行 ` ● ToolName(args)` 三态指示灯由 `tool_row_format.cpp::compute_tool_call_dots` FIFO 配对;调用 / 结果成对相邻(展示派发在各执行点,Phase 3 只落盘),resume 回放同构;Ctrl+O 全局 verbose;无摘要结果按可视行折 3 行(`tool_result_fold.cpp`)。归档:TUI 工具行渲染。
+- 鼠标默认开(滚轮滚 transcript,右键 / Ctrl+V 剪贴板经 OSC 52 与 `platform/clipboard`);`decide_render_mode` 纯函数决定 alt-screen,`tui.alt_screen_mode` auto 恒 AltScreen,classic conhost 用保守布局。斜杠命令别名只挂在原名上(`SlashCommand::aliases`),不单独注册,`has_command` 对别名也返回 true。`ui.border` / `ui.accent` 保持柔白,彩色只给语义角色。归档:Mouse Input、Legacy terminal fallback、斜杠命令别名。
 
-Detailed behavior is in [docs/desktop-shell/multi-workspace.md](docs/desktop-shell/multi-workspace.md).
+## 网络、搜索、LSP、模型
 
-**启动浮窗动画(Windows)。** 启动浮窗不再贴静态 .ico:开场按宣传片收尾的图标组装播一遍(方砖从小弹大 → 波浪从底部升起 → 'A' 自下而上擦入 → '>' 两次预告后从右侧砸上,约 1 秒;'A' 擦入只给 85ms,机器卡时帧稀,拖长了会停在半截状态),之后整个读取期间显示完整 'A>',只有波浪一直向右跑(用户拍板:只有蓝块显得怪)。首屏就绪(`aceDesktop_pageReady` / 引导页)时 `close_splash_once` 调 `SplashScreen::finish`:波浪落回图标的静止形状,约 0.28 秒回调显示主窗口、0.43 秒淡出完毕;首屏在开场播完前就绪时收尾推迟到开场结束。启动时主线程要同步等配置、工作区和后台服务,所以浮窗由一条绘制线程创建并按 `DwmFlush` 节奏重画,别把动画挪回主线程或改成主线程计时器。时间轴与几何是纯函数(`src/apps/desktop/splash_animation.cpp`,512 视口单位,与 `assets/branding/acecode-icon.svg` 一致),GDI+ 绘制在 `splash_icon_painter_win.cpp`;改图标 SVG 要同步这两处。`on_reveal` 在绘制线程上触发,main.cpp 经 `host.dispatch` 回主线程;`host.run()` 返回后先 `splash.close()` 再析构 host,`close()` 之后不再调用回调。Linux GTK 仍是静态图标,macOS 没有浮窗。回归:`tests/desktop/splash_animation_test.cpp`(设 `ACECODE_SPLASH_DUMP_DIR` 可导出逐帧对照图)。
-
-## Network, Proxy, And Web Search
-
-[src/base/network/proxy_resolver.*](src/base/network) centralizes proxy behavior for cpr call sites. `proxy_mode=auto` follows platform/system proxy settings; `off` forces direct; `manual` uses `proxy_url`. Startup can probe proxy reachability and temporarily fall back to direct if the configured proxy is unreachable.
-
-`/proxy` shows or changes the session-level effective proxy state without persisting changes.
-
-[src/adapters/tool/web_search/](src/adapters/tool/web_search) provides parallel RSS, DuckDuckGo, and Bing CN search plus explicit single-backend and regional fallback modes. `/websearch` shows status, refreshes region detection, or switches backend for the current session. If `config.web_search.enabled=false`, the tool is not registered.
-
-## Model Profiles And Context Windows
-
-Model resolution layers are:
-
-1. `default_model_name` from `saved_models`.
-2. Per-project model override.
-3. Resumed session provider/model metadata.
-4. Legacy provider config fallback.
-
-Context windows resolve through model profile data, bundled models.dev metadata, provider defaults, and configured fallbacks. Session-facing create/resume/switch paths use `resolve_model_context_window_nonblocking`: cached or local values are returned immediately; uncached OpenAI-compatible `/models` probes run in the background and fill a process-local cache. The detailed rules live in [docs/model-context-resolution.md](docs/model-context-resolution.md).
-
-Live saved-model edits use a process-wide monotonic revision. The revision is
-published only after a structurally changed `saved_models` list has persisted
-and the running `AppConfig` has been replaced under `app_config_mu`; no-op,
-validation, persistence, and live-apply failures do not advance it. Startup
-loading and a separate `acecode configure` process do not manufacture a
-revision: an external edit reaches the running daemon through the disk refresh
-below. Readers copy the config and acquire the matching revision while holding
-the shared config lock so an old list cannot be labeled with a new revision.
-
-**手改 config.json 即时生效(运行中的 daemon)。** `config/model_config_refresh.cpp` 的
-`refresh_model_config_if_changed` 在文件字节与上次读取不同时，按启动加载的规则重读
-`saved_models` / `default_model_name` / `default_permission_mode`(悬空默认退到第一条，只改内存不回写)，
-经 `publish_live_saved_models` 推进 revision。两个入口:`SessionRegistryDeps::sync_model_config`
-(worker 接线;`reload_model_profile` 开头调用，覆盖网页 / IM / 定时任务 / 子代理的每次发消息与会话里的
-「刷新模型列表」),以及 `GET /api/models`(首页与会话的刷新都取它的列表)。半截或非法文件只记一次日志、保留
-当前配置。`refresh_default_session_preferences_from_config`(新建会话、`GET /api/config/default-model`)
-现在同样发布 revision —— 以前它只把磁盘内容写进内存不推进 revision,已打开的会话一直拿旧 key 调用;
-首页刷新时它与 `GET /api/models` 并发，列表接口读到的还是旧内存，要点第二次才出新模型。TUI 主会话不经过
-SessionRegistry,仍需重启或 `/model` 才读入手改。回归:`web_server_smoke_test.cpp` 的
-`ApiKeyEditedByHandInConfigJson*` / `ApiKeyChangedFromSettings*` / `ModelListRefreshShowsProfilesRecreated*`
-四条(假 OpenAI 服务按 Authorization 判 key,401 不重试)、`default_session_preferences_test.cpp` 的三条。
-
-Every active TUI/daemon session owns a `SessionModelBinding`. It is the only
-session Provider publication seam and owns the `shared_ptr<LlmProvider>` slot,
-public `SessionModelState`, applied revision, private fingerprint, selection
-generation, and per-session install/reload serialization. `AgentLoop` captures
-a shared Provider snapshot at turn start, so replacing the binding affects only
-future turns. Ordinary `LocalSessionClient::send_input` and TUI submit perform
-the O(1) revision guard before enqueue; soft steer and interrupt intentionally
-keep targeting the Provider already captured by the active turn. Explicit
-switches and forced REST reloads use the same install/revalidation path.
-Direct factory calls that remain are deliberately outside main-session
-publication: daemon startup's compatibility fallback, hidden auto-title
-generation, and the one-shot vision subagent each construct an independent
-ephemeral Provider and never write a session binding slot.
-
-The rebuild gate is an opaque, process-salted fingerprint of the exact effective
-Provider construction plan (connection, request, output, reasoning protocol,
-and derived vision-routing inputs). It has no string/JSON/log representation
-and never retains recoverable raw credentials outside the private plan. Profile
-`name` and `context_window` are excluded because they do not construct the
-Provider; global vision availability is included because it changes attachment
-routing even for another selected profile. A deleted, renamed-away, or ad-hoc
-selection resolves as `unresolvable` and retains its current Provider/state:
-saved-model deletion is not revocation. Forced reload always checks again;
-pre-publication failure is fail-open for ordinary sends and leaves the old
-revision stale so a later send retries.
-
-### PA 内网模型服务适配([src/adapters/pa/](src/adapters/pa/README.md))
-
-一个隔离目录,专收「上游服务端行为与公开协议不一致,导致 ACECode 通用判定
-失效」的兼容代码。通用路径只留一个兜底调用点,判定逻辑全在这里,便于上游修好
-之后整块删掉。**不硬编码服务地址、模型名、业务名词,只按报文特征判定。**
-
-当前五条,前两条围绕同一个症状(内网模型的最大上下文声明值不准,会提前报 400),第三条是它们的兜底,第四条是「限流绝不能被当成超限」,第五条是「带图被拒先撤图」:
-
-1. **上下文超限错误认不出**(`pa_quirks`)。实测报文
-   `{"object":"error","message":"请求上下文过大","type":"BadRequestError","code":400}`
-   —— 中文文案 + 非标准 type,`compact.cpp::is_context_overflow_error` 的英文
-   needle 集与 OpenAI 标准错误码两套都不命中。后果不是多报一个错,而是
-   `handle_provider_error` 里那条三级恢复链(修剪历史重试 → 精简请求档重试)
-   **整个不启动**,400 直接抛到界面。现在由 `pa::is_context_overflow()` 兜底,
-   **故意不限制状态码** —— 这套服务端的状态码本身就是不可信的那一环。
-2. **声明窗口不准导致每轮都要先撞一次墙**(`pa_context_budget`)。自动压缩阈值是
-   「声明窗口 × 90%」,声明值虚高时永远够不到。`ContextBudgetLearner` 按
-   (provider, model) 记下**观测到的最小被拒规模**,
-   把 `AgentLoop::compaction_context_window()` 收敛到那条线的 85% 以下(15% 余量覆盖
-   `ceil(bytes/4)` 估算在中文上系统性偏低约 25% 的偏差)。撞过墙才生效,进程级
-   不落盘。观测点是 `note_pa_context_rejection` / `note_pa_context_accepted`,
-   两个都收在 `handle_provider_error` 里。
-3. **随机拒收绝不终止回合**(`pa_overflow_rescue`)。服务端实际能收的规模随
-   负载浮动,同一规模的请求时过时不过。PA 特征的整体拒收不走通用三级恢复链,
-   改走 `AgentLoop::run_pa_overflow_rescue`:原样重发 2 次 → 每次被拒缩到
-   上一次的 85%(先清整段历史里最旧的工具输出 / 大参数,再把老回合精简成
-   「用户消息 + 摘要 + 纯文本结论」,最后才整组丢且保留最新摘要;
-   `ThreadRepairOptions::clear_tool_outputs` + `thin_old_turns_first`,
-   反馈 LINDANDAN069:旧的「先丢老回合」把任务说明与用户纠正一起删掉)无上限 → 紧急档 → 5s 起封顶
-   60s 的退避等待最多 12 次,只有等待耗尽才报错。兜底后的那次重发跳过自动
-   压缩(`skip_auto_compact_once_`);请求被收下即清零 episode,同回合再被拒
-   重新开始。学习器只记每个 episode 最初确认拒收的规模,紧急档请求永远不记。
-4. **限流报文不是超限**(`pa_quirks` 的 `FaultKind::RateLimited`,2026-10-08)。
-   内网网关限速「100 次 / 10 分钟」报 `{"message":"您的请求频率已达到限制 (100次/10分钟)…","code":429}`,
-   用户反馈它「像被当成超限,会话一直在压缩」且码不可信。按「请求频率 / 过于
-   频繁 / 限流」文案判定,**排在超限与瞬时故障之前**;`is_context_overflow_error`
-   对它直接 false,所以学习器与兜底都进不去。`retry_policy` 让文案压过状态码:
-   超限文案一律不重试(429 / 5xx 也不,否则同一个超大请求困在无上限退避里进不了
-   压缩链),限流文案一律重试(400 / 451 也重试),硬配额仍终止。限流的本地退避
-   封顶 1 分钟(`kProviderRateLimitRetryMaxDelayMs`,Retry-After 优先),进度文案
-   「服务端限流,等待重试」。配套:`CompactionController::run_auto` 在用户取消时
-   不再走机械修剪 —— 摘要请求被限流、用户按停止,旧实现把「Compaction cancelled.」
-   当摘要失败真丢一段历史,这正是「一直在压缩」的观感来源之一。
-5. **带内联图片被拒先撤图,且不进学习器**(2026-10-16,反馈 LINDANDAN069)。
-   不能看图的 aicoder-pro 被误标「视觉」,一张截图以 base64 发出,估算 3.7 万的
-   请求被判超限;旧兜底先把带图规模记成上限(压缩阈值砍到 4 万,同进程别的会话
-   跟着频繁压缩),再落进「不足 4 万保留完整请求」无限等待,空转 14 小时。现在:
-   估算每张图片部件按 `kEstimatedImageTokens`(1600,**不按 base64 长度**,否则
-   截图多的会话几张图就压缩);被拒请求带内联图片(`can_read_images()` 且有
-   `type == "image"` 部件)时,PA 兜底第 0 步 / 通用恢复链第一步都是
-   `ThreadRepairOptions::withhold_inline_images`(图片部件原地改 `file` 部件 +
-   `inline_image_withheld`,不丢消息,立刻重发,通知 `context_images_withheld`
-   提示检查「视觉」标签);带图拒收一律不 `note_rejected`;小请求等待改为最多 12 次
-   后报错(覆盖 10-09 的「无限次」决定)。详见 src/adapters/pa/README.md 第 6 条。
-
-**改这块前必读 README 里那三条坑**:观测「要么可信要么整条丢弃」没有中间态
-(第一版拿可信下限当收敛下界用,一次 2726 token 的拒绝把 128000 的窗口砍到
-8192);身份不明(model 为空)时既不记录也不查表;观测表是进程级单例、单测之间
-共享,后两条都是从一次跨测试污染里挖出来的。总开关 `pa::enabled()` 在
-`pa_adapter.hpp`,必须同时覆盖判定与预算两半。
+- **代理**:`proxy_resolver` 统一注入 cpr;`network.proxy_mode` auto / off / manual;启动 TCP probe 不通则进程级回退直连(`/proxy refresh` 清),session override 永远胜过 fallback;不暴露 TLS 校验开关。
+- **Web Search**:默认 `parallel`(RSS + DuckDuckGo + Bing CN 并发合并);`enabled=false` 不注册工具;查询限 200 码点;`/websearch` 只改会话级。
+- **LSP**(`src/adapters/lsp/`,仿 opencode,零新三方库):只探测已安装 server、绝不下载、server 不进安装包;编辑后只注入 ERROR 级诊断;**两条铁律**:所有入口按调用传入的 `session_cwd` 判 workspace 边界,比较 / root / slot key / URI 全部先 `weakly_canonical`(用户目录是 junction 时两形态不匹配)。Windows 上 .cmd/.bat 经 `cmd.exe /d /c`。归档:LSP。
+- **模型解析**:`default_model_name` → `<cwd_hash>/model_override.json` → 恢复会话的 provider/model 元组 → 兜底;没有 saved model 时启动失败而不是合成。上下文窗口经 `resolve_model_context_window_nonblocking`,规则见 [docs/model-context-resolution.md](docs/model-context-resolution.md)。`saved_models` 重名修复、悬空默认回退、`config-backups/last-good` 快照与 `invalid` 归档见归档:Config Schema、Model profile resolution、`/model` command。
 
 ## Config Notes
 
-The config schema is intentionally sparse on write: defaults are omitted when possible. Notable sections are `saved_models`, `models_dev`, `skills`, `memory`, `project_instructions`, `agent_loop`, `daemon`, `web`, `network`, `web_search`, `image_generation`, `image_compression`, `tui`, `desktop`, and `mcp_servers`.
-
-Image generation settings use `/api/config/image-generation` (GET/PUT) and
-`/api/config/image-generation/test` (POST). Authenticated settings responses return
-the stored inline key for the password field and its show/hide button, matching
-model settings. Responses must not be logged or cached. Omission retains
-the stored inline key and an explicit empty string clears it. Reuse accepts only
-OpenAI-compatible base-URL model connections. The test route accepts an unsaved
-draft with `confirm_cost:true`, returns a settings-only image preview, and does
-not save or enable the tool. See `docs/daemon-api.md` for the full contract.
-The default API URL is `constants::ACEMODEL_API_BASE_URL` in
-`src/base/utils/constants.hpp`, also used by the ACEModel model catalog; change that
-single constant to update both defaults. Custom configured URLs stay explicit.
-The image settings UI saves on blur, selection changes and navigation, without
-Save/Cancel buttons. Its connection-scoped queue preserves newer edits while
-writes finish and refills the password from the authenticated settings response.
-
-`mcp_servers` without `transport` default to stdio. `sse` is the legacy two-endpoint protocol. `http` is Streamable HTTP, defaulting to `/mcp` when no endpoint is provided.
+写入时省略默认值。主要段:`saved_models` / `default_model_name`、`models_dev`、`skills`、`memory`、`project_instructions`、`agent_loop`、`daemon`、`web`、`network`、`web_search`、`image_generation`、`image_compression`、`lsp`、`worktree`、`tui`、`desktop`、`mcp_servers`(无 `transport` 默认 stdio;`sse` 旧双端点;`http` Streamable HTTP 默认 `/mcp`)。工具重写与 Agent Browser 跨进程状态刻意不进 config.json。完整示例与字段含义见归档:Config Schema。
 
 ## Useful Source Anchors
 
@@ -570,507 +123,6 @@ writes finish and refills the password from the authenticated settings response.
 - [src/apps/tui/render_mode.hpp](src/apps/tui/render_mode.hpp): pure terminal render-mode decision logic.
 - [src/base/utils/paths.cpp](src/base/utils/paths.cpp): user vs service data directory resolution.
 
-**斜杠命令别名只挂在原名上,不单独注册。** `SlashCommand::aliases`(TUI)与 `/api/commands` builtin 的 `aliases` 数组(Web)是唯一来源;`commands()` 只有原名,下拉与 `/help` 一条命令一行。下拉只在查询命中别名、且别名档位高于原名时显示 `/原名 (别名)`(三名命令敲 `/new` 显示 `/generate (new)`,敲 `/create` 显示 `/generate (create)`,空查询不标别名),选中插入原名。`has_command` 对别名也返回 true —— skill / opencode 命令撞名检查靠它挡住 `rc`、`new`;dispatch 把使用计数记到原名(排序时再加上旧版按别名记的次数),用户实际敲的名字放在 `CommandContext::invoked_command_name`(`/side` 回显 `[/side]` 用它)。纯逻辑:`slash_command_ranking.cpp`、`web/src/lib/slashCommands.js::slashCommandMatchedAlias`;回归:`tests/tui/commands/command_alias_test.cpp`、`slashCommands.test.js` 的别名组。
-
-## Maintenance Notes
-
-**Daemon mode:** main thread blocks in `Crow::App::run()`. Plus:
-1. **HeartbeatWriter** — every `heartbeat_interval_ms` (default 2000)
-2. **Term watcher** — blocks on `g_term_cv`, calls `server.stop()` on signal
-3. **AgentLoop workers** — one detached thread per turn per active session, emits via `EventDispatcher`
-4. **Crow internal pool** — handles HTTP + WebSocket
-5. **AsyncPrompter waiters** — AgentLoop blocks on a per-session condvar; unblock posted from the Crow handler thread processing `decision`
-6. **Attention flusher** — `WebServer::Impl::start_attention_flusher`,每 `kAttentionFlushIntervalMs`(1000)把脏 workspace 的 session 未读态落盘
-
-**`app_config_mu` 是 shared_mutex；只读快照共享、写路径独占。** Web 恢复入口使用会话注册表持有的依赖与配置快照，不能把全量 IO 包在配置锁内；两条恢复路由已不再直接持有旧的 `shared_lock`。只读取/复制 config 的路由在复制期间用共享锁，settings、saved_models 与默认偏好刷新等写路径用独占锁。同 id 并发恢复仍由 `SessionRegistry::resume` 的 `resume_inflight_` 单飞守卫串行化，防止重复 entry 与 writer lease 竞争。
-
-**Attention 落盘是节流的,别改回逐事件写。** `note_session_event_for_attention` 由 WS 订阅的 listener 调用,而 `EventDispatcher::emit` 是在**发射线程(AgentLoop worker)上同步 drain 订阅者**的 —— 所以这个函数跑在 agent 线程上,且 Token / Reasoning / Tool* 事件都会推进 `update_cursor`。曾经每个这样的事件都整份重写 workspace 的 attention 文件(tmp + rename),实测流式峰值约 500 事件/秒(feedback IQSZ-D0668:相邻日志行 lastSeq 差 45 / 92ms),多会话并发时还是同一个文件,把磁盘和 `attention_mu` 一起打满。现在热路径只 `attention_dirty_workspaces.insert`,由上面那条 flusher 线程合并写;只有状态跃迁(read↔unread↔in_progress / busy 翻转,即回合边界)才同步落盘。不变量:成功写出才清掉对应脏标记,失败保留到下个周期重试；析构时先停止事件 producer,最后停 flusher 并落盘剩余状态。
-
-### TUI 工具行渲染(Claude Code 风格)
-
-transcript 里的 tool_call 行渲染为 ` ● ToolName(args)`(与 user `>` / assistant `*` 行同列对齐,无箭头无额外缩进):指示灯三态 灰=执行中/无结果、绿=成功、红=失败,由 `src/apps/tui/tool_row_format.cpp::compute_tool_call_dots` 每帧 FIFO 配对 tool_call ↔ tool_result 得出(其他角色出现即批次边界,abort 孤儿调用永远保持灰);工具名经 `pascal_case_tool_name` 转 PascalCase 加粗,颜色沿用 `syntax.preproc`;参数预览由 `parse_tool_row` 拆解(优先 display_override 的人类可读段,回退原始 JSON)。on_message push tool_call 行时就地调 `build_tool_call_preview` 填 display_override,工具执行期间即显示紧凑参数。tool_result / user_shell_output 前缀统一为缩进的 `  └ `(原 `-> ` / `<- ` 已删);结果摘要行不带 icon(工具名已在上一行加粗展示;渲染摘要、底栏 chip、侧栏、文本宽度、输入折行和等待短语分别由 render/status_chips、render/regular_sidebar_view、render/text_cells、composer/input_wrap_view、model/thinking_phrases 持有;旧 tui_helpers 头和实现已删除。终端按键仍由 src/apps/tui/terminal_key_event.hpp 解释,模型负载读写同一个 acecode::tui::g_model_load_percent,对应 tests/tui/model_load_chip_test.cpp)。运行中进度条头同款格式(右下计时 chip 已随 inline-thinking-heartbeat 删除:等待期耗时+token 心跳内联在推理指示行右侧 `[Ns · ↓ X tokens]`(`src/apps/tui/thinking_heartbeat.{hpp,cpp}` 纯函数,token 走回合累计语义修了多请求回合读数冻结),回合正常收尾(≥1s 且非用户中断)追加显示端伪行 `● Done for Ns`(role `turn_done`,不进 LLM context/session JSONL))。**调用/结果成对相邻**:展示派发(tool_result 伪行 + on_tool_result)从 agent_loop Phase 3 前移到各执行点 —— 并行读在收割循环里「调用行(get 之前亮出)→ 结果行」逐对派发,写工具执行完立即派发结果;Phase 3 只留 canonical 落盘(budget 替换只影响落盘,TUI 显示原始输出)。resume 回放同构:`session_replay.cpp` 把调用行攒进 pending 队列等配对结果成对推出,孤儿调用在下一条非工具消息前补推。**Ctrl+O** = 全局 verbose 开关(`TuiState::transcript_expanded`,fold 折叠 3 行 + 行尾提示 `(ctrl+o to expand)`,展开兜底上限 2000 行),与 Ctrl+E 逐行展开取或;开关位掺进 `message_render_revision`,翻转自动全量重测行高。纯逻辑单测:[tests/tui/tool_row_format_test.cpp](tests/tui/tool_row_format_test.cpp) + [tests/tui/resume/session_replay_test.cpp](tests/tui/resume/session_replay_test.cpp)。
-
-无摘要 tool_result 的“3 行”是终端可视行而非只统计真实换行：`src/apps/tui/tool_result_fold.cpp` 按当前结果区域宽度预切预览，真实换行和软换行都计入，因此含字面量 `\n` 的超长单行 MCP JSON 也会折叠。展开态仍以 2000 个真实行为安全上限。对应回归测试在 [tests/tui/tool_result_fold_test.cpp](tests/tui/tool_result_fold_test.cpp)。
-
-### Mouse Input + Clipboard
-
-FTXUI mouse tracking is enabled by default — wheel scrolls `chat_focus_index` by ±1 (same `scroll_chat()` helper as ArrowUp/Down). Some terminals intercept native click-and-drag selection; Shift+drag is the universal bypass. FTXUI's drag-select drives a built-in selection styled blue/white; right-click with a non-empty selection writes OSC 52 (`ESC ] 52 ; c ; <base64> ESC \`) using `src/base/utils/base64.hpp`, then flashes `Copied N bytes to clipboard` (auto-cleared ~2s via `status_line_clear_at`). Right-click with no selection and Ctrl+V both read text from the system clipboard via `src/base/platform/clipboard.*` and feed the existing paste-normalization path; on Linux this requires `wl-paste`, `xclip`, or `xsel`. Inside tmux, set `set -g set-clipboard on` or the OSC 52 copy path is consumed.
-
-### Legacy terminal fallback
-
-FTXUI's default `TerminalOutput()` mode emits `\033[1A` per frame to rewind. This breaks on Win10 < 1809 conhost and Cmder/ConEmu pty wrappers (banner stacking, viewport drift). Workaround: alt-screen (`\033[?1049h`).
-
-`detect_terminal_capabilities()` reads `ConEmuPID` / `WT_SESSION` env, Windows build via `RtlGetVersion`, and classic conhost signals (visible `ConsoleWindowClass`, hidden pseudoconsole + VT support). `decide_render_mode(cfg.tui, caps)` is a pure function in `src/apps/tui/render_mode.hpp` (no FTXUI dependency in the helper itself, compiled in `acecode_tui`). `make_screen_interactive` is the only FTXUI consumer.
-
-| `tui.alt_screen_mode` | caps | decision |
-|---|---|---|
-| `"always"` | any | AltScreen |
-| `"never"` | any | TerminalOutput |
-| `"auto"` | any | AltScreen |
-
-CLI `--alt-screen` / `-alt-screen` forces alt-screen for this launch (no config write). One-time hint shown via `state.conversation` (not LLM context, not session JSONL) when auto-detect triggers AltScreen; idempotency tracked in `~/.acecode/state.json` `legacy_terminal_hint_shown`. Explicit choices (`always`, CLI flag) suppress the hint.
-
-Classic/legacy conhost also enables a conservative TUI layout via `should_use_conhost_compat_layout(caps)`: the header drops the ACE block-art logo, version/model/cwd are left-aligned, and the outer frame uses only ASCII horizontal lines with no vertical sides or Unicode corners. Windows Terminal (`WT_SESSION`) suppresses this layout even when stdio is backed by console handles.
-
-### Web UI (browser front-end)
-
-`acecode daemon start` → `http://localhost:28080/` 浏览器界面。前端代码在 `web/`(顶层),build 期通过 `cmake/acecode_embed_assets.cmake` 扫描整个目录,把每个文件 hex 编码后写到 `${CMAKE_BINARY_DIR}/generated/static_assets_data.cpp`(单文件,字节数组 + `embedded_asset_map()` static map),由 `acecode_web` 静态库编译并链入 `acecode` 二进制 — daemon 自带前端,无外部 CDN / npm 依赖。`web.static_dir` 为非空时改走 `FileSystemAssetSource`(开发模式,改文件即生效)。
-
-**静态资源缓存(2026-11-01 起)。** 每个静态响应都带强 ETag(嵌入资源按存储字节 SHA-1 算一次、gzip 表示加 `-gzip` 后缀;`static_dir` 资源用「大小-mtime」),`If-None-Match` 命中按 RFC 7232 弱比较回 304(`static_assets.cpp::etag_matches_if_none_match`)。`assets/` 下的 Vite 产物按内容哈希命名,回 `public, max-age=31536000, immutable`;其它路径(index.html / 图标 / 主题 / SPA 兜底)回 `no-cache`,浏览器每次带 ETag 来问、没变就不下载。此前只有 `no-cache` 没有验证器,Desktop 每次切工作区(整页导航)都全量重下整个前端。Desktop 每次启动 daemon 端口都变,HTTP 缓存按 origin 隔离,所以跨启动不命中、同一次运行里切来切去才命中。回归:`web_server_smoke_test.cpp` 的 `StaticAssetsRevalidateWithEtag` / `HashedAssetsAreImmutableWhileNamedAssetsRevalidate`、`static_assets_test.cpp` 的 `IfNoneMatch*` / `*Etag*` 三条、`tests/scripts/embedded_frontend_http_test.py`。
-
-### Web UI: 前端目录
-
-栈是 **React 18 + Vite 5 + Tailwind v4**(*不是* 原生 Web Components,旧版 CLAUDE.md 描述已过时)。`pnpm install && pnpm build` 是必经一步(CI 与本地都跑)。
-
-**产物是多文件、按需加载(2026-11-01 起,此前是 `vite-plugin-singlefile` 单文件 13.4 MB)。** `dist/index.html` 只有入口引用,JS / CSS / 字体按内容哈希落到 `dist/assets/<name>-<hash>.<ext>`,首屏只加载入口 chunk + `vendor`(react / slate / markdown-it / hljs / i18n 等启动路径上一定会执行的包,见 `vite.config.js` 的 `EAGER_VENDOR_PACKAGES`,**按需加载的库不要加进去**)。按需加载的边界:mermaid(`lib/mermaidRenderer.js::loadMermaidRuntime`,只在正文出现通过检查的图表时拉)、trajectory 视图(ChatView 的 `lazy()`,shiki / katex / mdast 都在它的 chunk 里)、office 预览与 Markdown 所见即所得编辑器(`FilePreviewContent.jsx` 顶部的 lazy / 动态 import)、控制台(App.jsx 第一次展开才挂载,之后保持挂载)、新手引导(第一次真正开始才挂载)。单文件布局当年是为了绕开 Crow 1.3.2 catchall 路由污染同一 keep-alive 连接下一个请求的问题;静态路由早已按层数显式注册,`/assets/<file>` 不经过 catchall,`web_server_smoke_test.cpp::StaticAssetsKeepAliveConnectionServesEverySequentialResponse` 在同一连接上连续取 index / chunk / 图标 / `/api/health` 守着。`scripts/check-regex-compat.mjs` 扫 index.html 加全部 `dist/assets/*.js`。新加大库时先想它属于哪个按需边界,别让它静态 import 进 ChatView / App。
-
-```
-web/
-├── index.html / vite.config.js / package.json
-├── src/
-│   ├── App.jsx / main.jsx / theme.jsx
-│   ├── components/         ← 22 个 React 组件(ChatView/Sidebar/Message/ToolBlock/SidePanel/...)
-│   ├── lib/                ← api / connection / markdown / format / sessionTitle / auth / diff / lang / sessionChanges / usePreference
-│   └── styles/globals.css  ← Tailwind v4 entry + 自定义 CSS variables(亮/暗双主题)
-├── public/vs-icons/        ← 单色 SVG 图标库
-└── pnpm-lock.yaml
-```
-
-依赖:`react@18` + `markdown-it@14`(GFM 表格/任务清单/嵌套 list)+ `markdown-it-task-lists` + `highlight.js@11`(core + 12 种语言:c/cpp/js/ts/python/bash/json/diff/markdown/rust/go/yaml,语言别名 js→javascript 等在 `lib/markdown.js` 内 normalize)+ `diff2html@3`(line-by-line 模式渲染 file_edit/file_write 的 hunks)。bundle 体积 ~461KB(gzip ~156KB),嵌入二进制约 +600KB。
-
-`lib/markdown.js` 收紧 URL scheme 白名单(只放 `http(s)` / `mailto:` / `/` / `./` / `../` / `#`),关闭 raw HTML(`html: false`),外链自动 `target=_blank rel=noreferrer`。`renderMarkdown(src) -> string` 签名稳定。
-
-**流式渲染防跳动**(fix desktop 流式出字时消息区上下跳动,参考 assistant-ui 的 block memoization):assistant 正文走 `renderMarkdownBlocks(src) -> [{key, html}]`(同文件)—— 全文 parse 一次、按 top-level token 组分别 render(共享 env,reference link 跨块有效,块 HTML 拼接与全文渲染逐字节一致,有单测不变量守护),Message.jsx 按块包 `.ace-md-block`(`display:contents`,不影响 margin 折叠/后代选择器)`dangerouslySetInnerHTML`;流式 append 时前缀块 HTML 字符串不变 → React 跳过 DOM 更新,滚动锚点不被整树替换销毁。配套:`.ace-chat-transcript-scroll` 设 `overflow-anchor:none`(浏览器原生 scroll anchoring 会跟 ChatView 的滚到底逻辑打架);`chatScrollFollow.js::isUserScrollAway` 只把「scrollHeight 稳定 + scrollTop 减小」或 userGesture(滚轮上滚 / 指针按住拖动,ChatView 挂 onWheel/onPointerDown)判为用户上滚,内容高度回落引起的 scrollTop clamp 位移不再误切 REVIEWING;highlight 结果按 `lang+源码` 缓存(128 条,满清空),已定稿代码块不重复高亮。**流式期间降频 + 未闭合代码块不整块重渲染**(2026-10-23,用户反馈 WebView 涨到 1–2 GB):`useStreamingRenderThrottle` 把流式消息的 Markdown 重渲染限到 100ms 一次(首段立即、末段必达、结束即显示全文);`renderMarkdownBlocks(src, { streaming: true })` 里未闭合的代码块不高亮,若它是最后一个顶层块就返回 `openFence` 由 `StreamingCodeBlock` 渲染成单个文本节点(结构与 fence HTML 一致)。逐 token 整块重高亮、替换 innerHTML 会把 Blink GC 堆撑到高水位且不归还:同样 8 个长回合、4 字符一个 token,改前 Blink GC 堆 116 MB(存活 29 MB),改后 56 MB。回归:`markdownBlocks.test.js` 的 streaming 四条、`useStreamingRenderThrottle.test.js`。
-
-**实时 transcript 状态是单写者,渲染层只能订阅。** `web/src/lib/singleWriterStore.js` 的 `commit(producer)` 是唯一写入口,producer 入参恒为最新已提交状态;`useSessionTranscript` 经 `useSyncExternalStore` 订阅,hook 内没有 `useState`/`setState`。曾经的写法是 `useState` 镜像 + `useEffect(() => { stateRef.current = state; }, [state])`:被动 effect 在提交后异步刷新,一旦它带着旧渲染快照回写,其后到达的 token 就从旧快照继续拼接,中间已收到的片段被永久覆盖 —— 表现为长会话喷字时正文中间随机缺汉字/标点/换行(Markdown 把它放大成"乱码"),回合结束后被完整 message 与 self-heal 覆盖回正确结果。这条路径在传输层完全隐形:`seq` 仍单调增长、去重不报警、服务端 replay 完整。因此 `commit` 刻意只收 producer(值形式的回写在入口就被拒),`subscribe` 的通知不带状态(订阅者手里不会留下可回写的旧快照),历史加载/追赶重放/定时刷新/self-heal 覆写全部收敛成单次原子提交。**同一个 store 也承载 ChatView 的排队输入状态**(`queueStateRef` 曾是同款双写,可见后果是排队消息被吞或已取消的重新出现);`drainQueuedInput` 的取件与标记 sending、以及用户消息落库后的整轮完成标记,都收敛成单次提交。回归:`singleWriterStore.test.js` + `transcriptStreamIntegrity.test.js`(高速重放的流式前缀不变量 + 旧双写模型的失效见证)+ `chatInputQueueIntegrity.test.js` + `singleWriterOwnershipArchitecture.test.js`。详见 [docs/web-chat/transcript-state.md](docs/web-chat/transcript-state.md)。
-
-**事件回放去重要以 daemon 的真实事件序为准(fix: 回答问题后上一轮 AI 正文重复显示)。** 切进正在运行的会话时,REST `GET messages?since=0` 先给出已落盘历史,再因 busy 用 `since=1` 把整个事件环(1024 条,含上一轮)回放进同一份 transcript;WS 用 sessionStorage 里的旧游标订阅时也会逐条回放。回放依赖去重:同一条 assistant 的 token 流与 message 事件必须整体落到 REST 已有的那条上。daemon 的顺序是 `token… → usage → message(assistant) → tool_start`(`Usage` 在 `chat_stream` 一返回就 emit,assistant `Message` 要到 `execute_tool_calls` / 文本回合收尾才发;工具回合的 tool-call 增量还会夹 `agent_progress(tool_planning)`)。`sessionTranscript.js` 的两个回放循环(`applyTranscriptReplayEvents` / `loadTranscriptHistory`)曾经「遇到任何非流式事件就 flush 攒着的 token」,于是 usage 把 token 提前流成新草稿,紧接着按 id 判重的 message 再把草稿定稿成第二份 —— 用户看到的就是「AI 上次的回答在我的消息后面又出现一次,切走再切回才消失」(实测用 [U1, A1, U2] + 环回放能稳定复现)。现在:(1) 只有会追加 / 收尾 transcript 条目的事件才 flush,`STREAM_NEUTRAL_EVENT_TYPES`(usage / agent_progress / model_step_* / goal / todo / permission / question)一律不 flush;(2) 推迟应用的 token 经 `reduceDeferredStreamEvent` 绕过被旁路事件推高的 seq 水位,否则被中断回合的正文会整段消失;(3) reducer 里 `replayed:true` 的 assistant message 命中已有条目时丢掉草稿、原位更新,`replayed:true` 的 `tool_start` 命中已落盘的同 call id 工具项时绑到它身上而不是再追加(答完的 AskUserQuestion 卡片否则会出现两张)。**去重只认 `replayed` 帧**:assistant 消息 id 是内容哈希(`sha1(role + content)`,与 JSONL 重读一致),实时回合里模型说一句与旧消息一字不差的话 id 也会撞上,那是真的新回复;有的 provider 还会跨回合复用 tool call id。回归测试在 `sessionTranscript.test.js`(「live catch-up replay:token 与已持久化 message 之间夹着 usage…」一组)。
-
-**实时状态卡住的兜底(用户 1.0.9 反馈:会话一直「正在推理」,切走再切回才看到已完成)。** 本质是页面没处理这一回合的 `busy_changed(false)` / `done`,而既有「完成回合自愈」只在**看到了** busy→false 之后才触发。三层兜底,不追究具体丢帧原因:(1) **WS 心跳**(`connection.js` + `lib/liveConnectionHealth.js`):静默 20 秒发 `ping`,ping 后 10 秒没有任何帧就摘掉旧 socket 直接重连(不等 onclose,假活连接的关闭握手要很久),页面重新可见时立即补验;`pong` 在连接层消化,**不能**派发成会话事件(否则每次心跳一次 transcript 提交)。(2) **事件游标带实例号**:`EventDispatcher::instance_id()` 构造时随机生成,`subscribe_ack` 的 payload、messages 快照与新的 `GET /api/sessions/:id/runtime` 都带 `event_seq` / `event_epoch`;daemon 重启或会话运行实体重建后 seq 从 1 重新数,前端发现实例号变了或本地 seq 比服务端还大就清零游标、广播 `session_seq_reset`,transcript 手里的 seq 确实作废时才对账 —— 否则新实例的事件全被 `isStaleSequencedEvent` 当成过期帧静默丢弃。(3) **卡住检测**(`lib/transcriptLiveWatchdog.js` 纯逻辑,`useSessionTranscript` 里只在「实时 + 在跑」时挂计时器):运行中 20 秒没收到本会话事件(页面重新可见时 4 秒)就调 runtime 探针;服务端空闲、或服务端 seq 超过页面、或实例号变化 → `resyncWithServer` 重拉尾页 + `reconcileTranscriptWithServer` + 从服务端当前 seq `replay_from_start` 重订阅,等同自动「来回切一下」;服务端仍忙且 seq 一致(长时间无输出的工具)只探不改。对账**不能**复用 `reloadHistoryTail`:它套的 `preserveLiveRuntimeOnLoad` 会在实时 seq 更大时把卡住的运行态原样保留。同一服务端状态只对账一次(`lastResyncKey`,提交成功后才记)。每次触发都经 `POST /api/diagnostics/transcript-stall`(白名单 `handlers/transcript_stall_report.cpp`)在 daemon 日志留一行 `[transcript-stall]`;`[event_dispatcher] listener failed` 现在带事件类型、seq 与异常文本。回归:前端 `liveConnectionHealth` / `connectionHeartbeat` / `transcriptLiveWatchdog` / `transcriptStallResync` 测试,C++ `transcript_stall_report_test.cpp`、`event_dispatcher_test.cpp::InstanceIdIsStableWithinAndDistinctAcrossInstances`、`web_server_smoke_test.cpp` 的 `TranscriptLiveSyncSmoke.*` 与 `TranscriptStallReportAcceptsAllowlistAndRejectsInjection`。
-
-**工具伪行按 call id 配对(fix: 运行中偶现一串只显示「Tool」、展开只有返回的工具行,回合结束自愈后恢复)。** 实时线上每次工具调用除 `tool_start` / `tool_end` 外还有两条只为显示、不落盘的 `message` 伪行:`tool_call`(`[Tool: 名] 参数`)与 `tool_result`(输出)。它们曾经不带 call id、id 只是 `sha1(role+content)`,于是:(1) Web 只能用全局的「按名认领 + 按序号配结果」去猜伪行属于哪个工具行;(2) 内容相同的两次调用(同一条 `git status`、同样的输出)撞 id,实时 reducer 把后一次原位并进前一次;(3) 切进运行中会话时 REST 历史 + 事件环回放,伪 `tool_call` 按内容 key 被历史的 tool_call 包装拦下,伪 `tool_result` 与历史的 role:tool 不同名拦不住,一串无名结果追加到末尾。现在 `tool_row_metadata`(`tool_result_presenter.cpp`)给两种伪行带 `tool_call_id` / `tool_index` / `tool_name`,`TranscriptWriter::dispatch_message` 把 call id 并进伪行 id;前端实时伪行不按消息 id 合并、回放按 call id 判重(`transcriptHasToolRow`)。兜底:当前回合仍有只有返回的结果(请求在重连缺口 / 订阅晚于快照时丢了)时,`useSessionTranscript` 等 600ms 拉一次 REST 尾页,`repairOrphanToolRequests` 用落盘的 `assistant.tool_calls` 在结果前补一条与历史同形的 tool_call 包装;每个 call id 只试一次,计时器不随 items 重置(流式 token 每帧都改 items)。回归:`web/src/lib/sessionTranscriptToolRows.test.js`、`agent_loop_tool_lifecycle_events_test.cpp::PseudoToolRowsCarryCallIdentity`。
-
-**Transcript 尾部窗口(渐进虚拟化)**:大会话切入时只渲染最近 `INITIAL_TAIL_ITEMS`(120)条投影行,更早的行折成顶部「显示更早的 N 条消息 / 显示全部」入口(`web/src/lib/transcriptWindow.js` 纯函数 + Node 测试)。窗口按**首个可见行的 user 行 id** 锚定(user 行不参与活动折叠,id 跨投影稳定;流式追加在尾部,锚不动、窗口自然增长;锚丢失 fail-open 全量)。**跟随尾部时封顶**:用户停在底部(`tailFollowStateRef` 为 FOLLOWING)且窗口没被主动展开时,可见行超过 `FOLLOW_MAX_ITEMS`(180)就重选尾部锚点回到约 120 行,打开时不足一个窗口的会话(新建会话,全量视图 `null`)也一样 —— 否则一直开着跑 Agent 的会话每回合的 DOM 都留在页面上,渲染进程涨到 1–2 GB。「显示更早 / 显示全部」(查找、scrubber 跳转、拉历史页都走这两条)把窗口标 `pinned`,自动封顶跳过它;`setTailFollowFromAction` 在用户回到底部(REVIEWING → FOLLOWING、跳到底部、新回合)时解除。不要去掉 pinned:查找展开全量后的下一次渲染会把匹配项裁掉,scrubber 跳转会和封顶互相打架。渲染 map 走 `windowedItems`,但 `itemsRef`/scrubber 回合列表/turnFileListPlacement 仍吃全量 `renderedItems` —— scrubber 跳转与搜索深链(`searchJumpOrdinal`)目标不在 DOM 时先 `expandTranscriptWindow()` 再重试;Ctrl+F 查找是 DOM 文本搜索,`GlobalFindOverlay.openFind` 广播 `acecode:conversation-find-open` 事件让 ChatView 先全量展开。「显示更早」向上补条目需手动滚动补偿(`windowRevealScrollRef` 按 scrollHeight 差值回补,原生锚定已被 overflow-anchor:none 关掉)。窗口状态是 render-phase 调整(React 文档模式)—— 用 useEffect 会先全量渲染一帧,虚拟化就白做了;transcript 重置(条目清零)回到未初始化重定锚,因为 item id 会被重载复用。
-
-`lib/usePreference.js` 是 UI 偏好读写的统一入口(`usePreference(key, defaults, validator?)` 返回 `[value, setValue]`,setter 接受 partial 浅合并 / 函数式更新,localStorage 写失败静默吞)。当前订阅:`ace.theme`(由 `theme.jsx::ThemeProvider`)、`acecode.singleLayoutWidths.v1`(由 `App.jsx`,`{sidebar, sidePanel}` 像素宽)、`acecode.uiPrefs.v1`(由 `App.jsx`,`{view: 'single'|'grid4'|'grid9', sidePanelCollapsed: boolean}` — view 模式与 SidePanel 折叠态跨刷新持久化)。同一 key 在整个 App 内只允许一个 hook 实例订阅,避免多 useState 之间互覆盖。
-
-SidePanel 折叠 UI:`ChatView` 把 `SidePanel` 包到 `<div class="ace-side-panel-shell" style={{width: collapsed ? 0 : sidePanelWidth}} data-collapsed={...}>`,折叠态宽度归 0 + opacity 过渡 200ms,SidePanel 仍 mount(tab/cache/preview 内部 state 保留)。SidePanel tab 行右端有 `.ace-side-panel-collapse-btn`(展开态),折叠态时 ChatView 顶部 header 内显示 `.ace-side-panel-expand-fab` 让用户重新展开。
-
-全局会话搜索面板(`add-webui-search-palette`):`Ctrl+K` / `Cmd+K` 或 TopBar 🔍 按钮触发 `SearchPalette`。**快捷键只有一个定义点** `lib/searchPaletteShortcut.js`(`isSearchPaletteShortcut` 判定,兼容 `e.code === 'KeyK'` 的非拉丁布局;`searchPaletteShortcutLabel` 按平台给 `Ctrl+K` / `⌘K` 文案):App.jsx 经 `useGlobalShortcut`(`window` keydown + preventDefault)监听,TopBar 提示、侧栏快捷菜单「查找内容」右侧的 kbd、ConsoleDock 的 xterm `attachCustomKeyEventHandler` 放行名单都从它取 —— xterm 会把处理过的键 stopPropagation,不放行的话终端聚焦时 Ctrl+K 静默失效(代价是 shell 的 Ctrl+K kill-line 让位,与 VS Code 集成终端默认一致)。帮助文档 `docs/help-source/group6_reference.py` 的快捷键表也列了它。前端**纯聚合**所有 workspace 的 sessions:`api.listAllWorkspaceSessions`(底层 `mergeAllWorkspaceSessions` 纯函数 + `Promise.allSettled`,单 workspace 失败不阻塞其它)→ `lib/searchSessions.js::rankSessions` 加权排序(title 前缀 +1000 / 子串 +500 / summary +200 / workspaceName +100 / fuzzy 兜底 +50,叠 24h/7d/30d 时间衰减 0~50)→ z-300 居中模态。键盘导航 ↑/↓/PgUp/PgDn/Home/End/Enter/Esc;选中同 workspace 直接 `setActiveRef`;跨 workspace 优先 `aceDesktop_activateWorkspace` + 整页 navigate `?open=<sid>`(App.jsx mount 时解析并 `replaceState` 抹掉 query),无 bridge 时降级直接 setActiveRef。数据 60s TTL 缓存,`session_status` / `session_status_snapshot` / `mark_session_read_ack` 任一 WS 帧到达即 invalidate。**后端零路由变更**。第三组「设置」纯本地:复用设置窗口的索引 `settingsSearchEntries` + 打分 `searchSettings`(`searchSessions.js::rankSettingsForPalette` 只截前 8 条,空查询恒为空),`buildSearchResultSequence(tasks, projects, settings)` 三组接成一条键盘序列;选中设置项走 `App.handleSelectSetting` → 关面板、`settingsNavKey = section`、把面板原始查询 + 结果 id 作为 `initialSearch` 种子传给 `SettingsPage`,后者用同一份索引重跑同一查询、`settingsSearchResultIndex` 按 id(退回 section+label)对齐选中项,再由既有的 locate/波浪下划线逻辑滚到该项。SettingsPage 的搜索防抖只在搜索词真的变了才把选中项清回 0(`appliedSearchTermRef`),否则首轮防抖会把种下的选中项冲掉;普通 `openSettingsSection` 一律清空种子。
-
-**`@` 会话引用有查询词时必须走服务端检索,不能本地过滤最近列表。** `/api/session-search/sessions` 对空查询最多只给最近 50 条;`@` 菜单曾拿这 50 条在本地过滤,更早的会话永远搜不到(实测 28456 个会话里,标题完全一致的「随机选择题挑战」排第 9726 位,菜单显示「没有匹配」)。现在 `lib/sessionReference.js::searchSessionReferenceData` 带 `q` + `limit=100` 请求(内存目录过滤,2.8 万会话单次 30–46ms),同一查询词 15 秒缓存,目录预热未完成时有界轮询,查询变化 / 下拉框关闭即 abort。**不要**在 `@` 菜单按键时调 `searchSessionUserMessages`:正文搜索逐项目读 meta、开 SQLite,全量一遍几十秒,而 `@` 词同时用于文件路径;全文搜索留给 Ctrl+K。守卫:`sessionReference.test.js` + `sessionReferenceComposerArchitecture.test.js`。
-
-**侧栏会话拖进输入框 = @ 引用。** 侧栏拖动是自绘指针拖动(不是 HTML5 拖放),输入框收不到 drop:`startSidebarSessionPointerDrag` 每次移动用 `sessionReferenceDropTargetAt` 找带 `data-session-reference-drop="true"` 的输入框根元素,命中时高亮(`is-session-reference-drop`)、停止计算排序落点,松手派发 `SESSION_REFERENCE_DROP_EVENT`(`lib/sessionReferenceDrop.js`);落点所在的 InputBar 认领后经 `RichComposer.insertSessionReferences` 在落点插入会话标签,标签由 `composerSessionTagForReference` 生成,与 @ 菜单的 `@session:` 令牌逐字节一致。多选拖动插入多个;分组行、当前会话、已引用过的会话跳过。回归:`sessionReferenceDrop.test.js`。
-
-**侧栏多选批量操作只发一次 `POST /api/session-batch`**(置顶 / 取消置顶 / 归档 / 取消归档 / 已读 / 未读,`routes_session_batch.cpp` + `handlers/session_batch_handler.cpp`)。曾经逐个调用单项接口,置顶一项 2 个请求、归档一项还要刷新一次列表。服务端把每个置顶文件、全局置顶顺序、每个 workspace 的 attention 文件各写一次;批量置顶按请求顺序插到最前、已置顶的不动;单项失败不影响其它项。WS `mark_session_read` / `mark_session_unread` 现在委托 `mark_sessions_attention`。回归:`session_batch_handler_test.cpp`、`web_server_smoke_test.cpp` 的 `SessionBatch*` 四条、前端 `sidebarSessionBatch.test.js`。
-
-**对话框键盘约定(Claude Code 风格,全部走 `components/Modal.jsx`)**:Esc 取消、Tab / Shift+Tab 只在对话框内循环、Enter 触发默认操作、删除类确认框打开即默认选中「删除」。判定逻辑全在 `lib/dialogKeyboard.js`(纯函数,Node 单测用鸭子类型假 DOM):默认操作按钮用 `data-ace-dialog-primary="true"` 标出;初始焦点顺序 = 已落在对话框内的焦点(React `autoFocus` 在 commit 阶段先跑,Modal 不再抢——旧实现无条件聚焦第一个可聚焦元素,曾把「添加专家」搜索框的 autoFocus 抢成头部 ×)> 第一个文本输入框(表单型)> primary(确认型)> 第一个可聚焦元素;Enter 只在焦点**不在**会自己消费 Enter 的元素(button / a[href] / textarea / contenteditable / `<form>` 内控件——表单靠隐式提交)上时点 primary,子组件自己处理 Enter 必须 `preventDefault`(Tag 输入框那样),否则会双触发;按住不放的 auto-repeat Enter 一律 `preventDefault`(Chromium 的按钮激活发生在 keypress、且派发给当时聚焦的元素,「按住 Enter 打开确认框 → 焦点落到删除 → 连带确认」就是这么来的;keydown 被阻止就不再产生 keypress),textarea / contenteditable 内放行。输入法合成中的 Esc 不关对话框。焦点环只在 `:focus-visible`(`.ace-modal-dialog :is(button, [role="button"], a[href])`),鼠标点开时脚本聚焦的默认按钮不画环、按 Tab 后才出现,与系统对话框一致。**不要**再手写 `fixed inset-0` 遮罩当对话框(循环编辑表单与 opencode 导入框已收编;`agentBrowserArchitecture.test.js` 的 floatingSurfaceOwners 清单相应减少)。自动弹出的 `WorkspaceCleanupNotice` 故意不标 primary:无人触发的对话框不能带破坏性默认操作,默认落在「保留」。守卫:`lib/dialogKeyboard.test.js` + `lib/dialogKeyboardArchitecture.test.js`(后者还断言取消类文案永远不会被标成 primary)。
-
-排队卡片栈(`redesign-webui-queue-cards`):busy 期间提交的待发送消息**不进 transcript**,改由 `<QueueCardList>`(在 `<InputBar>` 上方)渲染成卡片堆。状态机(`lib/chatInputQueue.js`)与 `enqueueQueuedInput` / `cancelQueuedInput` / `markQueuedInput*` / `nextQueuedInput` / `completeQueuedInputForMessage` 全部不变;只是渲染分支换地方。每张卡片左侧 3px `.ace-queue-card-indicator` 色条标注状态(QUEUED 灰 / FAILED 红),右侧恒挂"取消"(close 图标),FAILED 多一个"重试"。状态↔标签映射收敛在 `lib/queueCardItem.js::buildQueueCardItem`(纯函数,Node 单测覆盖);DOM 端只是把这份结构映射到 className。`Message.jsx::UserBubble` 已剥离 `queued`/`onCancelQueued`/`onRetryQueued` props——transcript 里出现的 user 气泡一定是后端真实落库的消息。
-
-**中断回合后队列暂停,不自动出队。** 曾经的 bug:排了一堆消息后点停止,busy 一翻 false,ChatView 的 drain effect 就把下一条排队消息发了出去 —— 用户刚说「停」界面却替他继续。现在队列状态多一份按会话的 `paused`(`chatInputQueue.js::pauseQueuedInput / resumeQueuedInput / queuedInputPause`),`shouldDrainQueuedInput` 带 `paused` 时拒绝 drain;暂停有两条入口:(1) 本端点停止 —— `ChatView::abort()` **先** `pauseQueuedInput` 再本地应用 `turn_aborted`,顺序反了 drain effect 会先看到 busy=false 把下一条发出去;(2) TUI / 其它标签页 / IM 通道发起的中断只以 `outcome=aborted` 的 `busy_changed` / `done` 到达,靠 transcript reducer 新增的 `lastTurnOutcome`(`'' | completed | error | aborted`,新回合开始清空,只在真正的 busy→false 转换上按 outcome 记;本地 `turn_aborted` 直接记 aborted,服务端补发的 busy_changed(false) 到达时 wasBusy 已 false 不覆盖)+ `shouldPauseQueuedInputAfterAbort` 在 drain effect 里兜底。界面:`QueueCardList` 顶部横幅「由于你中断了当前响应,队列已暂停」+「继续」(`queueCardItem.js::buildQueuePausedBanner`);输入栏空输入 + 暂停时发送按钮变「继续」(`inputBarState.js` 的 `mode='resume'`,压过「重发末尾用户消息」,图标换播放三角,`InputBar::submit` 走 `onResumeQueue` 而不是 `onSubmit`)。解除暂停只认用户明确动作:点「继续」/ 空输入按发送 / 再次发送或排队一条新消息(新消息先走,旧排队随后照常出队)/ 重试失败卡片;删掉最后一张卡片时暂停标记顺带清除,避免一个看不见的暂停态把之后的排队卡住。`pauseQueuedInput` 对没有待发送消息的会话是 no-op。回归:`chatInputQueue.test.js` 的暂停一组、`inputBarState.test.js` 的「继续」两条、`queueCardItem.test.js` 的横幅两条、`sessionTranscript.test.js` 的 `lastTurnOutcome` 两条。
-
-### Web UI: HUD 主题外观与多风格(荒坂公司主题,2026-10-24)
-
-**这是创意工坊主题专用能力,默认不启用:用户不安装并选用 HUD 主题就完全不生效。用户拍板:不写进版本更新记录(`aceupdate.json` 的 `notes`、Release 说明),发版整理更新内容时跳过这部分提交。**
-
-主题包顶层可选 `chrome:{style:"hud"}` 与 `variants:[{id,name,colors(28),appearance?,tint?}]`(2–6 项,第一项为默认),格式见 [docs/themes.md](docs/themes.md#hud-外观与多风格)。**两个字段刻意放顶层、`appearance` 不加键**:C++ `valid_theme_definition`、已部署工坊的 `WorkshopPackage.cs` 都拒绝未知 appearance 键却忽略未知顶层键,放进 appearance 会让旧版 ACECode 和线上工坊整包拒收。前端 `themePackages.js` 对二者「不认识就忽略」(`themeChromeStyle` / `themeVariants` 全有或全无),不影响旧主题。
-
-- **样式全在 `web/src/styles/themeHud.css`**,每条选择器必须以 `:root[data-theme-chrome="hud"]` 开头(或是只在 HUD 下挂载的 `.ace-hud-*` 动效层类名),动画还必须带 `[data-theme-effects="on"]`;`themeHud.test.js` 解析 CSS 守着这两条。它随应用常驻加载,一条没加作用域的规则就会改到所有主题。**唯一例外是滚动条部件规则,一律用等价的 `html[data-theme-chrome="hud"]` 前缀**:Chromium(Edge 155 / WebView2 实测)在祖先部分含 `:root` 且滚动条部件带 `:vertical` / `:horizontal` / `:hover` 时整条规则不生效,滑块只剩透明底色、整条滚动条消失;换成 `html` 类型选择器即正常,测试同样守着。
-- 滚动条与对话导航:滑块是尖头(主体 + 两个整像素起点的三角,半透明层不重叠不留缝);侧栏原先画在背景上的虚线竖轨改为会话列表滚动条的轨道,对话区滚动条轨道是带端帽与刻度的标尺,滑块都骑在轨道正中,不再与装饰线错位重叠。对话左侧的刻度尺在出现问题导航(`.ace-conversation-turn-scrubber`)时经 `:has()` 隐藏,导航自己画菱形 + 竖脊;端帽挂在首末命中区的 `::before` 上并跟随 `--ace-conversation-turn-marker-shift-y` 位移(当前项展开会把相邻标记推开,画在命中区背景上会被菱形盖住)。无头 Edge 截图前去掉 `--hide-scrollbars`,否则看不到滚动条。
-- **主题音效**(2026-10-24 用户要求,同样是工坊主题专用):主题包顶层 `"sounds":{"style":"hud"}`(`themePackages.js::themeSoundStyle`),`lib/themeSounds.js` 用 Web Audio 为每个事件合成声音。**2026-10-25 起主题包可以自带录音**(用户嫌合成音出戏,拍板把赛博朋克 2077 的 UI 音效放进荒坂主题,粉丝作品、免费给朋友用,缩略图带 CDPR 要求的「非官方粉丝作品」声明):`sounds.files` 声明 `{事件: {bytes, sha256}}`,包根放 `sound-<事件>.ogg`(Ogg Opus,≤512 KiB,事件名只能是 `THEME_SOUND_NAMES` 那 11 个,C++ `theme_validation.cpp::kSoundNames` 与工坊 `WorkshopPackage.SoundNames` 各一份要同步);C++ `theme_sound_files` / `theme_resource_assets` 管完整性、导入导出与安装复检,daemon `GET /api/themes/<id>/sounds/<name>` 出 `audio/ogg`;页面在主题生效时就用 `OfflineAudioContext` 解码(不需要用户手势),有录音的事件放录音(不过压缩器,响度在打包时调好),没有或解码失败的退回合成音,还在解码就等就绪再放、不先响合成音。`files` 只在已知 style 下生效。旧版客户端与旧工坊会拒收带录音的包(ZIP 条目数 / 文件名白名单)。录音提取流程(WolvenKit CLI 拆 `audio_2_soundbanks.archive`、自写 `sfx_container.bnk` HIRC 解析把事件追到 opus 流、单声道归一化后 32 kbps 重编码)的脚本在 `N:\Users\shao\acecode-wt\arasaka-theme-src\sound-source\`。只有声明了音效的主题,TopBar 左上角(搜索右侧)才渲染静音按钮(`data-theme-sound-toggle`,`web_ui.theme_sounds` 默认开,与 theme_effects 同一条落盘 / 首帧注入链路)。门控在模块级:`ThemeSoundLayer`(ThemeProvider 渲染)`configureThemeSounds({style, muted, samples})`(samples 按 `<id>@<version>` 去重,同一版本不重复下载),调用点只管 `playThemeSound(name)`,其它主题下全是空操作。触发点:全局 pointerdown / Enter·Space 捕获(`themeSoundForTarget` 按最近的可交互元素分 click / select / toggle,发送按钮、风格选项、静音按钮排除,各自出声)、InputBar 发送 / 排队 / 停止、App 的 WS 事件监听(完成音挂在桌面通知的 `markSeen` 之后,提问 / 权限按 request_id 去重,出错音;**三者都跳过 `msg.replayed`**,否则切进运行中的会话会把回放的旧事件再响一遍)、开机 / 切换音复用 `hudBurstForChange`(静音期间也跟踪,解除静音不补放开机音)。浏览器首次用户操作前不建 AudioContext(否则建出挂起的上下文,之后补成一声迟到的响),恢复超过 200ms 的请求丢弃。音量按峰值 -18 dBFS(点击)到 -9 dBFS(开机)调过:Chromium 的 DynamicsCompressor 自带补偿增益,改压缩参数后整体响度会跟着变,要重新离线渲染量峰值(无头 Edge + `OfflineAudioContext` 跑同一个 `scheduleThemeSound`)。
-- **异形窗口**(2026-10-25,用户要求只影响声明了它的主题):主题包顶层 `"window":{"shape":"chamfer"}`(`themePackages.js::themeWindowShape`)→ ThemeProvider 经 `aceDesktop_setWindowShape` 让 Windows 桌面壳切角。`web_host.cpp` 里全部挂在 `g_window_shape.chamfer` 上,没打开时一行都不走:(1) `SetWindowRgn` 按 `window_shape.cpp::chamfer_region_rects` 切 16 DIP 的角(最大化时去掉区域);(2) 切角时 `frameless_nc_calc` 不留左/右/下的隐形缩放边 —— 实测设区域后 `DWMWA_EXTENDED_FRAME_BOUNDS` 变成整个窗口矩形,留着缩放边贴边分屏会差一圈缝;打开 / 关闭时按客户区收放窗口矩形,可见区域不动;缩放靠两处拼成:页面的 `FramelessResizeHandles` 在 `[data-window-shape="chamfer"]` 下把角放大到 28px(clip-path 只留沿边 6px 与斜边内侧一条),窗口外侧由 `ChamferShadowWindows` 的四块把手窗口接住(alpha 1 像素可点、0 点穿,`chamfer_resize_zone`:外伸与系统隐形缩放边同厚、含切掉的缺口、角沿边延伸 28px,按下转给主窗口 `WM_NCLBUTTONDOWN`)—— 用户反馈只在斜边内侧放小角块改变了拖角习惯;(3) 实测设区域后 Win11 系统阴影整圈消失,`window_shape_shadow_win.cpp` 用四块 `WS_EX_LAYERED | WS_EX_TRANSPARENT` 的归属弹出窗口补画(上下两块向内覆盖切角高度,形内像素全透明;归属窗口恒在主窗口之上,所以必须透明而不是被主窗口挡住);区域与阴影共用 `chamfer_contains_pixel`,斜边处逐像素互补。阴影跟随在 `WM_WINDOWPOSCHANGED` 里做,只移动时用 `DeferWindowPos` 挪位置,尺寸 / DPI / 激活态 / 辉光色变了才重画。Win10 顶边自绘线在切角时不让位(外框由页面画)。HUD 外框四条斜边在切角时改画在切口内侧并覆盖中心落在切线上的那排像素,否则一半被区域裁掉、或在窗口边缘与斜线之间留一像素暗缝(1.5 倍缩放实测)。页面推送器初始状态是「未知」而不是 none:曾初始视为 none,切角主题下重载成普通主题的页面一次桥接都不发,窗口保持切角。
-- 切角:无弹层的元素(用户气泡、代码块、首页卡片)直接 `clip-path`;可能挂下拉/悬浮卡片的容器(输入框 `.ace-composer-card`、工具行 `.ace-tool-activity`)把裁切底色放 `::before`,容器本身不裁,否则会把弹层切掉。框线统一画在 `::after` 的渐变层上(`--hud-frame` / `--hud-cut` 覆盖)。
-- **背景染色**:`tint` 让三张背景按 CSS `background-blend-mode: color` 染色(保留亮度、换色相),一套图对应全部风格;`themeCssProperties(..., {tint})` 插入同色渐变层并给出 `--ace-*-background-blend`,无 tint 时输出与旧版逐字一致。用户消息气泡里图片之外的底色同样被染,图片顶部纯色与 `user_message_background_color` 亮度相同才无接缝。
-- 首页 logo 的 `::before` 被暗色主题规则占着(translate、径向光晕、遮罩),HUD 重新启用它时必须把 `transform/background/mask` 显式清掉,否则环偏移两次、留下一团光斑。
-- 动效层 `components/HudEffects.jsx`(ThemeProvider 用 props 渲染,别改成 useTheme——会形成 theme.jsx ↔ HudEffects 循环引用):扫描光带 z-index 90 在弹窗下,开屏/切换过场单独一层 z-index 2147483000 盖在设置窗口之上(否则在设置里切风格看不到过场)。触发判断在 `lib/hudEffects.js`,开屏后 1.5 秒内的风格变化视为 daemon 恢复已保存风格,不再叠过场;每个 burst 自带计时器。Agent 运行中靠发送按钮的 `data-composer-action="stop"` 用 `:has()` 加速输入框流光。
-- 风格与动效开关存 `config.json` 的 `web_ui.theme_variant` / `web_ui.theme_effects`,走 `/api/config/ui-preferences` 与 Desktop 首帧注入(端口每次启动都变,不能只靠 localStorage)。动效**不**跟随系统减少动态效果(用户常在 RDP 里用,见陪伴宠物同款决定),以开关为准。亮色强调色(黄/青)上白字不可读,HUD 下 `.bg-accent.text-white` 改用 `--ace-bg`。
-- 素材生成脚本与打包流程不在仓库里:徽标几何取自 Wikimedia Commons 的 CC0 `Arasaka_logo_lite.png`(浏览器里距离变换量出),首页天际线由 Codex 生成后嵌入发光徽标。回归:`web/src/lib/themeHud.test.js`、`colorThemeArchitecture.test.js`、`appearancePreferences.test.js`、`tests/config/config_web_ui_preferences_test.cpp` 的 ThemeVariant 三条、`web_server_smoke_test.cpp::UiPreferencesThemeVariantAndEffectsRoundTrip`。
-
-### Web UI: 粘贴的文本块(fix-feedback-0924 第 2 条)
-
-起因(LIUXIN557 f300):一条 2460 万字符的粘贴原样进了用户气泡、回合滚动条和吸顶条,切进会话必然卡死。用户不接受输入限长,决定:达到 20 行 / 2000 字符的粘贴变成输入框上方的卡片(点开在单独文本框编辑);很大的粘贴落文件、消息里只带引用。
-- **内联块** `{type:"pasted_text", key, text}`:发送时以 `"\n\n"` 拼到编辑器内容之后。**文件块**:UTF-8 ≥ 128 KiB 或加入后内联合计 > 256 KiB(`web/src/lib/pastedText.js` 常量)时上传成会话附件,composer 里是带 `paste:{...}` 的 attachment 部件,模型只收到 `[Attached file reference]`(`origin:"pasted_text"`,按需 `file_read`);> 24 MiB 按字节切段顺序上传。首页粘贴落工作区草稿附件区(no-workspace 的**不能放在缓存根下**,那里每个子目录都被当作会话 cwd),发送前复制成会话附件,刷新不丢;回收有 10 分钟年龄门。
-- **文本有两份**:`composerContentText()` / C++ `result.text` 是编辑器文本(不含粘贴块),`composerContentSubmissionText()` / `submission_text` 才是正文;分隔规则两端各一份,同一组样例守住。不要再引入「超预算剥块 + 内存缓存」(被否决)。
-- 判定粘贴资源用 `isPasteResource`(资源 `paste` / 服务端 `metadata.origin` / 部件 key),上传回填会整体替换资源;所有文本入口(粘贴、文件传输 insertText、结构化剪贴板、text/plain 拖放)都先过 `foldLargePaste`。
-- 命令路由:内联块并进命令参数,文件块算 extras;编辑器为空时一律普通消息;`/goal`、`/btw` 超上限提示「太长」而不是改发普通消息。文件引用在 Codex 输入与压缩后的保留消息里都要在(`build_codex_input_text`、`build_compacted_history`)。
-- 对话记录纯文本只渲染前 20000 字符 / 400 行 +「查看全文」;编辑框是不受控原生 textarea,50 万字符以上只读、最多装载 500 万字符。已知未做:会话删除不清 `attachments/<sid>/`,fork 整份复制文件块。
-
-### Web UI: 图片附件一律走快照 + 缩略图
-
-**栅格图片不要做成 `@路径` 引用。** 2026-09-04 / 09-20 两次改动让 Desktop 的本地文件全部「只给路径」,连截图也先落 `~/.acecode/composer-files/<uuid>/` 再插 `@路径`;结果输入框和对话记录只剩文件名,服务端又拒收图片引用(`save_attachment_reference`: `image attachments require snapshot data`),模型得先 `bash` 再 `show_image` 才看得到图。现在:`composerFileIntake` 把栅格图(`composerImagePresentation.js::isRasterImageMimeType`,不含 SVG)的 File 直接交给 `onMediaFiles` 上传;原生 `materialize_context_items` 对 ≤25 MiB 的栅格图带回字节(超限 / 读失败退回路径,添加不报错),前端经 `nativePickedFileToFile` 还原成带来源路径标记的 File;普通文件与文件夹仍是 `@路径`。对话记录里 `Message.jsx` 的用户气泡把图片部件交给上方 `AttachmentStrip` 渲染缩略图,不进正文的文件名按钮分支(与输入框的图片条对称;只有图片时不画空气泡)。回归:`composerFileIntake.test.js` 的栅格图一组、`composerMessageRendering.test.js`、`tests/desktop/context_items_test.cpp::RasterImagesCarrySnapshotBytes`。
-
-### Web UI: 输入框光标与 Slate 选区同步
-
-用户反馈:光标在行首,中文却打在行末,切换会话后恢复。Chrome 下输入法在 DOM 光标处合成,Slate 却在 compositionend 把文字插到 `editor.selection`;而 Slate 只在节流的 selectionchange 里把 DOM 光标写回选区,并在它认为「拖拽中 / 正在写选区 / 合成中」时整段跳过 —— 拖拽标记残留(dragstart 后没等到 dragend/drop)就会让选区永久过期,直到输入框重新挂载。`RichComposer` 因此在 `compositionstart` 与普通 `keydown` 消费选区前调 `adoptDomSelection`(判定在 `lib/composerDomSelection.js`),Slate 还有未渲染的改动时不采纳:`editor.onChange` 包装置位、`<ComposerRenderSentinel>`(与 Editable 同一次提交的 layout effect)清除,否则会用旧 DOM 撤销刚做的程序化选区。回归:`composerDomSelection.test.js`、`richComposerKeyboard.test.js` 的采纳用例。
-
-### 其它反馈修复备忘(fix-feedback-0924)
-
-- **429 硬配额**:message 明确说额度 / 余额用完(`quota exhausted`、`exceeded your current quota`、余额不足…)也按硬配额,不再重试;按分钟的配额与普通限流仍重试(`retry_policy.cpp::is_hard_quota_message`)。
-- **上下文超限识别**补了 LiteLLM/vLLM 的 `ContextWindowExceededError ... longer than the model's context length`;压缩连续超限时前 3 次各删一条,之后每次至少删约 1/4 估算 token。只有图片的 user 消息压缩后保留占位文字,不留空内容(部分服务端 400)。
-- **搜索索引签名**:JSONL 的非搜索追加(检查点、净差异、压缩检查点)一律走 `SessionManager::append_non_searchable_locked`,否则下一条消息落盘时索引判定过期、在会话锁里整份重读重建(长会话发消息越来越慢)。
-- **侧栏补位**:`reconcileSidebarSessions` 里「上一轮没见过」的会话只有比同工作区已显示的都新才置顶,归档后补进来的旧会话按时间插回。
-- macOS 自更新的安装位置检查提前到拉清单之前;cmd 指引点明同一行 `set` 的变量取不到、未定义 `%VAR%` 原样留成文字(用户项目里出现 `%T%` 目录)。
-
-### Web UI: HTTP / WS 协议增量
-
-`add-web-chat-ui` change 在 `add-web-daemon` 的 14 条 Requirement 之上扩 9 项;`enhance-webui-chat-rendering` 又扩 1 个端点 + 协议字段;`add-webui-side-panel` 加 2 个文件浏览端点:
-
-| 端点 / 消息 | 用途 |
-|---|---|
-| WS `question_request` / `question_answer` | AskUserQuestion 工具的双向异步通道(`AskUserQuestionPrompter` + 5min 超时 + abort_flag 50ms 轮询,模式同 `AsyncPrompter`) |
-| `tool_start` / `tool_update` / `tool_end` payload 字段扩充 | `display_override`(`ToolExecutor::build_tool_call_preview`) / `is_task_complete` / `tail_lines:[5 lines]` / `current_partial` / `total_lines` / `total_bytes` / `elapsed_seconds` / `summary{icon,verb,object,metrics}` / `success` / `output`(失败前 N 行) / `hunks[]`(file_edit/file_write 的 diff,前端走 diff2html 渲染) — 实现:`src/engine/agent/event_payload/tool_event_payload.{hpp,cpp}` 把序列化收口 |
-| `message` payload(WS + REST `GET /api/sessions/:id/messages`) 扩 `id` 字段 | user 消息走持久化 UUID(`ensure_user_message_identity`);assistant/system/tool 走 lazy `sha1(role + " " + content + " " + timestamp)` 小写 hex(实现:`src/engine/agent/event_payload/message_payload.{hpp,cpp}` + `src/base/utils/sha1.hpp`)。前端用这个 id 做 fork |
-| `POST /api/sessions/:id/fork` body `{at_message_id, title?}` → `{session_id, title, forked_from, fork_message_id}` | 把 source session 截止到 at_message_id(含此条)的前缀复制到新 session;源不动;新 session 不自动启 turn。命名 `分叉<N>:<原标题>`(N=同源 sibling+1,原标题截 50 codepoint)。继承 cwd/provider/model,**不**继承 file_checkpoints。实现:`src/apps/web/handlers/fork_handler.{hpp,cpp}`(纯函数 compute_fork_title + find_message_index_by_id) + `SessionManager::fork_session_to_new_id` |
-| `GET /api/models` / `POST /api/sessions/:id/model` / `POST /api/sessions/:id/model/reload` | 模型下拉:`saved_models`;每个 session 自带独立 `SessionModelBinding`,显式切换与按需重载共用同一 install/revalidation 路径;`apply_model_to_session`(`src/host/session_host/apply_model_to_session.{hpp,cpp}`)仅保留为兼容适配器— TUI 与 daemon 共用同一生命周期实现 |
-| `POST` `/api/models` body `SavedModelDraft` / `PUT /api/models/<name>` / `DELETE /api/models/<name>` / `POST /api/config/default-model` body `{name}` | saved_models 增删改 + 默认设置。失败时 cfg 内存与磁盘保持原子(handler 持快照,save_config 抛异常即回滚)。响应永不携带 api_key 字段 |
-| `GET /api/history?cwd=&max=` / `POST /api/history` | per-cwd 输入历史,与 TUI 共享同一份 `<cwd_hash>/input_history.jsonl`,经 `InputHistoryStore::append` atomic rename |
-| `PUT /api/skills/:name` body `{enabled}` / `GET /api/skills/:name/body` | 启停切换 + 查看 SKILL.md;PUT 写 `cfg.skills.disabled` 数组并 `save_config` + `SkillRegistry::reload` |
-| `GET /api/files?cwd=&path=&show_hidden=` → `[{name,path,kind,size?,modified_ms?}]` | SidePanel 文件 tab 的 lazy 文件树。`cwd` 必须 ∈ `{deps.cwd}` 白名单;`path` 走 `weakly_canonical(cwd/path)` + prefix 检查防越权。硬编码 noise 黑名单(.git/node_modules/dist/build/__pycache__/.venv/venv/target/.next/.cache)始终过滤。隐藏文件(dot 开头)默认过滤,`show_hidden=1` 透出 |
-| `GET /api/files/content?cwd=&path=` → `text/plain; charset=utf-8` body | SidePanel 预览 tab 读文件原文。> 5MB → 415 `{error:"file too large",size:N}`;前 512 字节出现 `\0` → 415 `{error:"binary"}`;不存在 → 404。实现:`src/base/workspace/files_handler.{hpp,cpp}`(D21 从 web 移出,纯函数,17 个 unit test 覆盖路径越权 / 噪音过滤 / 排序 / 二进制嗅探) |
-| `GET /api/commands?workspace=<hash>` → `{builtins:[{name,description}][, skills:[{name,description}]]}` | InputBar 斜杠下拉的命令清单。builtins **硬编码白名单 = init + compact**(描述与 TUI `register_builtin_commands` / `register_init_command` 对齐)。**`workspace` 参数(由 `expand-webui-skill-commands` 引入)**:缺省 → 不返回 `skills` 字段(向后兼容旧客户端);提供 → handler 用 `acecode::initialize_skill_registry(tmp, *cfg, workspace_cwd)` 临时构造一个 SkillRegistry 扫该 workspace 的项目链(`.agent/skills`、`.acecode/skills` + 全局 + external_dirs),与 daemon 全局 SkillRegistry 合并(workspace local 优先,first-wins by name),按字典序输出 skills 字段。`/init` `/compact` 在 web 端选中后只插入输入框 + chip 高亮,daemon 端**不**做特殊执行(原 add-webui-slash-commands 决策);`/<skill-name> args` 由下面新加的 expander 真展开。实现:`src/apps/web/handlers/commands_handler.{hpp,cpp}`(纯函数 `build_commands_payload` + gtest case)|
-| `POST /api/sessions/:id/messages`(行为扩展) | `expand-webui-skill-commands` 引入:在 `send_input` 之前调 `try_expand_skill_command(text, registry)`(`src/domain/skills/skill_command_expander.{hpp,cpp}`)。命中已知 skill 名(按 session 的 workspace cwd 临时 scan)→ text 被替换为 `build_skill_invocation_hint(meta, args)` 的**轻量提示**:`[SYSTEM: User invoked /<name> skill] + Description + Use skill_view(name=...) to load full SKILL.md + User's request: <args>`。**不**注入 SKILL.md body / supporting_files,LLM 第一次看到提示后主动 invoke `skill_view` tool 把 SKILL.md 拉一次进 context,后续重复同名 `/skill` 调用不再注入(避免 context 膨胀)。TUI `src/apps/tui/commands/skill_commands.cpp::cmd.execute` 也走同一个 `build_skill_invocation_hint`,跨端行为统一。Builtin (`/init`/`/compact`) 不在 SkillRegistry 中 → 透传走普通 user message;未知命令 (`/foobar`) 同样透传。**不**新增执行端点,**不**改 AgentLoop API |
-| `POST /api/open-in-explorer` body `{path}` → `{ok:true}` / 400 `{ok:false,error}` / 501 | webapp 兼容模式(Edge --app,无 webview bridge)右键菜单「在资源管理器中打开」的 REST 通路。门控 = `WebServerDeps.open_in_explorer` 回调是否注入(worker.cpp 仅在 `native_folder_picker_enabled` 时填,复用 `desktop::open_path_in_file_manager`:接受任意现存本地绝对普通文件或目录,不做 workspace/managed-root 边界判断)。Windows 文件用 Explorer `/select` 选中,目录保持直接打开。前端 `DesktopContextMenu::openTargetInExplorer` bridge 优先、REST 兜底 |
-| `GET /api/fs/roots` → `{host, os, home, roots[{path,label,drive_type,total_bytes?,free_bytes?}], quick[{kind,path}], workspaces[{hash,name,path}]}` / `GET /api/fs/list?path=<abs>&show_hidden=1` → `{path, parent, truncated, entries[{name,path,kind,hidden,size?,modified_ms?,link_target?}]}` | Web「选择文件 / 文件夹」弹窗(`add-web-path-picker`)的服务端目录浏览器:**已鉴权即可只读浏览 daemon 全盘**,不走 `/api/files` 的 workspace 白名单,噪音目录不过滤,junction 照常列出并附 `link_target`;路径只做词法归一**不 canonical**(经 `C:\Users\shao` junction 进入返回的仍是 `C:/...`,与原生对话框一致,否则同一目录会注册出两个 workspace hash);5000 条上限置 `truncated`;`ec.message()` 在中文 Windows 是 GBK,入 JSON 前必须 `ensure_utf8`,否则 dump 抛异常整个请求变裸 500。触发策略:有 Desktop bridge 走原生对话框,没有(普通浏览器 / Edge --app 兼容模式 / 远程 Web)一律 web 弹窗,不再调用 daemon 的原生 REST 对话框(那会在 daemon 所在机器桌面弹框并把请求挂死)。实现:`src/apps/web/handlers/fs_browser_handler.{hpp,cpp}` 纯函数 + `routes_fs.cpp`;前端 `lib/pathPicker.js`(纯逻辑)+ `lib/pathPickerHost.js`(Promise 形态的单实例请求)+ `components/PathPickerModal.jsx` / `PathPickerHost.jsx`(App 顶层挂载),三处接入点 `lib/workspacePicker.js` / `lib/environmentSettings.js::pickEnvironmentPath` / `lib/desktopPreviewFilePicker.js::pickPreviewFile` |
-
-`SessionMeta` 增加 `forked_from` / `fork_message_id` 字段(空时省略,老 meta 文件向后兼容)。Web 上每条消息 hover 浮出 `[复制] [分叉]` actions(codex 风格);分叉成功后立刻切到新 session(同 sidebar)。
-
-handler 实现在 `src/apps/web/handlers/{fork,models,history,skills}_handler.{hpp,cpp}` 与 `src/base/workspace/files_handler.{hpp,cpp}`(纯函数,有 unit test),路由注册在 `src/apps/web/server.cpp`。`/static/<...>` + `/` + SPA fallback 用 `CROW_CATCHALL_ROUTE` 一举处理(Crow 1.3.2 的 `<path>` 模板路由有兼容性问题)。
-
-**SidePanel 「变更」tab**(redesign-sidepanel-git-changes):会话 cwd 是 git 仓库时整体切换为 **git 级视图**——`GET /api/git/changes`(numstat + name-status 按路径 join,200 条 cap + truncated 标记)列文件,单文件 diff 点击才拉(`GET /api/git/diff`,1MB cap,untracked 用 `--no-index` 合成新增 patch,diff2html 行内渲染),头部 `<branch> → <base ▾>` 只切比较基线不做 checkout(候选 = origin/<默认分支>(默认)+ HEAD)。前端缓存收口在 `web/src/lib/gitChanges.js`((cwd,base) 键 + 单文件 patch LRU 20;失效 = 回合结束 / `acecode:git-state-changed` 事件(GitSessionPill checkout 成功后广播)/ 手动刷新 / 可见且 30s 过期;面板隐藏只标脏不请求)。bash/sed/外部 IDE 的改动在 git 视图天然可见——旧「hunks 聚合抓不到 bash 改动」的 limitation 只剩**非 git 项目**(该场景保留原会话级 `lib/sessionChanges.js` 聚合视图,不变)。
-
-**`/api/git/info` 必须走共享缓存 `web/src/lib/gitInfoCache.js`(按有效 daemon origin/token 分区,每区按 cwd 保留 30s TTL + 在途去重),别再各建一份。** 该端点在 daemon 侧一次要 spawn 5~7 个 git 子进程(`rev-parse` / `symbolic-ref` / `show-ref`×N / `for-each-ref` / `status --porcelain`),Windows 上光进程启动就上百毫秒。同一连接下的三个消费方(GitSessionPill、Sidebar hover 卡片、SidePanel)共用 cwd 时命中率极高,不同端口/token 绝不能串缓存。**GitSessionPill 还有一条额外短路**:它在 ChatView 上的 key 含 sid,每次切会话整组件重挂,bar 变体在「transcript 尚未加载 / 会话已开始 / 已在 worktree」时都不能请求 —— 必须用 `pillCouldRender` 在**发请求之前**短路,否则 transcript 加载时短暂清空仍会让已有会话白打一次 git.exe ×6(feedback IQSZ-D0668:用户在会话间切换时 Fiddler 里 `/api/git/info` 高频且经常挂起)。注意 `GIT_STATE_CHANGED_EVENT` 目前**只有监听方没有发送方**(pill 的主仓 checkout 能力移除后遗留),重新接回 checkout 时需一并恢复广播。
-
-**git 感知三件套**(add-git-context / add-webui-git-session-pill / redesign-sidepanel-git-changes,只抄 Claude Code 不抄 codex):`src/domain/gitinfo/` 分 `git_context_core`(纯文本逻辑:快照拼装、2000 字符 UTF-8 截断、ref 名白名单 `is_safe_ref_name`——`.git` 文件内容可被篡改,进 prompt/REST/git argv 前必须过)+ `git_context_collector`(子进程,经 `worktree::run_git` 复用 GIT_TERMINAL_PROMPT=0,全部显式超时 `config.git_context.timeout_ms` 默认 3000ms clamp [500,30000],status/log 带 `--no-optional-locks` 不抢 IDE 的 index 锁)。三个表面:(1) gitStatus 快照按会话缓存在 `AgentLoop::git_snapshot_cache_`,首个请求惰性采集注入 session-context(`build_git_status_context_prompt`),`set_cwd`(worktree 进出)重置、`invalidate_git_snapshot()`(checkout 后,atomic 标记跨线程安全)标脏;失败/非仓库/disabled 整块静默不注入;system prompt env 段有 `Is directory a git repo: Yes|No` 行。(2) 新会话 pill(`web/src/components/GitSessionPill.jsx` + `lib/gitSessionPill.js` 纯逻辑):hero 视图与 InputBar 上方两处,分支下拉直接 checkout(409 dirty 往返弹 stash 确认,`stash push --include-untracked`;409 busy = workspace 有会话在跑,`SessionRegistry::any_busy_in_cwd` 门在任何 git 副作用之前),勾 worktree 后下拉变基线选择、首条消息经 `POST messages` 的 `worktree:{create,base}` 字段创建(`SessionRegistry::enter_worktree_for_web`,slug=`ses-<完整会话id>`(前 8 位是日期会同日撞名),复用 worktree_manager,会话存储不动;已有消息 400 拒)。(3) 变更面板见上段。REST:`/api/git/{info,checkout,changes,diff}`(`src/apps/web/handlers/git_handler.cpp` 纯函数 + `routes_git.cpp`,cwd 白名单同 files_handler)。测试:`tests/gitinfo/`(纯逻辑 + 真实 git fixture)+ `tests/prompt/git_status_prompt_test.cpp` + 前端 `gitSessionPill/gitChanges.test.js`。
-
-### Desktop shell + multi-workspace
-
-`acecode-desktop.exe`(`-DACECODE_BUILD_DESKTOP=ON` 编出)是个 webview/webview 壳,默认管 N 个 daemon 子进程 — 每 workspace 一个独立 daemon(独立 loopback 端口 + 独立 token + 独立 Job Object)。daemon 内部代码零改动:每个 daemon 进程仍只服务自己的 `current_path()`,通过 `lpCurrentDirectory` 在 `CreateProcess` 时落地。
-
-关键模块(除注明外全在 `src/apps/desktop/`;refactor20260927 P2-03 起 locale、folder_picker / context_picker / open_in_explorer / notifications* / custom_toast* / strings 下沉到 `src/base/platform/` 与 `src/base/platform/native_ui/`):
-- `workspace_registry.{hpp,cpp}`(已移到 `src/base/workspace/`,refactor20260927 P2-04)— 扫 `.acecode/projects/<hash>/workspace.json`(`{cwd, name}`),默认命名 = `fs::path(cwd).filename()`,行内重命名走 `set_name` 原子写。
-- `daemon_pool.{hpp,cpp}` — `unordered_map<hash, Slot>`,per-key condvar 串行化同 hash 并发 activate;`stop_all` best-effort。`IDaemonSupervisor` 虚基类便于单测 mock。
-- `pick_active.{hpp,cpp}` — 启动选 active workspace 的纯函数:`state.json::last_active_workspace_hash` → process cwd 的 hash → registry 第一项 → 空。
-- `platform/native_ui/folder_picker_win.cpp` — `IFileOpenDialog` + `FOS_PICKFOLDERS`,COM STA。
-- `web_host.{hpp,cpp}` — webview 包装,暴露 `bind/eval/init_script/native_window`,debug=true 默认开 F12 DevTools。
-- `tray_icon_win.{hpp,cpp}` / `platform/native_ui/notifications{.hpp,_win.cpp}` / `tray_menu_layout.hpp` — 系统托盘 + OS 气泡通知。tray 注册 hidden **真实顶层** window(WS_POPUP+WS_EX_TOOLWINDOW,无 WS_VISIBLE;**不能用 HWND_MESSAGE** —— message-only 窗口没有前台资格,SetForegroundWindow 静默失败,TrackPopupMenu 菜单会被置顶任务栏挡住且 click-away 不消失;KB135788 配方 = SetForegroundWindow 前置 + 菜单后 PostMessage(WM_NULL)),WndProc 接 `Shell_NotifyIcon` 回调消息(`NIN_BALLOONUSERCLICK` / `WM_LBUTTONUP` / `WM_LBUTTONDBLCLK` / `WM_RBUTTONUP`);通知用 `Shell_NotifyIconW(NIM_MODIFY, NIF_INFO)` piggyback 在同一图标上。`init_tray_icon` → `init_notifications(tray_hwnd)`,顺序不能反。V1 仅气泡,V2 计划接 WinRT ToastNotificationManager(需 AUMID + 开始菜单 .lnk + cppwinrt)。托盘图标走 `LoadImageW(IMAGE_ICON, SM_CXSMICON, SM_CYSMICON)` 直接挑 .ico 内 16×16 frame(`enhance-desktop-tray-menu`)。右键菜单走 Codex 风格(Pinned / Recent + More 子菜单 / 新建会话 / 打开 ACECode / 退出),layout 由 `tray_menu_layout.hpp::compute_menu_layout(payload)` 纯函数算 ID 编码 — 1..49 固定项 / 100..199 pinned / 200..299 recent 顶层 / 300..399 More 子菜单。
-- 关窗(× / Alt+F4 / `aceDesktop_closeWindow`)默认隐藏到托盘(`config.desktop.close_to_tray`,默认 true);设为 false 回到旧的关窗即退出。真正退出走托盘 "退出" 菜单 → `WebHost::request_quit()` 派 `WM_USER+0x10` 绕过 close_request_handler;`web_host_close_policy.hpp` 的 `dispatch_wm_close` / `dispatch_request_quit` 是纯函数,unit test 可覆盖派发不变量。
-- 全局单例(per-user):`single_instance.{hpp,cpp,_win.cpp,_posix.cpp}`。`wWinMain` 第一件事 `SingleInstance::try_acquire()`,失败 → `focus_existing_instance()` 拉前已有窗口再 exit(0)。Windows 走 `CreateMutexW(L"Local\\ACECode-Desktop-Singleton-v1")` + `RegisterWindowMessageW(L"ACECode_FocusExistingInstance_v1")` + `PostMessageW`,host_window_proc 收到该 msg 时 `ShowWindow + SetForegroundWindow`。POSIX 端 `flock` 在 `~/.acecode/run/acecode-desktop.lock` 拿独占锁(Linux/macOS 桌面壳落地时复用);窗口拉前在 POSIX 上 v1 stub 返 false,等 D-Bus / NSDistributedNotificationCenter 接入再补。
-- `main.cpp::wWinMain` — 串起所有,quit 时写 `last_active_workspace_hash` + `pool.stop_all()` + `shutdown_notifications()` + `shutdown_tray_icon()`。
-
-**Ctrl+滚轮页面缩放(Windows)。** 只有一条路径:`browserDefaults` 在 window **冒泡**阶段拦下没被预览控件消费的 Ctrl+滚轮(图片 / 文档 / 代码预览自己 `preventDefault` + `stopPropagation`,放在捕获阶段会把它们一起拦掉),交给 `desktopZoom.js` 按固定档位(50%–300%)换算,经 `aceDesktop_zoomFactor`(`[]` 查询、`[factor]` 设置)由 `DesktopZoom`(`desktop_zoom.cpp`)调 `WebHost::set_zoom_factor` → WebView2 控制器 `ZoomFactor`,同时弹 `DesktopZoomIndicator` 比例浮层(1.5 秒后消失,悬停保持,带重置)。WebView2 自己的 `IsZoomControlEnabled` 保持 FALSE —— 打开后 iframe 里的 Ctrl+滚轮会绕过前端,浮层比例对不上;程序设置的 `ZoomFactor` 不受它影响,重新加载页面也保留。不用 CSS `zoom`:`100vh` 等布局会溢出。比例退出时写 state.json `desktop_zoom_factor`,启动在页面加载前套用。Ctrl+= / Ctrl+- 键盘缩放没做:Ctrl+- 是「前进」快捷键。macOS / Linux 的 `set_zoom_factor` 返回 false,前端据此不显示浮层。
-
-**主窗口位置跨启动记忆。** Windows:退出时 `host_window_proc` 的 WM_DESTROY 经 `capture_window_bounds`(`window_placement_win.cpp`)抓窗口外框、所在显示器 DPI 与是否最大化,`host.run()` 返回后 main 写进 state.json 的 `desktop_window`(`window_bounds_state.cpp`,坏数据读成空);下次启动在首次 `set_visible(true)` 时由 `place_saved_desktop_window`(`window_size.hpp`,纯函数有单测)决定:去掉左/右/下隐形缩放边后完整落在某个显示器工作区内且 DPI 没变 → 原样恢复,否则把保存的尺寸按 DPI 换算后走原来的「收进安全工作区 + 在启动显示器居中」。几条别改回去的:离屏启动阶段(首次显示之前)退出不记;普通状态取 `GetWindowRect`(贴边分屏后 `rcNormalPosition` 是旧值),最大化 / 最小化才取 `rcNormalPosition` 并从工作区坐标换回屏幕坐标;保存值一律是普通边框口径,切角主题下保存时补回、恢复时收掉隐形缩放边,否则每次启动可见窗口大一圈;跨 DPI 移动后 WM_DPICHANGED 会改尺寸,所以 `SetWindowPos` 落位后再设一次。macOS / Linux 存逻辑单位(点 / GTK 逻辑像素),dpi 恒为 `kLogicalDesktopWindowDpi`(96),坐标统一换成左上原点,判定共用 `place_saved_logical_desktop_window`(按重叠面积选显示器,不可见就沿用尺寸居中),state.json 格式不变。macOS(`window_placement_mac.cpp`,与 web_host.cpp 同为 MRC 的 Objective-C++):`set_size` 已把窗口居中显示,所以 `restore_window_bounds` 当场摆放(必须在 `set_size` 之后调用),回退时只用尺寸、位置仍交给 `[window center]`;AppKit frame 是主屏左下原点,按主屏 maxY 翻转。缩放(zoom)后 frame 是铺满屏的样子,所以缩放、隐藏到托盘、将关闭 / 将全屏 / 将最小化时先 `remember()`,退出时窗口不可见就用最后记下的值;NSWindow 关闭即释放,记忆对象 retain 住它;Dock「退出」/ 注销走 `[NSApp terminate:]` 不回到 main,由 WillTerminate 观察者直接写 state.json。Linux(`linux_desktop.cpp`):首次 `set_visible(true)` 摆放并开始记,configure / window-state 事件合并到空闲时采样,最大化 / 全屏 / 最小化 / 隐藏期间不更新普通状态(恢复时先用摆放结果填上,否则一直最大化到退出什么也记不下);只有 X11(含 XWayland)恢复位置,Wayland 只恢复尺寸并居中。`gtk_window_move` 的口径因窗口管理器而异:按 ICCCM 是框架左上角(`gtk_window_get_position`),WSLg 的 Weston XWM 却把客户区放在那里、框架另带 (38,59) 的阴影偏移,直接拿 `get_position` 存会每次启动往左上漂;所以首次摆放后看框架和客户区原点哪个等于请求位置,之后按同一口径记,摆放生效前不采样。纯逻辑单测在 `window_size_test.cpp`;Linux 部分在 WSLg 下 X11 / Wayland 实测过,macOS 部分尚未在 Mac 上编译。
-
-**Win10 顶边 1px 边框线是宿主窗口自己画的。** Win10 的窗口边框由系统画在四周缩放边(非客户区)上,而无标题栏窗口的顶边非客户区必须为 0(`frameless_nc_calc`,否则系统画回原生标题栏),所以 Win10 顶上那根线系统不画;Win11 的边框整圈叠加绘制,不受影响。Win10(10240 ≤ build < 22000)且非最大化时,`resize_webview_widget` 把 `webview_widget` 下移 floor(系统 DPI/96) 像素,宿主 WM_PAINT 在露出的这一行按 Chromium `BrowserFrameViewWin` 同款配色画线(激活 #262626@0xA8、失焦 #555555@0x80,叠在前端推来的 --ace-bg 上;开了「在标题栏和窗口边框上显示主题色」时用 DWM `ColorizationColor` 与 #D9D9D9 按 `ColorizationColorBalance` 混合),激活态跟 WM_NCACTIVATE 走。纯逻辑在 `window_chrome.cpp`(单测 `DesktopWindowChromeTopBorder.*`)。别改成 `DwmExtendFrameIntoClientArea` 让系统画 —— Win10 上那会让四边边框在激活时变白(microsoft/terminal#4577);也别画在网页里(页面拿不到激活态,非整数缩放下 CSS 1px 不是 1 个物理像素,VS Code 因此在 Windows 上停用了 CSS 窗口边框)。连带约束:按网页坐标摆放的原生子窗口要加 `webview_widget` 的原点偏移(Agent Browser `apply_bounds` 已处理);host_window_proc 的 WM_SIZE 必须先跑原窗口过程再摆 widget,降级路径里 webview 库自己的 WM_SIZE 会把它拉回满铺。
-
-JS↔C++ bridge(同进程,webview `bind`,无 HTTP):
-- `aceDesktop_listWorkspaces()` → `[{hash, cwd, name, daemon_state, active, port?, token?}]`
-- `aceDesktop_activateWorkspace(hash)` → `{port, token}` 或 `{error}`
-- `aceDesktop_renameWorkspace(hash, name)` → `{ok}` 或 `{error}`
-- `aceDesktop_addWorkspace()` → `{hash, cwd, name}` 或 `null`(取消)
-- `aceDesktop_pickFolder()` → `{ok, cancelled, path?}` —「编辑项目」的「添加文件夹」,只返回目录不注册项目
-- `aceDesktop_notify({id, workspace_hash, session_id, title, body})` → `{ok}` — 投递 OS 系统通知(`add-desktop-attention-notifications`),前端在 `sessionTranscript.js` 命中 `question_request` / busy→idle+回合有 assistant 输出 时调用;前端 `lib/desktopNotify.js::shouldSuppress` 已根据 `health.notifications` cfg + `document.hasFocus()` + 当前 active session 做抑制规则,native 端不二次过滤。
-- `aceDesktop_focusSession({workspace_hash, session_id})` → `{ok}` — 把窗口拉前 + 切 session。toast 点击在 native click_handler 里走相同路径(`SetForegroundWindow + ShowWindow(SW_RESTORE)` + `webview.eval` 调 `window.aceDesktop_focusSessionFromBridge` / `window.aceDesktop_activateAndOpenSession`,后两个由 `App.jsx` mount 时注册到 window)。
-- `aceDesktop_setTrayMenu({workspace_name, pinned[], recent[]})` → `{ok}` — 前端推送 active workspace 的会话清单给 native 缓存,native 在右键托盘时渲染 Codex 风格菜单。前端 `lib/desktopTrayMenu.js::pushTrayMenu` 100ms debounce 入口,Sidebar.jsx 在 sessions / pinned / workspaceName 变化时调用;`activateWorkspace` bridge 内 navigate 之前 native 主动 `clear_tray_menu_payload()` 防残留。无 bridge 时 no-op(浏览器直连模式)。
-- `aceDesktop_setWindowShape({shape:"chamfer"|"none", glow?:"#rrggbb"})` → `{ok}` — 主题异形窗口,主题包声明 `"window":{"shape":"chamfer"}` 时切角、其它主题 none(`lib/desktopWindowShape.js`,相同请求去重;每个页面第一次推送一定过桥,普通主题因此每页最多发一次 none —— 整页切换工作区 / 重载后桌面壳还留着上一页的切角,none 对矩形窗口是空操作),见 HUD 主题一节的「异形窗口」。只实现了 Windows,其它平台 ok:false。
-- `aceDesktop_setWindowBackgroundColor("#rrggbb")` → `{ok}` — 窗口打底色跟随主题(webview resize 黑边治理):native 把 host/`webview_widget` 两层窗口类背景刷 + WebView2 `DefaultBackgroundColor` 一起换,快速拖大窗口时新暴露区域不再闪黑(浅色)/闪白(暗色)。启动静态打底 = `WEBVIEW2_DEFAULT_BACKGROUND_COLOR` 环境变量(必须 FF 前缀 8 位 hex,官方文档:仅属性设置在首帧前仍闪白)+ 注册窗口类时的默认刷(#f5f5f2 = 浅色 `--ace-bg`,纯逻辑在 `src/apps/desktop/window_background.{hpp,cpp}`);前端 `theme.jsx` 的 data-theme effect 经 `lib/desktopWindowBackground.js::pushWindowBackgroundColor` 读 `--ace-bg` computed 值推送(CSS 是颜色单一事实源)。native 端哨兵解析只收 `#RRGGBB`,非法/非 Windows 返回 ok:false 前端静默吞。
-- `window.aceDesktop_createNewSession()` — App.jsx 注册的全局函数(非 bind),托盘菜单"新建会话"通过 `host.eval()` 调用,等价于 TopBar 的 onNewSession 路径。
-
-桌面通知抑制规则(`config.desktop.notifications`,默认四个 bool 均 true):`enabled` 总开关 / `on_question` AskUserQuestion 触发 / `on_completion` 回合完成触发 / `suppress_when_focused` 当前 session 已可见且窗口聚焦时跳过(避免对正盯屏的用户重复打扰)。配置经 `/api/health` 透传给前端(`health.notifications`),`lib/desktopNotify.js::maybeNotify` 一站式构造 payload + 抑制 + 投递。**多 workspace v1 限制**:webview 只连 active workspace 的 daemon,后台 workspace 的事件感知不到;v2 future work。
-
-切换 workspace 走**整页 navigate**(对设计稿 D6"无重载切换"的合理偏离):跨 loopback 端口 fetch 受 CORS 拦截,整页 navigate 让 origin 跟着切。代价是滚动 / 弹窗状态丢失,但 input box 清空 / 消息列表替换符合 spec。后续若加 `Access-Control-Allow-Origin: http://127.0.0.1:*` 可恢复无重载。
-
-**webapp 兼容模式**(WebView2 不可用或 `--webapp`):`main.cpp::run_browser_fallback` 用外部浏览器打开 `<url>?ace_webapp=1` —— Edge `--app`(`launch_edge_app`)优先,失败退到系统默认浏览器(`open_external_url`)。**关键**:不再用 `WaitForSingleObject(msedge)` 当生命周期(Chromium single-instance 转交会让被等的进程瞬间退出 → daemon 被 `stop_all` 提前杀 → Edge 窗口连不上 → 白屏)。改为托盘 + Win32 消息循环托住进程,daemon 全程存活;Edge `--app` 这条额外挂 watcher 线程(`WaitForMultipleObjects(msedge, stop_event)`)实现关窗即退出。`launch_edge_app` 每次启动用一个 PID 唯一的干净 `edge-app-profile/u<pid>` 子目录(开机清旧的)杜绝转交 —— 代价是该兜底路径下 Edge profile 的 localStorage(主题/布局偏好)不跨启动持久。前端 `lib/desktopShellMode.js` 在 mount 前把该参数固化到 sessionStorage(`ace.webappCompat`,App 内多处 replaceState 会抹 query,只靠 URL 会丢)并设 `window.__ACECODE_WEBAPP_COMPAT__`;`DesktopContextMenu` 的门控 = `isDesktopShell() || isWebappCompat()`,即兼容模式照常出自定义右键菜单(普通浏览器直连仍保留原生右键)。bridge 依赖项的降级:「在资源管理器中打开/显示」走 `POST /api/open-in-explorer` REST 兜底;剪贴板走 `navigator.clipboard`(loopback 是 secure context);「检查」(DevTools) 仅 debug 且兼容模式不可用。选目录对话框由 daemon 进程弹出(无前台权),`platform/native_ui/folder_picker_win.cpp` 用 owner=GetForegroundWindow + #32770/pid 匹配的 TOPMOST 脉冲 + AttachThreadInput 组合置前;mac 在 runModal 前升 activation policy 到 Accessory + activate + NSModalPanelWindowLevel;Linux zenity/kdialog 受 WM 焦点防抢限制,无可靠通用解(future: xdg-desktop-portal FileChooser)。
-
-设计文档:`docs/desktop-shell/design.md` + `docs/desktop-shell/multi-workspace.md`,change:`openspec/changes/add-desktop-multi-workspace/`。
-
-### Desktop 挂机内存:渲染进程 OOM 的三层处理(2026-10-19)
-
-用户反馈:挂机一两天后解锁屏幕,Desktop 停在 WebView2 的「内存不足」错误页,只能手动刷新。本机现场:主 WebView 渲染进程 10 小时涨到 3.3 GB(上限约 4 GB),CPU 几乎为 0。CDP 堆快照比对(无头 Edge 连同一 daemon,隔几分钟两次快照,看新增且 GC 后仍存活的对象到 GC root 的路径)定位到:
-
-- **主因 —— 侧栏空闲渲染 + 闭包链。** 侧栏 5 秒刷新即使数据没变也把新的 Map / Set / 数组写回状态,每轮渲染好几次;`Sidebar` 里几十个依赖各异的 `useCallback` 在不同渲染里交替重建,V8 让同一次渲染的闭包共享一个作用域,旧回调就把旧渲染的整个作用域(含当时的会话列表)留住,一份接一份连成链 —— 快照里 27 分钟存活了 450 份侧栏作用域,空闲首页每次渲染约留 70 KB。修法是刷新路径上的状态一律「内容没变就不调用 setState」(`lib/structuralState.js`:`useStructuralState` 的 setter 自持最新值 ref;带 ref 同步的 setter 经 `commitIfChanged(ref, setState, updater)`,前提是该状态的每个写入方都同步 ref),空闲时不渲染,链条不再增长。**只在 updater 里返回旧值不够**:React 18 对结果与旧值相同的更新会提前放弃渲染,但 update 对象(连同 updater 闭包捕获的数据)仍挂在 hook 队列里,直到该组件下次渲染才清掉 —— 第一版修复就这样把泄漏换成了队列增长(打开会话的页面约 0.24 MB/分钟,三方 A/B 才看出来)。**别把这些状态改回普通 `useState`、在 setter 里无条件 `new Map(prev)` 或写成 `changed ? next : prev`**;`sidebarWorkspaceRefresh.test.js` 的空闲刷新零写入用例与声明检查守着。活跃使用时(会话状态、标题真有变化)侧栏照样渲染,所以链条本身也断掉了:依赖会变的状态或 props 的 13 个回调改用 `lib/useStableCallback.js`(包装函数只捕获 ref,身份永不变,ref 在 insertion effect 里更新到最新实现),剩下的 `useCallback` 只依赖 setter / ref / 其它稳定回调。对照实测(隔离 daemon,交替「改工作区名 + 切换未读」6 分钟 60 次):改造前侧栏作用域存活 29 份并持续接链,改造后不再接链。`ChatView`(100 个)与 `App`(34 个)按同一规则改造 —— 交替「切换会话 + 切换未读」8 分钟 160 次,改造前 ChatView 作用域存活 262 份、App 176 份;改造后 ChatView 17 份、App 不再接链,操作翻倍到 320 次也只到 21 份(剩下的来自下面保留的 10 个回调)。此时快照比对里的新增存活主要是 V8 JIT 代码与当前界面树,对象总数反而下降。**在 Sidebar / ChatView / App 里不要再写 `useCallback(fn, [会变的状态或 props])`**,`stableCallbacksArchitecture.test.js` 解析三个组件并列出违规回调。`useStableCallback` 的三条边界,改造前用 Babel 逐个核对过:(1) 不能用于渲染期间调用、或交给 React hook 在渲染里调用的函数(`useSyncExternalStore` 的 subscribe / getSnapshot、App 交给 `usePreviewPresentation` / `useRef` 的两个);(2) 依赖数组里列了被改造回调的 effect,原先靠回调身份变化隐式重跑,要把真正要跟随的值显式补进去(ChatView 的聚焦 effect 补 `questionRequest`、排队出队 effect 补 `sessionRuntimeUnavailable` 等,注意补的变量必须声明在 effect 之前,否则 TDZ);(3) **ChatView 不随会话重新挂载**,`submit` 等异步流程在 `await` 之后调用的回调若绑定会话(清草稿、写输入历史、发送、上传、回填输入框、打开预览),改成稳定引用会在用户中途切会话时作用到新会话上,所以这 10 个保留 `useCallback` 并在测试的 `KEEP` 里写明原因 —— 它们只在切会话 / 工作区等用户操作时重建,链长随操作次数而不是时间增长。
-- **webview 0.12.0 桥接泄漏。** 库注入的 `_promises[id]` 只写不删,每次 `aceDesktop_*` 调用永久留一条。`web_host.cpp::kBridgeReplyCleanupScript` 在库脚本之后接管同一套 `call` / `onReply`(消息格式不变),回包即删;升级 webview 库时确认上游是否已修。托盘菜单推送(`desktopTrayMenu.js`)相同内容 60 秒内不重复过桥。
-- **兜底 —— 渲染进程退出自动重载。** 主 WebView 此前没接 `ProcessFailed`。现在 `web_host_browser_win.hpp::install_renderer_recovery_handler` 对 RENDER_PROCESS_EXITED 投递 `Reload()`,无响应 / 浏览器进程退出只记日志;10 分钟内最多 3 次,超过保留错误页防崩溃循环(`renderer_recovery.{hpp,cpp}` 纯逻辑)。端到端冒烟 `tests/desktop/renderer_recovery_smoke.py`(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--js-flags=--max-old-space-size=64` 让页面几秒内 OOM,确认自动重载且桥接接管生效);macOS / Linux 尚未接对应事件。
-
-### Agent Browser 是永久开发宽松浏览器(make-agent-browser-development-permissive)
-
-**这是有意的产品定位,不是漏掉的安全加固。** Agent Browser 用来开发调试,开发环境本来就一堆自签名证书、明文 HTTP、旧 TLS 和内网服务;凡是宿主能覆盖的挡板一律静默放行,**没有开关、没有徽标、没有确认页、没有逐站点例外、没有任何用户可见的策略提示**。看到「怎么不校验证书」时不要顺手加回来 —— 先看这一节。
-
-- macOS(`agent_browser_host_mac.mm`):`didReceiveAuthenticationChallenge` 对 `NSURLAuthenticationMethodServerTrust` 用 `credentialForTrust` 直接接受;`shouldAllowDeprecatedTLS` 恒 YES;`WKPreferences.fraudulentWebsiteWarningEnabled = NO`;Bundle 声明 `NSAllowsArbitraryLoadsInWebContent`(**不是**全局 `NSAllowsArbitraryLoads`)。
-- Windows(`agent_browser_host.cpp`):`ICoreWebView2_14::ServerCertificateErrorDetected` 一律 `ALWAYS_ALLOW`(顶层 + 子资源);`ICoreWebView2Settings8::IsReputationCheckingRequired = FALSE` 关 SmartScreen;`IsBuiltInErrorPageEnabled = FALSE` 让真实失败只走 ACECode 自己的内容状态。缺接口时只记能力缺失日志,不引入回退开关。
-- **边界**:放宽只在这两个原生宿主 + Agent Browser 专用 Profile 内。Provider / MCP / daemon / 升级器等共享 HTTP/TLS 栈**不受影响**,`agentBrowserArchitecture.test.js` 有一条断言扫描整个 `src/`,任何第三个文件出现 `credentialForTrust` / `ALWAYS_ALLOW` / `put_IsReputationCheckingRequired` 就失败。凭据类挑战(Basic/Digest/NTLM/Negotiate/Kerberos/代理/客户端证书)仍走系统默认 —— 宽松只解决「客户端挡板」,解决不了服务器不给内容的 401/403。
-
-**导航状态按「最终结果」而不是单个回调决定**(`src/apps/desktop/agent_browser_navigation_state.{hpp,cpp}`,纯逻辑无平台依赖,两端共用)。起因是 mac 上刷新时闪白屏并停在「无法打开此页面」:WebKit 把被重定向/被新导航取代的旧请求报成 `NSURLErrorCancelled (-999)`,而 macOS 端把它一律当最终失败(Windows 端当时已经会恢复上一状态)。现在:
-
-- 导航身份 = Windows 的 NavigationId / macOS 的 `WKNavigation` 指针值,0 表示未知按当前处理;旧身份或已关闭页面的回调一律忽略。
-- `-999` / `OPERATION_CANCELED` / 外部 URI 交接后的 `CONNECTION_ABORTED` → 恢复导航前快照,不发布错误页。
-- Windows 的证书失败 `NavigationCompleted` 与 `ServerCertificateErrorDetected` 谁先到都能处理:先失败就挂起等放行,先放行就直接重试。
-- **重试全页最多一次**。重试会以新的 navigation id 重新开始一次导航,所以「已用掉重试」必须靠 `carry_retry_marker_` 跨过那一次 `begin_navigation` —— 去掉它,证书始终失败的站点就无限重试。回归测试 `tests/desktop/agent_browser_navigation_state_test.cpp::CertificateRetryHappensAtMostOnce`。
-- 系统已注册的外部 URI/SSO scheme 静默交给操作系统(mac `NSWorkspace`,Windows `ShellExecuteW` + `ICoreWebView2_18::LaunchingExternalUriScheme` 取消自带确认框),`javascript:`/`data:`/`blob:` 不参与交接;没有 handler 时如实记一次外部启动失败,不谎称 HTTP(S) 页面自己出了证书问题。
-
-### Agent Browser 页面归属(bind-agent-browser-pages-to-sessions)
-
-起因(会话 20260915-120207-bdf9):用户让 AI「延迟 6 秒后用浏览器打开百度」,延迟期间切到别的会话,`browser_open` 在 Desktop 侧成功建页,但页签从未出现。根因是**页面归属在整个系统里没有被建模**:原生 host 是进程级页面池 + 单一全局 `active_page`,daemon 工具不上报会话身份,前端只在「当前渲染的 ChatView 的 transcript 里恰好有正在执行的 browser_* 工具 + 收到状态事件」那一瞬间认领页面并建页签。四个断点:执行时没在看该会话、工具结束后再回来(历史不重建)、刷新 / 切工作区(ChatView 内存态清零而 native 页面还活着)、子代理 / 后台会话。同一个全局 active 还导致后台会话的 `browser_open` 把用户正在看的页面挤成隐藏(`apply_bounds` 只显示 active 页),以及省略 `page_id` 的工具落到别的会话的页面上。
-
-现在归属落在 Desktop host,再向两端发散,改这块要守住的几条:
-
-- **[src/apps/desktop/agent_browser_page_directory.{hpp,cpp}](src/apps/desktop/agent_browser_page_directory.hpp) 是两端 host 共用的纯逻辑簿记**(Windows / macOS 各自的 `page_order` + `active_page` 都换成了它,单测 `tests/desktop/agent_browser_page_directory_test.cpp`)。它把旧的 active 拆成两个概念:**显示页**(全局唯一,只由 UI select / 关闭回退设置)与**每会话的 Agent 目标页**(`browser_open` / 隐式 claim / 显式 select 更新,状态位 `agent_target`)。带 owner 的 Agent 建页**不**改显示页 —— `create_page_on_ui` 里 `if (!agent_created || owner.empty())` 才 select,这一行是防「后台会话挤掉当前页面」的关键,两端 host 各一份,架构测试盯着。
-- **联结键只有 `session_id`**。`workspace_hash` 与 `root_session_id` 是附带信息:前者在 junction / no-workspace 会话下两侧形态未必一致,后者让子代理的页在父会话页签里可见。daemon 侧 `ToolContext::{session_id, parent_session_id, workspace_hash}` 由 `build_tool_context` 填(workspace_hash 手工切 `current_project_dir()` 的最后一段,**别**经 `std::filesystem::path`,中文目录会抛),`browser_tools.cpp::connect_client` 每次连接后 `client.set_owner(...)`,`cdp_client` 的 `build_agent_browser_proxy_request` 只在 owner 是对象时写入该键。协议版本 4→5(`kAgentBrowserRuntimeProtocolVersion`),不一致时 manifest 校验直接拒,不做跨版本猜测。
-- **省略 `page_id` 的解析顺序**:有 owner → 本会话目标页 > 显示页(仅当它也属于本会话,保住「用户手工开页共享后让 AI 读这页」)> 新建;无 owner(旧协议)→ 显示页 > 新建。显式 `page_id` 跨会话放行(仍过 shared 门),之后本会话目标随之钉过去。
-- **前端页签只有一个来源**:`web/src/lib/agentBrowserPages.js`(App 级单写者登记表,`App.jsx` 挂载时 `installAgentBrowserPageListener()` + 全量 `reconcileAgentBrowserPageStore()`,ChatView 切会话再按会话对账)→ `previewTabs.js::syncBrowserTabsForSession` 派生页签;本 ChatView 首次见到的页面自动打开并激活(`revealedBrowserPagesRef` 按会话记)。**不要**再从 `agentBrowserActivityFromItems` 创建页签或调无参 `getAgentBrowserState()` 猜全局活动页,活动推断现在只决定彩虹边框与「Agent 切目标页时前置该页签」。旧 Desktop 不带 owner 的事件走 `claimUnownedAgentBrowserPage` 本地认领兜底。
-- 回归测试:`tests/desktop/agent_browser_page_directory_test.cpp`、`tests/tool/agent_browser_tools_test.cpp` 的 owner 两条、Windows smoke 的 `SMOKE_OWNERSHIP_OK` 段、前端 `agentBrowserPages.test.js` + `previewTabs.test.js::syncBrowserTabsForSession` + `agentBrowserArchitecture.test.js` 的归属合同。设计全文见 [docs/agent-browser.md](docs/agent-browser.md)「页面归属」。
-
-### Agent Browser 新标签页(仿 Codex New Tab,不做「工具」区)
-
-空白页(`content_state=empty`)由 `AgentBrowserNewTab.jsx` 渲染「推荐 + 最近」,两块都空时退回原 Browser 提示。逆向依据:Codex 安装包 `app.asar` 的 `thread-side-panel-new-tab-*.js`(Tools / Recents)与 `thread-app-shell-chrome-*.js`(Suggested 读 Chromium `browsingHistory.subscribeTopSites`,前 4 个,可移除 + 撤销)。
-
-- **推荐 = ACECode 自己记的访问**,WebView2 / WKWebView 没有历史接口。App 级 `installAgentBrowserVisitRecorder` 把 live 页面的访问报给 `POST /api/agent-browser/visits`,daemon 存 `<data_dir>/agent_browser_top_sites.json`(`handlers/agent_browser_top_sites.cpp` 纯逻辑 + `routes_agent_browser.cpp`,只给本机直连,迁移闸门期间 409)。**不要改存 localStorage**:Desktop 每次启动 daemon 端口都变,origin 跟着变。跟踪器规则:地址变化才计一次访问,刷新同址不计,标题 / 图标后到用 `new_visit:false` 补充;前端加载前已打开的页面用 `aceDesktop_agentBrowserListPages` 打底,否则每次刷新 / 切工作区都把已开页面多算一次。Desktop 的默认标题「新标签页」必须写成比较里的字面量才能过滤 —— i18n 编译插件会把模块级常量里的中文换成译文。
-- **最近 = 本会话改过的文件**(`agentBrowserRecentFiles.js`,与会话变更同源),点开用文件预览替换该浏览器页签(ChatView `replaceBrowserTabWithFile`)。持久化的工具消息没有 `timestamp`,历史工具项的 `ts` 是加载时刻兜底,不能直接显示:历史项(带 `messageId` 字段,实时事件建的工具项没有)取所在回合用户消息的时间。
-- 回归:`tests/web/agent_browser_top_sites_test.cpp`、`web_server_smoke_test.cpp::AgentBrowserTopSitesRoundTripAndStayLocalOnly`、前端 `agentBrowserTopSites.test.js` / `agentBrowserRecentFiles.test.js`。
-
-### Agent Browser Cookie 存储(add-agent-browser-cookie-modes,复刻 Claude 的 Keep cookies)
-
-三档 `cookie_mode`:`shared`(默认,全部会话共用一份并落盘)/ `per_session`(每个**根会话**一份,子代理归根会话)/ `until_quit`(只在本次运行保留)。存储键由纯函数决定(`src/apps/desktop/agent_browser_cookie_jars.{hpp,cpp}`):只有 per_session 返回 `session:<root_session_id>`,owner 为空(旧 daemon、未绑定页面)一律回 `shared`。工具栏「⋮」菜单(`AgentBrowserMoreMenu.jsx`,「将控制台日志添加到聊天」也搬进了这里)与「设置 > 工具」共用 `web/src/lib/agentBrowserCookieMode.js` 的单写者 store。用户文档:`docs/agent-browser.md`「Cookie 存储」与帮助页 agent-browser。改这块要守住的几条(多数是 2026-10-21 实测踩出来的,冒烟 `agent_browser_cookie_smoke` 逐条守着):
-
-- **Windows 一种键一个 WebView2 Profile,共用同一个 environment。** shared **不设 ProfileName**(沿用默认 Profile,升级后登录还在,别"统一"成命名 Profile);until_quit = `acecode-until-quit` + InPrivate;session = `s-` + SHA-256(id) 前 24 位(Profile 名限 64 字符、大小写不敏感,headless 自定义 id 可能超长)。命名 Profile 的磁盘目录是 `EBWebView/WV2Profile_<名>`,不是 `EBWebView/<名>` —— 一律经 `agent_browser_session_profile_directory_name` 派生。
-- **until_quit 必须挂一个隐藏的保活 controller**:InPrivate Profile 在最后一个页面关闭时就销毁,实测不保活时关掉所有页面再打开登录已丢。保活一直持有到切离该档或 Desktop 退出。macOS 对应宿主持有的单个 `nonPersistentDataStore`。
-- **切档不用 `Profile8::Delete`**:被 Delete 的 Profile 同一次运行内不能同名重建,而用户可能马上切回去。切到 until_quit 时 shared 立即 `ClearBrowsingDataAll`,各会话存储只在状态文件记 `pending_wipe`(下次启动在建 environment 之前删目录,或本次运行切回 per_session 时首次建页前先清)。`Delete` / 删目录只用于永久删除会话。以 until_quit 启动时,第一个页面之前也要清一次 shared(异常退出残留)。
-- **会话 cookie(无过期时间)重启必丢**,共享档也一样,是引擎行为(Claude 相同),帮助页让用户勾「记住我」。别为此去改持久化。
-- **跨进程状态在 `state.json` 的 `agent_browser` 段**(`src/base/ipc/agent_browser_store_state.hpp`,经 `update_state_json` 锁):`cookie_mode` / `session_stores` / `pending_wipe` 只由 Desktop 写;`pending_deletions` / `pending_seeds`(上限 500)由 daemon / TUI 的 `host/session_host/agent_browser_store_lifecycle` 追加。不放 config.json:会被 daemon 整份配置写回覆盖。
-- **删除与分叉**:永久删除会话(purge 监听)→ 记 `pending_deletions` 再在服务自己的线程上发无数据的代理操作 `drain_store_tasks` 提醒 Desktop(失败只记 debug,旧 Desktop 不认识也无害,协议版本不升);分叉(`session_fork_listeners`,`fork_session_to_new_id` 成功后触发)→ 记 `pending_seeds`,子会话**首次**建页时若父会话已有存储就复制父会话**此刻**的 cookie。监听器回调只写状态文件,不做网络 IO。
-- **切档重建页面**:`agent_browser_pages_to_rebuild` 挑出存储键变化的页,同一 page id / owner / 共享标记在新存储里重建并导航回原 URL,后退历史丢失;页面目录的显示页 / Agent 目标页不动。按会话存储准备(清空 / 播种)期间页面的地址栏导航与代理命令排队,就绪后按显式 page id 重放。
-- macOS 实现(`agent_browser_host_mac.mm`:固定 UUID / SHA-256 派生 UUID 的 `dataStoreForIdentifier:`、`removeDataStoreForIdentifier:`、`httpCookieStore` 逐条复制)**尚未在 Mac 上编译验证**,改动前先跑一次 mac 构建。
-- 回归:`tests/desktop/agent_browser_cookie_jars_test.cpp`、`tests/ipc/agent_browser_store_state_test.cpp`、`tests/session/session_fork_listener_test.cpp`、`tests/session_host/agent_browser_store_lifecycle_test.cpp`、Windows 冒烟 `agent_browser_cookie_smoke`(EXCLUDE_FROM_ALL,输出 `SMOKE_COOKIE_MODES_OK`),前端 `agentBrowserCookieMode.test.js`、`submenuPosition.test.js`、`agentBrowserArchitecture.test.js` 的菜单合同。
-
-### iOS 模拟器(openspec add-ios-simulator,仅 macOS)
-
-逆向 Claude Desktop 的同类功能后自研复刻:Claude 用 FBSimulatorControl 的 Swift helper 且要求 xcode-select 指向完整 Xcode;我们的 iOS 同事常用绿色安装的 Xcode,所以 Xcode 必须自动发现 + 可配置。用户文档 [docs/ios-simulator.md](docs/ios-simulator.md),接口 [docs/daemon-api.md](docs/daemon-api.md) 第 20 节。
-
-- **helper `acecode-ios-sim`**(`src/adapters/tool/ios_simulator/helper/*.mm`,CMake 只在 `if(APPLE)` 建,Desktop 拷进 `ACECode.app/Contents/MacOS`,便携包装 `ios_simulator_runtime` 组件;其它平台不构建不打包)。私有 CoreSimulator / SimulatorKit / AccessibilityPlatformTranslation 一律运行期 `NSClassFromString` / `dlsym` + 协议转发,每次调用 `@try` 兜底,不产生链接期符号;Indigo 结构与 DTUHID 报文形状取自 idb(MIT,`helper/LICENSE-idb.txt`)。协议是 header-only 的 `wire.hpp`:`u32le body | u32le json_len | json | binary`,daemon 与 helper 共用。
-- **Xcode 选择**(`xcode_locator.cpp`):配置路径 > `DEVELOPER_DIR` > xcode-select(必须是完整 Xcode)> /Applications、~/Applications、Spotlight 里最新的。simctl / xcodebuild 直接执行 `<Developer>/usr/bin/…`,它们按自身位置解析 Xcode,所以**不要**改成 `xcrun`(那会回到 xcode-select)。SimulatorKit 在 Xcode 27 挪到 `Contents/SharedFrameworks`,两处都要找。
-- **HID**:CoreSimulator < 1155.4 走 Indigo(`SimDeviceLegacyHIDClient` + `IndigoHIDMessageFor*`;单指触摸要手工重封成 0x140 字节两 payload 消息,第二个 payload 在 0xB0、field1=1/field2=2);≥ 1155.4(Xcode 27)走 dtuhidd 数字化器 XPC(`xpc_endpoint_create_mach_port_4sim`),guest 不再可靠接收 Indigo。手势/按键规划在 daemon(`input_plan.cpp`,纯函数有单测),时序在 helper 里执行。非 ASCII 文本走 `simctl pbcopy` + Cmd+V。
-- **坐标 = 界面方向下的 point**:给模型的截图 1 像素 = 1 point 且转正,触摸在 helper 里反旋转。朝向来源:Xcode 27 runtime 用 guest 的 CoreDevice display-info(`com.apple.coredevice.feature.getdisplayinfo`);更老的 runtime 没有这个服务(405),退回 Simulator.app 偏好 `DevicePreferences.<udid>.SimulatorWindowOrientation`。无障碍坐标本来就是界面方向。
-- **帧缓冲读取必须同步加锁**:`kIOSurfaceLockAvoidSync` 返回 `kIOReturnCannotLock`,无锁读到的是陈旧 CPU 副本(实测连续帧逐字节相同)。Intel Mac 上同步锁会等模拟器 GPU,动画期间能卡数秒 —— `simctl io screenshot` 同样卡,是平台特性;所以截图/推流在每设备独立队列,和输入互不阻塞;缩放旋转用 vImage(CPU),Core Image / VTPixelTransfer 同样被 GPU 同步拖住。Desktop 里改用下面的原生视图,不读回。
-- **无障碍**:必须把 bridge token 代理装在 `AXPTranslator.sharedInstance`(装在 `sharediOSInstance` 上元素读属性时收不到回调,只剩根节点);属性用私有 `accessibilityMultipleAttributes:` 批量读(一元素一次往返);开机/启动 App 后头几秒 frontmost 请求常为空,按 0.4/0.7/1/1.5/2 秒退避重试(刚 `simctl boot` 完 1.4 秒不够)。
-- **权限**:`ios_simulator` 进 `PermissionManager::should_auto_allow` 免确认名单(同 Agent Browser),但每台模拟器首次使用经 `ctx.ask_user_questions` 征求同意,记在 state.json `ios_simulator.device_consent`,超时/取消/未选一律算拒绝,yolo 隐式授权,设置页可撤销;`ios_simulator_build` 会执行工程脚本,走普通权限确认。plan 模式只允许观察类动作。
-- **面板**:`WS /ws/ios-simulator/<udid>` 推 JPEG 二进制帧(带 JSON 头),收触摸/按键/文本;同一设备多个观看者共用一路 helper 流;订阅在后台线程里做,别放回 Crow IO 线程(首次要做 Xcode 发现 + 起 helper)。用户在面板里的操作不需要设备授权(授权约束的是 AI)。
-- **helper 跑在 Seatbelt 里**(`helper_sandbox.cpp`,ACECode 自写的 profile,路径一律走 `sandbox-exec -D` 参数不拼进 SBPL):allow default + 禁 IP 网络 + 禁读 /Users、/Volumes、家目录下的文件内容(放行 helper 所在 .app 包、所选 Xcode、`~/Library/Developer/CoreSimulator|CoreDevice`、`~/Library/Logs/CoreSimulator`、三个模拟器偏好 plist、DARWIN 临时 / 缓存目录)+ 只许写 /dev、模拟器数据 / 日志与临时目录。两个坑:(1) CFBundle 定位主包要**列出可执行文件往上两级目录**(猜 X.app/Contents/MacOS 结构),不放行时主包为 NULL,CoreSimulator 的 `NSUserDefaults simulatorDefaults` 直接段错误 —— `listable_dirs` 只给列名,不给读内容;(2) 家目录取 `getpwuid`,CoreSimulator 不认 `$HOME`(假 HOME 下照样用真实设备集),按 `$HOME` 放行会把真实设备数据挡掉。sandbox-exec 应用失败(ACECode 自己已在沙盒里)时 hello 报 HELPER_EXITED,runtime 退回无沙盒启动并在 status 的 `helper.sandboxed/sandbox_note` 与日志里说明;`ACECODE_IOS_SIM_SANDBOX=0` 手动关闭。
-- **Desktop 原生零拷贝视图**(`src/apps/desktop/ios_simulator_view*`):把模拟器 IOSurface 直接设成 CALayer contents,放在网页面板屏幕区域上方,每帧回调 `-setContentsChanged`(私有但 WebKit / Simulator 同用,缺失时重设 contents)。helper 与 Desktop 共用 `acecode_ios_sim_native` 静态库(`sim_core` / `sim_guest` / `sim_framebuffer`;stdout 写帧的 `sim_output` 只在 helper)。Desktop **只加载系统路径的 CoreSimulator**:屏幕描述符是 CoreSimulatorService 的 ROCK 代理,不需要 SimulatorKit,网页传来的 developer_dir 只作为字符串交给 CoreSimulator,绝不据此加载代码。视图 `hitTest` 恒 nil,输入照旧走网页 canvas → WS → helper;遮挡矩形与 Agent Browser 同一套(`nativeSurfaceOverlayGeometryByDocument`),macOS 上 CSS px = point。翻转视图的 backing layer `geometryFlipped=YES`,所以正角度 = 顺时针,与 helper 截图的顺时针旋转一致(CARenderer 离屏渲染验证过)。面板逻辑在 `web/src/lib/iosSimulatorNativeView.js`:原生 `rendering` 为真才对该 socket 发 `{type:"frames",enabled:false}` 停 JPEG(省掉编码),失败 / 被对话框挡住即恢复;socket 在原生视图上线后才连上时要在 `onopen` 补发,否则 JPEG 一直推。三个踩过的坑:ObjC block 捕获 C++ **引用参数时按引用捕获**,异步 block 里用之前先拷成局部值(否则读到已析构的 layout 字符串,json dump 报非法 UTF-8);`FramebufferSource` 构造函数返回前帧回调就可能到,回调只能经加锁的 `current_surface()` 访问 source;同一 udid 只 attach 一次,失败后靠页面「重新连接」重挂,别在每次布局时重试。回归:`ios_simulator_view_mac_smoke`(opt-in,真机模拟器上查 IOSurface contents / 几何 / 遮罩 / 显隐 / 卸载)、`tests/desktop/ios_simulator_view_layout_test.cpp`、前端 `iosSimulatorNativeView.test.js`。
-- **DTUHID 报文**在 header-only 的 `dtuhid_messages.hpp`(helper 用 ARC、单测用纯 C++ 各自编译),schema / 相位 / 归一化 / 存活探测都有单测。本机没有 Xcode 27,真机验证靠 `.github/workflows/ios-simulator-live.yml`:GitHub 托管的 `xcode-27` 镜像(arm64,macOS 27 + Xcode 27 + iOS 27 运行时)上用 clang++ 直接编 helper / 沙盒 argv / 原生视图 smoke(不走 vcpkg 全量构建),`scripts/ios_simulator/live_check.py` 启动模拟器后用无障碍树核对点击打开设置、拖动滚动列表、键盘输入、Home 键返回,外加截图、推流、沙盒拒绝与原生视图。手动触发或推 `ci/ios-simulator-live*` 分支,普通 PR 不跑。键盘核对有两条路径:无障碍值含输入文字,或输入法(拼音等)把字母留在 marked text 里、值为空时比对前后截图。2026-10-16 在该镜像(macOS 27.0.1 / Xcode 27.0 27A266a / iOS 27.0,CoreSimulator 1174.15,自动选 dtuhid)上 16/16 通过,dtuhidd 的触摸 / 拖动 / 键盘 / 按键链路实测可用。
-- **界面方向**:Xcode 27 的 CoreDevice display-info 回复是 `CoreDevice.output.displays[]`,主屏(`primary:true`)的 `currentOrientation` = `rot0|rot90|rot180|rot270`(xcode-27 runner 上抓到的真实报文),其它值一律算无回答。provider 在忙的机器上经常赶不上 2 秒:每次新建 guest 连接是慢的那步,所以连接按设备常驻复用;首次查询同步(5 秒)保证第一帧 / 第一次触摸方向正确,之后立即返回上次结果并在后台刷新,超时保留上次的有效值、5 秒后再试,不再每 600ms 卡住输入队列 2 秒;从没答过才退回 Simulator.app 窗口方向(Xcode 27 下 simctl 启动、没开 Simulator.app 时那份偏好不存在)。`display_info` 诊断另外报 `cached`(helper 实际在用的状态)。第一次 describe 要加载 Xcode 框架、连 CoreSimulatorService,冷机器上接近一分钟,daemon 的超时为此放到 90 秒。
-- **验证现状**:本机 Xcode 26.6(绿色安装于 ~/Downloads)+ iOS 26.5(Indigo):沙盒内 helper 全部操作、E2E(断言 sandboxed)、原生视图 smoke、浏览器里注入假桥接验证面板切换 / 回退 / 输入映射、live_check 16/16 均通过;Xcode 27 见上一条。回归:`tests/tool/ios_simulator/*`、打包脚本测试(`tests/scripts/*` 中的 acecode-ios-sim 断言)。**别在这台 Mac 上跑 lldb**:开发者模式关闭,debugserver 会弹 SecurityAgent 密码框,弹框挂着期间所有非 Apple 签名的可执行文件(ninja、测试二进制、node)exec 都卡在 U 状态。
-
-### Web UI: 控制台停靠区(ConsoleDock)
-
-`add-console-dock`:TopBar `>_` 按钮(icon `terminal` = TerminalReadWrite.svg)或 ``Ctrl+` `` toggle 主内容列底部的终端停靠区(横跨 ChatView+SidePanel,不动 Sidebar/TopBar)。前端 xterm.js(`@xterm/xterm` + `@xterm/addon-fit`,bundle +~190KB gzip);多 tab(+ 新建 / 逐 tab × 杀会话 / 整体收起保活);顶边拖高(`clampDockHeight`,[120, 视口 80%]);偏好 `acecode.consoleDock.v1` `{open, height}`。纯函数层 `web/src/lib/consoleDock.js`(tab 状态机/帧分流/退避/URL,Node 单测)。**xterm 聚焦时 ``Ctrl+` `` 靠 `attachCustomKeyEventHandler` 放行冒泡** — 删掉它快捷键在终端内失灵。
-
-daemon 侧 `src/base/pty/`(原 web 模块下的 `web/pty/` 子目录,refactor20260927 P2-03 下沉为 base 层模块;`routes_pty.cpp` 留在 web):`PtyBackend` 四实现 — **ConPty**(1809+,GetProcAddress 探测;读循环必须 PeekNamedPipe 轮询,`ClosePseudoConsole` 后管道不保证断,阻塞 ReadFile 永不返回)/ **Winpty**(<1809 完整 TTY;winpty 0.4.3 经 FetchContent + `cmake/acecode_winpty.cmake` 自写包装,**不编上游 AgentLocation.cc**,由 `winpty_agent_location.cpp` 提供可覆盖的 `findAgentProgram()`;agent.exe 310KB 嵌入二进制(bin2cpp),首次使用释放到 `<data_dir>/bin/`)/ **Pipe**(兜底,无 TTY 语义,前端显示"兼容模式")/ **PosixPty**(forkpty,Linux `<pty.h>`/macOS `<util.h>`)。`PtySessionRegistry`:2MB 缓冲 + 字节游标续传、`0x00`+JSON 控制帧、16 会话上限、kill 必须锁外(join 读线程回抢 mu_)。路由 `/api/pty` + `/ws/pty/<id>?cursor=N` **loopback 硬限制**(token 不豁免);WS 的 id/cursor 经 Crow `onaccept` 的 `void** userdata` 传递(onopen 拿不到 route 参数)。config `console.shell` 覆盖 shell(默认 `%COMSPEC%`/`$SHELL` — cmd 优先于 powershell 是用户决策,与 bash_tool 一致)。协议文档 docs/daemon-api.md §7。
-
-**ConPTY 必踩坑**:pseudoconsole 子进程的 std 句柄仍按老规则从父进程 PEB 复制 — daemon 被 desktop 以 `CREATE_NO_WINDOW` + NUL std 启动时,cmd 复制到无效 stdin → 读 EOF → 秒退 code 0(实测复现)。修复 = spawn 时 `STARTF_USESTDHANDLES` + 三个 NULL 句柄(node-pty 同款),console 子进程初始化回退绑定 conpty console。该修复同时治好了单测 harness 内的同根伪影(最初误判为受限 Job 杀 conhost);`pty_backend_test.cpp` 的环境探针防御性保留。
-
-### Windows 弹框:系统 toast + 自绘兜底(fix-wintoast-silent-drop)
-
-问题:一批 Win10 机器上 WinToast 的 `initialize()` / `showToast()` 全返回成功,弹框却永远不出现 —— AUMID 的开始菜单快捷方式没建成、通知被系统/单应用/组策略关掉、或被"优化"工具停了通知平台。这些都读不出错误码,单靠返回值永远发现不了。
-
-**三层结构**(`notification_backend_policy` 在 `src/apps/desktop/`,其余两层自 refactor20260927 P2-03 起在 `src/base/platform/native_ui/`):
-1. `notification_backend_policy.{hpp,cpp}` — 纯判定表。输入 `NotificationBackendPreference`(config `desktop.notifications.backend` = `auto`(默认)/ `system` / `custom`)+ `SystemToastSignals`(platform_supported / toasts_enabled_globally / app_toasts_enabled / policy_disabled / runtime_delivery_failed),输出 `System | Custom | None` + reason 文案。`auto` 任一信号变坏就转自绘;`system` 是显式选择,不可用时返回 `None` 而**不是**偷偷换成自绘;`custom` 无条件自绘。
-2. `notifications_win.cpp` — 路由 + 注册表探测(`PushNotifications\ToastEnabled`、`Notifications\Settings\<AUMID>\Enabled`、两条 policy 键的 HKCU/HKLM)。WinToast 代码整体收进 `#ifdef ACECODE_HAS_WINTOAST`,**该文件现在在所有 WIN32 构建里编译**(MinGW/WinLibs 不再退化成 no-op stub,自绘渲染只吃 Win32+GDI)。运行期降级是粘性的:`showToast` 返回 <0 或 `toastFailed()` 回调(WinRT 线程,所以用 `std::atomic` 不用锁)置位后重新判定并改走自绘。
-3. `custom_toast.{hpp,cpp}` + `custom_toast_win.cpp` — 自绘渲染,抄 Electron 的 `win32_desktop_notifications`(MIT):隐藏 controller 窗口持 15ms 动画 timer,工作区右下角一摞 `WS_EX_LAYERED|WS_EX_NOACTIVATE|WS_EX_TOPMOST` 的 `WS_POPUP`,GDI 画进内存 DC 后 `UpdateLayeredWindow(Indirect)` 推给合成器;宽度 ease-in(源点同步左移 = 从屏幕边缘滑出)、alpha ease-out、栈塌陷动画三条曲线。
-
-**两处有意偏离 Electron**:(a) Electron 跑在浏览器 UI 线程上,ACECode 要同时服务 FTXUI 终端(**根本没有 Win32 消息循环**)和 desktop 壳,所以 controller 自带**独立线程 + 自己的消息循环**,`show()` 是 `PostMessage` 异步投递(payload 堆分配,post 失败即 delete);(b) Electron 画不透明矩形,这里画**每像素 alpha 的圆角卡片**(跟随系统深浅色,accent 色缩成左侧竖条)。
-
-**per-pixel alpha 的坑**:GDI 文字/图标输出不写 alpha 字节,直接 `ULW_ALPHA` 会合成出垃圾。`apply_rounded_alpha()` 在每次 draw 末尾重写整个 alpha 平面 —— 圆角矩形内恒 255,四角圆弧 4×4 超采样抗锯齿并按覆盖率**预乘 RGB**(`UpdateLayeredWindow` 要求预乘)。DIB 用负 biHeight 建成 top-down,像素遍历才是自然顺序;改像素前必须 `GdiFlush()`。
-
-其它必知细节:controller 窗口**不能用 HWND_MESSAGE**(收不到 `WM_SETTINGCHANGE`/`WM_DISPLAYCHANGE` 广播,重锚失效,同 tray 的坑);渲染线程起手 `SetThreadDpiAwarenessContext(-4)`(动态取址,按 HANDLE 定型以兼容 MinGW 老头文件),这样终端进程不用改进程级 DPI 感知也能画清楚;鼠标悬停期间**冻结整摞**不回收空位(否则卡片滑到光标下,点击会落到另一条通知上);`shutdown()` 若发现自己就跑在渲染线程上(点击回调里拆通知)就 detach 而不是 join,否则自锁。
-
-纯逻辑(缓动曲线、栈偏移、工作区锚定、DPI 缩放、判定表)在 `tests/platform/custom_toast_layout_test.cpp` + `notification_backend_policy_test.cpp` 里跨平台跑;GDI 渲染只能靠 `tests/platform/notifications_native_test.cpp` 里 `ACECODE_RUN_NOTIFICATION_SMOKE=1` 门控的两条手动冒烟(系统 toast 一条、强制 `backend=custom` 一条)。
-
-### Proxy / 抓包
-
-`src/base/network/proxy_resolver.{hpp,cpp}` (with platform-specific `_posix` / `_win` bodies) injects proxy options into all cpr call sites uniformly. Design: `openspec/changes/respect-system-proxy`.
-
-`config.network.proxy_mode`:
-- `"auto"` (default) — Windows: `WinHttpGetIEProxyConfigForCurrentUser` → HKCU registry → env. POSIX: env (`HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY`/`NO_PROXY`, lowercase variants).
-- `"off"` — force direct, ignore system/env.
-- `"manual"` — use `proxy_url` (auto-prefixes `http://` if missing).
-
-Both `main.cpp` and `daemon/worker.cpp` call `proxy_resolver().init(cfg.network)` and print `Proxy: <url-redacted-or-direct> (<source>)` (credentials masked). ACECode does not expose TLS verification bypass or custom CA bundle settings; certificate trust is owned by the OS / TLS backend.
-
-`/proxy` slash command: bare = show effective state; `refresh` = reprobe; `off` / `set <url>` / `reset` = session-level override (not persisted).
-
-`ProxyResolver::effective(target_url)` priority: session override > `mode=off` > manual `proxy_url` > auto platform path > direct. NO_PROXY filters host (suffix `.foo.com`, bare suffix, `*` wildcard, case-insensitive). SOCKS5 via `manual proxy_url = "socks5://..."` (libcurl native).
-
-**Behavior change:** Windows users upgrading get `proxy_mode = "auto"` by default, which means ACECode now follows the system proxy. To keep the old direct-only behavior: `{"network":{"proxy_mode":"off"}}`.
-
-**Auto-fallback on unreachable proxy** (`proxy-fallback-on-unreachable`): 启动时调用 `proxy_resolver().probe_and_maybe_fallback()` 在 `init` 之后做一次同步 TCP probe(`src/base/network/tcp_probe{.hpp,.cpp,_posix.cpp,_win.cpp}`)— 对解析出的代理 host:port 做非阻塞 connect + poll/WSAPoll,失败时设进程级 `fallback_active_`。横幅变成 `Proxy: direct (auto-fallback: <redacted-original-url> from <original-source> unreachable)`,所有 cpr 走直连。`/proxy` 输出新增 `Reachable : yes/no (<reason>)`,fallback 时多一行 `Original proxy : <url> (<source>)`。`/proxy refresh` 同时清 fallback + 重探(用户启动 Fiddler 后立即生效)。两个新配置:`network.proxy_probe_enabled`(默认 true,false = 一键回到旧行为)、`network.proxy_probe_timeout_ms`(默认 1500,clamp 到 [200, 10000])。Session override (`/proxy off` / `/proxy set`) 永远胜过 fallback — 用户显式意志不被二次猜测。
-
-### Web Search
-
-`src/adapters/tool/web_search/` provides the LLM-callable `web_search(query, limit)` tool. Its default virtual backend is `parallel`: every request starts AceCode's hosted curated RSS index at `https://ge.bigjuan.xyz/rss-search`, DuckDuckGo, and Bing CN concurrently. The router interleaves results in stable RSS/DDG/Bing order, normalizes and deduplicates URLs, and applies `limit` to the merged total. Each hit records its backend; RSS hits also preserve source and publication metadata. One or two failed sources become bounded warnings while successful results remain usable; only failure of all three returns an aggregate error.
-
-The existing region detector still probes DuckDuckGo once at startup through `ProxyResolver` and caches the result in `~/.acecode/state.json` under `web_search.region_detected`. Parallel mode does not mutate this state. Explicit `backend = "auto"` preserves the legacy direct regional selection; explicit `backend = "rss"` retains the per-request regional fallback used when RSS is empty or temporarily unavailable.
-
-`backend_router.cpp::search_with_fallback` has three policies: parallel fan-out is concurrent and non-sticky; explicit RSS fallback is per-request and non-sticky for empty results and recoverable service failures; explicit DuckDuckGo/Bing network fallback switches the active backend and updates the region cache. `HttpFetchFn` / `RegionProbeFn` injection keeps unit tests offline.
-
-`/websearch` slash command:
-- `/websearch` — show active/config backend, region, detection time, and registered backends
-- `/websearch refresh` — invalidate and rerun region detection
-- `/websearch use <name>` — temporarily select `parallel`, `rss`, `duckduckgo`, or `bing_cn`
-- `/websearch reset` — restore the configured backend
-
-`config.web_search` fields: `enabled` (default true), `backend` (`parallel` default; or `rss`, `auto`, `duckduckgo`, `bing_cn`, `bochaai`, `tavily`), `rss_base_url` (default hosted endpoint; HTTPS required except loopback HTTP), `api_key` (future), `max_results` (1..10, default 5), and `timeout_ms` (1000..30000, default 8000). Queries are limited to 200 Unicode code points to match the hosted API. Setting `enabled = false` prevents tool registration. `bochaai` and `tavily` remain placeholders. Daemon, headless, and TUI paths share the same runtime and region cache.
-
-### LSP(openspec add-lsp-service,仿 opencode)
-
-`src/adapters/lsp/` 是自写的 LSP 客户端子系统(零新第三方库;进程段架构同 `codex_app_server_client`,分帧换成 `Content-Length`)。三个能力面:
-
-1. **`lsp` 工具**(9 操作:goToDefinition / findReferences / hover / documentSymbol / workspaceSymbol / goToImplementation / prepareCallHierarchy / incomingCalls / outgoingCalls),`is_read_only=true` 免确认,入参 1-based 行列,结果原样 LSP JSON(0-based)。`config.lsp.enabled=false` 时不注册。
-2. **编辑后诊断注入**:file_edit / file_write 成功落盘后 `lsp::append_diagnostics_block`(`src/adapters/lsp/lsp_diagnostics.cpp`)—— touch + 等 document 诊断(5s 总超时、150ms push debounce、50ms 粒度轮询 abort),把 **ERROR 级**诊断以 `<diagnostics file=...>` 块(≤20 条)附加到工具输出。未初始化 / disabled / 无匹配 server 零延迟。WARN 以下刻意不透出(避免模型跑偏修风格)。
-3. **状态表面**:`/lsp` 双端命令(TUI builtin_commands + daemon `execute_builtin_command` 白名单 + Web 斜杠下拉,三处文本共用 `dispatch_lsp_subcommand`);TUI 侧边栏有连接时渲染 LSP 节(走 `connected_snapshot()`,廉价锁拷贝;完整 `status_snapshot()` 含 which 探测只给 /lsp 用)。
-
-结构:`lsp_frame`(分帧纯状态机)→ `platform/process/piped_process`(原 `lsp_process`,P2-03 下沉到 platform,lsp 侧经 `lsp/lsp_platform_aliases.hpp` 保留 `LspProcess` / `LspSpawnOptions` 别名;spawn;**Windows 上 argv[0] 为 .cmd/.bat 时自动经 `cmd.exe /d /c`**,npm shim 必需;探测走 `platform/process/which`(原 `lsp_which`)的 PATHEXT 逻辑)→ `lsp_client`(reader 线程 + pending map;push/pull 双通道诊断缓存,key 经 `lsp_uri::normalize_path_key` 归一 —— **clangd 会把盘符改小写回推,不归一就永远等不到诊断**)→ `lsp_server_registry`(内置 clangd/typescript-language-server/pyright/gopls/rust-analyzer 定义 + config 合并;root markers 对照 opencode server.ts;ts 需向上找到 `node_modules/typescript/lib/tsserver.js` 否则跳过;rust-analyzer 无 Cargo.toml 判不适用)→ `lsp_service`((server_id,root) 客户端池、per-key slot 锁单飞、broken 集合本进程内不重试)→ 进程级单例 `lsp::init/shutdown/service()`(web_search runtime 同套路;main.cpp 与 worker.cpp 各接一次,退出路径在 mcp shutdown 之后调 `lsp::shutdown()`)。
-
-**workspace 边界两条铁律**(2026-07-08 线上排障后立的,回归测试在 `tests/lsp/lsp_service_test.cpp`):(1) 所有查询/诊断入口按**调用传入的 session_cwd**(`ToolContext::cwd`)判 workspace 边界,空串才回退进程 init cwd —— daemon 单进程经 routes_workspaces 服务多 workspace 会话后,进程 cwd ≠ 会话 cwd,只认进程 cwd 会让其它 workspace 的文件恒报 "No LSP server available"、server 永不 spawn;(2) 边界比较/root 探测/slot key/URI 全部先 `weakly_canonical` 归一 —— 用户目录是 junction 时(实测 `C:\Users\x` → `N:\Users\x`),lsp 工具入口 canonical 过、诊断注入路径没 canonical 过,两形态前缀互不匹配,表现为「编辑后诊断能连上 server,查询却报无 server」。
-
-原则:**只探测已安装的 server(PATH / 项目内),绝不自动下载,server 不进安装包**;探测不到静默跳过零开销。集成测试用 `tests/lsp/helpers/fake_lsp_server.cpp`(BUILD_TESTING 编译,同 mcp_stdio_test_server 思路),不依赖 node / 真实 clangd。
-
-`config.lsp`:`enabled`(默认 true)+ `servers`(按名合并:内置名可 `{"disabled":true}` 或覆盖 command/extensions/env/initialization;新名 = 自定义 server,command 必填,root 恒为 workspace cwd)。
-
-### Config Schema
-
-`~/.acecode/config.json`:
-```json
-{
-  "provider": "copilot",
-  "openai": {
-    "base_url": "http://localhost:1234/v1",
-    "api_key": "",
-    "model": "local-model",
-    "models_dev_provider_id": "openrouter"
-  },
-  "copilot": { "model": "gpt-4o" },
-  "context_window": 128000,
-  "max_sessions": 50,
-  "skills": { "disabled": [], "external_dirs": [] },
-  "memory": {
-    "enabled": true,
-    "max_index_bytes": 8192,
-    "summary": { "enabled": false, "model_name": "", "idle_minutes": 30, "max_session_age_days": 7 }
-  },
-  "project_instructions": {
-    "enabled": true,
-    "max_depth": 8,
-    "max_bytes": 262144,
-    "max_total_bytes": 1048576,
-    "filenames": ["AGENTS.md", "AGENTS.md", "CLAUDE.md"],
-    "read_claude_md": true
-  },
-  "models_dev": {
-    "allow_network": false,
-    "user_override_path": null,
-    "refresh_on_command_only": true
-  },
-  "input_history": { "enabled": true, "max_entries": 10 },
-  "agent_loop": { "max_iterations": 0 },
-  "daemon": {
-    "auto_start_on_double_click": false,
-    "service_name": "ACECodeDaemon",
-    "heartbeat_interval_ms": 2000,
-    "heartbeat_timeout_ms": 15000
-  },
-  "web": { "enabled": true, "bind": "127.0.0.1", "port": 28080, "static_dir": "" },
-  "network": {
-    "proxy_mode": "auto",
-    "proxy_url": "",
-    "proxy_no_proxy": "",
-    "proxy_probe_enabled": true,
-    "proxy_probe_timeout_ms": 1500
-  },
-  "web_search": {
-    "enabled": true,
-    "backend": "parallel",
-    "api_key": "",
-    "max_results": 5,
-    "timeout_ms": 8000
-  },
-  "lsp": {
-    "enabled": true,
-    "servers": {
-      "clangd": { "disabled": true },
-      "ocaml": { "command": ["ocamllsp"], "extensions": [".ml", ".mli"] }
-    }
-  },
-  "worktree": {
-    "symlink_directories": ["node_modules"],
-    "sparse_paths": []
-  },
-  "tui": { "alt_screen_mode": "auto" },
-  "desktop": {
-    "notifications": {
-      "enabled": true,
-      "on_question": true,
-      "on_completion": true,
-      "suppress_when_focused": true,
-      "backend": "auto"
-    }
-  },
-  "saved_models": [
-    { "name": "local-lm", "provider": "openai", "base_url": "http://localhost:1234/v1", "api_key": "x", "model": "llama-3" },
-    { "name": "copilot-fast", "provider": "copilot", "model": "gpt-4o" }
-  ],
-  "default_model_name": "copilot-fast",
-  "mcp_servers": {
-    "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"] },
-    "remote-sse": { "transport": "sse", "url": "https://mcp.example.com", "sse_endpoint": "/sse" },
-    "remote-http": { "transport": "http", "url": "https://mcp.example.com", "sse_endpoint": "/mcp" }
-  }
-}
-```
-
-`mcp_servers` entries without `transport` default to `stdio`. `sse` = legacy two-endpoint protocol; `http` = 2025-03-26 Streamable HTTP single-endpoint (default `/mcp`).
-
-`saved_models` is a named registry; `default_model_name` points into it. Each entry needs `name` (must NOT start with `(` — reserved for synthesized `(session:<id>)`), `provider`, `model`. OpenAI entries also need `base_url` + `api_key`. On load, array order is oldest-to-newest: for duplicate names, every occurrence except the last is atomically persisted as `<name>-<6-lowercase-hex-hash>`, while the last keeps the original name. Duplicate-repair write failures remain fatal. A non-empty dangling `default_model_name` is instead replaced with the first saved-model name before validation and atomically written back; a write failure is logged but startup continues with the in-memory fallback and retries on the next load. If the main logger is not initialized yet, this repair silently opens `~/.acecode/logs/config-<date>.log`; an active logger is never redirected. This repair does not rewrite an empty default and emits no UI message. Successful full loads and saves refresh a restricted `config-backups/last-good/config.json` snapshot. Later JSON parse/type/range/semantic failures archive the exact invalid bytes under `config-backups/invalid`, atomically restore and validate that snapshot, and persist a one-time Web/Desktop warning; recovery logs contain paths and categories only. Without a valid prior snapshot, startup keeps the invalid active file and follows the existing fatal boundary.
-`acecode configure` upserts one named `saved_models` entry from the selected provider/model and sets it as `default_model_name`; normal startup no longer derives a selectable model from top-level provider fields.
-
-Each saved model may carry an optional `sampling` object (`temperature` [0,2], `top_p` (0,1], `top_k` ≥ 1, `min_p` [0,1]). Unset keys are never sent, so a profile without sampling produces byte-identical requests. Support is per provider/protocol and validated in `validate_model_sampling_support` (`saved_models.cpp`): Chat Completions sends all four (`top_k`/`min_p` are vLLM/SGLang extensions the official OpenAI API rejects), Responses only `temperature`/`top_p`, Anthropic rejects `min_p` and caps `temperature` at 1, managed Copilot/Grok reject sampling entirely — a value that would be silently dropped is a validation error, not a no-op. Edits replace the whole object (`null`/`{}` clears; a provider switch clears it). Sampling is part of the provider construction fingerprint, so running sessions rebuild on the next turn after an edit. Settings > Models > 高级设置 shows only the fields the selected provider/protocol supports (`modelSamplingFieldSupport` in `web/src/lib/modelSettings.js`). Added for the intranet wizard-ai gateway, whose GLM model ships recommended values (top_p 0.95 / top_k 20 / temperature 1 / min_p 0) that ACECode previously never sent.
-
-### Model profile resolution
-
-At startup and on every `--resume` / `/resume`, `src/adapters/provider/model_resolver.cpp` resolves the effective `ModelEntry` in three layers. CLI `-r` is not a `--resume` short alias; it starts the TUI normally, runs the startup hook path, then opens the same `/resume` picker immediately.
-1. `cfg.default_model_name` if found in `saved_models`
-2. `<cwd_hash>/model_override.json` if present
-3. Resumed `SessionMeta.provider` + `SessionMeta.model` (resume only) — matched by tuple, not name. No match builds an ad-hoc `(session:<id>)` entry borrowing from `cfg.openai`, plus a resumed-with-ad-hoc-model system message.
-
-If no saved model is configured, normal startup/session creation fails instead of synthesizing a fallback model.
-
-`LlmProvider` 由每个会话的 `SessionModelBinding` 持有;TUI 与 daemon 都从 binding 取得 `shared_ptr` 快照。`AgentLoop` 在 turn 开始时捕获快照,所以 binding 发布新 Provider 后,进行中的 turn 仍由旧实例保活到结束,后续 turn 才看到新实例。显式切换、revision 驱动的 lazy reload 与 REST forced reload 共用 binding 的 install/revalidation 路径;`src/host/session_host/apply_model_to_session.cpp`只是薄兼容适配器。Copilot 静默登录失败和非致命 meta 写盘失败均返回固定、脱敏 warning,不会回滚已发布 Provider。
-
-### `/model` command
-
-- `/model` — text picker over `saved_models`, current row marked `*`
-- `/model <name>` — in-memory switch
-- `/model --cwd <name>` — switch + persist to `<cwd_hash>/model_override.json`
-- `/model --default <name>` — switch + persist to `config.json` `default_model_name`
-
-Unknown name → error, no state change. All persisting paths run under `provider_mu` and recompute `context_window`.
-
-**cwd 一律以 UTF-8 `std::string` 传递,别用 `std::filesystem::path` 当参数类型接它。** `cwd_model_override` 的四个接口曾声明为 `const fs::path&`,而所有调用方手里都是 UTF-8 string —— MSVC 的隐式 `string → path` 转换按系统 ANSI 代码页(中文 Windows = GBK)+ `MB_ERR_INVALID_CHARS` 解码:反斜杠形态的中文路径解成乱码、算错 `<cwd_hash>`(override 静默失效,TUI 与 Web 两边 hash 还不一样);Desktop 注册 workspace 用的正斜杠形态(`E:/SS项目数据库/…`,`库/` = `93 2F`,0x2F 不是合法 GBK 尾字节)直接抛 `std::system_error`,新建/恢复会话变成裸 500,daemon 日志一行线索都没有(2026-09-11 用户反馈)。是否触发取决于目录名里 CJK 连续字符个数的奇偶与后一个字节,所以表现为「有的中文目录能用有的不能」。现在签名改为 `const std::string& cwd_utf8`;新加接 cwd 的函数照此办理,内部需要 `fs::path` 时用 `path_from_utf8`。配套:会话 create/resume 路由把逃逸的 `std::exception` 收成 JSON 500(`SESSION_CREATE_FAILED` / `SESSION_RESUME_FAILED`,带 message 与 cwd)并记 ERR 日志;`server.cpp` 装了 Crow 全局 `exception_handler`(其它路由 → `INTERNAL_ERROR` JSON 500)和 Crow 日志桥(Warning+ 进 daemon-*.log,Info 丢弃 —— Crow 每个响应都打一行 Info)。**Desktop 托管的 daemon stderr 指向 NUL**,任何只写 stderr 的诊断信息在线上都等于没有。回归测试:`tests/provider/cwd_model_override_test.cpp` 的两条 Cjk 用例(hash 与 UTF-8 口径逐字节一致,在 936 与 1252 下修复前都挂)+ `web_server_smoke_test.cpp` 的 `WorkspaceSessionCreateWorksForCjkCwdRegisteredWithForwardSlashes` / `SessionRoutesReportEscapedExceptionsAsJson500` / `UncaughtRouteExceptionBecomesJson500`。
-
-Windows 升级兼容:新 UTF-8 override 文件缺失时,只读回退到当前文件系统代码页下旧版计算的键,依次检查传入拼写、反斜杠和正斜杠形态。旧转换放在受保护的兼容助手里,失败时跳过;已有新文件(含损坏文件)始终优先。新保存只写 UTF-8 键,显式删除同时清理旧键,避免旧模型选择重新生效。对应 `LegacyCwdModelOverrideTest`。
-
-Crow 的 `ResponseCorsMiddleware` 在响应完成时复用 `add_loopback_cors_headers`,让全局异常 JSON 也带上允许的 loopback Origin。路由已经加过头时不重复追加,原有 Token 与来源校验保持不变。
-
 ## CI / Release
 
-`.github/workflows/package.yml` builds Linux x64/arm64, Windows x64/arm64, macOS x64/arm64. Releases auto-cut on `v*` tags.
-
-`.github/workflows/release-tag.yml`(手动触发,输入 `version` + 可选 `sha`)用于无法直接推 tag 的环境:校验目标提交在 master 上且 `CMakeLists.txt` 版本一致、tag 不存在,再用 workflow token 打注解 tag,并显式 `gh workflow run package.yml --ref v<version>` —— workflow token 推的 tag 不会触发 push 事件,而 package.yml 只看 `github.ref`,效果与手推 tag 相同。发布门槛不变:仍要等该提交在 master 上的 `test.yml` push 检查通过。
-
-**npm 发布已暂停**:`publish-npm` job 使用固定 `if: ${{ false }}`，`v*` tag 和手动 workflow 均不会发布 npm；保留的 `npm_version` 输入目前不生效。全平台包、GitHub Release、macOS PKG 和更新包发布不受影响。
-
-**npm 保留实现**(当前不会运行):CLI 主包为 `@aceagent/acecode`，桌面主包为 `@aceagent/desktop`，另有 6 个平台二进制包 `@aceagent/<os>-<cpu>`(esbuild 模式:主包只有 JS 垫片,`optionalDependencies` 按 os/cpu 字段精确钉同版本平台包)。平台包同时装 `acecode` / `acecode-desktop`(macOS 为 `ACECode.app`)——Desktop 按自身真实路径所在目录定位 daemon(`locate_daemon_exe`),不能拆包,垫片必须直接 spawn 包内原始文件不能拷走。组装脚本 [scripts/npm/prepare-npm-packages.mjs](scripts/npm/prepare-npm-packages.mjs),主包模板在 [npm/cli/](npm/cli) 与 [npm/desktop/](npm/desktop);改名/换 scope 需同步脚本、模板与两个 bin 垫片。job 恢复运行后的行为:`NPM_TOKEN` secret 缺失 → 失败;已发布版本 → 幂等跳过(重跑安全);预发布版本(名含 `-`)→ dist-tag `next`,否则 `latest`。手动 `npm_version` 必须与 `CMakeLists.txt` 项目版本一致，且不会重复创建 GitHub Release。linux-old(glibc ≤ 2.28)产物刻意不上 npm(npm 无法按 glibc 选包),老发行版用户走 GitHub Releases。裸名 `acecode` 已被 registry 以与活跃包 `ace-code` 过于相似为由拒绝，不能改回裸名。
-
-**会话历史按页访问（optimize-session-loading）。** Web 和网格首次取 `messages?limit=200`，`isLive` 翻转不重载；恢复审计用显式 WS `replay_from_start` 补齐，首次 REST 在途事件缓冲后再合入。`before` 页前插保留已有条目的 ID 和滚动位置，外部只读会话用 `after` 轮询，自愈只取最近一轮。游标包含字节位置、行指纹与 OS 文件身份；追加有效、替换失效返回 409 后重载尾页。搜索结果携带十进制字符串 `message_position`；旧 `message_ordinal` 仅在显式跳转时由服务端换算，不能把过滤后数组下标当原始记录序号。
-
-**读取与恢复的锁边界。** `load_active_messages` 在会话锁内只打开文件并捕获大小，锁外解析，再复核身份/开头指纹；替换时重试一次。`list_active` 在注册表锁内只复制 entry 引用，锁外读取每会话的显示快照。daemon 恢复倒扫最新有效压缩点及后缀；无压缩点或缺失计数元数据时完整读取；TUI 的全历史显示不变。文件检查点首次回退/差异查询/写入时加载，压缩窗口初始化也倒扫；显式导出、分叉、引用仍按需读取全历史。后台目录预热等首个工作区列表完成或 10 秒，搜索请求立即释放等待。
+- `package.yml` 出 Linux x64/arm64、Windows x64/arm64、macOS x64/arm64,`v*` tag 自动发版;`release-tag.yml` 手动打注解 tag 并显式 `gh workflow run package.yml`,发布门槛仍是该提交的 test.yml 通过。npm 发布暂停(`if: ${{ false }}`),实现保留。归档:CI / Release。
