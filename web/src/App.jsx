@@ -96,6 +96,7 @@ import {
   validateUiPrefs,
 } from './lib/uiPrefs.js';
 import { useAppShortcuts } from './lib/useAppShortcuts.js';
+import { useEditingHistoryShortcuts } from './lib/useEditingHistoryShortcuts.js';
 import { appShortcutContextAllows } from './lib/appShortcuts.js';
 import { TopBar } from './components/TopBar.jsx';
 import { FeedbackForm } from './components/FeedbackForm.jsx';
@@ -244,6 +245,7 @@ function parseDesktopBridgeResult(raw) {
 }
 
 export function App() {
+  useEditingHistoryShortcuts();
   // Static product copy is marked at build time. Subscribing the shell to the
   // i18n instance refreshes mounted descendants immediately, while compiled
   // module-scope metadata resolves translations lazily on the rerender.

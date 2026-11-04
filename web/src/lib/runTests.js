@@ -1,4 +1,5 @@
 import './desktopOffice.test.js';
+import './editingHistoryShortcuts.test.js';
 import './trajectoryInspection.test.js';
 import './automaticUpdates.test.js';
 import './upgradeSettings.test.js';
@@ -268,6 +269,7 @@ import './shortcutBindings.test.js';
 import './searchPaletteShortcut.test.js';
 import './browserCompatibility.test.js';
 import './browserDefaults.test.js';
+import './desktopZoom.test.js';
 import './fullscreenHeatWave.test.js';
 import './hooksSettings.test.js';
 import './skillsSettings.test.js';

@@ -4401,6 +4401,15 @@ a.ace-thread-link:focus-visible {
   pointer-events: none;
 }
 
+.ace-chat-tail-hover-arrow {
+  display: none;
+}
+.ace-chat-tail-button:is(:hover, :focus-visible) > .ace-chat-tail-progress {
+  display: none;
+}
+.ace-chat-tail-button:is(:hover, :focus-visible) > .ace-chat-tail-hover-arrow {
+  display: inline-flex;
+}
 .ace-chat-tail-progress {
   --ace-chat-tail-dot-lift: -3px;
   display: inline-flex;

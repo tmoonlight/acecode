@@ -3,6 +3,7 @@
 
 #include "loop/loop_schedule.hpp"
 #include "loop/loop_request.hpp"
+#include "loop/loop_scheduler.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -41,6 +42,8 @@ void WebServer::Impl::register_loops() {
     CROW_ROUTE(app, "/api/loops/<string>/enabled").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
     CROW_ROUTE(app, "/api/loops/<string>/runs").methods(crow::HTTPMethod::Options)
+    ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
+    CROW_ROUTE(app, "/api/loops/<string>/run").methods(crow::HTTPMethod::Options)
     ([this](const crow::request& req, const std::string&) { return cors_preflight(req); });
 
     auto unsupported = [this](const crow::request& req) {
@@ -195,6 +198,20 @@ void WebServer::Impl::register_loops() {
         }
         if (deps.on_loops_changed) deps.on_loops_changed();
         return json_response(req, 200, {{"ok", true}});
+    });
+
+    CROW_ROUTE(app, "/api/loops/<string>/run").methods(crow::HTTPMethod::POST)
+    ([this, unsupported, json_response](const crow::request& req, const std::string& id) {
+        if (auto rejected = require_auth(req)) return std::move(*rejected);
+        if (!deps.loop_store || !deps.loop_scheduler) return unsupported(req);
+        acecode::loop::StoreError error;
+        auto run = deps.loop_scheduler->run_now(id, &error);
+        if (!run) {
+            const int status = error.code == "NOT_FOUND" ? 404 :
+                (error.code == "LOOP_BUSY" || error.code == "WORKSPACE_BUSY") ? 409 : 503;
+            return json_response(req, status, store_error_json(error));
+        }
+        return json_response(req, 202, acecode::loop::run_to_json(*run));
     });
 
     CROW_ROUTE(app, "/api/loops/<string>/runs").methods(crow::HTTPMethod::GET)

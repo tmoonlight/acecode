@@ -9,6 +9,7 @@ import { composerDraftEditFingerprint } from './composerDraft.js';
 import { withComposerImageAttachments } from './composerImagePresentation.js';
 import { isUserComposerEdit } from './inputHistoryNavigation.js';
 import { composerShortcutAction, shortcutEventConsumed } from './shortcutBindings.js';
+import { handleEditorHistoryKey } from './editingHistoryShortcuts.js';
 import * as composerModel from './richComposerModel.js';
 import * as composerSelection from './composerSelection.js';
 import { formatSessionReferenceToken } from './sessionReference.js';
@@ -71,6 +72,7 @@ function fixture({ kind = 'path', key = 'Backspace', selected = false } = {}) {
   Object.assign(context, {
     composerShortcutAction,
     shortcutEventConsumed,
+    handleEditorHistoryKey,
     editor,
     disabled: false,
     submitOnEnter: true,

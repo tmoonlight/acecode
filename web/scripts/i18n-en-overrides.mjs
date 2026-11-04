@@ -1,6 +1,13 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '此任务正在运行': 'This task is already running',
+  '该工作空间已有定时任务正在运行': 'A scheduled task is already running in this workspace',
+  '立即运行失败：{{p0}}': 'Run now failed: {{p0}}',
+  '请重试': 'Please try again',
+  '立即运行：{{p0}}': 'Run now: {{p0}}',
+  '立即运行': 'Run now',
+  '重做': 'Redo',
   '另存为...': 'Save as...',
   '复制路径': 'Copy path',
   '复制文件内容': 'Copy file contents',

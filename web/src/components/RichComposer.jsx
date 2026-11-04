@@ -1,4 +1,5 @@
 import { composerShortcutAction, shortcutEventConsumed } from '../lib/shortcutBindings.js';
+import { handleEditorHistoryKey } from '../lib/editingHistoryShortcuts.js';
 import {
   forwardRef,
   useCallback,
@@ -1418,6 +1419,7 @@ function RichComposerShell({
       event.preventDefault();
       return;
     }
+    if (handleEditorHistoryKey(event, editor)) return true;
 
     if (
       (event.key === 'ArrowLeft' || event.key === 'ArrowRight')

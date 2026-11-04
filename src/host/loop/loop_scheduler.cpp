@@ -155,10 +155,17 @@ bool LoopScheduler::start(StoreError* error) {
 }
 
 void LoopScheduler::stop() {
-    if (!running_.exchange(false)) return;
-    stop_requested_.store(true);
+    {
+        std::lock_guard<std::mutex> lock(wait_mu_);
+        if (!running_.exchange(false)) return;
+        stop_requested_.store(true);
+    }
     wait_cv_.notify_all();
     if (worker_.joinable()) worker_.join();
+    {
+        std::lock_guard<std::mutex> lock(wait_mu_);
+        pending_runs_.clear();
+    }
 
     std::vector<std::pair<std::string, SessionClient::SubscriptionId>> subscriptions;
     {
@@ -176,7 +183,28 @@ void LoopScheduler::stop() {
     store_.interrupt_owner_runs(owner_id_, clock_(), &ignored);
 }
 
-void LoopScheduler::notify_changed() { wait_cv_.notify_all(); }
+void LoopScheduler::notify_changed() {
+    {
+        std::lock_guard<std::mutex> lock(wait_mu_);
+        ++change_generation_;
+    }
+    wait_cv_.notify_all();
+}
+
+std::optional<LoopRun> LoopScheduler::run_now(const std::string& id, StoreError* error) {
+    std::unique_lock<std::mutex> lock(wait_mu_);
+    if (!running_.load() || stop_requested_.load()) {
+        if (error) *error = {"LOOP_UNAVAILABLE", "Task scheduler is not running", std::nullopt};
+        return std::nullopt;
+    }
+    auto claim = store_.claim_now(id, clock_(), owner_id_, error);
+    if (claim.disposition != ClaimDisposition::Claimed) return std::nullopt;
+    auto run = claim.run;
+    pending_runs_.push_back(std::move(claim));
+    lock.unlock();
+    wait_cv_.notify_all();
+    return run;
+}
 
 bool LoopScheduler::model_exists(const std::string& name) const {
     for (const auto& model : config_.saved_models) {
@@ -197,9 +225,9 @@ void LoopScheduler::fail_run(const LoopDefinition& loop,
     LOG_WARN("[loop] run " + run.id + " failed: " + reason);
 }
 
-void LoopScheduler::launch(const LoopDefinition& loop, const LoopRun& run) {
+void LoopScheduler::launch(const LoopDefinition& loop, const LoopRun& run, bool manual) {
     if (!model_exists(loop.model_name)) {
-        fail_run(loop, run, "model_unavailable", true);
+        fail_run(loop, run, "model_unavailable", !manual);
         return;
     }
     const bool no_workspace = loop.workspace_cwd.empty();
@@ -355,6 +383,21 @@ void LoopScheduler::launch(const LoopDefinition& loop, const LoopRun& run) {
 void LoopScheduler::run() {
     constexpr std::int64_t kLiveWakeGraceMs = 5000;
     while (!stop_requested_.load()) {
+        ClaimResult pending;
+        std::uint64_t generation;
+        {
+            std::lock_guard<std::mutex> lock(wait_mu_);
+            if (stop_requested_.load()) break;
+            generation = change_generation_;
+            if (!pending_runs_.empty()) {
+                pending = std::move(pending_runs_.front());
+                pending_runs_.pop_front();
+            }
+        }
+        if (pending.loop && pending.run) {
+            launch(*pending.loop, *pending.run, true);
+            continue;
+        }
         StoreError error;
         const auto now = clock_();
         // If the process stayed alive through sleep, aggregate occurrences that
@@ -371,11 +414,14 @@ void LoopScheduler::run() {
         auto next = store_.earliest_next_run_at(&error);
         std::unique_lock<std::mutex> lock(wait_mu_);
         if (stop_requested_.load()) break;
+        const auto changed = [&] {
+            return stop_requested_.load() || !pending_runs_.empty() || change_generation_ != generation;
+        };
         if (!next) {
-            wait_cv_.wait(lock);
+            wait_cv_.wait(lock, changed);
         } else {
             const auto delay = std::max<std::int64_t>(0, *next - clock_());
-            wait_cv_.wait_for(lock, std::chrono::milliseconds(delay));
+            wait_cv_.wait_for(lock, std::chrono::milliseconds(delay), changed);
         }
     }
 }

@@ -23,6 +23,7 @@
 #include "desktop_about.hpp"
 #include "desktop_pet.hpp"
 #include "desktop_restart.hpp"
+#include "desktop_zoom.hpp"
 #include "dpi_win.hpp"
 #include "edge_app_launcher.hpp"
 #include "external_url.hpp"
@@ -1085,6 +1086,10 @@ int main(int argc, char** argv) {
     host.set_title("ACECode");
     host.set_size(kDefaultDesktopWindowWidth, kDefaultDesktopWindowHeight);
     host.restore_window_bounds(read_desktop_window_bounds());
+    DesktopZoom desktop_zoom([&host](double factor) { return host.set_zoom_factor(factor); });
+    desktop_zoom.restore(read_desktop_zoom_factor());
+    host.bind("aceDesktop_zoomFactor",
+              [&desktop_zoom](const std::string& req) { return desktop_zoom.handle_bridge(req); });
 
     // 系统托盘与 native 通知各自初始化。通知不再依赖 tray message HWND,
     // 因此托盘被策略禁用或创建失败时,会话完成提醒仍然可用。
@@ -2769,6 +2774,7 @@ int main(int argc, char** argv) {
 
     // 6. quit:写 last_active + 窗口位置 + stop_all
     if (const auto bounds = host.last_window_bounds()) write_desktop_window_bounds(*bounds);
+    if (desktop_zoom.changed()) write_desktop_zoom_factor(desktop_zoom.factor());
     {
         std::lock_guard<std::mutex> lk(active_mu);
         if (!active_hash_dynamic.empty()) {

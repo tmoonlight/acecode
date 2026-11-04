@@ -32,7 +32,9 @@ export function isBlockedBrowserDefaultShortcut(event) {
   return event?.key === 'F5' || isBrowserZoomShortcut(event) || nativeFind || isFindShortcut(event);
 }
 
-export function installBrowserDefaultGuards(target = globalThis.window) {
+// onZoomWheel:没被页面内部(图片 / 文档预览自己的 Ctrl+滚轮缩放)消费的 Ctrl+滚轮,
+// 拦下浏览器默认缩放后交给它(桌面版页面缩放,见 desktopZoom.js)。
+export function installBrowserDefaultGuards(target = globalThis.window, { onZoomWheel } = {}) {
   if (!target || typeof target.addEventListener !== 'function') {
     return () => {};
   }
@@ -46,8 +48,12 @@ export function installBrowserDefaultGuards(target = globalThis.window) {
   if (renderedSelects) root.setAttribute('data-ace-webview-selects', 'true');
 
   const prevent = (event) => event.preventDefault();
+  // 冒泡阶段才处理:预览控件先在自己身上 preventDefault + stopPropagation,
+  // 这里看到的就只剩该缩放整个页面的 Ctrl+滚轮。
   const onWheel = (event) => {
-    if (hasZoomModifier(event)) event.preventDefault();
+    if (!hasZoomModifier(event) || event.defaultPrevented) return;
+    event.preventDefault();
+    onZoomWheel?.(event);
   };
   const onKeyDown = (event) => {
     if (isShortcutRecording(event)) return;
@@ -71,7 +77,8 @@ export function installBrowserDefaultGuards(target = globalThis.window) {
   };
 
   const activeCapture = { capture: true, passive: false };
-  target.addEventListener('wheel', onWheel, activeCapture);
+  const activeBubble = { passive: false };
+  target.addEventListener('wheel', onWheel, activeBubble);
   target.addEventListener('keydown', onKeyDown, activeCapture);
   target.addEventListener('gesturestart', prevent, activeCapture);
   target.addEventListener('gesturechange', prevent, activeCapture);
@@ -82,7 +89,7 @@ export function installBrowserDefaultGuards(target = globalThis.window) {
       if (previousSelectFlag == null) root.removeAttribute('data-ace-webview-selects');
       else root.setAttribute('data-ace-webview-selects', previousSelectFlag);
     }
-    target.removeEventListener('wheel', onWheel, activeCapture);
+    target.removeEventListener('wheel', onWheel, activeBubble);
     target.removeEventListener('keydown', onKeyDown, activeCapture);
     target.removeEventListener('gesturestart', prevent, activeCapture);
     target.removeEventListener('gesturechange', prevent, activeCapture);

@@ -23,6 +23,8 @@ export const CONTEXT_SHORTCUTS = Object.freeze({
   historyPrevious: binding('ArrowUp', '↑', { unmodified: true }),
   historyNext: binding('ArrowDown', '↓', { unmodified: true }),
   save: binding('KeyS', 'S'),
+  undo: binding('KeyZ', 'Z'),
+  redo: binding('KeyZ', 'Z', { shift: true }),
   dismiss: binding('Escape', 'Esc', { unmodified: true }),
 });
 export const DEFAULT_SHORTCUTS = Object.freeze({ ...APP_SHORTCUTS, ...CONTEXT_SHORTCUTS });
@@ -108,6 +110,7 @@ function validOverride(value) {
 
 function keyReservation(id, spec) {
   const primary = spec.modifiers?.ctrl || spec.modifiers?.meta;
+  const ownHistoryKey = spec.code === 'KeyZ' && ((id === 'undo' && !spec.shift) || (id === 'redo' && spec.shift));
   if (!primary && !spec.alt && !/^F\d+$/.test(spec.code)) {
     const allowed = { send: ['Enter'], newline: ['Enter'], historyPrevious: ['ArrowUp', 'ArrowDown'],
       historyNext: ['ArrowUp', 'ArrowDown'], dismiss: ['Escape'] };
@@ -116,7 +119,7 @@ function keyReservation(id, spec) {
   // These chords are browser/OS focus, editing or native-window commands.
   if (spec.code === 'Tab' || (spec.code === 'F11' && !primary && !spec.alt)
       || (spec.alt && spec.code === 'F4') || (spec.modifiers?.meta && !isMacShortcutHost())
-      || (primary && !spec.alt && ['KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY', 'KeyL', 'KeyT', 'KeyW', 'KeyN', 'KeyR', 'KeyO'].includes(spec.code))
+      || (primary && !spec.alt && !ownHistoryKey && ['KeyC', 'KeyV', 'KeyX', 'KeyA', 'KeyZ', 'KeyY', 'KeyL', 'KeyT', 'KeyW', 'KeyN', 'KeyR', 'KeyO'].includes(spec.code))
       || (!primary && spec.alt && ['ArrowLeft', 'ArrowRight'].includes(spec.code))) return 'reserved';
   if (spec.code === 'F3' && id !== 'find') return 'reserved';
   return null;
@@ -159,6 +162,7 @@ function normalizeOverrides(value) {
 export function createShortcutStore(storage, events) {
   const read = () => normalizeOverrides(readWithFallback(SHORTCUT_STORAGE_KEY, EMPTY, null, storage));
   let current = read();
+  const drafts = new Map();
   const listeners = new Set();
   const notify = () => { for (const listener of listeners) listener(); };
   const onStorage = (event) => {
@@ -167,6 +171,7 @@ export function createShortcutStore(storage, events) {
   };
   return {
     getSnapshot: () => current,
+    getDraft: (id) => drafts.get(id),
     subscribe(listener) {
       if (!listeners.size) { events?.addEventListener('storage', onStorage); current = read(); }
       listeners.add(listener);
@@ -179,7 +184,11 @@ export function createShortcutStore(storage, events) {
       if (issue) return { ok: false, ...issue };
       const next = { ...latest };
       if (value) next[id] = value; else delete next[id];
-      if (!writeSafely(SHORTCUT_STORAGE_KEY, next, storage)) return { ok: false, reason: 'storage' };
+      if (!writeSafely(SHORTCUT_STORAGE_KEY, next, storage)) {
+        drafts.set(id, value || DEFAULT_SHORTCUTS[id]);
+        return { ok: false, reason: 'storage' };
+      }
+      drafts.delete(id);
       current = normalizeOverrides(next); notify();
       return { ok: true };
     },

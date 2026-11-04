@@ -61,7 +61,8 @@ public:
 
     void set_title(const std::string& title);
     void set_size(int width, int height);
-    // 上次退出时的主窗口位置和尺寸,首次 set_visible(true) 时套用;目前只有 Windows 生效。
+    // 上次退出时的主窗口位置和尺寸。Windows / Linux 在首次 set_visible(true) 时套用;
+    // macOS 的窗口在 set_size 里就已显示,在这里立即套用,须在 set_size 之后调用。
     void restore_window_bounds(std::optional<SavedDesktopWindowBounds> bounds);
     // 窗口销毁时记下的位置,run() 返回后读取;窗口从未显示过时为空。
     std::optional<SavedDesktopWindowBounds> last_window_bounds() const;
@@ -102,6 +103,10 @@ public:
     // 推送,启动默认为浅色 body 底色(window_background.hpp)。GUI 主线程 only
     // (bind 回调天然满足)。
     bool set_background_color(const std::string& color_text);
+
+    // 页面缩放(1.0 = 100%),由 DesktopZoom 经 aceDesktop_zoomFactor 调用;
+    // 目前只有 Windows(WebView2 ZoomFactor)实现,其它平台返回 false。
+    bool set_zoom_factor(double factor);
 
     // 主题异形窗口:chamfer=true 把窗口四角按 45° 切掉(与 HUD 外框斜边重合),
     // 并用分层窗口补画阴影;glow_rgb(0xRRGGBB)给阴影加一圈主题色辉光。

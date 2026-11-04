@@ -663,6 +663,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     web_deps.pty_registry       = &pty_registry;
     web_deps.loop_store         = loop_store_ready ? &loop_store : nullptr;
     web_deps.on_loops_changed   = [&loop_scheduler] { loop_scheduler.notify_changed(); };
+    web_deps.loop_scheduler     = loop_store_ready ? &loop_scheduler : nullptr;
 
     acecode::web::ManagedRemoteWebProxyController remote_web_proxy(
         current_executable_path(), runtime_dir, pid);

@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <random>
+#include <thread>
 
 namespace fs = std::filesystem;
 using namespace acecode::loop;
@@ -113,6 +114,65 @@ TEST(LoopStore, InitializesCrudAndEnableState) {
 
     ASSERT_TRUE(store.delete_loop(created->id, &error)) << error.message;
     EXPECT_TRUE(store.list_loops(&error).empty());
+}
+
+TEST(LoopStore, ManualRunPreservesDisabledAndExpiredSchedule) {
+    LoopStore store(temp_database("manual"));
+    StoreError error;
+    ASSERT_TRUE(store.initialize(&error));
+    auto loop = store.create_loop(once_loop("manual", 10'000), 1'000, &error);
+    ASSERT_TRUE(loop);
+    auto claimed = store.claim_now(loop->id, 2'000, "owner", &error);
+    ASSERT_EQ(claimed.disposition, ClaimDisposition::Claimed) << error.message;
+    EXPECT_EQ(store.get_loop(loop->id)->next_run_at_ms, loop->next_run_at_ms);
+    ASSERT_TRUE(store.update_run_state(claimed.run->id, RunStatus::Completed, 3'000));
+    auto disabled = store.set_loop_enabled(loop->id, false, 4'000);
+    ASSERT_TRUE(disabled);
+    auto manual = store.claim_now(loop->id, 20'000, "owner", &error);
+    ASSERT_TRUE(manual.run) << error.message;
+    EXPECT_EQ(manual.run->scheduled_at_ms, 20'000);
+    EXPECT_FALSE(store.get_loop(loop->id)->enabled);
+    EXPECT_EQ(store.get_loop(loop->id)->next_run_at_ms, disabled->next_run_at_ms);
+    EXPECT_EQ(store.get_loop(loop->id)->updated_at_ms, disabled->updated_at_ms);
+    EXPECT_EQ(store.claim_now(loop->id, 20'001, "owner", &error).disposition, ClaimDisposition::None);
+    EXPECT_EQ(error.code, "LOOP_BUSY");
+    error = {};
+    EXPECT_FALSE(store.claim_now("missing", 20'002, "owner", &error).run);
+    EXPECT_EQ(error.code, "NOT_FOUND");
+}
+
+TEST(LoopStore, ConcurrentManualClaimsAndAutomaticRunShareExclusion) {
+    const auto path = temp_database("manual_race");
+    LoopStore store(path), other(path);
+    ASSERT_TRUE(store.initialize());
+    ASSERT_TRUE(other.initialize());
+    auto loop = store.create_loop(once_loop("manual", 10'000), 1'000);
+    ASSERT_TRUE(loop);
+    ClaimResult first, second;
+    std::thread a([&] { first = store.claim_now(loop->id, 2'000, "first"); });
+    std::thread b([&] { second = other.claim_now(loop->id, 2'000, "second"); });
+    a.join(); b.join();
+    EXPECT_NE(first.run.has_value(), second.run.has_value());
+    EXPECT_EQ(store.list_runs(loop->id).size(), 1u);
+    EXPECT_EQ(store.claim_due(10'000, "automatic").disposition, ClaimDisposition::MissedWorkspaceBusy);
+}
+
+TEST(LoopStore, ManualRunRejectsBusyWorkspaceAndRecoversAfterShutdown) {
+    LoopStore store(temp_database("manual_workspace"));
+    ASSERT_TRUE(store.initialize());
+    auto a = store.create_loop(once_loop("one", 60'000, "workspace"), 1'000);
+    auto b = store.create_loop(once_loop("two", 180'000, "workspace"), 1'000);
+    ASSERT_TRUE(a); ASSERT_TRUE(b);
+    auto claimed = store.claim_now(a->id, 2'000, "owner");
+    ASSERT_TRUE(claimed.run);
+    ASSERT_TRUE(store.update_run_state(claimed.run->id, RunStatus::WaitingUser, 2'001));
+    StoreError error;
+    EXPECT_FALSE(store.claim_now(b->id, 3'000, "owner", &error).run);
+    EXPECT_EQ(error.code, "WORKSPACE_BUSY");
+    EXPECT_TRUE(store.list_runs(b->id).empty());
+    ASSERT_TRUE(store.interrupt_owner_runs("owner", 4'000));
+    EXPECT_EQ(store.list_runs(a->id).front().status, RunStatus::Failed);
+    EXPECT_TRUE(store.claim_now(b->id, 5'000, "new-owner").run);
 }
 
 TEST(LoopStore, MigratesLegacyLoopsToWorktreeWithoutChangingNewDefault) {

@@ -16,20 +16,32 @@ import React,{useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {LoopPage} from '/src/components/LoopPage.jsx';
 import {RichComposer} from '/src/components/RichComposer.jsx';
+import MarkdownWysiwygEditor from '/src/components/MarkdownWysiwygEditor.jsx';
+import {Toaster} from '/src/components/Toast.jsx';
+import {shortcutStore,captureShortcut} from '/src/lib/shortcutBindings.js';
 import {scheduledTaskCreationRef} from '/src/lib/scheduledTaskCreation.js';
 import {commandsWithFallback} from '/src/lib/slashCommands.js';
 import {api} from '/src/lib/api.js';
 import '/src/styles/globals.css';
 const tasks=[];
 window.mutations=[];window.submissions=0;
+window.runCalls=0;const runs=[];
 Object.assign(api,{
  listLoops:async()=>({loops:[...tasks]}),listWorkspaces:async()=>[],
  listModels:async()=>({models:[{name:'test-model'}]}),getDefaultModel:async()=>({name:'test-model'}),
  createLoop:async(body)=>{window.mutations.push(body);const task={...body,id:'created',next_run_at_ms:Date.now()+3600000};tasks.push(task);return task;},
+ listLoopRuns:async()=>({runs}),
+ setLoopEnabled:async(id,enabled)=>{const task=tasks.find(t=>t.id===id);task.enabled=enabled;return {...task};},
+ runLoopNow:async(id)=>{window.runCalls++;return new Promise((resolve,reject)=>{
+  window.failRun=()=>reject({body:{error:'WORKSPACE_BUSY'}});
+  window.acceptRun=()=>{const run={id:'manual-1',loop_id:id,status:'running',scheduled_at_ms:Date.now(),session_id:'run-session'};tasks.find(t=>t.id===id).latest_run=run;runs.unshift(run);resolve(run);};
+ });},
 });
 const commands=commandsWithFallback({skills:[{name:'scheduled-task',description:'创建定时任务'}]});
 function Fixture(){
  const [route,setRoute]=useState(null),[text,setText]=useState('');
+ const [markdown,setMarkdown]=useState('Original');
+ window.historyKeys=()=>{shortcutStore().save('undo',captureShortcut({code:'KeyZ',ctrlKey:true,altKey:true}));shortcutStore().save('redo',captureShortcut({code:'KeyZ',ctrlKey:true,altKey:true,shiftKey:true}));};
  const smart=()=>{const next=scheduledTaskCreationRef({loop:true},{});window.next=next;setText(next.initialDraftText);setRoute(next);};
  window.fixture={reset:()=>setRoute(null),get text(){return text;}};
  return <main className="h-screen flex flex-col text-fg bg-bg">
@@ -37,14 +49,16 @@ function Fixture(){
    <h1 className="text-[20px] font-semibold mb-5">新建任务</h1>
    <div className="rounded-lg border border-border bg-surface p-3">
     <RichComposer value={text} onChange={setText} commands={commands} aria-label="任务内容" className="min-h-[96px] text-[14px]" onSubmit={()=>window.submissions++}/>
+    <MarkdownWysiwygEditor value={markdown} onChange={setMarkdown}/>
    </div>
   </section>:<LoopPage onSmartAdd={smart} onOpenSession={()=>{}}/>}
- </main>;
+ <Toaster/></main>;
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
 const virtual = path.join(web, '__scheduled-fixture.jsx').replaceAll('\\', '/');
 const server = await createServer({
+  cacheDir: path.join(output, 'vite-cache'),
   root: web, server: { host: '127.0.0.1', port: 0, open: false, hmr: false },
   plugins: [{
     name: 'scheduled-task-fixture',
@@ -94,6 +108,30 @@ try {
   await page.getByRole('heading', { name: 'Browser reminder' }).waitFor();
   assert.equal(await page.evaluate(() => window.mutations.length), 1);
   assert.doesNotMatch(await page.locator('body').innerText(), /循环|LOOP/);
+  await page.getByRole('button', { name: '停用', exact: true }).click();
+  const play = page.getByRole('button', { name: '立即运行：Browser reminder', exact: true });
+  const scheduleBefore = await page.locator('article').innerText();
+  await play.click();
+  assert.equal(await play.isDisabled(), true);
+  await play.evaluate(el => el.click());
+  assert.equal(await page.evaluate(() => window.runCalls), 1);
+  await page.evaluate(() => window.failRun());
+  await page.getByText('该工作空间已有定时任务正在运行', { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('button[title="立即运行"]').disabled);
+  await play.click();
+  await page.evaluate(() => window.acceptRun());
+  await page.getByText('执行中', { exact: true }).first().waitFor();
+  assert.equal(await play.isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: '启用', exact: true }).count(), 1);
+  assert.equal(await page.evaluate(() => window.runCalls), 2);
+  assert.match(scheduleBefore, /下次运行：—/);
+  for (const [width,theme] of [[1280,'light'],[390,'dark']]) {
+    await page.setViewportSize({width,height:800});
+    await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+    await page.screenshot({path:path.join(output,`manual-run-${width}-${theme}.png`),animations:'disabled'});
+    assert.equal(await page.locator('article').evaluate(el=>el.scrollWidth<=el.clientWidth),true);
+  }
+  await page.setViewportSize({width:1280,height:800});
   await smart.focus();
   await page.keyboard.press('Enter');
   const composer = page.getByRole('textbox', { name: '任务内容' });
@@ -106,9 +144,20 @@ try {
   await page.keyboard.press('End');
   await page.keyboard.type(' edited');
   assert.ok((await page.evaluate(() => window.fixture.text)).endsWith(' edited'));
+  await page.evaluate(() => window.historyKeys());
+  const markdown = page.getByRole('textbox', { name: 'Markdown 所见即所得编辑器' });
+  await markdown.click();
+  await markdown.press('Control+End');
+  await markdown.pressSequentially(' changed');
+  await markdown.press('Control+z');
+  assert.match(await markdown.innerText(), /Original changed/);
+  await markdown.press('Control+Alt+z');
+  assert.equal((await markdown.innerText()).trim(),'Original');
+  await markdown.press('Control+Alt+Shift+z');
+  assert.match(await markdown.innerText(), /Original changed/);
   await page.screenshot({ path: path.join(output, 'smart-draft.png'), animations: 'disabled' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ result: 'passed', output, checks: ['button order and SVG', 'light/dark at 1280/390', 'manual form and save', 'keyboard smart entry', 'skill chip', 'exact editable unsent draft'], errors }));
+  console.log(JSON.stringify({ result: 'passed', output, checks: ['button order and SVG', 'light/dark at 1280/390', 'manual form and save', 'run now pending guard, busy error and retry', 'disabled schedule preserved and run history expanded', 'responsive task actions', 'Markdown custom undo/redo', 'keyboard smart entry', 'skill chip', 'exact editable unsent draft'], errors }));
 } finally {
   if (errors.length) console.error(JSON.stringify({ errors }));
   await browser?.close();

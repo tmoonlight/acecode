@@ -4,7 +4,9 @@ import { ThemeProvider } from './theme.jsx';
 import { App } from './App.jsx';
 import { MermaidPreviewHost } from './components/MermaidPreviewHost.jsx';
 import { FullscreenHeatWave } from './components/FullscreenHeatWave.jsx';
+import { DesktopZoomIndicator } from './components/DesktopZoomIndicator.jsx';
 import { installBrowserDefaultGuards } from './lib/browserDefaults.js';
+import { installDesktopZoom } from './lib/desktopZoom.js';
 import { installMermaidRenderer } from './lib/mermaidRenderer.js';
 import { installWebappCompatFlag } from './lib/desktopShellMode.js';
 import {
@@ -14,7 +16,7 @@ import {
 import { i18n, tr } from './i18n/index.js';
 import './styles/globals.css';
 
-installBrowserDefaultGuards();
+installBrowserDefaultGuards(window, { onZoomWheel: installDesktopZoom(window) });
 installMermaidRenderer();
 reportDesktopStartupMilestone('web_bootstrap');
 installDesktopStartupPaintReporter();
@@ -35,6 +37,7 @@ createRoot(document.getElementById('root')).render(
       <App />
       <MermaidPreviewHost />
       <FullscreenHeatWave />
+      <DesktopZoomIndicator />
     </ThemeProvider>
   </StrictMode>,
 );

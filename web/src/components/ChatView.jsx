@@ -6470,17 +6470,20 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           <button
             type="button"
             onClick={jumpToChatTail}
-            className="absolute left-1/2 -translate-x-1/2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg ace-shadow-lg hover:bg-surface-hi focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="ace-chat-tail-button absolute left-1/2 -translate-x-1/2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-fg ace-shadow-lg hover:bg-surface-hi focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             style={{ bottom: Math.max(12, changeDockBottomPadding + 12) }}
             title={status === 'running' ? '运行中' : '滚动到底部'}
             aria-label="滚动到底部"
           >
             {status === 'running' ? (
-              <span className="ace-chat-tail-progress" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
+              <>
+                <span className="ace-chat-tail-progress" aria-hidden="true">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <VsIcon name="ArrowDown" size={18} className="ace-chat-tail-hover-arrow" />
+              </>
             ) : <VsIcon name="ArrowDown" size={18} />}
           </button>
         )}

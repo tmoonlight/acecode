@@ -232,7 +232,9 @@ inline void configure_browser_defaults(webview::webview& host,
         return;
     }
 
-    hr = settings->put_IsZoomControlEnabled(TRUE);
+    // 页面缩放统一由前端拦下 Ctrl+滚轮后经 aceDesktop_zoomFactor 设置(set_browser_zoom_factor);
+    // 用户手势缩放保持关闭,否则 iframe 里的 Ctrl+滚轮会绕过前端,缩放比例浮层对不上。
+    hr = settings->put_IsZoomControlEnabled(FALSE);
     if (FAILED(hr)) {
         log_webview_setting_failure("put_IsZoomControlEnabled", hr);
     }
@@ -258,6 +260,17 @@ inline void configure_browser_defaults(webview::webview& host,
     }
 
     settings->Release();
+}
+
+// 控制器级缩放:CSS 像素按比例放大,devicePixelRatio 随之变化,
+// 按 CSS 像素 × devicePixelRatio 摆放的原生子窗口(Agent Browser)不会错位。
+inline bool set_browser_zoom_factor(webview::webview& host, double factor) {
+    auto controller_result = host.browser_controller();
+    if (!controller_result.ok() || !controller_result.value()) return false;
+    auto* controller = static_cast<ICoreWebView2Controller*>(controller_result.value());
+    const HRESULT hr = controller->put_ZoomFactor(factor);
+    if (FAILED(hr)) log_webview_setting_failure("put_ZoomFactor", hr);
+    return SUCCEEDED(hr);
 }
 
 } // namespace acecode::desktop::detail

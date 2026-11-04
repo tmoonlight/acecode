@@ -41,6 +41,7 @@
 #include "experts/expert_registry.hpp"
 #include "hooks/hook_manager.hpp"
 #include "loop/loop_store.hpp"
+#include "loop/loop_scheduler.hpp"
 #include "prompt/system_prompt.hpp"
 #include "llm/tool_protocol_names.hpp"
 #include "llm/message_predicates.hpp"
@@ -505,6 +506,7 @@ struct WebServerFixture {
     std::shared_ptr<acecode::TaskSuggestionService> task_suggestions;
     std::unique_ptr<acecode::HookManager> hook_manager;
     std::unique_ptr<acecode::loop::LoopStore> loop_store;
+    std::unique_ptr<acecode::loop::LoopScheduler> loop_scheduler;
     std::unique_ptr<FakeRemoteWebProxyController> remote_web_proxy;
     std::unique_ptr<acecode::web::WebServer> server;
     std::unique_ptr<acecode::PtySessionRegistry> pty_registry;
@@ -631,6 +633,8 @@ struct WebServerFixture {
             throw std::runtime_error("failed to initialize LOOP test store: " + loop_error.message);
         }
 
+        loop_scheduler = std::make_unique<acecode::loop::LoopScheduler>(
+            *loop_store, *registry, *client, cfg);
         acecode::web::WebServerDeps wdeps;
         wdeps.web_cfg = &cfg.web;
         wdeps.daemon_cfg = &cfg.daemon;
@@ -676,6 +680,7 @@ struct WebServerFixture {
         wdeps.skill_registry = attach_skill_registry ? &skill_registry : nullptr;
         wdeps.dangerous = dangerous;
         wdeps.loop_store = loop_store.get();
+        wdeps.loop_scheduler = loop_scheduler.get();
         wdeps.desktop_managed = desktop_managed;
         if (enable_pty) {
             pty_registry = std::make_unique<acecode::PtySessionRegistry>(
@@ -858,6 +863,7 @@ struct WebServerFixture {
         channel_host.reset();
         if (task_suggestions) task_suggestions->shutdown();
         task_suggestions.reset();
+        loop_scheduler.reset();
         client.reset();
         registry.reset();
         loop_store.reset();
@@ -1759,6 +1765,50 @@ TEST(WebServerHttp, UiLocaleRejectsInvalidPayloadWithoutMutation) {
     ASSERT_EQ(invalid_shape.status_code, 400) << invalid_shape.text;
     EXPECT_EQ(json::parse(invalid_shape.text)["error"], "BAD_REQUEST");
     EXPECT_EQ(fx.cfg.ui.locale, "zh-CN");
+}
+
+TEST(WebServerHttp, LoopManualRunRequiresAuthAndUsesScheduler) {
+    WebServerFixture fx;
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    acecode::loop::LoopDefinition definition;
+    definition.name = "Run now";
+    definition.prompt = "Test manual launch";
+    // Deliberately unavailable: accepted execution fails locally without network IO.
+    definition.model_name = "missing-manual-test-model";
+    definition.enabled = true;
+    definition.schedule.kind = acecode::loop::ScheduleKind::Once;
+    definition.schedule.once_at_ms = now + 60'000;
+    auto created = fx.loop_store->create_loop(definition, now);
+    ASSERT_TRUE(created);
+    const auto route = "/api/loops/" + created->id + "/run";
+    EXPECT_EQ(cpr::Post(cpr::Url{fx.url(route)},
+        cpr::Header{{"Origin", "http://localhost:5173"}}).status_code, 401);
+    EXPECT_EQ(cpr::Post(cpr::Url{fx.url(route)}).status_code, 503);
+    ASSERT_TRUE(fx.loop_scheduler->start());
+    EXPECT_EQ(cpr::Post(cpr::Url{fx.url("/api/loops/missing/run")}).status_code, 404);
+    auto active = fx.loop_store->claim_now(created->id, now, "test-owner");
+    ASSERT_TRUE(active.run);
+    auto busy = cpr::Post(cpr::Url{fx.url(route)});
+    EXPECT_EQ(busy.status_code, 409);
+    EXPECT_EQ(json::parse(busy.text)["error"], "LOOP_BUSY");
+    ASSERT_TRUE(fx.loop_store->interrupt_owner_runs("test-owner", now));
+    auto accepted = cpr::Post(cpr::Url{fx.url(route)});
+    ASSERT_EQ(accepted.status_code, 202) << accepted.text;
+    EXPECT_EQ(json::parse(accepted.text)["loop_id"], created->id);
+    const auto run_id = json::parse(accepted.text)["id"].get<std::string>();
+    bool model_failed = false;
+    for (int i = 0; i < 100 && !model_failed; ++i) {
+        for (const auto& run : fx.loop_store->list_runs(created->id)) {
+            if (run.id == run_id) model_failed = run.reason == "model_unavailable";
+        }
+        if (!model_failed) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    EXPECT_TRUE(model_failed);
+    fx.loop_scheduler->stop();
+    EXPECT_EQ(fx.loop_store->list_runs(created->id).size(), 2u);
+    EXPECT_TRUE(fx.loop_store->get_loop(created->id)->enabled);
+    EXPECT_EQ(fx.loop_store->get_loop(created->id)->next_run_at_ms, created->next_run_at_ms);
 }
 
 TEST(WebServerHttp, LoopCrudEnableConflictAndRunHistory) {

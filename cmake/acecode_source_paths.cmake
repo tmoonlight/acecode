@@ -58,6 +58,7 @@ set(ACECODE_NATIVE_BRIDGE_MAC_SOURCES
     ${CMAKE_SOURCE_DIR}/src/base/platform/native_ui/notifications_mac.mm)
 set(ACECODE_DESKTOP_OBJCXX_SOURCES
     ${CMAKE_SOURCE_DIR}/src/apps/desktop/tray_icon_win.cpp
+    ${CMAKE_SOURCE_DIR}/src/apps/desktop/window_placement_mac.cpp
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE})
 set(ACECODE_UPGRADE_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/adapters/upgrade/macos_app_installer.mm")
 

@@ -190,5 +190,113 @@ TEST(WindowSizeTest, SavedWindowOnLeftSecondaryMonitorIsRestoredExactly) {
     EXPECT_EQ(rect.bottom, 1000);
 }
 
+// 下面是 macOS / Linux 用的逻辑坐标口径:没有隐形缩放边,dpi 恒为 96。
+constexpr DesktopWindowMonitor kLogicalPrimary{{0, 25, 1440, 900}, kLogicalDesktopWindowDpi};
+constexpr DesktopWindowMonitor kLogicalRight{{1440, 0, 3360, 1080}, kLogicalDesktopWindowDpi};
+
+// 场景:窗口横跨主屏与右侧副屏,大部分落在副屏上。
+// 期望:按重叠面积选中副屏(与 Windows 的 MonitorFromRect 同口径),而不是第一个有交集的主屏。
+TEST(WindowSizeTest, MonitorForRectPicksLargestOverlap) {
+    const auto monitor = desktop_monitor_for_rect({1300, 100, 2300, 700},
+                                                  {kLogicalPrimary, kLogicalRight});
+
+    ASSERT_TRUE(monitor.has_value());
+    EXPECT_EQ(monitor->work_area.left, 1440);
+}
+
+// 场景:上次窗口所在的显示器已经拔掉,保存的位置不和任何现存显示器重叠。
+// 期望:找不到显示器;调用方据此走居中回退。
+TEST(WindowSizeTest, MonitorForRectIsEmptyWhenNothingOverlaps) {
+    EXPECT_FALSE(desktop_monitor_for_rect({-2000, 0, -1000, 600},
+                                          {kLogicalPrimary, kLogicalRight}).has_value());
+    EXPECT_FALSE(desktop_monitor_for_rect({0, 25, 800, 600}, {}).has_value());
+}
+
+// 场景:macOS / Linux X11 上次窗口完整落在副屏工作区里。
+// 期望:原位恢复,restored 为 true(macOS 据此不再调用 [window center])。
+TEST(WindowSizeTest, LogicalSavedWindowOnSecondaryMonitorIsRestored) {
+    const auto placement = place_saved_logical_desktop_window(
+        saved_bounds({1600, 100, 2880, 920}), {kLogicalPrimary, kLogicalRight},
+        kLogicalPrimary.work_area);
+
+    EXPECT_TRUE(placement.restored);
+    EXPECT_EQ(placement.rect.left, 1600);
+    EXPECT_EQ(placement.rect.top, 100);
+    EXPECT_EQ(placement.rect.right, 2880);
+    EXPECT_EQ(placement.rect.bottom, 920);
+}
+
+// 场景:窗口顶边钻到了 macOS 菜单栏下面(工作区从 y=25 开始),或横跨两块屏。
+// 期望:都算超出可视范围,保留上次尺寸在回退工作区居中。
+TEST(WindowSizeTest, LogicalSavedWindowOutsideWorkAreaFallsBackToCentered) {
+    const auto under_menu_bar = place_saved_logical_desktop_window(
+        saved_bounds({100, 10, 1100, 710}), {kLogicalPrimary, kLogicalRight},
+        kLogicalPrimary.work_area);
+    EXPECT_FALSE(under_menu_bar.restored);
+    EXPECT_EQ(under_menu_bar.rect.left, 220);
+    EXPECT_EQ(under_menu_bar.rect.top, 112);
+    EXPECT_EQ(under_menu_bar.rect.right, 1220);
+    EXPECT_EQ(under_menu_bar.rect.bottom, 812);
+
+    const auto spanning = place_saved_logical_desktop_window(
+        saved_bounds({1000, 100, 2000, 800}), {kLogicalPrimary, kLogicalRight},
+        kLogicalPrimary.work_area);
+    EXPECT_FALSE(spanning.restored);
+    EXPECT_EQ(spanning.rect.right - spanning.rect.left, 1000);
+    EXPECT_EQ(spanning.rect.bottom - spanning.rect.top, 700);
+}
+
+// 场景:Wayland 下读不到也设不了窗口位置,调用方传空的显示器列表;
+// 上次尺寸还比现在的工作区大。
+// 期望:不原位恢复,只沿用尺寸,按原有逻辑收进安全区(左右 40、上下 60)并居中。
+TEST(WindowSizeTest, LogicalSavedWindowWithoutPositionKeepsOnlyClampedSize) {
+    const auto placement = place_saved_logical_desktop_window(
+        saved_bounds({0, 0, 1600, 1000}), {}, {0, 0, 1366, 768});
+
+    EXPECT_FALSE(placement.restored);
+    EXPECT_EQ(placement.rect.left, 40);
+    EXPECT_EQ(placement.rect.top, 60);
+    EXPECT_EQ(placement.rect.right, 1326);
+    EXPECT_EQ(placement.rect.bottom, 708);
+}
+
+// 场景:主屏 1440×900 点,AppKit 给出的窗口 frame 是左下原点、y 向上。
+// 期望:换成左上原点后 top = 主屏高度 - (y + 高),再换回去得到同一个 frame。
+TEST(WindowSizeTest, CocoaFrameConvertsToTopLeftAndBack) {
+    const auto rect = top_left_rect_from_cocoa_frame({100, 200, 800, 600}, 900);
+    EXPECT_EQ(rect.left, 100);
+    EXPECT_EQ(rect.top, 100);
+    EXPECT_EQ(rect.right, 900);
+    EXPECT_EQ(rect.bottom, 700);
+
+    const auto frame = cocoa_frame_from_top_left_rect(rect, 900);
+    EXPECT_DOUBLE_EQ(frame.x, 100);
+    EXPECT_DOUBLE_EQ(frame.y, 200);
+    EXPECT_DOUBLE_EQ(frame.width, 800);
+    EXPECT_DOUBLE_EQ(frame.height, 600);
+}
+
+// 场景:副屏摆在主屏上方,AppKit 里它的 y 大于主屏高度。
+// 期望:换算后 top 为负,与 Windows 的副屏负坐标同样处理;来回换算不丢位置。
+TEST(WindowSizeTest, CocoaFrameAbovePrimaryScreenHasNegativeTop) {
+    const auto rect = top_left_rect_from_cocoa_frame({200, 1100, 1000, 700}, 900);
+    EXPECT_EQ(rect.top, -900);
+    EXPECT_EQ(rect.bottom, -200);
+
+    const auto frame = cocoa_frame_from_top_left_rect(rect, 900);
+    EXPECT_DOUBLE_EQ(frame.y, 1100);
+    EXPECT_DOUBLE_EQ(frame.height, 700);
+}
+
+// 场景:Retina 屏上窗口 frame 可能落在半点上。
+// 期望:四条边各自四舍五入,宽高误差不超过 1 点,不会因为先取整原点再加宽高而越来越偏。
+TEST(WindowSizeTest, CocoaFractionalFrameRoundsEachEdge) {
+    const auto rect = top_left_rect_from_cocoa_frame({10.4, 20.6, 799.2, 600.0}, 900.0);
+    EXPECT_EQ(rect.left, 10);
+    EXPECT_EQ(rect.right, 810);
+    EXPECT_EQ(rect.top, 279);
+    EXPECT_EQ(rect.bottom, 879);
+}
+
 } // namespace
 } // namespace acecode::desktop

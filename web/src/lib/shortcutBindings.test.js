@@ -38,6 +38,7 @@ const before = store.getSnapshot();
 storage.setItem = () => { throw new Error('quota exceeded'); };
 assert.deepEqual(store.save('newSession', chord('KeyU')), { ok: false, reason: 'storage' });
 assert.equal(store.getSnapshot(), before, 'failed save keeps active bindings');
+assert.deepEqual(store.getDraft('newSession'), chord('KeyU'), 'failed draft survives editor unmount');
 assert.deepEqual(createShortcutStore(null).save('newSession', custom), { ok: false, reason: 'storage' });
 storage.data.set(SHORTCUT_STORAGE_KEY, JSON.stringify({ newSession: chord('KeyU') }));
 const storageEvent = new Event('storage');

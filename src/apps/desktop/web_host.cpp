@@ -66,6 +66,7 @@
 #  import <AppKit/AppKit.h>
 #  import <WebKit/WebKit.h>
 #  include <objc/runtime.h>
+#  include "window_placement_mac.hpp"
 #endif
 
 // X11 arrives through WebKitGTK and defines these common C++ enum names as
@@ -2156,6 +2157,7 @@ struct WebHost::Impl {
             mac_focus_observer = nil;
         }
         mac_window_focus.reset();
+        mac_bounds.reset();
         if (mac_enter_fullscreen_observer) {
             [[NSNotificationCenter defaultCenter]
                 removeObserver:mac_enter_fullscreen_observer];
@@ -2184,7 +2186,6 @@ struct WebHost::Impl {
     RECT target_monitor{};
     HWND custom_window = nullptr;
     bool center_on_first_show = false;
-    std::optional<SavedDesktopWindowBounds> saved_bounds;
     ComApartment com{false};
     std::unique_ptr<WindowsTaskbarBadge> taskbar_badge;
     // Shared with the WebView-owned callback; both access it on the GUI thread.
@@ -2202,6 +2203,9 @@ struct WebHost::Impl {
     std::unique_ptr<detail::LegacyWindowsFileDrop> legacy_file_drop;
     LifetimeToken renderer_lifetime;
 #endif
+#if !defined(__APPLE__)
+    std::optional<SavedDesktopWindowBounds> saved_bounds;
+#endif
 #if !defined(_WIN32) && !defined(__APPLE__)
     bool linux_center_on_first_show = false;
 #endif
@@ -2214,6 +2218,7 @@ struct WebHost::Impl {
     std::unique_ptr<detail::MacWindowFocusObservers> mac_window_focus;
     id mac_enter_fullscreen_observer = nil;
     id mac_exit_fullscreen_observer = nil;
+    std::unique_ptr<detail::MacWindowBoundsMemory> mac_bounds;
 #endif
 };
 
@@ -2269,17 +2274,24 @@ void WebHost::set_size(int width, int height) {
 #endif
 }
 void WebHost::restore_window_bounds(std::optional<SavedDesktopWindowBounds> bounds) {
-#ifdef _WIN32
-    impl_->saved_bounds = bounds;
+#ifdef __APPLE__
+    // set_size 已把窗口居中显示;从这里开始记位置,有保存值就立刻改摆。
+    NSWindow* window = mac_window_from_host(*impl_->w);
+    if (!window) return;
+    impl_->mac_bounds = std::make_unique<detail::MacWindowBoundsMemory>(window);
+    if (bounds) impl_->mac_bounds->restore(*bounds);
+    notify_mac_window_state_if_changed(window);
 #else
-    (void)bounds;
+    impl_->saved_bounds = bounds;
 #endif
 }
 std::optional<SavedDesktopWindowBounds> WebHost::last_window_bounds() const {
 #ifdef _WIN32
     return g_window_bounds.on_destroy;
+#elif defined(__APPLE__)
+    return impl_->mac_bounds ? impl_->mac_bounds->capture() : std::nullopt;
 #else
-    return std::nullopt;
+    return linux_window_bounds();
 #endif
 }
 void WebHost::navigate(const std::string& url) {
@@ -2334,7 +2346,7 @@ void WebHost::set_visible(bool visible) {
     if (!api.load()) return;
     if (visible) {
         if (impl_->linux_center_on_first_show) {
-            center_linux_window(window.value(), linux_active_work_area());
+            place_linux_window_on_first_show(window.value(), impl_->saved_bounds);
             impl_->linux_center_on_first_show = false;
         }
         gtk_widget_set_opacity(GTK_WIDGET(window.value()), 1.0);
@@ -2352,6 +2364,7 @@ void WebHost::set_visible(bool visible) {
     if (visible) {
         show_mac_window(window);
     } else {
+        if (impl_->mac_bounds) impl_->mac_bounds->remember();
         hide_mac_window_to_tray(window);
     }
 #endif
@@ -2425,6 +2438,14 @@ bool WebHost::set_taskbar_badge(const TaskbarBadge& badge) {
 #endif
 }
 
+bool WebHost::set_zoom_factor(double factor) {
+#ifdef _WIN32
+    return impl_->w && detail::set_browser_zoom_factor(*impl_->w, factor);
+#else
+    (void)factor;
+    return false;
+#endif
+}
 bool WebHost::set_background_color(const std::string& color_text) {
 #ifdef _WIN32
     auto color = parse_window_background_color(color_text);
@@ -2613,6 +2634,8 @@ bool WebHost::toggle_maximize_window() {
 #else
     NSWindow* window = mac_window_from_host(*impl_->w);
     if (!window) return false;
+    // 缩放后 frame 是铺满屏的样子,先记下缩放前的普通状态。
+    if (impl_->mac_bounds) impl_->mac_bounds->remember();
     [window zoom:nil];
     notify_mac_window_state_if_changed(window);
     return true;

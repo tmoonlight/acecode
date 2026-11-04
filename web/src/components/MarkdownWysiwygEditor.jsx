@@ -1,4 +1,5 @@
 import { isShortcut } from '../lib/shortcutBindings.js';
+import { handleEditorHistoryKey } from '../lib/editingHistoryShortcuts.js';
 import {
   useCallback,
   useEffect,
@@ -336,6 +337,8 @@ export default function MarkdownWysiwygEditor({
   }, []);
 
   const handleKeyDown = useCallback((event) => {
+    if (compositionRef.current.active || compositionRef.current.settling || ReactEditor.isComposing(editor)) return true;
+    if (!disabled && handleEditorHistoryKey(event, editor)) return true;
     if (isShortcut(event, 'save')) {
       event.preventDefault();
       if (

@@ -126,6 +126,7 @@ try {
     check(name, current.distance <= 2 && await button.count() === 0, current);
   };
   const away = async () => {
+    await page.mouse.move(0, 0);
     await viewport.evaluate(el => { el.scrollTop = 100; });
     await button.waitFor();
     await settle();
@@ -191,7 +192,7 @@ try {
   await dots.first().waitFor();
   await settle();
   check('reasoning replaces the arrow with three dots without scrolling',
-    await dots.count() === 3 && await arrow.count() === 0 && Math.abs((await metrics()).top - 100) <= 2);
+    await dots.count() === 3 && !await arrow.isVisible() && Math.abs((await metrics()).top - 100) <= 2);
   const runningBox = await button.boundingBox();
   check('running indicator preserves the button position and size',
     ['x', 'y', 'width', 'height'].every(key => Math.abs(idleBox[key] - runningBox[key]) < 1), { idleBox, runningBox });

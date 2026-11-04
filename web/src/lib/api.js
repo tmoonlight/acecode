@@ -392,6 +392,7 @@ export function createApi(base = null) {
     updateLoop:       (id, value)    => request('PUT',    `/api/loops/${encodeURIComponent(id)}`, value, base),
     setLoopEnabled:   (id, enabled)  => request('PUT',    `/api/loops/${encodeURIComponent(id)}/enabled`, { enabled }, base),
     deleteLoop:       (id)           => request('DELETE', `/api/loops/${encodeURIComponent(id)}`, undefined, base),
+    runLoopNow:       (id)           => request('POST',   `/api/loops/${encodeURIComponent(id)}/run`, {}, base),
     listLoopRuns:     (id, limit=100) => request('GET',   `/api/loops/${encodeURIComponent(id)}/runs?limit=${encodeURIComponent(String(limit))}`, undefined, base),
     registerWorkspace:(cwd)          => request('POST',   '/api/workspaces', {cwd}, base),
     // 「编辑项目」:名称 / 图标 / 附加文件夹整体保存;移除 = 从项目列表隐藏(不删文件)。

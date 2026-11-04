@@ -202,7 +202,23 @@ bool same_workspace_active(sqlite3* db,
         "LIMIT 1;", error);
     if (!stmt || !bind_text(stmt.get(), 1, loop.workspace_hash) ||
         !bind_text(stmt.get(), 2, loop.workspace_cwd)) return false;
-    return sqlite3_step(stmt.get()) == SQLITE_ROW;
+    const int rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+        set_error(error, "SQLITE_ERROR", sqlite_message(db, "check active workspace failed"));
+    }
+    return rc == SQLITE_ROW;
+}
+
+bool same_loop_active(sqlite3* db, const std::string& id, StoreError* error) {
+    Statement stmt(db,
+        "SELECT 1 FROM loop_runs WHERE loop_id=? AND status IN ('running','waiting_user') LIMIT 1;",
+        error);
+    if (!stmt || !bind_text(stmt.get(), 1, id)) return false;
+    const int rc = sqlite3_step(stmt.get());
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE) {
+        set_error(error, "SQLITE_ERROR", sqlite_message(db, "check active LOOP failed"));
+    }
+    return rc == SQLITE_ROW;
 }
 
 bool insert_run(sqlite3* db, const LoopRun& run, StoreError* error) {
@@ -607,7 +623,8 @@ ClaimResult LoopStore::claim_due(std::int64_t now_ms,
     if (loop.id.empty() || !loop.next_run_at_ms) { rollback_locked(); return result; }
     const std::int64_t scheduled_at = *loop.next_run_at_ms;
     const auto next = next_occurrence_ms(loop.schedule, scheduled_at);
-    const bool busy = same_workspace_active(db_.get(), loop, error);
+    const bool busy = same_loop_active(db_.get(), loop.id, error) ||
+                      same_workspace_active(db_.get(), loop, error);
     if (error && !error->code.empty()) { rollback_locked(); return result; }
 
     LoopRun run;
@@ -636,6 +653,40 @@ ClaimResult LoopStore::claim_due(std::int64_t now_ms,
     result.loop = std::move(loop);
     result.run = std::move(run);
     return result;
+}
+
+ClaimResult LoopStore::claim_now(const std::string& id, std::int64_t now_ms,
+                                 const std::string& owner_id, StoreError* error) {
+    std::lock_guard<std::mutex> lock(mu_);
+    if (!ensure_available(error) || !begin_locked(error)) return {};
+    auto loop = get_loop_locked(id, error);
+    if (!loop) {
+        if (!error || error->code.empty()) set_error(error, "NOT_FOUND", "LOOP not found");
+        rollback_locked();
+        return {};
+    }
+    const bool active = same_loop_active(db_.get(), id, error);
+    const bool busy = active || same_workspace_active(db_.get(), *loop, error);
+    if (busy || (error && !error->code.empty())) {
+        if (!error || error->code.empty()) {
+            set_error(error, active ? "LOOP_BUSY" : "WORKSPACE_BUSY",
+                      active ? "Task is already running" : "Workspace has an active scheduled task");
+        }
+        rollback_locked();
+        return {};
+    }
+    LoopRun run;
+    run.id = generate_uuid();
+    run.loop_id = id;
+    run.scheduled_at_ms = now_ms;
+    run.started_at_ms = now_ms;
+    run.status = RunStatus::Running;
+    run.owner_id = owner_id;
+    if (!insert_run(db_.get(), run, error) || !commit_locked(error)) {
+        if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
+        return {};
+    }
+    return {ClaimDisposition::Claimed, std::move(loop), std::move(run)};
 }
 
 bool LoopStore::update_run_state(const std::string& run_id,

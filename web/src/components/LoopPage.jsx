@@ -277,6 +277,8 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
   const [loading, setLoading] = useState(true);
   const [unsupported, setUnsupported] = useState(false);
   const pollInFlight = useRef(false);
+  const pendingRuns = useRef(new Set());
+  const [startingRuns, setStartingRuns] = useState(new Set());
 
   const refreshModels = useCallback(async () => {
     try { setModels(normalizeList(await api.listModels(), 'models')); }
@@ -360,6 +362,25 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
   const remove = (loop) => {
     setDeleteConfirm(loop);
   };
+  const runNow = async (loop) => {
+    if (pendingRuns.current.has(loop.id)) return;
+    pendingRuns.current.add(loop.id);
+    setStartingRuns(new Set(pendingRuns.current));
+    try {
+      const run = await api.runLoopNow(loop.id);
+      setLoops((prev) => prev.map((item) => item.id === loop.id ? { ...item, latest_run: run } : item));
+      setRunsByLoop((prev) => ({ ...prev, [loop.id]: [run, ...(prev[loop.id] || []).filter((item) => item.id !== run.id)] }));
+      setExpanded(loop.id);
+    } catch (e) {
+      const code = e?.body?.error;
+      const message = code === 'LOOP_BUSY' ? '此任务正在运行' : code === 'WORKSPACE_BUSY'
+        ? '该工作空间已有定时任务正在运行' : `立即运行失败：${e?.message || '请重试'}`;
+      toast({ kind: 'err', text: message });
+    } finally {
+      pendingRuns.current.delete(loop.id);
+      setStartingRuns(new Set(pendingRuns.current));
+    }
+  };
   const confirmRemove = async () => {
     const loop = deleteConfirm;
     if (!loop) return;
@@ -411,7 +432,7 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
                 const active = latestRun?.status === 'running' || latestRun?.status === 'waiting_user';
                 return (
                   <article key={loop.id} className="rounded-lg border border-border bg-surface px-3.5 py-2.5">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5">
                       <span className={`w-2 h-2 rounded-full ${active ? 'bg-accent animate-pulse' : loop.enabled ? 'bg-success' : 'bg-fg-mute'}`} />
                       <div className="min-w-0 flex-1">
                         <h3 className="text-[13px] font-semibold truncate">{loop.name}</h3>
@@ -431,10 +452,17 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
                           <span>· 下次运行：{loop.enabled && loop.next_run_at_ms ? formatDate(loop.next_run_at_ms) : '—'}</span>
                         </p>
                       </div>
-                      <button type="button" onClick={() => toggleEnabled(loop)} className="h-7 px-2.5 rounded-md text-[11px] border border-border hover:bg-surface-hi">{loop.enabled ? '停用' : '启用'}</button>
-                      <button type="button" onClick={() => setDialog({ loop })} className="w-7 h-7 rounded-md hover:bg-surface-hi flex items-center justify-center" title="编辑"><VsIcon name="edit" size={14} /></button>
-                      <button type="button" onClick={() => remove(loop)} className="w-7 h-7 rounded-md hover:bg-surface-hi hover:text-danger flex items-center justify-center" title="删除"><VsIcon name="delete" size={14} /></button>
-                      <button type="button" onClick={() => toggleRuns(loop.id)} className="w-7 h-7 rounded-md hover:bg-surface-hi flex items-center justify-center" title="运行记录"><VsIcon name={expanded === loop.id ? 'expandUp' : 'expandDown'} size={14} /></button>
+                      <div className="flex w-full sm:w-auto shrink-0 items-center justify-end gap-2.5">
+                        <button type="button" onClick={() => runNow(loop)} disabled={active || startingRuns.has(loop.id)}
+                          aria-label={`立即运行：${loop.name}`} title="立即运行" aria-busy={startingRuns.has(loop.id)}
+                          className="w-7 h-7 shrink-0 rounded-md hover:bg-surface-hi flex items-center justify-center text-fg-2 disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+                          <VsIcon name={startingRuns.has(loop.id) ? 'refresh' : 'run'} size={14} className={startingRuns.has(loop.id) ? 'animate-spin motion-reduce:animate-none' : ''} />
+                        </button>
+                        <button type="button" onClick={() => toggleEnabled(loop)} className="h-7 px-2.5 rounded-md text-[11px] border border-border hover:bg-surface-hi">{loop.enabled ? '停用' : '启用'}</button>
+                        <button type="button" onClick={() => setDialog({ loop })} className="w-7 h-7 rounded-md hover:bg-surface-hi flex items-center justify-center" title="编辑"><VsIcon name="edit" size={14} /></button>
+                        <button type="button" onClick={() => remove(loop)} className="w-7 h-7 rounded-md hover:bg-surface-hi hover:text-danger flex items-center justify-center" title="删除"><VsIcon name="delete" size={14} /></button>
+                        <button type="button" onClick={() => toggleRuns(loop.id)} className="w-7 h-7 rounded-md hover:bg-surface-hi flex items-center justify-center" title="运行记录"><VsIcon name={expanded === loop.id ? 'expandUp' : 'expandDown'} size={14} /></button>
+                      </div>
                     </div>
                     {expanded === loop.id && (
                       <RunList

@@ -11,7 +11,8 @@ const { chromium } = await import(process.env.ACE_PLAYWRIGHT_MODULE
   ? pathToFileURL(path.resolve(process.env.ACE_PLAYWRIGHT_MODULE)).href : 'playwright');
 const output = await fs.mkdtemp(path.join(os.tmpdir(), 'ace-shortcut-editing-'));
 const server = await createServer({ root: web, configFile: path.join(web, 'vite.config.js'),
-  logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
+  cacheDir: path.join(output, 'vite-cache'),
+  logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 const channels = ['qq', 'weixin', 'feishu', 'dingtalk', 'telegram', 'discord', 'line'].map(platform => ({
   platform, configured: false, enabled: false, state: 'disabled', contacts: [], pending: [], bindings: [],
 }));
@@ -32,7 +33,7 @@ try {
   browser = await chromium.launch({ headless: true, executablePath: process.env.ACE_CHROMIUM_EXECUTABLE || undefined });
   const browserContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   page = await browserContext.newPage();
-  page.setDefaultTimeout(15000);
+  page.setDefaultTimeout(30000);
   page.on('pageerror', error => errors.push(error.message));
   await page.context().addInitScript(() => {
     window.keyRecords = [];
@@ -95,11 +96,20 @@ try {
     else if (pathname.includes('onboarding')) data = { dismissed: true, completed: true };
     else if (pathname.endsWith('/api/pty') && req.method() === 'POST') data = { id: 'fixture-pty' };
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
+    if (pathname === '/api/config/recovery-notice') {
+      await req.frame().page().evaluate(() => { window.fixtureRecoveryReady = true; });
+    }
   });
-  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
+  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'domcontentloaded' });
   const recorder = page.locator('[data-shortcut-recorder]');
   const settings = page.locator('[data-settings-window]');
+  const ready = async (target = page) => {
+    await target.locator('.ace-topbar').waitFor();
+    await target.waitForFunction(() => window.fixtureRecoveryReady);
+    await target.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  };
   const open = async () => {
+    await ready();
     await page.waitForFunction(() => ![...document.querySelectorAll('[data-ace-native-overlay="blocking"]')]
       .some(el => el.getClientRects().length && !el.matches('[data-settings-mask]')));
     await page.keyboard.press('Control+/');
@@ -111,7 +121,7 @@ try {
     assert.equal(await recorder.evaluate(el => el === document.activeElement), true);
   };
   const save = async () => {
-    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await page.getByRole('dialog').filter({ has: recorder }).getByRole('button', { name: '关闭', exact: true }).click();
     await recorder.waitFor({ state: 'detached' });
   };
   const assign = async (id, keys) => { await edit(id); await recorder.press(keys); await save(); };
@@ -120,17 +130,17 @@ try {
     connection.dispatchEvent(new CustomEvent('message', { detail: { type, payload, session_id } }));
   }, { type, payload, session_id });
   await open();
-  assert.equal(await page.locator('[data-edit-shortcut]').count(), 21);
+  assert.equal(await page.locator('[data-edit-shortcut]').count(), 25);
   await edit('newSession');
   await recorder.press('Control+Alt+j');
   assert.equal(await recorder.inputValue(), 'Ctrl+Alt+J');
   assert.equal(sessions.length, 0, 'recording never executes an action');
-  await page.getByRole('button', { name: '取消', exact: true }).click();
-  assert.match(await page.locator('[data-shortcut-id="newSession"]').innerText(), /Ctrl\s*Alt\s*N/);
+  await save();
+  assert.match(await page.locator('[data-shortcut-id="newSession"]').innerText(), /Ctrl\s*Alt\s*J/);
   await edit('newSession');
   await recorder.press('Control+k');
   await page.getByText(/此快捷键已用于“全局搜索”/).waitFor();
-  assert.equal(await page.getByRole('button', { name: '保存', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: '保存', exact: true }).count(), 0);
   await recorder.press('Control+c');
   await page.getByText(/此组合键由系统/).waitFor();
   await recorder.press('Control+Alt+j');
@@ -141,13 +151,14 @@ try {
   assert.equal(sessions.length, 0);
   await page.keyboard.press('Control+Alt+j');
   await page.waitForFunction(() => document.querySelector('.ace-topbar-session-title')?.textContent.includes('Shortcut task 1'));
-  await page.waitForLoadState('networkidle');
-  pass('every key has an edit icon; capture/cancel/conflict/reserved-key validation and live replacement');
+  await page.waitForLoadState('domcontentloaded');
+  pass('every key has an edit icon; capture/auto-save/conflict/reserved-key validation and live replacement');
 
-  await page.reload({ waitUntil: 'networkidle' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await ready();
   await page.keyboard.press('Control+Alt+j');
   await page.waitForFunction(() => document.querySelector('.ace-topbar-session-title')?.textContent.includes('Shortcut task 2'));
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
   await open();
   await assign('search', 'Control+Alt+p');
   await assign('console', 'Control+Alt+t');
@@ -179,14 +190,14 @@ try {
 
   await open();
   const sibling = await page.context().newPage();
-  await sibling.goto(page.url(), { waitUntil: 'networkidle' });
+  await sibling.goto(page.url(), { waitUntil: 'domcontentloaded' });
+  await ready(sibling);
   await sibling.keyboard.press('Control+/');
   await sibling.locator('[data-edit-shortcut="newSession"]').waitFor();
   await assign('newSession', 'Control+Alt+u');
   await sibling.waitForFunction(() => document.querySelector('[data-shortcut-id="newSession"]')?.textContent.includes('U'));
   await sibling.close();
   await edit('focusInput');
-  await recorder.press('Control+Alt+m');
   await page.evaluate(() => {
     window.restoreSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function(key, value) {
@@ -194,12 +205,20 @@ try {
       return window.restoreSetItem.call(this, key, value);
     };
   });
-  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await recorder.press('Control+Alt+m');
   await page.getByText('无法保存快捷键，请检查本地存储后重试。').waitFor();
-  await page.evaluate(() => { Storage.prototype.setItem = window.restoreSetItem; });
-  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await save();
   assert.match(await page.locator('[data-shortcut-id="focusInput"]').innerText(), /Ctrl\s*Alt\s*I/);
-  pass('other windows update immediately and failed storage writes keep old bindings');
+  await edit('focusInput');
+  assert.equal(await recorder.inputValue(), 'Ctrl+Alt+M');
+  await page.evaluate(() => { Storage.prototype.setItem = window.restoreSetItem; });
+  await page.getByRole('button', { name: '重试', exact: true }).click();
+  await save();
+  assert.match(await page.locator('[data-shortcut-id="focusInput"]').innerText(), /Ctrl\s*Alt\s*M/);
+  await edit('focusInput');
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+  await save();
+  pass('other windows update immediately; failed storage retains the draft and supports retry');
 
   await assign('send', 'Control+Alt+s');
   await assign('newline', 'Control+Alt+Enter');
@@ -244,6 +263,49 @@ try {
   pass('custom send, newline, both history keys, find and save matching');
 
   await open();
+  assert.match(await page.locator('[data-shortcut-id="undo"]').innerText(), /Ctrl\s*Z/);
+  assert.match(await page.locator('[data-shortcut-id="redo"]').innerText(), /Ctrl\s*Shift\s*Z/);
+  await assign('undo', 'Control+Alt+z');
+  await assign('redo', 'Control+Alt+Shift+z');
+  const searchInput = page.locator('[data-shortcut-search]');
+  await searchInput.focus();
+  await searchInput.pressSequentially('history test');
+  await searchInput.press('Control+z');
+  assert.equal(await searchInput.inputValue(), 'history test');
+  await searchInput.press('Control+Alt+z');
+  assert.notEqual(await searchInput.inputValue(), 'history test');
+  await searchInput.press('Control+Alt+Shift+z');
+  assert.equal(await searchInput.inputValue(), 'history test');
+  await searchInput.fill('');
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'detached' });
+  await composer.fill('');
+  await composer.pressSequentially('History draft');
+  await composer.press('Control+z');
+  assert.match(await composer.innerText(), /History draft/);
+  await composer.press('Control+Alt+z');
+  assert.ok(!(await composer.innerText()).includes('History draft'));
+  await composer.press('Control+Shift+z');
+  assert.ok(!(await composer.innerText()).includes('History draft'));
+  await composer.press('Control+Alt+Shift+z');
+  assert.match(await composer.innerText(), /History draft/);
+  await open();
+  await edit('undo');
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+  await save();
+  await edit('redo');
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+  await save();
+  await page.keyboard.press('Escape');
+  await settings.waitFor({ state: 'detached' });
+  await composer.focus();
+  await composer.press('Control+z');
+  assert.ok(!(await composer.innerText()).includes('History draft'));
+  await composer.press('Control+Shift+z');
+  assert.match(await composer.innerText(), /History draft/);
+  pass('settings auto-save, native-input history and Slate undo/redo remapping/default restoration');
+
+  await open();
   await edit('dismiss');
   await recorder.press('Escape');
   assert.equal(await recorder.isVisible(), true, 'Escape is captured without dismissing the editor');
@@ -256,6 +318,7 @@ try {
   await open();
   await edit('newSession');
   await page.getByRole('button', { name: '恢复默认', exact: true }).click();
+  await save();
   await recorder.waitFor({ state: 'detached' });
   assert.match(await page.locator('[data-shortcut-id="newSession"]').innerText(), /Ctrl\s*Alt\s*N/);
   assert.match(await page.locator('[data-shortcut-id="search"]').innerText(), /Ctrl\s*Alt\s*P/);
@@ -270,7 +333,7 @@ try {
     await recorder.press('Control+Alt+p');
     await page.getByText(/此快捷键已用于/).waitFor();
     await page.screenshot({ path: path.join(output, `shortcut-recorder-${width}-${theme}.png`) });
-    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await save();
   }
   assert.deepEqual(errors, []);
   await fs.writeFile(path.join(output, 'results.json'), JSON.stringify({ checks, errors }, null, 2));

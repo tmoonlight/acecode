@@ -75,6 +75,10 @@ public:
                           const std::string& owner_id,
                           StoreError* error = nullptr);
 
+    // Reserves a manual execution without changing the definition or schedule.
+    ClaimResult claim_now(const std::string& id, std::int64_t now_ms,
+                          const std::string& owner_id, StoreError* error = nullptr);
+
     bool update_run_state(const std::string& run_id,
                           RunStatus status,
                           std::int64_t now_ms,

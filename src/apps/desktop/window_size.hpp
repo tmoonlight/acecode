@@ -1,7 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
+#include <optional>
+#include <vector>
 
 namespace acecode::desktop {
 
@@ -160,6 +163,88 @@ inline WindowRect place_saved_desktop_window(const SavedDesktopWindowBounds& sav
     };
     return fit_centered_desktop_window_rect_to_safe_work_area(
         size, fallback_monitor.work_area, target_dpi);
+}
+
+// macOS(点)与 Linux(GTK 逻辑像素)的窗口和工作区都用与缩放无关的逻辑单位,
+// 保存时 dpi 恒记这个值,显示器也按它比较,缩放变化不会触发尺寸换算。
+inline constexpr int kLogicalDesktopWindowDpi = 96;
+
+// 与 rect 重叠面积最大的显示器;一个都不重叠(显示器已拔掉)时为空。
+inline std::optional<DesktopWindowMonitor> desktop_monitor_for_rect(
+    WindowRect rect, const std::vector<DesktopWindowMonitor>& monitors) {
+    std::optional<DesktopWindowMonitor> best;
+    long long best_area = 0;
+    for (const auto& monitor : monitors) {
+        const long long width =
+            std::min<long long>(rect.right, monitor.work_area.right) -
+            std::max<long long>(rect.left, monitor.work_area.left);
+        const long long height =
+            std::min<long long>(rect.bottom, monitor.work_area.bottom) -
+            std::max<long long>(rect.top, monitor.work_area.top);
+        if (width <= 0 || height <= 0 || width * height <= best_area) continue;
+        best_area = width * height;
+        best = monitor;
+    }
+    return best;
+}
+
+struct DesktopWindowPlacement {
+    WindowRect rect;
+    // true = 原位恢复;false = 回退到「保存的尺寸收进安全区并居中」。
+    bool restored = false;
+};
+
+// 逻辑坐标平台的首次摆放。没有隐形缩放边;monitors 为空表示窗口位置读不到也
+// 设不了(Wayland),这时只沿用保存的尺寸,在回退工作区上居中。
+inline DesktopWindowPlacement place_saved_logical_desktop_window(
+    const SavedDesktopWindowBounds& saved,
+    const std::vector<DesktopWindowMonitor>& monitors,
+    WindowRect fallback_work_area) {
+    const auto saved_monitor = desktop_monitor_for_rect(saved.rect, monitors);
+    if (saved_monitor && saved.dpi == saved_monitor->dpi &&
+        desktop_window_visible_in_work_area(saved.rect, {}, saved_monitor->work_area)) {
+        return {saved.rect, true};
+    }
+    // DPI 为 0 的空显示器让 place_saved_desktop_window 一定走回退分支。
+    return {place_saved_desktop_window(saved, {}, {{0, 0, 0, 0}, 0},
+                                       {fallback_work_area, kLogicalDesktopWindowDpi}),
+            false};
+}
+
+// AppKit 的 frame:原点在主屏(菜单栏所在屏)左下角,y 向上,单位是点。
+struct CocoaWindowFrame {
+    double x = 0;
+    double y = 0;
+    double width = 0;
+    double height = 0;
+};
+
+inline int round_window_coordinate(double value) {
+    const double limited = std::min<double>(std::numeric_limits<int>::max(),
+                                            std::max<double>(std::numeric_limits<int>::min(), value));
+    return static_cast<int>(std::lround(limited));
+}
+
+// 换成与 Windows 相同的左上原点、y 向下口径;primary_screen_top 是主屏 frame 的 maxY。
+// 四条边各自取整,来回换算不会累积误差。
+inline WindowRect top_left_rect_from_cocoa_frame(CocoaWindowFrame frame,
+                                                 double primary_screen_top) {
+    return {
+        round_window_coordinate(frame.x),
+        round_window_coordinate(primary_screen_top - (frame.y + frame.height)),
+        round_window_coordinate(frame.x + frame.width),
+        round_window_coordinate(primary_screen_top - frame.y),
+    };
+}
+
+inline CocoaWindowFrame cocoa_frame_from_top_left_rect(WindowRect rect,
+                                                       double primary_screen_top) {
+    return {
+        static_cast<double>(rect.left),
+        primary_screen_top - static_cast<double>(rect.bottom),
+        static_cast<double>(normalized_window_extent(rect.left, rect.right)),
+        static_cast<double>(normalized_window_extent(rect.top, rect.bottom)),
+    };
 }
 
 } // namespace acecode::desktop

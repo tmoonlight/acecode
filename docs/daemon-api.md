@@ -5961,6 +5961,14 @@ Routes (all use the normal daemon auth and CORS rules):
 | `DELETE` | `/api/loops/:id` | Delete one LOOP and its run history |
 | `PUT` | `/api/loops/:id/enabled` | Enable/disable with `{"enabled":true}` |
 | `GET` | `/api/loops/:id/runs?limit=N` | Recent run history (`1..500`) |
+| `POST` | `/api/loops/:id/run` | Run once immediately using saved execution options (`202`, run object) |
+
+`POST /api/loops/:id/run` requires authentication and accepts an empty JSON object.
+It preserves the schedule, next scheduled time and enabled state, including for disabled
+or expired tasks. The scheduler owns execution and records it in the usual run history.
+An active execution of the same task returns `409 LOOP_BUSY`; another active scheduled
+task in the same workspace returns `409 WORKSPACE_BUSY`. Missing tasks return `404`,
+an unavailable scheduler returns `503` (or `501` when unsupported by the server).
 
 Each item returned by `GET /api/loops` includes a nullable `latest_run` field.
 When present, it is the newest run-history object for that LOOP, including its

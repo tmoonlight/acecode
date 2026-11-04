@@ -1,0 +1,64 @@
+/* Ctrl+滚轮页面缩放的比例浮层,外观与对话内查找浮层同一套磨砂胶囊。 */
+.ace-desktop-zoom {
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  z-index: 710;
+  height: 33px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 14px;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.74);
+  border-radius: 999px;
+  background: rgba(var(--ace-surface-rgb), 0.88);
+  color: var(--ace-fg);
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.10), 0 1px 5px rgba(0, 0, 0, 0.06);
+  -webkit-backdrop-filter: blur(18px) saturate(1.24);
+  backdrop-filter: blur(18px) saturate(1.24);
+  transform: translateX(-50%);
+  animation: ace-desktop-zoom-in .12s ease-out;
+}
+[data-theme="dark"] .ace-desktop-zoom {
+  background: rgba(var(--ace-surface-rgb), 0.86);
+  box-shadow: 0 9px 22px rgba(0, 0, 0, 0.34), 0 1px 7px rgba(0, 0, 0, 0.22);
+}
+.ace-desktop-zoom-value {
+  min-width: 40px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.ace-desktop-zoom-divider {
+  align-self: stretch;
+  width: 1px;
+  margin: 8px 0;
+  background: rgba(var(--ace-border-rgb), 0.82);
+}
+.ace-desktop-zoom-reset {
+  height: 23px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ace-fg-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color .12s ease, color .12s ease, opacity .12s ease;
+}
+.ace-desktop-zoom-reset:hover:not(:disabled) {
+  background: rgba(var(--ace-surface-hi-rgb), 0.82);
+  color: var(--ace-fg);
+}
+.ace-desktop-zoom-reset:focus-visible {
+  outline: 2px solid rgba(var(--ace-accent-rgb), 0.6);
+  outline-offset: 1px;
+}
+.ace-desktop-zoom-reset:disabled {
+  opacity: .4;
+  cursor: default;
+}
+@keyframes ace-desktop-zoom-in {
+  from { opacity: 0; transform: translate(-50%, -4px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}

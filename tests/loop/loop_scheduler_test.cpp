@@ -13,6 +13,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <thread>
 
 namespace acecode::loop {
@@ -37,6 +38,8 @@ LoopRun sample_run() {
 class FakeLoopSessionClient final : public SessionClient {
 public:
     std::string create_session(const SessionOptions& opts) override {
+        ++create_count;
+        if (before_create) before_create();
         created_options = opts;
         created = true;
         return "visible-session";
@@ -69,6 +72,8 @@ public:
     void abort(const std::string&) override { aborted = true; }
 
     SessionOptions created_options;
+    std::function<void()> before_create;
+    int create_count = 0;
     EventListener listener_;
     std::string subscribed_session;
     std::string sent_text;
@@ -152,7 +157,7 @@ TEST(LoopScheduler, ErrorBecomesFailureWhenTurnEnds) {
     EXPECT_EQ(reason, "provider unavailable");
 }
 
-TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
+void check_scheduler_execution(bool manual, bool stop_with_pending = false) {
     const auto root = std::filesystem::temp_directory_path() /
         ("acecode-loop-scheduler-" + generate_uuid());
     std::filesystem::create_directories(root);
@@ -176,6 +181,12 @@ TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
     deps.template_permissions = &permissions;
     SessionRegistry registry(std::move(deps));
     FakeLoopSessionClient client;
+    std::promise<void> entered, release;
+    auto entered_future = entered.get_future();
+    auto release_future = release.get_future();
+    if (stop_with_pending) {
+        client.before_create = [&] { entered.set_value(); release_future.wait(); };
+    }
     LoopStore store(root / "loops.sqlite3");
     StoreError error;
     ASSERT_TRUE(store.initialize(&error)) << error.message;
@@ -188,12 +199,48 @@ TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
     loop.workspace_cwd = root.string();
     loop.use_worktree = false;
     loop.schedule.kind = ScheduleKind::Once;
-    loop.schedule.once_at_ms = now;
+    loop.schedule.once_at_ms = manual ? now + 60'000 : now;
+    loop.enabled = !manual;
     auto created = store.create_loop(loop, now - 1, &error);
     ASSERT_TRUE(created.has_value()) << error.message;
 
     LoopScheduler scheduler(store, registry, client, config, [=] { return now; });
+    EXPECT_FALSE(scheduler.run_now(created->id, &error));
+    EXPECT_EQ(error.code, "LOOP_UNAVAILABLE");
+    error = {};
     ASSERT_TRUE(scheduler.start(&error)) << error.message;
+    if (manual) {
+        ASSERT_TRUE(scheduler.run_now(created->id, &error)) << error.message;
+    }
+    if (stop_with_pending) {
+        const auto ready = entered_future.wait_for(std::chrono::seconds(2));
+        EXPECT_EQ(ready, std::future_status::ready);
+        if (ready != std::future_status::ready) { release.set_value(); scheduler.stop(); return; }
+        auto second_definition = loop;
+        second_definition.id.clear();
+        second_definition.workspace_hash.clear();
+        second_definition.workspace_cwd.clear();
+        auto second = store.create_loop(second_definition, now - 1);
+        EXPECT_TRUE(second);
+        auto pending = second ? scheduler.run_now(second->id, &error) : std::nullopt;
+        EXPECT_TRUE(pending) << error.message;
+        std::thread stopping([&] { scheduler.stop(); });
+        for (int i = 0; i < 200 && scheduler.running(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        EXPECT_FALSE(scheduler.running());
+        EXPECT_FALSE(scheduler.run_now(created->id));
+        release.set_value();
+        stopping.join();
+        EXPECT_EQ(client.create_count, 1);
+        if (second) {
+            const auto runs = store.list_runs(second->id);
+            ASSERT_EQ(runs.size(), 1u);
+            EXPECT_EQ(runs.front().status, RunStatus::Failed);
+            EXPECT_TRUE(runs.front().session_id.empty());
+        }
+        return;
+    }
     bool terminal = false;
     LoopRun observed;
     for (int i = 0; i < 100 && !terminal; ++i) {
@@ -206,6 +253,14 @@ TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
         if (!terminal) std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     scheduler.stop();
+    EXPECT_FALSE(scheduler.run_now(created->id, &error));
+    EXPECT_EQ(error.code, "LOOP_UNAVAILABLE");
+    if (manual) {
+        const auto after = store.get_loop(created->id);
+        ASSERT_TRUE(after);
+        EXPECT_FALSE(after->enabled);
+        EXPECT_EQ(after->next_run_at_ms, created->next_run_at_ms);
+    }
 
     EXPECT_TRUE(terminal);
     EXPECT_EQ(observed.status, RunStatus::Completed);
@@ -221,6 +276,18 @@ TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
     EXPECT_TRUE(observed.worktree_branch.empty());
     EXPECT_TRUE(observed.workspace_touched.empty());
     EXPECT_EQ(registry.size(), 0u);
+}
+
+TEST(LoopScheduler, DueRunCreatesVisibleSessionAndCapturesTerminalEvent) {
+    check_scheduler_execution(false);
+}
+
+TEST(LoopScheduler, ManualRunWakesWorkerAndPreservesDisabledTask) {
+    check_scheduler_execution(true);
+}
+
+TEST(LoopScheduler, ShutdownInterruptsQueuedManualRunsWithoutLaunchingThem) {
+    check_scheduler_execution(true, true);
 }
 
 // 场景:LOOP 建了 worktree,launch 时对主 checkout 拍下 git status 基线;运行

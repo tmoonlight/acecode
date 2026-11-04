@@ -48,6 +48,7 @@ class ToolExecutor;
 
 namespace acecode::loop {
 class LoopStore;
+class LoopScheduler;
 }
 
 namespace acecode::desktop {
@@ -152,6 +153,8 @@ struct WebServerDeps {
     // Daemon-owned LOOP persistence. Null keeps older/test servers compatible
     // and makes /api/loops report an explicit unsupported response.
     acecode::loop::LoopStore*  loop_store = nullptr;
+    // Nullable borrowed scheduler; daemon stops WebServer before destroying it.
+    acecode::loop::LoopScheduler* loop_scheduler = nullptr;
     std::function<void()>      on_loops_changed;
     std::function<void()>      before_data_dir_copy;
     std::function<void()>      on_data_dir_copy_failure;

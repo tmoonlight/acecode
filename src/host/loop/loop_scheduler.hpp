@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -64,13 +65,14 @@ public:
     bool start(StoreError* error = nullptr);
     void stop();
     void notify_changed();
+    std::optional<LoopRun> run_now(const std::string& id, StoreError* error = nullptr);
     bool running() const { return running_.load(); }
 
 private:
     struct CallbackState;
 
     void run();
-    void launch(const LoopDefinition& loop, const LoopRun& run);
+    void launch(const LoopDefinition& loop, const LoopRun& run, bool manual = false);
     bool model_exists(const std::string& name) const;
     void fail_run(const LoopDefinition& loop,
                   const LoopRun& run,
@@ -88,8 +90,10 @@ private:
     std::atomic<bool> stop_requested_{false};
     std::mutex wait_mu_;
     std::condition_variable wait_cv_;
+    std::uint64_t change_generation_ = 0; // guarded by wait_mu_
+    std::deque<ClaimResult> pending_runs_; // owned snapshots, guarded by wait_mu_
+    std::shared_ptr<CallbackState> callbacks_; // Shared with session listeners until stop unsubscribes.
     acecode::JoiningThread worker_;
-    std::shared_ptr<CallbackState> callbacks_;
 };
 
 } // namespace acecode::loop
