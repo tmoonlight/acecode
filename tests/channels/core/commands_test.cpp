@@ -69,15 +69,16 @@ TEST(ChannelCommands, ReportsUsageErrors) {
     EXPECT_TRUE(parse_command("/effort xhigh").error.empty());
 }
 
-// 场景:会话正在执行时收到各种命令。
-// 期望:只有 /new 与 /resume 需要等待或先 /stop,其余命令立即处理。
-TEST(ChannelCommands, OnlyNewAndResumeWaitForIdle) {
-    EXPECT_FALSE(runs_while_busy(CommandKind::New));
-    EXPECT_FALSE(runs_while_busy(CommandKind::Resume));
-    for (const auto kind : {CommandKind::Help, CommandKind::Status, CommandKind::Stop, CommandKind::Sessions,
-                            CommandKind::Model, CommandKind::Mode, CommandKind::Yolo, CommandKind::Effort,
-                            CommandKind::Approve, CommandKind::Deny, CommandKind::Question})
-        EXPECT_TRUE(runs_while_busy(kind));
+// 场景:/history 不带参数、带轮数、轮数越界或不是数字。
+// 期望:不带参数与 1–20 的轮数都合法(参数原样保留);0、21、负数、文字都报用法错误。
+TEST(ChannelCommands, HistoryAcceptsTurnCount) {
+    EXPECT_EQ(parse_command("/history").kind, CommandKind::History);
+    EXPECT_TRUE(parse_command("/history").error.empty());
+    EXPECT_EQ(parse_command("/hi 3").argument, "3");
+    EXPECT_TRUE(parse_command("/hi 20").error.empty());
+    for (const auto* bad : {"/hi 0", "/hi 21", "/hi -1", "/hi 三", "/hi 2 3", "/hi 100"})
+        EXPECT_FALSE(parse_command(bad).error.empty()) << bad;
+    EXPECT_NE(texts::help(true).find("/history(/hi)"), std::string::npos);
 }
 
 // 场景:机主与普通联系人分别发送 /help。
@@ -104,7 +105,7 @@ TEST(ChannelCommands, ShortAliasesMatchFullNames) {
         {"/c", "/compact"},  {"/i", "/init"},     {"/g", "/goal"},     {"/p", "/plan"},
         {"/t 补充", "/turn 补充"}, {"/b 问题", "/btw 问题"}, {"/l", "/lsp"}, {"/sb", "/sandbox"},
         {"/me", "/memory"},  {"/sw", "/swarm"},   {"/sk", "/skills"},  {"/mr", "/more"},
-        {"@r", "@ref"},
+        {"@r", "@ref"},      {"/hi 2", "/history 2"},
     };
     for (const auto& [shorthand, full] : pairs) {
         const auto a = parse_command(shorthand);

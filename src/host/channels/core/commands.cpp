@@ -1,5 +1,6 @@
 #include "commands.hpp"
 
+#include "channels/core/history_text.hpp"
 #include "config/vocab/permission_mode.hpp"
 
 #include <algorithm>
@@ -59,6 +60,7 @@ constexpr CommandSpec kCommands[] = {
     {CommandKind::Skills, "/skills", "/sk"},
     {CommandKind::More, "/more", "/mr"},
     {CommandKind::RefList, "@ref", "@r /ref"},
+    {CommandKind::History, "/history", "/hi"},
 };
 
 bool matches_alias(const char* aliases, const std::string& name) {
@@ -137,6 +139,13 @@ void validate(Command& command) {
             if (!argument.empty() && (!all_digits(argument) || argument.size() > 4))
                 command.error = "用法:/more [页码](简写 /mr)。不带页码时看下一页。";
             break;
+        case CommandKind::History:
+            if (!argument.empty() &&
+                (!all_digits(argument) || argument.size() > 2 || std::stoul(argument) < 1 ||
+                 std::stoul(argument) > kMaxHistoryTurns))
+                command.error = "用法:/history [轮数](简写 /hi)。默认看最近 1 轮,最多 " +
+                                std::to_string(kMaxHistoryTurns) + " 轮,最新的在前。";
+            break;
         default:
             break;
     }
@@ -157,8 +166,6 @@ Command parse_command(const std::string& raw) {
     validate(command);
     return command;
 }
-
-bool runs_while_busy(CommandKind kind) { return kind != CommandKind::New && kind != CommandKind::Resume; }
 
 const char* command_name(CommandKind kind) {
     const auto* spec = spec_for(kind);
@@ -211,6 +218,7 @@ std::string help(bool owner) {
         "/new(/n) 新建会话\n"
         "/sessions(/s) [关键词|页码] 列出或搜索可切换的会话\n"
         "/resume(/r) <编号|会话 ID> 切换会话\n"
+        "/history(/hi) [轮数] 回看当前会话最近几轮(默认 1 轮,最新的在前)\n"
         "@ref(@r) [关键词|页码] 列出可引用的会话;之后在消息里写 @编号 引用它的上下文\n"
         "/more(/mr) [页码] 翻看上一条列表或长回复的下一页\n"
         "【执行】\n"
@@ -245,8 +253,6 @@ std::string pairing_notice() {
 
 std::string owner_bound() { return "已绑定为机主。现在可以直接发消息给 ACECode 了,发送 /help 查看命令。"; }
 
-std::string busy_reject() { return "当前会话正在执行,请先 /stop 或等它完成再切换会话。"; }
-
 std::string unsupported_media(const std::string& kind) { return "暂不支持" + kind + "消息,请发送文字、图片或文件。"; }
 
 std::string session_missing() {
@@ -262,6 +268,21 @@ std::string bound_elsewhere(const std::string& where) {
 }
 
 std::string transferred_here(const std::string& title) { return "已切换到会话:" + title; }
+
+std::string left_running(const std::string& title, const std::string& session_id, std::size_t waiting) {
+    std::string text = "原会话「" + title + "」仍在后台执行";
+    if (waiting > 0) text += ",有 " + std::to_string(waiting) + " 项等你确认";
+    return text + "。它结束时会在这里提醒你;发送 /r " + session_id + " 可切回。";
+}
+
+std::string background_finished(const std::string& title, const std::string& session_id, const std::string& outcome) {
+    const char* state = outcome == "aborted" ? "已停止" : outcome == "error" ? "执行出错" : "已完成";
+    return "后台会话「" + title + "」" + state + "。发送 /r " + session_id + " 切回,再发 /hi 查看这一轮。";
+}
+
+std::string background_waiting(const std::string& title, const std::string& session_id) {
+    return "后台会话「" + title + "」在等你确认操作或回答问题。发送 /r " + session_id + " 切回处理。";
+}
 
 std::string new_session(const std::string& location) { return "已新建会话(" + location + ")。"; }
 

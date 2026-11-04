@@ -1,5 +1,6 @@
 #include "im_channels.hpp"
 
+#include "channels/core/history_text.hpp"
 #include "channels/core/plugin_platforms.hpp"
 #include "config/config.hpp"
 #include "platform/process/os_process.hpp"
@@ -16,6 +17,8 @@
 #include "web/handlers/opencode_command_expander.hpp"
 #include "web/session_reference_context.hpp"
 
+#include <algorithm>
+#include <iterator>
 #include <mutex>
 #include <set>
 
@@ -156,6 +159,38 @@ std::unique_ptr<channels::core::ChannelHost> make_im_channel_host(ImChannelDeps 
         expansion.text = web::build_session_reference_augmented_prompt(context, text);
         expansion.meta = context.meta;
         return expansion;
+    };
+    // /history:从会话 JSONL 末尾一页页往前读(每页按轮首对齐),凑够 turns 轮或读完为止。
+    conversation.recent_messages = [registry](const std::string& id, std::size_t turns,
+                                             std::string* error) -> std::optional<std::vector<ChatMessage>> {
+        constexpr int kMaxPages = 5;
+        auto entry = registry->acquire(id);
+        if (!entry) {
+            if (error) *error = "会话不在运行中";
+            return std::nullopt;
+        }
+        const auto path = SessionStorage::session_path(SessionStorage::get_project_dir(entry->cwd), id);
+        std::vector<ChatMessage> messages;
+        try {
+            SessionHistoryRequest request;
+            for (int page = 0; page < kMaxPages; ++page) {
+                auto result = load_session_history_page(path, request);
+                std::vector<ChatMessage> chunk;
+                chunk.reserve(result.messages.size());
+                for (auto& row : result.messages) chunk.push_back(std::move(row.message));
+                messages.insert(messages.begin(), std::make_move_iterator(chunk.begin()),
+                                std::make_move_iterator(chunk.end()));
+                const auto starts = std::count_if(messages.begin(), messages.end(), channels::core::starts_history_turn);
+                if (static_cast<std::size_t>(starts) >= turns || !result.has_more) break;
+                request.before = decode_history_cursor(result.before);
+                if (!request.before) break;
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("[channels] cannot read history of session " + id + ": " + e.what());
+            if (error) *error = "读取会话记录失败";
+            return std::nullopt;
+        }
+        return messages;
     };
     conversation.set_delegate = [registry](const std::string& id, const ChannelDelegate& delegate) {
         if (auto entry = registry->acquire(id); entry && entry->sm) entry->sm->set_channel_delegate(delegate);

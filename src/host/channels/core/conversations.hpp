@@ -5,7 +5,8 @@
 //   - 每个 IM 会话同一时刻绑定一个 ACECode 会话;第一条普通消息新建无项目会话
 //     (default 权限,不继承 daemon 的危险标志);绑定持久化,重启后续接。
 //   - /new 在当前位置新建;/sessions + /resume 切换(机主可选任意会话,其他人只能选
-//     自己创建过的会话);会话忙碌时拒绝切换。
+//     自己创建过的会话)。会话忙碌时也能切换:原会话转到后台继续执行,结束或停下等确认时
+//     在原 IM 会话里各提示一次,不再转发内容;切回后用 /history 回看。
 //   - 一个 ACECode 会话只绑定一个 IM 会话:被别处接管时通知原 IM 会话并解除绑定。
 // handle() 只在该平台的工作线程上串行调用;查询接口可从任意线程调用。
 
@@ -83,6 +84,10 @@ struct ConversationDeps {
     std::function<void(const std::string& session_id, const std::string& taker_key,
                        const std::string& taker_label)> release_session;
     std::function<void()> on_bindings_changed;
+    // /history:会话最近 turns 轮(含)以来的持久化消息,按时间顺序;读不到返回空并写 error。
+    std::function<std::optional<std::vector<ChatMessage>>(const std::string& session_id, std::size_t turns,
+                                                          std::string* error)>
+        recent_messages;
     std::filesystem::path media_dir;  // 入站附件的临时下载目录
     // 群聊代答(D5):写入 / 清除会话的 channel_delegate meta(不活动的值 = 清除)。
     std::function<void(const std::string& session_id, const ChannelDelegate& delegate)> set_delegate;
@@ -133,6 +138,8 @@ public:
 
     static constexpr std::size_t kMaxSessionReferences = 5;
     static constexpr std::size_t kMaxQueuedSideQuestions = 4;
+    // 同时转在后台、等着发结束提示的会话上限;超过时最早转入后台的不再提示。
+    static constexpr std::size_t kMaxBackgroundSessions = 8;
 
 private:
     void dispatch(const im::Inbound& inbound, bool owner);
@@ -155,6 +162,7 @@ private:
     void run_builtin(const im::Inbound& inbound, const std::string& session_id,
                      const std::shared_ptr<Projection>& projection, const Command& command);
     void steer(const im::Inbound& inbound, const std::string& session_id, const std::string& text);
+    void show_history(const im::Inbound& inbound, const std::string& session_id, const std::string& argument);
     void ask_side(const im::Inbound& inbound, const std::string& session_id, const std::string& question);
     // 把正文里的 @编号 换成「@会话标题」并取出被引用的会话;返回 false 表示已回复错误、不提交。
     bool resolve_session_mentions(const im::Inbound& inbound, const std::string& session_id, std::string& text,
@@ -170,9 +178,19 @@ private:
     void stop_tasks();
     void new_session(const im::Inbound& inbound);
     BindingRecord create_binding(const im::Address& address, const std::optional<BindingRecord>& near);
-    std::shared_ptr<Projection> ensure_projection(const BindingRecord& record);
+    // 换下来的旧会话仍在执行时,left 收到给用户的说明(它已转到后台)。
+    std::shared_ptr<Projection> ensure_projection(const BindingRecord& record, std::string* left = nullptr);
     std::shared_ptr<Projection> projection_for(const std::string& key) const;
-    void switch_binding(const BindingRecord& record);
+    // 返回值同 ensure_projection 的 left。
+    std::string switch_binding(const BindingRecord& record);
+    // ---- conversation_background.cpp ----
+    // 换绑时的旧投影:会话还在执行就转到后台(结束时提示),否则直接停掉。
+    // 返回给用户的说明(转到后台时),否则为空。
+    std::string retire_projection(const std::shared_ptr<Projection>& projection);
+    // 该会话不再需要后台提示(重新绑定、被别处接管)。
+    void stop_background(const std::string& session_id);
+    // 停掉已发出结束提示一段时间的后台投影。与 handle() 在同一线程调用。
+    void sweep_background();
     std::optional<SessionInfo> session_info(const std::string& session_id) const;
     std::vector<rc::RcSessionTarget> visible_sessions(const std::string& key, bool owner,
                                                       const std::optional<std::string>& query) const;
@@ -199,6 +217,11 @@ private:
         std::size_t page = 1;
     };
     std::map<std::string, Pager> pagers_;  // IM 会话 → 最近一次分页输出
+    struct Background {
+        std::shared_ptr<Projection> projection;
+        std::chrono::steady_clock::time_point since;
+    };
+    std::map<std::string, Background> background_;  // ACECode 会话 → 切走时仍在执行的投影
 
     mutable std::mutex groups_mu_;
     std::map<std::string, GroupBuffer> groups_;           // 群 id → 自上次汇总以来的消息

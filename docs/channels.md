@@ -159,6 +159,7 @@ spellings behave the same.
 | `/new` (`/n`) | New session in the bound session's workspace, or a no-workspace session |
 | `/sessions` (`/s`) `[keyword\|page]` | Numbered, paged list of sessions to switch to; a keyword searches (`search <text>` and `more` still work) |
 | `/resume` (`/r`) `<number or session id>` | Switch the binding; numbers refer to the latest list and continue across pages |
+| `/history` (`/hi`) `[turns]` | Read back the bound session's latest turns (default 1, at most 20), newest first: your messages and ACECode's text replies, with tool calls only counted |
 | `@ref` (`@r`) `[keyword\|page]` | Numbered, paged list of sessions that can be referenced; then write `@<number>` in a message (up to 5) to attach that session's recent conversation, as with `@` in Desktop |
 | `/more` (`/mr`) `[page]` | Next (or given) page of the latest paged reply |
 | `/turn` (`/t`) `<text>` | Add guidance to the running turn without interrupting it |
@@ -186,9 +187,12 @@ such as "@3 meeting" is left alone. Desktop commands run in the daemon exactly
 as when typed in Desktop and their output is sent back as the reply; `/feedback`
 and `/remote-control` are Desktop-only.
 
-Commands are never sent to the model. While a session is busy `/new` and
-`/resume` are refused; other commands run at once and plain messages queue as
-usual. The owner can switch to any normal, unarchived session, including other
+Commands are never sent to the model. Every command works while a session is
+busy, and plain messages queue as usual. `/new` and `/resume` during a turn move
+the old session to the background: it keeps running, its replies are no longer
+sent to the chat, and the chat gets one notice when it finishes (with the
+`/resume` command to go back) and one when it first waits for an approval or an
+answer. Switch back and use `/history` to read what it wrote. The owner can switch to any normal, unarchived session, including other
 workspaces and no-workspace sessions. Other contacts only see sessions created
 from their own chat. Archived and subagent sessions are never listed. Text that
 starts with `/` is expanded as an opencode or skill command exactly like Web

@@ -14,8 +14,8 @@ enum class CommandKind {
     None, Help, Status, Stop, New, Sessions, Resume, Model, Mode, Yolo, Effort, Approve, Deny, Question,
     // 与 Desktop 输入框相同的命令
     Compact, Init, Goal, Plan, Turn, Side, Lsp, Sandbox, Memory, Swarm,
-    // IM 专有:技能列表、翻页、可引用会话列表(@ref)
-    Skills, More, RefList
+    // IM 专有:技能列表、翻页、可引用会话列表(@ref)、回看最近几轮
+    Skills, More, RefList, History
 };
 
 struct Command {
@@ -25,9 +25,6 @@ struct Command {
 };
 
 Command parse_command(const std::string& text);
-
-// 会话忙碌时能否立即执行;/new 与 /resume 需要先 /stop 或等待完成。
-bool runs_while_busy(CommandKind kind);
 
 // 日志与提示里用的全名(带斜杠,@ref 为 "@ref")。
 const char* command_name(CommandKind kind);
@@ -48,13 +45,17 @@ namespace texts {
 std::string help(bool owner);
 std::string pairing_notice();
 std::string owner_bound();
-std::string busy_reject();
 std::string unsupported_media(const std::string& kind);
 std::string session_missing();
 std::string no_binding();
 std::string resume_denied();
 std::string bound_elsewhere(const std::string& where);
 std::string transferred_here(const std::string& title);
+// 切走时原会话仍在执行:它转到后台,结束或停下等确认时在这里各提示一次。
+std::string left_running(const std::string& title, const std::string& session_id, std::size_t waiting);
+// outcome:completed / aborted / error(回合结束事件里的值)。
+std::string background_finished(const std::string& title, const std::string& session_id, const std::string& outcome);
+std::string background_waiting(const std::string& title, const std::string& session_id);
 std::string new_session(const std::string& location);
 std::string stop_requested();
 std::string permission_prompt(const std::string& request_id, const std::string& tool, const std::string& args);

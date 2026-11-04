@@ -167,6 +167,7 @@ HandleOutcome Conversations::handle(const im::Inbound& inbound) {
 }
 
 void Conversations::dispatch(const im::Inbound& inbound, bool owner) {
+    sweep_background();
     const auto command = parse_command(inbound.text);
     if (!command.error.empty()) {
         reply(inbound, command.error);
@@ -215,6 +216,7 @@ void Conversations::handle_bound_command(const im::Inbound& inbound, const Comma
         case CommandKind::Turn: steer(inbound, id, command.argument); return;
         case CommandKind::Side: ask_side(inbound, id, command.argument); return;
         case CommandKind::Skills: list_skills(inbound, id, command.argument); return;
+        case CommandKind::History: show_history(inbound, id, command.argument); return;
         case CommandKind::Stop:
             deps_.sessions->abort(id);
             reply(inbound, texts::stop_requested());
@@ -343,13 +345,6 @@ void Conversations::list_sessions(const im::Inbound& inbound, bool owner, const 
 void Conversations::resume(const im::Inbound& inbound, bool owner, const std::string& argument) {
     const auto key = inbound.address.key();
     const auto current = store_.binding(key);
-    if (current) {
-        const auto info = session_info(current->session_id);
-        if (info && info->busy) {
-            reply(inbound, texts::busy_reject());
-            return;
-        }
-    }
     std::optional<rc::RcSessionTarget> target;
     if (all_digits(argument) && argument.size() <= 6) {
         std::vector<rc::RcSessionTarget> snapshot;
@@ -390,8 +385,12 @@ void Conversations::resume(const im::Inbound& inbound, bool owner, const std::st
     record.workspace_hash = target->workspace_hash;
     record.no_workspace = target->no_workspace;
     record.updated_at_ms = now_wall_ms();
-    switch_binding(record);
-    reply(inbound, texts::transferred_here(target->title.empty() ? target->session_id : target->title));
+    const auto left = switch_binding(record);
+    auto text = texts::transferred_here(target->title.empty() ? target->session_id : target->title);
+    if (const auto info = session_info(target->session_id); info && info->busy)
+        text += "\n这个会话正在执行,之后的回复会发到这里。";
+    if (!left.empty()) text += "\n" + left;
+    reply(inbound, text);
 }
 
 BindingRecord Conversations::create_binding(const im::Address& address, const std::optional<BindingRecord>& near) {
@@ -419,22 +418,16 @@ BindingRecord Conversations::create_binding(const im::Address& address, const st
 
 void Conversations::new_session(const im::Inbound& inbound) {
     const auto current = store_.binding(inbound.address.key());
-    if (current) {
-        const auto info = session_info(current->session_id);
-        if (info && info->busy) {
-            reply(inbound, texts::busy_reject());
-            return;
-        }
-    }
     const auto record = create_binding(inbound.address, current);
-    switch_binding(record);
-    reply(inbound, texts::new_session(location_label(record)));
+    const auto left = switch_binding(record);
+    reply(inbound, texts::new_session(location_label(record)) + (left.empty() ? "" : "\n" + left));
 }
 
-std::shared_ptr<Projection> Conversations::ensure_projection(const BindingRecord& record) {
+std::shared_ptr<Projection> Conversations::ensure_projection(const BindingRecord& record, std::string* left) {
     const auto key = record.address.key();
     if (auto existing = projection_for(key); existing && existing->record().session_id == record.session_id)
         return existing;
+    stop_background(record.session_id);
     rc::RcSessionTarget target;
     target.session_id = record.session_id;
     target.cwd = record.cwd;
@@ -450,20 +443,27 @@ std::shared_ptr<Projection> Conversations::ensure_projection(const BindingRecord
         previous = std::move(projections_[key]);
         projections_[key] = projection;
     }
-    if (previous) previous->stop();
+    if (previous) {
+        auto notice = retire_projection(previous);
+        if (left) *left = std::move(notice);
+    }
     return projection;
 }
 
-void Conversations::switch_binding(const BindingRecord& record) {
+std::string Conversations::switch_binding(const BindingRecord& record) {
     const auto key = record.address.key();
     if (deps_.release_session) deps_.release_session(record.session_id, key, label_for(record.address));
     store_.put_binding(record);
-    ensure_projection(record);
+    std::string left;
+    ensure_projection(record, &left);
     if (deps_.on_bindings_changed) deps_.on_bindings_changed();
+    return left;
 }
 
 bool Conversations::release_session(const std::string& session_id, const std::string& except_key,
                                     const std::string& taker_label) {
+    // 转在后台的会话被别处绑定:那边会收到它的输出,这里不再提示。
+    stop_background(session_id);
     bool released = false;
     for (const auto& record : store_.bindings()) {
         const auto key = record.address.key();
@@ -637,22 +637,34 @@ void Conversations::restore() {
 void Conversations::shutdown() {
     stop_tasks();
     std::map<std::string, std::shared_ptr<Projection>> projections;
+    std::map<std::string, Background> background;
     {
         std::lock_guard<std::mutex> lock(mu_);
         projections.swap(projections_);
+        background.swap(background_);
         session_lists_.clear();
         ref_lists_.clear();
         pagers_.clear();
     }
     for (auto& [key, projection] : projections) projection->stop();
+    for (auto& [id, entry] : background) entry.projection->stop();
 }
 
 void Conversations::abort_principal(const std::string& principal) {
-    for (const auto& record : store_.bindings()) {
-        const bool match = principal_for(record.address) == principal ||
-                           (principal_kind(principal) == "group" && group_principal(record.address) == principal);
-        if (match) deps_.sessions->abort(record.session_id);
+    const auto matches = [&principal](const im::Address& address) {
+        return principal_for(address) == principal ||
+               (principal_kind(principal) == "group" && group_principal(address) == principal);
+    };
+    for (const auto& record : store_.bindings())
+        if (matches(record.address)) deps_.sessions->abort(record.session_id);
+    // 切走时仍在执行、转到后台的会话同样属于这个身份。
+    std::vector<std::string> background;
+    {
+        std::lock_guard<std::mutex> lock(mu_);
+        for (const auto& [id, entry] : background_)
+            if (matches(entry.projection->record().address)) background.push_back(id);
     }
+    for (const auto& id : background) deps_.sessions->abort(id);
 }
 
 nlohmann::json Conversations::bindings_json() const {

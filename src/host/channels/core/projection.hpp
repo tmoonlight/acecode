@@ -21,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -56,6 +57,11 @@ public:
     void start();
     // 退订并排空发送队列;之后不再发送任何东西。
     void stop();
+    // 换绑时会话仍在执行:之后不再转发内容,只在回合结束时、以及第一次停下等确认时各提示一次
+    // (title 是提示里的会话名)。
+    void move_to_background(std::string title);
+    // 已发出结束提示的时刻;还没结束为空。
+    std::optional<std::chrono::steady_clock::time_point> background_finished_at() const;
 
     const BindingRecord& record() const { return record_; }
     // 命令回复等:按 reply_context 引用触发它的消息,走同一个有序队列。
@@ -84,6 +90,7 @@ public:
 
 private:
     void on_event(const SessionEvent& event);
+    void background_event_locked(const SessionEvent& event);
     void enqueue_text_locked(const std::string& text, const nlohmann::json& reply_context);
     void flush_locked();
     void permission_locked(const nlohmann::json& request);
@@ -108,6 +115,10 @@ private:
     std::vector<std::string> captured_;
     std::map<std::string, std::string> relay_codes_;
     std::chrono::steady_clock::time_point relay_deadline_{};
+    bool background_ = false;
+    bool background_waiting_noted_ = false;
+    std::string background_title_;
+    std::optional<std::chrono::steady_clock::time_point> background_finished_at_;
 };
 
 } // namespace acecode::channels::core

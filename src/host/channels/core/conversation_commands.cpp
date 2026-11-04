@@ -4,11 +4,11 @@
 #include "conversations.hpp"
 
 #include "channels/core/group_watch.hpp"
+#include "channels/core/history_text.hpp"
 #include "utils/logger.hpp"
 
 #include <algorithm>
 #include <cctype>
-#include <cstdio>
 #include <set>
 
 namespace acecode::channels::core {
@@ -41,46 +41,6 @@ bool page_argument(const std::string& text) {
 
 bool contains_folded(const std::string& haystack, const std::string& needle) {
     return lower(haystack).find(lower(needle)) != std::string::npos;
-}
-
-std::int64_t days_from_civil(int y, unsigned m, unsigned d) {
-    y -= m <= 2;
-    const int era = (y >= 0 ? y : y - 399) / 400;
-    const unsigned yoe = static_cast<unsigned>(y - era * 400);
-    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
-    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return static_cast<std::int64_t>(era) * 146097 + static_cast<std::int64_t>(doe) - 719468;
-}
-
-void civil_from_days(std::int64_t z, int& y, unsigned& m, unsigned& d) {
-    z += 719468;
-    const std::int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    const unsigned doe = static_cast<unsigned>(z - era * 146097);
-    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const unsigned mp = (5 * doy + 2) / 153;
-    d = doy - (153 * mp + 2) / 5 + 1;
-    m = mp < 10 ? mp + 3 : mp - 9;
-    y = static_cast<int>(yoe) + static_cast<int>(era) * 400 + (m <= 2);
-}
-
-// 会话时间是 UTC 的 ISO 8601("2026-10-26T07:58:04Z"),列表里显示成本地 "10-26 15:58";
-// 格式不符时原样返回。
-std::string short_local_time(const std::string& iso, int offset_minutes) {
-    int y = 0;
-    unsigned mo = 0, d = 0, h = 0, mi = 0;
-    if (iso.size() < 16 || iso[10] != 'T' ||
-        std::sscanf(iso.c_str(), "%4d-%2u-%2uT%2u:%2u", &y, &mo, &d, &h, &mi) != 5 || mo < 1 || mo > 12 ||
-        d < 1 || d > 31 || h > 23 || mi > 59)
-        return iso;
-    const std::int64_t minutes = days_from_civil(y, mo, d) * 1440 + h * 60 + mi + offset_minutes;
-    const auto day = minutes >= 0 ? minutes / 1440 : (minutes - 1439) / 1440;
-    const auto in_day = minutes - day * 1440;
-    civil_from_days(day, y, mo, d);
-    char out[32];
-    std::snprintf(out, sizeof(out), "%02u-%02u %02d:%02d", mo, d, static_cast<int>(in_day / 60),
-                  static_cast<int>(in_day % 60));
-    return out;
 }
 
 std::string target_title(const rc::RcSessionTarget& target) {
@@ -411,6 +371,27 @@ void Conversations::steer(const im::Inbound& inbound, const std::string& session
             reply(inbound, texts::turn_failed(result.message.empty() ? std::string("补充说明失败") : result.message));
             return;
     }
+}
+
+// ---- /history ----
+
+void Conversations::show_history(const im::Inbound& inbound, const std::string& session_id,
+                                 const std::string& argument) {
+    if (!deps_.recent_messages) {
+        reply(inbound, "当前 ACECode 不支持回看对话。");
+        return;
+    }
+    // 参数已由命令解析校验为 1–kMaxHistoryTurns 的数字。
+    const std::size_t turns = argument.empty() ? kDefaultHistoryTurns : std::stoul(argument);
+    std::string error;
+    const auto messages = deps_.recent_messages(session_id, turns, &error);
+    if (!messages) {
+        reply(inbound, texts::turn_failed(error.empty() ? std::string("读取会话记录失败") : error));
+        return;
+    }
+    const auto info = session_info(session_id);
+    const int offset = deps_.utc_offset_minutes ? deps_.utc_offset_minutes() : local_utc_offset_minutes();
+    show_paged(inbound, render_recent_turns(*messages, turns, offset, info && info->busy));
 }
 
 // ---- /btw ----

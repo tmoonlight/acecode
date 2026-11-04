@@ -115,6 +115,15 @@ protected:
             if (conversations) conversations->release_session(id, key, label);
         };
         deps.on_bindings_changed = [this] { ++binding_changes; };
+        deps.recent_messages = [this](const std::string& id, std::size_t turns,
+                                      std::string* error) -> std::optional<std::vector<ChatMessage>> {
+            history_requests.emplace_back(id, turns);
+            if (history_fail) {
+                *error = "测试读取失败";
+                return std::nullopt;
+            }
+            return history;
+        };
         deps.media_dir = home_dir / "media";
         conversations = std::make_unique<Conversations>("telegram", *store, access, slot, deps);
     }
@@ -152,7 +161,24 @@ protected:
     std::function<SideQuestionResult(const std::string&, const std::string&, SideChatCancellation&)> side;
     std::vector<std::vector<rc::RcSessionTarget>> referenced;
     int binding_changes = 0;
+    std::vector<ChatMessage> history;
+    std::vector<std::pair<std::string, std::size_t>> history_requests;
+    bool history_fail = false;
 };
+
+ChatMessage chat(const std::string& role, const std::string& content) {
+    ChatMessage message;
+    message.role = role;
+    message.content = content;
+    return message;
+}
+
+std::size_t count_said(const FakeTransport& transport, const std::string& needle) {
+    std::size_t count = 0;
+    for (const auto& text : transport.texts())
+        if (text.find(needle) != std::string::npos) ++count;
+    return count;
+}
 
 // 场景:已授权联系人第一次发普通消息。
 // 期望:新建无项目会话(default 权限、不继承 daemon 危险标志)并持久化绑定;
@@ -221,23 +247,92 @@ TEST_F(ChannelRouter, NewSessionFollowsCurrentWorkspace) {
     EXPECT_EQ(created[0].second.workspace_hash, "hash-w");
     EXPECT_EQ(bound("1"), created[0].first);
     EXPECT_TRUE(transport->wait_said("已新建会话(proj)"));
+    EXPECT_FALSE(transport->said("后台"));       // 原会话空闲:直接换掉,没有后台提示
     EXPECT_TRUE(sessions.input_log().empty());  // 命令本身不进会话
 }
 
-// 场景:绑定会话正在执行时发送 /new、/resume,以及 /status。
-// 期望:/new 与 /resume 被拒绝且绑定不变;/status 立即回复并显示执行中。
-TEST_F(ChannelRouter, BusySessionRejectsSwitching) {
+// 场景:绑定会话正在执行(模型在推理)时 /resume 到另一个会话,原会话随后输出正文并结束;
+// 最后切回原会话。
+// 期望:立即切换,回复说明原会话转到后台并给出切回命令;原会话的正文不再发到 IM,
+// 回合结束只提示一次「已完成」;切回后后台订阅撤掉,原会话的输出照常转发。
+// 回归:以前会话忙碌时 /new、/resume 一律回复「请先 /stop」,推理期间无法切换会话。
+TEST_F(ChannelRouter, SwitchingAwayFromBusySessionKeepsItInBackground) {
     sessions.add_session("w-1", "C:/work/proj", "hash-w", false, "工作区会话");
     send("1", "开始", "m1");
     const auto id = bound("1");
     sessions.set_busy(id, true);
-    send("1", "/new", "m2");
-    send("1", "/resume w-1", "m3");
-    EXPECT_EQ(sessions.created_log().size(), 1u);
-    EXPECT_EQ(bound("1"), id);
-    EXPECT_TRUE(transport->wait_said("请先 /stop"));
-    send("1", "/status", "m4");
+    send("1", "/status", "m2");
     EXPECT_TRUE(transport->wait_said("状态:执行中"));
+    send("1", "/resume w-1", "m3");
+    EXPECT_EQ(bound("1"), "w-1");
+    EXPECT_TRUE(transport->wait_said("已切换到会话:工作区会话"));
+    EXPECT_TRUE(transport->wait_said("仍在后台执行"));
+    EXPECT_TRUE(transport->said("/r " + id));
+    sessions.assistant(id, "后台的中间输出");
+    sessions.set_busy(id, false);
+    sessions.emit(id, SessionEventKind::BusyChanged, {{"busy", false}, {"outcome", "completed"}});
+    sessions.emit(id, SessionEventKind::Done, {{"outcome", "completed"}});
+    EXPECT_TRUE(transport->wait_said("已完成"));
+    EXPECT_EQ(count_said(*transport, "已完成"), 1u);
+    EXPECT_FALSE(transport->said("后台的中间输出"));
+    send("1", "/resume " + id, "m4");
+    EXPECT_EQ(bound("1"), id);
+    EXPECT_EQ(sessions.listener_count(id), 1u);  // 只剩前台投影的订阅
+    sessions.assistant(id, "切回后的输出");
+    EXPECT_TRUE(transport->wait_said("切回后的输出"));
+}
+
+// 场景:会话执行中发 /new;原会话随后连发两个权限请求,最后被停止。
+// 期望:立即新建并改绑;原会话的权限请求不再以确认提示发来,只提示一次「在等你确认」;
+// 回合停止后提示「已停止」;原会话不再收到这个 IM 会话的输入。
+TEST_F(ChannelRouter, BackgroundSessionReportsWaitingAndStop) {
+    send("1", "开始", "m1");
+    const auto id = bound("1");
+    sessions.set_busy(id, true);
+    send("1", "/new", "m2");
+    EXPECT_NE(bound("1"), id);
+    EXPECT_TRUE(transport->wait_said("已新建会话"));
+    EXPECT_TRUE(transport->wait_said("仍在后台执行"));
+    for (const auto* request : {"p1", "p2"})
+        sessions.emit(id, SessionEventKind::PermissionRequest,
+                      {{"request_id", request}, {"tool", "bash"}, {"args", {{"command", "ls"}}}});
+    EXPECT_TRUE(transport->wait_said("在等你确认"));
+    sessions.emit(id, SessionEventKind::BusyChanged, {{"busy", false}, {"outcome", "aborted"}});
+    EXPECT_TRUE(transport->wait_said("已停止"));
+    EXPECT_EQ(count_said(*transport, "在等你确认"), 1u);
+    EXPECT_FALSE(transport->said("/approve p1"));
+    send("1", "新会话里的消息", "m3");
+    const auto inputs = sessions.input_log();
+    ASSERT_EQ(inputs.size(), 2u);
+    EXPECT_EQ(inputs[1].first, bound("1"));
+}
+
+// 场景:切回会话后发 /hi、/hi 2,轮数越界,以及读取会话记录失败。
+// 期望:/hi 默认取最近 1 轮;/hi 2 取 2 轮且最新的一轮在前;越界回复用法;读取失败如实报错;
+// 回看命令都不进会话。
+TEST_F(ChannelRouter, HistoryShowsRecentTurnsNewestFirst) {
+    send("1", "开始", "m1");
+    const auto id = bound("1");
+    history = {chat("user", "第一个问题"), chat("assistant", "第一个回答"), chat("user", "第二个问题"),
+               chat("assistant", "第二个回答")};
+    send("1", "/hi", "m2");
+    EXPECT_TRUE(transport->wait_said("最近一轮对话"));
+    EXPECT_TRUE(transport->said("ACECode:第二个回答"));
+    EXPECT_FALSE(transport->said("第一个回答"));
+    ASSERT_FALSE(history_requests.empty());
+    EXPECT_EQ(history_requests.back(), std::make_pair(id, std::size_t{1}));
+    send("1", "/history 2", "m3");
+    EXPECT_TRUE(transport->wait_said("最近 2 轮对话"));
+    for (const auto& text : transport->texts()) {
+        if (text.find("最近 2 轮对话") == std::string::npos) continue;
+        EXPECT_LT(text.find("第二个问题"), text.find("第一个问题"));
+    }
+    send("1", "/hi 21", "m4");
+    EXPECT_TRUE(transport->wait_said("用法:/history"));
+    history_fail = true;
+    send("1", "/hi", "m5");
+    EXPECT_TRUE(transport->wait_said("测试读取失败"));
+    EXPECT_EQ(sessions.input_log().size(), 1u);
 }
 
 TEST_F(ChannelRouter, ModeCommandsStayInBoundSessionWhileBusy) {

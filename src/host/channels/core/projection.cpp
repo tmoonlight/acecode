@@ -133,18 +133,60 @@ void Projection::start() {
 
 void Projection::stop() {
     SessionClient::SubscriptionId subscription = 0;
+    bool background = false;
     {
         std::lock_guard<std::recursive_mutex> lock(mu_);
         if (!started_ || closed_) return;
         flush_locked();
         closed_ = true;
+        background = background_;
         subscription = subscription_;
         subscription_ = 0;
     }
     if (subscription) deps_.sessions->unsubscribe(record_.session_id, subscription);
-    set_typing(false);
+    // 后台投影所在的 IM 会话已归别的会话使用,「正在输入」由那边管。
+    if (!background) set_typing(false);
     hub_.clear_inbound_route();
     hub_.disable();
+}
+
+void Projection::move_to_background(std::string title) {
+    std::lock_guard<std::recursive_mutex> lock(mu_);
+    if (!started_ || closed_ || background_) return;
+    flush_locked();
+    background_ = true;
+    background_title_ = std::move(title);
+    // 这个 IM 会话已经换到别的会话:旧会话的「正在输入」不能再挂着。
+    set_typing(false);
+}
+
+std::optional<std::chrono::steady_clock::time_point> Projection::background_finished_at() const {
+    std::lock_guard<std::recursive_mutex> lock(mu_);
+    return background_finished_at_;
+}
+
+void Projection::background_event_locked(const SessionEvent& event) {
+    if (background_finished_at_) return;
+    const auto& p = event.payload;
+    switch (event.kind) {
+        case SessionEventKind::BusyChanged:
+            if (p.value("busy", false)) return;
+            [[fallthrough]];
+        case SessionEventKind::Done:
+            background_finished_at_ = std::chrono::steady_clock::now();
+            enqueue_text_locked(texts::background_finished(background_title_, record_.session_id,
+                                                           p.value("outcome", std::string{})),
+                                reply_context_);
+            return;
+        case SessionEventKind::PermissionRequest:
+        case SessionEventKind::QuestionRequest:
+            if (background_waiting_noted_) return;
+            background_waiting_noted_ = true;
+            enqueue_text_locked(texts::background_waiting(background_title_, record_.session_id), reply_context_);
+            return;
+        default:
+            return;
+    }
 }
 
 void Projection::set_typing(bool on) {
@@ -266,6 +308,10 @@ std::vector<std::string> Projection::pending_question_texts() {
 void Projection::on_event(const SessionEvent& event) {
     std::lock_guard<std::recursive_mutex> lock(mu_);
     if (closed_ || !event.payload.is_object()) return;
+    if (background_) {
+        background_event_locked(event);
+        return;
+    }
     try {
         const auto& p = event.payload;
         const auto transport = deps_.transport->get();
