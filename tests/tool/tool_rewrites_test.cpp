@@ -6,6 +6,7 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -34,6 +35,11 @@ void write_text(const fs::path& path, const std::string& text) {
     out << text;
 }
 
+std::string read_text(const fs::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
 std::string mapping_of(const acecode::ToolProtocolNameMappings& mappings,
                        const std::string& native) {
     for (const auto& mapping : mappings) {
@@ -54,6 +60,7 @@ TEST(ToolRewrites, MissingFileYieldsDisabledSeedWithoutError) {
         acecode::tool_rewrites::settings_path(dir.utf8()), &error);
     EXPECT_TRUE(error.empty());
     EXPECT_FALSE(settings.enabled);
+    EXPECT_FALSE(settings.write_file_default_applied);
     EXPECT_EQ(mapping_of(settings.rewrites, "file_read"), "read");
     EXPECT_EQ(mapping_of(settings.rewrites, "TodoWrite"), "todowrite");
     EXPECT_TRUE(acecode::tool_rewrites::effective_mappings(settings).empty());
@@ -70,6 +77,7 @@ TEST(ToolRewrites, ParsesFileFormatAndDropsNoOpEntries) {
             "rewrites":{"file_read":"read","bash":"","grep":"grep","file_write":" write "}})",
         settings, &error)) << error;
     EXPECT_TRUE(settings.enabled);
+    EXPECT_FALSE(settings.write_file_default_applied);
     ASSERT_EQ(settings.rewrites.size(), 2u);
     EXPECT_EQ(mapping_of(settings.rewrites, "file_read"), "read");
     EXPECT_EQ(mapping_of(settings.rewrites, "file_write"), "write");
@@ -85,6 +93,13 @@ TEST(ToolRewrites, ParsesFileFormatAndDropsNoOpEntries) {
     EXPECT_FALSE(acecode::tool_rewrites::parse_settings(
         R"({"rewrites":{"file_read":1}})", settings, &error));
     EXPECT_NE(error.find("file_read"), std::string::npos);
+
+    ASSERT_TRUE(acecode::tool_rewrites::parse_settings(
+        R"({"write_file_default_applied":true})", settings, &error)) << error;
+    EXPECT_TRUE(settings.write_file_default_applied);
+    EXPECT_FALSE(acecode::tool_rewrites::parse_settings(
+        R"({"write_file_default_applied":"true"})", settings, &error));
+    EXPECT_NE(error.find("write_file_default_applied"), std::string::npos);
 }
 
 // 场景:保存后重新读取。
@@ -104,6 +119,7 @@ TEST(ToolRewrites, SaveThenLoadRoundTrips) {
     const auto loaded = acecode::tool_rewrites::load_settings(path, &error);
     EXPECT_TRUE(error.empty()) << error;
     EXPECT_TRUE(loaded.enabled);
+    EXPECT_TRUE(loaded.write_file_default_applied);
     ASSERT_EQ(loaded.rewrites.size(), 2u);
     EXPECT_EQ(mapping_of(loaded.rewrites, "file_read"), "peek");
     EXPECT_EQ(mapping_of(loaded.rewrites, "bash"), "shell");
@@ -170,8 +186,9 @@ TEST(ToolRewrites, LoadAndApplyPublishesEffectiveMappingToProcess) {
     EXPECT_EQ(acecode::native_tool_name_for_public_alias("patch").value_or(""),
               "file_edit");
 
-    write_text(acecode::path_from_utf8(path),
-               R"({"enabled":false,"rewrites":{"file_read":"peek"}})");
+    acecode::tool_rewrites::ToolRewriteSettings disabled;
+    disabled.rewrites = {{"file_read", "peek"}};
+    ASSERT_TRUE(acecode::tool_rewrites::save_settings(path, disabled));
     acecode::tool_rewrites::load_and_apply(dir.utf8());
     EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
     EXPECT_EQ(acecode::model_tool_name_for_native("file_read"), "file_read");
@@ -182,4 +199,187 @@ TEST(ToolRewrites, LoadAndApplyPublishesEffectiveMappingToProcess) {
         acecode::ToolProtocolNameMappings{{"bash", "shell"}});
     acecode::tool_rewrites::load_and_apply(dir.utf8());
     EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
+}
+
+TEST(ToolRewrites, FirstStartupMigratesMissingFileAndPersistsCompletion) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    TempDir dir;
+    const auto path = acecode::path_from_utf8(acecode::tool_rewrites::settings_path(dir.utf8()));
+
+    const auto applied = acecode::tool_rewrites::load_and_apply(dir.utf8());
+    EXPECT_TRUE(applied.enabled);
+    EXPECT_TRUE(applied.write_file_default_applied);
+    EXPECT_EQ(mapping_of(applied.rewrites, "file_write"), "write_file");
+    EXPECT_EQ(mapping_of(applied.rewrites, "file_read"), "read");
+    EXPECT_EQ(mapping_of(applied.rewrites, "file_edit"), "edit");
+    EXPECT_EQ(mapping_of(applied.rewrites, "TodoWrite"), "todowrite");
+    EXPECT_EQ(acecode::model_tool_name_for_native("file_write"), "write_file");
+    EXPECT_EQ(acecode::native_tool_name_for_public_alias("write_file").value_or(""),
+              "file_write");
+
+    std::string error;
+    const auto saved = acecode::tool_rewrites::load_settings(acecode::path_to_utf8(path), &error);
+    EXPECT_TRUE(error.empty()) << error;
+    EXPECT_TRUE(saved.enabled);
+    EXPECT_TRUE(saved.write_file_default_applied);
+    EXPECT_EQ(mapping_of(saved.rewrites, "file_write"), "write_file");
+    // Formatting is deliberately different: another startup must not rewrite the file.
+    const auto persisted_text = read_text(path) + "\n";
+    write_text(path, persisted_text);
+    acecode::tool_rewrites::load_and_apply(dir.utf8());
+    EXPECT_EQ(read_text(path), persisted_text);
+}
+
+TEST(ToolRewrites, DisabledMigrationUpsertsWriteFileAndRetainsOtherMappings) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    for (const std::string previous_write : {"", "write", "custom_write"}) {
+        SCOPED_TRACE(previous_write);
+        TempDir dir;
+        const auto path = acecode::tool_rewrites::settings_path(dir.utf8());
+        acecode::tool_rewrites::ToolRewriteSettings original;
+        original.rewrites = {{"file_read", "peek"}, {"bash", "shell"}};
+        if (!previous_write.empty()) original.rewrites.push_back({"file_write", previous_write});
+        write_text(acecode::path_from_utf8(path), acecode::tool_rewrites::serialize_settings(original));
+
+        const auto applied = acecode::tool_rewrites::load_and_apply(dir.utf8());
+        EXPECT_TRUE(applied.enabled);
+        EXPECT_TRUE(applied.write_file_default_applied);
+        EXPECT_EQ(applied.rewrites.size(), 3u);
+        EXPECT_EQ(mapping_of(applied.rewrites, "file_write"), "write_file");
+        EXPECT_EQ(mapping_of(applied.rewrites, "file_read"), "peek");
+        EXPECT_EQ(mapping_of(applied.rewrites, "bash"), "shell");
+    }
+}
+
+TEST(ToolRewrites, AlreadyEnabledSettingsAreMarkedWithoutChangingMappings) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    for (const std::string previous_write : {"", "custom_write"}) {
+        SCOPED_TRACE(previous_write);
+        TempDir dir;
+        const auto path = acecode::tool_rewrites::settings_path(dir.utf8());
+        acecode::tool_rewrites::ToolRewriteSettings original;
+        original.enabled = true;
+        if (!previous_write.empty()) original.rewrites.push_back({"file_write", previous_write});
+        write_text(acecode::path_from_utf8(path), acecode::tool_rewrites::serialize_settings(original));
+
+        auto applied = acecode::tool_rewrites::load_and_apply(dir.utf8());
+        EXPECT_TRUE(applied.enabled);
+        EXPECT_TRUE(applied.write_file_default_applied);
+        EXPECT_EQ(applied.rewrites.size(), original.rewrites.size());
+        EXPECT_EQ(mapping_of(applied.rewrites, "file_write"), previous_write);
+        EXPECT_TRUE(acecode::tool_rewrites::load_settings(path).write_file_default_applied);
+
+        // A manual edit of only enabled preserves completion, just like a settings save.
+        applied.enabled = false;
+        write_text(acecode::path_from_utf8(path), acecode::tool_rewrites::serialize_settings(applied));
+        EXPECT_FALSE(acecode::tool_rewrites::load_and_apply(dir.utf8()).enabled);
+        EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
+    }
+}
+
+TEST(ToolRewrites, ExplicitSavesPreserveUserChoiceWithoutClientMigrationMetadata) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    TempDir dir;
+    const auto path = acecode::tool_rewrites::settings_path(dir.utf8());
+    acecode::tool_rewrites::load_and_apply(dir.utf8());
+
+    for (const std::string body : {
+             R"({"enabled":false,"rewrites":{"file_write":"write_file"}})",
+             R"({"enabled":true,"rewrites":{"file_write":"my_write"}})",
+             R"({"enabled":true,"rewrites":{},"write_file_default_applied":false})"}) {
+        SCOPED_TRACE(body);
+        acecode::tool_rewrites::ToolRewriteSettings edited;
+        std::string error;
+        ASSERT_TRUE(acecode::tool_rewrites::parse_settings(body, edited, &error)) << error;
+        ASSERT_FALSE(edited.write_file_default_applied);
+        ASSERT_TRUE(acecode::tool_rewrites::save_settings(path, edited, &error)) << error;
+        const auto restarted = acecode::tool_rewrites::load_and_apply(dir.utf8());
+        EXPECT_TRUE(restarted.write_file_default_applied);
+        EXPECT_EQ(restarted.enabled, edited.enabled);
+        EXPECT_EQ(restarted.rewrites.size(), edited.rewrites.size());
+        EXPECT_EQ(mapping_of(restarted.rewrites, "file_write"), mapping_of(edited.rewrites, "file_write"));
+        EXPECT_EQ(acecode::model_tool_name_for_native("file_write"),
+                  edited.enabled && !edited.rewrites.empty() ? "my_write" : "file_write");
+    }
+}
+
+TEST(ToolRewrites, ExplicitDisableBeforeFirstStartupIsRespected) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    TempDir dir;
+    const auto path = acecode::tool_rewrites::settings_path(dir.utf8());
+    ASSERT_TRUE(acecode::tool_rewrites::save_settings(path, acecode::tool_rewrites::default_settings()));
+    EXPECT_FALSE(acecode::tool_rewrites::load_and_apply(dir.utf8()).enabled);
+    EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
+}
+
+TEST(ToolRewrites, MigrationWriteFailureDoesNotPublishAndCanRetry) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    for (const bool existing : {false, true}) {
+        SCOPED_TRACE(existing);
+        TempDir dir;
+        const auto path = acecode::tool_rewrites::settings_path(dir.utf8());
+        const std::string original = R"({"enabled":false,"rewrites":{"file_write":"write"}})";
+        if (existing) write_text(acecode::path_from_utf8(path), original);
+        const auto blocked_tmp = acecode::path_from_utf8(path + ".tmp");
+        ASSERT_TRUE(fs::create_directory(blocked_tmp));
+
+        const auto failed = acecode::tool_rewrites::load_and_apply(dir.utf8());
+        EXPECT_FALSE(failed.enabled);
+        EXPECT_FALSE(failed.write_file_default_applied);
+        EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
+        if (existing) EXPECT_EQ(read_text(acecode::path_from_utf8(path)), original);
+        else EXPECT_FALSE(fs::exists(acecode::path_from_utf8(path)));
+
+        ASSERT_TRUE(fs::remove(blocked_tmp));
+        const auto retried = acecode::tool_rewrites::load_and_apply(dir.utf8());
+        EXPECT_TRUE(retried.enabled);
+        EXPECT_TRUE(retried.write_file_default_applied);
+        EXPECT_EQ(acecode::model_tool_name_for_native("file_write"), "write_file");
+    }
+}
+
+TEST(ToolRewrites, MigrationPreservesBrokenOrConflictingSettings) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    TempDir dir;
+    const auto path = acecode::path_from_utf8(acecode::tool_rewrites::settings_path(dir.utf8()));
+    for (const std::string original : {
+             "{{{",
+             R"({"enabled":false,"write_file_default_applied":42})",
+             R"({"enabled":true,"rewrites":{"file_write":"bad name"}})",
+             R"({"enabled":false,"rewrites":{"file_read":"write_file"}})"}) {
+        SCOPED_TRACE(original);
+        write_text(path, original);
+        const auto applied = acecode::tool_rewrites::load_and_apply(dir.utf8());
+        EXPECT_FALSE(applied.enabled);
+        EXPECT_FALSE(applied.write_file_default_applied);
+        EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
+        EXPECT_EQ(read_text(path), original);
+    }
+}
+
+TEST(ToolRewrites, NonFileSettingsPathIsNotTreatedAsMissing) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    TempDir dir;
+    const auto path = acecode::tool_rewrites::settings_path(dir.utf8());
+    ASSERT_TRUE(fs::create_directory(acecode::path_from_utf8(path)));
+    std::string error;
+    acecode::tool_rewrites::load_settings(path, &error);
+    EXPECT_FALSE(error.empty());
+    EXPECT_FALSE(acecode::tool_rewrites::load_and_apply(dir.utf8()).enabled);
+    EXPECT_TRUE(fs::is_directory(acecode::path_from_utf8(path)));
+    EXPECT_FALSE(fs::exists(acecode::path_from_utf8(path + ".tmp")));
+}
+
+TEST(ToolRewrites, MigrationUsesExistingLegacyFilename) {
+    acecode::ScopedModelToolNameMappings restore(acecode::model_tool_name_mappings());
+    TempDir dir;
+    const auto legacy_path = dir.path / "tool-rewrites.json";
+    write_text(legacy_path, R"({"enabled":false,"rewrites":{}})");
+    const auto applied = acecode::tool_rewrites::load_and_apply(dir.utf8());
+    EXPECT_TRUE(applied.enabled);
+    EXPECT_EQ(applied.rewrites.size(), 1u);
+    EXPECT_EQ(mapping_of(applied.rewrites, "file_write"), "write_file");
+    EXPECT_EQ(acecode::tool_rewrites::settings_path(dir.utf8()), acecode::path_to_utf8(legacy_path));
+    EXPECT_TRUE(acecode::tool_rewrites::load_settings(acecode::path_to_utf8(legacy_path)).write_file_default_applied);
+    EXPECT_FALSE(fs::exists(dir.path / "tool_rewrites.json"));
 }

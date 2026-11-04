@@ -132,7 +132,8 @@ def inspect(root: Path, files: list[str], policy: LayerPolicy, transition: bool 
                     elif target.rank >= source.rank:
                         add("R2", path, line, f"upward rank dependency {source.name}({source.rank}) -> {target.name}({target.rank})", target_canonical)
                     if source.group == "apps" and target.group == "apps":
-                        allowed = {"daemon": {"web"}, "cli": {"tui", "daemon", "headless", "web"}}.get(source.name, set())
+                        allowed = {"daemon": {"web"}, "cli": {"tui", "daemon", "headless", "web"},
+                                   "installer": {"desktop"}}.get(source.name, set())
                         if target.name not in allowed:
                             add("R5", path, line, f"apps peer dependency {source.name} -> {target.name}", target_canonical)
                 for rule in (r for r in policy.rows if r["kind"] == "forbid"):

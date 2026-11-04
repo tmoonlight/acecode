@@ -26,7 +26,8 @@ using detail::provider_error_summary_for_log;
 
 RecoveryDecision ContextOverflowRecovery::resolve(
     const ProviderCallResult& result, const std::vector<ChatMessage>& messages_with_system,
-    RequestRecoveryState& state, int declared_window, SessionManager* session) {
+    RequestRecoveryState& state, int declared_window, SessionManager* session,
+    const CompactionInputs* compaction) {
     const auto callbacks = callbacks_.snapshot();
     std::optional<std::string> turn_timing_status;
     auto& recovery_stage = state.stage;
@@ -36,6 +37,7 @@ RecoveryDecision ContextOverflowRecovery::resolve(
         model.note_accepted(messages_with_system);
         // 服务端收下了这次请求:PA 兜底的这一轮到此结束,后面再被拒是新一轮。
         state.pa_episode = {};
+        state.overflow_episode = {};
         state.inline_images_withheld = false;
         return {HandleErrorResult::Proceed, turn_timing_status};
     }
@@ -76,7 +78,7 @@ RecoveryDecision ContextOverflowRecovery::resolve(
         // PA 特征报文走专用兜底(src/pa/pa_overflow_rescue):不设修复次数
         // 上限,缩到底还被拒就等。下面的通用三级恢复链只服务其它 provider。
         PaRescueAdapter host(history_, transcript_, compaction_, retry_, callbacks_,
-                             events_, abort_, session, model);
+                             events_, abort_, session, model, compaction);
         if (pa::run_rescue(host, state.pa_episode, result.provider_error_info,
                            request_tokens, emergency_request_profile,
                            inline_images)) {
@@ -102,10 +104,41 @@ RecoveryDecision ContextOverflowRecovery::resolve(
                 return {HandleErrorResult::Continue, turn_timing_status};
             }
         }
-        // 先记账再恢复:这一轮已经撞墙了救不回来,但下一轮可以不撞。带图的拒收
-        // 不记 —— 它的规模不代表服务端能收多大。
-        if (!inline_images) {
-            if (const auto notice = model.note_rejected(request_tokens)) {
+        // 先压缩:被拒只说明这次请求太大,不说明服务端的上限比声明窗口小。做一次
+        // 摘要压缩再重发,不给学习器记账(用户 2026-11-04 拍板:上下文过大先压缩,
+        // 失败才收缩上限)。以前一被拒就记账,一次撞墙就把这个模型的压缩阈值砍下去。
+        auto& episode = state.overflow_episode;
+        if (!episode.compaction_attempted) {
+            episode.compaction_attempted = true;
+            // 带图请求的规模不当证据(图片开销估不准),压缩后再被拒就按那次的规模记。
+            episode.rejected_tokens = inline_images ? 0 : request_tokens;
+            const auto outcome =
+                compact_history_for_overflow(compaction_, compaction, abort_);
+            if (outcome == pa::CompactOutcome::Cancelled) {
+                return {HandleErrorResult::Break, turn_timing_status};
+            }
+            if (outcome == pa::CompactOutcome::Compacted) {
+                // 压缩本身就是一次大请求,紧接着的重发不再触发自动压缩。
+                state.skip_auto_compact_once = true;
+                if (callbacks.on_stream_retry_reset) {
+                    callbacks.on_stream_retry_reset();
+                }
+                events_.emit(SessionEventKind::AgentProgress, nlohmann::json{
+                    {"phase", "context_repair"},
+                    {"label", "Retrying with compacted history"},
+                    {"detail", "history was compacted before retrying"},
+                });
+                return {HandleErrorResult::Continue, turn_timing_status};
+            }
+        }
+        // 压缩没能解决(没压成,或压缩后的请求仍被拒):这时才记账,每轮一次,按
+        // 压缩前那次被拒的规模 —— 压缩后的请求小得多,拿它当上限会把窗口砍过头。
+        // 带图的拒收不记,它的规模不代表服务端能收多大。
+        if (!inline_images && !episode.rejection_recorded) {
+            episode.rejection_recorded = true;
+            const int rejected_tokens = episode.rejected_tokens > 0
+                ? episode.rejected_tokens : request_tokens;
+            if (const auto notice = model.note_rejected(rejected_tokens)) {
                 transcript_.emit_transcript_system_message(session, notice->text, notice->metadata);
             }
         }

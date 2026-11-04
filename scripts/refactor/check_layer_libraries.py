@@ -71,7 +71,7 @@ def verify(root, targets):
     if asset_owners != ["acecode_web"]:
         raise ValueError(f"Embedded Web assets have wrong owners: {asset_owners}")
     consumers = {name: sorted(linked_libraries(targets[name])) for name in (
-        "acecode", "acecode-desktop", "acecode_unit_tests", "concurrent_session_writer",
+        "acecode", "acecode-desktop", "acecode-setup", "acecode_unit_tests", "concurrent_session_writer",
         "state_file_claim_worker", "remote_web_proxy_test_child") if name in targets}
     required_cli = names - {"acecode_desktop_support"}
     if not required_cli.issubset(consumers.get("acecode", [])):
@@ -93,6 +93,7 @@ def verify(root, targets):
                                         for p in includes if p.parent == (root / "src").resolve())
     permitted = {
         "acecode-desktop": {"acecode_base_core", "acecode_desktop_support", "acecode_deepin_window_effects"},
+        "acecode-setup": {"acecode_base_core", "acecode_desktop_support", "acecode_installer_support"},
         "concurrent_session_writer": {"acecode_base_core", "acecode_domain"},
         "state_file_claim_worker": {"acecode_base_core"},
     }

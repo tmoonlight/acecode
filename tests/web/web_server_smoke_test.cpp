@@ -3780,6 +3780,79 @@ TEST(WebServerHttp, SessionPermissionModeRejectsInvalidMode) {
     EXPECT_EQ(*mode, acecode::PermissionMode::Default);
 }
 
+// 场景:重启 daemon 后会话还没恢复进内存,前端打开会话时先 GET /permissions
+// 读权限。无项目会话(侧栏「任务」)与其它项目的会话,meta 都不在 daemon
+// 进程 cwd 的项目目录里。
+// 期望:按会话 id 找到它自己的 meta,返回保存的 yolo / auto;带 workspace
+// 提示时只在该项目里找,提示指向别的项目就 404。
+// 回归:修复前这里只读进程 cwd 的项目目录,两类会话一律 404,前端回退显示
+// 「默认权限」—— 用户每次重启都看到权限被重置成默认(运行时其实按 meta 恢复)。
+TEST(WebServerHttp, SessionPermissionModeReadsInactiveSessionFromItsOwnProject) {
+    WebServerFixture fx;
+    const auto permissions_url = [&](const std::string& sid, const std::string& hash = {}) {
+        return cpr::Url{fx.url("/api/sessions/" + sid + "/permissions" +
+                               (hash.empty() ? std::string{} : "?workspace=" + hash))};
+    };
+    const auto write_disk_session = [](const std::string& project_dir,
+                                       acecode::SessionMeta meta) {
+        std::filesystem::create_directories(path_from_utf8(project_dir));
+        write_text(path_from_utf8(acecode::SessionStorage::session_path(project_dir, meta.id)),
+                   "{\"role\":\"user\",\"content\":\"hello\"}\n");
+        return acecode::SessionStorage::write_meta(
+            acecode::SessionStorage::meta_path(project_dir, meta.id), meta);
+    };
+
+    // 无项目会话:meta 在 no-workspace 缓存下该会话自己的项目目录。
+    const std::string task_sid = "20261104-090000-a1b2";
+    const std::string task_cwd =
+        acecode::no_workspace_session_cwd(task_sid, fx.no_workspace_cache_root.string());
+    std::filesystem::create_directories(path_from_utf8(task_cwd));
+    const std::string task_project = acecode::SessionStorage::get_project_dir(task_cwd);
+    RemoveTreeOnExit task_cleanup{path_from_utf8(task_project)};
+    acecode::SessionMeta task_meta;
+    task_meta.id = task_sid;
+    task_meta.cwd = task_cwd;
+    task_meta.no_workspace = true;
+    task_meta.permission_mode = "yolo";
+    ASSERT_TRUE(write_disk_session(task_project, task_meta));
+
+    // 另一个已注册项目里的会话。
+    const auto other_cwd_path = fx.tmp_dir / "other-permission-project";
+    std::filesystem::create_directories(other_cwd_path);
+    const std::string other_cwd = other_cwd_path.string();
+    const auto other_hash =
+        fx.workspace_registry->register_new(fx.projects_dir.string(), other_cwd).hash;
+    const std::string other_project = acecode::SessionStorage::get_project_dir(other_cwd);
+    RemoveTreeOnExit other_cleanup{path_from_utf8(other_project)};
+    acecode::SessionMeta other_meta;
+    other_meta.id = "20261104-090100-c3d4";
+    other_meta.cwd = other_cwd;
+    other_meta.permission_mode = "auto";
+    ASSERT_TRUE(write_disk_session(other_project, other_meta));
+
+    ASSERT_FALSE(fx.registry->permission_mode(task_sid).has_value());
+    ASSERT_FALSE(fx.registry->permission_mode(other_meta.id).has_value());
+
+    auto task = cpr::Get(permissions_url(task_sid));
+    ASSERT_EQ(task.status_code, 200) << task.text;
+    EXPECT_EQ(json::parse(task.text)["mode"], "yolo");
+
+    auto other = cpr::Get(permissions_url(other_meta.id));
+    ASSERT_EQ(other.status_code, 200) << other.text;
+    EXPECT_EQ(json::parse(other.text)["mode"], "auto");
+
+    auto hinted = cpr::Get(permissions_url(other_meta.id, other_hash));
+    ASSERT_EQ(hinted.status_code, 200) << hinted.text;
+    EXPECT_EQ(json::parse(hinted.text)["mode"], "auto");
+
+    auto wrong_hint = cpr::Get(permissions_url(
+        other_meta.id, acecode::compute_cwd_hash(fx.cwd)));
+    EXPECT_EQ(wrong_hint.status_code, 404) << wrong_hint.text;
+
+    auto unknown = cpr::Get(permissions_url("20261104-090200-e5f6"));
+    EXPECT_EQ(unknown.status_code, 404) << unknown.text;
+}
+
 // 场景:管理界面的默认权限模式必须持久化到配置,同步 daemon 新会话模板,
 // 并让后续新建 session 继承该模式。
 TEST(WebServerHttp, DefaultPermissionModeEndpointAppliesToNewSessions) {
@@ -13460,6 +13533,10 @@ TEST(WebServerHttp, ToolRewritesRoundTripPersistsJsonAndAppliesToProcess) {
     ASSERT_EQ(after.status_code, 200) << after.text;
     EXPECT_EQ(json::parse(after.text)["enabled"], false);
     EXPECT_EQ(json::parse(after.text)["rewrites"]["file_read"], "peek");
+    const auto restarted = acecode::tool_rewrites::load_and_apply(acecode::path_to_utf8(fx.tmp_dir));
+    EXPECT_TRUE(restarted.write_file_default_applied);
+    EXPECT_FALSE(restarted.enabled);
+    EXPECT_TRUE(acecode::model_tool_name_mappings().empty());
 }
 
 // 场景:Agent Browser 新标签页「推荐」的 REST 往返。前端上报两次访问(其中一次只是

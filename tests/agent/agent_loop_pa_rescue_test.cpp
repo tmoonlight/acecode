@@ -1,8 +1,10 @@
 #include "test_support/agent/agent_loop_fixture.hpp"
 // PA 兜底(src/pa/pa_overflow_rescue)的端到端用例:服务端以 PA 特征报文
-// 「请求上下文过大」拒收整个请求时,AgentLoop 原样重发 → 逐档收缩 → 紧急档
-// → 等待重发,绝不因为这条报文终止回合。等待全部按 0 缩放,用例只验证顺序
-// 与效果,不验证真实时长。
+// 「请求上下文过大」拒收整个请求时,AgentLoop 原样重发 → 先压缩 → 逐档收缩
+// → 紧急档 → 等待重发,绝不因为这条报文终止回合。等待全部按 0 缩放,用例只验证
+// 顺序与效果,不验证真实时长。
+// 桩 provider 默认返回空摘要:摘要被判无效,「先压缩」这一步落到压缩自己的机械
+// 修剪兜底;要验证摘要成功的用例显式 set_compaction_summary。
 #include <gtest/gtest.h>
 
 #include "agent/agent_loop.hpp"
@@ -238,15 +240,17 @@ TEST(AgentLoopPaRescue, RetriesTheSameRequestBeforeTouchingHistory) {
     EXPECT_FALSE(has_system_event(events, "次收缩"));
 }
 
-// 触发场景:原样重发两次都被拒,之后每次收缩后的重发又被拒,连续两档。
-// 期望行为:不设修复次数上限 —— 第 3 次被拒起每次被拒都再缩一档(先丢最旧
+// 触发场景:原样重发两次都被拒,压缩后的重发也被拒,之后每次收缩后的重发又被拒,
+// 连续两档。
+// 期望行为:不设修复次数上限 —— 压缩没解决之后每次被拒都再缩一档(先丢最旧
 // 的整组回合),直到被接受;最终回复正常产出,没有错误事件。
 // 回归背景:旧恢复链修剪一次、紧急档一次之后就报错终止。
 TEST(AgentLoopPaRescue, ShrinksRoundAfterRoundUntilAccepted) {
     RescueWaitGuard wait_guard;
     RescueHarness h("pa_rescue_shrink_rounds");
-    add_history(h.loop, 6, 30000);
-    // 原样重发 2 次 + 收缩后重发 2 次,共 5 次被拒,第 6 次被接受。
+    // 约 15 万 token:压缩(机械兜底缩到 2/3)之后还要再缩两档仍在 4 万下限之上。
+    add_history(h.loop, 10, 30000);
+    // 原样重发 2 次 + 压缩后重发 1 次 + 收缩后重发 1 次,共 5 次被拒,第 6 次被接受。
     h.push_pa_errors(5);
     h.provider->push_text("accepted after shrinking");
 
@@ -266,8 +270,9 @@ TEST(AgentLoopPaRescue, ShrinksRoundAfterRoundUntilAccepted) {
 
 // 触发场景:整个会话只有当前回合,回合里已经跑了两个工具、各返回一大段输出,
 // 之后的请求被拒(原样重发也被拒)。
-// 期望行为:老回合没得丢,就清本回合最旧的工具输出(占位符),最近一条工具
-// 输出保留;重发被接受,回合正常结束。
+// 期望行为:确认拒收后先压缩;摘要失败时压缩的机械兜底与收缩同一套规则 —— 老回合
+// 没得丢,就清本回合最旧的工具输出(占位符),最近一条工具输出保留;重发被接受,
+// 回合正常结束。
 // 回归背景:截图那次致命 400 正是这种形态 —— 单回合读了一堆大文件,旧恢复
 // 链在「只剩当前回合」时直接判 HistoryExhausted,只剩紧急档一条路。
 TEST(AgentLoopPaRescue, ClearsToolOutputsInsideTheCurrentTurn) {
@@ -303,8 +308,9 @@ TEST(AgentLoopPaRescue, ClearsToolOutputsInsideTheCurrentTurn) {
 
 // 触发场景:会话里有一个老回合 —— 用户给出任务要求、模型调了一次工具拿回约
 // 6 万字符的输出、再给出结论;当前回合的请求被 PA 连续拒收(原样重发也被拒)。
-// 期望行为:收缩时先把那条旧工具输出换成占位符,老回合里的任务要求与结论都
-// 留在被接受的请求里;回合正常结束,没有错误事件。
+// 期望行为:确认拒收后先压缩(这里摘要失败,由机械兜底腾空间),先把那条旧工具
+// 输出换成占位符,老回合里的任务要求与结论都留在被接受的请求里;回合正常结束,
+// 没有错误事件。
 // 回归背景(反馈 LINDANDAN069,模型 aicoder-pro):旧顺序先整组丢老回合,
 // 一次拒收就把最初的任务说明、用户的多次纠正和压缩摘要全部删掉,模型此后
 // 「忘了」任务要求和刚总结出的做法,又去重写已验证过的函数。
@@ -366,12 +372,12 @@ TEST(AgentLoopPaRescue, ClearsOldToolOutputsBeforeDroppingEarlierInstructions) {
     EXPECT_TRUE(request_contains(accepted_request, "fresh result"))
         << "最近一条工具输出必须保留";
     EXPECT_FALSE(has_error_event(events));
-    EXPECT_TRUE(has_system_event(events, "已丢弃最旧的 0 组历史、清除 1 条"));
+    EXPECT_TRUE(has_system_event(events, "丢弃最旧的 0 组历史、清除 1 条"));
 }
 
 // 触发场景:历史里只有当前这一条用户输入,什么都缩不了,服务端仍连续拒收。
-// 期望行为:收缩腾不出空间就改紧急档(工具定义被剥掉);紧急档也被拒就按退避
-// 等待后原样重发,直到被接受;全程没有错误事件。
+// 期望行为:压缩与收缩都腾不出空间(压缩失败不发请求)就改紧急档(工具定义被
+// 剥掉);紧急档也被拒就按退避等待后原样重发,直到被接受;全程没有错误事件。
 TEST(AgentLoopPaRescue, FallsBackToEmergencyProfileThenWaits) {
     RescueWaitGuard wait_guard;
     RescueHarness h("pa_rescue_emergency_wait");
@@ -419,9 +425,9 @@ TEST(AgentLoopPaRescue, GivesUpOnlyAfterWaitRetriesAreExhausted) {
     EXPECT_EQ(count_message_events(events, "error", "等待重试后仍拒收"), 1);
 }
 
-// 触发场景(截图复现):回合里先撞一次墙、收缩后继续,又跑了一个工具,之后
+// 触发场景(截图复现):回合里先撞一次墙、兜底后继续,又跑了一个工具,之后
 // 再次撞墙。
-// 期望行为:第二次撞墙同样走完整兜底(原样重发 → 收缩),回合正常结束。
+// 期望行为:第二次撞墙同样走完整兜底(原样重发 → 压缩),回合正常结束。
 // 回归背景:旧实现修剪一次之后就把回合内的恢复状态锁死,第二次撞墙直接进
 // 紧急档、再拒就报错 —— 截图里的「thread repair and emergency profile were
 // both exhausted」就是这条路径。
@@ -442,8 +448,75 @@ TEST(AgentLoopPaRescue, RecoversAgainAfterASuccessInTheSameTurn) {
     EXPECT_EQ(h.provider->turn_count(), 8);
     EXPECT_TRUE(request_contains(h.loop.messages(), "done after two rescues"));
     EXPECT_FALSE(has_error_event(events));
-    EXPECT_EQ(count_message_events(events, "system", "第 1 次收缩"), 2)
-        << "两次撞墙各自从头开始一轮兜底";
+    EXPECT_EQ(count_message_events(events, "system", "摘要压缩失败"), 2)
+        << "两次撞墙各自从头开始一轮兜底,各先压缩一次";
+    EXPECT_FALSE(has_system_event(events, "次收缩"))
+        << "压缩就能解决的拒收不该走到收缩";
+}
+
+// 触发场景:历史长到服务端拒收(PA 报文),原样重发两次也被拒;摘要压缩能成功。
+// 期望行为:确认拒收后先做摘要压缩再重发,重发被收下;学习器没有任何观测、没有
+// 「压缩阈值下调」,也没有走到收缩。
+// 回归背景(用户 2026-11-04):旧兜底确认拒收后直接收缩并记账,一报「上下文过大」
+// 压缩阈值就立刻下调,同进程里这个模型之后都提前压缩,而那堵墙一次压缩就能绕过去。
+TEST(AgentLoopPaRescue, CompactsBeforeLoweringTheBudget) {
+    RescueWaitGuard wait_guard;
+    RescueHarness h("pa_rescue_compact_first");
+    h.provider->set_compaction_summary("Summary of the earlier work.");
+    add_history(h.loop, 6, 30000);
+    h.push_pa_errors(3);
+    h.provider->push_text("accepted after compaction");
+
+    const auto events = wait_for_done(h.loop, [&] {
+        h.loop.submit("latest user request");
+    });
+
+    ASSERT_EQ(h.provider->turn_count(), 4);
+    EXPECT_GE(h.provider->compaction_calls(), 1);
+    const auto accepted = h.provider->messages_for_turn(3);
+    EXPECT_TRUE(request_contains(accepted, "Summary of the earlier work."));
+    EXPECT_FALSE(request_contains(accepted, "old assistant 0"));
+    EXPECT_TRUE(request_contains(accepted, "latest user request"));
+    EXPECT_TRUE(request_contains(h.loop.messages(), "accepted after compaction"));
+    EXPECT_FALSE(has_error_event(events));
+    EXPECT_FALSE(has_system_event(events, "压缩阈值下调"));
+    EXPECT_FALSE(has_system_event(events, "次收缩"));
+    EXPECT_FALSE(acecode::pa::context_budget().has_observation(
+        h.provider->name(), h.provider->model()))
+        << "压缩能解决的拒收不能进学习器";
+}
+
+// 触发场景:确认拒收后摘要压缩成功,但压缩后的请求仍被拒(摘要很长,压缩后的请求
+// 仍在 4 万下限之上,拒收才会走到收缩)。
+// 期望行为:这时才给学习器记一次账、发「压缩阈值下调」通知,规模按压缩前那次确认
+// 拒收的请求,而不是压缩后小得多的那个;之后的兜底让重发被收下。
+TEST(AgentLoopPaRescue, LowersTheBudgetOnlyAfterTheCompactedRequestIsRejected) {
+    RescueWaitGuard wait_guard;
+    RescueHarness h("pa_rescue_compact_then_shrink");
+    // 约 2.5 万 token 的摘要 + 最多 2 万 token 的保留用户消息。
+    h.provider->set_compaction_summary("Long summary " + std::string(100000, 'S'));
+    add_history(h.loop, 6, 30000);
+    h.push_pa_errors(4);
+    h.provider->push_text("accepted after compaction did not help");
+
+    const auto events = wait_for_done(h.loop, [&] {
+        h.loop.submit("latest user request");
+    });
+
+    ASSERT_EQ(h.provider->turn_count(), 5);
+    const auto compacted = h.provider->messages_for_turn(3);
+    ASSERT_TRUE(request_contains(compacted, "Long summary"));
+    const int compacted_tokens = acecode::estimate_message_tokens(compacted);
+    ASSERT_GE(compacted_tokens, 40000) << "压缩后的请求要在下限之上才会走到收缩";
+    EXPECT_TRUE(has_system_event(events, "压缩阈值下调"));
+    const auto observations = acecode::pa::context_budget().snapshot();
+    ASSERT_EQ(observations.size(), 1u);
+    EXPECT_EQ(observations[0].rejections, 1) << "一轮兜底只记一次账";
+    EXPECT_GT(observations[0].lowest_rejected_tokens, compacted_tokens)
+        << "记账规模必须是压缩前确认拒收的请求";
+    EXPECT_TRUE(request_contains(h.loop.messages(),
+                                 "accepted after compaction did not help"));
+    EXPECT_FALSE(has_error_event(events));
 }
 
 // 触发场景:网关的限流报文「您的请求频率已达到限制 (100次/10分钟)」以终止性错误

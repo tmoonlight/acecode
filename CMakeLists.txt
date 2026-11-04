@@ -202,6 +202,7 @@ configure_file(cmake/acecode_tui_input_trace_config.hpp.in
     "${CMAKE_BINARY_DIR}/generated/acecode_tui_input_trace_config.hpp" @ONLY)
 
 include(${CMAKE_SOURCE_DIR}/cmake/acecode_layer_libraries.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/acecode_installer.cmake)
 
 if(WIN32)
     # UI Automation lives outside the daemon: a hung application must remain

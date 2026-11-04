@@ -24,8 +24,8 @@ using ToolProtocolNameMappings = std::vector<ToolProtocolNameMapping>;
 
 // 内置种子(OpenCode 风格 read / write / edit / todowrite)。它只用于
 // 「工具重写」JSON 首次生成时的默认内容,**不是**进程默认生效映射 ——
-// 进程启动后的生效映射为空(模型看到原生名),只有用户在设置里勾选
-// 「工具重写」后由 tool_rewrites::apply_to_process 发布。
+// 加载配置前生效映射为空(模型看到原生名);启动迁移或用户保存设置后
+// 由 tool_rewrites::apply_to_process 发布。
 const ToolProtocolNameMappings& default_model_tool_name_mappings();
 
 // 当前生效映射的快照(线程安全拷贝;空 = 不重写)。

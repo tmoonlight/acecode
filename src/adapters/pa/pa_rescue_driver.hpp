@@ -8,6 +8,10 @@
 
 namespace acecode::pa {
 
+// 摘要压缩(CompactHistory)的结果。Failed = 没压成,历史没变,driver 在同一次
+// 调用里立刻换下一招(收缩并记账);Cancelled = 用户在压缩期间停止。
+enum class CompactOutcome { Compacted, Failed, Cancelled };
+
 // Synchronous, non-owning port. The driver retains no host or service pointer.
 // Policy/state stay in PA; the host controls all IO, waiting and publication.
 class PaRescueHost {
@@ -19,6 +23,9 @@ public:
     // Replace inline images in the history with file references and publish
     // the notice. Returns how many images were withheld (0 = nothing changed).
     virtual int withhold_inline_images() = 0;
+    // Summarize the history (the same automatic compaction as the turn loop,
+    // including its mechanical fallback) and publish its own notices.
+    virtual CompactOutcome compact() = 0;
     virtual bool wait(int milliseconds) = 0;
     virtual void reset_stream() = 0;
     virtual void history_repaired() = 0;

@@ -31,6 +31,17 @@ endif()
 if(TARGET winpty_static)
     list(APPEND _primary_targets winpty_static)
 endif()
+# 安装程序只能依赖 base 与 desktop 的启动动画,不得把对话引擎整套拖进安装包。
+list(APPEND _primary_targets acecode_installer_support)
+acecode_assert_no_link_path(acecode_installer_support
+    acecode_testable acecode_include_roots acecode_base_host acecode_domain acecode_adapters
+    acecode_engine acecode_host acecode_web acecode_tui acecode_headless
+    acecode_daemon acecode_cli acecode_crow Crow::Crow mcp cpr::cpr)
+if(TARGET acecode-setup)
+    list(APPEND _primary_targets acecode-setup)
+else()
+    list(APPEND ACECODE_INACTIVE_SOURCES ${ACECODE_INSTALLER_BINARY_ONLY_SOURCES})
+endif()
 list(APPEND ACECODE_INACTIVE_SOURCES ${_desktop_inactive})
 if(NOT APPLE)
     list(APPEND ACECODE_INACTIVE_SOURCES ${ACECODE_OBJCXX_SOURCES})

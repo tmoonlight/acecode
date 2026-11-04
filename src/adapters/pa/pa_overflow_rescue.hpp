@@ -19,11 +19,14 @@
 // 拦下的,一次往返只要不到一秒,所以多试几档的代价很低:
 //   1. 原样重发 —— 先当它是抽风。重发 PA_RESCUE_SAME_REQUEST_RETRIES 次,过了
 //      就一点上下文都不丢,也不给学习器记账(抽风不是证据)。
-//   2. 逐档收缩 —— 每次被拒就把请求缩到上一次的 PA_RESCUE_SHRINK_PERCENT%:
+//   2. 先压缩 —— 拒收确认了,也只说明这次请求太大,不说明服务端的上限比声明窗口
+//      小。先做一次摘要压缩再重发,不给学习器记账;压缩失败或压缩后的请求仍被拒,
+//      才进下一步并记账(用户 2026-11-04 拍板:上下文过大先压缩,失败才收缩上限)。
+//   3. 逐档收缩 —— 每次被拒就把请求缩到上一次的 PA_RESCUE_SHRINK_PERCENT%:
 //      先丢最旧的整组回合,老回合丢完了清本回合里最旧的工具输出。没有次数
 //      上限,直到一点空间都腾不出来。
-//   3. 紧急档 —— 剥掉工具定义与注入上下文,只留核心工具再发一次。
-//   4. 等待重发 —— 最小请求还被拒,就按退避间隔反复原样重发,直到
+//   4. 紧急档 —— 剥掉工具定义与注入上下文,只留核心工具再发一次。
+//   5. 等待重发 —— 最小请求还被拒,就按退避间隔反复原样重发,直到
 //      PA_RESCUE_MAX_WAIT_RETRIES 次耗尽才放弃。用户可随时中止。
 //
 // 「一个 episode」= 从某次请求被拒到它(或它的缩减版)被服务端接受为止。
@@ -62,6 +65,7 @@ int scaled_rescue_wait_ms(int ms);
 enum class RescueAction {
     WithholdImages,    // 把历史里的内联图片换成文件引用后立刻重发
     RetrySameRequest,  // 原样重发,先等 wait_ms
+    CompactHistory,    // 摘要压缩会话历史后重发(不记账)
     ShrinkHistory,     // 把会话历史缩到 target_history_tokens 后重发
     EmergencyProfile,  // 改用紧急请求档(剥掉工具定义与注入上下文)重发
     WaitAndRetry,      // 最小请求仍被拒:等 wait_ms 后原样重发
@@ -82,6 +86,12 @@ struct RescueState {
     // 本 episode 是否已经提议过撤下内联图片。撤过一次(不管撤下几张)就不再提议,
     // 避免历史里没有可撤的图片时原地打转。
     bool images_withheld = false;
+    // 本 episode 是否已经提议过摘要压缩。压缩过一次(不管成没成)就不再提议。
+    bool compaction_attempted = false;
+    // 确认拒收、决定先压缩时那次请求的规模。压缩之后仍被拒时按它记账:压缩后的
+    // 请求小得多,拿它当上限会把压缩窗口砍到远小于真实能力,把会话拖进「永远在
+    // 压缩」。0 = 本 episode 还没压缩过(或那次请求带图),记账按被拒请求本身的规模。
+    int confirmed_rejected_tokens = 0;
     // 本 episode 是否已经给 ContextBudgetLearner 记过账。
     bool rejection_recorded = false;
 };
@@ -106,7 +116,11 @@ struct RescuePlan {
     // 每个 episode 记一次,而且被拒的必须是正常档请求:抽风不算证据;紧急档
     // 请求没有工具定义与注入上下文,它的规模不代表正常请求能过的上限,记进去
     // 会把压缩窗口砍到远小于真实能力,把会话拖进「永远在压缩」。
+    // 先压缩那一步永远不记:压缩能解决的拒收不是「上限比声明窗口小」的证据。
     bool record_rejection = false;
+    // record_rejection 时记账用的规模(压缩过则是压缩前确认拒收的规模);
+    // CompactHistory 时是这次确认拒收的规模,由 advance_rescue_state 存进 state。
+    int rejected_tokens = 0;
     // 不足 40k 的请求:保留全部上下文,按退避等待重发(WaitAndRetry),等待次数
     // 耗尽后放弃(GiveUp)。两种情况都置位,调用方据此选择文案。
     bool preserve_context = false;

@@ -20,9 +20,11 @@ class ReleaseAssetsTest(unittest.TestCase):
             path.parent.mkdir()
             path.write_bytes(b"package")
 
-    def test_complete_release_requires_all_seventeen_downloads(self):
+    def test_complete_release_requires_all_nineteen_downloads(self):
         selected = assets.verify_release_assets(self.root, "1.2.3")
-        self.assertEqual(len(selected), 17)
+        self.assertEqual(len(selected), 19)
+        for arch in ("x64", "arm64"):
+            self.assertIn(f"ACECode-1.2.3-windows-{arch}-setup.exe", self.names)
         for arch in ("x64", "arm64"):
             self.assertIn(f"acecode-linux-deepin-{arch}.tar.gz", self.names)
         self.assertIn("acecode-linux-armv7.tar.gz", self.names)
@@ -85,7 +87,7 @@ class ReleaseAssetsTest(unittest.TestCase):
     def test_non_package_artifacts_do_not_affect_runtime_completeness(self):
         for name in ("acecode.debug", "acecode.pdb", "index.html"):
             (self.root / name).write_bytes(b"auxiliary")
-        self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 17)
+        self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 19)
 
     def test_every_platform_enforces_its_size_budget_at_the_boundary(self):
         limits = assets.asset_size_limits("1.2.3")
@@ -95,7 +97,7 @@ class ReleaseAssetsTest(unittest.TestCase):
                 path = next(self.root.rglob(name))
                 with path.open("r+b") as stream:
                     stream.truncate(limits[name])
-                self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 17)
+                self.assertEqual(len(assets.verify_release_assets(self.root, "1.2.3")), 19)
                 with path.open("r+b") as stream:
                     stream.truncate(limits[name] + 1)
                 with self.assertRaisesRegex(ValueError, "exceeds size budget"):

@@ -55,19 +55,61 @@ TEST(PaOverflowRescue, RetriesTheSameRequestTwiceBeforeShrinking) {
 }
 
 // 触发场景:两次原样重发都被拒,拒收已经确认。
-// 期望行为:第三步收缩历史,目标 = 请求的 85% 再扣掉历史之外的固定部分
-// (100000 × 85% = 85000,固定 40000,历史目标 45000);此时才记一次账。
-TEST(PaOverflowRescue, ShrinksToEightyFivePercentAfterRetriesFail) {
+// 期望行为:第三步先做摘要压缩,不收缩、不给学习器记账;记下这次确认拒收的规模,
+// 留给「压缩也没解决」时记账用。
+// 回归背景(用户 2026-11-04):旧实现这一步直接收缩并记账,一报「上下文过大」
+// 压缩阈值就下调,而那次拒收本来一次压缩就能绕过去。
+TEST(PaOverflowRescue, CompactsOnceAfterRetriesFailWithoutRecording) {
     pa::RescueState state;
     step(state, inputs(100000, 60000));
     step(state, inputs(100000, 60000));
 
     const auto plan = step(state, inputs(100000, 60000));
+    EXPECT_EQ(plan.action, pa::RescueAction::CompactHistory);
+    EXPECT_EQ(plan.wait_ms, 0);
+    EXPECT_FALSE(plan.record_rejection);
+    EXPECT_FALSE(state.rejection_recorded);
+    EXPECT_TRUE(state.compaction_attempted);
+    EXPECT_EQ(state.confirmed_rejected_tokens, 100000);
+    EXPECT_EQ(state.shrink_rounds, 0);
+}
+
+// 触发场景:确认拒收后压缩过一次,压缩后的请求(70000,历史 30000)仍被拒。
+// 期望行为:这时才收缩,目标 = 被拒请求的 85% 再扣掉历史之外的固定部分
+// (70000 × 85% = 59500,固定 40000,历史目标 19500);记一次账,规模按压缩前
+// 那次确认拒收的 100000 —— 压缩后的规模小得多,拿它当上限会把窗口砍过头。
+// 不再原样重发、也不再压缩第二次。
+TEST(PaOverflowRescue, ShrinksAndRecordsTheConfirmedSizeWhenCompactionDidNotHelp) {
+    pa::RescueState state;
+    step(state, inputs(100000, 60000));
+    step(state, inputs(100000, 60000));
+    step(state, inputs(100000, 60000));
+
+    const auto plan = step(state, inputs(70000, 30000));
+    EXPECT_EQ(plan.action, pa::RescueAction::ShrinkHistory);
+    EXPECT_EQ(plan.target_history_tokens, 19500);
+    EXPECT_TRUE(plan.record_rejection);
+    EXPECT_EQ(plan.rejected_tokens, 100000);
+    EXPECT_TRUE(state.rejection_recorded);
+    EXPECT_EQ(state.shrink_rounds, 1);
+    EXPECT_EQ(state.same_request_retries, 2);
+}
+
+// 触发场景:调用方压缩失败(摘要与机械兜底都没腾出空间),同一次调用里换下一招,
+// 被拒请求还是原来那个。
+// 期望行为:不再提议压缩,直接按 85% 收缩并记账,规模就是这次确认拒收的规模。
+TEST(PaOverflowRescue, FailedCompactionFallsThroughToShrinkAndRecord) {
+    pa::RescueState state;
+    step(state, inputs(100000, 60000));
+    step(state, inputs(100000, 60000));
+    ASSERT_EQ(step(state, inputs(100000, 60000)).action,
+              pa::RescueAction::CompactHistory);
+
+    const auto plan = step(state, inputs(100000, 60000));
     EXPECT_EQ(plan.action, pa::RescueAction::ShrinkHistory);
     EXPECT_EQ(plan.target_history_tokens, 45000);
     EXPECT_TRUE(plan.record_rejection);
-    EXPECT_TRUE(state.rejection_recorded);
-    EXPECT_EQ(state.shrink_rounds, 1);
+    EXPECT_EQ(plan.rejected_tokens, 100000);
 }
 
 // 触发场景:收缩过一档之后重发仍被拒。
@@ -78,7 +120,8 @@ TEST(PaOverflowRescue, KeepsShrinkingWithoutFurtherRetriesOrRecording) {
     pa::RescueState state;
     step(state, inputs(100000, 60000));
     step(state, inputs(100000, 60000));
-    step(state, inputs(100000, 60000));
+    step(state, inputs(100000, 60000));  // 压缩
+    step(state, inputs(100000, 60000));  // 第一档收缩
 
     const auto plan = step(state, inputs(85000, 45000));
     EXPECT_EQ(plan.action, pa::RescueAction::ShrinkHistory);
@@ -96,6 +139,8 @@ TEST(PaOverflowRescue, FallsBackToEmergencyProfileWhenNothingShrinks) {
     pa::RescueState state;
     step(state, inputs(60000, 2000));
     step(state, inputs(60000, 2000));
+    ASSERT_EQ(step(state, inputs(60000, 2000)).action,
+              pa::RescueAction::CompactHistory);
     const auto shrink = step(state, inputs(60000, 2000));
     ASSERT_EQ(shrink.action, pa::RescueAction::ShrinkHistory);
     // 调用方发现修剪没有任何改动:
@@ -114,6 +159,7 @@ TEST(PaOverflowRescue, FallsBackToEmergencyProfileWhenNothingShrinks) {
 // 正常请求能过的上限)。
 TEST(PaOverflowRescue, WaitsWithBackoffAndGivesUpOnlyAfterTheCap) {
     pa::RescueState state;
+    state.compaction_attempted = true;
     state.shrink_exhausted = true;
     state.rejection_recorded = true;
 
@@ -133,10 +179,15 @@ TEST(PaOverflowRescue, WaitsWithBackoffAndGivesUpOnlyAfterTheCap) {
 
 // 触发场景:同一回合里紧急档已经粘住(上一轮 episode 用过),新的工具输出
 // 进来后紧急档请求又被拒 —— 这是新一轮 episode,历史还没缩过。
-// 期望行为:紧急档被拒不是抽风该有的样子(紧急档已经很小),跳过原样重发
-// 直接收缩;紧急档规模不记账。
+// 期望行为:紧急档被拒不是抽风该有的样子(紧急档已经很小),跳过原样重发,
+// 先压缩;压缩后仍被拒才收缩。紧急档规模始终不记账。
 TEST(PaOverflowRescue, EmergencyRejectionSkipsSameRequestRetriesAndRecording) {
     pa::RescueState state;
+
+    const auto compact = step(state, inputs(40000, 30000, /*emergency=*/true));
+    EXPECT_EQ(compact.action, pa::RescueAction::CompactHistory);
+    EXPECT_FALSE(compact.record_rejection);
+    EXPECT_EQ(state.same_request_retries, 0);
 
     const auto plan = step(state, inputs(40000, 30000, /*emergency=*/true));
     EXPECT_EQ(plan.action, pa::RescueAction::ShrinkHistory);
@@ -152,6 +203,7 @@ TEST(PaOverflowRescue, EmergencyRejectionSkipsSameRequestRetriesAndRecording) {
 TEST(PaOverflowRescue, HistoryTargetClampsToOneWhenFixedContextDominates) {
     pa::RescueState state;
     state.same_request_retries = pa::PA_RESCUE_SAME_REQUEST_RETRIES;
+    state.compaction_attempted = true;
 
     const auto plan = step(state, inputs(80000, 1000));
     ASSERT_EQ(plan.action, pa::RescueAction::ShrinkHistory);
@@ -227,8 +279,8 @@ TEST(PaOverflowRescue, InlineImageRejectionWithholdsImagesBeforeWaiting) {
 }
 
 // 触发场景:大请求带着内联图片被拒,撤图没能撤掉(落盘失败),调用方仍报带图。
-// 期望行为:继续原样重发 → 收缩,但整个过程都不给学习器记账 —— 带图请求的规模
-// 不代表服务端能收多大。
+// 期望行为:继续原样重发 → 压缩 → 收缩,但整个过程都不给学习器记账 —— 带图请求
+// 的规模不代表服务端能收多大。
 // 回归背景(反馈 LINDANDAN069):一次带图拒收被记成 43407 tokens 的上限,把
 // aicoder-pro 的压缩阈值从约 13.5 万砍到 4 万,同进程里别的会话也跟着频繁压缩。
 TEST(PaOverflowRescue, InlineImageRejectionNeverChargesTheBudgetLearner) {
@@ -239,6 +291,8 @@ TEST(PaOverflowRescue, InlineImageRejectionNeverChargesTheBudgetLearner) {
     EXPECT_EQ(step(state, in).action, pa::RescueAction::WithholdImages);
     EXPECT_EQ(step(state, in).action, pa::RescueAction::RetrySameRequest);
     EXPECT_EQ(step(state, in).action, pa::RescueAction::RetrySameRequest);
+    EXPECT_EQ(step(state, in).action, pa::RescueAction::CompactHistory);
+    EXPECT_EQ(state.confirmed_rejected_tokens, 0) << "带图请求的规模不能留作记账依据";
     const auto shrink = step(state, in);
     EXPECT_EQ(shrink.action, pa::RescueAction::ShrinkHistory);
     EXPECT_FALSE(shrink.record_rejection);
@@ -249,12 +303,15 @@ TEST(PaOverflowRescue, InlineImageRejectionNeverChargesTheBudgetLearner) {
     EXPECT_FALSE(state.rejection_recorded);
 }
 
+// 触发场景:4 万的请求确认拒收,压缩后的请求(3.4 万)仍被拒。
+// 期望行为:压缩后低于 4 万下限,转为保留上下文的等待,不收缩、不记账。
 TEST(PaOverflowRescue, LargeRecoveryStopsShrinkingOnceRequestFallsBelowFloor) {
     pa::RescueState state;
     state.same_request_retries = pa::PA_RESCUE_SAME_REQUEST_RETRIES;
-    EXPECT_EQ(step(state, inputs(40000, 30000)).action, pa::RescueAction::ShrinkHistory);
+    EXPECT_EQ(step(state, inputs(40000, 30000)).action, pa::RescueAction::CompactHistory);
     const auto plan = step(state, inputs(34000, 24000));
     EXPECT_EQ(plan.action, pa::RescueAction::WaitAndRetry);
     EXPECT_TRUE(plan.preserve_context);
     EXPECT_FALSE(plan.record_rejection);
+    EXPECT_FALSE(state.rejection_recorded);
 }

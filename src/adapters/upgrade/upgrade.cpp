@@ -3,6 +3,7 @@
 #include "apply.hpp"
 #include "check.hpp"
 #include "platform/terminal/console.hpp"
+#include "platform/install_record.hpp"
 #include "platform/package_identity.hpp"
 #include "diagnostics.hpp"
 #include "executable_version.hpp"
@@ -675,6 +676,10 @@ static int run_upgrade_command_impl(const AppConfig& config,
         err << "acecode upgrade: failed to apply update: " << apply_error << "\n"
             << "Backup directory: " << path_to_utf8(backup_dir) << "\n";
         return 1;
+    }
+    // 由安装程序装的副本:让「设置 > 应用」里的版本跟上新文件。便携目录没有安装记录,这里是空操作。
+    if (install_record::refresh_installed_version(install_dir, selected.version)) {
+        diagnostics.record("install_record_refreshed", {{"version", selected.version}});
     }
 
     progress_state.phase = UpgradePhase::Complete;

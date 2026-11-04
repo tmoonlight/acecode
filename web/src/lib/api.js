@@ -664,7 +664,10 @@ export function createApi(base = null) {
     reloadSessionModel: (sid)       => request('POST',   `/api/sessions/${encodeURIComponent(sid)}/model/reload`, undefined, base),
     setSessionReasoning: (sid, effort) => request('POST', `/api/sessions/${encodeURIComponent(sid)}/reasoning`, { effort }, base),
     switchModel:      (sid, name)    => request('POST',   `/api/sessions/${encodeURIComponent(sid)}/model`, {name}, base),
-    getSessionPermissionMode: (sid)  => request('GET',    `/api/sessions/${encodeURIComponent(sid)}/permissions`, undefined, base),
+    getSessionPermissionMode: (sid, workspaceHash = '') => {
+      const qs = workspaceHash ? `?workspace=${encodeURIComponent(workspaceHash)}` : '';
+      return request('GET', `/api/sessions/${encodeURIComponent(sid)}/permissions${qs}`, undefined, base);
+    },
     setSessionPermissionMode: (sid, mode) => request('PUT', `/api/sessions/${encodeURIComponent(sid)}/permissions`, {mode}, base),
     getDefaultPermissionMode: ()     => request('GET',    '/api/config/default-permission-mode', undefined, base),
     setDefaultPermissionMode: (mode) => request('PUT',    '/api/config/default-permission-mode', {mode}, base),

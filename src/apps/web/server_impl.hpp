@@ -638,6 +638,12 @@ struct WebServer::Impl {
     std::optional<SessionModelState> current_model_state_for_session(
         const std::string& session_id,
         const std::string& workspace_hash_hint = {}) const;
+    // 未恢复进内存的会话按 id 找磁盘 meta:有 workspace 提示只查该项目,
+    // 否则查进程 cwd + 全部已注册项目,最后查无项目会话。一个 daemon 服务
+    // 多个项目,不能只看进程 cwd 的项目目录。
+    std::optional<SessionMeta> find_disk_session_meta(
+        const std::string& session_id,
+        const std::string& workspace_hash_hint = {}) const;
     // 会话 create/resume 路由里逃逸的 std::exception 统一收口:记 ERROR 日志
     // (带 cwd 上下文)并返回 JSON 500 `{error, message, cwd}`。没有这层时异常
     // 交给 Crow 变成裸 "500 Internal Server Error",原因只会写到 stderr ——

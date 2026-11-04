@@ -2610,10 +2610,13 @@ void WebServer::Impl::register_sessions() {
             }
             auto mode = deps.session_registry->permission_mode(id);
             if (!mode.has_value()) {
-                auto project_dir = SessionStorage::get_project_dir(deps.cwd);
-                auto meta = SessionStorage::read_meta(SessionStorage::meta_path(project_dir, id));
-                if (!meta.id.empty()) {
-                    auto parsed = parse_permission_mode_name(meta.permission_mode);
+                // 未恢复的会话读磁盘 meta。曾经只查进程 cwd 的项目目录:无项目
+                // 会话和其它项目的会话一律 404,前端回退显示「默认权限」,
+                // 重启后每个会话看起来都丢了权限设置(运行时其实按 meta 恢复)。
+                std::string workspace_hash;
+                if (auto w = req.url_params.get("workspace")) workspace_hash = w;
+                if (auto meta = find_disk_session_meta(id, workspace_hash)) {
+                    auto parsed = parse_permission_mode_name(meta->permission_mode);
                     crow::response r(permission_mode_to_json(parsed.value_or(PermissionMode::Default)).dump());
                     r.add_header("Content-Type", "application/json");
                     return with_cors(req, std::move(r));

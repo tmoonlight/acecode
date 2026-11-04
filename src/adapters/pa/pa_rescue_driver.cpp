@@ -50,7 +50,7 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                  std::to_string(plan.target_history_tokens) +
                  " wait_ms=" + std::to_string(plan.wait_ms) +
                  " label=" + plan.label);
-        if (plan.record_rejection) host.note_rejection(request_tokens);
+        if (plan.record_rejection) host.note_rejection(plan.rejected_tokens);
 
         switch (plan.action) {
             case pa::RescueAction::RetrySameRequest:
@@ -73,7 +73,7 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                 } else if (!waiting_for_recovery && state.same_request_retries == 1) {
                     host.notice(
                         "[智能压缩] 服务端报「请求上下文过大」，先原样重发确认"
-                        "是否为瞬时故障；确认拒收后才会收缩历史。",
+                        "是否为瞬时故障；确认拒收后先压缩会话历史，仍被拒才收缩历史。",
                         make_system_notice_metadata("context_retrying"));
                 } else if (waiting_for_recovery && state.wait_retries == 1) {
                     host.notice(
@@ -102,6 +102,23 @@ bool run_rescue(PaRescueHost& host, RescueState& state, const ProviderErrorInfo&
                     {"phase", "context_repair"},
                     {"label", plan.label},
                     {"detail", "inline images were replaced with file references"},
+                });
+                return true;
+            }
+            case pa::RescueAction::CompactHistory: {
+                // 压缩自己发进度与压缩通知(摘要 / 检查点,或摘要失败后的机械兜底)。
+                const CompactOutcome outcome = host.compact();
+                LOG_WARN("[pa-rescue] compact outcome=" + std::string(
+                    outcome == CompactOutcome::Compacted ? "compacted"
+                    : outcome == CompactOutcome::Cancelled ? "cancelled" : "failed"));
+                if (outcome == CompactOutcome::Cancelled) return false;
+                // 没压成:历史没变,这一轮不再提议压缩,立刻收缩并记账。
+                if (outcome == CompactOutcome::Failed) continue;
+                host.reset_stream();
+                host.progress(nlohmann::json{
+                    {"phase", "context_repair"},
+                    {"label", plan.label},
+                    {"detail", "history was compacted before retrying"},
                 });
                 return true;
             }
