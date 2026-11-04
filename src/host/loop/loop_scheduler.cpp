@@ -414,8 +414,10 @@ void LoopScheduler::run() {
         auto next = store_.earliest_next_run_at(&error);
         std::unique_lock<std::mutex> lock(wait_mu_);
         if (stop_requested_.load()) break;
-        const auto changed = [&] {
-            return stop_requested_.load() || !pending_runs_.empty() || change_generation_ != generation;
+        // The synchronous wait owns no callback beyond this worker's stack.
+        const auto changed = [&stop_requested = stop_requested_, &pending_runs = pending_runs_,
+                              &change_generation = change_generation_, generation] {
+            return stop_requested.load() || !pending_runs.empty() || change_generation != generation;
         };
         if (!next) {
             wait_cv_.wait(lock, changed);
