@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Implementation memory for coding agents working in this repository. 用户向的安装与运行模式看 [README.md](README.md),稳定结构看 [ARCHITECTURE.md](ARCHITECTURE.md),贡献者规则、构建命令与 src 分层搬迁交付记录看 [AGENTS.md](AGENTS.md)。
+Implementation memory for coding agents working in this repository. 用户向的安装与运行模式看 [README.md](README.md),稳定结构看 [ARCHITECTURE.md](ARCHITECTURE.md),贡献者规则与构建命令看 [AGENTS.md](AGENTS.md)。
 
 **本文件只留每次都必须看到的规则和索引。** 2026-11-04 之前积累的全文(每个子系统的设计决定、踩过的坑、回归测试清单,约 18 万字)原样归档在 [docs/archive/claude-md-2026-11-04.md](docs/archive/claude-md-2026-11-04.md),不再改动。下面各条末尾的「归档:xxx」是该段在归档里的小节标题或加粗首句;**改动某个模块之前,先到归档里搜对应小节再动手**,别只凭这里的一句话摘要。新的详细记录写进对应的 docs 主题文档,这里只加一行摘要加链接;本文件曾超过 project_instructions 的单文件上限 256 KiB,ACECode 自己加载时会被截断,别让它再长回去。
 
@@ -17,7 +17,7 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 ## 源码分层与构建
 
 - 源码分 base / domain / adapters / engine / host / apps 六组,依赖只能向下。放置规则看 [docs/architecture/src-layout.md](docs/architecture/src-layout.md),依赖闸门是 [src/layers.tsv](src/layers.tsv)。项目头用模块根形式(`"utils/paths.hpp"`),共享测试头用 `test_support` 完整前缀,禁止父目录 include,旧路径不留转发头。业务状态归所属模块(模型探测缓存在 provider、搜索地区缓存在 tool/web_search、桌面工作区记录在 desktop、TUI 命令用量在 tui),`utils/state_file` 只做通用 JSON 事务。
-- 2026-09-29 搬迁已完成(PR #87 合入 master),九个旧 ref/worktree 保留原状、不标弃用;映射版本 refactor20260927/P3。各阶段决定看 AGENTS.md「src 分层搬迁交付记录」与 `openspec/changes/refactor20260927-*`。
+- 2026-09-29 搬迁已完成(PR #87 合入 master),九个旧 ref/worktree 保留原状、不标弃用;映射版本 refactor20260927/P3。逐日公告与用户决定原文归档在 [docs/archive/agents-md-src-layout-migration-2026-11-04.md](docs/archive/agents-md-src-layout-migration-2026-11-04.md),各 change 的实现与验收状态看 `openspec/changes/refactor20260927-*`。
 - `acecode_testable` 是无源文件的 INTERFACE 聚合;`acecode` 链 `acecode_cli`(TUI / headless / daemon);整个 TUI 属于 `acecode_tui`,没有 testable 子集;`cmake/acecode_layer_libraries.cmake` 定义库归属,configure 期守卫与 CI 的 File API 检查校验覆盖和依赖边界;`acecode_unit_tests` 需 `BUILD_TESTING=ON`;`acecode-desktop` 只在 `-DACECODE_BUILD_DESKTOP=ON` 时创建。
 - 改嵌入前端先在 [web/](web) `pnpm build`,再重新 configure CMake(嵌入发生在 configure 期,`web.static_dir` 非空时改走文件系统)。Windows 需 libcurl ≥ 8.14,UTF-8 编译选项。
 - CI(test.yml)跑五类静态闸门:`check_layers`、`check_file_size`、`check_ownership --strict --final`(新代码不写裸 `std::thread`,用 `JoiningThread`;存起来的回调捕获 `lifetime_.ref(*this)`,`LifetimeToken` 是最后一个成员、析构先 `stop()`;不写 `[&]` / `[this]`;未跟踪的新文件要用临时索引加进去才会被 lint)、`check_doc_paths`(所有 .md 里出现的 `src/` / `tests/` 路径必须真实存在)、`validate_map`。

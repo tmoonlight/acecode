@@ -44,3 +44,4 @@
 ## 归档
 
 - [archive/claude-md-2026-11-04.md](archive/claude-md-2026-11-04.md):根目录 CLAUDE.md 在 2026-11-04 精简前的全文,各子系统的实现记忆、踩过的坑与回归测试清单,只读不更新;当前规则以根目录 [CLAUDE.md](../CLAUDE.md) 为准。
+- [archive/agents-md-src-layout-migration-2026-11-04.md](archive/agents-md-src-layout-migration-2026-11-04.md):AGENTS.md「src 分层搬迁交付记录」2026-09-28 至 09-29 的逐日公告与用户决定原文,只读不更新;当前状态以 [AGENTS.md](../AGENTS.md) 该节为准。
