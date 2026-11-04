@@ -60,6 +60,18 @@ run('只认自己 iframe 发来的消息', () => {
   assert.match(runtime, /event\.source !== win\.parent/);
 });
 
+// 触发场景(openspec add-inline-visuals D12):框内脚本引用内置图表库,外层递本地代码。
+// 期望行为:外层只回复已知名字的库,回复发给请求它的那个框(event.source);库文件用 ?raw 动态
+// 导入(按需加载,不进首屏);内置库不靠放宽内容安全策略实现(CSP 里没有本机地址,见 frame 测试)。
+run('内置库由外层递代码,只给已知名字', () => {
+  const libraries = read('./inlineVisualLibraries.js');
+  assert.match(block, /isInlineVisualLibrary\(message\.name\)/);
+  assert.match(block, /event\.source\.postMessage\(\{ ace_visual: INLINE_VISUAL_PROTOCOL, type: 'library'/);
+  assert.match(libraries, /import\('\.\.\/\.\.\/node_modules\/chart\.js\/dist\/chart\.umd\.min\.js\?raw'\)/);
+  assert.match(libraries, /import\('\.\.\/\.\.\/node_modules\/d3\/dist\/d3\.min\.js\?raw'\)/);
+  assert.equal(/^\s*import\s[^(]*from\s+['"][^'"]*(chart|d3)/m.test(libraries), false);
+});
+
 // 触发场景:框内运行时被 toString 拼进隔离框,构建期的文案本地化插件会把中文字符串字面量
 // 换成 __acecodeT(...) 调用 —— 框里没有这个函数,整个运行时会在启动时报错。
 // 期望行为:运行时与外壳模块(去掉注释后)不含任何中文字符;运行时不 import 任何东西。

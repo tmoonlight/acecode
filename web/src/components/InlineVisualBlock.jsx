@@ -8,6 +8,7 @@
 // - 只认自己 iframe 发来的消息(event.source),追问与链接再按本页面的用户激活状态、限频、
 //   长度与协议白名单把关。
 // - 定稿后内容若又变化(重新生成等),换一个新 iframe,脚本按新内容重新执行。
+// - 框内脚本引用内置图表库(Chart.js 4 / d3 7)时,由这里把本地副本递进去,断网也能画。
 import { memo, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   INLINE_VISUAL_PROTOCOL,
@@ -20,6 +21,7 @@ import {
   inlineVisualSendText,
   readInlineVisualTheme,
 } from '../lib/inlineVisualFrame.js';
+import { isInlineVisualLibrary, loadInlineVisualLibrary } from '../lib/inlineVisualLibraries.js';
 import { copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { openExternalUrl } from '../lib/externalUrl.js';
 import { InlineVisualBridgeContext } from './InlineVisualBridgeContext.jsx';
@@ -130,6 +132,23 @@ function InlineVisualFrame({ code, final, onEscaped }) {
         if (!url || !parentUserActive(frame)) return;
         const open = bridgeRef.current?.openLink || openExternalUrl;
         Promise.resolve(open(url)).catch(() => {});
+      } else if (message.type === 'library') {
+        // 框内脚本引用了内置图表库:把本地副本递进去(框自己请求不到本机),给不了就回空,
+        // 框内运行时会照原地址去 CDN 加载。
+        const request = message.request;
+        if (!Number.isSafeInteger(request)) return;
+        const reply = (code) => {
+          try {
+            event.source.postMessage({ ace_visual: INLINE_VISUAL_PROTOCOL, type: 'library', request, code }, '*');
+          } catch {
+            // 框已卸载。
+          }
+        };
+        if (!isInlineVisualLibrary(message.name)) {
+          reply(null);
+          return;
+        }
+        loadInlineVisualLibrary(message.name).then(reply, () => reply(null));
       } else if (message.type === 'error') {
         console.debug('[inline-visual]', String(message.message || '').slice(0, 300));
       }

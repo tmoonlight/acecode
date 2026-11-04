@@ -77,7 +77,8 @@ ACECode 网页 / 桌面版会把回复里**顶层**的 ```visual 代码块画在
 
 ### 限制
 
-- 没有网络：只能从 cdnjs.cloudflare.com、cdn.jsdelivr.net、unpkg.com、esm.sh 加载脚本、样式与字体，其它地址（包括本机）一律拦截。离线或受限网络常常连不上 CDN，所以**优先纯 SVG / HTML**。
+- 没有网络：只能从 cdnjs.cloudflare.com、cdn.jsdelivr.net、unpkg.com、esm.sh 加载脚本、样式与字体，其它地址（包括本机）一律拦截。
+- **Chart.js 4 与 d3 7 是内置的**：照常写它们的 CDN 地址（见下面「图表」），隔离框会改用 ACECode 自带的副本，断网也能用。其它库（ECharts 等）只有连得上 CDN 才能加载，离线或受限网络常常连不上，所以简单的图**优先纯 SVG / HTML**。
 - 图片只能是 `data:` / `blob:` 或内联 SVG，不能引用网络图片。
 - `localStorage` / `sessionStorage` 只在内存里，刷新即丢。
 - 不能弹 `alert` / `confirm` / `prompt`，不能提交表单、打开新窗口或导航页面。
@@ -99,13 +100,13 @@ ACECode 网页 / 桌面版会把回复里**顶层**的 ```visual 代码块画在
 - 用 `addEventListener` 绑定事件；状态放在脚本变量里；DOM 用 `document.getElementById` / `querySelector` 取。
 - 可点的追问：给元素加 `clickable`，点击时调 `ace.send('…')`，文字写成用户会说的完整问题，例如「展开讲讲缓存失效的三种情况」。
 - 动画用 CSS transition 或 `requestAnimationFrame`，单次不超过 1 秒，不要无限循环闪烁。
-- 外链脚本可能加载失败：失败时框内会显示一行提示，你的脚本要能在库不存在时不报错（`if (window.Chart) …`）。
+- 内置库以外的外链脚本可能加载失败：失败时框内会显示一行提示，你的脚本要能在库不存在时不报错（`if (window.echarts) …`）。
 
 ## 图表
 
 - 数据必须来自对话、工具输出或用户提供的材料，**不要编造数字**；写清楚单位和数据来源。
 - 30 个点以内的柱状 / 折线 / 占比图优先手写 SVG：坐标轴用 `--border-strong`，网格线用 `--border`，数据用色调类或 `--accent`，数值标签用 `t-sm`。
-- 数据多或需要悬停提示时用 Chart.js：
+- 数据多或需要悬停提示时用内置的 Chart.js 4（写 4.x 的任意 CDN 地址都会用本地副本；2.x / 3.x 的配置写法不兼容，不要用）：
 
 ```html
 <div style="position:relative;height:300px"><canvas id="c"></canvas></div>
@@ -128,7 +129,8 @@ ACECode 网页 / 桌面版会把回复里**顶层**的 ```visual 代码块画在
 </script>
 ```
 
-- canvas 一定要包在有固定高度的容器里，并设 `maintainAspectRatio: false`。d3 可以用 `https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js`。
+- canvas 一定要包在有固定高度的容器里，并设 `maintainAspectRatio: false`。
+- 需要自由布局的数据图（力导向、树、地图投影、自定义坐标轴）用内置的 d3 7：`<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>`，之后用全局的 `d3`。不要用 `<script type="module">` 的 import 写法引库，那种写法用不上内置副本。
 
 ## 示例
 

@@ -21,6 +21,7 @@ import './workMode.test.js';
 import './imageCompression.test.js';
 import './inlineVisuals.test.js';
 import './inlineVisualFrame.test.js';
+import './inlineVisualLibraries.test.js';
 import './inlineVisualRuntime.test.js';
 import './inlineVisualArchitecture.test.js';
 import './transcriptProjectionToolPreamble.test.js';

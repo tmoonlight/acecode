@@ -149,7 +149,7 @@ run('色调类、辅助类与调色板齐全', () => {
 // 期望行为:只认带协议标记、类型已知的消息;来源是否是自己的 iframe 由组件另行校验。
 run('框内消息只认协议标记与已知类型', () => {
   assert.equal(inlineVisualMessage({ ace_visual: 1, type: 'size', height: 10 }).type, 'size');
-  for (const type of ['ready', 'send', 'link', 'error']) {
+  for (const type of ['ready', 'send', 'link', 'error', 'library']) {
     assert.ok(inlineVisualMessage({ ace_visual: 1, type }), type);
   }
   for (const value of [null, 'x', { type: 'send' }, { ace_visual: 2, type: 'send' },

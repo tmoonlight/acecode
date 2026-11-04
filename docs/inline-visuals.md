@@ -66,6 +66,8 @@
 | 框内 → 外层 | `send` | `text`，见上面的追问规则。会话空闲时与「下一步」框按钮同一路径发出，忙时追加进输入框 |
 | 框内 → 外层 | `link` | `url` |
 | 框内 → 外层 | `error` | `message`，只写到控制台 |
+| 框内 → 外层 | `library` | `name`、`request`。框内脚本引用了内置图表库，向外层要本地代码 |
+| 外层 → 框内 | `library` | `request`、`code`。`code` 为空时框内照原地址去 CDN 加载 |
 
 `ready` 之前外层不发消息，只记住最新一次 `render`；消息监听在提交阶段（`useLayoutEffect`）挂上，首次 load 时若还没收到 `ready` 也补一次握手。定稿后内容若又变化（重新生成等），组件换一个新 iframe 按新内容重画。
 
@@ -75,7 +77,16 @@
 
 外层从 `<html>` 的计算样式读 `--ace-*`，映射成 `--fg` `--fg-2` `--fg-3` `--surface` `--surface-2` `--border` `--border-strong` `--accent` `--accent-bg` `--ok` `--ok-bg` `--warn` `--warn-bg` `--danger` `--danger-bg` `--font` `--mono`（`--fg-3` / `--border-strong` 由 `--fg` 推出），`data-mode` 跟随 `data-theme`；MutationObserver 盯 `<html>` 的属性变化后推送。色调类 `tone-*` 只设置 `--tone-bg` / `--tone-line` / `--tone-ink`，`node` `edge` `t` `card` `badge` 等规则读这些变量。预置 `#arrow` / `#dot` 标记（颜色先写固定值，再用 `context-stroke` 跟随连线）。iframe 元素的 `color-scheme` 必须与框内 `data-mode` 一致，否则浏览器会给透明的框垫一层不透明底色。
 
+### 内置图表库
+
+Chart.js 4.5.1 与 d3 7.9.0 是 `web/package.json` 里写死版本的依赖（d3 就是 mermaid 依赖的那一版），[inlineVisualLibraries.js](../web/src/lib/inlineVisualLibraries.js) 用 `?raw` 动态导入，打成按需加载的独立 chunk，首屏不下载。两个包都没在 `exports` 里导出浏览器构建文件，所以按 `node_modules` 相对路径导入；升级版本时核对文件名没变。
+
+- 框内运行时执行外链脚本前先认库：cdnjs / jsdelivr / unpkg / d3js.org 上 Chart.js 主版本 4、d3 主版本 7，或地址里没写版本的经典脚本，向外层发 `library`，拿到代码后以内联脚本执行（去掉 `src` / `integrity` / `crossorigin`，标 `data-ace-library`），脚本顺序与之后补发的事件不变。
+- 主版本不同（Chart.js 2 / 3、d3 3 到 6 的 API 不兼容）、`type="module"` 的脚本、外层 5 秒内没给代码时，照原地址走 CDN。
+- **不让框直接从本机读库文件**：那要在内容安全策略里放行 daemon 地址，框里的代码就能顺着它请求接口（本机请求免 token）。外层页面本来就能访问 daemon，由它递代码，框的规则一条不变。
+- 外层只给已知名字的库，代码按名字缓存，同一页面多张图共用一份。
+
 ## 测试
 
 - C++：`config_inline_visuals_test.cpp`、`default_session_preferences_test.cpp`、`inline_visuals_handler_test.cpp`、[inline_visual_blocks_test.cpp](../tests/llm/inline_visual_blocks_test.cpp)、`session_channel_binder_test.cpp`、`markdown_formatter_test.cpp`、上面两个画图说明测试、`DefaultSkillSeedRegistryTest.PackagedManifestVersionAndHashesAgree`。
-- 前端：`inlineVisualFrame.test.js`（CSP、外壳、主题、消息校验）、`inlineVisualRuntime.test.js`（xmldom 假 DOM 上的对齐、剥离、追问门槛，以及运行时在空上下文里独立求值）、`inlineVisualArchitecture.test.js`（sandbox、来源校验、与技能 / 系统提示的一致性）、`markdownBlocks.test.js`、`composerContent.test.js`、`inlineVisuals.test.js`。
+- 前端：`inlineVisualFrame.test.js`（CSP、外壳、主题、消息校验）、`inlineVisualRuntime.test.js`（xmldom 假 DOM 上的对齐、剥离、追问门槛、内置库认址与替换，以及运行时在空上下文里独立求值）、`inlineVisualLibraries.test.js`、`inlineVisualArchitecture.test.js`（sandbox、来源校验、与技能 / 系统提示的一致性）、`markdownBlocks.test.js`、`composerContent.test.js`、`inlineVisuals.test.js`。

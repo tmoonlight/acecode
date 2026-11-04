@@ -90,7 +90,7 @@ TEST(DiagramGuidance, WebWithSwitchOnAddsVisualPartAndSkillLoad) {
     EXPECT_TRUE(contains(text, "load the `inline-visuals` skill with the `skill_view` tool"));
     for (const char* rule : {"top level", "`<html>`", "`var(--fg)`", "after the block is closed",
                              "cdnjs.cloudflare.com", "esm.sh", "`ace.send(text)`",
-                             "`position: fixed`"}) {
+                             "`position: fixed`", "Chart.js 4 and d3 7 are built in"}) {
         EXPECT_TRUE(contains(text, rule)) << rule;
     }
     // mermaid 部分在前,visual 部分在后,中间空一行。

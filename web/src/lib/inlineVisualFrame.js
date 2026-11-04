@@ -209,6 +209,7 @@ svg text{fill:var(--tone-ink);font-size:14px;}
 .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
 .stack{display:flex;flex-direction:column;gap:8px;}
+.stack>.badge,.stack>button,.stack>.btn{align-self:flex-start;}
 .badge{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:12px;line-height:1.6;background:var(--tone-bg);color:var(--tone-ink);border:1px solid var(--tone-line);}
 .muted{color:var(--fg-2);}
 .small{font-size:12px;}
@@ -288,7 +289,7 @@ export function buildInlineVisualSrcdoc({ theme, labels = {} } = {}) {
     + '</body></html>';
 }
 
-const INBOUND_TYPES = new Set(['ready', 'size', 'send', 'link', 'error']);
+const INBOUND_TYPES = new Set(['ready', 'size', 'send', 'link', 'error', 'library']);
 
 // 框内发来的消息:带协议标记、类型已知才处理。来源校验(event.source)由组件做。
 export function inlineVisualMessage(data) {

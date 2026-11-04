@@ -13,6 +13,7 @@
 //     #ace-root,已画出的节点不重建;
 //   - 定稿:最后一次对齐(带脚本与 on* 属性),按文档顺序逐个换成新建的 script 执行
 //     (外链脚本等加载完再执行下一个,失败就跳过并提示),最后补发 DOMContentLoaded 与 load;
+//     引用内置图表库(Chart.js 4 / d3 7)的外链脚本改向外层要本地代码,以内联脚本执行;
 //   - 尺寸上报、追问(ace.send / sendPrompt)与链接拦截、主题更新、存储顶替。
 export function inlineVisualRuntime(config, host) {
   var options = config || {};
@@ -31,6 +32,8 @@ export function inlineVisualRuntime(config, host) {
     lastHeight: -1,
     lastTrusted: -Infinity,
     themeListeners: [],
+    libraryRequests: {},
+    librarySeq: 0,
   };
 
   function now() {
@@ -249,24 +252,99 @@ export function inlineVisualRuntime(config, host) {
         next();
         return;
       }
-      var settled = false;
-      var timer = null;
-      var finish = function (failed) {
-        if (settled) return;
-        settled = true;
-        if (timer) win.clearTimeout(timer);
-        if (failed) {
-          notice(labels.scriptFailed);
-          report('script failed to load: ' + source);
+      var library = String(fresh.getAttribute('type') || '').trim().toLowerCase() === 'module'
+        ? '' : libraryFor(source);
+      if (!library) {
+        loadExternal(old, fresh, source, next);
+        return;
+      }
+      // 内置库:向外层要本地代码,换成内联脚本执行;外层给不了就照原地址加载。
+      requestLibrary(library, function (code) {
+        if (!old.parentNode) {
+          next();
+          return;
         }
+        if (typeof code !== 'string' || !code) {
+          loadExternal(old, fresh, source, next);
+          return;
+        }
+        var inline = doc.createElement('script');
+        for (var attribute = 0; attribute < fresh.attributes.length; attribute += 1) {
+          var name = fresh.attributes[attribute].name;
+          if (name !== 'src' && name !== 'integrity' && name !== 'crossorigin') {
+            inline.setAttribute(name, fresh.attributes[attribute].value);
+          }
+        }
+        inline.setAttribute('data-ace-library', library);
+        inline.text = code;
+        old.parentNode.replaceChild(inline, old);
         next();
-      };
-      fresh.addEventListener('load', function () { finish(false); });
-      fresh.addEventListener('error', function () { finish(true); });
-      timer = win.setTimeout(function () { finish(true); }, 15000);
-      old.parentNode.replaceChild(fresh, old);
+      });
     }
     next();
+  }
+
+  // 外链脚本:等 load / error(最多 15 秒)再继续,失败显示一行提示。
+  function loadExternal(old, fresh, source, next) {
+    var settled = false;
+    var timer = null;
+    var finish = function (failed) {
+      if (settled) return;
+      settled = true;
+      if (timer) win.clearTimeout(timer);
+      if (failed) {
+        notice(labels.scriptFailed);
+        report('script failed to load: ' + source);
+      }
+      next();
+    };
+    fresh.addEventListener('load', function () { finish(false); });
+    fresh.addEventListener('error', function () { finish(true); });
+    timer = win.setTimeout(function () { finish(true); }, 15000);
+    old.parentNode.replaceChild(fresh, old);
+  }
+
+  // 内置的图表库(外层随 ACECode 打包了本地副本):Chart.js 主版本 4、d3 主版本 7,或地址里
+  // 没写版本。别的主版本 API 不兼容(Chart.js 2 / 3、d3 3 到 6),照原地址加载。
+  var LIBRARY_HOSTS = { 'cdnjs.cloudflare.com': 1, 'cdn.jsdelivr.net': 1, 'unpkg.com': 1, 'd3js.org': 1 };
+  var LIBRARY_RULES = [
+    { name: 'chart.js', major: '4', patterns: [/^\/ajax\/libs\/chart\.js\/([^/]+)\//, /^\/(?:npm\/)?chart\.js(?:@([^/]+))?(?:\/|$)/] },
+    { name: 'd3', major: '7', patterns: [/^\/ajax\/libs\/d3\/([^/]+)\//, /^\/(?:npm\/)?d3(?:@([^/]+))?(?:\/|$)/, /^\/d3\.v(\d+)(?:\.min)?\.js$/] },
+  ];
+
+  function libraryFor(src) {
+    var match = /^https?:\/\/([^/?#]+)(\/[^?#]*)?/.exec(String(src || '').trim().toLowerCase());
+    if (!match || !LIBRARY_HOSTS[match[1]]) return '';
+    var path = match[2] || '/';
+    for (var rule = 0; rule < LIBRARY_RULES.length; rule += 1) {
+      var patterns = LIBRARY_RULES[rule].patterns;
+      for (var index = 0; index < patterns.length; index += 1) {
+        var found = patterns[index].exec(path);
+        if (!found) continue;
+        var version = String(found[1] || '').replace(/^[^0-9]+/, '');
+        var major = version.split('.')[0];
+        return !version || found[1] === 'latest' || major === LIBRARY_RULES[rule].major
+          ? LIBRARY_RULES[rule].name : '';
+      }
+    }
+    return '';
+  }
+
+  function requestLibrary(name, done) {
+    state.librarySeq = (state.librarySeq || 0) + 1;
+    var request = state.librarySeq;
+    var timer = null;
+    var settled = false;
+    var finish = function (code) {
+      if (settled) return;
+      settled = true;
+      delete state.libraryRequests[request];
+      if (timer) win.clearTimeout(timer);
+      done(code);
+    };
+    state.libraryRequests[request] = finish;
+    timer = win.setTimeout(function () { finish(null); }, 5000);
+    post({ type: 'library', name: name, request: request });
   }
 
   function render(code, final) {
@@ -357,6 +435,10 @@ export function inlineVisualRuntime(config, host) {
     if (!data || typeof data !== 'object' || data.ace_visual !== PROTOCOL) return;
     if (data.type === 'render') render(data.code, data.final === true);
     else if (data.type === 'theme') applyTheme(data);
+    else if (data.type === 'library') {
+      var pending = state.libraryRequests[data.request];
+      if (pending) pending(typeof data.code === 'string' ? data.code : null);
+    }
   }
 
   function memoryStorage() {
@@ -453,6 +535,7 @@ export function inlineVisualRuntime(config, host) {
     state: state,
     render: render,
     stripScripts: stripScripts,
+    libraryFor: libraryFor,
     sanitize: sanitize,
     morphChildren: morphChildren,
     applyTheme: applyTheme,

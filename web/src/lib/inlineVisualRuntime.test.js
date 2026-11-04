@@ -26,6 +26,13 @@ function harness({ activation = null, now = 0 } = {}) {
     'text/xml',
   );
   const root = doc.getElementById('ace-root');
+  // xmldom 的元素没有 addEventListener;外链脚本的加载等待只需要它存在。
+  const createElement = doc.createElement.bind(doc);
+  doc.createElement = (name) => {
+    const element = createElement(name);
+    element.addEventListener = () => {};
+    return element;
+  };
   const posted = [];
   const clock = { now };
   const win = {
@@ -210,6 +217,78 @@ run('内存版存储', () => {
   storage.setItem('b', 'x');
   storage.clear();
   assert.equal(storage.length, 0);
+});
+
+// 触发场景(openspec add-inline-visuals D12):模型照常写 Chart.js / d3 的 CDN 地址。
+// 期望行为:cdnjs / jsdelivr / unpkg / d3js.org 上 Chart.js 4、d3 7 或没写版本的地址认作内置库;
+// 别的主版本(API 不兼容)、子包(d3-scale)、插件(chartjs-plugin-*)、其它域名都不认。
+run('按地址认出内置图表库', () => {
+  const { runtime } = harness();
+  const cases = [
+    ['https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js', 'chart.js'],
+    ['https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js', 'chart.js'],
+    ['https://cdn.jsdelivr.net/npm/chart.js', 'chart.js'],
+    ['https://unpkg.com/chart.js@^4.0.0/dist/chart.umd.js', 'chart.js'],
+    ['https://cdn.jsdelivr.net/npm/chart.js@latest', 'chart.js'],
+    ['https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js', ''],
+    ['https://cdn.jsdelivr.net/npm/chart.js@3.9.1', ''],
+    ['https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2', ''],
+    ['https://cdn.jsdelivr.net/npm/d3@7', 'd3'],
+    ['https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js', 'd3'],
+    ['https://unpkg.com/d3', 'd3'],
+    ['https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js', 'd3'],
+    ['https://d3js.org/d3.v7.min.js', 'd3'],
+    ['https://d3js.org/d3.v5.min.js', ''],
+    ['https://cdnjs.cloudflare.com/ajax/libs/d3/5.16.0/d3.min.js', ''],
+    ['https://cdn.jsdelivr.net/npm/d3-scale@4', ''],
+    ['https://evil.example/npm/chart.js@4', ''],
+    ['/npm/d3@7', ''],
+  ];
+  for (const [url, expected] of cases) assert.equal(runtime.libraryFor(url), expected, url);
+});
+
+// 触发场景:定稿后执行脚本,第一段引用了内置的 d3(断网时 CDN 连不上),第二段用它画图。
+// 期望行为:向外层要 d3 的本地代码,拿到后换成内联脚本(去掉 src / integrity,标 data-ace-library),
+// 然后才执行第二段 —— 顺序与真实加载外链脚本时一样。
+run('内置库换成外层递来的本地代码并保持脚本顺序', () => {
+  const { runtime, root, posted } = harness();
+  runtime.render(
+    '<div id="chart"></div><script src="https://cdn.jsdelivr.net/npm/d3@7" integrity="sha384-x" crossorigin="anonymous"></script><script>draw()</script>',
+    true,
+  );
+  const request = posted.find((message) => message.type === 'library');
+  assert.deepEqual(request, { type: 'library', name: 'd3', request: 1, ace_visual: 1 });
+  assert.equal(elementChildren(root)[2].text, undefined); // 第二段还没执行
+  runtime.handleMessage({ ace_visual: 1, type: 'library', request: 1, code: 'window.d3 = {}' });
+  const [, library, after] = elementChildren(root);
+  assert.equal(library.getAttribute('data-ace-library'), 'd3');
+  assert.equal(library.hasAttribute('src'), false);
+  assert.equal(library.hasAttribute('integrity'), false);
+  assert.equal(library.text, 'window.d3 = {}');
+  assert.equal(after.text, 'draw()');
+  runtime.handleMessage({ ace_visual: 1, type: 'library', request: 1, code: 'again' });
+  assert.equal(elementChildren(root)[1].text, 'window.d3 = {}');
+});
+
+// 触发场景:外层给不了本地代码(chunk 加载失败),或脚本是 type=module、引用的是旧版本。
+// 期望行为:照原地址加载外链脚本(保留 src);模块脚本与旧版本根本不向外层要代码。
+run('取不到本地代码或不适用时照原地址加载', () => {
+  const failed = harness();
+  failed.runtime.render('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>', true);
+  failed.runtime.handleMessage({ ace_visual: 1, type: 'library', request: 1, code: null });
+  const external = elementChildren(failed.root)[0];
+  assert.equal(external.getAttribute('src'), 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js');
+  assert.equal(external.hasAttribute('data-ace-library'), false);
+
+  for (const code of [
+    '<script type="module" src="https://cdn.jsdelivr.net/npm/d3@7/+esm"></script>',
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.4/Chart.min.js"></script>',
+  ]) {
+    const skipped = harness();
+    skipped.runtime.render(code, true);
+    assert.equal(skipped.posted.some((message) => message.type === 'library'), false, code);
+    assert.ok(elementChildren(skipped.root)[0].getAttribute('src'), code);
+  }
 });
 
 // 触发场景:运行时被 Function.prototype.toString 拼进隔离框,在一个没有本模块任何东西的

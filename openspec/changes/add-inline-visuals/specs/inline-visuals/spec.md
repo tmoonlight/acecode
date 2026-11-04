@@ -36,6 +36,21 @@ Web / Desktop 对话中,助手消息里位于顶层、信息串第一个词为 `
 - **WHEN** 框内有 `<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js">`
 - **THEN** 网络可达时库正常加载,后续脚本可以使用它
 
+### Requirement: 内置图表库
+隔离框 SHALL 内置 Chart.js 4 与 d3 7。框内经典脚本的 `src` 指向 cdnjs.cloudflare.com、cdn.jsdelivr.net、unpkg.com 或 d3js.org 上这两个库(Chart.js 主版本为 4 或未写版本,d3 主版本为 7 或未写版本)时,SHALL 改用 ACECode 打包的代码执行,不发网络请求;主版本不同、模块脚本或取不到本地代码时 SHALL 照原地址加载。内置库 MUST NOT 放宽隔离框的内容安全策略,框内代码仍然请求不到本机 daemon。
+
+#### Scenario: 断网画 Chart.js 图表
+- **WHEN** 机器连不上外网,模型写了 `<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js">` 与调用 `new Chart(...)` 的脚本
+- **THEN** 图表照常画出
+
+#### Scenario: 引用旧版本
+- **WHEN** 模型引用 Chart.js 2.9.4 的地址
+- **THEN** 按原地址从 CDN 加载,不替换成内置的 4.x(两者配置写法不兼容)
+
+#### Scenario: d3 官网地址
+- **WHEN** 模型写 `<script src="https://d3js.org/d3.v7.min.js">`(该域名不在放行名单里)
+- **THEN** 使用内置 d3,后续脚本里 `d3.select` 可用
+
 ### Requirement: 边写边画
 模型还在输出时,未闭合的 visual 代码块 SHALL 随正文增量更新,MUST 复用同一个隔离框、尽量保留已画出的节点,且 MUST NOT 执行其中的脚本。代码块闭合(或消息结束时仍未闭合)后 SHALL 按文档顺序把每个脚本执行一次,外链脚本等加载完成再执行下一个,之后在框内补发一次 `DOMContentLoaded` 与 `load`。
 

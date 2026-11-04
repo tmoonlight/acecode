@@ -39,6 +39,13 @@
 - [x] 6.1 构建 `acecode` 与 `acecode_unit_tests`,定向跑本变更涉及的测试套件以及系统提示、技能播种相关用例,全部通过
 - [x] 6.2 用 OpenAI 兼容的假模型服务流式回放一段含 visual 与 mermaid 的回复,在真实 daemon 页面里核对:同一个框逐步长出图形、闭合后脚本执行、框内请求本机 daemon 被拦、点击追问发出消息、深浅色切换原地更新、mermaid 正常渲染
 
+## 7. 内置图表库
+
+- [x] 7.1 前端依赖 `chart.js` 4.5.1 与 `d3` 7.9.0(精确版本),`web/src/lib/inlineVisualLibraries.js` 用 `?raw` 动态导入、按名字缓存;验证:`pnpm build` 产物里两个库各在独立 chunk,首屏入口 chunk 不变大
+- [x] 7.2 框内运行时按地址认库、向外层要代码(`library` 消息),主版本不同 / 模块脚本 / 取不到时走原地址;`InlineVisualBlock` 只给已知库;验证:`inlineVisualRuntime.test.js`、`inlineVisualFrame.test.js`、`inlineVisualArchitecture.test.js` 新增用例
+- [x] 7.3 画图规范技能与系统提示的 visual 部分写明内置库;`docs/inline-visuals.md` 补充;验证:`diagram_guidance_test.cpp`、`DefaultSkillSeedRegistryTest.PackagedManifestVersionAndHashesAgree` 通过
+- [x] 7.4 端到端:浏览器拦截所有 CDN 请求后,引用 Chart.js 与 d3(含 d3js.org 地址)的 visual 照常画出,框内请求本机仍被拦;验证:端到端脚本全部通过
+
 ## Workflow follow-up
 
 - 用户验收后归档本变更(`openspec archive add-inline-visuals`),并核对归档后的主规格。

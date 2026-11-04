@@ -18,7 +18,7 @@ TUI 与 daemon(Web / Desktop)会话的静态系统提示 SHALL 含一段画图�
 - **THEN** 系统提示里已有足够信息让模型用 `flowchart TD` 写 mermaid,而不是 gantt 或带 `click` 的写法
 
 ### Requirement: visual 说明
-只有 daemon 会话且 `inline_visuals.enabled` 为真时,画图说明 SHALL 再含 visual 部分:说明 visual 代码块是在对话里实时渲染的 SVG / HTML 片段;用于 mermaid 表达不了的内容(原理示意、可交互讲解、数据图表、方案对比卡片);写清核心约束(单个片段、顶层、不写 html/head/body、用框内主题变量、脚本在闭合后执行、只能用允许的 CDN、用 `ace.send` 追问)。画图规范技能可用时,SHALL 要求第一次画 visual 前先用当前模型侧的 skill_view 工具名加载它。
+只有 daemon 会话且 `inline_visuals.enabled` 为真时,画图说明 SHALL 再含 visual 部分:说明 visual 代码块是在对话里实时渲染的 SVG / HTML 片段;用于 mermaid 表达不了的内容(原理示意、可交互讲解、数据图表、方案对比卡片);写清核心约束(单个片段、顶层、不写 html/head/body、用框内主题变量、脚本在闭合后执行、只能用允许的 CDN 且 Chart.js 4 与 d3 7 已内置、用 `ace.send` 追问)。画图规范技能可用时,SHALL 要求第一次画 visual 前先用当前模型侧的 skill_view 工具名加载它。
 
 #### Scenario: 开关打开的网页会话
 - **WHEN** Web 里开启会话,开关为默认的开启
