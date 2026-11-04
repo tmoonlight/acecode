@@ -1,5 +1,5 @@
 {
-  "bundle_version": "2026-11-04.1",
+  "bundle_version": "2026-11-05.1",
   "description": "Versioned default ACECode global Skill, expert, and managed hook seed bundle reconciled at startup.",
   "skills": [
     {
