@@ -622,6 +622,18 @@ struct ImageCompressionConfig {
     bool operator!=(const ImageCompressionConfig& other) const { return !(*this == other); }
 };
 
+// 「可视化图表」(设置 > 常规):daemon 会话的系统提示是否告诉模型可以写 ```visual
+// 代码块(在 Web / Desktop 对话里画成可交互的图)。只影响模型被告知的内容,已有的
+// visual 代码块照常显示;mermaid 说明不受它控制。见 docs/inline-visuals.md。
+struct InlineVisualsConfig {
+    bool enabled = true;
+
+    bool operator==(const InlineVisualsConfig& other) const {
+        return enabled == other.enabled;
+    }
+    bool operator!=(const InlineVisualsConfig& other) const { return !(*this == other); }
+};
+
 struct FeaturesConfig {
     // Codex-compatible hooks are enabled by default. Users can set
     // features.hooks=false to disable discovery and execution.
@@ -667,6 +679,7 @@ struct AppConfig {
     WorktreeConfig worktree;                     // worktree 隔离(enter_worktree / --worktree)
     ImageGenerationConfig image_generation;      // 图像生成工具(参见 add-image-generation-tool)
     ImageCompressionConfig image_compression;    // 发给模型的图片压缩与请求体预算
+    InlineVisualsConfig inline_visuals;          // 对话里的 visual 可视化代码块
     SpeechRecognitionConfig speech_recognition;  // External dictation service
     ComputerUseConfig computer_use;              // Native desktop control, explicitly enabled
     IosSimulatorConfig ios_simulator;            // Xcode 模拟器控制与实时面板(macOS)

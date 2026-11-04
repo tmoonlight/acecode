@@ -118,6 +118,14 @@ std::set<std::string> ApiRequestBuilder::dormant_skills(
     return out;
 }
 
+std::set<std::string> ApiRequestBuilder::hidden_index_skills(const RequestContextOptions& options) {
+    std::set<std::string> out;
+    if (!inline_visuals_guidance_active(options.diagram_surface, options.inline_visuals_enabled)) {
+        out.insert(kInlineVisualsSkillName);
+    }
+    return out;
+}
+
 std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions& options) const {
     SystemPromptSandboxState stable_sandbox;
     stable_sandbox.description = "see the latest execution context; tool permission checks are authoritative";
@@ -129,6 +137,22 @@ std::string ApiRequestBuilder::static_system_prompt(const RequestContextOptions&
         options.can_read_images,
         &options.environment, &stable_sandbox, &options.model,
         &options.folders);
+    // 画图说明(openspec add-inline-visuals):只由显示面、开关、技能是否可用与工具名
+    // 映射决定,同一组输入逐字节相同,放在静态部分不打穿 prompt cache 前缀。
+    DiagramGuidanceOptions diagram;
+    diagram.surface = options.diagram_surface;
+    diagram.inline_visuals_enabled = options.inline_visuals_enabled;
+    if (inline_visuals_guidance_active(diagram.surface, diagram.inline_visuals_enabled)) {
+        diagram.visual_skill_available =
+            options.skills && options.skills->find(kInlineVisualsSkillName).has_value() &&
+            tools_.is_allowed("skill_view", &options.tool_policy);
+        diagram.skill_view_tool_name = model_tool_name_for_native("skill_view");
+    }
+    const std::string diagram_guidance = build_diagram_guidance(diagram);
+    if (!diagram_guidance.empty()) {
+        if (!system_prompt.empty()) system_prompt += "\n\n";
+        system_prompt += diagram_guidance;
+    }
     if (options.loop_active &&
         !options.loop_context.empty()) {
         system_prompt += "\n\n<loop-execution>\n";
@@ -162,7 +186,9 @@ std::vector<ChatMessage> ApiRequestBuilder::initial_context(const RequestContext
         tools_.is_allowed("skills_list", &options.tool_policy);
     const bool spawn_subagent_available =
         tools_.is_allowed("spawn_subagent", &options.tool_policy);
-    const auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
+    auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
+    const auto hidden = hidden_index_skills(options);
+    dormant.insert(hidden.begin(), hidden.end());
     const auto gated_tools = tools_.skill_gated_tools(&options.tool_policy);
     PromptContextBlock skill_context = build_skills_index_context_prompt(
         options.skills.get(), options.context_window,
@@ -280,17 +306,20 @@ RequestBuildInputs ApiRequestBuilder::capture(
         const bool skill_view_available = tools_.is_allowed("skill_view", &options.tool_policy);
         const bool skills_list_available = tools_.is_allowed("skills_list", &options.tool_policy);
         const bool spawn_subagent_available = tools_.is_allowed("spawn_subagent", &options.tool_policy);
-        const auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
+        // 看不到 visual 的会话不在索引里列 inline-visuals(与休眠同一个入口);
+        // 目录身份也按同一规则算,开关切换后目录变化照常送达模型。
+        const auto hidden = hidden_index_skills(options);
+        auto dormant = dormant_skills(options.skills.get(), options.skill_usage, options.skill_idle_days);
+        dormant.insert(hidden.begin(), hidden.end());
         const auto gated_tools = tools_.skill_gated_tools(&options.tool_policy);
         inputs.skills = build_skills_index_context_prompt(
             options.skills.get(), options.context_window, skill_view_available,
             skills_list_available, &dormant, &gated_tools);
-        const std::set<std::string> no_dormant;
         // Explicit catalog/policy changes must still reach the model. Idle
         // timestamps and other sessions' usage do not change this identity.
         inputs.skills_catalog_key = build_skills_index_context_prompt(
             options.skills.get(), options.context_window, skill_view_available,
-            skills_list_available, &no_dormant, &gated_tools).cache_key;
+            skills_list_available, &hidden, &gated_tools).cache_key;
         inputs.session = build_session_context_prompt(
             options.cwd, &frozen_memory_snapshot(options), ptr(options.project_config),
             options.skills.get(), options.context_window, ptr(options.custom_config), cache_.cached_git(),

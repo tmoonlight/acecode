@@ -14,6 +14,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['general', '默认打开目标', 'default open target editor'],
     ['general', '最大轮次', 'max turns limit'],
     ['general', '压缩图片', 'compress images image compression screenshot size bandwidth traffic 图片压缩 截图 流量 体积'],
+    ['general', '可视化图表', 'inline visuals visualization chart diagram svg html interactive 可视化 图表 示意图 画图 交互'],
     ['general', '后台进程状态', 'background daemon process'],
     ['general', '关闭窗口时', 'close window tray exit'],
     ['general', '远程 Web 模式', 'remote web network port bind'],

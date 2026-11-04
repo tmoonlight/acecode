@@ -506,6 +506,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     reg_deps.mcp_manager          = &mcp_runtime.manager();
     reg_deps.template_permissions = &template_perm;
     reg_deps.power_guard          = &acecode::process_power_guard();
+    reg_deps.diagram_surface      = acecode::DiagramSurface::Web;  // Web / Desktop 渲染 mermaid 与 visual
 
     acecode::SessionRegistry registry(std::move(reg_deps));
     acecode::LocalSessionClient client(registry);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  PASTED_TEXT_SEPARATOR,
+  PASTED_TEXT_SEPARATOR, appendComposerText,
   cloneComposerContent, composerAttachmentKey, composerContentAttachments,
   composerContentClipboardText, composerContentFromMessage, composerContentFromText,
   composerContentHasPastedText, composerContentLeadsWithPastedText,
@@ -251,4 +251,16 @@ run('clipboard text includes inline bodies and labels file blocks', () => {
     { type: 'text', text: '看下' }, { type: 'pasted_text', key: 'p', text: 'BODY' }, pasteFile(),
   ] };
   assert.equal(composerContentClipboardText(content), '看下\n\nBODY\n\n[粘贴的文本: 日志开头]');
+});
+
+// 触发场景:会话正忙,用户点了对话内可视化(```visual)里的追问按钮,文字只填进输入框。
+// 期望:输入框为空时直接成为全部文字;已有文字时换行追加;附件、技能、路径等其它部分
+// 原样保留且顺序不变(覆盖 content 会丢掉用户已经放进去的附件)。
+run('append text keeps existing parts and separates it with a newline', () => {
+  assert.equal(composerContentText(appendComposerText(null, '讲讲缓存层')), '讲讲缓存层');
+  const appended = appendComposerText(mixed, '讲讲缓存层');
+  assert.equal(composerContentText(appended), 'Use $review on @src/a.cpp with \nthen explain.\n讲讲缓存层');
+  assert.deepEqual(appended.parts.slice(0, -1), mixed.parts.slice(0, -1));
+  assert.equal(appended.parts.filter((part) => part.type === 'attachment').length, 1);
+  assert.deepEqual(appendComposerText(mixed, ''), cloneComposerContent(mixed));
 });

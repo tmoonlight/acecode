@@ -87,6 +87,7 @@ import { NextStepCard } from './NextStepCard.jsx';
 import { useFollowUpPrompt } from '../lib/useFollowUpPrompt.js';
 import { StickyUserContext } from './StickyUserContext.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
+import { InlineVisualBridgeContext } from './InlineVisualBridgeContext.jsx';
 import { SessionContentLoading } from './SessionContentLoading.jsx';
 import { sessionContentLoadingPhase } from '../lib/sessionContentLoading.js';
 import { SidePanel } from './SidePanel.jsx';
@@ -178,9 +179,11 @@ import { refreshWorkspaceGitInfo } from '../lib/gitInfoCache.js';
 import { createPendingActionGuard } from '../lib/pendingActionGuard.js';
 import { homeComposerDraft } from '../lib/homeComposerDrafts.js';
 import {
-  composerContentAttachments, composerContentFromText, composerContentSignature,
-  normalizeComposerContent, reconcileComposerContentAttachments,
+  appendComposerText, composerContentAttachments, composerContentFromText, composerContentSignature,
+  composerContentText, normalizeComposerContent, reconcileComposerContentAttachments,
 } from '../lib/composerContent.js';
+import { inlineVisualSendText } from '../lib/inlineVisualFrame.js';
+import { openExternalUrl } from '../lib/externalUrl.js';
 import {
   composerDraftSnapshot, composerDraftFingerprint, composerDraftEditFingerprint, mergeComposerAttachmentResources,
   removeComposerAttachmentReference,
@@ -5201,6 +5204,24 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       })
       .finally(() => setNextStepSendingKey(''));
   });
+  // 对话内可视化(```visual)里用户亲手点了追问(InlineVisualBlock 已校验来源、用户激活与限频):
+  // 空闲时与「下一步」框按钮同一路径直接发出;回合进行中只追加进输入框,不打断当前回合。
+  const sendFromInlineVisual = useStableCallback((value) => {
+    const text = inlineVisualSendText(value);
+    if (!text || !sidRef.current) return;
+    if (busy || composerSubmitting || nextStepSendingKey) {
+      const current = composerContentRef.current || composerContentFromText(composerValueRef.current);
+      const next = appendComposerText(current, text);
+      handleComposerChange(composerContentText(next), next);
+      requestAnimationFrame(() => inputRef.current?.focus?.());
+      return;
+    }
+    replyToNextStep('inline-visual', text);
+  });
+  const inlineVisualBridge = useMemo(
+    () => ({ send: sendFromInlineVisual, openLink: openExternalUrl }),
+    [sendFromInlineVisual],
+  );
   const rawChangeGroups = useMemo(() => aggregateHunksFromMessages(changeMessages), [changeMessages]);
   const changeSignature = useMemo(() => changeGroupsSignature(rawChangeGroups), [rawChangeGroups]);
   // 引用稳定化:流式期间每个 WS 帧 items 都换新引用,rawChangeGroups 即使内容
@@ -6353,6 +6374,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onAll={() => expandTranscriptWindow({ compensateScroll: true, loadAll: true })}
           />
           <AttachmentTextLoaderContext.Provider value={api.readAttachmentText}>
+          <InlineVisualBridgeContext.Provider value={inlineVisualBridge}>
           <TranscriptItems
             items={windowedItems}
             messageAutoCollapse={messageAutoCollapse}
@@ -6393,6 +6415,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               ))
             )}
           />
+          </InlineVisualBridgeContext.Provider>
           </AttachmentTextLoaderContext.Provider>
           {/* tail = 当前最后一轮的文件列表。回合进行中(busy)不渲染 ——
               流式期间变更集随 tool_end 实时增长,列表会先于/夹着正文出现,

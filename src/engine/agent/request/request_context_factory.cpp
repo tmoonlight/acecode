@@ -48,6 +48,15 @@ RequestContextOptions RequestContextFactory::options(
     options.loop_active = source_.loop.active;
     options.loop_context = source_.loop.system_context;
     options.delegate_context = source_.delegate_context;
+    // 画图说明:子会话(spawn_subagent 子代理与网状子 agent 都带父会话 id)的回复由父
+    // 会话转述,群聊代答的回复发往 IM 群,都不需要;降为 None。
+    options.diagram_surface = source_.prompt_config.diagram_surface;
+    options.inline_visuals_enabled =
+        source_.prompt_config.inline_visuals && source_.prompt_config.inline_visuals->enabled;
+    if (!source_.delegate_context.empty() ||
+        (session_manager_ && !session_manager_->current_parent_session_id().empty())) {
+        options.diagram_surface = DiagramSurface::None;
+    }
     options.swarm = source_.swarm;
     options.environment = source_.runtime.prompt_environment();
     options.sandbox.description = security_.sandbox_prompt_description(session_manager_);

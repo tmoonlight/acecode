@@ -181,3 +181,55 @@ run('assistant bubble throttles streaming markdown and renders open fence as tex
   assert.match(message, /block\.openFence \? \(\s*<StreamingCodeBlock/);
   assert.match(message, /data-code-copy-source="true">\{text\}<\/code>/);
 });
+
+// 场景(openspec add-inline-visuals):助手回复里有顶层的 ```visual 代码块,先流式输出到一半,
+// 随后写出结尾围栏。
+// 期望:两个阶段都返回同一个 key 的 visual 块(组件实例与 iframe 从流式用到定稿),
+// 未闭合时 closed=false、闭合后 closed=true,text 是代码块内容;不生成 html。
+run('top-level visual fences become visual blocks with a stable key', () => {
+  const head = '说明\n\n```visual\n<svg viewBox="0 0 10 10">\n<rect class="node"/>';
+  const streaming = renderMarkdownBlocks(head, { streaming: true });
+  assert.equal(streaming.length, 2);
+  assert.deepEqual(streaming[1], {
+    key: 1,
+    visual: { text: '<svg viewBox="0 0 10 10">\n<rect class="node"/>', closed: false },
+  });
+  const done = renderMarkdownBlocks(`${head}\n</svg>\n\`\`\`\n\n结论`);
+  assert.deepEqual(done[1], {
+    key: 1,
+    visual: { text: '<svg viewBox="0 0 10 10">\n<rect class="node"/>\n</svg>\n', closed: true },
+  });
+  assert.equal(done[1].html, undefined);
+  assert.ok(done[2].html.includes('结论'));
+  // 历史消息(非流式)里没闭合的 visual 同样是 visual 块,由组件按定稿处理。
+  assert.equal(renderMarkdownBlocks('```visual\n<p>x</p>')[0].visual.closed, false);
+});
+
+// 场景:visual 缩进在列表项里、写在引用块里,或者用户要的是 ```html / ```svg 代码。
+// 期望:它们都不是 visual 块,按普通代码块输出转义后的源码(不会被渲染);
+// 信息串第一个词不区分大小写且允许带参数;renderMarkdown(文件预览、侧边对话等)一律按代码显示。
+run('nested visual fences and other languages stay as code', () => {
+  const nested = renderMarkdownBlocks('- 一项\n\n  ```visual\n  <svg></svg>\n  ```\n');
+  assert.equal(nested.some((block) => block.visual), false);
+  assert.ok(nested[0].html.includes('&lt;svg&gt;'), nested[0].html);
+  const quoted = renderMarkdownBlocks('> ```visual\n> <svg></svg>\n> ```');
+  assert.equal(quoted.some((block) => block.visual), false);
+  for (const lang of ['html', 'svg', 'visualize']) {
+    const blocks = renderMarkdownBlocks(`\`\`\`${lang}\n<svg></svg>\n\`\`\``);
+    assert.equal(blocks[0].visual, undefined, lang);
+    assert.ok(blocks[0].html.includes('ace-copyable-code'), lang);
+    assert.equal(blocks[0].html.includes('<svg'), false, lang);
+  }
+  for (const info of ['Visual', 'VISUAL title="x"', 'visual{.wide}']) {
+    assert.ok(renderMarkdownBlocks(`\`\`\`${info}\n<p>x</p>\n\`\`\``)[0].visual, info);
+  }
+  const whole = renderMarkdown('```visual\n<svg onload="alert(1)"></svg>\n```');
+  assert.ok(whole.includes('&lt;svg onload=&quot;alert(1)&quot;&gt;'), whole);
+});
+
+// 架构守护:AssistantBubble 把 visual 块交给 InlineVisualBlock,key 用块序号、传入闭合状态与
+// 流式状态;漏掉 key 或改用别的值会让 iframe 在流式与定稿之间重建、脚本状态丢失。
+run('assistant bubble renders visual blocks with InlineVisualBlock', () => {
+  const message = source('components/Message.jsx');
+  assert.match(message, /block\.visual \? \(\s*<InlineVisualBlock\s+key=\{block\.key\}\s+code=\{block\.visual\.text\}\s+closed=\{block\.visual\.closed\}\s+streaming=\{!!streaming\}/);
+});

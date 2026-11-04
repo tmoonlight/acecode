@@ -15,6 +15,10 @@ SessionPromptConfig SessionRegistry::prompt_config_snapshot() const {
         if (deps_.project_instructions_cfg) snapshot.project_instructions = *deps_.project_instructions_cfg;
         if (deps_.custom_instructions_cfg) snapshot.custom_instructions = *deps_.custom_instructions_cfg;
         if (deps_.config) snapshot.git_context = deps_.config->git_context;
+        // 画图说明:显示面由宿主声明(daemon = Web,headless 不设),开关每次请求都读,
+        // 设置页改了之后下一次请求即生效。
+        snapshot.diagram_surface = deps_.diagram_surface;
+        if (deps_.config) snapshot.inline_visuals = deps_.config->inline_visuals;
         return snapshot;
     };
     if (deps_.config_mutex) {

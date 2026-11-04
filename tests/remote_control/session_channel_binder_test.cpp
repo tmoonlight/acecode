@@ -12,6 +12,7 @@
 
 #include <gtest/gtest.h>
 
+#include "llm/inline_visual_blocks.hpp"
 #include "remote_control/session_channel_binder.hpp"
 
 #include <algorithm>
@@ -101,6 +102,21 @@ TEST(ClassifySessionEvent, AssistantMessageForwardsText) {
         {{"role", "assistant"}, {"content", "hello from agent"}, {"is_tool", false}});
     EXPECT_EQ(action.kind, OutboundEventAction::Kind::AssistantText);
     EXPECT_EQ(action.text, "hello from agent");
+}
+
+// 场景:绑定了 Telegram 的会话回复「说明文字 + visual 代码块 + mermaid + 结论」。
+// 期望:IM 收到说明文字、一句查看提示和结论,mermaid 原样保留,没有 HTML / SVG 源码
+// —— visual 只有 Web / Desktop 画得出来,源码发进群聊只会刷屏。
+TEST(ClassifySessionEvent, AssistantVisualBlocksBecomeViewHint) {
+    const std::string intro = "说明文字\n\n";
+    const std::string visual = "```visual\n<svg viewBox=\"0 0 10 10\"><rect/></svg>\n```";
+    const std::string rest = "\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\n结论";
+    const auto action = classify_session_event(
+        SessionEventKind::Message,
+        {{"role", "assistant"}, {"content", intro + visual + rest}, {"is_tool", false}});
+    EXPECT_EQ(action.kind, OutboundEventAction::Kind::AssistantText);
+    EXPECT_EQ(action.text, intro + acecode::kInlineVisualPlaceholder + rest);
+    EXPECT_EQ(action.text.find("<svg"), std::string::npos);
 }
 
 TEST(ClassifySessionEvent, IgnoresNonAssistantMessages) {

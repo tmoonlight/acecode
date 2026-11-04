@@ -159,3 +159,22 @@ TEST(DefaultSessionPreferencesConfig, RemovedDefaultModelFallsBackToFirstProfile
     EXPECT_EQ(runtime.default_model_name, "new-a");
 }
 
+
+// 触发场景:Desktop 开着两个工作区,用户在工作区 A 的设置页关闭「可视化图表」,
+// 工作区 B 的 daemon 随后发消息,先跑 refresh_model_config_if_changed。
+// 期望:B 的内存配置读到 inline_visuals.enabled=false,系统提示里的 visual 部分随之消失;
+// 再把键删掉(恢复默认)也能跟上回到开启。修复前其它 daemon 要重启才会读到新值。
+TEST(DefaultSessionPreferencesConfig, RefreshFollowsInlineVisualsSwitch) {
+    const auto path = temp_config_path();
+    RemoveFileOnExit cleanup{path};
+    acecode::AppConfig runtime;
+    ASSERT_TRUE(runtime.inline_visuals.enabled);
+
+    write_text(path, R"({"inline_visuals":{"enabled":false}})");
+    ASSERT_TRUE(acecode::refresh_model_config_if_changed(runtime, path.string()));
+    EXPECT_FALSE(runtime.inline_visuals.enabled);
+
+    write_text(path, R"({})");
+    ASSERT_TRUE(acecode::refresh_model_config_if_changed(runtime, path.string()));
+    EXPECT_TRUE(runtime.inline_visuals.enabled);
+}

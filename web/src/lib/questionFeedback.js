@@ -3,9 +3,9 @@
 //
 // 卡片必须能在会话中持久展示,所以数据来源是「已落盘的 AskUserQuestion 工具
 // 消息元数据」(tool_end 的 metadata.ask_user_question_result),而不是组件里的
-// 临时 state。这一点很关键:回合结束时的 transcript self-heal 会用全新的 item id
-// 覆写最近一轮(见 lib/transcriptSelfHeal.js 的 withFreshIds),任何缓存下来的
-// 锚点 id 都会失效 —— 卡片随之消失。按 item 就地派生就没有这个问题。
+// 临时 state。这一点很关键:回合结束时的 transcript self-heal 会覆写最近一轮,
+// 对不上的行换成新的 item id(见 lib/transcriptSelfHeal.js 的 withStableIds),
+// 缓存下来的锚点 id 可能失效 —— 卡片随之消失。按 item 就地派生就没有这个问题。
 //
 // 判定不看工具名:历史分页可能只剩工具结果消息,或者工具被改名(改名后的调用
 // 名不再是 AskUserQuestion)。唯一可靠的判据是落盘元数据本身,它只由

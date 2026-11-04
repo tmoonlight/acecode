@@ -5,6 +5,7 @@
 #include "syntax_highlight.hpp"
 #include "tui/text_style.hpp"
 #include "tui/theme_palette.hpp"
+#include "llm/inline_visual_blocks.hpp"
 #include "utils/logger.hpp"
 #include <sstream>
 #include <algorithm>
@@ -432,6 +433,7 @@ struct FormatContext {
     int list_depth = 0;
     int ordered_number = -1;  // -1 = unordered
     const Token* parent = nullptr;
+    bool in_blockquote = false;
 };
 
 static Element format_block_token(const Token& token, const FormatContext& ctx);
@@ -505,6 +507,13 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
 
     // -- Code block --
     case TokenType::Code: {
+        // 顶层 visual 代码块是给 Web / Desktop 画的 SVG / HTML 片段,终端画不出来,
+        // 显示一行占位提示而不是刷出整段源码;嵌套在列表 / 引用里的按普通代码显示
+        // (与 Web 一致)。见 llm/inline_visual_blocks.hpp。
+        if (token.lang == "visual" && ctx.list_depth == 0 && !ctx.in_blockquote) {
+            return vbox({text(acecode::kInlineVisualPlaceholder) | acecode::tui::readable_secondary(),
+                         text("")});
+        }
         if (token.lang == "mermaid" &&
             token.text.find_first_not_of(" \t\r\n") != std::string::npos) {
             try {
@@ -555,6 +564,7 @@ static Element format_block_token(const Token& token, const FormatContext& ctx) 
     case TokenType::Blockquote: {
         // Recursively format blockquote content
         FormatContext bq_ctx = ctx;
+        bq_ctx.in_blockquote = true;
         Element inner = format_blocks(token.children, bq_ctx);
         // Prefix with dim vertical bar (like claude-code's BLOCKQUOTE_BAR)
         return hbox({

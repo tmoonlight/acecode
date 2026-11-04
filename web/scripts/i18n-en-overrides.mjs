@@ -375,6 +375,11 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '压缩图片': 'Compress images',
   '压缩图片设置保存失败:': 'Failed to save image compression setting:',
   'compress images image compression screenshot size bandwidth traffic 图片压缩 截图 流量 体积': 'compress images image compression screenshot size bandwidth traffic',
+  // 对话内可视化(openspec add-inline-visuals):设置 > 常规 > 可视化图表,以及对话里的隔离框
+  '可视化图表': 'Inline visuals',
+  '可视化图表设置保存失败:': 'Failed to save inline visuals setting:',
+  'inline visuals visualization chart diagram svg html interactive 可视化 图表 示意图 画图 交互': 'inline visuals visualization chart diagram svg html interactive',
+  '图表库加载失败,可能是网络连不上 CDN': 'Chart library failed to load; the CDN may be unreachable',
   '标记为已读': 'Mark as read',
   '标记为未读': 'Mark as unread',
   '打开项目菜单，选择已有工作区或添加本地代码目录，让 ACECode 知道从哪里开始；也可以选择“不使用工作区”处理通用任务。': 'Open the project menu to pick an existing workspace or add a local code folder so ACECode knows where to start; choose "No workspace" for general tasks.',

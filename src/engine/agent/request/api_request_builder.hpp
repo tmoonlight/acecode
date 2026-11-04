@@ -4,6 +4,7 @@
 #include "agent/turn/turn_types.hpp"
 #include "config/config.hpp"
 #include "experts/expert_registry.hpp"
+#include "prompt/diagram_guidance.hpp"
 #include "prompt/system_prompt.hpp"
 #include "session/todo_state.hpp"
 #include "utils/uuid.hpp"
@@ -37,6 +38,9 @@ struct RequestContextOptions {
     SwarmContext swarm;
     std::string loop_context;
     std::string delegate_context;
+    // 画图说明(prompt/diagram_guidance.hpp):None = 不加;子会话与群聊代答已降为 None。
+    DiagramSurface diagram_surface = DiagramSurface::None;
+    bool inline_visuals_enabled = false;
     SystemPromptWorktreeState worktree;
     SystemPromptEnvironment environment;
     SystemPromptSandboxState sandbox;
@@ -87,6 +91,9 @@ public:
     std::string static_system_prompt(const RequestContextOptions& options) const;
     static std::set<std::string> dormant_skills(const SkillRegistry* registry,
                                                SkillUsageStore* store, int idle_days);
+    // 技能索引额外隐藏的技能:画图说明的 visual 部分不生效时隐藏 inline-visuals,
+    // 免得看不到图的会话(TUI / headless / 开关关闭 / 子会话)去画 visual。
+    static std::set<std::string> hidden_index_skills(const RequestContextOptions& options);
     static bool memory_active(const RequestContextOptions& options);
     static PromptContextBlock render_memory_snapshot(const RequestContextOptions& options);
     // 压缩 / 线程修复后调用:下一次请求按磁盘重建记忆快照。

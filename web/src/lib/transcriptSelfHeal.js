@@ -91,12 +91,33 @@ function cloneRawItem(item) {
   return JSON.parse(JSON.stringify(item));
 }
 
-function withFreshIds(items, startId) {
+// 按位置对得上的行(种类、角色相同;工具还要是同一个调用)沿用原来的 id。
+function sameTranscriptRow(current, replacement) {
+  if (!current || !replacement || current.kind !== replacement.kind) return false;
+  if (current.kind === 'tool') {
+    const before = stringValue(current.tool?.toolCallId ?? current.tool?.tool_call_id);
+    const after = stringValue(replacement.tool?.toolCallId ?? replacement.tool?.tool_call_id);
+    return !!before && before === after;
+  }
+  return stringValue(current.role) === stringValue(replacement.role);
+}
+
+// 替换最新一轮时复用对得上的行的 id,其余行取新 id。id 是对话行的 React key:换 key 会把整行
+// 卸载重建,行里内嵌的 iframe(```visual 可视化)随之重新加载、重跑脚本、丢掉用户的交互状态;
+// 沿用 id 时内容照样换成权威版本,只是原地更新。
+function withStableIds(items, previous, startId) {
   let nextId = Math.max(1, Number(startId) || 1);
-  const cloned = (Array.isArray(items) ? items : []).map((item) => {
+  const used = new Set();
+  const cloned = (Array.isArray(items) ? items : []).map((item, index) => {
     const copy = cloneRawItem(item);
-    copy.id = nextId;
-    nextId += 1;
+    const match = Array.isArray(previous) ? previous[index] : null;
+    if (sameTranscriptRow(match, copy) && match.id != null && !used.has(match.id)) {
+      copy.id = match.id;
+    } else {
+      copy.id = nextId;
+      nextId += 1;
+    }
+    used.add(copy.id);
     return copy;
   });
   return { items: cloned, nextItemId: nextId };
@@ -179,8 +200,9 @@ export function replaceLatestTurnAfterAnchor(currentState, canonicalState) {
   }
 
   const prefix = currentItems.slice(0, currentFragment.anchor.index + 1);
-  const { items: replacementItems, nextItemId } = withFreshIds(
+  const { items: replacementItems, nextItemId } = withStableIds(
     canonicalFragment.items,
+    currentFragment.items,
     currentState?.nextItemId,
   );
   const nextState = {

@@ -1273,6 +1273,11 @@ const std::vector<DefaultSkillSeed>& default_skill_seeds() {
         {"scheduled-task",
          "acecode:scheduled-task@2026-10-04",
          fs::path("acecode") / "scheduled-task"},
+        // 对话内可视化的画图规范(openspec add-inline-visuals);系统提示的画图说明
+        // 按名字要求加载它,见 prompt/diagram_guidance.hpp。
+        {"inline-visuals",
+         "acecode:inline-visuals@2026-11-04",
+         fs::path("acecode") / "inline-visuals"},
     };
     return seeds;
 }

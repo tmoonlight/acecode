@@ -1302,6 +1302,11 @@ static AppConfig load_config_from_path_once(
                 if (icj.contains("enabled") && icj["enabled"].is_boolean())
                     cfg.image_compression.enabled = icj["enabled"].get<bool>();
             }
+            if (j.contains("inline_visuals") && j["inline_visuals"].is_object()) {
+                const auto& ivj = j["inline_visuals"];
+                if (ivj.contains("enabled") && ivj["enabled"].is_boolean())
+                    cfg.inline_visuals.enabled = ivj["enabled"].get<bool>();
+            }
 
             // LSP 段(openspec add-lsp-service)。缺省 → enabled=true、无覆盖。
             // 自定义 server(名字不在内置集合)的 command 校验推迟到注册表合并层
@@ -2613,6 +2618,9 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
         if (!igj.empty()) j["image_generation"] = igj;
         if (cfg.image_compression != ImageCompressionConfig{}) {
             j["image_compression"] = {{"enabled", cfg.image_compression.enabled}};
+        }
+        if (cfg.inline_visuals != InlineVisualsConfig{}) {
+            j["inline_visuals"] = {{"enabled", cfg.inline_visuals.enabled}};
         }
 
         nlohmann::json lspj = nlohmann::json::object();

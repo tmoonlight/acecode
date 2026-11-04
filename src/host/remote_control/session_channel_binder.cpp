@@ -1,6 +1,7 @@
 #include "session_channel_binder.hpp"
 
 #include "session_host/session_registry.hpp"
+#include "llm/inline_visual_blocks.hpp"
 #include "session/system_notice.hpp"
 #include "tool/task_complete_tool.hpp"
 #include "utils/logger.hpp"
@@ -146,7 +147,7 @@ OutboundEventAction classify_session_event(SessionEventKind kind,
         std::string content = payload["content"].get<std::string>();
         if (content.empty() || is_blank(content)) return action;
         action.kind = OutboundEventAction::Kind::AssistantText;
-        action.text = std::move(content);
+        action.text = replace_inline_visual_blocks(content, kInlineVisualPlaceholder);  // visual 只有 Web 画得出来
         return action;
     }
 

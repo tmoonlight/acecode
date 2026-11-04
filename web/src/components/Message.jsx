@@ -15,6 +15,7 @@ import { clsx, relativeTime } from '../lib/format.js';
 import { presentSystemNotice } from '../lib/systemNotice.js';
 import { assistantChromeState } from '../lib/assistantAvatarDisplay.js';
 import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
+import { InlineVisualBlock } from './InlineVisualBlock.jsx';
 import { ActivityLine } from './ActivityLine.jsx';
 import { VsIcon, CommandGlyph, FileTypeIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -496,7 +497,14 @@ function AssistantBubble({
           className="ace-md ace-chat-message-content text-[13px] text-fg leading-[1.6] py-0.5"
           onClick={handleMarkdownClick}
         >
-          {blocks.map((block) => (block.openFence ? (
+          {blocks.map((block) => (block.visual ? (
+            <InlineVisualBlock
+              key={block.key}
+              code={block.visual.text}
+              closed={block.visual.closed}
+              streaming={!!streaming}
+            />
+          ) : block.openFence ? (
             <StreamingCodeBlock key={block.key} lang={block.openFence.lang} text={block.openFence.text} />
           ) : (
             <div

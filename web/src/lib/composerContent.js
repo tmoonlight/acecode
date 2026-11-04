@@ -203,6 +203,19 @@ function attachmentPart(attachment, index = 0) {
   };
 }
 
+// 在输入框末尾追加一段文字(已有文字时先换行),粘贴块、附件、@ 引用等其它部分原样保留。
+// 用于不发送、只填进输入框的场景(例如会话忙时点了对话内可视化里的追问)。
+export function appendComposerText(value, text) {
+  const addition = plainText(text);
+  const content = normalizeComposerContent(value) || composerContentFromText('');
+  if (!addition) return content;
+  const separator = composerContentText(content).trim() ? '\n' : '';
+  return normalizeComposerContent({
+    version: content.version,
+    parts: [...content.parts, { type: 'text', text: separator + addition }],
+  });
+}
+
 export function composerContentFromText(text = '', attachments = []) {
   return normalizeComposerContent({
     version: COMPOSER_CONTENT_VERSION,

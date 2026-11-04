@@ -3441,6 +3441,42 @@ body {
 .ace-mermaid-source {
   border-radius: 0 !important;
 }
+/* 对话内可视化(```visual,InlineVisualBlock.jsx):高度由框内上报,背景透明与对话融为一体。
+   iframe 的 color-scheme 必须与框内 data-mode 一致,否则浏览器会给它垫一层不透明底色。 */
+.ace-inline-visual {
+  position: relative;
+  margin: 8px 0;
+}
+.ace-inline-visual-frame {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color-scheme: light;
+}
+[data-theme="dark"] .ace-inline-visual-frame {
+  color-scheme: dark;
+}
+.ace-inline-visual .ace-inline-visual-copy {
+  opacity: 0;
+}
+.ace-inline-visual:hover .ace-inline-visual-copy,
+.ace-inline-visual .ace-inline-visual-copy:focus-visible {
+  opacity: 1;
+}
+.ace-inline-visual-source {
+  margin: 0;
+  padding: 10px 46px 10px 12px;
+  border-radius: 8px;
+  background: var(--ace-code-bg);
+  color: var(--ace-code-fg);
+  font-family: var(--font-mono);
+  font-size: var(--ace-font-size-code);
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre;
+}
 .ace-md .ace-copyable-code {
   margin: 6px 0;
 }

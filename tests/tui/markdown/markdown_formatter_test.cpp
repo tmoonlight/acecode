@@ -75,4 +75,26 @@ TEST(RenderTokenBlocks, EmptyTokenListYieldsEmptyElement) {
     ASSERT_NE(e.get(), nullptr);
 }
 
+// 场景:在 TUI 里 resume 一个网页里产生的会话,助手回复含顶层 ```visual 代码块
+// (整段 SVG / HTML)。期望:该位置只显示一行查看提示,不刷出源码;嵌套在列表里的
+// visual 与 Web 一致按普通代码显示,mermaid 等其它代码块不受影响。
+TEST(RenderTokenBlocks, TopLevelVisualBlockShowsPlaceholder) {
+    FormatOptions opts;
+    opts.terminal_width = 80;
+    opts.syntax_highlight = false;
+
+    const std::string top =
+        "intro\n\n```visual\n<svg viewBox=\"0 0 10 10\"><rect class=\"node\"/></svg>\n```\n\noutro\n";
+    const std::string rendered = render_text(format_markdown(top, opts), 80, 12);
+    EXPECT_NE(rendered.find("ACECode"), std::string::npos);
+    EXPECT_EQ(rendered.find("<svg"), std::string::npos);
+    EXPECT_NE(rendered.find("intro"), std::string::npos);
+    EXPECT_NE(rendered.find("outro"), std::string::npos);
+
+    const std::string nested = "- item\n\n  ```visual\n  <svg-nested/>\n  ```\n";
+    const std::string nested_rendered = render_text(format_markdown(nested, opts), 80, 12);
+    EXPECT_NE(nested_rendered.find("<svg-nested/>"), std::string::npos);
+    EXPECT_EQ(nested_rendered.find("ACECode"), std::string::npos);
+}
+
 } // namespace acecode::markdown

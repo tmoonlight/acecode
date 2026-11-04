@@ -142,6 +142,12 @@ function fenceLang(token) {
   return info ? info.split(/\s+/g)[0] : '';
 }
 
+// visual 代码块的信息串:第一个词是 visual(不区分大小写),与 C++ 的
+// llm/inline_visual_blocks.cpp(IM / TUI 的占位替换)同一规则。
+export function isInlineVisualInfo(info) {
+  return /^visual(?:$|[\s{])/i.test(String(info || '').trim());
+}
+
 const md = new MarkdownIt({
   html: false,        // 禁 raw HTML(XSS 防御)
   linkify: true,      // 自动链接化带 scheme 的 URL / mailto(见下方 fuzzyLink)
@@ -321,6 +327,12 @@ export function renderMarkdownBlocks(src, { streaming = false } = {}) {
     if (group.length) groups.push(group); // 防御:不平衡 token 流也不丢内容
     return groups.map((groupTokens, index) => {
       const only = groupTokens.length === 1 ? groupTokens[0] : null;
+      // 顶层 ```visual 代码块交给 InlineVisualBlock 画在隔离框里(openspec add-inline-visuals)。
+      // 流式与定稿都返回 visual 块且 key 不变,组件实例(连同 iframe)从头用到尾;
+      // 嵌套在列表 / 引用里的不在这里(整组走下面的普通渲染,显示为代码)。
+      if (only?.type === 'fence' && isInlineVisualInfo(only.info)) {
+        return { key: index, visual: { text: only.content, closed: isCompleteFence(only, env) } };
+      }
       if (streaming && index === groups.length - 1 && only?.type === 'fence'
           && !isCompleteFence(only, env)) {
         return { key: index, openFence: { lang: registeredLang(fenceLang(only)), text: only.content } };

@@ -446,6 +446,8 @@ download when nothing changed.
 | PUT | `/api/config/tool-preamble` | set the concrete progress text switch in `config.json`, push to active sessions |
 | GET | `/api/config/image-compression` | read the 压缩图片 switch |
 | PUT | `/api/config/image-compression` | set the 压缩图片 switch in `config.json`; applies to the next model request |
+| GET | `/api/config/inline-visuals` | read the 可视化图表 switch |
+| PUT | `/api/config/inline-visuals` | set the 可视化图表 switch in `config.json`; applies to the next system prompt |
 | GET | `/api/config/sandbox` | read sandbox switches, filesystem lists, defaults and platform probe |
 | PUT | `/api/config/sandbox` | save sandbox switches / lists to `config.json`, push to active sessions |
 | GET | `/api/security/exec-rules` | list `<data_dir>/rules/*.rules` (managed files editable) |
@@ -4648,6 +4650,23 @@ to the trigger again.
 `image_compression` to `config.json`, applies to the next model request in this
 daemon and returns the GET shape. Other daemons pick the change up before their
 next message send.
+
+### Inline visuals
+
+Settings > General > 可视化图表 (default on). While on, the static system prompt
+of daemon sessions tells the model it may write top-level ```` ```visual ````
+code blocks (an SVG or HTML fragment) that Web / Desktop draw in a sandboxed
+frame while the reply streams. Turning it off only removes that part of the
+prompt; visual blocks already in a transcript still render, and the mermaid
+part of the guidance is not affected. See [inline-visuals.md](inline-visuals.md).
+
+`GET /api/config/inline-visuals` returns `{enabled}`.
+`PUT /api/config/inline-visuals` is a patch: `{enabled: bool}`. A body that is
+not an object, or a non-boolean `enabled`, returns 400 `BAD_REQUEST` with
+`message`; invalid JSON returns 400 `BAD_JSON`. Success writes `inline_visuals`
+to `config.json` (omitted while it is the default), applies to the next request
+in this daemon and returns the GET shape. Other daemons pick the change up
+before their next message send.
 
 ### Security center (`openspec add-security-center`)
 

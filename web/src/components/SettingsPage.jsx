@@ -16,6 +16,7 @@ import { localePreference } from '../i18n/index.js';
 import { api } from '../lib/api.js';
 import { normalizeToolPreambleState } from '../lib/toolPreamble.js';
 import { imageCompressionEnabled, imageCompressionUpdate } from '../lib/imageCompression.js';
+import { inlineVisualsEnabled, inlineVisualsUpdate } from '../lib/inlineVisuals.js';
 import {
   WORK_MODES,
   WORK_MODE_CODING,
@@ -616,6 +617,39 @@ function SectionGeneral({
       toast({ kind: 'err', text: '压缩图片设置保存失败:' + (e?.message || '') });
     } finally {
       setImageCompressionBusy(false);
+    }
+  };
+  // 「可视化图表」= daemon 的 inline_visuals.enabled(见 lib/inlineVisuals.js)。
+  // 打开设置页时读一次;切换时 PUT,以响应为准,失败回滚并提示。
+  const [inlineVisuals, setInlineVisuals] = useState(true);
+  const [inlineVisualsBusy, setInlineVisualsBusy] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    api.getInlineVisuals()
+      .then((state) => {
+        if (!cancelled) setInlineVisuals(inlineVisualsEnabled(state));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setInlineVisualsBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+  const switchInlineVisuals = async (next) => {
+    if (inlineVisualsBusy || next === inlineVisuals) return;
+    const body = inlineVisualsUpdate(next);
+    if (!body) return;
+    const previous = inlineVisuals;
+    setInlineVisuals(next);
+    setInlineVisualsBusy(true);
+    try {
+      const state = await api.setInlineVisuals(body);
+      setInlineVisuals(inlineVisualsEnabled(state));
+    } catch (e) {
+      setInlineVisuals(previous);
+      toast({ kind: 'err', text: '可视化图表设置保存失败:' + (e?.message || '') });
+    } finally {
+      setInlineVisualsBusy(false);
     }
   };
   const [openTarget, setOpenTarget] = useState('vscode');
@@ -1269,6 +1303,34 @@ function SectionGeneral({
             on={imageCompression}
             disabled={imageCompressionBusy}
             onChange={switchImageCompression}
+          />
+        </div>
+      </div>
+      <div
+        role="switch"
+        aria-checked={inlineVisuals}
+        tabIndex={0}
+        onClick={() => switchInlineVisuals(!inlineVisuals)}
+        onKeyDown={(event) => {
+          if (event.key === ' ' || event.key === 'Enter') {
+            event.preventDefault();
+            switchInlineVisuals(!inlineVisuals);
+          }
+        }}
+        className={clsx(
+          'flex items-center justify-between gap-4 px-3.5 py-2.5 rounded-md bg-surface border border-border mb-2 transition',
+          'cursor-pointer hover:bg-surface-hi',
+          inlineVisualsBusy && 'opacity-75 cursor-wait',
+        )}
+      >
+        <div>
+          <div className="text-[13px] font-normal">可视化图表</div>
+        </div>
+        <div onClick={(event) => event.stopPropagation()}>
+          <Toggle
+            on={inlineVisuals}
+            disabled={inlineVisualsBusy}
+            onChange={switchInlineVisuals}
           />
         </div>
       </div>

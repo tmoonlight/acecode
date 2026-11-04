@@ -93,6 +93,17 @@ bool apply_default_session_preferences_bytes(AppConfig& cfg,
     cfg.image_compression = image_compression;
     image::set_model_image_compression_enabled(image_compression.enabled);
 
+    // 「可视化图表」同理:其它工作区的 daemon 在下一次发消息前读到新值,
+    // 系统提示的 visual 部分随之出现或消失。
+    InlineVisualsConfig inline_visuals;
+    if (j.contains("inline_visuals") && j["inline_visuals"].is_object()) {
+        const auto& ivj = j["inline_visuals"];
+        if (ivj.contains("enabled") && ivj["enabled"].is_boolean()) {
+            inline_visuals.enabled = ivj["enabled"].get<bool>();
+        }
+    }
+    cfg.inline_visuals = inline_visuals;
+
     AppConfig next = cfg;
     if (j.contains("saved_models")) {
         std::string err;

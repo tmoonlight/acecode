@@ -76,6 +76,9 @@ SessionPromptConfig TuiApp::prompt_config_snapshot() {
     snapshot.project_instructions = config.project_instructions;
     snapshot.custom_instructions = config.custom_instructions;
     snapshot.git_context = config.git_context;
+    // TUI 只画 mermaid(文字图),不渲染 visual。
+    snapshot.diagram_surface = DiagramSurface::Terminal;
+    snapshot.inline_visuals = config.inline_visuals;
     return snapshot;
 }
 bool TuiApp::init_stage(TuiInitStage stage) {

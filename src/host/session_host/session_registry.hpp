@@ -138,6 +138,9 @@ struct SessionRegistryDeps {
     std::shared_ptr<MemoryRuntime>   memory;
     // 写进会话 meta 的入口标识(headless 传 "headless",记忆摘要据此跳过)。
     std::string                      session_surface = "daemon";
+    // 系统提示画图说明的显示面:daemon worker 设为 Web;headless / 测试留 None。
+    // 只在不传 prompt_config 时生效(TUI 由自己的 prompt_config 提供)。
+    DiagramSurface                   diagram_surface = DiagramSurface::None;
     const ProjectInstructionsConfig* project_instructions_cfg = nullptr;
     const CustomInstructionsConfig*  custom_instructions_cfg = nullptr;
     HookManager*                     hook_manager = nullptr;

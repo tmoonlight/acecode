@@ -187,7 +187,33 @@ await run('text mismatch replaces only the fragment after the latest user anchor
     'correct canonical answer',
   ]);
   assert.equal(result.state.items[2], current.items[2]);
-  assert.equal(result.state.items[3].id, 100);
+  // 对得上的行沿用原 id(React 原地更新,不卸载重建),内容换成权威版本。
+  assert.equal(result.state.items[3].id, 4);
+  assert.equal(result.state.items[3].messageId, 'a-canonical');
+});
+
+// 触发场景(openspec add-inline-visuals):回合结束后自愈拉到权威历史,与实时记录有细微差异
+// (例如 metadata),替换最新一轮。回归:替换时整轮换新 id,对话行按 key 卸载重建,回复里的
+// visual 隔离框重新加载、脚本重跑一遍,用户拖过的滑块也复位了。
+// 期望:种类 / 角色对得上的行(工具还要同一个调用 id)沿用原 id;对不上的行(多出来的、
+// 换了调用的)取 nextItemId 起的新 id,且 nextItemId 只为新 id 前进;id 不重复。
+await run('replacement keeps ids of rows that still line up', () => {
+  const current = stateWith([
+    user(1, 'inspect', 'u-latest'),
+    tool(2, { toolCallId: 'call-a' }),
+    assistant(3, 'live answer', 'a-live'),
+  ]);
+  const canonical = stateWith([
+    user(10, 'inspect', 'u-latest'),
+    tool(11, { toolCallId: 'call-b' }),
+    assistant(12, 'canonical answer', 'a-canonical'),
+    tool(13, { toolCallId: 'call-c' }),
+  ]);
+  const result = reconcileLatestCompletedTurn(current, canonical);
+  assert.equal(result.replaced, true);
+  assert.deepEqual(result.state.items.map((item) => item.id), [1, 100, 3, 101]);
+  assert.equal(result.state.items[2].content, 'canonical answer');
+  assert.equal(result.state.nextItemId, 102);
 });
 
 await run('tool activity mismatch replaces the whole latest assistant fragment', () => {
