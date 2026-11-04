@@ -2579,7 +2579,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
     let cancelled = false;
     setPermissionSwitching(false);
-    api.getSessionPermissionMode(sid)
+    // 恢复完成(sessionRuntimeUnavailable 翻回 false)后再读一次:此时以运行时
+    // 内存里的权限为准。只在选中时读一次,恢复前的磁盘读失败就会一直显示默认权限。
+    const permissionWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash)
+      && !(ref?.noWorkspace || ref?.no_workspace)
+      ? ref.workspaceHash
+      : '';
+    api.getSessionPermissionMode(sid, permissionWorkspaceHash)
       .then((state) => {
         if (!cancelled) setPermissionMode(normalizePermissionMode(state?.mode));
       })
@@ -2587,7 +2593,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         if (!cancelled) setPermissionMode(normalizePermissionMode(ref?.permission_mode));
       });
     return () => { cancelled = true; };
-  }, [api, ref?.permission_mode, sid]);
+  }, [api, ref?.noWorkspace, ref?.no_workspace, ref?.permission_mode, ref?.workspaceHash, sessionRuntimeUnavailable, sid]);
 
   // 只接受 producer:值形式允许调用方传入一份过期快照,正是这里要根除的写法。
   const updateQueueState = useCallback((producer) => queueStore.commit(producer), [queueStore]);

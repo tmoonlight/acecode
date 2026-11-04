@@ -40,6 +40,25 @@ int withhold_inline_images_for_retry(ConversationHistory& history,
     return repair.withheld_images;
 }
 
+pa::CompactOutcome compact_history_for_overflow(CompactionController& compaction,
+                                                const CompactionInputs* inputs,
+                                                AbortSignal& abort) {
+    if (!inputs) return pa::CompactOutcome::Failed;
+    const int generation = compaction.generation();
+    const bool compacted = compaction.run_auto(*inputs);
+    if (abort.raw()) return pa::CompactOutcome::Cancelled;
+    // PostCompact 钩子要求停止时 run_auto 返回 false,但历史已经换成了压缩结果:
+    // 按「压过了」重发,不能拿压缩前的规模去收缩已经变了的历史。
+    if (compacted || compaction.generation() != generation) {
+        return pa::CompactOutcome::Compacted;
+    }
+    return pa::CompactOutcome::Failed;
+}
+
+pa::CompactOutcome PaRescueAdapter::compact() {
+    return compact_history_for_overflow(compaction_, compaction_inputs_, abort_);
+}
+
 int PaRescueAdapter::history_tokens() const {
     return estimate_message_tokens(detail::recovered_provider_messages(history_.view(), "pa-rescue-estimate"));
 }

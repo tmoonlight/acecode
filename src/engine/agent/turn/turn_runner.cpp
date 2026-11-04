@@ -29,6 +29,7 @@
 #include "config/config.hpp"
 #include "utils/abort_signal.hpp"
 #include "utils/logger.hpp"
+#include <optional>
 #include <utility>
 
 namespace acecode::agent {
@@ -319,9 +320,15 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
             break;
         }
 
-        // Phase 4: Handle provider errors (context rescue, fatal errors)
+        // Phase 4: Handle provider errors (context rescue, fatal errors).
+        // Context overflow compacts before shrinking, so errors get compaction inputs.
+        std::optional<CompactionInputs> overflow_compaction;
+        if (provider_result.provider_error_seen) {
+            overflow_compaction = compaction_inputs(turn, terminal);
+        }
         const auto error = recovery_.resolve(provider_result, bundle.messages_with_system,
-            turn.recovery, context_window_.load(), session_);
+            turn.recovery, context_window_.load(), session_,
+            overflow_compaction ? &*overflow_compaction : nullptr);
         if (error.timing_status) turn_timing_status = *error.timing_status;
         const auto error_result = error.decision;
         reset_doom_guard_after_compact();

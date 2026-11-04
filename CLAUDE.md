@@ -54,7 +54,7 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 - **定时任务两道闸**:`create_scheduled_task` 按 `activation_skill` 延迟开放并在技能索引单列「Skill-gated built-in tools」;`loop.active` 会话里经 `loop_execution_refusal` 并入 `hidden_builtin_tools`;AI 创建时拒绝仍带「建定时任务」字样的 prompt。**不要**把隐藏改成只靠提示词。归档:智能定时任务。
 - **MCP 调用响应 abort**:`McpManager::invoke` 放工作线程、100ms 轮询 abort,置位立即返回。`image_generate` 配置属于 Settings > Tools,测试动作绝不在加载 / 保存时跑。
 - **重试与超限**:429 文案明确说额度 / 余额用完按硬配额不重试(`retry_policy.cpp::is_hard_quota_message`);上下文超限识别含 LiteLLM / vLLM 文案;压缩连续超限时逐步加大删除量;只有图片的 user 消息压缩后保留占位文字。归档:其它反馈修复备忘。
-- **PA 内网适配**([src/adapters/pa/](src/adapters/pa/README.md)):只按报文特征判定,不硬编码地址 / 模型名,通用路径只留兜底调用点。五条:中文超限文案兜底(故意不限状态码)→ 上下文预算学习器收敛到观测拒收规模的 85% → 随机拒收走 `run_pa_overflow_rescue` 绝不终止回合 → **限流文案(请求频率 / 过于频繁 / 限流)绝不当超限**,排在超限判定之前 → 带内联图片被拒先撤图(`withhold_inline_images`)且不进学习器。**改之前读 README 里的三条坑**(观测要么可信要么整条丢弃;model 为空不记不查;观测表是进程级单例)。归档:PA 内网模型服务适配。
+- **PA 内网适配**([src/adapters/pa/](src/adapters/pa/README.md)):只按报文特征判定,不硬编码地址 / 模型名,通用路径只留兜底调用点。五条:中文超限文案兜底(故意不限状态码)→ 上下文预算学习器收敛到观测拒收规模的 85%(超限确认后**先压缩**,压缩没解决才按压缩前规模记账,通用恢复链同口径)→ 随机拒收走 `run_pa_overflow_rescue` 绝不终止回合 → **限流文案(请求频率 / 过于频繁 / 限流)绝不当超限**,排在超限判定之前 → 带内联图片被拒先撤图(`withhold_inline_images`)且不进学习器。**改之前读 README 里的三条坑**(观测要么可信要么整条丢弃;model 为空不记不查;观测表是进程级单例)。归档:PA 内网模型服务适配。
 - **图片**:「压缩图片」只在发送层生效(`model_image_payload::compressed_model_image` → LRU + `.model-v1` sidecar),快照原图不改;请求体预算把最旧的图换成文件引用并记低水位,前缀不变;`computer_use` 截图只重编码不改尺寸。图片附件一律走快照 + 缩略图,**栅格图不要做成 `@路径` 引用**。归档:「压缩图片」、图片附件一律走快照。
 
 ## 会话与持久化
@@ -127,3 +127,4 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 ## CI / Release
 
 - `package.yml` 出 Linux x64/arm64、Windows x64/arm64、macOS x64/arm64,`v*` tag 自动发版;`release-tag.yml` 手动打注解 tag 并显式 `gh workflow run package.yml`,发布门槛仍是该提交的 test.yml 通过。npm 发布暂停(`if: ${{ false }}`),实现保留。归档:CI / Release。
+- **自研 Windows 安装程序**(`src/apps/installer/` → `acecode-setup`,尚未进 package.yml):安装包由 `installer/windows/make_setup.py` 用 `UpdateResource` 嵌进资源区(别拼在文件尾,签名会坏),只装当前用户目录;`acecode_installer_support` 只许链 desktop_support + base_core;本机实测先设 `ACECODE_SETUP_TEST_ROOT` 与 `USERPROFILE` 进沙盒,否则会接管本机已有的 Inno 安装。见 [docs/windows-installer.md](docs/windows-installer.md)。

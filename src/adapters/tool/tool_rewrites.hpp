@@ -5,18 +5,20 @@
 #include <string>
 #include <vector>
 
-// 「工具重写」:把 ACECode 内置工具在模型面前改名。这是给特殊审计场景用的
-// 显式 opt-in 功能,配置**不进 config.json**,单独存 `<data_dir>/tool-rewrites.json`:
+// 「工具重写」:把 ACECode 内置工具在模型面前改名。配置**不进 config.json**,
+// 单独存 `<data_dir>/tool_rewrites.json`(兼容已有 tool-rewrites.json):
 //
 //   {
 //     "version": 1,
-//     "enabled": false,
-//     "rewrites": { "file_read": "read", "file_write": "write", ... }
+//     "enabled": true,
+//     "write_file_default_applied": true,
+//     "rewrites": { "file_read": "read", "file_write": "write_file", ... }
 //   }
 //
 // 语义:enabled=false 时进程内生效映射为空,模型看到原生名;enabled=true 时
 // rewrites 里的每一条成为生效映射。文件缺失等价于 enabled=false + 内置种子
-// (OpenCode 风格四条),这样用户第一次勾选时右列已有可用的默认值。
+// (OpenCode 风格四条)。启动时执行一次迁移:未开启则开启并设置
+// file_write -> write_file;已开启则保留原配置。完成后不再覆盖用户选择。
 // TUI / daemon / headless 三个入口在注册工具之前都要调 load_and_apply,
 // 注册期的 public 名冲突检查才拿得到正确的映射。
 namespace acecode::tool_rewrites {
@@ -28,6 +30,8 @@ struct ToolRewriteSettings {
     bool enabled = false;
     // native → public,已剔除 no-op(空值 / 与原名相同)。
     ToolProtocolNameMappings rewrites;
+    // 持久化迁移状态,不暴露为用户可编辑设置。
+    bool write_file_default_applied = false;
 };
 
 std::string settings_path(const std::string& data_dir);
@@ -59,7 +63,8 @@ bool validate_settings_against_tools(
 ToolRewriteSettings load_settings(const std::string& path,
                                   std::string* error = nullptr);
 
-// 原子写(tmp + rename)。写前做结构校验。
+// 原子写(tmp + rename)。写前做结构校验,写入时总是记录迁移已处理:
+// 显式保存(包括关闭重写)是用户选择,下次启动不得覆盖。
 bool save_settings(const std::string& path,
                    const ToolRewriteSettings& settings,
                    std::string* error = nullptr);
@@ -70,8 +75,9 @@ ToolProtocolNameMappings effective_mappings(const ToolRewriteSettings& settings)
 bool apply_to_process(const ToolRewriteSettings& settings,
                       std::string* error = nullptr);
 
-// 启动入口:读 `<data_dir>/tool-rewrites.json` 并发布。文件损坏或映射非法时
-// 记日志并保持「不重写」,绝不让启动失败。返回实际采用的设置。
+// 启动入口:读取、执行一次默认迁移并发布。迁移成功落盘后才发布新映射。
+// 文件损坏或映射非法时记日志并保持「不重写」,绝不让启动失败。
+// 迁移写入失败则保留原设置并允许下次重试。返回实际采用的设置。
 ToolRewriteSettings load_and_apply(const std::string& data_dir);
 
 } // namespace acecode::tool_rewrites

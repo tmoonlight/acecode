@@ -114,7 +114,9 @@ std::vector<PointF> wave_polygon(const splash_anim::Frame& frame) {
     const double left = splash_anim::kTileX;
     const double right = splash_anim::kTileX + splash_anim::kTileSize;
     // 升起时整段波浪从方砖底边下方往上推(左右平移会在波浪端头留一条竖直硬边)。
+    // wave_rise 大于 1 是安装程序的「水位上涨」:波面继续上移,水体仍铺到方砖底边。
     const double dy = (512.0 - kWaveCrestY) * (1.0 - frame.wave_rise);
+    const float bottom = 512.0f + static_cast<float>(std::max(0.0, dy));
     std::vector<PointF> points;
     points.reserve(kSamples + 3);
     for (int i = 0; i <= kSamples; ++i) {
@@ -123,8 +125,8 @@ std::vector<PointF> wave_polygon(const splash_anim::Frame& frame) {
                             static_cast<float>(splash_anim::wave_y(
                                 x, frame.wave_phase, frame.wave_morph) + dy));
     }
-    points.emplace_back(static_cast<float>(right), 512.0f + static_cast<float>(dy));
-    points.emplace_back(static_cast<float>(left), 512.0f + static_cast<float>(dy));
+    points.emplace_back(static_cast<float>(right), bottom);
+    points.emplace_back(static_cast<float>(left), bottom);
     return points;
 }
 

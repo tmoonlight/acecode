@@ -297,6 +297,10 @@ jobs:
         shell: bash
         run: cmake --build build --config MinSizeRel --target acecode-desktop
 
+      - name: Build native Windows installer
+        if: runner.os == 'Windows'
+        run: cmake --build build --config MinSizeRel --target acecode-setup
+
       - name: Verify Linux ARMv7 executable
         if: matrix.id == 'linux-armv7'
         shell: bash
@@ -813,6 +817,39 @@ jobs:
             throw "Failed to verify the archived default seed bundle"
           }
 
+      - name: Set up Python for native Windows packaging
+        if: runner.os == 'Windows'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Package and verify native Windows installer
+        if: runner.os == 'Windows'
+        id: windows-setup
+        shell: pwsh
+        run: |
+          $version = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(acecode VERSION (\d+\.\d+\.\d+)').Groups[1].Value
+          if (-not $version) { throw 'Cannot read release version' }
+          $setupPath = "ACECode-$version-${{ matrix.id }}-setup.exe"
+          python tests/scripts/make_setup_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows resource packaging tests failed' }
+          python tests/scripts/windows_setup_release_test.py
+          if ($LASTEXITCODE -ne 0) { throw 'Windows setup verification tests failed' }
+          python installer/windows/make_setup.py --stub build/acecode-setup.exe `
+            --payload-zip "acecode-${{ matrix.id }}.zip" --version $version `
+            --target '${{ matrix.id }}' --out $setupPath
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows installer packaging failed' }
+          $verifyArgs = @('scripts/verify_windows_setup.py', '--setup', $setupPath,
+            '--payload-zip', "acecode-${{ matrix.id }}.zip", '--version', $version,
+            '--target', '${{ matrix.id }}')
+          if ('${{ matrix.id }}' -eq 'windows-x64') {
+            # Hosted Windows runners keep TEMP on D: and USERPROFILE on C:.
+            $verifyArgs += @('--smoke', '--install-volume', $env:USERPROFILE)
+          }
+          python @verifyArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Native Windows installer validation failed' }
+          "path=$setupPath" >> $env:GITHUB_OUTPUT
+
       - name: Verify Windows ARM64 package
         if: matrix.id == 'windows-arm64'
         shell: pwsh
@@ -848,6 +885,14 @@ jobs:
         with:
           name: acecode-${{ matrix.id }}-update
           path: ${{ steps.linux-update.outputs.path }}
+          if-no-files-found: error
+
+      - name: Upload native Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: acecode-${{ matrix.id }}-setup
+          path: ${{ steps.windows-setup.outputs.path }}
           if-no-files-found: error
 
       - name: Upload macOS installer DMG
@@ -1294,7 +1339,7 @@ jobs:
             done
           fi
 
-          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.pkg' -o -name '*.dmg' \) -print0 |
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.pkg' -o -name '*.dmg' -o -name '*-setup.exe' \) -print0 |
             while IFS= read -r -d '' file; do
               cp "$file" "release-assets/$(basename "$file")"
             done

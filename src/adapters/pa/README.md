@@ -137,6 +137,17 @@ ServerRetryAfterIsHonoredBeyondRateLimitCap、`tests/agent/progress/agent_progre
 完全不干预。进程级、不落盘 —— 服务端限制会变,把一次偶发低水位永久钉死
 比不学更糟。
 
+**2026-11-04 起先压缩、压缩没解决才记账**(用户:「上下文过大的时候尝试压缩,
+如果失败才考虑收缩」)。确认拒收只说明这次请求太大,多半是历史长到了墙上,一次
+摘要压缩就能绕过去;以前一确认就记账,压缩阈值立刻下调,之后整个进程里这个模型
+都提前压缩。现在 PA 兜底与通用恢复链在确认拒收后都先跑一次自动压缩
+(`compact_history_for_overflow` → `CompactionController::run_auto`,摘要失败时
+它自己退到机械修剪),压缩期间不记账;只有压缩没做成、或压缩后的请求仍被拒,才
+记一次账,**规模按压缩前那次确认拒收的请求**(`RescueState::confirmed_rejected_tokens`
+/ `OverflowCompactionEpisode::rejected_tokens`)—— 压缩后的请求小得多,拿它当
+上限会把窗口砍过头。代价:声明窗口真的虚高时,每长到那堵墙会多撞一次再压缩,
+而不是提前压缩;用户接受这个代价。
+
 **收敛之后能回升(AIMD)**:只降不升是错的 —— 内网模型的实际容量随负载浮动,
 不是测准一次就永远成立的常量。一次低谷期的偶发拒绝会把窗口永久钉死(进程内),
 之后所有高峰期都在白白浪费上下文。所以照抄 TCP 拥塞控制那套:
@@ -191,12 +202,14 @@ exhausted」。
 (纯函数),按顺序:
 
 被拒的请求带着内联图片时,先走第 6 条的「撤图片」再看下面这些。
-以下四步只适用于仍达到 40k 的请求;低于下限时直接进入上述保留上下文的等待
+以下五步只适用于仍达到 40k 的请求;低于下限时直接进入上述保留上下文的等待
 (最多 12 次)。
 
 1. **原样重发** 2 次(2 秒、5 秒)。先当它是抽风:过了就一点上下文都不丢,
    也不给学习器记账。
-2. **逐档收缩**,每次被拒把请求缩到上一次的 85%,按「最占地方、最能找回」的
+2. **先压缩**(2026-11-04 起,见第 2 条):每个 episode 一次自动压缩后重发,
+   不记账。压缩没做成就在同一次调用里直接进下一步;紧急档请求被拒也先压缩。
+3. **逐档收缩**,每次被拒把请求缩到上一次的 85%,按「最占地方、最能找回」的
    顺序腾空间:先从最旧的开始清整段历史里的工具输出(最近一条工具结果保留,
    按位置数,哪怕它很短),再清体积超 4KB 的工具调用参数(典型是 file_write
    的整篇文件);还不够就**精简**老回合 —— 只删工具往返,保留用户消息、压缩
@@ -207,8 +220,8 @@ exhausted」。
    **旧顺序是先整组丢老回合**(反馈 LINDANDAN069,模型 aicoder-pro):一次拒收
    把最初的任务说明、用户的多次纠正和压缩摘要一起删掉,而真正腾出空间的是随后
    清掉的工具输出 —— 模型此后「忘了」任务要求和刚总结的做法。别改回去。
-3. **紧急档**。
-4. **等待重发**:5 秒起、每次翻倍、封顶 60 秒,最多 12 次(约 9.5 分钟),
+4. **紧急档**。
+5. **等待重发**:5 秒起、每次翻倍、封顶 60 秒,最多 12 次(约 9.5 分钟),
    界面持续显示等待状态,用户可随时停止。只有这个也耗尽才报错。
 
 配套的两条:兜底刚做完一步的那次重发跳过自动压缩(`skip_auto_compact_once_`,
@@ -216,14 +229,21 @@ exhausted」。
 就把 episode 状态清零,同一回合后面再被拒是新的一轮,从原样重发重新开始。
 
 **学习器的记账规则也跟着收紧**:一个 episode 只记最初那次确认拒收(原样重发也
-失败)的规模,后面越缩越小的被拒规模不记 —— 否则一串级联的拒绝会把窗口砍到
-远小于真实上限;紧急档请求永远不记,它没有工具定义与注入上下文,规模不代表
-正常请求能过的上限(这正是「永远在压缩」那个坑的另一个入口)。
+失败)的规模,而且要等压缩也没解决才记;后面越缩越小的被拒规模不记 —— 否则一串
+级联的拒绝会把窗口砍到远小于真实上限;紧急档请求永远不记,它没有工具定义与注入
+上下文,规模不代表正常请求能过的上限(这正是「永远在压缩」那个坑的另一个入口)。
+通用恢复链同口径:先压缩,没解决才按压缩前的规模记一次,然后修剪历史 → 紧急档。
 
 回归测试:`tests/pa/pa_overflow_rescue_test.cpp`(决策表)、
 `tests/session/thread_repair_test.cpp` 的 `Clears*` 用例(清工具输出)、
 `tests/agent/agent_loop_pa_rescue_test.cpp`(端到端,含截图那种「同回合
-第二次撞墙」的场景)。
+第二次撞墙」的场景)。先压缩:`pa_overflow_rescue_test.cpp` 的 `CompactsOnce*` /
+`ShrinksAndRecordsTheConfirmedSize*`、`pa_rescue_driver_test.cpp` 的
+`CompactsFirstThenChargesThePreCompactionSizeOnce` / `FailedCompaction*` /
+`CancelledCompaction*`、`agent_loop_pa_rescue_test.cpp` 的 `CompactsBeforeLoweringTheBudget`
+/ `LowersTheBudgetOnlyAfterTheCompactedRequestIsRejected`、
+`agent_loop_compact_events_test.cpp` 的 `ContextOverflowCompactsBeforeLoweringTheBudget`
+/ `CompactedRequestStillRejectedLowersTheBudgetOnce`。
 
 ### 6. 图片被当作文本撑爆请求(2026-10-16,反馈 LINDANDAN069)
 

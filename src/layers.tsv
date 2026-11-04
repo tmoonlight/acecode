@@ -49,6 +49,7 @@ module	src/apps/headless/	headless	apps	62					D1 D2 D15
 module	src/apps/desktop/	desktop	apps	63					D1 D2 D15
 module	src/apps/daemon/	daemon	apps	64					D1 D2 D15
 module	src/apps/cli/	cli	apps	65					D1 D2 D15
+module	src/apps/installer/	installer	apps	66					Self-built Windows installer; reuses the desktop splash animation
 forbid	src/domain/*				R3	provider			Domain never depends on provider
 forbid	src/domain/*				R3	@cpr			Domain never depends on CPR
 forbid	src/adapters/provider/*				R3	feedback			-

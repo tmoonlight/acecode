@@ -59,6 +59,13 @@ bool parse_settings(const std::string& text,
         }
         parsed.enabled = it->get<bool>();
     }
+    if (auto it = doc.find("write_file_default_applied"); it != doc.end()) {
+        if (!it->is_boolean()) {
+            set_error(error, "'write_file_default_applied' must be a boolean");
+            return false;
+        }
+        parsed.write_file_default_applied = it->get<bool>();
+    }
     if (auto it = doc.find("rewrites"); it != doc.end()) {
         if (!it->is_object()) {
             set_error(error, "'rewrites' must be an object of native → public names");
@@ -96,6 +103,7 @@ std::string serialize_settings(const ToolRewriteSettings& settings) {
         {"version", kSettingsVersion},
         {"enabled", settings.enabled},
         {"rewrites", rewrites},
+        {"write_file_default_applied", settings.write_file_default_applied},
     };
     return doc.dump(2) + "\n";
 }
@@ -129,7 +137,16 @@ ToolRewriteSettings load_settings(const std::string& path, std::string* error) {
     if (error) error->clear();
     std::error_code ec;
     const auto fs_path = path_from_utf8(path);
-    if (!std::filesystem::exists(fs_path, ec) || ec) return default_settings();
+    const bool exists = std::filesystem::exists(fs_path, ec);
+    if (ec) {
+        set_error(error, "cannot inspect " + path);
+        return default_settings();
+    }
+    if (!exists) return default_settings();
+    if (!std::filesystem::is_regular_file(fs_path, ec) || ec) {
+        set_error(error, "not a readable settings file: " + path);
+        return default_settings();
+    }
 
     std::ifstream in(fs_path, std::ios::binary);
     if (!in.is_open()) {
@@ -138,6 +155,10 @@ ToolRewriteSettings load_settings(const std::string& path, std::string* error) {
     }
     const std::string text((std::istreambuf_iterator<char>(in)),
                            std::istreambuf_iterator<char>());
+    if (in.bad()) {
+        set_error(error, "cannot read " + path);
+        return default_settings();
+    }
 
     ToolRewriteSettings parsed;
     std::string parse_error;
@@ -157,7 +178,9 @@ bool save_settings(const std::string& path,
                    const ToolRewriteSettings& settings,
                    std::string* error) {
     if (!validate_settings(settings, error)) return false;
-    if (!atomic_write_file(path, serialize_settings(settings))) {
+    auto persisted = settings;
+    persisted.write_file_default_applied = true;
+    if (!atomic_write_file(path, serialize_settings(persisted))) {
         set_error(error, "cannot write " + path);
         return false;
     }
@@ -180,6 +203,26 @@ ToolRewriteSettings load_and_apply(const std::string& data_dir) {
     ToolRewriteSettings settings = load_settings(path, &error);
     if (!error.empty()) {
         LOG_WARN("Ignoring tool rewrites: " + error);
+    } else if (!settings.write_file_default_applied) {
+        auto migrated = settings;
+        if (!migrated.enabled) {
+            migrated.enabled = true;
+            const auto write = std::find_if(migrated.rewrites.begin(), migrated.rewrites.end(),
+                [](const ToolProtocolNameMapping& mapping) {
+                    return mapping.native_name == "file_write";
+                });
+            if (write == migrated.rewrites.end()) {
+                migrated.rewrites.push_back({"file_write", "write_file"});
+            } else {
+                write->public_name = "write_file";
+            }
+        }
+        migrated.write_file_default_applied = true;
+        if (save_settings(path, migrated, &error)) {
+            settings = std::move(migrated);
+        } else {
+            LOG_WARN("Cannot migrate tool rewrite defaults: " + error);
+        }
     }
     std::string apply_error;
     if (!apply_to_process(settings, &apply_error)) {

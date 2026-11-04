@@ -1,5 +1,12 @@
 # ACECode Windows installer
 
+Two installers live here:
+
+- `make_setup.py` builds the self-made installer (`acecode-setup.exe` plus an embedded package, no third-party packaging tool). It takes over an existing Inno installation in the same folder. Design, build steps and verification are in [docs/windows-installer.md](../../docs/windows-installer.md).
+- `acecode.iss` / `build.ps1` below are the earlier Inno Setup package, kept until the self-made installer replaces it in releases.
+
+## Inno Setup package
+
 Navy-themed Inno Setup package for ACECode Desktop.
 
 ## Build

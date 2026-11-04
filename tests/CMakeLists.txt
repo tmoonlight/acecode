@@ -31,6 +31,12 @@ if(Python3_Interpreter_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/scripts/macos_portable_package_test.py
     )
     set_tests_properties(macos_portable_package_unit PROPERTIES LABELS "unit")
+    add_test(
+        NAME windows_setup_builder_unit
+        COMMAND ${Python3_EXECUTABLE} -B
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/make_setup_test.py
+    )
+    set_tests_properties(windows_setup_builder_unit PROPERTIES LABELS "unit")
 endif()
 
 if(UNIX)

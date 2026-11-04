@@ -124,6 +124,9 @@ jobs:
           python3 -m unittest discover -s tests/scripts -p 'dev_*test.py'
           python3 tests/scripts/verify_release_assets_test.py
           python3 tests/scripts/verify_deepin_package_test.py
+          python3 tests/scripts/make_setup_test.py
+          python3 tests/scripts/windows_setup_release_test.py
+          python3 tests/scripts/windows_installer_mirror_test.py
 
       - name: Build web UI
         run: pnpm build

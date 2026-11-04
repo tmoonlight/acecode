@@ -2389,6 +2389,11 @@ Returns the active or persisted session permission mode:
 {"mode":"default","description":"Prompt for write/exec tools"}
 ```
 
+For a session that is not loaded yet, the persisted meta is looked up by id.
+Optional `?workspace=<hash>` limits that lookup to one project; without it the
+daemon searches its own cwd, every registered project and no-workspace
+sessions. Unknown sessions return `404`.
+
 ### `PUT /api/sessions/:id/permissions`
 
 Body:
@@ -4527,8 +4532,8 @@ tool list sent to the provider, `tool_calls[].function.name` in replayed
 history, the system prompt, tool descriptions and the error/guard texts tools
 emit all use the rewritten name. Internal ids (session JSONL, permissions,
 hooks payloads, TUI/Web rows) stay native. Inbound calls are accepted under
-either name. This is an explicit opt-in for audit scenarios; the process
-default is no rewriting.
+either name. Startup applies the one-time default migration described below;
+users can subsequently disable or customize rewriting.
 
 The data is **not** part of `config.json`. It lives in
 `<data_dir>/tool_rewrites.json` next to `config.json`, shared by the daemon,
@@ -4536,18 +4541,33 @@ the TUI and headless mode, and is loaded once at startup before tool
 registration:
 
 ```json
-{ "version": 1, "enabled": false,
-  "rewrites": { "TodoWrite": "todowrite", "file_edit": "edit", "file_read": "read", "file_write": "write" } }
+{ "version": 1, "enabled": true, "write_file_default_applied": true,
+  "rewrites": { "TodoWrite": "todowrite", "file_edit": "edit", "file_read": "read", "file_write": "write_file" } }
 ```
 
+On the first successful startup migration per data directory, disabled or
+missing settings become enabled and `file_write` is mapped to `write_file`.
+Other existing mappings are retained; missing settings use the built-in seed
+with this one replacement. Already-enabled settings keep all mappings as-is.
+Both cases atomically persist `write_file_default_applied:true` with the
+settings. Later startups respect user changes, including disabling rewriting
+or changing/removing the mapping. The existing legacy `tool-rewrites.json`
+filename remains supported. Unreadable/invalid files are not overwritten;
+migration conflicts or write failures log a warning, retain the previous
+settings and allow retry at the next startup.
+
 `GET /api/config/tool-rewrites` re-reads the file and returns `enabled`,
-`rewrites` (`{native: public}`), `defaults` (the built-in seed above), `path`,
+`rewrites` (`{native: public}`), `defaults` (the built-in seed: `file_read -> read`,
+`file_write -> write`, `file_edit -> edit`, `TodoWrite -> todowrite`), `path`,
 `tools` (Builtin-source tools registered in this daemon, sorted by name, each
-`{name, description, read_only}`) and, only when the file could not be parsed,
-`warning`. A missing file reads as `enabled:false` with the seed rewrites.
+`{name, description, read_only}`) and, only when the file could not be read or validated,
+`warning`. This read-only endpoint does not run migration: a missing file
+reads as `enabled:false` with the seed rewrites until successful startup migration.
 
 `PUT /api/config/tool-rewrites` takes `{enabled, rewrites}` and replaces the
-whole document. Entries with an empty value or a value equal to the key are
+editable settings. Every successful save also records migration completion,
+independently of client-supplied metadata, so an explicit disable is preserved
+on restart. Entries with an empty value or a value equal to the key are
 dropped. Rules: every value matches `^[A-Za-z0-9_-]{1,64}$`, values are unique,
 a value never equals another registered tool name or another rewrite key.
 Violations return 400 `{error:"BAD_REQUEST", message}` without touching the

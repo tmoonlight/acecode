@@ -1,0 +1,32 @@
+#include <windows.h>
+
+1 ICON "@ACECODE_ICON_PATH@"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION @acecode_VERSION_MAJOR@,@acecode_VERSION_MINOR@,@acecode_VERSION_PATCH@,0
+ PRODUCTVERSION @acecode_VERSION_MAJOR@,@acecode_VERSION_MINOR@,@acecode_VERSION_PATCH@,0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "ACECode"
+            VALUE "FileDescription", "ACECode Setup"
+            VALUE "FileVersion", "@acecode_VERSION@"
+            VALUE "InternalName", "acecode-setup"
+            VALUE "LegalCopyright", "MIT License"
+            VALUE "OriginalFilename", "acecode-setup.exe"
+            VALUE "ProductName", "ACECode"
+            VALUE "ProductVersion", "@acecode_VERSION@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

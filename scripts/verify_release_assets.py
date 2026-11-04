@@ -11,6 +11,10 @@ import re
 # refreshed catalog while catching accidental debug/unstripped runtime bundles.
 # Change these intentionally with measured release evidence, never in CI itself.
 BASELINE_ASSET_BYTES = {
+    # v1.0.20 Windows ZIP (~24.4 MB) plus two measured native stubs (~1.04 MB
+    # each); round up to 27 MB before applying the same 50% release ceiling.
+    "ACECode-{version}-windows-x64-setup.exe": 27000000,
+    "ACECode-{version}-windows-arm64-setup.exe": 27000000,
     "acecode-windows-x64.zip": 21359678,
     "acecode-windows-arm64.zip": 21238037,
     "acecode-linux-x64.tar.gz": 19858984,
@@ -40,6 +44,7 @@ def required_asset_names(version):
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version):
         raise ValueError("Invalid release version")
     names = [f"acecode-windows-{arch}.zip" for arch in ("x64", "arm64")]
+    names += [f"ACECode-{version}-windows-{arch}-setup.exe" for arch in ("x64", "arm64")]
     names += [f"acecode-linux-{arch}.tar.gz" for arch in ("x64", "arm64", "armv7")]
     # Deepin ARMv7 stopped shipping after 1.0.7; a stray archive is rejected as unexpected.
     names += [f"acecode-linux-deepin-{arch}.tar.gz" for arch in ("x64", "arm64")]
@@ -59,7 +64,7 @@ def verify_release_assets(directory, version):
         raise ValueError("Every release asset requires an explicit size budget")
     found = defaultdict(list)
     for path in Path(directory).rglob("*"):
-        if not path.name.lower().endswith((".tar.gz", ".zip", ".pkg", ".dmg")):
+        if not path.name.lower().endswith((".tar.gz", ".zip", ".pkg", ".dmg", ".exe")):
             continue
         if path.is_symlink():
             raise ValueError(f"Release assets must not be symlinks: {path}")
@@ -94,4 +99,4 @@ if __name__ == "__main__":
         assets = verify_release_assets(args.directory, args.version)
     except (OSError, ValueError) as error:
         parser.exit(1, f"{error}\n")
-    print(f"Verified {len(assets)} required release assets, including Deepin and both macOS PKGs.")
+    print(f"Verified {len(assets)} required release assets, including both Windows installers and macOS PKGs.")

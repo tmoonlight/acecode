@@ -6,6 +6,7 @@
 #include "agent/compaction/compact_prompt.hpp"
 #include "permissions/permissions.hpp"
 #include "llm/llm_provider.hpp"
+#include "llm/token_estimate.hpp"
 #include "pa/pa_context_budget.hpp"
 #include "session/compact_checkpoint.hpp"
 #include "session/compact_notice.hpp"
@@ -37,13 +38,19 @@ using namespace std::chrono_literals;
 
 namespace {
 
-acecode::AgentLoopServices with_isolated_budget(acecode::AgentLoopServices services) {
+acecode::AgentLoopServices with_budget(
+    acecode::AgentLoopServices services,
+    std::shared_ptr<acecode::pa::ContextBudgetLearner> learner) {
     // The runtime callback owns this test's learner for the loop's lifetime.
-    auto learner = std::make_shared<acecode::pa::ContextBudgetLearner>();
     services.runtime.context_budget = [learner]() -> acecode::pa::ContextBudgetLearner& {
         return *learner;
     };
     return services;
+}
+
+acecode::AgentLoopServices with_isolated_budget(acecode::AgentLoopServices services) {
+    return with_budget(std::move(services),
+                       std::make_shared<acecode::pa::ContextBudgetLearner>());
 }
 
 class CompactEventProvider : public acecode::LlmProvider {
@@ -1019,6 +1026,10 @@ TEST(AgentLoopCompactEvents, FailedAutoCompactIsAtomicAndRetriesOnNextTurn) {
     EXPECT_TRUE(request_contains(loop.messages(), "old assistant 0"));
 }
 
+// 触发场景:通用超限报文拒收 4 万以上的请求;桩 provider 的摘要为空,压缩落到
+// 机械修剪兜底。
+// 期望行为:先压缩(这里是机械兜底丢掉最旧的历史)再重发同一输入,重发被收下;
+// 压缩解决了问题,压缩阈值不下调。
 TEST(AgentLoopCompactEvents, ContextOverflowRepairsHistoryAndRetriesSameInputOnce) {
     auto provider = std::make_shared<acecode_test::StubLlmProvider>();
     provider->push_error(make_context_overflow_error());
@@ -1050,6 +1061,98 @@ TEST(AgentLoopCompactEvents, ContextOverflowRepairsHistoryAndRetriesSameInputOnc
                       session.load_active_messages(), "latest user request"),
                   1u);
         EXPECT_FALSE(has_system_event(events, "[Rescue compact]"));
+        EXPECT_FALSE(has_system_event(events, "压缩阈值下调"));
+        session.finalize();
+    }
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+// 触发场景:通用超限报文拒收 4 万以上的请求,摘要压缩能成功。
+// 期望行为:先做摘要压缩再重发,重发被收下;学习器没有观测,没有「压缩阈值下调」。
+// 回归背景(用户 2026-11-04):旧恢复链一被拒就先记账,压缩阈值立刻下调,之后
+// 这个模型整个进程里都提前压缩,而那次拒收本来一次压缩就能解决。
+TEST(AgentLoopCompactEvents, ContextOverflowCompactsBeforeLoweringTheBudget) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    provider->set_compaction_summary("Summary after overflow.");
+    provider->push_error(make_context_overflow_error());
+    provider->push_text("recovered after compaction");
+    auto learner = std::make_shared<acecode::pa::ContextBudgetLearner>();
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    const auto cwd = make_temp_cwd("context_overflow_compact_first");
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    {
+        acecode::SessionManager session;
+        session.start_session(cwd.string(), "stub", "model");
+        acecode::AgentLoop loop(
+            with_budget(acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session), learner),
+            acecode_test::AgentLoopFixture::configuration(cwd.string()));
+        loop.start();
+        loop.set_context_window(1000000);
+        add_history(loop, 2, 45000);
+
+        const auto events = wait_for_done(
+            loop, [&] { loop.submit("latest user request"); });
+
+        ASSERT_EQ(provider->turn_count(), 2);
+        const auto retried = provider->messages_for_turn(1);
+        EXPECT_TRUE(request_contains(retried, "Summary after overflow."));
+        EXPECT_TRUE(request_contains(retried, "latest user request"));
+        EXPECT_FALSE(request_contains(retried, "old assistant 0"));
+        EXPECT_TRUE(request_contains(loop.messages(), "recovered after compaction"));
+        EXPECT_FALSE(has_system_event(events, "压缩阈值下调"));
+        EXPECT_FALSE(learner->has_observation(provider->name(), provider->model()));
+        session.finalize();
+    }
+    std::filesystem::remove_all(project_dir);
+    std::filesystem::remove_all(cwd);
+}
+
+// 触发场景:通用超限报文拒收,摘要压缩成功,但压缩后的请求(仍在 4 万以上)又被拒。
+// 期望行为:这时才记账一次、发「压缩阈值下调」,规模按压缩前被拒的请求;之后照旧
+// 修剪历史再重发,重发被收下。
+TEST(AgentLoopCompactEvents, CompactedRequestStillRejectedLowersTheBudgetOnce) {
+    auto provider = std::make_shared<acecode_test::StubLlmProvider>();
+    // 约 2.5 万 token 的摘要 + 最多 2 万 token 的保留用户消息:压缩后仍在下限之上。
+    provider->set_compaction_summary("Long summary " + std::string(100000, 'S'));
+    provider->push_error(make_context_overflow_error());
+    provider->push_error(make_context_overflow_error());
+    provider->push_text("recovered after repair");
+    auto learner = std::make_shared<acecode::pa::ContextBudgetLearner>();
+    acecode::ToolExecutor tools;
+    acecode::PermissionManager permissions;
+    const auto cwd = make_temp_cwd("context_overflow_compact_then_learn");
+    const std::string project_dir =
+        acecode::SessionStorage::get_project_dir(cwd.string());
+    std::filesystem::remove_all(project_dir);
+    {
+        acecode::SessionManager session;
+        session.start_session(cwd.string(), "stub", "model");
+        acecode::AgentLoop loop(
+            with_budget(acecode_test::AgentLoopFixture::dependencies([&]() -> std::shared_ptr<acecode::LlmProvider> { return provider; }, tools, {}, permissions, &session), learner),
+            acecode_test::AgentLoopFixture::configuration(cwd.string()));
+        loop.start();
+        loop.set_context_window(1000000);
+        add_history(loop, 4, 45000);
+
+        const auto events = wait_for_done(
+            loop, [&] { loop.submit("latest user request"); });
+
+        ASSERT_EQ(provider->turn_count(), 3);
+        const auto compacted = provider->messages_for_turn(1);
+        ASSERT_TRUE(request_contains(compacted, "Long summary"));
+        const int compacted_tokens = acecode::estimate_message_tokens(compacted);
+        ASSERT_GE(compacted_tokens, 40000);
+        EXPECT_TRUE(has_system_event(events, "压缩阈值下调"));
+        const auto observations = learner->snapshot();
+        ASSERT_EQ(observations.size(), 1u);
+        EXPECT_EQ(observations[0].rejections, 1);
+        EXPECT_GT(observations[0].lowest_rejected_tokens, compacted_tokens)
+            << "记账规模必须是压缩前被拒的请求";
+        EXPECT_TRUE(request_contains(loop.messages(), "recovered after repair"));
         session.finalize();
     }
     std::filesystem::remove_all(project_dir);

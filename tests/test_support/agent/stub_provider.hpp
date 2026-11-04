@@ -123,12 +123,26 @@ public:
 
     // LlmProvider interface -------------------------------------------------
 
+    // 非流式路径只有摘要压缩会走。默认返回空正文(摘要被判无效,压缩退到机械
+    // 修剪);设了摘要就原样返回,模拟一次成功的摘要压缩。
+    void set_compaction_summary(std::string summary) {
+        std::lock_guard<std::mutex> lk(mu_);
+        compaction_summary_ = std::move(summary);
+    }
+
+    int compaction_calls() const {
+        std::lock_guard<std::mutex> lk(mu_);
+        return compaction_calls_;
+    }
+
     acecode::ChatResponse chat(
         const std::vector<acecode::ChatMessage>& /*messages*/,
         const std::vector<acecode::ToolDef>& /*tools*/) override {
-        // Non-streaming path unused by AgentLoop; return an empty text.
         acecode::ChatResponse r;
         r.finish_reason = "stop";
+        std::lock_guard<std::mutex> lk(mu_);
+        ++compaction_calls_;
+        r.content = compaction_summary_;
         return r;
     }
 
@@ -249,6 +263,8 @@ private:
     std::vector<std::vector<acecode::ToolDef>> request_tools_;
     int turn_count_ = 0;
     int latency_ms_ = 0;
+    std::string compaction_summary_;
+    int compaction_calls_ = 0;
 };
 
 } // namespace acecode_test

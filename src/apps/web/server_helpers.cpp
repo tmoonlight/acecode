@@ -2592,6 +2592,16 @@ std::optional<SessionModelState> WebServer::Impl::current_model_state_for_sessio
         return active;
     }
 
+    const auto meta = find_disk_session_meta(session_id, workspace_hash_hint);
+    if (!meta) return std::nullopt;
+    return deps.session_registry->model_state_from_meta(*meta);
+}
+
+std::optional<SessionMeta> WebServer::Impl::find_disk_session_meta(
+    const std::string& session_id,
+    const std::string& workspace_hash_hint) const {
+    if (session_id.empty()) return std::nullopt;
+
     std::vector<acecode::desktop::WorkspaceMeta> workspaces;
     if (!workspace_hash_hint.empty()) {
         if (auto ws = resolve_workspace(workspace_hash_hint)) {
@@ -2618,17 +2628,9 @@ std::optional<SessionModelState> WebServer::Impl::current_model_state_for_sessio
         if (candidates.empty()) continue;
         if (candidates.front().meta_path.empty()) continue;
         auto meta = SessionStorage::read_meta(candidates.front().meta_path);
-        if (meta.id.empty()) continue;
-        if (auto state = deps.session_registry->model_state_from_meta(meta)) {
-            return state;
-        }
+        if (!meta.id.empty()) return meta;
     }
-    if (auto meta = find_no_workspace_session_meta(session_id)) {
-        if (auto state = deps.session_registry->model_state_from_meta(*meta)) {
-            return state;
-        }
-    }
-    return std::nullopt;
+    return find_no_workspace_session_meta(session_id);
 }
 
 } // namespace acecode::web
