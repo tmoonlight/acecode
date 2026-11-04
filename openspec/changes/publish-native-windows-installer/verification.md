@@ -20,3 +20,9 @@
 ## Limits
 
 Windows installers remain unsigned. ARM64 native execution and UI are not locally tested; CI validates its PE architecture and embedded payload identity. Platform-specific skips and the disabled native test are not counted as passes. Tagged artifacts and public downloads are verified by the release workflow and retained in the release report.
+
+## Versioned release candidate
+
+The final 1.0.21 Windows candidate ZIP has SHA256 `92f516bc8286f80d2f0fc8016acb78b1ab6f870aa0388e9801ce5029c7d3956f` (26,312,980 bytes). Its executable reports `acecode v1.0.21`.
+
+Using the actual v1.0.20 ZIP to initialize an isolated profile, upgrading this candidate advanced seed `2026-10-16.1` to `2026-11-05.1`, installed and recorded ownership of `inline-visuals`, repaired an absent managed hook with an equal marker, preserved a user-modified skill, and did not downgrade a newer marker. The 1.0.21 setup passed resource verification and the cross-volume install/uninstall smoke. These package checks are repeated against the downloaded tagged Windows asset before release completion; final GitHub asset hashes are recorded in the release report.

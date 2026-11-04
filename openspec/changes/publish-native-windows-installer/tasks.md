@@ -14,7 +14,7 @@
 ## 3. Integration verification
 
 - [x] 3.1 Wait for installer completion, review the stable combined snapshot, and pass applicable static, native and web checks; record evidence and limitations.
-- [ ] 3.2 Validate OpenSpec and the final release package's seed upgrade and equal-version managed-hook repair with an isolated profile; record package identity and results.
+- [x] 3.2 Validate OpenSpec and the final release package's seed upgrade and equal-version managed-hook repair with an isolated profile; record package identity and results.
 
 ## Workflow follow-up
 
