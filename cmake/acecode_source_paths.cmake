@@ -9,7 +9,8 @@ set(ACECODE_DESKTOP_MAIN_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/main.cpp"
 set(ACECODE_MACOS_CLI_LAUNCHER_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/macos_cli_launcher.cpp")
 set(ACECODE_DESKTOP_SPLASH_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/splash_screen.cpp")
 set(ACECODE_DESKTOP_WEB_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/web_host.cpp")
-set(ACECODE_DESKTOP_PET_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp")
+set(ACECODE_DESKTOP_PET_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp"
+    "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet_crystal_win.cpp")
 set(ACECODE_DESKTOP_PET_MAC_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet_mac.mm")
 set(ACECODE_DESKTOP_LINUX_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/linux_desktop.cpp")
 set(ACECODE_AGENT_BROWSER_HOST_SOURCE "${CMAKE_SOURCE_DIR}/src/apps/desktop/agent_browser_host.cpp"
@@ -98,7 +99,8 @@ set(ACECODE_MICROPHONE_PERMISSION_SMOKE_SOURCES
 set(ACECODE_MINI_PET_INPUT_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/mini_pet_input_smoke.cpp
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE}
-    ${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp)
+    ${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet.cpp
+    ${CMAKE_SOURCE_DIR}/src/apps/desktop/desktop_pet_crystal_win.cpp)
 set(ACECODE_RENDERER_RECOVERY_SMOKE_SOURCES
     ${CMAKE_SOURCE_DIR}/tests/desktop/helpers/renderer_recovery_smoke.cpp
     ${ACECODE_DESKTOP_WEB_HOST_SOURCE})

@@ -80,7 +80,7 @@ console.log('[pass] office preferences opt-in, legacy announcement flags ignored
   const { store, emit } = fixture();
   store.start(); await flush();
   assert.equal(store.getSnapshot().petKind, 'office', 'old hosts default to the office');
-  for (const petKind of ['clippy', 'rover', 'whale', 'mini', 'office']) {
+  for (const petKind of ['clippy', 'rover', 'whale', 'crystal', 'mini', 'office']) {
     assert.equal((await store.setPetKind(petKind)).ok, true);
     assert.equal(store.getSnapshot().petKind, petKind);
     assert.equal(store.getSnapshot().enabled, false, 'choosing a pet does not enable it');

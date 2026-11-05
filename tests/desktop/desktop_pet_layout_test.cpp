@@ -346,18 +346,48 @@ TEST(DesktopPetLayout, DockSideDependsOnDistanceToTheWorkAreaEdge) {
 
 // 场景:拖到屏幕边松手 / 右键菜单切换宠物时,判断当前宠物能不能吸附到左右边。
 // bug 表现:吸附曾写死只认 "whale",回形针和 Rover 拖到边上只会被拉回工作区,也没有偷看的样子。
-// 期望:三只陪伴宠物都有趴边偷看素材(peek.png),可以吸附;虚拟办公室、空串、大小写不符的 id 不吸附。
-// 菜单里每加一种陪伴宠物都要配一张 peek.png,循环那段就是提醒。
+// 期望:三只像素陪伴宠物都有趴边偷看素材(peek.png),可以吸附;虚拟办公室、mini、水晶球
+// (自己用 WebGL 画、没有偷看素材)、空串、大小写不符的 id 不吸附。
+// 菜单里每加一种带素材的陪伴宠物都要配一张 peek.png,循环那段就是提醒。
 TEST(DesktopPetLayout, CompanionPetsHaveEdgePeekButTheOfficeDoesNot) {
     EXPECT_TRUE(desktop_pet_has_edge_peek("clippy"));
     EXPECT_TRUE(desktop_pet_has_edge_peek("rover"));
     EXPECT_TRUE(desktop_pet_has_edge_peek("whale"));
     EXPECT_FALSE(desktop_pet_has_edge_peek("office"));
     EXPECT_FALSE(desktop_pet_has_edge_peek("mini"));
+    EXPECT_FALSE(desktop_pet_has_edge_peek("crystal"));
     EXPECT_FALSE(desktop_pet_has_edge_peek(""));
     EXPECT_FALSE(desktop_pet_has_edge_peek("Whale"));
-    for (const auto& kind : kDesktopPetKinds)
-        EXPECT_EQ(desktop_pet_has_edge_peek(kind.id), std::string_view(kind.id) != "office" && std::string_view(kind.id) != "mini") << kind.id;
+    for (const auto& kind : kDesktopPetKinds) {
+        const std::string_view id = kind.id;
+        EXPECT_EQ(desktop_pet_has_edge_peek(id), id != "office" && id != "mini" && id != "crystal") << kind.id;
+    }
+}
+
+// 场景:设置页 / 右键菜单选「水晶球」,以及从水晶球切回别的宠物。
+// 期望:crystal 是合法的宠物 id(office.json 里存了能读回来),排在鲸鱼娘之后、mini 之前(与设置页同序);
+// 它有自己的页面(crystal_pet.html),和三只像素宠物互切时必须重新加载页面,
+// 否则旧页面收到 pet-character 也画不出水晶球,抓屏透镜也不会在 ready 时接上。
+TEST(DesktopPetLayout, CrystalBallIsValidAndLoadsItsOwnPage) {
+    EXPECT_TRUE(desktop_pet_valid_kind("crystal"));
+    EXPECT_FALSE(desktop_pet_valid_kind("Crystal"));
+    std::size_t crystal = kDesktopPetKinds.size(), whale = crystal, mini = crystal;
+    for (std::size_t i = 0; i < kDesktopPetKinds.size(); ++i) {
+        const std::string_view id = kDesktopPetKinds[i].id;
+        if (id == "crystal") crystal = i;
+        if (id == "whale") whale = i;
+        if (id == "mini") mini = i;
+    }
+    ASSERT_LT(crystal, kDesktopPetKinds.size());
+    EXPECT_EQ(crystal, whale + 1);
+    EXPECT_EQ(mini, crystal + 1);
+    EXPECT_TRUE(desktop_pet_shares_page("crystal", "crystal"));
+    for (const auto* other : {"office", "clippy", "rover", "whale", "mini"}) {
+        EXPECT_FALSE(desktop_pet_shares_page("crystal", other)) << other;
+        EXPECT_FALSE(desktop_pet_shares_page(other, "crystal")) << other;
+    }
+    // 缩放记在陪伴宠物共用的 settings.json,不占 mini 的独立配置。
+    EXPECT_STREQ(desktop_pet_scale_file("crystal"), "settings.json");
 }
 
 TEST(DesktopPetLayout, MiniIsValidButRequiresItsOwnPage) {

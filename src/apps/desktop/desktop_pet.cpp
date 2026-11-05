@@ -2,6 +2,7 @@
 #include "web_host.hpp"
 
 #include "desktop_pet_layout.hpp"
+#include "desktop_pet_crystal_win.hpp"
 #include "desktop_office_service.hpp"
 #include "desktop_pet_resources.hpp"
 #include "platform/native_ui/notifications.hpp"
@@ -59,8 +60,10 @@ constexpr wchar_t kPetWindowClass[] = L"ACECodeDesktopPetWindow";
 constexpr UINT kMsgStartDrag = WM_APP + 0x41;
 constexpr UINT kMsgShowMenu = WM_APP + 0x42;
 constexpr UINT kMsgStartResize = WM_APP + 0x43;
+constexpr UINT kMsgCrystalFrame = WM_APP + 0x44;
 constexpr UINT_PTR kRevealTimer = 1;
 constexpr UINT_PTR kResizeTimer = 2;
+constexpr UINT_PTR kCrystalTimer = 3;   // 水晶球:约 60Hz 发鼠标位置、安排抓屏
 // 拖把手期间约 60Hz 轮询鼠标:不依赖鼠标捕获(按下时捕获在 WebView2 的子窗口手里)。
 constexpr UINT kResizePollMs = 15;
 constexpr double kZoomStep = 1.1;   // 滚轮一格 / 菜单一次
@@ -234,8 +237,16 @@ struct PetController : std::enable_shared_from_this<PetController> {
     int docked_side = 0;          // 陪伴宠物吸附在工作区左(-1)/右(+1)边,0 = 未吸附
     DesktopPetRect resize_start{};
     POINT resize_cursor{};
+    std::unique_ptr<CrystalLens> crystal;   // 只在水晶球页面就绪后存在
 
     ~PetController() { close(); }
+
+    // 水晶球页面就绪后接上抓屏透镜;换宠物、关闭时撤掉(析构会撤销显示亲和性)。
+    void crystal_lens(bool on) {
+        crystal.reset();
+        if (on && hwnd && environment && webview) crystal = std::make_unique<CrystalLens>(hwnd, kMsgCrystalFrame, environment.Get(), webview.Get());
+        if (hwnd) crystal ? (void)::SetTimer(hwnd, kCrystalTimer, 16, nullptr) : (void)::KillTimer(hwnd, kCrystalTimer);
+    }
 
     std::function<void()> on_closed;
     // 右键菜单选了别的宠物:交给服务保存并切换(服务再回调 set_pet_kind)。
@@ -243,6 +254,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
 
     void set_pet_kind(const std::string& kind) {
         if (pet_kind == kind) return;
+        crystal_lens(false);
         if (mini_popup) set_mini_popup(false);
         set_mini_input(false);
         const bool resize_kind = kind == "mini" || pet_kind == "mini";
@@ -386,6 +398,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
         if (type_field == value.end() || !type_field->is_string()) return;
         const auto type = type_field->get<std::string>();
         if (message.size() > 16384 && !desktop_pet_is_mini_action(type)) return;
+        if (type.rfind("crystal-", 0) == 0) { if (crystal) crystal->handle(value); return; }
         if (type == "mini-input") {
             const auto active = value.find("active");
             if (pet_kind == "mini" && active != value.end() && active->is_boolean()) set_mini_input(active->get<bool>());
@@ -624,6 +637,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
             publish_snapshot();
             publish_window_state();
             publish_dock();
+            crystal_lens(pet_kind == "crystal");
             if (mini_popup) set_mini_popup(true);
         } else if (!message.empty() && message.front() == L'{') {
             office_action(message);
@@ -898,6 +912,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
             if (wparam == SPI_SETWORKAREA && revealed && !user_moved) dock_to_corner();
             break;
         case WM_TIMER:
+            if (wparam == kCrystalTimer) { if (crystal) crystal->tick(); return 0; }
             if (wparam == kResizeTimer) {
                 resize_tick();
                 return 0;
@@ -917,6 +932,9 @@ struct PetController : std::enable_shared_from_this<PetController> {
             return 0;
         case kMsgStartResize:
             start_resize();
+            return 0;
+        case kMsgCrystalFrame:
+            if (crystal) crystal->on_captured();
             return 0;
         default:
             break;
@@ -939,6 +957,7 @@ struct PetController : std::enable_shared_from_this<PetController> {
     void close() {
         if (closed) return;
         closed = true;
+        crystal_lens(false);
         if (webview) {
             webview->remove_WebMessageReceived(message_token);
             webview->remove_NavigationCompleted(navigation_token);

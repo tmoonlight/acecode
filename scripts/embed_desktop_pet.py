@@ -1,4 +1,4 @@
-"""Embed the classic pet page, local scripts and the HD pet sheets without network IO."""
+"""Embed the classic and crystal pet pages, local scripts and the HD pet sheets without network IO."""
 
 import argparse
 import json
@@ -34,9 +34,9 @@ def bytes_of(name):
     return f"reinterpret_cast<const unsigned char*>({name}_words)"
 
 
-def embed(root, output):
-    root = root.resolve()
-    page = (root / "classic_pet.html").read_text(encoding="utf-8")
+def self_contained_page(root, name):
+    """The page with every local <script src> inlined; NavigateToString needs one self-contained string."""
+    page = (root / name).read_text(encoding="utf-8")
 
     def inline(match):
         source = (root / match[1]).resolve()
@@ -47,7 +47,15 @@ def embed(root, output):
     page = re.sub(r'<script src="([^\"]+)"></script>', inline, page)
     encoded = page.encode("utf-8")
     if len(encoded) >= 2 * 1024 * 1024 or '<script src=' in page:
-        raise ValueError("Pet page must be self-contained and below the WebView2 2 MiB limit")
+        raise ValueError(f"{name} must be self-contained and below the WebView2 2 MiB limit")
+    return encoded
+
+
+def embed(root, output):
+    root = root.resolve()
+    encoded = self_contained_page(root, "classic_pet.html")
+    # The crystal ball draws itself (WebGL) and needs no art sheets, only its page.
+    crystal = self_contained_page(root, "crystal_pet.html")
     output.parent.mkdir(parents=True, exist_ok=True)
     total = 0
     with output.open("w", encoding="utf-8", newline="\n") as out:
@@ -55,6 +63,9 @@ def embed(root, output):
         write_blob(out, "classic_pet_page", encoded)
         out.write(f"const unsigned char* classic_pet_page_data() {{ return {bytes_of('classic_pet_page')}; }}\n")
         out.write(f"std::size_t classic_pet_page_size() {{ return {len(encoded)}; }}\n")
+        write_blob(out, "crystal_pet_page", crystal)
+        out.write(f"const unsigned char* crystal_pet_page_data() {{ return {bytes_of('crystal_pet_page')}; }}\n")
+        out.write(f"std::size_t crystal_pet_page_size() {{ return {len(crystal)}; }}\n")
         for kind, folder in FOLDERS.items():
             # The pet peeking from a screen edge while docked (two frames: eyes open / blink).
             peek = (root / folder / "peek.png").read_bytes()
@@ -74,8 +85,8 @@ def embed(root, output):
             out.write(f"const unsigned char* {kind}_pet_sheet_data(std::size_t index) {{ return {kind}_sheets[index]; }}\n")
             out.write(f"std::size_t {kind}_pet_sheet_size(std::size_t index) {{ return {kind}_sheet_sizes[index]; }}\n")
         out.write("}\n")
-    print(f"Embedded companion pet page ({len(encoded)} bytes), 3 edge-peek sheets and "
-          f"{total / 1e6:.1f} MB of HD animation sheets")
+    print(f"Embedded companion pet page ({len(encoded)} bytes), crystal ball page ({len(crystal)} bytes), "
+          f"3 edge-peek sheets and {total / 1e6:.1f} MB of HD animation sheets")
 
 
 if __name__ == "__main__":

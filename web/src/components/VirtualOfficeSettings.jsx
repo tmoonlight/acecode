@@ -4,6 +4,7 @@ import { DESKTOP_PET_KINDS } from '../lib/desktopPetKinds.js';
 import clippyPreview from '../../../assets/desktop_pet/classic/clippy/preview.png';
 import roverPreview from '../../../assets/desktop_pet/classic/rover/preview.png';
 import whalePreview from '../../../assets/desktop_pet/whale/preview.png';
+import crystalPreview from '../../../assets/desktop_pet/crystal/preview.png';
 
 export function VirtualOfficeSettings({ office }) {
   return (
@@ -20,7 +21,7 @@ export function VirtualOfficeSettings({ office }) {
       <div className="mt-5 grid grid-cols-2 gap-3 max-w-2xl sm:grid-cols-4" role="radiogroup" aria-label="选择桌面宠物">
         {DESKTOP_PET_KINDS.map(pet => {
           const selected = (office?.petKind || 'office') === pet.id;
-          const preview = pet.id === 'clippy' ? clippyPreview : pet.id === 'rover' ? roverPreview : pet.id === 'whale' ? whalePreview : '';
+          const preview = { clippy: clippyPreview, rover: roverPreview, whale: whalePreview, crystal: crystalPreview }[pet.id] || '';
           return <button key={pet.id} type="button" role="radio" aria-checked={selected}
             disabled={!office?.available || office.busy} onClick={() => office?.setPetKind?.(pet.id)}
             className={`relative p-3 rounded-lg border text-left transition disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 ${selected ? 'border-accent bg-accent-bg' : 'border-border bg-surface hover:bg-surface-hi'}`}>

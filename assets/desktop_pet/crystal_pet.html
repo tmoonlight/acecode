@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACECode 桌面宠物</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
+body{font:12px/1.35 var(--pet-font);color:var(--pet-ink);user-select:none;-webkit-user-select:none}
+.scene{position:relative;width:100%;height:100%}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+/* Session cards sit above the ball exactly like the other companion pets (see classic_pet.html). */
+.stack{position:absolute;left:0;right:0;bottom:calc(58% - 10px);z-index:3;padding:calc(12px * var(--stack-fit, 1)) max(4%,16px) calc(26px * var(--stack-fit, 1));
+  font:calc(var(--pet-font-size) * var(--stack-fit, 1))/1.6 var(--pet-font)}
+.stack.collapsed.pinned{bottom:auto;top:0}
+.stack.expanded{bottom:auto;top:0;max-height:100%;overflow-y:auto;scrollbar-width:thin}
+.deck{position:relative;isolation:isolate;display:flex;flex-direction:column;gap:6px}
+.stack.collapsed .card:not(:first-child){display:none}
+.stack.collapsed.layers .deck::after,.stack.collapsed.layers-2 .deck::before{content:"";position:absolute;border-radius:1.6em;box-shadow:var(--card-shadow);z-index:-1}
+.stack.collapsed.layers .deck::after{left:4%;right:4%;top:8px;bottom:-7px;background:var(--card-ghost)}
+.stack.collapsed.layers-2 .deck::before{left:8%;right:8%;top:14px;bottom:-13px;background:var(--card-ghost-2);z-index:-2}
+.grip{position:absolute;width:16px;height:16px;cursor:nwse-resize;opacity:0;transition:opacity .15s;z-index:2}
+.grip:hover{opacity:1}
+.grip svg{width:100%;height:100%;fill:none;stroke:var(--pet-ink);stroke-width:2}
+.badge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--pet-ink);color:#fff;padding:3px 8px;border-radius:5px;pointer-events:none}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="scene" id="scene">
+  <div class="stack collapsed" id="stack" role="list" aria-label="会话动态" hidden><div class="deck" id="deck"></div></div>
+  <canvas id="cv" width="344" height="252" aria-label="水晶球，双击打开 ACECode"></canvas>
+  <div class="grip" id="grip" title="拖动调整大小，双击恢复默认大小" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7L7 2M2 11L11 2M2 15L15 2"/></svg></div>
+  <div class="badge" id="badge" hidden></div>
+</div>
+<script src="./pet_cards.js"></script>
+<script src="./crystal_pet.js"></script>
+</body>
+</html>

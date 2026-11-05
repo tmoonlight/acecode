@@ -197,6 +197,8 @@ if(WIN32 OR APPLE)
         DEPENDS ${CMAKE_SOURCE_DIR}/scripts/embed_desktop_pet.py
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.html
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic_pet.js
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/crystal_pet.html
+            ${CMAKE_SOURCE_DIR}/assets/desktop_pet/crystal_pet.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/pet_cards.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/agent.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/classic/clippy/peek.png
@@ -205,7 +207,7 @@ if(WIN32 OR APPLE)
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/agent.js
             ${CMAKE_SOURCE_DIR}/assets/desktop_pet/whale/peek.png
             ${ACECODE_CLASSIC_PET_HD}
-        COMMENT "Embedding Clippy, Rover and Whale Girl desktop pets"
+        COMMENT "Embedding Clippy, Rover, Whale Girl and the crystal ball desktop pets"
         VERBATIM
     )
     target_sources(acecode-desktop PRIVATE ${ACECODE_CLASSIC_PET_CPP})

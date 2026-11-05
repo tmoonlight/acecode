@@ -3,6 +3,7 @@ export const DESKTOP_PET_KINDS = Object.freeze([
   { id: 'clippy', label: '大眼回形针', description: '熟悉的回形针，陪你思考和工作。' },
   { id: 'rover', label: 'rover', description: '经典小狗，随任务状态做出反应。' },
   { id: 'whale', label: '鲸鱼娘', description: '蓝发鲸鱼娘，工作和休息都陪着你。' },
+  { id: 'crystal', label: '水晶球', description: '会眨眼的玻璃球，透出身后的桌面。' },
   { id: 'mini', label: 'mini' },
 ]);
 

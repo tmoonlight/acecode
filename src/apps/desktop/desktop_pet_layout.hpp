@@ -105,11 +105,12 @@ struct DesktopPetKind {
     const char* zh;
     const char* en;
 };
-inline constexpr std::array<DesktopPetKind, 5> kDesktopPetKinds{{
+inline constexpr std::array<DesktopPetKind, 6> kDesktopPetKinds{{
     {"office", "虚拟办公室", "Virtual office"},
     {"clippy", "大眼回形针", "Clippy"},
     {"rover", "rover", "Rover"},
     {"whale", "鲸鱼娘", "Whale Girl"},
+    {"crystal", "水晶球", "Crystal ball"},
     {"mini", "mini", "mini"},
 }};
 
