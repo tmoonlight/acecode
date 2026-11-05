@@ -67,7 +67,7 @@ if(APPLE)
         "-framework AppKit" "-framework UserNotifications")
 elseif(WIN32)
     target_link_libraries(acecode_base_core PRIVATE
-        bcrypt advapi32 ws2_32 ole32 shell32 user32 gdi32 msimg32 winmm)
+        bcrypt advapi32 ws2_32 ole32 oleaut32 uuid shell32 user32 gdi32 msimg32 winmm)
 endif()
 if(NOT WIN32)
     # platform/crypto 的 AES-256-GCM 在非 Windows 平台走 libcrypto。

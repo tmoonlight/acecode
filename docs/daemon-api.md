@@ -790,6 +790,13 @@ ACECode-managed roots. Empty, relative, missing, and unsupported target types
 remain invalid. Returns `{"ok":true}`. Returns `501` when the daemon has no
 desktop callback.
 
+On Windows the call runs on its own STA thread: files use
+`SHOpenFolderAndSelectItems` (falling back to `explorer.exe /select` only when
+it fails), directories use `ShellExecuteEx`. It returns once the Explorer
+window is visible (typically 0.3–0.6 s, capped at about 2 s) and raises that
+window if it opened behind the window that was in front when the request
+started.
+
 ### `GET /api/workspaces/:hash/sessions?archived=1`
 
 Returns `SessionSummary[]` for a workspace. Without `archived=1`, active and

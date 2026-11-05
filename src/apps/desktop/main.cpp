@@ -31,7 +31,7 @@
 #include "platform/locale.hpp"
 #include "platform/native_ui/notifications.hpp"
 #include "ipc/open_request.hpp"
-#include "platform/native_ui/open_in_explorer.hpp"
+#include "open_in_explorer_bridge.hpp"
 #include "pick_active.hpp"
 #include "single_instance.hpp"
 #include "instance_startup.hpp"
@@ -1066,6 +1066,7 @@ int main(int argc, char** argv) {
     }
     WebHost& host = *host_storage;
     acecode::LifetimeToken host_lifetime;
+    acecode::desktop::OpenInExplorerBridge open_in_explorer_bridge(host);
     startup_progress_host = &host;
     mark_startup("webhost_create_end");
     AgentBrowserHost agent_browser(
@@ -2184,23 +2185,6 @@ int main(int argc, char** argv) {
     host.bind("aceDesktop_setTrayMenu", [&](const std::string& req) -> std::string {
         try {
             set_tray_menu_payload(tray_menu_payload_from_bridge_request(req));
-            return nlohmann::json{{"ok", true}}.dump();
-        } catch (const std::exception& e) {
-            return nlohmann::json{{"ok", false}, {"error", std::string("parse: ") + e.what()}}.dump();
-        }
-    });
-
-    host.bind("aceDesktop_openInExplorer", [&](const std::string& req) -> std::string {
-        try {
-            auto arr = nlohmann::json::parse(req);
-            if (!arr.is_array() || arr.empty() || !arr[0].is_string()) {
-                return nlohmann::json{{"ok", false}, {"error", "expect [path]"}}.dump();
-            }
-            auto result = acecode::desktop::open_path_in_file_manager(
-                arr[0].get<std::string>());
-            if (!result.ok) {
-                return nlohmann::json{{"ok", false}, {"error", result.error}}.dump();
-            }
             return nlohmann::json{{"ok", true}}.dump();
         } catch (const std::exception& e) {
             return nlohmann::json{{"ok", false}, {"error", std::string("parse: ") + e.what()}}.dump();
