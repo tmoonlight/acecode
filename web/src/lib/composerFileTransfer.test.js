@@ -156,8 +156,34 @@ assert.equal(imageClipboard.files.length, 1);
 assert.equal(imageClipboard.files[0].type, 'image/png');
 assert.equal(imageClipboard.files[0].name, 'pasted_image.png');
 assert.equal(await imageClipboard.files[0].text(), 'png');
-assert.equal(imageClipboard.getData('text/html'), '');
-console.log('[pass] context clipboard chooses one image representation without duplicate HTML');
+// 图片旁边的 HTML 也读出来,交给粘贴处理统一判定;浏览器「复制图片」的 HTML 只有 <img>,
+// 判定仍然走图片附件,不会把 <img> 当文字重复插入。
+assert.equal(imageClipboard.getData('text/html'), '<img src="https://invalid.test/x">');
+assert.deepEqual(imageClipboard.types, ['text/html', 'Files']);
+console.log('[pass] context clipboard chooses one image representation and keeps companion HTML');
+
+// 场景:右键菜单「粘贴」读到 OneNote 复制的内容(同一个 ClipboardItem 里有选区截图、
+// 纯文本、HTML)。期望:图片和文字都读出来,由粘贴处理判定为文字。
+// 回归:旧实现只要条目里有图片就 continue,文字整段丢掉,只能贴成图片。
+const oneNoteClipboard = await readComposerClipboardData({ read: async () => [clipboardItem({
+  'text/plain': '会议纪要\r\n第一条', 'text/html': '<p>会议纪要</p><p>第一条</p>', 'image/png': 'bitmap',
+})] });
+assert.equal(oneNoteClipboard.files.length, 1);
+assert.equal(oneNoteClipboard.getData('text/plain'), '会议纪要\r\n第一条');
+assert.equal(oneNoteClipboard.getData('text/html'), '<p>会议纪要</p><p>第一条</p>');
+console.log('[pass] context clipboard keeps Office text next to its selection bitmap');
+
+// 场景:同一条目的图片能读、文字表示读失败。期望:图片照常返回,文字读失败不拖垮整次粘贴。
+const textFailureClipboard = await readComposerClipboardData({ read: async () => [{
+  types: ['image/png', 'text/plain'],
+  getType: async (type) => {
+    if (type === 'text/plain') throw new Error('text unavailable');
+    return new Blob(['png'], { type });
+  },
+}] });
+assert.equal(textFailureClipboard.files.length, 1);
+assert.equal(textFailureClipboard.getData('text/plain'), '');
+console.log('[pass] context clipboard keeps the image when its text representation fails');
 
 const textClipboard = await readComposerClipboardData({ read: async () => [clipboardItem({
   'text/plain': 'hello', 'text/html': '<b>hello</b>',

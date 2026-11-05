@@ -169,8 +169,12 @@ export function filesFromClipboardEvent(event) {
   return filesFromTransfer(event?.clipboardData || event?.nativeEvent?.clipboardData, { source: 'paste' });
 }
 
+const CLIPBOARD_TEXT_TYPES = ['text/plain', 'text/html', 'text/uri-list'];
+
 // Adapt the async browser clipboard to the same shape as a native paste event.
-// One ClipboardItem can expose several representations of the same image.
+// One ClipboardItem can expose several representations of the same image. Text
+// next to an image is kept too: the paste handler decides whether that image is
+// only a rendering of copied Office text. A text read failure never hides the image.
 export async function readComposerClipboardData(clipboard = globalThis.navigator?.clipboard) {
   const files = [];
   const text = new Map();
@@ -184,12 +188,17 @@ export async function readComposerClipboardData(clipboard = globalThis.navigator
     for (const item of items) {
       const types = Array.from(item.types || []);
       const imageType = types.includes('image/png') ? 'image/png' : types.find(type => type.startsWith('image/'));
-      if (imageType) {
-        files.push(await item.getType(imageType));
-        continue;
-      }
-      for (const type of ['text/plain', 'text/html', 'text/uri-list']) {
-        if (types.includes(type)) text.set(type, (text.get(type) || '') + await (await item.getType(type)).text());
+      if (imageType) files.push(await item.getType(imageType));
+      for (const type of CLIPBOARD_TEXT_TYPES) {
+        if (!types.includes(type)) continue;
+        let value;
+        try {
+          value = await (await item.getType(type)).text();
+        } catch (error) {
+          if (!imageType) throw error;
+          continue;
+        }
+        text.set(type, (text.get(type) || '') + value);
       }
     }
   } else if (typeof clipboard?.readText === 'function') {

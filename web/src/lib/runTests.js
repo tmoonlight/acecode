@@ -100,6 +100,7 @@ import './inputHistoryNavigation.test.js';
 import './inputBarState.test.js';
 import './trailingUserMessageRetry.test.js';
 import './composerFileTransfer.test.js';
+import './clipboardTextSnapshot.test.js';
 import './composerFileIntake.test.js';
 import './composerAttachmentReservations.test.js';
 import './richComposerContextPaste.test.js';

@@ -68,6 +68,7 @@ import {
   composerContentClipboardText,
 } from '../lib/composerContent.js';
 import { filesFromTransfer, readComposerClipboardData } from '../lib/composerFileTransfer.js';
+import { clipboardImagesAreTextSnapshot } from '../lib/clipboardTextSnapshot.js';
 import { isPasteBlockPart, shouldFoldPastedText } from '../lib/pastedText.js';
 import { composerSelectedTag, composerTagSelection } from '../lib/composerSelection.js';
 import { composerDomSelectionToAdopt } from '../lib/composerDomSelection.js';
@@ -1543,7 +1544,10 @@ function RichComposerShell({
       return true;
     }
 
-    const files = filesFromTransfer(clipboardData, { source: 'paste' });
+    const transferFiles = filesFromTransfer(clipboardData, { source: 'paste' });
+    // Office apps (OneNote, Word, Excel) also copy a bitmap of the selection;
+    // paste their text instead of that picture.
+    const files = clipboardImagesAreTextSnapshot(clipboardData, transferFiles) ? [] : transferFiles;
     const text = plainTextFromClipboardData(clipboardData);
     const hasTextFormat = clipboardHasTextFormat(clipboardData);
     const handlesFilesystemItems = typeof onPasteFilesystemItems === 'function';

@@ -292,6 +292,8 @@ run('keyboard paste uses native capture, React fallback, and beforeinput through
   assert.ok(handleEnd > handleStart);
   assert.match(handleBody, /plainTextFromClipboardData\(clipboardData\)/);
   assert.match(handleBody, /clipboardHasTextFormat\(clipboardData\)/);
+  // OneNote / Office 复制文字时附带的选区截图不能抢走文字:键盘粘贴与右键粘贴都经过这里判定。
+  assert.match(handleBody, /clipboardImagesAreTextSnapshot\(clipboardData, transferFiles\) \? \[\] : transferFiles/);
   assert.match(handleBody, /applyPlainTextPaste\(text, capturedSelection\)/);
   assert.match(handleBody, /requestClipboardTextFallback\(capturedSelection\)/);
   assert.match(composer, /ReactEditor\.toSlateRange\(editor, domSelection,[\s\S]*suppressThrow: true/);
