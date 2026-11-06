@@ -186,7 +186,6 @@ void TuiApp::resume_startup() {
             resumed_title = meta.title;
         }
         if (!target_id.empty()) {
-            const bool canonical_exists = session_manager.has_session_file(target_id);
             // 把 session meta 喂给 resolver,让 resume 真正还原 provider+model。
             // resolve_effective_model 会优先用 (meta.provider, meta.model) 从
             // saved_models 找匹配 entry;找不到则构造 ad-hoc entry,name 以
@@ -224,10 +223,7 @@ void TuiApp::resume_startup() {
             const std::string resume_error = session_manager.last_error();
             if (!resume_error.empty()) {
                 state.conversation.push_back({"system", resume_error, false});
-            } else if (!canonical_exists && session_manager.has_incompatible_session_data(target_id)) {
-                state.conversation.push_back({"system",
-                    "Session " + target_id + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
-            } else if (!canonical_exists) {
+            } else if (session_manager.current_session_id() != target_id) {
                 state.conversation.push_back({"system", "Session " + target_id + " not found.", false});
             } else {
                 acecode::append_resumed_session_messages(messages, state, agent_loop, tools);
