@@ -73,6 +73,8 @@ private:
 
     void run();
     void launch(const LoopDefinition& loop, const LoopRun& run, bool manual = false);
+    // 新一轮的会话出现后,按任务开关把更早的执行会话归档或删除到只剩最近几个。
+    void cleanup_old_sessions(const LoopDefinition& loop);
     bool model_exists(const std::string& name) const;
     void fail_run(const LoopDefinition& loop,
                   const LoopRun& run,

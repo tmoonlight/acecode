@@ -22,7 +22,7 @@ function Fixture() {
   const option = { name: state.name, provider: 'openai', model: 'backend-model', models_dev_provider_id: 'acemodel' };
   return h('div', { id: 'fixture', style: { width: state.width, margin: 24, padding: 12,
     border: '1px solid var(--ace-border)', borderRadius: 12, background: 'var(--ace-bg)' } },
-    h('div', { style: { height: 70 } }),
+    h('div', { style: { height: 270 } }),
     h(ComposerSessionControls, { modelOptions: [option], selectedModelName: state.name,
       model: state.name, onModelChange() {}, onRefreshModels() {},
       goalMode: state.extras, swarmMode: state.extras ? 'mesh' : 'off',
@@ -67,6 +67,7 @@ try {
       const leftEdge = Math.max(...[...footer.querySelector('.ace-composer-session-left').children]
         .map(element => element.getBoundingClientRect().right));
       return { compact: control.dataset.compact, text: label.textContent,
+        stacked: footer.dataset.stacked === 'true',
         labelVisible: getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0,
         clipped: label.scrollWidth > label.clientWidth + 1,
         overlap: leftEdge > right.left,
@@ -101,6 +102,23 @@ try {
     assert.equal(result.compact, 'false');
     assert.equal(result.clipped, false);
   }
+  const tiny = await set({ width: 168, extras: true });
+  assert.equal(tiny.stacked, true);
+  assert.equal(tiny.overflow, false);
+  const buttons = page.locator('.ace-composer-session-footer button');
+  for (const button of await buttons.all()) {
+    const hittable = await button.evaluate(element => {
+      const { left, top, width, height } = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(left + width / 2, top + height / 2));
+    });
+    assert.equal(hittable, true, await button.getAttribute('aria-label'));
+  }
+  await page.locator('.ace-composer-reasoning-button').click();
+  await page.getByRole('menu').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.ace-composer-permission-button').click();
+  await page.getByRole('menuitemradio').first().click();
+  assert.equal((await set({ width: 850, extras: false })).stacked, false);
   await page.locator('.ace-composer-model-button').click();
   await page.locator('.ace-composer-model-options').waitFor();
   assert.equal(await page.locator('.ace-composer-model-option').count(), 1);

@@ -2498,4 +2498,13 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '需要登录': 'Sign-in required',
   '在 {{p0}} 里给自己发消息即可使用 ACECode。': 'Message yourself in {{p0}} to use ACECode.',
   '最多设置 {{p0}} 个群聊': 'At most {{p0}} group chats',
+  '旧通知': 'Old notifications',
+  '自动归档': 'Auto-archive',
+  '自动删除': 'Auto-delete',
+  '保留最近': 'Keep latest',
+  '个会话': 'sessions',
+  '保留会话数': 'Sessions to keep',
+  '保留会话数需在 1 到 100 之间': 'Sessions to keep must be between 1 and 100',
+  '自动归档旧通知（保留 {{p0}} 个）': 'Auto-archive old notifications (keep {{p0}})',
+  '自动删除旧通知（保留 {{p0}} 个）': 'Auto-delete old notifications (keep {{p0}})',
 });

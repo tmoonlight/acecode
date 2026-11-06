@@ -42,13 +42,13 @@ function TodoProgressInline({ checklist }) {
     ? `第 ${currentStep} / ${checklist.total} 步`
     : `0 / ${checklist.total} 步`;
   return (
-    <span className="ace-change-glass-todo-progress">
+    <span className="ace-change-glass-todo-progress" role="img" aria-label={label}>
       <span
         className="ace-change-glass-todo-ring"
         style={{ '--ace-todo-progress-deg': progressDegrees }}
         aria-hidden="true"
       />
-      <span>{label}</span>
+      <span className="ace-change-glass-steps">{label}</span>
     </span>
   );
 }

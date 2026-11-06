@@ -213,6 +213,44 @@ TEST_F(ScheduledTaskToolTest, PromptCarryingCreationRequestIsRejectedBeforeAskin
 // 期望:动词(+量词)紧挨「定时任务」等名词、斜杠技能标记、英文 create a scheduled
 // task 一律命中;提到定时任务但不是要新建的监控 / 汇报 / 提醒类内容不能误伤 ——
 // 例如「检查昨天新增的定时任务」中间隔着「的」,「假设定时任务失败」没有建任务的动词。
+// 场景:AI 创建定时任务时模型要能设置旧通知清理(“只保留最近 5 次，旧的自动归档”)。
+// 期望:工具 schema 暴露三个参数(保留个数 1..100);传入后写进任务;两个开关
+// 同时为 true 时在弹权限提问之前就被拒绝,任务不落库。
+TEST_F(ScheduledTaskToolTest, SessionCleanupArgumentsAreDeclaredAndPersisted) {
+    const auto tool = create_scheduled_task_tool(service);
+    const auto& properties = tool.definition.parameters["properties"];
+    ASSERT_TRUE(properties.contains("auto_archive_old_sessions"));
+    ASSERT_TRUE(properties.contains("auto_delete_old_sessions"));
+    ASSERT_TRUE(properties.contains("keep_recent_sessions"));
+    EXPECT_EQ(properties["keep_recent_sessions"]["minimum"], 1);
+    EXPECT_EQ(properties["keep_recent_sessions"]["maximum"], 100);
+
+    auto args = arguments();
+    args["auto_archive_old_sessions"] = true;
+    args["keep_recent_sessions"] = 5;
+    auto ctx = context();
+    const auto result = tool.execute(args.dump(), ctx);
+    ASSERT_TRUE(result.success) << result.output;
+    const auto loops = store->list_loops();
+    ASSERT_EQ(loops.size(), 1u);
+    EXPECT_TRUE(loops[0].auto_archive_old_sessions);
+    EXPECT_FALSE(loops[0].auto_delete_old_sessions);
+    EXPECT_EQ(loops[0].keep_recent_sessions, 5);
+
+    auto conflicting = arguments();
+    conflicting["auto_archive_old_sessions"] = true;
+    conflicting["auto_delete_old_sessions"] = true;
+    ToolContext never_asks;
+    never_asks.ask_user_questions = [](const json&) {
+        ADD_FAILURE() << "互斥参数应在提问前被拒绝";
+        return json::object();
+    };
+    const auto rejected = tool.execute(conflicting.dump(), never_asks);
+    EXPECT_FALSE(rejected.success);
+    EXPECT_NE(rejected.output.find("CONFLICTING_SESSION_CLEANUP"), std::string::npos);
+    EXPECT_EQ(store->list_loops().size(), 1u);
+}
+
 TEST(ScheduledTaskPromptCheck, FlagsCreationRequestsButKeepsOrdinaryTaskText) {
     for (const char* prompt : {"建立定时任务，每天帮我生成代码", "帮我设置一个定时任务",
                                "请 创建 定时提醒：早上9点起床", "新建一条计划任务",

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <limits>
 #include <set>
+#include <utility>
 
 namespace acecode::loop {
 
@@ -221,6 +222,17 @@ bool validate_loop_definition(const LoopDefinition& value, ValidationError* erro
                   "LOOP permission_mode must be default or yolo");
         return false;
     }
+    if (value.auto_archive_old_sessions && value.auto_delete_old_sessions) {
+        set_error(error, "CONFLICTING_SESSION_CLEANUP", "auto_delete_old_sessions",
+                  "auto_archive_old_sessions and auto_delete_old_sessions are mutually exclusive");
+        return false;
+    }
+    if (value.keep_recent_sessions < 1 || value.keep_recent_sessions > kMaxKeepRecentSessions) {
+        set_error(error, "INVALID_KEEP_RECENT_SESSIONS", "keep_recent_sessions",
+                  "keep_recent_sessions must be between 1 and " +
+                      std::to_string(kMaxKeepRecentSessions));
+        return false;
+    }
     const bool has_hash = !trim_loop_text(value.workspace_hash).empty();
     const bool has_cwd = !trim_loop_text(value.workspace_cwd).empty();
     if (has_hash != has_cwd) {
@@ -353,6 +365,9 @@ nlohmann::json loop_to_json(const LoopDefinition& value, bool include_internal) 
         {"model_name", value.model_name},
         {"permission_mode", value.permission_mode},
         {"use_worktree", value.use_worktree},
+        {"auto_archive_old_sessions", value.auto_archive_old_sessions},
+        {"auto_delete_old_sessions", value.auto_delete_old_sessions},
+        {"keep_recent_sessions", value.keep_recent_sessions},
         {"schedule", schedule_to_json(value.schedule)},
         {"next_run_at_ms", value.next_run_at_ms ? nlohmann::json(*value.next_run_at_ms) : nlohmann::json(nullptr)},
         {"enabled", value.enabled},
@@ -401,6 +416,24 @@ bool loop_from_json(const nlohmann::json& json,
             return false;
         }
         parsed.use_worktree = json["use_worktree"].get<bool>();
+    }
+    for (const auto& [key, target] : {
+             std::pair<const char*, bool*>{"auto_archive_old_sessions",
+                                           &parsed.auto_archive_old_sessions},
+             std::pair<const char*, bool*>{"auto_delete_old_sessions",
+                                           &parsed.auto_delete_old_sessions}}) {
+        if (!json.contains(key)) continue;
+        if (!json[key].is_boolean()) {
+            set_error(error, "INVALID_SESSION_CLEANUP", key, std::string(key) + " must be boolean");
+            return false;
+        }
+        *target = json[key].get<bool>();
+    }
+    if (json.contains("keep_recent_sessions") &&
+        !read_integer(json, "keep_recent_sessions", parsed.keep_recent_sessions)) {
+        set_error(error, "INVALID_KEEP_RECENT_SESSIONS", "keep_recent_sessions",
+                  "keep_recent_sessions must be an integer");
+        return false;
     }
     if (!json.contains("schedule") || !schedule_from_json(json["schedule"], parsed.schedule, error)) {
         if (error && error->code.empty()) {

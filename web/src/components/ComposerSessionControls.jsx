@@ -27,6 +27,7 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
     const update = () => {
       const controls = [...root.querySelectorAll('[data-adaptive-composer-control="true"]')];
       if (controls.length === 0) return;
+      root.removeAttribute('data-stacked');
       root.setAttribute('data-ultra-compact', 'false');
 
       controls.forEach((element) => {
@@ -38,7 +39,7 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
 
       const desiredWidths = controls.map((element) => {
         const cap = Number.parseFloat(getComputedStyle(element).maxWidth);
-        const natural = Math.ceil(Math.max(element.getBoundingClientRect().width, element.scrollWidth));
+        const natural = Math.ceil(element.getBoundingClientRect().width);
         return Number.isFinite(cap) ? Math.min(natural, cap) : natural;
       });
 
@@ -56,24 +57,30 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
         const leftEdge = leftControls.length > 0
           ? Math.max(...leftControls.map((element) => element.getBoundingClientRect().right))
           : rootRect.left;
-        const rightRect = right?.getBoundingClientRect();
         const rightItems = right ? [...right.children].map((element) => element.getBoundingClientRect())
           .filter((rect) => rect.width > 0) : [];
-        const rightWidth = rightItems.length > 0
-          ? Math.max(...rightItems.map((rect) => rect.right)) - Math.min(...rightItems.map((rect) => rect.left))
-          : (rightRect?.width || 0);
-        const gap = Number.parseFloat(getComputedStyle(root).columnGap) || 0;
-        return Math.max(0, root.scrollWidth - root.clientWidth,
-          leftEdge - rootRect.left + gap + rightWidth - rootRect.width);
+        if (!rightItems.length) return 0;
+        const style = getComputedStyle(root);
+        const gap = Number.parseFloat(style.columnGap) || 0;
+        const contentEnd = rootRect.right - Number.parseFloat(style.paddingRight);
+        // Measure the controls themselves. An open popup can extend past
+        // the footer without reducing the space available to the toolbar.
+        return Math.max(0,
+          leftEdge + gap - Math.min(...rightItems.map((rect) => rect.left)),
+          Math.max(...rightItems.map((rect) => rect.right)) - contentEnd);
       };
       const isCrowded = () => overflowWidth() > 1;
 
-      const compactOrder = ['permission', 'expert-pending', 'expert', 'swarm-mode', 'goal', 'model'];
+      const compactOrder = ['permission', 'expert-pending', 'expert', 'swarm-mode', 'goal', 'reasoning', 'model'];
       const nextCompact = new Set();
       for (const controlName of compactOrder) {
         if (!isCrowded()) break;
         const element = controls.find((item) => item.dataset.composerControl === controlName);
         if (!element) continue;
+        if (controlName === 'model') {
+          root.setAttribute('data-ultra-compact', 'true');
+          if (!isCrowded()) break;
+        }
         nextCompact.add(controlName);
         element.setAttribute('data-compact', 'true');
         const width = controlName === 'model'
@@ -96,8 +103,7 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
         root.getBoundingClientRect();
       });
       if (isCrowded()) {
-        root.setAttribute('data-ultra-compact', 'true');
-        root.getBoundingClientRect();
+        root.setAttribute('data-stacked', 'true');
       }
       controls.forEach((element) => {
         element.setAttribute(
@@ -125,6 +131,8 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
     }
     const observer = new ResizeObserver(schedule);
     observer.observe(root);
+    const submit = root.querySelector('[data-composer-control="submit"]');
+    if (submit) observer.observe(submit);
     window.addEventListener('resize', schedule);
     return () => {
       cancelAnimationFrame(frame);
@@ -249,10 +257,6 @@ export function ComposerSessionControls({
           title: '主 Agent 积极派遣子 Agent 并汇总结果',
         }
       : null;
-  const compactControls = useAdaptiveComposerControls(
-    rootRef,
-    `${goalMode}|${swarmMode}|${expertName}|${pendingExpertName}|${permissionMode}|${selectedModelName}|${model}|${reasoningOptions?.label || ''}`,
-  );
 
   useEffect(() => {
     setLocalMode(normalizePermissionMode(permissionMode));
@@ -287,6 +291,10 @@ export function ComposerSessionControls({
   }), [model, modelOptions, selectedModelName]);
   const modelDeleted = modelMenu.displayDeleted || String(model || '').includes('(deleted)');
   const modelLabel = selectedModelName || modelMenu.selectedOption?.name || modelMenu.displayLabel;
+  const compactControls = useAdaptiveComposerControls(rootRef, [
+    goalMode, swarmMode, expertName, pendingExpertName, showPermission, mode, modelLabel,
+    reasoningOptions?.label, !!addControl, !!contexts, modelLoad?.usageRate, !!tokenBudget,
+  ].join('|'));
   const canOpenModelMenu = modelOptions.length > 0 || !!onRefreshModels;
   const modelBusy = modelSwitching || modelRefreshing;
 
@@ -402,6 +410,7 @@ export function ComposerSessionControls({
             disabled={permissionSwitching}
             onClick={() => setOpenMenu((current) => (current === 'permission' ? '' : 'permission'))}
             title={permission.hint}
+            aria-label={permission.label}
             aria-haspopup="menu"
             aria-expanded={openMenu === 'permission'}
             className={clsx(
@@ -573,7 +582,8 @@ export function ComposerSessionControls({
         </div>
 
         {reasoningOptions && (
-          <div data-composer-control="reasoning" className="ace-composer-reasoning-control">
+          <div data-composer-control="reasoning" className="ace-composer-reasoning-control"
+            data-adaptive-composer-control="true" data-compact={compactControls.has('reasoning') ? 'true' : 'false'}>
             <button
               ref={reasoningAnchorRef}
               type="button"
@@ -592,8 +602,9 @@ export function ComposerSessionControls({
                 else setOpenMenu('reasoning');
               }}
             >
-              <span>{reasoningOptions.label}</span>
-              <VsIcon name="glyphDown" size={10} className="shrink-0 opacity-75" />
+              <VsIcon name="brain" size={16} className="ace-composer-reasoning-icon" />
+              <span className="ace-composer-adaptive-content">{reasoningOptions.label}</span>
+              <VsIcon name="glyphDown" size={10} className="ace-composer-adaptive-content shrink-0 opacity-75" />
             </button>
             {openMenu === 'reasoning' && (
               <AnchoredMenu

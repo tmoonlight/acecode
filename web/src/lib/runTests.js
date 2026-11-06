@@ -201,6 +201,7 @@ import './changeDockDismissal.test.js';
 import './taskCompleteSummary.test.js';
 import '../i18n/locale.test.js';
 import '../i18n/catalogs.test.js';
+import './loops.test.js';
 import '../i18n/sourceCatalog.test.js';
 import '../i18n/jsxTextSpacing.test.js';
 import './conversationTurnScrubber.test.js';
