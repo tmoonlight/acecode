@@ -565,13 +565,13 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
 
     const auto jsonl_path = SessionStorage::session_path(project_dir_, session_id);
     const auto meta_path = SessionStorage::meta_path(project_dir_, session_id);
-    if (!fs::exists(jsonl_path)) {
+    if (!fs::exists(jsonl_path) && !fs::exists(meta_path)) {
         if (SessionStorage::has_incompatible_pid_session_files(project_dir_, session_id)) {
             LOG_WARN("[session] resume " + session_id +
                      " ignored incompatible PID-suffixed old data; delete old project session data under " +
                      project_dir_ + " and start a new session");
         }
-        last_error_ = "Session transcript is no longer available";
+        last_error_ = "Session not found";
         return {};
     }
     // Resume adopts the canonical transcript directly. It must not copy history
@@ -589,14 +589,16 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
         finalized_ = false;
         return {};
     }
-    // Cleanup may have won the race between the initial lookup and our lease.
-    if (!fs::exists(jsonl_path)) {
+    const auto persisted_meta = SessionStorage::read_meta(meta_path);
+    // A newly bound session can have valid metadata before its first message.
+    // Check under the lease so a concurrent purge cannot resurrect a session.
+    if (!fs::exists(jsonl_path) &&
+        (persisted_meta.id != session_id || persisted_meta.message_count != 0)) {
         last_error_ = "Session transcript is no longer available";
         created_ = false;
         release_writer_lease_locked();
         return {};
     }
-    const auto persisted_meta = SessionStorage::read_meta(meta_path);
     // Old/missing metadata still takes the repairing full-load path.
     auto load_result = model_context_only && persisted_meta.message_count > 0
         ? load_session_resume_suffix(jsonl_path)
@@ -1815,7 +1817,6 @@ bool SessionManager::acquire_writer_lease_locked() {
 void SessionManager::refresh_writer_lease_locked() {
     if (!writer_lease_) return;
     if (!writer_lease_->refresh()) {
-        writer_lease_.reset();
         LOG_WARN("[session] failed to refresh writer lease for " + session_id_);
     }
 }

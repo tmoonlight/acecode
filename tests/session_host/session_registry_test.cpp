@@ -972,6 +972,24 @@ TEST(LocalSessionClient, SideChatMessageSteersTheRunningTurn) {
     std::filesystem::remove_all(cwd, ec);
 }
 
+TEST(LocalSessionClient, ClosedQueueRejectsInputAndCompactCommand) {
+    TestFixture fx;
+    LocalSessionClient client(fx.registry);
+    SessionOptions opts;
+    opts.cwd = temp_cwd("closing_session").string();
+    const auto id = client.create_session(opts);
+    const auto entry = fx.registry.acquire(id);
+    ASSERT_TRUE(entry && entry->loop);
+    ASSERT_TRUE(entry->loop->close_if_idle());
+    EXPECT_FALSE(client.send_input(id, "late input"));
+    acecode::BuiltinCommandRequest compact;
+    compact.name = "compact";
+    EXPECT_EQ(client.execute_builtin_command(id, compact).status, acecode::BuiltinCommandStatus::Failed);
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(opts.cwd, ec);
+}
+
 TEST(LocalSessionClient, GoalCreatePersistsVisibleAuditBeforeHiddenContext) {
     auto cwd = temp_cwd("goal_audit_create");
     TestFixture fx;

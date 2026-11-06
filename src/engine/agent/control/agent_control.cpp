@@ -11,15 +11,15 @@ namespace acecode {
 
 using agent::detail::trailing_transcript_message;
 
-void AgentLoop::submit(const std::string& user_message) {
-    submit(user_message, std::string{});
+bool AgentLoop::submit(const std::string& user_message) {
+    return submit(user_message, std::string{});
 }
 
-void AgentLoop::submit(const std::string& prompt, const std::string& display_text) {
+bool AgentLoop::submit(const std::string& prompt, const std::string& display_text) {
     UserInput input;
     input.text = prompt;
     input.display_text = display_text;
-    submit(input);
+    return submit(input);
 }
 
 bool AgentLoop::submit(const UserInput& input) {
@@ -92,11 +92,11 @@ void AgentLoop::submit_shell(std::string command) {
     task_queue_->enqueue(WorkerTask{WorkerTask::Kind::Shell, std::move(command)});
 }
 
-void AgentLoop::submit_compact() {
+bool AgentLoop::submit_compact() {
     clear_stale_abort_request();
     WorkerTask task;
     task.kind = WorkerTask::Kind::Compact;
-    task_queue_->enqueue(std::move(task));
+    return task_queue_->enqueue(std::move(task));
 }
 
 

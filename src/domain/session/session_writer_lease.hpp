@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <system_error>
 
 namespace acecode {
 
@@ -83,7 +84,7 @@ public:
     void reset() noexcept;
 
 private:
-    bool lock_file(bool exclusive);
+    bool lock_file(bool exclusive, std::error_code& error);
 #ifdef _WIN32
     platform::UniqueHandle file_lock_;
 #else

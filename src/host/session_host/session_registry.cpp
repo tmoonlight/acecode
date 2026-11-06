@@ -575,6 +575,11 @@ BuiltinCommandResult execute_goal_builtin(SessionEntry& entry,
     return {BuiltinCommandStatus::Accepted, "completed"};
 }
 
+BuiltinCommandResult queued_builtin_result(bool accepted) {
+    if (!accepted) return {BuiltinCommandStatus::Failed, "session is closing"};
+    return {BuiltinCommandStatus::Accepted, "queued"};
+}
+
 BuiltinCommandResult execute_plan_builtin(SessionEntry& entry,
                                           const BuiltinCommandRequest& request) {
     if (!entry.sm || !entry.loop || !entry.perm) {
@@ -603,8 +608,7 @@ BuiltinCommandResult execute_plan_builtin(SessionEntry& entry,
         const std::string display = request.display_text.empty()
             ? "/plan " + args
             : request.display_text;
-        entry.loop->submit(args, display);
-        return {BuiltinCommandStatus::Accepted, "queued"};
+        return queued_builtin_result(entry.loop->submit(args, display));
     }
 
     return {BuiltinCommandStatus::Accepted, "completed"};
@@ -1240,8 +1244,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     }
 
     if (request.name == "compact") {
-        entry->loop->submit_compact();
-        return {BuiltinCommandStatus::Accepted, "queued"};
+        return queued_builtin_result(entry->loop->submit_compact());
     }
 
     if (request.name == "swarm") return execute_swarm_builtin(*entry, request);
@@ -1310,8 +1313,7 @@ BuiltinCommandResult SessionRegistry::execute_builtin_command(
     const std::string display = request.display_text.empty()
         ? std::string{"/init"}
         : request.display_text;
-    entry->loop->submit(build_init_prompt(cwd), display);
-    return {BuiltinCommandStatus::Accepted, "queued"};
+    return queued_builtin_result(entry->loop->submit(build_init_prompt(cwd), display));
 }
 
 std::optional<SessionModelState>
