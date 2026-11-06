@@ -32,9 +32,15 @@ std::vector<std::string> session_tree_delete_order(const std::string& project_di
 bool purge_session_tree(const std::string& project_dir,
                         const std::string& root_id,
                         std::string* error) {
+    return purge_sessions_in_order(project_dir, session_tree_delete_order(project_dir, root_id), error);
+}
+
+bool purge_sessions_in_order(const std::string& project_dir,
+                            const std::vector<std::string>& ids,
+                            std::string* error) {
     if (error) error->clear();
     SessionUserMessageIndex search_index(project_dir);
-    for (const auto& id : session_tree_delete_order(project_dir, root_id)) {
+    for (const auto& id : ids) {
         std::string step_error;
         if (!search_index.remove_session(id, &step_error) ||
             !SessionStorage::purge_session_files(project_dir, id, &step_error)) {

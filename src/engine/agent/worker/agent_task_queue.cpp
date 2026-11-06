@@ -82,9 +82,14 @@ void AgentTaskQueue::Locked::remove_goal_continuations() {
     }
 }
 
-void AgentTaskQueue::enqueue(WorkerTask task) {
-    with_locked([&](Locked& state) { if (!state.stopped()) state.push(std::move(task)); });
+bool AgentTaskQueue::enqueue(WorkerTask task) {
+    {
+        Lock lock(*this);
+        if (shutdown_requested_) return false;
+        ordinary_.push_back(std::move(task));
+    }
     notify();
+    return true;
 }
 
 void AgentTaskQueue::enqueue_mailbox_wake() {
@@ -152,6 +157,14 @@ void AgentTaskQueue::finish_task() {
 void AgentTaskQueue::request_shutdown() {
     Lock lock(*this);
     shutdown_requested_ = true;
+}
+
+bool AgentTaskQueue::close_if_idle() {
+    Lock lock(*this);
+    if (!Locked(*this).idle()) return false;
+    shutdown_requested_ = true;
+    cv_.notify_one();
+    return true;
 }
 
 AgentTaskQueue::PendingTasks AgentTaskQueue::take_pending() {

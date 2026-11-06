@@ -17,6 +17,7 @@
 #include "session/session_client.hpp"
 #include "session/session_pin_store.hpp"
 #include "session/session_storage.hpp"
+#include "session/session_writer_lease.hpp"
 #include "session_host/session_registry.hpp"
 #include "tool/tool_executor.hpp"
 #include "utils/utf8_path.hpp"
@@ -74,7 +75,7 @@ protected:
         deps.no_workspace_cache_root = path_to_utf8(root / "no-workspace");
         deps.template_permissions = &permissions;
         registry = std::make_unique<SessionRegistry>(std::move(deps));
-        storage.project_dir = [dir = project_dir](const std::string&) { return dir; };
+        storage.project_dir = project_dir;
         storage.pinned_sessions_path = root / "project" / "pinned_sessions.json";
     }
 
@@ -97,6 +98,12 @@ protected:
         ASSERT_TRUE(SessionStorage::write_meta(SessionStorage::meta_path(project_dir, id), meta));
         std::ofstream(path_from_utf8(SessionStorage::session_path(project_dir, id)))
             << "{\"role\":\"user\",\"content\":\"hi\"}\n";
+    }
+
+    LoopSessionCleanupResult cleanup(const LoopDefinition& loop, const std::vector<std::string>& ids) {
+        std::vector<LoopSessionStorage> locations;
+        for (const auto& id : ids) locations.push_back({id, project_dir, storage.pinned_sessions_path});
+        return cleanup_old_loop_sessions(loop, locations, *registry, client);
     }
 
     SessionMeta meta_of(const std::string& id) const {
@@ -155,9 +162,8 @@ TEST_F(LoopSessionCleanupTest, ArchiveModeArchivesSessionsBeyondKeepCount) {
     pins.session_ids = {"pinned"};
     ASSERT_TRUE(session_pins::write_pinned_sessions_state(storage.pinned_sessions_path, pins));
 
-    const auto result = cleanup_old_loop_sessions(
-        loop_with(true, false, 2), {"new", "pinned", "mid", "gone", "old", "older"},
-        storage, *registry, client);
+    const auto result = cleanup(
+        loop_with(true, false, 2), {"new", "pinned", "mid", "gone", "old", "older"});
 
     EXPECT_EQ(result.archived, (std::vector<std::string>{"old"}));
     EXPECT_TRUE(result.deleted.empty());
@@ -179,8 +185,8 @@ TEST_F(LoopSessionCleanupTest, DeleteModeRemovesOldSessionsWithTheirChildren) {
     write_session("old");
     write_session("child", false, "old");
 
-    const auto result = cleanup_old_loop_sessions(
-        loop_with(false, true, 1), {"latest", "mid", "old"}, storage, *registry, client);
+    const auto result = cleanup(
+        loop_with(false, true, 1), {"latest", "mid", "old"});
 
     EXPECT_EQ(result.deleted, (std::vector<std::string>{"mid", "old"}));
     EXPECT_TRUE(result.archived.empty());
@@ -192,6 +198,24 @@ TEST_F(LoopSessionCleanupTest, DeleteModeRemovesOldSessionsWithTheirChildren) {
     EXPECT_FALSE(fs::exists(path_from_utf8(SessionStorage::session_path(project_dir, "child"))));
 }
 
+TEST_F(LoopSessionCleanupTest, LiveWriterProtectsRootAndChildWithoutRegistryEntry) {
+    write_session("latest");
+    write_session("old");
+    write_session("child", false, "old");
+    WriterLease writer(project_dir, "child");
+    ASSERT_EQ(writer.acquire(project_dir, "tui").status, SessionWriterLeaseResult::Status::Acquired);
+    EXPECT_TRUE(cleanup(loop_with(false, true, 1), {"latest", "old"}).deleted.empty());
+    EXPECT_TRUE(exists("old"));
+    EXPECT_TRUE(exists("child"));
+    writer.reset();
+    WriterLease parent(project_dir, "old");
+    ASSERT_EQ(parent.acquire(project_dir, "tui").status, SessionWriterLeaseResult::Status::Acquired);
+    EXPECT_TRUE(cleanup(loop_with(true, false, 1), {"latest", "old"}).archived.empty());
+    EXPECT_FALSE(meta_of("old").archived);
+    parent.reset();
+    EXPECT_EQ(cleanup(loop_with(false, true, 1), {"latest", "old"}).deleted.size(), 1u);
+}
+
 // 场景 5:两个开关都关(默认),即使会话远超 3 个也一个都不动。
 TEST_F(LoopSessionCleanupTest, OffModeLeavesEverySessionAlone) {
     std::vector<std::string> ids;
@@ -199,8 +223,7 @@ TEST_F(LoopSessionCleanupTest, OffModeLeavesEverySessionAlone) {
         ids.push_back("s" + std::to_string(i));
         write_session(ids.back());
     }
-    const auto result = cleanup_old_loop_sessions(
-        loop_with(false, false, 3), ids, storage, *registry, client);
+    const auto result = cleanup(loop_with(false, false, 3), ids);
     EXPECT_TRUE(result.archived.empty());
     EXPECT_TRUE(result.deleted.empty());
     for (const auto& id : ids) {
@@ -215,19 +238,16 @@ TEST_F(LoopSessionCleanupTest, OffModeLeavesEverySessionAlone) {
 TEST(LoopSessionCleanupStorage, WorkspaceAndNoWorkspaceLocations) {
     LoopDefinition with_workspace;
     with_workspace.workspace_cwd = "C:/repo";
-    const auto workspace = loop_session_storage(with_workspace, "C:/cache/no-workspace");
-    const auto workspace_dir = SessionStorage::get_project_dir("C:/repo");
-    EXPECT_EQ(workspace.project_dir("a"), workspace_dir);
-    EXPECT_EQ(workspace.project_dir("b"), workspace_dir);
-    EXPECT_EQ(workspace.pinned_sessions_path, path_from_utf8(workspace_dir) / "pinned_sessions.json");
-
-    const LoopDefinition no_workspace;
-    const auto cache = loop_session_storage(no_workspace, "C:/cache/no-workspace");
-    EXPECT_EQ(cache.project_dir("a"),
-              SessionStorage::get_project_dir(no_workspace_session_cwd("a", "C:/cache/no-workspace")));
-    EXPECT_NE(cache.project_dir("a"), cache.project_dir("b"));
-    EXPECT_EQ(cache.pinned_sessions_path,
-              path_from_utf8("C:/cache/no-workspace") / "pinned_sessions.json");
+    const auto locations = loop_session_storage(with_workspace, {
+        {"a", "C:/previous"}, {"b", ""}, {"c", "C:/repo"}
+    }, "C:/cache/no-workspace");
+    ASSERT_EQ(locations.size(), 3u);
+    EXPECT_EQ(locations[0].project_dir, SessionStorage::get_project_dir("C:/previous"));
+    EXPECT_EQ(locations[0].pinned_sessions_path, path_from_utf8(locations[0].project_dir) / "pinned_sessions.json");
+    EXPECT_EQ(locations[1].project_dir,
+              SessionStorage::get_project_dir(no_workspace_session_cwd("b", "C:/cache/no-workspace")));
+    EXPECT_EQ(locations[1].pinned_sessions_path, path_from_utf8("C:/cache/no-workspace") / "pinned_sessions.json");
+    EXPECT_EQ(locations[2].project_dir, SessionStorage::get_project_dir("C:/repo"));
 }
 
 } // namespace

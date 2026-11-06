@@ -84,7 +84,7 @@ public:
 
     // Submit structured user input containing text plus optional attachment or
     // context parts. Existing text-only submit overloads delegate here.
-    void submit(const UserInput& input);
+    bool submit(const UserInput& input);
 
     // Retry the trailing user or the last user of an explicitly aborted turn
     // while idle. Reuses stored input without adding adjacent user messages.
@@ -141,6 +141,8 @@ public:
 
     // Migration must also wait for submitted work not yet picked up by the worker.
     bool has_pending_work();
+    // Close work admission only if the queue and worker are both idle.
+    bool close_if_idle();
     bool has_queued_user_work();
     bool submit_task_suggestion_input(const UserInput& input,
                                       const std::string& suggestion_id);

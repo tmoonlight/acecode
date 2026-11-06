@@ -248,7 +248,8 @@ public:
     SessionEntry* lookup(const std::string& id);
 
     // 销毁 session。abort 当前 LLM/tool + join worker + 移出 map。
-    void destroy(const std::string& id);
+    // expected is a call-scoped borrow. When supplied, keep any replacement entry.
+    bool destroy(const std::string& id, const SessionEntry* expected = nullptr);
 
     // Queue lifecycle work on a registry-owned external thread. Self-deletion
     // uses this after its turn boundary so destroy() never joins the AgentLoop

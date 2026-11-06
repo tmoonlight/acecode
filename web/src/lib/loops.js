@@ -4,6 +4,11 @@ import { formatDateTime, formatNumber } from './format.js';
 export const DEFAULT_KEEP_RECENT_SESSIONS = 3;
 export const MAX_KEEP_RECENT_SESSIONS = 100;
 
+function validKeepCount(value) {
+  const keep = Number(value);
+  return Number.isInteger(keep) && keep >= 1 && keep <= MAX_KEEP_RECENT_SESSIONS;
+}
+
 export const LOOP_TEMPLATES = [
   {
     id: 'daily-review',
@@ -125,7 +130,7 @@ export function validateLoopForm(form) {
     return '请至少选择一个星期';
   }
   const keep = Number(form.keepRecentSessions ?? DEFAULT_KEEP_RECENT_SESSIONS);
-  if (!Number.isInteger(keep) || keep < 1 || keep > MAX_KEEP_RECENT_SESSIONS) {
+  if (!validKeepCount(keep)) {
     return '保留会话数需在 1 到 100 之间';
   }
   return '';
@@ -177,6 +182,9 @@ export function setLoopSessionCleanup(form, key, checked) {
   if (checked === true) {
     if (key === 'autoArchiveOldSessions') next.autoDeleteOldSessions = false;
     if (key === 'autoDeleteOldSessions') next.autoArchiveOldSessions = false;
+  }
+  if (!next.autoArchiveOldSessions && !next.autoDeleteOldSessions && !validKeepCount(next.keepRecentSessions)) {
+    next.keepRecentSessions = DEFAULT_KEEP_RECENT_SESSIONS;
   }
   return next;
 }

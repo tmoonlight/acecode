@@ -86,6 +86,8 @@ assert.equal(cleanup.autoArchiveOldSessions, false);
 cleanup = setLoopSessionCleanup(cleanup, 'autoDeleteOldSessions', false);
 assert.equal(cleanup.autoDeleteOldSessions, false);
 assert.equal(cleanup.autoArchiveOldSessions, false);
+assert.equal(setLoopSessionCleanup({...cleanup, keepRecentSessions: ''}, 'autoDeleteOldSessions', false).keepRecentSessions, 3);
+assert.equal(setLoopSessionCleanup({...cleanup, keepRecentSessions: 7}, 'autoDeleteOldSessions', false).keepRecentSessions, 7);
 
 // 输入框里的数字是字符串;载荷转成整数。表单里两个都为 true(旧数据或手改)时只发删除,
 // 不让服务端因互斥直接 400。

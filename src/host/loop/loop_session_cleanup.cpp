@@ -5,58 +5,72 @@
 #include "session/session_storage.hpp"
 #include "session/session_tree_purge.hpp"
 #include "session_host/session_registry.hpp"
+#include "session/session_writer_lease.hpp"
 #include "utils/logger.hpp"
+#include "utils/paths.hpp"
 #include "utils/utf8_path.hpp"
 
 #include <algorithm>
+#include <map>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace acecode::loop {
 namespace {
 
-bool session_busy(SessionRegistry& registry, const std::string& id) {
-    const auto entry = registry.acquire(id);
-    return entry && entry->loop && entry->loop->is_busy();
-}
-
-bool archive_session(const std::string& project_dir,
-                     const std::string& id,
-                     SessionRegistry& registry,
-                     SessionClient& client) {
-    // 与 Web 归档同一顺序:先销毁内存会话(落盘并释放写锁),再改磁盘 meta。
-    if (registry.acquire(id)) client.destroy_session(id);
-    const auto path = SessionStorage::meta_path(project_dir, id);
-    auto meta = SessionStorage::read_meta(path);
-    if (meta.id.empty() || meta.archived) return false;
-    meta.archived = true;
-    return SessionStorage::write_meta(path, meta);
-}
-
-bool delete_session_tree(const std::string& project_dir,
-                         const std::string& id,
-                         SessionRegistry& registry,
-                         SessionClient& client) {
-    auto doomed = session_tree_delete_order(project_dir, id);
-    // 还没落盘、只在内存里的子会话也要一起停掉。
-    for (const auto& info : client.list_sessions()) {
-        if (info.parent_session_id == id &&
-            std::find(doomed.begin(), doomed.end(), info.id) == doomed.end()) {
-            doomed.insert(doomed.begin(), info.id);
+bool cleanup_session(const LoopSessionStorage& storage, const std::string& loop_id,
+                     SessionCleanupMode mode, SessionRegistry& registry, SessionClient& client) {
+    const auto& id = storage.id;
+    const auto& dir = storage.project_dir;
+    auto targets = mode == SessionCleanupMode::Delete
+        ? session_tree_delete_order(dir, id) : std::vector<std::string>{id};
+    const std::unordered_set<std::string> target_ids(targets.begin(), targets.end());
+    if (mode == SessionCleanupMode::Delete) {
+        // A not-yet-persisted child can still be starting. Defer the entire tree.
+        for (const auto& info : client.list_sessions()) {
+            if (target_ids.count(info.parent_session_id) && !target_ids.count(info.id)) return false;
         }
     }
-    for (const auto& target : doomed) {
-        if (session_busy(registry, target)) return false;
+    for (const auto& target : targets) {
+        const auto entry = registry.acquire(target);
+        if (entry && (!entry->loop || entry->loop->has_pending_work())) return false;
     }
-    for (const auto& target : doomed) {
-        if (registry.acquire(target)) client.destroy_session(target);
+
+    std::vector<WriterLease> leases;
+    for (const auto& target : targets) {
+        if (const auto entry = registry.acquire(target)) {
+            if (!entry->sm || entry->sm->current_project_dir() != dir ||
+                !entry->loop || !entry->loop->close_if_idle()) return false;
+            if (!registry.destroy(target, entry.get())) return false;
+        }
+        leases.emplace_back(dir, target);
+        if (!leases.back().acquire_for_cleanup()) return false;
     }
-    std::string error;
-    if (!purge_session_tree(project_dir, id, &error)) {
-        LOG_WARN("[loop] failed to delete old session " + id + ": " + error);
+
+    const auto pins = session_pins::read_pinned_sessions_state(storage.pinned_sessions_path);
+    for (const auto& pinned : pins.session_ids) {
+        if (target_ids.count(pinned)) return false;
+    }
+    const auto path = SessionStorage::meta_path(dir, id);
+    auto meta = SessionStorage::read_meta(path);
+    if (meta.id != id || meta.loop_id != loop_id || meta.archived || !meta.parent_session_id.empty()) return false;
+    if (mode == SessionCleanupMode::Archive) {
+        meta.archived = true;
+        return SessionStorage::write_meta(path, meta);
+    }
+
+    // Only purge the exact set we own. A newly discovered child defers the tree.
+    const auto order = session_tree_delete_order(dir, id);
+    if (order.size() != target_ids.size() ||
+        std::any_of(order.begin(), order.end(), [&](const auto& child) { return !target_ids.count(child); })) {
         return false;
     }
-    return true;
+    std::string error;
+    if (purge_sessions_in_order(dir, order, &error)) return true;
+    LOG_WARN("[loop] failed to delete old session " + id + ": " + error);
+    return false;
 }
 
 } // namespace
@@ -82,65 +96,70 @@ std::vector<std::string> select_old_loop_sessions(
     return result;
 }
 
-LoopSessionStorage loop_session_storage(const LoopDefinition& loop,
-                                        const std::string& no_workspace_cache_root) {
-    LoopSessionStorage storage;
-    if (!loop.workspace_cwd.empty()) {
-        const auto project_dir = SessionStorage::get_project_dir(loop.workspace_cwd);
-        storage.project_dir = [project_dir](const std::string&) { return project_dir; };
-        storage.pinned_sessions_path = path_from_utf8(project_dir) / "pinned_sessions.json";
-        return storage;
+std::vector<LoopSessionStorage> loop_session_storage(const LoopDefinition& loop,
+    const std::vector<LoopRunSession>& runs, const std::string& no_workspace_cache_root) {
+    namespace fs = std::filesystem;
+    const auto root = no_workspace_cache_root.empty() ? default_no_workspace_cache_root() : no_workspace_cache_root;
+    std::vector<LoopSessionStorage> result;
+    std::optional<std::vector<fs::path>> legacy_projects;
+    for (const auto& run : runs) {
+        const auto& cwd = run.workspace_cwd ? *run.workspace_cwd : loop.workspace_cwd;
+        bool no_workspace = cwd.empty();
+        auto dir = SessionStorage::get_project_dir(no_workspace ? no_workspace_session_cwd(run.id, root) : cwd);
+        std::error_code lookup_error;
+        if (!run.workspace_cwd && !fs::exists(path_from_utf8(SessionStorage::meta_path(dir, run.id)), lookup_error)) {
+            // Pre-upgrade rows lack a scope snapshot. Probe metadata by the exact ID,
+            // and verify LOOP provenance before considering another project's files.
+            if (!legacy_projects) {
+                legacy_projects.emplace();
+                std::error_code error;
+                const auto projects = path_from_utf8(get_acecode_dir()) / "projects";
+                for (fs::directory_iterator it(projects, error), end; !error && it != end; it.increment(error)) {
+                    if (it->is_directory(error)) legacy_projects->push_back(it->path());
+                }
+            }
+            for (const auto& project : *legacy_projects) {
+                const auto candidate = path_to_utf8(project);
+                const auto meta = SessionStorage::read_meta(SessionStorage::meta_path(candidate, run.id));
+                if (meta.id != run.id || meta.loop_id != loop.id) continue;
+                dir = candidate;
+                no_workspace = meta.no_workspace;
+                break;
+            }
+        }
+        result.push_back({run.id, dir, path_from_utf8(no_workspace ? root : dir) / "pinned_sessions.json"});
     }
-    const std::string root = no_workspace_cache_root.empty()
-        ? default_no_workspace_cache_root() : no_workspace_cache_root;
-    storage.project_dir = [root](const std::string& session_id) {
-        return SessionStorage::get_project_dir(no_workspace_session_cwd(session_id, root));
-    };
-    storage.pinned_sessions_path = path_from_utf8(root) / "pinned_sessions.json";
-    return storage;
+    return result;
 }
 
 LoopSessionCleanupResult cleanup_old_loop_sessions(
-    const LoopDefinition& loop,
-    const std::vector<std::string>& session_ids_newest_first,
-    const LoopSessionStorage& storage,
-    SessionRegistry& registry,
-    SessionClient& client) {
+    const LoopDefinition& loop, const std::vector<LoopSessionStorage>& sessions,
+    SessionRegistry& registry, SessionClient& client) {
     LoopSessionCleanupResult result;
     const auto mode = session_cleanup_mode(loop);
-    if (mode == SessionCleanupMode::Off || !storage.project_dir) return result;
+    if (mode == SessionCleanupMode::Off) return result;
 
-    const auto pins = session_pins::read_pinned_sessions_state(storage.pinned_sessions_path);
-    const std::set<std::string> pinned(pins.session_ids.begin(), pins.session_ids.end());
     std::vector<LoopSessionState> states;
-    states.reserve(session_ids_newest_first.size());
-    for (const auto& id : session_ids_newest_first) {
-        LoopSessionState state;
-        state.session_id = id;
-        const auto entry = registry.acquire(id);
-        state.busy = entry && entry->loop && entry->loop->is_busy();
-        const auto meta = SessionStorage::read_meta(
-            SessionStorage::meta_path(storage.project_dir(id), id));
-        // 刚建好的会话可能还没落盘,但已经在侧栏里了。
-        const bool exists = !meta.id.empty() || entry != nullptr;
-        state.visible = exists && !meta.archived && meta.parent_session_id.empty() &&
-                        pinned.count(id) == 0;
-        states.push_back(std::move(state));
-    }
-
-    for (const auto& id : select_old_loop_sessions(states, loop.keep_recent_sessions)) {
-        const auto project_dir = storage.project_dir(id);
-        if (mode == SessionCleanupMode::Archive) {
-            if (archive_session(project_dir, id, registry, client)) result.archived.push_back(id);
-        } else if (delete_session_tree(project_dir, id, registry, client)) {
-            result.deleted.push_back(id);
+    std::map<std::filesystem::path, std::set<std::string>> pins_by_scope;
+    std::unordered_map<std::string, const LoopSessionStorage*> locations;
+    for (const auto& storage : sessions) {
+        auto [pins, inserted] = pins_by_scope.try_emplace(storage.pinned_sessions_path);
+        if (inserted) {
+            const auto saved = session_pins::read_pinned_sessions_state(storage.pinned_sessions_path);
+            pins->second.insert(saved.session_ids.begin(), saved.session_ids.end());
         }
+        const auto& id = storage.id;
+        const auto entry = registry.acquire(id);
+        const auto meta = SessionStorage::read_meta(SessionStorage::meta_path(storage.project_dir, id));
+        const bool visible = (!meta.id.empty() ? meta.id == id && meta.loop_id == loop.id : entry != nullptr)
+            && !meta.archived && meta.parent_session_id.empty() && !pins->second.count(id);
+        states.push_back({id, visible, entry && entry->loop && entry->loop->has_pending_work()});
+        locations.emplace(id, &storage);
     }
-    if (!result.archived.empty() || !result.deleted.empty()) {
-        LOG_INFO("[loop] task " + loop.id + " kept " +
-                 std::to_string(loop.keep_recent_sessions) + " recent session(s), archived " +
-                 std::to_string(result.archived.size()) + ", deleted " +
-                 std::to_string(result.deleted.size()));
+    for (const auto& id : select_old_loop_sessions(states, loop.keep_recent_sessions)) {
+        if (cleanup_session(*locations.at(id), loop.id, mode, registry, client)) {
+            (mode == SessionCleanupMode::Archive ? result.archived : result.deleted).push_back(id);
+        }
     }
     return result;
 }

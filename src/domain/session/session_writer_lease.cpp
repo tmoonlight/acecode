@@ -9,6 +9,12 @@
 #include <filesystem>
 #include <fstream>
 #include <utility>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -173,12 +179,13 @@ WriterLease::WriterLease(std::string project_dir, std::string session_id)
 WriterLease::~WriterLease() { reset(); }
 
 WriterLease::WriterLease(WriterLease&& other) noexcept
-    : project_dir_(std::move(other.project_dir_)), session_id_(std::move(other.session_id_)),
+    : file_lock_(std::move(other.file_lock_)), project_dir_(std::move(other.project_dir_)), session_id_(std::move(other.session_id_)),
       pid_(other.pid_), active_(std::exchange(other.active_, false)) {}
 
 WriterLease& WriterLease::operator=(WriterLease&& other) noexcept {
     if (this != &other) {
         reset();
+        file_lock_ = std::move(other.file_lock_);
         project_dir_ = std::move(other.project_dir_);
         session_id_ = std::move(other.session_id_);
         pid_ = other.pid_;
@@ -187,15 +194,60 @@ WriterLease& WriterLease::operator=(WriterLease&& other) noexcept {
     return *this;
 }
 
+bool WriterLease::lock_file(bool exclusive) {
+    const auto path = path_from_utf8(SessionWriterLease::lease_path(project_dir_, session_id_) + ".lock");
+    std::error_code error;
+    fs::create_directories(path.parent_path(), error);
+    if (error) return false;
+#ifdef _WIN32
+    platform::UniqueHandle handle(CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    OVERLAPPED offset{};
+    if (!handle || !LockFileEx(handle.get(), LOCKFILE_FAIL_IMMEDIATELY |
+        (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0), 0, 1, 0, &offset)) return false;
+#else
+    platform::UniqueFd handle(::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600));
+    if (!handle || ::flock(handle.get(), (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) != 0) return false;
+#endif
+    file_lock_ = std::move(handle);
+    return true;
+}
+
+bool WriterLease::acquire_for_cleanup() {
+    if (active_ || !lock_file(true)) return false;
+    // Older clients publish only the JSON lease. An idle but living legacy
+    // writer may still save, even after its heartbeat has aged out.
+    const auto owner = SessionWriterLease::read(project_dir_, session_id_);
+    std::error_code error;
+    const bool lease_exists = fs::exists(path_from_utf8(SessionWriterLease::lease_path(project_dir_, session_id_)), error);
+    if (error || (lease_exists && (!owner || owner->pid <= 0 || daemon::is_pid_alive(owner->pid)))) {
+        file_lock_.reset();
+        return false;
+    }
+    auto result = SessionWriterLease::acquire(project_dir_, session_id_, {}, "retention", pid_);
+    active_ = result.status == SessionWriterLeaseResult::Status::Acquired;
+    if (!active_) file_lock_.reset();
+    return active_;
+}
+
 SessionWriterLeaseResult WriterLease::acquire(const std::string& cwd, const std::string& surface) {
+    if (!file_lock_ && !lock_file(false)) {
+        SessionWriterLeaseResult conflict;
+        conflict.status = SessionWriterLeaseResult::Status::Conflict;
+        conflict.path = SessionWriterLease::lease_path(project_dir_, session_id_);
+        conflict.owner = SessionWriterLease::read(project_dir_, session_id_).value_or(SessionWriterLeaseInfo{});
+        return conflict;
+    }
     auto result = SessionWriterLease::acquire(project_dir_, session_id_, cwd, surface, pid_);
     active_ = result.status == SessionWriterLeaseResult::Status::Acquired;
+    if (!active_) file_lock_.reset();
     return result;
 }
 
 bool WriterLease::refresh() {
     if (!active_) return false;
     active_ = SessionWriterLease::refresh(project_dir_, session_id_, pid_);
+    if (!active_) file_lock_.reset();
     return active_;
 }
 
@@ -204,13 +256,13 @@ bool WriterLease::matches(const std::string& project_dir, const std::string& ses
 }
 
 void WriterLease::reset() noexcept {
-    if (!std::exchange(active_, false)) return;
     try {
-        SessionWriterLease::release(project_dir_, session_id_, pid_);
+        if (std::exchange(active_, false)) SessionWriterLease::release(project_dir_, session_id_, pid_);
     } catch (...) {
         // Destruction is best effort, like explicit SessionManager shutdown.
         // A failed release is recovered by the existing stale-lease mechanism.
     }
+    file_lock_.reset();
 }
 
 } // namespace acecode

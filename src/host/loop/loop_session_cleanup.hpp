@@ -3,7 +3,6 @@
 #include "loop_types.hpp"
 
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -33,12 +32,13 @@ std::vector<std::string> select_old_loop_sessions(
 // 执行会话 meta 的存放位置。工作区任务的会话都在工作区项目目录(进 worktree
 // 不改存储位置);无工作区任务每个会话有自己的缓存目录,置顶清单在缓存根。
 struct LoopSessionStorage {
-    std::function<std::string(const std::string& session_id)> project_dir;
+    std::string id;
+    std::string project_dir;
     std::filesystem::path pinned_sessions_path;
 };
 
-LoopSessionStorage loop_session_storage(const LoopDefinition& loop,
-                                        const std::string& no_workspace_cache_root);
+std::vector<LoopSessionStorage> loop_session_storage(const LoopDefinition& loop,
+    const std::vector<LoopRunSession>& runs, const std::string& no_workspace_cache_root);
 
 struct LoopSessionCleanupResult {
     std::vector<std::string> archived;
@@ -49,8 +49,7 @@ struct LoopSessionCleanupResult {
 // keep_recent_sessions 的旧会话归档或连同子会话永久删除。开关都关时什么都不做。
 LoopSessionCleanupResult cleanup_old_loop_sessions(
     const LoopDefinition& loop,
-    const std::vector<std::string>& session_ids_newest_first,
-    const LoopSessionStorage& storage,
+    const std::vector<LoopSessionStorage>& sessions,
     SessionRegistry& registry,
     SessionClient& client);
 

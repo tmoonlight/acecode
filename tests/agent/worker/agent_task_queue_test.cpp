@@ -22,6 +22,20 @@ WorkerTask chat(std::string text) {
 }
 } // namespace
 
+TEST(AgentTaskQueue, ClosingForCleanupRejectsNewInputOnlyAfterQueuedAndActiveWorkFinishes) {
+    std::atomic<bool> busy{false};
+    AgentTaskQueue queue(busy);
+    ASSERT_TRUE(queue.enqueue(chat("accepted")));
+    EXPECT_FALSE(queue.close_if_idle());
+    WorkerTask task;
+    ASSERT_TRUE(queue.wait_pop(task));
+    EXPECT_FALSE(queue.close_if_idle());
+    queue.finish_task();
+    ASSERT_TRUE(queue.close_if_idle());
+    EXPECT_FALSE(queue.enqueue(chat("too late")));
+    EXPECT_FALSE(queue.wait_pop(task));
+}
+
 TEST(AgentTaskQueue, PreservesBothFifosAndConsumesPriorityFirst) {
     std::atomic<bool> busy{false};
     AgentTaskQueue queue(busy);

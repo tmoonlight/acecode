@@ -385,13 +385,12 @@ void LoopScheduler::launch(const LoopDefinition& loop, const LoopRun& run, bool 
 void LoopScheduler::cleanup_old_sessions(const LoopDefinition& loop) {
     if (session_cleanup_mode(loop) == SessionCleanupMode::Off) return;
     StoreError error;
-    const auto session_ids = store_.list_run_session_ids(loop.id, &error);
+    const auto sessions = store_.list_run_sessions(loop.id, &error);
     if (!error.code.empty()) {
         LOG_WARN("[loop] skip old session cleanup for " + loop.id + ": " + error.message);
         return;
     }
-    cleanup_old_loop_sessions(loop, session_ids,
-                              loop_session_storage(loop, registry_.no_workspace_cache_root()),
+    cleanup_old_loop_sessions(loop, loop_session_storage(loop, sessions, registry_.no_workspace_cache_root()),
                               registry_, client_);
 }
 
