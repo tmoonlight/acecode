@@ -36,6 +36,13 @@ bool cleanup_session(const LoopSessionStorage& storage, const std::string& loop_
     for (const auto& target : targets) {
         const auto entry = registry.acquire(target);
         if (entry && (!entry->loop || entry->loop->has_pending_work())) return false;
+        // Retiring an idle entry can flush its metadata. Do not retire it when
+        // a legacy process already owns the session, even if its heartbeat is old.
+        if (entry) {
+            const auto owner = SessionWriterLease::read(dir, target);
+            if (owner && owner->pid > 0 && owner->pid != daemon::current_pid() &&
+                daemon::is_pid_alive(owner->pid)) return false;
+        }
     }
 
     std::vector<WriterLease> leases;
