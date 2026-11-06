@@ -50,6 +50,28 @@ TEST(SessionWriterLease, CleanupOwnsSessionExclusivelyAndReleasesOnScopeExit) {
     EXPECT_TRUE(cleanup.acquire_for_cleanup());
 }
 
+TEST(SessionWriterLease, MissingJsonHeartbeatDoesNotReleaseLiveWriterProtection) {
+    const auto dir = make_unique_tmp_dir("lost_heartbeat");
+    acecode::WriterLease first(dir.string(), "session"), second(dir.string(), "session");
+    ASSERT_TRUE(is_acquired(first.acquire(dir.string(), "daemon")));
+    ASSERT_TRUE(is_acquired(second.acquire(dir.string(), "daemon")));
+    second.reset();
+    EXPECT_FALSE(first.refresh());
+    acecode::WriterLease cleanup(dir.string(), "session");
+    EXPECT_FALSE(cleanup.acquire_for_cleanup());
+    first.reset();
+    EXPECT_TRUE(cleanup.acquire_for_cleanup());
+}
+
+TEST(SessionWriterLease, FileLockIoErrorIsDistinctFromContention) {
+    const auto root = make_unique_tmp_dir("bad_lock_root");
+    std::ofstream(root / ".session-writer-locks") << "regular file";
+    acecode::WriterLease writer((root / "project").string(), "session");
+    const auto result = writer.acquire(root.string(), "tui");
+    EXPECT_EQ(result.status, SessionWriterLeaseResult::Status::Error);
+    EXPECT_FALSE(result.error.empty());
+}
+
 TEST(SessionWriterLease, AcquireWritesLeaseMetadata) {
     auto dir = make_unique_tmp_dir("acquire");
     const std::string sid = "20260426-100000-abcd";

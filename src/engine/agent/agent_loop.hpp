@@ -77,10 +77,10 @@ public:
 
     // Submit a user message. Non-blocking: enqueues the message and returns immediately.
     // The internal worker thread will process it.
-    void submit(const std::string& user_message);
+    bool submit(const std::string& user_message);
 
     // display_text preserves unexpanded user text; empty falls back to prompt.
-    void submit(const std::string& prompt, const std::string& display_text);
+    bool submit(const std::string& prompt, const std::string& display_text);
 
     // Submit structured user input containing text plus optional attachment or
     // context parts. Existing text-only submit overloads delegate here.
@@ -96,7 +96,7 @@ public:
 
     // Queue a manual `/compact` control task on the same worker as chat/tool
     // turns so transcript mutation cannot race an active model run.
-    void submit_compact();
+    bool submit_compact();
 
     // Queue a runtime-context update on the same worker as chat turns. The
     // callback runs between already-queued and subsequently-queued turns, so an

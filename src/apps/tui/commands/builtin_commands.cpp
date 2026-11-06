@@ -1344,7 +1344,7 @@ static void cmd_management_surface(CommandContext& ctx,
     }
 }
 
-static void do_resume_session(CommandContext& ctx, const std::string& session_id,
+static bool do_resume_session(CommandContext& ctx, const std::string& session_id,
                               const std::vector<SessionMeta>& sessions) {
     // Caller must hold ctx.state.mu
     // Find the meta for this session
@@ -1388,17 +1388,14 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
         }
     }
 
-    const bool canonical_exists = ctx.session_manager->has_session_file(session_id);
     auto messages = ctx.session_manager->resume_session(session_id);
     const std::string resume_error = ctx.session_manager->last_error();
+    const bool resumed = resume_error.empty() && ctx.session_manager->current_session_id() == session_id;
     ctx.agent_loop.clear_messages();
     ctx.state.conversation.clear();
     if (!resume_error.empty()) {
         ctx.state.conversation.push_back({"system", resume_error, false});
-    } else if (!canonical_exists && ctx.session_manager->has_incompatible_session_data(session_id)) {
-        ctx.state.conversation.push_back({"system",
-            "Session " + session_id + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
-    } else if (!canonical_exists) {
+    } else if (!resumed) {
         ctx.state.conversation.push_back({"system", "Session " + session_id + " not found.", false});
     } else {
         ToolExecutor fallback_tools;
@@ -1456,14 +1453,13 @@ static void do_resume_session(CommandContext& ctx, const std::string& session_id
         ctx.state.current_session_title.clear();
     }
 
-    const bool resumed = canonical_exists && resume_error.empty() &&
-        ctx.session_manager->current_session_id() == session_id;
     if (resumed) {
         ctx.agent_loop.dispatch_session_title_changed_hook(
             ctx.session_manager->current_title(),
             "resume",
             ctx.session_manager->current_title_source());
     }
+    return resumed;
 }
 
 bool resume_session_by_id(CommandContext& ctx, const std::string& session_id) {
@@ -1476,16 +1472,10 @@ bool resume_session_by_id(CommandContext& ctx, const std::string& session_id) {
         return false;
     }
 
-    const bool canonical_exists =
-        ctx.session_manager->has_session_file(session_id);
     std::vector<SessionMeta> target_meta;
-    if (canonical_exists) {
-        auto meta = ctx.session_manager->load_session_meta(session_id);
-        if (!meta.id.empty()) target_meta.push_back(std::move(meta));
-    }
-    do_resume_session(ctx, session_id, target_meta);
-    return canonical_exists && ctx.session_manager->last_error().empty() &&
-           ctx.session_manager->current_session_id() == session_id;
+    auto meta = ctx.session_manager->load_session_meta(session_id);
+    if (!meta.id.empty()) target_meta.push_back(std::move(meta));
+    return do_resume_session(ctx, session_id, target_meta);
 }
 
 static void cmd_resume(CommandContext& ctx, const std::string& args) {
@@ -1593,17 +1583,13 @@ static void cmd_resume(CommandContext& ctx, const std::string& args) {
             }
         }
 
-        const bool canonical_exists = sm->has_session_file(sid);
         auto messages = sm->resume_session(sid);
         const std::string resume_error = sm->last_error();
         al->clear_messages();
         state.conversation.clear();
         if (!resume_error.empty()) {
             state.conversation.push_back({"system", resume_error, false});
-        } else if (!canonical_exists && sm->has_incompatible_session_data(sid)) {
-            state.conversation.push_back({"system",
-                "Session " + sid + " uses an old PID-suffixed data format that is no longer supported. Delete the old project session data under ~/.acecode/projects and start a new session.", false});
-        } else if (!canonical_exists) {
+        } else if (sm->current_session_id() != sid) {
             state.conversation.push_back({"system", "Session " + sid + " not found.", false});
         } else {
             ToolExecutor fallback_tools;

@@ -389,7 +389,8 @@ bool SessionStorage::write_meta(const std::string& meta_path, const SessionMeta&
     return atomic_write_file(meta_path, j.dump(2) + '\n');
 }
 
-SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
+SessionMeta SessionStorage::read_meta(const std::string& meta_path, bool* explicitly_empty) {
+    if (explicitly_empty) *explicitly_empty = false;
     SessionMeta meta;
     std::ifstream ifs(path_from_utf8(meta_path), std::ios::binary);
     if (!ifs.is_open()) return meta;
@@ -478,6 +479,10 @@ SessionMeta SessionStorage::read_meta(const std::string& meta_path) {
             meta.agent_path = j["mesh_agent"].value("path", std::string{});
         }
         if (j.contains("channel_delegate")) meta.channel_delegate = channel_delegate_from_json(j["channel_delegate"]);
+        if (explicitly_empty) {
+            const auto count = j.find("message_count");
+            *explicitly_empty = count != j.end() && count->is_number_integer() && *count == 0;
+        }
     } catch (...) {
         // Return empty meta on parse failure
     }

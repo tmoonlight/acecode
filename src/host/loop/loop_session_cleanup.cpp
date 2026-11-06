@@ -36,6 +36,13 @@ bool cleanup_session(const LoopSessionStorage& storage, const std::string& loop_
     for (const auto& target : targets) {
         const auto entry = registry.acquire(target);
         if (entry && (!entry->loop || entry->loop->has_pending_work())) return false;
+        // Retiring an idle entry can flush its metadata. Do not retire it when
+        // a legacy process already owns the session, even if its heartbeat is old.
+        if (entry) {
+            const auto owner = SessionWriterLease::read(dir, target);
+            if (owner && owner->pid > 0 && owner->pid != daemon::current_pid() &&
+                daemon::is_pid_alive(owner->pid)) return false;
+        }
     }
 
     std::vector<WriterLease> leases;
@@ -101,33 +108,37 @@ std::vector<LoopSessionStorage> loop_session_storage(const LoopDefinition& loop,
     namespace fs = std::filesystem;
     const auto root = no_workspace_cache_root.empty() ? default_no_workspace_cache_root() : no_workspace_cache_root;
     std::vector<LoopSessionStorage> result;
-    std::optional<std::vector<fs::path>> legacy_projects;
+    std::unordered_map<std::string, std::size_t> unresolved;
     for (const auto& run : runs) {
         const auto& cwd = run.workspace_cwd ? *run.workspace_cwd : loop.workspace_cwd;
-        bool no_workspace = cwd.empty();
-        auto dir = SessionStorage::get_project_dir(no_workspace ? no_workspace_session_cwd(run.id, root) : cwd);
-        std::error_code lookup_error;
-        if (!run.workspace_cwd && !fs::exists(path_from_utf8(SessionStorage::meta_path(dir, run.id)), lookup_error)) {
-            // Pre-upgrade rows lack a scope snapshot. Probe metadata by the exact ID,
-            // and verify LOOP provenance before considering another project's files.
-            if (!legacy_projects) {
-                legacy_projects.emplace();
-                std::error_code error;
-                const auto projects = path_from_utf8(get_acecode_dir()) / "projects";
-                for (fs::directory_iterator it(projects, error), end; !error && it != end; it.increment(error)) {
-                    if (it->is_directory(error)) legacy_projects->push_back(it->path());
-                }
-            }
-            for (const auto& project : *legacy_projects) {
-                const auto candidate = path_to_utf8(project);
-                const auto meta = SessionStorage::read_meta(SessionStorage::meta_path(candidate, run.id));
-                if (meta.id != run.id || meta.loop_id != loop.id) continue;
-                dir = candidate;
-                no_workspace = meta.no_workspace;
-                break;
-            }
+        const bool no_workspace = cwd.empty();
+        const auto dir = SessionStorage::get_project_dir(no_workspace ? no_workspace_session_cwd(run.id, root) : cwd);
+        std::error_code error;
+        if (!run.workspace_cwd && !fs::exists(path_from_utf8(SessionStorage::meta_path(dir, run.id)), error)) {
+            unresolved.emplace(run.id, result.size());
         }
         result.push_back({run.id, dir, path_from_utf8(no_workspace ? root : dir) / "pinned_sessions.json"});
+    }
+    if (unresolved.empty()) return result;
+    // Index legacy metadata by filename in a single pass. Only open files for
+    // unresolved IDs; do not probe every project once per deleted historical run.
+    const auto projects = path_from_utf8(get_acecode_dir()) / "projects";
+    const std::string suffix = ".meta.json";
+    std::error_code error;
+    for (fs::directory_iterator project(projects, error), end; !error && project != end && !unresolved.empty(); project.increment(error)) {
+        std::error_code entry_error;
+        for (fs::directory_iterator file(project->path(), entry_error); !entry_error && file != end; file.increment(entry_error)) {
+            const auto name = path_to_utf8(file->path().filename());
+            if (name.size() <= suffix.size() || name.compare(name.size() - suffix.size(), suffix.size(), suffix) != 0) continue;
+            const auto found = unresolved.find(name.substr(0, name.size() - suffix.size()));
+            if (found == unresolved.end()) continue;
+            const auto meta = SessionStorage::read_meta(path_to_utf8(file->path()));
+            if (meta.id != found->first || meta.loop_id != loop.id) continue;
+            auto& location = result[found->second];
+            location.project_dir = path_to_utf8(project->path());
+            location.pinned_sessions_path = path_from_utf8(meta.no_workspace ? root : location.project_dir) / "pinned_sessions.json";
+            unresolved.erase(found);
+        }
     }
     return result;
 }

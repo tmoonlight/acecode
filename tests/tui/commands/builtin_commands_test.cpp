@@ -1459,6 +1459,22 @@ TEST(BuiltinCommands, ResumeDispatchesRestoredTitleChangedHook) {
     EXPECT_EQ(payloads[0]["title_source"], "user");
 }
 
+TEST(BuiltinCommands, ResumeByStableIdAcceptsValidMetadataBeforeFirstMessage) {
+    ResumeCommandHarness h("resume_empty");
+    const std::string sid = "20261106_090000_abcd";
+    const auto project = acecode::SessionStorage::get_project_dir(h.cwd_.string());
+    acecode::SessionMeta meta;
+    meta.id = sid;
+    meta.cwd = h.cwd_.string();
+    ASSERT_TRUE(acecode::SessionStorage::write_meta(acecode::SessionStorage::meta_path(project, sid), meta));
+    ASSERT_FALSE(h.sm_.has_session_file(sid));
+    auto ctx = h.context();
+    EXPECT_TRUE(acecode::resume_session_by_id(ctx, sid));
+    EXPECT_EQ(h.sm_.current_session_id(), sid);
+    ASSERT_FALSE(h.state_.conversation.empty());
+    EXPECT_NE(h.state_.conversation.back().content.find("Resumed session"), std::string::npos);
+}
+
 TEST(BuiltinCommands, ResumeByStableIdRefreshesCanonicalRuntimeState) {
     ResumeCommandHarness h("resume_stable_id");
     auto ctx = h.context();

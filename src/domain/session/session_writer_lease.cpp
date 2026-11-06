@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cerrno>
 #include <filesystem>
 #include <fstream>
 #include <utility>
@@ -194,9 +195,17 @@ WriterLease& WriterLease::operator=(WriterLease&& other) noexcept {
     return *this;
 }
 
-bool WriterLease::lock_file(bool exclusive) {
-    const auto path = path_from_utf8(SessionWriterLease::lease_path(project_dir_, session_id_) + ".lock");
-    std::error_code error;
+bool WriterLease::lock_file(bool exclusive, std::error_code& error) {
+    const auto project = path_from_utf8(project_dir_).lexically_normal();
+    if (project.empty() || session_id_.empty()) {
+        error = std::make_error_code(std::errc::invalid_argument);
+        return false;
+    }
+    // Keep open handles outside the project directory so it can be moved for
+    // recovery or backup on Windows. The JSON lease stays at its legacy path.
+    const auto parent = project.parent_path();
+    const auto lock_root = parent.filename() == "projects" ? parent.parent_path() : parent;
+    const auto path = lock_root / ".session-writer-locks" / project.filename() / path_from_utf8(session_id_ + ".lock");
     fs::create_directories(path.parent_path(), error);
     if (error) return false;
 #ifdef _WIN32
@@ -204,21 +213,28 @@ bool WriterLease::lock_file(bool exclusive) {
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
     OVERLAPPED offset{};
     if (!handle || !LockFileEx(handle.get(), LOCKFILE_FAIL_IMMEDIATELY |
-        (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0), 0, 1, 0, &offset)) return false;
+        (exclusive ? LOCKFILE_EXCLUSIVE_LOCK : 0), 0, 1, 0, &offset)) {
+        const auto code = GetLastError();
+        if (code != ERROR_LOCK_VIOLATION && code != ERROR_SHARING_VIOLATION) error.assign(code, std::system_category());
+        return false;
+    }
 #else
     platform::UniqueFd handle(::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0600));
-    if (!handle || ::flock(handle.get(), (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) != 0) return false;
+    if (!handle || ::flock(handle.get(), (exclusive ? LOCK_EX : LOCK_SH) | LOCK_NB) != 0) {
+        if (errno != EWOULDBLOCK && errno != EAGAIN) error.assign(errno, std::generic_category());
+        return false;
+    }
 #endif
     file_lock_ = std::move(handle);
     return true;
 }
 
 bool WriterLease::acquire_for_cleanup() {
-    if (active_ || !lock_file(true)) return false;
+    std::error_code error;
+    if (active_ || !lock_file(true, error)) return false;
     // Older clients publish only the JSON lease. An idle but living legacy
     // writer may still save, even after its heartbeat has aged out.
     const auto owner = SessionWriterLease::read(project_dir_, session_id_);
-    std::error_code error;
     const bool lease_exists = fs::exists(path_from_utf8(SessionWriterLease::lease_path(project_dir_, session_id_)), error);
     if (error || (lease_exists && (!owner || owner->pid <= 0 || daemon::is_pid_alive(owner->pid)))) {
         file_lock_.reset();
@@ -231,9 +247,11 @@ bool WriterLease::acquire_for_cleanup() {
 }
 
 SessionWriterLeaseResult WriterLease::acquire(const std::string& cwd, const std::string& surface) {
-    if (!file_lock_ && !lock_file(false)) {
+    std::error_code error;
+    if (!file_lock_ && !lock_file(false, error)) {
         SessionWriterLeaseResult conflict;
-        conflict.status = SessionWriterLeaseResult::Status::Conflict;
+        conflict.status = error ? SessionWriterLeaseResult::Status::Error : SessionWriterLeaseResult::Status::Conflict;
+        if (error) conflict.error = error.message();
         conflict.path = SessionWriterLease::lease_path(project_dir_, session_id_);
         conflict.owner = SessionWriterLease::read(project_dir_, session_id_).value_or(SessionWriterLeaseInfo{});
         return conflict;
@@ -246,9 +264,9 @@ SessionWriterLeaseResult WriterLease::acquire(const std::string& cwd, const std:
 
 bool WriterLease::refresh() {
     if (!active_) return false;
-    active_ = SessionWriterLease::refresh(project_dir_, session_id_, pid_);
-    if (!active_) file_lock_.reset();
-    return active_;
+    // The kernel lock protects all live writers, even if a same-PID peer
+    // released their shared legacy JSON record. Keep it until the owner stops.
+    return SessionWriterLease::refresh(project_dir_, session_id_, pid_);
 }
 
 bool WriterLease::matches(const std::string& project_dir, const std::string& session_id) const {

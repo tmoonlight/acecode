@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <random>
 #include <string>
 #include <vector>
@@ -46,6 +47,28 @@ ChatMessage message(const std::string& role, const std::string& content) {
 }
 
 } // namespace
+
+TEST(SessionManagerResume, InvalidOrUncountedMetadataCannotBecomeAnEmptySession) {
+    const auto cwd = make_temp_cwd("invalid_empty");
+    const auto project = SessionStorage::get_project_dir(cwd.string());
+    fs::create_directories(project);
+    SessionManager sm;
+    sm.start_session(cwd.string(), "test-provider", "test-model");
+    const fs::path meta = SessionStorage::meta_path(project, "empty");
+    for (const std::string contents : {
+        R"({"id":"empty","cwd":{},"message_count":17})",
+        R"({"id":"empty","cwd":"","message_count":0,"title":[]})",
+        R"({"id":"empty","cwd":""})"}) {
+        std::ofstream(meta, std::ios::binary) << contents;
+        EXPECT_TRUE(sm.resume_session("empty").empty());
+        EXPECT_FALSE(sm.last_error().empty());
+        std::ifstream saved(meta, std::ios::binary);
+        EXPECT_EQ(std::string(std::istreambuf_iterator<char>(saved), {}), contents);
+        EXPECT_FALSE(fs::exists(SessionStorage::session_path(project, "empty")));
+    }
+    fs::remove_all(project);
+    fs::remove_all(cwd);
+}
 
 TEST(SessionManagerResume, RepeatedResumeDoesNotDuplicateCanonicalJsonl) {
     auto cwd = make_temp_cwd("canonical");

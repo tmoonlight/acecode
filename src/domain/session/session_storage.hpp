@@ -170,7 +170,8 @@ public:
     static bool write_meta(const std::string& meta_path, const SessionMeta& meta);
 
     // Read session metadata from a .meta.json file.
-    static SessionMeta read_meta(const std::string& meta_path);
+    // explicitly_empty is set only after successful decoding of a stored integer zero count.
+    static SessionMeta read_meta(const std::string& meta_path, bool* explicitly_empty = nullptr);
 
     // List canonical sessions in a project directory, sorted by updated_at descending.
     // PID-suffixed files are incompatible old data and are ignored.
