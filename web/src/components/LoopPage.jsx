@@ -7,8 +7,11 @@ import {
   formatDate,
   loopRunPresentation,
   loopScheduleLabel,
+  loopSessionCleanupLabel,
   loopFormForTemplate,
+  setLoopSessionCleanup,
   validateLoopForm,
+  MAX_KEEP_RECENT_SESSIONS,
 } from '../lib/loops.js';
 import { VsIcon } from './Icon.jsx';
 import { Modal } from './Modal.jsx';
@@ -53,6 +56,8 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const update = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const updateCleanup = (key, checked) => setForm((prev) => setLoopSessionCleanup(prev, key, checked));
+  const cleanupOn = form.autoArchiveOldSessions === true || form.autoDeleteOldSessions === true;
 
   useEffect(() => {
     if (!form.modelName && models[0]?.name) update('modelName', models[0].name);
@@ -219,6 +224,35 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
               <input type="datetime-local" className={inputClass()} value={form.validUntil} onChange={(e) => update('validUntil', e.target.value)} aria-label="结束时间" />
             </div>
           </Field>
+
+          <div className="flex flex-wrap items-center gap-2.5" role="group" aria-label="旧通知">
+            <span className="shrink-0 text-[12px] font-medium text-fg-2">旧通知</span>
+            {[['autoArchiveOldSessions', '自动归档'], ['autoDeleteOldSessions', '自动删除']].map(([key, label]) => (
+              <label key={key} className="h-8 px-2.5 rounded-md border border-border bg-bg flex items-center gap-1.5 text-[11px] text-fg cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form[key] === true}
+                  onChange={(e) => updateCleanup(key, e.target.checked)}
+                  className="h-3.5 w-3.5 accent-accent"
+                />
+                <span>{label}</span>
+              </label>
+            ))}
+            <label className={`flex shrink-0 items-center gap-1.5 text-[12px] ${cleanupOn ? 'text-fg-2' : 'text-fg-mute'}`}>
+              <span>保留最近</span>
+              <input
+                type="number"
+                min="1"
+                max={MAX_KEEP_RECENT_SESSIONS}
+                aria-label="保留会话数"
+                disabled={!cleanupOn}
+                className={inputClass('!w-[64px] disabled:opacity-50 disabled:cursor-not-allowed')}
+                value={form.keepRecentSessions}
+                onChange={(e) => update('keepRecentSessions', e.target.value)}
+              />
+              <span>个会话</span>
+            </label>
+          </div>
 
           {error && <div className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>}
         </div>
@@ -443,6 +477,7 @@ export function LoopPage({ onOpenSession, onSmartAdd }) {
                             loop.workspace_hash ? (loop.use_worktree ? 'worktree' : '当前工作区') : '',
                             loop.permission_mode === 'default' ? '默认权限' : '完全访问权限',
                             loop.model_name,
+                            loopSessionCleanupLabel(loop),
                           ].filter(Boolean).join(' · ')}
                         </p>
                         <p className="mt-0.5 text-[11px] text-fg-mute flex flex-wrap items-center gap-x-1" aria-live="polite">

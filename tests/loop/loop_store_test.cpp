@@ -347,3 +347,83 @@ TEST(LoopStore, WorkspaceTouchedRoundtripAfterMigration) {
     EXPECT_FALSE(store.set_run_workspace_touched("missing-run", {"a"}, &error));
     EXPECT_EQ(error.code, "NOT_FOUND");
 }
+
+// 场景:老库(没有旧通知清理三列)升上来后读老任务、再新建 / 更新带清理开关的任务。
+// 期望:initialize 补列(v4),老任务读出默认值(都关、保留 3 个);新任务的开关
+// 和个数写进去能原样读回,update / set_loop_enabled 也不会把它们冲掉;存储层同样
+// 拒绝两个开关同时打开,手改 REST 请求绕不过去。
+TEST(LoopStore, SessionCleanupColumnsMigrateAndRoundTrip) {
+    const auto path = temp_database("session_cleanup");
+    ASSERT_TRUE(create_legacy_database(path));
+    LoopStore store(path);
+    StoreError error;
+    ASSERT_TRUE(store.initialize(&error)) << error.message;
+
+    auto legacy = store.get_loop("legacy", &error);
+    ASSERT_TRUE(legacy.has_value()) << error.message;
+    EXPECT_FALSE(legacy->auto_archive_old_sessions);
+    EXPECT_FALSE(legacy->auto_delete_old_sessions);
+    EXPECT_EQ(legacy->keep_recent_sessions, 3);
+
+    auto value = once_loop("cleanup", 20'000);
+    value.auto_archive_old_sessions = true;
+    value.keep_recent_sessions = 5;
+    auto created = store.create_loop(value, 1'000, &error);
+    ASSERT_TRUE(created.has_value()) << error.message;
+    auto reloaded = store.get_loop(created->id, &error);
+    ASSERT_TRUE(reloaded.has_value()) << error.message;
+    EXPECT_TRUE(reloaded->auto_archive_old_sessions);
+    EXPECT_FALSE(reloaded->auto_delete_old_sessions);
+    EXPECT_EQ(reloaded->keep_recent_sessions, 5);
+
+    reloaded->auto_archive_old_sessions = false;
+    reloaded->auto_delete_old_sessions = true;
+    reloaded->keep_recent_sessions = 1;
+    ASSERT_TRUE(store.update_loop(created->id, *reloaded, 2'000, &error)) << error.message;
+    ASSERT_TRUE(store.set_loop_enabled(created->id, false, 3'000, &error)) << error.message;
+    const auto updated = store.get_loop(created->id, &error);
+    ASSERT_TRUE(updated.has_value()) << error.message;
+    EXPECT_FALSE(updated->auto_archive_old_sessions);
+    EXPECT_TRUE(updated->auto_delete_old_sessions);
+    EXPECT_EQ(updated->keep_recent_sessions, 1);
+    EXPECT_FALSE(updated->enabled);
+
+    auto conflicting = *updated;
+    conflicting.auto_archive_old_sessions = true;
+    EXPECT_FALSE(store.update_loop(created->id, conflicting, 4'000, &error));
+    EXPECT_EQ(error.code, "CONFLICTING_SESSION_CLEANUP");
+}
+
+// 场景:同一任务有四次运行:一次没建会话(空 session_id),一个会话 id 被前后两条
+// 运行记录引用(异常数据);另一个任务也有会话。
+// 期望:list_run_session_ids 只返回本任务的非空会话 id,按计划时间从新到旧、去重,
+// 重复的 id 留在它最新出现的位置。
+TEST(LoopStore, ListRunSessionIdsIsNewestFirstAndDeduplicated) {
+    LoopStore store(temp_database("run_sessions"));
+    ASSERT_TRUE(store.initialize());
+    StoreError error;
+    auto loop = store.create_loop(once_loop("first", 50'000), 0, &error);
+    ASSERT_TRUE(loop.has_value()) << error.message;
+    auto other = store.create_loop(once_loop("other", 60'000), 0, &error);
+    ASSERT_TRUE(other.has_value()) << error.message;
+
+    const struct { std::string loop_id; std::int64_t at; std::string session; } runs[] = {
+        {loop->id, 1'000, "session-a"},
+        {loop->id, 2'000, ""},
+        {loop->id, 3'000, "session-b"},
+        {loop->id, 4'000, "session-a"},
+        {other->id, 5'000, "session-other"},
+    };
+    for (const auto& run : runs) {
+        auto claim = store.claim_now(run.loop_id, run.at, "owner", &error);
+        ASSERT_EQ(claim.disposition, ClaimDisposition::Claimed) << error.message;
+        ASSERT_TRUE(store.update_run_state(claim.run->id, RunStatus::Completed, run.at + 1,
+                                           {}, run.session, {}, {}, &error)) << error.message;
+    }
+
+    EXPECT_EQ(store.list_run_session_ids(loop->id, &error),
+              (std::vector<std::string>{"session-a", "session-b"}));
+    EXPECT_TRUE(error.code.empty()) << error.message;
+    EXPECT_EQ(store.list_run_session_ids(other->id, &error),
+              (std::vector<std::string>{"session-other"}));
+}

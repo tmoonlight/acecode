@@ -14,6 +14,9 @@ enum class PeriodKind { Daily, Workdays, Weekly };
 enum class IntervalUnit { Minutes, Hours, Days };
 enum class RunStatus { Scheduled, Running, WaitingUser, Completed, Failed, Missed };
 
+constexpr int kDefaultKeepRecentSessions = 3;
+constexpr int kMaxKeepRecentSessions = 100;
+
 struct LoopSchedule {
     ScheduleKind kind = ScheduleKind::Period;
 
@@ -48,6 +51,11 @@ struct LoopDefinition {
     std::string model_name;
     std::string permission_mode = "yolo"; // default | yolo
     bool use_worktree = false;
+    // 每次新一轮运行开始后,只留这个任务最近 keep_recent_sessions 个可见会话,
+    // 更早的归档或永久删除。两个开关互斥,都关时不清理。
+    bool auto_archive_old_sessions = false;
+    bool auto_delete_old_sessions = false;
+    int keep_recent_sessions = kDefaultKeepRecentSessions;
     LoopSchedule schedule;
     std::string schedule_expr;
     std::optional<std::int64_t> next_run_at_ms;

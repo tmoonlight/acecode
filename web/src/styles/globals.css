@@ -1399,6 +1399,23 @@ body {
 .ace-composer-reasoning-button {
   white-space: nowrap;
 }
+.ace-composer-reasoning-icon,
+.ace-composer-reasoning-control[data-compact="true"] .ace-composer-adaptive-content {
+  display: none;
+}
+.ace-composer-reasoning-control[data-compact="true"] .ace-composer-reasoning-icon {
+  display: inline-flex;
+}
+.ace-composer-session-footer[data-stacked="true"] {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 2px;
+}
+.ace-composer-session-footer[data-stacked="true"] > div {
+  flex-wrap: wrap;
+}
+.ace-composer-session-footer[data-stacked="true"] .ace-composer-model-control {
+  flex-grow: 1 !important;
+}
 .ace-composer-reasoning-menu {
   z-index: 80;
   padding: 5px;
@@ -1527,6 +1544,9 @@ body {
   width: 0;
   height: 0;
 }
+.ace-composer-context-strip:not(:empty) {
+  min-width: 28px;
+}
 .ace-composer-context-strip:focus-visible {
   outline: 1px solid rgba(var(--ace-accent-rgb), 0.42);
   outline-offset: 1px;
@@ -1646,6 +1666,15 @@ body {
   width: 304px;
   max-width: 360px;
   overflow: hidden;
+}
+/* Anchor compact menus to the footer so the full menu fits in the chat pane. */
+.ace-composer-model-control[data-compact="true"],
+.ace-composer-permission-control[data-compact="true"] {
+  position: static;
+}
+.ace-composer-model-control[data-compact="true"] .ace-composer-model-menu,
+.ace-composer-permission-control[data-compact="true"] .ace-composer-permission-menu {
+  max-width: 100%;
 }
 .ace-composer-model-menu-header {
   height: 34px;
@@ -1797,7 +1826,7 @@ body {
 }
 .ace-topbar-navigation,
 .ace-topbar-controls {
-  /* Keep controls aligned with native macOS lights when a long directory wraps. */
+  /* Align controls with the native macOS traffic lights. */
   align-self: flex-start;
   margin-top: 3px;
 }
@@ -1813,12 +1842,11 @@ body {
 }
 .ace-session-workspace {
   max-width: calc(100% - 8px);
-  overflow-wrap: anywhere;
 }
 /* 12px minus the 4px the navigation block keeps clear of the sidebar border
    leaves an 8px gap between that border and the session title. */
 .ace-topbar-session-title { padding-left: 12px; }
-.ace-topbar-controls { gap: 40px; }
+.ace-topbar-controls { gap: clamp(4px, calc(100vw - 480px), 40px); }
 .ace-topbar-controls > .ace-window-controls { margin-left: 0; }
 .ace-topbar .ace-topbar-action,
 .ace-topbar .ace-session-title-actions > button {
@@ -3976,6 +4004,7 @@ a.ace-thread-link:focus-visible {
 }
 
 .ace-change-glass-wrap {
+  container: change-summary / inline-size;
   --ace-todo-wrap-bg: rgba(var(--ace-surface-rgb), 0.92);
   --ace-todo-title-color: var(--ace-fg);
   --ace-todo-text-color: var(--ace-fg-2);
@@ -4021,7 +4050,8 @@ a.ace-thread-link:focus-visible {
 }
 .ace-change-glass-dock {
   width: auto;
-  max-width: calc(100% - 24px);
+  min-width: 0;
+  max-width: 100%;
   min-height: 36px;
   display: inline-flex;
   align-items: center;
@@ -4086,22 +4116,27 @@ a.ace-thread-link:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
   white-space: nowrap;
 }
-.ace-change-glass-summary .ace-change-totals {
-  flex: 0 0 auto;
+.ace-change-glass-summary .ace-change-totals > span,
+.ace-change-glass-steps {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ace-change-glass-todo-progress {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  flex: 0 0 auto;
+  min-width: 14px;
+  overflow: hidden;
   color: var(--ace-fg-2);
   font-size: 12px;
   line-height: 18px;
 }
-.ace-change-glass-todo-progress::after {
+.ace-change-glass-todo-progress:not(:only-child)::after {
   content: "";
+  flex: none;
   width: 3px;
   height: 3px;
   border-radius: 50%;
@@ -4118,12 +4153,33 @@ a.ace-thread-link:focus-visible {
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
 }
 .ace-change-glass-action {
-  display: inline-flex;
-  align-items: center;
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--ace-fg-mute);
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+}
+@container change-summary (max-width: 20rem) {
+  .ace-change-glass-summary :is(.ace-change-add, .ace-change-del) {
+    display: none;
+  }
+  .ace-change-glass-main {
+    gap: 6px;
+  }
+}
+@container change-summary (max-width: 15rem) {
+  .ace-change-glass-todo-progress:not(:only-child) .ace-change-glass-steps,
+  .ace-change-glass-todo-progress:not(:only-child)::after {
+    display: none;
+  }
+}
+@container change-summary (max-width: 10rem) {
+  .ace-change-glass-todo-progress + .ace-change-totals {
+    display: none;
+  }
 }
 .ace-change-glass-dock:hover .ace-change-glass-action {
   color: var(--ace-fg-mute);

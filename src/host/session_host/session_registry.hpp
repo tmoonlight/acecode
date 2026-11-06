@@ -377,6 +377,9 @@ public:
     // 当前活跃 session 数(测试 / 监控用)。
     std::size_t size() const;
 
+    // 无工作区会话的缓存根;空 = 默认 ~/.acecode/cache/no-workspace。
+    const std::string& no_workspace_cache_root() const { return deps_.no_workspace_cache_root; }
+
     // ---- git 感知辅助(openspec add-webui-git-session-pill)----
 
     // workspace cwd 下是否有会话正在跑回合。checkout 安全门:agent 写文件

@@ -15,7 +15,7 @@ namespace acecode::loop {
 
 namespace {
 
-constexpr int kSchemaVersion = 3;
+constexpr int kSchemaVersion = 4;
 
 void set_error(StoreError* error, const std::string& code, const std::string& message) {
     if (!error) return;
@@ -117,6 +117,9 @@ LoopDefinition loop_from_row(sqlite3_stmt* stmt, StoreError* error) {
     value.enabled = sqlite3_column_int(stmt, 11) != 0;
     value.created_at_ms = static_cast<std::int64_t>(sqlite3_column_int64(stmt, 12));
     value.updated_at_ms = static_cast<std::int64_t>(sqlite3_column_int64(stmt, 13));
+    value.auto_archive_old_sessions = sqlite3_column_int(stmt, 14) != 0;
+    value.auto_delete_old_sessions = sqlite3_column_int(stmt, 15) != 0;
+    value.keep_recent_sessions = sqlite3_column_int(stmt, 16);
     try {
         ValidationError validation;
         if (!schedule_from_json(nlohmann::json::parse(schedule_json), value.schedule, &validation)) {
@@ -160,7 +163,8 @@ LoopRun run_from_row(sqlite3_stmt* stmt) {
 
 constexpr const char* kLoopSelectColumns =
     "id,name,prompt,workspace_hash,workspace_cwd,model_name,permission_mode,"
-    "use_worktree,schedule_json,schedule_expr,next_run_at_ms,enabled,created_at_ms,updated_at_ms";
+    "use_worktree,schedule_json,schedule_expr,next_run_at_ms,enabled,created_at_ms,updated_at_ms,"
+    "auto_archive_old_sessions,auto_delete_old_sessions,keep_recent_sessions";
 
 bool bind_loop_write(sqlite3_stmt* stmt, const LoopDefinition& value, bool include_id) {
     int i = 1;
@@ -177,7 +181,10 @@ bool bind_loop_write(sqlite3_stmt* stmt, const LoopDefinition& value, bool inclu
            bind_optional_i64(stmt, i++, value.next_run_at_ms) &&
            sqlite3_bind_int(stmt, i++, value.enabled ? 1 : 0) == SQLITE_OK &&
            bind_i64(stmt, i++, value.created_at_ms) &&
-           bind_i64(stmt, i++, value.updated_at_ms);
+           bind_i64(stmt, i++, value.updated_at_ms) &&
+           sqlite3_bind_int(stmt, i++, value.auto_archive_old_sessions ? 1 : 0) == SQLITE_OK &&
+           sqlite3_bind_int(stmt, i++, value.auto_delete_old_sessions ? 1 : 0) == SQLITE_OK &&
+           sqlite3_bind_int(stmt, i++, value.keep_recent_sessions) == SQLITE_OK;
 }
 
 bool is_terminal(RunStatus status) {
@@ -304,7 +311,10 @@ bool LoopStore::initialize(StoreError* error) {
         "use_worktree INTEGER NOT NULL DEFAULT 0,"
         "schedule_json TEXT NOT NULL,schedule_expr TEXT NOT NULL,"
         "next_run_at_ms INTEGER NULL,enabled INTEGER NOT NULL DEFAULT 1,"
-        "created_at_ms INTEGER NOT NULL,updated_at_ms INTEGER NOT NULL);"
+        "created_at_ms INTEGER NOT NULL,updated_at_ms INTEGER NOT NULL,"
+        "auto_archive_old_sessions INTEGER NOT NULL DEFAULT 0,"
+        "auto_delete_old_sessions INTEGER NOT NULL DEFAULT 0,"
+        "keep_recent_sessions INTEGER NOT NULL DEFAULT 3);"
         "CREATE INDEX IF NOT EXISTS loops_next_idx ON loops(enabled,next_run_at_ms);"
         "CREATE TABLE IF NOT EXISTS loop_runs("
         "id TEXT PRIMARY KEY,loop_id TEXT NOT NULL,scheduled_at_ms INTEGER NOT NULL,"
@@ -339,6 +349,21 @@ bool LoopStore::initialize(StoreError* error) {
                   "ALTER TABLE loop_runs ADD COLUMN workspace_touched TEXT NOT NULL DEFAULT '';",
                   error)) {
         return false;
+    }
+    // v4:旧会话自动归档 / 删除开关与保留个数,老库默认都关、保留 3 个。
+    for (const auto& [column, ddl] : {
+             std::pair<const char*, const char*>{
+                 "auto_archive_old_sessions",
+                 "ALTER TABLE loops ADD COLUMN auto_archive_old_sessions INTEGER NOT NULL DEFAULT 0;"},
+             std::pair<const char*, const char*>{
+                 "auto_delete_old_sessions",
+                 "ALTER TABLE loops ADD COLUMN auto_delete_old_sessions INTEGER NOT NULL DEFAULT 0;"},
+             std::pair<const char*, const char*>{
+                 "keep_recent_sessions",
+                 "ALTER TABLE loops ADD COLUMN keep_recent_sessions INTEGER NOT NULL DEFAULT 3;"}}) {
+        bool has_column = false;
+        if (!table_has_column(db_.get(), "loops", column, has_column, error)) return false;
+        if (!has_column && !exec_sql(db_.get(), ddl, error)) return false;
     }
     Statement migration(db_.get(),
         "INSERT OR IGNORE INTO loop_schema_migrations(version,applied_at_ms) VALUES(?,?);", error);
@@ -452,8 +477,9 @@ std::optional<LoopDefinition> LoopStore::create_loop(LoopDefinition value,
     Statement stmt(db_.get(),
         "INSERT INTO loops(id,name,prompt,workspace_hash,workspace_cwd,model_name,"
         "permission_mode,use_worktree,schedule_json,schedule_expr,next_run_at_ms,enabled,"
-        "created_at_ms,updated_at_ms) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);", error);
+        "created_at_ms,updated_at_ms,auto_archive_old_sessions,auto_delete_old_sessions,"
+        "keep_recent_sessions) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);", error);
     if (!stmt || !bind_loop_write(stmt.get(), value, true) ||
         sqlite3_step(stmt.get()) != SQLITE_DONE || !commit_locked(error)) {
         if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
@@ -499,9 +525,10 @@ std::optional<LoopDefinition> LoopStore::update_loop(const std::string& id,
     Statement stmt(db_.get(),
         "UPDATE loops SET name=?,prompt=?,workspace_hash=?,workspace_cwd=?,model_name=?,"
         "permission_mode=?,use_worktree=?,schedule_json=?,schedule_expr=?,next_run_at_ms=?,"
-        "enabled=?,created_at_ms=?,updated_at_ms=? WHERE id=?;", error);
+        "enabled=?,created_at_ms=?,updated_at_ms=?,auto_archive_old_sessions=?,"
+        "auto_delete_old_sessions=?,keep_recent_sessions=? WHERE id=?;", error);
     if (!stmt || !bind_loop_write(stmt.get(), value, false) ||
-        !bind_text(stmt.get(), 14, id) || sqlite3_step(stmt.get()) != SQLITE_DONE ||
+        !bind_text(stmt.get(), 17, id) || sqlite3_step(stmt.get()) != SQLITE_DONE ||
         !commit_locked(error)) {
         if (sqlite3_get_autocommit(db_.get()) == 0) rollback_locked();
         if (error && error->code.empty()) set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "update LOOP failed"));
@@ -555,6 +582,29 @@ std::vector<LoopRun> LoopStore::list_runs(const std::string& loop_id,
     while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW) result.push_back(run_from_row(stmt.get()));
     if (rc != SQLITE_DONE) {
         set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "list LOOP runs failed"));
+        return {};
+    }
+    return result;
+}
+
+std::vector<std::string> LoopStore::list_run_session_ids(const std::string& loop_id,
+                                                         StoreError* error) const {
+    std::lock_guard<std::mutex> lock(mu_);
+    std::vector<std::string> result;
+    if (!ensure_available(error)) return result;
+    Statement stmt(db_.get(),
+        "SELECT session_id FROM loop_runs WHERE loop_id=? AND session_id<>'' "
+        "ORDER BY scheduled_at_ms DESC,id;", error);
+    if (!stmt || !bind_text(stmt.get(), 1, loop_id)) return result;
+    int rc = SQLITE_ROW;
+    while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW) {
+        auto id = column_text(stmt.get(), 0);
+        if (std::find(result.begin(), result.end(), id) == result.end()) {
+            result.push_back(std::move(id));
+        }
+    }
+    if (rc != SQLITE_DONE) {
+        set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "list LOOP sessions failed"));
         return {};
     }
     return result;

@@ -15,10 +15,15 @@ await fs.mkdir(output, { recursive: true });
 const server = await createServer({ root: web, configFile: path.join(web, 'vite.config.js'), logLevel: 'error',
   server: { host: '127.0.0.1', port: 0, open: false, hmr: false } });
 const session = { id: 'resize-session', session_id: 'resize-session', title: 'Resize fixture',
-  cwd: 'C:/fixture', workspace_hash: 'fixture', active: true, updated_at: '2026-10-17T10:00:00Z' };
+  cwd: 'C:/fixture-with-a-long-workspace-directory-name', workspace_hash: 'fixture', active: true, updated_at: '2026-10-17T10:00:00Z' };
 const messages = [
   { id: 'user-1', role: 'user', content: '请检查工作台缩放时的对话阅读体验。' },
   { id: 'assistant-1', role: 'assistant', content: '这里是用于验证布局的对话正文。窗口变窄时，对话应优先保留足够的阅读空间。\n\n打开 [source.js](source.js) 查看文件预览。\n\n' + '继续阅读这段内容，侧栏自动收起后，消息和输入框仍应完整可见。'.repeat(12) },
+  { id: 'tool-1', role: 'tool', content: 'edited', metadata: {
+    tool_summary: { verb: 'Edit', object: 'source.js', metrics: [['+', '999'], ['-', '123']] },
+    tool_hunks: [{ old_start: 1, old_count: 1, new_start: 1, new_count: 1, lines: [] }],
+  } },
+  { id: 'user-2', role: 'user', content: '请继续检查文件变更和待办事项在窄窗口的显示。' },
 ];
 let browser;
 const errors = [];
@@ -29,6 +34,8 @@ try {
   page.setDefaultTimeout(30000);
   page.on('pageerror', e => { errors.push(e.message); console.error('[pageerror]', e.message); });
   await page.addInitScript(() => {
+    window.__ACECODE_FRAMELESS_WINDOW__ = true;
+    window.aceDesktop_startWindowDrag = () => {};
     class FixtureWebSocket extends EventTarget {
       static OPEN = 1; static CLOSED = 3;
       constructor() { super(); this.readyState = 1; setTimeout(() => { this.onopen?.({}); this.dispatchEvent(new Event('open')); }, 0); }
@@ -44,10 +51,11 @@ try {
   await page.route('**/api/**', async route => {
     const { pathname, searchParams } = new URL(route.request().url());
     let data = {};
-    if (pathname === '/api/health') data = { status: 'ok', version: '1.0.0', cwd: 'C:/fixture' };
+    if (pathname === '/api/health') data = { status: 'ok', version: '1.0.0', cwd: session.cwd };
     else if (pathname === '/api/config/ui-preferences') data = { theme: 'light', color_theme: 'blue', font_size: 'medium' };
-    else if (pathname === '/api/workspaces') data = [{ hash: 'fixture', cwd: 'C:/fixture', name: 'Resize project' }];
-    else if (pathname.endsWith('/messages')) data = { messages, events: [], busy: false, title: session.title, cwd: session.cwd };
+    else if (pathname === '/api/workspaces') data = [{ hash: 'fixture', cwd: session.cwd, name: path.basename(session.cwd) }];
+    else if (pathname.endsWith('/messages')) data = { messages, events: [], busy: false, title: session.title, cwd: session.cwd,
+      todos: [{ id: 'step', content: 'Review the change', status: 'in_progress' }] };
     else if (pathname.endsWith('/sessions') || pathname.endsWith('/session-sidebar')) data = pathname === '/api/session-sidebar' ? []
       : searchParams.has('parent') ? [{ ...session, id: 'resize-child', session_id: 'resize-child', title: 'Child transcript', parent_session_id: searchParams.get('parent') }] : [session];
     else if (pathname.endsWith('/resume') || /^\/api\/sessions\/[^/]+$/.test(pathname)) {
@@ -98,6 +106,41 @@ try {
   await settle();
   if (!(await geometry()).right.visible) { await right.click(); await settle(); }
   let g;
+  if (!process.argv.includes('--popup-resize-only')) {
+    const dock = page.locator('.ace-change-glass-dock');
+    await dock.locator('.ace-change-glass-action').waitFor();
+    const topbarHeight = await page.locator('.ace-topbar').evaluate(e => e.offsetHeight);
+    await resize(480);
+    const badge = page.locator('.ace-topbar .ace-session-workspace');
+    assert.ok(await badge.evaluate(e => e.scrollWidth > e.clientWidth && getComputedStyle(e).whiteSpace === 'nowrap'));
+    assert.equal(await page.locator('.ace-topbar').evaluate(e => e.offsetHeight), topbarHeight);
+    assert.equal(await dock.locator('.ace-change-add').isVisible(), false);
+    assert.equal(await dock.locator('.ace-change-glass-steps').isVisible(), false);
+    const summary = await dock.locator('.ace-change-glass-summary').boundingBox();
+    const review = await dock.locator('.ace-change-glass-action').boundingBox();
+    const close = await dock.locator('.ace-change-glass-close').boundingBox();
+    assert.ok(summary.x + summary.width <= review.x && review.x + review.width <= close.x);
+    const body = page.getByText(messages.at(-1).content, { exact: true }).first();
+    assert.ok(await body.evaluate(e => {
+      const range = document.createRange();
+      range.selectNodeContents(e);
+      return new Set([...range.getClientRects()].map(rect => rect.top)).size > 1;
+    }));
+    await page.evaluate(() => document.documentElement.dataset.theme = 'dark');
+    await page.screenshot({ path: path.join(output, '480-narrow-session.png') });
+    // The window stays narrow while the chat pane regains the right panel's space.
+    await right.click(); await settle();
+    assert.equal(await dock.locator('.ace-change-add').isVisible(), true);
+    await right.click(); await settle();
+    await dock.locator('.ace-change-glass-main').click();
+    assert.equal(await page.getByRole('tab', { name: '变更', exact: true }).getAttribute('aria-selected'), 'true');
+    await page.getByRole('tab', { name: '文件', exact: true }).click();
+    await dock.locator('.ace-change-glass-close').click();
+    await dock.locator('[role="status"] .ace-change-glass-steps').waitFor();
+    await page.evaluate(() => document.documentElement.dataset.theme = 'light');
+    await resize(1920);
+    console.log('[pass] narrow session chrome stays single-line and actions remain reachable while messages wrap');
+  }
   if (!process.argv.includes('--popup-resize-only')) {
   const initial = await prefs();
   assert.equal((await geometry()).left.visible, true);

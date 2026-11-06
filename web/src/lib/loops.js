@@ -1,6 +1,9 @@
 import { effectiveLocale } from '../i18n/index.js';
 import { formatDateTime, formatNumber } from './format.js';
 
+export const DEFAULT_KEEP_RECENT_SESSIONS = 3;
+export const MAX_KEEP_RECENT_SESSIONS = 100;
+
 export const LOOP_TEMPLATES = [
   {
     id: 'daily-review',
@@ -49,6 +52,9 @@ export function defaultLoopForm(modelName = '', now = Date.now()) {
     onceAt: toLocalInput(now + 60 * 60 * 1000),
     validFrom: '',
     validUntil: '',
+    autoArchiveOldSessions: false,
+    autoDeleteOldSessions: false,
+    keepRecentSessions: DEFAULT_KEEP_RECENT_SESSIONS,
     enabled: true,
   };
 }
@@ -84,6 +90,11 @@ export function formFromLoop(loop) {
     onceAt: schedule.once_at_ms ? toLocalInput(schedule.once_at_ms) : '',
     validFrom: schedule.valid_from_ms ? toLocalInput(schedule.valid_from_ms) : '',
     validUntil: schedule.valid_until_ms ? toLocalInput(schedule.valid_until_ms) : '',
+    autoDeleteOldSessions: loop?.auto_delete_old_sessions === true,
+    autoArchiveOldSessions: loop?.auto_archive_old_sessions === true && loop?.auto_delete_old_sessions !== true,
+    keepRecentSessions: Number.isInteger(loop?.keep_recent_sessions)
+      ? loop.keep_recent_sessions
+      : DEFAULT_KEEP_RECENT_SESSIONS,
     enabled: loop?.enabled !== false,
   };
 }
@@ -112,6 +123,10 @@ export function validateLoopForm(form) {
   if (from && until && until <= from) return '结束时间必须晚于开始时间';
   if (form.period === 'weekly' && (!Array.isArray(form.weekdays) || form.weekdays.length === 0)) {
     return '请至少选择一个星期';
+  }
+  const keep = Number(form.keepRecentSessions ?? DEFAULT_KEEP_RECENT_SESSIONS);
+  if (!Number.isInteger(keep) || keep < 1 || keep > MAX_KEEP_RECENT_SESSIONS) {
+    return '保留会话数需在 1 到 100 之间';
   }
   return '';
 }
@@ -148,9 +163,31 @@ export function buildLoopPayload(form, workspaces = []) {
     use_worktree: !!workspace && form.useWorktree === true,
     model_name: form.modelName,
     permission_mode: form.permissionMode === 'default' ? 'default' : 'yolo',
+    auto_archive_old_sessions: form.autoArchiveOldSessions === true && form.autoDeleteOldSessions !== true,
+    auto_delete_old_sessions: form.autoDeleteOldSessions === true,
+    keep_recent_sessions: Number(form.keepRecentSessions ?? DEFAULT_KEEP_RECENT_SESSIONS),
     schedule,
     enabled: form.enabled !== false,
   };
+}
+
+// 自动归档与自动删除互斥:打开一个就关掉另一个。
+export function setLoopSessionCleanup(form, key, checked) {
+  const next = { ...form, [key]: checked === true };
+  if (checked === true) {
+    if (key === 'autoArchiveOldSessions') next.autoDeleteOldSessions = false;
+    if (key === 'autoDeleteOldSessions') next.autoArchiveOldSessions = false;
+  }
+  return next;
+}
+
+export function loopSessionCleanupLabel(loop = {}) {
+  const keep = Number.isInteger(loop.keep_recent_sessions)
+    ? loop.keep_recent_sessions
+    : DEFAULT_KEEP_RECENT_SESSIONS;
+  if (loop.auto_delete_old_sessions === true) return `自动删除旧通知（保留 ${keep} 个）`;
+  if (loop.auto_archive_old_sessions === true) return `自动归档旧通知（保留 ${keep} 个）`;
+  return '';
 }
 
 export function loopScheduleLabel(schedule = {}) {

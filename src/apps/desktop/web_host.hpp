@@ -216,6 +216,12 @@ public:
     using SyncHandler = std::function<std::string(const std::string& args_json)>;
     void bind(const std::string& name, SyncHandler fn);
 
+    // 注册异步 binding:fn 在主线程上收到实参,可以把 reply 带到任意线程,完成后
+    // 调用一次(参数同样是合法 JSON value)。WebHost 析构后 reply 自动作废。
+    using BindingReply = std::function<void(const std::string& result_json)>;
+    using AsyncHandler = std::function<void(const std::string& args_json, BindingReply reply)>;
+    void bind_async(const std::string& name, AsyncHandler fn);
+
     // 阻塞,直到窗口关闭。
     void run();
 

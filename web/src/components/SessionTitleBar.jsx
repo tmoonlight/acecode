@@ -60,7 +60,7 @@ export function SessionTitleBar({
 }) {
   const titleAnimation = useSessionTitleAnimation(sessionRef, title, titleReady);
   const label = (
-    <div ref={labelRef} className="ace-session-title flex items-center gap-2 min-w-0">
+    <div ref={labelRef} className="ace-session-title flex flex-1 items-center gap-2 min-w-0 overflow-hidden">
       <span className="ace-session-title-text flex min-w-0 items-center gap-1.5">
         {remoteControlBound && (
           <VsIcon name="computer" size={14} className="text-accent"
@@ -74,8 +74,8 @@ export function SessionTitleBar({
           </span>
         )}
       </span>
-      {workspaceLabel && (
-        <span className="ace-session-workspace shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium border bg-surface-hi text-fg-mute border-transparent"
+      {workspaceLabel && !renaming && (
+        <span className="ace-session-workspace shrink-0 truncate px-2.5 py-0.5 rounded-full text-[10px] font-medium border bg-surface-hi text-fg-mute border-transparent"
           title={workspaceLabel} data-session-workspace-label="true">
           {workspaceLabel}
         </span>

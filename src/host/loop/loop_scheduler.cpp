@@ -2,6 +2,7 @@
 #include "loop_scheduler.hpp"
 
 #include "config/config.hpp"
+#include "loop_session_cleanup.hpp"
 #include "session_host/session_registry.hpp"
 #include "utils/logger.hpp"
 #include "utils/utf8_path.hpp"
@@ -378,6 +379,20 @@ void LoopScheduler::launch(const LoopDefinition& loop, const LoopRun& run, bool 
         }
         fail_run(loop, run, "session_send_failed", false, session_id);
     }
+    cleanup_old_sessions(loop);
+}
+
+void LoopScheduler::cleanup_old_sessions(const LoopDefinition& loop) {
+    if (session_cleanup_mode(loop) == SessionCleanupMode::Off) return;
+    StoreError error;
+    const auto session_ids = store_.list_run_session_ids(loop.id, &error);
+    if (!error.code.empty()) {
+        LOG_WARN("[loop] skip old session cleanup for " + loop.id + ": " + error.message);
+        return;
+    }
+    cleanup_old_loop_sessions(loop, session_ids,
+                              loop_session_storage(loop, registry_.no_workspace_cache_root()),
+                              registry_, client_);
 }
 
 void LoopScheduler::run() {

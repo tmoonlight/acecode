@@ -18,6 +18,7 @@
 #endif
 
 #include "utils/encoding.hpp"
+#include "utils/lifetime_token.hpp"
 #include "utils/logger.hpp"
 
 #include <functional>
@@ -2134,6 +2135,7 @@ struct WebHost::Impl {
 #endif
 
     ~Impl() {
+        reply_lifetime.revoke();
 #ifdef _WIN32
         renderer_lifetime.revoke();
         legacy_file_drop.reset();
@@ -2220,6 +2222,8 @@ struct WebHost::Impl {
     id mac_exit_fullscreen_observer = nil;
     std::unique_ptr<detail::MacWindowBoundsMemory> mac_bounds;
 #endif
+    // Async binding replies may arrive from workers; ~Impl revokes this first.
+    LifetimeToken reply_lifetime;
 };
 
 WebHost::WebHost(bool debug, StartupWindowMode startup_mode)
@@ -2833,6 +2837,15 @@ void WebHost::bind(const std::string& name, SyncHandler fn) {
     impl_->w->bind(name, [fn](const std::string& req) -> std::string {
         return fn(req);
     });
+}
+void WebHost::bind_async(const std::string& name, AsyncHandler fn) {
+    Impl* impl = impl_.get();  // The binding is owned by impl->w, so impl outlives it.
+    impl->w->bind(name, [impl, fn](const std::string& id, const std::string& req, void*) {
+        fn(req, [view = impl->reply_lifetime.ref(*impl->w), id](const std::string& result) {
+            // resolve marshals onto the UI thread through webview dispatch.
+            view.with([&id, &result](webview::webview& w) { w.resolve(id, 0, result); });
+        });
+    }, nullptr);
 }
 void WebHost::run() {
     impl_->w->run();

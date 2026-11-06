@@ -318,7 +318,7 @@ run('compressed composer controls retain the model name while other controls use
   assert.match(component, /ace-composer-adaptive-content ace-composer-permission-label/);
   assert.match(component, /ace-composer-adaptive-content ace-composer-model-label/);
   assert.match(component, /function useAdaptiveComposerControls\(rootRef, measureKey\)[\s\S]*?new ResizeObserver\(schedule\)/s);
-  assert.match(component, /const compactOrder = \['permission', 'expert-pending', 'expert', 'swarm-mode', 'goal', 'model'\]/);
+  assert.match(component, /const compactOrder = \['permission', 'expert-pending', 'expert', 'swarm-mode', 'goal', 'reasoning', 'model'\]/);
   assert.match(component, /content\.scrollWidth > content\.clientWidth \+ 1/);
   assert.match(component, /root\.setAttribute\('data-ultra-compact', 'true'\)/);
   assert.match(component, /window\.addEventListener\('resize', schedule\)/);

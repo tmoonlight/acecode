@@ -199,7 +199,16 @@ ToolImpl create_scheduled_task_tool(std::weak_ptr<ScheduledTaskService> service)
         {"model_name", property("string", "Saved model name; omitted uses the manual form default.")},
         {"workspace_hash", property("string", "Optional registered workspace hash, paired with workspace_cwd.")},
         {"workspace_cwd", property("string", "Optional registered workspace path; omit both for reminders without a project.")},
-        {"use_worktree", property("boolean", "Use an isolated worktree; default false, like manual creation.")}}},
+        {"use_worktree", property("boolean", "Use an isolated worktree; default false, like manual creation.")},
+        {"auto_archive_old_sessions", property("boolean",
+            "Each run creates a session (notification). When true, every new run archives this task's older "
+            "run sessions, keeping the newest keep_recent_sessions. Default false; mutually exclusive with "
+            "auto_delete_old_sessions.")},
+        {"auto_delete_old_sessions", property("boolean",
+            "Like auto_archive_old_sessions but permanently deletes the older run sessions. Default false; "
+            "only when the user asks to delete old ones. Mutually exclusive with auto_archive_old_sessions.")},
+        {"keep_recent_sessions", {{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxKeepRecentSessions},
+            {"description", "How many recent run sessions to keep when auto archive/delete is on; default 3."}}}}},
         {"required", json::array({"name", "prompt", "schedule"})}, {"additionalProperties", false}};
     tool.activation_skill = "scheduled-task";
     tool.activation_hint =

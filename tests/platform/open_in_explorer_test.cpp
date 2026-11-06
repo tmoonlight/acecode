@@ -7,6 +7,8 @@
 
 namespace fs = std::filesystem;
 
+using acecode::desktop::decide_file_manager_window_action;
+using acecode::desktop::FileManagerWindowAction;
 using acecode::desktop::open_directory_in_file_manager;
 using acecode::desktop::open_path_in_file_manager;
 using acecode::desktop::OpenInExplorerTargetKind;
@@ -203,4 +205,40 @@ TEST(DesktopOpenInExplorer, PropagatesInjectedLauncherFailure) {
 
     std::error_code ec;
     fs::remove_all(root, ec);
+}
+
+// 下面几条守的是「打开文件夹后资源管理器窗口要不要由我们拉到前台」。
+// 句柄用整数代替 HWND:1 = ACECode 窗口,2 = 资源管理器窗口,3 = 其它程序窗口。
+
+// 触发场景:点「在资源管理器中显示」后,资源管理器自己拿到了前台。
+// 期望行为:不再动它,避免重复激活造成闪烁。
+TEST(DesktopOpenInExplorer, LeavesFileManagerAloneWhenItAlreadyHasForeground) {
+    EXPECT_EQ(decide_file_manager_window_action(1, 2, 2), FileManagerWindowAction::None);
+}
+
+// 触发场景:资源管理器窗口出来了,但前台仍是发起打开的 ACECode 窗口
+// (Explorer 抢前台被系统拒绝,新窗口被压在 ACECode 后面)。
+// 期望行为:由我们拉到前台。
+// 回归:改用 SHOpenFolderAndSelectItems 之前担心的就是窗口开在后面、只在任务栏闪。
+TEST(DesktopOpenInExplorer, RaisesFileManagerStuckBehindRequestingWindow) {
+    EXPECT_EQ(decide_file_manager_window_action(1, 1, 2), FileManagerWindowAction::Raise);
+}
+
+// 触发场景:前台切换的瞬间 GetForegroundWindow 返回 0(没有任何窗口在前台)。
+// 期望行为:当作还没人接手,照样拉起,否则这次打开会停在后面。
+TEST(DesktopOpenInExplorer, RaisesFileManagerWhenForegroundIsMomentarilyEmpty) {
+    EXPECT_EQ(decide_file_manager_window_action(1, 0, 2), FileManagerWindowAction::Raise);
+}
+
+// 触发场景:等窗口出现的这段时间里(目录约 0.3 秒),用户已经切到别的程序。
+// 期望行为:不抢焦点,用户切走就尊重用户。
+TEST(DesktopOpenInExplorer, DoesNotStealFocusAfterUserSwitchedAway) {
+    EXPECT_EQ(decide_file_manager_window_action(1, 3, 2), FileManagerWindowAction::None);
+}
+
+// 触发场景:2 秒内没找到显示目标文件夹的资源管理器窗口(窗口句柄 0)。
+// 期望行为:什么都不做,不能对空句柄调置前 / 置顶。
+TEST(DesktopOpenInExplorer, DoesNothingWhenFileManagerWindowWasNotFound) {
+    EXPECT_EQ(decide_file_manager_window_action(1, 1, 0), FileManagerWindowAction::None);
+    EXPECT_EQ(decide_file_manager_window_action(1, 0, 0), FileManagerWindowAction::None);
 }

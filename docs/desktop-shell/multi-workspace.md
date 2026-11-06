@@ -59,6 +59,15 @@ daemon slot 已启动,并向 daemon `POST /api/workspaces` 注册 cwd,返回同�
 - `pool.stop_all()` 停掉共享 daemon slot
 - `Job Object KILL_ON_JOB_CLOSE` 是兜底:即使 desktop 进程被外部 kill,daemon 也会跟着死(参见 `add-desktop-shell` 的 design)
 
+## 打开文件夹 / 在资源管理器中显示
+
+`aceDesktop_openInExplorer([path])` 是异步 bridge(`WebHost::bind_async`):[open_in_explorer_bridge.cpp](../../src/apps/desktop/open_in_explorer_bridge.cpp) 把调用放到后台线程,窗口出来后才回复,WebView UI 线程不被占用。Windows 实现在 [open_in_explorer.cpp](../../src/base/platform/native_ui/open_in_explorer.cpp):
+
+- 文件走 `SHOpenFolderAndSelectItems`(Chromium / Electron 的 showItemInFolder 同款),直接交给正在运行的资源管理器,文件夹已开着就复用那个窗口。**不要改回 `explorer.exe /select`**:它会让 COM 另起一个 `explorer.exe /factory,{75dff2b7…} -Embedding` 宿主进程来放窗口,实测约 1 秒,窗口关掉后宿主进程也不退出;现在只在 Shell 接口失败时兜底用它。
+- 目录走 `ShellExecuteEx`(`SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI`)。
+- Shell 接口要求 STA,调用方线程的 COM 状态不确定,所以每次起一个干净的 STA 线程执行。
+- 前台:打开前 `AllowSetForegroundWindow(ASFW_ANY)`(窗口可能落在任意一个 explorer.exe,拿不到 PID);窗口出现后用 `IShellWindows::FindWindowSW` 找到它,前台还停在发起方就拉起来,用户已经切到别的程序就不抢(`decide_file_manager_window_action`)。没有前台权时(daemon / TUI)用 TOPMOST 脉冲抬 z 序并立即撤销;已经被用户设成置顶的窗口不碰,免得撤掉用户的置顶。
+
 ## 关键文件
 
 | 路径 | 作用 |

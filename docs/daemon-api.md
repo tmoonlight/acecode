@@ -790,6 +790,13 @@ ACECode-managed roots. Empty, relative, missing, and unsupported target types
 remain invalid. Returns `{"ok":true}`. Returns `501` when the daemon has no
 desktop callback.
 
+On Windows the call runs on its own STA thread: files use
+`SHOpenFolderAndSelectItems` (falling back to `explorer.exe /select` only when
+it fails), directories use `ShellExecuteEx`. It returns once the Explorer
+window is visible (typically 0.3–0.6 s, capped at about 2 s) and raises that
+window if it opened behind the window that was in front when the request
+started.
+
 ### `GET /api/workspaces/:hash/sessions?archived=1`
 
 Returns `SessionSummary[]` for a workspace. Without `archived=1`, active and
@@ -6026,6 +6033,9 @@ Create/update body:
   "model_name": "gpt-5.5-codex",
   "permission_mode": "yolo",
   "use_worktree": false,
+  "auto_archive_old_sessions": false,
+  "auto_delete_old_sessions": false,
+  "keep_recent_sessions": 3,
   "enabled": true,
   "schedule": {
     "kind": "period",
@@ -6044,6 +6054,21 @@ the same registered workspace, or both be empty for a no-workspace LOOP.
 `use_worktree` is a boolean and defaults to `false` for new definitions. LOOP
 databases upgraded from the pre-option schema preserve existing definitions as
 `true`; clients editing a definition should return the value they read.
+
+`auto_archive_old_sessions` / `auto_delete_old_sessions` (booleans, default
+`false`) and `keep_recent_sessions` (integer `1..100`, default `3`) control the
+sessions earlier runs left behind. Both switches on is `400
+CONFLICTING_SESSION_CLEANUP`; an out-of-range count is `400
+INVALID_KEEP_RECENT_SESSIONS`. With either switch on, every launched run (due
+or manual) afterwards walks this LOOP's run history newest first and keeps the
+first `keep_recent_sessions` sessions that are still visible in the sidebar
+(the new run's session included). Older visible sessions are archived, or
+permanently deleted together with their sub-agent sessions. Pinned and already
+archived sessions are excluded from the count. A visible running session counts
+toward the limit but is protected from cleanup even when older than the limit.
+Sessions of other LOOPs and ordinary chats are never considered. Databases from before this
+option read all three as their defaults.
+
 Supported schedules are:
 
 - `period`: `period` is `daily`, `workdays`, or `weekly`; weekly additionally
