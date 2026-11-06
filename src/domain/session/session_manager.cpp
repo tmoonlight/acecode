@@ -571,6 +571,29 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
                      " ignored incompatible PID-suffixed old data; delete old project session data under " +
                      project_dir_ + " and start a new session");
         }
+        last_error_ = "Session transcript is no longer available";
+        return {};
+    }
+    // Resume adopts the canonical transcript directly. It must not copy history
+    // into a new PID-suffixed file or rewrite the shared transcript.
+    if (writer_lease_ && session_id_ != session_id) {
+        release_writer_lease_locked();
+    }
+    session_id_ = session_id;
+    jsonl_path_ = jsonl_path;
+    meta_path_str_ = meta_path;
+    trajectory_sequence_ = 0;
+    trajectory_sequence_initialized_ = false;
+    if (!acquire_writer_lease_locked()) {
+        created_ = false;
+        finalized_ = false;
+        return {};
+    }
+    // Cleanup may have won the race between the initial lookup and our lease.
+    if (!fs::exists(jsonl_path)) {
+        last_error_ = "Session transcript is no longer available";
+        created_ = false;
+        release_writer_lease_locked();
         return {};
     }
     const auto persisted_meta = SessionStorage::read_meta(meta_path);
@@ -597,21 +620,6 @@ std::vector<ChatMessage> SessionManager::resume_session(const std::string& sessi
                  " persisted tool result replacement(s) on resume");
     }
 
-    // Resume adopts the canonical transcript directly. It must not copy history
-    // into a new PID-suffixed file or rewrite the shared transcript.
-    if (writer_lease_ && session_id_ != session_id) {
-        release_writer_lease_locked();
-    }
-    session_id_ = session_id;
-    jsonl_path_ = jsonl_path;
-    meta_path_str_ = meta_path;
-    trajectory_sequence_ = 0;
-    trajectory_sequence_initialized_ = false;
-    if (!acquire_writer_lease_locked()) {
-        created_ = false;
-        finalized_ = false;
-        return {};
-    }
     created_ = true;
     finalized_ = false;
     archived_ = false;

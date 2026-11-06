@@ -6,7 +6,7 @@ import { themeWindowShape } from './themePackages.js';
 import { WINDOW_SHAPE_ATTRIBUTE, createWindowShapePusher, windowShapeRequest } from './desktopWindowShape.js';
 
 async function run(name, fn) { await fn(); console.log(`[pass] ${name}`); }
-const read = (relative) => readFileSync(new URL(relative, import.meta.url), 'utf8');
+const read = (relative) => readFileSync(new URL(relative, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // 假桌面环境:记录桥接调用,按 reply 决定返回值;documentElement 记录属性。

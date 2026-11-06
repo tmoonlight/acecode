@@ -2126,12 +2126,12 @@ bool SessionRegistry::enqueue_lifecycle_task(std::function<void()> task) {
     }
 }
 
-void SessionRegistry::destroy(const std::string& id) {
+bool SessionRegistry::destroy(const std::string& id, const SessionEntry* expected) {
     std::shared_ptr<SessionEntry> moved;
     {
         std::lock_guard<std::mutex> lk(mu_);
         auto it = entries_.find(id);
-        if (it == entries_.end()) return;
+        if (it == entries_.end() || (expected && it->second.get() != expected)) return false;
         moved = std::move(it->second);
         entries_.erase(it);
     }
@@ -2154,6 +2154,7 @@ void SessionRegistry::destroy(const std::string& id) {
     }
     moved.reset();
     LOG_INFO("[registry] destroyed session " + id);
+    return true;
 }
 
 std::vector<SessionInfo> SessionRegistry::list_active() const {

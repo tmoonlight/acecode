@@ -57,7 +57,7 @@ public:
         return std::forward<Fn>(fn)(state);
     }
 
-    void enqueue(WorkerTask task);
+    bool enqueue(WorkerTask task);
     ControlEnqueueReceipt enqueue_control(std::function<bool()> control);
     bool enqueue_suggestion(const UserInput& input, const std::string& id, AbortSignal& abort);
     // Queues one mailbox-wake Chat task unless one is already waiting.
@@ -69,6 +69,7 @@ public:
     bool wait_pop(WorkerTask& task);
     void finish_task();
     void request_shutdown();
+    bool close_if_idle();
     struct PendingTasks {
         std::deque<WorkerTask> priority;
         std::deque<WorkerTask> ordinary;

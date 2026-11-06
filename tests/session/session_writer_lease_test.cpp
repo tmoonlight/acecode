@@ -31,6 +31,25 @@ bool is_acquired(const SessionWriterLeaseResult& result) {
 
 } // namespace
 
+TEST(SessionWriterLease, CleanupOwnsSessionExclusivelyAndReleasesOnScopeExit) {
+    const auto dir = make_unique_tmp_dir("exclusive_cleanup");
+    acecode::WriterLease writer(dir.string(), "session");
+    {
+        acecode::WriterLease cleanup(dir.string(), "session");
+        ASSERT_TRUE(cleanup.acquire_for_cleanup());
+        EXPECT_EQ(writer.acquire(dir.string(), "tui").status, SessionWriterLeaseResult::Status::Conflict);
+    }
+    ASSERT_TRUE(is_acquired(writer.acquire(dir.string(), "tui")));
+    acecode::WriterLease cleanup(dir.string(), "session");
+    EXPECT_FALSE(cleanup.acquire_for_cleanup());
+    writer.reset();
+    ASSERT_TRUE(is_acquired(SessionWriterLease::acquire(dir.string(), "session", dir.string(),
+        "legacy", acecode::daemon::current_pid(), 1)));
+    EXPECT_FALSE(cleanup.acquire_for_cleanup());
+    SessionWriterLease::release(dir.string(), "session");
+    EXPECT_TRUE(cleanup.acquire_for_cleanup());
+}
+
 TEST(SessionWriterLease, AcquireWritesLeaseMetadata) {
     auto dir = make_unique_tmp_dir("acquire");
     const std::string sid = "20260426-100000-abcd";

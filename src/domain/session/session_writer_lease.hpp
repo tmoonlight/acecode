@@ -1,6 +1,7 @@
 #pragma once
 
 #include "platform/process/os_process.hpp"
+#include "platform/process/unique_resources.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -75,11 +76,19 @@ public:
     WriterLease(WriterLease&& other) noexcept;
     WriterLease& operator=(WriterLease&& other) noexcept;
     SessionWriterLeaseResult acquire(const std::string& cwd, const std::string& surface);
+    // Exclusive against all live WriterLease instances, including our own process.
+    bool acquire_for_cleanup();
     bool refresh();
     bool matches(const std::string& project_dir, const std::string& session_id) const;
     void reset() noexcept;
 
 private:
+    bool lock_file(bool exclusive);
+#ifdef _WIN32
+    platform::UniqueHandle file_lock_;
+#else
+    platform::UniqueFd file_lock_;
+#endif
     std::string project_dir_;
     std::string session_id_;
     daemon::pid_t_compat pid_;

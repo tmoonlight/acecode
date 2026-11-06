@@ -6065,9 +6065,11 @@ first `keep_recent_sessions` sessions that are still visible in the sidebar
 (the new run's session included). Older visible sessions are archived, or
 permanently deleted together with their sub-agent sessions. Pinned and already
 archived sessions are excluded from the count. A visible running session counts
-toward the limit but is protected from cleanup even when older than the limit.
-Sessions of other LOOPs and ordinary chats are never considered. Databases from before this
-option read all three as their defaults.
+toward the limit. Pending work or a live external writer defers cleanup until
+a later run. Deletion also checks the descendants. After a LOOP changes
+workspace, each run's session is looked up in its original project, using that
+project's pins. Sessions of other LOOPs and ordinary chats are never considered.
+Databases from before these options read all three as their defaults.
 
 Supported schedules are:
 

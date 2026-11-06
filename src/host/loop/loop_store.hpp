@@ -63,7 +63,7 @@ public:
                                    StoreError* error = nullptr) const;
     // 这个任务全部运行记录里的会话 id,按计划时间从新到旧去重;不受 list_runs
     // 的条数上限约束,旧会话清理靠它找到最早的那些。
-    std::vector<std::string> list_run_session_ids(const std::string& loop_id,
+    std::vector<LoopRunSession> list_run_sessions(const std::string& loop_id,
                                                   StoreError* error = nullptr) const;
     std::optional<std::int64_t> earliest_next_run_at(StoreError* error = nullptr) const;
 

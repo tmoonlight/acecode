@@ -231,6 +231,10 @@ bool AgentLoop::has_pending_work() {
     return task_queue_->has_pending_work();
 }
 
+bool AgentLoop::close_if_idle() {
+    return task_queue_->close_if_idle();
+}
+
 bool AgentLoop::has_queued_user_work() {
     return task_queue_->has_user_work();
 }

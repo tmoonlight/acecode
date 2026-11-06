@@ -20,4 +20,8 @@ bool purge_session_tree(const std::string& project_dir,
                         const std::string& root_id,
                         std::string* error = nullptr);
 
+bool purge_sessions_in_order(const std::string& project_dir,
+                             const std::vector<std::string>& ids,
+                             std::string* error);
+
 }  // namespace acecode

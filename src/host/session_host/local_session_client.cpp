@@ -111,8 +111,7 @@ bool LocalSessionClient::send_input(const std::string& session_id, const UserInp
         }
     }
     registry_.maybe_start_auto_title(session_id, input);
-    entry->loop->submit(input);
-    return true;
+    return entry->loop->submit(input);
 }
 
 bool LocalSessionClient::retry_last_user_message(

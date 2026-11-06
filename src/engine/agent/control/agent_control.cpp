@@ -22,13 +22,13 @@ void AgentLoop::submit(const std::string& prompt, const std::string& display_tex
     submit(input);
 }
 
-void AgentLoop::submit(const UserInput& input) {
+bool AgentLoop::submit(const UserInput& input) {
     clear_stale_abort_request();
     WorkerTask task;
     task.kind = WorkerTask::Kind::Chat;
     task.input = input;
     task.hidden_goal_context = false;
-    task_queue_->enqueue(std::move(task));
+    return task_queue_->enqueue(std::move(task));
 }
 
 std::optional<ChatMessage> AgentLoop::retryable_user_message(

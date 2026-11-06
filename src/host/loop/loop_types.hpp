@@ -64,6 +64,12 @@ struct LoopDefinition {
     std::int64_t updated_at_ms = 0;
 };
 
+struct LoopRunSession {
+    std::string id;
+    // Empty means a no-workspace run. Absent means the row predates scope tracking.
+    std::optional<std::string> workspace_cwd;
+};
+
 struct LoopRun {
     std::string id;
     std::string loop_id;

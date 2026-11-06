@@ -396,7 +396,7 @@ TEST(LoopStore, SessionCleanupColumnsMigrateAndRoundTrip) {
 
 // 场景:同一任务有四次运行:一次没建会话(空 session_id),一个会话 id 被前后两条
 // 运行记录引用(异常数据);另一个任务也有会话。
-// 期望:list_run_session_ids 只返回本任务的非空会话 id,按计划时间从新到旧、去重,
+// 期望:list_run_sessions 只返回本任务的非空会话 id,按计划时间从新到旧、去重,
 // 重复的 id 留在它最新出现的位置。
 TEST(LoopStore, ListRunSessionIdsIsNewestFirstAndDeduplicated) {
     LoopStore store(temp_database("run_sessions"));
@@ -421,9 +421,17 @@ TEST(LoopStore, ListRunSessionIdsIsNewestFirstAndDeduplicated) {
                                            {}, run.session, {}, {}, &error)) << error.message;
     }
 
-    EXPECT_EQ(store.list_run_session_ids(loop->id, &error),
-              (std::vector<std::string>{"session-a", "session-b"}));
+    auto moved = *loop;
+    moved.workspace_cwd = "C:/next-workspace";
+    moved.workspace_hash = "next-workspace";
+    ASSERT_TRUE(store.update_loop(loop->id, moved, 6'000, &error));
+    const auto sessions = store.list_run_sessions(loop->id, &error);
+    ASSERT_EQ(sessions.size(), 2u);
+    EXPECT_EQ(sessions[0].id, "session-a");
+    EXPECT_EQ(sessions[1].id, "session-b");
+    EXPECT_EQ(sessions[0].workspace_cwd, loop->workspace_cwd);
     EXPECT_TRUE(error.code.empty()) << error.message;
-    EXPECT_EQ(store.list_run_session_ids(other->id, &error),
-              (std::vector<std::string>{"session-other"}));
+    const auto others = store.list_run_sessions(other->id, &error);
+    ASSERT_EQ(others.size(), 1u);
+    EXPECT_EQ(others[0].id, "session-other");
 }

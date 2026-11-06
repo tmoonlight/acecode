@@ -9,13 +9,14 @@
 
 #include <algorithm>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 
 namespace acecode::loop {
 
 namespace {
 
-constexpr int kSchemaVersion = 4;
+constexpr int kSchemaVersion = 5;
 
 void set_error(StoreError* error, const std::string& code, const std::string& message) {
     if (!error) return;
@@ -231,8 +232,8 @@ bool same_loop_active(sqlite3* db, const std::string& id, StoreError* error) {
 bool insert_run(sqlite3* db, const LoopRun& run, StoreError* error) {
     Statement stmt(db,
         "INSERT INTO loop_runs(id,loop_id,scheduled_at_ms,started_at_ms,finished_at_ms,"
-        "status,reason,missed_count,session_id,worktree_path,worktree_branch,owner_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?);", error);
+        "status,reason,missed_count,session_id,worktree_path,worktree_branch,owner_id,workspace_cwd) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,(SELECT workspace_cwd FROM loops WHERE id=?));", error);
     if (!stmt) return false;
     const bool bound = bind_text(stmt.get(), 1, run.id) &&
         bind_text(stmt.get(), 2, run.loop_id) &&
@@ -245,7 +246,7 @@ bool insert_run(sqlite3* db, const LoopRun& run, StoreError* error) {
         bind_text(stmt.get(), 9, run.session_id) &&
         bind_text(stmt.get(), 10, run.worktree_path) &&
         bind_text(stmt.get(), 11, run.worktree_branch) &&
-        bind_text(stmt.get(), 12, run.owner_id);
+        bind_text(stmt.get(), 12, run.owner_id) && bind_text(stmt.get(), 13, run.loop_id);
     if (!bound || sqlite3_step(stmt.get()) != SQLITE_DONE) {
         set_error(error, "SQLITE_ERROR", sqlite_message(db, "insert run failed"));
         return false;
@@ -322,12 +323,17 @@ bool LoopStore::initialize(StoreError* error) {
         "reason TEXT NOT NULL DEFAULT '',missed_count INTEGER NOT NULL DEFAULT 1,"
         "session_id TEXT NOT NULL DEFAULT '',worktree_path TEXT NOT NULL DEFAULT '',"
         "worktree_branch TEXT NOT NULL DEFAULT '',owner_id TEXT NOT NULL DEFAULT '',"
-        "workspace_touched TEXT NOT NULL DEFAULT '',"
+        "workspace_touched TEXT NOT NULL DEFAULT '',workspace_cwd TEXT,"
         "UNIQUE(loop_id,scheduled_at_ms),"
         "FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE);"
         "CREATE INDEX IF NOT EXISTS loop_runs_loop_idx ON loop_runs(loop_id,scheduled_at_ms DESC);"
         "CREATE INDEX IF NOT EXISTS loop_runs_active_idx ON loop_runs(status,owner_id);";
     if (!exec_sql(db_.get(), schema, error)) return false;
+    bool has_run_workspace = false;
+    if (!table_has_column(db_.get(), "loop_runs", "workspace_cwd", has_run_workspace, error) ||
+        (!has_run_workspace && !exec_sql(db_.get(), "ALTER TABLE loop_runs ADD COLUMN workspace_cwd TEXT;", error))) {
+        return false;
+    }
     bool has_use_worktree = false;
     if (!table_has_column(db_.get(), "loops", "use_worktree", has_use_worktree, error)) {
         return false;
@@ -587,21 +593,23 @@ std::vector<LoopRun> LoopStore::list_runs(const std::string& loop_id,
     return result;
 }
 
-std::vector<std::string> LoopStore::list_run_session_ids(const std::string& loop_id,
-                                                         StoreError* error) const {
+std::vector<LoopRunSession> LoopStore::list_run_sessions(const std::string& loop_id,
+                                                        StoreError* error) const {
     std::lock_guard<std::mutex> lock(mu_);
-    std::vector<std::string> result;
+    std::vector<LoopRunSession> result;
     if (!ensure_available(error)) return result;
     Statement stmt(db_.get(),
-        "SELECT session_id FROM loop_runs WHERE loop_id=? AND session_id<>'' "
+        "SELECT session_id,workspace_cwd FROM loop_runs WHERE loop_id=? AND session_id<>'' "
         "ORDER BY scheduled_at_ms DESC,id;", error);
     if (!stmt || !bind_text(stmt.get(), 1, loop_id)) return result;
     int rc = SQLITE_ROW;
+    std::unordered_set<std::string> seen;
     while ((rc = sqlite3_step(stmt.get())) == SQLITE_ROW) {
         auto id = column_text(stmt.get(), 0);
-        if (std::find(result.begin(), result.end(), id) == result.end()) {
-            result.push_back(std::move(id));
-        }
+        if (!seen.insert(id).second) continue;
+        std::optional<std::string> cwd;
+        if (sqlite3_column_type(stmt.get(), 1) != SQLITE_NULL) cwd = column_text(stmt.get(), 1);
+        result.push_back({std::move(id), std::move(cwd)});
     }
     if (rc != SQLITE_DONE) {
         set_error(error, "SQLITE_ERROR", sqlite_message(db_.get(), "list LOOP sessions failed"));
