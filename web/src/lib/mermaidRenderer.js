@@ -1,4 +1,4 @@
-import { mermaidTheme, mermaidThemeVariables } from './mermaidTheme.js';
+import { adaptMermaidBackgroundFills, mermaidTheme, mermaidThemeVariables } from './mermaidTheme.js';
 import { registerMermaidExportTarget } from './mermaidExport.js';
 import { dispatchMermaidPreview } from './mermaidPreview.js';
 
@@ -202,6 +202,8 @@ function hasParserError(documentNode) {
 export function sanitizeMermaidSvg(svg, {
   DOMParserType = globalThis.DOMParser,
   XMLSerializerType = globalThis.XMLSerializer,
+  theme = null,
+  resolveColor,
 } = {}) {
   const source = String(svg || '').trim();
   if (!source.startsWith('<svg') || utf8ByteLength(source) > MAX_MERMAID_SVG_BYTES
@@ -267,6 +269,9 @@ export function sanitizeMermaidSvg(svg, {
     return null;
   }
 
+  // 安全检查全部通过后才改颜色;写回的只有 rgb()/rgba() 字面量。
+  if (theme) adaptMermaidBackgroundFills(root, theme, resolveColor ? { resolveColor } : undefined);
+
   let serialized;
   try {
     serialized = new XMLSerializerType().serializeToString(root);
@@ -312,7 +317,7 @@ export function createMermaidRenderAdapter({
       if (parsed === false) return null;
       const id = `ace-mermaid-${nextRenderId++}`;
       const rendered = await engine.render(id, inspected.source);
-      return sanitizeMermaidSvg(rendered?.svg, { DOMParserType, XMLSerializerType });
+      return sanitizeMermaidSvg(rendered?.svg, { DOMParserType, XMLSerializerType, theme });
     } catch {
       return null;
     }

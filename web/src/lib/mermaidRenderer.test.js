@@ -338,6 +338,99 @@ await test('SVG sanitizer fails closed on active markup, foreign resources, and 
   assert.equal(sanitize(safeSvg.replace('0 0 160 80', '0 0 40000 80')), null);
 });
 
+// 按 mermaid 11 序列图的真实结构拼:`rect <颜色>` 高亮块与 `box <颜色>` 分组都画成
+// <rect class="rect" fill="源码颜色">;参与者框是 class="actor" 的 rect,填充由主题 CSS 管。
+function sequenceSvg(blockFills, { family = 'sequence', extra = '' } = {}) {
+  const blocks = blockFills.map((fill, index) => `<g><rect x="0" y="${index * 40}" fill="${fill}" width="200" height="30" class="rect"/></g>`).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200" width="100%" aria-roledescription="${family}">${blocks}<rect x="0" y="160" fill="#eaeaea" width="60" height="30" class="actor actor-top"/>${extra}<text class="messageText">退款</text></svg>`;
+}
+
+function blockFills(svg) {
+  const root = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
+  return Array.from(root.getElementsByTagName('rect')).map((rect) => [rect.getAttribute('class'), rect.getAttribute('fill')]);
+}
+
+function rgbHex(fill) {
+  const [r, g, b] = fill.match(/\d+/g).map(Number);
+  return `#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const sanitizeWithTheme = (svg, theme, options = {}) => sanitizeMermaidSvg(svg, {
+  DOMParserType: DOMParser,
+  XMLSerializerType: XMLSerializer,
+  theme,
+  ...options,
+});
+
+// 回归:会话 20260722-091409-e457 的退款序列图写了 `rect rgb(255, 250, 220)`、
+// `rect rgb(240, 255, 240)`,登录图写了 `rect rgb(240, 248, 255)`。深色主题下消息文字
+// 是纯白,原样画出的浅色高亮块让整段消息白底白字、完全看不见。
+// 期望:深色主题把这些块压暗到与白字对比度 ≥ 4.5,且三个通道之间的差值不变(浅黄仍偏黄、
+// 浅绿仍偏绿,块与块之间还能区分);浅色主题下它们本来就和黑字对比足够,一个字节都不改。
+await test('dark sequence highlight blocks from model-written pastel colors keep white messages readable', () => {
+  const pastel = ['rgb(255, 250, 220)', 'rgb(240, 255, 240)', 'rgb(240, 248, 255)', 'rgb(255, 200, 200)'];
+  const dark = blockFills(sanitizeWithTheme(sequenceSvg(pastel), 'dark').svg).filter(([name]) => name === 'rect');
+  assert.equal(dark.length, pastel.length);
+  dark.forEach(([, fill], index) => {
+    assert.ok(colorContrast(rgbHex(fill), '#ffffff') >= 4.5, `${pastel[index]} -> ${fill}`);
+    const before = pastel[index].match(/\d+/g).map(Number);
+    const after = fill.match(/\d+/g).map(Number);
+    assert.deepEqual(after.map((channel) => channel - after[0]), before.map((channel) => channel - before[0]), fill);
+  });
+  assert.equal(dark[0][1], 'rgb(64, 59, 29)');
+
+  const light = sanitizeWithTheme(sequenceSvg(pastel), 'light').svg;
+  assert.deepEqual(blockFills(light).filter(([name]) => name === 'rect').map(([, fill]) => fill), pastel);
+});
+
+// 场景:mermaid 官方文档推荐的低透明度写法 `rect rgba(0, 0, 255, .1)` 叠在深色画布上本来
+// 就是暗色,白字可读,必须原样保留;反过来浅色主题下模型写了深色块(如 rgb(30, 30, 60))
+// 配黑字同样看不见,要对称地把块抬亮,且透明度保持不变。
+// 阈值:深色画布按 #333333、浅色按 #ffffff 合成后再判对比度,与 mermaidTheme 的兜底画布一致。
+await test('translucent tints stay as written and dark blocks lighten under black ink', () => {
+  const tint = 'rgba(0, 0, 255, .1)';
+  assert.deepEqual(blockFills(sanitizeWithTheme(sequenceSvg([tint]), 'dark').svg)[0], ['rect', tint]);
+
+  const [[, lifted], [, liftedTint]] = blockFills(sanitizeWithTheme(sequenceSvg(['rgb(30, 30, 60)', 'rgba(20, 20, 20, 0.8)']), 'light').svg);
+  assert.equal(lifted, 'rgb(208, 208, 238)');
+  assert.ok(colorContrast(rgbHex(lifted), '#000000') >= 4.5);
+  assert.equal(liftedTint, 'rgba(208, 208, 208, 0.8)');
+});
+
+// 场景:只动序列图里 class 含 rect 的背景块。参与者框(class="actor",fill="#eaeaea"
+// 会被主题 CSS 覆盖)、其他图类型、无法解析的颜色都不碰;命名色(官方 `box Aqua` 示例)
+// 在浏览器里经 canvas 规范化,这里用注入的解析器模拟。不传 theme 时保持旧行为。
+await test('background fill correction is limited to parsable sequence highlight blocks', () => {
+  const darkActor = blockFills(sanitizeWithTheme(sequenceSvg([]), 'dark').svg);
+  assert.deepEqual(darkActor, [['actor actor-top', '#eaeaea']]);
+
+  const flowchart = sanitizeWithTheme(sequenceSvg(['rgb(255, 250, 220)'], { family: 'flowchart-v2' }), 'dark').svg;
+  assert.equal(blockFills(flowchart)[0][1], 'rgb(255, 250, 220)');
+
+  const unresolved = sanitizeWithTheme(sequenceSvg(['Aqua']), 'dark', { resolveColor: () => null }).svg;
+  assert.equal(blockFills(unresolved)[0][1], 'Aqua');
+  const named = sanitizeWithTheme(sequenceSvg(['Aqua', 'transparent']), 'dark', {
+    resolveColor: (value) => ({ aqua: '#00ffff', transparent: 'rgba(0, 0, 0, 0)' })[value.toLowerCase()] || null,
+  }).svg;
+  assert.deepEqual(blockFills(named).slice(0, 2).map(([, fill]) => fill), ['rgb(0, 64, 64)', 'transparent']);
+
+  const untouched = sanitizeMermaidSvg(sequenceSvg(['rgb(255, 250, 220)']), { DOMParserType: DOMParser, XMLSerializerType: XMLSerializer });
+  assert.equal(blockFills(untouched.svg)[0][1], 'rgb(255, 250, 220)');
+});
+
+// 场景:渲染适配器把当前主题一路传给 SVG 后处理,深色下 mermaid 原样输出的浅色块
+// 到达页面前已被压暗;同一份源码在浅色主题下渲染保持原色。
+await test('render adapter applies the background correction for the requested theme', async () => {
+  const runtime = {
+    initialize() {},
+    async parse() { return true; },
+    async render() { return { svg: sequenceSvg(['rgb(255, 250, 220)']) }; },
+  };
+  const render = createMermaidRenderAdapter({ runtime, DOMParserType: DOMParser, XMLSerializerType: XMLSerializer });
+  assert.equal(blockFills((await render(samples.sequence, 'dark')).svg)[0][1], 'rgb(64, 59, 29)');
+  assert.equal(blockFills((await render(samples.sequence, 'light')).svg)[0][1], 'rgb(255, 250, 220)');
+});
+
 await test('render adapter submits safe label breaks and gates other HTML before Mermaid', async () => {
   const calls = [];
   const runtime = {
