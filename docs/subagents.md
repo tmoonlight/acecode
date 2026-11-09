@@ -46,7 +46,7 @@ Multi-Agent V2,openspec `add-mesh-swarm-mode`)。
 | 参数 | 说明 |
 |---|---|
 | `prompt`(必填) | 子会话的首条用户消息。以 `/` 开头时按子会话 cwd 走 `try_expand_skill_command`(与 Web 输入框同一套 skill 命令展开),原文存 `display_text` |
-| `wait`(默认 true) | true:阻塞至子会话本轮结束,返回最终答复;false:点火即返,返回 `session_id`(流水线接力 / fan-out) |
+| `wait`(默认 true) | true:阻塞至子会话本轮结束,返回最终答复(等待中用户插话 / 点「转到后台」会让它转入后台);false:立即返回 `session_id`,子会话交给父会话的后台任务登记表,结束时自动通知父会话(见 docs/background-tasks.md) |
 | `model` | 可选 saved_models 名称;缺省或空值继承父会话当前模型,显式值优先;无父模型状态时沿用配置默认值 |
 | `timeout_seconds` | 可选等待上限;0/缺省 = 无限(父会话 abort 仍可打断) |
 

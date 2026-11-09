@@ -1,3 +1,4 @@
+#include "llm/message_predicates.hpp"
 #include "session_manager.hpp"
 #include "session_recent_activity.hpp"
 #include "inter_agent_message.hpp"
@@ -72,7 +73,8 @@ bool is_visible_user_turn_message(const acecode::ChatMessage& msg) {
     return msg.role == "user" &&
            !msg.is_meta &&
            !is_hidden_goal_context_message(msg) &&
-           !acecode::mesh::is_inter_agent_message(msg);
+           !acecode::mesh::is_inter_agent_message(msg) &&
+           !acecode::is_background_task_message(msg);
 }
 
 std::string first_visible_user_message_text(

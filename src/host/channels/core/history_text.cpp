@@ -49,7 +49,8 @@ bool flag(const nlohmann::json& metadata, const char* key) {
 // 隐藏的目标上下文、压缩摘要、蜂群内部信封:都不是给人看的对话内容。
 bool internal(const ChatMessage& message) {
     if (message.is_meta || message.is_compact_summary || flag(message.metadata, "hidden_goal_context")) return true;
-    return message.metadata.is_object() && message.metadata.contains("inter_agent");
+    return message.metadata.is_object() &&
+           (message.metadata.contains("inter_agent") || message.metadata.contains("background_task"));
 }
 
 // 按字节截到 max_bytes 以内,不切开 UTF-8 字符。

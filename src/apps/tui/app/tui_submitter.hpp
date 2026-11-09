@@ -18,6 +18,7 @@ public:
     void before_first_turn() override;
     void submit_input(const UserInput& input) override;
     void submit_text(const std::string& text, const std::string& display_text = {}) override;
+    void move_to_background() override;
     std::function<void(const UserInput&)> callback();
 private:
     SessionModelResolvedTarget resolve_model(const std::string& name);

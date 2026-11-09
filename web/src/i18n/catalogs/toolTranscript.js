@@ -8,6 +8,7 @@ const names = {
   skills_list: ['查看技能', 'List Skills'], skill_view: ['读取技能', 'Read Skill'],
   memory_read: ['读取记忆', 'Read Memory'], memory_write: ['更新记忆', 'Update Memory'],
   spawn_subagent: ['创建子代理', 'Create Subagent'], wait_subagent: ['等待子代理', 'Wait for Subagent'],
+  stop_background_task: ['停止后台任务', 'Stop Background Task'],
   agent_spawn: ['创建代理', 'Create Agent'], agent_list: ['查看代理', 'List Agents'],
   agent_send_message: ['发送消息', 'Send Message'], agent_followup_task: ['追加任务', 'Assign Follow-up'],
   agent_wait: ['等待代理', 'Wait for Agent'], agent_interrupt: ['停止代理', 'Stop Agent'],

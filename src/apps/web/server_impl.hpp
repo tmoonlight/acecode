@@ -679,6 +679,7 @@ struct WebServer::Impl {
     void register_session_batch();
     crow::response handle_session_batch(const crow::request& req);
     void register_sessions();
+    void register_background_tasks();
     void register_desktop_office();
     void register_task_suggestions();
     void register_models();

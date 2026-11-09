@@ -9,6 +9,7 @@ import { isImageAttachment, normalizeAttachmentList } from './messageAttachments
 import { questionFeedbackForItem } from './questionFeedback.js';
 import { mergeLegacyGoalNotices } from './systemNotice.js';
 import { interAgentEnvelope } from './interAgentMessage.js';
+import { backgroundTaskNotice } from './backgroundTaskMessage.js';
 import { wrapUpFromTool } from './nextStepBox.js';
 
 function isUserMessage(item) {
@@ -982,7 +983,7 @@ function appendProcessedItems(out, items, endItem) {
       // 问答卡片与跨 agent 通知保留为独立行,但不切断已处理活动。
       // 摘要锚定首个活动,避免每次提问或通知都重复显示整回合耗时。
       const interAgentNotice = item?.kind === 'msg' && item.role === 'system'
-        && interAgentEnvelope(item.metadata) !== null;
+        && (interAgentEnvelope(item.metadata) !== null || backgroundTaskNotice(item.metadata) !== null);
       if (!interAgentNotice && !isAskUserQuestionTool(item)) flushProcessed();
       out.push(item);
     }
@@ -1380,6 +1381,23 @@ function projectTurn(items, options = {}) {
   return projectCompletionTurn(normalizedItems, options);
 }
 
+function isBackgroundNoticeRow(item) {
+  return item?.kind === 'msg' && item.role === 'system' && backgroundTaskNotice(item.metadata) !== null;
+}
+
+// 后台任务通知在会话空闲时会唤醒一个新回合。前一回合已经收尾(task_complete 成功,
+// 或最后是助手正文)时,通知行开始新回合,前一回合照常折叠并保留它的总结;
+// 回合进行中在模型边界插入的通知(前面是工具结果)不切分回合。
+function turnHasEnded(turn) {
+  for (let i = turn.length - 1; i >= 0; i -= 1) {
+    const item = turn[i];
+    if (isFinalCollapseSkippable(item)) continue;
+    if (item?.kind === 'msg' && item.role === 'system' && !isBackgroundNoticeRow(item)) continue;
+    return isSuccessfulTaskComplete(item) || (assistantHasText(item) && !isStreamingAssistant(item));
+  }
+  return false;
+}
+
 export function projectCollapsedTranscriptItems(items, options = {}) {
   const raw = Array.isArray(items) ? items : [];
   const source = collapseCompletedCompactNoticeGroups(mergeLegacyGoalNotices(raw));
@@ -1407,7 +1425,7 @@ export function projectCollapsedTranscriptItems(items, options = {}) {
   };
 
   for (const item of source) {
-    if (isUserMessage(item)) {
+    if (isUserMessage(item) || (isBackgroundNoticeRow(item) && turnHasEnded(turn))) {
       flushTurn({ deferTrailingToolSummary: false });
       turn.push(item);
     } else {

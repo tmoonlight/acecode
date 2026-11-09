@@ -1,5 +1,10 @@
-import { DEFAULT_SINGLE_LAYOUT, solveSingleContentLayout } from './singleLayout.js';
-import { rightPanelHidden } from './uiPrefs.js';
+import {
+  DEFAULT_SINGLE_LAYOUT,
+  DEFAULT_SUMMARY_PANEL_WIDTH,
+  normalizeSummaryPanelWidth,
+  solveSingleContentLayout,
+} from './singleLayout.js';
+import { rightPanelHidden, summaryPanelHidden } from './uiPrefs.js';
 
 export const MIN_READABLE_TRANSCRIPT_WIDTH = 350;
 export const SIDEBAR_RESTORE_MARGIN = 64;
@@ -23,6 +28,7 @@ export function solveResponsiveSidebars({
   previewAvailable = false,
   previewAutoFit = false,
   subagentOpen = false,
+  summaryAvailable = false,
   previous = {},
   enabled = true,
 } = {}) {
@@ -52,9 +58,23 @@ export function solveResponsiveSidebars({
     minimumChatWidth + (previous.leftAutoCollapsed ? SIDEBAR_RESTORE_MARGIN : 0),
   );
   const leftDocked = leftWanted && !leftAutoCollapsed;
+
+  // 摘要面板最先让位:左侧会话列表的判定不看它;它只在「左侧该停靠的都停靠了,
+  // 再放下它对话区仍够宽」时才停靠。左侧想要却被挤掉时它一定也收起。
+  const summaryWidth = normalizeSummaryPanelWidth(widths.summaryPanel ?? DEFAULT_SUMMARY_PANEL_WIDTH);
+  const summaryFits = summaryAvailable && (!active || (
+    !(leftWanted && leftAutoCollapsed)
+    && fitsWithLeft(
+      shellWidth - (leftWanted ? leftWidth : 0) - summaryWidth,
+      minimumChatWidth + (previous.summaryAutoCollapsed ? SIDEBAR_RESTORE_MARGIN : 0),
+    )
+  ));
+  const summaryWanted = summaryAvailable && !summaryPanelHidden(preferences);
+  const summaryAutoCollapsed = summaryWanted && !summaryFits;
   return {
     active, transcriptMinimum, minimumChatWidth,
     leftAutoCollapsed, leftDocked, canDockLeft: !leftAutoCollapsed,
+    summaryAvailable, summaryAutoCollapsed, summaryDocked: summaryWanted && summaryFits, canDockSummary: summaryFits,
     rightAutoCollapsed: false, rightDocked: rightWanted, canDockRight: true,
   };
 }

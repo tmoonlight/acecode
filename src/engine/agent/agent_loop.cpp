@@ -27,6 +27,7 @@
 #include "agent/model_step/active_provider_slot.hpp"
 #include "agent/detail/agent_payloads.hpp"
 #include "agent/guards/doom_guard.hpp"
+#include "tool/background_tasks.hpp"
 #include "computer_use/runtime.hpp"
 #include "hooks/hook_manager.hpp"
 #include "provider/text_tool_call_recovery.hpp"
@@ -101,6 +102,7 @@ AgentLoop::AgentLoop(AgentLoopServices services, AgentLoopOptions options)
           *history_, *transcript_, *compaction_, *retry_progress_, *goal_,
           callbacks_, events_, abort_signal_, runtime_))
 {
+    install_background_tasks();
     request_source_.runtime = runtime_;
     request_source_.skills = std::move(services.skills);
     request_source_.expert = std::move(services.expert);
@@ -193,6 +195,8 @@ void AgentLoop::shutdown() {
         stopped_ = true;
     }
     side_questions_->stop_requests();
+    // 先停后台任务:杀掉还在跑的命令,之后不再往邮箱投通知。
+    if (background_tasks_) background_tasks_->shutdown();
     mailbox_->close();
     task_queue_->request_shutdown();
     abort_signal_.shutdown();

@@ -70,6 +70,7 @@ TEST(TuiEventRouter, RouteOrderRetainsIndividualKeysAndOriginalLocations) {
         {"ctrl_a", 8394, acecode::tui::handle_composer_ctrl_a},
         {"input_home", 8410, acecode::tui::handle_composer_home},
         {"ctrl_o", 8421, acecode::tui::handle_chat_ctrl_o},
+        {"ctrl_b", 8427, acecode::tui::handle_chat_ctrl_b},
         {"ctrl_e", 8433, acecode::tui::handle_chat_ctrl_e},
         {"input_end", 8464, acecode::tui::handle_composer_end},
         {"delete", 8473, acecode::tui::handle_composer_delete},

@@ -10,7 +10,8 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
   const reportContent = useCallback((next) => {
     setContent((old) => old?.owner === owner
       && old.previewAvailable === next.previewAvailable
-      && old.subagentOpen === next.subagentOpen ? old : { owner, ...next });
+      && old.subagentOpen === next.subagentOpen
+      && old.summaryAvailable === next.summaryAvailable ? old : { owner, ...next });
   }, [owner]);
   useLayoutEffect(() => {
     const shell = shellRef.current;
@@ -27,6 +28,7 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
     previewAvailable: (content?.owner === owner && content.previewAvailable)
       || (popupState?.owner === owner && popupState.previewRequested),
     subagentOpen: content?.owner === owner && content.subagentOpen,
+    summaryAvailable: content?.owner === owner && content.summaryAvailable === true,
     previous: previous.current?.owner === owner ? previous.current : {},
   });
   useLayoutEffect(() => { previous.current = { owner, ...decision }; });
@@ -38,7 +40,8 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
   }, [content, owner, popupState?.previewRequested]);
 
   const popup = enabled && popupState?.owner === owner
-    && !(popupState.side === 'left' ? decision.canDockLeft : decision.canDockRight)
+    && !(popupState.side === 'left' ? decision.canDockLeft
+      : popupState.side === 'summary' ? decision.canDockSummary : decision.canDockRight)
     ? popupState.side : null;
   useEffect(() => { if (!popup) setPopup(null); }, [popup]);
   const togglePopup = useCallback((side) => setPopup((old) => (
@@ -51,6 +54,7 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
       ...current,
       previewAvailable: previewRequested || (current.content?.owner === current.owner && current.content.previewAvailable),
       subagentOpen: current.content?.owner === current.owner && current.content.subagentOpen,
+      summaryAvailable: current.content?.owner === current.owner && current.content.summaryAvailable === true,
     }).rightAutoCollapsed;
     if (needsPopup) setPopup({ owner: current.owner, side: 'right', previewRequested });
     return needsPopup;
@@ -84,6 +88,7 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
     decision.active, decision.transcriptMinimum, decision.minimumChatWidth,
     decision.leftAutoCollapsed, decision.rightAutoCollapsed, decision.leftDocked, decision.rightDocked,
     decision.canDockLeft, decision.canDockRight,
+    decision.summaryAvailable, decision.summaryAutoCollapsed, decision.summaryDocked, decision.canDockSummary,
     shellWidth, popup, reportContent, togglePopup, closePopup, requestRightPopup,
   ]);
 }

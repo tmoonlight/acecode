@@ -50,6 +50,44 @@
   z-index: 2;
   box-shadow: -4px 0 16px rgba(0, 0, 0, .16);
 }
+/* 摘要面板:停靠时是对话区与右侧详情之间的一列;悬浮时锚点宽 0,面板贴着
+   右侧详情的左边缘向左浮在对话区上方,不盖住右侧面板。 */
+.ace-summary-anchor {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.ace-responsive-sidebar-summary { position: relative; }
+.ace-responsive-sidebar-summary:not([data-sidebar-popup]) {
+  border-left: 1px solid var(--ace-border);
+}
+.ace-responsive-sidebar-summary[data-sidebar-popup] {
+  right: 0;
+  max-width: none;
+  border-left: 1px solid var(--ace-border);
+}
+.ace-responsive-sidebar-summary > .ace-popup-resize-handle { left: 0; }
+.ace-responsive-sidebar-summary > .ace-popup-resize-handle::after { left: 0; }
+/* 摘要面板目录行的悬停提示:完整路径,挂在 body 上(fixed),不被面板滚动区裁切。 */
+.ace-summary-folder-tooltip {
+  position: fixed;
+  z-index: 220;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 6px 10px;
+  border: 1px solid var(--ace-border);
+  border-radius: 8px;
+  background: var(--ace-surface);
+  color: var(--ace-fg);
+  box-shadow: var(--ace-shadow-lg);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.ace-summary-folder-tooltip[data-side="above"] { transform: translateY(calc(-100% - 6px)); }
+.ace-summary-folder-tooltip-title { font-weight: 600; }
+.ace-summary-folder-tooltip-path { color: var(--ace-fg-2); }
 .ace-single-shell > .ace-main-content { min-width: 0; }
 .ace-chat-layout { position: relative; }
 @media (prefers-reduced-motion: reduce) {

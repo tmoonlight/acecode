@@ -757,6 +757,28 @@ int run_print_mode(const HeadlessCliOptions& opts) {
                 }
             }
         }
+        // ---- 后台任务:回合结束后还有后台命令 / 子代理在跑,或它们的完成通知又唤醒了
+        // 新回合时,等全部结束再收尾(进程退出会杀掉它们,结果也收不到)。连续两次
+        // 确认空闲才退出,避开「任务结束」与「通知进邮箱、唤醒回合」之间的空隙。 ----
+        if (!aborted && !output_failed) {
+            auto entry = registry.acquire(session_id);
+            int idle_checks = 0;
+            while (entry && entry->loop) {
+                if (entry->loop->has_background_activity()) idle_checks = 0;
+                else if (++idle_checks >= 2) break;
+                if (jsonl_writer && jsonl_writer->failed()) {
+                    output_failed = true;
+                    client.abort(session_id);
+                    break;
+                }
+                if (g_interrupt_requested.load()) {
+                    aborted = true;
+                    client.abort(session_id);
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+        }
         subscription.reset();
 
         // ---- 结果输出 ----

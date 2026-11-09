@@ -40,6 +40,7 @@ struct ToolExecutionOptions {
     AskQuestionChannel question_channel;
     ToolLifecycleEvents::Clock clock;
     std::vector<std::string> model_tool_names;
+    BackgroundToolSignals background{};
 };
 
 // One joined batch owns this tool chain. The composition root owns the scope;

@@ -19,7 +19,9 @@ void AgentLoop::run_agent_with_input(const UserInput& input, bool hidden_goal_co
             source, busy_, turn_interrupt_requested_, context_window_,
             task_suggestion_compact_threshold_},
         agent::TurnRunnerOptions{provider_accessor_, ask_channel_, progress_clock_,
-            computer_use_release_, no_model_config_prompt_});
+            computer_use_release_, no_model_config_prompt_,
+            agent::BackgroundToolSignals{background_tasks_.get(), &background_generation_,
+                                         &background_reason_}});
     runner->run(*turn_context_, input, hidden_goal_context, retry_message,
         trajectory_ ? trajectory_->ref() : LifetimeRef<agent::TrajectoryRecorder>{});
 }

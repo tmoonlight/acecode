@@ -44,6 +44,7 @@ import {
   taskStatusLabel,
 } from '../lib/subagentTasks.js';
 import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
+import { commandTaskStatusLabel, isCommandTask } from '../lib/backgroundTasks.js';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
 import { SessionPixelAvatar } from './PixelAvatar.jsx';
@@ -101,6 +102,95 @@ function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
       >
         查看会话
       </button>
+    </div>
+  );
+}
+
+// 后台命令卡片:命令、状态 / 耗时、停止,点「查看输出」看日志末尾。
+function CommandTaskCard({ task, nowMs, onStop, onOpenOutput }) {
+  const running = task.status === SUBAGENT_TASK_STATUS.RUNNING;
+  const elapsed = formatElapsed(taskElapsedSeconds(task, nowMs));
+  return (
+    <div className="rounded-lg border border-border bg-surface px-3 py-2.5 flex flex-col gap-1 ace-shadow" data-background-command={task.id}>
+      <div className="flex items-start gap-2">
+        <VsIcon name="terminal" size={15} className="mt-0.5 shrink-0 text-fg-2" />
+        <span className="flex-1 min-w-0 text-[12px] font-mono text-fg break-all line-clamp-3" title={task.command}>
+          {task.command}
+        </span>
+        {running && (
+          <button
+            type="button"
+            onClick={() => onStop?.(task)}
+            disabled={task.stopPending}
+            className="w-6 h-6 shrink-0 rounded-md border border-border text-fg-mute flex items-center justify-center transition hover:text-danger hover:border-danger/40 hover:bg-danger-bg"
+            title="停止"
+            aria-label="停止"
+          >
+            <VsIcon name="stop" size={12} />
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 text-[11px] text-fg-2 min-w-0">
+        {running ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-ok shadow-[0_0_5px_var(--ace-ok)]" />
+            <span className="tabular-nums">{elapsed}</span>
+            {task.stopPending && <span>正在停止…</span>}
+          </>
+        ) : (
+          <span className={task.state === 'failed' ? 'text-danger' : 'text-fg-mute'}>
+            {commandTaskStatusLabel(task)} {elapsed}
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => onOpenOutput?.(task)}
+        className="self-start text-[11.5px] text-accent hover:underline"
+      >
+        查看输出
+      </button>
+    </div>
+  );
+}
+
+// 后台命令的输出末尾:运行中每 2 秒刷新一次。
+function CommandOutputView({ task, readOutput }) {
+  const [output, setOutput] = useState('');
+  const [outputFile, setOutputFile] = useState(task?.outputFile || '');
+  const running = task?.status === SUBAGENT_TASK_STATUS.RUNNING;
+  const scrollRef = useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    const load = async () => {
+      const response = await readOutput?.(task.id);
+      if (cancelled) return;
+      if (response) {
+        setOutput(String(response.output || ''));
+        if (response.task?.output_file) setOutputFile(response.task.output_file);
+      }
+      if (running) timer = setTimeout(load, 2000);
+    };
+    load();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [task?.id, running, readOutput]);
+  useLayoutEffect(() => {
+    const node = scrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [output]);
+  return (
+    <div className="flex-1 min-h-0 flex flex-col px-3 pb-3 gap-2">
+      <div className="text-[11px] text-fg-mute break-all">{commandTaskStatusLabel(task)}{outputFile ? ` · ${outputFile}` : ''}</div>
+      <pre
+        ref={scrollRef}
+        className="flex-1 min-h-0 overflow-auto rounded-md border border-border bg-surface-alt px-2.5 py-2 text-[11.5px] leading-[1.5] font-mono text-fg whitespace-pre-wrap break-all"
+      >
+        {output}
+      </pre>
     </div>
   );
 }
@@ -279,7 +369,7 @@ function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse 
   );
 }
 
-export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, workspaceHash = '', onAbort, messageAutoCollapse = true }) {
+export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, workspaceHash = '', onAbort, onStopCommand, readCommandOutput, messageAutoCollapse = true }) {
   const [transcriptTaskId, setTranscriptTaskId] = useState('');
 
   // 面板关闭后回到列表视图,重开不残留上一次的 transcript。
@@ -330,7 +420,7 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
               <VsIcon name="arrowLeft" size={14} />
             </button>
             <span className="flex-1 min-w-0 text-[13px] font-semibold text-fg truncate">
-              {taskDisplayTitle(transcriptTask)}
+              {isCommandTask(transcriptTask) ? transcriptTask.command : taskDisplayTitle(transcriptTask)}
             </span>
           </>
         ) : (
@@ -350,7 +440,9 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
         </button>
       </div>
 
-      {transcriptTask ? (
+      {transcriptTask && isCommandTask(transcriptTask) ? (
+        <CommandOutputView key={transcriptTask.id} task={transcriptTask} readOutput={readCommandOutput} />
+      ) : transcriptTask ? (
         <SubagentTranscriptView
           key={transcriptTask.id}
           task={transcriptTask}
@@ -362,20 +454,29 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
           {tasks.length === 0 && (
             <div className="text-[12px] text-fg-mute py-4 text-center">
               当前会话还没有后台任务。
-              <br />让代理调用 spawn_subagent 即可在这里看到。
             </div>
           )}
           {groups.running.length > 0 && (
             <div className="flex flex-col gap-2">
               <div className="text-[11.5px] font-medium text-fg-2">运行中</div>
               {groups.running.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  nowMs={nowMs}
-                  onAbort={onAbort}
-                  onOpenTranscript={(t) => setTranscriptTaskId(t.id)}
-                />
+                isCommandTask(task) ? (
+                  <CommandTaskCard
+                    key={task.id}
+                    task={task}
+                    nowMs={nowMs}
+                    onStop={(t) => onStopCommand?.(t.id)}
+                    onOpenOutput={(t) => setTranscriptTaskId(t.id)}
+                  />
+                ) : (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    nowMs={nowMs}
+                    onAbort={onAbort}
+                    onOpenTranscript={(t) => setTranscriptTaskId(t.id)}
+                  />
+                )
               ))}
             </div>
           )}
@@ -387,13 +488,23 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                 </span>
               </div>
               {groups.settled.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  nowMs={nowMs}
-                  onAbort={onAbort}
-                  onOpenTranscript={(t) => setTranscriptTaskId(t.id)}
-                />
+                isCommandTask(task) ? (
+                  <CommandTaskCard
+                    key={task.id}
+                    task={task}
+                    nowMs={nowMs}
+                    onStop={(t) => onStopCommand?.(t.id)}
+                    onOpenOutput={(t) => setTranscriptTaskId(t.id)}
+                  />
+                ) : (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    nowMs={nowMs}
+                    onAbort={onAbort}
+                    onOpenTranscript={(t) => setTranscriptTaskId(t.id)}
+                  />
+                )
               ))}
             </div>
           )}

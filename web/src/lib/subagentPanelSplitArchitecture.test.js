@@ -75,7 +75,9 @@ run('live spawn_subagent tool_start opens the panel through the task hook', () =
   assert.match(taskHook, /onSpawnStartRef\.current\?\.\(msg\)/);
   assert.match(chat, /openSubagentPanelForSpawn[\s\S]*setSubagentPanelOpen\(true\)/);
   assert.match(chat, /useSubagentTasks\(sid, \{\s*onSpawnStart: openSubagentPanelForSpawn,\s*\}\)/);
-  assert.match(chat, /onClick=\{\(\) => setSubagentPanelOpen\(\(v\) => !v\)\}/);
+  // 后台任务入口在会话三点菜单里,始终可点(没有任务时打开空列表),不再是有任务才出现的顶栏按钮。
+  assert.match(chat, /id: 'background_tasks', label: '后台任务'[\s\S]*?onSelect: \(\) => setSubagentPanelOpen\(true\)/);
+  assert.doesNotMatch(chat, /subagentTasks\.tasks\.length > 0 \|\| subagentPanelOpen/);
   assert.match(chat, /onClose=\{\(\) => setSubagentPanelOpen\(false\)\}/);
 });
 

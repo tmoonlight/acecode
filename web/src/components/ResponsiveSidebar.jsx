@@ -5,16 +5,25 @@ import '../styles/responsive-sidebars.css';
 
 // Keep the same subtree mounted while changing its place in the layout. This
 // preserves editor DOM state and sidebar caches across resize/popup transitions.
-export function ResponsiveSidebar({ side, popup = false, hidden = false, style, children, onResize, resizeRange }) {
+const RESIZE_LABELS = {
+  left: ['调整左侧栏宽度', '拖动调整左侧栏宽度'],
+  right: ['调整右侧栏宽度', '拖动调整右侧栏宽度'],
+  summary: ['调整摘要面板宽度', '拖动调整摘要面板宽度'],
+};
+
+// dockedResize:停靠时也显示拖拽柄(摘要面板用;左右两栏停靠时的拖拽柄在外层)。
+export function ResponsiveSidebar({ side, popup = false, hidden = false, dockedResize = false, style, children, onResize, resizeRange }) {
   const rootRef = useRef(null);
   const dragCleanupRef = useRef(null);
   const latest = useRef(null);
   latest.current = { onResize, resizeRange };
   const stopResize = useCallback(() => dragCleanupRef.current?.(), []);
+  const resizable = (popup || dockedResize) && !hidden && !!onResize && !!resizeRange;
+  const [resizeLabel, resizeTitle] = RESIZE_LABELS[side] || RESIZE_LABELS.right;
   useLayoutEffect(() => {
-    if (!popup || hidden) stopResize();
+    if (!resizable) stopResize();
     return stopResize;
-  }, [popup, hidden, stopResize]);
+  }, [resizable, stopResize]);
   useLayoutEffect(() => {
     notifyNativeSurfaceOverlayChange();
     return () => notifyNativeSurfaceOverlayChange();
@@ -70,10 +79,10 @@ export function ResponsiveSidebar({ side, popup = false, hidden = false, style, 
       onPointerDownCapture={(event) => markSidebarPopupEvent(event, side)}
     >
       {children}
-      {popup && !hidden && onResize && resizeRange && (
+      {resizable && (
         <div
           role="separator"
-          aria-label={side === 'left' ? '调整左侧栏宽度' : '调整右侧栏宽度'}
+          aria-label={resizeLabel}
           aria-orientation="vertical"
           aria-valuemin={resizeRange.min}
           aria-valuemax={resizeRange.max}
@@ -84,7 +93,7 @@ export function ResponsiveSidebar({ side, popup = false, hidden = false, style, 
           className="ace-resize-handle ace-popup-resize-handle"
           onPointerDown={startResize}
           onKeyDown={onResizeKeyDown}
-          title={side === 'left' ? '拖动调整左侧栏宽度' : '拖动调整右侧栏宽度'}
+          title={resizeTitle}
         />
       )}
     </div>

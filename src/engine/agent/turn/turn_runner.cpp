@@ -1,3 +1,4 @@
+#include "llm/message_predicates.hpp"
 #include "turn_runner.hpp"
 #include "turn_context.hpp"
 #include "turn_lifecycle.hpp"
@@ -153,8 +154,10 @@ void TurnRunner::run(TurnContext& turn, const UserInput& input, bool hidden_goal
     goal_.begin_turn();
 
     // 跨 agent 信封不是用户输入:不触发 UserPromptSubmit 钩子(与隐藏 goal 上下文同理)。
+    // 后台任务通知唤醒的回合同理。
     const bool inter_agent_input =
-        mesh::inter_agent_envelope_from_metadata(input.metadata).has_value();
+        mesh::inter_agent_envelope_from_metadata(input.metadata).has_value() ||
+        is_background_task_metadata(input.metadata);
     if (!hidden_goal_context && !inter_agent_input && hook_manager_) {
         auto fields = hooks_.common_fields(kCodexHookEventUserPromptSubmit, session_);
         auto payload = build_user_prompt_submit_hook_payload(fields, input.text);

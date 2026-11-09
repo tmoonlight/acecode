@@ -6,7 +6,7 @@ const GROUPS = [
   ['Edit', ['file_edit', 'edit_file', 'edit', 'apply_patch', 'multiedit']],
   ['Search', ['grep', 'file_search', 'glob', 'search_files', 'find_files']],
   ['BrowserGlobe', ['web_search', 'web_fetch', 'fetch', 'browse', 'open_url']],
-  ['TerminalReadWrite', ['bash', 'shell', 'exec_command', 'execute_command', 'write_stdin']],
+  ['TerminalReadWrite', ['bash', 'shell', 'exec_command', 'execute_command', 'write_stdin', 'stop_background_task']],
   ['Embedding', ['spawn_subagent', 'wait_subagent', 'agent_spawn', 'agent_wait', 'agent_list', 'agent_send_message', 'agent_followup_task', 'agent_interrupt']],
   ['StatusHelp', ['askuserquestion', 'ask_user_question']],
   ['List', ['todowrite', 'todo_write', 'todo_read']],

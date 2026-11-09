@@ -131,8 +131,8 @@ export function presentSystemNotice(message = {}, t = tr) {
   const roleCode = message.role === 'tool_call' ? 'tool_call' : ['tool', 'tool_result'].includes(message.role) ? 'tool_result' : '';
   // 标题只插值 agent 路径(蜂群模式（网状）的 agent 间消息):其它参数可能带 count 之类
   // 会改变 i18next 取词规则的键,不往标题里传。
-  const titleValues = translated && params.sender != null
-    ? { sender: asText(params.sender), recipient: asText(params.recipient) }
+  const titleValues = translated && (params.sender != null || params.task != null)
+    ? { sender: asText(params.sender), recipient: asText(params.recipient), task: asText(params.task) }
     : {};
   const localizedTitle = t(`systemNotice.titles.${code || roleCode}`, { ...titleValues, defaultValue: '' });
   const custom = message.metadata?.compact_label;

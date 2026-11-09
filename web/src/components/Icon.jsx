@@ -70,6 +70,7 @@ const ICONS = {
   panelBottomFilled: 'PanelBottomFilled',
   palette: 'Palette',
   pin: 'Pin',
+  properties: 'Properties',
   pinOff: 'PinOff',
   queue: 'Queue',
   refresh: 'Refresh',

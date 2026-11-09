@@ -18,7 +18,7 @@ ToolBatchScheduler::ToolBatchScheduler(ToolExecutionServices services, ToolExecu
       contexts_(services.boundary, services.security, services.prompt_cache,
           services.permissions, services.goal, services.events, services.abort,
           services.session, services.skills, services.policy, services.config,
-          std::move(options.provider)),
+          std::move(options.provider), options.background),
       paths_(services.tools, services.permissions, services.boundary, contexts_, services.session),
       exec_(services.security, services.permissions, services.boundary, contexts_,
           services.goal, services.session),

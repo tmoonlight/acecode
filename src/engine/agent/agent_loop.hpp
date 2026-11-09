@@ -44,6 +44,9 @@ namespace acecode {
 
 class SessionManager;
 class SkillUsageStore;
+class BackgroundTaskRegistry;
+struct BackgroundNotice;
+enum class BackgroundOrigin;
 class PermissionPrompter;
 class AskUserQuestionPrompter;
 struct ThreadGoal;
@@ -188,6 +191,18 @@ public:
                                                  const std::atomic<bool>* abort_flag);
     std::size_t pending_mailbox_count() const;
     bool has_pending_trigger_mail() const;
+
+    // ---- 后台任务(后台命令 / 后台子代理)----
+    // 登记表随 AgentLoop 构造,shutdown() 时关闭并杀掉还在跑的命令。
+    BackgroundTaskRegistry& background_tasks() { return *background_tasks_; }
+    // 把正在执行的前台工作(bash 命令、等待中的子代理)转到后台,不中断它;
+    // 线程安全。返回此刻是否有回合在跑(没有时请求不起作用)。
+    bool request_background(BackgroundOrigin reason);
+    // 后台任务的通知进会话邮箱:回合进行中在下一个模型边界插入,
+    // 空闲时(trigger_turn)开一个新回合。
+    void deliver_background_notice(BackgroundNotice notice);
+    // 还有没结束的后台任务、待投递的通知或待处理的唤醒 / 排队工作。
+    bool has_background_activity();
 
     // Legacy cancel alias
     void cancel() { abort(); }
@@ -380,12 +395,17 @@ private:
     void require_before_start(const char* operation) const;
     void reload_exec_rules();
     void release_computer_use_session(const std::string& session_id) const;
+    void install_background_tasks();
+    void emit_background_task_changed(const nlohmann::json& task);
     using WorkerTask = agent::WorkerTask;
 
     // Roots outlive all collaborators and prompters. Worker is always last.
     AbortSignal abort_signal_;
     std::atomic<bool> turn_interrupt_requested_{false};
     std::atomic<bool> busy_{false};
+    // 「转后台」信号:每次请求递增,工具开始时记下值、发现变化就交出前台工作。
+    std::atomic<std::uint64_t> background_generation_{0};
+    std::atomic<int> background_reason_{0};
     EventDispatcher events_;
     CallbacksSlot callbacks_;
     std::unique_ptr<agent::TurnOutcomeRecord> turn_outcome_;
@@ -423,6 +443,7 @@ private:
     std::unique_ptr<agent::AgentTaskQueue> task_queue_;
     std::unique_ptr<agent::ActiveTurnGate> active_turn_gate_;
     std::unique_ptr<agent::AgentMailbox> mailbox_;
+    std::unique_ptr<BackgroundTaskRegistry> background_tasks_;
     std::unique_ptr<agent::TaskHandoff> task_handoff_;
     std::unique_ptr<agent::ActiveProviderSlot> active_provider_slot_;
     std::unique_ptr<agent::WorkspaceBoundary> boundary_;

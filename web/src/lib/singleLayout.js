@@ -14,6 +14,11 @@ export const MIN_SIDE_PANEL_WIDTH = 240;
 export const MIN_PREVIEW_PANEL_WIDTH = 420;
 export const MIN_CHAT_WIDTH = 350;
 export const MIN_SUBAGENT_PANEL_WIDTH = 260;
+// 摘要面板(对话区与右侧详情之间)。宽度单独存在 singleLayout.summaryPanel,
+// 缺省时用默认值;老偏好里没有这个键,不需要迁移。
+export const DEFAULT_SUMMARY_PANEL_WIDTH = 280;
+export const MIN_SUMMARY_PANEL_WIDTH = 220;
+export const MAX_SUMMARY_PANEL_WIDTH = 420;
 export const MIN_SUBAGENT_PARENT_TRANSCRIPT_WIDTH = 280;
 export const MIN_SINGLE_CONTENT_WIDTH =
   MIN_CHAT_WIDTH + MIN_PREVIEW_PANEL_WIDTH + MIN_SIDE_PANEL_WIDTH;
@@ -29,6 +34,8 @@ export function validateLayoutWidths(v) {
       || typeof v.previewPanelUserSized === 'boolean')
     && (v.subagentPanel == null
       || (typeof v.subagentPanel === 'number' && Number.isFinite(v.subagentPanel)))
+    && (v.summaryPanel == null
+      || (typeof v.summaryPanel === 'number' && Number.isFinite(v.summaryPanel)))
     && ['sidebarPopup', 'rightPanelPopup'].every((key) => v[key] == null
       || (typeof v[key] === 'number' && Number.isFinite(v[key]) && v[key] > 0));
 }
@@ -167,6 +174,15 @@ export function subagentPanelWidthRange(contentWidth = 0) {
     min: Math.min(MIN_SUBAGENT_PANEL_WIDTH, max),
     max,
   };
+}
+
+// maxWidth 由调用方按「对话区保底宽度」算出;比最小值还小时以最小值为准,
+// 由响应式求解负责在放不下时整块收起,而不是把面板压到不可读。
+export function normalizeSummaryPanelWidth(nextWidth, maxWidth = MAX_SUMMARY_PANEL_WIDTH) {
+  const value = nextWidth == null ? DEFAULT_SUMMARY_PANEL_WIDTH : finiteRoundedWidth(nextWidth);
+  const upper = Math.max(MIN_SUMMARY_PANEL_WIDTH, Math.min(MAX_SUMMARY_PANEL_WIDTH,
+    Number.isFinite(maxWidth) ? Math.floor(maxWidth) : MAX_SUMMARY_PANEL_WIDTH));
+  return clamp(value || DEFAULT_SUMMARY_PANEL_WIDTH, MIN_SUMMARY_PANEL_WIDTH, upper);
 }
 
 export function normalizeSubagentPanelWidth(nextWidth, contentWidth = 0) {

@@ -16,6 +16,7 @@
 #include "lsp_tool.hpp"
 #include "plan_mode_tool.hpp"
 #include "show_image_tool.hpp"
+#include "stop_background_task_tool.hpp"
 #include "task_complete_tool.hpp"
 #include "theme_create_tool.hpp"
 #include "todo_write_tool.hpp"
@@ -29,6 +30,7 @@ namespace acecode {
 
 inline void register_session_builtin_tools(ToolExecutor& tools, const AppConfig& config) {
     tools.register_tool(create_bash_tool());
+    tools.register_tool(create_stop_background_task_tool());
     tools.register_tool(create_file_read_tool());
     tools.register_tool(create_file_write_tool());
     tools.register_tool(create_file_edit_tool());

@@ -1,5 +1,6 @@
 // 见 session_replay.hpp 头注释。本文件实现 replay_session_messages 纯函数。
 
+#include "llm/message_predicates.hpp"
 #include "session_replay.hpp"
 
 #include "session/compact_checkpoint.hpp"
@@ -102,8 +103,11 @@ std::vector<TuiState::Message> replay_session_messages(
             // 规范角色,文本承载所有信息,直接推入;agent 间信封与实时一样显示为系统行。
             flush_pending_calls();
             const std::string inter_agent = mesh::inter_agent_display_text(msg);
+            const std::string background_notice = background_task_display_text(msg);
             if (!inter_agent.empty()) {
                 out.push_back({"system", inter_agent, /*is_tool=*/false});
+            } else if (!background_notice.empty()) {
+                out.push_back({"system", background_notice, /*is_tool=*/false});
             } else {
                 out.push_back({msg.role, msg.content, /*is_tool=*/false});
             }

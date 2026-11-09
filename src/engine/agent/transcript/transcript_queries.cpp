@@ -65,6 +65,7 @@ bool should_persist_trajectory_event(const SessionEvent& event) {
     case SessionEventKind::GoalUpdated:
     case SessionEventKind::GoalCleared:
     case SessionEventKind::TodoUpdated:
+    case SessionEventKind::BackgroundTask:
     case SessionEventKind::SessionUpdated:
     case SessionEventKind::Done:
     case SessionEventKind::BusyChanged:

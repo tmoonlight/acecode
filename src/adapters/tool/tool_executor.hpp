@@ -14,6 +14,7 @@
 #include <map>
 #include <functional>
 #include <atomic>
+#include <cstdint>
 #include <optional>
 #include <utility>
 #include <mutex>
@@ -25,6 +26,7 @@ namespace acecode {
 class SessionManager;
 class SkillRegistry;
 class ToolExecutor;
+class BackgroundTaskRegistry;
 
 // Origin of a registered tool. MCP tools are grouped separately in the system
 // prompt so the LLM can distinguish internal versus external capabilities.
@@ -92,6 +94,15 @@ struct ToolContext {
     // loops must check this every iteration and terminate their subprocess /
     // work when it becomes true.
     const std::atomic<bool>* abort_flag = nullptr;
+    // 会话的后台任务登记表(AgentLoop 持有;为空 = 这里不支持后台任务,例如
+    // 侧边对话、单测)。工具只在调用期间借用,不保存指针。
+    BackgroundTaskRegistry* background_tasks = nullptr;
+    // 「把正在跑的前台工作转到后台」信号:每次请求(用户插话 / 用户手动转后台)
+    // 递增一次;长时间运行的工具开始时记下值,之后发现变化就把手上的进程 / 等待
+    // 交给登记表并立即返回。background_reason 是最近一次请求的原因
+    // (BackgroundOrigin 的整数值)。
+    const std::atomic<std::uint64_t>* background_generation = nullptr;
+    const std::atomic<int>* background_reason = nullptr;
     // Optional file-checkpoint hook used by write tools. Tools call this after
     // validation succeeds and immediately before mutating a file so /rewind can
     // restore the pre-write state.

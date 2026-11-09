@@ -18,7 +18,7 @@ public:
     TuiEventRouter& operator=(const TuiEventRouter&) = delete;
     bool handle(const ftxui::Event& event);
     ftxui::Component wrap(ftxui::Component child);
-    static const std::array<InputRoute, 38> & routes();
+    static const std::array<InputRoute, 39> & routes();
 private:
     TuiInputContext& context_;
     LifetimeToken lifetime_;  // Revokes CatchEvent closures before dependencies.

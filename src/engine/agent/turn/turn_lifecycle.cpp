@@ -1,3 +1,4 @@
+#include "llm/message_predicates.hpp"
 #include "turn_lifecycle.hpp"
 #include "active_turn_gate.hpp"
 #include "agent/callbacks_slot.hpp"
@@ -53,7 +54,8 @@ UserTurnInfo TurnLifecycle::prepare_user_turn(const UserInput& input,
 
     ExplicitSkillPromptExpansion skill_expansion;
     skill_expansion.prompt = user_message;
-    const bool inter_agent = mesh::inter_agent_envelope_from_metadata(input.metadata).has_value();
+    const bool inter_agent = mesh::inter_agent_envelope_from_metadata(input.metadata).has_value() ||
+                             is_background_task_metadata(input.metadata);
     if (!hidden_goal_context && !inter_agent && skill_registry_ && !user_message.empty()) {
         skill_expansion = inject_explicit_skill_instructions(
             user_message, *skill_registry_);

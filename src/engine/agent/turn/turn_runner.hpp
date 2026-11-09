@@ -43,6 +43,7 @@ struct TurnRunnerOptions {
     ToolLifecycleEvents::Clock clock;
     std::function<void(const std::string&)> computer_use_release;
     std::string no_model_prompt;
+    BackgroundToolSignals background{};
 };
 
 class TurnRunner {

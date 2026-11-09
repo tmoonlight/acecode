@@ -6,6 +6,7 @@
 
 namespace acecode {
 class AbortSignal;
+class BackgroundTaskRegistry;
 class PermissionManager;
 class EventDispatcher;
 struct AgentLoopConfig;
@@ -16,6 +17,13 @@ class SessionExecSecurity;
 class PromptContextCache;
 class GoalRuntime;
 
+// 后台任务接线:AgentLoop 持有登记表和「转后台」信号;全部为空 = 不支持后台任务。
+struct BackgroundToolSignals {
+    BackgroundTaskRegistry* registry = nullptr; // Nullable borrowed; owned by AgentLoop.
+    const std::atomic<std::uint64_t>* generation = nullptr;
+    const std::atomic<int>* reason = nullptr;
+};
+
 // Bound to one execution scope. Raw dependencies are nullable constructor
 // borrows; retained tool callbacks use LifetimeRef and cannot outlive this host.
 class ToolContextFactory final : public ToolSessionHost {
@@ -25,7 +33,8 @@ public:
         PromptContextCache& cache, PermissionManager& permissions, GoalRuntime& goal,
         EventDispatcher& events, AbortSignal& abort, SessionManager* session,
         const SkillRegistry* skills, const ToolCapabilityPolicy& policy,
-        const AgentLoopConfig& config, ProviderAccessor provider);
+        const AgentLoopConfig& config, ProviderAccessor provider,
+        BackgroundToolSignals background = {});
     ToolContext for_tool();
     static ToolContext for_user_shell(
         WorkspaceBoundary& boundary, AbortSignal& abort, SessionManager* session);
@@ -61,6 +70,7 @@ private:
     const ToolCapabilityPolicy& capability_policy_;
     const AgentLoopConfig& loop_cfg_;
     ProviderAccessor provider_accessor_;
+    BackgroundToolSignals background_;
     LifetimeToken lifetime_; // Revoke/drain before any dependency can be released.
 };
 

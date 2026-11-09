@@ -4,6 +4,7 @@
 #include "agent/turn/active_turn_gate.hpp"
 #include "agent/worker/agent_task_queue.hpp"
 #include "session/session_manager.hpp"
+#include "tool/background_tasks.hpp"
 #include "utils/logger.hpp"
 #include <utility>
 
@@ -13,7 +14,12 @@ TurnSteerResult AgentLoop::steer_input(
     const std::string& expected_turn_id, const UserInput& input) {
     auto result = active_turn_gate_->steer(expected_turn_id, input);
     // Codex InputQueueActivity::Steer: steered user input ends agent_wait early.
-    if (result.accepted()) mailbox_->notify_steer();
+    if (result.accepted()) {
+        mailbox_->notify_steer();
+        // 插话只在模型边界注入:正在跑的前台命令 / 等待中的子代理让路转到后台
+        // (不中断),消息才能马上送到模型。
+        request_background(BackgroundOrigin::UserMessage);
+    }
     return result;
 }
 

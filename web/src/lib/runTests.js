@@ -244,6 +244,8 @@ import './appearancePersistenceArchitecture.test.js';
 import './uiPrefs.test.js';
 import './singleLayout.test.js';
 import './responsiveSidebars.test.js';
+import './summaryPanel.test.js';
+import './backgroundTasks.test.js';
 import './previewTabs.test.js';
 import './agentBrowser.test.js';
 import './agentBrowserChatContext.test.js';

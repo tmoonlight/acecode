@@ -17,9 +17,9 @@
 #include <ftxui/component/component.hpp>
 
 namespace acecode::tui {
-const std::array<InputRoute, 38> & TuiEventRouter::routes() {
+const std::array<InputRoute, 39> & TuiEventRouter::routes() {
     // Do not group keys by subsystem: the original order is observable.
-    static const std::array<InputRoute, 38> table{{
+    static const std::array<InputRoute, 39> table{{
         {"prelude", 6846, handle_event_prelude},
         {"bracketed_paste", 6915, handle_bracketed_paste},
         {"ctrl_v", 6946, handle_clipboard_ctrl_v},
@@ -53,6 +53,7 @@ const std::array<InputRoute, 38> & TuiEventRouter::routes() {
         {"ctrl_a", 8394, handle_composer_ctrl_a},
         {"input_home", 8410, handle_composer_home},
         {"ctrl_o", 8421, handle_chat_ctrl_o},
+        {"ctrl_b", 8427, handle_chat_ctrl_b},
         {"ctrl_e", 8433, handle_chat_ctrl_e},
         {"input_end", 8464, handle_composer_end},
         {"delete", 8473, handle_composer_delete},

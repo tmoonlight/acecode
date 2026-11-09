@@ -1,6 +1,8 @@
 #include "bash_tool.hpp"
+#include "background_tasks.hpp"
+#include "shell_process.hpp"
 #include "llm/tool_icons.hpp"
-#include "environment/shell_command_line.hpp"
+#include "llm/tool_protocol_names.hpp"
 #include "environment/terminal_runtime.hpp"
 #include "utils/logger.hpp"
 #include "utils/encoding.hpp"
@@ -16,29 +18,21 @@
 #include <deque>
 #include <chrono>
 #include <filesystem>
-#include "utils/joining_thread.hpp"
 #include <atomic>
 #include <set>
 #include <system_error>
 #include <cstdlib>
 #include <algorithm>
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <errno.h>
-extern char** environ;
-#endif
+#include <cctype>
+#include <optional>
+#include <thread>
 
 namespace acecode {
 
 static constexpr int DEFAULT_TIMEOUT_MS = 120000;    // 2 minutes
 static constexpr size_t MAX_OUTPUT_SIZE = 100 * 1024; // 100KB
+// 前置 sleep 达到这个秒数就拒绝执行(见 bash_leading_sleep_seconds)。
+static constexpr double LONG_LEADING_SLEEP_SECONDS = 25.0;
 
 static std::string ascii_lower_copy(std::string value) {
     for (char& c : value) {
@@ -96,89 +90,104 @@ static void append_root_script_warning(ToolResult& result,
     result.output += ".";
 }
 
-#ifdef _WIN32
-static std::wstring env_name_prefix(const std::wstring& name) {
-    return name + L"=";
+namespace {
+
+std::string trim_copy(const std::string& value) {
+    std::size_t begin = 0;
+    std::size_t end = value.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(value[begin]))) ++begin;
+    while (end > begin && std::isspace(static_cast<unsigned char>(value[end - 1]))) --end;
+    return value.substr(begin, end - begin);
 }
 
-static bool starts_with_env_name_ci(const std::wstring& value,
-                                    const std::wstring& prefix) {
-    if (value.size() < prefix.size()) return false;
-    for (size_t i = 0; i < prefix.size(); ++i) {
-        wchar_t a = value[i];
-        wchar_t b = prefix[i];
-        if (a >= L'A' && a <= L'Z') a = static_cast<wchar_t>(a - L'A' + L'a');
-        if (b >= L'A' && b <= L'Z') b = static_cast<wchar_t>(b - L'A' + L'a');
-        if (a != b) return false;
-    }
-    return true;
-}
-
-static std::vector<wchar_t> build_environment_block_with_var(
-    const std::vector<std::pair<std::string, std::string>>& variables) {
-    std::vector<std::wstring> entries;
-    LPWCH env = GetEnvironmentStringsW();
-    if (env) {
-        for (LPWCH p = env; *p != L'\0'; ) {
-            std::wstring entry(p);
-            const size_t entry_len = entry.size();
-            bool replaced = false;
-            for (const auto& variable : variables) {
-                if (starts_with_env_name_ci(entry, env_name_prefix(utf8_to_wide(variable.first)))) replaced = true;
-            }
-            if (!replaced) {
-                entries.push_back(std::move(entry));
-            }
-            p += entry_len + 1;
-        }
-        FreeEnvironmentStringsW(env);
-    }
-    for (const auto& variable : variables) entries.push_back(utf8_to_wide(variable.first + "=" + variable.second));
-    std::sort(entries.begin(), entries.end(), [](const std::wstring& a, const std::wstring& b) {
-        return _wcsicmp(a.c_str(), b.c_str()) < 0;
-    });
-
-    std::vector<wchar_t> block;
-    for (const auto& entry : entries) {
-        block.insert(block.end(), entry.begin(), entry.end());
-        block.push_back(L'\0');
-    }
-    block.push_back(L'\0');
-    return block;
-}
-#endif
-
-// Normalize Windows CRLF to LF before feeding the line state machine, so the
-// \r does not clobber `current_line` mid-way through a proper newline.
-#ifdef _WIN32
-static std::string normalize_crlf(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\r' && i + 1 < s.size() && s[i + 1] == '\n') {
-            out += '\n';
-            i++;
+std::vector<std::string> split_words(const std::string& text) {
+    std::vector<std::string> words;
+    std::string current;
+    for (char c : text) {
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            if (!current.empty()) words.push_back(current), current.clear();
         } else {
-            out += s[i];
+            current += c;
         }
     }
-    return out;
+    if (!current.empty()) words.push_back(current);
+    return words;
 }
-#endif
+
+std::optional<double> parse_number(const std::string& token, double scale = 1.0) {
+    std::string digits = token;
+    if (!digits.empty() && (digits.back() == 's' || digits.back() == 'S')) digits.pop_back();
+    if (digits.empty()) return std::nullopt;
+    char* end = nullptr;
+    const double value = std::strtod(digits.c_str(), &end);
+    if (!end || *end != '\0' || value < 0) return std::nullopt;
+    return value * scale;
+}
+
+} // namespace
+
+// 命令开头那一段如果只是在睡觉(sleep N / Start-Sleep N / timeout /t N /
+// ping -n N 127.0.0.1),返回睡眠秒数。用来拦住「睡一会儿再看」式的轮询。
+std::optional<double> bash_leading_sleep_seconds(const std::string& command) {
+    std::string first = command;
+    for (const char* separator : {"&&", "||", ";", "|", "\n"}) {
+        const auto pos = first.find(separator);
+        if (pos != std::string::npos) first = first.substr(0, pos);
+    }
+    const auto words = split_words(trim_copy(first));
+    if (words.empty()) return std::nullopt;
+    const std::string head = ascii_lower_copy(words[0]);
+    if (head == "sleep" && words.size() == 2) return parse_number(words[1]);
+    if (head == "start-sleep") {
+        double scale = 1.0;
+        for (std::size_t i = 1; i < words.size(); ++i) {
+            const std::string word = ascii_lower_copy(words[i]);
+            if (word == "-milliseconds" || word == "-m") { scale = 0.001; continue; }
+            if (word == "-seconds" || word == "-s") { scale = 1.0; continue; }
+            if (auto value = parse_number(words[i], scale)) return value;
+        }
+        return std::nullopt;
+    }
+    if (head == "timeout") {
+        for (std::size_t i = 1; i + 1 < words.size(); ++i) {
+            if (ascii_lower_copy(words[i]) == "/t") return parse_number(words[i + 1]);
+        }
+        return std::nullopt;
+    }
+    if (head == "ping") {
+        bool loopback = false;
+        std::optional<double> count;
+        for (std::size_t i = 1; i < words.size(); ++i) {
+            const std::string word = ascii_lower_copy(words[i]);
+            if (word == "127.0.0.1" || word == "localhost" || word == "::1") loopback = true;
+            if ((word == "-n" || word == "-c") && i + 1 < words.size()) count = parse_number(words[i + 1]);
+        }
+        if (loopback && count && *count > 1) return *count - 1;
+    }
+    return std::nullopt;
+}
 
 static ToolResult execute_bash(const std::string& arguments_json, const ToolContext& ctx) {
     std::string command;
     int timeout_ms = DEFAULT_TIMEOUT_MS;
+    bool timeout_given = false;
     std::string cwd;
     std::vector<std::string> stdin_inputs;
+    bool run_in_background = false;
+    bool monitor = false;
 
     try {
         auto args = nlohmann::json::parse(arguments_json);
         const auto error = sandbox::validate_escalation_arguments(args);
         if (!error.empty()) return ToolResult{"[Error] " + error, false};
         command = args.value("command", "");
-        timeout_ms = args.value("timeout_ms", DEFAULT_TIMEOUT_MS);
+        if (args.contains("timeout_ms") && args["timeout_ms"].is_number()) {
+            timeout_ms = args["timeout_ms"].get<int>();
+            timeout_given = true;
+        }
         cwd = args.value("cwd", "");
+        run_in_background = args.value("run_in_background", false);
+        monitor = args.value("monitor", false);
         if (args.contains("stdin_inputs") && args["stdin_inputs"].is_array()) {
             for (const auto& el : args["stdin_inputs"]) {
                 if (el.is_string()) stdin_inputs.push_back(el.get<std::string>());
@@ -190,6 +199,25 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
 
     if (command.empty()) {
         return ToolResult{"[Error] No command provided.", false};
+    }
+    const bool background = run_in_background || monitor;
+    if (!background && timeout_ms <= 0) timeout_ms = DEFAULT_TIMEOUT_MS;
+    if (background && !ctx.background_tasks) {
+        return ToolResult{"[Error] run_in_background is not available here. Run the command in the "
+                          "foreground with a timeout_ms long enough for it.", false};
+    }
+    if (!background && ctx.background_tasks) {
+        if (const auto seconds = bash_leading_sleep_seconds(command);
+            seconds && *seconds >= LONG_LEADING_SLEEP_SECONDS) {
+            return ToolResult{
+                "[Blocked] The command starts with a long sleep (" + background_duration_text(
+                    static_cast<std::int64_t>(*seconds * 1000)) +
+                "). Do not wait by sleeping. To wait for a command you started, run it with "
+                "run_in_background=true and you will be notified when it finishes. To wait for a "
+                "condition, run a loop such as `until <check>; do sleep 2; done` with "
+                "run_in_background=true; you are notified when the loop exits. Do not chain shorter "
+                "sleeps to get around this.", false};
+        }
     }
 
     if (cwd.empty() && !ctx.cwd.empty()) {
@@ -255,6 +283,7 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
 
     LOG_INFO("bash: cmd=" + log_truncate(command, 200) + " cwd=" + cwd +
              " timeout=" + std::to_string(timeout_ms) +
+             " background=" + (background ? std::string("true") : std::string("false")) +
              " stdin_inputs=" + std::to_string(stdin_inputs.size()));
 
 #ifdef _WIN32
@@ -294,7 +323,59 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
                           terminal_snapshot->resolved.fallback_reason, false};
     }
 
-    // Shared streaming state across both OS branches.
+    ShellLaunchSpec spec;
+    spec.command = command;
+    spec.cwd = cwd;
+    spec.environment = child_environment;
+    spec.stdin_inputs = stdin_inputs;
+    if (ctx.exec_sandbox) spec.sandbox = *ctx.exec_sandbox;
+    const std::string background_dir = scratch_dir.empty()
+        ? std::string{}
+        : path_to_utf8(path_from_utf8(scratch_dir) / "background");
+    const std::string stop_tool = model_tool_name_for_native("stop_background_task");
+
+    auto backgrounded_result = [&](const std::string& task_id, const std::string& output_so_far,
+                                   std::int64_t foreground_timeout_ms) {
+        const auto info = ctx.background_tasks->find(task_id);
+        ToolResult r;
+        r.success = true;
+        r.output = output_so_far;
+        if (info) {
+            if (!r.output.empty() && r.output.back() != '\n') r.output += "\n";
+            if (!r.output.empty()) r.output += "\n";
+            r.output += format_backgrounded_tool_result(*info, foreground_timeout_ms, stop_tool);
+            r.metadata["background_task_id"] = info->id;
+            r.metadata["background_origin"] = background_origin_name(info->origin);
+            if (!info->output_file.empty()) r.metadata["background_output_file"] = info->output_file;
+        }
+        ToolSummary s = make_summary(command,
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t_start).count(),
+            output_so_far.size(), 0, true, false, false, false);
+        s.metrics.emplace_back("background", "true");
+        r.summary = s;
+        return r;
+    };
+
+    if (background) {
+        BackgroundTaskRegistry::ShellStart start;
+        start.spec = spec;
+        start.title = command;
+        start.output_dir = background_dir;
+        start.origin = BackgroundOrigin::Requested;
+        start.max_runtime_ms = timeout_given ? (std::max)(0, timeout_ms) : 0;
+        start.monitor = monitor;
+        ShellLaunchFailure failure;
+        const std::string task_id = ctx.background_tasks->start_shell(std::move(start), failure);
+        if (task_id.empty()) {
+            if (failure.sandbox_unavailable) return sandbox_failure(failure.message);
+            ToolResult r{"[Error] " + (failure.message.empty() ? std::string("Failed to start the command.") : failure.message), false};
+            r.summary = make_summary(command, 0, 0, -1, false, false, false, false);
+            return r;
+        }
+        return backgrounded_result(task_id, {}, 0);
+    }
+
+    // Shared streaming state.
     std::string full_output;
     std::string current_line;
     std::deque<std::string> tail_lines;
@@ -309,449 +390,124 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     IncrementalTextDecoder decoder;
 
     // Emit already-decoded UTF-8 text into the output/stream pipeline.
-    auto emit_text = [&](std::string text) {
-        if (text.empty()) return;
-#ifdef _WIN32
-        text = normalize_crlf(text);
-#endif
-        std::string clean = strip_ansi(text);
+    auto emit_text = [&](const std::string& text) {
+        std::string clean = clean_shell_output(text);
         if (clean.empty()) return;
         full_output += clean;
         feed_line_state(clean, current_line, tail_lines, total_lines);
         if (ctx.stream) ctx.stream(clean);
     };
 
-    auto process_raw = [&](const char* data, size_t len) {
-        if (len == 0) return;
-        emit_text(decoder.push(data, len));
-    };
+    ShellLaunchFailure launch_failure;
+    auto process = ShellProcess::launch(spec, launch_failure);
+    if (!process) {
+        if (launch_failure.sandbox_unavailable) return sandbox_failure(launch_failure.message);
+        return ToolResult{"[Error] " + launch_failure.message, false};
+    }
 
-    // Drain any bytes the decoder is still holding (called once after EOF).
-    auto flush_decoder = [&]() {
-        emit_text(decoder.flush());
-    };
-
+    const std::uint64_t background_generation_at_start =
+        ctx.background_generation ? ctx.background_generation->load() : 0;
     bool aborted = false;
     bool timed_out = false;
-
-#ifdef _WIN32
-    // stdin_inputs not implemented on Windows in this release; it's accepted
-    // but silently ignored (see proposal — deferred to future MCP work).
-    (void)stdin_inputs;
-
-    if (sandboxed) {
-        if (ctx.exec_sandbox->backend == sandbox::BackendKind::WindowsMxc) {
-            // MXC 口子(align-codex-sandboxing D9):探测恒不可用,正常不会走到这里;
-            // 真接入时把 SandboxPolicy 翻译成 MXC ExecutionRequest 后在此启动。
-            return sandbox_failure("MXC backend is not bundled in this build");
-        }
-        if (ctx.exec_sandbox->backend != sandbox::BackendKind::WindowsRestrictedToken) {
-            return sandbox_failure("Invalid backend for Windows");
-        }
-        std::string error;
-        if (!sandbox::ensure_windows_acl_grants(ctx.exec_sandbox->policy, &error)) return sandbox_failure(error);
-    }
-
-    SECURITY_ATTRIBUTES sa;
-    sa.nLength = sizeof(sa);
-    sa.bInheritHandle = TRUE;
-    sa.lpSecurityDescriptor = nullptr;
-
-    platform::UniqueHandle hReadPipe, hWritePipe;
-    if (!CreatePipe(hReadPipe.put(), hWritePipe.put(), &sa, 0)) {
-        return ToolResult{"[Error] Failed to create pipe.", false};
-    }
-    SetHandleInformation(hReadPipe.get(), HANDLE_FLAG_INHERIT, 0);
-
-    STARTUPINFOW si = {};
-    si.cb = sizeof(si);
-    si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdOutput = hWritePipe.get();
-    si.hStdError = hWritePipe.get();
-
-    PROCESS_INFORMATION pi = {};
-
-    // 默认终端(openspec: agent-default-terminal):运行时已解析出可用终端就按其家族
-    // 构造命令行(cmd / PowerShell EncodedCommand / Git Bash -c);未 bootstrap 或
-    // 全部候选不可用时维持改动前的 `cmd.exe /c`。
-    std::string windows_command_line = "cmd.exe /d /c " + command;
-    if (terminal_snapshot) {
-        windows_command_line = acecode::environment::build_shell_command_line(
-            terminal_snapshot->resolved, command).windows_command_line;
-    }
-    std::wstring full_cmd = utf8_to_wide(windows_command_line);
-    std::vector<wchar_t> full_cmd_buffer(full_cmd.begin(), full_cmd.end());
-    full_cmd_buffer.push_back(L'\0');
-
-    std::wstring wide_cwd;
-    if (!cwd.empty()) {
-        wide_cwd = utf8_to_wide(cwd);
-    }
-    const wchar_t* cwd_ptr = wide_cwd.empty() ? nullptr : wide_cwd.c_str();
-
-    std::vector<wchar_t> env_block;
-    void* env_ptr = nullptr;
-    if (!child_environment.empty()) {
-        env_block = build_environment_block_with_var(child_environment);
-        env_ptr = env_block.data();
-    }
-
-    BOOL ok = FALSE;
-    std::string sandbox_error;
-    // 挂起启动 → 挂进 Job Object → 再放行(align-codex-sandboxing D7):超时 / 中止时
-    // TerminateJobObject 能杀掉整棵进程树(cmd → node → 子工具),而不是只杀 cmd。
-    // Job 不设 KILL_ON_JOB_CLOSE,正常结束关闭句柄不影响有意留下的后台孙进程。
-    const DWORD creation_flags = CREATE_NO_WINDOW | CREATE_SUSPENDED |
-                                 (env_ptr ? CREATE_UNICODE_ENVIRONMENT : 0);
-    if (sandboxed) {
-        auto token = sandbox::create_restricted_token(ctx.exec_sandbox->policy, &sandbox_error);
-        if (token) {
-            std::wstring desktop = L"winsta0\\default";
-            si.lpDesktop = desktop.data();
-            ok = CreateProcessAsUserW(token.get(), nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
-                creation_flags, env_ptr, cwd_ptr, &si, &pi);
-            if (!ok) sandbox_error = "CreateProcessAsUserW failed: " + std::to_string(GetLastError());
-        }
-    } else {
-        ok = CreateProcessW(nullptr, full_cmd_buffer.data(), nullptr, nullptr, TRUE,
-            creation_flags, env_ptr, cwd_ptr, &si, &pi);
-    }
-
-    hWritePipe.reset();
-
-    if (!ok) {
-        if (sandboxed) return sandbox_failure(sandbox_error);
-        return ToolResult{"[Error] Failed to execute command.", false};
-    }
-
-    platform::UniqueHandle process(pi.hProcess), initial_thread(pi.hThread);
-    auto process_job = sandbox::create_process_tree_job();
-    if (process_job && !sandbox::assign_process_to_job(process_job, pi.hProcess)) {
-        // 嵌套 Job 被拒(旧系统 / 受限宿主 Job):退回只杀直接子进程的旧行为。
-        process_job.reset();
-    }
-    ResumeThread(pi.hThread);
-    auto kill_process_tree = [&]() {
-        if (process_job) sandbox::terminate_job_tree(process_job);
-        else TerminateProcess(pi.hProcess, 1);
-    };
-
-    char buffer[4096];
-    DWORD bytes_read;
+    std::optional<BackgroundOrigin> move_to_background;
     auto start = std::chrono::steady_clock::now();
+    std::string raw;
 
     while (true) {
-        DWORD avail = 0;
-        PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &avail, nullptr);
-        if (avail > 0) {
-            if (ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
-                process_raw(buffer, bytes_read);
-            }
-        }
+        raw.clear();
+        if (process->read_available(raw) > 0) emit_text(decoder.push(raw.data(), raw.size()));
 
-        DWORD wait_result = WaitForSingleObject(pi.hProcess, 0);
-        if (wait_result == WAIT_OBJECT_0) {
-            // Process finished - drain remaining output.
-            // **不能**裸 ReadFile:Windows 管道在同步模式下,只要还有任何进程
-            // 持有写端,ReadFile 在数据耗尽时会**永久阻塞**。直接子进程(cmd.exe)
-            // 已退出,但孙进程(典型场景:`agent-browser open` 启动的 Chrome,
-            // 后台 daemon,detached 的 powershell 子任务……)如果继承了同一根管道,
-            // 仍 hold 着写端,ReadFile 永远等不到 EOF。这条循环之外才有 abort /
-            // timeout 检查,一旦在这里 block 住,Esc / Ctrl+C / 120s 超时全部失效,
-            // TUI 表现为"卡死"。修复:沿用下方 abort / timeout drain 一样的模式,
-            // 只 drain 当前可读字节,管道里没数据立刻 break,把后台孙进程的命运
-            // 交给 OS。
-            while (true) {
-                DWORD drain_avail = 0;
-                if (!PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &drain_avail, nullptr)) break;
-                if (drain_avail == 0) break;
-                if (!ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr)) break;
-                if (bytes_read == 0) break;
-                process_raw(buffer, bytes_read);
-            }
+        if (process->poll_exited()) {
+            // 直接子进程已退出:只读管道里当前还有的字节,不等 EOF(孙进程可能仍持有写端)。
+            raw.clear();
+            process->drain(raw);
+            if (!raw.empty()) emit_text(decoder.push(raw.data(), raw.size()));
             break;
         }
 
-        // Abort check
         if (ctx.abort_flag && ctx.abort_flag->load()) {
-            kill_process_tree();
-            WaitForSingleObject(pi.hProcess, 1000);
-            while (PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
-                if (ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
-                    process_raw(buffer, bytes_read);
-                } else break;
-            }
+            process->kill_tree(1000, true);
+            raw.clear();
+            process->drain(raw);
+            if (!raw.empty()) emit_text(decoder.push(raw.data(), raw.size()));
             aborted = true;
             break;
         }
 
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - start).count();
-        if (elapsed >= timeout_ms) {
-            kill_process_tree();
-            WaitForSingleObject(pi.hProcess, 1000);
-            while (PeekNamedPipe(hReadPipe.get(), nullptr, 0, nullptr, &avail, nullptr) && avail > 0) {
-                if (ReadFile(hReadPipe.get(), buffer, sizeof(buffer), &bytes_read, nullptr) && bytes_read > 0) {
-                    process_raw(buffer, bytes_read);
-                } else break;
-            }
-            timed_out = true;
-            break;
-        }
-
-        Sleep(10);
-    }
-
-    DWORD exit_code = 0;
-    GetExitCodeProcess(pi.hProcess, &exit_code);
-
-    process.reset();
-    initial_thread.reset();
-    process_job.reset();
-    hReadPipe.reset();
-
-#else
-    // POSIX: fork/exec with streaming, stdin injection, and abort support.
-    int pipefd[2];
-    if (pipe(pipefd) == -1) {
-        return ToolResult{"[Error] Failed to create pipe.", false};
-    }
-
-    // stdin pipe (read by child, written by parent). Always created so the
-    // child has a well-defined stdin; if stdin_inputs is empty we close the
-    // write end immediately so the child sees EOF.
-    int stdin_pipefd[2];
-    if (pipe(stdin_pipefd) == -1) {
-        close(pipefd[0]); close(pipefd[1]);
-        return ToolResult{"[Error] Failed to create stdin pipe.", false};
-    }
-
-    // 默认终端(openspec: agent-default-terminal):argv 在 fork **之前**准备好 ——
-    // daemon 是多线程进程,子进程里不能再分配内存(malloc 锁可能被别的线程持有)。
-    // 运行时没有可用终端时维持改动前的 /bin/sh -c。
-    std::string shell_program = "/bin/sh";
-    std::vector<std::string> shell_argv = {"/bin/sh", "-c", command};
-    if (terminal_snapshot) {
-        auto line = acecode::environment::build_shell_command_line(terminal_snapshot->resolved, command);
-        shell_program = line.program;
-        shell_argv = line.argv;
-    }
-    if (sandboxed) {
-        std::vector<std::string> prefix;
-        if (ctx.exec_sandbox->backend == sandbox::BackendKind::MacosSeatbelt) {
-            prefix = sandbox::build_seatbelt_argv(ctx.exec_sandbox->policy);
-        } else if (ctx.exec_sandbox->backend == sandbox::BackendKind::LinuxBwrap) {
-            if (ctx.exec_sandbox->backend_executable.empty()) {
-                close(pipefd[0]); close(pipefd[1]); close(stdin_pipefd[0]); close(stdin_pipefd[1]);
-                return sandbox_failure("No verified bubblewrap executable");
-            }
-            prefix = sandbox::build_bwrap_argv(ctx.exec_sandbox->policy);
-            prefix.front() = ctx.exec_sandbox->backend_executable;
-        } else {
-            close(pipefd[0]); close(pipefd[1]); close(stdin_pipefd[0]); close(stdin_pipefd[1]);
-            return sandbox_failure("Invalid backend for POSIX");
-        }
-        prefix.insert(prefix.end(), shell_argv.begin(), shell_argv.end());
-        shell_argv = std::move(prefix);
-        shell_program = shell_argv.front();
-    }
-    std::vector<char*> shell_argv_c;
-    shell_argv_c.reserve(shell_argv.size() + 1);
-    for (auto& arg : shell_argv) shell_argv_c.push_back(const_cast<char*>(arg.c_str()));
-    shell_argv_c.push_back(nullptr);
-
-    // 在父进程准备环境和可执行路径。多线程 daemon fork 后只能调用异步信号安全 API。
-    std::vector<std::string> environment_storage;
-    for (char** variable = environ; variable && *variable; ++variable) {
-        std::string value(*variable);
-        const auto separator = value.find('=');
-        const auto name = value.substr(0, separator);
-        const bool overridden = std::any_of(child_environment.begin(), child_environment.end(),
-            [&](const auto& entry) { return entry.first == name; });
-        if (!overridden) environment_storage.push_back(std::move(value));
-    }
-    for (const auto& entry : child_environment) environment_storage.push_back(entry.first + "=" + entry.second);
-    std::vector<char*> environment_pointers;
-    for (auto& variable : environment_storage) environment_pointers.push_back(variable.data());
-    environment_pointers.push_back(nullptr);
-    if (shell_program.find('/') == std::string::npos) {
-        const char* raw_path = std::getenv("PATH");
-        const std::string search_path = raw_path ? raw_path : "/usr/bin:/bin";
-        std::size_t start = 0;
-        while (start <= search_path.size()) {
-            const auto end = search_path.find(':', start);
-            auto directory = search_path.substr(start, end == std::string::npos ? end : end - start);
-            if (directory.empty()) directory = cwd.empty() ? "." : cwd;
-            const auto candidate = directory + "/" + shell_program;
-            if (access(candidate.c_str(), X_OK) == 0) { shell_program = candidate; break; }
-            if (end == std::string::npos) break;
-            start = end + 1;
-        }
-    }
-    // CLOEXEC 让父进程区分后端根本没启动与已运行命令自行返回 127。
-    int exec_error_pipe[2];
-    if (pipe(exec_error_pipe) == -1) {
-        close(pipefd[0]); close(pipefd[1]); close(stdin_pipefd[0]); close(stdin_pipefd[1]);
-        return ToolResult{"[Error] Failed to create launch status pipe.", false};
-    }
-    if (fcntl(exec_error_pipe[1], F_SETFD, FD_CLOEXEC) == -1 ||
-        fcntl(exec_error_pipe[0], F_SETFL, O_NONBLOCK) == -1) {
-        close(pipefd[0]); close(pipefd[1]); close(stdin_pipefd[0]); close(stdin_pipefd[1]);
-        close(exec_error_pipe[0]); close(exec_error_pipe[1]);
-        return ToolResult{"[Error] Failed to configure launch status pipe.", false};
-    }
-    pid_t pid = fork();
-    if (pid == -1) {
-        close(pipefd[0]); close(pipefd[1]);
-        close(stdin_pipefd[0]); close(stdin_pipefd[1]);
-        close(exec_error_pipe[0]); close(exec_error_pipe[1]);
-        return ToolResult{"[Error] Failed to fork.", false};
-    }
-
-    if (pid == 0) {
-        // Child
-        close(exec_error_pipe[0]);
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        dup2(pipefd[1], STDERR_FILENO);
-        close(pipefd[1]);
-
-        close(stdin_pipefd[1]);
-        dup2(stdin_pipefd[0], STDIN_FILENO);
-        close(stdin_pipefd[0]);
-
-        // New process group so parent can signal the whole tree
-        setpgid(0, 0);
-
-        if (!cwd.empty()) {
-            if (chdir(cwd.c_str()) != 0) {
-                const int launch_error = errno;
-                (void)write(exec_error_pipe[1], &launch_error, sizeof(launch_error));
-                _exit(127);
-            }
-        }
-        execve(shell_program.c_str(), shell_argv_c.data(), environment_pointers.data());
-        const int launch_error = errno;
-        (void)write(exec_error_pipe[1], &launch_error, sizeof(launch_error));
-        _exit(127);
-    }
-
-    // Parent
-    close(exec_error_pipe[1]);
-    close(pipefd[1]);
-    close(stdin_pipefd[0]);
-
-    // stdin writer thread (only if we have inputs to send)
-    acecode::JoiningThread stdin_writer;
-    if (!stdin_inputs.empty()) {
-        int write_fd = stdin_pipefd[1];
-        stdin_writer = acecode::JoiningThread([write_fd, inputs = stdin_inputs]() {
-            for (const auto& line : inputs) {
-                std::string data = line + "\n";
-                const char* p = data.c_str();
-                size_t remaining = data.size();
-                while (remaining > 0) {
-                    ssize_t n = write(write_fd, p, remaining);
-                    if (n < 0) {
-                        if (errno == EINTR) continue;
-                        return; // pipe closed (child exited) or other error
-                    }
-                    p += n;
-                    remaining -= n;
-                }
-            }
-            close(write_fd);
-        });
-    } else {
-        // No inputs: close immediately so child sees EOF on stdin
-        close(stdin_pipefd[1]);
-    }
-
-    char buffer[4096];
-    ssize_t n;
-    auto start = std::chrono::steady_clock::now();
-
-    int flags = fcntl(pipefd[0], F_GETFL, 0);
-    fcntl(pipefd[0], F_SETFL, flags | O_NONBLOCK);
-
-    int status = 0;
-    while (true) {
-        n = read(pipefd[0], buffer, sizeof(buffer));
-        if (n > 0) {
-            process_raw(buffer, n);
-        }
-
-        int wr = waitpid(pid, &status, WNOHANG);
-        if (wr == pid) {
-            while ((n = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
-                process_raw(buffer, n);
-            }
-            break;
-        }
-
-        if (ctx.abort_flag && ctx.abort_flag->load()) {
-            kill(-pid, SIGTERM);
-            // Give it up to 500ms to exit gracefully
-            for (int i = 0; i < 50; ++i) {
-                if (waitpid(pid, &status, WNOHANG) == pid) { aborted = true; break; }
-                usleep(10000);
-            }
-            if (!aborted) {
-                kill(-pid, SIGKILL);
-                waitpid(pid, &status, 0);
-                aborted = true;
-            }
-            while ((n = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
-                process_raw(buffer, n);
-            }
+        // 用户插话 / 手动转后台:命令不中断,整体交给后台任务登记表。
+        if (ctx.background_tasks && ctx.background_generation &&
+            ctx.background_generation->load() != background_generation_at_start) {
+            const int reason = ctx.background_reason ? ctx.background_reason->load() : 0;
+            move_to_background = reason == static_cast<int>(BackgroundOrigin::UserMessage)
+                ? BackgroundOrigin::UserMessage
+                : BackgroundOrigin::UserRequest;
             break;
         }
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start).count();
         if (elapsed >= timeout_ms) {
-            kill(-pid, SIGKILL);
-            waitpid(pid, &status, 0);
-            timed_out = true;
-            while ((n = read(pipefd[0], buffer, sizeof(buffer))) > 0) {
-                process_raw(buffer, n);
+            if (ctx.background_tasks) {
+                // 超时不杀:转到后台继续跑,结束时通知模型。
+                move_to_background = BackgroundOrigin::Timeout;
+                break;
             }
+            process->kill_tree(1000, false);
+            raw.clear();
+            process->drain(raw);
+            if (!raw.empty()) emit_text(decoder.push(raw.data(), raw.size()));
+            timed_out = true;
             break;
         }
 
-        usleep(10000); // 10ms
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    close(pipefd[0]);
-    // If writer thread still running, close the write end to make it exit
-    // (the child is dead; further writes would EPIPE).
-    if (stdin_writer.joinable()) {
-        // Not safe to close twice — the thread itself closes after finishing.
-        stdin_writer.join();
+    if (move_to_background) {
+        const auto started_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() -
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+        BackgroundTaskRegistry::ShellAdoption adoption;
+        adoption.process = std::move(process);
+        adoption.decoder = std::move(decoder);
+        adoption.captured_text = full_output;
+        adoption.command = command;
+        adoption.cwd = cwd;
+        adoption.output_dir = background_dir;
+        adoption.title = command;
+        adoption.origin = *move_to_background;
+        adoption.started_at_ms = started_at_ms;
+        const std::string task_id = ctx.background_tasks->adopt_shell(std::move(adoption));
+        LOG_INFO("bash: moved to background id=" + task_id + " reason=" +
+                 background_origin_name(*move_to_background));
+        if (!task_id.empty()) {
+            std::string output_so_far = ensure_utf8(full_output);
+            if (output_so_far.size() > MAX_OUTPUT_SIZE) {
+                output_so_far = "[... earlier output omitted; the full output is in the output file ...]\n" +
+                                background_output_tail(output_so_far, MAX_OUTPUT_SIZE / 2);
+            }
+            return backgrounded_result(task_id, output_so_far,
+                *move_to_background == BackgroundOrigin::Timeout ? timeout_ms : 0);
+        }
+        return ToolResult{"[Error] The command could not be moved to the background and was stopped.", false};
     }
 
-    int launch_error = 0;
-    ssize_t launch_status;
-    do { launch_status = read(exec_error_pipe[0], &launch_error, sizeof(launch_error)); }
-    while (launch_status < 0 && errno == EINTR);
-    close(exec_error_pipe[0]);
-    if (launch_status == sizeof(launch_error) && launch_error != 0) {
-        const auto message = "Cannot start the shell/backend: " +
-            std::error_code(launch_error, std::generic_category()).message();
-        return sandboxed ? sandbox_failure(message) : ToolResult{"[Error] " + message, false};
+#ifndef _WIN32
+    const std::string launch_error = process->launch_error();
+    if (!launch_error.empty()) {
+        return sandboxed ? sandbox_failure(launch_error) : ToolResult{"[Error] " + launch_error, false};
     }
-    int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) :
-                   (WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1);
 #endif
+    const int exit_code = process->exit_code();
+    process.reset();
 
     // EOF reached: drain any bytes the decoder held back (incomplete trailing
     // character or undecodable tail) so they are not silently dropped.
-    flush_decoder();
+    emit_text(decoder.flush());
 
-    // Flush any trailing partial line into full_output and tail_lines so it's
-    // visible even without a trailing newline.
+    // Flush any trailing partial line into tail_lines so it's visible even
+    // without a trailing newline (full_output already holds it).
     if (!current_line.empty()) {
-        full_output += current_line;
         tail_lines.push_back(current_line);
         while (tail_lines.size() > 5) tail_lines.pop_front();
         current_line.clear();
@@ -846,6 +602,16 @@ ToolImpl create_bash_tool() {
                       "For programs that prompt for input (e.g. 'apt install' confirming, "
                       "'npm login' asking for credentials), pass stdin_inputs with the "
                       "answers to pipe into the command's stdin in order. "
+                      "Long-running work: set run_in_background=true for dev servers, watchers, and builds "
+                      "or tests that may take more than about a minute. The call returns at once with a task "
+                      "ID and an output file, and you are notified automatically when the command finishes, "
+                      "with its exit code and last output; do not poll for it. A foreground command still "
+                      "running at its timeout is moved to the background instead of being killed. Do not wait "
+                      "by sleeping: commands that start with a long sleep are rejected. To wait for a condition, "
+                      "run a loop such as `until <check>; do sleep 2; done` with run_in_background=true; you "
+                      "are notified when it exits. Set monitor=true to also receive new output lines while a "
+                      "background command runs (for example to watch a log). Stop a background command with "
+                      "stop_background_task. "
                       "Commands may run in a filesystem/network sandbox. If a command is denied by the sandbox, "
                       "prefer the smallest request: sandbox_permissions=\"with_additional_permissions\" plus "
                       "additional_permissions listing only the extra paths (or network) it needs; use "
@@ -899,7 +665,20 @@ ToolImpl create_bash_tool() {
             }},
             {"timeout_ms", {
                 {"type", "integer"},
-                {"description", "Timeout in milliseconds (default: 120000)"}
+                {"description", "Foreground: milliseconds to wait before the command is moved to the background "
+                                "(default: 120000); it is not killed. With run_in_background: the maximum run time, "
+                                "after which it is stopped (default: no limit)."}
+            }},
+            {"run_in_background", {
+                {"type", "boolean"},
+                {"description", "Run the command in the background and return immediately with a task ID and an "
+                                "output file. You are notified automatically when it finishes; do not poll or "
+                                "sleep. No '&' needed."}
+            }},
+            {"monitor", {
+                {"type", "boolean"},
+                {"description", "Implies run_in_background. New output lines are also delivered to you while the "
+                                "command runs (batched), for watching logs or progress."}
             }},
             {"cwd", {
                 {"type", "string"},

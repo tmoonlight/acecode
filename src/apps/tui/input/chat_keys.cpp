@@ -225,6 +225,16 @@ InputDisposition handle_chat_ctrl_o(TuiInputContext& context, const Event& event
     return InputDisposition::Continue;
 }
 
+InputDisposition handle_chat_ctrl_b(TuiInputContext& context, const Event& event) {
+    if (!tui::matches_terminal_codepoint(event, 'b', tui::kTerminalCtrl)) return InputDisposition::Continue;
+    {
+        std::lock_guard<std::mutex> lk(context.state.mu);
+        if (!context.state.is_waiting || !context.state.tool_running) return InputDisposition::Continue;
+    }
+    context.turn.move_to_background();
+    return InputDisposition::Consumed;
+}
+
 InputDisposition handle_chat_ctrl_e(TuiInputContext& context, const Event& event) {
     return handle_chat_ctrl_e(context.state, context.screen, context.viewport, event);
 }

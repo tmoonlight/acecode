@@ -56,6 +56,7 @@ enum class SessionEventKind {
     GoalUpdated,       // payload: {"session_id":"...", "goal": {...}}
     GoalCleared,       // payload: {"session_id":"..."}
     TodoUpdated,       // payload: {"session_id":"...", "todos": [...], "summary": {...}}
+    BackgroundTask,    // payload: {"task": {...}} 后台命令 / 后台子代理开始、结束或状态变化
     SessionUpdated,    // payload: {"session_id":"...", "title":"...", ...}
     BusyChanged,       // payload: {"busy":bool,"outcome"?:...,"turn_id"?:...,"usage"?:{...}}
     Done,              // regular turn: {"outcome":...,"turn_id":"...","usage":{...}}
@@ -541,6 +542,7 @@ inline const char* to_string(SessionEventKind k) {
         case SessionEventKind::GoalUpdated:       return "goal_updated";
         case SessionEventKind::GoalCleared:       return "goal_cleared";
         case SessionEventKind::TodoUpdated:       return "todo_updated";
+        case SessionEventKind::BackgroundTask:    return "background_task";
         case SessionEventKind::SessionUpdated:    return "session_updated";
         case SessionEventKind::BusyChanged:       return "busy_changed";
         case SessionEventKind::Done:              return "done";

@@ -1,6 +1,14 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '收起摘要面板': 'Hide summary panel',
+  '展开摘要面板': 'Show summary panel',
+  '调整摘要面板宽度': 'Resize summary panel',
+  '拖动调整摘要面板宽度': 'Drag to resize the summary panel',
+  '复制文件路径': 'Copy file path',
+  '查看输出': 'View output',
+  '转到后台': 'Move to background',
+  '失败 · 退出码 {{p0}}': 'Failed · exit code {{p0}}',
   '此任务正在运行': 'This task is already running',
   '该工作空间已有定时任务正在运行': 'A scheduled task is already running in this workspace',
   '立即运行失败：{{p0}}': 'Run now failed: {{p0}}',

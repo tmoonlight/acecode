@@ -16,6 +16,8 @@ public:
     virtual void before_first_turn() = 0;
     virtual void submit_input(const UserInput& input) = 0;
     virtual void submit_text(const std::string& text, const std::string& display_text = {}) = 0;
+    // 把正在跑的前台命令 / 等待中的子代理转到后台(Ctrl+B),不中断它。
+    virtual void move_to_background() = 0;
 };
 class ICommandContextFactory {
 public:

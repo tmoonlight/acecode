@@ -91,6 +91,7 @@ import {
   effectiveSidePanelListCollapsed,
   revealRightPanelDetails,
   rightPanelHidden,
+  summaryPanelHidden,
   toggleRightPanel,
   UI_PREFS_STORAGE_KEY,
   validateUiPrefs,
@@ -151,6 +152,7 @@ import {
   normalizeSidePanelWidth,
   normalizeSidebarWidth,
   normalizeSubagentPanelWidth,
+  normalizeSummaryPanelWidth,
   previewPanelWidthIsUserSized,
   validateLayoutWidths,
 } from './lib/singleLayout.js';
@@ -327,6 +329,8 @@ export function App() {
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [conversationFindRequest, setConversationFindRequest] = useState(0);
   const [workspaceActivationRequest, setWorkspaceActivationRequest] = useState(null);
+  // 摘要面板的齿轮 → 让侧栏打开与工作区右键「编辑」同一个编辑框。
+  const [workspaceEditRequest, setWorkspaceEditRequest] = useState(null);
   const {
     updateStatus, updateJob, updateStarting, updateChecking, updateDialogOpen, updateFailed,
     setUpdateJob, setUpdateDialogOpen, openUpdateDialog, checkForUpdates, startUpdate,
@@ -1516,6 +1520,26 @@ export function App() {
     });
   });
 
+  const toggleSummaryPanel = useStableCallback(() => {
+    if (!responsiveSidebars.canDockSummary || responsiveSidebars.popup === 'summary') {
+      responsiveSidebars.togglePopup('summary');
+      return;
+    }
+    responsiveSidebars.closePopup();
+    setUiPrefs((prev) => ({
+      ...prev,
+      summaryPanelCollapsed: !summaryPanelHidden(prev),
+    }));
+  });
+
+  const requestWorkspaceEdit = useStableCallback((workspaceHash) => {
+    if (!workspaceHash) return;
+    setWorkspaceEditRequest((previous) => ({
+      requestId: (previous?.requestId || 0) + 1,
+      workspaceHash,
+    }));
+  });
+
   const toggleProjectSidebar = useStableCallback(() => {
     if (!responsiveSidebars.canDockLeft || responsiveSidebars.popup === 'left') {
       responsiveSidebars.togglePopup('left');
@@ -1991,6 +2015,13 @@ export function App() {
     });
   });
 
+  const setSummaryPanelWidth = useCallback((nextWidth) => {
+    setSingleLayout((prev) => {
+      const summaryPanel = normalizeSummaryPanelWidth(nextWidth);
+      return summaryPanel === prev.summaryPanel ? prev : { ...prev, summaryPanel };
+    });
+  }, [setSingleLayout]);
+
   const setSubagentPanelWidth = useCallback((nextWidth, contentWidth = 0) => {
     setSingleLayout((prev) => {
       const subagentPanel = normalizeSubagentPanelWidth(nextWidth, contentWidth);
@@ -2146,6 +2177,7 @@ export function App() {
       && !guidedTourPreparing && !guidedTourRun);
   const sidebarPopup = responsiveSidebars.popup === 'left';
   const rightSidebarPopup = responsiveSidebars.popup === 'right';
+  const summaryPanelOpen = responsiveSidebars.popup === 'summary' || responsiveSidebars.summaryDocked;
   const sidebarPopupRange = popupWidthRange(responsiveSidebars.shellWidth, MIN_SIDEBAR_WIDTH);
   const renderedSidebarWidth = sidebarPopup
     ? clampPopupWidth(singleLayout.sidebarPopup ?? singleLayout.sidebar, sidebarPopupRange)
@@ -2246,6 +2278,7 @@ export function App() {
           onNewLoop={openLoopPage}
           appVersion={health?.version || ''}
           workspaceActivationRequest={workspaceActivationRequest}
+          workspaceEditRequest={workspaceEditRequest}
           onOpenSettingsSection={openSettingsSection}
           office={office}
           onOpenFeedback={() => setShowFeedback(true)}
@@ -2323,6 +2356,11 @@ export function App() {
                 onPreviewPanelResize={setPreviewPanelWidth}
                 subagentPanelWidth={singleLayout.subagentPanel ?? DEFAULT_SINGLE_LAYOUT.subagentPanel}
                 onSubagentPanelResize={setSubagentPanelWidth}
+                summaryPanelWidth={singleLayout.summaryPanel}
+                summaryPanelOpen={summaryPanelOpen}
+                onToggleSummaryPanel={toggleSummaryPanel}
+                onSummaryPanelResize={setSummaryPanelWidth}
+                onEditWorkspace={requestWorkspaceEdit}
                 onPreviewPanelVisibleChange={setPreviewPanelVisible}
                 sidePanelCollapsed={rightSidebarPopup ? false : sidePanelCollapsed}
                 sidePanelListCollapsed={rightSidebarPopup && rightPanelHidden(uiPrefs, previewPanelVisible) ? false : sidePanelListCollapsed}

@@ -1,3 +1,4 @@
+#include "llm/message_predicates.hpp"
 #include "transcript_writer.hpp"
 #include "agent/callbacks_slot.hpp"
 #include "agent/transcript/conversation_history.hpp"
@@ -206,7 +207,8 @@ void TranscriptWriter::append_user_turn_message(SessionManager* session, UserTur
     ensure_user_message_identity(user_msg);
     // 网状蜂群的邮箱唤醒回合以信封开头:不是可见用户回合(不计时、不建检查点、
     // 不更新摘要),但照常发 Message 事件让界面渲染「来自 /root/... 」行。
-    const bool inter_agent = mesh::is_inter_agent_message(user_msg);
+    // 后台任务通知唤醒的回合同理(llm/message_predicates.hpp)。
+    const bool inter_agent = mesh::is_inter_agent_message(user_msg) || is_background_task_message(user_msg);
     info.active_turn_id = user_msg.uuid;
     info.visible_timed_turn =
         !hidden_goal_context && !inter_agent &&

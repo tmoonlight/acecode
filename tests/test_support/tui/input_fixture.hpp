@@ -17,6 +17,8 @@ struct FakeInputTurn final : ITurnSubmitter {
     void submit_text(const std::string& text, const std::string& display = {}) override {
         UserInput input; input.text = text; input.display_text = display; submit_input(input);
     }
+    void move_to_background() override { ++background_requests; }
+    int background_requests = 0;
     std::string cwd_;
     int cancellations = 0, before_calls = 0;
     std::vector<std::string> shells;

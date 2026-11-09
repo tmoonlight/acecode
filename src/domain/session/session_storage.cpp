@@ -1,3 +1,4 @@
+#include "llm/message_predicates.hpp"
 #include "session_storage.hpp"
 #include "inter_agent_message.hpp"
 #include "session_load_metrics.hpp"
@@ -101,7 +102,8 @@ bool is_visible_user_turn(const ChatMessage& msg) {
     return msg.role == "user" &&
            !msg.is_meta &&
            !is_hidden_goal_context_message_storage(msg) &&
-           !mesh::is_inter_agent_message(msg);
+           !mesh::is_inter_agent_message(msg) &&
+           !is_background_task_message(msg);
 }
 
 bool try_deserialize_session_record(const std::string& line,

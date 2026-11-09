@@ -1,3 +1,5 @@
+#include "llm/message_predicates.hpp"
+#include <algorithm>
 #include "tui/app/tui_agent_bridge.hpp"
 #include "session/compact_notice.hpp"
 #include "session/inter_agent_message.hpp"
@@ -32,6 +34,7 @@ AgentCallbacks TuiAgentBridge::initial_callbacks() {
     callbacks.on_usage = bind(&TuiAgentBridge::on_usage);
     callbacks.on_goal_status = bind(&TuiAgentBridge::on_goal_status);
     callbacks.on_todo_updated = bind(&TuiAgentBridge::on_todo_updated);
+    callbacks.on_background_task = bind(&TuiAgentBridge::on_background_task);
     callbacks.on_thinking_title = bind(&TuiAgentBridge::on_thinking_title);
     callbacks.on_transcript_replace = bind(&TuiAgentBridge::on_transcript_replace);
     callbacks.on_stream_retry_reset = bind(&TuiAgentBridge::on_stream_retry_reset);
@@ -91,8 +94,11 @@ void TuiAgentBridge::on_transcript_message(const ChatMessage& message) {
 
     // 蜂群模式（网状）的 agent 间消息落盘为 user 信封,界面显示为系统行。
     const std::string inter_agent = acecode::mesh::inter_agent_display_text(message);
+    const std::string background_notice = acecode::background_task_display_text(message);
     if (!inter_agent.empty()) {
         state.conversation.push_back({"system", inter_agent, false});
+    } else if (!background_notice.empty()) {
+        state.conversation.push_back({"system", background_notice, false});
     } else if (!acecode::tui::append_compact_notice_row(
             state.conversation, message)) {
         state.conversation.push_back(
@@ -192,6 +198,20 @@ void TuiAgentBridge::on_todo_updated(const nlohmann::json& payload) {
         state.todos = todo_items_from_json(payload["todos"]);
     } else {
         state.todos.clear();
+    }
+    screen.post_event(Event::Custom);
+}
+void TuiAgentBridge::on_background_task(const nlohmann::json& task) {
+    // 后台子代理由 SubagentHost 单独展示,这里只管后台命令。
+    if (!task.is_object() || task.value("kind", std::string{}) != "shell") return;
+    const std::string id = task.value("id", std::string{});
+    if (id.empty()) return;
+    std::lock_guard<std::mutex> lk(state.mu);
+    auto& commands = state.background_commands;
+    commands.erase(std::remove_if(commands.begin(), commands.end(),
+        [&id](const TuiState::BackgroundCommandSidebarTask& item) { return item.id == id; }), commands.end());
+    if (task.value("state", std::string{}) == "running") {
+        commands.push_back({id, task.value("command", task.value("title", std::string{}))});
     }
     screen.post_event(Event::Custom);
 }

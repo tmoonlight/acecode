@@ -347,6 +347,10 @@ download when nothing changed.
 | POST | `/api/sessions/:id/model/reload` | force reload the selected saved-model profile for one active session |
 | POST | `/api/sessions/:id/fork` | fork a transcript prefix |
 | POST | `/api/sessions/:id/file-checkpoints/:message_id/restore` | restore files to checkpoint |
+| GET | `/api/sessions/:id/background-tasks` | list the session's background commands and background subagents |
+| GET | `/api/sessions/:id/background-tasks/:task_id/output` | tail of a background command's output |
+| POST | `/api/sessions/:id/background-tasks/:task_id/stop` | stop a running background task |
+| POST | `/api/sessions/:id/background` | move the running foreground command / subagent wait to the background |
 | GET | `/api/files` | list directory |
 | GET | `/api/files/content` | read text file |
 | GET | `/api/files/blob` | read previewable binary file |
@@ -2462,6 +2466,64 @@ Response:
   "errors": []
 }
 ```
+
+### Background tasks
+
+Each loaded session owns a background task registry (`src/adapters/tool/background_tasks.hpp`).
+Entries come from `bash` with `run_in_background` / `monitor`, from foreground commands moved
+to the background (timeout, a steered user message, or `POST /background`), and from
+`spawn_subagent(wait=false)` / subagent waits that were moved to the background. A finished
+task posts a user-role notice with `metadata.background_task` into the session mailbox: a
+running turn receives it at its next model boundary, an idle session starts a new turn.
+A session that is not loaded has no background tasks; daemon shutdown or session
+destruction kills running background commands.
+
+Task object (`background_task_to_json`):
+
+```json
+{
+  "id": "bg_3f2a91c0",
+  "kind": "shell",
+  "state": "running",
+  "origin": "timeout",
+  "title": "npm run build",
+  "command": "npm run build",
+  "cwd": "C:/repo",
+  "output_file": "C:/repo/.acecode/tmp/session-sid/background/bg_3f2a91c0.log",
+  "started_at_ms": 1789000000000,
+  "last_output_at_ms": 1789000004000,
+  "output_bytes": 2048
+}
+```
+
+- `kind`: `shell` or `agent` (an agent task's `id` is the child session id, also in
+  `child_session_id`).
+- `state`: `running`, `completed`, `failed` (non-zero exit or launch error), `stopped`
+  (`stop_reason`: `user`, `limit`, `shutdown`).
+- `origin`: `requested`, `timeout`, `user_message`, `user_request`.
+- Finished shell tasks add `exit_code` and `ended_at_ms`; `monitor: true` marks commands
+  whose new output lines are also delivered while they run.
+
+#### `GET /api/sessions/:id/background-tasks`
+
+`{"session_id": "sid", "tasks": [task...]}`; an unloaded session returns an empty list.
+
+#### `GET /api/sessions/:id/background-tasks/:task_id/output?tail=N`
+
+`{"task": {...}, "output": "..."}` with up to `tail` bytes (default 16384, max 65536) of
+the cleaned output, starting at a whole line. `404` for an unknown session or task.
+
+#### `POST /api/sessions/:id/background-tasks/:task_id/stop`
+
+Kills a background command's process tree, or interrupts a background subagent's turn.
+`200 {"ok": true, "task_id": "..."}`; `409 {"error": "..."}` when the task is not running.
+The final state arrives as a `background_task` event and a completion notice.
+
+#### `POST /api/sessions/:id/background`
+
+Asks the running foreground `bash` command or blocking subagent wait to hand its work to
+the background registry without interrupting it. `200 {"ok": true, "busy": bool}`; `busy`
+is false when no turn was running (the request has no effect then).
 
 ---
 
@@ -5548,6 +5610,8 @@ Session event `type` values from `SessionEventKind`:
 - `goal_updated`
 - `goal_cleared`
 - `todo_updated`
+- `background_task` — `{"task": {...}}` when a background command or background subagent
+  starts, finishes or changes state (see "Background tasks")
 - `session_updated`
 - `busy_changed`
 - `done`

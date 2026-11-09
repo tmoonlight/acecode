@@ -33,6 +33,10 @@ export const systemNoticeZhCN = {
     model_profile_reload_failed: '模型配置刷新失败', model_profile_warning: '模型配置警告',
     inter_agent_task: '{{sender}} 派来新任务', inter_agent_message: '{{sender}} 发来消息',
     inter_agent_final: '{{sender}} 已完成', inter_agent_error: '{{sender}} 执行出错',
+    background_command_finished: '后台命令已完成:{{task}}', background_command_failed: '后台命令失败:{{task}}',
+    background_command_stopped: '后台命令已停止:{{task}}', background_command_output: '后台命令有新输出:{{task}}',
+    background_command_quiet: '后台命令长时间没有输出:{{task}}', background_agent_finished: '后台子代理已完成:{{task}}',
+    background_agent_failed: '后台子代理失败:{{task}}', background_agent_stopped: '后台子代理已停止:{{task}}',
   },
   details: {
     goal_missing: '尚未设置目标。使用 /goal <目标> 创建目标。',
@@ -126,6 +130,10 @@ export const systemNoticeEnUS = {
     model_profile_reload_failed: 'Model configuration reload failed', model_profile_warning: 'Model configuration warning',
     inter_agent_task: 'New task from {{sender}}', inter_agent_message: 'Message from {{sender}}',
     inter_agent_final: '{{sender}} finished', inter_agent_error: '{{sender}} failed',
+    background_command_finished: 'Background command finished: {{task}}', background_command_failed: 'Background command failed: {{task}}',
+    background_command_stopped: 'Background command stopped: {{task}}', background_command_output: 'New output from background command: {{task}}',
+    background_command_quiet: 'Background command is quiet: {{task}}', background_agent_finished: 'Background subagent finished: {{task}}',
+    background_agent_failed: 'Background subagent failed: {{task}}', background_agent_stopped: 'Background subagent stopped: {{task}}',
   },
   details: {
     goal_missing: 'No goal set. Use /goal <objective> to create one.',

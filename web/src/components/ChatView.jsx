@@ -92,6 +92,7 @@ import { SessionContentLoading } from './SessionContentLoading.jsx';
 import { sessionContentLoadingPhase } from '../lib/sessionContentLoading.js';
 import { SidePanel } from './SidePanel.jsx';
 import { SubagentPanel } from './SubagentPanel.jsx';
+import { SummaryPanel } from './SummaryPanel.jsx';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { TranscriptHistoryBoundary } from './TranscriptHistoryBoundary.jsx';
 import { useTranscriptHistory } from '../lib/useTranscriptHistory.js';
@@ -207,6 +208,8 @@ import {
 } from '../lib/homeWorkspaceSelection.js';
 import { bindDesktopComposerAutoFocus } from '../lib/composerCaretRestore.js';
 import { useSubagentTasks } from '../lib/useSubagentTasks.js';
+import { useBackgroundTasks } from '../lib/useBackgroundTasks.js';
+import { isCommandTask } from '../lib/backgroundTasks.js';
 import { taskDisplayTitle } from '../lib/subagentTasks.js';
 import {
   CONVERSATION_ACTIVITY_KIND,
@@ -258,7 +261,10 @@ import {
   MIN_PREVIEW_PANEL_WIDTH,
   MIN_SIDE_PANEL_WIDTH,
   MIN_SUBAGENT_PANEL_WIDTH,
+  MAX_SUMMARY_PANEL_WIDTH,
+  MIN_SUMMARY_PANEL_WIDTH,
   normalizeSubagentPanelWidth,
+  normalizeSummaryPanelWidth,
   solveSingleContentLayout,
   subagentPanelWidthRange,
 } from '../lib/singleLayout.js';
@@ -648,7 +654,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
 
-export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, nativeSurfacesVisible = true }) {
+export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const workbenchOwner = sessionWorkbench.ownerFor(ref);
@@ -727,6 +733,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const subagentTasks = useSubagentTasks(sid, {
     onSpawnStart: openSubagentPanelForSpawn,
   });
+  // 后台命令(bash run_in_background / 超时或插话转入后台)。与子代理合成一个列表给
+  // 后台任务面板、摘要面板和底部活动行;新任务在前。
+  const backgroundTasks = useBackgroundTasks(sid, api);
+  const backgroundTaskList = useMemo(
+    () => [...subagentTasks.tasks, ...backgroundTasks.tasks]
+      .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0)),
+    [subagentTasks.tasks, backgroundTasks.tasks],
+  );
   // 当前视图可见的待答问题。提问挂起期间 composer dock 由提问框整体替换
   // (方案 A),所以它只驱动渲染,不再参与 submit 的分支判定。
   const questionForView = useMemo(() => {
@@ -1102,6 +1116,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     fallbackCwd: sessionIsNoWorkspace ? '' : (health?.cwd || ''),
   });
   const sidePanelFilesEnabled = !!sidePanelCwd;
+  // 摘要面板只跟会话页走:开关在会话标题栏(轨迹按钮左边),首页、循环任务和
+  // 专家组件页(children)没有标题栏操作区,也就没有它。
+  const summaryAvailable = !children && !!sid;
+  const summaryPopup = summaryAvailable && responsiveSidebars?.popup === 'summary';
   const drainRef = useRef(false);
   // 排队消息从 transcript 中分离出来,只喂给 InputBar 上方的 QueueCardList。
   // transcript 只渲染后端真实落库的消息,避免把"草稿/未发送"和"已发送"混在一起。
@@ -4651,6 +4669,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           id: 'find_conversation', label: '查找', icon: 'search', group: 'session-view',
           onSelect: onFindInConversation,
         }] : []),
+        // 后台任务面板始终可打开(没有任务时显示空列表),运行中的任务在摘要面板里也能看到。
+        {
+          id: 'background_tasks', label: '后台任务', icon: 'embedding', group: 'session-view',
+          onSelect: () => setSubagentPanelOpen(true),
+        },
       ],
       includeContextActions: !readOnlyExternalSession,
       actionOverrides: readOnlyExternalSession ? null : {
@@ -5351,6 +5374,40 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setReviewRequest((n) => n + 1);
   });
 
+  // 摘要面板的入口:悬浮态先收起自己,再打开目标(右侧「变更」页 / 后台任务面板)。
+  const closeSummaryPopup = () => {
+    if (responsiveSidebars?.popup === 'summary') responsiveSidebars.closePopup();
+  };
+  const openSummaryChanges = useStableCallback(() => {
+    if (!showSidePanel) return;
+    closeSummaryPopup();
+    if (sidePanelCollapsed || sidePanelListCollapsed) onRevealSidePanelList?.();
+    setReviewRequest((n) => n + 1);
+  });
+  const openSummaryTask = useStableCallback((taskId) => {
+    closeSummaryPopup();
+    openSubagentTranscript(taskId);
+  });
+  // 「转到后台」:正在跑的前台命令 / 子代理等待交给后台,完成时会通知模型。
+  const moveRunningWorkToBackground = useStableCallback(() => {
+    if (!sid) return;
+    backgroundTasks.moveToBackground();
+  });
+  const stopSummaryTask = useStableCallback((taskId) => {
+    const task = backgroundTaskList.find((item) => item.id === taskId);
+    if (isCommandTask(task)) {
+      backgroundTasks.stop(taskId);
+      return;
+    }
+    if (subagentTasks.abortTask(taskId) === false) {
+      toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
+    }
+  });
+  const editSummaryWorkspace = useStableCallback((hash) => {
+    closeSummaryPopup();
+    onEditWorkspace?.(hash);
+  });
+
   const locateInFileTree = useStableCallback((path) => {
     if (!showSidePanel || !path) return;
     if (sidePanelCollapsed || sidePanelListCollapsed) onRevealSidePanelList?.();
@@ -5398,14 +5455,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     foregroundActivity: activity,
     permissionRequests,
     questionRequest: questionForView,
-    subagentTasks: subagentTasks.tasks,
+    subagentTasks: backgroundTaskList,
   }), [
     activity,
     busy,
     abortPending,
     permissionRequests,
     questionForView,
-    subagentTasks.tasks,
+    backgroundTaskList,
   ]);
 
   const resolveQuestion = useStableCallback(() => {
@@ -5498,6 +5555,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 总开关必须连最大化详情一起隐藏;恢复时仍保留最大化偏好与原页签。
   const previewPanelVisible = previewTabsOpen && !sidePanelCollapsed && !previewPanelHidden;
   const previewPanelMaximized = sidePanelMaximized && previewPanelVisible && rightDocked;
+  // 详情最大化时对话区整个让给详情,停靠的摘要面板一起让出。
+  const summaryDockedVisible = summaryAvailable && !summaryPopup
+    && !!responsiveSidebars?.summaryDocked && !previewPanelMaximized;
+  const summaryStoredWidth = normalizeSummaryPanelWidth(summaryPanelWidth);
+  const summaryDockedWidth = summaryDockedVisible && layoutWidth > 0 ? summaryStoredWidth : 0;
   const rightPopupRange = popupWidthRange(layoutWidth, previewPanelVisible ? MIN_PREVIEW_PANEL_WIDTH : MIN_SIDE_PANEL_WIDTH);
   const rightPopupWidth = clampPopupWidth(rightPanelPopupWidth
     ?? ((previewPanelVisible ? previewPanelWidth : 0) + (!sidePanelListCollapsed ? sidePanelWidth : 0)), rightPopupRange);
@@ -5521,8 +5583,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     reportResponsiveContent?.({
       previewAvailable: previewTabsOpen && !previewPanelHidden,
       subagentOpen: !!sid && subagentPanelOpen,
+      summaryAvailable,
     });
-  }, [reportResponsiveContent, previewTabsOpen, previewPanelHidden, sid, subagentPanelOpen]);
+  }, [reportResponsiveContent, previewTabsOpen, previewPanelHidden, sid, subagentPanelOpen, summaryAvailable]);
   const previewCloseConfirmMessage = previewCloseConfirm
     ? `${previewCloseConfirm.dirtyCount} 个文件有未保存的修改。是否保存后继续？`
     : '';
@@ -5536,7 +5599,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     ? activePreview.expandedFile || ''
     : '';
   const contentLayout = useMemo(() => solveSingleContentLayout({
-    contentWidth: layoutWidth,
+    contentWidth: Math.max(0, layoutWidth - summaryDockedWidth),
     sidePanelWidth,
     previewPanelWidth,
     sidePanelVisible: sidePanelMounted && rightDocked,
@@ -5547,6 +5610,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     minimumChatWidth: responsiveSidebars?.minimumChatWidth,
   }), [
     layoutWidth,
+    summaryDockedWidth,
     previewPanelAutoFit,
     previewPanelMaximized,
     previewPanelVisible,
@@ -5560,6 +5624,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const effectiveChatWidth = layoutWidth > 0 ? contentLayout.chatWidth : 0;
   const effectivePreviewPanelWidth = layoutWidth > 0 ? contentLayout.previewPanelWidth : previewPanelWidth;
   const effectiveSidePanelWidth = layoutWidth > 0 ? contentLayout.sidePanelWidth : sidePanelWidth;
+  // 停靠时拖宽不能把对话区压到保底宽度以下;悬浮时浮在对话区上,给对话区留出点击关闭的边。
+  const summaryDockedRange = {
+    min: MIN_SUMMARY_PANEL_WIDTH,
+    max: Math.max(MIN_SUMMARY_PANEL_WIDTH, Math.min(MAX_SUMMARY_PANEL_WIDTH,
+      summaryDockedWidth + effectiveChatWidth - (responsiveSidebars?.minimumChatWidth || MIN_CHAT_WIDTH))),
+  };
+  const summaryPopupRange = popupWidthRange(effectiveChatWidth, MIN_SUMMARY_PANEL_WIDTH);
+  const summaryPopupWidth = clampPopupWidth(summaryStoredWidth, summaryPopupRange);
   const renderedSubagentPanelWidth = normalizeSubagentPanelWidth(
     responsiveSidebars
       ? Math.min(subagentPanelWidth, Math.max(MIN_SUBAGENT_PANEL_WIDTH,
@@ -6229,6 +6301,28 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         renaming={headerRenaming && !!sid && !readOnlyExternalSession}
         onRenameCommit={commitHeaderRename}
         onRenameCancel={cancelHeaderRename}>
+          {summaryAvailable && onToggleSummaryPanel && (
+            <button
+              type="button"
+              onClick={onToggleSummaryPanel}
+              data-sidebar-toggle="summary"
+              className={clsx(
+                'w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
+                summaryPanelOpen
+                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
+                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
+              )}
+              title={summaryPanelOpen ? '收起摘要面板' : '展开摘要面板'}
+              aria-label={summaryPanelOpen ? '收起摘要面板' : '展开摘要面板'}
+              aria-pressed={summaryPanelOpen}
+            >
+              <VsIcon name="properties" size={16} />
+            </button>
+          )}
+          {summaryAvailable && onToggleSummaryPanel && (
+            // 摘要面板开关是全局布局开关,与右边这些只作用于当前会话的按钮分开。
+            <span aria-hidden="true" className="ace-summary-toggle-divider w-px h-4 mx-1 shrink-0 bg-border" />
+          )}
           {sid && (
             <button
               type="button"
@@ -6252,27 +6346,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               cwd={sidePanelCwd}
               refreshKey={`${turns}:${busy ? 1 : 0}`}
             />
-          )}
-          {sid && (subagentTasks.tasks.length > 0 || subagentPanelOpen) && (
-            <button
-              type="button"
-              onClick={() => setSubagentPanelOpen((v) => !v)}
-              className={clsx(
-                'relative w-7 h-7 rounded-md flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
-                subagentPanelOpen || subagentTasks.runningCount > 0
-                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
-                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
-              )}
-              title="后台任务"
-              aria-label="后台任务"
-            >
-              <VsIcon name="embedding" size={15} />
-              {subagentTasks.runningCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-accent text-white text-[9px] leading-[14px] text-center font-semibold">
-                  {subagentTasks.runningCount}
-                </span>
-              )}
-            </button>
           )}
           {sid && !readOnlyExternalSession && (
             <button
@@ -6390,6 +6463,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onToggleActivity={toggleActivitySummary}
             onToggleMedia={toggleMediaGroup}
             conversationActivity={conversationActivity}
+            onMoveToBackground={moveRunningWorkToBackground}
             subagentTasksById={subagentTasksById}
             onOpenSubagent={openSubagentTranscript}
             sessionRunning={status === 'running'}
@@ -6552,8 +6626,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           width={renderedSubagentPanelWidth}
           focus={subagentFocus}
           onClose={() => setSubagentPanelOpen(false)}
-          tasks={subagentTasks.tasks}
+          tasks={backgroundTaskList}
           workspaceHash={subagentWorkspaceHash}
+          onStopCommand={backgroundTasks.stop}
+          readCommandOutput={backgroundTasks.readOutput}
           onAbort={(task) => {
             if (subagentTasks.abortTask(task.id) === false) {
               toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
@@ -6747,6 +6823,36 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       />
       <ChatFileDropOverlay active={chatFileDropActive} />
       </div>
+      )}
+      {summaryAvailable && (
+        <div className="ace-summary-anchor">
+          <ResponsiveSidebar side="summary" popup={summaryPopup}
+            hidden={!summaryPopup && !summaryDockedVisible}
+            dockedResize
+            onResize={onSummaryPanelResize}
+            resizeRange={summaryPopup ? summaryPopupRange : summaryDockedRange}
+            style={{ width: summaryPopup ? summaryPopupWidth : summaryStoredWidth }}>
+            <SummaryPanel
+              owner={workbenchOwner}
+              api={api}
+              cwd={sidePanelCwd}
+              workspaceName={homePanelWorkspace
+                ? (homePanelWorkspace.name || pathBaseName(homePanelWorkspace.cwd || ''))
+                : workspaceLabel}
+              workspaceHash={homePanelWorkspace ? (homePanelWorkspace.hash || '') : sessionWorkspaceHash}
+              noWorkspace={sessionIsNoWorkspace}
+              sessionChangeSummary={sid ? changeSummary : null}
+              busy={busy}
+              tasks={sid ? backgroundTaskList : []}
+              visible={summaryPopup || summaryDockedVisible}
+              onClose={onToggleSummaryPanel}
+              onEditWorkspace={editSummaryWorkspace}
+              onOpenChanges={openSummaryChanges}
+              onOpenTask={openSummaryTask}
+              onStopTask={stopSummaryTask}
+            />
+          </ResponsiveSidebar>
+        </div>
       )}
       <ResponsiveSidebar side="right" popup={rightPopup}
         onResize={onRightPanelPopupResize} resizeRange={rightPopupRange}

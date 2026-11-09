@@ -1,3 +1,4 @@
+#include "llm/message_predicates.hpp"
 #include "session_recent_activity.hpp"
 #include "inter_agent_message.hpp"
 #include "jsonl_scanner.hpp"
@@ -24,7 +25,8 @@ bool consume(const ChatMessage& message, SessionRecentActivity& result) {
 bool is_recent_user_message(const ChatMessage& message) {
     const auto tool = message.metadata.is_object() ? message.metadata.find("source_tool") : message.metadata.end();
     const bool tool_injected = tool != message.metadata.end() && tool->is_string() && !tool->get_ref<const std::string&>().empty();
-    return !tool_injected && is_searchable_visible_user_message(message) && !mesh::is_inter_agent_message(message);
+    return !tool_injected && is_searchable_visible_user_message(message) && !mesh::is_inter_agent_message(message) &&
+           !is_background_task_message(message);
 }
 
 std::uint64_t session_conversation_activity_revision() {

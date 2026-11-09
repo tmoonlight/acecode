@@ -1,6 +1,8 @@
 #include "spawn_subagent_tool.hpp"
 
 #include "config/config.hpp"
+#include "llm/tool_protocol_names.hpp"
+#include "tool/background_tasks.hpp"
 #include "session/session_client.hpp"
 #include "session_host/session_registry.hpp"
 #include "skills/skill_init.hpp"
@@ -53,14 +55,22 @@ std::string last_assistant_text(SessionManager& sm) {
     return {};
 }
 
-enum class WaitKind { Completed, Aborted, Timeout, Gone, ChildInterrupted, ChildFailed };
+enum class WaitKind { Completed, Aborted, Timeout, Gone, ChildInterrupted, ChildFailed, MovedToBackground };
 
 struct WaitOutcome {
     WaitKind    kind = WaitKind::Completed;
     std::string final_text;
     // ChildFailed:子会话回合的错误文案(AgentLoop::last_turn_error)。
     std::string error;
+    // MovedToBackground:触发转后台的原因。
+    BackgroundOrigin origin = BackgroundOrigin::UserRequest;
 };
+
+// 子会话「真正做完」:回合空闲,且它自己的后台任务、待投递的通知和由此
+// 唤醒的回合都结束了 —— 否则父会话会把半路的话当成果。
+bool child_busy(SessionEntry& entry) {
+    return entry.loop->is_busy() || entry.loop->has_background_activity();
+}
 
 // 轮询等待子会话本轮结束。
 //
@@ -73,14 +83,26 @@ struct WaitOutcome {
 //     但**不**销毁子会话:已产生的工作保留在侧栏里,用户可接管。
 WaitOutcome wait_for_subagent(SessionRegistry& registry,
                               const std::string& session_id,
-                              const std::atomic<bool>* abort_flag,
+                              const ToolContext& ctx,
                               int timeout_seconds,
                               std::size_t baseline_message_count) {
     using clock = std::chrono::steady_clock;
+    const std::atomic<bool>* abort_flag = ctx.abort_flag;
     const auto started = clock::now();
     bool observed_busy = false;
+    const std::uint64_t background_generation_at_start =
+        ctx.background_generation ? ctx.background_generation->load() : 0;
 
     while (true) {
+        // 用户插话 / 手动转后台:不再阻塞父会话,子会话照常跑,完成时通知父会话。
+        if (ctx.background_tasks && ctx.background_generation &&
+            ctx.background_generation->load() != background_generation_at_start) {
+            WaitOutcome moved{WaitKind::MovedToBackground, {}, {}};
+            const int reason = ctx.background_reason ? ctx.background_reason->load() : 0;
+            moved.origin = reason == static_cast<int>(BackgroundOrigin::UserMessage)
+                ? BackgroundOrigin::UserMessage : BackgroundOrigin::UserRequest;
+            return moved;
+        }
         if (abort_flag && abort_flag->load()) {
             if (auto entry = registry.acquire(session_id); entry && entry->loop) {
                 entry->loop->abort();
@@ -91,7 +113,7 @@ WaitOutcome wait_for_subagent(SessionRegistry& registry,
         auto entry = registry.acquire(session_id);
         if (!entry || !entry->loop || !entry->sm) return {WaitKind::Gone, {}};
 
-        const bool busy = entry->loop->is_busy();
+        const bool busy = child_busy(*entry);
         if (busy) observed_busy = true;
 
         const auto elapsed = clock::now() - started;
@@ -229,6 +251,10 @@ ToolResult describe_wait_outcome(const WaitOutcome& outcome,
                        "the background; call wait_subagent later with this "
                        "session_id to collect the result.";
             return r;
+        case WaitKind::MovedToBackground:
+            r.success = true;
+            r.output = "[subagent " + session_id + "] keeps running in the background.";
+            return r;
         case WaitKind::Gone:
         default:
             r.success = false;
@@ -278,6 +304,102 @@ void append_workspace_watch_report(SessionRegistry& registry,
              std::to_string(touched.size()) + " changed path(s) outside the worktree");
 }
 
+struct SubagentPollState {
+    std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+    bool observed_busy = false;
+    std::size_t baseline = 0;
+};
+
+// wait_for_subagent 的不阻塞版本:后台观察项每次轮询调一次,结束时给出结果。
+std::optional<BackgroundAgentOutcome> poll_subagent(SessionRegistry& registry,
+                                                    const std::string& session_id,
+                                                    SubagentPollState& state) {
+    auto entry = registry.acquire(session_id);
+    if (!entry || !entry->loop || !entry->sm) {
+        return BackgroundAgentOutcome{BackgroundTaskState::Failed, "The subagent session no longer exists."};
+    }
+    if (child_busy(*entry)) {
+        state.observed_busy = true;
+        return std::nullopt;
+    }
+    const bool interrupted = entry->loop->is_aborting();
+    const bool failed = entry->loop->last_turn_failed();
+    if (!state.observed_busy) {
+        const auto elapsed = std::chrono::steady_clock::now() - state.started;
+        if (elapsed < std::chrono::seconds(2)) return std::nullopt;
+        if (!interrupted && !failed && entry->sm->load_active_messages().size() <= state.baseline) {
+            if (elapsed >= std::chrono::seconds(60)) {
+                return BackgroundAgentOutcome{BackgroundTaskState::Failed,
+                                              "The subagent did not start within 60 seconds."};
+            }
+            return std::nullopt;
+        }
+    }
+    std::string text = last_assistant_text(*entry->sm);
+    ToolResult watch_report;
+    append_workspace_watch_report(registry, session_id, watch_report);
+    text += watch_report.output;
+    if (interrupted) return BackgroundAgentOutcome{BackgroundTaskState::Stopped, text};
+    if (failed) {
+        std::string message = entry->loop->last_turn_error();
+        if (!text.empty()) {
+            message += (message.empty() ? std::string{} : std::string(". ")) +
+                       "Its last output is partial work:\n" + text;
+        }
+        return BackgroundAgentOutcome{BackgroundTaskState::Failed, message};
+    }
+    return BackgroundAgentOutcome{BackgroundTaskState::Completed, text};
+}
+
+// 把子会话交给父会话的后台任务登记表观察:结束时自动通知父会话。
+// 返回任务 id(= 子会话 id);当前场景不支持后台任务时返回空。
+std::string watch_subagent_in_background(const std::shared_ptr<SubagentToolDeps>& deps,
+                                         const ToolContext& ctx,
+                                         const std::string& child_id,
+                                         const std::string& title,
+                                         BackgroundOrigin origin,
+                                         std::size_t baseline,
+                                         bool already_running) {
+    if (!ctx.background_tasks) return {};
+    auto state = std::make_shared<SubagentPollState>();
+    state->baseline = baseline;
+    state->observed_busy = already_running;
+    BackgroundTaskRegistry::AgentWatch watch;
+    watch.child_session_id = child_id;
+    watch.title = truncate_utf8_prefix(title, 120);
+    watch.origin = origin;
+    watch.poll = [deps, child_id, state]() -> std::optional<BackgroundAgentOutcome> {
+        if (!deps || !deps->registry) {
+            return BackgroundAgentOutcome{BackgroundTaskState::Failed, "Subagents are no longer available."};
+        }
+        return poll_subagent(*deps->registry, child_id, *state);
+    };
+    watch.stop = [deps, child_id]() {
+        if (!deps || !deps->registry) return;
+        if (auto entry = deps->registry->acquire(child_id); entry && entry->loop) entry->loop->abort();
+    };
+    return ctx.background_tasks->watch_agent(std::move(watch));
+}
+
+ToolResult backgrounded_subagent_result(const ToolContext& ctx, const std::string& child_id,
+                                        const std::string& summary_text) {
+    ToolResult r;
+    r.success = true;
+    r.metadata["subagent_session_id"] = child_id;
+    r.metadata["background_task_id"] = child_id;
+    r.summary = subagent_summary(summary_text);
+    const auto info = ctx.background_tasks ? ctx.background_tasks->find(child_id)
+                                           : std::optional<BackgroundTaskInfo>{};
+    if (info) {
+        r.metadata["background_origin"] = background_origin_name(info->origin);
+        r.output = format_backgrounded_tool_result(
+            *info, 0, model_tool_name_for_native("stop_background_task"));
+    } else {
+        r.output = "The subagent keeps running in its own session (" + child_id + ").";
+    }
+    return r;
+}
+
 } // namespace
 
 ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
@@ -290,8 +412,11 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
         "off the next stage of a pipeline. The prompt may be a skill command like "
         "'/my-skill args'. With wait=true (default) this blocks until the "
         "sub-agent finishes its turn and returns its final reply; with "
-        "wait=false it returns immediately with the new session_id "
-        "(fire-and-forget; combine with wait_subagent to join later). "
+        "wait=false it returns immediately with the new session_id and the "
+        "sub-agent keeps working in the background: you are notified "
+        "automatically with its final reply when it finishes, so do not call "
+        "wait_subagent just to check on it. Prefer wait=false for independent "
+        "work that can run while you continue elsewhere. "
         "Sub-agents cannot spawn further sub-agents.";
     tool.definition.parameters = json{
         {"type", "object"},
@@ -304,7 +429,8 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
                 {"type", "boolean"},
                 {"description", "true (default): block until the sub-agent "
                                 "finishes and return its final reply. false: "
-                                "return immediately with the session_id."}}},
+                                "return immediately with the session_id; you "
+                                "are notified automatically when it finishes."}}},
             {"model", json{
                 {"type", "string"},
                 {"description", "Optional saved model name for the sub-agent "
@@ -488,7 +614,12 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
         LOG_INFO("[subagent] spawned session " + child_id + " (wait=" +
                  (wait ? std::string("true") : std::string("false")) + ")");
 
+        const std::string task_title = display_text.empty() ? prompt : display_text;
         if (!wait) {
+            if (!watch_subagent_in_background(deps, ctx, child_id, task_title,
+                                              BackgroundOrigin::Requested, baseline, false).empty()) {
+                return backgrounded_subagent_result(ctx, child_id, prompt);
+            }
             ToolResult r;
             r.success = true;
             r.metadata["subagent_session_id"] = child_id;
@@ -501,8 +632,13 @@ ToolImpl create_spawn_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
         }
 
         auto outcome = wait_for_subagent(*deps->registry, child_id,
-                                         ctx.abort_flag, timeout_seconds,
+                                         ctx, timeout_seconds,
                                          baseline);
+        if (outcome.kind == WaitKind::MovedToBackground &&
+            !watch_subagent_in_background(deps, ctx, child_id, task_title,
+                                          outcome.origin, baseline, true).empty()) {
+            return backgrounded_subagent_result(ctx, child_id, prompt);
+        }
         ToolResult r = describe_wait_outcome(outcome, child_id);
         append_workspace_watch_report(*deps->registry, child_id, r);
         r.summary = subagent_summary(prompt);
@@ -517,7 +653,8 @@ ToolImpl create_wait_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
     tool.definition.description =
         "Wait for a sub-agent session (started earlier with spawn_subagent "
         "wait=false) to finish its current turn, then return its latest reply. "
-        "Use after fanning out several sub-agents in parallel.";
+        "Background sub-agents already notify you when they finish; call this "
+        "only when your very next step cannot proceed without the result.";
     tool.definition.parameters = json{
         {"type", "object"},
         {"properties", json{
@@ -555,8 +692,22 @@ ToolImpl create_wait_subagent_tool(std::shared_ptr<SubagentToolDeps> deps) {
         // baseline=0:wait_subagent 语义是"取最新答复",只要存在 assistant
         // 消息即可返回,不要求本次调用之后新产生。
         auto outcome = wait_for_subagent(*deps->registry, session_id,
-                                         ctx.abort_flag, timeout_seconds,
+                                         ctx, timeout_seconds,
                                          /*baseline_message_count=*/0);
+        if (outcome.kind == WaitKind::MovedToBackground) {
+            const auto existing = ctx.background_tasks ? ctx.background_tasks->find(session_id)
+                                                       : std::optional<BackgroundTaskInfo>{};
+            const bool watched = existing && existing->state == BackgroundTaskState::Running;
+            if (watched || !watch_subagent_in_background(deps, ctx, session_id, session_id,
+                                                         outcome.origin, 0, true).empty()) {
+                return backgrounded_subagent_result(ctx, session_id, "");
+            }
+        }
+        // 同步拿到了结果:后台观察项(如果有)结束时不再重复通知。
+        if (ctx.background_tasks && outcome.kind != WaitKind::Timeout &&
+            outcome.kind != WaitKind::MovedToBackground && outcome.kind != WaitKind::Aborted) {
+            ctx.background_tasks->consume_agent_result(session_id);
+        }
         ToolResult r = describe_wait_outcome(outcome, session_id);
         append_workspace_watch_report(*deps->registry, session_id, r);
         // object 留空:等待某个已知子会话,标题由前端从后台任务列表解析。

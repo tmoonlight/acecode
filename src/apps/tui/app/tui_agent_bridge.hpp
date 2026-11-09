@@ -29,6 +29,7 @@ private:
     void on_usage(const TokenUsage& usage);
     void on_goal_status(const std::string& status);
     void on_todo_updated(const nlohmann::json& payload);
+    void on_background_task(const nlohmann::json& task);
     void on_thinking_title(const std::string& title);
     void on_transcript_replace(const std::vector<ChatMessage>& /*messages*/, const CompactResult& result);
     void on_stream_retry_reset();

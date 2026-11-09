@@ -6,6 +6,7 @@ import { attachmentsFromContentParts, normalizeAttachmentList } from './messageA
 import { sessionDisplayTitle } from './sessionTitle.js';
 import { normalizeSwarmMode } from './swarmMode.js';
 import { presentInterAgentMessage } from './interAgentMessage.js';
+import { presentBackgroundTaskMessage } from './backgroundTaskMessage.js';
 import { transcriptTimestampMs } from './timestamps.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { normalizeToolInvocationItems } from './transcriptProjection.js';
@@ -84,6 +85,7 @@ const STREAM_NEUTRAL_EVENT_TYPES = new Set([
   'goal_updated',
   'goal_cleared',
   'todo_updated',
+  'background_task',
   'session_updated',
   'permission_request',
   'permission_closed',
@@ -1000,8 +1002,9 @@ function visibleTranscriptMessages(messages) {
   return messages
     .map((m, index) => (m && typeof m === 'object' ? { ...m, __messageOrdinal: m.message_ordinal ?? m.__messageOrdinal ?? (m.message_position == null ? index : null) } : m))
     .filter((m) => !m?.is_meta && !m?.metadata?.hidden_goal_context)
-    // 蜂群模式（网状）的 agent 间信封落盘为 user 角色,界面上显示成系统提示行。
-    .map(presentInterAgentMessage);
+    // 蜂群模式（网状）的 agent 间信封、后台任务通知都落盘为 user 角色,界面上显示成系统提示行。
+    .map(presentInterAgentMessage)
+    .map(presentBackgroundTaskMessage);
 }
 
 function splitTranscriptMessages(messages) {
@@ -1518,7 +1521,7 @@ export function reduceTranscriptEvent(state, msg) {
     case 'message': {
       // 工具前言:assistant 正文里的 <text_preamble> 标签不进 transcript。
       // agent 间信封(user 角色)与历史一样转成系统提示行。
-      const p = presentInterAgentMessage(withVisibleAssistantContent(msg?.payload || {}));
+      const p = presentBackgroundTaskMessage(presentInterAgentMessage(withVisibleAssistantContent(msg?.payload || {})));
       const role = p.role || 'system';
       if (role === 'assistant' && p.metadata?.transcript_only === true &&
           p.metadata?.interrupted_output === true) {

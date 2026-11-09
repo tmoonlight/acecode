@@ -8,6 +8,7 @@ import {
 import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
+import { MOVE_TO_BACKGROUND_DELAY_MS, backgroundableToolStartedAt } from '../lib/backgroundTasks.js';
 import { CONVERSATION_ACTIVITY_KIND } from '../lib/conversationActivity.js';
 import { hasNextStepQuestion } from '../lib/nextStepBox.js';
 import { clsx, relativeTime } from '../lib/format.js';
@@ -58,8 +59,26 @@ export function ActivityDetailsReveal({ children }) {
   );
 }
 
-export function ActivitySummaryBlock({ item, expanded, onToggle, activity = null }) {
+// 运行中的前台命令 / 子代理等待跑满 2 秒后,在活动行尾部给出「转到后台」。
+function useMoveToBackgroundVisible(startedAtMs, enabled) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const remaining = enabled && startedAtMs > 0
+    ? startedAtMs + MOVE_TO_BACKGROUND_DELAY_MS - nowMs
+    : Infinity;
+  useEffect(() => {
+    if (!Number.isFinite(remaining) || remaining <= 0) return undefined;
+    const timer = setTimeout(() => setNowMs(Date.now()), remaining + 50);
+    return () => clearTimeout(timer);
+  }, [remaining]);
+  return Number.isFinite(remaining) && remaining <= 0;
+}
+
+export function ActivitySummaryBlock({ item, expanded, onToggle, activity = null, onMoveToBackground }) {
   const details = activitySummaryDetails(item);
+  const backgroundableStartedAt = item?.live === true && onMoveToBackground
+    ? backgroundableToolStartedAt(item?.collapsedItems)
+    : 0;
+  const showMoveToBackground = useMoveToBackgroundVisible(backgroundableStartedAt, !!onMoveToBackground);
   const hasDetails = details.length > 0;
   const live = item?.live === true;
   const activityKind = activity?.kind || CONVERSATION_ACTIVITY_KIND.IDLE;
@@ -91,12 +110,28 @@ export function ActivitySummaryBlock({ item, expanded, onToggle, activity = null
       ].filter(Boolean).join(' · ')
     : '';
 
+  const trailing = showMoveToBackground ? (
+    <button
+      type="button"
+      className="rounded px-1.5 py-0.5 text-[11.5px] text-fg-2 transition hover:bg-surface-hi hover:text-fg"
+      data-move-to-background="true"
+      onClick={(event) => {
+        event.stopPropagation();
+        onMoveToBackground();
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      转到后台
+    </button>
+  ) : null;
+
   return (
     <ActivityLine
       icon={live ? null : <VsIcon name="edit" size={13} className="opacity-80" />}
       running={live}
       label={label}
       detail={detail}
+      trailing={trailing}
       expandable={hasDetails}
       expanded={expanded}
       onToggle={hasDetails ? onToggle : undefined}
@@ -237,6 +272,7 @@ function TranscriptItem({
   onToggleActivity,
   onToggleMedia,
   conversationActivity,
+  onMoveToBackground,
   subagentTasksById,
   onOpenSubagent,
   sessionRunning,
@@ -338,6 +374,7 @@ function TranscriptItem({
           expanded={expanded}
           onToggle={(event) => onToggleActivity?.(item.id, event?.currentTarget)}
           activity={!nested && item.live ? conversationActivity : null}
+          onMoveToBackground={!nested && item.live ? onMoveToBackground : undefined}
         />
         {expanded && (
           <ActivityDetailsReveal>
@@ -437,6 +474,7 @@ export function TranscriptItems({
   onToggleActivity,
   onToggleMedia,
   conversationActivity = null,
+  onMoveToBackground,
   subagentTasksById = EMPTY_MAP,
   onOpenSubagent,
   sessionRunning = false,
@@ -481,6 +519,7 @@ export function TranscriptItems({
           onToggleActivity={onToggleActivity}
           onToggleMedia={onToggleMedia}
           conversationActivity={conversationActivity}
+          onMoveToBackground={onMoveToBackground}
           subagentTasksById={subagentTasksById}
           onOpenSubagent={onOpenSubagent}
           sessionRunning={sessionRunning}

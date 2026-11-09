@@ -159,6 +159,14 @@ struct TuiState {
     };
     std::vector<SubagentSidebarTask> subagent_tasks;
 
+    // 后台命令(bash run_in_background / 超时或 Ctrl+B 转入后台)右侧栏快照:
+    // AgentCallbacks::on_background_task 写入(mu 保护),只保留运行中的。
+    struct BackgroundCommandSidebarTask {
+        std::string id;
+        std::string command;
+    };
+    std::vector<BackgroundCommandSidebarTask> background_commands;
+
     // 子会话的 permission_request 冒泡队列:host 回调入队(mu 保护),
     // 事件线程在 confirm/ask overlay 空闲时弹出占用 confirm overlay。
     struct RemoteConfirmRequest {

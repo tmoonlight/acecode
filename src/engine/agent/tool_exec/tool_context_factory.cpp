@@ -19,11 +19,11 @@ ToolContextFactory::ToolContextFactory(
     PermissionManager& permissions, GoalRuntime& goal, EventDispatcher& events,
     AbortSignal& abort, SessionManager* session, const SkillRegistry* skills,
     const ToolCapabilityPolicy& policy, const AgentLoopConfig& config,
-    ProviderAccessor provider)
+    ProviderAccessor provider, BackgroundToolSignals background)
     : boundary_(boundary), security_(security), cache_(cache), permissions_(permissions),
       goal_(goal), events_(events), abort_signal_(abort), session_manager_(session),
       skill_registry_(skills), capability_policy_(policy), loop_cfg_(config),
-      provider_accessor_(std::move(provider)) {}
+      provider_accessor_(std::move(provider)), background_(background) {}
 
 std::string ToolContextFactory::cwd() const { return boundary_.cwd(); }
 std::string ToolContextFactory::write_root() const { return boundary_.write_root(session_manager_); }
@@ -79,6 +79,9 @@ ToolContext ToolContextFactory::for_tool() {
     tool_ctx.skill_registry = skill_registry_;
     tool_ctx.scratch_dir = build_session_scratch_dir(boundary_.cwd(), session_manager_);
     tool_ctx.preserve_full_output = true;
+    tool_ctx.background_tasks = background_.registry;
+    tool_ctx.background_generation = background_.generation;
+    tool_ctx.background_reason = background_.reason;
     tool_ctx.capability_policy = capability_policy_;
     // 模型身份在回合内固定(切换只发生在回合边界),所以在这里取一次快照即可。
     if (provider_accessor_) {

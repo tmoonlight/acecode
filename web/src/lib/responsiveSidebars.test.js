@@ -145,3 +145,46 @@ run('the native window minimum allows reaching a transcript-only layout for ever
     assert.equal(state.rightDocked, false, 'native resizing must reach a transcript-only layout');
   }
 });
+
+run('摘要面板最先让位:放不下时先收它,左侧会话列表和右侧面板保持原判定', () => {
+  // 默认宽度:左栏 270 + 摘要 280 + 右侧列表 280 + 对话保底 356 = 1186。
+  const withSummary = (width, options = {}) => solve(width, { summaryAvailable: true, ...options });
+  const full = withSummary(1186);
+  assert.equal(full.summaryDocked, true);
+  assert.equal(full.leftDocked, true);
+  // 场景:差 1px 放不下三栏 → 只收摘要面板,左栏与右侧面板不受影响,开关改走悬浮。
+  const tight = withSummary(1185);
+  assert.equal(tight.summaryDocked, false);
+  assert.equal(tight.summaryAutoCollapsed, true);
+  assert.equal(tight.canDockSummary, false);
+  assert.equal(tight.leftDocked, true);
+  assert.equal(tight.rightDocked, true);
+  // 场景:窄到左栏都要收起 → 摘要面板一定也收起(它的优先级更低)。
+  const narrow = withSummary(900);
+  assert.equal(narrow.leftDocked, false);
+  assert.equal(narrow.summaryDocked, false);
+  // 场景:左栏是用户自己收起的 → 摘要面板按「没有左栏」的空间判定。
+  const leftClosed = { ...defaults.preferences, sidebarCollapsed: true };
+  assert.equal(withSummary(915, { preferences: leftClosed }).summaryDocked, false);
+  assert.equal(withSummary(916, { preferences: leftClosed }).summaryDocked, true);
+  // 场景:刚被挤掉后回弹需要多 64px 余量,避免在临界宽度来回闪。
+  assert.equal(withSummary(1186, { previous: { summaryAutoCollapsed: true } }).summaryDocked, false);
+  assert.equal(withSummary(1250, { previous: { summaryAutoCollapsed: true } }).summaryDocked, true);
+});
+
+run('摘要面板关掉或当前页面没有它时,不占位也不影响左栏判定', () => {
+  const hidden = solve(1400, { summaryAvailable: true,
+    preferences: { ...defaults.preferences, summaryPanelCollapsed: true } });
+  // 用户主动关掉:不停靠、不算「被挤掉」,但空间足够时开关仍可直接停靠。
+  assert.equal(hidden.summaryDocked, false);
+  assert.equal(hidden.summaryAutoCollapsed, false);
+  assert.equal(hidden.canDockSummary, true);
+  // 循环任务 / 专家组件页没有摘要面板:任何宽度都不停靠。
+  const unavailable = solve(1400);
+  assert.equal(unavailable.summaryDocked, false);
+  assert.equal(unavailable.canDockSummary, false);
+  // 摘要面板不参与左栏判定:同一宽度下有无摘要,左栏结论相同。
+  for (const width of [700, 900, 1100, 1185, 1400]) {
+    assert.equal(solve(width, { summaryAvailable: true }).leftDocked, solve(width).leftDocked);
+  }
+});

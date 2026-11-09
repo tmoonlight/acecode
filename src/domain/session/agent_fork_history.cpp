@@ -25,7 +25,7 @@ std::string trim_lower(const std::string& text) {
 
 bool keep_for_fork(const ChatMessage& message) {
     if (message.role == "user") {
-        if (is_inter_agent_message(message)) return false;
+        if (is_inter_agent_message(message) || is_background_task_message(message)) return false;
         return is_real_user_message(message) || is_compact_summary_message(message);
     }
     if (message.role == "assistant") {

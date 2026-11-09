@@ -519,6 +519,19 @@ export function createApi(base = null) {
         : { text: payload },
       base,
     ),
+    // 后台任务(后台命令 / 后台子代理):列表、输出末尾、停止、把前台工作转到后台。
+    listBackgroundTasks: (id) => request(
+      'GET', `/api/sessions/${encodeURIComponent(id)}/background-tasks`, undefined, base),
+    backgroundTaskOutput: (id, taskId, tail = 16384) => request(
+      'GET',
+      `/api/sessions/${encodeURIComponent(id)}/background-tasks/${encodeURIComponent(taskId)}/output?tail=${Number(tail) || 16384}`,
+      undefined,
+      base,
+    ),
+    stopBackgroundTask: (id, taskId) => request(
+      'POST', `/api/sessions/${encodeURIComponent(id)}/background-tasks/${encodeURIComponent(taskId)}/stop`, {}, base),
+    moveToBackground: (id) => request(
+      'POST', `/api/sessions/${encodeURIComponent(id)}/background`, {}, base),
     interruptTurn:    (id, payload)  => request(
       'POST',
       `/api/sessions/${encodeURIComponent(id)}/turn/interrupt`,

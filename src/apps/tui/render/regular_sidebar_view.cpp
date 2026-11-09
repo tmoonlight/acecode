@@ -324,9 +324,10 @@ Element render_regular_sidebar(TuiState& state,
     const bool show_bash_task =
         state.tool_running && state.tool_progress.tool_name == "bash";
     const auto& subagents = state.subagent_tasks;
-    if (show_bash_task || !subagents.empty()) {
-        const int task_count =
-            (show_bash_task ? 1 : 0) + static_cast<int>(subagents.size());
+    const auto& background_commands = state.background_commands;
+    if (show_bash_task || !subagents.empty() || !background_commands.empty()) {
+        const int task_count = (show_bash_task ? 1 : 0) + static_cast<int>(subagents.size()) +
+                               static_cast<int>(background_commands.size());
         bottom_rows.push_back(
             sidebar_section_header("Background Tasks", task_count));
         if (show_bash_task) {
@@ -337,6 +338,15 @@ Element render_regular_sidebar(TuiState& state,
                 text("  " + truncate_cells_middle_ascii(
                                  command, std::max(1, content_width - 2))) |
                 color(theme().ui.text_muted));
+            bottom_rows.push_back(text("  ctrl+b to background") | color(theme().ui.text_muted) | dim);
+        }
+        for (const auto& task : background_commands) {
+            bottom_rows.push_back(hbox({
+                text("  "),
+                text("$ ") | color(theme().semantic.success),
+                text(truncate_cells_middle_ascii(task.command, std::max(1, content_width - 4))) |
+                    color(theme().ui.text_muted) | flex,
+            }));
         }
 
         // spawn_subagent 运行中任务:标题为空时退到 prompt 摘要。动态耗时

@@ -61,6 +61,8 @@ struct AgentCallbacks {
     // Called when TodoWrite publishes or reads the current visible checklist.
     // The payload shape matches the todo_updated session event.
     std::function<void(const nlohmann::json& payload)> on_todo_updated;
+    // 后台任务(命令 / 子代理)开始、结束或状态变化;payload 是任务快照。
+    std::function<void(const nlohmann::json& task)> on_background_task;
 
     // 具体进度提示(add-tool-preamble,「适合日常工作」):loading 文案变化时回调
     // (「正在分析你的请求」「正在读取 3 个文件」「正在分析命令输出」、推理加粗

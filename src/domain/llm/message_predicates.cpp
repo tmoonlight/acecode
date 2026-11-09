@@ -28,10 +28,44 @@ bool has_internal_user_context_metadata(const ChatMessage& msg) {
     if (envelope != msg.metadata.end() && envelope->is_object()) {
         return envelope->value("type", std::string{}) != "NEW_TASK";
     }
-    return false;
+    return is_background_task_metadata(msg.metadata);
 }
 
 } // namespace
+
+bool is_background_task_metadata(const nlohmann::json& metadata) {
+    if (!metadata.is_object()) return false;
+    const auto it = metadata.find(kBackgroundTaskMetadataKey);
+    return it != metadata.end() && it->is_object();
+}
+
+bool is_background_task_message(const ChatMessage& msg) {
+    return msg.role == "user" && is_background_task_metadata(msg.metadata);
+}
+
+std::string background_task_display_text(const ChatMessage& msg) {
+    if (!is_background_task_message(msg)) return {};
+    const auto& task = msg.metadata[kBackgroundTaskMetadataKey];
+    const std::string kind = task.value("kind", std::string{});
+    const std::string event = task.value("event", std::string{});
+    const std::string state = task.value("state", std::string{});
+    const std::string title = task.value("title", std::string{});
+    std::string header;
+    if (kind == "agent") {
+        header = "Background subagent " + std::string(state == "completed" ? "finished" : state) + ": " + title;
+    } else if (event == "output") {
+        header = "Background command output: " + title;
+    } else if (event == "quiet") {
+        header = "Background command is quiet: " + title;
+    } else {
+        header = "Background command " + state;
+        if (task.contains("exit_code") && state != "stopped") {
+            header += " (exit " + std::to_string(task.value("exit_code", -1)) + ")";
+        }
+        header += ": " + title;
+    }
+    return header + "\n" + msg.content;
+}
 
 const std::string& get_compact_summary_prefix() {
     return kSummaryPrefix;

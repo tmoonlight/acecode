@@ -1,4 +1,5 @@
 #include "session_host/auto_title_runner.hpp"
+#include "tool/background_tasks.hpp"
 #include "tui/app/tui_submitter.hpp"
 #include "tui/tui_state.hpp"
 #include "tool/mcp_startup_coordination.hpp"
@@ -15,6 +16,7 @@ TuiSubmitter::TuiSubmitter(TuiState& state, IScreenPort& screen, AppConfig& conf
       session_(session), mcp_(mcp), first_wait_done_(first_wait_done), auto_title_(auto_title), publish_config_(std::move(publish_config)) {}
 std::string TuiSubmitter::cwd() const { return agent().cwd(); }
 void TuiSubmitter::cancel() { agent().cancel(); }
+void TuiSubmitter::move_to_background() { agent().request_background(BackgroundOrigin::UserRequest); }
 void TuiSubmitter::submit_shell(const std::string& command) { agent().submit_shell(command); }
 void TuiSubmitter::before_first_turn() {
     const auto result = coordinate_mcp_before_first_turn(

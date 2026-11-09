@@ -165,6 +165,7 @@ import {
 import { toast } from './Toast.jsx';
 import { VsIcon } from './Icon.jsx';
 import { EditWorkspaceModal } from './EditWorkspaceModal.jsx';
+import { publishWorkspaceDirectory } from '../lib/workspaceDirectory.js';
 import { WorkspaceIcon } from './WorkspaceIcon.jsx';
 import { resolveWorkspaceIcon } from '../lib/workspaceIcons.js';
 import { syncSidebarListDivider } from '../lib/sidebarListDivider.js';
@@ -1881,6 +1882,7 @@ export function Sidebar({
   onNewLoop,
   appVersion = '',
   workspaceActivationRequest = null,
+  workspaceEditRequest = null,
   onOpenSettingsSection,
   office,
   onOpenExpertComponents,
@@ -2016,6 +2018,9 @@ export function Sidebar({
   const sessionRevealTargetRef = useRef('');
   const revealedSessionTargetRef = useRef('');
   const handledWorkspaceActivationRequestRef = useRef(0);
+  const handledWorkspaceEditRequestRef = useRef(0);
+  // 已加载的工作区列表共享给摘要面板(自定义图标、附加文件夹),它不另请求 /api/workspaces。
+  useEffect(() => { publishWorkspaceDirectory(workspaces); }, [workspaces]);
   const handledSessionLoadResetSequenceRef = useRef(sessionLoadResetSequence);
   const remoteControlSurgeSequenceRef = useRef(0);
   const [remoteControlSurgeRequest, setRemoteControlSurgeRequest] = useState(null);
@@ -3812,6 +3817,18 @@ export function Sidebar({
       });
     });
   }, [onActivate, setSectionExpansion, workspaceActivationRequest, workspaces]);
+
+  // 摘要面板的齿轮:与工作区行右键「编辑」打开同一个编辑框(同一份保存/移除逻辑)。
+  useEffect(() => {
+    const requestId = Number(workspaceEditRequest?.requestId || 0);
+    const workspaceHash = String(workspaceEditRequest?.workspaceHash || '');
+    if (!requestId || !workspaceHash) return;
+    if (handledWorkspaceEditRequestRef.current === requestId) return;
+    const workspace = workspaces.find((item) => item.hash === workspaceHash);
+    if (!workspace) return;
+    handledWorkspaceEditRequestRef.current = requestId;
+    setEditingWorkspace(workspace);
+  }, [workspaceEditRequest, workspaces]);
 
   const openOpencodeImportDialog = useCallback(async (ws) => {
     if (!ws?.hash) return;
