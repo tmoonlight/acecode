@@ -14,6 +14,7 @@ import {
   discardFileTabDraft,
   normalizeBrowserTabFavicon,
   openFileTab,
+  openBackgroundTasksTab,
   openBrowserTab,
   openGitChangesTab,
   openSessionChangesTab,
@@ -34,6 +35,7 @@ import {
   transferPreviewTabs,
   updateBrowserTabFavicon,
   updateBrowserTabMetadata,
+  updateBackgroundTasksTab,
   updateBrowserTabTitle,
   updateGitChangesTab,
   updateFileTabDraft,
@@ -1056,4 +1058,44 @@ run('simulator tabs take part in activation and bulk close like other session ta
   const all = closeVisiblePreviewTabs(state, context);
   assert.deepEqual(visiblePreviewTabs(all, context), []);
   assert.equal(all.simulatorTabsBySession.s1, undefined);
+});
+
+// 场景:后台任务不再是对话区旁边的独立面板,改成详情栏里的页签(每个会话一个)。
+// 期望:打开即激活;从外部定位某个任务时页签记住 taskId,页签内返回列表清空 taskId,
+// 重新打开不传 taskId 时保留当前所看的任务;切换、关闭、全部关闭与其他会话级页签一致,
+// 页签不跨会话出现。
+run('后台任务页签:每会话一个,记住正在看的任务,关闭行为同其他会话级页签', () => {
+  const context = { scopeKey: 'workspace-a', sessionId: 's1' };
+  let state = openFileTab({}, { ...context, cwd: 'C:/repo', path: 'a.txt' });
+  const fileKey = activePreviewTab(state, context).key;
+  state = openBackgroundTasksTab(state, context);
+  let active = activePreviewTab(state, context);
+  assert.equal(active.type, PREVIEW_TAB_TYPES.BACKGROUND_TASKS);
+  assert.equal(active.key, 'background-tasks:s1');
+  assert.equal(active.taskId, '');
+  assert.equal(state.activeTabBySession.s1, 'background-tasks:s1');
+
+  state = openBackgroundTasksTab(state, { ...context, taskId: 'child-1' });
+  assert.equal(visiblePreviewTabs(state, context).filter((tab) => tab.type === PREVIEW_TAB_TYPES.BACKGROUND_TASKS).length, 1);
+  assert.equal(activePreviewTab(state, context).taskId, 'child-1');
+
+  state = activatePreviewTab(state, { ...context, tabKey: fileKey });
+  state = openBackgroundTasksTab(state, context);
+  assert.equal(activePreviewTab(state, context).taskId, 'child-1', '不带 taskId 重新打开时停在原来的任务');
+
+  const back = updateBackgroundTasksTab(state, { sessionId: 's1', taskId: '' });
+  assert.equal(activePreviewTab(back, context).taskId, '');
+  assert.equal(updateBackgroundTasksTab(back, { sessionId: 's1', taskId: '' }), back);
+  assert.equal(updateBackgroundTasksTab(back, { sessionId: 'other', taskId: 'x' }), back);
+
+  assert.deepEqual(visiblePreviewTabs(state, { scopeKey: 'workspace-a', sessionId: 's2' }), []);
+
+  const closed = closePreviewTab(state, { ...context, tabKey: 'background-tasks:s1' });
+  assert.deepEqual(visiblePreviewTabs(closed, context).map((tab) => tab.key), [fileKey]);
+  assert.equal(closed.taskTabsBySession.s1, undefined);
+  assert.equal(activePreviewTab(closed, context).key, fileKey);
+
+  const all = closeVisiblePreviewTabs(state, context);
+  assert.deepEqual(visiblePreviewTabs(all, context), []);
+  assert.equal(all.taskTabsBySession.s1, undefined);
 });

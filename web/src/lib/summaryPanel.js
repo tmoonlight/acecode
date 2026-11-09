@@ -99,7 +99,14 @@ export function formatChangeCount(value) {
   return NUMBER_FORMAT.format(finiteCount(value));
 }
 
-// 只列运行中的任务,先开始的在上面;已结束的去后台任务面板里看。
+// 已结束(完成 / 停止)的后台任务个数,摘要面板「N 已完成」一行显示它;
+// 任务每结束一个加一。
+export function summaryFinishedTaskCount(tasks) {
+  return (Array.isArray(tasks) ? tasks : [])
+    .filter((task) => task && task.status !== SUBAGENT_TASK_STATUS.RUNNING).length;
+}
+
+// 只列运行中的任务,先开始的在上面;已结束的只计数,点「N 已完成」去后台任务页签里看。
 export function summaryRunningTasks(tasks, nowMs = Date.now()) {
   return (Array.isArray(tasks) ? tasks : [])
     .filter((task) => task?.status === SUBAGENT_TASK_STATUS.RUNNING)

@@ -1,10 +1,8 @@
-// 「后台任务」面板(spawn_subagent 子会话)。
+// 「后台任务」页签内容(后台命令 + spawn_subagent 子会话)。
 //
-// 归属主会话窗口:作为 ChatView transcript 区(flex 行)的可调 split pane,
-// 打开时**挤压**聊天消息区(而非浮层遮挡),关闭时返回 null 不占位;只影响
-// 聊天会话区,不动 Sidebar/右侧文件预览面板、也不压输入框(输入框在 transcript
-// 区之外仍占满宽)。splitter 与持久化宽度由 ChatView/App 持有,本组件只按
-// 已约束的 width 渲染内容。
+// 挂在详情栏(PreviewDetailsPanel)的「后台任务」页签里,每个会话一个页签。
+// 正在看哪个任务(taskId)记在页签状态里,由 ChatView 经 onSelectTask 更新,
+// 切到别的页签再切回来仍停在原处。
 //
 // 两个视图:
 //   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop)。
@@ -22,7 +20,6 @@ import {
   useRef,
   useState,
 } from 'react';
-import { DEFAULT_SUBAGENT_PANEL_WIDTH } from '../lib/singleLayout.js';
 import { useSessionTranscript } from '../lib/sessionTranscript.js';
 import { createApi } from '../lib/api.js';
 import {
@@ -369,76 +366,43 @@ function SubagentTranscriptView({ task, workspaceHash = '', messageAutoCollapse 
   );
 }
 
-export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focus, onClose, tasks, workspaceHash = '', onAbort, onStopCommand, readCommandOutput, messageAutoCollapse = true }) {
-  const [transcriptTaskId, setTranscriptTaskId] = useState('');
-
-  // 面板关闭后回到列表视图,重开不残留上一次的 transcript。
-  useEffect(() => {
-    if (!open) setTranscriptTaskId('');
-  }, [open]);
-
-  // 外部(聊天流「调用了 N 个智能体」分组点某个智能体)请求定位到某子会话。
-  // focus.n 单调递增,同一 id 的重复点击也会重新触发。
-  useEffect(() => {
-    if (focus?.id) setTranscriptTaskId(focus.id);
-  }, [focus?.n, focus?.id]);
-
+export function BackgroundTasksView({ tasks = [], taskId = '', onSelectTask, workspaceHash = '', onAbort, onStopCommand, readCommandOutput, messageAutoCollapse = true }) {
   const groups = useMemo(() => subagentTaskGroups(tasks), [tasks]);
   // 目标任务不在列表(如列表尚未刷新到它)时,合成一个最小任务对象,
   // transcript 仍能按 session_id 拉取展示。
-  const transcriptTask = transcriptTaskId
-    ? (tasks.find((t) => t.id === transcriptTaskId)
-       || { id: transcriptTaskId, status: SUBAGENT_TASK_STATUS.COMPLETED, title: '', summary: '' })
+  const transcriptTask = taskId
+    ? (tasks.find((t) => t.id === taskId)
+       || { id: taskId, status: SUBAGENT_TASK_STATUS.COMPLETED, title: '', summary: '' })
     : null;
+  const openTask = (task) => onSelectTask?.(task.id);
 
-  // 运行中卡片的耗时每秒 tick(仅面板打开且列表视图有运行中任务时)。
+  // 运行中卡片的耗时每秒 tick(列表视图有运行中任务时;页签不激活时本组件不挂载)。
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!open || transcriptTask || groups.running.length === 0) return undefined;
+    if (transcriptTask || groups.running.length === 0) return undefined;
+    setNowMs(Date.now());
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [open, transcriptTask, groups.running.length]);
-
-  if (!open) return null;
+  }, [transcriptTask, groups.running.length]);
 
   return (
-    <div
-      className="shrink-0 min-w-0 h-full flex flex-col bg-surface"
-      style={{ width }}
-      data-subagent-panel="true"
-    >
-      <div className="h-10 px-3 flex items-center gap-2 shrink-0">
-        {transcriptTask ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setTranscriptTaskId('')}
-              className="w-7 h-7 rounded-md text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg"
-              title="返回任务列表"
-              aria-label="返回任务列表"
-            >
-              <VsIcon name="arrowLeft" size={14} />
-            </button>
-            <span className="flex-1 min-w-0 text-[13px] font-semibold text-fg truncate">
-              {isCommandTask(transcriptTask) ? transcriptTask.command : taskDisplayTitle(transcriptTask)}
-            </span>
-          </>
-        ) : (
-          <>
-            <VsIcon name="embedding" size={15} className="text-fg-2" />
-            <span className="flex-1 text-[13px] font-semibold text-fg">后台任务</span>
-          </>
-        )}
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-7 h-7 rounded-md text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg"
-          title="关闭"
-          aria-label="关闭后台任务面板"
-        >
-          <VsIcon name="close" size={14} />
-        </button>
-      </div>
+    <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col bg-surface" data-background-tasks-view="true">
+      {transcriptTask && (
+        <div className="h-10 px-3 flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => onSelectTask?.('')}
+            className="w-7 h-7 rounded-md text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg"
+            title="返回任务列表"
+            aria-label="返回任务列表"
+          >
+            <VsIcon name="arrowLeft" size={14} />
+          </button>
+          <span className="flex-1 min-w-0 text-[13px] font-semibold text-fg truncate">
+            {isCommandTask(transcriptTask) ? transcriptTask.command : taskDisplayTitle(transcriptTask)}
+          </span>
+        </div>
+      )}
 
       {transcriptTask && isCommandTask(transcriptTask) ? (
         <CommandOutputView key={transcriptTask.id} task={transcriptTask} readOutput={readCommandOutput} />
@@ -466,7 +430,7 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                     task={task}
                     nowMs={nowMs}
                     onStop={(t) => onStopCommand?.(t.id)}
-                    onOpenOutput={(t) => setTranscriptTaskId(t.id)}
+                    onOpenOutput={openTask}
                   />
                 ) : (
                   <TaskCard
@@ -474,7 +438,7 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                     task={task}
                     nowMs={nowMs}
                     onAbort={onAbort}
-                    onOpenTranscript={(t) => setTranscriptTaskId(t.id)}
+                    onOpenTranscript={openTask}
                   />
                 )
               ))}
@@ -494,7 +458,7 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                     task={task}
                     nowMs={nowMs}
                     onStop={(t) => onStopCommand?.(t.id)}
-                    onOpenOutput={(t) => setTranscriptTaskId(t.id)}
+                    onOpenOutput={openTask}
                   />
                 ) : (
                   <TaskCard
@@ -502,7 +466,7 @@ export function SubagentPanel({ open, width = DEFAULT_SUBAGENT_PANEL_WIDTH, focu
                     task={task}
                     nowMs={nowMs}
                     onAbort={onAbort}
-                    onOpenTranscript={(t) => setTranscriptTaskId(t.id)}
+                    onOpenTranscript={openTask}
                   />
                 )
               ))}

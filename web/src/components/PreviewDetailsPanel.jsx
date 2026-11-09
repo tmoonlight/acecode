@@ -40,6 +40,7 @@ function tabLabel(tab) {
     const count = Number(tab.fileCount || 0);
     return count > 0 ? `变更(${count} 文件)` : '变更';
   }
+  if (tab.type === PREVIEW_TAB_TYPES.BACKGROUND_TASKS) return '后台任务';
   return tab.title || fileName(tab.path);
 }
 
@@ -346,6 +347,8 @@ export function PreviewDetailsPanel({
   onLocateFile,
   browserRecentFiles = [],
   onReplaceBrowserTabWithFile,
+  // 后台任务页签的内容由 ChatView 渲染好传进来(只在该页签激活时非空)。
+  backgroundTasksContent = null,
 }) {
   const tabListRef = useRef(null);
   const { panelRef, zoom: textZoom } = usePreviewTextZoom(owner);
@@ -430,6 +433,9 @@ export function PreviewDetailsPanel({
         />
       );
     }
+    if (active.type === PREVIEW_TAB_TYPES.BACKGROUND_TASKS) {
+      return backgroundTasksContent;
+    }
     if (active.type === PREVIEW_TAB_TYPES.SIMULATOR) {
       return (
         <IosSimulatorPanel
@@ -507,7 +513,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, browserRecentFiles, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, backgroundTasksContent, browserRecentFiles, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -900,6 +906,7 @@ export function PreviewDetailsPanel({
               const isFileTab = tab.type === PREVIEW_TAB_TYPES.FILE;
               const isBrowserTab = tab.type === PREVIEW_TAB_TYPES.BROWSER;
               const isSimulatorTab = tab.type === PREVIEW_TAB_TYPES.SIMULATOR;
+              const isTaskTab = tab.type === PREVIEW_TAB_TYPES.BACKGROUND_TASKS;
               const dirty = previewTabHasUnsavedDraft(tab);
               const tabAbsolutePath = isFileTab
                 ? previewAbsolutePath({ cwd: tab.cwd || cwd || '', path: tab.path || '' })
@@ -959,6 +966,9 @@ export function PreviewDetailsPanel({
                   )}
                   {isSimulatorTab && (
                     <IosSimulatorIcon size={16} className="ace-preview-details-tab-icon" />
+                  )}
+                  {isTaskTab && (
+                    <VsIcon name="embedding" size={16} className="ace-preview-details-tab-icon" />
                   )}
                   <span className="ace-preview-details-tab-label">{label}</span>
                   <span

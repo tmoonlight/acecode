@@ -4,6 +4,7 @@ import {
   formatChangeCount,
   isEditableWorkspaceHash,
   summaryChangeTotals,
+  summaryFinishedTaskCount,
   summaryRunningTasks,
   summaryWorkspaceModel,
 } from './summaryPanel.js';
@@ -71,6 +72,21 @@ run('后台任务行:只列运行中的,先开始的在上,停止请求发出后
   assert.equal(rows[1].elapsed, '06s');
   assert.equal(rows[1].stopping, false);
   assert.deepEqual(summaryRunningTasks(null), []);
+});
+
+// 场景:摘要面板「后台任务」分组常驻,末尾一行「N 已完成」,点开详情栏的后台任务页签。
+// 期望:已完成数 = 不在运行中的任务(完成、停止都算),任务每结束一个数字加一;没有任务时为 0。
+run('后台任务已完成计数:结束一个加一,运行中的不算', () => {
+  const tasks = [
+    { id: 'a', status: 'running' },
+    { id: 'b', status: 'completed' },
+    { id: 'c', status: 'aborted' },
+  ];
+  assert.equal(summaryFinishedTaskCount(tasks), 2);
+  const afterOneMore = tasks.map((task) => (task.id === 'a' ? { ...task, status: 'completed' } : task));
+  assert.equal(summaryFinishedTaskCount(afterOneMore), 3);
+  assert.equal(summaryFinishedTaskCount([]), 0);
+  assert.equal(summaryFinishedTaskCount(null), 0);
 });
 
 // Windows 路径用反斜杠拼接(源码里不直接写反斜杠字面量)。

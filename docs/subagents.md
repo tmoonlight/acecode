@@ -146,14 +146,15 @@ session_status 帧(未知 busy 会话)            → refetch   ← wait=true �
 - `web/src/lib/useSubagentTasks.js` — hook:REST + WS 增量 + **对运行中任务
   `connection.retainSession`(不依赖面板开关)** —— 这是子会话的 permission_request /
   question_request 能到达 App 全局监听并冒泡的前提。parent 切换有迟到响应守卫。
-- `web/src/components/SubagentPanel.jsx` — overlay(absolute 挂在 ChatView 消息区容器内,
-  只覆盖聊天区,不动 Sidebar/SidePanel):运行中 / 已完成分组卡片;运行中卡片右上停止按钮,
+- `web/src/components/SubagentPanel.jsx` 的 `BackgroundTasksView` — 详情栏「后台任务」页签的内容
+  (每个会话一个页签,`previewTabs.js` 的 `openBackgroundTasksTab`,正在看的任务记在页签的 `taskId`,
+  切页签回来仍停在原处):运行中 / 已完成分组卡片;运行中卡片右上停止按钮,
   已完成组没有归档 / 清除入口(子会话始终留在面板里);「查看会话」原地切到只读
   transcript,历史请求带父会话的 `workspaceHash` —— Desktop 的 daemon 同时服务多个工作区,子会话
   不在内存里(Desktop 重启后、网状 agent 被换出)时只能按它读盘,否则 404 SESSION_NOT_FOUND(复用主会话
   Message/ToolBlock 紧凑渲染,`useSessionTranscript` live:'auto' 实时跟尾,AskUserQuestion
   工具行过滤不显示)。
-- ChatView 标题栏最右「后台任务」按钮:有任务或面板开着才出现,徽标 = 运行中数。
+- 入口:会话三点菜单「后台任务」、对话里的智能体分组卡片、摘要面板的运行中任务行与「N 已完成」。
 
 ### 权限 / 提问冒泡
 
@@ -343,7 +344,7 @@ provider 上会被拒或合并)。
 
 - Web 输入框:「蜂群模式（星型）」「蜂群模式（网状）」两个互斥菜单项;芯片 = 服务端模式(messages
   快照 / `session_updated{swarm_mode}`)+ 未提交的本地选择,只有不同才随消息提交(`web/src/lib/swarmMode.js`)。
-- 后台任务面板复用星型面板,卡片显示 `agent_path`;面板只由用户打开(三点菜单「后台任务」、智能体分组卡片),派子代理不自动弹出。
+- 后台任务页签复用星型的任务卡片,卡片显示 `agent_path`;页签只由用户打开,派子代理不自动弹出。
 - TUI:`/swarm`;侧栏运行中任务以路径为显示名。
 
 ### 有意未复刻 / 与 Codex 的差异

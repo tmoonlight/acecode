@@ -57,13 +57,20 @@ export function normalizeSubagentTask(session) {
 
 // REST 列表 → 任务数组(按创建时间倒序,新任务在前)。保留旧任务的实时
 // 聚合字段(toolCount/lastTool)与本地 aborted 标记,避免 refetch 清零。
-export function mergeSubagentTaskList(prevTasks, sessions) {
+// 子会话刚建好、还没写元数据时列表里 created_at 是空的(wait=false 派出的子代理
+// 往往就在这一刻被列出,之后不再刷新):运行中的任务先用第一次看到它的时间计时,
+// 拿到真实 created_at 后再换成它,耗时不会停在 00s。
+export function mergeSubagentTaskList(prevTasks, sessions, nowMs = Date.now()) {
   const prevById = new Map((prevTasks || []).map((t) => [t.id, t]));
   const next = [];
   for (const session of Array.isArray(sessions) ? sessions : []) {
     const task = normalizeSubagentTask(session);
     if (!task) continue;
     const prev = prevById.get(task.id);
+    if (!task.createdAtMs) {
+      task.createdAtMs = prev?.createdAtMs
+        || (task.status === SUBAGENT_TASK_STATUS.RUNNING ? nowMs : 0);
+    }
     if (prev) {
       task.toolCount = prev.toolCount;
       task.lastTool = prev.lastTool;

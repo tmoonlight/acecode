@@ -22,6 +22,7 @@ import {
   folderLabel,
   formatChangeCount,
   summaryChangeTotals,
+  summaryFinishedTaskCount,
   summaryRunningTasks,
   summaryWorkspaceModel,
 } from '../lib/summaryPanel.js';
@@ -320,6 +321,7 @@ export function SummaryPanel({
   onEditWorkspace,
   onOpenChanges,
   onOpenTask,
+  onOpenFinishedTasks,
   onStopTask,
 }) {
   const rootRef = useRef(null);
@@ -338,6 +340,7 @@ export function SummaryPanel({
   const hasRunning = (tasks || []).some((task) => task?.status === 'running');
   const now = useNow(visible && hasRunning);
   const running = summaryRunningTasks(tasks, now);
+  const finishedCount = summaryFinishedTaskCount(tasks);
   const closeButton = onClose && (
     <IconButton icon="close" label="收起摘要面板" onClick={onClose} />
   );
@@ -375,35 +378,34 @@ export function SummaryPanel({
           </Section>
         </>
       )}
-      {running.length > 0 && (
-        <>
-          <div className="h-px bg-border mx-2" />
-          <Section title="后台任务">
-            {running.map((task) => (
-              <Row
-                key={task.id}
-                icon={task.kind === 'agent' ? 'embedding' : 'terminal'}
-                title={task.title}
-                onClick={() => onOpenTask?.(task.id)}
-                trailing={(
-                  <>
-                    <span className="shrink-0 text-[12px] tabular-nums text-fg-mute">{task.elapsed}</span>
-                    <IconButton
-                      icon="stopFilled"
-                      label="停止"
-                      disabled={task.stopping}
-                      onClick={() => onStopTask?.(task.id)}
-                      className="hover:text-danger"
-                    />
-                  </>
-                )}
-              >
-                {task.title}
-              </Row>
-            ))}
-          </Section>
-        </>
-      )}
+      <div className="h-px bg-border mx-2" />
+      <Section title="后台任务">
+        {running.map((task) => (
+          <Row
+            key={task.id}
+            icon={task.kind === 'agent' ? 'embedding' : 'terminal'}
+            title={task.title}
+            onClick={() => onOpenTask?.(task.id)}
+            trailing={(
+              <>
+                <span className="shrink-0 text-[12px] tabular-nums text-fg-mute">{task.elapsed}</span>
+                <IconButton
+                  icon="stopFilled"
+                  label="停止"
+                  disabled={task.stopping}
+                  onClick={() => onStopTask?.(task.id)}
+                  className="hover:text-danger"
+                />
+              </>
+            )}
+          >
+            {task.title}
+          </Row>
+        ))}
+        <Row icon="check" onClick={onOpenFinishedTasks}>
+          {finishedCount} 已完成
+        </Row>
+      </Section>
     </div>
   );
 }

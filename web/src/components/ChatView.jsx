@@ -93,7 +93,7 @@ import { InlineVisualBridgeContext } from './InlineVisualBridgeContext.jsx';
 import { SessionContentLoading } from './SessionContentLoading.jsx';
 import { sessionContentLoadingPhase } from '../lib/sessionContentLoading.js';
 import { SidePanel } from './SidePanel.jsx';
-import { SubagentPanel } from './SubagentPanel.jsx';
+import { BackgroundTasksView } from './SubagentPanel.jsx';
 import { SummaryPanel } from './SummaryPanel.jsx';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { TranscriptHistoryBoundary } from './TranscriptHistoryBoundary.jsx';
@@ -257,17 +257,13 @@ import { fileTreeRefreshKeyFromItems } from '../lib/fileTreeRefresh.js';
 import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
 import { notifySessionListChanged } from '../lib/sessionListEvents.js';
 import {
-  DEFAULT_SUBAGENT_PANEL_WIDTH,
   MIN_CHAT_WIDTH,
   MIN_PREVIEW_PANEL_WIDTH,
   MIN_SIDE_PANEL_WIDTH,
-  MIN_SUBAGENT_PANEL_WIDTH,
   MAX_SUMMARY_PANEL_WIDTH,
   MIN_SUMMARY_PANEL_WIDTH,
-  normalizeSubagentPanelWidth,
   normalizeSummaryPanelWidth,
   solveSingleContentLayout,
-  subagentPanelWidthRange,
 } from '../lib/singleLayout.js';
 import {
   activeConversationTurnIndex as resolveActiveConversationTurnIndex,
@@ -291,6 +287,8 @@ import {
   openGitChangesTab,
   openSessionChangesTab,
   openSimulatorTab,
+  openBackgroundTasksTab,
+  updateBackgroundTasksTab,
   previewFileLocation,
   previewScopeKey,
   previewTabContext,
@@ -655,7 +653,7 @@ const EXPERT_SWITCH_CANONICAL_POLL_ATTEMPTS = 6;
 const EXPERT_SWITCH_CANONICAL_POLL_INTERVAL_MS = 160;
 const FORK_ACTION_KEY = 'fork-session';
 
-export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, subagentPanelWidth = DEFAULT_SUBAGENT_PANEL_WIDTH, onSubagentPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
+export function ChatView({ titleTarget, actionsTarget, children, sessionRef, sessionId, homeLogoEffectEnabled = true, homeIntentSuggestions = [], onHomeIntentPrompt, homeComposerDrafts = {}, homeComposerAttentionRequest = 0, onHomeComposerDraftLoad, onHomeComposerDraftChange, onHomeComposerDraftAccepted, onHomeComposerDraftPatch, modelProfileRevision = 0, onSessionPromoted, onSessionExpertChanged, onHomeWorkspaceChange, onCommandWorkspaceChange, onConsoleCwdChange, onFindInConversation, onOpenModelSettings, health, autoFocusOnDesktopWindowFocus = false, onPermissionRequest, onQuestionRequest, permissionRequests = [], onPermissionDecision, questionRequest, onQuestionResolve, onPermissionModeChanged, onSubagentTasksChange, recentExpertIds = [], onRememberExpert, onInitialDraftConsumed, showSidePanel = false, responsiveSidebars = null, rightPanelPopupWidth, onRightPanelPopupResize, sidePanelWidth = 280, onSidePanelResize, previewPanelWidth = 640, previewPanelAutoFit = false, onPreviewPanelResize, onPreviewPanelVisibleChange, onRegisterPreviewLeaveGuard, sidePanelCollapsed = false, sidePanelListCollapsed = false, onToggleSidePanel, onRevealPreviewPanel, onToggleSidePanelList, onRevealSidePanelList, sidePanelMaximized = false, onToggleSidePanelMaximized, previewPresenting = false, onTogglePreviewPresentation, showAceCodeAvatar = false, showSessionTime = true, messageAutoCollapse = true, summaryPanelWidth, onSummaryPanelResize, onEditWorkspace, summaryPanelOpen = false, onToggleSummaryPanel, nativeSurfacesVisible = true }) {
   const ref = useMemo(() => normalizeSessionRef(sessionRef, sessionId), [sessionRef, sessionId]);
   const sid = ref?.sessionId || ref?.id || '';
   const workbenchOwner = sessionWorkbench.ownerFor(ref);
@@ -720,10 +718,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     loadEarlier,
   } = transcript;
 
-  const [subagentPanelOpen, setSubagentPanelOpen] = useState(false);
   // 后台任务(spawn_subagent 子会话):数据 hook 常驻(运行中任务保持 WS
-  // 订阅,权限/问题请求才能冒泡到主会话 UI)。面板只由用户打开(三点菜单、
-  // 智能体分组卡片、摘要面板),派子代理不自动弹出。
+  // 订阅,权限/问题请求才能冒泡到主会话 UI)。任务列表在详情栏的「后台任务」页签里,
+  // 只由用户打开(三点菜单、智能体分组卡片、摘要面板),派子代理不自动弹出。
   // 子会话跟随父会话所在工作区:Desktop 的 daemon 同时服务多个工作区,子会话
   // 不在内存里时(Desktop 重启后、网状 agent 被换出)只能按这个工作区读盘。
   const subagentWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash || ref?.workspace_hash)
@@ -761,19 +758,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [questionForView, sid, subagentTasks.tasks]);
 
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
-  // 聊天流「调用了 N 个智能体」分组点某个智能体 → 打开面板并定位其 transcript。
-  // focus.n 单调递增,让同一 sessionId 的重复点击也能触发 SubagentPanel 内 effect。
-  const [subagentFocus, setSubagentFocus] = useState(null);
   useEffect(() => {
-    setSubagentPanelOpen(false);
-    setSubagentFocus(null);
     setTrajectoryOpen(false);
   }, [sid]);
-  const openSubagentTranscript = useCallback((sessionId) => {
-    if (!sessionId) return;
-    setSubagentPanelOpen(true);
-    setSubagentFocus((prev) => ({ id: sessionId, n: (prev?.n || 0) + 1 }));
-  }, []);
   // sessionId → 任务,给分组卡片解析实时标题/运行态。
   const subagentTasksById = useMemo(
     () => new Map(subagentTasks.tasks.map((t) => [t.id, t])),
@@ -967,7 +954,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     inputRef.current?.handleFileDrop?.(event);
   }, []);
   const layoutRef = useRef(null);
-  const subagentSplitRef = useRef(null);
   const [layoutWidth, setLayoutWidth] = useState(0);
   const [popupNavigationCollapsed, setPopupNavigationCollapsed] = useState(null);
   const rightPopup = responsiveSidebars?.popup === 'right';
@@ -976,10 +962,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useEffect(() => { setPopupNavigationCollapsed(null); }, [rightPopup, workbenchOwner]);
   const sidePanelResizeActiveRef = useRef(false);
   const previewPanelResizeActiveRef = useRef(false);
-  const subagentPanelResizeActiveRef = useRef(false);
-  const subagentPanelResizeCleanupRef = useRef(null);
   const renderedPreviewPanelWidthRef = useRef(previewPanelWidth);
-  const renderedSubagentPanelWidthRef = useRef(subagentPanelWidth);
   const [composerValue, setComposerText] = useState(
     () => stagedExpertDraft.text,
   );
@@ -4365,63 +4348,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
   });
 
-  const startSubagentPanelResize = useStableCallback((event) => {
-    if (!subagentPanelOpen || !sid || !onSubagentPanelResize) return;
-    if (event.button != null && event.button !== 0) return;
-    if (subagentPanelResizeActiveRef.current) return;
-    subagentPanelResizeActiveRef.current = true;
-    event.preventDefault();
-    const contentWidth = subagentSplitRef.current?.getBoundingClientRect().width || 0;
-    const startX = event.clientX;
-    const startWidth = renderedSubagentPanelWidthRef.current;
-    document.body.classList.add('ace-resizing');
-    if (event.pointerId != null) event.currentTarget.setPointerCapture?.(event.pointerId);
-
-    const onMove = (moveEvent) => {
-      onSubagentPanelResize(startWidth + startX - moveEvent.clientX, contentWidth);
-    };
-    const onStop = () => {
-      if (!subagentPanelResizeActiveRef.current) return;
-      subagentPanelResizeActiveRef.current = false;
-      subagentPanelResizeCleanupRef.current = null;
-      document.body.classList.remove('ace-resizing');
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onStop);
-      window.removeEventListener('pointercancel', onStop);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onStop);
-    };
-    subagentPanelResizeCleanupRef.current = onStop;
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onStop, { once: true });
-    window.addEventListener('pointercancel', onStop, { once: true });
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onStop, { once: true });
-  });
-
-  const onSubagentPanelHandleKeyDown = useStableCallback((event) => {
-    if (!onSubagentPanelResize) return;
-    const step = event.shiftKey ? 32 : 12;
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      event.preventDefault();
-      const delta = event.key === 'ArrowLeft' ? step : -step;
-      const contentWidth = subagentSplitRef.current?.getBoundingClientRect().width || 0;
-      onSubagentPanelResize(
-        renderedSubagentPanelWidthRef.current + delta,
-        contentWidth,
-      );
-    }
-  });
-
-  useEffect(() => {
-    if (!subagentPanelOpen) subagentPanelResizeCleanupRef.current?.();
-  }, [subagentPanelOpen]);
-
-  useEffect(() => () => {
-    subagentPanelResizeCleanupRef.current?.();
-  }, []);
-
   // fork: 调后端 POST /api/sessions/:id/fork,成功后切到新 session(同 ref)。
   // 失败弹 toast 不打断当前 session。新 session 不会自动启 turn,
   // 用户在新 session 自己输入消息才开始。
@@ -4669,7 +4595,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         // 后台任务面板始终可打开(没有任务时显示空列表),运行中的任务在摘要面板里也能看到。
         {
           id: 'background_tasks', label: '后台任务', icon: 'embedding', group: 'session-view',
-          onSelect: () => setSubagentPanelOpen(true),
+          onSelect: () => openBackgroundTasksPreview(),
         },
       ],
       includeContextActions: !readOnlyExternalSession,
@@ -5371,7 +5297,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     setReviewRequest((n) => n + 1);
   });
 
-  // 摘要面板的入口:悬浮态先收起自己,再打开目标(右侧「变更」页 / 后台任务面板)。
+  // 摘要面板的入口:悬浮态先收起自己,再打开目标(右侧「变更」页 / 详情栏「后台任务」页签)。
   const closeSummaryPopup = () => {
     if (responsiveSidebars?.popup === 'summary') responsiveSidebars.closePopup();
   };
@@ -5383,7 +5309,11 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   });
   const openSummaryTask = useStableCallback((taskId) => {
     closeSummaryPopup();
-    openSubagentTranscript(taskId);
+    openBackgroundTasksPreview(taskId);
+  });
+  const openSummaryFinishedTasks = useStableCallback(() => {
+    closeSummaryPopup();
+    openBackgroundTasksPreview('');
   });
   // 「转到后台」:正在跑的前台命令 / 子代理等待交给后台,完成时会通知模型。
   const moveRunningWorkToBackground = useStableCallback(() => {
@@ -5579,10 +5509,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useLayoutEffect(() => {
     reportResponsiveContent?.({
       previewAvailable: previewTabsOpen && !previewPanelHidden,
-      subagentOpen: !!sid && subagentPanelOpen,
       summaryAvailable,
     });
-  }, [reportResponsiveContent, previewTabsOpen, previewPanelHidden, sid, subagentPanelOpen, summaryAvailable]);
+  }, [reportResponsiveContent, previewTabsOpen, previewPanelHidden, summaryAvailable]);
   const previewCloseConfirmMessage = previewCloseConfirm
     ? `${previewCloseConfirm.dirtyCount} 个文件有未保存的修改。是否保存后继续？`
     : '';
@@ -5629,19 +5558,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   };
   const summaryPopupRange = popupWidthRange(effectiveChatWidth, MIN_SUMMARY_PANEL_WIDTH);
   const summaryPopupWidth = clampPopupWidth(summaryStoredWidth, summaryPopupRange);
-  const renderedSubagentPanelWidth = normalizeSubagentPanelWidth(
-    responsiveSidebars
-      ? Math.min(subagentPanelWidth, Math.max(MIN_SUBAGENT_PANEL_WIDTH,
-        effectiveChatWidth - responsiveSidebars.transcriptMinimum - 6))
-      : subagentPanelWidth,
-    effectiveChatWidth,
-  );
-  const subagentPanelRange = subagentPanelWidthRange(effectiveChatWidth);
-  const subagentPanelAriaMax = Number.isFinite(subagentPanelRange.max)
-    ? subagentPanelRange.max
-    : Math.max(subagentPanelRange.min, renderedSubagentPanelWidth);
   renderedPreviewPanelWidthRef.current = effectivePreviewPanelWidth;
-  renderedSubagentPanelWidthRef.current = renderedSubagentPanelWidth;
 
   useEffect(() => {
     if (!sid) return;
@@ -5905,6 +5822,42 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       setPreviewPanelHidden(false);
     });
   });
+
+  // 后台任务页签(详情栏里每个会话一个)。taskId:字符串 = 定位到该任务(空串 = 任务列表);
+  // 不传 = 保留页签里正在看的任务(三点菜单入口)。
+  const openBackgroundTasksPreview = useStableCallback((taskId) => {
+    if (!sid) return false;
+    return selectPreview((prev) => openBackgroundTasksTab(prev, {
+      scopeKey: previewScope,
+      sessionId: sid,
+      taskId: typeof taskId === 'string' ? taskId : undefined,
+    }), () => {
+      if (!responsiveSidebars?.requestRightPopup(true) && sidePanelCollapsed) onToggleSidePanel?.();
+      setPopupNavigationCollapsed(null);
+      setPreviewPanelHidden(false);
+    });
+  });
+  const selectBackgroundTask = useStableCallback((taskId) => {
+    if (!sid) return;
+    setPreviewTabState((prev) => updateBackgroundTasksTab(prev, { sessionId: sid, taskId }));
+  });
+  const abortSubagentTask = useStableCallback((task) => {
+    if (subagentTasks.abortTask(task.id) === false) {
+      toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
+    }
+  });
+  const backgroundTasksContent = sid && activePreview?.type === PREVIEW_TAB_TYPES.BACKGROUND_TASKS ? (
+    <BackgroundTasksView
+      tasks={backgroundTaskList}
+      taskId={activePreview.taskId || ''}
+      onSelectTask={selectBackgroundTask}
+      workspaceHash={subagentWorkspaceHash}
+      onAbort={abortSubagentTask}
+      onStopCommand={backgroundTasks.stop}
+      readCommandOutput={backgroundTasks.readOutput}
+      messageAutoCollapse={messageAutoCollapse}
+    />
+  ) : null;
 
   // git 变更点击文件 → 在中间详情栏开/聚焦「变更」页签(复刻会话级变更旧行为)。
   // gitBase 只有从 SidePanel 导航列表点击时才带;详情栏内点文件不带,由
@@ -6356,7 +6309,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       {sessionTitleBar}
 
       <div
-        ref={subagentSplitRef}
         className={clsx('relative flex-1 min-h-0 flex', trajectoryOpen && 'hidden')}
         aria-hidden={trajectoryOpen ? 'true' : undefined}
       >
@@ -6402,7 +6354,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             conversationActivity={conversationActivity}
             onMoveToBackground={moveRunningWorkToBackground}
             subagentTasksById={subagentTasksById}
-            onOpenSubagent={openSubagentTranscript}
+            onOpenSubagent={openBackgroundTasksPreview}
             sessionRunning={status === 'running'}
             onReviewToggle={pauseTailFollowForReview}
             onFork={forkAndSwitch}
@@ -6540,39 +6492,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           />
         )}
         </div>
-        {subagentPanelOpen && (
-          <div
-            role="separator"
-            aria-label="调整后台任务面板宽度"
-            aria-orientation="vertical"
-            aria-valuemin={subagentPanelRange.min}
-            aria-valuemax={subagentPanelAriaMax}
-            aria-valuenow={renderedSubagentPanelWidth}
-            tabIndex={0}
-            className="ace-resize-handle ace-resize-handle-subagent"
-            data-subagent-splitter="true"
-            onPointerDown={startSubagentPanelResize}
-            onMouseDown={startSubagentPanelResize}
-            onKeyDown={onSubagentPanelHandleKeyDown}
-            title="拖动调整后台任务面板宽度"
-          />
-        )}
-        <SubagentPanel
-          messageAutoCollapse={messageAutoCollapse}
-          open={subagentPanelOpen}
-          width={renderedSubagentPanelWidth}
-          focus={subagentFocus}
-          onClose={() => setSubagentPanelOpen(false)}
-          tasks={backgroundTaskList}
-          workspaceHash={subagentWorkspaceHash}
-          onStopCommand={backgroundTasks.stop}
-          readCommandOutput={backgroundTasks.readOutput}
-          onAbort={(task) => {
-            if (subagentTasks.abortTask(task.id) === false) {
-              toast({ kind: 'err', text: '停止请求发送失败，连接恢复后请重试' });
-            }
-          }}
-        />
       </div>
 
       {trajectoryOpen && (
@@ -6786,6 +6705,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               onEditWorkspace={editSummaryWorkspace}
               onOpenChanges={openSummaryChanges}
               onOpenTask={openSummaryTask}
+              onOpenFinishedTasks={openSummaryFinishedTasks}
               onStopTask={stopSummaryTask}
             />
           </ResponsiveSidebar>
@@ -6857,6 +6777,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             browserRecentFiles={browserRecentFiles}
             onLocateFile={locatePreviewFile}
             onReplaceBrowserTabWithFile={sidePanelCwd ? replaceBrowserTabWithFile : undefined}
+            backgroundTasksContent={backgroundTasksContent}
           />
         </div>
       )}

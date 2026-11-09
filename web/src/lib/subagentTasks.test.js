@@ -101,6 +101,27 @@ run('mergeSubagentTaskList 按创建时间倒序(新任务在前)', () => {
   assert.deepEqual(merged.map((t) => t.id), ['new', 'old']);
 });
 
+// 场景:模型用 wait=false 派子代理,子会话刚建好、还没写元数据就被列出来,
+// 列表里 created_at 是空串;之后这个任务已认识,不会再刷新列表。
+// 期望:运行中的任务用第一次看到它的时间计时;后续刷新若仍缺 created_at 沿用这个时间,
+// 拿到真实 created_at 时换成真实值;已结束且缺时间的任务不编造开始时间。
+// 回归:曾经 createdAtMs 停在 0,摘要面板的耗时一直显示 00s 不动。
+run('子会话列表缺 created_at 时,运行中任务按首次看到的时间计时', () => {
+  const seenAt = Date.parse('2026-11-09T11:09:29Z');
+  let tasks = mergeSubagentTaskList([], [makeSession({ busy: true, created_at: '' })], seenAt);
+  assert.equal(tasks[0].createdAtMs, seenAt);
+  assert.equal(taskElapsedSeconds(tasks[0], seenAt + 21000), 21);
+
+  tasks = mergeSubagentTaskList(tasks, [makeSession({ busy: true, created_at: '' })], seenAt + 5000);
+  assert.equal(tasks[0].createdAtMs, seenAt, '再次刷新仍缺时间时不重置计时起点');
+
+  tasks = mergeSubagentTaskList(tasks, [makeSession({ busy: true, created_at: '2026-11-09T11:09:28Z' })], seenAt + 9000);
+  assert.equal(tasks[0].createdAtMs, Date.parse('2026-11-09T11:09:28Z'));
+
+  const settled = mergeSubagentTaskList([], [makeSession({ busy: false, created_at: '' })], seenAt);
+  assert.equal(settled[0].createdAtMs, 0);
+});
+
 run('applySubagentSessionEvent busy_changed 完成迁移 + usage 单调更新', () => {
   let tasks = mergeSubagentTaskList([], [makeSession({ busy: true })]);
   tasks = applySubagentSessionEvent(tasks, {

@@ -151,7 +151,6 @@ import {
   normalizePreviewPanelWidth,
   normalizeSidePanelWidth,
   normalizeSidebarWidth,
-  normalizeSubagentPanelWidth,
   normalizeSummaryPanelWidth,
   previewPanelWidthIsUserSized,
   validateLayoutWidths,
@@ -2022,13 +2021,6 @@ export function App() {
     });
   }, [setSingleLayout]);
 
-  const setSubagentPanelWidth = useCallback((nextWidth, contentWidth = 0) => {
-    setSingleLayout((prev) => {
-      const subagentPanel = normalizeSubagentPanelWidth(nextWidth, contentWidth);
-      return subagentPanel === prev.subagentPanel ? prev : { ...prev, subagentPanel };
-    });
-  }, [setSingleLayout]);
-
   const startSidebarResize = useStableCallback((event) => {
     if (view !== 'single') return;
     if (event.button != null && event.button !== 0) return;
@@ -2354,8 +2346,6 @@ export function App() {
                 previewPanelWidth={singleLayout.previewPanel}
                 previewPanelAutoFit={!previewPanelUserSized}
                 onPreviewPanelResize={setPreviewPanelWidth}
-                subagentPanelWidth={singleLayout.subagentPanel ?? DEFAULT_SINGLE_LAYOUT.subagentPanel}
-                onSubagentPanelResize={setSubagentPanelWidth}
                 summaryPanelWidth={singleLayout.summaryPanel}
                 summaryPanelOpen={summaryPanelOpen}
                 onToggleSummaryPanel={toggleSummaryPanel}

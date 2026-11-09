@@ -6,6 +6,7 @@ export const PREVIEW_TAB_TYPES = Object.freeze({
   GIT_CHANGES: 'git-changes',
   BROWSER: 'browser',
   SIMULATOR: 'ios-simulator',
+  BACKGROUND_TASKS: 'background-tasks',
 });
 
 export function defaultBrowserTabTitle() {
@@ -124,9 +125,11 @@ export function visiblePreviewTabs(state, { scopeKey = '', sessionId = '' } = {}
     ? storedBrowserTabs
     : (storedBrowserTabs ? [storedBrowserTabs] : []);
   const simulatorTabs = sessionId ? simulatorTabsForSession(source, sessionId) : [];
+  const taskTab = sessionId ? source.taskTabsBySession?.[sessionId] : null;
   const naturalTabs = [
     ...fileTabs,
     ...(changeTab ? [changeTab] : []),
+    ...(taskTab ? [taskTab] : []),
     ...browserTabs,
     ...simulatorTabs,
   ];
@@ -253,9 +256,18 @@ function isSimulatorTabKey(tabKey) {
   return typeof tabKey === 'string' && tabKey.startsWith('ios-simulator:');
 }
 
-// 会话级页签(变更 / 浏览器 / 模拟器)的激活态同时记在 activeTabBySession。
+function backgroundTasksTabKey(sessionId) {
+  return `background-tasks:${sessionId}`;
+}
+
+function isBackgroundTasksTabKey(tabKey) {
+  return typeof tabKey === 'string' && tabKey.startsWith('background-tasks:');
+}
+
+// 会话级页签(变更 / 后台任务 / 浏览器 / 模拟器)的激活态同时记在 activeTabBySession。
 function isSessionScopedTabKey(tabKey) {
-  return isChangeTabKey(tabKey) || isBrowserTabKey(tabKey) || isSimulatorTabKey(tabKey);
+  return isChangeTabKey(tabKey) || isBackgroundTasksTabKey(tabKey)
+    || isBrowserTabKey(tabKey) || isSimulatorTabKey(tabKey);
 }
 
 // session-changes 与 git-changes 是同一个「变更」概念的两种数据源(非 git
@@ -417,6 +429,41 @@ export function openSessionChangesTab(state, {
     activeTabByView: {
       ...(source.activeTabByView || {}),
       [viewKey(scopeKey, sessionId)]: key,
+    },
+  };
+}
+
+// 后台任务页签:每个会话一个。taskId 是页签里正在看的任务(空 = 任务列表),
+// 记在页签状态里,切到别的页签再切回来仍停在原处;从外部定位某个任务时传 taskId。
+export function openBackgroundTasksTab(state, { scopeKey = '', sessionId = '', taskId } = {}) {
+  if (!sessionId) return state || {};
+  const source = state && typeof state === 'object' ? state : {};
+  const key = backgroundTasksTabKey(sessionId);
+  const previous = source.taskTabsBySession?.[sessionId];
+  const tab = {
+    key,
+    type: PREVIEW_TAB_TYPES.BACKGROUND_TASKS,
+    sessionId,
+    taskId: taskId === undefined ? String(previous?.taskId || '') : String(taskId || ''),
+  };
+  return {
+    ...source,
+    taskTabsBySession: { ...(source.taskTabsBySession || {}), [sessionId]: tab },
+    ...withSessionActiveTab(source, scopeKey, sessionId, key),
+  };
+}
+
+// 页签内切换「列表 / 某个任务」,不改变激活页签。
+export function updateBackgroundTasksTab(state, { sessionId = '', taskId = '' } = {}) {
+  const source = state && typeof state === 'object' ? state : {};
+  const previous = sessionId ? source.taskTabsBySession?.[sessionId] : null;
+  const nextTaskId = String(taskId || '');
+  if (!previous || previous.taskId === nextTaskId) return source;
+  return {
+    ...source,
+    taskTabsBySession: {
+      ...(source.taskTabsBySession || {}),
+      [sessionId]: { ...previous, taskId: nextTaskId },
     },
   };
 }
@@ -933,6 +980,24 @@ export function closePreviewTab(state, { scopeKey = '', sessionId = '', tabKey =
       tabOrderByView: removeKeysFromOrders(source.tabOrderByView, [tabKey]),
     };
   }
+  if (isBackgroundTasksTabKey(tabKey) && sessionId) {
+    const nextTaskTabs = { ...(source.taskTabsBySession || {}) };
+    delete nextTaskTabs[sessionId];
+    const nextActive = { ...(source.activeTabBySession || {}) };
+    const nextVisibleActive = nextActiveAfterClose(visibleBeforeClose, tabKey, activeKey);
+    if (isSessionScopedTabKey(nextVisibleActive)) nextActive[sessionId] = nextVisibleActive;
+    else delete nextActive[sessionId];
+    return {
+      ...source,
+      taskTabsBySession: nextTaskTabs,
+      activeTabBySession: nextActive,
+      activeTabByView: {
+        ...(source.activeTabByView || {}),
+        [viewKey(scopeKey, sessionId)]: nextVisibleActive,
+      },
+      tabOrderByView: removeKeysFromOrders(source.tabOrderByView, [tabKey]),
+    };
+  }
   if (isBrowserTabKey(tabKey) && sessionId) {
     const nextBrowserTabs = { ...(source.browserTabsBySession || {}) };
     const stored = nextBrowserTabs[sessionId];
@@ -992,9 +1057,11 @@ export function closeVisiblePreviewTabs(state, { scopeKey = '', sessionId = '' }
   const nextChangeTabs = { ...(source.changeTabsBySession || {}) };
   const nextBrowserTabs = { ...(source.browserTabsBySession || {}) };
   const nextSimulatorTabs = { ...(source.simulatorTabsBySession || {}) };
+  const nextTaskTabs = { ...(source.taskTabsBySession || {}) };
   const nextActiveBySession = { ...(source.activeTabBySession || {}) };
   if (sessionId) {
     delete nextChangeTabs[sessionId];
+    delete nextTaskTabs[sessionId];
     delete nextBrowserTabs[sessionId];
     delete nextSimulatorTabs[sessionId];
     delete nextActiveBySession[sessionId];
@@ -1006,6 +1073,7 @@ export function closeVisiblePreviewTabs(state, { scopeKey = '', sessionId = '' }
     changeTabsBySession: nextChangeTabs,
     browserTabsBySession: nextBrowserTabs,
     simulatorTabsBySession: nextSimulatorTabs,
+    taskTabsBySession: nextTaskTabs,
     activeTabBySession: nextActiveBySession,
     activeTabByView: nextActiveByView,
     tabOrderByView: removeKeysFromOrders(source.tabOrderByView, closedKeys),

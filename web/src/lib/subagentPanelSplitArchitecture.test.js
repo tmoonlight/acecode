@@ -19,43 +19,43 @@ function run(name, fn) {
   }
 }
 
-run('App owns and persists the preferred subagent panel width', () => {
+// 场景:后台任务(后台命令 + 子代理)的列表和子会话内容。
+// 期望:不再是对话区旁边可拖宽的独立分栏,而是详情栏里的「后台任务」页签;ChatView 只在
+// 该页签激活时渲染 BackgroundTasksView 并交给 PreviewDetailsPanel,正在看的任务记在页签状态里。
+// 回归:曾经是 ChatView 里单独一列(App 持久化宽度、ChatView 画拖动分隔条),用户要求并进详情栏。
+run('background tasks live in a detail panel tab instead of a split pane', () => {
   const app = source('App.jsx');
-  assert.match(app, /normalizeSubagentPanelWidth,/);
-  assert.match(app, /const setSubagentPanelWidth = useCallback/);
-  assert.match(app, /subagentPanel === prev\.subagentPanel \? prev : \{ \.\.\.prev, subagentPanel \}/);
-  assert.match(app, /subagentPanelWidth=\{singleLayout\.subagentPanel \?\? DEFAULT_SINGLE_LAYOUT\.subagentPanel\}/);
-  assert.match(app, /onSubagentPanelResize=\{setSubagentPanelWidth\}/);
-});
-
-run('ChatView renders an accessible draggable transcript splitter', () => {
   const chat = source('components/ChatView.jsx');
-  assert.match(chat, /subagentPanelOpen && \(\s*<div\s+role="separator"/);
-  assert.match(chat, /data-subagent-splitter="true"/);
-  assert.match(chat, /aria-orientation="vertical"/);
-  assert.match(chat, /aria-valuemin=\{subagentPanelRange\.min\}/);
-  assert.match(chat, /aria-valuemax=\{subagentPanelAriaMax\}/);
-  assert.match(chat, /aria-valuenow=\{renderedSubagentPanelWidth\}/);
-  assert.match(chat, /onPointerDown=\{startSubagentPanelResize\}/);
-  assert.match(chat, /onMouseDown=\{startSubagentPanelResize\}/);
-  assert.match(chat, /onKeyDown=\{onSubagentPanelHandleKeyDown\}/);
+  const details = source('components/PreviewDetailsPanel.jsx');
+  const view = source('components/SubagentPanel.jsx');
+
+  assert.doesNotMatch(app, /onSubagentPanelResize|setSubagentPanelWidth|subagentPanelWidth=/);
+  assert.doesNotMatch(chat, /data-subagent-splitter|startSubagentPanelResize|subagentPanelOpen|<SubagentPanel/);
+  assert.doesNotMatch(chat, /subagentOpen:/);
+  assert.match(chat, /activePreview\?\.type === PREVIEW_TAB_TYPES\.BACKGROUND_TASKS \? \(\s*<BackgroundTasksView/);
+  assert.match(chat, /backgroundTasksContent=\{backgroundTasksContent\}/);
+  assert.match(chat, /openBackgroundTasksTab\(prev, \{/);
+  assert.match(chat, /updateBackgroundTasksTab\(prev, \{ sessionId: sid, taskId \}\)/);
+  assert.match(details, /if \(active\.type === PREVIEW_TAB_TYPES\.BACKGROUND_TASKS\) \{\s*return backgroundTasksContent;/);
+  assert.match(details, /PREVIEW_TAB_TYPES\.BACKGROUND_TASKS\) return '后台任务'/);
+  assert.match(view, /export function BackgroundTasksView\(\{ tasks = \[\], taskId = '', onSelectTask,/);
+  assert.doesNotMatch(view, /export function SubagentPanel|style=\{\{ width \}\}/);
 });
 
-run('split drag and keyboard directions resize the right-hand subagent pane', () => {
+// 场景:用户从三处打开后台任务:会话三点菜单、对话里的智能体分组卡片、摘要面板(运行中任务行 /「N 已完成」)。
+// 期望:都走 openBackgroundTasksPreview:三点菜单保留页签里正在看的任务,分组卡片与任务行定位到该任务,
+// 「N 已完成」回到任务列表。
+run('every background task entry opens the detail panel tab', () => {
   const chat = source('components/ChatView.jsx');
-  assert.match(chat, /startWidth \+ startX - moveEvent\.clientX/);
-  assert.match(chat, /event\.key === 'ArrowLeft' \? step : -step/);
-  assert.match(chat, /subagentPanelResizeCleanupRef\.current\?\.\(\)/);
-  assert.match(chat, /document\.body\.classList\.add\('ace-resizing'\)/);
-  assert.match(chat, /document\.body\.classList\.remove\('ace-resizing'\)/);
-});
-
-run('SubagentPanel consumes the constrained width without a fixed 380px class', () => {
-  const panel = source('components/SubagentPanel.jsx');
-  assert.match(panel, /width = DEFAULT_SUBAGENT_PANEL_WIDTH/);
-  assert.match(panel, /style=\{\{ width \}\}/);
-  assert.doesNotMatch(panel, /w-\[380px\]/);
-  assert.doesNotMatch(panel, /max-w-\[85%\]/);
+  const summary = source('components/SummaryPanel.jsx');
+  assert.match(chat, /id: 'background_tasks', label: '后台任务'[\s\S]*?onSelect: \(\) => openBackgroundTasksPreview\(\)/);
+  assert.match(chat, /onOpenSubagent=\{openBackgroundTasksPreview\}/);
+  assert.match(chat, /const openSummaryTask = useStableCallback\(\(taskId\) => \{\s*closeSummaryPopup\(\);\s*openBackgroundTasksPreview\(taskId\);/);
+  assert.match(chat, /const openSummaryFinishedTasks = useStableCallback\(\(\) => \{\s*closeSummaryPopup\(\);\s*openBackgroundTasksPreview\(''\);/);
+  assert.match(chat, /onOpenFinishedTasks=\{openSummaryFinishedTasks\}/);
+  // 摘要面板的「后台任务」分组常驻(不随运行中任务清空而隐藏),末尾是「N 已完成」。
+  assert.doesNotMatch(summary, /running\.length > 0 && \(/);
+  assert.match(summary, /<Row icon="check" onClick=\{onOpenFinishedTasks\}>\s*\{finishedCount\} 已完成/);
 });
 
 // 场景:模型派子代理(spawn_subagent / 网状 agent_spawn),或子代理在后台跑着。
@@ -71,13 +71,11 @@ run('spawning a subagent does not open the background task panel by itself', () 
   assert.doesNotMatch(taskHook, /tool_start|onSpawnStart/);
   assert.match(chat, /useSubagentTasks\(sid\);/);
   assert.doesNotMatch(chat, /onSpawnStart|openSubagentPanelForSpawn/);
-  const opens = chat.match(/setSubagentPanelOpen\(true\)/g) || [];
-  assert.equal(opens.length, 2);
-  assert.match(chat, /const openSubagentTranscript = useCallback\(\(sessionId\) => \{\s*if \(!sessionId\) return;\s*setSubagentPanelOpen\(true\);/);
-  // 后台任务入口在会话三点菜单里,始终可点(没有任务时打开空列表),不再是有任务才出现的顶栏按钮。
-  assert.match(chat, /id: 'background_tasks', label: '后台任务'[\s\S]*?onSelect: \(\) => setSubagentPanelOpen\(true\)/);
-  assert.doesNotMatch(chat, /subagentTasks\.tasks\.length > 0 \|\| subagentPanelOpen/);
-  assert.match(chat, /onClose=\{\(\) => setSubagentPanelOpen\(false\)\}/);
+  // 打开后台任务页签只有一个入口函数,调用点全是用户操作(见上一条测试)。
+  const opens = chat.match(/openBackgroundTasksTab\(/g) || [];
+  assert.equal(opens.length, 1);
+  const callers = chat.match(/openBackgroundTasksPreview\(/g) || [];
+  assert.equal(callers.length, 3);
 });
 
 // 场景:Desktop 的 daemon 同时服务多个工作区,子会话不在内存里(Desktop 重启后、
