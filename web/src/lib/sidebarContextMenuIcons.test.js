@@ -100,8 +100,13 @@ test('会话与工作区右键菜单的每一项都有真实存在的复用图�
 // 才显示图标,右键同一个会话看到的是没有图标的另一种样子。
 test('侧栏会话行与项目行的右键菜单显示图标', () => {
   const menu = source('components/DesktopContextMenu.jsx');
-  assert.match(menu, /const showIcons = !!explicit \|\| !!\(contextTargets\.sessionTarget \|\| contextTargets\.workspaceTarget\);/);
-  assert.match(menu, /const width = showIcons \|\| contextTargets\.previewPresentationTarget \? ICON_MENU_WIDTH : MENU_WIDTH;/);
+  // 显式打开默认带图标,可传 showIcons: false 关掉(摘要面板目录行的下拉菜单);右键侧栏行同样带图标。
+  assert.ok(menu.includes('? explicit.showIcons !== false'));
+  assert.ok(menu.includes(': !!(contextTargets.sessionTarget || contextTargets.workspaceTarget);'));
+  // 显式打开可指定宽度;否则带图标(或演示预览)用宽菜单。placement=below 左缘对齐触发行向下展开。
+  assert.ok(menu.includes('const width = explicit?.width > 0'));
+  assert.ok(menu.includes('(showIcons || contextTargets.previewPresentationTarget ? ICON_MENU_WIDTH : MENU_WIDTH)'));
+  assert.ok(menu.includes("explicit.placement === 'pointer' || explicit.placement === 'below' ? explicit.x : explicit.x - width"));
   assert.match(menu, /showIcons,\n/);
   // 没有图标的项用等宽占位,不再拿 list 图标冒充。
   assert.doesNotMatch(menu, /\|\| 'list'\} size=\{16\}/);

@@ -613,11 +613,17 @@ export function DesktopContextMenu() {
         explicit?.actionOverrides,
       ));
       // 侧栏会话行 / 项目行的右键与会话菜单按钮一样带图标;其它区域的右键保持纯文字。
-      const showIcons = !!explicit || !!(contextTargets.sessionTarget || contextTargets.workspaceTarget);
-      const width = showIcons || contextTargets.previewPresentationTarget ? ICON_MENU_WIDTH : MENU_WIDTH;
-      // 按钮触发时菜单右缘对齐按钮;右键委托(placement=pointer)时像原生右键一样从光标处展开。
+      const showIcons = explicit
+        ? explicit.showIcons !== false
+        : !!(contextTargets.sessionTarget || contextTargets.workspaceTarget);
+      // 显式打开可以指定宽度(下拉菜单与触发行同宽,如摘要面板的目录行)。
+      const width = explicit?.width > 0
+        ? Math.round(explicit.width)
+        : (showIcons || contextTargets.previewPresentationTarget ? ICON_MENU_WIDTH : MENU_WIDTH);
+      // 按钮触发时菜单右缘对齐按钮;右键委托(placement=pointer)时像原生右键一样从光标处展开;
+      // placement=below 是左缘对齐触发行、向下展开的下拉菜单。
       const x = explicit
-        ? (explicit.placement === 'pointer' ? explicit.x : explicit.x - width)
+        ? (explicit.placement === 'pointer' || explicit.placement === 'below' ? explicit.x : explicit.x - width)
         : event.clientX;
       const y = explicit ? explicit.y : event.clientY;
       const pos = clampContextMenuPosition({
