@@ -49,12 +49,58 @@ export async function copyTextToSystemClipboard(
   };
 }
 
-// 读系统剪贴板纯文本(控制台右键粘贴用)。右键是用户手势,WebView2 / 浏览器
-// loopback(secure context)下 navigator.clipboard.readText 可直接读。失败返回
-// { ok:false }, 调用方静默降级。
+// 安卓 App 注入的剪贴板通道(WebViewCompat.addWebMessageListener,对象名 aceAndroid)。
+// 只注入到 ACECode 自己的页面源,对话里内嵌的可视化小框读不到。
+export function androidClipboardBridge(win = typeof window !== 'undefined' ? window : undefined) {
+  const bridge = win?.aceAndroid;
+  return bridge && typeof bridge.postMessage === 'function' ? bridge : null;
+}
+
+// 安卓上网页读不了剪贴板,而密码框会弹出禁止粘贴的「安全键盘」,所以密钥输入框
+// 旁边要有一个「粘贴」按钮;只有 App 提供了剪贴板通道时才显示。
+export function clipboardPasteButtonAvailable(win = typeof window !== 'undefined' ? window : undefined) {
+  return !!androidClipboardBridge(win);
+}
+
+function readTextViaAndroidBridge(bridge, timeoutMs) {
+  return new Promise((resolve) => {
+    const id = `clip-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let timer = null;
+    const listen = typeof bridge.addEventListener === 'function';
+    const previous = bridge.onmessage;
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (listen) bridge.removeEventListener('message', onMessage);
+      else bridge.onmessage = previous;
+    };
+    function onMessage(event) {
+      let data;
+      try { data = JSON.parse(String(event?.data ?? '')); } catch { return; }
+      if (data?.id !== id) return;
+      cleanup();
+      resolve(data.ok
+        ? { ok: true, text: String(data.text ?? ''), via: 'android' }
+        : { ok: false, error: String(data.error || 'clipboard read failed') });
+    }
+    if (listen) bridge.addEventListener('message', onMessage);
+    else bridge.onmessage = onMessage;
+    timer = setTimeout(() => {
+      cleanup();
+      resolve({ ok: false, error: 'clipboard bridge timeout' });
+    }, timeoutMs);
+    bridge.postMessage(JSON.stringify({ type: 'readClipboard', id }));
+  });
+}
+
+// 读系统剪贴板纯文本(控制台右键粘贴、密钥框「粘贴」按钮用)。安卓 App 里走 App 的
+// 剪贴板通道;其它环境右键是用户手势,WebView2 / 浏览器 loopback(secure context)下
+// navigator.clipboard.readText 可直接读。失败返回 { ok:false }, 调用方静默降级。
 export async function readTextFromSystemClipboard(
   win = typeof window !== 'undefined' ? window : undefined,
+  { timeoutMs = 3000 } = {},
 ) {
+  const bridge = androidClipboardBridge(win);
+  if (bridge) return readTextViaAndroidBridge(bridge, timeoutMs);
   const clipboard = win?.navigator?.clipboard;
   if (clipboard && typeof clipboard.readText === 'function') {
     try {

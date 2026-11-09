@@ -15,17 +15,15 @@ function run(name, fn) {
   }
 }
 
-run('Office previews share icon-only bounded zoom controls and native Ctrl-wheel capture', () => {
+run('Office previews share bounded zoom menu actions and native Ctrl-wheel capture', () => {
   const controls = source('../components/OfficePreviewControls.jsx');
   const styles = source('../styles/globals.css');
 
-  assert.equal((controls.match(/className="ace-office-preview-zoom-button"/g) || []).length, 2);
-  assert.match(controls, /title="缩小"[\s\S]*aria-label="缩小"/);
-  assert.match(controls, /title="放大"[\s\S]*aria-label="放大"/);
+  assert.match(controls, /label: '缩小'.*disabled: zoom <= OFFICE_PREVIEW_ZOOM_MIN.*onSelect: zoomOut/);
+  assert.match(controls, /label: '放大'.*disabled: zoom >= OFFICE_PREVIEW_ZOOM_MAX.*onSelect: zoomIn/);
   assert.match(controls, /if \(!event\.ctrlKey\) return;/);
   assert.match(controls, /addEventListener\('wheel', onWheel, \{ passive: false, capture: true \}\)/);
   assert.doesNotMatch(controls, /Math\.round\(zoom \* 100\)|\{zoom\s*\*\s*100\}|100%/);
-  assert.match(styles, /\.ace-office-preview-controls\s*\{[\s\S]*top:\s*8px;[\s\S]*right:\s*8px;/);
   assert.match(styles, /\.ace-office-preview-shell\s*\{[\s\S]*min-width:\s*0;[\s\S]*width:\s*100%;/);
 });
 
@@ -45,7 +43,7 @@ run('Word preview keeps browser zoom centered on the visible viewport', () => {
   assert.match(wordPreview, /if \(cancelled \|\| fitApplied\) return;[\s\S]*new ResizeObserver\(scheduleFit\)/);
   assert.match(wordPreview, /fitApplied = true;[\s\S]*fitObserver\?\.disconnect\(\)/);
   assert.match(wordPreview, /applyInitialWordPreviewFit\(viewportRef\.current, host, setZoom\)/);
-  assert.match(wordPreview, /<OfficePreviewControls[\s\S]*onZoomIn=\{zoomIn\}[\s\S]*onZoomOut=\{zoomOut\}/);
+  assert.match(wordPreview, /renderMenu\(officeZoomActions\(zoom, zoomIn, zoomOut\)\)/);
 });
 
 run('Spreadsheet resize and zoom reload canvas plus native scrollbar geometry', () => {

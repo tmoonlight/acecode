@@ -3949,6 +3949,55 @@ TEST(WebServerHttp, CreateSessionRejectsInvalidExplicitPermissionMode) {
     EXPECT_EQ(body["error"], "INVALID_PERMISSION_MODE");
 }
 
+// 场景:Web 新建任务页先开了浏览器,页面已按前端预留的会话 id 归属;发送首条消息时
+// 带着 session_id 建会话。
+// 期望:daemon 沿用这个 id;非法 id(太短、含路径字符、非字符串、超长)返回 400
+// INVALID_SESSION_ID;id 已被活跃会话或磁盘上的会话占用返回 409 SESSION_ID_EXISTS,
+// 绝不续写已有 transcript,也不会多建出会话。
+TEST(WebServerHttp, CreateSessionAdoptsClientReservedSessionId) {
+    WebServerFixture fx;
+    auto create = [&](const json& body) {
+        return cpr::Post(cpr::Url{fx.url("/api/sessions")},
+                         cpr::Header{{"Content-Type", "application/json"}},
+                         cpr::Body{body.dump()});
+    };
+
+    const std::string reserved = "20261110_083015_4f2a";
+    auto created = create({{"session_id", reserved}});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    EXPECT_EQ(json::parse(created.text)["session_id"], reserved);
+    ASSERT_NE(fx.registry->lookup(reserved), nullptr);
+
+    auto active_duplicate = create({{"session_id", reserved}});
+    EXPECT_EQ(active_duplicate.status_code, 409) << active_duplicate.text;
+    EXPECT_EQ(json::parse(active_duplicate.text)["error"], "SESSION_ID_EXISTS");
+    EXPECT_EQ(fx.registry->list_active().size(), 1u);
+
+    // 只在磁盘上的会话(从注册表移除但文件保留)同样算占用。
+    auto* entry = fx.registry->lookup(reserved);
+    ASSERT_NE(entry, nullptr);
+    acecode::ChatMessage msg;
+    msg.role = "user";
+    msg.content = "persist reserved session";
+    entry->sm->on_message(msg);
+    ASSERT_EQ(cpr::Delete(cpr::Url{fx.url("/api/sessions/" + reserved)}).status_code, 204);
+    ASSERT_TRUE(std::filesystem::exists(path_from_utf8(
+        acecode::SessionStorage::meta_path(fx.project_dir, reserved))));
+    auto disk_duplicate = create({{"session_id", reserved}});
+    EXPECT_EQ(disk_duplicate.status_code, 409) << disk_duplicate.text;
+    EXPECT_EQ(json::parse(disk_duplicate.text)["error"], "SESSION_ID_EXISTS");
+    EXPECT_EQ(fx.registry->lookup(reserved), nullptr);
+
+    // 下限 8 个字符同时挡掉 CON / NUL 这类 Windows 保留设备名。
+    for (const auto& invalid : std::vector<json>{"short", "CON", "../../escape_id",
+            "has space id", 42, std::string(65, 'a')}) {
+        auto rejected = create({{"session_id", invalid}});
+        EXPECT_EQ(rejected.status_code, 400) << rejected.text;
+        EXPECT_EQ(json::parse(rejected.text)["error"], "INVALID_SESSION_ID");
+    }
+    EXPECT_TRUE(fx.registry->list_active().empty());
+}
+
 // 场景:首页选择"不使用工作区"创建的 session 要出现在兼容会话列表,
 // 但不能出现在任何 workspace-scoped 会话列表里。
 TEST(WebServerHttp, CreateNoWorkspaceSessionIsListedOutsideWorkspaces) {

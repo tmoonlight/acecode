@@ -64,7 +64,7 @@ run('ActivityLine 保持流内固定单行且 selector 包含恢复和后台状�
   assert.doesNotMatch(chat, /function ActivityIndicator/);
   assert.match(selector, /正在恢复权限请求/);
   assert.match(selector, /正在恢复提问请求/);
-  assert.match(selector, /主会话仍可继续输入/);
+  assert.doesNotMatch(selector, /主会话仍可继续输入/);
 });
 
 run('底部 live 主状态用独立文字副本每两秒扫光且详情保持静态', () => {

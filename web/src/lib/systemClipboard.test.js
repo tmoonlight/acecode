@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { copyImageToSystemClipboard, copyTextToSystemClipboard } from './systemClipboard.js';
+import {
+  clipboardPasteButtonAvailable,
+  copyImageToSystemClipboard,
+  copyTextToSystemClipboard,
+  readTextFromSystemClipboard,
+} from './systemClipboard.js';
 
 function run(name, fn) {
   try {
@@ -197,4 +202,64 @@ await run('image clipboard rejects non-image blobs', async () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.error, 'clipboard item is not an image');
+});
+
+// 安卓 App 注入的 aceAndroid 通道的假实现:收到读剪贴板请求后按同一个 id 回包。
+function fakeAndroidBridge(reply) {
+  const listeners = new Set();
+  const sent = [];
+  return {
+    sent,
+    postMessage(message) {
+      sent.push(message);
+      const request = JSON.parse(message);
+      // 先回一条别的 id,模拟并发请求的回包,必须被忽略。
+      for (const listener of listeners) listener({ data: JSON.stringify({ id: 'other', ok: true, text: 'wrong' }) });
+      const response = reply(request);
+      if (response) for (const listener of [...listeners]) listener({ data: JSON.stringify({ id: request.id, ...response }) });
+    },
+    addEventListener(type, fn) { if (type === 'message') listeners.add(fn); },
+    removeEventListener(type, fn) { listeners.delete(fn); },
+    get listenerCount() { return listeners.size; },
+  };
+}
+
+// 场景: 安卓 App 里在密钥输入框点「粘贴」(vivo 等手机对密码框弹出禁止粘贴的安全键盘)。
+// 期望: 经 App 注入的 aceAndroid 通道读剪贴板,只认同一个请求 id 的回包,读完摘掉监听;
+//       此时不去碰 navigator.clipboard(WebView 不给网页读剪贴板的权限)。
+// 回归: 2026-11-08 vivo 上输入 API key 弹安全键盘,既不能粘贴也没有别的入口。
+await run('android app reads the clipboard through the aceAndroid bridge', async () => {
+  const bridge = fakeAndroidBridge((request) => {
+    assert.equal(request.type, 'readClipboard');
+    return { ok: true, text: 'sk-from-clipboard' };
+  });
+  const win = {
+    aceAndroid: bridge,
+    navigator: { clipboard: { readText: async () => { throw new Error('must not use navigator'); } } },
+  };
+  assert.equal(clipboardPasteButtonAvailable(win), true);
+  const result = await readTextFromSystemClipboard(win);
+  assert.deepEqual(result, { ok: true, text: 'sk-from-clipboard', via: 'android' });
+  assert.equal(bridge.sent.length, 1);
+  assert.equal(bridge.listenerCount, 0);
+});
+
+// 场景: App 通道出错或一直不回包(旧版 App、剪贴板被系统拒绝)。
+// 期望: 出错原样报 ok:false;超时也报 ok:false 并摘掉监听,不会挂住按钮。
+await run('android clipboard bridge failures and timeouts degrade quietly', async () => {
+  const failing = fakeAndroidBridge(() => ({ ok: false, error: 'clipboard empty' }));
+  assert.deepEqual(await readTextFromSystemClipboard({ aceAndroid: failing }), { ok: false, error: 'clipboard empty' });
+  const silent = fakeAndroidBridge(() => null);
+  const result = await readTextFromSystemClipboard({ aceAndroid: silent }, { timeoutMs: 5 });
+  assert.equal(result.ok, false);
+  assert.equal(silent.listenerCount, 0);
+});
+
+// 场景: 桌面版 / 普通浏览器。
+// 期望: 没有 aceAndroid 通道时不显示「粘贴」按钮(桌面直接 Ctrl+V),读剪贴板仍走 navigator。
+await run('paste button stays hidden outside the android app', async () => {
+  const win = { navigator: { clipboard: { readText: async () => 'desk' } } };
+  assert.equal(clipboardPasteButtonAvailable(win), false);
+  assert.equal(clipboardPasteButtonAvailable(undefined), false);
+  assert.deepEqual(await readTextFromSystemClipboard(win), { ok: true, text: 'desk', via: 'navigator' });
 });

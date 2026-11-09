@@ -1,5 +1,6 @@
 import { isDismissShortcut, shortcutEventConsumed } from '../lib/shortcutBindings.js';
 import { VirtualOfficeSettings } from './VirtualOfficeSettings.jsx';
+import { AndroidPhoneSettings } from './AndroidPhoneSettings.jsx';
 // 浮动设置窗口:mask + 贯通的左栏导航与右栏内容。
 //
 // 左侧导航按 Codex 风格分组,section key 与深链行为保持稳定。
@@ -121,8 +122,12 @@ import {
 import {
   getSettingsNavGroups,
   getSettingsNavItems,
+  initialSettingsNarrowPane,
+  settingsNavGroupsForShell,
   settingsNavIndexForKey,
 } from '../lib/settingsNavigation.js';
+import { useNarrowLayout } from '../lib/useNarrowLayout.js';
+import { isAndroidApp } from '../lib/mobileShell.js';
 import { useSlashCommands } from './SlashCommandsContext.jsx';
 import { RefreshIcon, VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -213,13 +218,18 @@ export function SettingsPage({
   const [developerModeUnlocked, setDeveloperModeUnlocked] = useState(loadDeveloperModeUnlocked);
   const unlockSequenceRef = useRef(createDeveloperModeUnlock());
   const developerNavRef = useRef(null);
-  const navGroups = getSettingsNavGroups(developerModeUnlocked);
+  const navGroups = settingsNavGroupsForShell(getSettingsNavGroups(developerModeUnlocked), { androidApp: isAndroidApp() });
   const navItems = getSettingsNavItems(developerModeUnlocked);
   const [activeNav, setActiveNav] = useState(
     () => settingsNavIndexForKey(initialNavKey, developerModeUnlocked),
   );
   const [show, setShow] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // 窄屏(手机竖屏)是两级:'list' 只显示分区导航,'detail' 只显示当前分区内容。宽屏忽略。
+  const narrow = useNarrowLayout();
+  const [narrowPane, setNarrowPane] = useState(() => initialSettingsNarrowPane({ initialNavKey, initialSearch }));
+  const narrowPaneRef = useRef(narrowPane);
+  narrowPaneRef.current = narrow ? narrowPane : '';
   const { i18n } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -261,6 +271,7 @@ export function SettingsPage({
     setSearchTerm(query);
     setSearchIndex(settingsSearchResultIndex(searchSettings(searchEntries, query), initialSearch));
     setSearchNavigation((value) => value + 1);
+    setNarrowPane('detail');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSearch?.nonce]);
   useEffect(() => {
@@ -292,6 +303,7 @@ export function SettingsPage({
   useEffect(() => { requestAnimationFrame(() => setShow(true)); }, []);
   useEffect(() => {
     setActiveNav(settingsNavIndexForKey(initialNavKey, developerModeUnlocked));
+    setNarrowPane(initialSettingsNarrowPane({ initialNavKey }));
   }, [initialNavKey, navigationRequest]);
   useEffect(() => () => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -317,6 +329,11 @@ export function SettingsPage({
     const onKeyDown = (event) => {
       if (!isDismissShortcut(event) || shortcutEventConsumed(event) || event.isComposing) return;
       if (document.querySelector('[data-ace-modal-dialog="true"]')) return;
+      // 窄屏在分区内容页时,Esc / 安卓返回键先回到分区列表,再按一次才关闭设置。
+      if (narrowPaneRef.current === 'detail') {
+        setNarrowPane('list');
+        return;
+      }
       close();
     };
     document.addEventListener('keydown', onKeyDown);
@@ -328,6 +345,7 @@ export function SettingsPage({
   };
   const toggleExpanded = () => setExpanded((value) => !value);
   const selectSearchResult = (index) => {
+    setNarrowPane('detail');
     setSearchIndex(index);
     setSearchNavigation((value) => value + 1);
     setActiveNav(settingsNavIndexForKey(searchResults[index].section, developerModeUnlocked));
@@ -364,6 +382,7 @@ export function SettingsPage({
           }
         }}
         data-expanded={expanded ? 'true' : 'false'}
+        data-narrow-pane={narrow ? narrowPane : undefined}
         tabIndex={-1}
         className={clsx(
           'ace-settings-panel flex overflow-hidden outline-none',
@@ -372,6 +391,14 @@ export function SettingsPage({
       >
         <span id="settings-window-title" className="sr-only">设置</span>
         <nav className="ace-settings-nav shrink-0 select-none">
+          {narrow && (
+            <div className="ace-settings-narrow-bar">
+              <span className="ace-settings-narrow-title">设置</span>
+              <button type="button" title="关闭" aria-label="关闭" onClick={close} className="h-11 w-11 shrink-0 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
+                <VsIcon name="close" size={18} />
+              </button>
+            </div>
+          )}
           {/* 搜索框固定在顶部,只有下面的导航 / 搜索结果在 ace-settings-nav-list 里滚动。 */}
           <SettingsSearch query={searchQuery} onQuery={setSearchQuery} results={searchResults} selected={searchIndex}
             onSelect={selectSearchResult} onComposing={setComposing} />
@@ -405,7 +432,7 @@ export function SettingsPage({
                           type="button"
                           aria-current={active ? 'page' : undefined}
                           aria-label={item.label}
-                          onClick={() => { setActiveNav(itemIndex); contentRef.current?.scrollTo(0, 0); }}
+                          onClick={() => { setActiveNav(itemIndex); setNarrowPane('detail'); contentRef.current?.scrollTo(0, 0); }}
                           className={clsx(
                             'ace-settings-nav-item w-full min-h-8 px-3 py-1 text-[13px] transition flex items-center gap-2 text-left',
                             active
@@ -429,27 +456,39 @@ export function SettingsPage({
             if (event.target === event.currentTarget) toggleExpanded();
           }}
         >
-          <div className="ace-settings-window-actions flex items-center gap-1 select-none">
-            <button
-              type="button"
-              title={expanded ? '还原' : '展开'}
-              aria-label={expanded ? '还原' : '展开'}
-              aria-pressed={expanded}
-              onClick={toggleExpanded}
-              className="h-8 w-8 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition"
-            >
-              <VsIcon name={expanded ? 'screenNormal' : 'screenFull'} size={15} />
-            </button>
-            <button
-              type="button"
-              title="关闭"
-              aria-label="关闭"
-              onClick={close}
-              className="h-8 w-8 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition"
-            >
-              <VsIcon name="close" size={15} />
-            </button>
-          </div>
+          {narrow ? (
+            <div className="ace-settings-narrow-bar">
+              <button type="button" title="返回" aria-label="返回" onClick={() => setNarrowPane('list')} className="h-11 w-11 shrink-0 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
+                <VsIcon name="back" size={18} />
+              </button>
+              <span className="ace-settings-narrow-title truncate">{navItems[activeNav]?.label}</span>
+              <button type="button" title="关闭" aria-label="关闭" onClick={close} className="h-11 w-11 shrink-0 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition">
+                <VsIcon name="close" size={18} />
+              </button>
+            </div>
+          ) : (
+            <div className="ace-settings-window-actions flex items-center gap-1 select-none">
+              <button
+                type="button"
+                title={expanded ? '还原' : '展开'}
+                aria-label={expanded ? '还原' : '展开'}
+                aria-pressed={expanded}
+                onClick={toggleExpanded}
+                className="h-8 w-8 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition"
+              >
+                <VsIcon name={expanded ? 'screenNormal' : 'screenFull'} size={15} />
+              </button>
+              <button
+                type="button"
+                title="关闭"
+                aria-label="关闭"
+                onClick={close}
+                className="h-8 w-8 inline-flex items-center justify-center rounded-md text-fg-2 hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent transition"
+              >
+                <VsIcon name="close" size={15} />
+              </button>
+            </div>
+          )}
         <div ref={contentRef} className="ace-settings-content flex-1 min-w-0 overflow-y-auto px-4 py-3 sm:px-6 sm:py-5">
           {activeNavKey === 'general' && (
             <SectionGeneral
@@ -1532,6 +1571,7 @@ function SectionAppearance({
   return (
     <>
       <h2 className="text-xl font-bold mb-5">外观</h2>
+      <AndroidPhoneSettings pet />
 
       <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
         <div className="text-[14px] font-semibold">主题</div>
@@ -2701,14 +2741,18 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
   const nativeBrowserAvailable = typeof globalThis?.aceDesktop_agentBrowserGetState === 'function';
   const [browserExpanded, setBrowserExpanded] = useState(false);
   const browserConfigId = useId();
+  // 安卓 App 里 Agent 浏览器 / Computer Use / iOS 模拟器都用不了(分别只支持 Windows Desktop、
+  // Windows 与 macOS、macOS),列出来只是噪音。
+  const desktopOnlyToolsVisible = !isAndroidApp();
 
   return (
     <>
       <h2 className="text-xl font-bold mb-5">工具</h2>
+      <AndroidPhoneSettings />
 
       <div className="text-[14px] font-semibold mb-3">内置工具</div>
 
-      <div className="bg-surface border border-border mb-2">
+      {desktopOnlyToolsVisible && <div className="bg-surface border border-border mb-2">
         <div className="flex items-center gap-3 px-3.5 py-3 border border-border">
           <div data-settings-surface="true" className="w-10 h-10 rounded-md bg-surface-alt border border-border flex items-center justify-center shrink-0 text-fg">
             <VsIcon name="globe" size={20} />
@@ -2725,12 +2769,12 @@ function SectionTools({ onCheckUpdates, onModelProfileUpdated }) {
           </span>
         </div>
         <AgentBrowserCookieSettings id={browserConfigId} expanded={browserExpanded} />
-      </div>
+      </div>}
 
       <ImageGenerationSettings onCheckUpdates={onCheckUpdates} />
       <SpeechRecognitionSettings />
-      <ComputerUseSettings onCheckUpdates={onCheckUpdates} />
-      <IosSimulatorSettings />
+      {desktopOnlyToolsVisible && <ComputerUseSettings onCheckUpdates={onCheckUpdates} />}
+      {desktopOnlyToolsVisible && <IosSimulatorSettings />}
       <SummaryGenerationSettings onCheckUpdates={onCheckUpdates} onModelProfileUpdated={onModelProfileUpdated} />
 
       <ToolRewriteSettings onCheckUpdates={onCheckUpdates} />

@@ -323,7 +323,8 @@ run('compressed composer controls retain the model name while other controls use
   assert.match(component, /root\.setAttribute\('data-ultra-compact', 'true'\)/);
   assert.match(component, /window\.addEventListener\('resize', schedule\)/);
   assert.match(component, /data-adaptive-composer-control="true"\s+data-compact=\{compactControls\.has\('model'\) \? 'true' : 'false'\}\s+data-composer-control="model"/);
-  assert.match(styles, /\[data-adaptive-composer-control="true"\]\[data-compact="true"\]:not\(\[data-composer-control="model"\]\)\s*\{[^}]*width: 28px !important;[^}]*max-width: 28px !important;/s);
+  assert.match(styles, /\[data-adaptive-composer-control="true"\]\[data-compact="true"\]:not\(\[data-composer-control="model"\]\)\s*\{[^}]*width: var\(--ace-composer-min-target, 28px\) !important;[^}]*max-width: var\(--ace-composer-min-target, 28px\) !important;/s);
+  assert.match(styles, /@media \(pointer: coarse\)\s*\{[^@]*--ace-composer-min-target: 44px;/s);
   assert.match(styles, /data-ultra-compact="true"[^}]*data-composer-control="token-budget"[^}]*\{\s*display: none;/s);
   assert.match(styles, /\.ace-composer-adaptive-chip\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);
   assert.match(styles, /\.ace-composer-permission-control\[data-compact="true"\] \.ace-composer-adaptive-content\s*\{[^}]*display: none;/s);

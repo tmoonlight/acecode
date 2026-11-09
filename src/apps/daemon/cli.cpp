@@ -43,6 +43,7 @@ void print_help(std::ostream& os) {
        << "  --static-dir=<PATH>    serve front-end assets from PATH\n"
        << "  --run-dir=<PATH>       isolate runtime files (heartbeat/pid/port/token) to PATH\n"
        << "  --native-folder-picker enable Desktop native folder picker API\n"
+       << "  --require-local-token  require the token from loopback clients too (Android app)\n"
        << "  --supervised --guid=G  launcher-internal: launched by Service supervisor\n"
        << "  --desktop-managed      Desktop-internal managed lifecycle metadata\n"
        << "  --yolo, --dangerous    skip permission checks (loopback bind only)\n"
@@ -150,6 +151,8 @@ Args parse(const std::vector<std::string>& tokens) {
             a.run_dir_override = tokens[++i];
         } else if (t == "--native-folder-picker") {
             a.native_folder_picker_enabled = true;
+        } else if (t == "--require-local-token") {
+            a.require_local_token = true;
         } else if (t == "--desktop-managed") {
             a.desktop_managed = true;
         } else if (starts_with(t, "--desktop-protocol=")) {
@@ -292,6 +295,7 @@ static int do_foreground(const Args& a, const std::string& exe_path) {
     opts.dangerous           = a.dangerous;
     opts.port_override       = a.port_override;
     opts.token_override      = a.token_override;
+    opts.require_local_token = a.require_local_token;
     opts.static_dir_override = a.static_dir_override;
     opts.cwd_override        = a.cwd_override;
     opts.native_folder_picker_enabled = a.native_folder_picker_enabled;
@@ -327,6 +331,9 @@ static int do_start(const Args& a, const std::string& exe_path) {
     }
     if (!a.token_override.empty()) {
         argv.push_back("--token=" + a.token_override);
+    }
+    if (a.require_local_token) {
+        argv.push_back("--require-local-token");
     }
     if (!a.static_dir_override.empty()) {
         argv.push_back("--static-dir=" + a.static_dir_override);

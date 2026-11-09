@@ -35,3 +35,10 @@
 Draft-gate correction verification: complete `pnpm test`, `pnpm build`, strict OpenSpec validation and scoped `git diff --check` passed. The browser harness verified zero recommendation requests for restored text, persisted pasted blocks, current unsent text/attachments/pastes at completion, pending draft loads and failed draft loads; clearing/revisiting did not backfill skipped requests, and a confirmed empty draft triggered once. Existing draft-effect unit fixtures were updated for the added load-failure state setter.
 
 The running Windows instance locked the normal `Release/acecode.exe`. The updated daemon and embedded UI were linked into `build/follow-up-draft-preview/acecode.exe` and passed `--version`. That directory reuses the already verified, unchanged desktop shell from this worktree (SHA-256 copy verified), with its helper executables and channel files. A fresh shell link in the shared build tree encountered mixed MSVC-runtime symbols in the existing desktop-support library; this frontend-only correction requires no shell changes. The running instance was preserved.
+
+## 5. Restore an existing recommendation after editing
+
+- [x] 5.1 Retain ready recommendations during temporary edits and preserve suppression for edits before generation finishes.
+- [x] 5.2 Verify typing and clearing in the chat composer, request counts and explicit consumption. Run the frontend suite, build and strict OpenSpec validation.
+
+The ChatView browser test restored the same recommendation after clearing both text and a single space, with one request for the turn. The browser regression suite, `pnpm test`, `pnpm build` and strict OpenSpec validation passed.

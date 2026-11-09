@@ -123,6 +123,25 @@ TEST(CheckAuth, LoopbackAlwaysAllowed) {
               AuthResult::Allowed);
 }
 
+// 场景: 安卓 App 启动 daemon 时带 --require-local-token(trust_local_without_token=false)。
+// 安卓上所有 App 共用同一个回环地址,别的 App 连 127.0.0.1 也会被当成"本机"。
+// 期望: 本机地址不再免 token —— 没带是 NoToken、带错是 BadToken、带对才放行;
+//       header 与 query 任一匹配即可(WebView 的 fetch 用 header,WS 用 query)。
+// 回归: 2026-11-07 模拟器验证时,任何本机进程不带 token 请求 /api/models 就拿到了明文 api_key。
+TEST(CheckAuth, RequireLocalTokenMakesLoopbackPresentToken) {
+    EXPECT_EQ(check_request_auth("127.0.0.1", "server-tk", "", "", false),
+              AuthResult::NoToken);
+    EXPECT_EQ(check_request_auth("::1", "server-tk", "wrong-tk", "", false),
+              AuthResult::BadToken);
+    EXPECT_EQ(check_request_auth("::ffff:127.0.0.1", "server-tk", "server-tk", "", false),
+              AuthResult::Allowed);
+    EXPECT_EQ(check_request_auth("127.0.0.1", "server-tk", "", "server-tk", false),
+              AuthResult::Allowed);
+    // 远程地址的规则不因这个开关放宽。
+    EXPECT_EQ(check_request_auth("8.8.8.8", "server-tk", "", "", false),
+              AuthResult::NoToken);
+}
+
 TEST(CheckAuth, RemoteProxyLoopbackSourceNeedsExplicitToken) {
     EXPECT_EQ(check_request_auth("127.0.0.2", "server-tk", "", ""),
               AuthResult::NoToken);

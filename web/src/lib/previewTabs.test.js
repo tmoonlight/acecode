@@ -112,6 +112,32 @@ run('new sessions only receive home previews through explicit transfer', () => {
   assert.deepEqual(previewTabContext(), { scopeKey: '', sessionId: '' });
 });
 
+// 场景:新建任务页(草稿身份 draft:x)开了文件页签和浏览器页签,随后发送首条消息建会话。
+// 期望:daemon 采用了预留 id(页面已归属新会话)时,浏览器页签随文件页签一起迁到新会话,
+// 顺序与激活页签保持不变,草稿视图清空;没采用时浏览器页签随草稿关掉,不挂到新会话上。
+run('new sessions take draft browser tabs only when the native page already belongs to them', () => {
+  const home = previewTabContext({ scopeKey: 'workspace-a', sessionId: 'draft:x' });
+  const session = previewTabContext({ scopeKey: 'workspace-a', sessionId: 'real-session' });
+  let state = openFileTab({}, { ...home, cwd: '/project', path: 'README.md' });
+  state = openBrowserTab(state, { ...home, pageId: 'page-1', title: 'Docs', favicon: 'https://x.test/icon.png' });
+  state = activatePreviewTab(state, { ...home, tabKey: 'browser:page-1' });
+
+  const moved = transferPreviewTabs(state, home, session, { browserPages: true });
+  assert.deepEqual(visiblePreviewTabs(moved, session).map((tab) => [tab.type, tab.title]), [
+    ['file', 'README.md'],
+    ['browser', 'Docs'],
+  ]);
+  const browserTab = visiblePreviewTabs(moved, session)[1];
+  assert.equal(browserTab.sessionId, 'real-session');
+  assert.equal(browserTab.favicon, 'https://x.test/icon.png');
+  assert.equal(activePreviewTab(moved, session).key, 'browser:page-1');
+  assert.equal(visiblePreviewTabs(moved, home).length, 0);
+
+  const dropped = transferPreviewTabs(state, home, session);
+  assert.deepEqual(visiblePreviewTabs(dropped, session).map((tab) => tab.type), ['file']);
+  assert.equal(visiblePreviewTabs(dropped, home).length, 0);
+});
+
 run('openFileTab scopes files by workspace and reuses duplicate paths', () => {
   let state = {};
   state = openFileTab(state, { scopeKey: 'workspace-a', sessionId: 's1', cwd: 'C:/a', path: 'src\\main.cpp' });

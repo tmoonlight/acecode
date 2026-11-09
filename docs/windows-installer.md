@@ -47,7 +47,8 @@ uninstall.exe --uninstall [--silent]
 4. 旧目录改名为 `<名>.setup-old`,新目录改名为正式目录;第二步失败时改回去,所以不会留下半新半旧的目录。旧目录是安装程序或 Inno 装的就删掉,否则(便携 zip 解出来的,可能有用户自己的文件)保留为 `<名>.backup-<日期>`。
 5. 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\ACECode`,创建开始菜单「ACECode」「ACECode 终端」,按选项创建桌面快捷方式、加入用户 PATH(保留原注册表值类型并广播 `WM_SETTINGCHANGE`)。
 6. 旧 Inno 安装包装在同一目录时,删掉它的卸载登记和开始菜单分组,`unins000.*` 随旧目录一起删除。
-7. 完成页可选填写 ACEModel Key,写入用户数据目录的 `config.json`,合并规则与旧 `seed_acemodel.ps1` 相同。
+
+界面模式下安装 / 卸载在工作线程上跑。快捷方式是 COM 对象,`windows_shell.cpp` 的快捷方式函数每次调用自己进出 COM 套间:1.0.21 / 1.0.22 没这样做,开发机上常有别的组件先建好多线程套间所以没暴露,干净机器上一律报 `failed to create a shell link object`(静默模式在已初始化 COM 的主线程上跑,不受影响)。回归测试 `tests/installer/windows_shell_test.cpp`。完成页只有「完成」「启动 ACECode」两个按钮,不再填 ACEModel Key。
 
 卸载按安装记录确认目录,撤销快捷方式、PATH 与登记后删除整个安装目录。卸载程序先把自己复制到 `%TEMP%\acecode-uninstall-<pid>\` 再从副本执行;静默卸载中仍在运行的原启动器移到安装目录旁边的 `acecode-uninstall-<pid>-trash`，保证跨盘安装时也能在同一卷内改名。下次针对该位置运行安装或卸载程序时清理残留副本。用户数据目录(会话、设置、技能)两者都不碰。
 
@@ -67,7 +68,7 @@ uninstall.exe --uninstall [--silent]
 
 - 单测:`tests/installer/`、`tests/platform/install_record_test.cpp`、`tests/scripts/make_setup_test.py`(Windows 上会真实调用 `UpdateResource` 并读回)。
 - 手动:干净用户下安装 → 开始菜单与「设置 > 应用」出现 ACECode → 新终端里 `acecode --version` → 覆盖安装同版本与新版本 → 运行中安装被拦下 → 卸载后目录、快捷方式、PATH、登记都消失。
-- 开发机上先设环境变量 `ACECODE_SETUP_TEST_ROOT=<空目录>` 再运行安装程序:卸载登记与 PATH 改写到 `HKCU\Software\ACECode-setup-test`,开始菜单、桌面与默认安装位置都在该目录下,不会动到本机已有的 ACECode。卸载程序的临时副本会继承这个变量。完成页的 ACEModel Key 写在用户数据目录(由 `USERPROFILE` 推出),测试时把 `USERPROFILE` 也指向沙盒里的目录。
+- 开发机上先设环境变量 `ACECODE_SETUP_TEST_ROOT=<空目录>` 再运行安装程序:卸载登记与 PATH 改写到 `HKCU\Software\ACECode-setup-test`,开始菜单、桌面与默认安装位置都在该目录下,不会动到本机已有的 ACECode。卸载程序的临时副本会继承这个变量。沙盒的注册表位置是固定的,换沙盒目录前先卸载或删掉 `HKCU\Software\ACECode-setup-test`,否则会沿用上一个沙盒的安装位置。
 
 ## 发布
 

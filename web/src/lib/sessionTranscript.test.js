@@ -5,6 +5,7 @@ import {
   createTranscriptState,
   lastAssistantText,
   loadTranscriptHistory,
+  mergeTranscriptHistoryPage,
   normalizeTurnNetDiffRecord,
   isTranscriptActivelyRunning,
   preserveLiveAssistantTailOnLoad,
@@ -94,6 +95,102 @@ run('history load 使用持久 timestamp 而不是页面加载时间', () => {
 
   assert.equal(loaded.items[0].ts, Date.parse(userTs));
   assert.equal(loaded.items[1].ts, Date.parse(assistantTs));
+});
+
+// 按真实落盘形状构造:user / system 行带 timestamp,assistant / tool 行没有(服务端
+// 的消息 id 依赖空 timestamp,刻意不落)。
+function persistedTurnWithoutAssistantTimestamps() {
+  return [
+    { id: 'u-1', role: 'user', content: 'do work', timestamp: '2026-06-01T08:00:00Z' },
+    { id: 'cp-1', role: 'system', content: '[File checkpoint]', is_meta: true, timestamp: '2026-06-01T08:00:00Z' },
+    { id: 'ctx-1', role: 'user', content: '<request-context-update>', is_meta: true },
+    { id: 'a-1', role: 'assistant', content: '', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'file_read', arguments: '{}' } }] },
+    { id: 'tool-1', role: 'tool', tool_call_id: 'call-1', content: 'read file', metadata: { tool_summary: { verb: 'Read', object: 'src/a.js', metrics: [] } } },
+    { id: 'cp-2', role: 'system', content: '[File checkpoint]', is_meta: true, timestamp: '2026-06-01T08:00:20Z' },
+    {
+      id: 'done-1',
+      role: 'tool',
+      tool: 'task_complete',
+      content: 'done',
+      metadata: { tool_summary: { verb: 'complete', object: 'task', metrics: [{ label: 'summary', value: 'done' }] } },
+    },
+    { id: 'a-final', role: 'assistant', content: 'all done' },
+    { ...turnTimingMessage('u-1', 30000), timestamp: '2026-06-01T08:00:30Z' },
+  ];
+}
+
+// 触发场景:重开三天前的会话,历史里 assistant / tool 行没有 timestamp。
+// 期望行为:最终回复与完成总结取同回合之后带时间的行([Turn timing] = 回合结束时刻),
+// 不借下一回合 user 行的时间。
+// 回归测试:曾经兜底成页面加载时刻,所有回复与「下一步」框都显示「刚刚」。
+run('history load 给没有 timestamp 的 assistant / tool 行按同回合推断时间', () => {
+  const turnEnd = Date.parse('2026-06-01T08:00:30Z');
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [
+      ...persistedTurnWithoutAssistantTimestamps(),
+      { id: 'u-2', role: 'user', content: 'three days later', timestamp: '2026-06-04T09:00:00Z' },
+    ],
+    events: [],
+  }).state;
+
+  const finalReply = loaded.items.find((item) => item.messageId === 'a-final');
+  assert.equal(finalReply.ts, turnEnd);
+  const toolRow = loaded.items.find((item) => item.messageId === 'tool-1');
+  assert.equal(toolRow.ts, Date.parse('2026-06-01T08:00:20Z'));
+  assert.equal(loaded.items.find((item) => item.messageId === 'u-2').ts, Date.parse('2026-06-04T09:00:00Z'));
+
+  // 最后一个回合的 task_complete 单独投影成完成总结(「下一步」框),它的时间也来自回合结束。
+  const lastTurn = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: persistedTurnWithoutAssistantTimestamps(),
+    events: [],
+  }).state;
+  const completion = projectLoadedItems(lastTurn.items).find((item) => item.kind === 'completion_summary');
+  assert.equal(completion.ts, turnEnd);
+});
+
+// 触发场景:回合还在跑(或这一页到头),assistant 行后面没有任何带时间的行。
+// 期望行为:退回同回合前面最近一条带时间的行,而不是页面加载时刻。
+run('history load 回合未结束时 assistant 行退回前一条带时间的消息', () => {
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: persistedTurnWithoutAssistantTimestamps().slice(0, 5),
+    events: [],
+  }).state;
+
+  const toolRow = loaded.items.find((item) => item.messageId === 'tool-1');
+  assert.equal(toolRow.ts, Date.parse('2026-06-01T08:00:00Z'));
+});
+
+// 触发场景:旧会话或被中断的回合没有 [Turn timing] 行,最终回复后面直接是三天后的下一条 user。
+// 期望行为:回合边界不往后借时间,退回同回合前面最近的检查点,而不是显示成三天后。
+run('history load 推断时间不跨过下一回合的 user 行', () => {
+  const withoutTiming = persistedTurnWithoutAssistantTimestamps().slice(0, -1);
+  const loaded = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [
+      ...withoutTiming,
+      { id: 'u-2', role: 'user', content: 'three days later', timestamp: '2026-06-04T09:00:00Z' },
+    ],
+    events: [],
+  }).state;
+
+  const finalReply = loaded.items.find((item) => item.messageId === 'a-final');
+  assert.equal(finalReply.ts, Date.parse('2026-06-01T08:00:20Z'));
+});
+
+// 触发场景:向上翻页,较早一页与已加载的尾页拼接。
+// 期望行为:翻页合并同样按页内推断,不出现页面加载时刻。
+run('history 翻页合并的 assistant 行同样按同回合推断时间', () => {
+  const tail = loadTranscriptHistory(createTranscriptState({ title: 's1' }), {
+    messages: [{ id: 'u-2', role: 'user', content: 'later', timestamp: '2026-06-04T09:00:00Z' }],
+    events: [],
+  }).state;
+  const merged = mergeTranscriptHistoryPage(tail, {
+    messages: persistedTurnWithoutAssistantTimestamps(),
+    before: '',
+    has_more: false,
+  }, 'before');
+
+  const finalReply = merged.items.find((item) => item.messageId === 'a-final');
+  assert.equal(finalReply.ts, Date.parse('2026-06-01T08:00:30Z'));
 });
 
 run('history load 后完成的压缩通知恢复为一个折叠投影', () => {

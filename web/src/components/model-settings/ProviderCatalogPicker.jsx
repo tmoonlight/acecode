@@ -71,6 +71,9 @@ export function ProviderCatalogPicker({
   managedConnection,
   onProviderChange,
   onDraftChange,
+  // 手机竖屏的页签:'providers' 只显示 Provider 列表,'details' 只显示所选 Provider 的模型与连接;
+  // null(桌面)保持左右两栏。
+  narrowPane = null,
 }) {
   const [providerQuery, setProviderQuery] = useState('');
   const [modelQuery, setModelQuery] = useState('');
@@ -311,8 +314,11 @@ export function ProviderCatalogPicker({
 
   return (
     <>
-      <div className="grid min-h-[320px] grid-cols-1 overflow-hidden rounded-md border border-border bg-surface md:h-[420px] md:grid-cols-[220px_minmax(0,1fr)]">
-      <div className="border-b border-border bg-surface-alt p-2.5 md:flex md:min-h-0 md:flex-col md:border-b-0 md:border-r">
+      <div
+        data-narrow-pane={narrowPane || undefined}
+        className="ace-provider-picker grid min-h-[320px] grid-cols-1 overflow-hidden rounded-md border border-border bg-surface md:h-[420px] md:grid-cols-[220px_minmax(0,1fr)]"
+      >
+      <div className="ace-provider-picker-list border-b border-border bg-surface-alt p-2.5 md:flex md:min-h-0 md:flex-col md:border-b-0 md:border-r">
         <label className="relative block">
           <span className="sr-only">搜索 Provider</span>
           <VsIcon name="search" size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-mute" />
@@ -325,7 +331,7 @@ export function ProviderCatalogPicker({
           />
         </label>
         <div
-          className="mt-2 max-h-[210px] space-y-2 overflow-y-auto pr-0.5 md:min-h-0 md:max-h-none md:flex-1"
+          className="ace-provider-picker-options mt-2 max-h-[210px] space-y-2 overflow-y-auto pr-0.5 md:min-h-0 md:max-h-none md:flex-1"
           role="listbox"
           aria-label="Provider 列表"
         >
@@ -374,7 +380,7 @@ export function ProviderCatalogPicker({
         </div>
       </div>
 
-      <div className="min-w-0 p-3 md:min-h-0 md:overflow-y-auto">
+      <div className="ace-provider-picker-details min-w-0 p-3 md:min-h-0 md:overflow-y-auto">
         {provider ? (
           <>
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -526,7 +532,7 @@ export function ProviderCatalogPicker({
                 </div>
 
                 <div
-                  className="mt-2 max-h-[210px] overflow-y-auto rounded-md border border-border bg-surface"
+                  className="ace-provider-model-options mt-2 max-h-[210px] overflow-y-auto rounded-md border border-border bg-surface"
                   role={allowMultiple ? 'group' : 'radiogroup'}
                   aria-label="模型列表"
                   aria-busy={catalogStatus === 'loading' || probeStatus === 'loading'}

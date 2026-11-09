@@ -135,6 +135,30 @@ struct ComGuard {
     }
 };
 
+// 快捷方式是 COM 对象,调用线程必须先进 COM 套间。安装界面把安装放在工作线程上跑,那条线程
+// 从没初始化过 COM:开发机上常有别的组件先建好多线程套间,线程被隐式并进去所以能用;干净的
+// 机器上 CoCreateInstance 直接返回 CO_E_NOTINITIALIZED。每次调用自己进出一次套间;线程已在
+// 另一种套间里(RPC_E_CHANGED_MODE)时 COM 照样可用,只是不配对退出。
+class ComApartment {
+public:
+    ComApartment()
+        : result_(::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)) {}
+    ~ComApartment() {
+        if (SUCCEEDED(result_)) ::CoUninitialize();
+    }
+    ComApartment(const ComApartment&) = delete;
+    ComApartment& operator=(const ComApartment&) = delete;
+
+private:
+    HRESULT result_;
+};
+
+std::string hresult_text(HRESULT hr) {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof(buffer), "0x%08lX", static_cast<unsigned long>(hr));
+    return buffer;
+}
+
 std::wstring uninstall_key(const std::string& key_name) {
     const char* parent = sandbox_root().empty()
                              ? "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
@@ -349,11 +373,12 @@ bool create_shortcut(const std::string& link_path,
                      const std::string& working_dir,
                      const std::string& description,
                      std::string* error) {
+    const ComApartment apartment;
     ComGuard<IShellLinkW> link;
     HRESULT hr = ::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
                                     IID_IShellLinkW, reinterpret_cast<void**>(&link.ptr));
     if (FAILED(hr) || !link.ptr) {
-        if (error) *error = "failed to create a shell link object";
+        if (error) *error = "failed to create a shell link object: " + hresult_text(hr);
         return false;
     }
     const std::wstring target_w = wide(target);
@@ -377,6 +402,7 @@ bool create_shortcut(const std::string& link_path,
 }
 
 std::optional<std::string> shortcut_target(const std::string& link_path) {
+    const ComApartment apartment;
     ComGuard<IShellLinkW> link;
     if (FAILED(::CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
                                   IID_IShellLinkW, reinterpret_cast<void**>(&link.ptr))) ||

@@ -5,6 +5,7 @@ import {
   solveSingleContentLayout,
 } from './singleLayout.js';
 import { rightPanelHidden, summaryPanelHidden } from './uiPrefs.js';
+import { NARROW_LAYOUT_MAX_WIDTH } from './mobileShell.js';
 
 export const MIN_READABLE_TRANSCRIPT_WIDTH = 350;
 export const SIDEBAR_RESTORE_MARGIN = 64;
@@ -31,6 +32,7 @@ export function solveResponsiveSidebars({
   summaryAvailable = false,
   previous = {},
   enabled = true,
+  touch = false,
 } = {}) {
   const transcriptMinimum = MIN_READABLE_TRANSCRIPT_WIDTH;
   const minimumChatWidth = transcriptMinimum + TRANSCRIPT_COLUMN_GUTTER
@@ -40,6 +42,9 @@ export function solveResponsiveSidebars({
   const active = enabled && shellWidth > 0
     && !(preferences.sidePanelMaximized && previewAvailable && rightWanted);
   const leftWidth = widths.sidebar || DEFAULT_SINGLE_LAYOUT.sidebar;
+  const phoneDrawers = enabled && touch && shellWidth > 0
+    && (shellWidth <= NARROW_LAYOUT_MAX_WIDTH ||
+        shellWidth < minimumChatWidth + (widths.sidePanel || DEFAULT_SINGLE_LAYOUT.sidePanel));
   // Only the left sidebar responds to transcript pressure. Account for the
   // right workspace's manual visibility when predicting the expanded layout.
   const fitsWithLeft = (available, required) => solveSingleContentLayout({
@@ -53,16 +58,16 @@ export function solveResponsiveSidebars({
     minimumChatWidth: required,
   }).chatWidth >= required;
 
-  const leftAutoCollapsed = active && !fitsWithLeft(
+  const leftAutoCollapsed = phoneDrawers || (active && !fitsWithLeft(
     shellWidth - leftWidth,
     minimumChatWidth + (previous.leftAutoCollapsed ? SIDEBAR_RESTORE_MARGIN : 0),
-  );
+  ));
   const leftDocked = leftWanted && !leftAutoCollapsed;
 
   // 摘要面板最先让位:左侧会话列表的判定不看它;它只在「左侧该停靠的都停靠了,
   // 再放下它对话区仍够宽」时才停靠。左侧想要却被挤掉时它一定也收起。
   const summaryWidth = normalizeSummaryPanelWidth(widths.summaryPanel ?? DEFAULT_SUMMARY_PANEL_WIDTH);
-  const summaryFits = summaryAvailable && (!active || (
+  const summaryFits = summaryAvailable && !phoneDrawers && (!active || (
     !(leftWanted && leftAutoCollapsed)
     && fitsWithLeft(
       shellWidth - (leftWanted ? leftWidth : 0) - summaryWidth,
@@ -75,7 +80,7 @@ export function solveResponsiveSidebars({
     active, transcriptMinimum, minimumChatWidth,
     leftAutoCollapsed, leftDocked, canDockLeft: !leftAutoCollapsed,
     summaryAvailable, summaryAutoCollapsed, summaryDocked: summaryWanted && summaryFits, canDockSummary: summaryFits,
-    rightAutoCollapsed: false, rightDocked: rightWanted, canDockRight: true,
+    rightAutoCollapsed: phoneDrawers, rightDocked: rightWanted && !phoneDrawers, canDockRight: !phoneDrawers,
   };
 }
 

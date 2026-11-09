@@ -170,6 +170,7 @@ export function MediaGroupBlock({ item, collapsed, onToggle, messageAutoCollapse
 
 export function CompletionSummaryBlock({
   item,
+  copyText,
   onFork,
   forkPending = false,
   forkLoading = false,
@@ -215,7 +216,7 @@ export function CompletionSummaryBlock({
         <div className="min-h-6 flex items-center gap-1">
           <MessageActions
             messageId={item?.messageId}
-            getCopyText={() => summaryText}
+            getCopyText={() => copyText ?? summaryText}
             onFork={onFork}
             forkPending={forkPending}
             forkLoading={forkLoading}
@@ -317,6 +318,7 @@ function TranscriptItem({
       >
         <CompletionSummaryBlock
           item={item}
+          copyText={directive?.copyText}
           onFork={capabilities.forkMessages ? onFork : undefined}
           forkPending={capabilities.forkMessages && forkingMessageId !== ''}
           forkLoading={capabilities.forkMessages

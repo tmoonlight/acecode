@@ -72,6 +72,7 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
       const isCrowded = () => overflowWidth() > 1;
 
       const compactOrder = ['permission', 'expert-pending', 'expert', 'swarm-mode', 'goal', 'reasoning', 'model'];
+      const minimumWidth = parseFloat(getComputedStyle(root).getPropertyValue('--ace-composer-min-target')) || 28;
       const nextCompact = new Set();
       for (const controlName of compactOrder) {
         if (!isCrowded()) break;
@@ -84,8 +85,8 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
         nextCompact.add(controlName);
         element.setAttribute('data-compact', 'true');
         const width = controlName === 'model'
-          ? Math.max(28, Math.floor(element.getBoundingClientRect().width - overflowWidth()))
-          : 28;
+          ? Math.max(minimumWidth, Math.floor(element.getBoundingClientRect().width - overflowWidth()))
+          : minimumWidth;
         if (controlName === 'model') element.style.width = `${width}px`;
         element.style.flex = `0 0 ${width}px`;
         root.getBoundingClientRect();
@@ -99,7 +100,7 @@ function useAdaptiveComposerControls(rootRef, measureKey) {
         if (!contentClipped) return;
         nextCompact.add(element.dataset.composerControl);
         element.setAttribute('data-compact', 'true');
-        element.style.flex = '0 0 28px';
+        element.style.flex = `0 0 ${minimumWidth}px`;
         root.getBoundingClientRect();
       });
       if (isCrowded()) {

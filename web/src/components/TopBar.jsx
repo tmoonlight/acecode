@@ -156,10 +156,10 @@ export function TopBar({
         >
           <PanelToggleIcon side="left" size={16} expanded={!sidebarCollapsed} />
         </QuickBtn>
-        <QuickBtn title={withAppShortcutHint('后退', 'back')} onClick={onGoBack} disabled={!canGoBack}>
+        <QuickBtn title={withAppShortcutHint('后退', 'back')} onClick={onGoBack} disabled={!canGoBack} data-navigation-history="back">
           <NavigationArrowIcon direction="back" size={16} />
         </QuickBtn>
-        <QuickBtn title={withAppShortcutHint('前进', 'forward')} onClick={onGoForward} disabled={!canGoForward}>
+        <QuickBtn title={withAppShortcutHint('前进', 'forward')} onClick={onGoForward} disabled={!canGoForward} data-navigation-history="forward">
           <NavigationArrowIcon direction="forward" size={16} />
         </QuickBtn>
         <QuickBtn title={withSearchPaletteShortcutHint('搜索任务')} onClick={onOpenSearch}>

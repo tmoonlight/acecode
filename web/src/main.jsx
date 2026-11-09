@@ -9,6 +9,7 @@ import { installBrowserDefaultGuards } from './lib/browserDefaults.js';
 import { installDesktopZoom } from './lib/desktopZoom.js';
 import { installMermaidRenderer } from './lib/mermaidRenderer.js';
 import { installWebappCompatFlag } from './lib/desktopShellMode.js';
+import { installBackBridge } from './lib/mobileShell.js';
 import {
   installDesktopStartupPaintReporter,
   reportDesktopStartupMilestone,
@@ -18,6 +19,8 @@ import './styles/globals.css';
 
 installBrowserDefaultGuards(window, { onZoomWheel: installDesktopZoom(window) });
 installMermaidRenderer();
+// 安卓 App 的返回键先问网页有没有要关的浮层(window.__aceHandleBack)。
+installBackBridge(window);
 reportDesktopStartupMilestone('web_bootstrap');
 installDesktopStartupPaintReporter();
 

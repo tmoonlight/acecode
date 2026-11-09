@@ -35,14 +35,14 @@ import {
   captureFilePreviewScroll,
   restoredFilePreviewScroll,
 } from '../lib/filePreviewScroll.js';
-import { CopyableCodeFrame } from './CopyableCodeFrame.jsx';
+import { createPortal } from 'react-dom';
+import { FilePreviewMenu } from './FilePreviewMenu.jsx';
 import { ImageLightbox } from './ImageLightbox.jsx';
 import {
-  OfficePreviewControls,
+  officeZoomActions,
   useOfficePreviewZoom,
 } from './OfficePreviewControls.jsx';
 import { SelectionAnnotationOverlay } from './SelectionAnnotationOverlay.jsx';
-import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
 
 // Office 预览与 Markdown 所见即所得编辑器各自拖着大块第三方库(pptx2html 渲染器
@@ -66,7 +66,7 @@ function escapeHtml(s) {
 }
 
 async function copyWithToast(text, okText) {
-  const result = await copyTextToSystemClipboard(text);
+  const result = await copyTextToSystemClipboard(text, window, { allowEmpty: true });
   if (result.ok) toast({ kind: 'ok', text: okText });
   else toast({ kind: 'err', text: '复制失败:' + (result.error || '') });
 }
@@ -174,6 +174,7 @@ function HighlightedTextEditor({
 }
 
 export function FilePreviewContent({
+  actionsHost,
   textZoom = 1,
   owner,
   api,
@@ -527,21 +528,26 @@ export function FilePreviewContent({
     'data-desktop-preview-copy-image-url': state.kind === 'image' ? state.previewUrl || undefined : undefined,
     'data-selection-source-revision': sourceContentRevision || undefined,
   };
+  const renderMenu = (actions = []) => actionsHost && createPortal(
+    <FilePreviewMenu cwd={cwd} path={path} actions={actions} />, actionsHost,
+  );
   if (state.status === 'loading') {
-    return <div className="ace-empty-state" {...previewAttrs}>加载中...</div>;
+    return <div className="ace-empty-state" {...previewAttrs}>{renderMenu()}加载中...</div>;
   }
   if (state.status === 'error') {
     return (
       <div className="ace-empty-state" {...previewAttrs}>
+        {renderMenu()}
         <div className="text-danger text-[12px] mb-1">{state.error}</div>
         <div className="text-fg-mute text-[10px] opacity-70 break-all">{path}</div>
       </div>
     );
   }
-  if (state.status !== 'ok') return null;
+  if (state.status !== 'ok') return renderMenu();
   if (state.kind === 'image') {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
+        {renderMenu()}
         <button
           type="button"
           className="ace-side-image-preview"
@@ -562,6 +568,7 @@ export function FilePreviewContent({
   if (state.kind === 'pdf') {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
+        {renderMenu()}
         <object
           className="ace-side-pdf-preview"
           data={state.previewUrl}
@@ -579,22 +586,22 @@ export function FilePreviewContent({
   if (state.kind === 'word') {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
-        <WordPreview blob={state.blob} path={path} />
+        <WordPreview blob={state.blob} path={path} renderMenu={renderMenu} />
       </div>
     );
   }
   if (state.kind === 'spreadsheet') {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
-        <SpreadsheetPreview blob={state.blob} path={path} />
+        <SpreadsheetPreview blob={state.blob} path={path} renderMenu={renderMenu} />
       </div>
     );
   }
   if (state.kind === 'presentation') {
     return (
       <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
-        <Suspense fallback={<div className="ace-empty-state">加载中...</div>}>
-          <PresentationPreview blob={state.blob} path={path} />
+        <Suspense fallback={<div className="ace-empty-state">{renderMenu()}加载中...</div>}>
+          <PresentationPreview blob={state.blob} path={path} renderMenu={renderMenu} />
         </Suspense>
       </div>
     );
@@ -628,59 +635,30 @@ export function FilePreviewContent({
       `<tr${i + 1 === focusLine ? ' class="ace-line-focus"' : ''}><td class="ace-line-no" style="width:${gutterW + 1}ch">${i + 1}</td><td class="ace-line-code" data-source-line="${i + 1}" data-source-start="${sourceLineStarts[i] ?? 0}" data-source-length="${sourceLines[i]?.length ?? 0}">${ln || ' '}</td></tr>`
     ).join('')
   }</tbody></table>`;
-  const wrapTitle = wrapPreview ? '关闭自动换行' : '开启自动换行';
   const htmlBrowserUrl = onOpenBrowser ? htmlPreviewFileUrl({ cwd, path }) : '';
   const showMarkdownRendered = isMarkdown && !markdownSource;
-  const markdownToggleTitle = markdownSource ? '渲染 Markdown' : '查看 Markdown 原文';
+  const actions = [];
+  if (htmlBrowserUrl) actions.push({
+    label: '在内置浏览器中打开', icon: 'globe', onSelect: () => onOpenBrowser(htmlBrowserUrl),
+  });
+  if (isMarkdown) actions.push({
+    label: markdownSource ? '渲染 Markdown' : '查看 Markdown 原文',
+    icon: markdownSource ? 'document' : 'code',
+    onSelect: () => {
+      setInactiveSourceSelection(null);
+      setMarkdownSource((prev) => !prev);
+    },
+  });
+  if (!showMarkdownRendered) actions.push({
+    label: wrapPreview ? '关闭自动换行' : '开启自动换行', icon: 'wordWrap', onSelect: onToggleWrapPreview,
+  });
+  actions.push({ label: '复制代码', icon: 'copy', onSelect: () => copyWithToast(previewText, '已复制代码') });
   return (
     <div className="flex-1 flex flex-col overflow-hidden" {...previewAttrs}>
-      <CopyableCodeFrame
-        text={previewText}
-        className={clsx('flex-1 min-h-0 ace-side-preview-code', editing && 'is-editing')}
+      {renderMenu(actions)}
+      <div
+        className={clsx('relative flex-1 min-h-0 ace-side-preview-code', editing && 'is-editing')}
         data-wrap={wrapPreview ? 'true' : 'false'}
-        actions={(
-          <>
-            {htmlBrowserUrl && (
-              <button
-                type="button"
-                className="ace-code-action-btn ace-code-browser-btn"
-                title="在内置浏览器中打开"
-                aria-label="在内置浏览器中打开"
-                onClick={(event) => { event.stopPropagation(); void onOpenBrowser(htmlBrowserUrl); }}
-              >
-                <VsIcon name="globe" size={14} />
-              </button>
-            )}
-            {isMarkdown && (
-              <button
-                type="button"
-                className={clsx('ace-code-action-btn ace-code-markdown-btn', showMarkdownRendered && 'is-active')}
-                title={markdownToggleTitle}
-                aria-label={markdownToggleTitle}
-                aria-pressed={showMarkdownRendered}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setInactiveSourceSelection(null);
-                  setMarkdownSource((prev) => !prev);
-                }}
-              >
-                <VsIcon name={markdownSource ? 'document' : 'code'} size={14} />
-              </button>
-            )}
-            {!showMarkdownRendered && (
-              <button
-                type="button"
-                className={clsx('ace-code-action-btn ace-code-wrap-btn', wrapPreview && 'is-active')}
-                title={wrapTitle}
-                aria-label={wrapTitle}
-                aria-pressed={wrapPreview}
-                onClick={(event) => { event.stopPropagation(); onToggleWrapPreview?.(); }}
-              >
-                <VsIcon name="wordWrap" size={14} />
-              </button>
-            )}
-          </>
-        )}
       >
         {showMarkdownRendered ? (
           <>
@@ -753,7 +731,7 @@ export function FilePreviewContent({
             />
           </>
         )}
-      </CopyableCodeFrame>
+      </div>
     </div>
   );
 }
@@ -798,7 +776,7 @@ function applyInitialWordPreviewFit(viewport, host, setZoom) {
   return true;
 }
 
-function WordPreview({ blob, path }) {
+function WordPreview({ blob, path, renderMenu }) {
   const hostRef = useRef(null);
   const shellRef = useRef(null);
   const viewportRef = useRef(null);
@@ -867,6 +845,7 @@ function WordPreview({ blob, path }) {
   if (error) {
     return (
       <div className="ace-empty-state">
+        {renderMenu()}
         <div className="text-danger text-[12px] mb-1">{error}</div>
         <div className="text-fg-mute text-[10px] opacity-70 break-all">{path}</div>
       </div>
@@ -884,16 +863,12 @@ function WordPreview({ blob, path }) {
           }}
         />
       </div>
-      <OfficePreviewControls
-        zoom={zoom}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-      />
+      {renderMenu(officeZoomActions(zoom, zoomIn, zoomOut))}
     </div>
   );
 }
 
-function SpreadsheetPreview({ blob, path }) {
+function SpreadsheetPreview({ blob, path, renderMenu }) {
   const hostRef = useRef(null);
   const shellRef = useRef(null);
   const spreadsheetRef = useRef(null);
@@ -987,6 +962,7 @@ function SpreadsheetPreview({ blob, path }) {
   if (error) {
     return (
       <div className="ace-empty-state">
+        {renderMenu()}
         <div className="text-danger text-[12px] mb-1">{error}</div>
         <div className="text-fg-mute text-[10px] opacity-70 break-all">{path}</div>
       </div>
@@ -996,11 +972,7 @@ function SpreadsheetPreview({ blob, path }) {
   return (
     <div ref={shellRef} className="ace-office-preview-shell">
       <div ref={hostRef} className="ace-side-spreadsheet-preview" />
-      <OfficePreviewControls
-        zoom={zoom}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
-      />
+      {renderMenu(officeZoomActions(zoom, zoomIn, zoomOut))}
     </div>
   );
 }

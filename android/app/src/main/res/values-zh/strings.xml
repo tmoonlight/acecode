@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="status_preparing">正在准备运行环境</string>
+    <string name="status_starting">正在启动</string>
+    <string name="status_stopped">已停止</string>
+    <string name="action_retry">重试</string>
+    <string name="action_start">启动</string>
+    <string name="action_stop">停止</string>
+    <string name="notification_running">正在运行</string>
+    <string name="channel_runtime">运行状态</string>
+    <string name="notification_prompt">允许通知后,ACECode 在后台运行时可以在通知栏查看和停止。</string>
+    <string name="action_open_settings">去设置</string>
+    <string name="action_later">以后</string>
+    <string name="phone_control">ACECode 手机操控</string>
+    <string name="phone_accessibility_description">允许 ACECode 按你的要求读取手机界面和点按控件。界面文字可能发送给你选择的模型。</string>
+    <string name="floating_pet">ACECode 悬浮宠物</string>
+    <string name="approve_phone_tap">ACECode 请求点按「%1$s」</string>
+    <string name="approve_phone_open">ACECode 请求打开「%1$s」</string>
+    <string name="phone_allow_once">允许一次</string>
+    <string name="phone_deny">拒绝</string>
+</resources>

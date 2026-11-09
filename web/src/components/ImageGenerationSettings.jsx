@@ -5,6 +5,8 @@ import { imageGenerationCanTest, imageGenerationPayload, imageGenerationSettings
 import { Toggle } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
+import { ClipboardPasteButton } from './ClipboardPasteButton.jsx';
+import { clipboardPasteButtonAvailable } from '../lib/systemClipboard.js';
 
 const fieldClass = 'w-full h-8 px-2 text-[12px] border border-border bg-surface-alt text-fg outline-none focus:border-accent disabled:opacity-50';
 const buttonClass = 'px-3 py-1.5 text-[12px] border border-border bg-surface-alt hover:bg-surface-hi disabled:opacity-50';
@@ -123,7 +125,7 @@ export function ImageGenerationSettings({ onCheckUpdates }) {
             <div>
               <label htmlFor="image-generation-api-key" className="block mb-1 text-[12px] text-fg-mute">API Key</label>
               <div className="relative">
-                <input id="image-generation-api-key" className={`${fieldClass} pr-10`}
+                <input id="image-generation-api-key" className={`${fieldClass} ${clipboardPasteButtonAvailable() ? 'pr-[88px]' : 'pr-10'}`}
                   type={apiKeyVisible ? 'text' : 'password'} value={draft.apiKey} autoComplete="off" spellCheck={false}
                   placeholder="输入 API Key" onChange={(e) => update('apiKey', e.target.value)} onBlur={saveOnBlur} />
                 <button type="button" onClick={() => setApiKeyVisible((value) => !value)}
@@ -132,6 +134,8 @@ export function ImageGenerationSettings({ onCheckUpdates }) {
                   className={`absolute inset-y-0 right-0 flex w-9 items-center justify-center transition hover:bg-surface-hi hover:text-fg focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent ${apiKeyVisible ? 'text-accent' : 'text-fg-mute'}`}>
                   <VsIcon name="eye" size={14} />
                 </button>
+                <ClipboardPasteButton onPaste={(text) => update('apiKey', text, true)}
+                  className="absolute inset-y-0 right-9 w-12 flex items-center justify-center px-2.5 text-[12px] text-accent transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent disabled:opacity-50" />
               </div>
             </div>
           </>}

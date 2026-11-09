@@ -173,7 +173,7 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
             </div>
           </Field>
 
-          <div className="flex flex-nowrap items-center gap-2.5" role="group" aria-label="执行频率">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5" role="group" aria-label="执行频率">
             <span className="shrink-0 text-[12px] font-medium text-fg-2">执行频率</span>
             <div className="inline-flex shrink-0 rounded-md border border-border overflow-hidden">
               {[['period', '周期'], ['interval', '按间隔'], ['once', '单次']].map(([value, label]) => (
@@ -208,7 +208,7 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
           </div>
 
           {form.scheduleKind === 'period' && form.period === 'weekly' && (
-            <div className="flex items-center gap-1.5 pl-[58px]" aria-label="执行星期">
+            <div className="flex flex-wrap items-center gap-1.5 sm:pl-[58px]" aria-label="执行星期">
               {WEEKDAYS.map(([day, label]) => {
                 const selected = form.weekdays.includes(day);
                 return (
@@ -258,11 +258,12 @@ function AddLoopDialog({ loop = null, template = null, models, defaultModelName,
         </div>
 
         <div className="sticky bottom-0 h-[52px] px-5 flex items-center gap-3 border-t border-border bg-surface">
-          <div className="mr-auto flex min-w-0 items-center gap-2">
+          {/* 插件入口暂时只是禁用的占位;手机竖屏放不下,直接不显示。 */}
+          <div className="mr-auto flex min-w-0 items-center gap-2 max-sm:hidden">
             <span className="shrink-0 text-[11px] font-medium text-fg-2">插件</span>
             <button type="button" disabled title="插件暂不可用" className="h-8 min-w-[112px] px-2.5 rounded-md border border-dashed border-border text-left text-[11px] text-fg-mute disabled:cursor-not-allowed">暂无插件</button>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 max-sm:ml-auto">
             <button type="button" onClick={onClose} className="h-8 px-4 rounded-md border border-border text-[12px] hover:bg-surface-hi">取消</button>
             <button type="button" data-ace-dialog-primary="true" onClick={submit} disabled={saving} className="h-8 px-5 rounded-md bg-fg text-bg text-[12px] font-medium disabled:opacity-50">{saving ? '保存中…' : loop ? '保存' : '添加定时任务'}</button>
           </div>

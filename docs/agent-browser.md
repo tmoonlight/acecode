@@ -171,6 +171,13 @@ macOS 的交互工具（click/fill/type/press/hover/drag/scroll）额外暴露
   （`syncBrowserTabsForSession`），本视图首次见到的页面自动打开并激活。页面刷新与
   切工作区后 native 页面池还在，对账即可找回页签；Desktop 重启后页面不存在，
   transcript 里的 `page_id` 只用于展示，不尝试复活。
+- **新建任务页**：还没有会话时也能点地球图标。前端先预留一个会话 id
+  （`reserveDraftBrowserSessionId`，形态同 daemon 生成的 id）存进草稿的 workbench，
+  页面以它为 owner；发送首条消息时把它作为 `session_id` 交给建会话接口，daemon 沿用
+  这个 id，页面因此直接归属新会话（Agent 能用、按会话 Cookie 档也落在新会话那份），
+  `transferPreviewTabs(..., { browserPages: true })` 把页签随文件页签一起迁过去。
+  预留 id 已被占用（`409 SESSION_ID_EXISTS`）时改由 daemon 生成 id，草稿里的浏览器页面
+  随之关闭。Desktop 原生侧不需要任何「改归属」接口。
 - **兼容**：协议版本升到 5，daemon 与 Desktop 版本不一致时 manifest 校验直接拒绝。
   状态事件不带 owner（旧 Desktop）时，前端退回按「当前会话有浏览器工具正在执行」
   本地认领，且不会抢走 native 已归属的页面。

@@ -69,7 +69,7 @@ function Fixture(){
     onToggleSidePanelList={()=>{window.listToggles=(window.listToggles||0)+1;}}
     onActivateTab={key=>setTabState(s=>activatePreviewTab(s,{...context,tabKey:key}))}
     onEditFileTab={(key,patch)=>setTabState(s=>updateFileTabDraft(s,{...context,tabKey:key,patch}))}
-    onOpenFilePreview={open} />
+    onOpenFilePreview={open} onOpenBrowser={url=>{window.openedBrowserUrl=url;}} />
   </section>
   <section data-fixture-chrome style={{width:180,minWidth:0}}>
    <div className="ace-side-tabs"><button className="ace-side-tab" aria-selected="true">变更</button><button className="ace-side-tab">文件</button></div>
@@ -193,6 +193,20 @@ try {
   assert.ok(await nav.evaluate(e=>e.scrollWidth>e.clientWidth&&e.scrollLeft>0));
   await page.screenshot({path:path.join(output,'breadcrumbs-narrow.png')});
   await page.locator('main').click({position:{x:395,y:610}});await menu.waitFor({state:'detached'});
+  const more=page.getByRole('button',{name:'文件操作'});
+  const fileMenu=page.getByRole('menu',{name:'文件操作'});
+  await more.focus();await page.keyboard.press('ArrowDown');await fileMenu.waitFor();
+  const anchorBox=await more.boundingBox(),popupBox=await fileMenu.boundingBox();
+  assert.ok(Math.abs(anchorBox.x+anchorBox.width-popupBox.x-popupBox.width)<=1);
+  const beforeScroll=anchorBox.x;
+  await nav.evaluate(e=>{e.scrollLeft=0;});
+  assert.equal((await more.boundingBox()).x,beforeScroll);
+  assert.equal(await fileMenu.getByRole('menuitem',{name:'打开文件夹'}).count(),0);
+  await page.screenshot({path:path.join(output,'file-actions-narrow.png')});
+  await fileMenu.getByRole('menuitem',{name:'在内置浏览器中打开'}).click();
+  assert.match(await page.evaluate(()=>window.openedBrowserUrl),/very-long-file-name\.html$/);
+  await more.click();await page.evaluate(()=>window.fixture.select('docs/guide.md'));
+  await fileMenu.waitFor({state:'detached'});
   console.log('[pass] long path scroll, narrow popup containment and outside dismissal');
   assert.deepEqual(errors,[]);
   console.log(`Screenshots: ${output}`);

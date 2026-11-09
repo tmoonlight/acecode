@@ -21,6 +21,9 @@ import {sessionWorkbench} from '/src/lib/sessionWorkbench.js';
 import {PREVIEW_TAB_TYPES} from '/src/lib/previewTabs.js';
 import '/src/styles/globals.css';
 window.__ACECODE_DESKTOP_SHELL__=true;
+window.openedFiles=[];
+window.aceDesktop_openInExplorer=async path=>{window.openedFiles.push(path);return {ok:true};};
+window.aceDesktop_writeClipboardText=async text=>{window.copiedText=text;return {ok:true};};
 const code=Array.from({length:130},(_,i)=>'const line'+i+' = "detail text and long source line '.repeat(i===3?12:1)+'";').join('\n');
 const markdown='# Preview heading\n\nEditable Markdown text.\n\n'+String.fromCharCode(96).repeat(3)+'js\nconst example = 42;\n'+String.fromCharCode(96).repeat(3)+'\n\n- List item\n';
 const textFor=p=>p.endsWith('.md')?markdown:code;
@@ -94,6 +97,21 @@ try {
  const errors=[];page.on('pageerror',error=>{errors.push(error.message);console.error('[pageerror]',error.message);});
  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__preview-presentation`);
  const editor=page.locator('.ace-file-text-editor');await editor.waitFor();
+ const fileActions=page.getByRole('button',{name:'文件操作',exact:true});
+ const fileMenu=page.getByRole('menu',{name:'文件操作',exact:true});
+ async function chooseFileAction(name) {
+  await fileActions.click();
+  await fileMenu.getByRole('menuitem',{name,exact:true}).click();
+ }
+ await chooseFileAction('开启自动换行');
+ assert.equal(await editor.getAttribute('wrap'),'soft');
+ await chooseFileAction('关闭自动换行');
+ assert.equal(await editor.getAttribute('wrap'),'off');
+ await chooseFileAction('打开文件夹');
+ await editor.click({button:'right'});
+ await page.getByRole('menuitem',{name:'打开文件夹',exact:true}).click();
+ assert.deepEqual(await page.evaluate(()=>window.openedFiles),Array(2).fill('C:\\fixture\\source.js'));
+ assert.equal(await page.locator('.ace-side-preview-code > .ace-code-actions').count(),0);
  const settle=()=>page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
  const state=()=>page.evaluate(()=>({prefs:window.fixture.prefs,base:window.fixture.base,active:window.fixture.active}));
  const press=async()=>{await page.keyboard.press('Control+F11');await settle();};
@@ -151,8 +169,10 @@ try {
  const mdSize=await markdown.evaluate(e=>parseFloat(getComputedStyle(e).fontSize));await markdown.hover();await page.keyboard.down('Control');await page.mouse.wheel(0,-120);await page.keyboard.up('Control');await settle();
  assert.ok(await markdown.evaluate((e,s)=>parseFloat(getComputedStyle(e).fontSize)>s,mdSize));assert.equal(await markdown.textContent(),mdBefore);
  await press();await page.screenshot({path:path.join(output,'presentation-markdown.png')});await press();assert.equal(await markdown.textContent(),mdBefore);
- await page.getByRole('button',{name:'查看 Markdown 原文',exact:true}).click();await editor.waitFor();assert.match(await editor.inputValue(),/Draft stays\./);
- await page.getByRole('button',{name:'渲染 Markdown',exact:true}).click();await markdown.waitFor();
+ await chooseFileAction('查看 Markdown 原文');await editor.waitFor();assert.match(await editor.inputValue(),/Draft stays\./);
+ await chooseFileAction('复制代码');
+ assert.equal(await page.evaluate(()=>window.copiedText),await editor.inputValue());
+ await chooseFileAction('渲染 Markdown');await markdown.waitFor();
  console.log('[pass] Markdown WYSIWYG/source switches, scale and presentation retain unsaved content');
  const savesBefore=await page.evaluate(()=>window.fixture.saves);
  assert.deepEqual(await page.evaluate(async()=>{const {shortcutStore,captureShortcut}=await import('/src/lib/shortcutBindings.js');return shortcutStore().save('save',captureShortcut({code:'KeyG',ctrlKey:true,altKey:true}));}),{ok:true});
@@ -169,6 +189,10 @@ try {
  console.log('[pass] read-only Markdown context menu and rendered diff font scaling');
  await page.evaluate(()=>window.fixture.select('slides.pptx'));
  const slide=page.frameLocator('.ace-side-presentation-frame').locator('section');await slide.waitFor();
+ await fileActions.click();
+ assert.ok(await fileMenu.getByRole('menuitem',{name:'上一张幻灯片'}).isDisabled());
+ assert.ok(await fileMenu.getByRole('menuitem',{name:'下一张幻灯片'}).isDisabled());
+ await fileMenu.getByRole('menuitem',{name:'放大',exact:true}).click();
  await slide.focus();await press();assert.equal((await state()).active,true);await slide.focus();await press();assert.equal((await state()).active,false);
  await page.frameLocator('.ace-side-presentation-frame').locator('body').click({button:'right',position:{x:150,y:30}});await menu.getByRole('menuitem',{name:/全屏演示/}).click();await settle();assert.equal((await state()).active,true);await press();
  await page.evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:document.querySelector('iframe').contentWindow,data:{source:'acecode:presentation-preview',channel:'forged',status:'presentation'}})));await settle();assert.equal((await state()).active,false);

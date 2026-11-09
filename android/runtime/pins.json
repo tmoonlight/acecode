@@ -1,0 +1,30 @@
+{
+  "termux_repo": "https://packages.termux.dev/apt/termux-main",
+  "termux_packages": {
+    "proot": {
+      "version": "5.1.107.102",
+      "pool": "pool/main/p/proot",
+      "sha256": {
+        "aarch64": "10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030",
+        "x86_64": "2497064226c15971be8131c7facead94a06c225347796326a383c832dca57758"
+      }
+    },
+    "libtalloc": {
+      "version": "2.5.0",
+      "pool": "pool/main/libt/libtalloc",
+      "sha256": {
+        "aarch64": "556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7",
+        "x86_64": "b8c6d95f20075dc1f9ec6573575b2444e8d526e48e0d8d6d5cf4e071e6e06530"
+      }
+    },
+    "libandroid-shmem": {
+      "version": "0.7",
+      "pool": "pool/main/liba/libandroid-shmem",
+      "sha256": {
+        "aarch64": "0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6",
+        "x86_64": "ffa9e4c87467b158b148d0ff92dda796aa038276c2075af3269cdcdb06f25797"
+      }
+    }
+  },
+  "ubuntu_image": "ubuntu:24.04"
+}

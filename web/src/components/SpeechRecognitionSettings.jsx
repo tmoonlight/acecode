@@ -4,6 +4,8 @@ import { speechDraftValid, speechErrorMessage, speechPayload, speechSettingsStor
 import { Toggle } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
+import { ClipboardPasteButton } from './ClipboardPasteButton.jsx';
+import { clipboardPasteButtonAvailable } from '../lib/systemClipboard.js';
 
 const fieldClass = 'w-full h-8 px-2 text-[12px] rounded-md border border-border bg-surface-alt text-fg outline-none focus:border-accent disabled:opacity-50';
 const buttonClass = 'px-3 py-1.5 text-[12px] rounded-md border border-border bg-surface-alt hover:bg-surface-hi disabled:opacity-50';
@@ -94,8 +96,12 @@ export function SpeechRecognitionSettings() {
         </label>}
         <label className="block text-[12px] text-fg-mute">
           <span className="block mb-1">API Key（可选）</span>
-          <input aria-label="语音 API Key" type="password" className={fieldClass} value={draft.api_key}
-            autoComplete="off" spellCheck={false} onChange={(e) => update('api_key', e.target.value)} onBlur={saveOnBlur} />
+          <span className="relative block">
+            <input aria-label="语音 API Key" type="password" className={`${fieldClass} ${clipboardPasteButtonAvailable() ? 'pr-12' : ''}`} value={draft.api_key}
+              autoComplete="off" spellCheck={false} onChange={(e) => update('api_key', e.target.value)} onBlur={saveOnBlur} />
+            <ClipboardPasteButton onPaste={(text) => update('api_key', text, true)}
+              className="absolute inset-y-0 right-0 w-12 flex items-center justify-center px-2.5 text-[12px] text-accent transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent disabled:opacity-50" />
+          </span>
         </label>
         <details>
           <summary className="text-[12px] text-fg-2 cursor-pointer">高级设置</summary>

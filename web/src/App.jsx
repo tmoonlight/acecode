@@ -1,4 +1,5 @@
 import { useDesktopOffice } from './lib/useDesktopOffice.js';
+import { useAndroidPetActivity, usePhoneApproval } from './lib/androidPhone.js';
 // 顶层 App:鉴权 gate(401 → TokenPrompt)+ 主壳。
 //
 // 视觉对齐设计稿方向 C:顶部 41px TopBar + 270px Sidebar + 主区(单会话/4宫格/9宫格)
@@ -2105,6 +2106,8 @@ export function App() {
     [questionReqs, activeId, permissionOwnership],
   );
   // Keep every hook above the authentication early returns.
+  useAndroidPetActivity(pendingPermissionSessionIdsForSidebar.size > 0 || pendingQuestionSessionIdsForSidebar.size > 0);
+  usePhoneApproval(permReqs, handlePermissionDecision);
   const visibleQuestionReq = useMemo(() => {
     if (visiblePermissionUnresolved) return null;
     const request = visibleQuestionRequest(questionReqs, activeId, permissionOwnership);

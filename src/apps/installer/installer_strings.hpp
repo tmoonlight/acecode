@@ -22,7 +22,6 @@ struct InstallerStrings {
     std::string replacing;
     std::string integrating;
     std::string installed_title;
-    std::string key_placeholder;
     std::string launch;
     std::string done;
     std::string failed_title;
@@ -37,7 +36,6 @@ struct InstallerStrings {
     std::string uninstalling;
     std::string uninstalled_title;
     std::string uninstall_failed_title;
-    std::string key_save_failed;
     std::string log_prefix;
     std::string terminal_shortcut;
     std::string payload_missing;

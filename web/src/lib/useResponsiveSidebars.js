@@ -3,6 +3,7 @@ import { sidebarPopupEventIsInside, solveResponsiveSidebars } from './responsive
 
 export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) {
   const [shellWidth, setShellWidth] = useState(0);
+  const [touch, setTouch] = useState(false);
   const [content, setContent] = useState(null);
   const [popupState, setPopup] = useState(null);
   const previous = useRef(null);
@@ -16,15 +17,20 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
   useLayoutEffect(() => {
     const shell = shellRef.current;
     if (!shell || !enabled) return undefined;
-    const measure = () => setShellWidth(Math.floor(shell.getBoundingClientRect().width));
+    const pointer = window.matchMedia?.('(pointer: coarse)');
+    const measure = () => {
+      setShellWidth(Math.floor(shell.getBoundingClientRect().width));
+      setTouch(!!pointer?.matches);
+    };
     measure();
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
     observer?.observe(shell);
     window.addEventListener('resize', measure);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+    pointer?.addEventListener('change', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); pointer?.removeEventListener('change', measure); };
   }, [enabled, shellRef]);
   const decision = solveResponsiveSidebars({
-    ...options, shellWidth, enabled,
+    ...options, shellWidth, touch, enabled,
     previewAvailable: (content?.owner === owner && content.previewAvailable)
       || (popupState?.owner === owner && popupState.previewRequested),
     subagentOpen: content?.owner === owner && content.subagentOpen,
@@ -32,7 +38,7 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
     previous: previous.current?.owner === owner ? previous.current : {},
   });
   useLayoutEffect(() => { previous.current = { owner, ...decision }; });
-  latest.current = { ...options, shellWidth, enabled, owner, content, previous: decision };
+  latest.current = { ...options, shellWidth, touch, enabled, owner, content, previous: decision };
   useLayoutEffect(() => {
     if (content?.owner === owner && content.previewAvailable && popupState?.previewRequested) {
       setPopup((old) => old && { ...old, previewRequested: false });

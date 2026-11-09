@@ -25,6 +25,16 @@ import { Modal, Toggle } from '../Modal.jsx';
 import { VsIcon } from '../Icon.jsx';
 import { toast } from '../Toast.jsx';
 import { ProviderCatalogPicker } from './ProviderCatalogPicker.jsx';
+import { ClipboardPasteButton } from '../ClipboardPasteButton.jsx';
+import { useNarrowLayout } from '../../lib/useNarrowLayout.js';
+import { clipboardPasteButtonAvailable } from '../../lib/systemClipboard.js';
+
+// 手机竖屏的三个页签;宽屏仍是左右两栏 + 折叠的高级设置。
+const MODEL_DIALOG_TABS = [
+  ['provider', 'Provider'],
+  ['model', '模型'],
+  ['advanced', '高级'],
+];
 
 function inputClass(extra = '') {
   return clsx(
@@ -110,6 +120,7 @@ function ModelApiKeyInput({ draft, apiKeyVisible, onPatchDraft, onToggleApiKey,
   const testing = testStatus === 'testing';
   const succeeded = testStatus === 'success';
   const testLabel = testing ? '检测中…' : succeeded ? '检测成功，点击重新检测' : '检测';
+  const pasteAvailable = clipboardPasteButtonAvailable();
   return (
     <div className="relative">
       <input
@@ -121,7 +132,7 @@ function ModelApiKeyInput({ draft, apiKeyVisible, onPatchDraft, onToggleApiKey,
           clear_api_key: false,
         })}
         placeholder="输入 API Key"
-        className={inputClass('pr-24')}
+        className={inputClass(pasteAvailable ? 'pr-[140px]' : 'pr-24')}
         autoComplete="off"
         spellCheck={false}
       />
@@ -140,6 +151,11 @@ function ModelApiKeyInput({ draft, apiKeyVisible, onPatchDraft, onToggleApiKey,
       >
         <VsIcon name="eye" size={14} />
       </button>
+      <ClipboardPasteButton
+        onPaste={(text) => onPatchDraft({ api_key: text, clear_api_key: false })}
+        disabled={submitting}
+        className="absolute inset-y-px right-[92px] w-12 flex items-center justify-center px-2.5 text-[12px] text-accent transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent disabled:opacity-50"
+      />
       <button
         type="button"
         onClick={onTest}
@@ -288,6 +304,9 @@ export function ModelProfileDialog({
   const [draft, setDraft] = useState(seed);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(() => editing && hasAdvancedModelValues(seed));
+  // 手机竖屏分三个页签;新增从选 Provider 开始,编辑直接看模型与连接。宽屏忽略。
+  const narrow = useNarrowLayout();
+  const [narrowTab, setNarrowTab] = useState(editing ? 'model' : 'provider');
   const [submitting, setSubmitting] = useState(false);
   const [testResult, setTestResult] = useState(null);
   const testRunRef = useRef(null);
@@ -465,6 +484,7 @@ export function ModelProfileDialog({
       labelledBy="model-profile-dialog-title"
     >
       <div
+        data-model-profile-dialog="true"
         className="flex max-h-[min(820px,calc(100vh-32px))] flex-col"
         aria-busy={submitting}
       >
@@ -488,7 +508,28 @@ export function ModelProfileDialog({
           </button>
         </header>
 
+        {narrow && (
+          <div role="tablist" aria-label="模型设置" className="flex shrink-0 border-b border-border px-2">
+            {MODEL_DIALOG_TABS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={narrowTab === key}
+                onClick={() => setNarrowTab(key)}
+                className={clsx(
+                  '-mb-px h-11 flex-1 border-b-2 text-[13px] transition focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent',
+                  narrowTab === key ? 'border-accent font-medium text-fg' : 'border-transparent text-fg-mute',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div hidden={narrow && narrowTab === 'advanced'}>
           <ProviderCatalogPicker
             apiClient={apiClient}
             providers={providers}
@@ -511,9 +552,16 @@ export function ModelProfileDialog({
             ) : null}
             managedAuthenticated={managedAuthenticated}
             managedConnection={managedConnection}
-            onProviderChange={selectProvider}
+            onProviderChange={(item) => {
+              selectProvider(item);
+              if (narrow) setNarrowTab('model');
+            }}
             onDraftChange={changeSelectionDraft}
+            narrowPane={narrow ? (narrowTab === 'provider' ? 'providers' : 'details') : null}
           />
+          </div>
+
+          <div hidden={narrow && narrowTab !== 'model'} className="space-y-4">
 
           {!customCompatibilityApi && (
             <ModelAliasField
@@ -577,12 +625,14 @@ export function ModelProfileDialog({
               清除已保存密钥
             </label>
           )}
+          </div>
 
           <div
             ref={advancedSectionRef}
+            hidden={narrow && narrowTab !== 'advanced'}
             className="scroll-mt-4 rounded-md border border-border bg-surface"
           >
-            <button
+            {!narrow && <button
               type="button"
               onClick={toggleAdvancedSettings}
               aria-expanded={advancedOpen}
@@ -591,8 +641,8 @@ export function ModelProfileDialog({
             >
               <VsIcon name={advancedOpen ? 'expandDown' : 'expandRight'} size={12} />
               高级设置
-            </button>
-            {advancedOpen && (
+            </button>}
+            {(narrow || advancedOpen) && (
               <div
                 id="model-profile-advanced-settings"
                 className="space-y-4 border-t border-border px-3.5 py-3"

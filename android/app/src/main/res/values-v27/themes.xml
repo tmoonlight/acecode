@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ACECode" parent="Theme.ACECode.Base">
+        <item name="android:windowLightNavigationBar">@bool/ace_light_bars</item>
+    </style>
+</resources>

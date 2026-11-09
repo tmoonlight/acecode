@@ -86,7 +86,7 @@ run('父会话 idle 且 child 运行时只显示后台状态', () => {
   assert.equal(state.kind, CONVERSATION_ACTIVITY_KIND.BACKGROUND);
   assert.equal(state.label, '2 个后台任务正在运行');
   assert.equal(state.startedAtMs, 100);
-  assert.equal(state.detail, '主会话仍可继续输入');
+  assert.equal(state.detail, '');
 });
 
 run('前台和后台重叠时保留前台主状态与后台计数', () => {

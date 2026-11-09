@@ -39,11 +39,12 @@ std::string preflight_bind_check(const std::string& bind,
 AuthResult check_request_auth(std::string_view client_ip,
                                 std::string_view server_token,
                                 std::string_view header_token,
-                                std::string_view query_token) {
-    if (is_trusted_local_client_address(client_ip)) {
+                                std::string_view query_token,
+                                bool trust_local_without_token) {
+    if (trust_local_without_token && is_trusted_local_client_address(client_ip)) {
         return AuthResult::Allowed;
     }
-    // 非 loopback: 强制 token
+    // 非 loopback(或本机也要求 token): 强制 token
     if (header_token.empty() && query_token.empty()) return AuthResult::NoToken;
     if (!server_token.empty() &&
         (header_token == server_token || query_token == server_token)) {

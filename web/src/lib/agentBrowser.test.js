@@ -9,6 +9,7 @@ import {
   listAgentBrowserPages,
   normalizeAgentBrowserAddress,
   parseAgentBrowserBridgeResult,
+  reserveDraftBrowserSessionId,
   setAgentBrowserLayout,
   setAgentBrowserShared,
   toggleAgentBrowserDevTools,
@@ -209,6 +210,17 @@ await run('Agent Browser page creation and listing forward the session owner', a
     ok: false,
     error: 'Agent Browser 桌面桥不可用',
   });
+});
+
+// 场景:新建任务页还没有会话,用户点开浏览器,前端先预留一个会话 id 给页面当 owner。
+// 期望:形态与 daemon 生成的会话 id 一致(UTC 时间 + 4 位十六进制),并且落在 daemon
+// 接受的 8-64 位 [A-Za-z0-9_-] 范围内;随机数取到边界值也补齐 4 位、不溢出。
+await run('Draft browser session id matches the daemon session id shape', async () => {
+  const now = new Date(Date.UTC(2026, 0, 2, 3, 4, 5));
+  assert.equal(reserveDraftBrowserSessionId(now, () => 0), '20260102_030405_0000');
+  assert.equal(reserveDraftBrowserSessionId(now, () => 0.999999999), '20260102_030405_ffff');
+  assert.equal(reserveDraftBrowserSessionId(now, () => 0.5), '20260102_030405_8000');
+  assert.match(reserveDraftBrowserSessionId(), /^\d{8}_\d{6}_[0-9a-f]{4}$/);
 });
 
 await run('Agent Browser layout requires a matching native acknowledgement', async () => {

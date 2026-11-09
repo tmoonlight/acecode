@@ -408,6 +408,15 @@ export function normalizeSimulatorDevices(payload) {
       || a.name.localeCompare(b.name, 'en', { numeric: true }));
 }
 
+// simctl can complete the operation even if the subsequent device listing fails.
+export function simulatorDevicesAfterPowerAction(payload, previous, target, action) {
+  const devices = normalizeSimulatorDevices(payload);
+  if (devices.length) return devices;
+  const booted = action === 'boot';
+  const updated = { ...target, booted, state: booted ? 'Booted' : 'Shutdown' };
+  return [...previous.filter((item) => item.udid !== target.udid), updated];
+}
+
 // 手动打开面板时自动选中的设备:会话已绑定的设备优先,否则唯一一台已启动的设备。
 export function preferredSimulatorUdid({ devices = [], sessionDevice = '' } = {}) {
   if (sessionDevice && devices.some((device) => device.udid === sessionDevice)) return sessionDevice;

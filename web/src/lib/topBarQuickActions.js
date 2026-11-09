@@ -83,6 +83,15 @@ export const TOPBAR_QUICK_ACTIONS = Object.freeze([
   }),
 ]);
 
+// 安卓 App 里不出现的快捷操作:没有桌面宠物窗口,随 APK 升级而不是自更新,
+// 进程由 App 管(通知栏「停止」),也没有键盘快捷键可提示。
+export const ANDROID_HIDDEN_QUICK_ACTIONS = Object.freeze(['virtual-office', 'check-updates', 'exit']);
+
+export function topBarQuickActionsForShell({ androidApp = false } = {}) {
+  if (!androidApp) return TOPBAR_QUICK_ACTIONS;
+  return TOPBAR_QUICK_ACTIONS.filter((action) => !ANDROID_HIDDEN_QUICK_ACTIONS.includes(action.id));
+}
+
 export function topBarQuickActionNeedsSeparator(index, actions = TOPBAR_QUICK_ACTIONS) {
   return Number.isInteger(index)
     && index > 0
