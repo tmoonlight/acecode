@@ -44,12 +44,15 @@ function SessionTitleRenameInput({ title, onCommit, onCancel }) {
 }
 
 // ChatView owns the session state; only its presentation moves into window chrome.
+// Every page renders it, so the action buttons stay put; pages without a session
+// (new task, scheduled tasks, expert components) leave the title area empty.
 export function SessionTitleBar({
   titleTarget,
   actionsTarget,
   title,
   sessionRef,
   titleReady = true,
+  showLabel = true,
   workspaceLabel,
   remoteControlBound,
   renaming = false,
@@ -59,7 +62,7 @@ export function SessionTitleBar({
   children,
 }) {
   const titleAnimation = useSessionTitleAnimation(sessionRef, title, titleReady);
-  const label = (
+  const label = showLabel && (
     <div ref={labelRef} className="ace-session-title flex flex-1 items-center gap-2 min-w-0 overflow-hidden">
       <span className="ace-session-title-text flex min-w-0 items-center gap-1.5">
         {remoteControlBound && (
@@ -82,9 +85,9 @@ export function SessionTitleBar({
       )}
     </div>
   );
-  const actions = <div className="ace-session-title-actions flex items-center gap-1 shrink-0">{children}</div>;
+  const actions = <div className="ace-session-title-actions ml-auto flex items-center gap-1 shrink-0">{children}</div>;
   if (titleTarget && actionsTarget) {
-    return <>{createPortal(label, titleTarget)}{createPortal(actions, actionsTarget)}</>;
+    return <>{label && createPortal(label, titleTarget)}{createPortal(actions, actionsTarget)}</>;
   }
   return (
     <div className="ace-session-header h-9 px-3 flex items-center justify-between bg-surface shrink-0 gap-2"

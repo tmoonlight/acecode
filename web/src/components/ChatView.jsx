@@ -80,6 +80,8 @@ import {
 import '../styles/side-chat.css';
 import { GitSessionPill } from './GitSessionPill.jsx';
 import { SessionTitleBar } from './SessionTitleBar.jsx';
+import { SessionTitleActions } from './SessionTitleActions.jsx';
+import { sessionTitleActionStates } from '../lib/sessionTitleActions.js';
 import { LspIndicator } from './LspIndicator.jsx';
 import { QuestionPicker } from './QuestionPicker.jsx';
 import { PermissionCard } from './PermissionCard.jsx';
@@ -97,7 +99,6 @@ import { TranscriptItems } from './TranscriptItems.jsx';
 import { TranscriptHistoryBoundary } from './TranscriptHistoryBoundary.jsx';
 import { useTranscriptHistory } from '../lib/useTranscriptHistory.js';
 import { PreviewDetailsPanel } from './PreviewDetailsPanel.jsx';
-import { IosSimulatorIcon } from './IosSimulatorPanel.jsx';
 import { Modal } from './Modal.jsx';
 import { CreateProjectModal } from './CreateProjectModal.jsx';
 import { ChangeGlassDock } from './ChangeReview.jsx';
@@ -1116,8 +1117,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     fallbackCwd: sessionIsNoWorkspace ? '' : (health?.cwd || ''),
   });
   const sidePanelFilesEnabled = !!sidePanelCwd;
-  // 摘要面板只跟会话页走:开关在会话标题栏(轨迹按钮左边),首页、循环任务和
-  // 专家组件页(children)没有标题栏操作区,也就没有它。
+  // 摘要面板只跟会话页走:开关在顶栏按钮组(轨迹按钮左边),首页、循环任务和
+  // 专家组件页(children)没有会话摘要,开关在那些页面禁用。
   const summaryAvailable = !children && !!sid;
   const summaryPopup = summaryAvailable && responsiveSidebars?.popup === 'summary';
   const drainRef = useRef(false);
@@ -6262,11 +6263,73 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       : Math.max(0, effectiveSidePanelWidth)),
   };
 
+  // 顶栏右侧按钮组在每个页面都是同一份:新建任务首页、定时任务页、专家组件页也渲染它,
+  // 只是没有会话可作用时按钮禁用、不显示标题。
+  const titleActionStates = sessionTitleActionStates({
+    sessionId: sid,
+    auxiliaryPage: !!children,
+    readOnly: readOnlyExternalSession,
+    summaryToggle: !!onToggleSummaryPanel,
+    agentBrowser: hasNativeAgentBrowser(),
+    iosSimulator: iosSimulatorHostLikelySupported(),
+  });
+  const sessionTitleBar = (
+    <SessionTitleBar titleTarget={titleTarget} actionsTarget={actionsTarget}
+      title={title} workspaceLabel={workspaceLabel} remoteControlBound={remoteControlBound}
+      sessionRef={ref} titleReady={transcriptLoadState === 'loaded'}
+      showLabel={titleActionStates.session}
+      labelRef={sessionTitleLabelRef}
+      renaming={headerRenaming && !!sid && !readOnlyExternalSession}
+      onRenameCommit={commitHeaderRename}
+      onRenameCancel={cancelHeaderRename}>
+      <SessionTitleActions
+        states={titleActionStates}
+        summaryPanelOpen={summaryPanelOpen}
+        onToggleSummaryPanel={onToggleSummaryPanel}
+        trajectoryOpen={trajectoryOpen}
+        onToggleTrajectory={() => setTrajectoryOpen((open) => !open)}
+        lspIndicator={(
+          <LspIndicator
+            api={api}
+            cwd={sidePanelCwd}
+            refreshKey={`${turns}:${busy ? 1 : 0}`}
+          />
+        )}
+        sideChatOpen={sideChatState.open}
+        sideChatButtonRef={sideChatToggleRef}
+        onToggleSideChat={(event) => {
+          if (sideChat.getSnapshot().open) {
+            sideChat.close();
+          } else {
+            const rect = event.currentTarget.getBoundingClientRect();
+            openSideQuestionComposer();
+            setSideChatAnchor({ left: rect.left, top: rect.bottom + 8 });
+          }
+        }}
+        onOpenBrowser={openBrowserPreview}
+        onOpenIosSimulator={openIosSimulatorPreview}
+        sessionMenuButtonRef={sessionMenuButtonRef}
+        sessionMenuAttributes={{
+          'data-desktop-session-id': readOnlyExternalSession ? undefined : sid || undefined,
+          'data-desktop-session-workspace': sessionWorkspaceHash || undefined,
+          'data-desktop-session-workspace-path': sessionIsNoWorkspace ? undefined : ref?.cwd || undefined,
+          'data-desktop-session-no-workspace': sessionIsNoWorkspace ? 'true' : undefined,
+          'data-desktop-session-path': sessionPath || undefined,
+          'data-desktop-session-pinned': sessionPinned ? 'true' : 'false',
+          'data-desktop-session-title': title || undefined,
+          'data-desktop-session-archive': 'true',
+        }}
+        onOpenSessionMenu={openSessionContextMenu}
+      />
+    </SessionTitleBar>
+  );
+
   return (
     <div ref={layoutRef} className="flex-1 flex min-w-0 ace-chat-layout">
       {children || homeContent ? (
         <div className={clsx('flex-1 flex flex-col min-w-0 min-h-0', previewPanelMaximized && 'hidden')}
           style={chatColumnStyle}>
+          {sessionTitleBar}
           {children || homeContent}
         </div>
       ) : (
@@ -6294,129 +6357,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
           onOpenSession={onSessionPromoted}
         />
       )}
-      <SessionTitleBar titleTarget={titleTarget} actionsTarget={actionsTarget}
-        title={title} workspaceLabel={workspaceLabel} remoteControlBound={remoteControlBound}
-        sessionRef={ref} titleReady={transcriptLoadState === 'loaded'}
-        labelRef={sessionTitleLabelRef}
-        renaming={headerRenaming && !!sid && !readOnlyExternalSession}
-        onRenameCommit={commitHeaderRename}
-        onRenameCancel={cancelHeaderRename}>
-          {summaryAvailable && onToggleSummaryPanel && (
-            <button
-              type="button"
-              onClick={onToggleSummaryPanel}
-              data-sidebar-toggle="summary"
-              className={clsx(
-                'w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
-                summaryPanelOpen
-                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
-                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
-              )}
-              title={summaryPanelOpen ? '收起摘要面板' : '展开摘要面板'}
-              aria-label={summaryPanelOpen ? '收起摘要面板' : '展开摘要面板'}
-              aria-pressed={summaryPanelOpen}
-            >
-              <VsIcon name="properties" size={16} />
-            </button>
-          )}
-          {summaryAvailable && onToggleSummaryPanel && (
-            // 摘要面板开关是全局布局开关,与右边这些只作用于当前会话的按钮分开。
-            <span aria-hidden="true" className="ace-summary-toggle-divider w-px h-4 mx-1 shrink-0 bg-border" />
-          )}
-          {sid && (
-            <button
-              type="button"
-              onClick={() => setTrajectoryOpen((open) => !open)}
-              className={clsx(
-                'w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
-                trajectoryOpen
-                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
-                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
-              )}
-              title={trajectoryOpen ? 'Conversation' : 'Trajectory'}
-              aria-label={trajectoryOpen ? 'Conversation' : 'Trajectory'}
-              aria-pressed={trajectoryOpen}
-            >
-              <VsIcon name="trajectory" size={16} />
-            </button>
-          )}
-          {sid && (
-            <LspIndicator
-              api={api}
-              cwd={sidePanelCwd}
-              refreshKey={`${turns}:${busy ? 1 : 0}`}
-            />
-          )}
-          {sid && !readOnlyExternalSession && (
-            <button
-              ref={sideChatToggleRef}
-              type="button"
-              onClick={(event) => {
-                if (sideChat.getSnapshot().open) {
-                  sideChat.close();
-                } else {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  openSideQuestionComposer();
-                  setSideChatAnchor({ left: rect.left, top: rect.bottom + 8 });
-                }
-              }}
-              className={clsx(
-                'w-7 h-7 rounded-md flex items-center justify-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25',
-                sideChatState.open
-                  ? 'bg-accent-bg text-accent hover:bg-accent-bg'
-                  : 'text-fg-mute hover:bg-surface-hi hover:text-fg',
-              )}
-              title="侧边聊天"
-              aria-label="侧边聊天"
-              aria-pressed={sideChatState.open}
-            >
-              <VsIcon name="chat" size={16} />
-            </button>
-          )}
-          {sid && hasNativeAgentBrowser() && (
-            <button
-              type="button"
-              onClick={openBrowserPreview}
-              className="w-7 h-7 rounded-md bg-surface-hi/0 text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-              title="打开浏览器"
-              aria-label="打开浏览器"
-            >
-              <VsIcon name="globe" size={16} />
-            </button>
-          )}
-          {sid && iosSimulatorHostLikelySupported() && (
-            <button
-              type="button"
-              onClick={openIosSimulatorPreview}
-              className="w-7 h-7 rounded-md bg-surface-hi/0 text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-              title="打开 iOS 模拟器"
-              aria-label="打开 iOS 模拟器"
-            >
-              <IosSimulatorIcon size={16} />
-            </button>
-          )}
-          {sid && (
-            <button
-              ref={sessionMenuButtonRef}
-              type="button"
-              data-desktop-session-id={readOnlyExternalSession ? undefined : sid || undefined}
-              data-desktop-session-workspace={sessionWorkspaceHash || undefined}
-              data-desktop-session-workspace-path={sessionIsNoWorkspace ? undefined : ref?.cwd || undefined}
-              data-desktop-session-no-workspace={sessionIsNoWorkspace ? 'true' : undefined}
-              data-desktop-session-path={sessionPath || undefined}
-              data-desktop-session-pinned={sessionPinned ? 'true' : 'false'}
-              data-desktop-session-title={title || undefined}
-              data-desktop-session-archive="true"
-              onClick={openSessionContextMenu}
-              className="w-7 h-7 rounded-md bg-surface-hi/0 text-fg-mute flex items-center justify-center transition hover:bg-surface-hi hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
-              title="会话菜单"
-              aria-label="会话菜单"
-              aria-haspopup="menu"
-            >
-              <VsIcon name="ellipsisVertical" size={16} />
-            </button>
-          )}
-      </SessionTitleBar>
+      {sessionTitleBar}
 
       <div
         ref={subagentSplitRef}

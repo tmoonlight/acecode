@@ -208,6 +208,7 @@ import './conversationTurnScrubber.test.js';
 import './conversationTurnScrubberArchitecture.test.js';
 import './sessionTitle.test.js';
 import './sessionTitleSingleSourceArchitecture.test.js';
+import './sessionTitleActions.test.js';
 import './archivedSessions.test.js';
 import './archivedSessionBatchActionsArchitecture.test.js';
 import './sessionModel.test.js';

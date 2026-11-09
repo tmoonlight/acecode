@@ -384,7 +384,7 @@ await run('home title and titlebar CSS scope overrides while preserving native c
   assert.match(styles, /:root\[data-color-theme="eva-01"\]:not\(\[data-theme-logo-color="custom"\]\) \.ace-brand-logo/);
   assert.match(styles, /\[data-theme-extend-to-titlebar="false"\] \.ace-app-shell\[data-home-wallpaper="true"\]::before \{ top: var\(--ace-topbar-height\); \}/);
   assert.match(styles, /\[data-theme-extend-to-titlebar="false"\][^\n]*\.ace-topbar \{ background-color: rgba\(var\(--ace-surface-rgb\), \.95\); \}/);
-  assert.match(styles, /\[data-theme-titlebar-controls="white"\] \.ace-app-shell\[data-home-wallpaper="true"\] \.ace-topbar-controls :is\(\.ace-topbar-action, \.ace-window-control\) \{\s*color: white;/);
+  assert.match(styles, /\[data-theme-titlebar-controls="white"\] \.ace-app-shell\[data-home-wallpaper="true"\] \.ace-topbar-controls :is\(\.ace-topbar-action, \.ace-session-title-actions > button, \.ace-window-control\) \{\s*color: white;/);
   assert.match(styles, /\.ace-window-control:not\(\.ace-window-control-close\)\):is\(:hover, :focus-visible\)/);
   assert.match(styles, /\.ace-window-control-close:focus-visible \{\s*background: #e81123;\s*color: #fff;/);
   assert.match(styles, /inset: 0 0 0 var\(--ace-home-sidebar-width, 0px\);/);

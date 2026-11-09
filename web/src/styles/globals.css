@@ -3099,7 +3099,7 @@ body {
 [data-theme-wallpaper="true"] .ace-app-shell[data-home-wallpaper="true"] :is(.ace-topbar, .ace-main-content, .ace-home-drop-scope, .ace-home-panel) {
   background-color: transparent;
 }
-[data-theme-titlebar-controls="white"] .ace-app-shell[data-home-wallpaper="true"] .ace-topbar-controls :is(.ace-topbar-action, .ace-window-control) {
+[data-theme-titlebar-controls="white"] .ace-app-shell[data-home-wallpaper="true"] .ace-topbar-controls :is(.ace-topbar-action, .ace-session-title-actions > button, .ace-window-control) {
   color: white;
 }
 [data-theme-titlebar-controls="white"] .ace-app-shell[data-home-wallpaper="true"] .ace-topbar-controls :is(.ace-topbar-action, .ace-window-control:not(.ace-window-control-close)):is(:hover, :focus-visible) {
