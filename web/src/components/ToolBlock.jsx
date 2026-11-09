@@ -378,6 +378,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
             icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={!askCancelled} className={askCancelled ? 'text-fg-mute' : 'text-ok'} />}
             label={presentation.label}
             detail={presentation.detail}
+            detailTitle={presentation.fullObject}
             detailSeparator={presentation.separator}
             preserveLabel
             expandable={!askCancelled && askItems.length > 0}
@@ -410,6 +411,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
           icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
           label={presentation.label}
           detail={presentation.detail}
+          detailTitle={presentation.fullObject}
           detailSeparator={presentation.separator}
           onDetailOverflowChange={shellPresentation ? setDetailClipped : undefined}
           preserveLabel
@@ -466,6 +468,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         spinnerStatic={!liveProgress}
         label={presentation.label}
         detail={presentation.detail}
+        detailTitle={presentation.fullObject}
         detailSeparator={presentation.separator}
         onDetailOverflowChange={shellPresentation ? setDetailClipped : undefined}
         preserveLabel

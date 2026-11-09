@@ -156,6 +156,7 @@ import './subagentTranscript.test.js';
 import './transcriptRendererArchitecture.test.js';
 import './chatScrollFollowArchitecture.test.js';
 import './flatToolTranscriptArchitecture.test.js';
+import './activityLineTooltip.test.js';
 import './conversationActivity.test.js';
 import './conversationLivenessArchitecture.test.js';
 import './subagentTasks.test.js';

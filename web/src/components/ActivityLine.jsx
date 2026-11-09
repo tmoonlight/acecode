@@ -11,6 +11,7 @@ import { clsx } from '../lib/format.js';
 export function ActivityLine({
   label = '',
   detail = '',
+  detailTitle = '',
   detailSeparator = null,
   onDetailOverflowChange,
   icon = null,
@@ -70,7 +71,8 @@ export function ActivityLine({
         )}
       </span>
       {detail && (
-        <span ref={detailRef} className="min-w-0 truncate text-fg-mute" title={String(detail)} data-activity-detail="true">
+        // detail 可能是截短的预览;悬停提示用调用方给的完整原文,否则会盖掉行上的完整提示。
+        <span ref={detailRef} className="min-w-0 truncate text-fg-mute" title={String(detailTitle || detail)} data-activity-detail="true">
           {detailSeparator === null ? '· ' : ''}{detail}
         </span>
       )}
