@@ -112,6 +112,16 @@ std::vector<ChatMessage> retained_prefix_before_index(
     return std::vector<ChatMessage>(messages.begin(), messages.begin() + static_cast<std::ptrdiff_t>(end));
 }
 
+std::vector<ChatMessage> whole_fork_prefix(const std::vector<ChatMessage>& messages) {
+    for (size_t i = messages.size(); i-- > 0;) {
+        const auto& msg = messages[i];
+        if (is_non_conversational_record(msg)) continue;
+        if (declares_tool_calls(msg)) continue;
+        return retained_prefix_before_index(messages, i + 1);
+    }
+    return {};
+}
+
 std::optional<size_t> resolve_fork_anchor_index(
     const std::vector<ChatMessage>& messages,
     size_t target_index) {

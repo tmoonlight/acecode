@@ -192,6 +192,29 @@ ChatMessage net_diff_record() {
 
 } // namespace
 
+// 场景:回复进行中按 Ctrl+Alt+Enter「在分叉会话中发送」,复制整个会话。此时最后一条
+// 是正在执行、还没有结果的工具调用,后面还跟着一条计时记录。
+// 期望:整段前缀保留到最后一条完整的对话消息(上一个工具结果),不带非对话记录,
+// 也不把没有结果的调用带进新会话(provider 会拒收悬空的工具调用)。
+TEST(SessionRewindForkAnchor, WholeForkKeepsEverythingUpToTheLastCompleteMessage) {
+    std::vector<ChatMessage> messages;
+    messages.push_back(user("first"));
+    messages.push_back(assistant_with_call());
+    messages.push_back(tool_result("done"));
+    messages.push_back(assistant_with_call());
+    messages.push_back(timing_record());
+
+    const auto prefix = acecode::whole_fork_prefix(messages);
+    ASSERT_EQ(prefix.size(), 3u);
+    EXPECT_EQ(prefix.back().content, "done");
+
+    std::vector<ChatMessage> settled;
+    settled.push_back(user("first"));
+    settled.push_back(assistant("reply"));
+    EXPECT_EQ(acecode::whole_fork_prefix(settled).size(), 2u);
+    EXPECT_TRUE(acecode::whole_fork_prefix({}).empty());
+}
+
 TEST(SessionRewindForkAnchor, StopsAtTheAssistantReplyBeforeThePrompt) {
     std::vector<ChatMessage> messages;
     messages.push_back(user("first"));

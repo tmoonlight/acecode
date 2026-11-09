@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <string>
 
 namespace acecode {
@@ -36,6 +37,13 @@ public:
                              const std::string& expected, AskUserQuestionPrompter* prompter);
     TurnSteerResult interrupt(const std::string& expected, const UserInput& input,
                               AgentTaskQueue& queue, std::size_t& promised_inputs);
+    // 「立即发送」:client_message_id 对应的插话还在 pending_ 里时,把 pending_ 里排在
+    // 它前面的、它自己以及后面的插话都提成高优先级回合并打断当前回合(不追加新输入,
+    // 不会重复);已被模型读到 / 不存在 → NotPending。
+    TurnSteerResult promote(const std::string& expected, const std::string& client_message_id,
+                            AgentTaskQueue& queue, std::size_t& promised_inputs);
+    // 撤回 pending_ 里 client_message_id 对应的插话;已被读到 / 不存在 → NotPending。
+    TurnSteerResult withdraw(const std::string& client_message_id);
     std::string id() const;
     bool has_pending() const;
     void begin(const std::string& id);
@@ -43,6 +51,10 @@ public:
     std::size_t close_and_discard();
 
 private:
+    // 以下两个都要求调用方持有 mu_。
+    std::optional<TurnSteerResult> reject_inactive_locked(const std::string& expected) const;
+    TurnSteerResult promise_pending_and_abort_locked(const UserInput* extra, AgentTaskQueue& queue,
+                                                     std::size_t& promised_inputs);
     const std::atomic<bool>& busy_;
     AbortSignal& abort_;
     std::atomic<bool>& interrupt_requested_;

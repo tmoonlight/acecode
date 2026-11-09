@@ -223,7 +223,11 @@ export function composerShortcutAction(event, desktop = false, overrides = getSh
         && !event.ctrlKey && !event.metaKey && !event.altKey) return null;
     return 'newline';
   }
-  if (event.key === 'Enter' && event.ctrlKey && desktop) return custom('newline') ? 'ignore' : 'newline';
+  // 发送的另外两种方式(与 Claude 桌面版一致,Ctrl 与 Cmd 都认):
+  //   Ctrl+Enter      回复中排到回合结束再发,空闲时等同发送;
+  //   Ctrl+Alt+Enter  复制当前会话,在分叉出的新会话里发送。
+  const primary = event.ctrlKey || event.metaKey;
+  if (event.key === 'Enter' && primary && !event.shiftKey) return event.altKey ? 'fork' : 'queue';
   if (event.key === 'Enter' && !event.shiftKey && !custom('send')) return 'send';
   if (custom('newline') && matchesShortcutBinding(event, CONTEXT_SHORTCUTS.newline)) return 'ignore';
   return null;

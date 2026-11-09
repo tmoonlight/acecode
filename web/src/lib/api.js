@@ -519,6 +519,14 @@ export function createApi(base = null) {
         : { text: payload },
       base,
     ),
+    // 已插进当前回合、模型还没读到的插话:「立即发送」(提成优先回合并打断)与「撤回」。
+    // 模型已读到 / 已随回合结束丢弃 → 409 STEER_NOT_PENDING。
+    sendSteerNow:     (id, clientMessageId, expectedTurnId) => request(
+      'POST', `/api/sessions/${encodeURIComponent(id)}/turn/steer/send-now`,
+      { client_message_id: clientMessageId, expected_turn_id: expectedTurnId }, base),
+    withdrawSteer:    (id, clientMessageId) => request(
+      'POST', `/api/sessions/${encodeURIComponent(id)}/turn/steer/withdraw`,
+      { client_message_id: clientMessageId }, base),
     // 后台任务(后台命令 / 后台子代理):列表、输出末尾、停止、把前台工作转到后台。
     listBackgroundTasks: (id) => request(
       'GET', `/api/sessions/${encodeURIComponent(id)}/background-tasks`, undefined, base),
@@ -865,6 +873,9 @@ export function createApi(base = null) {
     forkSession:      (sid, atMessageId, title) =>
       request('POST', `/api/sessions/${encodeURIComponent(sid)}/fork`,
               { at_message_id: atMessageId, title: title || '' }, base),
+    // 复制整个会话(「在分叉会话中发送」):回合进行中也可以,还没结果的工具调用不带过去。
+    forkWholeSession: (sid) =>
+      request('POST', `/api/sessions/${encodeURIComponent(sid)}/fork`, { whole: true }, base),
     restoreSessionCheckpoint: (sid, atMessageId) =>
       request('POST',
         `/api/sessions/${encodeURIComponent(sid)}/file-checkpoints/${encodeURIComponent(atMessageId)}/restore`,

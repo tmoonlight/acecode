@@ -813,6 +813,81 @@ TEST(AgentLoopTurnSteering, InterruptTransfersAcceptedSoftSteersInFifo) {
     EXPECT_TRUE(immediate_request.back().metadata.value("turn_interrupt", false));
 }
 
+// 场景:Web 回复中按 Enter 把消息插进当前回合(soft steer),模型还没读到时用户点
+// 消息气泡下的「立即发送」。
+// 期望:send_steer_now 按 client_message_id 找到这条待送达插话,把它提成高优先级回合并
+// 打断当前回合;不追加新输入,所以这条消息只提交一次,且带 turn_interrupt 标记;
+// 回合已被打断后再点一次不会生效。
+// 回归:若前端改用 interrupt_turn 重发同一条消息,待送达的那份也会被提成回合,
+// 用户会看到同一句话发了两遍。
+TEST(AgentLoopTurnSteering, SendSteerNowPromotesPendingSteerExactlyOnce) {
+    TurnSteeringHarness h("steer_send_now");
+    h.provider().set_latency_ms(200);
+    h.provider().push_text("cancelled response");
+    h.provider().push_text("promoted response");
+
+    h.loop().submit("start");
+    const std::string turn_id = h.wait_for_active_turn();
+    ASSERT_FALSE(turn_id.empty());
+
+    acecode::UserInput steer;
+    steer.text = "use the new constraint";
+    steer.metadata["client_message_id"] = "steer-now-1";
+    ASSERT_TRUE(h.loop().steer_input(turn_id, steer).accepted());
+
+    EXPECT_EQ(h.loop().send_steer_now(turn_id, "missing-id").status,
+              acecode::TurnSteerStatus::NotPending);
+    const auto promoted = h.loop().send_steer_now(turn_id, "steer-now-1");
+    ASSERT_TRUE(promoted.accepted());
+    EXPECT_EQ(promoted.turn_id, turn_id);
+    EXPECT_FALSE(h.loop().send_steer_now(turn_id, "steer-now-1").accepted());
+    ASSERT_TRUE(h.wait_for_provider_turns_and_idle(2, 5s));
+
+    const auto promoted_request = h.provider().messages_for_turn(1);
+    ASSERT_FALSE(promoted_request.empty());
+    EXPECT_EQ(promoted_request.back().content, "use the new constraint");
+    EXPECT_TRUE(promoted_request.back().metadata.value("turn_interrupt", false));
+
+    int committed = 0;
+    for (const auto& message : h.loop().messages()) {
+        if (message.metadata.is_object() &&
+            message.metadata.value("client_message_id", "") == "steer-now-1") {
+            ++committed;
+        }
+    }
+    EXPECT_EQ(committed, 1);
+}
+
+// 场景:回复中插了一句话,模型还没读到时用户点气泡上的「撤回」。
+// 期望:withdraw_steer 把它从待送达队列里拿掉,当前回合不受影响、照常结束,
+// 这条消息不会进入对话也不会发给模型;再撤回一次或撤回不存在的 id 都返回 NotPending。
+TEST(AgentLoopTurnSteering, WithdrawRemovesPendingSteerWithoutTouchingTurn) {
+    TurnSteeringHarness h("steer_withdraw");
+    h.provider().set_latency_ms(200);
+    h.provider().push_text("only response");
+
+    h.loop().submit("start");
+    const std::string turn_id = h.wait_for_active_turn();
+    ASSERT_FALSE(turn_id.empty());
+
+    acecode::UserInput steer;
+    steer.text = "never mind";
+    steer.metadata["client_message_id"] = "steer-withdraw-1";
+    ASSERT_TRUE(h.loop().steer_input(turn_id, steer).accepted());
+
+    EXPECT_TRUE(h.loop().withdraw_steer("steer-withdraw-1").accepted());
+    EXPECT_EQ(h.loop().withdraw_steer("steer-withdraw-1").status,
+              acecode::TurnSteerStatus::NotPending);
+    EXPECT_EQ(h.loop().withdraw_steer("unknown").status,
+              acecode::TurnSteerStatus::NotPending);
+    ASSERT_TRUE(h.wait_until_idle());
+
+    EXPECT_EQ(h.provider().turn_count(), 1);
+    for (const auto& message : h.loop().messages()) {
+        EXPECT_NE(message.content, "never mind");
+    }
+}
+
 TEST(AgentLoopTurnSteering, InterruptAcceptanceCommitsExactlyOnce) {
     TurnSteeringHarness h("interrupt_once");
     h.provider().set_latency_ms(30);

@@ -711,7 +711,8 @@ crow::response WebServer::Impl::handle_turn_input_request(
         code = "TURN_STEER_QUEUE_FULL";
         break;
     case TurnSteerStatus::NoPendingQuestion:
-        // steer / interrupt 不会返回它;只为让 switch 完整。
+    case TurnSteerStatus::NotPending:
+        // steer / interrupt 不会返回它们;只为让 switch 完整。
         code = "NO_PENDING_QUESTION";
         break;
     }
@@ -746,6 +747,66 @@ crow::response WebServer::Impl::handle_turn_input_request(
     }
     response.add_header("Content-Type", "application/json");
     return with_cors(req, std::move(response));
+}
+
+// 插话的「立即发送」/「撤回」。body: {client_message_id, expected_turn_id}(撤回不需要
+// expected_turn_id)。插话已被模型读到或随回合结束丢弃时返回 409 STEER_NOT_PENDING,
+// 什么都不改变;前端据此保持原状(已读到)或转回排队(已丢弃)。
+crow::response WebServer::Impl::handle_steer_control_request(
+    const crow::request& req,
+    const std::string& session_id,
+    bool send_now) {
+    if (auto rejection = require_auth(req)) {
+        return std::move(*rejection);
+    }
+    auto respond = [&](int status, json body) {
+        crow::response response(status);
+        response.body = body.dump();
+        response.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(response));
+    };
+    if (!deps.session_client) {
+        return respond(503, {{"error", "SESSION_CLIENT_UNAVAILABLE"},
+                             {"message", "session client unavailable"}});
+    }
+    const auto body = json::parse(req.body, nullptr, false);
+    const std::string client_message_id = body.is_object() && body.contains("client_message_id")
+        && body["client_message_id"].is_string() ? body["client_message_id"].get<std::string>() : "";
+    const std::string expected_turn_id = body.is_object() && body.contains("expected_turn_id")
+        && body["expected_turn_id"].is_string() ? body["expected_turn_id"].get<std::string>() : "";
+    if (client_message_id.empty() || (send_now && expected_turn_id.empty())) {
+        return respond(400, {{"error", "INVALID_TURN_INPUT"},
+                             {"message", send_now
+                                 ? "client_message_id and expected_turn_id are required"
+                                 : "client_message_id is required"}});
+    }
+    const auto result = send_now
+        ? deps.session_client->send_steer_now(session_id, expected_turn_id, client_message_id)
+        : deps.session_client->withdraw_steer(session_id, client_message_id);
+    if (result.accepted()) {
+        json ok = {{"accepted", true}, {"turn_id", result.turn_id},
+                   {"client_message_id", client_message_id}};
+        if (send_now) ok["interrupting"] = true;
+        else ok["withdrawn"] = true;
+        return respond(send_now ? 202 : 200, std::move(ok));
+    }
+    int status = 409;
+    std::string code;
+    switch (result.status) {
+    case TurnSteerStatus::InvalidInput: status = 400; code = "INVALID_TURN_INPUT"; break;
+    case TurnSteerStatus::UnknownSession: status = 404; code = "UNKNOWN_SESSION"; break;
+    case TurnSteerStatus::NoActiveTurn: code = "NO_ACTIVE_TURN"; break;
+    case TurnSteerStatus::NonSteerable: code = "TURN_NOT_STEERABLE"; break;
+    case TurnSteerStatus::TurnMismatch: code = "TURN_MISMATCH"; break;
+    case TurnSteerStatus::QueueFull: status = 429; code = "TURN_STEER_QUEUE_FULL"; break;
+    case TurnSteerStatus::NotPending:
+    case TurnSteerStatus::NoPendingQuestion:
+    case TurnSteerStatus::Accepted: code = "STEER_NOT_PENDING"; break;
+    }
+    json error = {{"error", code},
+                  {"message", result.message.empty() ? std::string(to_string(result.status)) : result.message}};
+    if (!result.turn_id.empty()) error["active_turn_id"] = result.turn_id;
+    return respond(status, std::move(error));
 }
 
 // 提问挂起时的用户插话:body 与 turn/steer 同构(text / attachments /
@@ -828,6 +889,10 @@ crow::response WebServer::Impl::handle_question_interject_request(
     case TurnSteerStatus::NoPendingQuestion:
         code = "NO_PENDING_QUESTION";
         break;
+    case TurnSteerStatus::NotPending:
+        // interject 不会返回它;只为让 switch 完整。
+        code = "STEER_NOT_PENDING";
+        break;
     }
 
     crow::response response(status);
@@ -905,6 +970,14 @@ void WebServer::Impl::register_sessions() {
             return cors_preflight(req);
         });
         CROW_ROUTE(app, "/api/sessions/<string>/turn/interrupt").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/sessions/<string>/turn/steer/send-now").methods(crow::HTTPMethod::Options)
+        ([this](const crow::request& req, const std::string&) {
+            return cors_preflight(req);
+        });
+        CROW_ROUTE(app, "/api/sessions/<string>/turn/steer/withdraw").methods(crow::HTTPMethod::Options)
         ([this](const crow::request& req, const std::string&) {
             return cors_preflight(req);
         });
@@ -2234,6 +2307,16 @@ void WebServer::Impl::register_sessions() {
             return handle_turn_input_request(req, id, /*interrupting=*/true);
         });
 
+        // 插话的「立即发送」(提成优先回合并打断)与「撤回」,只对模型还没读到的插话生效。
+        CROW_ROUTE(app, "/api/sessions/<string>/turn/steer/send-now").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& id) {
+            return handle_steer_control_request(req, id, /*send_now=*/true);
+        });
+        CROW_ROUTE(app, "/api/sessions/<string>/turn/steer/withdraw").methods(crow::HTTPMethod::POST)
+        ([this](const crow::request& req, const std::string& id) {
+            return handle_steer_control_request(req, id, /*send_now=*/false);
+        });
+
         // Question interjection: resolve the pending AskUserQuestion as
         // "answered by a free-form message" and commit that message as
         // same-turn steering input right after the tool result.
@@ -2749,10 +2832,15 @@ void WebServer::Impl::register_sessions() {
 
             std::string at_message_id;
             std::string explicit_title;
+            // whole=true:复制整个会话(「在分叉会话中发送」),不需要 at_message_id。
+            bool whole = false;
             try {
                 auto j = json::parse(req.body);
                 if (j.contains("at_message_id") && j["at_message_id"].is_string()) {
                     at_message_id = j["at_message_id"].get<std::string>();
+                }
+                if (j.contains("whole") && j["whole"].is_boolean()) {
+                    whole = j["whole"].get<bool>();
                 }
                 if (j.contains("title") && j["title"].is_string()) {
                     explicit_title = j["title"].get<std::string>();
@@ -2763,7 +2851,8 @@ void WebServer::Impl::register_sessions() {
                 r.add_header("Content-Type", "application/json");
                 return with_cors(req, std::move(r));
             }
-            if (at_message_id.empty()) {
+            if (whole) at_message_id.clear();
+            if (at_message_id.empty() && !whole) {
                 crow::response r(400);
                 r.body = R"({"error":"at_message_id required"})";
                 r.add_header("Content-Type", "application/json");
@@ -2789,8 +2878,8 @@ void WebServer::Impl::register_sessions() {
             // effective model history held by AgentLoop.
             auto messages = entry->sm->load_active_messages();
 
-            auto idx = find_message_index_by_id(messages, at_message_id);
-            if (!idx.has_value()) {
+            auto idx = whole ? std::optional<size_t>{} : find_message_index_by_id(messages, at_message_id);
+            if (!whole && !idx.has_value()) {
                 crow::response r(400);
                 r.body = R"({"error":"message_not_found"})";
                 r.add_header("Content-Type", "application/json");
@@ -2800,7 +2889,7 @@ void WebServer::Impl::register_sessions() {
             // 点击 assistant 消息:沿用原行为,含被点击的那条。
             // 点击 user 提示词:回退到它之前的状态,提示词本身不进历史,
             // 由前端回填输入框待用户修改后重发。
-            const std::string target_role = messages[*idx].role;
+            const std::string target_role = whole ? std::string{} : messages[*idx].role;
             std::string restored_prompt;
             json restored_composer_content;
             std::vector<AttachmentRecord> restored_attachment_sources;
@@ -2854,6 +2943,8 @@ void WebServer::Impl::register_sessions() {
                 retained = anchor.has_value()
                     ? retained_prefix_before_index(messages, *anchor + 1)
                     : std::vector<ChatMessage>{};
+            } else if (whole) {
+                retained = whole_fork_prefix(messages);
             } else {
                 retained = retained_prefix_before_index(messages, *idx + 1);
             }

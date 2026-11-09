@@ -1448,7 +1448,9 @@ function RichComposerShell({
     if (shortcutAction) {
       event.preventDefault();
       if (shortcutAction === 'newline') editor.insertBreak();
-      else if (shortcutAction === 'send' && !event.repeat) onSubmit?.();
+      // Ctrl+Enter 排到回合结束 / Ctrl+Alt+Enter 在分叉会话中发送,由提交方按 mode 区分。
+      else if ((shortcutAction === 'send' || shortcutAction === 'queue' || shortcutAction === 'fork')
+        && !event.repeat) onSubmit?.(shortcutAction === 'send' ? undefined : { mode: shortcutAction });
       return;
     }
 

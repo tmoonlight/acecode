@@ -451,6 +451,11 @@ struct WebServer::Impl {
     crow::response handle_turn_input_request(const crow::request& req,
                                              const std::string& session_id,
                                              bool interrupting);
+    // POST /api/sessions/:id/turn/steer/send-now 与 /turn/steer/withdraw:
+    // 对一条还没被模型读到的插话「立即发送」或「撤回」(按 client_message_id)。
+    crow::response handle_steer_control_request(const crow::request& req,
+                                                const std::string& session_id,
+                                                bool send_now);
     // POST /api/sessions/:id/questions/interject:提问挂起时的用户插话。
     crow::response handle_question_interject_request(const crow::request& req,
                                                      const std::string& session_id);

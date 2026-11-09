@@ -168,6 +168,11 @@ public:
     // provider response to reach its next model boundary.
     TurnSteerResult interrupt_turn(const std::string& expected_turn_id,
                                    const UserInput& input);
+    // 「立即发送」一条还没被模型读到的插话(按 client_message_id):提成高优先级回合并打断。
+    TurnSteerResult send_steer_now(const std::string& expected_turn_id,
+                                   const std::string& client_message_id);
+    // 撤回一条还没被模型读到的插话。
+    TurnSteerResult withdraw_steer(const std::string& client_message_id);
     // Under ActiveTurnGate, finish a pending question and append same-turn input.
     // No abort/new turn; a stale request returns NoPendingQuestion.
     TurnSteerResult interject_question(const std::string& request_id,

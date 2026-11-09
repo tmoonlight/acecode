@@ -117,6 +117,9 @@ enum class TurnSteerStatus {
     // interject_question 专用:request_id 对应的问题已不再挂起(已回答 /
     // 超时 / 关闭 / 会话没有异步提问通道)。输入未被提交,调用方退回普通路径。
     NoPendingQuestion,
+    // send_steer_now / withdraw_steer 专用:这条插话已不在待送达队列里
+    // (模型已经读到、随回合结束丢弃,或从未插进来)。什么都没改变。
+    NotPending,
 };
 
 struct TurnSteerResult {
@@ -488,6 +491,27 @@ public:
         };
     }
 
+    // 「立即发送」一条已插进当前回合、但模型还没读到的插话(按 client_message_id 找):
+    // 把它连同排在它前面的插话提成高优先级回合,并打断当前回合。与 interrupt_turn
+    // 不同,这里不带新输入,所以不会把同一条消息发两次;模型已读到 → NotPending。
+    virtual TurnSteerResult send_steer_now(const std::string& session_id,
+                                           const std::string& expected_turn_id,
+                                           const std::string& client_message_id) {
+        (void)session_id;
+        (void)expected_turn_id;
+        (void)client_message_id;
+        return {TurnSteerStatus::NonSteerable, {}, "sending a steer now is unavailable"};
+    }
+
+    // 撤回一条模型还没读到的插话(按 client_message_id 找),不影响当前回合;
+    // 模型已读到 → NotPending。
+    virtual TurnSteerResult withdraw_steer(const std::string& session_id,
+                                           const std::string& client_message_id) {
+        (void)session_id;
+        (void)client_message_id;
+        return {TurnSteerStatus::NonSteerable, {}, "withdrawing a steer is unavailable"};
+    }
+
     // Execute a daemon-owned builtin command, currently limited to `/init` and
     // `/compact`. This is intentionally separate from send_input so command
     // text is not skill-expanded or sent to the model as an ordinary message.
@@ -572,6 +596,7 @@ inline const char* to_string(TurnSteerStatus status) {
         case TurnSteerStatus::TurnMismatch:   return "turn_mismatch";
         case TurnSteerStatus::QueueFull:      return "queue_full";
         case TurnSteerStatus::NoPendingQuestion: return "no_pending_question";
+        case TurnSteerStatus::NotPending:     return "not_pending";
     }
     return "no_active_turn";
 }

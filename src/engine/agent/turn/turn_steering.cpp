@@ -45,6 +45,24 @@ TurnSteerResult AgentLoop::interrupt_turn(
     return result;
 }
 
+TurnSteerResult AgentLoop::send_steer_now(
+    const std::string& expected_turn_id, const std::string& client_message_id) {
+    std::size_t promised_inputs = 0;
+    auto result = active_turn_gate_->promote(
+        expected_turn_id, client_message_id, *task_queue_, promised_inputs);
+    if (result.accepted()) {
+        wake_active_provider_retry();
+        task_queue_->notify();
+        LOG_INFO("[turn/steer] send-now promoted " + std::to_string(promised_inputs) +
+                 " pending input(s) and interrupted turn " + result.turn_id);
+    }
+    return result;
+}
+
+TurnSteerResult AgentLoop::withdraw_steer(const std::string& client_message_id) {
+    return active_turn_gate_->withdraw(client_message_id);
+}
+
 std::string AgentLoop::active_turn_id() const {
     return active_turn_gate_->id();
 }

@@ -189,6 +189,29 @@ TurnSteerResult LocalSessionClient::interrupt_turn(
     return entry->loop->interrupt_turn(expected_turn_id, input);
 }
 
+TurnSteerResult LocalSessionClient::send_steer_now(
+    const std::string& session_id,
+    const std::string& expected_turn_id,
+    const std::string& client_message_id) {
+    auto entry = registry_.acquire(session_id);
+    if (!entry || !entry->loop) {
+        LOG_WARN("[client] send_steer_now on unknown session " + session_id);
+        return {TurnSteerStatus::UnknownSession, {}, "unknown session"};
+    }
+    return entry->loop->send_steer_now(expected_turn_id, client_message_id);
+}
+
+TurnSteerResult LocalSessionClient::withdraw_steer(
+    const std::string& session_id,
+    const std::string& client_message_id) {
+    auto entry = registry_.acquire(session_id);
+    if (!entry || !entry->loop) {
+        LOG_WARN("[client] withdraw_steer on unknown session " + session_id);
+        return {TurnSteerStatus::UnknownSession, {}, "unknown session"};
+    }
+    return entry->loop->withdraw_steer(client_message_id);
+}
+
 TurnSteerResult LocalSessionClient::interject_question(
     const std::string& session_id,
     const std::string& request_id,

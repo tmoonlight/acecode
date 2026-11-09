@@ -1,8 +1,9 @@
-import { isDismissShortcut } from '../lib/shortcutBindings.js';
+import { isDismissShortcut, isMacShortcutHost } from '../lib/shortcutBindings.js';
 // 输入框:富文本 composer 自动撑高(最多 8 行) + Enter 发 / Shift+Enter 换行 +
 // 空输入或未编辑的历史项用上下键翻 history。
 //
-// 底部工具栏单独占一行,主按钮在右侧;运行中空草稿显示停止,有内容显示排队。
+// 底部工具栏单独占一行,主按钮在右侧;运行中空草稿显示停止,有内容时 Enter / 按钮插话发送、
+// Ctrl+Enter 排到回合结束、Ctrl+Alt+Enter 在分叉会话中发送(悬停按钮可见)。
 //
 // 斜杠命令:value 以 / 开头且无空白时,SlashDropdown 浮层显示在输入框上方。
 // 目标指令显示在加号旁的标签中；其他已确认命令仍在正文中显示原子 token。
@@ -223,6 +224,8 @@ export const InputBar = forwardRef(function InputBar({
   queuePaused = false, onResumeQueue,
   placeholder = '输入消息或 / 命令…', onSubmit, onAbort, busy, stopping = false, goal = null, mainComposer = false,
   followUpPrompt = null,
+  // 当前会话能否「在分叉会话中发送」(Ctrl+Alt+Enter)。
+  forkSendAvailable = false,
   onGoalEdit, onGoalStatusChange, onGoalClear,
   history = [], historyEntries = [], variant = 'default', attentionRequest = 0,
   value: controlledValue, onChange,
@@ -630,8 +633,11 @@ export const InputBar = forwardRef(function InputBar({
     });
   };
 
-  const submit = () => {
+  // options.mode:'queue'(Ctrl+Enter)/ 'fork'(Ctrl+Alt+Enter);按钮点击传的是事件,按发送处理。
+  const submit = (options) => {
     if (speech.interceptSubmit()) return;
+    const sendMode = typeof options?.mode === 'string' ? options.mode : 'send';
+    if (sendMode === 'fork' && !forkSendAvailable) return;
     // Recognition publishes editor refs before React necessarily renders the
     // new draft. Gate and send the same current snapshot, not the old button state.
     const currentDraft = serializeComposerGoal(valueRef.current, contentRef.current, goalModeRef.current);
@@ -639,13 +645,14 @@ export const InputBar = forwardRef(function InputBar({
     if (!currentAction.canSubmit) return;
     // 队列暂停 + 空输入框:这一下是「继续」,不是发送 —— 空内容本来也没什么可发。
     if (currentAction.mode === 'resume') {
+      if (sendMode !== 'send') return;
       playThemeSound('send');
       onResumeQueue?.();
       requestAnimationFrame(() => ta.current?.focus());
       return;
     }
-    playThemeSound(currentAction.mode === 'queue' ? 'queue' : 'send');
-    onSubmit?.(currentDraft.text);
+    playThemeSound(currentAction.mode === 'steer' && sendMode === 'queue' ? 'queue' : 'send');
+    onSubmit?.(currentDraft.text, { sendMode });
     if (!isControlled) updateValue('', composerContentFromText(''), undefined, { goalMode: false });
     setHistPtr(-1);
     setEditedSinceHistory(false);
@@ -1429,6 +1436,15 @@ export const InputBar = forwardRef(function InputBar({
   };
 
   const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
+  // 悬停发送按钮时列出的发送方式:回复中多一个「排到回合结束」,会话可分叉时多一个
+  // 「在分叉会话中发送」。只有「发送」一种时按钮沿用自己的提示。
+  const macKeys = isMacShortcutHost();
+  const primaryKey = macKeys ? '⌘' : 'Ctrl';
+  const sendShortcutRows = mainComposer ? [
+    { label: '发送', keys: ['Enter'] },
+    ...(busy ? [{ label: '排到回合结束', keys: [primaryKey, 'Enter'] }] : []),
+    ...(forkSendAvailable ? [{ label: '在分叉会话中发送', keys: [primaryKey, macKeys ? '⌥' : 'Alt', 'Enter'] }] : []),
+  ] : [];
   const speech = useSpeechRecognition({
     client: pathReferenceApi || defaultApi, scope: fileIntakeScope, editorRef: ta, rootRef, mainComposer,
     disabled: !!disabled || !!submitting,
@@ -1441,6 +1457,7 @@ export const InputBar = forwardRef(function InputBar({
     },
   });
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
+  const editing = !!(draftValue || hasExtras || goalMode || speech.active || composerComposing);
   const ghostPrompt = mainComposer && !disabled && !submitting && !busy && !stopping
     && !draftValue && !hasExtras && !goalMode && !speech.active && !composerComposing
     && !showDropdown && !activePathDropdown && !capabilityOpen && !expertSubmenuOpen
@@ -1654,6 +1671,7 @@ export const InputBar = forwardRef(function InputBar({
       mainComposer={mainComposer}
       onSubmit={submit}
       onStop={onAbort}
+      shortcutRows={sendShortcutRows}
     />
     </>
   );

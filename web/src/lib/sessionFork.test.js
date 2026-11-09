@@ -39,6 +39,9 @@ const statements = component.body.body;
 const callbackSource = (node) => source.slice(node.start, node.end);
 const forkNode = statements.flatMap((node) => node.declarations || [])
   .find((node) => node.id.name === 'forkAndSwitch').init.arguments[0];
+// 切到新会话的那段抽成了 promoteForkedSession(「在分叉会话中发送」共用),一起按源码执行。
+const promoteNode = statements.flatMap((node) => node.declarations || [])
+  .find((node) => node.id.name === 'promoteForkedSession').init.arguments[0];
 const effects = statements.filter((node) => node.expression?.callee?.name === 'useEffect')
   .map((node) => node.expression.arguments[0]);
 const loadNode = effects.find((node) => callbackSource(node).includes('api.getSessionDraft(targetSid'));
@@ -75,6 +78,7 @@ async function verifyForkDraftLifecycle(dirty, activateDestination = true) {
     onSessionPromoted() {}, notifySessionListChanged() {}, toast() {},
   };
   const evaluate = (node) => vm.runInNewContext(`(${callbackSource(node)})`, context);
+  context.promoteForkedSession = evaluate(promoteNode);
   const cleanup = evaluate(cleanupNode)();
   await evaluate(forkNode)('message');
   assert.equal(composer, 'source draft', 'fork response must not mutate the outgoing composer');

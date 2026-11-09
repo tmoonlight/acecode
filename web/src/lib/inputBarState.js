@@ -19,7 +19,9 @@ export function getInputBarActionState({
   // submitting 只压住「再发一次」这个动作。它绝不能并进 disabled —— disabled
   // 会一路传到 Slate 的 readOnly,把整个编辑区变成 contenteditable=false。
   const isSubmitting = !!submitting;
-  const mode = isResume ? 'resume' : isStop ? 'stop' : isBusy ? 'queue' : 'send';
+  // 回复中有内容时 Enter / 发送按钮是「插话」:插进当前回合,模型下一步读到(steer);
+  // 排到回合结束是 Ctrl+Enter,不占按钮。
+  const mode = isResume ? 'resume' : isStop ? 'stop' : isBusy ? 'steer' : 'send';
   return {
     hasText,
     hasExtras: !!hasExtras,
@@ -27,16 +29,16 @@ export function getInputBarActionState({
     canSubmit: (isResume || hasSubmittableContent) && !isDisabled && !isSubmitting,
     submitting: isSubmitting,
     canAbort: isBusy,
-    submitLabel: isResume ? '继续' : isStop ? '停止' : isBusy ? '排队' : '发送',
+    submitLabel: isResume ? '继续' : isStop ? '停止' : '发送',
     submitTitle: isResume
       ? '继续发送排队的消息 (Enter)'
-      : isStop ? '停止当前任务' : isBusy ? '排队下一条 (Enter)' : '发送 (Enter)',
+      : isStop ? '停止当前任务' : '发送 (Enter)',
     helperText: isResume
       ? 'Enter 继续发送排队的消息 · Shift+Enter 换行 · 上下键切换历史消息'
       : isStop
         ? '输入消息可排队 · Shift+Enter 换行 · 上下键切换历史消息'
         : isBusy
-          ? 'Enter 排队 · Shift+Enter 换行 · 上下键切换历史消息'
+          ? 'Enter 发送 · Ctrl+Enter 排到回合结束 · Shift+Enter 换行'
           : 'Enter 发送 · Shift+Enter 换行 · 上下键切换历史消息',
   };
 }

@@ -68,6 +68,7 @@ import { SelectionActionPopover } from './SelectionActionPopover.jsx';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { ExpertPickerDialog } from './ExpertCatalog.jsx';
 import { QueueCardList } from './QueueCardList.jsx';
+import { SteeredMessages } from './SteeredMessages.jsx';
 import { TaskSuggestionCards } from './TaskSuggestionCards.jsx';
 import { SideChatWindow } from './SideChatWindow.jsx';
 import { sideChatSessionKey, sideChatSessions } from '../lib/sideChatSessions.js';
@@ -126,6 +127,7 @@ import {
   beginQueuedGuidance,
   buildQueuedMessageItems,
   cancelQueuedInput,
+  cancelQueuedSteerSendNow,
   completeQueuedInputForMessage,
   createChatInputQueueState,
   enqueueQueuedInput,
@@ -138,13 +140,17 @@ import {
   markQueuedInputCompleted,
   markQueuedInputFailed,
   markQueuedInputSending,
+  markQueuedSteerSendingNow,
   nextQueuedInput,
   pauseQueuedInput,
   QUEUED_INPUT_STATE,
   queuedInputPause,
   queuedInputRequestPayload,
+  releaseUndeliveredSteers,
   resumeQueuedInput,
   retryQueuedInput,
+  STEER_LANE,
+  steeredMessageItems,
   updateQueuedInputContent,
 } from '../lib/chatInputQueue.js';
 import {
@@ -1104,6 +1110,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 排队消息从 transcript 中分离出来,只喂给 InputBar 上方的 QueueCardList。
   // transcript 只渲染后端真实落库的消息,避免把"草稿/未发送"和"已发送"混在一起。
   const visibleQueuedItems = useMemo(() => buildQueuedMessageItems(queueState, sid), [queueState, sid]);
+  // 回复中按 Enter 插进当前回合、模型还没读到的消息,画在对话末尾。
+  const steeredItems = useMemo(() => steeredMessageItems(queueState, sid), [queueState, sid]);
   // 当前会话的队列暂停态(用户中断回合后置位):卡片栈横幅与输入栏「继续」按钮共用。
   const queuePause = useMemo(() => queuedInputPause(queueState, sid), [queueState, sid]);
   const draftWorkspaceHash = isRealWorkspaceHash(ref?.workspaceHash) ? ref.workspaceHash : '';
@@ -3325,13 +3333,86 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   }, [api]);
 
   const enqueueInput = useStableCallback((payload) => {
-    if (!sid) return;
+    if (!sid) return '';
     // cwd 输入历史只记编辑器文本:内联粘贴块的正文不进历史。
     const text = typeof payload === 'string' ? payload : inputHistoryTextForPayload(payload);
-    updateQueueState((prev) => enqueueQueuedInput(prev, { sessionId: sid, payload }));
+    let queuedId = '';
+    updateQueueState((prev) => {
+      const next = enqueueQueuedInput(prev, { sessionId: sid, payload });
+      if (next !== prev) queuedId = next.items[next.items.length - 1]?.queued?.id || '';
+      return next;
+    });
     if (text.trim()) recordInputHistory(text);
     // 标题不在本地用消息全文改写:服务端落盘后经 session_updated{summary} 下发
     // 截断后的摘要,顶部与侧栏同源。
+    return queuedId;
+  });
+
+  // 回合结束时还没被模型读到的插话(服务端在中断 / 出错收尾时丢弃它们)转回排队卡片。
+  // 对话里已经出现的(按 client_message_id)直接算完成,不会再发一次。
+  const releaseSteersAfterTurn = useStableCallback(() => {
+    const targetSid = sidRef.current;
+    if (!targetSid) return;
+    const delivered = new Set();
+    for (const item of transcript.getState().items || []) {
+      const clientMessageId = item?.metadata?.client_message_id;
+      if (clientMessageId) delivered.add(clientMessageId);
+    }
+    updateQueueState((prev) => releaseUndeliveredSteers(prev, targetSid, delivered));
+  });
+
+  // 回复中按 Enter:把刚入队的消息作为软插话插进当前回合(/turn/steer),模型下一步读到;
+  // 读到之前画在对话末尾。被拒(回合不接受插话、刚好结束、turn 已换)就留在排队卡片里。
+  const steerQueuedInput = useStableCallback((queuedId, expectedTurnId) => {
+    const targetSid = sidRef.current;
+    const queuedItem = queueStore.getState().items.find((item) => item?.queued?.id === queuedId);
+    const requestPayload = queuedInputRequestPayload(queuedItem);
+    if (!targetSid || !expectedTurnId || !requestPayload) return;
+    updateQueueState((prev) => beginQueuedGuidance(prev, queuedId, { turnId: expectedTurnId, lane: STEER_LANE }));
+    api.steerTurn(targetSid, { ...requestPayload, expected_turn_id: expectedTurnId })
+      .then((result) => {
+        updateQueueState((prev) => markQueuedGuidanceAccepted(prev, queuedId, {
+          turnId: result?.turn_id || expectedTurnId,
+        }));
+        // 回执晚于回合结束(插话可能随中断被丢弃):补一次回退。
+        if (sidRef.current === targetSid && !transcript.getState().busy) releaseSteersAfterTurn();
+      })
+      .catch(() => {
+        updateQueueState((prev) => finishQueuedGuidance(prev, queuedId, { succeeded: false }));
+      });
+  });
+
+  // 插话气泡上的「立即发送」:服务端把这条还没读到的插话提成优先回合并打断当前回合。
+  // 先标记再发请求:打断让回合马上结束,不能让回合结束的回退把它当成没送达再发一次。
+  const sendSteeredNow = useStableCallback((queuedId) => {
+    const targetSid = sidRef.current;
+    const queuedItem = queueStore.getState().items.find((item) => item?.queued?.id === queuedId);
+    const turnId = String(queuedItem?.queued?.steerTurnId || activeTurnId || '');
+    if (!targetSid || !turnId || queuedItem?.queued?.steerMode !== 'next') return;
+    updateQueueState((prev) => markQueuedSteerSendingNow(prev, queuedId));
+    playThemeSound('send');
+    api.sendSteerNow(targetSid, queuedId, turnId)
+      .catch((e) => {
+        updateQueueState((prev) => cancelQueuedSteerSendNow(prev, queuedId));
+        if (sidRef.current === targetSid && !transcript.getState().busy) releaseSteersAfterTurn();
+        // 模型已经读到(正式消息随后出现)或已随回合结束:不打扰。
+        if (e?.code !== 'STEER_NOT_PENDING') {
+          toast({ kind: 'err', text: '立即发送失败:' + (e?.message || '未知错误') });
+        }
+      });
+  });
+
+  // 插话气泡上的撤回:模型还没读到时从当前回合拿掉,不影响回合。
+  const withdrawSteered = useStableCallback((queuedId) => {
+    const targetSid = sidRef.current;
+    if (!targetSid) return;
+    api.withdrawSteer(targetSid, queuedId)
+      .then(() => updateQueueState((prev) => cancelQueuedInput(prev, queuedId)))
+      .catch((e) => {
+        if (e?.code !== 'STEER_NOT_PENDING') {
+          toast({ kind: 'err', text: '撤回失败:' + (e?.message || '未知错误') });
+        }
+      });
   });
 
   const cancelQueued = useCallback((queuedId) => {
@@ -3544,7 +3625,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     return api.sendInput(targetSid, materialized);
   }, [api, executeBuiltinCommand, materializeWorkspaceDraftPastes]);
 
-  const submit = useStableCallback((text) => {
+  // sendMode:'send'(Enter / 发送按钮)、'queue'(Ctrl+Enter,回复中排到回合结束)、
+  // 'fork'(Ctrl+Alt+Enter,在分叉出的新会话里发送)。
+  const submit = useStableCallback((text, { sendMode = 'send' } = {}) => {
     if (sessionRuntimeUnavailable) return;
     const submittedContent = reconcileComposerContentAttachments(composerContentRef.current, composerAttachments);
     const activeAttachments = submittedContent ? composerContentAttachments(submittedContent, composerAttachments, { sessionId: sid }) : composerAttachments;
@@ -3630,6 +3713,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       return;
     }
     const historyText = inputHistoryTextForPayload(payload);
+    if (sendMode === 'fork' && route.kind === 'message') {
+      sendInForkedSession({ payload, historyText, submittedComposerText, submittedComposerContent });
+      return;
+    }
     if (route.kind === 'desktop_feedback') {
       if (!sid) {
         toast({ kind: 'err', text: tr('feedbackCommand.requiresSession') });
@@ -3880,7 +3967,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         ? (liveTranscript.abortTurnId || 'pending-stop') : '',
     }));
     if ((liveTranscript.busy || liveTranscript.abortPending) && !isBuiltin) {
-      enqueueInput(payload);
+      // 回复中:Enter / 发送按钮 = 插话(插进当前回合,模型下一步读到,先画在对话末尾);
+      // Ctrl+Enter = 排到回合结束。正在停止时只能排队。
+      const queuedId = enqueueInput(payload);
+      const steerTurnId = String(liveTranscript.activeTurnId || activeTurnId || '');
+      if (queuedId && sendMode !== 'queue' && liveTranscript.busy && !liveTranscript.abortPending && steerTurnId) {
+        setTailFollowFromAction({ type: 'new_turn' });
+        steerQueuedInput(queuedId, steerTurnId);
+      }
       clearCurrentSessionDraft();
       clearComposerExtras();
       restoreChatInputFocusSoon(false);
@@ -3991,6 +4085,8 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   useEffect(() => {
     const wasBusy = prevBusyRef.current;
     prevBusyRef.current = busy;
+    // 回合刚结束:没被模型读到的插话先转回排队,下面的暂停 / 出队判断把它们算进去。
+    if (wasBusy && !busy) releaseSteersAfterTurn();
     // 切会话瞬间 transcript 会 reset 成 busy=false + loadState=loading。
     // 在 loaded 之前禁止 drain,否则排队卡片会在还在运行的会话上被误发并消失。
     if (!shouldDrainQueuedInput({
@@ -4005,7 +4101,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     // 本端点停止已在 abort() 里先行暂停;这里兜住 TUI / 其它客户端 / IM 通道
     // 发起的中断 —— 它们只以 outcome=aborted 的 busy_changed / done 到达。
     if (wasBusy && shouldPauseQueuedInputAfterAbort({
-      state: queueState,
+      state: queueStore.getState(),
       sessionId: sid,
       lastTurnOutcome,
       turnId: lastTerminalTurnId,
@@ -4351,6 +4447,48 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // fork: 调后端 POST /api/sessions/:id/fork,成功后切到新 session(同 ref)。
   // 失败弹 toast 不打断当前 session。新 session 不会自动启 turn,
   // 用户在新 session 自己输入消息才开始。
+  // 切到刚分叉出的会话(同 ref)并通知侧栏刷新。beforePromote 在切换前拿到新会话的
+  // 工作区 hash,给回填输入框之类的事用。
+  const promoteForkedSession = useStableCallback((r, beforePromote) => {
+    const noWorkspace = !!(ref?.noWorkspace || r?.no_workspace || r?.noWorkspace);
+    const workspaceHash = noWorkspace ? '' : (r.workspace_hash || ref?.workspaceHash || '');
+    const cwd = noWorkspace ? '' : (r.cwd || ref?.cwd || '');
+    const workingCwd = r.working_cwd || r.cwd || ref?.workingCwd || ref?.cwd || '';
+    const now = new Date().toISOString();
+    const forkedSession = {
+      ...r,
+      id: r.session_id,
+      active: true,
+      status: 'idle',
+      attention_state: 'read',
+      read_state: 'read',
+      no_workspace: noWorkspace,
+      noWorkspace,
+      workspace_hash: workspaceHash,
+      cwd,
+      working_cwd: workingCwd,
+      title: r.title,
+      created_at: r.created_at || now,
+      updated_at: r.updated_at || now,
+    };
+    beforePromote?.({ workspaceHash });
+    onSessionPromoted?.({
+      ...newSessionRefFrom(ref, r.session_id),
+      title: r.title,
+      workspaceHash,
+      cwd,
+      workingCwd,
+      noWorkspace,
+    });
+    notifySessionListChanged({
+      reason: 'fork',
+      sessionId: r.session_id,
+      workspaceHash,
+      noWorkspace,
+      session: forkedSession,
+    });
+  });
+
   const forkAndSwitch = useStableCallback(async (messageId) => {
     const sourceMessageId = messageId == null ? '' : String(messageId);
     if (!sid || !sourceMessageId) return;
@@ -4362,55 +4500,19 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         toast({ kind: 'err', text: '分叉失败:无 session_id' });
         return;
       }
-      const noWorkspace = !!(ref?.noWorkspace || r?.no_workspace || r?.noWorkspace);
-      const workspaceHash = noWorkspace ? '' : (r.workspace_hash || ref?.workspaceHash || '');
-      const cwd = noWorkspace ? '' : (r.cwd || ref?.cwd || '');
-      const workingCwd = r.working_cwd || r.cwd || ref?.workingCwd || ref?.cwd || '';
-      const now = new Date().toISOString();
-      const forkedSession = {
-        ...r,
-        id: r.session_id,
-        active: true,
-        status: 'idle',
-        attention_state: 'read',
-        read_state: 'read',
-        no_workspace: noWorkspace,
-        noWorkspace,
-        workspace_hash: workspaceHash,
-        cwd,
-        working_cwd: workingCwd,
-        title: r.title,
-        created_at: r.created_at || now,
-        updated_at: r.updated_at || now,
-      };
       // 分叉点命中 user 提示词时,后端已把该提示词从历史中剔除并返回原文。
       // 这里回填输入框待用户修改后重发,不自动发送。
       // 先保留源会话输入,让旧会话 cleanup 保存自己的草稿;目标会话加载时再回填。
       const restoredPrompt = forkRestoredPrompt(r);
       const restoredContent = normalizeComposerContent(r.restored_composer_content);
-      if (restoredPrompt || restoredContent) {
+      promoteForkedSession(r, ({ workspaceHash }) => {
+        if (!restoredPrompt && !restoredContent) return;
         pendingForkComposerRef.current = {
           key: `${workspaceHash}:${r.session_id}`,
           text: restoredPrompt,
           composer_content: restoredContent,
           attachments: Array.isArray(r.restored_attachments) ? r.restored_attachments : [],
         };
-      }
-
-      onSessionPromoted?.({
-        ...newSessionRefFrom(ref, r.session_id),
-        title: r.title,
-        workspaceHash,
-        cwd,
-        workingCwd,
-        noWorkspace,
-      });
-      notifySessionListChanged({
-        reason: 'fork',
-        sessionId: r.session_id,
-        workspaceHash,
-        noWorkspace,
-        session: forkedSession,
       });
       toast({
         kind: 'ok',
@@ -4423,6 +4525,38 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     } finally {
       forkActionGuardRef.current.release(FORK_ACTION_KEY);
       setForkingMessageId((current) => (current === sourceMessageId ? '' : current));
+    }
+  });
+
+  // Ctrl+Alt+Enter:复制整个会话(回合进行中也可以,还没结果的工具调用不带过去),
+  // 在分叉出的新会话里发送这条消息并切过去;原会话不受影响、继续跑。
+  // 附件属于原会话,暂不随分叉发送。
+  const sendInForkedSession = useStableCallback(async ({
+    payload, historyText, submittedComposerText, submittedComposerContent,
+  }) => {
+    const sourceSid = sidRef.current;
+    if (!sourceSid || readOnlyExternalSession) return;
+    if (Array.isArray(payload.attachments) && payload.attachments.length > 0) {
+      toast({ kind: 'err', text: '在分叉会话中发送暂不支持附件' });
+      return;
+    }
+    if (!forkActionGuardRef.current.acquire(FORK_ACTION_KEY)) return;
+    setComposerSubmitting(true);
+    try {
+      const r = await api.forkWholeSession(sourceSid);
+      if (!r || !r.session_id) throw new Error('missing session_id');
+      await sendInputOrBuiltin(r.session_id, payload);
+      if (historyText.trim()) recordInputHistory(historyText);
+      if (sidRef.current === sourceSid && clearCurrentSessionDraft({
+        expectedText: submittedComposerText, expectedContent: submittedComposerContent,
+      })) clearComposerExtras();
+      playThemeSound('send');
+      promoteForkedSession(r);
+    } catch (e) {
+      toast({ kind: 'err', text: '分叉发送失败:' + (e?.message || '') });
+    } finally {
+      forkActionGuardRef.current.release(FORK_ACTION_KEY);
+      setComposerSubmitting(false);
     }
   });
 
@@ -6437,6 +6571,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               />
             </div>
           ))}
+          <SteeredMessages items={steeredItems} onSendNow={sendSteeredNow} onWithdraw={withdrawSteered} />
           {conversationActivity.kind === CONVERSATION_ACTIVITY_KIND.BACKGROUND && (
             <ActivityLine
               running
@@ -6600,6 +6735,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             ref={inputRef}
             mainComposer
             followUpPrompt={followUpPrompt}
+            forkSendAvailable={!!sid && !readOnlyExternalSession && transcriptLoadState === 'loaded'}
             pathReferenceApi={api}
             currentSessionId={sid}
             cwd={sidePanelCwd}

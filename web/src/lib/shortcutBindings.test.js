@@ -57,9 +57,13 @@ assert.equal(captureShortcut({ code: 'KeyJ', ctrlKey: true, repeat: true }), nul
 assert.equal(captureShortcut({ code: 'KeyJ', ctrlKey: true, getModifierState: () => true }), null);
 assert.equal(matchesShortcutBinding({ code: 'KeyJ', ctrlKey: true, altKey: true, target: { closest: () => ({}) } }, custom), false);
 assert.equal(matchesShortcutBinding({ code: 'KeyJ', ctrlKey: true, altKey: true, shiftKey: true }, custom), false);
-assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', ctrlKey: true }, true, { newline: chord('KeyJ') }), 'ignore', 'old desktop newline must not become a send action');
+// Ctrl+Enter 排到回合结束(空闲时等同发送),Ctrl+Alt+Enter 在分叉会话中发送;Cmd 同 Ctrl。
+assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', ctrlKey: true }, true, { newline: chord('KeyJ') }), 'queue');
 assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter' }, false, { send: chord('KeyJ') }), null);
-assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', ctrlKey: true }, true, {}), 'newline');
+assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', ctrlKey: true }, true, {}), 'queue');
+assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', metaKey: true }, false, {}), 'queue');
+assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', ctrlKey: true, altKey: true }, false, {}), 'fork');
+assert.equal(composerShortcutAction({ key: 'Enter', code: 'Enter', ctrlKey: true, shiftKey: true }, false, {}), null);
 assert.equal(shortcutBindingsConflict(APP_SHORTCUTS.reasoningUp, chord('Period', { shiftKey: true })), true);
 assert.equal(shortcutBindingsConflict(APP_SHORTCUTS.reasoningUp, chord('Comma')), false);
 assert.equal(matchesShortcutBinding({ key: '-', code: 'NumpadSubtract', ctrlKey: true }, APP_SHORTCUTS.forward), true);

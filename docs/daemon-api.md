@@ -323,6 +323,8 @@ download when nothing changed.
 | POST | `/api/sessions/:id/messages` | queue user input |
 | POST | `/api/sessions/:id/turn/steer` | append input to the matching active turn |
 | POST | `/api/sessions/:id/turn/interrupt` | interrupt the matching active turn and start a priority replacement turn |
+| POST | `/api/sessions/:id/turn/steer/send-now` | promote a not-yet-read steer to a priority turn and interrupt the active turn |
+| POST | `/api/sessions/:id/turn/steer/withdraw` | withdraw a not-yet-read steer from the active turn |
 | POST | `/api/sessions/:id/questions/interject` | resolve a pending AskUserQuestion with a free-form message and continue the same turn |
 | POST | `/api/sessions/:id/attachments` | upload a session snapshot, create a Desktop source reference, or import a new-session draft attachment |
 | GET | `/api/sessions/:id/attachments/:attachment_id/blob` | download attachment bytes |
@@ -1921,6 +1923,41 @@ clients that want same-turn delivery at the next model boundary should continue
 using `/turn/steer`; Desktop/Web interjection and `/turn` use this immediate
 endpoint.
 
+### `POST /api/sessions/:id/turn/steer/send-now`
+
+"Send now" for input accepted by `/turn/steer` that the model has not read
+yet. The body names the steer by its `client_message_id` and carries the
+required `expected_turn_id`:
+
+```json
+{"client_message_id": "queued-session-id-1", "expected_turn_id": "initial-user-message-uuid"}
+```
+
+While that steer is still pending, every pending steer of the turn (in FIFO
+order, this one included) is promised as a high-priority turn exactly like
+`/turn/interrupt` does, and the active turn is aborted. No new input is added,
+so the message is committed once. Success returns `202`
+`{"accepted": true, "interrupting": true, "turn_id": "...", "client_message_id": "..."}`.
+If the model already read it, or it was discarded when the turn ended, the
+response is `409 STEER_NOT_PENDING` and nothing changes. Other errors match
+`/turn/steer`.
+
+### `POST /api/sessions/:id/turn/steer/withdraw`
+
+Removes a pending steer (`{"client_message_id": "..."}`) from the active turn
+without touching the turn. Success returns `200`
+`{"accepted": true, "withdrawn": true, "turn_id": "...", "client_message_id": "..."}`;
+a steer that was already read or is no longer pending returns
+`409 STEER_NOT_PENDING`.
+
+Web/Desktop use these for the composer: while a turn is running, Enter sends
+the message as a soft steer (`/turn/steer`) and shows it at the end of the
+transcript until the canonical user message arrives; its bubble offers
+"send now" and withdraw. Ctrl+Enter keeps the client-side queue (sent after
+the turn), and Ctrl+Alt+Enter forks the whole session
+(`POST /fork` with `whole: true`) and sends the message there. A steer that is
+still unread when the turn ends (stop or error) goes back to the client queue.
+
 ### `POST /api/sessions/:id/questions/interject`
 
 Resolves a pending `question_request` with a free-form user message instead of
@@ -2433,6 +2470,11 @@ Body:
 ```json
 {"at_message_id":"msg-123","title":"optional title"}
 ```
+
+`{"whole": true}` copies the whole session instead (no `at_message_id`); the
+copy ends at the last complete conversational message, so tool calls of a
+running turn that have no results yet are not carried over. `fork_message_id`
+and `fork_anchor_role` are then empty.
 
 Response:
 

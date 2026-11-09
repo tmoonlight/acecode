@@ -104,11 +104,15 @@ run('imperative focus retries after an external Slate document replacement', () 
   assert.match(composer, /window\.requestAnimationFrame\(\(\) => \{\s*try \{ focusEditor\(\); \} catch \{\}/s);
 });
 
-run('desktop Ctrl+Enter inserts a line break while plain Enter still submits', () => {
+// 场景:输入框里按 Enter / Ctrl+Enter / Ctrl+Alt+Enter。
+// 期望:Enter 普通发送;Ctrl+Enter 与 Ctrl+Alt+Enter 也走提交,带 mode(queue / fork)交给提交方;
+// 自定义的换行快捷键仍插入换行。
+// 回归:桌面版 Ctrl+Enter 曾固定是换行,用户要求改成「排到回合结束」(与 Claude 桌面版一致)。
+run('Enter sends, Ctrl+Enter queues and Ctrl+Alt+Enter forks through one submit path', () => {
   const composer = source('components/RichComposer.jsx');
   assert.match(composer, /composerShortcutAction\(event, isDesktopShell\(\)\)/);
   assert.match(composer, /shortcutAction === 'newline'\) editor\.insertBreak\(\)/);
-  assert.match(composer, /shortcutAction === 'send' && !event\.repeat\) onSubmit\?\.\(\)/);
+  assert.match(composer, /onSubmit\?\.\(shortcutAction === 'send' \? undefined : \{ mode: shortcutAction \}\)/);
 });
 
 run('placeholder stays top-aligned without the inset shorthand', () => {

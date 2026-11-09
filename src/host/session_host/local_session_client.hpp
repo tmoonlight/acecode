@@ -46,6 +46,11 @@ public:
     TurnSteerResult interrupt_turn(const std::string& session_id,
                                    const std::string& expected_turn_id,
                                    const UserInput& input) override;
+    TurnSteerResult send_steer_now(const std::string& session_id,
+                                   const std::string& expected_turn_id,
+                                   const std::string& client_message_id) override;
+    TurnSteerResult withdraw_steer(const std::string& session_id,
+                                   const std::string& client_message_id) override;
     TurnSteerResult interject_question(const std::string& session_id,
                                        const std::string& request_id,
                                        const UserInput& input,

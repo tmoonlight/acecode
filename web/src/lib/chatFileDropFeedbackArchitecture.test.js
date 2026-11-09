@@ -103,7 +103,7 @@ run('ChatView stages home attachments without creating or navigating a session',
   const handleStart = chatView.indexOf('const handleMediaFiles = useStableCallback((files) => {');
   const handleEnd = chatView.indexOf('\n\n  const removeComposerAttachment', handleStart);
   const handleFlow = chatView.slice(handleStart, handleEnd);
-  const submitStart = chatView.indexOf('const submit = useStableCallback((text) => {');
+  const submitStart = chatView.indexOf('const submit = useStableCallback((text, { sendMode');
   const submitEnd = chatView.indexOf('\n\n  const drainQueuedInput', submitStart);
   const submitFlow = chatView.slice(submitStart, submitEnd);
 

@@ -6,6 +6,7 @@
 #include "utils/abort_signal.hpp"
 #include "utils/logger.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace acecode::agent {
@@ -160,6 +161,7 @@ TurnSteerResult ActiveTurnGate::interrupt(
     const UserInput& input,
     AgentTaskQueue& queue,
     std::size_t& promised_inputs) {
+    promised_inputs = 0;
     if (expected_turn_id.empty()) {
         return {
             TurnSteerStatus::InvalidInput,
@@ -175,75 +177,139 @@ TurnSteerResult ActiveTurnGate::interrupt(
         };
     }
 
-    std::string interrupted_turn_id;
+    // Lock order is intentionally gate -> queue. No worker
+    // path holds AgentTaskQueue while acquiring mu_.
+    std::lock_guard<std::mutex> turn_lk(mu_);
+    if (auto rejected = reject_inactive_locked(expected_turn_id)) return *rejected;
+    return promise_pending_and_abort_locked(&input, queue, promised_inputs);
+}
+
+namespace {
+
+std::string client_message_id_of(const UserInput& input) {
+    if (!input.metadata.is_object()) return {};
+    const auto it = input.metadata.find("client_message_id");
+    return it != input.metadata.end() && it->is_string() ? it->get<std::string>() : std::string{};
+}
+
+} // namespace
+
+TurnSteerResult ActiveTurnGate::promote(
+    const std::string& expected_turn_id,
+    const std::string& client_message_id,
+    AgentTaskQueue& queue,
+    std::size_t& promised_inputs) {
     promised_inputs = 0;
-    {
-        // Lock order is intentionally gate -> queue. No worker
-        // path holds AgentTaskQueue while acquiring mu_.
-        std::lock_guard<std::mutex> turn_lk(mu_);
-        if (!accepting_ || id_.empty()) {
-            return {
-                busy_.load()
-                    ? TurnSteerStatus::NonSteerable
-                    : TurnSteerStatus::NoActiveTurn,
-                {},
-                busy_.load()
-                    ? "the busy operation is not steerable"
-                    : "no active turn",
-            };
-        }
-        if (expected_turn_id != id_) {
-            return {
-                TurnSteerStatus::TurnMismatch,
-                id_,
-                "expected turn does not match the active turn",
-            };
-        }
-
-        interrupted_turn_id = id_;
-        const std::size_t input_count = pending_.size() + 1;
-        return queue.with_locked([&](AgentTaskQueue::Locked& tasks) -> TurnSteerResult {
-            if (tasks.priority_size() + input_count >
-                kMaxPendingInputs) {
-                return {
-                    TurnSteerStatus::QueueFull,
-                    interrupted_turn_id,
-                    "interrupting turn queue is full",
-                };
-            }
-
-            auto promise_follow_up = [&](UserInput follow_up) {
-                if (!follow_up.metadata.is_object()) {
-                    follow_up.metadata = nlohmann::json::object();
-                }
-                follow_up.metadata["turn_interrupt"] = true;
-                follow_up.metadata["interrupted_turn_id"] = interrupted_turn_id;
-
-                WorkerTask task;
-                task.kind = WorkerTask::Kind::Chat;
-                task.input = std::move(follow_up);
-                tasks.push(std::move(task), true);
-                ++promised_inputs;
-            };
-
-            while (!pending_.empty()) {
-                promise_follow_up(std::move(pending_.front()));
-                pending_.pop_front();
-            }
-            promise_follow_up(input);
-
-            // Close acceptance before setting abort, so a concurrent soft steer
-            // cannot be acknowledged and then discarded during turn teardown.
-            accepting_ = false;
-            interrupt_requested_.store(true);
-            abort_.request();
-            return {
-                TurnSteerStatus::Accepted,
-                interrupted_turn_id,
-                "accepted; interrupt requested",
-            };
-        });
+    if (expected_turn_id.empty() || client_message_id.empty()) {
+        return {
+            TurnSteerStatus::InvalidInput,
+            {},
+            "expected turn id and client message id are required",
+        };
     }
+    std::lock_guard<std::mutex> turn_lk(mu_);
+    if (auto rejected = reject_inactive_locked(expected_turn_id)) return *rejected;
+    const bool pending = std::any_of(pending_.begin(), pending_.end(), [&](const UserInput& input) {
+        return client_message_id_of(input) == client_message_id;
+    });
+    if (!pending) {
+        return {
+            TurnSteerStatus::NotPending,
+            id_,
+            "the steer was already read by the model or is no longer pending",
+        };
+    }
+    return promise_pending_and_abort_locked(nullptr, queue, promised_inputs);
+}
+
+TurnSteerResult ActiveTurnGate::withdraw(const std::string& client_message_id) {
+    if (client_message_id.empty()) {
+        return {TurnSteerStatus::InvalidInput, {}, "client message id is required"};
+    }
+    std::lock_guard<std::mutex> lk(mu_);
+    const auto it = std::find_if(pending_.begin(), pending_.end(), [&](const UserInput& input) {
+        return client_message_id_of(input) == client_message_id;
+    });
+    if (!accepting_ || it == pending_.end()) {
+        return {
+            TurnSteerStatus::NotPending,
+            accepting_ ? id_ : std::string{},
+            "the steer was already read by the model or is no longer pending",
+        };
+    }
+    pending_.erase(it);
+    return {TurnSteerStatus::Accepted, id_, "withdrawn"};
+}
+
+std::optional<TurnSteerResult> ActiveTurnGate::reject_inactive_locked(
+    const std::string& expected_turn_id) const {
+    if (!accepting_ || id_.empty()) {
+        return TurnSteerResult{
+            busy_.load()
+                ? TurnSteerStatus::NonSteerable
+                : TurnSteerStatus::NoActiveTurn,
+            {},
+            busy_.load()
+                ? "the busy operation is not steerable"
+                : "no active turn",
+        };
+    }
+    if (expected_turn_id != id_) {
+        return TurnSteerResult{
+            TurnSteerStatus::TurnMismatch,
+            id_,
+            "expected turn does not match the active turn",
+        };
+    }
+    return std::nullopt;
+}
+
+TurnSteerResult ActiveTurnGate::promise_pending_and_abort_locked(
+    const UserInput* extra,
+    AgentTaskQueue& queue,
+    std::size_t& promised_inputs) {
+    const std::string interrupted_turn_id = id_;
+    const std::size_t input_count = pending_.size() + (extra ? 1 : 0);
+    return queue.with_locked([&](AgentTaskQueue::Locked& tasks) -> TurnSteerResult {
+        if (tasks.priority_size() + input_count > kMaxPendingInputs) {
+            return {
+                TurnSteerStatus::QueueFull,
+                interrupted_turn_id,
+                "interrupting turn queue is full",
+            };
+        }
+
+        auto promise_follow_up = [&](UserInput follow_up) {
+            if (!follow_up.metadata.is_object()) {
+                follow_up.metadata = nlohmann::json::object();
+            }
+            follow_up.metadata["turn_interrupt"] = true;
+            follow_up.metadata["interrupted_turn_id"] = interrupted_turn_id;
+
+            WorkerTask task;
+            task.kind = WorkerTask::Kind::Chat;
+            task.input = std::move(follow_up);
+            tasks.push(std::move(task), true);
+            ++promised_inputs;
+        };
+
+        while (!pending_.empty()) {
+            promise_follow_up(std::move(pending_.front()));
+            pending_.pop_front();
+        }
+        if (extra) promise_follow_up(*extra);
+
+        // Close acceptance before setting abort, so a concurrent soft steer
+        // cannot be acknowledged and then discarded during turn teardown.
+        accepting_ = false;
+        interrupt_requested_.store(true);
+        abort_.request();
+        return {
+            TurnSteerStatus::Accepted,
+            interrupted_turn_id,
+            "accepted; interrupt requested",
+        };
+    });
 }
 
 std::string ActiveTurnGate::id() const {

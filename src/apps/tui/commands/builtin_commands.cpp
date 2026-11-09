@@ -335,6 +335,7 @@ static void cmd_turn(CommandContext& ctx, const std::string& raw_args) {
             return;
         case TurnSteerStatus::UnknownSession:
         case TurnSteerStatus::NoPendingQuestion:
+        case TurnSteerStatus::NotPending:
             break;
     }
     emit_command_message(ctx, "Active-turn guidance is unavailable.");

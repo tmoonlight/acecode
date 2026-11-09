@@ -317,7 +317,8 @@ await run('title bar, provider and event sources are wired', () => {
   assert.match(provider, /<ThemeSoundLayer[\s\S]*style=\{soundStyle\}[\s\S]*muted=\{!themeSounds\}[\s\S]*samples=\{soundSamples\}/);
   assert.match(provider, /api\.readThemeSound\(id, name, version\)/);
   const inputBar = read('../components/InputBar.jsx');
-  assert.match(inputBar, /playThemeSound\(currentAction\.mode === 'queue' \? 'queue' : 'send'\)/);
+  // 回复中 Ctrl+Enter 排到回合结束响排队音,其余(含回复中 Enter 插话)响发送音。
+  assert.match(inputBar, /playThemeSound\(currentAction\.mode === 'steer' && sendMode === 'queue' \? 'queue' : 'send'\)/);
   assert.match(read('../components/ChatView.jsx'), /sendAbort\(sid\)\) \{[\s\S]*?\}\s*playThemeSound\('stop'\)/);
   const app = read('../App.jsx');
   assert.match(app, /type === 'completion' && msg\.replayed !== true\) playThemeSound\('complete'\)/);

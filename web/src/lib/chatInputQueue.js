@@ -152,10 +152,16 @@ export function cancelQueuedInput(state, id) {
   return next;
 }
 
+// 插话的三种送法(对应 Claude 的 next / now / later 里的前两档):
+//   - STEER_LANE 条目由回复中按 Enter 产生:软插话(/turn/steer),模型在下一步读到,
+//     读到之前画在对话末尾,可以「立即发送」或撤回;
+//   - 排队卡片的「插入当前回合」仍走 /turn/interrupt(steerMode 'now')。
+export const STEER_LANE = 'steer';
+
 export function beginQueuedGuidance(
   state,
   id,
-  { turnId = '', now = Date.now() } = {},
+  { turnId = '', now = Date.now(), lane = '' } = {},
 ) {
   return updateQueuedInput(state, id, (item) => {
     const currentState = item?.queued?.state;
@@ -168,6 +174,7 @@ export function beginQueuedGuidance(
         state: QUEUED_INPUT_STATE.GUIDING,
         guidancePreviousState: currentState,
         steerTurnId: normalizeText(turnId),
+        ...(lane === STEER_LANE ? { lane: STEER_LANE, steerMode: 'next' } : {}),
         acceptedAt: 0,
         error: '',
         updatedAt: now,
@@ -207,8 +214,68 @@ export function finishQueuedGuidance(state, id, { succeeded = false } = {}) {
     delete queued.guidancePreviousState;
     delete queued.steerTurnId;
     delete queued.acceptedAt;
+    delete queued.lane;
+    delete queued.steerMode;
     return { ...item, queued };
   });
+}
+
+// 插话气泡上的「立即发送」已被服务端接受:改成打断送达(steerMode 'now')。回合随后
+// 以中断收尾,这条消息由替换回合提交,所以不能再被 releaseUndeliveredSteers 转回排队。
+export function markQueuedSteerSendingNow(state, id, { now = Date.now() } = {}) {
+  return updateQueuedInput(state, id, (item) => {
+    if (item?.queued?.state !== QUEUED_INPUT_STATE.GUIDING || item.queued.lane !== STEER_LANE) return item;
+    if (item.queued.steerMode === 'now') return item;
+    return { ...item, queued: { ...item.queued, steerMode: 'now', sendNowAt: now, updatedAt: now } };
+  });
+}
+
+// 「立即发送」请求失败(插话已被读到或已不在服务端队列):回到普通插话状态,
+// 由消息事件完成它,或在回合结束时转回排队。
+export function cancelQueuedSteerSendNow(state, id) {
+  return updateQueuedInput(state, id, (item) => {
+    if (item?.queued?.state !== QUEUED_INPUT_STATE.GUIDING || item.queued.steerMode !== 'now'
+        || item.queued.lane !== STEER_LANE) return item;
+    const queued = { ...item.queued, steerMode: 'next', updatedAt: Date.now() };
+    delete queued.sendNowAt;
+    return { ...item, queued };
+  });
+}
+
+// 回合结束时还没被模型读到的软插话(服务端在中断 / 出错收尾时会丢弃它们):转回普通排队,
+// 由排队逻辑决定何时发(用户停止回合后队列暂停,等用户点「继续」)。
+// deliveredIds:对话里已出现的 client_message_id,防止「消息已到、完成标记还没写」时重复发送。
+export function releaseUndeliveredSteers(state, sessionId, deliveredIds = new Set()) {
+  const sid = normalizeSessionId(sessionId);
+  const current = createChatInputQueueState(state);
+  let changed = false;
+  const items = current.items.map((item) => {
+    const queued = item?.queued;
+    if (queued?.sessionId !== sid || queued.state !== QUEUED_INPUT_STATE.GUIDING) return item;
+    if (queued.lane !== STEER_LANE || queued.steerMode !== 'next') return item;
+    // 请求还没被服务端接受的,由请求结果处理(失败会自己退回排队)。
+    if (!queued.acceptedAt) return item;
+    changed = true;
+    if (deliveredIds.has(queued.id)) {
+      return { ...item, queued: { ...queued, state: QUEUED_INPUT_STATE.COMPLETED, updatedAt: Date.now() } };
+    }
+    const next = { ...queued, state: QUEUED_INPUT_STATE.QUEUED, updatedAt: Date.now() };
+    delete next.guidancePreviousState;
+    delete next.steerTurnId;
+    delete next.acceptedAt;
+    delete next.lane;
+    delete next.steerMode;
+    return { ...item, queued: next };
+  });
+  if (!changed) return state && typeof state === 'object' ? state : current;
+  return { ...current, items };
+}
+
+// 对话末尾的插话气泡:回复中按 Enter 插进当前回合、模型还没读到的消息。
+export function steeredMessageItems(state, sessionId) {
+  return queuedInputsForSession(state, sessionId)
+    .filter((item) => item.queued?.lane === STEER_LANE && item.queued.state === QUEUED_INPUT_STATE.GUIDING)
+    .map((item) => ({ ...item }));
 }
 
 export function markQueuedInputSending(state, id, { now = Date.now() } = {}) {
@@ -356,8 +423,11 @@ export function completeQueuedInputForMessage(
   return matched ? markQueuedInputCompleted(current, matched.queued.id) : current;
 }
 
+// 输入框上方的排队卡片;插话气泡(STEER_LANE)画在对话末尾,不在这里。
 export function buildQueuedMessageItems(state, sessionId) {
-  return queuedInputsForSession(state, sessionId).map((item) => ({ ...item }));
+  return queuedInputsForSession(state, sessionId)
+    .filter((item) => !(item.queued?.lane === STEER_LANE && item.queued.state === QUEUED_INPUT_STATE.GUIDING))
+    .map((item) => ({ ...item }));
 }
 
 // ---- 队列暂停 ----------------------------------------------------------

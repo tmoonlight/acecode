@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import {
   QUEUED_INPUT_STATE,
   QUEUE_PAUSE_REASON,
+  STEER_LANE,
   acceptedQueuedInputEvent,
   beginQueuedGuidance,
   buildQueuedMessageItems,
   cancelQueuedInput,
+  cancelQueuedSteerSendNow,
   completeQueuedInputForMessage,
   createChatInputQueueState,
   enqueueQueuedInput,
@@ -14,15 +16,18 @@ import {
   markQueuedGuidanceAccepted,
   markQueuedInputFailed,
   markQueuedInputSending,
+  markQueuedSteerSendingNow,
   nextQueuedInput,
   pauseQueuedInput,
   queuedInputPause,
   queuedInputRequestPayload,
   queuedInputsForSession,
+  releaseUndeliveredSteers,
   resumeQueuedInput,
   retryQueuedInput,
   shouldDrainQueuedInput,
   shouldPauseQueuedInputAfterAbort,
+  steeredMessageItems,
   updateQueuedInputContent,
 } from './chatInputQueue.js';
 
@@ -442,4 +447,62 @@ run('retryQueuedInput 不隐式改动暂停标记', () => {
   const retried = retryQueuedInput(state, id);
   assert.equal(retried.items[0].queued.state, QUEUED_INPUT_STATE.QUEUED);
   assert.equal(isQueuedInputPaused(retried, 's1'), true);
+});
+
+// 场景:回复中按 Enter,消息作为软插话插进当前回合(插话通道),模型读到前画在对话末尾。
+// 期望:插话条目不出现在输入框上方的排队卡片里,而在 steeredMessageItems 里;按 client id
+// 收到正式消息后完成;服务端拒绝插话(回合不可插话等)时退回普通排队、回到卡片里。
+run('回复中 Enter 的插话画在对话末尾,收到正式消息后完成,被拒时退回排队', () => {
+  let state = enqueueQueuedInput(createChatInputQueueState(), { sessionId: 's1', text: 'use plan B', now: 100 });
+  const id = state.items[0].queued.id;
+  state = beginQueuedGuidance(state, id, { turnId: 'turn-1', lane: STEER_LANE, now: 110 });
+  assert.equal(state.items[0].queued.steerMode, 'next');
+  assert.deepEqual(buildQueuedMessageItems(state, 's1'), []);
+  assert.deepEqual(steeredMessageItems(state, 's1').map((item) => item.queued.id), [id]);
+
+  const rejected = finishQueuedGuidance(state, id, { succeeded: false });
+  assert.equal(rejected.items[0].queued.state, QUEUED_INPUT_STATE.QUEUED);
+  assert.equal(rejected.items[0].queued.lane, undefined);
+  assert.deepEqual(buildQueuedMessageItems(rejected, 's1').map((item) => item.queued.id), [id]);
+  assert.deepEqual(steeredMessageItems(rejected, 's1'), []);
+
+  state = markQueuedGuidanceAccepted(state, id, { turnId: 'turn-1', now: 120 });
+  state = completeQueuedInputForMessage(state, { sessionId: 's1', content: 'use plan B', clientMessageId: id, ts: 130 });
+  assert.deepEqual(steeredMessageItems(state, 's1'), []);
+  assert.equal(queuedInputsForSession(state, 's1').length, 0);
+});
+
+// 场景:插话已被服务端接受,但用户随后停止了回合(服务端中断收尾时丢弃没读到的插话);
+// 或者用户点了插话气泡上的「立即发送」。
+// 期望:回合结束时没读到的软插话转回排队(不丢消息,随队列暂停等用户决定);对话里已经
+// 出现的那条直接算完成,不会再发一次;「立即发送」后的条目由替换回合提交,不转回排队;
+// 请求还没被接受的条目留给请求结果处理。
+// 回归:没有这一步时被丢弃的插话一直停在 GUIDING,后面的排队消息也永远发不出去。
+run('回合结束时没被读到的插话转回排队,已送达或立即发送的不动', () => {
+  let state = createChatInputQueueState();
+  for (const text of ['dropped', 'delivered', 'send now', 'in flight']) {
+    state = enqueueQueuedInput(state, { sessionId: 's1', text, now: 100 });
+  }
+  const [dropped, delivered, sendNow, inFlight] = state.items.map((item) => item.queued.id);
+  for (const id of [dropped, delivered, sendNow, inFlight]) {
+    state = beginQueuedGuidance(state, id, { turnId: 'turn-1', lane: STEER_LANE, now: 110 });
+  }
+  for (const id of [dropped, delivered, sendNow]) {
+    state = markQueuedGuidanceAccepted(state, id, { turnId: 'turn-1', now: 120 });
+  }
+  state = markQueuedSteerSendingNow(state, sendNow, { now: 130 });
+  assert.equal(markQueuedSteerSendingNow(state, sendNow), state);
+  // 「立即发送」请求失败时回到普通插话,可以再被回合结束转回排队。
+  const undone = cancelQueuedSteerSendNow(state, sendNow);
+  assert.equal(undone.items.find((item) => item.queued.id === sendNow).queued.steerMode, 'next');
+  assert.equal(cancelQueuedSteerSendNow(undone, sendNow), undone);
+
+  const released = releaseUndeliveredSteers(state, 's1', new Set([delivered]));
+  const byId = Object.fromEntries(released.items.map((item) => [item.queued.id, item.queued]));
+  assert.equal(byId[dropped].state, QUEUED_INPUT_STATE.QUEUED);
+  assert.equal(byId[dropped].lane, undefined);
+  assert.equal(byId[delivered].state, QUEUED_INPUT_STATE.COMPLETED);
+  assert.equal(byId[sendNow].state, QUEUED_INPUT_STATE.GUIDING);
+  assert.equal(byId[inFlight].state, QUEUED_INPUT_STATE.GUIDING);
+  assert.equal(releaseUndeliveredSteers(released, 's2', new Set()), released);
 });

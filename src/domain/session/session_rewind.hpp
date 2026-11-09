@@ -46,6 +46,11 @@ std::vector<ChatMessage> retained_prefix_before_index(
 // safe because the pair stays intact.
 //
 // `target_index` must be a valid index into `messages`.
+// 整段分叉(「在分叉会话中发送」):复制整个会话,保留到最后一条完整的对话消息。
+// 与 resolve_fork_anchor_index 同样跳过非对话记录、不停在声明了工具调用的 assistant
+// 上,所以回合进行中分叉时,还没有结果的工具调用不会带进新会话。
+std::vector<ChatMessage> whole_fork_prefix(const std::vector<ChatMessage>& messages);
+
 std::optional<size_t> resolve_fork_anchor_index(
     const std::vector<ChatMessage>& messages,
     size_t target_index);

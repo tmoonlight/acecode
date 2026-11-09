@@ -81,7 +81,7 @@ function fixture({ kind = 'path', key = 'Backspace', selected = false } = {}) {
     ReactEditor: { isComposing: () => state.slateComposing, toDOMNode: () => ({ dir: state.rtl ? 'rtl' : '' }) },
     isDesktopShell: () => state.desktop,
     onKeyDown: () => { state.parentCalls += 1; },
-    onSubmit: () => { state.submissions += 1; },
+    onSubmit: (options) => { state.submissions += 1; state.lastSubmit = options; },
     onRemoveAttachment: (attachmentKey) => state.removed.push(attachmentKey),
     adoptDomSelection: () => {
       state.adoptCalls += 1;
@@ -235,18 +235,23 @@ run('ordinary tag deletion resumes after composition settles', () => {
   assert.equal(test.event.defaultPrevented, true);
 });
 
-run('IME Enter is protected while normal Enter and desktop line breaks retain their behavior', () => {
-  for (const desktop of [false, true]) {
+// 场景:输入法组字时按 Enter;组字结束后按 Enter / Ctrl+Enter / Ctrl+Alt+Enter。
+// 期望:组字中的 Enter 归输入法;Enter 普通发送;Ctrl+Enter 提交并带 mode=queue
+// (回复中排到回合结束),Ctrl+Alt+Enter 带 mode=fork,三者都不插入换行。
+run('IME Enter is protected while Enter, Ctrl+Enter and Ctrl+Alt+Enter submit with their mode', () => {
+  for (const [ctrlKey, altKey, mode] of [[false, false, undefined], [true, false, 'queue'], [true, true, 'fork']]) {
     const test = fixture({ key: 'Enter' });
-    test.state.desktop = desktop;
-    test.event.ctrlKey = desktop;
+    test.state.desktop = true;
+    test.event.ctrlKey = ctrlKey;
+    test.event.altKey = altKey;
     test.state.active = true;
     assertImeOwnsKey(test);
     test.state.active = false;
     test.handleKeyDown(test.event);
     assert.equal(test.event.defaultPrevented, true);
-    assert.equal(test.state.submissions, desktop ? 0 : 1);
-    assert.equal(test.editor.children.length, desktop ? 2 : 1);
+    assert.equal(test.state.submissions, 1);
+    assert.equal(test.state.lastSubmit?.mode, mode);
+    assert.equal(test.editor.children.length, 1);
   }
   const test = fixture({ key: 'Enter' });
   test.event.shiftKey = true;

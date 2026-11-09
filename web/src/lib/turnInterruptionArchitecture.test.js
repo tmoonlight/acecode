@@ -123,3 +123,40 @@ test('old-turn idle transition cannot restore or duplicate an accepted interject
     /item\.queued\?\.state === QUEUED_INPUT_STATE\.SENDING \|\|\s*item\.queued\?\.state === QUEUED_INPUT_STATE\.GUIDING/,
   );
 });
+
+// 场景:模型正在回复时,用户在输入框里按 Enter / Ctrl+Enter / Ctrl+Alt+Enter,
+// 或点对话末尾插话气泡上的「立即发送」/ 撤回(与 Claude 桌面版 next / later / now 三档对应)。
+// 期望:Enter 先入队再以软插话(/turn/steer)插进当前回合,气泡画在对话末尾;Ctrl+Enter
+// 只入队、回合结束后发;Ctrl+Alt+Enter 复制整个会话(fork whole)并在新会话发送;
+// 「立即发送」先标记 now 再调 send-now,撤回调 withdraw;回合结束时没被读到的插话转回排队,
+// 且暂停判断读最新的队列状态。
+// 回归:曾经回复中 Enter 一律排队,要等回合结束才发出去。
+test('busy composer sends steer on Enter, queues on Ctrl+Enter and forks on Ctrl+Alt+Enter', () => {
+  const chat = source('components/ChatView.jsx');
+  const submit = section(chat, 'const submit = useStableCallback((text, { sendMode', 'const isBuiltin =');
+  assert.match(submit, /if \(sendMode === 'fork' && route\.kind === 'message'\) \{\s*sendInForkedSession\(/);
+  const busyBranch = section(chat, 'if ((liveTranscript.busy || liveTranscript.abortPending) && !isBuiltin) {', 'const targetSid = sid;');
+  assert.match(busyBranch, /const queuedId = enqueueInput\(payload\);/);
+  assert.match(busyBranch, /sendMode !== 'queue' && liveTranscript\.busy && !liveTranscript\.abortPending && steerTurnId/);
+  assert.match(busyBranch, /steerQueuedInput\(queuedId, steerTurnId\);/);
+
+  const steer = section(chat, 'const steerQueuedInput = useStableCallback(', 'const sendSteeredNow = useStableCallback(');
+  assert.match(steer, /beginQueuedGuidance\(prev, queuedId, \{ turnId: expectedTurnId, lane: STEER_LANE \}\)/);
+  assert.match(steer, /api\.steerTurn\(targetSid, \{ \.\.\.requestPayload, expected_turn_id: expectedTurnId \}\)/);
+  assert.match(steer, /finishQueuedGuidance\(prev, queuedId, \{ succeeded: false \}\)/);
+
+  const sendNow = section(chat, 'const sendSteeredNow = useStableCallback(', 'const withdrawSteered = useStableCallback(');
+  assert.ok(sendNow.indexOf('markQueuedSteerSendingNow') < sendNow.indexOf('api.sendSteerNow('),
+    '先标记立即发送再发请求,回合结束的回退才不会把它重发');
+  assert.match(chat, /api\.withdrawSteer\(targetSid, queuedId\)/);
+
+  assert.match(chat, /if \(wasBusy && !busy\) releaseSteersAfterTurn\(\);/);
+  assert.match(chat, /shouldPauseQueuedInputAfterAbort\(\{\s*state: queueStore\.getState\(\),/);
+  assert.match(chat, /<SteeredMessages items=\{steeredItems\} onSendNow=\{sendSteeredNow\} onWithdraw=\{withdrawSteered\} \/>/);
+
+  const fork = section(chat, 'const sendInForkedSession = useStableCallback(', 'useEffect(() => {');
+  assert.match(fork, /api\.forkWholeSession\(sourceSid\)/);
+  assert.ok(fork.indexOf('sendInputOrBuiltin(r.session_id, payload)') < fork.indexOf('promoteForkedSession(r)'),
+    '先在新会话发出消息,再切过去');
+  assert.match(chat, /forkSendAvailable=\{!!sid && !readOnlyExternalSession && transcriptLoadState === 'loaded'\}/);
+});

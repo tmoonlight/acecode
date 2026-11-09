@@ -21,12 +21,16 @@ run('idle 输入使用发送模式', () => {
   assert.equal(state.canAbort, false);
 });
 
-run('busy 输入使用排队模式并保留中断能力', () => {
+// 场景:模型正在回复时输入框有内容。
+// 期望:按钮 / Enter 是插话发送(mode=steer,插进当前回合,模型下一步读到),
+// 排到回合结束改用 Ctrl+Enter;停止仍可用。
+// 回归:曾经回复中 Enter 一律排队,要等回合结束才发出去。
+run('busy 输入使用插话模式并保留中断能力', () => {
   const state = getInputBarActionState({ value: 'next step', busy: true });
-  assert.equal(state.mode, 'queue');
-  assert.equal(state.submitLabel, '排队');
-  assert.equal(state.submitTitle, '排队下一条 (Enter)');
-  assert.equal(state.helperText, 'Enter 排队 · Shift+Enter 换行 · 上下键切换历史消息');
+  assert.equal(state.mode, 'steer');
+  assert.equal(state.submitLabel, '发送');
+  assert.equal(state.submitTitle, '发送 (Enter)');
+  assert.equal(state.helperText, 'Enter 发送 · Ctrl+Enter 排到回合结束 · Shift+Enter 换行');
   assert.equal(state.canSubmit, true);
   assert.equal(state.canAbort, true);
 });
@@ -42,9 +46,9 @@ run('busy 空草稿显示停止,空回车不提交', () => {
   }
 });
 
-run('busy 附件或上下文草稿显示排队,移除后回到停止', () => {
+run('busy 附件或上下文草稿显示发送,移除后回到停止', () => {
   const queued = getInputBarActionState({ value: '', busy: true, hasExtras: true });
-  assert.equal(queued.mode, 'queue');
+  assert.equal(queued.mode, 'steer');
   assert.equal(queued.canSubmit, true);
   assert.equal(getInputBarActionState({ value: '', busy: true, hasExtras: false }).mode, 'stop');
 });
@@ -64,7 +68,7 @@ run('仅空闲且末尾用户消息可重试时允许空输入发送', () => {
   for (const blocker of [{ busy: true }, { disabled: true }, { submitting: true }]) {
     assert.equal(getInputBarActionState({ value: '', canRetryLastUserMessage: true, ...blocker }).canSubmit, false);
   }
-  assert.equal(getInputBarActionState({ value: 'next', busy: true, canRetryLastUserMessage: true }).mode, 'queue');
+  assert.equal(getInputBarActionState({ value: 'next', busy: true, canRetryLastUserMessage: true }).mode, 'steer');
 });
 
 run('附件可在空文本时提交', () => {
@@ -96,9 +100,9 @@ run('submitting 结束后立即恢复可提交', () => {
   assert.equal(state.submitting, false);
 });
 
-run('busy 排队模式同样受 submitting 约束', () => {
+run('busy 插话模式同样受 submitting 约束', () => {
   const state = getInputBarActionState({ value: 'next', busy: true, submitting: true });
-  assert.equal(state.mode, 'queue');
+  assert.equal(state.mode, 'steer');
   assert.equal(state.canSubmit, false, '入队请求在途时不重复入队');
   assert.equal(state.canAbort, true, '停止按钮永远不被提交状态挡住');
 });
