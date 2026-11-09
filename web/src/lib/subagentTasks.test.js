@@ -18,7 +18,6 @@ import {
   applySubagentSessionEvent,
   formatElapsed,
   formatTaskTokens,
-  isSubagentSpawnStartEvent,
   markSubagentTaskAborted,
   mergeSubagentTaskList,
   normalizeSubagentTask,
@@ -153,49 +152,10 @@ run('session_status 只为明确匹配当前 parent 的未知 child 触发刷新
   }), false);
 });
 
-run('只有当前父会话的 spawn_subagent tool_start 触发面板自动打开', () => {
-  for (const wait of [false, true]) {
-    assert.equal(isSubagentSpawnStartEvent('parent-1', {
-      type: 'tool_start',
-      session_id: 'parent-1',
-      payload: { tool: 'spawn_subagent', args: { wait } },
-    }), true);
-  }
-  assert.equal(isSubagentSpawnStartEvent('parent-1', {
-    type: 'tool_start',
-    payload: { session_id: 'parent-1', tool: 'spawn_subagent' },
-  }), true);
-
-  const unrelatedEvents = [
-    { type: 'tool_start', session_id: 'parent-2', payload: { tool: 'spawn_subagent' } },
-    { type: 'tool_start', session_id: 'parent-1', payload: { tool: 'bash' } },
-    { type: 'session_status', session_id: 'child-1', payload: {
-      parent_session_id: 'parent-1', busy: true,
-    } },
-    { type: 'tool_end', session_id: 'parent-1', payload: { tool: 'spawn_subagent' } },
-    null,
-  ];
-  for (const event of unrelatedEvents) {
-    assert.equal(isSubagentSpawnStartEvent('parent-1', event), false);
-  }
-  assert.equal(isSubagentSpawnStartEvent('', {
-    type: 'tool_start', session_id: 'parent-1', payload: { tool: 'spawn_subagent' },
-  }), false);
-});
-
 // 场景:蜂群模式（网状）用 agent_spawn 派子 agent(add-mesh-swarm-mode),子会话扁平挂在
 // 根会话下,真实层级在 agent_path 里。
-// 期望:agent_spawn 同样触发面板自动打开;任务对象带上 agentPath 供卡片显示层级;
-// 星型子任务没有路径,字段为空串。
-run('网状 agent_spawn 同样打开面板,任务带 agent 路径', () => {
-  assert.equal(isSubagentSpawnStartEvent('parent-1', {
-    type: 'tool_start',
-    session_id: 'parent-1',
-    payload: { tool: 'agent_spawn', args: { task_name: 'worker', message: 'go' } },
-  }), true);
-  assert.equal(isSubagentSpawnStartEvent('parent-1', {
-    type: 'tool_start', session_id: 'parent-1', payload: { tool: 'agent_send_message' },
-  }), false);
+// 期望:任务对象带上 agentPath 供卡片显示层级;星型子任务没有路径,字段为空串。
+run('网状子 agent 任务带 agent 路径', () => {
   assert.equal(normalizeSubagentTask(makeSession({ agent_path: '/root/lead/sub' })).agentPath,
     '/root/lead/sub');
   assert.equal(normalizeSubagentTask(makeSession()).agentPath, '');

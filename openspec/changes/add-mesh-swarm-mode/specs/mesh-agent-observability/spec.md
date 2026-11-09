@@ -5,7 +5,7 @@
 ## ADDED Requirements
 
 ### Requirement: 后台任务面板展示网状 agent
-root 会话的后台任务面板 SHALL 列出该树的全部子 agent（任意深度都扁平挂在 root 下），每张卡片 SHALL 显示其 canonical 路径、任务名、运行状态、token 用量与耗时；`agent_spawn` 开始时 SHALL 自动打开面板。被换出的 agent SHALL 可打开只读对话记录，且打开 MUST NOT 触发恢复。
+root 会话的后台任务面板 SHALL 列出该树的全部子 agent（任意深度都扁平挂在 root 下），每张卡片 SHALL 显示其 canonical 路径、任务名、运行状态、token 用量与耗时；面板 MUST NOT 因 `agent_spawn` 自动打开，只由用户打开。被换出的 agent SHALL 可打开只读对话记录，且打开 MUST NOT 触发恢复。
 
 #### Scenario: 二级子 agent 的路径
 - **WHEN** 面板展示 `/root/explore` 与 `/root/explore/tests`

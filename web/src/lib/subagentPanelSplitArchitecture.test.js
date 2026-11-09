@@ -58,23 +58,22 @@ run('SubagentPanel consumes the constrained width without a fixed 380px class', 
   assert.doesNotMatch(panel, /max-w-\[85%\]/);
 });
 
-run('live spawn_subagent tool_start opens the panel through the task hook', () => {
-  const taskState = source('lib/subagentTasks.js');
+// 场景:模型派子代理(spawn_subagent / 网状 agent_spawn),或子代理在后台跑着。
+// 期望:后台任务面板不自动弹出,只在用户点三点菜单「后台任务」或点智能体分组卡片
+// (含摘要面板里的子代理行)时打开;打开面板的调用点只有这两处。
+// 回归:曾经父会话一收到 spawn_subagent 的 tool_start 就自动打开面板,模型更常派
+// 子代理之后面板反复弹出、挤占对话区,用户要求去掉。
+run('spawning a subagent does not open the background task panel by itself', () => {
   const taskHook = source('lib/useSubagentTasks.js');
   const chat = source('components/ChatView.jsx');
 
-  assert.match(taskState, /export function isSubagentSpawnStartEvent\(parentSessionId, msg\)/);
-  assert.match(taskState, /msg\?\.type !== 'tool_start'/);
-  // 星型 spawn_subagent 与网状 agent_spawn(add-mesh-swarm-mode)都是面板打开信号。
-  assert.match(
-    taskState,
-    /eventSessionId === parentId &&\s*\(payload\.tool === 'spawn_subagent' \|\| payload\.tool === 'agent_spawn'\)/,
-  );
-  assert.match(taskHook, /useSubagentTasks\(parentSessionId, \{ onSpawnStart \} = \{\}\)/);
-  assert.match(taskHook, /isSubagentSpawnStartEvent\(parentSessionId, msg\)/);
-  assert.match(taskHook, /onSpawnStartRef\.current\?\.\(msg\)/);
-  assert.match(chat, /openSubagentPanelForSpawn[\s\S]*setSubagentPanelOpen\(true\)/);
-  assert.match(chat, /useSubagentTasks\(sid, \{\s*onSpawnStart: openSubagentPanelForSpawn,\s*\}\)/);
+  assert.match(taskHook, /export function useSubagentTasks\(parentSessionId\) \{/);
+  assert.doesNotMatch(taskHook, /tool_start|onSpawnStart/);
+  assert.match(chat, /useSubagentTasks\(sid\);/);
+  assert.doesNotMatch(chat, /onSpawnStart|openSubagentPanelForSpawn/);
+  const opens = chat.match(/setSubagentPanelOpen\(true\)/g) || [];
+  assert.equal(opens.length, 2);
+  assert.match(chat, /const openSubagentTranscript = useCallback\(\(sessionId\) => \{\s*if \(!sessionId\) return;\s*setSubagentPanelOpen\(true\);/);
   // 后台任务入口在会话三点菜单里,始终可点(没有任务时打开空列表),不再是有任务才出现的顶栏按钮。
   assert.match(chat, /id: 'background_tasks', label: '后台任务'[\s\S]*?onSelect: \(\) => setSubagentPanelOpen\(true\)/);
   assert.doesNotMatch(chat, /subagentTasks\.tasks\.length > 0 \|\| subagentPanelOpen/);
@@ -95,7 +94,7 @@ run('subagent transcript reads the parent workspace so unloaded children still o
   assert.match(panel, /sessionId: task\.id,\s*workspaceHash,/);
   assert.match(panel, /workspaceHash=\{workspaceHash\}/);
   assert.match(chat, /workspaceHash=\{subagentWorkspaceHash\}/);
-  assert.match(hook, /useSubagentTasks\(parentSessionId, \{ onSpawnStart \} = \{\}\)/);
+  assert.match(hook, /useSubagentTasks\(parentSessionId\)/);
 });
 
 // 场景:后台任务面板里已结束的子任务(星型后台任务、网状 agent)。

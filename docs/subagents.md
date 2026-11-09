@@ -343,7 +343,7 @@ provider 上会被拒或合并)。
 
 - Web 输入框:「蜂群模式（星型）」「蜂群模式（网状）」两个互斥菜单项;芯片 = 服务端模式(messages
   快照 / `session_updated{swarm_mode}`)+ 未提交的本地选择,只有不同才随消息提交(`web/src/lib/swarmMode.js`)。
-- 后台任务面板复用星型面板,卡片显示 `agent_path`;`agent_spawn` 同样自动打开面板。
+- 后台任务面板复用星型面板,卡片显示 `agent_path`;面板只由用户打开(三点菜单「后台任务」、智能体分组卡片),派子代理不自动弹出。
 - TUI:`/swarm`;侧栏运行中任务以路径为显示名。
 
 ### 有意未复刻 / 与 Codex 的差异
