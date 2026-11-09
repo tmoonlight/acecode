@@ -32,7 +32,9 @@ assert.notEqual(followUpScope({ sessionId: 's', port: 1 }), followUpScope({ sess
   await tick(); assert.equal(calls, 1);
   finish({ completion_key: key, prompt: 'Run the tests.' }); await tick();
   assert.equal(store.get('s1', key).prompt, 'Run the tests.');
+  store.ensure('s1', key, request, { hasDraft: true });
   store.ensure('s1', key, request); await tick(); assert.equal(calls, 1);
+  assert.equal(store.get('s1', key).prompt, 'Run the tests.', 'clearing a draft reuses the ready prompt');
   assert.equal(store.get('s2', key).prompt, '');
   store.consume('s1', key);
   store.ensure('s1', key, request); await tick(); assert.equal(calls, 1);
@@ -43,13 +45,13 @@ assert.notEqual(followUpScope({ sessionId: 's', port: 1 }), followUpScope({ sess
 {
   const store = createFollowUpPromptStore(); let finish;
   store.ensure('s', key, () => new Promise((resolve) => { finish = resolve; }));
-  await tick(); store.consume('s', key); // User edits while the request is pending.
+  await tick(); store.skipGeneration('s', key); // User edits while the request is pending.
   finish({ completion_key: key, prompt: 'Late result.' }); await tick();
   assert.equal(store.get('s', key).prompt, ''); assert.equal(store.get('s', key).consumed, true);
 }
 {
   const store = createFollowUpPromptStore(); let calls = 0;
-  store.consume('s', key); // Existing draft effect can precede the parent's request effect.
+  store.skipGeneration('s', key); // Existing draft effect can precede the parent's request effect.
   store.ensure('s', key, async () => { calls++; return { completion_key: key, prompt: 'Hidden result.' }; });
   await tick(); assert.equal(calls, 0); assert.equal(store.get('s', key).prompt, '');
 }
@@ -67,7 +69,7 @@ assert.notEqual(followUpScope({ sessionId: 's', port: 1 }), followUpScope({ sess
 {
   const store = createFollowUpPromptStore(); let calls = 0;
   store.ensure('s', key, async () => { calls++; return {}; });
-  store.consume('s', key); // An edit before the queued request actually starts.
+  store.skipGeneration('s', key); // An edit before the queued request actually starts.
   await tick(); assert.equal(calls, 0);
 }
 assert.equal(hasFollowUpDraft(), false);

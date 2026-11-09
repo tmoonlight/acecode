@@ -24,15 +24,17 @@ const HOST = { summaryToggle: true, agentBrowser: true, iosSimulator: true };
 const BUTTONS = ['summary', 'trajectory', 'sideChat', 'browser', 'iosSimulator', 'sessionMenu'];
 
 // 场景:点侧栏「新建任务」进入首页,没有任何会话。
-// 期望:顶栏按钮组照样全部显示(数量、位置与会话页一致),对会话才有意义的按钮全部禁用。
+// 期望:顶栏按钮组照样全部显示(数量、位置与会话页一致),对会话才有意义的按钮全部禁用;
+// 浏览器例外,首页就能打开(页面先归属预留的会话 id)。
 // 回归(bug 表现):首页顶栏右侧只剩控制台与右侧面板开关,摘要 / 轨迹 / 侧边聊天 /
-// 浏览器 / 会话菜单整组消失,切到会话后才冒出来,顶栏布局在两种页面之间跳动。
-test('新建任务首页:按钮组全部显示但禁用,不显示会话标题', () => {
+// 浏览器 / 会话菜单整组消失,切到会话后才冒出来,顶栏布局在两种页面之间跳动;
+// 后来按钮回来了,但浏览器在首页一直是灰的,用户没法先开网页再描述任务。
+test('新建任务首页:按钮组全部显示,只有浏览器可用,不显示会话标题', () => {
   const states = sessionTitleActionStates({ sessionId: '', ...HOST });
   assert.equal(states.session, false);
   for (const key of BUTTONS) {
     assert.equal(states[key].visible, true, `${key} 应显示`);
-    assert.equal(states[key].enabled, false, `${key} 应禁用`);
+    assert.equal(states[key].enabled, key === 'browser', `${key} 可用状态不对`);
   }
 });
 

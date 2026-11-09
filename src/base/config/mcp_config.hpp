@@ -9,6 +9,9 @@ namespace acecode {
 
 using McpServerMap = std::map<std::string, McpServerConfig>;
 
+// Runtime-only defaults supplied by the local Android APK. Never persisted.
+McpServerMap host_mcp_config(const McpServerMap& configured);
+
 // This is the client configuration schema, not the MCP wire-message schema.
 const nlohmann::json& mcp_config_schema();
 nlohmann::json mcp_config_document_schema();

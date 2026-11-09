@@ -1,0 +1,116 @@
+plugins {
+    id 'com.android.application'
+}
+
+// 版本号跟随主仓 vcpkg.json,APK 与 acecode 本体同号。
+def vcpkgJson = rootProject.file('../vcpkg.json').text
+def versionMatch = (vcpkgJson =~ /"version-semver"\s*:\s*"([^"]+)"/)
+def appVersion = versionMatch.find() ? versionMatch.group(1) : '0.0.0'
+def versionParts = (appVersion.tokenize('.').collect { it.isInteger() ? it.toInteger() : 0 } + [0, 0, 0])
+def baseVersionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
+
+def runtimeOut = rootProject.file('runtime/out')
+
+def petAssets = tasks.register('preparePetAssets', Sync) {
+    into layout.buildDirectory.dir('generated/phonePetAssets')
+    from(rootProject.file('../assets/desktop_pet')) {
+        include 'whale/agent.js', 'whale/map.png', 'whale/LICENSE',
+                'classic/*/agent.js', 'classic/*/map.png', 'classic/MIT-LICENSE.txt', 'classic/sources.json', 'whale/sources.json'
+        into 'pets'
+    }
+}
+
+// 发布签名:android/keystore.properties(不入库)存在时使用,否则用 debug 签名。
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+if (keystoreFile.exists()) keystoreFile.withInputStream { keystoreProps.load(it) }
+
+android {
+    namespace = 'dev.acecode.android'
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = 'dev.acecode.android'
+        minSdk = 26
+        // 刻意停在 28:安卓 10 起 targetSdk>=29 的 App 不能执行自己数据目录里的文件,
+        // 而 Ubuntu 小系统里的程序都在数据目录里。代价是只能侧载、上不了 Google Play。
+        targetSdk = 28
+        versionName = appVersion
+        versionCode = baseVersionCode * 10
+    }
+
+    signingConfigs {
+        if (!keystoreProps.isEmpty()) {
+            release {
+                storeFile = rootProject.file(keystoreProps.getProperty('storeFile'))
+                storePassword = keystoreProps.getProperty('storePassword')
+                keyAlias = keystoreProps.getProperty('keyAlias')
+                keyPassword = keystoreProps.getProperty('keyPassword')
+            }
+        }
+    }
+
+    flavorDimensions += 'abi'
+    productFlavors {
+        arm64 {
+            dimension = 'abi'
+            ndk { abiFilters += 'arm64-v8a' }
+            versionCode = baseVersionCode * 10 + 2
+        }
+        x64 {
+            dimension = 'abi'
+            ndk { abiFilters += 'x86_64' }
+            versionCode = baseVersionCode * 10 + 4
+        }
+    }
+
+    sourceSets {
+        main.assets.srcDir(layout.buildDirectory.dir('generated/phonePetAssets').get().asFile)
+        arm64 {
+            assets.srcDirs += new File(runtimeOut, 'arm64-v8a/assets')
+            jniLibs.srcDirs += new File(runtimeOut, 'arm64-v8a/jniLibs')
+        }
+        x64 {
+            assets.srcDirs += new File(runtimeOut, 'x86_64/assets')
+            jniLibs.srcDirs += new File(runtimeOut, 'x86_64/jniLibs')
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = false
+            signingConfig = signingConfigs.findByName('release') ?: signingConfigs.debug
+        }
+    }
+
+    packaging {
+        // proot 等可执行文件伪装成 lib*.so,必须解压到 nativeLibraryDir 才能执行。
+        jniLibs { useLegacyPackaging = true }
+    }
+
+    androidResources {
+        // 运行环境归档本身已压缩;不再压缩才能按文件长度显示解压进度。
+        // 扩展名用 .tgz:AGP 会把 .gz 资源在打包时解压掉并去掉扩展名。
+        noCompress += ['tgz']
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    lint {
+        disable += ['ExpiredTargetSdkVersion', 'OldTargetApi']
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.named('preBuild').configure { dependsOn(petAssets) }

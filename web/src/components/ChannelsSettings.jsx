@@ -33,6 +33,8 @@ import {
   savedBotSummary,
 } from '../lib/channelsSettings.js';
 import { copyTextToSystemClipboard } from '../lib/systemClipboard.js';
+import { clipboardPasteButtonAvailable } from '../lib/systemClipboard.js';
+import { ClipboardPasteButton } from './ClipboardPasteButton.jsx';
 import { Modal } from './Modal.jsx';
 import { VsIcon } from './Icon.jsx';
 import { toast } from './Toast.jsx';
@@ -211,11 +213,17 @@ function CredentialFields({ platformKey, platform, draft, setDraft, autoFocus })
         </select>
       </label>
     ) : (
-      <input key={field.key} className={clsx(inputClass, 'mt-2')} type={field.secret ? 'password' : 'text'}
-        value={draft[field.key] ?? ''} autoFocus={autoFocus && index === 0}
-        placeholder={credentialPlaceholder(platform, field)}
-        onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
-        autoComplete={field.secret ? 'new-password' : 'off'} spellCheck={false} aria-label={field.label} />
+      <div key={field.key} className="relative mt-2">
+        <input className={clsx(inputClass, field.secret && clipboardPasteButtonAvailable() && 'pr-12')} type={field.secret ? 'password' : 'text'}
+          value={draft[field.key] ?? ''} autoFocus={autoFocus && index === 0}
+          placeholder={credentialPlaceholder(platform, field)}
+          onChange={(e) => setDraft((d) => ({ ...d, [field.key]: e.target.value }))}
+          autoComplete={field.secret ? 'new-password' : 'off'} spellCheck={false} aria-label={field.label} />
+        {field.secret && (
+          <ClipboardPasteButton onPaste={(text) => setDraft((d) => ({ ...d, [field.key]: text }))}
+            className="absolute inset-y-0 right-0 w-12 rounded-r-md flex items-center justify-center px-2.5 text-[12px] text-accent transition hover:bg-surface-hi focus:outline-none focus:ring-1 focus:ring-inset focus:ring-accent disabled:opacity-50" />
+        )}
+      </div>
     )
   ));
 }

@@ -22,6 +22,8 @@ The model tool `ios_simulator` accepts actions such as `list_devices`, `boot`, `
 
 ## The live panel
 
+Use **Shut down** beside a running device in the chooser or device switcher, or use the stop button in its preview toolbar. The preview stays open after shutdown. Choose **Boot** to start that simulator again.
+
 `attach` opens a **Simulator** tab in the side panel; you can also open it manually. Click or drag on the screen to touch, use the scroll wheel to scroll, click the screen to give it keyboard focus and type or paste (Chinese and other non-ASCII text is pasted through the simulator pasteboard). The toolbar has Home, Lock and Save screenshot. Stream frame rate, quality and scale are configurable in Settings.
 
 In ACECode Desktop on macOS the screen is drawn natively: the simulator's own framebuffer is shown in a layer over the panel, at full resolution and frame rate, without JPEG encoding or copies (and without the Intel readback stall described below). Touch and keyboard input still go through the panel. A web browser (or a remote Web UI) uses the JPEG stream, and Desktop falls back to it automatically when the native view cannot attach; **Reconnect** retries the native view. The native view keeps the CoreSimulator session of the first Xcode it used; restart Desktop after switching Xcode for it to follow.

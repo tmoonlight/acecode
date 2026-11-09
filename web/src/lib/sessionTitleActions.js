@@ -3,7 +3,8 @@
 // 位置与数量不随页面变化;没有会话可作用时按钮禁用,而不是从顶栏消失。
 //
 // 「显示」只取决于宿主能力(Desktop 原生浏览器、macOS 模拟器宿主)和外层是否接了
-// 摘要面板开关;「可用」才看当前页面是不是一个真实会话。
+// 摘要面板开关;「可用」才看当前页面是不是一个真实会话。浏览器例外:新建任务首页
+// 也能开(页面先归属预留的会话 id,发送首条消息时随新会话一起建出来)。
 
 export function sessionTitleActionStates({
   sessionId = '',
@@ -15,12 +16,13 @@ export function sessionTitleActionStates({
 } = {}) {
   // 定时任务页 / 专家组件页(ChatView 的 children)即使带着上一次的会话 ref,也不是会话视图。
   const session = !!sessionId && !auxiliaryPage;
+  const homePage = !sessionId && !auxiliaryPage;
   return {
     session,
     summary: { visible: !!summaryToggle, enabled: session },
     trajectory: { visible: true, enabled: session },
     sideChat: { visible: true, enabled: session && !readOnly },
-    browser: { visible: !!agentBrowser, enabled: session },
+    browser: { visible: !!agentBrowser, enabled: session || homePage },
     iosSimulator: { visible: !!iosSimulator, enabled: session },
     sessionMenu: { visible: true, enabled: session },
   };

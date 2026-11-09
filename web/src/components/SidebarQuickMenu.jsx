@@ -1,13 +1,14 @@
 import { Fragment, useRef, useState } from 'react';
 import {
-  TOPBAR_QUICK_ACTIONS,
   invokeTopBarQuickAction,
+  topBarQuickActionsForShell,
   topBarQuickActionNeedsSeparator,
   topBarQuickActionShortcutLabel,
   topBarQuickActionsMenuWidth,
 } from '../lib/topBarQuickActions.js';
 import { AnchoredMenu } from './AnchoredMenu.jsx';
 import { VsIcon } from './Icon.jsx';
+import { isAndroidApp } from '../lib/mobileShell.js';
 
 export function SidebarQuickMenu({
   sidebarWidth,
@@ -26,6 +27,8 @@ export function SidebarQuickMenu({
 }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
+  const androidApp = isAndroidApp();
+  const actions = topBarQuickActionsForShell({ androidApp });
   const selectAction = (actionId) => {
     setOpen(false);
     invokeTopBarQuickAction(actionId, {
@@ -64,14 +67,14 @@ export function SidebarQuickMenu({
           aria-label="快捷操作"
           className="z-50 rounded-lg border border-border bg-surface p-1 ace-shadow-lg"
         >
-          {TOPBAR_QUICK_ACTIONS.map((action, index) => {
+          {actions.map((action, index) => {
             if (action.id === 'virtual-office' && !office?.available) return null;
             const checkingUpdates = action.id === 'check-updates' && updateChecking;
             const officeAction = action.id === 'virtual-office';
-            const shortcutLabel = topBarQuickActionShortcutLabel(action);
+            const shortcutLabel = androidApp ? '' : topBarQuickActionShortcutLabel(action);
             return (
               <Fragment key={action.id}>
-                {topBarQuickActionNeedsSeparator(index) && (
+                {topBarQuickActionNeedsSeparator(index, actions) && (
                   <div role="separator" className="h-px bg-border mx-1 my-1" />
                 )}
                 <button

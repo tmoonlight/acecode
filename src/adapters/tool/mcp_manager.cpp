@@ -532,7 +532,8 @@ void McpManager::start_entry_async(ConnectionSnapshot snapshot, ToolExecutor& ex
 
 bool McpManager::connect_all(const AppConfig& cfg) {
     require_valid_mcp_config(serialize_mcp_config(cfg.mcp_servers));
-    if (cfg.mcp_servers.empty()) {
+    const auto servers = host_mcp_config(cfg.mcp_servers);
+    if (servers.empty()) {
         LOG_INFO("[mcp] No MCP servers configured, skipping connection phase");
         return false;
     }
@@ -542,7 +543,7 @@ bool McpManager::connect_all(const AppConfig& cfg) {
     if (!state->servers.empty()) {
         return true;
     }
-    for (const auto& [name, srv_cfg] : cfg.mcp_servers) {
+    for (const auto& [name, srv_cfg] : servers) {
         ServerEntry entry;
         entry.name = name;
         entry.cfg = srv_cfg;
@@ -570,7 +571,7 @@ void McpManager::reconcile_scope(
     require_valid_mcp_config(serialize_mcp_config(servers));
     const std::string canonical_scope = scope.empty() ? "" : mcp_project_root(scope);
     std::map<std::string, McpServerConfig> desired;
-    for (const auto& [name, cfg] : servers) {
+    for (const auto& [name, cfg] : (canonical_scope.empty() ? host_mcp_config(servers) : servers)) {
         desired.emplace(canonical_scope.empty() ? name
             : mcp_project_server_id(canonical_scope, name), cfg);
     }

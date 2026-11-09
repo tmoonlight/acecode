@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ace_bg">#0f0f0f</color>
+    <color name="ace_surface">#1a1a1a</color>
+    <color name="ace_border">#333333</color>
+    <color name="ace_fg">#bfbfbf</color>
+    <color name="ace_fg_muted">#8c8c8c</color>
+    <color name="ace_accent">#3b82f6</color>
+    <color name="ace_on_accent">#ffffff</color>
+    <color name="ace_ripple">#243b82f6</color>
+    <color name="window_background">@color/ace_bg</color>
+</resources>

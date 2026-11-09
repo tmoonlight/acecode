@@ -175,7 +175,7 @@ run('editing reuses the original preview chrome without save status or Markdown 
   assert.doesNotMatch(filePreview, /所有更改已保存|文件已保存/);
   assert.doesNotMatch(chat, /kind: 'ok', text: [^\n]*(?:文件已保存|已保存 \$\{saveResult\.savedCount\} 个文件)/);
   assert.doesNotMatch(markdownEditor, /MarkdownToolbar|ace-markdown-toolbar/);
-  assert.match(filePreview, /<CopyableCodeFrame[\s\S]*<MarkdownWysiwygEditor/);
+  assert.match(filePreview, /renderMenu\(actions\)[\s\S]*<MarkdownWysiwygEditor/);
   assert.match(markdownEditor, /className="h-full overflow-auto ace-md ace-side-markdown-preview"/);
 });
 

@@ -74,12 +74,12 @@ export function ToolRewriteSettings({ onCheckUpdates }) {
 
       {draft?.enabled && snapshot && (
         <div className="rounded-md bg-surface border border-border mb-2 overflow-hidden" data-testid="tool-rewrite-table">
-          <div className="grid grid-cols-[minmax(0,1fr)_14rem] gap-3 px-3.5 py-2 text-[11px] font-normal text-fg-mute bg-surface-alt">
+          <div className="grid grid-cols-[minmax(0,1fr)_14rem] gap-3 px-3.5 py-2 text-[11px] font-normal text-fg-mute bg-surface-alt max-sm:hidden">
             <div>内置工具</div>
             <div>重写为</div>
           </div>
           {rows.map((row) => (
-            <div key={row.name} className="grid grid-cols-[minmax(0,1fr)_14rem] items-center gap-3 px-3.5 py-2 border-t border-border">
+            <div key={row.name} className="grid grid-cols-1 items-center gap-1.5 px-3.5 py-2 border-t border-border sm:grid-cols-[minmax(0,1fr)_14rem] sm:gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-[13px] font-normal">
                   <span className="font-mono">{row.name}</span>
@@ -97,9 +97,9 @@ export function ToolRewriteSettings({ onCheckUpdates }) {
               </div>
             </div>
           ))}
-          <div className="flex items-center justify-between gap-3 px-3.5 py-2 border-t border-border text-[11px] text-fg-mute">
-            <span className="min-w-0 truncate" title={snapshot.path}>文件位置：{snapshot.path}</span>
-            <span className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-3.5 py-2 border-t border-border text-[11px] text-fg-mute">
+            <span className="min-w-0 truncate max-sm:basis-full" title={snapshot.path}>文件位置：{snapshot.path}</span>
+            <span className="flex flex-wrap items-center gap-2 shrink-0 max-sm:shrink max-sm:min-w-0">
               <span>留空表示不重写</span>
               <button type="button" className="px-1.5 py-0.5 text-[11px] hover:underline disabled:opacity-50"
                 disabled={loading || saving}

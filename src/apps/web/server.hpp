@@ -87,6 +87,8 @@ struct WebServerDeps {
     std::string                logs_dir;
     std::string                feedback_output_dir;
     std::string                token;                  // 启动期生成,空 = 不强制 (loopback only)
+    // true = 本机请求也必须带 token(daemon --require-local-token,安卓 App 用)。
+    bool                       require_local_token = false;
     std::string                guid;
     std::int64_t               pid = 0;
     std::int64_t               start_time_unix_ms = 0;

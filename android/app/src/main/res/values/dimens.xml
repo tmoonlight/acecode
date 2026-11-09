@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="ace_screen_margin">16dp</dimen>
+    <dimen name="ace_card_max_width">400dp</dimen>
+    <dimen name="ace_card_padding">20dp</dimen>
+    <dimen name="ace_button_gap">12dp</dimen>
+</resources>

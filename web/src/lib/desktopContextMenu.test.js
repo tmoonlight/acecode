@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildDesktopContextMenuItems,
   canRunContextMenuAction,
@@ -7,6 +10,7 @@ import {
   contextTargetsFromElement,
   DESKTOP_CONTEXT_ACTIONS,
   filterContextMenuItemsForRuntime,
+  shouldOpenContextMenu,
   NATIVE_ONLY_CONTEXT_ACTIONS,
   CONTEXT_MENU_REOPEN_DELAY_MS,
   OPEN_IN_EXPLORER_TARGET_SELECTOR,
@@ -131,13 +135,67 @@ test('editable target preserves writable text controls and rejects unsafe contro
   assert.equal(editableTargetFromElement(null), null);
 });
 
-test('普通区域只显示全选', () => {
-  assert.deepEqual(ids(buildDesktopContextMenuItems({})), [
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
-  ]);
+// 场景:在普通区域(没有任何对象目标、也没有选中文本)右键。
+// 期望:菜单一项都没有,shouldOpenContextMenu 判定不弹。
+// 回归(bug 表现):以前这里会弹出只有「全选」一项的菜单,点了把整页都选中。
+test('普通区域没有选区时菜单为空且不弹出', () => {
+  const items = buildDesktopContextMenuItems({});
+  assert.deepEqual(ids(items), []);
+  assert.equal(shouldOpenContextMenu(items), false);
+  assert.equal(shouldOpenContextMenu(buildDesktopContextMenuItems({ allowNativeActions: false })), false);
 });
 
-test('选中文本时显示复制', () => {
+// 场景:各类对象目标(文件、消息、工具、附件、会话、项目)以及输入框,均未选中文本时右键。
+// 期望:菜单里一律没有「全选」;对象自身的动作照常出现。
+test('没有选区时任何菜单都不出现全选', () => {
+  const contexts = [
+    { editable: true },
+    { openInExplorer: true },
+    { fileTarget: { kind: 'file', relativePath: 'a.js', absolutePath: 'C:/r/a.js' } },
+    { fileTarget: { kind: 'directory', relativePath: 'src', absolutePath: 'C:/r/src' } },
+    { messageTarget: { role: 'assistant', messageId: 'm1', text: 'hi', canFork: true } },
+    { toolTarget: { id: 't1', visibleOutput: 'a', fullOutput: 'b' } },
+    { attachmentTarget: { id: 'a1', name: 'a.png', url: '/blob' } },
+    { reviewTarget: { kind: 'summary' } },
+    { previewTarget: { type: 'preview', path: 'a.md', kind: 'markdown' } },
+    { workspaceTarget: { workspaceHash: 'w1', path: 'C:/r' } },
+    { sessionTarget: { sessionId: 's1', title: 'T' } },
+    { debug: true },
+  ];
+  for (const context of contexts) {
+    const actions = ids(buildDesktopContextMenuItems(context));
+    assert.equal(actions.includes(DESKTOP_CONTEXT_ACTIONS.SELECT_ALL), false, JSON.stringify(context));
+  }
+});
+
+// 场景:先选中一段文本再右键(普通区域、输入框、对象目标上都算)。
+// 期望:这是唯一保留「全选」的情况,并且跟「复制」放在同一组;会话行上仍不出全选。
+test('只有先选中文本时才保留全选', () => {
+  for (const context of [
+    {},
+    { editable: true },
+    { messageTarget: { role: 'assistant', messageId: 'm1', text: 'hi' } },
+  ]) {
+    const items = buildDesktopContextMenuItems({ ...context, hasSelection: true });
+    assert.equal(ids(items).includes(DESKTOP_CONTEXT_ACTIONS.SELECT_ALL), true, JSON.stringify(context));
+    assert.equal(shouldOpenContextMenu(items), true);
+  }
+  assert.equal(ids(buildDesktopContextMenuItems({
+    hasSelection: true,
+    sessionTarget: { sessionId: 's1', title: 'T' },
+  })).includes(DESKTOP_CONTEXT_ACTIONS.SELECT_ALL), false);
+});
+
+// 场景:shouldOpenContextMenu 收到非数组或空数组(例如显式打开但没有任何可用动作)。
+// 期望:一律判定不弹;有一项就弹。
+test('shouldOpenContextMenu 只在至少一项时放行', () => {
+  assert.equal(shouldOpenContextMenu([]), false);
+  assert.equal(shouldOpenContextMenu(undefined), false);
+  assert.equal(shouldOpenContextMenu(null), false);
+  assert.equal(shouldOpenContextMenu([{ id: DESKTOP_CONTEXT_ACTIONS.COPY }]), true);
+});
+
+test('选中文本时显示全选和复制', () => {
   assert.deepEqual(ids(buildDesktopContextMenuItems({ hasSelection: true })), [
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
     DESKTOP_CONTEXT_ACTIONS.COPY,
@@ -191,7 +249,6 @@ test('图片预览显示复制图片动作且非图片预览不显示', () => {
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_IMAGE,
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_TEXT,
     DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_METADATA,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.equal(imageItems[0].target.copyImageUrl, 'blob:preview-image');
   assert.equal(imageItems.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_PREVIEW_TEXT).enabled, false);
@@ -204,7 +261,6 @@ test('图片预览显示复制图片动作且非图片预览不显示', () => {
 
 test('文本框显示粘贴和剪切', () => {
   assert.deepEqual(ids(buildDesktopContextMenuItems({ editable: true })), [
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
     DESKTOP_CONTEXT_ACTIONS.PASTE,
     DESKTOP_CONTEXT_ACTIONS.CUT,
   ]);
@@ -223,7 +279,6 @@ test('debug 模式显示检查', () => {
 test('目录目标显示在资源管理器中打开', () => {
   assert.deepEqual(ids(buildDesktopContextMenuItems({ openInExplorer: true })), [
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 });
 
@@ -346,7 +401,6 @@ test('workspace 目标显示项目动作', () => {
     DESKTOP_CONTEXT_ACTIONS.COPY_WORKSPACE_PATH,
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
     DESKTOP_CONTEXT_ACTIONS.REMOVE_WORKSPACE,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 });
 
@@ -390,7 +444,6 @@ test('file and directory targets build expected actions', () => {
     DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH,
     DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
     DESKTOP_CONTEXT_ACTIONS.LOCATE_FILE,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 
   assert.deepEqual(ids(buildDesktopContextMenuItems({
@@ -408,7 +461,6 @@ test('file and directory targets build expected actions', () => {
     DESKTOP_CONTEXT_ACTIONS.ADD_DIRECTORY_CONTEXT,
     DESKTOP_CONTEXT_ACTIONS.REFRESH_FILE_TREE,
     DESKTOP_CONTEXT_ACTIONS.COLLAPSE_DIRECTORY,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 });
 
@@ -534,7 +586,6 @@ test('review, message, tool, and attachment targets build object actions first',
     DESKTOP_CONTEXT_ACTIONS.PREVIEW_FILE,
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
     DESKTOP_CONTEXT_ACTIONS.LOCATE_IN_FILE_TREE,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.deepEqual(
     reviewItems.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER).target,
@@ -557,7 +608,6 @@ test('review, message, tool, and attachment targets build object actions first',
   })), [
     DESKTOP_CONTEXT_ACTIONS.COPY_MESSAGE_TEXT,
     DESKTOP_CONTEXT_ACTIONS.FORK_MESSAGE,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.deepEqual(ids(buildDesktopContextMenuItems({
     toolTarget: { id: 't1', visibleOutput: 'tail', fullOutput: 'all', expanded: false },
@@ -565,7 +615,6 @@ test('review, message, tool, and attachment targets build object actions first',
     DESKTOP_CONTEXT_ACTIONS.COPY_VISIBLE_TOOL_OUTPUT,
     DESKTOP_CONTEXT_ACTIONS.COPY_FULL_TOOL_OUTPUT,
     DESKTOP_CONTEXT_ACTIONS.EXPAND_TOOL,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.deepEqual(ids(buildDesktopContextMenuItems({
     attachmentTarget: {
@@ -582,7 +631,6 @@ test('review, message, tool, and attachment targets build object actions first',
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
     DESKTOP_CONTEXT_ACTIONS.REMOVE_ATTACHMENT,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
 });
 
@@ -636,6 +684,7 @@ test('普通 Web 过滤 native-only 动作并保留 Web 动作顺序与分隔线
   const items = buildDesktopContextMenuItems({
     allowNativeActions: false,
     debug: true,
+    hasSelection: true,
     fileTarget: {
       kind: 'file',
       relativePath: 'src/a.cpp',
@@ -649,8 +698,9 @@ test('普通 Web 过滤 native-only 动作并保留 Web 动作顺序与分隔线
     DESKTOP_CONTEXT_ACTIONS.COPY_RELATIVE_PATH,
     DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
     DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
+    DESKTOP_CONTEXT_ACTIONS.COPY,
   ]);
-  assert.deepEqual(items.map((item) => item.separatorBefore), [false, false, false, true]);
+  assert.deepEqual(items.map((item) => item.separatorBefore), [false, false, false, true, false]);
   assert.deepEqual(filterContextMenuItemsForRuntime([
     { id: DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER },
     { id: DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH },
@@ -716,7 +766,6 @@ test('聊天图片附件显示复制图片动作', () => {
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_NAME,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.equal(items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_IMAGE).enabled, true);
 });
@@ -924,7 +973,6 @@ test('非图片附件的复制图片动作不可用但保留元数据动作', ()
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_NAME,
     DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL,
     DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
-    DESKTOP_CONTEXT_ACTIONS.SELECT_ALL,
   ]);
   assert.equal(items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_IMAGE).enabled, false);
   assert.equal(items.find((item) => item.id === DESKTOP_CONTEXT_ACTIONS.COPY_ATTACHMENT_URL).enabled, true);
@@ -990,4 +1038,21 @@ test('workspace target parses edit attribute', () => {
   assert.equal(plain.canEdit, false);
   assert.equal(ids(buildDesktopContextMenuItems({ workspaceTarget: plain }))
     .includes(DESKTOP_CONTEXT_ACTIONS.EDIT_WORKSPACE), false);
+});
+
+// 接线合同。
+// 场景:右键(或显式打开)最终拼出来的菜单一项都没有,例如普通区域没选中文本时右键。
+// 期望:DesktopContextMenu 先 preventDefault(浏览器原生菜单也不出),再用
+// shouldOpenContextMenu 判空并直接返回,不调用 openWithSwitchGap 画出空白菜单框。
+test('DesktopContextMenu 拼出空菜单时不弹出任何菜单', () => {
+  const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const menu = fs.readFileSync(path.join(srcRoot, 'components/DesktopContextMenu.jsx'), 'utf8')
+    .replace(/\r\n?/g, '\n');
+  const preventAt = menu.indexOf('event.preventDefault();\n      event.stopPropagation();\n\n      const target = rawTarget;');
+  const itemsAt = menu.indexOf('const items = withMenuSeparators(applyContextMenuActionOverrides(');
+  const guardAt = menu.indexOf('if (!shouldOpenContextMenu(items)) {');
+  const openAt = menu.indexOf('openWithSwitchGap({\n        ...pos,');
+  assert.ok(preventAt > 0 && itemsAt > preventAt, 'preventDefault 必须在拼菜单之前');
+  assert.ok(guardAt > itemsAt && openAt > guardAt, '判空必须在拼完菜单之后、打开菜单之前');
+  assert.match(menu.slice(guardAt, openAt), /close\(\);\s*return;/);
 });

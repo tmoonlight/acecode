@@ -73,6 +73,12 @@ Remote Web access uses a distinct supervised proxy process configured by
 | Proxy-originated (`127.0.0.2`; on macOS, where only 127.0.0.1 exists on lo0, one of the machine's own non-loopback IPv4 addresses) | Explicit token required |
 | Non-loopback remote client | Explicit token required |
 
+`daemon --require-local-token` removes the loopback exemption: every HTTP and
+WebSocket request must present the token, including requests from `127.0.0.1`.
+The Android app always starts the daemon this way, because on Android every
+installed app shares the same loopback interface. Static front-end assets stay
+public; the page bootstraps the token from `?token=` as the remote Web does.
+
 Token locations:
 
 - HTTP: `X-ACECode-Token: <token>`
@@ -942,13 +948,20 @@ Creates a session in the workspace. Body fields are optional:
   "initial_user_message": "hello",
   "auto_start": true,
   "no_workspace": false,
-  "noWorkspace": false
+  "noWorkspace": false,
+  "session_id": "20261110_083015_4f2a"
 }
 ```
 
 `model` and `name` are aliases. `permission_mode` and `permissionMode` are
 aliases. `auto_start` defaults to `false`; it only starts a turn when an
-`initial_user_message` is present. Returns:
+`initial_user_message` is present. `session_id` lets the client choose the new
+session's id (8-64 characters of `[A-Za-z0-9_-]`); the Web new-task page uses
+it when Agent Browser pages were opened before the first message, so those
+pages (owned by that reserved id) belong to the session as soon as it exists.
+An invalid id returns `400 INVALID_SESSION_ID`; an id already used by an active
+or on-disk session returns `409 SESSION_ID_EXISTS` and never reuses its
+transcript. `POST /api/sessions` accepts the same body. Returns:
 
 ```json
 {

@@ -378,34 +378,40 @@ export function SummaryPanel({
           </Section>
         </>
       )}
-      <div className="h-px bg-border mx-2" />
-      <Section title="后台任务">
-        {running.map((task) => (
-          <Row
-            key={task.id}
-            icon={task.kind === 'agent' ? 'embedding' : 'terminal'}
-            title={task.title}
-            onClick={() => onOpenTask?.(task.id)}
-            trailing={(
-              <>
-                <span className="shrink-0 text-[12px] tabular-nums text-fg-mute">{task.elapsed}</span>
-                <IconButton
-                  icon="stopFilled"
-                  label="停止"
-                  disabled={task.stopping}
-                  onClick={() => onStopTask?.(task.id)}
-                  className="hover:text-danger"
-                />
-              </>
+      {(running.length > 0 || finishedCount > 0) && (
+        <>
+          <div className="h-px bg-border mx-2" />
+          <Section title="后台任务">
+            {running.map((task) => (
+              <Row
+                key={task.id}
+                icon={task.kind === 'agent' ? 'embedding' : 'terminal'}
+                title={task.title}
+                onClick={() => onOpenTask?.(task.id)}
+                trailing={(
+                  <>
+                    <span className="shrink-0 text-[12px] tabular-nums text-fg-mute">{task.elapsed}</span>
+                    <IconButton
+                      icon="stopFilled"
+                      label="停止"
+                      disabled={task.stopping}
+                      onClick={() => onStopTask?.(task.id)}
+                      className="hover:text-danger"
+                    />
+                  </>
+                )}
+              >
+                {task.title}
+              </Row>
+            ))}
+            {finishedCount > 0 && (
+              <Row icon="check" onClick={onOpenFinishedTasks}>
+                {finishedCount} 已完成
+              </Row>
             )}
-          >
-            {task.title}
-          </Row>
-        ))}
-        <Row icon="check" onClick={onOpenFinishedTasks}>
-          {finishedCount} 已完成
-        </Row>
-      </Section>
+          </Section>
+        </>
+      )}
     </div>
   );
 }

@@ -9,17 +9,16 @@ import {
   presentationRendererSource,
 } from '../lib/presentationPreview.js';
 import {
-  OfficePreviewControls,
+  officeZoomActions,
   useOfficePreviewZoom,
 } from './OfficePreviewControls.jsx';
-import { VsIcon } from './Icon.jsx';
 import { effectiveShortcut, shortcutEventVariants } from '../lib/shortcutBindings.js';
 import { useShortcutPreferences } from '../lib/useShortcutPreferences.js';
 
 const RENDERER_READY_TIMEOUT_MS = 10_000;
 const rendererSource = presentationRendererSource(rawRendererSource);
 
-export function PresentationPreview({ blob, path }) {
+export function PresentationPreview({ blob, path, renderMenu }) {
   const shortcutPreferences = useShortcutPreferences();
   const frameRef = useRef(null);
   const shellRef = useRef(null);
@@ -147,6 +146,14 @@ export function PresentationPreview({ blob, path }) {
     );
   };
 
+  const actions = status === 'complete' ? officeZoomActions(zoom, zoomIn, zoomOut) : [];
+  if (status === 'complete' && slideCount > 0) {
+    actions.push(
+      { label: '上一张幻灯片', icon: 'arrowLeft', disabled: slideIndex <= 0, onSelect: () => navigate(-1) },
+      { label: '下一张幻灯片', icon: 'arrowRight', disabled: slideIndex >= slideCount - 1, onSelect: () => navigate(1) },
+    );
+  }
+
   return (
     <div
       ref={shellRef}
@@ -161,41 +168,7 @@ export function PresentationPreview({ blob, path }) {
         srcDoc={srcDoc}
         onLoad={() => setFrameRevision((revision) => revision + 1)}
       />
-      {status === 'complete' && slideCount > 0 && (
-        <>
-          <button
-            type="button"
-            className="ace-side-presentation-nav is-previous"
-            title="上一张幻灯片"
-            aria-label="上一张幻灯片"
-            disabled={slideIndex <= 0}
-            onClick={() => navigate(-1)}
-          >
-            <span className="ace-side-presentation-nav-icon">
-              <VsIcon name="arrowLeft" size={26} />
-            </span>
-          </button>
-          <button
-            type="button"
-            className="ace-side-presentation-nav is-next"
-            title="下一张幻灯片"
-            aria-label="下一张幻灯片"
-            disabled={slideIndex >= slideCount - 1}
-            onClick={() => navigate(1)}
-          >
-            <span className="ace-side-presentation-nav-icon">
-              <VsIcon name="arrowRight" size={26} />
-            </span>
-          </button>
-        </>
-      )}
-      {status === 'complete' && (
-        <OfficePreviewControls
-          zoom={zoom}
-          onZoomIn={zoomIn}
-          onZoomOut={zoomOut}
-        />
-      )}
+      {renderMenu(actions)}
       {status === 'loading' && (
         <div className="ace-side-presentation-status">加载中...</div>
       )}

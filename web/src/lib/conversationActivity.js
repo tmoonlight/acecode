@@ -133,7 +133,7 @@ export function selectConversationActivity({
       kind: CONVERSATION_ACTIVITY_KIND.BACKGROUND,
       phase: 'background_tasks',
       label: background.backgroundLabel,
-      detail: '主会话仍可继续输入',
+      detail: '',
       startedAtMs: oldestBackgroundStart(runningTasks),
       needsAction: false,
       ...background,

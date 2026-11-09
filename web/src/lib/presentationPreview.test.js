@@ -169,13 +169,11 @@ run('presentation preview stays sandboxed and fills the detail pane', () => {
   assert.match(component, /sandbox="allow-scripts"/);
   assert.doesNotMatch(component, /allow-same-origin/);
   assert.match(component, /removeEventListener\('message', receiveMessage\)/);
-  assert.match(component, /<OfficePreviewControls/);
-  assert.match(component, /ace-side-presentation-nav is-previous/);
-  assert.match(component, /ace-side-presentation-nav is-next/);
+  assert.match(component, /officeZoomActions\(zoom, zoomIn, zoomOut\)/);
+  assert.match(component, /disabled: slideIndex <= 0, onSelect: \(\) => navigate\(-1\)/);
+  assert.match(component, /disabled: slideIndex >= slideCount - 1, onSelect: \(\) => navigate\(1\)/);
   assert.match(component, /'navigate'/);
   assert.match(filePreview, /state\.kind === 'presentation'/);
   assert.match(styles, /\.ace-side-presentation-preview[\s\S]*flex:\s*1 1 auto/);
   assert.match(styles, /\.ace-side-presentation-frame[\s\S]*height:\s*100%/);
-  assert.match(styles, /\.ace-side-presentation-nav\.is-previous[\s\S]*linear-gradient/);
-  assert.match(styles, /\.ace-side-presentation-nav\.is-next[\s\S]*linear-gradient/);
 });

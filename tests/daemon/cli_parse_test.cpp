@@ -140,6 +140,21 @@ TEST(DaemonCliParse, TokenEmptyRejected) {
     EXPECT_FALSE(a.error.empty());
 }
 
+// 场景: 安卓 App 的启动形式 --foreground --port --token --require-local-token。
+// 期望: 开关被解析出来且不影响其它参数;不带这个开关时默认 false
+//       (桌面 / TUI 场景保持"本机免 token"的原有体验)。
+TEST(DaemonCliParse, RequireLocalTokenFlag) {
+    Args a = parse({"--foreground", "--port=23456", "--token=abc", "--require-local-token"});
+    EXPECT_TRUE(a.error.empty());
+    EXPECT_TRUE(a.require_local_token);
+    EXPECT_EQ(a.port_override, 23456);
+    EXPECT_EQ(a.token_override, "abc");
+    EXPECT_EQ(a.sub, "foreground");
+
+    Args plain = parse({"--foreground"});
+    EXPECT_FALSE(plain.require_local_token);
+}
+
 // 场景: --port + --token 同时存在,模拟 desktop 完整调用形式
 TEST(DaemonCliParse, PortAndTokenCombined) {
     Args a = parse({"--foreground", "--port=12345", "--token=abc"});

@@ -153,8 +153,8 @@ export function SavedModelList({
             聊天输入区的模型选择器使用这里的预设。
           </p>
         </div>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:flex-nowrap">
-          <label className="relative min-w-[170px] max-w-[260px] flex-1 sm:flex-none">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 max-sm:basis-full sm:flex-nowrap">
+          <label className="relative min-w-[170px] max-w-[260px] flex-1 max-sm:min-w-0 max-sm:max-w-none sm:flex-none">
             <span className="sr-only">搜索已保存模型</span>
             <VsIcon
               name="search"

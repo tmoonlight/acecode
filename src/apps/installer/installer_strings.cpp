@@ -18,7 +18,6 @@ InstallerStrings installer_strings(bool chinese) {
         s.replacing = "正在安装";
         s.integrating = "正在创建快捷方式";
         s.installed_title = "安装完成";
-        s.key_placeholder = "ACEModel Key(可选)";
         s.launch = "启动 ACECode";
         s.done = "完成";
         s.failed_title = "安装失败";
@@ -33,7 +32,6 @@ InstallerStrings installer_strings(bool chinese) {
         s.uninstalling = "正在卸载";
         s.uninstalled_title = "已卸载";
         s.uninstall_failed_title = "卸载失败";
-        s.key_save_failed = "ACEModel 配置写入失败";
         s.log_prefix = "日志:";
         s.terminal_shortcut = kTerminalShortcutZh;
         s.payload_missing = "这个安装程序里没有 ACECode 安装包。";
@@ -54,7 +52,6 @@ InstallerStrings installer_strings(bool chinese) {
     s.replacing = "Installing";
     s.integrating = "Creating shortcuts";
     s.installed_title = "Installed";
-    s.key_placeholder = "ACEModel key (optional)";
     s.launch = "Launch ACECode";
     s.done = "Done";
     s.failed_title = "Installation failed";
@@ -69,7 +66,6 @@ InstallerStrings installer_strings(bool chinese) {
     s.uninstalling = "Uninstalling";
     s.uninstalled_title = "Uninstalled";
     s.uninstall_failed_title = "Uninstall failed";
-    s.key_save_failed = "Could not save the ACEModel key";
     s.log_prefix = "Log: ";
     s.terminal_shortcut = kTerminalShortcutEn;
     s.payload_missing = "This setup program does not contain an ACECode package.";

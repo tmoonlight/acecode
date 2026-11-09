@@ -129,7 +129,7 @@ run('activity summary 不切断 run,completion summary 独占 footer', () => {
   const d = buildAssistantRunDirectives(items);
   assert.deepEqual(d.get(1), { showHeader: true, showFooter: false });
   assert.deepEqual(d.get(2), { showHeader: false, showFooter: false });
-  assert.deepEqual(d.get('c1'), { showFooter: true });
+  assert.deepEqual(d.get('c1'), { showFooter: true, copyText: 'second\n\ndone' });
 });
 
 run('busy 只延迟当前最后一个 run,历史 turn footer 保持显示', () => {
@@ -152,7 +152,7 @@ run('busy turn 已出现 completion summary 时正文和总结都延迟 footer',
   ];
   const d = buildAssistantRunDirectives(items, { deferLastFooter: true });
   assert.deepEqual(d.get(2), { showHeader: true, showFooter: false });
-  assert.deepEqual(d.get('done'), { showFooter: false });
+  assert.deepEqual(d.get('done'), { showFooter: false, copyText: 'final text\n\n完成' });
 });
 
 run('同一 task_complete turn 结算后只有 completion summary 显示 footer', () => {
@@ -163,7 +163,37 @@ run('同一 task_complete turn 结算后只有 completion summary 显示 footer'
   ];
   const d = buildAssistantRunDirectives(items);
   assert.deepEqual(d.get(2), { showHeader: true, showFooter: false });
-  assert.deepEqual(d.get('done'), { showFooter: true });
+  assert.deepEqual(d.get('done'), { showFooter: true, copyText: 'final text\n\n完成' });
+});
+
+run('完成总结复制只拼接紧邻的可见助手正文并保留 Markdown', () => {
+  const text = '  **答复**\n\n```js\nconst x = 1;\n```';
+  const summary = '## 总结\n- 已完成';
+  const items = [
+    { kind: 'msg', id: 1, role: 'assistant', content: '更早的正文' },
+    { kind: 'msg', id: 2, role: 'assistant', content: text },
+    { kind: 'msg', id: 3, role: 'assistant', content: '  ' },
+    { kind: 'completion_summary', id: 4, summary },
+  ];
+  assert.equal(buildAssistantRunDirectives(items).get(4).copyText, `${text}\n\n${summary}`);
+});
+
+run('没有相邻助手正文时只复制总结，即使更早有助手消息', () => {
+  const answer = { kind: 'msg', id: 1, role: 'assistant', content: '上文' };
+  const completion = { kind: 'completion_summary', id: 3, summary: '- 完成' };
+  const otherRows = [
+    { kind: 'tool' },
+    { kind: 'activity_summary', collapsedItems: [answer] },
+    { kind: 'media_group' },
+    { kind: 'completion_summary', summary: '之前的总结' },
+    { kind: 'msg', role: 'user', content: '新一轮' },
+    { kind: 'msg', role: 'system', content: '提示' },
+  ];
+  for (const row of otherRows) {
+    const items = [answer, { id: 2, ...row }, completion];
+    assert.equal(buildAssistantRunDirectives(items).get(3).copyText, completion.summary);
+  }
+  assert.equal(buildAssistantRunDirectives([completion]).get(3).copyText, completion.summary);
 });
 
 run('用户中断立即让末端 termination notice 接管唯一 footer', () => {

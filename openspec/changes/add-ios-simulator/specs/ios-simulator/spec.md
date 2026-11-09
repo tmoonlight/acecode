@@ -28,6 +28,12 @@ The system SHALL show a live view of the attached simulator in the side panel, o
 - **WHEN** the user clicks the panel image
 - **THEN** the click is delivered as a touch at the corresponding device point
 
+#### Scenario: Shut down a simulator from the preview
+- **WHEN** the user selects the shutdown action for a running simulator in the chooser, the device switcher or its preview toolbar
+- **THEN** the panel SHALL shut down only that device and update its power state
+- **AND** if it is the displayed simulator the tab SHALL stop streaming and offer to boot it again
+- **AND** if shutdown fails the panel SHALL surface the error and allow retry
+
 ### Requirement: Confined helper
 The helper SHALL run inside a macOS Seatbelt profile that denies IP networking, denies reading file contents under /Users, /Volumes and the home directory except the helper bundle, the selected Xcode, simulator data and logs and the simulator preference files, and denies writes outside simulator data, logs and the per-user temporary and cache folders. When the profile cannot be applied the helper SHALL run unconfined, and the status SHALL say so with the reason.
 

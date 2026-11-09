@@ -607,6 +607,7 @@ int run_worker(const WorkerOptions& opts, const AppConfig& cfg) {
     web_deps.cwd                = cwd;
     web_deps.projects_dir       = projects_dir;
     web_deps.token              = token;
+    web_deps.require_local_token = opts.require_local_token;
     web_deps.guid               = guid;
     web_deps.pid                = pid;
     web_deps.start_time_unix_ms = now_unix_ms();

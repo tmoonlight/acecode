@@ -27,6 +27,7 @@ struct WorkerOptions {
     bool        dangerous  = false; // 透传 -dangerous,worker 启动期校验
     int         port_override = 0;  // > 0 时覆盖 cfg.web.port(desktop 父进程预选空闲端口后传入)
     std::string token_override;     // 非空时覆盖自动生成 token(desktop 预生成,前端无需 poll token 文件)
+    bool        require_local_token = false; // 本机请求也要 token(安卓 App:所有 App 共用回环地址)
     std::string static_dir_override; // 非空时覆盖 cfg.web.static_dir(desktop dev 模式注入仓库 web/ 路径)
     std::string cwd_override;       // 非空时先切到该目录,让 session/history/tools 使用指定 workspace
     bool        native_folder_picker_enabled = false; // desktop/webapp 内部:允许 daemon 调 OS 目录选择器

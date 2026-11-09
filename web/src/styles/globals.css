@@ -1517,9 +1517,9 @@ body {
   opacity: 1;
 }
 [data-adaptive-composer-control="true"][data-compact="true"]:not([data-composer-control="model"]) {
-  width: 28px !important;
-  min-width: 28px;
-  max-width: 28px !important;
+  width: var(--ace-composer-min-target, 28px) !important;
+  min-width: var(--ace-composer-min-target, 28px);
+  max-width: var(--ace-composer-min-target, 28px) !important;
 }
 .ace-composer-adaptive-chip[data-compact="true"] {
   gap: 0;
@@ -2180,6 +2180,67 @@ body {
   .ace-settings-nav { width: 150px; --ace-settings-nav-pad-x: 6px; }
   .ace-settings-row { align-items: stretch; flex-direction: column; gap: 8px; }
   .ace-settings-label { flex-basis: auto; }
+}
+/* 手机竖屏(与 lib/mobileShell.js 的 NARROW_LAYOUT_QUERY 同一条线):设置铺满全屏,
+   分两级 —— data-narrow-pane="list" 只显示分区导航,"detail" 只显示当前分区内容。 */
+.ace-settings-narrow-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 4px 4px 4px 12px;
+  border-bottom: 1px solid var(--ace-settings-divider);
+}
+.ace-settings-main > .ace-settings-narrow-bar { padding-left: 4px; }
+.ace-settings-narrow-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+@media (max-width: 599px) {
+  .ace-settings-mask { align-items: stretch; justify-content: stretch; }
+  .ace-settings-panel,
+  .ace-settings-panel[data-expanded="true"] {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .ace-settings-panel[data-narrow-pane="list"] .ace-settings-main,
+  .ace-settings-panel[data-narrow-pane="detail"] .ace-settings-nav { display: none; }
+  .ace-settings-nav {
+    width: 100%;
+    padding-top: 0;
+    border-right: 0;
+    --ace-settings-nav-pad-x: 8px;
+  }
+  .ace-settings-nav > .ace-settings-search { margin-top: 10px; }
+  .ace-settings-nav-item { min-height: 44px; font-size: 15px; }
+  .ace-settings-main { padding-top: 0; }
+  .ace-settings-content { padding: 12px 16px 32px; }
+  /* 行卡片(左文字 + 右控件)放不下时,控件换到下一行,左侧文字不再被挤成一字一行。 */
+  .ace-settings-content .justify-between { flex-wrap: wrap; row-gap: 8px; }
+  .ace-settings-content .justify-between > div:first-child { flex: 1 1 12rem; min-width: 0; }
+  .ace-settings-content :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { max-width: 100%; }
+  /* 顶栏已经显示分区名,内容里的分区大标题不再重复。 */
+  .ace-settings-panel[data-narrow-pane="detail"] .ace-settings-content h2.text-xl.font-bold { display: none; }
+  .ace-settings-panel[data-narrow-pane="detail"] .ace-settings-content .justify-between:has(> h2.text-xl.font-bold) { justify-content: flex-end; }
+  /* 「?」说明气泡从图标处向右展开,窄屏会冲出屏幕、隐藏时也撑出横向滚动条;改为贴在屏幕底部显示。 */
+  .ace-settings-content .ace-help-tip-bubble {
+    position: fixed;
+    top: auto;
+    right: 12px;
+    bottom: 16px;
+    left: 12px;
+    width: auto;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ace-settings-panel {
@@ -3730,6 +3791,45 @@ a.ace-thread-link:focus-visible {
   padding: 4px 8px;
 }
 .ace-md th { background: var(--ace-surface-hi); font-weight: 600; }
+/* 手机竖屏:新增 / 编辑模型弹窗铺满全屏,配合 Provider / 模型 / 高级 三个页签;
+   Provider 列表不再套在小框里滚动。 */
+@media (max-width: 599px) {
+  div:has(> .ace-modal-dialog > [data-model-profile-dialog]) { padding: 0; }
+  .ace-modal-dialog:has(> [data-model-profile-dialog]) {
+    width: 100vw !important;
+    height: 100vh;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+  [data-model-profile-dialog] { height: 100%; max-height: none; }
+  .ace-provider-picker[data-narrow-pane] {
+    min-height: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  .ace-provider-picker[data-narrow-pane="providers"] > .ace-provider-picker-details,
+  .ace-provider-picker[data-narrow-pane="details"] > .ace-provider-picker-list { display: none; }
+  .ace-provider-picker[data-narrow-pane="providers"] > .ace-provider-picker-list {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .ace-provider-picker[data-narrow-pane="providers"] .ace-provider-picker-options { max-height: none; overflow: visible; }
+  .ace-provider-picker[data-narrow-pane="providers"] .ace-provider-picker-options [role="option"] { height: 44px; }
+  .ace-provider-picker[data-narrow-pane="details"] > .ace-provider-picker-details { padding: 0; }
+}
+/* 手机竖屏:对话区不留桌面的 35px 左槽,回复占满整行;宽表格改为横向滚动,
+   列不再被挤到单词中间断开(GitHub / ChatGPT 手机版同样的做法)。 */
+@media (max-width: 599px) {
+  .ace-chat-transcript-scroll { padding-left: 12px; padding-right: 12px; }
+  .ace-chat-row .max-w-\[88\%\] { max-width: 100%; }
+  .ace-md table { display: block; max-width: 100%; overflow-x: auto; }
+  .ace-md :is(th, td) { min-width: 6em; overflow-wrap: break-word; word-break: normal; }
+}
 
 /* GFM 任务清单(markdown-it-task-lists 默认渲染 li.task-list-item) */
 .ace-md li.task-list-item { list-style: none; margin-left: -22px; }
@@ -6601,40 +6701,6 @@ a.ace-thread-link:focus-visible {
   overflow: auto;
   background: var(--ace-code-bg);
 }
-.ace-side-preview-code .ace-code-actions {
-  top: 8px;
-  right: 10px;
-}
-.ace-side-preview-code .ace-code-copy-btn,
-.ace-side-preview-code .ace-code-action-btn {
-  background: var(--ace-code-bg);
-  border-color: rgba(var(--ace-code-fg-rgb), 0.32);
-  color: var(--ace-code-fg);
-  opacity: 0.85;
-}
-.ace-side-preview-code:hover .ace-code-copy-btn,
-.ace-side-preview-code:hover .ace-code-action-btn,
-.ace-side-preview-code .ace-code-copy-btn:focus-visible,
-.ace-side-preview-code .ace-code-action-btn:focus-visible {
-  opacity: 1;
-}
-.ace-side-preview-code .ace-code-copy-btn:hover,
-.ace-side-preview-code .ace-code-action-btn:hover {
-  background: rgba(var(--ace-code-fg-rgb), 0.12);
-  border-color: rgba(var(--ace-code-fg-rgb), 0.50);
-  color: var(--ace-code-fg);
-}
-.ace-side-preview-code .ace-code-copy-btn .ace-icon,
-.ace-side-preview-code .ace-code-action-btn .ace-icon {
-  opacity: 0.95;
-}
-.ace-side-preview-code .ace-code-wrap-btn.is-active,
-.ace-side-preview-code .ace-code-markdown-btn.is-active {
-  background: rgba(var(--ace-accent-rgb), 0.18);
-  border-color: rgba(var(--ace-accent-rgb), 0.68);
-  color: var(--ace-accent);
-  opacity: 1;
-}
 .ace-preview pre {
   margin: 0;
   padding: 8px 10px;
@@ -6913,61 +6979,6 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
   height: 100%;
   overflow: hidden;
 }
-.ace-office-preview-controls {
-  position: absolute;
-  z-index: 40;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid rgba(var(--ace-border-rgb), 0.72);
-  border-radius: 7px;
-  background: rgba(var(--ace-bg-rgb), 0.76);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(8px);
-  opacity: 0.78;
-  transition: opacity 120ms ease, background-color 120ms ease;
-}
-.ace-office-preview-shell:hover .ace-office-preview-controls,
-.ace-office-preview-controls:focus-within {
-  opacity: 1;
-  background: rgba(var(--ace-bg-rgb), 0.92);
-}
-.ace-office-preview-zoom-button {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--ace-fg);
-  cursor: pointer;
-}
-.ace-office-preview-zoom-button:hover:not(:disabled),
-.ace-office-preview-zoom-button:focus-visible {
-  background: var(--ace-hover);
-}
-.ace-office-preview-zoom-button:focus-visible {
-  outline: 1px solid var(--ace-accent);
-  outline-offset: -1px;
-}
-.ace-office-preview-zoom-button:disabled {
-  opacity: 0.34;
-  cursor: default;
-}
-.ace-office-preview-zoom-glyph {
-  position: relative;
-  width: 18px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 .ace-side-docx-preview,
 .ace-side-spreadsheet-preview {
   flex: 1 1 auto;
@@ -7031,56 +7042,6 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
 }
 .ace-side-presentation-frame.is-hidden {
   display: none;
-}
-.ace-side-presentation-nav {
-  position: absolute;
-  z-index: 20;
-  top: 0;
-  bottom: 0;
-  width: min(18%, 96px);
-  display: flex;
-  align-items: center;
-  padding: 0;
-  border: 0;
-  color: #fff;
-  cursor: pointer;
-  opacity: 0.42;
-  transition: opacity 140ms ease, background-color 140ms ease;
-}
-.ace-side-presentation-nav.is-previous {
-  left: 0;
-  justify-content: flex-start;
-  padding-left: 10px;
-  background: linear-gradient(90deg, rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0));
-}
-.ace-side-presentation-nav.is-next {
-  right: 0;
-  justify-content: flex-end;
-  padding-right: 10px;
-  background: linear-gradient(270deg, rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0));
-}
-.ace-side-presentation-nav:hover:not(:disabled),
-.ace-side-presentation-nav:focus-visible {
-  opacity: 0.9;
-}
-.ace-side-presentation-nav:focus-visible {
-  outline: 2px solid var(--ace-accent);
-  outline-offset: -2px;
-}
-.ace-side-presentation-nav:disabled {
-  opacity: 0.14;
-  cursor: default;
-}
-.ace-side-presentation-nav-icon {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.48);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 .ace-side-presentation-status {
   position: absolute;
@@ -8148,4 +8109,45 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
 }
 @media (prefers-reduced-motion: reduce) {
   .ace-sidebar-update-attention::after { animation: none; }
+}
+
+@media (pointer: coarse) {
+  [data-android-phone-settings] [role="switch"]::before {
+    content: '';
+    position: absolute;
+    inset: -12px -4px;
+  }
+  .ace-topbar { --ace-topbar-control-size: 44px; --ace-topbar-height: 48px; padding-block: 2px; }
+  .ace-topbar-navigation, .ace-topbar-controls { align-self: center; margin-top: 0; }
+  .ace-desktop-context-menu-item, .ace-sidebar-session-row, .ace-settings-nav-item { min-height: 44px; }
+  [data-sidebar-workspace-actions] .ace-sidebar-workspace-action {
+    opacity: 1;
+    width: 44px;
+    height: 44px;
+  }
+  .ace-settings-window-actions button { min-width: 44px; min-height: 44px; }
+  [data-permission-card] button, [role="menu"] [role^="menuitem"] { min-height: 44px; }
+  .ace-composer-session-footer { --ace-composer-min-target: 44px; }
+  .ace-composer-session-footer button { min-height: 44px; min-width: var(--ace-composer-min-target); }
+  .ace-home-content > div > .relative > button, [data-sidebar-popup] [role="menuitem"] { min-height: 44px; }
+  .ace-composer-session-footer .ace-composer-model-control { flex-shrink: 1; }
+  [data-composer-capability-menu] button, .ace-composer-reasoning-menu button { min-height: 44px; }
+  .ace-settings-content :is(select, input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=range])) { min-height: 44px; }
+}
+@media (pointer: coarse) and (max-width: 599px) {
+  .ace-topbar { --ace-topbar-navigation-min-width: 0px; padding-inline: 4px; }
+  .ace-topbar-navigation { width: auto; flex: 0 0 auto; }
+  .ace-topbar-navigation, .ace-topbar-functions { gap: 0; }
+  .ace-topbar-action[data-navigation-history]:disabled { display: none; }
+  .ace-topbar-controls { gap: 0; }
+  .ace-composer-session-right { flex-wrap: wrap; gap: 2px; }
+  .ace-composer-session-footer { padding-inline: 4px; column-gap: 2px; }
+  .ace-modal-dialog { min-width: 0; max-width: 100%; max-height: calc(100dvh - 12px); }
+  .ace-modal-dialog :is(input, select, textarea) { max-width: 100%; }
+  .ace-desktop-context-menu { max-height: calc(100dvh - 12px); }
+  .ace-settings-content { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+}
+@media (pointer: coarse) and (max-height: 480px) {
+  .ace-home-panel:focus-within { grid-template-rows: 8px auto minmax(0, 1fr); }
+  .ace-home-content:focus-within > .ace-home-logo { display: none; }
 }

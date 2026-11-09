@@ -250,7 +250,7 @@ run('managed provider details use bounded desktop columns with independent scrol
     picker,
     /mt-2 max-h-\[210px\][^\"]*overflow-y-auto[^\"]*md:min-h-0[^\"]*md:max-h-none[^\"]*md:flex-1/,
   );
-  assert.match(picker, /className="min-w-0 p-3 md:min-h-0 md:overflow-y-auto"/);
+  assert.match(picker, /className="ace-provider-picker-details min-w-0 p-3 md:min-h-0 md:overflow-y-auto"/);
 });
 
 run('manual OpenAI-compatible provider keeps direct input and adds an explicit probe selector', () => {
@@ -409,4 +409,30 @@ run('rows search controls dialogs and busy states expose keyboard and ARIA contr
   assert.match(picker, /event\.key === 'Enter'/);
   assert.match(picker, /role=\{allowMultiple \? 'group' : 'radiogroup'\}/);
   assert.match(section, /disabled=\{!!mutationBusy \|\| deleteTarget\.blocked\}/);
+});
+
+// 场景: 手机竖屏打开「新增 / 编辑模型」。
+// 期望: 弹窗分 Provider / 模型 / 高级 三个页签(编辑直接从「模型」开始),选中 Provider 自动跳到「模型」;
+//       Provider 列表与模型详情按页签只显示一边;窄屏样式把弹窗铺满全屏。宽屏仍是左右两栏(上一条用例守着)。
+// 回归: 2026-11-08 手机上这个弹窗是一整页长滚动,框里还套着两层小滚动框,用户反馈体验很差。
+run('narrow model dialog splits into provider / model / advanced tabs', () => {
+  for (const snippet of [
+    "['provider', 'Provider'],",
+    "['model', '模型'],",
+    "['advanced', '高级'],",
+    "useState(editing ? 'model' : 'provider')",
+    'role="tablist" aria-label="模型设置"',
+    "if (narrow) setNarrowTab('model');",
+    "narrowPane={narrow ? (narrowTab === 'provider' ? 'providers' : 'details') : null}",
+  ]) assert.ok(dialog.includes(snippet), snippet);
+  assert.ok(picker.includes('data-narrow-pane={narrowPane || undefined}'));
+  assert.ok(globals.includes('.ace-provider-picker[data-narrow-pane="providers"] > .ace-provider-picker-details'));
+  assert.ok(globals.includes('.ace-modal-dialog:has(> [data-model-profile-dialog])'));
+});
+
+// 场景: 安卓 App 里填 API key,系统对密码框弹出禁止粘贴的安全键盘。
+// 期望: API key 输入框旁有「粘贴」按钮,粘进来后清掉「清除已保存密钥」标记;按钮只在 App 里出现时才给输入框留位置。
+run('model api key input offers an in-app paste button', () => {
+  assert.ok(dialog.includes('onPaste={(text) => onPatchDraft({ api_key: text, clear_api_key: false })}'));
+  assert.ok(dialog.includes("inputClass(pasteAvailable ? 'pr-[140px]' : 'pr-24')"));
 });

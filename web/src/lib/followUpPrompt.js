@@ -55,6 +55,10 @@ export function createFollowUpPromptStore() {
     if (records.get(key)?.consumed) return;
     publish(key, { status: 'ready', prompt: '', consumed: true });
   };
+  const skipGeneration = (scope, completion) => {
+    const record = records.get(identity(scope, completion));
+    if (!record || record.status === 'pending') consume(scope, completion);
+  };
   return {
     get(scope, completion) { return records.get(identity(scope, completion)) || EMPTY; },
     subscribe(scope, completion, listener) {
@@ -68,7 +72,7 @@ export function createFollowUpPromptStore() {
     },
     ensure(scope, completion, request, { draftReady = true, hasDraft = false } = {}) {
       if (!scope || !completion || !draftReady) return;
-      if (hasDraft) { consume(scope, completion); return; }
+      if (hasDraft) { skipGeneration(scope, completion); return; }
       const key = identity(scope, completion);
       if (records.has(key)) return;
       const pending = { status: 'pending', prompt: '', consumed: false };
@@ -81,7 +85,7 @@ export function createFollowUpPromptStore() {
         if (records.get(key) === pending) publish(key, { ...EMPTY, status: 'failed' });
       });
     },
-    consume,
+    consume, skipGeneration,
   };
 }
 

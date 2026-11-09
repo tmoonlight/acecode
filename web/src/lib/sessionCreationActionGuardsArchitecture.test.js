@@ -106,13 +106,13 @@ test('completion summary reuses message actions with raw text and persisted fork
   assert.match(completionBlock, /className="group [^"]*"/);
   assert.match(
     completionBlock,
-    /<MessageActions[\s\S]*messageId=\{item\?\.messageId\}[\s\S]*getCopyText=\{\(\) => summaryText\}[\s\S]*onFork=\{onFork\}/,
+    /<MessageActions[\s\S]*messageId=\{item\?\.messageId\}[\s\S]*getCopyText=\{\(\) => copyText \?\? summaryText\}[\s\S]*onFork=\{onFork\}/,
   );
   assert.match(completionBlock, /forkPending=\{forkPending\}/);
   assert.match(completionBlock, /forkLoading=\{forkLoading\}/);
   assert.match(presentation, /item\?\.kind === 'completion_summary'\) return completionSummaryText\(item\);/);
   assert.match(presentation, /isCompletionSummary \? 'assistant' : \(item\.role \|\| undefined\)/);
-  assert.match(renderer, /<CompletionSummaryBlock[\s\S]*?onFork=\{capabilities\.forkMessages \? onFork : undefined\}/);
+  assert.match(renderer, /<CompletionSummaryBlock[\s\S]*?copyText=\{directive\?\.copyText\}[\s\S]*?onFork=\{capabilities\.forkMessages \? onFork : undefined\}/);
   assert.match(renderer, /transcriptRowAttrs\(item, \{ nested, canFork: capabilities\.forkMessages \}\)/);
   assert.match(chat, /<TranscriptItems[\s\S]*?onFork=\{forkAndSwitch\}/);
 });

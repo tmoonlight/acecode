@@ -220,6 +220,17 @@ try {
   await editor.waitFor(); assert.equal(fullRequests.length,0,'home never generates a session suggestion');
   await page.evaluate(()=>window.fullFixture.render('full-a'));
   await page.waitForFunction(()=>document.querySelector('[data-slate-placeholder]')?.textContent.includes('full-a'));
+  const originalPrompt = await ghost.textContent();
+  await editor.click();
+  for (const text of ['My own draft', ' ']) {
+    await page.keyboard.type(text);
+    assert.doesNotMatch(await ghostText(), /full-a/);
+    await page.keyboard.press('Control+A');
+    await page.keyboard.press('Backspace');
+    await ghost.filter({hasText: originalPrompt}).waitFor({state:'visible'});
+    assert.equal(await ghost.textContent(), originalPrompt);
+  }
+  assert.equal(fullRequests.filter(r=>r.sid==='full-a').length,1,'clearing reuses the original recommendation');
   await editor.click();await page.keyboard.press('Tab');await settle();
   assert.match(await editor.textContent(),/Run the parser tests for full-a/);
   await page.evaluate(()=>window.fullFixture.render('full-b'));

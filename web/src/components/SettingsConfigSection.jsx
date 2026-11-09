@@ -9,6 +9,7 @@ import { VsIcon } from './Icon.jsx';
 import { Modal } from './Modal.jsx';
 import { SkillScanPathsSettings } from './SkillScanPathsSettings.jsx';
 import { UpgradeSettings } from './UpgradeSettings.jsx';
+import { isAndroidApp } from '../lib/mobileShell.js';
 
 function Status({ label, tone = 'muted' }) {
   return <span className={`ace-settings-status ${tone === 'ok' ? 'text-ok' : tone === 'danger' ? 'text-danger' : 'text-fg-mute'}`}>{label}</span>;
@@ -165,7 +166,8 @@ export function SettingsConfigSection({ skillPathsFocusRequest = 0 }) {
           window.dispatchEvent(new Event('ace-console-config-changed'));
         })}><VsIcon name="refresh" size={15} />{busy === 'detect' ? '检测中…' : '重新检测'}</button>
       </div>
-      <UpgradeSettings disabled={migrating || restartRequired} />
+      {/* 安卓 App 随 APK 升级;daemon 自更新会把 Linux 包装进小系统,和 APK 自带的版本打架。 */}
+      {!isAndroidApp() && <UpgradeSettings disabled={migrating || restartRequired} />}
       <section className="ace-settings-group">
         <h3>工作空间依赖项</h3><p>为 Agent 指定工具目录，留空使用系统 PATH</p>
         {TOOLCHAIN_FIELDS.map((field) => {

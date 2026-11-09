@@ -53,8 +53,9 @@ run('every background task entry opens the detail panel tab', () => {
   assert.match(chat, /const openSummaryTask = useStableCallback\(\(taskId\) => \{\s*closeSummaryPopup\(\);\s*openBackgroundTasksPreview\(taskId\);/);
   assert.match(chat, /const openSummaryFinishedTasks = useStableCallback\(\(\) => \{\s*closeSummaryPopup\(\);\s*openBackgroundTasksPreview\(''\);/);
   assert.match(chat, /onOpenFinishedTasks=\{openSummaryFinishedTasks\}/);
-  // 摘要面板的「后台任务」分组常驻(不随运行中任务清空而隐藏),末尾是「N 已完成」。
-  assert.doesNotMatch(summary, /running\.length > 0 && \(/);
+  // 有运行中或已结束任务才显示分组,有已结束任务才显示「N 已完成」入口。
+  assert.match(summary, /\(running\.length > 0 \|\| finishedCount > 0\) && \(/);
+  assert.match(summary, /finishedCount > 0 && \(\s*<Row icon="check"/);
   assert.match(summary, /<Row icon="check" onClick=\{onOpenFinishedTasks\}>\s*\{finishedCount\} 已完成/);
 });
 

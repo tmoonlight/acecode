@@ -16,5 +16,8 @@ export function useFollowUpPrompt({ sessionRef, transcript, api, enabled = true,
     followUpPromptStore.ensure(scope, completion, (key) => api.followUpPrompt(sid, key), { draftReady, hasDraft });
   }, [api, scope, sid, completion, draftReady, hasDraft]);
   const consume = useCallback(() => followUpPromptStore.consume(scope, completion), [scope, completion]);
-  return { key: draftReady ? completion : '', prompt: draftReady && !hasDraft && completion ? record.prompt : '', consume };
+  const skipGeneration = useCallback(() => {
+    if (draftReady && completion) followUpPromptStore.skipGeneration(scope, completion);
+  }, [scope, completion, draftReady]);
+  return { prompt: draftReady && !hasDraft && completion ? record.prompt : '', consume, skipGeneration };
 }

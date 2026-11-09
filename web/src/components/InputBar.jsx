@@ -1458,17 +1458,13 @@ export const InputBar = forwardRef(function InputBar({
   });
   const composerSpacingClass = isHero ? 'px-4 pt-3 pb-1 text-[14px]' : 'px-3 pt-2 pb-1 text-[13px]';
   const editing = !!(draftValue || hasExtras || goalMode || speech.active || composerComposing);
-  const ghostPrompt = mainComposer && !disabled && !submitting && !busy && !stopping
-    && !draftValue && !hasExtras && !goalMode && !speech.active && !composerComposing
+  const ghostPrompt = mainComposer && !disabled && !submitting && !busy && !stopping && !editing
     && !showDropdown && !activePathDropdown && !capabilityOpen && !expertSubmenuOpen
     ? followUpPrompt?.prompt || '' : '';
-  // A draft edit (including non-text input) consumes this completion even if
-  // its request has not returned. Clearing the draft cannot resurrect it.
+  const skipFollowUpGeneration = followUpPrompt?.skipGeneration;
   useEffect(() => {
-    if (followUpPrompt?.key && (draftValue || hasExtras || goalMode || speech.active || composerComposing)) {
-      followUpPrompt.consume();
-    }
-  }, [followUpPrompt?.key, followUpPrompt?.consume, draftValue, hasExtras, goalMode, speech.active, composerComposing]);
+    if (editing) skipFollowUpGeneration?.();
+  }, [editing, skipFollowUpGeneration]);
   const hasInlineContexts = otherContextItems.length > 0;
   const capabilityControl = (
     <div ref={capabilityMenuRef} className="relative shrink-0 flex items-center">

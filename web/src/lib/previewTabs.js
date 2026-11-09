@@ -185,13 +185,19 @@ export function activePreviewTab(state, context = {}) {
 }
 
 // 新建入口只移交给刚创建的会话，键也一起重建；已有会话不会隐式读工作区页签。
-export function transferPreviewTabs(state, from, to) {
+// 浏览器页签只在 native 页面已归属新会话时(新建页预留的 id 被 daemon 采用)才跟过去,
+// 否则随草稿一起关掉,由调用方关闭对应的 native 页面。
+export function transferPreviewTabs(state, from, to, { browserPages = false } = {}) {
   const tabs = visiblePreviewTabs(state, from);
   const active = activePreviewTab(state, from)?.key;
   const keys = new Map();
   let next = state;
   for (const tab of tabs) {
-    if (tab.type === PREVIEW_TAB_TYPES.FILE) {
+    if (tab.type === PREVIEW_TAB_TYPES.BROWSER) {
+      if (!browserPages) continue;
+      next = openBrowserTab(next, { ...to, pageId: tab.pageId, title: tab.title, favicon: tab.favicon });
+      keys.set(tab.key, tab.key);
+    } else if (tab.type === PREVIEW_TAB_TYPES.FILE) {
       next = openFileTab(next, { ...to, cwd: tab.cwd, path: tab.path });
       const key = fileTabKey(to.scopeKey, to.sessionId, tab.path);
       keys.set(tab.key, key);

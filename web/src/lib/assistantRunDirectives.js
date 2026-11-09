@@ -13,6 +13,8 @@
 // - termination_notice / error 是显式终止证据,即使 busy 状态滞后也立即结算;
 //   合成终止行从同一 turn 最近的真实消息继承 fork messageId
 
+import { completionSummaryMarkdown } from './taskCompleteSummary.js';
+
 function directForkMessageId(item) {
   if (!item || (item.kind === 'msg' && item.role === 'error')) return '';
   return typeof item.messageId === 'string' ? item.messageId.trim() : '';
@@ -38,6 +40,7 @@ export function buildAssistantRunDirectives(items, { deferLastFooter = false } =
   let completionSummaryIds = [];
   let terminalIds = [];
   let latestTurnForkMessageId = '';
+  let previousAssistantText = '';
 
   const finalizeRun = ({ settled = true } = {}) => {
     const footerId = terminalIds[terminalIds.length - 1]
@@ -63,6 +66,9 @@ export function buildAssistantRunDirectives(items, { deferLastFooter = false } =
 
   for (const it of items) {
     if (!it) continue;
+    const isAssistant = it.kind === 'msg' && it.role === 'assistant';
+    const precedingText = previousAssistantText;
+    if (!isAssistant) previousAssistantText = '';
     if (it.kind === 'msg' && it.role === 'user') {
       finalizeRun();
       headerUsed = false;
@@ -84,18 +90,22 @@ export function buildAssistantRunDirectives(items, { deferLastFooter = false } =
       continue;
     }
     if (it.kind === 'completion_summary') {
-      directives.set(it.id, { showFooter: false });
+      const summary = completionSummaryMarkdown(it);
+      directives.set(it.id, {
+        showFooter: false,
+        copyText: precedingText ? `${precedingText}\n\n${summary}` : summary,
+      });
       completionSummaryIds.push(it.id);
       continue;
     }
-    if (it.kind !== 'msg') continue;
-    if (it.role !== 'assistant') continue;
+    if (!isAssistant) continue;
     const content = typeof it.content === 'string' ? it.content : '';
     const isEmpty = !content.trim();
     if (isEmpty) {
       directives.set(it.id, { hide: true });
       continue;
     }
+    previousAssistantText = content;
     directives.set(it.id, { showHeader: !headerUsed, showFooter: false });
     visibleAssistantIds.push(it.id);
     headerUsed = true;

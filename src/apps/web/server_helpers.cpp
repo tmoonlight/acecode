@@ -36,6 +36,16 @@ void append_expert_avatar(json& presentation, const ExpertDefinition& expert,
     presentation["avatar_url"] = portrait.avatar_path.empty() ? std::string{}
         : "/api/experts/" + portrait.id + "/avatar?workspace=" + workspace;
 }
+
+// 客户端预留的会话 id 会直接当文件名用:只收字母数字、`-`、`_`。下限 8 个字符
+// 顺带排除 CON / NUL / COM1 这类 Windows 保留设备名(都不超过 4 个字符)。
+bool valid_preset_session_id(const std::string& id) {
+    if (id.size() < 8 || id.size() > 64) return false;
+    return std::all_of(id.begin(), id.end(), [](unsigned char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+               (c >= '0' && c <= '9') || c == '_' || c == '-';
+    });
+}
 } // namespace
 
 // =====================================================================
@@ -490,7 +500,8 @@ AuthResult WebServer::Impl::auth_result_for_request(const crow::request& req,
         return check_explicit_token(deps.token, header_token, query_token);
     }
     return check_request_auth(req.remote_ip_address, deps.token,
-                              header_token, query_token);
+                              header_token, query_token,
+                              !deps.require_local_token);
 }
 
 std::optional<crow::response> WebServer::Impl::require_auth(const crow::request& req) {
@@ -2557,9 +2568,33 @@ std::optional<crow::response> WebServer::Impl::parse_session_options(
             opts.no_workspace = true;
             opts.workspace_hash.clear();
         }
+        // 新建页先开了浏览器时,浏览器页面已按客户端预留的 id 归属;建会话沿用
+        // 这个 id,页面才能跟着会话走。
+        if (j.contains("session_id") && !j["session_id"].is_null()) {
+            const std::string preset = j["session_id"].is_string()
+                ? j["session_id"].get<std::string>() : std::string{};
+            if (!valid_preset_session_id(preset)) {
+                crow::response r(400);
+                r.body = json{{"error", "INVALID_SESSION_ID"},
+                              {"message", "session_id must be 8-64 characters of [A-Za-z0-9_-]"}}.dump();
+                r.add_header("Content-Type", "application/json");
+                return with_cors(req, std::move(r));
+            }
+            opts.preset_session_id = preset;
+        }
     } catch (const std::exception& e) {
         crow::response r(400);
         r.body = json{{"error", std::string("bad json: ") + e.what()}}.dump();
+        r.add_header("Content-Type", "application/json");
+        return with_cors(req, std::move(r));
+    }
+    // 注册表对预设 id 不做碰撞检查;撞上已有会话一律拒绝,绝不续写别人的 transcript。
+    if (!opts.preset_session_id.empty() &&
+        (find_session_meta_for_workspace(ws, opts.preset_session_id) ||
+         (deps.session_registry && deps.session_registry->acquire(opts.preset_session_id)))) {
+        crow::response r(409);
+        r.body = json{{"error", "SESSION_ID_EXISTS"},
+                      {"message", "session_id is already in use"}}.dump();
         r.add_header("Content-Type", "application/json");
         return with_cors(req, std::move(r));
     }

@@ -46,9 +46,14 @@ std::string preflight_bind_check(const std::string& bind,
 // (WebSocket 用)。server_token 是 daemon 启动时生成的真 token。
 //
 // 任意一边匹配即通过(便于浏览器 fetch 用 header,WS upgrade 必须用 query)。
+//
+// trust_local_without_token=false 时本机地址也必须带 token:安卓上所有 App
+// 共用同一个回环地址,「来自 127.0.0.1」不能证明是用户本人
+// (daemon --require-local-token)。
 AuthResult check_request_auth(std::string_view client_ip,
                                 std::string_view server_token,
                                 std::string_view header_token,
-                                std::string_view query_token);
+                                std::string_view query_token,
+                                bool trust_local_without_token = true);
 
 } // namespace acecode::web

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">ACECode</string>
+    <string name="status_preparing">Preparing runtime</string>
+    <string name="status_starting">Starting</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+    <string name="notification_running">Running</string>
+    <string name="channel_runtime">Runtime</string>
+    <string name="notification_prompt">Allow notifications so you can see and stop ACECode while it runs in the background.</string>
+    <string name="action_open_settings">Open settings</string>
+    <string name="action_later">Later</string>
+    <string name="phone_control">ACECode phone control</string>
+    <string name="phone_accessibility_description">Allow ACECode to read screen controls and tap them when you ask it to operate this phone. Screen text can be sent to your selected model.</string>
+    <string name="floating_pet">ACECode floating pet</string>
+    <string name="approve_phone_tap">ACECode wants to tap %1$s</string>
+    <string name="approve_phone_open">ACECode wants to open %1$s</string>
+    <string name="phone_allow_once">Allow once</string>
+    <string name="phone_deny">Deny</string>
+</resources>

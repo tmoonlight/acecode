@@ -21,6 +21,7 @@ import {
   pointerToDevicePoint,
   preferredSimulatorUdid,
   reconnectDelayMs,
+  simulatorDevicesAfterPowerAction,
   simulatorNeedsSettings,
   simulatorPointSize,
   simulatorScreenshotFilename,
@@ -300,6 +301,17 @@ run('simulator events decide whether a tab opens, focuses or closes', () => {
   assert.deepEqual(iosSimulatorTabAction({ action: 'detach', udid: 'U1' }), { type: 'none' });
   assert.deepEqual(iosSimulatorTabAction({ action: 'screenshot', udid: '' }), { type: 'none' });
   assert.deepEqual(iosSimulatorTabAction(null), { type: 'none' });
+});
+
+run('shutdown updates only its target even if simctl cannot list devices afterwards', () => {
+  const [a, b] = normalizeSimulatorDevices({ devices: [
+    { udid: 'A', name: 'iPhone', state: 'Booted', allowed: true },
+    { udid: 'B', name: 'iPhone', state: 'Booted', allowed: true },
+  ] });
+  const stopped = { ...b, state: 'Shutdown', booted: false };
+  assert.deepEqual(simulatorDevicesAfterPowerAction({ devices: [] }, [a, b], b, 'shutdown'), [a, stopped]);
+  assert.deepEqual(simulatorDevicesAfterPowerAction({ devices: [stopped, a] }, [a, b], b, 'shutdown'), [a, stopped]);
+  assert.deepEqual(simulatorDevicesAfterPowerAction({ devices: [] }, [a, stopped], stopped, 'boot'), [a, b]);
 });
 
 run('device lists sort booted first and pick a sensible default', () => {

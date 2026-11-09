@@ -7,7 +7,6 @@ import {
   officePreviewZoomForWheel,
   stepOfficePreviewZoom,
 } from '../lib/officePreviewZoom.js';
-import { VsIcon } from './Icon.jsx';
 
 export function useOfficePreviewZoom(identity = '', surfaceRef = null) {
   const [zoom, setZoomState] = useState(OFFICE_PREVIEW_ZOOM_DEFAULT);
@@ -53,37 +52,9 @@ export function useOfficePreviewZoom(identity = '', surfaceRef = null) {
   };
 }
 
-function MagnifierZoomIcon({ operation }) {
-  return (
-    <span className="ace-office-preview-zoom-glyph" aria-hidden="true">
-      <VsIcon name={operation === 'in' ? 'ZoomIn' : 'ZoomOut'} size={16} />
-    </span>
-  );
-}
-
-export function OfficePreviewControls({ zoom, onZoomIn, onZoomOut }) {
-  return (
-    <div className="ace-office-preview-controls" data-ace-office-preview-controls="true">
-      <button
-        type="button"
-        className="ace-office-preview-zoom-button"
-        title="缩小"
-        aria-label="缩小"
-        disabled={zoom <= OFFICE_PREVIEW_ZOOM_MIN}
-        onClick={onZoomOut}
-      >
-        <MagnifierZoomIcon operation="out" />
-      </button>
-      <button
-        type="button"
-        className="ace-office-preview-zoom-button"
-        title="放大"
-        aria-label="放大"
-        disabled={zoom >= OFFICE_PREVIEW_ZOOM_MAX}
-        onClick={onZoomIn}
-      >
-        <MagnifierZoomIcon operation="in" />
-      </button>
-    </div>
-  );
+export function officeZoomActions(zoom, zoomIn, zoomOut) {
+  return [
+    { label: '缩小', icon: 'ZoomOut', disabled: zoom <= OFFICE_PREVIEW_ZOOM_MIN, onSelect: zoomOut },
+    { label: '放大', icon: 'ZoomIn', disabled: zoom >= OFFICE_PREVIEW_ZOOM_MAX, onSelect: zoomIn },
+  ];
 }

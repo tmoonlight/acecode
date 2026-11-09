@@ -63,6 +63,23 @@ export function getSettingsNavGroups(developerModeUnlocked = false) {
     : group);
 }
 
+// 安卓 App 里没有意义的分区:没有键盘快捷键,也没有桌面宠物窗口。
+export const ANDROID_HIDDEN_SETTINGS_KEYS = Object.freeze(['shortcuts', 'virtual-office']);
+
+export function settingsNavGroupsForShell(groups, { androidApp = false } = {}) {
+  if (!androidApp) return groups;
+  const hidden = new Set(ANDROID_HIDDEN_SETTINGS_KEYS);
+  return groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !hidden.has(item.key)) }))
+    .filter((group) => group.items.length > 0);
+}
+
+// 窄屏(手机竖屏)设置是两级:先列出分区,点进去再看内容。
+// 打开设置时如果已经指定了要去的分区(例如从「配置模型」跳过来)或带着搜索,直接进内容页。
+export function initialSettingsNarrowPane({ initialNavKey = 'general', initialSearch = null } = {}) {
+  return initialNavKey !== 'general' || initialSearch ? 'detail' : 'list';
+}
+
 export function getSettingsNavItems(developerModeUnlocked = false) {
   return getSettingsNavGroups(developerModeUnlocked).flatMap((group) => group.items);
 }

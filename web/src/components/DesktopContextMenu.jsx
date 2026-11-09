@@ -15,6 +15,7 @@ import {
   DESKTOP_CONTEXT_ACTIONS,
   editableTargetFromElement,
   SESSION_PIN_TOGGLE_EVENT,
+  shouldOpenContextMenu,
   OPEN_DESKTOP_CONTEXT_MENU_EVENT,
   CLOSE_DESKTOP_CONTEXT_MENU_EVENT,
   withMenuSeparators,
@@ -34,8 +35,10 @@ import {
 } from '../lib/richComposerContextPaste.js';
 import { api } from '../lib/api.js';
 import { VsIcon } from './Icon.jsx';
+import { openTargetInExplorer } from './openTargetInExplorer.js';
 import { Modal } from './Modal.jsx';
 import { toast } from './Toast.jsx';
+import { shouldUseNativeContextMenu } from '../lib/mobileShell.js';
 
 const MENU_WIDTH = 176;
 const ICON_MENU_WIDTH = 216;
@@ -140,14 +143,6 @@ const CONTEXT_ACTION_ICONS = Object.freeze({
   [DESKTOP_CONTEXT_ACTIONS.COPY]: 'copy',
   [DESKTOP_CONTEXT_ACTIONS.INSPECT]: 'Inspect',
 });
-
-function parseDesktopResult(value) {
-  if (value == null) return value;
-  if (typeof value !== 'string') return value;
-  const text = value.trim();
-  if (!text || text === 'null') return null;
-  return JSON.parse(text);
-}
 
 function selectedTextForTarget(target) {
   const editable = editableTargetFromElement(target);
@@ -263,30 +258,6 @@ async function pasteIntoTarget(target, richComposerSelection = null) {
   if (richComposerRootFromTarget(editable)) return;
   editable.focus();
   document.execCommand('paste');
-}
-
-async function openTargetInExplorer(openTarget) {
-  if (!openTarget?.path) {
-    toast({ kind: 'err', text: '无法打开:路径为空' });
-    return;
-  }
-  try {
-    let result;
-    if (typeof window.aceDesktop_openInExplorer === 'function') {
-      result = parseDesktopResult(await window.aceDesktop_openInExplorer(openTarget.path));
-    } else {
-      // webapp 兼容模式没有 webview bridge,daemon 就在本机,改走 REST 端点。
-      result = await api.openInExplorer(openTarget.path);
-    }
-    if (!result?.ok) {
-      toast({ kind: 'err', text: '打开失败:' + (result?.error || '') });
-      return;
-    }
-    toast({ kind: 'ok', text: '已打开文件夹' });
-  } catch (e) {
-    const detail = e?.body?.error || e?.message || '';
-    toast({ kind: 'err', text: '打开失败:' + detail });
-  }
 }
 
 function dispatchSessionPinToggle(sessionPinTarget, nextPinned) {
@@ -546,12 +517,24 @@ export function DesktopContextMenu() {
       // Dismiss before mousedown enters the native bridge; leave the press intact.
       flushSync(close);
     };
+    // 记下最近一次按下来自鼠标还是手指,长按(contextmenu)时据此决定走哪种菜单。
+    let lastPointerType = '';
+    const rememberPointerType = (event) => { lastPointerType = event.pointerType || ''; };
     const onContextMenu = (event) => {
       // 控制台终端区由 ConsoleDock 自己处理右键(VS Code 式 复制/粘贴),这里放行
       // (不 preventDefault / 不 stopPropagation),让事件继续冒泡到终端的 onContextMenu。
       const explicit = event.type === OPEN_DESKTOP_CONTEXT_MENU_EVENT ? event.detail : null;
       const rawTarget = explicit?.target || event.target;
       if (rawTarget instanceof Element && rawTarget.closest('.ace-console-term')) return;
+
+      // 手机上手指长按输入框或已选中的文字:交给系统自己的复制 / 粘贴工具条。
+      // 自定义菜单的「粘贴」要读剪贴板,安卓 WebView 不给网页这个权限,拦下来就粘贴不了。
+      if (!explicit && shouldUseNativeContextMenu({
+        pointerType: lastPointerType,
+        firesTouchEvents: event.sourceCapabilities?.firesTouchEvents === true,
+        editable: !!editableTargetFromElement(rawTarget),
+        hasSelection: String(window.getSelection?.() || '').length > 0,
+      })) return;
 
       // 顶栏等区域右键委托给认领方(会话头部 = 与「会话菜单」按钮左键同一份菜单);
       // 没人认领(例如首页没有打开会话)时回落到通用菜单。
@@ -612,6 +595,11 @@ export function DesktopContextMenu() {
         [...(explicit?.leadingItems || []), ...contextItems],
         explicit?.actionOverrides,
       ));
+      // 空菜单不弹;上面已 preventDefault,浏览器原生菜单也不会出来。
+      if (!shouldOpenContextMenu(items)) {
+        close();
+        return;
+      }
       // 侧栏会话行 / 项目行的右键与会话菜单按钮一样带图标;其它区域的右键保持纯文字。
       const showIcons = explicit
         ? explicit.showIcons !== false
@@ -703,6 +691,7 @@ export function DesktopContextMenu() {
 
     document.addEventListener(OPEN_DESKTOP_CONTEXT_MENU_EVENT, onContextMenu);
     document.addEventListener(CLOSE_DESKTOP_CONTEXT_MENU_EVENT, close);
+    window.addEventListener('pointerdown', rememberPointerType, true);
     document.addEventListener('contextmenu', onContextMenu, true);
     document.addEventListener('selectionchange', rememberSelection);
     document.addEventListener('select', rememberSelection, true);
@@ -715,6 +704,7 @@ export function DesktopContextMenu() {
     return () => {
       document.removeEventListener(OPEN_DESKTOP_CONTEXT_MENU_EVENT, onContextMenu);
       document.removeEventListener(CLOSE_DESKTOP_CONTEXT_MENU_EVENT, close);
+      window.removeEventListener('pointerdown', rememberPointerType, true);
       document.removeEventListener('contextmenu', onContextMenu, true);
       document.removeEventListener('selectionchange', rememberSelection);
       document.removeEventListener('select', rememberSelection, true);

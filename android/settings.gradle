@@ -1,0 +1,19 @@
+// ACECode 安卓 App:WebView 外壳 + 自带 Ubuntu 小系统(proot)运行 acecode daemon。
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'ACECodeAndroid'
+include ':app'

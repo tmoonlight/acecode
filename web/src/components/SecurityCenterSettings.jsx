@@ -692,7 +692,7 @@ export function SecurityCenterSettings() {
           <p className="text-[12px] text-fg-mute">沙箱、文件与命令策略,以及每一次判定的审计记录。</p>
         </div>
       </div>
-      <div role="tablist" aria-label="安全中心" className="flex items-center gap-1 mb-5">
+      <div role="tablist" aria-label="安全中心" className="flex flex-wrap items-center gap-1 mb-5">
         {SECURITY_TABS.map((item) => {
           const active = tab === item.key;
           return (

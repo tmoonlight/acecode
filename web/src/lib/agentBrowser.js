@@ -169,6 +169,16 @@ export function agentBrowserOwnerForSession(sessionRef) {
     : { session_id: sessionId };
 }
 
+// 新建任务页还没有会话:先预留一个会话 id 给浏览器页面当 owner,发送首条消息时
+// 把它交给 daemon 建会话(POST sessions 的 session_id),页面就直接归属新会话。
+// 形态与 daemon 自己生成的一致:UTC 的 YYYYMMDD_HHMMSS_ 加 4 位十六进制。
+export function reserveDraftBrowserSessionId(now = new Date(), random = Math.random) {
+  const pad = (value, width = 2) => String(value).padStart(width, '0');
+  const suffix = Math.floor(random() * 0x10000).toString(16).padStart(4, '0').slice(-4);
+  return `${pad(now.getUTCFullYear(), 4)}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}`
+    + `_${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}_${suffix}`;
+}
+
 // UI 自建页:带 owner 时页面归属该会话(刷新 / 切工作区后能对账回页签),但不
 // 成为该会话的 Agent 默认目标。旧签名 createAgentBrowserPage(win) 仍然兼容。
 export async function createAgentBrowserPage(owner = null, win = globalThis.window) {

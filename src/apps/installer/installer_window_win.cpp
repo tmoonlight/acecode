@@ -1,13 +1,10 @@
 #include "installer_window_win.hpp"
 
-#include "acemodel_seed.hpp"
 #include "desktop/splash_icon_painter_win.hpp"
 #include "installer_canvas_win.hpp"
 #include "installer_timeline.hpp"
 #include "platform/native_ui/folder_picker.hpp"
 #include "utils/joining_thread.hpp"
-#include "utils/paths.hpp"
-#include "utils/utf8_path.hpp"
 
 #include <windows.h>
 #include <dwmapi.h>
@@ -34,14 +31,12 @@ constexpr float kCardWidth = 440.0f;
 constexpr float kCardHeight = 452.0f;
 constexpr float kIconSize = 124.0f;
 constexpr float kIconTop = 34.0f;
-constexpr std::size_t kMaxKeyLength = 400;
 
 const Color kText(255, 242, 246, 251);
 const Color kSoftText(255, 214, 225, 238);
 const Color kMuted(255, 138, 158, 186);
 const Color kAccentA(255, 0x38, 0xD5, 0xF7);
 const Color kAccentB(255, 0x25, 0x63, 0xEB);
-const Color kDanger(255, 255, 128, 128);
 
 enum class Page {
     welcome,
@@ -55,7 +50,7 @@ enum class Page {
     uninstall_failed,
 };
 
-enum class Hit { none, close, change_dir, toggle_path, toggle_desktop, primary, secondary, key_input };
+enum class Hit { none, close, change_dir, toggle_path, toggle_desktop, primary, secondary };
 
 struct Hotspot {
     Hit id;
@@ -70,19 +65,6 @@ std::wstring wide(const std::string& text) {
     if (length > 0) {
         ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
                               out.data(), length);
-    }
-    return out;
-}
-
-std::string narrow(const std::wstring& text) {
-    if (text.empty()) return {};
-    const int length = ::WideCharToMultiByte(CP_UTF8, 0, text.data(),
-                                             static_cast<int>(text.size()), nullptr, 0,
-                                             nullptr, nullptr);
-    std::string out(static_cast<std::size_t>(std::max(0, length)), '\0');
-    if (length > 0) {
-        ::WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                              out.data(), length, nullptr, nullptr);
     }
     return out;
 }
@@ -265,19 +247,13 @@ private:
                 return msg == WM_NCMOUSEMOVE ? ::DefWindowProcW(hwnd_, msg, wparam, lparam) : 0;
             case WM_SETCURSOR:
                 if (LOWORD(lparam) == HTCLIENT) {
-                    const bool text = hover_ == Hit::key_input;
-                    ::SetCursor(::LoadCursorW(nullptr, MAKEINTRESOURCEW(
-                                                            text ? 32513 : hover_ != Hit::none
-                                                                               ? 32649
-                                                                               : 32512)));
+                    ::SetCursor(::LoadCursorW(
+                        nullptr, MAKEINTRESOURCEW(hover_ != Hit::none ? 32649 : 32512)));
                     return TRUE;
                 }
                 break;
             case WM_LBUTTONDOWN:
                 pressed_ = hover_;
-                key_focused_ = pressed_ == Hit::key_input;
-                key_select_all_ = false;
-                caret_started_ = Clock::now();
                 ::SetCapture(hwnd_);
                 return 0;
             case WM_LBUTTONUP: {
@@ -291,9 +267,6 @@ private:
             }
             case WM_KEYDOWN:
                 on_key(wparam);
-                return 0;
-            case WM_CHAR:
-                on_char(static_cast<wchar_t>(wparam));
                 return 0;
             case WM_DPICHANGED: {
                 const auto* suggested = reinterpret_cast<const RECT*>(lparam);
@@ -347,9 +320,6 @@ private:
             case Hit::toggle_desktop:
                 desktop_shortcut_ = !desktop_shortcut_;
                 break;
-            case Hit::key_input:
-                key_focused_ = true;
-                break;
             case Hit::primary:
                 primary_action();
                 break;
@@ -373,10 +343,8 @@ private:
                 start_worker();
                 break;
             case Page::installed:
-                if (save_key()) {
-                    launch_installed_app(install_dir_);
-                    close_window(0);
-                }
+                launch_installed_app(install_dir_);
+                close_window(0);
                 break;
             case Page::uninstalled:
                 close_window(0);
@@ -389,7 +357,7 @@ private:
     void secondary_action() {
         switch (page_) {
             case Page::installed:
-                if (save_key()) close_window(0);
+                close_window(0);
                 break;
             case Page::running:
                 if (config_.mode == InstallerMode::install) {
@@ -409,86 +377,16 @@ private:
     }
 
     void on_key(WPARAM key) {
-        const bool ctrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        if (key_focused_) {
-            if (key == VK_BACK || key == VK_DELETE) {
-                if (key_select_all_) {
-                    key_.clear();
-                } else if (key == VK_BACK && !key_.empty()) {
-                    key_.pop_back();
-                }
-                key_select_all_ = false;
-                key_error_.clear();
-                caret_started_ = Clock::now();
-                return;
-            }
-            if (ctrl && key == 'A') {
-                key_select_all_ = !key_.empty();
-                return;
-            }
-            if (ctrl && key == 'V') {
-                paste_key();
-                return;
-            }
-        }
         if (key == VK_RETURN) {
             activate(Hit::primary);
         } else if (key == VK_ESCAPE) {
-            if (key_focused_) {
-                key_focused_ = false;
-            } else if (page_ == Page::installed || page_ == Page::failed ||
-                       page_ == Page::running || page_ == Page::uninstall_failed ||
-                       page_ == Page::confirm_uninstall) {
+            if (page_ == Page::installed || page_ == Page::failed || page_ == Page::running ||
+                page_ == Page::uninstall_failed || page_ == Page::confirm_uninstall) {
                 secondary_action();
             } else if (!busy()) {
                 close_window(page_ == Page::uninstalled ? 0 : 1);
             }
-        } else if (key == VK_TAB && page_ == Page::installed) {
-            key_focused_ = !key_focused_;
-            caret_started_ = Clock::now();
         }
-    }
-
-    void on_char(wchar_t ch) {
-        if (!key_focused_ || ch < 0x20 || ch == 0x7F) return;
-        if (key_select_all_) key_.clear();
-        key_select_all_ = false;
-        key_error_.clear();
-        if (key_.size() < kMaxKeyLength) key_.push_back(ch);
-        caret_started_ = Clock::now();
-    }
-
-    void paste_key() {
-        if (!::OpenClipboard(hwnd_)) return;
-        std::wstring text;
-        if (HANDLE data = ::GetClipboardData(CF_UNICODETEXT)) {
-            if (const auto* chars = static_cast<const wchar_t*>(::GlobalLock(data))) {
-                text = chars;
-                ::GlobalUnlock(data);
-            }
-        }
-        ::CloseClipboard();
-        text.erase(std::remove_if(text.begin(), text.end(),
-                                  [](wchar_t c) { return c < 0x21 || c == 0x7F; }),
-                   text.end());
-        if (key_select_all_) key_.clear();
-        key_select_all_ = false;
-        key_error_.clear();
-        key_ += text.substr(0, kMaxKeyLength - std::min(kMaxKeyLength, key_.size()));
-        caret_started_ = Clock::now();
-    }
-
-    bool save_key() {
-        if (key_.empty()) return true;
-        std::string error;
-        const auto config_path = path_from_utf8(get_acecode_dir()) / "config.json";
-        if (seed_acemodel_config_file(config_path, narrow(key_), &error)) {
-            setup_log("ACEModel profiles written to " + path_to_utf8(config_path));
-            return true;
-        }
-        setup_log("ACEModel seeding failed: " + error);
-        key_error_ = s_.key_save_failed;
-        return false;
     }
 
     void close_window(int code) {
@@ -547,6 +445,10 @@ private:
             exit_code_ = 0;
             set_page(installing ? Page::installed : Page::uninstalled);
         } else if (outcome.failure == FailureKind::running) {
+            // detail 是挡住安装的进程映像路径;只显示文件名,告诉用户该去关哪一个。
+            const auto slash = outcome.detail.find_last_of("\\/");
+            failure_detail_ = slash == std::string::npos ? outcome.detail
+                                                         : outcome.detail.substr(slash + 1);
             set_page(Page::running);
         } else {
             failure_text_ = failure_message(s_, outcome.failure);
@@ -657,11 +559,6 @@ private:
             }
             case Page::installed:
                 draw_title(p, s_.installed_title, version, alpha, dy);
-                draw_key_input(p, R(36, 240 + dy, 368, 42), alpha);
-                if (!key_error_.empty()) {
-                    p.text(wide(key_error_), R(36, 288 + dy, 368, 20), *fonts_.caption,
-                           with_alpha(kDanger, alpha), Align::start);
-                }
                 draw_button(p, Hit::secondary, s_.done, R(36, 380 + dy, 178, 44), false, alpha);
                 draw_button(p, Hit::primary, s_.launch, R(226, 380 + dy, 178, 44), true, alpha);
                 break;
@@ -677,6 +574,10 @@ private:
                 draw_title(p, s_.running_title, {}, alpha, dy);
                 p.text(wide(s_.running_body), R(44, 238 + dy, 352, 44), *fonts_.body,
                        with_alpha(kSoftText, alpha), Align::center, true);
+                if (!failure_detail_.empty()) {
+                    p.text(wide(failure_detail_), R(44, 286 + dy, 352, 20), *fonts_.caption,
+                           with_alpha(kMuted, alpha), Align::center);
+                }
                 draw_button(p, Hit::secondary, s_.cancel, R(36, 380 + dy, 178, 44), false, alpha);
                 draw_button(p, Hit::primary, s_.retry, R(226, 380 + dy, 178, 44), true, alpha);
                 break;
@@ -786,43 +687,6 @@ private:
                Align::center);
     }
 
-    void draw_key_input(Painter& p, const RectF& box, float alpha) {
-        add_hotspot(Hit::key_input, box, alpha);
-        const float s = scale_;
-        p.fill_round(box, 10 * s, with_alpha(Color(255, 255, 255, 255), 0.05f * alpha));
-        p.stroke_round(box, 10 * s,
-                       key_focused_ ? with_alpha(kAccentA, 0.8f * alpha)
-                                    : with_alpha(Color(255, 255, 255, 255), 0.11f * alpha),
-                       (key_focused_ ? 1.4f : 1.0f) * s);
-        const RectF text(box.X + 14 * s, box.Y, box.Width - 28 * s, box.Height);
-        if (key_.empty()) {
-            p.text(wide(s_.key_placeholder), text, *fonts_.body, with_alpha(kMuted, alpha),
-                   Align::start);
-        } else {
-            const std::size_t room =
-                static_cast<std::size_t>(std::max(1.0f, text.Width / (7.2f * s)));
-            const std::wstring dots(std::min(key_.size(), room), L'\x2022');
-            const float width = p.text_width(dots, *fonts_.body);
-            if (key_select_all_) {
-                p.fill_round(RectF(text.X - 2 * s, box.Y + 10 * s, width + 4 * s, box.Height - 20 * s),
-                             3 * s, with_alpha(kAccentB, 0.45f * alpha));
-            }
-            p.text(dots, text, *fonts_.body, with_alpha(kText, alpha), Align::start);
-        }
-        const bool blink = std::fmod(ms_between(caret_started_, Clock::now()), 1060.0) < 530.0;
-        if (key_focused_ && blink) {
-            const std::size_t room =
-                static_cast<std::size_t>(std::max(1.0f, text.Width / (7.2f * s)));
-            const float x = text.X + 1 * s +
-                            (key_.empty() ? 0.0f
-                                          : p.text_width(std::wstring(std::min(key_.size(), room),
-                                                                      L'\x2022'),
-                                                         *fonts_.body));
-            p.line(PointF(x, box.Y + 12 * s), PointF(x, box.GetBottom() - 12 * s),
-                   with_alpha(kAccentA, alpha), 1.4f * s);
-        }
-    }
-
     void draw_progress(Painter& p, const RectF& track, double value, float alpha) {
         const float radius = track.Height / 2.0f;
         p.fill_round(track, radius, with_alpha(Color(255, 255, 255, 255), 0.10f * alpha));
@@ -862,7 +726,6 @@ private:
     Clock::time_point started_;
     Clock::time_point scene_started_;
     Clock::time_point last_tick_;
-    Clock::time_point caret_started_ = Clock::now();
     std::string install_dir_;
     bool add_to_path_ = true;
     bool desktop_shortcut_ = false;
@@ -870,10 +733,6 @@ private:
     Page page_;
     double toggle_path_anim_ = 0.0;
     double toggle_desktop_anim_ = 0.0;
-    std::wstring key_;
-    bool key_focused_ = false;
-    bool key_select_all_ = false;
-    std::string key_error_;
     Hit hover_ = Hit::none;
     Hit pressed_ = Hit::none;
     bool tracking_mouse_ = false;

@@ -27,6 +27,11 @@ A recommendation SHALL appear as muted text in the empty main composer, without 
 - **WHEN** a user types, attaches content, starts another turn or changes conversation before generation returns
 - **THEN** the result does not overwrite the draft or appear in another conversation
 
+#### Scenario: Clear a draft after a recommendation is visible
+- **WHEN** the user types over a visible recommendation and clears the entire draft in the same completed turn
+- **THEN** the empty composer shows the same recommendation again without another request
+- **AND** a recommendation previously accepted with Tab or dismissed with Escape stays consumed
+
 ### Requirement: Empty-draft generation gate
 Before requesting a recommendation, the client SHALL confirm the current session draft has loaded successfully and contains no unsent text, attachments, pasted blocks or context. Whitespace counts as draft text; historical messages do not. A completion encountered with draft content SHALL be skipped without a model request and SHALL NOT be retriggered merely by clearing that draft.
 

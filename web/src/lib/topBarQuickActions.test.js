@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import {
+  ANDROID_HIDDEN_QUICK_ACTIONS,
   QUICK_ACTION_SHORTCUT_SEARCH_PALETTE,
   TOPBAR_QUICK_ACTIONS,
+  topBarQuickActionsForShell,
   invokeTopBarQuickAction,
   topBarQuickActionNeedsSeparator,
   topBarQuickActionShortcutLabel,
@@ -106,4 +108,19 @@ test('only the find-content quick action carries the search-palette shortcut', (
     assert.equal(topBarQuickActionShortcutLabel(action, { __ACECODE_OS__: 'windows' }), '');
   }
   assert.equal(topBarQuickActionShortcutLabel(null), '');
+});
+
+// 场景: 安卓 App 里点侧栏底部的齿轮打开快捷菜单。
+// 期望: 桌面宠物、检查更新、退出 ACECode 不出现(App 随 APK 升级、进程由通知栏「停止」管);
+//       分隔线按过滤后的列表重新计算,不会出现两条相邻或悬空的分隔线。桌面原样返回同一个数组。
+test('android app quick menu drops desktop-only actions and keeps separators tidy', () => {
+  assert.equal(topBarQuickActionsForShell(), TOPBAR_QUICK_ACTIONS);
+  const android = topBarQuickActionsForShell({ androidApp: true });
+  assert.deepEqual([...ANDROID_HIDDEN_QUICK_ACTIONS], ['virtual-office', 'check-updates', 'exit']);
+  assert.deepEqual(
+    android.map((action) => action.id),
+    ['new-session', 'new-loop', 'find-content', 'settings', 'appearance', 'about'],
+  );
+  const separators = android.map((_, index) => topBarQuickActionNeedsSeparator(index, android));
+  assert.deepEqual(separators, [false, false, false, true, false, false]);
 });

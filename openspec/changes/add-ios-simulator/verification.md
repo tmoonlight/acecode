@@ -28,7 +28,13 @@ Environment: macOS 27.0.1, Xcode 27.0 (27A266a), iOS 27.0 runtime, iPhone 17e, C
 - Screenshot, JPEG stream (32–33 frames over the page swipes), sandbox denials (home read, network, home write) and the Desktop native view smoke (SimScreen callbacks path) pass.
 - Findings fixed on the way: unknown/missing orientation strings used to read as portrait; a provider that missed its 2 s window dropped rotation to Simulator.app's setting (absent when Simulator.app is not running) and blocked input every 600 ms; a cold first `describe` could exceed the daemon's 20 s timeout. Rotation now uses a kept connection, a synchronous first lookup and background refreshes; the daemon allows 90 s for the first describe.
 
+## Per-device shutdown in the preview
+
+Chromium on Windows exercised the chooser, switcher and toolbar with a stubbed daemon, WebSocket and macOS native view. Each control sent shutdown for the selected UDID. The other simulator's stream stayed open, a late list response left the new state intact, and a failed shutdown allowed retry. Shutting down the displayed simulator closed its WebSocket and unmounted its native view. Boot restored the connection. Web tests and the production build passed.
+
 ## Not verified
+
+- The preview shutdown controls against a running Xcode simulator on macOS.
 
 - Landscape orientation on Xcode 27 (no way to rotate a simulator from CI); the `rotN` parse is the same code path as `rot0`, and older runtimes were verified in landscape locally.
 - The native view inside the full Desktop app on screen (no Screen Recording permission for this session); covered by the smoke, the CARenderer render and the stubbed-bridge panel test.

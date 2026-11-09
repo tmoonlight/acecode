@@ -7,7 +7,7 @@ import { sessionDisplayTitle } from './sessionTitle.js';
 import { normalizeSwarmMode } from './swarmMode.js';
 import { presentInterAgentMessage } from './interAgentMessage.js';
 import { presentBackgroundTaskMessage } from './backgroundTaskMessage.js';
-import { transcriptTimestampMs } from './timestamps.js';
+import { transcriptTimestampMs, withInferredHistoryTimestamps } from './timestamps.js';
 import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { normalizeToolInvocationItems } from './transcriptProjection.js';
 import { createSingleWriterStore } from './singleWriterStore.js';
@@ -1008,7 +1008,8 @@ function visibleTranscriptMessages(messages) {
 }
 
 function splitTranscriptMessages(messages) {
-  const source = Array.isArray(messages) ? messages : [];
+  // 推断要在过滤前做:检查点与 [Turn timing] 行不显示,但它们的时间是同回合输出的依据。
+  const source = withInferredHistoryTimestamps(messages);
   const visible = visibleTranscriptMessages(source);
   const transcriptMessages = [];
   const turnTimings = new Map();

@@ -6,6 +6,7 @@ import { useWorkbenchScroll } from '../lib/useWorkbenchScroll.js';
 import { usePreviewTextZoom } from '../lib/usePreviewTextZoom.js';
 import { useAppShortcuts } from '../lib/useAppShortcuts.js';
 import { clsx } from '../lib/format.js';
+import { resolveFileLinkAbsolutePath } from '../lib/fileLinkContextMenu.js';
 import {
   PREVIEW_TAB_TYPES,
   previewAbsolutePath,
@@ -351,6 +352,7 @@ export function PreviewDetailsPanel({
   backgroundTasksContent = null,
 }) {
   const tabListRef = useRef(null);
+  const [fileActionsHost, setFileActionsHost] = useState(null);
   const { panelRef, zoom: textZoom } = usePreviewTextZoom(owner);
   const tabDragRef = useRef(null);
   const tabAutoScrollFrameRef = useRef(null);
@@ -495,6 +497,7 @@ export function PreviewDetailsPanel({
     const activeCwd = active.type === PREVIEW_TAB_TYPES.FILE ? (active.cwd || cwd) : cwd;
     return (
       <FilePreviewContent
+        actionsHost={fileActionsHost}
         textZoom={textZoom}
         key={active.key}
         owner={owner}
@@ -513,7 +516,7 @@ export function PreviewDetailsPanel({
         onRefresh={() => onRefreshTab?.(active.key)}
       />
     );
-  }, [active, agentBrowserActive, api, backgroundTasksContent, browserRecentFiles, busy, changeGroups, changeSummary, cwd, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
+  }, [active, agentBrowserActive, api, backgroundTasksContent, browserRecentFiles, busy, changeGroups, changeSummary, cwd, fileActionsHost, nativeSurfacesVisible, onAddBrowserContext, onEditFileTab, onOpenBrowser, onOpenFilePreview, onRefreshTab, onReplaceBrowserTabWithFile, onRetargetSimulatorTab, onSelectChangeFile, onSelectGitChangeFile, owner, selectionContexts, sessionChangesReady, setWrapPreview, textZoom, turnChangeSets, wrapPreview]);
 
   const handleTabWheel = useCallback((event) => {
     const el = tabListRef.current;
@@ -1039,8 +1042,12 @@ export function PreviewDetailsPanel({
         </div>
       </div>
       {active.type === PREVIEW_TAB_TYPES.FILE && (
-        <FileBreadcrumbs api={api} workspaceCwd={workspaceCwd} cwd={active.cwd || cwd}
-          path={active.path} onOpenFile={onOpenFilePreview} />
+        <div className="ace-file-detail-bar" data-desktop-open-in-explorer-kind="file"
+          data-desktop-open-in-explorer-path={resolveFileLinkAbsolutePath(active.cwd || cwd, active.path)}>
+          <FileBreadcrumbs api={api} workspaceCwd={workspaceCwd} cwd={active.cwd || cwd}
+            path={active.path} onOpenFile={onOpenFilePreview} />
+          <div className="ace-file-detail-actions" ref={setFileActionsHost} />
+        </div>
       )}
       <div className="ace-preview-details-body">
         {renderedBody}

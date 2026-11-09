@@ -1,10 +1,22 @@
-.ace-file-breadcrumbs {
+.ace-file-detail-bar {
+  display: flex;
+  align-items: center;
   flex: 0 0 auto;
+  min-width: 0;
+  background: var(--ace-surface);
+  border-bottom: 1px solid var(--ace-border);
+}
+.ace-file-detail-bar:has(> :only-child:empty) { display: none; }
+.ace-file-detail-actions {
+  flex: none;
+  margin-inline-start: auto;
+  padding-inline-end: 6px;
+}
+.ace-file-breadcrumbs {
+  flex: 1 1 auto;
   min-width: 0;
   padding: 3px 8px;
   overflow-x: auto;
-  background: var(--ace-surface);
-  border-bottom: 1px solid var(--ace-border);
   color: var(--ace-fg-mute);
   font-size: 13px;
 }

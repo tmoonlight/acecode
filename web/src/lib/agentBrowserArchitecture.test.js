@@ -136,9 +136,13 @@ run('Agent Browser pages are owned by sessions across daemon, desktop host and W
   assert.match(app, /installAgentBrowserPageListener\(\)/);
   assert.match(app, /reconcileAgentBrowserPageStore\(\)/);
   assert.match(registry, /createSingleWriterStore/);
-  assert.match(chatView, /agentBrowserPagesForSession\(agentBrowserRegistry, sid\)/);
-  assert.match(chatView, /reconcileAgentBrowserPageStore\(sid\)/);
-  assert.match(chatView, /createAgentBrowserPage\(agentBrowserOwnerForSession\(ref\)\)/);
+  // 页面 owner 是会话 id;新建任务页还没有会话,用预留 id(建会话时交给 daemon 沿用)。
+  assert.match(chatView, /const browserSessionId = sid \|\| \(homeBrowserAvailable \? draftBrowserSessionId : ''\);/);
+  assert.match(chatView, /agentBrowserPagesForSession\(agentBrowserRegistry, browserSessionId\)/);
+  assert.match(chatView, /reconcileAgentBrowserPageStore\(browserSessionId\)/);
+  assert.match(chatView, /createAgentBrowserPage\(agentBrowserOwnerForSession\(\{\s*sessionId: ownerSessionId,/);
+  assert.match(chatView, /createIn\(\{ \.\.\.options, session_id: draftBrowserOwner \}\)/);
+  assert.match(chatView, /\{ browserPages: browserPagesFollow \}/);
   assert.doesNotMatch(chatView, /getAgentBrowserState\(\)/);
   assert.doesNotMatch(chatView, /agentBrowserActivationRef/);
 });

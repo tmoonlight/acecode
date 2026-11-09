@@ -96,6 +96,7 @@ import { sessionContentLoadingPhase } from '../lib/sessionContentLoading.js';
 import { SidePanel } from './SidePanel.jsx';
 import { BackgroundTasksView } from './SubagentPanel.jsx';
 import { SummaryPanel } from './SummaryPanel.jsx';
+import { mergeWithdrawnContexts, withdrawnSteerComposerState } from '../lib/steerWithdrawal.js';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { TranscriptHistoryBoundary } from './TranscriptHistoryBoundary.jsx';
 import { useTranscriptHistory } from '../lib/useTranscriptHistory.js';
@@ -343,6 +344,7 @@ import {
   closeAgentBrowserPage,
   createAgentBrowserPage,
   hasNativeAgentBrowser,
+  reserveDraftBrowserSessionId,
   runAgentBrowserBridgeAction,
   selectAgentBrowserPage,
   waitForAgentBrowserPageReady,
@@ -905,6 +907,10 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   const [fileLocateRequest, setFileLocateRequest] = useWorkbenchState(workbenchOwner, 'fileLocate', () => ({ path: '', token: 0 }));
   const [previewTabState, setPreviewTabState] = useWorkbenchState(workbenchOwner, 'previews', () => ({}));
   const getPreviewTabState = useStableCallback(() => sessionWorkbench.get(workbenchOwner, 'previews', () => ({})));
+  // 新建任务页开浏览器时预留的会话 id:页面先归属它,发送首条消息时交给 daemon 建会话。
+  const [draftBrowserSessionId, setDraftBrowserSessionId] = useWorkbenchState(workbenchOwner, 'draftBrowserSessionId', '');
+  const workbenchOwnerRef = useRef(workbenchOwner);
+  workbenchOwnerRef.current = workbenchOwner;
   const previewContextRef = useRef(null);
   const previewLeaveRequestRef = useRef(() => true);
   const [previewCloseConfirm, setPreviewCloseConfirm] = useState(null);
@@ -1560,9 +1566,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     const options = targetNoWorkspace
       ? { ...baseOptions, ...expertOptions, no_workspace: true, noWorkspace: true }
       : { ...baseOptions, ...expertOptions };
-    const create = isRealWorkspaceHash(targetHash)
-      ? api.createWorkspaceSession(targetHash, options)
-      : api.createSession(options);
+    const createIn = (createOpts) => (isRealWorkspaceHash(targetHash)
+      ? api.createWorkspaceSession(targetHash, createOpts)
+      : api.createSession(createOpts));
+    // 新建页已开过浏览器:用预留的 id 建会话,页面就直接归属新会话。id 已被占用
+    // (极少见,比如上次建会话成功但响应丢了)时改由 daemon 生成,浏览器页面不跟过去。
+    const draftBrowserOwner = !sid && !children ? draftBrowserSessionId : '';
+    const create = draftBrowserOwner
+      ? createIn({ ...options, session_id: draftBrowserOwner }).catch((error) => {
+        if (error?.code !== 'SESSION_ID_EXISTS') throw error;
+        return createIn(options);
+      })
+      : createIn(options);
     setHomeSubmitting(true);
     try {
       const r = await create;
@@ -1605,12 +1620,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       }
       const nextOwner = sessionWorkbench.ownerFor(next);
       if (health?.console?.available) await api.transferPtyOwner(workbenchOwner, nextOwner);
-      sessionWorkbench.transfer(workbenchOwner, nextOwner, (record) => ({
+      const browserPagesFollow = !!draftBrowserOwner && id === draftBrowserOwner;
+      sessionWorkbench.transfer(workbenchOwner, nextOwner, ({ draftBrowserSessionId: _draftBrowser, ...record }) => ({
         ...record,
         previews: sourcePreviewContext ? transferPreviewTabs(record.previews || {}, sourcePreviewContext, {
           ...sourcePreviewContext, sessionId: id,
-        }) : {},
+        }, { browserPages: browserPagesFollow }) : {},
       }));
+      if (draftBrowserOwner && !browserPagesFollow) {
+        for (const page of agentBrowserPagesForSession(agentBrowserPageStoreSnapshot(), draftBrowserOwner)) {
+          void closeAgentBrowserPage(page.pageId);
+        }
+      }
       onSessionPromoted?.(next);
       notifySessionListChanged({
         reason: 'session-created',
@@ -3402,12 +3423,38 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       });
   });
 
-  // 插话气泡上的撤回:模型还没读到时从当前回合拿掉,不影响回合。
+  // 撤回成功的插话退回输入框(照 Claude 桌面版:没发出去的话不丢)。输入框已有内容时
+  // 退回的放前面、换行接原内容;附件块与上下文芯片一起回来。
+  const returnWithdrawnSteerToComposer = useStableCallback((queuedItem, targetSid) => {
+    const restored = withdrawnSteerComposerState(queuedItem, {
+      currentContent: composerContentRef.current,
+      currentText: composerValueRef.current,
+      sessionId: targetSid,
+    });
+    if (!restored) return;
+    if (restored.resources.length > 0) {
+      // 先登记附件资源:输入框回调里按资源认附件块,认不到会标成「上传不可用」。
+      composerAttachmentsRef.current = mergeComposerAttachmentResources(composerAttachmentsRef.current, restored.resources);
+      setComposerAttachments((current) => mergeComposerAttachmentResources(current, restored.resources));
+    }
+    if (restored.contexts.length > 0) {
+      setComposerContexts((current) => mergeWithdrawnContexts(restored.contexts, current));
+    }
+    if (inputRef.current?.setComposerContent) inputRef.current.setComposerContent(restored.content);
+    else handleComposerChange(composerContentText(restored.content), restored.content);
+    requestAnimationFrame(() => inputRef.current?.focus?.());
+  });
+
+  // 插话气泡上的撤回:模型还没读到时从当前回合拿掉,不影响回合;这条消息退回输入框。
   const withdrawSteered = useStableCallback((queuedId) => {
     const targetSid = sidRef.current;
     if (!targetSid) return;
+    const queuedItem = queueStore.getState().items.find((item) => item?.queued?.id === queuedId);
     api.withdrawSteer(targetSid, queuedId)
-      .then(() => updateQueueState((prev) => cancelQueuedInput(prev, queuedId)))
+      .then(() => {
+        updateQueueState((prev) => cancelQueuedInput(prev, queuedId));
+        if (sidRef.current === targetSid) returnWithdrawnSteerToComposer(queuedItem, targetSid);
+      })
       .catch((e) => {
         if (e?.code !== 'STEER_NOT_PENDING') {
           toast({ kind: 'err', text: '撤回失败:' + (e?.message || '未知错误') });
@@ -5195,9 +5242,13 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     agentBrowserPageStoreSnapshot,
     agentBrowserPageStoreSnapshot,
   );
+  // 浏览器页面的 owner:会话页就是会话 id;新建任务页是预留 id(还没开过浏览器时为空)。
+  // 定时任务页 / 专家组件页(children)不开浏览器。
+  const homeBrowserAvailable = !sid && !children;
+  const browserSessionId = sid || (homeBrowserAvailable ? draftBrowserSessionId : '');
   const sessionBrowserPages = useMemo(
-    () => agentBrowserPagesForSession(agentBrowserRegistry, sid),
-    [agentBrowserRegistry, sid],
+    () => agentBrowserPagesForSession(agentBrowserRegistry, browserSessionId),
+    [agentBrowserRegistry, browserSessionId],
   );
   const sessionBrowserTargetPageId = useMemo(
     () => agentBrowserSessionTargetPageId(agentBrowserRegistry, sid),
@@ -5753,11 +5804,14 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     }
   });
 
+  // 浏览器页签挂在预览视图的会话键上:会话页是会话 id,新建任务页是草稿身份;
+  // 页面本身的 owner 另见 browserSessionId。
+  const browserTabSessionId = previewContext.sessionId;
   const showBrowserPage = useCallback((pageId, title, favicon) => {
-    if (!sid || !pageId) return;
+    if (!browserTabSessionId || !pageId) return;
     return selectPreview((prev) => openBrowserTab(prev, {
       scopeKey: previewScope,
-      sessionId: sid,
+      sessionId: browserTabSessionId,
       pageId,
       title,
       favicon,
@@ -5766,19 +5820,30 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       setPreviewPanelHidden(false);
       void selectAgentBrowserPage(pageId);
     });
-  }, [onRevealPreviewPanel, previewScope, selectPreview, sid]);
+  }, [browserTabSessionId, onRevealPreviewPanel, previewScope, selectPreview]);
 
   const browserOpenPendingRef = useRef(false);
   const openBrowserPreview = useStableCallback(async (url = '') => {
-    if (!sid || !hasNativeAgentBrowser() || browserOpenPendingRef.current) return;
+    if (!(sid || homeBrowserAvailable) || !hasNativeAgentBrowser() || browserOpenPendingRef.current) return;
+    // 视图换了(切会话、新建页已发出首条消息)就不再往原视图开页。
+    const viewOwner = workbenchOwner;
+    const isCurrentView = () => workbenchOwnerRef.current === viewOwner;
+    let ownerSessionId = sid;
+    if (!ownerSessionId) {
+      ownerSessionId = draftBrowserSessionId || reserveDraftBrowserSessionId();
+      if (ownerSessionId !== draftBrowserSessionId) setDraftBrowserSessionId(ownerSessionId);
+    }
     browserOpenPendingRef.current = true;
     try {
-      if (!await requestActiveFileLeave() || sidRef.current !== sid) return;
-      const created = await createAgentBrowserPage(agentBrowserOwnerForSession(ref));
+      if (!await requestActiveFileLeave() || !isCurrentView()) return;
+      const created = await createAgentBrowserPage(agentBrowserOwnerForSession({
+        sessionId: ownerSessionId,
+        workspaceHash: ref?.workspaceHash || '',
+      }));
       if (created?.ok === false || !created?.page_id) {
         throw new Error(created?.error || '浏览器操作失败');
       }
-      if (sidRef.current !== sid) {
+      if (!isCurrentView()) {
         await closeAgentBrowserPage(created.page_id);
         return;
       }
@@ -5793,7 +5858,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
       }
       if (typeof url === 'string' && url) {
         const ready = await waitForAgentBrowserPageReady(created.page_id, {
-          isCurrent: () => sidRef.current === sid,
+          isCurrent: isCurrentView,
         });
         if (ready.cancelled) {
           await closeAgentBrowserPage(created.page_id);
@@ -5814,9 +5879,9 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
 
   // 切会话时向 Desktop 对账一次 native 页面池;事件流已经在 App 级持续镜像。
   useEffect(() => {
-    if (!sid || !hasNativeAgentBrowser()) return;
-    void reconcileAgentBrowserPageStore(sid);
-  }, [sid]);
+    if (!browserSessionId || !hasNativeAgentBrowser()) return;
+    void reconcileAgentBrowserPageStore(browserSessionId);
+  }, [browserSessionId]);
 
   // 旧版 Desktop 的状态事件不带 owner:退回按「当前会话有正在执行的浏览器工具」
   // 认领,只影响本地登记表镜像,native 已归属的页面不会被抢走。
@@ -5839,18 +5904,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
   // 同一会话不重复抢焦点。
   const revealedBrowserPagesRef = useRef(new Map());
   useEffect(() => {
-    if (!sid) return;
+    if (!browserSessionId || !browserTabSessionId) return;
     const restoredPages = visiblePreviewTabs(getPreviewTabState(), previewContext)
       .filter((tab) => tab.type === PREVIEW_TAB_TYPES.BROWSER).map((tab) => tab.pageId);
     setPreviewTabState((prev) => syncBrowserTabsForSession(prev, {
       scopeKey: previewScope,
-      sessionId: sid,
+      sessionId: browserTabSessionId,
       pages: sessionBrowserPages,
     }));
-    let revealed = revealedBrowserPagesRef.current.get(sid);
+    let revealed = revealedBrowserPagesRef.current.get(browserTabSessionId);
     if (!revealed) {
       revealed = new Set(restoredPages);
-      revealedBrowserPagesRef.current.set(sid, revealed);
+      revealedBrowserPagesRef.current.set(browserTabSessionId, revealed);
     }
     for (const page of sessionBrowserPages) {
       if (revealed.has(page.pageId)) continue;
@@ -5862,7 +5927,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
         revealed.delete(pageId);
       }
     }
-  }, [getPreviewTabState, previewContext, previewScope, sessionBrowserPages, showBrowserPage, sid, workbenchOwner]);
+  }, [browserSessionId, browserTabSessionId, getPreviewTabState, previewContext, previewScope, sessionBrowserPages, showBrowserPage, workbenchOwner]);
 
   // Agent 切换默认目标页(browser_open / 显式选页)且有浏览器工具正在执行时,把
   // 那一页的页签激活到前台;目标不属于本会话(显式操作别的会话的页)则不动。
@@ -6900,7 +6965,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             onToggleMaximize={onToggleSidePanelMaximized}
             onToggleSidePanelList={toggleVisibleSidePanelList}
             onOpenFile={sidePanelCwd ? openPreviewFilePicker : null}
-            onOpenBrowser={sid && hasNativeAgentBrowser() ? openBrowserPreview : null}
+            onOpenBrowser={(sid || homeBrowserAvailable) && hasNativeAgentBrowser() ? openBrowserPreview : null}
             onRetargetSimulatorTab={retargetSimulatorPreview}
             onOpenSideChat={openSideQuestionComposer}
             onHide={hidePreviewPanel}

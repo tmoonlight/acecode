@@ -1,4 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { parseSync } from '@babel/core';
+import { transformWithEsbuild } from 'vite';
+import { clsx } from './format.js';
 import {
   folderLabel,
   formatChangeCount,
@@ -74,7 +81,7 @@ run('后台任务行:只列运行中的,先开始的在上,停止请求发出后
   assert.deepEqual(summaryRunningTasks(null), []);
 });
 
-// 场景:摘要面板「后台任务」分组常驻,末尾一行「N 已完成」,点开详情栏的后台任务页签。
+// 场景:摘要面板只在有任务时显示「后台任务」,有已结束任务才显示「N 已完成」。
 // 期望:已完成数 = 不在运行中的任务(完成、停止都算),任务每结束一个数字加一;没有任务时为 0。
 run('后台任务已完成计数:结束一个加一,运行中的不算', () => {
   const tasks = [
@@ -87,6 +94,70 @@ run('后台任务已完成计数:结束一个加一,运行中的不算', () => {
   assert.equal(summaryFinishedTaskCount(afterOneMore), 3);
   assert.equal(summaryFinishedTaskCount([]), 0);
   assert.equal(summaryFinishedTaskCount(null), 0);
+});
+
+// 渲染生产组件,只替换取数和计时 hook,覆盖实际 JSX 的分组与完成行显示条件。
+const panelSource = readFileSync(new URL('../components/SummaryPanel.jsx', import.meta.url), 'utf8');
+const panelAst = parseSync(panelSource, { configFile: false, babelrc: false, parserOpts: { plugins: ['jsx'] } });
+const panelComponents = ['Section', 'Row', 'IconButton', 'SummaryPanel'];
+const declarations = panelAst.program.body.map((node) => node.declaration || node)
+  .filter((node) => node.type === 'FunctionDeclaration' && panelComponents.includes(node.id.name));
+assert.equal(declarations.length, panelComponents.length);
+const compiledPanel = await transformWithEsbuild(
+  declarations.map((node) => panelSource.slice(node.start, node.end)).join('\n'),
+  'SummaryPanel.jsx',
+  { loader: 'jsx', jsxFactory: 'React.createElement', jsxFragment: 'React.Fragment' },
+);
+const SummaryPanel = vm.runInNewContext(`${compiledPanel.code}; SummaryPanel;`, {
+  React, ...React, clsx,
+  summaryWorkspaceModel, summaryChangeTotals, summaryRunningTasks, summaryFinishedTaskCount, formatChangeCount,
+  useFolderContextMenu() {},
+  useWorkspaceDirectoryEntry: () => null,
+  useGitInfo: () => null,
+  useGitChangeList: () => null,
+  useNow: () => 100_000,
+  VsIcon: ({ name }) => React.createElement('span', { 'data-icon': name }),
+});
+const renderPanel = (tasks, props = {}) => renderToStaticMarkup(React.createElement(SummaryPanel, {
+  tasks, workspaceName: '测试工作区', ...props,
+}));
+const dividerCount = (html) => (html.match(/h-px bg-border mx-2/g) || []).length;
+
+run('后台任务摘要:没有任务时隐藏整个分组及分隔线', () => {
+  for (const tasks of [undefined, null, [], [null]]) {
+    const html = renderPanel(tasks);
+    assert.match(html, /测试工作区/);
+    assert.doesNotMatch(html, /后台任务|已完成/);
+    assert.equal(dividerCount(html), 0);
+  }
+  const withChanges = renderPanel([], {
+    sessionChangeSummary: { hasChanges: true, totalAdditions: 3, totalDeletions: 1 },
+  });
+  assert.match(withChanges, /变更/);
+  assert.doesNotMatch(withChanges, /后台任务|已完成/);
+  assert.equal(dividerCount(withChanges), 1);
+});
+
+run('后台任务摘要:只有运行中的后台命令或子代理时不显示零完成行', () => {
+  for (const kind of ['command', 'agent']) {
+    const html = renderPanel([{ id: kind, kind, status: 'running', title: '正在处理', createdAtMs: 94_000 }]);
+    assert.match(html, /后台任务/);
+    assert.match(html, /正在处理/);
+    assert.match(html, /data-icon="stopFilled"/);
+    assert.doesNotMatch(html, /已完成|data-icon="check"/);
+    assert.equal(dividerCount(html), 1);
+  }
+});
+
+run('后台任务摘要:有已结束任务时保留分组和正确完成数量', () => {
+  const settled = [{ id: 'done', status: 'completed' }, { id: 'stopped', status: 'aborted' }];
+  for (const tasks of [settled, [...settled, { id: 'running', status: 'running', title: '仍在处理' }]]) {
+    const html = renderPanel(tasks);
+    assert.match(html, /后台任务/);
+    assert.match(html, /2 已完成/);
+    assert.equal(dividerCount(html), 1);
+    assert.equal(html.includes('仍在处理'), tasks.length === 3);
+  }
 });
 
 // Windows 路径用反斜杠拼接(源码里不直接写反斜杠字面量)。

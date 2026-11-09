@@ -3,6 +3,7 @@
 #include "config_recovery.hpp"
 #include "utils/atomic_file.hpp"
 #include "utils/cwd_hash.hpp"
+#include "utils/encoding.hpp"
 #include "utils/logger.hpp"
 #include "utils/paths.hpp"
 #include "utils/sha256.hpp"
@@ -394,8 +395,19 @@ void save_project_mcp_config(const std::string& cwd, const json& servers) {
         json{{"mcp_servers", servers}}.dump(2) + "\n", servers);
 }
 
+McpServerMap host_mcp_config(const McpServerMap& configured) {
+    auto servers = configured;
+    if (getenv_utf8("ACECODE_ANDROID_HOST") == "1") {
+        McpServerConfig phone;
+        phone.command = "/usr/bin/python3";
+        phone.args = {"/opt/acecode/android/phone_mcp.py"};
+        servers.emplace("phone", std::move(phone));
+    }
+    return servers;
+}
+
 McpServerMap effective_mcp_config(const McpServerMap& global, const McpServerMap& project) {
-    auto effective = global;
+    auto effective = host_mcp_config(global);
     for (const auto& [name, cfg] : project) effective[name] = cfg;
     return effective;
 }

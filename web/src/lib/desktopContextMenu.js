@@ -240,6 +240,18 @@ function addAction(items, id, target, opts = {}) {
   items.push(actionDescriptor(id, target, opts));
 }
 
+function addPreviewNavigationItems(items, preview) {
+  if (!preview) return;
+  addAction(items, DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST, preview, { group: GROUPS.CONTENT });
+  const path = resolveFileLinkAbsolutePath(preview.cwd, preview.path);
+  if (path) addAction(items, DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER, { path, kind: 'file' }, { group: GROUPS.CONTENT });
+}
+
+// 一项都没有的菜单不弹:自定义菜单不画,浏览器原生菜单也不放出来。
+export function shouldOpenContextMenu(items = []) {
+  return Array.isArray(items) && items.length > 0;
+}
+
 export function contextMenuOpenDelay({ hasVisibleMenu = false, hasPendingMenu = false } = {}) {
   return hasVisibleMenu || hasPendingMenu ? CONTEXT_MENU_REOPEN_DELAY_MS : 0;
 }
@@ -319,9 +331,7 @@ export function buildDesktopContextMenuItems({
     if (previewPresentationTarget) {
       addAction(items, DESKTOP_CONTEXT_ACTIONS.TOGGLE_PREVIEW_PRESENTATION, previewPresentationTarget, { group: GROUPS.SELECTION });
     }
-    if (previewTarget) {
-      addAction(items, DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST, previewTarget, { group: GROUPS.CONTENT });
-    }
+    addPreviewNavigationItems(items, previewTarget);
     return finalizeContextMenuItems(items, allowNativeActions);
   }
 
@@ -390,9 +400,7 @@ export function buildDesktopContextMenuItems({
   }
 
   // File navigation remains available while editing the displayed file.
-  if (previewTarget) {
-    addAction(items, DESKTOP_CONTEXT_ACTIONS.SHOW_IN_FILE_LIST, previewTarget, { group: GROUPS.CONTENT });
-  }
+  addPreviewNavigationItems(items, previewTarget);
 
   if (!editable) {
     if (sessionTarget) {
@@ -567,7 +575,9 @@ export function buildDesktopContextMenuItems({
     }
   }
 
-  if (!sessionTarget && !sessionPinTarget) {
+  // 「全选」只在已经选中一段文本时给出;没有选区时一律不出,菜单因此可能一项不剩,
+  // 由 shouldOpenContextMenu 决定不弹。
+  if (hasSelection && !sessionTarget && !sessionPinTarget) {
     addAction(items, DESKTOP_CONTEXT_ACTIONS.SELECT_ALL, null, { group: GROUPS.GENERIC });
   }
   if (hasSelection) addAction(items, DESKTOP_CONTEXT_ACTIONS.COPY, null, { group: GROUPS.GENERIC });

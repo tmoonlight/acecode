@@ -20,6 +20,7 @@ import {
   preferredSimulatorUdid,
   reconnectDelayMs,
   simulatorDeviceSubtitle,
+  simulatorDevicesAfterPowerAction,
   simulatorNeedsSettings,
   simulatorPointSize,
   simulatorScreenshotFilename,
@@ -126,7 +127,22 @@ function StatusCard({ icon, title, detail, busy = false, tone = 'normal', childr
   );
 }
 
-function DeviceRow({ device, active = false, busy = false, onConnect, onBoot }) {
+function ShutdownButton({ device, pendingAction, onPowerAction, iconOnly = false, role }) {
+  const stopping = pendingAction?.udid === device.udid && pendingAction.type === 'shutdown';
+  const label = `关闭模拟器 ${device.name || device.udid}`;
+  return (
+    <button type="button" role={role} aria-label={label} title={iconOnly ? label : undefined}
+      className={iconOnly ? TOOLBAR_BUTTON : SECONDARY_BUTTON} disabled={!!pendingAction}
+      onClick={() => { void onPowerAction(device, 'shutdown'); }}>
+      {iconOnly
+        ? (stopping ? <span className="ace-spinner w-3 h-3" /> : <VsIcon name="stop" size={15} />)
+        : (stopping ? '正在关闭' : '关闭模拟器')}
+    </button>
+  );
+}
+
+function DeviceRow({ device, active = false, pendingAction, onConnect, onPowerAction }) {
+  const busy = pendingAction?.udid === device.udid;
   return (
     <div className={clsx('flex items-center gap-3 px-3 py-2 rounded-md border mb-1.5',
       active ? 'border-accent bg-accent-bg' : 'border-border bg-surface')}>
@@ -136,11 +152,14 @@ function DeviceRow({ device, active = false, busy = false, onConnect, onBoot }) 
         <div className="text-[11px] text-fg-mute truncate">{simulatorDeviceSubtitle(device)}</div>
       </div>
       {device.booted ? (
-        <button type="button" className={SECONDARY_BUTTON} onClick={() => onConnect?.(device)}>
-          连接
-        </button>
+        <>
+          <button type="button" className={SECONDARY_BUTTON} disabled={busy} onClick={() => onConnect(device)}>
+            连接
+          </button>
+          <ShutdownButton device={device} pendingAction={pendingAction} onPowerAction={onPowerAction} />
+        </>
       ) : (
-        <button type="button" className={SECONDARY_BUTTON} disabled={busy} onClick={() => onBoot?.(device)}>
+        <button type="button" className={SECONDARY_BUTTON} disabled={!!pendingAction} onClick={() => { void onPowerAction(device, 'boot'); }}>
           {busy && <span className="ace-spinner w-3 h-3" />}
           {busy ? '正在启动' : '启动'}
         </button>
@@ -155,7 +174,7 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [devicesError, setDevicesError] = useState('');
   const [sessionDevice, setSessionDevice] = useState('');
-  const [bootingUdid, setBootingUdid] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
   const [conn, setConn] = useState({ phase: 'idle', message: '', retrySeconds: 0 });
   const [device, setDevice] = useState(null);
   const [frameSize, setFrameSize] = useState(null);
@@ -167,6 +186,7 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   const [nativeState, setNativeState] = useState(null);
 
   const mountedRef = useRef(true);
+  const devicesRequestRef = useRef(0);
   const wsRef = useRef(null);
   const canvasRef = useRef(null);
   const stageRef = useRef(null);
@@ -194,16 +214,18 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   }, []);
 
   const loadDevices = useCallback(async () => {
+    const request = ++devicesRequestRef.current;
+    const current = () => mountedRef.current && request === devicesRequestRef.current;
     try {
       const payload = await api.listIosSimulatorDevices(sessionId);
-      if (!mountedRef.current) return;
+      if (!current()) return;
       setDevices(normalizeSimulatorDevices(payload));
       setDevicesError(String(payload?.error || ''));
       setSessionDevice(String(payload?.session_device || ''));
     } catch (error) {
-      if (mountedRef.current) setDevicesError(iosSimulatorErrorMessage(error, 'device'));
+      if (current()) setDevicesError(iosSimulatorErrorMessage(error, 'device'));
     } finally {
-      if (mountedRef.current) setDevicesLoaded(true);
+      if (current()) setDevicesLoaded(true);
     }
   }, [api, sessionId]);
 
@@ -217,9 +239,14 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
   }, [api, loadDevices]);
 
   const unsupported = status?.supported === false;
+  const listedDevice = devices.find((item) => item.udid === udid);
+  const bootingUdid = pendingAction?.type === 'boot' ? pendingAction.udid : '';
+  const stopping = pendingAction?.type === 'shutdown' && pendingAction.udid === udid;
+  const stopped = listedDevice?.state === 'Shutdown';
+  const streamEnabled = !!udid && !unsupported && !stopping && !stopped;
   // Desktop (macOS) draws the screen natively; the canvas stays for input.
   const developerDir = simulatorDeveloperDir(status);
-  const nativeAvailable = !!udid && !unsupported && !!developerDir && hasNativeIosSimulatorView();
+  const nativeAvailable = streamEnabled && !!developerDir && hasNativeIosSimulatorView();
   const nativeLive = nativeAvailable && nativeViewRendering(nativeState, udid);
   nativeLiveRef.current = nativeLive;
 
@@ -271,7 +298,7 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
 
   // 连接生命周期:device / 帧 / ended / error;ended 与意外断线按 1s→8s 退避自动重连。
   useEffect(() => {
-    if (!udid || unsupported) return undefined;
+    if (!streamEnabled) return undefined;
     let disposed = false;
     let attempt = 0;
     let reconnectTimer = null;
@@ -400,7 +427,7 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
       wsRef.current = null;
       detach(ws);
     };
-  }, [clearSequence, loadDevices, reconnectNonce, releaseGesture, udid, unsupported]);
+  }, [clearSequence, loadDevices, reconnectNonce, releaseGesture, udid, streamEnabled]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -588,21 +615,27 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
     setReconnectNonce((value) => value + 1);
   }, []);
 
-  const bootDevice = useCallback(async (target) => {
-    if (!target?.udid || bootingUdid) return;
-    setBootingUdid(target.udid);
+  const powerAction = useCallback(async (target, type) => {
+    if (!target?.udid || pendingAction) return;
+    setPendingAction({ udid: target.udid, type });
     try {
-      const payload = await api.iosSimulatorDeviceAction(target.udid, 'boot');
+      const payload = await api.iosSimulatorDeviceAction(target.udid, type);
       if (!mountedRef.current) return;
-      if (Array.isArray(payload?.devices)) setDevices(normalizeSimulatorDevices(payload));
-      if (target.udid === udid) reconnect();
-      else onSelectDeviceRef.current?.(target.udid, target.name);
+      // An older list request must not overwrite the result of this action.
+      ++devicesRequestRef.current;
+      setDevices((previous) => simulatorDevicesAfterPowerAction(payload, previous, target, type));
+      setDevicesError('');
+      setDevicesLoaded(true);
+      if (type === 'boot') {
+        if (target.udid === udid) reconnect();
+        else onSelectDeviceRef.current?.(target.udid, target.name);
+      }
     } catch (error) {
       if (mountedRef.current) toast({ kind: 'err', text: iosSimulatorErrorMessage(error, 'device') });
     } finally {
-      if (mountedRef.current) setBootingUdid('');
+      if (mountedRef.current) setPendingAction(null);
     }
-  }, [api, bootingUdid, reconnect, udid]);
+  }, [api, pendingAction, reconnect, udid]);
 
   const captureScreenshot = useCallback(async () => {
     if (!udid || capturing) return;
@@ -624,23 +657,22 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
     setMenuOpen(false);
     if (!target?.udid) return;
     if (!target.booted) {
-      void bootDevice(target);
+      void powerAction(target, 'boot');
       return;
     }
     if (target.udid !== udid) onSelectDeviceRef.current?.(target.udid, target.name);
-  }, [bootDevice, udid]);
+  }, [powerAction, udid]);
 
-  const listedDevice = devices.find((item) => item.udid === udid) || null;
   const displayName = device?.name || listedDevice?.name || '';
   const displayRuntime = device?.runtime || listedDevice?.runtime || '';
-  const displayState = device?.state || listedDevice?.state || '';
+  const displayState = stopping ? 'Shutting Down' : listedDevice?.state || device?.state || '';
   const needsSettings = simulatorNeedsSettings({ status, message: conn.message || devicesError });
 
   const displayRect = useMemo(() => (frameSize
     ? containedImageRect(stageSize.width, stageSize.height, frameSize.width, frameSize.height)
     : null), [frameSize, stageSize.height, stageSize.width]);
   const cornerRadius = displayRect ? deviceCornerRadius(device, displayRect.width, displayRect.height) : 0;
-  const streamLive = conn.phase === 'live' && !!frameSize;
+  const streamLive = streamEnabled && conn.phase === 'live' && !!frameSize;
 
   // Places the native view over the canvas whenever the canvas, overlays or
   // viewport change. It shows only while the stream is live and no blocking
@@ -738,9 +770,9 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
           )}
           {devices.map((item) => (
             <DeviceRow key={item.udid} device={item} active={item.udid === sessionDevice}
-              busy={bootingUdid === item.udid}
+              pendingAction={pendingAction}
               onConnect={(target) => onSelectDeviceRef.current?.(target.udid, target.name)}
-              onBoot={bootDevice} />
+              onPowerAction={powerAction} />
           ))}
         </div>
       </div>
@@ -749,10 +781,19 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
 
   const live = streamLive;
   const notBooted = !!listedDevice && !listedDevice.booted;
+  const activeDevice = listedDevice || device;
+  const bootButton = listedDevice && (
+    <button type="button" className={PRIMARY_BUTTON} disabled={!!pendingAction}
+      onClick={() => { void powerAction(listedDevice, 'boot'); }}>
+      {bootingUdid === udid && <span className="ace-spinner w-3 h-3" />}
+      {bootingUdid === udid ? '正在启动' : '启动'}
+    </button>
+  );
 
   return (
     <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-surface overflow-hidden" data-ios-simulator-panel="stream"
-      data-ios-simulator-phase={conn.phase} data-ios-simulator-native={nativeLive ? 'live' : undefined}>
+      data-ios-simulator-phase={stopping ? 'stopping' : stopped ? 'stopped' : conn.phase}
+      data-ios-simulator-native={nativeLive ? 'live' : undefined}>
       <div className="min-h-[44px] shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-border bg-surface-hi">
         <button
           ref={switcherRef}
@@ -791,9 +832,13 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
           onClick={() => { void captureScreenshot(); }}>
           {capturing ? <span className="ace-spinner w-3 h-3" /> : <VsIcon name="Image" size={16} />}
         </button>
-        <button type="button" className={TOOLBAR_BUTTON} title="重新连接" aria-label="重新连接" onClick={reconnect}>
+        <button type="button" className={TOOLBAR_BUTTON} disabled={stopping} title="重新连接" aria-label="重新连接"
+          onClick={stopped ? loadDevices : reconnect}>
           <VsIcon name="refresh" size={15} />
         </button>
+        {activeDevice && !stopped && (listedDevice?.booted ?? (live || device.state === 'booted')) && (
+          <ShutdownButton device={activeDevice} pendingAction={pendingAction} onPowerAction={powerAction} iconOnly />
+        )}
       </div>
       {menuOpen && (
         <AnchoredMenu
@@ -809,24 +854,28 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
             <div className="px-3 py-2 text-[12px] text-fg-mute">{devicesError || '没有可用的模拟器'}</div>
           )}
           {devices.map((item) => (
-            <button
-              key={item.udid}
-              type="button"
-              role="menuitemradio"
-              aria-checked={item.udid === udid}
-              disabled={bootingUdid === item.udid}
-              className={clsx('w-full flex items-center gap-2 text-left px-2.5 py-1.5 transition-colors',
-                item.udid === udid ? 'bg-accent/10 text-accent' : 'text-fg hover:bg-surface-hi')}
-              onClick={() => selectDevice(item)}
-            >
-              <span className="flex-1 min-w-0">
-                <span className="block text-[12.5px] truncate">{item.name}</span>
-                <span className="block text-[11px] text-fg-mute truncate">{simulatorDeviceSubtitle(item)}</span>
-              </span>
-              {bootingUdid === item.udid
-                ? <span className="ace-spinner w-3 h-3" />
-                : !item.booted && <span className="text-[11px] text-accent shrink-0">启动</span>}
-            </button>
+            <div key={item.udid} role="none" className="flex items-center pr-1">
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={item.udid === udid}
+                disabled={!!pendingAction && (!item.booted || pendingAction.udid === item.udid)}
+                className={clsx('min-w-0 flex-1 flex items-center gap-2 text-left px-2.5 py-1.5 transition-colors',
+                  item.udid === udid ? 'bg-accent/10 text-accent' : 'text-fg hover:bg-surface-hi')}
+                onClick={() => selectDevice(item)}
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[12.5px] truncate">{item.name}</span>
+                  <span className="block text-[11px] text-fg-mute truncate">{simulatorDeviceSubtitle(item)}</span>
+                </span>
+                {bootingUdid === item.udid
+                  ? <span className="ace-spinner w-3 h-3" />
+                  : !item.booted && <span className="text-[11px] text-accent shrink-0">启动</span>}
+              </button>
+              {item.booted && (
+                <ShutdownButton device={item} pendingAction={pendingAction} onPowerAction={powerAction} role="menuitem" />
+              )}
+            </div>
           ))}
         </AnchoredMenu>
       )}
@@ -878,16 +927,16 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
         </div>
         {!live && (
           <div className="absolute inset-0 flex items-center justify-center bg-surface-alt">
-            {conn.phase === 'error' ? (
+            {stopping ? (
+              <StatusCard busy title="正在关闭" />
+            ) : stopped ? (
+              <StatusCard icon={<IosSimulatorIcon size={36} className="text-fg-mute" />} title="模拟器已关闭">
+                {bootButton}
+              </StatusCard>
+            ) : conn.phase === 'error' ? (
               <StatusCard tone="error" icon={<VsIcon name="warning" size={36} className="text-warn" />}
                 title={notBooted ? '模拟器未启动' : '无法连接模拟器'} detail={conn.message}>
-                {notBooted && (
-                  <button type="button" className={PRIMARY_BUTTON} disabled={!!bootingUdid}
-                    onClick={() => { void bootDevice(listedDevice); }}>
-                    {bootingUdid === udid && <span className="ace-spinner w-3 h-3" />}
-                    {bootingUdid === udid ? '正在启动' : '启动'}
-                  </button>
-                )}
+                {notBooted && bootButton}
                 {needsSettings && <button type="button" className={PRIMARY_BUTTON} onClick={openIosSimulatorSettings}>打开设置</button>}
                 <button type="button" className={SECONDARY_BUTTON} onClick={reconnect}>重新连接</button>
               </StatusCard>
@@ -895,13 +944,7 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
               <StatusCard icon={<IosSimulatorIcon size={40} className="text-fg-mute" />}
                 title="模拟器画面已中断"
                 detail={[conn.message, conn.retrySeconds ? `${conn.retrySeconds} 秒后自动重新连接` : ''].filter(Boolean).join('\n')}>
-                {notBooted && (
-                  <button type="button" className={PRIMARY_BUTTON} disabled={!!bootingUdid}
-                    onClick={() => { void bootDevice(listedDevice); }}>
-                    {bootingUdid === udid && <span className="ace-spinner w-3 h-3" />}
-                    {bootingUdid === udid ? '正在启动' : '启动'}
-                  </button>
-                )}
+                {notBooted && bootButton}
                 <button type="button" className={SECONDARY_BUTTON} onClick={reconnect}>重新连接</button>
               </StatusCard>
             ) : (
@@ -911,9 +954,11 @@ export function IosSimulatorPanel({ api, sessionId = '', udid = '', onSelectDevi
           </div>
         )}
       </div>
-      <div className="shrink-0 px-3 pb-2 text-[11px] text-fg-mute text-center truncate" aria-live="polite">
-        {focused && live ? '键盘输入会发送到模拟器，点击面板外任意位置结束' : '点击屏幕后可直接用键盘输入，支持粘贴文本'}
-      </div>
+      {streamEnabled && (
+        <div className="shrink-0 px-3 pb-2 text-[11px] text-fg-mute text-center truncate" aria-live="polite">
+          {focused && live ? '键盘输入会发送到模拟器，点击面板外任意位置结束' : '点击屏幕后可直接用键盘输入，支持粘贴文本'}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,16 @@
 // Human-reviewed product terminology and phrases where generic machine
 // translation is ambiguous without ACECode context.
 export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
+  '文件操作': 'File actions',
+  '无法更新手机设置': 'Could not update phone settings',
+  '正在更新': 'Updating',
+  '状态未加载': 'Status not loaded',
+  '需要悬浮窗权限': 'Overlay permission required',
+  '已开启': 'Enabled',
+  '未开启': 'Not enabled',
+  '选择悬浮宠物': 'Choose a floating pet',
+  '允许显示在其他应用上层后生效': 'Allow display over other apps to activate',
+  '前往授权': 'Grant permission',
   '收起摘要面板': 'Hide summary panel',
   '展开摘要面板': 'Show summary panel',
   '调整摘要面板宽度': 'Resize summary panel',
@@ -936,6 +946,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '编码': 'Coding',
   '设置': 'Settings',
   '返回': 'Back',
+  '关闭': 'Close',
+  '高级': 'Advanced',
+  '剪贴板里没有文字': 'The clipboard has no text',
   '新建会话': 'New session',
   '新建会话1': 'New session 1',
   '新建任务': 'New task',
@@ -2418,6 +2431,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '需要你确认：{{p0}}': 'Needs your confirmation: {{p0}}',
   '有问题等你回答': 'Has a question for you',
   // iOS 模拟器面板与设置(设置 > 工具 > iOS 模拟器)。
+  '关闭模拟器': 'Shut down',
+  '关闭模拟器 {{p0}}': 'Shut down {{p0}}',
+  '模拟器已关闭': 'Simulator is shut down',
   '{{p0}} 秒后自动重新连接': 'Reconnecting automatically in {{p0}} s',
   '{{p0}} 屏幕': '{{p0}} screen',
   '保存 iOS 模拟器配置失败': 'Could not save iOS Simulator settings',
@@ -2525,4 +2541,11 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '保留会话数需在 1 到 100 之间': 'Sessions to keep must be between 1 and 100',
   '自动归档旧通知（保留 {{p0}} 个）': 'Auto-archive old notifications (keep {{p0}})',
   '自动删除旧通知（保留 {{p0}} 个）': 'Auto-delete old notifications (keep {{p0}})',
+  '悬浮宠物': 'Floating pet',
+  '手机操控': 'Phone control',
+  '关闭手机操控': 'Turn off phone control',
+  '开启无障碍服务': 'Enable accessibility service',
+  '本次会话允许': 'Allow for this session',
+  '允许一次': 'Allow once',
+  '已允许一次': 'Allowed once',
 });

@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  ANDROID_HIDDEN_SETTINGS_KEYS,
   SETTINGS_NAV_GROUPS,
   SETTINGS_NAV_ITEMS,
+  initialSettingsNarrowPane,
+  settingsNavGroupsForShell,
   settingsNavIndexForKey,
 } from './settingsNavigation.js';
 
@@ -127,4 +130,50 @@ test('SettingsPage keeps search and labels available with compact content paddin
   assert.match(source, /<SettingsSearch/);
   assert.match(source, /<span className="truncate">\{item.label\}/);
   assert.match(source, /px-4 py-3 sm:px-6 sm:py-5/);
+});
+
+// 场景: 在安卓 App 里打开设置。
+// 期望: 快捷键、桌面宠物两个分区不出现,其它分区和顺序不变;桌面 / 浏览器原样返回同一个数组。
+test('android app hides desktop-only settings sections', () => {
+  assert.deepEqual([...ANDROID_HIDDEN_SETTINGS_KEYS], ['shortcuts', 'virtual-office']);
+  assert.equal(settingsNavGroupsForShell(SETTINGS_NAV_GROUPS), SETTINGS_NAV_GROUPS);
+  const android = settingsNavGroupsForShell(SETTINGS_NAV_GROUPS, { androidApp: true });
+  const keys = android.flatMap((group) => group.items.map((item) => item.key));
+  assert.equal(keys.includes('shortcuts'), false);
+  assert.equal(keys.includes('virtual-office'), false);
+  assert.deepEqual(
+    keys,
+    SETTINGS_NAV_ITEMS.map((item) => item.key).filter((key) => !ANDROID_HIDDEN_SETTINGS_KEYS.includes(key)),
+  );
+  // 隐藏只影响列表,分区序号仍按完整列表算,其它分区的跳转不受影响。
+  assert.equal(settingsNavIndexForKey('models'), SETTINGS_NAV_ITEMS.findIndex((item) => item.key === 'models'));
+});
+
+// 场景: 手机竖屏上打开设置。
+// 期望: 普通打开先看到分区列表;从别处指定了分区(例如「配置模型」)或带着搜索打开,直接进内容页。
+test('narrow settings open on the list unless a section was requested', () => {
+  assert.equal(initialSettingsNarrowPane(), 'list');
+  assert.equal(initialSettingsNarrowPane({ initialNavKey: 'general' }), 'list');
+  assert.equal(initialSettingsNarrowPane({ initialNavKey: 'models' }), 'detail');
+  assert.equal(initialSettingsNarrowPane({ initialSearch: { section: 'general', label: '语言' } }), 'detail');
+});
+
+// 场景: 以后改设置窗口或全局样式时,手机竖屏的两级设置被无意改回左右两栏。
+// 期望: 设置窗口按窄屏判定挂 data-narrow-pane;样式里窄屏(599px 以下)列表页藏内容、内容页藏导航;
+//       分区内的行卡片在窄屏允许换行;全局右键拦截给手指长按输入框让路(否则安卓上粘贴不了)。
+// 回归: 2026-11-07 手机上设置一直是左右两栏,右栏只剩约 150px,文字一字一行。
+test('narrow settings stay two-level and touch long-press keeps native paste', () => {
+  const settings = readFileSync(new URL('../components/SettingsPage.jsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../styles/globals.css', import.meta.url), 'utf8');
+  const contextMenu = readFileSync(new URL('../components/DesktopContextMenu.jsx', import.meta.url), 'utf8');
+  assert.match(settings, /const narrow = useNarrowLayout\(\);/);
+  assert.match(settings, /data-narrow-pane=\{narrow \? narrowPane : undefined\}/);
+  const narrowStart = css.indexOf('.ace-settings-mask { align-items: stretch; justify-content: stretch; }');
+  assert.ok(narrowStart > 0, 'narrow settings media block exists');
+  assert.ok(css.lastIndexOf('@media (max-width: 599px) {', narrowStart) > 0);
+  const narrowBlock = css.slice(narrowStart);
+  assert.ok(narrowBlock.includes('.ace-settings-panel[data-narrow-pane="list"] .ace-settings-main'));
+  assert.ok(narrowBlock.includes('.ace-settings-panel[data-narrow-pane="detail"] .ace-settings-nav { display: none; }'));
+  assert.ok(narrowBlock.includes('.ace-settings-content .justify-between { flex-wrap: wrap;'));
+  assert.match(contextMenu, /shouldUseNativeContextMenu\(\{/);
 });

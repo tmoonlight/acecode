@@ -8,6 +8,13 @@ const defaults = {
   preferences: { sidebarCollapsed: false, sidePanelCollapsed: false, sidePanelListCollapsed: false },
 };
 const solve = (width, options = {}) => solveResponsiveSidebars({ ...defaults, shellWidth: width, ...options });
+for (const width of [300, 412]) {
+  const mobile = solve(width, { touch: true });
+  assert.equal(mobile.canDockRight, false);
+  assert.equal(mobile.canDockLeft, false);
+  assert.equal(mobile.rightDocked, false);
+}
+assert.equal(solve(960, { touch: true }).canDockRight, true);
 function run(name, test) { test(); console.log(`[pass] ${name}`); }
 
 run('popup resize bounds leave an outside click area and preserve the saved width across viewport clamps', () => {
@@ -170,6 +177,8 @@ run('摘要面板最先让位:放不下时先收它,左侧会话列表和右侧�
   // 场景:刚被挤掉后回弹需要多 64px 余量,避免在临界宽度来回闪。
   assert.equal(withSummary(1186, { previous: { summaryAutoCollapsed: true } }).summaryDocked, false);
   assert.equal(withSummary(1250, { previous: { summaryAutoCollapsed: true } }).summaryDocked, true);
+  // 场景:手机抽屉布局 → 摘要面板不停靠。
+  assert.equal(withSummary(1400, { touch: true, shellWidth: 400 }).summaryDocked, false);
 });
 
 run('摘要面板关掉或当前页面没有它时,不占位也不影响左栏判定', () => {

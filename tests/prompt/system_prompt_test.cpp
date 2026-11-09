@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -94,6 +95,24 @@ TEST_F(SystemPromptTest, EmptyInputsOmitSections) {
     std::string out = acecode::build_system_prompt(tools, temp_home.string());
     EXPECT_EQ(out.find("# User Memory"), std::string::npos);
     EXPECT_EQ(out.find("# Project Instructions"), std::string::npos);
+}
+
+TEST_F(SystemPromptTest, AndroidHostAndGuestShellAreDistinct) {
+    const char* marker = "ACECODE_ANDROID_HOST";
+    const char* original = std::getenv(marker);
+    const std::optional<std::string> previous = original ? std::optional<std::string>(original) : std::nullopt;
+    acecode::ToolExecutor tools;
+    set_env(marker, "1");
+    const auto mobile = acecode::build_system_prompt(tools, temp_home.string());
+    set_env(marker, "");
+    const auto desktop = acecode::build_system_prompt(tools, temp_home.string());
+    set_env(marker, previous.value_or(""));
+#ifndef _WIN32
+    if (!previous) unsetenv(marker);
+#endif
+    EXPECT_NE(mobile.find("Host: Android phone"), std::string::npos);
+    EXPECT_NE(mobile.find("Ubuntu guest"), std::string::npos);
+    EXPECT_EQ(desktop.find("Host: Android phone"), std::string::npos);
 }
 
 // 场景:# Environment 只携带不会随时间变化的环境事实。当前日期不得动态

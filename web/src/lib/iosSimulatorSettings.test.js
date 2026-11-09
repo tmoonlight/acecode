@@ -237,6 +237,7 @@ await run('iOS simulator API helpers use the documented endpoints', async () => 
     await client.listIosSimulatorDevices('session 1');
     await client.iosSimulatorDeviceAction('UD/ID', 'boot');
     await client.iosSimulatorDeviceAction('UDID', 'consent', { allowed: true, name: 'iPhone' });
+    await client.iosSimulatorDeviceAction('second/device', 'shutdown');
     const blob = await client.iosSimulatorScreenshot('UDID');
     assert.equal(blob.type, 'image/png');
 
@@ -250,6 +251,7 @@ await run('iOS simulator API helpers use the documented endpoints', async () => 
       ['GET', `${base}/api/ios-simulator/devices?session=session%201`],
       ['POST', `${base}/api/ios-simulator/devices/UD%2FID/boot`],
       ['POST', `${base}/api/ios-simulator/devices/UDID/consent`],
+      ['POST', `${base}/api/ios-simulator/devices/second%2Fdevice/shutdown`],
       ['GET', `${base}/api/ios-simulator/devices/UDID/screenshot`],
     ]);
     assert.deepEqual(JSON.parse(calls[2].options.body), { xcode_path: '', stream_fps: 60 });
