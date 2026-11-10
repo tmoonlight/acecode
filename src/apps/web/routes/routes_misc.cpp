@@ -349,12 +349,6 @@ void WebServer::Impl::register_feedback() {
             return workspaces;
         };
 
-        auto session_sort_key = [](const json& item) {
-            std::string key = item.value("updated_at", std::string{});
-            if (key.empty()) key = item.value("created_at", std::string{});
-            return key;
-        };
-
         auto find_selected_session = [this, candidate_workspaces](
             const std::string& session_id,
             const std::string& workspace_hash,
@@ -473,7 +467,7 @@ void WebServer::Impl::register_feedback() {
         });
 
         CROW_ROUTE(app, "/api/feedback/desktop/recent-sessions").methods(crow::HTTPMethod::GET)
-        ([this, candidate_workspaces, session_sort_key](const crow::request& req) {
+        ([this, candidate_workspaces](const crow::request& req) {
             if (auto rej = require_auth(req)) return std::move(*rej);
 
             int limit = 20;
@@ -485,35 +479,9 @@ void WebServer::Impl::register_feedback() {
                 }
             }
 
-            std::vector<json> sessions;
-            std::unordered_set<std::string> seen;
-            for (const auto& ws : candidate_workspaces()) {
-                auto arr = sessions_for_workspace(ws, /*archived_only=*/false,
-                                                  /*include_no_workspace=*/true);
-                if (!arr.is_array()) continue;
-                for (auto item : arr) {
-                    const std::string id = item.value("id", item.value("session_id", std::string{}));
-                    if (id.empty()) continue;
-                    const std::string hash = item.value("workspace_hash", std::string{});
-                    const std::string key = hash + "::" + id;
-                    if (seen.count(key)) continue;
-                    seen.insert(key);
-                    if (!item.contains("session_id")) item["session_id"] = id;
-                    sessions.push_back(std::move(item));
-                }
-            }
-
-            std::sort(sessions.begin(), sessions.end(),
-                      [session_sort_key](const json& a, const json& b) {
-                          return session_sort_key(a) > session_sort_key(b);
-                      });
-            if (sessions.size() > static_cast<std::size_t>(limit)) {
-                sessions.resize(static_cast<std::size_t>(limit));
-            }
-
             crow::response r(200);
             r.add_header("Content-Type", "application/json");
-            r.body = json{{"sessions", sessions}}.dump();
+            r.body = json{{"sessions", recent_feedback_sessions(candidate_workspaces(), limit)}}.dump();
             return with_cors(req, std::move(r));
         });
 

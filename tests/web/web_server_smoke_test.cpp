@@ -9830,6 +9830,83 @@ TEST(WebServerHttp, DesktopFeedbackRecentSessionsReturnsNewestFirst) {
     EXPECT_EQ(body["sessions"][0]["id"], newer_id);
 }
 
+// 场景:打开反馈弹窗时,工作区里有一条普通会话、一条已归档会话、一条子代理子会话,
+// 侧栏「任务」区有两条无工作区会话,另外还有一条刚新建、正开着的会话(内存里一份、
+// 磁盘上已有它的 meta)。
+// 期望:列表按更新时间倒序合并工作区会话和无工作区会话;归档的和子会话不出现;
+// 正开着的那条只出现一次;无工作区会话的 workspace_hash 为空串;每条都带 session_id;
+// 连续请求两次结果一致(第二次走缓存)。
+// 回归:这个接口改成走侧栏的 meta 缓存之前,每个工作区都把全部会话文件和全部无工作区
+// 会话重读一遍,真实数据上一次请求 7.2 秒;合并、去重、过滤的口径必须和改之前一样。
+TEST(WebServerHttp, DesktopFeedbackRecentSessionsMergeWorkspaceAndTaskSessions) {
+    WebServerFixture fx;
+    const auto write_session = [](const std::string& project_dir, acecode::SessionMeta meta) {
+        acecode::SessionStorage::write_meta(
+            acecode::SessionStorage::meta_path(project_dir, meta.id), meta);
+        write_text(path_from_utf8(acecode::SessionStorage::session_path(project_dir, meta.id)), "{}\n");
+    };
+    const auto workspace_meta = [&](const std::string& id, const std::string& updated_at) {
+        acecode::SessionMeta meta;
+        meta.id = id;
+        meta.cwd = fx.cwd;
+        meta.created_at = updated_at;
+        meta.updated_at = updated_at;
+        meta.title = id;
+        return meta;
+    };
+    write_session(fx.project_dir, workspace_meta("20260601-010000-aaa1", "2026-06-01T01:00:00Z"));
+    auto archived = workspace_meta("20260601-050000-aaa2", "2026-06-01T05:00:00Z");
+    archived.archived = true;
+    write_session(fx.project_dir, archived);
+    auto child = workspace_meta("20260601-060000-aaa3", "2026-06-01T06:00:00Z");
+    child.parent_session_id = "20260601-010000-aaa1";
+    write_session(fx.project_dir, child);
+    for (const auto& [id, updated_at] : std::vector<std::pair<std::string, std::string>>{
+             {"20260601-020000-bbb1", "2026-06-01T02:00:00Z"},
+             {"20260601-030000-bbb2", "2026-06-01T03:00:00Z"}}) {
+        const std::string session_cwd =
+            acecode::no_workspace_session_cwd(id, fx.no_workspace_cache_root.string());
+        std::filesystem::create_directories(path_from_utf8(session_cwd));
+        acecode::SessionMeta meta;
+        meta.id = id;
+        meta.cwd = session_cwd;
+        meta.no_workspace = true;
+        meta.created_at = updated_at;
+        meta.updated_at = updated_at;
+        meta.title = id;
+        write_session(acecode::SessionStorage::get_project_dir(session_cwd), meta);
+    }
+    auto created = cpr::Post(cpr::Url{fx.url("/api/sessions")},
+        cpr::Header{{"Content-Type", "application/json"}}, cpr::Body{"{}"});
+    ASSERT_EQ(created.status_code, 201) << created.text;
+    const std::string active_id = json::parse(created.text).at("id").get<std::string>();
+
+    const auto list = [&](int limit) {
+        auto r = cpr::Get(cpr::Url{fx.url(
+            "/api/feedback/desktop/recent-sessions?limit=" + std::to_string(limit))});
+        EXPECT_EQ(r.status_code, 200) << r.text;
+        std::vector<std::string> ids;
+        const auto body = json::parse(r.text);
+        for (const auto& item : body["sessions"]) {
+            EXPECT_EQ(item.value("session_id", std::string{}), item.value("id", std::string{}));
+            if (item.value("no_workspace", false)) EXPECT_EQ(item["workspace_hash"], "");
+            ids.push_back(item.value("id", std::string{}));
+        }
+        return ids;
+    };
+
+    const auto all = list(20);
+    EXPECT_EQ(std::count(all.begin(), all.end(), active_id), 1);
+    // 正开着的那条排在哪取决于它的时间戳,这里只核对其余三条的相对顺序。
+    auto from_disk = all;
+    from_disk.erase(std::remove(from_disk.begin(), from_disk.end(), active_id), from_disk.end());
+    EXPECT_EQ(from_disk, (std::vector<std::string>{"20260601-030000-bbb2", "20260601-020000-bbb1",
+                                                   "20260601-010000-aaa1"}));
+    EXPECT_EQ(list(20), all);
+    ASSERT_GE(all.size(), 2u);
+    EXPECT_EQ(list(2), (std::vector<std::string>(all.begin(), all.begin() + 2)));
+}
+
 TEST(WebServerHttp, DesktopFeedbackEnforcesUnicodeCharacterLimitBeforePackaging) {
     std::atomic<int> upload_count{0};
     LocalUpdateServer upload_server([&](httplib::Server& s) {

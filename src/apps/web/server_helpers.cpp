@@ -1345,6 +1345,85 @@ std::vector<SessionMeta> WebServer::Impl::no_workspace_disk_sessions() const {
     return out;
 }
 
+// 旧实现对每个工作区各调一次 sessions_for_workspace(include_no_workspace=true):
+// 每个工作区的全部会话 meta 整读一遍,无工作区会话(每个会话一个目录)还要按
+// 工作区个数重复枚举。实测 20 个工作区 + 372 个无工作区会话时,为了下拉框里的
+// 20 条要打开 12648 个文件,耗时 7.2 秒。
+json WebServer::Impl::recent_feedback_sessions(
+    const std::vector<acecode::desktop::WorkspaceMeta>& workspaces, int limit) const {
+    SessionLoadTimer timer("feedback_recent_sessions");
+    struct Row {
+        std::string stamp;
+        std::string id;
+        json body;
+    };
+    std::vector<Row> rows;
+    std::unordered_set<std::string> seen;
+    const auto add = [&rows, &seen](json body) {
+        const std::string id = body.value("id", body.value("session_id", std::string{}));
+        if (id.empty()) return;
+        if (!seen.insert(body.value("workspace_hash", std::string{}) + "::" + id).second) return;
+        std::string stamp = body.value("updated_at", std::string{});
+        if (stamp.empty()) stamp = body.value("created_at", std::string{});
+        if (!body.contains("session_id")) body["session_id"] = id;
+        rows.push_back({std::move(stamp), id, std::move(body)});
+    };
+
+    // 活跃会话是内存里的少数几个:标题和状态以内存为准(与会话列表同一口径),
+    // 各自点读自己的 meta;磁盘上同一条记录随后跳过。
+    std::vector<SessionDirectoryScope> scopes;
+    std::unordered_map<std::string, std::string> workspace_dirs;
+    for (const auto& ws : workspaces) {
+        scopes.push_back({SessionStorage::get_project_dir(ws.cwd), ws.hash, false});
+        workspace_dirs.emplace(ws.hash, scopes.back().project_dir);
+    }
+    if (deps.session_client) {
+        for (const auto& s : deps.session_client->list_sessions()) {
+            if (!s.parent_session_id.empty()) continue;
+            const auto workspace_dir = workspace_dirs.find(s.workspace_hash);
+            if (!s.no_workspace && workspace_dir == workspace_dirs.end()) continue;
+            std::optional<SessionMeta> meta;
+            if (s.no_workspace) {
+                meta = find_no_workspace_session_meta(s.id);
+            } else {
+                // 会话的 meta 落在它自己 cwd 推导出的目录里(worktree 会话的 cwd
+                // 不等于所属工作区的路径)。
+                auto disk_meta = SessionStorage::read_meta(SessionStorage::meta_path(
+                    s.cwd.empty() ? workspace_dir->second : SessionStorage::get_project_dir(s.cwd),
+                    s.id));
+                if (!disk_meta.id.empty()) meta = std::move(disk_meta);
+            }
+            if (meta && meta->archived) continue;
+            add(session_info_to_json(s, meta ? &*meta : nullptr));
+        }
+    }
+
+    for (const auto& cwd : list_no_workspace_session_cwds(no_workspace_cache_root())) {
+        scopes.push_back({SessionStorage::get_project_dir(cwd), std::string{}, true});
+    }
+    std::vector<RecentSession> disk;
+    {
+        std::lock_guard<std::mutex> lock(sidebar_sessions_mu);
+        disk = sidebar_metadata_cache.recent(
+            scopes, static_cast<std::size_t>(std::max(limit, 0)),
+            [&seen](const SessionMeta& meta, const std::string& workspace_hash) {
+                return seen.empty() || seen.count(workspace_hash + "::" + meta.id) == 0;
+            });
+    }
+    for (const auto& session : disk) add(session_meta_to_json(session.meta, session.workspace_hash));
+
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+        if (a.stamp != b.stamp) return a.stamp > b.stamp;
+        return a.id > b.id;
+    });
+    if (rows.size() > static_cast<std::size_t>(std::max(limit, 0))) {
+        rows.resize(static_cast<std::size_t>(std::max(limit, 0)));
+    }
+    json sessions = json::array();
+    for (auto& row : rows) sessions.push_back(std::move(row.body));
+    return sessions;
+}
+
 std::optional<SessionMeta>
 WebServer::Impl::find_no_workspace_session_meta(const std::string& id) const {
     // 逻辑下沉到 session 层与 remote-control binder 的启动重建共用;
