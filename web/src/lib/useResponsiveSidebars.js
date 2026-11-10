@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { sidebarPopupEventIsInside, solveResponsiveSidebars } from './responsiveSidebars.js';
+import { useStableCallback } from './useStableCallback.js';
 
-export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) {
+export function useResponsiveSidebars({ shellRef, owner, enabled, setSummaryPanelOpen, ...options }) {
   const [shellWidth, setShellWidth] = useState(0);
   const [touch, setTouch] = useState(false);
   const [content, setContent] = useState(null);
@@ -45,15 +46,23 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
     }
   }, [content, owner, popupState?.previewRequested]);
 
-  const popup = enabled && popupState?.owner === owner
-    && !(popupState.side === 'left' ? decision.canDockLeft
-      : popupState.side === 'summary' ? decision.canDockSummary : decision.canDockRight)
+  const temporaryPopup = enabled && popupState?.owner === owner
+    && !(popupState.side === 'left' ? decision.canDockLeft : decision.canDockRight)
     ? popupState.side : null;
-  useEffect(() => { if (!popup) setPopup(null); }, [popup]);
+  useEffect(() => { if (!temporaryPopup) setPopup(null); }, [temporaryPopup]);
+  const popup = temporaryPopup ?? (enabled && decision.summaryAutoCollapsed ? 'summary' : null);
+  const summaryPanelOpen = decision.summaryDocked || popup === 'summary';
+  const toggleSummaryPanel = useStableCallback(() => {
+    setPopup(null);
+    setSummaryPanelOpen(!summaryPanelOpen);
+  });
   const togglePopup = useCallback((side) => setPopup((old) => (
     old?.owner === owner && old.side === side ? null : { owner, side }
   )), [owner]);
-  const closePopup = useCallback(() => setPopup(null), []);
+  const closePopup = useStableCallback(() => {
+    if (popup === 'summary') setSummaryPanelOpen(false);
+    setPopup(null);
+  });
   const requestRightPopup = useCallback((previewRequested = false) => {
     const current = latest.current;
     const needsPopup = solveResponsiveSidebars({
@@ -90,11 +99,14 @@ export function useResponsiveSidebars({ shellRef, owner, enabled, ...options }) 
     };
   }, [popup, closePopup]);
 
-  return useMemo(() => ({ ...decision, shellWidth, popup, reportContent, togglePopup, closePopup, requestRightPopup }), [
+  return useMemo(() => ({
+    ...decision, shellWidth, popup, reportContent, togglePopup, closePopup, requestRightPopup,
+    summaryPanelOpen, toggleSummaryPanel,
+  }), [
     decision.active, decision.transcriptMinimum, decision.minimumChatWidth,
     decision.leftAutoCollapsed, decision.rightAutoCollapsed, decision.leftDocked, decision.rightDocked,
     decision.canDockLeft, decision.canDockRight,
     decision.summaryAvailable, decision.summaryAutoCollapsed, decision.summaryDocked, decision.canDockSummary,
-    shellWidth, popup, reportContent, togglePopup, closePopup, requestRightPopup,
+    shellWidth, popup, reportContent, togglePopup, closePopup, requestRightPopup, summaryPanelOpen, toggleSummaryPanel,
   ]);
 }

@@ -155,7 +155,8 @@ run('the native window minimum allows reaching a transcript-only layout for ever
 
 run('摘要面板最先让位:放不下时先收它,左侧会话列表和右侧面板保持原判定', () => {
   // 默认宽度:左栏 270 + 摘要 280 + 右侧列表 280 + 对话保底 356 = 1186。
-  const withSummary = (width, options = {}) => solve(width, { summaryAvailable: true, ...options });
+  const preferences = { ...defaults.preferences, summaryPanelCollapsed: false };
+  const withSummary = (width, options = {}) => solve(width, { summaryAvailable: true, preferences, ...options });
   const full = withSummary(1186);
   assert.equal(full.summaryDocked, true);
   assert.equal(full.leftDocked, true);
@@ -171,7 +172,7 @@ run('摘要面板最先让位:放不下时先收它,左侧会话列表和右侧�
   assert.equal(narrow.leftDocked, false);
   assert.equal(narrow.summaryDocked, false);
   // 场景:左栏是用户自己收起的 → 摘要面板按「没有左栏」的空间判定。
-  const leftClosed = { ...defaults.preferences, sidebarCollapsed: true };
+  const leftClosed = { ...preferences, sidebarCollapsed: true };
   assert.equal(withSummary(915, { preferences: leftClosed }).summaryDocked, false);
   assert.equal(withSummary(916, { preferences: leftClosed }).summaryDocked, true);
   // 场景:刚被挤掉后回弹需要多 64px 余量,避免在临界宽度来回闪。
@@ -182,6 +183,7 @@ run('摘要面板最先让位:放不下时先收它,左侧会话列表和右侧�
 });
 
 run('摘要面板关掉或当前页面没有它时,不占位也不影响左栏判定', () => {
+  assert.equal(solve(1400, { summaryAvailable: true }).summaryDocked, false);
   const hidden = solve(1400, { summaryAvailable: true,
     preferences: { ...defaults.preferences, summaryPanelCollapsed: true } });
   // 用户主动关掉:不停靠、不算「被挤掉」,但空间足够时开关仍可直接停靠。
@@ -189,11 +191,12 @@ run('摘要面板关掉或当前页面没有它时,不占位也不影响左栏�
   assert.equal(hidden.summaryAutoCollapsed, false);
   assert.equal(hidden.canDockSummary, true);
   // 循环任务 / 专家组件页没有摘要面板:任何宽度都不停靠。
-  const unavailable = solve(1400);
+  const preferences = { ...defaults.preferences, summaryPanelCollapsed: false };
+  const unavailable = solve(1400, { preferences });
   assert.equal(unavailable.summaryDocked, false);
   assert.equal(unavailable.canDockSummary, false);
   // 摘要面板不参与左栏判定:同一宽度下有无摘要,左栏结论相同。
   for (const width of [700, 900, 1100, 1185, 1400]) {
-    assert.equal(solve(width, { summaryAvailable: true }).leftDocked, solve(width).leftDocked);
+    assert.equal(solve(width, { summaryAvailable: true, preferences }).leftDocked, solve(width).leftDocked);
   }
 });

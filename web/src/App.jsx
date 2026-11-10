@@ -92,7 +92,6 @@ import {
   effectiveSidePanelListCollapsed,
   revealRightPanelDetails,
   rightPanelHidden,
-  summaryPanelHidden,
   toggleRightPanel,
   UI_PREFS_STORAGE_KEY,
   validateUiPrefs,
@@ -557,12 +556,16 @@ export function App() {
   const [guidedTourRun, setGuidedTourRun] = useState(false);
   // 新手引导第一次真正开始时才挂载(连同 react-joyride 一起按需加载),之后保持挂载。
   const [guidedTourMounted, setGuidedTourMounted] = useState(false);
+  const setSummaryPanelOpen = useCallback((open) => {
+    setGlobalUiPrefs({ summaryPanelCollapsed: !open });
+  }, [setGlobalUiPrefs]);
   const responsiveSidebars = useResponsiveSidebars({
     shellRef: singleShellRef,
     owner: workbenchOwner,
     enabled: view === 'single' && authState === 'ok' && !guidedTourPreparing && !guidedTourRun,
     widths: singleLayout,
     preferences: uiPrefs,
+    setSummaryPanelOpen,
     previewAutoFit: !previewPanelUserSized,
   });
   const [guidedTourForced, setGuidedTourForced] = useState(false);
@@ -1520,18 +1523,6 @@ export function App() {
     });
   });
 
-  const toggleSummaryPanel = useStableCallback(() => {
-    if (!responsiveSidebars.canDockSummary || responsiveSidebars.popup === 'summary') {
-      responsiveSidebars.togglePopup('summary');
-      return;
-    }
-    responsiveSidebars.closePopup();
-    setUiPrefs((prev) => ({
-      ...prev,
-      summaryPanelCollapsed: !summaryPanelHidden(prev),
-    }));
-  });
-
   const requestWorkspaceEdit = useStableCallback((workspaceHash) => {
     if (!workspaceHash) return;
     setWorkspaceEditRequest((previous) => ({
@@ -2172,7 +2163,6 @@ export function App() {
       && !guidedTourPreparing && !guidedTourRun);
   const sidebarPopup = responsiveSidebars.popup === 'left';
   const rightSidebarPopup = responsiveSidebars.popup === 'right';
-  const summaryPanelOpen = responsiveSidebars.popup === 'summary' || responsiveSidebars.summaryDocked;
   const sidebarPopupRange = popupWidthRange(responsiveSidebars.shellWidth, MIN_SIDEBAR_WIDTH);
   const renderedSidebarWidth = sidebarPopup
     ? clampPopupWidth(singleLayout.sidebarPopup ?? singleLayout.sidebar, sidebarPopupRange)
@@ -2350,8 +2340,8 @@ export function App() {
                 previewPanelAutoFit={!previewPanelUserSized}
                 onPreviewPanelResize={setPreviewPanelWidth}
                 summaryPanelWidth={singleLayout.summaryPanel}
-                summaryPanelOpen={summaryPanelOpen}
-                onToggleSummaryPanel={toggleSummaryPanel}
+                summaryPanelOpen={responsiveSidebars.summaryPanelOpen}
+                onToggleSummaryPanel={responsiveSidebars.toggleSummaryPanel}
                 onSummaryPanelResize={setSummaryPanelWidth}
                 onEditWorkspace={requestWorkspaceEdit}
                 onPreviewPanelVisibleChange={setPreviewPanelVisible}

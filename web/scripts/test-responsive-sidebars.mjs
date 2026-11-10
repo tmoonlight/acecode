@@ -104,6 +104,45 @@ try {
   await page.locator('.ace-sidebar-session-title-button').filter({ hasText: 'Resize fixture' }).first().click();
   await page.locator('[data-conversation-find-root]').waitFor();
   await settle();
+  const summaryToggle = page.locator('[data-sidebar-toggle="summary"]');
+  const summaryPanel = page.locator('.ace-responsive-sidebar-summary');
+  const checkSummary = async (open, floating = false) => {
+    await summaryPanel.waitFor({ state: open ? 'visible' : 'hidden' });
+    assert.equal(await summaryToggle.getAttribute('aria-pressed'), String(open));
+    assert.equal(await summaryPanel.getAttribute('data-sidebar-popup'), floating ? 'summary' : null);
+  };
+  const reloadSession = async () => {
+    await page.evaluate(() => history.replaceState(null, '', '/?open=resize-session&workspace=fixture'));
+    await page.reload({ waitUntil: 'commit' });
+    await page.locator('[data-conversation-find-root]').waitFor();
+    await settle();
+  };
+  await checkSummary(false); // The fixture starts with a legacy record lacking the summary preference.
+  for (const width of [1920, 600]) {
+    await resize(width);
+    await summaryToggle.click();
+    await checkSummary(true, width === 600);
+    await reloadSession();
+    await checkSummary(true, width === 600);
+    await summaryPanel.getByRole('button', { name: '收起摘要面板' }).click();
+    await reloadSession();
+    await checkSummary(false);
+  }
+  await summaryToggle.click();
+  await resize(1920);
+  await checkSummary(true);
+  await resize(600);
+  await checkSummary(true, true);
+  await left.click();
+  await page.locator('[data-sidebar-popup="left"]').waitFor();
+  await left.click();
+  await checkSummary(true, true);
+  await page.keyboard.press('Escape');
+  await checkSummary(false);
+  await resize(1920);
+  await reloadSession();
+  await checkSummary(false);
+  console.log('[pass] summary defaults closed and restores the last choice in both docked and popup layouts');
   if (!(await geometry()).right.visible) { await right.click(); await settle(); }
   let g;
   if (!process.argv.includes('--popup-resize-only')) {

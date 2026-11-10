@@ -1436,8 +1436,6 @@ export const InputBar = forwardRef(function InputBar({
   };
 
   const actionState = getInputBarActionState({ value: draftValue, disabled, busy, hasExtras, submitting, canRetryLastUserMessage, queuePaused });
-  // 悬停发送按钮时列出的发送方式:回复中多一个「排到回合结束」,会话可分叉时多一个
-  // 「在分叉会话中发送」。只有「发送」一种时按钮沿用自己的提示。
   const macKeys = isMacShortcutHost();
   const primaryKey = macKeys ? '⌘' : 'Ctrl';
   const sendShortcutRows = mainComposer ? [

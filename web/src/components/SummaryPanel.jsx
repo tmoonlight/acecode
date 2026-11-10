@@ -1,6 +1,6 @@
-// 摘要面板:对话区右边、右侧详情左边的常驻窄栏(工作区 / 变更 / 后台任务)。
+// 摘要面板显示工作区、变更和后台任务。
 //
-// 停靠 / 自动收起 / 悬浮由 ChatView 外层的 ResponsiveSidebar 负责,这里只渲染
+// 收起、停靠和悬浮由外层的 ResponsiveSidebar 负责,这里只渲染
 // 内容并按需取数:
 //   - 分支走共享的 gitInfoCache(30s TTL + 在途去重),与会话 git 胶囊同一份;
 //   - 变更合计与右侧「变更」页共用 sessionChangesCache 和同一个基线(workbench

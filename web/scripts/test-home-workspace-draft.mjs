@@ -236,6 +236,28 @@ try {
   assert.equal(drafts.get(draftPath('workspace-a')).text, 'Project A edited');
   assert.deepEqual(errors, []);
   console.log('[pass] successful submission clears only the selected workspace draft');
+
+  const send = page.locator('[data-main-composer] .ace-composer-send');
+  const shortcuts = page.locator('[data-main-composer] [role="tooltip"][data-send-shortcuts]');
+  await page.locator('.ace-home-composer').waitFor({ state: 'detached' });
+  await editor.fill('Next message');
+  await send.hover();
+  await shortcuts.getByText('在分叉会话中发送', { exact: true }).waitFor();
+  assert.equal(await send.getAttribute('title'), null);
+
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
+  await expectText('Personal edited');
+  await send.hover();
+  await shortcuts.waitFor();
+  assert.equal(await send.getAttribute('title'), null);
+  assert.deepEqual(await shortcuts.locator('kbd').allTextContents(), ['Enter']);
+  assert.equal(await shortcuts.getByText('发送', { exact: true }).count(), 1);
+  await page.mouse.move(0, 0);
+  await shortcuts.waitFor({ state: 'hidden' });
+  await send.focus();
+  await shortcuts.waitFor();
+  assert.equal(await send.getAttribute('aria-describedby'), await shortcuts.getAttribute('id'));
+  console.log('[pass] existing and new conversations show the shortcut tooltip for their available send modes');
   await page.goto('about:blank');
 } finally {
   for (const release of heldLoads.splice(0)) release();

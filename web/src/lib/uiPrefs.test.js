@@ -8,6 +8,7 @@ import {
   effectiveShowAceCodeAvatar,
   revealRightPanelDetails,
   rightPanelHidden,
+  summaryPanelHidden,
   toggleRightPanel,
   FONT_SIZE_VALUES,
   validateUiPrefs,
@@ -45,6 +46,18 @@ run('DEFAULT_UI_PREFS uses medium font size by default', () => {
 run('DEFAULT_UI_PREFS keeps the right navigation list expanded by default', () => {
   assert.equal(DEFAULT_UI_PREFS.sidePanelListCollapsed, false);
   assert.equal(effectiveSidePanelListCollapsed(DEFAULT_UI_PREFS), false);
+});
+
+run('摘要面板默认收起，兼容缺少字段的旧偏好并尊重两个已保存的开关值', () => {
+  const legacy = { view: 'single', sidePanelCollapsed: false };
+  assert.equal(summaryPanelHidden(DEFAULT_UI_PREFS), true);
+  assert.equal(validateUiPrefs(legacy), true);
+  assert.equal(summaryPanelHidden(legacy), true);
+  for (const summaryPanelCollapsed of [true, false]) {
+    const saved = { ...legacy, summaryPanelCollapsed };
+    assert.equal(validateUiPrefs(saved), true);
+    assert.equal(summaryPanelHidden(saved), summaryPanelCollapsed);
+  }
 });
 
 run('validateUiPrefs accepts old objects without showAceCodeAvatar', () => {

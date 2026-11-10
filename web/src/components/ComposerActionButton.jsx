@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { clsx } from '../lib/format.js';
 import { withAppShortcutHint } from '../lib/appShortcuts.js';
@@ -5,15 +6,14 @@ import { getGoalStopControlState } from '../lib/goalControl.js';
 import { VsIcon } from './Icon.jsx';
 import { COMPOSER_ACTION_BUTTON_CLASS, COMPOSER_ACTION_ICON_SIZE } from '../lib/composerActionAppearance.js';
 
-// shortcutRows:[{ label, keys }],发送方式不止一种时(回复中可排队、可在分叉会话中发送)
-// 悬停发送按钮显示每种方式和它的快捷键;只有一种时沿用按钮自己的提示。
 export function ComposerActionButton({ actionState, stopping = false, mainComposer = false, onSubmit, onStop, shortcutRows = [] }) {
   const { t } = useTranslation();
+  const tooltipId = useId();
   const isStop = actionState.mode === 'stop';
   const stopControl = getGoalStopControlState({ busy: isStop, stopping });
   const label = t(isStop && stopping ? stopControl.label : actionState.submitLabel);
   const title = t(isStop && stopping ? stopControl.title : actionState.submitTitle);
-  const showShortcuts = !isStop && actionState.mode !== 'resume' && shortcutRows.length > 1;
+  const showShortcuts = !isStop && actionState.mode !== 'resume' && shortcutRows.length > 0;
   return (
     <span className="group/send relative inline-flex shrink-0">
       <button
@@ -22,6 +22,7 @@ export function ComposerActionButton({ actionState, stopping = false, mainCompos
         disabled={isStop ? stopControl.disabled : !actionState.canSubmit}
         data-composer-action={actionState.mode}
         aria-label={label}
+        aria-describedby={showShortcuts ? tooltipId : undefined}
         className={clsx(
           COMPOSER_ACTION_BUTTON_CLASS,
           isStop && stopping ? 'disabled:cursor-wait' : 'disabled:cursor-default',
@@ -37,6 +38,7 @@ export function ComposerActionButton({ actionState, stopping = false, mainCompos
       </button>
       {showShortcuts && (
         <span
+          id={tooltipId}
           role="tooltip"
           data-send-shortcuts="true"
           className={clsx(

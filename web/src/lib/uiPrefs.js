@@ -9,9 +9,8 @@ export const DEFAULT_UI_PREFS = {
   // 最右侧导航列表的独立折叠开关。缺省为 false,兼容旧版 v1 偏好。
   sidePanelListCollapsed: false,
   sidebarCollapsed: false,
-  // 对话区右边的摘要面板(工作区 / 变更 / 后台任务)。默认常驻;宽度不够时
-  // 它最先让位,收起后点顶栏开关临时悬浮。
-  summaryPanelCollapsed: false,
+  // 摘要面板默认收起，停靠与悬浮共用这个开关。
+  summaryPanelCollapsed: true,
   // 右侧面板"最大化":用整个聊天主区显示 SidePanel,聊天列表/输入框被
   // 隐藏,只剩左侧 sidebar(若 sidebar 也折叠就是全屏 SidePanel)。再点一
   // 次回到默认布局。跨刷新持久化,符合"用户操作过最大化就保留状态"。
@@ -50,7 +49,7 @@ export function effectiveSidePanelListCollapsed(uiPrefs) {
 }
 
 export function summaryPanelHidden(uiPrefs) {
-  return uiPrefs?.summaryPanelCollapsed === true;
+  return uiPrefs?.summaryPanelCollapsed ?? DEFAULT_UI_PREFS.summaryPanelCollapsed;
 }
 
 export function rightPanelHidden(uiPrefs, previewPanelVisible = false) {
