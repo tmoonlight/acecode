@@ -7,8 +7,12 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <future>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <vector>
 #include "utils/scope_exit.hpp"
 
 namespace {
@@ -45,6 +49,51 @@ public:
                      std::atomic<bool>* abort) override {
         entered.set_value();
         EXPECT_TRUE(wait_for_retry(std::chrono::seconds(30), abort));
+    }
+};
+
+// 一段「已经发过请求」的会话历史:用户消息 + 首个请求留下的上下文快照 + 一次追加更新。
+// 恢复出来的新会话都是这个形状,侧边对话的基线上下文要从这些存档记录重建。
+std::vector<acecode::ChatMessage> frozen_window() {
+    acecode::ChatMessage user;
+    user.role = "user";
+    user.content = "original task";
+    acecode::ChatMessage snapshot;
+    snapshot.role = "user";
+    snapshot.is_meta = true;
+    snapshot.subtype = acecode::kRequestContextSnapshot;
+    snapshot.content = "FROZEN_REQUEST_CONTEXT";
+    snapshot.metadata = {
+        {"request_context_version", 1}, {"skills", "FROZEN_SKILL_INDEX"},
+        {"context_state", {{"session", "FROZEN_REQUEST_CONTEXT"},
+                           {"swarm", ""}, {"plan", ""}, {"execution", ""}}},
+    };
+    auto update = snapshot;
+    update.subtype = acecode::kRequestContextUpdate;
+    update.content = "APPENDED_REQUEST_CONTEXT";
+    update.metadata = {
+        {"request_context_version", 1},
+        {"context_state", {{"session", "APPENDED_REQUEST_CONTEXT"}}},
+    };
+    return {user, snapshot, update};
+}
+
+long long count_content(const std::vector<acecode::ChatMessage>& messages,
+                        const std::string& needle) {
+    return std::count_if(messages.begin(), messages.end(), [&](const auto& message) {
+        return message.content.find(needle) != std::string::npos;
+    });
+}
+
+// 让 worker 停在某一步、由测试线程放行。
+struct Gate {
+    std::mutex mutex;
+    std::condition_variable changed;
+    bool entered = false;
+    bool released = false;
+    void release() {
+        { std::lock_guard<std::mutex> lock(mutex); released = true; }
+        changed.notify_all();
     }
 };
 }
@@ -213,4 +262,94 @@ TEST(SideQuestionService, JoinWaitsForAnAlreadyAdmittedCallback) {
     ASSERT_EQ(joined.wait_for(2s), std::future_status::ready);
     joined.get();
     EXPECT_FALSE(service.ask_async("late", {}));
+}
+
+// 场景:服务刚创建、还没人发布过上下文,随后发布一次。
+// 期望:has_context 先是 false、发布后变 true。它区分「还没准备」和「准备过」,
+// 恢复出来的会话靠它决定第一次侧问时要不要现场构建上下文。
+TEST(SideQuestionService, HasContextTurnsTrueOnFirstPublish) {
+    acecode::agent::SideQuestionService service({});
+    EXPECT_FALSE(service.has_context());
+    acecode::ChatMessage context;
+    context.role = "system";
+    context.content = "context";
+    service.publish({context});
+    EXPECT_TRUE(service.has_context());
+}
+
+// 场景:恢复出来的会话(worker 已启动、历史里带上下文快照)没有预先准备侧边对话的
+// 上下文,用户第一次发侧问。
+// 期望:侧问之前上下文未发布;侧问时由 worker 现场构建,模型收到的请求里带着存档的
+// 上下文(快照、技能索引、追加更新各一份),和以前恢复时预先构建的结果一样是 5 条。
+// 回归:恢复时同步构建这份上下文,带快照的会话要为它连续启动 5~7 个 git 进程,侧栏
+// 每点开一个会话都多转圈 0.3~0.9 秒;改成按需构建后若漏了这一步,侧问会直接报
+// ContextNotReady(409)。
+TEST(SideQuestionService, UnprimedStartedLoopBuildsContextOnFirstSideQuestion) {
+    acecode_test::characterization::Isolation isolation;
+    acecode_test::characterization::Harness harness(isolation, "side-lazy");
+    for (const auto& message : frozen_window()) harness.loop->push_message(message);
+    EXPECT_TRUE(harness.loop->side_question_context_snapshot().empty());
+
+    harness.provider->push_text("side answer");
+    const auto answer = harness.loop->ask_side_question("explain the task");
+    EXPECT_EQ(answer.status, acecode::SideQuestionStatus::Ok) << answer.error;
+    EXPECT_EQ(answer.answer, "side answer");
+    const auto request = harness.provider->messages_for_turn(0);
+    EXPECT_EQ(count_content(request, "FROZEN_REQUEST_CONTEXT"), 1);
+    EXPECT_EQ(count_content(request, "APPENDED_REQUEST_CONTEXT"), 1);
+    EXPECT_EQ(count_content(request, "FROZEN_SKILL_INDEX"), 1);
+    EXPECT_EQ(harness.loop->side_question_context_snapshot().size(), 5u);
+}
+
+// 场景:同样没准备过上下文,用户先发了主消息,回合卡在 UserPromptSubmit 钩子上、还没
+// 构建第一个请求;这时发侧问。现场构建只能排在这个回合后面。
+// 期望:钩子放行之前侧问一直等着(不拿空上下文返回 ContextNotReady);放行后主回合
+// 一发出第一个请求、上下文可用,侧问就继续,请求里带着主回合刚提交的用户消息。
+// 200ms 的观察窗口远大于轮询间隔(20ms),足以区分「在等」和「立刻返回」。
+TEST(SideQuestionService, UnprimedSideQuestionBehindATurnUsesThatTurnsContext) {
+    using namespace std::chrono_literals;
+    using acecode_test::characterization::Json;
+    acecode_test::characterization::Isolation isolation;
+    acecode_test::characterization::Harness harness(isolation, "side-behind-turn");
+    auto gate = std::make_shared<Gate>();
+    harness.install_hooks({"UserPromptSubmit"}, [gate](const Json&) {
+        std::unique_lock<std::mutex> lock(gate->mutex);
+        gate->entered = true;
+        gate->changed.notify_all();
+        gate->changed.wait_for(lock, 5s, [gate] { return gate->released; });
+        return Json::object();
+    });
+    acecode::ScopeExit release_on_exit([gate] { gate->release(); });
+    // 主回合与侧问各取一条,谁先取到都不影响断言。
+    harness.provider->push_text("first reply");
+    harness.provider->push_text("second reply");
+    harness.loop->submit("MAIN_TURN_MARKER");
+    {
+        std::unique_lock<std::mutex> lock(gate->mutex);
+        ASSERT_TRUE(gate->changed.wait_for(lock, 3s, [gate] { return gate->entered; }));
+    }
+    ASSERT_TRUE(harness.loop->side_question_context_snapshot().empty());
+
+    auto answer = std::async(std::launch::async, [loop = harness.loop.get()] {
+        return loop->ask_side_question("explain the task");
+    });
+    EXPECT_EQ(answer.wait_for(200ms), std::future_status::timeout);
+    gate->release();
+    ASSERT_EQ(answer.wait_for(5s), std::future_status::ready);
+    const auto result = answer.get();
+    EXPECT_EQ(result.status, acecode::SideQuestionStatus::Ok) << result.error;
+    {
+        std::unique_lock<std::mutex> lock(harness.observed->mutex);
+        ASSERT_TRUE(harness.observed->changed.wait_for(
+            lock, 5s, [state = harness.observed] { return state->done >= 1; }));
+    }
+    // 两个请求(主回合、侧问)的先后不定,按侧边对话指令认出侧问那一个。
+    int side_requests = 0;
+    for (int index = 0; index < 2; ++index) {
+        const auto request = harness.provider->messages_for_turn(index);
+        if (count_content(request, "read-only side conversation") == 0) continue;
+        ++side_requests;
+        EXPECT_GE(count_content(request, "MAIN_TURN_MARKER"), 1);
+    }
+    EXPECT_EQ(side_requests, 1);
 }

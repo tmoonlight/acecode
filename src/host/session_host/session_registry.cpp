@@ -1075,8 +1075,9 @@ SessionRegistry::make_entry_locked(const std::string& id,
     entry->loop->set_ask_question_prompter(std::move(ask_prompter));
 
     // A newly created Desktop/Web session must support side chat immediately,
-    // before any main request has caused the worker to publish a prompt. Resume
-    // primes again after persisted history and worktree state are restored.
+    // before any main request has caused the worker to publish a prompt. A
+    // resumed one builds it on its first side request: with a stored context
+    // snapshot that build spawns git, which must not delay opening a session.
     if (!resumed_meta) entry->loop->prime_side_question_context();
     entry->loop->start();
 
@@ -1180,7 +1181,6 @@ bool SessionRegistry::resume(const std::string& id, const SessionOptions& opts) 
     if (auto goal = current_active_goal(*entry)) {
         emit_goal_audit_message(*entry, *goal, "session_resume", "Continuing");
     }
-    entry->loop->prime_side_question_context();
     entry->loop->maybe_continue_goal();
     entry->loop->dispatch_session_start_hook("resume");
     entry->loop->dispatch_session_title_changed_hook(

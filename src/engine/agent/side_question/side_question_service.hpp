@@ -24,6 +24,9 @@ public:
     explicit SideQuestionService(ProviderAccessor provider);
     ~SideQuestionService();
     void publish(const std::vector<ChatMessage>& messages);
+    // False until the first publish: a resumed session builds its baseline
+    // context on the first side request, not while the session is opening.
+    bool has_context() const;
     std::vector<ChatMessage> snapshot() const;
     SideQuestionResult ask(const std::string& question, const SideChatToolset& tools = {});
     // tools is moved into the request thread; its callbacks must stay valid

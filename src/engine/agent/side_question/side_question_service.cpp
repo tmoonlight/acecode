@@ -11,6 +11,7 @@ struct SideQuestionService::State {
     ProviderAccessor provider;
     std::mutex context_mu;
     std::vector<ChatMessage> context;
+    bool published = false;
     std::atomic<bool> stopped{false};
     // In-flight requests, so stop_requests can cancel a multi-step tool loop
     // instead of join() waiting for every remaining model call.
@@ -68,6 +69,12 @@ void SideQuestionService::join() {
 void SideQuestionService::publish(const std::vector<ChatMessage>& messages) {
     std::lock_guard<std::mutex> lock(state_->context_mu);
     state_->context = messages;
+    state_->published = true;
+}
+
+bool SideQuestionService::has_context() const {
+    std::lock_guard<std::mutex> lock(state_->context_mu);
+    return state_->published;
 }
 
 std::vector<ChatMessage> SideQuestionService::snapshot() const {

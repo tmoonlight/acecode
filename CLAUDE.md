@@ -69,6 +69,7 @@ The Superpowers plugin is disabled for this repository. Do not invoke or follow 
 - **侧栏卡顿第二来源是请求条数**:`pinned-sessions` / `opencode-import` 只对可见 workspace 重取(`sidebarAuxiliaryFetch.js`);诊断看 `performance.getEntriesByType('resource')` 的排队时间,不看服务端日志。`WorkspaceRegistry::scan()` 按每个 hash 目录自身 mtime 负缓存,2 秒内动过的不信缓存,写路径主动失效。归档:侧边栏卡顿的第二个来源、WorkspaceRegistry::scan() 的负缓存。
 - **首页任务建议**(`/api/home/intent-prompts`)按需读取、不整库扫目录,目录修改时间按路径读,找会话预算 30 秒。归档:首页任务建议。
 - **历史按页访问**:首次 `messages?limit=200`,`before` 前插保留 id 与滚动位置,游标含字节位置 / 行指纹 / 文件身份,替换失效返回 409 后重载尾页;`load_active_messages` 锁内只打开文件、锁外解析;`list_active` 锁内只复制 entry 引用。归档:会话历史按页访问、读取与恢复的锁边界。
+- **点开会话转圈等的是 resume,不是读记录**:内容遮罩在 `resumePending` 期间一直盖着,而 `session_open` 打点只量到记录渲染完,看日志要看 `"operation":"resume"`。resume 里别放同步的进程启动:侧边对话的基线上下文(带上下文快照的会话要为它跑 5~7 次 git)推迟到第一次侧问、由 worker 构建(`AgentLoop::ensure_side_question_context`),**不要**加回 resume;读记录接口最后才到无工作区会话里找(`find_session_history_file`,那一步要逐个探测全部无工作区会话目录)。
 - **记忆**:三端经 `create_memory_runtime` 拿同一个 `MemoryService`,作用域按会话项目目录解析(不用进程 cwd);写入先重扫磁盘再在 `state.sqlite3` 事务里完成,写入口 `redact_secrets`;注入是按会话冻结的快照(不打穿 prompt cache);`/memory` 只有一份文本实现;摘要调度器只在 daemon / TUI。「记住」一律走 `memory_write`。归档:记忆(openspec unify-memory-system)。
 - **Skills 与项目指令**:`SKILL.md` frontmatter 启动读、正文懒加载;技能索引每请求注入 session-context(预算 1% 上下文窗口),没有它模型永远不会主动调技能;`/<skill>` 在 Web 与 TUI 都换成 `build_skill_invocation_hint` 的轻量提示,不注入正文。项目指令加载 outer-first、在 linked worktree 根止步;仓库根只留规范文档,别加重复的根指令文件。
 - `file_read` 的「文件未变」去重按会话 id 分区,压缩与线程修复后清空观测;JSONL 的非搜索追加走 `append_non_searchable_locked`,否则搜索索引整份重建。

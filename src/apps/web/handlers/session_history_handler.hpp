@@ -1,10 +1,35 @@
 #pragma once
 
 #include "session/session_history_page.hpp"
+#include "session/session_storage.hpp"
 #include <charconv>
+#include <functional>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace acecode::web {
+
+inline std::string session_history_file_in(const std::string& project_dir,
+                                           const std::string& session_id) {
+    if (project_dir.empty()) return {};
+    const auto files = SessionStorage::find_session_files(project_dir, session_id);
+    return files.empty() ? std::string{} : files.front().jsonl_path;
+}
+
+// 未恢复会话的记录文件:按顺序看 project_dirs,都没有才调用 last_resort 取最后
+// 一个候选目录(返回空串 = 没有)。last_resort 是「到无工作区会话里找」,它要
+// 逐个探测全部无工作区会话目录,数量随使用增长(372 个时约 70 ms);先调用它
+// 会让每次打开普通会话都白付这笔开销。
+inline std::string find_session_history_file(
+    const std::vector<std::string>& project_dirs, const std::string& session_id,
+    const std::function<std::string()>& last_resort) {
+    for (const auto& project_dir : project_dirs) {
+        auto path = session_history_file_in(project_dir, session_id);
+        if (!path.empty()) return path;
+    }
+    return last_resort ? session_history_file_in(last_resort(), session_id) : std::string{};
+}
 
 struct ParsedHistoryRequest {
     bool paged = false;

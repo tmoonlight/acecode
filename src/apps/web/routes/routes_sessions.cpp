@@ -1481,13 +1481,10 @@ void WebServer::Impl::register_sessions() {
                         }
                     }
                     directories.push_back(SessionStorage::get_project_dir(deps.cwd));
-                    if (auto meta = find_no_workspace_session_meta(id)) {
-                        directories.push_back(SessionStorage::get_project_dir(meta->cwd));
-                    }
-                    for (const auto& directory : directories) {
-                        auto files = SessionStorage::find_session_files(directory, id);
-                        if (!files.empty()) { path = files.front().jsonl_path; break; }
-                    }
+                    path = find_session_history_file(directories, id, [this, &id] {
+                        const auto meta = find_no_workspace_session_meta(id);
+                        return meta ? SessionStorage::get_project_dir(meta->cwd) : std::string{};
+                    });
                 }
                 if (path.empty()) {
                     crow::response response(404, R"({"error":"SESSION_NOT_FOUND"})");
@@ -1582,29 +1579,26 @@ void WebServer::Impl::register_sessions() {
                     }
                 }
                 append_project_dir(deps.cwd);
-                if (auto no_workspace_meta = find_no_workspace_session_meta(id)) {
-                    if (!no_workspace_meta->cwd.empty()) {
-                        append_project_dir(no_workspace_meta->cwd);
+                const auto history_file = find_session_history_file(project_dirs, id, [this, &id] {
+                    const auto meta = find_no_workspace_session_meta(id);
+                    return meta && !meta->cwd.empty()
+                        ? SessionStorage::get_project_dir(meta->cwd) : std::string{};
+                });
+                if (!history_file.empty()) {
+                    json msgs = json::array();
+                    for (const auto& m : SessionStorage::load_messages(history_file)) {
+                        if (is_file_checkpoint_message(m)) continue;
+                        if (is_compact_checkpoint_message(m)) continue;
+                        if (is_hidden_goal_context_message(m)) continue;
+                        msgs.push_back(chat_message_to_json(m));
                     }
-                }
-                for (const auto& project_dir : project_dirs) {
-                    auto candidates = SessionStorage::find_session_files(project_dir, id);
-                    if (!candidates.empty()) {
-                        json msgs = json::array();
-                        for (const auto& m : SessionStorage::load_messages(candidates.front().jsonl_path)) {
-                            if (is_file_checkpoint_message(m)) continue;
-                            if (is_compact_checkpoint_message(m)) continue;
-                            if (is_hidden_goal_context_message(m)) continue;
-                            msgs.push_back(chat_message_to_json(m));
-                        }
-                        json wrapper;
-                        wrapper["events"]   = std::move(arr);
-                        wrapper["messages"] = std::move(msgs);
-                        append_session_runtime_snapshot(wrapper, id);
-                        crow::response r(wrapper.dump());
-                        r.add_header("Content-Type", "application/json");
-                        return with_cors(req, std::move(r));
-                    }
+                    json wrapper;
+                    wrapper["events"]   = std::move(arr);
+                    wrapper["messages"] = std::move(msgs);
+                    append_session_runtime_snapshot(wrapper, id);
+                    crow::response r(wrapper.dump());
+                    r.add_header("Content-Type", "application/json");
+                    return with_cors(req, std::move(r));
                 }
             }
 

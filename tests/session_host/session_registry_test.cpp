@@ -853,6 +853,74 @@ TEST(SessionRegistry, SideQuestionUsesDetachedContextWithoutToolsOrTranscriptMut
     std::filesystem::remove_all(cwd, ec);
 }
 
+// 场景:会话跑过一轮(记录里留下了上下文快照)后关闭,用户从侧栏再点开它(resume),
+// 过一会儿才第一次用侧边对话。
+// 期望:resume 返回时侧边对话的基线上下文还没构建(快照为空);第一次侧问时才构建,
+// 模型收到的上下文里有恢复出来的主会话历史。
+// 回归:resume 里同步构建这份上下文。带快照的会话要为它连续启动 5~7 个 git 进程,
+// 所以侧栏每点开一个会话都多转圈 0.3~0.9 秒(低配机器上数秒),和会话内容多少无关
+// (实测 26 KB 的会话 resume 975 ms,其中 894 ms 是这一段)。
+TEST(SessionRegistry, ResumeDefersSideQuestionContextToTheFirstSideRequest) {
+    auto cwd = temp_cwd("side_question_lazy");
+    TestFixture fx;
+    auto provider = std::make_shared<SideQuestionStubProvider>();
+    fx.provider = provider;
+    SessionOptions opts;
+    opts.cwd = cwd.string();
+    auto id = fx.registry.create(opts);
+    auto* entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_TRUE(entry->loop);
+
+    std::mutex event_mu;
+    std::condition_variable event_cv;
+    bool done = false;
+    auto sub = entry->loop->events().subscribe([&](const SessionEvent& event) {
+        if (event.kind != SessionEventKind::Done) return;
+        {
+            std::lock_guard<std::mutex> lk(event_mu);
+            done = true;
+        }
+        event_cv.notify_all();
+    });
+    entry->loop->submit("main task");
+    {
+        std::unique_lock<std::mutex> lk(event_mu);
+        ASSERT_TRUE(event_cv.wait_for(lk, 5s, [&] { return done; }));
+    }
+    entry->loop->events().unsubscribe(sub);
+    fx.registry.destroy(id);
+
+    SessionOptions resume_opts;
+    resume_opts.cwd = cwd.string();
+    ASSERT_TRUE(fx.registry.resume(id, resume_opts));
+    entry = fx.registry.lookup(id);
+    ASSERT_NE(entry, nullptr);
+    ASSERT_TRUE(entry->loop);
+    // 前提:恢复出来的历史里确实有上下文快照,否则走的不是会启动 git 的那条路。
+    const auto restored = entry->loop->messages();
+    ASSERT_TRUE(std::any_of(restored.begin(), restored.end(),
+                            acecode::is_request_context_snapshot));
+    EXPECT_TRUE(entry->loop->side_question_context_snapshot().empty());
+
+    const auto calls_before = provider->side_calls();
+    auto resumed = fx.registry.ask_side_question(id, "after resume");
+    EXPECT_EQ(resumed.status, SideQuestionStatus::Ok) << resumed.error;
+    EXPECT_EQ(provider->side_calls(), calls_before + 1);
+    EXPECT_FALSE(entry->loop->side_question_context_snapshot().empty());
+    const auto side_messages = provider->side_messages();
+    EXPECT_TRUE(std::any_of(side_messages.begin(), side_messages.end(), [](const auto& message) {
+        return message.content.find("main task") != std::string::npos;
+    }));
+    EXPECT_TRUE(std::any_of(side_messages.begin(), side_messages.end(), [](const auto& message) {
+        return message.content.find("main answer") != std::string::npos;
+    }));
+
+    fx.registry.destroy(id);
+    std::error_code ec;
+    std::filesystem::remove_all(cwd, ec);
+}
+
 // 场景:TUI /btw(同步 HTTP 侧问走同一路径)问到上下文里没有的文件,会话同时注册了
 // bash 与 file_read。期望:模型的工具表里只有 file_read(没有 bash);读取在后台执行、
 // 结果回填后作答;tools_used 列出读过的文件,TUI 据此在回答前提示;主会话历史不变。

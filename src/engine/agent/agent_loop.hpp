@@ -223,8 +223,8 @@ public:
     // Safe detached prompt snapshot; callers never read active worker history.
     std::vector<ChatMessage> side_question_context_snapshot() const;
     // Publish a safe baseline snapshot before the first main provider request.
-    // SessionRegistry calls this only while the loop is idle, after initial
-    // configuration or restored history has been installed.
+    // Call only while the loop is idle and this thread owns its history: a new
+    // session before start(), afterwards through ensure_side_question_context().
     void prime_side_question_context();
     SideQuestionResult ask_side_question(const std::string& question);
     // Streams a detached side answer. The model may call the read-only built-in
@@ -396,6 +396,9 @@ private:
     agent::RequestContextOptions request_context_options(
         const std::shared_ptr<LlmProvider>& provider) const;
     void publish_side_question_context(const std::vector<ChatMessage>& messages);
+    // Builds the baseline on the worker when nothing has been published yet (a
+    // resumed session that has not run a turn), and waits for it.
+    void ensure_side_question_context();
     SideChatToolset side_chat_toolset(const SideChatMainSessionSender& send_to_main = {});
     void require_before_start(const char* operation) const;
     void reload_exec_rules();
