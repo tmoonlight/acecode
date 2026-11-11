@@ -105,7 +105,9 @@ run('摘要面板:后台命令显示命令本身并用终端图标,停止请求�
 
 // 回归:后台命令结束通知唤醒的新回合把前一回合整体折进「已处理」,前一回合
 // task_complete 的总结连展开都看不到(实测:「命令已转入后台」那句总结消失)。
-run('后台通知唤醒新回合:前一回合保留自己的总结,通知行开始新回合', () => {
+// 通知本身不画进对话(用户反馈「后台命令已完成」那一行纯属干扰),结果在摘要面板
+// 和详情栏的后台任务里看;它仍负责把唤醒的新回合与前一回合分开。
+run('后台通知唤醒新回合:前一回合保留自己的总结,通知行不显示', () => {
   const tool = (id, extra = {}) => ({
     kind: 'tool', id, ts: id * 1000,
     tool: { isDone: true, success: true, tool: 'bash', summary: { verb: 'Ran', object: 'ping', metrics: [] }, ...extra },
@@ -125,12 +127,12 @@ run('后台通知唤醒新回合:前一回合保留自己的总结,通知行开�
     { kind: 'msg', id: 5, ts: 5000, role: 'assistant', content: '退出码 0' },
   ];
   const projected = projectCollapsedTranscriptItems(items);
-  // 期望:第一回合的总结行还在;通知行独立显示;第二回合的答复在通知之后。
+  // 期望:第一回合的总结行还在;通知行不出现;第二回合的答复跟在第一回合总结之后。
   const summaries = projected.filter((item) => item.kind === 'completion_summary');
   assert.equal(summaries.length, 1);
   assert.match(summaries[0].title, /已转入后台/);
-  const noticeIndex = projected.findIndex((item) => item.id === 4);
-  assert.ok(noticeIndex > projected.indexOf(summaries[0]));
+  assert.equal(projected.some((item) => item.id === 4), false);
+  assert.ok(projected.length - 1 > projected.indexOf(summaries[0]));
   assert.equal(projected[projected.length - 1].content, '退出码 0');
 
   // 场景:回合进行中(前面是工具结果)插入的通知不切分回合,仍只有一段「已处理」。
@@ -140,5 +142,16 @@ run('后台通知唤醒新回合:前一回合保留自己的总结,通知行开�
     { kind: 'msg', id: 5, ts: 5000, role: 'assistant', content: 'done' },
   ]);
   assert.equal(midTurn.filter((item) => item.mode === 'processed').length, 1);
-  assert.ok(midTurn.some((item) => item.id === 3));
+  assert.equal(midTurn.some((item) => item.id === 3), false);
+
+  // 场景:空闲会话刚被通知唤醒、模型还没出内容 → 不显示通知,只留实时活动行。
+  const woken = projectCollapsedTranscriptItems([
+    { kind: 'msg', id: 1, ts: 1000, role: 'user', content: 'run ping' },
+    tool(2), taskComplete(3, '已转入后台'),
+    notice(4),
+  ], { ensureLiveActivity: true, deferTrailingToolSummary: true, liveTurnId: 't2' });
+  assert.equal(woken.some((item) => item.id === 4), false);
+  const last = woken[woken.length - 1];
+  assert.equal(last.kind, 'activity_summary');
+  assert.equal(last.live, true);
 });

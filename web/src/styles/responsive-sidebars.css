@@ -50,8 +50,10 @@
   z-index: 2;
   box-shadow: -4px 0 16px rgba(0, 0, 0, .16);
 }
-/* 摘要面板:停靠时是对话区与右侧详情之间的一列;悬浮时锚点宽 0,面板贴着
-   右侧详情的左边缘向左浮在对话区上方,不盖住右侧面板。 */
+/* 摘要面板两种模式是同一个圆角框(照 Claude 桌面版),四周留 8px:停靠时是对话区与
+   右侧详情之间的一列,框画在列里面,拖拽柄正好落在左边 8px 空隙上;宽度不够时变成浮动
+   卡片,锚点宽 0,框贴着右侧详情左边缘浮在对话区上方(不盖住右侧面板),多一层阴影
+   把它和底下的对话分开。 */
 .ace-summary-anchor {
   position: relative;
   display: flex;
@@ -59,13 +61,18 @@
   min-height: 0;
 }
 .ace-responsive-sidebar-summary { position: relative; }
-.ace-responsive-sidebar-summary:not([data-sidebar-popup]) {
-  border-left: 1px solid var(--ace-border);
+.ace-responsive-sidebar-summary:not([data-sidebar-popup]) { padding: 8px; }
+.ace-responsive-sidebar-summary:not([data-sidebar-popup]) > .ace-summary-panel,
+.ace-responsive-sidebar-summary[data-sidebar-popup] {
+  border: 1px solid var(--ace-border);
+  border-radius: 12px;
 }
 .ace-responsive-sidebar-summary[data-sidebar-popup] {
-  right: 0;
+  top: 8px;
+  bottom: 8px;
+  right: 8px;
   max-width: none;
-  border-left: 1px solid var(--ace-border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .08);
 }
 .ace-responsive-sidebar-summary > .ace-popup-resize-handle { left: 0; }
 .ace-responsive-sidebar-summary > .ace-popup-resize-handle::after { left: 0; }
