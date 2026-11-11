@@ -21,9 +21,11 @@ opencode(两者源码已核对),要点是「框架兑现叫醒」,而不是靠�
 - **通知是内部上下文,不是用户发言**:落盘为 user 角色 + `metadata.background_task`。
   `llm/message_predicates.hpp` 的 `is_background_task_message` 与网状蜂群的非 NEW_TASK
   信封同等对待:不计回合、不当标题 / 摘要、不触发 UserPromptSubmit、不建检查点、
-  不进分叉历史;Web 转成系统提示行,TUI 显示成系统行。Web 折叠回合时,前一回合
-  已收尾(task_complete 或助手正文)的通知行开始新回合,前一回合保留自己的总结;
-  回合中途插入的通知不切分回合(`transcriptProjection.js` 的 `turnHasEnded`)。
+  不进分叉历史;Web 转成系统提示行但**不画进对话**(用户反馈「后台命令已完成」那行纯属
+  干扰,结果在摘要面板和详情栏的后台任务页签里看),TUI 显示成系统行。Web 折叠回合时,
+  前一回合已收尾(task_complete 或助手正文)的通知仍负责开始新回合,前一回合保留自己的
+  总结;回合中途插入的通知不切分回合(`transcriptProjection.js` 的 `turnHasEnded`);切分后
+  `projectCollapsedTranscriptItems` 把通知行滤掉,刚被唤醒、还没内容的回合只留实时活动行。
 - **转后台的三个时机**:前台命令超时;用户插话(`steer_input` 递增信号,让消息能
   马上送到模型);用户手动(Web 活动行「转到后台」、TUI Ctrl+B、`POST /background`)。
   Esc 中断回合仍然杀前台命令,不影响已在后台的任务。

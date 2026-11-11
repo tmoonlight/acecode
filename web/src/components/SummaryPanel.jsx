@@ -127,14 +127,40 @@ function useNow(ticking) {
   return now;
 }
 
-function Section({ title, action = null, children }) {
+// 分组标题可折叠的带 ⌄ / › 箭头(照 Claude 桌面版);字号沿用原来的,随设置里的字体大小缩放。
+// 折叠状态按分组记在本机(localStorage),读写失败就当展开。
+function Section({ id = '', title, action = null, collapsible = false, children }) {
+  const storageKey = collapsible && id ? `acecode.summaryPanel.collapsed.${id}` : '';
+  const [collapsed, setCollapsed] = useState(() => {
+    if (!storageKey) return false;
+    try { return globalThis.localStorage?.getItem(storageKey) === '1'; } catch { return false; }
+  });
+  const toggle = () => setCollapsed((value) => {
+    const next = !value;
+    try { globalThis.localStorage?.setItem(storageKey, next ? '1' : '0'); } catch { /* 只是本机偏好 */ }
+    return next;
+  });
   return (
-    <section className="ace-summary-section">
-      <div className="flex items-center gap-1 pl-2 mb-1 min-w-0">
-        <h3 className="flex-1 min-w-0 text-[12px] font-semibold text-fg-2">{title}</h3>
+    <section className="ace-summary-section" data-collapsed={collapsed ? 'true' : undefined}>
+      <div className="flex items-center gap-1 h-8 pl-2 min-w-0">
+        <h3 className="flex-1 min-w-0 flex text-[12px] font-semibold text-fg-2">
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={!collapsed}
+              className="min-w-0 flex items-center gap-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25"
+            >
+              <span className="truncate">{title}</span>
+              <VsIcon name={collapsed ? 'expandRight' : 'expandDown'} size={12} className="shrink-0 text-fg-mute" />
+            </button>
+          ) : (
+            <span className="truncate">{title}</span>
+          )}
+        </h3>
         {action}
       </div>
-      {children}
+      {!collapsed && children}
     </section>
   );
 }
@@ -153,12 +179,12 @@ function Row({ icon, iconNode = null, children, title, onClick, trailing }) {
           type="button"
           onClick={onClick}
           title={title}
-          className="flex-1 min-w-0 flex items-center gap-2 h-7 px-2 rounded-md text-left text-[13px] text-fg hover:bg-surface-hi transition"
+          className="flex-1 min-w-0 flex items-center gap-2 h-8 px-2 rounded-md text-left text-[13px] text-fg hover:bg-surface-hi transition"
         >
           {content}
         </button>
       ) : (
-        <div className="flex-1 min-w-0 flex items-center gap-2 h-7 px-2 text-[13px] text-fg" title={title}>
+        <div className="flex-1 min-w-0 flex items-center gap-2 h-8 px-2 text-[13px] text-fg" title={title}>
           {content}
         </div>
       )}
@@ -282,7 +308,7 @@ function FolderRow({ path, primary }) {
           hide();
           openFolderMenu(rowRef.current, path);
         }}
-        className="flex-1 min-w-0 flex items-center gap-2 h-7 px-2 rounded-md text-left text-[13px] text-fg hover:bg-surface-hi transition"
+        className="flex-1 min-w-0 flex items-center gap-2 h-8 px-2 rounded-md text-left text-[13px] text-fg hover:bg-surface-hi transition"
       >
         <VsIcon name="folder" size={15} className="shrink-0 text-fg-mute" />
         <span className="flex-1 min-w-0 truncate">
@@ -346,8 +372,8 @@ export function SummaryPanel({
   );
 
   return (
-    <div ref={rootRef} className="ace-summary-panel h-full w-full min-w-0 flex flex-col gap-3 overflow-y-auto overflow-x-hidden px-2 py-3 bg-surface">
-      <Section title="工作区" action={closeButton}>
+    <div ref={rootRef} className="ace-summary-panel h-full w-full min-w-0 flex flex-col gap-1 overflow-y-auto overflow-x-hidden px-3 py-3 bg-surface">
+      <Section id="workspace" title="工作区" action={closeButton} collapsible>
         {workspace.name && (
           <Row
             icon="computer"
@@ -369,7 +395,7 @@ export function SummaryPanel({
       </Section>
       {changes && (
         <>
-          <div className="h-px bg-border mx-2" />
+          <div className="h-px bg-border mx-2 my-2" />
           <Section title="变更">
             <Row icon="edit" onClick={onOpenChanges}>
               <span className="ace-change-add">+{formatChangeCount(changes.additions)}</span>{' '}
@@ -380,8 +406,8 @@ export function SummaryPanel({
       )}
       {(running.length > 0 || finishedCount > 0) && (
         <>
-          <div className="h-px bg-border mx-2" />
-          <Section title="后台任务">
+          <div className="h-px bg-border mx-2 my-2" />
+          <Section id="background" title="后台任务" collapsible>
             {running.map((task) => (
               <Row
                 key={task.id}

@@ -1415,11 +1415,18 @@ export function projectCollapsedTranscriptItems(items, options = {}) {
 
   const flushTurn = (turnOptions = {}) => {
     if (turn.length > 0) {
-      out.push(...projectTurn(turn, {
-        ...turnOptions,
-        filterNormalizedItem: options.filterNormalizedItem,
-        messageAutoCollapse: options.messageAutoCollapse,
-      }));
+      // 后台任务通知(「后台命令已完成」等)只用来切分被它唤醒的新回合,不画进对话:
+      // 结果在摘要面板和详情栏的后台任务里看。刚被唤醒、还没有别的内容的回合只留实时活动行。
+      const visible = turn.filter((item) => !isBackgroundNoticeRow(item));
+      if (visible.length > 0) {
+        out.push(...projectTurn(visible, {
+          ...turnOptions,
+          filterNormalizedItem: options.filterNormalizedItem,
+          messageAutoCollapse: options.messageAutoCollapse,
+        }));
+      } else if (turnOptions.ensureLiveActivity && turnOptions.deferTrailingToolSummary) {
+        out.push(makeToolSummaryItem([], { live: true, id: activitySegmentId([], options, out.length) }));
+      }
       turn = [];
     }
   };
