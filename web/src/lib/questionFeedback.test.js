@@ -18,6 +18,11 @@ import { fallbackToolSummary } from './toolSummaryFallback.js';
 import { shellCommandPresentation } from './shellCommandPresentation.js';
 import { canonicalTranscriptTool, presentTool } from './toolPresentation.js';
 import {
+  commandTaskStatusLabel,
+  isBackgroundTaskFailed,
+  isBackgroundTaskRunning,
+} from './backgroundTasks.js';
+import {
   questionFeedbackForItem,
   questionFeedbackForTool,
 } from './questionFeedback.js';
@@ -66,6 +71,7 @@ const { ToolBlock } = vm.runInNewContext(`${toolTransformed.code}; ({ ToolBlock 
   compactOneLinePreview, createdFileSource, normalizeAttachmentList,
   fallbackToolSummary, questionFeedbackForTool, QuestionFeedbackCard,
   shellCommandPresentation, canonicalTranscriptTool, presentTool,
+  commandTaskStatusLabel, isBackgroundTaskFailed, isBackgroundTaskRunning,
   ToolDetailMetadata: () => null,
   useTranslation: () => ({ t: (text) => text }),
   renderMarkdown: () => '',

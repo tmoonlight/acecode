@@ -17,6 +17,11 @@ import { normalizeTaskCompleteMarkdown } from '../lib/taskCompleteSummary.js';
 import { questionFeedbackForTool } from '../lib/questionFeedback.js';
 import { shellCommandPresentation } from '../lib/shellCommandPresentation.js';
 import {
+  commandTaskStatusLabel,
+  isBackgroundTaskFailed,
+  isBackgroundTaskRunning,
+} from '../lib/backgroundTasks.js';
+import {
   DESKTOP_CONTEXT_ACTION_EVENT,
   DESKTOP_CONTEXT_ACTIONS,
 } from '../lib/desktopContextMenu.js';
@@ -155,7 +160,15 @@ function taskCompleteDisplayText(summary, output, metadata) {
   return outputText || '完成';
 }
 
-export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessionRunning = true }) {
+// backgroundTask:这次调用启动的后台任务(没有或已查不到时为 null)。工具调用本身早已
+// 返回,任务还在跑时这一行继续带炫光并给出「查看实时输出」;任务失败或被停止时按出错显示。
+export const ToolBlock = memo(function ToolBlock({
+  entry,
+  onReviewToggle,
+  sessionRunning = true,
+  backgroundTask = null,
+  onOpenBackgroundTask,
+}) {
   const { t: translate } = useTranslation();
   const contextIdRef = useRef('');
   if (!contextIdRef.current) {
@@ -203,6 +216,9 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   const liveProgress = !isDone && !!sessionRunning;
+  const backgroundRunning = isBackgroundTaskRunning(backgroundTask);
+  const backgroundFailed = isBackgroundTaskFailed(backgroundTask);
+  const backgroundTaskId = backgroundTask?.id || '';
   const wasLiveProgressRef = useRef(false);
   if (liveProgress) wasLiveProgressRef.current = true;
 
@@ -346,7 +362,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
       presentation={shellPresentation}
       expanded={expanded}
       onToggle={toggleExpanded}
-      running={liveProgress}
+      running={liveProgress || backgroundRunning}
       failed={isDone && success === false}
       transcript
       showCommand={detailClipped || bashCommand !== presentation.detail}
@@ -393,7 +409,7 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         </div>
       );
     }
-    const ok = !!success;
+    const ok = !!success && !backgroundFailed;
     const questionFeedback = questionFeedbackForTool(entry);
     if (questionFeedback) {
       return (
@@ -408,14 +424,39 @@ export const ToolBlock = memo(function ToolBlock({ entry, onReviewToggle, sessio
         className="ace-tool-activity min-w-0"
       >
         <ActivityLine
-          icon={<ToolSummaryIcon tool={tool} icon={completedSummary.icon} ok={ok} className={ok ? 'text-ok' : 'text-danger'} />}
+          icon={(
+            <ToolSummaryIcon
+              tool={tool}
+              icon={completedSummary.icon}
+              ok={ok}
+              className={backgroundRunning ? undefined : (ok ? 'text-ok' : 'text-danger')}
+            />
+          )}
           label={presentation.label}
           detail={presentation.detail}
           detailTitle={presentation.fullObject}
           detailSeparator={presentation.separator}
           onDetailOverflowChange={shellPresentation ? setDetailClipped : undefined}
           preserveLabel
-          trailing={!ok ? <span className="text-danger">{translate('toolTranscript.failed')}</span> : null}
+          live={backgroundRunning}
+          trailing={backgroundRunning ? (onOpenBackgroundTask && (
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-[11.5px] text-fg-2 transition hover:bg-surface-hi hover:text-fg"
+              data-open-background-task={backgroundTaskId}
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenBackgroundTask(backgroundTaskId);
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              查看实时输出
+            </button>
+          )) : (!ok ? (
+            <span className="text-danger">
+              {backgroundFailed ? commandTaskStatusLabel(backgroundTask) : translate('toolTranscript.failed')}
+            </span>
+          ) : null)}
           expandable
           expanded={expanded}
           onToggle={toggleExpanded}

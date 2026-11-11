@@ -68,12 +68,18 @@ export function SubagentGroupBlock({ agents = [], tasksById, onOpen, messageAuto
   const expanded = !messageAutoCollapse || manuallyExpanded;
   const count = agents.length;
   const byId = tasksById || new Map();
+  // 回合结束后子会话还在跑(后台子代理)→ 这一行带炫光,与包着它的「已处理」一致。
+  // 只认任务列表里的状态:没查到任务时不靠工具项的 done 标记猜,被中断的调用不会一直亮。
+  const anyRunning = agents.some((agent) => (
+    agent.sessionId && byId.get(agent.sessionId)?.status === SUBAGENT_TASK_STATUS.RUNNING
+  ));
 
   return (
     <div className="min-w-0">
       <ActivityLine
         icon={<VsIcon name="embedding" size={13} className="opacity-80" />}
         label={`调用了 ${count} 个智能体`}
+        live={anyRunning}
         expandable={messageAutoCollapse}
         expanded={expanded}
         onToggle={messageAutoCollapse ? () => setExpanded((v) => !v) : undefined}

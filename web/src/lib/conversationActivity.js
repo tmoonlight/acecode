@@ -4,7 +4,6 @@ export const CONVERSATION_ACTIVITY_KIND = Object.freeze({
   QUESTION: 'question',
   RECOVERY: 'recovery',
   FOREGROUND: 'foreground',
-  BACKGROUND: 'background',
 });
 
 const FALLBACK_PHASE_LABELS = Object.freeze({
@@ -35,15 +34,8 @@ function runningBackgroundTasks(tasks) {
   ));
 }
 
-function oldestBackgroundStart(tasks) {
-  let oldest = 0;
-  for (const task of tasks) {
-    const started = Number(task?.createdAtMs || task?.started_at_ms || 0) || 0;
-    if (started && (!oldest || started < oldest)) oldest = started;
-  }
-  return oldest;
-}
-
+// 后台任务只作为前台状态的附带信息(运行中回合的活动行尾部)。回合结束后它们的状态
+// 挂在发起任务的工具行与包着它的折叠条上,这里回到 idle,对话末尾不另画进度行。
 function backgroundContext(tasks) {
   const count = tasks.length;
   return {
@@ -123,18 +115,6 @@ export function selectConversationActivity({
         || '正在处理请求',
       detail: foregroundActivity?.detail || '',
       startedAtMs: Number(foregroundActivity?.startedAtMs || 0),
-      needsAction: false,
-      ...background,
-    };
-  }
-
-  if (runningTasks.length > 0) {
-    return {
-      kind: CONVERSATION_ACTIVITY_KIND.BACKGROUND,
-      phase: 'background_tasks',
-      label: background.backgroundLabel,
-      detail: '',
-      startedAtMs: oldestBackgroundStart(runningTasks),
       needsAction: false,
       ...background,
     };

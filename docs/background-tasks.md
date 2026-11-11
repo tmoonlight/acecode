@@ -36,6 +36,16 @@ opencode(两者源码已核对),要点是「框架兑现叫醒」,而不是靠�
   「后台任务」分组常驻,列运行中的任务和耗时,末尾一行「N 已完成」,点它打开页签。子代理列表里
   `created_at` 为空时(子会话刚建好还没写元数据)按第一次看到的时间计时
   (`subagentTasks.js` 的 `mergeSubagentTaskList`)。
+- **对话里的状态挂在工具行上**(对齐 Claude 桌面版,其工具行按工具调用 id 查后台任务状态):
+  发起任务的工具行照常折在「已处理」里。任务还在跑时,包着它的每一层折叠条(已处理 / 工具分组 /
+  「调用了 N 个智能体」)文字带炫光,最里面那条工具行同样带炫光并给出「查看实时输出」(打开后台
+  任务页签并定位);任务结束各层一起停,失败或被停止时只有工具行按出错显示。折叠条**只加炫光、
+  不转圈、文案不变**——转圈只表示回合在跑。会话空闲时对话末尾**不画**「N 个后台任务正在运行」:
+  那一行转圈曾让用户以为回合没结束、不敢发下一条,别加回去。关联键是工具结果的
+  `metadata.background_task_id`,且必须同时带 `background_origin`(`stop_background_task` 的结果
+  也带任务 id,但它不是启动者);判定都在 `backgroundTasks.js`(`startedBackgroundTaskId` /
+  `itemHasRunningBackgroundTask` / `indexBackgroundTasks`)。查不到任务(旧会话、daemon 重启过)按
+  普通已完成行显示。
 - **静默提醒**:后台命令持续无输出 20 分钟提醒一次模型,之后间隔翻倍。
 - **生命周期**:后台任务属于会话的 AgentLoop;会话销毁、daemon 退出、TUI 退出时
   杀掉还在跑的命令。daemon 重启后不恢复。
@@ -45,4 +55,6 @@ opencode(两者源码已核对),要点是「框架兑现叫醒」,而不是靠�
 ## 测试
 
 - C++:`tests/tool/background_tasks_test.cpp`(登记表、bash 后台化、长 sleep 拦截)。
-- Web:`web/src/lib/backgroundTasks.test.js`(命令任务状态、通知消息呈现、转后台按钮判定)。
+- Web:`web/src/lib/backgroundTasks.test.js`(命令任务状态、通知消息呈现、转后台按钮判定、
+  工具行认领任务与折叠条炫光判定);`conversationLivenessArchitecture.test.js` 守着「末尾不画
+  后台进度行、折叠条不转圈」。

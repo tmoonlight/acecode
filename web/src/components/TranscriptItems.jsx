@@ -8,7 +8,13 @@ import {
 import { renderMarkdown } from '../lib/markdown.js';
 import { codeTextFromCopyButtonTarget, copyTextToClipboard } from '../lib/codeBlockCopy.js';
 import { buildAssistantRunDirectives } from '../lib/assistantRunDirectives.js';
-import { MOVE_TO_BACKGROUND_DELAY_MS, backgroundableToolStartedAt } from '../lib/backgroundTasks.js';
+import {
+  EMPTY_BACKGROUND_TASK_INDEX,
+  MOVE_TO_BACKGROUND_DELAY_MS,
+  backgroundableToolStartedAt,
+  itemHasRunningBackgroundTask,
+  startedBackgroundTaskId,
+} from '../lib/backgroundTasks.js';
 import { CONVERSATION_ACTIVITY_KIND } from '../lib/conversationActivity.js';
 import { hasNextStepQuestion } from '../lib/nextStepBox.js';
 import { clsx, relativeTime } from '../lib/format.js';
@@ -73,7 +79,16 @@ function useMoveToBackgroundVisible(startedAtMs, enabled) {
   return Number.isFinite(remaining) && remaining <= 0;
 }
 
-export function ActivitySummaryBlock({ item, expanded, onToggle, activity = null, onMoveToBackground }) {
+// backgroundRunning:这条折叠里包着还没结束的后台任务。回合已经结束,所以只让文字
+// 带炫光,图标和「已处理」文案不变;转圈留给还在跑的回合。
+export function ActivitySummaryBlock({
+  item,
+  expanded,
+  onToggle,
+  activity = null,
+  onMoveToBackground,
+  backgroundRunning = false,
+}) {
   const details = activitySummaryDetails(item);
   const backgroundableStartedAt = item?.live === true && onMoveToBackground
     ? backgroundableToolStartedAt(item?.collapsedItems)
@@ -103,10 +118,7 @@ export function ActivitySummaryBlock({ item, expanded, onToggle, activity = null
   const detail = live
     ? [
         preambleTitle ? '' : (activity?.detail || ''),
-        activityKind !== CONVERSATION_ACTIVITY_KIND.BACKGROUND
-          && activity?.backgroundCount > 0
-          ? activity.backgroundLabel
-          : '',
+        activity?.backgroundCount > 0 ? activity.backgroundLabel : '',
       ].filter(Boolean).join(' · ')
     : '';
 
@@ -137,7 +149,7 @@ export function ActivitySummaryBlock({ item, expanded, onToggle, activity = null
       onToggle={hasDetails ? onToggle : undefined}
       title={hasDetails ? (expanded ? '收起详情' : '展开详情') : label}
       ariaLabel={hasDetails ? (expanded ? '收起详情' : '展开详情') : undefined}
-      live={live}
+      live={live || backgroundRunning}
       className={item?.mode === 'processed' ? 'ace-activity-line-processed' : ''}
     />
   );
@@ -275,6 +287,7 @@ function TranscriptItem({
   conversationActivity,
   onMoveToBackground,
   subagentTasksById,
+  backgroundTaskIndex,
   onOpenSubagent,
   sessionRunning,
   onReviewToggle,
@@ -377,6 +390,7 @@ function TranscriptItem({
           onToggle={(event) => onToggleActivity?.(item.id, event?.currentTarget)}
           activity={!nested && item.live ? conversationActivity : null}
           onMoveToBackground={!nested && item.live ? onMoveToBackground : undefined}
+          backgroundRunning={itemHasRunningBackgroundTask(item, backgroundTaskIndex.runningIds)}
         />
         {expanded && (
           <ActivityDetailsReveal>
@@ -390,6 +404,7 @@ function TranscriptItem({
               onToggleActivity={onToggleActivity}
               onToggleMedia={onToggleMedia}
               subagentTasksById={subagentTasksById}
+              backgroundTaskIndex={backgroundTaskIndex}
               onOpenSubagent={onOpenSubagent}
               sessionRunning={sessionRunning}
               onReviewToggle={onReviewToggle}
@@ -434,6 +449,8 @@ function TranscriptItem({
           entry={item.tool}
           onReviewToggle={capabilities.pauseTailOnToolReview ? onReviewToggle : undefined}
           sessionRunning={sessionRunning}
+          backgroundTask={backgroundTaskIndex.byId.get(startedBackgroundTaskId(item.tool)) || null}
+          onOpenBackgroundTask={capabilities.openSubagentTranscripts ? onOpenSubagent : undefined}
         />
       ) : (
         <Message
@@ -478,6 +495,7 @@ export function TranscriptItems({
   conversationActivity = null,
   onMoveToBackground,
   subagentTasksById = EMPTY_MAP,
+  backgroundTaskIndex = EMPTY_BACKGROUND_TASK_INDEX,
   onOpenSubagent,
   sessionRunning = false,
   onReviewToggle,
@@ -523,6 +541,7 @@ export function TranscriptItems({
           conversationActivity={conversationActivity}
           onMoveToBackground={onMoveToBackground}
           subagentTasksById={subagentTasksById}
+          backgroundTaskIndex={backgroundTaskIndex}
           onOpenSubagent={onOpenSubagent}
           sessionRunning={sessionRunning}
           onReviewToggle={onReviewToggle}

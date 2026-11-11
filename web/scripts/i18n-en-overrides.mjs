@@ -17,6 +17,7 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '拖动调整摘要面板宽度': 'Drag to resize the summary panel',
   '复制文件路径': 'Copy file path',
   '查看输出': 'View output',
+  '查看实时输出': 'View live output',
   '转到后台': 'Move to background',
   '失败 · 退出码 {{p0}}': 'Failed · exit code {{p0}}',
   '此任务正在运行': 'This task is already running',

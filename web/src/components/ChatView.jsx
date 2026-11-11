@@ -59,7 +59,6 @@ import {
   releaseComposerAttachmentFile,
   reserveComposerAttachmentFiles,
 } from '../lib/composerAttachmentReservations.js';
-import { ActivityLine } from './ActivityLine.jsx';
 import { InputBar } from './InputBar.jsx';
 import { normalizeComposerPayload } from '../lib/composerSubmission.js';
 import { uploadComposerAttachment } from '../lib/composerAttachmentUpload.js';
@@ -217,12 +216,9 @@ import {
 import { bindDesktopComposerAutoFocus } from '../lib/composerCaretRestore.js';
 import { useSubagentTasks } from '../lib/useSubagentTasks.js';
 import { useBackgroundTasks } from '../lib/useBackgroundTasks.js';
-import { isCommandTask } from '../lib/backgroundTasks.js';
+import { indexBackgroundTasks, isCommandTask } from '../lib/backgroundTasks.js';
 import { taskDisplayTitle } from '../lib/subagentTasks.js';
-import {
-  CONVERSATION_ACTIVITY_KIND,
-  selectConversationActivity,
-} from '../lib/conversationActivity.js';
+import { selectConversationActivity } from '../lib/conversationActivity.js';
 import { normalizeTokenBudget } from '../lib/tokenBudget.js';
 import { pickModelLoad } from '../lib/modelLoad.js';
 import {
@@ -736,12 +732,18 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
     : '';
   const subagentTasks = useSubagentTasks(sid);
   // 后台命令(bash run_in_background / 超时或插话转入后台)。与子代理合成一个列表给
-  // 后台任务面板、摘要面板和底部活动行;新任务在前。
+  // 后台任务面板、摘要面板和对话里的工具行;新任务在前。
   const backgroundTasks = useBackgroundTasks(sid, api);
   const backgroundTaskList = useMemo(
     () => [...subagentTasks.tasks, ...backgroundTasks.tasks]
       .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0)),
     [subagentTasks.tasks, backgroundTasks.tasks],
+  );
+  // 对话里的后台任务状态挂在发起它的工具行上(折在「已处理」里时由折叠条带炫光),
+  // 对话末尾不另画进度行。
+  const backgroundTaskIndex = useMemo(
+    () => indexBackgroundTasks(backgroundTaskList),
+    [backgroundTaskList],
   );
   // 当前视图可见的待答问题。提问挂起期间 composer dock 由提问框整体替换
   // (方案 A),所以它只驱动渲染,不再参与 submit 的分支判定。
@@ -6553,6 +6555,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             conversationActivity={conversationActivity}
             onMoveToBackground={moveRunningWorkToBackground}
             subagentTasksById={subagentTasksById}
+            backgroundTaskIndex={backgroundTaskIndex}
             onOpenSubagent={openBackgroundTasksPreview}
             sessionRunning={status === 'running'}
             onReviewToggle={pauseTailFollowForReview}
@@ -6637,14 +6640,6 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             </div>
           ))}
           <SteeredMessages items={steeredItems} onSendNow={sendSteeredNow} onWithdraw={withdrawSteered} />
-          {conversationActivity.kind === CONVERSATION_ACTIVITY_KIND.BACKGROUND && (
-            <ActivityLine
-              running
-              label={conversationActivity.label}
-              detail={conversationActivity.detail}
-              live
-            />
-          )}
           </div>
         </div>
         {showConversationTurnScrubber && (

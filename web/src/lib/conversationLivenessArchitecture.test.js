@@ -30,15 +30,32 @@ run('composer 附近不再存在重复的固定活动栏', () => {
   assert.match(input, /'px-2\.5 py-2 bg-surface shrink-0'/);
 });
 
-run('前台状态投影进统一活动行，后台状态仍在 transcript 尾部呈现', () => {
+run('前台状态投影进统一活动行，后台任务状态挂在工具行与折叠条上', () => {
   const chat = source('components/ChatView.jsx');
   const renderer = source('components/TranscriptItems.jsx');
+  const tool = source('components/ToolBlock.jsx');
+  const selector = source('lib/conversationActivity.js');
   assert.match(chat, /selectConversationActivity\(\{/);
   assert.match(chat, /ensureLiveActivity: busy/);
   assert.match(chat, /<TranscriptItems[\s\S]*?conversationActivity=\{conversationActivity\}/);
   assert.match(renderer, /activity=\{!nested && item\.live \? conversationActivity : null\}/);
-  assert.match(chat, /conversationActivity\.kind === CONVERSATION_ACTIVITY_KIND\.BACKGROUND[\s\S]*?<ActivityLine/);
   assert.doesNotMatch(chat, /data-conversation-activity-bubble|<ActivityIndicator/);
+
+  // 回归:会话空闲但后台任务还在跑时,对话末尾曾单独画一行带转圈的「N 个后台任务正在运行」,
+  // 用户以为回合没结束、不敢发下一条。现在 ChatView 不直接画活动行,选择器也没有后台这一档。
+  assert.doesNotMatch(chat, /<ActivityLine|CONVERSATION_ACTIVITY_KIND/);
+  assert.doesNotMatch(selector, /BACKGROUND:|background_tasks/);
+
+  // 状态改由发起任务的工具行表达;折在里面时,包着它的每一层折叠条带炫光。
+  assert.match(chat, /<TranscriptItems[\s\S]*?backgroundTaskIndex=\{backgroundTaskIndex\}/);
+  assert.match(renderer, /backgroundRunning=\{itemHasRunningBackgroundTask\(item, backgroundTaskIndex\.runningIds\)\}/);
+  assert.match(renderer, /<TranscriptItems[\s\S]*?nested[\s\S]*?backgroundTaskIndex=\{backgroundTaskIndex\}/);
+  assert.match(renderer, /<ToolBlock[\s\S]*?backgroundTask=\{backgroundTaskIndex\.byId\.get\(startedBackgroundTaskId\(item\.tool\)\) \|\| null\}/);
+  // 折叠条只加炫光、不转圈:转圈(running)仍只跟回合是否在跑,否则又像「还没跑完」。
+  assert.match(renderer, /running=\{live\}\s+label=\{label\}/);
+  assert.match(renderer, /live=\{live \|\| backgroundRunning\}/);
+  assert.match(tool, /live=\{backgroundRunning\}/);
+  assert.match(tool, /data-open-background-task=\{backgroundTaskId\}/);
 });
 
 run('活动行状态不再由旧的文本或工具可见性条件漏掉', () => {

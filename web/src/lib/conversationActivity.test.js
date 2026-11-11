@@ -74,7 +74,10 @@ run('前台忙碌不依赖 transcript 工具块是否存在或过期', () => {
   assert.equal(withoutTool.kind, CONVERSATION_ACTIVITY_KIND.FOREGROUND);
 });
 
-run('父会话 idle 且 child 运行时只显示后台状态', () => {
+// 回归:会话空闲但后台任务还在跑时,这里曾返回单独的「后台」状态,对话末尾据此画一行
+// 带转圈的「2 个后台任务正在运行」,用户以为回合没结束、不敢发下一条。
+run('父会话 idle 且后台任务运行时回到 idle,只保留后台计数', () => {
+  // 触发场景:回合已结束(foregroundBusy=false),两个后台任务在跑、一个已结束。
   const state = selectConversationActivity({
     foregroundBusy: false,
     subagentTasks: [
@@ -83,10 +86,11 @@ run('父会话 idle 且 child 运行时只显示后台状态', () => {
       { id: 'child-3', status: 'completed', createdAtMs: 50 },
     ],
   });
-  assert.equal(state.kind, CONVERSATION_ACTIVITY_KIND.BACKGROUND);
-  assert.equal(state.label, '2 个后台任务正在运行');
-  assert.equal(state.startedAtMs, 100);
-  assert.equal(state.detail, '');
+  // 期望:主状态是 idle、没有文案(末尾不画进度行);计数仍给出,只统计运行中的两个。
+  assert.equal(state.kind, CONVERSATION_ACTIVITY_KIND.IDLE);
+  assert.equal(state.label, '');
+  assert.equal(state.startedAtMs, 0);
+  assert.equal(state.backgroundCount, 2);
 });
 
 run('前台和后台重叠时保留前台主状态与后台计数', () => {

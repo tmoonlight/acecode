@@ -70,14 +70,13 @@ run('permission cards are chat rows inside the transcript before activity', () =
   assert.match(transcript, /ace-chat-row-assistant-gutter/);
   assert.match(transcript, /data-chat-kind="permission"/);
   assert.match(transcript, /<PermissionCard/);
+  // 权限卡片之后只剩插话气泡:会话空闲时的后台任务进度行已经去掉(状态挂在工具行上),
+  // 不能再有东西排在权限卡片后面抢「还在跑」的视觉。
   assert.ok(
-    transcript.indexOf('permissionRequests.map') < transcript.indexOf('conversationActivity.kind === CONVERSATION_ACTIVITY_KIND.BACKGROUND'),
-    'permission card must appear before the background activity line',
+    transcript.indexOf('permissionRequests.map') < transcript.indexOf('<SteeredMessages'),
+    'permission card must appear before the steered messages',
   );
-  assert.match(
-    transcript,
-    /conversationActivity\.kind === CONVERSATION_ACTIVITY_KIND\.BACKGROUND/,
-  );
+  assert.doesNotMatch(transcript, /CONVERSATION_ACTIVITY_KIND\.BACKGROUND|<ActivityLine/);
   assert.match(renderer, /activityKind === CONVERSATION_ACTIVITY_KIND\.PERMISSION[\s\S]*?CONVERSATION_ACTIVITY_KIND\.QUESTION/);
   assert.doesNotMatch(chat, /ActivityIndicator|data-conversation-activity-bubble/);
   assert.match(chat, /permissionRequests,\s*questionRequest: questionForView/);

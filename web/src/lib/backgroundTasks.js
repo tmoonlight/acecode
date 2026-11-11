@@ -105,6 +105,83 @@ export function backgroundableToolStartedAt(items) {
   return earliest;
 }
 
+// ── 对话里的后台任务状态 ─────────────────────────────────────────────
+//
+// 状态挂在发起任务的那条工具行上,折在「已处理」里也一样:任何折叠条(已处理 /
+// 工具分组 / 智能体分组)只要包着还没结束的后台任务就带炫光,任务结束一起停。
+// 对话末尾不单独画「N 个后台任务正在运行」:回合已经结束,那行转圈让人以为还没跑完。
+
+export function isBackgroundTaskRunning(task) {
+  return task?.status === SUBAGENT_TASK_STATUS.RUNNING || task?.busy === true;
+}
+
+// 后台命令以失败或被停止收场(子代理任务没有 state,不算)。
+export function isBackgroundTaskFailed(task) {
+  if (!task || isBackgroundTaskRunning(task)) return false;
+  return task.state === 'failed' || task.state === 'stopped';
+}
+
+// 这次工具调用启动(或转入后台)的任务 id;不是启动者返回 ''。
+// stop_background_task 的结果也带 background_task_id,指的是别的调用启动的任务;
+// 只有启动者同时带 background_origin。
+export function startedBackgroundTaskId(tool) {
+  const metadata = tool?.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return '';
+  if (!metadata.background_origin) return '';
+  return String(metadata.background_task_id || '');
+}
+
+const NO_TASK_IDS = Object.freeze([]);
+const taskIdsByItem = new WeakMap();
+
+// 一个对话项(工具行 / 智能体分组 / 折叠条)包着的后台任务 id。对话项不原地修改,
+// 内容变了就是新对象,所以按对象缓存。
+export function backgroundTaskIdsOfItem(item) {
+  if (!item || typeof item !== 'object') return NO_TASK_IDS;
+  const cached = taskIdsByItem.get(item);
+  if (cached) return cached;
+  let ids = NO_TASK_IDS;
+  if (item.kind === 'tool') {
+    const id = startedBackgroundTaskId(item.tool);
+    if (id) ids = [id];
+  } else if (item.kind === 'subagent_group') {
+    const found = (Array.isArray(item.agents) ? item.agents : [])
+      .map((agent) => String(agent?.sessionId || ''))
+      .filter(Boolean);
+    if (found.length > 0) ids = found;
+  } else if (Array.isArray(item.collapsedItems)) {
+    const found = item.collapsedItems.flatMap(backgroundTaskIdsOfItem);
+    if (found.length > 0) ids = found;
+  }
+  taskIdsByItem.set(item, ids);
+  return ids;
+}
+
+export function itemHasRunningBackgroundTask(item, runningIds) {
+  if (!runningIds || runningIds.size === 0) return false;
+  return backgroundTaskIdsOfItem(item).some((id) => runningIds.has(id));
+}
+
+export const EMPTY_BACKGROUND_TASK_INDEX = Object.freeze({
+  byId: new Map(),
+  runningIds: new Set(),
+});
+
+// 后台任务列表(命令 + 子代理)→ 对话渲染用的索引。
+export function indexBackgroundTasks(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  if (list.length === 0) return EMPTY_BACKGROUND_TASK_INDEX;
+  const byId = new Map();
+  const runningIds = new Set();
+  for (const task of list) {
+    const id = String(task?.id || '');
+    if (!id) continue;
+    byId.set(id, task);
+    if (isBackgroundTaskRunning(task)) runningIds.add(id);
+  }
+  return { byId, runningIds };
+}
+
 // 卡片上的结果标签。
 export function commandTaskStatusLabel(task) {
   if (!task) return '';
