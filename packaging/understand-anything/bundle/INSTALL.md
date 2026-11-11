@@ -13,7 +13,7 @@
 ```text
 /understand --language zh
 /understand-chat 应用从哪里启动？
-/understand-explain src/main.cpp
+/understand-explain src/apps/cli/main.cpp
 /understand-diff
 /understand-onboard
 /understand-dashboard
