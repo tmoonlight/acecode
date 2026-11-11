@@ -13,7 +13,7 @@ description: 分析代码仓库，生成或增量更新带文件、符号、依�
 4. 分工时，将角色正文、绝对项目路径、证据和准确的输出路径传给 ACECode 当前可用的 spawn_subagent 或 agent_spawn。分批派发、等待结果并检查文件。没有可用子代理时，由当前会话依次执行角色。无需创建专家或修改用户设置。
 5. 执行 `python "PACKAGE/scripts/ua.py" assemble "run路径"`。按 PACKAGE/agents/assemble-reviewer.md 复核 work/assembled-graph.json，可修正草稿。结合 README、入口和依赖方向，用 architecture-analyzer.md、tour-builder.md 的输出约定写 work/presentation.json。格式如下，节点引用必须来自合并图。大型图按文件/层分段读取。
    ```json
-   {"project":{"name":"项目名","languages":["typescript"],"frameworks":[],"description":"项目解决什么问题"},"layers":[{"id":"layer:app","name":"应用层","description":"职责","nodeIds":["file:src/main.ts"]}],"tour":[{"order":1,"title":"入口","description":"从此处跟踪一次调用","nodeIds":["file:src/main.ts"]}]}
+   {"project":{"name":"项目名","languages":["cpp"],"frameworks":[],"description":"项目解决什么问题"},"layers":[{"id":"layer:app","name":"应用层","description":"职责","nodeIds":["file:src/apps/cli/main.cpp"]}],"tour":[{"order":1,"title":"入口","description":"从此处跟踪一次调用","nodeIds":["file:src/apps/cli/main.cpp"]}]}
    ```
 6. --review 时，另按 graph-reviewer.md 核对覆盖率、边的方向和导览。执行 `python "PACKAGE/scripts/ua.py" publish "run路径"`。校验失败时修复工作草稿后重试；源码或已发布图变动时重新 prepare。报告节点、关系和图谱路径，用户要求查看时调用 /understand-dashboard。
 
