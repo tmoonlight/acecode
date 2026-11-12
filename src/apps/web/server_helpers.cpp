@@ -115,6 +115,7 @@ json ui_preferences_to_json(const WebUiPreferencesConfig& cfg) {
         {"theme_variant", cfg.theme_variant},
         {"theme_effects", cfg.theme_effects},
         {"theme_sounds", cfg.theme_sounds},
+        {"subagent_avatar_style", cfg.subagent_avatar_style},
     };
 }
 

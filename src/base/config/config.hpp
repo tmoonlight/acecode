@@ -229,6 +229,9 @@ struct WebUiPreferencesConfig {
     // Sound effects for themes that declare a sound style; default on. The
     // title bar's mute button writes this.
     bool theme_sounds = true;
+    // Portrait drawn for sub-agents that have no expert attached: `geometric`
+    // is a generated rosette (the default), `pixel` the Agent Office character.
+    std::string subagent_avatar_style = "geometric";   // geometric | pixel
 };
 
 struct ModelsDevConfig {
@@ -722,6 +725,7 @@ bool is_valid_ui_locale(const std::string& locale);
 bool is_valid_web_ui_theme(const std::string& theme);
 bool is_valid_web_ui_color_theme(const std::string& color_theme);
 bool is_valid_web_ui_font_size(const std::string& font_size);
+bool is_valid_web_ui_subagent_avatar_style(const std::string& style);
 // Empty, or 1-24 chars of lowercase ASCII words joined by single hyphens.
 bool is_valid_web_ui_theme_variant(const std::string& variant);
 

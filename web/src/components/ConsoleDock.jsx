@@ -36,6 +36,7 @@ import {
   restoreDockTabs,
 } from '../lib/consoleDock.js';
 import { formatDroppedPaths, parseUriList } from '../lib/consoleDropPaths.js';
+import { FILE_TREE_DROP_EVENT, fileTreeTerminalText } from '../lib/fileTreeDrop.js';
 import { postWindowsNativeFilesystemDrop } from '../lib/desktopNativeFilesystemDrop.js';
 import { fileDropDiagnostic } from '../lib/macNativeFileDrag.js';
 import { copyTextToSystemClipboard, readTextFromSystemClipboard } from '../lib/systemClipboard.js';
@@ -567,6 +568,19 @@ export function ConsoleDock({ owner, open, height: preferredHeight, onHeightChan
       } catch { /* 剪贴板读写失败静默忽略 */ }
     })();
   }, [focusTab]);
+
+  // 右侧文件树里的行拖到终端上:贴入加好引号的绝对路径,与从系统拖文件进来相同。
+  useEffect(() => {
+    const onDrop = (event) => {
+      const detail = event.detail;
+      if (!detail || detail.handled || detail.kind !== 'console') return;
+      const tabId = detail.target?.dataset?.tabId;
+      if (!tabId || !bodyRef.current?.contains(detail.target)) return;
+      detail.handled = injectTextToTab(tabId, fileTreeTerminalText(detail.items, HOST_OS));
+    };
+    window.addEventListener(FILE_TREE_DROP_EVENT, onDrop);
+    return () => window.removeEventListener(FILE_TREE_DROP_EVENT, onDrop);
+  }, [injectTextToTab]);
 
   // NATIVE_DROP:注册全局回调,native 拦到系统文件拖放后经 host.eval 调它回传路径。
   useEffect(() => {

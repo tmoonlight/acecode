@@ -23,6 +23,7 @@ export function settingsSearchEntries(developerModeUnlocked = false) {
     ['appearance', '字体大小', 'font size'],
     ['appearance', '显示任务时间', 'sidebar task time timestamp'],
     ['appearance', '消息自动折叠', '会话 conversation messages auto collapse fold expand tools'],
+    ['appearance', '子代理头像', 'subagent sub-agent agent avatar portrait icon style petal flower geometric pixel 子代理 智能体 头像 图标 花瓣 几何图形 像素小人'],
     ['shortcuts', '搜索快捷键', 'keyboard shortcuts hotkeys 快捷键 键盘 搜索 前进 后退 思维深度 Ctrl Alt Cmd'],
     ['config', '升级服务 URL', 'upgrade update service url'],
     ['config', '自动更新', 'automatic update upgrade'],

@@ -9,6 +9,8 @@ import {
 } from './uiPrefs.js';
 
 export const APPEARANCE_THEME_VALUES = Object.freeze(['system', 'light', 'dark']);
+// 设置 > 外观 > 子代理头像:花瓣(geometric,默认)/ 像素小人(pixel)。
+export const SUBAGENT_AVATAR_STYLE_VALUES = Object.freeze(['geometric', 'pixel']);
 export const DEFAULT_APPEARANCE_PREFERENCES = Object.freeze({
   theme: 'system',
   colorTheme: DEFAULT_COLOR_THEME,
@@ -18,6 +20,7 @@ export const DEFAULT_APPEARANCE_PREFERENCES = Object.freeze({
   themeVariant: '',
   themeEffects: true,
   themeSounds: true,
+  subagentAvatarStyle: 'geometric',
 });
 
 const FONT_SIZE_SET = new Set(FONT_SIZE_VALUES);
@@ -75,6 +78,14 @@ function inputThemeSounds(value) {
   return (value?.theme_sounds ?? value?.themeSounds) !== false;
 }
 
+// 不认识的值和旧 daemon 不返回这个键时都按默认(花瓣),不让它拖垮整份外观偏好。
+function inputSubagentAvatarStyle(value) {
+  const style = value?.subagent_avatar_style ?? value?.subagentAvatarStyle;
+  return SUBAGENT_AVATAR_STYLE_VALUES.includes(style)
+    ? style
+    : DEFAULT_APPEARANCE_PREFERENCES.subagentAvatarStyle;
+}
+
 export function effectiveAppearanceTheme(value, scope = globalThis) {
   return value === 'light' || value === 'dark'
     ? value
@@ -100,6 +111,7 @@ export function normalizeAppearancePreferences(value, scope = globalThis) {
     themeVariant: inputThemeVariant(value),
     themeEffects: inputThemeEffects(value),
     themeSounds: inputThemeSounds(value),
+    subagentAvatarStyle: inputSubagentAvatarStyle(value),
   };
 }
 
@@ -121,6 +133,7 @@ export function parseAppearancePreferences(value, scope = globalThis) {
     themeVariant: inputThemeVariant(value),
     themeEffects: inputThemeEffects(value),
     themeSounds: inputThemeSounds(value),
+    subagentAvatarStyle: inputSubagentAvatarStyle(value),
   };
 }
 
@@ -153,6 +166,9 @@ export function mergeAppearancePreferences(current, patch, scope = globalThis) {
     themeSounds: patch?.themeSounds
       ?? patch?.theme_sounds
       ?? current?.themeSounds,
+    subagentAvatarStyle: patch?.subagentAvatarStyle
+      ?? patch?.subagent_avatar_style
+      ?? current?.subagentAvatarStyle,
   }, scope);
 }
 
@@ -168,6 +184,7 @@ export function appearancePreferencesToApi(value, scope = globalThis) {
     theme_variant: normalized.themeVariant,
     theme_effects: normalized.themeEffects,
     theme_sounds: normalized.themeSounds,
+    subagent_avatar_style: normalized.subagentAvatarStyle,
   };
 }
 

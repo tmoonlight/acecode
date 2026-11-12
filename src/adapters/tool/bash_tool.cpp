@@ -1,5 +1,6 @@
 #include "bash_tool.hpp"
 #include "background_tasks.hpp"
+#include "shell_output_files.hpp"
 #include "shell_process.hpp"
 #include "llm/tool_icons.hpp"
 #include "llm/tool_protocol_names.hpp"
@@ -88,6 +89,14 @@ static void append_root_script_warning(ToolResult& result,
     result.output += ". Temporary helper scripts should be written under ACECODE_TMPDIR";
     if (!scratch_dir.empty()) result.output += " (" + scratch_dir + ")";
     result.output += ".";
+}
+
+// 把命令生成的文件记进结果元数据,摘要面板的「产物」分组读它
+// (shell_output_files.hpp)。不进模型看到的正文。
+static void attach_output_files(ToolResult& result, const ShellOutputProbe& probe,
+                                const std::string& command, const std::string& output) {
+    auto files = collect_shell_output_files(probe, command, output);
+    if (!files.empty()) result.metadata["output_files"] = std::move(files);
 }
 
 namespace {
@@ -398,6 +407,9 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
         if (ctx.stream) ctx.stream(clean);
     };
 
+    const ShellOutputProbe output_probe =
+        begin_shell_output_probe(command, path_to_utf8(root_for_script_warning));
+
     ShellLaunchFailure launch_failure;
     auto process = ShellProcess::launch(spec, launch_failure);
     if (!process) {
@@ -548,6 +560,7 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
         ToolResult r{full_output, false};
         r.summary = make_summary(command, duration_ms, raw_bytes, -1, false,
                                  was_truncated, true, false);
+        attach_output_files(r, output_probe, command, full_output);
         append_root_script_warning(r,
             new_root_script_files(root_scripts_before,
                                   list_root_script_files(root_for_script_warning)),
@@ -559,6 +572,7 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
             std::to_string(timeout_ms / 1000) + " seconds.", false};
         r.summary = make_summary(command, duration_ms, raw_bytes, -1, false,
                                  was_truncated, false, true);
+        attach_output_files(r, output_probe, command, full_output);
         append_root_script_warning(r,
             new_root_script_files(root_scripts_before,
                                   list_root_script_files(root_for_script_warning)),
@@ -587,6 +601,7 @@ static ToolResult execute_bash(const std::string& arguments_json, const ToolCont
     r.summary = make_summary(command, duration_ms, raw_bytes,
                              static_cast<int>(exit_code), is_ok,
                              was_truncated, false, false);
+    attach_output_files(r, output_probe, command, full_output);
     append_root_script_warning(r,
         new_root_script_files(root_scripts_before,
                               list_root_script_files(root_for_script_warning)),

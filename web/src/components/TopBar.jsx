@@ -12,7 +12,6 @@ import {
   WindowControls,
   isInteractiveTarget,
   nativePointerEvent,
-  useFramelessWindowState,
 } from './WindowControls.jsx';
 
 function QuickBtn({
@@ -49,6 +48,7 @@ function QuickBtn({
 }
 
 export function TopBar({
+  windowState: { framelessDesktop, isMaximized, isFullscreen },
   onOpenSearch,
   onToggleConsole,
   consoleAvailable = false,
@@ -68,7 +68,6 @@ export function TopBar({
   themeSoundsOn = true,
   onToggleThemeSounds,
 }) {
-  const { framelessDesktop, isMaximized, isFullscreen } = useFramelessWindowState();
   const topBarRef = useRef(null);
 
   useEffect(() => {

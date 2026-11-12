@@ -229,6 +229,31 @@ TEST(BackgroundTaskRegistryTest, BackgroundCommandNotifiesWithOutputWhenFinished
     std::filesystem::remove_all(dir);
 }
 
+// 场景:后台命令(长时间运行的脚本)生成了一个文档类文件后结束。
+// 期望:完成通知的元数据里带 output_files(绝对路径),摘要面板的「产物」分组靠它
+// 列出后台命令生成的文件;日志文件(.log)不算产物。
+// 背景:前台 bash 在工具结果里记 output_files,转后台的命令没有工具结果可记,
+// 只能记在完成通知上,否则跑得久的脚本(超时自动转后台)生成的文件永远列不出来。
+TEST(BackgroundTaskRegistryTest, FinishedNoticeCarriesFilesTheCommandProduced) {
+    const auto dir = unique_temp_dir("bg_outputs");
+    NoticeCollector collector;
+    BackgroundTaskRegistry registry;
+    registry.connect(collector.sink());
+    ShellLaunchFailure failure;
+    const std::string id = registry.start_shell(shell_start("echo hello > bg-report.txt", dir), failure);
+    ASSERT_FALSE(id.empty()) << failure.message;
+
+    const auto notice = collector.wait_event("finished", 15s);
+    ASSERT_TRUE(notice.has_value());
+    ASSERT_TRUE(notice->metadata.contains("output_files")) << notice->metadata.dump();
+    const auto files = notice->metadata["output_files"].get<std::vector<std::string>>();
+    ASSERT_EQ(files.size(), 1u) << notice->metadata.dump();
+    EXPECT_EQ(path_from_utf8(files[0]).filename(), std::filesystem::path("bg-report.txt"));
+    EXPECT_TRUE(path_from_utf8(files[0]).is_absolute());
+    registry.shutdown();
+    std::filesystem::remove_all(dir);
+}
+
 // 场景:模型 / 用户停止一个还在跑的后台命令。期望:几秒内结束,通知状态 stopped;
 // 再停一次报「不在运行」。
 TEST(BackgroundTaskRegistryTest, StopKillsRunningCommandAndNotifiesStopped) {

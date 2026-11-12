@@ -87,6 +87,8 @@ import {
   SESSION_REFERENCE_DROP_EVENT,
   droppableSessionReferences,
 } from '../lib/sessionReferenceDrop.js';
+import { FILE_TREE_DROP_EVENT, insertFileTreeReferences } from '../lib/fileTreeDrop.js';
+import { useStableCallback } from '../lib/useStableCallback.js';
 import {
   hasNativeContextPicker,
   parseNativeContextPickerResult,
@@ -854,6 +856,28 @@ export const InputBar = forwardRef(function InputBar({
     window.addEventListener(SESSION_REFERENCE_DROP_EVENT, onDrop);
     return () => window.removeEventListener(SESSION_REFERENCE_DROP_EVENT, onDrop);
   }, [currentSessionId, sessionReferenceDropEnabled, t]);
+
+  // 右侧文件树里的行拖到本输入框(或多选后右键「添加到会话」):在光标处插入 @路径 引用,
+  // 一次可以是多个;效果同逐个「添加到会话」。
+  const acceptFileTreeDrop = useStableCallback((event) => {
+    const detail = event.detail;
+    if (disabled || !detail || detail.handled || detail.kind !== 'composer') return;
+    if (!rootRef.current?.contains(detail.target)) return;
+    const caret = composerSelection.end;
+    const insertion = insertFileTreeReferences(value, caret, detail.items, {
+      cwd: detail.cwd,
+      composerCwd: cwd,
+    });
+    if (!insertion.count) return;
+    detail.handled = true;
+    updateValue(insertion.text, undefined, { begin: caret, end: caret });
+    setEditedSinceHistory(true);
+    restorePathCaret(insertion.cursor);
+  });
+  useEffect(() => {
+    window.addEventListener(FILE_TREE_DROP_EVENT, acceptFileTreeDrop);
+    return () => window.removeEventListener(FILE_TREE_DROP_EVENT, acceptFileTreeDrop);
+  }, [acceptFileTreeDrop]);
 
   const handleFileIntake = useCallback((payload, transfer) => {
     if (disabled || !transfer?.isActive()) return Promise.resolve(true);
@@ -1700,6 +1724,7 @@ export const InputBar = forwardRef(function InputBar({
       data-main-composer={mainComposer ? 'true' : undefined}
       data-native-file-drop-disabled={disabled ? 'true' : undefined}
       data-session-reference-drop={sessionReferenceDropEnabled ? 'true' : undefined}
+      data-file-tree-drop={disabled ? undefined : 'true'}
       onPointerDownCapture={(event) => preserveComposerFocusOnPointerDown(event, rootRef.current)}
       onDragEnter={fileDropManagedExternally ? undefined : handleDragEnter}
       onDragOver={fileDropManagedExternally ? undefined : handleDragOver}

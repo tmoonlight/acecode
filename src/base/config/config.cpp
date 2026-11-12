@@ -217,6 +217,10 @@ bool is_valid_web_ui_font_size(const std::string& font_size) {
            font_size == "large";
 }
 
+bool is_valid_web_ui_subagent_avatar_style(const std::string& style) {
+    return style == "pixel" || style == "geometric";
+}
+
 bool is_valid_web_ui_theme_variant(const std::string& variant) {
     if (variant.empty()) return true;
     if (variant.size() > 24 || variant.front() == '-' || variant.back() == '-') return false;
@@ -499,6 +503,9 @@ std::vector<std::string> validate_config(const AppConfig& cfg) {
     }
     if (!is_valid_web_ui_font_size(cfg.web_ui.font_size)) {
         errors.push_back("web_ui.font_size must be one of: small, medium, large");
+    }
+    if (!is_valid_web_ui_subagent_avatar_style(cfg.web_ui.subagent_avatar_style)) {
+        errors.push_back("web_ui.subagent_avatar_style must be one of: geometric, pixel");
     }
     if (!is_valid_web_ui_theme_variant(cfg.web_ui.theme_variant)) {
         errors.push_back("web_ui.theme_variant must be empty or a lowercase variant ID");
@@ -1111,6 +1118,16 @@ static AppConfig load_config_from_path_once(
                                 uij["theme_sounds"].get<bool>();
                         } else {
                             LOG_WARN("[config] invalid 'web_ui.theme_sounds', using true");
+                        }
+                    }
+                    if (uij.contains("subagent_avatar_style")) {
+                        if (uij["subagent_avatar_style"].is_string() &&
+                            is_valid_web_ui_subagent_avatar_style(
+                                uij["subagent_avatar_style"].get<std::string>())) {
+                            cfg.web_ui.subagent_avatar_style =
+                                uij["subagent_avatar_style"].get<std::string>();
+                        } else {
+                            LOG_WARN("[config] invalid 'web_ui.subagent_avatar_style', using 'geometric'");
                         }
                     }
                 }
@@ -2378,6 +2395,8 @@ nlohmann::json build_config_json(const AppConfig& cfg) {
             web_uij["theme_effects"] = cfg.web_ui.theme_effects;
         if (cfg.web_ui.theme_sounds != web_ui_d.theme_sounds)
             web_uij["theme_sounds"] = cfg.web_ui.theme_sounds;
+        if (cfg.web_ui.subagent_avatar_style != web_ui_d.subagent_avatar_style)
+            web_uij["subagent_avatar_style"] = cfg.web_ui.subagent_avatar_style;
         if (!web_uij.empty()) j["web_ui"] = std::move(web_uij);
 
         if (auto memj = memory_config_to_json(cfg.memory); !memj.empty()) j["memory"] = std::move(memj);

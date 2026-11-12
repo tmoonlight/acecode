@@ -157,12 +157,13 @@ session_status 帧(未知 busy 会话)            → refetch   ← wait=true �
   Message/ToolBlock 紧凑渲染,`useSessionTranscript` live:'auto' 实时跟尾,AskUserQuestion
   工具行过滤不显示)。
 - 入口:会话三点菜单「后台任务」、对话里的智能体分组卡片、摘要面板的运行中任务行与「N 已完成」。
-- **头像**:每个子代理前面一个像素小人(`PixelAvatar.jsx` 的 `SubagentAvatar`):绑定了专家用专家的
-  头像,否则按子会话 id 生成(`officeCharacters.js` 的 `subagentAvatarIdentity`),所以同一个子代理在
+- **头像**:每个子代理前面一个头像(`PixelAvatar.jsx` 的 `SubagentAvatar`):绑定了专家用专家的
+  头像,否则按子会话 id 生成(`officeCharacters.js` 的 `subagentAvatarIdentity`;默认画成花瓣,
+  可在设置里换成像素小人,见下面两条),所以同一个子代理在
   三处是同一张脸——后台任务页签的行、摘要面板的运行中任务行、对话里的「调用了 N 个智能体」
   (行首排开这几个子代理的头像,最多 6 张;外面包着的工具汇总行同样,「已处理」和进行中的行不画;
   展开后的每个智能体行也带)。后台命令没有头像,保持终端图标。四处都是 16px。
-- **头像上的状态图标**:右上角按任务状态画一个小图标,画法照桌面像素办公室(同一份像素模板,
+- **像素小人和专家头像上的状态图标**:右上角按任务状态画一个小图标,画法照桌面像素办公室(同一份像素模板,
   `assets/desktop_pet/office_characters.js` 的 `miniSprite`):运行中是三个点轮流跳,小人每 1.4 秒
   左右点一下头;已完成是一颗星,后台任务页签的已完成行只显示普通头像;已中止是红色感叹号;
   任务列表里查不到这个子代理时不画
@@ -170,6 +171,18 @@ session_status 帧(未知 busy 会话)            → refetch   ← wait=true �
   `avatarStatus.js`:所有运行中的头像共用一只 280ms 一拍的钟(三个点全场同步),有人订阅才开定时器、
   最后一个退订就停;点头的位移取整到设备像素(头像是最近邻放大的像素画,挪半个设备像素脸会抖)。
   等待授权 / 等待回答目前没有单独的图标(办公室里有),任务对象里没有这两种状态。
+- **头像风格**(设置 > 外观 > 子代理头像,`SubagentAvatarStyleCards.jsx`;设置里没有单独的「子代理」一栏):
+  花瓣(默认,配置值 `geometric`)或像素小人(`pixel`),只影响没绑定专家的子代理。
+  存在 `config.json` 的 `web_ui.subagent_avatar_style`,走外观偏好那条路
+  (`appearancePreferences.js` → `PUT /api/config/ui-preferences`,桌面版首帧注入)——桌面版每次启动
+  端口都变,浏览器本地存储留不住,不能只存本地。App 把当前值放进 `SubagentAvatarStyleProvider`,
+  `SubagentAvatar` 从那里读。
+- **花瓣**(`geometricAvatar.js` + `GeometricAvatar.jsx`):一片花瓣绕中心转一圈拼成一朵,
+  每朵一个颜色、深浅两档,画成矢量图。五个参数都由身份字符串的哈希决定:花瓣形状 5 种 × 瓣数
+  (3 / 4 / 5 / 6 / 8)× 颜色 8 个 × 有无花心 × 是否转半格,共 800 种;同一个子代理到哪都是同一朵,
+  但不保证一个会话里不撞(十个子代理里大约有一对颜色和形状都相同)。16px 下靠得住的区分只有颜色和
+  轮廓,所以不画描边和渐变;颜色表里没有红色(留给出错)和灰色(留给已中止)。状态不叠像素角标:
+  运行中整朵慢慢转(6 秒一圈,不跟随系统「减少动态效果」),结束后停住,被中止变灰。
 
 ### 权限 / 提问冒泡
 

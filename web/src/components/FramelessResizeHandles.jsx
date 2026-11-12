@@ -7,21 +7,13 @@
 // chromium browser_desktop_window_tree_host_win.cc::GetClientAreaInsets 的
 // 注释)。所以走 JS 自制 + 转给 native start_window_resize,镜像现有的
 // aceDesktop_startWindowDrag 范式。
-//
-// strip 永远 render(只要进 frameless),最大化时 native 端会拒绝调用。
 
 import { nativePointerEvent } from './WindowControls.jsx';
-import { FRAMELESS_RESIZE_ACTION, framelessResizeMouseDownAction } from '../lib/framelessResize.js';
+import { FRAMELESS_RESIZE_ACTION, canResizeFramelessWindow, framelessResizeMouseDownAction } from '../lib/framelessResize.js';
 
 const RESIZE_STRIP_HEIGHT_PX = 6;
 const RESIZE_STRIP_WIDTH_PX = 6;
 const RESIZE_CORNER_SIZE_PX = 10;
-
-function isFrameless() {
-  return typeof window !== 'undefined'
-    && window.__ACECODE_FRAMELESS_WINDOW__ === true
-    && typeof window.aceDesktop_startWindowResize === 'function';
-}
 
 function makeStartResize(direction) {
   return (event) => {
@@ -45,8 +37,8 @@ function makeStartResize(direction) {
   };
 }
 
-export function FramelessResizeHandles() {
-  if (!isFrameless()) return null;
+export function FramelessResizeHandles({ windowState }) {
+  if (!canResizeFramelessWindow(windowState)) return null;
   // pointer-events: none 让中间空白区落回到底层内容。各边/角单独打开
   // pointer-events: auto 接 mousedown。
   return (

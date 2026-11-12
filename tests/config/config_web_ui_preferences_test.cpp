@@ -292,6 +292,54 @@ TEST(ConfigWebUiPreferencesMessageAutoCollapse, DisabledRoundTripsAndDefaultIsOm
     std::filesystem::remove(path, ec);
 }
 
+// 场景:设置 > 外观 > 子代理头像(花瓣 / 像素小人)存在 config.json 的 web_ui 里。
+// 期望:默认是 geometric(花瓣);旧配置没有这个键、或者值不认识 / 类型不对时仍按 geometric 加载,
+// 不影响同一段里的其他外观设置;校验函数只认这两个值。
+TEST(ConfigWebUiPreferencesSubagentAvatarStyle, DefaultsToGeometricAndIgnoresInvalidValues) {
+    EXPECT_EQ(WebUiPreferencesConfig{}.subagent_avatar_style, "geometric");
+    EXPECT_TRUE(is_valid_web_ui_subagent_avatar_style("pixel"));
+    EXPECT_TRUE(is_valid_web_ui_subagent_avatar_style("geometric"));
+    EXPECT_FALSE(is_valid_web_ui_subagent_avatar_style(""));
+    EXPECT_FALSE(is_valid_web_ui_subagent_avatar_style("Geometric"));
+    EXPECT_FALSE(is_valid_web_ui_subagent_avatar_style("flower"));
+
+    const auto path = temp_config_path("subagent-avatar-default");
+    for (const auto& value : {nlohmann::json{{"font_size", "large"}},
+                              nlohmann::json{{"font_size", "large"}, {"subagent_avatar_style", "flower"}},
+                              nlohmann::json{{"font_size", "large"}, {"subagent_avatar_style", 1}}}) {
+        write_json(path, {{"web_ui", value}});
+        const auto loaded = load_config_from_path(path.string());
+        EXPECT_EQ(loaded.web_ui.subagent_avatar_style, "geometric") << value.dump();
+        EXPECT_EQ(loaded.web_ui.font_size, "large") << value.dump();
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
+// 场景:用户把头像风格改成像素小人,之后又改回花瓣。
+// 期望:pixel 写进 config.json 并能读回;改回默认值(geometric)后这个键不落盘
+// (配置文件只记与默认不同的值)。
+TEST(ConfigWebUiPreferencesSubagentAvatarStyle, PixelRoundTripsAndDefaultIsOmitted) {
+    const auto path = temp_config_path("subagent-avatar-roundtrip");
+    AppConfig cfg;
+    cfg.web_ui.subagent_avatar_style = "pixel";
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        const auto saved = nlohmann::json::parse(input);
+        EXPECT_EQ(saved["web_ui"]["subagent_avatar_style"], "pixel");
+    }
+    EXPECT_EQ(load_config_from_path(path.string()).web_ui.subagent_avatar_style, "pixel");
+    cfg.web_ui.subagent_avatar_style = "geometric";
+    save_config(cfg, path.string());
+    {
+        std::ifstream input(path);
+        EXPECT_FALSE(nlohmann::json::parse(input).contains("web_ui"));
+    }
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 // 场景:主题风格 ID 的格式校验(配置文件、REST 与前端共用同一规则)。
 // 期望:空串表示主题默认风格;只接受 1-24 位小写字母数字、单个连字符分隔的词。
 // 大写、首尾或连续连字符、超长、非 ASCII 都拒绝——它会直接写进 HTML 属性。

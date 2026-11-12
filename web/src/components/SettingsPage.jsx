@@ -72,6 +72,7 @@ import { ChannelsSettings } from './ChannelsSettings.jsx';
 import { ShortcutsSettings } from './ShortcutsSettings.jsx';
 import { SideChatRetentionSettings } from './SideChatRetentionSettings.jsx';
 import { MemorySettings } from './MemorySettings.jsx';
+import { SubagentAvatarStyleCards } from './SubagentAvatarStyleCards.jsx';
 import { clsx, formatCount, relativeTime } from '../lib/format.js';
 import { lookupErrorMessage } from '../lib/errors.js';
 import { buildMcpServerList, countEnabledMcp, applyMcpToggle, mcpConfigErrorMessage } from '../lib/mcpServers.js';
@@ -196,6 +197,8 @@ export function SettingsPage({
   onSidebarSessionTimeChange = () => {},
   messageAutoCollapse = true,
   onMessageAutoCollapseChange = () => {},
+  subagentAvatarStyle = 'geometric',
+  onSubagentAvatarStyleChange = () => {},
   onThemeVariantChange,
   onThemeEffectsChange,
 }) {
@@ -513,6 +516,8 @@ export function SettingsPage({
               onSidebarSessionTimeChange={onSidebarSessionTimeChange}
               messageAutoCollapse={messageAutoCollapse}
               onMessageAutoCollapseChange={onMessageAutoCollapseChange}
+              subagentAvatarStyle={subagentAvatarStyle}
+              onSubagentAvatarStyleChange={onSubagentAvatarStyleChange}
               themeVariantOptions={themeVariantOptions}
               activeThemeVariant={activeThemeVariant}
               onThemeVariantChange={setThemeVariant}
@@ -1561,6 +1566,8 @@ function SectionAppearance({
   onSidebarSessionTimeChange,
   messageAutoCollapse,
   onMessageAutoCollapseChange,
+  subagentAvatarStyle,
+  onSubagentAvatarStyleChange,
   themeVariantOptions = [],
   activeThemeVariant = null,
   onThemeVariantChange = () => {},
@@ -1679,6 +1686,8 @@ function SectionAppearance({
           ariaLabel="消息自动折叠"
         />
       </div>
+      <div className="h-px bg-border my-5" />
+      <SubagentAvatarStyleCards avatarStyle={subagentAvatarStyle} onAvatarStyleChange={onSubagentAvatarStyleChange} />
     </>
   );
 }

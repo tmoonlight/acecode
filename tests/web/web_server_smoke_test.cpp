@@ -9574,6 +9574,37 @@ TEST(WebServerHttp, UiPreferencesThemeSoundsRoundTrip) {
     EXPECT_FALSE(fx.cfg.web_ui.theme_sounds);
 }
 
+// 场景:设置 > 外观里切换子代理头像(花瓣 / 像素小人)。
+// 期望:GET 默认返回 geometric(花瓣);单字段 PUT pixel 只改这一项并落盘,之后改别的外观设置
+// 不会把它冲回默认;不认识的值或非字符串整笔 400,内存配置保持 pixel;还能改回 geometric。
+TEST(WebServerHttp, UiPreferencesSubagentAvatarStyleRoundTrips) {
+    WebServerFixture fx;
+    const auto url = cpr::Url{fx.url("/api/config/ui-preferences")};
+    const cpr::Header headers{{"Content-Type", "application/json"}};
+    EXPECT_EQ(json::parse(cpr::Get(url).text)["subagent_avatar_style"], "geometric");
+    auto pixel = cpr::Put(url, headers, cpr::Body{R"({"subagent_avatar_style":"pixel"})"});
+    ASSERT_EQ(pixel.status_code, 200) << pixel.text;
+    EXPECT_EQ(json::parse(pixel.text)["subagent_avatar_style"], "pixel");
+    EXPECT_EQ(json::parse(pixel.text)["font_size"], "medium");
+    EXPECT_EQ(fx.cfg.web_ui.subagent_avatar_style, "pixel");
+    auto other = cpr::Put(url, headers, cpr::Body{R"({"font_size":"large"})"});
+    ASSERT_EQ(other.status_code, 200) << other.text;
+    EXPECT_EQ(json::parse(other.text)["subagent_avatar_style"], "pixel");
+    const auto saved = acecode::load_config_from_path((fx.tmp_dir / "config.json").u8string());
+    EXPECT_EQ(saved.web_ui.subagent_avatar_style, "pixel");
+    EXPECT_EQ(saved.web_ui.font_size, "large");
+    for (const char* body : {R"({"subagent_avatar_style":"flower"})", R"({"subagent_avatar_style":true})",
+                             R"({"subagent_avatar_style":"Pixel","font_size":"small"})"}) {
+        auto rejected = cpr::Put(url, headers, cpr::Body{body});
+        EXPECT_EQ(rejected.status_code, 400) << body << " " << rejected.text;
+    }
+    EXPECT_EQ(fx.cfg.web_ui.subagent_avatar_style, "pixel");
+    EXPECT_EQ(fx.cfg.web_ui.font_size, "large");
+    auto geometric = cpr::Put(url, headers, cpr::Body{R"({"subagent_avatar_style":"geometric"})"});
+    ASSERT_EQ(geometric.status_code, 200) << geometric.text;
+    EXPECT_EQ(fx.cfg.web_ui.subagent_avatar_style, "geometric");
+}
+
 TEST(WebServerHttp, UiPreferencesMessageAutoCollapseRollsBackOnSaveFailure) {
     WebServerFixture fx;
     std::filesystem::create_directories(fx.tmp_dir / "config.json");

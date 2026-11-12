@@ -2246,6 +2246,7 @@ int main(int argc, char** argv) {
         {"theme_variant", desktop_cfg.web_ui.theme_variant},
         {"theme_effects", desktop_cfg.web_ui.theme_effects},
         {"theme_sounds", desktop_cfg.web_ui.theme_sounds},
+        {"subagent_avatar_style", desktop_cfg.web_ui.subagent_avatar_style},
     }.dump();
     const std::string startup_bootstrap = startup_timeline.snapshot_json();
     host.init_script(acecode::desktop::locale_bootstrap_script(

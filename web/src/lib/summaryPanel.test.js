@@ -15,6 +15,7 @@ import {
   summaryRunningTasks,
   summaryWorkspaceModel,
 } from './summaryPanel.js';
+import { normalizeSessionOutputs, sessionOutputRows } from './sessionOutputs.js';
 import {
   publishWorkspaceDirectory,
   subscribeWorkspaceDirectory,
@@ -115,7 +116,9 @@ run('后台任务已完成计数:结束一个加一,运行中的不算', () => {
 // 渲染生产组件,只替换取数和计时 hook,覆盖实际 JSX 的分组与完成行显示条件。
 const panelSource = readFileSync(new URL('../components/SummaryPanel.jsx', import.meta.url), 'utf8');
 const panelAst = parseSync(panelSource, { configFile: false, babelrc: false, parserOpts: { plugins: ['jsx'] } });
-const panelComponents = ['Section', 'Row', 'IconButton', 'SummaryPanel'];
+const panelComponents = ['Section', 'Row', 'IconButton', 'OutputRow', 'OutputsSection', 'SummaryPanel'];
+// 产物列表由 useSessionOutputs 取数,这里换成直接返回下面这个变量。
+let panelOutputs = [];
 const declarations = panelAst.program.body.map((node) => node.declaration || node)
   .filter((node) => node.type === 'FunctionDeclaration' && panelComponents.includes(node.id.name));
 assert.equal(declarations.length, panelComponents.length);
@@ -132,6 +135,11 @@ const SummaryPanel = vm.runInNewContext(`${compiledPanel.code}; SummaryPanel;`, 
   useGitInfo: () => null,
   useGitChangeList: () => null,
   useNow: () => 100_000,
+  useSessionOutputs: () => panelOutputs,
+  sessionOutputRows,
+  SUMMARY_FOLDER_CONTEXT_MENU_DELEGATE: 'summary-folder',
+  SUMMARY_ROW_BUTTON_CLASS: 'row-button',
+  FileTypeIcon: ({ path }) => React.createElement('span', { 'data-file-icon': path }),
   VsIcon: ({ name }) => React.createElement('span', { 'data-icon': name }),
   SubagentAvatar: ({ sessionId }) => React.createElement('span', { 'data-avatar': sessionId }),
 });
@@ -188,6 +196,51 @@ run('后台任务摘要:有已结束任务时保留分组和正确完成数量',
     assert.equal(dividerCount(html), 1);
     assert.equal(html.includes('仍在处理'), tasks.length === 3);
   }
+});
+
+const withOutputs = (count, render) => {
+  panelOutputs = normalizeSessionOutputs({
+    outputs: Array.from({ length: count }, (_, index) => ({
+      path: `/w/docs/file${index}.md`, relative: `docs/file${index}.md`, modified_ms: 1000 - index,
+    })),
+  });
+  try { return render(); } finally { panelOutputs = []; }
+};
+
+// 场景:这次对话还没有生成任何文件。
+// 期望:整个「产物」分组和它的分隔线都不画(不留一个空标题)。
+run('产物分组:没有产物时不显示分组和分隔线', () => {
+  const html = renderPanel([]);
+  assert.doesNotMatch(html, /产物|显示更多/);
+  assert.equal(dividerCount(html), 0);
+});
+
+// 场景:对话生成了 2 个文档。
+// 期望:「产物」分组排在工作区后面、变更前面;每个文件一行,带文件类型图标、
+// 完整路径在 title 里;行上有右键菜单的委托标记(kind=file);不到 6 个不出现「显示更多」。
+run('产物分组:每个文件一行,排在工作区和变更之间', () => {
+  const html = withOutputs(2, () => renderPanel([], {
+    sessionId: 's1',
+    onOpenFile() {},
+    sessionChangeSummary: { hasChanges: true, totalAdditions: 3, totalDeletions: 1 },
+  }));
+  assert.ok(html.indexOf('测试工作区') < html.indexOf('产物'));
+  assert.ok(html.indexOf('产物') < html.indexOf('变更'));
+  assert.match(html, /data-file-icon="file0\.md"/);
+  assert.match(html, /title="\/w\/docs\/file1\.md"/);
+  assert.match(html, /data-summary-path-kind="file"/);
+  assert.match(html, /data-summary-folder-path="\/w\/docs\/file0\.md"/);
+  assert.doesNotMatch(html, /显示更多/);
+  assert.equal(dividerCount(html), 2);
+});
+
+// 场景:对话生成了 8 个文件。
+// 期望:先只显示最近的 5 个,下面有「显示更多」(第 6 个起不在页面里)。
+run('产物分组:超过 5 个时先显示前 5 个并给出「显示更多」', () => {
+  const html = withOutputs(8, () => renderPanel([], { sessionId: 's1', onOpenFile() {} }));
+  assert.match(html, /file4\.md/);
+  assert.doesNotMatch(html, /file5\.md/);
+  assert.match(html, /显示更多/);
 });
 
 // Windows 路径用反斜杠拼接(源码里不直接写反斜杠字面量)。
