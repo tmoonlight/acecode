@@ -2243,6 +2243,15 @@ void WebServer::Impl::register_ui_preferences() {
                                     "theme_sounds must be a boolean");
                 }
             }
+            if (body.contains("subagent_avatar_style")) {
+                has_supported_field = true;
+                if (!body["subagent_avatar_style"].is_string() ||
+                    !is_valid_web_ui_subagent_avatar_style(
+                        body["subagent_avatar_style"].get<std::string>())) {
+                    return json_err(400, "BAD_REQUEST",
+                                    "subagent_avatar_style must be geometric or pixel");
+                }
+            }
             if (!has_supported_field) {
                 return json_err(400, "BAD_REQUEST",
                                 "no supported UI preference field was provided");
@@ -2294,6 +2303,10 @@ void WebServer::Impl::register_ui_preferences() {
             if (body.contains("theme_sounds")) {
                 deps.app_config->web_ui.theme_sounds =
                     body["theme_sounds"].get<bool>();
+            }
+            if (body.contains("subagent_avatar_style")) {
+                deps.app_config->web_ui.subagent_avatar_style =
+                    body["subagent_avatar_style"].get<std::string>();
             }
             try {
                 if (!deps.config_path.empty()) {

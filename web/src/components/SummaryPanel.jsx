@@ -1,8 +1,10 @@
-// 摘要面板显示工作区、变更和后台任务。
+// 摘要面板显示工作区、产物、变更和后台任务。
 //
 // 收起、停靠和悬浮由外层的 ResponsiveSidebar 负责,这里只渲染
 // 内容并按需取数:
 //   - 分支走共享的 gitInfoCache(30s TTL + 在途去重),与会话 git 胶囊同一份;
+//   - 产物(这次对话生成的文档 / 表格 / 图片)取 /api/sessions/:id/outputs,
+//     面板可见时才取;回合进行中隔几秒看一眼,回合结束再取一次;
 //   - 变更合计与右侧「变更」页共用 sessionChangesCache 和同一个基线(workbench
 //     状态 gitBase:<cwd>),只在面板可见时拉取,回合结束 / checkout 后标脏重拉;
 //   - 后台任务直接用 ChatView 已有的子代理任务列表,不另开订阅。
@@ -19,6 +21,11 @@ import { sessionChangesCache } from '../lib/gitChangesCache.js';
 import { gitInfoCache } from '../lib/gitInfoCache.js';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
 import {
+  normalizeSessionOutputs,
+  sessionOutputRows,
+  sessionOutputsEqual,
+} from '../lib/sessionOutputs.js';
+import {
   folderLabel,
   formatChangeCount,
   summaryChangeTotals,
@@ -28,11 +35,47 @@ import {
 } from '../lib/summaryPanel.js';
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { subscribeWorkspaceDirectory, workspaceDirectoryEntry } from '../lib/workspaceDirectory.js';
-import { VsIcon } from './Icon.jsx';
+import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { SubagentAvatar } from './PixelAvatar.jsx';
 import { WorkspaceIcon } from './WorkspaceIcon.jsx';
 
 const SUMMARY_FOLDER_CONTEXT_MENU_DELEGATE = 'summary-folder';
+const OUTPUTS_BUSY_POLL_MS = 6000;
+const NO_OUTPUTS = [];
+
+// 产物列表。回合进行中脚本随时可能生成文件,而界面收不到「bash 写了文件」的
+// 事件,所以面板可见且回合在跑时隔几秒取一次;内容没变就留着旧数组不重渲染。
+function useSessionOutputs({ api, sessionId, workspaceHash, busy, enabled }) {
+  const [outputs, setOutputs] = useState(NO_OUTPUTS);
+  const sessionRef = useRef(sessionId);
+  sessionRef.current = sessionId;
+  const load = useCallback(() => {
+    const target = sessionId;
+    if (!target || typeof api?.sessionOutputs !== 'function') return;
+    api.sessionOutputs(target, workspaceHash)
+      .then((data) => {
+        if (sessionRef.current !== target) return;
+        const next = normalizeSessionOutputs(data);
+        setOutputs((previous) => (sessionOutputsEqual(previous, next) ? previous : next));
+      })
+      .catch(() => {});
+  }, [api, sessionId, workspaceHash]);
+
+  // 换会话先清空,别把上一个会话的文件挂在新会话下面。
+  useEffect(() => {
+    setOutputs((previous) => (previous.length ? NO_OUTPUTS : previous));
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!enabled || !sessionId) return undefined;
+    load();
+    if (!busy) return undefined;
+    const timer = window.setInterval(load, OUTPUTS_BUSY_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [busy, enabled, sessionId, load]);
+
+  return sessionId ? outputs : NO_OUTPUTS;
+}
 
 function useGitInfo(api, cwd, owner, enabled) {
   const [gitInfo, setGitInfo] = useState(() => gitInfoCache.peek(api, cwd, owner) ?? null);
@@ -220,8 +263,9 @@ function useWorkspaceDirectoryEntry(hash) {
 }
 
 // 目录行菜单:左键、右键打开同一份下拉菜单,从行下方展开、与行同宽(学 Claude 桌面版)。
-// 走统一的 DesktopContextMenu,只给「打开文件夹」「复制文件路径」两项。
-function openFolderMenu(element, path) {
+// 走统一的 DesktopContextMenu,只给「打开文件夹」「复制文件路径」两项。产物行的右键
+// 也用它(kind 传 'file',「打开文件夹」会在资源管理器里选中这个文件)。
+function openFolderMenu(element, path, kind = 'directory') {
   if (!element || !path) return;
   const rect = element.getBoundingClientRect();
   openDesktopContextMenu({
@@ -237,7 +281,7 @@ function openFolderMenu(element, path) {
       {
         id: DESKTOP_CONTEXT_ACTIONS.OPEN_IN_EXPLORER,
         group: 'summary-folder-open',
-        target: { path, kind: 'directory' },
+        target: { path, kind },
       },
       {
         id: DESKTOP_CONTEXT_ACTIONS.COPY_ABSOLUTE_PATH,
@@ -261,7 +305,7 @@ function useFolderContextMenu(rootRef) {
       const path = element.getAttribute('data-summary-folder-path') || '';
       if (!path) return;
       detail.handled = true;
-      openFolderMenu(element, path);
+      openFolderMenu(element, path, element.getAttribute('data-summary-path-kind') || 'directory');
     };
     window.addEventListener(CONTEXT_MENU_DELEGATE_EVENT, handler);
     return () => window.removeEventListener(CONTEXT_MENU_DELEGATE_EVENT, handler);
@@ -333,9 +377,70 @@ function FolderRow({ path, primary }) {
   );
 }
 
+const SUMMARY_ROW_BUTTON_CLASS = 'flex-1 min-w-0 flex items-center gap-2 h-8 px-2 rounded-md text-left text-[13px] text-fg hover:bg-surface-hi transition';
+
+// 产物行:左键在右侧预览里打开;右键是和目录行一样的「打开文件夹 / 复制文件路径」。
+function OutputRow({ row, onOpen }) {
+  const content = (
+    <>
+      <FileTypeIcon path={row.name} size={15} className="shrink-0" />
+      <span className="flex-1 min-w-0 truncate">
+        {row.name}
+        {row.hint && <span className="text-fg-mute"> · {row.hint}</span>}
+      </span>
+    </>
+  );
+  return (
+    <div
+      className="ace-summary-row flex items-center min-w-0"
+      data-desktop-context-menu-delegate={SUMMARY_FOLDER_CONTEXT_MENU_DELEGATE}
+      data-summary-folder-path={row.path}
+      data-summary-path-kind="file"
+    >
+      {onOpen ? (
+        <button type="button" onClick={() => onOpen(row.path)} title={row.title} className={SUMMARY_ROW_BUTTON_CLASS}>
+          {content}
+        </button>
+      ) : (
+        <div className="flex-1 min-w-0 flex items-center gap-2 h-8 px-2 text-[13px] text-fg" title={row.title}>
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 「产物」分组:先显示最近的几个,其余点「显示更多」;一个都没有时整段不画。
+function OutputsSection({ outputs, onOpenFile }) {
+  const [expanded, setExpanded] = useState(false);
+  const model = sessionOutputRows(outputs, { expanded });
+  if (model.rows.length === 0) return null;
+  return (
+    <>
+      <div className="h-px bg-border mx-2 my-2" />
+      <Section id="outputs" title="产物" collapsible>
+        {model.rows.map((row) => (
+          <OutputRow key={row.key} row={row} onOpen={onOpenFile} />
+        ))}
+        {model.expandable && (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-expanded={expanded}
+            className="block w-full h-8 px-2 rounded-md text-left text-[13px] text-fg-mute hover:text-fg transition"
+          >
+            {expanded ? '显示更少' : '显示更多'}
+          </button>
+        )}
+      </Section>
+    </>
+  );
+}
+
 export function SummaryPanel({
   owner,
   api,
+  sessionId = '',
   cwd = '',
   workspaceName = '',
   workspaceHash = '',
@@ -347,12 +452,16 @@ export function SummaryPanel({
   onClose,
   onEditWorkspace,
   onOpenChanges,
+  onOpenFile,
   onOpenTask,
   onOpenFinishedTasks,
   onStopTask,
 }) {
   const rootRef = useRef(null);
   useFolderContextMenu(rootRef);
+  const outputs = useSessionOutputs({
+    api, sessionId, workspaceHash, busy, enabled: visible && !!sessionId,
+  });
   const directory = useWorkspaceDirectoryEntry(noWorkspace ? '' : workspaceHash);
   const gitInfo = useGitInfo(api, cwd, owner, visible && !!cwd);
   const gitList = useGitChangeList({ api, owner, cwd, gitInfo, busy, enabled: visible && !!cwd });
@@ -394,6 +503,7 @@ export function SummaryPanel({
         ))}
         {workspace.branch && <Row icon="fork" title={workspace.branch}>{workspace.branch}</Row>}
       </Section>
+      <OutputsSection outputs={outputs} onOpenFile={onOpenFile} />
       {changes && (
         <>
           <div className="h-px bg-border mx-2 my-2" />

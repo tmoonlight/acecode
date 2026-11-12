@@ -117,7 +117,9 @@ import { clampPopupWidth, popupWidthRange } from './lib/responsiveSidebars.js';
 import { ResponsiveSidebar } from './components/ResponsiveSidebar.jsx';
 import { Toaster, toast } from './components/Toast.jsx';
 import { SlashCommandsProvider } from './components/SlashCommandsContext.jsx';
+import { SubagentAvatarStyleProvider } from './components/GeometricAvatar.jsx';
 import { FramelessResizeHandles } from './components/FramelessResizeHandles.jsx';
+import { useFramelessWindowState } from './components/WindowControls.jsx';
 import { GlobalFindOverlay } from './components/GlobalFindOverlay.jsx';
 import { canOpenConversationFind } from './lib/globalFind.js';
 // 控制台停靠区带着 xterm,新手引导带着 react-joyride,都只在用户第一次打开时才需要;
@@ -247,6 +249,8 @@ function parseDesktopBridgeResult(raw) {
 
 export function App() {
   useEditingHistoryShortcuts();
+  const windowState = useFramelessWindowState();
+  const resizeHandles = <FramelessResizeHandles windowState={windowState} />;
   // Static product copy is marked at build time. Subscribing the shell to the
   // i18n instance refreshes mounted descendants immediately, while compiled
   // module-scope metadata resolves translations lazily on the rerender.
@@ -423,6 +427,8 @@ export function App() {
   const fontSize = effectiveFontSize(uiPrefs);
   const sidebarSessionTime = effectiveSidebarSessionTime(uiPrefs);
   const messageAutoCollapse = effectiveMessageAutoCollapse(uiPrefs);
+  // 设置 > 外观 > 子代理头像。只存在 daemon 配置里(桌面版每次启动端口都变,本地存储留不住)。
+  const [subagentAvatarStyle, setSubagentAvatarStyle] = useState(initialAppearance.subagentAvatarStyle);
   const applyAppearance = useCallback((next) => {
     setTheme(next.theme);
     setColorTheme(next.colorTheme);
@@ -434,6 +440,7 @@ export function App() {
       sidebarSessionTime: next.sidebarSessionTime,
       messageAutoCollapse: next.messageAutoCollapse,
     });
+    setSubagentAvatarStyle(next.subagentAvatarStyle);
   }, [setColorTheme, setTheme, setThemeEffects, setThemeSounds, setThemeVariant, setUiPrefs]);
   // The persistence controller outlives individual renders. Keep its callback
   // current so a later appearance choice is compared against the latest UI
@@ -452,6 +459,7 @@ export function App() {
         themeVariant: bootstrapAppearance?.themeVariant ?? themeVariant,
         themeEffects: bootstrapAppearance?.themeEffects ?? themeEffects,
         themeSounds: bootstrapAppearance?.themeSounds ?? themeSounds,
+        subagentAvatarStyle,
       },
       apply: (next) => applyAppearanceRef.current(next),
       save: (payload) => api.setUiPreferences(payload),
@@ -2130,7 +2138,7 @@ export function App() {
               <span>{desktopStartupStatus?.message || t('desktop.startupConnecting')}</span>
             </div>
           </div>
-          <FramelessResizeHandles />
+          {resizeHandles}
           <DesktopContextMenu />
           <Toaster />
         </>
@@ -2141,7 +2149,7 @@ export function App() {
         <div className="h-full flex items-center justify-center text-fg-mute text-sm">
           <span className="ace-spinner mr-2" /> 连接 daemon…
         </div>
-        <FramelessResizeHandles />
+        {resizeHandles}
         <DesktopContextMenu />
         <Toaster />
       </>
@@ -2151,7 +2159,7 @@ export function App() {
     return (
       <>
         <TokenPrompt onSubmit={onSubmitToken} />
-        <FramelessResizeHandles />
+        {resizeHandles}
         <DesktopContextMenu />
         <Toaster />
       </>
@@ -2205,6 +2213,7 @@ export function App() {
 
   return (
     <SlashCommandsProvider workspaceHash={commandWorkspaceHash}>
+    <SubagentAvatarStyleProvider value={subagentAvatarStyle}>
     <div
       className={[
         'ace-app-shell h-full w-full flex flex-col text-fg font-sans bg-bg',
@@ -2213,6 +2222,7 @@ export function App() {
       style={{ '--ace-home-sidebar-width': sidebarCollapsed ? '0px' : `${singleLayout.sidebar || 0}px` }}
     >
       <TopBar
+        windowState={windowState}
         sessionTitleRef={setSessionTitleTarget}
         sessionActionsRef={setSessionActionsTarget}
         onOpenSearch={() => setSearchOpen(true)}
@@ -2433,6 +2443,8 @@ export function App() {
             onSidebarSessionTimeChange={(next) => changeAppearance({ sidebarSessionTime: next })}
             messageAutoCollapse={messageAutoCollapse}
             onMessageAutoCollapseChange={(next) => changeAppearance({ messageAutoCollapse: next })}
+            subagentAvatarStyle={subagentAvatarStyle}
+            onSubagentAvatarStyleChange={(next) => changeAppearance({ subagentAvatarStyle: next })}
             onThemeVariantChange={(next) => changeAppearance({ themeVariant: next })}
             onThemeEffectsChange={(next) => changeAppearance({ themeEffects: next })}
           />
@@ -2448,7 +2460,7 @@ export function App() {
           onSelectSetting={handleSelectSetting}
         />
       </div>
-      <FramelessResizeHandles />
+      {resizeHandles}
       <GlobalFindOverlay
         enabled={conversationFindEnabled}
         openRequest={conversationFindRequest}
@@ -2508,6 +2520,7 @@ export function App() {
       />
       <Toaster />
     </div>
+    </SubagentAvatarStyleProvider>
     </SlashCommandsProvider>
   );
 }

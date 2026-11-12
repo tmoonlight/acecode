@@ -15,6 +15,7 @@ import {
   stableSeed,
   subagentAvatarIdentity,
 } from '../lib/officeCharacters.js';
+import { GeometricAvatar, useSubagentAvatarStyle } from './GeometricAvatar.jsx';
 
 export function PixelAvatar({ identity, size = 36 }) {
   const ref = useRef(null);
@@ -39,15 +40,18 @@ export function SubagentAvatars({ avatars, size = 16 }) {
   ));
 }
 
-// 子代理头像:绑定了专家用专家的头像(有自定义图片就用图片),否则是按子会话 id 生成的像素小人。
-// status(subagentAvatarStatus)决定右上角的状态图标,和桌面像素办公室同一套:运行中三个点
-// 轮流跳、小人隔一会儿点一下头,结束是一颗星,被中止是红色感叹号;不给就只有头像。
+// 子代理头像:绑定了专家用专家的头像(有自定义图片就用图片),否则按子会话 id 生成——
+// 设置 > 外观 > 子代理头像决定生成的是花瓣(默认,GeometricAvatar,状态靠转 / 停 / 变灰)还是像素小人。
+// 像素小人和专家头像由 status(subagentAvatarStatus)决定右上角的状态图标,和桌面像素办公室
+// 同一套:运行中三个点轮流跳、小人隔一会儿点一下头,结束是一颗星,被中止是红色感叹号;
+// 不给就只有头像。
 export function SubagentAvatar({ sessionId = '', expert = null, status = '', size = 16, className = '' }) {
   const [failedImage, setFailedImage] = useState('');
   const bodyRef = useRef(null);
   const markRef = useRef(null);
   const identity = subagentAvatarIdentity(sessionId, expert);
-  const mark = avatarStatusMark(status);
+  const geometric = useSubagentAvatarStyle() === 'geometric' && !expert?.avatar_identity;
+  const mark = geometric ? null : avatarStatusMark(status);
   useEffect(() => {
     const body = bodyRef.current;
     const canvas = markRef.current;
@@ -66,8 +70,16 @@ export function SubagentAvatar({ sessionId = '', expert = null, status = '', siz
     paint(avatarStatusTick());
     // 只有运行中的头像跟着钟走;结束后的图标画一次就不动了。
     return status === 'running' ? subscribeAvatarStatusClock(paint) : undefined;
-  }, [identity, status, size]);
+  }, [identity, status, size, geometric]);
   if (!identity) return null;
+  if (geometric) {
+    return (
+      <span className={clsx('relative inline-flex shrink-0', className)}
+        style={{ width: size, height: size }} data-subagent-avatar={status || 'plain'}>
+        <GeometricAvatar identity={identity} size={size} status={status} />
+      </span>
+    );
+  }
   const image = expert?.avatar_identity ? expert.avatar_url : '';
   return (
     <span className={clsx('relative inline-flex shrink-0', className)}

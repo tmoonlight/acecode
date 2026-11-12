@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   FRAMELESS_RESIZE_ACTION,
+  canResizeFramelessWindow,
   framelessResizeMouseDownAction,
 } from './framelessResize.js';
 
@@ -13,6 +14,19 @@ function test(name, fn) {
     throw error;
   }
 }
+
+test('resize handles are active only in a restored frameless window', () => {
+  const bridge = { aceDesktop_startWindowResize() {} };
+  const restored = { framelessDesktop: true, isMaximized: false, isFullscreen: false };
+  assert.equal(canResizeFramelessWindow(restored, bridge), true);
+  for (const state of [
+    { isMaximized: true }, { isFullscreen: true },
+    { isMaximized: null }, { isFullscreen: null }, { framelessDesktop: false },
+  ]) {
+    assert.equal(canResizeFramelessWindow({ ...restored, ...state }, bridge), false);
+  }
+  assert.equal(canResizeFramelessWindow(restored, {}), false);
+});
 
 test('non-left button ignores frameless resize handle', () => {
   assert.equal(

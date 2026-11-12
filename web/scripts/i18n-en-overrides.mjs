@@ -1019,6 +1019,9 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '默认权限': 'Default permissions',
   '完全访问权限': 'Full access',
   '变更': 'Changes',
+  '产物': 'Outputs',
+  '显示更多': 'Show more',
+  '显示更少': 'Show less',
   '双列': 'Side by side',
   '自动换行': 'Word wrap',
   '扁平列表': 'Flat list',
@@ -2549,4 +2552,8 @@ export const ENGLISH_SOURCE_OVERRIDES = Object.freeze({
   '本次会话允许': 'Allow for this session',
   '允许一次': 'Allow once',
   '已允许一次': 'Allowed once',
+  '子代理头像': 'Sub-agent avatars',
+  '花瓣': 'Petals',
+  '像素小人': 'Pixel characters',
+  'subagent sub-agent agent avatar portrait icon style petal flower geometric pixel 子代理 智能体 头像 图标 花瓣 几何图形 像素小人': 'subagent sub-agent agent avatar portrait icon style petal flower geometric pixel',
 });

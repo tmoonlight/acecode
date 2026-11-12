@@ -527,6 +527,13 @@ export function createApi(base = null) {
     withdrawSteer:    (id, clientMessageId) => request(
       'POST', `/api/sessions/${encodeURIComponent(id)}/turn/steer/withdraw`,
       { client_message_id: clientMessageId }, base),
+    // 会话产物(这次对话生成的文档 / 表格 / 图片等文件),摘要面板用。
+    sessionOutputs: (id, workspaceHash = '') => request(
+      'GET',
+      `/api/sessions/${encodeURIComponent(id)}/outputs${workspaceHash ? `?workspace=${encodeURIComponent(workspaceHash)}` : ''}`,
+      undefined,
+      base,
+    ),
     // 后台任务(后台命令 / 后台子代理):列表、输出末尾、停止、把前台工作转到后台。
     listBackgroundTasks: (id) => request(
       'GET', `/api/sessions/${encodeURIComponent(id)}/background-tasks`, undefined, base),

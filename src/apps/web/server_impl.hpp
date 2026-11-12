@@ -34,6 +34,7 @@
 #include "session/session_rewind.hpp"
 #include "session/session_serializer.hpp"
 #include "session/session_markdown_export.hpp"
+#include "session/session_outputs_index.hpp"
 #include "session/session_storage.hpp"
 #include "session/sidebar_tree.hpp"
 #include "session/todo_state.hpp"
@@ -472,6 +473,8 @@ struct WebServer::Impl {
 
     mutable std::mutex sidebar_sessions_mu;
     mutable SidebarMetadataCache sidebar_metadata_cache;
+    // GET /api/sessions/:id/outputs 的增量扫描状态(自带锁)。
+    SessionOutputsIndex session_outputs_index;
     nlohmann::json sidebar_session_page(const acecode::desktop::WorkspaceMeta& ws,
                                         bool no_workspace, int limit,
                                         std::set<std::string> expanded,
@@ -689,6 +692,7 @@ struct WebServer::Impl {
     crow::response handle_session_batch(const crow::request& req);
     void register_sessions();
     void register_background_tasks();
+    void register_session_outputs();
     void register_desktop_office();
     void register_task_suggestions();
     void register_models();

@@ -12,6 +12,7 @@
 // 整面板不渲染。
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError, createApi } from '../lib/api.js';
 import { aggregateHunksFromMessages, summarizeChangeGroups } from '../lib/sessionChanges.js';
 import {
@@ -42,6 +43,8 @@ import {
   finishFileTreeDirectoryRequest,
   reconcileFileTreeDirectory,
 } from '../lib/fileTreeRefresh.js';
+import { toggleFileTreeDirectories } from '../lib/fileTreeSelection.js';
+import { FILE_TREE_SELECTION_DELEGATE, useFileTreeSelection } from '../lib/useFileTreeSelection.js';
 import { clsx } from '../lib/format.js';
 import {
   SIDE_PANEL_CONTEXT_EFFECTS,
@@ -49,6 +52,7 @@ import {
 } from '../lib/sidePanelContextActions.js';
 import { FileTypeIcon, VsIcon } from './Icon.jsx';
 import { ChangeCompactList } from './ChangeReview.jsx';
+import { openFileTreeBatchMenu } from './fileTreeBatchMenu.js';
 import { GitChangesPanel } from './GitChangesPanel.jsx';
 import { GIT_STATE_CHANGED_EVENT } from '../lib/gitSessionPill.js';
 import { gitInfoCache } from '../lib/gitInfoCache.js';
@@ -238,6 +242,33 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
     if (shouldExpand) loadDir(path, { force: true });
   }, [expandedDirs, loadDir, setExpandedDirs]);
 
+  // 多选:Shift / Ctrl 点击、多选后的右键菜单、拖到输入框或控制台。
+  const selection = useFileTreeSelection({
+    owner,
+    cwd,
+    treeRef,
+    treeCache,
+    expandedDirs,
+    activePath: selectedPath,
+    onBatchMenu: ({ entries, x, y, element }) => openFileTreeBatchMenu({
+      entries,
+      x,
+      y,
+      element,
+      cwd,
+      expandedDirs,
+      onPreviewFiles: async (files) => {
+        for (const file of files) {
+          if (await onPickFile(file) === false) break;
+        }
+      },
+      onSetDirectoriesExpanded: (paths, expand) => {
+        if (expand) paths.forEach(path => loadDir(path, { force: true }));
+        setExpandedDirs(prev => toggleFileTreeDirectories(prev, paths, expand));
+      },
+    }),
+  });
+
   useEffect(() => {
     const handler = (event) => {
       const detail = event.detail || {};
@@ -356,6 +387,7 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
       const locatePath = isDir ? '' : containingWorkspacePath(cwd, e.path);
       const reviewStatus = e.review_status || statusForTreeEntry(e, reviewStatusByPath);
       const statusTitle = fileChangeStatusTitle(reviewStatus, isDir);
+      const rowEntry = { path: e.path, name: e.name, directory: isDir };
       const activeGuideIndex = selectedParentGuideIndex >= 0
         && depth > selectedParentGuideIndex
         && isPathWithinTreeBranch(e.path, selectedParentPath)
@@ -375,13 +407,27 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
             data-desktop-file-expanded={isDir ? (isOpen ? 'true' : 'false') : undefined}
             data-desktop-file-preview={isDir ? undefined : 'true'}
             data-desktop-file-add-context="true"
+            data-desktop-context-menu-delegate={FILE_TREE_SELECTION_DELEGATE}
+            data-file-multi-selected={selection.keys.has(e.path) ? 'true' : undefined}
             data-review-status={reviewStatus || undefined}
             className={clsx(
               'ace-file-row w-full flex items-center gap-1 text-left text-[12px] py-[3px] pr-2',
               'hover:bg-surface-hi cursor-pointer',
               isActive && 'bg-accent-soft text-accent',
             )}
-            onClick={() => isDir ? toggleDir(e.path) : onPickFile(e)}
+            onClick={(event) => {
+              // Shift / Ctrl 点击只改选区,不展开目录、不打开文件。
+              if (!selection.click(event, rowEntry)) return;
+              if (isDir) toggleDir(e.path);
+              else onPickFile(e);
+            }}
+            onPointerDown={(event) => selection.pointerDown(event, rowEntry)}
+            onMouseDown={(event) => {
+              if (!event.shiftKey) return;
+              // Shift 点击默认会把页面上已有的文字选区一路拉到这里;拦下后手动给焦点,键盘操作才落在文件树上。
+              event.preventDefault();
+              event.currentTarget.focus({ preventScroll: true });
+            }}
             onAnimationEnd={(event) => {
               if (event.target === event.currentTarget) event.currentTarget.classList.remove('ace-file-locate-highlight');
             }}
@@ -422,9 +468,38 @@ function FileTree({ owner, api, cwd, treeCache, setTreeCache, expandedDirs, setE
     return <div className="ace-empty-state">无 cwd,请先选择会话</div>;
   }
   return (
-    <div className="ace-file-tree flex-1 overflow-y-auto py-1" ref={treeRef}>
-      {renderEntries('', 0)}
-    </div>
+    <>
+      <div
+        className="ace-file-tree flex-1 overflow-y-auto py-1"
+        ref={treeRef}
+        data-multi-select={selection.multiple ? 'true' : undefined}
+        onKeyDown={selection.keyDown}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) selection.clear();
+        }}
+      >
+        {renderEntries('', 0)}
+      </div>
+      {selection.ghost && createPortal(
+        <div
+          ref={selection.ghostRef}
+          className="ace-file-drag-ghost"
+          data-ace-native-overlay="overlap"
+          aria-hidden="true"
+        >
+          {selection.ghost.count > 1 && <span className="ace-file-drag-count">{selection.ghost.count}</span>}
+          {selection.ghost.rows.map((row) => (
+            <div className="ace-file-drag-row" key={row.path}>
+              {row.directory
+                ? <VsIcon name="folder" size={16} className="shrink-0" />
+                : <FileTypeIcon path={row.path} size={16} className="shrink-0" />}
+              <span className="truncate">{row.name}</span>
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -638,10 +713,12 @@ export function SidePanel({
     setActiveTab('changes');
   }, [selectedChangeFile, selectedChangeFileRevision]);
 
+  // 返回 false = 预览没有打开(被取消),批量预览据此停下。
   const onPickFile = useCallback(async (entry) => {
-    if (!filesEnabled) return;
-    if (await onOpenFilePreview?.(entry.path) === false) return;
+    if (!filesEnabled) return false;
+    if (await onOpenFilePreview?.(entry.path) === false) return false;
     setSelectedPath(entry.path);
+    return true;
   }, [filesEnabled, onOpenFilePreview]);
 
   useEffect(() => {

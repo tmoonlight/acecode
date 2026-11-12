@@ -26,7 +26,7 @@ run('Desktop injects stable appearance before WebUI modules execute', () => {
   const navigation = desktop.indexOf('host.navigate(url);');
   assert.ok(injection >= 0);
   assert.ok(navigation > injection);
-  for (const field of ['desktop_cfg.web_ui.theme', 'desktop_cfg.web_ui.color_theme', 'desktop_cfg.web_ui.font_size', 'desktop_cfg.web_ui.message_auto_collapse']) {
+  for (const field of ['desktop_cfg.web_ui.theme', 'desktop_cfg.web_ui.color_theme', 'desktop_cfg.web_ui.font_size', 'desktop_cfg.web_ui.message_auto_collapse', 'desktop_cfg.web_ui.subagent_avatar_style']) {
     assert.ok(desktop.includes(field), `bootstrap missing ${field}`);
   }
 });
@@ -44,6 +44,23 @@ run('App restores daemon appearance and owns durable mutations', () => {
   assert.match(app, /onThemeChange=\{\(nextTheme\) => changeAppearance\(\{ theme: nextTheme \}\)\}/);
   assert.match(app, /onColorThemeChange=\{\(nextColorTheme\) => \(/);
   assert.match(app, /onFontSizeChange=\{\(nextFontSize\) => changeAppearance\(\{ fontSize: nextFontSize \}\)\}/);
+});
+
+// 场景:设置 > 外观 > 子代理头像。
+// 期望:这个选择只走 daemon 配置这一条路(和主题、字号一样由外观持久化控制器发出、由它回写),
+// App 把当前值放进 Provider,头像组件从那里读;不落浏览器本地存储。
+// 回归防护:桌面版每次启动端口都变,本地存储留不住,只存本地的话重启就回到默认的花瓣。
+run('sub-agent avatar style is a daemon-backed appearance preference', () => {
+  const app = sourceFromSrc('App.jsx');
+  const helper = sourceFromSrc('lib/appearancePreferences.js');
+  const avatar = sourceFromSrc('components/PixelAvatar.jsx');
+  assert.match(app, /const \[subagentAvatarStyle, setSubagentAvatarStyle\] = useState\(initialAppearance\.subagentAvatarStyle\);/);
+  assert.match(app, /setSubagentAvatarStyle\(next\.subagentAvatarStyle\);/);
+  assert.match(app, /<SubagentAvatarStyleProvider value=\{subagentAvatarStyle\}>/);
+  assert.match(app, /onSubagentAvatarStyleChange=\{\(next\) => changeAppearance\(\{ subagentAvatarStyle: next \}\)\}/);
+  assert.doesNotMatch(app, /usePreference\([^)]*[aA]vatarStyle/);
+  assert.match(helper, /subagent_avatar_style: normalized\.subagentAvatarStyle,/);
+  assert.match(avatar, /const geometric = useSubagentAvatarStyle\(\) === 'geometric' && !expert\?\.avatar_identity;/);
 });
 
 run('Settings retains durable theme controls after the top-bar shortcut is removed', () => {

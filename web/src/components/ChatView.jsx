@@ -6887,6 +6887,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
             <SummaryPanel
               owner={workbenchOwner}
               api={api}
+              sessionId={sid || ''}
               cwd={sidePanelCwd}
               workspaceName={homePanelWorkspace
                 ? (homePanelWorkspace.name || pathBaseName(homePanelWorkspace.cwd || ''))
@@ -6900,6 +6901,7 @@ export function ChatView({ titleTarget, actionsTarget, children, sessionRef, ses
               onClose={onToggleSummaryPanel}
               onEditWorkspace={editSummaryWorkspace}
               onOpenChanges={openSummaryChanges}
+              onOpenFile={openFilePreview}
               onOpenTask={openSummaryTask}
               onOpenFinishedTasks={openSummaryFinishedTasks}
               onStopTask={stopSummaryTask}

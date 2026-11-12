@@ -1,12 +1,5 @@
 // WindowControls:frameless desktop 模式下的标题栏窗口控制三连
-// (minimize / maximize ↔ restore / close)。从 TopBar 抽出,SettingsPage 等
-// 全屏覆盖 TopBar 的页面也复用,避免每处重写。
-//
-// 用法:
-//   const { isMaximized, framelessDesktop } = useFramelessWindowState();
-//   {framelessDesktop && (
-//     <WindowControls isMaximized={isMaximized} />
-//   )}
+// (minimize / maximize ↔ restore / close)。
 
 import { VsIcon } from './Icon.jsx';
 import { useEffect, useState } from 'react';
@@ -32,47 +25,44 @@ export function nativePointerEvent(event) {
   };
 }
 
-// 监听 native 推送的 maximize 状态。多个组件可同时挂(WndProc 每次都遍历 webview
-// 找全局回调,这里覆盖式注册 — 期望同一时刻只有一个 SettingsPage 或 TopBar 在
-// 监听;切走时 cleanup 还原 null)。
+// App 统一订阅窗口状态，供标题栏和缩放边缘共用。
 export function useFramelessWindowState() {
   const framelessDesktop = isFramelessDesktop();
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(null);
+  const [isFullscreen, setIsFullscreen] = useState(null);
 
   useEffect(() => {
     if (!framelessDesktop) return undefined;
     let cancelled = false;
     const fetchInitial = async () => {
-      if (typeof window.aceDesktop_isWindowMaximized !== 'function') return;
+      let state;
       try {
-        const raw = await window.aceDesktop_isWindowMaximized();
-        const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (!cancelled) {
-          setIsMaximized(!!(r && r.maximized));
-          setIsFullscreen(!!(r && r.fullscreen));
-        }
+        const raw = await window.aceDesktop_isWindowMaximized?.();
+        state = typeof raw === 'string' ? JSON.parse(raw) : raw;
       } catch {
-        // bind 偶发抛错 → 保留默认 false
+        // 兼容无法提供初始状态的桌面壳，按普通窗口处理。
+      }
+      if (!cancelled) {
+        // 查询期间收到的原生推送比初始快照更新。
+        setIsMaximized(current => current ?? !!state?.maximized);
+        setIsFullscreen(current => current ?? !!state?.fullscreen);
       }
     };
-    fetchInitial();
 
     const prev = window.aceDesktop_onMaximizeStateChanged;
     const prevFullscreen = window.aceDesktop_onFullscreenStateChanged;
     window.aceDesktop_onMaximizeStateChanged = (m) => {
       setIsMaximized(!!m);
-      // 也通知前一个监听者(链式),避免 TopBar 与 SettingsPage 共存时丢事件
       if (typeof prev === 'function') prev(m);
     };
     window.aceDesktop_onFullscreenStateChanged = (fullscreen) => {
       setIsFullscreen(!!fullscreen);
       if (typeof prevFullscreen === 'function') prevFullscreen(fullscreen);
     };
+    fetchInitial();
 
     return () => {
       cancelled = true;
-      // 还原前一个回调,而不是 delete — 防止 SettingsPage 关闭后 TopBar 失联
       window.aceDesktop_onMaximizeStateChanged = prev || undefined;
       window.aceDesktop_onFullscreenStateChanged = prevFullscreen || undefined;
     };

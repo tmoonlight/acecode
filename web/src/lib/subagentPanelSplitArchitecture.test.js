@@ -192,4 +192,46 @@ run('sub-agent portraits share one size and carry the office status mark', () =>
   assert.doesNotMatch(row, /rounded-full|agentRunning/);
 });
 
+// 场景:设置 > 外观 > 子代理头像,默认是花瓣(配置值 geometric),另一项是像素小人。
+// 期望:没绑定专家的子代理按这个设置画,绑定了专家的仍用专家头像;花瓣不叠像素角标,
+// 状态靠它自己表达——运行中整朵转、被中止变灰;风格切换时要重新走一遍头像的副作用,
+// 把像素风格订阅的钟退掉。选项是外观栏末尾的两张带预览的单选卡片,花瓣排在前面,
+// 没有额外的说明文字;设置里没有单独的「子代理」一栏。
+// 回归防护:花瓣上叠像素画的三个点 / 星风格不搭(设计时否掉的方案);副作用的依赖里漏了风格,
+// 切到花瓣后原来那只钟会一直往已经卸掉的画布上画;用户明确要求不要单独开一栏、默认用花瓣。
+run('petal sub-agent portraits are the default and are chosen in the appearance section', () => {
+  const avatar = source('components/PixelAvatar.jsx');
+  const geometric = source('components/GeometricAvatar.jsx');
+  const cards = source('components/SubagentAvatarStyleCards.jsx');
+  const page = source('components/SettingsPage.jsx');
+  const navigation = source('lib/settingsNavigation.js');
+  const search = source('lib/settingsSearch.js');
+  const preferences = source('lib/appearancePreferences.js');
+  const css = source('styles/globals.css');
+
+  assert.match(avatar, /const mark = geometric \? null : avatarStatusMark\(status\);/);
+  assert.match(avatar, /\}, \[identity, status, size, geometric\]\);/);
+  assert.match(avatar, /if \(geometric\) \{[\s\S]*?<GeometricAvatar identity=\{identity\} size=\{size\} status=\{status\} \/>/);
+
+  assert.match(geometric, /const SubagentAvatarStyleContext = createContext\('geometric'\);/);
+  assert.match(preferences, /subagentAvatarStyle: 'geometric',\s*\}\);/);
+  assert.match(geometric, /status === 'running' && 'ace-geometric-avatar-running'/);
+  assert.match(geometric, /stopped && 'text-fg-mute'/);
+  assert.match(geometric, /stopped \? 'currentColor' : spec\[tone\]/);
+  assert.doesNotMatch(geometric, /<canvas|avatarStatusMark|miniSprite/);
+  assert.match(css, /\.ace-geometric-avatar-running \{\s*animation: ace-geometric-avatar-spin 6s linear infinite;/);
+
+  assert.doesNotMatch(navigation, /subagents|子代理/);
+  assert.doesNotMatch(page, /activeNavKey === 'subagents'/);
+  assert.match(search, /\['appearance', '子代理头像', /);
+  const appearance = page.slice(page.indexOf('function SectionAppearance('), page.indexOf('function SectionAbout('));
+  assert.match(appearance, /<SubagentAvatarStyleCards avatarStyle=\{subagentAvatarStyle\} onAvatarStyleChange=\{onSubagentAvatarStyleChange\} \/>/);
+  assert.match(cards, />子代理头像<\/h3>/);
+  assert.match(cards, /\{ key: 'geometric', label: '花瓣' \},\s*\{ key: 'pixel', label: '像素小人' \},/);
+  assert.match(cards, /role="radio"\s*aria-checked=\{active\}/);
+  assert.match(cards, /onClick=\{\(\) => onAvatarStyleChange\(option\.key\)\}/);
+  // 界面文案约束:卡片只有预览和名字,不加说明行。
+  assert.doesNotMatch(cards, /text-fg-mute/);
+});
+
 console.log('subagentPanelSplitArchitecture.test.js: all tests passed');

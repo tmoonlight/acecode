@@ -10,8 +10,8 @@ import {
   systemThemeFallback,
 } from './appearancePreferences.js';
 
-// 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开。
-const THEME_STYLE_DEFAULTS = Object.freeze({ themeVariant: '', themeEffects: true, themeSounds: true });
+// 主题风格与动效开关的默认值:空风格 = 主题的第一个风格,动效默认开;子代理头像默认是花瓣。
+const THEME_STYLE_DEFAULTS = Object.freeze({ themeVariant: '', themeEffects: true, themeSounds: true, subagentAvatarStyle: 'geometric' });
 
 async function run(name, fn) {
   try {
@@ -114,6 +114,7 @@ await run('API serialization sends a complete compatibility snapshot', () => {
     theme_variant: '',
     theme_effects: true,
     theme_sounds: true,
+    subagent_avatar_style: 'geometric',
   });
 });
 
@@ -246,6 +247,38 @@ await run('消息自动折叠缺省开启，关闭值经启动注入、API、其
   assert.equal(controller.confirmed().messageAutoCollapse, false);
   await controller.change({ messageAutoCollapse: true });
   assert.equal(saves.at(-1).message_auto_collapse, true);
+});
+
+// 场景:设置 > 外观 > 子代理头像(花瓣 / 像素小人),和主题、字号一样存在 daemon 配置里。
+// 期望:缺省是 geometric(花瓣);不认识的值按 geometric;pixel 经桌面版启动注入、接口返回都能读到;
+// 之后改别的外观设置时随整份快照一起发给 daemon,不会被冲回默认;切换时立即生效。
+// 旧 daemon 的返回里没有这个键:按 geometric 处理,不能把整份外观偏好判成无效(那会连主题一起丢)。
+await run('子代理头像缺省是花瓣，像素小人经启动注入、API、其它偏好修改后保持', async () => {
+  const canonical = { theme: 'system', color_theme: 'blue', font_size: 'medium', subagent_avatar_style: 'pixel' };
+  assert.equal(normalizeAppearancePreferences({}).subagentAvatarStyle, 'geometric');
+  assert.equal(normalizeAppearancePreferences({ subagent_avatar_style: 'flower' }).subagentAvatarStyle, 'geometric');
+  assert.equal(normalizeAppearancePreferences({ subagentAvatarStyle: 'pixel' }).subagentAvatarStyle, 'pixel');
+  assert.equal(initialAppearancePreferences({ __ACECODE_APPEARANCE__: canonical }).subagentAvatarStyle, 'pixel');
+  assert.equal(parseAppearancePreferences(canonical).subagentAvatarStyle, 'pixel');
+  const legacy = parseAppearancePreferences({ theme: 'dark', color_theme: 'orange', font_size: 'small' });
+  assert.equal(legacy.subagentAvatarStyle, 'geometric');
+  assert.equal(legacy.theme, 'dark');
+
+  const saves = [];
+  const applied = [];
+  const controller = createAppearancePersistenceController({
+    initial: {}, apply: (value) => applied.push(value.subagentAvatarStyle),
+    save: async (value) => { saves.push(value); return value; },
+  });
+  assert.equal(controller.restore(canonical), true);
+  await controller.change({ fontSize: 'large' });
+  assert.equal(saves[0].subagent_avatar_style, 'pixel');
+  assert.equal(controller.confirmed().subagentAvatarStyle, 'pixel');
+  const switching = controller.change({ subagentAvatarStyle: 'geometric' });
+  assert.equal(applied.at(-1), 'geometric');
+  await switching;
+  assert.equal(saves.at(-1).subagent_avatar_style, 'geometric');
+  assert.equal(saves.at(-1).font_size, 'large');
 });
 
 await run('消息折叠切换立即更新，保存失败恢复确认值，连续切换按最后选择落盘', async () => {

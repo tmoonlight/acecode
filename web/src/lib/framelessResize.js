@@ -4,6 +4,11 @@ export const FRAMELESS_RESIZE_ACTION = Object.freeze({
   TOGGLE_MAXIMIZE: 'toggle-maximize',
 });
 
+export function canResizeFramelessWindow({ framelessDesktop, isMaximized, isFullscreen }, win = globalThis.window) {
+  return framelessDesktop && isMaximized === false && isFullscreen === false
+    && typeof win?.aceDesktop_startWindowResize === 'function';
+}
+
 export function framelessResizeMouseDownAction({
   direction,
   button = 0,

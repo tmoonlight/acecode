@@ -1,4 +1,5 @@
 #include "background_tasks.hpp"
+#include "shell_output_files.hpp"
 
 #include "llm/tool_protocol_names.hpp"
 #include "utils/logger.hpp"
@@ -511,9 +512,22 @@ bool any_running(const std::vector<TaskPtr>& tasks) {
     return false;
 }
 
+// 后台命令结束时找一遍它生成的文件,记进完成通知的元数据(摘要面板「产物」
+// 用,shell_output_files.hpp)。在这里做而不在 finish_shell 里做:要扫工作目录,
+// 不能放在登记表的锁里。
+void attach_output_files(PumpEvent& event) {
+    if (!event.notice || !event.changed) return;
+    const BackgroundTaskInfo& info = *event.changed;
+    if (info.kind != BackgroundTaskKind::Shell || info.state == BackgroundTaskState::Running) return;
+    const ShellOutputProbe probe = make_shell_output_probe(info.command, info.cwd, info.started_at_ms);
+    auto files = collect_shell_output_files(probe, info.command, event.notice->text);
+    if (!files.empty()) event.notice->metadata["output_files"] = std::move(files);
+}
+
 void deliver(const BackgroundTaskRegistry::Sink& sink, std::vector<PumpEvent>& events) {
     for (auto& event : events) {
         try {
+            attach_output_files(event);
             if (event.changed && sink.changed) sink.changed(*event.changed);
             if (event.notice && sink.notify) sink.notify(std::move(*event.notice));
         } catch (const std::exception& error) {

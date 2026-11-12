@@ -1301,7 +1301,8 @@ body {
 /* The file drop target keeps the accent ring: it is a transient affordance,
    not a resting state. Same specificity as hover / focus, later, so it wins. */
 .ace-composer-card.is-drag-active,
-.ace-composer-card.is-session-reference-drop {
+.ace-composer-card.is-session-reference-drop,
+.ace-composer-card.is-file-tree-drop {
   border-color: var(--ace-accent);
   box-shadow: 0 0 0 2px rgba(var(--ace-accent-rgb), 0.15);
 }
@@ -3369,7 +3370,8 @@ body {
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.08);
 }
 .ace-inputbar-hero-card.is-drag-active,
-.ace-inputbar-hero-card.is-session-reference-drop {
+.ace-inputbar-hero-card.is-session-reference-drop,
+.ace-inputbar-hero-card.is-file-tree-drop {
   box-shadow:
     0 0 0 2px rgba(var(--ace-accent-rgb), 0.15),
     0 18px 46px rgba(0, 0, 0, 0.08);
@@ -3387,7 +3389,8 @@ body {
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
 }
 [data-theme="dark"] .ace-inputbar-hero-card.is-drag-active,
-[data-theme="dark"] .ace-inputbar-hero-card.is-session-reference-drop {
+[data-theme="dark"] .ace-inputbar-hero-card.is-session-reference-drop,
+[data-theme="dark"] .ace-inputbar-hero-card.is-file-tree-drop {
   box-shadow:
     0 0 0 2px rgba(var(--ace-accent-rgb), 0.15),
     0 18px 46px rgba(0, 0, 0, 0.32);
@@ -6555,6 +6558,14 @@ a.ace-thread-link:focus-visible {
   padding-left: 10px;
 }
 .ace-file-row:hover { background: var(--ace-surface-hi); }
+/* 多选:Shift / Ctrl 选中的行。正在预览的文件另有一套更重的样式(见下),两者可以叠加。 */
+.ace-file-row {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ace-file-row[data-file-multi-selected="true"] {
+  background: rgba(var(--ace-accent-rgb), 0.12);
+}
 .ace-file-tree-message {
   min-height: 24px;
   display: flex;
@@ -6627,6 +6638,59 @@ a.ace-thread-link:focus-visible {
 .ace-file-row[data-desktop-file-selected="true"]:not([data-review-status]) {
   color: var(--ace-accent);
 }
+/* 选了多行而预览中的文件不在其中:去掉它的底色,只留左侧色条,免得看成也被选中。 */
+.ace-file-tree[data-multi-select="true"] .ace-file-row[data-desktop-file-selected="true"]:not([data-file-multi-selected="true"]) {
+  background: transparent;
+}
+.ace-file-tree[data-multi-select="true"] .ace-file-row[data-desktop-file-selected="true"]:not([data-file-multi-selected="true"]):hover {
+  background: var(--ace-surface-hi);
+}
+/* 拖动文件树里的行:跟着指针走的预览,多于一行时右上角标数量。 */
+.ace-file-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 240px;
+  padding: 4px 8px;
+  border: 1px solid rgba(var(--ace-border-rgb), 0.92);
+  border-radius: 6px;
+  background: rgba(var(--ace-bg-rgb), 0.96);
+  color: var(--ace-fg);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+}
+.ace-file-drag-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 20px;
+}
+.ace-file-drag-count {
+  position: absolute;
+  top: -9px;
+  right: -7px;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  background: var(--ace-fg);
+  color: var(--ace-bg);
+  text-align: center;
+  font-size: 12px;
+}
+.ace-file-tree-dragging {
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* 指针被拖起的那一行捕获,光标形状由它决定。 */
+.ace-file-tree-dragging .ace-file-row { cursor: grabbing; }
+.ace-file-tree-dragging.ace-file-tree-drop-ready .ace-file-row { cursor: copy; }
 .ace-file-row.ace-file-locate-highlight {
   overflow: hidden;
   animation: ace-file-locate-highlight 760ms ease-out;
@@ -7197,6 +7261,16 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
   max-width: 100%;
 }
 
+/* 花瓣风格的子代理头像:运行中整朵慢慢转(花是中心对称的,转起来就是「在忙」),结束后停住。
+   不跟随系统「减少动态效果」:远程桌面里那个设置总是开着,跟了就永远不转。 */
+@keyframes ace-geometric-avatar-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ace-geometric-avatar-running {
+  animation: ace-geometric-avatar-spin 6s linear infinite;
+}
+
 @keyframes ace-activity-line-shimmer-sweep {
   0%,
   50% {
@@ -7745,7 +7819,8 @@ div.ace-markdown-opaque > div.ace-markdown-opaque-rendered {
 }
 /* 拖文件悬停时的浮层提示。用 ::after 伪元素而非 React 子节点,避免与 xterm
    命令式插入的 DOM 冲突;pointer-events:none 确保拖放命中不被浮层吞掉。 */
-.ace-console-term[data-drop-active="true"]::after {
+.ace-console-term[data-drop-active="true"]::after,
+.ace-console-term.is-file-tree-drop::after {
   content: "松开插入文件路径";
   position: absolute;
   inset: 0;

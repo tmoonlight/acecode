@@ -359,6 +359,7 @@ download when nothing changed.
 | GET | `/api/sessions/:id/background-tasks/:task_id/output` | tail of a background command's output |
 | POST | `/api/sessions/:id/background-tasks/:task_id/stop` | stop a running background task |
 | POST | `/api/sessions/:id/background` | move the running foreground command / subagent wait to the background |
+| GET | `/api/sessions/:id/outputs` | files the conversation produced (documents, spreadsheets, images) |
 | GET | `/api/files` | list directory |
 | GET | `/api/files/content` | read text file |
 | GET | `/api/files/blob` | read previewable binary file |
@@ -2580,6 +2581,45 @@ Asks the running foreground `bash` command or blocking subagent wait to hand its
 the background registry without interrupting it. `200 {"ok": true, "busy": bool}`; `busy`
 is false when no turn was running (the request has no effect then).
 
+### Session outputs
+
+#### `GET /api/sessions/:id/outputs[?workspace=<hash>]`
+
+Files this conversation produced for the user to look at: documents, spreadsheets,
+images, media, archives. Code changes are not outputs; they belong to the change views.
+The summary panel's Outputs group is the consumer. Sources and filtering rules are in
+[session-outputs.md](session-outputs.md).
+
+```json
+{
+  "session_id": "sid",
+  "outputs": [
+    {
+      "path": "C:\\work\\docs\\plan.md",
+      "relative": "docs/plan.md",
+      "source": "write",
+      "size": 1820,
+      "modified_ms": 1794300000000
+    }
+  ],
+  "has_more": false
+}
+```
+
+- Derived from the session JSONL (plus the JSONL of its subagent sessions) and checked
+  against the disk on every request: files that no longer exist are omitted. The scan
+  is incremental per file, so polling is cheap.
+- Ordered by file modification time, newest first, at most 50; `has_more` is true when
+  more exist.
+- `path` is absolute. For files inside a session folder it is spelled with that folder's
+  own form (the one the client already knows as the workspace cwd) and `relative` is the
+  path below that folder with forward slashes; outside every session folder `relative`
+  is empty.
+- `source`: `write` (`file_write`), `patch` (`apply_patch` added file), `shell` (found
+  after a `bash` command finished).
+- Works for sessions that are not loaded: `workspace` is the same lookup hint as on the
+  history route. An unknown session returns an empty list, not `404`.
+
 ---
 
 ## 6. Opencode Import and Pins
@@ -3991,7 +4031,8 @@ Returns:
   "message_auto_collapse": true,
   "theme_variant": "",
   "theme_effects": true,
-  "theme_sounds": true
+  "theme_sounds": true,
+  "subagent_avatar_style": "geometric"
 }
 ```
 
@@ -4015,6 +4056,12 @@ off and does not follow the OS reduced-motion setting. `theme_sounds` (default
 `true`) is the title bar's mute button for themes that declare sound effects.
 All three are persisted, included in the Desktop appearance bootstrap, and
 rejected with `400` when malformed.
+
+`subagent_avatar_style` is `geometric` (default, a generated petal rosette) or
+`pixel` (the Agent Office character): the portrait drawn for sub-agents that
+have no expert attached (Settings > Appearance). It is persisted, included in
+the Desktop appearance bootstrap, and any other value is rejected with `400`; a
+config file without the key or holding an unknown value loads as `geometric`.
 
 ### `PUT /api/config/ui-preferences`
 
