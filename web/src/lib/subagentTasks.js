@@ -3,11 +3,13 @@
 // 数据来源分两层:
 //   1. REST GET /api/sessions?parent=<id> 的会话快照(标题/tokens/时间戳)
 //      → normalizeSubagentTask 归一化成任务对象。
-//   2. 子会话的实时 WS 事件(busy_changed / usage / tool_start / tool_end /
-//      session_updated)→ applySubagentSessionEvent 增量更新运行中卡片的
-//      统计(耗时基点、tokens、工具计数、当前工具)。
+//   2. 子会话的实时 WS 事件(busy_changed / usage / session_updated)→
+//      applySubagentSessionEvent 增量更新任务行(运行状态、tokens、标题)。
+//      工具事件不改任务:列表不显示工具统计,不为它重画整个对话。
 //
 // DOM 端(SubagentPanel.jsx)只消费这里产出的结构;所有状态转移在此测试。
+
+import { relativeTime } from './format.js';
 
 export const SUBAGENT_TASK_STATUS = Object.freeze({
   RUNNING: 'running',
@@ -47,16 +49,13 @@ export function normalizeSubagentTask(session) {
     turnCount: Math.max(0, Number(session.turn_count) || 0),
     // 蜂群模式（网状）的子 agent 都扁平挂在根会话下,真实层级看路径(/root/a/b)。
     agentPath: String(session.agent_path || ''),
-    // 实时聚合字段:REST 快照没有工具级数据,从 0 起由 WS 事件累积。
-    toolCount: 0,
-    lastTool: '',
     model: String(session.model || ''),
     expert: session.expert || null,
   };
 }
 
-// REST 列表 → 任务数组(按创建时间倒序,新任务在前)。保留旧任务的实时
-// 聚合字段(toolCount/lastTool)与本地 aborted 标记,避免 refetch 清零。
+// REST 列表 → 任务数组(按创建时间倒序,新任务在前)。保留旧任务的本地 aborted 标记,
+// 避免 refetch 把它洗回 completed。
 // 子会话刚建好、还没写元数据时列表里 created_at 是空的(wait=false 派出的子代理
 // 往往就在这一刻被列出,之后不再刷新):运行中的任务先用第一次看到它的时间计时,
 // 拿到真实 created_at 后再换成它,耗时不会停在 00s。
@@ -72,8 +71,6 @@ export function mergeSubagentTaskList(prevTasks, sessions, nowMs = Date.now()) {
         || (task.status === SUBAGENT_TASK_STATUS.RUNNING ? nowMs : 0);
     }
     if (prev) {
-      task.toolCount = prev.toolCount;
-      task.lastTool = prev.lastTool;
       task.abortPending = !!prev.abortPending && task.status === SUBAGENT_TASK_STATUS.RUNNING;
       if (prev.abortPending && task.status !== SUBAGENT_TASK_STATUS.RUNNING) {
         task.status = SUBAGENT_TASK_STATUS.ABORTED;
@@ -136,14 +133,6 @@ export function applySubagentSessionEvent(tasks, msg) {
     if (Number.isFinite(total) && total > task.tokens) {
       patch = { tokens: total };
     }
-  } else if (type === 'tool_start') {
-    patch = {
-      toolCount: task.toolCount + 1,
-      lastTool: String(p.tool || task.lastTool || ''),
-    };
-  } else if (type === 'tool_end') {
-    const tool = String(p.tool || '');
-    if (tool && tool !== task.lastTool) patch = { lastTool: tool };
   } else if (type === 'session_updated') {
     const title = String(p.title || '').trim();
     if (title && title !== task.title) patch = { title };
@@ -211,13 +200,67 @@ export function formatElapsed(seconds) {
   return `${h}h${String(m % 60).padStart(2, '0')}m`;
 }
 
-// 卡片统计行:'34.0k tokens · 2 tools · Bash' 的分段(空段过滤)。
-export function taskStatsParts(task) {
-  const parts = [];
-  if (task?.tokens > 0) parts.push(`${formatTaskTokens(task.tokens)} tokens`);
-  if (task?.toolCount > 0) parts.push(`${task.toolCount} ${task.toolCount === 1 ? 'tool' : 'tools'}`);
-  if (task?.lastTool) parts.push(task.lastTool);
-  return parts;
+// 列表行标题后面的 token 数:'34.0k tokens';还没有用量时不显示。
+export function taskTokensLabel(task) {
+  return task?.tokens > 0 ? `${formatTaskTokens(task.tokens)} tokens` : '';
+}
+
+// 列表行靠右的时间:运行中是已经跑了多久,结束后是多久之前结束的。
+export function taskTimeLabel(task, nowMs = Date.now()) {
+  if (task?.status === SUBAGENT_TASK_STATUS.RUNNING) {
+    return formatElapsed(taskElapsedSeconds(task, nowMs));
+  }
+  return relativeTime(task?.updatedAtMs || task?.createdAtMs, undefined, nowMs);
+}
+
+// 运行中的任务多出来的那一行状态;已结束的任务没有这一行。
+export function taskRunningStatusLabel(task) {
+  if (task?.status !== SUBAGENT_TASK_STATUS.RUNNING) return '';
+  return task.abortPending ? '正在停止…' : '运行中';
+}
+
+// 一行投影结果里包着的子代理,按出现顺序:子代理分组就是它自己的那几个;工具汇总行
+// (「调用了 3 个智能体」「已运行 1 条命令，调用了 2 个智能体」)取它折起来的各项里的。
+// 不含子代理时返回同一个空数组。投影出来的行对象不会原地改,按对象缓存。
+const NO_AGENTS = Object.freeze([]);
+const agentsByItem = new WeakMap();
+export function subagentAgentsOfItem(item) {
+  if (!item || typeof item !== 'object') return NO_AGENTS;
+  const cached = agentsByItem.get(item);
+  if (cached) return cached;
+  let agents = NO_AGENTS;
+  if (item.kind === 'subagent_group') {
+    if (Array.isArray(item.agents) && item.agents.length > 0) agents = item.agents;
+  } else if (Array.isArray(item.collapsedItems)) {
+    const found = item.collapsedItems.flatMap(subagentAgentsOfItem);
+    if (found.length > 0) agents = found;
+  }
+  agentsByItem.set(item, agents);
+  return agents;
+}
+
+// 头像右上角的状态图标画哪一种(图标本身见 avatarStatus.js):运行中(正在停止也算)、
+// 已完成、已中止。没查到任务(旧会话、子会话已删)时不画,不靠工具项的 done 标记猜。
+export function subagentAvatarStatus(task) {
+  if (task?.status === SUBAGENT_TASK_STATUS.RUNNING) return 'running';
+  if (task?.status === SUBAGENT_TASK_STATUS.ABORTED) return 'stopped';
+  if (task?.status === SUBAGENT_TASK_STATUS.COMPLETED) return 'done';
+  return '';
+}
+
+// 对话里「调用了 N 个智能体」一行前面的头像:拿到子会话 id 的子代理每个一张,最多 limit 张
+// (个数已经写在文案里,不再补「+N」)。
+export const SUBAGENT_GROUP_AVATAR_LIMIT = 6;
+export function subagentGroupAvatars(agents, tasksById, limit = SUBAGENT_GROUP_AVATAR_LIMIT) {
+  const avatars = [];
+  for (const agent of Array.isArray(agents) ? agents : []) {
+    const sessionId = String(agent?.sessionId || '');
+    if (!sessionId) continue;
+    if (avatars.length >= limit) break;
+    const task = tasksById?.get?.(sessionId) || null;
+    avatars.push({ sessionId, expert: task?.expert || null, status: subagentAvatarStatus(task) });
+  }
+  return avatars;
 }
 
 // 卡片标题:auto-title 优先,退到首条 user 输入摘要,再退会话 id。
@@ -227,11 +270,4 @@ export function taskDisplayTitle(task) {
   const title = String(task?.title || '');
   if (title && !title.startsWith('[Error]')) return title;
   return task?.summary || task?.id || '';
-}
-
-// 任务状态 → 中文标签(已结束组用)。
-export function taskStatusLabel(task) {
-  if (task?.status === SUBAGENT_TASK_STATUS.RUNNING) return '运行中';
-  if (task?.status === SUBAGENT_TASK_STATUS.ABORTED) return '已中止';
-  return 'Completed';
 }

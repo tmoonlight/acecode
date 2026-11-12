@@ -118,5 +118,7 @@ export function summaryRunningTasks(tasks, nowMs = Date.now()) {
       title: task.kind === 'command' ? (task.command || task.title || task.id) : taskDisplayTitle(task),
       elapsed: formatElapsed(taskElapsedSeconds(task, nowMs)),
       stopping: task.abortPending === true || task.stopPending === true,
+      // 子代理行前面画头像要用;后台命令没有。
+      expert: task.kind === 'command' ? null : (task.expert || null),
     }));
 }

@@ -61,14 +61,20 @@ try {
   const page=await browser.newPage({viewport:{width:1100,height:850}});
   page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/avatar-fixture`);
-  await page.waitForFunction(()=>document.querySelectorAll('[data-pixel-avatar]').length===11);
+  // 10 位专家 + 子代理分组行行首一张 + 展开后的智能体行一张。
+  await page.waitForFunction(()=>document.querySelectorAll('[data-pixel-avatar]').length===12);
   await page.waitForFunction(()=>[...document.querySelectorAll('[data-pixel-avatar]')].every(canvas=>
     canvas.getContext('2d').getImageData(0,0,14,14).data.some((value,index)=>index%4===3&&value>0)));
   const identity=await page.evaluate(()=>window.avatarIdentity);
   const pair=page.locator(`[data-pixel-avatar="${identity}"]`);
-  assert.equal(await pair.count(),2);
+  assert.equal(await pair.count(),3);
   const pixels=await pair.evaluateAll(nodes=>nodes.map(c=>c.toDataURL()));
-  assert.equal(pixels[0],pixels[1], 'catalog and live child use identical portrait pixels');
+  assert.ok(pixels.every(value=>value===pixels[0]), 'catalog and live child use identical portrait pixels');
+  // 运行中的子代理头像右上角是办公室那套状态图标(三个点),分组行和智能体行各一个,而且真的画了东西。
+  const marks=page.locator('canvas[data-avatar-status="running"]');
+  assert.equal(await marks.count(),2);
+  assert.ok((await marks.evaluateAll(nodes=>nodes.map(c=>c.getContext('2d').getImageData(0,0,c.width,c.height)
+    .data.some((value,index)=>index%4===3&&value>0)))).every(Boolean), 'status marks are painted');
   assert.equal(await page.locator('#custom img').getAttribute('src'),'/acecode-logo.png');
   assert.equal(await page.locator('#custom canvas').count(),0);
   const frame=page.frames().find(f=>f!==page.mainFrame());
@@ -91,5 +97,5 @@ try {
     await page.screenshot({path:path.join(output,`pixel-avatars-${theme}.png`)});
   }
   assert.deepEqual(errors,[]);
-  console.log(JSON.stringify({output,checks:9,errors}));
+  console.log(JSON.stringify({output,checks:11,errors}));
 } finally {await browser?.close();await server.close();}

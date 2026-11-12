@@ -39,6 +39,16 @@ test('relativeTime keeps every old timestamp in relative day form', () => {
   }
 });
 
+// 场景:列表每隔一段时间统一刷新一次,所有行要按同一个「现在」算相对时间。
+// 期望:第三个参数给了基准时刻就按它算,不读系统时钟。
+test('relativeTime measures against an explicit reference time when one is given', () => {
+  const reference = Date.UTC(2026, 6, 16, 12, 0, 0);
+  assert.equal(relativeTime(reference - 6 * 60_000, 'zh-CN', reference), '6分钟前');
+  assert.equal(relativeTime(reference - 5_000, 'zh-CN', reference), '刚刚');
+  // 基准时刻早于时间戳(两边时钟有偏差)时不出现负数,按「刚刚」处理。
+  assert.equal(relativeTime(reference + 60_000, 'zh-CN', reference), '刚刚');
+});
+
 test('number, byte, and date formatting follows the selected locale', () => {
   assert.equal(formatCompactNumber(79_800, {}, 'en-US'), '79.8K');
   assert.equal(formatCompactNumber(79_800, {}, 'zh-CN'), '7.98万');

@@ -1,14 +1,14 @@
 // subagentTasks.js 的单元测试。
 //
 // 后台任务面板的全部状态转移都在纯函数层:REST 快照归一化、refetch 合并
-// (保留实时聚合字段)、WS 事件增量、本地中止标记、分组/徽标计数、
-// 卡片显示格式化。DOM 端(SubagentPanel.jsx)只做结构→className 映射。
+// (保留本地中止标记)、WS 事件增量、分组/徽标计数、
+// 列表行显示格式化。DOM 端(SubagentPanel.jsx)只做结构→className 映射。
 //
 // 覆盖:
 //  - normalizeSubagentTask:busy/status 判定、tokens 提取、坏输入容错
-//  - mergeSubagentTaskList:refetch 不清零 toolCount、保留 aborted 标记、排序
+//  - mergeSubagentTaskList:refetch 保留 aborted 标记、排序
 //  - applySubagentSessionEvent:busy_changed 状态迁移、usage 单调递增、
-//    tool_start 计数、无关事件返回原引用
+//    工具事件与无关事件返回原引用
 //  - markSubagentTaskAborted 后 busy_changed(false) 不把状态改回 completed
 //  - 分组 / runningCount / 格式化函数边界
 
@@ -24,11 +24,17 @@ import {
   removeSubagentTask,
   runningSubagentCount,
   shouldRefreshSubagentTasksFromStatus,
+  subagentAgentsOfItem,
+  subagentAvatarStatus,
+  subagentGroupAvatars,
   subagentTaskGroups,
   taskDisplayTitle,
   taskElapsedSeconds,
-  taskStatsParts,
+  taskRunningStatusLabel,
+  taskTimeLabel,
+  taskTokensLabel,
 } from './subagentTasks.js';
+import { projectCollapsedTranscriptItems } from './transcriptProjection.js';
 
 function run(name, fn) {
   try {
@@ -63,7 +69,6 @@ run('normalizeSubagentTask 提取快照字段,busy=false → completed', () => {
   assert.equal(task.status, SUBAGENT_TASK_STATUS.COMPLETED);
   assert.equal(task.tokens, 34000);
   assert.equal(task.turnCount, 1);
-  assert.equal(task.toolCount, 0);
 });
 
 run('normalizeSubagentTask busy=true 或 status=running → running', () => {
@@ -79,18 +84,25 @@ run('normalizeSubagentTask 坏输入返回 null,不抛异常', () => {
   assert.equal(normalizeSubagentTask('x'), null);
 });
 
-run('mergeSubagentTaskList refetch 保留实时聚合字段与 aborted 标记', () => {
+run('mergeSubagentTaskList refetch 保留 aborted 标记', () => {
   let tasks = mergeSubagentTaskList([], [makeSession({ busy: true })]);
-  tasks = applySubagentSessionEvent(tasks, {
-    type: 'tool_start', session_id: 'child-1', payload: { tool: 'bash' },
-  });
   tasks = markSubagentTaskAborted(tasks, 'child-1');
-  // refetch:同一会话的新快照(busy=false)进来,不应清零 toolCount,
-  // 也不应把「已中止」洗回 completed。
+  // refetch:同一会话的新快照(busy=false)进来,不应把「已中止」洗回 completed。
   const merged = mergeSubagentTaskList(tasks, [makeSession({ busy: false })]);
-  assert.equal(merged[0].toolCount, 1);
-  assert.equal(merged[0].lastTool, 'bash');
   assert.equal(merged[0].status, SUBAGENT_TASK_STATUS.ABORTED);
+});
+
+// 场景:子代理在跑,每调一次工具都会有 tool_start / tool_end 事件送到父会话页面。
+// 期望:这些事件不改任务列表(返回同一个数组),调用方据此跳过 setState。
+// 回归防线:列表曾显示「N tools · 当前工具」,每个工具事件都换一份新列表,整个对话跟着重画;
+// 列表改成单行后不再显示这些,不能再为它们换列表。
+run('子会话的工具事件不改任务列表', () => {
+  const tasks = mergeSubagentTaskList([], [makeSession({ busy: true })]);
+  for (const type of ['tool_start', 'tool_end']) {
+    assert.equal(applySubagentSessionEvent(tasks, {
+      type, session_id: 'child-1', payload: { tool: 'bash' },
+    }), tasks);
+  }
 });
 
 run('mergeSubagentTaskList 按创建时间倒序(新任务在前)', () => {
@@ -240,7 +252,7 @@ run('removeSubagentTask 清除单个任务;未命中返回原引用', () => {
   assert.equal(removeSubagentTask(tasks, 'child-1').length, 0);
 });
 
-run('formatTaskTokens / formatElapsed / taskStatsParts 边界', () => {
+run('formatTaskTokens / formatElapsed 边界', () => {
   assert.equal(formatTaskTokens(0), '0');
   assert.equal(formatTaskTokens(999), '999');
   assert.equal(formatTaskTokens(34000), '34.0k');
@@ -251,9 +263,116 @@ run('formatTaskTokens / formatElapsed / taskStatsParts 边界', () => {
   const task = normalizeSubagentTask(makeSession());
   // 已结束任务耗时 = updated - created = 39s。
   assert.equal(taskElapsedSeconds(task), 39);
-  assert.deepEqual(taskStatsParts({ tokens: 34000, toolCount: 1, lastTool: 'bash' }),
-                   ['34.0k tokens', '1 tool', 'bash']);
-  assert.deepEqual(taskStatsParts({ tokens: 0, toolCount: 0, lastTool: '' }), []);
+});
+
+// 场景:后台任务页签里的子代理是单行列表:标题、token 数,时间靠右,运行中多一行状态。
+// 期望:token 数没有用量时不显示;运行中的时间是已经跑了多久(每秒走),结束后是多久之前
+// 结束的;状态那一行只有运行中才有,已结束(完成 / 中止)的行不显示状态。
+run('子代理列表行:token 数、靠右的时间、运行中才有的状态行', () => {
+  const now = Date.UTC(2026, 6, 5, 9, 10, 0);
+  const running = { status: SUBAGENT_TASK_STATUS.RUNNING, createdAtMs: now - 24_000, tokens: 23200 };
+  assert.equal(taskTokensLabel(running), '23.2k tokens');
+  assert.equal(taskTokensLabel({ tokens: 0 }), '');
+  assert.equal(taskTokensLabel(null), '');
+
+  assert.equal(taskTimeLabel(running, now), '24s');
+  assert.equal(taskTimeLabel(running, now + 1_000), '25s');
+  const finished = {
+    status: SUBAGENT_TASK_STATUS.COMPLETED, createdAtMs: now - 400_000, updatedAtMs: now - 6 * 60_000,
+  };
+  assert.equal(taskTimeLabel(finished, now), '6分钟前');
+  assert.equal(taskTimeLabel({ ...finished, updatedAtMs: now - 3_000 }, now), '刚刚');
+  // 没有结束时间的旧记录退到开始时间;两个都没有就不显示。
+  assert.equal(taskTimeLabel({ status: SUBAGENT_TASK_STATUS.COMPLETED, createdAtMs: now - 2 * 3_600_000 }, now), '2小时前');
+  assert.equal(taskTimeLabel({ status: SUBAGENT_TASK_STATUS.COMPLETED }, now), '');
+
+  assert.equal(taskRunningStatusLabel(running), '运行中');
+  assert.equal(taskRunningStatusLabel({ ...running, abortPending: true }), '正在停止…');
+  assert.equal(taskRunningStatusLabel(finished), '');
+  assert.equal(taskRunningStatusLabel({ status: SUBAGENT_TASK_STATUS.ABORTED }), '');
+});
+
+// 场景:子代理头像右上角画状态图标(运行中三个点 / 完成一颗星 / 中止红色感叹号)。
+// 期望:运行中(点了停止、还没停下来也算)→ running;已完成 → done;已中止 → stopped;
+// 任务列表里查不到这个子代理(旧会话、子会话已删)→ 不画,不靠别的标记猜。
+run('头像状态图标:按任务状态决定,查不到任务不画', () => {
+  assert.equal(subagentAvatarStatus({ status: SUBAGENT_TASK_STATUS.RUNNING }), 'running');
+  assert.equal(subagentAvatarStatus({ status: SUBAGENT_TASK_STATUS.RUNNING, abortPending: true }), 'running');
+  assert.equal(subagentAvatarStatus({ status: SUBAGENT_TASK_STATUS.COMPLETED }), 'done');
+  assert.equal(subagentAvatarStatus({ status: SUBAGENT_TASK_STATUS.ABORTED }), 'stopped');
+  assert.equal(subagentAvatarStatus(null), '');
+  assert.equal(subagentAvatarStatus(undefined), '');
+  assert.equal(subagentAvatarStatus({}), '');
+});
+
+// 场景:对话里「调用了 N 个智能体」一行前面画这几个子代理的头像。
+// 期望:拿到子会话 id 的子代理每个一张、顺序与调用顺序一致,绑定了专家的带上专家信息,
+// 各自带上自己的状态(任务列表里查不到的没有状态);还没有子会话 id 的不画;
+// 个数多时只画前几张(总数已经写在文案里)。
+run('子代理分组行的头像:按调用顺序、带专家信息和状态、有上限', () => {
+  const expert = { avatar_identity: 'expert:reviewer' };
+  const tasksById = new Map([
+    ['child-b', { id: 'child-b', expert, status: SUBAGENT_TASK_STATUS.RUNNING }],
+    ['child-c', { id: 'child-c', status: SUBAGENT_TASK_STATUS.COMPLETED }],
+  ]);
+  assert.deepEqual(subagentGroupAvatars([
+    { sessionId: 'child-a' },
+    { sessionId: '' },
+    { sessionId: 'child-b' },
+    { sessionId: 'child-c' },
+  ], tasksById), [
+    { sessionId: 'child-a', expert: null, status: '' },
+    { sessionId: 'child-b', expert, status: 'running' },
+    { sessionId: 'child-c', expert: null, status: 'done' },
+  ]);
+  const many = Array.from({ length: 9 }, (_, index) => ({ sessionId: `child-${index}` }));
+  assert.equal(subagentGroupAvatars(many, new Map()).length, 6);
+  assert.deepEqual(subagentGroupAvatars(many, null, 2).map((avatar) => avatar.sessionId), ['child-0', 'child-1']);
+  assert.deepEqual(subagentGroupAvatars(null, null), []);
+});
+
+// 场景:一个回合里模型读了文件、又派了两个子代理,回合结束后折成「已处理」。展开后先看到一行
+// 工具汇总(「读取 1 个文件，调用了 2 个智能体」),再展开才是子代理分组本身。
+// 期望:工具汇总行和子代理分组都能取到这两个子代理(行首画头像用),顺序与调用顺序一致;
+// 不含子代理的汇总行、普通工具行取到的是空。
+// 回归:头像曾经只画在最里面的分组行上,外面那层同样写着「调用了 N 个智能体」却是通用图标。
+run('工具汇总行里包着的子代理:汇总行与分组行取到同一批,没有子代理时为空', () => {
+  const tool = (id, name, extra = {}) => ({
+    kind: 'tool', id, ts: id * 1000,
+    tool: { isDone: true, success: true, tool: name, summary: { verb: 'Did', object: 'x', metrics: [] }, ...extra },
+  });
+  const spawn = (id, childId) => tool(id, 'spawn_subagent', {
+    metadata: { subagent_session_id: childId, background_task_id: childId, background_origin: 'requested' },
+  });
+  const finish = (id) => tool(id, 'task_complete', { isTaskComplete: true });
+  const projected = projectCollapsedTranscriptItems([
+    { kind: 'msg', id: 1, ts: 1000, role: 'user', content: '先看文件再派两个子代理' },
+    tool(2, 'file_read'), spawn(3, 'child-1'), spawn(4, 'child-2'),
+    { kind: 'msg', id: 5, ts: 5000, role: 'assistant', content: '已派出' },
+    finish(6),
+    { kind: 'msg', id: 7, ts: 7000, role: 'user', content: '再看两个文件' },
+    tool(8, 'file_read'), tool(9, 'file_read'),
+    { kind: 'msg', id: 10, ts: 10000, role: 'assistant', content: '看完了' },
+    finish(11),
+  ]);
+  const folds = projected.filter((item) => item.mode === 'processed');
+  assert.equal(folds.length, 2);
+  const sessionIds = (item) => subagentAgentsOfItem(item).map((agent) => agent.sessionId);
+
+  const toolFold = folds[0].detailItems.find((item) => item.kind === 'activity_summary');
+  assert.ok(toolFold, '文件读取和子代理调用应当合成一行工具汇总');
+  assert.deepEqual(sessionIds(toolFold), ['child-1', 'child-2']);
+  const group = toolFold.collapsedItems.find((item) => item.kind === 'subagent_group');
+  assert.ok(group);
+  assert.deepEqual(sessionIds(group), ['child-1', 'child-2']);
+  // 同一个行对象重复取是同一个数组(每次渲染都会取,不能每次都新建)。
+  assert.equal(subagentAgentsOfItem(toolFold), subagentAgentsOfItem(toolFold));
+
+  const plainFold = folds[1].detailItems.find((item) => item.kind === 'activity_summary');
+  assert.ok(plainFold);
+  assert.deepEqual(sessionIds(plainFold), []);
+  assert.deepEqual(sessionIds(tool(20, 'file_read')), []);
+  assert.deepEqual(sessionIds(null), []);
 });
 
 run('taskDisplayTitle 标题 → 摘要 → id 逐级退化', () => {
