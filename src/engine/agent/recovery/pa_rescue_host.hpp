@@ -24,9 +24,12 @@ int withhold_inline_images_for_retry(ConversationHistory& history,
 // 服务端以上下文超限拒收后先做一次自动压缩(CompactionController::run_auto:
 // 摘要压缩,摘要失败时退到机械修剪),压缩通知由它自己发。PA 兜底与通用超限恢复
 // 链共用。inputs 为空(调用方没给压缩入参)按 Failed 处理,直接走原来的收缩链。
+// known_oversized:主请求已经原样重发确认过拒收(PA 兜底),摘要请求不必再带着
+// 工具定义去撞一次(CompactionInputs::known_oversized)。
 pa::CompactOutcome compact_history_for_overflow(CompactionController& compaction,
                                                 const CompactionInputs* inputs,
-                                                AbortSignal& abort);
+                                                AbortSignal& abort,
+                                                bool known_oversized = false);
 
 // Invocation-scoped adapter, never implemented by or pointed back at AgentLoop.
 // Its fixed nullable session borrow cannot escape the synchronous driver call.

@@ -34,6 +34,8 @@ struct CompactionInputs {
     RequestContextOptions request;
     int suggestion_threshold = 3;
     LifetimeRef<TrajectoryRecorder> terminal;
+    // 这份历史的主请求刚被服务端判超限(compact.hpp::compact_messages 的同名参数)。
+    bool known_oversized = false;
 };
 
 class CompactionController {

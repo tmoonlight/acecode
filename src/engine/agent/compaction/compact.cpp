@@ -432,7 +432,8 @@ CompactResult compact_messages(
     bool is_auto,
     std::atomic<bool>* abort_flag,
     CompactRetryCallback on_retry,
-    const CompactRequestPrefix* request_prefix) {
+    const CompactRequestPrefix* request_prefix,
+    bool known_oversized) {
     CompactResult result;
     const std::vector<ChatMessage> original_history =
         normalize_messages_for_api(messages);
@@ -488,11 +489,20 @@ CompactResult compact_messages(
              " history_items=" + std::to_string(original_history.size()) +
              " initial_context_items=" + std::to_string(stable_context.size()));
 
+    if (known_oversized && reuse_prefix) {
+        // 同一份历史的主请求刚被判超限:再带上工具定义只会更大,不白发这一次。
+        reuse_prefix = false;
+        LOG_INFO("Compact skips the tool-carrying prefix request; the main request "
+                 "of this history was just rejected as oversized");
+    }
+
     std::string summary_suffix;
     std::uint64_t transient_retries = 0;
     // 与上下文溢出、瞬时错误的重试互不共享计数。
     int invalid_summary_retries = 0;
-    int overflow_retries = 0;
+    // 已知超限时跳过「一次只删一条」阶段:那三次重试几乎必然再被拒,每次都是一个
+    // 完整的大请求,还要占服务端的限流额度。
+    int overflow_retries = known_oversized ? kSingleItemOverflowRetries : 0;
     const std::vector<ToolDef> no_tools;
     for (;;) {
         if (abort_flag && abort_flag->load()) {
@@ -538,9 +548,26 @@ CompactResult compact_messages(
 
             if (response.finish_reason == "error") {
                 const bool has_structured_error = response.provider_error.has_error();
-                const bool context_overflow = has_structured_error
+                const bool explained_overflow = has_structured_error
                     ? is_context_overflow_error(response.provider_error)
                     : is_context_overflow_error(response.content);
+                // 没给任何理由的 400(src/adapters/pa/README.md 第 7 条):摘要请求走
+                // 非流式,这类网关拒收它时 body 是空的,上面按文案的判定一条都不命中。
+                // 请求规模够大时按超限处理 —— 认不出的后果是摘要直接放弃、退到机械
+                // 修剪,而机械修剪在单个长回合里每次只腾得出一条工具输出的空间。
+                // 低于自动压缩下限的请求不这么猜:那种拒收多半不在规模上。
+                const bool unexplained_rejection = !explained_overflow &&
+                    has_structured_error &&
+                    pa::is_bodyless_rejection(response.provider_error) &&
+                    estimate_message_tokens(request) >= MIN_AUTO_COMPACT_TOKENS;
+                if (unexplained_rejection) {
+                    LOG_WARN("Compact summarization request was rejected without a body "
+                             "(HTTP " + std::to_string(response.provider_error.status_code) +
+                             ", request_estimated_tokens=" +
+                             std::to_string(estimate_message_tokens(request)) +
+                             "); treating it as a context overflow");
+                }
+                const bool context_overflow = explained_overflow || unexplained_rejection;
                 if (reuse_prefix && (context_overflow ||
                                      compaction_tools_rejected(response.provider_error))) {
                     // Removing the schemas may itself make the request fit.

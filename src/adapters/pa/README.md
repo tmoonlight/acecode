@@ -209,6 +209,8 @@ exhausted」。
    也不给学习器记账。
 2. **先压缩**(2026-11-04 起,见第 2 条):每个 episode 一次自动压缩后重发,
    不记账。压缩没做成就在同一次调用里直接进下一步;紧急档请求被拒也先压缩。
+   这次压缩的摘要请求从一开始就不带工具定义,被拒后按约 1/4 一档收缩被总结的
+   历史(`known_oversized`,见第 7 条)。
 3. **逐档收缩**,每次被拒把请求缩到上一次的 85%,按「最占地方、最能找回」的
    顺序腾空间:先从最旧的开始清整段历史里的工具输出(最近一条工具结果保留,
    按位置数,哪怕它很短),再清体积超 4KB 的工具调用参数(典型是 file_write
@@ -292,3 +294,54 @@ token 的请求一直能过,截图之后本地估算只多了约 300 token。兜
 `FailedWithholdFallsThroughWithoutChargingTheLearner`、
 `tests/agent/agent_loop_pa_rescue_test.cpp` 的 `InlineImageRejectionWithholdsImagesWithoutLoweringTheBudget` /
 `SmallRequestsKeepHistoryAndToolsUntilTheWaitCapThenGiveUp`,前端 `systemNotice.test.js`。
+
+### 7. 摘要请求被拒时不带正文(`pa_quirks.{hpp,cpp}`,2026-11-12)
+
+**现象**(模型 aicoder-pro-test,一个很长的单回合):界面上每跑一两个工具就重复一遍
+「上下文请求重试中 → 正在压缩上下文 → 上下文压缩警告」,几圈之后是「压缩失败 →
+压缩阈值已下调 → 已切换精简请求」。展开警告,错误详情只有一行:
+
+```
+Summarization failed: HTTP 400 from openai model aicoder-pro-test
+```
+
+**观测**:主请求是流式的,被拒时带着第 1 条那段「请求上下文过大」;摘要压缩请求是
+非流式的(`OpenAiCompatProvider::chat_cancellable_impl`),同一份历史发出去被拒时
+**只有 HTTP 400,body 是空的** —— 有正文的话会接在上面那行的下一行。手动 `/compact`
+在墙以下一直正常,所以不是非流式本身不可用。
+
+**通用路径为什么不够**:超限只能靠报文里的文字认(第 1 条的中文特征串、通用的英文
+needle 与标准错误码)。空 body 一条都不命中,`compact_messages` 里「去掉工具定义重发
+→ 删最旧的内容重发」那条路进不去,摘要第一次失败就放弃,退到机械修剪。而机械修剪
+在单个长回合里几乎没东西可清(更早的工具输出已经是占位符,最新一条受保护),每次
+只腾出 1 条工具输出的空间,下一个工具输出一回来又满了。又因为机械修剪成功被算作
+「压缩解决了」,学习器不记账、阈值不下调,于是每走一步都重新撞墙。
+
+第 2 条的「先压缩」(2026-11-04)放大了这个问题:在那之前确认拒收是直接收缩并记账,
+之后的压缩都在墙以下主动进行,摘要请求发得出去;改成先压缩之后,摘要请求是在墙上
+当场发的,它等于刚被拒的主请求再加一条摘要指令,必然被拒。
+
+**适配**(两处,判定在本目录,使用在 `src/engine/agent/compaction/compact.cpp`):
+
+1. `pa::is_bodyless_rejection()`:HTTP 400 / 413 / 422 且 body 为空或只有空白。它只
+   回答「是不是没给理由的拒收」,不下超限的结论。`compact_messages` 在摘要请求估算
+   规模达到自动压缩下限(4 万 token)时才把它当超限,进入现成的收缩;低于下限就原样
+   报错 —— 小请求被拒多半不在规模上(与第 2 条的 4 万下限同一条线),这也让收缩有了
+   终点:缩到 4 万以下还被拒就停,不会把被总结的历史删光。主请求路径不用这条判定,
+   它是流式的,拿得到文字。
+2. `known_oversized`(`CompactionInputs` → `compact_messages`):PA 兜底走到「先压缩」
+   时主请求已经原样重发两次都被拒,带工具定义的前缀请求只会更大,所以摘要请求从
+   不带工具的开始;再被拒就跳过「一次只删一条」阶段,按约 1/4 一档删。省下的每一次
+   都是一个完整的大请求,还占网关 100 次 / 10 分钟的限流额度。通用恢复链不传这个
+   标记,行为不变。
+
+**没做**:
+- 摘要没做成、靠机械修剪过关时给学习器记账。记了账阈值会下调、之后主动压缩,但
+  摘要若仍然做不成且没东西可清,`run_auto` 返回失败会直接结束回合
+  (`turn_runner.cpp` 的采样前压缩),比现在的循环更糟。先让摘要能做成。
+- 把摘要请求改成流式。非流式在墙以下一直可用,问题只在被拒时不带正文。
+
+回归测试:`tests/pa/pa_quirks_test.cpp` 的 `Bodyless*` 三条、
+`tests/agent/compact_core_test.cpp` 的 `BodylessRejection*` 四条与
+`KnownOversizedSkipsToolPrefixAndSingleItemPhase`、
+`tests/agent/agent_loop_pa_rescue_test.cpp::BodylessRejectionOfSummaryRequestStillCompacts`。

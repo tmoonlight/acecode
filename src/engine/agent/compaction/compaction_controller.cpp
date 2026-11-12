@@ -163,7 +163,7 @@ bool CompactionController::run_auto(const CompactionInputs& inputs) {
             owner.with([&info, waiting](CompactionController& controller) {
                 controller.retry_.standard(info, waiting, true);
             });
-        }, &request_prefix);
+        }, &request_prefix, inputs.known_oversized);
     active_provider.reset();
 
     if (!result.performed && abort_.raw()) {

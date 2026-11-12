@@ -77,6 +77,10 @@ void insert_context_before_last_real_user_or_summary(
 // base/session instructions that are always retained during overflow retries.
 // A supported request_prefix is used verbatim, then retried without tools on
 // invalid summaries or incompatibility before applying normal overflow pruning.
+//
+// known_oversized:调用方刚确认过「同一份历史的主请求被服务端判超限」(PA 兜底
+// 的「先压缩」)。带工具定义的前缀请求比那次被拒的请求还大,发出去必然被拒,所以
+// 直接从不带工具的请求开始;还被拒就跳过「一次只删一条」阶段,按约 1/4 一档收缩。
 CompactResult compact_messages(
     LlmProvider& provider,
     const std::vector<ChatMessage>& messages,
@@ -84,6 +88,7 @@ CompactResult compact_messages(
     bool is_auto = false,
     std::atomic<bool>* abort_flag = nullptr,
     CompactRetryCallback on_retry = {},
-    const CompactRequestPrefix* request_prefix = nullptr);
+    const CompactRequestPrefix* request_prefix = nullptr,
+    bool known_oversized = false);
 
 } // namespace acecode

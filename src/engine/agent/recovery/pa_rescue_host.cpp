@@ -42,10 +42,13 @@ int withhold_inline_images_for_retry(ConversationHistory& history,
 
 pa::CompactOutcome compact_history_for_overflow(CompactionController& compaction,
                                                 const CompactionInputs* inputs,
-                                                AbortSignal& abort) {
+                                                AbortSignal& abort,
+                                                bool known_oversized) {
     if (!inputs) return pa::CompactOutcome::Failed;
     const int generation = compaction.generation();
-    const bool compacted = compaction.run_auto(*inputs);
+    CompactionInputs overflow_inputs = *inputs;
+    overflow_inputs.known_oversized = known_oversized;
+    const bool compacted = compaction.run_auto(overflow_inputs);
     if (abort.raw()) return pa::CompactOutcome::Cancelled;
     // PostCompact 钩子要求停止时 run_auto 返回 false,但历史已经换成了压缩结果:
     // 按「压过了」重发,不能拿压缩前的规模去收缩已经变了的历史。
@@ -56,7 +59,8 @@ pa::CompactOutcome compact_history_for_overflow(CompactionController& compaction
 }
 
 pa::CompactOutcome PaRescueAdapter::compact() {
-    return compact_history_for_overflow(compaction_, compaction_inputs_, abort_);
+    // 兜底走到这一步时主请求已经原样重发两次都被拒,规模确实过不去。
+    return compact_history_for_overflow(compaction_, compaction_inputs_, abort_, true);
 }
 
 int PaRescueAdapter::history_tokens() const {

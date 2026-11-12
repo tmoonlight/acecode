@@ -1236,3 +1236,139 @@ TEST(CompactCore, InvalidSummaryCounterIsIndependentOfOverflowRetries) {
     EXPECT_EQ(result.compaction_request_items_removed, 1);
     EXPECT_EQ(result.summary_text, "summary");
 }
+
+namespace {
+
+// 现场报文(2026-11-12,模型 aicoder-pro-test):摘要请求被拒时只有 HTTP 400,
+// body 是空的。与 tests/pa/pa_quirks_test.cpp 的 Bodyless* 用例同源。
+acecode::ChatResponse bodyless_bad_request() {
+    return provider_error_response(acecode::ProviderErrorKind::Http, 400,
+        "HTTP 400 from openai model aicoder-pro-test", false);
+}
+
+// 每条 item_bytes 字节(约 item_bytes / 4 个估算 token)的历史。默认 24 条 x 1 万
+// 字节 = 约 6 万 token,在自动压缩下限(4 万)之上。
+std::vector<acecode::ChatMessage> sized_history(int items = 24,
+                                                std::size_t item_bytes = 10000) {
+    std::vector<acecode::ChatMessage> history;
+    for (int i = 0; i < items; ++i) {
+        history.push_back(msg(i % 2 == 0 ? "user" : "assistant",
+            "item " + std::to_string(i) + " " + std::string(item_bytes, 'x')));
+    }
+    return history;
+}
+
+} // namespace
+
+// 触发场景:自动压缩的摘要请求(带工具定义的前缀请求)被服务端以空 body 的 400
+// 拒收,请求规模约 6 万 token;去掉工具定义后重发被收下。
+// 期望行为:按上下文超限处理 —— 先去掉工具定义重发,历史一条不删,摘要成功。
+// 回归表现(2026-11-12 现场):空 body 认不出是超限,摘要第一次失败就报
+// "Summarization failed: HTTP 400 from openai model aicoder-pro-test",退到机械
+// 修剪;单个长回合里每次只清得掉 1 条工具输出,之后每走一步都重新撞墙、压缩。
+TEST(CompactCore, BodylessRejectionOfLargeSummaryRequestRetriesWithoutTools) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    provider.responses = {bodyless_bad_request(),
+                          ChatStubProvider::response("Valid summary.")};
+    const auto history = sized_history();
+    acecode::CompactRequestPrefix prefix{history, {{"probe", "probe", {}}}};
+
+    auto result = acecode::compact_messages(provider, history, {}, true,
+                                            nullptr, {}, &prefix);
+
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 2u);
+    EXPECT_EQ(provider.prefix_calls, 1);
+    EXPECT_FALSE(provider.tool_tables[0].empty());
+    EXPECT_TRUE(provider.tool_tables[1].empty());
+    EXPECT_EQ(provider.calls[1].size(), provider.calls[0].size());
+    EXPECT_EQ(result.compaction_request_items_removed, 0);
+    EXPECT_EQ(result.summary_text, "Valid summary.");
+}
+
+// 触发场景:去掉工具定义后的摘要请求仍被空 body 的 400 拒收。
+// 期望行为:进入与普通超限相同的收缩 —— 删掉最旧的一条历史后重发,直到被收下。
+TEST(CompactCore, BodylessRejectionShrinksSummarizedHistoryLikeAnOverflow) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    provider.responses = {bodyless_bad_request(), bodyless_bad_request(),
+                          ChatStubProvider::response("Valid summary.")};
+    const auto history = sized_history();
+    acecode::CompactRequestPrefix prefix{history, {{"probe", "probe", {}}}};
+
+    auto result = acecode::compact_messages(provider, history, {}, true,
+                                            nullptr, {}, &prefix);
+
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 3u);
+    EXPECT_EQ(provider.calls[2].size(), provider.calls[1].size() - 1);
+    EXPECT_EQ(provider.calls[2][0].content, history[1].content);
+    EXPECT_EQ(result.compaction_request_items_removed, 1);
+}
+
+// 触发场景:很小的摘要请求(几十个 token)被空 body 的 400 拒收。
+// 期望行为:不按超限处理,原样报错,只发一次请求。小请求被拒多半不在规模上
+// (与「不足 4 万 token 的拒收不当超限证据」同一条线),删历史重试只会白丢内容。
+TEST(CompactCore, BodylessRejectionOfSmallSummaryRequestRemainsAnError) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    provider.responses = {bodyless_bad_request()};
+    const std::vector<acecode::ChatMessage> history{
+        msg("user", "old input"), msg("assistant", "old reply")};
+    acecode::CompactRequestPrefix prefix{history, {{"probe", "probe", {}}}};
+
+    auto result = acecode::compact_messages(provider, history, {}, true,
+                                            nullptr, {}, &prefix);
+
+    EXPECT_FALSE(result.performed);
+    EXPECT_EQ(provider.calls.size(), 1u);
+    EXPECT_NE(result.error.find("Summarization failed"), std::string::npos);
+}
+
+// 触发场景:服务端对每次摘要请求都回空 body 的 400(拒收原因其实不在规模上)。
+// 5 条 x 3.6 万字节 = 约 4.5 万 token,删掉一条就落到 4 万下限以下。
+// 期望行为:收缩到下限以下就不再当超限,报错结束 —— 一共只发 2 次请求,不会
+// 把被总结的历史一条条删光、也不会无限重试。
+TEST(CompactCore, BodylessRejectionStopsShrinkingBelowAutoCompactFloor) {
+    ChatStubProvider provider;
+    for (int i = 0; i < 10; ++i) provider.responses.push_back(bodyless_bad_request());
+    const auto history = sized_history(5, 36000);
+
+    auto result = acecode::compact_messages(provider, history, {}, true);
+
+    EXPECT_FALSE(result.performed);
+    EXPECT_EQ(provider.calls.size(), 2u);
+    EXPECT_EQ(result.compaction_request_items_removed, 1);
+    EXPECT_NE(result.error.find("Summarization failed"), std::string::npos);
+}
+
+// 触发场景:PA 兜底的「先压缩」—— 主请求已经原样重发确认被判超限(known_oversized),
+// provider 支持带工具定义的前缀请求;第一次摘要请求仍被空 body 的 400 拒收。
+// 期望行为:一开始就不带工具定义(带上只会比刚被拒的请求更大);被拒后跳过「一次
+// 只删一条」阶段,直接删掉约 1/4 的历史再发。
+// 回归表现:修复前这种压缩先发一个必然被拒的带工具请求,之后还要「一次删一条」
+// 试 3 次,每次都是完整的大请求,白占内网网关 100 次 / 10 分钟的限流额度。
+TEST(CompactCore, KnownOversizedSkipsToolPrefixAndSingleItemPhase) {
+    ChatStubProvider provider;
+    provider.prefix_capability = true;
+    provider.responses = {bodyless_bad_request(),
+                          ChatStubProvider::response("Valid summary.")};
+    const auto history = sized_history();
+    acecode::CompactRequestPrefix prefix{history, {{"probe", "probe", {}}}};
+
+    auto result = acecode::compact_messages(provider, history, {}, true,
+                                            nullptr, {}, &prefix, true);
+
+    ASSERT_TRUE(result.performed) << result.error;
+    ASSERT_EQ(provider.calls.size(), 2u);
+    EXPECT_EQ(provider.prefix_calls, 0);
+    EXPECT_TRUE(provider.tool_tables[0].empty());
+    EXPECT_TRUE(provider.tool_tables[1].empty());
+    // 每次请求 = 历史 + 压缩提示词。24 条等长历史至少删掉 1/4(>= 6 条)。
+    const std::size_t before = provider.calls[0].size() - 1;
+    const std::size_t after = provider.calls[1].size() - 1;
+    EXPECT_EQ(before, history.size());
+    EXPECT_LE(after, before - before / 4);
+    EXPECT_GT(after, 0u);
+}

@@ -46,4 +46,11 @@ bool is_context_overflow(const ProviderErrorInfo& info);
 // 不可信时按文案放行重试、并给限流单独的退避节奏。
 bool is_rate_limited(const std::string& error_text);
 
+// 请求被拒却没有任何正文:HTTP 400 / 413 / 422,body 为空或只有空白。
+// 实测(README 第 7 条):同一规模的请求,流式发出去被拒时带着「请求上下文过大」,
+// 非流式(摘要压缩)发出去被拒时只有一个 400、body 是空的。没有文案就走不了上面
+// 那套按特征判定,所以这里只回答「是不是这种没给理由的拒收」,**不**替调用方下
+// 「它就是超限」的结论 —— 调用方要自己有旁证(请求规模、刚被判过超限)才能这么用。
+bool is_bodyless_rejection(const ProviderErrorInfo& info);
+
 } // namespace acecode::pa

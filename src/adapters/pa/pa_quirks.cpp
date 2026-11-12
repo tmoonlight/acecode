@@ -142,4 +142,19 @@ bool is_context_overflow(const ProviderErrorInfo& info) {
     return classify(info) == FaultKind::ContextOverflow;
 }
 
+bool is_bodyless_rejection(const ProviderErrorInfo& info) {
+    if (!enabled()) return false;
+    if (info.kind != ProviderErrorKind::Http) return false;
+    // 没有文案可看,状态码是仅剩的信号:只收通用超限判定也认的那三个码。
+    // 401 / 403 / 404 / 429 / 5xx 各有各的含义,空 body 也不该往超限上猜。
+    if (info.status_code != 400 && info.status_code != 413 &&
+        info.status_code != 422) {
+        return false;
+    }
+    const auto blank = [](const std::string& text) {
+        return text.find_first_not_of(" \t\r\n") == std::string::npos;
+    };
+    return blank(info.raw_body) && blank(info.pretty_json);
+}
+
 } // namespace acecode::pa

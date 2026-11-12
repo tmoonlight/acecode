@@ -286,3 +286,69 @@ TEST(PaQuirks, DisablingAdapterAlsoDisablesTransientRetry) {
               acecode::pa::FaultKind::None);
     EXPECT_FALSE(acecode::provider_http_error_is_retryable(400, body));
 }
+
+// 触发场景(2026-11-12 现场,模型 aicoder-pro-test):主请求流式发出被拒时带着
+// 「请求上下文过大」;紧接着的摘要压缩请求(非流式,同一份历史)被拒时只有一个
+// HTTP 400,body 是空的 —— 界面上的错误详情只有一行
+// "HTTP 400 from openai model aicoder-pro-test"。
+// 期望行为:is_bodyless_rejection 认出这种「没给理由的拒收」;它本身不下超限的
+// 结论(classify 仍是 None、通用超限入口仍是 false),由调用方结合请求规模决定。
+// 回归表现:认不出时摘要压缩第一次失败就放弃、退到机械修剪;单个长回合里机械
+// 修剪每次只清得掉 1 条工具输出,会话每走一步就撞一次墙、压缩一次。
+TEST(PaQuirks, BodylessBadRequestIsRecognizedButNotClassifiedAsOverflow) {
+    acecode::ProviderErrorInfo info;
+    info.kind = acecode::ProviderErrorKind::Http;
+    info.status_code = 400;
+    info.display_message = "HTTP 400 from openai model aicoder-pro-test";
+    EXPECT_TRUE(acecode::pa::is_bodyless_rejection(info));
+    EXPECT_EQ(acecode::pa::classify(info), acecode::pa::FaultKind::None);
+    EXPECT_FALSE(acecode::is_context_overflow_error(info));
+
+    // body 只有空白(换行、空格)同样算没有正文。
+    info.raw_body = " \r\n\t";
+    EXPECT_TRUE(acecode::pa::is_bodyless_rejection(info));
+}
+
+// 触发场景:拒收带着正文(哪怕文案认不出)、状态码不是 400 / 413 / 422、或者根本
+// 不是 HTTP 错误(超时、断网时状态码为 0)。
+// 期望行为:都不算「没给理由的拒收」。有正文就该按正文判;401 / 429 / 5xx 各有
+// 各的含义,空 body 也不能往超限上猜 —— 猜错的代价是白删被总结的历史。
+TEST(PaQuirks, BodylessRejectionRequiresEmptyBodyAndOverflowStatusCode) {
+    acecode::ProviderErrorInfo with_body;
+    with_body.kind = acecode::ProviderErrorKind::Http;
+    with_body.status_code = 400;
+    with_body.raw_body = R"({"message":"invalid tools JSON schema","code":400})";
+    EXPECT_FALSE(acecode::pa::is_bodyless_rejection(with_body));
+
+    for (const int status : {401, 403, 404, 429, 500, 502}) {
+        SCOPED_TRACE(status);
+        acecode::ProviderErrorInfo info;
+        info.kind = acecode::ProviderErrorKind::Http;
+        info.status_code = status;
+        EXPECT_FALSE(acecode::pa::is_bodyless_rejection(info));
+    }
+    for (const int status : {400, 413, 422}) {
+        SCOPED_TRACE(status);
+        acecode::ProviderErrorInfo info;
+        info.kind = acecode::ProviderErrorKind::Http;
+        info.status_code = status;
+        EXPECT_TRUE(acecode::pa::is_bodyless_rejection(info));
+    }
+
+    acecode::ProviderErrorInfo timeout;
+    timeout.kind = acecode::ProviderErrorKind::Timeout;
+    EXPECT_FALSE(acecode::pa::is_bodyless_rejection(timeout));
+    acecode::ProviderErrorInfo network;
+    network.kind = acecode::ProviderErrorKind::Network;
+    EXPECT_FALSE(acecode::pa::is_bodyless_rejection(network));
+}
+
+// 触发场景:关掉 PA 适配总开关后的空 body 400。
+// 期望行为:不再认,证明这条判定和其它 PA 适配一样可以一键摘除。
+TEST(PaQuirks, DisablingAdapterAlsoDisablesBodylessRejection) {
+    PaEnabledGuard guard(false);
+    acecode::ProviderErrorInfo info;
+    info.kind = acecode::ProviderErrorKind::Http;
+    info.status_code = 400;
+    EXPECT_FALSE(acecode::pa::is_bodyless_rejection(info));
+}

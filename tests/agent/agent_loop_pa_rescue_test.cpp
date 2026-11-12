@@ -179,8 +179,13 @@ struct RescueHarness {
     acecode::SessionManager session;
     acecode::AgentLoop loop;
 
-    explicit RescueHarness(const std::string& name)
-        : cwd(make_temp_cwd(name)),
+    // custom_provider:需要编排摘要压缩请求(非流式)的用例传自己的桩,默认用共享桩。
+    explicit RescueHarness(const std::string& name,
+        std::shared_ptr<acecode_test::StubLlmProvider> custom_provider = nullptr)
+        : provider(custom_provider
+              ? std::move(custom_provider)
+              : std::make_shared<acecode_test::StubLlmProvider>()),
+          cwd(make_temp_cwd(name)),
           project_dir(acecode::SessionStorage::get_project_dir(cwd.string())),
           loop(
         acecode_test::AgentLoopFixture::dependencies([this]() -> std::shared_ptr<acecode::LlmProvider> {
@@ -730,4 +735,91 @@ TEST(AgentLoopPaRescue, InlineImageRejectionWithholdsImagesWithoutLoweringTheBud
             h.provider->name(), h.provider->model()))
             << "带图请求的拒收不能进学习器";
     }
+}
+
+namespace {
+
+// 摘要压缩请求(非流式)可编排的桩:前 bodyless_rejections 次返回现场那种空 body 的
+// HTTP 400,之后返回摘要;记下每次摘要请求带了几个工具定义。声明支持「带工具定义
+// 的前缀请求」,这样不带工具只能是 known_oversized 生效的结果。
+class BodylessCompactionProvider : public acecode_test::StubLlmProvider {
+public:
+    explicit BodylessCompactionProvider(int bodyless_rejections)
+        : bodyless_rejections_left_(bodyless_rejections) {}
+
+    bool supports_compaction_prefix_reuse() const override { return true; }
+
+    acecode::ChatResponse chat_with_options(
+        const std::vector<acecode::ChatMessage>& /*messages*/,
+        const std::vector<acecode::ToolDef>& tools,
+        const acecode::ChatRequestOptions& /*options*/,
+        const std::atomic<bool>* /*abort_flag*/) override {
+        std::lock_guard<std::mutex> lock(compaction_mu_);
+        compaction_tool_counts_.push_back(tools.size());
+        acecode::ChatResponse response;
+        if (bodyless_rejections_left_ > 0) {
+            --bodyless_rejections_left_;
+            // 线上实测(2026-11-12):只有状态码,body 为空。
+            response.finish_reason = "error";
+            response.provider_error.kind = acecode::ProviderErrorKind::Http;
+            response.provider_error.status_code = 400;
+            response.provider_error.display_message =
+                "HTTP 400 from openai model aicoder-pro-test";
+            response.content = "[Error] " + response.provider_error.display_message;
+            return response;
+        }
+        response.finish_reason = "stop";
+        response.content = "Summary of the earlier work.";
+        return response;
+    }
+
+    std::vector<std::size_t> compaction_tool_counts() const {
+        std::lock_guard<std::mutex> lock(compaction_mu_);
+        return compaction_tool_counts_;
+    }
+
+private:
+    mutable std::mutex compaction_mu_;
+    int bodyless_rejections_left_;
+    std::vector<std::size_t> compaction_tool_counts_;
+};
+
+} // namespace
+
+// 触发场景(2026-11-12 现场,模型 aicoder-pro-test):历史长到服务端以「请求上下文
+// 过大」拒收,原样重发两次也被拒;兜底「先压缩」发出的摘要请求(非流式)被拒时只有
+// HTTP 400、body 为空,第二次(删掉约 1/4 被总结的历史后)才被收下。
+// 期望行为:空 body 的 400 按超限处理,摘要压缩最终成功 —— 没有「摘要压缩失败」的
+// 机械修剪通知,重发的请求里是摘要;摘要请求从第一次起就不带工具定义;不记账。
+// 回归表现:修复前摘要第一次失败就放弃,退到机械修剪,界面上是一串「上下文请求
+// 重试中 → 正在压缩上下文 → 上下文压缩警告」,每跑一两个工具重复一遍。
+TEST(AgentLoopPaRescue, BodylessRejectionOfSummaryRequestStillCompacts) {
+    RescueWaitGuard wait_guard;
+    auto provider = std::make_shared<BodylessCompactionProvider>(1);
+    RescueHarness h("pa_rescue_bodyless_summary", provider);
+    register_read_only_tool(h.tools, "probe", "probe output");
+    add_history(h.loop, 6, 30000);
+    h.push_pa_errors(3);
+    h.provider->push_text("accepted after compaction");
+
+    const auto events = wait_for_done(h.loop, [&] {
+        h.loop.submit("latest user request");
+    });
+
+    ASSERT_EQ(h.provider->turn_count(), 4);
+    const auto tool_counts = provider->compaction_tool_counts();
+    ASSERT_EQ(tool_counts.size(), 2u) << "被拒一次、收缩后成功一次";
+    EXPECT_EQ(tool_counts[0], 0u) << "主请求刚被判超限,摘要请求不该再带工具定义";
+    EXPECT_EQ(tool_counts[1], 0u);
+    const auto accepted = h.provider->messages_for_turn(3);
+    EXPECT_TRUE(request_contains(accepted, "Summary of the earlier work."));
+    EXPECT_TRUE(request_contains(accepted, "latest user request"));
+    EXPECT_TRUE(request_contains(h.loop.messages(), "accepted after compaction"));
+    EXPECT_FALSE(has_error_event(events));
+    EXPECT_FALSE(has_system_event(events, "摘要压缩失败"));
+    EXPECT_FALSE(has_system_event(events, "次收缩"));
+    EXPECT_FALSE(has_system_event(events, "压缩阈值下调"));
+    EXPECT_FALSE(acecode::pa::context_budget().has_observation(
+        h.provider->name(), h.provider->model()))
+        << "压缩能解决的拒收不能进学习器";
 }
