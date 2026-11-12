@@ -209,21 +209,11 @@ function blit(c, s, x, y, z = 0) {
 }
 
 /* ---------- 3. 小人：1 套模板 × 调色板 × 翻转 × 补丁 ---------- */
-const { characterSprite: charSprite, stableLook, HAIR_COLORS, SKIN_TONES,
+const { characterSprite: charSprite, miniSprite: miniSpr, stableLook, HAIR_COLORS, SKIN_TONES,
   SHIRT_COLORS, ACC_COLORS, HAIR_STYLES, HEADWEAR, FACEWEAR, CHESTWEAR,
   TALL_HAIR } = globalThis.ACEOfficeCharacters;
 
-/* ---------- 4. 其他像素模板（图标 / 数字 / 信封 / 植物） ---------- */
-const MINI = {
-  q: ['.yyy.', 'y...y', '...y.', '..y..', '.....', '..y..'],
-  ex: ['y', 'y', 'y', 'y', '.', 'y'],
-  star: ['..y..', '.yyy.', 'yyyyy', '.yyy.', 'y...y'],
-  z: ['yyyy', '..y.', '.y..', 'yyyy'],
-  arrow: ['yyyyy', '.yyy.', '..y..'],
-  dot: ['yy', 'yy'],
-  glass: ['yyyyy', '.y.y.', '..y..', '.y.y.', 'yyyyy'],
-};
-const miniSpr = (n, c) => sprite(`mi|${n}|${c}`, () => ({ cv: pix(MINI[n], { y: c }) }));
+/* ---------- 4. 其他像素模板（数字 / 信封 / 植物；头顶状态图标 miniSpr 在共用的 office_characters.js 里） ---------- */
 const DIGITS = {
   0: ['###', '#.#', '#.#', '#.#', '###'], 1: ['.#.', '##.', '.#.', '.#.', '###'], 2: ['###', '..#', '###', '#..', '###'],
   3: ['###', '..#', '.##', '..#', '###'], 4: ['#.#', '#.#', '###', '..#', '..#'], 5: ['###', '#..', '###', '..#', '###'],

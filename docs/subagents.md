@@ -137,24 +137,39 @@ GET /api/sessions?parent=<主会话id>          ← 任务快照(标题/tokens/�
 父会话 tool_end(spawn_subagent/wait_subagent) → refetch
 session_status 帧(未知 busy 会话)            → refetch   ← wait=true 期间父 turn 无
                                                             tool_end,靠它感知新子任务
-子会话 WS 事件(busy/usage/tool_start/tool_end/session_updated)→ 卡片增量
+子会话 WS 事件(busy/usage/session_updated)→ 任务行增量
 ```
 
 - `web/src/lib/subagentTasks.js` — 纯状态层(Node 单测):快照归一化、refetch 合并
-  (保留实时聚合字段 toolCount/lastTool 与本地 aborted 标记)、事件增量、分组/徽标计数、
-  格式化(`34.0k tokens · 2 tools · bash`、耗时)。
+  (保留本地 aborted 标记)、事件增量、分组/徽标计数、列表行文案(`34.0k tokens`、运行中的耗时、
+  结束后的「N 分钟前」)。子会话的工具事件不改任务列表(列表不显示工具统计,不为它重画整个对话)。
 - `web/src/lib/useSubagentTasks.js` — hook:REST + WS 增量 + **对运行中任务
   `connection.retainSession`(不依赖面板开关)** —— 这是子会话的 permission_request /
   question_request 能到达 App 全局监听并冒泡的前提。parent 切换有迟到响应守卫。
 - `web/src/components/SubagentPanel.jsx` 的 `BackgroundTasksView` — 详情栏「后台任务」页签的内容
   (每个会话一个页签,`previewTabs.js` 的 `openBackgroundTasksTab`,正在看的任务记在页签的 `taskId`,
-  切页签回来仍停在原处):运行中 / 已完成分组卡片;运行中卡片右上停止按钮,
-  已完成组没有归档 / 清除入口(子会话始终留在面板里);「查看会话」原地切到只读
+  切页签回来仍停在原处):运行中 / 已完成两组。子代理是单行无边框的行:头像、标题、token 数,
+  时间靠右(运行中是已跑多久,结束后是多久之前结束);只有运行中的多一行状态(运行中 / 正在停止…),
+  别的都不显示,中止按钮悬停才出现;后台命令保持原来的卡片。已完成组没有归档 / 清除入口
+  (子会话始终留在面板里);点子代理那一行原地切到只读
   transcript,历史请求带父会话的 `workspaceHash` —— Desktop 的 daemon 同时服务多个工作区,子会话
   不在内存里(Desktop 重启后、网状 agent 被换出)时只能按它读盘,否则 404 SESSION_NOT_FOUND(复用主会话
   Message/ToolBlock 紧凑渲染,`useSessionTranscript` live:'auto' 实时跟尾,AskUserQuestion
   工具行过滤不显示)。
 - 入口:会话三点菜单「后台任务」、对话里的智能体分组卡片、摘要面板的运行中任务行与「N 已完成」。
+- **头像**:每个子代理前面一个像素小人(`PixelAvatar.jsx` 的 `SubagentAvatar`):绑定了专家用专家的
+  头像,否则按子会话 id 生成(`officeCharacters.js` 的 `subagentAvatarIdentity`),所以同一个子代理在
+  三处是同一张脸——后台任务页签的行、摘要面板的运行中任务行、对话里的「调用了 N 个智能体」
+  (行首排开这几个子代理的头像,最多 6 张;外面包着的工具汇总行同样,「已处理」和进行中的行不画;
+  展开后的每个智能体行也带)。后台命令没有头像,保持终端图标。四处都是 16px。
+- **头像上的状态图标**:右上角按任务状态画一个小图标,画法照桌面像素办公室(同一份像素模板,
+  `assets/desktop_pet/office_characters.js` 的 `miniSprite`):运行中是三个点轮流跳,小人每 1.4 秒
+  左右点一下头;已完成是一颗星,后台任务页签的已完成行只显示普通头像;已中止是红色感叹号;
+  任务列表里查不到这个子代理时不画
+  (`subagentTasks.js` 的 `subagentAvatarStatus`)。「画什么、画在哪、何时点头」在
+  `avatarStatus.js`:所有运行中的头像共用一只 280ms 一拍的钟(三个点全场同步),有人订阅才开定时器、
+  最后一个退订就停;点头的位移取整到设备像素(头像是最近邻放大的像素画,挪半个设备像素脸会抖)。
+  等待授权 / 等待回答目前没有单独的图标(办公室里有),任务对象里没有这两种状态。
 
 ### 权限 / 提问冒泡
 
@@ -254,8 +269,6 @@ TuiState overlay,工具线程 wait ask_cv 天然带回结果)。只需两点:入
 - **no_workspace 父会话**:子会话继承父 cwd 但按普通 workspace 会话建档;`?parent=` 的
   磁盘扫描按请求 workspace 的 project_dir,所以 no_workspace 父的子任务 active 时可见、
   daemon 重启后扫不到(v1 接受)。
-- **运行中卡片的工具计数**(Web)从订阅时刻累积:页面中途打开时已完成任务只显示
-  tokens/耗时,undercount 是有意取舍。
 - **远程权限请求无取消回收**(TUI):子会话被 abort 后已入队/已展示的请求悬空,用户回应
   是 no-op(unknown request_id),无害但 overlay 需手动关。
 - **purge 不清理 attention 记录**(session_read_state):量小,残留无 UI 影响。
@@ -344,7 +357,7 @@ provider 上会被拒或合并)。
 
 - Web 输入框:「蜂群模式（星型）」「蜂群模式（网状）」两个互斥菜单项;芯片 = 服务端模式(messages
   快照 / `session_updated{swarm_mode}`)+ 未提交的本地选择,只有不同才随消息提交(`web/src/lib/swarmMode.js`)。
-- 后台任务页签复用星型的任务卡片,卡片显示 `agent_path`;页签只由用户打开,派子代理不自动弹出。
+- 后台任务页签复用星型的任务行,`agent_path` 放在行的悬停提示里;页签只由用户打开,派子代理不自动弹出。
 - TUI:`/swarm`;侧栏运行中任务以路径为显示名。
 
 ### 有意未复刻 / 与 Codex 的差异

@@ -29,6 +29,7 @@ import {
 import { useWorkbenchState } from '../lib/useWorkbenchState.js';
 import { subscribeWorkspaceDirectory, workspaceDirectoryEntry } from '../lib/workspaceDirectory.js';
 import { VsIcon } from './Icon.jsx';
+import { SubagentAvatar } from './PixelAvatar.jsx';
 import { WorkspaceIcon } from './WorkspaceIcon.jsx';
 
 const SUMMARY_FOLDER_CONTEXT_MENU_DELEGATE = 'summary-folder';
@@ -411,7 +412,10 @@ export function SummaryPanel({
             {running.map((task) => (
               <Row
                 key={task.id}
-                icon={task.kind === 'agent' ? 'embedding' : 'terminal'}
+                icon="terminal"
+                iconNode={task.kind === 'agent' && (
+                  <SubagentAvatar sessionId={task.id} expert={task.expert} status="running" />
+                )}
                 title={task.title}
                 onClick={() => onOpenTask?.(task.id)}
                 trailing={(

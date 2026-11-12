@@ -116,7 +116,7 @@ const ACC = { // 配饰 / 发型也是补丁
   braid:     { front: [[8, '_h__________'], [9, '_hH_________'], [10, '__Hh________'], [11, '__hH________'], [12, '__Hh________'], [13, '___a________']],
                back:  [[9, '_____hH_____'], [10, '_____Hh_____'], [11, '_____hH_____'], [12, '_____Hh_____'], [13, '_____aa_____']] },
 
-  // ---- 扩充配饰（10 种）：帽子 / 头饰 / 脸部 / 胸前，颜色走 a / A（accColor）或固定色 ----
+  // ---- 扩充配饰（9 种）：帽子 / 头饰 / 脸部 / 胸前，颜色走 a / A（accColor）或固定色 ----
   beanie:    { front: [[0, '....aawaa...'], [1, '..aaaaaaaaa.'], [2, '.aaaaaaaaaaa'], [3, '.AAAAAAAAAAA']],
                back:  [[0, '...aawaaa...'], [1, '..aaaaaaaaa.'], [2, '.aaaaaaaaaaa'], [3, '.AAAAAAAAAAA']] },
   headband:  { front: [[3, '.aaaaaaaaaaa']],
@@ -126,7 +126,6 @@ const ACC = { // 配饰 / 发型也是补丁
   shades:    { front: [[6, '____gkkgkkkk'], [7, '_____kk__kk_']], back: [[6, '__________g_']] },
   mask:      { front: [[7, '____M_______'], [8, '____Mmmmmmmm'], [9, '____MmmmmmM_']], back: [[7, '__________M_']] },
   beard:     { front: [[7, '____h_______'], [8, '____hhsssshh'], [9, '___HhhhhhhH_']], back: [[8, '__________h_']] },
-  mustache:  { front: [[8, '______HhhH__'], [9, '______H__H__']] },
   bowtie:    { front: [[11, '____aaAaa___'], [12, '____a___a___']] },
   badge:     { front: [[11, '____a___a___'], [12, '_____a_a____'], [13, '_____yYy____']], back: [[11, '____aaaa____']] },
   scarf:     { front: [[10, '____aAaAa___'], [11, '___aaaaaaa__'], [12, '____A_______'], [13, '____a_______']],
@@ -173,7 +172,9 @@ const ACC_COLORS = ['#e8544a', '#3a8cf0', '#45b36a',
 // 四个槽位各抽一个，互不打架；空字符串的权重就是「不戴」的概率
 const HAIR_STYLES = ['', '', 'long', 'ponytail', 'twintails', 'bun', 'spiky', 'bald', 'bangs', 'bob', 'afro', 'mohawk', 'braid'];
 const HEADWEAR = ['', '', '', 'cap', 'beanie', 'headband', 'bow', 'headset'];
-const FACEWEAR = ['', '', '', 'glasses', 'shades', 'mask', 'beard', 'mustache'];
+// 最后一格原来是小胡子：脸只有 7 像素宽，胡子和上面的眼睛连成一块，怎么画都难看，拿掉了。
+// 位置留空而不是删掉，其他人抽到的配饰不变。
+const FACEWEAR = ['', '', '', 'glasses', 'shades', 'mask', 'beard', ''];
 const CHESTWEAR = ['', '', 'tie', 'bowtie', 'badge', 'scarf'];
 const TALL_HAIR = new Set(['bun', 'spiky', 'afro', 'mohawk']);   // 帽子会把它们压扁
 function stableLook(seed) {
@@ -182,6 +183,18 @@ function stableLook(seed) {
   if(TALL_HAIR.has(style)&&(head==='cap'||head==='beanie'))head='';
   return {hair:choose(HAIR_COLORS),skin:choose(SKIN_TONES),shirt:choose(SHIRT_COLORS),pants:'#3a3f52',acc:[style,head,choose(FACEWEAR),choose(CHESTWEAR)].filter(Boolean),accColor:choose(ACC_COLORS)};
 }
+
+// 头顶状态图标：办公室画在小人右上方，网页头像角上用的是同一套。
+const MINI = {
+  q: ['.yyy.', 'y...y', '...y.', '..y..', '.....', '..y..'],
+  ex: ['y', 'y', 'y', 'y', '.', 'y'],
+  star: ['..y..', '.yyy.', 'yyyyy', '.yyy.', 'y...y'],
+  z: ['yyyy', '..y.', '.y..', 'yyyy'],
+  arrow: ['yyyyy', '.yyy.', '..y..'],
+  dot: ['yy', 'yy'],
+  glass: ['yyyyy', '.y.y.', '..y..', '.y.y.', 'yyyyy'],
+};
+const miniSprite = (name, color) => sprite(`mi|${name}|${color}`, () => ({ cv: pix(MINI[name], { y: color }) }));
 
 function stableSeed(value) {
   let hash = 2166136261;
@@ -195,7 +208,7 @@ function characterSprite(look, pose = 'front', frame = 'stand', flip = false) {
     normalized.acc.join('+'), normalized.accColor || ''].join('|');
   return charSprite(normalized, pose, frame, flip);
 }
-root.ACEOfficeCharacters = Object.freeze({stableSeed, stableLook, characterSprite,
+root.ACEOfficeCharacters = Object.freeze({stableSeed, stableLook, characterSprite, miniSprite,
   HAIR_COLORS, SKIN_TONES, SHIRT_COLORS, ACC_COLORS, HAIR_STYLES, HEADWEAR,
   FACEWEAR, CHESTWEAR, TALL_HAIR});
 })(globalThis);

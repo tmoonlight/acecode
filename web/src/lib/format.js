@@ -32,9 +32,8 @@ export function formatCount(count, key, locale = effectiveLocale()) {
   });
 }
 
-export function relativeTime(ts, locale = effectiveLocale()) {
+export function relativeTime(ts, locale = effectiveLocale(), now = Date.now()) {
   if (!ts) return '';
-  const now  = Date.now();
   const ms   = typeof ts === 'number' ? ts : Date.parse(ts);
   if (!Number.isFinite(ms)) return '';
   const diff = Math.max(0, now - ms);

@@ -5,10 +5,11 @@
 // 切到别的页签再切回来仍停在原处。
 //
 // 两个视图:
-//   - 列表:运行中 / 已完成 分组卡片。运行中卡片右上有中止(stop)。
+//   - 列表:运行中 / 已完成 两组。子代理是单行无边框的行(头像、标题、token 数,
+//     时间靠右;运行中多一行状态),点整行看会话;后台命令仍是卡片。
 //     子会话没有单独归档 / 删除入口:它们始终跟随主会话留在这里,
 //     只在主会话归档后被永久删除时一起删除(用户决策,事后分析要完整上下文)。
-//   - transcript:点卡片「查看会话」原地切换,复用主会话的完整 transcript
+//   - transcript:点子代理那一行原地切换,复用主会话的完整 transcript
 //     投影与渲染链路,仅通过能力开关保持只读。AskUserQuestion 工具行不显示——
 //     子代理的提问/权限确认冒泡到主会话 UI 回答,这里只看执行过程。
 
@@ -34,71 +35,59 @@ import { projectSubagentTranscriptItems } from '../lib/subagentTranscript.js';
 import {
   SUBAGENT_TASK_STATUS,
   formatElapsed,
+  subagentAvatarStatus,
   subagentTaskGroups,
   taskDisplayTitle,
   taskElapsedSeconds,
-  taskStatsParts,
-  taskStatusLabel,
+  taskRunningStatusLabel,
+  taskTimeLabel,
+  taskTokensLabel,
 } from '../lib/subagentTasks.js';
-import { ToolSummaryIcon, VsIcon } from './Icon.jsx';
+import { VsIcon } from './Icon.jsx';
 import { commandTaskStatusLabel, isCommandTask } from '../lib/backgroundTasks.js';
 import { TranscriptItems } from './TranscriptItems.jsx';
 import { AttachmentTextLoaderContext } from './AttachmentTextLoaderContext.jsx';
-import { SessionPixelAvatar } from './PixelAvatar.jsx';
+import { SubagentAvatar } from './PixelAvatar.jsx';
 
-function TaskCard({ task, nowMs, onAbort, onOpenTranscript }) {
+// 子代理任务行:单行、无边框。头像、标题、token 数,时间靠右;运行中多一行状态。
+// 点整行看会话;中止按钮只在悬停 / 聚焦时出现(触屏没有悬停,一直显示)。
+// 网状蜂群的 agent 路径不占位置,放在悬停提示里(agent 之间按路径互相称呼)。
+function TaskRow({ task, nowMs, onAbort, onOpenTranscript }) {
   const running = task.status === SUBAGENT_TASK_STATUS.RUNNING;
-  const stats = taskStatsParts(task);
-  const elapsed = formatElapsed(taskElapsedSeconds(task, nowMs));
+  const tokens = taskTokensLabel(task);
+  const status = taskRunningStatusLabel(task);
   return (
-    <div className="rounded-lg border border-border bg-surface px-3 py-2.5 flex flex-col gap-1 ace-shadow">
-      <div className="flex items-start gap-2">
-        <SessionPixelAvatar session={task} />
-        <span className="flex-1 min-w-0 text-[12.5px] font-semibold text-fg break-words">
-          {taskDisplayTitle(task)}
-        </span>
-        {running && (
-          <button
-            type="button"
-            onClick={() => onAbort?.(task)}
-            disabled={task.abortPending}
-            className="w-6 h-6 shrink-0 rounded-md border border-border text-fg-mute flex items-center justify-center transition hover:text-danger hover:border-danger/40 hover:bg-danger-bg"
-            title="中止任务"
-            aria-label="中止任务"
-          >
-            <VsIcon name="stop" size={12} />
-          </button>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 text-[11px] text-fg-2 min-w-0">
-        {task.agentPath
-          ? <span className="font-mono truncate" title={task.agentPath}>{task.agentPath}</span>
-          : <span>Agent</span>}
-        {running ? (
-          <>
-            <span className="w-1.5 h-1.5 rounded-full bg-ok shadow-[0_0_5px_var(--ace-ok)]" />
-            <span className="tabular-nums">{elapsed}</span>
-            {task.abortPending && <span>正在停止…</span>}
-          </>
-        ) : (
-          <span className="text-fg-mute">
-            {taskStatusLabel(task)} {elapsed}
-          </span>
-        )}
-      </div>
-      {stats.length > 0 && (
-        <div className="text-[11px] text-fg-mute truncate" title={stats.join(' · ')}>
-          {task.lastTool && <ToolSummaryIcon tool={task.lastTool} ok className="inline-flex align-middle mr-1" />}
-          {stats.join(' · ')}
-        </div>
-      )}
+    <div className="group/task -mx-2 flex items-start gap-1 min-w-0" data-background-subagent={task.id}>
       <button
         type="button"
         onClick={() => onOpenTranscript?.(task)}
-        className="self-start text-[11.5px] text-accent hover:underline"
+        title={task.agentPath || undefined}
+        className="flex-1 min-w-0 flex items-start gap-2.5 px-2 py-1.5 rounded-md text-left transition hover:bg-surface-hi"
       >
-        查看会话
+        <SubagentAvatar sessionId={task.id} expert={task.expert} status={task.status === SUBAGENT_TASK_STATUS.COMPLETED ? '' : subagentAvatarStatus(task)} className="mt-0.5" />
+        <span className="flex-1 min-w-0 flex flex-col">
+          <span className="flex items-baseline gap-2 min-w-0 leading-5">
+            <span className="min-w-0 truncate text-[13px] text-fg">{taskDisplayTitle(task)}</span>
+            {tokens && <span className="shrink-0 text-[12px] text-fg-mute tabular-nums">{tokens}</span>}
+          </span>
+          {status && <span className="text-[12px] leading-5 text-fg-mute" data-task-status="true">{status}</span>}
+        </span>
+        <span className="shrink-0 text-[12px] leading-5 text-fg-mute tabular-nums" data-task-time="true">
+          {taskTimeLabel(task, nowMs)}
+        </span>
       </button>
+      {running && (
+        <button
+          type="button"
+          onClick={() => onAbort?.(task)}
+          disabled={task.abortPending}
+          className="mt-1 w-6 h-6 shrink-0 rounded-md text-fg-mute flex items-center justify-center transition opacity-0 group-hover/task:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 hover:text-danger hover:bg-danger-bg"
+          title="中止任务"
+          aria-label="中止任务"
+        >
+          <VsIcon name="stop" size={12} />
+        </button>
+      )}
     </div>
   );
 }
@@ -108,7 +97,7 @@ function CommandTaskCard({ task, nowMs, onStop, onOpenOutput }) {
   const running = task.status === SUBAGENT_TASK_STATUS.RUNNING;
   const elapsed = formatElapsed(taskElapsedSeconds(task, nowMs));
   return (
-    <div className="rounded-lg border border-border bg-surface px-3 py-2.5 flex flex-col gap-1 ace-shadow" data-background-command={task.id}>
+    <div className="my-1 rounded-lg border border-border bg-surface px-3 py-2.5 flex flex-col gap-1 ace-shadow" data-background-command={task.id}>
       <div className="flex items-start gap-2">
         <VsIcon name="terminal" size={15} className="mt-0.5 shrink-0 text-fg-2" />
         <span className="flex-1 min-w-0 text-[12px] font-mono text-fg break-all line-clamp-3" title={task.command}>
@@ -376,14 +365,37 @@ export function BackgroundTasksView({ tasks = [], taskId = '', onSelectTask, wor
     : null;
   const openTask = (task) => onSelectTask?.(task.id);
 
-  // 运行中卡片的耗时每秒 tick(列表视图有运行中任务时;页签不激活时本组件不挂载)。
+  // 列表视图的时间刷新:有运行中任务时每秒走一次耗时;只剩已结束任务时放慢到 30 秒,
+  // 只为更新「N 分钟前」(页签不激活时本组件不挂载)。
+  const showingList = !transcriptTask;
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (transcriptTask || groups.running.length === 0) return undefined;
+    if (!showingList || tasks.length === 0) return undefined;
     setNowMs(Date.now());
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    const timer = setInterval(() => setNowMs(Date.now()), groups.running.length > 0 ? 1000 : 30000);
     return () => clearInterval(timer);
-  }, [transcriptTask, groups.running.length]);
+  }, [showingList, tasks.length, groups.running.length]);
+
+  // 子代理是单行无边框的行;后台命令保持原来的卡片。
+  const renderTask = (task) => (
+    isCommandTask(task) ? (
+      <CommandTaskCard
+        key={task.id}
+        task={task}
+        nowMs={nowMs}
+        onStop={(t) => onStopCommand?.(t.id)}
+        onOpenOutput={openTask}
+      />
+    ) : (
+      <TaskRow
+        key={task.id}
+        task={task}
+        nowMs={nowMs}
+        onAbort={onAbort}
+        onOpenTranscript={openTask}
+      />
+    )
+  );
 
   return (
     <div className="flex-1 min-w-0 min-h-0 h-full flex flex-col bg-surface" data-background-tasks-view="true">
@@ -421,55 +433,17 @@ export function BackgroundTasksView({ tasks = [], taskId = '', onSelectTask, wor
             </div>
           )}
           {groups.running.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <div className="text-[11.5px] font-medium text-fg-2">运行中</div>
-              {groups.running.map((task) => (
-                isCommandTask(task) ? (
-                  <CommandTaskCard
-                    key={task.id}
-                    task={task}
-                    nowMs={nowMs}
-                    onStop={(t) => onStopCommand?.(t.id)}
-                    onOpenOutput={openTask}
-                  />
-                ) : (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    nowMs={nowMs}
-                    onAbort={onAbort}
-                    onOpenTranscript={openTask}
-                  />
-                )
-              ))}
+            <div className="flex flex-col">
+              <div className="mb-1 text-[11.5px] font-medium text-fg-2">运行中</div>
+              {groups.running.map(renderTask)}
             </div>
           )}
           {groups.settled.length > 0 && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11.5px] font-medium text-fg-2">
-                  已完成 {groups.settled.length}
-                </span>
+            <div className="flex flex-col">
+              <div className="mb-1 text-[11.5px] font-medium text-fg-2">
+                已完成 {groups.settled.length}
               </div>
-              {groups.settled.map((task) => (
-                isCommandTask(task) ? (
-                  <CommandTaskCard
-                    key={task.id}
-                    task={task}
-                    nowMs={nowMs}
-                    onStop={(t) => onStopCommand?.(t.id)}
-                    onOpenOutput={openTask}
-                  />
-                ) : (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    nowMs={nowMs}
-                    onAbort={onAbort}
-                    onOpenTranscript={openTask}
-                  />
-                )
-              ))}
+              {groups.settled.map(renderTask)}
             </div>
           )}
         </div>

@@ -81,6 +81,22 @@ run('后台任务行:只列运行中的,先开始的在上,停止请求发出后
   assert.deepEqual(summaryRunningTasks(null), []);
 });
 
+// 场景:摘要面板的子代理行前面画头像(绑定了专家用专家的,否则按子会话 id 生成)。
+// 期望:子代理行带上任务的专家信息;后台命令行没有头像,不带专家信息。
+run('后台任务行:子代理带专家信息给头像用,后台命令不带', () => {
+  const expert = { avatar_identity: 'expert:reviewer', avatar_url: '' };
+  const rows = summaryRunningTasks([
+    { id: 'agent-with-expert', status: 'running', title: '审查', createdAtMs: 1_000, expert },
+    { id: 'agent-plain', status: 'running', title: '调研', createdAtMs: 2_000 },
+    { id: 'bg_1', kind: 'command', status: 'running', command: 'pnpm build', createdAtMs: 3_000, expert },
+  ], 10_000);
+  assert.deepEqual(rows.map((row) => [row.id, row.kind, row.expert]), [
+    ['agent-with-expert', 'agent', expert],
+    ['agent-plain', 'agent', null],
+    ['bg_1', 'command', null],
+  ]);
+});
+
 // 场景:摘要面板只在有任务时显示「后台任务」,有已结束任务才显示「N 已完成」。
 // 期望:已完成数 = 不在运行中的任务(完成、停止都算),任务每结束一个数字加一;没有任务时为 0。
 run('后台任务已完成计数:结束一个加一,运行中的不算', () => {
@@ -117,6 +133,7 @@ const SummaryPanel = vm.runInNewContext(`${compiledPanel.code}; SummaryPanel;`, 
   useGitChangeList: () => null,
   useNow: () => 100_000,
   VsIcon: ({ name }) => React.createElement('span', { 'data-icon': name }),
+  SubagentAvatar: ({ sessionId }) => React.createElement('span', { 'data-avatar': sessionId }),
 });
 const renderPanel = (tasks, props = {}) => renderToStaticMarkup(React.createElement(SummaryPanel, {
   tasks, workspaceName: '测试工作区', ...props,
@@ -147,6 +164,19 @@ run('后台任务摘要:只有运行中的后台命令或子代理时不显示�
     assert.doesNotMatch(html, /已完成|data-icon="check"/);
     assert.equal(dividerCount(html), 1);
   }
+});
+
+// 场景:摘要面板「后台任务」里有运行中的子代理,也有运行中的后台命令。
+// 期望:子代理行前面是它的头像(不再是通用的智能体图标),后台命令行仍是终端图标。
+run('后台任务摘要:子代理行画头像,后台命令行保持终端图标', () => {
+  const agentHtml = renderPanel([{ id: 'child-1', status: 'running', title: '调研', createdAtMs: 94_000 }]);
+  assert.match(agentHtml, /data-avatar="child-1"/);
+  assert.doesNotMatch(agentHtml, /data-icon="(?:embedding|terminal)"/);
+  const commandHtml = renderPanel([
+    { id: 'bg_1', kind: 'command', status: 'running', command: 'pnpm build', createdAtMs: 94_000 },
+  ]);
+  assert.match(commandHtml, /data-icon="terminal"/);
+  assert.doesNotMatch(commandHtml, /data-avatar=/);
 });
 
 run('后台任务摘要:有已结束任务时保留分组和正确完成数量', () => {

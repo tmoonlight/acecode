@@ -1,18 +1,24 @@
 // 「调用了 N 个智能体」分组卡片(spawn_subagent / wait_subagent 的聚合渲染)。
 //
-// 折叠:一行「调用了 N 个智能体」+ 展开箭头(样式对齐 ActivitySummaryBlock)。
+// 折叠:一行「调用了 N 个智能体」+ 展开箭头(样式对齐 ActivitySummaryBlock),
+//       行首是这几个智能体的头像(每个子代理一张固定的像素小人)。
 // 展开:逐个智能体标题行,点击 → onOpen(sessionId) 打开后台任务面板并定位到
 //       该子会话的 transcript(即「后台任务」+「查看会话」的效果)。
 //
 // 标题解析优先级:后台任务列表实时标题(taskDisplayTitle)> spawn 时的 prompt
-// 摘要 > 兜底「智能体」。运行态优先取任务状态,拿不到时退到工具项 done 标记。
+// 摘要 > 兜底「智能体」。运行 / 完成 / 中止画在头像右上角,只认任务列表里的状态。
 
 import { useState } from 'react';
 import { clsx } from '../lib/format.js';
-import { SUBAGENT_TASK_STATUS, taskDisplayTitle } from '../lib/subagentTasks.js';
+import {
+  SUBAGENT_TASK_STATUS,
+  subagentAvatarStatus,
+  subagentGroupAvatars,
+  taskDisplayTitle,
+} from '../lib/subagentTasks.js';
 import { ActivityLine } from './ActivityLine.jsx';
 import { VsIcon } from './Icon.jsx';
-import { SessionPixelAvatar } from './PixelAvatar.jsx';
+import { SubagentAvatar, SubagentAvatars } from './PixelAvatar.jsx';
 
 function agentTitle(agent, task) {
   if (task) {
@@ -23,13 +29,7 @@ function agentTitle(agent, task) {
   return '智能体';
 }
 
-function agentRunning(agent, task) {
-  if (task) return task.status === SUBAGENT_TASK_STATUS.RUNNING;
-  return agent.done !== true;
-}
-
 function AgentRow({ agent, task, onOpen }) {
-  const running = agentRunning(agent, task);
   const title = agentTitle(agent, task);
   const clickable = !!agent.sessionId;
   return (
@@ -39,18 +39,11 @@ function AgentRow({ agent, task, onOpen }) {
       onClick={() => clickable && onOpen?.(agent.sessionId)}
       title={clickable ? '查看子会话' : '子会话尚未就绪'}
       className={clsx(
-        'group/agent w-full flex items-center gap-2 px-2 py-1 rounded-md text-left transition',
+        'group/agent w-full flex items-center gap-2.5 px-2 py-1 rounded-md text-left transition',
         clickable ? 'hover:bg-surface-hi cursor-pointer' : 'cursor-default opacity-70',
       )}
     >
-      <span
-        className={clsx(
-          'w-1.5 h-1.5 rounded-full shrink-0',
-          running ? 'bg-ok shadow-[0_0_5px_var(--ace-ok)]' : 'bg-fg-mute',
-        )}
-        aria-hidden="true"
-      />
-      <SessionPixelAvatar session={task} size={20} />
+      <SubagentAvatar sessionId={agent.sessionId} expert={task?.expert} status={subagentAvatarStatus(task)} />
       <span className="flex-1 min-w-0 truncate text-[13px] text-fg">{title}</span>
       {clickable && (
         <VsIcon
@@ -73,11 +66,13 @@ export function SubagentGroupBlock({ agents = [], tasksById, onOpen, messageAuto
   const anyRunning = agents.some((agent) => (
     agent.sessionId && byId.get(agent.sessionId)?.status === SUBAGENT_TASK_STATUS.RUNNING
   ));
+  const avatars = subagentGroupAvatars(agents, byId);
 
   return (
     <div className="min-w-0">
       <ActivityLine
         icon={<VsIcon name="embedding" size={13} className="opacity-80" />}
+        leading={avatars.length > 0 ? <SubagentAvatars avatars={avatars} /> : null}
         label={`调用了 ${count} 个智能体`}
         live={anyRunning}
         expandable={messageAutoCollapse}

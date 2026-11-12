@@ -17,6 +17,7 @@ import {
 } from '../lib/backgroundTasks.js';
 import { CONVERSATION_ACTIVITY_KIND } from '../lib/conversationActivity.js';
 import { hasNextStepQuestion } from '../lib/nextStepBox.js';
+import { subagentAgentsOfItem, subagentGroupAvatars } from '../lib/subagentTasks.js';
 import { clsx, relativeTime } from '../lib/format.js';
 import {
   DEFAULT_TRANSCRIPT_CAPABILITIES,
@@ -30,6 +31,7 @@ import { ActivityLine } from './ActivityLine.jsx';
 import { AttachmentStrip } from './AttachmentStrip.jsx';
 import { VsIcon } from './Icon.jsx';
 import { Message, MessageActions } from './Message.jsx';
+import { SubagentAvatars } from './PixelAvatar.jsx';
 import { SubagentGroupBlock } from './SubagentGroupBlock.jsx';
 import { ToolBlock } from './ToolBlock.jsx';
 import { toast } from './Toast.jsx';
@@ -88,6 +90,7 @@ export function ActivitySummaryBlock({
   activity = null,
   onMoveToBackground,
   backgroundRunning = false,
+  subagentTasksById = EMPTY_MAP,
 }) {
   const details = activitySummaryDetails(item);
   const backgroundableStartedAt = item?.live === true && onMoveToBackground
@@ -137,9 +140,16 @@ export function ActivitySummaryBlock({
     </button>
   ) : null;
 
+  // 工具汇总行里包着子代理时,行首画它们的头像(展开后里面那行「调用了 N 个智能体」同样)。
+  // 「已处理」和还在进行中的行保持原来的图标 / 转圈。
+  const agentAvatars = !live && item?.mode !== 'processed'
+    ? subagentGroupAvatars(subagentAgentsOfItem(item), subagentTasksById)
+    : EMPTY_ITEMS;
+
   return (
     <ActivityLine
       icon={live ? null : <VsIcon name="edit" size={13} className="opacity-80" />}
+      leading={agentAvatars.length > 0 ? <SubagentAvatars avatars={agentAvatars} /> : null}
       running={live}
       label={label}
       detail={detail}
@@ -391,6 +401,7 @@ function TranscriptItem({
           activity={!nested && item.live ? conversationActivity : null}
           onMoveToBackground={!nested && item.live ? onMoveToBackground : undefined}
           backgroundRunning={itemHasRunningBackgroundTask(item, backgroundTaskIndex.runningIds)}
+          subagentTasksById={subagentTasksById}
         />
         {expanded && (
           <ActivityDetailsReveal>

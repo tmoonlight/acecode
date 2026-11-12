@@ -15,6 +15,9 @@ export function ActivityLine({
   detailSeparator = null,
   onDetailOverflowChange,
   icon = null,
+  // 代替固定图标位的一组前导内容(子代理头像),宽度随内容;给了它就不画 icon / 转圈。
+  // 头像右上角的状态图标会往右伸出几像素,所以头像之间、头像和文案之间比固定图标位多留一点。
+  leading = null,
   running = false,
   spinnerStatic = false,
   preferIconWhileRunning = false,
@@ -49,14 +52,20 @@ export function ActivityLine({
   };
   const content = (
     <>
-      <span
-        className="flex h-4 w-4 shrink-0 items-center justify-center"
-        aria-hidden="true"
-      >
-        {running && !preferIconWhileRunning ? (
-          <span className={clsx('ace-spinner h-3 w-3', spinnerStatic && 'ace-spinner-static')} />
-        ) : icon}
-      </span>
+      {leading ? (
+        <span className="flex h-4 shrink-0 items-center gap-1.5 pr-1" aria-hidden="true" data-activity-leading="true">
+          {leading}
+        </span>
+      ) : (
+        <span
+          className="flex h-4 w-4 shrink-0 items-center justify-center"
+          aria-hidden="true"
+        >
+          {running && !preferIconWhileRunning ? (
+            <span className={clsx('ace-spinner h-3 w-3', spinnerStatic && 'ace-spinner-static')} />
+          ) : icon}
+        </span>
+      )}
       <span className={clsx(
         'ace-activity-line-label',
         'whitespace-nowrap font-medium text-fg-mute group-hover/activity:text-fg',
